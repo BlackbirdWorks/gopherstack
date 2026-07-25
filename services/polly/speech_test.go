@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,6 +17,13 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/polly"
 )
+
+// wrapSpeak wraps text in a <speak> root element, producing well-formed SSML
+// -- AWS rejects TextType="ssml" input that isn't wrapped this way
+// (InvalidSsmlException).
+func wrapSpeak(text string) string {
+	return "<speak>" + text + "</speak>"
+}
 
 func TestBackendSynthesisDefaults(t *testing.T) {
 	t.Parallel()
@@ -42,7 +50,12 @@ func TestSynthesisTextLimits(t *testing.T) {
 	}{
 		{name: "text_at_limit", text: strings.Repeat("a", 3000), textType: "text", wantErr: false},
 		{name: "text_over_limit", text: strings.Repeat("a", 3001), textType: "text", wantErr: true},
-		{name: "ssml_at_limit", text: strings.Repeat("a", 6000), textType: "ssml", wantErr: false},
+		{
+			name:     "ssml_at_limit",
+			text:     wrapSpeak(strings.Repeat("a", 6000-len(wrapSpeak("")))),
+			textType: "ssml",
+			wantErr:  false,
+		},
 		{name: "ssml_over_limit", text: strings.Repeat("a", 6001), textType: "ssml", wantErr: true},
 	}
 
@@ -120,14 +133,80 @@ func TestStartSpeechSynthesisStream(t *testing.T) {
 	assert.Contains(t, string(closed.Payload), "11")
 }
 
+// TestStartSpeechSynthesisStreamValidationExceptionTaxonomy verifies that
+// StartSpeechSynthesisStream reports every client validation failure as the
+// generic ValidationException (HTTP 400), never one of
+// SynthesizeSpeech's op-specific exception names (e.g.
+// EngineNotSupportedException) -- see ErrStreamValidation's doc comment and
+// the real op's deserializer error switch in aws-sdk-go-v2/service/polly,
+// which only lists ServiceFailureException/ServiceQuotaExceededException/
+// ThrottlingException/ValidationException.
+func TestStartSpeechSynthesisStreamValidationExceptionTaxonomy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setHeaders func(h http.Header)
+		name       string
+	}{
+		{
+			name: "engine_not_supported_becomes_validation_exception",
+			setHeaders: func(h http.Header) {
+				// Aditi does not support the neural engine (standard-only).
+				h.Set("X-Amzn-Engine", "neural")
+				h.Set("X-Amzn-Voiceid", "Aditi")
+			},
+		},
+		{
+			name: "unknown_voice_becomes_validation_exception",
+			setHeaders: func(h http.Header) {
+				h.Set("X-Amzn-Engine", "generative")
+				h.Set("X-Amzn-Voiceid", "NotAVoice")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var body bytes.Buffer
+			encoder := eventstream.NewEncoder()
+			message := eventstream.Message{Payload: []byte(`{"Text":"hello","TextType":"text"}`)}
+			message.Headers.Set(":event-type", eventstream.StringValue("TextEvent"))
+			require.NoError(t, encoder.Encode(&body, message))
+
+			req := httptest.NewRequest(http.MethodPost, "/v1/synthesisStream", &body)
+			req.Header.Set("X-Amzn-Outputformat", "mp3")
+			tc.setHeaders(req.Header)
+
+			rec := httptest.NewRecorder()
+			ctx := echo.New().NewContext(req, rec)
+			require.NoError(t, newHandler().Handler()(ctx))
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			// The wire-shape contract is the "__type" field, not the free-text
+			// "message" -- which legitimately mentions the underlying cause (e.g.
+			// "ValidationException: EngineNotSupportedException: voice ..."), so
+			// assert on the parsed field rather than searching the raw body.
+			var out map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Equal(t, "ValidationException", out["__type"])
+		})
+	}
+}
+
 func TestSynthesizeSpeechFormats(t *testing.T) {
 	t.Parallel()
+
+	const plainText = "hello world"
 
 	tests := []struct {
 		name         string
 		format       string
 		rate         string
 		textType     string
+		text         string
 		contentType  string
 		bodyContains string
 		marks        []string
@@ -143,7 +222,7 @@ func TestSynthesizeSpeechFormats(t *testing.T) {
 		},
 		{
 			name: "pcm_ssml", format: "pcm", rate: "8000", textType: "ssml", contentType: "audio/pcm",
-			bodyMagic: []byte("RIFF"),
+			text: wrapSpeak(plainText), bodyMagic: []byte("RIFF"),
 		},
 		{
 			name: "ogg_opus", format: "ogg_opus", rate: "48000", textType: "text", contentType: "audio/ogg",
@@ -171,6 +250,7 @@ func TestSynthesizeSpeechFormats(t *testing.T) {
 			format:       "json",
 			rate:         "16000",
 			textType:     "ssml",
+			text:         wrapSpeak(plainText),
 			contentType:  "application/x-json-stream",
 			marks:        []string{"sentence", "ssml", "viseme"},
 			bodyContains: `"type":"viseme"`,
@@ -181,19 +261,24 @@ func TestSynthesizeSpeechFormats(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			text := test.text
+			if text == "" {
+				text = plainText
+			}
+
 			rec := request(t, newHandler(), http.MethodPost, "/v1/speech", map[string]any{
 				"Engine":          "standard",
 				"OutputFormat":    test.format,
 				"SampleRate":      test.rate,
 				"SpeechMarkTypes": test.marks,
-				"Text":            "hello world",
+				"Text":            text,
 				"TextType":        test.textType,
 				"VoiceId":         "Joanna",
 			})
 
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, test.contentType, rec.Header().Get("Content-Type"))
-			assert.Equal(t, "11", rec.Header().Get("X-Amzn-Requestcharacters"))
+			assert.Equal(t, strconv.Itoa(len(text)), rec.Header().Get("X-Amzn-Requestcharacters"))
 			assert.Positive(t, rec.Body.Len(), "audio body must be non-empty")
 			if len(test.bodyMagic) > 0 {
 				assert.True(t, bytes.HasPrefix(rec.Body.Bytes(), test.bodyMagic),
@@ -259,6 +344,32 @@ func TestSynthesizeSpeechValidation(t *testing.T) {
 			},
 			wantErr: "SsmlMarksNotSupportedForTextTypeException",
 		},
+		{
+			name:    "ssml_not_wrapped_in_speak_root",
+			body:    map[string]any{"Text": "hello world", "TextType": "ssml", "VoiceId": "Joanna"},
+			wantErr: "InvalidSsmlException",
+		},
+		{
+			name: "ssml_unbalanced_tags",
+			body: map[string]any{
+				"Text": "<speak>hello <emphasis>world</speak>", "TextType": "ssml", "VoiceId": "Joanna",
+			},
+			wantErr: "InvalidSsmlException",
+		},
+		{
+			name: "ssml_wrong_root_element",
+			body: map[string]any{
+				"Text": "<p>hello world</p>", "TextType": "ssml", "VoiceId": "Joanna",
+			},
+			wantErr: "InvalidSsmlException",
+		},
+		{
+			name: "ssml_malformed_xml",
+			body: map[string]any{
+				"Text": "<speak>hello & world</speak>", "TextType": "ssml", "VoiceId": "Joanna",
+			},
+			wantErr: "InvalidSsmlException",
+		},
 	}
 
 	for _, test := range tests {
@@ -268,6 +379,30 @@ func TestSynthesizeSpeechValidation(t *testing.T) {
 			rec := request(t, newHandler(), http.MethodPost, "/v1/speech", test.body)
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			assert.Contains(t, rec.Body.String(), test.wantErr)
+		})
+	}
+}
+
+// TestSynthesizeSpeechValidSSML verifies that well-formed SSML wrapped in a
+// <speak> root element -- including nested markup elements and self-closing
+// tags -- is accepted, not just plain text wrapped in <speak></speak>.
+func TestSynthesizeSpeechValidSSML(t *testing.T) {
+	t.Parallel()
+
+	texts := []string{
+		"<speak>hello world</speak>",
+		`<speak>hello <break time="500ms"/> world</speak>`,
+		"<speak>hello <emphasis level=\"strong\">world</emphasis></speak>",
+	}
+
+	for _, text := range texts {
+		t.Run(text, func(t *testing.T) {
+			t.Parallel()
+
+			rec := request(t, newHandler(), http.MethodPost, "/v1/speech", map[string]any{
+				"Text": text, "TextType": "ssml", "VoiceId": "Joanna",
+			})
+			assert.Equal(t, http.StatusOK, rec.Code)
 		})
 	}
 }
@@ -299,7 +434,7 @@ func TestSynthesizeSpeechTextLengthLimit(t *testing.T) {
 		{
 			name:     "ssml at limit passes",
 			textType: "ssml",
-			text:     strings.Repeat("a", 6000),
+			text:     wrapSpeak(strings.Repeat("a", 6000-len(wrapSpeak("")))),
 			wantCode: http.StatusOK,
 		},
 		{
@@ -538,7 +673,7 @@ func TestSpeechMarkCounts(t *testing.T) {
 			// SpeechMarkTypes "ssml" requires TextType ssml (AWS:
 			// SsmlMarksNotSupportedForTextTypeException otherwise).
 			name:       "ssml_once_regardless_of_word_count",
-			text:       "one two three four five",
+			text:       wrapSpeak("one two three four five"),
 			textType:   "ssml",
 			marks:      []string{"ssml"},
 			wantCounts: map[string]int{"ssml": 1},
@@ -564,7 +699,7 @@ func TestSpeechMarkCounts(t *testing.T) {
 		},
 		{
 			name:       "ssml_not_per_word",
-			text:       "one two three",
+			text:       wrapSpeak("one two three"),
 			textType:   "ssml",
 			marks:      []string{"ssml"},
 			wantCounts: map[string]int{"ssml": 1},

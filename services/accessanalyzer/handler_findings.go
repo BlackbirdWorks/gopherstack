@@ -23,6 +23,15 @@ const (
 	keyFindings          = "findings"
 	keyResource          = "resource"
 	keyResourceOwnerAcct = "resourceOwnerAccount"
+	keyFindingType       = "findingType"
+
+	// findingTypeExternalAccess is the only types.FindingType value
+	// InMemoryBackend ever produces: every finding created via AddFinding
+	// carries the Principal/Condition/Action/IsPublic shape of an external
+	// access finding (types.ExternalAccessDetails), never an
+	// unused-access/internal-access one, so GetFindingV2/ListFindingsV2 can
+	// always report it truthfully rather than leaving findingType empty.
+	findingTypeExternalAccess = "ExternalAccess"
 )
 
 // dispatchFindingOps routes finding operations (v1, v2, statistics, and recommendations).
@@ -172,9 +181,10 @@ func (h *Handler) handleGetFindingV2(path, query string) (any, int, error) {
 		keyResource:          f.ResourceArn,
 		keyResourceOwnerAcct: h.Backend.AccountID(),
 		keyAnalyzedAt:        f.UpdatedAt.Format(time.RFC3339),
-		"createdAt":          f.CreatedAt.Format(time.RFC3339),
-		"updatedAt":          f.UpdatedAt.Format(time.RFC3339),
-		"findingDetails":     []any{},
+		keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
+		keyUpdatedAt:         f.UpdatedAt.Format(time.RFC3339),
+		keyFindingType:       findingTypeExternalAccess,
+		"findingDetails":     findingDetailsV2JSON(f),
 	}, http.StatusOK, nil
 }
 
@@ -209,6 +219,7 @@ func (h *Handler) handleListFindingsV2(body []byte) (any, int, error) {
 			keyAnalyzedAt:        f.UpdatedAt.Format(time.RFC3339),
 			keyUpdatedAt:         f.UpdatedAt.Format(time.RFC3339),
 			keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
+			keyFindingType:       findingTypeExternalAccess,
 		})
 	}
 
@@ -221,6 +232,13 @@ func (h *Handler) handleListFindingsV2(body []byte) (any, int, error) {
 	return resp, http.StatusOK, nil
 }
 
+// handleGetFindingsStatistics serves POST /analyzer/findings/statistics.
+// types.ExternalAccessFindingsStatistics wire-serializes its counters as
+// three flat integers -- totalActiveFindings/totalArchivedFindings/
+// totalResolvedFindings -- not the {"total": N} nested-object shape this
+// used to emit (which no real deserializer recognizes: see
+// awsRestjson1_deserializeDocumentExternalAccessFindingsStatistics in the
+// SDK's deserializers.go).
 func (h *Handler) handleGetFindingsStatistics(body []byte) (any, int, error) {
 	var req struct {
 		AnalyzerArn string `json:"analyzerArn"`
@@ -230,17 +248,19 @@ func (h *Handler) handleGetFindingsStatistics(body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
+	if req.AnalyzerArn == "" {
+		return nil, 0, ErrValidation
+	}
+
 	counts, err := h.Backend.GetFindingsStatistics(req.AnalyzerArn)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	return map[string]any{"findingsStatistics": []any{map[string]any{"externalAccessFindingsStatistics": map[string]any{
-		"activeFindings": map[string]int{
-			"total": counts[string(FindingStatusActive)], //nolint:goconst // existing issue.
-		},
-		"archivedFindings": map[string]int{"total": counts[string(FindingStatusArchived)]},
-		"resolvedFindings": map[string]int{"total": counts[string(FindingStatusResolved)]},
+		"totalActiveFindings":   counts[string(FindingStatusActive)],
+		"totalArchivedFindings": counts[string(FindingStatusArchived)],
+		"totalResolvedFindings": counts[string(FindingStatusResolved)],
 	}}}}, http.StatusOK, nil
 }
 
@@ -342,7 +362,10 @@ func parseRecommendationPath(method string, segments []string) (string, string, 
 // tracks per-finding; resourceOwnerAccount defaults to the backend's own
 // account (emulated resources belong to the same test account) and
 // analyzedAt mirrors updatedAt, matching the GetFindingV2/ListFindingsV2
-// convention already used for the same data.
+// convention already used for the same data. "condition" is a required
+// member of Finding/FindingSummary (unlike "action"/"principal"/"isPublic",
+// which are optional), so it is always emitted -- as {} when the finding
+// has none -- rather than omitted.
 func findingToJSON(f *Finding, accountID string) map[string]any {
 	m := map[string]any{
 		"id":                 f.ID,
@@ -354,6 +377,7 @@ func findingToJSON(f *Finding, accountID string) map[string]any {
 		keyAnalyzedAt:        f.UpdatedAt.Format(time.RFC3339),
 		keyUpdatedAt:         f.UpdatedAt.Format(time.RFC3339),
 		keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
+		"condition":          conditionOrEmpty(f.Condition),
 	}
 
 	if len(f.Action) > 0 {
@@ -364,13 +388,53 @@ func findingToJSON(f *Finding, accountID string) map[string]any {
 		m["principal"] = f.Principal
 	}
 
-	if len(f.Condition) > 0 {
-		m["condition"] = f.Condition
-	}
-
 	if f.IsPublic != nil {
 		m["isPublic"] = *f.IsPublic
 	}
 
 	return m
+}
+
+// conditionOrEmpty returns c, or an empty (non-nil) map if c is nil, so
+// callers that must always emit the "condition" wire key (it is a required
+// Finding/ExternalAccessDetails member) get {} instead of a bare "null".
+func conditionOrEmpty(c map[string]string) map[string]string {
+	if c == nil {
+		return map[string]string{}
+	}
+
+	return c
+}
+
+// externalAccessDetailsJSON builds the wire shape of one
+// types.ExternalAccessDetails value from a Finding's external-access fields.
+// "condition" is a required member; "action"/"principal"/"isPublic" are
+// optional and only included when set.
+func externalAccessDetailsJSON(f *Finding) map[string]any {
+	d := map[string]any{"condition": conditionOrEmpty(f.Condition)}
+
+	if len(f.Action) > 0 {
+		d["action"] = f.Action
+	}
+
+	if len(f.Principal) > 0 {
+		d["principal"] = f.Principal
+	}
+
+	if f.IsPublic != nil {
+		d["isPublic"] = *f.IsPublic
+	}
+
+	return d
+}
+
+// findingDetailsV2JSON builds GetFindingV2Output's required "findingDetails"
+// array. InMemoryBackend only ever produces external-access-shaped findings
+// (see findingTypeExternalAccess), so the array always holds exactly one
+// FindingDetails union value keyed "externalAccessDetails" -- never a
+// fabricated placeholder for the other four union members
+// (internalAccessDetails/unusedIamRoleDetails/unusedIamUserAccessKeyDetails/
+// unusedIamUserPasswordDetails), which InMemoryBackend has no state to back.
+func findingDetailsV2JSON(f *Finding) []any {
+	return []any{map[string]any{"externalAccessDetails": externalAccessDetailsJSON(f)}}
 }

@@ -11,6 +11,25 @@ import (
 func cloneDatabase(db *Database) *Database {
 	cp := *db
 	cp.Tags = maps.Clone(db.Tags)
+	cp.Parameters = maps.Clone(db.Parameters)
+
+	if len(db.CreateTableDefaultPermissions) > 0 {
+		cp.CreateTableDefaultPermissions = make([]PrincipalPermissions, len(db.CreateTableDefaultPermissions))
+		for i, p := range db.CreateTableDefaultPermissions {
+			cp.CreateTableDefaultPermissions[i] = p
+			cp.CreateTableDefaultPermissions[i].Permissions = append([]string(nil), p.Permissions...)
+
+			if p.Principal != nil {
+				principal := *p.Principal
+				cp.CreateTableDefaultPermissions[i].Principal = &principal
+			}
+		}
+	}
+
+	if db.TargetDatabase != nil {
+		target := *db.TargetDatabase
+		cp.TargetDatabase = &target
+	}
 
 	return &cp
 }
@@ -41,16 +60,20 @@ func (b *InMemoryBackend) CreateDatabase(
 	}
 
 	db := &Database{
-		Name:        input.Name,
-		Description: input.Description,
-		CatalogID:   b.accountID,
-		ARN:         b.databaseARN(input.Name),
-		Tags:        maps.Clone(tags),
-		CreateTime:  float64(time.Now().Unix()),
+		Name:                          input.Name,
+		Description:                   input.Description,
+		CatalogID:                     b.accountID,
+		ARN:                           b.databaseARN(input.Name),
+		Tags:                          maps.Clone(tags),
+		CreateTime:                    float64(time.Now().Unix()),
+		LocationURI:                   input.LocationURI,
+		Parameters:                    maps.Clone(input.Parameters),
+		CreateTableDefaultPermissions: append([]PrincipalPermissions(nil), input.CreateTableDefaultPermissions...),
+		TargetDatabase:                input.TargetDatabase,
 	}
 	b.databases.Put(db)
 
-	return db, nil
+	return cloneDatabase(db), nil
 }
 
 // GetDatabase retrieves a Glue database by name.
@@ -124,6 +147,10 @@ func (b *InMemoryBackend) UpdateDatabase(name string, input DatabaseInput) error
 	}
 
 	db.Description = input.Description
+	db.LocationURI = input.LocationURI
+	db.Parameters = maps.Clone(input.Parameters)
+	db.CreateTableDefaultPermissions = append([]PrincipalPermissions(nil), input.CreateTableDefaultPermissions...)
+	db.TargetDatabase = input.TargetDatabase
 
 	return nil
 }

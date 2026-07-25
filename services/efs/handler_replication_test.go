@@ -3,6 +3,7 @@ package efs_test
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -472,6 +473,102 @@ func TestDescribeReplicationConfigurations_ByDestinationFileSystemID(t *testing.
 	assert.Len(t, listOut.Replications, 1,
 		"DescribeReplicationConfigurations must return result when filtering by destination FS ID")
 	assert.Equal(t, fsOut.FileSystemID, listOut.Replications[0].SourceFileSystemID)
+}
+
+// TestDescribeReplicationConfigurations_Pagination verifies NextToken/MaxResults
+// pagination over the unfiltered list, matching
+// aws-sdk-go-v2/service/efs's DescribeReplicationConfigurationsInput.MaxResults /
+// .NextToken and DescribeReplicationConfigurationsOutput.NextToken.
+func TestDescribeReplicationConfigurations_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		count     int
+		maxResult int
+		wantFirst int
+		wantNext  bool
+	}{
+		{
+			name:      "fits_in_one_page",
+			count:     2,
+			maxResult: 5,
+			wantFirst: 2,
+			wantNext:  false,
+		},
+		{
+			name:      "spans_multiple_pages",
+			count:     4,
+			maxResult: 2,
+			wantFirst: 2,
+			wantNext:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestEFSHandler()
+			for i := range tt.count {
+				fsID := createFS(t, h, "repl-page-"+tt.name+"-"+string(rune('a'+i)))
+				rec := doREST(t, h, http.MethodPost,
+					"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
+					map[string]any{"Destinations": []map[string]any{{"Region": "us-west-2"}}})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doREST(t, h, http.MethodGet,
+				"/2015-02-01/file-systems/replication-configurations?MaxResults="+strconv.Itoa(tt.maxResult), nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseResp(t, rec)
+			replications, ok := resp["Replications"].([]any)
+			require.True(t, ok)
+			assert.Len(t, replications, tt.wantFirst)
+
+			if tt.wantNext {
+				assert.NotEmpty(t, resp["NextToken"])
+
+				// Follow the token and confirm the remaining items come back.
+				rec2 := doREST(t, h, http.MethodGet,
+					"/2015-02-01/file-systems/replication-configurations?MaxResults="+
+						strconv.Itoa(tt.maxResult)+"&NextToken="+resp["NextToken"].(string), nil)
+				require.Equal(t, http.StatusOK, rec2.Code)
+				resp2 := parseResp(t, rec2)
+				replications2 := resp2["Replications"].([]any)
+				assert.Len(t, replications2, tt.count-tt.wantFirst)
+			} else {
+				assert.NotContains(t, resp, "NextToken")
+			}
+		})
+	}
+}
+
+// TestReplicationConfiguration_DestinationLastReplicatedTimestamp verifies that
+// Destinations[].LastReplicatedTimestamp is populated as an epoch-seconds number
+// (matching aws-sdk-go-v2/service/efs's types.Destination.LastReplicatedTimestamp
+// *time.Time, which serializes as a JSON number under restjson1) once the
+// replication configuration is created.
+func TestReplicationConfiguration_DestinationLastReplicatedTimestamp(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEFSHandler()
+	fsID := createFS(t, h, "repl-lrt")
+
+	rec := doREST(t, h, http.MethodPost,
+		"/2015-02-01/file-systems/"+fsID+"/replication-configuration",
+		map[string]any{"Destinations": []map[string]any{{"Region": "us-west-2"}}})
+	require.Equal(t, http.StatusOK, rec.Code, "CreateReplicationConfiguration failed: %s", rec.Body.String())
+
+	resp := parseResp(t, rec)
+	dests := resp["Destinations"].([]any)
+	require.Len(t, dests, 1)
+
+	d := dests[0].(map[string]any)
+	lrt, ok := d["LastReplicatedTimestamp"].(float64)
+	require.True(t, ok, "LastReplicatedTimestamp must be a JSON number, got %T", d["LastReplicatedTimestamp"])
+	assert.Positive(t, lrt)
 }
 
 // TestCreateReplicationConfiguration_AssignsDestinationFileSystemID verifies that

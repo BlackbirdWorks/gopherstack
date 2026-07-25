@@ -2,6 +2,7 @@ package codeartifact
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -246,22 +247,121 @@ func (b *InMemoryBackend) ListPackageVersionAssets(
 	return slices.Clone(pv.Assets), nil
 }
 
-// ListPackageVersionDependencies is a stub returning empty dependencies.
+// PackageDependencyInfo is a single dependency extracted from a package
+// version's published metadata, mirroring aws-sdk-go-v2
+// types.PackageDependency.
+type PackageDependencyInfo struct {
+	DependencyType     string
+	Namespace          string
+	PackageName        string
+	VersionRequirement string
+}
+
+// npmPackageJSON models the subset of an npm package.json this backend
+// parses to serve real (not stubbed) GetPackageVersionReadme/
+// ListPackageVersionDependencies content -- used only when the caller's
+// published asset list includes a file literally named "package.json" (the
+// metadata file real npm clients/CodeArtifact extract this data from when
+// publishing a tarball). This backend's single-asset-per-call publish model
+// doesn't unpack full tarballs, so formats/publishes that don't include a
+// standalone "package.json" asset still get empty readme/dependencies --
+// see PARITY.md's gaps.
+type npmPackageJSON struct {
+	Dependencies         map[string]string `json:"dependencies"`
+	DevDependencies      map[string]string `json:"devDependencies"`
+	PeerDependencies     map[string]string `json:"peerDependencies"`
+	OptionalDependencies map[string]string `json:"optionalDependencies"`
+	Readme               string            `json:"readme"`
+}
+
+// findPackageJSONMetadata returns the parsed "package.json" asset among
+// assets, or nil if none was published or it doesn't parse as JSON.
+func findPackageJSONMetadata(assets []AssetInfo) *npmPackageJSON {
+	for _, a := range assets {
+		if a.Name != "package.json" {
+			continue
+		}
+
+		var meta npmPackageJSON
+		if err := json.Unmarshal(a.Content, &meta); err != nil {
+			return nil
+		}
+
+		return &meta
+	}
+
+	return nil
+}
+
+// npmDependencyTypes pairs each npm package.json dependency map with its
+// real AWS dependencyType string (verified against aws-sdk-go-v2
+// types.PackageDependency's doc comment: "npm: regular, dev, peer,
+// optional").
+//
+//nolint:gochecknoglobals // read-only lookup table initialized once at startup
+var npmDependencyTypeAccessors = []struct {
+	get     func(*npmPackageJSON) map[string]string
+	depType string
+}{
+	{depType: "regular", get: func(m *npmPackageJSON) map[string]string { return m.Dependencies }},
+	{depType: "dev", get: func(m *npmPackageJSON) map[string]string { return m.DevDependencies }},
+	{depType: "peer", get: func(m *npmPackageJSON) map[string]string { return m.PeerDependencies }},
+	{depType: "optional", get: func(m *npmPackageJSON) map[string]string { return m.OptionalDependencies }},
+}
+
+// dependenciesFromNpmMetadata flattens meta's dependency maps into
+// PackageDependencyInfo entries, sorted by (dependencyType, packageName) for
+// deterministic output.
+func dependenciesFromNpmMetadata(meta *npmPackageJSON) []PackageDependencyInfo {
+	result := make([]PackageDependencyInfo, 0)
+
+	for _, accessor := range npmDependencyTypeAccessors {
+		names := make([]string, 0, len(accessor.get(meta)))
+		for name := range accessor.get(meta) {
+			names = append(names, name)
+		}
+
+		sort.Strings(names)
+
+		for _, name := range names {
+			result = append(result, PackageDependencyInfo{
+				DependencyType:     accessor.depType,
+				PackageName:        name,
+				VersionRequirement: accessor.get(meta)[name],
+			})
+		}
+	}
+
+	return result
+}
+
+// ListPackageVersionDependencies returns dependencies parsed from a
+// published "package.json" asset (npm convention), if one exists -- see
+// npmPackageJSON's doc comment for scope. Otherwise returns an empty list,
+// same as real AWS would for a package version whose metadata carries no
+// dependencies.
 func (b *InMemoryBackend) ListPackageVersionDependencies(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, version string,
-) ([]map[string]any, error) {
+) ([]PackageDependencyInfo, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListPackageVersionDependencies")
 	defer b.mu.RUnlock()
 
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
-	if !b.packageVersions.Has(regionKey(region, key)) {
+
+	pv, ok := b.packageVersions.Get(regionKey(region, key))
+	if !ok {
 		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
 	}
 
-	return []map[string]any{}, nil
+	meta := findPackageJSONMetadata(pv.Assets)
+	if meta == nil {
+		return []PackageDependencyInfo{}, nil
+	}
+
+	return dependenciesFromNpmMetadata(meta), nil
 }
 
 // GetPackageVersionAsset returns the content of an asset previously uploaded via
@@ -290,22 +390,37 @@ func (b *InMemoryBackend) GetPackageVersionAsset(
 	return nil, fmt.Errorf("%w: asset %s not found", ErrNotFound, asset)
 }
 
-// GetPackageVersionReadme is a stub that returns empty README content.
+// GetPackageVersionReadme returns the "readme" field parsed from a
+// published "package.json" asset (npm convention), if one exists -- see
+// npmPackageJSON's doc comment for scope. Otherwise returns "", same as
+// real AWS would for a package version whose metadata carries no readme.
+// The returned PackageVersion lets callers build the full
+// GetPackageVersionReadmeOutput wire shape (format/namespace/package/
+// version/versionRevision) without a second lookup.
 func (b *InMemoryBackend) GetPackageVersionReadme(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, version string,
-) (string, error) {
+) (string, *PackageVersion, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("GetPackageVersionReadme")
 	defer b.mu.RUnlock()
 
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
-	if !b.packageVersions.Has(regionKey(region, key)) {
-		return "", fmt.Errorf("%w: package version not found", ErrNotFound)
+
+	found, ok := b.packageVersions.Get(regionKey(region, key))
+	if !ok {
+		return "", nil, fmt.Errorf("%w: package version not found", ErrNotFound)
 	}
 
-	return "", nil
+	cp := *found
+
+	var readme string
+	if meta := findPackageJSONMetadata(found.Assets); meta != nil {
+		readme = meta.Readme
+	}
+
+	return readme, &cp, nil
 }
 
 // PublishPackageVersion creates or updates a package version in the backend and

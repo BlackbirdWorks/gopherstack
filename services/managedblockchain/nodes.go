@@ -1,6 +1,7 @@
 package managedblockchain
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
@@ -14,22 +15,74 @@ import (
 // nodeStatusAvailable is the status for a ready node.
 const nodeStatusAvailable = "AVAILABLE"
 
+// defaultStateDB is the real API's documented default for
+// NodeConfiguration.StateDB "When using an Amazon Managed Blockchain network
+// with Hyperledger Fabric version 1.4 or later, the default is CouchDB."
+// gopherstack only emulates Fabric 1.4 (see defaultFrameworkVersion), so
+// this default always applies.
+const defaultStateDB = "CouchDB"
+
 // nodeARN builds the ARN for a Managed Blockchain node.
 func nodeARN(region, accountID, nodeID string) string {
 	return arn.Build("managedblockchain", region, accountID, "nodes/"+nodeID)
+}
+
+// nodePeerEndpoint synthesizes the endpoint exposed on
+// Node.FrameworkAttributes.Fabric.PeerEndpoint. gopherstack has no real
+// Fabric peer to connect to; this deterministically derives a plausible
+// endpoint from the node's own identity, matching real AWS's
+// "<node-id>.<member-id>.<network-id>...:30003" shape.
+func nodePeerEndpoint(nodeID, memberID, networkID, region string) string {
+	return fmt.Sprintf("%s.%s.%s.managedblockchain.%s.amazonaws.com:30003", nodeID, memberID, networkID, region)
+}
+
+// nodePeerEventEndpoint synthesizes the endpoint exposed on
+// Node.FrameworkAttributes.Fabric.PeerEventEndpoint, matching real AWS's
+// "<node-id>.<member-id>.<network-id>...:30004" shape.
+func nodePeerEventEndpoint(nodeID, memberID, networkID, region string) string {
+	return fmt.Sprintf("%s.%s.%s.managedblockchain.%s.amazonaws.com:30004", nodeID, memberID, networkID, region)
+}
+
+// resolveStateDB returns stateDB verbatim if the caller supplied one, or the
+// real API's documented default otherwise.
+func resolveStateDB(stateDB string) string {
+	if stateDB == "" {
+		return defaultStateDB
+	}
+
+	return stateDB
 }
 
 // cloneNode returns a deep copy of n with the Tags map cloned.
 func cloneNode(n *Node) *Node {
 	cp := *n
 	cp.Tags = maps.Clone(n.Tags)
+	cp.FrameworkAttributes = cloneNodeFrameworkAttributes(n.FrameworkAttributes)
 
 	return &cp
 }
 
-// CreateNode creates a new peer node within a member.
+// cloneNodeFrameworkAttributes returns a deep copy of a NodeFrameworkAttributesState.
+func cloneNodeFrameworkAttributes(fa *NodeFrameworkAttributesState) *NodeFrameworkAttributesState {
+	if fa == nil {
+		return nil
+	}
+
+	cp := &NodeFrameworkAttributesState{}
+
+	if fa.Fabric != nil {
+		fabric := *fa.Fabric
+		cp.Fabric = &fabric
+	}
+
+	return cp
+}
+
+// CreateNode creates a new peer node within a member. The node's KmsKeyArn
+// is inherited from its owning member, matching real AWS ("The node
+// inherits this parameter from the member that it belongs to.").
 func (b *InMemoryBackend) CreateNode(
-	region, accountID, networkID, memberID, instanceType, availabilityZone string,
+	region, accountID, networkID, memberID, instanceType, availabilityZone, stateDB string,
 	tags map[string]string,
 ) (*Node, error) {
 	b.mu.Lock("CreateNode")
@@ -39,7 +92,8 @@ func (b *InMemoryBackend) CreateNode(
 		return nil, ErrNetworkNotFound
 	}
 
-	if _, exists := b.members.Get(memberKey(networkID, memberID)); !exists {
+	owner, exists := b.members.Get(memberKey(networkID, memberID))
+	if !exists {
 		return nil, ErrMemberNotFound
 	}
 
@@ -59,6 +113,14 @@ func (b *InMemoryBackend) CreateNode(
 		Status:           nodeStatusAvailable,
 		CreationDate:     &now,
 		Tags:             t,
+		StateDB:          resolveStateDB(stateDB),
+		KmsKeyArn:        owner.KmsKeyArn,
+		FrameworkAttributes: &NodeFrameworkAttributesState{
+			Fabric: &NodeFabricAttributesState{
+				PeerEndpoint:      nodePeerEndpoint(nodeID, memberID, networkID, region),
+				PeerEventEndpoint: nodePeerEventEndpoint(nodeID, memberID, networkID, region),
+			},
+		},
 	}
 
 	b.nodes.Put(node)

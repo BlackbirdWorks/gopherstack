@@ -40,9 +40,8 @@ func (h *Handler) handleUpdateSafetyLeverState(c *echo.Context, id string, body 
 
 func toSafetyLeverDTO(lever *SafetyLever) safetyLeverDTO {
 	return safetyLeverDTO{
-		ID:   lever.ID,
-		Arn:  lever.Arn,
-		Tags: lever.Tags,
+		ID:  lever.ID,
+		Arn: lever.Arn,
 		State: safetyLeverStateDTO{
 			Status: lever.State.Status,
 			Reason: lever.State.Reason,

@@ -200,7 +200,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			},
 		},
 		{
-			name:   "CreateAppBlockBuilderStreamingURL returns URL",
+			name:   "CreateAppBlockBuilderStreamingURL returns URL and Expires",
 			action: "CreateAppBlockBuilderStreamingURL",
 			setup: func(h *appstream.Handler) {
 				createAppBlockBuilder(t, h, "url-builder")
@@ -212,6 +212,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
 				assert.NotEmpty(t, resp["StreamingURL"])
+				assert.NotEmpty(t, resp["Expires"])
 			},
 		},
 		{
@@ -309,4 +310,5 @@ func TestAppStream_AppBlockBuilderStreamingURL(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp["StreamingURL"])
+	assert.NotEmpty(t, resp["Expires"])
 }

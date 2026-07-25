@@ -657,6 +657,122 @@ func TestUpdateSyncConfigurationPublishDeploymentStatus(t *testing.T) {
 	}
 }
 
+// TestSyncConfigurationPullRequestComment verifies that PullRequestComment is
+// stored and returned in CreateSyncConfiguration/GetSyncConfiguration
+// responses. Real AWS CodeConnections (aws-sdk-go-v2/service/codeconnections@
+// v1.10.22 types.SyncConfiguration/CreateSyncConfigurationInput) has this
+// field; it was previously entirely unimplemented in this service.
+func TestSyncConfigurationPullRequestComment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		comment string
+		want    string
+	}{
+		{name: "enabled", comment: "ENABLED", want: "ENABLED"},
+		{name: "disabled", comment: "DISABLED", want: "DISABLED"},
+		{name: "omitted", comment: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			connArn := createConn(t, h, "prc-conn", "GitHub")
+			linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+
+			body := map[string]any{
+				"Branch":           "main",
+				"ConfigFile":       "sync.yaml",
+				"RepositoryLinkId": linkID,
+				"ResourceName":     "prc-stack",
+				"RoleArn":          "arn:aws:iam::123456789012:role/r",
+				"SyncType":         "CFN_STACK_SYNC",
+			}
+			if tt.comment != "" {
+				body["PullRequestComment"] = tt.comment
+			}
+
+			rec := doJSON(t, h, "CreateSyncConfiguration", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			cfg := parseResp(t, rec)["SyncConfiguration"].(map[string]any)
+
+			if tt.want != "" {
+				assert.Equal(t, tt.want, cfg["PullRequestComment"])
+			} else {
+				v, _ := cfg["PullRequestComment"].(string)
+				assert.Empty(t, v)
+			}
+
+			// Verify via GetSyncConfiguration.
+			rec = doJSON(t, h, "GetSyncConfiguration", map[string]any{
+				"ResourceName": "prc-stack",
+				"SyncType":     "CFN_STACK_SYNC",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			getCfg := parseResp(t, rec)["SyncConfiguration"].(map[string]any)
+			if tt.want != "" {
+				assert.Equal(t, tt.want, getCfg["PullRequestComment"])
+			}
+		})
+	}
+}
+
+// TestUpdateSyncConfigurationPullRequestComment verifies that
+// UpdateSyncConfiguration can update PullRequestComment.
+func TestUpdateSyncConfigurationPullRequestComment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		initial string
+		updated string
+		want    string
+	}{
+		{name: "enable_to_disable", initial: "ENABLED", updated: "DISABLED", want: "DISABLED"},
+		{name: "omit_update_preserves", initial: "ENABLED", updated: "", want: "ENABLED"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			connArn := createConn(t, h, "upd-prc-conn", "GitHub")
+			linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+
+			rec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+				"Branch":             "main",
+				"ConfigFile":         "sync.yaml",
+				"RepositoryLinkId":   linkID,
+				"ResourceName":       "upd-prc-stack",
+				"RoleArn":            "arn:aws:iam::123456789012:role/r",
+				"SyncType":           "CFN_STACK_SYNC",
+				"PullRequestComment": tt.initial,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			updBody := map[string]any{
+				"ResourceName": "upd-prc-stack",
+				"SyncType":     "CFN_STACK_SYNC",
+			}
+			if tt.updated != "" {
+				updBody["PullRequestComment"] = tt.updated
+			}
+
+			rec = doJSON(t, h, "UpdateSyncConfiguration", updBody)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			cfg := parseResp(t, rec)["SyncConfiguration"].(map[string]any)
+			assert.Equal(t, tt.want, cfg["PullRequestComment"])
+		})
+	}
+}
+
 // TestCreateSyncConfiguration_Duplicate verifies that creating a sync configuration for
 // the same ResourceName+SyncType twice is rejected instead of silently overwriting the
 // existing configuration. Real CreateSyncConfiguration registers a dedicated
@@ -675,13 +791,13 @@ func TestCreateSyncConfiguration_Duplicate(t *testing.T) {
 
 	_, err = b.CreateSyncConfiguration(
 		ctx, "main", "sync.yaml", link.RepositoryLinkID, "my-stack",
-		"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "",
+		"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "", "",
 	)
 	require.NoError(t, err)
 
 	_, err = b.CreateSyncConfiguration(
 		ctx, "develop", "other.yaml", link.RepositoryLinkID, "my-stack",
-		"arn:aws:iam::123456789012:role/r2", "CFN_STACK_SYNC", "", "",
+		"arn:aws:iam::123456789012:role/r2", "CFN_STACK_SYNC", "", "", "",
 	)
 	require.ErrorIs(t, err, codeconnections.ErrAlreadyExists)
 

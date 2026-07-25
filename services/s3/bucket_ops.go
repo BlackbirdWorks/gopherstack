@@ -555,6 +555,12 @@ func (h *S3Handler) deleteBucket(
 		return
 	}
 
+	// Object Lambda access-point config lives on the handler (not the backend
+	// table), keyed by bucket name. Clear it so a future bucket recreated
+	// under the same name doesn't inherit a stale Lambda wiring left over
+	// from the deleted bucket's identity.
+	h.clearObjectLambdaConfig(bucketName)
+
 	logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket output", "bucket", bucketName)
 
 	w.WriteHeader(http.StatusNoContent)

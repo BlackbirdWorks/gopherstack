@@ -308,7 +308,12 @@ func (h *Handler) handleGetLatestConfigurationError(c *echo.Context, token strin
 	}
 }
 
-// writeGetLatestConfigurationResponse sends a 200 or 204 response for a successful poll.
+// writeGetLatestConfigurationResponse sends the response for a successful poll. Per the
+// real service-2.json model, GetLatestConfiguration has a *fixed* responseCode of 200 --
+// unlike some AWS APIs there is no 204 variant, even when the configuration is unchanged
+// and the body is empty. Verified directly against botocore's bundled
+// appconfigdata/2021-11-11/service-2.json: {"name": "GetLatestConfiguration", "http":
+// {"method": "GET", "requestUri": "/configuration", "responseCode": 200}, ...}.
 func (h *Handler) writeGetLatestConfigurationResponse(
 	c *echo.Context,
 	nextToken, hash, versionLabel, contentType string,
@@ -333,9 +338,11 @@ func (h *Handler) writeGetLatestConfigurationResponse(
 	}
 
 	if len(content) == 0 {
-		// 204 No Content: configuration unchanged since last poll.
-		// Must NOT set ETag or Content-Type — the body is empty and there is nothing to describe.
-		return c.NoContent(http.StatusNoContent)
+		// 200 OK with an empty body: configuration unchanged since last poll. AWS never
+		// returns 204 for this operation -- the responseCode is fixed at 200 in the
+		// service model regardless of whether the body is empty. Must NOT set ETag or
+		// Content-Type — the body is empty and there is nothing to describe.
+		return c.NoContent(http.StatusOK)
 	}
 
 	// 200 OK: content changed or first poll.

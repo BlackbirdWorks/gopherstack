@@ -3,6 +3,8 @@ package workspaces
 import (
 	"maps"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 func (b *InMemoryBackend) createImageLocked(
@@ -177,4 +179,34 @@ func (b *InMemoryBackend) DescribeCustomWorkspaceImageImport(imageID string) (*s
 	cp := *img
 
 	return &cp, nil
+}
+
+// DescribeImageAssociations returns application associations for an image.
+// Real AWS's WorkSpaces Application Manager exposes no public API to create
+// an image<->application association (only AssociateWorkspaceApplication,
+// which associates an application directly with a WorkSpace, and
+// DeployWorkspaceApplications, neither of which touch an image or bundle) --
+// so a freshly emulated account always has an empty association list. This
+// still performs the real required-field and existence validation a live
+// call would enforce, matching the pattern used by RestoreWorkspace for an
+// otherwise-no-op operation.
+func (b *InMemoryBackend) DescribeImageAssociations(
+	imageID string, resourceTypes []string,
+) ([]ImageResourceAssociation, error) {
+	b.mu.RLock("DescribeImageAssociations")
+	defer b.mu.RUnlock()
+
+	if imageID == "" {
+		return nil, awserr.New("ImageId is required", awserr.ErrInvalidParameter)
+	}
+
+	if !b.images.Has(imageID) {
+		return nil, errImageNotFound
+	}
+
+	if err := validateAssociatedResourceTypes(resourceTypes); err != nil {
+		return nil, err
+	}
+
+	return []ImageResourceAssociation{}, nil
 }

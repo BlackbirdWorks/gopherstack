@@ -38,10 +38,13 @@ type listLogAnomalyDetectorsOutput struct {
 }
 
 // --- UpdateLogAnomalyDetector ---.
+// Enabled is a required field on the real API (aws-sdk-go-v2
+// UpdateLogAnomalyDetectorInput.Enabled), used to pause/restart the detector.
 type updateLogAnomalyDetectorInput struct {
 	AnomalyDetectorArn    string `json:"anomalyDetectorArn"`
 	EvaluationFrequency   string `json:"evaluationFrequency"`
 	AnomalyVisibilityTime int64  `json:"anomalyVisibilityTime"`
+	Enabled               bool   `json:"enabled"`
 }
 
 type updateLogAnomalyDetectorOutput struct{}
@@ -139,6 +142,7 @@ func (h *Handler) handleUpdateLogAnomalyDetector(
 		input.AnomalyDetectorArn,
 		input.EvaluationFrequency,
 		input.AnomalyVisibilityTime,
+		input.Enabled,
 	); err != nil {
 		return nil, err
 	}

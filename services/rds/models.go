@@ -148,6 +148,7 @@ type DBSnapshot struct {
 	SnapshotCreateTime   time.Time `json:"snapshotCreateTime"`
 	DBSnapshotIdentifier string    `json:"dbSnapshotIdentifier"`
 	DBInstanceIdentifier string    `json:"dbInstanceIdentifier"`
+	DbiResourceID        string    `json:"dbiResourceId,omitempty"`
 	Engine               string    `json:"engine"`
 	EngineVersion        string    `json:"engineVersion"`
 	Status               string    `json:"status"`
@@ -229,6 +230,7 @@ type DBCluster struct {
 	MasterUsername                  string                            `json:"masterUsername"`
 	DatabaseName                    string                            `json:"databaseName"`
 	DBClusterParameterGroupName     string                            `json:"dbClusterParameterGroupName"`
+	DBClusterResourceID             string                            `json:"dbClusterResourceId,omitempty"`
 	Engine                          string                            `json:"engine"`
 	EngineVersion                   string                            `json:"engineVersion,omitempty"`
 	ActivityStreamAuditPolicy       string                            `json:"activityStreamAuditPolicy"`
@@ -266,9 +268,11 @@ type DBClusterSnapshot struct {
 	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
 	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
 	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
+	DBClusterResourceID         string    `json:"dbClusterResourceId,omitempty"`
 	Engine                      string    `json:"engine"`
 	EngineVersion               string    `json:"engineVersion,omitempty"`
 	Status                      string    `json:"status"`
+	SnapshotType                string    `json:"snapshotType,omitempty"`
 	PercentProgress             int       `json:"percentProgress"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
 }
@@ -487,6 +491,8 @@ type DNSRegistrar interface {
 type DBShardGroup struct {
 	DBShardGroupIdentifier string  `json:"dbShardGroupIdentifier"`
 	DBClusterIdentifier    string  `json:"dbClusterIdentifier"`
+	DBShardGroupArn        string  `json:"dbShardGroupArn,omitempty"`
+	DBShardGroupResourceID string  `json:"dbShardGroupResourceId,omitempty"`
 	Status                 string  `json:"status"`
 	Endpoint               string  `json:"endpoint,omitempty"`
 	MaxACU                 float64 `json:"maxACU,omitempty"`
@@ -495,17 +501,25 @@ type DBShardGroup struct {
 	PubliclyAccessible     bool    `json:"publiclyAccessible,omitempty"`
 }
 
+// IntegrationError describes a single error associated with a zero-ETL
+// integration, matching aws-sdk-go-v2's types.IntegrationError.
+type IntegrationError struct {
+	ErrorCode    string `json:"errorCode"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
+}
+
 // Integration represents an RDS zero-ETL integration to Amazon Redshift.
 type Integration struct {
-	CreatedAt              time.Time `json:"createdAt"`
-	IntegrationArn         string    `json:"integrationArn"`
-	IntegrationName        string    `json:"integrationName"`
-	SourceArn              string    `json:"sourceArn"`
-	TargetArn              string    `json:"targetArn"`
-	KmsKeyID               string    `json:"kmsKeyId,omitempty"`
-	DataFilter             string    `json:"dataFilter,omitempty"`
-	IntegrationDescription string    `json:"integrationDescription,omitempty"`
-	Status                 string    `json:"status"`
+	CreatedAt              time.Time          `json:"createdAt"`
+	IntegrationArn         string             `json:"integrationArn"`
+	IntegrationName        string             `json:"integrationName"`
+	SourceArn              string             `json:"sourceArn"`
+	TargetArn              string             `json:"targetArn"`
+	KmsKeyID               string             `json:"kmsKeyId,omitempty"`
+	DataFilter             string             `json:"dataFilter,omitempty"`
+	IntegrationDescription string             `json:"integrationDescription,omitempty"`
+	Status                 string             `json:"status"`
+	Errors                 []IntegrationError `json:"errors,omitempty"`
 }
 
 // TenantDatabase represents a tenant database within a multi-tenant RDS instance.

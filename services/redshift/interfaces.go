@@ -206,10 +206,18 @@ type StorageBackend interface {
 	DescribeHsmConfigurations(id string) ([]HsmConfiguration, error)
 
 	// Scheduled action operations (regular Redshift)
-	CreateScheduledAction(name, schedule, iamRole, description, targetAction string) (*ScheduledAction, error)
+	CreateScheduledAction(
+		name, schedule, iamRole, description string,
+		target *ScheduledActionTarget,
+		enable *bool,
+	) (*ScheduledAction, error)
 	DeleteScheduledAction(name string) error
 	DescribeScheduledActions(name string) ([]ScheduledAction, error)
-	ModifyScheduledAction(name, schedule, iamRole, description string) (*ScheduledAction, error)
+	ModifyScheduledAction(
+		name, schedule, iamRole, description string,
+		target *ScheduledActionTarget,
+		enable *bool,
+	) (*ScheduledAction, error)
 
 	// Custom domain association operations
 	CreateCustomDomainAssociation(
@@ -222,16 +230,20 @@ type StorageBackend interface {
 	) (*CustomDomainAssociation, error)
 
 	// Endpoint access operations
-	CreateEndpointAccess(clusterID, endpointName, vpcID string) (*EndpointAccess, error)
+	CreateEndpointAccess(
+		clusterID, endpointName, subnetGroupName, resourceOwner string, vpcSecurityGroupIDs []string,
+	) (*EndpointAccess, error)
 	DeleteEndpointAccess(endpointName string) (*EndpointAccess, error)
 	DescribeEndpointAccess(clusterID, endpointName string) ([]EndpointAccess, error)
-	ModifyEndpointAccess(endpointName, vpcID string) (*EndpointAccess, error)
+	ModifyEndpointAccess(endpointName string, vpcSecurityGroupIDs []string) (*EndpointAccess, error)
 
 	// Integration operations
-	CreateIntegration(integrationName, sourceArn, targetArn, kmsKeyID, description string) (*Integration, error)
+	CreateIntegration(
+		integrationName, sourceArn, targetArn, kmsKeyID, description string, tags map[string]string,
+	) (*Integration, error)
 	DeleteIntegration(integrationArn string) (*Integration, error)
 	DescribeIntegrations(integrationArn string) ([]Integration, error)
-	ModifyIntegration(integrationArn, description string) (*Integration, error)
+	ModifyIntegration(integrationArn, description, newIntegrationName string) (*Integration, error)
 
 	// IDC application operations
 	CreateIdcApplication(

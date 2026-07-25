@@ -167,8 +167,10 @@ func generateMockScanFindings(
 		severityCounts[cve.severity]++
 	}
 
+	now := float64(time.Now().Unix())
+
 	result := &ImageScanFindingsResult{
-		CompletedAt:           time.Now(),
+		ImageScanCompletedAt:  now,
 		FindingSeverityCounts: severityCounts,
 		ImageID:               imageID,
 		RepositoryName:        repositoryName,
@@ -177,6 +179,10 @@ func generateMockScanFindings(
 	}
 
 	if scanType == scanTypeEnhanced {
+		// VulnerabilitySourceUpdatedAt reflects when the Inspector-style
+		// vulnerability database was last consulted; only meaningful for
+		// ENHANCED scans, matching real AWS (BASIC scans omit it).
+		result.VulnerabilitySourceUpdatedAt = now
 		result.EnhancedFindings = buildEnhancedFindings(
 			selected, seed, repositoryName, registryID, imageDigest, imageID,
 		)

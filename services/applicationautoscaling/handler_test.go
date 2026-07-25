@@ -71,10 +71,25 @@ func doInvalidRequest(t *testing.T, h *applicationautoscaling.Handler, action st
 func seedTarget(t *testing.T, h *applicationautoscaling.Handler, resID string, minCap, maxCap int) string {
 	t.Helper()
 
+	return seedTargetNS(t, h, "ecs", resID, "ecs:service:DesiredCount", minCap, maxCap)
+}
+
+// seedTargetNS is a helper that registers a scalable target for an arbitrary
+// (serviceNamespace, scalableDimension) pair and asserts success. Real AWS
+// requires a scalable target to already be registered before PutScalingPolicy/
+// PutScheduledAction will succeed (both model ObjectNotFoundException), so
+// every test exercising those two ops must seed a target first.
+func seedTargetNS(
+	t *testing.T, h *applicationautoscaling.Handler,
+	serviceNamespace, resID, scalableDimension string,
+	minCap, maxCap int,
+) string {
+	t.Helper()
+
 	rec := doRequest(t, h, "RegisterScalableTarget", map[string]any{
-		"ServiceNamespace":  "ecs",
+		"ServiceNamespace":  serviceNamespace,
 		"ResourceId":        resID,
-		"ScalableDimension": "ecs:service:DesiredCount",
+		"ScalableDimension": scalableDimension,
 		"MinCapacity":       minCap,
 		"MaxCapacity":       maxCap,
 	})
@@ -179,7 +194,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 				"ResourceId":        "service/default/nonexistent",
 				"ScalableDimension": "ecs:service:DesiredCount",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "DeleteScalingPolicy_NotFound",
@@ -190,7 +205,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 				"ScalableDimension": "ecs:service:DesiredCount",
 				"PolicyName":        "nonexistent",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "DeleteScheduledAction_NotFound",
@@ -201,7 +216,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 				"ScalableDimension":   "ecs:service:DesiredCount",
 				"ScheduledActionName": "nonexistent",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "TagResource_NotFound",
@@ -210,7 +225,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 				"ResourceARN": "arn:aws:application-autoscaling:us-east-1:000000000000:scalable-target/nonexistent",
 				"Tags":        map[string]string{"env": "test"},
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "ListTagsForResource_NotFound",
@@ -218,7 +233,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 			body: map[string]any{
 				"ResourceARN": "arn:aws:application-autoscaling:us-east-1:000000000000:scalable-target/nonexistent",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "UntagResource_NotFound",
@@ -227,7 +242,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 				"ResourceARN": "arn:aws:application-autoscaling:us-east-1:000000000000:scalable-target/nonexistent",
 				"TagKeys":     []string{"env"},
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "UnknownAction",
@@ -296,7 +311,7 @@ func TestHandlerErrorCodes(t *testing.T) {
 				"ResourceId":        "service/default/nonexistent",
 				"ScalableDimension": "ecs:service:DesiredCount",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "DeleteScalingPolicy notfound",
@@ -307,7 +322,7 @@ func TestHandlerErrorCodes(t *testing.T) {
 				"ScalableDimension": "ecs:service:DesiredCount",
 				"PolicyName":        "no-such-policy",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "DeleteScheduledAction notfound",
@@ -318,7 +333,7 @@ func TestHandlerErrorCodes(t *testing.T) {
 				"ScalableDimension":   "ecs:service:DesiredCount",
 				"ScheduledActionName": "no-such-action",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "RegisterScalableTarget min>max",
@@ -431,7 +446,7 @@ func TestHandler_Backend_Purge(t *testing.T) {
 	require.NoError(t, err)
 
 	b.Purge()
-	targets, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
+	targets, _, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
 	assert.Empty(t, targets, "Purge should clear all scalable targets")
 }
 

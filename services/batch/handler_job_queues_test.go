@@ -251,6 +251,68 @@ func TestHandler_JobQueueWithComputeEnvironmentOrder(t *testing.T) {
 	assert.Len(t, ceOrder, 2)
 }
 
+// TestHandler_JobQueue_ServiceEnvironmentOrder verifies CreateJobQueue and
+// UpdateJobQueue accept and surface jobQueueType and serviceEnvironmentOrder
+// (SAGEMAKER_TRAINING service-job queues use these instead of
+// computeEnvironmentOrder), and that mixing both order types in a single
+// create is rejected -- matching aws-sdk-go-v2/service/batch's documented
+// "a job queue can't have both a serviceEnvironmentOrder and a
+// computeEnvironmentOrder field" constraint. Both fields were previously
+// entirely unmodeled.
+func TestHandler_JobQueue_ServiceEnvironmentOrder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("create_and_describe", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+
+		rec := post(t, h, "/v1/createjobqueue", map[string]any{
+			"jobQueueName": "sagemaker-jq",
+			"priority":     1,
+			"state":        "ENABLED",
+			"jobQueueType": "SAGEMAKER_TRAINING",
+			"serviceEnvironmentOrder": []map[string]any{
+				{"serviceEnvironment": "se-1", "order": 1},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		rec = post(t, h, "/v1/describejobqueues", map[string]any{
+			"jobQueues": []string{"sagemaker-jq"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		mustUnmarshal(t, rec, &out)
+		jq := out["jobQueues"].([]any)[0].(map[string]any)
+		assert.Equal(t, "SAGEMAKER_TRAINING", jq["jobQueueType"])
+
+		seOrder := jq["serviceEnvironmentOrder"].([]any)
+		require.Len(t, seOrder, 1)
+		assert.Equal(t, "se-1", seOrder[0].(map[string]any)["serviceEnvironment"])
+	})
+
+	t.Run("mixed_order_types_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+
+		rec := post(t, h, "/v1/createjobqueue", map[string]any{
+			"jobQueueName": "mixed-jq",
+			"priority":     1,
+			"state":        "ENABLED",
+			"computeEnvironmentOrder": []map[string]any{
+				{"computeEnvironment": "ce-1", "order": 1},
+			},
+			"serviceEnvironmentOrder": []map[string]any{
+				{"serviceEnvironment": "se-1", "order": 1},
+			},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
 func TestHandler_JobQueueByARN(t *testing.T) {
 	t.Parallel()
 
@@ -408,6 +470,80 @@ func TestHandler_GetJobQueueSnapshot(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_GetJobQueueSnapshot_WireShape verifies GetJobQueueSnapshot's
+// response uses aws-sdk-go-v2/service/batch/types.FrontOfQueueDetail's exact
+// field names: "lastUpdatedAt" (not "timestamp") and each job's
+// "earliestTimeAtPosition" as an epoch-millisecond number (not a
+// seconds-based float division) -- see PARITY.md gaps.
+func TestHandler_GetJobQueueSnapshot_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": "ce-snap-wire",
+		"type":                   "MANAGED",
+		"state":                  "ENABLED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createjobqueue", map[string]any{
+		"jobQueueName": "q-snap-wire",
+		"priority":     1,
+		"state":        "ENABLED",
+		"computeEnvironmentOrder": []map[string]any{
+			{"computeEnvironment": "ce-snap-wire", "order": 1},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+		"jobDefinitionName": "jd-snap-wire", "type": "container",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/submitjob", map[string]any{
+		"jobName": "job-snap-wire", "jobQueue": "q-snap-wire", "jobDefinition": "jd-snap-wire",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var submitOut map[string]any
+	mustUnmarshal(t, rec, &submitOut)
+	jobID := submitOut["jobId"].(string)
+
+	// GetJobQueueSnapshot only surfaces RUNNABLE jobs; force the freshly
+	// submitted (SUBMITTED-status) job into RUNNABLE for this test.
+	h.Backend.ForceJobStatus(jobID, "RUNNABLE")
+
+	rec = post(t, h, "/v1/getjobqueuesnapshot", map[string]any{"jobQueue": "q-snap-wire"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var rawMap map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawMap))
+
+	var frontOfQueue map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawMap["frontOfQueue"], &frontOfQueue))
+
+	_, hasTimestamp := frontOfQueue["timestamp"]
+	assert.False(t, hasTimestamp, "wire shape must not have a legacy \"timestamp\" field")
+
+	var lastUpdatedAt int64
+	require.NoError(t, json.Unmarshal(frontOfQueue["lastUpdatedAt"], &lastUpdatedAt))
+	assert.Positive(t, lastUpdatedAt, "lastUpdatedAt should be a positive epoch-millisecond value")
+
+	var jobs []map[string]any
+	require.NoError(t, json.Unmarshal(frontOfQueue["jobs"], &jobs))
+	require.Len(t, jobs, 1)
+	assert.Contains(t, jobs[0]["jobArn"], "job/")
+
+	earliestTimeAtPosition, ok := jobs[0]["earliestTimeAtPosition"].(float64)
+	require.True(t, ok)
+	assert.Greater(
+		t, earliestTimeAtPosition, float64(1e12),
+		"earliestTimeAtPosition should be epoch-milliseconds, not epoch-seconds",
+	)
 }
 
 // TestDescribeJobQueues_TagsPresentNoTags verifies that

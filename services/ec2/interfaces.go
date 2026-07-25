@@ -1234,8 +1234,8 @@ type Backend interface {
 	DescribeLockedSnapshots(ids []string) []*SnapshotLock
 	CopyVolumes(volumeIDs []string, destinationRegion string) ([]CopyVolumesResult, error)
 	DisassociateVpcCidrBlock(associationID string) error
-	DisassociateNatGatewayAddress(natGatewayID string) error
-	AssociateNatGatewayAddress(natGatewayID, allocationID string) error
+	DisassociateNatGatewayAddress(natGatewayID string, associationIDs []string) (*NatGateway, error)
+	AssociateNatGatewayAddress(natGatewayID string, allocationIDs []string) (*NatGateway, error)
 	AssignPrivateNatGatewayAddress(natGatewayID string) error
 	DisableImage(imageID string) error
 	EnableImage(imageID string) error

@@ -15,14 +15,14 @@ func (h *Handler) handleReservedInstancesRoutes(w http.ResponseWriter, r *http.R
 	switch {
 	// GET /reservedInstances → DescribeReservedInstances
 	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
-		instances := h.Backend.DescribeReservedInstances()
+		instances := h.Backend.DescribeReservedInstances(r.URL.Query().Get("reservationId"))
 		if instances == nil {
 			instances = []*ReservedInstance{}
 		}
 		h.writeJSON(r, w, map[string]any{"ReservedInstances": instances})
 	// GET /reservedInstances/offerings → DescribeReservedInstanceOfferings
 	case rest == "/offerings" && r.Method == http.MethodGet:
-		offerings := h.Backend.DescribeReservedInstanceOfferings()
+		offerings := h.Backend.DescribeReservedInstanceOfferings(r.URL.Query().Get("offeringId"))
 		h.writeJSON(r, w, map[string]any{"ReservedInstanceOfferings": offerings})
 	// POST /reservedInstances/offerings/{offeringId} → PurchaseReservedInstanceOffering
 	case strings.HasPrefix(rest, "/offerings/") && r.Method == http.MethodPost:

@@ -81,10 +81,14 @@ const (
 	// Named here (rather than left as inline literals in each file) so that
 	// splitting the former monolithic handler.go into per-family files does
 	// not trip goconst in files that individually re-use the same key.
-	keyGraphArn    = "GraphArn"
-	keyAccountID   = "AccountId"
-	keyCreatedTime = "CreatedTime"
-	keyStatusField = "Status"
+	keyGraphArn                      = "GraphArn"
+	keyAccountID                     = "AccountId"
+	keyCreatedTime                   = "CreatedTime"
+	keyStatusField                   = "Status"
+	keyReason                        = "Reason"
+	keyIPAddress                     = "IpAddress"
+	keyIsNewForEntireAccount         = "IsNewForEntireAccount"
+	keyDatasourcePackageIngestStates = "DatasourcePackageIngestStates"
 )
 
 // Handler handles Detective HTTP requests.

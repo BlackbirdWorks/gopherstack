@@ -13,6 +13,23 @@ const (
 
 	maxAttachmentsPerSet = 3
 	maxAttachmentSize    = 5 * 1024 * 1024
+
+	// attachmentSetCreationWindow / maxAttachmentSetCreationsPerWindow back
+	// AttachmentLimitExceeded ("The limit for the number of attachment sets
+	// created in a short period of time has been exceeded" -- real AWS
+	// publishes no exact number). The threshold is set comfortably above the
+	// maxAttachmentSets storage cap so bulk-creation tests that stress that
+	// cap (e.g. eviction-at-cap coverage) are unaffected; it exists purely so
+	// the modeled exception is reachable and real, not a stub.
+	attachmentSetCreationWindow        = time.Minute
+	maxAttachmentSetCreationsPerWindow = 1200
+
+	// describeAttachmentWindow / maxDescribeAttachmentCallsPerWindow back
+	// DescribeAttachmentLimitExceeded ("The limit for the number of
+	// DescribeAttachment requests in a short period of time has been
+	// exceeded").
+	describeAttachmentWindow            = time.Minute
+	maxDescribeAttachmentCallsPerWindow = 1000
 )
 
 // AddAttachmentsToSet creates a new attachment set and returns its ID.
@@ -30,10 +47,21 @@ func (b *InMemoryBackend) AddAttachmentsToSet(attachmentSetID string) (string, t
 	return attachmentSetID, expiry, nil
 }
 
-// DescribeAttachment returns the attachment with the given ID.
+// DescribeAttachment returns the attachment with the given ID. It takes the
+// write lock (not RLock) because every call records a timestamp against the
+// DescribeAttachmentLimitExceeded rate-limit window.
 func (b *InMemoryBackend) DescribeAttachment(attachmentID string) (*Attachment, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now()
+	b.describeAttachmentCallTimes = pruneOldLocked(b.describeAttachmentCallTimes, describeAttachmentWindow, now)
+
+	if len(b.describeAttachmentCallTimes) >= maxDescribeAttachmentCallsPerWindow {
+		return nil, fmt.Errorf("%w: too many DescribeAttachment requests", ErrDescribeAttachmentLimitExceeded)
+	}
+
+	b.describeAttachmentCallTimes = append(b.describeAttachmentCallTimes, now)
 
 	a, ok := b.attachments.Get(attachmentID)
 	if !ok {
@@ -43,6 +71,22 @@ func (b *InMemoryBackend) DescribeAttachment(attachmentID string) (*Attachment, 
 	cp := *a
 
 	return &cp, nil
+}
+
+// pruneOldLocked drops timestamps older than window from the front of times,
+// which is kept in non-decreasing append order. The caller must hold b.mu for
+// writing.
+func pruneOldLocked(times []time.Time, window time.Duration, now time.Time) []time.Time {
+	i := 0
+	for i < len(times) && now.Sub(times[i]) >= window {
+		i++
+	}
+
+	if i == 0 {
+		return times
+	}
+
+	return append([]time.Time(nil), times[i:]...)
 }
 
 // AddAttachmentInternal seeds an attachment directly into the backend (for testing).
@@ -80,7 +124,7 @@ func (b *InMemoryBackend) AddAttachmentsToSetWithAttachments(
 	if len(set.AttachmentIDs)+len(attachments) > maxAttachmentsPerSet {
 		return "", time.Time{}, fmt.Errorf(
 			"%w: maximum of %d attachments exceeded",
-			ErrValidation,
+			ErrAttachmentSetSizeLimitExceeded,
 			maxAttachmentsPerSet,
 		)
 	}
@@ -98,8 +142,18 @@ func (b *InMemoryBackend) AddAttachmentsToSetWithAttachments(
 
 func validateAttachments(attachments []Attachment) error {
 	for _, attachment := range attachments {
-		if attachment.FileName == "" || len(attachment.Data) == 0 || len(attachment.Data) > maxAttachmentSize {
+		if attachment.FileName == "" || len(attachment.Data) == 0 {
 			return fmt.Errorf("%w: invalid attachment", ErrValidation)
+		}
+		// Real AWS documents this specific limit as AttachmentSetSizeLimitExceeded
+		// ("The limits are three attachments and 5 MB per attachment"), not a
+		// generic validation failure.
+		if len(attachment.Data) > maxAttachmentSize {
+			return fmt.Errorf(
+				"%w: attachment exceeds maximum size of %d bytes",
+				ErrAttachmentSetSizeLimitExceeded,
+				maxAttachmentSize,
+			)
 		}
 	}
 
@@ -108,6 +162,15 @@ func validateAttachments(attachments []Attachment) error {
 
 func (b *InMemoryBackend) attachmentSetForAppendLocked(id string) (*AttachmentSet, string, error) {
 	if id == "" {
+		now := time.Now()
+		b.attachmentSetCreationTimes = pruneOldLocked(b.attachmentSetCreationTimes, attachmentSetCreationWindow, now)
+
+		if len(b.attachmentSetCreationTimes) >= maxAttachmentSetCreationsPerWindow {
+			return nil, "", fmt.Errorf("%w: too many attachment sets created recently", ErrAttachmentLimitExceeded)
+		}
+
+		b.attachmentSetCreationTimes = append(b.attachmentSetCreationTimes, now)
+
 		if b.attachmentSets.Len() >= maxAttachmentSets {
 			// Evict the set with the earliest (soonest-expired) expiry.
 			var oldestID string

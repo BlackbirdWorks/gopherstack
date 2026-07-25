@@ -45,7 +45,10 @@ func newPersistenceTestBackend(t *testing.T) *workspaces.InMemoryBackend {
 	_, err = b.CreateWorkspaceImage("img1", "desc", ws.WorkspaceID, map[string]string{"k": "v"})
 	require.NoError(t, err)
 
-	_, err = b.CreateWorkspacesPool("pool1", "wsb-bh8rsxt14", "d-1234567890", "desc", map[string]string{"k": "v"})
+	_, err = b.CreateWorkspacesPool(
+		"pool1", "wsb-bh8rsxt14", "d-1234567890", "desc", "ALWAYS_ON", 5,
+		map[string]string{"k": "v"},
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateConnectClientAddIn("addin1", ws.WorkspaceID, "https://example.com")
@@ -163,13 +166,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "000000000000", fresh.AccountID())
 }
 
-// TestInMemoryBackend_SnapshotRestore_EphemeralMapsNotPersisted documents
-// that directoryIpGroups, imagePermissions, clientProperties, and
-// appAssociations do NOT survive a Snapshot -> Restore round trip. This
-// matches pre-Phase-3.3 behavior: the original backendSnapshot only ever
-// carried Workspaces and Tags, so these four raw maps were already ephemeral
-// before this refactor and remain so (see persistence.go's doc comment).
-func TestInMemoryBackend_SnapshotRestore_EphemeralMapsNotPersisted(t *testing.T) {
+// TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted documents
+// that directoryIpGroups (unlike imagePermissions, clientProperties, and
+// appAssociations, which remain ephemeral) now survives a Snapshot -> Restore
+// round trip -- fixed alongside the AssociateIpGroups/DisassociateIpGroups
+// persistence gap (see PARITY.md gaps history; previously all four raw maps
+// were ephemeral, matching pre-Phase-3.3 behavior).
+func TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted(t *testing.T) {
 	t.Parallel()
 
 	b := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
@@ -187,11 +190,6 @@ func TestInMemoryBackend_SnapshotRestore_EphemeralMapsNotPersisted(t *testing.T)
 	fresh := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, fresh.Restore(ctx, snap))
 
-	// The directory (a store.Table) survives, but its ephemeral IP-group
-	// association (a raw map) does not -- DisassociateIpGroups on an
-	// association that "shouldn't" exist post-restore is a silent no-op
-	// either way, so assert indirectly via the group itself still existing
-	// (Table-backed) while relying on the doc comment for the association.
 	dirs, _, err := fresh.DescribeWorkspaceDirectories(ctx, nil, "")
 	require.NoError(t, err)
 	require.Len(t, dirs, 1)
@@ -199,6 +197,8 @@ func TestInMemoryBackend_SnapshotRestore_EphemeralMapsNotPersisted(t *testing.T)
 	groups, _, err := fresh.DescribeIpGroups(nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
+
+	assert.Equal(t, []string{"grp1"}, workspaces.DirectoryIPGroupIDs(fresh, "d-1234567890"))
 }
 
 // TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose

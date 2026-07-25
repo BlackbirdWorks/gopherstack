@@ -45,6 +45,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		serviceNetworkID, vpcID string,
 		securityGroupIDs []string,
+		privateDNSEnabled bool,
 		tags map[string]string,
 	) (*ServiceNetworkVpcAssociation, error)
 	GetServiceNetworkVpcAssociation(snvaID string) (*ServiceNetworkVpcAssociation, error)
@@ -170,6 +171,7 @@ type Service struct {
 	CertificateArn   string
 	CustomDomainName string
 	DNSName          string
+	HostedZoneID     string
 	Status           string
 }
 
@@ -182,6 +184,7 @@ type ServiceSummary struct {
 	Name             string
 	CustomDomainName string
 	DNSName          string
+	HostedZoneID     string
 	Status           string
 }
 
@@ -222,6 +225,7 @@ type ServiceNetworkServiceAssociation struct {
 	CreatedBy          string
 	CustomDomainName   string
 	DNSName            string
+	HostedZoneID       string
 }
 
 // ServiceNetworkServiceAssociationSummary is a summary for list responses.
@@ -238,6 +242,7 @@ type ServiceNetworkServiceAssociationSummary struct {
 	Status             string
 	CustomDomainName   string
 	DNSName            string
+	HostedZoneID       string
 }
 
 // ServiceNetworkVpcAssociation is a VPC-to-service-network association.
@@ -253,6 +258,7 @@ type ServiceNetworkVpcAssociation struct {
 	Status             string
 	CreatedBy          string
 	SecurityGroupIDs   []string
+	PrivateDNSEnabled  bool
 }
 
 // ServiceNetworkVpcAssociationSummary is a summary for list responses.
@@ -265,6 +271,7 @@ type ServiceNetworkVpcAssociationSummary struct {
 	ServiceNetworkID   string
 	ServiceNetworkName string
 	Status             string
+	PrivateDNSEnabled  bool
 }
 
 // Listener represents a VPC Lattice listener.

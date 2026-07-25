@@ -95,9 +95,10 @@ func TestInMemoryBackend_SnapshotRestore_EmptyBackend(t *testing.T) {
 // allows it, to prove the composite key survives a round trip and keeps
 // same-named resources in different regions fully isolated. It also covers
 // the raw (non-store.Table) region-nested executions map, and confirms
-// actionExecutions -- derived state, deliberately never persisted, matching
-// pre-Phase-3.3 behavior -- comes back empty regardless of what existed
-// before the snapshot.
+// actionExecutions -- snapshot version 2, see persistence.go's version-2 note
+// -- now survives a restore too: an approval token or in-flight action
+// history would otherwise be unrecoverably lost across any snapshot/restore
+// cycle, permanently stranding a paused pipeline execution.
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -152,8 +153,21 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	original.AddJobInternal(&Job{ID: "job-1", Status: "Queued"})
 
 	// --- executions (raw map): started only in east; also populates the
-	// ephemeral (never-persisted) actionExecutions map.
+	// actionExecutions map (version-2: also persisted, see below).
 	_, err = original.StartPipelineExecution(ctxEast, sharedPipeline)
+	require.NoError(t, err)
+
+	// --- action revisions (raw map, version-2 addition): tracked only in
+	// east. PutActionRevision also triggers a second execution, so the
+	// "before" snapshot of actionExecutions is captured AFTER this call.
+	_, _, err = original.PutActionRevision(
+		ctxEast,
+		sharedPipeline,
+		stageNameSource,
+		"SourceAction",
+		"rev-1",
+		"change-1",
+	)
 	require.NoError(t, err)
 
 	eastActionsBefore, err := original.ListActionExecutions(ctxEast, sharedPipeline, "")
@@ -221,20 +235,38 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Queued", gotJob.Status)
 
-	// executions (raw map, persisted): survives restore, region-scoped.
+	// executions (raw map, persisted): survives restore, region-scoped. Two
+	// executions: StartPipelineExecution above, plus the one PutActionRevision
+	// triggered when recording the action revision below.
 	eastExecs, err := fresh.ListPipelineExecutions(ctxEast, sharedPipeline)
 	require.NoError(t, err)
-	require.Len(t, eastExecs, 1)
+	require.Len(t, eastExecs, 2)
 
 	westExecs, err := fresh.ListPipelineExecutions(ctxWest, sharedPipeline)
 	require.NoError(t, err)
 	assert.Empty(t, westExecs)
 
-	// actionExecutions (raw map, deliberately NOT persisted): must come back
-	// empty even though it held data before the snapshot.
+	// actionExecutions (raw map, now persisted -- snapshot version 2): must
+	// survive the restore with the same action-execution history recorded
+	// before the snapshot.
 	eastActionsAfter, err := fresh.ListActionExecutions(ctxEast, sharedPipeline, "")
 	require.NoError(t, err)
-	assert.Empty(t, eastActionsAfter, "actionExecutions is derived state and must not survive a restore")
+	assert.Equal(t, eastActionsBefore, eastActionsAfter, "actionExecutions must survive a restore")
+
+	// actionRevisions (raw map, version-2 addition): survives restore, region-scoped.
+	eastStates, err := fresh.GetPipelineState(ctxEast, sharedPipeline)
+	require.NoError(t, err)
+	require.Len(t, eastStates, 1)
+	require.Len(t, eastStates[0].ActionStates, 1)
+	eastRevision, _ := eastStates[0].ActionStates[0]["currentRevision"].(map[string]any)
+	require.NotNil(t, eastRevision, "actionRevisions must survive a restore")
+	assert.Equal(t, "rev-1", eastRevision["revisionId"])
+
+	westStates, err := fresh.GetPipelineState(ctxWest, sharedPipeline)
+	require.NoError(t, err)
+	require.Len(t, westStates, 1)
+	require.Len(t, westStates[0].ActionStates, 1)
+	assert.Nil(t, westStates[0].ActionStates[0]["currentRevision"], "west must not see the east-only action revision")
 }
 
 // TestHandler_SnapshotRestoreDelegate documents that Handler.Snapshot/Restore

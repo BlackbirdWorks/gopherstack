@@ -6,63 +6,92 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: forecast
 sdk_module: aws-sdk-go-v2/service/forecast@v1.42.0
-last_audit_commit: 987784da
-last_audit_date: 2026-07-13
-overall: A            # genuine fixes found: TagResource/UntagResource/ListTagsForResource
-                       # missing existence check; List* missing NextToken validation
+last_audit_commit: 80757023
+last_audit_date: 2026-07-23
+overall: A            # this pass closed all three named gaps/deferred items from the prior
+                       # audit: Domain/DatasetType/ImportMode/DataFrequency field validation,
+                       # cross-resource FK existence validation on Create*, and Delete*
+                       # status-gating (ResourceInUseException). See "Real bugs fixed this
+                       # pass" below for the corrected understanding of the third item.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass — now 404s on unknown ARN (see gaps: none remaining)"}
-  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass — now 404s on unknown ARN"}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass — now 404s on unknown ARN"}
-  GetAccuracyMetrics: {wire: ok, errors: ok, state: ok, persist: n/a, note: "deterministic synthetic metrics, verified in prior pass — not touched this pass"}
-  DeleteResourceTree: {wire: ok, errors: ok, state: ok, persist: ok}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAccuracyMetrics: {wire: ok, errors: ok, state: ok, persist: n/a, note: "deterministic synthetic metrics, not touched this pass"}
+  DeleteResourceTree: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade delete bypasses the new Delete* status gate by design -- see note below"}
   StopResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ResumeResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListMonitorEvaluations: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateDatasetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- Domain now required + enum-validated (InvalidInputException)"}
+  CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- Domain/DatasetType required + enum-validated, Schema required, DataFrequency format-validated"}
+  CreateDatasetImportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- DatasetArn must resolve to an existing Dataset (ResourceNotFoundException otherwise); ImportMode enum-validated when present"}
+  CreatePredictorBacktestExportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- PredictorArn must resolve to an existing Predictor"}
+  CreateForecast: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- PredictorArn must resolve to an existing Predictor"}
+  CreateForecastExportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ForecastArn must resolve to an existing Forecast"}
+  CreateExplainability: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ResourceArn must resolve to an existing Predictor or Forecast (real AWS accepts either)"}
+  CreateExplainabilityExport: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ExplainabilityArn must resolve to an existing Explainability"}
+  CreateMonitor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ResourceArn must resolve to an existing Predictor"}
+  CreateWhatIfAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ForecastArn must resolve to an existing Forecast"}
+  CreateWhatIfForecast: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- WhatIfAnalysisArn must resolve to an existing WhatIfAnalysis"}
+  CreateWhatIfForecastExport: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- WhatIfForecastArns (list) must all resolve to existing WhatIfForecasts; also corrected the field name itself (was erroneously WhatIfAnalysisArn in the emulator's own prior test fixtures -- real CreateWhatIfForecastExportInput has no such field)"}
+  "DeleteDatasetGroup/DeleteDataset/DeleteDatasetImportJob/DeletePredictor/DeleteForecast/DeleteForecastExportJob/DeleteExplainability/DeleteWhatIfAnalysis/DeleteWhatIfForecast/DeleteWhatIfForecastExport/DeleteMonitor":
+    {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- now reject a resource still CREATE_PENDING with ResourceInUseException, matching each op's documented \"you can delete only X that have a status of ACTIVE or CREATE_FAILED\" precondition. DeletePredictorBacktestExportJob/DeleteExplainabilityExport deliberately excluded: their SDK doc comments carry no status precondition at all, so they remain deletable in any status."}
 # Families audited as a group (when per-op is impractical):
 families:
-  DatasetGroup: {status: ok, note: "Create/Describe/Update/Delete/List verified; CREATE_PENDING->ACTIVE on first Describe; Update replaces DatasetArns wholesale (correct, not merged)"}
-  Dataset: {status: ok, note: "Create/Describe/Delete/List verified; Schema/DataFrequency/Domain field retention correct"}
-  DatasetImportJob: {status: ok, note: "S3Config.Path required -> CREATE_FAILED on missing path, matches known emulator convention documented in handler_audit1_test.go"}
-  Predictor: {status: ok, note: "Create/Describe/Delete/List + CreateAutoPredictor/DescribeAutoPredictor verified; PerformAutoML/PerformHPO/HyperParameterTuningJobConfig retained"}
-  Forecast: {status: ok, note: "Create/Describe/Delete/List verified; epoch-seconds CreationTime/LastModificationTime via awstime.Epoch"}
+  DatasetGroup: {status: ok, note: "Create/Describe/Update/Delete/List verified; CREATE_PENDING->ACTIVE on first Describe; Update replaces DatasetArns wholesale (correct, not merged); Domain required+enum-validated this pass"}
+  Dataset: {status: ok, note: "Create/Describe/Delete/List verified; Schema/DataFrequency/Domain/DatasetType field retention correct; Domain/DatasetType required+enum-validated and DataFrequency format-validated this pass"}
+  DatasetImportJob: {status: ok, note: "S3Config.Path required -> CREATE_FAILED on missing path, matches known emulator convention (documented in TestDatasetImportJobs_S3Validation); DatasetArn FK-validated this pass"}
+  Predictor: {status: ok, note: "Create/Describe/Delete/List + CreateAutoPredictor/DescribeAutoPredictor verified; PerformAutoML/PerformHPO/HyperParameterTuningJobConfig retained. NOT covered this pass: InputDataConfig.DatasetGroupArn (CreatePredictor) / DataConfig.DatasetGroupArn (CreateAutoPredictor) are nested FK references and are not existence-validated -- see gaps below"}
+  Forecast: {status: ok, note: "Create/Describe/Delete/List verified; epoch-seconds CreationTime/LastModificationTime via awstime.Epoch; PredictorArn FK-validated this pass"}
   "ForecastExportJob/PredictorBacktestExportJob/ExplainabilityExport/WhatIfAnalysis/WhatIfForecast/WhatIfForecastExport/Monitor/Explainability":
     status: ok
-    note: "generic addCRUD-driven lifecycle (Create/Describe/List/Delete) shares the same describe()/list()/delete() backend paths already verified for the higher-traffic families; no per-family divergence found"
-  ListOperations_Pagination: {status: ok, note: "fixed this pass — malformed NextToken now returns InvalidNextTokenException instead of silently restarting from page 0 (page.ValidateToken wired into listOutput)"}
-  Tags: {status: ok, note: "fixed this pass — Tag/Untag/ListTagsForResource now validate the ARN exists via arnIndex before mutating/reading tag state"}
+    note: "generic addCRUD-driven lifecycle (Create/Describe/List/Delete) shares the same describe()/list()/delete() backend paths already verified for the higher-traffic families; every family's required ARN-reference field is now FK-validated (see ops table); Delete* status-gated per family (see ops table)"
+  ListOperations_Pagination: {status: ok, note: "malformed NextToken returns InvalidNextTokenException (page.ValidateToken wired into listOutput); not touched this pass"}
+  Tags: {status: ok, note: "Tag/Untag/ListTagsForResource validate the ARN exists via arnIndex before mutating/reading tag state; not touched this pass"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - >-
-    No cross-resource FK/state validation on Create*: CreateForecast accepts any
-    PredictorArn string without checking the predictor exists or is ACTIVE;
-    CreateDatasetImportJob accepts any DatasetArn; CreateForecastExportJob accepts
-    any ForecastArn; etc. Real AWS returns ResourceNotFoundException for a
-    dangling reference (and arguably ResourceInUseException / InvalidInputException
-    for a referenced resource that hasn't reached ACTIVE). NOT fixed this pass:
-    the existing test suite (handler_test.go, parity_a/c_test.go, handler_audit1_test.go)
-    deliberately uses placeholder non-ARN strings like "predictor"/"forecast" as
-    FK values across ~15 test cases, so adding FK validation is a cross-cutting
-    change that would need to rewrite most of the existing test fixtures in the
-    same pass — out of scope for a surgical bug-fix pass. Needs a dedicated pass.
+    CreatePredictor's InputDataConfig.DatasetGroupArn and CreateAutoPredictor's
+    DataConfig.DatasetGroupArn are nested FK references (not top-level fields)
+    and are not existence-validated -- a Predictor can be created against a
+    DatasetGroupArn that was never created. Every *other* required ARN
+    reference in the API (DatasetImportJob.DatasetArn, Forecast.PredictorArn,
+    ForecastExportJob.ForecastArn, PredictorBacktestExportJob.PredictorArn,
+    Explainability.ResourceArn, ExplainabilityExport.ExplainabilityArn,
+    Monitor.ResourceArn, WhatIfAnalysis.ForecastArn,
+    WhatIfForecast.WhatIfAnalysisArn, WhatIfForecastExport.WhatIfForecastArns)
+    is now FK-validated (see ops table) -- this is the one deliberately
+    out-of-scope exception, called out explicitly rather than silently
+    skipped (see validation.go's package doc comment).
   - >-
-    No enum validation on Domain (CreateDataset/CreateDatasetGroup), DatasetType,
-    DataFrequency, ImportMode, or other AWS-modeled enum fields — any string is
-    accepted where AWS would return InvalidInputException for a value outside the
-    enum. Only resource *names* are validated (charset + 256-char max).
+    CreateDatasetGroup's (and UpdateDatasetGroup's) DatasetArns list is not
+    existence-validated -- a DatasetGroup can reference DatasetArns that were
+    never created. Out of scope this pass (not one of the three named
+    gap/deferred items from the prior audit).
   - >-
-    Delete* never returns ResourceInUseException for a resource that still has
-    dependents (e.g. deleting a DatasetGroup that still has Datasets, or a
-    Predictor that still has Forecasts) — delete always succeeds if the resource
-    exists. DeleteResourceTree is the only op that models the AWS
-    cascade-delete-children behavior; the single-resource Delete* ops do not
-    check for dependents at all.
-deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - CreateDataset/CreateDatasetGroup Domain and other enum-field validation
-  - Cross-resource FK existence/state validation on Create*
-  - Delete* ResourceInUseException-on-dependents modeling
-leaks: {status: clean, note: "no goroutines/janitors in this service; Reset()/Snapshot()/Restore() all take b.mu correctly; no lock held across a call that could deadlock"}
+    Delete* never returns ResourceInUseException for a resource that still
+    has *dependents* (e.g. deleting a Predictor that still has Forecasts).
+    This is DELIBERATE, not an oversight: the real Amazon Forecast SDK doc
+    comments for every Delete* op (DeletePredictor, DeleteDatasetGroup,
+    DeleteForecast, ...) describe the ResourceInUseException precondition
+    purely in terms of the target resource's OWN status ("you can delete
+    only predictor that have a status of ACTIVE or CREATE_FAILED"), never in
+    terms of dependents -- DeleteDatasetGroup's doc comment explicitly says
+    "This operation deletes only the dataset group, not the datasets in the
+    group" with no blocking behavior. The PRIOR audit's framing of this gap
+    ("Delete* never returns ResourceInUseException for a resource that still
+    has dependents") does not match the real API and has been corrected:
+    what real AWS actually models is a self-status precondition, which this
+    pass implemented (see validateDeletableLocked in validation.go and the
+    Delete* ops table above).
+deferred: []            # all three deferred items from the prior audit (Domain/DatasetType/
+                         # DataFrequency/ImportMode enum validation; cross-resource FK
+                         # existence validation on Create*; Delete* status/ResourceInUse
+                         # modeling) were implemented this pass -- see gaps above for the two
+                         # narrower residual items (nested Predictor FK, DatasetGroup.DatasetArns)
+                         # and the corrected understanding of the third.
+leaks: {status: clean, note: "no goroutines/janitors in this service; Reset()/Snapshot()/Restore() all take b.mu correctly; the new validateCreateFieldsLocked/validateDeletableLocked helpers are called from within create()/delete() while b.mu is already held (no additional locking, no lock-order risk); no lock held across a call that could deadlock"}
 ---
 
 ## Notes
@@ -75,42 +104,72 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset()/Sn
 - Status lifecycle: this emulator uses a lazy-transition model — a resource is
   created in `CREATE_PENDING` (or `CREATE_FAILED` for DatasetImportJob when
   S3Config.Path is empty) and flips to `ACTIVE` the *first time* `Describe*` is
-  called on it (`InMemoryBackend.describe` in backend.go). This looks like it
+  called on it (`InMemoryBackend.describe` in store.go). This looks like it
   skips `CREATE_IN_PROGRESS` entirely, but it is intentional and does NOT hang a
   polling client: the first poll observes `CREATE_PENDING`, every subsequent
   poll observes `ACTIVE`. This is a "looks-wrong-but-correct" trap — do not
   "fix" it by adding a `CREATE_IN_PROGRESS` state without checking
-  handler_audit1_test.go's `TestAudit1_Forecast_StatusTransitions` and the
-  `TestHandler_ResourceLifecycles` table in handler_test.go first, both of
+  `TestHandler_ResourceLifecycles` (handler_test.go) and
+  `TestStatusTransitions_PendingActiveDelete` (store_test.go) first, both of
   which assert exactly this two-poll transition.
 
-- Real bugs fixed this pass (see `git diff` for `services/forecast/{backend,handler}.go`):
-  1. `TagResource`/`UntagResource`/`ListTagsForResource` (backend.go) accepted
-     any ARN string, including ones that never identified a created resource —
-     silently wrote/read an orphaned entry in the `tags` map instead of
-     returning `ResourceNotFoundException`. Real AWS models
-     `ResourceNotFoundException` on all three ops (confirmed against
-     `deserializers.go` in the SDK module: `awsAwsjson11_deserializeOpErrorTagResource`
-     / `...UntagResource` / `...ListTagsForResource` all switch on
-     `ResourceNotFoundException`). Fixed by checking `b.arnIndex` before
-     mutating/reading tag state.
-  2. `List*` operations (all families, via the shared `listOutput` in
-     handler.go) never validated `NextToken` — a malformed token silently
-     decoded to page offset 0 and restarted pagination instead of erroring.
-     Real AWS models `InvalidNextTokenException` on every List operation
-     (confirmed in `deserializers.go`). Fixed by calling
-     `pkgs/page.ValidateToken` in `listOutput` and returning the new
-     `ErrInvalidNextToken` sentinel, mapped to 400 `InvalidNextTokenException`
-     in `Handler.handleError` — following the same sentinel-per-error-type
-     pattern already used for `ErrNotFound`/`ErrAlreadyExists`/`ErrValidation`
-     (and mirroring `services/polly`'s existing `ErrInvalidNextToken` handling).
+- **Delete\* now status-gates on CREATE_PENDING (real bug fixed this pass).**
+  Real Amazon Forecast's Delete\* API doc comments each state a precondition
+  like "You can delete only predictor that have a status of ACTIVE or
+  CREATE_FAILED" — a resource still `CREATE_PENDING` (this emulator's stand-in
+  for AWS's `CREATE_IN_PROGRESS`) is not yet deletable and returns
+  `ResourceInUseException` (400). This is implemented as a declarative
+  per-kind table (`deletableStatuses` in validation.go) rather than a single
+  global rule because the real API's precondition differs slightly per kind:
+  `DeletePredictorBacktestExportJob` and `DeleteExplainabilityExport` carry no
+  documented status precondition at all in the SDK and remain deletable in any
+  status; `DeleteMonitor` additionally allows `ACTIVE_STOPPED`/`CREATE_STOPPED`
+  (mapped here to this emulator's own single `STOPPED` convention, shared by
+  every other stoppable kind for the same reason). `DeleteResourceTree`
+  deliberately bypasses this gate: it is a distinct AWS operation with its own
+  cascade semantics, and its SDK doc comment carries no per-resource status
+  precondition of its own.
+
+- **Cross-resource FK existence validation on Create\* (real bug fixed this
+  pass, was the top-listed gap in the prior audit).** Every Create\* operation
+  whose input carries a *required* top-level ARN-reference field (per
+  aws-sdk-go-v2/service/forecast's validators.go — see `createFKSpecs` in
+  validation.go) now resolves that reference against the backend's `arnIndex`
+  before creating the resource: a missing field is `InvalidInputException`
+  (matching the SDK's client-side "This member is required" rule), a
+  non-existent reference is `ResourceNotFoundException` (matching real
+  Amazon Forecast, confirmed against `deserializers.go`, which wires
+  `ResourceNotFoundException` into every Create\* op's error switch).
+  `CreateExplainability`'s `ResourceArn` is validated against *either* a
+  Predictor or a Forecast ARN, matching real AWS (Explainability can be
+  computed for either resource type). Scope: only the top-level fields named
+  directly in the SDK's required-field validators are covered — see gaps
+  above for the one deliberately-excluded nested-FK case
+  (Predictor's InputDataConfig/DataConfig.DatasetGroupArn).
+
+- **Enum/format validation on Create\* (real bug fixed this pass, was the
+  second-listed gap in the prior audit).** `CreateDatasetGroup`/`CreateDataset`
+  now require `Domain` and reject a value outside `types.Domain`'s seven enum
+  members (RETAIL, CUSTOM, INVENTORY_PLANNING, EC2_CAPACITY, WORK_FORCE,
+  WEB_TRAFFIC, METRICS); `CreateDataset` additionally requires `DatasetType`
+  (validated against `types.DatasetType`'s three members) and `Schema`.
+  `CreateDatasetImportJob`'s optional `ImportMode`, when present, is validated
+  against `types.ImportMode`'s two members (FULL, INCREMENTAL). `DataFrequency`
+  is a special case: unlike the three fields above, it has **no** corresponding
+  `types.X` enum in the SDK at all (confirmed: `grep DataFrequency
+  aws-sdk-go-v2/service/forecast/types/*.go` returns nothing) — it's
+  server-validated free text per the field's doc comment, not a
+  client-side-smithy-validated enum. This emulator therefore applies a format
+  check (optional 1–2 digit interval + Y/M/W/D/H/min unit) rather than an
+  enum-membership check, and treats the field as optional (real AWS's doc
+  text only requires it for RELATED_TIME_SERIES datasets, and even then only
+  in prose).
 
 - Persistence: `Handler.Snapshot`/`Restore` already delegate to
   `InMemoryBackend.Snapshot`/`Restore` (persistence.go), which uses
   `store.Registry` for the per-kind resource tables and persists the raw
   `evaluations`/`tags` maps directly; `arnIndex` is deliberately NOT persisted
-  and is rebuilt from the restored tables (`rebuildARNIndex`). This was already
-  wired correctly before this pass — no persistence gap found for the two ops
-  fixed above (tags round-trip through the persisted `Tags` map; the
-  ARN-existence check added this pass uses the always-rebuilt `arnIndex`, so
-  it works identically pre- and post-restore).
+  and is rebuilt from the restored tables (`rebuildARNIndex`). No persistence
+  gap found for the validation logic added this pass: it reads `arnIndex`
+  (always rebuilt from the tables, pre- and post-restore) and never itself
+  needs to persist any new state.

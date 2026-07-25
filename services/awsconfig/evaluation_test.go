@@ -142,7 +142,9 @@ func TestStartConfigRulesEvaluation_ManagedRules(t *testing.T) {
 
 			require.NoError(t, b.StartConfigRulesEvaluation())
 
-			got := complianceByResource(b.GetComplianceDetailsByConfigRule(tt.rule.ConfigRuleName, nil))
+			details, err := b.GetComplianceDetailsByConfigRule(tt.rule.ConfigRuleName, nil)
+			require.NoError(t, err)
+			got := complianceByResource(details)
 			assert.Equal(t, tt.wantPer, got)
 			assert.Equal(t, tt.wantRollup, b.GetConfigRuleComplianceType(tt.rule.ConfigRuleName))
 		})
@@ -213,7 +215,10 @@ func TestStartConfigRulesEvaluation_RuleOwnership(t *testing.T) {
 			require.NoError(t, b.StartConfigRulesEvaluation())
 
 			assert.Equal(t, tt.wantRollup, b.GetConfigRuleComplianceType(tt.ruleName))
-			assert.Len(t, b.GetComplianceDetailsByConfigRule(tt.ruleName, nil), tt.wantDetail)
+
+			details, err := b.GetComplianceDetailsByConfigRule(tt.ruleName, nil)
+			require.NoError(t, err)
+			assert.Len(t, details, tt.wantDetail)
 		})
 	}
 }
@@ -258,7 +263,9 @@ func TestStartConfigRulesEvaluation_ScopeFiltering(t *testing.T) {
 
 			require.NoError(t, b.StartConfigRulesEvaluation())
 
-			got := complianceByResource(b.GetComplianceDetailsByConfigRule("scoped", nil))
+			details, err := b.GetComplianceDetailsByConfigRule("scoped", nil)
+			require.NoError(t, err)
+			got := complianceByResource(details)
 			ids := make([]string, 0, len(got))
 			for id := range got {
 				ids = append(ids, id)
@@ -273,17 +280,21 @@ func TestPutEvaluations_PerResourceGranularity(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
+	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule"}))
 	require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
 		{ConfigRuleName: "rule", ResourceType: "AWS::S3::Bucket", ResourceID: "good", ComplianceType: "COMPLIANT"},
 		{ConfigRuleName: "rule", ResourceType: "AWS::S3::Bucket", ResourceID: "bad", ComplianceType: "NON_COMPLIANT"},
 	}))
 
-	all := complianceByResource(b.GetComplianceDetailsByConfigRule("rule", nil))
+	details, err := b.GetComplianceDetailsByConfigRule("rule", nil)
+	require.NoError(t, err)
+	all := complianceByResource(details)
 	assert.Equal(t, map[string]string{"good": "COMPLIANT", "bad": "NON_COMPLIANT"}, all)
 	assert.Equal(t, "NON_COMPLIANT", b.GetConfigRuleComplianceType("rule"))
 
 	// Compliance-type filter returns only the matching subset.
-	filtered := b.GetComplianceDetailsByConfigRule("rule", []string{"NON_COMPLIANT"})
+	filtered, err := b.GetComplianceDetailsByConfigRule("rule", []string{"NON_COMPLIANT"})
+	require.NoError(t, err)
 	require.Len(t, filtered, 1)
 	assert.Equal(t, "bad", filtered[0].EvaluationResultIdentifier.EvaluationResultQualifier.ResourceID)
 
@@ -298,7 +309,10 @@ func TestPutEvaluations_PerResourceGranularity(t *testing.T) {
 		ConfigRuleName: "rule", ResourceType: "AWS::S3::Bucket", ResourceID: "bad", ComplianceType: "COMPLIANT",
 	}))
 	assert.Equal(t, "COMPLIANT", b.GetConfigRuleComplianceType("rule"))
-	assert.Len(t, b.GetComplianceDetailsByConfigRule("rule", nil), 2)
+
+	afterExternal, err := b.GetComplianceDetailsByConfigRule("rule", nil)
+	require.NoError(t, err)
+	assert.Len(t, afterExternal, 2)
 }
 
 func TestGetResourceConfigHistory_RealHistory(t *testing.T) {
@@ -528,6 +542,7 @@ func TestHandler_PutEvaluationsAWSKeys(t *testing.T) {
 
 	h := newTestAWSConfigHandler(t)
 	b := h.Backend
+	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule"}))
 
 	rec := doAWSConfigRequest(t, h, "PutEvaluations", map[string]any{
 		"ConfigRuleName": "rule",
@@ -542,7 +557,8 @@ func TestHandler_PutEvaluationsAWSKeys(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	details := b.GetComplianceDetailsByConfigRule("rule", nil)
+	details, err := b.GetComplianceDetailsByConfigRule("rule", nil)
+	require.NoError(t, err)
 	require.Len(t, details, 1)
 	assert.Equal(t, "b1", details[0].EvaluationResultIdentifier.EvaluationResultQualifier.ResourceID)
 	assert.Equal(t, "AWS::S3::Bucket", details[0].EvaluationResultIdentifier.EvaluationResultQualifier.ResourceType)

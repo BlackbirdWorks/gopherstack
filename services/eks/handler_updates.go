@@ -3,9 +3,12 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchUpdateOps handles cluster-level config/version update and
@@ -22,12 +25,15 @@ func (h *Handler) dispatchUpdateOps(c *echo.Context, route eksRoute, body []byte
 		return true, h.handleDescribeUpdate(c, route.clusterName, route.nodegroupName)
 	case opListUpdates:
 		return true, h.handleListUpdates(c, route.clusterName)
+	case opCancelUpdate:
+		return true, h.handleCancelUpdate(c, route.clusterName, route.nodegroupName, body)
 	}
 
 	return false, nil
 }
 
-// parseUpdatesRoute returns the route for /clusters/{name}/updates[/{id}].
+// parseUpdatesRoute returns the route for
+// /clusters/{name}/updates[/{id}[/cancel-update]].
 func parseUpdatesRoute(method, clusterName string, parts []string) eksRoute {
 	const updatesParts = 2
 
@@ -45,7 +51,19 @@ func parseUpdatesRoute(method, clusterName string, parts []string) eksRoute {
 		return eksRoute{operation: opUnknown}
 	}
 
-	updateID := parts[2]
+	tail := parts[2]
+
+	// Real path is /clusters/{name}/updates/{updateId}/cancel-update (POST)
+	// -- verified against the SDK serializer.
+	if before, ok := strings.CutSuffix(tail, "/cancel-update"); ok {
+		if method == http.MethodPost {
+			return eksRoute{operation: opCancelUpdate, clusterName: clusterName, nodegroupName: before}
+		}
+
+		return eksRoute{operation: opUnknown}
+	}
+
+	updateID := tail
 
 	if method == http.MethodGet {
 		return eksRoute{operation: opDescribeUpdate, clusterName: clusterName, nodegroupName: updateID}
@@ -243,9 +261,10 @@ func (h *Handler) handleListUpdates(c *echo.Context, clusterName string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"updateIds": ids,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(ids, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("updateIds", p))
 }
 
 func updateToJSON(u *Update) map[string]any {
@@ -263,6 +282,34 @@ func updateToJSON(u *Update) map[string]any {
 	if u.Errors == nil {
 		m["errors"] = []UpdateError{}
 	}
+	if u.Cancellation != nil {
+		m["cancellation"] = u.Cancellation
+	}
 
 	return m
+}
+
+type cancelUpdateBody struct {
+	ClientRequestToken string `json:"clientRequestToken"`
+}
+
+// handleCancelUpdate implements CancelUpdate. clientRequestToken is accepted
+// for wire-shape parity but not tracked for idempotency (matching the
+// in-memory, non-durable nature of this backend).
+func (h *Handler) handleCancelUpdate(c *echo.Context, clusterName, updateID string, body []byte) error {
+	var in cancelUpdateBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
+		}
+	}
+
+	update, err := h.Backend.CancelUpdate(clusterName, updateID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyUpdate: updateToJSON(update),
+	})
 }

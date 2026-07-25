@@ -51,6 +51,16 @@ const (
 	minRealisticTimestampMs = 1_000_000_000_000
 	// detectorStatusInitializing is the status of a newly created anomaly detector.
 	detectorStatusInitializing = "INITIALIZING"
+	// detectorStatusPaused is the status set by UpdateLogAnomalyDetector when
+	// called with enabled=false (aws-sdk-go-v2
+	// types.AnomalyDetectorStatusPaused).
+	detectorStatusPaused = "PAUSED"
+	// detectorStatusAnalyzing is the status UpdateLogAnomalyDetector resumes a
+	// paused detector to when called with enabled=true (aws-sdk-go-v2
+	// types.AnomalyDetectorStatusAnalyzing): a detector that has already
+	// completed its initial training re-enters the steady-state "actively
+	// analyzing" status on resume, rather than restarting from INITIALIZING.
+	detectorStatusAnalyzing = "ANALYZING"
 )
 
 const (

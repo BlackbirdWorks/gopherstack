@@ -312,9 +312,12 @@ func TestBackend_UpdateApplication(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			app, opID, err := b.UpdateApplication(
-				ctx, tt.appName, tt.currentVersionID, tt.updateServiceRole, tt.updateDescription,
-			)
+			app, opID, err := b.UpdateApplication(ctx, kinesisanalyticsv2.UpdateApplicationParams{
+				Name:                        tt.appName,
+				CurrentApplicationVersionID: tt.currentVersionID,
+				ServiceExecutionRoleUpdate:  tt.updateServiceRole,
+				ApplicationDescription:      tt.updateDescription,
+			})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -366,7 +369,7 @@ func TestBackend_DeleteApplication(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			err := b.DeleteApplication(ctx, tt.appName)
+			err := b.DeleteApplication(ctx, tt.appName, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -396,11 +399,11 @@ func TestBackend_DeleteApplication_CleansOperations(t *testing.T) {
 	// Populate a real operations-map entry (StartApplication records one via
 	// recordOperation) so this test actually exercises cleanup of non-empty
 	// state, not just a no-op delete against an already-empty map.
-	_, err = b.StartApplication(ctx, "cleanup-ops-app")
+	_, err = b.StartApplication(ctx, "cleanup-ops-app", nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, kinesisanalyticsv2.OperationsMapKeyCount(b, "us-east-1"))
 
-	err = b.DeleteApplication(ctx, "cleanup-ops-app")
+	err = b.DeleteApplication(ctx, "cleanup-ops-app", nil)
 	require.NoError(t, err)
 
 	// The operations map entry for the deleted app must be gone.
@@ -442,9 +445,9 @@ func TestBackend_StartStopApplication(t *testing.T) {
 			var opID string
 
 			if tt.op == "start" {
-				opID, err = b.StartApplication(ctx, "app-lifecycle")
+				opID, err = b.StartApplication(ctx, "app-lifecycle", nil)
 			} else {
-				_, err = b.StartApplication(ctx, "app-lifecycle")
+				_, err = b.StartApplication(ctx, "app-lifecycle", nil)
 				require.NoError(t, err)
 				opID, err = b.StopApplication(ctx, "app-lifecycle")
 			}
@@ -498,15 +501,13 @@ func TestBackend_SeedApplicationConfiguration(t *testing.T) {
 			LogStreamARN: "arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s",
 		}
 
-		err = b.SeedApplicationConfiguration(
-			ctx,
-			"seed-app",
-			[]kinesisanalyticsv2.InputDescription{{NamePrefix: "SOURCE"}},
-			[]kinesisanalyticsv2.OutputDescription{{Name: "OUT"}},
-			[]kinesisanalyticsv2.ReferenceDataSourceDescription{{TableName: "REF"}},
-			[]kinesisanalyticsv2.VpcConfigurationDescription{{SubnetIDs: []string{"subnet-1"}}},
-			[]kinesisanalyticsv2.CloudWatchLoggingOptionDesc{cwlOption},
-		)
+		err = b.SeedApplicationConfiguration(ctx, "seed-app", kinesisanalyticsv2.SeedConfig{
+			Inputs:               []kinesisanalyticsv2.InputDescription{{NamePrefix: "SOURCE"}},
+			Outputs:              []kinesisanalyticsv2.OutputDescription{{Name: "OUT"}},
+			ReferenceDataSources: []kinesisanalyticsv2.ReferenceDataSourceDescription{{TableName: "REF"}},
+			VpcConfigs:           []kinesisanalyticsv2.VpcConfigurationDescription{{SubnetIDs: []string{"subnet-1"}}},
+			CWLOptions:           []kinesisanalyticsv2.CloudWatchLoggingOptionDesc{cwlOption},
+		})
 		require.NoError(t, err)
 
 		app, err := b.DescribeApplication(ctx, "seed-app")
@@ -535,7 +536,7 @@ func TestBackend_SeedApplicationConfiguration(t *testing.T) {
 
 		b := newTestBackend(t)
 
-		err := b.SeedApplicationConfiguration(ctx, "missing-seed-app", nil, nil, nil, nil, nil)
+		err := b.SeedApplicationConfiguration(ctx, "missing-seed-app", kinesisanalyticsv2.SeedConfig{})
 		require.ErrorIs(t, err, kinesisanalyticsv2.ErrNotFound)
 	})
 }

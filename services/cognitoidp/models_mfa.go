@@ -17,6 +17,34 @@ type mfaSessionEntry struct {
 	// ForgotPassword/ConfirmSignUp confirmation codes elsewhere in this backend — the code
 	// is generated once here and the challenge response must match it exactly.
 	Code string `json:"code,omitempty"`
+	// CustomAuthChallengeName is the Lambda-chosen challenge name from the most recent
+	// DefineAuthChallenge response (e.g. "CUSTOM_CHALLENGE"). This is the bookkeeping name
+	// used in the session/history passed to DefineAuthChallenge on the next round -- it is
+	// distinct from the fixed "CUSTOM_CHALLENGE" ChallengeName Cognito always returns to
+	// the client over the wire for CUSTOM_AUTH.
+	CustomAuthChallengeName string `json:"customAuthChallengeName,omitempty"`
+	// CustomAuthChallengeMetadata is the challengeMetadata from the most recent
+	// CreateAuthChallenge response, echoed into the session history's challengeMetadata on
+	// the next DefineAuthChallenge round (see aws-lambda-go events
+	// CognitoEventUserPoolsChallengeResult).
+	CustomAuthChallengeMetadata string `json:"customAuthChallengeMetadata,omitempty"`
+	// CustomAuthPrivateParams holds the CreateAuthChallenge response's
+	// privateChallengeParameters, which VerifyAuthChallengeResponse needs to judge the
+	// user's answer but which must never be exposed to the client.
+	CustomAuthPrivateParams map[string]string `json:"customAuthPrivateParams,omitempty"`
+	// CustomAuthSession accumulates the round-by-round challenge history
+	// (CognitoEventUserPoolsChallengeResult) that DefineAuthChallenge receives on each
+	// subsequent round, letting the Lambda decide (e.g.) "fail after 3 wrong answers".
+	CustomAuthSession []customAuthChallengeResult `json:"customAuthSession,omitempty"`
+}
+
+// customAuthChallengeResult mirrors aws-lambda-go's
+// events.CognitoEventUserPoolsChallengeResult -- one round's outcome in a CUSTOM_AUTH
+// session history.
+type customAuthChallengeResult struct {
+	ChallengeName     string `json:"challengeName,omitempty"`
+	ChallengeMetadata string `json:"challengeMetadata,omitempty"`
+	ChallengeResult   bool   `json:"challengeResult"`
 }
 
 // SmsConfiguration holds the SNS topic ARN for SMS delivery.

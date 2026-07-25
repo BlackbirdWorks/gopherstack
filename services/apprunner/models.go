@@ -45,37 +45,67 @@ const (
 	defaultMaxConcurrency int32 = 100
 	defaultMaxSize        int32 = 25
 	defaultMinSize        int32 = 1
+
+	// defaultASGConfigName is the name of the system-managed default auto
+	// scaling configuration every account has, matching real App Runner's
+	// "DefaultConfiguration" that's associated with a service when
+	// CreateServiceInput.AutoScalingConfigurationArn is omitted.
+	defaultASGConfigName = "DefaultConfiguration"
+
+	egressTypeDefault = "DEFAULT"
+	egressTypeVPC     = "VPC"
+
+	ipAddressTypeIPv4      = "IPV4"
+	ipAddressTypeDualStack = "DUAL_STACK"
+
+	healthCheckProtocolTCP = "TCP"
+
+	defaultHealthCheckPath           = "/"
+	defaultHealthCheckInterval int32 = 5
+	defaultHealthCheckTimeout  int32 = 2
+	defaultHealthyThreshold    int32 = 1
+	defaultUnhealthyThreshold  int32 = 5
+
+	imageRepositoryTypeECRPublic = "ECR_PUBLIC"
 )
 
 // storedService holds a service with all fields.
 // CreatedAt is first so its non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type storedService struct {
-	CreatedAt   time.Time          `json:"createdAt"`
-	UpdatedAt   time.Time          `json:"updatedAt"`
-	Tags        map[string]string  `json:"tags"`
-	ServiceArn  string             `json:"serviceArn"`
-	ServiceID   string             `json:"serviceId"`
-	ServiceName string             `json:"serviceName"`
-	ServiceURL  string             `json:"serviceUrl"`
-	Status      string             `json:"status"`
-	CPU         string             `json:"cpu"`
-	Memory      string             `json:"memory"`
-	ImageURI    string             `json:"imageUri"`
-	Operations  []*storedOperation `json:"operations"`
+	Source                      SourceConfig         `json:"source"`
+	UpdatedAt                   time.Time            `json:"updatedAt"`
+	CreatedAt                   time.Time            `json:"createdAt"`
+	Tags                        map[string]string    `json:"tags"`
+	Network                     NetworkConfig        `json:"network"`
+	Instance                    InstanceConfig       `json:"instance"`
+	Observability               ServiceObservability `json:"observability"`
+	ServiceID                   string               `json:"serviceId"`
+	Status                      string               `json:"status"`
+	ServiceURL                  string               `json:"serviceUrl"`
+	AutoScalingConfigurationArn string               `json:"autoScalingConfigurationArn"`
+	ServiceName                 string               `json:"serviceName"`
+	EncryptionKmsKey            string               `json:"encryptionKmsKey"`
+	ServiceArn                  string               `json:"serviceArn"`
+	Operations                  []*storedOperation   `json:"operations"`
+	HealthCheck                 HealthCheckConfig    `json:"healthCheck"`
 }
 
 func (s *storedService) toService() Service {
 	return Service{
-		ServiceArn:  s.ServiceArn,
-		ServiceID:   s.ServiceID,
-		ServiceName: s.ServiceName,
-		ServiceURL:  s.ServiceURL,
-		Status:      s.Status,
-		CPU:         s.CPU,
-		Memory:      s.Memory,
-		ImageURI:    s.ImageURI,
-		CreatedAt:   s.CreatedAt,
-		UpdatedAt:   s.UpdatedAt,
+		ServiceArn:                  s.ServiceArn,
+		ServiceID:                   s.ServiceID,
+		ServiceName:                 s.ServiceName,
+		ServiceURL:                  s.ServiceURL,
+		Status:                      s.Status,
+		Instance:                    s.Instance,
+		Source:                      s.Source,
+		AutoScalingConfigurationArn: s.AutoScalingConfigurationArn,
+		Network:                     s.Network,
+		HealthCheck:                 s.HealthCheck,
+		EncryptionKmsKey:            s.EncryptionKmsKey,
+		Observability:               s.Observability,
+		CreatedAt:                   s.CreatedAt,
+		UpdatedAt:                   s.UpdatedAt,
 	}
 }
 
@@ -95,6 +125,7 @@ func (s *storedService) toSummary() ServiceSummary {
 type storedOperation struct {
 	StartedAt time.Time `json:"startedAt"`
 	EndedAt   time.Time `json:"endedAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 	ID        string    `json:"id"`
 	Type      string    `json:"type"`
 	Status    string    `json:"status"`
@@ -109,6 +140,7 @@ func (o *storedOperation) toSummary() OperationSummary {
 		TargetArn: o.TargetArn,
 		StartedAt: o.StartedAt,
 		EndedAt:   o.EndedAt,
+		UpdatedAt: o.UpdatedAt,
 	}
 }
 
@@ -151,6 +183,7 @@ func (a *storedAutoScalingConfiguration) toSummary() AutoScalingConfigurationSum
 		AutoScalingConfigurationRevision: a.AutoScalingConfigurationRevision,
 		Status:                           a.Status,
 		IsDefault:                        a.IsDefault,
+		HasAssociatedService:             a.HasAssociatedService,
 		CreatedAt:                        a.CreatedAt,
 	}
 }

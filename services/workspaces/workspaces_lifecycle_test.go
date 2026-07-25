@@ -2,7 +2,9 @@ package workspaces_test
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -515,7 +517,7 @@ func TestWorkspaceLevelOps(t *testing.T) { //nolint:paralleltest // existing iss
 		{
 			name: "ListAvailableManagementCidrRanges",
 			op:   "ListAvailableManagementCidrRanges",
-			body: map[string]any{},
+			body: map[string]any{"ManagementCidrRangeConstraint": "10.0.0.0/16"},
 		},
 	}
 
@@ -531,6 +533,10 @@ func TestWorkspaceLevelOps(t *testing.T) { //nolint:paralleltest // existing iss
 
 func TestCreateStandbyWorkspaces(t *testing.T) { //nolint:paralleltest // existing issue.
 	h, _ := newTestHandlerWithBackend(t)
+
+	// DirectoryId must be registered for a standby WorkSpace request to
+	// succeed (per-item runtime validation, matching CreateWorkspaces).
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-test"})
 
 	rec := doTargetRequest(t, h, "CreateStandbyWorkspaces", map[string]any{
 		"PrimaryRegion": "us-east-1",
@@ -558,20 +564,197 @@ func TestCreateStandbyWorkspaces(t *testing.T) { //nolint:paralleltest // existi
 	}
 }
 
-func TestListAvailableManagementCidrRanges(t *testing.T) { //nolint:paralleltest // existing issue.
+// TestCreateStandbyWorkspaces_PartialFailure verifies AWS's batch
+// partial-failure semantics: a runtime failure for one StandbyWorkspace
+// request (an unregistered DirectoryId) is reported in FailedStandbyRequests
+// -- echoing back the original StandbyWorkspaceRequest -- without aborting
+// the rest of the batch, matching CreateWorkspaces. Previously this op was a
+// stub that always reported zero failures regardless of input.
+func TestCreateStandbyWorkspaces_PartialFailure(t *testing.T) {
+	t.Parallel()
+
 	h, _ := newTestHandlerWithBackend(t)
 
-	rec := doTargetRequest(t, h, "ListAvailableManagementCidrRanges", map[string]any{})
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-good"})
+
+	rec := doTargetRequest(t, h, "CreateStandbyWorkspaces", map[string]any{
+		"PrimaryRegion": "us-east-1",
+		"StandbyWorkspaces": []map[string]any{
+			{"PrimaryWorkspaceId": "ws-000001", "DirectoryId": "d-good"},
+			{"PrimaryWorkspaceId": "ws-000002", "DirectoryId": "d-unregistered"},
+		},
+	})
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body)
 	}
 
 	var out struct {
-		ManagementCidrRanges []string `json:"ManagementCidrRanges"`
+		FailedStandbyRequests []struct {
+			StandbyWorkspaceRequest struct {
+				DirectoryID        string `json:"DirectoryId"`
+				PrimaryWorkspaceID string `json:"PrimaryWorkspaceId"`
+			} `json:"StandbyWorkspaceRequest"`
+			ErrorCode    string `json:"ErrorCode"`
+			ErrorMessage string `json:"ErrorMessage"`
+		} `json:"FailedStandbyRequests"`
+		PendingStandbyRequests []map[string]any `json:"PendingStandbyRequests"`
 	}
 	decodeJSON(t, rec.Body.Bytes(), &out)
 
-	if len(out.ManagementCidrRanges) == 0 {
-		t.Fatal("expected non-empty CIDR ranges")
+	if len(out.PendingStandbyRequests) != 1 {
+		t.Fatalf("expected 1 pending, got %d", len(out.PendingStandbyRequests))
 	}
+
+	if len(out.FailedStandbyRequests) != 1 {
+		t.Fatalf("expected 1 failure, got %d", len(out.FailedStandbyRequests))
+	}
+
+	failed := out.FailedStandbyRequests[0]
+	if failed.ErrorCode != "InvalidParameterValuesException" {
+		t.Fatalf("expected InvalidParameterValuesException, got %s", failed.ErrorCode)
+	}
+
+	if failed.StandbyWorkspaceRequest.DirectoryID != "d-unregistered" {
+		t.Fatalf(
+			"expected echoed DirectoryId=d-unregistered, got %s",
+			failed.StandbyWorkspaceRequest.DirectoryID,
+		)
+	}
+
+	if failed.StandbyWorkspaceRequest.PrimaryWorkspaceID != "ws-000002" {
+		t.Fatalf(
+			"expected echoed PrimaryWorkspaceId=ws-000002, got %s",
+			failed.StandbyWorkspaceRequest.PrimaryWorkspaceID,
+		)
+	}
+}
+
+// TestCreateStandbyWorkspaces_RequiresFields verifies whole-request shape
+// validation for required fields (PrimaryRegion, a non-empty
+// StandbyWorkspaces list, and each item's DirectoryId/PrimaryWorkspaceId).
+func TestCreateStandbyWorkspaces_RequiresFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "missing PrimaryRegion",
+			body: map[string]any{
+				"StandbyWorkspaces": []map[string]any{
+					{"PrimaryWorkspaceId": "ws-1", "DirectoryId": "d-1"},
+				},
+			},
+		},
+		{
+			name: "empty StandbyWorkspaces",
+			body: map[string]any{
+				"PrimaryRegion":     "us-east-1",
+				"StandbyWorkspaces": []map[string]any{},
+			},
+		},
+		{
+			name: "missing DirectoryId",
+			body: map[string]any{
+				"PrimaryRegion": "us-east-1",
+				"StandbyWorkspaces": []map[string]any{
+					{"PrimaryWorkspaceId": "ws-1"},
+				},
+			},
+		},
+		{
+			name: "missing PrimaryWorkspaceId",
+			body: map[string]any{
+				"PrimaryRegion": "us-east-1",
+				"StandbyWorkspaces": []map[string]any{
+					{"DirectoryId": "d-1"},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandlerWithBackend(t)
+
+			rec := doTargetRequest(t, h, "CreateStandbyWorkspaces", tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body)
+			}
+		})
+	}
+}
+
+// TestListAvailableManagementCidrRanges verifies ManagementCidrRangeConstraint
+// is enforced as required (real smithy `required` field, previously ignored
+// by a stub that always returned the same 3 hardcoded ranges regardless of
+// input) and that the derived ranges are real /26 sub-blocks contained within
+// the given constraint.
+func TestListAvailableManagementCidrRanges(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandlerWithBackend(t)
+
+	t.Run("missing constraint is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "ListAvailableManagementCidrRanges", map[string]any{})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("invalid CIDR is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "ListAvailableManagementCidrRanges", map[string]any{
+			"ManagementCidrRangeConstraint": "not-a-cidr",
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("valid constraint returns contained /26 ranges", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "ListAvailableManagementCidrRanges", map[string]any{
+			"ManagementCidrRangeConstraint": "10.0.0.0/24",
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body)
+		}
+
+		var out struct {
+			ManagementCidrRanges []string `json:"ManagementCidrRanges"`
+		}
+		decodeJSON(t, rec.Body.Bytes(), &out)
+
+		if len(out.ManagementCidrRanges) == 0 {
+			t.Fatal("expected non-empty CIDR ranges")
+		}
+
+		_, constraint, err := net.ParseCIDR("10.0.0.0/24")
+		if err != nil {
+			t.Fatalf("test setup: %v", err)
+		}
+
+		for _, r := range out.ManagementCidrRanges {
+			ip, _, parseErr := net.ParseCIDR(r)
+			if parseErr != nil {
+				t.Fatalf("returned range %q is not a valid CIDR: %v", r, parseErr)
+			}
+
+			if !strings.HasSuffix(r, "/26") {
+				t.Fatalf("expected a /26 sub-range, got %q", r)
+			}
+
+			if !constraint.Contains(ip) {
+				t.Fatalf("returned range %q is not contained in constraint 10.0.0.0/24", r)
+			}
+		}
+	})
 }

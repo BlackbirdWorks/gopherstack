@@ -39,12 +39,25 @@ func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstancePro
 }
 
 // DeleteInstanceProfile deletes an IAM instance profile by name.
+//
+// Matching real AWS: "The instance profile must not have an associated
+// role" — rejected with DeleteConflictException otherwise; the caller must
+// call RemoveRoleFromInstanceProfile first. See
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteInstanceProfile.html.
 func (b *InMemoryBackend) DeleteInstanceProfile(name string) error {
 	b.mu.Lock("DeleteInstanceProfile")
 	defer b.mu.Unlock()
 
-	if _, exists := b.instanceProfiles.Get(name); !exists {
+	ip, exists := b.instanceProfiles.Get(name)
+	if !exists {
 		return fmt.Errorf("%w: instance profile %q not found", ErrInstanceProfileNotFound, name)
+	}
+
+	if len(ip.Roles) > 0 {
+		return fmt.Errorf(
+			"%w: instance profile %q has an associated role",
+			ErrDeleteConflict, name,
+		)
 	}
 
 	b.instanceProfiles.Delete(name)

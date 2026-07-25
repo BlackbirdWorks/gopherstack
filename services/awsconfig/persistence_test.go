@@ -129,6 +129,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "rule_resource_evaluation_round_trip",
 			setup: func(b *awsconfig.InMemoryBackend) string {
+				require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-ext"}))
 				require.NoError(t, b.PutExternalEvaluation(awsconfig.EvaluationResult{
 					ConfigRuleName: "rule-ext",
 					ComplianceType: "NON_COMPLIANT",
@@ -142,7 +143,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *awsconfig.InMemoryBackend, id string) {
 				t.Helper()
 
-				byRule := b.GetComplianceDetailsByConfigRule(id, nil)
+				byRule, err := b.GetComplianceDetailsByConfigRule(id, nil)
+				require.NoError(t, err)
 				require.Len(t, byRule, 1)
 				assert.Equal(t, "bucket-ext", byRule[0].EvaluationResultIdentifier.EvaluationResultQualifier.ResourceID)
 				assert.Equal(t, "NON_COMPLIANT", byRule[0].ComplianceType)
@@ -302,7 +304,7 @@ func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
 	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil))
-	require.NoError(t, b.PutConformancePack("pack-1", "", ""))
+	require.NoError(t, b.PutConformancePack("pack-1", "", "", ""))
 	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 
@@ -325,7 +327,8 @@ func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
 	require.Len(t, auths, 1)
 	assert.Equal(t, "123456789012", auths[0].AuthorizedAccountID)
 
-	rules := fresh.DescribeConfigRules(nil)
+	rules, err := fresh.DescribeConfigRules(nil)
+	require.NoError(t, err)
 	require.Len(t, rules, 1)
 	assert.Equal(t, "rule-x", rules[0].ConfigRuleName)
 
@@ -351,7 +354,7 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil))
-	require.NoError(t, b.PutConformancePack("pack-1", "", ""))
+	require.NoError(t, b.PutConformancePack("pack-1", "", "", ""))
 	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 	require.NoError(t, b.PutStoredQuery("query-1"))
@@ -361,6 +364,7 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 	}))
 	evalID := b.StartResourceEvaluation("AWS::S3::Bucket", "eval-bucket", "DETAILED", `{"a":1}`)
 	require.NoError(t, b.PutResourceConfig("AWS::S3::Bucket", "bucket-1", `{"a":1}`))
+	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-ext"}))
 	require.NoError(t, b.PutExternalEvaluation(awsconfig.EvaluationResult{
 		ConfigRuleName: "rule-ext",
 		ComplianceType: "NON_COMPLIANT",
@@ -377,7 +381,11 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 	assert.Len(t, fresh.DescribeConfigurationRecorders(nil), 1)
 	assert.Len(t, fresh.DescribeDeliveryChannels(nil), 1)
 	assert.Len(t, fresh.DescribeAggregationAuthorizations(), 1)
-	assert.Len(t, fresh.DescribeConfigRules(nil), 1)
+
+	restoredRules, err := fresh.DescribeConfigRules(nil)
+	require.NoError(t, err)
+	assert.Len(t, restoredRules, 2) // "rule-x" and "rule-ext"
+
 	assert.Len(t, fresh.DescribeConfigurationAggregators(), 1)
 	assert.Len(t, fresh.DescribeConformancePacks(), 1)
 	assert.Len(t, fresh.DescribeOrganizationConfigRules(), 1)
@@ -387,7 +395,10 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 	assert.Len(t, fresh.DescribeRemediationConfigurations(nil), 1)
 	require.NotNil(t, fresh.GetResourceEvaluationSummaryByID(evalID))
 	assert.Len(t, fresh.ListDiscoveredResources("AWS::S3::Bucket"), 1)
-	assert.Len(t, fresh.GetComplianceDetailsByConfigRule("rule-ext", nil), 1)
+
+	restoredDetails, err := fresh.GetComplianceDetailsByConfigRule("rule-ext", nil)
+	require.NoError(t, err)
+	assert.Len(t, restoredDetails, 1)
 	assert.Len(t, fresh.GetComplianceDetailsByResource("AWS::S3::Bucket", "bucket-ext", nil), 1)
 }
 

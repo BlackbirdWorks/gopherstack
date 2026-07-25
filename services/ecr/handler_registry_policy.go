@@ -17,7 +17,7 @@ func (h *Handler) handleDeleteRegistryPolicy(
 // emptyInput is the (empty) request body shared by operations that take no
 // input parameters (DescribeRegistry, GetRegistryPolicy,
 // GetRegistryScanningConfiguration, GetSigningConfiguration,
-// DeleteSigningConfiguration, ListPullTimeUpdateExclusions).
+// DeleteSigningConfiguration).
 type emptyInput struct{}
 
 func (h *Handler) handleDescribeRegistry(

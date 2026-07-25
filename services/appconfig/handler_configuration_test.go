@@ -130,7 +130,30 @@ func TestHandler_GetConfiguration_WithContent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, recVer.Code)
 
-	// GetConfiguration should now return 200 with content.
+	// Creating a hosted version alone does not make it "deployed": real
+	// GetConfiguration ("Retrieves the latest DEPLOYED configuration")
+	// must still return 204 until a deployment actually completes.
+	rec = doRequest(t, h, http.MethodGet,
+		"/applications/"+app.ID+"/environments/"+env.ID+"/configurations/"+profile.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code, "must not be visible before any deployment completes")
+
+	// Create a zero-duration deployment strategy and deploy the version.
+	rec = doRequest(t, h, http.MethodPost, "/deploymentstrategies",
+		[]byte(`{"Name":"content-strat","DeploymentDurationInMinutes":0,"GrowthFactor":100,"ReplicateTo":"NONE"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var strat appconfig.DeploymentStrategy
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat))
+
+	depBody := []byte(
+		`{"ConfigurationProfileId":"` + profile.ID +
+			`","DeploymentStrategyId":"` + strat.ID + `","ConfigurationVersion":"1"}`,
+	)
+	rec = doRequest(t, h, http.MethodPost,
+		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments", depBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// GetConfiguration should now return 200 with the deployed content.
 	rec = doRequest(t, h, http.MethodGet,
 		"/applications/"+app.ID+"/environments/"+env.ID+"/configurations/"+profile.ID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)

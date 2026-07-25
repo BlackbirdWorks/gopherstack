@@ -176,18 +176,30 @@ type DestinationProperties struct {
 	KmsKeyArn      string `json:"kmsKeyArn,omitempty"`
 }
 
-// MalwareScan represents a GuardDuty malware scan result.
+// MalwareScan represents a GuardDuty malware scan result. It backs both the
+// older Scan shape (DescribeMalwareScans/ListMalwareScans) and the richer,
+// distinct GetMalwareScanOutput shape (see handleGetMalwareScan) -- the two
+// real API shapes only share scanId/detectorId/scanStatus/scanType by name,
+// so this struct is a superset covering both.
 type MalwareScan struct {
-	ScanID          string         `json:"scanId"`
-	DetectorID      string         `json:"detectorId"`
-	AccountID       string         `json:"accountId"`
-	ScanStartTime   time.Time      `json:"scanStartTime"`
-	ScanEndTime     time.Time      `json:"scanEndTime"`
-	ScanStatus      string         `json:"scanStatus"`
-	ScanType        string         `json:"scanType"`
-	TriggerDetails  map[string]any `json:"triggerDetails"`
-	ResourceDetails map[string]any `json:"resourceDetails"`
-	Findings        []any          `json:"findings"`
+	ScanID                string         `json:"scanId"`
+	DetectorID            string         `json:"detectorId"`
+	AdminDetectorID       string         `json:"adminDetectorId,omitempty"`
+	AccountID             string         `json:"accountId"`
+	ResourceArn           string         `json:"resourceArn,omitempty"`
+	ResourceType          string         `json:"resourceType,omitempty"`
+	ScanCategory          string         `json:"scanCategory,omitempty"`
+	ScanStartTime         time.Time      `json:"scanStartTime"`
+	ScanEndTime           time.Time      `json:"scanEndTime"`
+	ScanStatus            string         `json:"scanStatus"`
+	ScanType              string         `json:"scanType"`
+	ScanStatusReason      string         `json:"scanStatusReason,omitempty"`
+	TriggerDetails        map[string]any `json:"triggerDetails"`
+	ResourceDetails       map[string]any `json:"resourceDetails"`
+	Findings              []any          `json:"findings"`
+	ScannedResourcesCount int32          `json:"scannedResourcesCount"`
+	SkippedResourcesCount int32          `json:"skippedResourcesCount"`
+	FailedResourcesCount  int32          `json:"failedResourcesCount"`
 }
 
 // MalwareScanSettings holds malware scan configuration for a detector.
@@ -215,26 +227,28 @@ type MalwareProtectionPlan struct {
 
 // ThreatEntitySet represents a GuardDuty threat entity set.
 type ThreatEntitySet struct {
-	CreatedAt         time.Time         `json:"createdAt"`
-	UpdatedAt         time.Time         `json:"updatedAt"`
-	Tags              map[string]string `json:"tags,omitempty"`
-	ThreatEntitySetID string            `json:"threatEntitySetId"`
-	DetectorID        string            `json:"-"`
-	Name              string            `json:"name"`
-	Format            string            `json:"format"`
-	Location          string            `json:"location"`
-	Status            string            `json:"status"`
+	CreatedAt           time.Time         `json:"createdAt"`
+	UpdatedAt           time.Time         `json:"updatedAt"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	ThreatEntitySetID   string            `json:"threatEntitySetId"`
+	DetectorID          string            `json:"-"`
+	Name                string            `json:"name"`
+	Format              string            `json:"format"`
+	Location            string            `json:"location"`
+	Status              string            `json:"status"`
+	ExpectedBucketOwner string            `json:"expectedBucketOwner,omitempty"`
 }
 
 // TrustedEntitySet represents a GuardDuty trusted entity set.
 type TrustedEntitySet struct {
-	CreatedAt          time.Time         `json:"createdAt"`
-	UpdatedAt          time.Time         `json:"updatedAt"`
-	Tags               map[string]string `json:"tags,omitempty"`
-	TrustedEntitySetID string            `json:"trustedEntitySetId"`
-	DetectorID         string            `json:"-"`
-	Name               string            `json:"name"`
-	Format             string            `json:"format"`
-	Location           string            `json:"location"`
-	Status             string            `json:"status"`
+	CreatedAt           time.Time         `json:"createdAt"`
+	UpdatedAt           time.Time         `json:"updatedAt"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	TrustedEntitySetID  string            `json:"trustedEntitySetId"`
+	DetectorID          string            `json:"-"`
+	Name                string            `json:"name"`
+	Format              string            `json:"format"`
+	Location            string            `json:"location"`
+	Status              string            `json:"status"`
+	ExpectedBucketOwner string            `json:"expectedBucketOwner,omitempty"`
 }

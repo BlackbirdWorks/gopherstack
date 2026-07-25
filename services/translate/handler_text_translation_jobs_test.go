@@ -2,6 +2,7 @@ package translate_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -205,11 +206,27 @@ func TestDescribeTextTranslationJob_NotFound(t *testing.T) {
 }
 
 // TestDescribeTextTranslationJob_TerminologyAndParallelDataFields verifies
-// that TerminologyNames and ParallelDataNames are preserved and returned in job details.
+// that TerminologyNames and ParallelDataNames are preserved and returned in
+// job details. StartTextTranslationJob validates that referenced
+// TerminologyNames/ParallelDataNames exist (real AWS models
+// ResourceNotFoundException for exactly this -- the only named-resource
+// lookup the operation performs), so both must be created first.
 func TestDescribeTextTranslationJob_TerminologyAndParallelDataFields(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+
+	termRec := doRequest(t, h, "ImportTerminology", map[string]any{
+		"Name": "my-term", "MergeStrategy": "OVERWRITE",
+		"TerminologyData": map[string]any{"Format": "CSV"},
+	})
+	require.Equal(t, http.StatusOK, termRec.Code)
+
+	pdRec := doRequest(t, h, "CreateParallelData", map[string]any{
+		"Name":               "my-pd",
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+	})
+	require.Equal(t, http.StatusOK, pdRec.Code)
 
 	rec := doRequest(t, h, "StartTextTranslationJob", map[string]any{
 		"JobName":             "fields-test",
@@ -233,6 +250,158 @@ func TestDescribeTextTranslationJob_TerminologyAndParallelDataFields(t *testing.
 	pdNames, _ := props["ParallelDataNames"].([]any)
 	assert.Equal(t, []any{"my-term"}, termNames)
 	assert.Equal(t, []any{"my-pd"}, pdNames)
+}
+
+// TestStartTextTranslationJob_UnknownTerminologyRejected verifies that
+// referencing a TerminologyNames or ParallelDataNames entry that does not
+// exist returns ResourceNotFoundException, matching real AWS: "Use the
+// ListTerminologies/ListParallelData operation to get the available
+// resources" implies StartTextTranslationJob validates the reference.
+func TestStartTextTranslationJob_UnknownTerminologyRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "unknown_terminology_name",
+			body: map[string]any{"TerminologyNames": []string{"no-such-term"}},
+		},
+		{
+			name: "unknown_parallel_data_name",
+			body: map[string]any{"ParallelDataNames": []string{"no-such-pd"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := map[string]any{
+				"JobName":             "bad-ref-job",
+				"SourceLanguageCode":  "en",
+				"TargetLanguageCodes": []string{"fr"},
+				"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/r",
+				"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
+				"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+			}
+			maps.Copy(body, tt.body)
+
+			rec := doRequest(t, h, "StartTextTranslationJob", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var respBody map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody))
+			assert.Equal(t, "ResourceNotFoundException", respBody["__type"])
+		})
+	}
+}
+
+// TestStartTextTranslationJob_RequiredFieldsValidated verifies that omitting
+// any of StartTextTranslationJobRequest's required members (DataAccessRoleArn,
+// InputDataConfig, OutputDataConfig, SourceLanguageCode, TargetLanguageCodes)
+// is rejected as InvalidRequestException instead of silently creating a job
+// with a hole in its configuration.
+func TestStartTextTranslationJob_RequiredFieldsValidated(t *testing.T) {
+	t.Parallel()
+
+	full := func() map[string]any {
+		return map[string]any{
+			"JobName":             "req-fields-job",
+			"SourceLanguageCode":  "en",
+			"TargetLanguageCodes": []string{"fr"},
+			"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/r",
+			"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
+			"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+		}
+	}
+
+	tests := []struct {
+		name   string
+		remove string
+	}{
+		{name: "missing_data_access_role_arn", remove: "DataAccessRoleArn"},
+		{name: "missing_input_data_config", remove: "InputDataConfig"},
+		{name: "missing_output_data_config", remove: "OutputDataConfig"},
+		{name: "missing_source_language_code", remove: "SourceLanguageCode"},
+		{name: "missing_target_language_codes", remove: "TargetLanguageCodes"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			body := full()
+			delete(body, tt.remove)
+
+			rec := doRequest(t, h, "StartTextTranslationJob", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var respBody map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody))
+			assert.Equal(t, "InvalidRequestException", respBody["__type"])
+		})
+	}
+}
+
+// TestStartTextTranslationJob_UnsupportedLanguagePairRejected verifies that
+// an unrecognized source or target language code is rejected as
+// UnsupportedLanguagePairException, and that "auto" is always accepted as a
+// source language.
+func TestStartTextTranslationJob_UnsupportedLanguagePairRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "unknown_source_language",
+			body:     map[string]any{"SourceLanguageCode": "xx"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "unknown_target_language",
+			body:     map[string]any{"TargetLanguageCodes": []string{"xx"}},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "auto_source_accepted",
+			body:     map[string]any{"SourceLanguageCode": "auto"},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			body := map[string]any{
+				"JobName":             "lang-pair-job",
+				"SourceLanguageCode":  "en",
+				"TargetLanguageCodes": []string{"fr"},
+				"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/r",
+				"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
+				"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+			}
+			maps.Copy(body, tt.body)
+
+			rec := doRequest(t, h, "StartTextTranslationJob", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusBadRequest {
+				var respBody map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody))
+				assert.Equal(t, "UnsupportedLanguagePairException", respBody["__type"])
+			}
+		})
+	}
 }
 
 // TestListTextTranslationJobs_StatusFilter verifies that filtering by
@@ -347,6 +516,24 @@ func TestJobToMap_IncludesJobDetails(t *testing.T) {
 	assert.Contains(t, d, "TranslatedDocumentsCount")
 	assert.Contains(t, d, "DocumentsWithErrorsCount")
 	assert.Contains(t, d, "InputDocumentsCount")
+}
+
+// TestListTextTranslationJobs_InvalidFilterRejected verifies that an
+// unrecognized Filter.JobStatus value is rejected as InvalidFilterException
+// rather than silently matching zero jobs.
+func TestListTextTranslationJobs_InvalidFilterRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "ListTextTranslationJobs", map[string]any{
+		"Filter": map[string]any{"JobStatus": "NOT_A_REAL_STATUS"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "InvalidFilterException", body["__type"])
 }
 
 // TestListTextTranslationJobs_StatusFilterMinCount verifies filtering by

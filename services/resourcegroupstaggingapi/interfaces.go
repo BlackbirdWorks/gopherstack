@@ -6,8 +6,8 @@ import "context"
 type StorageBackend interface {
 	// Tag/resource operations
 	GetResources(ctx context.Context, input *GetResourcesInput) (*GetResourcesOutput, error)
-	GetTagKeys(ctx context.Context, input *GetTagKeysInput) *GetTagKeysOutput
-	GetTagValues(ctx context.Context, input *GetTagValuesInput) *GetTagValuesOutput
+	GetTagKeys(ctx context.Context, input *GetTagKeysInput) (*GetTagKeysOutput, error)
+	GetTagValues(ctx context.Context, input *GetTagValuesInput) (*GetTagValuesOutput, error)
 	TagResources(ctx context.Context, input *TagResourcesInput) (*TagResourcesOutput, error)
 	UntagResources(ctx context.Context, input *UntagResourcesInput) (*UntagResourcesOutput, error)
 
@@ -16,7 +16,7 @@ type StorageBackend interface {
 	DescribeReportCreation(ctx context.Context) *DescribeReportCreationOutput
 
 	// Compliance and policy operations
-	GetComplianceSummary(ctx context.Context, input *GetComplianceSummaryInput) *GetComplianceSummaryOutput
+	GetComplianceSummary(ctx context.Context, input *GetComplianceSummaryInput) (*GetComplianceSummaryOutput, error)
 	ListRequiredTags(ctx context.Context, input *ListRequiredTagsInput) *ListRequiredTagsOutput
 
 	// Provider registration

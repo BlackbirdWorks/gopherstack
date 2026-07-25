@@ -3,6 +3,7 @@ package comprehend
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -82,6 +83,16 @@ func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any, 
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: JobName is required", ErrValidation)
 	}
+	if len(tags) > maxTagsPerResource {
+		return nil, fmt.Errorf(
+			"%w: request would exceed the %d-tag-per-resource limit",
+			ErrTooManyTags,
+			maxTagsPerResource,
+		)
+	}
+	if err := validateKmsKeyID(stringValue(values, "VolumeKmsKeyId", "")); err != nil {
+		return nil, err
+	}
 
 	b.mu.Lock("StartJob")
 	defer b.mu.Unlock()
@@ -106,6 +117,7 @@ func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any, 
 		InputDataConfig:       mapValue(values, "InputDataConfig"),
 		OutputDataConfig:      mapValue(values, "OutputDataConfig"),
 		TargetEventTypes:      stringSliceValue(values, "TargetEventTypes"),
+		Configuration:         cloneMap(values),
 		SubmitTime:            time.Now().UTC(),
 		shouldFail:            strings.Contains(strings.ToLower(name), failedMarker),
 	}
@@ -122,7 +134,7 @@ func (b *InMemoryBackend) DescribeJob(id, jobType string) (*Job, error) {
 
 	job, ok := b.jobs.Get(id)
 	if !ok || job.JobType != jobType {
-		return nil, fmt.Errorf("%w: job %q", ErrNotFound, id)
+		return nil, fmt.Errorf("%w: job %q", ErrJobNotFound, id)
 	}
 
 	advanceJob(job)
@@ -138,7 +150,7 @@ func (b *InMemoryBackend) StopJob(id, jobType string) (*Job, error) {
 
 	job, ok := b.jobs.Get(id)
 	if !ok || job.JobType != jobType {
-		return nil, fmt.Errorf("%w: job %q", ErrNotFound, id)
+		return nil, fmt.Errorf("%w: job %q", ErrJobNotFound, id)
 	}
 
 	switch job.JobStatus {
@@ -197,6 +209,19 @@ func (b *InMemoryBackend) CreateResource(
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
+	if len(tags) > maxTagsPerResource {
+		return nil, fmt.Errorf(
+			"%w: request would exceed the %d-tag-per-resource limit",
+			ErrTooManyTags,
+			maxTagsPerResource,
+		)
+	}
+	if err := validateKmsKeyID(stringValue(values, "ModelKmsKeyId", "")); err != nil {
+		return nil, err
+	}
+	if err := validateKmsKeyID(stringValue(values, "VolumeKmsKeyId", "")); err != nil {
+		return nil, err
+	}
 
 	resourceArn := b.resourceARN(resourceType, name, versionName)
 	b.mu.Lock("CreateResource")
@@ -224,6 +249,14 @@ func (b *InMemoryBackend) CreateResource(
 		resource.EndpointArn = resourceArn
 	case resourceTypeDataset:
 		resource.DatasetArn = resourceArn
+	}
+	if isTrainingResourceType(resourceType) && resource.Status == statusTrained {
+		// Training is fast-forwarded straight to TRAINED (see
+		// initialResourceStatus), so there is no separate SUBMITTED ->
+		// IN_PROGRESS transition to timestamp -- collapse both training
+		// timestamps to the creation instant rather than leaving them zero.
+		resource.TrainingStartTime = now
+		resource.TrainingEndTime = now
 	}
 	b.resources.Put(resource)
 	b.tags[resourceArn] = tagsMap(tags)
@@ -369,7 +402,9 @@ func (b *InMemoryBackend) ListFlywheelIterations(flywheelArn string) []*Flywheel
 	return out
 }
 
-// TagResource adds or replaces tags on an existing resource.
+// TagResource adds or replaces tags on an existing resource. AWS returns
+// TooManyTagsException when the resulting tag set (existing keys plus newly
+// requested ones) would exceed the 50-tag-per-resource limit.
 func (b *InMemoryBackend) TagResource(resourceArn string, tags []Tag) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
@@ -377,6 +412,10 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags []Tag) error {
 	current, ok := b.tags[resourceArn]
 	if !ok {
 		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
+	}
+	if mergedTagKeyCount(current, tags) > maxTagsPerResource {
+		return fmt.Errorf("%w: resource %q would exceed the %d-tag-per-resource limit",
+			ErrTooManyTags, resourceArn, maxTagsPerResource)
 	}
 	for _, tag := range tags {
 		current[tag.Key] = tag.Value
@@ -499,8 +538,7 @@ func initialResourceStatus(resourceType string) string {
 		return statusActive
 	case resourceTypeFlywheel, resourceTypeDataset:
 		return statusReady
-	case resourceTypeDocClassifier, resourceTypeDocClassifierVersion,
-		resourceTypeEntityRecognizer, resourceTypeEntityRecognizerVer:
+	case resourceTypeDocClassifier, resourceTypeEntityRecognizer:
 		// Emulator skips async training; classifiers/recognizers are immediately TRAINED.
 		// The real AWS provider waits minutes before polling, causing CI timeouts if we
 		// start at SUBMITTED and require multiple poll cycles.
@@ -513,8 +551,7 @@ func initialResourceStatus(resourceType string) string {
 // isTrainingResourceType reports whether rType goes through async training.
 func isTrainingResourceType(rType string) bool {
 	switch rType {
-	case resourceTypeDocClassifier, resourceTypeDocClassifierVersion,
-		resourceTypeEntityRecognizer, resourceTypeEntityRecognizerVer:
+	case resourceTypeDocClassifier, resourceTypeEntityRecognizer:
 		return true
 	}
 
@@ -531,6 +568,7 @@ func advanceTrainingResource(resource *Resource) {
 	case statusSubmitted:
 		resource.Status = statusInProgress
 		resource.UpdatedAt = time.Now().UTC()
+		resource.TrainingStartTime = resource.UpdatedAt
 	case statusInProgress:
 		if strings.Contains(strings.ToLower(resource.Name), failedMarker) {
 			resource.Status = statusFailed
@@ -538,6 +576,7 @@ func advanceTrainingResource(resource *Resource) {
 			resource.Status = statusTrained
 		}
 		resource.UpdatedAt = time.Now().UTC()
+		resource.TrainingEndTime = resource.UpdatedAt
 	}
 }
 
@@ -589,8 +628,50 @@ func cloneJob(job *Job) *Job {
 	cloned.InputDataConfig = cloneMap(job.InputDataConfig)
 	cloned.OutputDataConfig = cloneMap(job.OutputDataConfig)
 	cloned.TargetEventTypes = append([]string(nil), job.TargetEventTypes...)
+	cloned.Configuration = cloneMap(job.Configuration)
 
 	return &cloned
+}
+
+// maxTagsPerResource mirrors the real API's documented 50-tag-per-resource
+// limit (both existing and newly requested tags count toward it).
+const maxTagsPerResource = 50
+
+// mergedTagKeyCount returns the number of distinct tag keys that would exist
+// after applying tags on top of current, without mutating either.
+func mergedTagKeyCount(current map[string]string, tags []Tag) int {
+	merged := make(map[string]struct{}, len(current)+len(tags))
+	for key := range current {
+		merged[key] = struct{}{}
+	}
+	for _, tag := range tags {
+		merged[tag.Key] = struct{}{}
+	}
+
+	return len(merged)
+}
+
+// kmsKeyIDRe matches a bare KMS key ID (UUID form).
+var kmsKeyIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// kmsKeyArnRe matches a KMS key or alias ARN, e.g.
+// "arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+// or "arn:aws:kms:us-west-2:111122223333:alias/my-key".
+var kmsKeyArnRe = regexp.MustCompile(`^arn:aws[a-zA-Z-]*:kms:[a-z0-9-]+:\d{12}:(key/[0-9a-fA-F-]{36}|alias/.+)$`)
+
+// validateKmsKeyID checks a ModelKmsKeyId/VolumeKmsKeyId value against the
+// two shapes AWS documents for every KMS key ID field on this service (bare
+// key ID or key/alias ARN). Empty is valid (the field is optional). Real AWS
+// returns KmsKeyValidationException for a value that matches neither shape.
+func validateKmsKeyID(id string) error {
+	if id == "" {
+		return nil
+	}
+	if kmsKeyIDRe.MatchString(id) || kmsKeyArnRe.MatchString(id) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %q is not a valid KMS key ID or ARN", ErrKmsKeyValidation, id)
 }
 
 func cloneResource(resource *Resource) *Resource {

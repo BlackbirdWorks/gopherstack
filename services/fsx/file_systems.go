@@ -13,22 +13,40 @@ import (
 
 // storedFileSystem is the persisted form of a FileSystem.
 // time.Time is first: non-pointer prefix (wall, ext) reduces GC pointer bytes.
+//
+// The fields below DNSName/StorageType/... are shared across file-system
+// types where the real AWS wire shape happens to reuse the same concept
+// (e.g. DeploymentType is a member of LustreConfiguration,
+// WindowsConfiguration, OntapConfiguration, and OpenZFSConfiguration alike),
+// so one field backs the corresponding member on whichever *Configuration
+// block toFileSystem() populates for this FileSystemType.
 type storedFileSystem struct {
-	CreationTime        time.Time         `json:"creationTime"`
-	Tags                map[string]string `json:"tags"`
-	FileSystemID        string            `json:"fileSystemId"`
-	FileSystemType      string            `json:"fileSystemType"`
-	Lifecycle           string            `json:"lifecycle"`
-	ResourceARN         string            `json:"resourceArn"`
-	DNSName             string            `json:"dnsName,omitempty"`
-	StorageType         string            `json:"storageType,omitempty"`
-	VpcID               string            `json:"vpcId,omitempty"`
-	OwnerID             string            `json:"ownerId,omitempty"`
-	DeploymentType      string            `json:"deploymentType,omitempty"`
-	MountName           string            `json:"mountName,omitempty"`
-	SubnetIDs           []string          `json:"subnetIds,omitempty"`
-	NetworkInterfaceIDs []string          `json:"networkInterfaceIds,omitempty"`
-	StorageCapacityGiB  int32             `json:"storageCapacity,omitempty"`
+	CreationTime                  time.Time         `json:"creationTime"`
+	Tags                          map[string]string `json:"tags"`
+	FileSystemID                  string            `json:"fileSystemId"`
+	FileSystemType                string            `json:"fileSystemType"`
+	Lifecycle                     string            `json:"lifecycle"`
+	ResourceARN                   string            `json:"resourceArn"`
+	DNSName                       string            `json:"dnsName,omitempty"`
+	StorageType                   string            `json:"storageType,omitempty"`
+	VpcID                         string            `json:"vpcId,omitempty"`
+	OwnerID                       string            `json:"ownerId,omitempty"`
+	DeploymentType                string            `json:"deploymentType,omitempty"`
+	MountName                     string            `json:"mountName,omitempty"`
+	ActiveDirectoryID             string            `json:"activeDirectoryId,omitempty"`
+	PreferredSubnetID             string            `json:"preferredSubnetId,omitempty"`
+	DailyAutomaticBackupStartTime string            `json:"dailyAutomaticBackupStartTime,omitempty"`
+	WeeklyMaintenanceStartTime    string            `json:"weeklyMaintenanceStartTime,omitempty"`
+	RootVolumeID                  string            `json:"rootVolumeId,omitempty"`
+	SubnetIDs                     []string          `json:"subnetIds,omitempty"`
+	NetworkInterfaceIDs           []string          `json:"networkInterfaceIds,omitempty"`
+	StorageCapacityGiB            int32             `json:"storageCapacity,omitempty"`
+	ThroughputCapacity            int32             `json:"throughputCapacity,omitempty"`
+	ThroughputCapacityPerHAPair   int32             `json:"throughputCapacityPerHAPair,omitempty"`
+	AutomaticBackupRetentionDays  int32             `json:"automaticBackupRetentionDays,omitempty"`
+	HAPairs                       int32             `json:"haPairs,omitempty"`
+	CopyTagsToBackups             bool              `json:"copyTagsToBackups,omitempty"`
+	CopyTagsToVolumes             bool              `json:"copyTagsToVolumes,omitempty"`
 }
 
 func (s *storedFileSystem) toFileSystem() *FileSystem {
@@ -48,31 +66,91 @@ func (s *storedFileSystem) toFileSystem() *FileSystem {
 		NetworkInterfaceIDs: s.NetworkInterfaceIDs,
 	}
 
-	// AWS always returns a LustreConfiguration block for Lustre file systems.
-	// The terraform-provider-aws Read path treats a nil LustreConfiguration as
-	// an empty result, so a Lustre file system must echo this back.
-	if s.FileSystemType == fileSystemTypeLustre {
-		fs.LustreConfiguration = &LustreConfiguration{
-			DeploymentType: s.DeploymentType,
-			MountName:      s.MountName,
-			DataRepositoryConfiguration: &DataRepositoryConfiguration{
-				Lifecycle: dataRepositoryLifecycleDisabled,
-			},
-		}
+	switch s.FileSystemType {
+	case fileSystemTypeLustre:
+		fs.LustreConfiguration = s.toLustreConfiguration()
+	case fileSystemTypeWindows:
+		fs.WindowsConfiguration = s.toWindowsConfiguration()
+	case fileSystemTypeONTAP:
+		fs.OntapConfiguration = s.toOntapConfiguration()
+	case fileSystemTypeOpenZFS:
+		fs.OpenZFSConfiguration = s.toOpenZFSConfiguration()
 	}
 
 	return fs
 }
 
+// toLustreConfiguration always populates a LustreConfiguration block for
+// Lustre file systems. The terraform-provider-aws Read path treats a nil
+// LustreConfiguration as an empty result, so a Lustre file system must echo
+// this back even when the create request sent no LustreConfiguration.
+func (s *storedFileSystem) toLustreConfiguration() *LustreConfiguration {
+	return &LustreConfiguration{
+		DeploymentType: s.DeploymentType,
+		MountName:      s.MountName,
+		DataRepositoryConfiguration: &DataRepositoryConfiguration{
+			Lifecycle: dataRepositoryLifecycleDisabled,
+		},
+	}
+}
+
+func (s *storedFileSystem) toWindowsConfiguration() *WindowsConfiguration {
+	return &WindowsConfiguration{
+		ActiveDirectoryID:             s.ActiveDirectoryID,
+		DailyAutomaticBackupStartTime: s.DailyAutomaticBackupStartTime,
+		DeploymentType:                s.DeploymentType,
+		PreferredSubnetID:             s.PreferredSubnetID,
+		RemoteAdministrationEndpoint:  s.DNSName,
+		WeeklyMaintenanceStartTime:    s.WeeklyMaintenanceStartTime,
+		AutomaticBackupRetentionDays:  s.AutomaticBackupRetentionDays,
+		ThroughputCapacity:            s.ThroughputCapacity,
+		CopyTagsToBackups:             s.CopyTagsToBackups,
+	}
+}
+
+func (s *storedFileSystem) toOntapConfiguration() *OntapConfiguration {
+	return &OntapConfiguration{
+		Endpoints: &FileSystemEndpoints{
+			Management:   &FileSystemEndpoint{DNSName: s.DNSName},
+			Intercluster: &FileSystemEndpoint{DNSName: "intercluster." + s.DNSName},
+		},
+		DailyAutomaticBackupStartTime: s.DailyAutomaticBackupStartTime,
+		DeploymentType:                s.DeploymentType,
+		PreferredSubnetID:             s.PreferredSubnetID,
+		AutomaticBackupRetentionDays:  s.AutomaticBackupRetentionDays,
+		HAPairs:                       s.HAPairs,
+		ThroughputCapacity:            s.ThroughputCapacity,
+		ThroughputCapacityPerHAPair:   s.ThroughputCapacityPerHAPair,
+	}
+}
+
+func (s *storedFileSystem) toOpenZFSConfiguration() *OpenZFSConfiguration {
+	return &OpenZFSConfiguration{
+		DailyAutomaticBackupStartTime: s.DailyAutomaticBackupStartTime,
+		DeploymentType:                s.DeploymentType,
+		PreferredSubnetID:             s.PreferredSubnetID,
+		RootVolumeID:                  s.RootVolumeID,
+		WeeklyMaintenanceStartTime:    s.WeeklyMaintenanceStartTime,
+		AutomaticBackupRetentionDays:  s.AutomaticBackupRetentionDays,
+		ThroughputCapacity:            s.ThroughputCapacity,
+		CopyTagsToBackups:             s.CopyTagsToBackups,
+		CopyTagsToVolumes:             s.CopyTagsToVolumes,
+	}
+}
+
 // createFileSystemInput holds parameters for CreateFileSystem.
 type createFileSystemInput struct {
-	LustreConfiguration *createLustreConfiguration `json:"LustreConfiguration,omitempty"`
-	FileSystemType      string                     `json:"FileSystemType"`
-	StorageType         string                     `json:"StorageType,omitempty"`
-	VpcID               string                     `json:"VpcId,omitempty"`
-	Tags                []Tag                      `json:"Tags,omitempty"`
-	SubnetIDs           []string                   `json:"SubnetIds,omitempty"`
-	StorageCapacityGiB  int32                      `json:"StorageCapacity,omitempty"`
+	LustreConfiguration  *createLustreConfiguration  `json:"LustreConfiguration,omitempty"`
+	WindowsConfiguration *createWindowsConfiguration `json:"WindowsConfiguration,omitempty"`
+	OntapConfiguration   *createOntapConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration *createOpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	FileSystemType       string                      `json:"FileSystemType"`
+	StorageType          string                      `json:"StorageType,omitempty"`
+	VpcID                string                      `json:"VpcId,omitempty"`
+	Tags                 []Tag                       `json:"Tags,omitempty"`
+	SubnetIDs            []string                    `json:"SubnetIds,omitempty"`
+	SecurityGroupIDs     []string                    `json:"SecurityGroupIds,omitempty"`
+	StorageCapacityGiB   int32                       `json:"StorageCapacity,omitempty"`
 }
 
 // createLustreConfiguration mirrors the CreateFileSystemLustreConfiguration
@@ -81,19 +159,208 @@ type createLustreConfiguration struct {
 	DeploymentType string `json:"DeploymentType,omitempty"`
 }
 
-// CreateFileSystem creates a new file system.
-func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileSystem, error) {
-	if input.FileSystemType == "" {
-		return nil, ErrValidation
-	}
+// createWindowsConfiguration mirrors CreateFileSystemWindowsConfiguration.
+// ThroughputCapacity is a required member on the real SDK type.
+type createWindowsConfiguration struct {
+	ActiveDirectoryID             string   `json:"ActiveDirectoryId,omitempty"`
+	DailyAutomaticBackupStartTime string   `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DeploymentType                string   `json:"DeploymentType,omitempty"`
+	PreferredSubnetID             string   `json:"PreferredSubnetId,omitempty"`
+	WeeklyMaintenanceStartTime    string   `json:"WeeklyMaintenanceStartTime,omitempty"`
+	Aliases                       []string `json:"Aliases,omitempty"`
+	AutomaticBackupRetentionDays  int32    `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32    `json:"ThroughputCapacity,omitempty"`
+	CopyTagsToBackups             bool     `json:"CopyTagsToBackups,omitempty"`
+}
 
+// createOntapConfiguration mirrors CreateFileSystemOntapConfiguration.
+// DeploymentType is a required member on the real SDK type.
+type createOntapConfiguration struct {
+	DailyAutomaticBackupStartTime string `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DeploymentType                string `json:"DeploymentType,omitempty"`
+	FsxAdminPassword              string `json:"FsxAdminPassword,omitempty"`
+	PreferredSubnetID             string `json:"PreferredSubnetId,omitempty"`
+	AutomaticBackupRetentionDays  int32  `json:"AutomaticBackupRetentionDays,omitempty"`
+	HAPairs                       int32  `json:"HAPairs,omitempty"`
+	ThroughputCapacity            int32  `json:"ThroughputCapacity,omitempty"`
+	ThroughputCapacityPerHAPair   int32  `json:"ThroughputCapacityPerHAPair,omitempty"`
+}
+
+// createOpenZFSConfiguration mirrors CreateFileSystemOpenZFSConfiguration.
+// DeploymentType and ThroughputCapacity are required members on the real
+// SDK type.
+type createOpenZFSConfiguration struct {
+	DailyAutomaticBackupStartTime string `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DeploymentType                string `json:"DeploymentType,omitempty"`
+	PreferredSubnetID             string `json:"PreferredSubnetId,omitempty"`
+	WeeklyMaintenanceStartTime    string `json:"WeeklyMaintenanceStartTime,omitempty"`
+	AutomaticBackupRetentionDays  int32  `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32  `json:"ThroughputCapacity,omitempty"`
+	CopyTagsToBackups             bool   `json:"CopyTagsToBackups,omitempty"`
+	CopyTagsToVolumes             bool   `json:"CopyTagsToVolumes,omitempty"`
+}
+
+// fileSystemMinCapacity returns the real-AWS minimum StorageCapacity (GiB)
+// for fsType, and false if fsType is not one of the four supported types.
+func fileSystemMinCapacity(fsType string) (int32, bool) {
 	minCapByType := map[string]int32{
 		fileSystemTypeLustre:  minStorageCapacityLustre,
 		fileSystemTypeWindows: minStorageCapacityWindows,
 		fileSystemTypeONTAP:   minStorageCapacityONTAP,
 		fileSystemTypeOpenZFS: minStorageCapacityOpenZFS,
 	}
-	minCap, ok := minCapByType[input.FileSystemType]
+	minCap, ok := minCapByType[fsType]
+
+	return minCap, ok
+}
+
+// applyLustreConfig sets the Lustre-specific fields on fs. LustreConfiguration
+// is optional on the real CreateFileSystemInput; an absent block (or an
+// absent DeploymentType within it) defaults to SCRATCH_1, matching real AWS.
+func applyLustreConfig(fs *storedFileSystem, cfg *createLustreConfiguration) {
+	fs.MountName = generateLustreMountName()
+	if cfg != nil {
+		fs.DeploymentType = cfg.DeploymentType
+	}
+
+	if fs.DeploymentType == "" {
+		fs.DeploymentType = lustreDeploymentTypeScratch1
+	}
+}
+
+// applyWindowsConfig sets the Windows-specific fields on fs. Real AWS
+// requires WindowsConfiguration with a ThroughputCapacity for every WINDOWS
+// CreateFileSystem call.
+func applyWindowsConfig(fs *storedFileSystem, cfg *createWindowsConfiguration) error {
+	if cfg == nil {
+		return ErrMissingFileSystemConfiguration
+	}
+
+	if cfg.ThroughputCapacity <= 0 {
+		return fmt.Errorf("%w: WindowsConfiguration.ThroughputCapacity is required", ErrValidation)
+	}
+
+	fs.ActiveDirectoryID = cfg.ActiveDirectoryID
+	fs.DailyAutomaticBackupStartTime = cfg.DailyAutomaticBackupStartTime
+	fs.DeploymentType = cfg.DeploymentType
+	fs.PreferredSubnetID = cfg.PreferredSubnetID
+	fs.WeeklyMaintenanceStartTime = cfg.WeeklyMaintenanceStartTime
+	fs.ThroughputCapacity = cfg.ThroughputCapacity
+	fs.CopyTagsToBackups = cfg.CopyTagsToBackups
+	fs.AutomaticBackupRetentionDays = cfg.AutomaticBackupRetentionDays
+
+	if fs.DeploymentType == "" {
+		fs.DeploymentType = windowsDeploymentTypeSingleAZ1
+	}
+
+	if fs.AutomaticBackupRetentionDays == 0 {
+		fs.AutomaticBackupRetentionDays = defaultAutomaticBackupRetentionDays
+	}
+
+	return nil
+}
+
+// applyOntapConfig sets the ONTAP-specific fields on fs. Real AWS requires
+// OntapConfiguration with a DeploymentType, and either ThroughputCapacity or
+// ThroughputCapacityPerHAPair, for every ONTAP CreateFileSystem call.
+func applyOntapConfig(fs *storedFileSystem, cfg *createOntapConfiguration) error {
+	if cfg == nil {
+		return ErrMissingFileSystemConfiguration
+	}
+
+	if cfg.DeploymentType == "" {
+		return fmt.Errorf("%w: OntapConfiguration.DeploymentType is required", ErrValidation)
+	}
+
+	if cfg.ThroughputCapacity <= 0 && cfg.ThroughputCapacityPerHAPair <= 0 {
+		return fmt.Errorf(
+			"%w: OntapConfiguration.ThroughputCapacity or ThroughputCapacityPerHAPair is required", ErrValidation,
+		)
+	}
+
+	fs.DailyAutomaticBackupStartTime = cfg.DailyAutomaticBackupStartTime
+	fs.DeploymentType = cfg.DeploymentType
+	fs.PreferredSubnetID = cfg.PreferredSubnetID
+	fs.AutomaticBackupRetentionDays = cfg.AutomaticBackupRetentionDays
+	fs.HAPairs = cfg.HAPairs
+	fs.ThroughputCapacity = cfg.ThroughputCapacity
+	fs.ThroughputCapacityPerHAPair = cfg.ThroughputCapacityPerHAPair
+
+	if fs.HAPairs == 0 {
+		fs.HAPairs = defaultHAPairs
+	}
+
+	if fs.ThroughputCapacity == 0 {
+		fs.ThroughputCapacity = cfg.ThroughputCapacityPerHAPair * fs.HAPairs
+	}
+
+	if fs.AutomaticBackupRetentionDays == 0 {
+		fs.AutomaticBackupRetentionDays = defaultAutomaticBackupRetentionDays
+	}
+
+	return nil
+}
+
+// applyOpenZFSConfig sets the OpenZFS-specific fields on fs (except
+// RootVolumeID, which the caller assigns after creating the backing root
+// volume). Real AWS requires OpenZFSConfiguration with a DeploymentType and
+// ThroughputCapacity for every OPENZFS CreateFileSystem call.
+func applyOpenZFSConfig(fs *storedFileSystem, cfg *createOpenZFSConfiguration) error {
+	if cfg == nil {
+		return ErrMissingFileSystemConfiguration
+	}
+
+	if cfg.DeploymentType == "" {
+		return fmt.Errorf("%w: OpenZFSConfiguration.DeploymentType is required", ErrValidation)
+	}
+
+	if cfg.ThroughputCapacity <= 0 {
+		return fmt.Errorf("%w: OpenZFSConfiguration.ThroughputCapacity is required", ErrValidation)
+	}
+
+	fs.DailyAutomaticBackupStartTime = cfg.DailyAutomaticBackupStartTime
+	fs.DeploymentType = cfg.DeploymentType
+	fs.PreferredSubnetID = cfg.PreferredSubnetID
+	fs.WeeklyMaintenanceStartTime = cfg.WeeklyMaintenanceStartTime
+	fs.ThroughputCapacity = cfg.ThroughputCapacity
+	fs.CopyTagsToBackups = cfg.CopyTagsToBackups
+	fs.CopyTagsToVolumes = cfg.CopyTagsToVolumes
+	fs.AutomaticBackupRetentionDays = cfg.AutomaticBackupRetentionDays
+
+	if fs.AutomaticBackupRetentionDays == 0 {
+		fs.AutomaticBackupRetentionDays = defaultAutomaticBackupRetentionDays
+	}
+
+	return nil
+}
+
+// applyFileSystemTypeConfig dispatches to the per-type config applier for
+// fs.FileSystemType, keeping CreateFileSystem short and its complexity
+// low enough to need no complexity-suppression comment.
+func applyFileSystemTypeConfig(fs *storedFileSystem, input *createFileSystemInput) error {
+	switch fs.FileSystemType {
+	case fileSystemTypeLustre:
+		applyLustreConfig(fs, input.LustreConfiguration)
+
+		return nil
+	case fileSystemTypeWindows:
+		return applyWindowsConfig(fs, input.WindowsConfiguration)
+	case fileSystemTypeONTAP:
+		return applyOntapConfig(fs, input.OntapConfiguration)
+	case fileSystemTypeOpenZFS:
+		return applyOpenZFSConfig(fs, input.OpenZFSConfiguration)
+	default:
+		return nil
+	}
+}
+
+// CreateFileSystem creates a new file system.
+func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileSystem, error) {
+	if input.FileSystemType == "" {
+		return nil, ErrValidation
+	}
+
+	minCap, ok := fileSystemMinCapacity(input.FileSystemType)
 	if !ok {
 		return nil, fmt.Errorf("%w: unsupported FileSystemType %q", ErrValidation, input.FileSystemType)
 	}
@@ -133,19 +400,16 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		NetworkInterfaceIDs: networkInterfaceIDsForSubnets(input.SubnetIDs),
 	}
 
-	if input.FileSystemType == fileSystemTypeLustre {
-		fs.MountName = generateLustreMountName()
-		if input.LustreConfiguration != nil {
-			fs.DeploymentType = input.LustreConfiguration.DeploymentType
-		}
-
-		if fs.DeploymentType == "" {
-			fs.DeploymentType = lustreDeploymentTypeScratch1
-		}
+	if err := applyFileSystemTypeConfig(fs, input); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateFileSystem")
 	defer b.mu.Unlock()
+
+	if fs.FileSystemType == fileSystemTypeOpenZFS {
+		fs.RootVolumeID = b.createOpenZFSRootVolumeLocked(fs)
+	}
 
 	b.fileSystems.Put(fs)
 	b.tags[arn] = tags
@@ -236,7 +500,14 @@ func (b *InMemoryBackend) DescribeFileSystems(
 	return result, next, nil
 }
 
-// DeleteFileSystem removes a file system.
+// DeleteFileSystem removes a file system, cascading to every child resource
+// real AWS also tears down as part of file-system deletion: storage virtual
+// machines (and, transitively, their volumes and those volumes' snapshots),
+// directly-attached volumes (e.g. an OpenZFS root/child volume), data
+// repository associations, and DNS aliases. Backups and data repository
+// tasks are intentionally left alone: real AWS backups persist independently
+// of the file system they were taken from, and data repository tasks are
+// historical execution records.
 func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 	b.mu.Lock("DeleteFileSystem")
 	defer b.mu.Unlock()
@@ -246,16 +517,174 @@ func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 		return ErrFileSystemNotFound
 	}
 
+	b.cascadeDeleteFileSystemChildrenLocked(fileSystemID)
+
+	delete(b.aliases, fileSystemID)
 	b.fileSystems.Delete(fileSystemID)
 	delete(b.tags, fs.ResourceARN)
 
 	return nil
 }
 
+// cascadeDeleteFileSystemChildrenLocked removes every SVM, volume, and data
+// repository association that belongs to fileSystemID. Caller must already
+// hold b.mu.
+func (b *InMemoryBackend) cascadeDeleteFileSystemChildrenLocked(fileSystemID string) {
+	var svmIDs []string
+
+	b.storageVirtualMachines.Range(func(s *storedStorageVirtualMachine) bool {
+		if s.FileSystemID == fileSystemID {
+			svmIDs = append(svmIDs, s.StorageVirtualMachineID)
+		}
+
+		return true
+	})
+
+	for _, id := range svmIDs {
+		b.deleteStorageVirtualMachineLocked(id)
+	}
+
+	var volumeIDs []string
+
+	b.volumes.Range(func(v *storedVolume) bool {
+		if v.FileSystemID == fileSystemID {
+			volumeIDs = append(volumeIDs, v.VolumeID)
+		}
+
+		return true
+	})
+
+	for _, id := range volumeIDs {
+		b.deleteVolumeLocked(id)
+	}
+
+	var draIDs []string
+
+	b.dataRepositoryAssocs.Range(func(d *storedDataRepositoryAssoc) bool {
+		if d.FileSystemID == fileSystemID {
+			draIDs = append(draIDs, d.AssociationID)
+		}
+
+		return true
+	})
+
+	for _, id := range draIDs {
+		if d, ok := b.dataRepositoryAssocs.Get(id); ok {
+			delete(b.tags, d.ResourceARN)
+		}
+
+		b.dataRepositoryAssocs.Delete(id)
+	}
+}
+
+// updateWindowsConfiguration mirrors UpdateFileSystemWindowsConfiguration.
+type updateWindowsConfiguration struct {
+	DailyAutomaticBackupStartTime string `json:"DailyAutomaticBackupStartTime,omitempty"`
+	WeeklyMaintenanceStartTime    string `json:"WeeklyMaintenanceStartTime,omitempty"`
+	AutomaticBackupRetentionDays  int32  `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32  `json:"ThroughputCapacity,omitempty"`
+}
+
+// updateOntapConfiguration mirrors UpdateFileSystemOntapConfiguration.
+type updateOntapConfiguration struct {
+	DailyAutomaticBackupStartTime string `json:"DailyAutomaticBackupStartTime,omitempty"`
+	FsxAdminPassword              string `json:"FsxAdminPassword,omitempty"`
+	AutomaticBackupRetentionDays  int32  `json:"AutomaticBackupRetentionDays,omitempty"`
+	HAPairs                       int32  `json:"HAPairs,omitempty"`
+	ThroughputCapacity            int32  `json:"ThroughputCapacity,omitempty"`
+	ThroughputCapacityPerHAPair   int32  `json:"ThroughputCapacityPerHAPair,omitempty"`
+}
+
+// updateOpenZFSConfiguration mirrors UpdateFileSystemOpenZFSConfiguration.
+type updateOpenZFSConfiguration struct {
+	DailyAutomaticBackupStartTime string `json:"DailyAutomaticBackupStartTime,omitempty"`
+	WeeklyMaintenanceStartTime    string `json:"WeeklyMaintenanceStartTime,omitempty"`
+	AutomaticBackupRetentionDays  int32  `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32  `json:"ThroughputCapacity,omitempty"`
+}
+
 // updateFileSystemInput holds parameters for UpdateFileSystem.
 type updateFileSystemInput struct {
-	FileSystemID       string `json:"FileSystemId"`
-	StorageCapacityGiB int32  `json:"StorageCapacity,omitempty"`
+	WindowsConfiguration *updateWindowsConfiguration `json:"WindowsConfiguration,omitempty"`
+	OntapConfiguration   *updateOntapConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration *updateOpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	FileSystemID         string                      `json:"FileSystemId"`
+	StorageCapacityGiB   int32                       `json:"StorageCapacity,omitempty"`
+}
+
+// applyWindowsUpdate applies non-zero fields from cfg onto fs, matching real
+// AWS's "only overwrites existing properties with non-null values provided
+// in the request" UpdateFileSystem semantics.
+func applyWindowsUpdate(fs *storedFileSystem, cfg *updateWindowsConfiguration) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.DailyAutomaticBackupStartTime != "" {
+		fs.DailyAutomaticBackupStartTime = cfg.DailyAutomaticBackupStartTime
+	}
+
+	if cfg.WeeklyMaintenanceStartTime != "" {
+		fs.WeeklyMaintenanceStartTime = cfg.WeeklyMaintenanceStartTime
+	}
+
+	if cfg.AutomaticBackupRetentionDays > 0 {
+		fs.AutomaticBackupRetentionDays = cfg.AutomaticBackupRetentionDays
+	}
+
+	if cfg.ThroughputCapacity > 0 {
+		fs.ThroughputCapacity = cfg.ThroughputCapacity
+	}
+}
+
+// applyOntapUpdate applies non-zero fields from cfg onto fs.
+func applyOntapUpdate(fs *storedFileSystem, cfg *updateOntapConfiguration) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.DailyAutomaticBackupStartTime != "" {
+		fs.DailyAutomaticBackupStartTime = cfg.DailyAutomaticBackupStartTime
+	}
+
+	if cfg.AutomaticBackupRetentionDays > 0 {
+		fs.AutomaticBackupRetentionDays = cfg.AutomaticBackupRetentionDays
+	}
+
+	if cfg.HAPairs > 0 {
+		fs.HAPairs = cfg.HAPairs
+	}
+
+	if cfg.ThroughputCapacity > 0 {
+		fs.ThroughputCapacity = cfg.ThroughputCapacity
+	}
+
+	if cfg.ThroughputCapacityPerHAPair > 0 {
+		fs.ThroughputCapacityPerHAPair = cfg.ThroughputCapacityPerHAPair
+	}
+}
+
+// applyOpenZFSUpdate applies non-zero fields from cfg onto fs.
+func applyOpenZFSUpdate(fs *storedFileSystem, cfg *updateOpenZFSConfiguration) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.DailyAutomaticBackupStartTime != "" {
+		fs.DailyAutomaticBackupStartTime = cfg.DailyAutomaticBackupStartTime
+	}
+
+	if cfg.WeeklyMaintenanceStartTime != "" {
+		fs.WeeklyMaintenanceStartTime = cfg.WeeklyMaintenanceStartTime
+	}
+
+	if cfg.AutomaticBackupRetentionDays > 0 {
+		fs.AutomaticBackupRetentionDays = cfg.AutomaticBackupRetentionDays
+	}
+
+	if cfg.ThroughputCapacity > 0 {
+		fs.ThroughputCapacity = cfg.ThroughputCapacity
+	}
 }
 
 // UpdateFileSystem updates a file system's configuration.
@@ -272,6 +701,15 @@ func (b *InMemoryBackend) UpdateFileSystem(input *updateFileSystemInput) (*FileS
 		fs.StorageCapacityGiB = input.StorageCapacityGiB
 	}
 
+	switch fs.FileSystemType {
+	case fileSystemTypeWindows:
+		applyWindowsUpdate(fs, input.WindowsConfiguration)
+	case fileSystemTypeONTAP:
+		applyOntapUpdate(fs, input.OntapConfiguration)
+	case fileSystemTypeOpenZFS:
+		applyOpenZFSUpdate(fs, input.OpenZFSConfiguration)
+	}
+
 	return fs.toFileSystem(), nil
 }
 
@@ -283,6 +721,27 @@ type createFileSystemFromBackupInput struct {
 	VpcID              string `json:"VpcId,omitempty"`
 	Tags               []Tag  `json:"Tags,omitempty"`
 	StorageCapacityGiB int32  `json:"StorageCapacity,omitempty"`
+}
+
+// copyFileSystemTypeConfig copies every type-specific config field from src
+// onto dst (except MountName and RootVolumeID, which the caller regenerates
+// fresh for the new file system rather than reusing the source's). Used by
+// CreateFileSystemFromBackup so a restored WINDOWS/ONTAP/OPENZFS file system
+// still gets a populated, non-zero-valued config block instead of an
+// all-defaults one -- real AWS carries these settings over from the source
+// file system a backup was taken from.
+func copyFileSystemTypeConfig(dst, src *storedFileSystem) {
+	dst.DeploymentType = src.DeploymentType
+	dst.ActiveDirectoryID = src.ActiveDirectoryID
+	dst.PreferredSubnetID = src.PreferredSubnetID
+	dst.DailyAutomaticBackupStartTime = src.DailyAutomaticBackupStartTime
+	dst.WeeklyMaintenanceStartTime = src.WeeklyMaintenanceStartTime
+	dst.ThroughputCapacity = src.ThroughputCapacity
+	dst.ThroughputCapacityPerHAPair = src.ThroughputCapacityPerHAPair
+	dst.AutomaticBackupRetentionDays = src.AutomaticBackupRetentionDays
+	dst.HAPairs = src.HAPairs
+	dst.CopyTagsToBackups = src.CopyTagsToBackups
+	dst.CopyTagsToVolumes = src.CopyTagsToVolumes
 }
 
 // CreateFileSystemFromBackup creates a new file system from an existing backup.
@@ -329,10 +788,26 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		FileSystemType:     fsType,
 		Lifecycle:          lifecycleAvailable,
 		ResourceARN:        arn,
+		DNSName:            fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
 		StorageCapacityGiB: capacity,
 		StorageType:        storageType,
 		VpcID:              input.VpcID,
 		OwnerID:            b.accountID,
+	}
+
+	if srcFS != nil {
+		copyFileSystemTypeConfig(fs, srcFS)
+	}
+
+	switch fsType {
+	case fileSystemTypeLustre:
+		fs.MountName = generateLustreMountName()
+
+		if fs.DeploymentType == "" {
+			fs.DeploymentType = lustreDeploymentTypeScratch1
+		}
+	case fileSystemTypeOpenZFS:
+		fs.RootVolumeID = b.createOpenZFSRootVolumeLocked(fs)
 	}
 
 	b.fileSystems.Put(fs)

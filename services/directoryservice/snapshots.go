@@ -170,7 +170,7 @@ func (b *InMemoryBackend) RestoreFromSnapshot(ctx context.Context, snapshotID st
 		return ErrDirectoryNotFound
 	}
 
-	dir.Stage = string(DirectoryStageRestoring)
+	setStage(dir, DirectoryStageRestoring)
 
 	dirID := dir.DirectoryID
 
@@ -179,7 +179,7 @@ func (b *InMemoryBackend) RestoreFromSnapshot(ctx context.Context, snapshotID st
 
 		b.mu.Lock("RestoreFromSnapshot:active")
 		if d, exists := b.directoryGet(region, id); exists && d.Stage == string(DirectoryStageRestoring) {
-			d.Stage = string(DirectoryStageActive)
+			setStage(d, DirectoryStageActive)
 		}
 		b.mu.Unlock()
 	}(region, dirID)

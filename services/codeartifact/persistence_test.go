@@ -84,7 +84,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		[]string{"upstream-1"})
 	require.NoError(t, err)
 
-	pg, err := original.CreatePackageGroup(ctx, "domain-1", "npm/pkg/*", "a group", "contact@example.com", nil)
+	pg, err := original.CreatePackageGroup(ctx, "domain-1", "/npm/pkg/*", "a group", "contact@example.com", nil)
 	require.NoError(t, err)
 
 	// Auto-creates a stub Package entry.
@@ -142,7 +142,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "core", repoTagVals["team"])
 
 	// packageGroups table ("dirty": hidden region field via a DTO).
-	gotPG, err := fresh.DescribePackageGroup(ctx, "domain-1", "npm/pkg/*")
+	gotPG, err := fresh.DescribePackageGroup(ctx, "domain-1", "/npm/pkg/*")
 	require.NoError(t, err)
 	assert.Equal(t, pg.ARN, gotPG.ARN)
 	assert.Equal(t, "a group", gotPG.Description)

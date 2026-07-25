@@ -11,12 +11,31 @@ import (
 
 // PublishVersion creates an immutable version snapshot of the current $LATEST function config.
 func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVersion, error) {
+	return b.publishVersion(name, description, "")
+}
+
+// PublishVersionWithRevision behaves like PublishVersion but additionally
+// enforces AWS's optimistic-concurrency RevisionId precondition: when
+// revisionID is non-empty it must match the function's current ($LATEST)
+// RevisionId or the publish is rejected with ErrPreconditionFailed and the
+// function is left unmodified. The check and the publish happen under a
+// single lock acquisition to avoid a check-then-act race against a concurrent
+// UpdateFunctionConfiguration/UpdateFunctionCode.
+func (b *InMemoryBackend) PublishVersionWithRevision(name, description, revisionID string) (*FunctionVersion, error) {
+	return b.publishVersion(name, description, revisionID)
+}
+
+func (b *InMemoryBackend) publishVersion(name, description, revisionID string) (*FunctionVersion, error) {
 	b.mu.Lock("PublishVersion")
 	defer b.mu.Unlock()
 
 	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
+	}
+
+	if revisionID != "" && revisionID != fn.RevisionID {
+		return nil, ErrPreconditionFailed
 	}
 
 	b.versionCounters[name]++
@@ -46,6 +65,7 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 		CreatedAt:         fn.LastModified,
 		State:             fn.State,
 		SnapStart:         copySnapStart(fn.SnapStart),
+		DurableConfig:     fn.DurableConfig,
 	}
 
 	b.versions[name] = append(b.versions[name], ver)
@@ -206,6 +226,10 @@ func (b *InMemoryBackend) UpdateAlias(
 		return nil, ErrAliasNotFound
 	}
 
+	if input.RevisionID != "" && input.RevisionID != alias.RevisionID {
+		return nil, ErrPreconditionFailed
+	}
+
 	if input.FunctionVersion != "" {
 		alias.FunctionVersion = input.FunctionVersion
 	}
@@ -293,6 +317,7 @@ func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 		State:             fn.State,
 		CodeSha256:        fn.CodeSha256,
 		SnapStart:         copySnapStart(fn.SnapStart),
+		DurableConfig:     fn.DurableConfig,
 	}
 }
 
@@ -364,6 +389,7 @@ func versionToConfig(v *FunctionVersion) *FunctionConfiguration {
 		State:             v.State,
 		Version:           v.Version,
 		SnapStart:         copySnapStart(v.SnapStart),
+		DurableConfig:     v.DurableConfig,
 		// Published versions are immutable: their last-update status is always
 		// Successful (AWS never reports Pending/InProgress for a numbered version).
 		LastUpdateStatus: LastUpdateStatusSuccessful,

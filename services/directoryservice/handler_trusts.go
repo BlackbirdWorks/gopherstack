@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -22,27 +23,40 @@ func (h *Handler) handleCreateTrust(c *echo.Context) error {
 		TrustPassword    string `json:"TrustPassword"`
 		TrustDirection   string `json:"TrustDirection"`
 		TrustType        string `json:"TrustType"`
+		SelectiveAuth    string `json:"SelectiveAuth"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
-	if req.DirectoryID == "" || req.RemoteDomainName == "" {
+	if req.DirectoryID == "" || req.RemoteDomainName == "" || req.TrustPassword == "" || req.TrustDirection == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ClientException", "DirectoryId and RemoteDomainName are required"),
+			errResp("InvalidParameterException",
+				"DirectoryId, RemoteDomainName, TrustPassword and TrustDirection are required"),
 		)
+	}
+
+	if !validEnum(req.TrustDirection,
+		string(TrustDirectionOneWayOutgoing), string(TrustDirectionOneWayIncoming), string(TrustDirectionTwoWay)) {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid TrustDirection"))
+	}
+	if !validEnum(req.TrustType, string(TrustTypeForest), string(TrustTypeExternal)) {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid TrustType"))
+	}
+	if !validEnum(req.SelectiveAuth, string(SelectiveAuthEnabled), string(SelectiveAuthDisabled)) {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid SelectiveAuth"))
 	}
 
 	trustType := req.TrustType
 	if trustType == "" {
-		trustType = "Forest"
+		trustType = string(TrustTypeForest)
 	}
 
 	trustID, createErr := h.Backend.CreateTrust(
 		h.contextWithRegion(c),
-		req.DirectoryID, req.RemoteDomainName, req.TrustPassword, req.TrustDirection, trustType,
+		req.DirectoryID, req.RemoteDomainName, req.TrustPassword, req.TrustDirection, trustType, req.SelectiveAuth,
 	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
@@ -69,7 +83,7 @@ func (h *Handler) handleDeleteTrust(c *echo.Context) error {
 	}
 
 	if req.TrustID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "TrustId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "TrustId is required"))
 	}
 
 	trustID, delErr := h.Backend.DeleteTrust(h.contextWithRegion(c), req.TrustID)
@@ -112,17 +126,22 @@ func (h *Handler) handleDescribeTrusts(c *echo.Context) error {
 
 	trustList := make([]map[string]any, 0, len(trusts))
 	for _, t := range trusts {
-		trustList = append(trustList, map[string]any{
-			keyDirectoryID:        t.DirectoryID,
-			"TrustId":             t.TrustID,
-			"RemoteDomainName":    t.RemoteDomainName,
-			"TrustDirection":      t.TrustDirection,
-			"TrustType":           t.TrustType,
-			"TrustState":          t.TrustState,
-			"SelectiveAuth":       t.SelectiveAuth,
-			"CreatedDateTime":     awstime.Epoch(t.CreatedDateTime),     //nolint:goconst // existing issue.
-			"LastUpdatedDateTime": awstime.Epoch(t.LastUpdatedDateTime), //nolint:goconst // existing issue.
-		})
+		entry := map[string]any{
+			keyDirectoryID:             t.DirectoryID,
+			"TrustId":                  t.TrustID,
+			"RemoteDomainName":         t.RemoteDomainName,
+			"TrustDirection":           t.TrustDirection,
+			"TrustType":                t.TrustType,
+			"TrustState":               t.TrustState,
+			"SelectiveAuth":            t.SelectiveAuth,
+			"CreatedDateTime":          awstime.Epoch(t.CreatedDateTime),     //nolint:goconst // existing issue.
+			"LastUpdatedDateTime":      awstime.Epoch(t.LastUpdatedDateTime), //nolint:goconst // existing issue.
+			"StateLastUpdatedDateTime": awstime.Epoch(t.StateLastUpdatedTime),
+		}
+		if t.TrustStateReason != "" {
+			entry["TrustStateReason"] = t.TrustStateReason
+		}
+		trustList = append(trustList, entry)
 	}
 
 	resp := map[string]any{"Trusts": trustList}
@@ -149,7 +168,10 @@ func (h *Handler) handleUpdateTrust(c *echo.Context) error {
 	}
 
 	if req.TrustID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "TrustId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "TrustId is required"))
+	}
+	if !validEnum(req.SelectiveAuth, string(SelectiveAuthEnabled), string(SelectiveAuthDisabled)) {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid SelectiveAuth"))
 	}
 
 	trustID, updateErr := h.Backend.UpdateTrust(h.contextWithRegion(c), req.TrustID, req.SelectiveAuth)
@@ -158,8 +180,8 @@ func (h *Handler) handleUpdateTrust(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"TrustId":   trustID,
-		"RequestId": trustID, //nolint:goconst // existing issue.
+		"TrustId":    trustID,
+		keyRequestID: uuid.NewString(),
 	})
 }
 
@@ -178,7 +200,7 @@ func (h *Handler) handleVerifyTrust(c *echo.Context) error {
 	}
 
 	if req.TrustID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "TrustId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "TrustId is required"))
 	}
 
 	trustID, verifyErr := h.Backend.VerifyTrust(h.contextWithRegion(c), req.TrustID)

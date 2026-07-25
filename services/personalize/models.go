@@ -39,13 +39,17 @@ type Schema struct {
 
 // Solution stores an Amazon Personalize solution.
 type Solution struct {
-	CreationDateTime         time.Time
 	LastUpdatedDateTime      time.Time
-	SolutionArn              string
+	CreationDateTime         time.Time
+	SolutionConfig           map[string]any
+	AutoMLResult             map[string]any
+	LatestSolutionUpdate     map[string]any
 	DatasetGroupArn          string
-	Name                     string
-	RecipeArn                string
+	EventType                string
 	Status                   string
+	RecipeArn                string
+	Name                     string
+	SolutionArn              string
 	PerformAutoML            bool
 	PerformHPO               bool
 	PerformAutoTraining      bool
@@ -56,6 +60,7 @@ type Solution struct {
 type SolutionVersion struct {
 	CreationDateTime    time.Time
 	LastUpdatedDateTime time.Time
+	SolutionConfig      map[string]any
 	SolutionVersionArn  string
 	SolutionArn         string
 	Status              string
@@ -65,13 +70,15 @@ type SolutionVersion struct {
 
 // Campaign stores an Amazon Personalize campaign.
 type Campaign struct {
-	CreationDateTime    time.Time
-	LastUpdatedDateTime time.Time
-	CampaignArn         string
-	SolutionVersionArn  string
-	Name                string
-	Status              string
-	MinProvisionedTPS   int32
+	CreationDateTime     time.Time
+	LastUpdatedDateTime  time.Time
+	CampaignConfig       map[string]any
+	LatestCampaignUpdate map[string]any
+	CampaignArn          string
+	SolutionVersionArn   string
+	Name                 string
+	Status               string
+	MinProvisionedTPS    int32
 }
 
 // DatasetImportJob stores an async dataset import job.
@@ -150,6 +157,8 @@ type Filter struct {
 type Recommender struct {
 	CreationDateTime                   time.Time
 	LastUpdatedDateTime                time.Time
+	RecommenderConfig                  map[string]any
+	LatestRecommenderUpdate            map[string]any
 	RecommenderArn                     string
 	DatasetGroupArn                    string
 	RecipeArn                          string

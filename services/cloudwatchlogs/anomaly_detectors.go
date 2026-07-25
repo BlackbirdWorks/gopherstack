@@ -50,7 +50,7 @@ func (b *InMemoryBackend) CreateLogAnomalyDetector(
 	detector := &LogAnomalyDetector{
 		AnomalyDetectorArn:    detectorARN,
 		DetectorName:          detectorName,
-		DetectorStatus:        detectorStatusInitializing,
+		AnomalyDetectorStatus: detectorStatusInitializing,
 		LogGroupArnList:       slices.Clone(logGroupArnList),
 		EvaluationFrequency:   evaluationFrequency,
 		FilterPattern:         filterPattern,
@@ -148,10 +148,17 @@ func (b *InMemoryBackend) ListLogAnomalyDetectors(
 	return all[startIdx:end], outToken, nil
 }
 
-// UpdateLogAnomalyDetector updates evaluation frequency and/or anomaly visibility time.
+// UpdateLogAnomalyDetector updates evaluation frequency and/or anomaly
+// visibility time, and pauses or resumes the detector via enabled (aws-sdk-go-v2
+// UpdateLogAnomalyDetectorInput.Enabled -- a required field on the real API,
+// used to pause/restart the detector; see types.AnomalyDetectorStatusPaused).
+// enabled=false always sets the detector to PAUSED; enabled=true resumes a
+// paused detector to ANALYZING and is a no-op on the status of a detector
+// that isn't currently paused (e.g. still INITIALIZING).
 func (b *InMemoryBackend) UpdateLogAnomalyDetector(
 	detectorArn, evaluationFrequency string,
 	anomalyVisibilityTime int64,
+	enabled bool,
 ) error {
 	if detectorArn == "" {
 		return fmt.Errorf("%w: anomalyDetectorArn is required", ErrValidation)
@@ -194,6 +201,13 @@ func (b *InMemoryBackend) UpdateLogAnomalyDetector(
 		}
 		d.AnomalyVisibilityTime = anomalyVisibilityTime
 	}
+
+	if !enabled {
+		d.AnomalyDetectorStatus = detectorStatusPaused
+	} else if d.AnomalyDetectorStatus == detectorStatusPaused {
+		d.AnomalyDetectorStatus = detectorStatusAnalyzing
+	}
+
 	d.LastModifiedTimeStamp = time.Now().UnixMilli()
 
 	return nil

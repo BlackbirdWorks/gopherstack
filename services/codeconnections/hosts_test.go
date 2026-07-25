@@ -221,6 +221,45 @@ func TestDeleteHost_InUse(t *testing.T) {
 	}
 }
 
+// TestDeleteHostInUseWireErrorType verifies that DeleteHost's in-use
+// rejection serializes as the real ResourceUnavailableException type over
+// HTTP, not the fabricated ConflictException a previous audit pass used.
+// DeleteHost's real, complete error list (botocore codeconnections/
+// 2023-12-01/service-2.json) is exactly [ResourceNotFoundException,
+// ResourceUnavailableException]; ConflictException is not a possible error
+// for this operation at all.
+func TestDeleteHostInUseWireErrorType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "delete_host_with_active_connection"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			hostArn := createHost(t, h, "wire-host", "GitHubEnterpriseServer", "https://ghe.example.com")
+
+			rec := doJSON(t, h, "CreateConnection", map[string]any{
+				"ConnectionName": "wire-conn",
+				"ProviderType":   "GitHubEnterpriseServer",
+				"HostArn":        hostArn,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			rec = doJSON(t, h, "DeleteHost", map[string]any{"HostArn": hostArn})
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			resp := parseResp(t, rec)
+			assert.Equal(t, "ResourceUnavailableException", resp["__type"])
+		})
+	}
+}
+
 // TestCreateHostWithTags verifies that tags can be passed when creating a host.
 func TestCreateHostWithTags(t *testing.T) {
 	t.Parallel()

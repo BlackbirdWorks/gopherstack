@@ -49,7 +49,7 @@ func (h *Handler) handleCreateVirtualGateway(c *echo.Context, meshName string) e
 		Spec               json.RawMessage `json:"spec"`
 		Tags               []tagInput      `json:"tags"`
 	}
-	if err := c.Bind(&body); err != nil || body.VirtualGatewayName == "" {
+	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualGatewayName) {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "virtualGatewayName is required"))
 	}
 	vg, err := h.Backend.CreateVirtualGateway(meshName, body.VirtualGatewayName, body.Spec, tagsToMap(body.Tags))
@@ -183,7 +183,7 @@ func (h *Handler) handleCreateGatewayRoute(c *echo.Context, meshName, vgName str
 		Spec             json.RawMessage `json:"spec"`
 		Tags             []tagInput      `json:"tags"`
 	}
-	if err := c.Bind(&body); err != nil || body.GatewayRouteName == "" {
+	if err := c.Bind(&body); err != nil || !isValidResourceName(body.GatewayRouteName) {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "gatewayRouteName is required"))
 	}
 	gr, err := h.Backend.CreateGatewayRoute(meshName, vgName, body.GatewayRouteName, body.Spec, tagsToMap(body.Tags))

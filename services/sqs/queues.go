@@ -135,6 +135,11 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 
 		return &CreateQueueOutput{QueueURL: q.URL}, nil
 	}
+
+	if err := b.checkQueueDeletedRecently(region, input.QueueName, time.Now()); err != nil {
+		return nil, err
+	}
+
 	attrs := buildDefaultAttributes(input.QueueName, b.accountID, region, isFIFO)
 
 	maps.Copy(attrs, input.Attributes)
@@ -171,6 +176,27 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	return &CreateQueueOutput{QueueURL: queueURL}, nil
 }
 
+// checkQueueDeletedRecently returns ErrQueueDeletedRecently if a queue named
+// name (in region) was deleted less than queueDeletedRecentlyWindowSecs ago.
+// A stale (expired) entry is pruned inline so the map does not require the
+// caller to have run the janitor recently. Caller must hold b.mu (write).
+func (b *InMemoryBackend) checkQueueDeletedRecently(region, name string, now time.Time) error {
+	key := queueKey(region, name)
+
+	deletedAt, ok := b.recentlyDeleted[key]
+	if !ok {
+		return nil
+	}
+
+	if now.Sub(deletedAt) >= queueDeletedRecentlyWindowSecs*time.Second {
+		delete(b.recentlyDeleted, key)
+
+		return nil
+	}
+
+	return ErrQueueDeletedRecently
+}
+
 // DeleteQueue removes a queue by its URL.
 func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 	b.mu.Lock("DeleteQueue")
@@ -190,6 +216,8 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 	if q.Tags != nil {
 		q.Tags.Close()
 	}
+
+	b.recentlyDeleted[queueKey(q.Region, q.Name)] = time.Now()
 
 	b.queues.Delete(queueKey(q.Region, q.Name))
 

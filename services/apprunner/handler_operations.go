@@ -18,6 +18,7 @@ type operationSummaryOutput struct {
 	TargetArn string `json:"TargetArn"`
 	StartedAt int64  `json:"StartedAt"`
 	EndedAt   int64  `json:"EndedAt"`
+	UpdatedAt int64  `json:"UpdatedAt"`
 }
 
 type listOperationsOutput struct {
@@ -47,6 +48,7 @@ func (h *Handler) handleListOperations(
 			TargetArn: op.TargetArn,
 			StartedAt: op.StartedAt.Unix(),
 			EndedAt:   op.EndedAt.Unix(),
+			UpdatedAt: op.UpdatedAt.Unix(),
 		})
 	}
 

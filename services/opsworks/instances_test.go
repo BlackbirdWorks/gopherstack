@@ -55,7 +55,7 @@ func TestInstance(t *testing.T) {
 			},
 		},
 		{
-			name: "DescribeInstances returns instance with Status and Arn",
+			name: "DescribeInstances returns instance with Status, Arn, and LayerIds list",
 			check: func(t *testing.T, h *opsworks.Handler, stackID, layerID string) {
 				t.Helper()
 				doTarget(t, h, "CreateInstance", map[string]any{
@@ -75,6 +75,15 @@ func TestInstance(t *testing.T) {
 				assert.NotEmpty(t, inst["Status"])
 				assert.NotEmpty(t, inst["CreatedAt"])
 				assert.Equal(t, "t2.micro", inst["InstanceType"])
+				// The real types.Instance has a plural LayerIds []string
+				// member, not a singular "LayerId" string -- a previous
+				// pass emitted the latter, which a real SDK client's
+				// Instance.LayerIds would never populate from.
+				layerIDs, ok := inst["LayerIds"].([]any)
+				require.True(t, ok, "LayerIds must be a JSON array")
+				require.Len(t, layerIDs, 1)
+				assert.Equal(t, layerID, layerIDs[0])
+				assert.NotContains(t, inst, "LayerId")
 			},
 		},
 		{
@@ -263,18 +272,71 @@ func TestAssignUnassignInstance(t *testing.T) {
 		name  string
 	}{
 		{
+			// AssignInstance is for *registered* (on-premises) instances --
+			// AWS's own docs say "You cannot use this action with instances
+			// that were created with OpsWorks" -- so this uses
+			// RegisterInstance rather than CreateInstance, unlike the rest
+			// of this file's helpers.
 			name: "AssignInstance assigns to layer",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				stackID := createTestStack(t, h)
 				layerID := createTestLayer(t, h, stackID)
-				instanceID := createTestInstance(t, h, stackID, "")
 
-				rec := doTarget(t, h, "AssignInstance", map[string]any{
+				rec := doTarget(t, h, "RegisterInstance", map[string]any{
+					"StackId":  stackID,
+					"Hostname": "on-prem-host",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				instanceID := parseJSON(t, rec.Body.Bytes())["InstanceId"].(string)
+
+				rec = doTarget(t, h, "AssignInstance", map[string]any{
 					"InstanceId": instanceID,
 					"LayerIds":   []string{layerID},
 				})
 				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "AssignInstance with layer from a different stack returns 400",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				stackID := createTestStack(t, h)
+				otherStackID := createTestStack(t, h)
+				otherLayerID := createTestLayer(t, h, otherStackID)
+
+				rec := doTarget(t, h, "RegisterInstance", map[string]any{
+					"StackId":  stackID,
+					"Hostname": "cross-stack-host",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				instanceID := parseJSON(t, rec.Body.Bytes())["InstanceId"].(string)
+
+				rec = doTarget(t, h, "AssignInstance", map[string]any{
+					"InstanceId": instanceID,
+					"LayerIds":   []string{otherLayerID},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "AssignInstance with nonexistent layer returns 404",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				stackID := createTestStack(t, h)
+
+				rec := doTarget(t, h, "RegisterInstance", map[string]any{
+					"StackId":  stackID,
+					"Hostname": "no-layer-host",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				instanceID := parseJSON(t, rec.Body.Bytes())["InstanceId"].(string)
+
+				rec = doTarget(t, h, "AssignInstance", map[string]any{
+					"InstanceId": instanceID,
+					"LayerIds":   []string{"nonexistent-layer"},
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
 		{
@@ -327,5 +389,51 @@ func TestCreateInstanceHostnameUnique(t *testing.T) {
 		hostname := inst["Hostname"].(string)
 		assert.False(t, seen[hostname], "duplicate hostname: %s", hostname)
 		seen[hostname] = true
+	}
+}
+
+// TestCreateInstanceValidation verifies CreateInstance rejects requests
+// missing a required member. StackId, LayerIds (at least one), and
+// InstanceType are all "This member is required" on the real
+// CreateInstanceInput.
+func TestCreateInstanceValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		buildBody func(stackID, layerID string) map[string]any
+		name      string
+	}{
+		{
+			name: "missing StackId",
+			buildBody: func(_, layerID string) map[string]any {
+				return map[string]any{"LayerIds": []string{layerID}, "InstanceType": "t2.micro"}
+			},
+		},
+		{
+			name: "missing LayerIds",
+			buildBody: func(stackID, _ string) map[string]any {
+				return map[string]any{"StackId": stackID, "InstanceType": "t2.micro"}
+			},
+		},
+		{
+			name: "missing InstanceType",
+			buildBody: func(stackID, layerID string) map[string]any {
+				return map[string]any{"StackId": stackID, "LayerIds": []string{layerID}}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			stackID := createTestStack(t, h)
+			layerID := createTestLayer(t, h, stackID)
+
+			rec := doTarget(t, h, "CreateInstance", tt.buildBody(stackID, layerID))
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ValidationException")
+		})
 	}
 }

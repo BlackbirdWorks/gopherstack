@@ -26,14 +26,20 @@ type getAuthorizersInput struct {
 	RestAPIID string `json:"restApiId"`
 }
 
+// updateAuthorizerInput is the PATCH-flattened wire shape for UpdateAuthorizer.
+// IdentitySource is a *string (unlike every other field here) so that
+// patch.go's explicit "remove" handling (see removableTopLevelScalar) can be
+// told apart from the field simply being absent from this particular PATCH —
+// AWS documents "/identitySource" as supporting op:remove
+// (patch-operations.html), which a plain string can't represent.
 type updateAuthorizerInput struct {
+	IdentitySource               *string  `json:"identitySource,omitempty"`
 	RestAPIID                    string   `json:"restApiId"`
 	AuthorizerID                 string   `json:"authorizerId"`
 	Name                         string   `json:"name,omitempty"`
 	Type                         string   `json:"type,omitempty"`
 	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
 	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
-	IdentitySource               string   `json:"identitySource,omitempty"`
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`

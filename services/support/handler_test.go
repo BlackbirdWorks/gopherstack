@@ -226,10 +226,13 @@ func TestSupport_Handler(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
+			// Support is a JSON-RPC (awsjson1.1) protocol: CaseIdNotFound has no
+			// httpError override in the service model, so it uses the client-fault
+			// default of HTTP 400, not 404.
 			name:     "ResolveCase_NotFound",
 			action:   "ResolveCase",
 			body:     map[string]any{"caseId": "case-does-not-exist"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "UnknownAction",

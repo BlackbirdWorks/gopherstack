@@ -20,6 +20,7 @@ func (b *InMemoryBackend) customDataIDARN(id string) string {
 func (b *InMemoryBackend) CreateCustomDataIdentifier(
 	name, description, regex string,
 	ignoreWords, keywords []string,
+	severityLevels []SeverityLevel,
 	maxMatchDistance *int32,
 	tags map[string]string,
 ) (string, error) {
@@ -54,6 +55,7 @@ func (b *InMemoryBackend) CreateCustomDataIdentifier(
 			Regex:                regex,
 			IgnoreWords:          ignoreWords,
 			Keywords:             keywords,
+			SeverityLevels:       severityLevels,
 			MaximumMatchDistance: dist,
 			CreatedAt:            now,
 			Tags:                 maps.Clone(tags),
@@ -68,13 +70,17 @@ func (b *InMemoryBackend) CreateCustomDataIdentifier(
 	return id, nil
 }
 
-// GetCustomDataIdentifier retrieves a custom data identifier.
+// GetCustomDataIdentifier retrieves a custom data identifier. Real AWS soft
+// deletes custom data identifiers (DeleteCustomDataIdentifier never removes
+// them), so Get keeps succeeding for a deleted identifier and reports
+// deleted:true instead of 404ing -- only an identifier that never existed
+// 404s.
 func (b *InMemoryBackend) GetCustomDataIdentifier(id string) (*CustomDataIdentifier, error) {
 	b.mu.RLock("GetCustomDataIdentifier")
 	defer b.mu.RUnlock()
 
 	cdi, ok := b.customDataIDs.Get(id)
-	if !ok || cdi.Deleted {
+	if !ok {
 		return nil, ErrCustomDataIDNotFound
 	}
 
@@ -200,7 +206,10 @@ func hasKeywordBefore(text string, matchStart int, keywords []string, dist int) 
 	return false
 }
 
-// BatchGetCustomDataIdentifiers returns full details for the given IDs.
+// BatchGetCustomDataIdentifiers returns full details for the given IDs. Like
+// GetCustomDataIdentifier, soft-deleted identifiers are still returned (with
+// deleted:true); only genuinely unknown IDs are omitted (and reported by the
+// caller via notFoundIdentifierIds).
 func (b *InMemoryBackend) BatchGetCustomDataIdentifiers(ids []string) ([]*CustomDataIdentifier, error) {
 	b.mu.RLock("BatchGetCustomDataIdentifiers")
 	defer b.mu.RUnlock()
@@ -209,7 +218,7 @@ func (b *InMemoryBackend) BatchGetCustomDataIdentifiers(ids []string) ([]*Custom
 
 	for _, id := range ids {
 		cdi, ok := b.customDataIDs.Get(id)
-		if !ok || cdi.Deleted {
+		if !ok {
 			continue
 		}
 

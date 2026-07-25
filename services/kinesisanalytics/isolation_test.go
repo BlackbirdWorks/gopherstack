@@ -26,11 +26,11 @@ func TestKinesisAnalyticsRegionIsolation(t *testing.T) {
 	ctxWest := kaCtxRegion("us-west-2")
 
 	// 1. Create same-named application in both regions.
-	eastApp, err := b.CreateApplication(ctxEast, "shared-app", "east desc", "SELECT 1", "", nil, nil, nil, nil)
+	eastApp, err := b.CreateApplication(ctxEast, "shared-app", "east desc", "SELECT 1", nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, eastApp.ApplicationARN, "us-east-1")
 
-	westApp, err := b.CreateApplication(ctxWest, "shared-app", "west desc", "SELECT 2", "", nil, nil, nil, nil)
+	westApp, err := b.CreateApplication(ctxWest, "shared-app", "west desc", "SELECT 2", nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, westApp.ApplicationARN, "us-west-2")
 

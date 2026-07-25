@@ -1,6 +1,7 @@
 package managedblockchain
 
 import (
+	"fmt"
 	"maps"
 	"sort"
 	"time"
@@ -13,22 +14,80 @@ import (
 // memberStatusAvailable is the status for a ready member.
 const memberStatusAvailable = "AVAILABLE"
 
+// awsOwnedKMSKey is the literal string real AWS returns for KmsKeyArn when
+// the caller doesn't supply a customer managed key, meaning the member (or
+// node, which inherits its owning member's key) is encrypted with an
+// Amazon Web Services owned KMS key.
+const awsOwnedKMSKey = "AWS Owned KMS Key"
+
 // memberARN builds the ARN for a Managed Blockchain member.
 func memberARN(region, accountID, memberID string) string {
 	return arn.Build("managedblockchain", region, accountID, "members/"+memberID)
+}
+
+// resolveMemberKmsKeyArn returns kmsKeyArn verbatim if the caller supplied
+// one, or the real API's documented default sentinel otherwise.
+func resolveMemberKmsKeyArn(kmsKeyArn string) string {
+	if kmsKeyArn == "" {
+		return awsOwnedKMSKey
+	}
+
+	return kmsKeyArn
+}
+
+// memberCaEndpoint synthesizes the endpoint exposed on
+// Member.FrameworkAttributes.Fabric.CaEndpoint. gopherstack has no real
+// Fabric CA to connect to; this deterministically derives a plausible
+// endpoint from the member's own identity, matching real AWS's
+// "ca.<member-id>...:30002" shape.
+func memberCaEndpoint(memberID, networkID, region string) string {
+	return fmt.Sprintf("ca.%s.%s.managedblockchain.%s.amazonaws.com:30002", memberID, networkID, region)
+}
+
+// buildMemberFrameworkAttributes builds Member.FrameworkAttributes from a
+// CreateMember/CreateNetwork caller's requested Fabric AdminUsername. If
+// adminUsername is empty, no Fabric attributes are synthesized.
+func buildMemberFrameworkAttributes(memberID, networkID, region, adminUsername string) *MemberFrameworkAttributesState {
+	if adminUsername == "" {
+		return nil
+	}
+
+	return &MemberFrameworkAttributesState{
+		Fabric: &MemberFabricAttributesState{
+			AdminUsername: adminUsername,
+			CaEndpoint:    memberCaEndpoint(memberID, networkID, region),
+		},
+	}
 }
 
 // cloneMember returns a deep copy of m with the Tags map cloned.
 func cloneMember(m *Member) *Member {
 	cp := *m
 	cp.Tags = maps.Clone(m.Tags)
+	cp.FrameworkAttributes = cloneMemberFrameworkAttributes(m.FrameworkAttributes)
 
 	return &cp
 }
 
+// cloneMemberFrameworkAttributes returns a deep copy of a MemberFrameworkAttributesState.
+func cloneMemberFrameworkAttributes(fa *MemberFrameworkAttributesState) *MemberFrameworkAttributesState {
+	if fa == nil {
+		return nil
+	}
+
+	cp := &MemberFrameworkAttributesState{}
+
+	if fa.Fabric != nil {
+		fabric := *fa.Fabric
+		cp.Fabric = &fabric
+	}
+
+	return cp
+}
+
 // CreateMember creates a new member in an existing network.
 func (b *InMemoryBackend) CreateMember(
-	region, accountID, networkID, name, description string,
+	region, accountID, networkID, name, description, adminUsername, kmsKeyArn string,
 	tags map[string]string,
 ) (*Member, error) {
 	b.mu.Lock("CreateMember")
@@ -45,15 +104,17 @@ func (b *InMemoryBackend) CreateMember(
 	maps.Copy(t, tags)
 
 	member := &Member{
-		ID:           memberID,
-		Arn:          memberARN(region, accountID, memberID),
-		Name:         name,
-		Description:  description,
-		NetworkID:    networkID,
-		Status:       memberStatusAvailable,
-		CreationDate: &now,
-		Tags:         t,
-		IsOwned:      true,
+		ID:                  memberID,
+		Arn:                 memberARN(region, accountID, memberID),
+		Name:                name,
+		Description:         description,
+		NetworkID:           networkID,
+		Status:              memberStatusAvailable,
+		CreationDate:        &now,
+		Tags:                t,
+		IsOwned:             true,
+		KmsKeyArn:           resolveMemberKmsKeyArn(kmsKeyArn),
+		FrameworkAttributes: buildMemberFrameworkAttributes(memberID, networkID, region, adminUsername),
 	}
 
 	b.members.Put(member)
@@ -154,6 +215,7 @@ func (b *InMemoryBackend) AddMemberInternal(region, accountID, networkID, name s
 		CreationDate: &now,
 		Tags:         make(map[string]string),
 		IsOwned:      true,
+		KmsKeyArn:    awsOwnedKMSKey,
 	}
 
 	b.members.Put(member)

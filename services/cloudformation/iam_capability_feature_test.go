@@ -208,6 +208,86 @@ func TestCreateStack_IAMCapabilityRequired(t *testing.T) {
 	}
 }
 
+// ---- CreateStack/UpdateStack CAPABILITY_AUTO_EXPAND (table-driven) ---------------
+
+// TestCreateStack_AutoExpandCapabilityRequired locks in the parity fix for a
+// previously-unenforced gap: the top-level Transform section was never parsed
+// (Template had no Transform field), so CAPABILITY_AUTO_EXPAND was never
+// required for a macro/SAM-using template even though Fn::Transform invocation
+// itself worked. See requireAutoExpandCapability in stack_lifecycle.go.
+func TestCreateStack_AutoExpandCapabilityRequired(t *testing.T) {
+	t.Parallel()
+
+	stringTransformTemplate := `{
+		"AWSTemplateFormatVersion":"2010-09-09",
+		"Transform":"AWS::Serverless-2016-10-31",
+		"Resources":{}
+	}`
+	listTransformTemplate := `{
+		"AWSTemplateFormatVersion":"2010-09-09",
+		"Transform":["MyMacro"],
+		"Resources":{}
+	}`
+
+	tests := []struct {
+		errIs        error
+		name         string
+		template     string
+		capabilities []string
+		wantErr      bool
+	}{
+		{
+			name:         "string Transform without CAPABILITY_AUTO_EXPAND fails",
+			template:     stringTransformTemplate,
+			capabilities: nil,
+			wantErr:      true,
+			errIs:        cloudformation.ErrInsufficientCapabilities,
+		},
+		{
+			name:         "string Transform with CAPABILITY_AUTO_EXPAND succeeds",
+			template:     stringTransformTemplate,
+			capabilities: []string{"CAPABILITY_AUTO_EXPAND"},
+			wantErr:      false,
+		},
+		{
+			name:         "list-form Transform without CAPABILITY_AUTO_EXPAND fails",
+			template:     listTransformTemplate,
+			capabilities: nil,
+			wantErr:      true,
+			errIs:        cloudformation.ErrInsufficientCapabilities,
+		},
+		{
+			name:         "list-form Transform with CAPABILITY_AUTO_EXPAND succeeds",
+			template:     listTransformTemplate,
+			capabilities: []string{"CAPABILITY_AUTO_EXPAND"},
+			wantErr:      false,
+		},
+		{
+			name:         "no Transform requires no capability",
+			template:     simpleTemplate,
+			capabilities: nil,
+			wantErr:      false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend()
+			_, err := b.CreateStack(t.Context(), "auto-expand-check", tc.template, nil,
+				cloudformation.StackOptions{Capabilities: tc.capabilities})
+			if tc.wantErr {
+				require.Error(t, err)
+				if tc.errIs != nil {
+					require.ErrorIs(t, err, tc.errIs)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // ---- UpdateStack IAM Capability (table-driven) ------------------------------------
 
 func TestUpdateStack_IAMCapabilityRequired(t *testing.T) {

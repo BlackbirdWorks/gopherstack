@@ -196,12 +196,25 @@ type ValidateCloudConnectorOutput struct {
 
 const (
 	cloudConnectorIDPrefix = "cc-"
-	// defaultCloudConnectorMaxResults bounds ListCloudConnectors/
-	// ValidateCloudConnector pagination page size. AWS does not document an
-	// exact bound for this newly-added API family; 50 matches the default
-	// this package already uses for DescribeParameters/DescribeDocuments
-	// (defaultDescribeMaxResults) rather than inventing an unverified number.
-	defaultCloudConnectorMaxResults    = defaultDescribeMaxResults
+	// listCloudConnectorsMaxResults is ListCloudConnectors's real documented
+	// MaxResults bound -- "Valid Range: Minimum value of 0. Maximum value of
+	// 10." -- confirmed 2026-07-24 via
+	// https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_ListCloudConnectors.html
+	// (this page was not yet published/discoverable as of the prior audit
+	// pass, which is why it was previously recorded as an unconfirmed guess
+	// aliased to defaultDescribeMaxResults=50; re-checked this pass and the
+	// bound is now live).
+	listCloudConnectorsMaxResults = 10
+	// validateCloudConnectorMaxResults is ValidateCloudConnector's real
+	// documented MaxResults bound -- "Minimum value of 0. Maximum value of
+	// 75." -- confirmed 2026-07-24 via
+	// https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_ValidateCloudConnector.html.
+	// Deliberately distinct from listCloudConnectorsMaxResults: these are two
+	// different operations with two different documented bounds, not a
+	// copy-paste inconsistency (same category as this package's existing
+	// GetParametersByPath/DescribeParameters asymmetry -- see PARITY.md's
+	// "Already-correct traps" note).
+	validateCloudConnectorMaxResults   = 75
 	cloudConnectorFilterSubscriptionID = "SubscriptionId"
 	cloudConnectorFilterTenantID       = "TenantId"
 	// cloudConnectorFilterNone is the documented SubscriptionId filter value
@@ -369,8 +382,16 @@ func (b *InMemoryBackend) ListCloudConnectors(
 
 	startIdx := parseNextToken(input.NextToken)
 
-	maxResults := int64(defaultCloudConnectorMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
+	maxResults := int64(listCloudConnectorsMaxResults)
+	if input.MaxResults != nil {
+		if *input.MaxResults < 0 || *input.MaxResults > listCloudConnectorsMaxResults {
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 0 and %d",
+				ErrValidationException,
+				listCloudConnectorsMaxResults,
+			)
+		}
+
 		maxResults = *input.MaxResults
 	}
 
@@ -517,8 +538,16 @@ func (b *InMemoryBackend) ValidateCloudConnector(
 
 	startIdx := parseNextToken(input.NextToken)
 
-	maxResults := int64(defaultCloudConnectorMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
+	maxResults := int64(validateCloudConnectorMaxResults)
+	if input.MaxResults != nil {
+		if *input.MaxResults < 0 || *input.MaxResults > validateCloudConnectorMaxResults {
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 0 and %d",
+				ErrValidationException,
+				validateCloudConnectorMaxResults,
+			)
+		}
+
 		maxResults = *input.MaxResults
 	}
 

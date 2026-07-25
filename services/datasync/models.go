@@ -52,17 +52,19 @@ type storedLocation struct {
 }
 
 type storedS3Config struct {
-	BucketAccessRoleArn string `json:"bucketAccessRoleArn"`
+	BucketAccessRoleArn string   `json:"bucketAccessRoleArn"`
+	AgentArns           []string `json:"agentArns,omitempty"`
 }
 
 // --- Type-specific location config stored types ---
 
 type storedAzureBlobConfig struct {
-	SasToken     string   `json:"sasToken,omitempty"`
-	ContainerURL string   `json:"containerUrl"`
-	BlobType     string   `json:"blobType,omitempty"`
-	AccessTier   string   `json:"accessTier,omitempty"`
-	AgentArns    []string `json:"agentArns,omitempty"`
+	SasToken           string   `json:"sasToken,omitempty"`
+	ContainerURL       string   `json:"containerUrl"`
+	BlobType           string   `json:"blobType,omitempty"`
+	AccessTier         string   `json:"accessTier,omitempty"`
+	AuthenticationType string   `json:"authenticationType,omitempty"`
+	AgentArns          []string `json:"agentArns,omitempty"`
 }
 
 type storedEfsEc2Config struct {
@@ -106,6 +108,7 @@ type storedFsxProtocol struct {
 type storedFsxOntapConfig struct {
 	Protocol                 *storedFsxProtocol `json:"protocol,omitempty"`
 	StorageVirtualMachineArn string             `json:"storageVirtualMachineArn"`
+	FsxFilesystemArn         string             `json:"fsxFilesystemArn,omitempty"`
 	SecurityGroupArns        []string           `json:"securityGroupArns,omitempty"`
 }
 
@@ -168,12 +171,13 @@ type storedObjectStorageConfig struct {
 }
 
 type storedSmbConfig struct {
-	MountOptions   *storedMountOptions `json:"mountOptions,omitempty"`
-	ServerHostname string              `json:"serverHostname"`
-	Domain         string              `json:"domain,omitempty"`
-	User           string              `json:"user,omitempty"`
-	Password       string              `json:"password,omitempty"`
-	AgentArns      []string            `json:"agentArns,omitempty"`
+	MountOptions       *storedMountOptions `json:"mountOptions,omitempty"`
+	ServerHostname     string              `json:"serverHostname"`
+	Domain             string              `json:"domain,omitempty"`
+	User               string              `json:"user,omitempty"`
+	Password           string              `json:"password,omitempty"`
+	AuthenticationType string              `json:"authenticationType,omitempty"`
+	AgentArns          []string            `json:"agentArns,omitempty"`
 }
 
 func (l *storedLocation) toLocation() Location {
@@ -195,27 +199,73 @@ func (l *storedLocation) toLocationS3() LocationS3 {
 	}
 	if l.S3Config != nil {
 		loc.S3Config = S3Config{BucketAccessRoleArn: l.S3Config.BucketAccessRoleArn}
+		loc.AgentArns = l.S3Config.AgentArns
 	}
 
 	return loc
 }
 
+// storedFilterRule mirrors FilterRule for JSON persistence.
+type storedFilterRule struct {
+	FilterType string `json:"filterType,omitempty"`
+	Value      string `json:"value,omitempty"`
+}
+
+func toStoredFilterRules(rules []FilterRule) []storedFilterRule {
+	if rules == nil {
+		return nil
+	}
+
+	out := make([]storedFilterRule, len(rules))
+	for i, r := range rules {
+		out[i] = storedFilterRule(r)
+	}
+
+	return out
+}
+
+func fromStoredFilterRules(rules []storedFilterRule) []FilterRule {
+	if rules == nil {
+		return nil
+	}
+
+	out := make([]FilterRule, len(rules))
+	for i, r := range rules {
+		out[i] = FilterRule(r)
+	}
+
+	return out
+}
+
+// storedTaskSchedule mirrors TaskSchedule for JSON persistence.
+type storedTaskSchedule struct {
+	ScheduleExpression string `json:"scheduleExpression"`
+	Status             string `json:"status,omitempty"`
+}
+
 // storedTask holds a task with all fields.
 // CreationTime is first so its non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type storedTask struct {
-	CreationTime            time.Time         `json:"creationTime"`
-	Tags                    map[string]string `json:"tags"`
-	TaskArn                 string            `json:"taskArn"`
-	Name                    string            `json:"name"`
-	Status                  string            `json:"status"`
-	SourceLocationArn       string            `json:"sourceLocationArn"`
-	DestinationLocationArn  string            `json:"destinationLocationArn"`
-	CloudWatchLogGroupArn   string            `json:"cloudWatchLogGroupArn,omitempty"`
-	CurrentTaskExecutionArn string            `json:"currentTaskExecutionArn,omitempty"`
+	CreationTime            time.Time           `json:"creationTime"`
+	Tags                    map[string]string   `json:"tags"`
+	Options                 map[string]any      `json:"options,omitempty"`
+	Schedule                *storedTaskSchedule `json:"schedule,omitempty"`
+	ManifestConfig          map[string]any      `json:"manifestConfig,omitempty"`
+	TaskReportConfig        map[string]any      `json:"taskReportConfig,omitempty"`
+	TaskArn                 string              `json:"taskArn"`
+	Name                    string              `json:"name"`
+	Status                  string              `json:"status"`
+	SourceLocationArn       string              `json:"sourceLocationArn"`
+	DestinationLocationArn  string              `json:"destinationLocationArn"`
+	CloudWatchLogGroupArn   string              `json:"cloudWatchLogGroupArn,omitempty"`
+	CurrentTaskExecutionArn string              `json:"currentTaskExecutionArn,omitempty"`
+	TaskMode                string              `json:"taskMode,omitempty"`
+	Includes                []storedFilterRule  `json:"includes,omitempty"`
+	Excludes                []storedFilterRule  `json:"excludes,omitempty"`
 }
 
 func (t *storedTask) toTask() Task {
-	return Task{
+	task := Task{
 		TaskArn:                 t.TaskArn,
 		Name:                    t.Name,
 		Status:                  t.Status,
@@ -225,7 +275,22 @@ func (t *storedTask) toTask() Task {
 		CurrentTaskExecutionArn: t.CurrentTaskExecutionArn,
 		CreationTime:            t.CreationTime,
 		Tags:                    t.Tags,
+		Options:                 maps.Clone(t.Options),
+		ManifestConfig:          maps.Clone(t.ManifestConfig),
+		TaskReportConfig:        maps.Clone(t.TaskReportConfig),
+		Excludes:                fromStoredFilterRules(t.Excludes),
+		Includes:                fromStoredFilterRules(t.Includes),
+		TaskMode:                t.TaskMode,
 	}
+
+	if t.Schedule != nil {
+		task.Schedule = &TaskSchedule{
+			ScheduleExpression: t.Schedule.ScheduleExpression,
+			Status:             t.Schedule.Status,
+		}
+	}
+
+	return task
 }
 
 // storedTaskExecution holds a task execution with all fields.

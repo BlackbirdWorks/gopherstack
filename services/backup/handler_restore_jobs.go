@@ -7,6 +7,106 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// restoreJobToJSON renders the fields of a RestoreJob this backend tracks,
+// matching (a subset of) the real types.RestoreJobsListMember wire shape
+// shared by DescribeRestoreJob/ListRestoreJobs.
+func restoreJobToJSON(j *RestoreJob) map[string]any {
+	resp := map[string]any{
+		keyRestoreJobID:    j.RestoreJobID,
+		keyStatus:          j.Status,
+		"RecoveryPointArn": j.RecoveryPointArn,
+		"IamRoleArn":       j.IAMRoleArn,
+		"PercentDone":      j.PercentDone,
+		keyAccountID:       j.AccountID,
+		"CreationDate":     epochSeconds(j.StartTime),
+	}
+	setOptionalStr(resp, "ResourceArn", j.ResourceArn)
+	setOptionalStr(resp, "ResourceType", j.ResourceType)
+	setOptionalStr(resp, "BackupVaultArn", j.BackupVaultArn)
+	setOptionalStr(resp, "CreatedResourceArn", j.CreatedResourceArn)
+	setOptionalStr(resp, "ValidationStatus", j.ValidationStatus)
+	setOptionalStr(resp, "ValidationStatusMessage", j.ValidationStatusMessage)
+	setOptionalStr(resp, "StatusMessage", j.StatusMessage)
+	if j.BackupSizeInBytes > 0 {
+		resp["BackupSizeInBytes"] = j.BackupSizeInBytes
+	}
+	if j.CompletionDate != nil {
+		resp["CompletionDate"] = epochSeconds(*j.CompletionDate)
+	}
+
+	return resp
+}
+
+func (h *Handler) handleDescribeRestoreJob(c *echo.Context, restoreJobID string) error {
+	job, err := h.Backend.DescribeRestoreJob(restoreJobID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ResourceNotFoundException", err.Error()))
+	}
+
+	return c.JSON(http.StatusOK, restoreJobToJSON(job))
+}
+
+func (h *Handler) handleGetRestoreJobMetadata(c *echo.Context, restoreJobID string) error {
+	job, err := h.Backend.DescribeRestoreJob(restoreJobID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ResourceNotFoundException", err.Error()))
+	}
+	metadata := job.Metadata
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyRestoreJobID: restoreJobID, "Metadata": metadata,
+	})
+}
+
+func (h *Handler) handleStartRestoreJob(c *echo.Context, defaultRecoveryPointArn string, body []byte) error {
+	var reqBody struct {
+		Metadata         map[string]string `json:"Metadata"`
+		RecoveryPointArn string            `json:"RecoveryPointArn"`
+		IamRoleArn       string            `json:"IamRoleArn"`
+		ResourceType     string            `json:"ResourceType"`
+	}
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
+	}
+	if reqBody.RecoveryPointArn == "" {
+		reqBody.RecoveryPointArn = defaultRecoveryPointArn
+	}
+
+	job, err := h.Backend.StartRestoreJob(
+		reqBody.RecoveryPointArn,
+		reqBody.IamRoleArn,
+		reqBody.ResourceType,
+		reqBody.Metadata,
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyRestoreJobID: job.RestoreJobID})
+}
+
+func (h *Handler) handlePutRestoreValidationResult(c *echo.Context, body []byte) error {
+	var reqBody struct {
+		RestoreJobID            string `json:"RestoreJobId"`
+		ValidationStatus        string `json:"ValidationStatus"`
+		ValidationStatusMessage string `json:"ValidationStatusMessage"`
+	}
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
+	}
+
+	if err := h.Backend.PutRestoreValidationResult(
+		reqBody.RestoreJobID, reqBody.ValidationStatus, reqBody.ValidationStatusMessage,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
 // dispatchRestoreJobOps handles restore-job operations.
 func (h *Handler) dispatchRestoreJobOps(
 	c *echo.Context,
@@ -15,29 +115,13 @@ func (h *Handler) dispatchRestoreJobOps(
 ) (bool, error) {
 	switch route.operation {
 	case opDescribeRestoreJob:
-		job, err := h.Backend.DescribeRestoreJob(route.resource)
-		if err != nil {
-			return true, c.JSON(
-				http.StatusNotFound,
-				errResp("ResourceNotFoundException", err.Error()),
-			)
-		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{
-			keyRestoreJobID:    job.RestoreJobID,
-			keyStatus:          job.Status,
-			"RecoveryPointArn": job.RecoveryPointArn,
-			"IamRoleArn":       job.IAMRoleArn,
-			"PercentDone":      job.PercentDone,
-		})
+		return true, h.handleDescribeRestoreJob(c, route.resource)
 	case opListRestoreJobs:
 		jobs := h.Backend.ListRestoreJobs()
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
-			items = append(
-				items,
-				map[string]any{keyRestoreJobID: j.RestoreJobID, keyStatus: j.Status},
-			)
+			items = append(items, restoreJobToJSON(j))
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobs": items})
@@ -45,10 +129,7 @@ func (h *Handler) dispatchRestoreJobOps(
 		jobs := h.Backend.ListRestoreJobsByProtectedResource(route.resource)
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
-			items = append(
-				items,
-				map[string]any{keyRestoreJobID: j.RestoreJobID, keyStatus: j.Status},
-			)
+			items = append(items, restoreJobToJSON(j))
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobs": items})
@@ -61,44 +142,14 @@ func (h *Handler) dispatchRestoreJobOps(
 			},
 		})
 	case opGetRestoreJobMetadata:
-		job, err := h.Backend.DescribeRestoreJob(route.resource)
-		metadata := map[string]string{}
-		if err == nil && job.Metadata != nil {
-			metadata = job.Metadata
-		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{
-			keyRestoreJobID: route.resource, "Metadata": metadata,
-		})
+		return true, h.handleGetRestoreJobMetadata(c, route.resource)
 	case opStartRestoreJob:
-		var reqBody struct {
-			Metadata         map[string]string `json:"Metadata"`
-			RecoveryPointArn string            `json:"RecoveryPointArn"`
-			IamRoleArn       string            `json:"IamRoleArn"`
-			ResourceType     string            `json:"ResourceType"`
-		}
-		_ = json.Unmarshal(body, &reqBody)
-		if reqBody.RecoveryPointArn == "" {
-			reqBody.RecoveryPointArn = route.resource
-		}
-		job := h.Backend.StartRestoreJob(
-			reqBody.RecoveryPointArn,
-			reqBody.IamRoleArn,
-			reqBody.ResourceType,
-			reqBody.Metadata,
-		)
 
-		return true, c.JSON(http.StatusOK, map[string]any{keyRestoreJobID: job.RestoreJobID})
+		return true, h.handleStartRestoreJob(c, route.resource, body)
 	case opPutRestoreValidationResult:
-		var reqBody struct {
-			RestoreJobID     string `json:"RestoreJobId"`
-			ValidationStatus string `json:"ValidationStatus"`
-		}
-		if err := json.Unmarshal(body, &reqBody); err == nil {
-			h.Backend.PutRestoreValidationResult(reqBody.RestoreJobID, reqBody.ValidationStatus)
-		}
 
-		return true, c.NoContent(http.StatusNoContent)
+		return true, h.handlePutRestoreValidationResult(c, body)
 	}
 
 	return false, nil

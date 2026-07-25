@@ -344,3 +344,95 @@ func TestIAMHandler_UntagAndVerify(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_DeleteResource_ClearsHandlerLevelTags verifies that deleting a
+// taggable resource whose tags live only on the Handler (instance profiles,
+// MFA devices, SAML/OIDC providers, server certificates — see
+// resourceTagDispatch) also clears its tag entry. Without this, re-creating a
+// resource with the same name/ID after deletion would resurrect the old
+// resource's tags, since the Handler-level tag map is keyed by name/ARN and
+// outlives the backend entity.
+func TestHandler_DeleteResource_ClearsHandlerLevelTags(t *testing.T) {
+	t.Parallel()
+
+	t.Run("instance_profile", func(t *testing.T) {
+		t.Parallel()
+
+		h, b := newTestHandler(t)
+		_, err := b.CreateInstanceProfile("MyProfile", "/")
+		require.NoError(t, err)
+
+		callIAM(t, h, "TagInstanceProfile", map[string]string{
+			"InstanceProfileName": "MyProfile",
+			"Tags.member.1.Key":   "k",
+			"Tags.member.1.Value": "v",
+		})
+
+		rec := callIAM(t, h, "DeleteInstanceProfile", map[string]string{"InstanceProfileName": "MyProfile"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		_, err = b.CreateInstanceProfile("MyProfile", "/")
+		require.NoError(t, err)
+
+		rec = callIAM(t, h, "ListInstanceProfileTags", map[string]string{"InstanceProfileName": "MyProfile"})
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.NotContains(
+			t, rec.Body.String(), "<Key>k</Key>",
+			"recreated resource must not inherit deleted resource's tags",
+		)
+	})
+
+	t.Run("virtual_mfa_device", func(t *testing.T) {
+		t.Parallel()
+
+		h, b := newTestHandler(t)
+		dev, err := b.CreateVirtualMFADevice("MyDevice", "/")
+		require.NoError(t, err)
+
+		callIAM(t, h, "TagMFADevice", map[string]string{
+			"SerialNumber":        dev.SerialNumber,
+			"Tags.member.1.Key":   "k",
+			"Tags.member.1.Value": "v",
+		})
+
+		rec := callIAM(t, h, "DeleteVirtualMFADevice", map[string]string{"SerialNumber": dev.SerialNumber})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		_, err = b.CreateVirtualMFADevice("MyDevice", "/")
+		require.NoError(t, err)
+
+		rec = callIAM(t, h, "ListMFADeviceTags", map[string]string{"SerialNumber": dev.SerialNumber})
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.NotContains(
+			t, rec.Body.String(), "<Key>k</Key>",
+			"recreated device must not inherit deleted device's tags",
+		)
+	})
+}
+
+// TestHandler_UpdateServerCertificate_MovesHandlerLevelTags verifies that
+// renaming a server certificate (NewServerCertificateName) carries its
+// Handler-level tags forward under the new name instead of orphaning them.
+func TestHandler_UpdateServerCertificate_MovesHandlerLevelTags(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+	_, err := b.UploadServerCertificate("OldCert", "/", "body", "")
+	require.NoError(t, err)
+
+	callIAM(t, h, "TagServerCertificate", map[string]string{
+		"ServerCertificateName": "OldCert",
+		"Tags.member.1.Key":     "k",
+		"Tags.member.1.Value":   "v",
+	})
+
+	rec := callIAM(t, h, "UpdateServerCertificate", map[string]string{
+		"ServerCertificateName":    "OldCert",
+		"NewServerCertificateName": "NewCert",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = callIAM(t, h, "ListServerCertificateTags", map[string]string{"ServerCertificateName": "NewCert"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<Key>k</Key>", "tags must follow the certificate under its new name")
+}

@@ -150,15 +150,17 @@ func TestBackend_SnapshotRestoreFullState(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, original.TagResource(ctx, config.Arn, map[string]string{"team": "data"}))
 
-	replicator, err := original.CreateReplicator(ctx, "repl1", "desc", "arn:aws:iam::999999999999:role/r", nil)
-	require.NoError(t, err)
-
-	topic, err := original.CreateTopic(
-		ctx, cluster.ClusterArn, "orders", 3, 6, map[string]string{"retention.ms": "1000"},
+	replicator, err := original.CreateReplicator(
+		ctx, "repl1", "desc", "arn:aws:iam::999999999999:role/r", nil, nil, nil,
 	)
 	require.NoError(t, err)
 
-	vpcConn, err := original.CreateVpcConnection(ctx, cluster.ClusterArn, "vpc-1", "SASL_IAM", nil)
+	topic, err := original.CreateTopic(
+		ctx, cluster.ClusterArn, "orders", 3, 6, "cmV0ZW50aW9uLm1zPTEwMDA=",
+	)
+	require.NoError(t, err)
+
+	vpcConn, err := original.CreateVpcConnection(ctx, cluster.ClusterArn, "vpc-1", "SASL_IAM", nil, nil, nil)
 	require.NoError(t, err)
 
 	op, err := original.UpdateBrokerCount(ctx, cluster.ClusterArn, 5)
@@ -209,7 +211,7 @@ func TestBackend_SnapshotRestoreFullState(t *testing.T) {
 
 	gotTopic, err := fresh.DescribeTopic(ctx, cluster.ClusterArn, topic.TopicName)
 	require.NoError(t, err)
-	assert.Equal(t, int32(6), gotTopic.NumPartitions)
+	assert.Equal(t, int32(6), gotTopic.PartitionCount)
 
 	gotVpcConn, err := fresh.DescribeVpcConnection(ctx, vpcConn.VpcConnectionArn)
 	require.NoError(t, err)

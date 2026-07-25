@@ -219,7 +219,7 @@ func TestGetFindingsStatistics_SeverityKeys(t *testing.T) {
 	// CreateSampleFindings produces findings with severity 5.0 by default.
 	require.NoError(t, b.CreateSampleFindings(detID, nil))
 
-	stats, err := b.GetFindingsStatistics(detID)
+	stats, err := b.GetFindingsStatistics(detID, guardduty.FindingStatisticsQuery{})
 	require.NoError(t, err)
 
 	fs, ok := stats["findingStatistics"].(map[string]any)
@@ -245,7 +245,7 @@ func TestGetFindingsStatistics_Empty(t *testing.T) {
 	det, err := b.CreateDetector(true, "ALL", nil, nil)
 	require.NoError(t, err)
 
-	stats, err := b.GetFindingsStatistics(det.DetectorID)
+	stats, err := b.GetFindingsStatistics(det.DetectorID, guardduty.FindingStatisticsQuery{})
 	require.NoError(t, err)
 
 	fs := stats["findingStatistics"].(map[string]any)
@@ -277,7 +277,7 @@ func TestUpdateFindingsFeedback(t *testing.T) {
 
 			require.NoError(t, b.CreateSampleFindings(detID, nil))
 
-			ids, err := b.ListFindings(detID)
+			ids, _, err := b.ListFindings(detID, guardduty.FindingsQuery{})
 			require.NoError(t, err)
 			require.NotEmpty(t, ids)
 
@@ -313,7 +313,7 @@ func TestArchiveFindings_UpdatesTimestamp(t *testing.T) {
 
 	require.NoError(t, b.CreateSampleFindings(detID, nil))
 
-	ids, err := b.ListFindings(detID)
+	ids, _, err := b.ListFindings(detID, guardduty.FindingsQuery{})
 	require.NoError(t, err)
 	require.NotEmpty(t, ids)
 
@@ -346,7 +346,7 @@ func TestUnarchiveFindings_UpdatesTimestamp(t *testing.T) {
 
 	require.NoError(t, b.CreateSampleFindings(detID, nil))
 
-	ids, err := b.ListFindings(detID)
+	ids, _, err := b.ListFindings(detID, guardduty.FindingsQuery{})
 	require.NoError(t, err)
 	require.NotEmpty(t, ids)
 

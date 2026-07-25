@@ -57,11 +57,11 @@ func ConnectionCount(b *InMemoryBackend) int {
 	return b.connections.Len()
 }
 
-// MaxShadowsPerThing exposes the cap constant for white-box testing.
-const MaxShadowsPerThing = maxShadowsPerThing
-
 // MaxShadowDocumentBytes exposes the shadow document size cap for white-box testing.
 const MaxShadowDocumentBytes = maxShadowDocumentBytes
+
+// MaxShadowStateDepth exposes the JSON nesting depth cap for white-box testing.
+const MaxShadowStateDepth = maxShadowStateDepth
 
 // MaxShadowVersion exposes the version rollover cap for white-box testing.
 const MaxShadowVersion = maxShadowVersion

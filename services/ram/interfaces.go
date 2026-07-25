@@ -19,6 +19,11 @@ type StorageBackend interface {
 	AssociateResourceShare(shareARN string, principals, resourceARNs []string) ([]*ResourceShareAssociation, error)
 	DisassociateResourceShare(shareARN string, principals, resourceARNs []string) ([]*ResourceShareAssociation, error)
 	GetResourceShareAssociations(assocType string, shareARNs []string) []*ResourceShareAssociation
+	// AutoAssociateDefaultPermissions attaches the AWS-managed default permission for
+	// every resource type present in the share's active resource associations that
+	// does not already have an associated permission. Idempotent; safe to call after
+	// any resource association even when nothing needs attaching.
+	AutoAssociateDefaultPermissions(shareARN string) error
 
 	// Tag operations
 	TagResource(shareARN string, tags map[string]string) error
@@ -48,7 +53,11 @@ type StorageBackend interface {
 	SetDefaultPermissionVersion(permissionARN string, version int32) (*Permission, error)
 	PromotePermissionCreatedFromPolicy(permissionARN, name string) (*Permission, error)
 	PromoteResourceShareCreatedFromPolicy(shareARN string) (*ResourceShare, error)
-	ReplacePermissionAssociations(fromPermissionARN, toPermissionARN string) (string, error)
+	ReplacePermissionAssociations(
+		fromPermissionARN, toPermissionARN string,
+		fromPermissionVersion *int32,
+	) (*ReplacePermissionAssociationsWork, error)
+	ListReplacePermissionAssociationsWork(workIDs []string, status string) []*ReplacePermissionAssociationsWork
 
 	// Resource and principal list operations
 	ListResources(resourceOwner, shareARN, resourceType string) []*ResourceShareAssociation

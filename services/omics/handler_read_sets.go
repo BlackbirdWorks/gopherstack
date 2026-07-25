@@ -185,9 +185,14 @@ func (h *Handler) handleListReadSetImportJobs(c *echo.Context, storeID string) e
 
 func (h *Handler) handleCreateMultipartReadSetUpload(c *echo.Context, storeID string) error {
 	var req struct {
-		Tags         map[string]string `json:"tags"`
-		Name         string            `json:"name"`
-		SequenceType string            `json:"sequenceType"`
+		Tags           map[string]string `json:"tags"`
+		Name           string            `json:"name"`
+		SourceFileType string            `json:"sourceFileType"`
+		SampleID       string            `json:"sampleId"`
+		SubjectID      string            `json:"subjectId"`
+		GeneratedFrom  string            `json:"generatedFrom"`
+		ReferenceArn   string            `json:"referenceArn"`
+		Description    string            `json:"description"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -197,7 +202,12 @@ func (h *Handler) handleCreateMultipartReadSetUpload(c *echo.Context, storeID st
 	upload, err := h.Backend.CreateMultipartReadSetUpload(
 		storeID,
 		req.Name,
-		req.SequenceType,
+		req.SourceFileType,
+		req.SampleID,
+		req.SubjectID,
+		req.GeneratedFrom,
+		req.ReferenceArn,
+		req.Description,
 		req.Tags,
 	)
 	if err != nil {

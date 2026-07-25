@@ -3,6 +3,7 @@ package iotanalytics
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -245,11 +246,204 @@ func (b *InMemoryBackend) CancelPipelineReprocessing(pipelineName, reprocessingI
 	return nil
 }
 
-// RunPipelineActivity runs payloads through a pipeline activity and returns the results.
-// The in-memory implementation returns payloads unchanged (pass-through).
-func (b *InMemoryBackend) RunPipelineActivity(payloads [][]byte) ([][]byte, error) {
-	result := make([][]byte, len(payloads))
-	copy(result, payloads)
+// RunPipelineActivity runs payloads through a single pipeline activity and returns the
+// results, matching AWS RunPipelineActivity semantics per activity type:
+//
+//   - addAttributes/removeAttributes/selectAttributes: pure JSON-object transforms,
+//     applied to every payload that parses as a JSON object (see applyAddAttributes et al.).
+//   - filter: evaluates the SQL-like filter expression (see pipeline_expr.go) against each
+//     payload and returns only the payloads that match -- non-matching or unparsable
+//     payloads are dropped from the pipeline, exactly as a real filter activity would.
+//   - math: evaluates the math expression and stores the result under Attribute.
+//   - channel/datastore: legitimately pass-through in real AWS too (they are the pipeline's
+//     source/sink activities, not transforms).
+//   - lambda/deviceRegistryEnrich/deviceShadowEnrich: real AWS invokes Lambda / looks up IoT
+//     Device Registry or Device Shadow data for these. This backend has no cross-service
+//     wiring to reach the lambda/iot backends from iotanalytics's Provider.Init (no shared
+//     backend registry is threaded through, unlike e.g. cloudformation's ResourceCreator),
+//     so these remain pass-through -- a documented gap, not a silent stub (see PARITY.md).
+//
+// A payload that fails to parse as JSON, or a message missing a referenced attribute, is a
+// soft per-message failure: it is left unchanged (addAttributes/removeAttributes/
+// selectAttributes/math) or dropped (filter), matching a single bad message failing its own
+// pipeline activity step rather than the entire batch call.
+func (b *InMemoryBackend) RunPipelineActivity(activity PipelineActivity, payloads [][]byte) ([][]byte, error) {
+	switch {
+	case activity.AddAttributes != nil:
+		return applyAddAttributes(activity.AddAttributes, payloads), nil
+	case activity.RemoveAttributes != nil:
+		return applyRemoveAttributes(activity.RemoveAttributes, payloads), nil
+	case activity.SelectAttributes != nil:
+		return applySelectAttributes(activity.SelectAttributes, payloads), nil
+	case activity.Filter != nil:
+		return applyFilter(activity.Filter, payloads), nil
+	case activity.Math != nil:
+		return applyMath(activity.Math, payloads), nil
+	default:
+		result := make([][]byte, len(payloads))
+		copy(result, payloads)
 
-	return result, nil
+		return result, nil
+	}
+}
+
+// decodeMessage attempts to unmarshal a message payload as a JSON object.
+func decodeMessage(payload []byte) (map[string]any, bool) {
+	var m map[string]any
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return nil, false
+	}
+
+	return m, true
+}
+
+// encodeMessage re-marshals a mutated message, falling back to the original payload if
+// marshaling somehow fails (m came from a successful Unmarshal, so this is unreachable in
+// practice, but encodeMessage must never panic or drop data on error).
+func encodeMessage(m map[string]any, fallback []byte) []byte {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return fallback
+	}
+
+	return b
+}
+
+// applyAddAttributes merges a.Attributes into every payload that parses as a JSON object.
+func applyAddAttributes(a *PipelineAddAttributesActivity, payloads [][]byte) [][]byte {
+	out := make([][]byte, len(payloads))
+
+	for i, p := range payloads {
+		msg, ok := decodeMessage(p)
+		if !ok {
+			out[i] = p
+
+			continue
+		}
+
+		for k, v := range a.Attributes {
+			msg[k] = v
+		}
+
+		out[i] = encodeMessage(msg, p)
+	}
+
+	return out
+}
+
+// applyRemoveAttributes deletes a.Attributes keys from every payload that parses as a JSON object.
+func applyRemoveAttributes(a *PipelineRemoveAttributesActivity, payloads [][]byte) [][]byte {
+	out := make([][]byte, len(payloads))
+
+	for i, p := range payloads {
+		msg, ok := decodeMessage(p)
+		if !ok {
+			out[i] = p
+
+			continue
+		}
+
+		for _, k := range a.Attributes {
+			delete(msg, k)
+		}
+
+		out[i] = encodeMessage(msg, p)
+	}
+
+	return out
+}
+
+// applySelectAttributes keeps only a.Attributes keys in every payload that parses as a JSON object.
+func applySelectAttributes(a *PipelineSelectAttributesActivity, payloads [][]byte) [][]byte {
+	out := make([][]byte, len(payloads))
+
+	for i, p := range payloads {
+		msg, ok := decodeMessage(p)
+		if !ok {
+			out[i] = p
+
+			continue
+		}
+
+		selected := make(map[string]any, len(a.Attributes))
+
+		for _, k := range a.Attributes {
+			if v, exists := msg[k]; exists {
+				selected[k] = v
+			}
+		}
+
+		out[i] = encodeMessage(selected, p)
+	}
+
+	return out
+}
+
+// applyFilter evaluates f.Filter against every payload and returns only the payloads for
+// which it evaluates true. A payload that isn't a JSON object, or whose evaluation fails
+// (e.g. references a missing attribute or compares mismatched types), is dropped -- an
+// unevaluable filter cannot be said to have matched. A malformed filter expression matches
+// nothing.
+func applyFilter(f *PipelineFilterActivity, payloads [][]byte) [][]byte {
+	node, err := parseExpr(f.Filter)
+	if err != nil {
+		return [][]byte{}
+	}
+
+	out := make([][]byte, 0, len(payloads))
+
+	for _, p := range payloads {
+		msg, ok := decodeMessage(p)
+		if !ok {
+			continue
+		}
+
+		v, evalErr := node.eval(msg)
+		if evalErr != nil {
+			continue
+		}
+
+		if matched, isBool := v.(bool); isBool && matched {
+			out = append(out, p)
+		}
+	}
+
+	return out
+}
+
+// applyMath evaluates m.Math against every payload and stores the numeric result under
+// m.Attribute. A payload that isn't a JSON object, a malformed expression, or an expression
+// that fails to evaluate to a number leaves that payload unchanged.
+func applyMath(m *PipelineMathActivity, payloads [][]byte) [][]byte {
+	out := make([][]byte, len(payloads))
+
+	node, parseErr := parseExpr(m.Math)
+
+	for i, p := range payloads {
+		out[i] = p
+
+		if parseErr != nil {
+			continue
+		}
+
+		msg, ok := decodeMessage(p)
+		if !ok {
+			continue
+		}
+
+		v, evalErr := node.eval(msg)
+		if evalErr != nil {
+			continue
+		}
+
+		f, numOK := toFloat(v)
+		if !numOK {
+			continue
+		}
+
+		msg[m.Attribute] = f
+		out[i] = encodeMessage(msg, p)
+	}
+
+	return out
 }

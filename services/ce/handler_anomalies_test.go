@@ -2,6 +2,7 @@ package ce_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -284,6 +285,7 @@ func TestHandler_AnomalySubscriptionCRUD(t *testing.T) {
 					"AnomalySubscription": map[string]any{
 						"SubscriptionName": "MySub",
 						"Frequency":        "DAILY",
+						"MonitorArnList":   []string{},
 						"Subscribers": []map[string]any{
 							{"Address": "test@example.com", "Type": "EMAIL"},
 						},
@@ -304,6 +306,10 @@ func TestHandler_AnomalySubscriptionCRUD(t *testing.T) {
 					"AnomalySubscription": map[string]any{
 						"SubscriptionName": "ToDelete",
 						"Frequency":        "DAILY",
+						"MonitorArnList":   []string{},
+						"Subscribers": []map[string]any{
+							{"Address": "test@example.com", "Type": "EMAIL"},
+						},
 					},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
@@ -368,6 +374,10 @@ func TestHandler_GetAnomalySubscriptions(t *testing.T) {
 					"AnomalySubscription": map[string]any{
 						"SubscriptionName": name,
 						"Frequency":        "DAILY",
+						"MonitorArnList":   []string{},
+						"Subscribers": []map[string]any{
+							{"Address": "test@example.com", "Type": "EMAIL"},
+						},
 					},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
@@ -441,6 +451,10 @@ func TestHandler_UpdateAnomalySubscription(t *testing.T) {
 					"AnomalySubscription": map[string]any{
 						"SubscriptionName": "UpdateMe",
 						"Frequency":        "DAILY",
+						"MonitorArnList":   []string{},
+						"Subscribers": []map[string]any{
+							{"Address": "test@example.com", "Type": "EMAIL"},
+						},
 					},
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
@@ -527,6 +541,10 @@ func TestHandler_FrequencyValidation(t *testing.T) {
 				"AnomalySubscription": map[string]any{
 					"SubscriptionName": "DailySub",
 					"Frequency":        "DAILY",
+					"MonitorArnList":   []string{},
+					"Subscribers": []map[string]any{
+						{"Address": "test@example.com", "Type": "EMAIL"},
+					},
 				},
 			},
 			wantStatusCode: http.StatusOK,
@@ -537,6 +555,10 @@ func TestHandler_FrequencyValidation(t *testing.T) {
 				"AnomalySubscription": map[string]any{
 					"SubscriptionName": "ImmediateSub",
 					"Frequency":        "IMMEDIATE",
+					"MonitorArnList":   []string{},
+					"Subscribers": []map[string]any{
+						{"Address": "test@example.com", "Type": "EMAIL"},
+					},
 				},
 			},
 			wantStatusCode: http.StatusOK,
@@ -547,6 +569,10 @@ func TestHandler_FrequencyValidation(t *testing.T) {
 				"AnomalySubscription": map[string]any{
 					"SubscriptionName": "WeeklySub",
 					"Frequency":        "WEEKLY",
+					"MonitorArnList":   []string{},
+					"Subscribers": []map[string]any{
+						{"Address": "test@example.com", "Type": "EMAIL"},
+					},
 				},
 			},
 			wantStatusCode: http.StatusOK,
@@ -557,6 +583,10 @@ func TestHandler_FrequencyValidation(t *testing.T) {
 				"AnomalySubscription": map[string]any{
 					"SubscriptionName": "BadSub",
 					"Frequency":        "YEARLY",
+					"MonitorArnList":   []string{},
+					"Subscribers": []map[string]any{
+						{"Address": "test@example.com", "Type": "EMAIL"},
+					},
 				},
 			},
 			wantStatusCode: http.StatusBadRequest,
@@ -628,6 +658,9 @@ func TestHandler_GetAnomalySubscriptions_MonitorArnFilter(t *testing.T) {
 					"SubscriptionName": "AttachedSub",
 					"Frequency":        "DAILY",
 					"MonitorArnList":   []string{monARN},
+					"Subscribers": []map[string]any{
+						{"Address": "test@example.com", "Type": "EMAIL"},
+					},
 				},
 			})
 
@@ -636,6 +669,10 @@ func TestHandler_GetAnomalySubscriptions_MonitorArnFilter(t *testing.T) {
 				"AnomalySubscription": map[string]any{
 					"SubscriptionName": "UnattachedSub",
 					"Frequency":        "WEEKLY",
+					"MonitorArnList":   []string{},
+					"Subscribers": []map[string]any{
+						{"Address": "test@example.com", "Type": "EMAIL"},
+					},
 				},
 			})
 
@@ -739,6 +776,10 @@ func TestHandler_UpdateAnomalySubscription_AllBranches(t *testing.T) {
 				"AnomalySubscription": map[string]any{
 					"SubscriptionName": "OriginalName",
 					"Frequency":        "DAILY",
+					"MonitorArnList":   []string{},
+					"Subscribers": []map[string]any{
+						{"Address": "test@example.com", "Type": "EMAIL"},
+					},
 				},
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
@@ -771,4 +812,151 @@ func TestHandler_UpdateAnomalySubscription_AllBranches(t *testing.T) {
 			assert.Equal(t, tt.wantSubName, getOut.AnomalySubscriptions[0].SubscriptionName)
 		})
 	}
+}
+
+// TestHandler_CreateAnomalyMonitor_RequiredFields verifies MonitorName and MonitorType
+// are enforced as required, matching real AWS CE's validateAnomalyMonitor.
+func TestHandler_CreateAnomalyMonitor_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		monitor        map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "missing_monitor_name",
+			monitor: map[string]any{
+				"MonitorType": "DIMENSIONAL",
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_monitor_type",
+			monitor: map[string]any{
+				"MonitorName": "NoType",
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "both_present_succeeds",
+			monitor: map[string]any{
+				"MonitorName": "HasBoth",
+				"MonitorType": "DIMENSIONAL",
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateAnomalyMonitor", map[string]any{
+				"AnomalyMonitor": tt.monitor,
+			})
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+// TestHandler_CreateAnomalySubscription_RequiredFields verifies MonitorArnList,
+// Subscribers, and Frequency are enforced as required, matching real AWS CE's
+// validateAnomalySubscription.
+func TestHandler_CreateAnomalySubscription_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	fullSub := map[string]any{
+		"SubscriptionName": "ReqFieldsSub",
+		"Frequency":        "DAILY",
+		"MonitorArnList":   []string{},
+		"Subscribers": []map[string]any{
+			{"Address": "test@example.com", "Type": "EMAIL"},
+		},
+	}
+
+	tests := []struct {
+		mutate         func(sub map[string]any)
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name:           "missing_monitor_arn_list",
+			mutate:         func(sub map[string]any) { delete(sub, "MonitorArnList") },
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "missing_subscribers",
+			mutate:         func(sub map[string]any) { delete(sub, "Subscribers") },
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "missing_frequency",
+			mutate:         func(sub map[string]any) { delete(sub, "Frequency") },
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "all_present_succeeds",
+			mutate:         func(map[string]any) {},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sub := make(map[string]any, len(fullSub))
+			maps.Copy(sub, fullSub)
+
+			tt.mutate(sub)
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateAnomalySubscription", map[string]any{
+				"AnomalySubscription": sub,
+			})
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+// TestHandler_UpdateAnomalyMonitor_OmittedNameUnchanged verifies real AWS behavior:
+// UpdateAnomalyMonitor only requires MonitorArn -- MonitorName is optional, and omitting
+// it leaves the existing name unchanged rather than blanking it out or failing.
+func TestHandler_UpdateAnomalyMonitor_OmittedNameUnchanged(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateAnomalyMonitor", map[string]any{
+		"AnomalyMonitor": map[string]any{
+			"MonitorName": "KeepMyName",
+			"MonitorType": "DIMENSIONAL",
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	monARN := createOut["MonitorArn"].(string)
+
+	updateRec := doRequest(t, h, "UpdateAnomalyMonitor", map[string]any{
+		"MonitorArn": monARN,
+	})
+	assert.Equal(t, http.StatusOK, updateRec.Code)
+
+	getRec := doRequest(t, h, "GetAnomalyMonitors", map[string]any{
+		"MonitorArnList": []string{monARN},
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut struct {
+		AnomalyMonitors []struct {
+			MonitorName string `json:"MonitorName"`
+		} `json:"AnomalyMonitors"`
+	}
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+	require.Len(t, getOut.AnomalyMonitors, 1)
+	assert.Equal(t, "KeepMyName", getOut.AnomalyMonitors[0].MonitorName)
 }

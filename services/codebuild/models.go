@@ -137,20 +137,21 @@ type Project struct {
 	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
 	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
 	Webhook                 *Webhook               `json:"webhook,omitempty"`
-	Name                    string                 `json:"name"`
+	ResourceAccessRole      string                 `json:"resourceAccessRole,omitempty"`
 	Description             string                 `json:"description,omitempty"`
 	ServiceRole             string                 `json:"serviceRole,omitempty"`
 	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
 	Arn                     string                 `json:"arn"`
 	Visibility              string                 `json:"projectVisibility,omitempty"`
 	PublicProjectAlias      string                 `json:"publicProjectAlias,omitempty"`
-	ResourceAccessRole      string                 `json:"resourceAccessRole,omitempty"`
+	Name                    string                 `json:"name"`
+	SourceVersion           string                 `json:"sourceVersion,omitempty"`
 	Artifacts               ProjectArtifacts       `json:"artifacts"`
 	Source                  ProjectSource          `json:"source"`
-	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
 	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions,omitempty"`
 	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts,omitempty"`
 	SecondarySources        []ProjectSource        `json:"secondarySources,omitempty"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
 	Environment             ProjectEnvironment     `json:"environment"`
 	Created                 float64                `json:"created,omitempty"`
 	LastModified            float64                `json:"lastModified,omitempty"`
@@ -246,24 +247,78 @@ type FleetStatus struct {
 	Message    string `json:"message,omitempty"`
 }
 
-// ScalingConfiguration represents the scaling settings for a compute fleet.
-type ScalingConfiguration struct {
-	ScalingType     string `json:"scalingType,omitempty"`
-	MaxCapacity     int32  `json:"maxCapacity,omitempty"`
-	DesiredCapacity int32  `json:"desiredCapacity,omitempty"`
+// TargetTrackingScalingConfig defines when a new instance is auto-scaled
+// into a compute fleet (aws-sdk-go-v2/service/codebuild/types.
+// TargetTrackingScalingConfiguration).
+type TargetTrackingScalingConfig struct {
+	MetricType  string  `json:"metricType,omitempty"` // FLEET_UTILIZATION_RATE
+	TargetValue float64 `json:"targetValue,omitempty"`
 }
+
+// ScalingConfiguration represents the scaling settings for a compute fleet.
+//
+// DesiredCapacity is only meaningful in a response (types.
+// ScalingConfigurationOutput) -- real AWS's request shape (types.
+// ScalingConfigurationInput) has no such field, since the desired capacity
+// is computed by the service, not supplied by the caller. Callers building
+// an UpdateFleet/CreateFleet request should leave it zero; it is ignored on
+// input and populated on output.
+type ScalingConfiguration struct {
+	ScalingType                  string                        `json:"scalingType,omitempty"`
+	TargetTrackingScalingConfigs []TargetTrackingScalingConfig `json:"targetTrackingScalingConfigs,omitempty"`
+	MaxCapacity                  int32                         `json:"maxCapacity,omitempty"`
+	DesiredCapacity              int32                         `json:"desiredCapacity,omitempty"`
+}
+
+// ComputeConfiguration models the attribute-based-compute or
+// custom-instance-type sizing of a compute fleet (aws-sdk-go-v2/service/
+// codebuild/types.ComputeConfiguration). Only meaningful when the fleet's
+// computeType is ATTRIBUTE_BASED_COMPUTE or CUSTOM_INSTANCE_TYPE.
+type ComputeConfiguration struct {
+	MachineType  string `json:"machineType,omitempty"`
+	InstanceType string `json:"instanceType,omitempty"`
+	Disk         int64  `json:"disk,omitempty"`
+	Memory       int64  `json:"memory,omitempty"`
+	VCPU         int64  `json:"vCpu,omitempty"`
+}
+
+// FleetProxyRule is a single network-access-control rule applied to a
+// reserved-capacity fleet's outgoing traffic (aws-sdk-go-v2/service/
+// codebuild/types.FleetProxyRule).
+type FleetProxyRule struct {
+	Effect   string   `json:"effect,omitempty"` // ALLOW|DENY
+	Type     string   `json:"type,omitempty"`   // DOMAIN|IP
+	Entities []string `json:"entities,omitempty"`
+}
+
+// ProxyConfiguration models a compute fleet's outgoing-traffic network
+// access control (aws-sdk-go-v2/service/codebuild/types.ProxyConfiguration).
+type ProxyConfiguration struct {
+	DefaultBehavior   string           `json:"defaultBehavior,omitempty"` // ALLOW_ALL|DENY_ALL
+	OrderedProxyRules []FleetProxyRule `json:"orderedProxyRules,omitempty"`
+}
+
+// Fleet's VpcConfig reuses the existing [VpcConfig] type (defined above for
+// Project) -- the real aws-sdk-go-v2/service/codebuild/types.VpcConfig used
+// by Fleet has the identical shape (SecurityGroupIds/Subnets/VpcId) as the
+// one used by Project, so no separate type is needed.
 
 // Fleet represents an in-memory AWS CodeBuild compute fleet.
 type Fleet struct {
 	Tags                 map[string]string     `json:"tags,omitempty"`
 	Status               *FleetStatus          `json:"status,omitempty"`
 	ScalingConfiguration *ScalingConfiguration `json:"scalingConfiguration,omitempty"`
+	ComputeConfiguration *ComputeConfiguration `json:"computeConfiguration,omitempty"`
+	ProxyConfiguration   *ProxyConfiguration   `json:"proxyConfiguration,omitempty"`
+	VpcConfig            *VpcConfig            `json:"vpcConfig,omitempty"`
 	Arn                  string                `json:"arn"`
+	ID                   string                `json:"id"`
 	Name                 string                `json:"name"`
 	FleetServiceRole     string                `json:"fleetServiceRole,omitempty"`
 	OverflowBehavior     string                `json:"overflowBehavior,omitempty"` // QUEUE|ON_DEMAND
 	ComputeType          string                `json:"computeType,omitempty"`
 	EnvironmentType      string                `json:"environmentType,omitempty"`
+	ImageID              string                `json:"imageId,omitempty"`
 	BaseCapacity         int32                 `json:"baseCapacity"`
 	Created              float64               `json:"created,omitempty"`
 	LastModified         float64               `json:"lastModified,omitempty"`
@@ -312,14 +367,35 @@ type WebhookFilter struct {
 	ExcludeMatchedPattern bool   `json:"excludeMatchedPattern,omitempty"`
 }
 
+// PullRequestBuildPolicy defines comment-based approval requirements for
+// triggering builds on pull requests.
+type PullRequestBuildPolicy struct {
+	RequiresCommentApproval string   `json:"requiresCommentApproval"`
+	ApproverRoles           []string `json:"approverRoles,omitempty"`
+}
+
+// ScopeConfiguration is the scope configuration for a global or organization webhook.
+type ScopeConfiguration struct {
+	Name   string `json:"name"`
+	Domain string `json:"domain,omitempty"`
+	Scope  string `json:"scope"`
+}
+
 // Webhook represents an in-memory AWS CodeBuild webhook.
 type Webhook struct {
-	ProjectName  string            `json:"projectName"`
-	URL          string            `json:"url,omitempty"`
-	BranchFilter string            `json:"branchFilter,omitempty"`
-	BuildType    string            `json:"buildType,omitempty"`
-	PayloadURL   string            `json:"payloadUrl,omitempty"`
-	FilterGroups [][]WebhookFilter `json:"filterGroups,omitempty"`
+	ManualCreation         *bool                   `json:"manualCreation,omitempty"`
+	PullRequestBuildPolicy *PullRequestBuildPolicy `json:"pullRequestBuildPolicy,omitempty"`
+	ScopeConfiguration     *ScopeConfiguration     `json:"scopeConfiguration,omitempty"`
+	ProjectName            string                  `json:"projectName"`
+	URL                    string                  `json:"url,omitempty"`
+	BranchFilter           string                  `json:"branchFilter,omitempty"`
+	BuildType              string                  `json:"buildType,omitempty"`
+	PayloadURL             string                  `json:"payloadUrl,omitempty"`
+	Secret                 string                  `json:"secret,omitempty"`
+	Status                 string                  `json:"status,omitempty"`
+	StatusMessage          string                  `json:"statusMessage,omitempty"`
+	FilterGroups           [][]WebhookFilter       `json:"filterGroups,omitempty"`
+	LastModifiedSecret     float64                 `json:"lastModifiedSecret,omitempty"`
 }
 
 // SourceCredentials represents imported source credentials.

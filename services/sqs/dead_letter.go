@@ -41,7 +41,7 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 		return &InvalidParameterError{Message: "Invalid value for the parameter RedrivePolicy."}
 	}
 
-	dlqName := queueNameFromARN(pol.DeadLetterTargetArn)
+	_, dlqName := parseQueueARNOrURL(pol.DeadLetterTargetArn)
 
 	// DLQ must reside in the same region as the source queue (AWS rule).
 	dlq, exists := backend.lookupQueueByName(q.Region, dlqName)
@@ -204,6 +204,11 @@ func (b *InMemoryBackend) ListDeadLetterSourceQueues(
 func tryRouteToDLQ(q *Queue, msg *Message, now time.Time) bool {
 	if q.MaxReceiveCount > 0 && q.dlq != nil && msg.ApproximateReceiveCount >= q.MaxReceiveCount {
 		msg.ReceiptHandle = ""
+
+		if msg.Attributes == nil {
+			msg.Attributes = make(map[string]string, 1)
+		}
+		msg.Attributes[attrDeadLetterQueueSourceArn] = q.Attributes[attrQueueArn]
 
 		q.dlq.mu.Lock()
 		defer q.dlq.mu.Unlock()

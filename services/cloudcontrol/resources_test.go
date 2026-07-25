@@ -625,6 +625,127 @@ func TestHandler_UpdateResource(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_UpdateResource_ClientToken verifies that UpdateResourceInput.ClientToken --
+// a real field on the SDK's UpdateResourceInput, previously silently dropped by
+// gopherstack's updateResourceInput -- provides the same idempotent-replay
+// behavior as CreateResource's ClientToken: a repeated call with the same token
+// returns the original ProgressEvent (same RequestToken) without re-applying the
+// patch a second time.
+func TestHandler_UpdateResource_ClientToken(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, _ = h.Backend.CreateResource(
+		"AWS::Logs::LogGroup", `{"LogGroupName":"update-token-test","RetentionInDays":7}`, "",
+	)
+
+	body := map[string]any{
+		"TypeName":      "AWS::Logs::LogGroup",
+		"Identifier":    "update-token-test",
+		"PatchDocument": `[{"op":"replace","path":"/RetentionInDays","value":30}]`,
+		"ClientToken":   "update-client-token-1",
+	}
+
+	rec1 := doRequest(t, h, "UpdateResource", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var out1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	pe1 := out1["ProgressEvent"].(map[string]any)
+
+	rec2 := doRequest(t, h, "UpdateResource", body)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	pe2 := out2["ProgressEvent"].(map[string]any)
+
+	assert.Equal(t, pe1["RequestToken"], pe2["RequestToken"],
+		"idempotent UpdateResource calls must return the same request token")
+}
+
+// TestBackend_UpdateResource_ClientToken_Idempotency is the backend-level
+// counterpart of TestHandler_UpdateResource_ClientToken: it additionally
+// verifies the patch was applied exactly once.
+func TestBackend_UpdateResource_ClientToken_Idempotency(t *testing.T) {
+	t.Parallel()
+
+	b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"update-idem","Count":1}`, "")
+	require.NoError(t, err)
+
+	patch := `[{"op":"replace","path":"/Count","value":2}]`
+
+	ev1, err := b.UpdateResource("AWS::Logs::LogGroup", "update-idem", patch, "my-update-token")
+	require.NoError(t, err)
+
+	ev2, err := b.UpdateResource("AWS::Logs::LogGroup", "update-idem", patch, "my-update-token")
+	require.NoError(t, err)
+
+	assert.Equal(t, ev1.RequestToken, ev2.RequestToken, "idempotent calls must return the same request token")
+
+	r, err := b.GetResource("AWS::Logs::LogGroup", "update-idem")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"LogGroupName":"update-idem","Count":2}`, r.Properties,
+		"patch must only be applied once")
+}
+
+// TestHandler_DeleteResource_ClientToken verifies that DeleteResourceInput.ClientToken --
+// a real field on the SDK's DeleteResourceInput, previously silently dropped by
+// gopherstack's deleteResourceInput -- provides idempotent-replay behavior: a
+// repeated delete with the same token returns the original ProgressEvent instead
+// of ResourceNotFoundException for the now-already-deleted resource.
+func TestHandler_DeleteResource_ClientToken(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"delete-token-test"}`, "")
+
+	body := map[string]any{
+		"TypeName":    "AWS::Logs::LogGroup",
+		"Identifier":  "delete-token-test",
+		"ClientToken": "delete-client-token-1",
+	}
+
+	rec1 := doRequest(t, h, "DeleteResource", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var out1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	pe1 := out1["ProgressEvent"].(map[string]any)
+
+	// Without idempotency this second call would 400 with ResourceNotFoundException,
+	// since the resource is already gone.
+	rec2 := doRequest(t, h, "DeleteResource", body)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	pe2 := out2["ProgressEvent"].(map[string]any)
+
+	assert.Equal(t, pe1["RequestToken"], pe2["RequestToken"],
+		"idempotent DeleteResource calls must return the same request token")
+}
+
+// TestBackend_DeleteResource_ClientToken_Idempotency is the backend-level
+// counterpart of TestHandler_DeleteResource_ClientToken.
+func TestBackend_DeleteResource_ClientToken_Idempotency(t *testing.T) {
+	t.Parallel()
+
+	b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"delete-idem"}`, "")
+	require.NoError(t, err)
+
+	ev1, err := b.DeleteResource("AWS::Logs::LogGroup", "delete-idem", "my-delete-token")
+	require.NoError(t, err)
+
+	ev2, err := b.DeleteResource("AWS::Logs::LogGroup", "delete-idem", "my-delete-token")
+	require.NoError(t, err)
+
+	assert.Equal(t, ev1.RequestToken, ev2.RequestToken, "idempotent calls must return the same request token")
+}
+
 func TestInMemoryBackend_ListAllResources(t *testing.T) {
 	t.Parallel()
 
@@ -651,6 +772,53 @@ func TestBackend_ListAllResources_SortedOutput(t *testing.T) {
 	assert.Equal(t, "AWS::S3::Bucket", all[1].TypeName)
 	assert.Equal(t, "a-bucket", all[1].Identifier)
 	assert.Equal(t, "z-bucket", all[2].Identifier)
+}
+
+// TestBackend_ListAllResources_ReturnsCopiesNotLiveState locks in a fix: List(All)Resources
+// previously handed back the *Resource pointers live inside the backend's
+// store.Table (store.Table.All/Range perform no copying themselves -- see
+// pkgs/store's package doc -- so that responsibility falls on the backend).
+// Every other accessor (GetResource, the ProgressEvent returned by
+// Create/Update/DeleteResource) already returns a defensive copy; a caller
+// mutating a *Resource obtained from ListAllResources must never be able to
+// corrupt backend state without holding the lock.
+func TestBackend_ListAllResources_ReturnsCopiesNotLiveState(t *testing.T) {
+	t.Parallel()
+
+	b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"copy-test"}`, "")
+	require.NoError(t, err)
+
+	all := b.ListAllResources()
+	require.Len(t, all, 1)
+
+	all[0].Properties = `{"tampered":true}`
+
+	r, err := b.GetResource("AWS::Logs::LogGroup", "copy-test")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"LogGroupName":"copy-test"}`, r.Properties,
+		"mutating a ListAllResources result must not affect backend state")
+}
+
+// TestBackend_ListResources_ReturnsCopiesNotLiveState is the ListResources
+// (per-TypeName, paginated) counterpart of
+// TestBackend_ListAllResources_ReturnsCopiesNotLiveState.
+func TestBackend_ListResources_ReturnsCopiesNotLiveState(t *testing.T) {
+	t.Parallel()
+
+	b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"copy-test-2"}`, "")
+	require.NoError(t, err)
+
+	page, _ := b.ListResources("AWS::Logs::LogGroup", 0, "")
+	require.Len(t, page, 1)
+
+	page[0].Properties = `{"tampered":true}`
+
+	r, err := b.GetResource("AWS::Logs::LogGroup", "copy-test-2")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"LogGroupName":"copy-test-2"}`, r.Properties,
+		"mutating a ListResources result must not affect backend state")
 }
 func TestHandler_TypeName_Validation(t *testing.T) {
 	t.Parallel()
@@ -719,6 +887,42 @@ func TestHandler_MissingRequiredField_IsInvalidRequestException(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "CreateResource", map[string]any{"DesiredState": `{}`})
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "InvalidRequestException", errType(t, rec.Body.Bytes()))
+}
+
+// TestHandler_CreateResource_MissingDesiredState_Is400 verifies that DesiredState --
+// "This member is required" on the real SDK's CreateResourceInput -- is enforced.
+// A prior gopherstack pass validated TypeName but silently accepted a missing/empty
+// DesiredState, creating a resource with empty Properties instead of rejecting the
+// request the way real AWS would reject a missing required member.
+func TestHandler_CreateResource_MissingDesiredState_Is400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "CreateResource", map[string]any{"TypeName": "AWS::Logs::LogGroup"})
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "InvalidRequestException", errType(t, rec.Body.Bytes()))
+	assert.Empty(t, h.Backend.ListAllResources(), "no resource must be created")
+}
+
+// TestHandler_UpdateResource_MissingPatchDocument_Is400 verifies that PatchDocument --
+// "This member is required" on the real SDK's UpdateResourceInput -- is enforced.
+// A prior gopherstack pass validated TypeName/Identifier but silently accepted a
+// missing/empty PatchDocument, which applyPatch then silently no-oped on instead of
+// the request being rejected the way real AWS would reject a missing required member.
+func TestHandler_UpdateResource_MissingPatchDocument_Is400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"no-patch-doc"}`, "")
+
+	rec := doRequest(t, h, "UpdateResource", map[string]any{
+		"TypeName":   "AWS::Logs::LogGroup",
+		"Identifier": "no-patch-doc",
+	})
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "InvalidRequestException", errType(t, rec.Body.Bytes()))

@@ -18,4 +18,27 @@ var (
 
 	// ErrNotAuthorized is returned when the caller lacks required permissions.
 	ErrNotAuthorized = awserr.New("NotAuthorizedException", awserr.ErrInvalidParameter)
+
+	// ErrResourceConflict is returned when a request's parameters conflict with
+	// existing state (for example, LookupDeveloperIdentity supplying both an
+	// IdentityId and a DeveloperUserIdentifier that do not resolve to the same
+	// identity). Distinct from ErrIdentityPoolAlreadyExists (also wire-typed
+	// ResourceConflictException) which is specifically about pool-name collisions.
+	ErrResourceConflict = awserr.New("ResourceConflictException", awserr.ErrConflict)
+
+	// ErrDeveloperUserAlreadyRegistered is returned by GetOpenIdTokenForDeveloperIdentity
+	// when the developer user identifier supplied in Logins is already linked to a
+	// different identity than the one requested.
+	ErrDeveloperUserAlreadyRegistered = awserr.New(
+		"DeveloperUserAlreadyRegisteredException",
+		awserr.ErrConflict,
+	)
+
+	// ErrInvalidIdentityPoolConfiguration is returned by GetCredentialsForIdentity when
+	// the identity pool has no IAM role configured for the identity's auth state
+	// (authenticated vs. unauthenticated).
+	ErrInvalidIdentityPoolConfiguration = awserr.New(
+		"InvalidIdentityPoolConfigurationException",
+		awserr.ErrInvalidParameter,
+	)
 )

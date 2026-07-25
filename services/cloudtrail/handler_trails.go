@@ -6,7 +6,14 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// defaultTrailsPageSize is used when ListTrails omits MaxResults (ListTrails
+// has no MaxResults input field in the real API, only NextToken, so every
+// call effectively requests the default page).
+const defaultTrailsPageSize = 1000
 
 // --- CreateTrail ---
 
@@ -246,11 +253,26 @@ func (h *Handler) handleGetTrailStatus(c *echo.Context, body []byte) error {
 
 // --- ListTrails ---
 
-func (h *Handler) handleListTrails(c *echo.Context, _ []byte) error {
-	trails := h.Backend.ListTrails()
-	items := make([]map[string]any, 0, len(trails))
+type listTrailsBody struct {
+	NextToken string `json:"NextToken"`
+}
 
-	for _, t := range trails {
+func (h *Handler) handleListTrails(c *echo.Context, body []byte) error {
+	var in listTrailsBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("InvalidParameterCombinationException", "invalid request body"),
+			)
+		}
+	}
+
+	trails := h.Backend.ListTrails()
+	p := page.New(trails, in.NextToken, 0, defaultTrailsPageSize)
+
+	items := make([]map[string]any, 0, len(p.Data))
+	for _, t := range p.Data {
 		items = append(items, map[string]any{
 			keyTrailARN:  t.TrailARN,
 			keyName:      t.Name,
@@ -258,7 +280,12 @@ func (h *Handler) handleListTrails(c *echo.Context, _ []byte) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Trails": items})
+	resp := map[string]any{"Trails": items}
+	if p.Next != "" {
+		resp["NextToken"] = p.Next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // --- DeregisterOrganizationDelegatedAdmin ---

@@ -148,8 +148,13 @@ func (b *InMemoryBackend) DescribeDBClusterEndpoints(
 }
 
 // ModifyDBClusterEndpoint modifies a Neptune DB cluster custom endpoint.
+// staticMembers/excludedMembers replace the endpoint's respective member
+// lists when non-nil (an explicitly-empty list, e.g. from
+// StaticMembers.member with zero entries, is indistinguishable from "not
+// supplied" on this query-protocol wire format -- same nil-vs-empty
+// convention CreateDBClusterEndpoint already used for these two fields).
 func (b *InMemoryBackend) ModifyDBClusterEndpoint(
-	ctx context.Context, endpointID, endpointType string,
+	ctx context.Context, endpointID, endpointType string, staticMembers, excludedMembers []string,
 ) (*DBClusterEndpoint, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBClusterEndpoint")
@@ -165,7 +170,17 @@ func (b *InMemoryBackend) ModifyDBClusterEndpoint(
 	if endpointType != "" {
 		ep.EndpointType = endpointType
 	}
+	if len(staticMembers) > 0 {
+		ep.StaticMembers = append([]string(nil), staticMembers...)
+	}
+	if len(excludedMembers) > 0 {
+		ep.ExcludedMembers = append([]string(nil), excludedMembers...)
+	}
 	cp := *ep
+	cp.StaticMembers = make([]string, len(ep.StaticMembers))
+	copy(cp.StaticMembers, ep.StaticMembers)
+	cp.ExcludedMembers = make([]string, len(ep.ExcludedMembers))
+	copy(cp.ExcludedMembers, ep.ExcludedMembers)
 
 	return &cp, nil
 }

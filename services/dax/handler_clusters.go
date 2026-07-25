@@ -18,6 +18,7 @@ type createClusterRequest struct {
 	ParameterGroupName            string    `json:"ParameterGroupName"`
 	NotificationTopicArn          string    `json:"NotificationTopicArn"`
 	ClusterEndpointEncryptionType string    `json:"ClusterEndpointEncryptionType"`
+	NetworkType                   string    `json:"NetworkType"`
 	AvailabilityZones             []string  `json:"AvailabilityZones"`
 	SecurityGroupIDs              []string  `json:"SecurityGroupIds"`
 	ReplicationFactor             int       `json:"ReplicationFactor"`
@@ -79,9 +80,11 @@ type clusterResponse struct {
 	IamRoleArn                    string                  `json:"IamRoleArn,omitempty"`
 	PreferredMaintenanceWindow    string                  `json:"PreferredMaintenanceWindow,omitempty"`
 	ClusterEndpointEncryptionType string                  `json:"ClusterEndpointEncryptionType,omitempty"`
+	NetworkType                   string                  `json:"NetworkType,omitempty"`
 	Nodes                         []nodeResponse          `json:"Nodes,omitempty"`
 	SecurityGroups                []securityGroupResp     `json:"SecurityGroups,omitempty"`
 	Tags                          []tagItem               `json:"Tags,omitempty"`
+	NodeIDsToRemove               []string                `json:"NodeIdsToRemove,omitempty"`
 	TotalNodes                    int                     `json:"TotalNodes"`
 	ActiveNodes                   int                     `json:"ActiveNodes"`
 }
@@ -143,6 +146,8 @@ func toClusterResponse(c *Cluster) clusterResponse {
 		TotalNodes:                    c.TotalNodes,
 		PreferredMaintenanceWindow:    c.PreferredMaintenanceWindow,
 		ClusterEndpointEncryptionType: c.ClusterEndpointEncryptionType,
+		NetworkType:                   c.NetworkType,
+		NodeIDsToRemove:               c.NodeIDsToRemove,
 		ParameterGroup: &paramGroupStatus{
 			ParameterGroupName:   c.ParameterGroup.ParameterGroupName,
 			ParameterApplyStatus: c.ParameterGroup.ParameterApplyStatus,
@@ -230,6 +235,7 @@ func (h *Handler) handleCreateCluster(body []byte) (any, error) {
 		ParameterGroupName:            req.ParameterGroupName,
 		NotificationTopicArn:          req.NotificationTopicArn,
 		ClusterEndpointEncryptionType: req.ClusterEndpointEncryptionType,
+		NetworkType:                   req.NetworkType,
 		Tags:                          tags,
 		SSESpecificationEnabled:       req.SSESpecification.Enabled,
 	})

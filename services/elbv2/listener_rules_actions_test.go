@@ -727,3 +727,140 @@ func TestModifyRule_ChangeConditions(t *testing.T) {
 	require.Equal(t, http.StatusOK, mRec.Code)
 	assert.Contains(t, mRec.Body.String(), "/new")
 }
+
+// TestRuleConditionRegexValues verifies that RegexValues (a real, previously
+// unimplemented AWS field -- types.RuleCondition.RegexValues /
+// HostHeaderConditionConfig.RegexValues / PathPatternConditionConfig.RegexValues /
+// HttpHeaderConditionConfig.RegexValues) round-trips through CreateRule and
+// DescribeRules for the three condition types that support it, via both the modern
+// nested *Config.RegexValues.member.N wire form and the legacy top-level
+// Conditions.member.N.RegexValues.member.N form.
+func TestRuleConditionRegexValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		conditionVals url.Values
+		wantField     string
+		wantRegex     []string
+	}{
+		{
+			name: "host_header_nested_config",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                                 {"host-header"},
+				"Conditions.member.1.HostHeaderConfig.RegexValues.member.1": {"^api-\\d+\\.example\\.com$"},
+			},
+			wantField: "host-header",
+			wantRegex: []string{"^api-\\d+\\.example\\.com$"},
+		},
+		{
+			name: "path_pattern_nested_config",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                                  {"path-pattern"},
+				"Conditions.member.1.PathPatternConfig.RegexValues.member.1": {"^/api/v[0-9]+/.*$"},
+			},
+			wantField: "path-pattern",
+			wantRegex: []string{"^/api/v[0-9]+/.*$"},
+		},
+		{
+			name: "http_header_nested_config",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                                 {"http-header"},
+				"Conditions.member.1.HttpHeaderConfig.HttpHeaderName":       {"X-Custom"},
+				"Conditions.member.1.HttpHeaderConfig.RegexValues.member.1": {"^v[0-9]+$"},
+			},
+			wantField: "http-header",
+			wantRegex: []string{"^v[0-9]+$"},
+		},
+		{
+			name: "host_header_legacy_top_level",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                {"host-header"},
+				"Conditions.member.1.RegexValues.member.1": {"^legacy-.*$"},
+			},
+			wantField: "host-header",
+			wantRegex: []string{"^legacy-.*$"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			lbArn := mustCreateLB(t, h, "regex-lb")
+			tgArn := mustCreateTG(t, h, "regex-tg")
+			listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+			vals := url.Values{
+				"Action":                          {"CreateRule"},
+				"Version":                         {"2015-12-01"},
+				"ListenerArn":                     {listenerArn},
+				"Priority":                        {"10"},
+				"Actions.member.1.Type":           {"forward"},
+				"Actions.member.1.TargetGroupArn": {tgArn},
+			}
+			maps.Copy(vals, tt.conditionVals)
+
+			rec := doELBv2(t, h, vals)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				Result struct {
+					Rules struct {
+						Members []struct {
+							RuleArn    string `xml:"RuleArn"`
+							Conditions struct {
+								Members []struct {
+									HostHeaderConfig  *xmlRegexConfig `xml:"HostHeaderConfig"`
+									PathPatternConfig *xmlRegexConfig `xml:"PathPatternConfig"`
+									HTTPHeaderConfig  *xmlRegexConfig `xml:"HttpHeaderConfig"`
+									Field             string          `xml:"Field"`
+								} `xml:"member"`
+							} `xml:"Conditions"`
+						} `xml:"member"`
+					} `xml:"Rules"`
+				} `xml:"CreateRuleResult"`
+			}
+			parseXMLBody(t, rec, &resp)
+			require.Len(t, resp.Result.Rules.Members, 1)
+			require.Len(t, resp.Result.Rules.Members[0].Conditions.Members, 1)
+
+			cond := resp.Result.Rules.Members[0].Conditions.Members[0]
+			assert.Equal(t, tt.wantField, cond.Field)
+
+			var gotRegex []string
+			switch tt.wantField {
+			case "host-header":
+				require.NotNil(t, cond.HostHeaderConfig)
+				gotRegex = cond.HostHeaderConfig.RegexValues.Values
+			case "path-pattern":
+				require.NotNil(t, cond.PathPatternConfig)
+				gotRegex = cond.PathPatternConfig.RegexValues.Values
+			case "http-header":
+				require.NotNil(t, cond.HTTPHeaderConfig)
+				gotRegex = cond.HTTPHeaderConfig.RegexValues.Values
+			}
+
+			assert.Equal(t, tt.wantRegex, gotRegex)
+
+			// Round-trip through DescribeRules too.
+			ruleArn := resp.Result.Rules.Members[0].RuleArn
+			descRec := doELBv2(t, h, url.Values{
+				"Action":            {"DescribeRules"},
+				"Version":           {"2015-12-01"},
+				"RuleArns.member.1": {ruleArn},
+			})
+			require.Equal(t, http.StatusOK, descRec.Code)
+			assert.Contains(t, descRec.Body.String(), "RegexValues")
+		})
+	}
+}
+
+// xmlRegexConfig decodes a condition *Config element's Values/RegexValues for test
+// assertions.
+type xmlRegexConfig struct {
+	RegexValues struct {
+		Values []string `xml:"member"`
+	} `xml:"RegexValues"`
+}

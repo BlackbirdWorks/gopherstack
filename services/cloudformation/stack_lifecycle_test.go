@@ -801,6 +801,7 @@ func TestChangeSet_CreateExecuteDelete(t *testing.T) {
 		modifiedTemplate,
 		"test changeset",
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "cs-base", cs.StackName)
@@ -838,7 +839,7 @@ func TestChangeSet_Delete(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateChangeSet(t.Context(), "cs-del", "del-cs", simpleTemplate, "", nil)
+	_, err = b.CreateChangeSet(t.Context(), "cs-del", "del-cs", simpleTemplate, "", nil, nil)
 	require.NoError(t, err)
 
 	err = b.DeleteChangeSet("cs-del", "del-cs")
@@ -855,7 +856,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 
 	b := newBackend()
 
-	ss, err := b.CreateStackSet("my-ss", "test set", simpleTemplate)
+	ss, err := b.CreateStackSet("my-ss", "test set", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "my-ss", ss.StackSetName)
 	assert.Equal(t, "ACTIVE", ss.Status)
@@ -881,7 +882,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	assert.Equal(t, "CURRENT", inst.Status)
 
 	// Update set.
-	updated, err := b.UpdateStackSet("my-ss", "", simpleTemplate)
+	updated, err := b.UpdateStackSet("my-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", updated.Status)
 

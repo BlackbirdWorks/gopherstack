@@ -87,6 +87,23 @@ func (a *authorizerCache) reset() {
 	a.m = make(map[string]authDecision)
 }
 
+// purge removes every cached decision for authorizerID (all identity-source
+// values), used when the authorizer itself -- or the API owning it -- is
+// deleted, so stale decisions don't linger in memory until their TTL expires
+// (bd: gopherstack-wmh).
+func (a *authorizerCache) purge(authorizerID string) {
+	prefix := authorizerID + "\n"
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for k := range a.m {
+		if strings.HasPrefix(k, prefix) {
+			delete(a.m, k)
+		}
+	}
+}
+
 // requestAuthorizerEventV2 is the payload-format-2.0 event delivered to a
 // REQUEST (Lambda) authorizer for an HTTP API.
 type requestAuthorizerEventV2 struct {

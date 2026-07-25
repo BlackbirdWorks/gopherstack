@@ -45,6 +45,17 @@ func TestResolverDnssecConfig_StatusValues(t *testing.T) {
 			wantStatus: "DISABLING",
 		},
 		{
+			// USE_LOCAL_RESOURCE_SETTING is a valid Validation value per the real
+			// SDK (types/enums.go); per ResolverDNSSECValidationStatus it
+			// transitions through UPDATING_TO_USE_LOCAL_RESOURCE_SETTING, mirroring
+			// the ENABLE/DISABLE -> ENABLING/DISABLING transient-status pattern.
+			name:       "use_local_resource_setting_transitions",
+			action:     "enable",
+			validation: "USE_LOCAL_RESOURCE_SETTING",
+			wantCode:   http.StatusOK,
+			wantStatus: "UPDATING_TO_USE_LOCAL_RESOURCE_SETTING",
+		},
+		{
 			name:       "invalid_validation_rejected",
 			action:     "invalid",
 			validation: "UNKNOWN",
@@ -189,6 +200,15 @@ func TestUpdateFirewallConfig(t *testing.T) {
 			wantFailOpen: "DISABLED",
 		},
 		{
+			// USE_LOCAL_RESOURCE_SETTING is a valid FirewallFailOpenStatus value
+			// per the real SDK (aws-sdk-go-v2/service/route53resolver/types/
+			// enums.go); it defers to the Route 53 Profile's setting.
+			name:         "use_local_resource_setting_success",
+			body:         map[string]any{"ResourceId": "vpc-004", "FirewallFailOpen": "USE_LOCAL_RESOURCE_SETTING"},
+			wantCode:     http.StatusOK,
+			wantFailOpen: "USE_LOCAL_RESOURCE_SETTING",
+		},
+		{
 			name:     "missing_resource_id",
 			body:     map[string]any{"FirewallFailOpen": "ENABLED"},
 			wantCode: http.StatusBadRequest,
@@ -323,6 +343,18 @@ func TestUpdateResolverConfig(t *testing.T) {
 			body:            map[string]any{"ResourceId": "vpc-urc-2", "AutodefinedReverse": "DISABLE"},
 			wantCode:        http.StatusOK,
 			wantAutoReverse: "DISABLED",
+		},
+		{
+			// USE_LOCAL_RESOURCE_SETTING is a valid AutodefinedReverseFlag value
+			// per the real SDK (types/enums.go); it defers to the Route 53
+			// Profile's setting instead of an explicit ENABLE/DISABLE.
+			name: "use_local_resource_setting_success",
+			body: map[string]any{
+				"ResourceId":         "vpc-urc-4",
+				"AutodefinedReverse": "USE_LOCAL_RESOURCE_SETTING",
+			},
+			wantCode:        http.StatusOK,
+			wantAutoReverse: "USE_LOCAL_RESOURCE_SETTING",
 		},
 		{
 			name:     "missing_resource_id",

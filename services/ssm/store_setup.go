@@ -68,6 +68,7 @@ func maintenanceWindowTargetKeyFn(v *MaintenanceWindowTarget) string {
 }
 func maintenanceWindowTaskKeyFn(v *MaintenanceWindowTask) string { return v.WindowTaskID }
 func sessionKeyFn(v *Session) string                             { return v.SessionID }
+func accessRequestKeyFn(v *AccessRequest) string                 { return v.AccessRequestID }
 func opsItemKeyFn(v *OpsItem) string                             { return v.OpsItemID }
 func opsMetadataKeyFn(v *OpsMetadata) string                     { return v.OpsMetadataArn }
 func patchBaselineKeyFn(v *PatchBaseline) string                 { return v.BaselineID }
@@ -127,6 +128,7 @@ var tableAccessorsByPrefix = map[string]func(b *InMemoryBackend, region string){
 		b.maintenanceWindowTasksStore(region)
 	},
 	"sessions":          func(b *InMemoryBackend, region string) { b.sessionsStore(region) },
+	"accessRequests":    func(b *InMemoryBackend, region string) { b.accessRequestsStore(region) },
 	"opsItems":          func(b *InMemoryBackend, region string) { b.opsItemsStore(region) },
 	"opsMetadata":       func(b *InMemoryBackend, region string) { b.opsMetadataStore(region) },
 	"patchBaselines":    func(b *InMemoryBackend, region string) { b.patchBaselinesStore(region) },

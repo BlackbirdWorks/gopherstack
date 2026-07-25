@@ -320,29 +320,34 @@ type GetFederationTokenResponse struct {
 	ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
 }
 
-// AssumeRoleWithWebIdentityInput holds the parameters for an AssumeRoleWithWebIdentity call.
+// AssumeRoleWithWebIdentityInput holds the parameters for an
+// AssumeRoleWithWebIdentity call. Per aws-sdk-go-v2/service/sts's
+// AssumeRoleWithWebIdentityInput, there is no SourceIdentity or Tags request
+// member for this operation — unlike AssumeRole, AWS derives both from custom
+// claims added to the WebIdentityToken by the identity provider (see
+// jwtClaimSourceIdentity / jwtClaimTags in token_validation.go).
 type AssumeRoleWithWebIdentityInput struct {
 	RoleArn          string
 	RoleSessionName  string
 	WebIdentityToken string
 	ProviderID       string
 	Policy           string
-	SourceIdentity   string
-	Tags             []Tag
 	PolicyArns       []string
 	DurationSeconds  int32
 }
 
 // AssumeRoleWithSAMLInput holds the parameters for an AssumeRoleWithSAML call.
+// Per aws-sdk-go-v2/service/sts's AssumeRoleWithSAMLInput, there is no
+// RoleSessionName, SourceIdentity, or Tags request member for this operation —
+// unlike AssumeRole/AssumeRoleWithWebIdentity, AWS derives the session name,
+// source identity, and session tags from named <Attribute> elements inside the
+// SAMLAssertion itself (see saml_attributes.go's extractSAMLAssertionData).
 type AssumeRoleWithSAMLInput struct {
 	RoleArn         string
 	PrincipalArn    string
 	SAMLAssertion   string
 	Policy          string
-	RoleSessionName string
-	SourceIdentity  string
 	PolicyArns      []string
-	Tags            []Tag
 	DurationSeconds int32
 }
 
@@ -369,6 +374,14 @@ type AssumeRoleWithSAMLResponse struct {
 
 // AssumeRootInput holds the parameters for an AssumeRoot call.
 type AssumeRootInput struct {
+	// CallerSession is the caller's own STS session, when the request was made
+	// using temporary security credentials. There is no SourceIdentity request
+	// parameter for AssumeRoot; AWS documents AssumeRootOutput.SourceIdentity as
+	// "the source identity specified by the principal that is calling the
+	// AssumeRoot operation" and that source identity "persists across chained
+	// role sessions" — so it is inherited from the caller's own session here,
+	// mirroring AssumeRole's role-chaining SourceIdentity propagation.
+	CallerSession   *SessionInfo
 	TargetPrincipal string
 	TaskPolicyArn   string
 	DurationSeconds int32
@@ -389,9 +402,10 @@ type AssumeRootResponse struct {
 }
 
 // GetDelegatedAccessTokenInput holds the parameters for a GetDelegatedAccessToken call.
+// Per aws-sdk-go-v2/service/sts's GetDelegatedAccessTokenInput, TradeInToken is the
+// only request member — there is no DurationSeconds parameter for this operation.
 type GetDelegatedAccessTokenInput struct {
-	TradeInToken    string
-	DurationSeconds int32
+	TradeInToken string
 }
 
 // GetDelegatedAccessTokenResult wraps the principal and credentials returned by GetDelegatedAccessToken.
@@ -411,6 +425,13 @@ type GetDelegatedAccessTokenResponse struct {
 
 // GetWebIdentityTokenInput holds the parameters for a GetWebIdentityToken call.
 type GetWebIdentityTokenInput struct {
+	// CallerSession is the caller's own STS session, when the request was made
+	// using temporary security credentials (looked up by access key ID from the
+	// SigV4 Authorization header / X-Amz-Security-Token). It is used to enforce
+	// that the issued JWT's expiration does not exceed the calling session's own
+	// expiration (AWS SessionDurationEscalationException). Nil when the caller
+	// used long-lived (non-STS) credentials, in which case no such cap applies.
+	CallerSession    *SessionInfo
 	SigningAlgorithm string
 	Audience         []string
 	Tags             []Tag

@@ -78,3 +78,44 @@ func TestDeleteAnalyzer_RemovesFindings(t *testing.T) {
 	_, err := b.GetAnalyzer("del-analyzer")
 	require.Error(t, err)
 }
+
+// TestDeleteAnalyzer_CascadesGhostRows verifies DeleteAnalyzer leaves no
+// ghost rows behind in tags, finding recommendations, analyzed resources, or
+// access previews -- all of which are keyed off the analyzer (by ARN or, for
+// finding recommendations, by finding ID) but live in separate tables/maps
+// that DeleteAnalyzer must sweep explicitly.
+func TestDeleteAnalyzer_CascadesGhostRows(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	a, err := b.CreateAnalyzer("cascade-analyzer", accessanalyzer.AnalyzerTypeAccount, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.TagResource(a.Arn, map[string]string{"env": "test"}))
+
+	finding, err := b.AddFinding("cascade-analyzer", "AWS::S3::Bucket", "arn:aws:s3:::bucket", nil, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, b.GenerateFindingRecommendation(a.Arn, finding.ID))
+
+	_, err = b.AddAnalyzedResource(a.Arn, "arn:aws:s3:::analyzed-bucket", "AWS::S3::Bucket", false)
+	require.NoError(t, err)
+
+	preview, err := b.CreateAccessPreview(a.Arn)
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteAnalyzer("cascade-analyzer"))
+
+	tags, err := b.ListTagsForResource(a.Arn)
+	require.NoError(t, err)
+	assert.Empty(t, tags, "tags for the deleted analyzer's ARN must not survive")
+
+	_, err = b.GetFindingRecommendation(a.Arn, finding.ID)
+	require.Error(t, err, "finding recommendations for a deleted finding must not survive")
+
+	resources, _, err := b.ListAnalyzedResources(a.Arn, "", 0, "")
+	require.NoError(t, err)
+	assert.Empty(t, resources, "analyzed resources for the deleted analyzer must not survive")
+
+	_, err = b.GetAccessPreview(preview.ID)
+	require.Error(t, err, "access previews for the deleted analyzer must not survive")
+}

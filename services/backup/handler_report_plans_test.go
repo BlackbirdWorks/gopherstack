@@ -112,6 +112,70 @@ func TestReportPlanSubFields(t *testing.T) {
 	}
 }
 
+// TestReportPlanFullShape covers the previously-missing ReportDeliveryChannel
+// (S3KeyPrefix) and ReportSetting (Accounts/OrganizationUnits/Regions/
+// NumberOfFrameworks) fields, plus UpdateReportPlan's ability to replace
+// them (previously only ReportPlanDescription was updatable).
+func TestReportPlanFullShape(t *testing.T) {
+	t.Parallel()
+	h, _ := newHandler(t)
+
+	createResp := doRequest(t, h, http.MethodPost, "/audit/report-plans", `{
+		"ReportPlanName": "rp-full-shape",
+		"ReportDeliveryChannel": {
+			"S3BucketName": "my-reports-bucket",
+			"S3KeyPrefix": "reports/prefix",
+			"Formats": ["CSV"]
+		},
+		"ReportSetting": {
+			"ReportTemplate": "RESOURCE_COMPLIANCE_REPORT",
+			"Accounts": ["123456789012"],
+			"OrganizationUnits": ["ou-1234-abcd5678"],
+			"Regions": ["us-east-1", "us-west-2"],
+			"NumberOfFrameworks": 3
+		}
+	}`)
+	require.Equal(t, http.StatusOK, createResp.Code)
+
+	getResp := doRequest(t, h, http.MethodGet, "/audit/report-plans/rp-full-shape", "")
+	require.Equal(t, http.StatusOK, getResp.Code)
+	var getData map[string]any
+	require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getData))
+	rpDoc := getData["ReportPlan"].(map[string]any)
+
+	ch := rpDoc["ReportDeliveryChannel"].(map[string]any)
+	assert.Equal(t, "reports/prefix", ch["S3KeyPrefix"])
+
+	rs := rpDoc["ReportSetting"].(map[string]any)
+	assert.Equal(t, "RESOURCE_COMPLIANCE_REPORT", rs["ReportTemplate"])
+	accounts, ok := rs["Accounts"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"123456789012"}, accounts)
+	regions, ok := rs["Regions"].([]any)
+	require.True(t, ok)
+	assert.Len(t, regions, 2)
+	assert.InEpsilon(t, float64(3), rs["NumberOfFrameworks"], 0)
+
+	// UpdateReportPlan can replace the delivery channel and setting, not
+	// just the description.
+	updateResp := doRequest(t, h, http.MethodPut, "/audit/report-plans/rp-full-shape", `{
+		"ReportPlanDescription": "updated",
+		"ReportDeliveryChannel": {"S3BucketName": "new-bucket"},
+		"ReportSetting": {"ReportTemplate": "COPY_JOB_REPORT"}
+	}`)
+	require.Equal(t, http.StatusOK, updateResp.Code)
+
+	getResp2 := doRequest(t, h, http.MethodGet, "/audit/report-plans/rp-full-shape", "")
+	var getData2 map[string]any
+	require.NoError(t, json.Unmarshal(getResp2.Body.Bytes(), &getData2))
+	rpDoc2 := getData2["ReportPlan"].(map[string]any)
+	assert.Equal(t, "updated", rpDoc2["ReportPlanDescription"])
+	ch2 := rpDoc2["ReportDeliveryChannel"].(map[string]any)
+	assert.Equal(t, "new-bucket", ch2["S3BucketName"])
+	rs2 := rpDoc2["ReportSetting"].(map[string]any)
+	assert.Equal(t, "COPY_JOB_REPORT", rs2["ReportTemplate"])
+}
+
 // ---- Job progress fields (item 10) ----
 
 // TestCreateReportPlan exercises the report plan creation operation.
@@ -148,7 +212,7 @@ func TestCreateReportPlan(t *testing.T) {
 				rec := doREST(t, h, http.MethodPost, "/audit/report-plans", map[string]any{
 					"ReportPlanName": "dup-report",
 				})
-				assert.Equal(t, http.StatusConflict, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{

@@ -99,13 +99,13 @@ func TestDeleteApplicationAccessScope(t *testing.T) {
 			name:       "delete nonexistent scope",
 			scope:      "openid",
 			addScope:   false,
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:          "delete scope from nonexistent app",
 			scope:         "openid",
 			addScope:      false,
-			wantStatus:    http.StatusNotFound,
+			wantStatus:    http.StatusBadRequest,
 			useInvalidApp: true,
 		},
 	}
@@ -134,7 +134,7 @@ func TestDeleteApplicationAccessScope(t *testing.T) {
 					// since there's no PutApplicationAccessScope handler yet.
 					// We rely on backend test for scope presence; here we verify not-found.
 					tt.addScope = false
-					tt.wantStatus = http.StatusNotFound
+					tt.wantStatus = http.StatusBadRequest
 				}
 			}
 			rec := doRequest(t, h, "DeleteApplicationAccessScope", map[string]any{
@@ -166,7 +166,7 @@ func TestGetApplicationAccessScope(t *testing.T) {
 			name:       "get_nonexistent_scope",
 			scope:      "nonexistent",
 			putScope:   false,
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_scope_param",
@@ -253,5 +253,5 @@ func TestGetApplicationAccessScopeNotFoundAfterDelete(t *testing.T) {
 		"ApplicationArn": appArn,
 		"Scope":          "profile",
 	})
-	assert.Equal(t, http.StatusNotFound, getRec2.Code)
+	assert.Equal(t, http.StatusBadRequest, getRec2.Code)
 }

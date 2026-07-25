@@ -14,11 +14,11 @@ type StorageBackend interface {
 	ListOrganizations(ctx context.Context, maxResults int32, nextToken string) ([]*OrgSummary, string, error)
 
 	// Users
-	CreateUser(orgID, name, displayName, password string, role string) (*User, error)
+	CreateUser(orgID, name string, params CreateUserParams) (*User, error)
 	DescribeUser(orgID, entityID string) (*User, error)
-	UpdateUser(orgID, entityID, displayName, firstName, lastName string) error
+	UpdateUser(orgID, entityID string, params UpdateUserParams) error
 	DeleteUser(orgID, entityID string) error
-	ListUsers(orgID string, maxResults int32, nextToken string) ([]*UserSummary, string, error)
+	ListUsers(orgID string, filter *UserFilter, maxResults int32, nextToken string) ([]*UserSummary, string, error)
 	RegisterToWorkMail(orgID, entityID, email string) error
 	DeregisterFromWorkMail(orgID, entityID string) error
 	ResetPassword(orgID, userID, password string) error
@@ -31,18 +31,24 @@ type StorageBackend interface {
 	DescribeGroup(orgID, entityID string) (*Group, error)
 	UpdateGroup(orgID, entityID string, hidden bool) error
 	DeleteGroup(orgID, entityID string) error
-	ListGroups(orgID string, maxResults int32, nextToken string) ([]*GroupSummary, string, error)
+	ListGroups(
+		orgID string, filter *GroupFilter, maxResults int32, nextToken string,
+	) ([]*GroupSummary, string, error)
 	AssociateMemberToGroup(orgID, groupID, memberID string) error
 	DisassociateMemberFromGroup(orgID, groupID, memberID string) error
 	ListGroupMembers(orgID, groupID string, maxResults int32, nextToken string) ([]*Member, string, error)
-	ListGroupsForEntity(orgID, entityID string, maxResults int32, nextToken string) ([]*GroupSummary, string, error)
+	ListGroupsForEntity(
+		orgID, entityID, groupNamePrefix string, maxResults int32, nextToken string,
+	) ([]*GroupSummary, string, error)
 
 	// Resources
 	CreateResource(orgID, name, resourceType, description string) (*Resource, error)
 	DescribeResource(orgID, entityID string) (*Resource, error)
 	UpdateResource(orgID, entityID, name, description string) error
 	DeleteResource(orgID, entityID string) error
-	ListResources(orgID string, maxResults int32, nextToken string) ([]*ResourceSummary, string, error)
+	ListResources(
+		orgID string, filter *ResourceFilter, maxResults int32, nextToken string,
+	) ([]*ResourceSummary, string, error)
 	AssociateDelegateToResource(orgID, resourceID, entityID string) error
 	DisassociateDelegateFromResource(orgID, resourceID, entityID string) error
 	ListResourceDelegates(orgID, resourceID string, maxResults int32, nextToken string) ([]*Delegate, string, error)
@@ -65,14 +71,11 @@ type StorageBackend interface {
 	UpdateDefaultMailDomain(orgID, domainName string) error
 
 	// Access control rules
-	PutAccessControlRule(
-		orgID, name, effect, description string,
-		ipRanges, notIPRanges []string,
-		actions, notActions []string,
-		userIDs, notUserIDs []string,
-	) (*AccessControlRule, error)
+	PutAccessControlRule(orgID string, params PutAccessControlRuleParams) (*AccessControlRule, error)
 	DeleteAccessControlRule(orgID, name string) error
-	GetAccessControlEffect(orgID, ipAddr, action, userID string) (string, []string, error)
+	GetAccessControlEffect(
+		orgID, ipAddr, action, userID, impersonationRoleID string,
+	) (string, []string, error)
 	ListAccessControlRules(orgID string) ([]*AccessControlRule, error)
 
 	// Impersonation roles
@@ -211,6 +214,13 @@ type Organization struct {
 	DefaultMailDomain string
 	ErrorMessage      string
 	Region            string
+	// MigrationAdmin mirrors DescribeOrganizationOutput.MigrationAdmin. The
+	// real WorkMail API exposes no operation (in this SDK's surface) that
+	// ever sets it -- it is populated out-of-band by an Exchange
+	// interoperability/migration flow this backend does not simulate -- so
+	// it is always empty here, which correctly matches every organization
+	// that never configured migration.
+	MigrationAdmin string
 }
 
 // OrgSummary is a summary of a WorkMail organization.
@@ -227,19 +237,44 @@ type User struct {
 	CreatedAt    time.Time
 	EnabledDate  time.Time
 	DisabledDate time.Time
-	UserID       string
-	Name         string
-	Email        string
-	DisplayName  string
-	FirstName    string
-	LastName     string
-	Role         string
-	State        string
-	ARN          string
+	// MailboxProvisionedDate/MailboxDeprovisionedDate mirror
+	// DescribeUserOutput's fields of the same name. Real WorkMail sets these
+	// alongside EnabledDate/DisabledDate when the mailbox itself is
+	// created/removed (RegisterToWorkMail/DeregisterFromWorkMail), so this
+	// backend mirrors EnabledDate/DisabledDate at those same call sites (see
+	// RegisterToWorkMail/DeregisterFromWorkMail in users.go).
+	MailboxProvisionedDate   time.Time
+	MailboxDeprovisionedDate time.Time
+	UserID                   string
+	Name                     string
+	Email                    string
+	DisplayName              string
+	FirstName                string
+	LastName                 string
+	Role                     string
+	State                    string
+	ARN                      string
+	// The following mirror DescribeUserOutput's/UpdateUserInput's optional
+	// profile fields -- none affect entity identity or state transitions,
+	// they are plain profile metadata settable via CreateUser/UpdateUser and
+	// surfaced via DescribeUser.
+	City                            string
+	Company                         string
+	Country                         string
+	Department                      string
+	Initials                        string
+	JobTitle                        string
+	Office                          string
+	Street                          string
+	Telephone                       string
+	ZipCode                         string
+	IdentityProviderIdentityStoreID string
+	IdentityProviderUserID          string
 	// orgID is the store.Table composite-key qualifier (see orgKey in
 	// backend.go); never part of the wire API, carried through persistence
 	// via orgDTO (see persistence.go).
-	orgID string
+	orgID                       string
+	HiddenFromGlobalAddressList bool
 }
 
 // UserSummary is a summary of a WorkMail user.
@@ -250,6 +285,54 @@ type UserSummary struct {
 	DisplayName string
 	State       string
 	Role        string
+}
+
+// UserFilter mirrors aws-sdk-go-v2/service/workmail/types.ListUsersFilters,
+// the ListUsersInput.Filters wire shape. A nil field/zero value means "no
+// filter on this dimension" -- matches every value.
+type UserFilter struct {
+	DisplayNamePrefix            string
+	PrimaryEmailPrefix           string
+	State                        string
+	UsernamePrefix               string
+	IdentityProviderUserIDPrefix string
+}
+
+// CreateUserParams mirrors aws-sdk-go-v2/service/workmail's CreateUserInput
+// (minus the required Name/OrganizationId, threaded as explicit args).
+type CreateUserParams struct {
+	DisplayName                 string
+	Password                    string
+	Role                        string
+	FirstName                   string
+	LastName                    string
+	IdentityProviderUserID      string
+	HiddenFromGlobalAddressList bool
+}
+
+// UpdateUserParams mirrors aws-sdk-go-v2/service/workmail's UpdateUserInput
+// (minus the required OrganizationId/UserId). A nil *bool leaves
+// HiddenFromGlobalAddressList unchanged, matching the real API's optional
+// pointer semantics; empty strings likewise leave their field unchanged
+// (none of these profile fields has a documented way to be cleared back to
+// empty via UpdateUser).
+type UpdateUserParams struct {
+	HiddenFromGlobalAddressList *bool
+	JobTitle                    string
+	Telephone                   string
+	City                        string
+	Company                     string
+	Country                     string
+	Department                  string
+	LastName                    string
+	Office                      string
+	Initials                    string
+	Street                      string
+	DisplayName                 string
+	ZipCode                     string
+	IdentityProviderUserID      string
+	Role                        string
+	FirstName                   string
 }
 
 // Group represents a WorkMail group.
@@ -274,6 +357,13 @@ type GroupSummary struct {
 	Name    string
 	Email   string
 	State   string
+}
+
+// GroupFilter mirrors aws-sdk-go-v2/service/workmail/types.ListGroupsFilters.
+type GroupFilter struct {
+	NamePrefix         string
+	PrimaryEmailPrefix string
+	State              string
 }
 
 // Member represents a group member.
@@ -313,6 +403,13 @@ type ResourceSummary struct {
 	Description  string
 }
 
+// ResourceFilter mirrors aws-sdk-go-v2/service/workmail/types.ListResourcesFilters.
+type ResourceFilter struct {
+	NamePrefix         string
+	PrimaryEmailPrefix string
+	State              string
+}
+
 // Delegate represents a resource delegate.
 type Delegate struct {
 	DelegateID   string
@@ -339,10 +436,13 @@ type MailDomain struct {
 	DomainName                  string
 	OwnershipVerificationStatus string
 	MxRecord                    string
-	orgID                       string
-	Records                     []DNSRecord
-	IsDefault                   bool
-	IsTestDomain                bool
+	// DkimVerificationStatus mirrors GetMailDomainOutput.DkimVerificationStatus
+	// (types.DnsRecordVerificationStatus: PENDING/VERIFIED/FAILED).
+	DkimVerificationStatus string
+	orgID                  string
+	Records                []DNSRecord
+	IsDefault              bool
+	IsTestDomain           bool
 }
 
 // MailDomainSummary is a summary of a registered mail domain.
@@ -373,6 +473,28 @@ type AccessControlRule struct {
 	NotActions   []string
 	UserIDs      []string
 	NotUserIDs   []string
+	// ImpersonationRoleIDs/NotImpersonationRoleIDs mirror
+	// types.AccessControlRule's ImpersonationRoleIds/NotImpersonationRoleIds,
+	// added to the real API after impersonation roles shipped.
+	ImpersonationRoleIDs    []string
+	NotImpersonationRoleIDs []string
+}
+
+// PutAccessControlRuleParams mirrors aws-sdk-go-v2/service/workmail's
+// PutAccessControlRuleInput (minus the required Name/Effect/Description/
+// OrganizationId, threaded as explicit args).
+type PutAccessControlRuleParams struct {
+	Name                    string
+	Effect                  string
+	Description             string
+	IPRanges                []string
+	NotIPRanges             []string
+	Actions                 []string
+	NotActions              []string
+	UserIDs                 []string
+	NotUserIDs              []string
+	ImpersonationRoleIDs    []string
+	NotImpersonationRoleIDs []string
 }
 
 // ImpersonationRole represents a WorkMail impersonation role.

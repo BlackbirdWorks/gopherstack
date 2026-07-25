@@ -26,12 +26,15 @@ func (h *Handler) handleEnableLDAPS(c *echo.Context) error { //nolint:dupl // ex
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
+	}
+	if !validEnum(req.Type, string(LDAPSTypeClient)) {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid Type"))
 	}
 
 	ldapsType := req.Type
 	if ldapsType == "" {
-		ldapsType = "Client"
+		ldapsType = string(LDAPSTypeClient)
 	}
 
 	if enableErr := h.Backend.EnableLDAPS(h.contextWithRegion(c), req.DirectoryID, ldapsType); enableErr != nil {
@@ -57,12 +60,15 @@ func (h *Handler) handleDisableLDAPS(c *echo.Context) error { //nolint:dupl // e
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
+	}
+	if !validEnum(req.Type, string(LDAPSTypeClient)) {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid Type"))
 	}
 
 	ldapsType := req.Type
 	if ldapsType == "" {
-		ldapsType = "Client"
+		ldapsType = string(LDAPSTypeClient)
 	}
 
 	if disableErr := h.Backend.DisableLDAPS(h.contextWithRegion(c), req.DirectoryID, ldapsType); disableErr != nil {
@@ -92,7 +98,7 @@ func (h *Handler) handleDescribeLDAPSSettings(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	settings, nextToken, descErr := h.Backend.DescribeLDAPSSettings(

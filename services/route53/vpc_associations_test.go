@@ -150,23 +150,29 @@ func TestDisassociateVPC_WithMultipleVPCs_Succeeds(t *testing.T) {
 	}
 }
 
+// TestDuplicateVPC confirms re-associating a VPC that is already associated
+// with the same hosted zone is an idempotent no-op success (not an error):
+// AWS's documented AssociateVPCWithHostedZone error list has no
+// "duplicate association" error, and ConflictingDomainExists — the one
+// association-conflict error it does document — is explicitly scoped to a
+// *different* hosted zone with the same name, not a repeat of this exact
+// association. See AssociateVPCWithHostedZone's doc comment.
 func TestDuplicateVPC(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		wantErr bool
-		second  bool
+		name         string
+		second       bool
+		wantCountOne bool
 	}{
 		{
-			name:    "first_associate_ok",
-			second:  false,
-			wantErr: false,
+			name:   "first_associate_ok",
+			second: false,
 		},
 		{
-			name:    "duplicate_vpc_returns_error",
-			second:  true,
-			wantErr: true,
+			name:         "duplicate_vpc_is_idempotent_noop",
+			second:       true,
+			wantCountOne: true,
 		},
 	}
 
@@ -186,11 +192,12 @@ func TestDuplicateVPC(t *testing.T) {
 			}
 
 			err = b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1")
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, route53.ErrInvalidInput)
-			} else {
-				require.NoError(t, err)
+			require.NoError(t, err)
+
+			if tt.wantCountOne {
+				count, countErr := b.CountAssociatedVPCs(hz.ID)
+				require.NoError(t, countErr)
+				assert.Equal(t, 1, count, "duplicate association must not create a second entry")
 			}
 		})
 	}

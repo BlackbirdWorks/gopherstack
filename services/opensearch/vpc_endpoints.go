@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"fmt"
+	"maps"
 )
 
 // AuthorizeVpcEndpointAccess grants VPC endpoint access for an account or service.
@@ -36,11 +37,55 @@ func (b *InMemoryBackend) AuthorizeVpcEndpointAccess(
 	return &p, nil
 }
 
+// enrichVPCOptions returns a copy of the request-shape VpcOptions
+// (SecurityGroupIds/SubnetIds, types.VPCOptions) filled out with the
+// server-derived fields real AWS returns on the response-shape VpcOptions
+// (types.VPCDerivedInfo: additionally AvailabilityZones and VPCId). gopherstack
+// has no real VPC/subnet model to look these up from, so it synthesizes
+// deterministic placeholders -- a reasonable non-stub default, matching the
+// pattern GetDomainNodes uses for AvailabilityZone.
+func enrichVPCOptions(vpcOptions map[string]any, region, vpcEndpointID string) map[string]any {
+	out := maps.Clone(vpcOptions)
+	if out == nil {
+		out = map[string]any{}
+	}
+
+	if _, ok := out["VPCId"]; !ok {
+		out["VPCId"] = "vpc-" + vpcEndpointID
+	}
+
+	if _, ok := out["AvailabilityZones"]; !ok {
+		subnetIDs, _ := out["SubnetIds"].([]any)
+
+		n := len(subnetIDs)
+		if n == 0 {
+			n = 1
+		}
+
+		azs := make([]string, 0, n)
+		for i := range n {
+			azs = append(azs, fmt.Sprintf("%s%c", region, 'a'+rune(i)))
+		}
+
+		out["AvailabilityZones"] = azs
+	}
+
+	return out
+}
+
 // CreateVpcEndpoint creates a new VPC endpoint.
 func (b *InMemoryBackend) CreateVpcEndpoint(
 	domainArn string,
 	vpcOptions map[string]any,
 ) (*VpcEndpoint, error) {
+	if domainArn == "" {
+		return nil, fmt.Errorf("%w: DomainArn is required", ErrInvalidParameter)
+	}
+
+	if vpcOptions == nil {
+		return nil, fmt.Errorf("%w: VpcOptions is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateVpcEndpoint")
 	defer b.mu.Unlock()
 
@@ -53,7 +98,7 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 		DomainArn:        domainArn,
 		Status:           pkgStateActive,
 		Endpoint:         fmt.Sprintf("%s.vpc.es.amazonaws.com", id),
-		VpcOptions:       vpcOptions,
+		VpcOptions:       enrichVPCOptions(vpcOptions, b.region, id),
 	}
 	b.vpcEndpoints.Put(ep)
 
@@ -77,7 +122,7 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(ids []string) ([]*VpcEndpoint, []
 		if !exists || statusWindowElapsed(ep.Status, ep.StatusUntil, now) {
 			errs = append(errs, map[string]any{
 				"VpcEndpointId": id,
-				"ErrorCode":     "EndpointNotFound",
+				"ErrorCode":     "ENDPOINT_NOT_FOUND",
 				"ErrorMessage":  fmt.Sprintf("VPC endpoint %s not found", id),
 			})
 
@@ -104,6 +149,10 @@ func (b *InMemoryBackend) UpdateVpcEndpoint(
 	id string,
 	vpcOptions map[string]any,
 ) (*VpcEndpoint, error) {
+	if vpcOptions == nil {
+		return nil, fmt.Errorf("%w: VpcOptions is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("UpdateVpcEndpoint")
 	defer b.mu.Unlock()
 
@@ -112,7 +161,7 @@ func (b *InMemoryBackend) UpdateVpcEndpoint(
 		return nil, fmt.Errorf("%w: VPC endpoint %s not found", ErrConnectionNotFound, id)
 	}
 
-	ep.VpcOptions = vpcOptions
+	ep.VpcOptions = enrichVPCOptions(vpcOptions, b.region, id)
 	cp := *ep
 
 	return &cp, nil

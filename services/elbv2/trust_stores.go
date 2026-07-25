@@ -117,22 +117,35 @@ func (b *InMemoryBackend) DeleteTrustStore(trustStoreArn string) error {
 	return nil
 }
 
-// AddTrustStoreRevocations appends revocation entries to a trust store.
+// AddTrustStoreRevocations appends revocation entries to a trust store, assigning
+// each a monotonically increasing RevocationId (real AWS assigns this server-side;
+// see RevocationContentInput doc comment). Returns the newly created revocations so
+// the caller can echo them in the AddTrustStoreRevocationsResult response.
 func (b *InMemoryBackend) AddTrustStoreRevocations(
 	trustStoreArn string,
-	revocations []TrustStoreRevocation,
-) error {
+	contents []RevocationContentInput,
+) ([]TrustStoreRevocation, error) {
 	b.mu.Lock("AddTrustStoreRevocations")
 	defer b.mu.Unlock()
 
 	ts, ok := b.trustStores.Get(trustStoreArn)
 	if !ok {
-		return ErrTrustStoreNotFound
+		return nil, ErrTrustStoreNotFound
 	}
 
-	ts.Revocations = append(ts.Revocations, revocations...)
+	added := make([]TrustStoreRevocation, 0, len(contents))
 
-	return nil
+	for _, c := range contents {
+		b.revocationIDCounter++
+		added = append(added, TrustStoreRevocation{
+			RevocationID:   b.revocationIDCounter,
+			RevocationType: c.RevocationType,
+		})
+	}
+
+	ts.Revocations = append(ts.Revocations, added...)
+
+	return added, nil
 }
 
 // DescribeTrustStoreAssociations returns listener ARNs whose trust store is set to this ARN.
@@ -203,7 +216,7 @@ func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn, name string) (*TrustSt
 // RemoveTrustStoreRevocations removes revocation entries from a trust store by RevocationID.
 func (b *InMemoryBackend) RemoveTrustStoreRevocations(
 	trustStoreArn string,
-	revocationIDs []string,
+	revocationIDs []int64,
 ) error {
 	b.mu.Lock("RemoveTrustStoreRevocations")
 	defer b.mu.Unlock()
@@ -213,7 +226,7 @@ func (b *InMemoryBackend) RemoveTrustStoreRevocations(
 		return ErrTrustStoreNotFound
 	}
 
-	remove := make(map[string]bool, len(revocationIDs))
+	remove := make(map[int64]bool, len(revocationIDs))
 	for _, id := range revocationIDs {
 		remove[id] = true
 	}

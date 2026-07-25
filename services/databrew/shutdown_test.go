@@ -26,7 +26,18 @@ func TestBackendShutdown(t *testing.T) {
 			build: func(t *testing.T) (*databrew.InMemoryBackend, string) {
 				t.Helper()
 				b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
-				_, err := b.CreateJob(context.Background(), "sd-job", "PROFILE", "ds", "", "", "", nil, nil)
+				_, err := b.CreateJob(
+					context.Background(),
+					"sd-job",
+					"PROFILE",
+					"ds",
+					"",
+					"",
+					"",
+					nil,
+					nil,
+					databrew.JobExtras{},
+				)
 				require.NoError(t, err)
 				_, err = b.StartJobRun(context.Background(), "sd-job")
 				require.NoError(t, err)
@@ -53,7 +64,18 @@ func TestBackendShutdown(t *testing.T) {
 			build: func(t *testing.T) (*databrew.InMemoryBackend, string) {
 				t.Helper()
 				b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
-				_, err := b.CreateJob(context.Background(), "sd-job2", "PROFILE", "ds", "", "", "", nil, nil)
+				_, err := b.CreateJob(
+					context.Background(),
+					"sd-job2",
+					"PROFILE",
+					"ds",
+					"",
+					"",
+					"",
+					nil,
+					nil,
+					databrew.JobExtras{},
+				)
 				require.NoError(t, err)
 				_, err = b.StartJobRun(context.Background(), "sd-job2")
 				require.NoError(t, err)
@@ -105,7 +127,18 @@ func TestResetDoesNotStopTransitions(t *testing.T) {
 	b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
 	b.Reset()
 
-	_, err := b.CreateJob(context.Background(), "post-reset", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(
+		context.Background(),
+		"post-reset",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	_, err = b.StartJobRun(context.Background(), "post-reset")
 	require.NoError(t, err)

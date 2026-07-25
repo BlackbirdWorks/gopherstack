@@ -119,8 +119,6 @@ func (h *Handler) handleDescribeParameters(ctx context.Context, c *echo.Context,
 			Name:                 k,
 			Value:                v,
 			DataType:             "string",
-			ChangeType:           "immediate",
-			Source:               "system",
 			MinimumEngineVersion: engineVersion62,
 		})
 	}

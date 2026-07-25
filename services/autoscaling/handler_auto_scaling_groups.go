@@ -10,54 +10,68 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
+// createASGSizeFields bundles every parsed int32 size/timing field of a
+// CreateAutoScalingGroup request, so handleCreateAutoScalingGroup itself only
+// has to deal with one parse call and one struct instead of seven individual
+// parseIntVal/error-check pairs.
+type createASGSizeFields struct {
+	minSize                int32
+	maxSize                int32
+	desiredCapacity        int32
+	defaultCooldown        int32
+	healthCheckGracePeriod int32
+	maxInstanceLifetime    int32
+	defaultInstanceWarmup  int32
+}
+
+// parseCreateASGSizeFields parses and bounds-checks every int32 size/timing
+// field of a CreateAutoScalingGroup request.
+func parseCreateASGSizeFields(vals url.Values) (createASGSizeFields, error) {
+	var f createASGSizeFields
+
+	intFields := []struct {
+		dest  *int32
+		param string
+	}{
+		{param: "MinSize", dest: &f.minSize},
+		{param: "MaxSize", dest: &f.maxSize},
+		{param: "DesiredCapacity", dest: &f.desiredCapacity},
+		{param: "DefaultCooldown", dest: &f.defaultCooldown},
+		{param: "HealthCheckGracePeriod", dest: &f.healthCheckGracePeriod},
+		{param: "MaxInstanceLifetime", dest: &f.maxInstanceLifetime},
+		{param: "DefaultInstanceWarmup", dest: &f.defaultInstanceWarmup},
+	}
+
+	for _, field := range intFields {
+		n, err := parseIntVal(vals.Get(field.param))
+		if err != nil {
+			return f, fmt.Errorf("%w: invalid %s", ErrInvalidParameter, field.param)
+		}
+
+		*field.dest = n
+	}
+
+	// Enforce bounds on sizes to prevent excessive memory allocation when creating
+	// the initial instances slice in the backend.
+	if f.minSize < 0 || f.maxSize < 0 || f.desiredCapacity < 0 {
+		return f, fmt.Errorf("%w: sizes must be non-negative", ErrInvalidParameter)
+	}
+
+	if f.minSize > maxDesiredCapacity || f.maxSize > maxDesiredCapacity || f.desiredCapacity > maxDesiredCapacity {
+		return f, fmt.Errorf("%w: sizes must not exceed %d", ErrInvalidParameter, maxDesiredCapacity)
+	}
+
+	return f, nil
+}
+
 func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 	name := vals.Get("AutoScalingGroupName")
 	lcName := vals.Get("LaunchConfigurationName")
 	healthCheckType := vals.Get("HealthCheckType")
 
-	minSize, err := parseIntVal(vals.Get("MinSize"))
+	sizes, err := parseCreateASGSizeFields(vals)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid MinSize", ErrInvalidParameter)
-	}
-
-	maxSize, err := parseIntVal(vals.Get("MaxSize"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid MaxSize", ErrInvalidParameter)
-	}
-
-	desiredCapacity, err := parseIntVal(vals.Get("DesiredCapacity"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid DesiredCapacity", ErrInvalidParameter)
-	}
-
-	// Enforce bounds on sizes to prevent excessive memory allocation when creating
-	// the initial instances slice in the backend.
-	if minSize < 0 || maxSize < 0 || desiredCapacity < 0 {
-		return nil, fmt.Errorf("%w: sizes must be non-negative", ErrInvalidParameter)
-	}
-
-	if minSize > maxDesiredCapacity || maxSize > maxDesiredCapacity || desiredCapacity > maxDesiredCapacity {
-		return nil, fmt.Errorf("%w: sizes must not exceed %d", ErrInvalidParameter, maxDesiredCapacity)
-	}
-
-	defaultCooldown, err := parseIntVal(vals.Get("DefaultCooldown"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid DefaultCooldown", ErrInvalidParameter)
-	}
-
-	healthCheckGracePeriod, err := parseIntVal(vals.Get("HealthCheckGracePeriod"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheckGracePeriod", ErrInvalidParameter)
-	}
-
-	maxInstanceLifetime, err := parseIntVal(vals.Get("MaxInstanceLifetime"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid MaxInstanceLifetime", ErrInvalidParameter)
-	}
-
-	defaultInstanceWarmup, err := parseIntVal(vals.Get("DefaultInstanceWarmup"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid DefaultInstanceWarmup", ErrInvalidParameter)
+		return nil, err
 	}
 
 	azs := parseMembers(vals, "AvailabilityZones.member")
@@ -79,14 +93,14 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 		PlacementGroup:                   vals.Get("PlacementGroup"),
 		Context:                          vals.Get("Context"),
 		DesiredCapacityType:              vals.Get("DesiredCapacityType"),
-		MinSize:                          minSize,
-		MaxSize:                          maxSize,
-		DesiredCapacity:                  desiredCapacity,
-		DefaultCooldown:                  defaultCooldown,
+		MinSize:                          sizes.minSize,
+		MaxSize:                          sizes.maxSize,
+		DesiredCapacity:                  sizes.desiredCapacity,
+		DefaultCooldown:                  sizes.defaultCooldown,
 		HealthCheckType:                  healthCheckType,
-		HealthCheckGracePeriod:           healthCheckGracePeriod,
-		MaxInstanceLifetime:              maxInstanceLifetime,
-		DefaultInstanceWarmup:            defaultInstanceWarmup,
+		HealthCheckGracePeriod:           sizes.healthCheckGracePeriod,
+		MaxInstanceLifetime:              sizes.maxInstanceLifetime,
+		DefaultInstanceWarmup:            sizes.defaultInstanceWarmup,
 		NewInstancesProtectedFromScaleIn: vals.Get("NewInstancesProtectedFromScaleIn") == formValueTrue,
 		CapacityRebalance:                vals.Get("CapacityRebalance") == formValueTrue,
 		AvailabilityZones:                azs,
@@ -96,6 +110,13 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 		Tags:                             tags,
 		TerminationPolicies:              terminationPolicies,
 		LifecycleHookSpecificationList:   hooks,
+		AvailabilityZoneDistribution:     parseAvailabilityZoneDistribution(vals),
+		AvailabilityZoneImpairmentPolicy: parseAvailabilityZoneImpairmentPolicy(vals),
+		CapacityReservationSpecification: parseCapacityReservationSpecification(vals),
+		DeletionProtection:               vals.Get("DeletionProtection"),
+		InstanceLifecyclePolicy:          parseInstanceLifecyclePolicy(vals),
+		InstanceMaintenancePolicy:        parseInstanceMaintenancePolicy(vals),
+		SkipZonalShiftValidation:         vals.Get("SkipZonalShiftValidation") == formValueTrue,
 	}
 
 	_, createErr := h.Backend.CreateAutoScalingGroup(input)
@@ -172,96 +193,34 @@ func (h *Handler) handleDescribeAutoScalingGroups(vals url.Values) (any, error) 
 	}, nil
 }
 
-//nolint:gocognit,cyclop // Too complex to refactor given time constraints
 func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 	name := vals.Get("AutoScalingGroupName")
 
 	input := UpdateAutoScalingGroupInput{
-		AutoScalingGroupName:    name,
-		LaunchConfigurationName: vals.Get("LaunchConfigurationName"),
-		HealthCheckType:         vals.Get("HealthCheckType"),
-		VPCZoneIdentifier:       vals.Get("VPCZoneIdentifier"),
-		PlacementGroup:          vals.Get("PlacementGroup"),
-		Context:                 vals.Get("Context"),
-		DesiredCapacityType:     vals.Get("DesiredCapacityType"),
-		AvailabilityZones:       parseMembers(vals, "AvailabilityZones.member"),
-		TerminationPolicies:     parseMembers(vals, "TerminationPolicies.member"),
-		LaunchTemplate:          parseLaunchTemplate(vals, "LaunchTemplate"),
-		MixedInstancesPolicy:    parseMixedInstancesPolicy(vals),
+		AutoScalingGroupName:             name,
+		LaunchConfigurationName:          vals.Get("LaunchConfigurationName"),
+		HealthCheckType:                  vals.Get("HealthCheckType"),
+		VPCZoneIdentifier:                vals.Get("VPCZoneIdentifier"),
+		PlacementGroup:                   vals.Get("PlacementGroup"),
+		Context:                          vals.Get("Context"),
+		DesiredCapacityType:              vals.Get("DesiredCapacityType"),
+		DeletionProtection:               vals.Get("DeletionProtection"),
+		AvailabilityZones:                parseMembers(vals, "AvailabilityZones.member"),
+		TerminationPolicies:              parseMembers(vals, "TerminationPolicies.member"),
+		LaunchTemplate:                   parseLaunchTemplate(vals, "LaunchTemplate"),
+		MixedInstancesPolicy:             parseMixedInstancesPolicy(vals),
+		AvailabilityZoneDistribution:     parseAvailabilityZoneDistribution(vals),
+		AvailabilityZoneImpairmentPolicy: parseAvailabilityZoneImpairmentPolicy(vals),
+		CapacityReservationSpecification: parseCapacityReservationSpecification(vals),
+		InstanceLifecyclePolicy:          parseInstanceLifecyclePolicy(vals),
+		InstanceMaintenancePolicy:        parseInstanceMaintenancePolicy(vals),
 	}
 
-	if v := vals.Get("MinSize"); v != "" {
-		n, err := parseIntVal(v)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid MinSize", ErrInvalidParameter)
-		}
-
-		input.MinSize = &n
+	if err := applyUpdateASGSizeFields(vals, &input); err != nil {
+		return nil, err
 	}
 
-	if v := vals.Get("MaxSize"); v != "" {
-		n, err := parseIntVal(v)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid MaxSize", ErrInvalidParameter)
-		}
-
-		input.MaxSize = &n
-	}
-
-	if v := vals.Get("DesiredCapacity"); v != "" {
-		n, err := parseIntVal(v)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid DesiredCapacity", ErrInvalidParameter)
-		}
-
-		input.DesiredCapacity = &n
-	}
-
-	if v := vals.Get("DefaultCooldown"); v != "" {
-		n, err := parseIntVal(v)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid DefaultCooldown", ErrInvalidParameter)
-		}
-
-		input.DefaultCooldown = &n
-	}
-
-	if v := vals.Get("HealthCheckGracePeriod"); v != "" {
-		n, err := parseIntVal(v)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid HealthCheckGracePeriod", ErrInvalidParameter)
-		}
-
-		input.HealthCheckGracePeriod = &n
-	}
-
-	if v := vals.Get("MaxInstanceLifetime"); v != "" {
-		n, err := parseIntVal(v)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid MaxInstanceLifetime", ErrInvalidParameter)
-		}
-
-		input.MaxInstanceLifetime = &n
-	}
-
-	if v := vals.Get("DefaultInstanceWarmup"); v != "" {
-		n, err := parseIntVal(v)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid DefaultInstanceWarmup", ErrInvalidParameter)
-		}
-
-		input.DefaultInstanceWarmup = &n
-	}
-
-	if v := vals.Get("NewInstancesProtectedFromScaleIn"); v != "" {
-		b := v == formValueTrue
-		input.NewInstancesProtectedFromScaleIn = &b
-	}
-
-	if v := vals.Get("CapacityRebalance"); v != "" {
-		b := v == formValueTrue
-		input.CapacityRebalance = &b
-	}
+	applyUpdateASGBoolFields(vals, &input)
 
 	_, updateErr := h.Backend.UpdateAutoScalingGroup(input)
 	if updateErr != nil {
@@ -272,6 +231,73 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 		Xmlns:            autoscalingXMLNS,
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-update-" + name},
 	}, nil
+}
+
+// updateASGIntField binds a single optional int32 form value (by AWS param name)
+// to a *int32 destination on an UpdateAutoScalingGroupInput, returning a
+// ValidationError wrapping the param name on a parse failure. A blank form value
+// leaves dest untouched (nil), matching AWS's "omitted means unchanged" semantics.
+func updateASGIntField(vals url.Values, param string, dest **int32) error {
+	v := vals.Get(param)
+	if v == "" {
+		return nil
+	}
+
+	n, err := parseIntVal(v)
+	if err != nil {
+		return fmt.Errorf("%w: invalid %s", ErrInvalidParameter, param)
+	}
+
+	*dest = &n
+
+	return nil
+}
+
+// applyUpdateASGSizeFields parses every optional int32 field of
+// UpdateAutoScalingGroupInput, stopping at the first invalid value.
+func applyUpdateASGSizeFields(vals url.Values, input *UpdateAutoScalingGroupInput) error {
+	fields := []struct {
+		dest  **int32
+		param string
+	}{
+		{param: "MinSize", dest: &input.MinSize},
+		{param: "MaxSize", dest: &input.MaxSize},
+		{param: "DesiredCapacity", dest: &input.DesiredCapacity},
+		{param: "DefaultCooldown", dest: &input.DefaultCooldown},
+		{param: "HealthCheckGracePeriod", dest: &input.HealthCheckGracePeriod},
+		{param: "MaxInstanceLifetime", dest: &input.MaxInstanceLifetime},
+		{param: "DefaultInstanceWarmup", dest: &input.DefaultInstanceWarmup},
+	}
+
+	for _, f := range fields {
+		if err := updateASGIntField(vals, f.param, f.dest); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// applyUpdateASGBoolFields parses every optional bool field of
+// UpdateAutoScalingGroupInput. A blank form value leaves the destination
+// pointer nil (unchanged); a present value is always parsed (AWS booleans in
+// the query protocol are never invalid, just true/anything-else).
+func applyUpdateASGBoolFields(vals url.Values, input *UpdateAutoScalingGroupInput) {
+	fields := []struct {
+		dest  **bool
+		param string
+	}{
+		{param: "NewInstancesProtectedFromScaleIn", dest: &input.NewInstancesProtectedFromScaleIn},
+		{param: "CapacityRebalance", dest: &input.CapacityRebalance},
+		{param: "SkipZonalShiftValidation", dest: &input.SkipZonalShiftValidation},
+	}
+
+	for _, f := range fields {
+		if v := vals.Get(f.param); v != "" {
+			b := v == formValueTrue
+			*f.dest = &b
+		}
+	}
 }
 
 func (h *Handler) handleDeleteAutoScalingGroup(vals url.Values) (any, error) {
@@ -306,8 +332,24 @@ func (h *Handler) handleSetDesiredCapacity(vals url.Values) (any, error) {
 	}, nil
 }
 
-// toXMLGroup converts an AutoScalingGroup to the XML response type.
-func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup { //nolint:funlen // XML projection inherently maps many fields
+// xmlGroupLists bundles every list-shaped projection of an AutoScalingGroup so
+// toXMLGroup can assemble the final response without ballooning past a
+// reasonable function length.
+type xmlGroupLists struct {
+	AvailabilityZones   xmlStringValueList
+	LoadBalancerNames   xmlStringValueList
+	TargetGroupARNs     xmlStringValueList
+	TrafficSources      xmlTrafficSourceList
+	Tags                xmlTagList
+	Instances           xmlInstanceList
+	SuspendedProcesses  xmlSuspendedProcessList
+	TerminationPolicies xmlTerminationPoliciesList
+	EnabledMetrics      xmlEnabledMetricList
+}
+
+// buildXMLGroupLists projects every slice-valued field of g into its XML
+// response shape.
+func buildXMLGroupLists(g *AutoScalingGroup) xmlGroupLists {
 	azs := make([]xmlStringValue, 0, len(g.AvailabilityZones))
 	for _, az := range g.AvailabilityZones {
 		azs = append(azs, xmlStringValue{Value: az})
@@ -367,6 +409,23 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup { //nolint:funlen // XM
 		enabledMetrics = append(enabledMetrics, xmlEnabledMetric{Metric: m, Granularity: granularity1Minute})
 	}
 
+	return xmlGroupLists{
+		AvailabilityZones:   xmlStringValueList{Members: azs},
+		LoadBalancerNames:   xmlStringValueList{Members: lbNames},
+		TargetGroupARNs:     xmlStringValueList{Members: tgARNs},
+		TrafficSources:      xmlTrafficSourceList{Members: trafficSources},
+		Tags:                xmlTagList{Members: tags},
+		Instances:           xmlInstanceList{Members: instances},
+		SuspendedProcesses:  xmlSuspendedProcessList{Members: suspendedProcesses},
+		TerminationPolicies: xmlTerminationPoliciesList{Members: terminationPolicies},
+		EnabledMetrics:      xmlEnabledMetricList{Members: enabledMetrics},
+	}
+}
+
+// toXMLGroup converts an AutoScalingGroup to the XML response type.
+func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
+	lists := buildXMLGroupLists(g)
+
 	var xmlLT *xmlLaunchTemplateSpecification
 	if g.LaunchTemplate != nil {
 		xmlLT = &xmlLaunchTemplateSpecification{
@@ -376,18 +435,17 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup { //nolint:funlen // XM
 		}
 	}
 
-	xmlMIP := toXMLMixedInstancesPolicy(g.MixedInstancesPolicy)
-
 	return xmlAutoScalingGroup{
 		AutoScalingGroupName:             g.AutoScalingGroupName,
 		AutoScalingGroupARN:              g.AutoScalingGroupARN,
 		LaunchConfigurationName:          g.LaunchConfigurationName,
 		LaunchTemplate:                   xmlLT,
-		MixedInstancesPolicy:             xmlMIP,
+		MixedInstancesPolicy:             toXMLMixedInstancesPolicy(g.MixedInstancesPolicy),
 		VPCZoneIdentifier:                g.VPCZoneIdentifier,
 		PlacementGroup:                   g.PlacementGroup,
 		Context:                          g.Context,
 		DesiredCapacityType:              g.DesiredCapacityType,
+		DeletionProtection:               g.DeletionProtection,
 		MinSize:                          g.MinSize,
 		MaxSize:                          g.MaxSize,
 		DesiredCapacity:                  g.DesiredCapacity,
@@ -400,19 +458,106 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup { //nolint:funlen // XM
 		CapacityRebalance:                g.CapacityRebalance,
 		CreatedTime:                      g.CreatedTime.UTC().Format(time.RFC3339),
 		Status:                           g.Status,
-		AvailabilityZones:                xmlStringValueList{Members: azs},
-		LoadBalancerNames:                xmlStringValueList{Members: lbNames},
-		TargetGroupARNs:                  xmlStringValueList{Members: tgARNs},
-		TrafficSources:                   xmlTrafficSourceList{Members: trafficSources},
-		Tags:                             xmlTagList{Members: tags},
-		Instances:                        xmlInstanceList{Members: instances},
-		SuspendedProcesses:               xmlSuspendedProcessList{Members: suspendedProcesses},
-		TerminationPolicies:              xmlTerminationPoliciesList{Members: terminationPolicies},
-		EnabledMetrics:                   xmlEnabledMetricList{Members: enabledMetrics},
+		AvailabilityZones:                lists.AvailabilityZones,
+		LoadBalancerNames:                lists.LoadBalancerNames,
+		TargetGroupARNs:                  lists.TargetGroupARNs,
+		TrafficSources:                   lists.TrafficSources,
+		Tags:                             lists.Tags,
+		Instances:                        lists.Instances,
+		SuspendedProcesses:               lists.SuspendedProcesses,
+		TerminationPolicies:              lists.TerminationPolicies,
+		EnabledMetrics:                   lists.EnabledMetrics,
+		AvailabilityZoneDistribution:     toXMLAvailabilityZoneDistribution(g.AvailabilityZoneDistribution),
+		AvailabilityZoneImpairmentPolicy: toXMLAvailabilityZoneImpairmentPolicy(g.AvailabilityZoneImpairmentPolicy),
+		CapacityReservationSpecification: toXMLCapacityReservationSpecification(g.CapacityReservationSpecification),
+		InstanceLifecyclePolicy:          toXMLInstanceLifecyclePolicy(g.InstanceLifecyclePolicy),
+		InstanceMaintenancePolicy:        toXMLInstanceMaintenancePolicy(g.InstanceMaintenancePolicy),
 		ServiceLinkedRoleARN: fmt.Sprintf(
 			"arn:aws:iam::%s:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",
 			config.DefaultAccountID,
 		),
+	}
+}
+
+// toXMLAvailabilityZoneDistribution converts an AvailabilityZoneDistribution to
+// its XML projection, or nil when policy is nil.
+func toXMLAvailabilityZoneDistribution(v *AvailabilityZoneDistribution) *xmlAvailabilityZoneDistribution {
+	if v == nil {
+		return nil
+	}
+
+	return &xmlAvailabilityZoneDistribution{CapacityDistributionStrategy: v.CapacityDistributionStrategy}
+}
+
+// toXMLAvailabilityZoneImpairmentPolicy converts an AvailabilityZoneImpairmentPolicy
+// to its XML projection, or nil when policy is nil.
+func toXMLAvailabilityZoneImpairmentPolicy(v *AvailabilityZoneImpairmentPolicy) *xmlAZImpairmentPolicy {
+	if v == nil {
+		return nil
+	}
+
+	return &xmlAZImpairmentPolicy{
+		ImpairedZoneHealthCheckBehavior: v.ImpairedZoneHealthCheckBehavior,
+		ZonalShiftEnabled:               v.ZonalShiftEnabled,
+	}
+}
+
+// toXMLCapacityReservationSpecification converts a CapacityReservationSpecification
+// to its XML projection, or nil when spec is nil.
+func toXMLCapacityReservationSpecification(spec *CapacityReservationSpecification) *xmlCapacityReservationSpec {
+	if spec == nil {
+		return nil
+	}
+
+	out := &xmlCapacityReservationSpec{CapacityReservationPreference: spec.CapacityReservationPreference}
+
+	if t := spec.CapacityReservationTarget; t != nil {
+		ids := make([]xmlStringValue, 0, len(t.CapacityReservationIDs))
+		for _, id := range t.CapacityReservationIDs {
+			ids = append(ids, xmlStringValue{Value: id})
+		}
+
+		arns := make([]xmlStringValue, 0, len(t.CapacityReservationResourceGroupARNs))
+		for _, arn := range t.CapacityReservationResourceGroupARNs {
+			arns = append(arns, xmlStringValue{Value: arn})
+		}
+
+		out.CapacityReservationTarget = &xmlCapacityReservationTarget{
+			CapacityReservationIDs:               xmlStringValueList{Members: ids},
+			CapacityReservationResourceGroupArns: xmlStringValueList{Members: arns},
+		}
+	}
+
+	return out
+}
+
+// toXMLInstanceLifecyclePolicy converts an InstanceLifecyclePolicy to its XML
+// projection, or nil when policy is nil.
+func toXMLInstanceLifecyclePolicy(policy *InstanceLifecyclePolicy) *xmlInstanceLifecyclePolicy {
+	if policy == nil {
+		return nil
+	}
+
+	out := &xmlInstanceLifecyclePolicy{}
+	if policy.RetentionTriggers != nil {
+		out.RetentionTriggers = &xmlRetentionTriggers{
+			TerminateHookAbandon: policy.RetentionTriggers.TerminateHookAbandon,
+		}
+	}
+
+	return out
+}
+
+// toXMLInstanceMaintenancePolicy converts an InstanceMaintenancePolicy to its
+// XML projection, or nil when policy is nil.
+func toXMLInstanceMaintenancePolicy(policy *InstanceMaintenancePolicy) *xmlInstanceMaintenancePolicy {
+	if policy == nil {
+		return nil
+	}
+
+	return &xmlInstanceMaintenancePolicy{
+		MinHealthyPercentage: policy.MinHealthyPercentage,
+		MaxHealthyPercentage: policy.MaxHealthyPercentage,
 	}
 }
 
@@ -573,38 +718,76 @@ type xmlTerminationPoliciesList struct {
 	Members []xmlStringValue `xml:"member"`
 }
 
+type xmlAvailabilityZoneDistribution struct {
+	CapacityDistributionStrategy string `xml:"CapacityDistributionStrategy,omitempty"`
+}
+
+type xmlAZImpairmentPolicy struct {
+	ImpairedZoneHealthCheckBehavior string `xml:"ImpairedZoneHealthCheckBehavior,omitempty"`
+	ZonalShiftEnabled               bool   `xml:"ZonalShiftEnabled,omitempty"`
+}
+
+type xmlCapacityReservationTarget struct {
+	CapacityReservationIDs               xmlStringValueList `xml:"CapacityReservationIds,omitempty"`
+	CapacityReservationResourceGroupArns xmlStringValueList `xml:"CapacityReservationResourceGroupArns,omitempty"`
+}
+
+type xmlCapacityReservationSpec struct {
+	CapacityReservationTarget     *xmlCapacityReservationTarget `xml:"CapacityReservationTarget,omitempty"`
+	CapacityReservationPreference string                        `xml:"CapacityReservationPreference,omitempty"`
+}
+
+type xmlRetentionTriggers struct {
+	TerminateHookAbandon string `xml:"TerminateHookAbandon,omitempty"`
+}
+
+type xmlInstanceLifecyclePolicy struct {
+	RetentionTriggers *xmlRetentionTriggers `xml:"RetentionTriggers,omitempty"`
+}
+
+type xmlInstanceMaintenancePolicy struct {
+	MinHealthyPercentage *int32 `xml:"MinHealthyPercentage,omitempty"`
+	MaxHealthyPercentage *int32 `xml:"MaxHealthyPercentage,omitempty"`
+}
+
 type xmlAutoScalingGroup struct {
-	LaunchTemplate                   *xmlLaunchTemplateSpecification `xml:"LaunchTemplate,omitempty"`
-	MixedInstancesPolicy             *xmlMixedInstancesPolicy        `xml:"MixedInstancesPolicy,omitempty"`
-	AutoScalingGroupARN              string                          `xml:"AutoScalingGroupARN"`
-	Status                           string                          `xml:"Status,omitempty"`
-	CreatedTime                      string                          `xml:"CreatedTime"`
-	HealthCheckType                  string                          `xml:"HealthCheckType"`
-	LaunchConfigurationName          string                          `xml:"LaunchConfigurationName,omitempty"`
-	AutoScalingGroupName             string                          `xml:"AutoScalingGroupName"`
-	VPCZoneIdentifier                string                          `xml:"VPCZoneIdentifier,omitempty"`
-	PlacementGroup                   string                          `xml:"PlacementGroup,omitempty"`
-	Context                          string                          `xml:"Context,omitempty"`
-	DesiredCapacityType              string                          `xml:"DesiredCapacityType,omitempty"`
-	ServiceLinkedRoleARN             string                          `xml:"ServiceLinkedRoleARN,omitempty"`
-	TargetGroupARNs                  xmlStringValueList              `xml:"TargetGroupARNs"`
-	Tags                             xmlTagList                      `xml:"Tags"`
-	AvailabilityZones                xmlStringValueList              `xml:"AvailabilityZones"`
-	LoadBalancerNames                xmlStringValueList              `xml:"LoadBalancerNames"`
-	TrafficSources                   xmlTrafficSourceList            `xml:"TrafficSources"`
-	SuspendedProcesses               xmlSuspendedProcessList         `xml:"SuspendedProcesses"`
-	TerminationPolicies              xmlTerminationPoliciesList      `xml:"TerminationPolicies"`
-	EnabledMetrics                   xmlEnabledMetricList            `xml:"EnabledMetrics"`
-	Instances                        xmlInstanceList                 `xml:"Instances"`
-	MaxSize                          int32                           `xml:"MaxSize"`
-	DesiredCapacity                  int32                           `xml:"DesiredCapacity"`
-	DefaultCooldown                  int32                           `xml:"DefaultCooldown"`
-	HealthCheckGracePeriod           int32                           `xml:"HealthCheckGracePeriod"`
-	MaxInstanceLifetime              int32                           `xml:"MaxInstanceLifetime,omitempty"`
-	DefaultInstanceWarmup            int32                           `xml:"DefaultInstanceWarmup,omitempty"`
-	MinSize                          int32                           `xml:"MinSize"`
-	NewInstancesProtectedFromScaleIn bool                            `xml:"NewInstancesProtectedFromScaleIn,omitempty"`
-	CapacityRebalance                bool                            `xml:"CapacityRebalance,omitempty"`
+	LaunchTemplate                   *xmlLaunchTemplateSpecification  `xml:"LaunchTemplate,omitempty"`
+	MixedInstancesPolicy             *xmlMixedInstancesPolicy         `xml:"MixedInstancesPolicy,omitempty"`
+	AvailabilityZoneDistribution     *xmlAvailabilityZoneDistribution `xml:"AvailabilityZoneDistribution,omitempty"`
+	AvailabilityZoneImpairmentPolicy *xmlAZImpairmentPolicy           `xml:"AvailabilityZoneImpairmentPolicy,omitempty"`
+	CapacityReservationSpecification *xmlCapacityReservationSpec      `xml:"CapacityReservationSpecification,omitempty"`
+	InstanceLifecyclePolicy          *xmlInstanceLifecyclePolicy      `xml:"InstanceLifecyclePolicy,omitempty"`
+	InstanceMaintenancePolicy        *xmlInstanceMaintenancePolicy    `xml:"InstanceMaintenancePolicy,omitempty"`
+	AutoScalingGroupARN              string                           `xml:"AutoScalingGroupARN"`
+	Status                           string                           `xml:"Status,omitempty"`
+	CreatedTime                      string                           `xml:"CreatedTime"`
+	HealthCheckType                  string                           `xml:"HealthCheckType"`
+	LaunchConfigurationName          string                           `xml:"LaunchConfigurationName,omitempty"`
+	AutoScalingGroupName             string                           `xml:"AutoScalingGroupName"`
+	VPCZoneIdentifier                string                           `xml:"VPCZoneIdentifier,omitempty"`
+	PlacementGroup                   string                           `xml:"PlacementGroup,omitempty"`
+	Context                          string                           `xml:"Context,omitempty"`
+	DesiredCapacityType              string                           `xml:"DesiredCapacityType,omitempty"`
+	DeletionProtection               string                           `xml:"DeletionProtection,omitempty"`
+	ServiceLinkedRoleARN             string                           `xml:"ServiceLinkedRoleARN,omitempty"`
+	TargetGroupARNs                  xmlStringValueList               `xml:"TargetGroupARNs"`
+	Tags                             xmlTagList                       `xml:"Tags"`
+	AvailabilityZones                xmlStringValueList               `xml:"AvailabilityZones"`
+	LoadBalancerNames                xmlStringValueList               `xml:"LoadBalancerNames"`
+	TrafficSources                   xmlTrafficSourceList             `xml:"TrafficSources"`
+	SuspendedProcesses               xmlSuspendedProcessList          `xml:"SuspendedProcesses"`
+	TerminationPolicies              xmlTerminationPoliciesList       `xml:"TerminationPolicies"`
+	EnabledMetrics                   xmlEnabledMetricList             `xml:"EnabledMetrics"`
+	Instances                        xmlInstanceList                  `xml:"Instances"`
+	MaxSize                          int32                            `xml:"MaxSize"`
+	DesiredCapacity                  int32                            `xml:"DesiredCapacity"`
+	DefaultCooldown                  int32                            `xml:"DefaultCooldown"`
+	HealthCheckGracePeriod           int32                            `xml:"HealthCheckGracePeriod"`
+	MaxInstanceLifetime              int32                            `xml:"MaxInstanceLifetime,omitempty"`
+	DefaultInstanceWarmup            int32                            `xml:"DefaultInstanceWarmup,omitempty"`
+	MinSize                          int32                            `xml:"MinSize"`
+	NewInstancesProtectedFromScaleIn bool                             `xml:"NewInstancesProtectedFromScaleIn,omitempty"`
+	CapacityRebalance                bool                             `xml:"CapacityRebalance,omitempty"`
 }
 
 type xmlAutoScalingGroupList struct {
@@ -772,6 +955,111 @@ func parseLifecycleHookSpecifications(vals url.Values) []LifecycleHook {
 	}
 
 	return result
+}
+
+// parseAvailabilityZoneDistribution parses AvailabilityZoneDistribution.* form
+// values. Returns nil if not specified.
+func parseAvailabilityZoneDistribution(vals url.Values) *AvailabilityZoneDistribution {
+	v := vals.Get("AvailabilityZoneDistribution.CapacityDistributionStrategy")
+	if v == "" {
+		return nil
+	}
+
+	return &AvailabilityZoneDistribution{CapacityDistributionStrategy: v}
+}
+
+// parseAvailabilityZoneImpairmentPolicy parses AvailabilityZoneImpairmentPolicy.*
+// form values. Returns nil if neither field was specified.
+func parseAvailabilityZoneImpairmentPolicy(vals url.Values) *AvailabilityZoneImpairmentPolicy {
+	const prefix = "AvailabilityZoneImpairmentPolicy."
+
+	behavior := vals.Get(prefix + "ImpairedZoneHealthCheckBehavior")
+	enabled := vals.Get(prefix + "ZonalShiftEnabled")
+
+	if behavior == "" && enabled == "" {
+		return nil
+	}
+
+	return &AvailabilityZoneImpairmentPolicy{
+		ImpairedZoneHealthCheckBehavior: behavior,
+		ZonalShiftEnabled:               enabled == formValueTrue,
+	}
+}
+
+// parseCapacityReservationTarget parses the CapacityReservationTarget.* form
+// values nested under prefix. Returns nil if neither list was specified.
+func parseCapacityReservationTarget(vals url.Values, prefix string) *CapacityReservationTarget {
+	ids := parseMembers(vals, prefix+".CapacityReservationIds.member")
+	arns := parseMembers(vals, prefix+".CapacityReservationResourceGroupArns.member")
+
+	if len(ids) == 0 && len(arns) == 0 {
+		return nil
+	}
+
+	return &CapacityReservationTarget{
+		CapacityReservationIDs:               ids,
+		CapacityReservationResourceGroupARNs: arns,
+	}
+}
+
+// parseCapacityReservationSpecification parses CapacityReservationSpecification.*
+// form values. Returns nil if not specified.
+func parseCapacityReservationSpecification(vals url.Values) *CapacityReservationSpecification {
+	const prefix = "CapacityReservationSpecification"
+
+	pref := vals.Get(prefix + ".CapacityReservationPreference")
+	target := parseCapacityReservationTarget(vals, prefix+".CapacityReservationTarget")
+
+	if pref == "" && target == nil {
+		return nil
+	}
+
+	return &CapacityReservationSpecification{
+		CapacityReservationPreference: pref,
+		CapacityReservationTarget:     target,
+	}
+}
+
+// parseInstanceLifecyclePolicy parses InstanceLifecyclePolicy.* form values.
+// Returns nil if not specified.
+func parseInstanceLifecyclePolicy(vals url.Values) *InstanceLifecyclePolicy {
+	v := vals.Get("InstanceLifecyclePolicy.RetentionTriggers.TerminateHookAbandon")
+	if v == "" {
+		return nil
+	}
+
+	return &InstanceLifecyclePolicy{RetentionTriggers: &RetentionTriggers{TerminateHookAbandon: v}}
+}
+
+// parseInstanceMaintenancePolicy parses InstanceMaintenancePolicy.* form values.
+// Returns nil if neither field was specified. Uses *int32 (not the shared
+// parseIntVal-into-plain-int32 pattern) so a valid "-1 clears the value"
+// sentinel round-trips distinctly from "field omitted".
+func parseInstanceMaintenancePolicy(vals url.Values) *InstanceMaintenancePolicy {
+	const prefix = "InstanceMaintenancePolicy."
+
+	minStr := vals.Get(prefix + "MinHealthyPercentage")
+	maxStr := vals.Get(prefix + "MaxHealthyPercentage")
+
+	if minStr == "" && maxStr == "" {
+		return nil
+	}
+
+	policy := &InstanceMaintenancePolicy{}
+
+	if minStr != "" {
+		if n, err := parseIntVal(minStr); err == nil {
+			policy.MinHealthyPercentage = &n
+		}
+	}
+
+	if maxStr != "" {
+		if n, err := parseIntVal(maxStr); err == nil {
+			policy.MaxHealthyPercentage = &n
+		}
+	}
+
+	return policy
 }
 
 type setDesiredCapacityResponse struct {

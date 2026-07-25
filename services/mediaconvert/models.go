@@ -32,17 +32,20 @@ type Queue struct {
 
 // JobTemplate represents a MediaConvert job template.
 type JobTemplate struct {
-	Settings    map[string]any    `json:"settings,omitempty"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	Arn         string            `json:"arn"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Category    string            `json:"category,omitempty"`
-	Queue       string            `json:"queue,omitempty"`
-	Type        string            `json:"type"`
-	CreatedAt   float64           `json:"createdAt"`
-	LastUpdated float64           `json:"lastUpdated"`
-	Priority    int               `json:"priority"`
+	AccelerationSettings *AccelerationSettings `json:"accelerationSettings,omitempty"`
+	Settings             map[string]any        `json:"settings,omitempty"`
+	Tags                 map[string]string     `json:"tags,omitempty"`
+	Type                 string                `json:"type"`
+	Arn                  string                `json:"arn"`
+	Name                 string                `json:"name"`
+	Description          string                `json:"description,omitempty"`
+	Category             string                `json:"category,omitempty"`
+	Queue                string                `json:"queue,omitempty"`
+	StatusUpdateInterval string                `json:"statusUpdateInterval,omitempty"`
+	HopDestinations      []HopDestination      `json:"hopDestinations,omitempty"`
+	CreatedAt            float64               `json:"createdAt"`
+	LastUpdated          float64               `json:"lastUpdated"`
+	Priority             int                   `json:"priority"`
 }
 
 // JobTiming holds timing information for a MediaConvert job.

@@ -18,18 +18,18 @@ func syntheticExpenseDocument(documentURI string) ExpenseDocument {
 
 	summaryFields := []ExpenseField{
 		{
-			Type:           &ExpenseDetection{Text: "VENDOR_NAME", Confidence: confidenceExpenseHigh},
+			Type:           &ExpenseType{Text: "VENDOR_NAME", Confidence: confidenceExpenseHigh},
 			ValueDetection: &ExpenseDetection{Text: "Acme Corp", Confidence: confidenceExpenseHigh},
 			PageNumber:     1,
 		},
 		{
-			Type:           &ExpenseDetection{Text: "TOTAL", Confidence: confidenceExpenseHigh},
+			Type:           &ExpenseType{Text: "TOTAL", Confidence: confidenceExpenseHigh},
 			ValueDetection: &ExpenseDetection{Text: "$123.45", Confidence: confidenceExpenseHigh},
 			PageNumber:     1,
-			Currency:       &ExpenseDetection{Text: "USD", Confidence: confidenceExpenseHigh},
+			Currency:       &ExpenseCurrency{Code: "USD", Confidence: confidenceExpenseHigh},
 		},
 		{
-			Type:           &ExpenseDetection{Text: "INVOICE_RECEIPT_DATE", Confidence: confidenceExpenseMed},
+			Type:           &ExpenseType{Text: "INVOICE_RECEIPT_DATE", Confidence: confidenceExpenseMed},
 			ValueDetection: &ExpenseDetection{Text: "2024-01-01", Confidence: confidenceExpenseMed},
 			PageNumber:     1,
 		},
@@ -42,12 +42,12 @@ func syntheticExpenseDocument(documentURI string) ExpenseDocument {
 				{
 					LineItemExpenseFields: []ExpenseField{
 						{
-							Type:           &ExpenseDetection{Text: "ITEM", Confidence: confidenceExpenseLI},
+							Type:           &ExpenseType{Text: "ITEM", Confidence: confidenceExpenseLI},
 							ValueDetection: &ExpenseDetection{Text: "Widget A", Confidence: confidenceExpenseLI},
 							PageNumber:     1,
 						},
 						{
-							Type:           &ExpenseDetection{Text: "PRICE", Confidence: confidenceExpenseLI},
+							Type:           &ExpenseType{Text: "PRICE", Confidence: confidenceExpenseLI},
 							ValueDetection: &ExpenseDetection{Text: "$45.00", Confidence: confidenceExpenseLI},
 							PageNumber:     1,
 						},
@@ -56,12 +56,12 @@ func syntheticExpenseDocument(documentURI string) ExpenseDocument {
 				{
 					LineItemExpenseFields: []ExpenseField{
 						{
-							Type:           &ExpenseDetection{Text: "ITEM", Confidence: confidenceExpenseLI2},
+							Type:           &ExpenseType{Text: "ITEM", Confidence: confidenceExpenseLI2},
 							ValueDetection: &ExpenseDetection{Text: "Widget B", Confidence: confidenceExpenseLI2},
 							PageNumber:     1,
 						},
 						{
-							Type:           &ExpenseDetection{Text: "PRICE", Confidence: confidenceExpenseLI2},
+							Type:           &ExpenseType{Text: "PRICE", Confidence: confidenceExpenseLI2},
 							ValueDetection: &ExpenseDetection{Text: "$78.45", Confidence: confidenceExpenseLI2},
 							PageNumber:     1,
 						},

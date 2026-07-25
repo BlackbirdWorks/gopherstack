@@ -233,14 +233,19 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
 		}
 	}
 
+	// checkedAt is the timestamp of this connection-status check -- computed
+	// once so every WorkSpace in the response reports the same check time,
+	// matching a single point-in-time DescribeWorkspacesConnectionStatus call.
+	checkedAt := time.Now().UTC()
+
 	if len(workspaceIDs) == 0 {
 		result := make([]*WorkspaceConnectionStatus, 0, b.workspaces.Len())
 
 		for _, w := range b.workspaces.All() {
 			result = append(result, &WorkspaceConnectionStatus{
-				WorkspaceID:       w.WorkspaceID,
-				ConnectionState:   connectionStateFor(w.State),
-				LastKnownUserTime: time.Time{},
+				WorkspaceID:                   w.WorkspaceID,
+				ConnectionState:               connectionStateFor(w.State),
+				ConnectionStateCheckTimestamp: checkedAt,
 			})
 		}
 
@@ -256,9 +261,9 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
 		}
 
 		result = append(result, &WorkspaceConnectionStatus{
-			WorkspaceID:       w.WorkspaceID,
-			ConnectionState:   connectionStateFor(w.State),
-			LastKnownUserTime: time.Time{},
+			WorkspaceID:                   w.WorkspaceID,
+			ConnectionState:               connectionStateFor(w.State),
+			ConnectionStateCheckTimestamp: checkedAt,
 		})
 	}
 
@@ -489,37 +494,42 @@ func (b *InMemoryBackend) RestoreWorkspace(workspaceID string) error {
 	return nil
 }
 
-// CreateStandbyWorkspaces creates standby workspaces (returns pending list).
-func (b *InMemoryBackend) CreateStandbyWorkspaces(
-	_ string, standby []map[string]string,
-) ([]map[string]string, []map[string]string, error) {
-	b.mu.Lock("CreateStandbyWorkspaces")
+// CreateStandbyWorkspace creates a single standby WorkSpace and returns it in
+// PENDING state. Returns InvalidParameterValuesException when spec.DirectoryID
+// is not registered, matching the same per-item runtime validation as
+// CreateWorkspace. The real StandbyWorkspace request shape carries no
+// UserName/BundleId (see StandbyWorkspaceSpec) -- those fields belong to the
+// primary WorkSpace, which may live in a different region's backend that this
+// in-memory store cannot see, so the created record has no way to inherit
+// them; PendingCreateStandbyWorkspacesRequest's real shape doesn't surface
+// BundleId at all, and its UserName is left empty for the same reason.
+func (b *InMemoryBackend) CreateStandbyWorkspace(
+	_ context.Context, spec StandbyWorkspaceSpec,
+) (*PendingStandbyWorkspace, error) {
+	b.mu.Lock("CreateStandbyWorkspace")
 	defer b.mu.Unlock()
 
-	pending := make([]map[string]string, 0, len(standby))
-
-	for _, s := range standby {
-		b.counter++
-		id := fmt.Sprintf("%s%0*x", workspaceIDPrefix, workspaceIDHexLen, b.counter)
-
-		w := &storedWorkspace{
-			WorkspaceID: id,
-			DirectoryID: s["DirectoryId"],
-			UserName:    s["UserName"],
-			BundleID:    s["BundleId"],
-			State:       statePending,
-			Tags:        make(map[string]string),
-		}
-		b.workspaces.Put(w)
-
-		pending = append(pending, map[string]string{
-			wireKeyWorkspaceID: id,
-			"DirectoryId":      w.DirectoryID,
-			"UserName":         w.UserName,
-			"BundleId":         w.BundleID,
-			"State":            w.State,
-		})
+	if !b.dirSettings.Has(spec.DirectoryID) {
+		return nil, awserr.Newf(
+			"directory %q is not registered", awserr.ErrInvalidParameter, spec.DirectoryID)
 	}
 
-	return []map[string]string{}, pending, nil
+	id := b.nextID(workspaceIDPrefix)
+	tags := cloneTags(spec.Tags)
+
+	w := &storedWorkspace{
+		WorkspaceID:         id,
+		DirectoryID:         spec.DirectoryID,
+		VolumeEncryptionKey: spec.VolumeEncryptionKey,
+		State:               statePending,
+		Tags:                tags,
+	}
+	b.workspaces.Put(w)
+	b.tags[id] = tags
+
+	return &PendingStandbyWorkspace{
+		WorkspaceID: id,
+		DirectoryID: spec.DirectoryID,
+		State:       statePending,
+	}, nil
 }

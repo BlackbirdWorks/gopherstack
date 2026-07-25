@@ -11,9 +11,20 @@ import (
 // ---------------------------------------------------------------------------
 
 // AssociateAgentCollaborator creates a collaborator association.
+//
+// Real AWS constrains the {agentVersion} URI path parameter to the literal
+// "DRAFT" (fixed length 5, pattern `DRAFT`, per the
+// AssociateAgentCollaborator API reference) -- same constraint as
+// CreateAgentActionGroup.
 func (b *InMemoryBackend) AssociateAgentCollaborator(
 	_ context.Context, agentID, agentVersion string, cfg CollaboratorConfig,
 ) (*AgentCollaborator, error) {
+	if agentVersion != defaultAgentVersion {
+		return nil, fmt.Errorf(
+			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
+		)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

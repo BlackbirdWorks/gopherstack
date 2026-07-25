@@ -41,7 +41,11 @@ func (b *InMemoryBackend) DeregisterVolume(volumeID string) error {
 	return nil
 }
 
-// AssignVolume assigns a registered volume to an instance.
+// AssignVolume assigns a registered volume to an instance. The instance
+// must belong to the same stack the volume was registered with -- a volume
+// can only be registered with one stack at a time (see RegisterVolume), so
+// assigning it to an instance from a different stack would silently create
+// a cross-stack resource association AWS does not document as valid.
 func (b *InMemoryBackend) AssignVolume(volumeID, instanceID string) error {
 	b.mu.Lock("AssignVolume")
 	defer b.mu.Unlock()
@@ -51,8 +55,13 @@ func (b *InMemoryBackend) AssignVolume(volumeID, instanceID string) error {
 		return ErrVolumeNotFound
 	}
 
-	if !b.instances.Has(instanceID) {
+	i, ok := b.instances.Get(instanceID)
+	if !ok {
 		return ErrInstanceNotFound
+	}
+
+	if i.StackID != v.StackID {
+		return ErrValidation
 	}
 
 	v.InstanceID = instanceID
@@ -75,8 +84,13 @@ func (b *InMemoryBackend) UnassignVolume(volumeID string) error {
 	return nil
 }
 
-// DescribeVolumes returns volumes filtered by instance, RAID array, or IDs.
-func (b *InMemoryBackend) DescribeVolumes(instanceID, _ string, volumeIDs []string) ([]*Volume, error) {
+// DescribeVolumes returns volumes filtered by stack, instance, RAID array,
+// or IDs. RaidArrayId is accepted (matching the real DescribeVolumesInput
+// shape) but never filters anything: this backend does not model RAID
+// arrays at all (DescribeRaidArrays always returns empty, by design -- see
+// PARITY.md's Misc family note), so no volume ever carries a RAID array
+// association to filter on.
+func (b *InMemoryBackend) DescribeVolumes(stackID, instanceID, _ string, volumeIDs []string) ([]*Volume, error) {
 	b.mu.RLock("DescribeVolumes")
 	defer b.mu.RUnlock()
 
@@ -93,8 +107,10 @@ func (b *InMemoryBackend) DescribeVolumes(instanceID, _ string, volumeIDs []stri
 		return result, nil
 	}
 
-	result := make([]*Volume, 0)
-	for _, v := range b.volumes.All() {
+	source := stackScoped(stackID, b.volumes.All, b.volumesByStack.Get)
+
+	result := make([]*Volume, 0, len(source))
+	for _, v := range source {
 		if instanceID != "" && v.InstanceID != instanceID {
 			continue
 		}

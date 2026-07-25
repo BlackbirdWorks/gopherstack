@@ -80,25 +80,60 @@ func TestReset(t *testing.T) {
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	_, err = b.CreateRecipe(context.Background(), "r", "", nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateProject(context.Background(), "p", "ds", "r", "", databrew.Sample{}, nil)
 	require.NoError(t, err)
-	_, err = b.CreateJob(context.Background(), "j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err = b.CreateJob(context.Background(), "j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 
 	b.Reset()
 
 	dsList, _ := b.ListDatasets(context.Background(), 100, "")
 	assert.Empty(t, dsList)
-	rList, _ := b.ListRecipes(context.Background(), 100, "")
+	rList, _ := b.ListRecipes(context.Background(), 100, "", "")
 	assert.Empty(t, rList)
 	pList, _ := b.ListProjects(context.Background(), 100, "")
 	assert.Empty(t, pList)
 	jList, _ := b.ListJobs(context.Background(), 100, "", "", "")
 	assert.Empty(t, jList)
+}
+
+// TestAccountID_PopulatedOnCreate verifies every entity that carries an
+// AccountId field in the real SDK (aws-sdk-go-v2/service/databrew/types'
+// Dataset/Job/Project/RulesetItem/Schedule all have AccountId; Recipe does
+// not) has it populated from the backend's account ID -- these fields were
+// previously entirely absent from gopherstack's models, so ListDatasets/
+// ListJobs/ListProjects/ListRulesets/ListSchedules always echoed an empty
+// AccountId.
+func TestAccountID_PopulatedOnCreate(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	ctx := context.Background()
+	const wantAccountID = "123456789012"
+
+	ds, err := b.CreateDataset(ctx, "acct-ds", "CSV", s3Input("b", ""), databrew.DatasetFormatOptions{}, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, wantAccountID, ds.AccountID)
+
+	p, err := b.CreateProject(ctx, "acct-p", "acct-ds", "r", "", databrew.Sample{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, wantAccountID, p.AccountID)
+
+	j, err := b.CreateJob(ctx, "acct-j", "PROFILE", "acct-ds", "", "", "", nil, nil, databrew.JobExtras{})
+	require.NoError(t, err)
+	assert.Equal(t, wantAccountID, j.AccountID)
+
+	rs, err := b.CreateRuleset(ctx, "acct-rs", "", "arn:x", nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, wantAccountID, rs.AccountID)
+
+	sc, err := b.CreateSchedule(ctx, "acct-sc", nil, "cron(0 12 * * ? *)", nil)
+	require.NoError(t, err)
+	assert.Equal(t, wantAccountID, sc.AccountID)
 }
 
 func TestProvider_Name(t *testing.T) {

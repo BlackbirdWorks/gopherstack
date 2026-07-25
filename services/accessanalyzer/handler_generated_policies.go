@@ -76,7 +76,7 @@ func (h *Handler) handleGetGeneratedPolicy(path string) (any, int, error) {
 				"principalArn": pg.PrincipalArn,
 			},
 		},
-		"jobDetails": policyGenerationToJSON(pg),
+		"jobDetails": jobDetailsToJSON(pg),
 	}, http.StatusOK, nil
 }
 
@@ -141,12 +141,32 @@ func parsePolicyGenerationPath(method string, segments []string) (string, string
 
 // ---- JSON serialization ----
 
+// policyGenerationToJSON builds the types.PolicyGeneration wire shape used
+// by ListPolicyGenerations, which (unlike types.JobDetails, see
+// jobDetailsToJSON) does carry principalArn.
 func policyGenerationToJSON(pg *PolicyGeneration) map[string]any {
+	m := jobFieldsJSON(pg)
+	m["principalArn"] = pg.PrincipalArn
+
+	return m
+}
+
+// jobDetailsToJSON builds the types.JobDetails wire shape used by
+// GetGeneratedPolicy's "jobDetails" member. Unlike types.PolicyGeneration
+// (see policyGenerationToJSON), JobDetails has no principalArn field --
+// that value is only reported under generatedPolicyResult.properties for
+// this operation.
+func jobDetailsToJSON(pg *PolicyGeneration) map[string]any {
+	return jobFieldsJSON(pg)
+}
+
+// jobFieldsJSON builds the fields common to both types.PolicyGeneration and
+// types.JobDetails (jobId/status/startedOn/completedOn).
+func jobFieldsJSON(pg *PolicyGeneration) map[string]any {
 	m := map[string]any{
-		"jobId":        pg.JobID,
-		"principalArn": pg.PrincipalArn,
-		keyStatus:      string(pg.Status),
-		"startedOn":    pg.StartedOn.Format(time.RFC3339),
+		"jobId":     pg.JobID,
+		keyStatus:   string(pg.Status),
+		"startedOn": pg.StartedOn.Format(time.RFC3339),
 	}
 
 	if pg.CompletedOn != nil {

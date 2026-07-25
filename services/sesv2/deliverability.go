@@ -2,10 +2,14 @@ package sesv2
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -54,13 +58,48 @@ func (b *InMemoryBackend) CreateDeliverabilityTestReport(
 
 // ---- deliverability ----
 
-// GetDeliverabilityDashboardOptions returns stub options.
+// GetDeliverabilityDashboardOptions reports the dashboard enablement state
+// and subscribed-domain list previously set by PutDeliverabilityDashboardOption,
+// matching GetDeliverabilityDashboardOptionsOutput
+// (DashboardEnabled/AccountStatus/ActiveSubscribedDomains).
 func (b *InMemoryBackend) GetDeliverabilityDashboardOptions() (map[string]any, error) {
-	return map[string]any{"DashboardEnabled": false}, nil
+	b.mu.RLock("GetDeliverabilityDashboardOptions")
+	defer b.mu.RUnlock()
+
+	status := "DISABLED"
+	if b.deliverabilityDashboardEnabled {
+		status = "ACTIVE"
+	}
+
+	domains := make([]map[string]any, len(b.deliverabilityDashboardDomains))
+	copy(domains, b.deliverabilityDashboardDomains)
+
+	return map[string]any{
+		"DashboardEnabled":        b.deliverabilityDashboardEnabled,
+		"AccountStatus":           status,
+		"ActiveSubscribedDomains": domains,
+	}, nil
 }
 
-// PutDeliverabilityDashboardOption is a no-op stub.
-func (b *InMemoryBackend) PutDeliverabilityDashboardOption() error {
+// PutDeliverabilityDashboardOption persists the dashboard enablement state
+// and subscribed-domain list so GetDeliverabilityDashboardOptions reflects
+// it (previously a true no-op).
+func (b *InMemoryBackend) PutDeliverabilityDashboardOption(enabled bool, subscribedDomains []string) error {
+	b.mu.Lock("PutDeliverabilityDashboardOption")
+	defer b.mu.Unlock()
+
+	b.deliverabilityDashboardEnabled = enabled
+
+	domains := make([]map[string]any, 0, len(subscribedDomains))
+	for _, d := range subscribedDomains {
+		domains = append(domains, map[string]any{
+			"Domain":                d,
+			"SubscriptionStartDate": awstime.Epoch(time.Now()),
+		})
+	}
+
+	b.deliverabilityDashboardDomains = domains
+
 	return nil
 }
 
@@ -100,12 +139,19 @@ func (b *InMemoryBackend) ListDeliverabilityTestReports(
 	return page.New(items, nextToken, pageSize, sesv2DefaultMaxItems)
 }
 
-func (b *InMemoryBackend) GetDomainDeliverabilityCampaign(domain, campaignID string) (map[string]any, error) {
-	now := float64(time.Now().Unix())
+// GetDomainDeliverabilityCampaign returns deliverability data for a single
+// campaign, matching types.DomainDeliverabilityCampaign. gopherstack has no
+// real deliverability-dashboard data source (this requires opted-in
+// production sending history AWS tracks server-side), so populated fields
+// are zero-valued placeholders -- the wire shape/route are AWS-accurate even
+// though the metrics themselves aren't meaningful in an emulator, the same
+// tradeoff BatchGetMetricData makes.
+func (b *InMemoryBackend) GetDomainDeliverabilityCampaign(campaignID string) (map[string]any, error) {
+	now := awstime.Epoch(time.Now())
 
 	return map[string]any{
 		"CampaignId":        campaignID,
-		"FromAddress":       "sender@" + domain,
+		"FromAddress":       "",
 		"Subject":           "",
 		"FirstSeenDateTime": now,
 		"LastSeenDateTime":  now,
@@ -147,19 +193,99 @@ func (b *InMemoryBackend) ListDomainDeliverabilityCampaigns(
 	return []map[string]any{}, "", nil
 }
 
-// GetEmailAddressInsights returns a stub.
-func (b *InMemoryBackend) GetEmailAddressInsights(_ string) (map[string]any, error) {
-	return map[string]any{}, nil
+// EmailAddressInsightsConfidenceVerdict values (types.EmailAddressInsightsConfidenceVerdict).
+const (
+	confidenceHigh   = "HIGH"
+	confidenceMedium = "MEDIUM"
+	confidenceLow    = "LOW"
+)
+
+// onceRoleAddressLocalParts lazily initialises the set of common role-based
+// mailbox local-parts, used by GetEmailAddressInsights' IsRoleAddress check
+// (matches the check SES v2 documents: "role-based addresses (such as
+// admin@, support@, or info@)").
+//
+//nolint:gochecknoglobals // read-only package-level lookup table
+var onceRoleAddressLocalParts = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"admin": true, "administrator": true, "support": true, "info": true,
+		"sales": true, "contact": true, "help": true, "webmaster": true,
+		"postmaster": true, "abuse": true, "noreply": true, "no-reply": true,
+		"marketing": true, "billing": true, "office": true, "hello": true,
+		"security": true, "privacy": true, "root": true,
+	}
+})
+
+// emailSyntaxPattern is a practical (not exhaustive-RFC-5322) email address
+// syntax check: local-part@domain-with-at-least-one-dot.
+const emailSyntaxPatternSrc = `^[a-zA-Z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@` +
+	`[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?` +
+	`(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+$`
+
+var emailSyntaxPattern = regexp.MustCompile(emailSyntaxPatternSrc)
+
+// insightsVerdict builds an EmailAddressInsightsVerdict-shaped map.
+func insightsVerdict(confidence string) map[string]any {
+	return map[string]any{"ConfidenceVerdict": confidence}
 }
 
-// ListRecommendations returns empty list.
+// GetEmailAddressInsights runs the checks gopherstack can meaningfully
+// perform without network access (RFC-shaped syntax validation and a
+// role-address local-part lookup) and reports the checks that genuinely
+// require external data (DNS, disposable-domain lists, mailbox probing) as
+// MEDIUM-confidence placeholders -- the route and wire shape are
+// AWS-accurate (types.MailboxValidation/EmailAddressInsightsMailboxEvaluations)
+// even though those specific verdicts aren't backed by real validation.
+func (b *InMemoryBackend) GetEmailAddressInsights(emailAddress string) (map[string]any, error) {
+	validSyntax := emailSyntaxPattern.MatchString(emailAddress)
+
+	syntaxConfidence, overallConfidence := confidenceHigh, confidenceHigh
+	if !validSyntax {
+		syntaxConfidence, overallConfidence = confidenceLow, confidenceLow
+	}
+
+	localPart, _, found := strings.Cut(emailAddress, "@")
+	if !found {
+		localPart = emailAddress
+	}
+
+	roleConfidence := confidenceLow
+	if onceRoleAddressLocalParts()[strings.ToLower(localPart)] {
+		roleConfidence = confidenceHigh
+	}
+
+	return map[string]any{
+		"MailboxValidation": map[string]any{
+			"IsValid": insightsVerdict(overallConfidence),
+			"Evaluations": map[string]any{
+				"HasValidSyntax":     insightsVerdict(syntaxConfidence),
+				"IsRoleAddress":      insightsVerdict(roleConfidence),
+				"HasValidDnsRecords": insightsVerdict(confidenceMedium),
+				"IsDisposable":       insightsVerdict(confidenceMedium),
+				"IsRandomInput":      insightsVerdict(confidenceMedium),
+				"MailboxExists":      insightsVerdict(confidenceMedium),
+			},
+		},
+	}, nil
+}
+
+// ListRecommendations returns an empty list -- gopherstack has no reputation
+// analysis engine to generate real DKIM/SPF/DMARC/BIMI recommendations from,
+// so (unlike GetEmailAddressInsights) there's no meaningful synthetic data to
+// return; the route and NextToken/Recommendations wire shape are AWS-accurate.
 func (b *InMemoryBackend) ListRecommendations(_ string, _ int) ([]map[string]any, string, error) {
 	return []map[string]any{}, "", nil
 }
 
 // ---- reputation entities ----
 
-// reputationEntityToMap renders a reputation entity as the AWS-shaped response map.
+// reputationEntityToMap renders a reputation entity as the AWS-shaped
+// response map, field-diffed against types.ReputationEntity. Note
+// CustomerManagedStatus is a *StatusRecord{Status,Cause,LastUpdatedTimestamp}
+// (not a bare string) -- gopherstack only tracks Status, which is the only
+// field UpdateReputationEntityCustomerManagedStatus lets a caller set.
+// AwsSesManagedStatus is omitted: it's SES's own computed reputation-findings
+// status, which gopherstack has no findings engine to derive.
 func reputationEntityToMap(e *ReputationEntity) map[string]any {
 	m := map[string]any{
 		"ReputationEntityReference": e.EntityRef,
@@ -176,6 +302,16 @@ func reputationEntityToMap(e *ReputationEntity) map[string]any {
 	if e.ReputationPolicy != "" {
 		m["ReputationManagementPolicy"] = e.ReputationPolicy
 	}
+
+	// SendingStatusAggregate is derived from CustomerManagedStatus (gopherstack
+	// has no separate AWS-SES-managed status to combine it with) -- default
+	// ENABLED, matching a freshly-tracked entity with no restrictions applied.
+	aggregate := sendingStatusEnabled
+	if e.CustomerManagedStatus != "" {
+		aggregate = e.CustomerManagedStatus
+	}
+
+	m["SendingStatusAggregate"] = aggregate
 
 	return m
 }

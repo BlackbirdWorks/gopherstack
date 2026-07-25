@@ -1,6 +1,7 @@
 package accessanalyzer
 
 import (
+	"encoding/json"
 	"maps"
 	"time"
 )
@@ -43,14 +44,25 @@ type FilterCriterion struct {
 }
 
 // Analyzer represents an IAM Access Analyzer analyzer.
+//
+// Configuration holds the raw wire body of the AnalyzerConfiguration union
+// (CreateAnalyzer/UpdateAnalyzer request, GetAnalyzer/UpdateAnalyzer
+// response) exactly as the client sent it -- e.g.
+// {"unusedAccess":{"unusedAccessAge":90}} or
+// {"internalAccess":{"analysisRule":{...}}}. gopherstack stores it opaquely
+// (no semantic interpretation of unused-access/internal-access analysis
+// rules) rather than fabricating partial behavior for it; this still avoids
+// silently dropping client-supplied configuration on the floor, which the
+// previous no-op UpdateAnalyzer did.
 type Analyzer struct {
+	CreatedAt              time.Time         `json:"createdAt"`
 	Tags                   map[string]string `json:"tags,omitempty"`
 	LastResourceAnalyzedAt *time.Time        `json:"lastResourceAnalyzedAt,omitempty"`
-	CreatedAt              time.Time         `json:"createdAt"`
 	Arn                    string            `json:"arn"`
 	Name                   string            `json:"name"`
 	Type                   AnalyzerType      `json:"type"`
 	Status                 AnalyzerStatus    `json:"status"`
+	Configuration          json.RawMessage   `json:"configuration,omitempty"`
 }
 
 // ArchiveRule represents an archive rule for an analyzer.
@@ -170,6 +182,7 @@ func cloneFilter(f map[string]FilterCriterion) map[string]FilterCriterion {
 func copyAnalyzer(a *Analyzer) *Analyzer {
 	cp := *a
 	cp.Tags = cloneTags(a.Tags)
+	cp.Configuration = append(json.RawMessage(nil), a.Configuration...)
 
 	return &cp
 }

@@ -3,6 +3,8 @@ package elasticache
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -14,10 +16,42 @@ func (b *InMemoryBackend) userGroupARN(region, id string) string {
 	return arn.Build("elasticache", region, b.accountID, "usergroup:"+id)
 }
 
+// userGroupReplicationGroupIDsLocked returns the sorted IDs of every
+// replication group that has groupID in its UserGroupIDs -- the reverse of
+// ReplicationGroup.UserGroupIDs, computed fresh on every call rather than
+// persisted (mirrors userGroupIDsLocked for User). Must hold at least
+// b.mu.RLock.
+func (b *InMemoryBackend) userGroupReplicationGroupIDsLocked(region, groupID string) []string {
+	var ids []string
+
+	tbl := b.replicationGroupsStore(region)
+	if tbl == nil {
+		return nil
+	}
+
+	for _, rg := range tbl.All() {
+		if slices.Contains(rg.UserGroupIDs, groupID) {
+			ids = append(ids, rg.ReplicationGroupID)
+		}
+	}
+	sort.Strings(ids)
+
+	return ids
+}
+
+// withAssignedReplicationGroupIDs returns a copy of ug with
+// AssignedReplicationGroupIDs populated. Must hold at least b.mu.RLock.
+func (b *InMemoryBackend) withAssignedReplicationGroupIDs(region string, ug *UserGroup) *UserGroup {
+	result := *ug
+	result.AssignedReplicationGroupIDs = b.userGroupReplicationGroupIDsLocked(region, ug.UserGroupID)
+
+	return &result
+}
+
 // CreateUserGroup creates a new user group.
 func (b *InMemoryBackend) CreateUserGroup(
 	ctx context.Context,
-	groupID, description, engine string,
+	groupID, engine string,
 	userIDs []string,
 ) (*UserGroup, error) {
 	b.mu.Lock("CreateUserGroup")
@@ -35,7 +69,6 @@ func (b *InMemoryBackend) CreateUserGroup(
 
 	ug := &UserGroup{
 		UserGroupID: groupID,
-		Description: description,
 		Status:      statusActive,
 		ARN:         b.userGroupARN(region, groupID),
 		Engine:      engine,
@@ -46,7 +79,7 @@ func (b *InMemoryBackend) CreateUserGroup(
 	tbl.Put(ug)
 	b.appendEventLocked(groupID, "user-group", "user group created")
 
-	return ug, nil
+	return b.withAssignedReplicationGroupIDs(region, ug), nil
 }
 
 // DeleteUserGroup deletes a user group by ID.
@@ -61,11 +94,11 @@ func (b *InMemoryBackend) DeleteUserGroup(ctx context.Context, groupID string) (
 		return nil, ErrUserGroupNotFound
 	}
 
-	result := *ug
+	result := b.withAssignedReplicationGroupIDs(region, ug)
 	tbl.Delete(groupID)
 	b.appendEventLocked(groupID, "user-group", "user group deleted")
 
-	return &result, nil
+	return result, nil
 }
 
 // DescribeUserGroups returns a paginated list of user groups, optionally filtered by groupID.
@@ -79,8 +112,17 @@ func (b *InMemoryBackend) DescribeUserGroups(
 
 	region := getRegion(ctx, b.region)
 
-	return describePaged(b.userGroupsStore(region), groupID, ErrUserGroupNotFound, nil,
+	p, err := describePaged(b.userGroupsStore(region), groupID, ErrUserGroupNotFound, nil,
 		func(ug UserGroup) string { return ug.UserGroupID }, marker, maxRecords)
+	if err != nil {
+		return p, err
+	}
+
+	for i := range p.Data {
+		p.Data[i].AssignedReplicationGroupIDs = b.userGroupReplicationGroupIDsLocked(region, p.Data[i].UserGroupID)
+	}
+
+	return p, nil
 }
 
 // ModifyUserGroup adds or removes users from a user group.
@@ -112,9 +154,8 @@ func (b *InMemoryBackend) ModifyUserGroup(
 
 	filtered = append(filtered, userIDsToAdd...)
 	ug.UserIDs = filtered
-	result := *ug
 
-	return &result, nil
+	return b.withAssignedReplicationGroupIDs(region, ug), nil
 }
 
 // AddUserGroupInternal seeds a user group for testing.
@@ -127,7 +168,7 @@ func (b *InMemoryBackend) AddUserGroupInternal(ug *UserGroup) {
 // CreateUserGroupValidated creates a user group, validating that all specified user IDs exist.
 func (b *InMemoryBackend) CreateUserGroupValidated(
 	ctx context.Context,
-	groupID, description, engine string,
+	groupID, engine string,
 	userIDs []string,
 ) (*UserGroup, error) {
 	b.mu.Lock("CreateUserGroupValidated")
@@ -152,7 +193,6 @@ func (b *InMemoryBackend) CreateUserGroupValidated(
 
 	ug := &UserGroup{
 		UserGroupID: groupID,
-		Description: description,
 		Status:      statusActive,
 		ARN:         b.userGroupARN(region, groupID),
 		Engine:      engine,
@@ -163,9 +203,7 @@ func (b *InMemoryBackend) CreateUserGroupValidated(
 	ugStore.Put(ug)
 	b.appendEventLocked(groupID, "user-group", "user group created")
 
-	cp := *ug
-
-	return &cp, nil
+	return b.withAssignedReplicationGroupIDs(region, ug), nil
 }
 
 // ----------------------------------------

@@ -352,8 +352,9 @@ func (h *Handler) iamOrgsDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"DisableOutboundWebIdentityFederation": func(_ url.Values, reqID string) (any, error) {
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "DisableOutboundWebIdentityFederationResponse"},
+			h.Backend.DisableOutboundWebIdentityFederation()
+
+			return &DisableOutboundWebIdentityFederationResponse{
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -373,9 +374,13 @@ func (h *Handler) iamOrgsDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"EnableOutboundWebIdentityFederation": func(_ url.Values, reqID string) (any, error) {
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "EnableOutboundWebIdentityFederationResponse"},
-				Xmlns:            iamXMLNS,
+			issuer := h.Backend.EnableOutboundWebIdentityFederation()
+
+			return &EnableOutboundWebIdentityFederationResponse{
+				Xmlns: iamXMLNS,
+				Result: EnableOutboundWebIdentityFederationResult{
+					IssuerIdentifier: issuer,
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -441,9 +446,14 @@ func (h *Handler) iamDelegationDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"GetOutboundWebIdentityFederationInfo": func(_ url.Values, reqID string) (any, error) {
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "GetOutboundWebIdentityFederationInfoResponse"},
-				Xmlns:            iamXMLNS,
+			issuer, enabled := h.Backend.GetOutboundWebIdentityFederationInfo()
+
+			return &GetOutboundWebIdentityFederationInfoResponse{
+				Xmlns: iamXMLNS,
+				Result: GetOutboundWebIdentityFederationInfoResult{
+					IssuerIdentifier:  issuer,
+					JwtVendingEnabled: enabled,
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},

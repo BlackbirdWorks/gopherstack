@@ -787,3 +787,57 @@ func splitLines(s string) []string {
 
 	return lines
 }
+
+// TestOutboundWebIdentityFederation covers Enable/DisableOutboundWebIdentityFederation
+// and GetOutboundWebIdentityFederationInfo/OutboundWebIdentityFederationEnabled:
+// defaults to enabled (so services/sts's GetWebIdentityToken keeps working out
+// of the box), toggles correctly, and always returns a stable, non-empty
+// issuer URL regardless of enabled state (real AWS's EnableOutbound.../
+// GetOutbound...Info.IssuerIdentifier doc comments both describe it as "a
+// unique issuer URL for your account", not something that appears/disappears
+// with the enabled toggle).
+func TestOutboundWebIdentityFederation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action      func(b *iam.InMemoryBackend)
+		name        string
+		wantEnabled bool
+	}{
+		{
+			name:        "default_is_enabled",
+			action:      func(_ *iam.InMemoryBackend) {},
+			wantEnabled: true,
+		},
+		{
+			name: "disable_turns_it_off",
+			action: func(b *iam.InMemoryBackend) {
+				b.DisableOutboundWebIdentityFederation()
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "re_enable_turns_it_back_on",
+			action: func(b *iam.InMemoryBackend) {
+				b.DisableOutboundWebIdentityFederation()
+				b.EnableOutboundWebIdentityFederation()
+			},
+			wantEnabled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iam.NewInMemoryBackend()
+			tt.action(b)
+
+			issuer, enabled := b.GetOutboundWebIdentityFederationInfo()
+			assert.Equal(t, tt.wantEnabled, enabled)
+			assert.Equal(t, tt.wantEnabled, b.OutboundWebIdentityFederationEnabled())
+			assert.NotEmpty(t, issuer)
+			assert.True(t, strings.HasPrefix(issuer, "https://"))
+		})
+	}
+}

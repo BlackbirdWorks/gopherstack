@@ -912,3 +912,32 @@ func TestHandler_CreateSegment(t *testing.T) {
 		})
 	}
 }
+
+// TestGetSegmentVersion_UnknownVersionNotFound locks that GetSegmentVersion
+// 404s for a version number absent from the segment's history, matching the
+// documented NotFoundException response on the real
+// /v1/apps/{appId}/segments/{segmentId}/versions/{version} resource, instead
+// of silently substituting the current segment under the wrong Version
+// number. Mirrors TestGetCampaignVersion_UnknownVersionNotFound.
+func TestGetSegmentVersion_UnknownVersionNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	appID := createTestApp(t, h, "segment-version-404-app")
+	segmentID := createTestSegment(t, h, appID, "s1")
+
+	// Version 1 exists (created by CreateSegment) -- confirm it's reachable.
+	v1Rec := doPinpointRequest(t, h, http.MethodGet,
+		"/v1/apps/"+appID+"/segments/"+segmentID+"/versions/1", nil)
+	require.Equal(t, http.StatusOK, v1Rec.Code)
+
+	// Version 999 was never created -- must 404, not fall back to version 1's
+	// (or the current segment's) content.
+	missingRec := doPinpointRequest(t, h, http.MethodGet,
+		"/v1/apps/"+appID+"/segments/"+segmentID+"/versions/999", nil)
+	assert.Equal(t, http.StatusNotFound, missingRec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.NewDecoder(missingRec.Body).Decode(&errResp))
+	assert.Equal(t, "NotFoundException", errResp["__type"])
+}

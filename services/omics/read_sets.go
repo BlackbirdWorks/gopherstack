@@ -296,7 +296,7 @@ func (b *InMemoryBackend) StartReadSetImportJob(
 			),
 			Name:         src.Name,
 			Description:  src.Description,
-			SequenceType: src.SourceFileType,
+			FileType:     src.SourceFileType,
 			SubjectID:    src.SubjectID,
 			SampleID:     src.SampleID,
 			ReferenceARN: src.ReferenceARN,
@@ -367,7 +367,7 @@ func (b *InMemoryBackend) ListReadSetImportJobs(
 
 // CreateMultipartReadSetUpload creates a multipart read set upload.
 func (b *InMemoryBackend) CreateMultipartReadSetUpload(
-	sequenceStoreID, name, sequenceType string,
+	sequenceStoreID, name, sourceFileType, sampleID, subjectID, generatedFrom, referenceARN, description string,
 	tags map[string]string,
 ) (*MultipartReadSetUpload, error) {
 	b.mu.Lock("CreateMultipartReadSetUpload")
@@ -381,9 +381,13 @@ func (b *InMemoryBackend) CreateMultipartReadSetUpload(
 		UploadID:        newID(),
 		SequenceStoreID: sequenceStoreID,
 		Name:            name,
-		SequenceType:    sequenceType,
+		SourceFileType:  sourceFileType,
+		SampleID:        sampleID,
+		SubjectID:       subjectID,
+		GeneratedFrom:   generatedFrom,
+		ReferenceARN:    referenceARN,
+		Description:     description,
 		Tags:            copyTags(tags),
-		Status:          "IN_PROGRESS",
 		CreationTime:    time.Now().UTC(),
 	}
 	b.multipartUploads.Put(upload)
@@ -442,7 +446,11 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
 			fmt.Sprintf("sequenceStore/%s/readSet/%s", sequenceStoreID, rsID),
 		),
 		Name:         upload.Name,
-		SequenceType: upload.SequenceType,
+		Description:  upload.Description,
+		FileType:     upload.SourceFileType,
+		SubjectID:    upload.SubjectID,
+		SampleID:     upload.SampleID,
+		ReferenceARN: upload.ReferenceARN,
 		Status:       statusActive,
 		CreationTime: time.Now().UTC(),
 		Tags:         maps.Clone(upload.Tags),

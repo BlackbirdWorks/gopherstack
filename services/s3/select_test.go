@@ -496,6 +496,74 @@ func TestHandler_SelectObjectContent_MissingObject(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestHandler_SelectObjectContent_SSEC is a table test verifying that
+// SelectObjectContent against an SSE-C encrypted object requires the caller
+// to supply the same X-Amz-Server-Side-Encryption-Customer-* headers
+// GetObject requires (SelectObjectContentInput.SSECustomerAlgorithm/-Key/
+// -KeyMD5 are HTTP-header bound per the real SDK's serializer, not part of
+// the request XML body): missing headers must fail with 400, and the correct
+// key must let the query run against the decrypted plaintext. The two cases
+// share one SSE-C source object (read-only across both, safe under
+// t.Parallel) and differ only in request headers in / status+body out —
+// this doesn't fit the existing CSV/JSON tables (TestHandler_SelectObjectContent_CSV/
+// _JSON), whose rows vary the SQL query and input data against a
+// non-encrypted fixture, not the request's SSE-C headers or object
+// encryption state, so it's kept as its own small table rather than forced
+// into an unrelated one.
+func TestHandler_SelectObjectContent_SSEC(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-select-bucket")
+
+	keyB64, keyMD5 := mustPutSSECObject(t, handler, "ssec-select-bucket", "data.csv", "name,age\nAlice,30\nBob,25\n")
+
+	body := `<SelectObjectContentRequest>
+		<Expression>SELECT name FROM s3object</Expression>
+		<ExpressionType>SQL</ExpressionType>
+		<InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+		<OutputSerialization><CSV/></OutputSerialization>
+	</SelectObjectContentRequest>`
+
+	tests := []struct {
+		name             string
+		headers          map[string]string
+		wantBodyContains string
+		wantStatus       int
+	}{
+		{
+			name:       "missing SSE-C headers returns 400",
+			headers:    nil,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:             "correct SSE-C headers decrypts and runs query",
+			headers:          ssecHeaders(keyB64, keyMD5),
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "Alice",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(
+				http.MethodPost, "/ssec-select-bucket/data.csv?select&select-type=2", strings.NewReader(body))
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			require.Equal(t, tt.wantStatus, rec.Code, "body=%s", rec.Body.String())
+
+			if tt.wantBodyContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContains)
+			}
+		})
+	}
+}
+
 func TestHandler_SelectObjectContent_EventStreamFormat(t *testing.T) {
 	t.Parallel()
 

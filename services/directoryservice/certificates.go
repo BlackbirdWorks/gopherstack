@@ -2,6 +2,8 @@ package directoryservice
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"sort"
 	"time"
@@ -9,7 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// RegisterCertificate registers a certificate.
+// RegisterCertificate registers a certificate. certData must be a PEM-encoded
+// X.509 certificate, matching AWS's real CertificateData contract; CommonName
+// and ExpiryDateTime are derived from the parsed certificate (not fabricated),
+// mirroring how AWS Directory Service actually validates and reads the cert.
 func (b *InMemoryBackend) RegisterCertificate(
 	ctx context.Context,
 	directoryID, certData, certType string,
@@ -23,6 +28,11 @@ func (b *InMemoryBackend) RegisterCertificate(
 		return "", ErrDirectoryNotFound
 	}
 
+	cert, parseErr := parseCertificatePEM(certData)
+	if parseErr != nil {
+		return "", ErrInvalidCertificate
+	}
+
 	id := fmt.Sprintf("c-%s", uuid.NewString()[:10])
 	now := time.Now().UTC()
 	b.certificatePut(&storedCertificate{
@@ -30,14 +40,26 @@ func (b *InMemoryBackend) RegisterCertificate(
 		CertificateID:      id,
 		DirectoryID:        directoryID,
 		CertData:           certData,
-		CommonName:         "example.com",
+		CommonName:         cert.Subject.CommonName,
 		CertType:           certType,
 		State:              "Registered",
 		RegisteredDateTime: now,
-		ExpiryDateTime:     now.Add(365 * 24 * time.Hour),
+		ExpiryDateTime:     cert.NotAfter,
 	})
 
 	return id, nil
+}
+
+// parseCertificatePEM decodes a single PEM-encoded X.509 certificate block, as
+// required by the real RegisterCertificate API contract (CertificateData is
+// documented as "The certificate PEM string that needs to be registered.").
+func parseCertificatePEM(certData string) (*x509.Certificate, error) {
+	block, _ := pem.Decode([]byte(certData))
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, ErrInvalidCertificate
+	}
+
+	return x509.ParseCertificate(block.Bytes)
 }
 
 // DeregisterCertificate deregisters a certificate.

@@ -261,6 +261,7 @@ func TestHandler_UpdatePipe(t *testing.T) {
 	})
 
 	rec := doPipesRequest(t, h, http.MethodPut, "/v1/pipes/update-pipe", map[string]any{
+		"RoleArn":     "arn:aws:iam::000000000000:role/r",
 		"Target":      "arn:aws:lambda:us-east-1:000000000000:function:new-fn",
 		"Description": "updated desc",
 	})
@@ -580,6 +581,7 @@ func TestHandler_ValidationHTTP(t *testing.T) {
 		t.Parallel()
 		h2 := newTestHandler(t)
 		rec := doPipesRequest(t, h2, http.MethodPost, "/v1/pipes/valid-pipe", map[string]any{
+			"RoleArn":      "arn:aws:iam::123456789012:role/r",
 			"Source":       "arn:aws:sqs:us-east-1:000000000000:src",
 			"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
 			"DesiredState": "INVALID_STATE",
@@ -592,6 +594,7 @@ func TestHandler_ValidationHTTP(t *testing.T) {
 		t.Parallel()
 		h2 := newTestHandler(t)
 		doPipesRequest(t, h2, http.MethodPost, "/v1/pipes/running-pipe", map[string]any{
+			"RoleArn":      "arn:aws:iam::123456789012:role/r",
 			"Source":       "arn:aws:sqs:us-east-1:000000000000:src",
 			"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
 			"DesiredState": "RUNNING",
@@ -614,6 +617,7 @@ func TestHandler_ListPipesFiltering(t *testing.T) {
 			state = "STOPPED"
 		}
 		rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/"+name, map[string]any{
+			"RoleArn":      "arn:aws:iam::123456789012:role/r",
 			"Source":       "arn:aws:sqs:us-east-1:000000000000:" + name,
 			"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
 			"DesiredState": state,
@@ -695,6 +699,7 @@ func TestHandler_ListPipesIncludesSourceTarget(t *testing.T) {
 	h := newTestHandler(t)
 
 	doPipesRequest(t, h, http.MethodPost, "/v1/pipes/info-pipe", map[string]any{
+		"RoleArn":     "arn:aws:iam::123456789012:role/r",
 		"Source":      "arn:aws:sqs:us-east-1:000000000000:my-queue",
 		"Target":      "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
 		"Description": "test pipe",
@@ -814,6 +819,7 @@ func TestStartStop_ConflictException(t *testing.T) {
 
 			pipeName := tt.pipeName
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         pipeName,
 				Source:       "arn:aws:sqs:us-east-1:123456789012:q",
 				Target:       "arn:aws:lambda:us-east-1:123456789012:function:fn",
@@ -855,9 +861,10 @@ func TestServiceQuotaExceededException(t *testing.T) {
 	// Fill to the limit using the backend directly for speed.
 	for i := range 1000 {
 		_, err := b.CreatePipe(ctx, pipes.CreatePipeInput{
-			Name:   "pipe-" + string(rune('a'+i%26)) + "-" + string(rune('0'+i/26)),
-			Source: "arn:aws:sqs:us-east-1:123456789012:q",
-			Target: "arn:aws:lambda:us-east-1:123456789012:function:fn",
+			RoleARN: "arn:aws:iam::123456789012:role/r",
+			Name:    "pipe-" + string(rune('a'+i%26)) + "-" + string(rune('0'+i/26)),
+			Source:  "arn:aws:sqs:us-east-1:123456789012:q",
+			Target:  "arn:aws:lambda:us-east-1:123456789012:function:fn",
 		})
 		if err != nil {
 			// Already exceeded — that's ok if we're at capacity.
@@ -867,8 +874,9 @@ func TestServiceQuotaExceededException(t *testing.T) {
 
 	// Now try to create one more via HTTP.
 	rec := auditDo(t, h, http.MethodPost, "/v1/pipes/overflow-pipe", map[string]any{
-		"Source": "arn:aws:sqs:us-east-1:123456789012:q",
-		"Target": "arn:aws:lambda:us-east-1:123456789012:function:fn",
+		"RoleArn": "arn:aws:iam::123456789012:role/r",
+		"Source":  "arn:aws:sqs:us-east-1:123456789012:q",
+		"Target":  "arn:aws:lambda:us-east-1:123456789012:function:fn",
 	})
 
 	// Should fail at this point — the backend might have stopped before limit if name collisions.
@@ -890,6 +898,7 @@ func TestListPipes_EnrichmentInSummary(t *testing.T) {
 	enrichmentARN := "arn:aws:lambda:us-west-2:123456789012:function:enricher"
 
 	auditCreate(t, h, "enriched-pipe", map[string]any{
+		"RoleArn":    "arn:aws:iam::123456789012:role/r",
 		"Source":     "arn:aws:sqs:us-west-2:123456789012:q",
 		"Target":     "arn:aws:lambda:us-west-2:123456789012:function:fn",
 		"Enrichment": enrichmentARN,
@@ -917,8 +926,9 @@ func TestListPipes_NoEnrichmentOmitted(t *testing.T) {
 	h := auditNewHandler(t)
 
 	auditCreate(t, h, "plain-pipe", map[string]any{
-		"Source": "arn:aws:sqs:us-west-2:123456789012:q",
-		"Target": "arn:aws:lambda:us-west-2:123456789012:function:fn",
+		"RoleArn": "arn:aws:iam::123456789012:role/r",
+		"Source":  "arn:aws:sqs:us-west-2:123456789012:q",
+		"Target":  "arn:aws:lambda:us-west-2:123456789012:function:fn",
 	})
 
 	rec := auditDo(t, h, http.MethodGet, "/v1/pipes", nil)
@@ -961,9 +971,10 @@ func TestDeletePipe_AlreadyDeleting_ConflictException(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := b.CreatePipe(ctx, pipes.CreatePipeInput{
-		Name:   "to-delete",
-		Source: "arn:aws:sqs:us-east-1:123456789012:q",
-		Target: "arn:aws:lambda:us-east-1:123456789012:function:fn",
+		RoleARN: "arn:aws:iam::123456789012:role/r",
+		Name:    "to-delete",
+		Source:  "arn:aws:sqs:us-east-1:123456789012:q",
+		Target:  "arn:aws:lambda:us-east-1:123456789012:function:fn",
 	})
 	require.NoError(t, err)
 
@@ -994,16 +1005,18 @@ func TestServiceQuotaErrorCode(t *testing.T) {
 	for i := range 1000 {
 		name := fmt.Sprintf("pipe-%04d", i)
 		_, err := b.CreatePipe(ctx, pipes.CreatePipeInput{
-			Name:   name,
-			Source: "arn:aws:sqs:us-east-1:123456789012:q",
-			Target: "arn:aws:lambda:us-east-1:123456789012:function:fn",
+			RoleARN: "arn:aws:iam::123456789012:role/r",
+			Name:    name,
+			Source:  "arn:aws:sqs:us-east-1:123456789012:q",
+			Target:  "arn:aws:lambda:us-east-1:123456789012:function:fn",
 		})
 		require.NoError(t, err, "setup: failed to create pipe %q at index %d", name, i)
 	}
 
 	rec := auditDo(t, h, http.MethodPost, "/v1/pipes/overflow", map[string]any{
-		"Source": "arn:aws:sqs:us-east-1:123456789012:q",
-		"Target": "arn:aws:lambda:us-east-1:123456789012:function:fn",
+		"RoleArn": "arn:aws:iam::123456789012:role/r",
+		"Source":  "arn:aws:sqs:us-east-1:123456789012:q",
+		"Target":  "arn:aws:lambda:us-east-1:123456789012:function:fn",
 	})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -1088,8 +1101,9 @@ func TestTimestamps_MillisecondResolution(t *testing.T) {
 
 			h := b3Handler(t)
 			resp := b3Create(t, h, tt.name+"-pipe", map[string]any{
-				"Source": b3SQSSource,
-				"Target": b3LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b3SQSSource,
+				"Target":  b3LambdaTarget,
 			})
 
 			ct, ok := resp["CreationTime"].(float64)
@@ -1117,12 +1131,14 @@ func TestHandler_UpdatePipeDesiredState(t *testing.T) {
 	h := newTestHandler(t)
 
 	doPipesRequest(t, h, http.MethodPost, "/v1/pipes/update-state-pipe", map[string]any{
+		"RoleArn":      "arn:aws:iam::123456789012:role/r",
 		"Source":       "arn:aws:sqs:us-east-1:000000000000:src",
 		"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
 		"DesiredState": "RUNNING",
 	})
 
 	rec := doPipesRequest(t, h, http.MethodPut, "/v1/pipes/update-state-pipe", map[string]any{
+		"RoleArn":      "arn:aws:iam::123456789012:role/r",
 		"DesiredState": "STOPPED",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

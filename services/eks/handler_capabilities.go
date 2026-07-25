@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchCapabilityOps handles capability CRUD operations.
@@ -58,12 +60,24 @@ func parseCapabilityRoute(method, clusterName string, parts []string) eksRoute {
 }
 
 func capabilityToJSON(capa *Capability) map[string]any {
+	modifiedAt := capa.ModifiedAt
+	if modifiedAt.IsZero() {
+		modifiedAt = capa.CreatedAt
+	}
+
+	health := capa.Health
+	if health == nil || health.Issues == nil {
+		health = &CapabilityHealth{Issues: []CapabilityIssue{}}
+	}
+
 	m := map[string]any{
 		keyClusterName:   capa.ClusterName,
 		"capabilityName": capa.CapabilityName,
 		keyArn:           capa.ARN,
 		keyStatusField:   capa.Status,
 		keyCreatedAt:     capa.CreatedAt.Unix(),
+		keyModifiedAt:    modifiedAt.Unix(),
+		keyHealth:        health,
 	}
 
 	if capa.Type != "" {
@@ -78,10 +92,44 @@ func capabilityToJSON(capa *Capability) map[string]any {
 		m["deletePropagationPolicy"] = capa.DeletePropagationPolicy
 	}
 
+	if capa.Configuration != nil {
+		m["configuration"] = capa.Configuration
+	}
+
 	if capa.Tags != nil {
 		m[keyTags] = capa.Tags.Clone()
 	} else {
 		m[keyTags] = map[string]string{}
+	}
+
+	return m
+}
+
+// capabilitySummaryToJSON converts a Capability into the CapabilitySummary
+// shape used by ListCapabilities -- verified against
+// aws-sdk-go-v2/service/eks/types.CapabilitySummary, which carries only
+// name/arn/status/type/version/createdAt/modifiedAt (no roleArn,
+// deletePropagationPolicy, configuration, health, or tags).
+func capabilitySummaryToJSON(capa *Capability) map[string]any {
+	modifiedAt := capa.ModifiedAt
+	if modifiedAt.IsZero() {
+		modifiedAt = capa.CreatedAt
+	}
+
+	m := map[string]any{
+		"capabilityName": capa.CapabilityName,
+		keyArn:           capa.ARN,
+		keyStatusField:   capa.Status,
+		keyCreatedAt:     capa.CreatedAt.Unix(),
+		keyModifiedAt:    modifiedAt.Unix(),
+	}
+
+	if capa.Type != "" {
+		m[keyType] = capa.Type
+	}
+
+	if capa.Version != "" {
+		m[keyVersion] = capa.Version
 	}
 
 	return m
@@ -93,6 +141,11 @@ type createCapabilityBody struct {
 	Type                    string            `json:"type"`
 	RoleArn                 string            `json:"roleArn"`
 	DeletePropagationPolicy string            `json:"deletePropagationPolicy"`
+	// ClientRequestToken is accepted for wire-shape parity with the real
+	// CreateCapabilityInput but not tracked for idempotency, matching the
+	// in-memory, non-durable nature of this backend (same pattern as
+	// CancelUpdateInput.ClientRequestToken).
+	ClientRequestToken string `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleCreateCapability(c *echo.Context, clusterName string, body []byte) error {
@@ -155,11 +208,17 @@ func (h *Handler) handleDescribeCapability(c *echo.Context, clusterName, capabil
 }
 
 func (h *Handler) handleListCapabilities(c *echo.Context, clusterName string) error {
-	names := h.Backend.ListCapabilities(clusterName)
+	capas := h.Backend.ListCapabilities(clusterName)
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"capabilities": names,
-	})
+	summaries := make([]map[string]any, len(capas))
+	for i, capa := range capas {
+		summaries[i] = capabilitySummaryToJSON(capa)
+	}
+
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(summaries, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("capabilities", p))
 }
 
 type updateCapabilityBody struct {

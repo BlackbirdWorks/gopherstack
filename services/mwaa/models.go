@@ -48,7 +48,6 @@ type Environment struct {
 	DatabaseVpcEndpointService   string                `json:"DatabaseVpcEndpointService,omitempty"`
 	WebserverVpcEndpointService  string                `json:"WebserverVpcEndpointService,omitempty"`
 	WeeklyMaintenanceWindowStart string                `json:"WeeklyMaintenanceWindowStart,omitempty"`
-	WorkerReplacementStrategy    string                `json:"WorkerReplacementStrategy,omitempty"`
 	CreatedAt                    float64               `json:"CreatedAt"`
 	MaxWorkers                   int32                 `json:"MaxWorkers"`
 	MinWorkers                   int32                 `json:"MinWorkers"`
@@ -104,6 +103,14 @@ type UpdateNetworkConfig struct {
 }
 
 // createEnvironmentRequest is the request body for creating an MWAA environment.
+// Deliberately has no WorkerReplacementStrategy field: AWS's
+// CreateEnvironmentInput has no such member at all (confirmed against
+// aws-sdk-go-v2/service/mwaa's validateOpCreateEnvironmentInput / struct
+// definition) -- it exists only on UpdateEnvironmentInput, where it controls
+// how already-running workers are replaced during an update. A prior version
+// of this file fabricated the field on both Create and the Environment
+// response shape; see updateEnvironmentRequest and LastUpdate for the real
+// (Update-only) member.
 type createEnvironmentRequest struct {
 	NetworkConfiguration         *NetworkConfig        `json:"NetworkConfiguration"`
 	Tags                         map[string]string     `json:"Tags"`
@@ -124,7 +131,6 @@ type createEnvironmentRequest struct {
 	StartupScriptS3ObjectVersion string                `json:"StartupScriptS3ObjectVersion"`
 	EndpointManagement           string                `json:"EndpointManagement"`
 	WeeklyMaintenanceWindowStart string                `json:"WeeklyMaintenanceWindowStart"`
-	WorkerReplacementStrategy    string                `json:"WorkerReplacementStrategy"`
 	MaxWorkers                   int32                 `json:"MaxWorkers"`
 	MinWorkers                   int32                 `json:"MinWorkers"`
 	MaxWebservers                int32                 `json:"MaxWebservers"`

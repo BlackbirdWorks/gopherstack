@@ -95,3 +95,25 @@ func TestHandler_ImportSshPublicKeyDuplicateBody(t *testing.T) {
 	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &errResp))
 	assert.Equal(t, "ResourceExistsException", errResp["__type"])
 }
+
+// TestHandler_ImportSshPublicKeyUnknownUserReturnsResourceNotFound verifies importing
+// a key for a UserName that was never created as a user on the server fails, instead
+// of silently attaching the key to a nonexistent user.
+func TestHandler_ImportSshPublicKeyUnknownUserReturnsResourceNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	s, err := h.Backend.CreateServer(nil, nil)
+	require.NoError(t, err)
+
+	rec := doTransferRequest(t, h, "ImportSshPublicKey", map[string]any{
+		"ServerId":         s.ServerID,
+		"UserName":         "ghost-user",
+		"SshPublicKeyBody": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQC7 ghost-key",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
+}

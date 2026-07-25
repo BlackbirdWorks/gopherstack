@@ -17,6 +17,7 @@ const (
 	autoValidateDelayMS      = 100
 	randByteDivisor          = 2
 	certTypeImported         = "IMPORTED"
+	certTypePrivate          = "PRIVATE"
 	certValidityDuration     = 365 * 24 * time.Hour
 
 	defaultDaysBeforeExpiry = int32(45)
@@ -89,6 +90,12 @@ type Certificate struct {
 	IdempotencyToken                   string          `json:"idempotencyToken,omitempty"`
 	CertificateAuthorityArn            string          `json:"certificateAuthorityArn,omitempty"`
 	KeyID                              string          `json:"keyId,omitempty"`
+	// ExportPref mirrors RequestCertificate's Options.Export
+	// (CertificateOptions.Export on the real wire): whether the certificate
+	// was opted in to be exportable. Immutable after creation, matching AWS
+	// ("You cannot update the value of Export after the certificate is
+	// created."). Empty/"" is treated as DISABLED.
+	ExportPref string `json:"exportPref,omitempty"`
 	// FailureReason is set when the certificate enters FAILED status.
 	FailureReason string `json:"failureReason,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey); it
@@ -105,6 +112,9 @@ type Certificate struct {
 	// ExtendedKeyUsage lists the extended key usages parsed from the X.509 certificate.
 	ExtendedKeyUsage        []string `json:"extendedKeyUsage,omitempty"`
 	SubjectAlternativeNames []string `json:"subjectAlternativeNames,omitempty"`
+	// Exported records whether ExportCertificate has ever succeeded for this
+	// certificate, surfaced as CertificateSummary.Exported.
+	Exported bool `json:"exported,omitempty"`
 }
 
 // AccountConfig holds account-level ACM configuration.
@@ -134,8 +144,13 @@ const (
 
 // RenewalSummary describes the state of an ACM managed renewal for a certificate.
 type RenewalSummary struct {
+	// UpdatedAt is when the renewal summary was last updated. Required
+	// (always present) on the real AWS wire.
+	UpdatedAt time.Time `json:"updatedAt"`
 	// RenewalStatus is the status of the renewal (e.g. PENDING_VALIDATION, SUCCESS).
 	RenewalStatus string `json:"RenewalStatus"`
+	// RenewalStatusReason is set when RenewalStatus is FAILED, describing why.
+	RenewalStatusReason string `json:"renewalStatusReason,omitempty"`
 	// DomainValidationOptions contains per-domain validation details for the renewal.
 	DomainValidationOptions []DomainValidationOption `json:"DomainValidationOptions,omitempty"`
 }

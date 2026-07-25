@@ -17,10 +17,15 @@ import (
 // to decode as the current shape. Restore discards (resetLocked, not a
 // partial decode) any snapshot whose Version does not match -- including
 // one with no version field at all, which decodes as 0 -- rather than risk
-// misinterpreting fields. This is the first version: the pre-Phase-3.3
-// backend had no version guard at all, so any legacy snapshot is treated
-// the same as any other incompatible one.
-const managedblockchainSnapshotVersion = 1
+// misinterpreting fields. Version 1 was the first version: the
+// pre-Phase-3.3 backend had no version guard at all, so any legacy
+// snapshot was treated the same as any other incompatible one. Bumped to 2
+// when Network/Member/Node each gained new registered-table value fields
+// (FrameworkAttributes, KmsKeyArn, StateDB, VpcEndpointServiceName) --
+// technically additive/omitempty and backward-compatible to decode, but
+// bumped anyway per this constant's own "any value-type change" policy,
+// rather than special-casing this particular change as safe.
+const managedblockchainSnapshotVersion = 2
 
 // proposalVoteDTO wraps a ProposalVote for JSON round-tripping through the
 // ephemeral persistence registry below. ProposalVote hides its proposalID

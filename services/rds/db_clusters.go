@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"slices"
 	"time"
 )
@@ -18,9 +19,12 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
+	if err := validateDBClusterEngine(engine); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("CreateDBCluster")
 	defer b.mu.Unlock()
-	if _, exists := b.clusters.Get(id); exists {
+	if _, exists := b.clusters.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
 	if engine == "" {
@@ -41,6 +45,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	cluster := &DBCluster{
 		ClusterCreateTime:            time.Now().UTC(),
 		DBClusterIdentifier:          id,
+		DBClusterResourceID:          "cluster-" + id,
 		Engine:                       engine,
 		EngineVersion:                opts.EngineVersion,
 		Status:                       instanceStatusAvailable,
@@ -81,7 +86,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 	b.mu.RLock("DescribeDBClusters")
 	defer b.mu.RUnlock()
 	if id != "" {
-		cluster, exists := b.clusters.Get(id)
+		cluster, exists := b.clusters.Get(normalizeID(id))
 		if !exists {
 			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
@@ -105,6 +110,69 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 	})
 
 	return result, nil
+}
+
+// isKnownDBClusterFilterName reports whether name is a Filters.Filter.N.Name
+// value AWS recognizes for DescribeDBClusters. "domain" and "clone-group-id"
+// are accepted (to avoid rejecting otherwise-valid client requests) but have
+// no meaningful analog in this emulator (Directory Service domain membership,
+// Aurora clone groups), so they are not implemented as match predicates.
+func isKnownDBClusterFilterName(name string) bool {
+	switch name {
+	case "clone-group-id", filterNameDBClusterID, "db-cluster-resource-id", filterNameDomain, filterNameEngine:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBClusterFilters narrows clusters per the AWS DescribeDBClusters
+// Filters contract: each filter ANDs together, and a filter's Values list is
+// OR-matched against the corresponding cluster field. An unrecognized filter
+// name returns InvalidParameterValue, matching real AWS.
+func applyDBClusterFilters(vals url.Values, clusters []DBCluster) ([]DBCluster, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return clusters, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBClusterFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBCluster, 0, len(clusters))
+	for _, c := range clusters {
+		if matchesAllDBClusterFilters(c, filters) {
+			filtered = append(filtered, c)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBClusterFilters(c DBCluster, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameDBClusterID:
+			if !containsFold(values, c.DBClusterIdentifier) {
+				return false
+			}
+		case "db-cluster-resource-id":
+			if !slices.Contains(values, c.DBClusterResourceID) {
+				return false
+			}
+		case filterNameEngine:
+			if !slices.Contains(values, c.Engine) {
+				return false
+			}
+		case "clone-group-id", filterNameDomain:
+			// Not modeled; accept unconditionally.
+		}
+	}
+
+	return true
 }
 
 // DeleteDBCluster removes the given cluster.
@@ -134,7 +202,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	// Resolve the target cluster before validating the snapshot parameter
 	// combination, matching AWS's behavior of returning DBClusterNotFoundFault
 	// for a nonexistent cluster even when the snapshot params are also invalid.
-	cluster, exists := b.clusters.Get(id)
+	cluster, exists := b.clusters.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -153,7 +221,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	}
 
 	if !skipFinalSnapshot {
-		if _, snapExists := b.clusterSnapshots.Get(finalSnapshotID); snapExists {
+		if _, snapExists := b.clusterSnapshots.Get(normalizeID(finalSnapshotID)); snapExists {
 			return nil, fmt.Errorf(
 				"%w: cluster snapshot %s already exists",
 				ErrClusterSnapshotAlreadyExists,
@@ -166,16 +234,43 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	cp := *cluster
 	// Clear the cluster association on any member instances so they appear standalone.
 	for _, member := range cluster.DBClusterMembers {
-		if inst, ok := b.instances.Get(member.DBInstanceIdentifier); ok {
+		if inst, ok := b.instances.Get(normalizeID(member.DBInstanceIdentifier)); ok {
 			inst.DBClusterIdentifier = ""
 		}
 	}
-	b.clusters.Delete(id)
-	delete(b.tags, b.rdsARN("cluster", id))
-	delete(b.fisFailoverFaults, id)
-	delete(b.clusterRoles, id)
+	// canonicalID is the identifier as originally stored (its creation-time
+	// casing), which may differ purely in case from the caller-supplied id
+	// here since normalizeID folds both to the same table row. Auxiliary
+	// maps (tags, FIS faults, roles, endpoints) are not case-normalized
+	// themselves, so they must be keyed off the same casing used when they
+	// were populated -- see normalizeID's doc comment.
+	canonicalID := cluster.DBClusterIdentifier
+	b.clusters.Delete(normalizeID(id))
+	delete(b.tags, b.rdsARN("cluster", canonicalID))
+	delete(b.fisFailoverFaults, canonicalID)
+	delete(b.clusterRoles, canonicalID)
+	b.deleteClusterEndpointsLocked(canonicalID)
 
 	return &cp, nil
+}
+
+// deleteClusterEndpointsLocked removes every custom DB cluster endpoint (and
+// its tags) belonging to clusterID. Real RDS tears down a cluster's custom
+// endpoints along with the cluster itself, since an endpoint has no
+// independent existence apart from its parent cluster; leaving them behind
+// is a ghost-row leak (DescribeDBClusterEndpoints would keep returning
+// endpoints pointing at a deleted cluster, and the map grows unboundedly
+// across create/delete cycles). Caller must already hold b.mu for writing.
+// clusterID is compared case-insensitively since DBClusterIdentifier is a
+// case-insensitive AWS identifier (see normalizeID).
+func (b *InMemoryBackend) deleteClusterEndpointsLocked(clusterID string) {
+	for _, ep := range b.clusterEndpoints.All() {
+		if !idEqual(ep.DBClusterIdentifier, clusterID) {
+			continue
+		}
+		b.clusterEndpoints.Delete(ep.DBClusterEndpointIdentifier)
+		delete(b.tags, b.rdsARN("cluster-endpoint", ep.DBClusterEndpointIdentifier))
+	}
 }
 
 // applyDBClusterOpts applies DBClusterOptions fields to a cluster in-place.
@@ -249,7 +344,7 @@ func applyDBClusterBoolOpts(cluster *DBCluster, opts DBClusterOptions) {
 func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string, opts DBClusterOptions) (*DBCluster, error) {
 	b.mu.Lock("ModifyDBCluster")
 	defer b.mu.Unlock()
-	cluster, exists := b.clusters.Get(id)
+	cluster, exists := b.clusters.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -266,7 +361,7 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 	}
 	b.mu.Lock("StartDBCluster")
 	defer b.mu.Unlock()
-	cluster, exists := b.clusters.Get(id)
+	cluster, exists := b.clusters.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -283,7 +378,7 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 	}
 	b.mu.Lock("StopDBCluster")
 	defer b.mu.Unlock()
-	cluster, exists := b.clusters.Get(id)
+	cluster, exists := b.clusters.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -303,10 +398,10 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(clusterID, snapshotID, en
 	}
 	b.mu.Lock("RestoreDBClusterFromSnapshot")
 	defer b.mu.Unlock()
-	if _, exists := b.clusters.Get(clusterID); exists {
+	if _, exists := b.clusters.Get(normalizeID(clusterID)); exists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
-	snap, exists := b.clusterSnapshots.Get(snapshotID)
+	snap, exists := b.clusterSnapshots.Get(normalizeID(snapshotID))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 	}
@@ -338,10 +433,10 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(clusterID, sourceCluster
 	}
 	b.mu.Lock("RestoreDBClusterToPointInTime")
 	defer b.mu.Unlock()
-	if _, exists := b.clusters.Get(clusterID); exists {
+	if _, exists := b.clusters.Get(normalizeID(clusterID)); exists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
-	source, exists := b.clusters.Get(sourceClusterID)
+	source, exists := b.clusters.Get(normalizeID(sourceClusterID))
 	if !exists {
 		return nil, fmt.Errorf("%w: source cluster %s not found", ErrClusterNotFound, sourceClusterID)
 	}
@@ -374,15 +469,21 @@ func (b *InMemoryBackend) AddRoleToDBCluster(clusterID, roleARN string) error {
 	b.mu.Lock("AddRoleToDBCluster")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters.Get(clusterID); !exists {
+	cluster, exists := b.clusters.Get(normalizeID(clusterID))
+	if !exists {
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	if slices.Contains(b.clusterRoles[clusterID], roleARN) {
+	// Key b.clusterRoles off cluster.DBClusterIdentifier (the stored,
+	// creation-time casing), not the raw clusterID argument -- see
+	// normalizeID; clusterRoles is a plain map with no normalization of its
+	// own.
+	canonicalID := cluster.DBClusterIdentifier
+	if slices.Contains(b.clusterRoles[canonicalID], roleARN) {
 		return nil
 	}
 
-	b.clusterRoles[clusterID] = append(b.clusterRoles[clusterID], roleARN)
+	b.clusterRoles[canonicalID] = append(b.clusterRoles[canonicalID], roleARN)
 
 	return nil
 }
@@ -401,7 +502,7 @@ func (b *InMemoryBackend) BacktrackDBCluster(
 	b.mu.RLock("BacktrackDBCluster")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.clusters.Get(clusterID); !exists {
+	if _, exists := b.clusters.Get(normalizeID(clusterID)); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
@@ -428,14 +529,16 @@ func (b *InMemoryBackend) RemoveRoleFromDBCluster(clusterID, roleARN string) err
 	b.mu.Lock("RemoveRoleFromDBCluster")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters.Get(clusterID); !exists {
+	cluster, exists := b.clusters.Get(normalizeID(clusterID))
+	if !exists {
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	roles := b.clusterRoles[clusterID]
+	canonicalID := cluster.DBClusterIdentifier
+	roles := b.clusterRoles[canonicalID]
 	idx := slices.Index(roles, roleARN)
 	if idx >= 0 {
-		b.clusterRoles[clusterID] = slices.Delete(roles, idx, idx+1)
+		b.clusterRoles[canonicalID] = slices.Delete(roles, idx, idx+1)
 	}
 
 	return nil
@@ -474,7 +577,7 @@ func ValidateStorageTypeForCluster(storageType string) error {
 func (b *InMemoryBackend) FailoverDBCluster(clusterID, _ string) (*DBCluster, error) {
 	b.mu.Lock("FailoverDBCluster")
 	defer b.mu.Unlock()
-	cluster, exists := b.clusters.Get(clusterID)
+	cluster, exists := b.clusters.Get(normalizeID(clusterID))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -482,7 +585,7 @@ func (b *InMemoryBackend) FailoverDBCluster(clusterID, _ string) (*DBCluster, er
 		return nil, fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidDBClusterStateFault, clusterID)
 	}
 	cluster.Status = "failing-over"
-	b.publishClusterEventLocked(clusterID, "DB cluster failover started")
+	b.publishClusterEventLocked(cluster.DBClusterIdentifier, "DB cluster failover started")
 	cluster.Status = instanceStatusAvailable
 	cp := *cluster
 
@@ -501,7 +604,7 @@ func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) 
 		b.mu.Lock("RebootDBCluster")
 		defer b.mu.Unlock()
 
-		cluster, exists := b.clusters.Get(clusterID)
+		cluster, exists := b.clusters.Get(normalizeID(clusterID))
 		if !exists {
 			err = fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 
@@ -513,7 +616,7 @@ func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) 
 			return
 		}
 		cluster.Status = "rebooting"
-		b.clusterReadyAt[clusterID] = time.Now().Add(instanceTransitionDelay)
+		b.clusterReadyAt[cluster.DBClusterIdentifier] = time.Now().Add(instanceTransitionDelay)
 		b.scheduleReconcilerLocked()
 		cp := *cluster
 		result = &cp
@@ -545,7 +648,7 @@ func (b *InMemoryBackend) publishClusterEventLocked(clusterID, msg string) {
 func (b *InMemoryBackend) PromoteReadReplicaDBCluster(clusterID string) (*DBCluster, error) {
 	b.mu.Lock("PromoteReadReplicaDBCluster")
 	defer b.mu.Unlock()
-	cluster, ok := b.clusters.Get(clusterID)
+	cluster, ok := b.clusters.Get(normalizeID(clusterID))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterID)
 	}
@@ -559,7 +662,7 @@ func (b *InMemoryBackend) PromoteReadReplicaDBCluster(clusterID string) (*DBClus
 func (b *InMemoryBackend) DescribeDBClusterBacktracks(clusterID string) ([]DBClusterBacktrack, error) {
 	b.mu.RLock("DescribeDBClusterBacktracks")
 	defer b.mu.RUnlock()
-	if _, ok := b.clusters.Get(clusterID); !ok {
+	if _, ok := b.clusters.Get(normalizeID(clusterID)); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterID)
 	}
 
@@ -570,7 +673,7 @@ func (b *InMemoryBackend) DescribeDBClusterBacktracks(clusterID string) ([]DBClu
 func (b *InMemoryBackend) ModifyCurrentDBClusterCapacity(clusterID string, capacity int) (*DBCluster, error) {
 	b.mu.Lock("ModifyCurrentDBClusterCapacity")
 	defer b.mu.Unlock()
-	cluster, ok := b.clusters.Get(clusterID)
+	cluster, ok := b.clusters.Get(normalizeID(clusterID))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterID)
 	}
@@ -590,7 +693,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(id, engine, masterUsername, s3B
 	}
 	b.mu.Lock("RestoreDBClusterFromS3")
 	defer b.mu.Unlock()
-	if _, exists := b.clusters.Get(id); exists {
+	if _, exists := b.clusters.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, id)
 	}
 	cluster := &DBCluster{

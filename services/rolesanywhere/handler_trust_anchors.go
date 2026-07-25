@@ -11,17 +11,22 @@ import (
 
 func (h *Handler) handleCreateTrustAnchor(ctx context.Context, body []byte) (any, int, error) {
 	var req struct {
-		Enabled *bool             `json:"enabled"`
-		Name    string            `json:"name"`
-		Source  TrustAnchorSource `json:"source"`
-		Tags    []TagEntry        `json:"tags"`
+		Enabled              *bool                 `json:"enabled"`
+		Name                 string                `json:"name"`
+		Source               TrustAnchorSource     `json:"source"`
+		Tags                 []TagEntry            `json:"tags"`
+		NotificationSettings []NotificationSetting `json:"notificationSettings"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, 0, ErrValidation
 	}
 
-	ta, err := h.Backend.CreateTrustAnchor(ctx, req.Name, req.Source, req.Tags, req.Enabled)
+	if len(req.Tags) > maxResourceTags {
+		return nil, 0, ErrValidation
+	}
+
+	ta, err := h.Backend.CreateTrustAnchor(ctx, req.Name, req.Source, req.Tags, req.Enabled, req.NotificationSettings)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -132,8 +137,16 @@ func (h *Handler) trustAnchorJSON(ctx context.Context, ta *TrustAnchor) map[stri
 	return trustAnchorWithSettingsToJSON(ta, settings)
 }
 
+// trustAnchorToJSON renders ta's base fields. Deliberately no "tags" key:
+// real AWS's TrustAnchorDetail carries no tags field at all (confirmed
+// field-by-field against aws-sdk-go-v2/service/rolesanywhere/types.
+// TrustAnchorDetail) -- tags are visible only via ListTagsForResource. A
+// prior version of this function included ta.Tags here, which both invented
+// a wire field no real client would ever see and (since TagResource/
+// UntagResource write to a wholly separate ARN-keyed store) permanently
+// desynced from the real tag state.
 func trustAnchorToJSON(ta *TrustAnchor) map[string]any {
-	m := map[string]any{
+	return map[string]any{
 		"trustAnchorId":  ta.TrustAnchorID,
 		"trustAnchorArn": ta.TrustAnchorArn,
 		"name":           ta.Name, //nolint:goconst // existing issue.
@@ -142,12 +155,6 @@ func trustAnchorToJSON(ta *TrustAnchor) map[string]any {
 		"createdAt":      ta.CreatedAt.Format(time.RFC3339), //nolint:goconst // existing issue.
 		"updatedAt":      ta.UpdatedAt.Format(time.RFC3339), //nolint:goconst // existing issue.
 	}
-
-	if len(ta.Tags) > 0 {
-		m["tags"] = ta.Tags
-	}
-
-	return m
 }
 
 func trustAnchorWithSettingsToJSON(ta *TrustAnchor, settings []NotificationSetting) map[string]any {

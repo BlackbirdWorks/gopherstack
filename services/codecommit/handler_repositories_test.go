@@ -264,6 +264,91 @@ func TestHandler_DeleteRepository_Cascade(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestHandler_DeleteRepository_Cascade_Comments verifies that comments
+// posted against a repository (compared-commit comments — the "dirty"
+// comments table has no index and is keyed only by CommentID, so
+// GetComment's lookup doesn't check the repository at all) are deleted along
+// with the repository, instead of surviving as a ghost row forever
+// reachable by ID.
+func TestHandler_DeleteRepository_Cascade_Comments(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "comment-cascade-repo"})
+
+	commitRec := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "comment-cascade-repo",
+		"branchName":     "main",
+		"commitMessage":  "init",
+	})
+	require.Equal(t, http.StatusOK, commitRec.Code)
+	var commitOut map[string]any
+	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut))
+	commitID := commitOut["commitId"].(string)
+
+	commentRec := doRequest(t, h, "PostCommentForComparedCommit", map[string]any{
+		"repositoryName": "comment-cascade-repo",
+		"afterCommitId":  commitID,
+		"content":        "a comment",
+	})
+	require.Equal(t, http.StatusOK, commentRec.Code)
+	var commentOut map[string]any
+	require.NoError(t, json.Unmarshal(commentRec.Body.Bytes(), &commentOut))
+	comment, ok := commentOut["comment"].(map[string]any)
+	require.True(t, ok)
+	commentID, _ := comment["commentId"].(string)
+	require.NotEmpty(t, commentID)
+
+	// Sanity check: the comment is reachable before the repo is deleted.
+	rec := doRequest(t, h, "GetComment", map[string]any{"commentId": commentID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DeleteRepository", map[string]any{"repositoryName": "comment-cascade-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The comment must not survive its repository as a ghost row.
+	rec = doRequest(t, h, "GetComment", map[string]any{"commentId": commentID})
+	assert.Equal(t, http.StatusNotFound, rec.Code, "comments must be cascade-deleted with their repository")
+}
+
+// TestHandler_DeleteRepository_Cascade_FileHistory verifies fileHistory does
+// not leak entries past its repository's deletion: recreating a repository
+// under the same name must start with empty file history, not silently
+// inherit the deleted repository's.
+func TestHandler_DeleteRepository_Cascade_FileHistory(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "filehist-cascade-repo"})
+	doRequest(t, h, "PutFile", map[string]any{
+		"repositoryName": "filehist-cascade-repo",
+		"branchName":     "main",
+		"filePath":       "ghost.txt",
+		"fileContent":    "Z2hvc3Q=",
+	})
+
+	rec := doRequest(t, h, "DeleteRepository", map[string]any{"repositoryName": "filehist-cascade-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Recreate under the same name — a fresh repository must not inherit the
+	// deleted one's file history.
+	rec = doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "filehist-cascade-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "ListFileCommitHistory", map[string]any{
+		"repositoryName": "filehist-cascade-repo",
+		"filePath":       "ghost.txt",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	dag, ok := resp["revisionDag"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, dag,
+		"fileHistory must be cascade-deleted with its repository, not leak into a same-named recreation")
+}
+
 func TestHandler_RepoMetadataTimestamps(t *testing.T) {
 	t.Parallel()
 

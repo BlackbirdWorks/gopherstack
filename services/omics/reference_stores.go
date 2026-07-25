@@ -157,6 +157,8 @@ func (b *InMemoryBackend) GetReferenceMetadata(
 }
 
 // ListReferences lists references in a reference store.
+//
+//nolint:dupl // structurally-identical parent-scoped List op (already deduped via listChildFiltered)
 func (b *InMemoryBackend) ListReferences(
 	referenceStoreID string,
 	filter *ReferenceFilter,
@@ -175,19 +177,15 @@ func (b *InMemoryBackend) ListReferences(
 	}
 
 	group := b.referencesByStore.Get(referenceStoreID)
-	ids := make([]string, 0, len(group))
-
-	for _, ref := range group {
-		if filter != nil && filter.Name != "" && ref.Name != filter.Name {
-			continue
-		}
-
-		ids = append(ids, ref.ID)
-	}
-
-	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*ReferenceMetadata, bool) {
-		return b.references.Get(parentKey(referenceStoreID, id))
-	})
+	result, outToken := listChildFiltered(
+		group,
+		func(ref *ReferenceMetadata) string { return ref.ID },
+		func(ref *ReferenceMetadata) bool {
+			return filter == nil || filter.Name == "" || ref.Name == filter.Name
+		},
+		nextToken, maxResults,
+		func(id string) (*ReferenceMetadata, bool) { return b.references.Get(parentKey(referenceStoreID, id)) },
+	)
 
 	return result, outToken, nil
 }
@@ -265,9 +263,13 @@ func (b *InMemoryBackend) GetReferenceImportJob(
 	return &result, nil
 }
 
-// ListReferenceImportJobs lists reference import jobs for a store.
+// ListReferenceImportJobs lists reference import jobs for a store, optionally
+// filtered by status (real AWS ListReferenceImportJobsInput body "filter").
+//
+//nolint:dupl // structurally-identical parent-scoped List op (already deduped via listChildFiltered)
 func (b *InMemoryBackend) ListReferenceImportJobs(
 	referenceStoreID string,
+	filter *ReferenceImportJobFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*ReferenceImportJob, string, error) {
@@ -283,15 +285,17 @@ func (b *InMemoryBackend) ListReferenceImportJobs(
 	}
 
 	group := b.referenceImportJobsByStore.Get(referenceStoreID)
-	ids := make([]string, 0, len(group))
-
-	for _, j := range group {
-		ids = append(ids, j.ID)
-	}
-
-	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*ReferenceImportJob, bool) {
-		return b.referenceImportJobs.Get(parentKey(referenceStoreID, id))
-	})
+	result, outToken := listChildFiltered(
+		group,
+		func(j *ReferenceImportJob) string { return j.ID },
+		func(j *ReferenceImportJob) bool {
+			return filter == nil || filter.Status == "" || j.Status == filter.Status
+		},
+		nextToken, maxResults,
+		func(id string) (*ReferenceImportJob, bool) {
+			return b.referenceImportJobs.Get(parentKey(referenceStoreID, id))
+		},
+	)
 
 	return result, outToken, nil
 }

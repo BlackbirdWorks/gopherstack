@@ -147,8 +147,14 @@ func (h *Handler) handleDeleteJob(_ context.Context, in *deleteJobInput) (*delet
 }
 
 type startJobRunInput struct {
-	Arguments map[string]string `json:"Arguments,omitempty"`
-	JobName   string            `json:"JobName"`
+	Arguments             map[string]string     `json:"Arguments,omitempty"`
+	NotificationProperty  *NotificationProperty `json:"NotificationProperty,omitempty"`
+	JobName               string                `json:"JobName"`
+	WorkerType            string                `json:"WorkerType,omitempty"`
+	SecurityConfiguration string                `json:"SecurityConfiguration,omitempty"`
+	NumberOfWorkers       int                   `json:"NumberOfWorkers,omitempty"`
+	MaxCapacity           float64               `json:"MaxCapacity,omitempty"`
+	Timeout               int                   `json:"Timeout,omitempty"`
 }
 
 type startJobRunOutput struct {
@@ -156,7 +162,14 @@ type startJobRunOutput struct {
 }
 
 func (h *Handler) handleStartJobRun(_ context.Context, in *startJobRunInput) (*startJobRunOutput, error) {
-	run, err := h.Backend.StartJobRun(in.JobName, in.Arguments)
+	run, err := h.Backend.StartJobRunWithOptions(in.JobName, in.Arguments, StartJobRunOptions{
+		WorkerType:            in.WorkerType,
+		SecurityConfiguration: in.SecurityConfiguration,
+		NotificationProperty:  in.NotificationProperty,
+		NumberOfWorkers:       in.NumberOfWorkers,
+		MaxCapacity:           in.MaxCapacity,
+		Timeout:               in.Timeout,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -3,9 +3,11 @@ package docdb_test
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/docdb"
 )
@@ -611,4 +613,146 @@ func TestDescribeEventCategories(t *testing.T) {
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
 		})
 	}
+}
+
+// TestCreateEventSubscription_SourceIdsAndCategoriesNotSwapped locks in the
+// fix for a real bug found this pass: the handler's call into
+// Backend.CreateEventSubscription passed its sourceIDs/eventCategories
+// arguments in the wrong positional order, so a real client's SourceIds came
+// back (wrongly) as EventCategoriesList and its EventCategories came back
+// (wrongly) as SourceIdsList -- invisible to any test that only checked one
+// of the two lists at a time (as every pre-existing test in this file did).
+func TestCreateEventSubscription_SourceIdsAndCategoriesNotSwapped(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rr := doRequest(t, h, url.Values{
+		"Action":                          {"CreateEventSubscription"},
+		"Version":                         {"2014-10-31"},
+		"SubscriptionName":                {"swap-check-sub"},
+		"SourceIds.SourceId.1":            {"my-cluster-id"},
+		"EventCategories.EventCategory.1": {"backup"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+
+	// The source ID must land inside SourceIdsList, not EventCategoriesList.
+	require.Contains(t, body, "<SourceIdsList><SourceId>my-cluster-id</SourceId></SourceIdsList>")
+	// The event category must land inside EventCategoriesList, not SourceIdsList.
+	require.Contains(t, body, "<EventCategoriesList><EventCategory>backup</EventCategory></EventCategoriesList>")
+}
+
+// TestEventSubscription_FullFieldRoundTrip locks in the fix for the wire
+// gap found this pass: xmlEventSubscription previously omitted
+// EventCategoriesList/EventSubscriptionArn/Enabled/CustomerAwsId/
+// SubscriptionCreationTime entirely, so a real client reading back the event
+// categories or ARN it just set on Create always saw them silently dropped
+// even though the backend tracked EventCategories correctly internally.
+func TestEventSubscription_FullFieldRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rr := doRequest(t, h, url.Values{
+		"Action":                          {"CreateEventSubscription"},
+		"Version":                         {"2014-10-31"},
+		"SubscriptionName":                {"full-field-sub"},
+		"SnsTopicArn":                     {"arn:aws:sns:us-east-1:000000000000:topic"},
+		"SourceType":                      {"db-cluster"},
+		"EventCategories.EventCategory.1": {"failover"},
+		"Enabled":                         {"false"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+
+	assert.Contains(t, body, "<EventCategoriesList><EventCategory>failover</EventCategory></EventCategoriesList>")
+	assert.Contains(t, body, "<EventSubscriptionArn>")
+	assert.Contains(t, body, "<CustomerAwsId>000000000000</CustomerAwsId>")
+	assert.Contains(t, body, "<SubscriptionCreationTime>")
+	assert.Contains(t, body, "<Enabled>false</Enabled>")
+
+	// Enabled must default to true when the caller doesn't specify it
+	// (matching AWS's own default for a new subscription).
+	defaultRR := doRequest(t, h, url.Values{
+		"Action":           {"CreateEventSubscription"},
+		"Version":          {"2014-10-31"},
+		"SubscriptionName": {"default-enabled-sub"},
+	})
+	require.Equal(t, http.StatusOK, defaultRR.Code)
+	assert.Contains(t, defaultRR.Body.String(), "<Enabled>true</Enabled>")
+
+	// ModifyEventSubscription's Enabled must be a real, wire-visible mutation.
+	modifyRR := doRequest(t, h, url.Values{
+		"Action":           {"ModifyEventSubscription"},
+		"Version":          {"2014-10-31"},
+		"SubscriptionName": {"default-enabled-sub"},
+		"Enabled":          {"false"},
+	})
+	require.Equal(t, http.StatusOK, modifyRR.Code)
+	assert.Contains(t, modifyRR.Body.String(), "<Enabled>false</Enabled>")
+}
+
+// TestDescribeEvents_RealLog locks in the fix for the "DescribeEvents always
+// returns an empty event list" gap identified in PARITY.md: there was no
+// event log backing this backend at all, so DescribeEvents could never
+// report anything regardless of what a caller had actually done.
+func TestDescribeEvents_RealLog(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"events-cluster"},
+	})
+	doRequest(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"events-instance"},
+		"DBClusterIdentifier":  {"events-cluster"},
+	})
+
+	rr := doRequest(t, h, url.Values{
+		"Action":  {"DescribeEvents"},
+		"Version": {"2014-10-31"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	assert.Contains(t, body, "events-cluster")
+	assert.Contains(t, body, "events-instance")
+	assert.Contains(t, body, "<SourceType>db-cluster</SourceType>")
+	assert.Contains(t, body, "<SourceType>db-instance</SourceType>")
+
+	// SourceIdentifier filtering must narrow the result to just that resource.
+	filteredRR := doRequest(t, h, url.Values{
+		"Action":           {"DescribeEvents"},
+		"Version":          {"2014-10-31"},
+		"SourceIdentifier": {"events-cluster"},
+	})
+	require.Equal(t, http.StatusOK, filteredRR.Code)
+	filteredBody := filteredRR.Body.String()
+	assert.Contains(t, filteredBody, "events-cluster")
+	assert.NotContains(t, filteredBody, "events-instance")
+
+	// Deleting the cluster must record a second, distinct event for it
+	// (the instance is deleted first: DeleteDBCluster refuses a cluster
+	// that still has instances).
+	doRequest(t, h, url.Values{
+		"Action":               {"DeleteDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"events-instance"},
+	})
+	doRequest(t, h, url.Values{
+		"Action":              {"DeleteDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"events-cluster"},
+		"SkipFinalSnapshot":   {"true"},
+	})
+	afterDeleteRR := doRequest(t, h, url.Values{
+		"Action":           {"DescribeEvents"},
+		"Version":          {"2014-10-31"},
+		"SourceIdentifier": {"events-cluster"},
+	})
+	require.Equal(t, http.StatusOK, afterDeleteRR.Code)
+	assert.Equal(t, 2, strings.Count(afterDeleteRR.Body.String(), "<Event>"),
+		"create and delete must each record a distinct event")
 }

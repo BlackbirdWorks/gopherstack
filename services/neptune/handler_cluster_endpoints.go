@@ -64,7 +64,9 @@ func (h *Handler) handleDescribeDBClusterEndpoints(
 func (h *Handler) handleModifyDBClusterEndpoint(ctx context.Context, vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
 	endpointType := vals.Get("EndpointType")
-	ep, err := h.Backend.ModifyDBClusterEndpoint(ctx, endpointID, endpointType)
+	staticMembers := parseMemberList(vals, "StaticMembers.member")
+	excludedMembers := parseMemberList(vals, "ExcludedMembers.member")
+	ep, err := h.Backend.ModifyDBClusterEndpoint(ctx, endpointID, endpointType, staticMembers, excludedMembers)
 	if err != nil {
 		return nil, err
 	}

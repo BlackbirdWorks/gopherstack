@@ -14,6 +14,8 @@ type untagResourceInput struct {
 
 type listTagsForResourceInput struct {
 	ResourceARN string `json:"ResourceARN"`
+	NextToken   string `json:"NextToken"`
+	MaxResults  int    `json:"MaxResults"`
 }
 
 func (h *Handler) tagOps() map[string]athenaActionFn {
@@ -40,12 +42,19 @@ func (h *Handler) tagOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			tags, err := h.Backend.ListTagsForResource(input.ResourceARN)
+			tags, nextToken, err := h.Backend.ListTagsForResource(
+				input.ResourceARN, input.NextToken, input.MaxResults,
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			return map[string]any{"Tags": tags}, nil
+			resp := map[string]any{"Tags": tags}
+			if nextToken != "" {
+				resp["NextToken"] = nextToken
+			}
+
+			return resp, nil
 		},
 	}
 }

@@ -436,6 +436,78 @@ func TestPersistenceRoundTrip_MultipartAndCapacity(t *testing.T) {
 	}
 }
 
+// TestPersistenceRoundTrip_SelectAndRangeInventoryJobs verifies that a Select job's
+// SelectParameters/OutputLocation/JobOutputPath and an InventoryRetrieval job's range
+// InventoryRetrievalParameters survive a Snapshot/Restore round trip -- both are new
+// Job fields (see models.go) that must be JSON round-trippable through
+// store.Registry.SnapshotAll/RestoreAll exactly like every pre-existing Job field.
+func TestPersistenceRoundTrip_SelectAndRangeInventoryJobs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	createVault(t, h, "persist-select-vault")
+	archiveID := uploadArchiveData(t, h, "persist-select-vault", []byte(selectTestArchive))
+
+	selectJobID := initiateJobWithBody(t, h, "persist-select-vault",
+		basicSelectBody(archiveID, "SELECT * FROM archive WHERE _3 > 28"))
+
+	invJobID := initiateJobWithBody(t, h, "persist-select-vault",
+		`{"Type":"inventory-retrieval","Format":"CSV","InventoryRetrievalParameters":`+
+			`{"StartDate":"2020-01-01T00:00:00Z","EndDate":"2020-02-01T00:00:00Z","Limit":"50","Marker":"a1"}}`)
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	bk2 := glacier.NewInMemoryBackend()
+	h2 := glacier.NewHandler(bk2)
+	h2.AccountID = testAccountID
+	h2.DefaultRegion = testRegion
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Select job: SelectParameters/OutputLocation/JobOutputPath restored.
+	rec := doRequest(t, h2, http.MethodGet,
+		"/"+testAccountID+"/vaults/persist-select-vault/jobs/"+selectJobID, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var selectResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &selectResp))
+	assert.Equal(t, "Select", selectResp["Action"])
+	assert.NotEmpty(t, selectResp["JobOutputPath"])
+
+	sp, ok := selectResp["SelectParameters"].(map[string]any)
+	require.True(t, ok, "SelectParameters must survive restore: %#v", selectResp)
+	assert.Equal(t, "SELECT * FROM archive WHERE _3 > 28", sp["Expression"])
+
+	ol, ok := selectResp["OutputLocation"].(map[string]any)
+	require.True(t, ok, "OutputLocation must survive restore: %#v", selectResp)
+	s3loc, ok := ol["S3"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "results-bucket", s3loc["BucketName"])
+
+	// NOTE: GetJobOutput on the restored select job is NOT re-verified here: raw
+	// archive bytes (b.archiveData) are a pre-existing, documented persistence gap
+	// (see TestGlacier_PersistenceFullStateRoundTrip) -- they never survive a
+	// Snapshot/Restore round trip, only Archive metadata does, so executing the
+	// query post-restore would always 404 regardless of whether SelectParameters
+	// itself round-tripped correctly (which is what this test actually verifies).
+
+	// InventoryRetrieval job: range InventoryRetrievalParameters restored.
+	rec = doRequest(t, h2, http.MethodGet,
+		"/"+testAccountID+"/vaults/persist-select-vault/jobs/"+invJobID, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var invResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &invResp))
+
+	invParams, ok := invResp["InventoryRetrievalParameters"].(map[string]any)
+	require.True(t, ok, "InventoryRetrievalParameters must survive restore: %#v", invResp)
+	assert.Equal(t, "2020-01-01T00:00:00Z", invParams["StartDate"])
+	assert.Equal(t, "2020-02-01T00:00:00Z", invParams["EndDate"])
+	assert.Equal(t, "CSV", invParams["Format"])
+	assert.Equal(t, "50", invParams["Limit"])
+	assert.Equal(t, "a1", invParams["Marker"])
+}
+
 // ----------------------------------------
 // GetSupportedOperations includes new ops
 // ----------------------------------------

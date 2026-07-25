@@ -21,8 +21,8 @@ func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 	id := rdsIDFromARN(resourceID)
 
 	// Validate that the referenced resource exists (instance or cluster).
-	if _, ok := b.instances.Get(id); !ok {
-		if _, ok2 := b.clusters.Get(id); !ok2 {
+	if _, ok := b.instances.Get(normalizeID(id)); !ok {
+		if _, ok2 := b.clusters.Get(normalizeID(id)); !ok2 {
 			return "", fmt.Errorf("%w: resource %s not found", ErrInstanceNotFound, resourceID)
 		}
 	}

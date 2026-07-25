@@ -3,6 +3,7 @@ package codebuild
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,15 +38,16 @@ type ProjectConfig struct {
 	VpcConfig               *VpcConfig
 	LogsConfig              *LogsConfig
 	Environment             *ProjectEnvironment
-	EncryptionKey           string
-	Name                    string
 	Description             string
+	Name                    string
+	EncryptionKey           string
 	ServiceRole             string
 	ResourceAccessRole      string
-	FileSystemLocations     []FileSystemLocation
-	SecondarySourceVersions []ProjectSourceVersion
+	SourceVersion           string
 	SecondaryArtifacts      []ProjectArtifacts
+	SecondarySourceVersions []ProjectSourceVersion
 	SecondarySources        []ProjectSource
+	FileSystemLocations     []FileSystemLocation
 	TimeoutInMinutes        int32
 	QueuedTimeoutInMinutes  int32
 	ConcurrentBuildLimit    int32
@@ -89,6 +91,7 @@ func (b *InMemoryBackend) CreateProject(cfg ProjectConfig) (*Project, error) {
 		LogsConfig:              cfg.LogsConfig,
 		VpcConfig:               cfg.VpcConfig,
 		BuildBatchConfig:        cfg.BuildBatchConfig,
+		SourceVersion:           cfg.SourceVersion,
 		Created:                 now,
 		LastModified:            now,
 	}
@@ -176,6 +179,10 @@ func applyProjectOptionalFields(p *Project, cfg ProjectConfig) {
 
 	if cfg.BuildBatchConfig != nil {
 		p.BuildBatchConfig = cfg.BuildBatchConfig
+	}
+
+	if cfg.SourceVersion != "" {
+		p.SourceVersion = cfg.SourceVersion
 	}
 }
 
@@ -273,14 +280,29 @@ func (b *InMemoryBackend) DeleteProject(name string) error {
 	return nil
 }
 
-// ListProjects returns all project names in sorted order.
+// ListProjects returns all project names sorted by name, ascending.
 func (b *InMemoryBackend) ListProjects() []string {
-	b.mu.RLock("ListProjects")
+	return b.ListProjectsSortedBy("")
+}
+
+// ListProjectsSortedBy returns all project names ordered per sortBy
+// (CREATED_TIME|LAST_MODIFIED_TIME|NAME; any other value, including "",
+// defaults to NAME), always ascending. Callers apply sortOrder/pagination on
+// top via [paginateIDs].
+func (b *InMemoryBackend) ListProjectsSortedBy(sortBy string) []string {
+	b.mu.RLock("ListProjectsSortedBy")
 	defer b.mu.RUnlock()
 
-	items := b.projects.Snapshot()
-	names := make([]string, len(items))
+	items := b.projects.Snapshot() // NAME-ascending by construction
 
+	switch sortBy {
+	case sortByCreatedTime:
+		sort.SliceStable(items, func(i, j int) bool { return items[i].Created < items[j].Created })
+	case sortByLastModifiedTime:
+		sort.SliceStable(items, func(i, j int) bool { return items[i].LastModified < items[j].LastModified })
+	}
+
+	names := make([]string, len(items))
 	for i, p := range items {
 		names[i] = p.Name
 	}

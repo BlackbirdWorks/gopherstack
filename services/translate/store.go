@@ -77,6 +77,38 @@ func tableGet[V any](t *store.Table[V], id string) *V {
 	return v
 }
 
+// validDataFormatsTable is the shared TerminologyDataFormat/ParallelDataFormat
+// enum (CSV|TMX|TSV -- both shapes model the identical three values,
+// confirmed against the TerminologyDataFormat and ParallelDataFormat shapes
+// in the smithy model).
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2-style
+var validDataFormatsTable = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"CSV": true, "TMX": true, "TSV": true}
+})
+
+// maxTagsPerResource is Translate's per-resource tag limit (existing and
+// newly requested tags counted together): TooManyTagsException documents
+// "You have added too many tags to this resource. The maximum is 50 tags".
+const maxTagsPerResource = 50
+
+// tooManyTags reports whether the union of existing and new tag keys would
+// exceed maxTagsPerResource. New keys that already exist in existing replace
+// their value rather than adding a new tag, matching TagResource's
+// add-or-replace semantics (tags.go), so only keys unique to newTags count
+// toward the total.
+func tooManyTags(existing, newTags map[string]string) bool {
+	total := len(existing)
+
+	for k := range newTags {
+		if _, ok := existing[k]; !ok {
+			total++
+		}
+	}
+
+	return total > maxTagsPerResource
+}
+
 func copyMap(m map[string]string) map[string]string {
 	if m == nil {
 		return nil

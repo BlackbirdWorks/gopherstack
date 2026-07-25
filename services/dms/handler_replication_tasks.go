@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -205,19 +206,23 @@ type replicationTaskJSON struct {
 	TableMappings             string `json:"TableMappings,omitempty"`
 	ReplicationTaskSettings   string `json:"ReplicationTaskSettings,omitempty"`
 	Status                    string `json:"Status"`
+	// ReplicationTaskCreationDate is wire-encoded as epoch seconds
+	// (awsjson1.1 unixTimestamp format) -- see pkgs/awstime.Epoch.
+	ReplicationTaskCreationDate float64 `json:"ReplicationTaskCreationDate,omitempty"`
 }
 
 func rtToJSON(rt *ReplicationTask) replicationTaskJSON {
 	return replicationTaskJSON{
-		ReplicationTaskIdentifier: rt.ReplicationTaskIdentifier,
-		ReplicationTaskArn:        rt.ReplicationTaskArn,
-		SourceEndpointArn:         rt.SourceEndpointArn,
-		TargetEndpointArn:         rt.TargetEndpointArn,
-		ReplicationInstanceArn:    rt.ReplicationInstanceArn,
-		MigrationType:             rt.MigrationType,
-		TableMappings:             rt.TableMappings,
-		ReplicationTaskSettings:   rt.ReplicationTaskSettings,
-		Status:                    rt.Status,
+		ReplicationTaskIdentifier:   rt.ReplicationTaskIdentifier,
+		ReplicationTaskArn:          rt.ReplicationTaskArn,
+		SourceEndpointArn:           rt.SourceEndpointArn,
+		TargetEndpointArn:           rt.TargetEndpointArn,
+		ReplicationInstanceArn:      rt.ReplicationInstanceArn,
+		MigrationType:               rt.MigrationType,
+		TableMappings:               rt.TableMappings,
+		ReplicationTaskSettings:     rt.ReplicationTaskSettings,
+		Status:                      rt.Status,
+		ReplicationTaskCreationDate: awstime.Epoch(rt.CreationTime),
 	}
 }
 
@@ -307,25 +312,6 @@ func (h *Handler) handleDescribeReplicationTableStatistics(
 	return &describeReplicationTableStatisticsOutput{
 		ReplicationTaskArn: taskArn,
 		TableStatistics:    stats,
-	}, nil
-}
-
-type describeReplicationTaskAssessmentResultsInput struct {
-	ReplicationTaskArn *string `json:"ReplicationTaskArn"`
-	Marker             *string `json:"Marker"`
-	MaxRecords         *int32  `json:"MaxRecords"`
-}
-
-type describeReplicationTaskAssessmentResultsOutput struct {
-	Marker                           *string          `json:"Marker,omitempty"`
-	ReplicationTaskAssessmentResults []map[string]any `json:"ReplicationTaskAssessmentResults"`
-}
-
-func (h *Handler) handleDescribeReplicationTaskAssessmentResults(
-	_ context.Context, _ *describeReplicationTaskAssessmentResultsInput,
-) (*describeReplicationTaskAssessmentResultsOutput, error) {
-	return &describeReplicationTaskAssessmentResultsOutput{
-		ReplicationTaskAssessmentResults: []map[string]any{},
 	}, nil
 }
 
@@ -419,20 +405,53 @@ func (h *Handler) handleMoveReplicationTask(
 	return &moveReplicationTaskOutput{ReplicationTask: rtToJSON(rt)}, nil
 }
 
+// reloadOption is used on both ReloadTables and ReloadReplicationTables.
+func isValidReloadOption(s string) bool {
+	return s == "" || s == "data-reload" || s == "validate-only"
+}
+
+// reloadReplicationTablesInput mirrors ReloadReplicationTablesInput: the
+// resource identifier field is ReplicationConfigArn (a DMS Serverless
+// replication config), NOT ReplicationTaskArn -- a previous implementation
+// used the wrong field name, which silently discarded the real ARN sent by
+// SDK clients targeting a serverless replication.
 type reloadReplicationTablesInput struct {
-	ReplicationTaskArn *string          `json:"ReplicationTaskArn"`
-	ReloadOption       *string          `json:"ReloadOption"`
-	TablesToReload     []map[string]any `json:"TablesToReload"`
+	ReplicationConfigArn *string          `json:"ReplicationConfigArn"`
+	ReloadOption         *string          `json:"ReloadOption"`
+	TablesToReload       []map[string]any `json:"TablesToReload"`
 }
 
 type reloadReplicationTablesOutput struct {
-	ReplicationTaskArn string `json:"ReplicationTaskArn"`
+	ReplicationConfigArn string `json:"ReplicationConfigArn"`
 }
 
 func (h *Handler) handleReloadReplicationTables(
-	_ context.Context, in *reloadReplicationTablesInput,
+	ctx context.Context, in *reloadReplicationTablesInput,
 ) (*reloadReplicationTablesOutput, error) {
-	return &reloadReplicationTablesOutput{ReplicationTaskArn: ptrconv.String(in.ReplicationTaskArn)}, nil
+	configArn := ptrconv.String(in.ReplicationConfigArn)
+	if configArn == "" {
+		return nil, fmt.Errorf("%w: ReplicationConfigArn is required", ErrValidation)
+	}
+
+	if len(in.TablesToReload) == 0 {
+		return nil, fmt.Errorf("%w: TablesToReload is required", ErrValidation)
+	}
+
+	reloadOption := ptrconv.String(in.ReloadOption)
+	if !isValidReloadOption(reloadOption) {
+		return nil, fmt.Errorf(
+			"%w: invalid ReloadOption %q; valid: data-reload, validate-only",
+			ErrValidation,
+			reloadOption,
+		)
+	}
+
+	rc, err := h.Backend.ReloadReplicationTables(ctx, configArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &reloadReplicationTablesOutput{ReplicationConfigArn: rc.ReplicationConfigArn}, nil
 }
 
 type reloadTablesInput struct {
@@ -446,9 +465,32 @@ type reloadTablesOutput struct {
 }
 
 func (h *Handler) handleReloadTables(
-	_ context.Context, in *reloadTablesInput,
+	ctx context.Context, in *reloadTablesInput,
 ) (*reloadTablesOutput, error) {
-	return &reloadTablesOutput{ReplicationTaskArn: ptrconv.String(in.ReplicationTaskArn)}, nil
+	taskArn := ptrconv.String(in.ReplicationTaskArn)
+	if taskArn == "" {
+		return nil, fmt.Errorf("%w: ReplicationTaskArn is required", ErrValidation)
+	}
+
+	if len(in.TablesToReload) == 0 {
+		return nil, fmt.Errorf("%w: TablesToReload is required", ErrValidation)
+	}
+
+	reloadOption := ptrconv.String(in.ReloadOption)
+	if !isValidReloadOption(reloadOption) {
+		return nil, fmt.Errorf(
+			"%w: invalid ReloadOption %q; valid: data-reload, validate-only",
+			ErrValidation,
+			reloadOption,
+		)
+	}
+
+	rt, err := h.Backend.ReloadTables(ctx, taskArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &reloadTablesOutput{ReplicationTaskArn: rt.ReplicationTaskArn}, nil
 }
 
 type startReplicationTaskAssessmentInput struct {
@@ -477,9 +519,6 @@ func (h *Handler) opsReplicationTasks() map[string]service.JSONOpFunc {
 		),
 		opDescribeReplicationTableStatistics: service.WrapOp(
 			h.handleDescribeReplicationTableStatistics,
-		),
-		opDescribeReplicationTaskAssessmentResults: service.WrapOp(
-			h.handleDescribeReplicationTaskAssessmentResults,
 		),
 		opDescribeTableStatistics: service.WrapOp(
 			h.handleDescribeTableStatistics,

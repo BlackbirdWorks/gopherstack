@@ -132,15 +132,13 @@ func (h *Handler) handleCreateCollaborationChangeRequest(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
-		Details                 map[string]any `json:"details"`
-		CollaborationIdentifier string         `json:"collaborationIdentifier"`
-		Type                    string         `json:"type"`
+		CollaborationIdentifier string           `json:"collaborationIdentifier"`
+		Changes                 []map[string]any `json:"changes"`
 	}
 	_ = json.Unmarshal(body, &req)
 	r, err := h.Backend.CreateCollaborationChangeRequest(
 		req.CollaborationIdentifier,
-		req.Type,
-		req.Details,
+		req.Changes,
 	)
 	if err != nil {
 		return nil, err
@@ -201,13 +199,13 @@ func (h *Handler) handleUpdateCollaborationChangeRequest(
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 		ChangeRequestIdentifier string `json:"changeRequestIdentifier"`
-		Status                  string `json:"status"`
+		Action                  string `json:"action"`
 	}
 	_ = json.Unmarshal(body, &req)
 	r, err := h.Backend.UpdateCollaborationChangeRequest(
 		req.CollaborationIdentifier,
 		req.ChangeRequestIdentifier,
-		req.Status,
+		req.Action,
 	)
 	if err != nil {
 		return nil, err

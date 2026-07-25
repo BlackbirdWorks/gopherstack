@@ -78,11 +78,12 @@ func (h *Handler) handleCreateThreatEntitySet( //nolint:dupl // existing issue.
 	body []byte,
 ) (any, int, error) {
 	var req struct {
-		Tags     map[string]string `json:"tags"`
-		Activate *bool             `json:"activate"`
-		Name     string            `json:"name"`
-		Format   string            `json:"format"`
-		Location string            `json:"location"`
+		Tags                map[string]string `json:"tags"`
+		Activate            *bool             `json:"activate"`
+		Name                string            `json:"name"`
+		Format              string            `json:"format"`
+		Location            string            `json:"location"`
+		ExpectedBucketOwner string            `json:"expectedBucketOwner"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -98,7 +99,9 @@ func (h *Handler) handleCreateThreatEntitySet( //nolint:dupl // existing issue.
 		activate = *req.Activate
 	}
 
-	s, err := h.Backend.CreateThreatEntitySet(detectorID, req.Name, req.Format, req.Location, activate, req.Tags)
+	s, err := h.Backend.CreateThreatEntitySet(
+		detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
@@ -112,7 +115,7 @@ func (h *Handler) handleGetThreatEntitySet(detectorID, setID string) (any, int, 
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{
+	resp := map[string]any{
 		keyName:    s.Name,
 		"format":   s.Format,   //nolint:goconst // existing issue.
 		"location": s.Location, //nolint:goconst // existing issue.
@@ -125,7 +128,13 @@ func (h *Handler) handleGetThreatEntitySet(detectorID, setID string) (any, int, 
 		// parses them via smithytime.ParseEpochSeconds.
 		keyCreatedAt: awstime.Epoch(s.CreatedAt),
 		keyUpdatedAt: awstime.Epoch(s.UpdatedAt),
-	}, http.StatusOK, nil
+	}
+
+	if s.ExpectedBucketOwner != "" {
+		resp["expectedBucketOwner"] = s.ExpectedBucketOwner
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleListThreatEntitySets(detectorID string) (any, int, error) {
@@ -139,16 +148,20 @@ func (h *Handler) handleListThreatEntitySets(detectorID string) (any, int, error
 
 func (h *Handler) handleUpdateThreatEntitySet(detectorID, setID string, body []byte) (int, error) {
 	var req struct {
-		Activate *bool  `json:"activate"`
-		Name     string `json:"name"`
-		Location string `json:"location"`
+		Activate            *bool  `json:"activate"`
+		Name                string `json:"name"`
+		Location            string `json:"location"`
+		ExpectedBucketOwner string `json:"expectedBucketOwner"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
-	if err := h.Backend.UpdateThreatEntitySet(detectorID, setID, req.Name, req.Location, req.Activate); err != nil {
+	err := h.Backend.UpdateThreatEntitySet(
+		detectorID, setID, req.Name, req.Location, req.Activate, req.ExpectedBucketOwner,
+	)
+	if err != nil {
 		return http.StatusNotFound, err
 	}
 
@@ -168,11 +181,12 @@ func (h *Handler) handleCreateTrustedEntitySet( //nolint:dupl // existing issue.
 	body []byte,
 ) (any, int, error) {
 	var req struct {
-		Tags     map[string]string `json:"tags"`
-		Activate *bool             `json:"activate"`
-		Name     string            `json:"name"`
-		Format   string            `json:"format"`
-		Location string            `json:"location"`
+		Tags                map[string]string `json:"tags"`
+		Activate            *bool             `json:"activate"`
+		Name                string            `json:"name"`
+		Format              string            `json:"format"`
+		Location            string            `json:"location"`
+		ExpectedBucketOwner string            `json:"expectedBucketOwner"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -188,7 +202,9 @@ func (h *Handler) handleCreateTrustedEntitySet( //nolint:dupl // existing issue.
 		activate = *req.Activate
 	}
 
-	s, err := h.Backend.CreateTrustedEntitySet(detectorID, req.Name, req.Format, req.Location, activate, req.Tags)
+	s, err := h.Backend.CreateTrustedEntitySet(
+		detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
@@ -202,7 +218,7 @@ func (h *Handler) handleGetTrustedEntitySet(detectorID, setID string) (any, int,
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{
+	resp := map[string]any{
 		keyName:    s.Name,
 		"format":   s.Format,
 		"location": s.Location,
@@ -212,7 +228,13 @@ func (h *Handler) handleGetTrustedEntitySet(detectorID, setID string) (any, int,
 		// UpdatedAt are epoch-seconds numbers on the wire.
 		keyCreatedAt: awstime.Epoch(s.CreatedAt),
 		keyUpdatedAt: awstime.Epoch(s.UpdatedAt),
-	}, http.StatusOK, nil
+	}
+
+	if s.ExpectedBucketOwner != "" {
+		resp["expectedBucketOwner"] = s.ExpectedBucketOwner
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleListTrustedEntitySets(detectorID string) (any, int, error) {
@@ -226,16 +248,20 @@ func (h *Handler) handleListTrustedEntitySets(detectorID string) (any, int, erro
 
 func (h *Handler) handleUpdateTrustedEntitySet(detectorID, setID string, body []byte) (int, error) {
 	var req struct {
-		Activate *bool  `json:"activate"`
-		Name     string `json:"name"`
-		Location string `json:"location"`
+		Activate            *bool  `json:"activate"`
+		Name                string `json:"name"`
+		Location            string `json:"location"`
+		ExpectedBucketOwner string `json:"expectedBucketOwner"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
-	if err := h.Backend.UpdateTrustedEntitySet(detectorID, setID, req.Name, req.Location, req.Activate); err != nil {
+	err := h.Backend.UpdateTrustedEntitySet(
+		detectorID, setID, req.Name, req.Location, req.Activate, req.ExpectedBucketOwner,
+	)
+	if err != nil {
 		return http.StatusNotFound, err
 	}
 

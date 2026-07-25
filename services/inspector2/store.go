@@ -46,6 +46,9 @@ type InMemoryBackend struct {
 	cisSessions                    *store.Table[CisSession]
 	scanConfigAssociations         *store.Table[CodeSecurityScanConfigurationAssociation]
 	scanConfigAssociationsByConfig *store.Index[CodeSecurityScanConfigurationAssociation]
+	coverageEntries                *store.Table[CoverageEntry]
+	vulnerabilities                *store.Table[Vulnerability]
+	codeSnippets                   *store.Table[codeSnippet]
 	tags                           map[string]map[string]string
 	mu                             *lockmetrics.RWMutex
 	codeSecurityScans              map[string]map[string]any

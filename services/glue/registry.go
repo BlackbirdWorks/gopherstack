@@ -449,6 +449,14 @@ func (b *InMemoryBackend) RegisterSchemaVersion(
 		return nil, ErrNotFound
 	}
 
+	// RegisterSchemaVersion must reject a malformed definition the same way
+	// CreateSchema's initial definition is validated — previously this check
+	// was only performed at schema-creation time, so any later version could
+	// register outright invalid AVRO/JSON/PROTOBUF content.
+	if valid, errMsg := validateSchemaDefinition(s.DataFormat, schemaDefinition); !valid {
+		return nil, fmt.Errorf("%w: %s", ErrValidation, errMsg)
+	}
+
 	versionNumber := s.NextSchemaVersion
 	s.NextSchemaVersion++
 	s.LatestSchemaVersion = versionNumber

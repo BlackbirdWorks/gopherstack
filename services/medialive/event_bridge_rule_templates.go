@@ -62,22 +62,42 @@ func (b *InMemoryBackend) GetEventBridgeRuleTemplateGroup(
 	return g.toGroup(), nil
 }
 
-// ListEventBridgeRuleTemplateGroups returns all EB rule template groups.
+// ListEventBridgeRuleTemplateGroups returns all EB rule template groups,
+// each annotated with its live templateCount (see
+// EventBridgeRuleTemplateGroupSummary's doc comment).
 func (b *InMemoryBackend) ListEventBridgeRuleTemplateGroups(
 	maxResults int,
 	nextToken string,
-) ([]*EventBridgeRuleTemplateGroup, string, error) {
+) ([]*EventBridgeRuleTemplateGroupSummary, string, error) {
 	b.mu.RLock("ListEventBridgeRuleTemplateGroups")
 	defer b.mu.RUnlock()
 	all := b.ebRuleTemplateGroups.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
-	result := make([]*EventBridgeRuleTemplateGroup, 0, len(pg.Data))
+	result := make([]*EventBridgeRuleTemplateGroupSummary, 0, len(pg.Data))
 	for _, g := range pg.Data {
-		result = append(result, g.toGroup())
+		result = append(result, &EventBridgeRuleTemplateGroupSummary{
+			EventBridgeRuleTemplateGroup: *g.toGroup(),
+			TemplateCount:                b.countEBRuleTemplatesForGroup(g.ID),
+		})
 	}
 
 	return result, pg.Next, nil
+}
+
+// countEBRuleTemplatesForGroup returns the number of EventBridge rule
+// templates belonging to groupID. Caller must already hold b.mu (Lock or
+// RLock).
+func (b *InMemoryBackend) countEBRuleTemplatesForGroup(groupID string) int32 {
+	var n int32
+
+	for _, t := range b.ebRuleTemplates.All() {
+		if t.GroupID == groupID {
+			n++
+		}
+	}
+
+	return n
 }
 
 // UpdateEventBridgeRuleTemplateGroup updates an EB rule template group.
@@ -118,6 +138,7 @@ func (b *InMemoryBackend) DeleteEventBridgeRuleTemplateGroup(identifier string) 
 		)
 	}
 	b.ebRuleTemplateGroups.Delete(g.ID)
+	delete(b.tags, g.Arn)
 
 	return nil
 }
@@ -185,19 +206,26 @@ func (b *InMemoryBackend) GetEventBridgeRuleTemplate(
 	return t.toTemplate(), nil
 }
 
-// ListEventBridgeRuleTemplates returns all EB rule templates.
+// ListEventBridgeRuleTemplates returns all EB rule templates using the real
+// List Summary shape (eventTargetCount, not the full eventTargets array --
+// see EventBridgeRuleTemplateSummary's doc comment).
 func (b *InMemoryBackend) ListEventBridgeRuleTemplates(
 	maxResults int,
 	nextToken string,
-) ([]*EventBridgeRuleTemplate, string, error) {
+) ([]*EventBridgeRuleTemplateSummary, string, error) {
 	b.mu.RLock("ListEventBridgeRuleTemplates")
 	defer b.mu.RUnlock()
 	all := b.ebRuleTemplates.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
-	result := make([]*EventBridgeRuleTemplate, 0, len(pg.Data))
+	result := make([]*EventBridgeRuleTemplateSummary, 0, len(pg.Data))
 	for _, t := range pg.Data {
-		result = append(result, t.toTemplate())
+		tmpl := t.toTemplate()
+		result = append(result, &EventBridgeRuleTemplateSummary{
+			EventBridgeRuleTemplate: *tmpl,
+			//nolint:gosec // G115: target count is bounded by request-body size, never near int32 max
+			EventTargetCount: int32(len(tmpl.EventTargets)),
+		})
 	}
 
 	return result, pg.Next, nil
@@ -254,6 +282,7 @@ func (b *InMemoryBackend) DeleteEventBridgeRuleTemplate(identifier string) error
 		return fmt.Errorf("%w: eventbridge rule template %s not found", ErrNotFound, identifier)
 	}
 	b.ebRuleTemplates.Delete(t.ID)
+	delete(b.tags, t.Arn)
 
 	return nil
 }

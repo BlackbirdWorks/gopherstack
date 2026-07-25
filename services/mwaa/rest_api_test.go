@@ -57,6 +57,7 @@ func TestBackend_InvokeRestApi(t *testing.T) {
 			if tt.seed {
 				_, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 				require.NoError(t, err)
+				_, _ = b.GetEnvironment(context.Background(), tt.envName) // promote CREATING → AVAILABLE
 			}
 
 			resp, err := b.InvokeRestAPI(context.Background(), tt.envName, tt.req)
@@ -69,6 +70,51 @@ func TestBackend_InvokeRestApi(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, resp)
 			assert.Equal(t, int32(200), resp.RestAPIStatusCode)
+		})
+	}
+}
+
+// TestInvokeRestApi_RequiresAvailable verifies InvokeRestApi is rejected for
+// any non-AVAILABLE environment status, mirroring CreateCliToken/
+// CreateWebLoginToken: the Airflow webserver InvokeRestApi calls into doesn't
+// exist yet while the environment is CREATING/UPDATING/etc.
+func TestInvokeRestApi_RequiresAvailable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		status  string
+		wantErr bool
+	}{
+		{name: "creating_rejected", status: "CREATING", wantErr: true},
+		{name: "updating_rejected", status: "UPDATING", wantErr: true},
+		{name: "deleting_rejected", status: "DELETING", wantErr: true},
+		{name: "available_ok", status: "AVAILABLE", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
+			env := b.AddEnvironmentInternal("restapi-state-env-" + tt.name)
+			env.Status = tt.status
+
+			resp, err := b.InvokeRestAPI(
+				context.Background(),
+				"restapi-state-env-"+tt.name,
+				&mwaa.ExportedInvokeRestAPIRequest{Method: "GET", Path: "/dags"},
+			)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound,
+					"non-AVAILABLE env must return not-found sentinel")
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, resp)
 		})
 	}
 }
@@ -150,6 +196,7 @@ func TestInvokeRestApi_Variations(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(context.Background(), "restapi-env", newCreateReq())
 			require.NoError(t, err)
+			_, _ = b.GetEnvironment(context.Background(), "restapi-env") // promote CREATING → AVAILABLE
 
 			resp, err := b.InvokeRestAPI(context.Background(), "restapi-env", tt.req)
 			if tt.wantErr {

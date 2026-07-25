@@ -8,15 +8,21 @@ import (
 )
 
 const (
-	defaultFrequency      = "SIX_HOURS"
-	statusEnabled         = "ENABLED"
-	statusPaused          = "PAUSED"
-	statusDisabled        = "DISABLED"
-	defaultMatchDist      = int32(50)
-	defaultFindingScore   = 5.0
-	categorySensitiveData = "SENSITIVE_DATA"
-	keyType               = "type"
-	defaultPageSize       = 50
+	defaultFrequency = "SIX_HOURS"
+	statusEnabled    = "ENABLED"
+	statusPaused     = "PAUSED"
+	statusDisabled   = "DISABLED"
+	defaultMatchDist = int32(50)
+	// defaultFindingScore is 2 (Medium): real types.Severity.Score is an
+	// integer 1 (Low) to 3 (High), not an arbitrary float.
+	defaultFindingScore = int64(2)
+	// categoryClassification is the real FindingCategory enum value for a
+	// sensitive-data finding ("CLASSIFICATION"); "POLICY" is the other. Not
+	// to be confused with the JSON "category" ClassificationDetails
+	// substructure of the same finding.
+	categoryClassification = "CLASSIFICATION"
+	keyType                = "type"
+	defaultPageSize        = 50
 
 	errResourceNotFound  = "ResourceNotFoundException"
 	errConflictException = "ConflictException"

@@ -29,11 +29,19 @@ func TestFrameworkControls(t *testing.T) {
 				"FrameworkControls": [
 					{
 						"ControlName": "BACKUP_RESOURCES_PROTECTED_BY_BACKUP_VAULT_LOCK",
-						"ControlInputParameters": {"requiredRetentionDays": "30"}
+						"ControlInputParameters": [
+							{"ParameterName": "requiredRetentionDays", "ParameterValue": "30"}
+						],
+						"ControlScope": {
+							"ComplianceResourceTypes": ["EBS"],
+							"Tags": {"Environment": "prod"}
+						}
 					},
 					{
 						"ControlName": "BACKUP_PLAN_MIN_FREQUENCY_AND_MIN_RETENTION_PERIOD",
-						"ControlInputParameters": {"requiredFrequencyValue": "1"}
+						"ControlInputParameters": [
+							{"ParameterName": "requiredFrequencyValue", "ParameterValue": "1"}
+						]
 					}
 				]
 			}`,
@@ -79,6 +87,26 @@ func TestFrameworkControls(t *testing.T) {
 				assert.Len(t, controls, tt.wantControlLen)
 				ctrl := controls[0].(map[string]any)
 				assert.NotEmpty(t, ctrl["ControlName"])
+
+				// ControlInputParameters must round-trip as an ARRAY of
+				// {ParameterName, ParameterValue}, matching AWS's real wire
+				// shape -- not a free-form map (a bug this pass fixed).
+				params, ok := ctrl["ControlInputParameters"].([]any)
+				require.True(t, ok, "ControlInputParameters should be an array")
+				require.Len(t, params, 1)
+				param := params[0].(map[string]any)
+				assert.Equal(t, "requiredRetentionDays", param["ParameterName"])
+				assert.Equal(t, "30", param["ParameterValue"])
+
+				// ControlScope must round-trip as a STRUCT, not a free-form map.
+				scope, ok := ctrl["ControlScope"].(map[string]any)
+				require.True(t, ok, "ControlScope should be a struct")
+				resourceTypes, ok := scope["ComplianceResourceTypes"].([]any)
+				require.True(t, ok)
+				assert.Equal(t, []any{"EBS"}, resourceTypes)
+				tagsMap, ok := scope["Tags"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "prod", tagsMap["Environment"])
 			}
 		})
 	}
@@ -119,7 +147,7 @@ func TestCreateFramework(t *testing.T) {
 				rec := doREST(t, h, http.MethodPost, "/audit/frameworks", map[string]any{
 					"FrameworkName": "dup-framework",
 				})
-				assert.Equal(t, http.StatusConflict, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -171,13 +199,27 @@ func TestAuditFramework_CRUD(t *testing.T) {
 	assert.True(t, ok)
 	assert.NotEmpty(t, fwks)
 
-	// Update
+	// Update: replaces FrameworkControls, verified via a subsequent Describe
+	// (UpdateFrameworkInput.FrameworkControls was previously not even
+	// accepted by this backend's UpdateFramework).
 	rec4 := doREST(t, h, http.MethodPut, "/audit/frameworks/myframework", map[string]any{
 		"FrameworkControls": []map[string]any{{
-			"ControlName": "BACKUP_PLAN_MIN_FREQUENCY_AND_MIN_RETENTION_CHECK",
+			"ControlName": "BACKUP_RESOURCES_PROTECTED_BY_BACKUP_PLAN",
+			"ControlInputParameters": []map[string]any{
+				{"ParameterName": "requiredFrequencyUnit", "ParameterValue": "hours"},
+			},
 		}},
 	})
 	assert.Equal(t, http.StatusOK, rec4.Code)
+
+	rec4b := doREST(t, h, http.MethodGet, "/audit/frameworks/myframework", nil)
+	require.Equal(t, http.StatusOK, rec4b.Code)
+	updated := parseResp(t, rec4b)
+	controls, ok := updated["FrameworkControls"].([]any)
+	require.True(t, ok)
+	require.Len(t, controls, 1)
+	ctrl := controls[0].(map[string]any)
+	assert.Equal(t, "BACKUP_RESOURCES_PROTECTED_BY_BACKUP_PLAN", ctrl["ControlName"])
 
 	// Delete
 	rec5 := doREST(t, h, http.MethodDelete, "/audit/frameworks/myframework", nil)

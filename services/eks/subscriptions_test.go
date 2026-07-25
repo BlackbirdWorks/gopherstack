@@ -21,6 +21,7 @@ func TestEKS_Subscription_Lifecycle(t *testing.T) {
 		"name":            "my-sub",
 		"licenseType":     "Cluster",
 		"licenseQuantity": 5,
+		"term":            map[string]any{"unit": "MONTHS", "duration": 12},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -77,12 +78,41 @@ func TestEKS_CreateEksAnywhereSubscription(t *testing.T) {
 				"name":            "my-sub",
 				"licenseType":     "License",
 				"licenseQuantity": 5,
+				"term":            map[string]any{"unit": "MONTHS", "duration": 36},
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "create_subscription_missing_name",
-			body:       map[string]any{"licenseType": "License"},
+			name: "create_subscription_missing_name",
+			body: map[string]any{
+				"licenseType": "License",
+				"term":        map[string]any{"unit": "MONTHS", "duration": 12},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "create_subscription_missing_term",
+			body: map[string]any{
+				"name":            "no-term-sub",
+				"licenseType":     "License",
+				"licenseQuantity": 5,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "create_subscription_invalid_term_duration",
+			body: map[string]any{
+				"name": "bad-term-sub",
+				"term": map[string]any{"unit": "MONTHS", "duration": 6},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "create_subscription_invalid_term_unit",
+			body: map[string]any{
+				"name": "bad-unit-sub",
+				"term": map[string]any{"unit": "DAYS", "duration": 12},
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -121,4 +151,32 @@ func TestAnywhereSubscriptionTypeNotStutter(t *testing.T) {
 
 	b.AddSubscriptionInternal(sub)
 	assert.Equal(t, 1, b.SubscriptionCount())
+}
+
+// TestEksAnywhereSubscription_TermFields verifies term/autoRenew/
+// effectiveDate/expirationDate -- all required or otherwise real fields on
+// aws-sdk-go-v2/service/eks's CreateEksAnywhereSubscriptionInput/
+// EksAnywhereSubscription that were previously entirely unmodeled -- are
+// wired through Create and reflected in the response.
+func TestEksAnywhereSubscription_TermFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEKSHandler(t)
+
+	rec := doREST(t, h, http.MethodPost, "/eks-anywhere-subscriptions", map[string]any{
+		"name":      "term-sub",
+		"autoRenew": true,
+		"term":      map[string]any{"unit": "MONTHS", "duration": 36},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	sub := parseResp(t, rec)["subscription"].(map[string]any)
+	assert.Equal(t, true, sub["autoRenew"])
+	assert.NotEmpty(t, sub["effectiveDate"])
+	assert.NotEmpty(t, sub["expirationDate"])
+
+	term, ok := sub["term"].(map[string]any)
+	require.True(t, ok, "term must be present in the response")
+	assert.Equal(t, "MONTHS", term["unit"])
+	assert.InEpsilon(t, float64(36), term["duration"], 0.001)
 }

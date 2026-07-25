@@ -372,12 +372,14 @@ func TestResourceCreator_SNSSubscription(t *testing.T) {
 		map[string]any{"TopicName": "cfn-test-topic"}, nil, nil)
 	require.NoError(t, err)
 
-	// Create subscription.
+	// Create subscription. Endpoint for the sqs protocol must be the SQS queue
+	// ARN (matching real AWS::SNS::Subscription usage and the SNS Subscribe
+	// API), not a queue URL.
 	subARN, err := rc.Create(t.Context(), "MySub", "AWS::SNS::Subscription",
 		map[string]any{
 			"TopicArn": topicARN,
 			"Protocol": "sqs",
-			"Endpoint": "https://sqs.us-east-1.amazonaws.com/000000000000/my-queue",
+			"Endpoint": "arn:aws:sqs:us-east-1:000000000000:my-queue",
 		}, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, subARN)

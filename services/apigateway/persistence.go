@@ -98,65 +98,68 @@ func fromDeploymentSnapshot(v *deploymentSnapshot) *Deployment {
 }
 
 type stageSnapshot struct {
-	CanarySettings      *CanarySettings          `json:"canarySettings,omitempty"`
-	AccessLogSettings   *AccessLogSettings       `json:"accessLogSettings,omitempty"`
-	MethodSettings      map[string]MethodSetting `json:"methodSettings,omitempty"`
-	Variables           map[string]string        `json:"variables,omitempty"`
-	CreatedDate         unixEpochTime            `json:"createdDate"`
-	LastUpdatedDate     unixEpochTime            `json:"lastUpdatedDate"`
-	StageName           string                   `json:"stageName"`
-	RestAPIID           string                   `json:"restApiId"`
-	DeploymentID        string                   `json:"deploymentId"`
-	Description         string                   `json:"description,omitempty"`
-	ClientCertificateID string                   `json:"clientCertificateId,omitempty"`
-	CacheClusterSize    string                   `json:"cacheClusterSize,omitempty"`
-	CacheClusterStatus  string                   `json:"cacheClusterStatus,omitempty"`
-	InvokeURL           string                   `json:"invokeUrl,omitempty"`
-	TracingEnabled      bool                     `json:"tracingEnabled,omitempty"`
-	CacheClusterEnabled bool                     `json:"cacheClusterEnabled,omitempty"`
+	CanarySettings       *CanarySettings          `json:"canarySettings,omitempty"`
+	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
+	MethodSettings       map[string]MethodSetting `json:"methodSettings,omitempty"`
+	Variables            map[string]string        `json:"variables,omitempty"`
+	CreatedDate          unixEpochTime            `json:"createdDate"`
+	LastUpdatedDate      unixEpochTime            `json:"lastUpdatedDate"`
+	StageName            string                   `json:"stageName"`
+	RestAPIID            string                   `json:"restApiId"`
+	DeploymentID         string                   `json:"deploymentId"`
+	Description          string                   `json:"description,omitempty"`
+	ClientCertificateID  string                   `json:"clientCertificateId,omitempty"`
+	CacheClusterSize     string                   `json:"cacheClusterSize,omitempty"`
+	CacheClusterStatus   string                   `json:"cacheClusterStatus,omitempty"`
+	InvokeURL            string                   `json:"invokeUrl,omitempty"`
+	DocumentationVersion string                   `json:"documentationVersion,omitempty"`
+	TracingEnabled       bool                     `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled  bool                     `json:"cacheClusterEnabled,omitempty"`
 }
 
 func stageSnapshotKey(v *stageSnapshot) string { return stageKey(v.RestAPIID, v.StageName) }
 
 func toStageSnapshot(v *Stage) *stageSnapshot {
 	return &stageSnapshot{
-		CanarySettings:      v.CanarySettings,
-		AccessLogSettings:   v.AccessLogSettings,
-		MethodSettings:      v.MethodSettings,
-		Variables:           v.Variables,
-		CreatedDate:         v.CreatedDate,
-		LastUpdatedDate:     v.LastUpdatedDate,
-		StageName:           v.StageName,
-		RestAPIID:           v.RestAPIID,
-		DeploymentID:        v.DeploymentID,
-		Description:         v.Description,
-		ClientCertificateID: v.ClientCertificateID,
-		CacheClusterSize:    v.CacheClusterSize,
-		CacheClusterStatus:  v.CacheClusterStatus,
-		InvokeURL:           v.InvokeURL,
-		TracingEnabled:      v.TracingEnabled,
-		CacheClusterEnabled: v.CacheClusterEnabled,
+		CanarySettings:       v.CanarySettings,
+		AccessLogSettings:    v.AccessLogSettings,
+		MethodSettings:       v.MethodSettings,
+		Variables:            v.Variables,
+		CreatedDate:          v.CreatedDate,
+		LastUpdatedDate:      v.LastUpdatedDate,
+		StageName:            v.StageName,
+		RestAPIID:            v.RestAPIID,
+		DeploymentID:         v.DeploymentID,
+		Description:          v.Description,
+		ClientCertificateID:  v.ClientCertificateID,
+		CacheClusterSize:     v.CacheClusterSize,
+		CacheClusterStatus:   v.CacheClusterStatus,
+		InvokeURL:            v.InvokeURL,
+		DocumentationVersion: v.DocumentationVersion,
+		TracingEnabled:       v.TracingEnabled,
+		CacheClusterEnabled:  v.CacheClusterEnabled,
 	}
 }
 
 func fromStageSnapshot(v *stageSnapshot) *Stage {
 	return &Stage{
-		CanarySettings:      v.CanarySettings,
-		AccessLogSettings:   v.AccessLogSettings,
-		MethodSettings:      v.MethodSettings,
-		Variables:           v.Variables,
-		CreatedDate:         v.CreatedDate,
-		LastUpdatedDate:     v.LastUpdatedDate,
-		StageName:           v.StageName,
-		RestAPIID:           v.RestAPIID,
-		DeploymentID:        v.DeploymentID,
-		Description:         v.Description,
-		ClientCertificateID: v.ClientCertificateID,
-		CacheClusterSize:    v.CacheClusterSize,
-		CacheClusterStatus:  v.CacheClusterStatus,
-		InvokeURL:           v.InvokeURL,
-		TracingEnabled:      v.TracingEnabled,
-		CacheClusterEnabled: v.CacheClusterEnabled,
+		CanarySettings:       v.CanarySettings,
+		AccessLogSettings:    v.AccessLogSettings,
+		MethodSettings:       v.MethodSettings,
+		Variables:            v.Variables,
+		CreatedDate:          v.CreatedDate,
+		LastUpdatedDate:      v.LastUpdatedDate,
+		StageName:            v.StageName,
+		RestAPIID:            v.RestAPIID,
+		DeploymentID:         v.DeploymentID,
+		Description:          v.Description,
+		ClientCertificateID:  v.ClientCertificateID,
+		CacheClusterSize:     v.CacheClusterSize,
+		CacheClusterStatus:   v.CacheClusterStatus,
+		InvokeURL:            v.InvokeURL,
+		DocumentationVersion: v.DocumentationVersion,
+		TracingEnabled:       v.TracingEnabled,
+		CacheClusterEnabled:  v.CacheClusterEnabled,
 	}
 }
 

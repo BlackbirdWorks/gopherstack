@@ -18,10 +18,16 @@ package mq
 //
 // Broker.Users (map[string]*User) and Configuration.Data/Revisions are
 // nested fields of a value already held in a Table, not backend-level
-// collections, so store.Table does not apply to them -- they round-trip (or
-// don't; both carry json:"-"/no persistence restoration, a pre-existing
-// behavior left unchanged by this refactor) as part of their parent Table
-// value exactly as they did as part of the parent map before.
+// collections, so store.Table does not apply to them directly -- they
+// round-trip as part of their parent Table value's JSON encoding instead.
+// Both now carry real json tags (fixed in the parity-3 pass: they previously
+// carried json:"-", which silently dropped every broker user and every
+// configuration revision/data payload on Snapshot/Restore even though
+// PARITY.md claimed CreateUser/UpdateConfiguration were "persist: ok"). See
+// models.go's Broker.Users / Configuration.Data / Configuration.Revisions
+// doc comments. User.Password still keeps json:"-" deliberately -- secrets
+// stay out of the persisted blob, matching the
+// LdapServerMetadata.ServiceAccountPassword precedent.
 //
 // Left as a plain map (not store.Table-backed), audited against the
 // pre-refactor persistence.go for its persisted status:

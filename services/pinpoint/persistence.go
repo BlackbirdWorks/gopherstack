@@ -40,31 +40,47 @@ var _ persistence.Persistable = (*Handler)(nil)
 // shape. Restore compares this against the persisted value and discards
 // (rather than attempts to partially decode) any mismatch — see Restore
 // below.
-const pinpointSnapshotVersion = 1
+const pinpointSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Pinpoint backend.
 //
-// Tables holds one JSON-encoded array per persisted table, produced by
-// [store.Registry.SnapshotAll]. Only the resource kinds Pinpoint has always
-// persisted are included (apps, campaigns, emailTemplates, exportJobs,
-// importJobs, inAppTemplates, journeys, pushTemplates, recommenders,
-// segments, smsTemplates) — voiceTemplates, endpoints, eventStreams, and
-// channels were never part of a persisted snapshot before this refactor and
-// remain excluded so behaviour is preserved exactly.
+// Tables holds one JSON-encoded array per persisted [store.Table]-backed
+// resource, produced by [store.Registry.SnapshotAll]: apps, campaigns,
+// channels, emailTemplates, endpoints, eventStreams, exportJobs, importJobs,
+// inAppTemplates, journeys, pushTemplates, recommenders, segments,
+// smsTemplates, voiceTemplates.
+//
+// The remaining backend state is map-shaped (map[string][]T / map[string]T,
+// not map[string]*T), so it cannot go through [store.Table] (which requires
+// a pure key function on a single concrete pointer type) and is persisted
+// as plain JSON fields instead: AppSettings, CampaignVersions,
+// SegmentVersions, TemplateVersionHistory, CampaignActivities, JourneyRuns,
+// AppEvents, SentMessages, OtpCodes. Every value type here is already a
+// plain JSON-friendly struct with no live/non-serialisable state, so a
+// direct field-for-field mapping (no separate DTO type) is sufficient.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables                 map[string]json.RawMessage       `json:"tables"`
+	AppSettings            map[string]*storedAppSettings    `json:"appSettings"`
+	CampaignVersions       map[string][]*Campaign           `json:"campaignVersions"`
+	SegmentVersions        map[string][]*Segment            `json:"segmentVersions"`
+	TemplateVersionHistory map[string][]templateVersionItem `json:"templateVersionHistory"`
+	CampaignActivities     map[string][]campaignActivity    `json:"campaignActivities"`
+	JourneyRuns            map[string][]*journeyRun         `json:"journeyRuns"`
+	AppEvents              map[string][]storedPinpointEvent `json:"appEvents"`
+	SentMessages           map[string]int                   `json:"sentMessages"`
+	OtpCodes               map[string]string                `json:"otpCodes"`
+	AccountID              string                           `json:"accountID"`
+	Region                 string                           `json:"region"`
+	Version                int                              `json:"version"`
 }
 
-// persistRegistry builds an ephemeral [store.Registry] over exactly the live
-// tables this backend has always persisted, registering the SAME *store.Table
-// pointers the backend itself reads and writes through (rather than copying
-// into a separate DTO type), since every persisted value type here is
-// already a plain JSON-friendly struct with no live/non-serialisable state.
-// It is rebuilt on every Snapshot/Restore call rather than cached as a
-// long-lived field: [store.Register] panics on a duplicate name, and
+// persistRegistry builds an ephemeral [store.Registry] over every
+// [store.Table]-backed resource this backend holds, registering the SAME
+// *store.Table pointers the backend itself reads and writes through (rather
+// than copying into a separate DTO type), since every persisted value type
+// here is already a plain JSON-friendly struct with no live/non-serialisable
+// state. It is rebuilt on every Snapshot/Restore call rather than cached as
+// a long-lived field: [store.Register] panics on a duplicate name, and
 // registering the same tables into two different [store.Registry] values is
 // safe (Registry holds no back-reference on the Table), so a fresh registry
 // scoped to the call is simpler than guarding a shared one.
@@ -72,7 +88,10 @@ func (b *InMemoryBackend) persistRegistry() *store.Registry {
 	reg := store.NewRegistry()
 	store.Register(reg, "apps", b.apps)
 	store.Register(reg, "campaigns", b.campaigns)
+	store.Register(reg, "channels", b.channels)
 	store.Register(reg, "emailTemplates", b.emailTemplates)
+	store.Register(reg, "endpoints", b.endpoints)
+	store.Register(reg, "eventStreams", b.eventStreams)
 	store.Register(reg, "exportJobs", b.exportJobs)
 	store.Register(reg, "importJobs", b.importJobs)
 	store.Register(reg, "inAppTemplates", b.inAppTemplates)
@@ -81,6 +100,7 @@ func (b *InMemoryBackend) persistRegistry() *store.Registry {
 	store.Register(reg, "recommenders", b.recommenders)
 	store.Register(reg, "segments", b.segments)
 	store.Register(reg, "smsTemplates", b.smsTemplates)
+	store.Register(reg, "voiceTemplates", b.voiceTemplates)
 
 	return reg
 }
@@ -98,10 +118,19 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:   pinpointSnapshotVersion,
-		Tables:    tables,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Version:                pinpointSnapshotVersion,
+		Tables:                 tables,
+		AccountID:              b.accountID,
+		Region:                 b.region,
+		AppSettings:            b.appSettings,
+		CampaignVersions:       b.campaignVersions,
+		SegmentVersions:        b.segmentVersions,
+		TemplateVersionHistory: b.templateVersionHistory,
+		CampaignActivities:     b.campaignActivities,
+		JourneyRuns:            b.journeyRuns,
+		AppEvents:              b.appEvents,
+		SentMessages:           b.sentMessages,
+		OtpCodes:               b.otpCodes,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "pinpoint", snap)
@@ -131,6 +160,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.arnIndex = make(map[string]tagHolder)
+		b.resetMapStateLocked()
 
 		return nil
 	}
@@ -141,12 +171,123 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.restoreMapStateLocked(snap)
 
 	// Rebuild the ARN index from all restored resources.
 	b.arnIndex = make(map[string]tagHolder)
 	rebuildARNIndexLocked(b)
 
 	return nil
+}
+
+// resetMapStateLocked clears every map-shaped (non-store.Table) piece of
+// backend state to a non-nil empty map. Split out of Restore's discard path
+// so an incompatible-version snapshot leaves the backend in the same
+// pristine state as [InMemoryBackend.Reset], not with a nil map that would
+// panic on first write. The caller must hold b.mu.
+func (b *InMemoryBackend) resetMapStateLocked() {
+	b.appSettings = make(map[string]*storedAppSettings)
+	b.campaignVersions = make(map[string][]*Campaign)
+	b.segmentVersions = make(map[string][]*Segment)
+	b.templateVersionHistory = make(map[string][]templateVersionItem)
+	b.campaignActivities = make(map[string][]campaignActivity)
+	b.journeyRuns = make(map[string][]*journeyRun)
+	b.appEvents = make(map[string][]storedPinpointEvent)
+	b.sentMessages = make(map[string]int)
+	b.otpCodes = make(map[string]string)
+}
+
+// restoreMapStateLocked installs every map-shaped field from snap onto b,
+// defaulting any nil map (e.g. an older snapshot written before a field
+// existed) to a non-nil empty map. The caller must hold b.mu.
+func (b *InMemoryBackend) restoreMapStateLocked(snap backendSnapshot) {
+	b.appSettings = nonNilAppSettingsMap(snap.AppSettings)
+	b.campaignVersions = nonNilCampaignVersionsMap(snap.CampaignVersions)
+	b.segmentVersions = nonNilSegmentVersionsMap(snap.SegmentVersions)
+	b.templateVersionHistory = nonNilTemplateVersionHistoryMap(snap.TemplateVersionHistory)
+	b.campaignActivities = nonNilCampaignActivitiesMap(snap.CampaignActivities)
+	b.journeyRuns = nonNilJourneyRunsMap(snap.JourneyRuns)
+	b.appEvents = nonNilAppEventsMap(snap.AppEvents)
+	b.sentMessages = nonNilSentMessagesMap(snap.SentMessages)
+	b.otpCodes = nonNilOtpCodesMap(snap.OtpCodes)
+}
+
+// The nonNil*Map helpers below each default a possibly-nil restored map to a
+// non-nil empty map of the same type, one per map-shaped state field. Kept
+// as separate tiny generic-free functions (rather than one generic helper)
+// because Go generics cannot abstract over "map[string]T for varying T" here
+// without the caller repeating the type anyway, and separate named helpers
+// keep restoreMapStateLocked's call sites self-documenting.
+func nonNilAppSettingsMap(m map[string]*storedAppSettings) map[string]*storedAppSettings {
+	if m == nil {
+		return make(map[string]*storedAppSettings)
+	}
+
+	return m
+}
+
+func nonNilCampaignVersionsMap(m map[string][]*Campaign) map[string][]*Campaign {
+	if m == nil {
+		return make(map[string][]*Campaign)
+	}
+
+	return m
+}
+
+func nonNilSegmentVersionsMap(m map[string][]*Segment) map[string][]*Segment {
+	if m == nil {
+		return make(map[string][]*Segment)
+	}
+
+	return m
+}
+
+func nonNilTemplateVersionHistoryMap(m map[string][]templateVersionItem) map[string][]templateVersionItem {
+	if m == nil {
+		return make(map[string][]templateVersionItem)
+	}
+
+	return m
+}
+
+func nonNilCampaignActivitiesMap(m map[string][]campaignActivity) map[string][]campaignActivity {
+	if m == nil {
+		return make(map[string][]campaignActivity)
+	}
+
+	return m
+}
+
+func nonNilJourneyRunsMap(m map[string][]*journeyRun) map[string][]*journeyRun {
+	if m == nil {
+		return make(map[string][]*journeyRun)
+	}
+
+	return m
+}
+
+func nonNilAppEventsMap(m map[string][]storedPinpointEvent) map[string][]storedPinpointEvent {
+	if m == nil {
+		return make(map[string][]storedPinpointEvent)
+	}
+
+	return m
+}
+
+func nonNilSentMessagesMap(m map[string]int) map[string]int {
+	if m == nil {
+		return make(map[string]int)
+	}
+
+	return m
+}
+
+func nonNilOtpCodesMap(m map[string]string) map[string]string {
+	if m == nil {
+		return make(map[string]string)
+	}
+
+	return m
 }
 
 // rebuildARNIndexLocked rebuilds arnIndex from all in-memory resources.

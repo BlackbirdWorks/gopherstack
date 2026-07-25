@@ -311,6 +311,38 @@ func TestHandler_GetCapacityReservation(t *testing.T) {
 	}
 }
 
+// TestHandler_GetCapacityReservation_NoInventedTagsField locks in that
+// GetCapacityReservation's response CapacityReservation object never carries
+// a "Tags" key -- AWS's real types.CapacityReservation has no such field.
+// Tags set at creation are visible only through ListTagsForResource against
+// the reservation's ARN.
+func TestHandler_GetCapacityReservation_NoInventedTagsField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateCapacityReservation",
+		`{"Name":"tagged-cr","TargetDpus":24,"Tags":[{"Key":"owner","Value":"platform"}]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "GetCapacityReservation", `{"Name":"tagged-cr"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	_, hasTags := resp["CapacityReservation"]["Tags"]
+	assert.False(t, hasTags, "CapacityReservation response must not carry an invented Tags field")
+
+	const crARN = "arn:aws:athena:us-east-1:000000000000:capacity-reservation/tagged-cr"
+	rec = doRequest(t, h, "ListTagsForResource", `{"ResourceARN":"`+crARN+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var tagsResp map[string][]map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.Len(t, tagsResp["Tags"], 1, "the tag set at creation must still be visible via ListTagsForResource")
+	assert.Equal(t, "owner", tagsResp["Tags"][0]["Key"])
+}
+
 func TestHandler_ListCapacityReservations(t *testing.T) {
 	t.Parallel()
 

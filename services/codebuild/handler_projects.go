@@ -14,15 +14,16 @@ type createProjectInput struct {
 	VpcConfig               *VpcConfig             `json:"vpcConfig"`
 	LogsConfig              *LogsConfig            `json:"logsConfig"`
 	Environment             *ProjectEnvironment    `json:"environment"`
-	EncryptionKey           string                 `json:"encryptionKey"`
-	Name                    string                 `json:"name"`
 	Description             string                 `json:"description"`
+	Name                    string                 `json:"name"`
+	EncryptionKey           string                 `json:"encryptionKey"`
 	ServiceRole             string                 `json:"serviceRole"`
 	ResourceAccessRole      string                 `json:"resourceAccessRole"`
-	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
-	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
+	SourceVersion           string                 `json:"sourceVersion"`
 	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
 	SecondarySources        []ProjectSource        `json:"secondarySources"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
 	TimeoutInMinutes        int32                  `json:"timeoutInMinutes"`
 	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes"`
 	ConcurrentBuildLimit    int32                  `json:"concurrentBuildLimit"`
@@ -63,6 +64,7 @@ func (h *Handler) handleCreateProject(
 		LogsConfig:              in.LogsConfig,
 		VpcConfig:               in.VpcConfig,
 		BuildBatchConfig:        in.BuildBatchConfig,
+		SourceVersion:           in.SourceVersion,
 	})
 	if err != nil {
 		return nil, err
@@ -101,15 +103,16 @@ type updateProjectInput struct {
 	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
 	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
 	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
-	EncryptionKey           string                 `json:"encryptionKey"`
-	Name                    string                 `json:"name"`
 	Description             string                 `json:"description"`
+	Name                    string                 `json:"name"`
+	EncryptionKey           string                 `json:"encryptionKey"`
 	ServiceRole             string                 `json:"serviceRole"`
 	ResourceAccessRole      string                 `json:"resourceAccessRole"`
-	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
-	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
+	SourceVersion           string                 `json:"sourceVersion"`
 	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
 	SecondarySources        []ProjectSource        `json:"secondarySources"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
 	TimeoutInMinutes        int32                  `json:"timeoutInMinutes"`
 	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes"`
 	ConcurrentBuildLimit    int32                  `json:"concurrentBuildLimit"`
@@ -149,6 +152,7 @@ func (h *Handler) handleUpdateProject(
 		LogsConfig:              in.LogsConfig,
 		VpcConfig:               in.VpcConfig,
 		BuildBatchConfig:        in.BuildBatchConfig,
+		SourceVersion:           in.SourceVersion,
 	})
 	if err != nil {
 		return nil, err
@@ -178,19 +182,29 @@ func (h *Handler) handleDeleteProject(
 	return &deleteProjectOutput{}, nil
 }
 
-type listProjectsInput struct{}
+type listProjectsInput struct {
+	NextToken string `json:"nextToken"`
+	SortBy    string `json:"sortBy"`
+	SortOrder string `json:"sortOrder"`
+}
 
 type listProjectsOutput struct {
-	Projects []string `json:"projects"`
+	NextToken string   `json:"nextToken,omitempty"`
+	Projects  []string `json:"projects"`
 }
 
 func (h *Handler) handleListProjects(
 	_ context.Context,
-	_ *listProjectsInput,
+	in *listProjectsInput,
 ) (*listProjectsOutput, error) {
-	names := h.Backend.ListProjects()
+	names := h.Backend.ListProjectsSortedBy(in.SortBy)
 
-	return &listProjectsOutput{Projects: names}, nil
+	pg, err := paginateIDs(names, in.NextToken, in.SortOrder, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listProjectsOutput{Projects: pg.Data, NextToken: pg.Next}, nil
 }
 
 type updateProjectVisibilityInput struct {

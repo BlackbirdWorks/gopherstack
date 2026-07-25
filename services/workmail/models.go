@@ -22,6 +22,14 @@ const (
 
 	effectAllow = "ALLOW"
 	effectDeny  = "DENY"
+
+	// dnsVerificationPending/dnsVerificationVerified mirror
+	// types.DnsRecordVerificationStatus (PENDING/VERIFIED/FAILED -- FAILED is
+	// never produced by this simulation, so it has no constant here) and are
+	// shared by OwnershipVerificationStatus and DkimVerificationStatus on
+	// MailDomain (see mail_domains.go/organizations.go).
+	dnsVerificationPending  = "PENDING"
+	dnsVerificationVerified = "VERIFIED"
 )
 
 // trackedAlias stores an alias along with its entity reference for conflict

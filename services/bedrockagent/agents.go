@@ -46,7 +46,6 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 		FoundationModel: cfg.FoundationModel,
 		Instruction:     cfg.Instruction,
 		RoleARN:         cfg.RoleARN,
-		Tags:            maps.Clone(cfg.Tags),
 		Guardrail:       cfg.Guardrail,
 		Memory:          cfg.Memory,
 		PromptOverrideConfiguration: map[string]any{
@@ -148,13 +147,17 @@ func applyAgentConfig(a *Agent, cfg AgentConfig) {
 // DeleteAgent deletes an agent.
 //
 // Note: this only removes the agent itself, its name-lookup entry, its
-// versions (agentVersions), and its version counter -- it does NOT clean up
-// actionGroups, agentAliases, or agentCollaborators for the deleted agent
-// (the pre-Phase-3.3 map version keyed agentCollaborators by "agentID/"+
-// agentVersion and called delete(b.agentCollaborators, agentID) here, which
-// never matched any real key -- a no-op cleanup bug preserved as-is by this
-// conversion; see the DeleteAgent doc in .claude/memories for the
-// byte-for-byte preservation rule).
+// versions (agentVersions), its version counter, every action group / agent
+// collaborator / KB association scoped under any of those versions
+// (including DRAFT), every alias, and the agent's own tags entry.
+//
+// This used to leave every one of those behind as ghost rows (documented
+// historically as a "preserved as-is" no-op cleanup bug from the
+// pre-Phase-3.3 map-based backend) -- fixed here: actionGroups,
+// agentCollaborators, and agentKBAssocs are indexed by the composite
+// "agentID/agentVersion" scope, so cascading them requires walking DRAFT
+// plus every numbered AgentVersion row and clearing each scope; agentAliases
+// carries a plain byAgent index so no version walk is needed there.
 func (b *InMemoryBackend) DeleteAgent(_ context.Context, agentID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -166,12 +169,37 @@ func (b *InMemoryBackend) DeleteAgent(_ context.Context, agentID string) error {
 
 	delete(b.agentsByName, a.AgentName)
 	b.agents.Delete(agentID)
+	delete(b.tags, a.AgentARN)
+
+	versions := []string{defaultAgentVersion}
 
 	for _, av := range slices.Clone(b.agentVersionsByAgent.Get(agentID)) {
 		b.agentVersions.Delete(agentVersionKey(av.AgentID, av.AgentVersion))
+		versions = append(versions, av.AgentVersion)
 	}
 
 	delete(b.agentVersionCtrs, agentID)
+
+	for _, v := range versions {
+		scope := agentVersionScope(agentID, v)
+
+		for _, ag := range slices.Clone(b.actionGroupsByAgentVersion.Get(scope)) {
+			b.actionGroups.Delete(agActionGroupKey(ag.AgentID, ag.AgentVersion, ag.ActionGroupID))
+		}
+
+		for _, cb := range slices.Clone(b.agentCollaboratorsByAgentVersion.Get(scope)) {
+			b.agentCollaborators.Delete(agentCollabKey(cb.AgentID, cb.AgentVersion, cb.CollaboratorID))
+		}
+
+		for _, kba := range slices.Clone(b.agentKBAssocsByAgentVersion.Get(scope)) {
+			b.agentKBAssocs.Delete(agKBKey(kba.AgentID, kba.AgentVersion, kba.KnowledgeBaseID))
+		}
+	}
+
+	for _, al := range slices.Clone(b.agentAliasesByAgent.Get(agentID)) {
+		b.agentAliases.Delete(aliasKey(al.AgentID, al.AgentAliasID))
+		delete(b.tags, al.AgentAliasARN)
+	}
 
 	return nil
 }
@@ -222,7 +250,6 @@ func (b *InMemoryBackend) PrepareAgent(_ context.Context, agentID string) (*Agen
 
 func agentCopy(a *Agent) *Agent {
 	cp := *a
-	cp.Tags = maps.Clone(a.Tags)
 
 	return &cp
 }

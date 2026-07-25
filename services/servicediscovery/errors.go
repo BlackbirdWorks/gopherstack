@@ -13,6 +13,10 @@ var (
 	ErrOperationNotFound = awserr.New("OperationNotFound", awserr.ErrNotFound)
 	// ErrNamespaceAlreadyExists is returned when a namespace with the same name already exists.
 	ErrNamespaceAlreadyExists = awserr.New("NamespaceAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrServiceAlreadyExists is returned when a service with a conflicting name already
+	// exists in the same namespace (case-insensitive for DNS namespaces, case-sensitive for
+	// HTTP namespaces -- see CreateService's doc comment on same-case-only collisions).
+	ErrServiceAlreadyExists = awserr.New("ServiceAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrServiceAttributesNotFound is returned when no attributes exist for a service.
 	ErrServiceAttributesNotFound = awserr.New("ServiceAttributesNotFound", awserr.ErrNotFound)
 	// ErrInvalidInput is returned when an input value is invalid.

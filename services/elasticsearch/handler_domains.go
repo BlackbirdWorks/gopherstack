@@ -60,45 +60,135 @@ type domainEndpointOptions struct {
 	EnforceHTTPS      bool   `json:"EnforceHTTPS"`
 }
 
+// vpcOptionsRequestJSON is the request-shape VPC options (types.VPCOptions).
+type vpcOptionsRequestJSON struct {
+	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
+	SubnetIDs        []string `json:"SubnetIds,omitempty"`
+}
+
+// vpcDerivedInfoJSON is the response-shape VPC info (types.VPCDerivedInfo).
+// AvailabilityZones/VPCId are never populated -- see VPCOptions's doc comment
+// in models.go.
+type vpcDerivedInfoJSON struct {
+	VPCId             string   `json:"VPCId,omitempty"`
+	AvailabilityZones []string `json:"AvailabilityZones,omitempty"`
+	SecurityGroupIDs  []string `json:"SecurityGroupIds,omitempty"`
+	SubnetIDs         []string `json:"SubnetIds,omitempty"`
+}
+
+// cognitoOptionsJSON is the JSON representation of Cognito options
+// (types.CognitoOptions -- shared by both request and response).
+// The Terraform provider's flattenCognitoOptions does not guard against nil,
+// so we always return this field with Enabled=false when Cognito is not configured.
+type cognitoOptionsJSON struct {
+	UserPoolID     string `json:"UserPoolId,omitempty"`
+	IdentityPoolID string `json:"IdentityPoolId,omitempty"`
+	RoleARN        string `json:"RoleArn,omitempty"`
+	Enabled        bool   `json:"Enabled"`
+}
+
+// logPublishingOptionJSON is the JSON representation of one log-type
+// publishing configuration (types.LogPublishingOption).
+type logPublishingOptionJSON struct {
+	CloudWatchLogsLogGroupArn string `json:"CloudWatchLogsLogGroupArn,omitempty"`
+	Enabled                   bool   `json:"Enabled"`
+}
+
+// masterUserOptionsJSON is parsed only to detect whether the request
+// supplied master-user credentials (for AdvancedSecurityOptions validation);
+// the credential values themselves are never persisted or echoed back,
+// matching real AWS -- no Describe/Create/Update response ever returns
+// MasterUserOptions.
+type masterUserOptionsJSON struct {
+	MasterUserARN      string `json:"MasterUserARN,omitempty"`
+	MasterUserName     string `json:"MasterUserName,omitempty"`
+	MasterUserPassword string `json:"MasterUserPassword,omitempty"`
+}
+
+// advancedSecurityOptionsRequestJSON is the request-shape advanced security
+// options (types.AdvancedSecurityOptionsInput). SAMLOptions is accepted but
+// not modeled further (see PARITY.md gaps).
+type advancedSecurityOptionsRequestJSON struct {
+	MasterUserOptions           *masterUserOptionsJSON `json:"MasterUserOptions,omitempty"`
+	SAMLOptions                 json.RawMessage        `json:"SAMLOptions,omitempty"`
+	Enabled                     bool                   `json:"Enabled"`
+	InternalUserDatabaseEnabled bool                   `json:"InternalUserDatabaseEnabled,omitempty"`
+	AnonymousAuthEnabled        bool                   `json:"AnonymousAuthEnabled,omitempty"`
+}
+
+// advancedSecurityOptionsJSON is the response-shape advanced security
+// options (types.AdvancedSecurityOptions). AnonymousAuthDisableDate and
+// SAMLOptions are not modeled (see PARITY.md gaps).
+type advancedSecurityOptionsJSON struct {
+	Enabled                     bool `json:"Enabled"`
+	InternalUserDatabaseEnabled bool `json:"InternalUserDatabaseEnabled,omitempty"`
+	AnonymousAuthEnabled        bool `json:"AnonymousAuthEnabled,omitempty"`
+}
+
+// autoTuneOptionsRequestJSON is the request-shape Auto-Tune options
+// (types.AutoTuneOptionsInput). MaintenanceSchedules is accepted but not
+// modeled further (see PARITY.md gaps).
+type autoTuneOptionsRequestJSON struct {
+	DesiredState         string          `json:"DesiredState,omitempty"`
+	MaintenanceSchedules json.RawMessage `json:"MaintenanceSchedules,omitempty"`
+}
+
+// autoTuneOptionsJSON is the response-shape Auto-Tune options
+// (types.AutoTuneOptionsOutput).
+type autoTuneOptionsJSON struct {
+	State        string `json:"State,omitempty"`
+	ErrorMessage string `json:"ErrorMessage,omitempty"`
+}
+
 // domainJSON is the JSON request body for CreateElasticsearchDomain.
-type domainJSON struct {
-	ClusterConfig        *domainClusterConfig               `json:"ElasticsearchClusterConfig"`
-	EBSOptions           *domainEBSOptions                  `json:"EBSOptions"`
-	SnapshotOptions      *domainSnapshotOptions             `json:"SnapshotOptions"`
-	EncryptionAtRest     *domainEncryptionAtRestOptions     `json:"EncryptionAtRestOptions"`
-	NodeToNodeEncryption *domainNodeToNodeEncryptionOptions `json:"NodeToNodeEncryptionOptions"`
-	DomainEndpointOpts   *domainEndpointOptions             `json:"DomainEndpointOptions"`
-	AdvancedOptions      map[string]string                  `json:"AdvancedOptions"`
-	DomainName           string                             `json:"DomainName"`
-	ElasticsearchVersion string                             `json:"ElasticsearchVersion"`
-	AccessPolicies       string                             `json:"AccessPolicies"`
+type domainJSON struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	ClusterConfig           *domainClusterConfig                `json:"ElasticsearchClusterConfig"`
+	EBSOptions              *domainEBSOptions                   `json:"EBSOptions"`
+	SnapshotOptions         *domainSnapshotOptions              `json:"SnapshotOptions"`
+	EncryptionAtRest        *domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryption    *domainNodeToNodeEncryptionOptions  `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOpts      *domainEndpointOptions              `json:"DomainEndpointOptions"`
+	VPCOptions              *vpcOptionsRequestJSON              `json:"VPCOptions"`
+	CognitoOptions          *cognitoOptionsJSON                 `json:"CognitoOptions"`
+	AdvancedSecurityOptions *advancedSecurityOptionsRequestJSON `json:"AdvancedSecurityOptions"`
+	AutoTuneOptions         *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions"`
+	LogPublishingOptions    map[string]logPublishingOptionJSON  `json:"LogPublishingOptions"`
+	AdvancedOptions         map[string]string                   `json:"AdvancedOptions"`
+	TagList                 []domainTagJSON                     `json:"TagList"`
+	DomainName              string                              `json:"DomainName"`
+	ElasticsearchVersion    string                              `json:"ElasticsearchVersion"`
+	AccessPolicies          string                              `json:"AccessPolicies"`
+}
+
+// domainTagJSON is one element of CreateElasticsearchDomainInput.TagList
+// (types.Tag).
+type domainTagJSON struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
 }
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	ElasticsearchClusterConfig  clusterConfigJSON                 `json:"ElasticsearchClusterConfig"`
-	EBSOptions                  ebsOptionsJSON                    `json:"EBSOptions"`
-	CognitoOptions              cognitoOptionsJSON                `json:"CognitoOptions"`
-	SnapshotOptions             domainSnapshotOptions             `json:"SnapshotOptions"`
-	EncryptionAtRestOptions     domainEncryptionAtRestOptions     `json:"EncryptionAtRestOptions"`
-	NodeToNodeEncryptionOptions domainNodeToNodeEncryptionOptions `json:"NodeToNodeEncryptionOptions"`
-	DomainEndpointOptions       domainEndpointOptions             `json:"DomainEndpointOptions"`
-	AdvancedOptions             map[string]string                 `json:"AdvancedOptions"`
-	DomainName                  string                            `json:"DomainName"`
-	DomainID                    string                            `json:"DomainId"`
-	ARN                         string                            `json:"ARN"`
-	ElasticsearchVersion        string                            `json:"ElasticsearchVersion"`
-	Endpoint                    string                            `json:"Endpoint"`
-	DomainProcessingStatus      string                            `json:"DomainProcessingStatus"`
-	AccessPolicies              string                            `json:"AccessPolicies"`
-	Processing                  bool                              `json:"Processing"`
-}
-
-// cognitoOptionsJSON is the JSON representation of Cognito options.
-// The Terraform provider's flattenCognitoOptions does not guard against nil,
-// so we always return this field with Enabled=false when Cognito is not configured.
-type cognitoOptionsJSON struct {
-	Enabled bool `json:"Enabled"`
+	ElasticsearchClusterConfig  clusterConfigJSON                  `json:"ElasticsearchClusterConfig"`
+	EBSOptions                  ebsOptionsJSON                     `json:"EBSOptions"`
+	CognitoOptions              cognitoOptionsJSON                 `json:"CognitoOptions"`
+	SnapshotOptions             domainSnapshotOptions              `json:"SnapshotOptions"`
+	EncryptionAtRestOptions     domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryptionOptions domainNodeToNodeEncryptionOptions  `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOptions       domainEndpointOptions              `json:"DomainEndpointOptions"`
+	AdvancedSecurityOptions     advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions"`
+	AutoTuneOptions             autoTuneOptionsJSON                `json:"AutoTuneOptions"`
+	VPCOptions                  *vpcDerivedInfoJSON                `json:"VPCOptions,omitempty"`
+	LogPublishingOptions        map[string]logPublishingOptionJSON `json:"LogPublishingOptions"`
+	AdvancedOptions             map[string]string                  `json:"AdvancedOptions"`
+	DomainName                  string                             `json:"DomainName"`
+	DomainID                    string                             `json:"DomainId"`
+	ARN                         string                             `json:"ARN"`
+	ElasticsearchVersion        string                             `json:"ElasticsearchVersion"`
+	Endpoint                    string                             `json:"Endpoint"`
+	DomainProcessingStatus      string                             `json:"DomainProcessingStatus"`
+	AccessPolicies              string                             `json:"AccessPolicies"`
+	Processing                  bool                               `json:"Processing"`
 }
 
 // ebsOptionsJSON is the JSON representation of EBS options.
@@ -180,6 +270,32 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	inp := createDomainInputFromRequest(&req)
+
+	if secErr := applyOptionalSecurityCreateFields(&inp, &req); secErr != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", secErr.Error())
+
+		return
+	}
+
+	domain, err := h.Backend.CreateDomain(h.reqContext(r), inp)
+	if err != nil {
+		h.handleDomainError(r, w, err)
+
+		return
+	}
+
+	h.writeJSON(r, w, domainStatusWrapJSON{
+		DomainStatus: toDomainStatusJSON(domain),
+	})
+}
+
+// createDomainInputFromRequest converts every non-validating field of req
+// into a CreateDomainInput, factored out of handleCreateDomain to keep its
+// cognitive complexity low. The fields that can fail validation
+// (CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions) are handled
+// separately by applyOptionalSecurityCreateFields.
+func createDomainInputFromRequest(req *domainJSON) CreateDomainInput {
 	inp := CreateDomainInput{
 		Name:                 req.DomainName,
 		ElasticsearchVersion: req.ElasticsearchVersion,
@@ -214,16 +330,57 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		inp.TLSSecurityPolicy = req.DomainEndpointOpts.TLSSecurityPolicy
 	}
 
-	domain, err := h.Backend.CreateDomain(h.reqContext(r), inp)
-	if err != nil {
-		h.handleDomainError(r, w, err)
-
-		return
+	if req.VPCOptions != nil {
+		inp.VPCOptions = &VPCOptions{
+			SubnetIDs:        req.VPCOptions.SubnetIDs,
+			SecurityGroupIDs: req.VPCOptions.SecurityGroupIDs,
+		}
 	}
 
-	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: toDomainStatusJSON(domain),
-	})
+	if req.LogPublishingOptions != nil {
+		inp.LogPublishingOptions = logPublishingOptionsFromRequest(req.LogPublishingOptions)
+	}
+
+	if req.TagList != nil {
+		inp.Tags = tagListToMap(req.TagList)
+	}
+
+	return inp
+}
+
+// applyOptionalSecurityCreateFields validates and applies req's
+// CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions onto inp, factored
+// out of handleCreateDomain to keep its cognitive complexity low. Mirrors
+// applyOptionalSecurityUpdateFields in handler_domain_config.go.
+func applyOptionalSecurityCreateFields(inp *CreateDomainInput, req *domainJSON) error {
+	if req.CognitoOptions != nil {
+		cogOpts, err := cognitoOptionsFromRequest(req.CognitoOptions)
+		if err != nil {
+			return err
+		}
+
+		inp.CognitoOptions = cogOpts
+	}
+
+	if req.AdvancedSecurityOptions != nil {
+		asOpts, err := advancedSecurityOptionsFromRequest(req.AdvancedSecurityOptions)
+		if err != nil {
+			return err
+		}
+
+		inp.AdvancedSecurityOptions = asOpts
+	}
+
+	if req.AutoTuneOptions != nil {
+		atOpts, err := autoTuneOptionsFromRequest(req.AutoTuneOptions)
+		if err != nil {
+			return err
+		}
+
+		inp.AutoTuneOptions = atOpts
+	}
+
+	return nil
 }
 
 // handleDomainError maps backend domain errors to HTTP responses.
@@ -409,6 +566,158 @@ func toClusterConfigJSON(c ClusterConfig) clusterConfigJSON {
 	return cfg
 }
 
+// cognitoOptionsFromRequest validates and converts a request Cognito options
+// struct into a backend CognitoOptions. Real AWS rejects Enabled=true
+// without all three identifying fields (UserPoolId/IdentityPoolId/RoleArn).
+func cognitoOptionsFromRequest(req *cognitoOptionsJSON) (*CognitoOptions, error) {
+	if req.Enabled && (req.UserPoolID == "" || req.IdentityPoolID == "" || req.RoleARN == "") {
+		return nil, fmt.Errorf(
+			"%w: CognitoOptions.UserPoolId, IdentityPoolId, and RoleArn are required when Enabled is true",
+			ErrValidation,
+		)
+	}
+
+	return &CognitoOptions{
+		Enabled:        req.Enabled,
+		UserPoolID:     req.UserPoolID,
+		IdentityPoolID: req.IdentityPoolID,
+		RoleARN:        req.RoleARN,
+	}, nil
+}
+
+// logPublishingOptionsFromRequest converts the request log-publishing map
+// into backend LogPublishingOption values.
+func logPublishingOptionsFromRequest(req map[string]logPublishingOptionJSON) map[string]LogPublishingOption {
+	out := make(map[string]LogPublishingOption, len(req))
+	for logType, opt := range req {
+		out[logType] = LogPublishingOption{
+			Enabled:                   opt.Enabled,
+			CloudWatchLogsLogGroupARN: opt.CloudWatchLogsLogGroupArn,
+		}
+	}
+
+	return out
+}
+
+// tagListToMap converts a CreateElasticsearchDomainInput.TagList array into
+// a plain key/value map for tags.Tags.Merge.
+func tagListToMap(list []domainTagJSON) map[string]string {
+	out := make(map[string]string, len(list))
+	for _, t := range list {
+		out[t.Key] = t.Value
+	}
+
+	return out
+}
+
+// advancedSecurityOptionsFromRequest validates and converts a request
+// AdvancedSecurityOptions struct. Real AWS requires MasterUserOptions (or an
+// already-configured internal user database) when both Enabled and
+// InternalUserDatabaseEnabled are true.
+func advancedSecurityOptionsFromRequest(req *advancedSecurityOptionsRequestJSON) (*AdvancedSecurityOptions, error) {
+	if req.Enabled && req.InternalUserDatabaseEnabled && req.MasterUserOptions == nil {
+		return nil, fmt.Errorf(
+			"%w: MasterUserOptions is required when InternalUserDatabaseEnabled is true", ErrValidation,
+		)
+	}
+
+	return &AdvancedSecurityOptions{
+		Enabled:                     req.Enabled,
+		InternalUserDatabaseEnabled: req.InternalUserDatabaseEnabled,
+		AnonymousAuthEnabled:        req.AnonymousAuthEnabled,
+	}, nil
+}
+
+// validAutoTuneDesiredStates is the set of values accepted for
+// AutoTuneOptions.DesiredState (types.AutoTuneDesiredState).
+var validAutoTuneDesiredStates = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
+	"ENABLED":  true,
+	"DISABLED": true,
+}
+
+// autoTuneOptionsFromRequest validates and converts a request AutoTuneOptions struct.
+func autoTuneOptionsFromRequest(req *autoTuneOptionsRequestJSON) (*AutoTuneOptions, error) {
+	if req.DesiredState != "" && !validAutoTuneDesiredStates[req.DesiredState] {
+		return nil, fmt.Errorf("%w: AutoTuneOptions.DesiredState must be ENABLED or DISABLED, got %q",
+			ErrValidation, req.DesiredState)
+	}
+
+	return &AutoTuneOptions{DesiredState: req.DesiredState}, nil
+}
+
+// toCognitoOptionsJSON converts a backend CognitoOptions to its JSON
+// representation, defaulting to Enabled=false when unset (see
+// cognitoOptionsJSON's doc comment).
+func toCognitoOptionsJSON(c *CognitoOptions) cognitoOptionsJSON {
+	if c == nil {
+		return cognitoOptionsJSON{Enabled: false}
+	}
+
+	return cognitoOptionsJSON{
+		Enabled:        c.Enabled,
+		UserPoolID:     c.UserPoolID,
+		IdentityPoolID: c.IdentityPoolID,
+		RoleARN:        c.RoleARN,
+	}
+}
+
+// toAdvancedSecurityOptionsJSON converts a backend AdvancedSecurityOptions to
+// its JSON representation, defaulting to Enabled=false when unset.
+func toAdvancedSecurityOptionsJSON(a *AdvancedSecurityOptions) advancedSecurityOptionsJSON {
+	if a == nil {
+		return advancedSecurityOptionsJSON{Enabled: false}
+	}
+
+	return advancedSecurityOptionsJSON{
+		Enabled:                     a.Enabled,
+		InternalUserDatabaseEnabled: a.InternalUserDatabaseEnabled,
+		AnonymousAuthEnabled:        a.AnonymousAuthEnabled,
+	}
+}
+
+// toAutoTuneOptionsJSON converts a backend AutoTuneOptions to its response
+// shape (types.AutoTuneOptionsOutput). DesiredState maps directly onto State
+// since this backend applies Auto-Tune changes synchronously (no
+// ENABLE_IN_PROGRESS/DISABLE_IN_PROGRESS transition window) -- the same
+// simplification already applied to Processing/DomainProcessingStatus.
+// A domain that never configured Auto-Tune defaults to DISABLED, matching
+// real AWS's default.
+func toAutoTuneOptionsJSON(a *AutoTuneOptions) autoTuneOptionsJSON {
+	if a == nil || a.DesiredState == "" {
+		return autoTuneOptionsJSON{State: "DISABLED"}
+	}
+
+	return autoTuneOptionsJSON{State: a.DesiredState}
+}
+
+// toVPCDerivedInfoJSON converts a backend VPCOptions to the response-shape
+// VPCDerivedInfo, or nil if the domain was never placed in a VPC.
+func toVPCDerivedInfoJSON(v *VPCOptions) *vpcDerivedInfoJSON {
+	if v == nil {
+		return nil
+	}
+
+	return &vpcDerivedInfoJSON{
+		SubnetIDs:        v.SubnetIDs,
+		SecurityGroupIDs: v.SecurityGroupIDs,
+	}
+}
+
+// toLogPublishingOptionsJSON converts backend LogPublishingOptions to their
+// JSON representation, always returning a non-nil (possibly empty) map so
+// LogPublishingOptions is never emitted as JSON null.
+func toLogPublishingOptionsJSON(opts map[string]LogPublishingOption) map[string]logPublishingOptionJSON {
+	out := make(map[string]logPublishingOptionJSON, len(opts))
+	for logType, opt := range opts {
+		out[logType] = logPublishingOptionJSON{
+			Enabled:                   opt.Enabled,
+			CloudWatchLogsLogGroupArn: opt.CloudWatchLogsLogGroupARN,
+		}
+	}
+
+	return out
+}
+
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
 	advOpts := d.AdvancedOptions
 	if advOpts == nil {
@@ -433,7 +742,11 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 			Throughput: d.EBSOptions.Throughput,
 		},
 		ElasticsearchClusterConfig: toClusterConfigJSON(d.ClusterConfig),
-		CognitoOptions:             cognitoOptionsJSON{Enabled: false},
+		CognitoOptions:             toCognitoOptionsJSON(d.CognitoOptions),
+		AdvancedSecurityOptions:    toAdvancedSecurityOptionsJSON(d.AdvancedSecurityOptions),
+		AutoTuneOptions:            toAutoTuneOptionsJSON(d.AutoTuneOptions),
+		VPCOptions:                 toVPCDerivedInfoJSON(d.VPCOptions),
+		LogPublishingOptions:       toLogPublishingOptionsJSON(d.LogPublishingOptions),
 		SnapshotOptions: domainSnapshotOptions{
 			AutomatedSnapshotStartHour: d.SnapshotOptions.AutomatedSnapshotStartHour,
 		},

@@ -187,18 +187,27 @@ func (b *InMemoryBackend) GetAnnotationImportJob(jobID string) (*AnnotationImpor
 	return &result, nil
 }
 
-// ListAnnotationImportJobs lists annotation import jobs.
+// ListAnnotationImportJobs lists annotation import jobs, optionally filtered
+// by status/storeName and/or a specific set of job ids (real AWS
+// ListAnnotationImportJobsInput body "filter"/"ids").
 func (b *InMemoryBackend) ListAnnotationImportJobs(
+	filter *ImportJobFilter,
+	ids0 []string,
 	maxResults int,
 	nextToken string,
 ) ([]*AnnotationImportJob, string, error) {
 	b.mu.RLock("ListAnnotationImportJobs")
 	defer b.mu.RUnlock()
 
+	idSet := stringSet(ids0)
 	all := b.annotationImportJobs.All()
 	ids := make([]string, 0, len(all))
 
 	for _, j := range all {
+		if !importJobMatchesFilter(j.Status, j.DestinationName, filter, idSet, j.ID) {
+			continue
+		}
+
 		ids = append(ids, j.ID)
 	}
 

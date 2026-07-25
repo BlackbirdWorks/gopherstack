@@ -115,6 +115,8 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 		b.deploymentGroups.Delete(dgKey(dg.ApplicationName, dg.DeploymentGroupName))
 	}
 
+	b.deleteApplicationRevisions(name)
+
 	b.applications.Delete(name)
 
 	return nil
@@ -165,6 +167,8 @@ func (b *InMemoryBackend) UpdateApplication(name, newName string) error {
 			d.ApplicationName = newName
 		}
 	}
+
+	b.renameApplicationRevisions(name, newName)
 
 	return nil
 }

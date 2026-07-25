@@ -152,6 +152,7 @@ func (b *InMemoryBackend) AddRecoveryPoint(vaultName string, rp *RecoveryPoint) 
 
 	cp := *rp
 	cp.BackupVaultName = vaultName
+	cp.BackupVaultArn = vault.BackupVaultArn
 	b.recoveryPoints.Put(&cp)
 	vault.NumberOfRecoveryPoints++
 
@@ -160,15 +161,60 @@ func (b *InMemoryBackend) AddRecoveryPoint(vaultName string, rp *RecoveryPoint) 
 
 // --- Vault compliance methods ---
 
-// ListRecoveryPointsByLegalHold returns recovery points associated with a legal hold.
-// In this implementation, returns all recovery points (legal hold → RP association not tracked).
+// ListRecoveryPointsByLegalHold returns the recovery points covered by a
+// legal hold's RecoveryPointSelection (by vault name, resource ARN, and/or
+// creation-date range -- see recoveryPointMatchesSelection). A legal hold
+// with no selection (or an all-empty one) covers every recovery point,
+// matching AWS's "no additional constraint" semantics. An unknown
+// legalHoldID is not an error (ListRecoveryPointsByLegalHold's real error
+// list has no ResourceNotFoundException) -- it simply matches nothing.
 func (b *InMemoryBackend) ListRecoveryPointsByLegalHold(legalHoldID string) []*RecoveryPoint {
 	b.mu.RLock("ListRecoveryPointsByLegalHold")
 	defer b.mu.RUnlock()
 
-	_ = legalHoldID // association not tracked; return empty slice for accuracy
+	lh, ok := b.legalHolds.Get(legalHoldID)
+	if !ok {
+		return []*RecoveryPoint{}
+	}
 
-	return []*RecoveryPoint{}
+	all := b.recoveryPoints.All()
+	out := make([]*RecoveryPoint, 0, len(all))
+	for _, rp := range all {
+		if !recoveryPointMatchesSelection(rp, lh.RecoveryPointSelection) {
+			continue
+		}
+		cp := *rp
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RecoveryPointArn < out[j].RecoveryPointArn })
+
+	return out
+}
+
+// recoveryPointMatchesSelection reports whether rp is covered by sel. A nil
+// selection, or one where every field is empty, matches everything; each
+// non-empty field narrows the match (VaultNames/ResourceIdentifiers are
+// membership checks, DateRange is an inclusive bound on CreationDate).
+func recoveryPointMatchesSelection(rp *RecoveryPoint, sel *RecoveryPointSelection) bool {
+	if sel == nil {
+		return true
+	}
+	if len(sel.VaultNames) > 0 && !slices.Contains(sel.VaultNames, rp.BackupVaultName) {
+		return false
+	}
+	if len(sel.ResourceIdentifiers) > 0 && !slices.Contains(sel.ResourceIdentifiers, rp.ResourceArn) {
+		return false
+	}
+	if sel.DateRange != nil {
+		if sel.DateRange.FromDate != nil && rp.CreationDate.Before(*sel.DateRange.FromDate) {
+			return false
+		}
+		if sel.DateRange.ToDate != nil && rp.CreationDate.After(*sel.DateRange.ToDate) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // ListRecoveryPointsByResource returns recovery points for a given resource ARN across all vaults.

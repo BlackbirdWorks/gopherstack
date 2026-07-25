@@ -116,6 +116,7 @@ func (b *InMemoryBackend) DeleteTransitGateway(id string) error {
 		return fmt.Errorf("%w: transit gateway %s not found", ErrInvalidParameter, id)
 	}
 	b.transitGateways.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

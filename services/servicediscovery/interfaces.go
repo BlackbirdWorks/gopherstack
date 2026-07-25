@@ -39,7 +39,7 @@ type StorageBackend interface {
 	ListInstances(serviceID string) ([]Instance, error)
 	DiscoverInstances(
 		namespaceName, serviceName, healthStatus string,
-		queryParams map[string]string,
+		queryParams, optionalParams map[string]string,
 	) ([]DiscoveredInstance, int64, error)
 	DiscoverInstancesRevision(namespaceName, serviceName string) (int64, error)
 	GetInstancesHealthStatus(serviceID string, instanceIDs []string) (map[string]string, error)

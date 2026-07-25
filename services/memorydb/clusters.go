@@ -82,6 +82,14 @@ func (b *InMemoryBackend) validateCreateClusterRefs(region string, req *createCl
 		}
 	}
 
+	if req.MultiRegionClusterName != "" {
+		if _, ok := b.multiRegionClusters.Get(req.MultiRegionClusterName); !ok {
+			return "", fmt.Errorf(
+				"multi-region cluster %q not found: %w", req.MultiRegionClusterName, ErrMultiRegionClusterNotFound,
+			)
+		}
+	}
+
 	return aclName, nil
 }
 
@@ -209,14 +217,14 @@ func (b *InMemoryBackend) seedAutomatedSnapshotLocked(region, accountID string, 
 	autoName := "automatic." + c.Name + "-" + time.Now().UTC().Format("20060102150405")
 	autoARN := arn.Build("memorydb", region, accountID, "snapshot/"+autoName)
 	autoSnap := &Snapshot{
-		Name:         autoName,
-		ARN:          autoARN,
-		ClusterName:  c.Name,
-		Status:       snapshotStatusAvailable,
-		SnapshotType: snapshotSourceAutomated,
-		Source:       snapshotSourceAutomated,
-		Tags:         make(map[string]string),
-		CreatedAt:    time.Now(),
+		Name:        autoName,
+		ARN:         autoARN,
+		ClusterName: c.Name,
+		Status:      snapshotStatusAvailable,
+		Source:      snapshotSourceAutomated,
+		DataTiering: c.DataTiering,
+		Tags:        make(map[string]string),
+		CreatedAt:   time.Now(),
 		ClusterConfiguration: snapshotClusterConfig{
 			Name:                   c.Name,
 			NodeType:               c.NodeType,
@@ -250,11 +258,11 @@ func resolveDataTiering(req *createClusterRequest) string {
 func applyClusterNetworkDefaults(c *Cluster, req *createClusterRequest) {
 	c.NetworkType = req.NetworkType
 	if c.NetworkType == "" {
-		c.NetworkType = "ipv4"
+		c.NetworkType = networkTypeIPv4
 	}
 	c.IPDiscovery = req.IPDiscovery
 	if c.IPDiscovery == "" {
-		c.IPDiscovery = "ipv4"
+		c.IPDiscovery = networkTypeIPv4
 	}
 }
 
@@ -284,6 +292,7 @@ func buildCluster(region, clusterARN, aclName string, req *createClusterRequest,
 		Region:                  region,
 		SecurityGroupIDs:        req.SecurityGroupIDs,
 		AutoMinorVersionUpgrade: req.AutoMinorVersionUpgrade == nil || *req.AutoMinorVersionUpgrade,
+		MultiRegionClusterName:  req.MultiRegionClusterName,
 	}
 	c.DataTiering = resolveDataTiering(req)
 	applyClusterNetworkDefaults(c, req)
@@ -346,6 +355,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 
 	clusterARN := arn.Build("memorydb", region, b.accountID, "cluster/"+req.ClusterName)
 	c := buildCluster(region, clusterARN, aclName, req, d)
+	b.markCreatingLocked(c)
 
 	b.clustersStore(region).Put(c)
 	b.arnToResourceStore(region)[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: req.ClusterName}
@@ -361,7 +371,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 		b.seedAutomatedSnapshotLocked(region, b.accountID, c)
 	}
 
-	return cloneCluster(c), nil
+	return b.clusterView(c), nil
 }
 
 // DescribeClusters returns clusters, optionally filtered by name.
@@ -378,13 +388,13 @@ func (b *InMemoryBackend) DescribeClusters(ctx context.Context, name string) ([]
 			return nil, ErrClusterNotFound
 		}
 
-		return []*Cluster{cloneCluster(c)}, nil
+		return []*Cluster{b.clusterView(c)}, nil
 	}
 
 	all := tableAll(t)
 	result := make([]*Cluster, 0, len(all))
 	for _, c := range all {
-		result = append(result, cloneCluster(c))
+		result = append(result, b.clusterView(c))
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Name < result[j].Name
@@ -415,7 +425,7 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, name string) (*Clus
 		Message:    "Cluster " + name + " deleted",
 	})
 
-	return cloneCluster(c), nil
+	return b.clusterView(c), nil
 }
 
 // DeleteClusterWithSnapshot removes a cluster, first creating a snapshot with the given name.
@@ -436,13 +446,14 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 	if snapshotName != "" {
 		snapshotARN := arn.Build("memorydb", region, b.accountID, "snapshot/"+snapshotName)
 		s := &Snapshot{
-			Name:         snapshotName,
-			ARN:          snapshotARN,
-			ClusterName:  clusterName,
-			Status:       snapshotStatusAvailable,
-			SnapshotType: snapshotSourceManual,
-			Tags:         make(map[string]string),
-			CreatedAt:    time.Now(),
+			Name:        snapshotName,
+			ARN:         snapshotARN,
+			ClusterName: clusterName,
+			Status:      snapshotStatusAvailable,
+			Source:      snapshotSourceManual,
+			DataTiering: c.DataTiering,
+			Tags:        make(map[string]string),
+			CreatedAt:   time.Now(),
 			ClusterConfiguration: snapshotClusterConfig{
 				Name:                   c.Name,
 				NodeType:               c.NodeType,
@@ -473,7 +484,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 		Message:    "Cluster " + clusterName + " deleted",
 	})
 
-	return cloneCluster(c), nil
+	return b.clusterView(c), nil
 }
 
 // applyClusterStringUpdates applies non-nil string field updates from req to c.
@@ -611,7 +622,7 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterR
 		Message:    "Cluster " + req.ClusterName + " modified",
 	})
 
-	return cloneCluster(c), nil
+	return b.clusterView(c), nil
 }
 
 // -- ACL operations --------------------------------------------------------------
@@ -640,7 +651,7 @@ func (b *InMemoryBackend) FailoverShard(ctx context.Context, clusterName, shardN
 		Message:    msg,
 	})
 
-	return cloneCluster(c), nil
+	return b.clusterView(c), nil
 }
 
 // -- Node type update operations ------------------------------------------------
@@ -684,7 +695,7 @@ func (b *InMemoryBackend) BatchUpdateCluster(ctx context.Context, clusterNames [
 	result := make(map[string]*Cluster, len(clusterNames))
 	for _, name := range clusterNames {
 		if c, ok := tableGet(b.clusters[region], name); ok {
-			result[name] = cloneCluster(c)
+			result[name] = b.clusterView(c)
 		}
 	}
 
@@ -701,7 +712,7 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 	var result []*Cluster
 	for _, t := range b.clusters {
 		for _, c := range t.All() {
-			result = append(result, cloneCluster(c))
+			result = append(result, b.clusterView(c))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })

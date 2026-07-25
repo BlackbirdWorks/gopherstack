@@ -16,8 +16,10 @@ import (
 )
 
 type createDeviceProfileRequest struct {
-	Name string    `json:"Name"`
-	Tags []tags.KV `json:"Tags"`
+	LoRaWAN  map[string]any `json:"LoRaWAN,omitempty"`
+	Sidewalk map[string]any `json:"Sidewalk,omitempty"`
+	Name     string         `json:"Name"`
+	Tags     []tags.KV      `json:"Tags"`
 }
 
 type createDeviceProfileResponse struct {
@@ -25,14 +27,27 @@ type createDeviceProfileResponse struct {
 	ID  string `json:"Id"`
 }
 
+// deviceProfileEntry is the Get response shape (Arn, Id, Name, LoRaWAN,
+// Sidewalk). List entries use the narrower deviceProfileListEntry instead --
+// confirmed against types.DeviceProfile, which real AWS's
+// ListDeviceProfilesOutput uses and which carries only Arn/Id/Name.
 type deviceProfileEntry struct {
+	LoRaWAN  map[string]any `json:"LoRaWAN,omitempty"`
+	Sidewalk map[string]any `json:"Sidewalk,omitempty"`
+	Arn      string         `json:"Arn"`
+	ID       string         `json:"Id"`
+	Name     string         `json:"Name"`
+}
+
+type deviceProfileListEntry struct {
 	Arn  string `json:"Arn"`
 	ID   string `json:"Id"`
 	Name string `json:"Name"`
 }
 
 type listDeviceProfilesResponse struct {
-	DeviceProfileList []deviceProfileEntry `json:"DeviceProfileList"`
+	NextToken         string                   `json:"NextToken"`
+	DeviceProfileList []deviceProfileListEntry `json:"DeviceProfileList"`
 }
 
 // --- Device Profile handlers ---
@@ -43,7 +58,9 @@ func (h *Handler) createDeviceProfile(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	dp, err := h.Backend.CreateDeviceProfile(h.AccountID, h.DefaultRegion, req.Name, tagKVsToMap(req.Tags))
+	dp, err := h.Backend.CreateDeviceProfile(
+		h.AccountID, h.DefaultRegion, req.Name, req.LoRaWAN, req.Sidewalk, tagKVsToMap(req.Tags),
+	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -58,25 +75,29 @@ func (h *Handler) getDeviceProfile(c *echo.Context, id string) error {
 	}
 
 	return writeJSON(c, http.StatusOK, deviceProfileEntry{
-		Arn:  dp.ARN,
-		ID:   dp.ID,
-		Name: dp.Name,
+		Arn:      dp.ARN,
+		ID:       dp.ID,
+		Name:     dp.Name,
+		LoRaWAN:  dp.LoRaWAN,
+		Sidewalk: dp.Sidewalk,
 	})
 }
 
 func (h *Handler) listDeviceProfiles(c *echo.Context) error {
 	profiles := h.Backend.ListDeviceProfiles(h.AccountID, h.DefaultRegion)
-	entries := make([]deviceProfileEntry, 0, len(profiles))
+	pg, next := paginateQuery(c, profiles)
 
-	for _, dp := range profiles {
-		entries = append(entries, deviceProfileEntry{
+	entries := make([]deviceProfileListEntry, 0, len(pg))
+
+	for _, dp := range pg {
+		entries = append(entries, deviceProfileListEntry{
 			Arn:  dp.ARN,
 			ID:   dp.ID,
 			Name: dp.Name,
 		})
 	}
 
-	return writeJSON(c, http.StatusOK, listDeviceProfilesResponse{DeviceProfileList: entries})
+	return writeJSON(c, http.StatusOK, listDeviceProfilesResponse{DeviceProfileList: entries, NextToken: next})
 }
 
 func (h *Handler) deleteDeviceProfile(c *echo.Context, id string) error {
@@ -91,8 +112,9 @@ func (h *Handler) deleteDeviceProfile(c *echo.Context, id string) error {
 }
 
 type createServiceProfileRequest struct {
-	Name string    `json:"Name"`
-	Tags []tags.KV `json:"Tags"`
+	LoRaWAN map[string]any `json:"LoRaWAN,omitempty"`
+	Name    string         `json:"Name"`
+	Tags    []tags.KV      `json:"Tags"`
 }
 
 type createServiceProfileResponse struct {
@@ -100,14 +122,25 @@ type createServiceProfileResponse struct {
 	ID  string `json:"Id"`
 }
 
+// serviceProfileEntry is the Get response shape (Arn, Id, Name, LoRaWAN).
+// List entries use the narrower serviceProfileListEntry -- confirmed
+// against types.ServiceProfile, which carries only Arn/Id/Name.
 type serviceProfileEntry struct {
+	LoRaWAN map[string]any `json:"LoRaWAN,omitempty"`
+	Arn     string         `json:"Arn"`
+	ID      string         `json:"Id"`
+	Name    string         `json:"Name"`
+}
+
+type serviceProfileListEntry struct {
 	Arn  string `json:"Arn"`
 	ID   string `json:"Id"`
 	Name string `json:"Name"`
 }
 
 type listServiceProfilesResponse struct {
-	ServiceProfileList []serviceProfileEntry `json:"ServiceProfileList"`
+	NextToken          string                    `json:"NextToken"`
+	ServiceProfileList []serviceProfileListEntry `json:"ServiceProfileList"`
 }
 
 // --- Service Profile handlers ---
@@ -118,7 +151,13 @@ func (h *Handler) createServiceProfile(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	sp, err := h.Backend.CreateServiceProfile(h.AccountID, h.DefaultRegion, req.Name, tagKVsToMap(req.Tags))
+	sp, err := h.Backend.CreateServiceProfile(
+		h.AccountID,
+		h.DefaultRegion,
+		req.Name,
+		req.LoRaWAN,
+		tagKVsToMap(req.Tags),
+	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -133,25 +172,28 @@ func (h *Handler) getServiceProfile(c *echo.Context, id string) error {
 	}
 
 	return writeJSON(c, http.StatusOK, serviceProfileEntry{
-		Arn:  sp.ARN,
-		ID:   sp.ID,
-		Name: sp.Name,
+		Arn:     sp.ARN,
+		ID:      sp.ID,
+		Name:    sp.Name,
+		LoRaWAN: sp.LoRaWAN,
 	})
 }
 
 func (h *Handler) listServiceProfiles(c *echo.Context) error {
 	profiles := h.Backend.ListServiceProfiles(h.AccountID, h.DefaultRegion)
-	entries := make([]serviceProfileEntry, 0, len(profiles))
+	pg, next := paginateQuery(c, profiles)
 
-	for _, sp := range profiles {
-		entries = append(entries, serviceProfileEntry{
+	entries := make([]serviceProfileListEntry, 0, len(pg))
+
+	for _, sp := range pg {
+		entries = append(entries, serviceProfileListEntry{
 			Arn:  sp.ARN,
 			ID:   sp.ID,
 			Name: sp.Name,
 		})
 	}
 
-	return writeJSON(c, http.StatusOK, listServiceProfilesResponse{ServiceProfileList: entries})
+	return writeJSON(c, http.StatusOK, listServiceProfilesResponse{ServiceProfileList: entries, NextToken: next})
 }
 
 func (h *Handler) deleteServiceProfile(c *echo.Context, id string) error {

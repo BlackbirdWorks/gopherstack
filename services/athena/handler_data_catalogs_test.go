@@ -94,6 +94,30 @@ func TestHandler_GetDataCatalog(t *testing.T) {
 	}
 }
 
+// TestHandler_CreateDataCatalog_ReturnsDataCatalog locks in that
+// CreateDataCatalogOutput carries the optional DataCatalog field the real
+// AWS API returns (types.DataCatalog for the just-created catalog) --
+// previously gopherstack returned an empty struct{}{} body, leaving a real
+// SDK client's CreateDataCatalogOutput.DataCatalog permanently nil.
+func TestHandler_CreateDataCatalog_ReturnsDataCatalog(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDataCatalog",
+		`{"Name":"created-cat","Type":"GLUE","Description":"d"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	dc, ok := resp["DataCatalog"].(map[string]any)
+	require.True(t, ok, "CreateDataCatalogOutput must carry a DataCatalog object")
+	assert.Equal(t, "created-cat", dc["Name"])
+	assert.Equal(t, "GLUE", dc["Type"])
+	_, hasTags := dc["Tags"]
+	assert.False(t, hasTags, "DataCatalog object must not carry an invented Tags field")
+}
+
 // --- Tag tests ---
 
 func TestHandler_ListDataCatalogs(t *testing.T) {
@@ -197,6 +221,27 @@ func TestHandler_DeleteDataCatalog(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_DeleteDataCatalog_ReturnsDataCatalog locks in that
+// DeleteDataCatalogOutput carries the optional DataCatalog field (the record
+// as it existed immediately before deletion) the real AWS API returns.
+func TestHandler_DeleteDataCatalog_ReturnsDataCatalog(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDataCatalog", `{"Name":"del-cat2","Type":"GLUE"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DeleteDataCatalog", `{"Name":"del-cat2"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	dc, ok := resp["DataCatalog"].(map[string]any)
+	require.True(t, ok, "DeleteDataCatalogOutput must carry the deleted DataCatalog object")
+	assert.Equal(t, "del-cat2", dc["Name"])
 }
 
 // --- Additional QueryExecution tests ---

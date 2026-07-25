@@ -16,4 +16,5 @@ var (
 	ErrPackageNotFound          = errors.New("ResourceNotFoundException")
 	ErrApplicationNotFound      = errors.New("ResourceNotFoundException")
 	ErrApplicationAlreadyExists = errors.New("ResourceAlreadyExistsException")
+	ErrScheduledActionNotFound  = errors.New("ResourceNotFoundException")
 )

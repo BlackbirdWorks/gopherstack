@@ -19,7 +19,8 @@ const (
 
 // isTerminalExperiment reports whether the given experiment status is terminal.
 func isTerminalExperiment(status string) bool {
-	return status == statusCompleted || status == statusStopped || status == statusFailed
+	return status == statusCompleted || status == statusStopped ||
+		status == statusFailed || status == statusCancelled
 }
 
 // Janitor is the FIS background worker that evicts completed experiments

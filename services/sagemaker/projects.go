@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -33,6 +34,40 @@ func cloneProject(p *Project) *Project {
 	cp.Tags = maps.Clone(p.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime as an AWS awsjson1.1 epoch-seconds number
+// rather than Go's default RFC3339 string — this struct is marshaled
+// directly by handleDescribeProject.
+func (p *Project) MarshalJSON() ([]byte, error) {
+	type alias Project
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{
+		alias:        (*alias)(p),
+		CreationTime: epochSeconds(p.CreationTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [Project.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (p *Project) UnmarshalJSON(data []byte) error {
+	type alias Project
+
+	aux := struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{alias: (*alias)(p)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	p.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+
+	return nil
 }
 
 // CreateProject creates a SageMaker project.

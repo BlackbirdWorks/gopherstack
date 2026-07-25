@@ -19,11 +19,11 @@ type InventoryDeletionSummary struct {
 // DescribeInventoryDeletions.
 type InventoryDeletion struct {
 	DeletionSummary   *InventoryDeletionSummary `json:"DeletionSummary,omitempty"`
-	DeletionStartTime time.Time                 `json:"DeletionStartTime"`
 	DeletionID        string                    `json:"DeletionId"`
 	TypeName          string                    `json:"TypeName"`
 	LastStatus        string                    `json:"LastStatus"`
 	LastStatusMessage string                    `json:"LastStatusMessage,omitempty"`
+	DeletionStartTime float64                   `json:"DeletionStartTime"`
 }
 
 // --- Default (AWS-managed) patch baselines ---
@@ -184,7 +184,7 @@ func (b *InMemoryBackend) applyPatchBaselineOperation(
 		PatchGroup:         patchGroup,
 		BaselineID:         baseline.BaselineID,
 		Operation:          operation,
-		OperationStartTime: time.Now().UTC(),
+		OperationStartTime: UnixTimeFloat(time.Now()),
 		InstalledCount:     installedCount,
 		MissingCount:       missingCount,
 	}
@@ -205,7 +205,7 @@ func patchComplianceFromEffective(
 	effective []EffectivePatch,
 	operation string,
 ) ([]PatchComplianceData, int, int) {
-	now := time.Now().UTC()
+	now := UnixTimeFloat(time.Now())
 	patches := make([]PatchComplianceData, 0, len(effective))
 
 	var installedCount, missingCount int
@@ -219,12 +219,11 @@ func patchComplianceFromEffective(
 
 		complianceState := patchComplianceStateMissing
 
-		var installedTime *time.Time
+		var installedTime float64
 
 		if operation == "Install" && approved {
 			complianceState = patchComplianceStateInstalled
-			t := now
-			installedTime = &t
+			installedTime = now
 			installedCount++
 		} else {
 			missingCount++

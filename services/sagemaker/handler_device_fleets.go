@@ -3,6 +3,7 @@ package sagemaker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 // ---------------------------------------------------------------------------
@@ -22,15 +23,23 @@ func (h *Handler) handleCreateDeviceFleet(ctx context.Context, body []byte) ([]b
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	var outputConfig *DeviceFleetOutputConfig
-	if req.OutputConfig != nil {
-		outputConfig = &DeviceFleetOutputConfig{
-			S3OutputLocation: req.OutputConfig.S3OutputLocation,
-			KmsKeyID:         req.OutputConfig.KmsKeyID,
-		}
+	if req.DeviceFleetName == "" {
+		return nil, fmt.Errorf("%w: DeviceFleetName is required", errInvalidRequest)
+	}
+	// OutputConfig (and its S3OutputLocation) is a required member of
+	// CreateDeviceFleetInput in the real API — reject early rather than
+	// silently persisting a DeviceFleet whose later DescribeDeviceFleet
+	// response would omit the (also required) OutputConfig field.
+	if req.OutputConfig == nil || req.OutputConfig.S3OutputLocation == "" {
+		return nil, fmt.Errorf("%w: OutputConfig.S3OutputLocation is required", errInvalidRequest)
+	}
+
+	outputConfig := &DeviceFleetOutputConfig{
+		S3OutputLocation: req.OutputConfig.S3OutputLocation,
+		KmsKeyID:         req.OutputConfig.KmsKeyID,
 	}
 
 	if _, err := h.Backend.CreateDeviceFleet(ctx, CreateDeviceFleetOptions{
@@ -79,8 +88,8 @@ func (h *Handler) handleListDeviceFleets(ctx context.Context, body []byte) ([]by
 		items = append(items, map[string]any{
 			keyDeviceFleetName:  f.DeviceFleetName,
 			"DeviceFleetArn":    f.DeviceFleetArn,
-			keyCreationTime:     f.CreationTime,
-			keyLastModifiedTime: f.LastModifiedTime,
+			keyCreationTime:     epochSeconds(f.CreationTime),
+			keyLastModifiedTime: epochSeconds(f.LastModifiedTime),
 		})
 	}
 
@@ -89,16 +98,34 @@ func (h *Handler) handleListDeviceFleets(ctx context.Context, body []byte) ([]by
 
 func (h *Handler) handleUpdateDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		OutputConfig *struct {
+			S3OutputLocation string `json:"S3OutputLocation"`
+			KmsKeyID         string `json:"KmsKeyId"`
+		} `json:"OutputConfig"`
 		DeviceFleetName string `json:"DeviceFleetName"`
 		Description     string `json:"Description"`
 		RoleArn         string `json:"RoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.UpdateDeviceFleet(ctx, req.DeviceFleetName, req.Description, req.RoleArn); err != nil {
+	if req.DeviceFleetName == "" {
+		return nil, fmt.Errorf("%w: DeviceFleetName is required", errInvalidRequest)
+	}
+
+	var outputConfig *DeviceFleetOutputConfig
+	if req.OutputConfig != nil {
+		outputConfig = &DeviceFleetOutputConfig{
+			S3OutputLocation: req.OutputConfig.S3OutputLocation,
+			KmsKeyID:         req.OutputConfig.KmsKeyID,
+		}
+	}
+
+	if err := h.Backend.UpdateDeviceFleet(
+		ctx, req.DeviceFleetName, req.Description, req.RoleArn, outputConfig,
+	); err != nil {
 		return nil, err
 	}
 
@@ -210,7 +237,7 @@ func (h *Handler) handleListDevices(ctx context.Context, body []byte) ([]byte, e
 			keyDeviceName:      d.DeviceName,
 			keyDeviceFleetName: d.DeviceFleetName,
 			"DeviceArn":        d.DeviceArn,
-			"RegistrationTime": d.RegistrationTime,
+			"RegistrationTime": epochSeconds(d.RegistrationTime),
 		})
 	}
 

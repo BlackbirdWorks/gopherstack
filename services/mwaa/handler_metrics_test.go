@@ -1,7 +1,7 @@
 package mwaa_test
 
 import (
-	"encoding/json"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -69,6 +69,7 @@ func TestHandler_PublishMetrics(t *testing.T) {
 			if tt.seed {
 				seedRec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
 					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+					"NetworkConfiguration": networkConfigBody(),
 				})
 				require.Equal(t, http.StatusOK, seedRec.Code)
 			}
@@ -95,18 +96,22 @@ func TestHandler_PublishMetrics(t *testing.T) {
 	}
 }
 
-func TestHandler_GetMetrics(t *testing.T) {
+// TestHandler_PublishMetrics_BackendState verifies PublishMetrics actually
+// mutates backend state (rather than asserting via an HTTP GetMetrics route --
+// real MWAA has no GetMetrics operation; PublishMetrics is documented as
+// "internal use only" with no corresponding read API, so gopherstack's
+// StorageBackend.GetMetrics accessor is test-only introspection, not a wire op).
+func TestHandler_PublishMetrics_BackendState(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
 
-	// Create environment.
 	seedRec := doMWAARequest(t, h, http.MethodPut, "/environments/metrics-env", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, seedRec.Code)
 
-	// Publish some metrics.
 	pubRec := doMWAARequest(t, h, http.MethodPost, "/metrics/environments/metrics-env", map[string]any{
 		"MetricData": []map[string]any{
 			{"MetricName": "TaskInstance", "Value": 5.0, "Unit": "Count"},
@@ -114,74 +119,33 @@ func TestHandler_GetMetrics(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, pubRec.Code)
 
-	// Get metrics.
-	getRec := doMWAARequest(t, h, http.MethodGet, "/metrics/environments/metrics-env", nil)
-	assert.Equal(t, http.StatusOK, getRec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
-	data, ok := resp["MetricData"].([]any)
-	assert.True(t, ok)
+	data, err := h.Backend.GetMetrics(context.Background(), "metrics-env")
+	require.NoError(t, err)
 	assert.Len(t, data, 1)
-
-	// Not found.
-	notFoundRec := doMWAARequest(t, h, http.MethodGet, "/metrics/environments/missing-env", nil)
-	assert.Equal(t, http.StatusNotFound, notFoundRec.Code)
 }
 
-func TestGetMetrics_HTTP_ResponseShape(t *testing.T) {
-	t.Parallel()
-
-	h := newHandlerForTest(t)
-	rec := doMWAARequest(t, h, http.MethodPut, "/environments/metrics-shape-env", map[string]any{
-		"DagS3Path":        "dags/",
-		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
-		"SourceBucketArn":  "arn:aws:s3:::b",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	pubRec := doMWAARequest(
-		t, h, http.MethodPost, "/metrics/environments/metrics-shape-env",
-		map[string]any{
-			"MetricData": []any{
-				map[string]any{"MetricName": "TestMetric"},
-			},
-		},
-	)
-	require.Equal(t, http.StatusOK, pubRec.Code)
-
-	getRec := doMWAARequest(t, h, http.MethodGet, "/metrics/environments/metrics-shape-env", nil)
-	require.Equal(t, http.StatusOK, getRec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
-
-	_, ok := resp["MetricData"]
-	assert.True(t, ok, "response must have MetricData key")
-
-	metricData, ok := resp["MetricData"].([]any)
-	require.True(t, ok)
-	assert.Len(t, metricData, 1)
-}
-
-func TestGetMetrics_HTTP_NotFound(t *testing.T) {
+// TestMetricsPath_GET_MethodNotAllowed verifies that GET on
+// /metrics/environments/{Name} -- a path with no real MWAA read operation --
+// is rejected as an unsupported verb rather than routed to a fabricated op.
+func TestMetricsPath_GET_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodGet, "/metrics/environments/does-not-exist", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 
 // ─────────────────────────────────────────────────────────────
 // 8. ListTagsForResource HTTP scenarios
 // ─────────────────────────────────────────────────────────────
 
-func TestHTTP_MetricsPublishAndRetrieve(t *testing.T) {
+func TestHTTP_MetricsPublish_BackendState(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
 	doMWAARequest(t, h, http.MethodPut, "/environments/http-metrics-full", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 
 	pubRec := doMWAARequest(t, h, http.MethodPost, "/metrics/environments/http-metrics-full", map[string]any{
@@ -192,12 +156,7 @@ func TestHTTP_MetricsPublishAndRetrieve(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, pubRec.Code)
 
-	getRec := doMWAARequest(t, h, http.MethodGet, "/metrics/environments/http-metrics-full", nil)
-	require.Equal(t, http.StatusOK, getRec.Code)
-
-	var resp struct {
-		MetricData []map[string]any `json:"MetricData"`
-	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
-	assert.Len(t, resp.MetricData, 2)
+	data, err := h.Backend.GetMetrics(context.Background(), "http-metrics-full")
+	require.NoError(t, err)
+	assert.Len(t, data, 2)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
@@ -25,6 +26,15 @@ const attrUserNameKey = "username"
 // ----------------------------------------
 
 // CreateUserRequest holds the parameters for creating a user.
+//
+// ExternalIDs is NOT wire-reachable: the real CreateUserRequest smithy shape
+// has no ExternalIds member (see the doc comment on the wire-facing
+// createUserRequest in handler_users.go for the full member list this was
+// verified against, and for the gopherstack-invented-field bug this field
+// used to enable before this pass). It is kept here only as a Go-level
+// convenience for tests that seed backend state directly (e.g.
+// persistence_test.go's seedFullState), mirroring how User.ExternalIDs is
+// otherwise reachable only through UpdateUser's AttributeOperations.
 type CreateUserRequest struct {
 	UserName      string        `json:"UserName"`
 	DisplayName   string        `json:"DisplayName"`
@@ -53,6 +63,10 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, storeID string, req *C
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
+	if err := validateUserPayloadStrings(req); err != nil {
+		return nil, err
+	}
+
 	if len(req.UserName) > maxUserNameLength {
 		return nil, fmt.Errorf("%w: UserName must not exceed 128 characters", ErrValidation)
 	}
@@ -60,6 +74,23 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, storeID string, req *C
 	if req.UserName != "" {
 		if existing := b.usersByUserName.Get(storeKey(region, storeID) + "#" + req.UserName); len(existing) > 0 {
 			return nil, fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, req.UserName)
+		}
+	}
+
+	// Primary-email uniqueness: usersByPrimaryEmail is documented (see
+	// store_setup.go) as a uniqueness-constraint index mirroring
+	// usersByUserName, but no call site ever actually checked it before this
+	// pass -- a real gap, not merely a documentation mismatch (see
+	// PARITY.md). GetUserId's AlternateIdentifier.UniqueAttribute is
+	// documented as supporting exactly "userName" and "emails.value" (see
+	// botocore's GetUserIdRequest.AlternateIdentifier doc string); a
+	// same-store duplicate primary email would make that lookup ambiguous,
+	// and ConflictException's own doc string ("would violate an existing
+	// uniqueness claim in the identity store") is written in the plural,
+	// not scoped to UserName alone.
+	if email := userPrimaryEmail(req.Emails); email != "" {
+		if existing := b.usersByPrimaryEmail.Get(storeKey(region, storeID) + "#" + email); len(existing) > 0 {
+			return nil, fmt.Errorf("%w: user with primary email %q already exists", ErrConflict, email)
 		}
 	}
 
@@ -72,6 +103,8 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, storeID string, req *C
 	}
 
 	userID := b.generateID()
+	now := epochTime(time.Now().UTC())
+	callerARN := b.simulatedCallerARN()
 	user := &User{
 		UserID:          userID,
 		IdentityStoreID: storeID,
@@ -95,6 +128,10 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, storeID string, req *C
 		Roles:           req.Roles,
 		ExternalIDs:     req.ExternalIDs,
 		region:          region,
+		CreatedAt:       now,
+		CreatedBy:       callerARN,
+		UpdatedAt:       now,
+		UpdatedBy:       callerARN,
 	}
 
 	b.users.Put(user)
@@ -150,7 +187,17 @@ func (b *InMemoryBackend) UpdateUser(ctx context.Context, storeID, userID string
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userID)
 	}
 
+	for _, op := range ops {
+		if err := validateAttributeOperation(op); err != nil {
+			return err
+		}
+	}
+
 	if err := b.validateUsernameRename(region, storeID, user.UserName, ops); err != nil {
+		return err
+	}
+
+	if err := b.validateEmailRename(region, storeID, user.UserID, user.Emails, ops); err != nil {
 		return err
 	}
 
@@ -164,6 +211,9 @@ func (b *InMemoryBackend) UpdateUser(ctx context.Context, storeID, userID string
 	for _, op := range ops {
 		applyUserAttribute(user, op.AttributePath, op.AttributeValue)
 	}
+
+	user.UpdatedAt = epochTime(time.Now().UTC())
+	user.UpdatedBy = b.simulatedCallerARN()
 
 	b.users.Put(user)
 
@@ -184,6 +234,43 @@ func (b *InMemoryBackend) validateUsernameRename(region, storeID, oldName string
 
 		if existing := b.usersByUserName.Get(storeKey(region, storeID) + "#" + newName); len(existing) > 0 {
 			return fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, newName)
+		}
+	}
+
+	return nil
+}
+
+// validateEmailRename checks that an "emails" attribute operation would not
+// produce a primary-email conflict with a different user in the same store.
+// Mirrors validateUsernameRename's shape; see CreateUser's primary-email
+// uniqueness comment for why this check exists.
+func (b *InMemoryBackend) validateEmailRename(
+	region, storeID, userID string, currentEmails []Email, ops []attributeOperation,
+) error {
+	newEmails := currentEmails
+	touched := false
+
+	for _, op := range ops {
+		if strings.ToLower(op.AttributePath) != attrEmails {
+			continue
+		}
+
+		newEmails = parseEmails(op.AttributeValue)
+		touched = true
+	}
+
+	if !touched {
+		return nil
+	}
+
+	email := userPrimaryEmail(newEmails)
+	if email == "" {
+		return nil
+	}
+
+	for _, other := range b.usersByPrimaryEmail.Get(storeKey(region, storeID) + "#" + email) {
+		if other.UserID != userID {
+			return fmt.Errorf("%w: user with primary email %q already exists", ErrConflict, email)
 		}
 	}
 
@@ -213,25 +300,25 @@ func applyUserScalarAttribute(user *User, path, strVal string) bool {
 		user.DisplayName = strVal
 	case attrUserNameKey:
 		user.UserName = strVal
-	case "nickname":
+	case attrNickName:
 		user.NickName = strVal
-	case "title":
+	case attrTitle:
 		user.Title = strVal
-	case "profileurl":
+	case attrProfileURL:
 		user.ProfileURL = strVal
-	case "locale":
+	case attrLocale:
 		user.Locale = strVal
-	case "preferredlanguage":
+	case attrPreferredLanguage:
 		user.PreferredLang = strVal
-	case "timezone":
+	case attrTimezone:
 		user.Timezone = strVal
-	case "usertype":
+	case attrUserType:
 		user.UserType = strVal
-	case "birthdate":
+	case attrBirthdate:
 		user.Birthdate = strVal
-	case "website":
+	case attrWebsite:
 		user.Website = strVal
-	case "userstatus":
+	case attrUserStatus:
 		if isValidUserStatus(strVal) {
 			user.UserStatus = strVal
 		}
@@ -246,17 +333,17 @@ func applyUserScalarAttribute(user *User, path, strVal string) bool {
 // Returns true when the path was handled.
 func applyUserSliceAttribute(user *User, path string, value any) bool {
 	switch strings.ToLower(path) {
-	case "emails":
+	case attrEmails:
 		user.Emails = parseEmails(value)
-	case "addresses":
+	case attrAddresses:
 		user.Addresses = parseAddresses(value)
-	case "phonenumbers":
+	case attrPhoneNumbers:
 		user.PhoneNumbers = parsePhoneNumbers(value)
-	case "photos":
+	case attrPhotos:
 		user.Photos = parsePhotos(value)
-	case "roles":
+	case attrRoles:
 		user.Roles = parseRoles(value)
-	case "externalids":
+	case attrExternalIDs:
 		user.ExternalIDs = parseExternalIDs(value)
 	default:
 		return false
@@ -298,22 +385,22 @@ func isValidBirthdate(s string) bool {
 // applyUserNameAttribute applies name sub-fields to a user.
 func applyUserNameAttribute(user *User, path, strVal string) {
 	switch strings.ToLower(path) {
-	case "name.givenname":
+	case attrNameGivenName:
 		ensureUserName(user)
 		user.Name.GivenName = strVal
-	case "name.familyname":
+	case attrNameFamilyName:
 		ensureUserName(user)
 		user.Name.FamilyName = strVal
-	case "name.middlename":
+	case attrNameMiddleName:
 		ensureUserName(user)
 		user.Name.MiddleName = strVal
-	case "name.formatted":
+	case attrNameFormatted:
 		ensureUserName(user)
 		user.Name.Formatted = strVal
-	case "name.honorificprefix":
+	case attrNameHonorificPrefix:
 		ensureUserName(user)
 		user.Name.HonorificPrefix = strVal
-	case "name.honorificsuffix":
+	case attrNameHonorificSuffix:
 		ensureUserName(user)
 		user.Name.HonorificSuffix = strVal
 	}
@@ -574,32 +661,36 @@ func matchUserMultiValueFilter(u *User, f ListFilter) bool {
 	return false
 }
 
-// matchUserSingleValueFilter checks filters on simple scalar fields.
+// matchUserSingleValueFilter checks filters on simple scalar fields. An
+// unrecognized AttributePath matches NO user rather than every user -- a
+// prior revision returned true from this switch's implicit default, meaning
+// a typo'd or unsupported filter path silently matched the entire user
+// list instead of being treated as a no-match (see PARITY.md gap history).
 func matchUserSingleValueFilter(u *User, f ListFilter) bool {
 	switch strings.ToLower(f.AttributePath) {
 	case attrUserNameKey:
 		return u.UserName == f.AttributeValue
 	case attrDisplayName:
 		return u.DisplayName == f.AttributeValue
-	case "name.givenname":
+	case attrNameGivenName:
 		return u.Name != nil && u.Name.GivenName == f.AttributeValue
-	case "name.familyname":
+	case attrNameFamilyName:
 		return u.Name != nil && u.Name.FamilyName == f.AttributeValue
-	case "title":
+	case attrTitle:
 		return u.Title == f.AttributeValue
-	case "nickname":
+	case attrNickName:
 		return u.NickName == f.AttributeValue
-	case "usertype":
+	case attrUserType:
 		return u.UserType == f.AttributeValue
-	case "preferredlanguage":
+	case attrPreferredLanguage:
 		return u.PreferredLang == f.AttributeValue
-	case "locale":
+	case attrLocale:
 		return u.Locale == f.AttributeValue
-	case "timezone":
+	case attrTimezone:
 		return u.Timezone == f.AttributeValue
 	}
 
-	return true
+	return false
 }
 
 // userMatchesFilters reports whether u satisfies every filter in the slice.

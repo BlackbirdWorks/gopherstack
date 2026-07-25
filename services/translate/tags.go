@@ -14,6 +14,15 @@ func (b *InMemoryBackend) TagResource(resourceARN string, newTags map[string]str
 		return fmt.Errorf("%w: resource %q not found", ErrNotFound, resourceARN)
 	}
 
+	if tooManyTags(b.tags[resourceARN], newTags) {
+		return fmt.Errorf(
+			"%w: resource %q would exceed the %d-tag limit",
+			ErrTooManyTags,
+			resourceARN,
+			maxTagsPerResource,
+		)
+	}
+
 	if b.tags[resourceARN] == nil {
 		b.tags[resourceARN] = make(map[string]string)
 	}

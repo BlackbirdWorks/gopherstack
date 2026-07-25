@@ -128,8 +128,11 @@ func TestXRay_PersistenceFullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// indexingRules.
-	_, err = b.UpdateIndexingRule("Default")
+	_, err = b.UpdateIndexingRule("Default", &xray.ProbabilisticRuleValue{DesiredSamplingPercentage: 5})
 	require.NoError(t, err)
+
+	// resourceTags.
+	require.NoError(t, b.TagResource(group.GroupARN, map[string]string{"env": "prod"}))
 
 	// traceSegmentDest.
 	dest := b.UpdateTraceSegmentDestination("CloudWatchLogs")
@@ -187,10 +190,18 @@ func TestXRay_PersistenceFullStateRoundTrip(t *testing.T) {
 	assert.Equal(t, "my-policy", policies[0].PolicyName)
 
 	// traceRetrievals + retrievedTraces.
-	status, retrieved := b2.ListRetrievedTraces(token)
+	status, retrieved, err := b2.ListRetrievedTraces(token)
+	require.NoError(t, err)
 	assert.Equal(t, "COMPLETE", status)
 	require.Len(t, retrieved, 1)
 	assert.Equal(t, traceID, retrieved[0].TraceID)
+
+	// resourceTags.
+	tags, err := b2.ListTagsForResource(group.GroupARN)
+	require.NoError(t, err)
+	require.Len(t, tags, 1)
+	assert.Equal(t, "env", tags[0]["Key"])
+	assert.Equal(t, "prod", tags[0]["Value"])
 
 	// samplingStats.
 	stats := b2.GetSamplingStatisticSummaries()
@@ -203,11 +214,13 @@ func TestXRay_PersistenceFullStateRoundTrip(t *testing.T) {
 	assert.Equal(t, "KMS", cfg.Type)
 	assert.Equal(t, "alias/my-key", cfg.KeyID)
 
-	// indexingRules.
+	// indexingRules, including the Rule.DesiredSamplingPercentage set above.
 	found := false
 	for _, r := range b2.GetIndexingRules() {
 		if r.Name == "Default" {
 			found = true
+			require.NotNil(t, r.Rule)
+			assert.InDelta(t, 5.0, r.Rule.DesiredSamplingPercentage, 0)
 		}
 	}
 	assert.True(t, found)
@@ -233,6 +246,38 @@ func TestXRay_Reset_ClearsTraceSegmentDestination(t *testing.T) {
 	b.Reset()
 
 	assert.Equal(t, "XRay", b.GetTraceSegmentDestination())
+}
+
+// TestXRay_Reset_ClearsResourceTags guards against a real leak found during parity
+// audit: resourceTags is a plain map (not store.Table-backed, so registry.ResetAll()
+// does not touch it), and unlike every other plain-map field on InMemoryBackend
+// (insightEvents, retrievedTraces, retrievalTimes), it was never explicitly cleared by
+// Reset() -- the same bug class previously fixed for traceSegmentDest but missed here.
+func TestXRay_Reset_ClearsResourceTags(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+
+	group, err := b.CreateGroup("tag-reset-group", "")
+	require.NoError(t, err)
+	require.NoError(t, b.TagResource(group.GroupARN, map[string]string{"env": "prod"}))
+
+	tagsBefore, err := b.ListTagsForResource(group.GroupARN)
+	require.NoError(t, err)
+	require.Len(t, tagsBefore, 1)
+
+	b.Reset()
+
+	// The group itself is gone after Reset, so re-create it at the same ARN (accountID
+	// and region are unchanged, so the ARN is deterministic) and confirm no tag from
+	// before the reset survived.
+	group2, err := b.CreateGroup("tag-reset-group", "")
+	require.NoError(t, err)
+	require.Equal(t, group.GroupARN, group2.GroupARN)
+
+	tagsAfter, err := b.ListTagsForResource(group2.GroupARN)
+	require.NoError(t, err)
+	assert.Empty(t, tagsAfter, "resourceTags must not survive Reset()")
 }
 
 // TestSnapshotRestoreWithEncryptionConfig verifies encryption config persists.
@@ -310,7 +355,8 @@ func TestPersistence_RetrievedTracesPersistedInSnapshot(t *testing.T) {
 	b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
-	status, traces := b2.ListRetrievedTraces(token)
+	status, traces, err := b2.ListRetrievedTraces(token)
+	require.NoError(t, err)
 	assert.Equal(t, "COMPLETE", status)
 	assert.NotEmpty(t, traces, "retrieved traces should survive snapshot/restore")
 }

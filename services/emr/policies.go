@@ -52,7 +52,11 @@ func validateManagedScalingPolicy(policy ManagedScalingPolicy) error {
 	return nil
 }
 
-// GetManagedScalingPolicy returns the managed scaling policy for a cluster.
+// GetManagedScalingPolicy returns the managed scaling policy for a cluster,
+// or nil if none is attached -- real GetManagedScalingPolicyOutput.ManagedScalingPolicy
+// is a pointer that is omitted from the wire entirely when unset (not a
+// zero-valued object), so callers must propagate nil rather than substitute
+// an empty policy.
 func (b *InMemoryBackend) GetManagedScalingPolicy(
 	ctx context.Context, clusterID string,
 ) (*ManagedScalingPolicy, error) {
@@ -67,9 +71,7 @@ func (b *InMemoryBackend) GetManagedScalingPolicy(
 	}
 
 	if cluster.managedScalingPolicy == nil {
-		empty := ManagedScalingPolicy{}
-
-		return &empty, nil
+		return nil, nil //nolint:nilnil // nil is a valid "no policy attached" result, distinct from an error
 	}
 
 	cp := *cluster.managedScalingPolicy
@@ -94,12 +96,10 @@ func (b *InMemoryBackend) RemoveManagedScalingPolicy(ctx context.Context, cluste
 	return nil
 }
 
-// PutAutoTerminationPolicy sets the auto-termination policy on a cluster.
-func (b *InMemoryBackend) PutAutoTerminationPolicy(
-	ctx context.Context,
-	clusterID string,
-	policy AutoTerminationPolicy,
-) error {
+// validateAutoTerminationPolicy checks IdleTimeout bounds. Shared by
+// PutAutoTerminationPolicy and RunJobFlow (which accepts an
+// AutoTerminationPolicy inline).
+func validateAutoTerminationPolicy(policy AutoTerminationPolicy) error {
 	if policy.IdleTimeout < minIdleTimeout || policy.IdleTimeout > maxIdleTimeout {
 		return fmt.Errorf(
 			"%w: IdleTimeout must be between %d and %d seconds",
@@ -107,6 +107,19 @@ func (b *InMemoryBackend) PutAutoTerminationPolicy(
 			minIdleTimeout,
 			maxIdleTimeout,
 		)
+	}
+
+	return nil
+}
+
+// PutAutoTerminationPolicy sets the auto-termination policy on a cluster.
+func (b *InMemoryBackend) PutAutoTerminationPolicy(
+	ctx context.Context,
+	clusterID string,
+	policy AutoTerminationPolicy,
+) error {
+	if err := validateAutoTerminationPolicy(policy); err != nil {
+		return err
 	}
 
 	region := getRegion(ctx, b.region)
@@ -125,7 +138,9 @@ func (b *InMemoryBackend) PutAutoTerminationPolicy(
 	return nil
 }
 
-// GetAutoTerminationPolicy returns the auto-termination policy for a cluster.
+// GetAutoTerminationPolicy returns the auto-termination policy for a
+// cluster, or nil if none is attached -- see GetManagedScalingPolicy for why
+// nil (not a zero-valued policy) must be propagated.
 func (b *InMemoryBackend) GetAutoTerminationPolicy(
 	ctx context.Context,
 	clusterID string,
@@ -141,9 +156,7 @@ func (b *InMemoryBackend) GetAutoTerminationPolicy(
 	}
 
 	if cluster.autoTerminationPolicy == nil {
-		empty := AutoTerminationPolicy{}
-
-		return &empty, nil
+		return nil, nil //nolint:nilnil // nil is a valid "no policy attached" result, distinct from an error
 	}
 
 	cp := *cluster.autoTerminationPolicy

@@ -273,10 +273,10 @@ func (h *Handler) handleListFileTransferResults(
 }
 
 type startDirectoryListingInput struct {
-	ConnectorID          string   `json:"ConnectorId"`
-	OutputDirectoryPath  string   `json:"OutputDirectoryPath,omitempty"`
-	RemoteDirectoryPaths []string `json:"RemoteDirectoryPaths"`
-	MaxItems             int      `json:"MaxItems,omitempty"`
+	ConnectorID         string `json:"ConnectorId"`
+	OutputDirectoryPath string `json:"OutputDirectoryPath"`
+	RemoteDirectoryPath string `json:"RemoteDirectoryPath"`
+	MaxItems            int    `json:"MaxItems,omitempty"`
 }
 
 func (h *Handler) handleStartDirectoryListing(
@@ -287,9 +287,18 @@ func (h *Handler) handleStartDirectoryListing(
 		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
 
-	opID := h.Backend.StartAsyncOperationRecord(in.ConnectorID, "DIRECTORY_LISTING")
+	if in.OutputDirectoryPath == "" {
+		return nil, fmt.Errorf("%w: OutputDirectoryPath is required", errInvalidRequest)
+	}
 
-	return &map[string]any{"DirectoryListingId": opID}, nil
+	if in.RemoteDirectoryPath == "" {
+		return nil, fmt.Errorf("%w: RemoteDirectoryPath is required", errInvalidRequest)
+	}
+
+	listingID := h.Backend.StartAsyncOperationRecord(in.ConnectorID, "DIRECTORY_LISTING")
+	outputFileName := in.ConnectorID + "-" + listingID + ".json"
+
+	return &map[string]any{"ListingId": listingID, "OutputFileName": outputFileName}, nil
 }
 
 type startFileTransferInput struct {
@@ -316,34 +325,46 @@ func (h *Handler) handleStartFileTransfer(
 }
 
 type startRemoteDeleteInput struct {
-	ConnectorID string   `json:"ConnectorId"`
-	DeletePaths []string `json:"DeletePaths,omitempty"`
+	ConnectorID string `json:"ConnectorId"`
+	DeletePath  string `json:"DeletePath"`
 }
 
 func (h *Handler) handleStartRemoteDelete(_ context.Context, in *startRemoteDeleteInput) (*map[string]any, error) {
-	connID := ""
-	if in != nil {
-		connID = in.ConnectorID
+	if in.ConnectorID == "" {
+		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
-	opID := h.Backend.StartAsyncOperationRecord(connID, "REMOTE_DELETE")
 
-	return &map[string]any{keyTransferID: opID}, nil
+	if in.DeletePath == "" {
+		return nil, fmt.Errorf("%w: DeletePath is required", errInvalidRequest)
+	}
+
+	opID := h.Backend.StartAsyncOperationRecord(in.ConnectorID, "REMOTE_DELETE")
+
+	return &map[string]any{"DeleteId": opID}, nil
 }
 
 type startRemoteMoveInput struct {
-	ConnectorID string   `json:"ConnectorId"`
-	TargetPath  string   `json:"TargetPath,omitempty"`
-	SourcePaths []string `json:"SourcePaths,omitempty"`
+	ConnectorID string `json:"ConnectorId"`
+	SourcePath  string `json:"SourcePath"`
+	TargetPath  string `json:"TargetPath"`
 }
 
 func (h *Handler) handleStartRemoteMove(_ context.Context, in *startRemoteMoveInput) (*map[string]any, error) {
-	connID := ""
-	if in != nil {
-		connID = in.ConnectorID
+	if in.ConnectorID == "" {
+		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
-	opID := h.Backend.StartAsyncOperationRecord(connID, "REMOTE_MOVE")
 
-	return &map[string]any{keyTransferID: opID}, nil
+	if in.SourcePath == "" {
+		return nil, fmt.Errorf("%w: SourcePath is required", errInvalidRequest)
+	}
+
+	if in.TargetPath == "" {
+		return nil, fmt.Errorf("%w: TargetPath is required", errInvalidRequest)
+	}
+
+	opID := h.Backend.StartAsyncOperationRecord(in.ConnectorID, "REMOTE_MOVE")
+
+	return &map[string]any{"MoveId": opID}, nil
 }
 
 type testConnectionInput struct {

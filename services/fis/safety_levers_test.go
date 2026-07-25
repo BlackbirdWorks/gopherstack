@@ -2,6 +2,7 @@ package fis_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -44,6 +45,56 @@ func TestFISHandler_GetSafetyLever_AnyIDReturnsLever(t *testing.T) {
 	// Real AWS returns the account's single lever for any ID path segment.
 	rec := doRequest(t, h, http.MethodGet, "/safetyLevers/999999999999", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestFISHandler_GetSafetyLever_NoTagsFieldOnWire(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	var getResp struct {
+		SafetyLever struct {
+			Arn string `json:"arn"`
+		} `json:"safetyLever"`
+	}
+
+	rec := doRequest(t, h, http.MethodGet, "/safetyLevers/000000000000", nil)
+	mustJSON(t, rec, &getResp)
+
+	// Tag the safety lever's ARN via the generic TagResource operation (a real,
+	// separate FIS operation) and confirm GetSafetyLever's response body has no
+	// "tags" key at all -- the real AWS FIS wire shape (types.SafetyLever) does
+	// not surface tags directly on the resource; ListTagsForResource is the
+	// only way to read them back.
+	tagRec := doRequest(t, h, http.MethodPost, "/tags/"+getResp.SafetyLever.Arn, map[string]any{
+		"tags": map[string]string{"team": "chaos-eng"},
+	})
+	require.Equal(t, http.StatusNoContent, tagRec.Code)
+
+	rec2 := doRequest(t, h, http.MethodGet, "/safetyLevers/000000000000", nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var raw map[string]json.RawMessage
+
+	mustJSON(t, rec2, &raw)
+
+	var lever map[string]json.RawMessage
+
+	require.NoError(t, json.Unmarshal(raw["safetyLever"], &lever))
+
+	_, hasTags := lever["tags"]
+	assert.False(t, hasTags, "GetSafetyLever response must not include a tags field")
+
+	// The tag is still readable via the dedicated tag operation.
+	tagsRec := doRequest(t, h, http.MethodGet, "/tags/"+getResp.SafetyLever.Arn, nil)
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+
+	var tagsResp struct {
+		Tags map[string]string `json:"tags"`
+	}
+
+	mustJSON(t, tagsRec, &tagsResp)
+	assert.Equal(t, "chaos-eng", tagsResp.Tags["team"])
 }
 
 func TestFISHandler_UpdateSafetyLeverState(t *testing.T) {

@@ -29,9 +29,16 @@ func resolveTagsPerPage(tagsPerPage *int32) int {
 // next pagination token (nil when there are no more results). When tagsPerPage is
 // positive the page is additionally capped by [capByTagCount] so that TagsPerPage --
 // otherwise accepted and validated but never affecting output -- actually constrains
-// page splits the way real AWS documents it doing.
-func paginateResources(all []TaggedResource, token string, pageSize, tagsPerPage int) ([]TaggedResource, *string) {
-	start := findTokenStart(all, token)
+// page splits the way real AWS documents it doing. Returns [ErrPaginationTokenExpired]
+// when token is non-empty and does not match any resource in all.
+func paginateResources(
+	all []TaggedResource, token string, pageSize, tagsPerPage int,
+) ([]TaggedResource, *string, error) {
+	start, err := findTokenStart(all, token)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	page := all[start:]
 	truncated := len(page) > pageSize
 
@@ -47,12 +54,12 @@ func paginateResources(all []TaggedResource, token string, pageSize, tagsPerPage
 	}
 
 	if !truncated {
-		return page, nil
+		return page, nil, nil
 	}
 
 	tok := page[len(page)-1].ResourceARN
 
-	return page, &tok
+	return page, &tok, nil
 }
 
 // capByTagCount returns the longest prefix of page whose cumulative tag count (each
@@ -79,43 +86,53 @@ func capByTagCount(page []TaggedResource, tagsPerPage int) ([]TaggedResource, bo
 
 // paginateStrings applies cursor-based pagination over a sorted string slice and returns
 // the current page and the next pagination token (nil when there are no more results).
-func paginateStrings(all []string, token string, pageSize int) ([]string, *string) {
+// Returns [ErrPaginationTokenExpired] when token is non-empty and does not match any
+// entry in all.
+func paginateStrings(all []string, token string, pageSize int) ([]string, *string, error) {
 	start := 0
 
 	if token != "" {
+		found := false
+
 		for i, s := range all {
 			if s == token {
 				start = i + 1
+				found = true
 
 				break
 			}
+		}
+
+		if !found {
+			return nil, nil, ErrPaginationTokenExpired
 		}
 	}
 
 	page := all[start:]
 
 	if len(page) <= pageSize {
-		return page, nil
+		return page, nil, nil
 	}
 
 	page = page[:pageSize]
 	tok := page[len(page)-1]
 
-	return page, &tok
+	return page, &tok, nil
 }
 
-// findTokenStart returns the index after the resource whose ARN equals token,
-// or 0 if the token is empty or not found.
-func findTokenStart(all []TaggedResource, token string) int {
+// findTokenStart returns the index after the resource whose ARN equals token.
+// Returns [ErrPaginationTokenExpired] when token is non-empty and does not match any
+// resource in all. An empty token always resolves to index 0.
+func findTokenStart(all []TaggedResource, token string) (int, error) {
 	if token == "" {
-		return 0
+		return 0, nil
 	}
 
 	for i, r := range all {
 		if r.ResourceARN == token {
-			return i + 1
+			return i + 1, nil
 		}
 	}
 
-	return 0
+	return 0, ErrPaginationTokenExpired
 }

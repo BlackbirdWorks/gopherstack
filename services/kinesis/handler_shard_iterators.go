@@ -8,12 +8,12 @@ import (
 )
 
 type jsonGetShardIteratorReq struct {
-	StreamName             string  `json:"StreamName"`
-	StreamARN              string  `json:"StreamARN"`
-	ShardID                string  `json:"ShardId"`
-	ShardIteratorType      string  `json:"ShardIteratorType"`
-	StartingSequenceNumber string  `json:"StartingSequenceNumber"`
-	Timestamp              float64 `json:"Timestamp"`
+	Timestamp              *float64 `json:"Timestamp"`
+	StreamName             string   `json:"StreamName"`
+	StreamARN              string   `json:"StreamARN"`
+	ShardID                string   `json:"ShardId"`
+	ShardIteratorType      string   `json:"ShardIteratorType"`
+	StartingSequenceNumber string   `json:"StartingSequenceNumber"`
 }
 
 type jsonGetShardIteratorResp struct {
@@ -35,12 +35,18 @@ func (h *Handler) handleGetShardIterator(
 		streamName = streamNameFromARN(req.StreamARN)
 	}
 
+	var ts *time.Time
+	if req.Timestamp != nil {
+		t := time.UnixMilli(int64(*req.Timestamp * millisPerSecond))
+		ts = &t
+	}
+
 	out, err := h.Backend.GetShardIterator(ctx, &GetShardIteratorInput{
 		StreamName:             streamName,
 		ShardID:                req.ShardID,
 		ShardIteratorType:      req.ShardIteratorType,
 		StartingSequenceNumber: req.StartingSequenceNumber,
-		Timestamp:              time.UnixMilli(int64(req.Timestamp * millisPerSecond)),
+		Timestamp:              ts,
 	})
 	if err != nil {
 		return nil, err

@@ -9,12 +9,9 @@ const (
 	configManagerChef = "Chef"
 	osTypeLinux       = "Linux"
 
-	instanceStatusStopped  = "stopped"
-	instanceStatusStarting = "starting"
-	instanceStatusStopping = "stopping"
-	instanceStatusOnline   = "online"
+	instanceStatusStopped = "stopped"
+	instanceStatusOnline  = "online"
 
-	deploymentStatusRunning    = "running"
 	deploymentStatusSuccessful = "successful"
 
 	commandStatusSuccessful = "successful"
@@ -34,7 +31,6 @@ type storedStack struct {
 	Region                    string            `json:"region"`
 	DefaultInstanceProfileArn string            `json:"defaultInstanceProfileArn"`
 	ServiceRoleArn            string            `json:"serviceRoleArn"`
-	Status                    string            `json:"status"`
 }
 
 func (s *storedStack) toStack() *Stack {
@@ -50,7 +46,6 @@ func (s *storedStack) toStack() *Stack {
 		Region:                    s.Region,
 		DefaultInstanceProfileArn: s.DefaultInstanceProfileArn,
 		ServiceRoleArn:            s.ServiceRoleArn,
-		Status:                    s.Status,
 	}
 }
 

@@ -207,10 +207,10 @@ func (j *Janitor) getJobsToAdvance() ([]advanceKey, []advanceKey) {
 	for _, job := range j.Backend.serviceJobs.All() {
 		switch job.Status {
 		case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
-			toAdvanceSvc = append(toAdvanceSvc, advanceKey{job.region, job.ServiceJobID, jobStatusRunning})
+			toAdvanceSvc = append(toAdvanceSvc, advanceKey{job.region, job.JobID, jobStatusRunning})
 		case jobStatusRunning:
 			if job.StoppedAt == nil {
-				toAdvanceSvc = append(toAdvanceSvc, advanceKey{job.region, job.ServiceJobID, jobStatusSucceeded})
+				toAdvanceSvc = append(toAdvanceSvc, advanceKey{job.region, job.JobID, jobStatusSucceeded})
 			}
 		}
 	}

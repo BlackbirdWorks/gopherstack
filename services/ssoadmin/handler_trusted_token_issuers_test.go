@@ -69,7 +69,7 @@ func TestCreateTrustedTokenIssuer(t *testing.T) {
 			name:           "create trusted token issuer for nonexistent instance",
 			issuerName:     "BadIssuer",
 			issuerType:     "OIDC_JWT",
-			wantStatus:     http.StatusNotFound,
+			wantStatus:     http.StatusBadRequest,
 			useInvalidInst: true,
 		},
 	}
@@ -118,7 +118,7 @@ func TestCreateTrustedTokenIssuerDuplicate(t *testing.T) {
 		"Name":                   "DupIssuer",
 		"TrustedTokenIssuerType": "OIDC_JWT",
 	})
-	assert.Equal(t, http.StatusConflict, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 func TestTrustedTokenIssuerAdditionalOperations(t *testing.T) {
@@ -204,7 +204,7 @@ func TestTrustedTokenIssuerAdditionalOperations(t *testing.T) {
 
 				return map[string]any{"TrustedTokenIssuerArn": issuerArn}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -303,8 +303,7 @@ func TestDescribeTrustedTokenIssuerConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	resp := parseResponse(t, rec)
 
-	tti := resp["TrustedTokenIssuer"].(map[string]any)
-	cfg, ok := tti["TrustedTokenIssuerConfiguration"].(map[string]any)
+	cfg, ok := resp["TrustedTokenIssuerConfiguration"].(map[string]any)
 	require.True(t, ok, "TrustedTokenIssuerConfiguration should be in DescribeTrustedTokenIssuer")
 	oidc, ok := cfg["OidcJwtConfiguration"].(map[string]any)
 	require.True(t, ok)
@@ -312,9 +311,18 @@ func TestDescribeTrustedTokenIssuerConfiguration(t *testing.T) {
 	assert.Equal(t, "sub", oidc["ClaimAttributePath"])
 }
 
-// TestDescribeTrustedTokenIssuerIncludesTags verifies Tags field in
-// DescribeTrustedTokenIssuer response.
-func TestDescribeTrustedTokenIssuerIncludesTags(t *testing.T) {
+// TestDescribeTrustedTokenIssuerWireShape locks in the real
+// DescribeTrustedTokenIssuerOutput wire shape: flat top-level fields
+// (Name, TrustedTokenIssuerArn, TrustedTokenIssuerConfiguration,
+// TrustedTokenIssuerType) with NO nested "TrustedTokenIssuer" wrapper, no
+// InstanceArn member, and no Tags member. gopherstack previously nested
+// everything (including a fabricated InstanceArn and Tags) under an invented
+// "TrustedTokenIssuer" key that doesn't exist on the real wire; a real
+// aws-sdk-go-v2 client parsing that response would find every
+// DescribeTrustedTokenIssuerOutput field nil/empty. Tags are fetched
+// separately via ListTagsForResource, matching every other taggable ssoadmin
+// resource.
+func TestDescribeTrustedTokenIssuerWireShape(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -336,7 +344,10 @@ func TestDescribeTrustedTokenIssuerIncludesTags(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	ttiArn := parseResponse(t, rec)["TrustedTokenIssuerArn"].(string)
+	createResp := parseResponse(t, rec)
+	ttiArn := createResp["TrustedTokenIssuerArn"].(string)
+	assert.NotContains(t, createResp, "TrustedTokenIssuer",
+		`CreateTrustedTokenIssuerOutput has no nested "TrustedTokenIssuer" member`)
 
 	descRec := doRequest(t, h, "DescribeTrustedTokenIssuer", map[string]any{
 		"TrustedTokenIssuerArn": ttiArn,
@@ -344,16 +355,88 @@ func TestDescribeTrustedTokenIssuerIncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	resp := parseResponse(t, descRec)
-	ttiMap := resp["TrustedTokenIssuer"].(map[string]any)
+	assert.NotContains(t, resp, "TrustedTokenIssuer",
+		`DescribeTrustedTokenIssuerOutput has no nested "TrustedTokenIssuer" member`)
+	assert.NotContains(t, resp, "InstanceArn", "DescribeTrustedTokenIssuerOutput has no InstanceArn member")
+	assert.NotContains(t, resp, "Tags", "DescribeTrustedTokenIssuerOutput has no Tags member")
+	assert.Equal(t, ttiArn, resp["TrustedTokenIssuerArn"])
+	assert.Equal(t, "r3-tti-tagged", resp["Name"])
+	assert.Equal(t, "OIDC_JWT", resp["TrustedTokenIssuerType"])
+	require.Contains(t, resp, "TrustedTokenIssuerConfiguration")
 
-	tags, hasTags := ttiMap["Tags"]
-	assert.True(t, hasTags, "DescribeTrustedTokenIssuer should include Tags")
-	tagSlice, ok := tags.([]any)
-	assert.True(t, ok)
-	assert.Len(t, tagSlice, 1)
-	tagEntry := tagSlice[0].(map[string]any)
+	// Tags are only reachable via ListTagsForResource, matching real AWS.
+	tagsRec := doRequest(t, h, "ListTagsForResource", map[string]any{
+		"InstanceArn": instanceArn,
+		"ResourceArn": ttiArn,
+	})
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+	tagsResp := parseResponse(t, tagsRec)
+	tags, ok := tagsResp["Tags"].([]any)
+	require.True(t, ok)
+	require.Len(t, tags, 1)
+	tagEntry := tags[0].(map[string]any)
 	assert.Equal(t, "tier", tagEntry["Key"])
 	assert.Equal(t, "prod", tagEntry["Value"])
+}
+
+// TestUpdateTrustedTokenIssuerWireShape locks in that
+// UpdateTrustedTokenIssuerOutput is void (no members at all) --
+// gopherstack previously echoed a full invented "TrustedTokenIssuer" object
+// (including a fabricated InstanceArn field) that doesn't exist on the real
+// wire.
+func TestUpdateTrustedTokenIssuerWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "tti-update-wire-shape-inst")
+
+	createRec := doRequest(t, h, "CreateTrustedTokenIssuer", map[string]any{
+		"InstanceArn":            instanceArn,
+		"Name":                   "UpdateWireShapeIssuer",
+		"TrustedTokenIssuerType": "OIDC_JWT",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	ttiArn := parseResponse(t, createRec)["TrustedTokenIssuerArn"].(string)
+
+	rec := doRequest(t, h, "UpdateTrustedTokenIssuer", map[string]any{
+		"TrustedTokenIssuerArn": ttiArn,
+		"Name":                  "RenamedIssuer",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	assert.Empty(t, resp, "UpdateTrustedTokenIssuerOutput has no members")
+}
+
+// TestListTrustedTokenIssuers_NoInstanceArnMember locks in that
+// types.TrustedTokenIssuerMetadata (the ListTrustedTokenIssuers item shape)
+// has no InstanceArn member -- gopherstack previously invented one.
+func TestListTrustedTokenIssuers_NoInstanceArnMember(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "tti-list-wire-shape-inst")
+
+	createRec := doRequest(t, h, "CreateTrustedTokenIssuer", map[string]any{
+		"InstanceArn":            instanceArn,
+		"Name":                   "ListWireShapeIssuer",
+		"TrustedTokenIssuerType": "OIDC_JWT",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	rec := doRequest(t, h, "ListTrustedTokenIssuers", map[string]any{"InstanceArn": instanceArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	issuers, ok := resp["TrustedTokenIssuers"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, issuers)
+
+	for _, raw := range issuers {
+		item, itemOK := raw.(map[string]any)
+		require.True(t, itemOK)
+		assert.NotContains(t, item, "InstanceArn", "TrustedTokenIssuerMetadata has no InstanceArn member")
+		assert.Contains(t, item, "TrustedTokenIssuerArn")
+		assert.Contains(t, item, "Name")
+	}
 }
 
 // TestUpdateTrustedTokenIssuerWithConfig verifies that configuration can be updated.
@@ -400,8 +483,7 @@ func TestUpdateTrustedTokenIssuerWithConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	resp := parseResponse(t, descRec)
-	ttiMap := resp["TrustedTokenIssuer"].(map[string]any)
-	cfg := ttiMap["TrustedTokenIssuerConfiguration"].(map[string]any)
+	cfg := resp["TrustedTokenIssuerConfiguration"].(map[string]any)
 	oidc := cfg["OidcJwtConfiguration"].(map[string]any)
 	assert.Equal(t, "https://new-issuer.example.com", oidc["IssuerUrl"])
 	assert.Equal(t, "email", oidc["ClaimAttributePath"])

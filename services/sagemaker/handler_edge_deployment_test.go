@@ -20,7 +20,10 @@ func TestHandler_EdgeDeploymentPlanLifecycle(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "plan-fleet"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "plan-fleet",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 
 	rec := doSageMakerRequest(t, h, "CreateEdgeDeploymentPlan", map[string]any{
 		"EdgeDeploymentPlanName": "my-plan",
@@ -118,7 +121,10 @@ func TestHandler_EdgeDeploymentPlan_Duplicate(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "dup-fleet"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "dup-fleet",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 
 	body := map[string]any{"EdgeDeploymentPlanName": "dup-plan", "DeviceFleetName": "dup-fleet"}
 	doSageMakerRequest(t, h, "CreateEdgeDeploymentPlan", body)
@@ -148,7 +154,10 @@ func TestHandler_EdgeDeploymentStageLifecycle(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "stage-fleet"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "stage-fleet",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 	doSageMakerRequest(t, h, "CreateEdgeDeploymentPlan", map[string]any{
 		"EdgeDeploymentPlanName": "stage-plan",
 		"DeviceFleetName":        "stage-fleet",
@@ -222,7 +231,10 @@ func TestHandler_EdgeDeploymentStage_UnknownStage(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "fleet-x"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "fleet-x",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 	doSageMakerRequest(t, h, "CreateEdgeDeploymentPlan", map[string]any{
 		"EdgeDeploymentPlanName": "plan-x",
 		"DeviceFleetName":        "fleet-x",
@@ -311,7 +323,10 @@ func TestHandler_ListStageDevices(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "lsd-fleet"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "lsd-fleet",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 	doSageMakerRequest(t, h, "RegisterDevices", map[string]any{
 		"DeviceFleetName": "lsd-fleet",
 		"Devices": []any{
@@ -352,7 +367,10 @@ func TestHandler_ListStageDevices_UnknownStage(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "lsd-fleet-2"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "lsd-fleet-2",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 	doSageMakerRequest(t, h, "CreateEdgeDeploymentPlan", map[string]any{
 		"EdgeDeploymentPlanName": "lsd-plan-2",
 		"DeviceFleetName":        "lsd-fleet-2",
@@ -374,7 +392,10 @@ func TestHandler_UpdateDevices(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "upd-fleet"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "upd-fleet",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 	doSageMakerRequest(t, h, "RegisterDevices", map[string]any{
 		"DeviceFleetName": "upd-fleet",
 		"Devices": []any{
@@ -425,7 +446,10 @@ func TestHandler_EdgeDeploymentPlan_SnapshotRestore(t *testing.T) {
 			h1 := newTestHandler(t)
 
 			if tt.makePlan {
-				doSageMakerRequest(t, h1, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "persist-fleet"})
+				doSageMakerRequest(t, h1, "CreateDeviceFleet", map[string]any{
+					"DeviceFleetName": "persist-fleet",
+					"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+				})
 				doSageMakerRequest(t, h1, "CreateEdgeDeploymentPlan", map[string]any{
 					"EdgeDeploymentPlanName": "persist-plan",
 					"DeviceFleetName":        "persist-fleet",

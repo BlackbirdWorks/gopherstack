@@ -1,6 +1,9 @@
 package detective
 
-import "time"
+import (
+	"maps"
+	"time"
+)
 
 const (
 	memberStatusInvited          = "INVITED"
@@ -19,6 +22,13 @@ const (
 
 	entityTypeIAMRole = "IAM_ROLE"
 	entityTypeIAMUser = "IAM_USER"
+
+	// invitationTypeInvitation is the only InvitationType this emulator ever
+	// produces: every member is created through the CreateMembers invite flow.
+	// InvitationTypeOrganization ("ORGANIZATION") would require modeling
+	// AWS Organizations account-join events driving auto-enablement, which
+	// this single-account emulator does not simulate.
+	invitationTypeInvitation = "INVITATION"
 
 	severityInformational = "INFORMATIONAL"
 	severityLow           = "LOW"
@@ -78,15 +88,23 @@ type storedMember struct {
 	Status          string    `json:"status"`
 }
 
-func (m *storedMember) toMemberDetail() MemberDetail {
+// toMemberDetail builds the wire-facing MemberDetail. datasourceStates is the
+// graph's per-package ingest state map (may be nil); it is copied so callers
+// never share backend map storage with the returned value.
+func (m *storedMember) toMemberDetail(datasourceStates map[string]string) MemberDetail {
+	states := make(map[string]string, len(datasourceStates))
+	maps.Copy(states, datasourceStates)
+
 	return MemberDetail{
-		AccountID:       m.AccountID,
-		AdministratorID: m.AdministratorID,
-		EmailAddress:    m.EmailAddress,
-		GraphARN:        m.GraphARN,
-		InvitedTime:     m.InvitedTime,
-		Status:          m.Status,
-		UpdatedTime:     m.UpdatedTime,
+		AccountID:                     m.AccountID,
+		AdministratorID:               m.AdministratorID,
+		DatasourcePackageIngestStates: states,
+		EmailAddress:                  m.EmailAddress,
+		GraphARN:                      m.GraphARN,
+		InvitationType:                invitationTypeInvitation,
+		InvitedTime:                   m.InvitedTime,
+		Status:                        m.Status,
+		UpdatedTime:                   m.UpdatedTime,
 	}
 }
 

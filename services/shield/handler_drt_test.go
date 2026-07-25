@@ -25,6 +25,7 @@ func TestHandler_AssociateDRTLogBucket(t *testing.T) {
 			name: "success",
 			setup: func(h *shield.Handler) {
 				require.NoError(t, h.Backend.CreateSubscription())
+				require.NoError(t, h.Backend.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
 			},
 			body:       map[string]any{"LogBucket": "my-shield-logs"},
 			wantStatus: http.StatusOK,
@@ -38,6 +39,14 @@ func TestHandler_AssociateDRTLogBucket(t *testing.T) {
 		{
 			name:       "no subscription returns error",
 			setup:      func(_ *shield.Handler) {},
+			body:       map[string]any{"LogBucket": "my-shield-logs"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "no DRT role associated returns error",
+			setup: func(h *shield.Handler) {
+				require.NoError(t, h.Backend.CreateSubscription())
+			},
 			body:       map[string]any{"LogBucket": "my-shield-logs"},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -159,6 +168,7 @@ func TestHandler_DisassociateDRTLogBucket(t *testing.T) {
 
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
+	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
 	require.NoError(t, b.AssociateDRTLogBucket("my-bucket"))
 
 	h := shield.NewHandler(b)

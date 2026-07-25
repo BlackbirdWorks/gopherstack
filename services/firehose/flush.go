@@ -113,6 +113,20 @@ func bufferingHints(s *DeliveryStream) *BufferingHints {
 		return s.OpenSearchDestination.BufferingHints
 	}
 
+	if s.ElasticsearchDestination != nil && s.ElasticsearchDestination.BufferingHints != nil {
+		return s.ElasticsearchDestination.BufferingHints
+	}
+
+	if s.IcebergDestination != nil && s.IcebergDestination.BufferingHints != nil {
+		return s.IcebergDestination.BufferingHints
+	}
+
+	if s.SnowflakeDestination != nil && s.SnowflakeDestination.BufferingHints != nil {
+		h := s.SnowflakeDestination.BufferingHints
+
+		return &BufferingHints{SizeInMBs: h.SizeInMBs, IntervalInSeconds: h.IntervalInSeconds}
+	}
+
 	return nil
 }
 
@@ -150,15 +164,18 @@ func (b *InMemoryBackend) shouldFlushByIntervalLocked(s *DeliveryStream) bool {
 
 // flushSnapshot holds a point-in-time snapshot of records extracted from a stream.
 type flushSnapshot struct {
-	s3Dest         *S3DestinationDescription
-	httpDest       *HTTPEndpointDestinationDescription
-	redshiftDest   *RedshiftDestinationDescription
-	openSearchDest *OpenSearchDestinationDescription
-	splunkDest     *SplunkDestinationDescription
-	streamARN      string
-	streamName     string
-	region         string
-	records        [][]byte
+	s3Dest            *S3DestinationDescription
+	httpDest          *HTTPEndpointDestinationDescription
+	redshiftDest      *RedshiftDestinationDescription
+	openSearchDest    *OpenSearchDestinationDescription
+	elasticsearchDest *ElasticsearchDestinationDescription
+	splunkDest        *SplunkDestinationDescription
+	icebergDest       *IcebergDestinationDescription
+	snowflakeDest     *SnowflakeDestinationDescription
+	streamARN         string
+	streamName        string
+	region            string
+	records           [][]byte
 	// backupRecords are the source records copied for an S3 backup destination
 	// (S3BackupMode=Enabled); they are delivered to the backup bucket verbatim.
 	backupRecords [][]byte
@@ -175,8 +192,16 @@ func (b *InMemoryBackend) extractForFlushLocked(s *DeliveryStream) *flushSnapsho
 }
 
 // hasActiveDestinationLocked reports whether the stream has at least one configured
-// delivery destination. Must be called with the read lock (or write lock) held.
+// delivery destination. Must be called with the read lock (or write lock) held. Split
+// across hasCoreActiveDestinationLocked/hasSearchOrLakeActiveDestination so neither half
+// grows past the cyclomatic-complexity budget as destination families are added.
 func (b *InMemoryBackend) hasActiveDestinationLocked(s *DeliveryStream) bool {
+	return b.hasCoreActiveDestinationLocked(s) || hasSearchOrLakeActiveDestination(s)
+}
+
+// hasCoreActiveDestinationLocked checks the original S3/HTTP/Redshift destination family.
+// Must be called with the read lock (or write lock) held.
+func (b *InMemoryBackend) hasCoreActiveDestinationLocked(s *DeliveryStream) bool {
 	if s.S3Destination != nil && b.s3 != nil {
 		return true
 	}
@@ -187,12 +212,20 @@ func (b *InMemoryBackend) hasActiveDestinationLocked(s *DeliveryStream) bool {
 		return true
 	}
 
-	if s.RedshiftDestination != nil && s.RedshiftDestination.ClusterJDBCURL != "" {
+	return s.RedshiftDestination != nil && s.RedshiftDestination.ClusterJDBCURL != ""
+}
+
+// hasSearchOrLakeActiveDestination checks the search-engine (OpenSearch/Elasticsearch/
+// Splunk) and data-lake (Iceberg/Snowflake) destination families. Does not touch backend
+// state, so no lock requirement.
+func hasSearchOrLakeActiveDestination(s *DeliveryStream) bool {
+	if s.OpenSearchDestination != nil &&
+		(s.OpenSearchDestination.DomainARN != "" || s.OpenSearchDestination.ClusterEndpoint != "") {
 		return true
 	}
 
-	if s.OpenSearchDestination != nil &&
-		(s.OpenSearchDestination.DomainARN != "" || s.OpenSearchDestination.ClusterEndpoint != "") {
+	if s.ElasticsearchDestination != nil &&
+		(s.ElasticsearchDestination.DomainARN != "" || s.ElasticsearchDestination.ClusterEndpoint != "") {
 		return true
 	}
 
@@ -200,7 +233,31 @@ func (b *InMemoryBackend) hasActiveDestinationLocked(s *DeliveryStream) bool {
 		return true
 	}
 
-	return false
+	return hasLakeS3Destination(s.IcebergDestination.getS3()) || hasLakeS3Destination(s.SnowflakeDestination.getS3())
+}
+
+// hasLakeS3Destination reports whether a data-lake destination's required S3 staging
+// location has a bucket configured.
+func hasLakeS3Destination(s3Dest *S3DestinationDescription) bool {
+	return s3Dest != nil && s3Dest.BucketARN != ""
+}
+
+// getS3 returns d's required S3 staging destination, or nil when d itself is nil.
+func (d *IcebergDestinationDescription) getS3() *S3DestinationDescription {
+	if d == nil {
+		return nil
+	}
+
+	return d.S3Destination
+}
+
+// getS3 returns d's required S3 staging destination, or nil when d itself is nil.
+func (d *SnowflakeDestinationDescription) getS3() *S3DestinationDescription {
+	if d == nil {
+		return nil
+	}
+
+	return d.S3Destination
 }
 
 // extractAllRecordsLocked unconditionally snapshots and resets the stream buffer.
@@ -239,9 +296,24 @@ func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnaps
 		snap.openSearchDest = &d
 	}
 
+	if s.ElasticsearchDestination != nil {
+		d := *s.ElasticsearchDestination
+		snap.elasticsearchDest = &d
+	}
+
 	if s.SplunkDestination != nil {
 		d := *s.SplunkDestination
 		snap.splunkDest = &d
+	}
+
+	if s.IcebergDestination != nil {
+		d := *s.IcebergDestination
+		snap.icebergDest = &d
+	}
+
+	if s.SnowflakeDestination != nil {
+		d := *s.SnowflakeDestination
+		snap.snowflakeDest = &d
 	}
 
 	s.Records = [][]byte{}
@@ -284,11 +356,35 @@ func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapsh
 			})
 	}
 
+	if snap.elasticsearchDest != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName, snap.elasticsearchDest.ProcessingConfiguration,
+			snap.elasticsearchDest.S3BackupDescription, snap.elasticsearchDest.CloudWatchLoggingOptions,
+			func(recs [][]byte) {
+				b.deliverToElasticsearch(ctx, recs, snap.elasticsearchDest, snap.streamARN)
+			})
+	}
+
 	if snap.splunkDest != nil {
 		b.deliverProcessedNonS3(ctx, snap, streamName, snap.splunkDest.ProcessingConfiguration,
 			snap.splunkDest.S3BackupDescription, snap.splunkDest.CloudWatchLoggingOptions,
 			func(recs [][]byte) {
 				b.deliverToSplunk(ctx, recs, snap.splunkDest, snap.streamARN)
+			})
+	}
+
+	if snap.icebergDest != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName, snap.icebergDest.ProcessingConfiguration,
+			nil, snap.icebergDest.CloudWatchLoggingOptions,
+			func(recs [][]byte) {
+				b.deliverToIceberg(ctx, recs, snap.icebergDest, streamName)
+			})
+	}
+
+	if snap.snowflakeDest != nil {
+		b.deliverProcessedNonS3(ctx, snap, streamName, snap.snowflakeDest.ProcessingConfiguration,
+			nil, snap.snowflakeDest.CloudWatchLoggingOptions,
+			func(recs [][]byte) {
+				b.deliverToSnowflake(ctx, recs, snap.snowflakeDest, streamName)
 			})
 	}
 }

@@ -62,6 +62,22 @@ func (b *InMemoryBackend) setResourceTagsLocked(resourceArn string, tags []Tag) 
 	b.resourceTags[resourceTagKey(resourceArn)] = merged
 }
 
+// deleteResourceTagsLocked removes the resourceTags side-map entry for a
+// resource ARN, if any. Call this from every resource-delete path that a
+// client could have tagged via TagResource (clusters, services, container
+// instances, task sets, task definitions, daemons, daemon task definitions,
+// express gateway services) so a delete+recreate cycle with the same
+// deterministic ARN does not resurrect stale tags, and so random-ID ARNs
+// (task sets, tasks) do not leak a permanent resourceTags row after their
+// owning resource is gone. Must be called with the write lock held.
+func (b *InMemoryBackend) deleteResourceTagsLocked(resourceArn string) {
+	if b.resourceTags == nil {
+		return
+	}
+
+	delete(b.resourceTags, resourceTagKey(resourceArn))
+}
+
 // UntagResource removes tags with the given keys from a resource.
 func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
 	if resourceArn == "" {

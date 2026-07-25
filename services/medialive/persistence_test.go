@@ -29,7 +29,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := medialive.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateChannel("seed-channel", "", "", nil)
+	_, err := b.CreateChannel("seed-channel", "", "", medialive.ChannelAnywhereSettings{}, nil)
 	require.NoError(t, err)
 
 	// A syntactically valid but version-less/mismatched snapshot.
@@ -48,7 +48,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	t.Parallel()
 
 	b := medialive.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateChannel("seed-channel", "", "", nil)
+	_, err := b.CreateChannel("seed-channel", "", "", medialive.ChannelAnywhereSettings{}, nil)
 	require.NoError(t, err)
 
 	// Pre-Phase-3.3 shape: plain resource maps, no "version" or "tables" key.
@@ -69,7 +69,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	original := medialive.NewInMemoryBackend("111122223333", "us-west-2")
 
-	channel, err := original.CreateChannel("chan-1", "STANDARD", "role-arn", map[string]string{"env": "test"})
+	channel, err := original.CreateChannel(
+		"chan-1", "STANDARD", "role-arn", medialive.ChannelAnywhereSettings{}, map[string]string{"env": "test"},
+	)
 	require.NoError(t, err)
 
 	input, err := original.CreateInput("input-1", "UDP_PUSH", "role-arn", nil)
@@ -89,7 +91,24 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	cluster, err := original.CreateCluster("cluster-1", "ON_PREMISES", "role-arn", nil)
+	cluster, err := original.CreateCluster(
+		"cluster-1", "ON_PREMISES", "role-arn",
+		medialive.ClusterNetworkSettings{
+			DefaultRoute: "if-a",
+			InterfaceMappings: []medialive.InterfaceMapping{
+				{LogicalInterfaceName: "if-a", NetworkID: "net-1"},
+			},
+		},
+		nil,
+	)
+	require.NoError(t, err)
+
+	// AnywhereSettings references the cluster, so it's set via UpdateChannel
+	// here (after the cluster exists) rather than at CreateChannel above.
+	channel, err = original.UpdateChannel(
+		channel.ID, "", "",
+		medialive.ChannelAnywhereSettings{ClusterID: cluster.ID}, true,
+	)
 	require.NoError(t, err)
 
 	signalMap, err := original.CreateSignalMap("sigmap-1", "desc", "arn:discovery", nil, nil, nil)
@@ -117,7 +136,11 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, offerings)
 
-	reservation, err := original.PurchaseOffering(offerings[0].OfferingID, "reservation-1", 1, nil)
+	reservation, err := original.PurchaseOffering(
+		offerings[0].OfferingID, "reservation-1", 1,
+		medialive.RenewalSettings{AutomaticRenewal: "ENABLED", RenewalCount: 2},
+		nil,
+	)
 	require.NoError(t, err)
 
 	network, err := original.CreateNetwork("network-1", nil, nil, nil)
@@ -158,6 +181,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotChannel, err := fresh.DescribeChannel(channel.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "chan-1", gotChannel.Name)
+	assert.Equal(t, cluster.ID, gotChannel.AnywhereSettings.ClusterID,
+		"AnywhereSettings must survive Snapshot/Restore, not just Create")
 
 	gotInput, err := fresh.DescribeInput(input.ID)
 	require.NoError(t, err)
@@ -172,6 +197,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotCluster, err := fresh.DescribeCluster(cluster.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "cluster-1", gotCluster.Name)
+	assert.Equal(t, "if-a", gotCluster.NetworkSettings.DefaultRoute,
+		"NetworkSettings must survive Snapshot/Restore, not just Create")
+	assert.Equal(t, []string{channel.ID}, gotCluster.ChannelIDs,
+		"ChannelIds must be derivable from the restored channels table, not just live state")
 
 	gotSignalMap, err := fresh.GetSignalMap(signalMap.ID)
 	require.NoError(t, err)
@@ -196,6 +225,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotReservation, err := fresh.DescribeReservation(reservation.ReservationID)
 	require.NoError(t, err)
 	assert.Equal(t, "reservation-1", gotReservation.Name)
+	assert.Equal(t, "ENABLED", gotReservation.RenewalSettings.AutomaticRenewal,
+		"RenewalSettings must survive Snapshot/Restore, not just Purchase")
 
 	gotNetwork, err := fresh.DescribeNetwork(network.ID)
 	require.NoError(t, err)
@@ -245,7 +276,7 @@ func Test_Handler_SnapshotRestore(t *testing.T) {
 	// Compile-time proof Handler satisfies the persistence layer's contract.
 	var _ persistence.Persistable = h
 
-	_, err := h.Backend.CreateChannel("delegate-channel", "", "", nil)
+	_, err := h.Backend.CreateChannel("delegate-channel", "", "", medialive.ChannelAnywhereSettings{}, nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(ctx)

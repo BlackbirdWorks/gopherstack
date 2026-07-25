@@ -303,6 +303,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayVirtualInterfaceGroup(
 	deleted.Tags = maps.Clone(group.Tags)
 	deleted.ConfigurationState = localGatewayRouteStateDeleted
 	b.localGatewayVirtualInterfaceGroups.Delete(id)
+	delete(b.tags, id)
 
 	return &deleted, nil
 }
@@ -410,6 +411,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayVirtualInterface(
 	deleted.Tags = maps.Clone(vif.Tags)
 	deleted.ConfigurationState = localGatewayRouteStateDeleted
 	b.localGatewayVirtualInterfaces.Delete(id)
+	delete(b.tags, id)
 
 	return &deleted, nil
 }
@@ -584,6 +586,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayRouteTable(id string) error {
 		return fmt.Errorf("%w: %s", ErrLocalGatewayRouteTableNotFound, id)
 	}
 	b.localGatewayRouteTables.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -853,6 +856,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayRouteTableVpcAssociation(
 	deleted := *assoc
 	deleted.State = localGatewayAssocStateDisassoc
 	b.localGatewayRouteTableVpcAssociations.Delete(id)
+	delete(b.tags, id)
 
 	return &deleted, nil
 }
@@ -953,6 +957,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssoc
 	deleted := *assoc
 	deleted.State = localGatewayAssocStateDisassoc
 	b.localGatewayRouteTableVifGroupAssociations.Delete(id)
+	delete(b.tags, id)
 
 	return &deleted, nil
 }

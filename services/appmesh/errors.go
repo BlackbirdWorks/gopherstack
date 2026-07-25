@@ -1,6 +1,8 @@
 package appmesh
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -41,4 +43,11 @@ var (
 	ErrGatewayRouteAlreadyExists = awserr.New("gateway route already exists", awserr.ErrAlreadyExists)
 	// ErrResourceNotFound is returned when a tagged resource does not exist.
 	ErrResourceNotFound = awserr.New("resource not found for tagging", awserr.ErrNotFound)
+	// ErrTooManyTags is returned when tagging a resource would exceed the
+	// real App Mesh API's 50-tag-per-resource limit (see TagList's "max: 50"
+	// constraint in the botocore service-2.json model). Deliberately does not
+	// wrap awserr.ErrInvalidParameter: real clients distinguish the
+	// TooManyTagsException wire code from the generic BadRequestException one,
+	// so mapErr must be able to select it independently.
+	ErrTooManyTags = errors.New("resource may have at most 50 tags")
 )

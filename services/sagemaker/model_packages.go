@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -91,6 +92,40 @@ func cloneModelPackageGroup(g *ModelPackageGroup) *ModelPackageGroup {
 	cp.Tags = maps.Clone(g.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime as an AWS awsjson1.1 epoch-seconds number
+// rather than Go's default RFC3339 string — this struct is marshaled
+// directly by handleDescribeModelPackageGroup.
+func (g *ModelPackageGroup) MarshalJSON() ([]byte, error) {
+	type alias ModelPackageGroup
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{
+		alias:        (*alias)(g),
+		CreationTime: epochSeconds(g.CreationTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [ModelPackageGroup.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (g *ModelPackageGroup) UnmarshalJSON(data []byte) error {
+	type alias ModelPackageGroup
+
+	aux := struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{alias: (*alias)(g)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	g.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+
+	return nil
 }
 
 // CreateModelPackageGroup creates a new model package group.
@@ -285,6 +320,9 @@ func (b *InMemoryBackend) CreateModelPackage(
 		ModelPackageDescription: description,
 		Tags:                    mergeTags(nil, tags),
 		CreationTime:            time.Now(),
+		ModelPackageStatusDetails: ModelPackageStatusDetails{
+			ValidationStatuses: []ModelPackageStatusItem{},
+		},
 	}
 	b.modelPackagesStore(region).Put(mp)
 	b.modelPackageARNIndexStore(region)[name] = mpARN

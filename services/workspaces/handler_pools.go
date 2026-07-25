@@ -3,6 +3,7 @@ package workspaces
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -25,21 +26,42 @@ type createWorkspacesPoolInput struct {
 	BundleId    string    `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
 	DirectoryId string    `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
 	Description string    `json:"Description"`
+	RunningMode string    `json:"RunningMode"`
 	Tags        []tagItem `json:"Tags"`
 	Capacity    struct {
 		DesiredUserSessions int32 `json:"DesiredUserSessions"`
 	} `json:"Capacity"`
 }
 
+// capacityStatusResp mirrors the real CapacityStatus shape. This backend
+// tracks no live session state, so ActiveUserSessions is always 0 and
+// ActualUserSessions/AvailableUserSessions are derived directly from
+// DesiredUserSessions (steady-state: all desired capacity is available, none
+// in use), matching the documented invariant
+// ActualUserSessions = AvailableUserSessions + ActiveUserSessions.
+type capacityStatusResp struct {
+	ActiveUserSessions    int32 `json:"ActiveUserSessions"`
+	ActualUserSessions    int32 `json:"ActualUserSessions"`
+	AvailableUserSessions int32 `json:"AvailableUserSessions"`
+	DesiredUserSessions   int32 `json:"DesiredUserSessions"`
+}
+
+// workspacesPoolResp's CreatedAt field is a wire-format epoch-seconds number
+// (awsjson1.1 unixTimestamp), not an ISO8601 string -- field-diffed against
+// the real WorkspacesPool.CreatedAt (*time.Time); see awstime.Epoch.
+// CapacityStatus and RunningMode are both `This member is required` on the
+// real WorkspacesPool type and were previously omitted entirely.
 type workspacesPoolResp struct {
-	PoolId      string `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
-	PoolArn     string `json:"PoolArn"`
-	PoolName    string `json:"PoolName"`
-	BundleId    string `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
-	DirectoryId string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
-	Description string `json:"Description"`
-	State       string `json:"State"`
-	CreatedAt   string `json:"CreatedAt,omitempty"`
+	PoolId         string             `json:"PoolId"` //nolint:revive,staticcheck // existing issue.
+	PoolArn        string             `json:"PoolArn"`
+	PoolName       string             `json:"PoolName"`
+	BundleId       string             `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
+	DirectoryId    string             `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	Description    string             `json:"Description"`
+	State          string             `json:"State"`
+	RunningMode    string             `json:"RunningMode"`
+	CreatedAt      float64            `json:"CreatedAt,omitempty"`
+	CapacityStatus capacityStatusResp `json:"CapacityStatus"`
 }
 
 type createWorkspacesPoolOutput struct {
@@ -50,7 +72,13 @@ func (h *Handler) handleCreateWorkspacesPool(
 	_ context.Context, req *createWorkspacesPoolInput,
 ) (*createWorkspacesPoolOutput, error) {
 	pool, err := h.Backend.CreateWorkspacesPool(
-		req.PoolName, req.BundleId, req.DirectoryId, req.Description, tagsToMap(req.Tags),
+		req.PoolName,
+		req.BundleId,
+		req.DirectoryId,
+		req.Description,
+		req.RunningMode,
+		req.Capacity.DesiredUserSessions,
+		tagsToMap(req.Tags),
 	)
 	if err != nil {
 		return nil, err
@@ -68,7 +96,14 @@ func toPoolResp(p *storedPool) workspacesPoolResp {
 		DirectoryId: p.DirectoryID,
 		Description: p.Description,
 		State:       p.State,
-		CreatedAt:   p.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		RunningMode: p.RunningMode,
+		CreatedAt:   awstime.Epoch(p.CreatedAt),
+		CapacityStatus: capacityStatusResp{
+			ActiveUserSessions:    0,
+			ActualUserSessions:    p.DesiredUserSessions,
+			AvailableUserSessions: p.DesiredUserSessions,
+			DesiredUserSessions:   p.DesiredUserSessions,
+		},
 	}
 }
 
@@ -140,6 +175,10 @@ type updateWorkspacesPoolInput struct {
 	Description string `json:"Description"`
 	BundleId    string `json:"BundleId"`    //nolint:revive,staticcheck // existing issue.
 	DirectoryId string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	RunningMode string `json:"RunningMode"`
+	Capacity    struct {
+		DesiredUserSessions int32 `json:"DesiredUserSessions"`
+	} `json:"Capacity"`
 }
 
 type updateWorkspacesPoolOutput struct {
@@ -154,6 +193,8 @@ func (h *Handler) handleUpdateWorkspacesPool(
 		req.Description,
 		req.BundleId,
 		req.DirectoryId,
+		req.RunningMode,
+		req.Capacity.DesiredUserSessions,
 	)
 	if err != nil {
 		return nil, err

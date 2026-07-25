@@ -5,6 +5,29 @@ import (
 	"fmt"
 )
 
+// buildInstanceFleets converts RunJobFlow input specs to InstanceFleet
+// records, mirroring AddInstanceFleet's construction so a cluster created
+// with an instance-fleet configuration (Instances.InstanceFleets) gets the
+// same shape as one built up incrementally via AddInstanceFleet.
+func (b *InMemoryBackend) buildInstanceFleets(specs []InstanceFleetSpec) []InstanceFleet {
+	fleets := make([]InstanceFleet, 0, len(specs))
+
+	for _, spec := range specs {
+		fleets = append(fleets, InstanceFleet{
+			ID:                          b.nextFleetID(),
+			Name:                        spec.Name,
+			InstanceFleetType:           spec.InstanceFleetType,
+			TargetOnDemandCapacity:      spec.TargetOnDemandCapacity,
+			TargetSpotCapacity:          spec.TargetSpotCapacity,
+			ProvisionedOnDemandCapacity: spec.TargetOnDemandCapacity,
+			ProvisionedSpotCapacity:     spec.TargetSpotCapacity,
+			Status:                      InstanceFleetStatus{State: instanceGroupStateRunning},
+		})
+	}
+
+	return fleets
+}
+
 // AddInstanceFleet adds an instance fleet to an existing cluster.
 func (b *InMemoryBackend) AddInstanceFleet(
 	ctx context.Context,

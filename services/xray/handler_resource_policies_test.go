@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -342,4 +343,119 @@ func TestResourcePolicy_DeleteExistingPolicy(t *testing.T) {
 
 	policies, _ := resp["ResourcePolicies"].([]any)
 	assert.Empty(t, policies, "policy must be removed after delete")
+}
+
+// TestResourcePolicy_MaxCountUsesCorrectErrorCode guards against a real bug found
+// during parity audit: the max-5-policies violation used the wrong exception
+// (InvalidRequestException) instead of the real modeled error, PolicyCountLimitExceededException
+// (which is, per the real SDK's deserializers.go, the ONLY exception PutResourcePolicy
+// declares alongside InvalidPolicyRevisionIdException/LockoutPreventionException/
+// MalformedPolicyDocumentException/PolicySizeLimitExceededException/ThrottledException --
+// InvalidRequestException isn't even in that operation's modeled error set).
+func TestResourcePolicy_MaxCountUsesCorrectErrorCode(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := 1; i <= 5; i++ {
+		rec := doXrayRequest(t, h, "/PutResourcePolicy", map[string]any{
+			"PolicyName":     fmt.Sprintf("errcode-policy-%d", i),
+			"PolicyDocument": `{"Version":"2012-10-17"}`,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doXrayRequest(t, h, "/PutResourcePolicy", map[string]any{
+		"PolicyName":     "errcode-policy-6",
+		"PolicyDocument": `{"Version":"2012-10-17"}`,
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "PolicyCountLimitExceededException", resp["__type"])
+}
+
+// TestResourcePolicy_SizeLimitExceeded verifies the previously-unenforced 5KB
+// PolicyDocument size cap (AWS docs: "can be up to 5kb in size").
+func TestResourcePolicy_SizeLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Build an oversized-but-valid JSON document (> 5KB).
+	huge := `{"Version":"2012-10-17","Statement":[{"Sid":"` + strings.Repeat("x", 6*1024) + `"}]}`
+
+	rec := doXrayRequest(t, h, "/PutResourcePolicy", map[string]any{
+		"PolicyName":     "oversized-policy",
+		"PolicyDocument": huge,
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "PolicySizeLimitExceededException", resp["__type"])
+}
+
+// TestResourcePolicy_LastUpdatedTimeIsEpochSeconds guards against a real gap found
+// during parity audit: ResourcePolicy.LastUpdatedTime ("When the policy was last
+// updated, in Unix time seconds") was completely absent from both the model and the
+// wire view.
+func TestResourcePolicy_LastUpdatedTimeIsEpochSeconds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doXrayRequest(t, h, "/PutResourcePolicy", map[string]any{
+		"PolicyName":     "lastupdated-policy",
+		"PolicyDocument": `{"Version":"2012-10-17"}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	policy, ok := resp["ResourcePolicy"].(map[string]any)
+	require.True(t, ok)
+
+	lut, ok := policy["LastUpdatedTime"].(float64)
+	require.True(t, ok, "LastUpdatedTime must be a JSON number (epoch seconds)")
+	assert.Positive(t, lut)
+}
+
+// TestHandler_DeleteResourcePolicy_RevisionIDEnforced guards against a real bug found
+// during parity audit: DeleteResourcePolicy's PolicyRevisionId parameter was parsed by
+// the handler but never passed to (or enforced by) the backend, so the atomic/guarded
+// delete this parameter exists for was a complete no-op -- any revision ID, including a
+// stale one, would successfully delete the policy.
+func TestHandler_DeleteResourcePolicy_RevisionIDEnforced(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doXrayRequest(t, h, "/PutResourcePolicy", map[string]any{
+		"PolicyName":     "revguard-policy",
+		"PolicyDocument": `{"Version":"2012-10-17"}`,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	// Wrong revision ID must be rejected, not silently accepted.
+	wrongRec := doXrayRequest(t, h, "/DeleteResourcePolicy", map[string]any{
+		"PolicyName":       "revguard-policy",
+		"PolicyRevisionId": "not-the-real-revision",
+	})
+	require.Equal(t, http.StatusBadRequest, wrongRec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(wrongRec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidPolicyRevisionIdException", resp["__type"])
+
+	// The policy must still exist after the rejected delete.
+	listRec := doXrayRequest(t, h, "/ListResourcePolicies", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	policies, _ := listResp["ResourcePolicies"].([]any)
+	assert.Len(t, policies, 1, "policy must survive a delete with the wrong PolicyRevisionId")
 }

@@ -28,4 +28,8 @@ var (
 	ErrWarmPoolNotFound = errors.New("ValidationError")
 	// ErrPolicyNotFound is returned when the specified scaling policy does not exist.
 	ErrPolicyNotFound = errors.New("ValidationError")
+	// ErrDeletionProtected is returned when DeleteAutoScalingGroup is called on a
+	// group whose DeletionProtection setting forbids the requested delete.
+	// Matches the real SDK's ResourceInUseFault, whose ErrorCode() is "ResourceInUse".
+	ErrDeletionProtected = errors.New("ResourceInUse")
 )

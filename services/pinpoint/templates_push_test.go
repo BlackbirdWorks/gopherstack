@@ -45,30 +45,33 @@ func TestSmsTemplate_BodyPersistence(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		createBody      map[string]any
-		updateBody      map[string]any
-		name            string
-		wantBody        string
-		wantSenderID    string
-		wantDescription string
+		createBody        map[string]any
+		updateBody        map[string]any
+		name              string
+		wantBody          string
+		wantRecommenderID string
+		wantDescription   string
+		wantTemplateType  string
 	}{
 		{
 			name: "create_full_sms",
 			createBody: map[string]any{
 				"Body":                "Your OTP is {{otp}}",
-				"SenderId":            "MYAPP",
+				"RecommenderId":       "reco-1",
 				"TemplateDescription": "OTP template",
 			},
-			wantBody:        "Your OTP is {{otp}}",
-			wantSenderID:    "MYAPP",
-			wantDescription: "OTP template",
+			wantBody:          "Your OTP is {{otp}}",
+			wantRecommenderID: "reco-1",
+			wantDescription:   "OTP template",
+			wantTemplateType:  "SMS",
 		},
 		{
 			name: "create_body_only",
 			createBody: map[string]any{
 				"Body": "Hello {{name}}",
 			},
-			wantBody: "Hello {{name}}",
+			wantBody:         "Hello {{name}}",
+			wantTemplateType: "SMS",
 		},
 		{
 			name: "update_body",
@@ -81,16 +84,16 @@ func TestSmsTemplate_BodyPersistence(t *testing.T) {
 			wantBody: "New body text",
 		},
 		{
-			name: "update_sender_id",
+			name: "update_recommender_id",
 			createBody: map[string]any{
-				"Body":     "Hello",
-				"SenderId": "OLD",
+				"Body":          "Hello",
+				"RecommenderId": "reco-old",
 			},
 			updateBody: map[string]any{
-				"SenderId": "NEW",
+				"RecommenderId": "reco-new",
 			},
-			wantBody:     "Hello",
-			wantSenderID: "NEW",
+			wantBody:          "Hello",
+			wantRecommenderID: "reco-new",
 		},
 	}
 
@@ -122,12 +125,16 @@ func TestSmsTemplate_BodyPersistence(t *testing.T) {
 				assert.Equal(t, tc.wantBody, resp["Body"], "Body")
 			}
 
-			if tc.wantSenderID != "" {
-				assert.Equal(t, tc.wantSenderID, resp["SenderId"], "SenderId")
+			if tc.wantRecommenderID != "" {
+				assert.Equal(t, tc.wantRecommenderID, resp["RecommenderId"], "RecommenderId")
 			}
 
 			if tc.wantDescription != "" {
 				assert.Equal(t, tc.wantDescription, resp["TemplateDescription"], "TemplateDescription")
+			}
+
+			if tc.wantTemplateType != "" {
+				assert.Equal(t, tc.wantTemplateType, resp["TemplateType"], "TemplateType")
 			}
 		})
 	}
@@ -259,7 +266,7 @@ func TestBackend_SmsTemplate_FullCRUD(t *testing.T) {
 
 		req := pinpoint.ExportedCreateSmsTemplateRequest{
 			Body:                "Hello {{name}}",
-			SenderID:            "MYAPP",
+			RecommenderID:       "reco-1",
 			TemplateDescription: "SMS onboarding",
 		}
 
@@ -267,8 +274,9 @@ func TestBackend_SmsTemplate_FullCRUD(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "Hello {{name}}", tmpl.Body)
-		assert.Equal(t, "MYAPP", tmpl.SenderID)
+		assert.Equal(t, "reco-1", tmpl.RecommenderID)
 		assert.Equal(t, "SMS onboarding", tmpl.TemplateDescription)
+		assert.Equal(t, "SMS", tmpl.TemplateType)
 		assert.Equal(t, "1", tmpl.Version)
 	})
 
@@ -300,8 +308,10 @@ func TestPushTemplate_PerPlatformOverrides(t *testing.T) {
 	createRec := doPinpointRequest(t, h, http.MethodPost,
 		"/v1/templates/promo-push/push",
 		map[string]any{
-			"Body":  "Default body",
-			"Title": "Default title",
+			"Default": map[string]any{
+				"Body":  "Default body",
+				"Title": "Default title",
+			},
 			"APNS": map[string]any{
 				"Body":  "iOS promo",
 				"Title": "iOS title",
@@ -314,6 +324,13 @@ func TestPushTemplate_PerPlatformOverrides(t *testing.T) {
 				"Sound":         "notification.mp3",
 				"IconReference": "ic_notification",
 			},
+			"ADM": map[string]any{
+				"Body": "Amazon promo",
+			},
+			"Baidu": map[string]any{
+				"Body": "Baidu promo",
+			},
+			"RecommenderId":       "reco-1",
 			"TemplateDescription": "Cross-platform promo push",
 		})
 	require.Equal(t, http.StatusCreated, createRec.Code)
@@ -324,8 +341,12 @@ func TestPushTemplate_PerPlatformOverrides(t *testing.T) {
 	var tmpl map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
 
-	assert.Equal(t, "Default body", tmpl["Body"])
-	assert.Equal(t, "Default title", tmpl["Title"])
+	assert.Equal(t, "PUSH", tmpl["TemplateType"])
+	assert.Equal(t, "reco-1", tmpl["RecommenderId"])
+
+	def := tmpl["Default"].(map[string]any)
+	assert.Equal(t, "Default body", def["Body"])
+	assert.Equal(t, "Default title", def["Title"])
 
 	apns := tmpl["APNS"].(map[string]any)
 	assert.Equal(t, "iOS promo", apns["Body"])
@@ -336,6 +357,12 @@ func TestPushTemplate_PerPlatformOverrides(t *testing.T) {
 	assert.Equal(t, "Android promo", gcm["Body"])
 	assert.Equal(t, "Android title", gcm["Title"])
 	assert.Equal(t, "notification.mp3", gcm["Sound"])
+
+	adm := tmpl["ADM"].(map[string]any)
+	assert.Equal(t, "Amazon promo", adm["Body"])
+
+	baidu := tmpl["Baidu"].(map[string]any)
+	assert.Equal(t, "Baidu promo", baidu["Body"])
 }
 
 func TestPushTemplate_UpdatePerPlatform(t *testing.T) {
@@ -345,15 +372,15 @@ func TestPushTemplate_UpdatePerPlatform(t *testing.T) {
 
 	doPinpointRequest(t, h, http.MethodPost, "/v1/templates/push-upd/push",
 		map[string]any{
-			"Body": "v1 body",
-			"APNS": map[string]any{"Body": "v1 ios"},
+			"Default": map[string]any{"Body": "v1 body"},
+			"APNS":    map[string]any{"Body": "v1 ios"},
 		})
 
 	putRec := doPinpointRequest(t, h, http.MethodPut, "/v1/templates/push-upd/push",
 		map[string]any{
-			"Body": "v2 body",
-			"APNS": map[string]any{"Body": "v2 ios", "Sound": "ding"},
-			"GCM":  map[string]any{"Body": "v2 android"},
+			"Default": map[string]any{"Body": "v2 body"},
+			"APNS":    map[string]any{"Body": "v2 ios", "Sound": "ding"},
+			"GCM":     map[string]any{"Body": "v2 android"},
 		})
 	require.Equal(t, http.StatusAccepted, putRec.Code)
 
@@ -363,7 +390,9 @@ func TestPushTemplate_UpdatePerPlatform(t *testing.T) {
 	var tmpl map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
 
-	assert.Equal(t, "v2 body", tmpl["Body"])
+	def := tmpl["Default"].(map[string]any)
+	assert.Equal(t, "v2 body", def["Body"])
+
 	apns := tmpl["APNS"].(map[string]any)
 	assert.Equal(t, "v2 ios", apns["Body"])
 	assert.Equal(t, "ding", apns["Sound"])
@@ -372,15 +401,15 @@ func TestPushTemplate_UpdatePerPlatform(t *testing.T) {
 	assert.Equal(t, "v2 android", gcm["Body"])
 }
 
-func TestSMSTemplate_SenderID(t *testing.T) {
+func TestSMSTemplate_RecommenderID(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		senderID string
+		name          string
+		recommenderID string
 	}{
-		{name: "with_sender_id", senderID: "MyBrand"},
-		{name: "empty_sender_id", senderID: ""},
+		{name: "with_recommender_id", recommenderID: "reco-brand"},
+		{name: "empty_recommender_id", recommenderID: ""},
 	}
 
 	for _, tc := range tests {
@@ -388,13 +417,13 @@ func TestSMSTemplate_SenderID(t *testing.T) {
 			t.Parallel()
 
 			h := newHandlerForTest(t)
-			tmplName := "sms-sender-" + tc.name
+			tmplName := "sms-reco-" + tc.name
 
 			createRec := doPinpointRequest(t, h, http.MethodPost,
 				"/v1/templates/"+tmplName+"/sms",
 				map[string]any{
-					"Body":     "Hello from {{sender}}",
-					"SenderId": tc.senderID,
+					"Body":          "Hello from {{sender}}",
+					"RecommenderId": tc.recommenderID,
 				})
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
@@ -406,23 +435,23 @@ func TestSMSTemplate_SenderID(t *testing.T) {
 
 			assert.Equal(t, "Hello from {{sender}}", tmpl["Body"])
 
-			if tc.senderID != "" {
-				assert.Equal(t, tc.senderID, tmpl["SenderId"])
+			if tc.recommenderID != "" {
+				assert.Equal(t, tc.recommenderID, tmpl["RecommenderId"])
 			}
 		})
 	}
 }
 
-func TestSMSTemplate_UpdateSenderID(t *testing.T) {
+func TestSMSTemplate_UpdateRecommenderID(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
 
 	doPinpointRequest(t, h, http.MethodPost, "/v1/templates/sms-update/sms",
-		map[string]any{"Body": "Hello", "SenderId": "OldBrand"})
+		map[string]any{"Body": "Hello", "RecommenderId": "reco-old"})
 
 	putRec := doPinpointRequest(t, h, http.MethodPut, "/v1/templates/sms-update/sms",
-		map[string]any{"Body": "Hello v2", "SenderId": "NewBrand"})
+		map[string]any{"Body": "Hello v2", "RecommenderId": "reco-new"})
 	require.Equal(t, http.StatusAccepted, putRec.Code)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/templates/sms-update/sms", nil)
@@ -432,7 +461,7 @@ func TestSMSTemplate_UpdateSenderID(t *testing.T) {
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
 
 	assert.Equal(t, "Hello v2", tmpl["Body"])
-	assert.Equal(t, "NewBrand", tmpl["SenderId"])
+	assert.Equal(t, "reco-new", tmpl["RecommenderId"])
 }
 
 // ──────────────────────────────────────────────────

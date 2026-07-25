@@ -16,7 +16,7 @@ func TestInMemoryBackend_SortedListDeviceProfiles(t *testing.T) {
 	b := iotwireless.NewInMemoryBackend()
 
 	for _, name := range []string{"dp-z", "dp-a", "dp-m"} {
-		_, err := b.CreateDeviceProfile(testAccountID, testRegion, name, nil)
+		_, err := b.CreateDeviceProfile(testAccountID, testRegion, name, nil, nil, nil)
 		require.NoError(t, err)
 	}
 
@@ -62,6 +62,7 @@ func TestInMemoryBackend_ServiceProfileCRUD(t *testing.T) {
 				testAccountID,
 				testRegion,
 				tt.profileName,
+				nil,
 				map[string]string{"tier": "standard"},
 			)
 			require.NoError(t, err)
@@ -111,7 +112,7 @@ func TestInMemoryBackend_ListServiceProfiles(t *testing.T) {
 			bk := iotwireless.NewInMemoryBackend()
 
 			for _, name := range tt.profileNames {
-				_, err := bk.CreateServiceProfile(testAccountID, testRegion, name, nil)
+				_, err := bk.CreateServiceProfile(testAccountID, testRegion, name, nil, nil)
 				require.NoError(t, err)
 			}
 

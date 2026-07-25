@@ -230,7 +230,7 @@ func (h *Handler) dispatchResumeResource(input map[string]any) ([]byte, error) {
 }
 
 func (h *Handler) dispatchStopResource(input map[string]any) ([]byte, error) {
-	err := h.Backend.UpdateResourceStatus(stringValue(input["ResourceArn"]), "STOPPED")
+	err := h.Backend.UpdateResourceStatus(stringValue(input["ResourceArn"]), statusStopped)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (h *Handler) dispatchStopResource(input map[string]any) ([]byte, error) {
 }
 
 func (h *Handler) dispatchGetAccuracyMetrics(input map[string]any) ([]byte, error) {
-	metrics, err := h.Backend.GetAccuracyMetrics(stringValue(input["PredictorArn"]))
+	metrics, err := h.Backend.GetAccuracyMetrics(stringValue(input[fieldPredictorArn]))
 	if err != nil {
 		return nil, err
 	}
@@ -364,6 +364,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, errType = http.StatusBadRequest, "ResourceNotFoundException"
 	case errors.Is(err, ErrAlreadyExists):
 		code, errType = http.StatusBadRequest, "ResourceAlreadyExistsException"
+	case errors.Is(err, ErrResourceInUse):
+		code, errType = http.StatusBadRequest, "ResourceInUseException"
 	case errors.Is(err, ErrInvalidNextToken):
 		code, errType = http.StatusBadRequest, "InvalidNextTokenException"
 	case errors.Is(err, ErrValidation):
@@ -403,7 +405,7 @@ func forecastOperations() map[string]operationSpec {
 		"DatasetImportJobs",
 		false,
 	)
-	addCRUD(operations, "Predictor", kindPredictor, "PredictorName", "PredictorArn", "Predictors", false)
+	addCRUD(operations, "Predictor", kindPredictor, "PredictorName", fieldPredictorArn, "Predictors", false)
 	addCRUD(
 		operations,
 		"PredictorBacktestExportJob",
@@ -471,11 +473,11 @@ func forecastOperations() map[string]operationSpec {
 	)
 	operations["CreateAutoPredictor"] = operationSpec{
 		kind: kindPredictor, mode: modeCreate, nameField: "PredictorName",
-		arnField: "PredictorArn", listField: "Predictors",
+		arnField: fieldPredictorArn, listField: "Predictors",
 	}
 	operations["DescribeAutoPredictor"] = operationSpec{
 		kind: kindPredictor, mode: modeDescribe, nameField: "PredictorName",
-		arnField: "PredictorArn", listField: "Predictors",
+		arnField: fieldPredictorArn, listField: "Predictors",
 	}
 
 	return operations

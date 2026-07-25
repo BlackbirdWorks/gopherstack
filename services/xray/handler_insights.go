@@ -150,6 +150,39 @@ type getInsightSummariesInput struct {
 	MaxResults int32    `json:"MaxResults"`
 }
 
+// insightSummaryView is the wire view for GetInsightSummariesOutput's InsightSummaries
+// list. Unlike GetInsightOutput's Insight (see insightView), the real InsightSummary
+// type also carries LastUpdateTime -- "the time, in Unix seconds, that the insight was
+// last updated".
+type insightSummaryView struct {
+	InsightID      string   `json:"InsightId"`
+	GroupARN       string   `json:"GroupARN"`
+	GroupName      string   `json:"GroupName"`
+	State          string   `json:"State"`
+	Summary        string   `json:"Summary"`
+	Categories     []string `json:"Categories,omitempty"`
+	StartTime      float64  `json:"StartTime"`
+	EndTime        float64  `json:"EndTime,omitempty"`
+	LastUpdateTime float64  `json:"LastUpdateTime"`
+}
+
+func toInsightSummaryView(i *Insight) insightSummaryView {
+	v := insightSummaryView{
+		InsightID:      i.InsightID,
+		GroupARN:       i.GroupARN,
+		GroupName:      i.GroupName,
+		State:          i.State,
+		Summary:        i.Summary,
+		StartTime:      float64(i.StartTime.Unix()),
+		LastUpdateTime: float64(i.LastUpdateTime.Unix()),
+	}
+	if !i.EndTime.IsZero() {
+		v.EndTime = float64(i.EndTime.Unix())
+	}
+
+	return v
+}
+
 func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]byte, error) {
 	var in getInsightSummariesInput
 	if len(body) > 0 {
@@ -163,10 +196,10 @@ func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	views := make([]insightView, 0, len(summaries))
+	views := make([]insightSummaryView, 0, len(summaries))
 
 	for i := range summaries {
-		views = append(views, toInsightView(&summaries[i]))
+		views = append(views, toInsightSummaryView(&summaries[i]))
 	}
 
 	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultInsightSummariesPageSize)

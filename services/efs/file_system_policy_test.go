@@ -2,6 +2,7 @@ package efs_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -56,13 +57,19 @@ func TestFileSystemPolicyValidation(t *testing.T) {
 			name:      "invalid_json_rejected",
 			policy:    `{not valid json}`,
 			wantErr:   true,
-			wantErrIs: efs.ErrValidation,
+			wantErrIs: efs.ErrInvalidPolicy,
 		},
 		{
 			name:      "empty_string_rejected",
 			policy:    ``,
 			wantErr:   true,
-			wantErrIs: efs.ErrValidation,
+			wantErrIs: efs.ErrInvalidPolicy,
+		},
+		{
+			name:      "oversized_policy_rejected",
+			policy:    `{"Version":"2012-10-17","Statement":[{"Sid":"` + strings.Repeat("a", 21*1024) + `"}]}`,
+			wantErr:   true,
+			wantErrIs: efs.ErrInvalidPolicy,
 		},
 	}
 
@@ -78,6 +85,8 @@ func TestFileSystemPolicyValidation(t *testing.T) {
 
 			if tt.wantErr {
 				require.ErrorIs(t, err, tt.wantErrIs)
+				require.NotErrorIs(t, err, efs.ErrValidation,
+					"malformed FileSystemPolicy must map to InvalidPolicyException, not ValidationException")
 			} else {
 				require.NoError(t, err)
 			}

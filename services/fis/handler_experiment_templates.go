@@ -175,5 +175,41 @@ func toTemplateDTO(tpl *ExperimentTemplate) experimentTemplateDTO {
 		}
 	}
 
+	if tpl.ExperimentReportConfiguration != nil {
+		dto.ExperimentReportConfiguration = toReportConfigDTO(tpl.ExperimentReportConfiguration)
+	}
+
+	return dto
+}
+
+// toReportConfigDTO converts a template's report configuration domain type into
+// its wire DTO.
+func toReportConfigDTO(cfg *ExperimentTemplateReportConfiguration) *experimentTemplateReportConfigDTO {
+	dto := &experimentTemplateReportConfigDTO{
+		PreExperimentDuration:  cfg.PreExperimentDuration,
+		PostExperimentDuration: cfg.PostExperimentDuration,
+	}
+
+	if cfg.DataSources != nil {
+		dashboards := make(
+			[]experimentTemplateReportDashboardDTO,
+			len(cfg.DataSources.CloudWatchDashboards),
+		)
+		for i, d := range cfg.DataSources.CloudWatchDashboards {
+			dashboards[i] = experimentTemplateReportDashboardDTO(d)
+		}
+
+		dto.DataSources = &experimentTemplateReportDataSourcesDTO{CloudWatchDashboards: dashboards}
+	}
+
+	if cfg.Outputs != nil && cfg.Outputs.S3Configuration != nil {
+		dto.Outputs = &experimentTemplateReportOutputsDTO{
+			S3Configuration: &experimentTemplateReportOutputsS3DTO{
+				BucketName: cfg.Outputs.S3Configuration.BucketName,
+				Prefix:     cfg.Outputs.S3Configuration.Prefix,
+			},
+		}
+	}
+
 	return dto
 }

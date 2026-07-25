@@ -118,7 +118,10 @@ type updateActionXML struct {
 
 func (h *Handler) describeServiceUpdates(ctx context.Context, c *echo.Context, form url.Values) error {
 	serviceUpdateName := form.Get("ServiceUpdateName")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 	statusList := parseRepeatedField(form, "ServiceUpdateStatus.member")
 
 	p, err := h.Backend.DescribeServiceUpdates(ctx, serviceUpdateName, marker, maxRecords, statusList)
@@ -154,7 +157,10 @@ func (h *Handler) describeServiceUpdates(ctx context.Context, c *echo.Context, f
 
 func (h *Handler) describeUpdateActions(ctx context.Context, c *echo.Context, form url.Values) error {
 	serviceUpdateName := form.Get("ServiceUpdateName")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	p, err := h.Backend.DescribeUpdateActions(ctx, serviceUpdateName, marker, maxRecords)
 	if err != nil {

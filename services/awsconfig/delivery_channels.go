@@ -3,15 +3,20 @@ package awsconfig
 import (
 	"fmt"
 	"slices"
+	"strings"
+	"time"
 )
 
-// PutDeliveryChannel creates or updates a delivery channel.
+// PutDeliveryChannel creates or updates a delivery channel. An empty/blank name
+// errors InvalidDeliveryChannelNameException, matching real AWS Config's declared
+// error model (verified against aws-sdk-go-v2/service/configservice's
+// PutDeliveryChannel deserializer).
 func (b *InMemoryBackend) PutDeliveryChannel(
 	name, s3Bucket, snsArn, s3KeyPrefix string,
 	props *DeliverySnapshotProperties,
 ) error {
-	if name == "" {
-		return fmt.Errorf("%w: DeliveryChannel name is required", ErrValidation)
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: DeliveryChannel name is required", ErrInvalidDeliveryChannelName)
 	}
 
 	if s3Bucket == "" {
@@ -85,8 +90,52 @@ func (b *InMemoryBackend) DeleteDeliveryChannel(name string) error {
 	return nil
 }
 
-// DeliverConfigSnapshot is a no-op stub.
-func (b *InMemoryBackend) DeliverConfigSnapshot(_ string) error { return nil }
+// DeliverConfigSnapshot triggers an on-demand snapshot delivery through the
+// named delivery channel and returns a generated snapshot ID, matching real
+// AWS Config's DeliverConfigSnapshotOutput.ConfigSnapshotId. Errors (verified
+// against aws-sdk-go-v2/service/configservice's DeliverConfigSnapshot
+// deserializer, which declares NoSuchDeliveryChannelException/
+// NoAvailableConfigurationRecorderException/NoRunningConfigurationRecorderException):
+//   - NoSuchDeliveryChannelException when the named channel does not exist
+//   - NoAvailableConfigurationRecorderException when no configuration recorder
+//     has ever been created
+//   - NoRunningConfigurationRecorderException when recorders exist but none is
+//     currently ACTIVE
+func (b *InMemoryBackend) DeliverConfigSnapshot(channelName string) (string, error) {
+	b.mu.Lock("DeliverConfigSnapshot")
+	defer b.mu.Unlock()
+
+	if !b.channels.Has(channelName) {
+		return "", fmt.Errorf("%w: %s", ErrNoSuchDeliveryChannel, channelName)
+	}
+
+	if b.recorders.Len() == 0 {
+		return "", fmt.Errorf("%w: no configuration recorder configured", ErrNoAvailableConfigurationRecorder)
+	}
+
+	running := false
+
+	for _, r := range b.recorders.All() {
+		if r.Status == recorderStatusActive {
+			running = true
+
+			break
+		}
+	}
+
+	if !running {
+		return "", fmt.Errorf("%w: no configuration recorder is running", ErrNoRunningConfigurationRecorder)
+	}
+
+	b.captureCounter++
+
+	snapshotID := fmt.Sprintf(
+		"%08x-0000-0000-0000-%012d",
+		time.Now().Unix(), b.captureCounter,
+	)
+
+	return snapshotID, nil
+}
 
 // DescribeDeliveryChannelStatus returns statuses for delivery channels.
 // If names is empty, all channels are returned.

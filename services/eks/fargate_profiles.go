@@ -60,6 +60,7 @@ func (b *InMemoryBackend) CreateFargateProfile(
 		Subnets:             cloneStrings(subnets),
 		CreatedAt:           time.Now().UTC(),
 		Tags:                t,
+		Health:              &FargateProfileHealth{Issues: []FargateProfileIssue{}},
 	}
 	b.fargateProfiles.Put(profile)
 
@@ -87,6 +88,12 @@ func deepCopyFargateProfile(p *FargateProfile) *FargateProfile {
 	cp.Selectors = make([]FargateProfileSelector, len(p.Selectors))
 	copy(cp.Selectors, p.Selectors)
 	cp.Subnets = cloneStrings(p.Subnets)
+
+	if p.Health != nil {
+		issues := make([]FargateProfileIssue, len(p.Health.Issues))
+		copy(issues, p.Health.Issues)
+		cp.Health = &FargateProfileHealth{Issues: issues}
+	}
 
 	return &cp
 }
@@ -164,6 +171,10 @@ func (b *InMemoryBackend) AddFargateProfileInternal(p *FargateProfile) {
 
 	if p.Tags == nil {
 		p.Tags = tags.New("eks.fargate." + p.ClusterName + "." + p.FargateProfileName + ".tags")
+	}
+
+	if p.Health == nil {
+		p.Health = &FargateProfileHealth{Issues: []FargateProfileIssue{}}
 	}
 
 	b.fargateProfiles.Put(p)

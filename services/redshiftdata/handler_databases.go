@@ -21,12 +21,20 @@ func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if req.Database == "" {
+		return nil, fmt.Errorf("%w: Database is required", ErrValidation)
+	}
+
 	if req.MaxResults > maxListDatabasesResults {
 		return nil, fmt.Errorf("%w: MaxResults must be ≤ %d", ErrValidation, maxListDatabasesResults)
 	}
 
 	page, next := paginateStrings(buildDemoDatabases(), req.NextToken, req.MaxResults, defaultListDatabasesResults)
-	resp := map[string]any{"Databases": page, keyNextToken: next}
+	resp := map[string]any{"Databases": page}
+
+	if next != "" {
+		resp[keyNextToken] = next
+	}
 
 	return json.Marshal(resp)
 }
@@ -38,6 +46,13 @@ func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, err
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		SecretArn         string `json:"SecretArn"`
 		DBUser            string `json:"DbUser"`
+		// ConnectedDatabase selects the database to connect to with the given
+		// credentials when it differs from Database (cross-database query).
+		// Accepted for wire-shape parity; this mock's demo schema list is not
+		// per-database, so it does not affect filtering, matching how
+		// ClusterIdentifier/WorkgroupName/DbUser/SecretArn are already
+		// accepted-but-unused metadata filters here.
+		ConnectedDatabase string `json:"ConnectedDatabase"`
 		SchemaPattern     string `json:"SchemaPattern"`
 		NextToken         string `json:"NextToken"`
 		MaxResults        int    `json:"MaxResults"`
@@ -45,6 +60,10 @@ func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, err
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Database == "" {
+		return nil, fmt.Errorf("%w: Database is required", ErrValidation)
 	}
 
 	if req.MaxResults > maxListSchemasResults {

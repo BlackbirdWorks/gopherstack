@@ -112,7 +112,7 @@ func (h *Handler) handleEnableSnapshotCopy(vals url.Values) (any, error) {
 
 	return &enableSnapshotCopyResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -134,7 +134,7 @@ func (h *Handler) handleDisableSnapshotCopy(vals url.Values) (any, error) {
 
 	return &disableSnapshotCopyResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -157,6 +157,6 @@ func (h *Handler) handleModifySnapshotCopyRetentionPeriod(vals url.Values) (any,
 
 	return &modifySnapshotCopyRetentionPeriodResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }

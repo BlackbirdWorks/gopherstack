@@ -66,6 +66,7 @@ func (b *InMemoryBackend) DeleteIpamResourceDiscovery(id string) (*IpamResourceD
 		}
 	}
 	b.ipamResourceDiscoveries.Delete(id)
+	delete(b.tags, id)
 
 	cp := *d
 	cp.OperatingRegions = append([]string(nil), d.OperatingRegions...)

@@ -30,7 +30,6 @@ func (b *InMemoryBackend) DeleteRegistryPolicy(
 	return &RegistryPolicyResult{
 		PolicyText: policy,
 		RegistryID: b.accountID,
-		Status:     "DELETED",
 	}, nil
 }
 
@@ -61,7 +60,6 @@ func (b *InMemoryBackend) GetRegistryPolicy(
 	return &RegistryPolicyResult{
 		PolicyText: b.registryPolicy,
 		RegistryID: b.accountID,
-		Status:     imageStatusActive,
 	}, nil
 }
 
@@ -88,7 +86,6 @@ func (b *InMemoryBackend) PutRegistryPolicy(
 	return &RegistryPolicyResult{
 		PolicyText: policyText,
 		RegistryID: b.accountID,
-		Status:     "SetComplete",
 	}, nil
 }
 

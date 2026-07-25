@@ -109,6 +109,11 @@ func (b *InMemoryBackend) DeleteGlobalReplicationGroup(
 	if !ok || isReaped(b.now(), grg.PendingStatus, grg.AvailableAt) {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
+	if err := b.requireAvailableLocked(
+		grg.Status, grg.PendingStatus, grg.AvailableAt, ErrGlobalReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
+	}
 
 	if d := b.pendingUntil(); !d.IsZero() {
 		grg.PendingStatus = statusDeleting
@@ -178,6 +183,11 @@ func (b *InMemoryBackend) DisassociateGlobalReplicationGroup(
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
+	if err := b.requireAvailableLocked(
+		grg.Status, grg.PendingStatus, grg.AvailableAt, ErrGlobalReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
+	}
 
 	result := *grg
 
@@ -196,6 +206,11 @@ func (b *InMemoryBackend) FailoverGlobalReplicationGroup(
 
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
+	}
+	if err := b.requireAvailableLocked(
+		grg.Status, grg.PendingStatus, grg.AvailableAt, ErrGlobalReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	result := *grg
@@ -216,6 +231,11 @@ func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
 
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
+	}
+	if err := b.requireAvailableLocked(
+		grg.Status, grg.PendingStatus, grg.AvailableAt, ErrGlobalReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	if nodeGroupCount > grg.NodeGroupCount {
@@ -241,6 +261,11 @@ func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
 	}
+	if err := b.requireAvailableLocked(
+		grg.Status, grg.PendingStatus, grg.AvailableAt, ErrGlobalReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
+	}
 
 	if nodeGroupCount > 0 && nodeGroupCount < grg.NodeGroupCount {
 		grg.NodeGroupCount = nodeGroupCount
@@ -264,6 +289,11 @@ func (b *InMemoryBackend) ModifyGlobalReplicationGroup(
 
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
+	}
+	if err := b.requireAvailableLocked(
+		grg.Status, grg.PendingStatus, grg.AvailableAt, ErrGlobalReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	if description != "" {
@@ -292,6 +322,11 @@ func (b *InMemoryBackend) RebalanceSlotsInGlobalReplicationGroup(
 
 	if !ok {
 		return nil, ErrGlobalReplicationGroupNotFound
+	}
+	if err := b.requireAvailableLocked(
+		grg.Status, grg.PendingStatus, grg.AvailableAt, ErrGlobalReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	result := *grg

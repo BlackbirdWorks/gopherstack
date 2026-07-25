@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -31,6 +32,44 @@ func cloneAppImageConfig(a *AppImageConfig) *AppImageConfig {
 	cp.Tags = maps.Clone(a.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeAppImageConfig.
+func (a *AppImageConfig) MarshalJSON() ([]byte, error) {
+	type alias AppImageConfig
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(a),
+		CreationTime:     epochSeconds(a.CreationTime),
+		LastModifiedTime: epochSeconds(a.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [AppImageConfig.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (a *AppImageConfig) UnmarshalJSON(data []byte) error {
+	type alias AppImageConfig
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(a)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	a.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	a.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateAppImageConfig creates an app image config.

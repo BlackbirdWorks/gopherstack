@@ -84,10 +84,14 @@ func (h *Handler) handleGetApplicationGrant(c *echo.Context, body []byte) error 
 		return handleBackendError(c, err, "grant not found: "+req.GrantType)
 	}
 
+	// Real GetApplicationGrantOutput is exactly {Grant: <union>} -- unlike
+	// GrantItem (the ListApplicationGrants item shape), it has NO sibling
+	// GrantType member alongside the union value. gopherstack previously
+	// double-wrapped the stored union body under an extra
+	// "GrantType"/"Grant" pair one level too deep, which would prevent a real
+	// client's union deserializer from ever finding the actual grant-type tag
+	// (e.g. "AuthorizationCode").
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyGrant: map[string]any{
-			"GrantType": req.GrantType,
-			keyGrant:    grantBody,
-		},
+		keyGrant: grantBody,
 	})
 }

@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -32,6 +33,44 @@ func cloneStudioLifecycleConfig(s *StudioLifecycleConfig) *StudioLifecycleConfig
 	cp.Tags = maps.Clone(s.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeStudioLifecycleConfig.
+func (s *StudioLifecycleConfig) MarshalJSON() ([]byte, error) {
+	type alias StudioLifecycleConfig
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(s),
+		CreationTime:     epochSeconds(s.CreationTime),
+		LastModifiedTime: epochSeconds(s.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [StudioLifecycleConfig.MarshalJSON], read
+// by persistence.go's snapshot restore path.
+func (s *StudioLifecycleConfig) UnmarshalJSON(data []byte) error {
+	type alias StudioLifecycleConfig
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(s)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	s.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	s.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateStudioLifecycleConfig creates a Studio lifecycle configuration.

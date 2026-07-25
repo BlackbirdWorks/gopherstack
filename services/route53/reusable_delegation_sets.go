@@ -16,8 +16,23 @@ func randomDelegationSetID() string {
 }
 
 // CreateReusableDelegationSet creates a new reusable delegation set.
+//
+// When hostedZoneID is non-empty, this is real AWS's "mark an existing
+// hosted zone's delegation set as reusable" mode (see the migration steps
+// documented on CreateReusableDelegationSet): the new set reuses that zone's
+// own current name servers instead of the default pair. The referenced zone
+// must exist (ErrHostedZoneNotFoundForDelegationSet — a distinct wire code
+// from the NoSuchHostedZone every other hosted-zone lookup returns), must be
+// a public zone (a reusable delegation set can't be associated with a
+// private hosted zone), and must not have already had its delegation set
+// extracted this way (ErrDelegationSetAlreadyReusable).
+//
+// Reusing a CallerReference that already identifies a reusable delegation
+// set always fails with ErrDelegationSetAlreadyCreated — unlike
+// CreateHostedZone/CreateHealthCheck, real AWS does not treat this as an
+// idempotent retry for this operation.
 func (b *InMemoryBackend) CreateReusableDelegationSet(
-	callerRef, _ /* hostedZoneID */ string,
+	callerRef, hostedZoneID string,
 ) (*ReusableDelegationSet, error) {
 	if callerRef == "" {
 		return nil, fmt.Errorf("%w: callerReference is required", ErrInvalidInput)
@@ -26,11 +41,26 @@ func (b *InMemoryBackend) CreateReusableDelegationSet(
 	b.mu.Lock("CreateReusableDelegationSet")
 	defer b.mu.Unlock()
 
+	for _, existing := range b.reusableDelegationSets.All() {
+		if existing.CallerReference == callerRef {
+			return nil, fmt.Errorf(
+				"%w: a reusable delegation set already exists for CallerReference %s",
+				ErrDelegationSetAlreadyCreated,
+				callerRef,
+			)
+		}
+	}
+
+	nameServers, err := b.resolveSourceZoneNameServers(hostedZoneID)
+	if err != nil {
+		return nil, err
+	}
+
 	id := "/delegationset/N" + randomDelegationSetID()
 	ds := &ReusableDelegationSet{
 		ID:              id,
 		CallerReference: callerRef,
-		NameServers:     []string{dnsNS1Default, dnsNS2Default},
+		NameServers:     nameServers,
 		CreatedAt:       time.Now(),
 	}
 
@@ -39,6 +69,51 @@ func (b *InMemoryBackend) CreateReusableDelegationSet(
 	cp := *ds
 
 	return &cp, nil
+}
+
+// resolveSourceZoneNameServers implements CreateReusableDelegationSet's
+// optional HostedZoneId mode: when hostedZoneID is empty it returns the
+// default name-server pair; otherwise it validates the zone (existence,
+// public, not already extracted), marks it as extracted, and returns its
+// real name servers. Caller must hold b.mu.
+func (b *InMemoryBackend) resolveSourceZoneNameServers(hostedZoneID string) ([]string, error) {
+	if hostedZoneID == "" {
+		return []string{dnsNS1Default, dnsNS2Default}, nil
+	}
+
+	zd, ok := b.zones.Get(hostedZoneID)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: hosted zone %s not found",
+			ErrHostedZoneNotFoundForDelegationSet,
+			hostedZoneID,
+		)
+	}
+
+	if zd.zone.PrivateZone {
+		return nil, fmt.Errorf(
+			"%w: a reusable delegation set can't be associated with private hosted zone %s",
+			ErrInvalidInput,
+			hostedZoneID,
+		)
+	}
+
+	if zd.zone.DelegationSetSourceUsed {
+		return nil, fmt.Errorf(
+			"%w: hosted zone %s's delegation set has already been marked reusable",
+			ErrDelegationSetAlreadyReusable,
+			hostedZoneID,
+		)
+	}
+
+	nameServers := []string{dnsNS1Default, dnsNS2Default}
+	if len(zd.zone.NameServers) > 0 {
+		nameServers = append([]string(nil), zd.zone.NameServers...)
+	}
+
+	zd.zone.DelegationSetSourceUsed = true
+
+	return nameServers, nil
 }
 
 // GetReusableDelegationSet returns a reusable delegation set by ID.

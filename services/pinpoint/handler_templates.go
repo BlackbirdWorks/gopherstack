@@ -292,7 +292,7 @@ func (h *Handler) handleGetTemplate(c *echo.Context, templateName, templateType 
 			return writeNotFoundOrInternal(c, err)
 		}
 
-		httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, cloneEmailTemplateToResponse(t))
+		httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, t)
 
 		return nil
 	case templateTypeInApp:
@@ -328,13 +328,7 @@ func (h *Handler) handleGetTemplate(c *echo.Context, templateName, templateType 
 			return writeNotFoundOrInternal(c, err)
 		}
 
-		httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, voiceTemplateResponse{
-			ARN:          t.ARN,
-			TemplateName: t.TemplateName,
-			Body:         t.Body,
-			Tags:         t.Tags,
-			CreationDate: t.CreationDate,
-		})
+		httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, t)
 
 		return nil
 	}
@@ -555,40 +549,3 @@ func (h *Handler) handleUpdateTemplateActiveVersion(c *echo.Context, templateNam
 // ──────────────────────────────────────────────────
 // Endpoint handlers
 // ──────────────────────────────────────────────────
-
-func cloneEmailTemplateToResponse(t *EmailTemplate) map[string]any {
-	resp := map[string]any{
-		"Arn":              t.ARN,
-		"TemplateName":     t.TemplateName,
-		"CreationDate":     t.CreationDate,
-		"LastModifiedDate": t.LastModifiedDate,
-		"Version":          t.Version,
-		"tags":             t.Tags,
-	}
-
-	if t.Subject != "" {
-		resp["Subject"] = t.Subject
-	}
-
-	if t.HTMLPart != "" {
-		resp["HtmlPart"] = t.HTMLPart
-	}
-
-	if t.TextPart != "" {
-		resp["TextPart"] = t.TextPart
-	}
-
-	if t.TemplateDescription != "" {
-		resp["TemplateDescription"] = t.TemplateDescription
-	}
-
-	if t.RecommenderID != "" {
-		resp["RecommenderId"] = t.RecommenderID
-	}
-
-	if len(t.DefaultSubstitutions) > 0 {
-		resp["DefaultSubstitutions"] = t.DefaultSubstitutions
-	}
-
-	return resp
-}

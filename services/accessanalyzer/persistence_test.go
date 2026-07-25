@@ -1,6 +1,7 @@
 package accessanalyzer_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -86,6 +87,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	analyzer, err := original.CreateAnalyzer(
 		"analyzer-1", accessanalyzer.AnalyzerTypeAccount, map[string]string{"env": "test"},
+		json.RawMessage(`{"unusedAccess":{"unusedAccessAge":90}}`),
 	)
 	require.NoError(t, err)
 
@@ -131,6 +133,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotAnalyzer, err := fresh.GetAnalyzer("analyzer-1")
 	require.NoError(t, err)
 	assert.Equal(t, "test", gotAnalyzer.Tags["env"])
+	// Configuration (json.RawMessage) round-trips through the generic
+	// JSON-marshal-based store.Table[Analyzer] Snapshot/Restore with no DTO
+	// or special-casing needed.
+	assert.JSONEq(t, `{"unusedAccess":{"unusedAccessAge":90}}`, string(gotAnalyzer.Configuration))
 	tagVals, err := fresh.ListTagsForResource(analyzer.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "platform", tagVals["team"])

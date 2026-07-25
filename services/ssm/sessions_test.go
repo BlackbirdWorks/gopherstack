@@ -84,18 +84,31 @@ func TestStartSession_LoggingFields(t *testing.T) {
 	h := newHandler()
 
 	code, out := postJSON(t, h, "StartSession", map[string]any{
-		"Target":                  "i-123",
-		"DocumentName":            "AWS-StartSSHSession",
-		"Reason":                  "debugging",
-		"OutputS3BucketName":      "ssm-logs",
-		"OutputS3KeyPrefix":       "sessions/",
-		"CloudWatchOutputEnabled": true,
-		"CloudWatchLogGroupName":  "/aws/ssm/sessions",
+		"Target":       "i-123",
+		"DocumentName": "AWS-StartSSHSession",
+		"Reason":       "debugging",
 	})
 
 	assert.Equal(t, http.StatusOK, code)
 	sid := out["SessionId"].(string)
 	assert.NotEmpty(t, sid)
+}
+func TestStartSession_DefaultsToStandardAccessType(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+
+	sess, err := b.StartSession(context.TODO(), &ssm.StartSessionInput{Target: "i-access-type"})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, "DescribeSessions", `{"Filters":[{"key":"SessionId","value":"`+sess.SessionID+`"}]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	sessions := out["Sessions"].([]any)
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "Standard", sessions[0].(map[string]any)["AccessType"])
 }
 func TestTerminateSession_SetsEndDate(t *testing.T) {
 	t.Parallel()
@@ -199,7 +212,7 @@ func TestSession_Parameters_RoundTrip(t *testing.T) {
 			assert.NotEmpty(t, startResp["SessionId"])
 
 			// DescribeSessions should show the session.
-			rec = doRequest(t, h, "DescribeSessions", `{"State":"Connected"}`)
+			rec = doRequest(t, h, "DescribeSessions", `{"State":"Active"}`)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			if tt.wantKey != "" {
@@ -208,6 +221,13 @@ func TestSession_Parameters_RoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestSession_StateFilter locks in the real AWS DescribeSessions.State
+// semantics: State is the coarse "Active"/"History" bucket (types.SessionState),
+// NOT the same enum as a session's own Status (types.SessionStatus,
+// "Connected"/"Terminated"/etc) — a request for State:"Active" must match a
+// Connected session, and State:"History" must match a Terminated one, never
+// the raw Status string itself.
 func TestSession_StateFilter(t *testing.T) {
 	t.Parallel()
 
@@ -216,17 +236,155 @@ func TestSession_StateFilter(t *testing.T) {
 	sess, err := b.StartSession(context.TODO(), &ssm.StartSessionInput{Target: "i-filter-test"})
 	require.NoError(t, err)
 
-	// Filter by Connected — should find the session.
-	rec := doRequest(t, h, "DescribeSessions", `{"State":"Connected"}`)
+	// Filter by Active — should find the newly-connected session.
+	rec := doRequest(t, h, "DescribeSessions", `{"State":"Active"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), sess.SessionID)
+
+	// Filter by History — should NOT find a still-connected session.
+	rec = doRequest(t, h, "DescribeSessions", `{"State":"History"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), sess.SessionID)
 
 	// Terminate session.
 	body, _ := json.Marshal(map[string]any{"SessionId": sess.SessionID})
 	doRequest(t, h, "TerminateSession", string(body))
 
-	// Filter by Connected — should NOT find the terminated session.
-	rec = doRequest(t, h, "DescribeSessions", `{"State":"Connected"}`)
+	// Filter by Active — should NOT find the terminated session.
+	rec = doRequest(t, h, "DescribeSessions", `{"State":"Active"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.NotContains(t, rec.Body.String(), sess.SessionID)
+
+	// Filter by History — should now find it.
+	rec = doRequest(t, h, "DescribeSessions", `{"State":"History"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), sess.SessionID)
+}
+
+func TestDescribeSessions_Filters(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+
+	s1, err := b.StartSession(context.TODO(), &ssm.StartSessionInput{Target: "i-aaa"})
+	require.NoError(t, err)
+	s2, err := b.StartSession(context.TODO(), &ssm.StartSessionInput{Target: "i-bbb"})
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, "DescribeSessions", `{"Filters":[{"key":"Target","value":"i-aaa"}]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), s1.SessionID)
+	assert.NotContains(t, rec.Body.String(), s2.SessionID)
+
+	rec = doRequest(t, h, "DescribeSessions", `{"Filters":[{"key":"SessionId","value":"`+s2.SessionID+`"}]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), s2.SessionID)
+	assert.NotContains(t, rec.Body.String(), s1.SessionID)
+}
+
+func TestDescribeSessions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+
+	const total = 5
+	for i := range total {
+		_, err := b.StartSession(context.TODO(), &ssm.StartSessionInput{Target: "i-page"})
+		require.NoError(t, err)
+		_ = i
+	}
+
+	code, out := postJSON(t, h, "DescribeSessions", map[string]any{"MaxResults": 2})
+	assert.Equal(t, http.StatusOK, code)
+	sessions := out["Sessions"].([]any)
+	require.Len(t, sessions, 2)
+	nextToken, ok := out["NextToken"].(string)
+	require.True(t, ok, "NextToken must be present when more results remain")
+	require.NotEmpty(t, nextToken)
+
+	seen := len(sessions)
+	for nextToken != "" {
+		code, out = postJSON(t, h, "DescribeSessions", map[string]any{
+			"MaxResults": 2,
+			"NextToken":  nextToken,
+		})
+		assert.Equal(t, http.StatusOK, code)
+		page := out["Sessions"].([]any)
+		seen += len(page)
+		nextToken, _ = out["NextToken"].(string)
+	}
+
+	assert.Equal(t, total, seen, "pagination must eventually return every session exactly once")
+}
+
+func TestGetConnectionStatus_NotConnectedLowercase(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	// Real AWS's ConnectionStatus enum is lowercase ("connected"/"notconnected").
+	code, out := postJSON(t, h, "GetConnectionStatus", map[string]any{"Target": "i-never-connected"})
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "notconnected", out["Status"])
+}
+
+func TestAccessRequest_StartThenGetAccessToken(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	code, out := postJSON(t, h, "StartAccessRequest", map[string]any{
+		"Reason": "on-call incident",
+		"Targets": []map[string]any{
+			{"Key": "InstanceIds", "Values": []string{"i-jit-001"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, code)
+	arID, ok := out["AccessRequestId"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, arID)
+
+	code, out = postJSON(t, h, "GetAccessToken", map[string]any{"AccessRequestId": arID})
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "Approved", out["AccessRequestStatus"])
+
+	creds, ok := out["Credentials"].(map[string]any)
+	require.True(t, ok, "an approved access request must return Credentials")
+	assert.NotEmpty(t, creds["AccessKeyId"])
+	assert.NotEmpty(t, creds["SecretAccessKey"])
+	assert.NotEmpty(t, creds["SessionToken"])
+	assert.Greater(t, creds["ExpirationTime"].(float64), float64(0))
+}
+
+func TestAccessRequest_ValidationRequiresReasonAndTargets(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	code, _ := postJSON(t, h, "StartAccessRequest", map[string]any{"Reason": "no targets"})
+	assert.Equal(t, http.StatusBadRequest, code)
+
+	code, _ = postJSON(t, h, "StartAccessRequest", map[string]any{
+		"Targets": []map[string]any{{"Key": "InstanceIds", "Values": []string{"i-1"}}},
+	})
+	assert.Equal(t, http.StatusBadRequest, code)
+}
+
+func TestGetAccessToken_UnknownAccessRequestIsNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	code, out := postJSON(t, h, "GetAccessToken", map[string]any{"AccessRequestId": "ar-does-not-exist"})
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "ResourceNotFoundException", out["__type"])
+}
+
+func TestGetAccessToken_RequiresAccessRequestID(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	code, _ := postJSON(t, h, "GetAccessToken", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, code)
 }

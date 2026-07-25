@@ -1,5 +1,11 @@
 package awsconfig
 
+import (
+	"fmt"
+	"slices"
+	"time"
+)
+
 // PutRemediationConfigurations stores remediation configurations keyed by rule name.
 func (b *InMemoryBackend) PutRemediationConfigurations(configs []RemediationConfiguration) error {
 	b.mu.Lock("PutRemediationConfigurations")
@@ -85,12 +91,20 @@ func (b *InMemoryBackend) DescribeRemediationExceptions(ruleName string) []Remed
 	return out
 }
 
-// DeleteRemediationConfiguration removes the remediation configuration for the given rule.
+// DeleteRemediationConfiguration removes the remediation configuration for the
+// given rule, cascade-deleting any recorded remediation executions for it too
+// (StartRemediationExecution/DescribeRemediationExecutionStatus both require a
+// remediation configuration to exist, so leaving them behind would strand
+// permanently-unreachable rows instead of a clean delete).
 func (b *InMemoryBackend) DeleteRemediationConfiguration(ruleName string) error {
 	b.mu.Lock("DeleteRemediationConfiguration")
 	defer b.mu.Unlock()
 
 	b.remediationConfigs.Delete(ruleName)
+
+	for _, e := range slices.Clone(b.remediationExecutionsByRule.Get(ruleName)) {
+		b.remediationExecutions.Delete(remediationExecutionKeyFn(e))
+	}
 
 	return nil
 }
@@ -114,8 +128,89 @@ func (b *InMemoryBackend) DeleteRemediationExceptions(ruleName, resourceID strin
 	return nil
 }
 
-// StartRemediationExecution is an intentionally minimal no-op stub.
-func (b *InMemoryBackend) StartRemediationExecution() error { return nil }
+// remediationExecutionStepName is the single synthetic step this emulator
+// records for every remediation execution, since it has no real SSM Automation
+// runner to model multi-step document execution.
+const remediationExecutionStepName = "ExecuteAutomation"
 
-// DescribeRemediationExecutionStatus returns an empty list (intentionally minimal stub).
-func (b *InMemoryBackend) DescribeRemediationExecutionStatus() []any { return []any{} }
+// StartRemediationExecution runs the remediation configured for ruleName
+// against each resource key, recording a SUCCEEDED execution for each
+// (readable back via DescribeRemediationExecutionStatus) since this emulator
+// has no real SSM Automation runner to execute against. Errors with
+// ErrNoSuchRemediationConfiguration (wire type
+// NoSuchRemediationConfigurationException) when ruleName has no remediation
+// configuration, matching real AWS Config's declared error model (verified
+// against aws-sdk-go-v2/service/configservice's StartRemediationExecution
+// deserializer).
+func (b *InMemoryBackend) StartRemediationExecution(ruleName string, keys []ResourceKey) error {
+	if ruleName == "" {
+		return fmt.Errorf("%w: ConfigRuleName is required", ErrValidation)
+	}
+
+	b.mu.Lock("StartRemediationExecution")
+	defer b.mu.Unlock()
+
+	if !b.remediationConfigs.Has(ruleName) {
+		return fmt.Errorf("%w: %s", ErrNoSuchRemediationConfiguration, ruleName)
+	}
+
+	now := float64(time.Now().Unix())
+
+	for _, k := range keys {
+		b.remediationExecutions.Put(&RemediationExecutionStatusEntry{
+			RuleName:        ruleName,
+			ResourceKey:     k,
+			State:           statusSucceeded,
+			InvocationTime:  now,
+			LastUpdatedTime: now,
+			StepDetails: []RemediationExecutionStepStatus{{
+				Name: remediationExecutionStepName, State: statusSucceeded, StartTime: now, StopTime: now,
+			}},
+		})
+	}
+
+	return nil
+}
+
+// DescribeRemediationExecutionStatus returns the recorded remediation
+// executions for ruleName, optionally narrowed to specific resource keys.
+// Errors with ErrNoSuchRemediationConfiguration when ruleName has no
+// remediation configuration, matching real AWS Config's declared error model
+// (verified against aws-sdk-go-v2/service/configservice's
+// DescribeRemediationExecutionStatus deserializer).
+func (b *InMemoryBackend) DescribeRemediationExecutionStatus(
+	ruleName string,
+	keys []ResourceKey,
+) ([]RemediationExecutionStatusEntry, error) {
+	b.mu.RLock("DescribeRemediationExecutionStatus")
+	defer b.mu.RUnlock()
+
+	if !b.remediationConfigs.Has(ruleName) {
+		return nil, fmt.Errorf("%w: %s", ErrNoSuchRemediationConfiguration, ruleName)
+	}
+
+	all := b.remediationExecutionsByRule.Get(ruleName)
+
+	out := make([]RemediationExecutionStatusEntry, 0, len(all))
+
+	for _, e := range all {
+		if len(keys) > 0 && !containsResourceKey(keys, e.ResourceKey) {
+			continue
+		}
+
+		out = append(out, *e)
+	}
+
+	return out, nil
+}
+
+// containsResourceKey reports whether keys contains key.
+func containsResourceKey(keys []ResourceKey, key ResourceKey) bool {
+	for _, k := range keys {
+		if k.ResourceType == key.ResourceType && k.ResourceID == key.ResourceID {
+			return true
+		}
+	}
+
+	return false
+}

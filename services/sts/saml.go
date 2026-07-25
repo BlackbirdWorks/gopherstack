@@ -77,25 +77,6 @@ func validateSAMLInput(input *AssumeRoleWithSAMLInput) error {
 		return err
 	}
 
-	// RoleSessionName is optional for SAML (derived from assertion), but when supplied validate it.
-	if input.RoleSessionName != "" {
-		if err := validateRoleSessionName(input.RoleSessionName); err != nil {
-			return err
-		}
-	}
-
-	if err := validateSourceIdentity(input.SourceIdentity); err != nil {
-		return err
-	}
-
-	if len(input.Tags) > MaxTagCount {
-		return fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
-	}
-
-	if err := validateTagConstraints(input.Tags); err != nil {
-		return err
-	}
-
 	if err := validatePolicyArns(input.PolicyArns); err != nil {
 		return err
 	}
@@ -107,14 +88,46 @@ func validateSAMLInput(input *AssumeRoleWithSAMLInput) error {
 	return checkPackedPolicyBudget(input.Policy, input.PolicyArns)
 }
 
+// validateSAMLAssertionData checks the constraints on identity attributes
+// extracted from the SAML assertion (RoleSessionName, SourceIdentity, session
+// tags) — mirroring the constraints AWS applies to the equivalent AssumeRole
+// request parameters, since AssumeRoleWithSAML sources these values from the
+// assertion instead of accepting them directly.
+func validateSAMLAssertionData(data samlAssertionData) error {
+	if data.RoleSessionName != "" {
+		if err := validateRoleSessionName(data.RoleSessionName); err != nil {
+			return err
+		}
+	}
+
+	if err := validateSourceIdentity(data.SourceIdentity); err != nil {
+		return err
+	}
+
+	if len(data.Tags) > MaxTagCount {
+		return fmt.Errorf("%w: got %d", ErrTooManyTags, len(data.Tags))
+	}
+
+	return validateTagConstraints(data.Tags)
+}
+
 // AssumeRoleWithSAML generates temporary credentials using a SAML 2.0 assertion.
-// In this mock, the SAMLAssertion is not cryptographically validated.
+// In this mock, the SAMLAssertion is not cryptographically validated, but its
+// identity attributes (RoleSessionName, SourceIdentity, session tags, NameID,
+// Issuer, SubjectConfirmationData Recipient) are parsed and drive the response,
+// matching the real API's server-side derivation (see saml_attributes.go).
 func (b *InMemoryBackend) AssumeRoleWithSAML(
 	input *AssumeRoleWithSAMLInput,
 ) (*AssumeRoleWithSAMLResponse, error) {
 	b.cntAssumeRoleWithSAML.Add(1)
 
 	if err := validateSAMLInput(input); err != nil {
+		return nil, err
+	}
+
+	data := extractSAMLAssertionData(input.SAMLAssertion)
+
+	if err := validateSAMLAssertionData(data); err != nil {
 		return nil, err
 	}
 
@@ -142,7 +155,7 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(
 		return nil, err
 	}
 
-	return b.buildSAMLResponse(input, creds, duration), nil
+	return b.buildSAMLResponse(input, data, creds, duration), nil
 }
 
 // checkSAMLTrust evaluates the target role's trust policy against the federated
@@ -164,19 +177,27 @@ func (b *InMemoryBackend) checkSAMLTrust(input *AssumeRoleWithSAMLInput) error {
 	})
 }
 
-// buildSAMLResponse constructs the AssumeRoleWithSAML response and persists the session.
+// buildSAMLResponse constructs the AssumeRoleWithSAML response and persists the
+// session, using identity attributes parsed from the SAML assertion (data) for
+// the fields AWS documents as assertion-derived: RoleSessionName,
+// SourceIdentity, session tags, Subject/SubjectType (from NameID), Issuer, and
+// Audience (from SubjectConfirmationData's Recipient attribute). Fields absent
+// from a minimal/test assertion fall back to the emulator's previous
+// placeholder defaults so permissive test fixtures keep working.
 func (b *InMemoryBackend) buildSAMLResponse(
 	input *AssumeRoleWithSAMLInput,
+	data samlAssertionData,
 	creds credentialSet,
 	duration int32,
 ) *AssumeRoleWithSAMLResponse {
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	roleID := deriveRoleID(input.RoleArn)
 
-	// Use input.RoleSessionName if provided, otherwise fall back to the samlSessionName constant.
+	// Use the assertion's RoleSessionName attribute if present, otherwise fall
+	// back to the samlSessionName constant.
 	sessionName := samlSessionName
-	if input.RoleSessionName != "" {
-		sessionName = input.RoleSessionName
+	if data.RoleSessionName != "" {
+		sessionName = data.RoleSessionName
 	}
 
 	assumedRoleID := roleID + ":" + sessionName
@@ -190,23 +211,50 @@ func (b *InMemoryBackend) buildSAMLResponse(
 	}
 
 	session := &SessionInfo{
-		Expiration:      expiration,
-		AssumedRoleArn:  assumedRoleArn,
-		AccountID:       account,
-		SessionName:     sessionName,
-		AccessKeyID:     creds.AccessKeyID,
-		SecretAccessKey: creds.SecretAccessKey,
-		SessionToken:    creds.SessionToken,
-		AssumedRoleID:   assumedRoleID,
-		SourceIdentity:  input.SourceIdentity,
-		Tags:            input.Tags,
+		Expiration:        expiration,
+		AssumedRoleArn:    assumedRoleArn,
+		AccountID:         account,
+		SessionName:       sessionName,
+		AccessKeyID:       creds.AccessKeyID,
+		SecretAccessKey:   creds.SecretAccessKey,
+		SessionToken:      creds.SessionToken,
+		AssumedRoleID:     assumedRoleID,
+		SourceIdentity:    data.SourceIdentity,
+		Tags:              data.Tags,
+		TransitiveTagKeys: data.TransitiveTagKeys,
 	}
 
 	b.storeSession(session)
 
+	// idpName is the SAML provider's friendly name (last ARN path segment),
+	// always derived from PrincipalArn per AWS's documented NameQualifier hash
+	// inputs. issuer is the assertion's own <Issuer> element value; when the
+	// (permissive, possibly attribute-free) test assertion carries none, fall
+	// back to idpName as before.
 	issuerParts := strings.Split(input.PrincipalArn, "/")
-	issuer := issuerParts[len(issuerParts)-1]
-	nameQualifier := computeNameQualifier(issuer, account, issuer)
+	idpName := issuerParts[len(issuerParts)-1]
+
+	issuer := data.Issuer
+	if issuer == "" {
+		issuer = idpName
+	}
+
+	audience := data.Recipient
+	if audience == "" {
+		audience = input.PrincipalArn
+	}
+
+	subject := data.NameID
+	if subject == "" {
+		subject = account + ":saml-subject"
+	}
+
+	subjectType := data.NameIDFormat
+	if subjectType == "" {
+		subjectType = "persistent"
+	}
+
+	nameQualifier := computeNameQualifier(issuer, account, idpName)
 
 	return &AssumeRoleWithSAMLResponse{
 		Xmlns: STSNamespace,
@@ -221,12 +269,12 @@ func (b *InMemoryBackend) buildSAMLResponse(
 				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
-			Audience:         input.PrincipalArn,
+			Audience:         audience,
 			Issuer:           issuer,
 			NameQualifier:    nameQualifier,
-			SubjectType:      "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
-			Subject:          account + ":saml-subject",
-			SourceIdentity:   input.SourceIdentity,
+			SubjectType:      subjectType,
+			Subject:          subject,
+			SourceIdentity:   data.SourceIdentity,
 			PackedPolicySize: calculatePackedPolicySizeWithArns(input.Policy, input.PolicyArns),
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},

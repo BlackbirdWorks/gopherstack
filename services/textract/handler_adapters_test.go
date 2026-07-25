@@ -377,6 +377,9 @@ func TestHandler_UpdateAdapter_HappyPath(t *testing.T) {
 	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
 	assert.Equal(t, "updated description", updateResp["Description"])
 	assert.Equal(t, "ENABLED", updateResp["AutoUpdate"])
+
+	_, hasTags := updateResp["Tags"]
+	assert.False(t, hasTags, "UpdateAdapterOutput has no Tags member in the real SDK")
 }
 
 // TestHandler_UpdateAdapter_NotFound ensures not-found returns 400.
@@ -392,7 +395,7 @@ func TestHandler_UpdateAdapter_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	var errResp map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "InvalidParameterException", errResp["__type"])
+	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }
 
 // TestHandler_ListAdapters_HappyPath tests ListAdapters with multiple entries.
@@ -454,6 +457,105 @@ func TestHandler_ListAdapters_SummaryShape(t *testing.T) {
 
 	_, hasTags := summary["Tags"]
 	assert.False(t, hasTags, "ListAdapters summary must not include Tags")
+}
+
+// TestHandler_Adapter_CreationTimeIsEpochSeconds locks in that CreationTime
+// is serialized as a JSON number of epoch seconds (the awsjson1.1
+// unixTimestamp wire format the real SDK deserializer requires), not an
+// RFC3339 string. GetAdapter/UpdateAdapter/ListAdapters previously formatted
+// CreationTime as "2006-01-02T15:04:05Z", which a real Textract SDK client
+// would reject with "expected Timestamp to be a JSON Number, got string
+// instead".
+func TestHandler_Adapter_CreationTimeIsEpochSeconds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
+		"AdapterName":  "epoch-adapter",
+		"FeatureTypes": []string{"FORMS"},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]string
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	adapterID := createResp["AdapterId"]
+
+	getRec := doTextractRequest(t, h, "GetAdapter", map[string]any{"AdapterId": adapterID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	ct, ok := getResp["CreationTime"].(float64)
+	assert.True(t, ok, "GetAdapter CreationTime must be a JSON number")
+	assert.Positive(t, ct)
+
+	updateRec := doTextractRequest(t, h, "UpdateAdapter", map[string]any{
+		"AdapterId":   adapterID,
+		"Description": "updated",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updateResp map[string]any
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	uct, ok := updateResp["CreationTime"].(float64)
+	assert.True(t, ok, "UpdateAdapter CreationTime must be a JSON number")
+	assert.Positive(t, uct)
+
+	listRec := doTextractRequest(t, h, "ListAdapters", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	adapters, ok := listResp["Adapters"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, adapters)
+
+	summary, ok := adapters[0].(map[string]any)
+	require.True(t, ok)
+	lct, ok := summary["CreationTime"].(float64)
+	assert.True(t, ok, "ListAdapters summary CreationTime must be a JSON number")
+	assert.Positive(t, lct)
+}
+
+// TestHandler_ListAdapters_Pagination verifies NextToken/MaxResults
+// pagination. Real AWS's ListAdaptersInput accepts MaxResults/NextToken and
+// ListAdaptersOutput echoes NextToken -- this was previously accepted as an
+// empty struct that dropped every field silently.
+func TestHandler_ListAdapters_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		rec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
+			"AdapterName":  name,
+			"FeatureTypes": []string{"FORMS"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec1 := doTextractRequest(t, h, "ListAdapters", map[string]any{"MaxResults": 2})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var resp1 struct {
+		NextToken string           `json:"NextToken"`
+		Adapters  []map[string]any `json:"Adapters"`
+	}
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	assert.Len(t, resp1.Adapters, 2)
+	require.NotEmpty(t, resp1.NextToken, "first page must return a NextToken")
+
+	rec2 := doTextractRequest(t, h, "ListAdapters", map[string]any{"NextToken": resp1.NextToken})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 struct {
+		NextToken string           `json:"NextToken"`
+		Adapters  []map[string]any `json:"Adapters"`
+	}
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	assert.Len(t, resp2.Adapters, 1, "remaining 1 adapter on the second page")
+	assert.Empty(t, resp2.NextToken, "no more pages")
 }
 
 // TestHandler_Snapshot_Restore_WithAdapters proves Snapshot/Restore round-trips

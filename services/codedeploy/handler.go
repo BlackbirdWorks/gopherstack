@@ -250,6 +250,8 @@ var errorMappings = []errorMapping{
 	{ErrDeploymentConfigNotFound, "DeploymentConfigDoesNotExistException", http.StatusNotFound},
 	{ErrGitHubAccountTokenNotFound, "GitHubAccountTokenDoesNotExistException", http.StatusNotFound},
 	{ErrOnPremisesInstanceNotFound, "InstanceDoesNotExistException", http.StatusNotFound},
+	{ErrRevisionNotFound, "RevisionDoesNotExistException", http.StatusNotFound},
+	{ErrDeploymentTargetNotFound, "DeploymentTargetDoesNotExistException", http.StatusNotFound},
 	{ErrAlreadyExists, "ApplicationAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentGroupAlreadyExists, "DeploymentGroupAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentConfigAlreadyExists, "DeploymentConfigAlreadyExistsException", http.StatusConflict},

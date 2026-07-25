@@ -123,12 +123,18 @@ func TestEventConfigurations(t *testing.T) {
 }
 
 // TestBatch3_AuditFinding tests ListAuditFindings (empty list since we have no direct create endpoint).
+//
+// Real AWS IoT's ListAuditFindings is POST /audit/findings (its filter
+// fields are carried in a JSON body), not GET -- confirmed against
+// aws-sdk-go-v2/service/iot@v1.76.0's serializers.go http bindings. A
+// previous version of this test (and gopherstack's routing) used GET, which
+// no real client ever sends.
 func TestAuditFinding(t *testing.T) {
 	t.Parallel()
 	h, _ := newHandlerForBatch3Test(t)
 
 	// List (empty)
-	out := iotOK(t, h, http.MethodGet, "/audit/findings", nil)
+	out := iotOK(t, h, http.MethodPost, "/audit/findings", nil)
 	findings, _ := out["findings"].([]any)
 	if findings == nil {
 		t.Errorf("expected findings array, got %v", out)

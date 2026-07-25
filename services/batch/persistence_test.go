@@ -34,6 +34,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.RegisterJobDefinition(
 		t.Context(), "jd1", "container", nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -90,12 +91,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	jq, err := original.CreateJobQueue(t.Context(), "queue-1", 1, "ENABLED", []batch.ComputeEnvironmentOrder{
 		{ComputeEnvironment: "ce-1", Order: 1},
-	}, map[string]string{"team": "data"}, "", nil)
+	}, map[string]string{"team": "data"}, "", nil, "", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "queue-1", jq.JobQueueName)
 
 	jd, err := original.RegisterJobDefinition(
 		t.Context(), "jd-1", "container", map[string]string{"k": "v"}, nil, 60, 0, nil, nil, nil, nil, nil, nil, false,
+		nil,
 	)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), jd.Revision)
@@ -117,10 +119,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	se, err := original.CreateServiceEnvironment(t.Context(), "se-1", "SAGEMAKER_TRAINING", "ENABLED", nil)
+	_, err = original.CreateServiceEnvironment(t.Context(), "se-1", "SAGEMAKER_TRAINING", "ENABLED",
+		[]batch.CapacityLimit{{CapacityUnit: "NUM_INSTANCES", MaxCapacity: 10}}, nil)
 	require.NoError(t, err)
 
-	sj, err := original.SubmitServiceJob(t.Context(), "sj-1", se.ServiceEnvironmentName, nil)
+	sj, err := original.SubmitServiceJob(
+		t.Context(), "sj-1", "queue-1", "SAGEMAKER_TRAINING", "{}", nil, nil, nil, 0, "",
+	)
 	require.NoError(t, err)
 
 	snap := original.Snapshot(t.Context())
@@ -183,14 +188,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.ErrorIs(t, err, batch.ErrAlreadyExists)
 
 	// serviceEnvironments table.
-	seList := fresh.DescribeServiceEnvironments(t.Context(), []string{"se-1"})
+	seList, _ := fresh.DescribeServiceEnvironments(t.Context(), []string{"se-1"}, 0, "")
 	require.Len(t, seList, 1)
 	assert.Equal(t, "se-1", seList[0].ServiceEnvironmentName)
 
 	// serviceJobs table.
-	sjGot, err := fresh.DescribeServiceJob(t.Context(), sj.ServiceJobID)
+	sjGot, err := fresh.DescribeServiceJob(t.Context(), sj.JobID)
 	require.NoError(t, err)
-	assert.Equal(t, "sj-1", sjGot.ServiceJobName)
+	assert.Equal(t, "sj-1", sjGot.JobName)
 }
 
 func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
@@ -208,13 +213,13 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	ceOrder := []batch.ComputeEnvironmentOrder{
 		{ComputeEnvironment: ce.ComputeEnvironmentArn, Order: 1},
 	}
-	jq, err := b.CreateJobQueue(context.Background(), "test-jq", 10, "ENABLED", ceOrder, nil, "", nil)
+	jq, err := b.CreateJobQueue(context.Background(), "test-jq", 10, "ENABLED", ceOrder, nil, "", nil, "", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, jq.JobQueueArn)
 
 	// Register job definition.
 	jd, err := b.RegisterJobDefinition(
-		context.Background(), "test-jd", "container", nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false)
+		context.Background(), "test-jd", "container", nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, jd.JobDefinitionArn)
 
@@ -267,7 +272,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	jobs := b2.DescribeJobs(context.Background(), []string{job.JobID})
 	require.Len(t, jobs, 1)
 	assert.Equal(t, "test-job", jobs[0].JobName)
-	assert.Equal(t, jq.JobQueueName, jobs[0].JobQueue)
+	assert.Equal(t, jq.JobQueueArn, jobs[0].JobQueue)
 
 	// jobsByQueue index is rebuilt — ListJobs must return the submitted job.
 	listed, _, err := b2.ListJobs(context.Background(), jq.JobQueueName, "", "", 0)
@@ -299,6 +304,7 @@ func TestBatch_PersistenceWithNewResourceTypes(t *testing.T) {
 	rec = post(t, h, "/v1/createserviceenvironment", map[string]any{
 		"serviceEnvironmentName": "senv-persist",
 		"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+		"capacityLimits":         []map[string]any{{"capacityUnit": "NUM_INSTANCES", "maxCapacity": 10}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

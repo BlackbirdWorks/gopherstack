@@ -27,6 +27,7 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 		TargetOnDemandConcurrency: input.TargetOnDemandConcurrency,
 		Status:                    "ACTIVE",
 		LastModifiedTime:          now,
+		TelemetryConfig:           input.TelemetryConfig,
 	}
 
 	b.capacityProviders.Put(cp)
@@ -76,6 +77,10 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 
 	if input.TargetOnDemandConcurrency > 0 {
 		cp.TargetOnDemandConcurrency = input.TargetOnDemandConcurrency
+	}
+
+	if input.TelemetryConfig != nil {
+		cp.TelemetryConfig = input.TelemetryConfig
 	}
 
 	cp.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)

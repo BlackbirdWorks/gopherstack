@@ -214,6 +214,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 
 	registerAllTables(b)
+	b.seedManagedPoliciesLocked()
 
 	go b.runInvalidationReconciler()
 
@@ -291,6 +292,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.resetDistributions()
 	b.resetPoliciesAndKeys()
+	b.seedManagedPoliciesLocked()
 }
 
 // resetDistributions clears distribution-related maps not covered by b.registry.ResetAll().

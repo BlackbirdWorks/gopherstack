@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchPodIdentityOps handles pod identity association CRUD operations.
@@ -57,18 +59,33 @@ func parsePodIdentityRoute(method, clusterName string, parts []string) eksRoute 
 }
 
 func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
+	modifiedAt := a.ModifiedAt
+	if modifiedAt.IsZero() {
+		modifiedAt = a.CreatedAt
+	}
+
 	m := map[string]any{
-		keyClusterName:   a.ClusterName,
-		"associationId":  a.AssociationID,
-		"associationArn": a.ARN,
-		"namespace":      a.Namespace,
-		"serviceAccount": a.ServiceAccount,
-		"roleArn":        a.RoleARN,
-		keyCreatedAt:     a.CreatedAt.Unix(),
+		keyClusterName:       a.ClusterName,
+		"associationId":      a.AssociationID,
+		"associationArn":     a.ARN,
+		"namespace":          a.Namespace,
+		"serviceAccount":     a.ServiceAccount,
+		"roleArn":            a.RoleARN,
+		keyCreatedAt:         a.CreatedAt.Unix(),
+		keyModifiedAt:        modifiedAt.Unix(),
+		"disableSessionTags": a.DisableSessionTags,
 	}
 
 	if a.OwnerARN != "" {
 		m["ownerArn"] = a.OwnerARN
+	}
+
+	if a.ExternalID != "" {
+		m["externalId"] = a.ExternalID
+	}
+
+	if a.Policy != "" {
+		m["policy"] = a.Policy
 	}
 
 	if a.Tags != nil {
@@ -80,11 +97,34 @@ func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
 	return m
 }
 
+// podIdentitySummaryToJSON converts a PodIdentityAssociation into the
+// PodIdentityAssociationSummary shape used by ListPodIdentityAssociations --
+// verified against aws-sdk-go-v2/service/eks/types.PodIdentityAssociationSummary,
+// which deliberately omits roleArn/createdAt/modifiedAt/tags/externalId/policy
+// present on the full PodIdentityAssociation.
+func podIdentitySummaryToJSON(a *PodIdentityAssociation) map[string]any {
+	m := map[string]any{
+		keyClusterName:   a.ClusterName,
+		"associationId":  a.AssociationID,
+		"associationArn": a.ARN,
+		"namespace":      a.Namespace,
+		"serviceAccount": a.ServiceAccount,
+	}
+
+	if a.OwnerARN != "" {
+		m["ownerArn"] = a.OwnerARN
+	}
+
+	return m
+}
+
 type createPodIdentityAssociationBody struct {
-	Tags           map[string]string `json:"tags"`
-	Namespace      string            `json:"namespace"`
-	ServiceAccount string            `json:"serviceAccount"`
-	RoleArn        string            `json:"roleArn"`
+	Tags               map[string]string `json:"tags"`
+	Namespace          string            `json:"namespace"`
+	ServiceAccount     string            `json:"serviceAccount"`
+	RoleArn            string            `json:"roleArn"`
+	Policy             string            `json:"policy"`
+	DisableSessionTags bool              `json:"disableSessionTags"`
 }
 
 func (h *Handler) handleCreatePodIdentityAssociation(c *echo.Context, clusterName string, body []byte) error {
@@ -107,6 +147,7 @@ func (h *Handler) handleCreatePodIdentityAssociation(c *echo.Context, clusterNam
 		in.ServiceAccount,
 		in.RoleArn,
 		in.Tags,
+		PodIdentityAssociationInput{Policy: in.Policy, DisableSessionTags: in.DisableSessionTags},
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -147,16 +188,19 @@ func (h *Handler) handleListPodIdentityAssociations(c *echo.Context, clusterName
 
 	result := make([]map[string]any, len(assocs))
 	for i, a := range assocs {
-		result[i] = podIdentityToJSON(a)
+		result[i] = podIdentitySummaryToJSON(a)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"associations": result,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(result, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("associations", p))
 }
 
 type updatePodIdentityBody struct {
-	RoleArn string `json:"roleArn"`
+	Policy             *string `json:"policy"`
+	DisableSessionTags *bool   `json:"disableSessionTags"`
+	RoleArn            string  `json:"roleArn"`
 }
 
 func (h *Handler) handleUpdatePodIdentityAssociation(c *echo.Context, clusterName, assocID string, body []byte) error {
@@ -167,7 +211,11 @@ func (h *Handler) handleUpdatePodIdentityAssociation(c *echo.Context, clusterNam
 		}
 	}
 
-	assoc, err := h.Backend.UpdatePodIdentityAssociation(clusterName, assocID, in.RoleArn)
+	assoc, err := h.Backend.UpdatePodIdentityAssociation(clusterName, assocID, PodIdentityAssociationUpdate{
+		RoleARN:            in.RoleArn,
+		Policy:             in.Policy,
+		DisableSessionTags: in.DisableSessionTags,
+	})
 	if err != nil {
 		return h.handleError(c, err)
 	}

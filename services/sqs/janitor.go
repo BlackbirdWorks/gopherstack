@@ -184,7 +184,30 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 		})
 	}()
 
-	totalItems := dedupPruned + msgExpired + tasksPruned
+	recentlyDeletedPruned := b.pruneRecentlyDeleted(now)
+
+	totalItems := dedupPruned + msgExpired + tasksPruned + recentlyDeletedPruned
 	telemetry.RecordWorkerItems("sqs", "JanitorSweeper", totalItems)
 	telemetry.RecordWorkerTask("sqs", "JanitorSweeper", "success")
+}
+
+// pruneRecentlyDeleted removes entries from b.recentlyDeleted (the
+// ErrQueueDeletedRecently cooldown map) whose 60-second window has already
+// elapsed as of now, so the map stays bounded across a long-lived backend
+// that deletes many queues over time. Returns the number of entries removed.
+// Extracted from pruneState to keep that function under the gocognit limit.
+func (b *InMemoryBackend) pruneRecentlyDeleted(now time.Time) int {
+	pruned := 0
+
+	b.mu.Lock("pruneState.recentlyDeleted")
+	defer b.mu.Unlock()
+
+	for key, deletedAt := range b.recentlyDeleted {
+		if now.Sub(deletedAt) >= queueDeletedRecentlyWindowSecs*time.Second {
+			delete(b.recentlyDeleted, key)
+			pruned++
+		}
+	}
+
+	return pruned
 }

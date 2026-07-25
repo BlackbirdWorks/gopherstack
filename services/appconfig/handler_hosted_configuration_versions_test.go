@@ -235,3 +235,49 @@ func TestHandler_HostedConfigVersionResponseHeaders(t *testing.T) {
 		assert.Equal(t, content, getRec.Body.Bytes())
 	}
 }
+
+// TestHandler_CreateHostedConfigurationVersion_LatestVersionNumberConflict
+// verifies the real optional optimistic-concurrency check bound to the
+// "Latest-Version-Number" request header: real
+// CreateHostedConfigurationVersionInput.LatestVersionNumber must match the
+// profile's current latest version or the create is rejected, rather than
+// silently racing another writer (previously ignored entirely -- see
+// PARITY.md's now-closed gap on this).
+func TestHandler_CreateHostedConfigurationVersion_LatestVersionNumberConflict(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	appRec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"lvn-app"}`))
+	require.Equal(t, http.StatusCreated, appRec.Code)
+
+	var app struct {
+		ID string `json:"Id"`
+	}
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+
+	profRec := doRequest(t, h, http.MethodPost,
+		"/applications/"+app.ID+"/configurationprofiles",
+		[]byte(`{"Name":"lvn-profile","LocationUri":"hosted","Type":"AWS.Freeform"}`))
+	require.Equal(t, http.StatusCreated, profRec.Code)
+
+	var prof struct {
+		ID string `json:"Id"`
+	}
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+
+	base := "/applications/" + app.ID + "/configurationprofiles/" + prof.ID + "/hostedconfigurationversions"
+
+	// Create version 1 with no concurrency check.
+	rec := doRequest(t, h, http.MethodPost, base, []byte(`{"v":1}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// A stale LatestVersionNumber (0, when the real latest is 1) must be rejected.
+	rec = doRequestWithHeader(t, h, http.MethodPost, base, "Latest-Version-Number", "0", []byte(`{"v":2}`))
+	assert.Equal(t, http.StatusConflict, rec.Code)
+
+	// The correct LatestVersionNumber (1) must succeed and produce version 2.
+	rec = doRequestWithHeader(t, h, http.MethodPost, base, "Latest-Version-Number", "1", []byte(`{"v":2}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, "2", rec.Header().Get("Version-Number"))
+}

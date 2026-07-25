@@ -295,3 +295,54 @@ func TestSNS_RemovePermissionHandler(t *testing.T) {
 		})
 	}
 }
+
+// TestSNS_AddPermission_DuplicateLabelReturnsAuthorizationError403 verifies that
+// AWS SNS's AuthorizationError code (returned for a duplicate permission label)
+// maps to HTTP 403, per the documented Subscribe/AddPermission error table
+// ("AuthorizationError ... HTTP Status Code: 403") — not the generic 400 that
+// InvalidParameter uses.
+func TestSNS_AddPermission_DuplicateLabelReturnsAuthorizationError403(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+	tp, err := b.CreateTopic("perm-dup-label", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.AddPermission(tp.TopicArn, "dup-label", []string{"123"}, []string{"Publish"}))
+
+	form := url.Values{
+		"Action":                {"AddPermission"},
+		"Version":               {"2010-03-31"},
+		"TopicArn":              {tp.TopicArn},
+		"Label":                 {"dup-label"},
+		"AWSAccountId.member.1": {"123456789012"},
+		"ActionName.member.1":   {"Publish"},
+	}
+
+	rec := snsPost(t, h, form)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Body.String(), "AuthorizationError")
+}
+
+// TestSNS_RemovePermission_MissingLabelReturnsAuthorizationError403 verifies the
+// same AuthorizationError-to-403 mapping for RemovePermission's "label not found" case.
+func TestSNS_RemovePermission_MissingLabelReturnsAuthorizationError403(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+	tp, err := b.CreateTopic("perm-missing-label", nil)
+	require.NoError(t, err)
+
+	form := url.Values{
+		"Action":   {"RemovePermission"},
+		"Version":  {"2010-03-31"},
+		"TopicArn": {tp.TopicArn},
+		"Label":    {"never-added"},
+	}
+
+	rec := snsPost(t, h, form)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Body.String(), "AuthorizationError")
+}

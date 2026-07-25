@@ -7,6 +7,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// validateS3Destination checks that BucketName, ManifestKey, and RoleArn are
+// all present, matching the real MediaPackage SDK's required members on
+// types.S3Destination (CreateHarvestJobInput.S3Destination itself is also
+// required, but the caller always passes a zero-value struct when the
+// request omitted the key, so an empty BucketName/ManifestKey/RoleArn is the
+// observable signal here).
+func validateS3Destination(s3Dest S3Destination) error {
+	if s3Dest.BucketName == "" {
+		return fmt.Errorf("%w: S3Destination.BucketName is required", ErrInvalidParameter)
+	}
+
+	if s3Dest.ManifestKey == "" {
+		return fmt.Errorf("%w: S3Destination.ManifestKey is required", ErrInvalidParameter)
+	}
+
+	if s3Dest.RoleArn == "" {
+		return fmt.Errorf("%w: S3Destination.RoleArn is required", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
 // CreateHarvestJob creates a new harvest job record.
 func (b *InMemoryBackend) CreateHarvestJob(
 	id, originEndpointID, startTime, endTime string,
@@ -18,6 +40,18 @@ func (b *InMemoryBackend) CreateHarvestJob(
 
 	if originEndpointID == "" {
 		return nil, fmt.Errorf("%w: OriginEndpointId is required", ErrInvalidParameter)
+	}
+
+	if startTime == "" {
+		return nil, fmt.Errorf("%w: StartTime is required", ErrInvalidParameter)
+	}
+
+	if endTime == "" {
+		return nil, fmt.Errorf("%w: EndTime is required", ErrInvalidParameter)
+	}
+
+	if err := validateS3Destination(s3Dest); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateHarvestJob")

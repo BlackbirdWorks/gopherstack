@@ -31,7 +31,7 @@ func TestResourceCreator_AppAutoScaling_ScalableTarget_CreateDelete(t *testing.T
 	assert.Contains(t, physID, "scalable-target")
 
 	// Verify it is registered in the backend.
-	targets, _ := backends.AppAutoScaling.Backend.DescribeScalableTargets(
+	targets, _, _ := backends.AppAutoScaling.Backend.DescribeScalableTargets(
 		appautoscalingbackend.DescribeScalableTargetsFilter{},
 	)
 	assert.Len(t, targets, 1)
@@ -41,7 +41,7 @@ func TestResourceCreator_AppAutoScaling_ScalableTarget_CreateDelete(t *testing.T
 	require.NoError(t, err)
 
 	// Verify it is deregistered.
-	targets, _ = backends.AppAutoScaling.Backend.DescribeScalableTargets(
+	targets, _, _ = backends.AppAutoScaling.Backend.DescribeScalableTargets(
 		appautoscalingbackend.DescribeScalableTargetsFilter{},
 	)
 	assert.Empty(t, targets)
@@ -63,11 +63,19 @@ func TestResourceCreator_AppAutoScaling_ScalingPolicy_CreateDelete(t *testing.T)
 		"PolicyType":        "TargetTrackingScaling",
 	}
 
+	// Real CloudFormation requires the ScalableTarget to exist first (it is a
+	// separate AWS::ApplicationAutoScaling::ScalableTarget resource); register it
+	// so PutScalingPolicy does not fail with ObjectNotFoundException.
+	_, regErr := backends.AppAutoScaling.Backend.RegisterScalableTarget(
+		"ecs", "service/default/svc", "ecs:service:DesiredCount", 1, 10, nil, "", nil,
+	)
+	require.NoError(t, regErr)
+
 	physID, err := rc.Create(t.Context(), "MyPolicy", "AWS::ApplicationAutoScaling::ScalingPolicy", props, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
 
-	policies, _ := backends.AppAutoScaling.Backend.DescribeScalingPolicies(
+	policies, _, _ := backends.AppAutoScaling.Backend.DescribeScalingPolicies(
 		appautoscalingbackend.DescribeScalingPoliciesFilter{},
 	)
 	assert.Len(t, policies, 1)
@@ -76,7 +84,7 @@ func TestResourceCreator_AppAutoScaling_ScalingPolicy_CreateDelete(t *testing.T)
 	err = rc.Delete(t.Context(), "AWS::ApplicationAutoScaling::ScalingPolicy", physID, nil)
 	require.NoError(t, err)
 
-	policies, _ = backends.AppAutoScaling.Backend.DescribeScalingPolicies(
+	policies, _, _ = backends.AppAutoScaling.Backend.DescribeScalingPolicies(
 		appautoscalingbackend.DescribeScalingPoliciesFilter{},
 	)
 	assert.Empty(t, policies)

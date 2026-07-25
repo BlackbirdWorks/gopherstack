@@ -3,11 +3,20 @@ package opensearch
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
+
+// applicationEndpoint synthesizes a plausible OpenSearch application
+// endpoint. gopherstack has no real DNS-routable application layer, so this
+// is a reasonable non-stub placeholder -- the important behavioral property
+// (the Endpoint field being present at all, unlike before) is what matters.
+func applicationEndpoint(appID, region string) string {
+	return fmt.Sprintf("%s.%s.opensearch-applications.amazonaws.com", appID, region)
+}
 
 // handleApplicationRoutes handles application routes.
 func (h *Handler) handleApplicationRoutes(w http.ResponseWriter, r *http.Request) {
@@ -16,13 +25,6 @@ func (h *Handler) handleApplicationRoutes(w http.ResponseWriter, r *http.Request
 	// Root: Create/List applications.
 	if rest == "" || rest == "/" {
 		h.handleApplicationRootRoutes(w, r)
-
-		return
-	}
-
-	// Settings sub-path.
-	if rest == "/settings/default" {
-		h.handleApplicationSettingsRoutes(w, r)
 
 		return
 	}
@@ -41,10 +43,13 @@ func (h *Handler) handleApplicationRootRoutes(w http.ResponseWriter, r *http.Req
 		summaries := make([]map[string]any, 0, len(apps))
 		for _, app := range apps {
 			summaries = append(summaries, map[string]any{
-				"Id":           app.ID,
-				jsonKeyAppName: app.Name,
-				jsonKeyAppArn:  app.ARN,
-				"Status":       pkgStateActive,
+				"Id":                 app.ID,
+				jsonKeyAppName:       app.Name,
+				jsonKeyAppArn:        app.ARN,
+				jsonKeyStatus:        pkgStateActive,
+				"Endpoint":           applicationEndpoint(app.ID, h.Backend.Region()),
+				jsonKeyCreatedAt:     app.CreatedAt,
+				jsonKeyLastUpdatedAt: app.LastUpdatedAt,
 			})
 		}
 		h.writeJSON(r, w, map[string]any{"ApplicationSummaries": summaries})
@@ -53,24 +58,17 @@ func (h *Handler) handleApplicationRootRoutes(w http.ResponseWriter, r *http.Req
 	}
 }
 
-// handleApplicationSettingsRoutes handles /application/settings/default requests.
-func (h *Handler) handleApplicationSettingsRoutes(w http.ResponseWriter, r *http.Request) {
+// handleDefaultApplicationSettingRoutes handles
+// GET/PUT /2021-01-01/opensearch/defaultApplicationSetting
+// (GetDefaultApplicationSetting / PutDefaultApplicationSetting). This is a
+// top-level path, NOT nested under /application -- and the real SDK wire
+// shape carries a single lowercase "applicationArn" field (plus
+// "setAsDefault" on the PUT request), not a per-ApplicationType settings
+// list.
+func (h *Handler) handleDefaultApplicationSettingRoutes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		appType := r.URL.Query().Get("ApplicationType")
-		if appType == "" {
-			appType = "OpenSearchDashboards"
-		}
-
-		settings, _ := h.Backend.GetDefaultApplicationSettings(appType)
-		if settings == nil {
-			settings = []AppSetting{}
-		}
-
-		h.writeJSON(r, w, map[string]any{
-			"ApplicationType":            appType,
-			"DefaultApplicationSettings": settings,
-		})
+		h.writeJSON(r, w, map[string]any{"applicationArn": h.Backend.GetDefaultApplicationSetting()})
 	case http.MethodPut:
 		body, err := httputils.ReadBody(r)
 		if err != nil {
@@ -80,21 +78,26 @@ func (h *Handler) handleApplicationSettingsRoutes(w http.ResponseWriter, r *http
 		}
 
 		var req struct {
-			ApplicationType            string       `json:"ApplicationType"`
-			DefaultApplicationSettings []AppSetting `json:"DefaultApplicationSettings"`
+			ApplicationArn string `json:"applicationArn"`
+			SetAsDefault   bool   `json:"setAsDefault"`
 		}
 
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+				h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+
+				return
+			}
 		}
 
-		appType := req.ApplicationType
-		if appType == "" {
-			appType = "OpenSearchDashboards"
+		newArn, putErr := h.Backend.PutDefaultApplicationSetting(req.ApplicationArn, req.SetAsDefault)
+		if putErr != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", putErr.Error())
+
+			return
 		}
 
-		_ = h.Backend.PutDefaultApplicationSettings(appType, req.DefaultApplicationSettings)
-		w.WriteHeader(http.StatusOK)
+		h.writeJSON(r, w, map[string]any{"applicationArn": newArn})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -119,8 +122,11 @@ func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Reque
 		}
 		h.writeJSON(r, w, map[string]any{
 			"Id": app.ID, jsonKeyAppName: app.Name, jsonKeyAppArn: app.ARN,
-			"AppConfigs": app.AppConfigs, "DataSources": app.DataSources,
-			jsonKeyStatus: pkgStateActive,
+			"AppConfigs": app.AppConfigs, jsonKeyDataSources: app.DataSources,
+			jsonKeyStatus:        pkgStateActive,
+			"Endpoint":           applicationEndpoint(app.ID, h.Backend.Region()),
+			jsonKeyCreatedAt:     app.CreatedAt,
+			jsonKeyLastUpdatedAt: app.LastUpdatedAt,
 		})
 	case http.MethodDelete:
 		if err := h.Backend.DeleteApplication(appID); err != nil {
@@ -157,9 +163,13 @@ func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Reque
 
 			return
 		}
+		// UpdateApplicationOutput carries no Status field (unlike
+		// GetApplication/ListApplications) -- do not add one here.
 		h.writeJSON(r, w, map[string]any{
 			"Id": app.ID, jsonKeyAppName: app.Name, jsonKeyAppArn: app.ARN,
-			jsonKeyStatus: pkgStateActive,
+			"AppConfigs": app.AppConfigs, jsonKeyDataSources: app.DataSources,
+			jsonKeyCreatedAt:     app.CreatedAt,
+			jsonKeyLastUpdatedAt: app.LastUpdatedAt,
 		})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
@@ -184,13 +194,16 @@ type appDSJSON struct {
 	DataSourceArn string `json:"DataSourceArn"`
 }
 
-// createApplicationOutput is the JSON response for CreateApplication.
+// createApplicationOutput is the JSON response for CreateApplication. Note
+// CreateApplicationOutput has no Status or LastUpdatedAt field (unlike
+// GetApplication) -- do not add them here.
 type createApplicationOutput struct {
 	ID          string          `json:"Id"`
 	Name        string          `json:"Name"`
 	ARN         string          `json:"Arn"`
 	AppConfigs  []appConfigJSON `json:"AppConfigs"`
 	DataSources []appDSJSON     `json:"DataSources"`
+	CreatedAt   float64         `json:"CreatedAt"`
 }
 
 func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request) {
@@ -251,5 +264,6 @@ func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request
 		ARN:         app.ARN,
 		AppConfigs:  outConfigs,
 		DataSources: outDS,
+		CreatedAt:   app.CreatedAt,
 	})
 }

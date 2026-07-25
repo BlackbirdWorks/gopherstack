@@ -105,6 +105,16 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	_, err := original.CreateEventBus(ctx, "custom-bus", "a custom bus")
 	require.NoError(t, err)
 
+	// Resource-based policy on the custom bus (busePolicies is not
+	// store.Table-backed -- see persistence.go's backendSnapshot doc comment
+	// -- so this specifically exercises its own Snapshot/Restore wiring).
+	require.NoError(t, original.PutPermission(ctx, eventbridge.PutPermissionInput{
+		EventBusName: "custom-bus",
+		StatementID:  "allow-persist",
+		Action:       "events:PutEvents",
+		Principal:    "123456789013",
+	}))
+
 	// Rule with an event pattern (exercises ruleIndex rebuild + pattern
 	// matching) on the custom bus.
 	_, err = original.PutRule(ctx, eventbridge.PutRuleInput{
@@ -179,6 +189,12 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	bus, err := fresh.DescribeEventBus(ctx, "custom-bus")
 	require.NoError(t, err)
 	assert.Equal(t, "a custom bus", bus.Description)
+
+	// Bus policy must survive Restore too -- previously silently dropped
+	// (busePolicies was entirely excluded from backendSnapshot).
+	policy, err := fresh.GetEventBusPolicy(ctx, "custom-bus")
+	require.NoError(t, err)
+	assert.Contains(t, policy, "allow-persist")
 
 	// Rule + pattern (TestEventPattern proves compiledPattern survived).
 	rule, err := fresh.DescribeRule(ctx, "custom-rule", "custom-bus")

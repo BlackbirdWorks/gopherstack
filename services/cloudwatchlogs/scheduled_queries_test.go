@@ -103,7 +103,7 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 				queries, _, err = b.ListScheduledQueries(50, "")
 				require.NoError(t, err)
 				require.Len(t, queries, 1)
-				err = b.DeleteScheduledQuery(queries[0].Arn)
+				err = b.DeleteScheduledQuery(queries[0].ScheduledQueryArn)
 			case "delete_direct":
 				err = b.DeleteScheduledQuery(tt.arn)
 			case "update_first":
@@ -111,7 +111,7 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 				queries, _, err = b.ListScheduledQueries(50, "")
 				require.NoError(t, err)
 				require.Len(t, queries, 1)
-				err = b.UpdateScheduledQuery(queries[0].Arn, tt.newState)
+				err = b.UpdateScheduledQuery(queries[0].ScheduledQueryArn, tt.newState)
 			}
 
 			if tt.wantErr != nil {
@@ -174,7 +174,7 @@ func TestCloudWatchLogsBackend_GetScheduledQuery(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotNil(t, sq)
-			assert.Equal(t, arn, sq.Arn)
+			assert.Equal(t, arn, sq.ScheduledQueryArn)
 		})
 	}
 }

@@ -32,10 +32,13 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
+	// Real CreateWorkflowOutput: arn/id/status/tags plus the optional uuid
+	// field (gopherstack-fedo).
 	return c.JSON(http.StatusCreated, map[string]any{
 		"arn":    wf.Arn,
 		"id":     wf.ID,
 		"status": wf.Status,
+		"uuid":   wf.UUID,
 		keyTags:  wf.Tags,
 	})
 }
@@ -59,7 +62,9 @@ func (h *Handler) handleGetWorkflow(c *echo.Context, id string) error {
 
 func (h *Handler) handleListWorkflows(c *echo.Context) error {
 	maxResults, nextToken := paginationQueryParams(c)
-	workflows, next, err := h.Backend.ListWorkflows(maxResults, nextToken)
+	q := c.Request().URL.Query()
+	filter := &WorkflowFilter{Name: q.Get("name"), Type: q.Get("type")}
+	workflows, next, err := h.Backend.ListWorkflows(filter, maxResults, nextToken)
 
 	if err != nil {
 		return h.mapError(c, err)
@@ -136,7 +141,8 @@ func (h *Handler) handleGetWorkflowVersion(c *echo.Context, workflowID, versionN
 
 func (h *Handler) handleListWorkflowVersions(c *echo.Context, workflowID string) error {
 	maxResults, nextToken := paginationQueryParams(c)
-	versions, next, err := h.Backend.ListWorkflowVersions(workflowID, maxResults, nextToken)
+	filter := &WorkflowVersionFilter{Type: c.QueryParam("type")}
+	versions, next, err := h.Backend.ListWorkflowVersions(workflowID, filter, maxResults, nextToken)
 
 	if err != nil {
 		return h.mapError(c, err)

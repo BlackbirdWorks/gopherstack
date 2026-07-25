@@ -46,6 +46,27 @@ const (
 	segMetadataLocation     = "metadata-location"
 	bucketTypeCustomer      = "customer"
 	keyType                 = "type"
+
+	// replicationStatusCompleted is the value this emulator returns in the
+	// "status" field of PutTableBucketReplicationOutput/PutTableReplicationOutput.
+	// The real field is a free-form *string (not a smithy enum -- confirmed
+	// via aws-sdk-go-v2/service/s3tables's types.go), and since this backend
+	// applies the replication configuration synchronously within the
+	// request, "COMPLETED" reflects that the configuration write itself is
+	// done (not that cross-bucket data replication has finished, which this
+	// in-memory emulator does not perform).
+	replicationStatusCompleted = "COMPLETED"
+
+	// replicationStatusCompletedLower is the ReplicationDestinationStatusModel.ReplicationStatus
+	// value this emulator reports for each configured replication
+	// destination in GetTableReplicationStatusOutput. Unlike
+	// replicationStatusCompleted above, this one IS a smithy enum
+	// (types.ReplicationStatus) with lowercase values ("pending",
+	// "completed", "failed" -- confirmed via enums.go); since this in-memory
+	// backend applies replication configuration synchronously and performs
+	// no actual cross-bucket data copy, every configured destination is
+	// reported as already "completed".
+	replicationStatusCompletedLower = "completed"
 )
 
 var (
@@ -638,9 +659,43 @@ func storageClassFromConfig(cfg map[string]any) string {
 	return scStr
 }
 
-// parseBucketReplicationDestinations extracts replication destinations from a config map.
-func parseBucketReplicationDestinations(cfg map[string]any) []ReplicationDestination {
-	destsRaw, ok := cfg["destinations"]
+// parseReplicationConfiguration extracts the role and rules from a
+// replication "configuration" request body map, matching
+// TableBucketReplicationConfiguration / TableReplicationConfiguration's
+// shared wire shape ({role, rules: [{destinations: [{destinationTableBucketARN}]}]})
+// -- both PutTableBucketReplication and PutTableReplication accept the same
+// nested shape.
+func parseReplicationConfiguration(cfg map[string]any) (string, []ReplicationRule) {
+	role, _ := cfg["role"].(string)
+
+	rulesRaw, ok := cfg["rules"]
+	if !ok {
+		return role, nil
+	}
+
+	ruleSlice, ok := rulesRaw.([]any)
+	if !ok {
+		return role, nil
+	}
+
+	rules := make([]ReplicationRule, 0, len(ruleSlice))
+
+	for _, r := range ruleSlice {
+		rm, isMap := r.(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		rules = append(rules, ReplicationRule{Destinations: parseReplicationDestinations(rm)})
+	}
+
+	return role, rules
+}
+
+// parseReplicationDestinations extracts the destinations array from a single
+// replication rule map.
+func parseReplicationDestinations(rule map[string]any) []ReplicationDestination {
+	destsRaw, ok := rule["destinations"]
 	if !ok {
 		return nil
 	}
@@ -659,8 +714,8 @@ func parseBucketReplicationDestinations(cfg map[string]any) []ReplicationDestina
 		}
 
 		dest := ReplicationDestination{}
-		if arn, isStr := dm["destinationBucketARN"].(string); isStr {
-			dest.DestinationBucketARN = arn
+		if arn, isStr := dm["destinationTableBucketARN"].(string); isStr {
+			dest.DestinationTableBucketARN = arn
 		}
 
 		destinations = append(destinations, dest)

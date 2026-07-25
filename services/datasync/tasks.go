@@ -13,6 +13,7 @@ import (
 // CreateTask creates a new DataSync task.
 func (b *InMemoryBackend) CreateTask(
 	sourceLocationArn, destinationLocationArn, name, cloudWatchLogGroupArn string,
+	settings TaskSettings,
 	tags map[string]string,
 ) (*Task, error) {
 	b.mu.Lock("CreateTask")
@@ -33,6 +34,11 @@ func (b *InMemoryBackend) CreateTask(
 	taskTags := make(map[string]string)
 	maps.Copy(taskTags, tags)
 
+	taskMode := settings.TaskMode
+	if taskMode == "" {
+		taskMode = taskModeBasic
+	}
+
 	t := &storedTask{
 		TaskArn:                taskArn,
 		Name:                   name,
@@ -42,7 +48,20 @@ func (b *InMemoryBackend) CreateTask(
 		CloudWatchLogGroupArn:  cloudWatchLogGroupArn,
 		CreationTime:           now,
 		Tags:                   taskTags,
+		Options:                settings.Options,
+		ManifestConfig:         settings.ManifestConfig,
+		TaskReportConfig:       settings.TaskReportConfig,
+		Excludes:               toStoredFilterRules(settings.Excludes),
+		Includes:               toStoredFilterRules(settings.Includes),
+		TaskMode:               taskMode,
 	}
+	if settings.Schedule != nil {
+		t.Schedule = &storedTaskSchedule{
+			ScheduleExpression: settings.Schedule.ScheduleExpression,
+			Status:             settings.Schedule.Status,
+		}
+	}
+
 	b.tasks.Put(t)
 
 	if len(taskTags) > 0 {
@@ -70,8 +89,16 @@ func (b *InMemoryBackend) DescribeTask(taskArn string) (*Task, error) {
 	return &cp, nil
 }
 
-// UpdateTask updates the task's name and CloudWatch log group.
-func (b *InMemoryBackend) UpdateTask(taskArn, name, cloudWatchLogGroupArn string) error {
+// UpdateTask updates a task's mutable settings. AWS's UpdateTaskInput has no
+// TaskArn-only "clear the log group" convention like some other fields, so
+// CloudWatchLogGroupArn is always assigned (empty clears it, matching prior
+// behavior). Options/Excludes/Includes/Schedule/ManifestConfig/
+// TaskReportConfig follow AWS's "only supplied fields change" semantics: a
+// nil field in settings means "not supplied, leave unchanged"; a non-nil
+// (possibly empty) field means "set to this value" -- which also covers the
+// documented "specify this parameter as empty to remove" behavior for
+// ManifestConfig/TaskReportConfig, since an explicit empty map is non-nil.
+func (b *InMemoryBackend) UpdateTask(taskArn, name, cloudWatchLogGroupArn string, settings TaskSettings) error {
 	b.mu.Lock("UpdateTask")
 	defer b.mu.Unlock()
 
@@ -86,7 +113,45 @@ func (b *InMemoryBackend) UpdateTask(taskArn, name, cloudWatchLogGroupArn string
 
 	t.CloudWatchLogGroupArn = cloudWatchLogGroupArn
 
+	applyTaskSettings(t, settings)
+
 	return nil
+}
+
+// applyTaskSettings merges TaskSettings onto a stored task, following AWS's
+// "only supplied fields change" semantics for UpdateTask (see UpdateTask doc
+// comment).
+func applyTaskSettings(t *storedTask, settings TaskSettings) {
+	if settings.Options != nil {
+		t.Options = settings.Options
+	}
+
+	if settings.Excludes != nil {
+		t.Excludes = toStoredFilterRules(settings.Excludes)
+	}
+
+	if settings.Includes != nil {
+		t.Includes = toStoredFilterRules(settings.Includes)
+	}
+
+	if settings.ManifestConfig != nil {
+		t.ManifestConfig = settings.ManifestConfig
+	}
+
+	if settings.TaskReportConfig != nil {
+		t.TaskReportConfig = settings.TaskReportConfig
+	}
+
+	if settings.Schedule != nil {
+		t.Schedule = &storedTaskSchedule{
+			ScheduleExpression: settings.Schedule.ScheduleExpression,
+			Status:             settings.Schedule.Status,
+		}
+	}
+
+	if settings.TaskMode != "" {
+		t.TaskMode = settings.TaskMode
+	}
 }
 
 // DeleteTask deletes a task.

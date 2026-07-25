@@ -43,8 +43,11 @@ func TestInMemoryBackend_WirelessGatewayCRUD(t *testing.T) {
 			}
 
 			gw, err := bk.CreateWirelessGateway(
-				testAccountID, testRegion,
-				tt.gwName, tt.description,
+				testAccountID,
+				testRegion,
+				tt.gwName,
+				tt.description,
+				nil,
 				map[string]string{"team": "infra"},
 			)
 			require.NoError(t, err)
@@ -94,7 +97,7 @@ func TestInMemoryBackend_ListWirelessGateways(t *testing.T) {
 			bk := iotwireless.NewInMemoryBackend()
 
 			for _, name := range tt.gwNames {
-				_, err := bk.CreateWirelessGateway(testAccountID, testRegion, name, "", nil)
+				_, err := bk.CreateWirelessGateway(testAccountID, testRegion, name, "", nil, nil)
 				require.NoError(t, err)
 			}
 
@@ -111,7 +114,7 @@ func TestInMemoryBackend_SortedListWirelessGateways(t *testing.T) {
 	b := iotwireless.NewInMemoryBackend()
 
 	for _, name := range []string{"z-gw", "a-gw", "m-gw"} {
-		_, err := b.CreateWirelessGateway(testAccountID, testRegion, name, "", nil)
+		_, err := b.CreateWirelessGateway(testAccountID, testRegion, name, "", nil, nil)
 		require.NoError(t, err)
 	}
 

@@ -14,6 +14,8 @@ import (
 func (b *InMemoryBackend) CreateClassificationJob(
 	name, description, jobType, clientToken string,
 	s3JobDefinition, scheduleFrequency map[string]any,
+	allowListIDs, customDataIdentifierIDs, managedDataIdentifierIDs []string,
+	managedDataIdentifierSelector string,
 	tags map[string]string,
 	samplingPercentage int32,
 	initialRun bool,
@@ -36,20 +38,30 @@ func (b *InMemoryBackend) CreateClassificationJob(
 	}
 
 	b.classificationJobs.Put(&ClassificationJob{
-		JobID:              id,
-		Arn:                jobArn,
-		Name:               name,
-		Description:        description,
-		JobType:            jobType,
-		JobStatus:          status,
-		CreatedAt:          now,
-		S3JobDefinition:    s3JobDefinition,
-		ScheduleFrequency:  scheduleFrequency,
-		Tags:               maps.Clone(tags),
-		SamplingPercentage: pct,
-		InitialRun:         initialRun,
-		ClientToken:        clientToken,
+		JobID:                         id,
+		Arn:                           jobArn,
+		Name:                          name,
+		Description:                   description,
+		JobType:                       jobType,
+		JobStatus:                     status,
+		CreatedAt:                     now,
+		S3JobDefinition:               s3JobDefinition,
+		ScheduleFrequency:             scheduleFrequency,
+		AllowListIDs:                  allowListIDs,
+		CustomDataIdentifierIDs:       customDataIdentifierIDs,
+		ManagedDataIdentifierIDs:      managedDataIdentifierIDs,
+		ManagedDataIdentifierSelector: managedDataIdentifierSelector,
+		Tags:                          maps.Clone(tags),
+		SamplingPercentage:            pct,
+		InitialRun:                    initialRun,
+		ClientToken:                   clientToken,
+		LastRunErrorStatus:            &JobLastRunErrorStatus{Code: "NONE"},
+		Statistics:                    &JobStatistics{NumberOfRuns: 1},
 	})
+
+	if len(tags) > 0 {
+		b.tags[jobArn] = maps.Clone(tags)
+	}
 
 	return id, jobArn, nil
 }
@@ -70,35 +82,139 @@ func (b *InMemoryBackend) DescribeClassificationJob(jobID string) (*Classificati
 	return &cp, nil
 }
 
-// ListClassificationJobs returns summaries of all classification jobs.
+// ListClassificationJobs returns summaries of jobs matching filterCriteria,
+// paginated by maxResults/nextToken. filterCriteria mirrors the wire shape
+// of types.ListJobsFilterCriteria: {"includes": [...], "excludes": [...]},
+// each term {"key", "comparator", "values"}. Only EQ/NE comparators are
+// emulated (the same reduced-scope emulation as ListFindings' criteria
+// matching) -- GT/GTE/LT/LTE/CONTAINS/STARTS_WITH terms are treated as
+// non-filtering, not as errors.
 func (b *InMemoryBackend) ListClassificationJobs(
-	_ map[string]any, _ int, _ string,
+	filterCriteria map[string]any, maxResults int, nextToken string,
 ) ([]*ClassificationJobSummary, string, error) {
-	b.mu.RLock("ListClassificationJobs")
-	defer b.mu.RUnlock()
+	return listPaginated(
+		b, "ListClassificationJobs", b.classificationJobs.All(),
+		func(job *ClassificationJob) (*ClassificationJobSummary, bool) {
+			if !matchesJobCriteria(job, filterCriteria) {
+				return nil, false
+			}
 
-	jobs := b.classificationJobs.All()
-	result := make([]*ClassificationJobSummary, 0, len(jobs))
-
-	for _, job := range jobs {
-		result = append(result, &ClassificationJobSummary{
-			JobID:       job.JobID,
-			Name:        job.Name,
-			Description: job.Description,
-			JobType:     job.JobType,
-			JobStatus:   job.JobStatus,
-			CreatedAt:   job.CreatedAt,
-			LastRunTime: job.LastRunTime,
-			Tags:        maps.Clone(job.Tags),
-		})
-	}
-
-	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
-
-	return result, "", nil
+			return jobToSummary(job), true
+		},
+		func(result []*ClassificationJobSummary) {
+			sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+		},
+		nextToken, maxResults,
+	)
 }
 
-// UpdateClassificationJob updates a job's status.
+// jobToSummary projects a ClassificationJob onto its JobSummary wire shape.
+// bucketCriteria/bucketDefinitions are extracted from the stored
+// s3JobDefinition instead of being independently typed: the real API
+// flattens exactly one of those two mutually-exclusive keys from the job's
+// S3JobDefinition onto the list-view JobSummary, and since s3JobDefinition
+// is stored as the client's original request payload, passing the same
+// sub-values through preserves whatever nested shape the client sent.
+func jobToSummary(job *ClassificationJob) *ClassificationJobSummary {
+	summary := &ClassificationJobSummary{
+		JobID:              job.JobID,
+		Name:               job.Name,
+		Description:        job.Description,
+		JobType:            job.JobType,
+		JobStatus:          job.JobStatus,
+		CreatedAt:          job.CreatedAt,
+		LastRunTime:        job.LastRunTime,
+		LastRunErrorStatus: job.LastRunErrorStatus,
+		UserPausedDetails:  job.UserPausedDetails,
+		Tags:               maps.Clone(job.Tags),
+	}
+
+	if job.S3JobDefinition != nil {
+		summary.BucketCriteria = job.S3JobDefinition["bucketCriteria"]
+		summary.BucketDefinitions = job.S3JobDefinition["bucketDefinitions"]
+	}
+
+	return summary
+}
+
+func jobFieldValue(job *ClassificationJob, key string) string {
+	switch key {
+	case "jobType":
+		return job.JobType
+	case "jobStatus":
+		return job.JobStatus
+	case "name":
+		return job.Name
+	case "createdAt":
+		return job.CreatedAt.Format(time.RFC3339)
+	}
+
+	return ""
+}
+
+func matchesJobTerm(job *ClassificationJob, term map[string]any) bool {
+	key, _ := term["key"].(string)
+	comparator, _ := term["comparator"].(string)
+	values, _ := term["values"].([]any)
+	fVal := jobFieldValue(job, key)
+
+	switch comparator {
+	case "NE":
+		for _, v := range values {
+			if s, ok := v.(string); ok && s == fVal {
+				return false
+			}
+		}
+
+		return true
+	case "EQ", "":
+		for _, v := range values {
+			if s, ok := v.(string); ok && s == fVal {
+				return true
+			}
+		}
+
+		return false
+	default:
+		return true
+	}
+}
+
+func matchesJobCriteria(job *ClassificationJob, criteria map[string]any) bool {
+	if len(criteria) == 0 {
+		return true
+	}
+
+	if includes, ok := criteria["includes"].([]any); ok {
+		for _, raw := range includes {
+			term, tOk := raw.(map[string]any)
+			if tOk && !matchesJobTerm(job, term) {
+				return false
+			}
+		}
+	}
+
+	if excludes, ok := criteria["excludes"].([]any); ok {
+		for _, raw := range excludes {
+			term, tOk := raw.(map[string]any)
+			if tOk && matchesJobTerm(job, term) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// jobPauseWindow is how long a USER_PAUSED job/run is kept before it expires
+// and is cancelled, matching UserPausedDetails.jobExpiresAt's documented
+// 30-day pause window.
+const jobPauseWindow = 30 * 24 * time.Hour
+
+// UpdateClassificationJob updates a job's status. Transitioning to
+// USER_PAUSED populates UserPausedDetails (present only in that state, per
+// the real DescribeClassificationJobOutput/JobSummary shapes); transitioning
+// away from it clears UserPausedDetails again.
 func (b *InMemoryBackend) UpdateClassificationJob(jobID, status string) error {
 	b.mu.Lock("UpdateClassificationJob")
 	defer b.mu.Unlock()
@@ -109,6 +225,14 @@ func (b *InMemoryBackend) UpdateClassificationJob(jobID, status string) error {
 	}
 
 	job.JobStatus = status
+
+	if status == "USER_PAUSED" {
+		now := time.Now().UTC()
+		expires := now.Add(jobPauseWindow)
+		job.UserPausedDetails = &JobUserPausedDetails{JobPausedAt: &now, JobExpiresAt: &expires}
+	} else {
+		job.UserPausedDetails = nil
+	}
 
 	return nil
 }

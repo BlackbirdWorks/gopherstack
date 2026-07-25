@@ -7,7 +7,7 @@ import (
 const (
 	errEntityNotExistsException     = "EntityDoesNotExistException"
 	errEntityAlreadyExistsException = "EntityAlreadyExistsException"
-	errClientException              = "ClientException"
+	errInvalidParameterException    = "InvalidParameterException"
 
 	defaultSimpleADLimit    int32 = 10
 	defaultMicrosoftADLimit int32 = 20
@@ -22,7 +22,7 @@ var (
 	// ErrAliasAlreadyExists is returned when the alias is already taken.
 	ErrAliasAlreadyExists = awserr.New(errEntityAlreadyExistsException, awserr.ErrAlreadyExists)
 	// ErrInvalidParameter is returned on invalid input.
-	ErrInvalidParameter = awserr.New(errClientException, awserr.ErrInvalidParameter)
+	ErrInvalidParameter = awserr.New(errInvalidParameterException, awserr.ErrInvalidParameter)
 	// ErrDirectoryLimitExceeded is returned when the directory limit for the region is reached.
 	ErrDirectoryLimitExceeded = awserr.New("DirectoryLimitExceededException", awserr.ErrConflict)
 	// ErrSnapshotLimitExceeded is returned when the manual snapshot limit for a directory is reached.
@@ -42,4 +42,6 @@ var (
 	ErrSharedDirectoryNotFound = awserr.New(errEntityNotExistsException, awserr.ErrNotFound)
 	// ErrAssessmentNotFound is returned when an AD assessment does not exist.
 	ErrAssessmentNotFound = awserr.New(errEntityNotExistsException, awserr.ErrNotFound)
+	// ErrInvalidCertificate is returned when CertificateData is not a parseable PEM certificate.
+	ErrInvalidCertificate = awserr.New("InvalidCertificateException", awserr.ErrInvalidParameter)
 )

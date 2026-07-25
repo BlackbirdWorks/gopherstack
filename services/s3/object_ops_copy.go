@@ -16,7 +16,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-// copySourceData reads source object metadata for CopyObject.
+// copySourceData reads source object metadata for CopyObject/UploadPartCopy.
+// When the source object is SSE-C encrypted, the caller must supply the
+// x-amz-copy-source-server-side-encryption-customer-* headers so the backend
+// can decrypt it; without them, decryptVersionForGet would otherwise hand
+// back the raw ciphertext, silently corrupting the copy.
 func (h *S3Handler) copySourceData(
 	ctx context.Context, r *http.Request,
 ) (*s3.GetObjectOutput, error) {
@@ -34,6 +38,12 @@ func (h *S3Handler) copySourceData(
 		vid = aws.String(srcVersionID)
 	}
 
+	copySourceSSE, sseErr := extractCopySourceSSECInfo(r)
+	if sseErr != nil {
+		return nil, sseErr
+	}
+	ctx = context.WithValue(ctx, sseKey, copySourceSSE)
+
 	srcVer, err := h.Backend.GetObject(ctx, &s3.GetObjectInput{
 		Bucket:    aws.String(srcBucket),
 		Key:       aws.String(srcKey),
@@ -41,6 +51,19 @@ func (h *S3Handler) copySourceData(
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// The backend always echoes the source's stored SSE-C algorithm/key-MD5
+	// on srcVer regardless of whether it could decrypt (see
+	// decryptVersionForGet), so this check runs after the fetch. Reject
+	// rather than silently propagate ciphertext when the source is SSE-C
+	// protected and the copy-source key was missing/wrong.
+	if validateErr := validateCopySourceSSECOnRead(
+		r, aws.ToString(srcVer.SSECustomerAlgorithm), aws.ToString(srcVer.SSECustomerKeyMD5),
+	); validateErr != nil {
+		_ = srcVer.Body.Close()
+
+		return nil, validateErr
 	}
 
 	return srcVer, nil
@@ -81,6 +104,22 @@ func (h *S3Handler) copyObject(
 
 		return
 	}
+
+	// Destination SSE: a CopyObject request can specify server-side
+	// encryption for the NEW (destination) object independently of whatever
+	// encryption the source object used, via the plain (non copy-source-
+	// prefixed) X-Amz-Server-Side-Encryption* headers — the same headers
+	// PutObject reads. Stash it on ctx now so Backend.PutObject below
+	// encrypts with it; copySourceData (called next) derives its own
+	// request-scoped context for the copy-source SSE-C key and does not
+	// disturb this value.
+	destSSE, destSSEErr := extractSSEInfo(r)
+	if destSSEErr != nil {
+		WriteError(ctx, w, r, destSSEErr)
+
+		return
+	}
+	ctx = context.WithValue(ctx, sseKey, destSSE)
 
 	// AWS rejects copying an object onto itself unless some attribute changes.
 	if srcB, srcK, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source")); ok &&
@@ -123,12 +162,13 @@ func (h *S3Handler) copyObject(
 		"taggingDirective", r.Header.Get("X-Amz-Tagging-Directive"))
 
 	putInput := &s3.PutObjectInput{
-		Bucket:       aws.String(destBucket),
-		Key:          aws.String(destKey),
-		Body:         srcVer.Body,
-		Metadata:     userMeta,
-		ContentType:  contentType,
-		StorageClass: types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
+		Bucket:            aws.String(destBucket),
+		Key:               aws.String(destKey),
+		Body:              srcVer.Body,
+		Metadata:          userMeta,
+		ContentType:       contentType,
+		StorageClass:      types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
+		ChecksumAlgorithm: copyChecksumAlgorithm(r, srcVer),
 	}
 	h.resolveCopyTagging(ctx, r, putInput, tagging, taggingReplace)
 
@@ -139,6 +179,7 @@ func (h *S3Handler) copyObject(
 		return
 	}
 
+	setSSEResponseHeaders(w, destSSE)
 	h.writeCopyResponse(ctx, w, destBucket, destKey, srcVer, destVer)
 }
 
@@ -199,10 +240,63 @@ func (h *S3Handler) writeCopyResponse(
 
 	h.dispatchCopyNotification(ctx, destBucket, destKey, etag, aws.ToInt64(destVer.Size))
 
+	// Read back the destination object's actual stored Last-Modified rather
+	// than independently computing "now" a second time: PutObject already
+	// stamped its own timestamp when it wrote the version, and a fresh
+	// time.Now() here could disagree with what a subsequent HeadObject/
+	// GetObject on the same key reports.
+	lastModified := time.Now().UTC()
+	if head, headErr := h.Backend.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(destBucket),
+		Key:    aws.String(destKey),
+	}); headErr == nil && head.LastModified != nil {
+		lastModified = *head.LastModified
+	}
+
+	// The new (destination) object is subject to the destination bucket's own
+	// lifecycle rules, exactly like a fresh PutObject — set X-Amz-Expiration
+	// the same way putObject does.
+	h.setExpirationHeader(ctx, w, destBucket, destKey, &lastModified)
+
 	httputils.WriteXML(ctx, w, http.StatusOK, CopyObjectResult{
-		ETag:         etag,
-		LastModified: time.Now().UTC().Format(time.RFC3339),
+		ETag:              etag,
+		LastModified:      lastModified.UTC().Format(time.RFC3339),
+		ChecksumCRC32:     aws.ToString(destVer.ChecksumCRC32),
+		ChecksumCRC32C:    aws.ToString(destVer.ChecksumCRC32C),
+		ChecksumCRC64NVME: aws.ToString(destVer.ChecksumCRC64NVME),
+		ChecksumSHA1:      aws.ToString(destVer.ChecksumSHA1),
+		ChecksumSHA256:    aws.ToString(destVer.ChecksumSHA256),
 	})
+}
+
+// copyChecksumAlgorithm decides which checksum algorithm (if any) the
+// destination object's PutObject should compute. Real S3 CopyObject
+// recomputes a checksum on the destination in two cases: the request
+// explicitly names an algorithm via x-amz-checksum-algorithm (letting the
+// caller pick a different algorithm than the source used), or — when no
+// algorithm is requested — the source object itself carried a checksum, in
+// which case the same algorithm is carried forward onto the copy. With
+// neither, the destination gets no checksum, matching PutObject's own
+// opt-in checksum behavior.
+func copyChecksumAlgorithm(r *http.Request, srcVer *s3.GetObjectOutput) types.ChecksumAlgorithm {
+	if algo := r.Header.Get("X-Amz-Checksum-Algorithm"); algo != "" {
+		return types.ChecksumAlgorithm(strings.ToUpper(algo))
+	}
+
+	switch {
+	case srcVer.ChecksumCRC32 != nil:
+		return types.ChecksumAlgorithmCrc32
+	case srcVer.ChecksumCRC32C != nil:
+		return types.ChecksumAlgorithmCrc32c
+	case srcVer.ChecksumSHA1 != nil:
+		return types.ChecksumAlgorithmSha1
+	case srcVer.ChecksumSHA256 != nil:
+		return types.ChecksumAlgorithmSha256
+	case srcVer.ChecksumCRC64NVME != nil:
+		return types.ChecksumAlgorithmCrc64nvme
+	default:
+		return ""
+	}
 }
 
 // buildCopyMetadata returns the metadata and content-type to use for the

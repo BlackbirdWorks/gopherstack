@@ -1,6 +1,7 @@
 package cloudtrail_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -628,4 +629,44 @@ func TestEDSAdvancedEventSelectorsGetDataStore(t *testing.T) {
 	resp := parseCloudTrailResp(t, getRec)
 	_, hasField := resp["AdvancedEventSelectors"]
 	assert.True(t, hasField, "AdvancedEventSelectors must be present in GetEventDataStore response")
+}
+
+// TestListEventDataStores_NextTokenPagination verifies ListEventDataStores
+// honors NextToken/MaxResults pagination (previously always returned every
+// event data store in one page) and confirms the CreatedTimestamp/
+// UpdatedTimestamp fields are epoch-seconds numbers, not RFC3339 strings
+// (the real awsjson1.1 deserializer expects a JSON number here; a raw
+// time.Time marshaled by encoding/json would fail to decode).
+func TestListEventDataStores_NextTokenPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+
+	for i := range 3 {
+		rec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+			"Name": fmt.Sprintf("eds-page-%d", i),
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doCloudTrailOp(t, h, "ListEventDataStores", map[string]any{"MaxResults": 2})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseCloudTrailResp(t, rec)
+	stores, ok := resp["EventDataStores"].([]any)
+	require.True(t, ok)
+	require.Len(t, stores, 2)
+	nextToken, _ := resp["NextToken"].(string)
+	require.NotEmpty(t, nextToken)
+
+	first := stores[0].(map[string]any)
+	ts, ok := first["CreatedTimestamp"].(float64)
+	require.True(t, ok, "CreatedTimestamp must be a JSON number (epoch seconds), not a string")
+	assert.Positive(t, ts)
+
+	rec = doCloudTrailOp(t, h, "ListEventDataStores", map[string]any{"NextToken": nextToken})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseCloudTrailResp(t, rec)
+	stores, ok = resp["EventDataStores"].([]any)
+	require.True(t, ok)
+	assert.Len(t, stores, 1)
 }

@@ -10,10 +10,35 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// PutDashboard creates or updates a CloudWatch dashboard by name.
-func (b *InMemoryBackend) PutDashboard(name, body string) error {
+// DashboardValidationError indicates a PutDashboard call's DashboardBody failed
+// JSON/widget-schema validation. It carries the full list of validation
+// messages, matching the shape of AWS's DashboardInvalidInputError exception
+// (which embeds DashboardValidationMessages alongside Code/Message). Unlike
+// PutMetricData, PutDashboard's failure mode is a modeled exception with a
+// structured payload, not a plain error string.
+type DashboardValidationError struct {
+	Messages []DashboardValidationMessage
+}
+
+// Error implements the error interface.
+func (e *DashboardValidationError) Error() string {
+	return fmt.Sprintf("DashboardInvalidInputError: dashboard body failed validation with %d error(s)",
+		len(e.Messages))
+}
+
+// PutDashboard creates or updates a CloudWatch dashboard by name. On success it
+// returns any warning-level DashboardValidationMessage entries produced by
+// validateDashboardBody (the dashboard is still persisted). If the body fails
+// validation with one or more error-level messages, it returns a
+// *DashboardValidationError and leaves any existing dashboard body untouched.
+func (b *InMemoryBackend) PutDashboard(name, body string) ([]DashboardValidationMessage, error) {
 	if name == "" {
-		return ErrDashboardNameRequired
+		return nil, ErrDashboardNameRequired
+	}
+
+	messages := validateDashboardBody(body)
+	if dashboardValidationHasErrors(messages) {
+		return nil, &DashboardValidationError{Messages: messages}
 	}
 
 	b.mu.Lock("PutDashboard")
@@ -25,7 +50,7 @@ func (b *InMemoryBackend) PutDashboard(name, body string) error {
 		LastModified: time.Now().UTC(),
 	})
 
-	return nil
+	return messages, nil
 }
 
 // GetDashboard returns the dashboard entry and body for the given name.

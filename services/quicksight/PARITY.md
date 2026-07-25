@@ -1,14 +1,15 @@
 service: quicksight
 sdk_module: aws-sdk-go-v2/service/quicksight@v1.112.0
-last_audit_commit: 5256fdde
-last_audit_date: 2026-07-12
-overall: A            # genuine fixes found this pass (fresh audit, first PARITY.md)
+last_audit_commit: 9dea467e
+last_audit_date: 2026-07-22
+overall: A            # full-surface pass: all named gaps fixed, every deferred family
+                      # confirmed real (no stubs), 13 banned complexity nolints removed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateDataSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "was fabricating IngestionArn/IngestionId=\"auto\" for every ImportMode; fixed to only report an ingestion (a real, describable backend Ingestion record) when ImportMode is SPICE, matching CreateDataSetOutput's documented semantics"}
   DescribeDataSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateDataSet: {wire: partial, errors: ok, state: ok, persist: ok, note: "real UpdateDataSetOutput also carries IngestionArn/IngestionId when the update itself triggers a new SPICE ingestion (e.g. import-mode or schema change); this backend never triggers/reports one on update -- omission is safe (no fabrication) but incomplete, see gaps"}
+  UpdateDataSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now mirrors CreateDataSet -- when the resulting ImportMode is SPICE, UpdateDataSet creates a real, describable storedIngestion and reports IngestionArn/IngestionId in the response; omitted for DIRECT_QUERY. See TestQuickSight_DataSets/UpdateDataSet_on_{SPICE,DIRECT_QUERY}_dataset_*"}
   DeleteDataSet: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDataSets: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchDataSets: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -24,7 +25,7 @@ ops:
   UpdateDataSourcePermissions: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateIngestion: {wire: ok, errors: ok, state: ok, persist: ok, note: "Arn was hand-formatted with a hardcoded \"aws\" partition instead of pkgs/arn.Build; fixed -- also brings GovCloud/China region parity in line with every other resource type in this backend"}
   DescribeIngestion: {wire: ok, errors: ok, state: ok, persist: ok}
-  CancelIngestion: {wire: partial, errors: ok, state: ok, persist: ok, note: "unconditionally overwrites IngestionStatus to CANCELLED even if already COMPLETED/FAILED/CANCELLED; real AWS likely rejects cancelling a terminal-state ingestion -- not fixed this pass, exact error semantics unverified against SDK doc comments, see gaps"}
+  CancelIngestion: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now rejects cancelling an ingestion already in a terminal state (COMPLETED/FAILED/CANCELLED) with ErrIngestionNotCancellable (ConflictException, 409) instead of silently overwriting its status; the SDK doc comment gives no explicit error name for this case, so ConflictException was chosen to match this backend's existing errConflictException convention (see ErrIngestionAlreadyExists). See TestQuickSight_CancelIngestion_CompletedAutoIngestion"}
   ListIngestions: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDashboard: {wire: ok, errors: ok, state: ok, persist: ok, note: "Status/CreationStatus was the invalid ResourceStatus literal \"CREATED\"; fixed to CREATION_SUCCESSFUL (the only enum value SDK clients round-trip through types.ResourceStatus)"}
   DescribeDashboard: {wire: ok, errors: ok, state: ok, persist: ok, note: "dashboardToMap's PublishedVersionNumber was reading d.VersionNumber, not d.PublishedVersionNumber -- so calling UpdateDashboardPublishedVersion never showed up in Describe/List; fixed"}
@@ -54,7 +55,7 @@ ops:
   CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteGroup: {wire: partial, errors: ok, state: partial, persist: ok, note: "does not clean up groupMembers rows for the deleted group (mirrors the DeleteUser gap fixed this pass, but for the group side); ListGroupMemberships on a re-created group of the same name would resurface stale members -- gaps"}
+  DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass: group.go's DeleteGroup already deletes every groupMembers row under that group's key prefix (was already fixed by the time of this audit, despite the stale gap note from the prior pass) -- locked with TestQuickSight_GroupMemberships/DeleteGroup_also_removes_its_memberships"}
   ListGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateGroupMembership: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -68,56 +69,55 @@ ops:
   DeleteUserByPrincipalId: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ghost-membership bug as DeleteUser, same fix"}
   ListUsers: {wire: ok, errors: ok, state: ok, persist: ok}
   ListUserGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource: {wire: ok, errors: partial, state: ok, persist: ok, note: "accepts tags for any ARN string with no check that the resource actually exists; real AWS returns ResourceNotFoundException for an unknown resource ARN -- not fixed this pass (see gaps; same leniency exists for UntagResource/ListTagsForResource)"}
-  UntagResource: {wire: ok, errors: partial, state: ok, persist: ok}
-  ListTagsForResource: {wire: ok, errors: partial, state: ok, persist: ok}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now checks InMemoryBackend.arnExists(resourceARN) (a data-driven scan over every independently-taggable resource family's live ARNs) before writing, returning ErrTaggableResourceNotFound (ResourceNotFoundException, 404) for an ARN this backend doesn't hold. Same fix applied to UntagResource/ListTagsForResource. See TestQuickSight_Tags_UnknownARN"}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  Folder: {status: deferred, note: "not audited this pass -- CRUD + membership + permissions surface exists (backend_folders.go, handler_folders.go)"}
-  Template: {status: deferred, note: "not audited this pass -- includes versions/aliases/permissions (backend_templates.go, handler_templates.go)"}
-  Theme: {status: deferred, note: "not audited this pass -- includes versions/aliases/permissions (backend_themes.go, handler_themes.go)"}
-  Topic: {status: deferred, note: "not audited this pass -- includes refresh schedules/reviewed answers (backend_topics.go, handler_topics.go)"}
-  VPCConnection: {status: deferred, note: "not audited this pass (backend_vpcconnections.go)"}
-  IAMPolicyAssignment: {status: deferred, note: "not audited this pass (backend_iampolicyassignments.go)"}
-  CustomPermissions: {status: deferred, note: "not audited this pass, includes role-membership + role/user custom-permission sub-families (backend_custompermissions.go)"}
-  RefreshSchedule: {status: deferred, note: "DataSet refresh-schedule + refresh-properties CRUD not audited this pass (backend_refreshschedule.go)"}
-  AccountLevel: {status: deferred, note: "large family: customizations, settings, subscription, IP restriction, key registration, public sharing, Q personalization/search config, SPICE capacity, default Q Business app, token-exchange grant, identity context, PredictQAResults (backend_account.go, handler_account.go) -- not audited this pass"}
-  Embed: {status: deferred, note: "GenerateEmbedUrlFor*, GetSessionEmbedUrl (backend_embedurl.go) -- not audited this pass"}
-  Brand: {status: deferred, note: "not audited this pass (backend_brands.go)"}
-  OAuthClientApplication: {status: deferred, note: "not audited this pass (backend_oauth.go)"}
-  ActionConnector: {status: deferred, note: "not audited this pass (backend_actionconnector.go)"}
-  IdentityPropagationConfig: {status: deferred, note: "not audited this pass (backend_identitypropagation.go)"}
-  AssetBundle: {status: deferred, note: "export/import job lifecycle not audited this pass (backend_assetbundle.go)"}
-  Automation: {status: deferred, note: "StartAutomationJob/DescribeAutomationJob not audited this pass (backend_automation.go)"}
-  DashboardSnapshotJob: {status: deferred, note: "StartDashboardSnapshotJob(Schedule)/Describe*Result not audited this pass (backend_dashboardsnapshot.go)"}
-  Flow: {status: deferred, note: "ListFlows/SearchFlows/GetFlowMetadata/permissions not audited this pass (backend_flow.go)"}
-  SelfUpgrade: {status: deferred, note: "not audited this pass (backend_selfupgrade.go)"}
-gaps:
-  - "UpdateDataSet never triggers/reports a new SPICE ingestion (IngestionArn/IngestionId always omitted from UpdateDataSetOutput, even when import mode or schema effectively changes) -- omission is safe (no fabrication) but incomplete vs real AWS"
-  - "CancelIngestion unconditionally sets IngestionStatus=CANCELLED regardless of current status; real AWS behavior for cancelling an already-terminal ingestion is unverified from SDK doc comments alone"
-  - "DeleteGroup does not clean up groupMembers rows for that group (same class of bug as the DeleteUser ghost-membership issue fixed this pass, but on the group side) -- ListGroupMemberships on a same-named recreated group would resurface stale members"
-  - "TagResource/UntagResource/ListTagsForResource accept any ARN string with no existence check against real backend resources; real AWS returns ResourceNotFoundException for unknown resource ARNs"
-  - "Large swaths of the surface (see families: deferred above) were not audited this pass -- scope was capped to the highest-traffic families named in the audit brief (DataSet, DataSource, Dashboard, Analysis, User/Group, Ingestion, Tags)"
-deferred:
-  - Folder
-  - Template
-  - Theme
-  - Topic
-  - VPCConnection
-  - IAMPolicyAssignment
-  - CustomPermissions (+ role membership, role/user custom permission)
-  - RefreshSchedule (DataSet refresh schedules/properties)
-  - AccountLevel (customizations, settings, subscription, IP restriction, key registration, public sharing, Q config, SPICE capacity config, default Q Business app, token-exchange grant, identity context, PredictQAResults)
-  - Embed (GenerateEmbedUrlFor*, GetSessionEmbedUrl)
-  - Brand
-  - OAuthClientApplication
-  - ActionConnector
-  - IdentityPropagationConfig
-  - AssetBundle (export/import jobs)
-  - Automation
-  - DashboardSnapshotJob
-  - Flow
-  - SelfUpgrade
-leaks: {status: clean, note: "no goroutines/timers/janitors found in this service -- it's a synchronous in-memory backend behind a single coarse lockmetrics.RWMutex; the one map-cleanup leak found (DeleteUser leaving ghost groupMembers rows) was fixed this pass. A sibling leak (DeleteGroup not cleaning groupMembers) is filed under gaps, not fixed, to stay within this pass's DataSet/DataSource/Dashboard/Analysis/User-Group/Ingestion/Tags scope."}
+  # Every family below was audited this pass by (1) reading handler_dispatch.go's
+  # exhaustive per-op routing comments, which enumerate exactly which backend method
+  # backs every op in every family and confirm none are canned/stub responses (the one
+  # true exception, UpdateApplicationWithTokenExchangeGrant, is a genuinely void-result
+  # op per its SDK doc comment -- no Describe/Get op exists for it, so there is no state
+  # to fabricate), and (2) spot-checking wire shapes for each family's core
+  # Create/Describe/List op against aws-sdk-go-v2/service/quicksight/types. One real gap
+  # was found and fixed (Folder.SharingModel, below); no other missing/incorrect fields
+  # were found in the families spot-checked in full depth (Folder, VPCConnection,
+  # CustomPermissions, Brand, AccountLevel, Embed). Families not independently
+  # field-by-field diffed against the SDK this pass (Template, Theme, Topic,
+  # IAMPolicyAssignment, RefreshSchedule, OAuthClientApplication, ActionConnector,
+  # IdentityPropagationConfig, AssetBundle, Automation, DashboardSnapshotJob, Flow,
+  # SelfUpgrade) are marked ok on the strength of the no-stub confirmation plus their
+  # existing test coverage (handler_<family>_test.go, all green); a residual field-level
+  # gap analogous to Folder.SharingModel is possible but not known.
+  Folder: {status: ok, note: "CRUD + membership + permissions real (folders.go, handler_folders.go); found+fixed a genuine gap this pass: Folder.SharingModel was never tracked/returned (real DescribeFolderOutput.Folder.SharingModel silently dropped) -- CreateFolder now accepts SharingModel, defaults to ACCOUNT per CreateFolderInput's doc comment when omitted, and folderToMap returns it. See TestQuickSight_FolderCRUD/DescribeFolder_returns_folder and .../CreateFolder_omitted_SharingModel_defaults_to_ACCOUNT"}
+  Template: {status: ok, note: "CRUD + versions/aliases/permissions real (templates.go, handler_templates.go); classifyTemplateAlias decomposed from a flagged nolint this pass, behavior preserved verbatim including DeleteTemplateAlias's id-not-alias quirk (locked in handler_paths_test.go)"}
+  Theme: {status: ok, note: "CRUD + versions/aliases/permissions real (themes.go, handler_themes.go); classifyThemeAlias decomposed from a flagged nolint this pass, same DeleteThemeAlias id-not-alias quirk preserved and locked"}
+  Topic: {status: ok, note: "CRUD + permissions + refresh schedules/reviewed answers real (topics.go, handler_topics.go); classifyTopicPaths decomposed from a flagged nolint this pass, behavior preserved verbatim"}
+  VPCConnection: {status: ok, note: "CRUD real (vpcconnections.go); spot-checked against types.VPCConnection -- NetworkInterfaces (AWS-populated once the VPC connection succeeds) is not modeled, a safe omission (no fabrication) consistent with this backend having no real VPC provisioning to report on, not a fabricated field"}
+  IAMPolicyAssignment: {status: ok, note: "CRUD + list-for-user real (iampolicyassignments.go, handler_iampolicyassignments.go)"}
+  CustomPermissions: {status: ok, note: "CRUD + role membership + role/user custom-permission sub-families real (custompermissions.go, handler_custompermissions.go); spot-checked against types.CustomPermissions -- fields match exactly"}
+  RefreshSchedule: {status: ok, note: "DataSet refresh-schedule + refresh-properties CRUD real (refreshschedule.go, handler_refreshschedule.go); classifyDataSetSubRes/SubResID decomposed from classifyDataSetPaths's flagged nolint this pass, behavior preserved verbatim"}
+  AccountLevel: {status: ok, note: "large family: customizations, settings, subscription, IP restriction, key registration, public sharing, Q personalization/search config, SPICE capacity, default Q Business app, token-exchange grant, identity context, PredictQAResults (account.go, handler_account.go) -- all real; spot-checked AccountSettings/AccountInfo against SDK types, fields match; dispatchAccountConfig's flat switch decomposed into a sync.OnceValue map[op]handler-method table this pass to remove its cyclop nolint"}
+  Embed: {status: ok, note: "GenerateEmbedUrlFor*, GetSessionEmbedUrl, GetDashboardEmbedUrl, GenerateIdentityContext (embedurl.go) -- all real: every op validates the referenced namespace/user/dashboard actually exists before minting a URL/token, and each URL/token is freshly generated per call (matching real AWS's single-use, time-limited embed URLs) rather than a canned constant"}
+  Brand: {status: ok, note: "CRUD + assignment + published-version real (brands.go, handler_brands.go); spot-checked against types.BrandDetail, fields match"}
+  OAuthClientApplication: {status: ok, note: "CRUD real (oauth.go, handler_oauth.go)"}
+  ActionConnector: {status: ok, note: "CRUD + search + permissions real (actionconnector.go, handler_actionconnector.go)"}
+  IdentityPropagationConfig: {status: ok, note: "list/update/delete real (identitypropagation.go, handler_identitypropagation.go)"}
+  AssetBundle: {status: ok, note: "export/import job lifecycle real (assetbundle.go, handler_assetbundle.go)"}
+  Automation: {status: ok, note: "StartAutomationJob/DescribeAutomationJob real (automation.go, handler_automation.go)"}
+  DashboardSnapshotJob: {status: ok, note: "StartDashboardSnapshotJob(Schedule)/Describe*Result real (dashboardsnapshot.go, handler_assetbundle.go); classifyDashboardSubRes/SubResID/SubSubRes decomposed from classifyDashboardPaths's flagged nolint this pass, behavior preserved verbatim"}
+  Flow: {status: ok, note: "ListFlows/SearchFlows/GetFlowMetadata/permissions real (flow.go, handler_flow.go); no CreateFlow in the real SDK either (flows are console/Quick-Suite-authored), so SeedFlow test helper is the only way to seed fixtures -- matches real AWS, not a gap"}
+  SelfUpgrade: {status: ok, note: "config + request list/update real (selfupgrade.go, handler_selfupgrade.go); classifyNsSelfUpgradeConfig/Requests/UpdateSelfUpgrade decomposed from classifyNsWithSubRes's flagged nolint this pass"}
+gaps: []
+  # All 5 previously-named gaps fixed this pass (UpdateDataSet ingestion reporting,
+  # CancelIngestion terminal-status handling, Tag/Untag/ListTags ARN existence check --
+  # DeleteGroup's groupMembers cleanup was re-verified as already fixed, not a live gap).
+  # One new gap found+fixed during the deferred-family audit: Folder.SharingModel was
+  # never tracked/returned; see families.Folder above.
+deferred: []
+  # All 19 previously-deferred families audited this pass; see families above. None
+  # remain deferred.
+leaks: {status: clean, note: "no goroutines/timers/janitors found in this service -- it's a synchronous in-memory backend behind a single coarse lockmetrics.RWMutex. DeleteUser's groupMembers cleanup (fixed prior pass) and DeleteGroup's groupMembers cleanup (re-verified this pass, already correct) both cascade-clean group membership rows on delete. DeleteFolder cascade-cleans folderMembers rows the same way. No ghost rows found in any family audited this pass."}
 
 ---
 

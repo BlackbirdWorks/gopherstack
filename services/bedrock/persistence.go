@@ -84,64 +84,64 @@ const bedrockSnapshotVersion = 1
 //     read/janitor tick, rather than corrupting or dropping data. Persisted
 //     anyway for full fidelity since the cost is trivial.
 type backendSnapshot struct {
-	Tables                      map[string]json.RawMessage           `json:"tables"`
-	LoggingConfig               *ModelInvocationLoggingConfiguration `json:"loggingConfig,omitempty"`
-	GuardrailsByName            map[string]string                    `json:"guardrailsByName"`
-	GuardrailsByARN             map[string]string                    `json:"guardrailsByARN"`
-	PMTsByName                  map[string]string                    `json:"pmtsByName"`
-	ARPByName                   map[string]string                    `json:"arpByName"`
-	CustomModelsByName          map[string]string                    `json:"customModelsByName"`
-	CustomModelDeployByName     map[string]string                    `json:"customModelDeployByName"`
-	EvaluationJobsByName        map[string]string                    `json:"evaluationJobsByName"`
-	CustomizationJobsByName     map[string]string                    `json:"customizationJobsByName"`
-	InferenceProfilesByName     map[string]string                    `json:"inferenceProfilesByName"`
-	MarketplaceEndpointsByName  map[string]string                    `json:"marketplaceEndpointsByName"`
-	PromptRoutersByName         map[string]string                    `json:"promptRoutersByName"`
-	AgentsByName                map[string]string                    `json:"agentsByName"`
-	KBByName                    map[string]string                    `json:"kbByName"`
-	FlowsByName                 map[string]string                    `json:"flowsByName"`
-	PromptsByName               map[string]string                    `json:"promptsByName"`
-	ARPVersionCountByPolicy     map[string]int                       `json:"arpVersionCountByPolicy"`
-	FlowVersionCounters         map[string]int                       `json:"flowVersionCounters"`
-	PromptVersionCounters       map[string]int                       `json:"promptVersionCounters"`
-	AgentVersionCounters        map[string]int                       `json:"agentVersionCounters"`
-	AgentTags                   map[string]map[string]string         `json:"agentTags"`
-	AgentMemory                 map[string][]any                     `json:"agentMemory"`
-	ARPAnnotations              map[string][]any                     `json:"arpAnnotations"`
-	GuardrailVersionCounters    map[string]int                       `json:"guardrailVersionCounters"`
-	AgentPreparationDueAt       map[string]time.Time                 `json:"agentPreparationDueAt"`
-	IngestionJobCompletionDueAt map[string]time.Time                 `json:"ingestionJobCompletionDueAt"`
-	AccountID                   string                               `json:"accountID"`
-	Region                      string                               `json:"region"`
-	UseCaseType                 string                               `json:"useCaseType"`
-	UseCaseDescription          string                               `json:"useCaseDescription"`
-	GuardrailCounter            int                                  `json:"guardrailCounter"`
-	GuardrailVersionCounter     int                                  `json:"guardrailVersionCounter"`
-	ProvisionedCounter          int                                  `json:"provisionedCounter"`
-	EvaluationJobCounter        int                                  `json:"evaluationJobCounter"`
-	ARPCounter                  int                                  `json:"arpCounter"`
-	ARPWorkflowCounter          int                                  `json:"arpWorkflowCounter"`
-	ARPTestCaseCounter          int                                  `json:"arpTestCaseCounter"`
-	CustomModelCounter          int                                  `json:"customModelCounter"`
-	CustomModelDeployCounter    int                                  `json:"customModelDeployCounter"`
-	CustomizationJobCounter     int                                  `json:"customizationJobCounter"`
-	CopyJobCounter              int                                  `json:"copyJobCounter"`
-	ImportJobCounter            int                                  `json:"importJobCounter"`
-	InferenceProfileCounter     int                                  `json:"inferenceProfileCounter"`
-	MarketplaceEndpointCounter  int                                  `json:"marketplaceEndpointCounter"`
-	ModelInvocationJobCounter   int                                  `json:"modelInvocationJobCounter"`
-	PromptRouterCounter         int                                  `json:"promptRouterCounter"`
-	AgentCounter                int                                  `json:"agentCounter"`
-	ActionGroupCounter          int                                  `json:"actionGroupCounter"`
-	AgentAliasCounter           int                                  `json:"agentAliasCounter"`
-	KBCounter                   int                                  `json:"kbCounter"`
-	DataSourceCounter           int                                  `json:"dataSourceCounter"`
-	IngestionJobCounter         int                                  `json:"ingestionJobCounter"`
-	FlowCounter                 int                                  `json:"flowCounter"`
-	FlowAliasCounter            int                                  `json:"flowAliasCounter"`
-	PromptCounter               int                                  `json:"promptCounter"`
-	AgentCollabCounter          int                                  `json:"agentCollabCounter"`
-	Version                     int                                  `json:"version"`
+	Tables                         map[string]json.RawMessage           `json:"tables"`
+	LoggingConfig                  *ModelInvocationLoggingConfiguration `json:"loggingConfig,omitempty"`
+	GuardrailsByName               map[string]string                    `json:"guardrailsByName"`
+	GuardrailsByARN                map[string]string                    `json:"guardrailsByARN"`
+	PMTsByName                     map[string]string                    `json:"pmtsByName"`
+	ARPByName                      map[string]string                    `json:"arpByName"`
+	CustomModelsByName             map[string]string                    `json:"customModelsByName"`
+	CustomModelDeployByName        map[string]string                    `json:"customModelDeployByName"`
+	EvaluationJobsByName           map[string]string                    `json:"evaluationJobsByName"`
+	CustomizationJobsByName        map[string]string                    `json:"customizationJobsByName"`
+	InferenceProfilesByName        map[string]string                    `json:"inferenceProfilesByName"`
+	MarketplaceEndpointsByName     map[string]string                    `json:"marketplaceEndpointsByName"`
+	PromptRoutersByName            map[string]string                    `json:"promptRoutersByName"`
+	AgentsByName                   map[string]string                    `json:"agentsByName"`
+	KBByName                       map[string]string                    `json:"kbByName"`
+	FlowsByName                    map[string]string                    `json:"flowsByName"`
+	PromptsByName                  map[string]string                    `json:"promptsByName"`
+	ARPVersionCountByPolicy        map[string]int                       `json:"arpVersionCountByPolicy"`
+	FlowVersionCounters            map[string]int                       `json:"flowVersionCounters"`
+	PromptVersionCounters          map[string]int                       `json:"promptVersionCounters"`
+	AgentVersionCounters           map[string]int                       `json:"agentVersionCounters"`
+	AgentTags                      map[string]map[string]string         `json:"agentTags"`
+	AgentMemory                    map[string][]any                     `json:"agentMemory"`
+	ARPAnnotations                 map[string][]any                     `json:"arpAnnotations"`
+	GuardrailVersionCounters       map[string]int                       `json:"guardrailVersionCounters"`
+	AgentPreparationDueAt          map[string]time.Time                 `json:"agentPreparationDueAt"`
+	IngestionJobCompletionDueAt    map[string]time.Time                 `json:"ingestionJobCompletionDueAt"`
+	AccountID                      string                               `json:"accountID"`
+	Region                         string                               `json:"region"`
+	UseCaseFormData                []byte                               `json:"useCaseFormData,omitempty"`
+	GuardrailCounter               int                                  `json:"guardrailCounter"`
+	GuardrailVersionCounter        int                                  `json:"guardrailVersionCounter"`
+	ProvisionedCounter             int                                  `json:"provisionedCounter"`
+	EvaluationJobCounter           int                                  `json:"evaluationJobCounter"`
+	ARPCounter                     int                                  `json:"arpCounter"`
+	ARPWorkflowCounter             int                                  `json:"arpWorkflowCounter"`
+	ARPTestCaseCounter             int                                  `json:"arpTestCaseCounter"`
+	CustomModelCounter             int                                  `json:"customModelCounter"`
+	CustomModelDeployCounter       int                                  `json:"customModelDeployCounter"`
+	CustomizationJobCounter        int                                  `json:"customizationJobCounter"`
+	CopyJobCounter                 int                                  `json:"copyJobCounter"`
+	ImportJobCounter               int                                  `json:"importJobCounter"`
+	InferenceProfileCounter        int                                  `json:"inferenceProfileCounter"`
+	MarketplaceEndpointCounter     int                                  `json:"marketplaceEndpointCounter"`
+	ModelInvocationJobCounter      int                                  `json:"modelInvocationJobCounter"`
+	PromptRouterCounter            int                                  `json:"promptRouterCounter"`
+	EnforcedGuardrailConfigCounter int                                  `json:"enforcedGuardrailConfigCounter"`
+	AgentCounter                   int                                  `json:"agentCounter"`
+	ActionGroupCounter             int                                  `json:"actionGroupCounter"`
+	AgentAliasCounter              int                                  `json:"agentAliasCounter"`
+	KBCounter                      int                                  `json:"kbCounter"`
+	DataSourceCounter              int                                  `json:"dataSourceCounter"`
+	IngestionJobCounter            int                                  `json:"ingestionJobCounter"`
+	FlowCounter                    int                                  `json:"flowCounter"`
+	FlowAliasCounter               int                                  `json:"flowAliasCounter"`
+	PromptCounter                  int                                  `json:"promptCounter"`
+	AgentCollabCounter             int                                  `json:"agentCollabCounter"`
+	Version                        int                                  `json:"version"`
 }
 
 // collectHiddenFields gathers GuardrailVersionCounters, AgentPreparationDueAt,
@@ -211,62 +211,62 @@ func snapshotRawState(b *InMemoryBackend) backendSnapshot {
 	guardrailVersionCounters, agentPreparationDueAt, ingestionJobCompletionDueAt := collectHiddenFields(b)
 
 	return backendSnapshot{
-		LoggingConfig:               b.loggingConfig,
-		GuardrailsByName:            b.guardrailsByName,
-		GuardrailsByARN:             b.guardrailsByARN,
-		PMTsByName:                  b.pmtsByName,
-		ARPByName:                   b.arpByName,
-		CustomModelsByName:          b.customModelsByName,
-		CustomModelDeployByName:     b.customModelDeployByName,
-		EvaluationJobsByName:        b.evaluationJobsByName,
-		CustomizationJobsByName:     b.customizationJobsByName,
-		InferenceProfilesByName:     b.inferenceProfilesByName,
-		MarketplaceEndpointsByName:  b.marketplaceEndpointsByName,
-		PromptRoutersByName:         b.promptRoutersByName,
-		AgentsByName:                b.agentsByName,
-		KBByName:                    b.kbByName,
-		FlowsByName:                 b.flowsByName,
-		PromptsByName:               b.promptsByName,
-		ARPVersionCountByPolicy:     b.arpVersionCountByPolicy,
-		FlowVersionCounters:         b.flowVersionCounters,
-		PromptVersionCounters:       b.promptVersionCounters,
-		AgentVersionCounters:        b.agentVersionCounters,
-		AgentTags:                   b.agentTags,
-		AgentMemory:                 b.agentMemory,
-		ARPAnnotations:              b.arpAnnotations,
-		GuardrailVersionCounters:    guardrailVersionCounters,
-		AgentPreparationDueAt:       agentPreparationDueAt,
-		IngestionJobCompletionDueAt: ingestionJobCompletionDueAt,
-		AccountID:                   b.accountID,
-		Region:                      b.region,
-		UseCaseType:                 b.useCaseType,
-		UseCaseDescription:          b.useCaseDescription,
-		GuardrailCounter:            b.guardrailCounter,
-		GuardrailVersionCounter:     b.guardrailVersionCounter,
-		ProvisionedCounter:          b.provisionedCounter,
-		EvaluationJobCounter:        b.evaluationJobCounter,
-		ARPCounter:                  b.arpCounter,
-		ARPWorkflowCounter:          b.arpWorkflowCounter,
-		ARPTestCaseCounter:          b.arpTestCaseCounter,
-		CustomModelCounter:          b.customModelCounter,
-		CustomModelDeployCounter:    b.customModelDeployCounter,
-		CustomizationJobCounter:     b.customizationJobCounter,
-		CopyJobCounter:              b.copyJobCounter,
-		ImportJobCounter:            b.importJobCounter,
-		InferenceProfileCounter:     b.inferenceProfileCounter,
-		MarketplaceEndpointCounter:  b.marketplaceEndpointCounter,
-		ModelInvocationJobCounter:   b.modelInvocationJobCounter,
-		PromptRouterCounter:         b.promptRouterCounter,
-		AgentCounter:                b.agentCounter,
-		ActionGroupCounter:          b.actionGroupCounter,
-		AgentAliasCounter:           b.agentAliasCounter,
-		KBCounter:                   b.kbCounter,
-		DataSourceCounter:           b.dataSourceCounter,
-		IngestionJobCounter:         b.ingestionJobCounter,
-		FlowCounter:                 b.flowCounter,
-		FlowAliasCounter:            b.flowAliasCounter,
-		PromptCounter:               b.promptCounter,
-		AgentCollabCounter:          b.agentCollabCounter,
+		LoggingConfig:                  b.loggingConfig,
+		GuardrailsByName:               b.guardrailsByName,
+		GuardrailsByARN:                b.guardrailsByARN,
+		PMTsByName:                     b.pmtsByName,
+		ARPByName:                      b.arpByName,
+		CustomModelsByName:             b.customModelsByName,
+		CustomModelDeployByName:        b.customModelDeployByName,
+		EvaluationJobsByName:           b.evaluationJobsByName,
+		CustomizationJobsByName:        b.customizationJobsByName,
+		InferenceProfilesByName:        b.inferenceProfilesByName,
+		MarketplaceEndpointsByName:     b.marketplaceEndpointsByName,
+		PromptRoutersByName:            b.promptRoutersByName,
+		AgentsByName:                   b.agentsByName,
+		KBByName:                       b.kbByName,
+		FlowsByName:                    b.flowsByName,
+		PromptsByName:                  b.promptsByName,
+		ARPVersionCountByPolicy:        b.arpVersionCountByPolicy,
+		FlowVersionCounters:            b.flowVersionCounters,
+		PromptVersionCounters:          b.promptVersionCounters,
+		AgentVersionCounters:           b.agentVersionCounters,
+		AgentTags:                      b.agentTags,
+		AgentMemory:                    b.agentMemory,
+		ARPAnnotations:                 b.arpAnnotations,
+		GuardrailVersionCounters:       guardrailVersionCounters,
+		AgentPreparationDueAt:          agentPreparationDueAt,
+		IngestionJobCompletionDueAt:    ingestionJobCompletionDueAt,
+		AccountID:                      b.accountID,
+		Region:                         b.region,
+		UseCaseFormData:                b.useCaseFormData,
+		GuardrailCounter:               b.guardrailCounter,
+		GuardrailVersionCounter:        b.guardrailVersionCounter,
+		ProvisionedCounter:             b.provisionedCounter,
+		EvaluationJobCounter:           b.evaluationJobCounter,
+		ARPCounter:                     b.arpCounter,
+		ARPWorkflowCounter:             b.arpWorkflowCounter,
+		ARPTestCaseCounter:             b.arpTestCaseCounter,
+		CustomModelCounter:             b.customModelCounter,
+		CustomModelDeployCounter:       b.customModelDeployCounter,
+		CustomizationJobCounter:        b.customizationJobCounter,
+		CopyJobCounter:                 b.copyJobCounter,
+		ImportJobCounter:               b.importJobCounter,
+		InferenceProfileCounter:        b.inferenceProfileCounter,
+		MarketplaceEndpointCounter:     b.marketplaceEndpointCounter,
+		ModelInvocationJobCounter:      b.modelInvocationJobCounter,
+		PromptRouterCounter:            b.promptRouterCounter,
+		EnforcedGuardrailConfigCounter: b.enforcedGuardrailConfigCounter,
+		AgentCounter:                   b.agentCounter,
+		ActionGroupCounter:             b.actionGroupCounter,
+		AgentAliasCounter:              b.agentAliasCounter,
+		KBCounter:                      b.kbCounter,
+		DataSourceCounter:              b.dataSourceCounter,
+		IngestionJobCounter:            b.ingestionJobCounter,
+		FlowCounter:                    b.flowCounter,
+		FlowAliasCounter:               b.flowAliasCounter,
+		PromptCounter:                  b.promptCounter,
+		AgentCollabCounter:             b.agentCollabCounter,
 	}
 }
 
@@ -339,8 +339,7 @@ func resetRawState(b *InMemoryBackend) {
 	b.agentMemory = make(map[string][]any)
 	b.arpAnnotations = make(map[string][]any)
 	b.promptRoutersByName = make(map[string]string)
-	b.useCaseType = ""
-	b.useCaseDescription = ""
+	b.useCaseFormData = nil
 
 	resetRawCounters(b)
 }
@@ -465,6 +464,7 @@ func restoreRawCounters(b *InMemoryBackend, snap *backendSnapshot) {
 	b.marketplaceEndpointCounter = snap.MarketplaceEndpointCounter
 	b.modelInvocationJobCounter = snap.ModelInvocationJobCounter
 	b.promptRouterCounter = snap.PromptRouterCounter
+	b.enforcedGuardrailConfigCounter = snap.EnforcedGuardrailConfigCounter
 	b.agentCounter = snap.AgentCounter
 	b.actionGroupCounter = snap.ActionGroupCounter
 	b.agentAliasCounter = snap.AgentAliasCounter
@@ -478,16 +478,15 @@ func restoreRawCounters(b *InMemoryBackend, snap *backendSnapshot) {
 }
 
 // restoreRawState restores every raw (non-store.Table) map, counter, and
-// scalar field from snap, plus AccountID/Region/UseCaseType/
-// UseCaseDescription. Callers must hold b.mu.Lock.
+// scalar field from snap, plus AccountID/Region/UseCaseFormData. Callers must
+// hold b.mu.Lock.
 func restoreRawState(b *InMemoryBackend, snap *backendSnapshot) {
 	restoreRawMaps(b, snap)
 	restoreRawCounters(b, snap)
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
-	b.useCaseType = snap.UseCaseType
-	b.useCaseDescription = snap.UseCaseDescription
+	b.useCaseFormData = snap.UseCaseFormData
 }
 
 // Restore loads backend state from a JSON snapshot. It implements

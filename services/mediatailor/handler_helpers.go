@@ -5,7 +5,24 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
+
+// addTimestamps writes CreationTime/LastModifiedTime into out as
+// unixTimestamp (epoch-seconds JSON number) values, the wire shape every
+// MediaTailor timestamp uses — skipping either field when it is the zero
+// value (never populated), matching how a real Describe/List response omits
+// timestamps for a resource type that never sets them.
+func addTimestamps(out map[string]any, created, modified time.Time) {
+	if !created.IsZero() {
+		out["CreationTime"] = awstime.Epoch(created)
+	}
+
+	if !modified.IsZero() {
+		out["LastModifiedTime"] = awstime.Epoch(modified)
+	}
+}
 
 // extractPaginationParams reads MaxResults/NextToken from the query string.
 // The real MediaTailor model is inconsistent about casing: ListChannels,
@@ -149,8 +166,8 @@ func extractFillerSlate(body map[string]any) *SlateSource {
 	}
 
 	return &SlateSource{
-		SourceLocationName: stringField(raw, "SourceLocationName"),
-		VodSourceName:      stringField(raw, "VodSourceName"),
+		SourceLocationName: stringField(raw, keySourceLocationName),
+		VodSourceName:      stringField(raw, keyVodSourceName),
 	}
 }
 
@@ -221,6 +238,14 @@ func nilToEmpty(m map[string]string) map[string]string {
 	return m
 }
 
+func nilToEmptyStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+
+	return s
+}
+
 func extractStringSlice(body map[string]any, key string) []string {
 	raw, _ := body[key].([]any)
 	if len(raw) == 0 {
@@ -235,4 +260,279 @@ func extractStringSlice(body map[string]any, key string) []string {
 	}
 
 	return result
+}
+
+func int64Field(m map[string]any, key string) int64 {
+	f, _ := m[key].(float64)
+
+	return int64(f)
+}
+
+func extractTimeShiftConfiguration(body map[string]any) *TimeShiftConfiguration {
+	raw, _ := body["TimeShiftConfiguration"].(map[string]any)
+	if raw == nil {
+		return nil
+	}
+
+	sec, _ := raw["MaxTimeDelaySeconds"].(float64)
+
+	return &TimeShiftConfiguration{MaxTimeDelaySeconds: int(sec)}
+}
+
+func extractKeyValuePairs(raw []any) []KeyValuePair {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	out := make([]KeyValuePair, 0, len(raw))
+
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		out = append(out, KeyValuePair{Key: stringField(m, "Key"), Value: stringField(m, "Value")})
+	}
+
+	return out
+}
+
+func extractMapSlice(raw []any) []map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	out := make([]map[string]any, 0, len(raw))
+
+	for _, item := range raw {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+
+	return out
+}
+
+func extractClipRange(m map[string]any) *ClipRange {
+	raw, _ := m["ClipRange"].(map[string]any)
+	if raw == nil {
+		return nil
+	}
+
+	return &ClipRange{
+		StartOffsetMillis: int64Field(raw, "StartOffsetMillis"),
+		EndOffsetMillis:   int64Field(raw, "EndOffsetMillis"),
+	}
+}
+
+// int32Field reads key as a JSON number and truncates it to int32. The
+// SCTE-35 counters it feeds (AvailNum, SpliceEventId, ...) are documented by
+// the real SDK as small bounded values ("default value is 0", "must be
+// between 0 and 256"), so a wider-than-int32 input is malformed input, not a
+// security-relevant overflow.
+//
+//nolint:gosec // G115: bounded SCTE-35 counters, see comment above
+func int32Field(m map[string]any, key string) int32 {
+	return int32(int64Field(m, key))
+}
+
+func extractAdBreaks(body map[string]any) []AdBreak {
+	raw, _ := body["AdBreaks"].([]any)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	out := make([]AdBreak, 0, len(raw))
+
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		out = append(out, extractAdBreak(m))
+	}
+
+	return out
+}
+
+func extractAdBreak(m map[string]any) AdBreak {
+	ab := AdBreak{
+		OffsetMillis:    int64Field(m, "OffsetMillis"),
+		MessageType:     stringField(m, "MessageType"),
+		AdBreakMetadata: extractKeyValuePairs(toAnySlice(m["AdBreakMetadata"])),
+	}
+
+	if slate, slateOK := m["Slate"].(map[string]any); slateOK {
+		ab.Slate = &SlateSource{
+			SourceLocationName: stringField(slate, keySourceLocationName),
+			VodSourceName:      stringField(slate, keyVodSourceName),
+		}
+	}
+
+	if sim, simOK := m["SpliceInsertMessage"].(map[string]any); simOK {
+		ab.SpliceInsertMessage = &SpliceInsertMessage{
+			AvailNum:        int32Field(sim, "AvailNum"),
+			AvailsExpected:  int32Field(sim, "AvailsExpected"),
+			SpliceEventID:   int32Field(sim, "SpliceEventId"),
+			UniqueProgramID: int32Field(sim, "UniqueProgramId"),
+		}
+	}
+
+	if tsm, tsmOK := m["TimeSignalMessage"].(map[string]any); tsmOK {
+		ab.TimeSignalMessage = &TimeSignalMessage{
+			SegmentationDescriptors: extractMapSlice(toAnySlice(tsm["SegmentationDescriptors"])),
+		}
+	}
+
+	return ab
+}
+
+func toAnySlice(v any) []any {
+	s, _ := v.([]any)
+
+	return s
+}
+
+func extractAlternateMedia(raw []any) []AlternateMedia {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	out := make([]AlternateMedia, 0, len(raw))
+
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		out = append(out, AlternateMedia{
+			SourceLocationName:       stringField(m, keySourceLocationName),
+			VodSourceName:            stringField(m, keyVodSourceName),
+			LiveSourceName:           stringField(m, keyLiveSourceName),
+			ScheduledStartTimeMillis: int64Field(m, "ScheduledStartTimeMillis"),
+			DurationMillis:           int64Field(m, "DurationMillis"),
+			ClipRange:                extractClipRange(m),
+			AdBreaks:                 extractAdBreaksFromList(toAnySlice(m["AdBreaks"])),
+		})
+	}
+
+	return out
+}
+
+// extractAdBreaksFromList is extractAdBreaks's body, factored out so
+// AlternateMedia (which nests AdBreaks under a raw []any rather than a
+// top-level request body map) can reuse the same parsing logic.
+func extractAdBreaksFromList(raw []any) []AdBreak {
+	return extractAdBreaks(map[string]any{"AdBreaks": raw})
+}
+
+func extractAudienceMedia(body map[string]any) []AudienceMedia {
+	raw, _ := body["AudienceMedia"].([]any)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	out := make([]AudienceMedia, 0, len(raw))
+
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		out = append(out, AudienceMedia{
+			Audience:       stringField(m, "Audience"),
+			AlternateMedia: extractAlternateMedia(toAnySlice(m["AlternateMedia"])),
+		})
+	}
+
+	return out
+}
+
+func extractTransition(m map[string]any) Transition {
+	return Transition{
+		RelativePosition:         stringField(m, "RelativePosition"),
+		Type:                     stringField(m, "Type"),
+		RelativeProgram:          stringField(m, "RelativeProgram"),
+		DurationMillis:           int64Field(m, "DurationMillis"),
+		ScheduledStartTimeMillis: int64Field(m, "ScheduledStartTimeMillis"),
+	}
+}
+
+func extractScheduleConfiguration(body map[string]any) *ScheduleConfiguration {
+	raw, _ := body["ScheduleConfiguration"].(map[string]any)
+	if raw == nil {
+		return nil
+	}
+
+	sc := &ScheduleConfiguration{ClipRange: extractClipRange(raw)}
+
+	if tr, ok := raw["Transition"].(map[string]any); ok {
+		sc.Transition = extractTransition(tr)
+	}
+
+	return sc
+}
+
+func extractUpdateProgramScheduleConfiguration(body map[string]any) *UpdateProgramScheduleConfiguration {
+	raw, _ := body["ScheduleConfiguration"].(map[string]any)
+	if raw == nil {
+		return nil
+	}
+
+	sc := &UpdateProgramScheduleConfiguration{ClipRange: extractClipRange(raw)}
+
+	if tr, ok := raw["Transition"].(map[string]any); ok {
+		sc.Transition = &UpdateProgramTransition{
+			DurationMillis:           int64Field(tr, "DurationMillis"),
+			ScheduledStartTimeMillis: int64Field(tr, "ScheduledStartTimeMillis"),
+		}
+	}
+
+	return sc
+}
+
+// extractExtraConfig reads PutPlaybackConfiguration's optional sub-configs
+// (AdConditioningConfiguration, AvailSuppression, Bumper, CdnConfiguration,
+// DashConfiguration, ManifestProcessingRules, etc.) and stores/echoes them
+// back verbatim without interpreting them. Real MediaTailor
+// validates/consumes these during ad-decision-server calls and manifest
+// personalization, which gopherstack's playback-configuration CRUD emulation
+// does not perform; storing them as decoded-JSON pass-through preserves
+// exact wire round-trip fidelity (what a client PUTs is exactly what a
+// client GETs back) without hand-modeling every nested SCTE/ADS field.
+func extractExtraConfig(body map[string]any) map[string]any {
+	keys := [...]string{
+		"AdConditioningConfiguration",
+		"AdDecisionServerConfiguration",
+		"AvailSuppression",
+		"Bumper",
+		"CdnConfiguration",
+		"ConfigurationAliases",
+		"DashConfiguration",
+		"FunctionMapping",
+		"InsertionMode",
+		"LivePreRollConfiguration",
+		"ManifestProcessingRules",
+		"PersonalizationThresholdSeconds",
+		"SlateAdUrl",
+		"TranscodeProfileName",
+	}
+
+	extra := make(map[string]any, len(keys))
+
+	for _, k := range keys {
+		if v, ok := body[k]; ok {
+			extra[k] = v
+		}
+	}
+
+	if len(extra) == 0 {
+		return nil
+	}
+
+	return extra
 }

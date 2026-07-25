@@ -228,6 +228,110 @@ func TestHandler_CreateWebhook_FilterGroups(t *testing.T) {
 	}
 }
 
+// TestHandler_CreateWebhook_ExtendedFields verifies the additive Webhook wire
+// fields present on real AWS (status/secret/lastModifiedSecret/manualCreation/
+// scopeConfiguration/pullRequestBuildPolicy) are populated on creation. This
+// emulator never talks to a real GitHub/GitLab/Bitbucket, so webhook creation
+// always completes synchronously with status ACTIVE.
+func TestHandler_CreateWebhook_ExtendedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestProject(t, h, "wh-ext-proj")
+
+	rec := doRequest(t, h, "CreateWebhook", map[string]any{
+		"projectName":    "wh-ext-proj",
+		"branchFilter":   "main",
+		"manualCreation": true,
+		"scopeConfiguration": map[string]any{
+			"name":  "my-org",
+			"scope": "GITHUB_ORGANIZATION",
+		},
+		"pullRequestBuildPolicy": map[string]any{
+			"requiresCommentApproval": "ALL_PULL_REQUESTS",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Webhook struct {
+			ScopeConfiguration     map[string]any `json:"scopeConfiguration"`
+			PullRequestBuildPolicy map[string]any `json:"pullRequestBuildPolicy"`
+			Status                 string         `json:"status"`
+			Secret                 string         `json:"secret"`
+			LastModifiedSecret     float64        `json:"lastModifiedSecret"`
+			ManualCreation         bool           `json:"manualCreation"`
+		} `json:"webhook"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+
+	assert.Equal(t, "ACTIVE", out.Webhook.Status)
+	assert.NotEmpty(t, out.Webhook.Secret, "CreateWebhook must return a secret")
+	assert.NotZero(t, out.Webhook.LastModifiedSecret)
+	assert.True(t, out.Webhook.ManualCreation)
+	assert.Equal(t, "my-org", out.Webhook.ScopeConfiguration["name"])
+	assert.Equal(t, "GITHUB_ORGANIZATION", out.Webhook.ScopeConfiguration["scope"])
+	assert.Equal(t, "ALL_PULL_REQUESTS", out.Webhook.PullRequestBuildPolicy["requiresCommentApproval"])
+}
+
+// TestHandler_UpdateWebhook_RotateSecret verifies rotateSecret regenerates
+// Webhook.Secret and bumps LastModifiedSecret, matching real AWS's
+// UpdateWebhookInput.rotateSecret. Omitting rotateSecret must leave the
+// secret untouched.
+func TestHandler_UpdateWebhook_RotateSecret(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestProject(t, h, "wh-rotate-proj")
+
+	createRec := doRequest(t, h, "CreateWebhook", map[string]any{
+		"projectName": "wh-rotate-proj",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut struct {
+		Webhook struct {
+			Secret             string  `json:"secret"`
+			LastModifiedSecret float64 `json:"lastModifiedSecret"`
+		} `json:"webhook"`
+	}
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	originalSecret := createOut.Webhook.Secret
+	require.NotEmpty(t, originalSecret)
+
+	// Sequential (not t.Parallel()): both steps mutate the same webhook and
+	// must observe each other's effects in order.
+	noRotateRec := doRequest(t, h, "UpdateWebhook", map[string]any{
+		"projectName":  "wh-rotate-proj",
+		"branchFilter": "main",
+	})
+	require.Equal(t, http.StatusOK, noRotateRec.Code)
+
+	var noRotateOut struct {
+		Webhook struct {
+			Secret string `json:"secret"`
+		} `json:"webhook"`
+	}
+	require.NoError(t, json.NewDecoder(noRotateRec.Body).Decode(&noRotateOut))
+	assert.Equal(t, originalSecret, noRotateOut.Webhook.Secret, "secret must be unchanged without rotateSecret")
+
+	rotateRec := doRequest(t, h, "UpdateWebhook", map[string]any{
+		"projectName":  "wh-rotate-proj",
+		"rotateSecret": true,
+	})
+	require.Equal(t, http.StatusOK, rotateRec.Code)
+
+	var rotateOut struct {
+		Webhook struct {
+			Secret             string  `json:"secret"`
+			LastModifiedSecret float64 `json:"lastModifiedSecret"`
+		} `json:"webhook"`
+	}
+	require.NoError(t, json.NewDecoder(rotateRec.Body).Decode(&rotateOut))
+	assert.NotEqual(t, originalSecret, rotateOut.Webhook.Secret, "rotateSecret must regenerate the secret")
+	assert.GreaterOrEqual(t, rotateOut.Webhook.LastModifiedSecret, createOut.Webhook.LastModifiedSecret)
+}
+
 // TestHandler_Webhook_MirroredOnProject verifies that a project's webhook field (as
 // returned by BatchGetProjects) reflects CreateWebhook, UpdateWebhook, and DeleteWebhook,
 // matching real AWS where Project.Webhook is populated once a webhook exists for that project.

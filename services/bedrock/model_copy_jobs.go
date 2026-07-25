@@ -9,8 +9,6 @@ import (
 )
 
 // CreateModelCopyJob creates a new model copy job.
-//
-//nolint:dupl // Identical structure to CreateModelImportJob; different types.
 func (b *InMemoryBackend) CreateModelCopyJob(
 	sourceModelARN string,
 	tags []Tag,

@@ -119,6 +119,11 @@ func (b *InMemoryBackend) DeleteReplicationGroup(ctx context.Context, id string)
 	if !exists || isReaped(b.now(), rg.PendingStatus, rg.AvailableAt) {
 		return ErrReplicationGroupNotFound
 	}
+	if err := b.requireAvailableLocked(
+		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
+	); err != nil {
+		return err
+	}
 
 	if d := b.pendingUntil(); !d.IsZero() {
 		rg.PendingStatus = statusDeleting
@@ -221,6 +226,11 @@ func (b *InMemoryBackend) FailoverReplicationGroup(ctx context.Context, id, _ st
 	rg, exists := b.replicationGroupsStore(region).Get(id)
 	if !exists {
 		return nil, ErrReplicationGroupNotFound
+	}
+	if err := b.requireAvailableLocked(
+		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	rg.Status = statusAvailable
@@ -485,6 +495,11 @@ func (b *InMemoryBackend) ModifyReplicationGroupFull(
 	rg, exists := b.replicationGroupsStore(region).Get(id)
 	if !exists {
 		return nil, ErrReplicationGroupNotFound
+	}
+	if err := b.requireAvailableLocked(
+		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	if opts.ParameterGroupName != "" {
@@ -861,6 +876,11 @@ func (b *InMemoryBackend) IncreaseReplicaCount(
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
+	if err := b.requireAvailableLocked(
+		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
+	}
 
 	if newReplicaCount > 0 {
 		rg.ReplicaCount = newReplicaCount
@@ -886,6 +906,11 @@ func (b *InMemoryBackend) DecreaseReplicaCount(
 	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
+	}
+	if err := b.requireAvailableLocked(
+		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	if newReplicaCount >= 0 {
@@ -913,6 +938,11 @@ func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
 	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
+	}
+	if err := b.requireAvailableLocked(
+		rg.Status, rg.PendingStatus, rg.AvailableAt, ErrReplicationGroupNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	if !rg.ClusterModeEnabled {

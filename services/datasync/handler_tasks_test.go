@@ -422,6 +422,136 @@ func TestDataSync_TaskStatusRunningWhileExecuting(t *testing.T) {
 	assert.Equal(t, "AVAILABLE", taskResp["Status"])
 }
 
+// TestDataSync_TaskSettings covers CreateTask/UpdateTask/DescribeTask's
+// Options, Schedule, Excludes, Includes, ManifestConfig, TaskReportConfig,
+// and TaskMode members -- fields present on the real
+// CreateTaskInput/UpdateTaskInput/DescribeTaskOutput that were previously
+// entirely unmodeled (silently dropped on Create, absent from Describe).
+func TestDataSync_TaskSettings(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	srcArn := createTestLocationS3(t, h)
+	dstArn := createTestLocationS3(t, h)
+
+	rec := doRequest(t, h, "CreateTask", map[string]any{
+		"SourceLocationArn":      srcArn,
+		"DestinationLocationArn": dstArn,
+		"Name":                   "settings-task",
+		"Options":                map[string]any{"LogLevel": "TRANSFER", "BytesPerSecond": 1048576},
+		"Schedule": map[string]any{
+			"ScheduleExpression": "rate(1 hours)",
+			"Status":             "ENABLED",
+		},
+		"Excludes": []any{
+			map[string]any{"FilterType": "SIMPLE_PATTERN", "Value": "/tmp"},
+		},
+		"Includes": []any{
+			map[string]any{"FilterType": "SIMPLE_PATTERN", "Value": "/data"},
+		},
+		"ManifestConfig": map[string]any{
+			"Action": "TRANSFER",
+			"Source": map[string]any{"S3": map[string]any{"ManifestObjectPath": "manifest.csv"}},
+		},
+		"TaskReportConfig": map[string]any{
+			"OutputType": "STANDARD",
+		},
+		"TaskMode": "ENHANCED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	taskArn := createResp["TaskArn"].(string)
+
+	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+
+	opts, ok := descResp["Options"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "TRANSFER", opts["LogLevel"])
+
+	schedule, ok := descResp["Schedule"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "rate(1 hours)", schedule["ScheduleExpression"])
+	assert.Equal(t, "ENABLED", schedule["Status"])
+
+	excludes, ok := descResp["Excludes"].([]any)
+	require.True(t, ok)
+	require.Len(t, excludes, 1)
+	assert.Equal(t, "/tmp", excludes[0].(map[string]any)["Value"])
+
+	includes, ok := descResp["Includes"].([]any)
+	require.True(t, ok)
+	require.Len(t, includes, 1)
+	assert.Equal(t, "/data", includes[0].(map[string]any)["Value"])
+
+	manifestCfg, ok := descResp["ManifestConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "TRANSFER", manifestCfg["Action"])
+
+	reportCfg, ok := descResp["TaskReportConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "STANDARD", reportCfg["OutputType"])
+
+	assert.Equal(t, "ENHANCED", descResp["TaskMode"])
+
+	// UpdateTask: a field that is entirely omitted from the request must
+	// leave the existing value untouched (AWS's "only supplied fields
+	// change" semantics) -- here we only update Name, so Options/Schedule/
+	// Excludes/etc. must survive unchanged.
+	rec = doRequest(t, h, "UpdateTask", map[string]any{
+		"TaskArn": taskArn,
+		"Name":    "settings-task-renamed",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "settings-task-renamed", descResp["Name"])
+	opts, ok = descResp["Options"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "TRANSFER", opts["LogLevel"])
+
+	// UpdateTask: explicitly supplying a field replaces it.
+	rec = doRequest(t, h, "UpdateTask", map[string]any{
+		"TaskArn": taskArn,
+		"Excludes": []any{
+			map[string]any{"FilterType": "SIMPLE_PATTERN", "Value": "/var"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	excludes, ok = descResp["Excludes"].([]any)
+	require.True(t, ok)
+	require.Len(t, excludes, 1)
+	assert.Equal(t, "/var", excludes[0].(map[string]any)["Value"])
+}
+
+// TestDataSync_TaskModeDefaultsToBasic verifies that CreateTask defaults
+// TaskMode to BASIC when omitted, matching the real API's documented default
+// ("BASIC (default)").
+func TestDataSync_TaskModeDefaultsToBasic(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	srcArn := createTestLocationS3(t, h)
+	dstArn := createTestLocationS3(t, h)
+	taskArn := createTestTask(t, h, srcArn, dstArn)
+
+	rec := doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "BASIC", descResp["TaskMode"])
+}
+
 // TestDataSync_ListTaskExecutionsAllTasks verifies that omitting TaskArn lists
 // executions across every task, since TaskArn is an optional filter on the
 // real ListTaskExecutions API rather than a required parameter.

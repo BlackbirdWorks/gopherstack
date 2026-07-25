@@ -85,6 +85,7 @@ type putResourcePolicyInput struct {
 	ResourceArn           string `json:"ResourceArn,omitempty"`
 	PolicyExistsCondition string `json:"PolicyExistsCondition,omitempty"`
 	PolicyHashCondition   string `json:"PolicyHashCondition,omitempty"`
+	EnableHybrid          string `json:"EnableHybrid,omitempty"`
 }
 
 // putResourcePolicyOutput holds the result for PutResourcePolicy.
@@ -101,6 +102,7 @@ func (h *Handler) handlePutResourcePolicy(
 		in.ResourceArn,
 		in.PolicyExistsCondition,
 		in.PolicyHashCondition,
+		in.EnableHybrid,
 	)
 	if err != nil {
 		return nil, err

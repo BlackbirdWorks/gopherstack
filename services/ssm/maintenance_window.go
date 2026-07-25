@@ -76,6 +76,10 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 		Name:                     input.Name,
 		Description:              input.Description,
 		Schedule:                 input.Schedule,
+		ScheduleTimezone:         input.ScheduleTimezone,
+		ScheduleOffset:           input.ScheduleOffset,
+		StartDate:                input.StartDate,
+		EndDate:                  input.EndDate,
 		Duration:                 input.Duration,
 		Cutoff:                   input.Cutoff,
 		AllowUnassociatedTargets: input.AllowUnassociatedTargets,
@@ -156,8 +160,8 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
 				WindowID:          win.WindowID,
 				WindowExecutionID: mwExecID(win.WindowID),
 				Status:            commandStatusSuccess,
-				StartTime:         execTime,
-				EndTime:           &endTime,
+				StartTime:         UnixTimeFloat(execTime),
+				EndTime:           UnixTimeFloat(endTime),
 			},
 		},
 	}, nil
@@ -193,7 +197,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(
 			TaskExecutionID:   "taskexec-" + task.WindowTaskID,
 			TaskARN:           task.TaskArn,
 			Status:            commandStatusSuccess,
-			StartTime:         time.Now().UTC(),
+			StartTime:         UnixTimeFloat(time.Now()),
 		})
 	}
 
@@ -233,7 +237,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTaskInvocations(
 				TaskExecutionID:   input.TaskID,
 				InvocationID:      "inv-" + input.WindowExecutionID,
 				Status:            commandStatusSuccess,
-				StartTime:         time.Now().UTC(),
+				StartTime:         UnixTimeFloat(time.Now()),
 			},
 		},
 	}, nil
@@ -312,8 +316,8 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecution(
 		WindowExecutionID: execID,
 		Status:            commandStatusSuccess,
 		StatusDetails:     "WindowExecution Succeeded",
-		StartTime:         startTime,
-		EndTime:           &endTime,
+		StartTime:         UnixTimeFloat(startTime),
+		EndTime:           UnixTimeFloat(endTime),
 	}, nil
 }
 
@@ -349,8 +353,8 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
 				Priority:          task.Priority,
 				MaxConcurrency:    task.MaxConcurrency,
 				MaxErrors:         task.MaxErrors,
-				StartTime:         startTime,
-				EndTime:           &endTime,
+				StartTime:         UnixTimeFloat(startTime),
+				EndTime:           UnixTimeFloat(endTime),
 			}, nil
 		}
 	}
@@ -362,8 +366,8 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
 		TaskExecutionID:   taskExecID,
 		Status:            commandStatusSuccess,
 		StatusDetails:     "Task Succeeded",
-		StartTime:         startTime,
-		EndTime:           &endTime,
+		StartTime:         UnixTimeFloat(startTime),
+		EndTime:           UnixTimeFloat(endTime),
 	}, nil
 }
 
@@ -399,8 +403,8 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
 		Status:            commandStatusSuccess,
 		StatusDetails:     "InvocationSucceeded",
 		WindowTargetID:    windowTargetID,
-		StartTime:         startTime,
-		EndTime:           &endTime,
+		StartTime:         UnixTimeFloat(startTime),
+		EndTime:           UnixTimeFloat(endTime),
 	}, nil
 }
 
@@ -619,6 +623,7 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		ServiceRoleArn: input.ServiceRoleArn,
 		MaxConcurrency: input.MaxConcurrency,
 		MaxErrors:      input.MaxErrors,
+		Targets:        input.Targets,
 	}
 
 	b.maintenanceWindowTasksStore(region).Put(&task)
@@ -665,6 +670,26 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 
 	if input.Enabled != nil {
 		mw.Enabled = *input.Enabled
+	}
+
+	if input.AllowUnassociatedTargets != nil {
+		mw.AllowUnassociatedTargets = *input.AllowUnassociatedTargets
+	}
+
+	if input.ScheduleOffset != nil {
+		mw.ScheduleOffset = *input.ScheduleOffset
+	}
+
+	if input.ScheduleTimezone != "" {
+		mw.ScheduleTimezone = input.ScheduleTimezone
+	}
+
+	if input.StartDate != "" {
+		mw.StartDate = input.StartDate
+	}
+
+	if input.EndDate != "" {
+		mw.EndDate = input.EndDate
 	}
 
 	mw.ModifiedDate = UnixTimeFloat(timeNow())
@@ -917,6 +942,10 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		task.MaxErrors = input.MaxErrors
 	}
 
+	if len(input.Targets) > 0 {
+		task.Targets = input.Targets
+	}
+
 	store.Put(&task)
 
 	return &UpdateMaintenanceWindowTaskOutput{
@@ -929,5 +958,6 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		ServiceRoleArn: task.ServiceRoleArn,
 		MaxConcurrency: task.MaxConcurrency,
 		MaxErrors:      task.MaxErrors,
+		Targets:        task.Targets,
 	}, nil
 }

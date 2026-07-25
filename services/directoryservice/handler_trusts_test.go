@@ -9,6 +9,135 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCreateTrust_Validation(t *testing.T) {
+	t.Parallel()
+
+	baseBody := func() map[string]any {
+		return map[string]any{
+			"DirectoryId":      "placeholder",
+			"RemoteDomainName": "partner.example.com",
+			"TrustPassword":    "TrustPw1!",
+			"TrustDirection":   "Two-Way",
+		}
+	}
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantType string
+		wantCode int
+	}{
+		{
+			name: "missing TrustDirection returns InvalidParameterException",
+			body: func() map[string]any {
+				b := baseBody()
+				delete(b, "TrustDirection")
+
+				return b
+			}(),
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+		{
+			name: "invalid TrustDirection returns InvalidParameterException",
+			body: func() map[string]any {
+				b := baseBody()
+				b["TrustDirection"] = "Sideways"
+
+				return b
+			}(),
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+		{
+			name: "invalid TrustType returns InvalidParameterException",
+			body: func() map[string]any {
+				b := baseBody()
+				b["TrustType"] = "Galaxy"
+
+				return b
+			}(),
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+		{
+			name: "invalid SelectiveAuth returns InvalidParameterException",
+			body: func() map[string]any {
+				b := baseBody()
+				b["SelectiveAuth"] = "Maybe"
+
+				return b
+			}(),
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+		{
+			name: "One-Way: Outgoing direction succeeds",
+			body: func() map[string]any {
+				b := baseBody()
+				b["TrustDirection"] = "One-Way: Outgoing"
+
+				return b
+			}(),
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "External trust type with SelectiveAuth succeeds",
+			body: func() map[string]any {
+				b := baseBody()
+				b["TrustType"] = "External"
+				b["SelectiveAuth"] = "Enabled"
+
+				return b
+			}(),
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+			tt.body["DirectoryId"] = dirID
+
+			rec := doRequest(t, h, "CreateTrust", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantType != "" {
+				body := respBody(t, rec)
+				assert.Equal(t, tt.wantType, body["__type"])
+			}
+		})
+	}
+}
+
+func TestDescribeTrusts_StateFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+
+	rec := doRequest(t, h, "CreateTrust", map[string]any{
+		"DirectoryId":      dirID,
+		"RemoteDomainName": "partner.example.com",
+		"TrustPassword":    "TrustPw1!",
+		"TrustDirection":   "Two-Way",
+		"SelectiveAuth":    "Enabled",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	descRec := doRequest(t, h, "DescribeTrusts", map[string]any{"DirectoryId": dirID})
+	require.Equal(t, http.StatusOK, descRec.Code)
+	body := respBody(t, descRec)
+	trusts, _ := body["Trusts"].([]any)
+	require.Len(t, trusts, 1)
+	trust := trusts[0].(map[string]any)
+
+	assert.Equal(t, "Enabled", trust["SelectiveAuth"])
+	assert.NotEmpty(t, trust["StateLastUpdatedDateTime"], "StateLastUpdatedDateTime must be populated on the wire")
+	assert.Contains(t, trust, "StateLastUpdatedDateTime")
+}
+
 func TestTrusts(t *testing.T) {
 	t.Parallel()
 

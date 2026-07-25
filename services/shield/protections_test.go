@@ -366,3 +366,35 @@ func TestInMemoryBackend_ProtectionIDIsUUID(t *testing.T) {
 	assert.Contains(t, p.ProtectionArn, "arn:aws:shield::")
 	assert.Contains(t, p.ProtectionArn, "protection/")
 }
+
+// TestInMemoryBackend_DeleteProtectionCascadeCleansALARConfig verifies that deleting a
+// protection also removes its ApplicationLayerAutomaticResponseConfiguration entry (stored
+// internally in a separate alarConfigs table keyed by ResourceARN). In the real AWS wire shape
+// ALAR config is a field ON the Protection object itself (types.Protection
+// .ApplicationLayerAutomaticResponseConfiguration), so a leftover row after deletion would let a
+// brand new, never-configured protection for the same resource ARN incorrectly inherit stale
+// ALAR settings from a protection that no longer exists.
+func TestInMemoryBackend_DeleteProtectionCascadeCleansALARConfig(t *testing.T) {
+	t.Parallel()
+
+	const resourceARN = "arn:aws:ec2:us-east-1:000000000000:eip-allocation/eipalloc-cascade"
+
+	b := shield.NewInMemoryBackend(testAccountID, testRegion)
+	require.NoError(t, b.CreateSubscription())
+
+	p, err := b.CreateProtection("cascade-prot", resourceARN, nil)
+	require.NoError(t, err)
+	require.NoError(t, b.EnableApplicationLayerAutomaticResponse(resourceARN, "BLOCK"))
+
+	require.NotNil(t, b.GetALARConfig(resourceARN), "ALAR config must exist before delete")
+
+	require.NoError(t, b.DeleteProtection(p.ID))
+
+	assert.Nil(t, b.GetALARConfig(resourceARN), "ALAR config must be cascade-cleaned after protection delete")
+
+	// A brand new protection for the same resource ARN must start with no ALAR config, not
+	// inherit the deleted protection's leftover row.
+	_, err = b.CreateProtection("cascade-prot-2", resourceARN, nil)
+	require.NoError(t, err)
+	assert.Nil(t, b.GetALARConfig(resourceARN))
+}

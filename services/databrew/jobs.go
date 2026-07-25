@@ -20,6 +20,7 @@ func (b *InMemoryBackend) CreateJob(
 	name, jobType, datasetName, projectName, recipeName, roleArn string,
 	outputs []Output,
 	tags map[string]string,
+	extra JobExtras,
 ) (*Job, error) {
 	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
@@ -35,8 +36,20 @@ func (b *InMemoryBackend) CreateJob(
 		Name: name, Arn: b.jobARN(region, name), Type: jobType,
 		DatasetName: datasetName, ProjectName: projectName,
 		RecipeName: recipeName, RoleArn: roleArn, Outputs: outputs,
-		Tags: maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
-		LastModifiedDate: float64(time.Now().Unix()),
+		AccountID: b.accountID,
+		Tags:      maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
+		LastModifiedDate:         float64(time.Now().Unix()),
+		ProfileConfiguration:     extra.ProfileConfiguration,
+		JobSample:                extra.JobSample,
+		EncryptionMode:           extra.EncryptionMode,
+		EncryptionKeyArn:         extra.EncryptionKeyArn,
+		LogSubscription:          extra.LogSubscription,
+		DataCatalogOutputs:       extra.DataCatalogOutputs,
+		DatabaseOutputs:          extra.DatabaseOutputs,
+		ValidationConfigurations: extra.ValidationConfigurations,
+		MaxCapacity:              extra.MaxCapacity,
+		MaxRetries:               extra.MaxRetries,
+		Timeout:                  extra.Timeout,
 	}
 	if recipeName != "" {
 		j.RecipeReference = &RecipeRef{Name: recipeName, RecipeVersion: "LATEST_WORKING"}
@@ -103,6 +116,7 @@ func (b *InMemoryBackend) UpdateJob(
 	name, roleArn string,
 	outputs []Output,
 	maxCapacity, maxRetries, timeout int,
+	extra JobExtras,
 ) error {
 	b.mu.Lock("UpdateJob")
 	defer b.mu.Unlock()
@@ -126,9 +140,39 @@ func (b *InMemoryBackend) UpdateJob(
 	if timeout > 0 {
 		j.Timeout = timeout
 	}
+	applyJobExtras(j, extra)
 	j.LastModifiedDate = float64(time.Now().Unix())
 
 	return nil
+}
+
+// applyJobExtras overwrites j's optional fields with any non-zero values in
+// extra, leaving fields extra didn't set unchanged. Callers must hold b.mu.
+func applyJobExtras(j *Job, extra JobExtras) {
+	if extra.ProfileConfiguration != nil {
+		j.ProfileConfiguration = extra.ProfileConfiguration
+	}
+	if extra.JobSample != nil {
+		j.JobSample = extra.JobSample
+	}
+	if extra.EncryptionMode != "" {
+		j.EncryptionMode = extra.EncryptionMode
+	}
+	if extra.EncryptionKeyArn != "" {
+		j.EncryptionKeyArn = extra.EncryptionKeyArn
+	}
+	if extra.LogSubscription != "" {
+		j.LogSubscription = extra.LogSubscription
+	}
+	if extra.DataCatalogOutputs != nil {
+		j.DataCatalogOutputs = extra.DataCatalogOutputs
+	}
+	if extra.DatabaseOutputs != nil {
+		j.DatabaseOutputs = extra.DatabaseOutputs
+	}
+	if extra.ValidationConfigurations != nil {
+		j.ValidationConfigurations = extra.ValidationConfigurations
+	}
 }
 
 func (b *InMemoryBackend) DeleteJob(ctx context.Context, name string) error {

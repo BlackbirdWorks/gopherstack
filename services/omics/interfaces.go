@@ -32,6 +32,7 @@ type StorageBackend interface {
 	GetReferenceImportJob(referenceStoreID, jobID string) (*ReferenceImportJob, error)
 	ListReferenceImportJobs(
 		referenceStoreID string,
+		filter *ReferenceImportJobFilter,
 		maxResults int,
 		nextToken string,
 	) ([]*ReferenceImportJob, string, error)
@@ -89,7 +90,7 @@ type StorageBackend interface {
 
 	// Multipart ReadSet Upload
 	CreateMultipartReadSetUpload(
-		sequenceStoreID, name, sequenceType string,
+		sequenceStoreID, name, sourceFileType, sampleID, subjectID, generatedFrom, referenceARN, description string,
 		tags map[string]string,
 	) (*MultipartReadSetUpload, error)
 	AbortMultipartReadSetUpload(sequenceStoreID, uploadID string) error
@@ -122,7 +123,7 @@ type StorageBackend interface {
 	) (*RunGroup, error)
 	DeleteRunGroup(id string) error
 	GetRunGroup(id string) (*RunGroup, error)
-	ListRunGroups(maxResults int, nextToken string) ([]*RunGroup, string, error)
+	ListRunGroups(filter *RunGroupFilter, maxResults int, nextToken string) ([]*RunGroup, string, error)
 	UpdateRunGroup(
 		id, name string,
 		maxCPUs, maxRuns, maxDuration int,
@@ -131,16 +132,21 @@ type StorageBackend interface {
 
 	// Run
 	StartRun(
-		workflowID, roleARN, name, runBatchID string,
+		workflowID, roleARN, name, runGroupID, runBatchID, networkingMode, runOutputURI string,
 		params map[string]any,
 		tags map[string]string,
 	) (*Run, error)
 	CancelRun(id string) error
 	DeleteRun(id string) error
 	GetRun(id string) (*Run, error)
-	ListRuns(maxResults int, nextToken string) ([]*Run, string, error)
+	ListRuns(filter *RunFilter, maxResults int, nextToken string) ([]*Run, string, error)
 	GetRunTask(runID, taskID string) (*RunTask, error)
-	ListRunTasks(runID string, maxResults int, nextToken string) ([]*RunTask, string, error)
+	ListRunTasks(
+		runID string,
+		filter *RunTaskFilter,
+		maxResults int,
+		nextToken string,
+	) ([]*RunTask, string, error)
 
 	// Workflow
 	CreateWorkflow(
@@ -149,7 +155,7 @@ type StorageBackend interface {
 	) (*Workflow, error)
 	DeleteWorkflow(id string) error
 	GetWorkflow(id string) (*Workflow, error)
-	ListWorkflows(maxResults int, nextToken string) ([]*Workflow, string, error)
+	ListWorkflows(filter *WorkflowFilter, maxResults int, nextToken string) ([]*Workflow, string, error)
 	UpdateWorkflow(id, name, description string) error
 
 	// AnnotationStore
@@ -168,6 +174,8 @@ type StorageBackend interface {
 	) (*AnnotationImportJob, error)
 	GetAnnotationImportJob(jobID string) (*AnnotationImportJob, error)
 	ListAnnotationImportJobs(
+		filter *ImportJobFilter,
+		ids []string,
 		maxResults int,
 		nextToken string,
 	) ([]*AnnotationImportJob, string, error)
@@ -200,7 +208,12 @@ type StorageBackend interface {
 		items []VariantImportItem,
 	) (*VariantImportJob, error)
 	GetVariantImportJob(jobID string) (*VariantImportJob, error)
-	ListVariantImportJobs(maxResults int, nextToken string) ([]*VariantImportJob, string, error)
+	ListVariantImportJobs(
+		filter *ImportJobFilter,
+		ids []string,
+		maxResults int,
+		nextToken string,
+	) ([]*VariantImportJob, string, error)
 	CancelVariantImportJob(jobID string) error
 
 	// Share
@@ -222,9 +235,14 @@ type StorageBackend interface {
 	CancelRunBatch(id string) error
 	DeleteRunBatch(id string) error
 	GetRunBatch(id string) (*RunBatch, error)
-	ListRunBatches(maxResults int, nextToken string) ([]*RunBatch, string, error)
+	ListRunBatches(filter *RunBatchFilter, maxResults int, nextToken string) ([]*RunBatch, string, error)
 	DeleteRunsInBatch(batchID string) error
-	ListRunsInBatch(batchID string, maxResults int, nextToken string) ([]*Run, string, error)
+	ListRunsInBatch(
+		batchID string,
+		filter *RunsInBatchFilter,
+		maxResults int,
+		nextToken string,
+	) ([]*Run, string, error)
 
 	// Configuration
 	CreateConfiguration(name, description string) (*Configuration, error)
@@ -241,6 +259,7 @@ type StorageBackend interface {
 	GetWorkflowVersion(workflowID, versionName string) (*WorkflowVersion, error)
 	ListWorkflowVersions(
 		workflowID string,
+		filter *WorkflowVersionFilter,
 		maxResults int,
 		nextToken string,
 	) ([]*WorkflowVersion, string, error)

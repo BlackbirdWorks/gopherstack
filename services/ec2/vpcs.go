@@ -2,7 +2,6 @@ package ec2
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -174,6 +173,7 @@ func (b *InMemoryBackend) DeleteVpcPeeringConnection(id string) error {
 		return fmt.Errorf("%w: peering connection %s not found", ErrInvalidParameter, id)
 	}
 	b.vpcPeeringConnections.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -221,7 +221,10 @@ func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
 	return out
 }
 
-// CreateVpc creates a new VPC with the given CIDR block.
+// CreateVpc creates a new VPC with the given CIDR block. Matching real AWS,
+// a default security group named "default" is created for the new VPC (AWS
+// also creates a default network ACL and a main route table, which are not
+// yet modeled here — see PARITY.md).
 func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 	if cidr == "" {
 		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
@@ -244,30 +247,120 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 	}
 	b.vpcs.Put(v)
 
+	sgID := "sg-" + uuid.New().String()[:17]
+	b.securityGroups.Put(&SecurityGroup{
+		ID:          sgID,
+		Name:        defaultSecurityGroupName,
+		Description: defaultSecurityGroupDescription,
+		VPCID:       id,
+		EgressRules: []SecurityGroupRule{
+			{Protocol: "-1", IPRange: cidrAllIPv4},
+		},
+	})
+	b.indexSGLocked(sgID, id)
+
 	return v, nil
 }
 
-// cascadeDeleteVpcIGWsLocked removes all internet gateways that have an
-// attachment to the given VPC. Must be called with b.mu held.
-func (b *InMemoryBackend) cascadeDeleteVpcIGWsLocked(vpcID string) {
+// vpcDependencyViolationLocked returns a DependencyViolation error naming the
+// first dependent resource found for vpcID, or nil if the VPC has no
+// dependents blocking deletion. Mirrors real AWS: the default security group
+// is auto-deleted with the VPC and does not block deletion; every other
+// VPC-scoped resource (subnets, non-default security groups, route tables,
+// attached internet/egress-only gateways, NAT gateways, non-default network
+// ACLs, VPC endpoints) must be removed first. Must be called with b.mu held.
+func (b *InMemoryBackend) vpcDependencyViolationLocked(vpcID string) error {
+	if err := b.vpcIndexedDependencyViolationLocked(vpcID); err != nil {
+		return err
+	}
+
+	return b.vpcScannedDependencyViolationLocked(vpcID)
+}
+
+// vpcIndexedDependencyViolationLocked checks the dependents that are tracked
+// via the per-VPC secondary indexes (subnets, non-default security groups,
+// route tables, NAT gateways) — an O(1) map-length check per resource type.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) vpcIndexedDependencyViolationLocked(vpcID string) error {
+	if len(b.subnetIDsByVPC[vpcID]) > 0 {
+		return fmt.Errorf("%w: the vpc %s has dependencies (subnets) and cannot be deleted",
+			ErrDependencyViolation, vpcID)
+	}
+
+	for sgID := range b.sgIDsByVPC[vpcID] {
+		sg, ok := b.securityGroups.Get(sgID)
+		if ok && sg.Name != defaultSecurityGroupName {
+			return fmt.Errorf(
+				"%w: the vpc %s has dependencies (security group %s) and cannot be deleted",
+				ErrDependencyViolation, vpcID, sgID,
+			)
+		}
+	}
+
+	if len(b.routeTableIDsByVPC[vpcID]) > 0 {
+		return fmt.Errorf("%w: the vpc %s has dependencies (route tables) and cannot be deleted",
+			ErrDependencyViolation, vpcID)
+	}
+
+	if len(b.natGatewayIDsByVPC[vpcID]) > 0 {
+		return fmt.Errorf("%w: the vpc %s has dependencies (NAT gateways) and cannot be deleted",
+			ErrDependencyViolation, vpcID)
+	}
+
+	return nil
+}
+
+// vpcScannedDependencyViolationLocked checks the dependents that have no
+// per-VPC secondary index and so require a full-table scan (internet
+// gateways, egress-only internet gateways, network ACLs, VPC endpoints).
+// Must be called with b.mu held.
+func (b *InMemoryBackend) vpcScannedDependencyViolationLocked(vpcID string) error {
 	for _, igw := range b.internetGateways.All() {
-		igwID := internetGatewaysKeyFn(igw)
 		for _, att := range igw.Attachments {
 			if att.VPCID == vpcID {
-				b.internetGateways.Delete(igwID)
-				delete(b.tags, igwID)
-
-				break
+				return fmt.Errorf(
+					"%w: the vpc %s has dependencies (internet gateway %s) and cannot be deleted",
+					ErrDependencyViolation, vpcID, internetGatewaysKeyFn(igw),
+				)
 			}
 		}
 	}
+
+	for _, eigw := range b.egressOnlyIGWs.All() {
+		if eigw.VPCID == vpcID {
+			return fmt.Errorf(
+				"%w: the vpc %s has dependencies (egress-only internet gateway %s) "+
+					"and cannot be deleted",
+				ErrDependencyViolation, vpcID, eigw.ID,
+			)
+		}
+	}
+
+	for _, acl := range b.networkACLs.All() {
+		if acl.VPCID == vpcID {
+			return fmt.Errorf(
+				"%w: the vpc %s has dependencies (network ACL %s) and cannot be deleted",
+				ErrDependencyViolation, vpcID, acl.ID,
+			)
+		}
+	}
+
+	for _, ep := range b.vpcEndpoints.All() {
+		if ep.VPCID == vpcID {
+			return fmt.Errorf(
+				"%w: the vpc %s has dependencies (VPC endpoint %s) and cannot be deleted",
+				ErrDependencyViolation, vpcID, ep.ID,
+			)
+		}
+	}
+
+	return nil
 }
 
-// DeleteVpc removes a VPC by ID, cascade-deleting all dependent resources
-// (instances, internet gateways, NAT gateways, route tables, security groups,
-// network interfaces, and subnets) along with their tags.
-// Uses secondary indexes for instances, subnets, route tables, and security groups
-// to avoid O(n_all) scans for each resource type.
+// DeleteVpc removes a VPC by ID. Matching real AWS, this fails with
+// DependencyViolation if the VPC still has dependent resources — it does NOT
+// cascade-delete them. The default security group is the sole exception: like
+// AWS, it is deleted automatically along with the VPC.
 func (b *InMemoryBackend) DeleteVpc(id string) error {
 	b.mu.Lock("DeleteVpc")
 	defer b.mu.Unlock()
@@ -276,63 +369,18 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, id)
 	}
 
-	// Cascade: terminate instances belonging to this VPC via secondary index.
-	for instID := range b.instanceIDsByVPC[id] {
-		if inst, ok := b.instances.Get(instID); ok {
-			inst.State = StateTerminated
-			inst.TerminatedAt = time.Now()
-			delete(b.tags, instID)
-			b.detachVolumesAndEIPsLocked(instID)
-		}
+	if err := b.vpcDependencyViolationLocked(id); err != nil {
+		return err
 	}
-	delete(b.instanceIDsByVPC, id)
 
-	// Cascade: detach and delete internet gateways attached to this VPC.
-	b.cascadeDeleteVpcIGWsLocked(id)
-
-	// Cascade: delete NAT gateways belonging to this VPC via secondary index,
-	// avoiding a full-map scan under the write lock.
-	for ngwID := range b.natGatewayIDsByVPC[id] {
-		if ngw, ok := b.natGateways.Get(ngwID); ok {
-			b.recycleIPLocked(ngw.PrivateIP)
-			b.natGateways.Delete(ngwID)
-			delete(b.tags, ngwID)
-		}
-	}
-	delete(b.natGatewayIDsByVPC, id)
-
-	// Cascade: remove route tables belonging to this VPC via secondary index.
-	for rtID := range b.routeTableIDsByVPC[id] {
-		b.routeTables.Delete(rtID)
-		delete(b.tags, rtID)
-	}
-	delete(b.routeTableIDsByVPC, id)
-
-	// Cascade: remove security groups belonging to this VPC via secondary index.
+	// The default security group is auto-deleted with the VPC (it never blocks
+	// deletion — see vpcDependencyViolationLocked).
 	for sgID := range b.sgIDsByVPC[id] {
 		b.securityGroups.Delete(sgID)
 		delete(b.tags, sgID)
 	}
 	delete(b.sgIDsByVPC, id)
 
-	// Cascade: remove network interfaces belonging to this VPC via secondary
-	// index, avoiding a full-map scan under the write lock.
-	for eniID := range b.eniIDsByVPC[id] {
-		if eni, ok := b.networkInterfaces.Get(eniID); ok {
-			b.recycleENIIPsLocked(eni)
-			b.deindexENILocked(eniID, eni)
-			b.networkInterfaces.Delete(eniID)
-			delete(b.tags, eniID)
-		}
-	}
-	delete(b.eniIDsByVPC, id)
-
-	// Cascade: remove subnets belonging to this VPC via secondary index.
-	for subnetID := range b.subnetIDsByVPC[id] {
-		b.subnets.Delete(subnetID)
-		delete(b.tags, subnetID)
-	}
-	delete(b.subnetIDsByVPC, id)
 	b.vpcs.Delete(id)
 	delete(b.tags, id)
 

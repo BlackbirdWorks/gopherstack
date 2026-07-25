@@ -114,7 +114,7 @@ func (b *InMemoryBackend) RespondActivityTaskCompleted(taskToken, result string)
 	attrKey := eventAttrKey("ActivityTaskCompleted")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"result":          result,
+			attrResult:        result,
 			attrScheduledEvID: rec.ScheduledEventID,
 			attrStartedEvID:   rec.StartedEventID,
 		},

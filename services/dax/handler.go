@@ -134,9 +134,39 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// daxOpHandler is the signature every per-operation handler method conforms to,
+// expressed as a method expression so it can live in a lookup table.
+type daxOpHandler func(*Handler, []byte) (any, error)
+
+// daxOperations maps each DAX API operation name to its handler method. Using a
+// table instead of a switch keeps dispatch a flat O(1) lookup with no branching
+// complexity, and is the single place new operations must be registered.
+var daxOperations = map[string]daxOpHandler{ //nolint:gochecknoglobals // package-level lookup table
+	"CreateCluster":             (*Handler).handleCreateCluster,
+	"DescribeClusters":          (*Handler).handleDescribeClusters,
+	"UpdateCluster":             (*Handler).handleUpdateCluster,
+	"DeleteCluster":             (*Handler).handleDeleteCluster,
+	"IncreaseReplicationFactor": (*Handler).handleIncreaseReplicationFactor,
+	"DecreaseReplicationFactor": (*Handler).handleDecreaseReplicationFactor,
+	"RebootNode":                (*Handler).handleRebootNode,
+	"TagResource":               (*Handler).handleTagResource,
+	"UntagResource":             (*Handler).handleUntagResource,
+	"ListTags":                  (*Handler).handleListTags,
+	"CreateParameterGroup":      (*Handler).handleCreateParameterGroup,
+	"DescribeParameterGroups":   (*Handler).handleDescribeParameterGroups,
+	"UpdateParameterGroup":      (*Handler).handleUpdateParameterGroup,
+	"DeleteParameterGroup":      (*Handler).handleDeleteParameterGroup,
+	"DescribeParameters":        (*Handler).handleDescribeParameters,
+	"DescribeDefaultParameters": (*Handler).handleDescribeDefaultParameters,
+	"ResetParameterGroup":       (*Handler).handleResetParameterGroup,
+	"CreateSubnetGroup":         (*Handler).handleCreateSubnetGroup,
+	"DescribeSubnetGroups":      (*Handler).handleDescribeSubnetGroups,
+	"UpdateSubnetGroup":         (*Handler).handleUpdateSubnetGroup,
+	"DeleteSubnetGroup":         (*Handler).handleDeleteSubnetGroup,
+	"DescribeEvents":            (*Handler).handleDescribeEvents,
+}
+
 // dispatch routes the DAX operation to the appropriate handler function.
-//
-//nolint:cyclop // routing switch covers all DAX operations
 func (h *Handler) dispatch(
 	ctx context.Context,
 	operation string,
@@ -144,54 +174,12 @@ func (h *Handler) dispatch(
 ) (any, error) {
 	_ = ctx // reserved for future logging/tracing use
 
-	switch operation {
-	case "CreateCluster":
-		return h.handleCreateCluster(body)
-	case "DescribeClusters":
-		return h.handleDescribeClusters(body)
-	case "UpdateCluster":
-		return h.handleUpdateCluster(body)
-	case "DeleteCluster":
-		return h.handleDeleteCluster(body)
-	case "IncreaseReplicationFactor":
-		return h.handleIncreaseReplicationFactor(body)
-	case "DecreaseReplicationFactor":
-		return h.handleDecreaseReplicationFactor(body)
-	case "RebootNode":
-		return h.handleRebootNode(body)
-	case "TagResource":
-		return h.handleTagResource(body)
-	case "UntagResource":
-		return h.handleUntagResource(body)
-	case "ListTags":
-		return h.handleListTags(body)
-	case "CreateParameterGroup":
-		return h.handleCreateParameterGroup(body)
-	case "DescribeParameterGroups":
-		return h.handleDescribeParameterGroups(body)
-	case "UpdateParameterGroup":
-		return h.handleUpdateParameterGroup(body)
-	case "DeleteParameterGroup":
-		return h.handleDeleteParameterGroup(body)
-	case "DescribeParameters":
-		return h.handleDescribeParameters(body)
-	case "DescribeDefaultParameters":
-		return h.handleDescribeDefaultParameters(body)
-	case "ResetParameterGroup":
-		return h.handleResetParameterGroup(body)
-	case "CreateSubnetGroup":
-		return h.handleCreateSubnetGroup(body)
-	case "DescribeSubnetGroups":
-		return h.handleDescribeSubnetGroups(body)
-	case "UpdateSubnetGroup":
-		return h.handleUpdateSubnetGroup(body)
-	case "DeleteSubnetGroup":
-		return h.handleDeleteSubnetGroup(body)
-	case "DescribeEvents":
-		return h.handleDescribeEvents(body)
-	default:
+	fn, ok := daxOperations[operation]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, operation)
 	}
+
+	return fn(h, body)
 }
 
 // tagItem is the wire shape for a single tag; shared by every family whose
@@ -201,65 +189,62 @@ type tagItem struct {
 	Value string `json:"Value"`
 }
 
-// mapError maps a backend error to an HTTP status code and error body.
-// Specific sentinel errors take priority over their parent error categories.
-//
-//nolint:cyclop // exhaustive error mapping requires many cases
-func (h *Handler) mapError(err error) (int, map[string]any) {
+// errCodeMapping associates a sentinel error with the AWS fault code to emit for it.
+// Every mapped status is 400; only the __type code varies (see mapError doc).
+type errCodeMapping struct {
+	target error
+	code   string
+}
+
+// daxErrCodeMappings lists sentinel errors in priority order: specific
+// not-found/conflict/invalid-parameter variants first, then their generic
+// parent categories (awserr.ErrNotFound/ErrConflict/ErrInvalidParameter) as
+// fallbacks. errors.Is is checked against each entry in order, so a specific
+// sentinel always wins over the broader category it wraps.
+var daxErrCodeMappings = []errCodeMapping{ //nolint:gochecknoglobals // package-level lookup table
 	// Tag quota exceeded — specific case before the generic invalid-parameter fallback.
-	if errors.Is(err, ErrTagQuotaExceeded) {
-		return http.StatusBadRequest, daxError("TagQuotaPerResourceExceeded", err.Error())
-	}
+	{ErrTagQuotaExceeded, "TagQuotaPerResourceExceeded"},
 
 	// Specific not-found variants.
-	switch {
-	case errors.Is(err, ErrClusterNotFound):
-		return http.StatusBadRequest, daxError("ClusterNotFoundFault", err.Error())
-	case errors.Is(err, ErrParameterGroupNotFound):
-		return http.StatusBadRequest, daxError("ParameterGroupNotFoundFault", err.Error())
-	case errors.Is(err, ErrSubnetGroupNotFound):
-		return http.StatusBadRequest, daxError("SubnetGroupNotFoundFault", err.Error())
-	case errors.Is(err, ErrTagNotFound):
-		return http.StatusBadRequest, daxError("TagNotFoundFault", err.Error())
-	case errors.Is(err, ErrNodeNotFound):
-		return http.StatusBadRequest, daxError("NodeNotFoundFault", err.Error())
+	{ErrClusterNotFound, "ClusterNotFoundFault"},
+	{ErrParameterGroupNotFound, "ParameterGroupNotFoundFault"},
+	{ErrSubnetGroupNotFound, "SubnetGroupNotFoundFault"},
+	{ErrTagNotFound, "TagNotFoundFault"},
+	{ErrNodeNotFound, "NodeNotFoundFault"},
 
 	// Specific conflict variants.
-	case errors.Is(err, ErrClusterAlreadyExists):
-		return http.StatusBadRequest, daxError("ClusterAlreadyExistsFault", err.Error())
-	case errors.Is(err, ErrParameterGroupAlreadyExists):
-		return http.StatusBadRequest, daxError("ParameterGroupAlreadyExistsFault", err.Error())
-	case errors.Is(err, ErrSubnetGroupAlreadyExists):
-		return http.StatusBadRequest, daxError("SubnetGroupAlreadyExistsFault", err.Error())
-	case errors.Is(err, ErrSubnetGroupInUse):
-		return http.StatusBadRequest, daxError("SubnetGroupInUseFault", err.Error())
-	case errors.Is(err, ErrParameterGroupInUse):
-		return http.StatusBadRequest, daxError("ParameterGroupInUseFault", err.Error())
-	case errors.Is(err, ErrInvalidClusterState):
-		return http.StatusBadRequest, daxError("InvalidClusterStateFault", err.Error())
+	{ErrClusterAlreadyExists, "ClusterAlreadyExistsFault"},
+	{ErrParameterGroupAlreadyExists, "ParameterGroupAlreadyExistsFault"},
+	{ErrSubnetGroupAlreadyExists, "SubnetGroupAlreadyExistsFault"},
+	{ErrSubnetGroupInUse, "SubnetGroupInUseFault"},
+	{ErrParameterGroupInUse, "ParameterGroupInUseFault"},
+	{ErrInvalidClusterState, "InvalidClusterStateFault"},
 
 	// Specific invalid parameter variants.
-	case errors.Is(err, ErrInvalidARN):
-		return http.StatusBadRequest, daxError("InvalidARNFault", err.Error())
-	case errors.Is(err, ErrInvalidParameterValue):
-		return http.StatusBadRequest, daxError("InvalidParameterValueException", err.Error())
-	case errors.Is(err, ErrInvalidParameterCombination):
-		return http.StatusBadRequest, daxError("InvalidParameterCombinationException", err.Error())
+	{ErrInvalidARN, "InvalidARNFault"},
+	{ErrInvalidParameterValue, "InvalidParameterValueException"},
+	{ErrInvalidParameterCombination, "InvalidParameterCombinationException"},
 
 	// Generic fallbacks.
-	case errors.Is(err, awserr.ErrNotFound):
-		return http.StatusBadRequest, daxError("ResourceNotFoundException", err.Error())
-	case errors.Is(err, awserr.ErrConflict):
-		return http.StatusBadRequest, daxError("InvalidClusterStateFault", err.Error())
-	case errors.Is(err, awserr.ErrInvalidParameter):
-		return http.StatusBadRequest, daxError("InvalidParameterValueException", err.Error())
-	case errors.Is(err, errUnknownAction):
-		return http.StatusBadRequest, daxError("InvalidAction", err.Error())
-	case errors.Is(err, errInvalidRequest):
-		return http.StatusBadRequest, daxError("SerializationException", err.Error())
-	default:
-		return http.StatusInternalServerError, daxError("InternalFailure", err.Error())
+	{awserr.ErrNotFound, "ResourceNotFoundException"},
+	{awserr.ErrConflict, "InvalidClusterStateFault"},
+	{awserr.ErrInvalidParameter, "InvalidParameterValueException"},
+	{errUnknownAction, "InvalidAction"},
+	{errInvalidRequest, "SerializationException"},
+}
+
+// mapError maps a backend error to an HTTP status code and error body.
+// Specific sentinel errors take priority over their parent error categories
+// (see daxErrCodeMappings ordering). Every DAX fault in this table is a 400;
+// unmapped errors fall back to a 500 InternalFailure.
+func (h *Handler) mapError(err error) (int, map[string]any) {
+	for _, m := range daxErrCodeMappings {
+		if errors.Is(err, m.target) {
+			return http.StatusBadRequest, daxError(m.code, err.Error())
+		}
 	}
+
+	return http.StatusInternalServerError, daxError("InternalFailure", err.Error())
 }
 
 // daxError builds a standard DAX JSON error body.

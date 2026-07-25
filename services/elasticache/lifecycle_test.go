@@ -5,10 +5,14 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elasticachetypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,6 +37,12 @@ func (f *fakeClock) now() time.Time {
 	return f.t
 }
 
+// advance moves the clock forward by d. Every current call site happens to
+// pass 2*delay (safely past a transition's deadline), but the parameter is
+// kept general -- this is a shared test helper, not a single-use function --
+// rather than hardcoding one test's margin into it.
+//
+//nolint:unparam // general-purpose test helper API; see comment above
 func (f *fakeClock) advance(d time.Duration) {
 	f.mu.Lock()
 	f.t = f.t.Add(d)
@@ -415,15 +425,24 @@ func TestEmbeddedEndpointRegistersConnectableARecord(t *testing.T) {
 	assert.True(t, net.ParseIP(values[0]).IsLoopback())
 }
 
+// TestLifecycleFullVariantsAreObservable drives the "Full" create/modify
+// variants (used by CreateReplicationGroup/CreateServerlessCache's real
+// wire-routed paths) through creating -> available -> modifying. It also
+// asserts the state-transition guard: AWS rejects a Modify while the
+// resource is still "creating" with Invalid<Resource>State(Fault) (verified
+// against aws-sdk-go-v2's per-operation error deserializers -- every mutating
+// op on these resource types models that fault), so a Modify issued before
+// the resource settles must fail, not silently queue.
 func TestLifecycleFullVariantsAreObservable(t *testing.T) {
 	t.Parallel()
 
 	const delay = time.Hour
 
 	tests := []struct {
-		create func(ctx context.Context, b *elasticache.InMemoryBackend) (string, error)
-		modify func(ctx context.Context, b *elasticache.InMemoryBackend) (string, error)
-		name   string
+		create       func(ctx context.Context, b *elasticache.InMemoryBackend) (string, error)
+		modify       func(ctx context.Context, b *elasticache.InMemoryBackend) (string, error)
+		wantGuardErr error
+		name         string
 	}{
 		{
 			name: "replication_group_full",
@@ -448,6 +467,7 @@ func TestLifecycleFullVariantsAreObservable(t *testing.T) {
 
 				return rg.Status, nil
 			},
+			wantGuardErr: elasticache.ErrReplicationGroupNotAvailable,
 		},
 		{
 			name: "serverless_full",
@@ -472,6 +492,7 @@ func TestLifecycleFullVariantsAreObservable(t *testing.T) {
 
 				return sc.Status, nil
 			},
+			wantGuardErr: elasticache.ErrServerlessCacheNotAvailable,
 		},
 	}
 
@@ -480,16 +501,237 @@ func TestLifecycleFullVariantsAreObservable(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
+			clock := newFakeClock()
 			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+			b.SetClock(clock.now)
 			b.SetLifecycleDelay(delay)
 
 			status, err := tt.create(ctx, b)
 			require.NoError(t, err)
 			assert.Equal(t, "creating", status, "full-variant create must report creating")
 
+			// A Modify issued while still "creating" must be rejected with the
+			// resource's Invalid<Resource>State(Fault) sentinel, not silently
+			// succeed and queue -- AWS requires the resource to reach
+			// "available" first.
+			_, err = tt.modify(ctx, b)
+			require.ErrorIs(t, err, tt.wantGuardErr,
+				"modify while still creating must be rejected by the state guard")
+
+			// Once the create delay elapses the resource is available and the
+			// same Modify call now succeeds, observably reporting "modifying".
+			clock.advance(2 * delay)
 			status, err = tt.modify(ctx, b)
 			require.NoError(t, err)
 			assert.Equal(t, "modifying", status, "full-variant modify must report modifying")
+		})
+	}
+}
+
+// TestStateGuardRejectsMutationWhilePending drives every wire-routed
+// state-guard case through the real aws-sdk-go-v2 client: a resource still
+// "creating" (SetLifecycleDelay forces a non-instant transition) must reject
+// a mutating call with the resource's modeled Invalid<Resource>State(Fault),
+// HTTP 400 -- proving the guard is wired at the handler/wire layer, not just
+// asserted against the backend's Go sentinel.
+func TestStateGuardRejectsMutationWhilePending(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		create     func(t *testing.T, client *elasticachesdk.Client)
+		mutate     func(t *testing.T, client *elasticachesdk.Client) error
+		checkFault func(t *testing.T, err error)
+		name       string
+	}{
+		{
+			name: "cache_cluster_modify",
+			create: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("sg-cluster"),
+					Engine:         aws.String("redis"),
+				})
+				require.NoError(t, err)
+			},
+			mutate: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+				_, err := client.ModifyCacheCluster(t.Context(), &elasticachesdk.ModifyCacheClusterInput{
+					CacheClusterId: aws.String("sg-cluster"),
+					CacheNodeType:  aws.String("cache.t3.small"),
+				})
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.InvalidCacheClusterStateFault](t, err)
+			},
+		},
+		{
+			name: "cache_cluster_delete",
+			create: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("sg-cluster-del"),
+					Engine:         aws.String("redis"),
+				})
+				require.NoError(t, err)
+			},
+			mutate: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+				_, err := client.DeleteCacheCluster(t.Context(), &elasticachesdk.DeleteCacheClusterInput{
+					CacheClusterId: aws.String("sg-cluster-del"),
+				})
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.InvalidCacheClusterStateFault](t, err)
+			},
+		},
+		{
+			name: "replication_group_modify",
+			create: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+					ReplicationGroupId:          aws.String("sg-rg"),
+					ReplicationGroupDescription: aws.String("d"),
+				})
+				require.NoError(t, err)
+			},
+			mutate: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+				_, err := client.ModifyReplicationGroup(t.Context(), &elasticachesdk.ModifyReplicationGroupInput{
+					ReplicationGroupId: aws.String("sg-rg"),
+					ReplicationGroupDescription: aws.String(
+						"d2",
+					),
+				})
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.InvalidReplicationGroupStateFault](t, err)
+			},
+		},
+		{
+			name: "replication_group_delete",
+			create: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+					ReplicationGroupId:          aws.String("sg-rg-del"),
+					ReplicationGroupDescription: aws.String("d"),
+				})
+				require.NoError(t, err)
+			},
+			mutate: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+				_, err := client.DeleteReplicationGroup(t.Context(), &elasticachesdk.DeleteReplicationGroupInput{
+					ReplicationGroupId: aws.String("sg-rg-del"),
+				})
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.InvalidReplicationGroupStateFault](t, err)
+			},
+		},
+		{
+			name: "serverless_cache_modify",
+			create: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateServerlessCache(t.Context(), &elasticachesdk.CreateServerlessCacheInput{
+					ServerlessCacheName: aws.String("sg-sc"),
+					Engine:              aws.String("redis"),
+				})
+				require.NoError(t, err)
+			},
+			mutate: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+				_, err := client.ModifyServerlessCache(t.Context(), &elasticachesdk.ModifyServerlessCacheInput{
+					ServerlessCacheName: aws.String("sg-sc"),
+					Description:         aws.String("d2"),
+				})
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.InvalidServerlessCacheStateFault](t, err)
+			},
+		},
+		{
+			name: "serverless_cache_delete",
+			create: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateServerlessCache(t.Context(), &elasticachesdk.CreateServerlessCacheInput{
+					ServerlessCacheName: aws.String("sg-sc-del"),
+					Engine:              aws.String("redis"),
+				})
+				require.NoError(t, err)
+			},
+			mutate: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+				_, err := client.DeleteServerlessCache(t.Context(), &elasticachesdk.DeleteServerlessCacheInput{
+					ServerlessCacheName: aws.String("sg-sc-del"),
+				})
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.InvalidServerlessCacheStateFault](t, err)
+			},
+		},
+		{
+			name: "global_replication_group_modify",
+			create: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.CreateGlobalReplicationGroupInput{
+						GlobalReplicationGroupIdSuffix: aws.String("sg-grg"),
+						PrimaryReplicationGroupId:      aws.String("primary"),
+					},
+				)
+				require.NoError(t, err)
+			},
+			mutate: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+				_, err := client.ModifyGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.ModifyGlobalReplicationGroupInput{
+						GlobalReplicationGroupId:          aws.String("ldgnf-sg-grg"),
+						GlobalReplicationGroupDescription: aws.String("d2"),
+						ApplyImmediately:                  aws.Bool(true),
+					},
+				)
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.InvalidGlobalReplicationGroupStateFault](t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, client := newTestStackWithBackend(t)
+			backend.SetLifecycleDelay(time.Hour)
+
+			tt.create(t, client)
+
+			err := tt.mutate(t, client)
+			require.Error(t, err, "mutating a still-creating resource must fail")
+			tt.checkFault(t, err)
+			requireHTTPStatus(t, err, http.StatusBadRequest)
 		})
 	}
 }

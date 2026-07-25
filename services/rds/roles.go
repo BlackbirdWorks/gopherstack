@@ -17,15 +17,21 @@ func (b *InMemoryBackend) AddRoleToDBInstance(instanceID, roleARN string) error 
 	b.mu.Lock("AddRoleToDBInstance")
 	defer b.mu.Unlock()
 
-	if _, exists := b.instances.Get(instanceID); !exists {
+	inst, exists := b.instances.Get(normalizeID(instanceID))
+	if !exists {
 		return fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
 	}
 
-	if slices.Contains(b.instanceRoles[instanceID], roleARN) {
+	// Key b.instanceRoles off inst.DBInstanceIdentifier (the stored,
+	// creation-time casing), not the raw instanceID argument: they can
+	// differ purely in case (see normalizeID), and instanceRoles is a plain
+	// map with no normalization of its own.
+	canonicalID := inst.DBInstanceIdentifier
+	if slices.Contains(b.instanceRoles[canonicalID], roleARN) {
 		return nil
 	}
 
-	b.instanceRoles[instanceID] = append(b.instanceRoles[instanceID], roleARN)
+	b.instanceRoles[canonicalID] = append(b.instanceRoles[canonicalID], roleARN)
 
 	return nil
 }
@@ -43,14 +49,16 @@ func (b *InMemoryBackend) RemoveRoleFromDBInstance(instanceID, roleARN string) e
 	b.mu.Lock("RemoveRoleFromDBInstance")
 	defer b.mu.Unlock()
 
-	if _, exists := b.instances.Get(instanceID); !exists {
+	inst, exists := b.instances.Get(normalizeID(instanceID))
+	if !exists {
 		return fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
 	}
 
-	roles := b.instanceRoles[instanceID]
+	canonicalID := inst.DBInstanceIdentifier
+	roles := b.instanceRoles[canonicalID]
 	idx := slices.Index(roles, roleARN)
 	if idx >= 0 {
-		b.instanceRoles[instanceID] = slices.Delete(roles, idx, idx+1)
+		b.instanceRoles[canonicalID] = slices.Delete(roles, idx, idx+1)
 	}
 
 	return nil

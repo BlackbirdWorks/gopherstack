@@ -91,7 +91,7 @@ func (h *Handler) handleConverse(
 
 	h.Backend.RecordInvocation(opConverse, modelID, truncateString(string(body)), truncateString(string(out)))
 
-	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("Content-Type", contentTypeJSON)
 
 	return c.JSONBlob(http.StatusOK, out)
 }
@@ -131,7 +131,7 @@ func (h *Handler) handleConverseStream(
 		frame := encodeEventStreamMsg([][2]string{
 			{hdrMessageType, hdrMessageTypeEvent},
 			{hdrEventType, eventType},
-			{hdrContentType, "application/json"},
+			{hdrContentType, contentTypeJSON},
 		}, data)
 		_, _ = c.Response().Write(frame)
 	}
@@ -140,9 +140,14 @@ func (h *Handler) handleConverseStream(
 		keyRole: roleAssistant,
 	})
 
+	// Real ConverseStream only populates the "start" member for content
+	// blocks with a discriminated start payload (image/toolResult/toolUse --
+	// see types.ContentBlockStart's union in aws-sdk-go-v2/service/
+	// bedrockruntime); there is no "text" variant, so a plain-text content
+	// block (the only kind gopherstack's mock emits) omits "start" entirely
+	// rather than sending a fabricated, non-existent union tag.
 	writeStreamEvent("contentBlockStart", map[string]any{
 		convContentIdx: 0,
-		"start":        map[string]any{keyText: ""},
 	})
 
 	writeStreamEvent("contentBlockDelta", map[string]any{

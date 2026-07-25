@@ -382,3 +382,31 @@ func TestFargateProfileTransitionsToActive(t *testing.T) {
 		})
 	}
 }
+
+// TestFargateProfile_HealthFieldIsModeled verifies the "health" field is
+// present on Create/Describe responses -- verified against
+// aws-sdk-go-v2/service/eks/types.FargateProfile.Health, which was
+// previously entirely absent from gopherstack's wire response.
+func TestFargateProfile_HealthFieldIsModeled(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEKSHandler(t)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "fp-health-cluster"})
+
+	createRec := doREST(t, h, http.MethodPost, "/clusters/fp-health-cluster/fargate-profiles",
+		map[string]any{"fargateProfileName": "fp-health"})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	created := parseResp(t, createRec)["fargateProfile"].(map[string]any)
+	health, ok := created["health"].(map[string]any)
+	require.True(t, ok, "health must be present")
+	issues, ok := health["issues"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, issues, "a freshly created profile has no health issues")
+
+	describeRec := doREST(t, h, http.MethodGet, "/clusters/fp-health-cluster/fargate-profiles/fp-health", nil)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	described := parseResp(t, describeRec)["fargateProfile"].(map[string]any)
+	assert.Contains(t, described, "health")
+}

@@ -86,7 +86,7 @@ func (b *InMemoryBackend) provisionStackInstance(
 		Region:          region,
 		Status:          status,
 		StatusReason:    statusReason,
-		DriftStatus:     "NOT_CHECKED",
+		DriftStatus:     driftStatusNotChecked,
 		LastOperationID: opID,
 	}
 }

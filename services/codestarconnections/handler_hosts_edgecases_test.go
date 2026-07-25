@@ -36,22 +36,36 @@ func TestCreateHost_Validation(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "name too long",
+			// Real HostName shape (botocore codestar-connections/2019-12-01/
+			// service-2.json) has max 64, NOT the 32-char ConnectionName
+			// limit -- 33 chars is a valid host name.
+			name: "name at connection-name length is still valid for a host",
 			body: map[string]any{
 				"Name":             repeatStr("h", 33),
+				"ProviderType":     "GitHubEnterpriseServer",
+				"ProviderEndpoint": "https://x.com",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "name too long (65 chars, over the real 64-char HostName max)",
+			body: map[string]any{
+				"Name":             repeatStr("h", 65),
 				"ProviderType":     "GitHubEnterpriseServer",
 				"ProviderEndpoint": "https://x.com",
 			},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "name with invalid chars",
+			// Real HostName shape has pattern ".*" -- any character is
+			// valid, not just [a-zA-Z0-9_.-].
+			name: "name with special chars is valid",
 			body: map[string]any{
 				"Name":             "my host!",
 				"ProviderType":     "GitHubEnterpriseServer",
 				"ProviderEndpoint": "https://x.com",
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name: "invalid provider type for host",
@@ -93,7 +107,7 @@ func TestDeleteHost_ResourceInUse(t *testing.T) {
 			name:        "delete host with active connection fails",
 			setupConn:   true,
 			wantStatus:  http.StatusBadRequest,
-			wantErrType: "ConflictException",
+			wantErrType: "ResourceUnavailableException",
 		},
 	}
 
@@ -310,6 +324,44 @@ func TestCreateHost_AllProviderTypes(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code, "provider type %q should be accepted", pt)
 		})
 	}
+}
+
+// TestGetHost_OmitsStatusMessage verifies GetHost's response never includes
+// a StatusMessage field, while ListHosts' per-item shape does. Confirmed
+// against aws-sdk-go-v2's generated GetHostOutput struct and its
+// deserializer (awsAwsjson10_deserializeOpDocumentGetHostOutput): unlike
+// types.Host (used by ListHosts), GetHostOutput has no StatusMessage member
+// at all -- this is a genuine real-API asymmetry, not a gopherstack gap.
+func TestGetHost_OmitsStatusMessage(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	const hostArn = "arn:aws:codestar-connections:us-east-1:000000000000:host/status-msg-host/abc"
+
+	h.Backend.AddHostInternal(&codestarconnections.Host{
+		HostArn:          hostArn,
+		Name:             "status-msg-host",
+		ProviderType:     "GitHubEnterpriseServer",
+		ProviderEndpoint: "https://ghe.example.com",
+		Status:           "VPC_CONFIG_FAILED",
+		StatusMessage:    "VPC configuration failed: subnet unreachable",
+	})
+
+	getRec := doRequest(t, h, "GetHost", map[string]any{"HostArn": hostArn})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	getResp := parseResp(t, getRec)
+	_, hasStatusMessage := getResp["StatusMessage"]
+	assert.False(t, hasStatusMessage, "GetHost must not include StatusMessage in response")
+
+	listRec := doRequest(t, h, "ListHosts", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	listResp := parseResp(t, listRec)
+	hosts, ok := listResp["Hosts"].([]any)
+	require.True(t, ok)
+	require.Len(t, hosts, 1)
+	assert.Equal(t, "VPC configuration failed: subnet unreachable", hosts[0].(map[string]any)["StatusMessage"])
 }
 
 // TestGetHost_IncludesHostArn verifies GetHost does NOT include HostArn (real AWS omits it).

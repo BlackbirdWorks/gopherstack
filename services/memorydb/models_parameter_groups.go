@@ -80,6 +80,10 @@ type describeParametersRequest struct {
 	NextToken          string `json:"NextToken,omitempty"`
 }
 
+// parameterObject is field-diffed against the real SDK's types.Parameter
+// (deserializers.go's awsAwsjson11_deserializeDocumentParameter: exactly
+// AllowedValues, DataType, Description, MinimumEngineVersion, Name, Value).
+// A prior pass added fabricated "ChangeType"/"Source" fields; removed.
 type parameterObject struct {
 	Name                 string `json:"Name,omitempty"`
 	Value                string `json:"Value,omitempty"`
@@ -87,8 +91,6 @@ type parameterObject struct {
 	DataType             string `json:"DataType,omitempty"`
 	AllowedValues        string `json:"AllowedValues,omitempty"`
 	MinimumEngineVersion string `json:"MinimumEngineVersion,omitempty"`
-	ChangeType           string `json:"ChangeType,omitempty"`
-	Source               string `json:"Source,omitempty"`
 }
 
 type describeParametersResponse struct {

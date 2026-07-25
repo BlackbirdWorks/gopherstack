@@ -28,6 +28,20 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 		maps.Copy(a.Tags, tags)
 	}
 
+	if l, ok := b.locations.Get(resourceArn); ok {
+		if l.Tags == nil {
+			l.Tags = make(map[string]string)
+		}
+		maps.Copy(l.Tags, tags)
+	}
+
+	if t, ok := b.tasks.Get(resourceArn); ok {
+		if t.Tags == nil {
+			t.Tags = make(map[string]string)
+		}
+		maps.Copy(t.Tags, tags)
+	}
+
 	return nil
 }
 
@@ -47,6 +61,18 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error
 	if a, ok := b.agents.Get(resourceArn); ok {
 		for _, k := range keys {
 			delete(a.Tags, k)
+		}
+	}
+
+	if l, ok := b.locations.Get(resourceArn); ok {
+		for _, k := range keys {
+			delete(l.Tags, k)
+		}
+	}
+
+	if t, ok := b.tasks.Get(resourceArn); ok {
+		for _, k := range keys {
+			delete(t.Tags, k)
 		}
 	}
 

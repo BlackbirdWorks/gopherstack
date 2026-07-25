@@ -27,6 +27,20 @@ const (
 	directionalityMulti = "MULTI"
 )
 
+// Parallel data status values, matching
+// aws-sdk-go-v2/service/translate/types.ParallelDataStatus. A freshly created
+// resource starts at parallelDataStatusCreating and is advanced to ACTIVE the
+// next time it is polled via GetParallelData (see advanceParallelData in
+// parallel_data.go), the same "advance on poll" convention advanceJob
+// establishes for translation jobs: real CreateParallelData/UpdateParallelData
+// responses document "When the resource is ready for you to use, the status
+// is ACTIVE", implying the resource is NOT immediately ACTIVE.
+const (
+	parallelDataStatusCreating = "CREATING"
+	parallelDataStatusUpdating = "UPDATING"
+	parallelDataStatusActive   = "ACTIVE"
+)
+
 // TerminologyData holds imported terminology file bytes.
 type TerminologyData struct {
 	Format         string
@@ -71,12 +85,19 @@ type ParallelData struct {
 	Tags               map[string]string
 	CreatedAt          time.Time
 	LastUpdatedAt      time.Time
-	ARN                string
-	Name               string
-	Description        string
-	SourceLanguage     string
-	Status             string
-	TargetLanguages    []string
+	// LatestUpdateAttemptAt is the zero time until UpdateParallelData is
+	// called at least once.
+	LatestUpdateAttemptAt time.Time
+	ARN                   string
+	Name                  string
+	Description           string
+	SourceLanguage        string
+	Status                string
+	// LatestUpdateAttemptStatus tracks the outcome of the most recent
+	// UpdateParallelData call (real ParallelDataProperties/
+	// UpdateParallelDataOutput field), empty until the first update.
+	LatestUpdateAttemptStatus string
+	TargetLanguages           []string
 }
 
 // TranslationJob stores an async translation job.

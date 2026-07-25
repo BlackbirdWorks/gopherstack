@@ -23,9 +23,6 @@ var (
 	// ErrPolicyAlreadyExists is returned when a policy with that name already exists.
 	ErrPolicyAlreadyExists = awserr.New("DuplicatePolicyName", awserr.ErrAlreadyExists)
 
-	// ErrValidation is a generic validation error sentinel mapped to HTTP 400.
-	ErrValidation = awserr.New("ValidationError", awserr.ErrInvalidParameter)
-
 	// ErrListenerNotFound is returned when a listener on the requested port does not exist.
 	ErrListenerNotFound = awserr.New("ListenerNotFound", awserr.ErrNotFound)
 

@@ -27,7 +27,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	original := NewInMemoryBackend("us-east-1", "000000000000")
 
 	eastApp, err := original.CreateApplication(
-		ctxEast, "alpha", "east desc", "SELECT 1", "role-arn",
+		ctxEast, "alpha", "east desc", "SELECT 1",
 		[]InputDescription{{
 			NamePrefix:       "in",
 			InputParallelism: &InputParallelism{Count: 1},
@@ -63,7 +63,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	))
 
 	westApp, err := original.CreateApplication(
-		ctxWest, "alpha", "west desc", "SELECT 2", "", nil, nil, nil, map[string]string{"env": "west"},
+		ctxWest, "alpha", "west desc", "SELECT 2", nil, nil, nil, map[string]string{"env": "west"},
 	)
 	require.NoError(t, err)
 
@@ -150,7 +150,7 @@ func TestInMemoryBackend_Restore_IncompatibleVersion_ResetsEmpty(t *testing.T) {
 	ctx := kaCtxRegion("us-east-1")
 
 	original := NewInMemoryBackend("us-east-1", "000000000000")
-	_, err := original.CreateApplication(ctx, "app", "", "", "", nil, nil, nil, nil)
+	_, err := original.CreateApplication(ctx, "app", "", "", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	snap := original.Snapshot(t.Context())

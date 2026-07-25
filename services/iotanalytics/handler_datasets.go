@@ -4,9 +4,60 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
+
+// parseQueryDateTime parses a scheduledBefore/scheduledOnOrAfter query parameter into epoch
+// seconds. The real SDK serializes these via smithytime.FormatDateTime
+// ("2006-01-02T15:04:05.999Z", always UTC with a literal "Z"), but a raw HTTP caller may
+// reasonably send any RFC3339 variant, so parsing tries a short list of layouts. Returns
+// ok=false if s is empty or matches none of them, in which case the caller ignores the
+// filter rather than rejecting the request -- AWS's own DateTime shape parsing is handled
+// entirely client-side by the SDK before the request is ever sent.
+func parseQueryDateTime(s string) (float64, bool) {
+	if s == "" {
+		return 0, false
+	}
+
+	layouts := [...]string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05.999999999"}
+
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return epochSeconds(t), true
+		}
+	}
+
+	return 0, false
+}
+
+// filterDatasetContentsBySchedule applies the scheduledBefore / scheduledOnOrAfter query
+// filters (present on ListDatasetContentsInput) against each content version's ScheduleTime.
+func filterDatasetContentsBySchedule(contents []*DatasetContent, c *echo.Context) []*DatasetContent {
+	before, hasBefore := parseQueryDateTime(c.Request().URL.Query().Get("scheduledBefore"))
+	onOrAfter, hasAfter := parseQueryDateTime(c.Request().URL.Query().Get("scheduledOnOrAfter"))
+
+	if !hasBefore && !hasAfter {
+		return contents
+	}
+
+	filtered := make([]*DatasetContent, 0, len(contents))
+
+	for _, content := range contents {
+		if hasBefore && content.ScheduleTime >= before {
+			continue
+		}
+
+		if hasAfter && content.ScheduleTime < onOrAfter {
+			continue
+		}
+
+		filtered = append(filtered, content)
+	}
+
+	return filtered
+}
 
 func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 	var req createDatasetRequest
@@ -136,8 +187,21 @@ func (h *Handler) handleDeleteDataset(c *echo.Context, name string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleCreateDatasetContent(c *echo.Context, datasetName string) error {
-	content, err := h.Backend.CreateDatasetContent(datasetName)
+func (h *Handler) handleCreateDatasetContent(c *echo.Context, datasetName string, body []byte) error {
+	var req createDatasetContentRequest
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestException",
+				"invalid request body: "+err.Error(),
+			)
+		}
+	}
+
+	content, err := h.Backend.CreateDatasetContent(datasetName, req.VersionID)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -177,6 +241,8 @@ func (h *Handler) handleListDatasetContents(c *echo.Context, datasetName string)
 		return h.writeBackendError(c, err)
 	}
 
+	contents = filterDatasetContentsBySchedule(contents, c)
+
 	start := 0
 
 	if cursor != "" {
@@ -194,6 +260,7 @@ func (h *Handler) handleListDatasetContents(c *echo.Context, datasetName string)
 			Status:         &datasetContentStatusDTO{State: content.Status},
 			CreationTime:   content.CreationTime,
 			CompletionTime: content.CompletionTime,
+			ScheduleTime:   content.ScheduleTime,
 		})
 	}
 

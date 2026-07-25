@@ -47,8 +47,18 @@ type accountSettingsSnapshot struct {
 // compute mode would silently revert to the ON_DEMAND default across a
 // Snapshot/Restore round trip (e.g. a gopherstack restart).
 type queryComputeSnapshot struct {
-	ActiveQueryTCU *int32 `json:"active_query_tcu,omitempty"`
-	ComputeMode    string `json:"compute_mode,omitempty"`
+	ActiveQueryTCU            *int32                                     `json:"active_query_tcu,omitempty"`
+	NotificationConfiguration *accountSettingsNotificationConfigSnapshot `json:"notification_configuration,omitempty"`
+	ComputeMode               string                                     `json:"compute_mode,omitempty"`
+}
+
+// accountSettingsNotificationConfigSnapshot is the serialisable form of
+// AccountSettingsNotificationConfiguration. Without this, a PROVISIONED
+// account with a configured capacity-change NotificationConfiguration would
+// silently drop it across a Snapshot/Restore round trip.
+type accountSettingsNotificationConfigSnapshot struct {
+	SnsTopicArn string `json:"sns_topic_arn,omitempty"`
+	RoleArn     string `json:"role_arn,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -67,20 +77,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	// Snapshot account settings across all regions.
 	settingsSnap := make(map[string]accountSettingsSnapshot, len(b.accountSettings))
 	for region, s := range b.accountSettings {
-		snap := accountSettingsSnapshot{QueryPricingModel: s.QueryPricingModel}
-		if s.MaxQueryTCU != nil {
-			v := *s.MaxQueryTCU
-			snap.MaxQueryTCU = &v
-		}
-		if s.QueryCompute != nil {
-			qc := &queryComputeSnapshot{ComputeMode: s.QueryCompute.ComputeMode}
-			if s.QueryCompute.ProvisionedCapacity != nil && s.QueryCompute.ProvisionedCapacity.ActiveQueryTCU != nil {
-				v := *s.QueryCompute.ProvisionedCapacity.ActiveQueryTCU
-				qc.ActiveQueryTCU = &v
-			}
-			snap.QueryCompute = qc
-		}
-		settingsSnap[region] = snap
+		settingsSnap[region] = snapshotAccountSettings(s)
 	}
 
 	data, err := json.Marshal(backendSnapshot{
@@ -95,6 +92,48 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	return data
+}
+
+// snapshotAccountSettings converts one region's AccountSettings into its
+// serialisable form. Split out of Snapshot to keep that method's cognitive
+// complexity low.
+func snapshotAccountSettings(s AccountSettings) accountSettingsSnapshot {
+	snap := accountSettingsSnapshot{QueryPricingModel: s.QueryPricingModel}
+	if s.MaxQueryTCU != nil {
+		v := *s.MaxQueryTCU
+		snap.MaxQueryTCU = &v
+	}
+
+	if s.QueryCompute != nil {
+		snap.QueryCompute = snapshotQueryCompute(s.QueryCompute)
+	}
+
+	return snap
+}
+
+// snapshotQueryCompute converts a QueryCompute into its serialisable form.
+func snapshotQueryCompute(qc *QueryCompute) *queryComputeSnapshot {
+	out := &queryComputeSnapshot{ComputeMode: qc.ComputeMode}
+
+	pc := qc.ProvisionedCapacity
+	if pc == nil {
+		return out
+	}
+
+	if pc.ActiveQueryTCU != nil {
+		v := *pc.ActiveQueryTCU
+		out.ActiveQueryTCU = &v
+	}
+
+	if nc := pc.NotificationConfiguration; nc != nil {
+		ncSnap := &accountSettingsNotificationConfigSnapshot{RoleArn: nc.RoleArn}
+		if nc.SnsConfiguration != nil {
+			ncSnap.SnsTopicArn = nc.SnsConfiguration.TopicArn
+		}
+		out.NotificationConfiguration = ncSnap
+	}
+
+	return out
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -170,12 +209,31 @@ func restoreQueryCompute(snap *queryComputeSnapshot) *QueryCompute {
 	if snap.ActiveQueryTCU != nil {
 		v := *snap.ActiveQueryTCU
 		qc.ProvisionedCapacity = &ProvisionedCapacity{
-			ActiveQueryTCU: &v,
-			LastUpdate:     &LastUpdate{Status: "SUCCEEDED", TargetQueryTCU: &v},
+			ActiveQueryTCU:            &v,
+			LastUpdate:                &LastUpdate{Status: "SUCCEEDED", TargetQueryTCU: &v},
+			NotificationConfiguration: restoreAccountSettingsNotificationConfig(snap.NotificationConfiguration),
 		}
 	}
 
 	return qc
+}
+
+// restoreAccountSettingsNotificationConfig reconstructs an
+// AccountSettingsNotificationConfiguration from its snapshot form, or nil if
+// none was persisted.
+func restoreAccountSettingsNotificationConfig(
+	snap *accountSettingsNotificationConfigSnapshot,
+) *AccountSettingsNotificationConfiguration {
+	if snap == nil {
+		return nil
+	}
+
+	nc := &AccountSettingsNotificationConfiguration{RoleArn: snap.RoleArn}
+	if snap.SnsTopicArn != "" {
+		nc.SnsConfiguration = &SnsConfiguration{TopicArn: snap.SnsTopicArn}
+	}
+
+	return nc
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

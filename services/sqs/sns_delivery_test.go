@@ -323,6 +323,98 @@ func TestSNSToSQSDLQ(t *testing.T) {
 	}
 }
 
+// TestSNSToSQSDelivery_NonDefaultRegion is a regression test for gopherstack-qgh:
+// deliverSNSSubscription previously never passed a Region on its internal
+// SendMessage call, so a subscribed queue created in a non-default region was
+// looked up in the backend's default region instead and silently never
+// received SNS fan-out. The subscription Endpoint is a full SQS ARN
+// (arn:aws:sqs:<region>:<account>:<name>) so the region is now recovered from
+// it via parseQueueARNOrURL.
+func TestSNSToSQSDelivery_NonDefaultRegion(t *testing.T) {
+	t.Parallel()
+
+	const nonDefaultRegion = "eu-west-1"
+
+	snsBk, sqsBk := newWiredPair(t)
+
+	topic, err := snsBk.CreateTopic("region-topic", nil)
+	require.NoError(t, err)
+
+	_, err = sqsBk.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: "region-queue",
+		Endpoint:  "localhost:8000",
+		Region:    nonDefaultRegion,
+	})
+	require.NoError(t, err)
+
+	arn := "arn:aws:sqs:" + nonDefaultRegion + ":000000000000:region-queue"
+	_, err = snsBk.Subscribe(topic.TopicArn, "sqs", arn, "")
+	require.NoError(t, err)
+
+	_, err = snsBk.Publish(topic.TopicArn, "cross-region message", "", "", nil)
+	require.NoError(t, err)
+
+	out, err := sqsBk.ReceiveMessage(&sqs.ReceiveMessageInput{
+		QueueURL:            "http://localhost:8000/000000000000/region-queue",
+		Region:              nonDefaultRegion,
+		MaxNumberOfMessages: 1,
+		WaitTimeSeconds:     0,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Messages, 1, "SNS fan-out must reach a queue created in a non-default region")
+	assert.Contains(t, out.Messages[0].Body, "cross-region message")
+}
+
+// TestSNSToSQSDLQ_NonDefaultRegion is a regression test for gopherstack-qgh:
+// deliverToDLQ previously never passed a Region either, so a redrive-policy
+// DLQ created in a non-default region never received the failed-delivery
+// message.
+func TestSNSToSQSDLQ_NonDefaultRegion(t *testing.T) {
+	t.Parallel()
+
+	const nonDefaultRegion = "ap-southeast-2"
+
+	snsBk, sqsBk := newWiredPair(t)
+
+	topic, err := snsBk.CreateTopic("region-dlq-topic", nil)
+	require.NoError(t, err)
+
+	// Subscribe to a queue that does NOT exist so delivery fails and the DLQ path runs.
+	sub, err := snsBk.Subscribe(
+		topic.TopicArn,
+		"sqs",
+		"arn:aws:sqs:"+nonDefaultRegion+":000000000000:nonexistent-queue",
+		"",
+	)
+	require.NoError(t, err)
+
+	_, err = sqsBk.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: "region-dlq",
+		Endpoint:  "localhost:8000",
+		Region:    nonDefaultRegion,
+	})
+	require.NoError(t, err)
+
+	err = snsBk.SetSubscriptionAttributes(
+		sub.SubscriptionArn,
+		"RedrivePolicy",
+		`{"deadLetterTargetArn":"arn:aws:sqs:`+nonDefaultRegion+`:000000000000:region-dlq"}`,
+	)
+	require.NoError(t, err)
+
+	_, err = snsBk.Publish(topic.TopicArn, "failed cross-region delivery", "", "", nil)
+	require.NoError(t, err)
+
+	out, err := sqsBk.ReceiveMessage(&sqs.ReceiveMessageInput{
+		QueueURL:            "http://localhost:8000/000000000000/region-dlq",
+		Region:              nonDefaultRegion,
+		MaxNumberOfMessages: 1,
+		WaitTimeSeconds:     0,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Messages, 1, "DLQ redirect must reach a DLQ created in a non-default region")
+}
+
 func TestSetSubscriptionAttributesRoundtrip(t *testing.T) {
 	t.Parallel()
 

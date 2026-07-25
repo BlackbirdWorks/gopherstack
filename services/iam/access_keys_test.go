@@ -65,7 +65,11 @@ func TestCreateAccessKey_SecretIsUnique(t *testing.T) {
 		"consecutive secrets must differ (cryptographically random)")
 }
 
-func TestDeleteUser_CleansAccessKeys(t *testing.T) {
+// Real AWS DeleteUser does not cascade-delete a user's access keys — it
+// rejects the request with DeleteConflictException until the caller removes
+// them via DeleteAccessKey first. See
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html.
+func TestDeleteUser_FailsWhenAccessKeysExist(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -74,29 +78,21 @@ func TestDeleteUser_CleansAccessKeys(t *testing.T) {
 		wantKeys int
 	}{
 		{
-			name: "deletes_access_keys_on_user_deletion",
+			name: "single_access_key_blocks_deletion",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/", "")
 				_, _ = b.CreateAccessKey("alice")
-				_, _ = b.CreateAccessKey("alice")
-			},
-			wantKeys: 0,
-		},
-		{
-			name: "no_access_keys_to_delete",
-			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateUser("alice", "/", "")
-			},
-			wantKeys: 0,
-		},
-		{
-			name: "does_not_delete_other_users_keys",
-			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateUser("alice", "/", "")
-				_, _ = b.CreateUser("bob", "/", "")
-				_, _ = b.CreateAccessKey("bob")
 			},
 			wantKeys: 1,
+		},
+		{
+			name: "two_access_keys_block_deletion",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/", "")
+				_, _ = b.CreateAccessKey("alice")
+				_, _ = b.CreateAccessKey("alice")
+			},
+			wantKeys: 2,
 		},
 	}
 
@@ -107,12 +103,42 @@ func TestDeleteUser_CleansAccessKeys(t *testing.T) {
 			b := iam.NewInMemoryBackend()
 			tt.setup(b)
 
-			require.NoError(t, b.DeleteUser("alice"))
+			err := b.DeleteUser("alice")
+			require.Error(t, err)
+			require.ErrorIs(t, err, iam.ErrDeleteConflict)
 
 			allKeys := b.ListAllAccessKeys()
-			assert.Len(t, allKeys, tt.wantKeys)
+			assert.Len(t, allKeys, tt.wantKeys, "keys must survive the rejected delete")
 		})
 	}
+}
+
+// TestDeleteUser_SucceedsAfterAccessKeysRemoved verifies the documented AWS
+// workflow: DeleteAccessKey for every key, then DeleteUser succeeds and
+// leaves other users' keys untouched.
+func TestDeleteUser_SucceedsAfterAccessKeysRemoved(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+	_, _ = b.CreateUser("alice", "/", "")
+	_, _ = b.CreateUser("bob", "/", "")
+	aliceKey, _ := b.CreateAccessKey("alice")
+	_, _ = b.CreateAccessKey("bob")
+
+	require.NoError(t, b.DeleteAccessKey("alice", aliceKey.AccessKeyID))
+	require.NoError(t, b.DeleteUser("alice"))
+
+	allKeys := b.ListAllAccessKeys()
+	assert.Len(t, allKeys, 1, "bob's key must survive alice's deletion")
+}
+
+func TestDeleteUser_NoAccessKeys_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+	_, _ = b.CreateUser("alice", "/", "")
+
+	require.NoError(t, b.DeleteUser("alice"))
 }
 
 func TestCreateAccessKey_SecretErrorPropagated(t *testing.T) {

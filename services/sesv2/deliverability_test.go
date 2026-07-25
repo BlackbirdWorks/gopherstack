@@ -72,15 +72,36 @@ func TestGetDeliverabilityDashboardOptions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestPutDeliverabilityDashboardOption tests the PutDeliverabilityDashboardOption operation.
+// TestPutDeliverabilityDashboardOption tests that PutDeliverabilityDashboardOption
+// actually persists its state, so a subsequent GetDeliverabilityDashboardOptions
+// reflects it (previously a true no-op that never affected the Get response).
 func TestPutDeliverabilityDashboardOption(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
 	rec := doRequest(t, h, http.MethodPut, "/v2/email/deliverability-dashboard", map[string]any{
 		"DashboardEnabled": true,
+		"SubscribedDomains": []map[string]any{
+			{"Domain": "example.com"},
+		},
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	getRec := doRequest(t, h, http.MethodGet, "/v2/email/deliverability-dashboard", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	assert.Equal(t, true, out["DashboardEnabled"])
+	assert.Equal(t, "ACTIVE", out["AccountStatus"])
+
+	domains, ok := out["ActiveSubscribedDomains"].([]any)
+	require.True(t, ok)
+	require.Len(t, domains, 1)
+
+	domain, ok := domains[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "example.com", domain["Domain"])
 }
 
 // TestGetDeliverabilityTestReport tests the GetDeliverabilityTestReport operation.
@@ -116,7 +137,7 @@ func TestGetDeliverabilityTestReport(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	reportID := createResp["ReportId"].(string)
 
-	rec := doReq(t, h, http.MethodGet, "/v2/email/deliverability-dashboard/reports/"+reportID, nil)
+	rec := doReq(t, h, http.MethodGet, "/v2/email/deliverability-dashboard/test-reports/"+reportID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -125,7 +146,7 @@ func TestListDeliverabilityTestReports(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodGet, "/v2/email/deliverability-dashboard/reports", nil)
+	rec := doRequest(t, h, http.MethodGet, "/v2/email/deliverability-dashboard/test-reports", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -138,15 +159,17 @@ func TestGetDomainStatisticsReport(t *testing.T) {
 		t,
 		h,
 		http.MethodGet,
-		"/v2/email/deliverability-dashboard/statistics/example.com",
+		"/v2/email/deliverability-dashboard/statistics-report/example.com",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestGetDomainDeliverabilityCampaign tests the GetDomainDeliverabilityCampaign operation via HTTP,
-// verifying the campaign ID is parsed correctly from the URL path (segments[3] after stripping the
-// /v2/email/ prefix: "deliverability-dashboard"/"campaigns"/domain/campaignId).
+// TestGetDomainDeliverabilityCampaign tests the GetDomainDeliverabilityCampaign
+// operation via HTTP. The real SDK path is
+// /v2/email/deliverability-dashboard/campaigns/{CampaignId} -- no domain
+// segment (confirmed against GetDomainDeliverabilityCampaignInput, which has
+// only a CampaignId field).
 func TestGetDomainDeliverabilityCampaign(t *testing.T) {
 	t.Parallel()
 
@@ -155,17 +178,22 @@ func TestGetDomainDeliverabilityCampaign(t *testing.T) {
 		t,
 		h,
 		http.MethodGet,
-		"/v2/email/deliverability-dashboard/campaigns/example.com/campaign-123",
+		"/v2/email/deliverability-dashboard/campaigns/campaign-123",
 		nil,
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Equal(t, "campaign-123", out["CampaignId"], "campaign ID must be parsed from the URL path")
+
+	campaign, ok := out["DomainDeliverabilityCampaign"].(map[string]any)
+	require.True(t, ok, "response missing DomainDeliverabilityCampaign wrapper: %s", rec.Body)
+	assert.Equal(t, "campaign-123", campaign["CampaignId"], "campaign ID must be parsed from the URL path")
 }
 
-// TestListDomainDeliverabilityCampaigns tests the ListDomainDeliverabilityCampaigns operation.
+// TestListDomainDeliverabilityCampaigns tests the ListDomainDeliverabilityCampaigns
+// operation. Real SDK path is
+// /v2/email/deliverability-dashboard/domains/{SubscribedDomain}/campaigns.
 func TestListDomainDeliverabilityCampaigns(t *testing.T) {
 	t.Parallel()
 
@@ -174,32 +202,38 @@ func TestListDomainDeliverabilityCampaigns(t *testing.T) {
 		t,
 		h,
 		http.MethodGet,
-		"/v2/email/deliverability-dashboard/campaigns/example.com",
+		"/v2/email/deliverability-dashboard/domains/example.com/campaigns",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // TestReputationEntities tests ListReputationEntities, GetReputationEntity,
-// UpdateReputationEntityCustomerManagedStatus, and UpdateReputationEntityPolicy.
+// UpdateReputationEntityCustomerManagedStatus, and UpdateReputationEntityPolicy,
+// using the real SDK's /v2/email/reputation/entities/... paths (the
+// previously-tested /v2/email/reputation-entities/... top-level path was a
+// gopherstack-invented duplicate not present in the real SDK and has been
+// removed).
 func TestReputationEntities(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
 
-	listRec := doRequest(t, h, http.MethodGet, "/v2/email/reputation-entities", nil)
+	listRec := doRequest(t, h, http.MethodPost, "/v2/email/reputation/entities", map[string]any{})
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
-	getRec := doRequest(t, h, http.MethodGet, "/v2/email/reputation-entities/entity-1", nil)
+	getRec := doRequest(
+		t, h, http.MethodGet, "/v2/email/reputation/entities/CONFIGURATION_SET/entity-1", nil,
+	)
 	assert.Equal(t, http.StatusOK, getRec.Code)
 
 	updStatusRec := doRequest(
 		t,
 		h,
 		http.MethodPut,
-		"/v2/email/reputation-entities/entity-1/customer-managed-status",
+		"/v2/email/reputation/entities/CONFIGURATION_SET/entity-1/customer-managed-status",
 		map[string]any{
-			"CustomerManagedStatus": "ENABLED",
+			"SendingStatus": "ENABLED",
 		},
 	)
 	assert.Equal(t, http.StatusOK, updStatusRec.Code)
@@ -208,29 +242,42 @@ func TestReputationEntities(t *testing.T) {
 		t,
 		h,
 		http.MethodPut,
-		"/v2/email/reputation-entities/entity-1/policy",
+		"/v2/email/reputation/entities/CONFIGURATION_SET/entity-1/policy",
 		map[string]any{
-			"Policy": `{}`,
+			"ReputationEntityPolicy": `{}`,
 		},
 	)
 	assert.Equal(t, http.StatusOK, updPolicyRec.Code)
 }
 
-// TestGetEmailAddressInsights tests the GetEmailAddressInsights operation.
+// TestGetEmailAddressInsights tests the GetEmailAddressInsights operation,
+// which the real SDK serves as POST /v2/email/email-address-insights with
+// EmailAddress in the JSON body (not a GET with the address in the URL).
 func TestGetEmailAddressInsights(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodGet, "/v2/email/email-insights/test%40example.com", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	rec := doRequest(t, h, http.MethodPost, "/v2/email/email-address-insights", map[string]any{
+		"EmailAddress": "test@example.com",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	validation, ok := out["MailboxValidation"].(map[string]any)
+	require.True(t, ok, "response missing MailboxValidation: %s", rec.Body)
+	assert.Contains(t, validation, "IsValid")
+	assert.Contains(t, validation, "Evaluations")
 }
 
-// TestListRecommendations tests the ListRecommendations operation.
+// TestListRecommendations tests the ListRecommendations operation, served as
+// POST /v2/email/vdm/recommendations.
 func TestListRecommendations(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodGet, "/v2/email/recommendations", nil)
+	rec := doRequest(t, h, http.MethodPost, "/v2/email/vdm/recommendations", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -243,7 +290,7 @@ func TestGetDomainDeliverabilityCampaignFields(t *testing.T) {
 	t.Parallel()
 
 	backend := sesv2.NewInMemoryBackend()
-	result, err := backend.GetDomainDeliverabilityCampaign("example.com", "camp-123")
+	result, err := backend.GetDomainDeliverabilityCampaign("camp-123")
 	require.NoError(t, err)
 
 	for _, field := range []string{"CampaignId", "FromAddress", "InboxCount", "SpamCount"} {

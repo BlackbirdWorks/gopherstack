@@ -24,6 +24,9 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*
 	if in.Target == "" {
 		return nil, fmt.Errorf("%w: Target is required", ErrValidation)
 	}
+	if in.RoleARN == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", ErrValidation)
+	}
 	if err := validateTags(in.Tags); err != nil {
 		return nil, err
 	}
@@ -152,6 +155,9 @@ func (b *InMemoryBackend) UpdatePipe(ctx context.Context, name string, in Update
 	}
 	if err := validateSourceBatchSize(in.SourceParameters); err != nil {
 		return nil, err
+	}
+	if in.RoleARN == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", ErrValidation)
 	}
 
 	b.mu.Lock("UpdatePipe")

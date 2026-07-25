@@ -99,17 +99,16 @@ func (h *Handler) handleUpdateUser(ctx context.Context, c *echo.Context, body []
 
 // -- ParameterGroup handlers -----------------------------------------------------
 
-// toUserObject converts a User to its JSON representation.
+// toUserObject converts a User to its JSON representation. userObject has no
+// "Engine" field: confirmed absent from the real SDK's User type
+// (deserializers.go's awsAwsjson11_deserializeDocumentUser only recognizes
+// AccessString, ACLNames, ARN, Authentication, MinimumEngineVersion, Name,
+// Status) -- a prior pass fabricated one.
 func toUserObject(u *User, aclNames []string) userObject {
 	auth := &authenticationObject{Type: u.AuthType}
 	if u.AuthType == "password" && len(u.Passwords) > 0 {
 		count := min(len(u.Passwords), math.MaxInt32)
 		auth.PasswordCount = int32(count) //nolint:gosec // count is clamped to math.MaxInt32 above
-	}
-
-	engine := u.Engine
-	if engine == "" {
-		engine = engineRedis
 	}
 
 	names := aclNames
@@ -122,7 +121,6 @@ func toUserObject(u *User, aclNames []string) userObject {
 		ARN:                  u.ARN,
 		AccessString:         u.AccessString,
 		Status:               u.Status,
-		Engine:               engine,
 		Authentication:       auth,
 		MinimumEngineVersion: engineVersion62,
 		ACLNames:             names,

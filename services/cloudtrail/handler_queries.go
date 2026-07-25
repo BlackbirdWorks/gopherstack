@@ -3,16 +3,34 @@ package cloudtrail
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// defaultQueriesPageSize is the ListQueries page size used when the caller
+// omits MaxResults. defaultQueryResultsPageSize is the analogous default for
+// GetQueryResults' MaxQueryResults.
+const (
+	defaultQueriesPageSize      = 1000
+	defaultQueryResultsPageSize = 1000
 )
 
 // --- StartQuery ---
 
+// startQueryBody matches the real StartQueryInput exactly: QueryStatement,
+// QueryAlias, QueryParameters, DeliveryS3Uri, EventDataStoreOwnerAccountId.
+// There is no "EventDataStore" input field on the real API (that was a
+// gopherstack-invented field, now removed) -- the target event data store is
+// embedded in QueryStatement's FROM clause, per real CloudTrail Lake SQL.
 type startQueryBody struct {
-	QueryStatement string `json:"QueryStatement"`
-	EventDataStore string `json:"EventDataStore"`
-	DeliveryS3URI  string `json:"DeliveryS3Uri"`
+	QueryStatement               string   `json:"QueryStatement"`
+	QueryAlias                   string   `json:"QueryAlias"`
+	DeliveryS3URI                string   `json:"DeliveryS3Uri"`
+	EventDataStoreOwnerAccountID string   `json:"EventDataStoreOwnerAccountId"`
+	QueryParameters              []string `json:"QueryParameters"`
 }
 
 func (h *Handler) handleStartQuery(c *echo.Context, body []byte) error {
@@ -21,19 +39,31 @@ func (h *Handler) handleStartQuery(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	if in.QueryStatement == "" {
+	// Real StartQuery requires either QueryStatement, or a QueryAlias (with
+	// QueryParameters) for the dashboard-population use case.
+	if in.QueryStatement == "" && in.QueryAlias == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("InvalidParameterCombinationException", "QueryStatement is required"),
+			errResp("InvalidParameterCombinationException", "QueryStatement or QueryAlias is required"),
 		)
 	}
 
-	q, err := h.Backend.StartQuery(in.QueryStatement, in.EventDataStore, in.DeliveryS3URI)
+	edsARN := extractQueryFromTarget(in.QueryStatement)
+
+	q, err := h.Backend.StartQuery(in.QueryStatement, edsARN, in.DeliveryS3URI)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyQueryID: q.QueryID})
+	ownerID := in.EventDataStoreOwnerAccountID
+	if ownerID == "" {
+		ownerID = h.Backend.AccountID()
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyQueryID:                     q.QueryID,
+		"EventDataStoreOwnerAccountId": ownerID,
+	})
 }
 
 // --- CancelQuery ---
@@ -66,6 +96,9 @@ func (h *Handler) handleCancelQuery(c *echo.Context, body []byte) error {
 
 // --- DescribeQuery ---
 
+// describeQueryBody's EventDataStore field is deprecated on the real
+// DescribeQueryInput ("no longer required") but still accepted -- kept here
+// for backward wire compatibility, unlike StartQuery's invented field.
 type describeQueryBody struct {
 	QueryID        string `json:"QueryId"`
 	EventDataStore string `json:"EventDataStore"`
@@ -90,13 +123,25 @@ func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 		keyQueryID:     q.QueryID,
 		"QueryString":  q.QueryString,
 		keyQueryStatus: q.QueryStatus,
-		"CreationTime": float64(q.CreationTime.Unix()),
+		// QueryStatisticsForDescribeQuery: BytesScanned/CreationTime/
+		// EventsMatched/EventsScanned/ExecutionTimeInMillis, nested -- there is
+		// no top-level CreationTime field on the real DescribeQueryOutput.
+		"QueryStatistics": map[string]any{
+			"BytesScanned":          q.BytesScanned,
+			"CreationTime":          float64(q.CreationTime.Unix()),
+			"EventsMatched":         q.EventsMatched,
+			"EventsScanned":         q.EventsScanned,
+			"ExecutionTimeInMillis": q.ExecutionTimeInMillis,
+		},
 	}
 	if q.DeliveryS3URI != "" {
 		resp["DeliveryS3Uri"] = q.DeliveryS3URI
 	}
 	if q.ErrorMessage != "" {
 		resp["ErrorMessage"] = q.ErrorMessage
+	}
+	if q.EventDataStoreOwnerID != "" {
+		resp["EventDataStoreOwnerAccountId"] = q.EventDataStoreOwnerID
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -105,8 +150,10 @@ func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 // --- GetQueryResults ---
 
 type getQueryResultsBody struct {
-	QueryID        string `json:"QueryId"`
-	EventDataStore string `json:"EventDataStore"`
+	QueryID         string `json:"QueryId"`
+	EventDataStore  string `json:"EventDataStore"`
+	NextToken       string `json:"NextToken"`
+	MaxQueryResults int    `json:"MaxQueryResults"`
 }
 
 func (h *Handler) handleGetQueryResults(c *echo.Context, body []byte) error {
@@ -124,31 +171,89 @@ func (h *Handler) handleGetQueryResults(c *echo.Context, body []byte) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	p := page.New(q.QueryResultRows, in.NextToken, in.MaxQueryResults, defaultQueryResultsPageSize)
+
+	resp := map[string]any{
 		keyQueryID:        q.QueryID,
 		keyQueryStatus:    q.QueryStatus,
-		"QueryResultRows": []any{},
+		"QueryResultRows": p.Data,
 		"QueryStatistics": map[string]any{
-			"TotalResultsCount": 0,
-			"BytesScanned":      0,
+			"BytesScanned":      q.BytesScanned,
+			"ResultsCount":      len(p.Data),
+			"TotalResultsCount": len(q.QueryResultRows),
 		},
-	})
+	}
+	if p.Next != "" {
+		resp["NextToken"] = p.Next
+	}
+	if q.ErrorMessage != "" {
+		resp["ErrorMessage"] = q.ErrorMessage
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // --- ListQueries ---
 
-func (h *Handler) handleListQueries(c *echo.Context, _ []byte) error {
+type listQueriesBody struct {
+	EventDataStore string `json:"EventDataStore"`
+	QueryStatus    string `json:"QueryStatus"`
+	NextToken      string `json:"NextToken"`
+	MaxResults     int    `json:"MaxResults"`
+}
+
+func (h *Handler) handleListQueries(c *echo.Context, body []byte) error {
+	var in listQueriesBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("InvalidParameterCombinationException", "invalid request body"),
+			)
+		}
+	}
+
 	list := h.Backend.ListQueries()
-	items := make([]map[string]any, 0, len(list))
+	filtered := make([]*Query, 0, len(list))
+
 	for _, q := range list {
+		if in.QueryStatus != "" && q.QueryStatus != in.QueryStatus {
+			continue
+		}
+		if in.EventDataStore != "" && !queryMatchesEventDataStore(q, in.EventDataStore) {
+			continue
+		}
+		filtered = append(filtered, q)
+	}
+
+	p := page.New(filtered, in.NextToken, in.MaxResults, defaultQueriesPageSize)
+	items := make([]map[string]any, 0, len(p.Data))
+	for _, q := range p.Data {
 		items = append(items, map[string]any{
 			keyQueryID:     q.QueryID,
 			keyQueryStatus: q.QueryStatus,
-			"CreationTime": q.CreationTime,
+			"CreationTime": float64(q.CreationTime.Unix()),
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Queries": items})
+	resp := map[string]any{"Queries": items}
+	if p.Next != "" {
+		resp["NextToken"] = p.Next
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// queryMatchesEventDataStore reports whether q belongs to the requested
+// event data store (matched by exact ARN or ARN suffix, so a bare ID also
+// matches). A query whose target could not be resolved at StartQuery time
+// (EventDataStoreARN == "") never matches an explicit filter.
+func queryMatchesEventDataStore(q *Query, want string) bool {
+	if q.EventDataStoreARN == "" {
+		return false
+	}
+
+	return q.EventDataStoreARN == want || strings.HasSuffix(q.EventDataStoreARN, want)
 }
 
 // --- GenerateQuery ---

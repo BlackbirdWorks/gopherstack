@@ -166,8 +166,8 @@ func buildDatasetOps(h *Handler) map[string]handlerFunc {
 		opDeleteDataset: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeleteDataset(c, resource)
 		},
-		opCreateDatasetContent: func(c *echo.Context, resource string, _ []byte) error {
-			return h.handleCreateDatasetContent(c, resource)
+		opCreateDatasetContent: func(c *echo.Context, resource string, body []byte) error {
+			return h.handleCreateDatasetContent(c, resource, body)
 		},
 		opGetDatasetContent: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleGetDatasetContent(c, resource)

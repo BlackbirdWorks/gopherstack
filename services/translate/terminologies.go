@@ -55,12 +55,20 @@ func (b *InMemoryBackend) ImportTerminology(
 	encKey *EncryptionKey,
 	tags map[string]string,
 ) (*Terminology, error) {
+	// ImportTerminology models InvalidParameterValueException but never
+	// InvalidRequestException (api-2.json), so validation failures here use
+	// ErrInvalidParameter, matching handler_terminologies.go's Get/Delete
+	// counterparts.
 	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
 	if data == nil {
-		return nil, fmt.Errorf("%w: TerminologyData is required", ErrValidation)
+		return nil, fmt.Errorf("%w: TerminologyData is required", ErrInvalidParameter)
+	}
+
+	if !validDataFormatsTable()[data.Format] {
+		return nil, fmt.Errorf("%w: TerminologyData.Format must be one of CSV, TMX, TSV", ErrInvalidParameter)
 	}
 
 	directionality := data.Directionality
@@ -70,14 +78,28 @@ func (b *InMemoryBackend) ImportTerminology(
 	case directionalityUni, directionalityMulti:
 		// valid, keep as specified
 	default:
-		return nil, fmt.Errorf("%w: Directionality must be UNI or MULTI", ErrValidation)
+		return nil, fmt.Errorf("%w: Directionality must be UNI or MULTI", ErrInvalidParameter)
 	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	now := time.Now().UTC()
 	resourceARN := b.terminologyARN(name)
+
+	// ImportTerminology's Tags replaces the resource's tag set wholesale
+	// (unlike TagResource's add-or-replace merge below), so the limit
+	// applies to the new set's size directly rather than a union with
+	// whatever tags the resource already carries.
+	if len(tags) > maxTagsPerResource {
+		return nil, fmt.Errorf(
+			"%w: resource %q would exceed the %d-tag limit",
+			ErrTooManyTags,
+			resourceARN,
+			maxTagsPerResource,
+		)
+	}
+
+	now := time.Now().UTC()
 
 	srcLang, targetLangs, termCount := parseCSVLanguages(data.File)
 	if srcLang == "" {
@@ -143,19 +165,29 @@ func (b *InMemoryBackend) GetTerminology(name string) (*Terminology, error) {
 	return t, nil
 }
 
-// LookupTerminologies returns terminology entries for the given names (missing names skipped).
-func (b *InMemoryBackend) LookupTerminologies(names []string) []*Terminology {
+// LookupTerminologies returns terminology entries for the given names. A
+// name that does not correspond to any stored terminology is a
+// ResourceNotFoundException (TranslateText/TranslateDocument both model this
+// exception, and TerminologyNames is the only named-resource reference
+// either operation makes -- real AWS's ListTerminologies doc note "Use the
+// ListTerminologies operation to get the available terminology lists"
+// implies the reference is validated, not silently ignored).
+func (b *InMemoryBackend) LookupTerminologies(names []string) ([]*Terminology, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	out := make([]*Terminology, 0, len(names))
+
 	for _, name := range names {
-		if t, ok := b.terminologies.Get(name); ok {
-			out = append(out, t)
+		t, ok := b.terminologies.Get(name)
+		if !ok {
+			return nil, fmt.Errorf("%w: terminology %q not found", ErrNotFound, name)
 		}
+
+		out = append(out, t)
 	}
 
-	return out
+	return out, nil
 }
 
 // DeleteTerminology removes a terminology by name.

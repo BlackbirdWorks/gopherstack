@@ -422,8 +422,11 @@ func TestPersistenceExtended(t *testing.T) {
 	}
 }
 
-// TestDeleteVpc_SecondaryIndexes verifies that DeleteVpc correctly removes subnet,
-// route table, and security group secondary index entries so they don't linger.
+// TestDeleteVpc_SecondaryIndexes verifies that DeleteVpc fails with
+// DependencyViolation while dependents (subnet, route table, security group)
+// still exist, and that once each dependent is explicitly deleted the
+// subnet/route-table/SG secondary index entries are cleared and DeleteVpc
+// itself succeeds. Matches real AWS: DeleteVpc never cascades.
 func TestDeleteVpc_SecondaryIndexes(t *testing.T) {
 	t.Parallel()
 
@@ -466,8 +469,10 @@ func TestDeleteVpc_SecondaryIndexes(t *testing.T) {
 			vpcID := accuracyExtractXMLValue(resp, "vpcId")
 			require.NotEmpty(t, vpcID)
 
+			var subnetID, routeTableID string
+
 			if tc.addSubnet {
-				_, err = dispatchHandler(h, url.Values{
+				resp, err = dispatchHandler(h, url.Values{
 					"Action":           {"CreateSubnet"},
 					"Version":          {"2016-11-15"},
 					"VpcId":            {vpcID},
@@ -475,19 +480,23 @@ func TestDeleteVpc_SecondaryIndexes(t *testing.T) {
 					"AvailabilityZone": {"us-east-1a"},
 				})
 				require.NoError(t, err)
+				subnetID = accuracyExtractXMLValue(resp, "subnetId")
+				require.NotEmpty(t, subnetID)
 			}
 
 			if tc.addRouteTable {
-				_, err = dispatchHandler(h, url.Values{
+				resp, err = dispatchHandler(h, url.Values{
 					"Action":  {"CreateRouteTable"},
 					"Version": {"2016-11-15"},
 					"VpcId":   {vpcID},
 				})
 				require.NoError(t, err)
+				routeTableID = accuracyExtractXMLValue(resp, "routeTableId")
+				require.NotEmpty(t, routeTableID)
 			}
 
-			// Add a SG to the VPC.
-			_, err = dispatchHandler(h, url.Values{
+			// Add a non-default SG to the VPC.
+			resp, err = dispatchHandler(h, url.Values{
 				"Action":           {"CreateSecurityGroup"},
 				"Version":          {"2016-11-15"},
 				"GroupName":        {"test-sg"},
@@ -495,19 +504,34 @@ func TestDeleteVpc_SecondaryIndexes(t *testing.T) {
 				"VpcId":            {vpcID},
 			})
 			require.NoError(t, err)
+			sgID := accuracyExtractXMLValue(resp, "groupId")
+			require.NotEmpty(t, sgID)
 
-			// Delete the VPC.
-			_, err = dispatchHandler(h, url.Values{
-				"Action":  {"DeleteVpc"},
-				"Version": {"2016-11-15"},
-				"VpcId":   {vpcID},
-			})
-			require.NoError(t, err)
+			// While any dependent still exists, DeleteVpc must fail with
+			// DependencyViolation rather than cascade-deleting.
+			err = b.DeleteVpc(vpcID)
+			require.Error(t, err, "DeleteVpc must fail while dependents exist")
+			require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+			assert.NotEmpty(t, b.DescribeVpcs([]string{vpcID}),
+				"VPC must survive a failed DeleteVpc")
 
-			// After deletion, DescribeSubnets must not return any subnet for
-			// the deleted VPC — the index must be cleared.
-			subnets := b.DescribeSubnetsByVPC(vpcID)
-			assert.Empty(t, subnets, "no subnets should remain after DeleteVpc")
+			// Remove each dependent explicitly — real AWS requires this before
+			// the VPC itself can be deleted.
+			require.NoError(t, b.DeleteSecurityGroup(sgID))
+
+			if routeTableID != "" {
+				require.NoError(t, b.DeleteRouteTable(routeTableID))
+			}
+
+			if subnetID != "" {
+				require.NoError(t, b.DeleteSubnet(subnetID))
+				// Secondary index must be cleared immediately by the explicit delete.
+				assert.Empty(t, b.DescribeSubnetsByVPC(vpcID),
+					"no subnets should remain after DeleteSubnet")
+			}
+
+			// Now DeleteVpc must succeed.
+			require.NoError(t, b.DeleteVpc(vpcID))
 
 			// DescribeVpcs must not return the deleted VPC.
 			vpcs := b.DescribeVpcs([]string{vpcID})
@@ -516,15 +540,14 @@ func TestDeleteVpc_SecondaryIndexes(t *testing.T) {
 	}
 }
 
-// TestReconcileLifecycle_SkipsNonTransitional verifies that reconcileInstanceLifecycle
-// does not alter instances already in stable states (stopped, terminated, running).
-
 // TestPersistence_SecondaryIndexRebuild is the guard test for the Restore
 // secondary-index rebuild. It creates a VPC with instances and ENIs, snapshots,
-// restores into a fresh backend, and asserts that (a) DeleteVpc still cascades
-// (proving instanceIDsByVPC / subnetIDsByVPC / natGatewayIDsByVPC / eniIDsByVPC
-// were rebuilt) and (b) ENI-by-instance termination cleanup still works
-// (proving eniIDsByInstance was rebuilt).
+// restores into a fresh backend, and asserts that (a) DeleteVpc still correctly
+// reports DependencyViolation for dependents restored via secondary indexes
+// (proving instanceIDsByVPC / subnetIDsByVPC / natGatewayIDsByVPC were
+// rebuilt, and that tearing dependents down in AWS order still lets DeleteVpc
+// succeed) and (b) ENI-by-instance termination cleanup still works (proving
+// eniIDsByInstance was rebuilt).
 func TestPersistence_SecondaryIndexRebuild(t *testing.T) {
 	t.Parallel()
 
@@ -533,26 +556,43 @@ func TestPersistence_SecondaryIndexRebuild(t *testing.T) {
 		name   string
 	}{
 		{
-			name: "delete_vpc_cascade_survives_restore",
+			name: "delete_vpc_dependency_violation_survives_restore",
 			verify: func(t *testing.T, fresh *ec2.InMemoryBackend, res vpcResources) {
 				t.Helper()
 
-				require.NoError(t, fresh.DeleteVpc(res.vpcID))
+				// Real AWS never cascades: DeleteVpc must fail while the subnet
+				// (and its NAT gateway/ENIs) still exist. If subnetIDsByVPC /
+				// natGatewayIDsByVPC were not rebuilt by Restore, this would
+				// incorrectly succeed instead of blocking.
+				err := fresh.DeleteVpc(res.vpcID)
+				require.Error(t, err, "DeleteVpc must fail while dependents exist")
+				require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+				assert.NotEmpty(t, fresh.DescribeVpcs([]string{res.vpcID}),
+					"VPC must survive a failed DeleteVpc")
 
-				// VPC gone.
-				assert.Empty(t, fresh.DescribeVpcs([]string{res.vpcID}))
-				// Subnet cascaded (index-driven).
-				assert.Empty(t, fresh.DescribeSubnets([]string{res.subnetID}))
-				// NAT gateways cascaded (natGatewayIDsByVPC-driven).
-				assert.Empty(t, fresh.DescribeNatGateways(nil))
-				// Standalone ENI cascaded (eniIDsByVPC-driven).
-				assert.Empty(t, fresh.DescribeNetworkInterfaces([]string{res.eniID}))
-				// Instances terminated (instanceIDsByVPC-driven).
+				// Tear down dependents in the order real AWS requires, proving
+				// each rebuilt table/index still functions after Restore.
+				_, err = fresh.TerminateInstances(res.instanceIDs)
+				require.NoError(t, err)
+				fresh.TickLifecycleForTest() // shutting-down -> terminated
+
 				insts := fresh.DescribeInstances(res.instanceIDs, "")
 				require.Len(t, insts, len(res.instanceIDs))
 				for _, inst := range insts {
 					assert.Equal(t, ec2.StateTerminated, inst.State)
 				}
+
+				require.NoError(t, fresh.DeleteNetworkInterface(res.eniID))
+
+				nats := fresh.DescribeNatGateways(nil)
+				require.Len(t, nats, 1)
+				require.NoError(t, fresh.DeleteNatGateway(nats[0].ID))
+
+				require.NoError(t, fresh.DeleteSubnet(res.subnetID))
+				assert.Empty(t, fresh.DescribeSubnets([]string{res.subnetID}))
+
+				require.NoError(t, fresh.DeleteVpc(res.vpcID))
+				assert.Empty(t, fresh.DescribeVpcs([]string{res.vpcID}))
 			},
 		},
 		{
@@ -601,12 +641,10 @@ func TestPersistence_SecondaryIndexRebuild(t *testing.T) {
 }
 
 // TestDeleteVpc_PerVPCIndexCascade exercises the natGatewayIDsByVPC and
-// eniIDsByVPC index maintenance across DeleteNatGateway, DeleteSubnet, and
-// DeleteVpc so the index never drifts from the underlying maps.
-
-// TestDeleteVpc_PerVPCIndexCascade exercises the natGatewayIDsByVPC and
-// eniIDsByVPC index maintenance across DeleteNatGateway, DeleteSubnet, and
-// DeleteVpc so the index never drifts from the underlying maps.
+// subnetIDsByVPC index maintenance across DeleteNatGateway, DeleteSubnet, and
+// DeleteVpc so the index never drifts from the underlying maps, and that
+// DeleteVpc correctly blocks (DependencyViolation, no cascade) until every
+// dependent has been explicitly torn down.
 func TestDeleteVpc_PerVPCIndexCascade(t *testing.T) {
 	t.Parallel()
 
@@ -623,12 +661,23 @@ func TestDeleteVpc_PerVPCIndexCascade(t *testing.T) {
 		require.NoError(t, b.DeleteNatGateway(nats[0].ID))
 		assert.Empty(t, b.DescribeNatGateways(nil))
 
-		// DeleteVpc must not error or attempt to re-delete the missing NAT.
+		// The subnet (and its instance/standalone ENIs) still exist, so DeleteVpc
+		// must still block — it must not attempt to re-delete the missing NAT nor
+		// cascade away the remaining dependents.
+		err := b.DeleteVpc(res.vpcID)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+
+		_, err = b.TerminateInstances(res.instanceIDs)
+		require.NoError(t, err)
+		require.NoError(t, b.DeleteNetworkInterface(res.eniID))
+		require.NoError(t, b.DeleteSubnet(res.subnetID))
+
 		require.NoError(t, b.DeleteVpc(res.vpcID))
 		assert.Empty(t, b.DescribeVpcs([]string{res.vpcID}))
 	})
 
-	t.Run("delete_subnet_scopes_nat_and_eni_removal", func(t *testing.T) {
+	t.Run("delete_subnet_scopes_eni_removal", func(t *testing.T) {
 		t.Parallel()
 
 		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
@@ -646,14 +695,28 @@ func TestDeleteVpc_PerVPCIndexCascade(t *testing.T) {
 		eniB, err := b.CreateNetworkInterface(subnetB.ID, "eni-b")
 		require.NoError(t, err)
 
-		// Delete subnet A — only eni-a removed; eni-b (same VPC) survives.
-		require.NoError(t, b.DeleteSubnet(subnetA.ID))
-		assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniA.ID}))
+		// Subnet A still has eni-a — DeleteSubnet must block.
+		err = b.DeleteSubnet(subnetA.ID)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+
+		// Deleting eni-a explicitly (scoped to subnet A) must not touch eni-b.
+		require.NoError(t, b.DeleteNetworkInterface(eniA.ID))
 		require.Len(t, b.DescribeNetworkInterfaces([]string{eniB.ID}), 1)
 
-		// DeleteVpc removes the remaining subnet-B ENI via the VPC index.
+		// Now subnet A has no dependents and can be deleted.
+		require.NoError(t, b.DeleteSubnet(subnetA.ID))
+		assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniA.ID}))
+
+		// VPC still blocked by subnet B (which still holds eni-b).
+		err = b.DeleteVpc(vpc.ID)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+
+		require.NoError(t, b.DeleteNetworkInterface(eniB.ID))
+		require.NoError(t, b.DeleteSubnet(subnetB.ID))
 		require.NoError(t, b.DeleteVpc(vpc.ID))
-		assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniB.ID}))
+		assert.Empty(t, b.DescribeVpcs([]string{vpc.ID}))
 	})
 }
 
@@ -738,13 +801,6 @@ func buildVPCWithResources(
 		instanceIDs: ids,
 	}
 }
-
-// TestPersistence_SecondaryIndexRebuild is the guard test for the Restore
-// secondary-index rebuild. It creates a VPC with instances and ENIs, snapshots,
-// restores into a fresh backend, and asserts that (a) DeleteVpc still cascades
-// (proving instanceIDsByVPC / subnetIDsByVPC / natGatewayIDsByVPC / eniIDsByVPC
-// were rebuilt) and (b) ENI-by-instance termination cleanup still works
-// (proving eniIDsByInstance was rebuilt).
 
 // TestSeedHelpers verifies all seed helper functions work correctly.
 func TestSeedHelpers(t *testing.T) {

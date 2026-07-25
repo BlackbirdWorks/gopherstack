@@ -25,55 +25,81 @@ func TestHandler_DataSource_MethodNotAllowed(t *testing.T) {
 func TestHandler_DataSourceIntrospections(t *testing.T) {
 	t.Parallel()
 
+	validConfig := map[string]any{
+		"rdsDataApiConfig": map[string]any{
+			"databaseName": "mydb",
+			"resourceArn":  "arn:aws:rds:us-east-1:000000000000:cluster:mycluster",
+			"secretArn":    "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret",
+		},
+	}
+
 	tests := []struct {
 		body       any
 		name       string
 		method     string
 		path       string
 		wantStatus int
-		setupAPI   bool
-		setupDS    bool
 	}{
 		{
-			name:   "start_introspection_success",
-			method: http.MethodPost,
-			path:   "/v1/dataSource-introspections",
-			body: map[string]any{
-				"apiId":          "__APIID__",
-				"dataSourceName": "MyDS",
-			},
-			setupAPI:   true,
-			setupDS:    true,
+			name:       "start_success_real_path",
+			method:     http.MethodPost,
+			path:       "/v1/datasources/introspections",
+			body:       validConfig,
 			wantStatus: http.StatusCreated,
 		},
 		{
-			name:       "start_introspection_bad_body",
+			name:       "start_success_legacy_path",
 			method:     http.MethodPost,
 			path:       "/v1/dataSource-introspections",
+			body:       validConfig,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "start_bad_body",
+			method:     http.MethodPost,
+			path:       "/v1/datasources/introspections",
 			body:       "not-json-string",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "start_introspection_api_not_found",
+			name:       "start_missing_config",
 			method:     http.MethodPost,
-			path:       "/v1/dataSource-introspections",
-			body:       map[string]any{"apiId": "noexist", "dataSourceName": "DS"},
+			path:       "/v1/datasources/introspections",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "get_unknown_id_real_path",
+			method:     http.MethodGet,
+			path:       "/v1/datasources/introspections/some-id",
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "get_introspection_success",
+			name:       "get_unknown_id_legacy_path",
 			method:     http.MethodGet,
 			path:       "/v1/dataSource-introspections/some-id",
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "method_not_allowed_on_collection",
+			name:       "method_not_allowed_on_collection_real_path",
+			method:     http.MethodGet,
+			path:       "/v1/datasources/introspections",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "method_not_allowed_on_item_real_path",
+			method:     http.MethodPost,
+			path:       "/v1/datasources/introspections/some-id",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "method_not_allowed_on_collection_legacy_path",
 			method:     http.MethodGet,
 			path:       "/v1/dataSource-introspections",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 		{
-			name:       "method_not_allowed_on_item",
+			name:       "method_not_allowed_on_item_legacy_path",
 			method:     http.MethodPost,
 			path:       "/v1/dataSource-introspections/some-id",
 			wantStatus: http.StatusMethodNotAllowed,
@@ -84,31 +110,61 @@ func TestHandler_DataSourceIntrospections(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, b := newTestHandler()
+			h, _ := newTestHandler()
 
-			body := tt.body
-
-			if tt.setupAPI {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
-				require.NoError(t, err)
-
-				if m, ok := body.(map[string]any); ok && m["apiId"] == "__APIID__" {
-					m["apiId"] = api.APIID
-				}
-
-				if tt.setupDS {
-					_, err = b.CreateDataSource(api.APIID, &appsync.DataSource{
-						Name: "MyDS",
-						Type: appsync.DataSourceTypeNone,
-					})
-					require.NoError(t, err)
-				}
-			}
-
-			rec := doRequest(t, h, tt.method, tt.path, body)
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+// TestHandler_DataSourceIntrospection_StartThenGet locks the full wire shape of a
+// successful introspection round trip: StartDataSourceIntrospection's response fields
+// (introspectionId/introspectionStatus/introspectionStatusDetail, no
+// introspectionResult) and GetDataSourceIntrospection's response fields
+// (introspectionId/introspectionResult/introspectionStatus/introspectionStatusDetail),
+// plus that the legacy /v1/dataSource-introspections alias resolves the same
+// persisted record as the real /v1/datasources/introspections path.
+func TestHandler_DataSourceIntrospection_StartThenGet(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+
+	startRec := doRequest(t, h, http.MethodPost, "/v1/datasources/introspections", map[string]any{
+		"rdsDataApiConfig": map[string]any{
+			"databaseName": "mydb",
+			"resourceArn":  "arn:aws:rds:us-east-1:000000000000:cluster:mycluster",
+			"secretArn":    "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret",
+		},
+	})
+	require.Equal(t, http.StatusCreated, startRec.Code)
+
+	var startOut struct {
+		IntrospectionID     string `json:"introspectionId"`
+		IntrospectionStatus string `json:"introspectionStatus"`
+	}
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	assert.NotEmpty(t, startOut.IntrospectionID)
+	assert.Equal(t, "SUCCESS", startOut.IntrospectionStatus)
+
+	getRec := doRequest(t, h, http.MethodGet, "/v1/datasources/introspections/"+startOut.IntrospectionID, nil)
+	assert.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut struct {
+		IntrospectionID     string `json:"introspectionId"`
+		IntrospectionStatus string `json:"introspectionStatus"`
+		IntrospectionResult struct {
+			Models []any `json:"models"`
+		} `json:"introspectionResult"`
+	}
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	assert.Equal(t, startOut.IntrospectionID, getOut.IntrospectionID)
+	assert.Equal(t, "SUCCESS", getOut.IntrospectionStatus)
+	assert.Empty(t, getOut.IntrospectionResult.Models)
+
+	// The legacy alias resolves the same persisted record.
+	legacyGetRec := doRequest(t, h, http.MethodGet, "/v1/dataSource-introspections/"+startOut.IntrospectionID, nil)
+	assert.Equal(t, http.StatusOK, legacyGetRec.Code)
 }
 
 func TestHandler_CreateAndGetDataSource(t *testing.T) {

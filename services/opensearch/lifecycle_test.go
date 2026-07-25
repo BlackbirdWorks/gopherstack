@@ -281,7 +281,12 @@ func TestConnectionAndVpcDeleteWindows(t *testing.T) {
 		t.Parallel()
 
 		b := newLifecycleBackend(t)
-		conn, err := b.CreateOutboundConnection("alias", nil, nil)
+		conn, err := b.CreateOutboundConnection(
+			"alias", "",
+			opensearch.DomainInformation{DomainName: "local-dom"},
+			opensearch.DomainInformation{DomainName: "remote-dom"},
+			"", "",
+		)
 		require.NoError(t, err)
 
 		del, err := b.DeleteOutboundConnection(conn.ConnectionID)
@@ -297,7 +302,10 @@ func TestConnectionAndVpcDeleteWindows(t *testing.T) {
 		t.Parallel()
 
 		b := newLifecycleBackend(t)
-		ep, err := b.CreateVpcEndpoint("arn:aws:es:us-east-1:123456789012:domain/x", nil)
+		ep, err := b.CreateVpcEndpoint(
+			"arn:aws:es:us-east-1:123456789012:domain/x",
+			map[string]any{"SubnetIds": []string{"subnet-1"}},
+		)
 		require.NoError(t, err)
 
 		del, err := b.DeleteVpcEndpoint(ep.VpcEndpointID)

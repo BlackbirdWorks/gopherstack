@@ -3,27 +3,51 @@ package opensearch
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
-// marshalDataSourceType converts any DataSourceType value (typically a
-// JSON-decoded map[string]any) to a JSON string for backend storage.
-// Falls back to fmt.Sprintf only if marshalling fails.
-func marshalDataSourceType(v any) string {
-	if v == nil {
-		return ""
-	}
+// directQueryDataSourceJSON renders a DirectQueryDataSource as the wire-shape
+// types.DirectQueryDataSource / GetDirectQueryDataSourceOutput object. Note
+// the domain-level DataSource type uses "Name" but this type uses
+// "DataSourceName" -- they are genuinely different field names on the real
+// API, not a typo.
+type directQueryDataSourceJSON struct {
+	DataSourceArn  string          `json:"DataSourceArn"`
+	DataSourceName string          `json:"DataSourceName"`
+	DataSourceType json.RawMessage `json:"DataSourceType,omitempty"`
+	Description    string          `json:"Description,omitempty"`
+	OpenSearchArns []string        `json:"OpenSearchArns"`
+}
 
-	b, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Sprintf("%v", v)
+func toDirectQueryDataSourceJSON(ds *DirectQueryDataSource) directQueryDataSourceJSON {
+	return directQueryDataSourceJSON{
+		DataSourceArn:  ds.DataSourceArn,
+		DataSourceName: ds.Name,
+		DataSourceType: ds.DataSourceType,
+		Description:    ds.Description,
+		OpenSearchArns: ds.OpenSearchArns,
 	}
+}
 
-	return string(b)
+// dataSourceJSON renders a DataSource as the wire-shape types.DataSourceDetails
+// / GetDataSourceOutput object (top-level fields, no envelope).
+type dataSourceJSON struct {
+	Description    string          `json:"Description,omitempty"`
+	Name           string          `json:"Name"`
+	Status         string          `json:"Status,omitempty"`
+	DataSourceType json.RawMessage `json:"DataSourceType,omitempty"`
+}
+
+func toDataSourceJSON(ds *DataSource) dataSourceJSON {
+	return dataSourceJSON{
+		DataSourceType: ds.DataSourceType,
+		Description:    ds.Description,
+		Name:           ds.Name,
+		Status:         ds.Status,
+	}
 }
 
 // handleDirectQueryRoutes handles direct query data source routes.
@@ -37,7 +61,11 @@ func (h *Handler) handleDirectQueryRoutes(w http.ResponseWriter, r *http.Request
 	// GET /2021-01-01/opensearch/directQueryDataSource → ListDirectQueryDataSources
 	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
 		sources := h.Backend.ListDirectQueryDataSources()
-		h.writeJSON(r, w, map[string]any{"DirectQueryDataSources": sources})
+		items := make([]directQueryDataSourceJSON, 0, len(sources))
+		for _, ds := range sources {
+			items = append(items, toDirectQueryDataSourceJSON(ds))
+		}
+		h.writeJSON(r, w, map[string]any{"DirectQueryDataSources": items})
 	// GET /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → GetDirectQueryDataSource
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
 		h.handleGetDirectQueryDataSource(w, r, strings.TrimPrefix(rest, "/"))
@@ -63,7 +91,7 @@ func (h *Handler) handleGetDirectQueryDataSource(
 
 		return
 	}
-	h.writeJSON(r, w, ds)
+	h.writeJSON(r, w, toDirectQueryDataSourceJSON(ds))
 }
 
 func (h *Handler) handleDeleteDirectQueryDataSource(
@@ -87,15 +115,21 @@ func (h *Handler) handleUpdateDirectQueryDataSource(
 		return
 	}
 	var req struct {
-		Description    string   `json:"Description"`
-		OpenSearchArns []string `json:"OpenSearchArns"`
+		DataSourceType json.RawMessage `json:"DataSourceType"`
+		Description    string          `json:"Description"`
+		OpenSearchArns []string        `json:"OpenSearchArns"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+
+			return
+		}
 	}
 	ds, updateErr := h.Backend.UpdateDirectQueryDataSource(
 		name,
 		req.Description,
+		req.DataSourceType,
 		req.OpenSearchArns,
 	)
 	if updateErr != nil {
@@ -106,11 +140,48 @@ func (h *Handler) handleUpdateDirectQueryDataSource(
 	h.writeJSON(r, w, map[string]any{"DataSourceArn": ds.DataSourceArn})
 }
 
+// updateDataSourceRequest is the JSON request body for UpdateDataSource
+// (types.UpdateDataSourceInput -- DomainName and Name come from the URL
+// path, not the body).
+type updateDataSourceRequest struct {
+	Description    string          `json:"Description"`
+	Status         string          `json:"Status"`
+	DataSourceType json.RawMessage `json:"DataSourceType"`
+}
+
+// handleUpdateDataSource handles PUT /2021-01-01/opensearch/domain/{DomainName}/dataSource/{Name}.
+func (h *Handler) handleUpdateDataSource(w http.ResponseWriter, r *http.Request, domainName, name string) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req updateDataSourceRequest
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+
+			return
+		}
+	}
+
+	updateErr := h.Backend.UpdateDataSource(domainName, name, req.Description, req.DataSourceType, req.Status)
+	if updateErr != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"Message": "Data source updated successfully"})
+}
+
 // addDataSourceRequest is the JSON request body for AddDataSource.
 type addDataSourceRequest struct {
-	DataSourceType any    `json:"DataSourceType"`
-	Name           string `json:"Name"`
-	Description    string `json:"Description"`
+	Name           string          `json:"Name"`
+	Description    string          `json:"Description"`
+	DataSourceType json.RawMessage `json:"DataSourceType"`
 }
 
 // addDataSourceOutput is the JSON response for AddDataSource.
@@ -137,7 +208,7 @@ func (h *Handler) handleAddDataSource(w http.ResponseWriter, r *http.Request, do
 		domainName,
 		req.Name,
 		req.Description,
-		marshalDataSourceType(req.DataSourceType),
+		req.DataSourceType,
 	)
 	if addErr != nil {
 		switch {
@@ -163,10 +234,10 @@ func (h *Handler) handleAddDataSource(w http.ResponseWriter, r *http.Request, do
 
 // addDirectQueryDataSourceRequest is the JSON request body for AddDirectQueryDataSource.
 type addDirectQueryDataSourceRequest struct {
-	DataSourceName string   `json:"DataSourceName"`
-	Description    string   `json:"Description"`
-	DataSourceType any      `json:"DataSourceType"`
-	OpenSearchArns []string `json:"OpenSearchArns"`
+	DataSourceName string          `json:"DataSourceName"`
+	Description    string          `json:"Description"`
+	DataSourceType json.RawMessage `json:"DataSourceType"`
+	OpenSearchArns []string        `json:"OpenSearchArns"`
 }
 
 // addDirectQueryDataSourceOutput is the JSON response for AddDirectQueryDataSource.
@@ -192,7 +263,7 @@ func (h *Handler) handleAddDirectQueryDataSource(w http.ResponseWriter, r *http.
 	dsARN, addErr := h.Backend.AddDirectQueryDataSource(
 		req.DataSourceName,
 		req.Description,
-		marshalDataSourceType(req.DataSourceType),
+		req.DataSourceType,
 		req.OpenSearchArns,
 	)
 	if addErr != nil {

@@ -64,6 +64,34 @@ func TestResourceGroupsHandler_SearchResources(t *testing.T) {
 	}
 }
 
+// TestSearchResources_QueryErrorsShape verifies that QueryErrors is present
+// in the SearchResourcesOutput shape (real types.SearchResourcesOutput
+// member) but omitted/empty for TAG_FILTERS_1_0 queries: QueryErrors only
+// ever arises for CLOUDFORMATION_STACK_1_0-based groups, which this emulator
+// does not model (see PARITY.md gaps).
+func TestSearchResources_QueryErrorsShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestResourceGroupsHandler(t)
+	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "qe-group"})
+	doResourceGroupsRequest(t, h, "GroupResources", map[string]any{
+		"Group":        "qe-group",
+		"ResourceArns": []string{"arn:aws:s3:::qe-bucket"},
+	})
+
+	rec := doResourceGroupsRequest(t, h, "SearchResources", map[string]any{
+		"ResourceQuery": map[string]any{
+			"Type":  "TAG_FILTERS_1_0",
+			"Query": `{"ResourceTypeFilters":["AWS::AllSupported"]}`,
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.NotContains(t, out, "QueryErrors", "QueryErrors must be omitted when empty")
+}
+
 // TestSearchResources_HandlerRequiresResourceQuery verifies error shape.
 func TestSearchResources_HandlerRequiresResourceQuery(t *testing.T) {
 	t.Parallel()

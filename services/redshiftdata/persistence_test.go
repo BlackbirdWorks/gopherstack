@@ -219,7 +219,7 @@ func TestSnapshot_Restore(t *testing.T) {
 	b := NewInMemoryBackend(persistenceTestAccountID, "us-east-1")
 
 	stmt, err := b.ExecuteStatement(
-		context.Background(), "SELECT 42", "cluster", "", "mydb", "", "", "test-stmt", false, "", nil,
+		context.Background(), "SELECT 42", "cluster", "", "mydb", "", "", "test-stmt", false, "", nil, "",
 	)
 	require.NoError(t, err)
 
@@ -258,12 +258,12 @@ func TestSnapshot_PreservesStatementKeys(t *testing.T) {
 	b := NewInMemoryBackend(persistenceTestAccountID, "us-east-1")
 
 	stmt1, err := b.ExecuteStatement(
-		context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil,
+		context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil, "",
 	)
 	require.NoError(t, err)
 
 	stmt2, err := b.ExecuteStatement(
-		context.Background(), "SELECT 2", "cluster", "", "mydb", "", "", "", false, "", nil,
+		context.Background(), "SELECT 2", "cluster", "", "mydb", "", "", "", false, "", nil, "",
 	)
 	require.NoError(t, err)
 

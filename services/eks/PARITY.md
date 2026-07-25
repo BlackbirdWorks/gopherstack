@@ -3,14 +3,14 @@
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.89.0
 last_audit_commit: 7c297a53
-last_audit_date: 2026-07-12
-overall: A            # major route-matcher + wire-shape fixes found (fresh audit, no prior PARITY.md)
+last_audit_date: 2026-07-23
+overall: A            # route-matcher pass (prior audit) + gaps/deferred closeout pass (this audit)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "no maxResults/nextToken pagination — returns full list (pre-existing, not fixed this pass)"}
+  ListClusters: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination via pkgs/page (was returning the full list in one page)"}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateClusterConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as bare-path PUT /clusters/{name}; real path is POST /clusters/{name}/update-config"}
   UpdateClusterVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed at fictional POST /clusters/{name}/update-version; real path is POST /clusters/{name}/updates (shared with ListUpdates GET)"}
@@ -20,69 +20,66 @@ ops:
   AssociateEncryptionConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNodegroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "no pagination"}
+  ListNodegroups: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
   DeleteNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateNodegroupConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was reachable on a bare POST to the nodegroup path with no suffix check, so real SDK traffic to .../update-config fell through with a corrupted nodegroupName (the literal suffix baked in); now requires the real /update-config suffix"}
   UpdateNodegroupVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAddon: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAddon: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAddons: {wire: ok, errors: ok, state: ok, persist: ok, note: "no pagination"}
+  ListAddons: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
   DeleteAddon: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAddon: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was PUT to bare addon path; real op is POST .../addons/{addonName}/update"}
   DescribeAddonVersions: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-versions; real path is /addons/supported-versions — was completely unreachable by the real SDK client"}
   DescribeAddonConfiguration: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-configuration; real path is /addons/configuration-schemas — was completely unreachable"}
   CreateAccessEntry: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAccessEntry: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAccessEntries: {wire: ok, errors: ok, state: ok, persist: ok, note: "no pagination"}
+  DescribeAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added ModifiedAt (real aws-sdk-go-v2/service/eks/types.AccessEntry.ModifiedAt was entirely unmodeled); set on create and every update"}
+  ListAccessEntries: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
   DeleteAccessEntry: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path"}
+  UpdateAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path. Also now sets ModifiedAt"}
   AssociateAccessPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateAccessPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAssociatedAccessPolicies: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListAccessPolicies: {wire: ok, errors: ok, state: n/a, persist: n/a}
-  CreateFargateProfile: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeFargateProfile: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFargateProfiles: {wire: ok, errors: ok, state: ok, persist: ok, note: "no pagination; no UpdateFargateProfile exists in the real API either"}
+  ListAssociatedAccessPolicies: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "now supports maxResults/nextToken pagination"}
+  ListAccessPolicies: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "wire key for each entry was 'policyArn'; real aws-sdk-go-v2/service/eks/types.AccessPolicy field (deserializers.go's awsRestjson1_deserializeDocumentAccessPolicy) is 'arn' -- 'policyArn' is the correct key for AssociatedAccessPolicy elsewhere in this API but was wrong here. Also now supports maxResults/nextToken pagination"}
+  CreateFargateProfile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added Health (real aws-sdk-go-v2/service/eks/types.FargateProfile.Health was entirely absent from the wire response, not just unmodeled in the struct)"}
+  DescribeFargateProfile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Health fix as CreateFargateProfile"}
+  ListFargateProfiles: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination; no UpdateFargateProfile exists in the real API either"}
   DeleteFargateProfile: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreatePodIdentityAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribePodIdentityAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPodIdentityAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "no pagination"}
+  CreatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added ModifiedAt/ExternalId/Policy/DisableSessionTags -- all real aws-sdk-go-v2/service/eks/types.PodIdentityAssociation fields that were entirely unmodeled"}
+  DescribePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same field additions as CreatePodIdentityAssociation"}
+  ListPodIdentityAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was emitting the FULL PodIdentityAssociation shape (roleArn/createdAt/tags included); real ListPodIdentityAssociations returns the PodIdentityAssociationSummary shape which deliberately omits those fields -- verified against types.PodIdentityAssociationSummary. Also now supports maxResults/nextToken pagination"}
   DeletePodIdentityAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path"}
-  AssociateIdentityProviderConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeIdentityProviderConfig: {wire: ok, errors: ok, state: ok, persist: n/a, note: "matcher accepts any 3rd path segment as POST->Describe rather than requiring literal 'describe'; over-permissive but not wrong for real traffic, left as-is"}
-  ListIdentityProviderConfigs: {wire: ok, errors: ok, state: ok, persist: ok, note: "no pagination"}
+  UpdatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path. Now also accepts Policy/DisableSessionTags and sets ModifiedAt"}
+  AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset)"}
+  DescribeIdentityProviderConfig: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "response was a flat {clusterName,name,type,status,oidc,createdAt} object; real shape (aws-sdk-go-v2/service/eks/types.IdentityProviderConfigResponse) nests the full OidcIdentityProviderConfig under an 'oidc' key with identityProviderConfigName/identityProviderConfigArn/clientId/issuerUrl/usernameClaim/usernamePrefix/groupsClaim/groupsPrefix/requiredClaims/tags/status fields, none of which matched gopherstack's flat shape. Route-match looseness (any 3rd path segment) is unchanged, still intentional"}
+  ListIdentityProviderConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination (envelope shape {name,type} pairs was already correct)"}
   DisassociateIdentityProviderConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "was a GLOBAL (non-cluster-scoped) resource keyed only by 'name' at POST /capabilities, which does not exist in the real API at all (fabricated path). Real Capability is cluster-scoped (unique CapabilityName per cluster) at /clusters/{clusterName}/capabilities and requires ClusterName+CapabilityName+Type+RoleArn+DeletePropagationPolicy. Rebuilt: composite-keyed store (capabilityKey), cluster-scoped route, required-field validation, capabilityName/clusterName/arn/type/roleArn/deletePropagationPolicy/createdAt/tags on the wire (was emitting only name/version/status under the wrong field name 'name' instead of 'capabilityName')."}
+  CreateCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "was a GLOBAL (non-cluster-scoped) resource keyed only by 'name' at POST /capabilities, which does not exist in the real API at all (fabricated path). Real Capability is cluster-scoped (unique CapabilityName per cluster) at /clusters/{clusterName}/capabilities and requires ClusterName+CapabilityName+Type+RoleArn+DeletePropagationPolicy. Rebuilt: composite-keyed store (capabilityKey), cluster-scoped route, required-field validation, capabilityName/clusterName/arn/type/roleArn/deletePropagationPolicy/createdAt/tags on the wire (was emitting only name/version/status under the wrong field name 'name' instead of 'capabilityName'). This pass additionally added ModifiedAt/Health/Configuration and accepts (but does not persist for idempotency) ClientRequestToken"}
   DescribeCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed}
-  ListCapabilities: {wire: fixed, errors: fixed, state: fixed, persist: fixed}
+  ListCapabilities: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "was returning bare capability-name strings; real ListCapabilities returns CapabilitySummary objects (capabilityName/arn/status/type/version/createdAt/modifiedAt) -- verified against types.CapabilitySummary. Also now supports maxResults/nextToken pagination"}
   DeleteCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed}
-  UpdateCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "was PUT; real method is POST to the same leaf path. Configuration/ModifiedAt/Health/ClientRequestToken not modeled (gap)"}
-  CreateEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok, note: "path was /subscriptions; real path is /eks-anywhere-subscriptions — was completely unreachable. Does not validate the required 'term' field (gap, pre-existing)"}
+  UpdateCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "was PUT; real method is POST to the same leaf path. ModifiedAt now set on every update; Health/Configuration were added to the model (see CreateCapability note) -- Configuration remains a passthrough map (no per-capability-type ArgoCd/Ack/Kro schema validation)"}
+  CreateEksAnywhereSubscription: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "path was /subscriptions; real path is /eks-anywhere-subscriptions — was completely unreachable. Also now validates the required 'term' field (unit must be MONTHS, duration must be 12 or 36 -- verified against types.EksAnywhereSubscriptionTerm) and models autoRenew/effectiveDate/expirationDate, none of which were previously modeled at all"}
   DescribeEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok}
-  ListEksAnywhereSubscriptions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "no pagination"}
+  ListEksAnywhereSubscriptions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
   DeleteEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok}
   UpdateEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was PUT; real method is POST to the same leaf path"}
   DescribeInsight: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "content is synthetic/fabricated (pre-existing; AWS's real insight analysis cannot be emulated) but is now reachable at the correct path"}
-  ListInsights: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "was GET; real method is POST (carries an optional filter body) — was unreachable by the real SDK client"}
+  ListInsights: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "was GET; real method is POST (carries an optional filter body) — was unreachable by the real SDK client. Now also reads maxResults/nextToken from the POST body (not query params, since ListInsights carries no query string) and paginates"}
   StartInsightsRefresh: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "was routed/shaped as a per-insight, per-refresh-id nested resource (/insights/{id}/refresh); real API is a cluster-level singleton at /clusters/{name}/insights-refresh with no id at all. Response was also wrongly nested under an 'insightsRefresh' envelope key; real fields (message/status/startedAt/endedAt) are at the response root"}
   DescribeInsightsRefresh: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "same fixes as StartInsightsRefresh"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended to find Capability ARNs too"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "genuinely has no maxResults/nextToken in the real API (ListTagsForResourceInput has neither field) -- not a gap"}
   DescribeUpdate: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListUpdates: {wire: ok, errors: ok, state: ok, persist: ok, note: "no pagination"}
-  CancelUpdate: {wire: gap, errors: gap, state: gap, persist: gap, note: "not implemented at all — already tracked in sdk_completeness_test.go's notImplemented list (bd: gopherstack-nab); left untouched, outside this pass's route-matcher/wire-shape scope"}
+  ListUpdates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
+  CancelUpdate: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "implemented for real: POST /clusters/{name}/updates/{updateId}/cancel-update. Real EKS only performs cancellation for VersionRollback update types that are still InProgress (Kubernetes version rollback on EKS Auto Mode clusters, per the op's doc comment); any other type/status now returns InvalidRequestException (new ErrInvalidRequest sentinel) rather than silently no-opping or 404ing. On success sets Status=Cancelled and a Cancellation{Status,Reason} record, matching types.Update.Cancellation/types.Cancellation. No public op creates a VersionRollback update in this SDK version (it is an AWS-internal transition), so the success path is only reachable by seeding an update via the existing exported StoreUpdate — tests exercise this directly"}
 gaps:
-  - "CancelUpdate op entirely unimplemented (bd: gopherstack-nab, already tracked pre-existing)"
-  - "No List* op implements maxResults/nextToken pagination (ListClusters, ListNodegroups, ListAddons, ListFargateProfiles, ListPodIdentityAssociations, ListIdentityProviderConfigs, ListEksAnywhereSubscriptions, ListUpdates, ListAccessEntries all return the full set in one page) — needs a follow-up bd issue"
-  - "CreateEksAnywhereSubscription does not validate the required 'term' input field"
-  - "Capability Configuration/Health/ModifiedAt/ClientRequestToken (idempotency) not modeled — only CapabilityName/ClusterName/ARN/Type/RoleArn/DeletePropagationPolicy/Status/CreatedAt/Tags are real"
-  - "Insight/DescribeInsight content is fabricated/synthetic, not derived from real cluster analysis (pre-existing, inherent emulator limitation)"
+  - "Capability Configuration remains an untyped passthrough map — no per-CapabilityType (ArgoCd/Ack/Kro) schema validation of Configuration/UpdateCapabilityConfiguration, unlike the real API's discriminated CapabilityConfigurationResponse/UpdateCapabilityConfiguration union types"
+  - "Insight/DescribeInsight content is fabricated/synthetic, not derived from real cluster analysis (pre-existing, inherent emulator limitation -- there is no real cluster to analyze)"
+  - "ClientRequestToken (CreateCapability, CancelUpdate, CreatePodIdentityAssociation, etc.) is accepted on the wire for shape parity but never used for idempotency dedup, matching this backend's in-memory non-durable nature; a real duplicate-request-with-same-token replay will create two resources instead of returning the first one"
 deferred:
-  - "Full field-by-field wire audit of AccessEntry/FargateProfile/PodIdentityAssociation/IdentityProviderConfig response bodies beyond envelope key + top-level shape (route correctness was verified for all of these; deep field audit not done this pass)"
-  - "AWS error-code granularity beyond the three sentinel mappings (ErrNotFound->ResourceNotFoundException, ErrAlreadyExists->ResourceInUseException, ErrValidation->InvalidParameterValueException) — some real AWS EKS error paths return more specific codes (e.g. InvalidRequestException, ClientException) not modeled here"
-leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/addon CREATING->ACTIVE transitions) stopped via Handler.Shutdown->Backend.Close->work.Stop(); tags.Tags Prometheus-label objects closed on Delete/Reset for every resource type including the newly cluster-scoped Capability (added Capability to closeIDPAndSubscriptionTagsLocked and to DeleteCluster's cascade)"}
+  - "AWS error-code granularity beyond ResourceNotFoundException/ResourceInUseException/InvalidParameterValueException/InvalidRequestException (added this pass for CancelUpdate's not-cancellable case) — ClientException/ResourceLimitExceededException/ServerException are not modeled/reachable anywhere in this backend; a full sweep of which ops can plausibly return them was not done this pass"
+leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/addon CREATING->ACTIVE transitions) stopped via Handler.Shutdown->Backend.Close->work.Stop(); tags.Tags Prometheus-label objects closed on Delete/Reset for every resource type including Capability (closeIDPAndSubscriptionTagsLocked and DeleteCluster's cascade). No new goroutines/tickers introduced this pass -- CancelUpdate and pagination are synchronous request/response paths"}
 ---
 
 ## Notes
@@ -94,7 +91,75 @@ verified directly against `aws-sdk-go-v2/service/eks@v1.89.0`'s `serializers.go`
 (`awsRestjson1_deserializeOpDocument<Op>Output` field switch statements), not
 against gopherstack's own output — per the parity-principles memory.
 
-### Route-matcher bug class (the dominant finding this pass)
+### This pass (2026-07-23): gaps/deferred closeout
+
+Starting point was the prior route-matcher/wire-shape audit's 5 gaps + 2
+deferred items. All 5 gaps and both deferred items were addressed:
+
+1. **CancelUpdate** — implemented for real (route, backend state transition,
+   `Cancellation` record, `InvalidRequestException` for non-cancellable
+   updates). See the `CancelUpdate` ops entry above for the full writeup.
+2. **Pagination** — every List op that supports `maxResults`/`nextToken` in
+   the real API (all of them except the genuinely-unpaginated
+   `ListTagsForResource`) now does, via a shared `eksPaginationParams`/
+   `eksPageResponse` helper pair in `helpers.go` built on `pkgs/page`.
+   `ListInsights` is POST-only or so its pagination params come from the JSON
+   body, not query params — handled as a special case.
+3. **CreateEksAnywhereSubscription 'term'** — now required and validated
+   (`unit` must be `MONTHS`, `duration` must be 12 or 36); the subscription
+   record also now models `autoRenew`/`effectiveDate`/`expirationDate`, none
+   of which existed before.
+4. **Capability Configuration/Health/ModifiedAt/ClientRequestToken** —
+   `ModifiedAt` and `Health` (always an empty-issues object, since this
+   backend never generates real capability health problems) are now modeled
+   and set on create/update. `Configuration` is modeled as an untyped
+   passthrough map (see gaps: no per-type schema). `ClientRequestToken` is
+   accepted on the wire but not used for idempotency (see gaps).
+5. **Insight fabricated content** — left as-is; this is an inherent emulator
+   limitation (there is no real EKS control plane to analyze), not something
+   fixable by more wire-shape work. Documented as a permanent gap rather than
+   silently dropped.
+
+Deferred item 1 (full field-by-field audit of AccessEntry/FargateProfile/
+PodIdentityAssociation/IdentityProviderConfig) turned up real wire bugs, not
+just missing-but-harmless fields:
+
+- **AccessEntry**: `ModifiedAt` was completely absent (real
+  `types.AccessEntry.ModifiedAt`).
+- **FargateProfile**: `Health` was completely absent from the wire response
+  (real `types.FargateProfile.Health`), not merely unmodeled internally.
+- **PodIdentityAssociation**: `ModifiedAt`/`ExternalId`/`Policy`/
+  `DisableSessionTags` were absent. More importantly, **ListPodIdentityAssociations
+  was emitting the wrong shape entirely** — the full `PodIdentityAssociation`
+  object (including `roleArn`/`createdAt`/`tags`) instead of the real API's
+  `PodIdentityAssociationSummary`, which deliberately omits those fields.
+- **IdentityProviderConfig**: **DescribeIdentityProviderConfig's response
+  shape was wrong** — gopherstack returned a flat
+  `{clusterName,name,type,status,oidc,createdAt}` object; the real API nests
+  everything under `{identityProviderConfig: {oidc: {...}}}` with
+  `identityProviderConfigName`/`identityProviderConfigArn`/`clientId`/
+  `issuerUrl`/`usernameClaim`/`usernamePrefix`/`groupsClaim`/`groupsPrefix`/
+  `requiredClaims`/`tags`/`status` fields inside the `oidc` object. None of
+  gopherstack's flat top-level keys matched what a real SDK client expects to
+  unmarshal.
+- **ListAccessPolicies** (found incidentally while touching this area): each
+  entry's ARN field was keyed `"policyArn"`; the real
+  `types.AccessPolicy` wire key is `"arn"` (`"policyArn"` is correct for the
+  *different* `AssociatedAccessPolicy` type used by
+  `ListAssociatedAccessPolicies`, which was already correct).
+- **ListCapabilities** (found incidentally): was returning bare capability-name
+  strings; the real API returns `CapabilitySummary` objects.
+
+Deferred item 2 (error-code granularity) got a narrow, real fix: `CancelUpdate`
+on a non-cancellable update now returns `InvalidRequestException` (new
+`ErrInvalidRequest` sentinel, `awserr.ErrConflict`-backed) rather than a
+generic `InvalidParameterValueException` or silently succeeding — this
+matches the real API's documented "cancellation is only performed if the
+update can be cancelled" behavior. Broader error-code coverage
+(`ClientException`, `ResourceLimitExceededException`, `ServerException`)
+remains deferred; see `deferred:` above.
+
+### Route-matcher bug class (prior pass, 2026-07-12)
 
 This service had a large number of the "whole family unroutable by a real SDK
 client" bug class the audit brief called out (the same class that hit
@@ -154,3 +219,13 @@ key.
   `startedAt`, `endedAt`, etc.) via `.Unix()`, matching the SDK's
   `smithytime.ParseEpochSeconds` deserializers — already correct throughout,
   not something this pass needed to touch.
+- `CancelUpdate`'s success path (VersionRollback + InProgress) cannot be
+  reached through any other public op in this SDK version — AWS generates
+  VersionRollback updates internally when a node rollback is triggered on an
+  Auto Mode cluster, not via a documented Create/StartRollback op. Tests seed
+  it directly via `Handler.Backend.StoreUpdate`.
+- `page.New`'s `nextToken` is the empty string (omitted from the JSON
+  response body via `eksPageResponse`) once a List's results are exhausted —
+  don't expect a literal `null` in the map like the real SDK's Go struct
+  (`*string` marshals to `null`); gopherstack's map-based JSON just omits the
+  key, which decodes identically on the client side (`NextToken` stays nil).

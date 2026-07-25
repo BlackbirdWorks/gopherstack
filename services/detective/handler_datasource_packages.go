@@ -36,9 +36,9 @@ func (h *Handler) handleBatchGetGraphMemberDatasources(c *echo.Context) error {
 	memberDatasources := make([]map[string]any, 0, len(results))
 	for _, r := range results {
 		memberDatasources = append(memberDatasources, map[string]any{
-			keyAccountID:                    r.AccountID,
-			keyGraphArn:                     r.GraphARN,
-			"DatasourcePackageIngestStates": r.DatasourcePackageIngestStates,
+			keyAccountID:                     r.AccountID,
+			keyGraphArn:                      r.GraphARN,
+			keyDatasourcePackageIngestStates: r.DatasourcePackageIngestStates,
 		})
 	}
 
@@ -70,9 +70,9 @@ func (h *Handler) handleBatchGetMembershipDatasources(c *echo.Context) error {
 	membershipDatasources := make([]map[string]any, 0, len(results))
 	for _, r := range results {
 		membershipDatasources = append(membershipDatasources, map[string]any{
-			keyAccountID:                    r.AccountID,
-			keyGraphArn:                     r.GraphARN,
-			"DatasourcePackageIngestStates": r.DatasourcePackageIngestStates,
+			keyAccountID:                     r.AccountID,
+			keyGraphArn:                      r.GraphARN,
+			keyDatasourcePackageIngestStates: r.DatasourcePackageIngestStates,
 		})
 	}
 
@@ -80,7 +80,7 @@ func (h *Handler) handleBatchGetMembershipDatasources(c *echo.Context) error {
 	for _, g := range unprocessed {
 		unprocessedGraphs = append(unprocessedGraphs, map[string]any{
 			keyGraphArn: g.GraphArn,
-			"Reason":    g.Reason,
+			keyReason:   g.Reason,
 		})
 	}
 

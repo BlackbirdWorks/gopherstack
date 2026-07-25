@@ -50,7 +50,7 @@ func newPersistenceTestBackend(t *testing.T) *iotanalytics.InMemoryBackend {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Populate datasetContents (raw map left un-converted).
-	_, err = b.CreateDatasetContent(dataset.Name)
+	_, err = b.CreateDatasetContent(dataset.Name, "")
 	require.NoError(t, err)
 
 	// Populate loggingOptions (singleton field).

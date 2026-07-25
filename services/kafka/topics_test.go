@@ -48,7 +48,7 @@ func TestCreateTopic(t *testing.T) {
 					nil,
 					nil,
 				)
-				_, _ = b.CreateTopic(context.Background(), c.ClusterArn, "my-topic", 1, 3, nil)
+				_, _ = b.CreateTopic(context.Background(), c.ClusterArn, "my-topic", 1, 3, "")
 
 				return c.ClusterArn
 			},
@@ -72,7 +72,7 @@ func TestCreateTopic(t *testing.T) {
 			b := newTestBackend(t)
 			clusterArn := tt.setup(b)
 
-			topic, err := b.CreateTopic(context.Background(), clusterArn, tt.topicName, 1, 3, nil)
+			topic, err := b.CreateTopic(context.Background(), clusterArn, tt.topicName, 1, 3, "")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -107,7 +107,7 @@ func TestDeleteTopic(t *testing.T) {
 					nil,
 					nil,
 				)
-				_, _ = b.CreateTopic(context.Background(), c.ClusterArn, "my-topic", 1, 3, nil)
+				_, _ = b.CreateTopic(context.Background(), c.ClusterArn, "my-topic", 1, 3, "")
 
 				return c.ClusterArn, "my-topic"
 			},
@@ -163,7 +163,7 @@ func TestCreateTopic_RequiresName(t *testing.T) {
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	cl := b.AddClusterInternal("c1", "2.8.0")
-	_, err := b.CreateTopic(context.Background(), cl.ClusterArn, "", 3, 1, nil)
+	_, err := b.CreateTopic(context.Background(), cl.ClusterArn, "", 3, 1, "")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, kafka.ErrValidation)

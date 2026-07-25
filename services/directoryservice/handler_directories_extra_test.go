@@ -26,13 +26,13 @@ func TestConnectDirectory_Validation(t *testing.T) {
 			name:     "missing Name returns 400",
 			body:     map[string]any{"Password": "Admin1234!", "Size": "Small"},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
 			name:     "missing Password returns 400",
 			body:     map[string]any{"Name": "corp.example.com", "Size": "Small"},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
 			name: "invalid Size returns 400",
@@ -42,7 +42,7 @@ func TestConnectDirectory_Validation(t *testing.T) {
 				"Size":     "Giant",
 			},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
 			name: "valid Small succeeds",

@@ -19,6 +19,34 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 	return defaultRegion
 }
 
+// resultSetOptionsContextKey is the context key under which a request's
+// ExecuteStatementInput.ResultSetOptions is stashed, mirroring
+// regionContextKey above. It is request-scoped, optional configuration read
+// only by the engine's result-shaping path (see shapeField in engine.go), so
+// threading it through context avoids adding a rarely-used parameter to the
+// StorageBackend.ExecuteStatement signature that nearly every call site would
+// have to pass a zero value for.
+type resultSetOptionsContextKey struct{}
+
+// resultSetOptions mirrors types.ResultSetOptions (aws-sdk-go-v2/service/rdsdata).
+// Zero value ("") for either field means "use the real API's default",
+// applied in shapeField.
+type resultSetOptions struct {
+	DecimalReturnType string
+	LongReturnType    string
+}
+
+// getResultSetOptions extracts resultSetOptions from ctx, defaulting to the
+// zero value (real API defaults: DecimalReturnType=STRING, LongReturnType=LONG)
+// when the request didn't set one.
+func getResultSetOptions(ctx context.Context) resultSetOptions {
+	if o, ok := ctx.Value(resultSetOptionsContextKey{}).(resultSetOptions); ok {
+		return o
+	}
+
+	return resultSetOptions{}
+}
+
 const (
 	// transactionStatusActive is the active state for a transaction.
 	transactionStatusActive = "ACTIVE"

@@ -85,17 +85,7 @@ func (b *InMemoryBackend) ListNamedQueries(
 		limit = maxResults
 	}
 
-	start := 0
-	if nextToken != "" {
-		for i, id := range ids {
-			if id == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
+	start := paginationStart(len(ids), nextToken, func(i int) string { return ids[i] })
 	ids = ids[start:]
 
 	outToken := ""

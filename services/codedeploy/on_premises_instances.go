@@ -142,9 +142,9 @@ func (b *InMemoryBackend) ListOnPremisesInstances(registrationStatus string, tag
 	return names
 }
 
-// matchesTagFilters returns true if the tags satisfy all the given filters.
-//
-//nolint:gocognit // tag filter matching requires nested condition evaluation
+// matchesTagFilters returns true if the tags satisfy all the given filters
+// (AND semantics across filters, matching real CodeDeploy's single-tag-set
+// group behavior).
 func matchesTagFilters(t *tags.Tags, filters []TagFilter) bool {
 	if t == nil {
 		return len(filters) == 0
@@ -153,31 +153,76 @@ func matchesTagFilters(t *tags.Tags, filters []TagFilter) bool {
 	kv := t.Clone()
 
 	for _, f := range filters {
-		switch f.Type {
-		case "KEY_ONLY":
-			if _, ok := kv[f.Key]; !ok {
-				return false
-			}
-		case "VALUE_ONLY":
-			found := false
-			for _, v := range kv {
-				if v == f.Value {
-					found = true
-
-					break
-				}
-			}
-			if !found {
-				return false
-			}
-		default: // EQUALS or empty
-			if v, ok := kv[f.Key]; !ok || v != f.Value {
-				return false
-			}
+		if !matchesOneTagFilter(kv, f) {
+			return false
 		}
 	}
 
 	return true
+}
+
+// matchesOneTagFilter evaluates a single TagFilter against kv, honoring the
+// three real CodeDeploy TagFilterType values: KEY_ONLY (key must exist, any
+// value), VALUE_ONLY (value must exist under any key), and KEY_AND_VALUE
+// (exact key=value match) -- the last of which is also this function's
+// default for an empty/unset Type, matching how AWS treats a missing filter
+// type as an exact match. Factored out of matchesTagFilters to keep that
+// loop's own complexity low.
+func matchesOneTagFilter(kv map[string]string, f TagFilter) bool {
+	switch f.Type {
+	case "KEY_ONLY":
+		_, ok := kv[f.Key]
+
+		return ok
+	case "VALUE_ONLY":
+		for _, v := range kv {
+			if v == f.Value {
+				return true
+			}
+		}
+
+		return false
+	default: // KEY_AND_VALUE, or empty (missing type defaults to exact match)
+		v, ok := kv[f.Key]
+
+		return ok && v == f.Value
+	}
+}
+
+// matchesTagSetGroups reports whether kv satisfies at least one AND-group in
+// groups (OR across groups, AND within a group), matching real CodeDeploy's
+// Ec2TagSet/OnPremisesTagSet semantics. An empty groups list never matches
+// (there is nothing to satisfy), distinct from matchesTagFilters(t, nil)
+// which vacuously matches everything -- a tag *set* with zero groups means
+// "no tag-set-based targeting configured", not "targets everything".
+func matchesTagSetGroups(t *tags.Tags, groups [][]TagFilter) bool {
+	for _, group := range groups {
+		if matchesTagFilters(t, group) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// matchesOnPremisesTargeting reports whether an on-premises instance's tags
+// satisfy a deployment group's on-premises targeting configuration.
+// OnPremisesTagSet (AND-groups OR'd together) takes precedence over the
+// simpler flat OnPremisesInstanceTagFilters (AND only) when both happen to be
+// set, matching how the real CreateDeploymentGroup API treats the two as
+// mutually exclusive alternate representations of the same concept. A
+// deployment group with neither configured never targets any on-premises
+// instance.
+func matchesOnPremisesTargeting(t *tags.Tags, dg *DeploymentGroup) bool {
+	if dg.OnPremisesTagSet != nil && len(dg.OnPremisesTagSet.OnPremisesTagSetList) > 0 {
+		return matchesTagSetGroups(t, dg.OnPremisesTagSet.OnPremisesTagSetList)
+	}
+
+	if len(dg.OnPremisesInstanceTagFilters) > 0 {
+		return matchesTagFilters(t, dg.OnPremisesInstanceTagFilters)
+	}
+
+	return false
 }
 
 // BatchGetOnPremisesInstances returns on-premises instance info for the given names.

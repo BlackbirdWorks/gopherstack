@@ -67,10 +67,15 @@ func TestAWSConfigBackend_DeleteEvaluationResults(t *testing.T) {
 				ResourceID: "b1", ComplianceType: "NON_COMPLIANT",
 			},
 		}))
-		require.Len(t, b.GetComplianceDetailsByConfigRule("my-rule", nil), 1)
+		before, err := b.GetComplianceDetailsByConfigRule("my-rule", nil)
+		require.NoError(t, err)
+		require.Len(t, before, 1)
 
 		require.NoError(t, b.DeleteEvaluationResults("my-rule"))
-		assert.Empty(t, b.GetComplianceDetailsByConfigRule("my-rule", nil))
+
+		after, err := b.GetComplianceDetailsByConfigRule("my-rule", nil)
+		require.NoError(t, err)
+		assert.Empty(t, after)
 		assert.Empty(t, b.GetConfigRuleComplianceType("my-rule"))
 	})
 
@@ -137,7 +142,8 @@ func TestAWSConfigBackend_DescribeConfigRules_WithStoredRules(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			rules := b.DescribeConfigRules(tt.filter)
+			rules, err := b.DescribeConfigRules(tt.filter)
+			require.NoError(t, err)
 			names := make([]string, len(rules))
 			for i, r := range rules {
 				names[i] = r.ConfigRuleName
@@ -145,6 +151,27 @@ func TestAWSConfigBackend_DescribeConfigRules_WithStoredRules(t *testing.T) {
 			assert.Equal(t, tt.wantNames, names)
 		})
 	}
+}
+
+func TestAWSConfigBackend_DescribeConfigRules_UnknownNameErrors(t *testing.T) {
+	t.Parallel()
+
+	b := awsconfig.NewInMemoryBackend()
+	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-a"}))
+
+	_, err := b.DescribeConfigRules([]string{"rule-a", "does-not-exist"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awsconfig.ErrNoSuchConfigRule)
+}
+
+func TestAWSConfigBackend_GetComplianceDetailsByConfigRule_UnknownRuleErrors(t *testing.T) {
+	t.Parallel()
+
+	b := awsconfig.NewInMemoryBackend()
+
+	_, err := b.GetComplianceDetailsByConfigRule("does-not-exist", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, awsconfig.ErrNoSuchConfigRule)
 }
 
 func TestDescribeConfigRuleEvaluationStatus(t *testing.T) {
@@ -334,4 +361,141 @@ func TestDescribeAggregateComplianceByConfigRules(t *testing.T) {
 	if len(out) != 1 {
 		t.Fatalf("expected 1, got %d", len(out))
 	}
+}
+
+func TestAWSConfigBackend_DescribeComplianceByResource(t *testing.T) {
+	t.Parallel()
+
+	b := awsconfig.NewInMemoryBackend()
+	require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
+		{
+			ConfigRuleName: "r1", ResourceType: "AWS::S3::Bucket",
+			ResourceID: "bucket-a", ComplianceType: "NON_COMPLIANT",
+		},
+		{
+			ConfigRuleName: "r2", ResourceType: "AWS::S3::Bucket",
+			ResourceID: "bucket-a", ComplianceType: "COMPLIANT",
+		},
+		{
+			ConfigRuleName: "r1", ResourceType: "AWS::S3::Bucket",
+			ResourceID: "bucket-b", ComplianceType: "COMPLIANT",
+		},
+	}))
+
+	t.Run("no_filter_returns_all_resources", func(t *testing.T) {
+		t.Parallel()
+
+		out := b.DescribeComplianceByResource("", "", nil)
+		require.Len(t, out, 2)
+		assert.Equal(t, "bucket-a", out[0].ResourceID)
+		assert.Equal(t, "NON_COMPLIANT", out[0].Compliance.ComplianceType)
+		require.NotNil(t, out[0].Compliance.ComplianceContributorCount)
+		assert.Equal(t, int32(1), out[0].Compliance.ComplianceContributorCount.CappedCount)
+		assert.Equal(t, "bucket-b", out[1].ResourceID)
+		assert.Equal(t, "COMPLIANT", out[1].Compliance.ComplianceType)
+	})
+
+	t.Run("filter_by_resource_id", func(t *testing.T) {
+		t.Parallel()
+
+		out := b.DescribeComplianceByResource("AWS::S3::Bucket", "bucket-b", nil)
+		require.Len(t, out, 1)
+		assert.Equal(t, "bucket-b", out[0].ResourceID)
+	})
+
+	t.Run("filter_by_compliance_type", func(t *testing.T) {
+		t.Parallel()
+
+		out := b.DescribeComplianceByResource("", "", []string{"NON_COMPLIANT"})
+		require.Len(t, out, 1)
+		assert.Equal(t, "bucket-a", out[0].ResourceID)
+	})
+
+	t.Run("no_evaluations_returns_empty", func(t *testing.T) {
+		t.Parallel()
+
+		empty := awsconfig.NewInMemoryBackend()
+		assert.Empty(t, empty.DescribeComplianceByResource("", "", nil))
+	})
+}
+
+func TestAWSConfigBackend_GetAggregateComplianceDetailsByConfigRule(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown_aggregator_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.GetAggregateComplianceDetailsByConfigRule(
+			"does-not-exist", "rule1", "123456789012", "us-east-1", nil,
+		)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoSuchAggregator)
+	})
+
+	t.Run("echoes_requested_account_and_region", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule1"}))
+		require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
+			{
+				ConfigRuleName: "rule1", ResourceType: "AWS::S3::Bucket",
+				ResourceID: "b1", ComplianceType: "NON_COMPLIANT",
+			},
+		}))
+
+		results, err := b.GetAggregateComplianceDetailsByConfigRule(
+			"agg1", "rule1", "999999999999", "eu-west-1", nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		assert.Equal(t, "999999999999", results[0].AccountID)
+		assert.Equal(t, "eu-west-1", results[0].AwsRegion)
+		assert.Equal(t, "NON_COMPLIANT", results[0].ComplianceType)
+	})
+}
+
+func TestAWSConfigBackend_GetAggregateConfigRuleComplianceSummary(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown_aggregator_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.GetAggregateConfigRuleComplianceSummary("does-not-exist", "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoSuchAggregator)
+	})
+
+	t.Run("groups_by_account_id_by_default", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
+			{ConfigRuleName: "rule1", ComplianceType: "COMPLIANT"},
+		}))
+
+		counts, err := b.GetAggregateConfigRuleComplianceSummary("agg1", "")
+		require.NoError(t, err)
+		require.Len(t, counts, 1)
+		assert.Equal(t, "123456789012", counts[0].GroupName)
+	})
+
+	t.Run("groups_by_region_when_requested", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
+			{ConfigRuleName: "rule1", ComplianceType: "COMPLIANT"},
+		}))
+
+		counts, err := b.GetAggregateConfigRuleComplianceSummary("agg1", "AWS_REGION")
+		require.NoError(t, err)
+		require.Len(t, counts, 1)
+		assert.Equal(t, "us-east-1", counts[0].GroupName)
+	})
 }

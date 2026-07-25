@@ -360,6 +360,34 @@ func TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshotVersion(t *testing.T
 	assert.Empty(t, out.QueueURLs, "backend must start empty after discarding an incompatible snapshot")
 }
 
+// TestInMemoryBackend_SnapshotRestore_PreservesQueueDeletedRecentlyCooldown
+// verifies that the ErrQueueDeletedRecently 60-second cooldown survives a
+// snapshot/restore cycle, matching the same rationale already established
+// for PurgeQueue's lastPurgedAt cooldown: without persisting it, a restore
+// immediately followed by CreateQueue would silently drop AWS's
+// wait-before-recreate rule for any queue deleted just before the snapshot.
+func TestInMemoryBackend_SnapshotRestore_PreservesQueueDeletedRecentlyCooldown(t *testing.T) {
+	t.Parallel()
+
+	original := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(original.Close)
+
+	out, err := original.CreateQueue(&sqs.CreateQueueInput{QueueName: "cooldown-queue", Endpoint: "localhost"})
+	require.NoError(t, err)
+	require.NoError(t, original.DeleteQueue(&sqs.DeleteQueueInput{QueueURL: out.QueueURL}))
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(fresh.Close)
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	_, err = fresh.CreateQueue(&sqs.CreateQueueInput{QueueName: "cooldown-queue", Endpoint: "localhost"})
+	require.ErrorIs(t, err, sqs.ErrQueueDeletedRecently,
+		"the deletion cooldown must survive a snapshot/restore cycle")
+}
+
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 

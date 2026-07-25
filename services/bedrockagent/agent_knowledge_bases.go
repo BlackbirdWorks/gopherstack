@@ -15,9 +15,20 @@ func agKBKey(agentID, agentVersion, kbID string) string {
 }
 
 // AssociateAgentKnowledgeBase creates an agent–KB association.
+//
+// Real AWS constrains the {agentVersion} URI path parameter to the literal
+// "DRAFT" (fixed length 5, pattern `DRAFT`, per the
+// AssociateAgentKnowledgeBase API reference) -- same constraint as
+// CreateAgentActionGroup.
 func (b *InMemoryBackend) AssociateAgentKnowledgeBase(
 	_ context.Context, agentID, agentVersion, kbID, description, kbState string,
 ) (*AgentKnowledgeBase, error) {
+	if agentVersion != defaultAgentVersion {
+		return nil, fmt.Errorf(
+			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
+		)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

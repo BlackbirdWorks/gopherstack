@@ -8,14 +8,15 @@ import (
 // --- SMB location ---
 
 type createLocationSmbInput struct {
-	MountOptions   *mountOptionsInput `json:"MountOptions"`
-	ServerHostname string             `json:"ServerHostname"`
-	Subdirectory   string             `json:"Subdirectory,omitempty"`
-	Domain         string             `json:"Domain,omitempty"`
-	User           string             `json:"User"`
-	Password       string             `json:"Password"`
-	AgentArns      []string           `json:"AgentArns"`
-	Tags           []tagInput         `json:"Tags"`
+	MountOptions       *mountOptionsInput `json:"MountOptions"`
+	ServerHostname     string             `json:"ServerHostname"`
+	Subdirectory       string             `json:"Subdirectory,omitempty"`
+	Domain             string             `json:"Domain,omitempty"`
+	User               string             `json:"User"`
+	Password           string             `json:"Password"`
+	AuthenticationType string             `json:"AuthenticationType,omitempty"`
+	AgentArns          []string           `json:"AgentArns"`
+	Tags               []tagInput         `json:"Tags"`
 }
 
 type createLocationSmbOutput struct {
@@ -46,7 +47,7 @@ func (h *Handler) handleCreateLocationSmb(
 	}
 
 	l, err := h.Backend.CreateLocationSmb(
-		in.ServerHostname, in.Subdirectory, in.Domain, in.User, in.Password,
+		in.ServerHostname, in.Subdirectory, in.Domain, in.User, in.Password, in.AuthenticationType,
 		mo, in.AgentArns, tags,
 	)
 	if err != nil {
@@ -60,16 +61,20 @@ type describeLocationSmbInput struct {
 	LocationArn string `json:"LocationArn"`
 }
 
+// describeLocationSmbOutput intentionally has no ServerHostname or
+// Subdirectory field: the real DescribeLocationSmbOutput has neither
+// (confirmed against aws-sdk-go-v2 v1.59.2: host/path are folded into
+// LocationUri only). It does have AuthenticationType, unlike gopherstack's
+// prior shape.
 type describeLocationSmbOutput struct {
-	MountOptions   *mountOptionsOutput `json:"MountOptions,omitempty"`
-	LocationArn    string              `json:"LocationArn"`
-	LocationURI    string              `json:"LocationUri"`
-	ServerHostname string              `json:"ServerHostname,omitempty"`
-	Subdirectory   string              `json:"Subdirectory,omitempty"`
-	Domain         string              `json:"Domain,omitempty"`
-	User           string              `json:"User,omitempty"`
-	AgentArns      []string            `json:"AgentArns,omitempty"`
-	CreationTime   int64               `json:"CreationTime"`
+	MountOptions       *mountOptionsOutput `json:"MountOptions,omitempty"`
+	LocationArn        string              `json:"LocationArn"`
+	LocationURI        string              `json:"LocationUri"`
+	Domain             string              `json:"Domain,omitempty"`
+	User               string              `json:"User,omitempty"`
+	AuthenticationType string              `json:"AuthenticationType,omitempty"`
+	AgentArns          []string            `json:"AgentArns,omitempty"`
+	CreationTime       int64               `json:"CreationTime"`
 }
 
 func (h *Handler) handleDescribeLocationSmb(
@@ -86,14 +91,13 @@ func (h *Handler) handleDescribeLocationSmb(
 	}
 
 	out := &describeLocationSmbOutput{
-		LocationArn:    l.LocationArn,
-		LocationURI:    l.LocationURI,
-		ServerHostname: l.ServerHostname,
-		Subdirectory:   l.Subdirectory,
-		Domain:         l.Domain,
-		User:           l.User,
-		AgentArns:      l.AgentArns,
-		CreationTime:   l.CreationTime.Unix(),
+		LocationArn:        l.LocationArn,
+		LocationURI:        l.LocationURI,
+		Domain:             l.Domain,
+		User:               l.User,
+		AuthenticationType: l.AuthenticationType,
+		AgentArns:          l.AgentArns,
+		CreationTime:       l.CreationTime.Unix(),
 	}
 
 	if l.MountOptions != nil {
@@ -104,13 +108,14 @@ func (h *Handler) handleDescribeLocationSmb(
 }
 
 type updateLocationSmbInput struct {
-	MountOptions *mountOptionsInput `json:"MountOptions"`
-	LocationArn  string             `json:"LocationArn"`
-	Subdirectory string             `json:"Subdirectory,omitempty"`
-	Domain       string             `json:"Domain,omitempty"`
-	User         string             `json:"User,omitempty"`
-	Password     string             `json:"Password,omitempty"`
-	AgentArns    []string           `json:"AgentArns"`
+	MountOptions       *mountOptionsInput `json:"MountOptions"`
+	LocationArn        string             `json:"LocationArn"`
+	Subdirectory       string             `json:"Subdirectory,omitempty"`
+	Domain             string             `json:"Domain,omitempty"`
+	User               string             `json:"User,omitempty"`
+	Password           string             `json:"Password,omitempty"`
+	AuthenticationType string             `json:"AuthenticationType,omitempty"`
+	AgentArns          []string           `json:"AgentArns"`
 }
 
 type updateLocationSmbOutput struct{}
@@ -129,7 +134,7 @@ func (h *Handler) handleUpdateLocationSmb(
 	}
 
 	if err := h.Backend.UpdateLocationSmb(
-		in.LocationArn, in.Subdirectory, in.Domain, in.User, in.Password,
+		in.LocationArn, in.Subdirectory, in.Domain, in.User, in.Password, in.AuthenticationType,
 		mo, in.AgentArns,
 	); err != nil {
 		return nil, err

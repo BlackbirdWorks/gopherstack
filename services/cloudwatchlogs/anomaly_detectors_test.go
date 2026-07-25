@@ -99,7 +99,7 @@ func TestCloudWatchLogsBackend_LogAnomalyDetectorLifecycle(t *testing.T) {
 			case "delete":
 				err = b.DeleteLogAnomalyDetector(tt.arnToOp)
 			case "update":
-				err = b.UpdateLogAnomalyDetector(tt.arnToOp, tt.newFreq, 0)
+				err = b.UpdateLogAnomalyDetector(tt.arnToOp, tt.newFreq, 0, true)
 			}
 
 			if tt.wantErr != nil {
@@ -477,7 +477,7 @@ func TestCloudWatchLogsBackend_CreateLogAnomalyDetector_VisibilityTimeValidation
 
 			detector, err := b.GetLogAnomalyDetector(detectorARN)
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantStatus, detector.DetectorStatus)
+			assert.Equal(t, tt.wantStatus, detector.AnomalyDetectorStatus)
 			assert.NotZero(t, detector.LastModifiedTimeStamp)
 		})
 	}
@@ -502,7 +502,7 @@ func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_SetsLastModified(t *test
 
 	time.Sleep(2 * time.Millisecond)
 
-	err = b.UpdateLogAnomalyDetector(arn, "FIVE_MIN", 30*msPerDay)
+	err = b.UpdateLogAnomalyDetector(arn, "FIVE_MIN", 30*msPerDay, true)
 	require.NoError(t, err)
 
 	after, err := b.GetLogAnomalyDetector(arn)
@@ -546,7 +546,7 @@ func TestCloudWatchLogsBackend_UpdateLogAnomalyDetector_VisibilityTimeValidation
 			)
 			require.NoError(t, err)
 
-			err = b.UpdateLogAnomalyDetector(arn, "", tt.anomalyVisibilityTime)
+			err = b.UpdateLogAnomalyDetector(arn, "", tt.anomalyVisibilityTime, true)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)

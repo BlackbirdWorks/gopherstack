@@ -204,6 +204,7 @@ func (b *InMemoryBackend) DeleteSecondaryNetwork(id string) (*SecondaryNetwork, 
 		}
 	}
 	b.secondaryNetworks.Delete(id)
+	delete(b.tags, id)
 
 	cp := *net
 	cp.State = secondaryStateDeleteComplete
@@ -303,6 +304,7 @@ func (b *InMemoryBackend) DeleteSecondarySubnet(id string) (*SecondarySubnet, er
 		return nil, fmt.Errorf("%w: %s", ErrSecondarySubnetNotFound, id)
 	}
 	b.secondarySubnets.Delete(id)
+	delete(b.tags, id)
 
 	cp := *sub
 	cp.State = secondaryStateDeleteComplete

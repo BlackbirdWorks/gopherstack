@@ -23,8 +23,6 @@ type Application struct {
 	ApplicationDescription   string                           `json:"ApplicationDescription,omitempty"`
 	ApplicationCode          string                           `json:"ApplicationCode,omitempty"`
 	ApplicationName          string                           `json:"ApplicationName"`
-	ServiceExecutionRole     string                           `json:"ServiceExecutionRole,omitempty"`
-	RuntimeEnvironment       string                           `json:"RuntimeEnvironment,omitempty"`
 	Region                   string                           `json:"region,omitempty"`
 	CloudWatchLoggingOptions []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptions,omitempty"`
 	ReferenceDataSources     []ReferenceDataSourceDescription `json:"ReferenceDataSources,omitempty"`
@@ -190,7 +188,6 @@ type createApplicationInput struct {
 	ApplicationName          string                    `json:"ApplicationName"`
 	ApplicationDescription   string                    `json:"ApplicationDescription"`
 	ApplicationCode          string                    `json:"ApplicationCode"`
-	ServiceExecutionRole     string                    `json:"ServiceExecutionRole,omitempty"`
 	Tags                     []tagEntry                `json:"Tags"`
 	CloudWatchLoggingOptions []cwlOptionInput          `json:"CloudWatchLoggingOptions,omitempty"`
 	Inputs                   []applicationInputConfig  `json:"Inputs,omitempty"`
@@ -220,8 +217,6 @@ type applicationDetail struct {
 	ApplicationStatus                   string                           `json:"ApplicationStatus"`
 	ApplicationCode                     string                           `json:"ApplicationCode,omitempty"`
 	ApplicationDescription              string                           `json:"ApplicationDescription,omitempty"`
-	ServiceExecutionRole                string                           `json:"ServiceExecutionRole,omitempty"`
-	RuntimeEnvironment                  string                           `json:"RuntimeEnvironment,omitempty"`
 	CloudWatchLoggingOptionDescriptions []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptionDescriptions,omitempty"` //nolint:lll // AWS API name
 	InputDescriptions                   []InputDescription               `json:"InputDescriptions,omitempty"`
 	OutputDescriptions                  []OutputDescription              `json:"OutputDescriptions,omitempty"`
@@ -279,15 +274,19 @@ type updateApplicationInput struct {
 // "Update" suffix -- e.g. "ResourceARNUpdate" not "ResourceARN"), verified against
 // aws-sdk-go-v2/service/kinesisanalytics serializers.go. Reusing the Add* config types here
 // would silently fail to decode real client payloads.
+//
+// InputStartingPositionConfiguration deliberately does NOT appear here: the real InputUpdate
+// shape (aws-sdk-go-v2/service/kinesisanalytics/types.InputUpdate) has no such member --
+// starting-position changes are only ever accepted via StartApplication's InputConfigurations
+// (see inputConfiguration), never via UpdateApplication.
 type inputUpdate struct {
-	InputProcessingConfigurationUpdate *inputProcessingConfigUpdateInput   `json:"InputProcessingConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
-	InputStartingPositionConfiguration *InputStartingPositionConfiguration `json:"InputStartingPositionConfiguration,omitempty"` //nolint:lll // AWS API name
-	InputSchemaUpdate                  *inputSchemaUpdateInput             `json:"InputSchemaUpdate,omitempty"`
-	InputParallelismUpdate             *inputParallelismUpdateConfig       `json:"InputParallelismUpdate,omitempty"`
-	KinesisStreamsInputUpdate          *kinesisStreamsInputUpdateConfig    `json:"KinesisStreamsInputUpdate,omitempty"`
-	KinesisFirehoseInputUpdate         *kinesisFirehoseInputUpdateConfig   `json:"KinesisFirehoseInputUpdate,omitempty"`
-	NamePrefixUpdate                   string                              `json:"NamePrefixUpdate,omitempty"`
-	InputID                            string                              `json:"InputId"`
+	InputProcessingConfigurationUpdate *inputProcessingConfigUpdateInput `json:"InputProcessingConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
+	InputSchemaUpdate                  *inputSchemaUpdateInput           `json:"InputSchemaUpdate,omitempty"`
+	InputParallelismUpdate             *inputParallelismUpdateConfig     `json:"InputParallelismUpdate,omitempty"`
+	KinesisStreamsInputUpdate          *kinesisStreamsInputUpdateConfig  `json:"KinesisStreamsInputUpdate,omitempty"`
+	KinesisFirehoseInputUpdate         *kinesisFirehoseInputUpdateConfig `json:"KinesisFirehoseInputUpdate,omitempty"`
+	NamePrefixUpdate                   string                            `json:"NamePrefixUpdate,omitempty"`
+	InputID                            string                            `json:"InputId"`
 }
 
 // inputParallelismUpdateConfig describes an update to an input's parallelism count.

@@ -146,8 +146,9 @@ func (h *Handler) Reset() {
 // Name returns the service name.
 func (h *Handler) Name() string { return "IoTWireless" }
 
-// GetSupportedOperations returns the list of supported IoT Wireless operations.
-func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaustive ops list
+// supportedWirelessDeviceOps returns operation names for wireless device
+// CRUD, messaging, and thing-association operations.
+func supportedWirelessDeviceOps() []string {
 	return []string{
 		"CreateWirelessDevice",
 		"GetWirelessDevice",
@@ -161,6 +162,13 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaust
 		"DisassociateWirelessDeviceFromThing",
 		"DeleteQueuedMessages",
 		"ListQueuedMessages",
+	}
+}
+
+// supportedWirelessGatewayOps returns operation names for wireless gateway
+// CRUD, certificate/thing association, task, and task-definition operations.
+func supportedWirelessGatewayOps() []string {
+	return []string{
 		"CreateWirelessGateway",
 		"GetWirelessGateway",
 		"ListWirelessGateways",
@@ -178,6 +186,13 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaust
 		"GetWirelessGatewayTaskDefinition",
 		"ListWirelessGatewayTaskDefinitions",
 		"DeleteWirelessGatewayTaskDefinition",
+	}
+}
+
+// supportedProfileAndDestinationOps returns operation names for service
+// profile, destination, and resource-tagging operations.
+func supportedProfileAndDestinationOps() []string {
+	return []string{
 		"CreateServiceProfile",
 		"GetServiceProfile",
 		"ListServiceProfiles",
@@ -190,6 +205,14 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaust
 		opTagResource,
 		opUntagResource,
 		opListTagsForResource,
+	}
+}
+
+// supportedAssociationOps returns operation names for cross-resource
+// association operations (partner accounts, FUOTA tasks, multicast groups,
+// things, certificates).
+func supportedAssociationOps() []string {
+	return []string{
 		opAssociateAwsAccountWithPartnerAccount,
 		opAssociateMulticastGroupWithFuotaTask,
 		opAssociateWirelessDeviceWithFuotaTask,
@@ -198,6 +221,13 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaust
 		opAssociateWirelessGatewayWithCertificate,
 		opAssociateWirelessGatewayWithThing,
 		opCancelMulticastGroupSession,
+	}
+}
+
+// supportedDeviceProfileAndFuotaOps returns operation names for device
+// profile and FUOTA task operations.
+func supportedDeviceProfileAndFuotaOps() []string {
+	return []string{
 		"CreateDeviceProfile",
 		"GetDeviceProfile",
 		"ListDeviceProfiles",
@@ -210,6 +240,13 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaust
 		"StartFuotaTask",
 		"DisassociateMulticastGroupFromFuotaTask",
 		"DisassociateWirelessDeviceFromFuotaTask",
+	}
+}
+
+// supportedMulticastAndAnalyzerOps returns operation names for multicast
+// group and network analyzer configuration operations.
+func supportedMulticastAndAnalyzerOps() []string {
+	return []string{
 		"CreateMulticastGroup",
 		"GetMulticastGroup",
 		"ListMulticastGroups",
@@ -227,6 +264,13 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaust
 		"ListNetworkAnalyzerConfigurations",
 		"DeleteNetworkAnalyzerConfiguration",
 		"UpdateNetworkAnalyzerConfiguration",
+	}
+}
+
+// supportedEventAndLogOps returns operation names for event configuration
+// and log level operations.
+func supportedEventAndLogOps() []string {
+	return []string{
 		"GetEventConfigurationByResourceTypes",
 		"UpdateEventConfigurationByResourceTypes",
 		"ListEventConfigurations",
@@ -238,6 +282,13 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaust
 		"GetResourceLogLevel",
 		"PutResourceLogLevel",
 		"ResetResourceLogLevel",
+	}
+}
+
+// supportedMetricsAndPositionOps returns operation names for metrics and
+// device/gateway positioning operations.
+func supportedMetricsAndPositionOps() []string {
+	return []string{
 		"GetMetricConfiguration",
 		"UpdateMetricConfiguration",
 		"GetMetrics",
@@ -249,6 +300,13 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaust
 		"GetPositionEstimate",
 		"GetResourcePosition",
 		"UpdateResourcePosition",
+	}
+}
+
+// supportedImportAndPartnerOps returns operation names for wireless device
+// import task and partner account operations.
+func supportedImportAndPartnerOps() []string {
+	return []string{
 		"GetWirelessDeviceImportTask",
 		"DeleteWirelessDeviceImportTask",
 		"UpdateWirelessDeviceImportTask",
@@ -262,6 +320,35 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaust
 		"UpdatePartnerAccount",
 		"GetServiceEndpoint",
 	}
+}
+
+// supportedOperationGroups lists every operation-name group that together
+// make up the full IoT Wireless supported-operations list. Split into
+// per-family slices (rather than one long literal) so no single function
+// carries the whole exhaustive list -- see GetSupportedOperations.
+func supportedOperationGroups() [][]string {
+	return [][]string{
+		supportedWirelessDeviceOps(),
+		supportedWirelessGatewayOps(),
+		supportedProfileAndDestinationOps(),
+		supportedAssociationOps(),
+		supportedDeviceProfileAndFuotaOps(),
+		supportedMulticastAndAnalyzerOps(),
+		supportedEventAndLogOps(),
+		supportedMetricsAndPositionOps(),
+		supportedImportAndPartnerOps(),
+	}
+}
+
+// GetSupportedOperations returns the list of supported IoT Wireless operations.
+func (h *Handler) GetSupportedOperations() []string {
+	var ops []string
+
+	for _, group := range supportedOperationGroups() {
+		ops = append(ops, group...)
+	}
+
+	return ops
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -496,17 +583,16 @@ func (h *Handler) dispatchMulticastGroupCRUDOps(c *echo.Context, op, resource st
 // dispatchMulticastAssocOps handles multicast group association/disassociation and FUOTA task operations.
 func (h *Handler) dispatchMulticastAssocOps(c *echo.Context, op, resource string, _ []byte) (bool, error) {
 	switch op {
-	case opStartBulkAssociateWirelessDeviceWithMulticastGroup,
-		opStartBulkDisassociateWirelessDeviceFromMulticastGroup:
-		c.Response().WriteHeader(http.StatusNoContent)
-
-		return true, nil
+	case opStartBulkAssociateWirelessDeviceWithMulticastGroup:
+		return true, h.startBulkAssociateWirelessDeviceWithMulticastGroup(c, resource)
+	case opStartBulkDisassociateWirelessDeviceFromMulticastGroup:
+		return true, h.startBulkDisassociateWirelessDeviceFromMulticastGroup(c, resource)
 	case opDisassociateWirelessDeviceFromMulticastGroup:
-		return true, h.disassociateWirelessDeviceFromMulticastGroup(c, resource, "")
+		return true, h.disassociateWirelessDeviceFromMulticastGroup(c, resource, lastPathSegment(c))
 	case opDisassociateMulticastGroupFromFuotaTask:
-		return true, h.disassociateMulticastGroupFromFuotaTask(c, resource, "")
+		return true, h.disassociateMulticastGroupFromFuotaTask(c, resource, lastPathSegment(c))
 	case opDisassociateWirelessDeviceFromFuotaTask:
-		return true, h.disassociateWirelessDeviceFromFuotaTask(c, resource, "")
+		return true, h.disassociateWirelessDeviceFromFuotaTask(c, resource, lastPathSegment(c))
 	case opStartFuotaTask:
 		return true, h.startFuotaTask(c, resource)
 	case opUpdateFuotaTask:
@@ -951,4 +1037,21 @@ func stubNoContent(c *echo.Context) error {
 	c.Response().WriteHeader(http.StatusNoContent)
 
 	return nil
+}
+
+// lastPathSegment returns the final "/"-separated segment of the request
+// path. parseIoTWirelessPath's (op, resource) pair only ever carries the
+// top-level {Id} path parameter, never a trailing sub-resource ID (e.g. the
+// {WirelessDeviceId} in DELETE
+// /multicast-groups/{Id}/wireless-devices/{WirelessDeviceId}); handlers that
+// need that trailing ID recover it directly from the URL here.
+func lastPathSegment(c *echo.Context) string {
+	path := c.Request().URL.Path
+
+	idx := strings.LastIndex(path, "/")
+	if idx < 0 {
+		return ""
+	}
+
+	return path[idx+1:]
 }

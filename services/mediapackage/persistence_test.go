@@ -10,11 +10,11 @@ import (
 )
 
 // Test_SnapshotRestore exercises a Snapshot->Restore round trip across every
-// resource family the Phase 3.3 pkgs/store conversion touched: the four
+// resource family the Phase 3.3 pkgs/store conversion touched: the three
 // store.Table-backed collections (channels, originEndpoints -- including its
-// byChannel secondary index, harvestJobs, packagingConfigurations) plus the
-// plain tags map left un-converted. Each subtest seeds and verifies its own
-// backend instance so subtests can run in parallel without shared state.
+// byChannel secondary index, harvestJobs) plus the plain tags map left
+// un-converted. Each subtest seeds and verifies its own backend instance so
+// subtests can run in parallel without shared state.
 func Test_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
@@ -109,26 +109,6 @@ func Test_SnapshotRestore(t *testing.T) {
 				assert.Equal(t, "ep1", job.OriginEndpointID)
 				require.NotNil(t, job.S3Destination)
 				assert.Equal(t, "bucket", job.S3Destination.BucketName)
-			},
-		},
-		{
-			name: "packagingConfigurations",
-			seed: func(t *testing.T, b *mediapackage.InMemoryBackend) {
-				t.Helper()
-
-				_, err := b.CreatePackagingConfiguration("pc1", "group1", "desc1",
-					map[string]string{"env": "test"})
-				require.NoError(t, err)
-			},
-			verify: func(t *testing.T, b *mediapackage.InMemoryBackend) {
-				t.Helper()
-
-				assert.Equal(t, 1, mediapackage.PackagingConfigCount(b))
-
-				pc, err := b.DescribePackagingConfiguration("pc1")
-				require.NoError(t, err)
-				assert.Equal(t, "group1", pc.PackagingGroupID)
-				assert.Equal(t, "test", pc.Tags["env"])
 			},
 		},
 		{

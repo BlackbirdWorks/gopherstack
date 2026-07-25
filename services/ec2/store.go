@@ -33,6 +33,11 @@ var (
 	// because another resource still depends on the target resource.
 	ErrDependencyViolation = errors.New("DependencyViolation")
 
+	// ErrResourceAlreadyAssociated is returned when attaching a resource that
+	// is already attached elsewhere (e.g. an Internet Gateway that is already
+	// attached to a VPC, or a VPC that already has an Internet Gateway).
+	ErrResourceAlreadyAssociated = errors.New("Resource.AlreadyAssociated")
+
 	// ErrVpcClassicLinkDisabled is returned by AttachClassicLinkVpc when the
 	// target VPC has not been enabled for ClassicLink.
 	ErrVpcClassicLinkDisabled = errors.New("VpcClassicLinkDisabled")
@@ -91,6 +96,14 @@ const (
 
 	// cidrAllIPv4 is the IPv4 catch-all CIDR used in default security group egress rules.
 	cidrAllIPv4 = "0.0.0.0/0"
+
+	// defaultSecurityGroupName is the name AWS gives the auto-created default
+	// security group of every VPC. It never blocks DeleteVpc (see
+	// vpcDependencyViolationLocked) and is deleted automatically with the VPC.
+	defaultSecurityGroupName = "default"
+	// defaultSecurityGroupDescription is the fixed description AWS assigns to
+	// every VPC's auto-created default security group.
+	defaultSecurityGroupDescription = "default VPC security group"
 )
 
 // InstanceState represents the state of an EC2 instance.
@@ -651,8 +664,8 @@ func (b *InMemoryBackend) Reset() {
 	b.indexSubnetLocked("subnet-default", vpcDefaultName)
 	b.securityGroups.Put(&SecurityGroup{
 		ID:          "sg-default",
-		Name:        "default",
-		Description: "default VPC security group",
+		Name:        defaultSecurityGroupName,
+		Description: defaultSecurityGroupDescription,
 		VPCID:       vpcDefaultName,
 	})
 	b.indexSGLocked("sg-default", vpcDefaultName)
@@ -789,8 +802,8 @@ func (b *InMemoryBackend) initDefaults() {
 	defaultSGID := "sg-default"
 	b.securityGroups.Put(&SecurityGroup{
 		ID:          defaultSGID,
-		Name:        "default",
-		Description: "default VPC security group",
+		Name:        defaultSecurityGroupName,
+		Description: defaultSecurityGroupDescription,
 		VPCID:       defaultVPCID,
 	})
 	b.indexSGLocked(defaultSGID, defaultVPCID)

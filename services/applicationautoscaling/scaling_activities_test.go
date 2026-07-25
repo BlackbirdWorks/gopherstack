@@ -75,7 +75,7 @@ func TestDescribeScalingActivities_TracksRegistrations(t *testing.T) {
 			_, err = b.RegisterScalableTarget(ns, resB, dimension, 1, 3, nil, "", nil)
 			require.NoError(t, err)
 
-			activities, _ := b.DescribeScalingActivities(applicationautoscaling.DescribeScalingActivitiesFilter{
+			activities, _, _ := b.DescribeScalingActivities(applicationautoscaling.DescribeScalingActivitiesFilter{
 				ServiceNamespace:  ns,
 				ResourceID:        tt.filterRes,
 				ScalableDimension: tt.filterDim,
@@ -106,13 +106,13 @@ func TestDescribeScalingActivities_ResetClears(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	got, _ := b.DescribeScalingActivities(
+	got, _, _ := b.DescribeScalingActivities(
 		applicationautoscaling.DescribeScalingActivitiesFilter{ServiceNamespace: "ecs"},
 	)
 	require.Len(t, got, 1)
 
 	b.Reset()
-	after, _ := b.DescribeScalingActivities(
+	after, _, _ := b.DescribeScalingActivities(
 		applicationautoscaling.DescribeScalingActivitiesFilter{ServiceNamespace: "ecs"},
 	)
 	assert.Empty(t, after)

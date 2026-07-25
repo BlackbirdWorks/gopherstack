@@ -55,11 +55,12 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	_, err = b.CreateConnection("conn1", "JDBC", nil, nil)
 	require.NoError(t, err)
-	require.NoError(t, b.CreateBlueprint("bp1"))
+	_, err = b.CreateBlueprint("bp1", "s3://bucket/bp1", "", nil)
+	require.NoError(t, err)
 	_, err = b.CreateCustomEntityType("cet1", "regex", nil)
 	require.NoError(t, err)
 	b.AddDataQualityResultInternal(&glue.DataQualityResult{ResultID: "dqr1"})
-	_, err = b.CreateDevEndpoint("dep1")
+	_, err = b.CreateDevEndpoint("dep1", glue.DevEndpointInput{}, "arn:aws:iam::123456789012:role/dep-role", nil)
 	require.NoError(t, err)
 	_, err = b.CreateDataQualityRuleset("ruleset1", "rules", nil)
 	require.NoError(t, err)
@@ -76,7 +77,9 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	_, err = b.CreateSchema("reg1", "schema1", "AVRO", "NONE", "desc", nil)
 	require.NoError(t, err)
-	_, err = b.RegisterSchemaVersion("reg1", "schema1", "def-v1") // populates raw schemaVersions
+	_, err = b.RegisterSchemaVersion(
+		"reg1", "schema1", `{"type":"record","name":"v1","fields":[]}`,
+	) // populates raw schemaVersions
 	require.NoError(t, err)
 	_, err = b.CreateUserDefinedFunction("db1", glue.UserDefinedFunction{FunctionName: "udf1"}, nil)
 	require.NoError(t, err)
@@ -93,7 +96,7 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, b.UpdateColumnStatisticsForPartition("db1", "tbl1", []string{"2024"}, // raw partitionColumnStats
 		[]*glue.ColumnStatistics{{ColumnName: "col1"}}))
 	_, err = b.PutResourcePolicy( // raw resourcePolicies
-		"policy-doc", "arn:aws:glue:us-east-1:123456789012:catalog", "", "",
+		"policy-doc", "arn:aws:glue:us-east-1:123456789012:catalog", "", "", "",
 	)
 	require.NoError(t, err)
 	mlTransform, err := b.CreateMLTransform("mlt1", "desc", "role1", nil, glue.MLTransformParameter{}, nil)
@@ -179,7 +182,7 @@ func verifyFullState(t *testing.T, b *glue.InMemoryBackend) {
 	assert.Equal(t, "schema1", sch.SchemaName)
 	schVersions := b.ListSchemaVersions("reg1", "schema1")
 	require.Len(t, schVersions, 1)
-	assert.Equal(t, "def-v1", schVersions[0].SchemaDefinition)
+	assert.JSONEq(t, `{"type":"record","name":"v1","fields":[]}`, schVersions[0].SchemaDefinition)
 
 	udf, err := b.GetUserDefinedFunction("db1", "udf1")
 	require.NoError(t, err)

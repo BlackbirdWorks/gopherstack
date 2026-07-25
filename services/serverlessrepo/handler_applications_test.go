@@ -774,3 +774,145 @@ func TestApplication_ARNFormRouting(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateApplication_BodyVariants locks CreateApplication's handling of the
+// licenseBody/readmeBody/templateBody wire fields (aws-sdk-go-v2's
+// CreateApplicationInput.LicenseBody/ReadmeBody/TemplateBody): each is accepted as an
+// alternative to its *Url counterpart and, when only the *Body form is given, gopherstack
+// synthesizes the equivalent *Url the real service would return after uploading inline
+// content to S3. Supplying both the *Body and *Url form for the same field is a
+// BadRequestException per the real API doc.
+func TestCreateApplication_BodyVariants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		check    func(t *testing.T, resp map[string]any)
+		name     string
+		wantCode int
+	}{
+		{
+			name: "licenseBody synthesizes licenseUrl",
+			body: map[string]any{
+				"name": "license-body-app", "description": "d", "author": "a",
+				"licenseBody": "MIT License text",
+			},
+			wantCode: http.StatusCreated,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.NotEmpty(t, resp["licenseUrl"])
+			},
+		},
+		{
+			name: "licenseBody and licenseUrl together is a bad request",
+			body: map[string]any{
+				"name": "license-both-app", "description": "d", "author": "a",
+				"licenseBody": "MIT License text", "licenseUrl": "https://example.com/LICENSE",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "readmeBody synthesizes readmeUrl",
+			body: map[string]any{
+				"name": "readme-body-app", "description": "d", "author": "a",
+				"readmeBody": "# Hello",
+			},
+			wantCode: http.StatusCreated,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.NotEmpty(t, resp["readmeUrl"])
+			},
+		},
+		{
+			name: "readmeBody and readmeUrl together is a bad request",
+			body: map[string]any{
+				"name": "readme-both-app", "description": "d", "author": "a",
+				"readmeBody": "# Hello", "readmeUrl": "https://example.com/README.md",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "templateBody with semanticVersion synthesizes an embedded version templateUrl",
+			body: map[string]any{
+				"name": "template-body-app", "description": "d", "author": "a",
+				"semanticVersion": "1.0.0", "templateBody": "AWSTemplateFormatVersion: '2010-09-09'",
+			},
+			wantCode: http.StatusCreated,
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				version, ok := resp["version"].(map[string]any)
+				require.True(t, ok, "version must be embedded when semanticVersion + templateBody provided")
+				assert.NotEmpty(t, version["templateUrl"])
+			},
+		},
+		{
+			name: "templateBody and templateUrl together is a bad request",
+			body: map[string]any{
+				"name": "template-both-app", "description": "d", "author": "a",
+				"semanticVersion": "1.0.0",
+				"templateBody":    "AWSTemplateFormatVersion: '2010-09-09'",
+				"templateUrl":     "s3://bucket/template.yaml",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications", tt.body)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.check != nil {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				tt.check(t, resp)
+			}
+		})
+	}
+}
+
+// TestUpdateApplication_ReadmeBody locks UpdateApplication's handling of the readmeBody wire
+// field (aws-sdk-go-v2's UpdateApplicationInput.ReadmeBody), which real AWS SAR accepts as an
+// alternative to readmeUrl and rejects alongside readmeUrl in the same request.
+func TestUpdateApplication_ReadmeBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "readmeBody alone synthesizes readmeUrl",
+			body:     map[string]any{"readmeBody": "# Updated readme"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "readmeBody and readmeUrl together is a bad request",
+			body:     map[string]any{"readmeBody": "# Updated readme", "readmeUrl": "https://example.com/README.md"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_, err := h.Backend.CreateApplication("readme-update-app", "desc", "author", "", "", nil, "", "", "")
+			require.NoError(t, err)
+
+			rec := doServerlessRepoRequest(t, h, http.MethodPatch, "/applications/readme-update-app", tt.body)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["readmeUrl"])
+			}
+		})
+	}
+}

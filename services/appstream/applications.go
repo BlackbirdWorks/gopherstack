@@ -171,7 +171,10 @@ func (b *InMemoryBackend) UpdateApplication(name, displayName, description, laun
 	return app.toApplication(), nil
 }
 
-// DescribeAppLicenseUsage returns license usage (stub — always empty).
+// DescribeAppLicenseUsage returns license usage records. This backend tracks
+// no BYOL/license-included application state, so the real (not fabricated)
+// answer is always an empty list -- matching what real AWS returns for an
+// account with no licensed application usage to report.
 func (b *InMemoryBackend) DescribeAppLicenseUsage() ([]map[string]string, error) {
 	return []map[string]string{}, nil
 }

@@ -288,3 +288,174 @@ func TestHandler_GetLendingAnalysisSummary_NotFound(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "InvalidJobIdException", errResp["__type"])
 }
+
+// TestHandler_GetLendingAnalysis_LendingFieldWireShape locks the real SDK's
+// LendingField shape: Type is a bare string (not a LendingDetection object),
+// ValueDetections is a plural list (not a singular ValueDetection object),
+// and there is no PageNumber member -- all diverge from gopherstack's
+// previous (fabricated) shape, which mirrored ExpenseField/IdentityDocumentField
+// instead of matching aws-sdk-go-v2/service/textract/types.LendingField.
+func TestHandler_GetLendingAnalysis_LendingFieldWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	startRec := doTextractRequest(t, h, "StartLendingAnalysis", map[string]any{
+		"DocumentLocation": map[string]any{
+			"S3Object": map[string]any{"Bucket": "b", "Name": "loan.pdf"},
+		},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startResp map[string]string
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	jobID := startResp["JobId"]
+
+	getRec := doTextractRequest(t, h, "GetLendingAnalysis", map[string]any{"JobId": jobID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+
+	results, ok := getResp["Results"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, results)
+
+	result, ok := results[0].(map[string]any)
+	require.True(t, ok)
+
+	extractions, ok := result["Extractions"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, extractions)
+
+	extraction, ok := extractions[0].(map[string]any)
+	require.True(t, ok)
+
+	lendingDoc, ok := extraction["LendingDocument"].(map[string]any)
+	require.True(t, ok)
+
+	fields, ok := lendingDoc["LendingFields"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, fields)
+
+	field, ok := fields[0].(map[string]any)
+	require.True(t, ok)
+
+	_, typeIsString := field["Type"].(string)
+	assert.True(t, typeIsString, "LendingField.Type must be a bare string, not an object")
+
+	_, hasSingularValueDetection := field["ValueDetection"]
+	assert.False(t, hasSingularValueDetection, "LendingField must not have a singular ValueDetection key")
+
+	valueDetections, ok := field["ValueDetections"].([]any)
+	assert.True(t, ok, "LendingField.ValueDetections must be a list")
+	assert.NotEmpty(t, valueDetections)
+
+	_, hasPageNumber := field["PageNumber"]
+	assert.False(t, hasPageNumber, "LendingField has no PageNumber member in the real SDK")
+}
+
+// TestHandler_GetLendingAnalysis_PageClassificationUsesPrediction locks the
+// real SDK's PageClassification shape: PageType/PageNumber are lists of
+// Prediction{Value, Confidence}, not LendingDetection -- so the classified
+// value is under the "Value" JSON key, never "Text".
+func TestHandler_GetLendingAnalysis_PageClassificationUsesPrediction(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	startRec := doTextractRequest(t, h, "StartLendingAnalysis", map[string]any{
+		"DocumentLocation": map[string]any{
+			"S3Object": map[string]any{"Bucket": "b", "Name": "loan.pdf"},
+		},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startResp map[string]string
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	jobID := startResp["JobId"]
+
+	getRec := doTextractRequest(t, h, "GetLendingAnalysis", map[string]any{"JobId": jobID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+
+	results, ok := getResp["Results"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, results)
+
+	result, ok := results[0].(map[string]any)
+	require.True(t, ok)
+
+	pc, ok := result["PageClassification"].(map[string]any)
+	require.True(t, ok)
+
+	pageType, ok := pc["PageType"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, pageType)
+
+	entry, ok := pageType[0].(map[string]any)
+	require.True(t, ok)
+
+	_, hasValue := entry["Value"]
+	assert.True(t, hasValue, "Prediction must carry the classified value under the Value key")
+
+	_, hasText := entry["Text"]
+	assert.False(t, hasText, "Prediction has no Text key (that belongs to LendingDetection)")
+
+	_, hasGeometry := entry["Geometry"]
+	assert.False(t, hasGeometry, "Prediction has no Geometry key (that belongs to LendingDetection)")
+}
+
+// TestHandler_GetLendingAnalysis_Pagination verifies NextToken/MaxResults
+// pagination over Results, mirroring the same pattern GetDocumentAnalysis
+// already applies to Blocks. Real AWS's GetLendingAnalysisInput accepts
+// MaxResults/NextToken and GetLendingAnalysisOutput echoes NextToken -- this
+// was previously accepted but silently ignored.
+func TestHandler_GetLendingAnalysis_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	b := h.Backend.(*textract.InMemoryBackend)
+
+	jobID := "pagination-lending-job"
+	results := make([]textract.LendingResult, 5)
+	for i := range results {
+		results[i] = textract.LendingResult{Page: i + 1}
+	}
+
+	textract.AddLendingJobInternal(b, &textract.LendingJob{
+		JobID:     jobID,
+		JobStatus: "SUCCEEDED",
+		Results:   results,
+	})
+
+	rec1 := doTextractRequest(t, h, "GetLendingAnalysis", map[string]any{
+		"JobId":      jobID,
+		"MaxResults": 2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var resp1 struct {
+		NextToken string           `json:"NextToken"`
+		Results   []map[string]any `json:"Results"`
+	}
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	assert.Len(t, resp1.Results, 2)
+	require.NotEmpty(t, resp1.NextToken, "first page must return a NextToken")
+
+	rec2 := doTextractRequest(t, h, "GetLendingAnalysis", map[string]any{
+		"JobId":     jobID,
+		"NextToken": resp1.NextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 struct {
+		NextToken string           `json:"NextToken"`
+		Results   []map[string]any `json:"Results"`
+	}
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	assert.Len(t, resp2.Results, 3, "remaining 3 results on the second page")
+	assert.Empty(t, resp2.NextToken, "no more pages")
+}

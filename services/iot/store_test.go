@@ -399,16 +399,21 @@ func TestNonNilActions(t *testing.T) {
 	}
 }
 
-// TestCertTransferCount verifies AcceptCertificateTransfer tracking.
+// TestCertTransferCount verifies that TransferCertificate populates the
+// pending-transfer count and AcceptCertificateTransfer/
+// RejectCertificateTransfer/CancelCertificateTransfer consume it. Regression
+// test for gopherstack-ep0r: AcceptCertificateTransfer previously wrote an
+// entry into the pending-transfer map on *any* certificate ID (even unknown
+// ones) instead of validating and consuming an existing pending transfer.
 func TestCertTransferCount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		certs []string
-		want  int
+		name     string
+		numCerts int
+		want     int
 	}{
-		{name: "two_certs", certs: []string{"cert1", "cert2"}, want: 2},
+		{name: "two_certs", numCerts: 2, want: 2},
 	}
 
 	for _, tt := range tests {
@@ -416,11 +421,28 @@ func TestCertTransferCount(t *testing.T) {
 			t.Parallel()
 
 			b := newRefBackend()
-			for _, c := range tt.certs {
-				require.NoError(t, b.AcceptCertificateTransfer(&iot.AcceptCertificateTransferInput{CertificateID: c}))
+
+			certIDs := make([]string, 0, tt.numCerts)
+			for range tt.numCerts {
+				cert, err := b.RegisterCertificate(&iot.RegisterCertificateInput{Status: "ACTIVE"})
+				require.NoError(t, err)
+				require.NoError(t, b.TransferCertificate(cert.CertificateID, "999999999999", ""))
+				certIDs = append(certIDs, cert.CertificateID)
 			}
 
 			assert.Equal(t, tt.want, b.CertTransferCount())
+
+			// Accepting a pending transfer consumes it.
+			require.NoError(t, b.AcceptCertificateTransfer(&iot.AcceptCertificateTransferInput{
+				CertificateID: certIDs[0],
+				SetAsActive:   true,
+			}))
+			assert.Equal(t, tt.want-1, b.CertTransferCount())
+
+			// Accepting an unknown certificate ID fails and does not add an entry.
+			err := b.AcceptCertificateTransfer(&iot.AcceptCertificateTransferInput{CertificateID: "does-not-exist"})
+			require.Error(t, err)
+			assert.Equal(t, tt.want-1, b.CertTransferCount())
 		})
 	}
 }

@@ -16,8 +16,31 @@ type createCallAnalyticsCategoryInput struct {
 }
 
 type callAnalyticsCategoryProperties struct {
-	CategoryName string `json:"CategoryName"`
-	InputType    string `json:"InputType,omitempty"`
+	CreateTime     *float64            `json:"CreateTime,omitempty"`
+	LastUpdateTime *float64            `json:"LastUpdateTime,omitempty"`
+	Tags           []transcribeTag     `json:"Tags,omitempty"`
+	CategoryName   string              `json:"CategoryName"`
+	InputType      string              `json:"InputType,omitempty"`
+	Rules          []CallAnalyticsRule `json:"Rules,omitempty"`
+}
+
+func buildCallAnalyticsCategoryProperties(cat *CallAnalyticsCategory) *callAnalyticsCategoryProperties {
+	out := &callAnalyticsCategoryProperties{
+		CategoryName: cat.CategoryName,
+		InputType:    cat.InputType,
+		Rules:        cat.Rules,
+		Tags:         tagsFromMap(cat.Tags),
+	}
+	if !cat.CreateTime.IsZero() {
+		t := awstime.Epoch(cat.CreateTime)
+		out.CreateTime = &t
+	}
+	if !cat.LastUpdateTime.IsZero() {
+		t := awstime.Epoch(cat.LastUpdateTime)
+		out.LastUpdateTime = &t
+	}
+
+	return out
 }
 
 type createCallAnalyticsCategoryOutput struct {
@@ -39,10 +62,7 @@ func (h *Handler) handleCreateCallAnalyticsCategory(
 	}
 
 	return &createCallAnalyticsCategoryOutput{
-		CategoryProperties: &callAnalyticsCategoryProperties{
-			CategoryName: cat.CategoryName,
-			InputType:    cat.InputType,
-		},
+		CategoryProperties: buildCallAnalyticsCategoryProperties(cat),
 	}, nil
 }
 
@@ -185,13 +205,15 @@ func (h *Handler) handleStartCallAnalyticsJob(
 // --- ListCallAnalyticsJobs ---
 
 type listCallAnalyticsJobsInput struct {
-	Status    string `json:"Status"`
-	NextToken string `json:"NextToken"`
+	Status          string `json:"Status"`
+	JobNameContains string `json:"JobNameContains"`
+	NextToken       string `json:"NextToken"`
 }
 
 type callAnalyticsJobSummary struct {
 	CreationTime           *float64 `json:"CreationTime,omitempty"`
 	CompletionTime         *float64 `json:"CompletionTime,omitempty"`
+	StartTime              *float64 `json:"StartTime,omitempty"`
 	CallAnalyticsJobName   string   `json:"CallAnalyticsJobName"`
 	CallAnalyticsJobStatus string   `json:"CallAnalyticsJobStatus"`
 	LanguageCode           string   `json:"LanguageCode,omitempty"`
@@ -207,7 +229,7 @@ func (h *Handler) handleListCallAnalyticsJobs(
 	_ context.Context,
 	in *listCallAnalyticsJobsInput,
 ) (*listCallAnalyticsJobsOutput, error) {
-	jobs, nextToken := h.Backend.ListCallAnalyticsJobs(in.Status, in.NextToken)
+	jobs, nextToken := h.Backend.ListCallAnalyticsJobs(in.Status, in.JobNameContains, in.NextToken)
 
 	summaries := make([]callAnalyticsJobSummary, 0, len(jobs))
 	for _, j := range jobs {
@@ -220,6 +242,10 @@ func (h *Handler) handleListCallAnalyticsJobs(
 		if !j.CreationTime.IsZero() {
 			ts := awstime.Epoch(j.CreationTime)
 			s.CreationTime = &ts
+		}
+		if !j.StartTime.IsZero() {
+			ts := awstime.Epoch(j.StartTime)
+			s.StartTime = &ts
 		}
 		if !j.CompletionTime.IsZero() {
 			ts := awstime.Epoch(j.CompletionTime)
@@ -254,10 +280,7 @@ func (h *Handler) handleGetCallAnalyticsCategory(
 	}
 
 	return &getCallAnalyticsCategoryOutput{
-		CategoryProperties: &callAnalyticsCategoryProperties{
-			CategoryName: cat.CategoryName,
-			InputType:    cat.InputType,
-		},
+		CategoryProperties: buildCallAnalyticsCategoryProperties(cat),
 	}, nil
 }
 
@@ -287,10 +310,7 @@ func (h *Handler) handleUpdateCallAnalyticsCategory(
 	}
 
 	return &updateCallAnalyticsCategoryOutput{
-		CategoryProperties: &callAnalyticsCategoryProperties{
-			CategoryName: cat.CategoryName,
-			InputType:    cat.InputType,
-		},
+		CategoryProperties: buildCallAnalyticsCategoryProperties(cat),
 	}, nil
 }
 
@@ -312,11 +332,8 @@ func (h *Handler) handleListCallAnalyticsCategories(
 	cats, nextToken := h.Backend.ListCallAnalyticsCategories(in.NextToken)
 
 	result := make([]callAnalyticsCategoryProperties, 0, len(cats))
-	for _, c := range cats {
-		result = append(result, callAnalyticsCategoryProperties{
-			CategoryName: c.CategoryName,
-			InputType:    c.InputType,
-		})
+	for i := range cats {
+		result = append(result, *buildCallAnalyticsCategoryProperties(&cats[i]))
 	}
 
 	return &listCallAnalyticsCategoriesOutput{

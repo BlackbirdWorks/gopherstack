@@ -421,6 +421,45 @@ func TestConverseStream_EventOrderIsCorrect(t *testing.T) {
 	assert.Greater(t, stopIdx, deltaIdx, "messageStop must follow contentBlockDelta")
 }
 
+// TestConverseStream_ContentBlockStartHasNoFabricatedStartField verifies the
+// contentBlockStart event does not carry a "start" member. Real Bedrock only
+// populates ContentBlockStartEvent.Start for image/toolResult/toolUse
+// content blocks (see types.ContentBlockStart's union in
+// aws-sdk-go-v2/service/bedrockruntime); there is no "text" variant, so a
+// plain-text content block event must omit "start" entirely rather than
+// send a union tag ("text") that does not exist on the real type.
+func TestConverseStream_ContentBlockStartHasNoFabricatedStartField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(
+		t, h, http.MethodPost, "/model/anthropic.claude-v2/converse-stream",
+		map[string]any{"messages": []map[string]any{
+			{"role": "user", "content": []map[string]any{{"type": "text", "text": "ping"}}},
+		}},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	frames := parseEventStreamFrames(rec.Body.Bytes())
+	require.NotEmpty(t, frames)
+
+	found := false
+
+	for _, f := range frames {
+		if _, hasIdx := f["contentBlockIndex"]; hasIdx {
+			if _, hasDelta := f["delta"]; hasDelta {
+				continue // this is the contentBlockDelta frame, not contentBlockStart
+			}
+
+			found = true
+
+			assert.NotContains(t, f, "start", "contentBlockStart must not fabricate a non-existent union member")
+		}
+	}
+
+	assert.True(t, found, "expected a contentBlockStart frame")
+}
+
 func TestConverseStream_ContentBlockDeltaHasText(t *testing.T) {
 	t.Parallel()
 

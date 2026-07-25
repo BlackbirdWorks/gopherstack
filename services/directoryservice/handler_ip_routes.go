@@ -29,7 +29,7 @@ func (h *Handler) handleAddIpRoutes(c *echo.Context) error { //nolint:revive,sta
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	routes := make([]IpRoute, 0, len(req.IpRoutes))
@@ -60,7 +60,7 @@ func (h *Handler) handleRemoveIpRoutes(c *echo.Context) error { //nolint:revive,
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if removeErr := h.Backend.RemoveIpRoutes(h.contextWithRegion(c), req.DirectoryID, req.CidrIPs); removeErr != nil {
@@ -89,7 +89,7 @@ func (h *Handler) handleListIpRoutes(c *echo.Context) error { //nolint:revive,st
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	routes, nextToken, listErr := h.Backend.ListIpRoutes(

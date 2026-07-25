@@ -129,8 +129,8 @@ func (b *InMemoryBackend) SendBulkEmail(
 		}
 
 		results = append(results, map[string]any{
-			"MessageId": msgID,
-			keyStatus:   keyStatusSuccess,
+			keyMessageID: msgID,
+			keyStatus:    keyStatusSuccess,
 		})
 	}
 

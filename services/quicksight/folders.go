@@ -11,6 +11,11 @@ const (
 	folderTypeShared     = "SHARED"
 	folderTypeRestricted = "RESTRICTED"
 
+	// sharingModelAccount is the default SharingModel real AWS applies to
+	// CreateFolder when the caller omits it (see CreateFolderInput's doc
+	// comment in the SDK).
+	sharingModelAccount = "ACCOUNT"
+
 	folderMemberTypeDashboard = "DASHBOARD"
 	folderMemberTypeAnalysis  = "ANALYSIS"
 	folderMemberTypeDataSet   = "DATASET"
@@ -67,6 +72,7 @@ type storedFolder struct {
 	Name            string               `json:"name"`
 	FolderType      string               `json:"folderType"`
 	ParentFolderArn string               `json:"parentFolderArn"`
+	SharingModel    string               `json:"sharingModel"`
 	Permissions     []ResourcePermission `json:"permissions"`
 }
 
@@ -79,6 +85,7 @@ func (f *storedFolder) toFolder() *Folder {
 		Name:            f.Name,
 		FolderType:      f.FolderType,
 		ParentFolderArn: f.ParentFolderArn,
+		SharingModel:    f.SharingModel,
 		Permissions:     clonePermissions(f.Permissions),
 	}
 }
@@ -204,7 +211,7 @@ func folderIDFromArn(arn string) string {
 // ---- Folders ----
 
 func (b *InMemoryBackend) CreateFolder(
-	accountID, folderID, name, folderType, parentFolderArn string,
+	accountID, folderID, name, folderType, parentFolderArn, sharingModel string,
 	permissions []ResourcePermission,
 	tags map[string]string,
 ) (*Folder, error) {
@@ -217,6 +224,10 @@ func (b *InMemoryBackend) CreateFolder(
 	}
 	if !isValidFolderType(folderType) {
 		return nil, ErrValidation
+	}
+
+	if sharingModel == "" {
+		sharingModel = sharingModelAccount
 	}
 
 	b.mu.Lock("CreateFolder")
@@ -236,6 +247,7 @@ func (b *InMemoryBackend) CreateFolder(
 		Name:            name,
 		FolderType:      folderType,
 		ParentFolderArn: parentFolderArn,
+		SharingModel:    sharingModel,
 		Permissions:     clonePermissions(permissions),
 	}
 	b.folders.Put(f)

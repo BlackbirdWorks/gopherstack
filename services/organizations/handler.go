@@ -251,6 +251,8 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, errType, message s
 
 const errConstraintViolation = "ConstraintViolationException"
 
+const errInvalidInput = "InvalidInputException"
+
 func getErrorTable() map[error]awserr.APIError {
 	return map[error]awserr.APIError{
 		ErrOrgNotFound:      {Code: "AWSOrganizationsNotInUseException", HTTPStatus: http.StatusBadRequest},
@@ -272,7 +274,7 @@ func getErrorTable() map[error]awserr.APIError {
 			HTTPStatus: http.StatusBadRequest,
 		},
 		ErrPolicyNotAttached:           {Code: "PolicyNotAttachedException", HTTPStatus: http.StatusBadRequest},
-		ErrInvalidInput:                {Code: "InvalidInputException", HTTPStatus: http.StatusBadRequest},
+		ErrInvalidInput:                {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
 		ErrChildNotFound:               {Code: "ChildNotFoundException", HTTPStatus: http.StatusBadRequest},
 		ErrDelegatedAdminNotFound:      {Code: "AccountNotRegisteredException", HTTPStatus: http.StatusBadRequest},
 		ErrDelegatedAdminAlreadyExists: {Code: "AccountAlreadyRegisteredException", HTTPStatus: http.StatusBadRequest},
@@ -296,6 +298,14 @@ func getErrorTable() map[error]awserr.APIError {
 		ErrOrganizationNotEmpty: {Code: "OrganizationNotEmptyException", HTTPStatus: http.StatusBadRequest},
 		ErrDuplicateHandshake:   {Code: "DuplicateHandshakeException", HTTPStatus: http.StatusBadRequest},
 		ErrPolicyTypeAttached:   {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrMalformedPolicyDocument: {
+			Code:       "MalformedPolicyDocumentException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrPolicyContentLimitExceeded: {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrTagLimitExceeded:           {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrInvalidSystemTags:          {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
+		ErrDuplicateTagKey:            {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
 	}
 }
 

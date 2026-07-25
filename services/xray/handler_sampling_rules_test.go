@@ -649,3 +649,161 @@ func TestSamplingRule_FixedRateValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestSamplingRule_SamplingRateBoostRoundTrips verifies the SamplingRateBoost field
+// (a newer AWS X-Ray feature previously entirely absent from gopherstack) is accepted
+// on create, applied on update, and echoed back on Create/Update/Get.
+func TestSamplingRule_SamplingRateBoostRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
+		"SamplingRule": map[string]any{
+			"RuleName":  "boost-rule",
+			"Priority":  50,
+			"FixedRate": 0.1,
+			"SamplingRateBoost": map[string]any{
+				"MaxRate":               0.5,
+				"CooldownWindowMinutes": 10,
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	record, ok := createResp["SamplingRuleRecord"].(map[string]any)
+	require.True(t, ok)
+	rule, ok := record["SamplingRule"].(map[string]any)
+	require.True(t, ok)
+	boost, ok := rule["SamplingRateBoost"].(map[string]any)
+	require.True(t, ok, "expected SamplingRateBoost in CreateSamplingRule response")
+	assert.InDelta(t, 0.5, boost["MaxRate"], 0.001)
+	assert.InDelta(t, float64(10), boost["CooldownWindowMinutes"], 0.001)
+
+	// Update to a different boost config.
+	updRec := doXrayRequest(t, h, "/UpdateSamplingRule", map[string]any{
+		"SamplingRuleUpdate": map[string]any{
+			"RuleName": "boost-rule",
+			"SamplingRateBoost": map[string]any{
+				"MaxRate":               0.9,
+				"CooldownWindowMinutes": 30,
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	var updResp map[string]any
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
+	updRecord, ok := updResp["SamplingRuleRecord"].(map[string]any)
+	require.True(t, ok)
+	updRule, ok := updRecord["SamplingRule"].(map[string]any)
+	require.True(t, ok)
+	updBoost, ok := updRule["SamplingRateBoost"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, 0.9, updBoost["MaxRate"], 0.001)
+	assert.InDelta(t, float64(30), updBoost["CooldownWindowMinutes"], 0.001)
+}
+
+// TestSamplingRule_UpdateAndDeleteByARN verifies UpdateSamplingRule and
+// DeleteSamplingRule both accept RuleARN as an alternative to RuleName, matching the
+// real SamplingRuleUpdate/DeleteSamplingRuleInput shapes ("specify a rule by either
+// name or ARN, but not both").
+func TestSamplingRule_UpdateAndDeleteByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
+		"SamplingRule": map[string]any{"RuleName": "arn-rule", "Priority": 50, "FixedRate": 0.1},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	record, ok := createResp["SamplingRuleRecord"].(map[string]any)
+	require.True(t, ok)
+	rule, ok := record["SamplingRule"].(map[string]any)
+	require.True(t, ok)
+	ruleARN, ok := rule["RuleARN"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, ruleARN)
+
+	updRec := doXrayRequest(t, h, "/UpdateSamplingRule", map[string]any{
+		"SamplingRuleUpdate": map[string]any{"RuleARN": ruleARN, "Priority": 77},
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	var updResp map[string]any
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
+	updRecord, ok := updResp["SamplingRuleRecord"].(map[string]any)
+	require.True(t, ok)
+	updRule, ok := updRecord["SamplingRule"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, float64(77), updRule["Priority"], 0.001)
+
+	delRec := doXrayRequest(t, h, "/DeleteSamplingRule", map[string]any{"RuleARN": ruleARN})
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	getRec := doXrayRequest(t, h, "/GetSamplingRules", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	records, ok := getResp["SamplingRuleRecords"].([]any)
+	require.True(t, ok)
+	for _, r := range records {
+		rm, rmOK := r.(map[string]any)
+		require.True(t, rmOK)
+		sr, srOK := rm["SamplingRule"].(map[string]any)
+		require.True(t, srOK)
+		assert.NotEqual(t, "arn-rule", sr["RuleName"], "rule deleted by ARN must be gone")
+	}
+}
+
+// TestSamplingRule_DefaultRuleUndeletableByARN verifies the Default rule cannot be
+// deleted even when targeted via ARN instead of name.
+func TestSamplingRule_DefaultRuleUndeletableByARN(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandlerWithBackend(t)
+
+	rules := b.GetSamplingRules()
+
+	var defaultARN string
+
+	for _, r := range rules {
+		if r.RuleName == "Default" {
+			defaultARN = r.RuleARN
+		}
+	}
+
+	require.NotEmpty(t, defaultARN)
+
+	rec := doXrayRequest(t, h, "/DeleteSamplingRule", map[string]any{"RuleARN": defaultARN})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestCreateSamplingRule_RuleLimitExceeded verifies the previously-unenforced
+// RuleLimitExceededException cap on the number of sampling rules per account.
+func TestCreateSamplingRule_RuleLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandlerWithBackend(t)
+
+	// Seed up to the limit directly (bypassing validation) for speed; the Default
+	// rule already counts toward the limit.
+	for i := b.SamplingRuleCount(); i < xray.SamplingRuleLimitForTest(); i++ {
+		b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: fmt.Sprintf("seed-%d", i), Priority: 1})
+	}
+
+	rec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
+		"SamplingRule": map[string]any{"RuleName": "one-too-many", "Priority": 1, "FixedRate": 0.1},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "RuleLimitExceededException", resp["__type"])
+}

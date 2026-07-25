@@ -2,8 +2,11 @@ package ce
 
 import (
 	"fmt"
+	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/google/uuid"
 )
 
 // GetSavingsPlansUtilization returns a synthetic savings-plans utilization aggregate.
@@ -91,4 +94,49 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(
 			},
 		},
 	}
+}
+
+// CreateSavingsPlansGeneration starts a new Savings Plans purchase recommendation
+// generation job and persists it, mirroring the CommitmentAnalysis
+// start/persist/list/get pattern used elsewhere in this backend.
+func (b *InMemoryBackend) CreateSavingsPlansGeneration() *SavingsPlansGeneration {
+	b.mu.Lock("CreateSavingsPlansGeneration")
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	estimated := now.Add(analysisETAMinutes * time.Minute)
+	g := &SavingsPlansGeneration{
+		RecommendationID:        uuid.NewString(),
+		GenerationStatus:        statusProcessing,
+		GenerationStartedTime:   now.Format(time.RFC3339),
+		EstimatedCompletionTime: estimated.Format(time.RFC3339),
+	}
+	b.savingsPlansGenerations.Put(g)
+
+	return g
+}
+
+// ListSavingsPlansGenerations returns generation jobs, optionally filtered by
+// GenerationStatus, most recently started first.
+func (b *InMemoryBackend) ListSavingsPlansGenerations(status string) []*SavingsPlansGeneration {
+	b.mu.RLock("ListSavingsPlansGenerations")
+	defer b.mu.RUnlock()
+
+	all := b.savingsPlansGenerations.All()
+	result := make([]*SavingsPlansGeneration, 0, len(all))
+
+	for _, g := range all {
+		if status != "" && g.GenerationStatus != status {
+			continue
+		}
+
+		cp := *g
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].GenerationStartedTime > result[j].GenerationStartedTime
+	})
+
+	return result
 }

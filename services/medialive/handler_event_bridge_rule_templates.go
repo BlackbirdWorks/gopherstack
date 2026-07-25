@@ -11,8 +11,8 @@ import (
 // toEBRuleTemplateGroupOutput mirrors GetEventBridgeRuleTemplateGroupOutput/
 // CreateEventBridgeRuleTemplateGroupOutput/
 // UpdateEventBridgeRuleTemplateGroupOutput -- same "no templateCount on the
-// non-list shapes" nuance as toCWAlarmTemplateGroupOutput above (List
-// reuses this shape; see that function's doc comment).
+// non-list shapes" nuance as toCWAlarmTemplateGroupOutput above (List uses
+// toEBRuleTemplateGroupSummaryOutput instead).
 func toEBRuleTemplateGroupOutput(g *EventBridgeRuleTemplateGroup) map[string]any {
 	tags := g.Tags
 	if tags == nil {
@@ -24,6 +24,16 @@ func toEBRuleTemplateGroupOutput(g *EventBridgeRuleTemplateGroup) map[string]any
 		keyCreatedAt: formatISO8601(g.CreatedAt), keyModifiedAt: formatISO8601(g.ModifiedAt),
 		keyTags: tags,
 	}
+}
+
+// toEBRuleTemplateGroupSummaryOutput mirrors
+// ListEventBridgeRuleTemplateGroupsOutput's per-item Summary shape, adding
+// "templateCount" on top of toEBRuleTemplateGroupOutput.
+func toEBRuleTemplateGroupSummaryOutput(g *EventBridgeRuleTemplateGroupSummary) map[string]any {
+	out := toEBRuleTemplateGroupOutput(&g.EventBridgeRuleTemplateGroup)
+	out["templateCount"] = g.TemplateCount
+
+	return out
 }
 
 func (h *Handler) handleCreateEBRuleTemplateGroup(c *echo.Context, body map[string]any) error {
@@ -54,7 +64,7 @@ func (h *Handler) handleListEBRuleTemplateGroups(c *echo.Context) error {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, g := range items {
-		out = append(out, toEBRuleTemplateGroupOutput(g))
+		out = append(out, toEBRuleTemplateGroupSummaryOutput(g))
 	}
 	resp := map[string]any{"eventBridgeRuleTemplateGroups": out}
 	if nextToken != "" {
@@ -106,10 +116,31 @@ func toEBRuleTemplateOutput(t *EventBridgeRuleTemplate) map[string]any {
 
 	return map[string]any{
 		keyArn: t.Arn, keyID: t.ID, keyName: t.Name, keyDescription: t.Description,
-		"groupId":      t.GroupID,
+		keyGroupID:     t.GroupID,
 		"eventType":    t.EventType,
 		"eventTargets": targets,
 		keyCreatedAt:   formatISO8601(t.CreatedAt), keyModifiedAt: formatISO8601(t.ModifiedAt),
+		keyTags: tags,
+	}
+}
+
+// toEBRuleTemplateSummaryOutput mirrors ListEventBridgeRuleTemplatesOutput's
+// per-item Summary shape: "eventTargetCount" (an integer) instead of the
+// full "eventTargets" array that toEBRuleTemplateOutput emits (verified
+// against aws-sdk-go-v2/service/medialive's EventBridgeRuleTemplateSummary
+// type).
+func toEBRuleTemplateSummaryOutput(t *EventBridgeRuleTemplateSummary) map[string]any {
+	tags := t.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return map[string]any{
+		keyArn: t.Arn, keyID: t.ID, keyName: t.Name, keyDescription: t.Description,
+		keyGroupID:         t.GroupID,
+		"eventType":        t.EventType,
+		"eventTargetCount": t.EventTargetCount,
+		keyCreatedAt:       formatISO8601(t.CreatedAt), keyModifiedAt: formatISO8601(t.ModifiedAt),
 		keyTags: tags,
 	}
 }
@@ -169,7 +200,7 @@ func (h *Handler) handleListEBRuleTemplates(c *echo.Context) error {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, t := range items {
-		out = append(out, toEBRuleTemplateOutput(t))
+		out = append(out, toEBRuleTemplateSummaryOutput(t))
 	}
 	resp := map[string]any{"eventBridgeRuleTemplates": out}
 	if nextToken != "" {

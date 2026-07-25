@@ -443,3 +443,31 @@ func TestBackend_Stage_ClientCertificateId(t *testing.T) {
 		})
 	}
 }
+
+// TestStage_DocumentationVersion exercises CreateStage/UpdateStage's
+// DocumentationVersion field (types.Stage.DocumentationVersion in the SDK),
+// absent from gopherstack's Stage struct until this sweep.
+func TestStage_DocumentationVersion(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+	api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "docversion-api"})
+	require.NoError(t, err)
+	depl, err := b.CreateDeployment(api.ID, "", "v1")
+	require.NoError(t, err)
+
+	stage, err := b.CreateStage(apigateway.CreateStageInput{
+		RestAPIID:            api.ID,
+		StageName:            "prod",
+		DeploymentID:         depl.ID,
+		DocumentationVersion: "1.0.0",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "1.0.0", stage.DocumentationVersion)
+
+	updated, err := b.UpdateStage(api.ID, "prod", apigateway.UpdateStageInput{
+		DocumentationVersion: "2.0.0",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "2.0.0", updated.DocumentationVersion)
+}

@@ -21,6 +21,7 @@ type addApplicationCWLOptionInput struct {
 
 type addApplicationCWLOptionOutput struct {
 	ApplicationARN                      string                        `json:"ApplicationARN"`
+	OperationID                         string                        `json:"OperationId,omitempty"`
 	CloudWatchLoggingOptionDescriptions []CloudWatchLoggingOptionDesc `json:"CloudWatchLoggingOptionDescriptions"`
 	ApplicationVersionID                int64                         `json:"ApplicationVersionId"`
 }
@@ -146,6 +147,7 @@ type addApplicationVpcConfigInput struct {
 type addApplicationVpcConfigOutput struct {
 	VpcConfigurationDescription *VpcConfigurationDescription `json:"VpcConfigurationDescription,omitempty"`
 	ApplicationARN              string                       `json:"ApplicationARN"`
+	OperationID                 string                       `json:"OperationId,omitempty"`
 	ApplicationVersionID        int64                        `json:"ApplicationVersionId"`
 }
 
@@ -157,6 +159,7 @@ type deleteApplicationCWLOptionInput struct {
 
 type deleteApplicationCWLOptionOutput struct {
 	ApplicationARN                      string                        `json:"ApplicationARN"`
+	OperationID                         string                        `json:"OperationId,omitempty"`
 	CloudWatchLoggingOptionDescriptions []CloudWatchLoggingOptionDesc `json:"CloudWatchLoggingOptionDescriptions"`
 	ApplicationVersionID                int64                         `json:"ApplicationVersionId"`
 }
@@ -202,6 +205,7 @@ type deleteApplicationVpcConfigInput struct {
 
 type deleteApplicationVpcConfigOutput struct {
 	ApplicationARN       string `json:"ApplicationARN"`
+	OperationID          string `json:"OperationId,omitempty"`
 	ApplicationVersionID int64  `json:"ApplicationVersionId"`
 }
 
@@ -215,13 +219,14 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(ctx context.Contex
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "CloudWatchLoggingOption is required")
 	}
 
-	if err := h.Backend.AddApplicationCloudWatchLoggingOption(
+	opID, err := h.Backend.AddApplicationCloudWatchLoggingOption(
 		ctx,
 		in.ApplicationName,
 		in.CurrentApplicationVersionID,
 		in.CloudWatchLoggingOption.LogStreamARN,
 		in.CloudWatchLoggingOption.RoleARN,
-	); err != nil {
+	)
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -232,6 +237,7 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(ctx context.Contex
 
 	return c.JSON(http.StatusOK, addApplicationCWLOptionOutput{
 		ApplicationARN:                      app.ApplicationARN,
+		OperationID:                         opID,
 		ApplicationVersionID:                app.ApplicationVersionID,
 		CloudWatchLoggingOptionDescriptions: app.CloudWatchLoggingOptionDescs,
 	})
@@ -394,9 +400,8 @@ func (h *Handler) handleAddApplicationVpcConfiguration(ctx context.Context, c *e
 
 	vpc := buildVpcConfigDescription(in.VpcConfiguration)
 
-	if err := h.Backend.AddApplicationVpcConfiguration(
-		ctx, in.ApplicationName, in.CurrentApplicationVersionID, vpc,
-	); err != nil {
+	opID, err := h.Backend.AddApplicationVpcConfiguration(ctx, in.ApplicationName, in.CurrentApplicationVersionID, vpc)
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -414,6 +419,7 @@ func (h *Handler) handleAddApplicationVpcConfiguration(ctx context.Context, c *e
 
 	return c.JSON(http.StatusOK, addApplicationVpcConfigOutput{
 		ApplicationARN:              app.ApplicationARN,
+		OperationID:                 opID,
 		ApplicationVersionID:        app.ApplicationVersionID,
 		VpcConfigurationDescription: vpcDesc,
 	})
@@ -427,9 +433,10 @@ func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.DeleteApplicationCloudWatchLoggingOption(
+	opID, err := h.Backend.DeleteApplicationCloudWatchLoggingOption(
 		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
-	); err != nil {
+	)
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -440,6 +447,7 @@ func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
 
 	return c.JSON(http.StatusOK, deleteApplicationCWLOptionOutput{
 		ApplicationARN:                      app.ApplicationARN,
+		OperationID:                         opID,
 		ApplicationVersionID:                app.ApplicationVersionID,
 		CloudWatchLoggingOptionDescriptions: app.CloudWatchLoggingOptionDescs,
 	})
@@ -522,9 +530,10 @@ func (h *Handler) handleDeleteApplicationVpcConfiguration(ctx context.Context, c
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.DeleteApplicationVpcConfiguration(
+	opID, err := h.Backend.DeleteApplicationVpcConfiguration(
 		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.VpcConfigurationID,
-	); err != nil {
+	)
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -535,6 +544,7 @@ func (h *Handler) handleDeleteApplicationVpcConfiguration(ctx context.Context, c
 
 	return c.JSON(http.StatusOK, deleteApplicationVpcConfigOutput{
 		ApplicationARN:       app.ApplicationARN,
+		OperationID:          opID,
 		ApplicationVersionID: app.ApplicationVersionID,
 	})
 }

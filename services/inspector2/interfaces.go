@@ -120,30 +120,33 @@ type StorageBackend interface {
 	GetCodeSecurityScan(scanID string) (map[string]any, error)
 
 	// Findings report
-	CreateFindingsReport(destination map[string]any) (*FindingsReport, error)
+	CreateFindingsReport(destination, filterCriteria map[string]any, reportFormat string) (*FindingsReport, error)
 	CancelFindingsReport(reportID string) error
 	GetFindingsReportStatus(reportID string) (*FindingsReport, error)
 
 	// SBOM export
-	CreateSbomExport(destination map[string]any) (*SbomExport, error)
+	CreateSbomExport(destination, filterCriteria map[string]any, format string) (*SbomExport, error)
 	CancelSbomExport(reportID string) error
 	GetSbomExport(reportID string) (*SbomExport, error)
 
 	// Coverage
 	ListCoverage(filters map[string]any, maxResults int32, nextToken string) ([]*CoverageEntry, string, error)
-	ListCoverageStatistics(filters map[string]any) (map[string]any, error)
+	ListCoverageStatistics(filters map[string]any, groupBy string) (map[string]any, error)
+	SeedCoverage(e CoverageEntry) (*CoverageEntry, error)
 
 	// Finding aggregations / usage
 	ListFindingAggregations(aggregationType string, filters map[string]any) (map[string]any, error)
 	ListUsageTotals(accountIDs []string) ([]map[string]any, error)
 	ListAccountPermissions(service string) ([]*AccountPermission, error)
-	SearchVulnerabilities(filterCriteria map[string]any, nextToken string) ([]map[string]any, string, error)
+	SearchVulnerabilities(filterCriteria map[string]any, nextToken string) ([]*Vulnerability, string, error)
+	SeedVulnerability(v Vulnerability) (*Vulnerability, error)
 
 	// Batch / misc
 	BatchGetCodeSnippet(findingARNs []string) (map[string]any, error)
-	BatchGetFindingDetails(findingARNs []map[string]any) (map[string]any, error)
+	BatchGetFindingDetails(findingARNs []string) (map[string]any, error)
 	BatchGetFreeTrialInfo(accountIDs []string) (map[string]any, error)
-	GetClustersForImage(filters map[string]any) (map[string]any, error)
+	GetClustersForImage(resourceID string) (map[string]any, error)
+	SeedCodeSnippet(findingARN string, lines []CodeLine, fixes []SuggestedFix) error
 
 	AccountID() string
 	Region() string

@@ -467,3 +467,35 @@ func TestBackend_RestAPI(t *testing.T) {
 		})
 	}
 }
+
+// TestRestAPI_EndpointFields exercises CreateRestApi's
+// DisableExecuteApiEndpoint/EndpointAccessMode fields and the read-only
+// ApiStatus field (types.RestApi.ApiStatus/DisableExecuteApiEndpoint/
+// EndpointAccessMode in the SDK), all absent from gopherstack's RestAPI
+// struct until this sweep.
+func TestRestAPI_EndpointFields(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+	api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{
+		Name:                      "endpoint-fields-api",
+		DisableExecuteAPIEndpoint: true,
+		EndpointAccessMode:        "STRICT",
+	})
+	require.NoError(t, err)
+	assert.True(t, api.DisableExecuteAPIEndpoint)
+	assert.Equal(t, "STRICT", api.EndpointAccessMode)
+	assert.Equal(t, "AVAILABLE", api.APIStatus, "gopherstack creates RestApis synchronously")
+
+	got, err := b.GetRestAPI(api.ID)
+	require.NoError(t, err)
+	assert.True(t, got.DisableExecuteAPIEndpoint)
+	assert.Equal(t, "STRICT", got.EndpointAccessMode)
+
+	updated, err := b.UpdateRestAPI(api.ID, apigateway.UpdateRestAPIInput{
+		EndpointAccessMode: "BASIC",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "BASIC", updated.EndpointAccessMode)
+	assert.True(t, updated.DisableExecuteAPIEndpoint, "untouched field keeps its prior value")
+}

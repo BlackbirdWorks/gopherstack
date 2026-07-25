@@ -408,32 +408,44 @@ func findStartIndex[T any](items []T, token string, getName func(T) string) int 
 // coarse awserr-category switch would. Checked before the generic fallback
 // below; analogous to EC2's errCodeLookup / CloudFront's errCodeMapping.
 //
+// All statuses are http.StatusBadRequest (400): confirmed against the
+// aws-sdk-go v1 model (models/apis/memorydb/2021-01-01/api-2.json) -- every
+// one of MemoryDB's ~53 exception shapes has an empty "error" trait ({}, no
+// httpStatusCode override), and the JSON-protocol default for an
+// unoverridden client-fault shape is 400. This also matches
+// deserializers.go's error dispatch, which resolves the typed error purely
+// from the __type/code field (resolveProtocolErrorType), never from
+// response.StatusCode -- so a real aws-sdk-go-v2 client's errors.As(&types.
+// ClusterNotFoundFault{}) behaves identically regardless of which 4xx status
+// is on the wire. A prior pass left the pre-existing 404/409 split in place
+// pending this confirmation; fixed now that the model has been checked.
+//
 //nolint:gochecknoglobals // read-only lookup table initialized once at startup
 var errCodeLookup = []struct {
 	err    error
 	code   string
 	status int
 }{
-	{ErrClusterNotFound, "ClusterNotFoundFault", http.StatusNotFound},
-	{ErrClusterAlreadyExists, "ClusterAlreadyExistsFault", http.StatusConflict},
-	{ErrACLInUse, "InvalidACLStateFault", http.StatusConflict},
-	{ErrACLNotFound, "ACLNotFoundFault", http.StatusNotFound},
-	{ErrACLAlreadyExists, "ACLAlreadyExistsFault", http.StatusConflict},
-	{ErrSubnetGroupInUse, "SubnetGroupInUseFault", http.StatusConflict},
-	{ErrSubnetGroupNotFound, "SubnetGroupNotFoundFault", http.StatusNotFound},
-	{ErrSubnetGroupAlreadyExists, "SubnetGroupAlreadyExistsFault", http.StatusConflict},
-	{ErrUserInUse, "InvalidUserStateFault", http.StatusConflict},
-	{ErrUserNotFound, "UserNotFoundFault", http.StatusNotFound},
-	{ErrUserAlreadyExists, "UserAlreadyExistsFault", http.StatusConflict},
-	{ErrParameterGroupNotFound, "ParameterGroupNotFoundFault", http.StatusNotFound},
-	{ErrParameterGroupAlreadyExists, "ParameterGroupAlreadyExistsFault", http.StatusConflict},
-	{ErrSnapshotNotFound, "SnapshotNotFoundFault", http.StatusNotFound},
-	{ErrSnapshotAlreadyExists, "SnapshotAlreadyExistsFault", http.StatusConflict},
-	{ErrMultiRegionClusterNotFound, "MultiRegionClusterNotFoundFault", http.StatusNotFound},
-	{ErrMultiRegionClusterAlreadyExists, "MultiRegionClusterAlreadyExistsFault", http.StatusConflict},
-	{ErrMultiRegionParameterGroupNotFound, "MultiRegionParameterGroupNotFoundFault", http.StatusNotFound},
-	{ErrInvalidARN, "InvalidARNFault", http.StatusNotFound},
-	{ErrReservationAlreadyExists, "ReservedNodeAlreadyExistsFault", http.StatusConflict},
+	{ErrClusterNotFound, "ClusterNotFoundFault", http.StatusBadRequest},
+	{ErrClusterAlreadyExists, "ClusterAlreadyExistsFault", http.StatusBadRequest},
+	{ErrACLInUse, "InvalidACLStateFault", http.StatusBadRequest},
+	{ErrACLNotFound, "ACLNotFoundFault", http.StatusBadRequest},
+	{ErrACLAlreadyExists, "ACLAlreadyExistsFault", http.StatusBadRequest},
+	{ErrSubnetGroupInUse, "SubnetGroupInUseFault", http.StatusBadRequest},
+	{ErrSubnetGroupNotFound, "SubnetGroupNotFoundFault", http.StatusBadRequest},
+	{ErrSubnetGroupAlreadyExists, "SubnetGroupAlreadyExistsFault", http.StatusBadRequest},
+	{ErrUserInUse, "InvalidUserStateFault", http.StatusBadRequest},
+	{ErrUserNotFound, "UserNotFoundFault", http.StatusBadRequest},
+	{ErrUserAlreadyExists, "UserAlreadyExistsFault", http.StatusBadRequest},
+	{ErrParameterGroupNotFound, "ParameterGroupNotFoundFault", http.StatusBadRequest},
+	{ErrParameterGroupAlreadyExists, "ParameterGroupAlreadyExistsFault", http.StatusBadRequest},
+	{ErrSnapshotNotFound, "SnapshotNotFoundFault", http.StatusBadRequest},
+	{ErrSnapshotAlreadyExists, "SnapshotAlreadyExistsFault", http.StatusBadRequest},
+	{ErrMultiRegionClusterNotFound, "MultiRegionClusterNotFoundFault", http.StatusBadRequest},
+	{ErrMultiRegionClusterAlreadyExists, "MultiRegionClusterAlreadyExistsFault", http.StatusBadRequest},
+	{ErrMultiRegionParameterGroupNotFound, "MultiRegionParameterGroupNotFoundFault", http.StatusBadRequest},
+	{ErrInvalidARN, "InvalidARNFault", http.StatusBadRequest},
+	{ErrReservationAlreadyExists, "ReservedNodeAlreadyExistsFault", http.StatusBadRequest},
 }
 
 // writeBackendError translates a backend error to an HTTP response. It
@@ -447,19 +459,23 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		}
 	}
 
+	// Every category below is a client fault; per the httpStatusCode
+	// confirmation above (all-400) these use http.StatusBadRequest uniformly,
+	// matching errCodeLookup. Only a true unclassified/unexpected error falls
+	// to the 500 default.
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 
-		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		return writeError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 
-		return writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
+		return writeError(c, http.StatusBadRequest, "ResourceInUseException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
 
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, awserr.ErrConflict):
 
-		return writeError(c, http.StatusConflict, "InvalidRequestException", err.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", err.Error())
 	default:
 
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

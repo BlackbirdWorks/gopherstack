@@ -168,7 +168,6 @@ func buildEnvironment(
 		StartupScriptS3ObjectVersion: req.StartupScriptS3ObjectVersion,
 		EndpointManagement:           d.endpointMgmt,
 		WeeklyMaintenanceWindowStart: req.WeeklyMaintenanceWindowStart,
-		WorkerReplacementStrategy:    req.WorkerReplacementStrategy,
 		ServiceRoleArn: arn.Build("iam", "", accountID,
 			"role/aws-service-role/airflow.amazonaws.com/AWSServiceRoleForAmazonMWAA"),
 		CeleryExecutorQueue: fmt.Sprintf(
@@ -201,7 +200,7 @@ func (b *InMemoryBackend) GetEnvironment(ctx context.Context, name string) (*Env
 }
 
 // promoteTransientStatus advances mock-only transient lifecycle states (CREATING,
-// UPDATING, CREATING_SNAPSHOT, UPDATE_ROLLING_BACK, PENDING) back to AVAILABLE
+// UPDATING, CREATING_SNAPSHOT, ROLLING_BACK, PENDING) back to AVAILABLE
 // so callers can observe the transition once and then see the steady state.
 func promoteTransientStatus(env *Environment) {
 	if env == nil {
@@ -209,7 +208,7 @@ func promoteTransientStatus(env *Environment) {
 	}
 
 	switch env.Status {
-	case envStatusCreating, envStatusUpdating, envStatusCreatingSnapshot, envStatusUpdateRollback, envStatusPending:
+	case envStatusCreating, envStatusUpdating, envStatusCreatingSnapshot, envStatusRollingBack, envStatusPending:
 		env.Status = envStatusAvailable
 	}
 }
@@ -360,9 +359,11 @@ func applyUpdateScalars(env *Environment, req *updateEnvironmentRequest) {
 		env.WeeklyMaintenanceWindowStart = req.WeeklyMaintenanceWindowStart
 	}
 
-	if req.WorkerReplacementStrategy != "" {
-		env.WorkerReplacementStrategy = req.WorkerReplacementStrategy
-	}
+	// WorkerReplacementStrategy is intentionally not applied to any top-level
+	// Environment field here: AWS's Environment response shape has no such
+	// member at all -- it is recorded only on LastUpdate.WorkerReplacementStrategy
+	// (set unconditionally below in UpdateEnvironment), reflecting just the most
+	// recent update call rather than a persistent environment-level setting.
 }
 
 // applyUpdateS3Paths copies the optional S3 path/version pairs from req to env.

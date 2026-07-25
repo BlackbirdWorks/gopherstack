@@ -76,13 +76,19 @@ func marshalRows(rows []Row) []map[string]any {
 }
 
 // marshalColumnInfos converts []ColumnInfo to JSON-serialisable form.
+// ColumnInfo.Type already carries the correct wire field names/omitempty
+// tags for the full nested union (ScalarType | ArrayColumnInfo |
+// RowColumnInfo | TimeSeriesMeasureValueColumnInfo, see types.Type), so it is
+// passed straight through rather than hand-picking only ScalarType -- an
+// earlier version dropped the other three union members entirely.
 func marshalColumnInfos(cols []ColumnInfo) []map[string]any {
 	out := make([]map[string]any, len(cols))
 	for i, c := range cols {
-		out[i] = map[string]any{
-			"Name": c.Name,
-			"Type": map[string]any{"ScalarType": c.Type.ScalarType},
+		entry := map[string]any{"Type": c.Type}
+		if c.Name != "" {
+			entry["Name"] = c.Name
 		}
+		out[i] = entry
 	}
 
 	return out

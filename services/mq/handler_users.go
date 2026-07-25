@@ -3,9 +3,18 @@ package mq
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// mqUsersDefaultPageSize is ListUsers' documented default MaxResults (20),
+// distinct from mqDefaultPageSize used by ListBrokers/ListConfigurations --
+// see ListUsersInput.MaxResults in aws-sdk-go-v2/service/mq ("20 by
+// default... must be an integer from 5 to 100").
+const mqUsersDefaultPageSize = 20
 
 type createUserBody struct {
 	Username string   `json:"username"`
@@ -38,12 +47,18 @@ func (h *Handler) handleDescribeUser(c *echo.Context, brokerID, username string)
 		groups = []string{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyBrokerID:     brokerID,
 		"username":      u.Username,
 		"consoleAccess": u.Console,
 		"groups":        groups,
-	})
+	}
+
+	if u.Pending != nil {
+		resp["pending"] = u.Pending
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteUser(c *echo.Context, brokerID, username string) error {
@@ -79,8 +94,27 @@ func (h *Handler) handleListUsers(c *echo.Context, brokerID string) error {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults := 0
+
+	if s := q.Get("maxResults"); s != "" {
+		if n, parseErr := strconv.Atoi(s); parseErr == nil && n > 0 && n <= 100 {
+			maxResults = n
+		}
+	}
+
+	// Use opaque index-based tokens so the page boundary is stable regardless
+	// of insertions or deletions between requests, matching ListBrokers.
+	pg := page.New(users, nextToken, maxResults, mqUsersDefaultPageSize)
+
+	resp := map[string]any{
 		keyBrokerID: brokerID,
-		"users":     users,
-	})
+		"users":     pg.Data,
+	}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }

@@ -20,7 +20,20 @@ import (
 // snapshot decodes with Version == 0, which is guaranteed to mismatch
 // kinesisanalyticsv2SnapshotVersion and is discarded the same way any other
 // incompatible snapshot is.
-const kinesisanalyticsv2SnapshotVersion = 1
+//
+// v2 added persistedApplication.CodeConfig/FlinkConfig/
+// EnvironmentPropertyGroups/SnapshotsEnabled/RollbackEnabled/
+// EncryptionConfig/RunConfig/LastUpdateTimestamp -- the
+// ApplicationCodeConfiguration/FlinkApplicationConfiguration/
+// EnvironmentProperties/ApplicationSnapshotConfiguration/
+// ApplicationSystemRollbackConfiguration/ApplicationEncryptionConfiguration/
+// RunConfiguration state that was previously accepted on the wire but never
+// modeled at all (see PARITY.md). A v1 snapshot has none of these fields, so
+// it must not be decoded as v2 (they'd silently come back nil/zero, which
+// happens to be a safe default here, but the version-mismatch discard
+// convention is simpler to reason about than special-casing this one field
+// set as "safe to leave zero").
+const kinesisanalyticsv2SnapshotVersion = 2
 
 // persistedApplication is a persistence-safe representation of Application,
 // including fields that use json:"-" on the live struct (CreatedAt, Region,
@@ -28,23 +41,35 @@ const kinesisanalyticsv2SnapshotVersion = 1
 // comment for why applications can't be registered on b.registry for
 // Snapshot/Restore directly.
 type persistedApplication struct {
-	CreatedAt                       time.Time                        `json:"created_at"`
-	Region                          string                           `json:"region"`
-	ApplicationARN                  string                           `json:"ApplicationARN"`
-	ApplicationName                 string                           `json:"ApplicationName"`
-	ApplicationStatus               string                           `json:"ApplicationStatus"`
-	RuntimeEnvironment              string                           `json:"RuntimeEnvironment"`
-	ServiceExecutionRole            string                           `json:"ServiceExecutionRole,omitempty"`
-	ApplicationDescription          string                           `json:"ApplicationDescription,omitempty"`
-	ApplicationMode                 string                           `json:"ApplicationMode,omitempty"`
-	MaintenanceWindowStartTime      string                           `json:"MaintenanceWindowStartTime,omitempty"`
-	Tags                            []Tag                            `json:"Tags"`
-	CloudWatchLoggingOptionDescs    []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptionDescs"`
-	InputDescriptions               []InputDescription               `json:"InputDescriptions"`
-	OutputDescriptions              []OutputDescription              `json:"OutputDescriptions"`
-	ReferenceDataSourceDescriptions []ReferenceDataSourceDescription `json:"ReferenceDataSourceDescriptions"`
-	VpcConfigurationDescriptions    []VpcConfigurationDescription    `json:"VpcConfigurationDescriptions"`
-	ApplicationVersionID            int64                            `json:"ApplicationVersionId"`
+	LastUpdateTimestamp               time.Time                        `json:"last_update_timestamp"`
+	ApplicationVersionCreateTimestamp time.Time                        `json:"application_version_create_timestamp"`
+	CreatedAt                         time.Time                        `json:"created_at"`
+	CodeConfig                        *ApplicationCodeConfigDesc       `json:"CodeConfig,omitempty"`
+	ApplicationVersionRolledBackTo    *int64                           `json:"ApplicationVersionRolledBackTo,omitempty"`
+	ApplicationVersionRolledBackFrom  *int64                           `json:"ApplicationVersionRolledBackFrom,omitempty"`
+	ApplicationVersionUpdatedFrom     *int64                           `json:"ApplicationVersionUpdatedFrom,omitempty"`
+	RunConfig                         *RunConfigDesc                   `json:"RunConfig,omitempty"`
+	EncryptionConfig                  *ApplicationEncryptionConfigDesc `json:"EncryptionConfig,omitempty"`
+	RollbackEnabled                   *bool                            `json:"RollbackEnabled,omitempty"`
+	SnapshotsEnabled                  *bool                            `json:"SnapshotsEnabled,omitempty"`
+	FlinkConfig                       *FlinkApplicationConfigDesc      `json:"FlinkConfig,omitempty"`
+	RuntimeEnvironment                string                           `json:"RuntimeEnvironment"`
+	ApplicationName                   string                           `json:"ApplicationName"`
+	Region                            string                           `json:"region"`
+	ApplicationARN                    string                           `json:"ApplicationARN"`
+	ApplicationStatus                 string                           `json:"ApplicationStatus"`
+	ServiceExecutionRole              string                           `json:"ServiceExecutionRole,omitempty"`
+	ApplicationDescription            string                           `json:"ApplicationDescription,omitempty"`
+	ApplicationMode                   string                           `json:"ApplicationMode,omitempty"`
+	MaintenanceWindowStartTime        string                           `json:"MaintenanceWindowStartTime,omitempty"`
+	Tags                              []Tag                            `json:"Tags"`
+	EnvironmentPropertyGroups         []PropertyGroup                  `json:"EnvironmentPropertyGroups,omitempty"`
+	VpcConfigurationDescriptions      []VpcConfigurationDescription    `json:"VpcConfigurationDescriptions"`
+	ReferenceDataSourceDescriptions   []ReferenceDataSourceDescription `json:"ReferenceDataSourceDescriptions"`
+	CloudWatchLoggingOptionDescs      []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptionDescs"`
+	OutputDescriptions                []OutputDescription              `json:"OutputDescriptions"`
+	InputDescriptions                 []InputDescription               `json:"InputDescriptions"`
+	ApplicationVersionID              int64                            `json:"ApplicationVersionId"`
 }
 
 // persistedApplicationKey is the [store.Table] key function used for the
@@ -89,22 +114,39 @@ func newDTORegistry() (*store.Registry, *store.Table[persistedApplication], *sto
 
 func toPersistedApp(app *Application) *persistedApplication {
 	return &persistedApplication{
-		CreatedAt:                       app.CreatedAt,
-		Region:                          app.Region,
-		ApplicationARN:                  app.ApplicationARN,
-		ApplicationName:                 app.ApplicationName,
-		ApplicationStatus:               app.ApplicationStatus,
-		RuntimeEnvironment:              app.RuntimeEnvironment,
-		ServiceExecutionRole:            app.ServiceExecutionRole,
-		ApplicationDescription:          app.ApplicationDescription,
-		ApplicationMode:                 app.ApplicationMode,
-		Tags:                            cloneTags(app.Tags),
-		CloudWatchLoggingOptionDescs:    copyCWLOptions(app.CloudWatchLoggingOptionDescs),
-		InputDescriptions:               copyInputDescs(app.InputDescriptions),
-		OutputDescriptions:              copyOutputDescs(app.OutputDescriptions),
-		ReferenceDataSourceDescriptions: copyRefDataSources(app.ReferenceDataSourceDescriptions),
-		VpcConfigurationDescriptions:    copyVpcConfigs(app.VpcConfigurationDescriptions),
-		ApplicationVersionID:            app.ApplicationVersionID,
+		CreatedAt:                         app.CreatedAt,
+		LastUpdateTimestamp:               app.LastUpdateTimestamp,
+		ApplicationVersionCreateTimestamp: app.ApplicationVersionCreateTimestamp,
+		Region:                            app.Region,
+		ApplicationARN:                    app.ApplicationARN,
+		ApplicationName:                   app.ApplicationName,
+		ApplicationStatus:                 app.ApplicationStatus,
+		RuntimeEnvironment:                app.RuntimeEnvironment,
+		ServiceExecutionRole:              app.ServiceExecutionRole,
+		ApplicationDescription:            app.ApplicationDescription,
+		ApplicationMode:                   app.ApplicationMode,
+		// MaintenanceWindowStartTime was previously declared on
+		// persistedApplication but never assigned here or restored below --
+		// UpdateApplicationMaintenanceConfiguration state silently didn't
+		// survive Snapshot/Restore. Fixed alongside the v2 field additions.
+		MaintenanceWindowStartTime:       app.MaintenanceWindowStartTime,
+		Tags:                             cloneTags(app.Tags),
+		CloudWatchLoggingOptionDescs:     copyCWLOptions(app.CloudWatchLoggingOptionDescs),
+		InputDescriptions:                copyInputDescs(app.InputDescriptions),
+		OutputDescriptions:               copyOutputDescs(app.OutputDescriptions),
+		ReferenceDataSourceDescriptions:  copyRefDataSources(app.ReferenceDataSourceDescriptions),
+		VpcConfigurationDescriptions:     copyVpcConfigs(app.VpcConfigurationDescriptions),
+		EnvironmentPropertyGroups:        copyPropertyGroups(app.EnvironmentPropertyGroups),
+		CodeConfig:                       app.CodeConfig,
+		FlinkConfig:                      app.FlinkConfig,
+		SnapshotsEnabled:                 app.SnapshotsEnabled,
+		RollbackEnabled:                  app.RollbackEnabled,
+		EncryptionConfig:                 app.EncryptionConfig,
+		RunConfig:                        app.RunConfig,
+		ApplicationVersionUpdatedFrom:    app.ApplicationVersionUpdatedFrom,
+		ApplicationVersionRolledBackFrom: app.ApplicationVersionRolledBackFrom,
+		ApplicationVersionRolledBackTo:   app.ApplicationVersionRolledBackTo,
+		ApplicationVersionID:             app.ApplicationVersionID,
 	}
 }
 
@@ -119,22 +161,35 @@ func ensureNonNil[T any](s []T) []T {
 
 func fromPersistedApp(p *persistedApplication) *Application {
 	return &Application{
-		CreatedAt:                       p.CreatedAt,
-		Region:                          p.Region,
-		ApplicationARN:                  p.ApplicationARN,
-		ApplicationName:                 p.ApplicationName,
-		ApplicationStatus:               p.ApplicationStatus,
-		RuntimeEnvironment:              p.RuntimeEnvironment,
-		ServiceExecutionRole:            p.ServiceExecutionRole,
-		ApplicationDescription:          p.ApplicationDescription,
-		ApplicationMode:                 p.ApplicationMode,
-		ApplicationVersionID:            p.ApplicationVersionID,
-		Tags:                            ensureNonNil(p.Tags),
-		CloudWatchLoggingOptionDescs:    ensureNonNil(p.CloudWatchLoggingOptionDescs),
-		InputDescriptions:               ensureNonNil(p.InputDescriptions),
-		OutputDescriptions:              ensureNonNil(p.OutputDescriptions),
-		ReferenceDataSourceDescriptions: ensureNonNil(p.ReferenceDataSourceDescriptions),
-		VpcConfigurationDescriptions:    ensureNonNil(p.VpcConfigurationDescriptions),
+		CreatedAt:                         p.CreatedAt,
+		LastUpdateTimestamp:               p.LastUpdateTimestamp,
+		ApplicationVersionCreateTimestamp: p.ApplicationVersionCreateTimestamp,
+		Region:                            p.Region,
+		ApplicationARN:                    p.ApplicationARN,
+		ApplicationName:                   p.ApplicationName,
+		ApplicationStatus:                 p.ApplicationStatus,
+		RuntimeEnvironment:                p.RuntimeEnvironment,
+		ServiceExecutionRole:              p.ServiceExecutionRole,
+		ApplicationDescription:            p.ApplicationDescription,
+		ApplicationMode:                   p.ApplicationMode,
+		MaintenanceWindowStartTime:        p.MaintenanceWindowStartTime,
+		ApplicationVersionID:              p.ApplicationVersionID,
+		Tags:                              ensureNonNil(p.Tags),
+		CloudWatchLoggingOptionDescs:      ensureNonNil(p.CloudWatchLoggingOptionDescs),
+		InputDescriptions:                 ensureNonNil(p.InputDescriptions),
+		OutputDescriptions:                ensureNonNil(p.OutputDescriptions),
+		ReferenceDataSourceDescriptions:   ensureNonNil(p.ReferenceDataSourceDescriptions),
+		VpcConfigurationDescriptions:      ensureNonNil(p.VpcConfigurationDescriptions),
+		EnvironmentPropertyGroups:         ensureNonNil(p.EnvironmentPropertyGroups),
+		CodeConfig:                        p.CodeConfig,
+		FlinkConfig:                       p.FlinkConfig,
+		SnapshotsEnabled:                  p.SnapshotsEnabled,
+		RollbackEnabled:                   p.RollbackEnabled,
+		EncryptionConfig:                  p.EncryptionConfig,
+		RunConfig:                         p.RunConfig,
+		ApplicationVersionUpdatedFrom:     p.ApplicationVersionUpdatedFrom,
+		ApplicationVersionRolledBackFrom:  p.ApplicationVersionRolledBackFrom,
+		ApplicationVersionRolledBackTo:    p.ApplicationVersionRolledBackTo,
 	}
 }
 

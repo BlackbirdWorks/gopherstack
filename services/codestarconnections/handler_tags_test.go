@@ -313,12 +313,106 @@ func TestTagResource_CountLimit(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	// Try to add 1 more (total 201 - over limit).
+	// Try to add 1 more (total 201 - over limit). Real TagResource's complete
+	// error list is [ResourceNotFoundException, LimitExceededException]
+	// (botocore codestar-connections/2019-12-01/service-2.json) -- there is
+	// no InvalidInputException for this op at all, so exceeding the tag
+	// count must map to LimitExceededException specifically.
 	rec3 := doRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": conn.ConnectionArn,
 		"Tags":        []map[string]string{{"Key": "over-limit", "Value": "nope"}},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec3.Code)
+
+	resp3 := parseResp(t, rec3)
+	assert.Equal(t, "LimitExceededException", resp3["__type"])
+}
+
+// TestCreateConnection_TagLimitExceeded verifies CreateConnection maps
+// too-many-initial-tags to LimitExceededException, the only error
+// CreateHost's real error list documents at all, and one of CreateConnection's
+// three real errors (botocore codestar-connections/2019-12-01/service-2.json).
+func TestCreateConnection_TagLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tags := make([]map[string]string, 201)
+	for i := range tags {
+		tags[i] = map[string]string{"Key": "k" + string(rune('A'+i%26)) + string(rune('0'+i/26)), "Value": "v"}
+	}
+
+	rec := doRequest(t, h, "CreateConnection", map[string]any{
+		"ConnectionName": "over-tag-conn",
+		"ProviderType":   "GitHub",
+		"Tags":           tags,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	resp := parseResp(t, rec)
+	assert.Equal(t, "LimitExceededException", resp["__type"])
+}
+
+// TestRepositoryLink_Tags verifies CreateRepositoryLink accepts a Tags
+// member (real CreateRepositoryLinkInput has a `Tags []types.Tag` field,
+// confirmed against aws-sdk-go-v2's generated api_op_CreateRepositoryLink.go)
+// and that the created repository link is taggable via
+// TagResource/UntagResource/ListTagsForResource by its RepositoryLinkArn,
+// exactly like connections and hosts.
+func TestRepositoryLink_Tags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	connArn := createCSCConn(t, h, "rl-tags-conn", "GitHub")
+
+	rec := doRequest(t, h, "CreateRepositoryLink", map[string]any{
+		"ConnectionArn":  connArn,
+		"OwnerId":        "rl-tags-owner",
+		"RepositoryName": "rl-tags-repo",
+		"Tags":           []map[string]string{{"Key": "env", "Value": "prod"}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+	info := resp["RepositoryLinkInfo"].(map[string]any)
+	// RepositoryLinkInfo itself has no Tags member in the real wire shape --
+	// tags set at creation are only visible via ListTagsForResource.
+	_, hasTags := info["Tags"]
+	assert.False(t, hasTags, "RepositoryLinkInfo must not include a Tags field")
+	linkArn := info["RepositoryLinkArn"].(string)
+
+	listRec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": linkArn})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	listResp := parseResp(t, listRec)
+	tags, ok := listResp["Tags"].([]any)
+	require.True(t, ok)
+	require.Len(t, tags, 1)
+	assert.Equal(t, "env", tags[0].(map[string]any)["Key"])
+	assert.Equal(t, "prod", tags[0].(map[string]any)["Value"])
+
+	// TagResource/UntagResource also operate on the repository link ARN.
+	tagRec := doRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": linkArn,
+		"Tags":        []map[string]string{{"Key": "team", "Value": "platform"}},
+	})
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	listRec2 := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": linkArn})
+	require.Equal(t, http.StatusOK, listRec2.Code)
+	tags2 := parseResp(t, listRec2)["Tags"].([]any)
+	require.Len(t, tags2, 2)
+
+	untagRec := doRequest(t, h, "UntagResource", map[string]any{
+		"ResourceArn": linkArn,
+		"TagKeys":     []string{"env"},
+	})
+	require.Equal(t, http.StatusOK, untagRec.Code)
+
+	listRec3 := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": linkArn})
+	require.Equal(t, http.StatusOK, listRec3.Code)
+	tags3 := parseResp(t, listRec3)["Tags"].([]any)
+	require.Len(t, tags3, 1)
+	assert.Equal(t, "team", tags3[0].(map[string]any)["Key"])
 }
 
 // TestTags_NonNilOnList verifies Tags field is always non-nil (empty slice not null).

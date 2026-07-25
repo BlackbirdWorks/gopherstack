@@ -78,7 +78,7 @@ func (rc *ResourceCreator) deleteAppAutoScalingScalableTarget(arn string) error 
 	// We stored it by ARN index — use DeregisterScalableTarget with ARN lookup.
 	// The backend's DeregisterScalableTarget takes (serviceNamespace, resourceID, scalableDimension).
 	// We store the ARN as physical ID; find via DescribeScalableTargets with empty filter.
-	targets, _ := rc.backends.AppAutoScaling.Backend.DescribeScalableTargets(
+	targets, _, _ := rc.backends.AppAutoScaling.Backend.DescribeScalableTargets(
 		appautoscalingbackend.DescribeScalableTargetsFilter{},
 	)
 	for _, t := range targets {
@@ -122,7 +122,7 @@ func (rc *ResourceCreator) createAppAutoScalingScalingPolicy(
 	}
 
 	policy, err := rc.backends.AppAutoScaling.Backend.PutScalingPolicy(
-		serviceNamespace, resourceID, scalableDimension, policyName, policyType, nil, nil,
+		serviceNamespace, resourceID, scalableDimension, policyName, policyType, nil, nil, nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("put scaling policy %s: %w", policyName, err)
@@ -136,7 +136,7 @@ func (rc *ResourceCreator) deleteAppAutoScalingScalingPolicy(policyARN string) e
 		return nil
 	}
 
-	policies, _ := rc.backends.AppAutoScaling.Backend.DescribeScalingPolicies(
+	policies, _, _ := rc.backends.AppAutoScaling.Backend.DescribeScalingPolicies(
 		appautoscalingbackend.DescribeScalingPoliciesFilter{},
 	)
 	for _, p := range policies {

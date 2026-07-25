@@ -344,10 +344,11 @@ func (h *Handler) handleGetTableBucketReplication(ctx context.Context, r *http.R
 	log.InfoContext(ctx, "s3tables: got table bucket replication", keyArn, bucketARN)
 
 	return json.Marshal(map[string]any{
-		keyTableBucketARN: bucketARN,
-		"replicationConfiguration": map[string]any{
-			"destinations": cfg.Destinations,
+		keyConfiguration: map[string]any{
+			"role":  cfg.Role,
+			"rules": cfg.Rules,
 		},
+		keyVersionToken: cfg.VersionToken,
 	})
 }
 
@@ -357,7 +358,9 @@ func (h *Handler) handleDeleteTableBucketReplication(ctx context.Context, r *htt
 		return nil, fmt.Errorf("%w: tableBucketARN is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteTableBucketReplication(bucketARN); err != nil {
+	versionToken := r.URL.Query().Get(keyVersionToken)
+
+	if err := h.Backend.DeleteTableBucketReplication(bucketARN, versionToken); err != nil {
 		return nil, err
 	}
 
@@ -528,21 +531,25 @@ func (h *Handler) handlePutTableBucketReplication(ctx context.Context, r *http.R
 		return nil, fmt.Errorf("%w: tableBucketARN is required", errInvalidRequest)
 	}
 
+	versionToken := r.URL.Query().Get(keyVersionToken)
+
 	var req putTableBucketReplicationRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	cfg := &BucketReplicationConfig{
-		Destinations: parseBucketReplicationDestinations(req.Configuration),
-	}
+	role, rules := parseReplicationConfiguration(req.Configuration)
 
-	if err := h.Backend.PutTableBucketReplication(bucketARN, cfg); err != nil {
+	cfg, err := h.Backend.PutTableBucketReplication(bucketARN, role, rules, versionToken)
+	if err != nil {
 		return nil, err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: put table bucket replication", keyArn, bucketARN)
 
-	return nil, nil
+	return json.Marshal(map[string]any{
+		keyStatusField:  replicationStatusCompleted,
+		keyVersionToken: cfg.VersionToken,
+	})
 }

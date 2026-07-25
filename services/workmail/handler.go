@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -156,8 +157,22 @@ func isUnknownOp(err error) bool {
 	return errors.As(err, &e)
 }
 
-// buildOps constructs the operation dispatch table.
-func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // existing issue.
+// buildOps constructs the operation dispatch table. It is assembled from
+// several category-scoped builders (below) purely to stay under the
+// per-function line budget -- there is no behavioral split, every op still
+// ends up in one flat map exactly as before.
+func (h *Handler) buildOps() map[string]service.JSONOpFunc {
+	all := make(map[string]service.JSONOpFunc)
+	maps.Copy(all, h.buildOrgAndEntityOps())
+	maps.Copy(all, h.buildMailboxAndDomainOps())
+	maps.Copy(all, h.buildAccessAndImpersonationOps())
+	maps.Copy(all, h.buildConfigAndTokenOps())
+
+	return all
+}
+
+// buildOrgAndEntityOps covers organizations, users, groups, and resources.
+func (h *Handler) buildOrgAndEntityOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		// Organizations
 		"CreateOrganization":   service.WrapOp(h.handleCreateOrganization),
@@ -174,8 +189,6 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // 
 		"RegisterToWorkMail":        service.WrapOp(h.handleRegisterToWorkMail),
 		"DeregisterFromWorkMail":    service.WrapOp(h.handleDeregisterFromWorkMail),
 		"ResetPassword":             service.WrapOp(h.handleResetPassword),
-		"GetMailboxDetails":         service.WrapOp(h.handleGetMailboxDetails),
-		"UpdateMailboxQuota":        service.WrapOp(h.handleUpdateMailboxQuota),
 		"UpdatePrimaryEmailAddress": service.WrapOp(h.handleUpdatePrimaryEmailAddress),
 
 		// Groups
@@ -199,6 +212,19 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // 
 		"DisassociateDelegateFromResource": service.WrapOp(h.handleDisassociateDelegateFromResource),
 		"ListResourceDelegates":            service.WrapOp(h.handleListResourceDelegates),
 
+		// Describe entity
+		"DescribeEntity": service.WrapOp(h.handleDescribeEntity),
+	}
+}
+
+// buildMailboxAndDomainOps covers mailboxes, aliases, mailbox permissions,
+// mailbox export jobs, and mail domains.
+func (h *Handler) buildMailboxAndDomainOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		// Mailboxes
+		"GetMailboxDetails":  service.WrapOp(h.handleGetMailboxDetails),
+		"UpdateMailboxQuota": service.WrapOp(h.handleUpdateMailboxQuota),
+
 		// Aliases
 		"CreateAlias": service.WrapOp(h.handleCreateAlias),
 		"DeleteAlias": service.WrapOp(h.handleDeleteAlias),
@@ -209,13 +235,31 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // 
 		"DeleteMailboxPermissions": service.WrapOp(h.handleDeleteMailboxPermissions),
 		"ListMailboxPermissions":   service.WrapOp(h.handleListMailboxPermissions),
 
+		// Mailbox export jobs
+		"StartMailboxExportJob":    service.WrapOp(h.handleStartMailboxExportJob),
+		"CancelMailboxExportJob":   service.WrapOp(h.handleCancelMailboxExportJob),
+		"DescribeMailboxExportJob": service.WrapOp(h.handleDescribeMailboxExportJob),
+		"ListMailboxExportJobs":    service.WrapOp(h.handleListMailboxExportJobs),
+
 		// Mail domains
 		"RegisterMailDomain":      service.WrapOp(h.handleRegisterMailDomain),
 		"DeregisterMailDomain":    service.WrapOp(h.handleDeregisterMailDomain),
 		"GetMailDomain":           service.WrapOp(h.handleGetMailDomain),
 		"ListMailDomains":         service.WrapOp(h.handleListMailDomains),
 		"UpdateDefaultMailDomain": service.WrapOp(h.handleUpdateDefaultMailDomain),
+	}
+}
 
+// buildAccessAndImpersonationOps covers access control rules, impersonation
+// roles, tags, availability configurations, and mobile device access
+// rules/overrides. These are merged into one builder (rather than kept as
+// separate access/impersonation and device/availability builders) because
+// two same-shaped "map[string]service.JSONOpFunc{ several string:
+// service.WrapOp(h.x) entries }" functions of similar size trip the dupl
+// clone-detector on structure alone, regardless of the (entirely different)
+// keys/handlers involved; merging removes the size/shape coincidence.
+func (h *Handler) buildAccessAndImpersonationOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
 		// Access control rules
 		"PutAccessControlRule":    service.WrapOp(h.handlePutAccessControlRule),
 		"DeleteAccessControlRule": service.WrapOp(h.handleDeleteAccessControlRule),
@@ -223,19 +267,18 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // 
 		"ListAccessControlRules":  service.WrapOp(h.handleListAccessControlRules),
 
 		// Impersonation roles
-		"CreateImpersonationRole": service.WrapOp(h.handleCreateImpersonationRole),
-		"GetImpersonationRole":    service.WrapOp(h.handleGetImpersonationRole),
-		"UpdateImpersonationRole": service.WrapOp(h.handleUpdateImpersonationRole),
-		"DeleteImpersonationRole": service.WrapOp(h.handleDeleteImpersonationRole),
-		"ListImpersonationRoles":  service.WrapOp(h.handleListImpersonationRoles),
+		"CreateImpersonationRole":    service.WrapOp(h.handleCreateImpersonationRole),
+		"GetImpersonationRole":       service.WrapOp(h.handleGetImpersonationRole),
+		"UpdateImpersonationRole":    service.WrapOp(h.handleUpdateImpersonationRole),
+		"DeleteImpersonationRole":    service.WrapOp(h.handleDeleteImpersonationRole),
+		"ListImpersonationRoles":     service.WrapOp(h.handleListImpersonationRoles),
+		"GetImpersonationRoleEffect": service.WrapOp(h.handleGetImpersonationRoleEffect),
+		"AssumeImpersonationRole":    service.WrapOp(h.handleAssumeImpersonationRole),
 
 		// Tags
 		"TagResource":         service.WrapOp(h.handleTagResource),
 		"UntagResource":       service.WrapOp(h.handleUntagResource),
 		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
-
-		// Describe entity
-		"DescribeEntity": service.WrapOp(h.handleDescribeEntity),
 
 		// Availability configurations
 		"CreateAvailabilityConfiguration": service.WrapOp(h.handleCreateAvailabilityConfiguration),
@@ -256,7 +299,14 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // 
 		"DeleteMobileDeviceAccessOverride": service.WrapOp(h.handleDeleteMobileDeviceAccessOverride),
 		"GetMobileDeviceAccessOverride":    service.WrapOp(h.handleGetMobileDeviceAccessOverride),
 		"ListMobileDeviceAccessOverrides":  service.WrapOp(h.handleListMobileDeviceAccessOverrides),
+	}
+}
 
+// buildConfigAndTokenOps covers email monitoring, inbound DMARC, retention
+// policies, identity center/provider configuration, and personal access
+// tokens.
+func (h *Handler) buildConfigAndTokenOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
 		// Email monitoring configuration
 		"PutEmailMonitoringConfiguration":      service.WrapOp(h.handlePutEmailMonitoringConfiguration),
 		"DeleteEmailMonitoringConfiguration":   service.WrapOp(h.handleDeleteEmailMonitoringConfiguration),
@@ -271,12 +321,6 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // 
 		"DeleteRetentionPolicy":     service.WrapOp(h.handleDeleteRetentionPolicy),
 		"GetDefaultRetentionPolicy": service.WrapOp(h.handleGetDefaultRetentionPolicy),
 
-		// Mailbox export jobs
-		"StartMailboxExportJob":    service.WrapOp(h.handleStartMailboxExportJob),
-		"CancelMailboxExportJob":   service.WrapOp(h.handleCancelMailboxExportJob),
-		"DescribeMailboxExportJob": service.WrapOp(h.handleDescribeMailboxExportJob),
-		"ListMailboxExportJobs":    service.WrapOp(h.handleListMailboxExportJobs),
-
 		// Identity center applications
 		"CreateIdentityCenterApplication": service.WrapOp(h.handleCreateIdentityCenterApplication),
 		"DeleteIdentityCenterApplication": service.WrapOp(h.handleDeleteIdentityCenterApplication),
@@ -290,11 +334,5 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // 
 		"DeletePersonalAccessToken":      service.WrapOp(h.handleDeletePersonalAccessToken),
 		"GetPersonalAccessTokenMetadata": service.WrapOp(h.handleGetPersonalAccessTokenMetadata),
 		"ListPersonalAccessTokens":       service.WrapOp(h.handleListPersonalAccessTokens),
-
-		// Impersonation role effect
-		"GetImpersonationRoleEffect": service.WrapOp(h.handleGetImpersonationRoleEffect),
-
-		// Assume impersonation role
-		"AssumeImpersonationRole": service.WrapOp(h.handleAssumeImpersonationRole),
 	}
 }

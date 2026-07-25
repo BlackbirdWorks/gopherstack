@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/redshift"
 )
@@ -240,4 +241,44 @@ func TestHandler_ModifyClusterSnapshotSchedule(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestHandler_ModifyClusterSnapshotSchedule_ActuallyAssociates locks in that
+// ModifyClusterSnapshotSchedule performs real state mutation: the association must
+// be observable afterward both on the cluster (SnapshotScheduleIdentifier) and on
+// the schedule (AssociatedClusters/AssociatedClusterCount), and disassociation must
+// clear it. Before this test, ModifyClusterSnapshotSchedule validated its inputs
+// but never recorded the association anywhere, so it was a no-op past validation.
+func TestHandler_ModifyClusterSnapshotSchedule_ActuallyAssociates(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=assoc-cluster")
+	postRedshiftForm(t, h, "Action=CreateSnapshotSchedule&Version=2012-12-01&ScheduleIdentifier=assoc-sched")
+
+	rec := postRedshiftForm(t, h, "Action=ModifyClusterSnapshotSchedule&Version=2012-12-01"+
+		"&ClusterIdentifier=assoc-cluster&ScheduleIdentifier=assoc-sched")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The cluster should now report the schedule identifier inline.
+	rec = postRedshiftForm(t, h, "Action=DescribeClusters&Version=2012-12-01&ClusterIdentifier=assoc-cluster")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<SnapshotScheduleIdentifier>assoc-sched</SnapshotScheduleIdentifier>")
+
+	// The schedule should now report the cluster as associated.
+	rec = postRedshiftForm(t, h, "Action=DescribeSnapshotSchedules&Version=2012-12-01&ScheduleIdentifier=assoc-sched")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "<ClusterIdentifier>assoc-cluster</ClusterIdentifier>")
+	assert.Contains(t, body, "<AssociatedClusterCount>1</AssociatedClusterCount>")
+
+	// Disassociating clears it from both sides.
+	rec = postRedshiftForm(t, h, "Action=ModifyClusterSnapshotSchedule&Version=2012-12-01"+
+		"&ClusterIdentifier=assoc-cluster&DisassociateSchedule=true")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = postRedshiftForm(t, h, "Action=DescribeSnapshotSchedules&Version=2012-12-01&ScheduleIdentifier=assoc-sched")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<AssociatedClusterCount>0</AssociatedClusterCount>")
 }

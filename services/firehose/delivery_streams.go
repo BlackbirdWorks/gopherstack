@@ -14,14 +14,17 @@ import (
 
 // CreateDeliveryStreamInput holds the input for creating a delivery stream.
 type CreateDeliveryStreamInput struct {
-	S3Destination           *S3DestinationDescription
-	HTTPEndpointDestination *HTTPEndpointDestinationDescription
-	RedshiftDestination     *RedshiftDestinationDescription
-	OpenSearchDestination   *OpenSearchDestinationDescription
-	SplunkDestination       *SplunkDestinationDescription
-	Source                  *SourceDescription
-	Name                    string
-	DeliveryStreamType      string
+	S3Destination            *S3DestinationDescription
+	HTTPEndpointDestination  *HTTPEndpointDestinationDescription
+	RedshiftDestination      *RedshiftDestinationDescription
+	OpenSearchDestination    *OpenSearchDestinationDescription
+	ElasticsearchDestination *ElasticsearchDestinationDescription
+	SplunkDestination        *SplunkDestinationDescription
+	IcebergDestination       *IcebergDestinationDescription
+	SnowflakeDestination     *SnowflakeDestinationDescription
+	Source                   *SourceDescription
+	Name                     string
+	DeliveryStreamType       string
 }
 
 // CreateDeliveryStream creates a new delivery stream.
@@ -64,25 +67,28 @@ func (b *InMemoryBackend) CreateDeliveryStream(
 		now := time.Now()
 		streamARN := arn.Build("firehose", region, b.accountID, "deliverystream/"+input.Name)
 		s := &DeliveryStream{
-			Name:                    input.Name,
-			ARN:                     streamARN,
-			DeliveryStreamType:      streamType,
-			VersionID:               "1",
-			Status:                  "ACTIVE",
-			Records:                 [][]byte{},
-			BackupRecords:           [][]byte{},
-			Tags:                    tags.New("firehose." + region + "." + input.Name + ".tags"),
-			AccountID:               b.accountID,
-			Region:                  region,
-			S3Destination:           input.S3Destination,
-			HTTPEndpointDestination: input.HTTPEndpointDestination,
-			RedshiftDestination:     input.RedshiftDestination,
-			OpenSearchDestination:   input.OpenSearchDestination,
-			SplunkDestination:       input.SplunkDestination,
-			Source:                  input.Source,
-			CreateTimestamp:         now,
-			LastUpdateTimestamp:     now,
-			lastFlush:               now,
+			Name:                     input.Name,
+			ARN:                      streamARN,
+			DeliveryStreamType:       streamType,
+			VersionID:                "1",
+			Status:                   "ACTIVE",
+			Records:                  [][]byte{},
+			BackupRecords:            [][]byte{},
+			Tags:                     tags.New("firehose." + region + "." + input.Name + ".tags"),
+			AccountID:                b.accountID,
+			Region:                   region,
+			S3Destination:            input.S3Destination,
+			HTTPEndpointDestination:  input.HTTPEndpointDestination,
+			RedshiftDestination:      input.RedshiftDestination,
+			OpenSearchDestination:    input.OpenSearchDestination,
+			ElasticsearchDestination: input.ElasticsearchDestination,
+			SplunkDestination:        input.SplunkDestination,
+			IcebergDestination:       input.IcebergDestination,
+			SnowflakeDestination:     input.SnowflakeDestination,
+			Source:                   input.Source,
+			CreateTimestamp:          now,
+			LastUpdateTimestamp:      now,
+			lastFlush:                now,
 		}
 		b.streams.Put(s)
 		b.invalidateNamesCacheLocked(region)

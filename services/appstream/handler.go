@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -18,12 +19,14 @@ const (
 	appstreamTargetPrefix = "PhotonAdminProxyService."
 	appstreamContentType  = "application/x-amz-json-1.1"
 	keyTags               = "Tags"
+	keyStreamingURL       = "StreamingURL"
+	keyExpires            = "Expires"
 )
 
 // Handler serves AppStream 2.0 JSON operations.
 type Handler struct {
 	Backend StorageBackend
-	ops     map[string]func(context.Context, []byte) (any, error)
+	ops     opTable
 }
 
 // NewHandler creates an AppStream 2.0 handler backed by b.
@@ -129,8 +132,29 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	})
 }
 
-func (h *Handler) buildOps() map[string]func(context.Context, []byte) (any, error) { //nolint:funlen
-	return map[string]func(context.Context, []byte) (any, error){
+// opTable is the op-name -> handler-func map type shared by buildOps and its
+// per-family helpers below.
+type opTable = map[string]func(context.Context, []byte) (any, error)
+
+// buildOps assembles the full operation-routing table by merging one small
+// table per resource family (see the *Ops helpers below), keeping each
+// family's registration independently readable/testable instead of one
+// long function body.
+func (h *Handler) buildOps() opTable {
+	ops := make(opTable)
+
+	maps.Copy(ops, h.stackFleetOps())
+	maps.Copy(ops, h.appBlockOps())
+	maps.Copy(ops, h.applicationOps())
+	maps.Copy(ops, h.imageOps())
+	maps.Copy(ops, h.miscOps())
+
+	return ops
+}
+
+// stackFleetOps covers Stack, Fleet (incl. Fleet-Stack associations), and Tags.
+func (h *Handler) stackFleetOps() opTable {
+	return opTable{
 		// Stack
 		"CreateStack":    h.opCreateStack,
 		"DescribeStacks": h.opDescribeStacks,
@@ -153,7 +177,12 @@ func (h *Handler) buildOps() map[string]func(context.Context, []byte) (any, erro
 		"TagResource":         h.opTagResource,
 		"UntagResource":       h.opUntagResource,
 		"ListTagsForResource": h.opListTagsForResource,
+	}
+}
 
+// appBlockOps covers AppBlock, AppBlockBuilder, and their association ops.
+func (h *Handler) appBlockOps() opTable {
+	return opTable{
 		// AppBlock
 		"CreateAppBlock":    h.opCreateAppBlock,
 		"DeleteAppBlock":    h.opDeleteAppBlock,
@@ -172,7 +201,13 @@ func (h *Handler) buildOps() map[string]func(context.Context, []byte) (any, erro
 		"AssociateAppBlockBuilderAppBlock":            h.opAssociateAppBlockBuilderAppBlock,
 		"DisassociateAppBlockBuilderAppBlock":         h.opDisassociateAppBlockBuilderAppBlock,
 		"DescribeAppBlockBuilderAppBlockAssociations": h.opDescribeAppBlockBuilderAppBlockAssociations,
+	}
+}
 
+// applicationOps covers Application, Application-Fleet associations,
+// Entitlement, and DirectoryConfig.
+func (h *Handler) applicationOps() opTable {
+	return opTable{
 		// Application
 		"CreateApplication":       h.opCreateApplication,
 		"DeleteApplication":       h.opDeleteApplication,
@@ -199,7 +234,12 @@ func (h *Handler) buildOps() map[string]func(context.Context, []byte) (any, erro
 		"DeleteDirectoryConfig":    h.opDeleteDirectoryConfig,
 		"DescribeDirectoryConfigs": h.opDescribeDirectoryConfigs,
 		"UpdateDirectoryConfig":    h.opUpdateDirectoryConfig,
+	}
+}
 
+// imageOps covers Image, ImageBuilder, Software associations, and ExportImageTask.
+func (h *Handler) imageOps() opTable {
+	return opTable{
 		// Image
 		"CopyImage":                h.opCopyImage,
 		"CreateImportedImage":      h.opCreateImportedImage,
@@ -228,7 +268,12 @@ func (h *Handler) buildOps() map[string]func(context.Context, []byte) (any, erro
 		"CreateExportImageTask": h.opCreateExportImageTask,
 		"GetExportImageTask":    h.opGetExportImageTask,
 		"ListExportImageTasks":  h.opListExportImageTasks,
+	}
+}
 
+// miscOps covers UsageReport, Theme, User, UserStack associations, and Session.
+func (h *Handler) miscOps() opTable {
+	return opTable{
 		// UsageReport
 		"CreateUsageReportSubscription":    h.opCreateUsageReportSubscription,
 		"DeleteUsageReportSubscription":    h.opDeleteUsageReportSubscription,

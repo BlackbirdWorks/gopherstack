@@ -82,3 +82,45 @@ func TestCreateVariantStoreStoresReference(t *testing.T) {
 	assert.NotNil(t, resp["reference"])
 	assert.Equal(t, "CREATING", resp["status"])
 }
+
+// TestListVariantImportJobs_FiltersByStatusStoreNameAndIds verifies
+// ListVariantImportJobs applies its status/storeName body filter and
+// explicit ids list (real AWS ListVariantImportJobsInput body
+// "filter"/"ids").
+func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	storeRec := doRequest(t, h, http.MethodPost, "/variantStore", map[string]any{"name": "store-1"})
+	require.Equal(t, http.StatusCreated, storeRec.Code)
+
+	jobRec := doRequest(t, h, http.MethodPost, "/import/variant", map[string]any{
+		"destinationName": "store-1",
+		"roleArn":         "arn:aws:iam::000000000000:role/role",
+		"items":           []map[string]any{{"source": "s3://bucket/variants.vcf"}},
+	})
+	require.Equal(t, http.StatusCreated, jobRec.Code)
+
+	var job map[string]any
+	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &job))
+	jobID := job["id"].(string)
+
+	rec := doRequest(t, h, http.MethodPost, "/import/variants",
+		map[string]any{"filter": map[string]any{"storeName": "other-store"}})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	jobs, ok := resp["importJobs"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, jobs)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/import/variants", map[string]any{"ids": []string{jobID}})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	jobs2, ok := resp2["importJobs"].([]any)
+	require.True(t, ok)
+	require.Len(t, jobs2, 1)
+}

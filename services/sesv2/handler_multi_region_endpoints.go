@@ -11,6 +11,12 @@ import (
 
 type createMultiRegionEndpointInput struct {
 	EndpointName string `json:"EndpointName"`
+	Details      struct {
+		RoutesDetails []struct {
+			Region string `json:"Region"`
+		} `json:"RoutesDetails"`
+	} `json:"Details"`
+	Tags []tagEntry `json:"Tags"`
 }
 
 func (h *Handler) handleCreateMultiRegionEndpoint(c *echo.Context) (any, error) {
@@ -20,12 +26,20 @@ func (h *Handler) handleCreateMultiRegionEndpoint(c *echo.Context) (any, error) 
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	status, err := h.Backend.CreateMultiRegionEndpoint(in.EndpointName)
+	secondaryRegions := make([]string, 0, len(in.Details.RoutesDetails))
+	for _, rd := range in.Details.RoutesDetails {
+		secondaryRegions = append(secondaryRegions, rd.Region)
+	}
+
+	result, err := h.Backend.CreateMultiRegionEndpoint(in.EndpointName, secondaryRegions, tagsFromEntries(in.Tags))
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{keyStatus: status}, nil
+	return map[string]any{
+		keyEndpointID: result[keyEndpointID],
+		keyStatus:     result[keyStatus],
+	}, nil
 }
 
 func (h *Handler) handleGetMultiRegionEndpoint(name string) (any, error) {
@@ -38,11 +52,12 @@ func (h *Handler) handleGetMultiRegionEndpoint(name string) (any, error) {
 }
 
 func (h *Handler) handleDeleteMultiRegionEndpoint(name string) (any, error) {
-	if err := h.Backend.DeleteMultiRegionEndpoint(name); err != nil {
+	status, err := h.Backend.DeleteMultiRegionEndpoint(name)
+	if err != nil {
 		return nil, err
 	}
 
-	return &emptyDeleteOutput{}, nil
+	return map[string]any{keyStatus: status}, nil
 }
 
 func (h *Handler) handleListMultiRegionEndpoints(c *echo.Context) (any, error) {

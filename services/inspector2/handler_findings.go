@@ -73,7 +73,7 @@ func findingToWire(f *Finding) map[string]any {
 	entry := map[string]any{
 		"awsAccountId":    f.AccountID,
 		"description":     f.Description,
-		"findingArn":      f.FindingArn,
+		keyFindingArn:     f.FindingArn,
 		"firstObservedAt": awstime.Epoch(f.FirstObservedAt),
 		"lastObservedAt":  awstime.Epoch(f.LastObservedAt),
 		keyUpdatedAt:      awstime.Epoch(f.UpdatedAt),
@@ -121,8 +121,9 @@ func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 	}
 
 	var req struct {
-		S3Destination map[string]any `json:"s3Destination"`
-		ReportFormat  string         `json:"reportFormat"`
+		S3Destination  map[string]any `json:"s3Destination"`
+		FilterCriteria map[string]any `json:"filterCriteria"`
+		ReportFormat   string         `json:"reportFormat"`
 	}
 
 	if len(body) > 0 {
@@ -134,7 +135,7 @@ func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 		}
 	}
 
-	report, createErr := h.Backend.CreateFindingsReport(req.S3Destination)
+	report, createErr := h.Backend.CreateFindingsReport(req.S3Destination, req.FilterCriteria, req.ReportFormat)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
@@ -190,11 +191,25 @@ func (h *Handler) handleGetFindingsReportStatus(c *echo.Context) error {
 		return h.mapError(c, getErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyReportID:  report.ReportID,
 		keyStatus:    report.Status,
 		keyErrorCode: report.ErrorCode,
-	})
+	}
+
+	if report.ErrorMessage != "" {
+		resp["errorMessage"] = report.ErrorMessage
+	}
+
+	if report.Destination != nil {
+		resp["destination"] = report.Destination
+	}
+
+	if report.FilterCriteria != nil {
+		resp["filterCriteria"] = report.FilterCriteria
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListFindingAggregations(c *echo.Context) error {
@@ -253,12 +268,64 @@ func (h *Handler) handleSearchVulnerabilities(c *echo.Context) error {
 		return h.mapError(c, searchErr)
 	}
 
-	resp := map[string]any{"vulnerabilities": vulns}
+	resp := map[string]any{"vulnerabilities": vulnerabilitiesToWire(vulns)}
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// vulnerabilitiesToWire renders Vulnerabilities in their Inspector2 wire
+// shape. vendorCreatedAt/vendorUpdatedAt are DateTimeTimestamp members (see
+// findingToWire's doc comment for why time.Time must never be marshaled
+// directly for a restjson1 timestamp field).
+func vulnerabilitiesToWire(vulns []*Vulnerability) []map[string]any {
+	wire := make([]map[string]any, 0, len(vulns))
+
+	for _, v := range vulns {
+		entry := map[string]any{"id": v.ID}
+
+		if v.Description != "" {
+			entry["description"] = v.Description
+		}
+
+		if v.Source != "" {
+			entry["source"] = v.Source
+		}
+
+		if v.SourceURL != "" {
+			entry["sourceUrl"] = v.SourceURL
+		}
+
+		if v.VendorSeverity != "" {
+			entry["vendorSeverity"] = v.VendorSeverity
+		}
+
+		if len(v.Cwes) > 0 {
+			entry["cwes"] = v.Cwes
+		}
+
+		if len(v.ReferenceUrls) > 0 {
+			entry["referenceUrls"] = v.ReferenceUrls
+		}
+
+		if len(v.RelatedVulnerabilities) > 0 {
+			entry["relatedVulnerabilities"] = v.RelatedVulnerabilities
+		}
+
+		if !v.VendorCreatedAt.IsZero() {
+			entry["vendorCreatedAt"] = awstime.Epoch(v.VendorCreatedAt)
+		}
+
+		if !v.VendorUpdatedAt.IsZero() {
+			entry["vendorUpdatedAt"] = awstime.Epoch(v.VendorUpdatedAt)
+		}
+
+		wire = append(wire, entry)
+	}
+
+	return wire
 }
 
 func (h *Handler) handleBatchGetCodeSnippet(c *echo.Context) error {
@@ -289,8 +356,12 @@ func (h *Handler) handleBatchGetFindingDetails(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
 	}
 
+	// Real BatchGetFindingDetailsInput.findingArns is a plain string array
+	// (["arn1","arn2"]), not an array of objects -- decoding into
+	// []map[string]any made every real request fail JSON unmarshaling with a
+	// ValidationException.
 	var req struct {
-		FindingArns []map[string]any `json:"findingArns"`
+		FindingArns []string `json:"findingArns"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {

@@ -1,22 +1,21 @@
 ---
 service: apigatewaymanagementapi
 sdk_module: aws-sdk-go-v2/service/apigatewaymanagementapi@v1.29.13
-last_audit_commit: 142c3c28
-last_audit_date: 2026-07-13
-overall: A            # 3 genuine bugs found and fixed this pass
+last_audit_commit: be69d5ece
+last_audit_date: 2026-07-24
+overall: A            # re-verified field-diff against downloaded SDK source this pass; 1 additional bug fixed (admin Broadcast non-delivery)
 ops:
-  PostToConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: full downstream buffer now returns LimitExceededException (429) instead of silently dropping the frame and reporting success; fixed: PayloadTooLargeException (413) now carries X-Amzn-Errortype header + __type body field"}
-  GetConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "connectedAt/lastActiveAt/identity are real backend-recorded state, not fabricated; identity correctly nested"}
-  DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now closes the connection's real downstream transport (forcibly disconnects) instead of only removing the registry entry"}
+  PostToConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass against aws-sdk-go-v2/service/apigatewaymanagementapi@v1.29.13 deserializers.go: PostToConnectionInput{ConnectionId,Data}/Output{} (empty) match; error set (ForbiddenException/GoneException/LimitExceededException/PayloadTooLargeException) and X-Amzn-ErrorType header + body __type/message resolution order match awsRestjson1_deserializeOpErrorPostToConnection. full downstream buffer returns LimitExceededException (429); PayloadTooLargeException (413) carries X-Amzn-Errortype header + __type body field"}
+  GetConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass: GetConnectionOutput{ConnectedAt,Identity,LastActiveAt} (no ConnectionId member -- gopherstack's extra connectionId field is a harmless addition) confirmed against api_op_GetConnection.go; connectedAt/lastActiveAt are __timestampIso8601 parsed via smithytime.ParseDateTime (RFC3339-family) in deserializers.go, matching Go's default time.Time JSON marshaling used here -- not epoch numbers. identity correctly nested per types.Identity{SourceIp,UserAgent}. connectedAt/lastActiveAt/identity are real backend-recorded state, not fabricated"}
+  DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass: DeleteConnectionInput{ConnectionId}/Output{} (empty) match; error set (ForbiddenException/GoneException/LimitExceededException) matches awsRestjson1_deserializeOpErrorDeleteConnection. forcibly disconnects (closes the connection's real downstream transport) instead of only removing the registry entry"}
 families:
-  admin_diagnostics: {status: ok, note: "gopherstack-only /_gopherstack/apigwmgmt/* endpoints (list/broadcast/stats/prune/messages/timeline/ping) are not AWS API surface; audited only insofar as they share backend code paths with the 3 real ops. PruneIdle now also closes downstream on removal for consistency with DeleteConnection."}
+  admin_diagnostics: {status: ok, note: "gopherstack-only /_gopherstack/apigwmgmt/* endpoints (list/broadcast/stats/prune/messages/timeline/ping) are not AWS API surface; audited only insofar as they share backend code paths with the 3 real ops. PruneIdle closes downstream on removal for consistency with DeleteConnection. fixed this pass: Broadcast now actually attempts delivery on each connection's real downstream channel (mirroring PostToConnection) instead of unconditionally reporting every active connection as having received the frame."}
 gaps:
   - ForbiddenException (403, caller-not-authorized) is modeled by the real API for all 3 ops but never returned; gopherstack has no general IAM-authorization-check convention for this service (only eventbridge does something similar, for an unrelated resource-policy reason). Implementing would require a cross-cutting auth model, not a fix local to this service. Not filed as a bd issue by this pass -- flagging for triage.
-  - LimitExceededException's rate-limiting half ("client sending more than the allowed number of requests per unit of time") is not modeled -- only the "WebSocket client-side buffer is full" half was fixed this pass (that half is directly reachable through the real downstream-channel wiring from apigatewayv2). Adding request-rate throttling would need a shared rate-limiter primitive; out of scope for this pass.
-  - admin Broadcast (a gopherstack UI-only, non-AWS extension) records messages/stats but never actually writes to a connection's `downstream` channel, so real WebSocket clients proxied through apigatewayv2 never receive broadcast frames even though the admin API reports them "delivered". Not an AWS-parity bug (Broadcast isn't part of the real API), so left unfixed this pass; noted for a future admin-feature cleanup pass.
-  - EventDisconnected (types.go) is a defined-but-unused LifecycleEvent constant: DeleteConnection/PruneIdle discard the whole connState (including its event timeline) rather than ever appending it. Cosmetic (timeline is a UI-only diagnostic, not AWS surface) -- not fixed.
+  - LimitExceededException's rate-limiting half ("client sending more than the allowed number of requests per unit of time") is not modeled -- only the "WebSocket client-side buffer is full" half is implemented (that half is directly reachable through the real downstream-channel wiring from apigatewayv2, and is exercised by both PostToConnection and, as of this pass, admin Broadcast). Adding request-rate throttling would need a shared rate-limiter primitive; out of scope for this pass.
+  - EventDisconnected (types.go) is a defined-but-unused LifecycleEvent constant: DeleteConnection/PruneIdle discard the whole connState (including its event timeline) rather than ever appending it. Cosmetic (timeline is a UI-only diagnostic, not AWS surface, and the connState -- including any event appended immediately before deletion -- is discarded in the same step regardless) -- not fixed.
 deferred: []
-leaks: {status: clean, note: "DeleteConnection/PruneIdle now close the downstream chan on removal, so the apigatewayv2 writer goroutine (services/apigatewayv2/proxy.go handleWebSocketProxy) that ranges over it terminates and closes the real *websocket.Conn -- previously this goroutine leaked forever (blocked on an unclosed channel with no more writers) whenever a connection was torn down via DeleteConnection/PruneIdle rather than via the client disconnecting first. Verified no double-close risk: the coarse lockmetrics.RWMutex fully serializes PostToConnection/DeleteConnection/PruneIdle, so a connState is removed from the map in the same critical section the channel is closed in, and no other code path can retrieve the same connState afterward."}
+leaks: {status: clean, note: "DeleteConnection/PruneIdle now close the downstream chan on removal, so the apigatewayv2 writer goroutine (services/apigatewayv2/proxy.go handleWebSocketProxy) that ranges over it terminates and closes the real *websocket.Conn -- previously this goroutine leaked forever (blocked on an unclosed channel with no more writers) whenever a connection was torn down via DeleteConnection/PruneIdle rather than via the client disconnecting first. Verified no double-close risk: the coarse lockmetrics.RWMutex fully serializes PostToConnection/DeleteConnection/PruneIdle/Broadcast, so a connState is removed from the map in the same critical section the channel is closed in, and no other code path can retrieve the same connState afterward. Broadcast (this pass) only ever sends on downstream, never closes it, and uses the same non-blocking select-with-default pattern as PostToConnection, so it cannot block the coarse lock nor race with a concurrent close."}
 ---
 
 ## Notes
@@ -45,10 +44,13 @@ the GoneException-on-unknown-id check in this package is exercised against
 real, non-fabricated connection state for genuine WebSocket clients, not just
 gopherstack's admin "simulate connection" UI feature.
 
-Bugs fixed this pass (all local to this package; no cross-service edits):
+Bugs fixed in the prior pass (file references below predate a later repo-wide
+refactor that split the old single `backend.go` into `store.go` +
+`connections.go`; kept for history, current locations noted where changed):
 
-1. **Disguised no-op / missing LimitExceededException** — `backend.go`
-   `PostToConnection`: when `state.downstream` (the real WS transport channel)
+1. **Disguised no-op / missing LimitExceededException** — `connections.go`
+   (formerly `backend.go`) `PostToConnection`: when `state.downstream` (the
+   real WS transport channel)
    was full, the code did `select { case ...: default: /* dropped */ }` and
    then unconditionally recorded the message as posted and returned `nil`
    (HTTP 200 success). Real AWS documents this exact condition ("the
@@ -70,8 +72,9 @@ Bugs fixed this pass (all local to this package; no cross-service edits):
    in caller code. Fixed via a shared `writeModeledError` helper used for
    `GoneException`, `LimitExceededException`, and `PayloadTooLargeException`.
 
-3. **DeleteConnection didn't forcibly disconnect** — `backend.go`
-   `DeleteConnection` (and `PruneIdle`, same class of bug) only deleted the
+3. **DeleteConnection didn't forcibly disconnect** — `connections.go`
+   (formerly `backend.go`) `DeleteConnection` (and `store.go` `PruneIdle`,
+   same class of bug) only deleted the
    registry map entry. Real AWS's DeleteConnection "forcibly disconnects" the
    client; here, a real WebSocket client proxied through `apigatewayv2` would
    stay connected indefinitely after an admin/API `DeleteConnection` call —
@@ -84,6 +87,34 @@ Bugs fixed this pass (all local to this package; no cross-service edits):
    `apigatewayv2` writer goroutine to exit its range loop and close the
    socket — no `apigatewayv2` changes needed, it already handled a closed
    channel correctly; it just never received the signal.
+
+Bug fixed this pass (2026-07-24 re-audit; local to this package):
+
+4. **Disguised no-op: admin Broadcast never wrote to the real downstream
+   channel** — `store.go` `Broadcast`: unconditionally pushed to every
+   connection's message ring, bumped its stats/timeline, and counted it in
+   the returned `delivered` total, without ever attempting a send on
+   `state.downstream`. A real WebSocket client proxied through
+   `apigatewayv2` (which owns a live `downstream` channel per connection --
+   see the cross-service note above) never received broadcast frames even
+   though the admin API reported them "delivered" to every active
+   connection; a connection whose client-side buffer was full was
+   (incorrectly) reported as delivered rather than skipped. This is the same
+   bug class as fix #1 above (PostToConnection), just never applied to
+   Broadcast. Fixed: `Broadcast` now mirrors `PostToConnection`'s pattern --
+   for each connection with a non-nil `downstream`, delivery is attempted via
+   a non-blocking send before that connection's accounting (message ring,
+   `LastActiveAt`/`PostedMessages`/`BytesSent`, timeline entry, `delivered`
+   count) is committed; a full buffer causes that connection to be skipped
+   entirely for this broadcast, exactly as a single `PostToConnection` call
+   would report `LimitExceededException` for it. Broadcast has no
+   per-connection error channel back to the caller (it only returns an
+   aggregate count), so a skipped connection is simply not counted rather
+   than surfaced as an error -- there is no AWS API this maps to since
+   Broadcast is a gopherstack-only admin extension, not real API surface.
+   Covered by `TestBackend_BroadcastDeliversToRealDownstream` and
+   `TestBackend_BroadcastSkipsConnectionWithFullDownstreamBuffer` in
+   `ringbuffer_test.go`.
 
 Not bugs (verified, do not re-flag):
 - `GetConnection` returning nested `identity: {sourceIp, userAgent}` — this

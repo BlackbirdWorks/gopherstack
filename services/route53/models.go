@@ -131,6 +131,13 @@ type HostedZone struct {
 	NameServers            []string `json:"nameServers,omitempty"`
 	ResourceRecordSetCount int      `json:"resourceRecordSetCount"`
 	PrivateZone            bool     `json:"privateZone"`
+	// DelegationSetSourceUsed marks that this zone's own name servers have
+	// already been extracted into a reusable delegation set via
+	// CreateReusableDelegationSet's HostedZoneId parameter. Backend-internal
+	// bookkeeping only — not part of the wire "HostedZone" element — mirrors
+	// the real AWS rule that a zone's delegation set can only be marked
+	// reusable once; a second attempt returns DelegationSetAlreadyReusable.
+	DelegationSetSourceUsed bool `json:"delegationSetSourceUsed,omitempty"`
 }
 
 // ResourceRecord holds a single DNS resource record value.

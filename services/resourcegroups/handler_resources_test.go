@@ -447,6 +447,50 @@ func TestListGroupResources_ResourceTypeInResponse(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "ResourceType")
 }
 
+// TestListGroupResources_ResourceIdentifiersDeprecatedField verifies that
+// the deprecated ResourceIdentifiers field ("don't use this parameter, use
+// the Resources response field instead" per the real API docs) is populated
+// identically to Resources for backward-compatible clients, and that
+// QueryErrors (only ever non-empty for CLOUDFORMATION_STACK_1_0-based
+// groups, which this emulator does not model) is omitted when empty.
+func TestListGroupResources_ResourceIdentifiersDeprecatedField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestResourceGroupsHandler(t)
+	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "dep-group"})
+	doResourceGroupsRequest(t, h, "GroupResources", map[string]any{
+		"Group":        "dep-group",
+		"ResourceArns": []string{"arn:aws:ec2:us-east-1:000000000000:instance/i-abc"},
+	})
+
+	rec := doResourceGroupsRequest(t, h, "ListGroupResources", map[string]any{
+		"Group": "dep-group",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Resources []struct {
+			Identifier struct {
+				ResourceArn  string `json:"ResourceArn"`
+				ResourceType string `json:"ResourceType"`
+			} `json:"Identifier"`
+		} `json:"Resources"`
+		ResourceIdentifiers []struct {
+			ResourceArn  string `json:"ResourceArn"`
+			ResourceType string `json:"ResourceType"`
+		} `json:"ResourceIdentifiers"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	require.Len(t, out.ResourceIdentifiers, 1)
+	assert.Equal(t, out.Resources[0].Identifier.ResourceArn, out.ResourceIdentifiers[0].ResourceArn)
+	assert.Equal(t, out.Resources[0].Identifier.ResourceType, out.ResourceIdentifiers[0].ResourceType)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	assert.NotContains(t, raw, "QueryErrors", "QueryErrors must be omitted when empty")
+}
+
 // TestListGroupResources_FilterViaHandler verifies resource-type filter through HTTP.
 func TestListGroupResources_FilterViaHandler(t *testing.T) {
 	t.Parallel()

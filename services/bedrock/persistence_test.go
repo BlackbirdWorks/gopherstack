@@ -31,41 +31,42 @@ const (
 // TestInMemoryBackend_SnapshotRestore_FullState can look each resource back
 // up after Restore without re-deriving names/IDs.
 type fixtureIDs struct {
-	preparationDueAt       time.Time
-	completionDueAt        time.Time
-	inferenceProfileARN    string
-	promptRouterARN        string
-	promptVersion          string
-	pmtARN                 string
-	evalJobARN             string
-	arpARN                 string
-	arpWorkflowID          string
-	arpTestCaseID          string
-	arpVersion             string
-	customModelARN         string
-	customModelDeployARN   string
-	customizationJobARN    string
-	copyJobARN             string
-	importJobARN           string
-	guardrailID            string
-	marketplaceEndpointARN string
-	guardrailVersion       string
-	agentID                string
-	invocationJobARN       string
-	agentArn               string
-	agentVersion           string
-	actionGroupID          string
-	aliasID                string
-	collaboratorID         string
-	kbID                   string
-	dataSourceID           string
-	ingestionJobID         string
-	docID                  string
-	flowID                 string
-	flowVersion            string
-	flowAliasID            string
-	promptID               string
-	guardrailVersionCount  int
+	preparationDueAt          time.Time
+	completionDueAt           time.Time
+	inferenceProfileARN       string
+	promptRouterARN           string
+	promptVersion             string
+	pmtARN                    string
+	evalJobARN                string
+	arpARN                    string
+	arpWorkflowID             string
+	arpTestCaseID             string
+	arpVersion                string
+	customModelARN            string
+	customModelDeployARN      string
+	customizationJobARN       string
+	copyJobARN                string
+	importJobARN              string
+	guardrailID               string
+	marketplaceEndpointARN    string
+	guardrailVersion          string
+	agentID                   string
+	invocationJobARN          string
+	agentArn                  string
+	agentVersion              string
+	actionGroupID             string
+	aliasID                   string
+	collaboratorID            string
+	kbID                      string
+	dataSourceID              string
+	ingestionJobID            string
+	docID                     string
+	flowID                    string
+	flowVersion               string
+	flowAliasID               string
+	promptID                  string
+	enforcedGuardrailConfigID string
+	guardrailVersionCount     int
 }
 
 // newPersistenceFixture builds a backend with one populated entry in every
@@ -92,7 +93,7 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 		S3BucketName:   "test-bucket",
 		LoggingEnabled: true,
 	})
-	b.PutUseCaseForModelAccess("GENAI", "test use case description")
+	b.PutUseCaseForModelAccess([]byte("test use case form data"))
 	require.NoError(t, b.UpdateAutomatedReasoningPolicyAnnotations(ids.arpARN))
 	require.NoError(t, b.TagAgentResource(ids.agentArn, map[string]string{"team": "platform"}))
 
@@ -123,7 +124,10 @@ func seedGuardrailAndModelResources(t *testing.T, b *bedrock.InMemoryBackend, ta
 	gv, err := b.CreateGuardrailVersion(g.GuardrailID, "v1 snapshot")
 	require.NoError(t, err)
 
-	b.PutEnforcedGuardrailConfiguration(g.GuardrailID, gv.Version)
+	egc, err := b.PutEnforcedGuardrailConfiguration(
+		"", g.GuardrailID, gv.Version, "HONOR", []string{"model-a"}, []string{"model-b"},
+	)
+	require.NoError(t, err)
 
 	pmt, err := b.CreateProvisionedModelThroughput(
 		"test-pmt", "amazon.titan-text-express-v1", 1, "NoCommitment", tags,
@@ -141,12 +145,13 @@ func seedGuardrailAndModelResources(t *testing.T, b *bedrock.InMemoryBackend, ta
 	require.NotEmpty(t, fma.ModelID)
 
 	return fixtureIDs{
-		guardrailID:           g.GuardrailID,
-		guardrailVersion:      gv.Version,
-		guardrailVersionCount: b.GuardrailVersionCounterForTest(g.GuardrailID),
-		pmtARN:                pmt.ProvisionedModelArn,
-		customModelARN:        cm.ModelArn,
-		customModelDeployARN:  cmd.CustomModelDeploymentArn,
+		guardrailID:               g.GuardrailID,
+		guardrailVersion:          gv.Version,
+		guardrailVersionCount:     b.GuardrailVersionCounterForTest(g.GuardrailID),
+		pmtARN:                    pmt.ProvisionedModelArn,
+		customModelARN:            cm.ModelArn,
+		customModelDeployARN:      cmd.CustomModelDeploymentArn,
+		enforcedGuardrailConfigID: egc.ConfigID,
 	}
 }
 
@@ -181,19 +186,27 @@ func seedJobResources(
 	mcpj, err := b.CreateModelCopyJob(customModelARN, tags)
 	require.NoError(t, err)
 
-	mij, err := b.CreateModelImportJob("test-import-job", tags)
+	mij, err := b.CreateModelImportJob(
+		"test-import-job", "test-import-job-model", "arn:aws:iam::000000000000:role/import-role",
+		"s3://my-bucket/model-data/", tags,
+	)
 	require.NoError(t, err)
 
 	ip, err := b.CreateInferenceProfile("test-inference-profile", "desc", tags)
 	require.NoError(t, err)
 
-	mme, err := b.CreateMarketplaceModelEndpoint("test-mp-endpoint", "test-model-source-id", tags)
+	mme, err := b.CreateMarketplaceModelEndpoint("test-mp-endpoint", "test-model-source-id", nil, tags)
 	require.NoError(t, err)
 
 	invJob, err := b.CreateModelInvocationJob("test-invocation-job", tags)
 	require.NoError(t, err)
 
-	pr, err := b.CreatePromptRouter("test-prompt-router", tags)
+	pr, err := b.CreatePromptRouter(
+		"test-prompt-router", "test router desc",
+		"arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2",
+		[]string{"arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2"},
+		0.5, tags,
+	)
 	require.NoError(t, err)
 
 	ids.evalJobARN = evalJob.JobArn
@@ -387,10 +400,14 @@ func assertGuardrailAndModelState(t *testing.T, fresh *bedrock.InMemoryBackend, 
 	require.NotNil(t, gv.Policies.ContentPolicy)
 	assert.Equal(t, "HATE", gv.Policies.ContentPolicy.FiltersConfig[0].Type)
 
-	cfgs := fresh.ListEnforcedGuardrailsConfiguration()
+	cfgs, _ := fresh.ListEnforcedGuardrailsConfiguration("")
 	require.Len(t, cfgs, 1)
+	assert.Equal(t, ids.enforcedGuardrailConfigID, cfgs[0].ConfigID)
 	assert.Equal(t, ids.guardrailID, cfgs[0].GuardrailID)
 	assert.Equal(t, ids.guardrailVersion, cfgs[0].GuardrailVersion)
+	assert.Equal(t, "HONOR", cfgs[0].InputTags)
+	assert.Equal(t, []string{"model-a"}, cfgs[0].IncludedModels)
+	assert.Equal(t, []string{"model-b"}, cfgs[0].ExcludedModels)
 
 	pmt, err := fresh.GetProvisionedModelThroughput(ids.pmtARN)
 	require.NoError(t, err)
@@ -404,8 +421,12 @@ func assertGuardrailAndModelState(t *testing.T, fresh *bedrock.InMemoryBackend, 
 	require.NoError(t, err)
 	assert.Equal(t, ids.customModelARN, cmd.ModelArn)
 
-	offers := fresh.ListFoundationModelAgreementOffers()
-	assert.NotEmpty(t, offers)
+	// ListFoundationModelAgreementOffers is a stateless catalog lookup (see its
+	// doc comment), so it can't itself prove the foundationModelAgreements table
+	// round-tripped. DeleteFoundationModelAgreement succeeding proves the row
+	// created pre-snapshot ("amazon.titan-text-express-v1", see
+	// seedGuardrailAndModelResources) survived Restore.
+	require.NoError(t, fresh.DeleteFoundationModelAgreement("amazon.titan-text-express-v1"))
 }
 
 // assertJobState verifies the job/policy-family tables round-tripped.
@@ -568,7 +589,7 @@ func assertFlowPromptState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fix
 }
 
 // assertMiscRawState verifies the remaining raw (non-store.Table) state:
-// loggingConfig, useCaseType/useCaseDescription, arpAnnotations, agentTags,
+// loggingConfig, useCaseFormData, arpAnnotations, agentTags,
 // and that the ID counters continue from where they left off instead of
 // colliding with pre-snapshot IDs.
 func assertMiscRawState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs) {
@@ -579,8 +600,7 @@ func assertMiscRawState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtur
 	assert.True(t, cfg.LoggingEnabled)
 
 	uc := fresh.GetUseCaseForModelAccess()
-	assert.Equal(t, "GENAI", uc["useCaseType"])
-	assert.Equal(t, "test use case description", uc["useCaseDescription"])
+	assert.Equal(t, []byte("test use case form data"), uc)
 
 	anns, err := fresh.GetAutomatedReasoningPolicyAnnotations(ids.arpARN)
 	require.NoError(t, err)
@@ -620,7 +640,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	require.ErrorIs(t, err, bedrock.ErrNotFound)
 
 	uc := b.GetUseCaseForModelAccess()
-	assert.Empty(t, uc["useCaseType"])
+	assert.Empty(t, uc)
 
 	assert.Equal(t, 0, b.GuardrailVersionCounterForTest(ids.guardrailID))
 

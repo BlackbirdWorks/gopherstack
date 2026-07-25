@@ -7,12 +7,85 @@ import (
 
 // --- Task operations ---
 
+// filterRuleInput/filterRuleOutput mirror the real FilterRule shape
+// (FilterType, Value) used by CreateTask/UpdateTask/DescribeTaskOutput's
+// Excludes and Includes members.
+type filterRuleInput struct {
+	FilterType string `json:"FilterType,omitempty"`
+	Value      string `json:"Value,omitempty"`
+}
+
+type filterRuleOutput struct {
+	FilterType string `json:"FilterType,omitempty"`
+	Value      string `json:"Value,omitempty"`
+}
+
+// taskScheduleInput/taskScheduleOutput mirror the real TaskSchedule shape.
+type taskScheduleInput struct {
+	ScheduleExpression string `json:"ScheduleExpression"`
+	Status             string `json:"Status,omitempty"`
+}
+
+type taskScheduleOutput struct {
+	ScheduleExpression string `json:"ScheduleExpression"`
+	Status             string `json:"Status,omitempty"`
+}
+
+func filterRulesFromInput(rules []filterRuleInput) []FilterRule {
+	if rules == nil {
+		return nil
+	}
+
+	out := make([]FilterRule, len(rules))
+	for i, r := range rules {
+		out[i] = FilterRule(r)
+	}
+
+	return out
+}
+
+func filterRulesToOutput(rules []FilterRule) []filterRuleOutput {
+	if rules == nil {
+		return nil
+	}
+
+	out := make([]filterRuleOutput, len(rules))
+	for i, r := range rules {
+		out[i] = filterRuleOutput(r)
+	}
+
+	return out
+}
+
+func taskScheduleFromInput(s *taskScheduleInput) *TaskSchedule {
+	if s == nil {
+		return nil
+	}
+
+	return &TaskSchedule{ScheduleExpression: s.ScheduleExpression, Status: s.Status}
+}
+
+func taskScheduleToOutput(s *TaskSchedule) *taskScheduleOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &taskScheduleOutput{ScheduleExpression: s.ScheduleExpression, Status: s.Status}
+}
+
 type createTaskInput struct {
-	SourceLocationArn      string     `json:"SourceLocationArn"`
-	DestinationLocationArn string     `json:"DestinationLocationArn"`
-	Name                   string     `json:"Name"`
-	CloudWatchLogGroupArn  string     `json:"CloudWatchLogGroupArn,omitempty"`
-	Tags                   []tagInput `json:"Tags"`
+	Options                map[string]any     `json:"Options"`
+	Schedule               *taskScheduleInput `json:"Schedule"`
+	ManifestConfig         map[string]any     `json:"ManifestConfig"`
+	TaskReportConfig       map[string]any     `json:"TaskReportConfig"`
+	SourceLocationArn      string             `json:"SourceLocationArn"`
+	DestinationLocationArn string             `json:"DestinationLocationArn"`
+	Name                   string             `json:"Name"`
+	CloudWatchLogGroupArn  string             `json:"CloudWatchLogGroupArn,omitempty"`
+	TaskMode               string             `json:"TaskMode,omitempty"`
+	Tags                   []tagInput         `json:"Tags"`
+	Excludes               []filterRuleInput  `json:"Excludes"`
+	Includes               []filterRuleInput  `json:"Includes"`
 }
 
 type createTaskOutput struct {
@@ -30,11 +103,22 @@ func (h *Handler) handleCreateTask(_ context.Context, in *createTaskInput) (*cre
 
 	tags := tagsFromInput(in.Tags)
 
+	settings := TaskSettings{
+		Options:          in.Options,
+		Schedule:         taskScheduleFromInput(in.Schedule),
+		ManifestConfig:   in.ManifestConfig,
+		TaskReportConfig: in.TaskReportConfig,
+		Excludes:         filterRulesFromInput(in.Excludes),
+		Includes:         filterRulesFromInput(in.Includes),
+		TaskMode:         in.TaskMode,
+	}
+
 	t, err := h.Backend.CreateTask(
 		in.SourceLocationArn,
 		in.DestinationLocationArn,
 		in.Name,
 		in.CloudWatchLogGroupArn,
+		settings,
 		tags,
 	)
 	if err != nil {
@@ -48,15 +132,28 @@ type describeTaskInput struct {
 	TaskArn string `json:"TaskArn"`
 }
 
+// describeTaskOutput covers the real DescribeTaskOutput's FK/status/settings
+// members. DestinationNetworkInterfaceArns, SourceNetworkInterfaceArns,
+// ErrorCode, ErrorDetail, and ScheduleDetails also exist on the real output
+// but are omitted here: gopherstack doesn't model ENIs or task-execution
+// failures, so they would always be empty/absent -- an honest omission
+// rather than a fabricated value.
 type describeTaskOutput struct {
-	TaskArn                 string `json:"TaskArn"`
-	Name                    string `json:"Name"`
-	Status                  string `json:"Status"`
-	SourceLocationArn       string `json:"SourceLocationArn"`
-	DestinationLocationArn  string `json:"DestinationLocationArn"`
-	CloudWatchLogGroupArn   string `json:"CloudWatchLogGroupArn,omitempty"`
-	CurrentTaskExecutionArn string `json:"CurrentTaskExecutionArn,omitempty"`
-	CreationTime            int64  `json:"CreationTime"`
+	Options                 map[string]any      `json:"Options,omitempty"`
+	Schedule                *taskScheduleOutput `json:"Schedule,omitempty"`
+	ManifestConfig          map[string]any      `json:"ManifestConfig,omitempty"`
+	TaskReportConfig        map[string]any      `json:"TaskReportConfig,omitempty"`
+	TaskArn                 string              `json:"TaskArn"`
+	Name                    string              `json:"Name"`
+	Status                  string              `json:"Status"`
+	SourceLocationArn       string              `json:"SourceLocationArn"`
+	DestinationLocationArn  string              `json:"DestinationLocationArn"`
+	CloudWatchLogGroupArn   string              `json:"CloudWatchLogGroupArn,omitempty"`
+	CurrentTaskExecutionArn string              `json:"CurrentTaskExecutionArn,omitempty"`
+	TaskMode                string              `json:"TaskMode,omitempty"`
+	Excludes                []filterRuleOutput  `json:"Excludes,omitempty"`
+	Includes                []filterRuleOutput  `json:"Includes,omitempty"`
+	CreationTime            int64               `json:"CreationTime"`
 }
 
 func (h *Handler) handleDescribeTask(_ context.Context, in *describeTaskInput) (*describeTaskOutput, error) {
@@ -78,13 +175,26 @@ func (h *Handler) handleDescribeTask(_ context.Context, in *describeTaskInput) (
 		CloudWatchLogGroupArn:   t.CloudWatchLogGroupArn,
 		CurrentTaskExecutionArn: t.CurrentTaskExecutionArn,
 		CreationTime:            t.CreationTime.Unix(),
+		Options:                 t.Options,
+		Schedule:                taskScheduleToOutput(t.Schedule),
+		ManifestConfig:          t.ManifestConfig,
+		TaskReportConfig:        t.TaskReportConfig,
+		Excludes:                filterRulesToOutput(t.Excludes),
+		Includes:                filterRulesToOutput(t.Includes),
+		TaskMode:                t.TaskMode,
 	}, nil
 }
 
 type updateTaskInput struct {
-	TaskArn               string `json:"TaskArn"`
-	Name                  string `json:"Name,omitempty"`
-	CloudWatchLogGroupArn string `json:"CloudWatchLogGroupArn,omitempty"`
+	Options               map[string]any     `json:"Options"`
+	Schedule              *taskScheduleInput `json:"Schedule"`
+	ManifestConfig        map[string]any     `json:"ManifestConfig"`
+	TaskReportConfig      map[string]any     `json:"TaskReportConfig"`
+	TaskArn               string             `json:"TaskArn"`
+	Name                  string             `json:"Name,omitempty"`
+	CloudWatchLogGroupArn string             `json:"CloudWatchLogGroupArn,omitempty"`
+	Excludes              []filterRuleInput  `json:"Excludes"`
+	Includes              []filterRuleInput  `json:"Includes"`
 }
 
 type updateTaskOutput struct{}
@@ -94,7 +204,16 @@ func (h *Handler) handleUpdateTask(_ context.Context, in *updateTaskInput) (*upd
 		return nil, fmt.Errorf("%w: TaskArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UpdateTask(in.TaskArn, in.Name, in.CloudWatchLogGroupArn); err != nil {
+	settings := TaskSettings{
+		Options:          in.Options,
+		Schedule:         taskScheduleFromInput(in.Schedule),
+		ManifestConfig:   in.ManifestConfig,
+		TaskReportConfig: in.TaskReportConfig,
+		Excludes:         filterRulesFromInput(in.Excludes),
+		Includes:         filterRulesFromInput(in.Includes),
+	}
+
+	if err := h.Backend.UpdateTask(in.TaskArn, in.Name, in.CloudWatchLogGroupArn, settings); err != nil {
 		return nil, err
 	}
 

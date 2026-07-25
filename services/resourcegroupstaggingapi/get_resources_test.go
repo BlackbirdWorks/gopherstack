@@ -442,6 +442,27 @@ func TestGetResources_PaginationWalk(t *testing.T) {
 	}
 }
 
+// TestGetResources_UnmatchedTokenExpired verifies that a PaginationToken not
+// corresponding to any resource in the current result set returns
+// PaginationTokenExpiredException, matching real AWS's documented behavior for an
+// unresolvable pagination token (see
+// aws-sdk-go-v2/service/resourcegroupstaggingapi/types/errors.go). Real AWS tokens
+// expire after 15 minutes; this in-memory backend has no encoded timestamp, so any
+// token that fails to resolve against the current data is treated as expired.
+func TestGetResources_UnmatchedTokenExpired(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	seedResources(b, makeResources(3))
+
+	out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
+		PaginationToken: "arn:aws:sqs:us-east-1:000000000000:does-not-exist",
+	})
+
+	require.ErrorIs(t, err, resourcegroupstaggingapi.ErrPaginationTokenExpired)
+	assert.Nil(t, out)
+}
+
 // TestGetResources_TagFilterValidation covers TagFilter field-level validation: key
 // emptiness/length, values count/length, and duplicate keys across filters.
 func TestGetResources_TagFilterValidation(t *testing.T) {
@@ -477,12 +498,12 @@ func TestGetResources_TagFilterValidation(t *testing.T) {
 		},
 		{
 			name:    "too_many_values",
-			filters: []resourcegroupstaggingapi.TagFilter{{Key: "env", Values: manyValues(257)}},
+			filters: []resourcegroupstaggingapi.TagFilter{{Key: "env", Values: manyValues(21)}},
 			wantErr: true,
 		},
 		{
 			name:    "exactly_max_values",
-			filters: []resourcegroupstaggingapi.TagFilter{{Key: "env", Values: manyValues(256)}},
+			filters: []resourcegroupstaggingapi.TagFilter{{Key: "env", Values: manyValues(20)}},
 		},
 		{
 			name:    "value_too_long",
@@ -867,6 +888,47 @@ func TestGetResources_ResourceARNList_Alone_OK(t *testing.T) {
 	})
 
 	assert.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+}
+
+// TestGetResources_ResourceARNList_CountLimit verifies the real API's
+// ResourceARNListForGet length constraint (max: 100; see aws-sdk-go's
+// models/apis/resourcegroupstaggingapi/2017-01-26/api-2.json) -- distinct from the
+// 20-ARN cap TagResources/UntagResources enforce for their own ResourceARNList.
+func TestGetResources_ResourceARNList_CountLimit(t *testing.T) {
+	t.Parallel()
+
+	makeARNs := func(n int) []string {
+		arns := make([]string, n)
+		for i := range arns {
+			arns[i] = fmt.Sprintf("arn:aws:sqs:us-east-1:000000000000:q%d", i)
+		}
+
+		return arns
+	}
+
+	t.Run("too_many_arns_101", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
+			ResourceARNList: makeARNs(101),
+		})
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, resourcegroupstaggingapi.ErrValidation)
+	})
+
+	t.Run("exactly_max_arns_100", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
+			ResourceARNList: makeARNs(100),
+		})
+
+		require.NoError(t, err)
+		assert.NotNil(t, out)
+	})
 }
 
 func TestGetResources_ExcludeCompliant_RequiresIncludeDetails(t *testing.T) {

@@ -174,7 +174,7 @@ func TestACMHandler_ResendValidationEmail(t *testing.T) {
 			name:  "missing_domain",
 			setup: func(_ *testing.T, _ *acm.Handler) string { return "" },
 			buildBody: func(_ string) string {
-				return `{"CertificateArn":"arn:x","ValidationDomain":"x.com"}`
+				return `{"CertificateArn":"arn:aws:acm:us-east-1:1:certificate/0","ValidationDomain":"x.com"}`
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ValidationException"},
@@ -269,7 +269,7 @@ func TestACMHandler_RevokeCertificate(t *testing.T) {
 			name:  "invalid_reason",
 			setup: func(_ *testing.T, _ *acm.Handler) string { return "" },
 			buildBody: func(_ string) string {
-				return `{"CertificateArn":"arn:x","RevocationReason":"BOGUS_REASON"}`
+				return `{"CertificateArn":"arn:aws:acm:us-east-1:1:certificate/0","RevocationReason":"BOGUS_REASON"}`
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ValidationException"},
@@ -308,7 +308,7 @@ func TestACMHandler_RevokeCertificate(t *testing.T) {
 			name:  "missing_revocation_reason",
 			setup: func(_ *testing.T, _ *acm.Handler) string { return "" },
 			buildBody: func(_ string) string {
-				return `{"CertificateArn":"arn:x"}`
+				return `{"CertificateArn":"arn:aws:acm:us-east-1:1:certificate/0"}`
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ValidationException"},
@@ -455,7 +455,8 @@ func TestACMHandler_UpdateCertificateOptions(t *testing.T) {
 			name:  "invalid_preference",
 			setup: func(_ *testing.T, _ *acm.Handler) string { return "" },
 			buildBody: func(_ string) string {
-				return `{"CertificateArn":"arn:x","Options":{"CertificateTransparencyLoggingPreference":"BOGUS"}}`
+				return `{"CertificateArn":"arn:aws:acm:us-east-1:1:certificate/0",` +
+					`"Options":{"CertificateTransparencyLoggingPreference":"BOGUS"}}`
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ValidationException"},
@@ -464,7 +465,7 @@ func TestACMHandler_UpdateCertificateOptions(t *testing.T) {
 			name:  "missing_preference",
 			setup: func(_ *testing.T, _ *acm.Handler) string { return "" },
 			buildBody: func(_ string) string {
-				return `{"CertificateArn":"arn:x","Options":{}}`
+				return `{"CertificateArn":"arn:aws:acm:us-east-1:1:certificate/0","Options":{}}`
 			},
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ValidationException"},

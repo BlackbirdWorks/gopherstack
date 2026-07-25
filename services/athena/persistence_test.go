@@ -117,7 +117,7 @@ func Test_InMemoryBackend_SnapshotRestore(t *testing.T) {
 	assert.Equal(t, 1, restored.TableRowCount(catalog, fx.Database, fx.Table),
 		"tableData must survive restore")
 
-	tags, err := restored.ListTagsForResource(fx.WorkGroupARN)
+	tags, _, err := restored.ListTagsForResource(fx.WorkGroupARN, "", 0)
 	require.NoError(t, err)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].Key)

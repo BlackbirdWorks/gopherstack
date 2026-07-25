@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -234,6 +236,7 @@ func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (
 		PolicyDocument:   input.PolicyDocument,
 		IsDefaultVersion: input.SetAsDefault,
 		CreatedAt:        now,
+		GenerationID:     uuid.NewString(),
 	}
 
 	b.policyVersions[input.PolicyName] = append(versions, pv)

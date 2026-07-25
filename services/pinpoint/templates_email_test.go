@@ -225,39 +225,31 @@ func TestEmailTemplate_VersionBumpsOnUpdate(t *testing.T) {
 	}
 }
 
+// TestEmailTemplate_DefaultSubstitutions locks DefaultSubstitutions' real
+// wire shape: aws-sdk-go-v2/service/pinpoint's EmailTemplateRequest/Response
+// serializers/deserializers treat it as a JSON-encoded *string*
+// (object.Key("DefaultSubstitutions").String(*v) / value.(string) type
+// assertion), never as a nested JSON object -- a real SDK client always
+// supplies (and reads back) an already-serialized JSON string.
 func TestEmailTemplate_DefaultSubstitutions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		createSubs map[string]any
-		updateSubs map[string]any
-		wantSubs   map[string]any
 		name       string
+		createSubs string
+		updateSubs string
+		wantSubs   string
 	}{
 		{
-			name: "create_with_substitutions",
-			createSubs: map[string]any{
-				"first_name": "Customer",
-				"product":    "Widget",
-			},
-			wantSubs: map[string]any{
-				"first_name": "Customer",
-				"product":    "Widget",
-			},
+			name:       "create_with_substitutions",
+			createSubs: `{"first_name":"Customer","product":"Widget"}`,
+			wantSubs:   `{"first_name":"Customer","product":"Widget"}`,
 		},
 		{
-			name: "update_substitutions",
-			createSubs: map[string]any{
-				"first_name": "Customer",
-			},
-			updateSubs: map[string]any{
-				"first_name": "User",
-				"last_name":  "Member",
-			},
-			wantSubs: map[string]any{
-				"first_name": "User",
-				"last_name":  "Member",
-			},
+			name:       "update_substitutions",
+			createSubs: `{"first_name":"Customer"}`,
+			updateSubs: `{"first_name":"User","last_name":"Member"}`,
+			wantSubs:   `{"first_name":"User","last_name":"Member"}`,
 		},
 	}
 
@@ -277,7 +269,7 @@ func TestEmailTemplate_DefaultSubstitutions(t *testing.T) {
 				"/v1/templates/"+templateName+"/email", body)
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
-			if tc.updateSubs != nil {
+			if tc.updateSubs != "" {
 				updateRec := doPinpointRequest(t, h, http.MethodPut,
 					"/v1/templates/"+templateName+"/email",
 					map[string]any{"DefaultSubstitutions": tc.updateSubs})
@@ -291,11 +283,7 @@ func TestEmailTemplate_DefaultSubstitutions(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
 
-			subs, _ := resp["DefaultSubstitutions"].(map[string]any)
-
-			for k, v := range tc.wantSubs {
-				assert.Equal(t, v, subs[k], "DefaultSubstitutions[%s]", k)
-			}
+			assert.Equal(t, tc.wantSubs, resp["DefaultSubstitutions"], "DefaultSubstitutions")
 		})
 	}
 }
@@ -781,4 +769,49 @@ func TestHandler_CreateInAppTemplate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEmailTemplate_TemplateType locks that GetEmailTemplate returns the
+// required TemplateType field ("EMAIL") -- confirmed against
+// EmailTemplateResponse (aws-sdk-go-v2/service/pinpoint/types), which marks
+// TemplateType "This member is required". A prior pass omitted it entirely.
+func TestEmailTemplate_TemplateType(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+
+	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/email-type-check/email",
+		map[string]any{"Subject": "hi"})
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/templates/email-type-check/email", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	assert.Equal(t, "EMAIL", resp["TemplateType"])
+}
+
+// TestInAppTemplate_TemplateTypeAndCustomConfig locks two InAppTemplateResponse
+// fields that a prior pass omitted: TemplateType ("INAPP", required) and
+// CustomConfig (map[string]string) -- both field-diffed against
+// InAppTemplateResponse (aws-sdk-go-v2/service/pinpoint/types).
+func TestInAppTemplate_TemplateTypeAndCustomConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+
+	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/inapp-type-check/inapp",
+		map[string]any{"CustomConfig": map[string]string{"theme": "dark"}})
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/templates/inapp-type-check/inapp", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	assert.Equal(t, "INAPP", resp["TemplateType"])
+
+	customConfig, _ := resp["CustomConfig"].(map[string]any)
+	assert.Equal(t, "dark", customConfig["theme"])
 }

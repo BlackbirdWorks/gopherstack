@@ -35,19 +35,21 @@ const sfnSnapshotVersion = 1
 // DTO adds it back as an ordinary exported field purely for the on-disk
 // snapshot round trip.
 type executionSnapshot struct {
-	RedriveDate     *float64        `json:"redriveDate,omitempty"`
-	StopDate        *float64        `json:"stopDate,omitempty"`
-	Status          string          `json:"status"`
-	ExecutionArn    string          `json:"executionArn"`
-	StateMachineArn string          `json:"stateMachineArn"`
-	Name            string          `json:"name"`
-	Input           string          `json:"input,omitempty"`
-	Output          string          `json:"output,omitempty"`
-	Error           string          `json:"error,omitempty"`
-	Cause           string          `json:"cause,omitempty"`
-	History         []*HistoryEvent `json:"history,omitempty"`
-	StartDate       float64         `json:"startDate"`
-	RedriveCount    int             `json:"redriveCount,omitempty"`
+	RedriveDate            *float64        `json:"redriveDate,omitempty"`
+	StopDate               *float64        `json:"stopDate,omitempty"`
+	Status                 string          `json:"status"`
+	ExecutionArn           string          `json:"executionArn"`
+	StateMachineArn        string          `json:"stateMachineArn"`
+	StateMachineVersionArn string          `json:"stateMachineVersionArn,omitempty"`
+	StateMachineAliasArn   string          `json:"stateMachineAliasArn,omitempty"`
+	Name                   string          `json:"name"`
+	Input                  string          `json:"input,omitempty"`
+	Output                 string          `json:"output,omitempty"`
+	Error                  string          `json:"error,omitempty"`
+	Cause                  string          `json:"cause,omitempty"`
+	History                []*HistoryEvent `json:"history,omitempty"`
+	StartDate              float64         `json:"startDate"`
+	RedriveCount           int             `json:"redriveCount,omitempty"`
 }
 
 func executionSnapshotKey(v *executionSnapshot) string { return v.ExecutionArn }
@@ -122,19 +124,21 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		}
 
 		execDTOs.Put(&executionSnapshot{
-			StopDate:        cp.StopDate,
-			RedriveDate:     cp.RedriveDate,
-			History:         cp.history,
-			ExecutionArn:    cp.ExecutionArn,
-			StateMachineArn: cp.StateMachineArn,
-			Name:            cp.Name,
-			Status:          cp.Status,
-			Input:           cp.Input,
-			Output:          cp.Output,
-			Error:           cp.Error,
-			Cause:           cp.Cause,
-			StartDate:       cp.StartDate,
-			RedriveCount:    cp.RedriveCount,
+			StopDate:               cp.StopDate,
+			RedriveDate:            cp.RedriveDate,
+			History:                cp.history,
+			ExecutionArn:           cp.ExecutionArn,
+			StateMachineArn:        cp.StateMachineArn,
+			StateMachineVersionArn: cp.StateMachineVersionArn,
+			StateMachineAliasArn:   cp.StateMachineAliasArn,
+			Name:                   cp.Name,
+			Status:                 cp.Status,
+			Input:                  cp.Input,
+			Output:                 cp.Output,
+			Error:                  cp.Error,
+			Cause:                  cp.Cause,
+			StartDate:              cp.StartDate,
+			RedriveCount:           cp.RedriveCount,
 		})
 	}
 
@@ -203,19 +207,21 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	for _, dto := range execDTOs.All() {
 		liveExecs = append(liveExecs, &Execution{
-			StopDate:        dto.StopDate,
-			RedriveDate:     dto.RedriveDate,
-			history:         dto.History,
-			ExecutionArn:    dto.ExecutionArn,
-			StateMachineArn: dto.StateMachineArn,
-			Name:            dto.Name,
-			Status:          dto.Status,
-			Input:           dto.Input,
-			Output:          dto.Output,
-			Error:           dto.Error,
-			Cause:           dto.Cause,
-			StartDate:       dto.StartDate,
-			RedriveCount:    dto.RedriveCount,
+			StopDate:               dto.StopDate,
+			RedriveDate:            dto.RedriveDate,
+			history:                dto.History,
+			ExecutionArn:           dto.ExecutionArn,
+			StateMachineArn:        dto.StateMachineArn,
+			StateMachineVersionArn: dto.StateMachineVersionArn,
+			StateMachineAliasArn:   dto.StateMachineAliasArn,
+			Name:                   dto.Name,
+			Status:                 dto.Status,
+			Input:                  dto.Input,
+			Output:                 dto.Output,
+			Error:                  dto.Error,
+			Cause:                  dto.Cause,
+			StartDate:              dto.StartDate,
+			RedriveCount:           dto.RedriveCount,
 		})
 	}
 

@@ -1,9 +1,9 @@
 ---
 service: mediapackage
 sdk_module: aws-sdk-go-v2/service/mediapackage@v1.39.25
-last_audit_commit: 78b157192320a51f6c8b8b4ca2b2261d1062587a
-last_audit_date: 2026-07-13
-overall: A            # genuine fixes found: wrong route path, disguised no-op, discarded request fields
+last_audit_commit: f942b4d6b9d0353bd693cc733196bc7228ededd9
+last_audit_date: 2026-07-24
+overall: A            # genuine fixes found: invented ops deleted, missing required-field validation added
 ops:
   CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "added missing createdAt"}
   DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -18,7 +18,7 @@ ops:
   UpdateOriginEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "packaging blocks were discarded -- fixed, see Notes"}
   DeleteOriginEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   ListOriginEndpoints: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateHarvestJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "always created SUCCEEDED, no IN_PROGRESS phase -- see gaps"}
+  CreateHarvestJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "always created SUCCEEDED, no IN_PROGRESS phase -- see gaps; now validates all 5 SDK-required members (Id/OriginEndpointId/StartTime/EndTime/S3Destination.{BucketName,ManifestKey,RoleArn})"}
   DescribeHarvestJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListHarvestJobs: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -30,9 +30,7 @@ families:
   HarvestJob: {status: ok, note: "no changes this pass; simplistic SUCCEEDED-on-create status noted as a gap"}
   Tags: {status: ok, note: "no changes this pass; prior sweep already wired tag<->resource sync"}
 gaps:
-  - "PackagingConfiguration (CreatePackagingConfiguration/Describe/Delete/List) and Channel LifecyclePolicy (Put/GetChannelLifecyclePolicy) ops implemented in this service do not exist in the real aws-sdk-go-v2/service/mediapackage (Live) API at all -- there are no api_op_*.go files for them in the v1.39.25 SDK module. PackagingConfiguration/PackagingGroup are actually MediaPackage VOD resources, a *different* AWS service (its own SigV4 name and REST surface, historically aws-sdk-go-v2/service/mediapackagevod, not a gopherstack go.mod dependency). Channel lifecycle policies do not exist in either MediaPackage API generation known to this audit. These ops are unreachable by any real aws-sdk-go-v2 mediapackage client -- TestSDKCompleteness does not catch this because it only checks for SDK ops *missing* from GetSupportedOperations, not extras. Recommend: verify against AWS docs whether these are legitimate (e.g. a newer API surface not yet reflected in the SDK) and either (a) move them into a proper mediapackagevod-style service with its own SigV4 gating, or (b) remove them if fictional. Left untouched this pass: out of the audited op families, non-trivial to redo safely within budget, and not going to be exercised by a real client either way. (bd: TODO -- file issue)
-  - "CreateHarvestJob always sets Status=SUCCEEDED synchronously; real MediaPackage harvest jobs start IN_PROGRESS and transition asynchronously. Low priority: most test suites just assert job existence/S3Destination, not the IN_PROGRESS state transition. (bd: TODO -- file issue if async harvest-job semantics become relevant)"
-  - "CreateHarvestJob does not validate S3Destination/StartTime/EndTime are non-empty (only Id and OriginEndpointId are required-checked), unlike Create{Channel,OriginEndpoint}'s Id validation. Real AWS would 422 on missing required members. Low priority, not exercised by the audited test suites. (bd: TODO -- file issue)"
+  - "CreateHarvestJob always sets Status=SUCCEEDED synchronously; real MediaPackage harvest jobs start IN_PROGRESS and transition asynchronously. Low priority: most test suites just assert job existence/S3Destination, not the IN_PROGRESS state transition. Deliberately not implemented as a goroutine-driven async transition this pass -- that would trade a documented wire-shape simplification for a new leak-surface (timer/goroutine lifecycle tied to Reset/Snapshot) for a low-value behavior. (bd: TODO -- file issue if async harvest-job semantics become relevant)"
 deferred:
   - "Packaging protocol nested config (HlsPackage/DashPackage/CmafPackage/MssPackage/Authorization) is stored and echoed back as an opaque map[string]any -- NOT semantically validated or interpreted (no SPEKE/encryption-contract logic, no ad-marker logic). This closes the 'discards config' bug (values now round-trip through Create/Update/Describe/List) but a client asserting on server-side validation of e.g. required Authorization sub-fields would not get real AWS's validation errors. Next pass: consider modeling the concrete sub-shapes if a consumer needs semantic validation."
 leaks: {status: clean, note: "no goroutines/timers introduced; all ops are synchronous map operations under the existing lockmetrics.RWMutex"}
@@ -115,8 +113,8 @@ plain JSON strings via `ptr.String(jtv)`.
   (used for both "already exists" and "invalid parameter", matching the real
   SDK's error type set -- there is no ConflictException in this API).
   `__type` is included on error bodies for SDK exception classification.
-- DeleteChannel/DeleteOriginEndpoint/DeletePackagingConfiguration correctly
-  return 202 Accepted with an empty body.
+- DeleteChannel/DeleteOriginEndpoint correctly return 202 Accepted with an
+  empty body.
 - List* pagination (`nextToken`, `maxResults`) uses `pkgs/page` uniformly.
 - Tag<->resource sync (TagResource/UntagResource updating the resource's own
   `Tags` field, not just the separate ARN-keyed tag store) was already
@@ -125,21 +123,52 @@ plain JSON strings via `ptr.String(jtv)`.
   correct `PUT /channels/{id}/ingest_endpoints/{ingestId}/credentials` route
   and semantics.
 
-### Architecture gap flagged for follow-up (not fixed this pass)
+### Invented ops deleted this pass
 
 `CreatePackagingConfiguration`/`DescribePackagingConfiguration`/
 `DeletePackagingConfiguration`/`ListPackagingConfigurations` and
-`PutChannelLifecyclePolicy`/`GetChannelLifecyclePolicy` are registered and
+`PutChannelLifecyclePolicy`/`GetChannelLifecyclePolicy` were registered and
 routed in this service but **do not correspond to any operation in the real
-`aws-sdk-go-v2/service/mediapackage` client** (v1.39.25) -- there are no
-`api_op_*.go` files for them. PackagingConfiguration/PackagingGroup belong to
-MediaPackage VOD, a separate AWS service with its own SigV4 signing name and
-REST surface (not a dependency of this repo's go.mod). No real
-`aws-sdk-go-v2/service/mediapackage` client will ever call these paths. This
-wasn't caught by `TestSDKCompleteness` because that check only flags SDK ops
-*missing* from `GetSupportedOperations()`, not extra ops beyond the SDK's
-surface. Left untouched this pass (out of the explicitly audited
-Channel/OriginEndpoint/HarvestJob/Tags families, non-trivial to redo safely,
-not a regression I introduced) -- flagging for a follow-up bd issue to decide
-whether to properly separate this into a mediapackagevod-shaped service or
-remove it.
+`aws-sdk-go-v2/service/mediapackage` client** (v1.39.25) -- confirmed by
+listing `api_op_*.go` in the downloaded module source: there are exactly 19
+files, matching the 19 ops in the `ops:` table above, with no
+`api_op_CreatePackagingConfiguration.go` / `api_op_PutChannelLifecyclePolicy.go`
+etc., and no `PackagingConfiguration`/`PackagingGroup` type in `types/types.go`
+either. PackagingConfiguration/PackagingGroup belong to MediaPackage VOD, a
+separate AWS service with its own SigV4 signing name and REST surface (not a
+dependency of this repo's go.mod). No real `aws-sdk-go-v2/service/mediapackage`
+client will ever call these paths -- a prior audit pass flagged this but left
+it in place; this pass deletes it outright, per the "delete gopherstack-invented
+surface not in the real SDK" rule. This wasn't caught by `TestSDKCompleteness`
+because that check only flags SDK ops *missing* from `GetSupportedOperations()`,
+not extra ops beyond the SDK's surface.
+
+Removed: the `/packaging_configurations` route family and `lifecycle_policy`
+channel sub-route (`handler.go`); `handler_packaging_configurations.go` and
+its test file; `packaging_configurations.go` (backend CRUD); the
+`PackagingConfiguration`/`storedPackagingConfiguration` types and
+`CreatePackagingConfiguration`/`Describe`/`Delete`/`List` +
+`PutChannelLifecyclePolicy`/`GetChannelLifecyclePolicy` methods from
+`StorageBackend` and `InMemoryBackend`; the `packagingConfigurations`
+`store.Table` and its ARN builder; `storedChannel.LifecyclePolicy`; the
+`PackagingConfigCount` test helper; and every test referencing any of the
+above (`handler_packaging_configurations_test.go`, the `packagingConfigurations`
+snapshot-restore subtest, the four `TestLifecyclePolicy*`/`TestChannelLifecyclePolicy*`
+tests in `handler_channels_test.go`, and the packaging-config case in
+`TestNotFound_ErrorType`). Not touched: `PackagingConfig` (no trailing "uration") --
+that is a real, distinct type holding the Authorization/CmafPackage/DashPackage/
+HlsPackage/MssPackage opaque blocks on the legitimate `OriginEndpoint` resource,
+confirmed against `types.OriginEndpoint` in the real SDK; it was not renamed or
+removed.
+
+### CreateHarvestJob required-field validation added
+
+The real SDK's `CreateHarvestJobInput` marks `EndTime`, `Id`, `OriginEndpointId`,
+`S3Destination`, and `StartTime` all `// This member is required.`, and
+`types.S3Destination` itself requires `BucketName`/`ManifestKey`/`RoleArn`
+(confirmed in `api_op_CreateHarvestJob.go` and `types/types.go`). A previous
+pass only validated `Id`/`OriginEndpointId` and flagged the rest as a gap;
+this pass closes it: `CreateHarvestJob` (`harvest_jobs.go`) now 422s
+(`ErrInvalidParameter`) when `StartTime`, `EndTime`, or any of the three
+`S3Destination` fields is empty, matching what a real client would have
+already validated client-side before the request ever reached the server.

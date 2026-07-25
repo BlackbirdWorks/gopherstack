@@ -141,6 +141,17 @@ func (b *InMemoryBackend) GetNamespace(id string) (*Namespace, error) {
 	return cp, nil
 }
 
+// namespaceHTTPName returns ns's Properties.HttpProperties.HttpName, or "" if
+// unset (e.g. for DNS namespaces, which never have HttpProperties). Used to
+// evaluate the ListNamespaces HTTP_NAME filter.
+func namespaceHTTPName(ns *Namespace) string {
+	if ns.Properties == nil || ns.Properties.HTTPProperties == nil {
+		return ""
+	}
+
+	return ns.Properties.HTTPProperties.HTTPName
+}
+
 // countServicesInNamespace counts services belonging to a namespace. Caller must hold at least a read lock.
 func (b *InMemoryBackend) countServicesInNamespace(namespaceID string) int {
 	count := 0
@@ -162,11 +173,19 @@ func (b *InMemoryBackend) ListNamespaces(filter ListNamespacesFilter) []Namespac
 	result := make([]Namespace, 0, len(all))
 
 	for _, ns := range all {
-		if filter.Type != "" && ns.Type != filter.Type {
+		if !filter.Type.matches(ns.Type) {
 			continue
 		}
 
-		if filter.Name != "" && ns.Name != filter.Name {
+		if !filter.Name.matches(ns.Name) {
+			continue
+		}
+
+		if !filter.HTTPName.matches(namespaceHTTPName(ns)) {
+			continue
+		}
+
+		if !resourceOwnerMatches(filter.ResourceOwner) {
 			continue
 		}
 

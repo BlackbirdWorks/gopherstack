@@ -30,6 +30,8 @@ package codedeploy
 // NOT converted: there is no *T value for store.Table to key on. It remains
 // a plain map, unchanged by this refactor (see backend.go).
 import (
+	"encoding/json"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -51,6 +53,25 @@ func onPremisesInstanceTableKeyFn(v *OnPremisesInstance) string { return v.Insta
 
 func deploymentConfigTableKeyFn(v *DeploymentConfig) string { return v.DeploymentConfigName }
 
+// applicationRevisionKey returns the composite store.Table primary key for an
+// application revision: application name plus a canonical JSON encoding of
+// its RevisionLocation identity (S3 bucket/key/bundleType/version/eTag,
+// GitHub repository/commitId, or AppSpecContent content/sha256). Two
+// RevisionLocation values with identical fields always produce the same key,
+// which is exactly the identity real CodeDeploy uses to deduplicate
+// registrations of the same revision.
+func applicationRevisionKey(appName string, r RevisionLocation) string {
+	b, _ := json.Marshal(r)
+
+	return appName + "\x00" + string(b)
+}
+
+func applicationRevisionTableKeyFn(v *ApplicationRevision) string {
+	return applicationRevisionKey(v.ApplicationName, v.Revision)
+}
+
+func applicationRevisionAppIndexKeyFn(v *ApplicationRevision) string { return v.ApplicationName }
+
 // registerAllTables registers every converted resource collection on
 // b.registry (the "clean" tables: deployments, deploymentConfigs) or builds
 // it standalone (the "dirty" tables: applications, deploymentGroups,
@@ -70,4 +91,9 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.deployments = store.Register(b.registry, "deployments", store.New(deploymentTableKeyFn))
 	b.deploymentConfigs = store.Register(b.registry, "deploymentConfigs", store.New(deploymentConfigTableKeyFn))
+
+	b.applicationRevisions = store.Register(
+		b.registry, "applicationRevisions", store.New(applicationRevisionTableKeyFn),
+	)
+	b.applicationRevisionsByApp = b.applicationRevisions.AddIndex("byApplication", applicationRevisionAppIndexKeyFn)
 }

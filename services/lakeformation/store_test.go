@@ -37,8 +37,22 @@ func TestPaginate_NextToken(t *testing.T) {
 
 			b := lakeformation.NewInMemoryBackend()
 
-			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-a", "arn:aws:iam::123:role/r"))
-			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-b", "arn:aws:iam::123:role/r"))
+			require.NoError(
+				t,
+				b.RegisterResource(
+					"arn:aws:s3:::bucket-a",
+					"arn:aws:iam::123:role/r",
+					lakeformation.RegisterResourceOptions{},
+				),
+			)
+			require.NoError(
+				t,
+				b.RegisterResource(
+					"arn:aws:s3:::bucket-b",
+					"arn:aws:iam::123:role/r",
+					lakeformation.RegisterResourceOptions{},
+				),
+			)
 
 			resources, token := b.ListResources(tt.maxResults, "")
 			assert.Len(t, resources, tt.wantCount)
@@ -78,8 +92,14 @@ func TestPaginate_InvalidNextToken(t *testing.T) {
 
 			b := lakeformation.NewInMemoryBackend()
 
-			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-x", "arn:role"))
-			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-y", "arn:role"))
+			require.NoError(
+				t,
+				b.RegisterResource("arn:aws:s3:::bucket-x", "arn:role", lakeformation.RegisterResourceOptions{}),
+			)
+			require.NoError(
+				t,
+				b.RegisterResource("arn:aws:s3:::bucket-y", "arn:role", lakeformation.RegisterResourceOptions{}),
+			)
 
 			resources, _ := b.ListResources(0, tt.nextToken)
 			assert.Len(t, resources, tt.wantCount)

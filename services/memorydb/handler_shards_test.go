@@ -35,13 +35,13 @@ func TestHandler_FailoverShard_MissingName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestRefinement3_FailoverShard_NotFound tests FailoverShard returns 404 for unknown cluster.
+// TestRefinement3_FailoverShard_NotFound tests FailoverShard returns 400 for unknown cluster.
 func TestHandler_FailoverShard_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "FailoverShard", map[string]any{"ClusterName": "no-such-cluster"})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestRefinement3_FailoverShard_BadJSON tests FailoverShard with bad JSON.
@@ -82,13 +82,13 @@ func TestHandler_ListAllowedNodeTypeUpdates_MissingName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestRefinement3_ListAllowedNodeTypeUpdates_NotFound tests 404 for unknown cluster.
+// TestRefinement3_ListAllowedNodeTypeUpdates_NotFound tests 400 for unknown cluster.
 func TestHandler_ListAllowedNodeTypeUpdates_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "ListAllowedNodeTypeUpdates", map[string]any{"ClusterName": "no-such-cluster"})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestRefinement3_ListAllowedNodeTypeUpdates_BadJSON tests with bad JSON.
@@ -205,9 +205,31 @@ func TestHandler_ShardConfiguration(t *testing.T) {
 			h := newTestHandler(t)
 			cl := createClusterObj(t, h, tt.body)
 			assert.InDelta(t, tt.wantShards, cl["NumberOfShards"], 0)
-			assert.InDelta(t, tt.wantReplicas, cl["NumberOfReplicasPerShard"], 0)
+			assert.InDelta(t, tt.wantReplicas, firstShardReplicaCount(t, cl), 0)
 		})
 	}
+}
+
+// firstShardReplicaCount derives the replica count for the first shard from
+// its node list (NumberOfNodes - 1 primary). The real MemoryDB Cluster wire
+// shape has no "NumberOfReplicasPerShard" summary field -- confirmed absent
+// from deserializers.go's awsAwsjson11_deserializeDocumentCluster -- so a
+// real client (and this test) must derive it from Shards[i].Nodes, exactly
+// like models_clusters.go's clusterObject doc comment describes.
+func firstShardReplicaCount(t *testing.T, cl map[string]any) float64 {
+	t.Helper()
+
+	shards, ok := cl["Shards"].([]any)
+	require.True(t, ok, "cluster response must include Shards")
+	require.NotEmpty(t, shards)
+
+	shard, ok := shards[0].(map[string]any)
+	require.True(t, ok)
+
+	numNodes, ok := shard["NumberOfNodes"].(float64)
+	require.True(t, ok)
+
+	return numNodes - 1
 }
 
 func TestHandler_UpdateCluster_ShardConfig(t *testing.T) {
@@ -257,7 +279,7 @@ func TestHandler_UpdateCluster_ShardConfig(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			cl := resp["Cluster"].(map[string]any)
 			assert.InDelta(t, tt.wantShards, cl["NumberOfShards"], 0)
-			assert.InDelta(t, tt.wantReplicas, cl["NumberOfReplicasPerShard"], 0)
+			assert.InDelta(t, tt.wantReplicas, firstShardReplicaCount(t, cl), 0)
 		})
 	}
 }
@@ -435,7 +457,7 @@ func TestHandler_FailoverShard(t *testing.T) {
 				"ShardName":   "no-such-0001-0000",
 			},
 			setup:      false,
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "failover emits event",
@@ -538,7 +560,7 @@ func TestHandler_ListAllowedNodeTypeUpdates(t *testing.T) {
 		{
 			name:       "cluster not found",
 			body:       map[string]any{"ClusterName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing cluster name",

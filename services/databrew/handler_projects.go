@@ -135,16 +135,17 @@ func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, 
 }
 
 func (h *Handler) handleUpdateProject(ctx context.Context, body []byte) ([]byte, error) {
+	// Note: UpdateProjectInput has no DatasetName member in the real SDK
+	// (only Name/RoleArn/Sample) -- see UpdateProject's doc comment.
 	var req struct {
-		Name        string `json:"Name"`
-		DatasetName string `json:"DatasetName"`
-		RoleArn     string `json:"RoleArn"`
-		Sample      Sample `json:"Sample"`
+		Name    string `json:"Name"`
+		RoleArn string `json:"RoleArn"`
+		Sample  Sample `json:"Sample"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.UpdateProject(ctx, req.Name, req.DatasetName, req.RoleArn, req.Sample); err != nil {
+	if err := h.Backend.UpdateProject(ctx, req.Name, req.RoleArn, req.Sample); err != nil {
 		return nil, err
 	}
 

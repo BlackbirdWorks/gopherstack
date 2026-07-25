@@ -30,7 +30,7 @@ func TestAddRegion(t *testing.T) {
 		{
 			name:       "add region to nonexistent instance",
 			regionName: "us-east-1",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			badInst:    true,
 		},
 	}
@@ -115,7 +115,7 @@ func TestDescribeRegion(t *testing.T) {
 		"InstanceArn": instanceArn,
 		"RegionName":  "ap-south-1",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// Missing required fields: ValidationException.
 	rec = doRequest(t, h, "DescribeRegion", map[string]any{"InstanceArn": instanceArn})
@@ -128,7 +128,7 @@ func TestDescribeRegion(t *testing.T) {
 		"InstanceArn": "arn:aws:sso:::instance/ssoins-nonexistent",
 		"RegionName":  "us-west-2",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// Add then describe: real state, ADDING status, correct wire field names.
 	rec = doRequest(t, h, "AddRegion", map[string]any{
@@ -174,7 +174,7 @@ func TestDescribeRegion(t *testing.T) {
 		"InstanceArn": instanceArn,
 		"RegionName":  "us-west-2",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	rec = doRequest(t, h, "ListRegions", map[string]any{"InstanceArn": instanceArn})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -188,5 +188,5 @@ func TestDescribeRegion(t *testing.T) {
 		"InstanceArn": instanceArn,
 		"RegionName":  "us-west-2",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

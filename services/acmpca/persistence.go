@@ -224,6 +224,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.certsByCASerial = make(map[string]map[string]string)
 		b.policies = make(map[string]map[string]string)
+		b.idempotency = make(map[string]idempotencyRecord)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 
@@ -241,6 +242,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// idempotency is a short-lived request-dedup cache, not durable resource
+	// state (see InMemoryBackend.idempotency); a restored backend starts with
+	// it empty, same as any other in-memory cache after a process restart.
+	b.idempotency = make(map[string]idempotencyRecord)
 
 	// Rebuild the per-region certsByCASerial index from restored certificates.
 	b.certsByCASerial = make(map[string]map[string]string)

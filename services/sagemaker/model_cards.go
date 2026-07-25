@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -34,6 +35,44 @@ func cloneModelCard(c *ModelCard) *ModelCard {
 	cp.Tags = maps.Clone(c.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeModelCard.
+func (c *ModelCard) MarshalJSON() ([]byte, error) {
+	type alias ModelCard
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(c),
+		CreationTime:     epochSeconds(c.CreationTime),
+		LastModifiedTime: epochSeconds(c.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [ModelCard.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (c *ModelCard) UnmarshalJSON(data []byte) error {
+	type alias ModelCard
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(c)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	c.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	c.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateModelCard creates a model card.

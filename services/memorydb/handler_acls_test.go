@@ -45,7 +45,7 @@ func TestHandler_ACL_CRUD(t *testing.T) {
 			name:       "describe ACL not found",
 			op:         "DescribeACLs",
 			body:       map[string]any{"ACLName": "no-such-acl"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "delete ACL",
@@ -138,7 +138,7 @@ func TestHandler_UpdateACL(t *testing.T) {
 		{
 			name:       "ACL not found",
 			body:       map[string]any{"ACLName": "no-such-acl"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -320,7 +320,7 @@ func TestHandler_Pagination_NextToken(t *testing.T) {
 
 // -- FailoverShard emits event and returns cluster (finding 22) -----------------
 
-// TestHandler_DeleteACL_InUse tests that deleting an ACL in use by a cluster returns 409.
+// TestHandler_DeleteACL_InUse tests that deleting an ACL in use by a cluster returns 400.
 func TestHandler_DeleteACL_InUse(t *testing.T) {
 	t.Parallel()
 
@@ -328,7 +328,7 @@ func TestHandler_DeleteACL_InUse(t *testing.T) {
 		name       string
 		wantStatus int
 	}{
-		{name: "delete ACL in use by cluster returns 409", wantStatus: http.StatusConflict},
+		{name: "delete ACL in use by cluster returns 400", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -392,7 +392,7 @@ func TestHandler_ACL_CRUD_Extended(t *testing.T) {
 			name:       "describe ACL not found",
 			op:         "DescribeACLs",
 			body:       map[string]any{"ACLName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "update ACL add users",

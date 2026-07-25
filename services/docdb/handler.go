@@ -313,7 +313,7 @@ func (h *Handler) dispatchExtended4(ctx context.Context, action string, vals url
 	case "DescribeEventSubscriptions":
 		return h.handleDescribeEventSubscriptions(ctx, vals)
 	case "DescribeEvents":
-		return h.handleDescribeEvents(vals)
+		return h.handleDescribeEvents(ctx, vals)
 	case "DescribePendingMaintenanceActions":
 		return h.handleDescribePendingMaintenanceActions(ctx, vals)
 	case "FailoverGlobalCluster":

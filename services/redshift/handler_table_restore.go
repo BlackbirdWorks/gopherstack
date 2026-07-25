@@ -3,6 +3,7 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"time"
 )
 
 // ---- RestoreTableFromClusterSnapshot ----
@@ -11,10 +12,7 @@ type restoreTableFromClusterSnapshotResponse struct {
 	XMLName xml.Name `xml:"RestoreTableFromClusterSnapshotResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
-		TableRestoreStatus struct {
-			TableRestoreRequestID string `xml:"TableRestoreRequestId"`
-			Status                string `xml:"Status"`
-		} `xml:"TableRestoreStatus"`
+		TableRestoreStatus xmlTableRestoreStatus `xml:"TableRestoreStatus"`
 	} `xml:"RestoreTableFromClusterSnapshotResult"`
 }
 
@@ -32,23 +30,29 @@ func (h *Handler) handleRestoreTableFromClusterSnapshot(vals url.Values) (any, e
 	}
 
 	resp := &restoreTableFromClusterSnapshotResponse{Xmlns: redshiftXMLNS}
-	resp.Result.TableRestoreStatus.TableRestoreRequestID = tr.TableRestoreRequestID
-	resp.Result.TableRestoreStatus.Status = tr.Status
+	resp.Result.TableRestoreStatus = tableRestoreStatusToXML(tr)
 
 	return resp, nil
 }
 
 // ---- DescribeTableRestoreStatus ----
 
+// xmlTableRestoreStatus mirrors types.TableRestoreStatus. Note the real wire field
+// for the destination table is "NewTableName", not "TargetTableName" (confirmed
+// against aws-sdk-go-v2/service/redshift@v1.62.3's deserializer) -- this backend's
+// internal TableRestoreStatus.TargetTableName field predates that check and is kept
+// as the Go name for continuity, but is serialized under the correct wire tag.
 type xmlTableRestoreStatus struct {
 	TableRestoreRequestID string `xml:"TableRestoreRequestId"`
 	ClusterIdentifier     string `xml:"ClusterIdentifier"`
+	SnapshotIdentifier    string `xml:"SnapshotIdentifier,omitempty"`
+	RequestTime           string `xml:"RequestTime,omitempty"`
 	Status                string `xml:"Status,omitempty"`
 	Message               string `xml:"Message,omitempty"`
 	SourceDatabaseName    string `xml:"SourceDatabaseName,omitempty"`
 	SourceTableName       string `xml:"SourceTableName,omitempty"`
 	TargetDatabaseName    string `xml:"TargetDatabaseName,omitempty"`
-	TargetTableName       string `xml:"TargetTableName,omitempty"`
+	NewTableName          string `xml:"NewTableName,omitempty"`
 }
 
 type xmlTableRestoreStatusList struct {
@@ -61,6 +65,26 @@ type describeTableRestoreStatusResponse struct {
 	Statuses xmlTableRestoreStatusList `xml:"DescribeTableRestoreStatusResult>TableRestoreStatusDetails"`
 }
 
+func tableRestoreStatusToXML(s *TableRestoreStatus) xmlTableRestoreStatus {
+	x := xmlTableRestoreStatus{
+		TableRestoreRequestID: s.TableRestoreRequestID,
+		ClusterIdentifier:     s.ClusterIdentifier,
+		SnapshotIdentifier:    s.SnapshotIdentifier,
+		Status:                s.Status,
+		Message:               s.Message,
+		SourceDatabaseName:    s.SourceDatabaseName,
+		SourceTableName:       s.SourceTableName,
+		TargetDatabaseName:    s.TargetDatabaseName,
+		NewTableName:          s.TargetTableName,
+	}
+
+	if !s.RequestTime.IsZero() {
+		x.RequestTime = s.RequestTime.Format(time.RFC3339)
+	}
+
+	return x
+}
+
 func (h *Handler) handleDescribeTableRestoreStatus(vals url.Values) (any, error) {
 	clusterID := vals.Get("ClusterIdentifier")
 
@@ -71,17 +95,8 @@ func (h *Handler) handleDescribeTableRestoreStatus(vals url.Values) (any, error)
 
 	members := make([]xmlTableRestoreStatus, 0, len(statuses))
 
-	for _, s := range statuses {
-		members = append(members, xmlTableRestoreStatus{
-			TableRestoreRequestID: s.TableRestoreRequestID,
-			ClusterIdentifier:     s.ClusterIdentifier,
-			Status:                s.Status,
-			Message:               s.Message,
-			SourceDatabaseName:    s.SourceDatabaseName,
-			SourceTableName:       s.SourceTableName,
-			TargetDatabaseName:    s.TargetDatabaseName,
-			TargetTableName:       s.TargetTableName,
-		})
+	for i := range statuses {
+		members = append(members, tableRestoreStatusToXML(&statuses[i]))
 	}
 
 	return &describeTableRestoreStatusResponse{

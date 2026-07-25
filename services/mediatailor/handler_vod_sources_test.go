@@ -213,3 +213,54 @@ func TestCreateVodSource_MissingSourceLocation(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// TestCreateVodSource_TagsSurviveDescribe verifies tags passed to
+// CreateVodSource are queryable back from DescribeVodSource. Regression
+// test: CreateVodSource stored tags on the struct but
+// DescribeVodSource/ListVodSources unconditionally overwrite the response
+// Tags from a separate ARN-keyed tag map CreateVodSource never wrote to,
+// silently dropping every tag passed at creation.
+func TestCreateVodSource_TagsSurviveDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestSourceLocation(t, h)
+
+	rec := doRequest(t, h, http.MethodPost, "/sourceLocation/sl1/vodSource/vs1", map[string]any{
+		"HttpPackageConfigurations": []any{
+			map[string]any{"Path": "/hls", "SourceGroup": "default", "Type": "HLS"},
+		},
+		"tags": map[string]any{"team": "video"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = doRequest(t, h, http.MethodGet, "/sourceLocation/sl1/vodSource/vs1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	tags, _ := resp["tags"].(map[string]any)
+	assert.Equal(t, "video", tags["team"], "tags set at creation must survive to DescribeVodSource")
+}
+
+// TestVodSource_Timestamps verifies CreationTime/LastModifiedTime are
+// populated on create and LastModifiedTime advances on update -- both were
+// dead fields (declared, never set) before this pass.
+func TestVodSource_Timestamps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestSourceLocation(t, h)
+
+	rec := doRequest(t, h, http.MethodPost, "/sourceLocation/sl1/vodSource/vs1", map[string]any{
+		"HttpPackageConfigurations": []any{
+			map[string]any{"Path": "/hls", "SourceGroup": "default", "Type": "HLS"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NotNil(t, created["CreationTime"])
+	require.NotNil(t, created["LastModifiedTime"])
+}

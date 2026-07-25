@@ -60,7 +60,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.PutApplicationGrant(
 		appArn, "authorization_code", []byte(`{"RedirectUris":["https://x"]}`),
 	))
-	require.NoError(t, original.PutApplicationSessionConfiguration(appArn, "PT4H"))
+	require.NoError(t, original.PutApplicationSessionConfiguration(appArn, "ENABLED"))
 	require.NoError(t, original.PutApplicationAssignmentConfiguration(appArn, true))
 
 	tti, err := original.CreateTrustedTokenIssuer(
@@ -153,9 +153,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, grants, 1)
 	assert.Equal(t, "authorization_code", grants[0].GrantType)
 
-	sessionDur, err := fresh.GetApplicationSessionConfiguration(appArn)
+	sessionStatus, err := fresh.GetApplicationSessionConfiguration(appArn)
 	require.NoError(t, err)
-	assert.Equal(t, "PT4H", sessionDur)
+	assert.Equal(t, "ENABLED", sessionStatus)
 
 	assignRequired, err := fresh.GetApplicationAssignmentConfiguration(appArn)
 	require.NoError(t, err)

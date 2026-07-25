@@ -67,8 +67,16 @@ type getResourceSyncStatusInput struct {
 	SyncType     string `json:"SyncType"`
 }
 
+// resourceSyncAttemptItem is the ResourceSyncAttempt wire shape. Target is a
+// required real member (the resource name being synchronized, per
+// awsAwsjson10_deserializeDocumentResourceSyncAttempt) that is always known
+// here (it equals the request's ResourceName) so it is always populated;
+// InitialRevision/TargetRevision (types.Revision, requiring a simulated Git
+// SHA this emulator has no real backing state for) are not -- see
+// PARITY.md's gaps section.
 type resourceSyncAttemptItem struct {
 	Status    string          `json:"Status"`
+	Target    string          `json:"Target"`
 	Events    []syncEventItem `json:"Events"`
 	StartedAt float64         `json:"StartedAt"`
 }
@@ -100,6 +108,7 @@ func (h *Handler) handleGetResourceSyncStatus(
 		LatestSync: resourceSyncAttemptItem{
 			StartedAt: awstime.Epoch(status.StartedAt),
 			Status:    status.Status,
+			Target:    in.ResourceName,
 			Events:    events,
 		},
 	}, nil

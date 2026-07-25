@@ -2,6 +2,7 @@ package iot
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -35,27 +36,75 @@ func (h *Handler) handleDetachSecurityProfile(c *echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
+// handleListTargetsForSecurityProfile handles GET
+// /security-profiles/{name}/targets.
+//
+// Field-diffed against types.ListTargetsForSecurityProfileOutput/
+// types.SecurityProfileTarget (v1.76.0): the previous response shape used
+// an invented "securityProfileTargetArn" key per entry; real AWS's
+// securityProfileTargets is []SecurityProfileTarget{arn} (confirmed
+// against awsRestjson1_deserializeDocumentSecurityProfileTarget) -- a real
+// client's deserializer would never have found "securityProfileTargetArn"
+// and left every target's Arn permanently nil. Fixed to the real "arn"
+// key. Also now paginates via maxResults/nextToken (previously always
+// returned every target in one page), matching the other List* ops in this
+// service.
 func (h *Handler) handleListTargetsForSecurityProfile(c *echo.Context) error {
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/security-profiles/")
 	profileName := strings.TrimSuffix(trimmed, "/targets")
 	targets := h.Backend.ListTargetsForSecurityProfile(profileName)
 	summaries := make([]map[string]any, len(targets))
 	for i, t := range targets {
-		summaries[i] = map[string]any{"securityProfileTargetArn": t}
+		summaries[i] = map[string]any{keyArn: t}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"securityProfileTargets": summaries})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{"securityProfileTargets": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
+// handleListSecurityProfilesForTarget handles GET
+// /security-profiles-for-target.
+//
+// Field-diffed against types.ListSecurityProfilesForTargetOutput/
+// types.SecurityProfileTargetMapping (v1.76.0): the previous response
+// shape nested only {"securityProfileIdentifier":{"name":...}} per entry,
+// missing both the identifier's "arn" and the sibling top-level "target"
+// object entirely; real AWS's securityProfileTargetMappings is
+// []SecurityProfileTargetMapping{securityProfileIdentifier:{name,arn},
+// target:{arn}} (confirmed against
+// awsRestjson1_deserializeDocumentSecurityProfileTargetMapping) -- a real
+// client's deserializer would have left every mapping's identifier.Arn and
+// target entirely nil. Fixed. Also now paginates via maxResults/nextToken.
 func (h *Handler) handleListSecurityProfilesForTarget(c *echo.Context) error {
 	targetARN := c.Request().URL.Query().Get("securityProfileTargetArn")
 	profiles := h.Backend.ListSecurityProfilesForTarget(targetARN)
 	summaries := make([]map[string]any, len(profiles))
 	for i, p := range profiles {
-		summaries[i] = map[string]any{"securityProfileIdentifier": map[string]string{keyName: p}}
+		summaries[i] = map[string]any{
+			"securityProfileIdentifier": map[string]string{
+				keyName: p,
+				keyArn:  h.Backend.SecurityProfileARN(p),
+			},
+			"target": map[string]string{keyArn: targetARN},
+		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"securityProfileTargetMappings": summaries})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{"securityProfileTargetMappings": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // resolveSecurityProfileTargetOps handles /security-profiles/{name}/targets operations.
@@ -128,37 +177,96 @@ func (h *Handler) handleDescribeSecurityProfile(c *echo.Context) error {
 	return c.JSON(http.StatusOK, sp)
 }
 
+// handleListSecurityProfiles handles GET /security-profiles.
+//
+// Field-diffed against types.ListSecurityProfilesOutput/
+// types.SecurityProfileIdentifier (v1.76.0): the previous response shape
+// used the full "securityProfileName"/"securityProfileArn" keys per entry;
+// real AWS's securityProfileIdentifiers is []SecurityProfileIdentifier{
+// name, arn} -- the SHORTENED key names, confirmed against
+// awsRestjson1_deserializeDocumentSecurityProfileIdentifier -- a real
+// client's deserializer would never have found either key and left every
+// profile's Name/Arn permanently nil. Fixed. Also now paginates via
+// maxResults/nextToken.
 func (h *Handler) handleListSecurityProfiles(c *echo.Context) error {
 	profiles := h.Backend.ListSecurityProfiles()
 	summaries := make([]map[string]any, len(profiles))
 	for i, sp := range profiles {
 		summaries[i] = map[string]any{
-			keySecurityProfileName: sp.SecurityProfileName,
-			keySecurityProfileARN:  sp.SecurityProfileARN,
+			keyName: sp.SecurityProfileName,
+			keyArn:  sp.SecurityProfileARN,
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"securityProfileIdentifiers": summaries})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{"securityProfileIdentifiers": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
+// handleUpdateSecurityProfile handles PATCH /security-profiles/{name}.
+//
+// Field-diffed against types.UpdateSecurityProfileInput (v1.76.0): the
+// request body previously parsed only securityProfileDescription; now
+// parses the full real field set (behaviors/alertTargets/
+// additionalMetricsToRetain(V2)/metricsExportConfig/delete* flags), and
+// expectedVersion (a QUERY parameter on real AWS, confirmed against
+// awsRestjson1_serializeOpHttpBindingsUpdateSecurityProfileInput -- not a
+// body field). The response now returns the full updated SecurityProfile,
+// matching real UpdateSecurityProfileOutput's field set (previously only
+// name/arn/version were returned).
 func (h *Handler) handleUpdateSecurityProfile(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/security-profiles/")
+
 	var req struct {
-		SecurityProfileDescription string `json:"securityProfileDescription"`
+		AlertTargets                    map[string]SecurityProfileAlertTarget `json:"alertTargets"`
+		MetricsExportConfig             *SecurityProfileMetricsExportConfig   `json:"metricsExportConfig"`
+		SecurityProfileDescription      *string                               `json:"securityProfileDescription"`
+		Behaviors                       []SecurityProfileBehavior             `json:"behaviors"`
+		AdditionalMetricsToRetain       []string                              `json:"additionalMetricsToRetain"`
+		AdditionalMetricsToRetainV2     []SecurityProfileMetricToRetain       `json:"additionalMetricsToRetainV2"`
+		DeleteAdditionalMetricsToRetain bool                                  `json:"deleteAdditionalMetricsToRetain"`
+		DeleteAlertTargets              bool                                  `json:"deleteAlertTargets"`
+		DeleteBehaviors                 bool                                  `json:"deleteBehaviors"`
+		DeleteMetricsExportConfig       bool                                  `json:"deleteMetricsExportConfig"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	sp, err := h.Backend.UpdateSecurityProfile(name, req.SecurityProfileDescription)
+
+	var expectedVersion *int64
+	if raw := c.QueryParam("expectedVersion"); raw != "" {
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: "invalid expectedVersion"})
+		}
+		expectedVersion = &n
+	}
+
+	sp, err := h.Backend.UpdateSecurityProfile(&UpdateSecurityProfileInput{
+		SecurityProfileName:             name,
+		SecurityProfileDescription:      req.SecurityProfileDescription,
+		Behaviors:                       req.Behaviors,
+		AlertTargets:                    req.AlertTargets,
+		AdditionalMetricsToRetain:       req.AdditionalMetricsToRetain,
+		AdditionalMetricsToRetainV2:     req.AdditionalMetricsToRetainV2,
+		MetricsExportConfig:             req.MetricsExportConfig,
+		ExpectedVersion:                 expectedVersion,
+		DeleteAdditionalMetricsToRetain: req.DeleteAdditionalMetricsToRetain,
+		DeleteAlertTargets:              req.DeleteAlertTargets,
+		DeleteBehaviors:                 req.DeleteBehaviors,
+		DeleteMetricsExportConfig:       req.DeleteMetricsExportConfig,
+	})
 	if err != nil {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keySecurityProfileName: sp.SecurityProfileName,
-		keySecurityProfileARN:  sp.SecurityProfileARN,
-		keyVersion:             sp.Version,
-	})
+	return c.JSON(http.StatusOK, sp)
 }
 
 func (h *Handler) handleDeleteSecurityProfile(c *echo.Context) error {

@@ -3,10 +3,12 @@ package eventbridge_test
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -111,6 +113,11 @@ func TestPutRule_ManagedByPreserved(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
+	// PutRuleInput.ManagedBy has no JSON tag (json:"-") because real AWS's
+	// PutRuleInput has no such wire member at all -- it can only be set via a
+	// direct in-process Go call (an internal same-process AWS-service
+	// integration seeding a managed rule), never via the public PutRule API.
+	// This whitebox test exercises exactly that internal seeding path.
 	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
 		Name:         "managed-rule",
 		EventPattern: `{"source":["x"]}`,
@@ -121,6 +128,91 @@ func TestPutRule_ManagedByPreserved(t *testing.T) {
 	rule, err := b.DescribeRule(context.Background(), "managed-rule", "")
 	require.NoError(t, err)
 	assert.Equal(t, "scheduler.amazonaws.com", rule.ManagedBy)
+}
+
+func TestPutRule_ManagedByNotWireSettable(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	// A real (or malicious) client sending "ManagedBy" over the wire must not
+	// be able to mark its own rule as AWS-service-managed -- real AWS's
+	// PutRule has no such request member.
+	rec := auditMakeRequest(t, h, e, "PutRule", map[string]any{
+		"Name":         "forged-managed-rule",
+		"EventPattern": `{"source":["x"]}`,
+		"ManagedBy":    "scheduler.amazonaws.com",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rule, err := b.DescribeRule(context.Background(), "forged-managed-rule", "")
+	require.NoError(t, err)
+	assert.Empty(t, rule.ManagedBy, "ManagedBy must not be settable via the public PutRule wire API")
+}
+
+// TestManagedRuleException_RejectsRuleLevelMutations verifies that once a
+// rule is service-managed (Rule.ManagedBy non-empty -- only reachable via the
+// internal ManagedBy seeding path proven above), every rule-level mutating op
+// rejects it with ManagedRuleException, matching real AWS.
+func TestManagedRuleException_RejectsRuleLevelMutations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		op   func(t *testing.T, b *eventbridge.InMemoryBackend) error
+		name string
+	}{
+		{
+			name: "PutRule on an existing managed rule",
+			op: func(_ *testing.T, b *eventbridge.InMemoryBackend) error {
+				_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+					Name:         "managed-rule",
+					EventPattern: `{"source":["y"]}`,
+				})
+
+				return err
+			},
+		},
+		{
+			name: "DeleteRule",
+			op: func(_ *testing.T, b *eventbridge.InMemoryBackend) error {
+				return b.DeleteRule(context.Background(), "managed-rule", "")
+			},
+		},
+		{
+			name: "EnableRule",
+			op: func(_ *testing.T, b *eventbridge.InMemoryBackend) error {
+				return b.EnableRule(context.Background(), "managed-rule", "")
+			},
+		},
+		{
+			name: "DisableRule",
+			op: func(_ *testing.T, b *eventbridge.InMemoryBackend) error {
+				return b.DisableRule(context.Background(), "managed-rule", "")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend()
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+				Name:         "managed-rule",
+				EventPattern: `{"source":["x"]}`,
+				ManagedBy:    "scheduler.amazonaws.com",
+			})
+			require.NoError(t, err)
+
+			err = tt.op(t, b)
+			require.ErrorIs(t, err, eventbridge.ErrManagedRule)
+
+			// The rule itself must be untouched by the rejected mutation.
+			rule, descErr := b.DescribeRule(context.Background(), "managed-rule", "")
+			require.NoError(t, descErr)
+			assert.Equal(t, "scheduler.amazonaws.com", rule.ManagedBy)
+		})
+	}
 }
 
 func TestTestEventPattern_Match(t *testing.T) {

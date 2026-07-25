@@ -103,11 +103,22 @@ func TestHandlerMetadataAndRouting(t *testing.T) {
 		},
 		{name: "pinpoint_route", method: http.MethodGet, path: "/v1/apps", wantOp: "Unknown", matches: false},
 		{name: "foreign", method: http.MethodGet, path: "/other", wantOp: "Unknown", matches: false},
+		{
+			// TagResource/UntagResource/ListTagsForResource + /v1/tags/{arn} are
+			// NOT real Amazon Polly API surface (see PARITY.md) and were removed;
+			// the route must no longer match.
+			name: "tags_route_removed", method: http.MethodGet,
+			path:   "/v1/tags/arn:aws:polly:us-east-1:000000000000:synthesis-task/x",
+			wantOp: "Unknown", matches: false,
+		},
 	}
 
 	assert.Equal(t, "Polly", handler.Name())
 	assert.Equal(t, "polly", handler.ChaosServiceName())
 	assert.Contains(t, handler.GetSupportedOperations(), "DescribeVoices")
+	assert.NotContains(t, handler.GetSupportedOperations(), "TagResource")
+	assert.NotContains(t, handler.GetSupportedOperations(), "UntagResource")
+	assert.NotContains(t, handler.GetSupportedOperations(), "ListTagsForResource")
 	assert.Equal(t, []string{config.DefaultRegion}, handler.ChaosRegions())
 	assert.Positive(t, handler.MatchPriority())
 

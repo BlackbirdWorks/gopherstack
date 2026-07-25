@@ -390,3 +390,109 @@ func TestAddPermission_Duplicate(t *testing.T) {
 	rec2 := callInMemoryHandler(t, h, http.MethodPost, path, body)
 	assert.Equal(t, http.StatusConflict, rec2.Code)
 }
+
+// TestAddPermission_FunctionUrlConditions locks in the FunctionUrlAuthType /
+// InvokedViaFunctionUrl deferred item (PARITY.md): AddPermission must accept
+// both fields and render them as IAM policy Condition entries — a
+// StringEquals on "lambda:FunctionUrlAuthType" and a Bool on
+// "lambda:InvokedViaFunctionUrl" — exactly as real Lambda does for public
+// function URL access statements.
+func TestAddPermission_FunctionUrlConditions(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	createFunctionForTest(t, h, "url-perm-fn")
+
+	body := `{
+		"StatementId":"FunctionURLAllowPublicAccess",
+		"Action":"lambda:InvokeFunctionUrl",
+		"Principal":"*",
+		"FunctionUrlAuthType":"NONE",
+		"InvokedViaFunctionUrl":true
+	}`
+
+	rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions/url-perm-fn/policy", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out lambda.AddPermissionOutput
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NotNil(t, out.Statement)
+	assert.Contains(t, *out.Statement, `"StringEquals":{"lambda:FunctionUrlAuthType":"NONE"}`)
+	assert.Contains(t, *out.Statement, `"Bool":{"lambda:InvokedViaFunctionUrl":"true"}`)
+
+	getRec := callInMemoryHandler(t, h, http.MethodGet, "/2015-03-31/functions/url-perm-fn/policy", "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var pol lambda.GetPolicyOutput
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&pol))
+	require.NotNil(t, pol.Policy)
+	assert.Contains(t, *pol.Policy, "lambda:FunctionUrlAuthType")
+	assert.Contains(t, *pol.Policy, "lambda:InvokedViaFunctionUrl")
+}
+
+// TestAddPermission_RevisionId locks in the RevisionId optimistic-concurrency
+// deferred item: GetPolicy's RevisionId must change across a real mutation
+// (add or remove a statement) and stay stable otherwise, and AddPermission /
+// RemovePermission must reject a stale RevisionId with
+// PreconditionFailedException (412) without mutating the policy.
+func TestAddPermission_RevisionId(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	createFunctionForTest(t, h, "rev-fn")
+
+	policyPath := "/2015-03-31/functions/rev-fn/policy"
+
+	// No policy yet -> GetPolicy 404s, nothing to assert a revision against.
+	rec := callInMemoryHandler(t, h, http.MethodPost, policyPath,
+		`{"StatementId":"s1","Action":"lambda:InvokeFunction","Principal":"s3.amazonaws.com"}`)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	getRec := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var pol lambda.GetPolicyOutput
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&pol))
+	require.NotNil(t, pol.RevisionID)
+	rev1 := *pol.RevisionID
+	assert.NotEmpty(t, rev1)
+
+	// A stale RevisionId on AddPermission is rejected without mutating the policy.
+	staleAddRec := callInMemoryHandler(t, h, http.MethodPost, policyPath,
+		`{"StatementId":"s2","Action":"lambda:InvokeFunction","Principal":"sns.amazonaws.com",`+
+			`"RevisionId":"not-the-real-revision"}`)
+	assert.Equal(t, http.StatusPreconditionFailed, staleAddRec.Code)
+
+	getRec2 := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
+	var pol2 lambda.GetPolicyOutput
+	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&pol2))
+	assert.Equal(t, rev1, *pol2.RevisionID, "rejected AddPermission must not change the revision")
+	assert.NotContains(t, *pol2.Policy, "s2")
+
+	// The correct RevisionId succeeds and produces a new revision.
+	okAddRec := callInMemoryHandler(t, h, http.MethodPost, policyPath,
+		fmt.Sprintf(`{"StatementId":"s2","Action":"lambda:InvokeFunction","Principal":"sns.amazonaws.com",`+
+			`"RevisionId":%q}`, rev1))
+	require.Equal(t, http.StatusCreated, okAddRec.Code)
+
+	getRec3 := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
+	var pol3 lambda.GetPolicyOutput
+	require.NoError(t, json.NewDecoder(getRec3.Body).Decode(&pol3))
+	rev3 := *pol3.RevisionID
+	assert.NotEqual(t, rev1, rev3, "a real mutation must change the revision")
+
+	// RemovePermission with a stale RevisionId (query param) is rejected.
+	staleDelRec := callInMemoryHandler(t, h, http.MethodDelete,
+		policyPath+"/s1?RevisionId=not-the-real-revision", "")
+	assert.Equal(t, http.StatusPreconditionFailed, staleDelRec.Code)
+
+	getRec4 := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
+	var pol4 lambda.GetPolicyOutput
+	require.NoError(t, json.NewDecoder(getRec4.Body).Decode(&pol4))
+	assert.Contains(t, *pol4.Policy, "s1", "rejected RemovePermission must not delete the statement")
+
+	// RemovePermission with the correct RevisionId succeeds.
+	okDelRec := callInMemoryHandler(t, h, http.MethodDelete,
+		policyPath+"/s1?RevisionId="+rev3, "")
+	assert.Equal(t, http.StatusNoContent, okDelRec.Code)
+}

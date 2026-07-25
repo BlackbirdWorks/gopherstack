@@ -37,30 +37,28 @@ func TestTagResource(t *testing.T) {
 			},
 		},
 		{
-			name: "tag parameter group ARN",
+			// Real DAX only assigns ARNs to clusters -- types.ParameterGroup has no
+			// Arn field in the SDK, so a parameter-group "ARN" never resolves to a
+			// taggable resource and TagResource must reject it as not found.
+			name: "parameter group ARN is not taggable",
 			setup: func(b *dax.InMemoryBackend) string {
 				_, _ = b.CreateParameterGroup("my-pg", "")
 
 				return "arn:aws:dax:us-east-1:123456789012:parametergroup/my-pg"
 			},
-			tags: map[string]string{"k": "v"},
-			check: func(t *testing.T, tags map[string]string) {
-				t.Helper()
-				assert.Equal(t, "v", tags["k"])
-			},
+			tags:    map[string]string{"k": "v"},
+			wantErr: true,
 		},
 		{
-			name: "tag subnet group ARN",
+			// Same rationale: types.SubnetGroup has no Arn field in the real SDK.
+			name: "subnet group ARN is not taggable",
 			setup: func(b *dax.InMemoryBackend) string {
 				_, _ = b.CreateSubnetGroup("my-sg", "", []string{"subnet-11111111"})
 
 				return "arn:aws:dax:us-east-1:123456789012:subnetgroup/my-sg"
 			},
-			tags: map[string]string{"k": "v"},
-			check: func(t *testing.T, tags map[string]string) {
-				t.Helper()
-				assert.Equal(t, "v", tags["k"])
-			},
+			tags:    map[string]string{"k": "v"},
+			wantErr: true,
 		},
 		{
 			name: "not found",

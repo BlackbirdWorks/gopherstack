@@ -20,4 +20,6 @@ var (
 	ErrMultipleIamArns               = awserr.New("MultipleIamArnsProvidedException", awserr.ErrInvalidParameter)
 	ErrDeploymentConfigInUse         = awserr.New("DeploymentConfigInUseException", awserr.ErrConflict)
 	ErrGitHubAccountTokenNotFound    = awserr.New("GitHubAccountTokenDoesNotExistException", awserr.ErrNotFound)
+	ErrRevisionNotFound              = awserr.New("RevisionDoesNotExistException", awserr.ErrNotFound)
+	ErrDeploymentTargetNotFound      = awserr.New("DeploymentTargetDoesNotExistException", awserr.ErrNotFound)
 )

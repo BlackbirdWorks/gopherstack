@@ -257,12 +257,17 @@ func (b *InMemoryBackend) DeleteLoadBalancerPolicy(ctx context.Context, name, po
 		return fmt.Errorf("%w: %q", ErrPolicyNotFound, policyName)
 	}
 
-	// Reject deletion if the policy is currently attached to a listener.
+	// Reject deletion if the policy is currently attached to a listener. Real
+	// AWS's DeleteLoadBalancerPolicy typed-error switch only recognizes
+	// InvalidConfigurationRequest and LoadBalancerNotFound for this op (see
+	// deserializers.go's awsAwsquery_deserializeOpErrorDeleteLoadBalancerPolicy);
+	// a generic ValidationError here would not deserialize into
+	// InvalidConfigurationRequestException on a real client.
 	for _, l := range lb.Listeners {
 		if slices.Contains(l.PolicyNames, policyName) {
 			return fmt.Errorf(
 				"%w: policy %q is still in use by listener on port %d",
-				ErrValidation,
+				ErrInvalidConfiguration,
 				policyName,
 				l.LoadBalancerPort,
 			)
@@ -274,7 +279,7 @@ func (b *InMemoryBackend) DeleteLoadBalancerPolicy(ctx context.Context, name, po
 		if slices.Contains(bsd.PolicyNames, policyName) {
 			return fmt.Errorf(
 				"%w: policy %q is still in use by backend server on port %d",
-				ErrValidation,
+				ErrInvalidConfiguration,
 				policyName,
 				bsd.InstancePort,
 			)

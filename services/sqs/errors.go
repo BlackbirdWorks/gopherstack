@@ -64,6 +64,12 @@ var (
 	// a FIFO queue specifies a non-zero DelaySeconds (FIFO queues do not support
 	// per-message delays).
 	ErrFIFODelayNotSupported = errors.New("InvalidParameterValue.FIFODelaySeconds")
+	// ErrQueueDeletedRecently is returned by CreateQueue when a queue with the
+	// same name (in the same region) was deleted less than 60 seconds ago,
+	// matching aws-sdk-go-v2/service/sqs/types.QueueDeletedRecently: you must
+	// wait 60 seconds after deleting a queue before creating another with the
+	// same name.
+	ErrQueueDeletedRecently = errors.New("AWS.SimpleQueueService.QueueDeletedRecently")
 )
 
 // InvalidParameterError represents an InvalidParameterValue error with a dynamic message.

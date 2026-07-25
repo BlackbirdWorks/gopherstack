@@ -15,9 +15,19 @@ type appConfigTemplatesXML struct {
 	Members []string `xml:"member"`
 }
 
+// appVersionsXML wraps the Versions list for XML encoding, mirroring
+// appConfigTemplatesXML. Real AWS's ApplicationDescription.Versions lists the
+// version labels belonging to the application (see the CreateApplication API
+// doc example response, which renders an empty `<Versions/>` element on a
+// freshly created application).
+type appVersionsXML struct {
+	Members []string `xml:"member"`
+}
+
 // applicationDescType is used in XML responses.
 type applicationDescType struct {
 	ConfigurationTemplates  *appConfigTemplatesXML              `xml:"ConfigurationTemplates,omitempty"`
+	Versions                *appVersionsXML                     `xml:"Versions,omitempty"`
 	ResourceLifecycleConfig *applicationResourceLifecycleConfig `xml:"ResourceLifecycleConfig,omitempty"`
 	ApplicationName         string                              `xml:"ApplicationName"`
 	ApplicationArn          string                              `xml:"ApplicationArn"`
@@ -26,10 +36,15 @@ type applicationDescType struct {
 	DateUpdated             string                              `xml:"DateUpdated,omitempty"`
 }
 
-func toApplicationDesc(app *Application, configTemplateNames []string) applicationDescType {
+func toApplicationDesc(app *Application, configTemplateNames, versionLabels []string) applicationDescType {
 	var templates *appConfigTemplatesXML
 	if len(configTemplateNames) > 0 {
 		templates = &appConfigTemplatesXML{Members: configTemplateNames}
+	}
+
+	var versions *appVersionsXML
+	if len(versionLabels) > 0 {
+		versions = &appVersionsXML{Members: versionLabels}
 	}
 
 	// ResourceLifecycleConfig is only rendered once a lifecycle service role
@@ -49,8 +64,35 @@ func toApplicationDesc(app *Application, configTemplateNames []string) applicati
 		DateCreated:             app.DateCreated,
 		DateUpdated:             app.DateUpdated,
 		ConfigurationTemplates:  templates,
+		Versions:                versions,
 		ResourceLifecycleConfig: lifecycleConfig,
 	}
+}
+
+// applicationConfigTemplateNames returns the sorted configuration template
+// names belonging to appName, for embedding in an ApplicationDescription.
+func (h *Handler) applicationConfigTemplateNames(ctx context.Context, appName string) []string {
+	templates := h.Backend.DescribeConfigurationTemplates(ctx, appName)
+	names := make([]string, 0, len(templates))
+
+	for _, tmpl := range templates {
+		names = append(names, tmpl.TemplateName)
+	}
+
+	return names
+}
+
+// applicationVersionLabels returns the sorted application version labels
+// belonging to appName, for embedding in an ApplicationDescription.
+func (h *Handler) applicationVersionLabels(ctx context.Context, appName string) []string {
+	versions := h.Backend.DescribeApplicationVersions(ctx, appName, nil)
+	labels := make([]string, 0, len(versions))
+
+	for _, ver := range versions {
+		labels = append(labels, ver.VersionLabel)
+	}
+
+	return labels
 }
 
 type createApplicationResult struct {
@@ -79,10 +121,14 @@ func (h *Handler) handleCreateApplication(ctx context.Context, vals url.Values) 
 		return nil, err
 	}
 
+	templateNames := h.applicationConfigTemplateNames(ctx, name)
+
 	return &createApplicationResponse{
-		Xmlns:                   ebXMLNS,
-		CreateApplicationResult: createApplicationResult{Application: toApplicationDesc(app, nil)},
-		ResponseMetadata:        responseMetadata{RequestID: "eb-create-app"},
+		Xmlns: ebXMLNS,
+		CreateApplicationResult: createApplicationResult{
+			Application: toApplicationDesc(app, templateNames, nil),
+		},
+		ResponseMetadata: responseMetadata{RequestID: "eb-create-app"},
 	}, nil
 }
 
@@ -104,14 +150,10 @@ func (h *Handler) handleDescribeApplications(ctx context.Context, vals url.Value
 	members := make([]applicationDescType, 0, len(apps))
 
 	for _, app := range apps {
-		templates := h.Backend.DescribeConfigurationTemplates(ctx, app.ApplicationName)
-		templateNames := make([]string, 0, len(templates))
+		templateNames := h.applicationConfigTemplateNames(ctx, app.ApplicationName)
+		versionLabels := h.applicationVersionLabels(ctx, app.ApplicationName)
 
-		for _, tmpl := range templates {
-			templateNames = append(templateNames, tmpl.TemplateName)
-		}
-
-		members = append(members, toApplicationDesc(app, templateNames))
+		members = append(members, toApplicationDesc(app, templateNames, versionLabels))
 	}
 
 	return &describeApplicationsResponse{
@@ -145,10 +187,15 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, vals url.Values) 
 		return nil, err
 	}
 
+	templateNames := h.applicationConfigTemplateNames(ctx, name)
+	versionLabels := h.applicationVersionLabels(ctx, name)
+
 	return &updateApplicationResponse{
-		Xmlns:                   ebXMLNS,
-		UpdateApplicationResult: updateApplicationResult{Application: toApplicationDesc(app, nil)},
-		ResponseMetadata:        responseMetadata{RequestID: "eb-update-app"},
+		Xmlns: ebXMLNS,
+		UpdateApplicationResult: updateApplicationResult{
+			Application: toApplicationDesc(app, templateNames, versionLabels),
+		},
+		ResponseMetadata: responseMetadata{RequestID: "eb-update-app"},
 	}, nil
 }
 

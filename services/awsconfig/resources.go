@@ -1,6 +1,8 @@
 package awsconfig
 
 import (
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -84,9 +86,52 @@ func (b *InMemoryBackend) DeleteResourceConfig(resourceType, resourceID string) 
 // GetDiscoveredResourceCounts returns zero counts.
 func (b *InMemoryBackend) GetDiscoveredResourceCounts() int64 { return 0 }
 
-// ListAggregateDiscoveredResources returns an empty list.
-func (b *InMemoryBackend) ListAggregateDiscoveredResources() []any {
-	return []any{}
+// ListAggregateDiscoveredResources returns discovered resources of resourceType
+// as seen through aggregatorName, tagged with the local account/region as the
+// source (mirroring SelectAggregateResourceConfig/GetAggregateResourceConfig,
+// already-established for the same single-account-emulator reason). Only the
+// aggregator's existence is genuinely validated
+// (NoSuchConfigurationAggregatorException); accountFilter/regionFilter narrow
+// against the local account/region, resourceIDFilter against the resource ID.
+func (b *InMemoryBackend) ListAggregateDiscoveredResources(
+	aggregatorName, resourceType, accountFilter, regionFilter, resourceIDFilter string,
+) ([]AggregateResourceIdentifier, error) {
+	b.mu.RLock("ListAggregateDiscoveredResources")
+	defer b.mu.RUnlock()
+
+	if err := b.requireAggregatorLocked(aggregatorName); err != nil {
+		return nil, err
+	}
+
+	if accountFilter != "" && accountFilter != b.accountID {
+		return []AggregateResourceIdentifier{}, nil
+	}
+
+	if regionFilter != "" && regionFilter != b.region {
+		return []AggregateResourceIdentifier{}, nil
+	}
+
+	byType := b.resourceConfigsByType.Get(resourceType)
+	out := make([]AggregateResourceIdentifier, 0, len(byType))
+
+	for _, item := range byType {
+		if resourceIDFilter != "" && item.ResourceID != resourceIDFilter {
+			continue
+		}
+
+		out = append(out, AggregateResourceIdentifier{
+			SourceAccountID: b.accountID,
+			SourceRegion:    b.region,
+			ResourceID:      item.ResourceID,
+			ResourceType:    item.ResourceType,
+		})
+	}
+
+	slices.SortFunc(out, func(a, c AggregateResourceIdentifier) int {
+		return strings.Compare(a.ResourceID, c.ResourceID)
+	})
+
+	return out, nil
 }
 
 // PutResourceConfig stores configuration for a resource. The latest state is kept

@@ -440,7 +440,7 @@ func TestDescribeParameters(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend()
 
-			params, _, err := b.DescribeParameters(tt.pgName, 0, "")
+			params, _, err := b.DescribeParameters(tt.pgName, 0, "", "")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -462,6 +462,45 @@ func TestDescribeParameters(t *testing.T) {
 	}
 }
 
+// ---- DescribeParameters Source filter ----
+
+// TestDescribeParametersSourceFilter verifies the request's Source field
+// (types.DescribeParametersInput.Source in the real SDK) narrows results to
+// "user"-modified or "system"-default parameters.
+func TestDescribeParametersSourceFilter(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+
+	_, err := b.CreateParameterGroup("filter-pg", "")
+	require.NoError(t, err)
+
+	// Override one of the two default parameters so it becomes "user" sourced;
+	// the other stays at its default value and is reported as "system".
+	_, err = b.UpdateParameterGroup(dax.UpdateParameterGroupInput{
+		ParameterGroupName: "filter-pg",
+		ParameterNameValues: []dax.ParameterNameValue{
+			{ParameterName: "query-ttl-millis", ParameterValue: "60000"},
+		},
+	})
+	require.NoError(t, err)
+
+	userParams, _, err := b.DescribeParameters("filter-pg", 0, "", "user")
+	require.NoError(t, err)
+	require.Len(t, userParams, 1)
+	assert.Equal(t, "query-ttl-millis", userParams[0].ParameterName)
+	assert.Equal(t, "user", userParams[0].Source)
+
+	systemParams, _, err := b.DescribeParameters("filter-pg", 0, "", "system")
+	require.NoError(t, err)
+	require.Len(t, systemParams, 1)
+	assert.Equal(t, "record-ttl-millis", systemParams[0].ParameterName)
+	assert.Equal(t, "system", systemParams[0].Source)
+
+	allParams, _, err := b.DescribeParameters("filter-pg", 0, "", "")
+	require.NoError(t, err)
+	assert.Len(t, allParams, 2, "empty Source filter must return every parameter")
+}
+
 // ---- DescribeParameters pagination ----
 
 func TestDescribeParametersPagination(t *testing.T) {
@@ -469,12 +508,12 @@ func TestDescribeParametersPagination(t *testing.T) {
 	b := newTestBackend()
 
 	// Paginate a single-item page (there are exactly 2 default params).
-	page1, tok1, err := b.DescribeParameters(dax.DefaultParameterGroupName, 1, "")
+	page1, tok1, err := b.DescribeParameters(dax.DefaultParameterGroupName, 1, "", "")
 	require.NoError(t, err)
 	assert.Len(t, page1, 1)
 	assert.NotEmpty(t, tok1)
 
-	page2, tok2, err := b.DescribeParameters(dax.DefaultParameterGroupName, 1, tok1)
+	page2, tok2, err := b.DescribeParameters(dax.DefaultParameterGroupName, 1, tok1, "")
 	require.NoError(t, err)
 	assert.Len(t, page2, 1)
 	assert.Empty(t, tok2, "second page should be the last")

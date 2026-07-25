@@ -40,6 +40,8 @@ import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func recorderKeyFn(v *ConfigurationRecorder) string { return v.Name }
 
+func serviceLinkedRecorderKeyFn(v *ServiceLinkedRecorderLink) string { return v.ServicePrincipal }
+
 func channelKeyFn(v *DeliveryChannel) string { return v.Name }
 
 // aggregationAuthKeyFn reuses aggregationAuthKey (aggregators.go), the same
@@ -55,6 +57,23 @@ func aggregatorKeyFn(v *ConfigurationAggregator) string { return v.Configuration
 
 func conformancePackKeyFn(v *ConformancePack) string { return v.ConformancePackName }
 
+// conformancePackRuleLinkKey/conformancePackRuleLinkKeyFn/
+// conformancePackRuleLinkPackIndexKeyFn build the composite store.Table
+// primary key ("packName|ruleName") and the "byPack" secondary index key for
+// ConformancePackRuleLink, mirroring storedEvaluationKeyFn's composite-key
+// pattern above.
+func conformancePackRuleLinkKey(packName, ruleName string) string {
+	return packName + "|" + ruleName
+}
+
+func conformancePackRuleLinkKeyFn(v *ConformancePackRuleLink) string {
+	return conformancePackRuleLinkKey(v.ConformancePackName, v.ConfigRuleName)
+}
+
+func conformancePackRuleLinkPackIndexKeyFn(v *ConformancePackRuleLink) string {
+	return v.ConformancePackName
+}
+
 func orgConfigRuleKeyFn(v *OrganizationConfigRule) string { return v.OrganizationConfigRuleName }
 
 func orgConformancePackKeyFn(v *OrganizationConformancePack) string {
@@ -66,6 +85,21 @@ func storedQueryKeyFn(v *StoredQuery) string { return v.QueryName }
 func retentionConfigKeyFn(v *RetentionConfiguration) string { return v.Name }
 
 func remediationConfigKeyFn(v *RemediationConfiguration) string { return v.ConfigRuleName }
+
+// remediationExecutionKey/remediationExecutionKeyFn/remediationExecutionRuleIndexKeyFn
+// build the composite store.Table primary key
+// ("ruleName|resourceType\x1fresourceID", reusing resourceEvalKey's
+// \x1f-separated resource half, see evaluation.go) and the "byRule" secondary
+// index key for RemediationExecutionStatusEntry.
+func remediationExecutionKey(ruleName, resourceType, resourceID string) string {
+	return ruleName + "|" + resourceEvalKey(resourceType, resourceID)
+}
+
+func remediationExecutionKeyFn(v *RemediationExecutionStatusEntry) string {
+	return remediationExecutionKey(v.RuleName, v.ResourceKey.ResourceType, v.ResourceKey.ResourceID)
+}
+
+func remediationExecutionRuleIndexKeyFn(v *RemediationExecutionStatusEntry) string { return v.RuleName }
 
 func resourceEvaluationKeyFn(v *ResourceEvaluation) string { return v.ResourceEvaluationID }
 
@@ -120,6 +154,11 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.recorders = store.Register(b.registry, "recorders", store.New(recorderKeyFn))
 	},
 	func(b *InMemoryBackend) {
+		b.serviceLinkedRecorders = store.Register(
+			b.registry, "serviceLinkedRecorders", store.New(serviceLinkedRecorderKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
 		b.channels = store.Register(b.registry, "channels", store.New(channelKeyFn))
 	},
 	func(b *InMemoryBackend) {
@@ -133,6 +172,14 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.conformancePacks = store.Register(b.registry, "conformancePacks", store.New(conformancePackKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.conformancePackRules = store.Register(
+			b.registry, "conformancePackRules", store.New(conformancePackRuleLinkKeyFn),
+		)
+		b.conformancePackRulesByPack = b.conformancePackRules.AddIndex(
+			"byPack", conformancePackRuleLinkPackIndexKeyFn,
+		)
 	},
 	func(b *InMemoryBackend) {
 		b.orgConfigRules = store.Register(b.registry, "orgConfigRules", store.New(orgConfigRuleKeyFn))
@@ -150,6 +197,12 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.remediationConfigs = store.Register(b.registry, "remediationConfigs", store.New(remediationConfigKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.remediationExecutions = store.Register(
+			b.registry, "remediationExecutions", store.New(remediationExecutionKeyFn),
+		)
+		b.remediationExecutionsByRule = b.remediationExecutions.AddIndex("byRule", remediationExecutionRuleIndexKeyFn)
 	},
 	func(b *InMemoryBackend) {
 		b.resourceEvaluations = store.Register(

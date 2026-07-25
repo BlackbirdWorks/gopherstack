@@ -16,6 +16,8 @@ type StorageBackend interface {
 	CreateClassificationJob(
 		name, description, jobType, clientToken string,
 		s3JobDefinition, scheduleFrequency map[string]any,
+		allowListIDs, customDataIdentifierIDs, managedDataIdentifierIDs []string,
+		managedDataIdentifierSelector string,
 		tags map[string]string,
 		samplingPercentage int32,
 		initialRun bool,
@@ -32,7 +34,7 @@ type StorageBackend interface {
 	CreateMember(accountID, email string, tags map[string]string) error
 	GetMember(accountID string) (*Member, error)
 	DeleteMember(accountID string) error
-	ListMembers(onlyAssociated bool) ([]*Member, error)
+	ListMembers(onlyAssociated bool, limit int, token string) ([]*Member, string, error)
 	DisassociateMember(accountID string) error
 	UpdateMemberSession(accountID, status string) error
 
@@ -151,6 +153,7 @@ type StorageBackend interface {
 	CreateCustomDataIdentifier(
 		name, description, regex string,
 		ignoreWords, keywords []string,
+		severityLevels []SeverityLevel,
 		maxMatchDistance *int32,
 		tags map[string]string,
 	) (string, error)

@@ -25,6 +25,9 @@ var (
 	ErrOpsMetadataAlreadyExists           = errors.New("OpsMetadataAlreadyExistsException")
 	ErrHierarchyLevelLimitExceeded        = errors.New("HierarchyLevelLimitExceededException")
 	ErrParameterMaxVersionLimitExceeded   = errors.New("ParameterMaxVersionLimitExceeded")
+	// ErrAccessRequestNotFound is returned when GetAccessToken is called with
+	// an AccessRequestId that was never created by StartAccessRequest.
+	ErrAccessRequestNotFound = errors.New("ResourceNotFoundException")
 )
 var (
 	ErrResourceDataSyncNotFound    = errors.New("ResourceDataSyncNotFoundException")

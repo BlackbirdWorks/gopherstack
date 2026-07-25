@@ -200,3 +200,81 @@ func ValidateEngineLifecycleSupport(val string) error {
 		)
 	}
 }
+
+// validDBInstanceEngines is the set of Engine values aws-sdk-go-v2's
+// CreateDBInstanceInput documents as valid for CreateDBInstance, verified
+// against aws-sdk-go-v2/service/rds@v1.116.2's api_op_CreateDBInstance.go
+// "Valid Values" doc comment -- the ground truth for what a real RDS server
+// accepts, since the Engine field itself is a plain *string on the wire (no
+// SDK-side enum type exists to lean on).
+//
+//nolint:gochecknoglobals // static lookup table, same pattern as errCodeLookup elsewhere
+var validDBInstanceEngines = map[string]bool{
+	engineAuroraMySQL:       true,
+	engineAuroraPostgresql:  true,
+	"custom-oracle-ee":      true,
+	"custom-oracle-ee-cdb":  true,
+	"custom-oracle-se2":     true,
+	"custom-oracle-se2-cdb": true,
+	"custom-sqlserver-ee":   true,
+	"custom-sqlserver-se":   true,
+	"custom-sqlserver-web":  true,
+	"custom-sqlserver-dev":  true,
+	"db2-ae":                true,
+	"db2-se":                true,
+	engineMariaDB:           true,
+	engineMySQL:             true,
+	"oracle-ee":             true,
+	"oracle-ee-cdb":         true,
+	"oracle-se2":            true,
+	"oracle-se2-cdb":        true,
+	enginePostgres:          true,
+	"sqlserver-dev-ee":      true,
+	"sqlserver-ee":          true,
+	"sqlserver-se":          true,
+	"sqlserver-ex":          true,
+	"sqlserver-web":         true,
+}
+
+// validDBClusterEngines is the set of Engine values aws-sdk-go-v2's
+// CreateDBClusterInput documents as valid for CreateDBCluster (a narrower
+// list than CreateDBInstance's -- clusters are only Aurora/Multi-AZ DB
+// clusters/Neptune, never the single-instance-only engines like Oracle or
+// SQL Server), verified against
+// aws-sdk-go-v2/service/rds@v1.116.2's api_op_CreateDBCluster.go "Valid
+// Values" doc comment.
+//
+//nolint:gochecknoglobals // static lookup table, same pattern as errCodeLookup elsewhere
+var validDBClusterEngines = map[string]bool{
+	engineAuroraMySQL:      true,
+	engineAuroraPostgresql: true,
+	engineMySQL:            true,
+	enginePostgres:         true,
+	"neptune":              true,
+}
+
+// validateDBInstanceEngine returns InvalidParameterValue (matching real
+// AWS) if engine is non-empty and not one of validDBInstanceEngines. An
+// empty engine is not rejected here: CreateDBInstance defaults it (see
+// normalizeDBInstanceDefaults) before this validation is meaningfully
+// exercised against a caller-supplied value.
+func validateDBInstanceEngine(engine string) error {
+	if engine == "" || validDBInstanceEngines[engine] {
+		return nil
+	}
+
+	return fmt.Errorf("%w: invalid engine %q for CreateDBInstance", ErrInvalidParameter, engine)
+}
+
+// validateDBClusterEngine returns InvalidParameterValue (matching real AWS)
+// if engine is non-empty and not one of validDBClusterEngines. An empty
+// engine is not rejected here: CreateDBCluster defaults it to
+// aurora-postgresql before this validation is meaningfully exercised
+// against a caller-supplied value.
+func validateDBClusterEngine(engine string) error {
+	if engine == "" || validDBClusterEngines[engine] {
+		return nil
+	}
+
+	return fmt.Errorf("%w: invalid engine %q for CreateDBCluster", ErrInvalidParameter, engine)
+}

@@ -8,20 +8,26 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+type samplingRateBoostView struct {
+	MaxRate               float64 `json:"MaxRate"`
+	CooldownWindowMinutes int32   `json:"CooldownWindowMinutes"`
+}
+
 type samplingRuleView struct {
-	Attributes    map[string]string `json:"Attributes,omitempty"`
-	RuleARN       string            `json:"RuleARN"`
-	RuleName      string            `json:"RuleName"`
-	ResourceARN   string            `json:"ResourceARN"`
-	ServiceName   string            `json:"ServiceName"`
-	ServiceType   string            `json:"ServiceType"`
-	Host          string            `json:"Host"`
-	HTTPMethod    string            `json:"HTTPMethod"`
-	URLPath       string            `json:"URLPath"`
-	FixedRate     float64           `json:"FixedRate"`
-	Priority      int32             `json:"Priority"`
-	ReservoirSize int32             `json:"ReservoirSize"`
-	Version       int               `json:"Version"`
+	SamplingRateBoost *samplingRateBoostView `json:"SamplingRateBoost,omitempty"`
+	Attributes        map[string]string      `json:"Attributes,omitempty"`
+	RuleARN           string                 `json:"RuleARN"`
+	RuleName          string                 `json:"RuleName"`
+	ResourceARN       string                 `json:"ResourceARN"`
+	ServiceName       string                 `json:"ServiceName"`
+	ServiceType       string                 `json:"ServiceType"`
+	Host              string                 `json:"Host"`
+	HTTPMethod        string                 `json:"HTTPMethod"`
+	URLPath           string                 `json:"URLPath"`
+	FixedRate         float64                `json:"FixedRate"`
+	Priority          int32                  `json:"Priority"`
+	ReservoirSize     int32                  `json:"ReservoirSize"`
+	Version           int                    `json:"Version"`
 }
 
 type samplingRuleRecord struct {
@@ -31,7 +37,7 @@ type samplingRuleRecord struct {
 }
 
 func toSamplingRuleView(r *SamplingRule) samplingRuleView {
-	return samplingRuleView{
+	v := samplingRuleView{
 		RuleARN:       r.RuleARN,
 		RuleName:      r.RuleName,
 		ResourceARN:   r.ResourceARN,
@@ -46,6 +52,15 @@ func toSamplingRuleView(r *SamplingRule) samplingRuleView {
 		Attributes:    r.Attributes,
 		Version:       1,
 	}
+
+	if r.SamplingRateBoost != nil {
+		v.SamplingRateBoost = &samplingRateBoostView{
+			MaxRate:               r.SamplingRateBoost.MaxRate,
+			CooldownWindowMinutes: r.SamplingRateBoost.CooldownWindowMinutes,
+		}
+	}
+
+	return v
 }
 
 func toSamplingRuleRecord(r *SamplingRule) samplingRuleRecord {
@@ -57,17 +72,18 @@ func toSamplingRuleRecord(r *SamplingRule) samplingRuleRecord {
 }
 
 type samplingRuleInput struct {
-	Attributes    map[string]string `json:"Attributes,omitempty"`
-	RuleName      string            `json:"RuleName"`
-	ResourceARN   string            `json:"ResourceARN"`
-	ServiceName   string            `json:"ServiceName"`
-	ServiceType   string            `json:"ServiceType"`
-	Host          string            `json:"Host"`
-	HTTPMethod    string            `json:"HTTPMethod"`
-	URLPath       string            `json:"URLPath"`
-	FixedRate     float64           `json:"FixedRate"`
-	Priority      int32             `json:"Priority"`
-	ReservoirSize int32             `json:"ReservoirSize"`
+	SamplingRateBoost *samplingRateBoostView `json:"SamplingRateBoost,omitempty"`
+	Attributes        map[string]string      `json:"Attributes,omitempty"`
+	RuleName          string                 `json:"RuleName"`
+	ResourceARN       string                 `json:"ResourceARN"`
+	ServiceName       string                 `json:"ServiceName"`
+	ServiceType       string                 `json:"ServiceType"`
+	Host              string                 `json:"Host"`
+	HTTPMethod        string                 `json:"HTTPMethod"`
+	URLPath           string                 `json:"URLPath"`
+	FixedRate         float64                `json:"FixedRate"`
+	Priority          int32                  `json:"Priority"`
+	ReservoirSize     int32                  `json:"ReservoirSize"`
 }
 
 type createSamplingRuleInput struct {
@@ -98,6 +114,13 @@ func (h *Handler) handleCreateSamplingRule(_ context.Context, body []byte) ([]by
 		Priority:      in.SamplingRule.Priority,
 		ReservoirSize: in.SamplingRule.ReservoirSize,
 		Attributes:    in.SamplingRule.Attributes,
+	}
+
+	if in.SamplingRule.SamplingRateBoost != nil {
+		rule.SamplingRateBoost = &SamplingRateBoost{
+			MaxRate:               in.SamplingRule.SamplingRateBoost.MaxRate,
+			CooldownWindowMinutes: in.SamplingRule.SamplingRateBoost.CooldownWindowMinutes,
+		}
 	}
 
 	if err := ValidateSamplingRule(rule); err != nil {
@@ -142,18 +165,22 @@ func (h *Handler) handleGetSamplingRules(_ context.Context, body []byte) ([]byte
 }
 
 // samplingRuleUpdateInput uses json.RawMessage so we can detect which fields
-// were explicitly provided (even zero values like FixedRate=0).
+// were explicitly provided (even zero values like FixedRate=0). RuleName and RuleARN
+// are both accepted (specify a rule by either, but not both, per the real
+// SamplingRuleUpdate shape).
 type samplingRuleUpdateInput struct {
-	ResourceARN   *string  `json:"ResourceARN"`
-	ServiceName   *string  `json:"ServiceName"`
-	ServiceType   *string  `json:"ServiceType"`
-	Host          *string  `json:"Host"`
-	HTTPMethod    *string  `json:"HTTPMethod"`
-	URLPath       *string  `json:"URLPath"`
-	FixedRate     *float64 `json:"FixedRate"`
-	Priority      *int32   `json:"Priority"`
-	ReservoirSize *int32   `json:"ReservoirSize"`
-	RuleName      string   `json:"RuleName"`
+	ResourceARN       *string                `json:"ResourceARN"`
+	ServiceName       *string                `json:"ServiceName"`
+	ServiceType       *string                `json:"ServiceType"`
+	Host              *string                `json:"Host"`
+	HTTPMethod        *string                `json:"HTTPMethod"`
+	URLPath           *string                `json:"URLPath"`
+	FixedRate         *float64               `json:"FixedRate"`
+	Priority          *int32                 `json:"Priority"`
+	ReservoirSize     *int32                 `json:"ReservoirSize"`
+	SamplingRateBoost *samplingRateBoostView `json:"SamplingRateBoost,omitempty"`
+	RuleName          string                 `json:"RuleName"`
+	RuleARN           string                 `json:"RuleARN"`
 }
 
 type updateSamplingRuleInput struct {
@@ -168,8 +195,8 @@ func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]by
 		}
 	}
 
-	if in.SamplingRuleUpdate.RuleName == "" {
-		return nil, fmt.Errorf("%w: RuleName is required", errInvalidRequest)
+	if in.SamplingRuleUpdate.RuleName == "" && in.SamplingRuleUpdate.RuleARN == "" {
+		return nil, fmt.Errorf("%w: RuleName or RuleARN is required", errInvalidRequest)
 	}
 
 	updates := SamplingRuleUpdate{
@@ -184,7 +211,16 @@ func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]by
 		ReservoirSize: in.SamplingRuleUpdate.ReservoirSize,
 	}
 
-	r, err := h.Backend.UpdateSamplingRuleWithPointers(in.SamplingRuleUpdate.RuleName, updates)
+	if in.SamplingRuleUpdate.SamplingRateBoost != nil {
+		updates.SamplingRateBoost = &SamplingRateBoost{
+			MaxRate:               in.SamplingRuleUpdate.SamplingRateBoost.MaxRate,
+			CooldownWindowMinutes: in.SamplingRuleUpdate.SamplingRateBoost.CooldownWindowMinutes,
+		}
+	}
+
+	r, err := h.Backend.UpdateSamplingRuleWithPointers(
+		in.SamplingRuleUpdate.RuleName, in.SamplingRuleUpdate.RuleARN, updates,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +232,7 @@ func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]by
 
 type deleteSamplingRuleInput struct {
 	RuleName string `json:"RuleName"`
+	RuleARN  string `json:"RuleARN"`
 }
 
 func (h *Handler) handleDeleteSamplingRule(_ context.Context, body []byte) ([]byte, error) {
@@ -206,11 +243,11 @@ func (h *Handler) handleDeleteSamplingRule(_ context.Context, body []byte) ([]by
 		}
 	}
 
-	if in.RuleName == "" {
-		return nil, fmt.Errorf("%w: RuleName is required", errInvalidRequest)
+	if in.RuleName == "" && in.RuleARN == "" {
+		return nil, fmt.Errorf("%w: RuleName or RuleARN is required", errInvalidRequest)
 	}
 
-	r, err := h.Backend.DeleteSamplingRule(in.RuleName)
+	r, err := h.Backend.DeleteSamplingRule(in.RuleName, in.RuleARN)
 	if err != nil {
 		return nil, err
 	}

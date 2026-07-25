@@ -3,6 +3,7 @@ package iot
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -99,8 +100,20 @@ type StartAuditMitigationActionsTaskInput struct {
 	TaskID                     string
 }
 
-// auditMitigationFindingIDs resolves the set of stored audit finding IDs that a
-// task target applies to. Must be called with b.mu held.
+// auditMitigationFindingIDs resolves the set of stored audit finding IDs that
+// a task target applies to. Must be called with b.mu held.
+//
+// Real AWS IoT's AuditMitigationActionsTaskTarget lets auditTaskId and
+// auditCheckToReasonCodeFilter be combined (e.g. "this audit's findings for
+// check X with reason code Y"), not just used interchangeably -- confirmed
+// against the target field docs in types.AuditMitigationActionsTaskTarget.
+// This previously matched on AuditTaskID alone whenever it was set (a
+// switch's first matching case wins), silently ignoring
+// AuditCheckToReasonCodeFilter even when both were populated, and matched
+// AuditCheckToReasonCodeFilter by check name only -- ignoring the actual
+// reason-code list, which real AWS filters on when non-empty (an empty list
+// for a check means "any reason code for that check"). Both are real,
+// previously-undiscovered target-resolution bugs; fixed here.
 func (b *InMemoryBackend) auditMitigationFindingIDs(target *AuditMitigationActionsTaskTarget) []string {
 	if target == nil {
 		return nil
@@ -111,15 +124,25 @@ func (b *InMemoryBackend) auditMitigationFindingIDs(target *AuditMitigationActio
 
 	var ids []string
 	for _, f := range b.auditFindings.All() {
-		id := f.FindingID
-		switch {
-		case target.AuditTaskID != "" && f.TaskID == target.AuditTaskID:
-			ids = append(ids, id)
-		case len(target.AuditCheckToReasonCodeFilter) > 0:
-			if _, ok := target.AuditCheckToReasonCodeFilter[f.CheckName]; ok {
-				ids = append(ids, id)
-			}
+		if target.AuditTaskID != "" && f.TaskID != target.AuditTaskID {
+			continue
 		}
+
+		if len(target.AuditCheckToReasonCodeFilter) > 0 {
+			codes, ok := target.AuditCheckToReasonCodeFilter[f.CheckName]
+			if !ok {
+				continue
+			}
+			if len(codes) > 0 && !slices.Contains(codes, f.ReasonForNonComplianceCode) {
+				continue
+			}
+		} else if target.AuditTaskID == "" {
+			// Neither a task nor a check/reason-code filter was given (and
+			// FindingIDs was empty) -- there is nothing to resolve against.
+			continue
+		}
+
+		ids = append(ids, f.FindingID)
 	}
 	sort.Strings(ids)
 
@@ -297,17 +320,53 @@ type DetectMitigationTaskStatistics struct {
 	ActionsFailed   int64 `json:"actionsFailed"`
 }
 
+// ViolationEventOccurrenceRange specifies the time period during which
+// violation events occurred (aws-sdk-go-v2/service/iot/types.
+// ViolationEventOccurrenceRange), an optional input to
+// StartDetectMitigationActionsTask and echoed back on
+// DetectMitigationActionsTaskSummary.
+type ViolationEventOccurrenceRange struct {
+	StartTime float64 `json:"startTime,omitempty"`
+	EndTime   float64 `json:"endTime,omitempty"`
+}
+
+// MitigationActionRef is the shape of a mitigation action as embedded in
+// DetectMitigationActionsTaskSummary.actionsDefinition (types.MitigationAction,
+// confirmed against v1.76.0) -- a narrower shape than
+// DescribeMitigationActionOutput's own top-level fields: just
+// id/name/roleArn/actionParams, with no arn, actionType, or timestamps.
+type MitigationActionRef struct {
+	ActionParams map[string]any `json:"actionParams,omitempty"`
+	ID           string         `json:"id,omitempty"`
+	Name         string         `json:"name,omitempty"`
+	RoleARN      string         `json:"roleArn,omitempty"`
+}
+
 // DetectMitigationTask represents a task started by StartDetectMitigationActionsTask.
+//
+// Actions is internal-only storage (json:"-"): real AWS's
+// DetectMitigationActionsTaskSummary (confirmed against v1.76.0) has no
+// "actions" field at all -- the wire field is "actionsDefinition", a list of
+// full MitigationAction objects, not action names. Wire-response builders
+// (handler_devicedefender.go's detectMitigationTaskSummaryWire) resolve
+// Actions to their MitigationActionRef shape via
+// [InMemoryBackend.MitigationActionRefs] rather than ever serializing this
+// struct directly. ViolationEventOccurrenceRange keeps a normal json tag
+// (unlike Actions) since it needs no such backend-lookup transformation --
+// it round-trips as-is, both to the HTTP response and through this table's
+// Snapshot/Restore (which marshals the struct directly; a json:"-" field
+// would silently be dropped across a snapshot/restore cycle).
 type DetectMitigationTask struct {
-	Target                       *DetectMitigationActionsTaskTarget `json:"target,omitempty"`
-	TaskStatistics               *DetectMitigationTaskStatistics    `json:"taskStatistics,omitempty"`
-	TaskID                       string                             `json:"taskId"`
-	TaskStatus                   string                             `json:"taskStatus"`
-	Actions                      []string                           `json:"actions,omitempty"`
-	StartTime                    float64                            `json:"taskStartTime,omitempty"`
-	EndTime                      float64                            `json:"taskEndTime,omitempty"`
-	OnlyActiveViolationsIncluded bool                               `json:"onlyActiveViolationsIncluded"`
-	SuppressedAlertsIncluded     bool                               `json:"suppressedAlertsIncluded"`
+	Target                        *DetectMitigationActionsTaskTarget `json:"target,omitempty"`
+	TaskStatistics                *DetectMitigationTaskStatistics    `json:"taskStatistics,omitempty"`
+	ViolationEventOccurrenceRange *ViolationEventOccurrenceRange     `json:"violationEventOccurrenceRange,omitempty"`
+	TaskID                        string                             `json:"taskId"`
+	TaskStatus                    string                             `json:"taskStatus"`
+	Actions                       []string                           `json:"-"`
+	StartTime                     float64                            `json:"taskStartTime,omitempty"`
+	EndTime                       float64                            `json:"taskEndTime,omitempty"`
+	OnlyActiveViolationsIncluded  bool                               `json:"onlyActiveViolationsIncluded"`
+	SuppressedAlertsIncluded      bool                               `json:"suppressedAlertsIncluded"`
 }
 
 func cloneDetectMitigationTask(t *DetectMitigationTask) *DetectMitigationTask {
@@ -319,12 +378,48 @@ func cloneDetectMitigationTask(t *DetectMitigationTask) *DetectMitigationTask {
 		s := *t.TaskStatistics
 		cp.TaskStatistics = &s
 	}
+	if t.ViolationEventOccurrenceRange != nil {
+		r := *t.ViolationEventOccurrenceRange
+		cp.ViolationEventOccurrenceRange = &r
+	}
 
 	return &cp
 }
 
-// DetectMitigationActionExecution represents one mitigation action applied (or
-// to be applied) to one violation as part of a DetectMitigationTask.
+// MitigationActionRefs resolves action names to their MitigationActionRef
+// wire shape (id/name/roleArn/actionParams), skipping any name that no
+// longer has a corresponding MitigationAction (e.g. deleted after the task
+// that referenced it was started).
+func (b *InMemoryBackend) MitigationActionRefs(names []string) []MitigationActionRef {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	refs := make([]MitigationActionRef, 0, len(names))
+	for _, name := range names {
+		ma, ok := b.mitigationActions.Get(name)
+		if !ok {
+			continue
+		}
+		refs = append(refs, MitigationActionRef{
+			ID:           ma.ActionID,
+			Name:         ma.ActionName,
+			RoleARN:      ma.RoleARN,
+			ActionParams: ma.ActionParams,
+		})
+	}
+
+	return refs
+}
+
+// DetectMitigationActionExecution represents one mitigation action applied
+// (or to be applied) to one violation as part of a DetectMitigationTask.
+//
+// ExecutionStartDate/ExecutionEndDate were field-diffed against
+// types.DetectMitigationActionExecution (awsRestjson1_deserializeDocumentDetectMitigationActionExecution
+// in v1.76.0) and found to be wire-keyed "executionStartTime"/
+// "executionEndTime" -- the real fields are "executionStartDate"/
+// "executionEndDate". A real client's deserializer would never have found
+// either key and left both fields permanently unset. Fixed.
 type DetectMitigationActionExecution struct {
 	TaskID             string  `json:"taskId"`
 	ViolationID        string  `json:"violationId"`
@@ -333,8 +428,8 @@ type DetectMitigationActionExecution struct {
 	Status             string  `json:"status"`
 	ErrorCode          string  `json:"errorCode,omitempty"`
 	Message            string  `json:"message,omitempty"`
-	ExecutionStartTime float64 `json:"executionStartTime,omitempty"`
-	ExecutionEndTime   float64 `json:"executionEndTime,omitempty"`
+	ExecutionStartDate float64 `json:"executionStartDate,omitempty"`
+	ExecutionEndDate   float64 `json:"executionEndDate,omitempty"`
 }
 
 func cloneDetectMitigationExecution(e *DetectMitigationActionExecution) *DetectMitigationActionExecution {
@@ -345,11 +440,12 @@ func cloneDetectMitigationExecution(e *DetectMitigationActionExecution) *DetectM
 
 // StartDetectMitigationActionsTaskInput is the input for StartDetectMitigationActionsTask.
 type StartDetectMitigationActionsTaskInput struct {
-	Target                      *DetectMitigationActionsTaskTarget
-	TaskID                      string
-	Actions                     []string
-	IncludeOnlyActiveViolations bool
-	IncludeSuppressedAlerts     bool
+	Target                        *DetectMitigationActionsTaskTarget
+	ViolationEventOccurrenceRange *ViolationEventOccurrenceRange
+	TaskID                        string
+	Actions                       []string
+	IncludeOnlyActiveViolations   bool
+	IncludeSuppressedAlerts       bool
 }
 
 // detectMitigationViolationIDs resolves the set of active-violation IDs that a
@@ -406,14 +502,15 @@ func (b *InMemoryBackend) StartDetectMitigationActionsTask(
 
 	now := float64(time.Now().Unix())
 	task := &DetectMitigationTask{
-		TaskID:                       input.TaskID,
-		TaskStatus:                   string(JobStatusInProgress),
-		Target:                       cloneDetectMitigationTarget(input.Target),
-		Actions:                      append([]string(nil), input.Actions...),
-		OnlyActiveViolationsIncluded: input.IncludeOnlyActiveViolations,
-		SuppressedAlertsIncluded:     input.IncludeSuppressedAlerts,
-		StartTime:                    now,
-		TaskStatistics:               &DetectMitigationTaskStatistics{},
+		TaskID:                        input.TaskID,
+		TaskStatus:                    string(JobStatusInProgress),
+		Target:                        cloneDetectMitigationTarget(input.Target),
+		Actions:                       append([]string(nil), input.Actions...),
+		OnlyActiveViolationsIncluded:  input.IncludeOnlyActiveViolations,
+		SuppressedAlertsIncluded:      input.IncludeSuppressedAlerts,
+		StartTime:                     now,
+		TaskStatistics:                &DetectMitigationTaskStatistics{},
+		ViolationEventOccurrenceRange: input.ViolationEventOccurrenceRange,
 	}
 
 	violationIDs := b.detectMitigationViolationIDs(input.Target)
@@ -432,7 +529,7 @@ func (b *InMemoryBackend) StartDetectMitigationActionsTask(
 				ActionName:         actionName,
 				ThingName:          thingName,
 				Status:             string(JobStatusInProgress),
-				ExecutionStartTime: now,
+				ExecutionStartDate: now,
 			})
 			task.TaskStatistics.ActionsExecuted++
 		}
@@ -539,17 +636,44 @@ type ViolationBehavior struct {
 	Metric string `json:"metric,omitempty"`
 }
 
+// ViolationEventAdditionalInfo carries extra detail about a violation or
+// violation event (aws-sdk-go-v2/service/iot/types.ViolationEventAdditionalInfo).
+type ViolationEventAdditionalInfo struct {
+	ConfidenceLevel string `json:"confidenceLevel,omitempty"`
+}
+
 // ActiveViolation represents a currently active Device Defender Detect
 // violation of a security-profile behavior by a thing.
+//
+// Field-diffed against types.ActiveViolation in v1.76.0: LastViolationTime
+// and ViolationEventAdditionalInfo were both entirely missing (only
+// ViolationStartTime was modeled, but real AWS distinguishes "when the
+// violation started" from "when the most recent violation occurred" -- the
+// latter updates on every subsequent detection of the same ongoing
+// violation); both now modeled.
+// Suppressed is internal-only (json:"-"): real AWS has no "suppressed" field
+// on ActiveViolation itself -- ListActiveViolationsInput's listSuppressedAlerts
+// filters on whether the *behavior* that raised the violation has
+// SuppressAlerts configured (a security-profile-level setting), which this
+// backend does not persist at all (CreateSecurityProfile doesn't store
+// Behaviors currently -- a separate, larger gap in the security_profiles
+// family, out of scope here). Modeling suppression as a directly-seedable
+// flag (mirroring AuditFinding.IsSuppressed's identical simplification
+// elsewhere in this same service) is what makes listSuppressedAlerts
+// filtering honestly implementable without first building out that
+// unrelated subsystem.
 type ActiveViolation struct {
-	Behavior                     *ViolationBehavior `json:"behavior,omitempty"`
-	LastViolationValue           map[string]any     `json:"lastViolationValue,omitempty"`
-	ViolationID                  string             `json:"violationId"`
-	ThingName                    string             `json:"thingName"`
-	SecurityProfileName          string             `json:"securityProfileName"`
-	VerificationState            string             `json:"verificationState,omitempty"`
-	VerificationStateDescription string             `json:"verificationStateDescription,omitempty"`
-	ViolationStartTime           float64            `json:"violationStartTime,omitempty"`
+	Behavior                     *ViolationBehavior            `json:"behavior,omitempty"`
+	LastViolationValue           map[string]any                `json:"lastViolationValue,omitempty"`
+	ViolationEventAdditionalInfo *ViolationEventAdditionalInfo `json:"violationEventAdditionalInfo,omitempty"`
+	ViolationID                  string                        `json:"violationId"`
+	ThingName                    string                        `json:"thingName"`
+	SecurityProfileName          string                        `json:"securityProfileName"`
+	VerificationState            string                        `json:"verificationState,omitempty"`
+	VerificationStateDescription string                        `json:"verificationStateDescription,omitempty"`
+	ViolationStartTime           float64                       `json:"violationStartTime,omitempty"`
+	LastViolationTime            float64                       `json:"lastViolationTime,omitempty"`
+	Suppressed                   bool                          `json:"-"`
 }
 
 func cloneActiveViolation(v *ActiveViolation) *ActiveViolation {
@@ -557,6 +681,10 @@ func cloneActiveViolation(v *ActiveViolation) *ActiveViolation {
 	if v.Behavior != nil {
 		beh := *v.Behavior
 		cp.Behavior = &beh
+	}
+	if v.ViolationEventAdditionalInfo != nil {
+		info := *v.ViolationEventAdditionalInfo
+		cp.ViolationEventAdditionalInfo = &info
 	}
 	cp.LastViolationValue = make(map[string]any, len(v.LastViolationValue))
 	maps.Copy(cp.LastViolationValue, v.LastViolationValue)
@@ -566,15 +694,23 @@ func cloneActiveViolation(v *ActiveViolation) *ActiveViolation {
 
 // ViolationEvent represents a historical occurrence of a Detect violation
 // starting, being cleared, or having its verification state changed.
+//
+// ViolationEventAdditionalInfo was field-diffed against
+// types.ViolationEvent and found missing; now modeled (same field as
+// ActiveViolation's, above).
+// Suppressed is internal-only (json:"-") for the same reason as
+// ActiveViolation's identically-named field above.
 type ViolationEvent struct {
-	Behavior            *ViolationBehavior `json:"behavior,omitempty"`
-	MetricValue         map[string]any     `json:"metricValue,omitempty"`
-	ViolationID         string             `json:"violationId"`
-	ThingName           string             `json:"thingName"`
-	SecurityProfileName string             `json:"securityProfileName"`
-	ViolationEventType  string             `json:"violationEventType,omitempty"`
-	VerificationState   string             `json:"verificationState,omitempty"`
-	ViolationEventTime  float64            `json:"violationEventTime,omitempty"`
+	Behavior                     *ViolationBehavior            `json:"behavior,omitempty"`
+	MetricValue                  map[string]any                `json:"metricValue,omitempty"`
+	ViolationEventAdditionalInfo *ViolationEventAdditionalInfo `json:"violationEventAdditionalInfo,omitempty"`
+	ViolationID                  string                        `json:"violationId"`
+	ThingName                    string                        `json:"thingName"`
+	SecurityProfileName          string                        `json:"securityProfileName"`
+	ViolationEventType           string                        `json:"violationEventType,omitempty"`
+	VerificationState            string                        `json:"verificationState,omitempty"`
+	ViolationEventTime           float64                       `json:"violationEventTime,omitempty"`
+	Suppressed                   bool                          `json:"-"`
 }
 
 func cloneViolationEvent(e *ViolationEvent) *ViolationEvent {
@@ -582,6 +718,10 @@ func cloneViolationEvent(e *ViolationEvent) *ViolationEvent {
 	if e.Behavior != nil {
 		beh := *e.Behavior
 		cp.Behavior = &beh
+	}
+	if e.ViolationEventAdditionalInfo != nil {
+		info := *e.ViolationEventAdditionalInfo
+		cp.ViolationEventAdditionalInfo = &info
 	}
 	cp.MetricValue = make(map[string]any, len(e.MetricValue))
 	maps.Copy(cp.MetricValue, e.MetricValue)
@@ -591,12 +731,14 @@ func cloneViolationEvent(e *ViolationEvent) *ViolationEvent {
 
 // SeedActiveViolationInput seeds a Device Defender Detect violation.
 type SeedActiveViolationInput struct {
-	Behavior            *ViolationBehavior
-	LastViolationValue  map[string]any
-	ViolationID         string
-	ThingName           string
-	SecurityProfileName string
-	VerificationState   string
+	Behavior                     *ViolationBehavior
+	LastViolationValue           map[string]any
+	ViolationEventAdditionalInfo *ViolationEventAdditionalInfo
+	ViolationID                  string
+	ThingName                    string
+	SecurityProfileName          string
+	VerificationState            string
+	Suppressed                   bool
 }
 
 // SeedActiveViolation records a Device Defender Detect violation. AWS IoT raises
@@ -625,49 +767,138 @@ func (b *InMemoryBackend) SeedActiveViolation(input *SeedActiveViolationInput) (
 
 	now := float64(time.Now().Unix())
 	v := &ActiveViolation{
-		ViolationID:         violationID,
-		ThingName:           input.ThingName,
-		SecurityProfileName: input.SecurityProfileName,
-		Behavior:            input.Behavior,
-		LastViolationValue:  input.LastViolationValue,
-		VerificationState:   verificationState,
-		ViolationStartTime:  now,
+		ViolationID:                  violationID,
+		ThingName:                    input.ThingName,
+		SecurityProfileName:          input.SecurityProfileName,
+		Behavior:                     input.Behavior,
+		LastViolationValue:           input.LastViolationValue,
+		ViolationEventAdditionalInfo: input.ViolationEventAdditionalInfo,
+		VerificationState:            verificationState,
+		ViolationStartTime:           now,
+		LastViolationTime:            now,
+		Suppressed:                   input.Suppressed,
 	}
 	b.activeViolations.Put(v)
 
 	b.violationEvents = append(b.violationEvents, &ViolationEvent{
-		ViolationID:         violationID,
-		ThingName:           input.ThingName,
-		SecurityProfileName: input.SecurityProfileName,
-		Behavior:            input.Behavior,
-		MetricValue:         input.LastViolationValue,
-		ViolationEventType:  "in-alarm",
-		VerificationState:   verificationState,
-		ViolationEventTime:  now,
+		ViolationID:                  violationID,
+		ThingName:                    input.ThingName,
+		SecurityProfileName:          input.SecurityProfileName,
+		Behavior:                     input.Behavior,
+		MetricValue:                  input.LastViolationValue,
+		ViolationEventAdditionalInfo: input.ViolationEventAdditionalInfo,
+		ViolationEventType:           "in-alarm",
+		VerificationState:            verificationState,
+		ViolationEventTime:           now,
+		Suppressed:                   input.Suppressed,
 	})
 
 	return cloneActiveViolation(v), nil
 }
 
-// ListActiveViolations returns currently active violations, optionally filtered
-// by thing name, security profile name, and/or verification state.
+// violationFilter bundles ListActiveViolations/ListViolationEvents' shared
+// filter parameters (thing/security-profile/verification-state/suppression/
+// behaviorCriteriaType) so each op's per-item matching logic can be split
+// into small predicate methods instead of one long function body -- keeps
+// both ops' cyclomatic/cognitive complexity low without a suppression
+// directive for the banned cyclop/gocognit/gocyclo/funlen lint family.
+type violationFilter struct {
+	listSuppressedAlerts *bool
+	thingName            string
+	securityProfileName  string
+	verificationState    string
+	behaviorCriteriaType string
+}
+
+// matchesCommon reports whether an item's thing/security-profile/
+// verification-state/suppression fields satisfy f (empty/nil filter fields
+// are unfiltered/match-all).
+func (f violationFilter) matchesCommon(thingName, securityProfileName, verificationState string, suppressed bool) bool {
+	if f.thingName != "" && thingName != f.thingName {
+		return false
+	}
+	if f.securityProfileName != "" && securityProfileName != f.securityProfileName {
+		return false
+	}
+	if f.verificationState != "" && verificationState != f.verificationState {
+		return false
+	}
+	if f.listSuppressedAlerts != nil && suppressed != *f.listSuppressedAlerts {
+		return false
+	}
+
+	return true
+}
+
+// matchesBehaviorCriteriaType reports whether the violation behavior
+// (identified by its owning security profile name and the ViolationBehavior
+// recorded on the violation/event) resolves to f.behaviorCriteriaType. An
+// empty filter value means unfiltered. Must be called with b.mu already
+// held, matching securityProfileBehaviorCriteriaTypeLocked's own contract.
+func (b *InMemoryBackend) matchesBehaviorCriteriaType(
+	f violationFilter,
+	securityProfileName string,
+	beh *ViolationBehavior,
+) bool {
+	if f.behaviorCriteriaType == "" {
+		return true
+	}
+
+	return b.securityProfileBehaviorCriteriaTypeLocked(securityProfileName, beh) == f.behaviorCriteriaType
+}
+
+// matchesWindow reports whether t falls within [startTime, endTime] (epoch
+// seconds; zero on either bound means unbounded on that side).
+func matchesWindow(t, startTime, endTime float64) bool {
+	if startTime > 0 && t < startTime {
+		return false
+	}
+	if endTime > 0 && t > endTime {
+		return false
+	}
+
+	return true
+}
+
+// ListActiveViolations returns currently active violations, optionally
+// filtered by thing name, security profile name, verification state,
+// suppression state, and/or behaviorCriteriaType. listSuppressedAlerts
+// mirrors ListAuditFindingsFilter.ListSuppressedFindings' tri-state
+// semantics (confirmed against the analogous, unambiguous
+// ListAuditFindingsInput doc: nil means both suppressed and unsuppressed
+// are returned, true/false narrows to one or the other) -- real
+// ListActiveViolationsInput's own doc for listSuppressedAlerts is less
+// explicit ("A list of all suppressed alerts"), but this is the only
+// self-consistent tri-state reading and matches the sibling audit-findings
+// filter's behavior in this same service. behaviorCriteriaType (empty
+// string means unfiltered) is resolved per violation via
+// securityProfileBehaviorCriteriaTypeLocked against the owning security
+// profile's now-persisted Behaviors (see security_profiles.go) -- this was
+// the previously-unimplementable filter blocked by security_profiles'
+// former Behaviors gap; a violation whose behavior can no longer be
+// resolved on its security profile never matches a non-empty filter value.
 func (b *InMemoryBackend) ListActiveViolations(
-	thingName, securityProfileName, verificationState string,
+	thingName, securityProfileName, verificationState string, listSuppressedAlerts *bool, behaviorCriteriaType string,
 ) []*ActiveViolation {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
+	f := violationFilter{
+		thingName:            thingName,
+		securityProfileName:  securityProfileName,
+		verificationState:    verificationState,
+		listSuppressedAlerts: listSuppressedAlerts,
+		behaviorCriteriaType: behaviorCriteriaType,
+	}
 
 	items := b.activeViolations.Snapshot()
 	out := make([]*ActiveViolation, 0, len(items))
 
 	for _, v := range items {
-		if thingName != "" && v.ThingName != thingName {
+		if !f.matchesCommon(v.ThingName, v.SecurityProfileName, v.VerificationState, v.Suppressed) {
 			continue
 		}
-		if securityProfileName != "" && v.SecurityProfileName != securityProfileName {
-			continue
-		}
-		if verificationState != "" && v.VerificationState != verificationState {
+		if !b.matchesBehaviorCriteriaType(f, v.SecurityProfileName, v.Behavior) {
 			continue
 		}
 		out = append(out, cloneActiveViolation(v))
@@ -676,32 +907,39 @@ func (b *InMemoryBackend) ListActiveViolations(
 	return out
 }
 
-// ListViolationEvents returns recorded violation events, optionally filtered by
-// thing name, security profile name, verification state, and/or an
-// [startTime, endTime] window (epoch seconds; zero means unbounded).
+// ListViolationEvents returns recorded violation events, optionally filtered
+// by thing name, security profile name, verification state, suppression
+// state, behaviorCriteriaType, and/or an [startTime, endTime] window (epoch
+// seconds; zero means unbounded). listSuppressedAlerts and
+// behaviorCriteriaType have the same semantics as ListActiveViolations'
+// (see its doc comment).
 func (b *InMemoryBackend) ListViolationEvents(
 	thingName, securityProfileName, verificationState string,
 	startTime, endTime float64,
+	listSuppressedAlerts *bool,
+	behaviorCriteriaType string,
 ) []*ViolationEvent {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	f := violationFilter{
+		thingName:            thingName,
+		securityProfileName:  securityProfileName,
+		verificationState:    verificationState,
+		listSuppressedAlerts: listSuppressedAlerts,
+		behaviorCriteriaType: behaviorCriteriaType,
+	}
+
 	out := make([]*ViolationEvent, 0, len(b.violationEvents))
 
 	for _, e := range b.violationEvents {
-		if thingName != "" && e.ThingName != thingName {
+		if !f.matchesCommon(e.ThingName, e.SecurityProfileName, e.VerificationState, e.Suppressed) {
 			continue
 		}
-		if securityProfileName != "" && e.SecurityProfileName != securityProfileName {
+		if !matchesWindow(e.ViolationEventTime, startTime, endTime) {
 			continue
 		}
-		if verificationState != "" && e.VerificationState != verificationState {
-			continue
-		}
-		if startTime > 0 && e.ViolationEventTime < startTime {
-			continue
-		}
-		if endTime > 0 && e.ViolationEventTime > endTime {
+		if !b.matchesBehaviorCriteriaType(f, e.SecurityProfileName, e.Behavior) {
 			continue
 		}
 		out = append(out, cloneViolationEvent(e))

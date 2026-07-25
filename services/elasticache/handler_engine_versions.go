@@ -21,7 +21,10 @@ func (h *Handler) describeCacheEngineVersions(ctx context.Context, c *echo.Conte
 	engine := form.Get("Engine")
 	family := form.Get("CacheParameterGroupFamily")
 	engineVersion := form.Get("EngineVersion")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	p, err := h.Backend.DescribeCacheEngineVersions(ctx, engine, family, engineVersion, marker, maxRecords)
 	if err != nil {

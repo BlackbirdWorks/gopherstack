@@ -40,7 +40,10 @@ func (b *InMemoryBackend) DescribeDBInstanceAutomatedBackups(instanceID string) 
 
 	result := make([]DBInstanceAutomatedBackup, 0, len(b.automatedBackups))
 	for _, ab := range b.automatedBackups {
-		if instanceID != "" && ab.DBInstanceIdentifier != instanceID {
+		// DBInstanceIdentifier is a case-insensitive AWS identifier (see
+		// normalizeID); automatedBackups is a plain, unnormalized map, so
+		// this filter must fold case itself.
+		if instanceID != "" && !idEqual(ab.DBInstanceIdentifier, instanceID) {
 			continue
 		}
 		result = append(result, *ab)
@@ -57,14 +60,14 @@ func (b *InMemoryBackend) CreateDBClusterAutomatedBackup(
 	b.mu.Lock("CreateDBClusterAutomatedBackup")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters.Get(clusterID)
+	cluster, exists := b.clusters.Get(normalizeID(clusterID))
 	if !exists {
 		return nil
 	}
 
 	backup := &DBClusterAutomatedBackup{
-		DBClusterIdentifier: clusterID,
-		DBClusterResourceID: fmt.Sprintf("cluster-%s", clusterID),
+		DBClusterIdentifier: cluster.DBClusterIdentifier,
+		DBClusterResourceID: fmt.Sprintf("cluster-%s", cluster.DBClusterIdentifier),
 		Engine:              cluster.Engine,
 		EngineVersion:       cluster.EngineVersion,
 		Region:              b.region,
@@ -84,7 +87,7 @@ func (b *InMemoryBackend) DeleteDBClusterAutomatedBackup(
 	defer b.mu.Unlock()
 
 	for _, backup := range b.clusterAutomatedBackups.All() {
-		if backup.DBClusterResourceID == resourceID || backup.DBClusterIdentifier == resourceID {
+		if backup.DBClusterResourceID == resourceID || idEqual(backup.DBClusterIdentifier, resourceID) {
 			cp := *backup
 			cp.Status = clusterBackupStatusDeleted
 			b.clusterAutomatedBackups.Delete(clusterAutomatedBackupsKeyFn(backup))
@@ -105,7 +108,7 @@ func (b *InMemoryBackend) DescribeDBClusterAutomatedBackups(
 
 	result := make([]DBClusterAutomatedBackup, 0, b.clusterAutomatedBackups.Len())
 	for _, backup := range b.clusterAutomatedBackups.All() {
-		if clusterID != "" && backup.DBClusterIdentifier != clusterID {
+		if clusterID != "" && !idEqual(backup.DBClusterIdentifier, clusterID) {
 			continue
 		}
 		result = append(result, *backup)
@@ -133,7 +136,7 @@ func (b *InMemoryBackend) DeleteDBInstanceAutomatedBackup(
 	defer b.mu.Unlock()
 
 	for key, backup := range b.automatedBackups {
-		if backup.DbiResourceID == resourceID || backup.DBInstanceIdentifier == resourceID {
+		if backup.DbiResourceID == resourceID || idEqual(backup.DBInstanceIdentifier, resourceID) {
 			cp := *backup
 			cp.Status = clusterBackupStatusDeleted
 			delete(b.automatedBackups, key)

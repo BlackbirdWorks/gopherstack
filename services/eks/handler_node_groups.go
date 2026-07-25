@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchNodegroupOps handles nodegroup CRUD and version/config update operations.
@@ -88,7 +90,7 @@ func nodegroupToJSON(ng *Nodegroup) map[string]any {
 			"minSize":     ng.MinSize,
 			"maxSize":     ng.MaxSize,
 		},
-		"health": map[string]any{"issues": []any{}},
+		keyHealth: map[string]any{"issues": []any{}},
 	}
 	appendNodegroupCoreFields(ng, m)
 	appendNodegroupOptionalFields(ng, m)
@@ -336,9 +338,10 @@ func (h *Handler) handleListNodegroups(c *echo.Context, clusterName string) erro
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"nodegroups": names,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(names, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("nodegroups", p))
 }
 
 func (h *Handler) handleDeleteNodegroup(c *echo.Context, clusterName, nodegroupName string) error {

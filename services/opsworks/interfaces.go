@@ -17,7 +17,7 @@ type StorageBackend interface {
 	StopStack(stackID string) error
 	GetHostnameSuggestion(stackID, layerID string) (string, error)
 	DescribeStackSummary(stackID string) (*StackSummary, error)
-	DescribeStackProvisioningParameters(stackID string) (map[string]string, string, error)
+	DescribeStackProvisioningParameters(stackID string) (map[string]string, error)
 
 	// Layer operations
 	CreateLayer(stackID, layerType, name, shortname string) (*Layer, error)
@@ -82,7 +82,7 @@ type StorageBackend interface {
 	DeregisterVolume(volumeID string) error
 	AssignVolume(volumeID, instanceID string) error
 	UnassignVolume(volumeID string) error
-	DescribeVolumes(instanceID, raidArrayID string, volumeIDs []string) ([]*Volume, error)
+	DescribeVolumes(stackID, instanceID, raidArrayID string, volumeIDs []string) ([]*Volume, error)
 	UpdateVolume(volumeID, name, mountPoint string) error
 
 	// RDS DB Instance operations
@@ -122,6 +122,10 @@ type StorageBackend interface {
 
 // Stack represents an OpsWorks stack.
 // CreatedAt is first: time.Time non-pointer prefix reduces GC pointer bytes.
+//
+// No Status field: the real AWS types.Stack has no such member (confirmed
+// against aws-sdk-go-v2/service/opsworks@v1.31.0's types.go) -- a previous
+// pass invented one and serialized it on the wire, which this pass removed.
 type Stack struct {
 	CreatedAt                 time.Time
 	Tags                      map[string]string
@@ -131,7 +135,6 @@ type Stack struct {
 	Region                    string
 	DefaultInstanceProfileArn string
 	ServiceRoleArn            string
-	Status                    string
 }
 
 // StackSummary represents summary information about a stack.
@@ -145,13 +148,35 @@ type StackSummary struct {
 	DeploymentsCount int32
 }
 
-// InstancesCount holds counts of instances in various states.
+// InstancesCount holds counts of instances in various states. Field names
+// and set match types.InstancesCount in aws-sdk-go-v2/service/opsworks
+// exactly (19 states, no "Total" or "Starting" -- those were invented by a
+// previous pass and did not exist in the real API; the real enum's
+// transient boot/on-request states are "Requested", not "Starting"). This
+// backend's instance state machine only ever produces "online"/"stopped"
+// (see StartInstance/StopInstance doc comments), so only Online and Stopped
+// are ever non-zero here; the rest exist for wire-shape completeness.
 type InstancesCount struct {
-	Online   int32
-	Stopped  int32
-	Starting int32
-	Stopping int32
-	Total    int32
+	Assigning      int32
+	Booting        int32
+	ConnectionLost int32
+	Deregistering  int32
+	Online         int32
+	Pending        int32
+	Rebooting      int32
+	Registered     int32
+	Registering    int32
+	Requested      int32
+	RunningSetup   int32
+	SetupFailed    int32
+	ShuttingDown   int32
+	StartFailed    int32
+	StopFailed     int32
+	Stopped        int32
+	Stopping       int32
+	Terminated     int32
+	Terminating    int32
+	Unassigning    int32
 }
 
 // Layer represents an OpsWorks layer.
@@ -183,6 +208,13 @@ type Instance struct {
 
 // App represents an OpsWorks app.
 // CreatedAt is first: time.Time non-pointer prefix reduces GC pointer bytes.
+//
+// Arn is kept as an internal bookkeeping field only (e.g. for future
+// resourceExists-style lookups) -- it is deliberately NOT serialized on the
+// wire in appsToJSON, because the real AWS types.App has no Arn member
+// (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's types.go).
+// Real OpsWorks apps are not independently ARN-addressable; TagResource /
+// UntagResource / ListTags only accept a stack's or layer's ARN.
 type App struct {
 	CreatedAt time.Time
 	StackID   string
@@ -248,6 +280,14 @@ type ElasticIP struct {
 }
 
 // Volume represents a registered volume.
+//
+// RegisteredAt is internal bookkeeping only (not serialized -- the real
+// types.Volume has no such field). StackID is kept for stack-scoped lookups
+// (deleteStackAssociations, DescribeVolumes' StackId filter) but likewise not
+// serialized on the wire: the real AWS types.Volume has no StackId member
+// (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's types.go) --
+// only InstanceId and RaidArrayId associate a Volume with other resources on
+// the wire.
 type Volume struct {
 	RegisteredAt time.Time
 	VolumeID     string

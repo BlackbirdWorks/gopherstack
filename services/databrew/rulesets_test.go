@@ -214,3 +214,54 @@ func TestHandlerDeleteRuleset_NotFound(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodDelete, "/databrew/v1/rulesets/no-such", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// ---- Ruleset RuleCount / AccountId wire shape ----
+
+// TestListRulesets_RuleCount verifies ListRulesets items carry RuleCount --
+// aws-sdk-go-v2/service/databrew's real ListRulesetsOutput.Rulesets is
+// []types.RulesetItem, whose deserializer reads "RuleCount" (an integer),
+// not "Rules" (the full rule list DescribeRuleset uses).
+func TestListRulesets_RuleCount(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	rules := []databrew.Rule{
+		{Name: "r1", CheckExpression: "ROWCOUNT > 0"},
+		{Name: "r2", CheckExpression: "ROWCOUNT > 1"},
+	}
+	_, err := b.CreateRuleset(context.Background(), "count-rs", "", "arn:x", rules, nil)
+	require.NoError(t, err)
+
+	list, _ := b.ListRulesets(context.Background(), 100, "", "")
+	require.Len(t, list, 1)
+	assert.Equal(t, 2, list[0].RuleCount)
+
+	// UpdateRuleset must keep RuleCount in sync with the new Rules list.
+	err = b.UpdateRuleset(context.Background(), "count-rs", "", rules[:1])
+	require.NoError(t, err)
+	described, err := b.DescribeRuleset(context.Background(), "count-rs")
+	require.NoError(t, err)
+	assert.Equal(t, 1, described.RuleCount)
+	assert.Len(t, described.Rules, 1)
+}
+
+// TestHandlerListRulesets_RuleCount verifies RuleCount round-trips through
+// the HTTP handler layer's JSON wire shape.
+func TestHandlerListRulesets_RuleCount(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/rulesets", map[string]any{
+		"Name":      "wire-count-rs",
+		"TargetArn": "arn:x",
+		"Rules": []any{
+			map[string]any{"Name": "r1", "CheckExpression": "ROWCOUNT > 0"},
+		},
+	})
+	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/rulesets", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Rulesets []map[string]any `json:"Rulesets"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Rulesets, 1)
+	assert.InDelta(t, float64(1), resp.Rulesets[0]["RuleCount"], 0)
+}

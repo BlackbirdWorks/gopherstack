@@ -13,9 +13,13 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		SecretArn         string `json:"SecretArn"`
 		DBUser            string `json:"DbUser"`
+		// ConnectedDatabase selects the database to connect to with the given
+		// credentials when it differs from Database. Accepted for wire-shape
+		// parity; see handleListSchemas for why it does not affect filtering
+		// in this mock.
+		ConnectedDatabase string `json:"ConnectedDatabase"`
 		SchemaPattern     string `json:"SchemaPattern"`
 		TablePattern      string `json:"TablePattern"`
-		TableType         string `json:"TableType"`
 		NextToken         string `json:"NextToken"`
 		MaxResults        int    `json:"MaxResults"`
 	}
@@ -24,11 +28,15 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if req.Database == "" {
+		return nil, fmt.Errorf("%w: Database is required", ErrValidation)
+	}
+
 	if req.MaxResults > maxListTablesResults {
 		return nil, fmt.Errorf("%w: MaxResults must be ≤ %d", ErrValidation, maxListTablesResults)
 	}
 
-	tables := filterDemoTables(buildDemoTables(), req.TableType, req.SchemaPattern, req.TablePattern)
+	tables := filterDemoTables(buildDemoTables(), req.SchemaPattern, req.TablePattern)
 	page, next := paginateMaps(tables, req.NextToken, req.MaxResults, defaultListTablesResults)
 	resp := map[string]any{"Tables": page}
 
@@ -39,12 +47,13 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 	return json.Marshal(resp)
 }
 
-// filterDemoTables applies TableType, SchemaPattern, and TablePattern filters to the demo table list.
-func filterDemoTables(tables []map[string]any, tableType, schemaPattern, tablePattern string) []map[string]any {
-	if tableType != "" {
-		tables = filterMapsByField(tables, keyType, func(v string) bool { return v == tableType })
-	}
-
+// filterDemoTables applies SchemaPattern and TablePattern filters to the demo table list.
+// TableType is NOT a real ListTablesInput field (verified against
+// aws-sdk-go-v2/service/redshiftdata's api_op_ListTables.go / serializers.go -- the real
+// input only carries ClusterIdentifier/ConnectedDatabase/Database/DbUser/MaxResults/
+// NextToken/SchemaPattern/SecretArn/TablePattern/WorkgroupName), so it was removed rather
+// than kept as an invented filter.
+func filterDemoTables(tables []map[string]any, schemaPattern, tablePattern string) []map[string]any {
 	if schemaPattern != "" {
 		tables = filterMapsByField(tables, keySchema, func(v string) bool { return matchSQLLike(v, schemaPattern) })
 	}
@@ -76,12 +85,19 @@ func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, e
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		SecretArn         string `json:"SecretArn"`
 		DBUser            string `json:"DbUser"`
+		// ConnectedDatabase: see handleListSchemas for why it's accepted but
+		// does not affect this mock's static demo column data.
+		ConnectedDatabase string `json:"ConnectedDatabase"`
 		Schema            string `json:"Schema"`
 		Table             string `json:"Table"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.Database == "" {
+		return nil, fmt.Errorf("%w: Database is required", ErrValidation)
 	}
 
 	// DescribeTableOutput.TableName is a plain string in the real API (see

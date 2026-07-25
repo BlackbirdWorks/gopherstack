@@ -239,6 +239,50 @@ func (b *InMemoryBackend) StoreUpdate(u *Update) {
 	b.storeUpdateLocked(u)
 }
 
+// CancelUpdate cancels an in-progress update on a best-effort basis. Real EKS
+// currently only supports cancellation for VersionRollback updates that are
+// still InProgress (Kubernetes version rollback on EKS Auto Mode clusters) --
+// verified against aws-sdk-go-v2/service/eks's CancelUpdate doc comment.
+// Any other update type or status returns ErrInvalidRequest, matching the
+// real API's "cancellation is only performed if the update can be
+// cancelled" behavior.
+func (b *InMemoryBackend) CancelUpdate(clusterName, updateID string) (*Update, error) {
+	b.mu.Lock("CancelUpdate")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters.Get(clusterName); !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	u, ok := b.updates.Get(updateKey(clusterName, updateID))
+	if !ok {
+		return nil, fmt.Errorf("%w: update %s not found in cluster %s", ErrNotFound, updateID, clusterName)
+	}
+
+	if u.Type != typeVersionRollback {
+		return nil, fmt.Errorf(
+			"%w: update %s of type %s does not support cancellation", ErrInvalidRequest, updateID, u.Type,
+		)
+	}
+
+	if u.Status != statusInProgress {
+		return nil, fmt.Errorf(
+			"%w: update %s is not in a cancellable state (status %s)", ErrInvalidRequest, updateID, u.Status,
+		)
+	}
+
+	u.Status = statusCancelled
+	u.Cancellation = &Cancellation{
+		Status: cancellationStatusSuccessful,
+		Reason: "Cancelled by CancelUpdate request",
+	}
+	b.storeUpdateLocked(u)
+
+	cp := *u
+
+	return &cp, nil
+}
+
 // DescribeUpdate returns an update record by cluster and update ID.
 func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update, error) {
 	b.mu.RLock("DescribeUpdate")

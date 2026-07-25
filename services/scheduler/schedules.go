@@ -91,6 +91,10 @@ func (b *InMemoryBackend) CreateSchedule(
 		return nil, err
 	}
 
+	if err := validateTimezone(timezone); err != nil {
+		return nil, err
+	}
+
 	if groupName == "" {
 		groupName = defaultGroupName
 	}
@@ -256,6 +260,10 @@ func (b *InMemoryBackend) UpdateSchedule(
 		return nil, err
 	}
 
+	if err := validateTimezone(timezone); err != nil {
+		return nil, err
+	}
+
 	if groupName == "" {
 		groupName = defaultGroupName
 	}
@@ -392,6 +400,24 @@ func validateFlexibleTimeWindow(ftw FlexibleTimeWindow) error {
 			"%w: FlexibleTimeWindow.MaximumWindowInMinutes is required and must be >= 1 when Mode is FLEXIBLE",
 			ErrValidation,
 		)
+	}
+
+	return nil
+}
+
+// validateTimezone returns ErrValidation if timezone is set but is not a resolvable
+// IANA timezone name. AWS's ScheduleExpressionTimezone is "the timezone in which the
+// scheduling expression is evaluated"; an unresolvable name can never be evaluated
+// against wall-clock time by the runner (see Runner.cachedLocation), so it is
+// rejected at write time rather than silently falling back to UTC. An empty string
+// is allowed (defaults to UTC).
+func validateTimezone(tz string) error {
+	if tz == "" {
+		return nil
+	}
+
+	if _, err := time.LoadLocation(tz); err != nil {
+		return fmt.Errorf("%w: ScheduleExpressionTimezone %q is not a valid timezone", ErrValidation, tz)
 	}
 
 	return nil

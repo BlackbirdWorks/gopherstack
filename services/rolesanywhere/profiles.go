@@ -14,7 +14,14 @@ func (b *InMemoryBackend) profileARN(region, id string) string {
 	return arn.Build("rolesanywhere", region, b.accountID, fmt.Sprintf("profile/%s", id))
 }
 
-// CreateProfile creates a new profile.
+// CreateProfile creates a new profile. enabled defaults to true when nil,
+// matching the AWS CreateProfileRequest.enabled default (the same pattern
+// CreateTrustAnchor and ImportCrl already use).
+//
+// Real AWS Roles Anywhere has no uniqueness constraint on profile names
+// (CreateProfile only models ValidationException/AccessDeniedException --
+// there is no ConflictException shape anywhere in the service), so duplicate
+// names are accepted, matching the real API.
 func (b *InMemoryBackend) CreateProfile(
 	ctx context.Context,
 	name string,
@@ -24,6 +31,8 @@ func (b *InMemoryBackend) CreateProfile(
 	managedPolicyArns []string,
 	sessionPolicy string,
 	requireInstanceProperties bool,
+	enabled *bool,
+	acceptRoleSessionName *bool,
 ) (*Profile, error) {
 	if name == "" {
 		return nil, ErrValidation
@@ -34,31 +43,30 @@ func (b *InMemoryBackend) CreateProfile(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	for _, p := range b.profilesByRegion.Get(region) {
-		if p.Name == name {
-			return nil, ErrProfileAlreadyExists
-		}
-	}
-
 	id := uuid.NewString()
 	now := time.Now().UTC()
 	p := &Profile{
 		ProfileID:                 id,
 		ProfileArn:                b.profileARN(region, id),
 		Name:                      name,
+		CreatedBy:                 b.accountID,
 		region:                    region,
 		RoleArns:                  append([]string(nil), roleArns...),
-		Enabled:                   true,
+		Enabled:                   enabled == nil || *enabled,
 		CreatedAt:                 now,
 		UpdatedAt:                 now,
-		Tags:                      cloneTags(tags),
 		DurationSeconds:           durationSeconds,
 		ManagedPolicyArns:         append([]string(nil), managedPolicyArns...),
 		SessionPolicy:             sessionPolicy,
 		RequireInstanceProperties: requireInstanceProperties,
+		AcceptRoleSessionName:     acceptRoleSessionName != nil && *acceptRoleSessionName,
 	}
 
 	b.profiles.Put(p)
+
+	if len(tags) > 0 {
+		b.tagsStore(region)[p.ProfileArn] = cloneTags(tags)
+	}
 
 	return copyProfile(p), nil
 }
@@ -101,7 +109,10 @@ func (b *InMemoryBackend) ListProfiles(
 }
 
 // DeleteProfile removes a profile and returns its state immediately before
-// deletion, matching AWS's DeleteProfileResponse.profile.
+// deletion, matching AWS's DeleteProfileResponse.profile. Its attribute
+// mappings and tags (both held in separate ID/ARN-keyed maps, not on the
+// Profile struct itself -- see store.go) are cascade-deleted so no ghost
+// rows survive the profile they belonged to.
 func (b *InMemoryBackend) DeleteProfile(ctx context.Context, id string) (*Profile, error) {
 	b.mu.Lock("DeleteProfile")
 	defer b.mu.Unlock()
@@ -115,6 +126,8 @@ func (b *InMemoryBackend) DeleteProfile(ctx context.Context, id string) (*Profil
 
 	snap := copyProfile(p)
 	b.profiles.Delete(regionKey(region, id))
+	delete(b.attributeMappingsStore(region), id)
+	delete(b.tagsStore(region), p.ProfileArn)
 
 	return snap, nil
 }
@@ -128,6 +141,7 @@ func (b *InMemoryBackend) UpdateProfile(
 	managedPolicyArns []string,
 	sessionPolicy string,
 	requireInstanceProperties *bool,
+	acceptRoleSessionName *bool,
 ) (*Profile, error) {
 	b.mu.Lock("UpdateProfile")
 	defer b.mu.Unlock()
@@ -161,6 +175,10 @@ func (b *InMemoryBackend) UpdateProfile(
 
 	if requireInstanceProperties != nil {
 		p.RequireInstanceProperties = *requireInstanceProperties
+	}
+
+	if acceptRoleSessionName != nil {
+		p.AcceptRoleSessionName = *acceptRoleSessionName
 	}
 
 	p.UpdatedAt = time.Now().UTC()

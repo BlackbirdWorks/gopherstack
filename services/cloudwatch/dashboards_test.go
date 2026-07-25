@@ -19,7 +19,8 @@ func TestBackend_Dashboard_CRUD(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 
 	body := `{"widgets":[]}`
-	require.NoError(t, b.PutDashboard("dash1", body))
+	_, err := b.PutDashboard("dash1", body)
+	require.NoError(t, err)
 
 	entry, got, err := b.GetDashboard("dash1")
 	require.NoError(t, err)
@@ -58,7 +59,8 @@ func TestCloudWatchBackend_Dashboards(t *testing.T) {
 			name: "PutDashboard/updates existing",
 			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutDashboard("UpdateDash", `{"widgets":[]}`))
+				_, err := b.PutDashboard("UpdateDash", `{"widgets":[]}`)
+				require.NoError(t, err)
 			},
 			putName:   "UpdateDash",
 			putBody:   `{"widgets":[{"type":"text"}]}`,
@@ -82,7 +84,7 @@ func TestCloudWatchBackend_Dashboards(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			err := b.PutDashboard(tt.putName, tt.putBody)
+			_, err := b.PutDashboard(tt.putName, tt.putBody)
 
 			if tt.wantPutErr {
 				require.Error(t, err)
@@ -140,7 +142,8 @@ func TestCloudWatchBackend_GetDashboard(t *testing.T) {
 			t.Parallel()
 
 			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			require.NoError(t, b.PutDashboard(tt.dashName, tt.body))
+			_, putErr := b.PutDashboard(tt.dashName, tt.body)
+			require.NoError(t, putErr)
 
 			entry, body, err := b.GetDashboard(tt.fetchName)
 
@@ -194,7 +197,8 @@ func TestCloudWatchBackend_ListDashboards(t *testing.T) {
 			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			for _, n := range tt.dashNames {
-				require.NoError(t, b.PutDashboard(n, `{}`))
+				_, dashErr := b.PutDashboard(n, `{}`)
+				require.NoError(t, dashErr)
 			}
 
 			page, err := b.ListDashboards(tt.prefix, "")
@@ -240,7 +244,8 @@ func TestCloudWatchBackend_DeleteDashboards(t *testing.T) {
 			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			for _, n := range tt.create {
-				require.NoError(t, b.PutDashboard(n, `{}`))
+				_, dashErr := b.PutDashboard(n, `{}`)
+				require.NoError(t, dashErr)
 			}
 
 			require.NoError(t, b.DeleteDashboards(tt.deleteName))
@@ -256,7 +261,8 @@ func TestCloudWatchBackend_GetDashboardARNs(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatch.NewInMemoryBackend()
-	require.NoError(t, b.PutDashboard("my-dash", `{"widgets":[]}`))
+	_, err := b.PutDashboard("my-dash", `{"widgets":[]}`)
+	require.NoError(t, err)
 
 	arns := b.GetDashboardARNs([]string{"my-dash", "nonexistent"})
 	require.Len(t, arns, 1)

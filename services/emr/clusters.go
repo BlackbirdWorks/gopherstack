@@ -139,38 +139,71 @@ func buildDefaultApplications(releaseLabel string) []Application {
 	return result
 }
 
-// buildEC2Attrs populates EC2InstanceAttributes from the RunJobFlow instances block.
-func buildEC2Attrs(inst RunJobFlowInstances) *EC2InstanceAttributes {
+// buildEC2Attrs populates EC2InstanceAttributes from the RunJobFlow instances
+// block. jobFlowRole is the top-level RunJobFlowInput.JobFlowRole field --
+// real EMR echoes it back as Ec2InstanceAttributes.IamInstanceProfile (there
+// is no IamInstanceProfile member on the Instances block itself).
+func buildEC2Attrs(inst RunJobFlowInstances, jobFlowRole string) *EC2InstanceAttributes {
 	return &EC2InstanceAttributes{
 		Ec2KeyName:                     inst.Ec2KeyName,
 		Ec2SubnetID:                    inst.Ec2SubnetID,
 		EmrManagedMasterSecurityGroup:  inst.EmrManagedMasterSecurityGroup,
 		EmrManagedSlaveSecurityGroup:   inst.EmrManagedSlaveSecurityGroup,
 		ServiceAccessSecurityGroup:     inst.ServiceAccessSecurityGroup,
-		IamInstanceProfile:             inst.IamInstanceProfile,
+		IamInstanceProfile:             jobFlowRole,
 		AdditionalMasterSecurityGroups: inst.AdditionalMasterSecurityGroups,
 		AdditionalSlaveSecurityGroups:  inst.AdditionalSlaveSecurityGroups,
 		RequestedEc2SubnetIDs:          inst.Ec2SubnetIDs,
 	}
 }
 
-// RunJobFlow creates a new EMR cluster.
-func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParams) (*Cluster, error) {
+// instanceCollectionType returns the real INSTANCE_GROUP/INSTANCE_FLEET
+// discriminator for a RunJobFlow request, based on which of
+// Instances.InstanceGroups/InstanceFleets was populated (the two are
+// mutually exclusive on the real API).
+func instanceCollectionType(hasFleets bool) string {
+	if hasFleets {
+		return "INSTANCE_FLEET"
+	}
+
+	return "INSTANCE_GROUP"
+}
+
+// validateRunJobFlowParams checks RunJobFlow's inline-validatable input
+// (release label plus the optional inline ManagedScalingPolicy/
+// AutoTerminationPolicy, which reuse the same validation their standalone
+// Put* operations use) and returns the normalized release label. Factored
+// out of RunJobFlow to keep its own cognitive complexity/length down.
+func validateRunJobFlowParams(params RunJobFlowParams) (string, error) {
 	releaseLabel := params.ReleaseLabel
 	if releaseLabel == "" {
 		releaseLabel = defaultReleaseLabel
 	}
 
 	if err := validateReleaseLabel(releaseLabel); err != nil {
-		return nil, err
+		return "", err
 	}
 
-	region := getRegion(ctx, b.region)
+	if params.ManagedScalingPolicy != nil {
+		if err := validateManagedScalingPolicy(*params.ManagedScalingPolicy); err != nil {
+			return "", err
+		}
+	}
 
-	b.mu.Lock("RunJobFlow")
-	defer b.mu.Unlock()
+	if params.AutoTerminationPolicy != nil {
+		if err := validateAutoTerminationPolicy(*params.AutoTerminationPolicy); err != nil {
+			return "", err
+		}
+	}
 
-	id := b.nextID()
+	return releaseLabel, nil
+}
+
+// buildNewCluster constructs the Cluster record for a RunJobFlow call.
+// Factored out of RunJobFlow to keep its own length/complexity down. Caller
+// must hold b.mu.Lock and have already validated params via
+// validateRunJobFlowParams.
+func (b *InMemoryBackend) buildNewCluster(region, id, releaseLabel string, params RunJobFlowParams) *Cluster {
 	clusterARN := arn.Build("elasticmapreduce", region, b.accountID, "cluster/"+id)
 
 	tagsCopy := make([]Tag, len(params.Tags))
@@ -186,7 +219,21 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 		stepConcurrency = defaultStepConcurrency
 	}
 
-	groups := b.buildInstanceGroups(params.Instances.InstanceGroups)
+	// Real JobFlowInstancesConfig accepts either InstanceGroups or
+	// InstanceFleets (mutually exclusive); InstanceFleets takes precedence
+	// here when both are somehow set.
+	hasFleets := len(params.Instances.InstanceFleets) > 0
+
+	var groups []InstanceGroup
+
+	var fleets []InstanceFleet
+
+	if hasFleets {
+		fleets = b.buildInstanceFleets(params.Instances.InstanceFleets)
+	} else {
+		groups = b.buildInstanceGroups(params.Instances.InstanceGroups)
+	}
+
 	steps := b.buildInitialSteps(params.Steps)
 
 	// Clusters are created directly in WAITING state (no simulated
@@ -194,13 +241,14 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 	// immediately ready to run steps -- ReadyDateTime equals CreationDateTime.
 	nowEpoch := awstime.Epoch(time.Now())
 
-	cluster := &Cluster{
+	return &Cluster{
 		ID:                    id,
 		Name:                  params.Name,
 		ReleaseLabel:          releaseLabel,
 		OSReleaseLabel:        params.OSReleaseLabel,
 		ARN:                   clusterARN,
-		Ec2InstanceAttributes: buildEC2Attrs(params.Instances),
+		Ec2InstanceAttributes: buildEC2Attrs(params.Instances, params.JobFlowRole),
+		KerberosAttributes:    clonePtr(params.KerberosAttributes),
 		Status: ClusterStatus{
 			State:             StateWaiting,
 			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},
@@ -212,12 +260,14 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 		Tags:                        tagsCopy,
 		Applications:                apps,
 		Configurations:              cloneConfigurations(params.Configurations),
+		PlacementGroups:             slices.Clone(params.PlacementGroupConfigs),
 		LogURI:                      params.LogURI,
 		ServiceRole:                 params.ServiceRole,
 		AutoScalingRole:             params.AutoScalingRole,
 		ScaleDownBehavior:           params.ScaleDownBehavior,
 		SecurityConfiguration:       params.SecurityConfiguration,
 		CustomAmiID:                 params.CustomAmiID,
+		InstanceCollectionType:      instanceCollectionType(hasFleets),
 		StepConcurrencyLevel:        stepConcurrency,
 		EbsRootVolumeSize:           params.EbsRootVolumeSize,
 		EbsRootVolumeIops:           params.EbsRootVolumeIops,
@@ -225,13 +275,34 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 		VisibleToAllUsers:           params.VisibleToAllUsers,
 		TerminationProtected:        params.Instances.TerminationProtected,
 		KeepJobFlowAliveWhenNoSteps: params.Instances.KeepJobFlowAliveWhenNoSteps,
+		AutoTerminate:               !params.Instances.KeepJobFlowAliveWhenNoSteps,
 		instanceGroups:              groups,
+		instanceFleets:              fleets,
 		steps:                       steps,
 		bootstrapActions:            cloneBootstrapActions(params.BootstrapActions),
+		managedScalingPolicy:        clonePtr(params.ManagedScalingPolicy),
+		autoTerminationPolicy:       clonePtr(params.AutoTerminationPolicy),
 		region:                      region,
 	}
+}
+
+// RunJobFlow creates a new EMR cluster.
+func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParams) (*Cluster, error) {
+	releaseLabel, err := validateRunJobFlowParams(params)
+	if err != nil {
+		return nil, err
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("RunJobFlow")
+	defer b.mu.Unlock()
+
+	id := b.nextID()
+	cluster := b.buildNewCluster(region, id, releaseLabel, params)
+
 	b.clusterPut(cluster)
-	b.arnIndexStore(region)[clusterARN] = id
+	b.arnIndexStore(region)[cluster.ARN] = id
 	cp := cluster.clone()
 
 	return &cp, nil
@@ -269,6 +340,8 @@ func (c Cluster) clone() Cluster {
 	}
 
 	cp.Configurations = cloneConfigurations(c.Configurations)
+	cp.PlacementGroups = slices.Clone(c.PlacementGroups)
+	cp.KerberosAttributes = clonePtr(c.KerberosAttributes)
 
 	if c.instanceGroups != nil {
 		cp.instanceGroups = make([]InstanceGroup, len(c.instanceGroups))

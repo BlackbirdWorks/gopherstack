@@ -15,11 +15,11 @@ const identityCenterTokenExpiryMinutes = 15
 // ----- Redshift IDC Application -----
 
 type redshiftIdcAppXML struct {
-	IdcApplicationArn  string `xml:"IdcApplicationArn"`
-	IdcApplicationName string `xml:"IdcApplicationName"`
-	IdcInstanceArn     string `xml:"IamRoleArn,omitempty"`
+	IdcApplicationArn  string `xml:"RedshiftIdcApplicationArn"`
+	IdcApplicationName string `xml:"RedshiftIdcApplicationName"`
+	IdcInstanceArn     string `xml:"IdcInstanceArn,omitempty"`
 	IdcDisplayName     string `xml:"IdcDisplayName,omitempty"`
-	IamRoleArn         string `xml:"IdcInstanceArn,omitempty"`
+	IamRoleArn         string `xml:"IamRoleArn,omitempty"`
 }
 
 func idcAppToXML(app *IdcApplication) redshiftIdcAppXML {
@@ -33,14 +33,17 @@ func idcAppToXML(app *IdcApplication) redshiftIdcAppXML {
 }
 
 type createIdcApplicationResponse struct {
-	XMLName xml.Name          `xml:"CreateIdcApplicationResponse"`
+	XMLName xml.Name          `xml:"CreateRedshiftIdcApplicationResponse"`
 	Xmlns   string            `xml:"xmlns,attr"`
-	Result  redshiftIdcAppXML `xml:"CreateIdcApplicationResult"`
+	Result  redshiftIdcAppXML `xml:"CreateRedshiftIdcApplicationResult"`
 }
 
+// handleCreateIdcApplication implements CreateRedshiftIdcApplication. Real
+// aws-sdk-go-v2 clients send the application name as RedshiftIdcApplicationName
+// (confirmed against CreateRedshiftIdcApplicationInput), not IdcApplicationName.
 func (h *Handler) handleCreateIdcApplication(vals url.Values) (any, error) {
 	app, err := h.Backend.CreateIdcApplication(
-		vals.Get("IdcApplicationName"),
+		vals.Get("RedshiftIdcApplicationName"),
 		vals.Get("IdcInstanceArn"),
 		vals.Get("IdcDisplayName"),
 		vals.Get("IamRoleArn"),
@@ -56,12 +59,15 @@ func (h *Handler) handleCreateIdcApplication(vals url.Values) (any, error) {
 }
 
 type deleteIdcApplicationResponse struct {
-	XMLName xml.Name `xml:"DeleteIdcApplicationResponse"`
+	XMLName xml.Name `xml:"DeleteRedshiftIdcApplicationResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
+// handleDeleteIdcApplication implements DeleteRedshiftIdcApplication. Real clients
+// send the lookup key as RedshiftIdcApplicationArn (confirmed against
+// DeleteRedshiftIdcApplicationInput), not IdcApplicationArn.
 func (h *Handler) handleDeleteIdcApplication(vals url.Values) (any, error) {
-	if err := h.Backend.DeleteIdcApplication(vals.Get("IdcApplicationArn")); err != nil {
+	if err := h.Backend.DeleteIdcApplication(vals.Get("RedshiftIdcApplicationArn")); err != nil {
 		return nil, err
 	}
 
@@ -69,15 +75,18 @@ func (h *Handler) handleDeleteIdcApplication(vals url.Values) (any, error) {
 }
 
 type describeIdcApplicationsResponse struct {
-	XMLName xml.Name `xml:"DescribeIdcApplicationsResponse"`
+	XMLName xml.Name `xml:"DescribeRedshiftIdcApplicationsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
-		IdcApplications []redshiftIdcAppXML `xml:"IdcApplications>IdcApplication"`
-	} `xml:"DescribeIdcApplicationsResult"`
+		IdcApplications []redshiftIdcAppXML `xml:"RedshiftIdcApplications>member"`
+	} `xml:"DescribeRedshiftIdcApplicationsResult"`
 }
 
+// handleDescribeIdcApplications implements DescribeRedshiftIdcApplications. Real
+// clients send the filter as RedshiftIdcApplicationArn (confirmed against
+// DescribeRedshiftIdcApplicationsInput), not IdcApplicationArn.
 func (h *Handler) handleDescribeIdcApplications(vals url.Values) (any, error) {
-	apps, err := h.Backend.DescribeIdcApplications(vals.Get("IdcApplicationArn"))
+	apps, err := h.Backend.DescribeIdcApplications(vals.Get("RedshiftIdcApplicationArn"))
 	if err != nil {
 		return nil, err
 	}
@@ -95,14 +104,17 @@ func (h *Handler) handleDescribeIdcApplications(vals url.Values) (any, error) {
 }
 
 type modifyIdcApplicationResponse struct {
-	XMLName xml.Name          `xml:"ModifyIdcApplicationResponse"`
+	XMLName xml.Name          `xml:"ModifyRedshiftIdcApplicationResponse"`
 	Xmlns   string            `xml:"xmlns,attr"`
-	Result  redshiftIdcAppXML `xml:"ModifyIdcApplicationResult"`
+	Result  redshiftIdcAppXML `xml:"ModifyRedshiftIdcApplicationResult"`
 }
 
+// handleModifyIdcApplication implements ModifyRedshiftIdcApplication. Real clients
+// send the lookup key as RedshiftIdcApplicationArn (confirmed against
+// ModifyRedshiftIdcApplicationInput), not IdcApplicationArn.
 func (h *Handler) handleModifyIdcApplication(vals url.Values) (any, error) {
 	app, err := h.Backend.ModifyIdcApplication(
-		vals.Get("IdcApplicationArn"),
+		vals.Get("RedshiftIdcApplicationArn"),
 		vals.Get("IdcDisplayName"),
 		vals.Get("IamRoleArn"),
 	)

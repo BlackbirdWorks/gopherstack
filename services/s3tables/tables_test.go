@@ -177,37 +177,80 @@ func TestBackend_ListTables_PaginationAndPrefix(t *testing.T) {
 func TestBackend_TableReplicationRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		wantEnabled bool
-	}{
-		{
-			name:        "enable and disable replication",
-			wantEnabled: false,
-		},
+	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
+	tb, err := b.CreateTableBucket("tr-bucket", s3tables.CreateTableBucketOptions{})
+	require.NoError(t, err)
+
+	_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
+	require.NoError(t, err)
+
+	table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG", s3tables.CreateTableOptions{})
+	require.NoError(t, err)
+
+	rules := []s3tables.ReplicationRule{
+		{Destinations: []s3tables.ReplicationDestination{
+			{DestinationTableBucketARN: "arn:aws:s3tables:us-east-1:000000000000:bucket/dest"},
+		}},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	cfg, err := b.PutTableReplication(table.ARN, "arn:aws:iam::000000000000:role/repl", rules, "")
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/repl", cfg.Role)
+	assert.NotEmpty(t, cfg.VersionToken)
+	assert.Equal(t, 1, s3tables.TableReplicationCount(b))
 
-			b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-			tb, err := b.CreateTableBucket("tr-bucket", s3tables.CreateTableBucketOptions{})
-			require.NoError(t, err)
+	got, err := b.GetTableReplicationConfig(table.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, cfg.VersionToken, got.VersionToken)
+	require.Len(t, got.Rules, 1)
+	require.Len(t, got.Rules[0].Destinations, 1)
+	assert.Equal(t,
+		"arn:aws:s3tables:us-east-1:000000000000:bucket/dest",
+		got.Rules[0].Destinations[0].DestinationTableBucketARN,
+	)
 
-			_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
-			require.NoError(t, err)
+	require.NoError(t, b.DeleteTableReplication(table.ARN, cfg.VersionToken))
+	assert.Equal(t, 0, s3tables.TableReplicationCount(b))
+}
 
-			table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG", s3tables.CreateTableOptions{})
-			require.NoError(t, err)
+func TestBackend_PutTableReplication_StaleVersionToken(t *testing.T) {
+	t.Parallel()
 
-			require.NoError(t, b.PutTableReplication(table.ARN))
-			assert.Equal(t, 1, s3tables.TableReplicationCount(b))
+	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
+	tb, err := b.CreateTableBucket("tr-stale-bucket", s3tables.CreateTableBucketOptions{})
+	require.NoError(t, err)
 
-			require.NoError(t, b.DeleteTableReplication(table.ARN))
-			assert.Equal(t, tt.wantEnabled, s3tables.TableReplicationCount(b) > 0)
-		})
-	}
+	_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
+	require.NoError(t, err)
+
+	table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG", s3tables.CreateTableOptions{})
+	require.NoError(t, err)
+
+	_, err = b.PutTableReplication(table.ARN, "arn:aws:iam::000000000000:role/repl", nil, "")
+	require.NoError(t, err)
+
+	_, err = b.PutTableReplication(table.ARN, "arn:aws:iam::000000000000:role/repl2", nil, "stale-token")
+	require.ErrorIs(t, err, s3tables.ErrTableVersionConflict)
+}
+
+func TestBackend_DeleteTableReplication_StaleVersionToken(t *testing.T) {
+	t.Parallel()
+
+	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
+	tb, err := b.CreateTableBucket("tr-del-stale-bucket", s3tables.CreateTableBucketOptions{})
+	require.NoError(t, err)
+
+	_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
+	require.NoError(t, err)
+
+	table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG", s3tables.CreateTableOptions{})
+	require.NoError(t, err)
+
+	_, err = b.PutTableReplication(table.ARN, "arn:aws:iam::000000000000:role/repl", nil, "")
+	require.NoError(t, err)
+
+	err = b.DeleteTableReplication(table.ARN, "stale-token")
+	require.ErrorIs(t, err, s3tables.ErrTableVersionConflict)
 }
 
 func TestBackend_TableRecordExpiryRoundTrip(t *testing.T) {
@@ -220,13 +263,13 @@ func TestBackend_TableRecordExpiryRoundTrip(t *testing.T) {
 	}{
 		{
 			name:       "set enabled",
-			status:     "ENABLED",
-			wantStatus: "ENABLED",
+			status:     "enabled",
+			wantStatus: "enabled",
 		},
 		{
 			name:       "set disabled",
-			status:     "DISABLED",
-			wantStatus: "DISABLED",
+			status:     "disabled",
+			wantStatus: "disabled",
 		},
 	}
 
@@ -269,14 +312,15 @@ func TestBackend_TableRecordExpiryDefaultDisabled(t *testing.T) {
 
 	got, err := b.GetTableRecordExpirationConfiguration(table.ARN)
 	require.NoError(t, err)
-	assert.Equal(t, "DISABLED", got.Status)
+	assert.Equal(t, "disabled", got.Status)
 }
 
 func TestBackend_PutTableReplication_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.PutTableReplication("arn:aws:s3tables:us-east-1:000000000000:bucket/b/table/ns/t")
+	_, err := b.PutTableReplication("arn:aws:s3tables:us-east-1:000000000000:bucket/b/table/ns/t",
+		"arn:aws:iam::000000000000:role/repl", nil, "")
 	require.Error(t, err)
 }
 
@@ -284,7 +328,7 @@ func TestBackend_DeleteTableReplication_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.DeleteTableReplication("arn:aws:s3tables:us-east-1:000000000000:bucket/b/table/ns/t")
+	err := b.DeleteTableReplication("arn:aws:s3tables:us-east-1:000000000000:bucket/b/table/ns/t", "")
 	require.Error(t, err)
 }
 

@@ -2,6 +2,7 @@ package ce
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -11,16 +12,55 @@ type getSavingsPlanPurchaseRecommendationDetailsInput struct {
 	RecommendationDetailID string `json:"RecommendationDetailId"`
 }
 
+// recommendationDetailData mirrors aws-sdk-go-v2/service/costexplorer/types'
+// RecommendationDetailData (a subset of its ~20 string-valued fields covering the
+// hourly cost/coverage/utilization summary real AWS documents for this op).
+type recommendationDetailData struct {
+	AccountID                     string `json:"AccountId,omitempty"`
+	CurrencyCode                  string `json:"CurrencyCode,omitempty"`
+	EstimatedAverageCoverage      string `json:"EstimatedAverageCoverage,omitempty"`
+	EstimatedAverageUtilization   string `json:"EstimatedAverageUtilization,omitempty"`
+	EstimatedMonthlySavingsAmount string `json:"EstimatedMonthlySavingsAmount,omitempty"`
+	EstimatedOnDemandCost         string `json:"EstimatedOnDemandCost,omitempty"`
+	EstimatedROI                  string `json:"EstimatedROI,omitempty"`
+	EstimatedSPCost               string `json:"EstimatedSPCost,omitempty"`
+	EstimatedSavingsAmount        string `json:"EstimatedSavingsAmount,omitempty"`
+	EstimatedSavingsPercentage    string `json:"EstimatedSavingsPercentage,omitempty"`
+}
+
+// getSavingsPlanPurchaseRecommendationDetailsOutput's field name/JSON key
+// ("RecommendationDetailData", not "RecommendationDetail") is field-diffed against real
+// AWS CE's GetSavingsPlanPurchaseRecommendationDetailsOutput.
 type getSavingsPlanPurchaseRecommendationDetailsOutput struct {
-	RecommendationDetail   any    `json:"RecommendationDetail,omitempty"`
-	RecommendationDetailID string `json:"RecommendationDetailId,omitempty"`
+	RecommendationDetailData *recommendationDetailData `json:"RecommendationDetailData,omitempty"`
+	RecommendationDetailID   string                    `json:"RecommendationDetailId,omitempty"`
 }
 
 func (h *Handler) handleGetSavingsPlanPurchaseRecommendationDetails(
-	_ context.Context,
-	_ *getSavingsPlanPurchaseRecommendationDetailsInput,
+	ctx context.Context,
+	in *getSavingsPlanPurchaseRecommendationDetailsInput,
 ) (*getSavingsPlanPurchaseRecommendationDetailsOutput, error) {
-	return &getSavingsPlanPurchaseRecommendationDetailsOutput{}, nil
+	if in.RecommendationDetailID == "" {
+		return nil, fmt.Errorf("%w: RecommendationDetailId is required", ErrValidation)
+	}
+
+	spUtil := h.Backend.GetSavingsPlansUtilization(defaultStartDate, defaultEndDate)
+
+	return &getSavingsPlanPurchaseRecommendationDetailsOutput{
+		RecommendationDetailID: in.RecommendationDetailID,
+		RecommendationDetailData: &recommendationDetailData{
+			AccountID:                     awsmeta.Account(ctx),
+			CurrencyCode:                  handlerCurrencyCode,
+			EstimatedAverageCoverage:      handlerCoverPct,
+			EstimatedAverageUtilization:   handlerSPUtilPct,
+			EstimatedMonthlySavingsAmount: spUtil.Savings.NetSavings,
+			EstimatedOnDemandCost:         spUtil.Savings.OnDemandCostEquivalent,
+			EstimatedROI:                  handlerROI,
+			EstimatedSPCost:               spUtil.Utilization.TotalCommitment,
+			EstimatedSavingsAmount:        spUtil.Savings.NetSavings,
+			EstimatedSavingsPercentage:    handlerROI,
+		},
+	}, nil
 }
 
 type getSavingsPlansCoverageInput struct {
@@ -275,38 +315,74 @@ func (h *Handler) handleGetSavingsPlansUtilizationDetails(
 }
 
 type listSavingsPlansPurchaseRecommendationGenerationInput struct {
-	GenerationStatus string `json:"GenerationStatus"`
-	NextPageToken    string `json:"NextPageToken"`
-	PageSize         int    `json:"PageSize"`
+	GenerationStatus  string   `json:"GenerationStatus"`
+	NextPageToken     string   `json:"NextPageToken"`
+	RecommendationIDs []string `json:"RecommendationIds"`
+	PageSize          int      `json:"PageSize"`
+}
+
+// generationSummary mirrors aws-sdk-go-v2/service/costexplorer/types' GenerationSummary
+// exactly -- the field is RecommendationId, not GenerationId (see
+// api_op_StartSavingsPlansPurchaseRecommendationGeneration.go / GenerationSummary in
+// types.go).
+type generationSummary struct {
+	EstimatedCompletionTime  string `json:"EstimatedCompletionTime,omitempty"`
+	GenerationCompletionTime string `json:"GenerationCompletionTime,omitempty"`
+	GenerationStartedTime    string `json:"GenerationStartedTime,omitempty"`
+	GenerationStatus         string `json:"GenerationStatus,omitempty"`
+	RecommendationID         string `json:"RecommendationId,omitempty"`
 }
 
 type listSavingsPlansPurchaseRecommendationGenerationOutput struct {
-	NextPageToken         string `json:"NextPageToken,omitempty"`
-	GenerationSummaryList []any  `json:"GenerationSummaryList"`
+	NextPageToken         string              `json:"NextPageToken,omitempty"`
+	GenerationSummaryList []generationSummary `json:"GenerationSummaryList"`
 }
 
 func (h *Handler) handleListSavingsPlansPurchaseRecommendationGeneration(
 	_ context.Context,
-	_ *listSavingsPlansPurchaseRecommendationGenerationInput,
+	in *listSavingsPlansPurchaseRecommendationGenerationInput,
 ) (*listSavingsPlansPurchaseRecommendationGenerationOutput, error) {
+	gens := h.Backend.ListSavingsPlansGenerations(in.GenerationStatus)
+
+	items := make([]generationSummary, 0, len(gens))
+
+	for _, g := range gens {
+		items = append(items, generationSummary{
+			EstimatedCompletionTime:  g.EstimatedCompletionTime,
+			GenerationCompletionTime: g.GenerationCompletionTime,
+			GenerationStartedTime:    g.GenerationStartedTime,
+			GenerationStatus:         g.GenerationStatus,
+			RecommendationID:         g.RecommendationID,
+		})
+	}
+
 	return &listSavingsPlansPurchaseRecommendationGenerationOutput{
-		GenerationSummaryList: []any{},
+		GenerationSummaryList: items,
 	}, nil
 }
 
 type startSavingsPlansPurchaseRecommendationGenerationInput struct{}
 
+// startSavingsPlansPurchaseRecommendationGenerationOutput's RecommendationId field name
+// (previously the invented "GenerationId") is field-diffed against real AWS CE's
+// StartSavingsPlansPurchaseRecommendationGenerationOutput.
 type startSavingsPlansPurchaseRecommendationGenerationOutput struct {
-	GenerationID            string `json:"GenerationId,omitempty"`
-	GenerationStartedTime   string `json:"GenerationStartedTime,omitempty"`
 	EstimatedCompletionTime string `json:"EstimatedCompletionTime,omitempty"`
+	GenerationStartedTime   string `json:"GenerationStartedTime,omitempty"`
+	RecommendationID        string `json:"RecommendationId,omitempty"`
 }
 
 func (h *Handler) handleStartSavingsPlansPurchaseRecommendationGeneration(
 	_ context.Context,
 	_ *startSavingsPlansPurchaseRecommendationGenerationInput,
 ) (*startSavingsPlansPurchaseRecommendationGenerationOutput, error) {
-	return &startSavingsPlansPurchaseRecommendationGenerationOutput{}, nil
+	g := h.Backend.CreateSavingsPlansGeneration()
+
+	return &startSavingsPlansPurchaseRecommendationGenerationOutput{
+		RecommendationID:        g.RecommendationID,
+		GenerationStartedTime:   g.GenerationStartedTime,
+		EstimatedCompletionTime: g.EstimatedCompletionTime,
+	}, nil
 }
 
 // buildSavingsPlansOps returns the savings-plans-family op dispatch entries.

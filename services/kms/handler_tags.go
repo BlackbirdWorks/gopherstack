@@ -105,6 +105,25 @@ func (h *Handler) applyInputTags(resourceID string, inputTags []Tag) error {
 	return nil
 }
 
+// purgeTags permanently removes and closes the tag collection for a key that
+// the janitor has just permanently purged (see Janitor.OnKeyPurged, wired in
+// WithJanitor). Handler.tags lives entirely outside InMemoryBackend, so
+// nothing else ever removes an entry from it once set: without this hook a
+// key's tags -- and the lockmetrics/Prometheus registration each *tags.Tags
+// instance owns (see pkgs/tags.Tags.Close's doc comment) -- would leak for
+// the remaining lifetime of the process, since KMS key IDs are UUIDs and are
+// never reused. Safe to call with the backend's write lock held: it only
+// ever touches tagsMu, never Backend.
+func (h *Handler) purgeTags(_, keyID string) {
+	h.tagsMu.Lock("purgeTags")
+	defer h.tagsMu.Unlock()
+
+	if t := h.tags[keyID]; t != nil {
+		t.Close()
+		delete(h.tags, keyID)
+	}
+}
+
 func (h *Handler) removeTags(resourceID string, keys []string) {
 	h.tagsMu.RLock("removeTags")
 	t := h.tags[resourceID]

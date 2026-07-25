@@ -94,11 +94,7 @@ func (b *InMemoryBackend) CreateApplicationVersionWithOptions(
 	// Generate a synthetic template URL when the caller provides only a sourceCodeURL.
 	resolvedTemplateURL := opts.TemplateURL
 	if resolvedTemplateURL == "" && (opts.SourceCodeURL != "" || opts.SourceCodeArchiveURL != "") {
-		resolvedTemplateURL = fmt.Sprintf(
-			"https://s3.amazonaws.com/serverlessrepo-templates/%s/%s.template",
-			appName,
-			semanticVersion,
-		)
+		resolvedTemplateURL = synthesizeTemplateURL(appName, semanticVersion)
 	}
 
 	v := &ApplicationVersion{

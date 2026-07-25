@@ -41,6 +41,7 @@ func (b *InMemoryBackend) DeleteFleets(ids []string) []string {
 		if f, ok := b.fleets.Get(id); ok {
 			f.FleetState = tgwRouteStateDeleted
 			b.fleets.Delete(id)
+			delete(b.tags, id)
 			deleted = append(deleted, id)
 		}
 	}

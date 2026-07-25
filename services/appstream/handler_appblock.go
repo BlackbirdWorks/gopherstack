@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- AppBlock handlers ---
@@ -199,6 +200,7 @@ func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, 
 
 type createAppBlockBuilderStreamingURLInput struct {
 	AppBlockBuilderName string `json:"AppBlockBuilderName"`
+	Validity            int64  `json:"Validity"`
 }
 
 func (h *Handler) opCreateAppBlockBuilderStreamingURL(_ context.Context, body []byte) (any, error) {
@@ -207,12 +209,15 @@ func (h *Handler) opCreateAppBlockBuilderStreamingURL(_ context.Context, body []
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	url, err := h.Backend.CreateAppBlockBuilderStreamingURL(req.AppBlockBuilderName)
+	url, expires, err := h.Backend.CreateAppBlockBuilderStreamingURL(req.AppBlockBuilderName, req.Validity)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{"StreamingURL": url}, nil //nolint:goconst // existing issue.
+	return map[string]any{
+		keyStreamingURL: url,
+		keyExpires:      awstime.Epoch(expires),
+	}, nil
 }
 
 // --- AppBlockBuilder-AppBlock association handlers ---
@@ -286,7 +291,7 @@ func appBlockToResponse(ab *AppBlock) map[string]any {
 		"Arn":         ab.Arn,         //nolint:goconst // existing issue.
 		"Description": ab.Description, //nolint:goconst // existing issue.
 		"State":       ab.State,
-		"CreatedTime": ab.CreatedTime.Unix(), //nolint:goconst // existing issue.
+		"CreatedTime": awstime.Epoch(ab.CreatedTime), //nolint:goconst // existing issue.
 		keyTags:       ab.Tags,
 	}
 }
@@ -299,7 +304,7 @@ func appBlockBuilderToResponse(bb *AppBlockBuilder) map[string]any {
 		"Platform":     bb.Platform,     //nolint:goconst // existing issue.
 		"InstanceType": bb.InstanceType, //nolint:goconst // existing issue.
 		"State":        bb.State,
-		"CreatedTime":  bb.CreatedTime.Unix(),
+		"CreatedTime":  awstime.Epoch(bb.CreatedTime),
 		keyTags:        bb.Tags,
 	}
 }

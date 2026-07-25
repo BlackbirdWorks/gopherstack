@@ -33,26 +33,29 @@ func TestDescribeScalableTargets_Pagination(t *testing.T) {
 	b := applicationautoscaling.NewInMemoryBackend("123456789012", "us-east-1")
 	registerN(t, b, 5)
 
-	page1, next := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
+	page1, next, err := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
 		ServiceNamespace: "ecs",
 		MaxResults:       2,
 	})
+	require.NoError(t, err)
 	require.Len(t, page1, 2)
 	require.NotEmpty(t, next)
 
-	page2, next2 := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
+	page2, next2, err := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
 		ServiceNamespace: "ecs",
 		MaxResults:       2,
 		NextToken:        next,
 	})
+	require.NoError(t, err)
 	require.Len(t, page2, 2)
 	require.NotEmpty(t, next2)
 
-	page3, next3 := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
+	page3, next3, err := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
 		ServiceNamespace: "ecs",
 		MaxResults:       2,
 		NextToken:        next2,
 	})
+	require.NoError(t, err)
 	require.Len(t, page3, 1)
 	assert.Empty(t, next3)
 
@@ -83,22 +86,25 @@ func TestDescribeScalingPolicies_Pagination(t *testing.T) {
 			"TargetTrackingScaling",
 			map[string]any{"TargetValue": 50.0},
 			nil,
+			nil,
 		)
 		require.NoError(t, err)
 	}
 
-	page1, next := b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
+	page1, next, err := b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
 		ServiceNamespace: "ecs",
 		MaxResults:       2,
 	})
+	require.NoError(t, err)
 	require.Len(t, page1, 2)
 	require.NotEmpty(t, next)
 
-	page2, next2 := b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
+	page2, next2, err := b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
 		ServiceNamespace: "ecs",
 		MaxResults:       2,
 		NextToken:        next,
 	})
+	require.NoError(t, err)
 	require.Len(t, page2, 1)
 	assert.Empty(t, next2)
 }
@@ -108,8 +114,13 @@ func TestDescribeScheduledActions_Pagination(t *testing.T) {
 
 	b := applicationautoscaling.NewInMemoryBackend("123456789012", "us-east-1")
 
+	_, err := b.RegisterScalableTarget(
+		"ecs", "service/cluster/svc", "ecs:service:DesiredCount", 1, 10, nil, "", nil,
+	)
+	require.NoError(t, err)
+
 	for i := range 3 {
-		_, err := b.PutScheduledAction(
+		_, err = b.PutScheduledAction(
 			"ecs",
 			"service/cluster/svc",
 			"ecs:service:DesiredCount",
@@ -123,18 +134,20 @@ func TestDescribeScheduledActions_Pagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	page1, next := b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
+	page1, next, err := b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
 		ServiceNamespace: "ecs",
 		MaxResults:       2,
 	})
+	require.NoError(t, err)
 	require.Len(t, page1, 2)
 	require.NotEmpty(t, next)
 
-	page2, next2 := b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
+	page2, next2, err := b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
 		ServiceNamespace: "ecs",
 		MaxResults:       2,
 		NextToken:        next,
 	})
+	require.NoError(t, err)
 	require.Len(t, page2, 1)
 	assert.Empty(t, next2)
 }

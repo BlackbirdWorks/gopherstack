@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,49 @@ import (
 // testSAMLAssertion is a minimal base64-encoded SAML XML fragment used across tests.
 // Decodes to: <samlp:Assertion>.
 const testSAMLAssertion = "PHNhbWxwOkFzc2VydGlvbj4="
+
+// buildSAMLAssertionWithAttributes builds a base64-encoded SAML assertion XML
+// document carrying one <saml:Attribute Name="..."><saml:AttributeValue>
+// element per entry in attrs. Real AWS derives AssumeRoleWithSAML's
+// RoleSessionName/SourceIdentity/session-tags from exactly these named
+// attributes rather than accepting them as separate request parameters (see
+// saml_attributes.go), so tests exercising that behavior build assertions
+// with this helper instead of setting fields directly on the request input.
+func buildSAMLAssertionWithAttributes(t *testing.T, attrs map[string]string) string {
+	t.Helper()
+
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	var xmlDoc strings.Builder
+
+	xmlDoc.WriteString(`<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">`)
+	xmlDoc.WriteString(`<saml:AttributeStatement>`)
+
+	for _, k := range keys {
+		xmlDoc.WriteString(`<saml:Attribute Name="` + k + `">`)
+		xmlDoc.WriteString(`<saml:AttributeValue>` + attrs[k] + `</saml:AttributeValue>`)
+		xmlDoc.WriteString(`</saml:Attribute>`)
+	}
+
+	xmlDoc.WriteString(`</saml:AttributeStatement></saml:Assertion>`)
+
+	return base64.StdEncoding.EncodeToString([]byte(xmlDoc.String()))
+}
+
+// samlAttrRoleSessionNameTest/samlAttrSourceIdentityTest/samlAttrPrincipalTagTest
+// mirror the unexported SAML attribute-name constants in saml_attributes.go
+// (kept duplicated here rather than exported, since these are AWS's fixed,
+// well-known attribute URIs, not implementation details).
+const (
+	samlAttrRoleSessionNameTest = "https://aws.amazon.com/SAML/Attributes/RoleSessionName"
+	samlAttrSourceIdentityTest  = "https://aws.amazon.com/SAML/Attributes/SourceIdentity"
+	samlAttrPrincipalTagTest    = "https://aws.amazon.com/SAML/Attributes/PrincipalTag:"
+)
 
 // samlAssertionWithWindow builds a base64-encoded SAML assertion whose
 // <Conditions> element declares the given validity window relative to now.
@@ -281,16 +325,20 @@ func TestAssumeRoleWithSAMLNameQualifier(t *testing.T) {
 	assert.NotEmpty(t, resp.AssumeRoleWithSAMLResult.NameQualifier)
 }
 
-// TestAssumeRoleWithSAMLSessionName verifies session name uses input.RoleSessionName.
+// TestAssumeRoleWithSAMLSessionName verifies the session name is derived from
+// the SAML assertion's RoleSessionName attribute (there is no top-level
+// RoleSessionName request parameter for this operation — see
+// AssumeRoleWithSAMLInput / saml_attributes.go).
 func TestAssumeRoleWithSAMLSessionName(t *testing.T) {
 	t.Parallel()
 
 	b := sts.NewInMemoryBackend()
 	input := &sts.AssumeRoleWithSAMLInput{
-		RoleArn:         "arn:aws:iam::000000000000:role/test-role",
-		PrincipalArn:    "arn:aws:iam::000000000000:saml-provider/MyIdP",
-		SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
-		RoleSessionName: "my-saml-session",
+		RoleArn:      "arn:aws:iam::000000000000:role/test-role",
+		PrincipalArn: "arn:aws:iam::000000000000:saml-provider/MyIdP",
+		SAMLAssertion: buildSAMLAssertionWithAttributes(t, map[string]string{
+			samlAttrRoleSessionNameTest: "my-saml-session",
+		}),
 	}
 
 	resp, err := b.AssumeRoleWithSAML(input)
@@ -298,16 +346,19 @@ func TestAssumeRoleWithSAMLSessionName(t *testing.T) {
 	assert.Contains(t, resp.AssumeRoleWithSAMLResult.AssumedRoleUser.Arn, "my-saml-session")
 }
 
-// TestAssumeRoleWithSAMLSourceIdentity verifies SourceIdentity flows through SAML.
+// TestAssumeRoleWithSAMLSourceIdentity verifies SourceIdentity is derived from
+// the SAML assertion's SourceIdentity attribute (there is no top-level
+// SourceIdentity request parameter for this operation).
 func TestAssumeRoleWithSAMLSourceIdentity(t *testing.T) {
 	t.Parallel()
 
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-		RoleArn:        "arn:aws:iam::000000000000:role/test-role",
-		PrincipalArn:   "arn:aws:iam::000000000000:saml-provider/MyIdP",
-		SAMLAssertion:  "PHNhbWxwOkFzc2VydGlvbj4=",
-		SourceIdentity: "my-saml-identity",
+		RoleArn:      "arn:aws:iam::000000000000:role/test-role",
+		PrincipalArn: "arn:aws:iam::000000000000:saml-provider/MyIdP",
+		SAMLAssertion: buildSAMLAssertionWithAttributes(t, map[string]string{
+			samlAttrSourceIdentityTest: "my-saml-identity",
+		}),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "my-saml-identity", resp.AssumeRoleWithSAMLResult.SourceIdentity)
@@ -336,7 +387,10 @@ func TestAssumeRoleWithSAMLWithPolicyArns(t *testing.T) {
 	assert.NotEmpty(t, result.AssumeRoleWithSAMLResult.Credentials.AccessKeyID)
 }
 
-// TestAssumeRoleWithSAML_Tags exercises Tags support for AssumeRoleWithSAML.
+// TestAssumeRoleWithSAML_Tags exercises session-tag support for
+// AssumeRoleWithSAML. Tags are derived from the SAML assertion's
+// PrincipalTag:<key> attributes (there is no top-level Tags request parameter
+// for this operation — see AssumeRoleWithSAMLInput / saml_attributes.go).
 func TestAssumeRoleWithSAML_Tags(t *testing.T) {
 	t.Parallel()
 
@@ -345,10 +399,11 @@ func TestAssumeRoleWithSAML_Tags(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-			Tags:          []sts.Tag{{Key: "aws:reserved", Value: "v"}},
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: buildSAMLAssertionWithAttributes(t, map[string]string{
+				samlAttrPrincipalTagTest + "aws:reserved": "v",
+			}),
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidTagKey)
 	})
@@ -356,12 +411,19 @@ func TestAssumeRoleWithSAML_Tags(t *testing.T) {
 	t.Run("duplicate_tag_key_rejected", func(t *testing.T) {
 		t.Parallel()
 
+		// SAML attribute Names are unique per real AWS's Attribute-list model, so a
+		// case-insensitive duplicate can only arise from two distinct attribute
+		// Names differing only in tag-key case — exercise that instead of two
+		// same-key entries in a Go slice (which the XML representation cannot
+		// produce as-is).
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-			Tags:          []sts.Tag{{Key: "k", Value: "v1"}, {Key: "K", Value: "v2"}},
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: buildSAMLAssertionWithAttributes(t, map[string]string{
+				samlAttrPrincipalTagTest + "k": "v1",
+				samlAttrPrincipalTagTest + "K": "v2",
+			}),
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidTagKey)
 	})
@@ -371,10 +433,11 @@ func TestAssumeRoleWithSAML_Tags(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:       "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
-			Tags:          []sts.Tag{{Key: "team", Value: "eng"}},
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: buildSAMLAssertionWithAttributes(t, map[string]string{
+				samlAttrPrincipalTagTest + "team": "eng",
+			}),
 		})
 		require.NoError(t, err)
 
@@ -427,7 +490,8 @@ func TestAssumeRoleWithSAML_PrincipalArnValidation(t *testing.T) {
 	})
 }
 
-// TestAssumeRoleWithSAML_RoleSessionName exercises RoleSessionName validation for SAML.
+// TestAssumeRoleWithSAML_RoleSessionName exercises validation of the
+// SAML-assertion-derived RoleSessionName attribute (see saml_attributes.go).
 func TestAssumeRoleWithSAML_RoleSessionName(t *testing.T) {
 	t.Parallel()
 
@@ -436,10 +500,11 @@ func TestAssumeRoleWithSAML_RoleSessionName(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:         "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
-			RoleSessionName: "my-session",
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: buildSAMLAssertionWithAttributes(t, map[string]string{
+				samlAttrRoleSessionNameTest: "my-session",
+			}),
 		})
 		require.NoError(t, err)
 	})
@@ -449,10 +514,11 @@ func TestAssumeRoleWithSAML_RoleSessionName(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:         "arn:aws:iam::123456789012:role/R",
-			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
-			RoleSessionName: "bad:session",
+			RoleArn:      "arn:aws:iam::123456789012:role/R",
+			PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+			SAMLAssertion: buildSAMLAssertionWithAttributes(t, map[string]string{
+				samlAttrRoleSessionNameTest: "bad:session",
+			}),
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidSessionName)
 	})
@@ -703,10 +769,9 @@ func TestAssumeRoleWithSAML_TrustAndTemporal(t *testing.T) {
 			backend.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{TrustPolicy: trustDoc}})
 
 			_, err := backend.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-				RoleArn:         roleArn,
-				RoleSessionName: "saml-session",
-				PrincipalArn:    tt.principalArn,
-				SAMLAssertion:   tt.assertion,
+				RoleArn:       roleArn,
+				PrincipalArn:  tt.principalArn,
+				SAMLAssertion: tt.assertion,
 			})
 
 			if tt.wantErr == nil {
@@ -789,4 +854,88 @@ func TestAssumeRoleWithSAMLRespectsRoleMaxSessionDuration(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, resp.AssumeRoleWithSAMLResult.Credentials.AccessKeyID)
 	})
+}
+
+// TestAssumeRoleWithSAML_AttributesDerivedFromAssertion verifies that Subject,
+// SubjectType, Issuer, Audience, and NameQualifier are all read out of the
+// SAML assertion's <NameID>/<Issuer>/<SubjectConfirmationData> elements, per
+// AWS's documented AssumeRoleWithSAMLOutput derivations, rather than being
+// synthesized from PrincipalArn or hardcoded placeholders.
+func TestAssumeRoleWithSAML_AttributesDerivedFromAssertion(t *testing.T) {
+	t.Parallel()
+
+	const (
+		account      = "123456789012"
+		principalArn = "arn:aws:iam::" + account + ":saml-provider/MyIdP"
+		assertIssuer = "https://idp.example.com/saml"
+		nameID       = "alice@example.com"
+		recipient    = "https://signin.aws.amazon.com/saml"
+	)
+
+	xmlDoc := `<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">` +
+		`<saml:Issuer>` + assertIssuer + `</saml:Issuer>` +
+		`<saml:Subject>` +
+		`<saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:transient">` + nameID + `</saml:NameID>` +
+		`<saml:SubjectConfirmation>` +
+		`<saml:SubjectConfirmationData Recipient="` + recipient + `"/>` +
+		`</saml:SubjectConfirmation>` +
+		`</saml:Subject>` +
+		`</saml:Assertion>`
+	assertion := base64.StdEncoding.EncodeToString([]byte(xmlDoc))
+
+	b := sts.NewInMemoryBackend()
+	resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
+		RoleArn:       "arn:aws:iam::" + account + ":role/R",
+		PrincipalArn:  principalArn,
+		SAMLAssertion: assertion,
+	})
+	require.NoError(t, err)
+
+	res := resp.AssumeRoleWithSAMLResult
+	assert.Equal(t, nameID, res.Subject)
+	assert.Equal(t, "transient", res.SubjectType, "urn:oasis nameid-format prefix must be stripped")
+	assert.Equal(t, assertIssuer, res.Issuer)
+	assert.Equal(t, recipient, res.Audience)
+	assert.NotEmpty(t, res.NameQualifier)
+}
+
+// TestAssumeRoleWithSAML_TransitiveTagKeysFromAssertion verifies a session
+// established via AssumeRoleWithSAML records the assertion-derived
+// TransitiveTagKeys attribute on its SessionInfo, so that a subsequent chained
+// AssumeRole call (mergeTransitiveTags) inherits the marked tags — mirroring
+// the AssumeRole-to-AssumeRole TransitiveTagKeys behavior already covered by
+// TestTransitiveTagPropagation for that operation.
+func TestAssumeRoleWithSAML_TransitiveTagKeysFromAssertion(t *testing.T) {
+	t.Parallel()
+
+	b := sts.NewInMemoryBackend()
+
+	samlResp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
+		RoleArn:      "arn:aws:iam::123456789012:role/Parent",
+		PrincipalArn: "arn:aws:iam::123456789012:saml-provider/MyIdP",
+		SAMLAssertion: buildSAMLAssertionWithAttributes(t, map[string]string{
+			samlAttrRoleSessionNameTest:                                "saml-session",
+			samlAttrPrincipalTagTest + "team":                          "eng",
+			"https://aws.amazon.com/SAML/Attributes/TransitiveTagKeys": "team",
+		}),
+	})
+	require.NoError(t, err)
+
+	parentSession := b.LookupSession(samlResp.AssumeRoleWithSAMLResult.Credentials.AccessKeyID, "")
+	require.NotNil(t, parentSession)
+	assert.Equal(t, []string{"team"}, parentSession.TransitiveTagKeys)
+	require.Len(t, parentSession.Tags, 1)
+	assert.Equal(t, sts.Tag{Key: "team", Value: "eng"}, parentSession.Tags[0])
+
+	childResp, err := b.AssumeRole(&sts.AssumeRoleInput{
+		RoleArn:         "arn:aws:iam::123456789012:role/Child",
+		RoleSessionName: "child",
+		CallerSession:   parentSession,
+	})
+	require.NoError(t, err)
+
+	childSession := b.LookupSession(childResp.AssumeRoleResult.Credentials.AccessKeyID, "")
+	require.NotNil(t, childSession)
+	require.Len(t, childSession.Tags, 1)
+	assert.Equal(t, sts.Tag{Key: "team", Value: "eng"}, childSession.Tags[0])
 }

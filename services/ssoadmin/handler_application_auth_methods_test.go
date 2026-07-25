@@ -66,13 +66,13 @@ func TestDeleteApplicationAuthenticationMethod(t *testing.T) {
 		{
 			name:           "delete auth method from nonexistent app",
 			authMethodType: "IAM",
-			wantStatus:     http.StatusNotFound,
+			wantStatus:     http.StatusBadRequest,
 			useInvalidApp:  true,
 		},
 		{
 			name:           "delete nonexistent auth method from valid app",
 			authMethodType: "IAM",
-			wantStatus:     http.StatusNotFound,
+			wantStatus:     http.StatusBadRequest,
 			useInvalidApp:  false,
 		},
 	}
@@ -124,7 +124,7 @@ func TestGetApplicationAuthenticationMethod(t *testing.T) {
 			name:       "get_nonexistent_auth_method",
 			authType:   "SAML",
 			putAuth:    false,
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -146,6 +146,9 @@ func TestGetApplicationAuthenticationMethod(t *testing.T) {
 				putRec := doRequest(t, h, "PutApplicationAuthenticationMethod", map[string]any{
 					"ApplicationArn":           appArn,
 					"AuthenticationMethodType": tt.authType,
+					"AuthenticationMethod": map[string]any{
+						"Iam": map[string]any{"ActorPolicy": map[string]any{}},
+					},
 				})
 				require.Equal(t, http.StatusOK, putRec.Code)
 			}
@@ -158,8 +161,15 @@ func TestGetApplicationAuthenticationMethod(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				resp := parseResponse(t, rec)
-				authMethod := resp["AuthenticationMethod"].(map[string]any)
-				assert.Equal(t, tt.authType, authMethod["AuthenticationMethodType"])
+				// Real GetApplicationAuthenticationMethodOutput is exactly
+				// {AuthenticationMethod: <union>} -- the union's wire shape is
+				// {"Iam": {...IamAuthenticationMethod fields...}}, with NO
+				// sibling "AuthenticationMethodType" field alongside it.
+				authMethod, ok := resp["AuthenticationMethod"].(map[string]any)
+				require.True(t, ok)
+				assert.NotContains(t, authMethod, "AuthenticationMethodType",
+					"GetApplicationAuthenticationMethodOutput's union has no sibling AuthenticationMethodType member")
+				assert.Contains(t, authMethod, "Iam")
 			}
 		})
 	}

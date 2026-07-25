@@ -2,10 +2,12 @@ package athena
 
 import "encoding/json"
 
+// createNotebookInput intentionally has no Tags field: the real
+// CreateNotebookInput carries only Name/WorkGroup/ClientRequestToken -- see
+// InMemoryBackend.CreateNotebook's doc comment.
 type createNotebookInput struct {
 	WorkGroup string `json:"WorkGroup"`
 	Name      string `json:"Name"`
-	Tags      []Tag  `json:"Tags"`
 }
 
 type createPresignedNotebookURLInput struct {
@@ -60,11 +62,7 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			id, err := h.Backend.CreateNotebook(
-				input.WorkGroup,
-				input.Name,
-				tagsFromSlice(input.Tags),
-			)
+			id, err := h.Backend.CreateNotebook(input.WorkGroup, input.Name)
 			if err != nil {
 				return nil, err
 			}

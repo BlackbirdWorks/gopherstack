@@ -157,7 +157,7 @@ func verifyInstancesRestored(t *testing.T, b *servicediscovery.InMemoryBackend, 
 	require.NoError(t, err)
 	assert.Equal(t, "UNHEALTHY", statuses[ids.instanceID])
 
-	discovered, revision, err := b.DiscoverInstances("ns1", "svc1", "", nil)
+	discovered, revision, err := b.DiscoverInstances("ns1", "svc1", "", nil, nil)
 	require.NoError(t, err)
 	require.Len(t, discovered, 1)
 	assert.Equal(t, ids.instanceID, discovered[0].InstanceID)
@@ -179,7 +179,9 @@ func verifyCountersResumed(t *testing.T, b *servicediscovery.InMemoryBackend) {
 	_, err := b.CreateHTTPNamespace("ns2", "", nil)
 	require.NoError(t, err)
 
-	nsList := b.ListNamespaces(servicediscovery.ListNamespacesFilter{Name: "ns2"})
+	nsList := b.ListNamespaces(servicediscovery.ListNamespacesFilter{
+		Name: servicediscovery.FilterValue{Values: []string{"ns2"}},
+	})
 	require.Len(t, nsList, 1)
 	assert.Equal(t, fmt.Sprintf("ns-%026d", 2), nsList[0].ID)
 }

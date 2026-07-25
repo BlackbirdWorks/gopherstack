@@ -144,12 +144,12 @@ func jwtClaims(t *testing.T, token string) map[string]any {
 func TestTokenValidity_StoredAndReturned(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+	tests := []struct {
+		units                map[string]any
 		name                 string
 		accessTokenValidity  int32
 		idTokenValidity      int32
 		refreshTokenValidity int32
-		units                map[string]any
 	}{
 		{
 			name:                 "defaults_zero",
@@ -203,12 +203,12 @@ func TestTokenValidity_StoredAndReturned(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var createResp struct {
-				UserPoolClient struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+				UserPoolClient struct {
+					TokenValidityUnits   map[string]any `json:"TokenValidityUnits"`
 					ClientID             string         `json:"ClientId"`
 					AccessTokenValidity  int32          `json:"AccessTokenValidity"`
 					IDTokenValidity      int32          `json:"IdTokenValidity"`
 					RefreshTokenValidity int32          `json:"RefreshTokenValidity"`
-					TokenValidityUnits   map[string]any `json:"TokenValidityUnits"`
 				} `json:"UserPoolClient"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
@@ -229,11 +229,11 @@ func TestTokenValidity_StoredAndReturned(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
 
 			var descResp struct {
-				UserPoolClient struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+				UserPoolClient struct {
+					TokenValidityUnits   map[string]any `json:"TokenValidityUnits"`
 					AccessTokenValidity  int32          `json:"AccessTokenValidity"`
 					IDTokenValidity      int32          `json:"IdTokenValidity"`
 					RefreshTokenValidity int32          `json:"RefreshTokenValidity"`
-					TokenValidityUnits   map[string]any `json:"TokenValidityUnits"`
 				} `json:"UserPoolClient"`
 			}
 			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
@@ -279,10 +279,10 @@ func TestTokenValidity_UpdateClient(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code, updRec.Body.String())
 
 	var updResp struct {
-		UserPoolClient struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+		UserPoolClient struct {
+			TokenValidityUnits  map[string]any `json:"TokenValidityUnits"`
 			AccessTokenValidity int32          `json:"AccessTokenValidity"`
 			IDTokenValidity     int32          `json:"IdTokenValidity"`
-			TokenValidityUnits  map[string]any `json:"TokenValidityUnits"`
 		} `json:"UserPoolClient"`
 	}
 	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
@@ -294,13 +294,13 @@ func TestTokenValidity_UpdateClient(t *testing.T) {
 func TestTokenValidity_HonoredInJWT(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+	tests := []struct {
 		name                string
-		accessTokenValidity int32
 		unit                string
 		wantExpiresIn       float64
 		wantMinExpDelta     time.Duration
 		wantMaxExpDelta     time.Duration
+		accessTokenValidity int32
 	}{
 		{
 			name:                "2_hours",

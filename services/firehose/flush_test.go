@@ -464,12 +464,12 @@ func TestHTTPEndpoint_DeliveryFormat_ViaHandler(t *testing.T) {
 	requests := srv.captured()
 	require.Len(t, requests, 1)
 
-	var payload struct { //nolint:govet // field order is chosen for readability
+	var payload struct {
 		RequestID string `json:"requestId"`
-		Timestamp int64  `json:"timestamp"`
 		Records   []struct {
 			Data string `json:"data"`
 		} `json:"records"`
+		Timestamp int64 `json:"timestamp"`
 	}
 	require.NoError(t, json.Unmarshal(requests[0].body, &payload))
 

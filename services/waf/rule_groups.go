@@ -90,7 +90,9 @@ func (b *InMemoryBackend) UpdateRuleGroup(id, changeToken string, updates []Acti
 	return nil
 }
 
-// DeleteRuleGroup deletes a RuleGroup.
+// DeleteRuleGroup deletes a RuleGroup. Real AWS rejects deletion while the
+// RuleGroup is still activated in a WebACL (WAFReferencedItemException) or
+// still contains any activated rules (WAFNonEmptyEntityException).
 func (b *InMemoryBackend) DeleteRuleGroup(id, changeToken string) error {
 	b.mu.Lock("DeleteRuleGroup")
 	defer b.mu.Unlock()
@@ -105,6 +107,10 @@ func (b *InMemoryBackend) DeleteRuleGroup(id, changeToken string) error {
 
 	if b.ruleReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(b.ruleGroupRules[id]) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.ruleGroups.Delete(id)

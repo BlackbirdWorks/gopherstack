@@ -239,6 +239,107 @@ func (b *InMemoryBackend) StartJobRun(
 	jobName string,
 	arguments map[string]string,
 ) (*JobRun, error) {
+	return b.StartJobRunWithOptions(jobName, arguments, StartJobRunOptions{})
+}
+
+// StartJobRunWithOptions is StartJobRun plus the optional per-run overrides
+// AWS's StartJobRunRequest supports (WorkerType/NumberOfWorkers/MaxCapacity/
+// Timeout/NotificationProperty/SecurityConfiguration). Per AWS's documented
+// StartJobRunRequest semantics, any override left unset (zero-value) falls
+// back to the value inherited from the job definition; overrides set here
+// apply to this run only and do not mutate the job definition itself.
+// checkJobConcurrencyLocked returns ErrConcurrentRunsExceeded if job j already
+// has ExecutionProperty.MaxConcurrentRuns active (RUNNING/STARTING) runs.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) checkJobConcurrencyLocked(jobName string, j *Job) error {
+	maxConcurrent := j.ExecutionProperty.MaxConcurrentRuns
+	if maxConcurrent <= 0 {
+		return nil
+	}
+
+	active := 0
+	for _, r := range b.jobRuns[jobName] {
+		if r.JobRunState == stateRunning || r.JobRunState == stateStarting {
+			active++
+		}
+	}
+
+	if active >= maxConcurrent {
+		return ErrConcurrentRunsExceeded
+	}
+
+	return nil
+}
+
+// jobRunOverrides holds the per-run capacity/timeout/notification settings
+// resolved by resolveJobRunOverrides.
+type jobRunOverrides struct {
+	workerType      string
+	notification    NotificationProperty
+	numberOfWorkers int
+	maxCapacity     float64
+	timeout         int
+}
+
+// resolveJobRunOverrides applies StartJobRunOptions on top of job j's
+// defaults, matching AWS's StartJobRunRequest semantics: unset (zero-value)
+// overrides fall back to the job definition; a per-run WorkerType/
+// NumberOfWorkers override supersedes a job-level MaxCapacity (and vice
+// versa), since the two are mutually exclusive per run just as they are per
+// job.
+func resolveJobRunOverrides(j *Job, opts StartJobRunOptions) jobRunOverrides {
+	out := jobRunOverrides{
+		workerType:      j.WorkerType,
+		numberOfWorkers: j.NumberOfWorkers,
+		maxCapacity:     j.MaxCapacity,
+		timeout:         j.Timeout,
+		notification:    j.NotificationProperty,
+	}
+
+	if opts.WorkerType != "" {
+		out.workerType = opts.WorkerType
+	}
+
+	if opts.NumberOfWorkers != 0 {
+		out.numberOfWorkers = opts.NumberOfWorkers
+	}
+
+	if opts.MaxCapacity != 0 {
+		out.maxCapacity = opts.MaxCapacity
+	}
+
+	if opts.WorkerType != "" || opts.NumberOfWorkers != 0 {
+		out.maxCapacity = opts.MaxCapacity
+	}
+
+	if opts.MaxCapacity != 0 {
+		out.workerType = ""
+		out.numberOfWorkers = 0
+	}
+
+	if opts.Timeout != 0 {
+		out.timeout = opts.Timeout
+	}
+
+	if opts.NotificationProperty != nil {
+		out.notification = *opts.NotificationProperty
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) StartJobRunWithOptions(
+	jobName string,
+	arguments map[string]string,
+	opts StartJobRunOptions,
+) (*JobRun, error) {
+	if opts.MaxCapacity > 0 && (opts.WorkerType != "" || opts.NumberOfWorkers != 0) {
+		return nil, fmt.Errorf(
+			"%w: cannot specify MaxCapacity and WorkerType/NumberOfWorkers together",
+			ErrValidation,
+		)
+	}
+
 	b.mu.Lock("StartJobRun")
 	defer b.mu.Unlock()
 
@@ -247,17 +348,11 @@ func (b *InMemoryBackend) StartJobRun(
 		return nil, ErrNotFound
 	}
 
-	if maxConcurrent := j.ExecutionProperty.MaxConcurrentRuns; maxConcurrent > 0 {
-		active := 0
-		for _, r := range b.jobRuns[jobName] {
-			if r.JobRunState == stateRunning || r.JobRunState == stateStarting {
-				active++
-			}
-		}
-		if active >= maxConcurrent {
-			return nil, ErrValidation
-		}
+	if err := b.checkJobConcurrencyLocked(jobName, j); err != nil {
+		return nil, err
 	}
+
+	ov := resolveJobRunOverrides(j, opts)
 
 	now := time.Now()
 	run := &JobRun{
@@ -266,15 +361,17 @@ func (b *InMemoryBackend) StartJobRun(
 			now.UnixNano(),
 			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
 		),
-		JobName:         jobName,
-		JobRunState:     stateStarting,
-		StartedOn:       float64(now.Unix()),
-		Arguments:       maps.Clone(arguments),
-		WorkerType:      j.WorkerType,
-		NumberOfWorkers: j.NumberOfWorkers,
-		MaxCapacity:     j.MaxCapacity,
-		GlueVersion:     j.GlueVersion,
-		Timeout:         j.Timeout,
+		JobName:               jobName,
+		JobRunState:           stateStarting,
+		StartedOn:             float64(now.Unix()),
+		Arguments:             maps.Clone(arguments),
+		WorkerType:            ov.workerType,
+		NumberOfWorkers:       ov.numberOfWorkers,
+		MaxCapacity:           ov.maxCapacity,
+		GlueVersion:           j.GlueVersion,
+		Timeout:               ov.timeout,
+		NotificationProperty:  ov.notification,
+		SecurityConfiguration: opts.SecurityConfiguration,
 	}
 	b.jobRuns[jobName] = append(b.jobRuns[jobName], run)
 

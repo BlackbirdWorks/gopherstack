@@ -2,6 +2,7 @@ package acmpca_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -164,9 +165,12 @@ func TestACMPCA_CreateCertificateAuthority_WithTags(t *testing.T) {
 	assert.Len(t, tags, 2)
 }
 
-// TestACMPCA_ListTagsForCertificateAuthority verifies that the
-// ListTagsForCertificateAuthority alias works identically to ListTags.
-func TestACMPCA_ListTagsForCertificateAuthority(t *testing.T) {
+// TestACMPCA_ListTagsForCertificateAuthority_NotARealOp verifies that
+// "ListTagsForCertificateAuthority" -- an op gopherstack previously listed as
+// an undocumented alias for ListTags, even though it does not exist anywhere
+// in aws-sdk-go-v2/service/acmpca (only ListTags does) -- is now rejected like
+// any other unrecognized action, rather than silently accepted.
+func TestACMPCA_ListTagsForCertificateAuthority_NotARealOp(t *testing.T) {
 	t.Parallel()
 
 	h := newACMPCAHandler()
@@ -174,15 +178,13 @@ func TestACMPCA_ListTagsForCertificateAuthority(t *testing.T) {
 
 	h.SetTagsForTest(caARN, map[string]string{"k1": "v1"})
 
-	for _, op := range []string{"ListTags", "ListTagsForCertificateAuthority"} {
-		rec := doACMPCARequest(t, h, op, map[string]any{
-			"CertificateAuthorityArn": caARN,
-		})
-		require.Equal(t, http.StatusOK, rec.Code, "op=%s", op)
-		resp := parseACMPCAResponse(t, rec)
-		tags, _ := resp["Tags"].([]any)
-		assert.Len(t, tags, 1, "op=%s", op)
-	}
+	rec := doACMPCARequest(t, h, "ListTagsForCertificateAuthority", map[string]any{
+		"CertificateAuthorityArn": caARN,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	resp := parseACMPCAResponse(t, rec)
+	assert.Equal(t, "InvalidAction", resp["__type"])
 }
 
 // TestACMPCAHandler_TagCertificateAuthority_NotFound verifies that tagging a
@@ -199,4 +201,76 @@ func TestACMPCAHandler_TagCertificateAuthority_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	resp := parseACMPCAResponse(t, rec)
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+}
+
+// TestACMPCAHandler_TagCertificateAuthority_TooManyTags verifies the real
+// API's documented 50-tag-per-CA limit (TooManyTagsException) -- previously
+// never enforced (PARITY.md gap).
+func TestACMPCAHandler_TagCertificateAuthority_TooManyTags(t *testing.T) {
+	t.Parallel()
+
+	h := newACMPCAHandler()
+	caARN := createHandlerCA(t, h)
+
+	// maxTagsPerCA (handler_tags.go) is 50, per the real API's documented
+	// per-CA tag limit.
+	const maxTagsPerCA = 50
+
+	tags := make([]map[string]string, 0, maxTagsPerCA+1)
+	for i := range maxTagsPerCA + 1 {
+		tags = append(tags, map[string]string{"Key": fmt.Sprintf("k%d", i), "Value": "v"})
+	}
+
+	rec := doACMPCARequest(t, h, "TagCertificateAuthority", map[string]any{
+		"CertificateAuthorityArn": caARN,
+		"Tags":                    tags,
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	resp := parseACMPCAResponse(t, rec)
+	assert.Equal(t, "TooManyTagsException", resp["__type"])
+
+	// Exactly the limit must succeed.
+	rec = doACMPCARequest(t, h, "TagCertificateAuthority", map[string]any{
+		"CertificateAuthorityArn": caARN,
+		"Tags":                    tags[:maxTagsPerCA],
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestACMPCAHandler_ListTags_Pagination verifies MaxResults/NextToken
+// pagination on ListTags -- previously accepted but ignored, always returning
+// every tag in one page (PARITY.md gap).
+func TestACMPCAHandler_ListTags_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newACMPCAHandler()
+	caARN := createHandlerCA(t, h)
+
+	h.SetTagsForTest(caARN, map[string]string{"a": "1", "b": "2", "c": "3", "d": "4", "e": "5"})
+
+	rec := doACMPCARequest(t, h, "ListTags", map[string]any{
+		"CertificateAuthorityArn": caARN,
+		"MaxResults":              2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseACMPCAResponse(t, rec)
+	page1, _ := resp["Tags"].([]any)
+	require.Len(t, page1, 2)
+	nextToken, _ := resp["NextToken"].(string)
+	require.NotEmpty(t, nextToken)
+
+	rec = doACMPCARequest(t, h, "ListTags", map[string]any{
+		"CertificateAuthorityArn": caARN,
+		"MaxResults":              2,
+		"NextToken":               nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseACMPCAResponse(t, rec)
+	page2, _ := resp["Tags"].([]any)
+	require.Len(t, page2, 2)
+
+	// The two pages must not overlap.
+	key := func(m any) string { return m.(map[string]any)["Key"].(string) }
+	assert.NotEqual(t, key(page1[0]), key(page2[0]))
+	assert.NotEqual(t, key(page1[1]), key(page2[1]))
 }

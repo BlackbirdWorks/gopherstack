@@ -123,6 +123,21 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSetWithOptions(
 		}
 	}
 
+	// TemplateId, when supplied, must reference a template previously created for this
+	// application via CreateCloudFormationTemplate -- real AWS SAR 404s on an unknown or
+	// mismatched-application TemplateId rather than silently ignoring it.
+	if opts.TemplateID != "" {
+		t, foundTemplate := b.cfTemplates.Get(opts.TemplateID)
+		if !foundTemplate || t.AppName != appName {
+			return nil, fmt.Errorf(
+				"%w: could not find template %q for application %q",
+				ErrTemplateNotFound,
+				opts.TemplateID,
+				appName,
+			)
+		}
+	}
+
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
 
 	csName := changeSetName

@@ -65,7 +65,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListCertificateAuthorities",
 		"ListPermissions",
 		"ListTags",
-		"ListTagsForCertificateAuthority",
 		"PutPolicy",
 		"RevokeCertificate",
 		"RestoreCertificateAuthority",
@@ -206,7 +205,7 @@ func (h *Handler) dispatchCertAndTagOps(ctx context.Context, action string, body
 		return h.jsonTagCA(ctx, body)
 	case "UntagCertificateAuthority":
 		return h.jsonUntagCA(ctx, body)
-	case "ListTagsForCertificateAuthority", "ListTags":
+	case "ListTags":
 		return h.jsonListTags(ctx, body)
 	default:
 		return h.dispatchPermissionAndAuditOps(ctx, action, body)
@@ -253,6 +252,8 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "InvalidStateException"
 	case errors.Is(opErr, ErrPermissionAlreadyExists):
 		code = "PermissionAlreadyExistsException"
+	case errors.Is(opErr, ErrTooManyTags):
+		code = "TooManyTagsException"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError

@@ -31,10 +31,15 @@ const (
 	guardrailPatternHarmful = "harmful"
 	guardrailPatternToxic   = "toxic"
 	guardrailPatternUnsafe  = "unsafe"
+
+	guardrailActionBlocked = "BLOCKED"
+	guardrailActionNone    = "NONE"
 )
 
-// evaluateGuardrailAction returns "BLOCKED" if the content matches known trigger patterns.
-func evaluateGuardrailAction(content []guardrailContentItem) string {
+// evaluateGuardrailAction returns guardrailActionBlocked and the matched
+// keyword if the content matches a known trigger pattern, or
+// guardrailActionNone and "" otherwise.
+func evaluateGuardrailAction(content []guardrailContentItem) (string, string) {
 	for _, item := range content {
 		if item.Text == nil {
 			continue
@@ -49,12 +54,42 @@ func evaluateGuardrailAction(content []guardrailContentItem) string {
 			guardrailPatternUnsafe,
 		} {
 			if strings.Contains(lower, kw) {
-				return "BLOCKED"
+				return guardrailActionBlocked, kw
 			}
 		}
 	}
 
-	return "NONE"
+	return guardrailActionNone, ""
+}
+
+// buildGuardrailAssessments reflects the guardrail's decision back in the
+// wire-accurate types.GuardrailAssessment shape (see
+// aws-sdk-go-v2/service/bedrockruntime/types.GuardrailWordPolicyAssessment):
+// for a BLOCKED action, gopherstack's deterministic mock blocks on a keyword
+// match, so it reports that match as a custom-word-policy hit. For NONE,
+// gopherstack has no configured guardrail policies to report against
+// (guardrail configuration lives in the separate "bedrock" control-plane
+// service), so an empty assessments list is returned -- not a disguised
+// no-op, since it correctly reflects that no policy violation occurred.
+func buildGuardrailAssessments(action, matchedKeyword string) []map[string]any {
+	if action != guardrailActionBlocked {
+		return []map[string]any{}
+	}
+
+	return []map[string]any{
+		{
+			"wordPolicy": map[string]any{
+				"customWords": []map[string]any{
+					{
+						"match":    matchedKeyword,
+						"action":   guardrailActionBlocked,
+						"detected": true,
+					},
+				},
+				"managedWordLists": []map[string]any{},
+			},
+		},
+	}
 }
 
 // handleApplyGuardrail handles POST /guardrail/{guardrailIdentifier}/version/{guardrailVersion}/apply.
@@ -78,11 +113,11 @@ func (h *Handler) handleApplyGuardrail(
 		_ = json.Unmarshal(body, &req)
 	}
 
-	action := evaluateGuardrailAction(req.Content)
+	action, matchedKeyword := evaluateGuardrailAction(req.Content)
 
 	resp := map[string]any{
 		"action":      action,
-		"assessments": []map[string]any{},
+		"assessments": buildGuardrailAssessments(action, matchedKeyword),
 		"outputs":     buildGuardrailOutputs(req),
 		keyUsage: map[string]any{
 			"topicPolicyUnits":                    0,
@@ -101,7 +136,7 @@ func (h *Handler) handleApplyGuardrail(
 
 	h.Backend.RecordInvocation("ApplyGuardrail", guardrailID+"/"+guardrailVersion, string(body), string(out))
 
-	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("Content-Type", contentTypeJSON)
 
 	return c.JSONBlob(http.StatusOK, out)
 }

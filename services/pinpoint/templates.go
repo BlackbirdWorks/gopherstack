@@ -36,7 +36,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 	t := &EmailTemplate{
 		ARN:                  templateARN,
 		CreationDate:         now,
-		DefaultSubstitutions: cloneAnyMap(req.DefaultSubstitutions),
+		DefaultSubstitutions: req.DefaultSubstitutions,
 		HTMLPart:             req.HTMLPart,
 		LastModifiedDate:     now,
 		RecommenderID:        req.RecommenderID,
@@ -44,6 +44,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 		Tags:                 nonNilTagsCopy(req.Tags),
 		TemplateDescription:  req.TemplateDescription,
 		TemplateName:         templateName,
+		TemplateType:         ChannelTypeEmail,
 		TextPart:             req.TextPart,
 		Version:              "1",
 	}
@@ -79,11 +80,13 @@ func (b *InMemoryBackend) CreateInAppTemplate(
 		ARN:                 templateARN,
 		Content:             cloneContentSlice(req.Content),
 		CreationDate:        now,
+		CustomConfig:        nonNilTagsCopy(req.CustomConfig),
 		LastModifiedDate:    now,
 		Layout:              req.Layout,
 		Tags:                nonNilTagsCopy(req.Tags),
 		TemplateDescription: req.TemplateDescription,
 		TemplateName:        templateName,
+		TemplateType:        templateTypeINAPP,
 		Version:             "1",
 	}
 
@@ -115,18 +118,21 @@ func (b *InMemoryBackend) CreatePushTemplate(
 
 	now := nowRFC3339()
 	t := &PushTemplate{
-		APNS:                cloneAnyMap(req.APNS),
-		ARN:                 templateARN,
-		Body:                req.Body,
-		CreationDate:        now,
-		Default:             cloneAnyMap(req.Default),
-		GCM:                 cloneAnyMap(req.GCM),
-		LastModifiedDate:    now,
-		Tags:                nonNilTagsCopy(req.Tags),
-		TemplateDescription: req.TemplateDescription,
-		TemplateName:        templateName,
-		Title:               req.Title,
-		Version:             "1",
+		ADM:                  cloneAnyMap(req.ADM),
+		APNS:                 cloneAnyMap(req.APNS),
+		ARN:                  templateARN,
+		Baidu:                cloneAnyMap(req.Baidu),
+		CreationDate:         now,
+		Default:              cloneAnyMap(req.Default),
+		DefaultSubstitutions: req.DefaultSubstitutions,
+		GCM:                  cloneAnyMap(req.GCM),
+		LastModifiedDate:     now,
+		RecommenderID:        req.RecommenderID,
+		Tags:                 nonNilTagsCopy(req.Tags),
+		TemplateDescription:  req.TemplateDescription,
+		TemplateName:         templateName,
+		TemplateType:         templateTypePUSH,
+		Version:              "1",
 	}
 
 	b.pushTemplates.Put(t)
@@ -157,15 +163,17 @@ func (b *InMemoryBackend) CreateSmsTemplate(
 
 	now := nowRFC3339()
 	t := &SmsTemplate{
-		ARN:                 templateARN,
-		Body:                req.Body,
-		CreationDate:        now,
-		LastModifiedDate:    now,
-		SenderID:            req.SenderID,
-		Tags:                nonNilTagsCopy(req.Tags),
-		TemplateDescription: req.TemplateDescription,
-		TemplateName:        templateName,
-		Version:             "1",
+		ARN:                  templateARN,
+		Body:                 req.Body,
+		CreationDate:         now,
+		DefaultSubstitutions: req.DefaultSubstitutions,
+		LastModifiedDate:     now,
+		RecommenderID:        req.RecommenderID,
+		Tags:                 nonNilTagsCopy(req.Tags),
+		TemplateDescription:  req.TemplateDescription,
+		TemplateName:         templateName,
+		TemplateType:         ChannelTypeSMS,
+		Version:              "1",
 	}
 
 	b.smsTemplates.Put(t)
@@ -183,7 +191,6 @@ func (b *InMemoryBackend) CreateSmsTemplate(
 func cloneEmailTemplate(t *EmailTemplate) *EmailTemplate {
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
-	cp.DefaultSubstitutions = cloneAnyMap(t.DefaultSubstitutions)
 
 	return &cp
 }
@@ -191,6 +198,7 @@ func cloneEmailTemplate(t *EmailTemplate) *EmailTemplate {
 func cloneInAppTemplate(t *InAppTemplate) *InAppTemplate {
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
+	cp.CustomConfig = nonNilTagsCopy(t.CustomConfig)
 	cp.Content = cloneContentSlice(t.Content)
 
 	return &cp
@@ -215,6 +223,8 @@ func clonePushTemplate(t *PushTemplate) *PushTemplate {
 	cp.Default = cloneAnyMap(t.Default)
 	cp.GCM = cloneAnyMap(t.GCM)
 	cp.APNS = cloneAnyMap(t.APNS)
+	cp.ADM = cloneAnyMap(t.ADM)
+	cp.Baidu = cloneAnyMap(t.Baidu)
 
 	return &cp
 }
@@ -228,11 +238,18 @@ func cloneSmsTemplate(t *SmsTemplate) *SmsTemplate {
 
 // VoiceTemplate represents a Pinpoint voice template.
 type VoiceTemplate struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	ARN          string            `json:"Arn,omitempty"`
-	TemplateName string            `json:"TemplateName"`
-	Body         string            `json:"Body,omitempty"`
-	CreationDate string            `json:"CreationDate,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	ARN                  string            `json:"Arn,omitempty"`
+	TemplateName         string            `json:"TemplateName"`
+	TemplateType         string            `json:"TemplateType"`
+	Body                 string            `json:"Body,omitempty"`
+	CreationDate         string            `json:"CreationDate,omitempty"`
+	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
+	LanguageCode         string            `json:"LanguageCode,omitempty"`
+	LastModifiedDate     string            `json:"LastModifiedDate,omitempty"`
+	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	Version              string            `json:"Version,omitempty"`
+	VoiceID              string            `json:"VoiceId,omitempty"`
 }
 
 // CreateVoiceTemplate creates a new Pinpoint voice template.
@@ -254,12 +271,20 @@ func (b *InMemoryBackend) CreateVoiceTemplate(
 		fmt.Sprintf("templates/%s/VOICE", templateName),
 	)
 
+	now := nowRFC3339()
 	t := &VoiceTemplate{
-		ARN:          templateARN,
-		TemplateName: templateName,
-		Body:         req.Body,
-		Tags:         nonNilTagsCopy(req.Tags),
-		CreationDate: nowRFC3339(),
+		ARN:                  templateARN,
+		TemplateName:         templateName,
+		TemplateType:         ChannelTypeVoice,
+		Body:                 req.Body,
+		DefaultSubstitutions: req.DefaultSubstitutions,
+		LanguageCode:         req.LanguageCode,
+		TemplateDescription:  req.TemplateDescription,
+		VoiceID:              req.VoiceID,
+		Tags:                 nonNilTagsCopy(req.Tags),
+		CreationDate:         now,
+		LastModifiedDate:     now,
+		Version:              "1",
 	}
 
 	b.voiceTemplates.Put(t)
@@ -310,6 +335,22 @@ func (b *InMemoryBackend) UpdateVoiceTemplate(
 		t.Body = req.Body
 	}
 
+	if req.DefaultSubstitutions != "" {
+		t.DefaultSubstitutions = req.DefaultSubstitutions
+	}
+
+	if req.LanguageCode != "" {
+		t.LanguageCode = req.LanguageCode
+	}
+
+	if req.TemplateDescription != "" {
+		t.TemplateDescription = req.TemplateDescription
+	}
+
+	if req.VoiceID != "" {
+		t.VoiceID = req.VoiceID
+	}
+
 	if req.Tags != nil {
 		t.Tags = nonNilTagsCopy(req.Tags)
 	}
@@ -329,6 +370,9 @@ func (b *InMemoryBackend) UpdateVoiceTemplate(
 		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
 	}
 
+	t.LastModifiedDate = nowRFC3339()
+	t.Version = nextVersion
+
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
 
@@ -347,6 +391,7 @@ func (b *InMemoryBackend) DeleteVoiceTemplate(templateName string) (*VoiceTempla
 
 	b.voiceTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
+	delete(b.templateVersionHistory, templateName+"/"+ChannelTypeVoice)
 
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
@@ -480,8 +525,8 @@ func (b *InMemoryBackend) UpdateEmailTemplate(
 		t.RecommenderID = req.RecommenderID
 	}
 
-	if len(req.DefaultSubstitutions) > 0 {
-		t.DefaultSubstitutions = cloneAnyMap(req.DefaultSubstitutions)
+	if req.DefaultSubstitutions != "" {
+		t.DefaultSubstitutions = req.DefaultSubstitutions
 	}
 
 	t.LastModifiedDate = nowRFC3339()
@@ -560,6 +605,10 @@ func (b *InMemoryBackend) UpdateInAppTemplate(
 		t.TemplateDescription = req.TemplateDescription
 	}
 
+	if len(req.CustomConfig) > 0 {
+		t.CustomConfig = nonNilTagsCopy(req.CustomConfig)
+	}
+
 	t.LastModifiedDate = nowRFC3339()
 	t.Version = nextVersion
 
@@ -624,16 +673,29 @@ func (b *InMemoryBackend) UpdatePushTemplate(
 		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
 	}
 
-	if req.Body != "" {
-		t.Body = req.Body
-	}
+	applyPushTemplateUpdate(t, req)
 
-	if req.Title != "" {
-		t.Title = req.Title
-	}
+	t.LastModifiedDate = nowRFC3339()
+	t.Version = nextVersion
 
+	return clonePushTemplate(t), nil
+}
+
+// applyPushTemplateUpdate copies every present field from req onto t. Split
+// out of UpdatePushTemplate to keep that function's cyclomatic complexity
+// down now that the push template surface covers five platform-override
+// objects plus DefaultSubstitutions/RecommenderId.
+func applyPushTemplateUpdate(t *PushTemplate, req createPushTemplateRequest) {
 	if req.TemplateDescription != "" {
 		t.TemplateDescription = req.TemplateDescription
+	}
+
+	if req.DefaultSubstitutions != "" {
+		t.DefaultSubstitutions = req.DefaultSubstitutions
+	}
+
+	if req.RecommenderID != "" {
+		t.RecommenderID = req.RecommenderID
 	}
 
 	if len(req.Default) > 0 {
@@ -648,10 +710,13 @@ func (b *InMemoryBackend) UpdatePushTemplate(
 		t.APNS = cloneAnyMap(req.APNS)
 	}
 
-	t.LastModifiedDate = nowRFC3339()
-	t.Version = nextVersion
+	if len(req.ADM) > 0 {
+		t.ADM = cloneAnyMap(req.ADM)
+	}
 
-	return clonePushTemplate(t), nil
+	if len(req.Baidu) > 0 {
+		t.Baidu = cloneAnyMap(req.Baidu)
+	}
 }
 
 // DeletePushTemplate deletes a push notification template by name.
@@ -716,8 +781,12 @@ func (b *InMemoryBackend) UpdateSmsTemplate(
 		t.Body = req.Body
 	}
 
-	if req.SenderID != "" {
-		t.SenderID = req.SenderID
+	if req.DefaultSubstitutions != "" {
+		t.DefaultSubstitutions = req.DefaultSubstitutions
+	}
+
+	if req.RecommenderID != "" {
+		t.RecommenderID = req.RecommenderID
 	}
 
 	if req.TemplateDescription != "" {

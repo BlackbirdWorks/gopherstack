@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // maxDisplayNameLength is the maximum length allowed for a group's DisplayName.
@@ -15,10 +16,21 @@ const maxDisplayNameLength = 1024
 // ----------------------------------------
 
 // CreateGroupRequest holds the parameters for creating a group.
+//
+// The real CreateGroupRequest smithy shape has no ExternalIds member --
+// ExternalIds is populated only by external-identity-provider provisioning
+// and is exposed as an attribute Group carries, but it is not settable at
+// creation time by any real API caller. A previous revision of this struct
+// (and the wire-facing createGroupRequest in handler_groups.go) accepted and
+// applied an ExternalIds field at CreateGroup time; that was a
+// gopherstack-invented capability with no real-AWS counterpart and has been
+// removed. ExternalIds is instead settable the same way DisplayName and
+// Description are: via UpdateGroup's AttributeOperations (see
+// applyGroupAttributes below), mirroring how User.ExternalIDs is only
+// reachable through UpdateUser, never CreateUser.
 type CreateGroupRequest struct {
-	DisplayName string       `json:"DisplayName"`
-	Description string       `json:"Description"`
-	ExternalIDs []ExternalID `json:"ExternalIds"`
+	DisplayName string `json:"DisplayName"`
+	Description string `json:"Description"`
 }
 
 // CreateGroup creates a new group in the identity store.
@@ -27,6 +39,10 @@ func (b *InMemoryBackend) CreateGroup(ctx context.Context, storeID string, req *
 
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
+
+	if err := validateGroupPayloadStrings(req); err != nil {
+		return nil, err
+	}
 
 	// Check uniqueness by DisplayName using index.
 	if req.DisplayName != "" {
@@ -40,13 +56,18 @@ func (b *InMemoryBackend) CreateGroup(ctx context.Context, storeID string, req *
 	}
 
 	groupID := b.generateID()
+	now := epochTime(time.Now().UTC())
+	callerARN := b.simulatedCallerARN()
 	group := &Group{
 		GroupID:         groupID,
 		IdentityStoreID: storeID,
 		DisplayName:     req.DisplayName,
 		Description:     req.Description,
-		ExternalIDs:     req.ExternalIDs,
 		region:          region,
+		CreatedAt:       now,
+		CreatedBy:       callerARN,
+		UpdatedAt:       now,
+		UpdatedBy:       callerARN,
 	}
 
 	b.groups.Put(group)
@@ -102,6 +123,12 @@ func (b *InMemoryBackend) UpdateGroup(ctx context.Context, storeID, groupID stri
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
+	for _, op := range ops {
+		if err := validateGroupAttributeOperation(op); err != nil {
+			return err
+		}
+	}
+
 	if err := b.validateGroupOps(region, storeID, group.DisplayName, ops); err != nil {
 		return err
 	}
@@ -111,6 +138,9 @@ func (b *InMemoryBackend) UpdateGroup(ctx context.Context, storeID, groupID stri
 	b.groups.Delete(id)
 
 	applyGroupAttributes(group, ops)
+
+	group.UpdatedAt = epochTime(time.Now().UTC())
+	group.UpdatedBy = b.simulatedCallerARN()
 
 	b.groups.Put(group)
 
@@ -145,10 +175,12 @@ func applyGroupAttributes(group *Group, ops []attributeOperation) {
 			if s, isStr := op.AttributeValue.(string); isStr {
 				group.DisplayName = s
 			}
-		case "description":
+		case attrDescription:
 			if s, isStr := op.AttributeValue.(string); isStr {
 				group.Description = s
 			}
+		case attrExternalIDs:
+			group.ExternalIDs = parseExternalIDs(op.AttributeValue)
 		}
 	}
 }
@@ -170,18 +202,28 @@ func applyGroupFilters(groups []*Group, filters []ListFilter) []*Group {
 	return result
 }
 
+// groupMatchesFilter checks a single filter against g. An unrecognized
+// AttributePath matches NO group rather than every group -- same bug class
+// as matchUserSingleValueFilter's former implicit-true default (see
+// PARITY.md gap history): the previous switch had no default case, so an
+// unrecognized path fell through the loop body untouched, silently treating
+// it as satisfied instead of rejecting or ignoring it correctly.
+func groupMatchesFilter(g *Group, f ListFilter) bool {
+	switch strings.ToLower(f.AttributePath) {
+	case attrDisplayName:
+		return g.DisplayName == f.AttributeValue
+	case attrDescription:
+		return g.Description == f.AttributeValue
+	}
+
+	return false
+}
+
 // groupMatchesFilters reports whether g satisfies every filter in the slice.
 func groupMatchesFilters(g *Group, filters []ListFilter) bool {
 	for _, f := range filters {
-		switch strings.ToLower(f.AttributePath) {
-		case attrDisplayName:
-			if g.DisplayName != f.AttributeValue {
-				return false
-			}
-		case "description":
-			if g.Description != f.AttributeValue {
-				return false
-			}
+		if !groupMatchesFilter(g, f) {
+			return false
 		}
 	}
 

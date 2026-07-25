@@ -191,26 +191,7 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, groupName)
 	}
 
-	defaults := []DBClusterParameter{
-		{
-			ParameterName:  "tls",
-			ParameterValue: paramEnabled,
-			Description:    "Specifies the TLS setting",
-			Source:         "system",
-			ApplyType:      "static",
-			DataType:       paramTypeStr,
-			IsModifiable:   true,
-		},
-		{
-			ParameterName:  "ttl_monitor",
-			ParameterValue: paramEnabled,
-			Description:    "Specifies the TTL monitor setting",
-			Source:         "system",
-			ApplyType:      "dynamic",
-			DataType:       paramTypeStr,
-			IsModifiable:   true,
-		},
-	}
+	defaults := clusterParameterDefaults()
 
 	params := make([]DBClusterParameter, 0, len(defaults))
 	for _, p := range defaults {
@@ -227,18 +208,34 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(
 	return params, nil
 }
 
-// DescribeEngineDefaultClusterParameters returns the default parameters for an engine family.
-func (b *InMemoryBackend) DescribeEngineDefaultClusterParameters(
-	_ context.Context,
-	_ string,
-) []DBClusterParameter {
+// applyMethodForType returns the real AWS ApplyMethod (types.ApplyMethod:
+// "immediate" or "pending-reboot") a parameter's ApplyType implies: a
+// "static" parameter always requires a DB instance reboot to take effect,
+// while a "dynamic" one applies immediately -- see ResetDBClusterParameterGroup's
+// own doc comment ("dynamic parameters are updated immediately and static
+// parameters are set to pending-reboot").
+func applyMethodForType(applyType string) string {
+	if applyType == "static" {
+		return "pending-reboot"
+	}
+
+	return "immediate"
+}
+
+// clusterParameterDefaults returns the built-in DocDB cluster-parameter
+// catalog (shared by DescribeDBClusterParameters and
+// DescribeEngineDefaultClusterParameters) with ApplyMethod populated per
+// applyMethodForType -- previously omitted entirely from the wire response
+// (cosmetic but real: AWS's own Parameter shape always carries it).
+func clusterParameterDefaults() []DBClusterParameter {
 	return []DBClusterParameter{
 		{
 			ParameterName:  "tls",
 			ParameterValue: paramEnabled,
 			Description:    "Specifies the TLS setting",
-			Source:         "engine-default",
+			Source:         "system",
 			ApplyType:      "static",
+			ApplyMethod:    applyMethodForType("static"),
 			DataType:       paramTypeStr,
 			IsModifiable:   true,
 		},
@@ -246,18 +243,43 @@ func (b *InMemoryBackend) DescribeEngineDefaultClusterParameters(
 			ParameterName:  "ttl_monitor",
 			ParameterValue: paramEnabled,
 			Description:    "Specifies the TTL monitor setting",
-			Source:         "engine-default",
+			Source:         "system",
 			ApplyType:      "dynamic",
+			ApplyMethod:    applyMethodForType("dynamic"),
 			DataType:       paramTypeStr,
 			IsModifiable:   true,
 		},
 	}
 }
 
-// ResetDBClusterParameterGroup resets a parameter group to its default values.
+// DescribeEngineDefaultClusterParameters returns the default parameters for an engine family.
+func (b *InMemoryBackend) DescribeEngineDefaultClusterParameters(
+	_ context.Context,
+	_ string,
+) []DBClusterParameter {
+	defaults := clusterParameterDefaults()
+	for i := range defaults {
+		defaults[i].Source = "engine-default"
+	}
+
+	return defaults
+}
+
+// ResetDBClusterParameterGroup resets a parameter group to its default
+// values: when resetAll is true, every user override is discarded (the
+// whole group reverts to engine defaults); otherwise only the overrides
+// named in paramNames are discarded, leaving the rest untouched. This
+// previously validated the group and returned an unchanged clone without
+// ever touching pg.Parameters -- a disguised no-op that made
+// ResetDBClusterParameterGroup silently do nothing regardless of what a
+// real caller asked to reset (real AWS's own doc comment: "To reset the
+// entire cluster parameter group, specify ... ResetAllParameters. To reset
+// specific parameters, submit a list of ... ParameterName").
 func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 	ctx context.Context,
 	name string,
+	resetAll bool,
+	paramNames []string,
 ) (*DBClusterParameterGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ResetDBClusterParameterGroup")
@@ -266,8 +288,17 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 	}
+	switch {
+	case resetAll:
+		pg.Parameters = make(map[string]string)
+	case len(paramNames) > 0:
+		for _, p := range paramNames {
+			delete(pg.Parameters, p)
+		}
+	}
 	cp := *pg
 	cp.Tags = copyTags(pg.Tags)
+	cp.Parameters = maps.Clone(pg.Parameters)
 
 	return &cp, nil
 }

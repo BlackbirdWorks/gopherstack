@@ -15,7 +15,7 @@ import (
 func claimTestDevice(t *testing.T, h *medialive.Handler, id string) {
 	t.Helper()
 
-	rec := doRequest(t, h, http.MethodPost, "/prod/claimDevice", map[string]any{"Id": id})
+	rec := doRequest(t, h, http.MethodPost, "/prod/claimDevice", map[string]any{"id": id})
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -28,17 +28,17 @@ func TestHandlerClaimDevice(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			body:       map[string]any{"Id": "hd-abc123"},
+			body:       map[string]any{"id": "hd-abc123"},
 			name:       "success",
 			wantStatus: http.StatusOK,
 		},
 		{
-			body:       map[string]any{"Id": ""},
+			body:       map[string]any{"id": ""},
 			name:       "missing id returns bad request",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			body:       map[string]any{"Id": "hd-dup"},
+			body:       map[string]any{"id": "hd-dup"},
 			name:       "duplicate claim returns conflict",
 			wantStatus: http.StatusOK,
 		},
@@ -286,9 +286,9 @@ func TestHandlerInputDeviceTransferLifecycle(t *testing.T) {
 				http.MethodPost,
 				"/prod/inputDevices/"+deviceID+"/transfer",
 				map[string]any{
-					"TargetCustomerId": "123456789012",
-					"TargetRegion":     "us-west-2",
-					"TransferMessage":  "please accept",
+					"targetCustomerId": "123456789012",
+					"targetRegion":     "us-west-2",
+					"transferMessage":  "please accept",
 				},
 			)
 			assert.Equal(t, tt.wantTransferStatus, rec.Code)
@@ -305,6 +305,47 @@ func TestHandlerInputDeviceTransferLifecycle(t *testing.T) {
 	}
 }
 
+// TestHandlerTransferInputDevice_WireCasing locks in the fix for a bug
+// where handleTransferInputDevice read PascalCase request-body keys
+// ("TargetCustomerId"/"TargetRegion"/"TransferMessage") that never match a
+// real client's lowerCamel TransferInputDeviceInput body (verified against
+// aws-sdk-go-v2/service/medialive's
+// awsRestjson1_serializeOpDocumentTransferInputDeviceInput), silently
+// dropping every real caller's target/message fields. Asserts the fields
+// actually reach the stored pending transfer and are echoed back by
+// ListInputDeviceTransfers.
+func TestHandlerTransferInputDevice_WireCasing(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	claimTestDevice(t, h, "hd-casing1")
+
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/prod/inputDevices/hd-casing1/transfer",
+		map[string]any{
+			"targetCustomerId": "999900001111",
+			"targetRegion":     "eu-west-1",
+			"transferMessage":  "casing regression check",
+		},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doRequest(t, h, http.MethodGet, "/prod/inputDeviceTransfers?transferType=OUTGOING", nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	transfers := resp["inputDeviceTransfers"].([]any)
+	require.Len(t, transfers, 1)
+
+	transfer := transfers[0].(map[string]any)
+	assert.Equal(t, "999900001111", transfer["targetCustomerId"])
+	assert.Equal(t, "casing regression check", transfer["message"])
+}
+
 func TestHandlerTransferInputDevice_NoDevice(t *testing.T) {
 	t.Parallel()
 
@@ -315,7 +356,7 @@ func TestHandlerTransferInputDevice_NoDevice(t *testing.T) {
 		http.MethodPost,
 		"/prod/inputDevices/hd-notfound/transfer",
 		map[string]any{
-			"TargetCustomerId": "123456789012",
+			"targetCustomerId": "123456789012",
 		},
 	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -365,7 +406,7 @@ func TestHandlerListInputDeviceTransfers(t *testing.T) {
 						http.MethodPost,
 						"/prod/inputDevices/"+id+"/transfer",
 						map[string]any{
-							"TargetCustomerId": "123456789012",
+							"targetCustomerId": "123456789012",
 						},
 					)
 				}
@@ -466,7 +507,7 @@ func TestInputDeviceLifecycleExtras(t *testing.T) {
 		h,
 		http.MethodPost,
 		"/prod/claimDevice",
-		map[string]any{"Id": "hd-device-1"},
+		map[string]any{"id": "hd-device-1"},
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 

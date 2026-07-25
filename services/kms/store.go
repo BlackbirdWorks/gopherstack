@@ -473,6 +473,29 @@ func (b *InMemoryBackend) resolveARNKeyID(keyID string) (string, string, error) 
 	return "", "", fmt.Errorf("%w: unsupported KMS ARN resource %q", ErrValidation, parsed.Resource)
 }
 
+// isAliasKeyID reports whether keyID identifies a key via an alias -- either a
+// bare "alias/..." name or a KMS ARN whose resource segment is "alias/...".
+// Almost every KMS operation that takes a KeyId happily accepts a key ID, key
+// ARN, alias name, or alias ARN interchangeably (see resolveKeyID above), but
+// a handful of operations' real aws-sdk-go-v2 doc comments explicitly carve
+// out an exception -- GetKeyLastUsage is the one implemented in this
+// codebase ("Specify the key ID or key ARN of the KMS key... Alias names are
+// not supported."). An unparsable ARN is reported as not-an-alias; the
+// caller's own resolution path will surface the real parse error.
+func isAliasKeyID(keyID string) bool {
+	if strings.HasPrefix(keyID, "alias/") {
+		return true
+	}
+
+	if strings.HasPrefix(keyID, "arn:") {
+		if parsed, err := awsarn.Parse(keyID); err == nil {
+			return strings.HasPrefix(parsed.Resource, "alias/")
+		}
+	}
+
+	return false
+}
+
 // clearResolutionCache discards all cached alias/ARN→keyID mappings in O(1) by swapping
 // to a fresh map. Only use this when the entire cache must be invalidated (e.g. Reset).
 // For targeted invalidation prefer evictAliasesFromCache or a single Delete call.

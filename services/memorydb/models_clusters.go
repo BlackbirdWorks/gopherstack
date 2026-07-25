@@ -5,40 +5,48 @@ import (
 )
 
 // Cluster represents an in-memory MemoryDB cluster.
+//
+// PendingStatus/AvailableAt implement the goroutine-free "creating" ->
+// "available" lifecycle overlay (see lifecycle.go): PendingStatus holds the
+// transient status observed until the backend clock passes AvailableAt, at
+// which point Status (the terminal value) takes over. Both are zero-valued
+// (no-op) unless SetLifecycleDelay has been configured, preserving the
+// pre-existing instant-available behavior by default.
 type Cluster struct {
-	CreatedAt                     time.Time         `json:"createdAt"`
-	Tags                          map[string]string `json:"tags"`
-	KmsKeyID                      string            `json:"kmsKeyID"`
-	SnsTopicArn                   string            `json:"snsTopicArn"`
-	SnsTopicStatus                string            `json:"snsTopicStatus"`
-	Description                   string            `json:"description"`
-	NodeType                      string            `json:"nodeType"`
-	EngineVersion                 string            `json:"engineVersion"`
-	ACLName                       string            `json:"aclName"`
-	SubnetGroupName               string            `json:"subnetGroupName"`
-	ParameterGroupName            string            `json:"parameterGroupName"`
-	ParameterGroupStatus          string            `json:"parameterGroupStatus"`
-	MultiRegionClusterName        string            `json:"multiRegionClusterName"`
-	MultiRegionParameterGroupName string            `json:"multiRegionParameterGroupName"`
-	Status                        string            `json:"status"`
-	MaintenanceWindow             string            `json:"maintenanceWindow"`
-	Name                          string            `json:"name"`
-	ARN                           string            `json:"arn"`
-	Region                        string            `json:"region"`
-	SnapshotWindow                string            `json:"snapshotWindow"`
-	Endpoint                      string            `json:"endpoint"`
-	AvailabilityMode              string            `json:"availabilityMode"`
-	Engine                        string            `json:"engine"`
-	DataTiering                   string            `json:"dataTiering"`
-	NetworkType                   string            `json:"networkType"`
-	IPDiscovery                   string            `json:"ipDiscovery"`
-	SecurityGroupIDs              []string          `json:"securityGroupIDs"`
-	NumReplicasPerShard           int32             `json:"numReplicasPerShard"`
-	SnapshotRetentionLimit        int32             `json:"snapshotRetentionLimit"`
-	Port                          int32             `json:"port"`
-	NumShards                     int32             `json:"numShards"`
-	TLSEnabled                    bool              `json:"tlsEnabled"`
-	AutoMinorVersionUpgrade       bool              `json:"autoMinorVersionUpgrade"`
+	CreatedAt               time.Time         `json:"createdAt"`
+	AvailableAt             time.Time         `json:"availableAt"`
+	Tags                    map[string]string `json:"tags"`
+	KmsKeyID                string            `json:"kmsKeyID"`
+	SnsTopicArn             string            `json:"snsTopicArn"`
+	SnsTopicStatus          string            `json:"snsTopicStatus"`
+	Description             string            `json:"description"`
+	NodeType                string            `json:"nodeType"`
+	EngineVersion           string            `json:"engineVersion"`
+	ACLName                 string            `json:"aclName"`
+	SubnetGroupName         string            `json:"subnetGroupName"`
+	ParameterGroupName      string            `json:"parameterGroupName"`
+	ParameterGroupStatus    string            `json:"parameterGroupStatus"`
+	MultiRegionClusterName  string            `json:"multiRegionClusterName"`
+	Status                  string            `json:"status"`
+	PendingStatus           string            `json:"pendingStatus"`
+	MaintenanceWindow       string            `json:"maintenanceWindow"`
+	Name                    string            `json:"name"`
+	ARN                     string            `json:"arn"`
+	Region                  string            `json:"region"`
+	SnapshotWindow          string            `json:"snapshotWindow"`
+	Endpoint                string            `json:"endpoint"`
+	AvailabilityMode        string            `json:"availabilityMode"`
+	Engine                  string            `json:"engine"`
+	DataTiering             string            `json:"dataTiering"`
+	NetworkType             string            `json:"networkType"`
+	IPDiscovery             string            `json:"ipDiscovery"`
+	SecurityGroupIDs        []string          `json:"securityGroupIDs"`
+	NumReplicasPerShard     int32             `json:"numReplicasPerShard"`
+	SnapshotRetentionLimit  int32             `json:"snapshotRetentionLimit"`
+	Port                    int32             `json:"port"`
+	NumShards               int32             `json:"numShards"`
+	TLSEnabled              bool              `json:"tlsEnabled"`
+	AutoMinorVersionUpgrade bool              `json:"autoMinorVersionUpgrade"`
 }
 
 type createClusterRequest struct {
@@ -64,6 +72,7 @@ type createClusterRequest struct {
 	NodeType                string     `json:"NodeType"`
 	ClusterName             string     `json:"ClusterName"`
 	ACLName                 string     `json:"ACLName"`
+	MultiRegionClusterName  string     `json:"MultiRegionClusterName,omitempty"`
 	Tags                    []tagEntry `json:"Tags,omitempty"`
 	SecurityGroupIDs        []string   `json:"SecurityGroupIds,omitempty"`
 	SnapshotArns            []string   `json:"SnapshotArns,omitempty"`
@@ -115,40 +124,48 @@ type securityGroupMembership struct {
 	Status          string `json:"Status,omitempty"`
 }
 
+// clusterObject is the wire shape of the real SDK's types.Cluster, field-diffed
+// against deserializers.go's awsAwsjson11_deserializeDocumentCluster (the
+// authoritative list of 29 recognized keys). Three fields from a prior pass
+// were fabricated and have been removed: "Tags" (Cluster carries no inline
+// tags -- confirmed absent from the deserializer; a real client fetches tags
+// via the separate ListTags(ResourceArn) operation, matching this service's
+// ListTags/TagResource/UntagResource op family), "MultiRegionParameterGroupName"
+// (that field exists on the distinct ClusterConfiguration shape used inside
+// Snapshot, not on Cluster itself), and "NumberOfReplicasPerShard" (not part
+// of the wire Cluster shape at all -- a real client derives replica count per
+// shard from len(Shards[i].Nodes)-1).
 type clusterObject struct {
-	ClusterEndpoint               *endpointObject           `json:"ClusterEndpoint,omitempty"`
-	PendingUpdates                *pendingUpdatesObject     `json:"PendingUpdates,omitempty"`
-	SubnetGroupName               string                    `json:"SubnetGroupName,omitempty"`
-	SnsTopicArn                   string                    `json:"SnsTopicArn,omitempty"`
-	SnsTopicStatus                string                    `json:"SnsTopicStatus,omitempty"`
-	Description                   string                    `json:"Description,omitempty"`
-	Status                        string                    `json:"Status,omitempty"`
-	NodeType                      string                    `json:"NodeType,omitempty"`
-	EngineVersion                 string                    `json:"EngineVersion,omitempty"`
-	EnginePatchVersion            string                    `json:"EnginePatchVersion,omitempty"`
-	ARN                           string                    `json:"ARN,omitempty"`
-	Name                          string                    `json:"Name,omitempty"`
-	ACLName                       string                    `json:"ACLName,omitempty"`
-	KmsKeyID                      string                    `json:"KmsKeyId,omitempty"`
-	MaintenanceWindow             string                    `json:"MaintenanceWindow,omitempty"`
-	ParameterGroupName            string                    `json:"ParameterGroupName,omitempty"`
-	ParameterGroupStatus          string                    `json:"ParameterGroupStatus,omitempty"`
-	MultiRegionClusterName        string                    `json:"MultiRegionClusterName"`
-	MultiRegionParameterGroupName string                    `json:"MultiRegionParameterGroupName"`
-	SnapshotWindow                string                    `json:"SnapshotWindow,omitempty"`
-	AvailabilityMode              string                    `json:"AvailabilityMode,omitempty"`
-	Engine                        string                    `json:"Engine,omitempty"`
-	DataTiering                   string                    `json:"DataTiering,omitempty"`
-	NetworkType                   string                    `json:"NetworkType,omitempty"`
-	IPDiscovery                   string                    `json:"IPDiscovery,omitempty"`
-	Shards                        []shardObject             `json:"Shards,omitempty"`
-	Tags                          []tagEntry                `json:"Tags,omitempty"`
-	SecurityGroups                []securityGroupMembership `json:"SecurityGroups,omitempty"`
-	NumberOfShards                int32                     `json:"NumberOfShards,omitempty"`
-	SnapshotRetentionLimit        int32                     `json:"SnapshotRetentionLimit,omitempty"`
-	NumberOfReplicasPerShard      int32                     `json:"NumberOfReplicasPerShard,omitempty"`
-	TLSEnabled                    bool                      `json:"TLSEnabled"`
-	AutoMinorVersionUpgrade       bool                      `json:"AutoMinorVersionUpgrade"`
+	ClusterEndpoint         *endpointObject           `json:"ClusterEndpoint,omitempty"`
+	PendingUpdates          *pendingUpdatesObject     `json:"PendingUpdates,omitempty"`
+	SubnetGroupName         string                    `json:"SubnetGroupName,omitempty"`
+	SnsTopicArn             string                    `json:"SnsTopicArn,omitempty"`
+	SnsTopicStatus          string                    `json:"SnsTopicStatus,omitempty"`
+	Description             string                    `json:"Description,omitempty"`
+	Status                  string                    `json:"Status,omitempty"`
+	NodeType                string                    `json:"NodeType,omitempty"`
+	EngineVersion           string                    `json:"EngineVersion,omitempty"`
+	EnginePatchVersion      string                    `json:"EnginePatchVersion,omitempty"`
+	ARN                     string                    `json:"ARN,omitempty"`
+	Name                    string                    `json:"Name,omitempty"`
+	ACLName                 string                    `json:"ACLName,omitempty"`
+	KmsKeyID                string                    `json:"KmsKeyId,omitempty"`
+	MaintenanceWindow       string                    `json:"MaintenanceWindow,omitempty"`
+	ParameterGroupName      string                    `json:"ParameterGroupName,omitempty"`
+	ParameterGroupStatus    string                    `json:"ParameterGroupStatus,omitempty"`
+	MultiRegionClusterName  string                    `json:"MultiRegionClusterName"`
+	SnapshotWindow          string                    `json:"SnapshotWindow,omitempty"`
+	AvailabilityMode        string                    `json:"AvailabilityMode,omitempty"`
+	Engine                  string                    `json:"Engine,omitempty"`
+	DataTiering             string                    `json:"DataTiering,omitempty"`
+	NetworkType             string                    `json:"NetworkType,omitempty"`
+	IPDiscovery             string                    `json:"IPDiscovery,omitempty"`
+	Shards                  []shardObject             `json:"Shards,omitempty"`
+	SecurityGroups          []securityGroupMembership `json:"SecurityGroups,omitempty"`
+	NumberOfShards          int32                     `json:"NumberOfShards,omitempty"`
+	SnapshotRetentionLimit  int32                     `json:"SnapshotRetentionLimit,omitempty"`
+	TLSEnabled              bool                      `json:"TLSEnabled"`
+	AutoMinorVersionUpgrade bool                      `json:"AutoMinorVersionUpgrade"`
 }
 
 // shardObject represents a single shard in a MemoryDB cluster.

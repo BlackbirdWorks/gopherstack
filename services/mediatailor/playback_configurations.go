@@ -3,20 +3,23 @@ package mediatailor
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type storedPlaybackConfiguration struct {
-	Tags                        map[string]string `json:"tags"`
-	Name                        string            `json:"name"`
-	AdDecisionServerURL         string            `json:"adDecisionServerUrl"`
-	VideoContentSourceURL       string            `json:"videoContentSourceUrl"`
-	PlaybackConfigurationARN    string            `json:"playbackConfigurationArn"`
-	PlaybackEndpointPrefix      string            `json:"playbackEndpointPrefix"`
-	SessionInitializationPrefix string            `json:"sessionInitializationPrefix"`
-	HlsManifestEndpointPrefix   string            `json:"hlsManifestEndpointPrefix"`
+	Tags                        map[string]string                      `json:"tags"`
+	LogConfiguration            *PlaybackConfigurationLogConfiguration `json:"logConfiguration,omitempty"`
+	Extra                       map[string]any                         `json:"extra,omitempty"`
+	Name                        string                                 `json:"name"`
+	AdDecisionServerURL         string                                 `json:"adDecisionServerUrl"`
+	VideoContentSourceURL       string                                 `json:"videoContentSourceUrl"`
+	PlaybackConfigurationARN    string                                 `json:"playbackConfigurationArn"`
+	PlaybackEndpointPrefix      string                                 `json:"playbackEndpointPrefix"`
+	SessionInitializationPrefix string                                 `json:"sessionInitializationPrefix"`
+	HlsManifestEndpointPrefix   string                                 `json:"hlsManifestEndpointPrefix"`
 }
 
 func (s *storedPlaybackConfiguration) toPlaybackConfiguration() *PlaybackConfiguration {
@@ -25,6 +28,8 @@ func (s *storedPlaybackConfiguration) toPlaybackConfiguration() *PlaybackConfigu
 
 	return &PlaybackConfiguration{
 		Tags:                        tags,
+		LogConfiguration:            s.LogConfiguration,
+		Extra:                       s.Extra,
 		Name:                        s.Name,
 		AdDecisionServerURL:         s.AdDecisionServerURL,
 		VideoContentSourceURL:       s.VideoContentSourceURL,
@@ -41,6 +46,8 @@ func (s *storedPlaybackConfiguration) toSummary() *PlaybackConfigurationSummary 
 
 	return &PlaybackConfigurationSummary{
 		Tags:                     tags,
+		LogConfiguration:         s.LogConfiguration,
+		Extra:                    s.Extra,
 		Name:                     s.Name,
 		AdDecisionServerURL:      s.AdDecisionServerURL,
 		VideoContentSourceURL:    s.VideoContentSourceURL,
@@ -54,6 +61,7 @@ func (s *storedPlaybackConfiguration) toSummary() *PlaybackConfigurationSummary 
 func (b *InMemoryBackend) PutPlaybackConfiguration(
 	name, adDecisionServerURL, videoContentSourceURL string,
 	tags map[string]string,
+	extra map[string]any,
 ) (*PlaybackConfiguration, error) {
 	// Name is the only required member of PutPlaybackConfigurationInput —
 	// confirmed against aws-sdk-go-v2's validators.go and botocore's
@@ -66,8 +74,22 @@ func (b *InMemoryBackend) PutPlaybackConfiguration(
 	}
 
 	cfgARN := b.playbackConfigARN(name)
+
+	b.mu.Lock("PutPlaybackConfiguration")
+	defer b.mu.Unlock()
+
+	// A prior ConfigureLogsForPlaybackConfiguration call survives a re-Put of
+	// the same configuration, matching real MediaTailor (logging config is
+	// managed by its own operation, not reset by PutPlaybackConfiguration).
+	var logCfg *PlaybackConfigurationLogConfiguration
+	if existing, ok := b.playbackConfigurations.Get(name); ok {
+		logCfg = existing.LogConfiguration
+	}
+
 	cfg := &storedPlaybackConfiguration{
 		Tags:                     copyTags(tags),
+		LogConfiguration:         logCfg,
+		Extra:                    extra,
 		Name:                     name,
 		AdDecisionServerURL:      adDecisionServerURL,
 		VideoContentSourceURL:    videoContentSourceURL,
@@ -95,9 +117,6 @@ func (b *InMemoryBackend) PutPlaybackConfiguration(
 		),
 	}
 
-	b.mu.Lock("PutPlaybackConfiguration")
-	defer b.mu.Unlock()
-
 	b.playbackConfigurations.Put(cfg)
 	b.tags[cfgARN] = copyTags(tags)
 
@@ -121,7 +140,9 @@ func (b *InMemoryBackend) GetPlaybackConfiguration(name string) (*PlaybackConfig
 	return result, nil
 }
 
-// DeletePlaybackConfiguration deletes a playback configuration.
+// DeletePlaybackConfiguration deletes a playback configuration, cascading to
+// every prefetch schedule attached to it so no ghost rows remain in the
+// prefetchSchedules table (or its byPlaybackConfig index) afterward.
 // Idempotent: returns nil if the configuration does not exist.
 func (b *InMemoryBackend) DeletePlaybackConfiguration(name string) error {
 	b.mu.Lock("DeletePlaybackConfiguration")
@@ -130,6 +151,10 @@ func (b *InMemoryBackend) DeletePlaybackConfiguration(name string) error {
 	cfg, ok := b.playbackConfigurations.Get(name)
 	if !ok {
 		return nil
+	}
+
+	for _, ps := range slices.Clone(b.prefetchSchedulesByConfig.Get(name)) {
+		b.prefetchSchedules.Delete(prefetchScheduleKey(ps.PlaybackConfigurationName, ps.Name))
 	}
 
 	delete(b.tags, cfg.PlaybackConfigurationARN)
@@ -163,17 +188,33 @@ func (b *InMemoryBackend) ListPlaybackConfigurations(
 	return summaries, pg.Next, nil
 }
 
-// ConfigureLogsForPlaybackConfiguration sets the percent enabled for playback config logs.
+// ConfigureLogsForPlaybackConfiguration sets the logging configuration for a
+// playback configuration and persists it so it is queryable back from
+// Get/List/PutPlaybackConfiguration's LogConfiguration.
 func (b *InMemoryBackend) ConfigureLogsForPlaybackConfiguration(
 	playbackConfigName string,
 	percentEnabled int,
-) (string, int, error) {
+	enabledLoggingStrategies []string,
+	adsInteractionLog, manifestServiceInteractionLog map[string]any,
+) (*PlaybackConfigurationLogConfiguration, error) {
 	b.mu.Lock("ConfigureLogsForPlaybackConfiguration")
 	defer b.mu.Unlock()
 
-	if !b.playbackConfigurations.Has(playbackConfigName) {
-		return "", 0, fmt.Errorf("%w: playback configuration %s not found", ErrNotFound, playbackConfigName)
+	cfg, ok := b.playbackConfigurations.Get(playbackConfigName)
+	if !ok {
+		return nil, fmt.Errorf("%w: playback configuration %s not found", ErrNotFound, playbackConfigName)
 	}
 
-	return playbackConfigName, percentEnabled, nil
+	strategies := make([]string, len(enabledLoggingStrategies))
+	copy(strategies, enabledLoggingStrategies)
+
+	logCfg := &PlaybackConfigurationLogConfiguration{
+		PercentEnabled:                percentEnabled,
+		EnabledLoggingStrategies:      strategies,
+		AdsInteractionLog:             adsInteractionLog,
+		ManifestServiceInteractionLog: manifestServiceInteractionLog,
+	}
+	cfg.LogConfiguration = logCfg
+
+	return logCfg, nil
 }

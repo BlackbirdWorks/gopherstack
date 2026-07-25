@@ -17,6 +17,7 @@ import (
 func groupKeyFn(g *Group) string                           { return g.GroupName }
 func groupARNKeyFn(g *Group) string                        { return g.GroupARN }
 func samplingRuleKeyFn(r *SamplingRule) string             { return r.RuleName }
+func samplingRuleARNKeyFn(r *SamplingRule) string          { return r.RuleARN }
 func traceKeyFn(t *Trace) string                           { return t.TraceID }
 func segmentKeyFn(s *Segment) string                       { return s.TraceID + ":" + s.ID }
 func segmentTraceKeyFn(s *Segment) string                  { return s.TraceID }
@@ -47,6 +48,7 @@ func registerAllTables(b *InMemoryBackend) {
 	b.groupsByARN = b.groups.AddIndex("byARN", groupARNKeyFn)
 
 	b.samplingRules = store.Register(b.registry, "samplingRules", store.New(samplingRuleKeyFn))
+	b.samplingRulesByARN = b.samplingRules.AddIndex("byARN", samplingRuleARNKeyFn)
 	b.traces = store.Register(b.registry, "traces", store.New(traceKeyFn))
 
 	b.parsedSegments = store.Register(b.registry, "parsedSegments", store.New(segmentKeyFn))

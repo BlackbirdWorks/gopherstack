@@ -54,31 +54,43 @@ type StorageBackend interface {
 
 	// Replicator operations
 	CreateReplicator(
-		ctx context.Context, name, description, serviceExecutionRoleArn string, tags map[string]string,
+		ctx context.Context,
+		name, description, serviceExecutionRoleArn string,
+		kafkaClusters []ClusterConfig,
+		replicationInfoList []ReplicationInfoConfig,
+		tags map[string]string,
 	) (*Replicator, error)
 	DeleteReplicator(ctx context.Context, replicatorArn string) error
 	DescribeReplicator(ctx context.Context, replicatorArn string) (*Replicator, error)
 	ListReplicators(ctx context.Context) []*Replicator
-	UpdateReplicationInfo(ctx context.Context, replicatorArn, description string) (*Replicator, error)
+	UpdateReplicationInfo(
+		ctx context.Context,
+		replicatorArn, currentVersion, sourceKafkaClusterArn, targetKafkaClusterArn string,
+		topicReplication *TopicReplicationConfig,
+		consumerGroupReplication *ConsumerGroupReplicationConfig,
+	) (*Replicator, error)
 
 	// Topic operations
 	CreateTopic(
 		ctx context.Context,
 		clusterArn, topicName string,
-		replicationFactor, numPartitions int32,
-		configEntries map[string]string,
+		replicationFactor, partitionCount int32,
+		configs string,
 	) (*Topic, error)
 	DeleteTopic(ctx context.Context, clusterArn, topicName string) error
 	DescribeTopic(ctx context.Context, clusterArn, topicName string) (*Topic, error)
-	DescribeTopicPartitions(ctx context.Context, clusterArn, topicName string) (*Topic, error)
-	ListTopics(ctx context.Context, clusterArn string) ([]*Topic, error)
+	DescribeTopicPartitions(ctx context.Context, clusterArn, topicName string) ([]*TopicPartitionInfo, error)
+	ListTopics(ctx context.Context, clusterArn, topicNameFilter string) ([]*Topic, error)
 	UpdateTopic(
-		ctx context.Context, clusterArn, topicName string, numPartitions int32, configEntries map[string]string,
+		ctx context.Context, clusterArn, topicName string, partitionCount int32, configs string,
 	) (*Topic, error)
 
 	// VPC connection operations
 	CreateVpcConnection(
-		ctx context.Context, targetClusterArn, vpcID, authentication string, tags map[string]string,
+		ctx context.Context,
+		targetClusterArn, vpcID, authentication string,
+		clientSubnets, securityGroups []string,
+		tags map[string]string,
 	) (*VpcConnection, error)
 	DeleteVpcConnection(ctx context.Context, vpcConnectionArn string) error
 	DescribeVpcConnection(ctx context.Context, vpcConnectionArn string) (*VpcConnection, error)

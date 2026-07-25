@@ -179,7 +179,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, ids.instanceID, eips[0].InstanceID)
 
 	// volumes table + volumesByStack index.
-	volumes, err := fresh.DescribeVolumes("", "", []string{ids.volumeID})
+	volumes, err := fresh.DescribeVolumes("", "", "", []string{ids.volumeID})
 	require.NoError(t, err)
 	require.Len(t, volumes, 1)
 	assert.Equal(t, ids.instanceID, volumes[0].InstanceID)

@@ -76,12 +76,12 @@ func (b *InMemoryBackend) ListConfiguredTables(
 			AnalysisRuleTypes:         ct.AnalysisRuleTypes,
 			CreateTime:                ct.CreateTime,
 			UpdateTime:                ct.UpdateTime,
-			ID:                        ct.ConfiguredTableIdentifier,
+			ID:                        ct.ID,
 		})
 	}
 	sort.Slice(
 		items,
-		func(i, j int) bool { return items[i].ConfiguredTableIdentifier < items[j].ConfiguredTableIdentifier },
+		func(i, j int) bool { return items[i].ID < items[j].ID },
 	)
 	page, next := paginate(items, maxResults, nextToken)
 
@@ -119,7 +119,7 @@ func (b *InMemoryBackend) DeleteConfiguredTable(id string) error {
 	b.configuredTables.Delete(id)
 
 	for _, rule := range slices.Clone(b.ctAnalysisRulesByTable.Get(id)) {
-		b.ctAnalysisRules.Delete(ctAnalysisRuleKey(rule.ConfiguredTableIdentifier, rule.Type))
+		b.ctAnalysisRules.Delete(ctAnalysisRuleKey(rule.ConfiguredTableID, rule.Type))
 	}
 
 	return nil

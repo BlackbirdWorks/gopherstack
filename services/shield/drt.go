@@ -5,7 +5,14 @@ import (
 	"slices"
 )
 
-// AssociateDRTLogBucket associates an S3 log bucket with the DRT.
+// maxDRTLogBuckets is the Shield Advanced limit on the number of S3 log buckets that can be
+// associated with the DRT (Shield Response Team) at once.
+const maxDRTLogBuckets = 10
+
+// AssociateDRTLogBucket associates an S3 log bucket with the DRT. Per real AWS behavior, the SRT
+// must already have an IAM role associated (via AssociateDRTRole) before a log bucket can be
+// shared -- otherwise the real API returns NoAssociatedRoleException. Also enforces the
+// documented 10-bucket cap via LimitsExceededException.
 func (b *InMemoryBackend) AssociateDRTLogBucket(bucket string) error {
 	if bucket == "" {
 		return fmt.Errorf("%w: LogBucket is required", ErrValidation)
@@ -18,12 +25,19 @@ func (b *InMemoryBackend) AssociateDRTLogBucket(bucket string) error {
 		return fmt.Errorf("%w: Shield Advanced subscription is required", ErrSubscriptionRequired)
 	}
 
-	if b.drtAccess == nil {
-		b.drtAccess = &DRTAccess{}
+	if b.drtAccess == nil || b.drtAccess.RoleArn == "" {
+		return fmt.Errorf(
+			"%w: AssociateDRTRole must be called before AssociateDRTLogBucket",
+			ErrNoAssociatedRole,
+		)
 	}
 
 	if slices.Contains(b.drtAccess.LogBucketList, bucket) {
 		return nil
+	}
+
+	if len(b.drtAccess.LogBucketList) >= maxDRTLogBuckets {
+		return fmt.Errorf("%w: Type=DRTLogBucketList, Limit=%d", ErrLimitExceeded, maxDRTLogBuckets)
 	}
 
 	b.drtAccess.LogBucketList = append(b.drtAccess.LogBucketList, bucket)

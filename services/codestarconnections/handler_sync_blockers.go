@@ -110,6 +110,18 @@ func (h *Handler) handleUpdateSyncBlocker(
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if in.ResolvedReason == "" {
+		return nil, fmt.Errorf("%w: ResolvedReason is required", errInvalidRequest)
+	}
+
+	if in.ResourceName == "" {
+		return nil, fmt.Errorf("%w: ResourceName is required", errInvalidRequest)
+	}
+
+	if in.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", errInvalidRequest)
+	}
+
 	summary, err := h.Backend.UpdateSyncBlocker(ctx, in.ID, in.ResolvedReason)
 	if err != nil {
 		return nil, err

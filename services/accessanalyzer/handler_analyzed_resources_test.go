@@ -37,6 +37,8 @@ func TestAnalyzedResourceLifecycle(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				resource := resp["resource"].(map[string]any)
 				assert.Equal(t, resourceArn, resource["resourceArn"])
+				// resourceOwnerAccount is a required AnalyzedResource member.
+				assert.Equal(t, "000000000000", resource["resourceOwnerAccount"])
 			},
 		},
 		{
@@ -71,6 +73,11 @@ func TestAnalyzedResourceLifecycle(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				resources := resp["analyzedResources"].([]any)
 				assert.Len(t, resources, 2)
+
+				// resourceOwnerAccount is a required AnalyzedResourceSummary member.
+				first, ok := resources[0].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "000000000000", first["resourceOwnerAccount"])
 			},
 		},
 	}

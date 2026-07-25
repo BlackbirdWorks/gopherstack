@@ -11,30 +11,30 @@ type transcriptionJobNameInput struct {
 }
 
 type transcriptionJobOutput struct {
-	Tags                      []transcribeTag             `json:"Tags,omitempty"`
-	Settings                  *TranscriptionSettings      `json:"Settings,omitempty"`
-	ModelSettings             *ModelSettings              `json:"ModelSettings,omitempty"`
-	JobExecutionSettings      *JobExecutionSettings       `json:"JobExecutionSettings,omitempty"`
-	ContentRedaction          *ContentRedaction           `json:"ContentRedaction,omitempty"`
-	Subtitles                 *SubtitlesOutput            `json:"Subtitles,omitempty"`
-	Media                     *Media                      `json:"Media,omitempty"`
-	Transcript                transcriptOutput            `json:"Transcript"`
-	CreationTime              *float64                    `json:"CreationTime,omitempty"`
-	StartTime                 *float64                    `json:"StartTime,omitempty"`
-	CompletionTime            *float64                    `json:"CompletionTime,omitempty"`
-	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
-	TranscriptionJobStatus    string                      `json:"TranscriptionJobStatus"`
-	LanguageCode              string                      `json:"LanguageCode,omitempty"`
-	MediaFormat               string                      `json:"MediaFormat,omitempty"`
-	OutputBucketName          string                      `json:"OutputBucketName,omitempty"`
-	OutputKey                 string                      `json:"OutputKey,omitempty"`
-	FailureReason             string                      `json:"FailureReason,omitempty"`
-	LanguageOptions           []string                    `json:"LanguageOptions,omitempty"`
-	ToxicityDetection         []ToxicityDetectionSettings `json:"ToxicityDetection,omitempty"`
-	IdentifiedLanguageScore   float32                     `json:"IdentifiedLanguageScore,omitempty"`
-	MediaSampleRateHertz      int32                       `json:"MediaSampleRateHertz,omitempty"`
-	IdentifyLanguage          bool                        `json:"IdentifyLanguage,omitempty"`
-	IdentifyMultipleLanguages bool                        `json:"IdentifyMultipleLanguages,omitempty"`
+	Tags                      []transcribeTag               `json:"Tags,omitempty"`
+	Settings                  *TranscriptionSettings        `json:"Settings,omitempty"`
+	ModelSettings             *ModelSettings                `json:"ModelSettings,omitempty"`
+	JobExecutionSettings      *JobExecutionSettings         `json:"JobExecutionSettings,omitempty"`
+	ContentRedaction          *ContentRedaction             `json:"ContentRedaction,omitempty"`
+	Subtitles                 *SubtitlesOutput              `json:"Subtitles,omitempty"`
+	Media                     *Media                        `json:"Media,omitempty"`
+	LanguageIDSettings        map[string]LanguageIDSettings `json:"LanguageIdSettings,omitempty"`
+	Transcript                transcriptOutput              `json:"Transcript"`
+	CreationTime              *float64                      `json:"CreationTime,omitempty"`
+	StartTime                 *float64                      `json:"StartTime,omitempty"`
+	CompletionTime            *float64                      `json:"CompletionTime,omitempty"`
+	TranscriptionJobName      string                        `json:"TranscriptionJobName"`
+	TranscriptionJobStatus    string                        `json:"TranscriptionJobStatus"`
+	LanguageCode              string                        `json:"LanguageCode,omitempty"`
+	MediaFormat               string                        `json:"MediaFormat,omitempty"`
+	FailureReason             string                        `json:"FailureReason,omitempty"`
+	LanguageOptions           []string                      `json:"LanguageOptions,omitempty"`
+	LanguageCodes             []LanguageCodeItem            `json:"LanguageCodes,omitempty"`
+	ToxicityDetection         []ToxicityDetectionSettings   `json:"ToxicityDetection,omitempty"`
+	IdentifiedLanguageScore   float32                       `json:"IdentifiedLanguageScore,omitempty"`
+	MediaSampleRateHertz      int32                         `json:"MediaSampleRateHertz,omitempty"`
+	IdentifyLanguage          bool                          `json:"IdentifyLanguage,omitempty"`
+	IdentifyMultipleLanguages bool                          `json:"IdentifyMultipleLanguages,omitempty"`
 }
 
 type startTranscriptionJobOutput struct {
@@ -46,24 +46,25 @@ type getTranscriptionJobOutput struct {
 }
 
 type handleStartTranscriptionJobInput struct {
-	Settings                  *TranscriptionSettings      `json:"Settings"`
-	Tags                      []transcribeTag             `json:"Tags"`
-	Subtitles                 *SubtitlesInput             `json:"Subtitles"`
-	ContentRedaction          *ContentRedaction           `json:"ContentRedaction"`
-	ModelSettings             *ModelSettings              `json:"ModelSettings"`
-	JobExecutionSettings      *JobExecutionSettings       `json:"JobExecutionSettings"`
-	Media                     Media                       `json:"Media"`
-	MediaFormat               string                      `json:"MediaFormat"`
-	OutputEncryptionKMSKeyID  string                      `json:"OutputEncryptionKMSKeyId"`
-	OutputKey                 string                      `json:"OutputKey"`
-	OutputBucketName          string                      `json:"OutputBucketName"`
-	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
-	LanguageCode              string                      `json:"LanguageCode"`
-	LanguageOptions           []string                    `json:"LanguageOptions"`
-	ToxicityDetection         []ToxicityDetectionSettings `json:"ToxicityDetection"`
-	MediaSampleRateHertz      int32                       `json:"MediaSampleRateHertz"`
-	IdentifyMultipleLanguages bool                        `json:"IdentifyMultipleLanguages"`
-	IdentifyLanguage          bool                        `json:"IdentifyLanguage"`
+	Settings                  *TranscriptionSettings        `json:"Settings"`
+	Tags                      []transcribeTag               `json:"Tags"`
+	Subtitles                 *SubtitlesInput               `json:"Subtitles"`
+	ContentRedaction          *ContentRedaction             `json:"ContentRedaction"`
+	ModelSettings             *ModelSettings                `json:"ModelSettings"`
+	JobExecutionSettings      *JobExecutionSettings         `json:"JobExecutionSettings"`
+	LanguageIDSettings        map[string]LanguageIDSettings `json:"LanguageIdSettings"`
+	Media                     Media                         `json:"Media"`
+	MediaFormat               string                        `json:"MediaFormat"`
+	OutputEncryptionKMSKeyID  string                        `json:"OutputEncryptionKMSKeyId"`
+	OutputKey                 string                        `json:"OutputKey"`
+	OutputBucketName          string                        `json:"OutputBucketName"`
+	TranscriptionJobName      string                        `json:"TranscriptionJobName"`
+	LanguageCode              string                        `json:"LanguageCode"`
+	LanguageOptions           []string                      `json:"LanguageOptions"`
+	ToxicityDetection         []ToxicityDetectionSettings   `json:"ToxicityDetection"`
+	MediaSampleRateHertz      int32                         `json:"MediaSampleRateHertz"`
+	IdentifyMultipleLanguages bool                          `json:"IdentifyMultipleLanguages"`
+	IdentifyLanguage          bool                          `json:"IdentifyLanguage"`
 }
 
 func (h *Handler) handleStartTranscriptionJob(
@@ -92,6 +93,7 @@ func (h *Handler) handleStartTranscriptionJob(
 		IdentifyLanguage:          in.IdentifyLanguage,
 		IdentifyMultipleLanguages: in.IdentifyMultipleLanguages,
 		LanguageOptions:           in.LanguageOptions,
+		LanguageIDSettings:        in.LanguageIDSettings,
 		ToxicityDetection:         in.ToxicityDetection,
 		Tags:                      tagsToMap(in.Tags),
 	})
@@ -142,8 +144,6 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 		LanguageCode:              job.LanguageCode,
 		MediaFormat:               job.MediaFormat,
 		MediaSampleRateHertz:      job.MediaSampleRateHertz,
-		OutputBucketName:          job.OutputBucketName,
-		OutputKey:                 job.OutputKey,
 		FailureReason:             job.FailureReason,
 		Settings:                  job.Settings,
 		ModelSettings:             job.ModelSettings,
@@ -153,6 +153,8 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 		IdentifyLanguage:          job.IdentifyLanguage,
 		IdentifyMultipleLanguages: job.IdentifyMultipleLanguages,
 		LanguageOptions:           job.LanguageOptions,
+		LanguageCodes:             job.LanguageCodes,
+		LanguageIDSettings:        job.LanguageIDSettings,
 		ToxicityDetection:         job.ToxicityDetection,
 		IdentifiedLanguageScore:   job.IdentifiedLanguageScore,
 		Tags:                      tagsFromMap(job.Tags),
@@ -190,12 +192,21 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 }
 
 type transcriptionJobSummary struct {
-	CreationTime           *float64 `json:"CreationTime,omitempty"`
-	CompletionTime         *float64 `json:"CompletionTime,omitempty"`
-	TranscriptionJobName   string   `json:"TranscriptionJobName"`
-	TranscriptionJobStatus string   `json:"TranscriptionJobStatus"`
-	LanguageCode           string   `json:"LanguageCode,omitempty"`
-	FailureReason          string   `json:"FailureReason,omitempty"`
+	ContentRedaction          *ContentRedaction           `json:"ContentRedaction,omitempty"`
+	ModelSettings             *ModelSettings              `json:"ModelSettings,omitempty"`
+	CreationTime              *float64                    `json:"CreationTime,omitempty"`
+	CompletionTime            *float64                    `json:"CompletionTime,omitempty"`
+	StartTime                 *float64                    `json:"StartTime,omitempty"`
+	LanguageCode              string                      `json:"LanguageCode,omitempty"`
+	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
+	TranscriptionJobStatus    string                      `json:"TranscriptionJobStatus"`
+	FailureReason             string                      `json:"FailureReason,omitempty"`
+	OutputLocationType        string                      `json:"OutputLocationType,omitempty"`
+	ToxicityDetection         []ToxicityDetectionSettings `json:"ToxicityDetection,omitempty"`
+	LanguageCodes             []LanguageCodeItem          `json:"LanguageCodes,omitempty"`
+	IdentifiedLanguageScore   float32                     `json:"IdentifiedLanguageScore,omitempty"`
+	IdentifyLanguage          bool                        `json:"IdentifyLanguage,omitempty"`
+	IdentifyMultipleLanguages bool                        `json:"IdentifyMultipleLanguages,omitempty"`
 }
 
 type listTranscriptionJobsOutput struct {
@@ -204,28 +215,42 @@ type listTranscriptionJobsOutput struct {
 }
 
 type handleListTranscriptionJobsInput struct {
-	Status    string `json:"Status"`
-	NextToken string `json:"NextToken"`
+	Status          string `json:"Status"`
+	JobNameContains string `json:"JobNameContains"`
+	NextToken       string `json:"NextToken"`
 }
 
 func (h *Handler) handleListTranscriptionJobs(
 	_ context.Context,
 	in *handleListTranscriptionJobsInput,
 ) (*listTranscriptionJobsOutput, error) {
-	jobs, nextToken := h.Backend.ListTranscriptionJobs(in.Status, in.NextToken)
+	jobs, nextToken := h.Backend.ListTranscriptionJobs(in.Status, in.JobNameContains, in.NextToken)
 
 	summaries := make([]transcriptionJobSummary, 0, len(jobs))
 	for _, j := range jobs {
 		s := transcriptionJobSummary{
-			TranscriptionJobName:   j.JobName,
-			TranscriptionJobStatus: j.JobStatus,
-			LanguageCode:           j.LanguageCode,
-			FailureReason:          j.FailureReason,
+			TranscriptionJobName:      j.JobName,
+			TranscriptionJobStatus:    j.JobStatus,
+			LanguageCode:              j.LanguageCode,
+			FailureReason:             j.FailureReason,
+			ContentRedaction:          j.ContentRedaction,
+			ModelSettings:             j.ModelSettings,
+			LanguageCodes:             j.LanguageCodes,
+			ToxicityDetection:         j.ToxicityDetection,
+			IdentifiedLanguageScore:   j.IdentifiedLanguageScore,
+			IdentifyLanguage:          j.IdentifyLanguage,
+			IdentifyMultipleLanguages: j.IdentifyMultipleLanguages,
+			OutputLocationType:        outputLocationType(j.OutputBucketName),
 		}
 
 		if !j.CreationTime.IsZero() {
 			ts := awstime.Epoch(j.CreationTime)
 			s.CreationTime = &ts
+		}
+
+		if !j.StartTime.IsZero() {
+			ts := awstime.Epoch(j.StartTime)
+			s.StartTime = &ts
 		}
 
 		if !j.CompletionTime.IsZero() {

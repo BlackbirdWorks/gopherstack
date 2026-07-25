@@ -1,9 +1,5 @@
 package ssm
 
-import (
-	"time"
-)
-
 // DeregisterTargetFromMaintenanceWindowOutput is the response for DeregisterTargetFromMaintenanceWindow.
 type DeregisterTargetFromMaintenanceWindowOutput struct {
 	WindowID       string `json:"WindowId"`
@@ -170,15 +166,16 @@ type RegisterTargetWithMaintenanceWindowOutput struct {
 
 // RegisterTaskWithMaintenanceWindowInput is the request payload.
 type RegisterTaskWithMaintenanceWindowInput struct {
-	WindowID       string `json:"WindowId"`
-	TaskArn        string `json:"TaskArn"`
-	TaskType       string `json:"TaskType"`
-	Name           string `json:"Name,omitempty"`
-	Description    string `json:"Description,omitempty"`
-	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
-	MaxErrors      string `json:"MaxErrors,omitempty"`
-	Priority       int32  `json:"Priority,omitempty"`
+	WindowID       string         `json:"WindowId"`
+	TaskArn        string         `json:"TaskArn"`
+	TaskType       string         `json:"TaskType"`
+	Name           string         `json:"Name,omitempty"`
+	Description    string         `json:"Description,omitempty"`
+	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	Targets        []WindowTarget `json:"Targets,omitempty"`
+	Priority       int32          `json:"Priority,omitempty"`
 }
 
 // RegisterTaskWithMaintenanceWindowOutput is the response payload.
@@ -188,13 +185,18 @@ type RegisterTaskWithMaintenanceWindowOutput struct {
 
 // UpdateMaintenanceWindowInput is the request payload for UpdateMaintenanceWindow.
 type UpdateMaintenanceWindowInput struct {
-	Enabled     *bool  `json:"Enabled,omitempty"`
-	WindowID    string `json:"WindowId"`
-	Name        string `json:"Name,omitempty"`
-	Description string `json:"Description,omitempty"`
-	Schedule    string `json:"Schedule,omitempty"`
-	Duration    int32  `json:"Duration,omitempty"`
-	Cutoff      int32  `json:"Cutoff,omitempty"`
+	Enabled                  *bool  `json:"Enabled,omitempty"`
+	AllowUnassociatedTargets *bool  `json:"AllowUnassociatedTargets,omitempty"`
+	ScheduleOffset           *int32 `json:"ScheduleOffset,omitempty"`
+	WindowID                 string `json:"WindowId"`
+	Name                     string `json:"Name,omitempty"`
+	Description              string `json:"Description,omitempty"`
+	Schedule                 string `json:"Schedule,omitempty"`
+	ScheduleTimezone         string `json:"ScheduleTimezone,omitempty"`
+	StartDate                string `json:"StartDate,omitempty"`
+	EndDate                  string `json:"EndDate,omitempty"`
+	Duration                 int32  `json:"Duration,omitempty"`
+	Cutoff                   int32  `json:"Cutoff,omitempty"`
 }
 
 // UpdateMaintenanceWindowOutput is the response payload for UpdateMaintenanceWindow.
@@ -208,6 +210,10 @@ type MaintenanceWindow struct {
 	Name                     string  `json:"Name"`
 	Description              string  `json:"Description,omitempty"`
 	Schedule                 string  `json:"Schedule"`
+	ScheduleTimezone         string  `json:"ScheduleTimezone,omitempty"`
+	StartDate                string  `json:"StartDate,omitempty"`
+	EndDate                  string  `json:"EndDate,omitempty"`
+	ScheduleOffset           int32   `json:"ScheduleOffset,omitempty"`
 	Duration                 int32   `json:"Duration"`
 	Cutoff                   int32   `json:"Cutoff"`
 	AllowUnassociatedTargets bool    `json:"AllowUnassociatedTargets"`
@@ -221,7 +227,11 @@ type CreateMaintenanceWindowInput struct {
 	Name                     string `json:"Name"`
 	Description              string `json:"Description,omitempty"`
 	Schedule                 string `json:"Schedule"`
+	ScheduleTimezone         string `json:"ScheduleTimezone,omitempty"`
+	StartDate                string `json:"StartDate,omitempty"`
+	EndDate                  string `json:"EndDate,omitempty"`
 	Tags                     []Tag  `json:"Tags,omitempty"`
+	ScheduleOffset           int32  `json:"ScheduleOffset,omitempty"`
 	Duration                 int32  `json:"Duration"`
 	Cutoff                   int32  `json:"Cutoff"`
 	AllowUnassociatedTargets bool   `json:"AllowUnassociatedTargets"`
@@ -255,43 +265,44 @@ type MaintenanceWindowTarget struct {
 
 // MaintenanceWindowTask represents a registered task for a maintenance window.
 type MaintenanceWindowTask struct {
-	WindowID       string `json:"WindowId"`
-	WindowTaskID   string `json:"WindowTaskId"`
-	TaskArn        string `json:"TaskArn"`
-	TaskType       string `json:"TaskType"`
-	Name           string `json:"Name,omitempty"`
-	Description    string `json:"Description,omitempty"`
-	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
-	MaxErrors      string `json:"MaxErrors,omitempty"`
-	Priority       int32  `json:"Priority,omitempty"`
+	WindowID       string         `json:"WindowId"`
+	WindowTaskID   string         `json:"WindowTaskId"`
+	TaskArn        string         `json:"TaskArn"`
+	TaskType       string         `json:"TaskType"`
+	Name           string         `json:"Name,omitempty"`
+	Description    string         `json:"Description,omitempty"`
+	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	Targets        []WindowTarget `json:"Targets,omitempty"`
+	Priority       int32          `json:"Priority,omitempty"`
 }
 
 // MaintenanceWindowExecution represents a single execution of a maintenance window.
 type MaintenanceWindowExecution struct {
-	StartTime         time.Time  `json:"StartTime"`
-	EndTime           *time.Time `json:"EndTime,omitempty"`
-	WindowID          string     `json:"WindowId"`
-	WindowExecutionID string     `json:"WindowExecutionId"`
-	Status            string     `json:"Status"`
+	WindowID          string  `json:"WindowId"`
+	WindowExecutionID string  `json:"WindowExecutionId"`
+	Status            string  `json:"Status"`
+	StartTime         float64 `json:"StartTime"`
+	EndTime           float64 `json:"EndTime,omitempty"`
 }
 
 // MaintenanceWindowExecutionTask represents a task run within a window execution.
 type MaintenanceWindowExecutionTask struct {
-	StartTime         time.Time `json:"StartTime"`
-	WindowExecutionID string    `json:"WindowExecutionId"`
-	TaskExecutionID   string    `json:"TaskExecutionId"`
-	TaskARN           string    `json:"TaskArn"`
-	Status            string    `json:"Status"`
+	WindowExecutionID string  `json:"WindowExecutionId"`
+	TaskExecutionID   string  `json:"TaskExecutionId"`
+	TaskARN           string  `json:"TaskArn"`
+	Status            string  `json:"Status"`
+	StartTime         float64 `json:"StartTime"`
 }
 
 // MaintenanceWindowExecutionTaskInvocation represents a single invocation of a task.
 type MaintenanceWindowExecutionTaskInvocation struct {
-	StartTime         time.Time `json:"StartTime"`
-	WindowExecutionID string    `json:"WindowExecutionId"`
-	TaskExecutionID   string    `json:"TaskExecutionId"`
-	InvocationID      string    `json:"InvocationId"`
-	Status            string    `json:"Status"`
+	WindowExecutionID string  `json:"WindowExecutionId"`
+	TaskExecutionID   string  `json:"TaskExecutionId"`
+	InvocationID      string  `json:"InvocationId"`
+	Status            string  `json:"Status"`
+	StartTime         float64 `json:"StartTime"`
 }
 
 // DescribeMaintenanceWindowExecutionsOutputFull has executions list.
@@ -327,42 +338,42 @@ type ScheduledWindowExecution struct {
 
 // GetMaintenanceWindowExecutionOutputFull is the response for GetMaintenanceWindowExecution.
 type GetMaintenanceWindowExecutionOutputFull struct {
-	StartTime         time.Time  `json:"StartTime"`
-	EndTime           *time.Time `json:"EndTime,omitempty"`
-	WindowID          string     `json:"WindowId"`
-	WindowExecutionID string     `json:"WindowExecutionId"`
-	Status            string     `json:"Status"`
-	StatusDetails     string     `json:"StatusDetails,omitempty"`
+	WindowID          string  `json:"WindowId"`
+	WindowExecutionID string  `json:"WindowExecutionId"`
+	Status            string  `json:"Status"`
+	StatusDetails     string  `json:"StatusDetails,omitempty"`
+	StartTime         float64 `json:"StartTime"`
+	EndTime           float64 `json:"EndTime,omitempty"`
 }
 
 // GetMaintenanceWindowExecutionTaskOutputFull is the response for GetMaintenanceWindowExecutionTask.
 type GetMaintenanceWindowExecutionTaskOutputFull struct {
-	StartTime         time.Time  `json:"StartTime"`
-	EndTime           *time.Time `json:"EndTime,omitempty"`
-	WindowExecutionID string     `json:"WindowExecutionId,omitempty"`
-	TaskExecutionID   string     `json:"TaskExecutionId,omitempty"`
-	TaskARN           string     `json:"TaskArn,omitempty"`
-	TaskType          string     `json:"TaskType,omitempty"`
-	Status            string     `json:"Status"`
-	StatusDetails     string     `json:"StatusDetails,omitempty"`
-	MaxConcurrency    string     `json:"MaxConcurrency,omitempty"`
-	MaxErrors         string     `json:"MaxErrors,omitempty"`
-	Priority          int32      `json:"Priority,omitempty"`
+	WindowExecutionID string  `json:"WindowExecutionId,omitempty"`
+	TaskExecutionID   string  `json:"TaskExecutionId,omitempty"`
+	TaskARN           string  `json:"TaskArn,omitempty"`
+	TaskType          string  `json:"TaskType,omitempty"`
+	Status            string  `json:"Status"`
+	StatusDetails     string  `json:"StatusDetails,omitempty"`
+	MaxConcurrency    string  `json:"MaxConcurrency,omitempty"`
+	MaxErrors         string  `json:"MaxErrors,omitempty"`
+	StartTime         float64 `json:"StartTime"`
+	EndTime           float64 `json:"EndTime,omitempty"`
+	Priority          int32   `json:"Priority,omitempty"`
 }
 
 // GetMaintenanceWindowExecutionTaskInvocationOutputFull is the response for
 // GetMaintenanceWindowExecutionTaskInvocation.
 type GetMaintenanceWindowExecutionTaskInvocationOutputFull struct {
-	StartTime         time.Time  `json:"StartTime"`
-	EndTime           *time.Time `json:"EndTime,omitempty"`
-	WindowExecutionID string     `json:"WindowExecutionId,omitempty"`
-	TaskExecutionID   string     `json:"TaskExecutionId,omitempty"`
-	InvocationID      string     `json:"InvocationId,omitempty"`
-	ExecutionID       string     `json:"ExecutionId,omitempty"`
-	TaskType          string     `json:"TaskType,omitempty"`
-	Status            string     `json:"Status"`
-	StatusDetails     string     `json:"StatusDetails,omitempty"`
-	WindowTargetID    string     `json:"WindowTargetId,omitempty"`
+	WindowExecutionID string  `json:"WindowExecutionId,omitempty"`
+	TaskExecutionID   string  `json:"TaskExecutionId,omitempty"`
+	InvocationID      string  `json:"InvocationId,omitempty"`
+	ExecutionID       string  `json:"ExecutionId,omitempty"`
+	TaskType          string  `json:"TaskType,omitempty"`
+	Status            string  `json:"Status"`
+	StatusDetails     string  `json:"StatusDetails,omitempty"`
+	WindowTargetID    string  `json:"WindowTargetId,omitempty"`
+	StartTime         float64 `json:"StartTime"`
+	EndTime           float64 `json:"EndTime,omitempty"`
 }
 
 // DeleteMaintenanceWindowOutput is the response payload for DeleteMaintenanceWindow.
@@ -405,28 +416,30 @@ type UpdateMaintenanceWindowTargetOutput struct {
 // UpdateMaintenanceWindowTaskInput is the request payload for UpdateMaintenanceWindowTask.
 // Fields ordered for alignment.
 type UpdateMaintenanceWindowTaskInput struct {
-	Priority       *int32 `json:"Priority,omitempty"`
-	WindowID       string `json:"WindowId"`
-	WindowTaskID   string `json:"WindowTaskId"`
-	TaskArn        string `json:"TaskArn,omitempty"`
-	Name           string `json:"Name,omitempty"`
-	Description    string `json:"Description,omitempty"`
-	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
-	MaxErrors      string `json:"MaxErrors,omitempty"`
+	Priority       *int32         `json:"Priority,omitempty"`
+	WindowID       string         `json:"WindowId"`
+	WindowTaskID   string         `json:"WindowTaskId"`
+	TaskArn        string         `json:"TaskArn,omitempty"`
+	Name           string         `json:"Name,omitempty"`
+	Description    string         `json:"Description,omitempty"`
+	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	Targets        []WindowTarget `json:"Targets,omitempty"`
 }
 
 // UpdateMaintenanceWindowTaskOutput is the response payload for UpdateMaintenanceWindowTask.
 type UpdateMaintenanceWindowTaskOutput struct {
-	WindowID       string `json:"WindowId,omitempty"`
-	WindowTaskID   string `json:"WindowTaskId,omitempty"`
-	TaskArn        string `json:"TaskArn,omitempty"`
-	Name           string `json:"Name,omitempty"`
-	Description    string `json:"Description,omitempty"`
-	ServiceRoleArn string `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency string `json:"MaxConcurrency,omitempty"`
-	MaxErrors      string `json:"MaxErrors,omitempty"`
-	Priority       int32  `json:"Priority,omitempty"`
+	WindowID       string         `json:"WindowId,omitempty"`
+	WindowTaskID   string         `json:"WindowTaskId,omitempty"`
+	TaskArn        string         `json:"TaskArn,omitempty"`
+	Name           string         `json:"Name,omitempty"`
+	Description    string         `json:"Description,omitempty"`
+	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
+	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	Targets        []WindowTarget `json:"Targets,omitempty"`
+	Priority       int32          `json:"Priority,omitempty"`
 }
 
 // DescribeMaintenanceWindowsForTargetInput is the request payload.

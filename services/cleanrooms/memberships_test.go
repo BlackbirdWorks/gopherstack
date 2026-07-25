@@ -75,16 +75,19 @@ func TestMemberships_Create(t *testing.T) {
 
 			mem, id := createMembership(t, e, colID, tt.args.queryLogStatus)
 
-			legacyID, hasLegacy := mem["membershipIdentifier"]
+			_, hasInventedID := mem["membershipIdentifier"]
 			collabID, hasCollabID := mem["collaborationId"]
-			legacyCollabID, hasLegacyCollab := mem["collaborationIdentifier"]
+			_, hasInventedCollabID := mem["collaborationIdentifier"]
 
-			assert.True(t, hasLegacy, "membership must have 'membershipIdentifier' (backward compat)")
+			assert.False(t, hasInventedID, "membership must not have invented 'membershipIdentifier' key")
 			assert.True(t, hasCollabID, "membership must have 'collaborationId' key (AWS canonical)")
-			assert.True(t, hasLegacyCollab, "membership must have 'collaborationIdentifier' (backward compat)")
-			assert.Equal(t, id, legacyID)
-			assert.Equal(t, collabID, legacyCollabID)
+			assert.False(t, hasInventedCollabID, "membership must not have invented 'collaborationIdentifier' key")
 			assert.Equal(t, colID, collabID)
+			assert.NotEmpty(t, id)
+
+			payCfg, hasPayCfg := mem["paymentConfiguration"]
+			assert.True(t, hasPayCfg, "membership must have required 'paymentConfiguration' key")
+			assert.NotNil(t, payCfg)
 
 			abilities, ok := mem["memberAbilities"].([]any)
 			assert.True(t, ok, "memberAbilities must be present")
@@ -123,6 +126,9 @@ func TestMemberships_List(t *testing.T) {
 			t.Parallel()
 			e := newTestServer(t)
 			colID := createBaseCollaboration(t, e, "list-m-collab")
+			// CreateCollaboration auto-creates a membership for the creator (real
+			// AWS behavior, matches Collaboration.membershipArn/membershipId), so
+			// this explicit CreateMembership call adds a second one.
 			createMembership(t, e, colID, "DISABLED")
 
 			rec := doRequest(t, e, "GET", "/memberships", nil)
@@ -131,7 +137,7 @@ func TestMemberships_List(t *testing.T) {
 			var listResp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 			summaries := listResp["membershipSummaries"].([]any)
-			require.Len(t, summaries, 1)
+			require.Len(t, summaries, 2)
 			summary := summaries[0].(map[string]any)
 
 			assert.Contains(t, summary, "id", "membership summary must have canonical 'id' key")

@@ -178,7 +178,7 @@ func TestCreateBackupSelection(t *testing.T) {
 				rec := doREST(t, h, http.MethodPut, "/backup/plans/nonexistent/selections", map[string]any{
 					"BackupSelection": map[string]any{"SelectionName": "sel"},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

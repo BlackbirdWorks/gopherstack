@@ -27,9 +27,6 @@ const ApplicationStateStopped = "STOPPED"
 // ApplicationStateTerminated is the state when an application is terminated.
 const ApplicationStateTerminated = "TERMINATED"
 
-// ApplicationStateTerminatedWithError is the state when an application terminated with errors.
-const ApplicationStateTerminatedWithError = "TERMINATED_WITH_ERRORS"
-
 // JobRunStateSubmitted is the state when a job run has been submitted.
 const JobRunStateSubmitted = "SUBMITTED"
 
@@ -76,6 +73,11 @@ type Application struct {
 	ReleaseLabel  string         `json:"releaseLabel"`
 	Architecture  string         `json:"architecture,omitempty"`
 	State         string         `json:"state"`
+	// StateDetails holds additional details about the application's current
+	// state. Optional on the real API (types.Application.StateDetails is not
+	// a required response member); this backend leaves it empty except where
+	// a state transition sets a specific message.
+	StateDetails string `json:"stateDetails,omitempty"`
 }
 
 // JobRun represents an EMR Serverless job run.
@@ -88,19 +90,43 @@ type JobRun struct {
 	JobDriver any `json:"jobDriver,omitempty"`
 	// ConfigurationOverrides is the configurationOverrides supplied to
 	// StartJobRun, echoed back verbatim.
-	ConfigurationOverrides any       `json:"configurationOverrides,omitempty"`
-	CreatedAt              time.Time `json:"createdAt"`
-	UpdatedAt              time.Time `json:"updatedAt"`
-	ApplicationID          string    `json:"applicationId"`
-	JobRunID               string    `json:"jobRunId"`
-	Arn                    string    `json:"arn"`
-	Name                   string    `json:"name"`
-	State                  string    `json:"state"`
-	ExecutionRoleArn       string    `json:"executionRoleArn"`
-	Mode                   string    `json:"mode,omitempty"`
-	ReleaseLabel           string    `json:"releaseLabel,omitempty"`
-	StateDetails           string    `json:"stateDetails,omitempty"`
+	ConfigurationOverrides any `json:"configurationOverrides,omitempty"`
+	// ExecutionIamPolicy is the optional IAM policy supplied to StartJobRun
+	// (StartJobRunInput.ExecutionIamPolicy), echoed back verbatim.
+	ExecutionIamPolicy any `json:"executionIamPolicy,omitempty"`
+	// RetryPolicy is the retry policy supplied to StartJobRun
+	// (StartJobRunInput.RetryPolicy), echoed back verbatim.
+	RetryPolicy      any       `json:"retryPolicy,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+	ApplicationID    string    `json:"applicationId"`
+	JobRunID         string    `json:"jobRunId"`
+	Arn              string    `json:"arn"`
+	Name             string    `json:"name"`
+	State            string    `json:"state"`
+	ExecutionRoleArn string    `json:"executionRoleArn"`
+	Mode             string    `json:"mode,omitempty"`
+	ReleaseLabel     string    `json:"releaseLabel,omitempty"`
+	StateDetails     string    `json:"stateDetails,omitempty"`
+	// CreatedBy is the IAM principal that created the job run -- a required
+	// field on the real JobRun/JobRunSummary response shape
+	// (types.JobRun.CreatedBy). This in-memory backend does not model IAM
+	// principals, so it uses the execution role ARN as a best-effort
+	// substitute, matching the convention already used by
+	// ListJobRunAttempts' synthesized attempt.
+	CreatedBy string `json:"createdBy"`
+	// ExecutionTimeoutMinutes is the job run timeout in minutes. The real API
+	// returns the default timeout (720 minutes) when none was supplied to
+	// StartJobRun; see StartJobRunOptions.ExecutionTimeoutMinutes.
+	ExecutionTimeoutMinutes int64 `json:"executionTimeoutMinutes"`
 }
+
+// DefaultJobRunExecutionTimeoutMinutes is the timeout the real EMR Serverless
+// API reports for a job run when StartJobRun did not specify
+// executionTimeoutMinutes (types.JobRun.ExecutionTimeoutMinutes doc: "If no
+// timeout was specified, then it returns the default timeout of 720
+// minutes.").
+const DefaultJobRunExecutionTimeoutMinutes = 720
 
 // JobRunAttemptSummary represents a single attempt of a job run.
 type JobRunAttemptSummary struct {
@@ -134,13 +160,17 @@ type CreateApplicationOptions struct {
 // StartJobRunOptions carries optional StartJobRun parameters beyond the
 // always-present applicationID/executionRoleArn/name/mode/tags: the client
 // idempotency token (matching AWS's StartJobRunInput.ClientToken, a required
-// input field on the real API), the job driver, and configuration overrides.
+// input field on the real API), the job driver, configuration overrides,
+// execution IAM policy, execution timeout, and retry policy.
 // Passed as a trailing variadic argument so existing call sites that don't
 // need these are unaffected.
 type StartJobRunOptions struct {
-	JobDriver              any
-	ConfigurationOverrides any
-	ClientToken            string
+	JobDriver               any
+	ConfigurationOverrides  any
+	ExecutionIamPolicy      any
+	RetryPolicy             any
+	ClientToken             string
+	ExecutionTimeoutMinutes int64
 }
 
 // cloneJSONValue returns a shallow copy of a value produced by decoding JSON

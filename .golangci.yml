@@ -506,6 +506,15 @@ linters:
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'
         linters: [ testpackage ]
+      # scheduled_action_cron_test.go / scheduled_action_scheduler_test.go
+      # white-box test unexported cron parsing and due-time computation
+      # (parseRecurrence, scheduledActionDue, applyDueScheduledActions) with
+      # controlled, non-wall-clock timestamps, so they must live in the same
+      # package.
+      - path: 'autoscaling/scheduled_action_cron_test.go'
+        linters: [ testpackage ]
+      - path: 'autoscaling/scheduled_action_scheduler_test.go'
+        linters: [ testpackage ]
       - text: 'should have a package comment'
         linters: [ revive ]
       - text: 'exported \S+ \S+ should have comment( \(or a comment on this block\))? or be unexported'

@@ -158,6 +158,42 @@ func TestLookupEvents_RecordAndFilter(t *testing.T) {
 	}
 }
 
+// TestLookupEvents_EventCategoryFilter verifies the EventCategory input
+// field: omitting it (or passing "Management") returns only management
+// events, while requesting "insight" returns none, since this backend never
+// synthesizes Insight-category events. Matches AWS's documented behavior:
+// "If you do not specify an event category, events of [the Insight] category
+// are not returned in the response.".
+func TestLookupEvents_EventCategoryFilter(t *testing.T) {
+	t.Parallel()
+
+	b := cloudtrail.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b.RecordEvent(cloudtrail.Event{EventID: "evt-1", EventName: "CreateBucket"})
+
+	tests := []struct {
+		category string
+		wantIDs  []string
+	}{
+		{category: "", wantIDs: []string{"evt-1"}},
+		{category: "Management", wantIDs: []string{"evt-1"}},
+		{category: "insight", wantIDs: []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run("category_"+tt.category, func(t *testing.T) {
+			t.Parallel()
+
+			out := b.LookupEvents(cloudtrail.LookupEventsInput{EventCategory: tt.category})
+
+			gotIDs := make([]string, 0, len(out.Events))
+			for _, e := range out.Events {
+				gotIDs = append(gotIDs, e.EventID)
+			}
+			assert.Equal(t, tt.wantIDs, gotIDs)
+		})
+	}
+}
+
 // TestLookupEvents_NextTokenPagination verifies that the NextToken from one page
 // returns the remaining events on the subsequent page.
 func TestLookupEvents_NextTokenPagination(t *testing.T) {

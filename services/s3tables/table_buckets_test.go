@@ -154,20 +154,21 @@ func TestBackend_BucketReplicationRoundTrip(t *testing.T) {
 			tb, err := b.CreateTableBucket("rr-bucket", s3tables.CreateTableBucketOptions{})
 			require.NoError(t, err)
 
-			cfg := &s3tables.BucketReplicationConfig{
-				Destinations: []s3tables.ReplicationDestination{
-					{DestinationBucketARN: tt.destARN},
-				},
+			rules := []s3tables.ReplicationRule{
+				{Destinations: []s3tables.ReplicationDestination{{DestinationTableBucketARN: tt.destARN}}},
 			}
 
-			require.NoError(t, b.PutTableBucketReplication(tb.ARN, cfg))
+			putCfg, err := b.PutTableBucketReplication(tb.ARN, "arn:aws:iam::000000000000:role/repl", rules, "")
+			require.NoError(t, err)
+			assert.NotEmpty(t, putCfg.VersionToken)
 
 			got, err := b.GetTableBucketReplication(tb.ARN)
 			require.NoError(t, err)
-			assert.Len(t, got.Destinations, tt.wantCount)
-			assert.Equal(t, tt.destARN, got.Destinations[0].DestinationBucketARN)
+			require.Len(t, got.Rules, tt.wantCount)
+			assert.Equal(t, tt.destARN, got.Rules[0].Destinations[0].DestinationTableBucketARN)
+			assert.Equal(t, putCfg.VersionToken, got.VersionToken)
 
-			require.NoError(t, b.DeleteTableBucketReplication(tb.ARN))
+			require.NoError(t, b.DeleteTableBucketReplication(tb.ARN, got.VersionToken))
 			assert.Equal(t, 0, s3tables.BucketReplicationCount(b))
 		})
 	}
@@ -177,7 +178,7 @@ func TestBackend_DeleteTableBucketReplication_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.DeleteTableBucketReplication("arn:aws:s3tables:us-east-1:000000000000:bucket/nonexistent")
+	err := b.DeleteTableBucketReplication("arn:aws:s3tables:us-east-1:000000000000:bucket/nonexistent", "")
 	require.Error(t, err)
 }
 
@@ -193,9 +194,37 @@ func TestBackend_PutTableBucketReplication_BucketNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.PutTableBucketReplication(
+	_, err := b.PutTableBucketReplication(
 		"arn:aws:s3tables:us-east-1:000000000000:bucket/nonexistent",
-		&s3tables.BucketReplicationConfig{},
+		"arn:aws:iam::000000000000:role/repl", nil, "",
 	)
 	require.Error(t, err)
+}
+
+func TestBackend_PutTableBucketReplication_StaleVersionToken(t *testing.T) {
+	t.Parallel()
+
+	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
+	tb, err := b.CreateTableBucket("rr-stale-bucket", s3tables.CreateTableBucketOptions{})
+	require.NoError(t, err)
+
+	_, err = b.PutTableBucketReplication(tb.ARN, "arn:aws:iam::000000000000:role/repl", nil, "")
+	require.NoError(t, err)
+
+	_, err = b.PutTableBucketReplication(tb.ARN, "arn:aws:iam::000000000000:role/repl2", nil, "stale-token")
+	require.ErrorIs(t, err, s3tables.ErrTableVersionConflict)
+}
+
+func TestBackend_DeleteTableBucketReplication_StaleVersionToken(t *testing.T) {
+	t.Parallel()
+
+	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
+	tb, err := b.CreateTableBucket("rr-del-stale-bucket", s3tables.CreateTableBucketOptions{})
+	require.NoError(t, err)
+
+	_, err = b.PutTableBucketReplication(tb.ARN, "arn:aws:iam::000000000000:role/repl", nil, "")
+	require.NoError(t, err)
+
+	err = b.DeleteTableBucketReplication(tb.ARN, "stale-token")
+	require.ErrorIs(t, err, s3tables.ErrTableVersionConflict)
 }

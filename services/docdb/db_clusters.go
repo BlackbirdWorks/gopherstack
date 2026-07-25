@@ -36,6 +36,29 @@ func validateCreateDBClusterParams(
 	return nil
 }
 
+// extractCreateDBClusterOpts pulls the optional CreateDBClusterOptions
+// fields out into plain return values (deep-copying the two slice fields),
+// factored out of CreateDBCluster to keep its own line count under funlen's
+// threshold.
+func extractCreateDBClusterOpts(
+	opts *CreateDBClusterOptions,
+) (string, []string, []string, bool) {
+	if opts == nil {
+		return "", nil, nil, false
+	}
+	var vpcSecurityGroupIDs, enabledCloudwatchLogsExports []string
+	if len(opts.VpcSecurityGroupIDs) > 0 {
+		vpcSecurityGroupIDs = make([]string, len(opts.VpcSecurityGroupIDs))
+		copy(vpcSecurityGroupIDs, opts.VpcSecurityGroupIDs)
+	}
+	if len(opts.EnabledCloudwatchLogsExports) > 0 {
+		enabledCloudwatchLogsExports = make([]string, len(opts.EnabledCloudwatchLogsExports))
+		copy(enabledCloudwatchLogsExports, opts.EnabledCloudwatchLogsExports)
+	}
+
+	return opts.KmsKeyID, vpcSecurityGroupIDs, enabledCloudwatchLogsExports, opts.IAMDatabaseAuthenticationEnabled
+}
+
 func (b *InMemoryBackend) CreateDBCluster(
 	ctx context.Context,
 	id, engine, engineVersion, masterUser, masterUserPassword, dbName, paramGroupName, subnetGroupName string,
@@ -85,24 +108,8 @@ func (b *InMemoryBackend) CreateDBCluster(
 	azs := make([]string, len(availabilityZones))
 	copy(azs, availabilityZones)
 
-	var (
-		kmsKeyID                         string
-		vpcSecurityGroupIDs              []string
-		enabledCloudwatchLogsExports     []string
-		iamDatabaseAuthenticationEnabled bool
-	)
-	if opts != nil {
-		kmsKeyID = opts.KmsKeyID
-		iamDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
-		if len(opts.VpcSecurityGroupIDs) > 0 {
-			vpcSecurityGroupIDs = make([]string, len(opts.VpcSecurityGroupIDs))
-			copy(vpcSecurityGroupIDs, opts.VpcSecurityGroupIDs)
-		}
-		if len(opts.EnabledCloudwatchLogsExports) > 0 {
-			enabledCloudwatchLogsExports = make([]string, len(opts.EnabledCloudwatchLogsExports))
-			copy(enabledCloudwatchLogsExports, opts.EnabledCloudwatchLogsExports)
-		}
-	}
+	kmsKeyID, vpcSecurityGroupIDs, enabledCloudwatchLogsExports, iamDatabaseAuthenticationEnabled :=
+		extractCreateDBClusterOpts(opts)
 
 	cluster := &DBCluster{
 		region:                           region,
@@ -135,6 +142,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if len(tags) > 0 {
 		b.tagsStore(region)[clusterArn] = tagsFromMap(tags)
 	}
+	b.recordEvent(region, id, sourceTypeDBCluster, clusterArn, "DB cluster created", eventCatCreate)
 
 	return copyCluster(cluster), nil
 }
@@ -223,6 +231,7 @@ func (b *InMemoryBackend) DeleteDBCluster(
 
 	b.clusterDelete(region, id)
 	delete(b.tagsStore(region), b.clusterARN(region, id))
+	b.recordEvent(region, id, sourceTypeDBCluster, cp.DBClusterArn, "DB cluster deleted", eventCatDelete)
 
 	return cp, nil
 }
@@ -332,6 +341,7 @@ func (b *InMemoryBackend) StopDBCluster(ctx context.Context, id string) (*DBClus
 		return nil, fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidClusterState, id)
 	}
 	c.Status = statusStopped
+	b.recordEvent(region, id, sourceTypeDBCluster, c.DBClusterArn, "DB cluster stopped", "availability")
 
 	return copyCluster(c), nil
 }
@@ -348,6 +358,7 @@ func (b *InMemoryBackend) StartDBCluster(ctx context.Context, id string) (*DBClu
 		return nil, fmt.Errorf("%w: cluster %s is not in stopped state", ErrInvalidClusterState, id)
 	}
 	c.Status = statusAvailable
+	b.recordEvent(region, id, sourceTypeDBCluster, c.DBClusterArn, "DB cluster started", "availability")
 
 	return copyCluster(c), nil
 }
@@ -363,6 +374,7 @@ func (b *InMemoryBackend) FailoverDBCluster(ctx context.Context, id string) (*DB
 	if c.Status != statusAvailable {
 		return nil, fmt.Errorf("%w: cluster %s is not in available state for failover", ErrInvalidClusterState, id)
 	}
+	b.recordEvent(region, id, sourceTypeDBCluster, c.DBClusterArn, "DB cluster failover started", "failover")
 
 	return copyCluster(c), nil
 }

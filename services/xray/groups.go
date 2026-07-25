@@ -112,8 +112,16 @@ func (b *InMemoryBackend) UpdateGroup(name, filterExpr string) (*Group, error) {
 	return cloneGroup(g), nil
 }
 
-// UpdateGroupByARN updates a group by ARN or name.
-func (b *InMemoryBackend) UpdateGroupByARN(name, arn, filterExpr string) (*Group, error) {
+// UpdateGroupByARN updates a group by ARN or name. filterExpr and insights are
+// pointer-semantic: a nil pointer leaves the corresponding field unchanged, matching
+// the real UpdateGroupInput shape where FilterExpression and InsightsConfiguration are
+// both independently optional (unlike CreateGroup, omitting one on update must not
+// reset the other to its zero value).
+func (b *InMemoryBackend) UpdateGroupByARN(
+	name, arn string,
+	filterExpr *string,
+	insights *InsightsConfiguration,
+) (*Group, error) {
 	b.mu.Lock("UpdateGroupByARN")
 	defer b.mu.Unlock()
 
@@ -136,7 +144,13 @@ func (b *InMemoryBackend) UpdateGroupByARN(name, arn, filterExpr string) (*Group
 		return nil, fmt.Errorf("%w: group %s not found", ErrGroupNotFound, key)
 	}
 
-	g.FilterExpression = filterExpr
+	if filterExpr != nil {
+		g.FilterExpression = *filterExpr
+	}
+
+	if insights != nil {
+		g.InsightsConfiguration = *insights
+	}
 
 	return cloneGroup(g), nil
 }

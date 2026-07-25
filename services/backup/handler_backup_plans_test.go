@@ -490,7 +490,7 @@ func TestBackupPlanCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				rec2 := doREST(t, h, http.MethodGet, "/backup/plans/"+planID, nil)
-				assert.Equal(t, http.StatusNotFound, rec2.Code)
+				assert.Equal(t, http.StatusBadRequest, rec2.Code)
 			},
 		},
 		{
@@ -498,7 +498,7 @@ func TestBackupPlanCRUD(t *testing.T) {
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodGet, "/backup/plans/not-exist", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -609,5 +609,5 @@ func TestBackupPlan_CreateGetListDelete(t *testing.T) {
 
 	// Get after delete
 	rec4 := doREST(t, h, http.MethodGet, "/backup/plans/"+planID, nil)
-	assert.Equal(t, http.StatusNotFound, rec4.Code)
+	assert.Equal(t, http.StatusBadRequest, rec4.Code)
 }

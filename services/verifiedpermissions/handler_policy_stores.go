@@ -5,6 +5,12 @@ import (
 	"fmt"
 )
 
+// cedarVersion is the Cedar language version gopherstack's cedar-go
+// evaluation engine implements (see GetPolicyStoreOutput.CedarVersion /
+// Amazon Verified Permissions' Cedar v4 FAQ). Always CEDAR_4: gopherstack
+// has no legacy CEDAR_2 policy stores to distinguish.
+const cedarVersion = "CEDAR_4"
+
 type validationSettingsJSON struct {
 	Mode string `json:"mode"`
 }
@@ -14,14 +20,16 @@ type createPolicyStoreInput struct {
 	Description        string                 `json:"description"`
 	ValidationSettings validationSettingsJSON `json:"validationSettings"`
 	DeletionProtection string                 `json:"deletionProtection,omitempty"`
+	ClientToken        string                 `json:"clientToken,omitempty"`
 }
 
+// createPolicyStoreOutput mirrors the real SDK's CreatePolicyStoreOutput:
+// unlike GetPolicyStoreOutput, it does NOT echo validationSettings.
 type createPolicyStoreOutput struct {
-	PolicyStoreID      string                 `json:"policyStoreId"`
-	Arn                string                 `json:"arn"`
-	CreatedDate        string                 `json:"createdDate"`
-	LastUpdatedDate    string                 `json:"lastUpdatedDate"`
-	ValidationSettings validationSettingsJSON `json:"validationSettings"`
+	PolicyStoreID   string `json:"policyStoreId"`
+	Arn             string `json:"arn"`
+	CreatedDate     string `json:"createdDate"`
+	LastUpdatedDate string `json:"lastUpdatedDate"`
 }
 
 func (h *Handler) handleCreatePolicyStore(
@@ -49,18 +57,17 @@ func (h *Handler) handleCreatePolicyStore(
 
 	ps, err := h.Backend.CreatePolicyStore(
 		in.Description, in.Tags,
-		in.ValidationSettings.Mode, in.DeletionProtection,
+		in.ValidationSettings.Mode, in.DeletionProtection, in.ClientToken,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createPolicyStoreOutput{
-		PolicyStoreID:      ps.PolicyStoreID,
-		Arn:                ps.Arn,
-		CreatedDate:        ps.CreatedDate.UTC().Format(timeFormat),
-		LastUpdatedDate:    ps.LastUpdated.UTC().Format(timeFormat),
-		ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
+		PolicyStoreID:   ps.PolicyStoreID,
+		Arn:             ps.Arn,
+		CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 
@@ -68,16 +75,18 @@ type policyStoreIDInput struct {
 	PolicyStoreID string `json:"policyStoreId"`
 }
 
+// policyStoreView mirrors the real SDK's PolicyStoreItem (ListPolicyStores):
+// a leaner shape than GetPolicyStoreOutput -- no validationSettings,
+// deletionProtection, or cedarVersion.
 type policyStoreView struct {
-	PolicyStoreID      string                 `json:"policyStoreId"`
-	Arn                string                 `json:"arn"`
-	Description        string                 `json:"description"`
-	CreatedDate        string                 `json:"createdDate"`
-	LastUpdatedDate    string                 `json:"lastUpdatedDate"`
-	ValidationSettings validationSettingsJSON `json:"validationSettings"`
-	DeletionProtection string                 `json:"deletionProtection,omitempty"`
+	PolicyStoreID   string `json:"policyStoreId"`
+	Arn             string `json:"arn"`
+	Description     string `json:"description"`
+	CreatedDate     string `json:"createdDate"`
+	LastUpdatedDate string `json:"lastUpdatedDate"`
 }
 
+// getPolicyStoreOutput mirrors the real SDK's GetPolicyStoreOutput.
 type getPolicyStoreOutput struct {
 	PolicyStoreID      string                 `json:"policyStoreId"`
 	Arn                string                 `json:"arn"`
@@ -85,6 +94,7 @@ type getPolicyStoreOutput struct {
 	CreatedDate        string                 `json:"createdDate"`
 	LastUpdatedDate    string                 `json:"lastUpdatedDate"`
 	ValidationSettings validationSettingsJSON `json:"validationSettings"`
+	CedarVersion       string                 `json:"cedarVersion,omitempty"`
 	DeletionProtection string                 `json:"deletionProtection,omitempty"`
 }
 
@@ -105,6 +115,7 @@ func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput
 		CreatedDate:        ps.CreatedDate.UTC().Format(timeFormat),
 		LastUpdatedDate:    ps.LastUpdated.UTC().Format(timeFormat),
 		ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
+		CedarVersion:       cedarVersion,
 		DeletionProtection: ps.DeletionProtection,
 	}, nil
 }
@@ -129,13 +140,11 @@ func (h *Handler) handleListPolicyStores(
 	for i := range stores {
 		ps := &stores[i]
 		items = append(items, policyStoreView{
-			PolicyStoreID:      ps.PolicyStoreID,
-			Arn:                ps.Arn,
-			Description:        ps.Description,
-			CreatedDate:        ps.CreatedDate.UTC().Format(timeFormat),
-			LastUpdatedDate:    ps.LastUpdated.UTC().Format(timeFormat),
-			ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
-			DeletionProtection: ps.DeletionProtection,
+			PolicyStoreID:   ps.PolicyStoreID,
+			Arn:             ps.Arn,
+			Description:     ps.Description,
+			CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
+			LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 		})
 	}
 
@@ -149,11 +158,15 @@ type updatePolicyStoreInput struct {
 	DeletionProtection string                  `json:"deletionProtection,omitempty"`
 }
 
+// updatePolicyStoreOutput mirrors the real SDK's UpdatePolicyStoreOutput:
+// unlike CreatePolicyStoreOutput's sibling shape, it requires CreatedDate
+// too (since the store already existed), and -- like CreatePolicyStoreOutput
+// -- does NOT echo validationSettings.
 type updatePolicyStoreOutput struct {
-	PolicyStoreID      string                 `json:"policyStoreId"`
-	Arn                string                 `json:"arn"`
-	LastUpdatedDate    string                 `json:"lastUpdatedDate"`
-	ValidationSettings validationSettingsJSON `json:"validationSettings"`
+	PolicyStoreID   string `json:"policyStoreId"`
+	Arn             string `json:"arn"`
+	CreatedDate     string `json:"createdDate"`
+	LastUpdatedDate string `json:"lastUpdatedDate"`
 }
 
 func (h *Handler) handleUpdatePolicyStore(
@@ -176,10 +189,10 @@ func (h *Handler) handleUpdatePolicyStore(
 	}
 
 	return &updatePolicyStoreOutput{
-		PolicyStoreID:      ps.PolicyStoreID,
-		Arn:                ps.Arn,
-		LastUpdatedDate:    ps.LastUpdated.UTC().Format(timeFormat),
-		ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
+		PolicyStoreID:   ps.PolicyStoreID,
+		Arn:             ps.Arn,
+		CreatedDate:     ps.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate: ps.LastUpdated.UTC().Format(timeFormat),
 	}, nil
 }
 

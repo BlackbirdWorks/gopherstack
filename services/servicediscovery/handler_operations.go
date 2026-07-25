@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
@@ -44,6 +46,29 @@ type listOperationsRequest struct {
 	Filters    []operationFilter `json:"Filters"`
 }
 
+// parseEpochSeconds parses a decimal (optionally fractional) Unix-seconds
+// string, the wire format OperationFilter's UPDATE_DATE Values use (per its
+// doc comment: "Specify a start date and an end date in Unix date/time
+// format"). Returns ok=false for unparseable input, letting the caller treat
+// that bound as unset rather than erroring the whole request.
+func parseEpochSeconds(s string) (time.Time, bool) {
+	secs, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	whole := int64(secs)
+	nanos := int64((secs - float64(whole)) * float64(time.Second))
+
+	return time.Unix(whole, nanos).UTC(), true
+}
+
+// buildOperationsFilter converts the wire-level filter entries into a
+// ListOperationsFilter, per OperationFilter's documented Name values:
+// NAMESPACE_ID, SERVICE_ID, STATUS, TYPE, UPDATE_DATE (types.OperationFilter
+// doc comment). UPDATE_DATE only recognizes the documented BETWEEN condition
+// with exactly a [start, end] Values pair; anything else leaves the date
+// bounds unset (no filtering on that dimension).
 func buildOperationsFilter(filters []operationFilter) ListOperationsFilter {
 	f := ListOperationsFilter{}
 
@@ -52,11 +77,27 @@ func buildOperationsFilter(filters []operationFilter) ListOperationsFilter {
 			continue
 		}
 
+		fv := FilterValue{Condition: entry.Condition, Values: entry.Values}
+
 		switch entry.Name {
+		case "NAMESPACE_ID":
+			f.NamespaceID = fv
+		case "SERVICE_ID":
+			f.ServiceID = fv
 		case "STATUS":
-			f.Status = entry.Values[0]
+			f.Status = fv
 		case "TYPE":
-			f.Type = entry.Values[0]
+			f.Type = fv
+		case "UPDATE_DATE":
+			if entry.Condition == "BETWEEN" && len(entry.Values) >= 2 {
+				if start, ok := parseEpochSeconds(entry.Values[0]); ok {
+					f.UpdateDateStart = &start
+				}
+
+				if end, ok := parseEpochSeconds(entry.Values[1]); ok {
+					f.UpdateDateEnd = &end
+				}
+			}
 		}
 	}
 
@@ -77,10 +118,22 @@ func (h *Handler) handleListOperations(_ context.Context, body []byte) ([]byte, 
 
 	items := make([]map[string]any, 0, len(page))
 	for i := range page {
-		items = append(items, operationToMap(&page[i]))
+		items = append(items, operationSummaryToMap(&page[i]))
 	}
 
 	return marshalPagedResponse("Operations", items, nextToken)
+}
+
+// operationSummaryToMap converts an Operation to the lightweight shape real
+// Cloud Map's ListOperations returns: types.OperationSummary, which has only
+// Id and Status (api_op_ListOperations.go: "Operations []types.OperationSummary").
+// Unlike GetOperation, ListOperations never includes Type/CreateDate/UpdateDate/
+// Targets/ErrorCode/ErrorMessage.
+func operationSummaryToMap(op *Operation) map[string]any {
+	return map[string]any{
+		"Id":           op.ID,
+		keyStatusField: op.Status,
+	}
 }
 
 // operationToMap converts an Operation to a JSON-serialisable map with full fields.

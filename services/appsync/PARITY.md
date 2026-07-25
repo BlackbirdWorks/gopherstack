@@ -2,8 +2,8 @@
 service: appsync
 sdk_module: aws-sdk-go-v2/service/appsync@v1.55.0
 last_audit_commit: 4bece540
-last_audit_date: 2026-07-12
-overall: A            # systemic route-matcher/method bugs fixed across nearly every family
+last_audit_date: 2026-07-24
+overall: A            # systemic route-matcher/method bugs fixed across nearly every family; the two remaining gaps from the 2026-07-12 pass (StartSchemaMerge, Start/GetDataSourceIntrospection) are now implemented for real
 ops:
   CreateGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
   GetGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -76,10 +76,10 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as ListTagsForResource"}
   EvaluateCode: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real path is POST /v1/dataplane-evaluatecode (standalone), not /v1/dataplane-evaluations/code — was unreachable; fixed, old path kept as alias"}
   EvaluateMappingTemplate: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real path is POST /v1/dataplane-evaluatetemplate (standalone), not /v1/dataplane-evaluations/template — was unreachable; fixed, old path kept as alias"}
-  GetDataSourceIntrospection: {wire: gap, errors: gap, state: gap, persist: n/a, note: "NOT fixed this pass — see gaps"}
+  GetDataSourceIntrospection: {wire: ok, errors: ok, state: ok, persist: ok, note: "real path added (GET /v1/datasources/introspections/{introspectionId}, distinct from the /v1/dataSource-introspections legacy alias); response body rebuilt to the real flat shape (introspectionId/introspectionResult/introspectionStatus/introspectionStatusDetail at the top level, introspectionResult itself {models,nextToken}) instead of the old {introspectionResult: {introspectionId, status, models}} nesting; unknown IDs now correctly 404 (previously always synthesized a fake SUCCESS for ANY id, even ones never started)"}
   ListTypesByAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartDataSourceIntrospection: {wire: gap, errors: gap, state: gap, persist: n/a, note: "NOT fixed this pass — see gaps"}
-  StartSchemaMerge: {wire: gap, errors: gap, state: gap, persist: n/a, note: "NOT fixed this pass — see gaps"}
+  StartDataSourceIntrospection: {wire: ok, errors: ok, state: ok, persist: ok, note: "real path added (POST /v1/datasources/introspections); input contract corrected from the invented {apiId, dataSourceName} (not part of the real StartDataSourceIntrospectionInput, which is NOT scoped to any AppSync API/DataSource at all) to the real optional rdsDataApiConfig{databaseName,resourceArn,secretArn}; now persists a real DataSourceIntrospection record (new 'introspections' store.Table) keyed by introspectionId instead of returning an unpersisted random ID with nothing behind it. gopherstack has no real RDS Data API connectivity, so every well-formed request completes synchronously with SUCCESS and an empty models list -- wire shape, error codes and persisted/retrievable state are all real; the *contents* of a genuine introspection (actual RDS table/column data) are out of scope, same category as ExecuteGraphQL's VTL/JS engine scope limit below"}
+  StartSchemaMerge: {wire: ok, errors: ok, state: ok, persist: ok, note: "moved from the invented POST /v1/apis/{apiId}/schemaMerge (apiId-only, response {sourceApiSchemaMetadata:[], status}) to the real POST /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations/{associationId}/merge, keyed by BOTH mergedApiIdentifier and associationId with response {sourceApiAssociationStatus}; backend signature changed from StartSchemaMerge(apiID) to StartSchemaMerge(mergedAPIID, associationID), now validates and mutates the real SourceAPIAssociation.AssociationStatus (MERGE_SUCCESS) instead of returning a hardcoded SchemaStatus disconnected from any association. The old invented endpoint was deleted outright rather than aliased: an apiId-only request has no way to recover the associationId the real operation requires, so a path-only alias would still be wrong on the request/response shape"}
 families:
   GraphqlApi_CRUD: {status: ok, note: "Create/Get/List/Delete already correct; UpdateGraphqlApi POST-method bug fixed"}
   ApiKey_CRUD: {status: ok, note: "expires already epoch-seconds (pkgs/awstime not used but manual int64 matches wire); UpdateApiKey POST-method bug fixed"}
@@ -91,16 +91,15 @@ families:
   ApiCache: {status: ok, note: "UpdateApiCache and FlushApiCache both had wrong path+method; fixed"}
   DomainName_and_ApiAssociation: {status: ok, note: "UpdateDomainName POST-method bug fixed; rest already correct"}
   ChannelNamespace_EventApi: {status: ok, note: "CreateApi/GetApi/ListApis/UpdateApi/DeleteApi + ChannelNamespace CRUD; ListApis \"items\"->\"apis\" wrapper bug fixed, UpdateApi/UpdateChannelNamespace POST-method bugs fixed"}
-  SourceApiAssociation_and_Merge: {status: partial, note: "Associate/Get/Update/Disassociate + the apiId-keyed List path fixed; StartSchemaMerge left as a known-broken gap (see below)"}
+  SourceApiAssociation_and_Merge: {status: ok, note: "Associate/Get/Update/Disassociate + the apiId-keyed List path fixed (2026-07-12 pass); StartSchemaMerge implemented for real this pass at the correct path/keying/response shape (2026-07-24)"}
   DataplaneEvaluation: {status: ok, note: "EvaluateCode/EvaluateMappingTemplate path rewrite from nested /v1/dataplane-evaluations/{code,template} to the real standalone top-level paths"}
-  DataSourceIntrospection: {status: gap, note: "NOT touched this pass — path AND input/output contract are both wrong; see gaps"}
-gaps:
-  - "StartSchemaMerge: wrong path (/v1/apis/{apiId}/schemaMerge instead of the real POST /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations/{associationId}/merge) AND wrong semantics (real op merges one specific source-API association, keyed by associationId, not just apiId) AND wrong response shape (returns {sourceApiSchemaMetadata:[], status} instead of the real {sourceApiAssociationStatus}). Completely unreachable by a real SDK client today; fixing requires backend.StartSchemaMerge signature change to (mergedAPIID, associationID) plus a real per-association merge-status field. Left untouched (not even path-aliased) since a path-only fix would still be broken on the request/response shape. No bd issue filed yet — recommend filing one."
-  - "StartDataSourceIntrospection / GetDataSourceIntrospection: wrong path (/v1/dataSource-introspections vs the real /v1/datasources/introspections) AND wrong input contract (handler expects {apiId, dataSourceName}; the real StartDataSourceIntrospectionInput only carries an optional rdsDataApiConfig{resourceArn, databaseName} — it is not tied to any existing AppSync API/DataSource at all). GetDataSourceIntrospection's backend comment already documents it as a no-op stub (\"always returns a COMPLETED result\"). Completely unreachable by a real SDK client today, and even a path-only fix would still fail on the input mismatch. Left untouched (not even path-aliased) — needs a real backend rework (new rdsDataApiConfig-keyed introspection record, no apiId/dataSourceName coupling) before it's worth making reachable. No bd issue filed yet — recommend filing one."
+  DataSourceIntrospection: {status: ok, note: "implemented for real this pass (2026-07-24): real path, real rdsDataApiConfig-based input contract, real persisted/keyed state, real error codes. No real RDS Data API connectivity in gopherstack, so introspected model content is always an empty list -- documented in items_still_open, not a wire/error/state gap"}
+gaps: []
 deferred:
   - "ExecuteGraphQL / VTL+JS resolver execution semantics (vtl.go, jseval.go, graphql.go) — route/method verified correct only; the query-execution engine itself was out of scope for this route/wire-shape sweep."
   - "CloudTrail-capture chokepoint / pkgs/service integration — not audited (shared/cross-service, out of scope per this task's edit boundary)."
-leaks: {status: clean, note: "janitor.go's background goroutine already takes ctx and is started once via StartWorker; no new goroutines, tickers, or unbounded maps were added this pass. The two new safemap-style Tags-table lookups (b.apis / b.eventAPIs) reuse existing store.Table entries — no new state."}
+  - "DataSourceIntrospection real model content: gopherstack has no RDS Data API backend to introspect against, so StartDataSourceIntrospection/GetDataSourceIntrospection always complete SUCCESS with an empty models list rather than real table/column data. Wire shape, error codes (BadRequestException on missing/incomplete rdsDataApiConfig, NotFoundException on unknown introspectionId), and persisted per-ID state are all real and field-diffed against the SDK; only the introspected *content* is out of scope. Would require a services/rds (or similar) cross-service integration to fix — out of this task's services/appsync/ edit boundary."
+leaks: {status: clean, note: "janitor.go's background goroutine already takes ctx and is started once via StartWorker; no new goroutines, tickers, or unbounded maps were added this (or the prior) pass. The two safemap-style Tags-table lookups (b.apis / b.eventAPIs) reuse existing store.Table entries. This pass added one new store.Table (b.introspections, registered in store_setup.go, generically covered by the existing Snapshot/Restore/ResetAll wiring in persistence.go) — introspection records are NOT scoped to any GraphqlApi/Api/DataSource (matches the real AWS operation, which isn't either), so DeleteGraphqlApi/DeleteApi/DeleteDataSource correctly do NOT cascade-delete them; there is no lock path in the new code without a matching defer-release (verified by -race)."}
 ---
 
 ## Notes
@@ -195,3 +194,71 @@ Read and verified intact — not modified. `Snapshot`/`Restore` already drive ev
 this sweep's Tags fix now also mutates), so no persistence wiring changes were needed;
 the new `eventAPI.Tags` mutations are automatically covered by the existing generic
 snapshot mechanism.
+
+### 2026-07-24 pass: StartSchemaMerge and Start/GetDataSourceIntrospection implemented for real
+
+The 2026-07-12 audit left these two gaps explicitly untouched ("not even path-aliased")
+because a path-only fix would still have been broken on the request/response shape.
+This pass reworked both for real, field-diffed against
+`aws-sdk-go-v2/service/appsync@v1.55.0`.
+
+**StartSchemaMerge.** The old implementation lived at the invented
+`POST /v1/apis/{apiId}/schemaMerge`, keyed only by `apiId`, returning an invented
+`{sourceApiSchemaMetadata: [], status}` body. The real operation is
+`POST /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations/{associationId}/merge`
+— keyed by BOTH `mergedApiIdentifier` and `associationId` (a merge always targets one
+specific source-API association, never "the merged API" as a whole) — and returns
+`{sourceApiAssociationStatus}`. `InMemoryBackend.StartSchemaMerge`'s signature changed
+from `(apiID) (SchemaStatus, error)` to `(mergedAPIID, associationID) (string, error)`;
+it now validates both the merged API and the association exist (and that the
+association actually belongs to that merged API), mutates the real
+`SourceAPIAssociation.AssociationStatus` to `MERGE_SUCCESS`, and returns that value —
+replacing the old version's hardcoded, association-disconnected `SchemaStatusActive`
+return. The invented old endpoint was **deleted outright**, not aliased: an
+`apiId`-only request has no way to recover the `associationId` the real operation
+requires, so keeping it as a path alias would still have served the wrong contract.
+`TestHandler_LegacySchemaMergeEndpointRemoved` locks that the old path now 404s instead
+of silently accepting invented-shape requests.
+
+**StartDataSourceIntrospection / GetDataSourceIntrospection.** The old implementation
+lived at `/v1/dataSource-introspections[/{id}]` and took `{apiId, dataSourceName}` —
+neither field exists on the real `StartDataSourceIntrospectionInput`, which carries
+only an optional `rdsDataApiConfig{databaseName,resourceArn,secretArn}` and is **not
+scoped to any AppSync GraphqlApi/DataSource at all** (it introspects an RDS Data
+API-backed database directly). `GetDataSourceIntrospection` was a pure stub — its own
+doc comment said so — that returned a fabricated `SUCCESS` result for literally any
+ID string, including ones that were never started. Fixed:
+
+- Real path added: `POST /v1/datasources/introspections` and
+  `GET /v1/datasources/introspections/{introspectionId}` (registered in
+  `RouteMatcher()`, `parseOperation` via the new `pathSegDatasources` top-level case,
+  and `dispatchTopLevel`). The old `/v1/dataSource-introspections` path is kept working
+  as a non-breaking alias, rewired to the same corrected backend contract (same
+  "deliberate non-breaking-alias strategy" as the rest of this service — see above).
+- New backend contract: `StartDataSourceIntrospection(cfg *RDSDataAPIConfig)
+  (*DataSourceIntrospection, error)` validates `cfg` and its three required fields
+  (`BadRequestException` if missing, matching the real client-side
+  `validateRdsDataApiConfig`), then creates and **persists** a real
+  `DataSourceIntrospection` record in a new `introspections` store.Table (registered in
+  store_setup.go; automatically covered by the existing generic
+  Snapshot/Restore/ResetAll wiring in persistence.go — see
+  `Test_InMemoryBackend_SnapshotRestore`). `GetDataSourceIntrospection` now looks the
+  record up by ID and returns `NotFoundException` for unknown IDs instead of
+  fabricating a result.
+- Response shapes corrected: `StartDataSourceIntrospectionOutput` is
+  `{introspectionId, introspectionStatus, introspectionStatusDetail}` (no
+  `introspectionResult` — that field only exists on Get); `GetDataSourceIntrospectionOutput`
+  is the flat `{introspectionId, introspectionResult: {models, nextToken},
+  introspectionStatus, introspectionStatusDetail}`, not the old
+  `{introspectionResult: {introspectionId, status, models}}` nesting.
+- New model types (`RDSDataAPIConfig`, `DataSourceIntrospectionModel`,
+  `DataSourceIntrospectionModelField(Type)`, `DataSourceIntrospectionModelIndex`,
+  `DataSourceIntrospectionResult`, `DataSourceIntrospectionStatus*` constants) added to
+  models.go, field-named and -shaped to match
+  `aws-sdk-go-v2/service/appsync/types` exactly.
+- **Known, documented limitation** (not a wire/error/state gap): gopherstack has no
+  real RDS Data API connectivity, so every well-formed request completes synchronously
+  with `SUCCESS` and an **empty** `models` list — there is no real database to
+  introspect. This is called out explicitly in `deferred` above rather than silently
+  passed off as full parity; a real fix would require a cross-service RDS Data API
+  integration, out of this task's `services/appsync/` edit boundary.

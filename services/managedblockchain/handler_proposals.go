@@ -71,20 +71,23 @@ func (h *Handler) handleListProposals(c *echo.Context, networkID string) error {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNetworkID.Error())
 	}
 
-	statusFilter := c.Request().URL.Query().Get("status")
+	q := c.Request().URL.Query()
+	statusFilter := q.Get("status")
 
 	proposals, err := h.Backend.ListProposals(networkID, statusFilter)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	summaries := make([]proposalSummaryObject, 0, len(proposals))
+	pageItems, nextToken := paginate(proposals, q)
 
-	for _, p := range proposals {
+	summaries := make([]proposalSummaryObject, 0, len(pageItems))
+
+	for _, p := range pageItems {
 		summaries = append(summaries, toProposalSummaryObject(p))
 	}
 
-	return c.JSON(http.StatusOK, listProposalsResponse{Proposals: summaries})
+	return c.JSON(http.StatusOK, listProposalsResponse{Proposals: summaries, NextToken: nextToken})
 }
 
 func (h *Handler) handleListProposalVotes(c *echo.Context, resource string) error {
@@ -98,9 +101,11 @@ func (h *Handler) handleListProposalVotes(c *echo.Context, resource string) erro
 		return h.writeBackendError(c, err)
 	}
 
-	summaries := make([]voteSummaryObject, 0, len(votes))
+	pageItems, nextToken := paginate(votes, c.Request().URL.Query())
 
-	for _, v := range votes {
+	summaries := make([]voteSummaryObject, 0, len(pageItems))
+
+	for _, v := range pageItems {
 		summaries = append(summaries, voteSummaryObject{
 			MemberID:   v.MemberID,
 			MemberName: v.MemberName,
@@ -108,7 +113,7 @@ func (h *Handler) handleListProposalVotes(c *echo.Context, resource string) erro
 		})
 	}
 
-	return c.JSON(http.StatusOK, listProposalVotesResponse{ProposalVotes: summaries})
+	return c.JSON(http.StatusOK, listProposalVotesResponse{ProposalVotes: summaries, NextToken: nextToken})
 }
 
 func (h *Handler) handleVoteOnProposal(c *echo.Context, resource string, body []byte) error {

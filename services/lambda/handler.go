@@ -175,6 +175,12 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		}
 	}
 
+	// Durable-execution family spans three independent path prefixes that
+	// normalizeFunctionPath/lambdaOpRoutes below don't cover — see handler_paths.go.
+	if op := extractDurableExecOperation(path, method); op != "" {
+		return op
+	}
+
 	rest := normalizeFunctionPath(path)
 
 	// Special case: GET /provisioned-concurrency dispatches to Get vs List based on Qualifier.
@@ -239,4 +245,34 @@ func (h *Handler) writeError(c *echo.Context, status int, errType, message strin
 		Type:    errType,
 		Message: message,
 	})
+}
+
+// checkRevisionID enforces the optimistic-concurrency RevisionId check used by
+// UpdateFunctionCode and UpdateFunctionConfiguration (the paths that fetch a
+// resource, mutate it in place, then call Backend.UpdateFunction — see
+// handler_functions.go): when the caller supplies a RevisionId it must match
+// the resource's current one, or the request fails with
+// PreconditionFailedException without mutating anything. An empty
+// providedRevisionID (the common case — most callers never pass one) always
+// passes.
+//
+// Returns true when the check passes and the caller should continue; false
+// when it wrote a PreconditionFailedException response and the caller must
+// stop and return nil immediately, matching validateMemoryAndTimeout's and
+// applyFunctionCodeUpdate's bool-return convention. This is deliberately NOT
+// modeled as "return writeError's own error return value" — c.JSON (and so
+// writeError) returns nil on any successful write, error or not, so a
+// `!= nil` check on that return value can never detect a written error
+// response and would silently fall through to a second, conflicting write
+// (exactly the bug this function and applyFunctionCodeUpdate both avoid).
+func (h *Handler) checkRevisionID(c *echo.Context, currentRevisionID, providedRevisionID string) bool {
+	if providedRevisionID == "" || providedRevisionID == currentRevisionID {
+		return true
+	}
+
+	_ = h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailedException",
+		"The RevisionId provided does not match the latest RevisionId. Fetch the latest version "+
+			"and try again.")
+
+	return false
 }

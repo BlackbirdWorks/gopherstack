@@ -23,13 +23,13 @@ type persistTestIDs struct {
 
 // newFullyPopulatedBackend creates a backend with one populated entry in
 // every store.Table (tableBuckets, namespaces, tables, bucketReplication,
-// tableRecordExpiry -- see store_setup.go's registerAllTables) plus every
-// raw map persistence.go persists directly (tableReplication, tags,
-// tableReplicationConfigs), so a Snapshot from it exercises the entire
-// persisted surface of the backend. S3 Tables had a Snapshot/Restore pair on
-// InMemoryBackend before this conversion but no Handler delegation (dead
-// wiring -- see persistence.go's Handler.Snapshot doc comment), so nothing
-// here was ever actually persisted in practice.
+// tableReplication, tableRecordExpiry -- see store_setup.go's
+// registerAllTables) plus the one raw map persistence.go persists directly
+// (tags), so a Snapshot from it exercises the entire persisted surface of
+// the backend. S3 Tables had a Snapshot/Restore pair on InMemoryBackend
+// before this conversion but no Handler delegation (dead wiring -- see
+// persistence.go's Handler.Snapshot doc comment), so nothing here was ever
+// actually persisted in practice.
 func newFullyPopulatedBackend(t *testing.T) (*s3tables.InMemoryBackend, persistTestIDs) {
 	t.Helper()
 
@@ -44,20 +44,20 @@ func newFullyPopulatedBackend(t *testing.T) (*s3tables.InMemoryBackend, persistT
 	table, err := b.CreateTable(tb.ARN, []string{"acme-ns"}, "acme-table", "ICEBERG", s3tables.CreateTableOptions{})
 	require.NoError(t, err)
 
-	require.NoError(t, b.PutTableBucketReplication(tb.ARN, &s3tables.BucketReplicationConfig{
-		Destinations: []s3tables.ReplicationDestination{
-			{DestinationBucketARN: "arn:aws:s3tables:us-west-2:000000000000:bucket/dest"},
-		},
-	}))
+	_, err = b.PutTableBucketReplication(tb.ARN, "arn:aws:iam::000000000000:role/repl",
+		[]s3tables.ReplicationRule{
+			{Destinations: []s3tables.ReplicationDestination{
+				{DestinationTableBucketARN: "arn:aws:s3tables:us-west-2:000000000000:bucket/dest"},
+			}},
+		}, "")
+	require.NoError(t, err)
 
 	require.NoError(t, b.PutTableRecordExpirationConfiguration(table.ARN, &s3tables.TableRecordExpiryConfig{
-		Status: "ENABLED",
+		Status: "enabled",
 	}))
 
-	require.NoError(t, b.PutTableReplication(table.ARN))
-	require.NoError(t, b.SetTableReplicationConfig(table.ARN, map[string]any{
-		"role": "arn:aws:iam::000000000000:role/repl",
-	}))
+	_, err = b.PutTableReplication(table.ARN, "arn:aws:iam::000000000000:role/repl", nil, "")
+	require.NoError(t, err)
 	require.NoError(t, b.TagResource(table.ARN, map[string]string{"env": "test"}))
 
 	return b, persistTestIDs{bucketARN: tb.ARN, tableARN: table.ARN}
@@ -65,9 +65,8 @@ func newFullyPopulatedBackend(t *testing.T) (*s3tables.InMemoryBackend, persistT
 
 // TestInMemoryBackend_SnapshotRestore_FullState exercises a full
 // Snapshot->Restore round trip across every store.Table (tableBuckets,
-// namespaces, tables, bucketReplication, tableRecordExpiry) and every raw
-// map (tableReplication, tags, tableReplicationConfigs) persistence.go
-// persists.
+// namespaces, tables, bucketReplication, tableReplication,
+// tableRecordExpiry) and the one raw map (tags) persistence.go persists.
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -119,10 +118,11 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 			cfg, err := fresh.GetTableBucketReplication(ids.bucketARN)
 			require.NoError(t, err)
-			require.Len(t, cfg.Destinations, 1)
+			require.Len(t, cfg.Rules, 1)
+			require.Len(t, cfg.Rules[0].Destinations, 1)
 			assert.Equal(t,
 				"arn:aws:s3tables:us-west-2:000000000000:bucket/dest",
-				cfg.Destinations[0].DestinationBucketARN,
+				cfg.Rules[0].Destinations[0].DestinationTableBucketARN,
 			)
 		}},
 		{name: "tableRecordExpiry table", run: func(t *testing.T) {
@@ -130,12 +130,16 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 			cfg, err := fresh.GetTableRecordExpirationConfiguration(ids.tableARN)
 			require.NoError(t, err)
-			assert.Equal(t, "ENABLED", cfg.Status)
+			assert.Equal(t, "enabled", cfg.Status)
 		}},
-		{name: "tableReplication raw map", run: func(t *testing.T) {
+		{name: "tableReplication table", run: func(t *testing.T) {
 			t.Helper()
 
-			assert.Equal(t, 1, s3tables.TableReplicationCount(fresh))
+			require.Equal(t, 1, s3tables.TableReplicationCount(fresh))
+
+			cfg, err := fresh.GetTableReplicationConfig(ids.tableARN)
+			require.NoError(t, err)
+			assert.Equal(t, "arn:aws:iam::000000000000:role/repl", cfg.Role)
 		}},
 		{name: "tags raw map", run: func(t *testing.T) {
 			t.Helper()
@@ -143,13 +147,6 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 			tags, err := fresh.ListTagsForResource(ids.tableARN)
 			require.NoError(t, err)
 			assert.Equal(t, map[string]string{"env": "test"}, tags)
-		}},
-		{name: "tableReplicationConfigs raw map", run: func(t *testing.T) {
-			t.Helper()
-
-			cfg, err := fresh.GetTableReplicationConfig(ids.tableARN)
-			require.NoError(t, err)
-			assert.Equal(t, "arn:aws:iam::000000000000:role/repl", cfg["role"])
 		}},
 	}
 

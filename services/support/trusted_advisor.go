@@ -318,6 +318,21 @@ func validCheckID(checkID string) bool {
 	return ok
 }
 
+// validTALanguage reports whether value is one of the ISO 639-1 (or
+// locale-suffixed) codes real AWS Support documents for Trusted Advisor
+// operations. This is a materially larger set than the 4 languages Support
+// case handling accepts (validLanguage in languages.go) -- reusing that
+// narrower set here previously rejected valid Trusted Advisor requests (e.g.
+// language=fr).
+func validTALanguage(value string) bool {
+	switch value {
+	case "zh", "zh_TW", "en", "fr", "de", "id", "it", "ja", "ko", "pt_BR", "es":
+		return true
+	default:
+		return false
+	}
+}
+
 func validateCheckIDs(checkIDs []string) error {
 	if len(checkIDs) == 0 {
 		return fmt.Errorf("%w: checkIds is required", ErrValidation)

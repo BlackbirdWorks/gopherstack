@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -40,7 +41,6 @@ func (b *InMemoryBackend) CreateKnowledgeBase(
 		RoleARN:              cfg.RoleARN,
 		KBConfiguration:      cfg.KBConfiguration,
 		StorageConfiguration: cfg.StorageConfiguration,
-		Tags:                 maps.Clone(cfg.Tags),
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
@@ -102,7 +102,12 @@ func (b *InMemoryBackend) UpdateKnowledgeBase(
 	return kbCopy(kb), nil
 }
 
-// DeleteKnowledgeBase deletes a knowledge base.
+// DeleteKnowledgeBase deletes a knowledge base and cascade-cleans every
+// resource scoped under it: data sources, and (per data source) ingestion
+// jobs and ingested KB documents, plus the KB's own tags. Without this, a
+// deleted-and-recreated KB with the same auto-incremented ID space would
+// never actually observe empty child collections, and the tags map would
+// keep a permanent ghost entry keyed by the now-invalid ARN.
 func (b *InMemoryBackend) DeleteKnowledgeBase(_ context.Context, kbID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -114,6 +119,12 @@ func (b *InMemoryBackend) DeleteKnowledgeBase(_ context.Context, kbID string) er
 
 	delete(b.kbsByName, kb.Name)
 	b.knowledgeBases.Delete(kbID)
+	delete(b.tags, kb.KnowledgeBaseARN)
+
+	for _, ds := range slices.Clone(b.dataSourcesByKB.Get(kbID)) {
+		b.deleteDataSourceChildrenLocked(kbID, ds.DataSourceID)
+		b.dataSources.Delete(dsKey(kbID, ds.DataSourceID))
+	}
 
 	return nil
 }
@@ -146,7 +157,6 @@ func (b *InMemoryBackend) ListKnowledgeBases(
 
 func kbCopy(kb *KnowledgeBase) *KnowledgeBase {
 	cp := *kb
-	cp.Tags = maps.Clone(kb.Tags)
 
 	return &cp
 }

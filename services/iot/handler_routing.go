@@ -22,6 +22,10 @@ func matchBatch4Path(path string) bool {
 }
 
 func matchCoreIoTPath(path string) bool {
+	return matchCoreIoTPathPrimary(path) || matchCoreIoTPathSecondary(path)
+}
+
+func matchCoreIoTPathPrimary(path string) bool {
 	return strings.HasPrefix(path, "/things/") ||
 		path == pathThings ||
 		strings.HasPrefix(path, "/api/things/shadow/") ||
@@ -33,10 +37,58 @@ func matchCoreIoTPath(path string) bool {
 		path == "/endpoint" ||
 		strings.HasPrefix(path, "/accept-certificate-transfer/") ||
 		strings.HasPrefix(path, "/packages/") ||
-		strings.HasPrefix(path, "/jobs/") ||
+		strings.HasPrefix(path, "/jobs/")
+}
+
+// matchCoreIoTPathSecondary covers the job-template, security-profile,
+// audit, and mitigation-action route families. Split out of
+// matchCoreIoTPath to keep that function's cyclomatic complexity down; the
+// two comments below document real, previously-undiscovered route-matcher
+// gaps found this pass (a real SDK client's request never even reached the
+// IoT handler's op dispatch for any of these paths -- see PARITY.md).
+func matchCoreIoTPathSecondary(path string) bool {
+	return matchJobAndTemplatePath(path) ||
 		strings.HasPrefix(path, "/security-profiles/") ||
+		// ListSecurityProfiles (GET /security-profiles, no trailing slash)
+		// and ListSecurityProfilesForTarget (GET
+		// /security-profiles-for-target) were both entirely absent from
+		// this route matcher -- op dispatch (resolveSecurityProfileOps)
+		// already handled both paths correctly, but a real client's
+		// request never reached op dispatch at all, because RouteMatcher
+		// is an earlier, separate gate. Same previously-undiscovered
+		// unreachable-op bug class as ListJobs's plain "/jobs" and the
+		// "/job-templates"/"/mitigationactions/" families documented
+		// below; only caught by round-tripping through a real generated
+		// SDK client via the actual service.Router path (see
+		// TestSecurityProfile_RoutingReachability). Fixed this pass.
+		path == "/security-profiles" ||
+		path == "/security-profiles-for-target" ||
 		strings.HasPrefix(path, "/audit/") ||
+		// /mitigationactions/actions[/{actionName}] (CreateMitigationAction/
+		// DescribeMitigationAction/UpdateMitigationAction/
+		// DeleteMitigationAction/ListMitigationActions) was entirely absent
+		// from this route matcher -- found only by round-tripping through a
+		// real generated SDK client via the actual service.Router path
+		// (handler-invocation tests that call h.Handler() directly bypass
+		// RouteMatcher entirely and never would have caught this). Without
+		// this, every MitigationAction management op -- foundational to
+		// StartAuditMitigationActionsTask's whole workflow -- never reached
+		// the IoT handler in a real deployment; the request fell through
+		// with no matching route at all. Fixed this pass.
+		strings.HasPrefix(path, "/mitigationactions/") ||
 		matchDeviceDefenderPath(path)
+}
+
+// matchJobAndTemplatePath reports whether path is one of ListJobs (GET
+// /jobs, no trailing slash) or the /job-templates family
+// (CreateJobTemplate/DescribeJobTemplate/ListJobTemplates/
+// DeleteJobTemplate). Both were entirely absent from this route matcher --
+// the same previously-undiscovered unreachable-op bug class as
+// "/mitigationactions/" above. Fixed this pass.
+func matchJobAndTemplatePath(path string) bool {
+	return path == "/jobs" ||
+		path == "/job-templates" ||
+		strings.HasPrefix(path, "/job-templates/")
 }
 
 // matchDeviceDefenderPath reports whether path belongs to the Device Defender
@@ -165,6 +217,15 @@ func resolveThingsPathOperation(path, method string) string {
 		method == http.MethodGet:
 
 		return opListJobExecutionsForThing
+	// DescribeJobExecution/CancelJobExecution/DeleteJobExecution use
+	// /things/{thingName}/jobs/{jobId}[...] -- confirmed against
+	// aws-sdk-go-v2/service/iot@v1.76.0's serializers.go http bindings
+	// (SplitURI("/things/{thingName}/jobs/{jobId}[/cancel|/executionNumber/{executionNumber}]")).
+	// Must come before the generic thing routing default below, which would
+	// otherwise silently swallow these as unmatched thing sub-resource paths.
+	case strings.HasPrefix(path, "/things/") && strings.Contains(path, "/jobs/"):
+
+		return resolveThingJobExecutionOps(path, method)
 	// Shadow ops use /things/{name}/shadow — must come before generic thing routing.
 	case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
 
@@ -173,6 +234,22 @@ func resolveThingsPathOperation(path, method string) string {
 
 		return thingOperation(path, method)
 	}
+}
+
+// resolveThingJobExecutionOps resolves the /things/{thingName}/jobs/{jobId}[...]
+// sub-routes for DescribeJobExecution/CancelJobExecution/DeleteJobExecution.
+// Callers must have already verified path contains "/jobs/".
+func resolveThingJobExecutionOps(path, method string) string {
+	switch {
+	case strings.HasSuffix(path, "/cancel") && method == http.MethodPut:
+		return opCancelJobExecution
+	case strings.Contains(path, "/executionNumber/") && method == http.MethodDelete:
+		return opDeleteJobExecution
+	case method == http.MethodGet:
+		return opDescribeJobExecution
+	}
+
+	return unknownOperation
 }
 
 func resolveBatch1Ops(path, method string) string {

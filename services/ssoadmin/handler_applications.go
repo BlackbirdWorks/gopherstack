@@ -16,6 +16,9 @@ type applicationView struct {
 	Description            string  `json:"Description,omitempty"`
 	InstanceArn            string  `json:"InstanceArn"`
 	Status                 string  `json:"Status"`
+	ApplicationAccount     string  `json:"ApplicationAccount,omitempty"`
+	CreatedFrom            string  `json:"CreatedFrom,omitempty"`
+	IdentityStoreArn       string  `json:"IdentityStoreArn,omitempty"`
 	CreatedDate            float64 `json:"CreatedDate,omitempty"`
 }
 
@@ -67,23 +70,21 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrApplicationAlreadyExists) {
-			return writeError(c, http.StatusConflict, "ConflictException", "application already exists: "+req.Name)
+			return writeError(c, http.StatusBadRequest, "ConflictException", "application already exists: "+req.Name)
 		}
 
 		return handleBackendError(c, err, "failed to create application: "+req.Name)
 	}
 
+	// Real CreateApplicationOutput is exactly {ApplicationArn, IdentityStoreArn,
+	// InstanceArn} -- flat, top-level. No nested "Application" object exists on
+	// the wire (gopherstack previously invented one here); see
+	// awsAwsjson11_deserializeOpDocumentCreateApplicationOutput in the real
+	// SDK's deserializers.go.
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyApplicationArn: app.ApplicationArn,
-		keyApplication: applicationView{
-			ApplicationArn:         app.ApplicationArn,
-			ApplicationProviderArn: app.ApplicationProviderArn,
-			Name:                   app.Name,
-			Description:            app.Description,
-			InstanceArn:            app.InstanceArn,
-			Status:                 app.Status,
-			CreatedDate:            float64(app.CreatedDate.Unix()),
-		},
+		keyApplicationArn:  app.ApplicationArn,
+		"IdentityStoreArn": app.IdentityStoreArn,
+		keyInstanceArn:     app.InstanceArn,
 	})
 }
 
@@ -118,23 +119,24 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
-	tagList := make([]tagView, 0, len(app.Tags))
-	for k, v := range app.Tags {
-		tagList = append(tagList, tagView{Key: k, Value: v})
-	}
-	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
-
+	// Real DescribeApplicationOutput fields are flat, top-level -- no nested
+	// "Application" wrapper (gopherstack previously invented one here), and it
+	// has no Tags member at all (tags are fetched separately via
+	// ListTagsForResource, matching every other taggable ssoadmin resource);
+	// see awsAwsjson11_deserializeOpDocumentDescribeApplicationOutput in the
+	// real SDK's deserializers.go.
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyApplication: map[string]any{
-			keyApplicationArn:         app.ApplicationArn,
-			keyApplicationProviderArn: app.ApplicationProviderArn,
-			keyName:                   app.Name,
-			"Description":             app.Description,
-			keyInstanceArn:            app.InstanceArn,
-			keyStatus:                 app.Status,
-			"CreatedDate":             float64(app.CreatedDate.Unix()),
-			keyTags:                   tagList,
-		},
+		"ApplicationAccount":      app.ApplicationAccount,
+		keyApplicationArn:         app.ApplicationArn,
+		keyApplicationProviderArn: app.ApplicationProviderArn,
+		"CreatedDate":             float64(app.CreatedDate.Unix()),
+		"CreatedFrom":             app.CreatedFrom,
+		"Description":             app.Description,
+		"IdentityStoreArn":        app.IdentityStoreArn,
+		keyInstanceArn:            app.InstanceArn,
+		keyName:                   app.Name,
+		"PortalOptions":           app.PortalOptions,
+		keyStatus:                 app.Status,
 	})
 }
 
@@ -154,22 +156,39 @@ func (h *Handler) handleDescribeApplicationProvider(c *echo.Context, body []byte
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyApplicationProviderArn: provider.ApplicationProviderArn,
 		"DisplayData":             provider.DisplayData,
+		"FederationProtocol":      provider.FederationProtocol,
 	})
 }
 
-func (h *Handler) handleListApplicationProviders(c *echo.Context, _ []byte) error {
+func (h *Handler) handleListApplicationProviders(c *echo.Context, body []byte) error {
+	var req struct {
+		NextToken  string `json:"NextToken"`
+		MaxResults int    `json:"MaxResults"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
 	providers := h.Backend.ListApplicationProviders()
 	out := make([]map[string]any, 0, len(providers))
+
 	for _, provider := range providers {
 		out = append(out, map[string]any{
 			keyApplicationProviderArn: provider.ApplicationProviderArn,
 			"DisplayData":             provider.DisplayData,
+			"FederationProtocol":      provider.FederationProtocol,
 		})
 	}
 
+	page, next := paginateBy(out, req.MaxResults, req.NextToken, func(v map[string]any) string {
+		arn, _ := v[keyApplicationProviderArn].(string)
+
+		return arn
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"ApplicationProviders": out,
-		keyNextToken:           nil,
+		"ApplicationProviders": page,
+		keyNextToken:           next,
 	})
 }
 
@@ -193,6 +212,9 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 			Description:            app.Description,
 			InstanceArn:            app.InstanceArn,
 			Status:                 app.Status,
+			ApplicationAccount:     app.ApplicationAccount,
+			CreatedFrom:            app.CreatedFrom,
+			IdentityStoreArn:       app.IdentityStoreArn,
 			CreatedDate:            float64(app.CreatedDate.Unix()),
 		})
 	}
@@ -233,20 +255,14 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
 		},
 	}
 
-	app, err := h.Backend.UpdateApplication(req.ApplicationArn, req.Name, req.Description, req.Status, portalOptions)
-	if err != nil {
+	if _, err := h.Backend.UpdateApplication(
+		req.ApplicationArn, req.Name, req.Description, req.Status, portalOptions,
+	); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
-		keyApplication: applicationView{
-			ApplicationArn:         app.ApplicationArn,
-			ApplicationProviderArn: app.ApplicationProviderArn,
-			Name:                   app.Name,
-			Description:            app.Description,
-			InstanceArn:            app.InstanceArn,
-			Status:                 app.Status,
-			CreatedDate:            float64(app.CreatedDate.Unix()),
-		},
-	})
+	// Real UpdateApplicationOutput carries no members at all (gopherstack
+	// previously invented a full "Application" echo here); see
+	// api_op_UpdateApplication.go in the real SDK.
+	return writeJSON(c, http.StatusOK, map[string]any{})
 }

@@ -238,6 +238,110 @@ func TestHandler_UpdateGroup(t *testing.T) {
 	}
 }
 
+// TestHandler_UpdateGroup_AppliesInsightsConfiguration guards against a real bug found
+// during parity audit: UpdateGroup parsed InsightsConfiguration from the request body
+// but never passed it to the backend, so a caller could never actually enable/disable
+// insights via UpdateGroup even though the real API supports it.
+func TestHandler_UpdateGroup_AppliesInsightsConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, err := h.Backend.CreateGroup("insights-group", "")
+	require.NoError(t, err)
+
+	rec := doXrayRequest(t, h, "/UpdateGroup", map[string]any{
+		"GroupName": "insights-group",
+		"InsightsConfiguration": map[string]any{
+			"InsightsEnabled":      true,
+			"NotificationsEnabled": true,
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	group, ok := resp["Group"].(map[string]any)
+	require.True(t, ok)
+
+	ic, ok := group["InsightsConfiguration"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, ic["InsightsEnabled"])
+	assert.Equal(t, true, ic["NotificationsEnabled"])
+}
+
+// TestHandler_UpdateGroup_OmittedFieldsAreNotWiped guards against a real bug found
+// during parity audit: UpdateGroup unconditionally overwrote FilterExpression (even
+// with an empty string) regardless of whether the caller provided it, and discarded
+// InsightsConfiguration entirely. Both are independently optional in the real
+// UpdateGroupInput -- updating one must not silently reset the other.
+func TestHandler_UpdateGroup_OmittedFieldsAreNotWiped(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doXrayRequest(t, h, "/CreateGroup", map[string]any{
+		"GroupName":        "partial-update-group",
+		"FilterExpression": `service("original")`,
+		"InsightsConfiguration": map[string]any{
+			"InsightsEnabled": true,
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	// Update only InsightsConfiguration; FilterExpression must survive unchanged.
+	updRec := doXrayRequest(t, h, "/UpdateGroup", map[string]any{
+		"GroupName": "partial-update-group",
+		"InsightsConfiguration": map[string]any{
+			"InsightsEnabled":      true,
+			"NotificationsEnabled": true,
+		},
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &resp))
+	group, ok := resp["Group"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, `service("original")`, group["FilterExpression"],
+		"FilterExpression must survive an update that only touches InsightsConfiguration")
+
+	// Update only FilterExpression; InsightsConfiguration must survive unchanged.
+	updRec2 := doXrayRequest(t, h, "/UpdateGroup", map[string]any{
+		"GroupName":        "partial-update-group",
+		"FilterExpression": `service("changed")`,
+	})
+	require.Equal(t, http.StatusOK, updRec2.Code)
+
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(updRec2.Body.Bytes(), &resp2))
+	group2, ok := resp2["Group"].(map[string]any)
+	require.True(t, ok)
+	ic, ok := group2["InsightsConfiguration"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, ic["InsightsEnabled"],
+		"InsightsConfiguration must survive an update that only touches FilterExpression")
+	assert.Equal(t, true, ic["NotificationsEnabled"])
+}
+
+// TestHandler_UpdateGroup_NotificationsRequireInsightsEnabled mirrors CreateGroup's
+// validation: NotificationsEnabled=true with InsightsEnabled=false must be rejected.
+func TestHandler_UpdateGroup_NotificationsRequireInsightsEnabled(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, err := h.Backend.CreateGroup("bad-notify-group", "")
+	require.NoError(t, err)
+
+	rec := doXrayRequest(t, h, "/UpdateGroup", map[string]any{
+		"GroupName": "bad-notify-group",
+		"InsightsConfiguration": map[string]any{
+			"InsightsEnabled":      false,
+			"NotificationsEnabled": true,
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestGroup_ARNBasedLookup(t *testing.T) {
 	t.Parallel()
 

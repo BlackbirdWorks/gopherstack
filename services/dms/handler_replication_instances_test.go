@@ -178,6 +178,12 @@ func TestHandler_ReplicationInstanceCRUD(t *testing.T) {
 				assert.Equal(t, "dms.t3.medium", ri["ReplicationInstanceClass"])
 				assert.Equal(t, "available", ri["ReplicationInstanceStatus"])
 				assert.NotEmpty(t, ri["ReplicationInstanceArn"])
+				// InstanceCreateTime must be wire-encoded as an epoch-seconds JSON
+				// number (awsjson1.1 unixTimestamp format), not an RFC3339 string
+				// and not omitted entirely.
+				createTime, ok := ri["InstanceCreateTime"].(float64)
+				require.True(t, ok, "InstanceCreateTime must be a JSON number")
+				assert.Positive(t, createTime)
 			},
 		},
 		{
@@ -493,7 +499,7 @@ func TestHandler_DeleteInstanceWithTasksFails(t *testing.T) {
 
 				srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "iwt-src",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "mysql",
 				})
 				require.Equal(t, http.StatusOK, srcRec.Code)
@@ -501,7 +507,7 @@ func TestHandler_DeleteInstanceWithTasksFails(t *testing.T) {
 
 				dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "iwt-dst",
-					"EndpointType":       "TARGET",
+					"EndpointType":       "target",
 					"EngineName":         "s3",
 				})
 				require.Equal(t, http.StatusOK, dstRec.Code)
@@ -534,7 +540,7 @@ func TestHandler_DeleteInstanceWithTasksFails(t *testing.T) {
 
 				srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "iatd-src",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "mysql",
 				})
 				require.Equal(t, http.StatusOK, srcRec.Code)
@@ -542,7 +548,7 @@ func TestHandler_DeleteInstanceWithTasksFails(t *testing.T) {
 
 				dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "iatd-dst",
-					"EndpointType":       "TARGET",
+					"EndpointType":       "target",
 					"EngineName":         "s3",
 				})
 				require.Equal(t, http.StatusOK, dstRec.Code)

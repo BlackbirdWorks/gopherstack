@@ -97,15 +97,25 @@ type listClustersV2Output struct {
 	ClusterInfoList []*clusterInfoV2 `json:"clusterInfoList"`
 }
 
+// getBootstrapBrokersOutput mirrors GetBootstrapBrokersOutput. Field-diffed
+// against aws-sdk-go-v2/service/kafka@v1.49.0's deserializers.go switch on
+// awsRestjson1_deserializeOpDocumentGetBootstrapBrokersOutput: three of the
+// "Public"-suffixed field names were wrong (real MSK puts "Public" BEFORE the
+// auth-method suffix, e.g. "bootstrapBrokerStringPublicTls" not
+// "...TlsPublic") and VpcConnectivityTLS had the wrong casing
+// ("...VpcConnectivityTls", lowercase "ls") -- a real SDK client's JSON
+// unmarshal silently drops any key it doesn't recognize (see the
+// deserializer's `default: _, _ = key, value` case), so all four fields were
+// unreachable by a real aws-sdk-go-v2 client before this fix.
 type getBootstrapBrokersOutput struct {
 	BootstrapBrokerString                     string `json:"bootstrapBrokerString,omitempty"`
 	BootstrapBrokerStringTLS                  string `json:"bootstrapBrokerStringTls,omitempty"`
 	BootstrapBrokerStringSaslScram            string `json:"bootstrapBrokerStringSaslScram,omitempty"`
 	BootstrapBrokerStringSaslIam              string `json:"bootstrapBrokerStringSaslIam,omitempty"`
-	BootstrapBrokerStringTLSPublic            string `json:"bootstrapBrokerStringTlsPublic,omitempty"`
-	BootstrapBrokerStringSaslScramPublic      string `json:"bootstrapBrokerStringSaslScramPublic,omitempty"`
-	BootstrapBrokerStringSaslIamPublic        string `json:"bootstrapBrokerStringSaslIamPublic,omitempty"`
-	BootstrapBrokerStringVpcConnectivityTLS   string `json:"bootstrapBrokerStringVpcConnectivityTLS,omitempty"`
+	BootstrapBrokerStringTLSPublic            string `json:"bootstrapBrokerStringPublicTls,omitempty"`
+	BootstrapBrokerStringSaslScramPublic      string `json:"bootstrapBrokerStringPublicSaslScram,omitempty"`
+	BootstrapBrokerStringSaslIamPublic        string `json:"bootstrapBrokerStringPublicSaslIam,omitempty"`
+	BootstrapBrokerStringVpcConnectivityTLS   string `json:"bootstrapBrokerStringVpcConnectivityTls,omitempty"`
 	BootstrapBrokerStringVpcConnectivityScram string `json:"bootstrapBrokerStringVpcConnectivitySaslScram,omitempty"`
 	BootstrapBrokerStringVpcConnectivityIam   string `json:"bootstrapBrokerStringVpcConnectivitySaslIam,omitempty"`
 }

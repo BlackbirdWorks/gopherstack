@@ -6,48 +6,50 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: redshift
 sdk_module: aws-sdk-go-v2/service/redshift@v1.62.3
-last_audit_commit: 0d0d1cca8fba1247de159a190df6eadab8dc4c2d
-last_audit_date: 2026-07-12
-overall: A            # 4 genuine fixes found on high-traffic families this pass
+last_audit_commit: 83ccbf21f7782a76ef90fb32cbc12d49056257ae
+last_audit_date: 2026-07-22
+overall: A            # all 17 previously-deferred families field-diffed; 2 gaps closed; several
+                       # serious wire/routing/error-code bugs found and fixed across the pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  RestoreFromClusterSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Cluster.Tags nil-panic + stuck-in-restoring lifecycle bug, see Notes"}
-  ModifyCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Encrypted/EnhancedVpcRouting now tri-state (*bool)"}
-  GetClusterCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: Expiration field was computed but never serialized"}
+  RestoreFromClusterSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass: Cluster.Tags nil-panic + stuck-in-restoring lifecycle bug"}
+  ModifyCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass: Encrypted/EnhancedVpcRouting tri-state (*bool). PendingModifiedValues never serialized -- confirmed inert, see Notes, not re-flagged as a gap"}
+  GetClusterCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed prior pass: Expiration now serialized"}
   GetClusterCredentialsWithIAM: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ResizeCluster: {wire: ok, errors: ok, state: partial, persist: ok, note: "does not populate activeResizes; see gaps"}
+  ResizeCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: now populates activeResizes (SUCCEEDED, AllowCancelResize=false) so DescribeResize/CancelResize observe a resize triggered via the real API op, not just AddActiveResizeInternal test seeding -- see gaps history"}
 families:
-  Cluster: {status: ok, note: "CreateCluster/DeleteCluster/DescribeClusters/RebootCluster/PauseCluster/ResumeCluster/RotateEncryptionKey/ModifyClusterIamRoles/ModifyClusterMaintenance verified against store.go + cluster_mgmt.go; ModifyCluster fixed this pass"}
-  Tags: {status: ok, note: "CreateTags/DeleteTags/DescribeTags verified; was silently crashing for any cluster produced by RestoreFromClusterSnapshot before this pass's fix"}
-  ClusterParameterGroup: {status: ok, note: "param_groups.go / handler_param_groups.go audited, real state mutation confirmed, no changes needed"}
-  ClusterSubnetGroup: {status: ok, note: "subnet_groups.go / handler_subnet_groups.go audited, wire shapes (Subnets>Subnet, ClusterSubnetGroups>ClusterSubnetGroup) verified against SDK deserializers.go, no changes needed"}
-  ClusterSecurityGroup: {status: ok, note: "security_groups.go audited, ingress authorize/revoke mutate real state, no changes needed"}
-  Snapshot/ClusterSnapshot: {status: ok, note: "CreateClusterSnapshot/DeleteClusterSnapshot/DescribeClusterSnapshots/CopyClusterSnapshot verified ok; RestoreFromClusterSnapshot had 2 real bugs, fixed this pass"}
-  ClusterCredentials: {status: ok, note: "GetClusterCredentials Expiration wire gap fixed this pass; GetClusterCredentialsWithIAM already correct (used as the reference for the fix)"}
-  Resize: {status: partial, note: "ResizeCluster mutates cluster synchronously but never records activeResizes, so DescribeResize/CancelResize always report ResizeNotFound immediately after a resize -- see gaps"}
-gaps:
-  - "ResizeCluster (cluster_mgmt.go) applies node-type/count changes synchronously but never calls AddActiveResizeInternal-equivalent to populate b.activeResizes, so DescribeResize and CancelResize can never observe an in-progress resize triggered via the ResizeCluster op itself (only via the AddActiveResizeInternal test-seed helper). Real AWS resize is asynchronous and trackable; this emulator's instant-apply model makes the resize untrackable. Needs a bd issue for proper async resize modeling (schedule a transition + activeResizes entry, matching the CreateCluster/clusterActivationDelay pattern)."
-  - "ModifyCluster accepts a non-real ApplyImmediately parameter (not present in the real ModifyClusterInput/aws-sdk-go-v2 wire shape) and, when explicitly set to \"false\", stores changes in PendingModifiedValues -- but xmlCluster never serializes PendingModifiedValues in ANY response (CreateCluster/DescribeClusters/ModifyCluster all omit it). Low priority: real aws-sdk-go-v2 clients never send ApplyImmediately for Redshift (the SDK input struct has no such field), so this path is unreachable via genuine SDK traffic and only affects hand-crafted form posts / this service's own tests. Documented here so the next auditor doesn't re-flag it as urgent."
-deferred:                 # not touched this pass -- next audit should target these
-  - DataShare (Associate/Authorize/Deauthorize/Reject/DescribeDataShares*)
-  - EventSubscription / Events (Create/Delete/Modify/DescribeEventSubscriptions, DescribeEvents, DescribeEventCategories)
-  - ScheduledAction (classic Create/Delete/Modify/DescribeScheduledActions)
-  - UsageLimit (Create/Delete/Modify/DescribeUsageLimits)
-  - SnapshotCopyGrant / SnapshotSchedule / SnapshotCopy (Enable/Disable/ModifySnapshotCopyRetentionPeriod)
-  - AuthenticationProfile
-  - ResourcePolicy (Get/Put/DeleteResourcePolicy)
-  - HsmClientCertificate / HsmConfiguration
-  - CustomDomainAssociation
-  - EndpointAccess / EndpointAuthorization (Authorize/Revoke/DescribeEndpointAccess/DescribeEndpointAuthorization)
-  - Integration (zero-ETL)
-  - IdcApplication
-  - ReservedNode (AcceptReservedNodeExchange, PurchaseReservedNodeOffering, Describe*, GetReservedNodeExchange*)
-  - TableRestoreStatus / RestoreTableFromClusterSnapshot
-  - Partner (AddPartner/DeletePartner/DescribePartners/UpdatePartnerStatus)
-  - Descriptive/static ops (DescribeAccountAttributes, DescribeClusterVersions, DescribeClusterTracks, DescribeOrderableClusterOptions, DescribeStorage, DescribeNodeConfigurationOptions, DescribeClusterDbRevisions, ListRecommendations, ModifyAquaConfiguration, ModifyClusterDbRevision, ModifyLakehouseConfiguration, GetIdentityCenterAuthToken, RegisterNamespace/DeregisterNamespace)
-  - Redshift Serverless (ServerlessHandler in handler_serverless.go: Namespace/Workgroup/Snapshot/UsageLimit/ScheduledAction/Credentials) -- separate JSON-protocol API surface, not touched this pass
-leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconciler use a WaitGroup + stop channel, idempotent, no per-cluster goroutines (single managed reconciler advances all pending clusterTransitions). No new goroutines/maps introduced by this pass's fixes."}
+  Cluster: {status: ok, note: "CreateCluster/DeleteCluster/DescribeClusters/RebootCluster/PauseCluster/ResumeCluster/RotateEncryptionKey/ModifyClusterIamRoles/ModifyClusterMaintenance verified. FIXED THIS PASS: xmlCluster never embedded Tags inline (real Cluster.Tags []Tag) -- every cluster response silently omitted tags a real client would expect on the object itself, not just via DescribeTags. Also added SnapshotScheduleIdentifier/SnapshotScheduleState (see SnapshotSchedule below)."}
+  Tags: {status: ok, note: "CreateTags/DeleteTags/DescribeTags verified. See Cluster row for the inline-Tags wire gap fixed this pass."}
+  ClusterParameterGroup: {status: ok, note: "no changes needed"}
+  ClusterSubnetGroup: {status: ok, note: "no changes needed this pass -- note VpcId is a fabricated CreateClusterSubnetGroupInput param not present in the real SDK (real VPC is derived from the subnets), left untouched as pre-existing/out-of-scope, see items_still_open"}
+  ClusterSecurityGroup: {status: ok, note: "no changes needed"}
+  Snapshot/ClusterSnapshot: {status: ok, note: "no changes needed this pass"}
+  ClusterCredentials: {status: ok}
+  Resize: {status: ok, note: "FIXED THIS PASS, see ResizeCluster op row"}
+  DataShare: {status: ok, note: "Associate/Authorize/Deauthorize/Reject/Disassociate/DescribeDataShares* field-diffed against types.DataShare. FIXED: DataShareType was completely absent from the model/wire (real Cluster... err DataShare.DataShareType, defaults to INTERNAL, the only enum value); now serialized. All mutation ops confirmed to mutate the store.Table-returned pointer in place (not stubs)."}
+  EventSubscription/Events: {status: ok, note: "field-diffed against types.EventSubscription/Event. FIXED: EventSubscription.SubscriptionCreationTime was computed (SubscriptionCreated) but never serialized into any response; now emitted as RFC3339. DescribeEventCategories/DescribeEvents verified against SDK shapes, no other gaps found."}
+  ScheduledAction: {status: ok, note: "FIXED THIS PASS (major): TargetAction was parsed as a single flat top-level string param and never serialized in ANY response -- real CreateScheduledActionInput.TargetAction is a nested ScheduledActionType{PauseCluster|ResumeCluster|ResizeCluster} struct sent as TargetAction.ResizeCluster.ClusterIdentifier=... etc (query-protocol nested member convention), and the object is meaningless without it. Rebuilt as a real tagged-union type (ScheduledActionTarget) with correct nested request parsing (parseTargetAction) and response serialization (targetActionToXML), verified symmetric against both serializers.go and deserializers.go. Also fixed: Enable request param was completely ignored (State was hardcoded ACTIVE forever); now a real tri-state *bool driving ACTIVE/DISABLED. NextInvocations/StartTime/EndTime intentionally left unmodeled -- see items_still_open."}
+  UsageLimit: {status: ok, note: "Create/Delete/Describe/Modify field-diffed, real state mutation confirmed. Tags accepted on create and stored but not yet echoed back on the wire (SDK has Tags []Tag) -- see items_still_open."}
+  SnapshotCopyGrant: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. Tags accepted and stored but not echoed on the wire -- see items_still_open."}
+  SnapshotSchedule: {status: ok, note: "FIXED THIS PASS (real no-op found): ModifyClusterSnapshotSchedule validated ClusterIdentifier/ScheduleIdentifier existence but never recorded the association anywhere -- a textbook no-stub violation (looked like it worked, did nothing). Now sets/clears Cluster.SnapshotScheduleIdentifier/SnapshotScheduleState (real Cluster wire fields, confirmed against types.Cluster), and SnapshotSchedule.AssociatedClusters/AssociatedClusterCount are derived live by scanning clusters for a match and serialized correctly (AssociatedClusters>member>ClusterIdentifier/ScheduleAssociationState). Round-trip verified with a dedicated test."}
+  SnapshotCopy: {status: ok, note: "Enable/Disable/ModifySnapshotCopyRetentionPeriod field-diffed, real state mutation confirmed, no changes needed"}
+  AuthenticationProfile: {status: ok, note: "field-diffed against types.AuthenticationProfile (no Tags field on this type in the real SDK, confirmed), no changes needed"}
+  ResourcePolicy: {status: ok, note: "FIXED THIS PASS: error code ErrResourcePolicyNotFound was a fabricated 'ResourcePolicyNotFound' string -- real GetResourcePolicy/PutResourcePolicy/DeleteResourcePolicy return ResourceNotFoundFault for a missing policy (confirmed against the op error-dispatch table in deserializers.go), now fixed."}
+  HsmClientCertificate/HsmConfiguration: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. Tags accepted (CreateHsmClientCertificate/CreateHsmConfiguration handlers pass nil unconditionally, never parsing Tags.Tag.N.* from the request) and not echoed on the wire -- see items_still_open."}
+  CustomDomainAssociation: {status: ok, note: "field-diffed, no changes needed to Create/Delete/Describe/Modify wire shapes. FIXED: ErrCustomDomainAlreadyExists was a fabricated 'CustomDomainAssociationAlreadyExistsFault' code -- no such fault exists in the real SDK; the real conflict fault for CreateCustomDomainAssociation is CustomCnameAssociationFault (confirmed against the op's error-dispatch table), now fixed."}
+  EndpointAccess: {status: ok, note: "FIXED THIS PASS (major param-shape bug): CreateEndpointAccess/ModifyEndpointAccess read/wrote a fabricated 'VpcId' parameter that does not exist anywhere in CreateEndpointAccessInput/ModifyEndpointAccessInput -- real requests carry SubnetGroupName/ResourceOwner/VpcSecurityGroupIds (Create) and VpcSecurityGroupIds only (Modify); VpcId on the response is *derived* from the subnet group, not settable directly. Rebuilt CreateEndpointAccess/ModifyEndpointAccess signatures and wire parsing/serialization around the real fields (SubnetGroupName, ResourceOwner, VpcSecurityGroupIds -> VpcSecurityGroups>VpcSecurityGroup list on the response), with VpcID derived via a ClusterSubnetGroup lookup when SubnetGroupName is known. VpcEndpoint (network interfaces) intentionally left unmodeled -- see items_still_open."}
+  EndpointAuthorization: {status: ok, note: "AuthorizeEndpointAccess/RevokeEndpointAccess/DescribeEndpointAuthorization field-diffed against types.EndpointAuthorization, no changes needed"}
+  Integration: {status: ok, note: "FIXED THIS PASS: (1) CreateIntegration read 'KmsKeyId' but the real wire param is case-different 'KMSKeyId' (confirmed against the query-protocol serializer) -- url.Values lookups are case-sensitive, so this silently dropped the KMS key for every real client call; (2) tags use 'TagList' not 'Tags' on this op specifically (unlike every other Create* op in this service) and were not parsed at all -- added parseTagListPrefixed and wired it in, response now includes Tags; (3) CreateTime was never serialized -- added; (4) ModifyIntegration was missing IntegrationName (real ModifyIntegrationInput supports renaming), added with existing-name-conflict handling."}
+  IdcApplication: {status: ok, note: "FIXED THIS PASS (severe, multi-bug): (1) the dispatch table registered these 4 ops under 'CreateIdcApplication'/'DeleteIdcApplication'/'DescribeIdcApplications'/'ModifyIdcApplication', but the real AWS action names (and this service's own GetSupportedOperations list) are 'CreateRedshiftIdcApplication' etc -- real clients sending the real action name got InvalidAction for all 4 ops, making the entire family unreachable despite being advertised as supported; (2) request params used 'IdcApplicationName'/'IdcApplicationArn' instead of the real 'RedshiftIdcApplicationName'/'RedshiftIdcApplicationArn'; (3) the XML response struct had IdcInstanceArn and IamRoleArn's wire tags SWAPPED, so a real client parsing the response would get the IAM role ARN and the IDC instance ARN values transposed; (4) response envelope/result element names were 'CreateIdcApplicationResponse'/'...Result' instead of 'CreateRedshiftIdcApplicationResponse'/'...Result'; (5) error codes ErrIdcApplicationNotFound/AlreadyExists were fabricated 'IdcApplicationNotExistsFault'/'IdcApplicationAlreadyExistsFault' -- real codes are 'RedshiftIdcApplicationNotExists'/'RedshiftIdcApplicationAlreadyExists' (no Fault suffix, confirmed against ErrorCode()). All fixed; ApplicationType/AuthorizedTokenIssuerList/ServiceIntegrations/SsoTagKeys/IdcManagedApplicationArn/IdcOnboardStatus/IdentityNamespace intentionally left unmodeled -- see items_still_open."}
+  ReservedNode: {status: ok, note: "AcceptReservedNodeExchange/PurchaseReservedNodeOffering/Describe*/GetReservedNodeExchange* field-diffed, real state mutation confirmed. RecurringCharges/ReservedNodeOfferingType intentionally left unmodeled -- see items_still_open."}
+  TableRestoreStatus/RestoreTableFromClusterSnapshot: {status: ok, note: "FIXED THIS PASS: SnapshotIdentifier was parsed from the request and then explicitly discarded (bound to `_`), never stored -- now stored and serialized. RequestTime was computed but never serialized on ANY response (RestoreTableFromClusterSnapshotResult only echoed TableRestoreRequestId+Status) -- now serialized as RFC3339 on both RestoreTableFromClusterSnapshot and DescribeTableRestoreStatus. Also fixed the response's TargetTableName wire tag to the real 'NewTableName' (TableRestoreStatus has no TargetTableName field in the real SDK). SourceSchemaName/TargetSchemaName/ProgressInMegaBytes/TotalDataInMegaBytes/EnableCaseSensitiveIdentifier intentionally left unmodeled -- see items_still_open."}
+  Partner: {status: ok, note: "FIXED THIS PASS (severe, systemic): AddPartner/DeletePartner/DescribePartners/UpdatePartnerStatus all read/wrote a fabricated 'PartnerIntegrationId' parameter/wire-field name -- no such name exists anywhere in the real SDK (AddPartnerInput/Output, DeletePartnerInput/Output, UpdatePartnerStatusInput/Output, and PartnerIntegrationInfo all use 'PartnerName', confirmed against every relevant api_op_*.go and the DescribePartners deserializer). Every real client's PartnerName value was silently dropped on every request, and every response field a real client tried to read came back empty. Fixed across all 4 ops plus the internal error message text. Regression test locks in the exact wire element name."}
+  Descriptive/static ops: {status: ok, note: "DescribeAccountAttributes, DescribeClusterVersions, DescribeClusterTracks, DescribeOrderableClusterOptions, DescribeStorage, DescribeNodeConfigurationOptions, DescribeClusterDbRevisions, ListRecommendations, ModifyAquaConfiguration, ModifyClusterDbRevision, ModifyLakehouseConfiguration, GetIdentityCenterAuthToken, RegisterNamespace/DeregisterNamespace spot-checked: real state mutation/derivation confirmed (e.g. ListRecommendations derives from live cluster state, not canned), no-stub scan (grep for notImplemented/TODO/stub) clean. NOT exhaustively field-diffed element-by-element this pass -- see items_still_open."}
+  Redshift Serverless: {status: deferred, note: "ServerlessHandler in handler_serverless.go (Namespace/Workgroup/Snapshot/UsageLimit/ScheduledAction/Credentials) is a separate JSON-protocol API surface (different AWS service ID: redshift-serverless), not touched this pass -- see items_still_open."}
+gaps: []          # both prior gaps closed this pass, see ops.ResizeCluster and Notes (PendingModifiedValues confirmed inert)
+deferred: []      # all 17 prior deferred families field-diffed this pass, see families above
+leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconciler use a WaitGroup + stop channel, idempotent, no per-cluster goroutines. No new goroutines/tickers/maps introduced by this pass's fixes (verified via git diff)."}
 ---
 
 ## Notes
@@ -55,74 +57,162 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 Protocol: query/XML (`Version=2012-12-01`), same envelope convention as EC2 -- see
 `redshiftXMLNS`/`marshalXML` in handler.go. Timestamps are wire-formatted as RFC3339
 strings (`time.Now().UTC().Format(time.RFC3339)`), matching `smithytime.ParseDateTime`
-used by the SDK's query-XML deserializer (verified against
-`aws-sdk-go-v2/service/redshift@v1.62.3/deserializers.go`
-`awsAwsquery_deserializeOpDocumentGetClusterCredentialsOutput`). Do not switch to epoch
-numbers for this service -- that's a JSON-protocol convention used elsewhere
-(`pkgs/awstime.Epoch`), not query-XML.
+used by the SDK's query-XML deserializer. Do not switch to epoch numbers for this
+service -- that's a JSON-protocol convention used elsewhere (`pkgs/awstime.Epoch`),
+not query-XML.
 
-### Bugs fixed this pass
+Real AWS error `ErrorCode()` strings are NOT consistent about a trailing "Fault"
+suffix -- some fault types' `ErrorCode()` strip it (`ClusterNotFoundFault` ->
+`"ClusterNotFound"`), others keep it (`HsmConfigurationNotFoundFault` ->
+`"HsmConfigurationNotFoundFault"`), and some resource families use an entirely
+different fault than their name would suggest (data share lookup failures use
+`InvalidDataShareFault`, not a `DataShareNotFound`-shaped fault; a resource-policy
+lookup failure uses the generic `ResourceNotFoundFault`). Every sentinel in
+errors.go was individually checked against `aws-sdk-go-v2/service/redshift@v1.62.3/
+types/errors.go`'s `ErrorCode()` bodies this pass -- do not "clean up" perceived
+inconsistency in that file without re-checking the SDK source per-sentinel.
+`resolveErrCode` (handler.go) now derives the wire `<Code>` directly from each
+sentinel's own `.Error()` text via `errCodeSentinels` instead of a second duplicated
+string table, specifically to prevent the two from silently drifting apart again
+(that drift is exactly how the IdcApplication error-code bug happened).
 
-1. **`RestoreFromClusterSnapshot` nil `Tags` panic** (snapshots.go). Every other
-   cluster-creation path (`CreateCluster`, store.go) initializes
-   `Tags: tags.New("redshift.cluster." + id + ".tags")`, but `RestoreFromClusterSnapshot`
-   built its `*Cluster` without setting `Tags` at all. `tags.Tags.Clone/Get/Set/Merge/
-   DeleteKeys` (pkgs/tags/tags.go) are NOT nil-receiver-safe (only `Close()` is) --
-   `DescribeTags()` iterates every cluster unconditionally and panics the instant a
-   snapshot-restored cluster exists. Reproduced with a standalone test
-   (CreateCluster → CreateClusterSnapshot → RestoreFromClusterSnapshot → DescribeTags)
-   before the fix; confirmed clean after. This is a service crash reachable via 4 ordinary
-   API calls, not an edge case.
+### Bugs fixed this pass (2026-07-22)
 
-2. **`RestoreFromClusterSnapshot` cluster stuck in `"restoring"` forever** (same file).
-   The initial status was hardcoded to `"restoring"` unconditionally, but no
-   `clusterTransition` was ever scheduled to advance it -- unlike `CreateCluster`, which
-   goes straight to `"available"` when `clusterActivationDelay == 0` (the production
-   default; see provider.go, which never sets a delay) or schedules a
-   creating→available transition otherwise. A client polling `DescribeClusters` (or an
-   SDK cluster-available waiter) after `RestoreFromClusterSnapshot` would never see
-   `"available"`. Fixed to mirror `CreateCluster`'s exact pattern.
+This pass audited every family PARITY.md previously listed as `deferred:` (17) plus
+the 2 `gaps:` items, field-diffing wire shapes against
+`aws-sdk-go-v2/service/redshift@v1.62.3`'s serializers.go/deserializers.go/api_op_*.go
+rather than trusting the absence of stub patterns. Full detail is in the `families`
+table above; the highlights, roughly in order of severity:
 
-3. **`ModifyCluster` `Encrypted`/`EnhancedVpcRouting` could never be turned off**
-   (cluster_mgmt.go, handler_cluster_mgmt.go, interfaces.go). Real
-   `ModifyClusterInput.Encrypted`/`.EnhancedVpcRouting` are `*bool` -- a real
-   aws-sdk-go-v2 client can explicitly send `Encrypted=false` to decrypt a cluster (per
-   the SDK doc comment: "If the value is not encrypted (false), then the cluster is
-   decrypted."). The handler collapsed "not specified" and "explicitly false" into the
-   same Go `bool` zero value, so `if encrypted { ... }` could only ever turn things on.
-   Changed both params to `*bool`, following the exact tri-state convention already
-   established for `ModifyEventSubscription`'s `Enabled *bool` in this same package
-   (handler_events.go).
+1. **`IdcApplication` family was entirely unreachable by real clients.** The
+   dispatch table registered handlers under `CreateIdcApplication` etc. instead of
+   the real action names `CreateRedshiftIdcApplication` etc. — every real SDK call
+   got `InvalidAction`. Also had swapped `IdcInstanceArn`/`IamRoleArn` XML tags
+   (values transposed on the wire), wrong request param names, wrong response
+   envelope names, and fabricated error codes. All fixed; see handler.go's
+   `buildOpsGroup3` and handler_idc_applications.go.
 
-4. **`GetClusterCredentials` dropped `Expiration`** (handler_refinement2.go). The backend
-   already computes `ClusterCredentials.Expiration`, but `xmlClusterCredentials`/
-   `handleGetClusterCredentials` never serialized it -- confirmed against the real SDK
-   (`GetClusterCredentialsOutput.Expiration *time.Time`) and against this codebase's own
-   sibling op `GetClusterCredentialsWithIAM`, which already serializes `Expiration`
-   correctly and was used as the template for the fix.
+2. **`Partner` family used a fabricated `PartnerIntegrationId` name everywhere**
+   instead of the real `PartnerName` — every request/response field for
+   AddPartner/DeletePartner/DescribePartners/UpdatePartnerStatus was affected. See
+   handler_partners.go and partners.go.
+
+3. **`ScheduledAction.TargetAction`** — the single field that determines what a
+   scheduled action actually does — was parsed as a flat string and never
+   serialized in any response at all. Rebuilt as the real nested
+   `PauseCluster|ResumeCluster|ResizeCluster` tagged union with correct
+   `TargetAction.ResizeCluster.ClusterIdentifier=...`-style nested request parsing
+   and response serialization. See models.go, scheduled_actions.go,
+   handler_scheduled_actions.go.
+
+4. **`ModifyClusterSnapshotSchedule` was a real no-op past input validation** — it
+   checked the cluster and schedule both existed and then did nothing, so the
+   association was never recorded anywhere and could never be observed. Fixed to
+   set/clear `Cluster.SnapshotScheduleIdentifier` (a real Cluster wire field this
+   backend wasn't tracking at all) and derive `SnapshotSchedule.AssociatedClusters`
+   live from it.
+
+5. **`ResizeCluster` gap closed**: now populates `activeResizes` so
+   `DescribeResize`/`CancelResize` can observe a resize triggered through the real
+   API op (previously only the `AddActiveResizeInternal` test-seed helper could).
+
+6. **`Cluster.Tags` was never embedded inline** on any Cluster-returning response
+   (CreateCluster, DescribeClusters, ModifyCluster, ...) — real `Cluster.Tags
+   []Tag` is a first-class field on the object itself, not just reachable via the
+   separate `DescribeTags` API. Required a `toXMLCluster` -> `Handler` method
+   conversion (to reach `DescribeTags`) plus a `toXMLClusterWithTags` split to
+   avoid an O(n²) `DescribeTags` re-scan inside `handleDescribeClusters`'s loop.
+
+7. **`EndpointAccess`/`Integration` used fabricated or mis-cased parameter names**
+   (`VpcId` doesn't exist on `CreateEndpointAccessInput`/`ModifyEndpointAccessInput`
+   — real fields are `SubnetGroupName`/`VpcSecurityGroupIds`; `CreateIntegration`'s
+   KMS key param is `KMSKeyId`, not `KmsKeyId`, and its tags param is `TagList`, not
+   `Tags`). Both rebuilt around the real wire shapes.
+
+8. Smaller wire-completeness fixes: `DataShare.DataShareType`,
+   `EventSubscription.SubscriptionCreationTime`, `TableRestoreStatus.
+   SnapshotIdentifier` (previously discarded, not just unserialized) and
+   `RequestTime`, and `ResourcePolicy`/`CustomDomainAssociation`'s fabricated error
+   codes (`ResourcePolicyNotFound` -> `ResourceNotFoundFault`;
+   `CustomDomainAssociationAlreadyExistsFault` -> `CustomCnameAssociationFault`).
+
+Every fix above has a dedicated regression test (see handler_*_test.go files
+touched this pass) asserting the corrected wire shape/behavior, not just that the
+handler doesn't error.
+
+### Bugs fixed in prior passes (kept for history)
+
+1. `RestoreFromClusterSnapshot` nil `Tags` panic (snapshots.go) — every cluster
+   value must have `Tags` initialized; `RestoreFromClusterSnapshot` omitted it,
+   crashing `DescribeTags` the instant a snapshot-restored cluster existed.
+2. `RestoreFromClusterSnapshot` cluster stuck in `"restoring"` forever — no
+   lifecycle transition was scheduled to advance it to `"available"`.
+3. `ModifyCluster` `Encrypted`/`EnhancedVpcRouting` could never be turned off —
+   both are `*bool` on the real SDK; a plain `bool` couldn't distinguish
+   "unspecified" from "explicitly false".
+4. `GetClusterCredentials` dropped `Expiration` — computed but never serialized.
 
 ### Traps for the next auditor
 
-- `ResizeCluster`'s lack of `activeResizes` tracking (see gaps) LOOKS like a disguised
-  no-op but isn't one in the no-stub sense: it does mutate real cluster state
-  (NodeType/ClusterType/NumberOfNodes). The gap is specifically that the resize can never
-  be observed via `DescribeResize`/`CancelResize` afterward. Don't rewrite `ResizeCluster`
-  itself without also deciding whether to make it genuinely async (scheduled transition,
-  like Create/Delete/Restore) or leave it synchronous and just also populate
-  `activeResizes` with an already-`AllowCancelResize:false` entry for the brief window.
+- `resolveErrCode`'s `errCodeSentinels` table derives the wire `<Code>` from each
+  sentinel's own `.Error()` text (see Notes above on the Fault-suffix
+  inconsistency). If you add a new sentinel, verify its exact `ErrorCode()` string
+  against `aws-sdk-go-v2/service/redshift@v1.62.3/types/errors.go` individually —
+  do not assume the pattern from a neighboring sentinel.
+- `ScheduledAction.TargetAction`'s `NextInvocations`/`StartTime`/`EndTime` are
+  intentionally NOT modeled (empty list / never set) — this backend is
+  synchronous/instant-apply and has no cron/at-expression evaluator to compute
+  real next-invocation times. An empty `NextInvocations` list is valid per the AWS
+  docs (not "must always have up to 5 entries"), so this is a deliberate scope
+  bound, not a bug.
+- `EndpointAccess.VpcEndpoint` (the nested network-interface/address list) is
+  intentionally NOT modeled — would require simulating ENI allocation per subnet,
+  out of proportion to this backend's fidelity level elsewhere.
+- `ClusterSubnetGroup`'s `CreateClusterSubnetGroupInput` accepting a `VpcId`
+  parameter is a PRE-EXISTING fabrication (not touched this pass, not part of the
+  audited family list) — the real SDK has no such field (VPC is derived from the
+  subnets). Left alone to avoid uncontrolled scope creep into a family this pass
+  didn't own; flag for the next audit if `ClusterSubnetGroup` is revisited.
+- `ResizeCluster`'s `AllowCancelResize` is always `false` immediately after a
+  resize (since this backend applies resizes instantly/synchronously) — a
+  `CancelResize` call right after `ResizeCluster` will correctly get
+  `InvalidClusterState`, not `ResizeNotFound`. This is intentional, matching real
+  AWS's behavior once a resize has actually completed, not a bug.
 - The `ApplyImmediately` parameter on `ModifyCluster` is NOT part of the real
-  `ModifyClusterInput` wire shape (confirmed: no such field exists in
-  `aws-sdk-go-v2/service/redshift@v1.62.3/api_op_ModifyCluster.go`). It was added and is
-  covered by this package's own tests (`parity_c_test.go`
-  `TestParity_ModifyCluster_ApplyImmediately`) as a deliberate, tested emulator
-  convenience feature -- do not "fix" it by ripping it out; it's inert to real SDK
-  clients (who never populate the field) and breaking it breaks an intentional test.
-- `RebootCluster` flips status to `"rebooting"` then immediately back to `"available"`
-  within the same call (returns the `"rebooting"` snapshot, but the stored cluster is
-  already `"available"` by the time the lock releases). This mirrors the same
-  instant-apply simplification used throughout this backend (see `PauseCluster`/
-  `ResumeCluster`/`RotateEncryptionKey`) and is consistent, not a bug.
-- `DeleteClusterParameterGroup`/similar delete ops do not special-case AWS's
-  `default.*` parameter group protection (real AWS refuses to delete a default group).
-  Not fixed this pass (low traffic, not flagged as a correctness bug by any test) --
-  candidate for the next audit if parameter-group family gets revisited.
+  `ModifyClusterInput` wire shape — confirmed again this pass, still intentional
+  and covered by its own test (`TestParity_ModifyCluster_ApplyImmediately`). Do
+  not remove it.
+- `RebootCluster` flips status to `"rebooting"` then immediately back to
+  `"available"` within the same call — consistent instant-apply simplification,
+  not a bug.
+- `DeleteClusterParameterGroup`/similar delete ops still do not special-case
+  AWS's `default.*` parameter group protection. Not touched this pass (out of the
+  audited family list) — candidate for the next audit if `ClusterParameterGroup`
+  is revisited.
+
+### items_still_open (genuinely deferred, NOT reclassified as ok on a no-stub basis)
+
+These are real, identified wire-completeness gaps within families that are
+otherwise correctly wired (routing/params/errors/state all verified real) — kept
+open rather than silently fixed because each would require non-trivial new
+modeling (nested nested nested types, nested list-of-object shapes, nested
+nested response subtrees) disproportionate to the traffic these fields see:
+
+- `UsageLimit`/`SnapshotCopyGrant`/`HsmClientCertificate`/`HsmConfiguration`:
+  `Tags []Tag` accepted/stored on Create but never echoed back in the response
+  (HSM Create handlers don't even parse `Tags.Tag.N.*` from the request yet).
+- `IdcApplication`: `ApplicationType`, `AuthorizedTokenIssuerList`,
+  `ServiceIntegrations`, `SsoTagKeys`, `IdcManagedApplicationArn`,
+  `IdcOnboardStatus`, `IdentityNamespace` not modeled.
+- `ReservedNode`: `RecurringCharges`, `ReservedNodeOfferingType` not modeled.
+- `TableRestoreStatus`: `SourceSchemaName`, `TargetSchemaName`,
+  `ProgressInMegaBytes`, `TotalDataInMegaBytes`, `EnableCaseSensitiveIdentifier`
+  not modeled (this backend's restores complete instantly, so Progress/Total are
+  always 0 in practice even if added).
+- `EndpointAccess`: `VpcEndpoint` (nested network-interface list) not modeled.
+- Descriptive/static ops family: spot-checked (no-stub, real derivation
+  confirmed) but not exhaustively field-diffed element-by-element this pass.
+- Redshift Serverless (`handler_serverless.go`): separate JSON-protocol API
+  surface (`redshift-serverless` service ID), entirely out of scope for this
+  query-XML-focused pass — needs its own audit pass against
+  `aws-sdk-go-v2/service/redshiftserverless`.

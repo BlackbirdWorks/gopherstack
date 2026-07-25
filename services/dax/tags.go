@@ -139,21 +139,14 @@ func (b *InMemoryBackend) ListTags(
 }
 
 // arnExists returns true if the ARN corresponds to an existing DAX resource.
+// Real DAX only assigns ARNs to clusters -- ParameterGroup and SubnetGroup have
+// no Arn field in the SDK types (types.ParameterGroup / types.SubnetGroup), so
+// TagResource/UntagResource/ListTags only ever operate on cluster ARNs.
 // Must be called with b.mu held.
 func (b *InMemoryBackend) arnExists(arnStr string) bool {
 	clusterPrefix := arn.Build("dax", b.Region, b.AccountID, "cache/")
 	if name, ok := strings.CutPrefix(arnStr, clusterPrefix); ok {
 		return b.clusters.Has(name)
-	}
-
-	paramPrefix := arn.Build("dax", b.Region, b.AccountID, "parametergroup/")
-	if name, ok := strings.CutPrefix(arnStr, paramPrefix); ok {
-		return b.paramGroups.Has(name)
-	}
-
-	subnetPrefix := arn.Build("dax", b.Region, b.AccountID, "subnetgroup/")
-	if name, ok := strings.CutPrefix(arnStr, subnetPrefix); ok {
-		return b.subnetGroups.Has(name)
 	}
 
 	return false

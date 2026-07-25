@@ -47,8 +47,15 @@ func TestInMemoryBackend_WirelessDeviceCRUD(t *testing.T) {
 			}
 
 			d, err := bk.CreateWirelessDevice(
-				testAccountID, testRegion,
-				tt.deviceName, tt.devType, tt.destination, tt.description,
+				testAccountID,
+				testRegion,
+				tt.deviceName,
+				tt.devType,
+				tt.destination,
+				tt.description,
+				"",
+				nil,
+				nil,
 				map[string]string{"env": "test"},
 			)
 			require.NoError(t, err)
@@ -107,15 +114,7 @@ func TestInMemoryBackend_ListWirelessDevices(t *testing.T) {
 			bk := iotwireless.NewInMemoryBackend()
 
 			for _, name := range tt.deviceNames {
-				_, err := bk.CreateWirelessDevice(
-					testAccountID,
-					testRegion,
-					name,
-					"LoRaWAN",
-					"",
-					"",
-					nil,
-				)
+				_, err := bk.CreateWirelessDevice(testAccountID, testRegion, name, "LoRaWAN", "", "", "", nil, nil, nil)
 				require.NoError(t, err)
 			}
 
@@ -132,7 +131,7 @@ func TestInMemoryBackend_SortedListWirelessDevices(t *testing.T) {
 	b := iotwireless.NewInMemoryBackend()
 
 	for _, name := range []string{"zebra", "alpha", "mango"} {
-		_, err := b.CreateWirelessDevice(testAccountID, testRegion, name, "LoRaWAN", "", "", nil)
+		_, err := b.CreateWirelessDevice(testAccountID, testRegion, name, "LoRaWAN", "", "", "", nil, nil, nil)
 		require.NoError(t, err)
 	}
 

@@ -203,6 +203,14 @@ func (b *InMemoryBackend) PingConnection(connectionID string) error {
 // Broadcast posts data to every active connection. It returns the number of
 // connections that successfully received the message; oversized payloads return
 // ErrPayloadTooLarge before any send.
+//
+// Delivery to each connection's real downstream transport (if one is wired --
+// see connState.downstream / PostToConnection) is attempted before any
+// accounting for that connection is committed, mirroring PostToConnection's
+// semantics: a connection whose WebSocket client-side buffer is full is
+// skipped entirely (not counted in the returned delivered count, no message
+// recorded, no stats/timeline update for it) rather than being reported as
+// delivered despite never having received the frame.
 func (b *InMemoryBackend) Broadcast(data []byte) (int, error) {
 	if len(data) > maxPayloadBytes {
 		return 0, fmt.Errorf("%w: payload size %d exceeds maximum %d", ErrPayloadTooLarge, len(data), maxPayloadBytes)
@@ -217,6 +225,16 @@ func (b *InMemoryBackend) Broadcast(data []byte) (int, error) {
 	for _, state := range b.connections {
 		stored := make([]byte, len(data))
 		copy(stored, data)
+
+		if state.downstream != nil {
+			select {
+			case state.downstream <- stored:
+			default:
+				// Client-side buffer full: this connection did not receive
+				// the frame, so it must not be recorded as delivered.
+				continue
+			}
+		}
 
 		state.msgs.push(PostedMessage{
 			ReceivedAt:   now,

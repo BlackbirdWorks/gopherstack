@@ -6,14 +6,16 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.57.7   # version audited against
-last_audit_commit: d7ff080e                     # HEAD when this manifest was written
-last_audit_date: 2026-07-12
-overall: A                # ~1k genuine fixes found (timestamp wire format was broken repo-wide)
+last_audit_commit: 68b00b12                     # HEAD when this manifest was written
+last_audit_date: 2026-07-24
+overall: A                # re-audit after the Phase-3.3 datalayer refactor (store.Table split); found and fixed a
+                           # wrong wire field name, an invented request field, three missing RunJobFlow-accepted
+                           # inputs, a nil-vs-zero-value Get*Policy bug, and a tags-scope gap (see Notes)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  RunJobFlow: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed Timeline millis->epoch-seconds"}
-  DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok}
+  RunJobFlow: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: deleted invented Instances.IamInstanceProfile field (no such member on real JobFlowInstancesConfig), added real top-level JobFlowRole field (-> Ec2InstanceAttributes.IamInstanceProfile); added inline KerberosAttributes/PlacementGroupConfigs/ManagedScalingPolicy/AutoTerminationPolicy support (previously only settable after creation via separate ops); added Instances.InstanceFleets support (previously RunJobFlow could only build instance-group clusters, fleets only attachable post-creation via AddInstanceFleet); prior pass fixed Timeline millis->epoch-seconds"}
+  DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: added Cluster.KerberosAttributes/PlacementGroups/InstanceCollectionType/AutoTerminate (previously silently dropped/missing); remaining omitted optional Cluster fields (AutoScalingRole aside, e.g. MonitoringConfiguration/LogEncryptionKmsKeyId/OutpostArn/RepoUpgradeOnBoot/RequestedAmiVersion/RunningAmiVersion/MasterPublicDnsName/ExtendedSupport/NormalizedInstanceHours) are acceptable simplifications -- all optional pointer fields a real client sees as nil, not fabricated data"}
   ListClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Status.Timeline in summaries (also fixed the sort, which read that same field); fixed CreatedAfter/CreatedBefore millis->epoch-seconds parsing"}
   TerminateJobFlows: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed EndDateTime millis->epoch-seconds"}
   ModifyCluster: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -31,10 +33,10 @@ ops:
   PutAutoScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveAutoScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutManagedScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetManagedScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetManagedScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: fixed nil-vs-zero-value bug -- ManagedScalingPolicy field is now a pointer with omitempty, so it is omitted from the wire (matching real GetManagedScalingPolicyOutput.ManagedScalingPolicy *T) when no policy is attached, instead of a zero-valued object that would deserialize as a non-nil struct on a real client"}
   RemoveManagedScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAutoTerminationPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetAutoTerminationPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAutoTerminationPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: same nil-vs-zero-value fix as GetManagedScalingPolicy"}
   RemoveAutoTerminationPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateSecurityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed CreationDateTime ISO8601-string->epoch-seconds"}
   DescribeSecurityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix"}
@@ -59,11 +61,11 @@ ops:
   ListNotebookExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "reuses NotebookExecution (extra fields vs real NotebookExecutionSummary are harmless -- clients ignore unknown fields); deferred: not trimmed to the exact summary shape"}
   CreatePersistentAppUI: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribePersistentAppUI: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetPersistentAppUIPresignedURL: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetOnClusterAppUIPresignedURL: {wire: ok, errors: ok, state: ok, persist: n/a}
-  AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetPersistentAppUIPresignedURL: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-07-24: added PresignedURLReady (always true; gopherstack provisions synchronously)"}
+  GetOnClusterAppUIPresignedURL: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-07-24 SEVERE FIX: response field was named \"URL\" -- GetOnClusterAppUIPresignedURLOutput has no such member, only \"PresignedURL\"/\"PresignedURLReady\"; a real client's output.PresignedURL always deserialized as nil since unknown JSON fields are silently dropped. Renamed and added PresignedURLReady."}
+  AddTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: extended to also match Studio resources by ID/ARN, not only clusters -- real AddTagsInput.ResourceId doc explicitly covers \"a cluster identifier or an Amazon EMR Studio ID\"; tagging a studio previously 400'd as resource-not-found"}
+  RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: same Studio-resource fix as AddTags"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: same Studio-resource fix as AddTags"}
   ListBootstrapActions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListInstances: {wire: partial, errors: ok, state: ok, persist: n/a, note: "synthesized instances are a simplification (no EbsVolumes/PublicIpAddress/etc); acceptable, not re-flagged"}
   ListReleaseLabels: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -76,7 +78,7 @@ ops:
 # Families audited as a group (when per-op is impractical):
 families:
   error-mapping: {status: ok, note: "EMR's real error model has exactly two exception types (InvalidRequestException 400, InternalServerException 500) per aws-sdk-go-v2/service/emr/types/errors.go; the deserializeError switch matches __type against these two strings verbatim. Fixed handleError, which returned the non-existent 'ValidationException' for ErrInvalidParameter and 'InternalFailure' for the default/500 case -- neither would deserialize into a typed exception a real client checks with errors.As."
-leaks: {status: clean, note: "janitor sweeps TERMINATED clusters via c.TerminatedAt (unaffected by the Timeline epoch fix, which only touches the exported wire-shape fields); no new goroutines added; effectiveStepStatus is a pure read-time computation, no persisted mutation, no lock escalation."}
+leaks: {status: clean, note: "2026-07-24 re-check after Phase-3.3 datalayer refactor (region-nested maps -> store.Table/store.Index) and this pass's fixes: DeleteStudio still cascades studioSessionMappingDelete for every mapping of the deleted studio (clone-before-delete pattern preserved through the refactor, avoiding an in-place-index-mutation-during-range hazard); janitor sweeps TERMINATED clusters via c.TerminatedAt and clears the arnIndex entry inline; no new goroutines/tickers added this pass. The new taggedResourceTags helper (tags.go), added for Studio tagging support, does a linear scan of studiosInRegion under the lock AddTags/RemoveTags/ListTagsForResource already hold -- no new lock acquisition. effectiveStepStatus remains a pure read-time computation, no persisted mutation, no lock escalation."}
 ---
 
 ## Notes
@@ -208,3 +210,92 @@ catalog contents, `ReleaseLabel`/application-bundle tables, exact
 returned; real AWS also has `PENDING`/`ATTACHING`/`DETACHING`/`FAILED`
 but this is a reasonable simplification, not a hang risk since it's not
 polled by a waiter).
+
+## 2026-07-24 re-audit (post Phase-3.3 datalayer refactor)
+
+Between the 2026-07-12 audit (`d7ff080e`) and this one, `services/emr/`
+went through two large mechanical refactors (`Go refactoring 2` #2392,
+`Parity 4` #2384) that split the monolithic `backend.go`/`handler.go`/
+`handler_*.go` files into today's per-resource-family files and replaced
+every region-nested `map[string]map[string]*T` with a `*store.Table[T]` +
+`*store.Index[T]` pair (see `store_setup.go`). Since every file touched by
+that refactor changed, this pass re-audited the full surface rather than
+trusting the prior manifest's per-op rows, per the manifest's own
+re-audit protocol. The refactor itself was behavior-preserving; the bugs
+below predate it and were simply carried through unnoticed.
+
+**`GetOnClusterAppUIPresignedURLOutput` wire field name was wrong
+(severe).** The response sent `{"URL": "..."}`. Real
+`GetOnClusterAppUIPresignedURLOutput` has no `URL` member -- only
+`PresignedURL` and `PresignedURLReady`. A real SDK client's deserializer
+silently ignores unknown JSON fields, so `output.PresignedURL` would
+always come back `nil` no matter what gopherstack sent. Fixed the field
+name and added `PresignedURLReady` (always `true`, matching
+`GetPersistentAppUIPresignedURL`, which already had the right field name
+but was also missing `PresignedURLReady`).
+
+**`RunJobFlowInstances.IamInstanceProfile` was an invented field.** Real
+`JobFlowInstancesConfig` (the wire type for `RunJobFlow`'s `Instances`
+block) has no `IamInstanceProfile` member -- that attribute is set via
+the top-level `RunJobFlowInput.JobFlowRole` field instead, and echoed
+back as `Cluster.Ec2InstanceAttributes.IamInstanceProfile`. gopherstack
+had the field nested one level too deep (inert on the wire, since no
+real client ever populates it there) and was entirely missing the real
+top-level `JobFlowRole` field, so `IamInstanceProfile` could never
+actually be set by a real `RunJobFlow` call. Deleted the invented field,
+added the real one.
+
+**`RunJobFlow` couldn't build a fleet-based cluster.** Real
+`JobFlowInstancesConfig` accepts either `InstanceGroups` or
+`InstanceFleets` (mutually exclusive) to describe a cluster's initial
+capacity. gopherstack's `RunJobFlowInstances` only had `InstanceGroups`;
+an instance fleet could only be attached to an already-running cluster
+via `AddInstanceFleet`, so a fleet-based `RunJobFlow` request would
+silently create an empty, group-less, fleet-less cluster. Added
+`Instances.InstanceFleets` support (reusing `AddInstanceFleet`'s
+construction logic via a new `buildInstanceFleets` helper) and a derived
+`Cluster.InstanceCollectionType` (`INSTANCE_GROUP`/`INSTANCE_FLEET`) --
+a real field this backend never populated at all.
+
+**`RunJobFlow` silently dropped `KerberosAttributes` and
+`PlacementGroupConfigs`.** Both are real `RunJobFlowInput` fields echoed
+back on `Cluster` (`KerberosAttributes`, `PlacementGroups`); neither
+existed anywhere in gopherstack's request or domain types. Added both,
+plus the derived `Cluster.AutoTerminate` field (the real API's inverse of
+`Instances.KeepJobFlowAliveWhenNoSteps`) -- three more real `Cluster`
+members this backend never populated.
+
+**`RunJobFlow` couldn't accept `ManagedScalingPolicy`/
+`AutoTerminationPolicy` inline.** Real `RunJobFlowInput` accepts both at
+creation time; gopherstack only ever let a caller attach them afterward
+via `PutManagedScalingPolicy`/`PutAutoTerminationPolicy`. Added both,
+reusing the same validation (`validateManagedScalingPolicy`,
+`validateAutoTerminationPolicy`, the latter extracted from
+`PutAutoTerminationPolicy` so both call paths share one bounds check).
+
+**`GetManagedScalingPolicy`/`GetAutoTerminationPolicy` returned a
+zero-valued policy instead of omitting the field.** Real
+`GetManagedScalingPolicyOutput.ManagedScalingPolicy` (and the
+`AutoTerminationPolicy` equivalent) is a pointer that AWS omits from the
+wire entirely when no policy is attached -- a real client's
+`output.ManagedScalingPolicy` is `nil` in that case. gopherstack always
+returned `{"ManagedScalingPolicy":{"ComputeLimits":{...zeroed...}}}` /
+`{"AutoTerminationPolicy":{"IdleTimeout":0}}`, which deserializes as a
+*non-nil* struct with zeroed fields on a real client -- a
+nil-vs-populated distinction any code branching on "is a policy
+attached?" would get wrong. Changed both backend `Get*` methods to
+return `nil` (not a zero-valued struct) when unset, and both handler
+output structs to pointer fields with `omitempty`.
+
+**`AddTags`/`RemoveTags`/`ListTagsForResource` only worked on clusters.**
+Real `AddTagsInput.ResourceId`'s doc explicitly says "a cluster
+identifier or an Amazon EMR Studio ID" -- Studios are a real taggable
+resource. gopherstack's tag ops only ever looked up clusters
+(`findClusterByIDOrARN`), so tagging a Studio incorrectly 400'd as
+resource-not-found. Added `findStudioByIDOrARN` (studios.go) and a
+`taggedResourceTags` dispatcher (tags.go) that tries cluster-then-studio
+lookup; all three ops now work against either resource type.
+
+All of the above were verified against
+`aws-sdk-go-v2/service/emr@v1.57.7` via `go doc` on the installed module
+(same version already in `go.mod`; no SDK version bump needed).

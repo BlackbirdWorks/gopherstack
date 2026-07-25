@@ -2,23 +2,94 @@ package organizations
 
 import (
 	"cmp"
+	"encoding/json"
 	"slices"
 )
 
 const policyStatusEnabled = "ENABLED"
 
+// Policy type names, shared between validPolicyTypes, policyContentMaxSize, and
+// effective_policy.go's merge-style switch (avoids goconst violations from
+// repeating these literals across the package).
+const (
+	policyTypeSCP      = "SERVICE_CONTROL_POLICY"
+	policyTypeRCP      = "RESOURCE_CONTROL_POLICY"
+	policyTypeTag      = "TAG_POLICY"
+	policyTypeBackup   = "BACKUP_POLICY"
+	policyTypeAIOptOut = "AISERVICES_OPT_OUT_POLICY"
+	policyTypeChatbot  = "CHATBOT_POLICY"
+	policyTypeDeclEC2  = "DECLARATIVE_POLICY_EC2"
+	policyTypeSecHub   = "SECURITYHUB_POLICY"
+)
+
 // validPolicyTypes returns the policy types supported by AWS Organizations.
 func validPolicyTypes() []string {
 	return []string{
-		"SERVICE_CONTROL_POLICY",
-		"RESOURCE_CONTROL_POLICY",
-		"TAG_POLICY",
-		"BACKUP_POLICY",
-		"AISERVICES_OPT_OUT_POLICY",
-		"CHATBOT_POLICY",
-		"DECLARATIVE_POLICY_EC2",
-		"SECURITYHUB_POLICY",
+		policyTypeSCP,
+		policyTypeRCP,
+		policyTypeTag,
+		policyTypeBackup,
+		policyTypeAIOptOut,
+		policyTypeChatbot,
+		policyTypeDeclEC2,
+		policyTypeSecHub,
 	}
+}
+
+// Maximum policy document sizes (characters) per the Organizations quotas
+// reference (docs.aws.amazon.com/organizations/latest/userguide/orgs_reference_limits.html).
+// SCP/RCP default to 5,120 (extensible via a service-quota increase, not
+// modeled here). CHATBOT_POLICY/SECURITYHUB_POLICY aren't documented in that
+// reference table; they're given the same 10,000 character ceiling as the
+// other newer policy types (BACKUP_POLICY, TAG_POLICY, DECLARATIVE_POLICY_EC2)
+// as a best-effort default pending independent verification.
+const (
+	policyContentLimitSCP      = 5120
+	policyContentLimitTag      = 10000
+	policyContentLimitBackup   = 10000
+	policyContentLimitAIOptOut = 2500
+	policyContentLimitChatbot  = 10000
+	policyContentLimitDeclEC2  = 10000
+	policyContentLimitSecHub   = 10000
+)
+
+// policyContentMaxSize returns the maximum content size for policyType and
+// whether policyType is a recognized type with a modeled limit.
+func policyContentMaxSize(policyType string) (int, bool) {
+	switch policyType {
+	case policyTypeSCP, policyTypeRCP:
+		return policyContentLimitSCP, true
+	case policyTypeTag:
+		return policyContentLimitTag, true
+	case policyTypeBackup:
+		return policyContentLimitBackup, true
+	case policyTypeAIOptOut:
+		return policyContentLimitAIOptOut, true
+	case policyTypeChatbot:
+		return policyContentLimitChatbot, true
+	case policyTypeDeclEC2:
+		return policyContentLimitDeclEC2, true
+	case policyTypeSecHub:
+		return policyContentLimitSecHub, true
+	default:
+		return 0, false
+	}
+}
+
+// validatePolicyContent checks content against AWS's syntax and size rules for
+// policyType. Real AWS rejects non-JSON policy documents with
+// MalformedPolicyDocumentException and documents exceeding the per-type size
+// quota with ConstraintViolationException(POLICY_CONTENT_LIMIT_EXCEEDED).
+func validatePolicyContent(content, policyType string) error {
+	if !json.Valid([]byte(content)) {
+		return ErrMalformedPolicyDocument
+	}
+
+	if limit, ok := policyContentMaxSize(policyType); ok && len(content) > limit {
+		return ErrPolicyContentLimitExceeded
+	}
+
+	return nil
 }
 
 // CreatePolicy creates a new policy.
@@ -35,6 +106,14 @@ func (b *InMemoryBackend) CreatePolicy(
 
 	if !slices.Contains(validPolicyTypes(), policyType) {
 		return nil, ErrInvalidInput
+	}
+
+	if err := validatePolicyContent(content, policyType); err != nil {
+		return nil, err
+	}
+
+	if err := validateNewTags(nil, tags); err != nil {
+		return nil, err
 	}
 
 	policyID := newPolicyID()
@@ -80,6 +159,12 @@ func (b *InMemoryBackend) UpdatePolicy(
 	p, ok := b.policies.Get(policyID)
 	if !ok {
 		return nil, ErrPolicyNotFound
+	}
+
+	if content != "" {
+		if err := validatePolicyContent(content, p.PolicySummary.Type); err != nil {
+			return nil, err
+		}
 	}
 
 	if name != "" {

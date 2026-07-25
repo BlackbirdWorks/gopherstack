@@ -63,13 +63,28 @@ func TestUserLifecycle(t *testing.T) {
 			require.True(t, ok)
 			assert.Len(t, users, 1)
 
-			// Delete user.
+			// Delete user: real Amazon MQ only removes an ActiveMQ broker
+			// user on the next reboot -- the user stays visible with
+			// pendingChange=DELETE until then (see
+			// aws-sdk-go-v2/service/mq/types.UserPendingChanges).
 			rec = doRequest(t, h, http.MethodDelete, "/v1/brokers/"+brokerID+"/users/"+tt.username, nil)
 			assert.Equal(t, http.StatusOK, rec.Code)
 
+			rec = doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users/"+tt.username, nil)
+			require.Equal(t, http.StatusOK, rec.Code, "user must stay visible with a pending delete before reboot")
+			pending, ok := parseResponse(t, rec)["pending"].(map[string]any)
+			require.True(t, ok, "pending must be present for a not-yet-applied delete")
+			assert.Equal(t, "DELETE", pending["pendingChange"])
+
+			// Reboot to apply the staged delete.
+			rebootRec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+			require.Equal(t, http.StatusOK, rebootRec.Code)
+			doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID, nil) // observes REBOOT_IN_PROGRESS and promotes.
+			doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID, nil) // settles to RUNNING.
+
 			// Verify deletion.
 			rec = doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users/"+tt.username, nil)
-			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, http.StatusNotFound, rec.Code, "user must be gone after the broker reboots")
 		})
 	}
 }
@@ -710,4 +725,130 @@ func TestCreateUser_UsernameCharset_AllowsPeriodAndTilde(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, userRec.Code, "username=%q: %s", tt.username, userRec.Body.String())
 		})
 	}
+}
+
+// --- User pending-change (reboot-gated) tests ---
+//
+// Real Amazon MQ only applies ActiveMQ broker-user create/update/delete on
+// the next broker reboot (see aws-sdk-go-v2/service/mq/types.
+// UserPendingChanges). These tests lock that promotion behavior in.
+
+func TestCreateUser_PendingChangeUntilReboot(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	brokerID := createTestBroker(t, h, "user-pending-create", mq.EngineTypeActiveMQ)
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/users/newuser", map[string]any{
+		"password":      "ValidPassword123",
+		"consoleAccess": true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The user is visible immediately with its requested attributes, but
+	// pending.pendingChange=CREATE marks it as not-yet-applied.
+	desc := doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users/newuser", nil)
+	require.Equal(t, http.StatusOK, desc.Code)
+	out := parseResponse(t, desc)
+	assert.Equal(t, true, out["consoleAccess"])
+	pending, ok := out["pending"].(map[string]any)
+	require.True(t, ok, "pending must be present before reboot")
+	assert.Equal(t, "CREATE", pending["pendingChange"])
+
+	listRec := doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	users := parseResponse(t, listRec)["users"].([]any)
+	require.Len(t, users, 1)
+	assert.Equal(t, "CREATE", users[0].(map[string]any)["pendingChange"])
+
+	rebootRec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rebootRec.Code)
+	doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID, nil) // observes REBOOT_IN_PROGRESS and promotes.
+
+	settled := doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users/newuser", nil)
+	require.Equal(t, http.StatusOK, settled.Code)
+	_, hasPending := parseResponse(t, settled)["pending"]
+	assert.False(t, hasPending, "pending must clear after reboot")
+}
+
+func TestUpdateUser_PendingChangeUntilReboot(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	brokerID := createTestBroker(t, h, "user-pending-update", mq.EngineTypeActiveMQ)
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/users/edituser", map[string]any{
+		"password":      "ValidPassword123",
+		"consoleAccess": false,
+		"groups":        []string{"orig"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Reboot once so the initial create is no longer pending.
+	rebootRec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rebootRec.Code)
+	doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID, nil) // observes REBOOT_IN_PROGRESS and promotes.
+
+	updRec := doRequest(t, h, http.MethodPut, "/v1/brokers/"+brokerID+"/users/edituser", map[string]any{
+		"consoleAccess": true,
+		"groups":        []string{"new"},
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	// Top-level consoleAccess/groups stay at the pre-update values;
+	// pending.consoleAccess/groups carry the target until the next reboot.
+	desc := doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users/edituser", nil)
+	require.Equal(t, http.StatusOK, desc.Code)
+	out := parseResponse(t, desc)
+	assert.Equal(t, false, out["consoleAccess"], "consoleAccess must not apply before reboot")
+	pending, ok := out["pending"].(map[string]any)
+	require.True(t, ok, "pending must be present before reboot")
+	assert.Equal(t, "UPDATE", pending["pendingChange"])
+	assert.Equal(t, true, pending["consoleAccess"])
+
+	rebootRec2 := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rebootRec2.Code)
+	doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID, nil) // observes REBOOT_IN_PROGRESS and promotes.
+
+	settled := doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users/edituser", nil)
+	require.Equal(t, http.StatusOK, settled.Code)
+	settledOut := parseResponse(t, settled)
+	assert.Equal(t, true, settledOut["consoleAccess"], "consoleAccess must apply after reboot")
+	groups := settledOut["groups"].([]any)
+	assert.Equal(t, []any{"new"}, groups)
+	_, hasPending := settledOut["pending"]
+	assert.False(t, hasPending, "pending must clear after reboot")
+}
+
+func TestListUsers_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	brokerID := createTestBroker(t, h, "user-pagination-broker", mq.EngineTypeActiveMQ)
+
+	for _, name := range []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot"} {
+		rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/users/"+name, map[string]any{
+			"password": "ValidPassword123",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	firstRec := doRequest(t, h, http.MethodGet,
+		"/v1/brokers/"+brokerID+"/users?maxResults=2", nil)
+	require.Equal(t, http.StatusOK, firstRec.Code)
+	firstPage := parseResponse(t, firstRec)
+
+	firstUsers := firstPage["users"].([]any)
+	require.Len(t, firstUsers, 2)
+	assert.Equal(t, "alpha", firstUsers[0].(map[string]any)["username"])
+
+	nextToken, ok := firstPage["nextToken"].(string)
+	require.True(t, ok, "nextToken must be present when more pages remain")
+
+	secondRec := doRequest(t, h, http.MethodGet,
+		"/v1/brokers/"+brokerID+"/users?maxResults=2&nextToken="+nextToken, nil)
+	require.Equal(t, http.StatusOK, secondRec.Code)
+	secondUsers := parseResponse(t, secondRec)["users"].([]any)
+	require.Len(t, secondUsers, 2)
+	assert.Equal(t, "charlie", secondUsers[0].(map[string]any)["username"])
 }

@@ -138,7 +138,8 @@ func TestBackend_MetricStream_StartStop(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	require.NoError(t, b.PutMetricStream(&cloudwatch.MetricStream{
 		Name:         "s",
-		FirehoseArn:  "arn",
+		FirehoseArn:  "arn:aws:firehose:us-east-1:123:deliverystream/ds",
+		RoleArn:      "arn:aws:iam::123:role/r",
 		OutputFormat: "json",
 	}))
 

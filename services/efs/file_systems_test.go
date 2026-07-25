@@ -137,16 +137,32 @@ func TestDescribeFileSystems_Pagination(t *testing.T) {
 			if tt.wantNext {
 				assert.NotEmpty(t, nextMarker)
 
-				// Fetch second page.
-				list2, _, err2 := b.DescribeFileSystems(
-					context.Background(),
-					"",
-					"",
-					nextMarker,
-					tt.maxItems,
-				)
-				require.NoError(t, err2)
-				assert.NotEmpty(t, list2)
+				// Walk every remaining page and confirm the union of all pages
+				// (this one plus every later one) equals the full created set,
+				// with no item lost or duplicated at any page boundary.
+				seen := make(map[string]bool, tt.total)
+				for _, fs := range list {
+					seen[fs.FileSystemID] = true
+				}
+
+				marker := nextMarker
+				for range tt.total { // hard cap: at most tt.total more fetches before failing.
+					pageList, next, pageErr := b.DescribeFileSystems(context.Background(), "", "", marker, tt.maxItems)
+					require.NoError(t, pageErr)
+					require.NotEmpty(t, pageList, "page must not be empty while a marker is being followed")
+
+					for _, fs := range pageList {
+						assert.False(t, seen[fs.FileSystemID],
+							"file system %s duplicated across pages", fs.FileSystemID)
+						seen[fs.FileSystemID] = true
+					}
+
+					if next == "" {
+						break
+					}
+					marker = next
+				}
+				assert.Len(t, seen, tt.total, "union of every page must equal every created file system")
 			} else {
 				assert.Empty(t, nextMarker)
 			}

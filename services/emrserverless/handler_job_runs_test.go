@@ -248,6 +248,91 @@ func TestHandler_StartJobRun_ClientTokenIdempotent(t *testing.T) {
 	assert.Len(t, list["jobRuns"].([]any), 1, "retried StartJobRun must not create a duplicate job run")
 }
 
+// TestHandler_JobRunToMap_WireShape verifies GetJobRun/ListJobRuns emit the
+// real AWS response field names -- in particular "executionRole" (NOT
+// "executionRoleArn", which is only the *request*-body field name on
+// StartJobRunInput; confirmed against
+// awsRestjson1_deserializeDocumentJobRun/JobRunSummary in the SDK's
+// deserializers.go) -- plus the required "createdBy" field and the
+// "executionTimeoutMinutes" field (defaulted to 720 when StartJobRun didn't
+// specify one, matching the real API's documented default).
+func TestHandler_JobRunToMap_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	appID := createApp(t, h, "wire-shape-app")
+
+	rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
+		"executionRoleArn": "arn:aws:iam::000000000000:role/wire-role",
+		"name":             "wire-shape-run",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var started map[string]string
+	mustUnmarshal(t, rec, &started)
+
+	getRec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns/"+started["jobRunId"], nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, getRec, &out)
+	jr := out["jobRun"].(map[string]any)
+
+	assert.Equal(t, "arn:aws:iam::000000000000:role/wire-role", jr["executionRole"])
+	_, hasWrongKey := jr["executionRoleArn"]
+	assert.False(t, hasWrongKey, "jobRun response must not use the request-only 'executionRoleArn' key")
+	assert.Equal(t, "arn:aws:iam::000000000000:role/wire-role", jr["createdBy"])
+	assert.InDelta(t, float64(720), jr["executionTimeoutMinutes"], 0)
+
+	// ListJobRuns (JobRunSummary) uses the same field names.
+	listRec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	var list map[string]any
+	mustUnmarshal(t, listRec, &list)
+	runs := list["jobRuns"].([]any)
+	require.Len(t, runs, 1)
+	summary := runs[0].(map[string]any)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/wire-role", summary["executionRole"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/wire-role", summary["createdBy"])
+}
+
+// TestHandler_StartJobRun_ExecutionTimeoutRetryPolicyPassthrough verifies
+// executionIamPolicy, executionTimeoutMinutes, and retryPolicy (all real
+// StartJobRunInput fields per the SDK) round-trip through GetJobRun instead
+// of being silently dropped.
+func TestHandler_StartJobRun_ExecutionTimeoutRetryPolicyPassthrough(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	appID := createApp(t, h, "timeout-retry-app")
+
+	execPolicy := map[string]any{"policy": `{"Version":"2012-10-17","Statement":[]}`}
+	retryPolicy := map[string]any{"maxAttempts": float64(3)}
+
+	rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
+		"executionRoleArn":        "arn:aws:iam::000000000000:role/r",
+		"name":                    "timeout-retry-run",
+		"executionTimeoutMinutes": float64(60),
+		"executionIamPolicy":      execPolicy,
+		"retryPolicy":             retryPolicy,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var started map[string]string
+	mustUnmarshal(t, rec, &started)
+
+	getRec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns/"+started["jobRunId"], nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, getRec, &out)
+	jr := out["jobRun"].(map[string]any)
+
+	assert.InDelta(t, float64(60), jr["executionTimeoutMinutes"], 0)
+	assert.Equal(t, execPolicy, jr["executionIamPolicy"])
+	assert.Equal(t, retryPolicy, jr["retryPolicy"])
+}
+
 // --- GetJobRun ---
 
 func TestHandler_GetJobRun(t *testing.T) {

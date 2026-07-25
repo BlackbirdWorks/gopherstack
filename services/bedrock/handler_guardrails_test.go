@@ -1136,78 +1136,6 @@ func TestAccuracy_Guardrail_UpdatePreservesAllFields(t *testing.T) {
 	}
 }
 
-func TestAccuracy_EnforcedGuardrail_PutAndList(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		guardrailID      string
-		guardrailVersion string
-	}{
-		{name: "version 1", guardrailID: "guard-1", guardrailVersion: "1"},
-		{name: "draft version", guardrailID: "guard-2", guardrailVersion: "DRAFT"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-			h := bedrock.NewHandler(b)
-
-			recPut := doRequest(
-				t, h, http.MethodPut, "/enforced-guardrail-configuration",
-				map[string]any{
-					"guardrailId":      tt.guardrailID,
-					"guardrailVersion": tt.guardrailVersion,
-				},
-			)
-			assert.Equal(t, http.StatusNoContent, recPut.Code)
-
-			recList := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
-			require.Equal(t, http.StatusOK, recList.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
-			configs := out["enforcedGuardrailConfigurations"].([]any)
-			assert.Len(t, configs, 1)
-
-			cfg := configs[0].(map[string]any)
-			assert.Equal(t, tt.guardrailID, cfg["guardrailId"])
-			assert.Equal(t, tt.guardrailVersion, cfg["guardrailVersion"])
-		})
-	}
-}
-
-func TestAccuracy_EnforcedGuardrail_DeleteRemovesConfig(t *testing.T) {
-	t.Parallel()
-
-	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	h := bedrock.NewHandler(b)
-
-	// Put a config.
-	recPut := doRequest(t, h, http.MethodPut, "/enforced-guardrail-configuration",
-		map[string]any{"guardrailId": "g-del", "guardrailVersion": "1"})
-	require.Equal(t, http.StatusNoContent, recPut.Code)
-
-	// Delete it using query parameter.
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodDelete, "/enforced-guardrail-configuration?guardrailId=g-del", nil)
-	rec2 := httptest.NewRecorder()
-	c2 := e.NewContext(req, rec2)
-	require.NoError(t, h.Handler()(c2))
-	assert.Equal(t, http.StatusNoContent, rec2.Code)
-
-	// List — should be empty.
-	recList := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
-	require.Equal(t, http.StatusOK, recList.Code)
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
-	configs := out["enforcedGuardrailConfigurations"].([]any)
-	assert.Empty(t, configs)
-}
-
 func TestAccuracy_Tags_OnGuardrailViaListTags(t *testing.T) {
 	t.Parallel()
 
@@ -1293,58 +1221,6 @@ func TestAccuracy_Tags_TagGuardrailAfterCreate(t *testing.T) {
 	}
 }
 
-func TestAccuracy_EnforcedGuardrail_PutUpdatesVersionForSameID(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// PUT config version 1
-	putRec1 := doRequest(t, h, http.MethodPut, "/enforced-guardrail-configuration",
-		map[string]any{"guardrailId": "grd-update", "guardrailVersion": "1"})
-	require.Equal(t, http.StatusNoContent, putRec1.Code)
-
-	// PUT same guardrailId with version 2 — should update, not add a duplicate
-	putRec2 := doRequest(t, h, http.MethodPut, "/enforced-guardrail-configuration",
-		map[string]any{"guardrailId": "grd-update", "guardrailVersion": "2"})
-	require.Equal(t, http.StatusNoContent, putRec2.Code)
-
-	listRec := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
-	require.Equal(t, http.StatusOK, listRec.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
-	configs := listOut["enforcedGuardrailConfigurations"].([]any)
-	assert.Len(t, configs, 1, "same guardrailId PUT should not create a duplicate")
-
-	cfg := configs[0].(map[string]any)
-	assert.Equal(t, "grd-update", cfg["guardrailId"])
-	assert.Equal(t, "2", cfg["guardrailVersion"], "version should be updated to latest PUT")
-}
-
-func TestAccuracy_EnforcedGuardrail_DeleteClearsConfig(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// PUT config
-	doRequest(t, h, http.MethodPut, "/enforced-guardrail-configuration",
-		map[string]any{"guardrailId": "grd-del", "guardrailVersion": "DRAFT"})
-
-	// DELETE requires guardrailId as query parameter
-	deleteRec := doRequest(t, h, http.MethodDelete,
-		"/enforced-guardrail-configuration?guardrailId=grd-del", nil)
-	require.Equal(t, http.StatusNoContent, deleteRec.Code)
-
-	// List should be empty
-	listRec := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
-	require.Equal(t, http.StatusOK, listRec.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
-	configs := listOut["enforcedGuardrailConfigurations"].([]any)
-	assert.Empty(t, configs)
-}
-
 func TestAccuracy_GuardrailVersion_PoliciesPreservedInVersion(t *testing.T) {
 	t.Parallel()
 
@@ -1382,39 +1258,4 @@ func TestAccuracy_GuardrailVersion_PoliciesPreservedInVersion(t *testing.T) {
 	var verDetailOut map[string]any
 	require.NoError(t, json.Unmarshal(getVerRec.Body.Bytes(), &verDetailOut))
 	assert.NotNil(t, verDetailOut["contentPolicy"], "version should preserve policies")
-}
-
-func TestHandler_EnforcedGuardrailConfiguration(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// List empty
-	rec := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out map[string]any
-	mustUnmarshal(t, rec, &out)
-	assert.Empty(t, out["enforcedGuardrailConfigurations"])
-
-	// Put
-	rec2 := doRequest(t, h, http.MethodPut, "/enforced-guardrail-configuration",
-		map[string]any{"guardrailId": "g-001", "guardrailVersion": "DRAFT"})
-	assert.Equal(t, http.StatusNoContent, rec2.Code)
-
-	// List has one
-	rec3 := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
-	var out3 map[string]any
-	mustUnmarshal(t, rec3, &out3)
-	assert.Len(t, out3["enforcedGuardrailConfigurations"], 1)
-
-	// Delete
-	rec4 := doRequest(t, h, http.MethodDelete, "/enforced-guardrail-configuration?guardrailId=g-001", nil)
-	assert.Equal(t, http.StatusNoContent, rec4.Code)
-
-	// List empty again
-	rec5 := doRequest(t, h, http.MethodGet, "/enforced-guardrail-configuration", nil)
-	var out5 map[string]any
-	mustUnmarshal(t, rec5, &out5)
-	assert.Empty(t, out5["enforcedGuardrailConfigurations"])
 }

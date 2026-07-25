@@ -157,6 +157,77 @@ func TestGetFindingsEmptyInputNotNull(t *testing.T) {
 	assert.NotNil(t, v, "findings must be [] not null for empty findingIds input")
 }
 
+// TestCreateSampleFindingsFieldShape locks the deferred Finding field audit:
+// real AWS Finding carries category (CLASSIFICATION/POLICY -- not an
+// invented "SENSITIVE_DATA" value), count, partition, sample,
+// schemaVersion, and, for a sensitive-data finding,
+// classificationDetails/resourcesAffected. Severity.score is an integer
+// (real types.Severity.Score is *int64), not an arbitrary float.
+func TestCreateSampleFindingsFieldShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, http.MethodPost, "/findings/sample", map[string]any{
+		"findingTypes": []string{"SensitiveData:S3Object/Personal", "Policy:IAMUser/S3BucketPublic"},
+	})
+
+	listRec := doRequest(t, h, http.MethodPost, "/findings", map[string]any{})
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	ids, ok := listResp["findingIds"].([]any)
+	require.True(t, ok)
+	require.Len(t, ids, 2)
+
+	getRec := doRequest(t, h, http.MethodPost, "/findings/describe", map[string]any{"findingIds": ids})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	findings, ok := getResp["findings"].([]any)
+	require.True(t, ok)
+	require.Len(t, findings, 2)
+
+	byType := make(map[string]map[string]any, 2)
+
+	for _, raw := range findings {
+		f, fOk := raw.(map[string]any)
+		require.True(t, fOk)
+		ft, tOk := f["type"].(string)
+		require.True(t, tOk)
+		byType[ft] = f
+
+		// Fields common to every finding, regardless of category.
+		assert.Equal(t, "aws", f["partition"])
+		assert.Equal(t, "1.0", f["schemaVersion"])
+		assert.Equal(t, true, f["sample"])
+		assert.InDelta(t, float64(1), f["count"], 0.0001)
+
+		severity, sOk := f["severity"].(map[string]any)
+		require.True(t, sOk)
+		// Real severity score is an integer 1-3, never a value like 5.
+		score, scOk := severity["score"].(float64)
+		require.True(t, scOk)
+		assert.InDelta(t, float64(2), score, 0.0001)
+	}
+
+	sensitiveData := byType["SensitiveData:S3Object/Personal"]
+	require.NotNil(t, sensitiveData)
+	// Real FindingCategory enum is CLASSIFICATION/POLICY -- "SENSITIVE_DATA"
+	// is not a valid value.
+	assert.Equal(t, "CLASSIFICATION", sensitiveData["category"])
+
+	resourcesAffected, ok := sensitiveData["resourcesAffected"].(map[string]any)
+	require.True(t, ok)
+	assert.NotNil(t, resourcesAffected["s3Bucket"])
+	assert.NotNil(t, resourcesAffected["s3Object"])
+	assert.NotNil(t, sensitiveData["classificationDetails"])
+
+	policy := byType["Policy:IAMUser/S3BucketPublic"]
+	require.NotNil(t, policy)
+	assert.Equal(t, "POLICY", policy["category"])
+}
+
 func TestFindingsPublicationConfig(t *testing.T) {
 	t.Parallel()
 

@@ -40,3 +40,19 @@ func TestImportSSHPublicKey51stKeyReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrInvalidParameter)
 }
+
+// TestImportSSHPublicKeyUnknownUserReturnsNotFound verifies that importing a key
+// for a UserName that isn't a user on the server fails with ResourceNotFoundException,
+// matching real AWS behavior (a user must exist before keys can be attached to it).
+func TestImportSSHPublicKeyUnknownUserReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	s, err := b.CreateServer(nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.ImportSSHPublicKey(s.ServerID, "nonexistent-user", "ssh-ed25519 AAAAABBBCCC nobody@example")
+	require.Error(t, err)
+	require.ErrorIs(t, err, awserr.ErrNotFound)
+	assert.ErrorIs(t, err, transfer.ErrUserNotFound)
+}

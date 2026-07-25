@@ -18,7 +18,9 @@ var (
 	// ErrResourcePolicyNotFound is returned when a resource policy is not found.
 	ErrResourcePolicyNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 	// ErrIndexingRuleNotFound is returned when an indexing rule is not found.
-	ErrIndexingRuleNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
+	// UpdateIndexingRule's modeled error set uses ResourceNotFoundException here
+	// (unlike GetGroup/DeleteGroup/etc., which only ever return InvalidRequestException).
+	ErrIndexingRuleNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrValidation is returned when a request fails field-level validation.
 	ErrValidation = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 	// ErrInvalidSamplingRule is returned when sampling rule fields fail validation.
@@ -33,4 +35,22 @@ var (
 	ErrBatchGetTracesLimit = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 	// ErrDefaultRuleUndeletable is returned when the built-in Default sampling rule is deleted.
 	ErrDefaultRuleUndeletable = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
+	// ErrPolicySizeLimitExceeded is returned when a resource policy document exceeds the maximum size.
+	ErrPolicySizeLimitExceeded = awserr.New("PolicySizeLimitExceededException", awserr.ErrInvalidParameter)
+	// ErrRuleLimitExceeded is returned when the maximum number of sampling rules is exceeded.
+	ErrRuleLimitExceeded = awserr.New("RuleLimitExceededException", awserr.ErrInvalidParameter)
+	// ErrTooManyTags is returned when a resource would exceed the maximum number of tags.
+	ErrTooManyTags = awserr.New("TooManyTagsException", awserr.ErrInvalidParameter)
+	// ErrResourceNotFound is returned for operations whose modeled error is
+	// ResourceNotFoundException rather than InvalidRequestException (TagResource,
+	// UntagResource, ListTagsForResource, UpdateIndexingRule, and the trace-retrieval
+	// token operations StartTraceRetrieval/CancelTraceRetrieval/ListRetrievedTraces/
+	// GetRetrievedTracesGraph -- confirmed against each operation's declared error set
+	// in aws-sdk-go-v2/service/xray's deserializers.go).
+	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrTraceRetrievalNotFound is returned when a RetrievalToken passed to
+	// CancelTraceRetrieval, ListRetrievedTraces, or GetRetrievedTracesGraph does not
+	// correspond to a retrieval started by StartTraceRetrieval. All three declare
+	// ResourceNotFoundException in their modeled error set.
+	ErrTraceRetrievalNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )

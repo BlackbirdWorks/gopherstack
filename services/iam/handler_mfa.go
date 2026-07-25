@@ -134,9 +134,12 @@ func (h *Handler) iamVirtualMFADispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"DeleteVirtualMFADevice": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.DeleteVirtualMFADevice(vals.Get("SerialNumber")); err != nil {
+			serial := vals.Get("SerialNumber")
+			if err := h.Backend.DeleteVirtualMFADevice(serial); err != nil {
 				return nil, err
 			}
+
+			h.deleteTags("mfa:" + serial)
 
 			return &DeleteVirtualMFADeviceResponse{
 				Xmlns:            iamXMLNS,

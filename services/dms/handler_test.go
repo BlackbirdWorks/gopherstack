@@ -315,7 +315,7 @@ func TestHandler_InvalidStateError(t *testing.T) {
 
 	srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 		"EndpointIdentifier": "state-src",
-		"EndpointType":       "SOURCE",
+		"EndpointType":       "source",
 		"EngineName":         "mysql",
 	})
 	require.Equal(t, http.StatusOK, srcRec.Code)
@@ -323,7 +323,7 @@ func TestHandler_InvalidStateError(t *testing.T) {
 
 	dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 		"EndpointIdentifier": "state-dst",
-		"EndpointType":       "TARGET",
+		"EndpointType":       "target",
 		"EngineName":         "s3",
 	})
 	require.Equal(t, http.StatusOK, dstRec.Code)
@@ -582,6 +582,10 @@ func TestPassThroughOperationsSmoke(t *testing.T) {
 	}
 
 	mpx := map[string]any{"MigrationProjectIdentifier": "x"}
+	mpxRules := map[string]any{"MigrationProjectIdentifier": "x", "SelectionRules": "{}"}
+	mpxOriginRules := map[string]any{
+		"MigrationProjectIdentifier": "x", "Origin": "SOURCE", "SelectionRules": "{}",
+	}
 
 	cases := []passCase{
 		{body: map[string]any{"EndpointArn": "ep-arn", "ReplicationInstanceArn": "ri-arn"}, action: "DeleteConnection"},
@@ -599,9 +603,9 @@ func TestPassThroughOperationsSmoke(t *testing.T) {
 		{body: map[string]any{}, action: "DescribeFleetAdvisorLsaAnalysis"},
 		{body: map[string]any{}, action: "DescribeFleetAdvisorSchemaObjectSummary"},
 		{body: map[string]any{}, action: "DescribeFleetAdvisorSchemas"},
-		{body: mpx, action: "DescribeMetadataModel"},
+		{body: mpxOriginRules, action: "DescribeMetadataModel"},
 		{body: mpx, action: "DescribeMetadataModelAssessments"},
-		{body: mpx, action: "DescribeMetadataModelChildren"},
+		{body: mpxOriginRules, action: "DescribeMetadataModelChildren"},
 		{body: mpx, action: "DescribeMetadataModelConversions"},
 		{body: mpx, action: "DescribeMetadataModelCreations"},
 		{body: mpx, action: "DescribeMetadataModelExportsAsScript"},
@@ -620,20 +624,23 @@ func TestPassThroughOperationsSmoke(t *testing.T) {
 		{body: map[string]any{}, action: "DescribeReplications"},
 		{body: map[string]any{}, action: "DescribeSchemas"},
 		{body: map[string]any{"ReplicationTaskArn": "rt-arn"}, action: "DescribeTableStatistics"},
-		{body: mpx, action: "ExportMetadataModelAssessment"},
-		{body: map[string]any{}, action: "GetTargetSelectionRules"},
+		{body: mpxRules, action: "ExportMetadataModelAssessment"},
+		{body: mpxRules, action: "GetTargetSelectionRules"},
 		{body: mpx, action: "ModifyConversionConfiguration"},
 		{body: map[string]any{}, action: "RefreshSchemas"},
-		{body: map[string]any{"ReplicationTaskArn": "rt-arn"}, action: "ReloadReplicationTables"},
-		{body: map[string]any{"ReplicationTaskArn": "rt-arn"}, action: "ReloadTables"},
 		{body: map[string]any{}, action: "RunFleetAdvisorLsaAnalysis"},
 		{body: mpx, action: "StartExtensionPackAssociation"},
-		{body: mpx, action: "StartMetadataModelAssessment"},
-		{body: mpx, action: "StartMetadataModelConversion"},
-		{body: mpx, action: "StartMetadataModelCreation"},
-		{body: mpx, action: "StartMetadataModelExportAsScript"},
-		{body: mpx, action: "StartMetadataModelExportToTarget"},
-		{body: mpx, action: "StartMetadataModelImport"},
+		{body: mpxRules, action: "StartMetadataModelAssessment"},
+		{body: mpxRules, action: "StartMetadataModelConversion"},
+		{
+			body: map[string]any{
+				"MigrationProjectIdentifier": "x", "MetadataModelName": "m", "SelectionRules": "{}",
+			},
+			action: "StartMetadataModelCreation",
+		},
+		{body: mpxOriginRules, action: "StartMetadataModelExportAsScript"},
+		{body: mpxRules, action: "StartMetadataModelExportToTarget"},
+		{body: mpxOriginRules, action: "StartMetadataModelImport"},
 		{body: map[string]any{}, action: "StartRecommendations"},
 		{
 			body:   map[string]any{"ReplicationConfigArn": "rc-arn", "StartReplicationType": "full-load"},

@@ -51,6 +51,7 @@ func TestDeregisterJobDefinition_MarksInactive(t *testing.T) {
 				nil,
 				nil,
 				false,
+				nil,
 			)
 			require.NoError(t, err)
 			assert.Equal(t, "ACTIVE", jd.Status)
@@ -97,6 +98,7 @@ func TestDeregisterJobDefinition_RevisionCounterPreserved(t *testing.T) {
 		nil,
 		nil,
 		false,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), jd1.Revision)
@@ -120,6 +122,7 @@ func TestDeregisterJobDefinition_RevisionCounterPreserved(t *testing.T) {
 		nil,
 		nil,
 		false,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), jd2.Revision, "re-registration should yield revision 2")
@@ -198,6 +201,7 @@ func TestBatchJanitor_SweepInactiveJobDefinitions(t *testing.T) {
 				nil,
 				nil,
 				false,
+				nil,
 			)
 			require.NoError(t, err)
 

@@ -253,6 +253,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		FileSystemConfigs: input.FileSystemConfigs,
 		DeadLetterConfig:  input.DeadLetterConfig,
 		EphemeralStorage:  input.EphemeralStorage,
+		DurableConfig:     input.DurableConfig,
 		Layers:            layerARNsToFunctionLayers(input.Layers),
 		Tags:              input.Tags,
 		State:             FunctionStateActive,
@@ -420,8 +421,12 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", getFnErr.Error())
 	}
 
-	if applyErr := h.applyFunctionCodeUpdate(c, fn, &input); applyErr != nil {
-		return applyErr
+	if !h.checkRevisionID(c, fn.RevisionID, input.RevisionID) {
+		return nil
+	}
+
+	if !h.applyFunctionCodeUpdate(c, fn, &input) {
+		return nil
 	}
 
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
@@ -472,23 +477,34 @@ func (h *Handler) maybePublishVersion(ctx context.Context, fn *FunctionConfigura
 	return v.Version
 }
 
-// applyFunctionCodeUpdate applies the code fields from input onto fn, validating package type constraints.
+// applyFunctionCodeUpdate applies the code fields from input onto fn, validating
+// package type constraints. Returns true on success (caller should continue);
+// false when it wrote a 400 error response and the caller must stop and
+// return nil, matching checkRevisionID/validateMemoryAndTimeout's bool-return
+// convention. This is deliberately NOT "return writeError's return value" —
+// see checkRevisionID's doc comment for why that signal can never be
+// distinguished from success and previously let a validation failure here
+// fall through to a second, conflicting 200 write.
 func (h *Handler) applyFunctionCodeUpdate(
 	c *echo.Context,
 	fn *FunctionConfiguration,
 	input *UpdateFunctionCodeInput,
-) error {
+) bool {
 	if fn.PackageType == PackageTypeImage || fn.PackageType == "" {
 		if input.ImageURI == "" {
-			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 				"ImageUri is required for Image package type")
+
+			return false
 		}
 
 		fn.ImageURI = input.ImageURI
 	} else {
 		if input.ZipFile == nil && (input.S3Bucket == "" || input.S3Key == "") {
-			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 				"ZipFile or S3Bucket+S3Key is required for Zip package type")
+
+			return false
 		}
 
 		fn.ZipData = input.ZipFile
@@ -508,7 +524,7 @@ func (h *Handler) applyFunctionCodeUpdate(
 		fn.Architectures = []string{"x86_64"}
 	}
 
-	return nil
+	return true
 }
 
 func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string) error {
@@ -553,6 +569,10 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", getFnErr.Error())
 	}
 
+	if !h.checkRevisionID(c, fn.RevisionID, input.RevisionID) {
+		return nil
+	}
+
 	applyFunctionConfigurationUpdate(fn, &input)
 
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
@@ -589,7 +609,18 @@ func applySnapStart(fn *FunctionConfiguration, s *SnapStart) {
 }
 
 // applyFunctionConfigurationUpdate applies non-zero fields from input onto fn.
+// Split into two passes (core scalar/identity fields, then structured configs)
+// to keep cyclomatic complexity under the repo's cyclop threshold — each half
+// is a flat run of independent single-field updates, so splitting the list is
+// purely a complexity-budget decomposition, not a behavior change.
 func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFunctionConfigurationInput) {
+	applyFunctionConfigurationCoreFields(fn, input)
+	applyFunctionConfigurationStructuredFields(fn, input)
+}
+
+// applyFunctionConfigurationCoreFields applies the scalar/identity fields
+// (description, sizing, execution identity, code layers) from input onto fn.
+func applyFunctionConfigurationCoreFields(fn *FunctionConfiguration, input *UpdateFunctionConfigurationInput) {
 	if input.Description != "" {
 		fn.Description = input.Description
 	}
@@ -621,7 +652,12 @@ func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFu
 	if input.Layers != nil {
 		fn.Layers = layerARNsToFunctionLayers(input.Layers)
 	}
+}
 
+// applyFunctionConfigurationStructuredFields applies the remaining structured
+// config blocks (networking, observability, storage, durable execution) from
+// input onto fn.
+func applyFunctionConfigurationStructuredFields(fn *FunctionConfiguration, input *UpdateFunctionConfigurationInput) {
 	if input.VpcConfig != nil {
 		fn.VpcConfig = input.VpcConfig
 	}
@@ -644,6 +680,10 @@ func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFu
 
 	if input.SnapStart != nil {
 		applySnapStart(fn, input.SnapStart)
+	}
+
+	if input.DurableConfig != nil {
+		fn.DurableConfig = input.DurableConfig
 	}
 }
 

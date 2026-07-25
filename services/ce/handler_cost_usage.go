@@ -3,6 +3,7 @@ package ce
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -22,9 +23,13 @@ type getCostAndUsageInput struct {
 	GroupBy       []groupBySpec     `json:"GroupBy"`
 }
 
+// getCostAndUsageOutput's GroupDefinitions field (the groups specified by the request's
+// GroupBy, echoed back -- see aws-sdk-go-v2/service/costexplorer's GetCostAndUsageOutput)
+// was previously missing entirely.
 type getCostAndUsageOutput struct {
 	NextPageToken            string         `json:"NextPageToken,omitempty"`
 	ResultsByTime            []ResultByTime `json:"ResultsByTime"`
+	GroupDefinitions         []groupBySpec  `json:"GroupDefinitions"`
 	DimensionValueAttributes []any          `json:"DimensionValueAttributes"`
 }
 
@@ -33,7 +38,7 @@ func (h *Handler) handleGetCostAndUsage(
 	in *getCostAndUsageInput,
 ) (*getCostAndUsageOutput, error) {
 	if in.Granularity == "" {
-		return nil, fmt.Errorf("%w: Granularity is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: Granularity is required", ErrValidation)
 	}
 
 	start := ""
@@ -63,6 +68,7 @@ func (h *Handler) handleGetCostAndUsage(
 
 	return &getCostAndUsageOutput{
 		ResultsByTime:            results,
+		GroupDefinitions:         in.GroupBy,
 		DimensionValueAttributes: []any{},
 	}, nil
 }
@@ -93,7 +99,7 @@ func (h *Handler) handleGetDimensionValues(
 	in *getDimensionValuesInput,
 ) (*getDimensionValuesOutput, error) {
 	if in.Dimension == "" {
-		return nil, fmt.Errorf("%w: Dimension is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: Dimension is required", ErrValidation)
 	}
 
 	vals := h.Backend.GetDimensionValues(in.Dimension)
@@ -291,40 +297,122 @@ type getApproximateUsageRecordsInput struct {
 
 type getApproximateUsageRecordsOutput struct {
 	LookbackPeriod map[string]string `json:"LookbackPeriod,omitempty"`
-	Services       map[string]string `json:"Services"`
-	TotalRecords   string            `json:"TotalRecords"`
+	// Services and TotalRecords are wire-typed as JSON numbers in real AWS CE
+	// (NonNegativeLong), not strings -- see aws-sdk-go-v2/service/costexplorer's
+	// GetApproximateUsageRecordsOutput (Services map[string]int64, TotalRecords int64).
+	Services     map[string]int64 `json:"Services"`
+	TotalRecords int64            `json:"TotalRecords"`
 }
 
 func (h *Handler) handleGetApproximateUsageRecords(
 	_ context.Context,
-	_ *getApproximateUsageRecordsInput,
+	in *getApproximateUsageRecordsInput,
 ) (*getApproximateUsageRecordsOutput, error) {
+	if in.ApproximationDimension == "" {
+		return nil, fmt.Errorf("%w: ApproximationDimension is required", ErrValidation)
+	}
+
+	if in.Granularity == "" {
+		return nil, fmt.Errorf("%w: Granularity is required", ErrValidation)
+	}
+
+	start, end, perService, total := h.Backend.GetApproximateUsageRecords(in.Services)
+
 	return &getApproximateUsageRecordsOutput{
-		Services:     map[string]string{},
-		TotalRecords: "0",
+		LookbackPeriod: map[string]string{timePeriodKeyStart: start, timePeriodKeyEnd: end},
+		Services:       perService,
+		TotalRecords:   total,
 	}, nil
 }
 
+// getCostAndUsageComparisonsInput's field names/types are field-diffed against real AWS
+// CE's GetCostAndUsageComparisonsInput: the request field is BaselineTimePeriod (not
+// "BaseTimePeriod"), there is no Granularity member on this op, and the metric member is
+// the singular, required MetricForComparison string (not a "Metrics" array).
 type getCostAndUsageComparisonsInput struct {
-	BaseTimePeriod       map[string]string `json:"BaseTimePeriod"`
+	Filter               any               `json:"Filter"`
+	BaselineTimePeriod   map[string]string `json:"BaselineTimePeriod"`
 	ComparisonTimePeriod map[string]string `json:"ComparisonTimePeriod"`
-	Granularity          string            `json:"Granularity"`
-	Metrics              []string          `json:"Metrics"`
+	MetricForComparison  string            `json:"MetricForComparison"`
+	NextPageToken        string            `json:"NextPageToken"`
+	GroupBy              []groupBySpec     `json:"GroupBy"`
+	MaxResults           int               `json:"MaxResults"`
 }
 
+// comparisonMetricValue mirrors aws-sdk-go-v2/service/costexplorer/types'
+// ComparisonMetricValue exactly.
+type comparisonMetricValue struct {
+	BaselineTimePeriodAmount   string `json:"BaselineTimePeriodAmount,omitempty"`
+	ComparisonTimePeriodAmount string `json:"ComparisonTimePeriodAmount,omitempty"`
+	Difference                 string `json:"Difference,omitempty"`
+}
+
+// costAndUsageComparison mirrors aws-sdk-go-v2/service/costexplorer/types'
+// CostAndUsageComparison (Metrics -- a map of metric name to comparison value).
+type costAndUsageComparison struct {
+	Metrics map[string]comparisonMetricValue `json:"Metrics,omitempty"`
+}
+
+// getCostAndUsageComparisonsOutput's field names/types are field-diffed against real AWS
+// CE's GetCostAndUsageComparisonsOutput: CostAndUsageComparisons (not the previously
+// invented "CostAndUsages"), and TotalCostAndUsage is a map keyed by metric name (not an
+// array).
 type getCostAndUsageComparisonsOutput struct {
-	NextPageToken     string `json:"NextPageToken,omitempty"`
-	CostAndUsages     []any  `json:"CostAndUsages"`
-	TotalCostAndUsage []any  `json:"TotalCostAndUsage"`
+	TotalCostAndUsage       map[string]comparisonMetricValue `json:"TotalCostAndUsage"`
+	NextPageToken           string                           `json:"NextPageToken,omitempty"`
+	CostAndUsageComparisons []costAndUsageComparison         `json:"CostAndUsageComparisons"`
+}
+
+// metricTotalForPeriod sums metric across the cost ledger for [start, end) by reusing
+// the same DAILY-bucketed aggregation GetCostAndUsage uses, so comparisons are derived
+// from real ledger state rather than a hardcoded literal.
+func metricTotalForPeriod(h *Handler, start, end, metric string) float64 {
+	var total float64
+
+	for _, r := range h.Backend.GetCostAndUsage(start, end, "DAILY", []string{metric}, nil) {
+		if mv, ok := r.Total[metric]; ok {
+			if v, err := strconv.ParseFloat(mv.Amount, 64); err == nil {
+				total += v
+			}
+		}
+	}
+
+	return total
 }
 
 func (h *Handler) handleGetCostAndUsageComparisons(
 	_ context.Context,
-	_ *getCostAndUsageComparisonsInput,
+	in *getCostAndUsageComparisonsInput,
 ) (*getCostAndUsageComparisonsOutput, error) {
+	if in.BaselineTimePeriod == nil {
+		return nil, fmt.Errorf("%w: BaselineTimePeriod is required", ErrValidation)
+	}
+
+	if in.ComparisonTimePeriod == nil {
+		return nil, fmt.Errorf("%w: ComparisonTimePeriod is required", ErrValidation)
+	}
+
+	if in.MetricForComparison == "" {
+		return nil, fmt.Errorf("%w: MetricForComparison is required", ErrValidation)
+	}
+
+	baseline := metricTotalForPeriod(
+		h, in.BaselineTimePeriod["Start"], in.BaselineTimePeriod["End"], in.MetricForComparison,
+	)
+	comparison := metricTotalForPeriod(
+		h, in.ComparisonTimePeriod["Start"], in.ComparisonTimePeriod["End"], in.MetricForComparison,
+	)
+
+	mv := comparisonMetricValue{
+		BaselineTimePeriodAmount:   fmt.Sprintf("%.4f", baseline),
+		ComparisonTimePeriodAmount: fmt.Sprintf("%.4f", comparison),
+		Difference:                 fmt.Sprintf("%.4f", comparison-baseline),
+	}
+	metrics := map[string]comparisonMetricValue{in.MetricForComparison: mv}
+
 	return &getCostAndUsageComparisonsOutput{
-		CostAndUsages:     []any{},
-		TotalCostAndUsage: []any{},
+		CostAndUsageComparisons: []costAndUsageComparison{{Metrics: metrics}},
+		TotalCostAndUsage:       metrics,
 	}, nil
 }
 
@@ -333,20 +421,37 @@ type getCostAndUsageWithResourcesInput struct {
 	TimePeriod  map[string]string `json:"TimePeriod"`
 	Granularity string            `json:"Granularity"`
 	Metrics     []string          `json:"Metrics"`
+	GroupBy     []groupBySpec     `json:"GroupBy"`
 }
 
+// getCostAndUsageWithResourcesOutput's GroupDefinitions field was previously missing
+// entirely -- see aws-sdk-go-v2/service/costexplorer's GetCostAndUsageWithResourcesOutput.
+// ResultsByTime is legitimately always empty: real AWS resource-level cost data is keyed
+// by individual resource ID (e.g. a specific EC2 instance ARN), and this emulator's
+// synthetic cost ledger (seedCostLedger) only models service+date granularity, not
+// per-resource entries, so there is no state to derive a non-empty result from.
 type getCostAndUsageWithResourcesOutput struct {
-	NextPageToken            string `json:"NextPageToken,omitempty"`
-	ResultsByTime            []any  `json:"ResultsByTime"`
-	DimensionValueAttributes []any  `json:"DimensionValueAttributes"`
+	NextPageToken            string        `json:"NextPageToken,omitempty"`
+	ResultsByTime            []any         `json:"ResultsByTime"`
+	GroupDefinitions         []groupBySpec `json:"GroupDefinitions"`
+	DimensionValueAttributes []any         `json:"DimensionValueAttributes"`
 }
 
 func (h *Handler) handleGetCostAndUsageWithResources(
 	_ context.Context,
-	_ *getCostAndUsageWithResourcesInput,
+	in *getCostAndUsageWithResourcesInput,
 ) (*getCostAndUsageWithResourcesOutput, error) {
+	if in.Filter == nil {
+		return nil, fmt.Errorf("%w: Filter is required", ErrValidation)
+	}
+
+	if in.Granularity == "" {
+		return nil, fmt.Errorf("%w: Granularity is required", ErrValidation)
+	}
+
 	return &getCostAndUsageWithResourcesOutput{
 		ResultsByTime:            []any{},
+		GroupDefinitions:         in.GroupBy,
 		DimensionValueAttributes: []any{},
 	}, nil
 }

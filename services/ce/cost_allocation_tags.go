@@ -97,7 +97,7 @@ func (b *InMemoryBackend) CreateBackfillJob(backfillFrom string) *BackfillJob {
 	job := &BackfillJob{
 		BackfillFrom:   backfillFrom,
 		RequestedAt:    now.Format(time.RFC3339),
-		BackfillStatus: "PROCESSING",
+		BackfillStatus: statusProcessing,
 		LastUpdatedAt:  now.Format(time.RFC3339),
 	}
 

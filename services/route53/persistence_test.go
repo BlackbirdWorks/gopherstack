@@ -367,7 +367,9 @@ func TestSnapshotRestore_KSK(t *testing.T) {
 			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
 			require.NoError(t, err)
 
-			_, err = b.CreateKeySigningKey(hz.ID, "caller-1", "key1", "arn:kms:test", "ACTIVE")
+			_, err = b.CreateKeySigningKey(
+				hz.ID, "caller-1", "key1", "arn:aws:kms:us-east-1:123456789012:key/test-ksk", "ACTIVE",
+			)
 			require.NoError(t, err)
 
 			snap := b.Snapshot(t.Context())
@@ -413,6 +415,37 @@ func TestSnapshotRestore_VPCAssociation(t *testing.T) {
 			assert.Equal(t, tt.wantVPCCount, route53.VPCAssociationCount(b2))
 		})
 	}
+}
+
+// TestSnapshotRestore_DelegationSetSourceUsed confirms the
+// DelegationSetSourceUsed bookkeeping flag added by
+// CreateReusableDelegationSet's HostedZoneId mode survives a
+// Snapshot/Restore round trip — it lives on HostedZone (persisted via
+// zoneDataSnapshot's embedded Zone field), not in a separate table, so
+// there's no dedicated wiring to miss, but a prior pass found exactly this
+// class of bug for the (also embedded-field) tags map.
+func TestSnapshotRestore_DelegationSetSourceUsed(t *testing.T) {
+	t.Parallel()
+
+	b := route53.NewInMemoryBackend()
+	hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
+	require.NoError(t, err)
+
+	_, err = b.CreateReusableDelegationSet("ds-ref-extract", hz.ID)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := route53.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// A second extraction attempt against the restored backend must still be
+	// rejected — proving the "already extracted" flag survived the round trip
+	// rather than silently resetting and allowing a duplicate extraction.
+	_, err = b2.CreateReusableDelegationSet("ds-ref-extract-2", hz.ID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, route53.ErrDelegationSetAlreadyReusable)
 }
 
 func TestRoute53_SnapshotRestore_NewOperations(t *testing.T) {

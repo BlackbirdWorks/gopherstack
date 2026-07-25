@@ -50,6 +50,10 @@ func (h *Handler) handleListResources(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if req.ResourceOwner == "" {
+		return nil, fmt.Errorf("%w: resourceOwner is required", errInvalidRequest)
+	}
+
 	assocs := h.Backend.ListResources(req.ResourceOwner, req.ResourceShareArn, req.ResourceType)
 	objs := make([]resourceObject, 0, len(assocs))
 
@@ -269,14 +273,31 @@ func (h *Handler) handleListResourceTypes(_ context.Context, _ []byte) ([]byte, 
 	return json.Marshal(listResourceTypesResponse{ResourceTypes: awsShareableResourceTypes})
 }
 
+// associatedSourceObject is the JSON representation of an AssociatedSource (RAM's wire
+// shape for a "source association" -- these control which sources, e.g. an Organizations
+// OU, may be used with service-principal shares). This backend always returns an empty
+// list: the RAM API has no operation that creates a source association at all (confirmed
+// against every api_op_*.go in the SDK module -- there is no CreateSourceAssociation or
+// similar); they can only be populated by other AWS services acting behind the scenes.
+// An always-empty list is therefore the correct, not a stubbed, response for a backend
+// whose only surface is the RAM API itself.
+type associatedSourceObject struct {
+	ResourceShareArn string  `json:"resourceShareArn"`
+	SourceID         string  `json:"sourceId"`
+	SourceType       string  `json:"sourceType"`
+	Status           string  `json:"status"`
+	StatusMessage    string  `json:"statusMessage,omitempty"`
+	CreationTime     float64 `json:"creationTime"`
+	LastUpdatedTime  float64 `json:"lastUpdatedTime"`
+}
+
 type listSourceAssociationsResponse struct {
-	NextToken    string              `json:"nextToken,omitempty"`
-	Associations []associationObject `json:"associations"`
+	NextToken          string                   `json:"nextToken,omitempty"`
+	SourceAssociations []associatedSourceObject `json:"sourceAssociations"`
 }
 
 func (h *Handler) handleListSourceAssociations(_ context.Context, _ []byte) ([]byte, error) {
-	// Returns empty list in the mock — source associations are not tracked.
 	return json.Marshal(listSourceAssociationsResponse{
-		Associations: []associationObject{},
+		SourceAssociations: []associatedSourceObject{},
 	})
 }

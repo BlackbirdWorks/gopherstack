@@ -16,8 +16,12 @@ func (b *InMemoryBackend) newMarketplaceEndpointID() string {
 }
 
 // CreateMarketplaceModelEndpoint creates a new marketplace model endpoint.
+// endpointConfig is optional (nil is stored as-is); when the caller supplies one
+// it is round-tripped verbatim through Get/List/Update, matching real AWS's
+// required EndpointConfig response field.
 func (b *InMemoryBackend) CreateMarketplaceModelEndpoint(
 	endpointName, modelSourceID string,
+	endpointConfig *SageMakerEndpointConfig,
 	tags []Tag,
 ) (*MarketplaceModelEndpoint, error) {
 	b.mu.Lock("CreateMarketplaceModelEndpoint")
@@ -40,18 +44,20 @@ func (b *InMemoryBackend) CreateMarketplaceModelEndpoint(
 	now := time.Now().UTC()
 
 	ep := &MarketplaceModelEndpoint{
-		EndpointArn:   endpointARN,
-		EndpointName:  endpointName,
-		ModelSourceID: modelSourceID,
-		Status:        statusCreating,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Tags:          copyTags(tags),
+		EndpointArn:    endpointARN,
+		EndpointName:   endpointName,
+		ModelSourceID:  modelSourceID,
+		EndpointConfig: copySageMakerEndpointConfig(endpointConfig),
+		Status:         statusCreating,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		Tags:           copyTags(tags),
 	}
 	b.marketplaceEndpoints.Put(ep)
 	b.marketplaceEndpointsByName[endpointName] = endpointARN
 	cp := *ep
 	cp.Tags = copyTags(ep.Tags)
+	cp.EndpointConfig = copySageMakerEndpointConfig(ep.EndpointConfig)
 
 	return &cp, nil
 }
@@ -85,6 +91,7 @@ func (b *InMemoryBackend) GetMarketplaceModelEndpoint(
 	ep, _ := b.marketplaceEndpoints.Get(epARN)
 	cp := *ep
 	cp.Tags = copyTags(ep.Tags)
+	cp.EndpointConfig = copySageMakerEndpointConfig(ep.EndpointConfig)
 
 	return &cp, nil
 }
@@ -101,6 +108,7 @@ func (b *InMemoryBackend) ListMarketplaceModelEndpoints(
 	for _, ep := range b.marketplaceEndpoints.All() {
 		cp := *ep
 		cp.Tags = copyTags(ep.Tags)
+		cp.EndpointConfig = copySageMakerEndpointConfig(ep.EndpointConfig)
 		list = append(list, &cp)
 	}
 
@@ -126,9 +134,13 @@ func (b *InMemoryBackend) DeleteMarketplaceModelEndpoint(idOrARN string) error {
 	return nil
 }
 
-// UpdateMarketplaceModelEndpoint updates a marketplace endpoint status.
+// UpdateMarketplaceModelEndpoint updates a marketplace endpoint's EndpointConfig
+// (real AWS: UpdateMarketplaceModelEndpointInput.EndpointConfig is a required
+// field -- gopherstack previously accepted but silently dropped it, only
+// bumping UpdatedAt).
 func (b *InMemoryBackend) UpdateMarketplaceModelEndpoint(
 	idOrARN string,
+	endpointConfig *SageMakerEndpointConfig,
 ) (*MarketplaceModelEndpoint, error) {
 	b.mu.Lock("UpdateMarketplaceModelEndpoint")
 	defer b.mu.Unlock()
@@ -139,11 +151,27 @@ func (b *InMemoryBackend) UpdateMarketplaceModelEndpoint(
 	}
 
 	ep, _ := b.marketplaceEndpoints.Get(epARN)
+	if endpointConfig != nil {
+		ep.EndpointConfig = copySageMakerEndpointConfig(endpointConfig)
+	}
+
 	ep.UpdatedAt = time.Now().UTC()
 	cp := *ep
 	cp.Tags = copyTags(ep.Tags)
+	cp.EndpointConfig = copySageMakerEndpointConfig(ep.EndpointConfig)
 
 	return &cp, nil
+}
+
+// copySageMakerEndpointConfig returns a deep copy of src, or nil if src is nil.
+func copySageMakerEndpointConfig(src *SageMakerEndpointConfig) *SageMakerEndpointConfig {
+	if src == nil {
+		return nil
+	}
+
+	cp := *src
+
+	return &cp
 }
 
 // RegisterMarketplaceModelEndpoint transitions endpoint status to Active.

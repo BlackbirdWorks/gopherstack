@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -117,6 +118,44 @@ func TestListLanguages_DisplayLanguageCode(t *testing.T) {
 				lang := l.(map[string]any)
 				assert.NotEmpty(t, lang["LanguageCode"])
 				assert.Contains(t, lang, "LanguageName")
+			}
+		})
+	}
+}
+
+// TestListLanguages_UnsupportedDisplayLanguageCodeRejected verifies that a
+// DisplayLanguageCode outside Translate's fixed 10-value display-language
+// enum (de/en/es/fr/it/ja/ko/pt/zh/zh-TW) is rejected as
+// UnsupportedDisplayLanguageCodeException. This is a much smaller set than
+// the ~75 translation-target language codes ListLanguages itself returns.
+func TestListLanguages_UnsupportedDisplayLanguageCodeRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		displayLangCode string
+		wantCode        int
+	}{
+		{name: "known_display_code_accepted", displayLangCode: "ja", wantCode: http.StatusOK},
+		{name: "unknown_display_code_rejected", displayLangCode: "xx", wantCode: http.StatusBadRequest},
+		// "es-MX" is a real translation-target language code but NOT one of
+		// the 10 display-language codes -- exercises that the two sets are
+		// validated independently.
+		{name: "translation_code_not_a_display_code", displayLangCode: "es-MX", wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "ListLanguages", map[string]any{"DisplayLanguageCode": tt.displayLangCode})
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusBadRequest {
+				var body map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				assert.Equal(t, "UnsupportedDisplayLanguageCodeException", body["__type"])
 			}
 		})
 	}

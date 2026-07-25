@@ -410,3 +410,67 @@ func TestPutRecordBatch_Rejected_On_KinesisSource(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+// TestPutRecord_EncryptedField verifies that PutRecord and PutRecordBatch report the
+// stream's current server-side-encryption status via the optional Encrypted response
+// field, matching the real SDK's PutRecordOutput.Encrypted / PutRecordBatchOutput.Encrypted.
+func TestPutRecord_EncryptedField(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		startEncrypt  bool
+		wantEncrypted bool
+	}{
+		{
+			name:          "encryption_disabled_by_default",
+			startEncrypt:  false,
+			wantEncrypted: false,
+		},
+		{
+			name:          "encryption_enabled_reflected",
+			startEncrypt:  true,
+			wantEncrypted: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestFirehoseHandler(t)
+			createStream(t, h, "encrypted-put-stream")
+
+			if tt.startEncrypt {
+				startRec := doFirehoseRequest(t, h, "StartDeliveryStreamEncryption", map[string]any{
+					"DeliveryStreamName": "encrypted-put-stream",
+				})
+				require.Equal(t, http.StatusOK, startRec.Code, startRec.Body.String())
+			}
+
+			putRec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
+				"DeliveryStreamName": "encrypted-put-stream",
+				"Record":             map[string]any{"Data": base64.StdEncoding.EncodeToString([]byte("hi"))},
+			})
+			require.Equal(t, http.StatusOK, putRec.Code)
+
+			var putOut struct {
+				Encrypted bool `json:"Encrypted"`
+			}
+			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+			assert.Equal(t, tt.wantEncrypted, putOut.Encrypted, "PutRecord Encrypted mismatch")
+
+			batchRec := doFirehoseRequest(t, h, "PutRecordBatch", map[string]any{
+				"DeliveryStreamName": "encrypted-put-stream",
+				"Records":            []map[string]any{{"Data": base64.StdEncoding.EncodeToString([]byte("hi"))}},
+			})
+			require.Equal(t, http.StatusOK, batchRec.Code)
+
+			var batchOut struct {
+				Encrypted bool `json:"Encrypted"`
+			}
+			require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchOut))
+			assert.Equal(t, tt.wantEncrypted, batchOut.Encrypted, "PutRecordBatch Encrypted mismatch")
+		})
+	}
+}

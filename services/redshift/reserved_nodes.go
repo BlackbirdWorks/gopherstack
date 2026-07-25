@@ -269,7 +269,7 @@ func (b *InMemoryBackend) AcceptReservedNodeExchange(reservedNodeID, targetOffer
 		UsagePrice:             existing.UsagePrice,
 		CurrencyCode:           existing.CurrencyCode,
 		NodeCount:              existing.NodeCount,
-		State:                  "active",
+		State:                  endpointStatusActive,
 		OfferingType:           existing.OfferingType,
 	}
 	b.reservedNodes.Put(exchanged)

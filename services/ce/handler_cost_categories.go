@@ -37,7 +37,15 @@ func (h *Handler) handleCreateCostCategoryDefinition(
 	in *createCostCategoryDefinitionInput,
 ) (*createCostCategoryDefinitionOutput, error) {
 	if in.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if in.RuleVersion == "" {
+		return nil, fmt.Errorf("%w: RuleVersion is required", ErrValidation)
+	}
+
+	if in.Rules == nil {
+		return nil, fmt.Errorf("%w: Rules is required", ErrValidation)
 	}
 
 	rules := make([]CostCategoryRule, 0, len(in.Rules))
@@ -73,7 +81,7 @@ func (h *Handler) handleDeleteCostCategoryDefinition(
 	in *deleteCostCategoryDefinitionInput,
 ) (*deleteCostCategoryDefinitionOutput, error) {
 	if in.CostCategoryArn == "" {
-		return nil, fmt.Errorf("%w: CostCategoryArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: CostCategoryArn is required", ErrValidation)
 	}
 
 	cat, err := h.Backend.DeleteCostCategoryDefinition(in.CostCategoryArn)
@@ -117,7 +125,7 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 	in *describeCostCategoryDefinitionInput,
 ) (*describeCostCategoryDefinitionOutput, error) {
 	if in.CostCategoryArn == "" {
-		return nil, fmt.Errorf("%w: CostCategoryArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: CostCategoryArn is required", ErrValidation)
 	}
 
 	cat, err := h.Backend.DescribeCostCategoryDefinition(in.CostCategoryArn)
@@ -198,7 +206,15 @@ func (h *Handler) handleUpdateCostCategoryDefinition(
 	in *updateCostCategoryDefinitionInput,
 ) (*updateCostCategoryDefinitionOutput, error) {
 	if in.CostCategoryArn == "" {
-		return nil, fmt.Errorf("%w: CostCategoryArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: CostCategoryArn is required", ErrValidation)
+	}
+
+	if in.RuleVersion == "" {
+		return nil, fmt.Errorf("%w: RuleVersion is required", ErrValidation)
+	}
+
+	if in.Rules == nil {
+		return nil, fmt.Errorf("%w: Rules is required", ErrValidation)
 	}
 
 	rules := make([]CostCategoryRule, 0, len(in.Rules))
@@ -259,18 +275,33 @@ type listCostCategoryResourceAssociationsInput struct {
 	ResourceTagFilter []any  `json:"ResourceTagFilter"`
 }
 
-type listCostCategoryResourceAssociationsOutput struct {
-	CostCategoryReference any    `json:"CostCategoryReference,omitempty"`
-	NextToken             string `json:"NextToken,omitempty"`
-	ResourceTagsCount     int    `json:"ResourceTagsCount"`
+// costCategoryResourceAssociation mirrors aws-sdk-go-v2/service/costexplorer/types'
+// CostCategoryResourceAssociation exactly (CostCategoryArn/CostCategoryName/ResourceArn).
+// The previous shape here ("CostCategoryReference"/"ResourceTagsCount") was invented and
+// matched no real CE field.
+type costCategoryResourceAssociation struct {
+	CostCategoryArn  string `json:"CostCategoryArn,omitempty"`
+	CostCategoryName string `json:"CostCategoryName,omitempty"`
+	ResourceArn      string `json:"ResourceArn,omitempty"`
 }
 
+type listCostCategoryResourceAssociationsOutput struct {
+	NextToken                        string                            `json:"NextToken,omitempty"`
+	CostCategoryResourceAssociations []costCategoryResourceAssociation `json:"CostCategoryResourceAssociations"`
+}
+
+// handleListCostCategoryResourceAssociations always returns zero associations: real AWS
+// resource associations tie a cost category to actual AWS resources (via resource tags),
+// and this emulator has no such resource-tag inventory to associate against -- there is
+// no state to disguise a no-op here, unlike the deterministic-mock query ops that read
+// the synthetic cost ledger. The wire shape (field names/nesting) is now field-diffed
+// against the real CostCategoryResourceAssociation type.
 func (h *Handler) handleListCostCategoryResourceAssociations(
 	_ context.Context,
 	_ *listCostCategoryResourceAssociationsInput,
 ) (*listCostCategoryResourceAssociationsOutput, error) {
 	return &listCostCategoryResourceAssociationsOutput{
-		ResourceTagsCount: 0,
+		CostCategoryResourceAssociations: []costCategoryResourceAssociation{},
 	}, nil
 }
 

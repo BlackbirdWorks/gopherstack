@@ -157,6 +157,18 @@ func newID(prefix string) string {
 	return prefix + id
 }
 
+// newHostedZoneID generates a Route 53-style hosted zone ID ("Z" followed by
+// uppercase alphanumerics) for a service's dnsEntry.hostedZoneId, matching
+// real AWS's DnsEntry shape. VPC Lattice provisions a real private hosted
+// zone per service; this backend has no Route53 integration to source one
+// from, so it synthesizes a plausible, stable-per-resource ID instead of
+// leaving the field empty.
+func newHostedZoneID() string {
+	id := strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:20])
+
+	return "Z" + id
+}
+
 func copyTags(src map[string]string) map[string]string {
 	if src == nil {
 		return make(map[string]string)

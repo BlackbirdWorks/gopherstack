@@ -39,10 +39,14 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 		)
 	}
 
+	// RegisterScalableTarget's modeled error set has LimitExceededException
+	// but no TooManyTagsException (that's only modeled on TagResource -- see
+	// ErrTooManyTags's doc comment), so an over-limit tag count here is
+	// reported as LimitExceededException.
 	if len(tags) > maxTagsPerResource {
 		return nil, fmt.Errorf(
 			"%w: too many tags; maximum allowed is %d",
-			ErrValidation,
+			ErrLimitExceeded,
 			maxTagsPerResource,
 		)
 	}
@@ -143,7 +147,7 @@ func (b *InMemoryBackend) updateExistingTarget(
 			existing.Tags = make(map[string]string)
 		}
 
-		if err := mergeTags(existing.Tags, tags); err != nil {
+		if err := mergeTags(existing.Tags, tags, ErrLimitExceeded); err != nil {
 			return nil, err
 		}
 	}
@@ -224,7 +228,8 @@ type DescribeScalableTargetsFilter struct {
 
 // DescribeScalableTargets lists scalable targets, optionally filtered, and
 // returns the NextToken for the following page (empty on the last page).
-func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilter) ([]*ScalableTarget, string) {
+// Returns ErrInvalidNextToken if f.NextToken fails to decode.
+func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilter) ([]*ScalableTarget, string, error) {
 	b.mu.RLock("DescribeScalableTargets")
 	defer b.mu.RUnlock()
 
@@ -259,4 +264,11 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 	return paginate(list, f.MaxResults, f.NextToken, func(t *ScalableTarget) string {
 		return t.ResourceID + "|" + t.ScalableDimension
 	})
+}
+
+// scalableTargetExists reports whether a scalable target is registered for
+// the given (serviceNamespace,resourceId,scalableDimension) key. Caller must
+// hold at least a read lock.
+func (b *InMemoryBackend) scalableTargetExists(serviceNamespace, resourceID, scalableDimension string) bool {
+	return b.scalableTargets.Has(scalableTargetKey(serviceNamespace, resourceID, scalableDimension))
 }

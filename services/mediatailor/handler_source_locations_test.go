@@ -246,3 +246,56 @@ func TestDeleteSourceLocation_WithAttachedSources(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateSourceLocation_TagsSurviveDescribe verifies tags passed to
+// CreateSourceLocation are queryable back from DescribeSourceLocation.
+// Regression test: CreateSourceLocation stored tags on the struct but
+// DescribeSourceLocation/ListSourceLocations unconditionally overwrite the
+// response Tags from a separate ARN-keyed tag map CreateSourceLocation never
+// wrote to, silently dropping every tag passed at creation.
+func TestCreateSourceLocation_TagsSurviveDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/sourceLocation/sl1", map[string]any{
+		"HttpConfiguration": map[string]any{"BaseUrl": "https://example.com"},
+		"tags":              map[string]any{"team": "video"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = doRequest(t, h, http.MethodGet, "/sourceLocation/sl1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	tags, _ := resp["tags"].(map[string]any)
+	assert.Equal(t, "video", tags["team"], "tags set at creation must survive to DescribeSourceLocation")
+}
+
+// TestSourceLocation_Timestamps verifies CreationTime/LastModifiedTime are
+// populated on create and LastModifiedTime advances on update -- both were
+// dead fields (declared, never set) before this pass.
+func TestSourceLocation_Timestamps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/sourceLocation/sl1", map[string]any{
+		"HttpConfiguration": map[string]any{"BaseUrl": "https://example.com"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NotNil(t, created["CreationTime"], "CreationTime must be populated")
+	require.NotNil(t, created["LastModifiedTime"], "LastModifiedTime must be populated")
+
+	rec = doRequest(t, h, http.MethodPut, "/sourceLocation/sl1", map[string]any{
+		"HttpConfiguration": map[string]any{"BaseUrl": "https://updated.example.com"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var updated map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	assert.Equal(t, created["CreationTime"], updated["CreationTime"], "CreationTime must not change on update")
+	require.NotNil(t, updated["LastModifiedTime"])
+}

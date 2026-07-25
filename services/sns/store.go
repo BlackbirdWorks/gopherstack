@@ -61,6 +61,14 @@ const (
 	attrReplayPolicy        = "ReplayPolicy"
 	attrSubscriptionRoleArn = "SubscriptionRoleArn"
 	attrFilterPolicyScope   = "FilterPolicyScope"
+	attrArchivePolicy       = "ArchivePolicy"
+	attrSignatureVersion    = "SignatureVersion"
+
+	// signatureVersion1/2 are the AWS SNS SignatureVersion topic/subscription
+	// attribute values: "1" signs with SHA1withRSA (the AWS default when the
+	// attribute is unset) and "2" signs with SHA256withRSA.
+	signatureVersion1 = "1"
+	signatureVersion2 = "2"
 
 	// platformARNResourceParts is the expected number of slash-delimited parts
 	// in a platform application ARN resource component: "app/{Platform}/{AppName}".
@@ -87,6 +95,23 @@ const (
 	// maxFilterPolicySizeBytes is the maximum byte size of a FilterPolicy JSON string
 	// that will be parsed. Policies exceeding this limit are treated as no filter.
 	maxFilterPolicySizeBytes = 256 * 1024 // 256 KiB
+
+	// maxFilterPoliciesPerTopic is the AWS SNS default quota on the number of
+	// subscriptions with a non-empty FilterPolicy on a single topic (200,
+	// adjustable via a Support case). Exceeding it returns FilterPolicyLimitExceeded.
+	maxFilterPoliciesPerTopic = 200
+
+	// maxFilterPoliciesPerAccount is the AWS SNS default quota on the number of
+	// subscriptions with a non-empty FilterPolicy across the whole account
+	// (10,000, adjustable). Exceeding it returns FilterPolicyLimitExceeded.
+	maxFilterPoliciesPerAccount = 10_000
+
+	// defaultMaxSubscriptionsPerTopic is the AWS SNS fixed quota on the number of
+	// subscriptions a single topic may have (12,500,000). Exceeding it returns
+	// SubscriptionLimitExceeded. Stored on InMemoryBackend.subscriptionLimitPerTopic
+	// (rather than used as a bare constant) so tests can lower it without creating
+	// millions of subscriptions.
+	defaultMaxSubscriptionsPerTopic = 12_500_000
 
 	// maxPermissionLabelLen is the maximum character length of an AddPermission label.
 	maxPermissionLabelLen = 80
@@ -190,20 +215,21 @@ func NewInMemoryBackendWithContext(
 	}
 
 	b := &InMemoryBackend{
-		registry:             store.NewRegistry(),
-		topicTags:            make(map[string]*svcTags.Tags),
-		topicMessageArchive:  make(map[string][]*ArchivedMessage),
-		optedOutPhoneNumbers: make(map[string]bool),
-		smsAttributes:        make(map[string]string),
-		originationNumbers:   make(map[string][]XMLOriginationPhone),
-		accountID:            accountID,
-		region:               region,
-		smsSandboxEnabled:    true,
-		svcCtx:               svcCtx,
-		mu:                   lockmetrics.New("sns"),
-		httpClient:           &http.Client{Timeout: snsHTTPTimeout},
-		workerSem:            make(chan struct{}, snsMaxConcurrentDeliveries),
-		signer:               newNotificationSigner(region),
+		registry:                  store.NewRegistry(),
+		topicTags:                 make(map[string]*svcTags.Tags),
+		topicMessageArchive:       make(map[string][]*ArchivedMessage),
+		optedOutPhoneNumbers:      make(map[string]bool),
+		smsAttributes:             make(map[string]string),
+		originationNumbers:        make(map[string][]XMLOriginationPhone),
+		accountID:                 accountID,
+		region:                    region,
+		smsSandboxEnabled:         true,
+		svcCtx:                    svcCtx,
+		mu:                        lockmetrics.New("sns"),
+		httpClient:                &http.Client{Timeout: snsHTTPTimeout},
+		workerSem:                 make(chan struct{}, snsMaxConcurrentDeliveries),
+		signer:                    newNotificationSigner(region),
+		subscriptionLimitPerTopic: defaultMaxSubscriptionsPerTopic,
 	}
 
 	registerAllTables(b)

@@ -1,23 +1,42 @@
 ---
 service: autoscaling
 sdk_module: aws-sdk-go-v2/service/autoscaling@v1.64.2
-last_audit_commit: d125027b
-last_audit_date: 2026-07-12
-overall: A            # re-audit: no local drift since ce30166a (the commit that actually
-                       # authored this ledger; the previously-recorded last_audit_commit
-                       # d0ebe979 was not an ancestor of HEAD) and no aws-sdk-go-v2
-                       # autoscaling version bump (still v1.64.2), so all "ok" rows below
-                       # were trusted unchanged per the re-audit protocol. One real gap
-                       # explicitly called out in the prior pass's "gaps" section (below)
-                       # was fixed this pass: terminating lifecycle hooks now also gate
-                       # the desired-capacity-driven scale-in path, not just
-                       # TerminateInstanceInAutoScalingGroup. ~150 LOC of genuine
-                       # production-code fix (+~130 LOC new tests).
+last_audit_commit: 1c4ee34e
+last_audit_date: 2026-07-23
+overall: A            # parity-3 sweep. No aws-sdk-go-v2/service/autoscaling version bump
+                       # (still v1.64.2 in go.mod/go.sum). This pass independently
+                       # field-diffed the prior pass's "gaps" list against actual code
+                       # (per the campaign's "if PARITY.md counts don't match reality,
+                       # independently field-diff" instruction) and found it was stale in
+                       # two places: the "ASG->EC2" and "ASG/ECS->ELBv2" gaps were already
+                       # fixed by a prior, undocumented pass (bd gopherstack-8sk/18k,
+                       # confirmed closed; EC2Launcher/ELBv2TargetRegistrar wiring verified
+                       # present in ec2_launch.go/elbv2_targets.go) and the
+                       # scale-in-lifecycle-hook-gating gap the prior ledger claimed to
+                       # have fixed (bd gopherstack-9wo) was in fact genuinely fixed in
+                       # code (applyScaleIn/terminationCapacityPreset in
+                       # auto_scaling_groups.go) - the bd issue itself was just left open
+                       # by mistake, now closed. Real work this pass: (1) implemented the
+                       # scheduled-action background scheduler that was the one
+                       # deliberately-deferred gap with a live bd id (gopherstack-6ys) -
+                       # see families below; (2) wired the 7 CreateAutoScalingGroupInput/
+                       # UpdateAutoScalingGroupInput fields the prior ledger listed as
+                       # "not attempted" (AvailabilityZoneDistribution,
+                       # AvailabilityZoneImpairmentPolicy,
+                       # CapacityReservationSpecification, DeletionProtection,
+                       # InstanceLifecyclePolicy, InstanceMaintenancePolicy,
+                       # SkipZonalShiftValidation), including making DeletionProtection a
+                       # real DeleteAutoScalingGroup gate, not just a stored/echoed value;
+                       # (3) removed all 7 banned complexity nolints (cyclop/gocognit/
+                       # funlen) via decomposition, zero remaining, zero golangci-lint
+                       # issues. No leak: `go test -race` clean; the new scheduler goroutine
+                       # is ctx-parented and Shutdown-drained via pkgs/worker.SingleRun
+                       # (see families below).
 ops:
-  CreateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy, LifecycleHookSpecificationList, TrafficSources were parsed as no-ops (silently dropped) - now parsed, validated, and registered atomically with the group; initial instances are gated by any launch hook just registered"}
+  CreateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy, LifecycleHookSpecificationList, TrafficSources were parsed as no-ops (silently dropped) - now parsed, validated, and registered atomically with the group; initial instances are gated by any launch hook just registered. This pass: wired 7 previously-unparsed fields (AvailabilityZoneDistribution, AvailabilityZoneImpairmentPolicy, CapacityReservationSpecification, DeletionProtection, InstanceLifecyclePolicy, InstanceMaintenancePolicy, SkipZonalShiftValidation) - parsed, validated (DeletionProtection enum), stored, and (all but SkipZonalShiftValidation, which real AWS itself never echoes back - verified against types.AutoScalingGroup) projected on Describe"}
   DescribeAutoScalingGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "added MixedInstancesPolicy to the XML projection (was entirely absent from xmlAutoScalingGroup even though the backend model carried it)"}
-  UpdateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request. This pass: scale-in path (via applyDesiredCapacityChange) now also gates on a terminating lifecycle hook, closing bd gopherstack-9wo"}
-  DeleteAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request. Prior pass: scale-in path (via applyDesiredCapacityChange) now also gates on a terminating lifecycle hook (bd gopherstack-9wo; re-verified present in code this pass, the bd issue itself was just stale-open). This pass: wired the same 7 fields as CreateAutoScalingGroup (see above); each pointer-struct field replaces the group's existing value wholesale when present in the request (matches AWS's opaque-nested-object semantics - there is no partial-field patch for e.g. InstanceMaintenancePolicy)"}
+  DeleteAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: DeletionProtection is now a real gate, not just a stored/echoed value - prevent-all-deletion rejects every delete, prevent-force-deletion rejects only ForceDelete=true, matching real AWS's ResourceInUse (ErrorCode) fault. Previously the field didn't exist on the model at all"}
   CreateLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLaunchConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -85,18 +104,17 @@ families:
   instance-refresh (Start/Cancel/Describe/Rollback): {status: ok, note: "unchanged this pass; wire shapes and status machine (InProgress/Cancelling/RollbackInProgress) verified against SDK"}
   warm-pool (Put/Delete/Describe): {status: ok, note: "unchanged this pass; verified"}
   metrics-collection / suspend-resume-processes / standby: {status: ok, note: "unchanged this pass; verified"}
+  ec2-provisioning (ASG->EC2 real instance launch/terminate via EC2Launcher): {status: ok, note: "was gap bd gopherstack-8sk, marked NOT-fixed by the prior ledger; independently field-diffed this pass and found ALREADY fixed by an undocumented earlier pass - services/autoscaling/ec2_launch.go defines EC2Launcher (LaunchInstances/TerminateInstances), auto_scaling_groups.go/instances.go route scale-out/in through it when wired (SetEC2Launcher), bd gopherstack-8sk is closed. Ledger corrected to reflect reality"}
+  elbv2-target-registration (ASG->ELBv2 real target register/deregister via ELBv2TargetRegistrar): {status: ok, note: "was gap bd gopherstack-18k, marked NOT-fixed by the prior ledger; independently field-diffed this pass and found ALREADY fixed by the same undocumented earlier pass - services/autoscaling/elbv2_targets.go defines ELBv2TargetRegistrar (RegisterTargets/DeregisterTargets), wired into attach/detach/scale-in paths, bd gopherstack-18k is closed. Ledger corrected to reflect reality"}
+  scheduled-action-scheduler (background execution of Put/BatchPutScheduledUpdateGroupAction): {status: ok, note: "NEW this pass, closing bd gopherstack-6ys. Prior passes correctly parsed/persisted StartTime/EndTime/Recurrence but nothing ever evaluated them against wall-clock time - DescribeScheduledActions reflected what was requested, but no action ever fired. Added scheduled_action_cron.go (5-field Unix-cron parser matching AWS's documented Recurrence format: minute hour day-of-month month day-of-week - distinct from EventBridge's 6-field cron() with a year field) and scheduled_action_scheduler.go (ScheduledActionScheduler, a service.BackgroundWorker: 1-minute ticker, wired via pkgs/worker.SingleRun in handler.go's StartWorker/Shutdown so it is ctx-parented and Shutdown-drained like every other service's background worker in this codebase). Each tick applies any due action's MinSize/MaxSize/DesiredCapacity through the same validated capacity path (applyUpdateCapacityLocked) UpdateAutoScalingGroup uses, so it inherits identical validation/error behavior. Covers one-time actions (Recurrence empty, fires once at/after StartTime) and recurring actions (bounded by StartTime/EndTime when set); a new ScheduledAction.LastExecutedTime field (internal bookkeeping, not on the wire - AWS's real ScheduledUpdateGroupAction response type has no equivalent field) prevents re-firing the same occurrence and prevents an invalid action from busy-looping every tick"}
 gaps:
-  - ASG->EC2 real instance provisioning is simulated only (Instance is a fake record, not backed by an ec2 resource) (bd: gopherstack-8sk) - NOT fixed this pass per scope
-  - ASG/ECS->ELBv2 target registration is simulated only (TargetGroupARNs/LoadBalancerNames are stored but never actually register targets with elbv2) (bd: gopherstack-18k) - NOT fixed this pass per scope
-  - Scheduled actions (Put/BatchPut) now correctly persist StartTime/EndTime/Recurrence, but there is no background scheduler goroutine that actually executes them at the scheduled time/cron - Describe reflects what was requested, but nothing fires it. Filed as gopherstack-6ys for follow-up; deliberately not attempted this pass (a correct cron-parsing+ticker engine is a separate, sizable feature, not a quick wire fix, and getting it wrong risks a new leak class)
   - Multiple lifecycle hooks of the *same* transition on one group: this simulation gates on a single (deterministic, lowest-named) hook per transition per group, matching the common case; AWS supports N hooks per transition each independently gating the same instance. Documented simplification, see Notes
   - ABANDON on a launch hook terminates the pending instance but does not attempt an automatic relaunch to restore DesiredCapacity (real AWS does retry); documented simplification, see Notes
   - GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
-  - CreateAutoScalingGroupInput fields not wired up: AvailabilityZoneDistribution, AvailabilityZoneImpairmentPolicy, CapacityReservationSpecification, DeletionProtection, InstanceLifecyclePolicy, InstanceMaintenancePolicy, SkipZonalShiftValidation (all newer/niche SDK additions); not attempted this pass - deferred, no bd id filed yet (low real-world usage relative to MixedInstancesPolicy/LifecycleHookSpecificationList, which WERE fixed)
 deferred:
-  - InstanceRequirements-based MixedInstancesPolicy overrides (attribute-based instance selection) - only InstanceType-based overrides are parsed/returned
+  - InstanceRequirements-based MixedInstancesPolicy overrides (attribute-based instance selection) - only InstanceType-based overrides are parsed/returned. Re-confirmed this pass: types.InstanceRequirements has 25 fields (VCpuCount, MemoryMiB, CpuManufacturers, AcceleratorCount/Manufacturers/Names/TotalMemoryMiB/Types, BareMetal, BaselineEbsBandwidthMbps, BaselinePerformanceFactors, BurstablePerformance, ExcludedInstanceTypes, InstanceGenerations, LocalStorage/LocalStorageTypes, MaxSpotPriceAsPercentageOfOptimalOnDemandPrice, MemoryGiBPerVCpu, NetworkBandwidthGbps, NetworkInterfaceCount, OnDemandMaxPricePercentageOverLowestPrice, RequireHibernateSupport, SpotMaxPricePercentageOverLowestPrice, TotalLocalStorageGB) - a genuinely large, separate feature (attribute-based instance-type selection), not a quick wire fix; deliberately not attempted this pass. No bd id filed yet.
   - PredictiveScalingConfiguration (Put/Describe are not in GetSupportedOperations at all - predictive scaling policy *configuration* management, as opposed to GetPredictiveScalingForecast, was out of scope for this pass; confirmed the SDK op list has no separate op for this, it rides inside PutScalingPolicy's PolicyType=PredictiveScaling with a nested config this handler does not parse)
-leaks: {status: clean, note: "go test -race passes. The pendingHookTokens timer machinery (the CRITICAL item flagged in prior sweep notes) was previously 100% dead code - nothing ever created a pendingHookAction, so there was no leak *and* no functionality. This pass makes the timers real (armed on every gated launch/terminate) and verified: Close() stops all of them (unchanged, already correct), DeleteAutoScalingGroup/DeleteLifecycleHook/Purge call cleanupHookTimers (unchanged, already correct), and Restore() now re-arms timers for any instance found in a *:Wait state (added - in-flight timers are never persisted, so without this a restored mid-wait instance would be stuck forever)."}
+leaks: {status: clean, note: "go test -race passes (verified this pass). The pendingHookTokens timer machinery (the CRITICAL item flagged in a prior sweep) remains real (armed on every gated launch/terminate), Close() stops all of them, DeleteAutoScalingGroup/DeleteLifecycleHook/Purge call cleanupHookTimers, and Restore() re-arms timers for any instance left in a *:Wait state. NEW this pass: the ScheduledActionScheduler's 1-minute ticker goroutine is started via pkgs/worker.SingleRun.Start in Handler.StartWorker and stopped (cancelled + waited-on) via pkgs/worker.SingleRun.Stop in Handler.Shutdown - the exact same ctx-parented/Shutdown-drained shape every other backgroundWorker service in this codebase uses (e.g. secretsmanager's rotation scheduler). TestScheduledActionScheduler_RunFiresAndStopsCleanly explicitly starts the real ticker, waits for it to fire, cancels its context, and asserts Run() returns within 2s. testleak.VerifyTestMain (leak_main_test.go) additionally guards the whole package: any test that started a worker without stopping it would fail the suite."}
 ---
 
 ## Notes
@@ -104,6 +122,90 @@ leaks: {status: clean, note: "go test -race passes. The pendingHookTokens timer 
 Protocol: EC2 Auto Scaling uses the `query` (form-urlencoded request, XML response)
 protocol, `Version=2011-01-01`. Verified against the awsquery serializers/deserializers
 in `aws-sdk-go-v2/service/autoscaling@v1.64.2`.
+
+### Parity-3 sweep (2026-07-23): scheduler, 7 CreateASG/UpdateASG fields, ledger correction
+
+This pass found the prior ledger's `gaps` list had drifted from reality in two places:
+the "ASG->EC2 real instance provisioning" gap (bd `gopherstack-8sk`) and the
+"ASG/ECS->ELBv2 target registration" gap (bd `gopherstack-18k`) were both listed as
+"NOT fixed this pass per scope", but both bd issues were actually already `CLOSED`
+(2026-07-12) and both `EC2Launcher` (`ec2_launch.go`) and `ELBv2TargetRegistrar`
+(`elbv2_targets.go`) are present and wired into the scale-out/scale-in/attach/detach
+paths. Grepped for the adapter types and their call sites to confirm before correcting
+the ledger - per the campaign's "if PARITY.md counts don't match reality, independently
+field-diff and record what you verify" instruction, not just trusting the bd close
+reasons. Moved both from `gaps` to `families` as `ok`.
+
+Similarly, bd `gopherstack-9wo` (terminate-lifecycle-hook gating on the
+desired-capacity-driven scale-in path) was still `OPEN` in the tracker, but reading
+`auto_scaling_groups.go` shows `applyScaleIn`/`terminationCapacityPreset` fully
+implementing exactly what the 2026-07-12 re-audit pass's notes (below) describe. The
+code was correct; only the bd issue's status was stale. Closed it this pass rather than
+re-doing already-complete work.
+
+**Real new work this pass:**
+
+1. **Scheduled-action background scheduler** (bd `gopherstack-6ys`, the one gap in the
+   prior ledger with a live, still-open bd id describing a genuine missing feature, not
+   ledger drift). Added `scheduled_action_cron.go` (a 5-field Unix-cron parser -
+   `minute hour day-of-month month day-of-week`, matching AWS's documented
+   `ScheduledUpdateGroupAction.Recurrence` format) and
+   `scheduled_action_scheduler.go` (`ScheduledActionScheduler`, wired as a
+   `service.BackgroundWorker` via `pkgs/worker.SingleRun` in `handler.go`'s
+   `StartWorker`/`Shutdown`, matching the exact lifecycle shape secretsmanager's
+   rotation scheduler and every janitor-style worker in this codebase already use).
+   Deliberately reuses `applyUpdateCapacityLocked` (the same helper
+   `UpdateAutoScalingGroup` calls) to apply a due action's MinSize/MaxSize/
+   DesiredCapacity, so scheduled-action capacity changes get identical validation
+   behavior to a manual `UpdateAutoScalingGroup` call for free, rather than
+   duplicating (and risking diverging from) that logic - the same lesson the prior
+   pass's `ExecutePolicy`/`applyDesiredCapacityChange` fix already established for this
+   service. A new `ScheduledAction.LastExecutedTime` field (internal bookkeeping only,
+   not projected onto the `DescribeScheduledActions` XML response, since AWS's real
+   wire type has no equivalent) prevents a one-time action from refiring and prevents a
+   since-invalid recurring action from busy-looping every tick forever (it still logs a
+   warning and stamps `LastExecutedTime` so it doesn't retry the same occurrence
+   indefinitely - see `fireScheduledActionLocked`).
+
+2. **7 previously-unwired `CreateAutoScalingGroupInput`/`UpdateAutoScalingGroupInput`
+   fields**: `AvailabilityZoneDistribution`, `AvailabilityZoneImpairmentPolicy`,
+   `CapacityReservationSpecification`, `DeletionProtection`, `InstanceLifecyclePolicy`,
+   `InstanceMaintenancePolicy`, `SkipZonalShiftValidation`. Field-diffed each nested
+   type and its awsquery-serialized param names against
+   `aws-sdk-go-v2/service/autoscaling/types` and `serializers.go`/`deserializers.go`
+   directly (via `go doc` + reading the generated serializer functions) rather than
+   guessing param names from the field names alone - this caught that the real wire
+   field is `CapacityReservationIds` (matching `CapacityReservationTarget`'s Go SDK
+   field name exactly, no "ID" initialism), which an early pass of this change
+   accidentally renamed to `CapacityReservationIDs` while fixing a `revive` lint
+   warning on the *Go identifier* (a legitimate rename) before catching that the *wire
+   string* used in `parseMembers`/the XML tag must NOT follow that rename. Fixed by
+   keeping the Go field named `CapacityReservationIDs` (satisfies `revive`) while the
+   `parseMembers` prefix and the `xml:"..."` tag stay `CapacityReservationIds` (matches
+   the real wire byte-for-byte). Flagging this here because it is exactly the kind of
+   near-miss the next auditor should watch for: an identifier-hygiene lint fix silently
+   corrupting a wire-format string literal that happens to share the identifier's name.
+   `DeletionProtection` is the one field with real behavioral impact beyond store-and-
+   echo: `DeleteAutoScalingGroup` now gates on it (`prevent-all-deletion` blocks every
+   delete, `prevent-force-deletion` blocks only `ForceDelete=true`), matching real AWS's
+   `ResourceInUseFault` (`ErrorCode()` is `"ResourceInUse"`, not `"ResourceInUseFault"` -
+   read the SDK's generated `errors.go` to confirm, don't assume the Go type name is the
+   wire code). `SkipZonalShiftValidation` is accepted and stored but never projected on
+   `DescribeAutoScalingGroups`, because real AWS's `types.AutoScalingGroup` response
+   type has no such field either (confirmed via `go doc`) - it is a one-time
+   launch/update validation-bypass flag, not a persistent group attribute.
+
+3. **Removed all 7 banned complexity nolints** (`cyclop`/`gocognit`/`funlen` across
+   `handler_scaling_policies.go`, `handler_auto_scaling_groups.go` x2,
+   `instances.go`, `auto_scaling_groups.go` x2, `handler_launch_configurations.go`) by
+   extracting focused helper functions (e.g. `applyUpdateCapacityLocked`/
+   `applyUpdateLaunchSourceFields`/`applyUpdateScalarFields`/`applyUpdatePolicyFields`
+   replacing one large `UpdateAutoScalingGroup`; `parseCreateASGSizeFields`/
+   `applyUpdateASGSizeFields`/`applyUpdateASGBoolFields` replacing repetitive
+   parse-and-check blocks with small param-table-driven loops). Zero
+   `golangci-lint` issues after (was already near-zero; the field-table-driven helpers
+   this decomposition introduced initially tripped `govet fieldalignment` on their
+   anonymous struct literals - fixed by reordering fields, not suppressing).
 
 ### Re-audit pass (2026-07-12): scale-in lifecycle-hook gating fix
 

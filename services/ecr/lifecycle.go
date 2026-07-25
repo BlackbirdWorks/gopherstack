@@ -47,15 +47,17 @@ type imageEntry struct {
 }
 
 // evaluateLifecyclePolicy applies the lifecycle policy rules against the given
-// images and returns the identifiers of images that would be deleted.
-// Rules are evaluated in ascending rulePriority order. An image may only match
-// one rule (first-match wins by priority).
+// images and returns a preview entry for each image that would be expired,
+// carrying the AWS-shaped detail (action, applied rule priority, push time,
+// tags, storage class) that GetLifecyclePolicyPreview/StartLifecyclePolicyPreview
+// must report. Rules are evaluated in ascending rulePriority order. An image
+// may only match one rule (first-match wins by priority).
 // digestTags maps image digest → all tags for that image (from digestTagsIndex).
 func evaluateLifecyclePolicy(
 	policyText string,
 	images []*Image,
 	digestTags map[string][]string,
-) []ImageIdentifier {
+) []LifecyclePolicyPreviewEntry {
 	if policyText == "" {
 		return nil
 	}
@@ -95,7 +97,7 @@ func evaluateLifecyclePolicy(
 		return entries[i].img.ImagePushedAt.After(entries[j].img.ImagePushedAt)
 	})
 
-	var expired []ImageIdentifier
+	var expired []LifecyclePolicyPreviewEntry
 
 	for _, rule := range rules {
 		if strings.ToLower(rule.Action.Type) != "expire" {
@@ -106,7 +108,7 @@ func evaluateLifecyclePolicy(
 		for _, e := range matched {
 			if !e.matched {
 				e.matched = true
-				expired = append(expired, expiredIdentifier(e))
+				expired = append(expired, previewEntryFor(e, rule))
 			}
 		}
 	}
@@ -114,23 +116,28 @@ func evaluateLifecyclePolicy(
 	return expired
 }
 
-// expiredIdentifier builds a stable [ImageIdentifier] for an expired image,
-// always populating the canonical digest (the map key on the image) and a
-// representative tag when the image is tagged.
-func expiredIdentifier(e *imageEntry) ImageIdentifier {
-	id := ImageIdentifier{ImageDigest: e.img.ImageDigest}
-	if id.ImageDigest == "" {
-		id.ImageDigest = e.img.ImageID.ImageDigest
+// previewEntryFor builds the AWS-shaped [LifecyclePolicyPreviewEntry] for an
+// image matched by rule, always populating the canonical digest (the map key
+// on the image) and the full tag list.
+func previewEntryFor(e *imageEntry, rule lifecyclePolicyRule) LifecyclePolicyPreviewEntry {
+	digest := e.img.ImageDigest
+	if digest == "" {
+		digest = e.img.ImageID.ImageDigest
 	}
 
-	switch {
-	case len(e.allTags) > 0:
-		id.ImageTag = e.allTags[0]
-	default:
-		id.ImageTag = e.img.ImageID.ImageTag
+	storageClass := e.img.StorageClass
+	if storageClass == "" {
+		storageClass = "STANDARD"
 	}
 
-	return id
+	return LifecyclePolicyPreviewEntry{
+		ImageDigest:         digest,
+		ImageTags:           append([]string(nil), e.allTags...),
+		StorageClass:        storageClass,
+		ActionType:          strings.ToUpper(rule.Action.Type),
+		AppliedRulePriority: rule.RulePriority,
+		ImagePushedAt:       e.img.ImagePushedAt,
+	}
 }
 
 // applyLifecyclePolicyLocked evaluates the repository's stored lifecycle policy
@@ -158,14 +165,15 @@ func (b *InMemoryBackend) applyLifecyclePolicyLocked(repositoryName string) []Im
 	repoTags := b.tagIndex[repositoryName]
 	deleted := make([]ImageIdentifier, 0, len(expired))
 
-	for _, id := range expired {
-		digest := id.ImageDigest
-		if digest == "" && id.ImageTag != "" {
-			digest = repoTags[id.ImageTag]
-		}
-
+	for _, pe := range expired {
+		digest := pe.ImageDigest
 		if digest == "" {
 			continue
+		}
+
+		var tag string
+		if len(pe.ImageTags) > 0 {
+			tag = pe.ImageTags[0]
 		}
 
 		if !deleteByDigestLocked(b.images, repoTags, repositoryName, digest) {
@@ -175,7 +183,7 @@ func (b *InMemoryBackend) applyLifecyclePolicyLocked(repositoryName string) []Im
 		b.clearDigestTagsLocked(repositoryName, digest)
 		b.imageScanFindings.Delete(findingsTableKey(repositoryName, digest))
 
-		deleted = append(deleted, ImageIdentifier{ImageDigest: digest, ImageTag: id.ImageTag})
+		deleted = append(deleted, ImageIdentifier{ImageDigest: digest, ImageTag: tag})
 	}
 
 	return deleted

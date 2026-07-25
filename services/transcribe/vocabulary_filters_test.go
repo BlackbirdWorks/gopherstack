@@ -1,6 +1,7 @@
 package transcribe_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -298,8 +299,67 @@ func TestListVocabularyFilters(t *testing.T) {
 		VocabularyFilterName: "filter-2",
 	})
 
-	list, _ := b.ListVocabularyFilters("")
+	list, _ := b.ListVocabularyFilters("", "")
 	require.Len(t, list, 2)
 	assert.Equal(t, "filter-1", list[0].VocabularyFilterName)
 	assert.Equal(t, "filter-2", list[1].VocabularyFilterName)
+}
+
+// TestListVocabularyFilters_NameContains verifies the NameContains filter
+// (case-insensitive substring match), per the real ListVocabularyFiltersInput field.
+func TestListVocabularyFilters_NameContains(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	b.AddVocabularyFilterInternal(&transcribe.VocabularyFilter{VocabularyFilterName: "profanity-en"})
+	b.AddVocabularyFilterInternal(&transcribe.VocabularyFilter{VocabularyFilterName: "profanity-es"})
+	b.AddVocabularyFilterInternal(&transcribe.VocabularyFilter{VocabularyFilterName: "slang-list"})
+
+	list, _ := b.ListVocabularyFilters("profanity", "")
+	require.Len(t, list, 2)
+
+	list, _ = b.ListVocabularyFilters("SLANG", "")
+	require.Len(t, list, 1, "NameContains must be case-insensitive")
+	assert.Equal(t, "slang-list", list[0].VocabularyFilterName)
+}
+
+// TestVocabularyFilter_LastModifiedTimeAndDownloadUri verifies Create/Get/Update all
+// surface LastModifiedTime, and Get additionally surfaces DownloadUri -- both real
+// GetVocabularyFilterOutput/CreateVocabularyFilterOutput/UpdateVocabularyFilterOutput
+// fields that gopherstack previously dropped entirely.
+func TestVocabularyFilter_LastModifiedTimeAndDownloadUri(t *testing.T) {
+	t.Parallel()
+
+	h := newTestTranscribeHandler(t)
+
+	createRec := doTranscribeRequest(t, h, "CreateVocabularyFilter", map[string]any{
+		"VocabularyFilterName":    "wire-shape-filter",
+		"LanguageCode":            "en-US",
+		"VocabularyFilterFileUri": "s3://bucket/filter.txt",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+	var createRaw map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createRaw))
+	assert.Contains(t, createRaw, "LastModifiedTime", "CreateVocabularyFilterOutput must include LastModifiedTime")
+
+	getRec := doTranscribeRequest(t, h, "GetVocabularyFilter", map[string]any{
+		"VocabularyFilterName": "wire-shape-filter",
+	})
+	require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
+
+	var getRaw map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRaw))
+	assert.Contains(t, getRaw, "LastModifiedTime", "GetVocabularyFilterOutput must include LastModifiedTime")
+	assert.Equal(t, "s3://bucket/filter.txt", getRaw["DownloadUri"])
+
+	updateRec := doTranscribeRequest(t, h, "UpdateVocabularyFilter", map[string]any{
+		"VocabularyFilterName": "wire-shape-filter",
+		"Words":                []string{"newword"},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
+
+	var updateRaw map[string]any
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateRaw))
+	assert.Contains(t, updateRaw, "LastModifiedTime", "UpdateVocabularyFilterOutput must include LastModifiedTime")
 }

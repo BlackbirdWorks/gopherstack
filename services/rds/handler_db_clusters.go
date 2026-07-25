@@ -109,6 +109,10 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	clusters, err = applyDBClusterFilters(vals, clusters)
+	if err != nil {
+		return nil, err
+	}
 	members, marker, err := paginateDescribe(vals, clusters, func(a, b DBCluster) bool {
 		return a.DBClusterIdentifier < b.DBClusterIdentifier
 	}, func(item DBCluster) xmlDBCluster {
@@ -259,6 +263,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	}
 	x := xmlDBCluster{
 		DBClusterIdentifier:             c.DBClusterIdentifier,
+		DBClusterResourceID:             c.DBClusterResourceID,
 		Engine:                          c.Engine,
 		EngineVersion:                   c.EngineVersion,
 		Status:                          c.Status,
@@ -384,6 +389,7 @@ type xmlDBCluster struct {
 	EnabledCloudwatchLogsExports     *xmlLogTypeList          `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	AvailabilityZones                *xmlAvailabilityZoneList `xml:"AvailabilityZones,omitempty"`
 	DBClusterIdentifier              string                   `xml:"DBClusterIdentifier"`
+	DBClusterResourceID              string                   `xml:"DbClusterResourceId,omitempty"`
 	Engine                           string                   `xml:"Engine"`
 	EngineVersion                    string                   `xml:"EngineVersion,omitempty"`
 	Status                           string                   `xml:"Status"`

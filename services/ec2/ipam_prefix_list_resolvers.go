@@ -69,6 +69,7 @@ func (b *InMemoryBackend) DeleteIpamPrefixListResolver(id string) (*IpamPrefixLi
 	}
 	b.ipamPrefixListResolvers.Delete(id)
 	delete(b.ipamPrefixListResolverVersions, id)
+	delete(b.tags, id)
 
 	for _, t := range b.ipamPrefixListResolverTargets.All() {
 		targetID := ipamPrefixListResolverTargetsKeyFn(t)
@@ -278,6 +279,7 @@ func (b *InMemoryBackend) DeleteIpamPrefixListResolverTarget(id string) (*IpamPr
 		return nil, fmt.Errorf("%w: %s", ErrIpamPrefixListResolverTargetNotFound, id)
 	}
 	b.ipamPrefixListResolverTargets.Delete(id)
+	delete(b.tags, id)
 
 	cp := copyIpamPrefixListResolverTarget(target)
 	cp.State = ipamStateDeleteComplete

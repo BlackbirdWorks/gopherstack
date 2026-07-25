@@ -84,6 +84,7 @@ func (b *InMemoryBackend) DeregisterContainerInstance(
 	}
 
 	b.containerInstances.Delete(scopedKey(clusterName, containerInstance))
+	b.deleteResourceTagsLocked(ci.ContainerInstanceArn)
 
 	cp := *ci
 	cp.Status = statusInactive

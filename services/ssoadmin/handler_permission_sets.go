@@ -52,7 +52,7 @@ func (h *Handler) handleCreatePermissionSet(c *echo.Context, body []byte) error 
 	)
 	if err != nil {
 		if errors.Is(err, ErrPermissionSetAlreadyExists) {
-			return writeError(c, http.StatusConflict, "ConflictException", "permission set already exists: "+req.Name)
+			return writeError(c, http.StatusBadRequest, "ConflictException", "permission set already exists: "+req.Name)
 		}
 
 		return handleBackendError(c, err, "failed to create permission set: "+req.Name)
@@ -135,7 +135,7 @@ func (h *Handler) handleDeletePermissionSet(c *echo.Context, body []byte) error 
 
 	if err := h.Backend.DeletePermissionSet(req.InstanceArn, req.PermissionSetArn); err != nil {
 		if errors.Is(err, ErrPermissionSetHasAssignments) {
-			return writeError(c, http.StatusConflict, "ConflictException",
+			return writeError(c, http.StatusBadRequest, "ConflictException",
 				"permission set is still associated with one or more accounts: "+req.PermissionSetArn)
 		}
 
@@ -211,7 +211,7 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 	status, _ := h.Backend.DescribePermissionSetProvisioningStatus(req.InstanceArn, requestID)
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionSetProvisioningStatus": toProvisioningView(status),
+		"PermissionSetProvisioningStatus": toPermissionSetProvisioningStatusView(status),
 	})
 }
 
@@ -233,37 +233,26 @@ func (h *Handler) handleDescribePermissionSetProvisioningStatus(c *echo.Context,
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionSetProvisioningStatus": toProvisioningView(status),
+		"PermissionSetProvisioningStatus": toPermissionSetProvisioningStatusView(status),
 	})
 }
 
 func (h *Handler) handleListPermissionSetProvisioningStatus(c *echo.Context, body []byte) error {
-	var req struct {
-		InstanceArn string `json:"InstanceArn"`
-		Filter      struct {
-			Status string `json:"Status"`
-		} `json:"Filter"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-	statuses := h.Backend.ListPermissionSetProvisioningStatus(req.InstanceArn, req.Filter.Status)
-
-	out := make([]provisioningStatusView, 0, len(statuses))
-	for _, status := range statuses {
-		out = append(out, toProvisioningView(status))
-	}
-
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionSetsProvisioningStatus": out,
-		keyNextToken:                       nil,
-	})
+	return listProvisioningStatusMetadata(
+		c, body,
+		h.Backend.ListPermissionSetProvisioningStatus,
+		toPermissionSetProvisioningStatusMetadataView,
+		func(v permissionSetProvisioningStatusMetadataView) string { return v.RequestID },
+		"PermissionSetsProvisioningStatus",
+	)
 }
 
 func (h *Handler) handleListPermissionSetsProvisionedToAccount(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
 		AccountID   string `json:"AccountId"`
+		NextToken   string `json:"NextToken"`
+		MaxResults  int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -277,9 +266,11 @@ func (h *Handler) handleListPermissionSetsProvisionedToAccount(c *echo.Context, 
 
 	arns := h.Backend.ListPermissionSetsProvisionedToAccount(req.InstanceArn, req.AccountID)
 
+	page, next := paginateStrings(arns, req.MaxResults, req.NextToken)
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"PermissionSets": arns,
-		keyNextToken:     nil,
+		"PermissionSets": page,
+		keyNextToken:     next,
 	})
 }
 
@@ -287,6 +278,8 @@ func (h *Handler) handleListAccountsForProvisionedPermissionSet(c *echo.Context,
 	var req struct {
 		InstanceArn      string `json:"InstanceArn"`
 		PermissionSetArn string `json:"PermissionSetArn"`
+		NextToken        string `json:"NextToken"`
+		MaxResults       int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -303,8 +296,10 @@ func (h *Handler) handleListAccountsForProvisionedPermissionSet(c *echo.Context,
 		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
+	page, next := paginateStrings(accounts, req.MaxResults, req.NextToken)
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountIds": accounts,
-		keyNextToken: nil,
+		"AccountIds": page,
+		keyNextToken: next,
 	})
 }

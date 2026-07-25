@@ -101,57 +101,167 @@ func (b *InMemoryBackend) DeleteCapacityProvider(nameOrArn string) (*CapacityPro
 	return &out, nil
 }
 
-// DescribeCapacityProviders returns capacity providers, optionally filtered by name/ARN.
-// Names/ARNs that don't resolve to a known or built-in capacity provider are reported in
-// the returned Failures slice (reason MISSING), matching AWS's DescribeCapacityProviders
-// behavior of partial success rather than failing the whole call.
-func (b *InMemoryBackend) DescribeCapacityProviders(
-	nameOrArns []string,
-) ([]CapacityProvider, []Failure, error) {
-	b.mu.RLock("DescribeCapacityProviders")
-	defer b.mu.RUnlock()
-
-	if len(nameOrArns) == 0 {
-		all := b.capacityProviders.All()
-		out := make([]CapacityProvider, 0, len(all))
-		for _, cp := range all {
-			c := *cp
-			c.Tags = copyTags(cp.Tags)
-			out = append(out, c)
-		}
-
-		return out, nil, nil
+// filterRefsByClusterAssociationLocked narrows refs down to the ones present in
+// the given cluster's associated capacity-provider list, or -- when refs is
+// empty -- returns the cluster's full associated list. Must be called with at
+// least a read lock held.
+func filterRefsByClusterAssociation(refs, clusterCapacityProviders []string) []string {
+	if len(refs) == 0 {
+		return clusterCapacityProviders
 	}
 
-	out := make([]CapacityProvider, 0, len(nameOrArns))
-	failures := make([]Failure, 0, len(nameOrArns))
+	assoc := make(map[string]struct{}, len(clusterCapacityProviders))
+	for _, name := range clusterCapacityProviders {
+		assoc[name] = struct{}{}
+	}
 
-	for _, ref := range nameOrArns {
-		_, cp := b.findCapacityProviderLocked(ref)
-		if cp == nil {
-			// Fall back to built-in FARGATE / FARGATE_SPOT providers.
-			builtin := builtinCapacityProvider(ref)
-			if builtin == nil {
-				failures = append(failures, Failure{
-					Arn:    ref,
-					Reason: statusMissing,
-					Detail: fmt.Sprintf("capacity provider %s not found", ref),
-				})
+	filtered := make([]string, 0, len(refs))
 
-				continue
-			}
-
-			out = append(out, *builtin)
-
-			continue
+	for _, ref := range refs {
+		if _, associated := assoc[ref]; associated {
+			filtered = append(filtered, ref)
 		}
+	}
 
+	return filtered
+}
+
+// resolveCapacityProviderRefsLocked resolves the effective set of capacity
+// provider name/ARN references to describe, applying the optional Cluster
+// filter (AWS's documented DescribeCapacityProvidersInput.Cluster parameter:
+// when set, only capacity providers associated with that cluster are
+// considered). The second return value reports whether the cluster filter
+// caused an early "cluster not found -> empty result" outcome, matching AWS's
+// filter-parameter semantics (as opposed to a hard 404). Must be called with
+// at least a read lock held.
+func (b *InMemoryBackend) resolveCapacityProviderRefsLocked(
+	nameOrArns []string,
+	cluster string,
+) ([]string, bool) {
+	if cluster == "" {
+		return nameOrArns, false
+	}
+
+	c, ok := b.clusters.Get(clusterKey(cluster))
+	if !ok {
+		return nil, true
+	}
+
+	return filterRefsByClusterAssociation(nameOrArns, c.CapacityProviders), false
+}
+
+// allCapacityProvidersLocked returns every known capacity provider (used when
+// DescribeCapacityProviders is called with no name/ARN filter and no cluster
+// filter). Must be called with at least a read lock held.
+func (b *InMemoryBackend) allCapacityProvidersLocked() []CapacityProvider {
+	all := b.capacityProviders.All()
+	out := make([]CapacityProvider, 0, len(all))
+
+	for _, cp := range all {
 		c := *cp
 		c.Tags = copyTags(cp.Tags)
 		out = append(out, c)
 	}
 
+	return out
+}
+
+// resolveCapacityProviderRefLocked resolves a single name/ARN reference to a
+// CapacityProvider (checking created providers, then the FARGATE/FARGATE_SPOT
+// builtins), returning ok=false if it resolves to neither. Must be called
+// with at least a read lock held.
+func (b *InMemoryBackend) resolveCapacityProviderRefLocked(ref string) (CapacityProvider, bool) {
+	if _, cp := b.findCapacityProviderLocked(ref); cp != nil {
+		c := *cp
+		c.Tags = copyTags(cp.Tags)
+
+		return c, true
+	}
+
+	if builtin := builtinCapacityProvider(ref); builtin != nil {
+		return *builtin, true
+	}
+
+	return CapacityProvider{}, false
+}
+
+// DescribeCapacityProviders returns capacity providers, optionally filtered by name/ARN
+// and/or by cluster association. Names/ARNs that don't resolve to a known or built-in
+// capacity provider are reported in the returned Failures slice (reason MISSING),
+// matching AWS's DescribeCapacityProviders behavior of partial success rather than
+// failing the whole call.
+//
+// When cluster is non-empty, only capacity providers associated with that cluster (via
+// CreateCluster/UpdateCluster/PutClusterCapacityProviders) are considered, matching AWS's
+// documented Cluster filter parameter. An unknown cluster name yields an empty result
+// (not an error), consistent with AWS's filter semantics for this parameter.
+func (b *InMemoryBackend) DescribeCapacityProviders(
+	nameOrArns []string,
+	cluster string,
+) ([]CapacityProvider, []Failure, error) {
+	b.mu.RLock("DescribeCapacityProviders")
+	defer b.mu.RUnlock()
+
+	refs, clusterNotFound := b.resolveCapacityProviderRefsLocked(nameOrArns, cluster)
+	if clusterNotFound {
+		return nil, nil, nil
+	}
+
+	if len(refs) == 0 && cluster == "" {
+		return b.allCapacityProvidersLocked(), nil, nil
+	}
+
+	out := make([]CapacityProvider, 0, len(refs))
+	failures := make([]Failure, 0, len(refs))
+
+	for _, ref := range refs {
+		cp, ok := b.resolveCapacityProviderRefLocked(ref)
+		if !ok {
+			failures = append(failures, Failure{
+				Arn:    ref,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("capacity provider %s not found", ref),
+			})
+
+			continue
+		}
+
+		out = append(out, cp)
+	}
+
 	return out, failures, nil
+}
+
+// validateCapacityProviderStrategyLocked returns ErrClient if any strategy item
+// references a capacity provider name that does not exist -- neither explicitly
+// created via CreateCapacityProvider nor a FARGATE/FARGATE_SPOT builtin. Matches
+// real AWS validation: RunTask, CreateTaskSet, CreateService, UpdateService,
+// CreateCluster, UpdateCluster, and PutClusterCapacityProviders all reject a
+// capacityProviderStrategy that references an unknown capacity provider with a
+// 400 ClientException rather than silently accepting any string. Must be called
+// with at least a read lock held (all call sites already hold the write lock).
+func (b *InMemoryBackend) validateCapacityProviderStrategyLocked(
+	strategy []CapacityProviderStrategyItem,
+) error {
+	for _, item := range strategy {
+		if item.CapacityProvider == "" {
+			continue
+		}
+
+		if _, cp := b.findCapacityProviderLocked(item.CapacityProvider); cp != nil {
+			continue
+		}
+
+		if builtinCapacityProvider(item.CapacityProvider) != nil {
+			continue
+		}
+
+		return fmt.Errorf(
+			"%w: capacity provider %s does not exist", ErrClient, item.CapacityProvider,
+		)
+	}
+
+	return nil
 }
 
 // UpdateCapacityProvider updates tags or status of a capacity provider.

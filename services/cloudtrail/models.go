@@ -42,6 +42,20 @@ type Event struct {
 	Username    string    `json:"Username,omitempty"`
 	ReadOnly    string    `json:"ReadOnly,omitempty"`
 	AccessKeyID string    `json:"AccessKeyId,omitempty"`
+	// EventCategory mirrors the CloudTrail record's eventCategory field
+	// ("Management" or "Insight"). Every event this backend records via
+	// RecordManagementEvent is a management-plane API call, so it is always
+	// "Management" -- this backend never synthesizes Insight events. Used to
+	// filter LookupEvents by the LookupEventsInput.EventCategory input field
+	// (real AWS: omit it and only Management events are returned; pass
+	// "insight" and only Insight events are returned). The real
+	// LookupEventsOutput Event shape has no top-level EventCategory field (it
+	// is only present nested in the CloudTrailEvent JSON string), but this
+	// backend's Event type is shared between the wire response and the
+	// internal/persisted record, so this extra key rides along on the wire --
+	// harmless, since JSON-protocol clients ignore unknown response fields
+	// (same pattern as dashToMap's Status key; see PARITY.md).
+	EventCategory string `json:"EventCategory,omitempty"`
 	// CloudTrailEvent is the full JSON-encoded event record (eventVersion,
 	// userIdentity, eventTime, eventSource, eventName, awsRegion, requestID,
 	// eventID, readOnly, eventType, managementEvent, eventCategory, ...),
@@ -64,6 +78,31 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		alias:     alias(e),
 		EventTime: awstime.Epoch(e.EventTime),
 	})
+}
+
+// UnmarshalJSON is the inverse of MarshalJSON: it decodes the epoch-seconds
+// EventTime this type emits back into a time.Time. Without this, Event could
+// be marshaled (e.g. into a Snapshot) but never restored -- encoding/json's
+// default time.Time decoder rejects a JSON number ("parsing time ... as
+// RFC3339: cannot parse ..."), so any snapshot containing a recorded event
+// would fail Restore entirely. See persistence.go/backendSnapshot.Events.
+func (e *Event) UnmarshalJSON(data []byte) error {
+	type alias Event
+
+	aux := struct {
+		*alias
+		EventTime float64 `json:"EventTime"`
+	}{alias: (*alias)(e)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if aux.EventTime != 0 {
+		e.EventTime = time.Unix(0, int64(aux.EventTime*float64(time.Second))).UTC()
+	}
+
+	return nil
 }
 
 // EventResource represents a resource associated with a CloudTrail event.
@@ -90,12 +129,40 @@ type Destination struct {
 
 // Dashboard represents a CloudTrail dashboard resource.
 type Dashboard struct {
-	Tags         *tags.Tags `json:"tags,omitempty"`
-	DashboardID  string     `json:"dashboardId"`
-	DashboardARN string     `json:"dashboardArn"`
-	Name         string     `json:"name"`
-	Type         string     `json:"type"`
-	Status       string     `json:"status"`
+	CreatedTimestamp             time.Time        `json:"createdTimestamp"`
+	UpdatedTimestamp             time.Time        `json:"updatedTimestamp"`
+	Tags                         *tags.Tags       `json:"tags,omitempty"`
+	RefreshSchedule              *RefreshSchedule `json:"refreshSchedule,omitempty"`
+	DashboardID                  string           `json:"dashboardId"`
+	DashboardARN                 string           `json:"dashboardArn"`
+	Name                         string           `json:"name"`
+	Type                         string           `json:"type"`
+	Status                       string           `json:"status"`
+	LastRefreshID                string           `json:"lastRefreshId,omitempty"`
+	LastRefreshFailureReason     string           `json:"lastRefreshFailureReason,omitempty"`
+	Widgets                      []Widget         `json:"widgets,omitempty"`
+	TerminationProtectionEnabled bool             `json:"terminationProtectionEnabled"`
+}
+
+// RefreshSchedule is the refresh-schedule configuration for a dashboard.
+type RefreshSchedule struct {
+	Frequency *RefreshScheduleFrequency `json:"Frequency,omitempty"`
+	Status    string                    `json:"Status,omitempty"`
+	TimeOfDay string                    `json:"TimeOfDay,omitempty"`
+}
+
+// RefreshScheduleFrequency specifies how often a dashboard refresh runs.
+type RefreshScheduleFrequency struct {
+	Unit  string `json:"Unit,omitempty"`
+	Value int32  `json:"Value,omitempty"`
+}
+
+// Widget represents a widget on a CloudTrail Lake dashboard.
+type Widget struct {
+	ViewProperties  map[string]string `json:"ViewProperties,omitempty"`
+	QueryAlias      string            `json:"QueryAlias,omitempty"`
+	QueryStatement  string            `json:"QueryStatement,omitempty"`
+	QueryParameters []string          `json:"QueryParameters,omitempty"`
 }
 
 // EventDataStore represents a CloudTrail event data store resource.
@@ -120,14 +187,31 @@ type EventDataStore struct {
 }
 
 // Query represents a CloudTrail query resource.
+//
+// QueryResultRows/EventsScanned/EventsMatched/BytesScanned/ExecutionTimeInMillis
+// are populated lazily: StartQuery leaves the query QUEUED and unexecuted so
+// it stays cancellable (matching AWS's async model), and the first
+// GetQueryResults or DescribeQuery call against it runs materializeQueryLocked,
+// which executes the recognized SELECT/FROM/WHERE/LIMIT subset of the
+// QueryStatement against the backend's recorded events and flips QueryStatus
+// to FINISHED. See query_exec.go.
 type Query struct {
-	CreationTime      time.Time `json:"creationTime"`
-	QueryID           string    `json:"queryId"`
-	EventDataStoreARN string    `json:"eventDataStoreArn"`
-	QueryString       string    `json:"queryString"`
-	QueryStatus       string    `json:"queryStatus"`
-	DeliveryS3URI     string    `json:"deliveryS3Uri,omitempty"`
-	ErrorMessage      string    `json:"errorMessage,omitempty"`
+	CreationTime          time.Time             `json:"creationTime"`
+	QueryResultRows       [][]map[string]string `json:"queryResultRows,omitempty"`
+	QueryID               string                `json:"queryId"`
+	EventDataStoreARN     string                `json:"eventDataStoreArn"`
+	QueryString           string                `json:"queryString"`
+	QueryStatus           string                `json:"queryStatus"`
+	DeliveryS3URI         string                `json:"deliveryS3Uri,omitempty"`
+	ErrorMessage          string                `json:"errorMessage,omitempty"`
+	QueryAlias            string                `json:"queryAlias,omitempty"`
+	EventDataStoreOwnerID string                `json:"eventDataStoreOwnerId,omitempty"`
+	DeliveryStatus        string                `json:"deliveryStatus,omitempty"`
+	QueryParameters       []string              `json:"queryParameters,omitempty"`
+	EventsScanned         int64                 `json:"eventsScanned,omitempty"`
+	EventsMatched         int64                 `json:"eventsMatched,omitempty"`
+	BytesScanned          int64                 `json:"bytesScanned,omitempty"`
+	ExecutionTimeInMillis int32                 `json:"executionTimeInMillis,omitempty"`
 }
 
 // ResourcePolicy represents a resource-based policy attached to a CloudTrail resource.
@@ -185,12 +269,27 @@ type Trail struct {
 
 // Import represents a CloudTrail import resource.
 type Import struct {
-	CreatedTimestamp time.Time `json:"createdTimestamp"`
-	UpdatedTimestamp time.Time `json:"updatedTimestamp"`
-	ImportID         string    `json:"importId"`
-	ImportSource     string    `json:"importSource,omitempty"`
-	ImportStatus     string    `json:"importStatus"`
-	Destinations     []string  `json:"destinations,omitempty"`
+	CreatedTimestamp time.Time     `json:"createdTimestamp"`
+	UpdatedTimestamp time.Time     `json:"updatedTimestamp"`
+	ImportSource     *ImportSource `json:"importSource,omitempty"`
+	ImportID         string        `json:"importId"`
+	ImportStatus     string        `json:"importStatus"`
+	Destinations     []string      `json:"destinations,omitempty"`
+}
+
+// ImportSource is the S3 source location for a StartImport request, matching
+// the real ImportSource{S3: *S3ImportSource} wire shape (S3LocationUri,
+// S3BucketRegion, S3BucketAccessRoleArn are all required fields on the real
+// S3ImportSource -- previously only S3LocationUri was modeled/echoed).
+type ImportSource struct {
+	S3 *S3ImportSource `json:"S3,omitempty"`
+}
+
+// S3ImportSource is the S3 bucket location and access role for an import.
+type S3ImportSource struct {
+	S3LocationURI         string `json:"S3LocationUri,omitempty"`
+	S3BucketRegion        string `json:"S3BucketRegion,omitempty"`
+	S3BucketAccessRoleArn string `json:"S3BucketAccessRoleArn,omitempty"`
 }
 
 // InsightSelector represents a CloudTrail insight selector.
@@ -225,6 +324,7 @@ type LookupEventsInput struct {
 	StartTime        *time.Time
 	EndTime          *time.Time
 	NextToken        string
+	EventCategory    string
 	LookupAttributes []LookupAttribute
 	MaxResults       int32
 }

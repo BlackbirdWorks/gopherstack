@@ -45,11 +45,16 @@ type ConfigurationSet struct {
 }
 
 // BulkEmailDestination is a single destination entry for SendBulkTemplatedEmail.
+// ReplacementTags mirrors the real SendBulkTemplatedEmailInput
+// BulkEmailDestination.ReplacementTags member: when non-empty it overrides
+// the request-level SendBulkTemplatedEmailInput.DefaultTags for this
+// destination's stored Email record.
 type BulkEmailDestination struct {
 	ReplacementTemplateData string
 	To                      []string
 	Cc                      []string
 	Bcc                     []string
+	ReplacementTags         []Tag
 }
 
 // SendEmailInput contains all parameters for sending an email.
@@ -61,6 +66,7 @@ type SendEmailInput struct {
 	BodyText             string
 	ConfigurationSetName string
 	ReturnPath           string
+	ReturnPathArn        string
 	SourceArn            string
 	To                   []string
 	Cc                   []string
@@ -76,11 +82,30 @@ type SendTemplatedEmailInput struct {
 	TemplateData         string
 	ConfigurationSetName string
 	ReturnPath           string
+	ReturnPathArn        string
 	SourceArn            string
 	To                   []string
 	Cc                   []string
 	Bcc                  []string
 	ReplyTo              []string
+}
+
+// SendBulkTemplatedEmailInput contains all parameters for
+// SendBulkTemplatedEmail, mirroring aws-sdk-go-v2/service/ses's
+// SendBulkTemplatedEmailInput. DefaultTags is applied to every destination's
+// stored Email record unless overridden by that destination's
+// BulkEmailDestination.ReplacementTags.
+type SendBulkTemplatedEmailInput struct {
+	Source               string
+	TemplateName         string
+	DefaultTemplateData  string
+	ConfigurationSetName string
+	ReturnPath           string
+	ReturnPathArn        string
+	SourceArn            string
+	ReplyTo              []string
+	DefaultTags          []Tag
+	Destinations         []BulkEmailDestination
 }
 
 // Email captures a sent email for local inspection.
@@ -94,6 +119,7 @@ type Email struct {
 	MessageID            string    `json:"messageID"`
 	ConfigurationSetName string    `json:"configurationSetName,omitempty"`
 	ReturnPath           string    `json:"returnPath,omitempty"`
+	ReturnPathArn        string    `json:"returnPathArn,omitempty"`
 	SourceArn            string    `json:"sourceArn,omitempty"`
 	To                   []string  `json:"to"`
 	Cc                   []string  `json:"cc,omitempty"`

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -40,24 +41,116 @@ func seg(segs []string, i int) string {
 	return v
 }
 
-//nolint:cyclop // path router requires many branches
-func classifyRequest(method, path string) (string, string) { //nolint:gocognit,gocyclo,funlen // existing issue.
+// resourceTypeClassifier classifies a path already known to start with
+// /accounts/{accountId}/{resourceType}/... given the full segment list and
+// its length.
+type resourceTypeClassifier func(method string, segs []string, n int) (string, string)
+
+// resourceTypeDispatchTable lazily builds the resourceType -> classifier
+// lookup used by classifyRequest exactly once, keeping classifyRequest
+// itself a small, flat sequence of special-case prefix checks followed by a
+// single map lookup. Mirrors the onceOpTable pattern in
+// services/apigatewayv2/handler.go. The handful of one-line cases from the
+// original flat switch (pathSegPublicSharing, pathSegSPICECapacity, etc.)
+// are wrapped as small closures so every entry shares the same signature.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
+var resourceTypeDispatchTable = sync.OnceValue(func() map[string]resourceTypeClassifier {
+	return map[string]resourceTypeClassifier{
+		pathSegNamespaces: classifyNamespacePaths,
+		// DELETE /accounts/{id}/namespace/{ns}/iam-policy-assignments/{name}
+		pathSegNamespaceSingular:   classifyNamespaceSingularPaths,
+		pathSegDataSources:         classifyDataSourcePaths,
+		pathSegDataSets:            classifyDataSetPaths,
+		pathSegDashboards:          classifyDashboardPaths,
+		pathSegAnalyses:            classifyAnalysisPaths,
+		pathSegSearch:              classifySearchPaths,
+		pathSegRestore:             classifyRestorePaths,
+		pathSegFolders:             classifyFolderPaths,
+		pathSegTemplates:           classifyTemplatePaths,
+		pathSegThemes:              classifyThemePaths,
+		pathSegTopics:              classifyTopicPaths,
+		pathSegVPCConnections:      classifyVPCConnectionPaths,
+		pathSegActionConnectors:    classifyActionConnectorPaths,
+		pathSegBrands:              classifyBrandPaths,
+		pathSegBrandAssignments:    classifyBrandAssignmentPaths,
+		pathSegCustomPermissions:   classifyCustomPermissionsPaths,
+		pathSegOAuthApps:           classifyOAuthAppPaths,
+		pathSegIdentityPropagation: classifyIdentityPropagationPaths,
+		pathSegAssetBundleExport:   classifyAssetBundleExportPaths,
+		pathSegAssetBundleImport:   classifyAssetBundleImportPaths,
+		pathSegAutomationGroups:    classifyAutomationPaths,
+		pathSegFlows:               classifyFlowPaths,
+		pathSegResource2:           classifyResourceFoldersPaths,
+		pathSegCustomizations:      classifyCustomizationPaths,
+		pathSegCustomPermission:    classifyAccountCustomPermissionPaths,
+		pathSegSettings:            classifyAccountSettingsPaths,
+		pathSegDashboardsQACfg:     classifyDashboardsQAPaths,
+		pathSegDefaultQBiz:         classifyDefaultQBizPaths,
+		pathSegIPRestriction:       classifyIPRestrictionPaths,
+		pathSegKeyRegistration:     classifyKeyRegistrationPaths,
+		pathSegQPersonalization:    classifyQPersonalizationPaths,
+		pathSegQSearchConfig:       classifyQSearchConfigPaths,
+		pathSegEmbedUrl:            classifyEmbedURLPaths,
+		pathSegPublicSharing:       classifySingleOpPut(opUpdatePublicSharingSettings),
+		pathSegSPICECapacity:       classifySingleOpPost(opUpdateSPICECapacity),
+		pathSegSessionEmbedUrl:     classifySingleOpGet(opGetSessionEmbedUrl),
+		pathSegIdentityContext:     classifySingleOpPost(opGetIdentityContext),
+		pathSegAppTokenGrant:       classifySingleOpPut(opUpdateAppTokenGrant),
+		pathSegQA:                  classifyQAPaths,
+	}
+})
+
+// classifySingleOpGet/Post/Put build a resourceTypeClassifier for a
+// resource type that only supports one method, on the account itself
+// (segAccountID), with no further path structure to inspect.
+func classifySingleOpGet(op string) resourceTypeClassifier {
+	return func(method string, segs []string, _ int) (string, string) {
+		if method == http.MethodGet {
+			return op, seg(segs, segAccountID)
+		}
+
+		return opUnknown, ""
+	}
+}
+
+func classifySingleOpPost(op string) resourceTypeClassifier {
+	return func(method string, segs []string, _ int) (string, string) {
+		if method == http.MethodPost {
+			return op, seg(segs, segAccountID)
+		}
+
+		return opUnknown, ""
+	}
+}
+
+func classifySingleOpPut(op string) resourceTypeClassifier {
+	return func(method string, segs []string, _ int) (string, string) {
+		if method == http.MethodPut {
+			return op, seg(segs, segAccountID)
+		}
+
+		return opUnknown, ""
+	}
+}
+
+// classifyQAPaths classifies POST /accounts/{id}/qa/predict (n ==
+// nSegsAccountResID: accounts, {id}, qa, predict).
+func classifyQAPaths(method string, segs []string, n int) (string, string) {
+	if n >= nSegsAccountResID && seg(segs, segResID) == pathSegPredict && method == http.MethodPost {
+		return opPredictQAResults, seg(segs, segAccountID)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyRequest(method, path string) (string, string) {
 	segs := pathSegs(path)
 	n := len(segs)
 
 	// /resources/{arn}/tags — tag operations
 	if n >= nSegsAccountRes && segs[0] == pathSegResources && segs[n-1] == pathSegTagsSuffix {
-		arn := strings.Join(segs[1:n-1], "/")
-		switch method {
-		case http.MethodPost:
-			return opTagResource, arn
-		case http.MethodGet:
-			return opListTagsForResource, arn
-		case http.MethodDelete:
-			return opUntagResource, arn
-		}
-
-		return opUnknown, ""
+		return classifyTagResourcePaths(method, segs, n)
 	}
 
 	// /account/{accountId} (singular) — AccountSubscription ops
@@ -80,105 +173,24 @@ func classifyRequest(method, path string) (string, string) { //nolint:gocognit,g
 		return opUnknown, ""
 	}
 
-	resourceType := seg(segs, segResource)
+	classify, ok := resourceTypeDispatchTable()[seg(segs, segResource)]
+	if !ok {
+		return opUnknown, ""
+	}
 
-	switch resourceType {
-	case pathSegNamespaces:
-		return classifyNamespacePaths(method, segs, n)
-	case pathSegNamespaceSingular:
-		// DELETE /accounts/{id}/namespace/{ns}/iam-policy-assignments/{name}
-		return classifyNamespaceSingularPaths(method, segs, n)
-	case pathSegDataSources:
-		return classifyDataSourcePaths(method, segs, n)
-	case pathSegDataSets:
-		return classifyDataSetPaths(method, segs, n)
-	case pathSegDashboards:
-		return classifyDashboardPaths(method, segs, n)
-	case pathSegAnalyses:
-		return classifyAnalysisPaths(method, segs, n)
-	case pathSegSearch:
-		return classifySearchPaths(method, segs, n)
-	case pathSegRestore:
-		return classifyRestorePaths(method, segs, n)
-	case pathSegFolders:
-		return classifyFolderPaths(method, segs, n)
-	case pathSegTemplates:
-		return classifyTemplatePaths(method, segs, n)
-	case pathSegThemes:
-		return classifyThemePaths(method, segs, n)
-	case pathSegTopics:
-		return classifyTopicPaths(method, segs, n)
-	case pathSegVPCConnections:
-		return classifyVPCConnectionPaths(method, segs, n)
-	case pathSegActionConnectors:
-		return classifyActionConnectorPaths(method, segs, n)
-	case pathSegBrands:
-		return classifyBrandPaths(method, segs, n)
-	case pathSegBrandAssignments:
-		return classifyBrandAssignmentPaths(method, segs, n)
-	case pathSegCustomPermissions:
-		return classifyCustomPermissionsPaths(method, segs, n)
-	case pathSegOAuthApps:
-		return classifyOAuthAppPaths(method, segs, n)
-	case pathSegIdentityPropagation:
-		return classifyIdentityPropagationPaths(method, segs, n)
-	case pathSegAssetBundleExport:
-		return classifyAssetBundleExportPaths(method, segs, n)
-	case pathSegAssetBundleImport:
-		return classifyAssetBundleImportPaths(method, segs, n)
-	case pathSegAutomationGroups:
-		return classifyAutomationPaths(method, segs, n)
-	case pathSegFlows:
-		return classifyFlowPaths(method, segs, n)
-	case pathSegResource2:
-		return classifyResourceFoldersPaths(method, segs, n)
-	case pathSegCustomizations:
-		return classifyCustomizationPaths(method, segs, n)
-	case pathSegCustomPermission:
-		return classifyAccountCustomPermissionPaths(method, segs, n)
-	case pathSegSettings:
-		return classifyAccountSettingsPaths(method, segs, n)
-	case pathSegDashboardsQACfg:
-		return classifyDashboardsQAPaths(method, segs, n)
-	case pathSegDefaultQBiz:
-		return classifyDefaultQBizPaths(method, segs, n)
-	case pathSegIPRestriction:
-		return classifyIPRestrictionPaths(method, segs, n)
-	case pathSegKeyRegistration:
-		return classifyKeyRegistrationPaths(method, segs, n)
-	case pathSegPublicSharing:
-		if method == http.MethodPut {
-			return opUpdatePublicSharingSettings, seg(segs, segAccountID)
-		}
-	case pathSegQPersonalization:
-		return classifyQPersonalizationPaths(method, segs, n)
-	case pathSegQSearchConfig:
-		return classifyQSearchConfigPaths(method, segs, n)
-	case pathSegSPICECapacity:
-		if method == http.MethodPost {
-			return opUpdateSPICECapacity, seg(segs, segAccountID)
-		}
-	case pathSegEmbedUrl:
-		return classifyEmbedURLPaths(method, segs, n)
-	case pathSegSessionEmbedUrl:
-		if method == http.MethodGet {
-			return opGetSessionEmbedUrl, seg(segs, segAccountID)
-		}
-	case pathSegIdentityContext:
-		if method == http.MethodPost {
-			return opGetIdentityContext, seg(segs, segAccountID)
-		}
-	case pathSegQA:
-		// POST /accounts/{id}/qa/predict (n == nSegsAccountResID: accounts,
-		// {id}, qa, predict). The previous "n > nSegsAccountResID" guard made
-		// this real 4-segment path unreachable.
-		if n >= nSegsAccountResID && seg(segs, segResID) == pathSegPredict && method == http.MethodPost {
-			return opPredictQAResults, seg(segs, segAccountID)
-		}
-	case pathSegAppTokenGrant:
-		if method == http.MethodPut {
-			return opUpdateAppTokenGrant, seg(segs, segAccountID)
-		}
+	return classify(method, segs, n)
+}
+
+// classifyTagResourcePaths classifies /resources/{arn}/tags.
+func classifyTagResourcePaths(method string, segs []string, n int) (string, string) {
+	arn := strings.Join(segs[1:n-1], "/")
+	switch method {
+	case http.MethodPost:
+		return opTagResource, arn
+	case http.MethodGet:
+		return opListTagsForResource, arn
+	case http.MethodDelete:
+		return opUntagResource, arn
 	}
 
 	return opUnknown, ""
@@ -223,76 +235,125 @@ func classifyNsWithID(method string, segs []string) (string, string) {
 	return opUnknown, ""
 }
 
-func classifyNsWithSubRes(method string, segs []string) (string, string) { //nolint:cyclop // existing issue.
+// classifyNsWithSubRes classifies a 4-segment /accounts/{id}/namespaces/{ns}/{sub}
+// path. Every matched case returns ns itself as the resource id, so each
+// per-sub helper only needs to decide the op name from method.
+func classifyNsWithSubRes(method string, segs []string) (string, string) {
 	ns := seg(segs, segResID)
 	sub := seg(segs, segSubRes)
+
+	var op string
 	switch sub {
 	case pathSegGroups:
-		switch method {
-		case http.MethodPost:
-			return opCreateGroup, ns
-		case http.MethodGet:
-			return opListGroups, ns
-		}
+		op = classifyNsGroupsCollection(method)
 	case pathSegUsers:
-		switch method {
-		case http.MethodPost:
-			return opRegisterUser, ns
-		case http.MethodGet:
-			return opListUsers, ns
-		}
+		op = classifyNsUsersCollection(method)
 	case pathSegGroupsSearch:
-		if method == http.MethodPost {
-			return opSearchGroups, ns
-		}
+		op = classifyNsGroupsSearch(method)
 	case pathSegIAMPolicyAssignments:
-		switch method {
-		case http.MethodPost:
-			return opCreateIAMPolicyAssignment, ns
-		case http.MethodGet:
-			return opListIAMPolicyAssignments, ns
-		}
+		op = classifyNsIAMPolicyCollection(method)
 	case pathSegSelfUpgradeCfg:
-		switch method {
-		case http.MethodGet:
-			return opDescribeSelfUpgradeConfig, ns
-		case http.MethodPut:
-			return opUpdateSelfUpgradeConfig, ns
-		}
+		op = classifyNsSelfUpgradeConfig(method)
 	case pathSegSelfUpgradeReqs:
-		if method == http.MethodGet {
-			return opListSelfUpgrades, ns
-		}
+		op = classifyNsSelfUpgradeRequests(method)
 	case pathSegUpdateSelfUpgrade:
-		if method == http.MethodPost {
-			return opUpdateSelfUpgrade, ns
-		}
+		op = classifyNsUpdateSelfUpgrade(method)
+	default:
+		op = opUnknown
 	}
 
-	return opUnknown, ""
+	if op == opUnknown {
+		return opUnknown, ""
+	}
+
+	return op, ns
 }
 
-func classifyNsWithSubResID(method string, segs []string) (string, string) { //nolint:cyclop // existing issue.
+func classifyNsGroupsCollection(method string) string {
+	switch method {
+	case http.MethodPost:
+		return opCreateGroup
+	case http.MethodGet:
+		return opListGroups
+	default:
+		return opUnknown
+	}
+}
+
+func classifyNsUsersCollection(method string) string {
+	switch method {
+	case http.MethodPost:
+		return opRegisterUser
+	case http.MethodGet:
+		return opListUsers
+	default:
+		return opUnknown
+	}
+}
+
+func classifyNsGroupsSearch(method string) string {
+	if method == http.MethodPost {
+		return opSearchGroups
+	}
+
+	return opUnknown
+}
+
+func classifyNsIAMPolicyCollection(method string) string {
+	switch method {
+	case http.MethodPost:
+		return opCreateIAMPolicyAssignment
+	case http.MethodGet:
+		return opListIAMPolicyAssignments
+	default:
+		return opUnknown
+	}
+}
+
+func classifyNsSelfUpgradeConfig(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opDescribeSelfUpgradeConfig
+	case http.MethodPut:
+		return opUpdateSelfUpgradeConfig
+	default:
+		return opUnknown
+	}
+}
+
+func classifyNsSelfUpgradeRequests(method string) string {
+	if method == http.MethodGet {
+		return opListSelfUpgrades
+	}
+
+	return opUnknown
+}
+
+func classifyNsUpdateSelfUpgrade(method string) string {
+	if method == http.MethodPost {
+		return opUpdateSelfUpgrade
+	}
+
+	return opUnknown
+}
+
+// classifyNsWithSubResID classifies a 5-segment
+// /accounts/{id}/namespaces/{ns}/{sub}/{subResID} path. Most cases return
+// segSubResID as the resource id; pathSegUserPrincipals and pathSegV2 are the
+// two exceptions (they identify the resource by segResID instead), so those
+// stay inlined here rather than going through a per-sub helper.
+func classifyNsWithSubResID(method string, segs []string) (string, string) {
 	sub := seg(segs, segSubRes)
 	id := seg(segs, segSubResID)
+
 	switch sub {
 	case pathSegGroups:
-		switch method {
-		case http.MethodGet:
-			return opDescribeGroup, id
-		case http.MethodPut:
-			return opUpdateGroup, id
-		case http.MethodDelete:
-			return opDeleteGroup, id
+		if op := classifyNsGroupByID(method); op != opUnknown {
+			return op, id
 		}
 	case pathSegUsers:
-		switch method {
-		case http.MethodGet:
-			return opDescribeUser, id
-		case http.MethodPut:
-			return opUpdateUser, id
-		case http.MethodDelete:
-			return opDeleteUser, id
+		if op := classifyNsUserByID(method); op != opUnknown {
+			return op, id
 		}
 	case pathSegUserPrincipals:
 		if method == http.MethodDelete {
@@ -300,11 +361,8 @@ func classifyNsWithSubResID(method string, segs []string) (string, string) { //n
 		}
 	case pathSegIAMPolicyAssignments:
 		// namespaces/{ns}/iam-policy-assignments/{name}
-		switch method {
-		case http.MethodGet:
-			return opDescribeIAMPolicyAssignment, id
-		case http.MethodPut:
-			return opUpdateIAMPolicyAssignment, id
+		if op := classifyNsIAMPolicyByID(method); op != opUnknown {
+			return op, id
 		}
 	case pathSegV2:
 		// namespaces/{ns}/v2/iam-policy-assignments
@@ -316,46 +374,128 @@ func classifyNsWithSubResID(method string, segs []string) (string, string) { //n
 	return opUnknown, ""
 }
 
-func classifyNsWithSubSubRes(method string, segs []string) (string, string) { //nolint:cyclop // existing issue.
+func classifyNsGroupByID(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opDescribeGroup
+	case http.MethodPut:
+		return opUpdateGroup
+	case http.MethodDelete:
+		return opDeleteGroup
+	default:
+		return opUnknown
+	}
+}
+
+func classifyNsUserByID(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opDescribeUser
+	case http.MethodPut:
+		return opUpdateUser
+	case http.MethodDelete:
+		return opDeleteUser
+	default:
+		return opUnknown
+	}
+}
+
+func classifyNsIAMPolicyByID(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opDescribeIAMPolicyAssignment
+	case http.MethodPut:
+		return opUpdateIAMPolicyAssignment
+	default:
+		return opUnknown
+	}
+}
+
+// nsSubSubResKey identifies a (sub, tail) pair for a 6-segment
+// /accounts/{id}/namespaces/{ns}/{sub}/{subResID}/{tail} path.
+type nsSubSubResKey struct {
+	sub  string
+	tail string
+}
+
+// nsSubSubResTable lazily builds the (sub, tail) -> per-method-op lookup for
+// classifyNsWithSubSubRes exactly once. Every case in the original flat
+// switch returned segSubResID as the resource id, so the table only needs to
+// resolve the op name; the id is applied uniformly by the caller. Mirrors the
+// onceOpTable pattern in services/apigatewayv2/handler.go.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
+var nsSubSubResTable = sync.OnceValue(func() map[nsSubSubResKey]func(string) string {
+	return map[nsSubSubResKey]func(string) string{
+		{sub: pathSegGroups, tail: pathSegMembers}: func(method string) string {
+			if method == http.MethodGet {
+				return opListGroupMemberships
+			}
+
+			return opUnknown
+		},
+		{sub: pathSegUsers, tail: pathSegGroups}: func(method string) string {
+			if method == http.MethodGet {
+				return opListUserGroups
+			}
+
+			return opUnknown
+		},
+		{sub: pathSegUsers, tail: pathSegIAMPolicyAssignments}: func(method string) string {
+			if method == http.MethodGet {
+				return opListIAMPolicyAssignmentsForUser
+			}
+
+			return opUnknown
+		},
+		{sub: pathSegUsers, tail: pathSegCustomPermission}: func(method string) string {
+			switch method {
+			case http.MethodPut:
+				return opUpdateUserCustomPermission
+			case http.MethodDelete:
+				return opDeleteUserCustomPermission
+			default:
+				return opUnknown
+			}
+		},
+		{sub: pathSegRoles, tail: pathSegCustomPermission}: func(method string) string {
+			switch method {
+			case http.MethodGet:
+				return opGetRoleCustomPermission
+			case http.MethodPut:
+				return opUpdateRoleCustomPermission
+			case http.MethodDelete:
+				return opDeleteRoleCustomPermission
+			default:
+				return opUnknown
+			}
+		},
+		{sub: pathSegRoles, tail: pathSegMembers}: func(method string) string {
+			if method == http.MethodGet {
+				return opListRoleMemberships
+			}
+
+			return opUnknown
+		},
+	}
+})
+
+func classifyNsWithSubSubRes(method string, segs []string) (string, string) {
 	sub := seg(segs, segSubRes)
 	id := seg(segs, segSubResID)
 	tail := seg(segs, segSubSubRes)
-	switch {
-	case sub == pathSegGroups && tail == pathSegMembers:
-		if method == http.MethodGet {
-			return opListGroupMemberships, id
-		}
-	case sub == pathSegUsers && tail == pathSegGroups:
-		if method == http.MethodGet {
-			return opListUserGroups, id
-		}
-	case sub == pathSegUsers && tail == pathSegIAMPolicyAssignments:
-		if method == http.MethodGet {
-			return opListIAMPolicyAssignmentsForUser, id
-		}
-	case sub == pathSegUsers && tail == pathSegCustomPermission:
-		switch method {
-		case http.MethodPut:
-			return opUpdateUserCustomPermission, id
-		case http.MethodDelete:
-			return opDeleteUserCustomPermission, id
-		}
-	case sub == pathSegRoles && tail == pathSegCustomPermission:
-		switch method {
-		case http.MethodGet:
-			return opGetRoleCustomPermission, id
-		case http.MethodPut:
-			return opUpdateRoleCustomPermission, id
-		case http.MethodDelete:
-			return opDeleteRoleCustomPermission, id
-		}
-	case sub == pathSegRoles && tail == pathSegMembers:
-		if method == http.MethodGet {
-			return opListRoleMemberships, id
-		}
+
+	resolve, ok := nsSubSubResTable()[nsSubSubResKey{sub: sub, tail: tail}]
+	if !ok {
+		return opUnknown, ""
 	}
 
-	return opUnknown, ""
+	op := resolve(method)
+	if op == opUnknown {
+		return opUnknown, ""
+	}
+
+	return op, id
 }
 
 func classifyNsWithSubSubResID(method string, segs []string) (string, string) {
@@ -438,162 +578,224 @@ func classifyIngestionPaths(method string, segs []string, n int) (string, string
 	return opUnknown, ""
 }
 
-func classifyDataSetPaths( //nolint:gocognit,cyclop,funlen // existing issue.
-	method string,
-	segs []string,
-	n int,
-) (string, string) {
+func classifyDataSetPaths(method string, segs []string, n int) (string, string) {
 	switch n {
 	case nSegsAccountRes:
-		switch method {
-		case http.MethodPost:
-			return opCreateDataSet, seg(segs, segAccountID)
-		case http.MethodGet:
-			return opListDataSets, seg(segs, segAccountID)
-		}
+		return classifyDataSetRoot(method, segs)
 	case nSegsAccountResID:
-		id := seg(segs, segResID)
+		return classifyDataSetByID(method, segs)
+	case nSegsSubRes:
+		return classifyDataSetSubRes(method, segs, n)
+	case nSegsSubResID:
+		return classifyDataSetSubResID(method, segs, n)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDataSetRoot(method string, segs []string) (string, string) {
+	switch method {
+	case http.MethodPost:
+		return opCreateDataSet, seg(segs, segAccountID)
+	case http.MethodGet:
+		return opListDataSets, seg(segs, segAccountID)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDataSetByID(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	switch method {
+	case http.MethodGet:
+		return opDescribeDataSet, id
+	case http.MethodPut:
+		return opUpdateDataSet, id
+	case http.MethodDelete:
+		return opDeleteDataSet, id
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDataSetSubRes(method string, segs []string, n int) (string, string) {
+	sub := seg(segs, segSubRes)
+	id := seg(segs, segResID)
+
+	switch sub {
+	case pathSegIngestions:
+		return classifyIngestionPaths(method, segs, n)
+	case pathSegRefreshSchedules:
+		return classifyDataSetRefreshSchedulesCollection(method, id)
+	case pathSegRefreshProperties:
+		return classifyDataSetRefreshProperties(method, id)
+	case pathSegPermissions:
+		return classifyDataSetPermissions(method, id)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDataSetRefreshSchedulesCollection(method, id string) (string, string) {
+	switch method {
+	case http.MethodPost:
+		return opCreateRefreshSchedule, id
+	case http.MethodGet:
+		return opListRefreshSchedules, id
+	case http.MethodPut:
+		return opUpdateRefreshSchedule, id
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDataSetRefreshProperties(method, id string) (string, string) {
+	switch method {
+	case http.MethodPut:
+		return opPutDataSetRefreshProperties, id
+	case http.MethodGet:
+		return opDescribeDataSetRefreshProps, id
+	case http.MethodDelete:
+		return opDeleteDataSetRefreshProps, id
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDataSetPermissions(method, id string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return opDescribeDataSetPerms, id
+	case http.MethodPost:
+		return opUpdateDataSetPerms, id
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDataSetSubResID(method string, segs []string, n int) (string, string) {
+	sub := seg(segs, segSubRes)
+	id := seg(segs, segResID)
+
+	switch sub {
+	case pathSegIngestions:
+		return classifyIngestionPaths(method, segs, n)
+	case pathSegRefreshSchedules:
 		switch method {
 		case http.MethodGet:
-			return opDescribeDataSet, id
-		case http.MethodPut:
-			return opUpdateDataSet, id
+			return opDescribeRefreshSchedule, id
 		case http.MethodDelete:
-			return opDeleteDataSet, id
-		}
-	case nSegsSubRes:
-		sub := seg(segs, segSubRes)
-		id := seg(segs, segResID)
-		switch sub {
-		case pathSegIngestions:
-			return classifyIngestionPaths(method, segs, n)
-		case pathSegRefreshSchedules:
-			switch method {
-			case http.MethodPost:
-				return opCreateRefreshSchedule, id
-			case http.MethodGet:
-				return opListRefreshSchedules, id
-			case http.MethodPut:
-				return opUpdateRefreshSchedule, id
-			}
-		case pathSegRefreshProperties:
-			switch method {
-			case http.MethodPut:
-				return opPutDataSetRefreshProperties, id
-			case http.MethodGet:
-				return opDescribeDataSetRefreshProps, id
-			case http.MethodDelete:
-				return opDeleteDataSetRefreshProps, id
-			}
-		case pathSegPermissions:
-			switch method {
-			case http.MethodGet:
-				return opDescribeDataSetPerms, id
-			case http.MethodPost:
-				return opUpdateDataSetPerms, id
-			}
-		}
-	case nSegsSubResID:
-		sub := seg(segs, segSubRes)
-		id := seg(segs, segResID)
-		switch sub {
-		case pathSegIngestions:
-			return classifyIngestionPaths(method, segs, n)
-		case pathSegRefreshSchedules:
-			switch method {
-			case http.MethodGet:
-				return opDescribeRefreshSchedule, id
-			case http.MethodDelete:
-				return opDeleteRefreshSchedule, id
-			}
+			return opDeleteRefreshSchedule, id
 		}
 	}
 
 	return opUnknown, ""
 }
 
-func classifyDashboardPaths( //nolint:gocognit,gocyclo,cyclop,funlen // existing issue.
-	method string,
-	segs []string,
-	n int,
-) (string, string) {
+func classifyDashboardPaths(method string, segs []string, n int) (string, string) {
 	switch n {
 	case nSegsAccountRes:
 		if method == http.MethodGet {
 			return opListDashboards, seg(segs, segAccountID)
 		}
 	case nSegsAccountResID:
-		id := seg(segs, segResID)
-		switch method {
-		case http.MethodPost:
-			return opCreateDashboard, id
-		case http.MethodGet:
-			return opDescribeDashboard, id
-		case http.MethodPut:
-			return opUpdateDashboard, id
-		case http.MethodDelete:
-			return opDeleteDashboard, id
-		}
+		return classifyDashboardByID(method, segs)
 	case nSegsSubRes:
-		id := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		switch sub {
-		case pathSegVersions:
-			if method == http.MethodGet {
-				return opListDashboardVersions, id
-			}
-		case pathSegDefinition:
-			if method == http.MethodGet {
-				return opDescribeDashboardDefinition, id
-			}
-		case pathSegPermissions:
-			switch method {
-			case http.MethodGet:
-				return opDescribeDashboardPerms, id
-			case http.MethodPut:
-				return opUpdateDashboardPerms, id
-			}
-		case pathSegSnapshotJobs:
-			switch method { //nolint:gocritic // existing issue.
-			case http.MethodPost:
-				return opStartDashboardSnapshotJob, id
-			}
-		case pathSegLinkedEntities:
-			if method == http.MethodPut {
-				return opUpdateDashboardLinks, id
-			}
-		case pathSegEmbedUrl:
-			if method == http.MethodGet {
-				return opGetDashboardEmbedUrl, id
-			}
-		}
+		return classifyDashboardSubRes(method, segs)
 	case nSegsSubResID:
-		id := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		subID := seg(segs, segSubResID)
-		switch sub {
-		case pathSegVersions:
-			// PUT /accounts/{id}/dashboards/{dashId}/versions/{versionNumber}
-			if method == http.MethodPut {
-				return opUpdateDashboardPublishedVersion, id
-			}
-		case pathSegSnapshotJobs:
-			// GET /accounts/{id}/dashboards/{dashId}/snapshot-jobs/{jobId}
-			if method == http.MethodGet {
-				return opDescribeDashboardSnapshotJob, subID
-			}
-		case pathSegSchedules:
-			// POST /accounts/{id}/dashboards/{dashId}/schedules/{scheduleId}
-			if method == http.MethodPost {
-				return opStartDashboardSnapshotJobSchedule, id
-			}
-		}
+		return classifyDashboardSubResID(method, segs)
 	case nSegsSubSubRes:
-		// /accounts/{id}/dashboards/{dashId}/snapshot-jobs/{jobId}/result
-		if seg(segs, segSubRes) == pathSegSnapshotJobs && seg(segs, segSubSubRes) == pathSegResult &&
-			method == http.MethodGet {
-			return opDescribeDashboardSnapshotJobResult, seg(segs, segSubResID)
+		return classifyDashboardSubSubRes(method, segs)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDashboardByID(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	switch method {
+	case http.MethodPost:
+		return opCreateDashboard, id
+	case http.MethodGet:
+		return opDescribeDashboard, id
+	case http.MethodPut:
+		return opUpdateDashboard, id
+	case http.MethodDelete:
+		return opDeleteDashboard, id
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDashboardSubRes(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	sub := seg(segs, segSubRes)
+
+	switch sub {
+	case pathSegVersions:
+		if method == http.MethodGet {
+			return opListDashboardVersions, id
 		}
+	case pathSegDefinition:
+		if method == http.MethodGet {
+			return opDescribeDashboardDefinition, id
+		}
+	case pathSegPermissions:
+		switch method {
+		case http.MethodGet:
+			return opDescribeDashboardPerms, id
+		case http.MethodPut:
+			return opUpdateDashboardPerms, id
+		}
+	case pathSegSnapshotJobs:
+		if method == http.MethodPost {
+			return opStartDashboardSnapshotJob, id
+		}
+	case pathSegLinkedEntities:
+		if method == http.MethodPut {
+			return opUpdateDashboardLinks, id
+		}
+	case pathSegEmbedUrl:
+		if method == http.MethodGet {
+			return opGetDashboardEmbedUrl, id
+		}
+	}
+
+	return opUnknown, ""
+}
+
+func classifyDashboardSubResID(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	sub := seg(segs, segSubRes)
+	subID := seg(segs, segSubResID)
+
+	switch sub {
+	case pathSegVersions:
+		// PUT /accounts/{id}/dashboards/{dashId}/versions/{versionNumber}
+		if method == http.MethodPut {
+			return opUpdateDashboardPublishedVersion, id
+		}
+	case pathSegSnapshotJobs:
+		// GET /accounts/{id}/dashboards/{dashId}/snapshot-jobs/{jobId}
+		if method == http.MethodGet {
+			return opDescribeDashboardSnapshotJob, subID
+		}
+	case pathSegSchedules:
+		// POST /accounts/{id}/dashboards/{dashId}/schedules/{scheduleId}
+		if method == http.MethodPost {
+			return opStartDashboardSnapshotJobSchedule, id
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyDashboardSubSubRes classifies
+// /accounts/{id}/dashboards/{dashId}/snapshot-jobs/{jobId}/result.
+func classifyDashboardSubSubRes(method string, segs []string) (string, string) {
+	if seg(segs, segSubRes) == pathSegSnapshotJobs && seg(segs, segSubSubRes) == pathSegResult &&
+		method == http.MethodGet {
+		return opDescribeDashboardSnapshotJobResult, seg(segs, segSubResID)
 	}
 
 	return opUnknown, ""
@@ -767,6 +969,8 @@ func httpErr(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrNotFound):
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
+		return writeError(c, http.StatusConflict, "ConflictException", err.Error())
+	case errors.Is(err, awserr.ErrConflict):
 		return writeError(c, http.StatusConflict, "ConflictException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return writeError(c, http.StatusBadRequest, errInvalidParam, err.Error())

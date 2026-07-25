@@ -36,6 +36,9 @@ func TestInMemoryBackend_GetReturnsIsolatedCopy(t *testing.T) {
 					"LoRaWAN",
 					"",
 					"",
+					"",
+					nil,
+					nil,
 					map[string]string{"k": "v"},
 				)
 				require.NoError(t, err)
@@ -57,6 +60,7 @@ func TestInMemoryBackend_GetReturnsIsolatedCopy(t *testing.T) {
 					testRegion,
 					"gw",
 					"",
+					nil,
 					map[string]string{"k": "v"},
 				)
 				require.NoError(t, err)
@@ -73,12 +77,7 @@ func TestInMemoryBackend_GetReturnsIsolatedCopy(t *testing.T) {
 				)
 
 			case "service_profile":
-				sp, err := bk.CreateServiceProfile(
-					testAccountID,
-					testRegion,
-					"sp",
-					map[string]string{"k": "v"},
-				)
+				sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp", nil, map[string]string{"k": "v"})
 				require.NoError(t, err)
 
 				sp.Tags["injected"] = "yes"
@@ -132,8 +131,8 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 		{
 			name: "devices_cleared",
 			setup: func(b *iotwireless.InMemoryBackend) {
-				_, _ = b.CreateWirelessDevice(testAccountID, testRegion, "d1", "LoRaWAN", "", "", nil)
-				_, _ = b.CreateWirelessDevice(testAccountID, testRegion, "d2", "LoRaWAN", "", "", nil)
+				_, _ = b.CreateWirelessDevice(testAccountID, testRegion, "d1", "LoRaWAN", "", "", "", nil, nil, nil)
+				_, _ = b.CreateWirelessDevice(testAccountID, testRegion, "d2", "LoRaWAN", "", "", "", nil, nil, nil)
 			},
 			check: func(t *testing.T, b *iotwireless.InMemoryBackend) {
 				t.Helper()
@@ -143,8 +142,8 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 		{
 			name: "gateways_cleared",
 			setup: func(b *iotwireless.InMemoryBackend) {
-				_, _ = b.CreateWirelessGateway(testAccountID, testRegion, "gw1", "", nil)
-				_, _ = b.CreateWirelessGateway(testAccountID, testRegion, "gw2", "", nil)
+				_, _ = b.CreateWirelessGateway(testAccountID, testRegion, "gw1", "", nil, nil)
+				_, _ = b.CreateWirelessGateway(testAccountID, testRegion, "gw2", "", nil, nil)
 			},
 			check: func(t *testing.T, b *iotwireless.InMemoryBackend) {
 				t.Helper()
@@ -154,7 +153,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 		{
 			name: "service_profiles_cleared",
 			setup: func(b *iotwireless.InMemoryBackend) {
-				_, _ = b.CreateServiceProfile(testAccountID, testRegion, "sp1", nil)
+				_, _ = b.CreateServiceProfile(testAccountID, testRegion, "sp1", nil, nil)
 			},
 			check: func(t *testing.T, b *iotwireless.InMemoryBackend) {
 				t.Helper()
@@ -164,7 +163,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 		{
 			name: "device_profiles_cleared",
 			setup: func(b *iotwireless.InMemoryBackend) {
-				_, _ = b.CreateDeviceProfile(testAccountID, testRegion, "dp1", nil)
+				_, _ = b.CreateDeviceProfile(testAccountID, testRegion, "dp1", nil, nil, nil)
 			},
 			check: func(t *testing.T, b *iotwireless.InMemoryBackend) {
 				t.Helper()
@@ -174,7 +173,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 		{
 			name: "fuota_tasks_cleared",
 			setup: func(b *iotwireless.InMemoryBackend) {
-				_, _ = b.CreateFuotaTask(testAccountID, testRegion, "ft1", "", "", "", nil)
+				_, _ = b.CreateFuotaTask(testAccountID, testRegion, "ft1", "", "", "", "", 0, 0, 0, nil, nil)
 			},
 			check: func(t *testing.T, b *iotwireless.InMemoryBackend) {
 				t.Helper()
@@ -202,7 +201,7 @@ func TestInMemoryBackend_MultipleResetCycle(t *testing.T) {
 	b := iotwireless.NewInMemoryBackend()
 
 	for range 3 {
-		_, err := b.CreateWirelessDevice(testAccountID, testRegion, "d1", "LoRaWAN", "", "", nil)
+		_, err := b.CreateWirelessDevice(testAccountID, testRegion, "d1", "LoRaWAN", "", "", "", nil, nil, nil)
 		require.NoError(t, err)
 
 		b.Reset()
@@ -224,12 +223,12 @@ func TestInMemoryBackend_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 0, iotwireless.DeviceProfileCount(b, testAccountID, testRegion))
 	assert.Equal(t, 0, iotwireless.FuotaTaskCount(b, testAccountID, testRegion))
 
-	_, _ = b.CreateWirelessDevice(testAccountID, testRegion, "d1", "LoRaWAN", "", "", nil)
-	_, _ = b.CreateWirelessGateway(testAccountID, testRegion, "gw1", "", nil)
-	_, _ = b.CreateServiceProfile(testAccountID, testRegion, "sp1", nil)
+	_, _ = b.CreateWirelessDevice(testAccountID, testRegion, "d1", "LoRaWAN", "", "", "", nil, nil, nil)
+	_, _ = b.CreateWirelessGateway(testAccountID, testRegion, "gw1", "", nil, nil)
+	_, _ = b.CreateServiceProfile(testAccountID, testRegion, "sp1", nil, nil)
 	_, _ = b.CreateDestination(testAccountID, testRegion, "dest1", "", "", "", "", nil)
-	_, _ = b.CreateDeviceProfile(testAccountID, testRegion, "dp1", nil)
-	_, _ = b.CreateFuotaTask(testAccountID, testRegion, "ft1", "", "", "", nil)
+	_, _ = b.CreateDeviceProfile(testAccountID, testRegion, "dp1", nil, nil, nil)
+	_, _ = b.CreateFuotaTask(testAccountID, testRegion, "ft1", "", "", "", "", 0, 0, 0, nil, nil)
 
 	assert.Equal(t, 1, iotwireless.DeviceCount(b, testAccountID, testRegion))
 	assert.Equal(t, 1, iotwireless.GatewayCount(b, testAccountID, testRegion))
@@ -360,7 +359,7 @@ func TestInMemoryBackend_DeepCopy_Tags(t *testing.T) {
 			runTest: func(t *testing.T, b *iotwireless.InMemoryBackend) {
 				t.Helper()
 
-				dp, err := b.CreateDeviceProfile(testAccountID, testRegion, "dp", map[string]string{"k": "v"})
+				dp, err := b.CreateDeviceProfile(testAccountID, testRegion, "dp", nil, nil, map[string]string{"k": "v"})
 				require.NoError(t, err)
 
 				dp.Tags["injected"] = "yes"
@@ -375,7 +374,20 @@ func TestInMemoryBackend_DeepCopy_Tags(t *testing.T) {
 			runTest: func(t *testing.T, b *iotwireless.InMemoryBackend) {
 				t.Helper()
 
-				ft, err := b.CreateFuotaTask(testAccountID, testRegion, "ft", "", "", "", map[string]string{"k": "v"})
+				ft, err := b.CreateFuotaTask(
+					testAccountID,
+					testRegion,
+					"ft",
+					"",
+					"",
+					"",
+					"",
+					0,
+					0,
+					0,
+					nil,
+					map[string]string{"k": "v"},
+				)
 				require.NoError(t, err)
 
 				ft.Tags["injected"] = "yes"

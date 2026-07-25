@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -21,10 +22,13 @@ type createMulticastGroupResponse struct {
 }
 
 type getMulticastGroupResponse struct {
-	Arn    string `json:"Arn"`
-	ID     string `json:"Id"`
-	Name   string `json:"Name"`
-	Status string `json:"Status"`
+	LoRaWAN     map[string]any `json:"LoRaWAN,omitempty"`
+	Arn         string         `json:"Arn"`
+	ID          string         `json:"Id"`
+	Name        string         `json:"Name"`
+	Description string         `json:"Description,omitempty"`
+	Status      string         `json:"Status"`
+	CreatedAt   float64        `json:"CreatedAt,omitempty"`
 }
 
 type getMulticastGroupSessionResponse struct {
@@ -48,9 +52,10 @@ type sendDataToMulticastGroupResponse struct {
 
 func (h *Handler) createMulticastGroup(c *echo.Context) error {
 	var req struct {
-		Name        string    `json:"Name"`
-		Description string    `json:"Description"`
-		Tags        []tags.KV `json:"Tags"`
+		LoRaWAN     map[string]any `json:"LoRaWAN,omitempty"`
+		Name        string         `json:"Name"`
+		Description string         `json:"Description"`
+		Tags        []tags.KV      `json:"Tags"`
 	}
 
 	body := readStubBody(c)
@@ -61,6 +66,7 @@ func (h *Handler) createMulticastGroup(c *echo.Context) error {
 		h.DefaultRegion,
 		req.Name,
 		req.Description,
+		req.LoRaWAN,
 		tagKVsToMap(req.Tags),
 	)
 	if err != nil {
@@ -79,19 +85,28 @@ func (h *Handler) getMulticastGroup(c *echo.Context, id string) error {
 		return handleError(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, getMulticastGroupResponse{
-		Arn:    mg.ARN,
-		ID:     mg.ID,
-		Name:   mg.Name,
-		Status: mg.Status,
-	})
+	resp := getMulticastGroupResponse{
+		Arn:         mg.ARN,
+		ID:          mg.ID,
+		Name:        mg.Name,
+		Description: mg.Description,
+		Status:      mg.Status,
+		LoRaWAN:     mg.LoRaWAN,
+	}
+	if !mg.CreatedAt.IsZero() {
+		resp.CreatedAt = awstime.Epoch(mg.CreatedAt)
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) listMulticastGroups(c *echo.Context) error {
 	groups := h.Backend.ListMulticastGroups(h.AccountID, h.DefaultRegion)
-	entries := make([]multicastGroupEntry, 0, len(groups))
+	pg, next := paginateQuery(c, groups)
 
-	for _, mg := range groups {
+	entries := make([]multicastGroupEntry, 0, len(pg))
+
+	for _, mg := range pg {
 		entries = append(entries, multicastGroupEntry{
 			Arn:  mg.ARN,
 			ID:   mg.ID,
@@ -101,6 +116,7 @@ func (h *Handler) listMulticastGroups(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, listMulticastGroupsResponse{
 		MulticastGroupList: entries,
+		NextToken:          next,
 	})
 }
 
@@ -132,11 +148,17 @@ func (h *Handler) updateMulticastGroup(c *echo.Context, id string) error {
 	return nil
 }
 
+// disassociateWirelessDeviceFromMulticastGroup removes the association
+// between a multicast group and a single wireless device. wirelessDeviceID
+// is the {WirelessDeviceId} path segment (DELETE
+// /multicast-groups/{Id}/wireless-devices/{WirelessDeviceId}), recovered by
+// the caller via lastPathSegment since parseIoTWirelessPath's (op, resource)
+// pair only carries the top-level multicast group ID.
 func (h *Handler) disassociateWirelessDeviceFromMulticastGroup(
 	c *echo.Context,
-	multicastGroupID, _ string,
+	multicastGroupID, wirelessDeviceID string,
 ) error {
-	if err := h.Backend.DisassociateWirelessDeviceFromMulticastGroup(multicastGroupID); err != nil {
+	if err := h.Backend.DisassociateWirelessDeviceFromMulticastGroup(multicastGroupID, wirelessDeviceID); err != nil {
 		return handleError(c, err)
 	}
 
@@ -183,6 +205,41 @@ func (h *Handler) associateWirelessDeviceWithMulticastGroup(
 	}
 
 	if err := h.Backend.AssociateWirelessDeviceWithMulticastGroup(multicastGroupID, req.WirelessDeviceID); err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+// startBulkAssociateWirelessDeviceWithMulticastGroup emulates real AWS's
+// "associate every qualifying device" bulk operation. Real AWS filters
+// candidates using the request's QueryString search expression; this
+// backend has no expression evaluator, so it associates every wireless
+// device in the account/region (see
+// StartBulkAssociateWirelessDeviceWithMulticastGroup's doc comment).
+// Previously this returned 204 without mutating any state at all.
+func (h *Handler) startBulkAssociateWirelessDeviceWithMulticastGroup(c *echo.Context, multicastGroupID string) error {
+	if err := h.Backend.StartBulkAssociateWirelessDeviceWithMulticastGroup(
+		h.AccountID, h.DefaultRegion, multicastGroupID,
+	); err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
+}
+
+// startBulkDisassociateWirelessDeviceFromMulticastGroup emulates real AWS's
+// "disassociate every qualifying device" bulk operation, matching the same
+// full-corpus semantics as startBulkAssociateWirelessDeviceWithMulticastGroup.
+func (h *Handler) startBulkDisassociateWirelessDeviceFromMulticastGroup(
+	c *echo.Context,
+	multicastGroupID string,
+) error {
+	if err := h.Backend.StartBulkDisassociateWirelessDeviceFromMulticastGroup(multicastGroupID); err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
 

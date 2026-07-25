@@ -2,6 +2,7 @@ package dms_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -202,6 +203,192 @@ func TestStartReplicationTaskAssessment(t *testing.T) {
 		assert.NotEqual(t, "test-failed", rt["Status"],
 			"StartReplicationTaskAssessment must not return test-failed as initial status")
 	})
+}
+
+// setupAssessmentTask creates a replication instance, source/target
+// endpoints, and a replication task, returning the task's ARN.
+func setupAssessmentTask(t *testing.T, h *dms.Handler, prefix string) string {
+	t.Helper()
+
+	riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+		"ReplicationInstanceIdentifier": prefix + "-ri",
+		"ReplicationInstanceClass":      "dms.t3.medium",
+	})
+	require.Equal(t, http.StatusOK, riRec.Code)
+	riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+	srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": prefix + "-src",
+		"EndpointType":       "source",
+		"EngineName":         "mysql",
+	})
+	require.Equal(t, http.StatusOK, srcRec.Code)
+	srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+	tgtRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": prefix + "-tgt",
+		"EndpointType":       "target",
+		"EngineName":         "s3",
+	})
+	require.Equal(t, http.StatusOK, tgtRec.Code)
+	tgtArn := parseJSON(t, tgtRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+	taskRec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+		"ReplicationTaskIdentifier": prefix + "-task",
+		"SourceEndpointArn":         srcArn,
+		"TargetEndpointArn":         tgtArn,
+		"ReplicationInstanceArn":    riArn,
+		"MigrationType":             "full-load",
+	})
+	require.Equal(t, http.StatusOK, taskRec.Code)
+
+	return parseJSON(t, taskRec)["ReplicationTask"].(map[string]any)["ReplicationTaskArn"].(string)
+}
+
+// TestStartReplicationTaskAssessmentRun_RequiredFields verifies
+// ValidationException is returned when any of the four required
+// StartReplicationTaskAssessmentRunInput members is missing, and when both
+// IncludeOnly and Exclude are set (mutually exclusive per the SDK doc).
+func TestStartReplicationTaskAssessmentRun_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	full := map[string]any{
+		"ReplicationTaskArn":   "arn:aws:dms:us-east-1:123:task:t",
+		"ServiceAccessRoleArn": "arn:aws:iam::123:role/role",
+		"ResultLocationBucket": "bucket",
+		"AssessmentRunName":    "run",
+	}
+
+	cases := []struct {
+		body map[string]any
+		name string
+	}{
+		{name: "missing AssessmentRunName", body: withoutKey(full, "AssessmentRunName")},
+		{name: "missing ReplicationTaskArn", body: withoutKey(full, "ReplicationTaskArn")},
+		{name: "missing ResultLocationBucket", body: withoutKey(full, "ResultLocationBucket")},
+		{name: "missing ServiceAccessRoleArn", body: withoutKey(full, "ServiceAccessRoleArn")},
+		{
+			name: "both IncludeOnly and Exclude set",
+			body: mergeMaps(full, map[string]any{
+				"IncludeOnly": []string{"test-connection-source"},
+				"Exclude":     []string{"test-connection-target"},
+			}),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "StartReplicationTaskAssessmentRun", tc.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+func withoutKey(m map[string]any, key string) map[string]any {
+	out := make(map[string]any, len(m))
+	maps.Copy(out, m)
+	delete(out, key)
+
+	return out
+}
+
+func mergeMaps(base, extra map[string]any) map[string]any {
+	out := make(map[string]any, len(base)+len(extra))
+	maps.Copy(out, base)
+	maps.Copy(out, extra)
+
+	return out
+}
+
+// TestDescribeApplicableIndividualAssessments verifies the op returns a
+// non-empty static catalog of individual assessment names (previously
+// always an empty list regardless of input).
+func TestDescribeApplicableIndividualAssessments(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	rec := doDMS(t, h, "DescribeApplicableIndividualAssessments", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	names := parseJSON(t, rec)["IndividualAssessmentNames"].([]any)
+	assert.NotEmpty(t, names, "DescribeApplicableIndividualAssessments must return a non-empty catalog")
+}
+
+// TestAssessmentRun_IndividualAssessmentsAndResults verifies that starting
+// an assessment run populates real, filterable individual-assessment rows
+// (DescribeReplicationTaskIndividualAssessments) and a real assessment
+// result (DescribeReplicationTaskAssessmentResults), both of which were
+// previously always-empty lists regardless of any StartReplicationTaskAssessmentRun
+// call.
+func TestAssessmentRun_IndividualAssessmentsAndResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	taskArn := setupAssessmentTask(t, h, "ar-ind")
+
+	startRec := doDMS(t, h, "StartReplicationTaskAssessmentRun", map[string]any{
+		"ReplicationTaskArn":   taskArn,
+		"ServiceAccessRoleArn": "arn:aws:iam::123:role/role",
+		"ResultLocationBucket": "bucket",
+		"AssessmentRunName":    "ind-run",
+		"IncludeOnly":          []string{"test-connection-source", "test-connection-target"},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+	runBody := parseJSON(t, startRec)["ReplicationTaskAssessmentRun"].(map[string]any)
+	runArn := runBody["ReplicationTaskAssessmentRunArn"].(string)
+	assert.Equal(t, "passed", runBody["Status"])
+	stats := runBody["ResultStatistic"].(map[string]any)
+	assert.InDelta(t, float64(2), stats["Passed"], 0)
+
+	// Unfiltered: both individual assessments must be visible.
+	indRec := doDMS(t, h, "DescribeReplicationTaskIndividualAssessments", map[string]any{})
+	require.Equal(t, http.StatusOK, indRec.Code)
+	individuals := parseJSON(t, indRec)["ReplicationTaskIndividualAssessments"].([]any)
+	require.Len(t, individuals, 2)
+
+	names := make([]string, 0, len(individuals))
+	for _, raw := range individuals {
+		names = append(names, raw.(map[string]any)["IndividualAssessmentName"].(string))
+	}
+	assert.ElementsMatch(t, []string{"test-connection-source", "test-connection-target"}, names)
+
+	// Filtered by the run ARN.
+	filteredRec := doDMS(t, h, "DescribeReplicationTaskIndividualAssessments", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "replication-task-assessment-run-arn", "Values": []string{runArn}},
+		},
+	})
+	require.Equal(t, http.StatusOK, filteredRec.Code)
+	filtered := parseJSON(t, filteredRec)["ReplicationTaskIndividualAssessments"].([]any)
+	assert.Len(t, filtered, 2)
+
+	// DescribeReplicationTaskAssessmentResults, filtered by task ARN, returns
+	// exactly one result and ignores Marker/MaxRecords per the SDK doc.
+	resultRec := doDMS(t, h, "DescribeReplicationTaskAssessmentResults", map[string]any{
+		"ReplicationTaskArn": taskArn,
+	})
+	require.Equal(t, http.StatusOK, resultRec.Code)
+	results := parseJSON(t, resultRec)["ReplicationTaskAssessmentResults"].([]any)
+	require.Len(t, results, 1)
+	result0 := results[0].(map[string]any)
+	assert.Equal(t, taskArn, result0["ReplicationTaskArn"])
+	assert.Equal(t, "passed", result0["AssessmentStatus"])
+
+	// Unfiltered list form also reports the completed run.
+	allResultsRec := doDMS(t, h, "DescribeReplicationTaskAssessmentResults", map[string]any{})
+	require.Equal(t, http.StatusOK, allResultsRec.Code)
+	allResults := parseJSON(t, allResultsRec)["ReplicationTaskAssessmentResults"].([]any)
+	require.Len(t, allResults, 1)
+
+	// A task that was never assessed reports no result.
+	noneRec := doDMS(t, h, "DescribeReplicationTaskAssessmentResults", map[string]any{
+		"ReplicationTaskArn": "arn:aws:dms:us-east-1:123:task:never-assessed",
+	})
+	require.Equal(t, http.StatusOK, noneRec.Code)
+	assert.Empty(t, parseJSON(t, noneRec)["ReplicationTaskAssessmentResults"])
 }
 
 func TestHandler_CancelReplicationTaskAssessmentRun(t *testing.T) {

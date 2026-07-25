@@ -1,5 +1,11 @@
 package guardduty
 
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+)
+
 // EnableOrganizationAdminAccount designates an account as org admin.
 func (b *InMemoryBackend) EnableOrganizationAdminAccount(adminAccountID string) error {
 	b.mu.Lock("EnableOrganizationAdminAccount")
@@ -88,16 +94,43 @@ func (b *InMemoryBackend) UpdateOrganizationConfiguration(
 }
 
 // GetOrganizationStatistics returns org-level statistics.
+//
+// Real GetOrganizationStatisticsOutput wraps everything under a single
+// organizationDetails object (types.OrganizationDetails), which itself
+// carries updatedAt (epoch seconds) alongside the nested
+// organizationStatistics object -- both were previously missing entirely.
+// activeAccountsCount/totalAccountsCount/enabledAccountsCount/
+// memberAccountsCount are computed from the members table (the accounts
+// actually associated with this account's GuardDuty organization), not
+// orgAdminAccounts (a distinct concept: which accounts are *delegated
+// administrators*, not which accounts are *members*).
 func (b *InMemoryBackend) GetOrganizationStatistics() map[string]any {
 	b.mu.RLock("GetOrganizationStatistics")
 	defer b.mu.RUnlock()
 
+	var memberCount, enabledCount int
+
+	for _, m := range b.members.All() {
+		memberCount++
+
+		if m.RelationshipStatus == "Enabled" { //nolint:goconst // matches members.go's existing RelationshipStatus literals
+			enabledCount++
+		}
+	}
+
+	// +1 for this account itself, which is always "active"/"associated"
+	// alongside however many member accounts it has.
+	totalAccounts := memberCount + 1
+	activeAccounts := enabledCount + 1
+
 	return map[string]any{
 		"organizationDetails": map[string]any{
+			"updatedAt": awstime.Epoch(time.Now().UTC()),
 			"organizationStatistics": map[string]any{
-				"totalAccountsCount":   1,
-				"memberAccountsCount":  b.orgAdminAccounts.Len(),
-				"enabledAccountsCount": 0,
+				"activeAccountsCount":  activeAccounts,
+				"totalAccountsCount":   totalAccounts,
+				"memberAccountsCount":  memberCount,
+				"enabledAccountsCount": enabledCount,
 				"countByFeature":       []any{},
 			},
 		},

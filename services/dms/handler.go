@@ -22,12 +22,6 @@ const (
 	dmsTargetPrefix    = "AmazonDMSv20160101."
 	contentType        = "application/x-amz-json-1.1"
 	dmsDefaultPageSize = 100
-
-	// JSON map keys used in assessment-run responses.
-	keyAssessmentRunArn  = "ReplicationTaskAssessmentRunArn"
-	keyAssessmentTaskArn = "ReplicationTaskArn"
-	keyAssessmentRunName = "AssessmentRunName"
-	keyStatus            = "Status"
 )
 
 // DMS operation names, as used in the X-Amz-Target header and the ops

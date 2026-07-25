@@ -809,6 +809,21 @@ func TestStorageLensGroup_DeleteMissing(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestStorageLensGroup_DeleteCascadeCleansTags locks in the ghost-map-row
+// fix: DeleteStorageLensGroup previously left generic resource tags behind
+// forever after the group row itself was removed.
+func TestStorageLensGroup_DeleteCascadeCleansTags(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	grp := b.CreateStorageLensGroup("000000000000", "cascade-slg")
+	b.TagResource(grp.StorageLensGroupArn, map[string]string{"env": "test"})
+
+	require.NoError(t, b.DeleteStorageLensGroup("000000000000", "cascade-slg"))
+
+	assert.Empty(t, b.ListTagsForResource(grp.StorageLensGroupArn), "tags must not survive delete")
+}
+
 // ---- StorageLensGroup ARN contains region ----
 
 func TestStorageLensGroup_ArnContainsRegion(t *testing.T) {

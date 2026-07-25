@@ -7,14 +7,16 @@ import (
 )
 
 // dispatchAssumeRoleWithSAML handles the AssumeRoleWithSAML action.
+// RoleSessionName, SourceIdentity, and session tags are NOT real top-level
+// request parameters for this operation (see AssumeRoleWithSAMLInput) — AWS
+// derives them from the SAMLAssertion itself, so they are intentionally not
+// parsed from the request form here.
 func (h *Handler) dispatchAssumeRoleWithSAML(r *http.Request) (*AssumeRoleWithSAMLResponse, error) {
 	input := &AssumeRoleWithSAMLInput{
-		RoleArn:         r.FormValue("RoleArn"),
-		PrincipalArn:    r.FormValue("PrincipalArn"),
-		SAMLAssertion:   r.FormValue("SAMLAssertion"),
-		Policy:          r.FormValue("Policy"),
-		RoleSessionName: r.FormValue("RoleSessionName"),
-		SourceIdentity:  r.FormValue("SourceIdentity"),
+		RoleArn:       r.FormValue("RoleArn"),
+		PrincipalArn:  r.FormValue("PrincipalArn"),
+		SAMLAssertion: r.FormValue("SAMLAssertion"),
+		Policy:        r.FormValue("Policy"),
 	}
 
 	durationStr := r.FormValue("DurationSeconds")
@@ -36,9 +38,6 @@ func (h *Handler) dispatchAssumeRoleWithSAML(r *http.Request) (*AssumeRoleWithSA
 
 		input.PolicyArns = append(input.PolicyArns, arn)
 	}
-
-	// Parse session tags: Tags.member.N.Key / Tags.member.N.Value
-	input.Tags = parseSessionTags(r)
 
 	return h.Backend.AssumeRoleWithSAML(input)
 }

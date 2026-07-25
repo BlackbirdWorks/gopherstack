@@ -9,8 +9,8 @@ type StorageBackend interface {
 	GetDataLakeSettings() *DataLakeSettings
 	PutDataLakeSettings(settings *DataLakeSettings)
 
-	RegisterResource(resourceArn, roleArn string) error
-	UpdateResource(resourceArn, roleArn string) error
+	RegisterResource(resourceArn, roleArn string, opts RegisterResourceOptions) error
+	UpdateResource(resourceArn, roleArn string, opts RegisterResourceOptions) error
 	DeregisterResource(resourceArn string) error
 	DescribeResource(resourceArn string) (*ResourceInfo, error)
 	ListResources(maxResults int, nextToken string) ([]*ResourceInfo, string)
@@ -18,7 +18,7 @@ type StorageBackend interface {
 	GrantPermissions(entry *PermissionEntry) error
 	RevokePermissions(entry *PermissionEntry) error
 	ListPermissions(
-		resourceArn string,
+		resource *Resource,
 		maxResults int,
 		nextToken string,
 		principal *DataLakePrincipal,
@@ -31,8 +31,8 @@ type StorageBackend interface {
 	UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, tagValuesToDelete []string) error
 	ListLFTags(catalogID string, maxResults int, nextToken string) ([]*LFTag, string)
 
-	BatchGrantPermissions(entries []*PermissionEntry) []*BatchFailureEntry
-	BatchRevokePermissions(entries []*PermissionEntry) []*BatchFailureEntry
+	BatchGrantPermissions(entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry
+	BatchRevokePermissions(entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry
 
 	AddLFTagsToResource(catalogID string, resource *Resource, lfTags []LFTagPair) []LFTagError
 	RemoveLFTagsFromResource(catalogID string, resource *Resource, lfTags []LFTagPair) []LFTagError
@@ -74,8 +74,8 @@ type StorageBackend interface {
 		appStatus string,
 	) error
 
-	CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
-	DeleteLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
+	CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource, condition *Condition) error
+	DeleteLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource, condition *Condition) error
 	ListLakeFormationOptIns(
 		principalIdentifier string,
 		resource *Resource,

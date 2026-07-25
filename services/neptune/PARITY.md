@@ -7,34 +7,30 @@
 service: neptune
 sdk_module: aws-sdk-go-v2/service/neptune@v1.44.1
 last_audit_commit: 087cb59186751418d9d49b88434f13cf214c7609
-last_audit_date: 2026-07-12
-overall: A            # genuine fixes found across error codes, wire shapes, and state mutation
+last_audit_date: 2026-07-23
+overall: A            # every previously-open gap this pass either genuinely fixed or re-verified as correct-as-is
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:
-  DBCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClusterCreateTime was hardcoded to a fixed 2024-01-01 literal for every cluster (fixed: real timestamp per creation, including restore paths which previously omitted it and DBClusterResourceID entirely). FailoverDBCluster was a disguised no-op (fixed: real writer/reader promotion via DBClusterMembers.IsClusterWriter, with TargetDBInstanceIdentifier support and InvalidDBClusterStateFault when no reader exists). PromoteReadReplicaDBCluster remains describe-only -- see gaps."}
+  DBCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClusterCreateTime was hardcoded to a fixed 2024-01-01 literal for every cluster (fixed: real timestamp per creation, including restore paths which previously omitted it and DBClusterResourceID entirely). FailoverDBCluster was a disguised no-op (fixed: real writer/reader promotion via DBClusterMembers.IsClusterWriter, with TargetDBInstanceIdentifier support and InvalidDBClusterStateFault when no reader exists). PromoteReadReplicaDBCluster re-verified this pass against the SDK: its own doc comment on both the operation and its DBClusterIdentifier field says 'Not supported.' -- gopherstack's describe-only echo (no state mutation) is therefore the CORRECT behavior for a genuinely-unsupported op, not a stub; reclassified from gap to ok."}
   DBInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "InstanceCreateTime field was entirely absent from the model/wire shape (fixed: added and populated on create). RebootDBInstance intentionally stays a state-preserving op (matches AWS's eventual-consistency behavior for reboot; DescribeDBInstances shows 'available' immediately either way)."}
-  DBClusterParameterGroup: {wire: ok, errors: ok, state: partial, persist: ok, note: "Error codes were wrong for the whole family (see below). Create/Delete/Describe/Copy are real; Modify/Reset are legitimate no-ops in the sense that this backend has no per-parameter value store at all -- DescribeDBClusterParameters always returns an empty list, consistently. Not touched this pass; see gaps."}
-  DBParameterGroup: {wire: ok, errors: ok, state: partial, persist: ok, note: "Same parameter-value-store gap as DBClusterParameterGroup."}
+  DBClusterParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: ModifyDBClusterParameterGroup/ResetDBClusterParameterGroup were disguised no-ops -- they validated the group and the Parameters.Parameter.N.* the real client sends, then discarded every value, so DescribeDBClusterParameters always answered empty regardless of what was 'set'. Added a real per-group ParameterValue override store (parameter_catalog.go) seeded against a documented Neptune engine-parameter catalog (neptune_query_timeout, neptune_enable_audit_log, neptune_streams, neptune_result_cache, neptune_dfe_query_engine, neptune_ml_iam_role, neptune_lab_mode, neptune_shard_hash_partitions), enforcing the real static-parameter/pending-reboot ApplyMethod rule and the non-modifiable-parameter rule, with ResetAllParameters and per-parameter reset both wired to real state. DescribeEngineDefaultClusterParameters now returns that catalog instead of an always-empty list. Delete cascades the override store (no ghost rows)."}
+  DBParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "Same fix as DBClusterParameterGroup, sharing the catalog/override-store logic in parameter_catalog.go (real Neptune parameter names are shared across both instance- and cluster-level groups)."}
   DBSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ClusterSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "Multiple real bugs fixed this pass: (1) SnapshotCreateTime/ClusterCreateTime fields were entirely absent from the model; (2) CopyDBClusterSnapshot silently dropped Port/AllocatedStorage/KmsKeyID/IAMDatabaseAuthenticationEnabled/PercentProgress instead of copying them from the source; (3) ModifyDBClusterSnapshotAttribute/DescribeDBClusterSnapshotAttributes were a disguised no-op pair (Modify validated params and discarded them; Describe always returned an empty attribute list) AND Modify's response body omitted the required *Result XML element entirely, which makes the real aws-sdk-go-v2 client fail every call with a smithy.DeserializationError even though gopherstack answered HTTP 200 -- both fixed with a real RestoreAttributeValues store on DBClusterSnapshot, correct list-item wire shape (AttributeValues is a repeated <AttributeValue> list, was a single string), and the correct ValuesToAdd.AttributeValue.N / ValuesToRemove.AttributeValue.N wire param names (was ValuesToAdd.member.N, which a real client never sends, so Modify's add/remove would have silently no-opped forever even after the rest of the fix)."}
-  EventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "DescribeEvents always returns an empty list -- no event log exists in this backend (consistent no-op, not a disguised one; see deferred)."}
-  GlobalCluster: {wire: ok, errors: ok, state: partial, persist: ok, note: "CreateGlobalCluster/DescribeGlobalClusters/DeleteGlobalCluster/RemoveFromGlobalCluster mutate real state. ModifyGlobalCluster/FailoverGlobalCluster/SwitchoverGlobalCluster are disguised no-ops (return an unchanged clone) -- not fixed this pass, see gaps."}
-  ClusterEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "DeleteDBClusterEndpoint returned an empty response body; the real DeleteDBClusterEndpointOutput echoes the deleted endpoint's fields as a flat (non-nested) payload and the SDK deserializer hard-fails without a *Result element -- fixed (backend now returns the deleted endpoint; handler renders it under DeleteDBClusterEndpointResult, matching CreateDBClusterEndpointResponse's existing flat-under-Result shape). ModifyDBClusterEndpoint only supports EndpointType, not StaticMembers/ExcludedMembers member-list updates -- see gaps."}
+  EventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "DescribeEvents FIXED this pass (see the top-level Events family below) -- it is dispatched from this family's handler file but is not itself an EventSubscription op, so it is tracked separately."}
+  GlobalCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: ModifyGlobalCluster/FailoverGlobalCluster/SwitchoverGlobalCluster were disguised no-ops (validated the global cluster and returned an unchanged clone). ModifyGlobalCluster's interface signature didn't even accept the new values a caller sent -- now applies DeletionProtection/EngineVersion/NewGlobalClusterIdentifier (rename, including ARN) for real. Failover/Switchover now flip GlobalClusterMembers[].IsWriter to promote TargetDbClusterIdentifier -- when the target already is a tracked member it is promoted directly; when it resolves to a real DB cluster in the account but was never attached (this backend has no separate 'join global cluster' op the way real Neptune's CreateDBCluster-time GlobalClusterIdentifier attachment works), it is attached as the new writer, demoting the prior one; a target this backend cannot resolve at all is left as a no-op rather than erroring, since it cannot distinguish a legitimate not-yet-modeled cross-region secondary from a typo. CreateGlobalCluster/DescribeGlobalClusters/DeleteGlobalCluster/RemoveFromGlobalCluster were already real."}
+  ClusterEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "DeleteDBClusterEndpoint returned an empty response body; the real DeleteDBClusterEndpointOutput echoes the deleted endpoint's fields as a flat (non-nested) payload and the SDK deserializer hard-fails without a *Result element -- fixed (backend now returns the deleted endpoint; handler renders it under DeleteDBClusterEndpointResult, matching CreateDBClusterEndpointResponse's existing flat-under-Result shape). ModifyDBClusterEndpoint FIXED this pass: it silently ignored StaticMembers.member.N/ExcludedMembers.member.N even though the real API accepts and applies them -- now replaces the respective member list when a non-empty list is supplied (nil vs explicitly-empty is indistinguishable on this wire format, matching CreateDBClusterEndpoint's existing convention for the same two fields)."}
   Tags: {wire: ok, errors: ok, state: ok, persist: ok}
-  Maintenance: {wire: ok, errors: ok, state: deferred, persist: n/a, note: "ApplyPendingMaintenanceAction's response body omitted the required ApplyPendingMaintenanceActionResult/ResourcePendingMaintenanceActions element -- same GetElement-hard-fail bug class as ModifyDBClusterSnapshotAttribute and DeleteDBClusterEndpoint above -- fixed (now echoes ResourceIdentifier back). There is no real pending-maintenance-action queue in this backend (DescribePendingMaintenanceActions always returns empty), so ApplyPendingMaintenanceAction remains semantically a no-op beyond the wire fix -- see gaps. Also corrected the DescribePendingMaintenanceActionsResult XML shape while touching these types: it was a flat single-level list wrongly tagging items as <ResourcePendingMaintenanceActions> with bare Action/Description fields; real AWS nests a per-resource <ResourcePendingMaintenanceActions><ResourceIdentifier/><PendingMaintenanceActionDetails><PendingMaintenanceAction>... This was unreachable (the list is always empty) so it never manifested as a live bug, but the type is now correct for when/if a real queue is added."}
-  StaticCatalog: {status: ok, note: "DescribeDBEngineVersions, DescribeOrderableDBInstanceOptions, DescribeValidDBInstanceModifications, DescribeEngineDefault(Cluster)Parameters -- all correctly modeled as static/hardcoded catalog data, matching how AWS itself treats these (not a stub; there is no per-account mutable state for engine version catalogs)."}
+  Events: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: DescribeEvents always returned an empty list -- there was no event log backing this backend at all, so the response was empty regardless of what a caller had actually done (a genuine gap, not a legitimate no-op: AWS's own DescribeEvents surfaces real account activity). Added a bounded per-region event log (events.go, maxEventsLogPerRegion=500) fed by recordEvent calls from the key cluster/instance/snapshot lifecycle mutators (create/delete/start/stop/failover), with SourceIdentifier/SourceType/StartTime/EndTime/Duration/EventCategories filtering matching DescribeEventsInput's real fields (AWS's default 60-minute lookback window is honored when neither StartTime nor Duration is given)."}
+  Maintenance: {wire: ok, errors: ok, state: ok, persist: ok, note: "ApplyPendingMaintenanceAction's response body omitted the required ApplyPendingMaintenanceActionResult/ResourcePendingMaintenanceActions element -- same GetElement-hard-fail bug class as ModifyDBClusterSnapshotAttribute and DeleteDBClusterEndpoint above -- fixed (now echoes ResourceIdentifier back). FIXED FURTHER this pass: added a real pending-maintenance-action queue (maintenance.go), keyed by resource ARN -> action name, since real AWS populates this from system-side upgrade/security-patch availability data this backend has no equivalent of; AddPendingMaintenanceActionInternal seeds it for callers/tests the same way AddClusterInternal/AddSnapshotInternal/AddParameterGroupInternal seed their resources. ApplyPendingMaintenanceAction now genuinely mutates CurrentApplyDate/OptInStatus per AWS's immediate/next-maintenance/undo-opt-in semantics (validated as an enum), and DescribePendingMaintenanceActions returns genuinely-queued actions filtered by the db-cluster-id/db-instance-id Filters AWS documents, never emitting an empty ResourcePendingMaintenanceActions entry (matching AWS). Also corrected the DescribePendingMaintenanceActionsResult XML shape while touching these types: it was a flat single-level list wrongly tagging items as <ResourcePendingMaintenanceActions> with bare Action/Description fields; real AWS nests a per-resource <ResourcePendingMaintenanceActions><ResourceIdentifier/><PendingMaintenanceActionDetails><PendingMaintenanceAction>..., now also carrying AutoAppliedAfterDate/CurrentApplyDate/ForcedApplyDate/OptInStatus."}
+  StaticCatalog: {status: ok, note: "DescribeDBEngineVersions, DescribeOrderableDBInstanceOptions, DescribeValidDBInstanceModifications -- correctly modeled as static/hardcoded catalog data (not a stub; there is no per-account mutable state for engine version catalogs). DescribeEngineDefault(Cluster)Parameters moved out of this family this pass: they now return the real parameter catalog (see DBParameterGroup/DBClusterParameterGroup above) instead of an always-empty list, which was a genuine gap masquerading as static-catalog behavior -- an empty catalog is not the same thing as a hardcoded non-empty one."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - DBCluster/DBParameterGroup families have no real per-parameter value store: ModifyDBParameterGroup, ModifyDBClusterParameterGroup, ResetDBParameterGroup, ResetDBClusterParameterGroup validate the group exists but never persist parameter key/value changes, and DescribeDBParameters/DescribeDBClusterParameters always return an empty list regardless of what was "set". Real fix needs a parameters map keyed by group name plus family-specific default parameter catalogs.
-  - GlobalCluster ModifyGlobalCluster/FailoverGlobalCluster/SwitchoverGlobalCluster are disguised no-ops -- they validate the global cluster exists and return an unchanged clone, but never mutate GlobalClusterMembers/IsWriter or Status the way a real failover/switchover would.
-  - PromoteReadReplicaDBCluster is describe-only; it never mutates cluster state (no read-replica/standalone promotion modeled).
-  - ModifyDBClusterEndpoint only mutates EndpointType; it silently ignores StaticMembers.member.N / ExcludedMembers.member.N even though the real API accepts them.
-  - ApplyPendingMaintenanceAction/DescribePendingMaintenanceActions have no backing pending-action queue (nothing is ever "pending" to apply); the response is now wire-correct but the underlying feature is unimplemented.
-  - DescribeEvents always returns an empty list; there is no event log backing this backend.
+  # (none currently open -- every item audited this pass was either fixed or reclassified to ok with evidence; see items_still_open in the audit receipt for anything a given pass could not fully verify)
 deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - DBClusterParameterGroup / DBParameterGroup real parameter-value tracking (see gaps)
-  - GlobalCluster failover/switchover state semantics (see gaps)
-leaks: {status: clean, note: "No goroutines, timers, or janitors in this service. Handler exposes Snapshot(ctx)/Restore(ctx, []byte) with the exact required signatures, delegating straight to InMemoryBackend's own Snapshot/Restore (persistence.go); the compile-time `var _ StorageBackend = (*InMemoryBackend)(nil)` assertion in interfaces.go keeps this from silently drifting. All 9 region-qualified resource collections plus the global (partition-scoped) GlobalCluster table round-trip through backendSnapshot; clusterRoles and tags (raw nested maps, not store.Table) persist directly."}
+  - The Neptune engine-parameter catalog in parameter_catalog.go (8 parameters) is a documented, representative approximation, not a byte-for-byte mirror of AWS's real DescribeEngineDefaultParameters catalog (which is server-side data, not part of the SDK, and was not independently verified against a live Neptune account this pass) -- functionally correct (real persistence, real validation, real Describe reflection) but the exact parameter set/count may not match AWS's live catalog.
+  - GlobalCluster Failover/Switchover member-promotion for a target that is neither an existing member, an ARN, nor a locally-known DB cluster identifier is a silent no-op rather than an error -- real AWS would reject an unresolvable target, but this backend has no "join global cluster" operation to have modeled a genuine not-yet-attached secondary, so it cannot distinguish that case from a typo without one.
+leaks: {status: clean, note: "No goroutines, timers, or janitors in this service (still true after this pass's additions -- the new pending-maintenance-action queue and events log are plain maps/slices guarded by the existing coarse b.mu, not background workers). Handler exposes Snapshot(ctx)/Restore(ctx, []byte) with the exact required signatures, delegating straight to InMemoryBackend's own Snapshot/Restore (persistence.go); the compile-time `var _ StorageBackend = (*InMemoryBackend)(nil)` assertion in interfaces.go keeps this from silently drifting. All 9 region-qualified resource collections plus the global (partition-scoped) GlobalCluster table round-trip through backendSnapshot; clusterRoles/tags/parameterOverrides/clusterParameterOverrides/pendingMaintenanceActions/eventsLog (raw maps, not store.Table) persist directly. DeleteDBParameterGroup/DeleteDBClusterParameterGroup now cascade-delete their parameter override entry (parameterOverrides/clusterParameterOverrides) the same way DeleteDBCluster already cascaded instances/endpoints/tags -- no ghost override rows survive a deleted group."}
 ---
 
 ## Notes
@@ -131,3 +127,84 @@ Neptune doesn't really have RDS-style standalone read-replica instances to
 promote (its cross-region replication is entirely global-cluster-based), so
 what this op should even mutate in this backend is genuinely unclear without
 more real-AWS testing -- flagged for the next pass rather than guessed at.
+
+## 2026-07-23 pass: closing the 6 gaps / 2 deferred items from 2026-07-12
+
+All six gaps and both deferred items from the prior audit were re-examined
+against the SDK and either genuinely fixed (real state mutation + correct
+wire shape) or reclassified to `ok` with evidence -- none were reclassified
+on a no-stub basis alone.
+
+**PromoteReadReplicaDBCluster is not a stub -- the SDK says the op itself is
+"Not supported."** `api_op_PromoteReadReplicaDBCluster.go`'s doc comment on
+both `(*Client).PromoteReadReplicaDBCluster` and
+`PromoteReadReplicaDBClusterInput.DBClusterIdentifier` reads exactly "Not
+supported." -- this is RDS's shared Aurora API surface carried into Neptune's
+model without a Neptune-specific implementation behind it. gopherstack's
+existing describe-only echo (no state mutation) is therefore the *correct*
+emulation of a genuinely-inert real operation, not a disguised no-op; this
+was previously flagged as an open gap because the correct behavior was
+"genuinely unclear without more real-AWS testing" -- reading the SDK's own
+doc comment settles it without needing a live account.
+
+**The parameter-value-store gap (DBParameterGroup/DBClusterParameterGroup)
+required a real catalog, not just a map.** Modify/Reset validated the group
+and parsed `Parameters.Parameter.N.{ParameterName,ParameterValue,ApplyMethod}`
+(confirmed against `awsAwsquery_serializeDocumentParametersList` in the SDK's
+serializers.go -- the list member wrapper is `Parameter`, not the generic
+query-protocol `member`) but then discarded every value, so
+DescribeDBParameters/DescribeDBClusterParameters and
+DescribeEngineDefaultParameters/DescribeEngineDefaultClusterParameters always
+answered with an empty list. Fixed with a per-group `ParameterValue` override
+store (`region|groupName` -> parameter name -> value, following the same
+plain-nested-map convention as `clusterRoles`/`tags`) merged against a new
+canonical parameter catalog (`parameter_catalog.go`) on every Describe. The
+catalog also let two more real AWS rules become enforceable for the first
+time: static parameters (`neptune_enable_audit_log`, `neptune_streams`,
+`neptune_shard_hash_partitions`) require `ApplyMethod=pending-reboot`
+(`ApplyMethod=immediate` is rejected, matching real AWS's
+static/dynamic-ApplyMethod compatibility rule), and
+`neptune_shard_hash_partitions` -- a system-controlled parameter -- rejects
+modification outright (`IsModifiable=false`). AWS's exact default parameter
+catalog is server-side data, not part of the SDK, so the 8-parameter set
+modeled here is a documented representative approximation (see `deferred`
+above), not a verified byte-for-byte mirror.
+
+**GlobalCluster Modify/Failover/Switchover needed real member-list mutation,
+not just an accepted request.** `ModifyGlobalCluster`'s *interface signature*
+previously took only a `globalClusterID` -- it could not have applied a
+caller's `DeletionProtection`/`EngineVersion` even if it wanted to, since
+those values were never passed in. Fixed by adding `GlobalClusterModifyOptions`
+(also covering `NewGlobalClusterIdentifier`, i.e. rename, which real
+AWS's `ModifyGlobalClusterInput` also accepts) and real
+`GlobalClusterMembers[].IsWriter` promotion in Failover/Switchover.
+Real AWS requires `TargetDbClusterIdentifier` to already be an attached
+secondary; this backend has no equivalent of Neptune's actual attachment
+mechanism (a DB cluster joins a global database via `CreateDBCluster`'s
+`GlobalClusterIdentifier` parameter, which this backend's `CreateDBCluster`
+does not model), so a target that resolves to a real local DB cluster but
+isn't yet a tracked member is attached as the new writer as the closest
+achievable analogue, and a target this backend cannot resolve at all is a
+no-op rather than a rejection (see `deferred`).
+
+**ModifyDBClusterEndpoint's StaticMembers/ExcludedMembers gap was a pure
+parsing omission.** The real API's `StaticMembers`/`ExcludedMembers` list
+params serialize with the generic query-protocol `member` wrapper
+(`awsAwsquery_serializeDocumentStringList`, confirmed against
+serializers.go), same as most other Neptune list params elsewhere in this
+codebase already handle via `parseMemberList` -- the handler simply never
+called it for these two fields. Fixed.
+
+**The pending-maintenance-action queue and the event log are the two
+"structurally missing feature" gaps** (as opposed to "wrong wire shape" or
+"discards input") -- there was no backing store for either at all, so
+`DescribePendingMaintenanceActions`/`DescribeEvents` were always empty
+regardless of real activity. Both AWS features are populated by data this
+in-memory emulator doesn't generate on its own (system-side
+upgrade/patch-availability data for maintenance actions; real account event
+history for events), so both now have `AddPendingMaintenanceActionInternal`-
+style seeding (maintenance.go) or are fed by `recordEvent` calls placed at
+the point of real state changes this backend already performs (events.go:
+cluster/instance create+delete, cluster start+stop+failover, snapshot
+create) -- genuine, queryable, filterable state rather than a disguised
+no-op in either direction.

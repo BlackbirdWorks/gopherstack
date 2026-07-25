@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchFargateOps handles Fargate profile CRUD operations.
@@ -51,6 +53,13 @@ func parseFargateProfileRoute(method, clusterName string, parts []string) eksRou
 }
 
 func fargateProfileToJSON(p *FargateProfile) map[string]any {
+	health := p.Health
+	if health == nil {
+		health = &FargateProfileHealth{Issues: []FargateProfileIssue{}}
+	} else if health.Issues == nil {
+		health = &FargateProfileHealth{Issues: []FargateProfileIssue{}}
+	}
+
 	m := map[string]any{
 		keyClusterName:        p.ClusterName,
 		"fargateProfileName":  p.FargateProfileName,
@@ -59,6 +68,7 @@ func fargateProfileToJSON(p *FargateProfile) map[string]any {
 		keyStatusField:        p.Status,
 		"selectors":           p.Selectors,
 		keyCreatedAt:          p.CreatedAt.Unix(),
+		keyHealth:             health,
 	}
 
 	if len(p.Subnets) > 0 {
@@ -149,7 +159,8 @@ func (h *Handler) handleListFargateProfiles(c *echo.Context, clusterName string)
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"fargateProfileNames": names,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(names, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("fargateProfileNames", p))
 }

@@ -60,7 +60,8 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		shardCount = maxShardCount
 	}
 
-	shards := buildInitialShards(shardCount)
+	now := time.Now()
+	shards := buildInitialShards(shardCount, now)
 
 	accountID := b.accountID
 	if input.AccountID != "" {
@@ -83,7 +84,7 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		Shards:             shards,
 		mu:                 newStreamLock(input.StreamName),
 		Tags:               tags.New("kinesis.stream." + input.StreamName + ".tags"),
-		CreatedAt:          time.Now(),
+		CreatedAt:          now,
 		RetentionPeriod:    defaultRetentionHours,
 		Consumers:          make(map[string]*Consumer),
 		StreamMode:         streamMode,

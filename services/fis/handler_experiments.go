@@ -137,18 +137,39 @@ func (h *Handler) handleListExperimentResolvedTargets(c *echo.Context, id string
 // DTO conversion helpers
 // ----------------------------------------
 
-func toExperimentDTO(exp *Experiment) experimentDTO {
-	targets := make(map[string]experimentTargetDTO, len(exp.Targets))
-	for name, t := range exp.Targets {
-		targets[name] = experimentTargetDTO(t)
+// experimentTargetDTOs converts a running experiment's resolved targets to wire DTOs.
+func experimentTargetDTOs(targets map[string]ExperimentTarget) map[string]experimentTargetDTO {
+	dtos := make(map[string]experimentTargetDTO, len(targets))
+
+	for name, t := range targets {
+		filters := make([]experimentTemplateTargetFilterDTO, len(t.Filters))
+		for i, f := range t.Filters {
+			filters[i] = experimentTemplateTargetFilterDTO(f)
+		}
+
+		dtos[name] = experimentTargetDTO{
+			ResourceType:  t.ResourceType,
+			SelectionMode: t.SelectionMode,
+			ResourceArns:  t.ResourceArns,
+			ResourceTags:  t.ResourceTags,
+			Filters:       filters,
+			Parameters:    t.Parameters,
+		}
 	}
 
-	actions := make(map[string]experimentActionDTO, len(exp.Actions))
-	for name, a := range exp.Actions {
-		dto := experimentActionDTO{
-			ActionID:   a.ActionID,
-			Parameters: a.Parameters,
-			Targets:    a.Targets,
+	return dtos
+}
+
+// experimentActionDTOs converts a running experiment's actions to wire DTOs.
+func experimentActionDTOs(actions map[string]ExperimentAction) map[string]experimentActionDTO {
+	dtos := make(map[string]experimentActionDTO, len(actions))
+
+	for name, a := range actions {
+		dtos[name] = experimentActionDTO{
+			ActionID:    a.ActionID,
+			Description: a.Description,
+			Parameters:  a.Parameters,
+			Targets:     a.Targets,
 			Status: &experimentActionStatusDTO{
 				Status: a.Status.Status,
 				Reason: a.Status.Reason,
@@ -160,9 +181,38 @@ func toExperimentDTO(exp *Experiment) experimentDTO {
 			StartTime: toUnixPtr(a.StartTime),
 			EndTime:   toUnixPtr(a.EndTime),
 		}
-
-		actions[name] = dto
 	}
+
+	return dtos
+}
+
+// experimentLogConfigDTO converts a running experiment's log configuration to its wire DTO.
+func experimentLogConfigDTO(logConfig *ExperimentLogConfiguration) *experimentLogConfigurationDTO {
+	if logConfig == nil {
+		return nil
+	}
+
+	lc := &experimentLogConfigurationDTO{LogSchemaVersion: logConfig.LogSchemaVersion}
+
+	if logConfig.CloudWatchLogsConfiguration != nil {
+		lc.CloudWatchLogsConfiguration = &experimentCloudWatchLogsConfigurationDTO{
+			LogGroupArn: logConfig.CloudWatchLogsConfiguration.LogGroupArn,
+		}
+	}
+
+	if logConfig.S3Configuration != nil {
+		lc.S3Configuration = &experimentS3ConfigurationDTO{
+			BucketName: logConfig.S3Configuration.BucketName,
+			Prefix:     logConfig.S3Configuration.Prefix,
+		}
+	}
+
+	return lc
+}
+
+func toExperimentDTO(exp *Experiment) experimentDTO {
+	targets := experimentTargetDTOs(exp.Targets)
+	actions := experimentActionDTOs(exp.Actions)
 
 	stopConditions := make([]experimentStopConditionDTO, len(exp.StopConditions))
 	for i, sc := range exp.StopConditions {
@@ -199,31 +249,76 @@ func toExperimentDTO(exp *Experiment) experimentDTO {
 		TargetAccountConfigurationsCount: exp.TargetAccountConfigurationsCount,
 	}
 
-	if exp.LogConfiguration != nil {
-		lc := &experimentLogConfigurationDTO{
-			LogSchemaVersion: exp.LogConfiguration.LogSchemaVersion,
-		}
-
-		if exp.LogConfiguration.CloudWatchLogsConfiguration != nil {
-			lc.CloudWatchLogsConfiguration = &experimentCloudWatchLogsConfigurationDTO{
-				LogGroupArn: exp.LogConfiguration.CloudWatchLogsConfiguration.LogGroupArn,
-			}
-		}
-
-		if exp.LogConfiguration.S3Configuration != nil {
-			lc.S3Configuration = &experimentS3ConfigurationDTO{
-				BucketName: exp.LogConfiguration.S3Configuration.BucketName,
-				Prefix:     exp.LogConfiguration.S3Configuration.Prefix,
-			}
-		}
-
-		dto.LogConfiguration = lc
-	}
+	dto.LogConfiguration = experimentLogConfigDTO(exp.LogConfiguration)
 
 	if exp.ExperimentOptions != nil {
 		dto.ExperimentOptions = &experimentExperimentOptionsDTO{
 			AccountTargeting:          exp.ExperimentOptions.AccountTargeting,
 			EmptyTargetResolutionMode: exp.ExperimentOptions.EmptyTargetResolutionMode,
+			ActionsMode:               exp.ExperimentOptions.ActionsMode,
+		}
+	}
+
+	if exp.ExperimentReportConfiguration != nil {
+		dto.ExperimentReportConfiguration = toExperimentReportConfigDTO(exp.ExperimentReportConfiguration)
+	}
+
+	if exp.ExperimentReport != nil {
+		dto.ExperimentReport = toExperimentReportDTO(exp.ExperimentReport)
+	}
+
+	return dto
+}
+
+// toExperimentReportConfigDTO converts a running experiment's report
+// configuration domain type into its wire DTO.
+func toExperimentReportConfigDTO(cfg *ExperimentReportConfiguration) *experimentReportConfigurationDTO {
+	dto := &experimentReportConfigurationDTO{
+		PreExperimentDuration:  cfg.PreExperimentDuration,
+		PostExperimentDuration: cfg.PostExperimentDuration,
+	}
+
+	if cfg.DataSources != nil {
+		dashboards := make(
+			[]experimentReportConfigurationCloudWatchDashboardDTO,
+			len(cfg.DataSources.CloudWatchDashboards),
+		)
+		for i, d := range cfg.DataSources.CloudWatchDashboards {
+			dashboards[i] = experimentReportConfigurationCloudWatchDashboardDTO(d)
+		}
+
+		dto.DataSources = &experimentReportConfigurationDataSourcesDTO{CloudWatchDashboards: dashboards}
+	}
+
+	if cfg.Outputs != nil && cfg.Outputs.S3Configuration != nil {
+		dto.Outputs = &experimentReportConfigurationOutputsDTO{
+			S3Configuration: &experimentReportConfigurationOutputsS3ConfigurationDTO{
+				BucketName: cfg.Outputs.S3Configuration.BucketName,
+				Prefix:     cfg.Outputs.S3Configuration.Prefix,
+			},
+		}
+	}
+
+	return dto
+}
+
+// toExperimentReportDTO converts a running experiment's generated report domain
+// type into its wire DTO.
+func toExperimentReportDTO(rep *ExperimentReport) *experimentReportDTO {
+	dto := &experimentReportDTO{}
+
+	if len(rep.S3Reports) > 0 {
+		dto.S3Reports = make([]experimentReportS3ReportDTO, len(rep.S3Reports))
+		for i, r := range rep.S3Reports {
+			dto.S3Reports[i] = experimentReportS3ReportDTO(r)
+		}
+	}
+
+	if rep.State != nil {
+		dto.State = &experimentReportStateDTO{Status: rep.State.Status, Reason: rep.State.Reason}
+
+		if rep.State.Error != nil {
+			dto.State.Error = &experimentReportErrorDTO{Code: rep.State.Error.Code}
 		}
 	}
 

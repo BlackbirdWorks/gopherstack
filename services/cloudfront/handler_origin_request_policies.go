@@ -118,32 +118,26 @@ func (h *Handler) handleGetOriginRequestPolicyConfig(c *echo.Context, id string)
 	c.Response().Header().Set("ETag", p.ETag)
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<OriginRequestPolicyConfig xmlns="%s">`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</OriginRequestPolicyConfig>`,
-		cfNS, p.Name, p.Comment)
+		`<OriginRequestPolicyConfig xmlns="%s">%s</OriginRequestPolicyConfig>`,
+		cfNS, orpConfigXMLBlock(p))
 
 	return xmlResp(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleListOriginRequestPolicies(c *echo.Context) error {
 	policies := h.Backend.ListOriginRequestPolicies()
+	policies = filterByManagedType(
+		c.QueryParam("Type"), func(p *OriginRequestPolicy) bool { return p.Managed }, policies,
+	)
 
 	var sb strings.Builder
 
 	for _, p := range policies {
 		fmt.Fprintf(&sb,
-			`<OriginRequestPolicySummary>`+
-				`<OriginRequestPolicy>`+
-				`<Id>%s</Id>`+
-				`<OriginRequestPolicyConfig>`+
-				`<Name>%s</Name>`+
-				`<Comment>%s</Comment>`+
-				`</OriginRequestPolicyConfig>`+
-				`</OriginRequestPolicy>`+
-				`</OriginRequestPolicySummary>`,
-			p.ID, p.Name, p.Comment)
+			`<OriginRequestPolicySummary><Type>%s</Type><OriginRequestPolicy><Id>%s</Id>`+
+				`<OriginRequestPolicyConfig>%s</OriginRequestPolicyConfig>`+
+				`</OriginRequestPolicy></OriginRequestPolicySummary>`,
+			policyTypeString(p.Managed), p.ID, orpConfigXMLBlock(p))
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -232,36 +226,49 @@ func (h *Handler) handleDeleteOriginRequestPolicy(c *echo.Context, id string) er
 	return c.NoContent(http.StatusNoContent)
 }
 
-func orpResponseXML(p *OriginRequestPolicy) string {
+// orpConfigXMLBlock builds the <OriginRequestPolicyConfig>...</...> body shared
+// by the full OriginRequestPolicy response, the config-only response, and each
+// OriginRequestPolicySummary in a ListOriginRequestPolicies response.
+//
+// Each Config's Items list (Headers>Items>Name, Cookies>Items>Name,
+// QueryStrings>Items>Name) matches the real wire shape exactly (verified against
+// the CreateOriginRequestPolicy API reference request syntax): previously this
+// response only emitted a bare <Quantity>, silently dropping every whitelisted/
+// excepted header, cookie, and query-string name in every read response.
+func orpConfigXMLBlock(p *OriginRequestPolicy) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, `<?xml version="1.0" encoding="UTF-8"?>`+
-		`<OriginRequestPolicy xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<OriginRequestPolicyConfig>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`,
-		cfNS, p.ID, p.Name, p.Comment)
+
+	fmt.Fprintf(&sb, `<Name>%s</Name><Comment>%s</Comment>`, p.Name, p.Comment)
+
 	if h := p.HeadersConfig; h != nil {
 		fmt.Fprintf(&sb,
-			`<HeadersConfig><HeaderBehavior>%s</HeaderBehavior><Quantity>%d</Quantity></HeadersConfig>`,
-			h.HeaderBehavior, len(h.Headers))
+			`<HeadersConfig><HeaderBehavior>%s</HeaderBehavior><Headers>%s</Headers></HeadersConfig>`,
+			h.HeaderBehavior, xmlNameItems(h.Headers))
 	}
+
 	if c := p.CookiesConfig; c != nil {
 		fmt.Fprintf(&sb,
-			`<CookiesConfig><CookieBehavior>%s</CookieBehavior><Quantity>%d</Quantity></CookiesConfig>`,
-			c.CookieBehavior, len(c.Cookies))
+			`<CookiesConfig><CookieBehavior>%s</CookieBehavior><Cookies>%s</Cookies></CookiesConfig>`,
+			c.CookieBehavior, xmlNameItems(c.Cookies))
 	}
+
 	if q := p.QueryStringsConfig; q != nil {
-		fmt.Fprintf(
-			&sb,
-			`<QueryStringsConfig><QueryStringBehavior>%s</QueryStringBehavior><Quantity>%d</Quantity></QueryStringsConfig>`,
-			q.QueryStringBehavior,
-			len(q.QueryStrings),
-		)
+		fmt.Fprintf(&sb,
+			`<QueryStringsConfig><QueryStringBehavior>%s</QueryStringBehavior>`+
+				`<QueryStrings>%s</QueryStrings></QueryStringsConfig>`,
+			q.QueryStringBehavior, xmlNameItems(q.QueryStrings))
 	}
-	sb.WriteString(`</OriginRequestPolicyConfig></OriginRequestPolicy>`)
 
 	return sb.String()
+}
+
+func orpResponseXML(p *OriginRequestPolicy) string {
+	return fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<OriginRequestPolicy xmlns="%s"><Id>%s</Id>`+
+			`<OriginRequestPolicyConfig>%s</OriginRequestPolicyConfig></OriginRequestPolicy>`,
+		cfNS, p.ID, orpConfigXMLBlock(p),
+	)
 }
 
 // --- Field Level Encryption handlers ---

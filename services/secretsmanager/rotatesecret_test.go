@@ -272,6 +272,113 @@ func TestRotateSecret_WithLambda(t *testing.T) {
 	}
 }
 
+// TestRotateSecret_RotateImmediatelyFalseWithLambdaRunsTestSecretProbe verifies the
+// gopherstack-avt gap: when RotateSecret is called with RotateImmediately=false and a
+// rotation Lambda is configured, AWS runs ONLY the Lambda's testSecret step against a
+// transient AWSPENDING version and then removes that version -- no createSecret/
+// setSecret/finishSecret steps run, nothing is promoted to AWSCURRENT, and no
+// AWSPENDING version is left behind.
+func TestRotateSecret_RotateImmediatelyFalseWithLambdaRunsTestSecretProbe(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend)
+
+	mock := &mockLambdaInvoker{}
+	h.SetLambdaInvoker(mock)
+
+	_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "probe-secret",
+		SecretString: "initial-value",
+	})
+	require.NoError(t, err)
+
+	before, err := backend.GetSecretValue(
+		context.Background(), &secretsmanager.GetSecretValueInput{SecretID: "probe-secret"},
+	)
+	require.NoError(t, err)
+
+	const lambdaRotateARN = "arn:aws:lambda:us-east-1:000000000000:function:probe-rotator"
+	rotateBody := fmt.Sprintf(
+		`{"SecretId":"probe-secret","RotationLambdaARN":%q,"RotateImmediately":false}`,
+		lambdaRotateARN,
+	)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(rotateBody))
+	req.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var out secretsmanager.RotateSecretOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Empty(t, out.VersionID, "no permanent version is created by a test probe")
+
+	// Exactly one Lambda invocation: the testSecret step.
+	require.Len(t, mock.calls, 1)
+	assert.Equal(t, "probe-rotator", mock.calls[0].name)
+
+	var event map[string]string
+	require.NoError(t, json.Unmarshal(mock.calls[0].payload, &event))
+	assert.Equal(t, "probe-secret", event["SecretId"])
+	assert.Equal(t, "testSecret", event["Step"])
+
+	// The current version must be unchanged, and no AWSPENDING version left behind.
+	current, err := backend.GetSecretValue(
+		context.Background(), &secretsmanager.GetSecretValueInput{SecretID: "probe-secret"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, before.VersionID, current.VersionID)
+
+	desc, err := backend.DescribeSecret(
+		context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "probe-secret"},
+	)
+	require.NoError(t, err)
+	for versionID, labels := range desc.VersionIDsToStages {
+		assert.NotContains(t, labels, "AWSPENDING", "probe version %s must be removed", versionID)
+	}
+}
+
+// TestRotateSecret_RotateImmediatelyFalseWithLambdaProbeFails verifies that a failing
+// testSecret Lambda step surfaces an error and still leaves no AWSPENDING version behind.
+func TestRotateSecret_RotateImmediatelyFalseWithLambdaProbeFails(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend)
+
+	mock := &mockLambdaInvoker{invokeErr: assert.AnError}
+	h.SetLambdaInvoker(mock)
+
+	_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "probe-fail-secret",
+		SecretString: "initial-value",
+	})
+	require.NoError(t, err)
+
+	const lambdaRotateARN = "arn:aws:lambda:us-east-1:000000000000:function:probe-fail-rotator"
+	rotateBody := fmt.Sprintf(
+		`{"SecretId":"probe-fail-secret","RotationLambdaARN":%q,"RotateImmediately":false}`,
+		lambdaRotateARN,
+	)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(rotateBody))
+	req.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.NotEqual(t, http.StatusOK, rec.Code)
+
+	desc, err := backend.DescribeSecret(
+		context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "probe-fail-secret"},
+	)
+	require.NoError(t, err)
+	for versionID, labels := range desc.VersionIDsToStages {
+		assert.NotContains(t, labels, "AWSPENDING", "probe version %s must be removed even on failure", versionID)
+	}
+}
+
 // TestRotateSecret_NoLambdaInvoker tests rotation without Lambda (stub only).
 func TestRotateSecret_NoLambdaInvoker(t *testing.T) {
 	t.Parallel()

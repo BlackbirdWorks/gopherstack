@@ -321,7 +321,9 @@ func TestBackendReset(t *testing.T) {
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil)
+	_, err := b.ExecuteStatement(
+		context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil, "",
+	)
 	require.NoError(t, err)
 
 	b.Reset()
@@ -336,7 +338,9 @@ func TestHandlerReset(t *testing.T) {
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 	h := redshiftdata.NewHandler(b)
 
-	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil)
+	_, err := b.ExecuteStatement(
+		context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil, "",
+	)
 	require.NoError(t, err)
 
 	h.Reset()

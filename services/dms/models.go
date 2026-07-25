@@ -207,17 +207,47 @@ type ReplicationConfig struct {
 	StartReplicationType string
 }
 
+// IndividualAssessment represents one named check run as part of a
+// premigration AssessmentRun (mirrors types.ReplicationTaskIndividualAssessment).
+type IndividualAssessment struct {
+	StartDate                              time.Time
+	ReplicationTaskIndividualAssessmentArn string
+	IndividualAssessmentName               string
+	ReplicationTaskAssessmentRunArn        string
+	ReplicationTaskArn                     string
+	Status                                 string
+}
+
+// AssessmentRunResultStatistic mirrors
+// types.ReplicationTaskAssessmentRunResultStatistic: aggregated pass/fail
+// counts of the individual assessments run as part of an AssessmentRun.
+type AssessmentRunResultStatistic struct {
+	Cancelled int32
+	Error     int32
+	Failed    int32
+	Passed    int32
+	Skipped   int32
+	Warning   int32
+}
+
 // AssessmentRun represents a DMS pre-migration assessment run.
 //
 // Region supports Phase 3.3's store.Table keying (see store_setup.go) --
 // AssessmentRun carries no other region-derived field, so the value needs
 // its own copy to serve as a pure store.Table/store.Index key input.
 type AssessmentRun struct {
+	CreationDate                    time.Time
 	ReplicationTaskAssessmentRunArn string
 	ReplicationTaskArn              string
 	AssessmentRunName               string
 	Status                          string
+	ServiceAccessRoleArn            string
+	ResultLocationBucket            string
+	ResultLocationFolder            string
 	Region                          string
+	IndividualAssessments           []*IndividualAssessment
+	ResultStatistic                 AssessmentRunResultStatistic
+	IsLatestTaskAssessmentRun       bool
 }
 
 // Connection represents a DMS connection between a replication instance and an endpoint.

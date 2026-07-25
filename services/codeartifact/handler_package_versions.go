@@ -290,6 +290,10 @@ func (h *Handler) validatePackageVersionParams(
 	return nil
 }
 
+// handleGetPackageVersionReadme builds GetPackageVersionReadmeOutput's wire
+// shape -- verified against aws-sdk-go-v2 deserializers.go's
+// awsRestjson1_deserializeOpDocumentGetPackageVersionReadmeOutput
+// ({"format","namespace","package","readme","version","versionRevision"}).
 func (h *Handler) handleGetPackageVersionReadme(
 	c *echo.Context, domainName, repoName, format, namespace, name, version string,
 ) error {
@@ -297,7 +301,7 @@ func (h *Handler) handleGetPackageVersionReadme(
 		return err
 	}
 
-	readme, err := h.Backend.GetPackageVersionReadme(
+	readme, pv, err := h.Backend.GetPackageVersionReadme(
 		c.Request().Context(),
 		domainName,
 		repoName,
@@ -310,7 +314,18 @@ func (h *Handler) handleGetPackageVersionReadme(
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"readme": readme})
+	resp := map[string]any{
+		keyFormat:         pv.Format,
+		keyPackageKey:     pv.PackageName,
+		keyVersion:        pv.Version,
+		"readme":          readme,
+		"versionRevision": pv.Revision,
+	}
+	if pv.Namespace != "" {
+		resp["namespace"] = pv.Namespace
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListPackageVersionAssets(
@@ -354,6 +369,27 @@ func assetSummaryToMap(a AssetInfo) map[string]any {
 	}
 }
 
+// packageDependencyToMap builds a PackageDependency wire object -- verified
+// against aws-sdk-go-v2 types.PackageDependency
+// ({"dependencyType","namespace","package","versionRequirement"}).
+func packageDependencyToMap(d PackageDependencyInfo) map[string]any {
+	m := map[string]any{
+		"dependencyType":     d.DependencyType,
+		keyPackageKey:        d.PackageName,
+		"versionRequirement": d.VersionRequirement,
+	}
+	if d.Namespace != "" {
+		m["namespace"] = d.Namespace
+	}
+
+	return m
+}
+
+// handleListPackageVersionDependencies builds
+// ListPackageVersionDependenciesOutput's wire shape -- verified against
+// aws-sdk-go-v2 deserializers.go's
+// awsRestjson1_deserializeOpDocumentListPackageVersionDependenciesOutput
+// ({"dependencies","format","namespace","package","version"}).
 func (h *Handler) handleListPackageVersionDependencies(
 	c *echo.Context, domainName, repoName, format, namespace, name, version string,
 ) error {
@@ -374,7 +410,22 @@ func (h *Handler) handleListPackageVersionDependencies(
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"dependencies": deps})
+	items := make([]map[string]any, 0, len(deps))
+	for _, d := range deps {
+		items = append(items, packageDependencyToMap(d))
+	}
+
+	resp := map[string]any{
+		"dependencies": items,
+		keyFormat:      format,
+		keyPackageKey:  name,
+		keyVersion:     version,
+	}
+	if namespace != "" {
+		resp["namespace"] = namespace
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListPackageVersions(

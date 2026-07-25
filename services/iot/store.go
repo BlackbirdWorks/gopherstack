@@ -423,7 +423,11 @@ func (b *InMemoryBackend) ListThings() []*Thing {
 	return out
 }
 
-// DeleteThing deletes a Thing by name.
+// DeleteThing deletes a Thing by name. Any JobExecution rows targeting this
+// thing are cascade-deleted along with it (mirrors DeleteJob's cascade over
+// the other side of the same jobId/thingName key) so a deleted thing never
+// leaves a ghost JobExecution behind for DescribeJobExecution/
+// ListJobExecutionsForThing to keep returning.
 func (b *InMemoryBackend) DeleteThing(thingName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -437,6 +441,12 @@ func (b *InMemoryBackend) DeleteThing(thingName string) error {
 	}
 
 	b.things.Delete(thingName)
+
+	for _, exec := range b.jobExecutions.All() {
+		if exec.ThingName == thingName {
+			b.jobExecutions.Delete(jobExecKey(exec.JobID, exec.ThingName))
+		}
+	}
 
 	return nil
 }
@@ -459,12 +469,39 @@ func (b *InMemoryBackend) DescribeEndpoint(_ string) (*DescribeEndpointOutput, e
 	}, nil
 }
 
-// AcceptCertificateTransfer accepts a pending certificate transfer.
+// AcceptCertificateTransfer accepts a pending certificate transfer, moving
+// ownership to the target account recorded by the earlier TransferCertificate
+// call and activating (or not) the certificate per SetAsActive.
 func (b *InMemoryBackend) AcceptCertificateTransfer(input *AcceptCertificateTransferInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.certificateTransfers[input.CertificateID] = certStatusActive
+	cert, ok := b.certificates.Get(input.CertificateID)
+	if !ok {
+		return fmt.Errorf("certificate %q not found: %w", input.CertificateID, ErrCertificateNotFound)
+	}
+
+	if cert.Status != certStatusPendingTransfer {
+		return fmt.Errorf("%w: certificate %q is not pending transfer", ErrValidation, input.CertificateID)
+	}
+
+	targetAccount, pending := b.certificateTransfers[input.CertificateID]
+	if !pending {
+		return fmt.Errorf("%w: certificate %q is not pending transfer", ErrValidation, input.CertificateID)
+	}
+
+	if input.SetAsActive {
+		cert.Status = certStatusActive
+	} else {
+		cert.Status = certStatusInactive
+	}
+
+	cert.PreviousOwnedBy = cert.OwnedBy
+	cert.OwnedBy = targetAccount
+	cert.LastModifiedAt = time.Now()
+	cert.TransferAcceptDate = time.Now()
+	cert.TransferredTo = ""
+	delete(b.certificateTransfers, input.CertificateID)
 
 	return nil
 }

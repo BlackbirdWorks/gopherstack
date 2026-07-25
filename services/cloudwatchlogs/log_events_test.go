@@ -671,6 +671,100 @@ func TestCloudWatchLogsBackend_PutLogEvents_RejectedLogEventsInfo(t *testing.T) 
 	}
 }
 
+// ---- PutLogEvents chronological-order and 24-hour-span batch constraints ----
+//
+// aws-sdk-go-v2 cloudwatchlogs.PutLogEvents doc comment: "A batch of log
+// events in a single request must be in a chronological order. Otherwise,
+// the operation fails." and "For valid events (within 14 days in the past to
+// 2 hours in future), the time span in a single batch cannot exceed 24
+// hours. Otherwise, the operation fails." Both are whole-request failures
+// (InvalidParameterException), unlike the too-old/too-new/expired
+// per-event classification captured in RejectedLogEventsInfo.
+
+func TestCloudWatchLogsBackend_PutLogEvents_ChronologicalOrderAndSpan(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UnixMilli()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		events  []cloudwatchlogs.InputLogEvent
+	}{
+		{
+			name: "out_of_order_realistic_timestamps_rejected",
+			events: []cloudwatchlogs.InputLogEvent{
+				{Message: "second", Timestamp: now},
+				{Message: "first", Timestamp: now - 60_000},
+			},
+			wantErr: cloudwatchlogs.ErrValidation,
+		},
+		{
+			name: "span_over_24h_rejected",
+			events: []cloudwatchlogs.InputLogEvent{
+				{Message: "old", Timestamp: now - 25*60*60*1000},
+				{Message: "recent", Timestamp: now},
+			},
+			wantErr: cloudwatchlogs.ErrValidation,
+		},
+		{
+			name: "span_exactly_24h_accepted",
+			events: []cloudwatchlogs.InputLogEvent{
+				{Message: "old", Timestamp: now - 24*60*60*1000},
+				{Message: "recent", Timestamp: now},
+			},
+		},
+		{
+			name: "chronological_realistic_timestamps_accepted",
+			events: []cloudwatchlogs.InputLogEvent{
+				{Message: "first", Timestamp: now - 60_000},
+				{Message: "second", Timestamp: now},
+			},
+		},
+		{
+			name: "equal_timestamps_are_not_out_of_order",
+			events: []cloudwatchlogs.InputLogEvent{
+				{Message: "a", Timestamp: now},
+				{Message: "b", Timestamp: now},
+			},
+		},
+		{
+			name: "synthetic_out_of_order_timestamps_bypass_check",
+			events: []cloudwatchlogs.InputLogEvent{
+				{Message: "second", Timestamp: 2000},
+				{Message: "first", Timestamp: 1000},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			_, err := b.CreateLogGroup(context.Background(), "g", "", "")
+			require.NoError(t, err)
+			_, err = b.CreateLogStream(context.Background(), "g", "s")
+			require.NoError(t, err)
+
+			result, err := b.PutLogEvents(context.Background(), "g", "s", "", tt.events)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				got, _, _, gErr := b.GetLogEvents(context.Background(), "g", "s", nil, nil, 1000, "", true)
+				require.NoError(t, gErr)
+				assert.Empty(t, got, "a whole-batch failure must not store any events")
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+		})
+	}
+}
+
 // ---- Item 3: SequenceToken is ignored (matches current AWS behavior) ----
 //
 // aws-sdk-go-v2 cloudwatchlogs.PutLogEvents doc: "The sequence token is now

@@ -63,14 +63,41 @@ func (b *InMemoryBackend) StartSession(endpointName string) *Session {
 	return cloneSession(session)
 }
 
-// TouchSession marks an existing stateful session as invoked.
-func (b *InMemoryBackend) TouchSession(sessionID string) {
+// SessionTouchOutcome reports what TouchSession did to the named session.
+type SessionTouchOutcome struct {
+	// ClosedSessionID is set to the session's ID when TouchSession found the
+	// session expired and evicted it, mirroring the real AWS
+	// InvokeEndpointOutput.ClosedSessionId behaviour. It is empty when the
+	// session was touched normally or was not found at all.
+	ClosedSessionID string
+}
+
+// TouchSession marks an existing stateful session as invoked, or -- if the
+// session has passed its ExpiresAt -- evicts it and reports the closure via
+// SessionTouchOutcome.ClosedSessionID (see setSessionResponseHeader, which
+// surfaces this as the X-Amzn-SageMaker-Closed-Session-Id response header).
+// A sessionID that does not match any tracked session is a silent no-op,
+// matching this backend's pre-existing behaviour for unrecognised session
+// IDs.
+func (b *InMemoryBackend) TouchSession(sessionID string) SessionTouchOutcome {
 	b.mu.Lock("TouchSession")
 	defer b.mu.Unlock()
 
-	if session, ok := b.sessions.Get(sessionID); ok {
-		session.LastInvokedAt = time.Now().UTC()
+	session, ok := b.sessions.Get(sessionID)
+	if !ok {
+		return SessionTouchOutcome{}
 	}
+
+	now := time.Now().UTC()
+	if now.After(session.ExpiresAt) {
+		b.sessions.Delete(sessionID)
+
+		return SessionTouchOutcome{ClosedSessionID: sessionID}
+	}
+
+	session.LastInvokedAt = now
+
+	return SessionTouchOutcome{}
 }
 
 // ListSessions returns all active endpoint sessions.

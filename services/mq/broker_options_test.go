@@ -207,11 +207,29 @@ func TestLogs_UpdateBroker_UpdatesLogsSummary(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// Real Amazon MQ only takes a Logs change live on the next reboot -- the
+	// top-level logs.general/audit stay at their pre-update value and the
+	// requested change surfaces under logs.pending until then (see
+	// DescribeBrokerOutput.Logs, a LogsSummary with a nested Pending field).
 	out := describeTestBroker(t, h, brokerID)
 	logs, ok := out["logs"].(map[string]any)
 	require.True(t, ok, "logs must be present after UpdateBroker")
-	assert.Equal(t, true, logs["general"])
+	assert.Equal(t, false, logs["general"], "logs.general must not apply before reboot")
 	assert.NotEmpty(t, logs["generalLogGroup"])
+
+	pending, ok := logs["pending"].(map[string]any)
+	require.True(t, ok, "logs.pending must be present after UpdateBroker")
+	assert.Equal(t, true, pending["general"])
+
+	rec = doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	describeTestBroker(t, h, brokerID) // first Describe after reboot observes REBOOT_IN_PROGRESS and promotes.
+
+	settled := describeTestBroker(t, h, brokerID)
+	settledLogs := settled["logs"].(map[string]any)
+	assert.Equal(t, true, settledLogs["general"], "logs.general must apply after reboot")
+	_, hasPending := settledLogs["pending"]
+	assert.False(t, hasPending, "logs.pending must clear after reboot")
 }
 
 func TestLogs_UpdateBroker_ResponseContainsLogs(t *testing.T) {
@@ -228,6 +246,8 @@ func TestLogs_UpdateBroker_ResponseContainsLogs(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, updRec.Code)
 
+	// UpdateBrokerOutput.logs is the plain Logs shape (not LogsSummary) and
+	// echoes the target value -- see updateBrokerResponse's doc.
 	logs, ok := parseResponse(t, updRec)["logs"].(map[string]any)
 	require.True(t, ok, "logs must be in UpdateBroker response")
 	assert.Equal(t, true, logs["general"])
@@ -311,8 +331,17 @@ func TestAuthStrategy_UpdateBroker_ChangesStrategy(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, updRec.Code)
 
+	// authenticationStrategy only takes effect on the next reboot.
 	out := describeTestBroker(t, h, brokerID)
-	assert.Equal(t, "LDAP", out["authenticationStrategy"])
+	assert.Equal(t, "SIMPLE", out["authenticationStrategy"], "authenticationStrategy must not apply before reboot")
+	assert.Equal(t, "LDAP", out["pendingAuthenticationStrategy"])
+
+	rec = doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	describeTestBroker(t, h, brokerID) // first Describe after reboot observes REBOOT_IN_PROGRESS and promotes.
+
+	settled := describeTestBroker(t, h, brokerID)
+	assert.Equal(t, "LDAP", settled["authenticationStrategy"], "authenticationStrategy must apply after reboot")
 }
 
 func TestAuthStrategy_InDescribeBrokerResponse(t *testing.T) {
@@ -480,12 +509,27 @@ func TestLDAP_DescribeBroker_AfterUpdateBroker(t *testing.T) {
 		},
 	})
 
+	// ldapServerMetadata only takes effect on the next reboot; before that it
+	// surfaces as pendingLdapServerMetadata and the top-level field stays
+	// unset (this broker was created without LDAP configured).
 	out := describeTestBroker(t, h, brokerID)
-	ldap, ok := out["ldapServerMetadata"].(map[string]any)
-	require.True(t, ok, "ldapServerMetadata must appear in DescribeBroker after update")
+	_, hasCurrent := out["ldapServerMetadata"]
+	assert.False(t, hasCurrent, "ldapServerMetadata must stay unset before reboot")
 
-	hosts := ldap["hosts"].([]any)
+	pending, ok := out["pendingLdapServerMetadata"].(map[string]any)
+	require.True(t, ok, "pendingLdapServerMetadata must appear in DescribeBroker after update")
+	hosts := pending["hosts"].([]any)
 	assert.Equal(t, "ldap.corp.com:389", hosts[0])
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	describeTestBroker(t, h, brokerID) // first Describe after reboot observes REBOOT_IN_PROGRESS and promotes.
+
+	settled := describeTestBroker(t, h, brokerID)
+	settledLdap, ok := settled["ldapServerMetadata"].(map[string]any)
+	require.True(t, ok, "ldapServerMetadata must appear in DescribeBroker after reboot")
+	settledHosts := settledLdap["hosts"].([]any)
+	assert.Equal(t, "ldap.corp.com:389", settledHosts[0])
 }
 
 func TestMaintenanceWindow_CreateBroker_RoundTrip(t *testing.T) {
@@ -610,9 +654,23 @@ func TestDataReplicationMode_Backend_CRDRRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// UpdateBrokerOutput/DescribeBrokerOutput's dataReplicationMode reflects
+	// the CURRENT (pre-reboot) mode; pendingDataReplicationMode carries the
+	// target -- unlike engineVersion/hostInstanceType/etc, which have no
+	// dedicated Pending* output field and so echo the target directly.
 	got, err := b.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
-	assert.Equal(t, "CRDR", got.DataReplicationMode)
+	assert.Empty(t, got.DataReplicationMode)
+	assert.Equal(t, "CRDR", got.PendingDataReplicationMode)
+
+	require.NoError(t, b.RebootBroker(br.BrokerID))
+	_, err = b.DescribeBroker(br.BrokerID) // observes REBOOT_IN_PROGRESS and promotes.
+	require.NoError(t, err)
+
+	settled, err := b.DescribeBroker(br.BrokerID)
+	require.NoError(t, err)
+	assert.Equal(t, "CRDR", settled.DataReplicationMode)
+	assert.Empty(t, settled.PendingDataReplicationMode)
 }
 
 func TestDataReplicationMode_UpdateBroker_SetsMode(t *testing.T) {
@@ -627,7 +685,8 @@ func TestDataReplicationMode_UpdateBroker_SetsMode(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	out := describeTestBroker(t, h, brokerID)
-	assert.Equal(t, "CRDR", out["dataReplicationMode"])
+	assert.NotEqual(t, "CRDR", out["dataReplicationMode"], "dataReplicationMode must not apply before reboot")
+	assert.Equal(t, "CRDR", out["pendingDataReplicationMode"])
 }
 
 func TestDataReplicationMode_DescribeBroker_AfterUpdate(t *testing.T) {
@@ -640,9 +699,13 @@ func TestDataReplicationMode_DescribeBroker_AfterUpdate(t *testing.T) {
 		"dataReplicationMode": "CRDR",
 	})
 
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	describeTestBroker(t, h, brokerID) // first Describe after reboot observes REBOOT_IN_PROGRESS and promotes.
+
 	out := describeTestBroker(t, h, brokerID)
 	assert.Equal(t, "CRDR", out["dataReplicationMode"],
-		"dataReplicationMode must appear in DescribeBroker after UpdateBroker")
+		"dataReplicationMode must appear in DescribeBroker after the broker reboots")
 }
 
 func TestConfigAssoc_CreateBroker_WithConfiguration(t *testing.T) {
@@ -707,10 +770,27 @@ func TestConfigAssoc_DescribeBroker_AfterUpdateBroker(t *testing.T) {
 		},
 	})
 
+	// Real Amazon MQ only swaps a new configuration association into
+	// Configurations.current on the next reboot; until then it sits in
+	// Configurations.pending (see DescribeBrokerOutput.Configurations).
 	out := describeTestBroker(t, h, brokerID)
 	configurations := out["configurations"].(map[string]any)
-	current := configurations["current"].(map[string]any)
-	assert.Equal(t, configID, current["id"])
+	_, hasCurrent := configurations["current"]
+	assert.False(t, hasCurrent, "configurations.current must stay unset before reboot")
+
+	pending := configurations["pending"].(map[string]any)
+	assert.Equal(t, configID, pending["id"])
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	describeTestBroker(t, h, brokerID) // first Describe after reboot observes REBOOT_IN_PROGRESS and promotes.
+
+	settled := describeTestBroker(t, h, brokerID)
+	settledConfigurations := settled["configurations"].(map[string]any)
+	current := settledConfigurations["current"].(map[string]any)
+	assert.Equal(t, configID, current["id"], "configurations.current must hold the new config after reboot")
+	_, hasPending := settledConfigurations["pending"]
+	assert.False(t, hasPending, "configurations.pending must clear after reboot")
 }
 
 func TestUpdateBroker_MultipleFields_SameRequest(t *testing.T) {
@@ -734,11 +814,24 @@ func TestUpdateBroker_MultipleFields_SameRequest(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, updRec.Code)
 
+	// engineVersion/authenticationStrategy/logs only take effect on the next
+	// reboot; maintenanceWindowStartTime has no Pending* counterpart in the
+	// SDK and applies immediately (see applyUpdateBrokerOptions).
 	out := describeTestBroker(t, h, brokerID)
-	assert.Equal(t, "5.18.3", out["engineVersion"])
-	assert.Equal(t, "SIMPLE", out["authenticationStrategy"])
+	assert.NotEqual(t, "5.18.3", out["engineVersion"], "engineVersion must not apply before reboot")
+	assert.Equal(t, "5.18.3", out["pendingEngineVersion"])
+	assert.NotEqual(t, "SIMPLE", out["authenticationStrategy"], "authenticationStrategy must not apply before reboot")
+	assert.Equal(t, "SIMPLE", out["pendingAuthenticationStrategy"])
 	assert.NotNil(t, out["logs"])
 	assert.NotNil(t, out["maintenanceWindowStartTime"])
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	describeTestBroker(t, h, brokerID) // first Describe after reboot observes REBOOT_IN_PROGRESS and promotes.
+
+	settled := describeTestBroker(t, h, brokerID)
+	assert.Equal(t, "5.18.3", settled["engineVersion"])
+	assert.Equal(t, "SIMPLE", settled["authenticationStrategy"])
 }
 
 func TestUpdateBroker_PartialUpdate_PreservesOtherFields(t *testing.T) {
@@ -763,8 +856,11 @@ func TestUpdateBroker_PartialUpdate_PreservesOtherFields(t *testing.T) {
 		"engineVersion": "5.16.7",
 	})
 
+	// engineVersion is staged (not yet live); authenticationStrategy and
+	// maintenanceWindowStartTime were untouched by this update and must be
+	// preserved exactly as set at broker creation.
 	out := describeTestBroker(t, h, brokerID)
-	assert.Equal(t, "5.16.7", out["engineVersion"])
+	assert.Equal(t, "5.16.7", out["pendingEngineVersion"])
 	assert.Equal(t, "SIMPLE", out["authenticationStrategy"], "authenticationStrategy must be preserved")
 
 	mw, ok := out["maintenanceWindowStartTime"].(map[string]any)
@@ -829,16 +925,46 @@ func TestUpdateBrokerWithOptions_Backend_AllFields(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "5.18.3", updated.EngineVersion)
-	assert.Equal(t, "mq.m5.xlarge", updated.HostInstanceType)
-	assert.Equal(t, "SIMPLE", updated.AuthenticationStrategy)
-	assert.Equal(t, "CRDR", updated.DataReplicationMode)
-	require.NotNil(t, updated.Logs)
-	assert.True(t, updated.Logs.General)
+
+	// EngineVersion/HostInstanceType/AuthenticationStrategy/DataReplicationMode/
+	// Logs/Configuration all stage into their Pending* slot and only take
+	// effect on the next reboot; MaintenanceWindowStartTime has no Pending*
+	// counterpart in the SDK and applies immediately. The broker's live
+	// EngineVersion/HostInstanceType stay at CreateBroker's defaults until
+	// then.
+	assert.Equal(t, "5.15.14", updated.EngineVersion)
+	assert.Equal(t, "5.18.3", updated.PendingEngineVersion)
+	assert.Equal(t, "mq.m5.large", updated.HostInstanceType)
+	assert.Equal(t, "mq.m5.xlarge", updated.PendingHostInstanceType)
+	assert.Empty(t, updated.AuthenticationStrategy)
+	assert.Equal(t, "SIMPLE", updated.PendingAuthStrategy)
+	assert.Empty(t, updated.DataReplicationMode)
+	assert.Equal(t, "CRDR", updated.PendingDataReplicationMode)
+	require.NotNil(t, updated.LogsSummary)
+	assert.False(t, updated.LogsSummary.General)
+	require.NotNil(t, updated.LogsSummary.Pending)
+	assert.True(t, updated.LogsSummary.Pending.General)
 	require.NotNil(t, updated.MaintenanceWindowStartTime)
 	assert.Equal(t, "FRIDAY", updated.MaintenanceWindowStartTime.DayOfWeek)
 	require.NotNil(t, updated.Configurations)
-	assert.Equal(t, configID, updated.Configurations.Current.ID)
+	require.Nil(t, updated.Configurations.Current)
+	require.NotNil(t, updated.Configurations.Pending)
+	assert.Equal(t, configID, updated.Configurations.Pending.ID)
+
+	require.NoError(t, b.RebootBroker(br.BrokerID))
+	_, err = b.DescribeBroker(br.BrokerID) // observes REBOOT_IN_PROGRESS and promotes.
+	require.NoError(t, err)
+
+	settled, err := b.DescribeBroker(br.BrokerID)
+	require.NoError(t, err)
+	assert.Equal(t, "5.18.3", settled.EngineVersion)
+	assert.Equal(t, "mq.m5.xlarge", settled.HostInstanceType)
+	assert.Equal(t, "SIMPLE", settled.AuthenticationStrategy)
+	assert.Equal(t, "CRDR", settled.DataReplicationMode)
+	require.NotNil(t, settled.LogsSummary)
+	assert.True(t, settled.LogsSummary.General)
+	require.NotNil(t, settled.Configurations.Current)
+	assert.Equal(t, configID, settled.Configurations.Current.ID)
 }
 
 func TestUpdateBroker_ResponseIncludesDataReplicationMode(t *testing.T) {
@@ -852,8 +978,13 @@ func TestUpdateBroker_ResponseIncludesDataReplicationMode(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
-	assert.Equal(t, "CRDR", parseResponse(t, updateRec)["dataReplicationMode"],
-		"UpdateBroker response must echo back dataReplicationMode")
+	// UpdateBrokerOutput.dataReplicationMode is the CURRENT (pre-reboot)
+	// value -- unlike most other UpdateBroker response fields, it has a real
+	// pendingDataReplicationMode counterpart to carry the target.
+	out := parseResponse(t, updateRec)
+	assert.NotEqual(t, "CRDR", out["dataReplicationMode"])
+	assert.Equal(t, "CRDR", out["pendingDataReplicationMode"],
+		"UpdateBroker response must echo back pendingDataReplicationMode")
 }
 
 func TestSnapshotRestore_PreservesEncryptionOptions(t *testing.T) {
@@ -959,7 +1090,18 @@ func TestSnapshotRestore_PreservesDataReplicationMode(t *testing.T) {
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
+	// The mode is still staged (no reboot happened), so it must round-trip
+	// as pendingDataReplicationMode, not the live dataReplicationMode.
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
-	assert.Equal(t, "CRDR", restored.DataReplicationMode)
+	assert.Empty(t, restored.DataReplicationMode)
+	assert.Equal(t, "CRDR", restored.PendingDataReplicationMode)
+
+	require.NoError(t, b2.RebootBroker(br.BrokerID))
+	_, err = b2.DescribeBroker(br.BrokerID) // observes REBOOT_IN_PROGRESS and promotes.
+	require.NoError(t, err)
+
+	settled, err := b2.DescribeBroker(br.BrokerID)
+	require.NoError(t, err)
+	assert.Equal(t, "CRDR", settled.DataReplicationMode)
 }

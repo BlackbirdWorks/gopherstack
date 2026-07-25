@@ -10,9 +10,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// CreateEksAnywhereSubscription creates a new EKS Anywhere subscription.
+// CreateEksAnywhereSubscription creates a new EKS Anywhere subscription. term
+// is required by the real API (CreateEksAnywhereSubscriptionInput.Term) --
+// callers must validate it before calling this method.
 func (b *InMemoryBackend) CreateEksAnywhereSubscription(
 	name string,
+	term SubscriptionTerm,
+	autoRenew bool,
 	licenseQuantity int32,
 	licenseType string,
 	kv map[string]string,
@@ -28,6 +32,9 @@ func (b *InMemoryBackend) CreateEksAnywhereSubscription(
 		t.Merge(kv)
 	}
 
+	now := time.Now().UTC()
+	termCopy := term
+
 	sub := &AnywhereSubscription{
 		ID:              id,
 		ARN:             subARN,
@@ -35,7 +42,11 @@ func (b *InMemoryBackend) CreateEksAnywhereSubscription(
 		Status:          statusActive,
 		LicenseType:     licenseType,
 		LicenseQuantity: licenseQuantity,
-		CreatedAt:       time.Now().UTC(),
+		CreatedAt:       now,
+		EffectiveDate:   now,
+		ExpirationDate:  now.AddDate(0, int(termCopy.Duration), 0),
+		Term:            &termCopy,
+		AutoRenew:       autoRenew,
 		Tags:            t,
 	}
 	b.subscriptions.Put(sub)

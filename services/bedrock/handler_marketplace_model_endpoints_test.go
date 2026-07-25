@@ -67,7 +67,7 @@ func TestAccuracy_MarketplaceEndpoint_RegisterTransitionsToActive(t *testing.T) 
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrock.NewHandler(b)
-	ep, err := b.CreateMarketplaceModelEndpoint("activate-ep", "src-id", nil)
+	ep, err := b.CreateMarketplaceModelEndpoint("activate-ep", "src-id", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Creating", ep.Status)
 
@@ -85,7 +85,7 @@ func TestAccuracy_MarketplaceEndpoint_DeregisterTransitionsToDeregistered(t *tes
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrock.NewHandler(b)
-	ep, err := b.CreateMarketplaceModelEndpoint("deactivate-ep", "src-id", nil)
+	ep, err := b.CreateMarketplaceModelEndpoint("deactivate-ep", "src-id", nil, nil)
 	require.NoError(t, err)
 
 	// Register first.
@@ -139,7 +139,7 @@ func TestAccuracy_MarketplaceEndpoint_ListResponseShape(t *testing.T) {
 
 	names := []string{"ep-one", "ep-two", "ep-three"}
 	for _, n := range names {
-		_, err := b.CreateMarketplaceModelEndpoint(n, "src", nil)
+		_, err := b.CreateMarketplaceModelEndpoint(n, "src", nil, nil)
 		require.NoError(t, err)
 	}
 
@@ -166,7 +166,7 @@ func TestAccuracy_MarketplaceEndpoint_DeleteRemovesFromList(t *testing.T) {
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrock.NewHandler(b)
-	ep, err := b.CreateMarketplaceModelEndpoint("del-ep", "src", nil)
+	ep, err := b.CreateMarketplaceModelEndpoint("del-ep", "src", nil, nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodDelete, "/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn), nil)
@@ -185,7 +185,7 @@ func TestAccuracy_MarketplaceEndpoint_UpdateReturnsEndpoint(t *testing.T) {
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrock.NewHandler(b)
-	ep, err := b.CreateMarketplaceModelEndpoint("update-ep", "src", nil)
+	ep, err := b.CreateMarketplaceModelEndpoint("update-ep", "src", nil, nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPatch, "/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn), nil)
@@ -195,6 +195,90 @@ func TestAccuracy_MarketplaceEndpoint_UpdateReturnsEndpoint(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, ep.EndpointArn, out["endpointArn"])
 	assert.NotEmpty(t, out["updatedAt"])
+}
+
+// TestAccuracy_MarketplaceEndpoint_UpdateAppliesEndpointConfig locks in the
+// parity fix for UpdateMarketplaceModelEndpoint: the real API's required
+// EndpointConfig request field must actually be parsed and stored, not
+// silently discarded (gopherstack previously only bumped UpdatedAt).
+func TestAccuracy_MarketplaceEndpoint_UpdateAppliesEndpointConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, http.MethodPost, "/marketplace-model/endpoints", map[string]any{
+		"endpointName":          "cfg-ep",
+		"modelSourceIdentifier": "src-id",
+		"endpointConfig": map[string]any{
+			"sageMaker": map[string]any{
+				"executionRole":        "arn:aws:iam::000000000000:role/exec",
+				"instanceType":         "ml.m5.xlarge",
+				"initialInstanceCount": 1,
+			},
+		},
+	})
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	var createOut map[string]any
+	mustUnmarshal(t, createRec, &createOut)
+	ep := createOut["marketplaceModelEndpoint"].(map[string]any)
+	endpointARN := ep["endpointArn"].(string)
+
+	createdCfg := ep["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/exec", createdCfg["executionRole"])
+	assert.Equal(t, "ml.m5.xlarge", createdCfg["instanceType"])
+	assert.InEpsilon(t, float64(1), createdCfg["initialInstanceCount"], 0)
+
+	// Update with a DIFFERENT config -- must actually apply, not no-op.
+	updateRec := doRequest(t, h, http.MethodPatch, "/marketplace-model/endpoints/"+url.PathEscape(endpointARN),
+		map[string]any{
+			"endpointConfig": map[string]any{
+				"sageMaker": map[string]any{
+					"executionRole":        "arn:aws:iam::000000000000:role/exec2",
+					"instanceType":         "ml.m5.2xlarge",
+					"initialInstanceCount": 3,
+				},
+			},
+		})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updateOut map[string]any
+	mustUnmarshal(t, updateRec, &updateOut)
+	updatedCfg := updateOut["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/exec2", updatedCfg["executionRole"])
+	assert.Equal(t, "ml.m5.2xlarge", updatedCfg["instanceType"])
+	assert.InEpsilon(t, float64(3), updatedCfg["initialInstanceCount"], 0)
+
+	// Get must reflect the applied update too, not just the Update response.
+	getRec := doRequest(t, h, http.MethodGet, "/marketplace-model/endpoints/"+url.PathEscape(endpointARN), nil)
+	var getOut map[string]any
+	mustUnmarshal(t, getRec, &getOut)
+	getCfg := getOut["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
+	assert.Equal(t, "ml.m5.2xlarge", getCfg["instanceType"])
+}
+
+// TestAccuracy_MarketplaceEndpoint_UpdateWithoutEndpointConfigPreservesExisting
+// verifies a PATCH with no endpointConfig field leaves the previously-stored
+// config untouched instead of clearing it.
+func TestAccuracy_MarketplaceEndpoint_UpdateWithoutEndpointConfigPreservesExisting(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+	h := bedrock.NewHandler(b)
+
+	ep, err := b.CreateMarketplaceModelEndpoint("preserve-ep", "src", &bedrock.SageMakerEndpointConfig{
+		ExecutionRole: "arn:aws:iam::000000000000:role/original",
+		InstanceType:  "ml.m5.large",
+	}, nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPatch, "/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	cfg := out["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/original", cfg["executionRole"])
 }
 
 func TestHandler_MarketplaceModelEndpointLifecycle(t *testing.T) {

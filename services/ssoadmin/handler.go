@@ -24,7 +24,6 @@ const (
 	keyStatus                 = "Status"
 	keyTags                   = "Tags"
 	keyApplicationArn         = "ApplicationArn"
-	keyApplication            = "Application"
 	keyApplicationProviderArn = "ApplicationProviderArn"
 	keyAuthenticationMethod   = "AuthenticationMethod"
 	keyGrant                  = "Grant"
@@ -129,6 +128,130 @@ func paginateBy[T any](items []T, maxResults int, nextToken string, keyFn func(T
 	}
 
 	return page, next
+}
+
+// paginateOrdered applies MaxResults + NextToken pagination to a slice that
+// is already in the caller's desired order (e.g. CreatedDate descending, as
+// returned by ListAccountAssignmentCreationStatus/DeletionStatus and
+// ListPermissionSetProvisioningStatus). Unlike paginateBy, it does NOT
+// re-sort items by keyFn -- keyFn is only used to locate the resume point
+// (via a unique per-item key, e.g. RequestId) so a real caller's chronological
+// ordering survives pagination instead of being scrambled into key order.
+// NextToken is base64-encoded to be opaque to callers.
+func paginateOrdered[T any](items []T, maxResults int, nextToken string, keyFn func(T) string) ([]T, any) {
+	start := 0
+
+	if nextToken != "" {
+		cursor := nextToken
+		if dec, err := base64.StdEncoding.DecodeString(nextToken); err == nil {
+			cursor = string(dec)
+		}
+
+		start = len(items)
+
+		for i := range items {
+			if keyFn(items[i]) == cursor {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	if start > len(items) {
+		start = len(items)
+	}
+
+	limit := maxResults
+	if limit <= 0 || limit > maxPageSize {
+		limit = maxPageSize
+	}
+
+	end := min(start+limit, len(items))
+
+	page := items[start:end]
+
+	var next any
+	if end < len(items) {
+		next = base64.StdEncoding.EncodeToString([]byte(keyFn(items[end])))
+	}
+
+	return page, next
+}
+
+// listProvisioningStatusMetadata is the shared implementation behind
+// ListAccountAssignmentCreationStatus, ListAccountAssignmentDeletionStatus,
+// and ListPermissionSetProvisioningStatus: parse
+// {InstanceArn,Filter.Status,NextToken,MaxResults}, fetch backend
+// ProvisioningStatus entries (already CreatedDate-descending), map each to
+// the operation's slim metadata view type T, and paginate while preserving
+// that order (see paginateOrdered).
+func listProvisioningStatusMetadata[T any](
+	c *echo.Context, body []byte,
+	fetch func(instanceArn, filterStatus string) []*ProvisioningStatus,
+	toView func(*ProvisioningStatus) T,
+	keyFn func(T) string,
+	responseKey string,
+) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+		Filter      struct {
+			Status string `json:"Status"`
+		} `json:"Filter"`
+		NextToken  string `json:"NextToken"`
+		MaxResults int    `json:"MaxResults"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	statuses := fetch(req.InstanceArn, req.Filter.Status)
+
+	out := make([]T, 0, len(statuses))
+	for _, status := range statuses {
+		out = append(out, toView(status))
+	}
+
+	page, next := paginateOrdered(out, req.MaxResults, req.NextToken, keyFn)
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		responseKey:  page,
+		keyNextToken: next,
+	})
+}
+
+// listPermissionSetSubItems is the shared implementation behind
+// ListManagedPoliciesInPermissionSet and
+// ListCustomerManagedPolicyReferencesInPermissionSet: parse
+// {InstanceArn,PermissionSetArn,NextToken,MaxResults}, fetch+view via fetch,
+// and paginate (sorted by keyFn, see paginateBy).
+func listPermissionSetSubItems[T any](
+	c *echo.Context, body []byte,
+	fetch func(instanceArn, permissionSetArn string) ([]T, error),
+	keyFn func(T) string,
+	responseKey string,
+) error {
+	var req struct {
+		InstanceArn      string `json:"InstanceArn"`
+		PermissionSetArn string `json:"PermissionSetArn"`
+		NextToken        string `json:"NextToken"`
+		MaxResults       int    `json:"MaxResults"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	items, err := fetch(req.InstanceArn, req.PermissionSetArn)
+	if err != nil {
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
+	}
+
+	page, next := paginateBy(items, req.MaxResults, req.NextToken, keyFn)
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		responseKey:  page,
+		keyNextToken: next,
+	})
 }
 
 // Handler is the Echo HTTP handler for the SSO Admin service.
@@ -414,16 +537,61 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
 }
 
-type provisioningStatusView struct {
+// accountAssignmentStatusView is the wire shape for
+// types.AccountAssignmentOperationStatus, returned by CreateAccountAssignment,
+// DeleteAccountAssignment, DescribeAccountAssignmentCreationStatus, and
+// DescribeAccountAssignmentDeletionStatus. Its account/target identifier field
+// is "TargetId"/"TargetType" -- NOT "AccountId". This differs from
+// PermissionSetProvisioningStatus (permissionSetProvisioningStatusView below),
+// which really does use "AccountId". Verified against
+// awsAwsjson11_deserializeDocumentAccountAssignmentOperationStatus in the real
+// SDK's deserializers.go.
+type accountAssignmentStatusView struct {
+	RequestID        string  `json:"RequestId"`
+	Status           string  `json:"Status"`
+	FailureReason    string  `json:"FailureReason,omitempty"`
+	TargetID         string  `json:"TargetId,omitempty"`
+	TargetType       string  `json:"TargetType,omitempty"`
+	PermissionSetArn string  `json:"PermissionSetArn,omitempty"`
+	PrincipalID      string  `json:"PrincipalId,omitempty"`
+	PrincipalType    string  `json:"PrincipalType,omitempty"`
+	CreatedDate      float64 `json:"CreatedDate,omitempty"`
+}
+
+// accountAssignmentStatusMetadataView is the slim wire shape for
+// types.AccountAssignmentOperationStatusMetadata, returned by
+// ListAccountAssignmentCreationStatus/ListAccountAssignmentDeletionStatus.
+// Unlike the singular Describe/Create/Delete responses, the real SDK's list
+// output only carries CreatedDate/RequestId/Status -- no FailureReason,
+// PermissionSetArn, TargetId/TargetType, or PrincipalId/PrincipalType.
+type accountAssignmentStatusMetadataView struct {
+	RequestID   string  `json:"RequestId"`
+	Status      string  `json:"Status"`
+	CreatedDate float64 `json:"CreatedDate,omitempty"`
+}
+
+// permissionSetProvisioningStatusView is the wire shape for
+// types.PermissionSetProvisioningStatus, returned by ProvisionPermissionSet
+// and DescribePermissionSetProvisioningStatus. Unlike
+// AccountAssignmentOperationStatus, this really does use "AccountId" (and has
+// no TargetType/PrincipalId/PrincipalType members at all).
+type permissionSetProvisioningStatusView struct {
 	RequestID        string  `json:"RequestId"`
 	Status           string  `json:"Status"`
 	FailureReason    string  `json:"FailureReason,omitempty"`
 	AccountID        string  `json:"AccountId,omitempty"`
 	PermissionSetArn string  `json:"PermissionSetArn,omitempty"`
-	TargetType       string  `json:"TargetType,omitempty"`
-	PrincipalID      string  `json:"PrincipalId,omitempty"`
-	PrincipalType    string  `json:"PrincipalType,omitempty"`
 	CreatedDate      float64 `json:"CreatedDate,omitempty"`
+}
+
+// permissionSetProvisioningStatusMetadataView is the slim wire shape for
+// types.PermissionSetProvisioningStatusMetadata, returned by
+// ListPermissionSetProvisioningStatus (CreatedDate/RequestId/Status only,
+// same slimming pattern as accountAssignmentStatusMetadataView).
+type permissionSetProvisioningStatusMetadataView struct {
+	RequestID   string  `json:"RequestId"`
+	Status      string  `json:"Status"`
+	CreatedDate float64 `json:"CreatedDate,omitempty"`
 }
 
 type tagView struct {
@@ -432,6 +600,19 @@ type tagView struct {
 }
 
 // handleBackendError maps a backend error to the appropriate HTTP response.
+//
+// ssoadmin uses the plain "json" (awsjson1.1) protocol with no per-exception
+// @httpError override in its Smithy model: every modeled exception without
+// "fault": true (i.e. everything except InternalServerException) is a client
+// fault and the real service returns HTTP 400 for all of them, regardless of
+// exception name -- ResourceNotFoundException and ConflictException are NOT
+// 404/409 here (that convention only applies to restJson1-bound services with
+// explicit @httpError traits). Verified against botocore's sso-admin
+// service-2.json (no "error.httpStatusCode" on any exception shape) and
+// against DynamoDB, another pure-JSON-protocol service, which returns 400 for
+// ResourceNotFoundException in production. Matches the same-protocol
+// convention already used in services/secretsmanager (single
+// http.StatusBadRequest for the whole handler).
 func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
 	if errors.Is(err, awserr.ErrInvalidParameter) {
 		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
@@ -440,28 +621,69 @@ func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
 	switch err.Error() {
 	case "ResourceNotFoundException":
 
-		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", notFoundMsg)
+		return writeError(c, http.StatusBadRequest, "ResourceNotFoundException", notFoundMsg)
 	case "ConflictException":
 
-		return writeError(c, http.StatusConflict, "ConflictException", notFoundMsg)
+		return writeError(c, http.StatusBadRequest, "ConflictException", notFoundMsg)
 	default:
 
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 }
 
-// toProvisioningView converts a backend ProvisioningStatus to its JSON view.
-func toProvisioningView(s *ProvisioningStatus) provisioningStatusView {
-	return provisioningStatusView{
+// toAccountAssignmentStatusView converts a backend ProvisioningStatus to the
+// AccountAssignmentOperationStatus JSON view (TargetId/TargetType, not
+// AccountId -- see accountAssignmentStatusView's doc comment). The backend's
+// ProvisioningStatus.AccountID field is reused internally to hold the
+// account-assignment TargetId as well as the permission-set-provisioning
+// AccountId; only the wire-facing view types diverge.
+func toAccountAssignmentStatusView(s *ProvisioningStatus) accountAssignmentStatusView {
+	return accountAssignmentStatusView{
+		RequestID:        s.RequestID,
+		Status:           s.Status,
+		CreatedDate:      float64(s.CreatedDate.Unix()),
+		FailureReason:    s.FailureReason,
+		TargetID:         s.AccountID,
+		TargetType:       s.TargetType,
+		PermissionSetArn: s.PermissionSetArn,
+		PrincipalID:      s.PrincipalID,
+		PrincipalType:    s.PrincipalType,
+	}
+}
+
+// toAccountAssignmentStatusMetadataView converts a backend ProvisioningStatus
+// to the slim AccountAssignmentOperationStatusMetadata JSON view used by the
+// List* status operations.
+func toAccountAssignmentStatusMetadataView(s *ProvisioningStatus) accountAssignmentStatusMetadataView {
+	return accountAssignmentStatusMetadataView{
+		RequestID:   s.RequestID,
+		Status:      s.Status,
+		CreatedDate: float64(s.CreatedDate.Unix()),
+	}
+}
+
+// toPermissionSetProvisioningStatusView converts a backend ProvisioningStatus
+// to the PermissionSetProvisioningStatus JSON view (AccountId, no
+// TargetType/PrincipalId/PrincipalType members).
+func toPermissionSetProvisioningStatusView(s *ProvisioningStatus) permissionSetProvisioningStatusView {
+	return permissionSetProvisioningStatusView{
 		RequestID:        s.RequestID,
 		Status:           s.Status,
 		CreatedDate:      float64(s.CreatedDate.Unix()),
 		FailureReason:    s.FailureReason,
 		AccountID:        s.AccountID,
 		PermissionSetArn: s.PermissionSetArn,
-		TargetType:       s.TargetType,
-		PrincipalID:      s.PrincipalID,
-		PrincipalType:    s.PrincipalType,
+	}
+}
+
+// toPermissionSetProvisioningStatusMetadataView converts a backend
+// ProvisioningStatus to the slim PermissionSetProvisioningStatusMetadata JSON
+// view used by ListPermissionSetProvisioningStatus.
+func toPermissionSetProvisioningStatusMetadataView(s *ProvisioningStatus) permissionSetProvisioningStatusMetadataView {
+	return permissionSetProvisioningStatusMetadataView{
+		RequestID:   s.RequestID,
+		Status:      s.Status,
+		CreatedDate: float64(s.CreatedDate.Unix()),
 	}
 }
 

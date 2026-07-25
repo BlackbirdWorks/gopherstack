@@ -146,6 +146,16 @@ func (b *InMemoryBackend) issueTokensLocked(
 		return nil, err
 	}
 
+	// PostAuthentication fires once the sign-in itself has succeeded, immediately
+	// before tokens are handed back -- matching AWS ordering (after PreTokenGeneration,
+	// which can still suppress/override claims the caller sees). This only runs on real
+	// interactive sign-in completions: InitiateAuthRefreshToken issues tokens directly
+	// without calling issueTokensLocked, so REFRESH_TOKEN_AUTH never re-fires it, matching
+	// AWS (PostAuthentication does not run on token refresh).
+	if postAuthErr := b.postAuthenticationNotify(pool, clientID, user); postAuthErr != nil {
+		return nil, postAuthErr
+	}
+
 	tokens, err := pool.issuer.Issue(TokenParams{
 		ClientID:              clientID,
 		Username:              user.Username,

@@ -125,7 +125,8 @@ func TestElasticsearchPackageRegionIsolation(t *testing.T) {
 	ctxEast := ctxRegion("us-east-1")
 	ctxWest := ctxRegion("us-west-2")
 
-	pkg, err := backend.CreatePackage(ctxEast, "dict", "TXT-DICTIONARY", "east dictionary")
+	pkg, err := backend.CreatePackage(ctxEast, "dict", "TXT-DICTIONARY", "east dictionary",
+		PackageSource{S3BucketName: "b", S3Key: "k"})
 	require.NoError(t, err)
 
 	// us-east-1 sees the package.
@@ -138,7 +139,8 @@ func TestElasticsearchPackageRegionIsolation(t *testing.T) {
 	assert.Empty(t, westPkgs)
 
 	// A same-named package can be created independently in us-west-2.
-	_, err = backend.CreatePackage(ctxWest, "dict", "TXT-DICTIONARY", "west dictionary")
+	_, err = backend.CreatePackage(ctxWest, "dict", "TXT-DICTIONARY", "west dictionary",
+		PackageSource{S3BucketName: "b", S3Key: "k"})
 	require.NoError(t, err)
 	assert.Len(t, backend.DescribePackages(ctxWest, nil), 1)
 }

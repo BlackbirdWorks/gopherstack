@@ -90,6 +90,7 @@ type scalableTargetSummary struct {
 	Tags              map[string]string      `json:"Tags,omitempty"`
 	CreationTime      *float64               `json:"CreationTime,omitempty"`
 	LastModifiedTime  *float64               `json:"LastModifiedTime,omitempty"`
+	PredictedCapacity *int32                 `json:"PredictedCapacity,omitempty"`
 	ServiceNamespace  string                 `json:"ServiceNamespace"`
 	ResourceID        string                 `json:"ResourceId"`
 	ScalableDimension string                 `json:"ScalableDimension"`
@@ -108,13 +109,17 @@ func (h *Handler) handleDescribeScalableTargets(
 	_ context.Context,
 	in *describeScalableTargetsInput,
 ) (*describeScalableTargetsOutput, error) {
-	targets, nextToken := h.Backend.DescribeScalableTargets(DescribeScalableTargetsFilter{
+	targets, nextToken, err := h.Backend.DescribeScalableTargets(DescribeScalableTargetsFilter{
 		ServiceNamespace:  in.ServiceNamespace,
 		ResourceIDs:       in.ResourceIDs,
 		ScalableDimension: in.ScalableDimension,
 		MaxResults:        in.MaxResults,
 		NextToken:         in.NextToken,
 	})
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]scalableTargetSummary, 0, len(targets))
 	for _, t := range targets {
 		item := scalableTargetSummary{
@@ -128,6 +133,7 @@ func (h *Handler) handleDescribeScalableTargets(
 			Tags:              t.Tags,
 			CreationTime:      epochSecondsPtr(t.CreationTime),
 			LastModifiedTime:  epochSecondsPtr(t.LastModifiedTime),
+			PredictedCapacity: t.PredictedCapacity,
 		}
 		if t.SuspendedState != nil {
 			item.SuspendedState = &suspendedStateSummary{

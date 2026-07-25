@@ -6,9 +6,15 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: wafv2
 sdk_module: aws-sdk-go-v2/service/wafv2@v1.71.2   # version audited against
-last_audit_commit: 22d69640                       # HEAD when this manifest was written
-last_audit_date: 2026-07-12
-overall: A            # genuine fixes found this pass (wire-shape gap across 4 Create* ops + errCodeLookup completeness)
+last_audit_commit: 7061877e4                      # HEAD when this manifest was written
+last_audit_date: 2026-07-23
+overall: A            # genuine fixes this pass: CheckCapacity now implements AWS's real
+                      # per-statement-type WCU cost model (was a flat 1-WCU/rule stub), and
+                      # ListTagsForResource now honors Limit/NextMarker pagination. The two
+                      # remaining documented gaps (GetWebACL ApplicationIntegrationURL,
+                      # GetManagedRuleSet/ListManagedRuleSets Description/LabelNamespace) were
+                      # re-investigated and confirmed genuinely non-actionable (see gaps below
+                      # and the new Notes entries for why).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -36,14 +42,14 @@ ops:
   DisassociateWebACL: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent no-op on missing association, matches AWS"}
   GetWebACLForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResourcesForWebACL: {wire: ok, errors: ok, state: ok, persist: ok}
-  CheckCapacity: {wire: ok, errors: ok, state: partial, note: "flat 1 WCU/rule instead of AWS's per-statement cost model (see gaps)"}
+  CheckCapacity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: real per-statement-type WCU cost model in capacity.go, replacing the flat 1-WCU/rule stub (see Notes)"}
   CreateAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAPIKeys: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDecryptedAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTagsForResource: {wire: partial, errors: ok, state: ok, persist: ok, note: "ignores Limit/NextMarker (see gaps); low impact, max 50 tags/resource"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now honors Limit/NextMarker via pkgs/page (see Notes)"}
   PutLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -52,8 +58,8 @@ ops:
   DeletePermissionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPermissionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFirewallManagerRuleGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetManagedRuleSet: {wire: partial, errors: ok, state: ok, persist: ok, note: "no Description/LabelNamespace fields modeled; low-traffic vendor-only API"}
-  ListManagedRuleSets: {wire: partial, errors: ok, state: ok, persist: ok, note: "summary omits Description/LabelNamespace, same gap as Get"}
+  GetManagedRuleSet: {wire: partial, errors: ok, state: ok, persist: ok, note: "no Description/LabelNamespace fields modeled; re-verified this pass -- genuinely unreachable, see gaps/Notes"}
+  ListManagedRuleSets: {wire: partial, errors: ok, state: ok, persist: ok, note: "summary omits Description/LabelNamespace, same gap as Get; re-verified this pass"}
   PutManagedRuleSetVersions: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateManagedRuleSetVersionExpiryDate: {wire: ok, errors: ok, state: ok, persist: ok, note: "epoch-seconds int64 pass-through, verified vs deserializers.go"}
   GetRateBasedStatementManagedKeys: {wire: ok, errors: ok, state: partial, note: "always returns empty ManagedKeys lists (no rate-limiting simulation); documented AWS-accurate empty shape"}
@@ -74,10 +80,8 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to Backend.Snapshot/Restore (persistence.go); clean tables via store.Registry, dirty tables (managedRuleSets/apiKeys) via DTO registry with Region json:\"-\" round-trip; version-gated (wafv2SnapshotVersion) with clean discard on mismatch"}
   errCodeLookup: {status: ok, note: "fixed: ErrUnavailableEntity/ErrConfigurationWarning sentinels existed but had no switch case in handleError, would have 500'd if ever returned (currently unreachable/dead -- no handler returns them yet, but the lookup gap is now closed for when they are wired up)"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "CheckCapacity uses a flat 1 WCU per rule instead of AWS's real per-statement-type capacity cost model (e.g. RateBasedStatement, regex/byte-match cost more). Correct emulation requires porting AWS's published WCU table; deferred as a distinct, larger effort."
-  - "GetWebACL response omits the optional top-level ApplicationIntegrationURL field (only populated when a web ACL uses AWSManagedRulesATPRuleSet/ACFPRuleSet with client app integration -- niche, rarely asserted by IaC tooling)."
-  - "ListTagsForResource ignores Limit/NextMarker pagination params and always returns the full tag set. Low impact: AWS caps tags at 50/resource (maxTagsPerResource), well under any default page size."
-  - "GetManagedRuleSet/ListManagedRuleSets don't model Description/LabelNamespace (ManagedRuleSet struct has no such fields). Vendor-only Firewall-Manager API family, not used by Terraform/CDK for the common WAFv2 workflow."
+  - "GetWebACL response omits the optional top-level ApplicationIntegrationURL field (only populated when a web ACL uses AWSManagedRulesATPRuleSet/ACFPRuleSet with client app integration). Re-investigated this pass: AWS has never published the URL-generation scheme (it's an opaque, AWS-internal-service-generated URL), so there is no deterministic value this emulator could fabricate that would be meaningfully AWS-accurate -- niche, rarely asserted by IaC tooling. Left unmodeled rather than invented."
+  - "GetManagedRuleSet/ListManagedRuleSets don't model Description/LabelNamespace (ManagedRuleSet struct has no such fields). Re-investigated this pass: confirmed genuinely non-actionable, not merely low-priority -- PutManagedRuleSetVersionsInput (the only op that creates/updates a ManagedRuleSet in this emulator; there is no CreateManagedRuleSet in the real API either, it's vendor-onboarding-only) has no Description/LabelNamespace input fields, so no caller can ever populate them through any modeled or real API path. Since both are *string with omitempty JSON serialization on the real SDK, an always-absent field is byte-for-byte identical on the wire to an always-nil field -- there is no observable client-visible gap here today. Vendor-only Firewall-Manager API family, not used by Terraform/CDK for the common WAFv2 workflow."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is InMemoryBackend maps + store.Table guarded by lockmetrics.RWMutex; Reset()/resetTablesLocked() cover all fields including the two \"dirty\" (unregistered) tables"}
 ---
@@ -150,3 +154,44 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   `*int64` straight through from request to response, matching the real SDK's
   `smithytime.ParseEpochSeconds(f64)` deserializer (verified in `deserializers.go`) — no
   ISO8601-vs-epoch mismatch here (unlike the QuickSight/IoT bug class in the parity memory).
+
+- **Fixed this pass: `CheckCapacity` real per-statement-type WCU cost model** (`capacity.go`).
+  Previously a flat `1 WCU * len(rules)` stub. Now walks each rule's `Statement` tree and
+  computes AWS's documented cost per statement type, verified against AWS's published
+  per-statement WCU docs (`waf-rule-statement-type-*.html` pages, fetched and quoted verbatim
+  2026-07-23) and `aws-waf-capacity-units.html`:
+  - `ByteMatchStatement`: 2 WCU (EXACTLY/STARTS_WITH/ENDS_WITH) or 10 WCU (CONTAINS/
+    CONTAINS_WORD) base.
+  - `SqliMatchStatement`: 20 WCU (SensitivityLevel LOW, the default) or 30 WCU (HIGH).
+  - `XssMatchStatement`: 40 WCU base. `SizeConstraintStatement`: 1 WCU base.
+    `RegexMatchStatement`: 3 WCU base. `RegexPatternSetReferenceStatement`: 25 WCU base.
+  - All six of the above share one confirmed additional rule (identical wording on every doc
+    page): +10 WCU if `FieldToMatch.AllQueryArguments` is used, ×2 the base if
+    `FieldToMatch.JsonBody` is used (mutually exclusive, since `FieldToMatch` is a oneOf), and
+    +10 WCU per entry in `TextTransformations`.
+  - `GeoMatchStatement`/`LabelMatchStatement`/`AsnMatchStatement`: 1 WCU flat (each verified on
+    its own doc page).
+  - `IPSetReferenceStatement`: 1 WCU, +4 WCU if `IPSetForwardedIPConfig.Position` is `ANY`
+    (verified on `waf-rule-statement-type-ipset-match.html`, the correct — non-obvious — slug).
+  - `RateBasedStatement`: 2 WCU base, +30 WCU per `CustomKeys` entry, plus the recursively
+    computed capacity of any `ScopeDownStatement`.
+  - `AndStatement`/`OrStatement`/`NotStatement`: the sum of nested statements' capacities with
+    **no fixed overhead** — AWS's own doc for `AndStatement` states this explicitly ("WCUs —
+    Depends on the nested statements"), confirmed via `waf-rule-statement-type-and.html`.
+  - `RuleGroupReferenceStatement`: resolves the ARN via `b.ruleGroupsByARN` and returns that
+    RuleGroup's fixed `Capacity` (assigned at creation, immutable), matching AWS's documented
+    "the cost of using a rule group ... is the rule group's capacity setting". Falls back to 1
+    WCU for an ARN this backend doesn't know about (e.g. cross-account) rather than failing the
+    whole call.
+  - `ManagedRuleGroupStatement`: looks up `VendorName`/`Name` in the static catalog
+    (`managed_rule_catalog.go`, already used by `DescribeManagedRuleGroup` et al.) and returns
+    its `Capacity`; falls back to `defaultManagedRuleGroupCapacity` (700, matching
+    `AWSManagedRulesCommonRuleSet`) for an unmodeled vendor/name pair.
+  - Any statement type not yet modeled (including hypothetically future AWS statement types)
+    falls back to 1 WCU rather than erroring, so `CheckCapacity` never fails on an unrecognized
+    shape. New coverage: `capacity_test.go`.
+
+- **Fixed this pass: `ListTagsForResource` now honors `Limit`/`NextMarker`** (`handler_tags.go`),
+  using `pkgs/page.New` (the existing project-wide opaque-cursor pagination helper) over the
+  sorted `tags.MapToKV` output. Previously always returned the full tag set regardless of
+  `Limit`. New coverage: `TestHandler_ListTagsForResource_Pagination` in `handler_tags_test.go`.

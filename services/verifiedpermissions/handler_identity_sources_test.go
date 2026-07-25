@@ -346,6 +346,19 @@ func TestVPHandler_CreateIdentitySource_OIDCIdentityTokenClientIDs(t *testing.T)
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	assert.NotContains(t, createResp, "configuration",
+		"CreateIdentitySourceOutput has no configuration field in the real SDK")
+
+	// The real SDK only echoes configuration back on GetIdentitySource (and
+	// ListIdentitySources), not on CreateIdentitySource itself.
+	rec = doVPRequest(t, h, "GetIdentitySource", map[string]any{
+		"policyStoreId":    storeID,
+		"identitySourceId": createResp["identitySourceId"],
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
@@ -378,6 +391,19 @@ func TestVPHandler_CreateIdentitySource_CognitoIssuer(t *testing.T) {
 				"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test",
 			},
 		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	assert.NotContains(t, createResp, "configuration",
+		"CreateIdentitySourceOutput has no configuration field in the real SDK")
+
+	// The real SDK only echoes configuration (and thus the derived issuer)
+	// back on GetIdentitySource, not on CreateIdentitySource itself.
+	rec = doVPRequest(t, h, "GetIdentitySource", map[string]any{
+		"policyStoreId":    storeID,
+		"identitySourceId": createResp["identitySourceId"],
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
@@ -532,4 +558,57 @@ func TestVPHandler_UpdateIdentitySource(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+// TestVPHandler_CreateUpdateIdentitySource_WireShape locks in a wire-shape
+// bug fix: the real SDK's CreateIdentitySourceOutput and
+// UpdateIdentitySourceOutput are both minimal (id/policyStoreId/timestamps
+// only) -- neither echoes principalEntityType or configuration, unlike
+// GetIdentitySource/ListIdentitySources' fuller item shape. gopherstack
+// previously returned the full shape (with those two extra fields) from
+// both Create and Update.
+func TestVPHandler_CreateUpdateIdentitySource_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	createBody := map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "User",
+		"configuration": map[string]any{
+			"cognitoUserPoolConfiguration": map[string]any{
+				"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/wire-shape",
+			},
+		},
+	}
+
+	createRec := doVPRequest(t, h, "CreateIdentitySource", createBody)
+	require.Equal(t, http.StatusOK, createRec.Code, "body: %s", createRec.Body.String())
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	assert.NotContains(t, createResp, "principalEntityType")
+	assert.NotContains(t, createResp, "configuration")
+	assert.NotEmpty(t, createResp["identitySourceId"])
+	assert.NotEmpty(t, createResp["policyStoreId"])
+	assert.NotEmpty(t, createResp["createdDate"])
+	assert.NotEmpty(t, createResp["lastUpdatedDate"])
+
+	updateRec := doVPRequest(t, h, "UpdateIdentitySource", map[string]any{
+		"policyStoreId":    storeID,
+		"identitySourceId": createResp["identitySourceId"],
+		"updateConfiguration": map[string]any{
+			"cognitoUserPoolConfiguration": map[string]any{
+				"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/wire-shape-2",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code, "body: %s", updateRec.Body.String())
+
+	var updateResp map[string]any
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	assert.NotContains(t, updateResp, "principalEntityType")
+	assert.NotContains(t, updateResp, "configuration")
+	assert.Equal(t, createResp["identitySourceId"], updateResp["identitySourceId"])
 }

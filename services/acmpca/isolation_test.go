@@ -35,12 +35,14 @@ func TestACMPCARegionIsolation(t *testing.T) {
 	assert.Contains(t, westCA.ARN, "us-west-2")
 
 	// 3. us-east-1 sees only its own CA.
-	eastList := backend.ListCertificateAuthorities(ctxEast, "", 0)
+	eastList, err := backend.ListCertificateAuthorities(ctxEast, "", 0, "")
+	require.NoError(t, err)
 	require.Len(t, eastList.Data, 1)
 	assert.Equal(t, eastCA.ARN, eastList.Data[0].ARN)
 
 	// 4. us-west-2 sees only its own CA.
-	westList := backend.ListCertificateAuthorities(ctxWest, "", 0)
+	westList, err := backend.ListCertificateAuthorities(ctxWest, "", 0, "")
+	require.NoError(t, err)
 	require.Len(t, westList.Data, 1)
 	assert.Equal(t, westCA.ARN, westList.Data[0].ARN)
 

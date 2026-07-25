@@ -366,7 +366,7 @@ func TestTagging_ErrorPaths(t *testing.T) {
 				"ResourceArn": "arn:aws:sso:::permissionSet/ssoins-x/notfound",
 				"Tags":        []map[string]string{},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -377,7 +377,7 @@ func TestTagging_ErrorPaths(t *testing.T) {
 				"ResourceArn": "arn:aws:sso:::permissionSet/ssoins-x/notfound",
 				"TagKeys":     []string{"env"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -387,7 +387,7 @@ func TestTagging_ErrorPaths(t *testing.T) {
 				"InstanceArn": "arn:aws:sso:::instance/ssoins-notfound",
 				"ResourceArn": "arn:aws:sso:::permissionSet/ssoins-x/notfound",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 	}

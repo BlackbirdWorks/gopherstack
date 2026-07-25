@@ -458,7 +458,9 @@ func TestDescribeStatement_CloneDoesNotMutate(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	stmt, err := b.ExecuteStatement(context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil)
+	stmt, err := b.ExecuteStatement(
+		context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil, "",
+	)
 	require.NoError(t, err)
 
 	got, err := b.DescribeStatement(context.Background(), stmt.ID)
@@ -485,7 +487,7 @@ func TestStatementCount_RaceCondition(t *testing.T) {
 
 	go func() {
 		for range 50 {
-			_, _ = b.ExecuteStatement(context.Background(), "SELECT 1", "", "", "mydb", "", "", "", false, "", nil)
+			_, _ = b.ExecuteStatement(context.Background(), "SELECT 1", "", "", "mydb", "", "", "", false, "", nil, "")
 		}
 
 		close(done)

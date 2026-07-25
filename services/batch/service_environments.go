@@ -3,7 +3,6 @@ package batch
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -12,6 +11,7 @@ import (
 func (b *InMemoryBackend) CreateServiceEnvironment(
 	ctx context.Context,
 	name, envType, state string,
+	capacityLimits []CapacityLimit,
 	tags map[string]string,
 ) (*ServiceEnvironment, error) {
 	region := getRegion(ctx, b.region)
@@ -19,8 +19,24 @@ func (b *InMemoryBackend) CreateServiceEnvironment(
 	b.mu.Lock("CreateServiceEnvironment")
 	defer b.mu.Unlock()
 
+	if name == "" {
+		return nil, fmt.Errorf("%w: serviceEnvironmentName is required", ErrValidation)
+	}
+
+	if envType == "" {
+		return nil, fmt.Errorf("%w: serviceEnvironmentType is required", ErrValidation)
+	}
+
+	if len(capacityLimits) == 0 {
+		return nil, fmt.Errorf("%w: capacityLimits is required", ErrValidation)
+	}
+
 	if b.serviceEnvironments.Has(regionKey(region, name)) {
 		return nil, fmt.Errorf("%w: service environment %s already exists", ErrAlreadyExists, name)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	seARN := arn.Build("batch", region, b.accountID, "service-environment/"+name)
@@ -36,12 +52,25 @@ func (b *InMemoryBackend) CreateServiceEnvironment(
 		ServiceEnvironmentType: envType,
 		State:                  state,
 		Status:                 statusValid,
+		CapacityLimits:         cloneCapacityLimits(capacityLimits),
 		Tags:                   tagsCloneOrEmpty(tags),
 	}
 	b.serviceEnvironments.Put(se)
 	cp := *se
 
 	return &cp, nil
+}
+
+// cloneCapacityLimits deep-copies a CapacityLimit slice, returning nil for empty input.
+func cloneCapacityLimits(limits []CapacityLimit) []CapacityLimit {
+	if len(limits) == 0 {
+		return nil
+	}
+
+	out := make([]CapacityLimit, len(limits))
+	copy(out, limits)
+
+	return out
 }
 
 // DeleteServiceEnvironment removes a service environment by name or ARN.
@@ -77,47 +106,49 @@ func (b *InMemoryBackend) lookupServiceEnvironmentByNameOrARN(region, nameOrARN 
 	return nil, false
 }
 
-// DescribeServiceEnvironments returns service environments, optionally filtered by names/ARNs.
-func (b *InMemoryBackend) DescribeServiceEnvironments(ctx context.Context, names []string) []*ServiceEnvironment {
+// cloneServiceEnvironmentWithTags returns a tag-cloned copy of se.
+func cloneServiceEnvironmentWithTags(se *ServiceEnvironment) *ServiceEnvironment {
+	cp := *se
+	cp.Tags = tagsCloneOrEmpty(se.Tags)
+
+	return &cp
+}
+
+// DescribeServiceEnvironments returns service environments, optionally
+// filtered by names/ARNs. When names is empty, results are paginated via
+// maxResults/nextToken, matching aws-sdk-go-v2/service/batch's
+// DescribeServiceEnvironmentsInput.
+func (b *InMemoryBackend) DescribeServiceEnvironments(
+	ctx context.Context,
+	names []string,
+	maxResults int32,
+	nextToken string,
+) ([]*ServiceEnvironment, string) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("DescribeServiceEnvironments")
 	defer b.mu.RUnlock()
 
-	if len(names) == 0 {
-		group := b.serviceEnvironmentsByRegion.Get(region)
-		list := make([]*ServiceEnvironment, 0, len(group))
-
-		for _, se := range group {
-			cp := *se
-			cp.Tags = tagsCloneOrEmpty(se.Tags)
-			list = append(list, &cp)
-		}
-
-		sort.Slice(list, func(i, j int) bool {
-			return list[i].ServiceEnvironmentName < list[j].ServiceEnvironmentName
-		})
-
-		return list
-	}
-
-	list := make([]*ServiceEnvironment, 0, len(names))
-
-	for _, nameOrARN := range names {
-		if se, ok := b.lookupServiceEnvironmentByNameOrARN(region, nameOrARN); ok {
-			cp := *se
-			cp.Tags = tagsCloneOrEmpty(se.Tags)
-			list = append(list, &cp)
-		}
-	}
-
-	return list
+	return describeResourcesPaginated(
+		names, maxResults, nextToken,
+		func(nameOrARN string) (*ServiceEnvironment, bool) {
+			return b.lookupServiceEnvironmentByNameOrARN(region, nameOrARN)
+		},
+		func() []string {
+			return sortedNames(b.serviceEnvironmentsByRegion.Get(region), func(se *ServiceEnvironment) string {
+				return se.ServiceEnvironmentName
+			})
+		},
+		func(key string) (*ServiceEnvironment, bool) { return b.serviceEnvironments.Get(regionKey(region, key)) },
+		cloneServiceEnvironmentWithTags,
+	)
 }
 
-// UpdateServiceEnvironment updates the state of a service environment.
+// UpdateServiceEnvironment updates the state and/or capacity limits of a service environment.
 func (b *InMemoryBackend) UpdateServiceEnvironment(
 	ctx context.Context,
 	nameOrARN, state string,
+	capacityLimits []CapacityLimit,
 ) (*ServiceEnvironment, error) {
 	region := getRegion(ctx, b.region)
 
@@ -131,6 +162,10 @@ func (b *InMemoryBackend) UpdateServiceEnvironment(
 
 	if state != "" {
 		se.State = state
+	}
+
+	if capacityLimits != nil {
+		se.CapacityLimits = cloneCapacityLimits(capacityLimits)
 	}
 
 	cp := *se

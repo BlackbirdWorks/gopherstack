@@ -3,12 +3,21 @@ package timestreamquery
 import (
 	"context"
 	"fmt"
-	"time"
 )
 
 const (
 	pricingModelBytesScanned = "BYTES_SCANNED"
 	pricingModelComputeUnits = "COMPUTE_UNITS"
+)
+
+// TCU (Timestream Compute Unit) bounds shared by MaxQueryTCU and
+// QueryCompute.ProvisionedCapacity.TargetQueryTCU. Real AWS documents: "you
+// must set a minimum capacity of 4 TCU. You can set the maximum number of TCU
+// in multiples of 4 ... The maximum value supported for MaxQueryTCU is 1000".
+const (
+	tcuMin      = 4
+	tcuMax      = 1000
+	tcuMultiple = 4
 )
 
 // Compute mode values for QueryCompute.ComputeMode / QueryComputeUpdate.ComputeMode.
@@ -51,6 +60,26 @@ func isValidPricingModel(model string) bool {
 	return model == pricingModelBytesScanned || model == pricingModelComputeUnits
 }
 
+// validateTCU checks a requested TCU value against the documented bounds:
+// minimum 4, maximum 1000, and must be a multiple of 4.
+func validateTCU(tcu int32, fieldName string) error {
+	if tcu < tcuMin || tcu > tcuMax {
+		return fmt.Errorf(
+			"%w: %s must be between %d and %d, got %d",
+			ErrValidation, fieldName, tcuMin, tcuMax, tcu,
+		)
+	}
+
+	if tcu%tcuMultiple != 0 {
+		return fmt.Errorf(
+			"%w: %s must be a multiple of %d, got %d",
+			ErrValidation, fieldName, tcuMultiple, tcu,
+		)
+	}
+
+	return nil
+}
+
 // UpdateAccountSettings updates the account-level settings for the request region and returns the new state.
 // Only non-empty queryPricingModel, non-nil maxQueryTCU, and non-nil queryCompute
 // values are applied; omitted fields preserve their current values.
@@ -84,8 +113,8 @@ func (b *InMemoryBackend) UpdateAccountSettings(
 	}
 
 	if maxQueryTCU != nil {
-		if *maxQueryTCU <= 0 {
-			return AccountSettings{}, fmt.Errorf("%w: MaxQueryTCU must be a positive integer", ErrValidation)
+		if err := validateTCU(*maxQueryTCU, "MaxQueryTCU"); err != nil {
+			return AccountSettings{}, err
 		}
 
 		settings.MaxQueryTCU = maxQueryTCU
@@ -100,8 +129,6 @@ func (b *InMemoryBackend) UpdateAccountSettings(
 		settings.QueryCompute = updated
 	}
 
-	now := time.Now()
-	settings.LastUpdatedTime = &now
 	b.accountSettings[region] = settings
 
 	return settings, nil
@@ -110,20 +137,29 @@ func (b *InMemoryBackend) UpdateAccountSettings(
 // applyQueryComputeUpdate validates a requested QueryComputeUpdate and
 // returns the resulting QueryCompute to store. This emulator applies the
 // change synchronously (LastUpdate.Status is always SUCCEEDED): switching to
-// PROVISIONED requires a positive TargetQueryTCU, which becomes the
-// (immediately active) ActiveQueryTCU; switching to ON_DEMAND clears any
-// provisioned capacity.
+// PROVISIONED requires a valid TargetQueryTCU (4-1000, multiple of 4), which
+// becomes the (immediately active) ActiveQueryTCU; switching to ON_DEMAND
+// clears any provisioned capacity.
 func applyQueryComputeUpdate(_ *QueryCompute, update *QueryComputeUpdate) (*QueryCompute, error) {
 	switch update.ComputeMode {
 	case computeModeOnDemand:
 		return &QueryCompute{ComputeMode: computeModeOnDemand}, nil
 	case computeModeProvisioned:
-		if update.TargetQueryTCU == nil || *update.TargetQueryTCU <= 0 {
+		if update.TargetQueryTCU == nil {
 			return nil, fmt.Errorf(
-				"%w: QueryCompute.ProvisionedCapacity.TargetQueryTCU is required and must be positive when ComputeMode is %s",
+				"%w: QueryCompute.ProvisionedCapacity.TargetQueryTCU is required when ComputeMode is %s",
 				ErrValidation,
 				computeModeProvisioned,
 			)
+		}
+
+		if err := validateTCU(*update.TargetQueryTCU, "QueryCompute.ProvisionedCapacity.TargetQueryTCU"); err != nil {
+			return nil, err
+		}
+
+		notif, err := validateAccountSettingsNotificationConfiguration(update.NotificationConfiguration)
+		if err != nil {
+			return nil, err
 		}
 
 		active := *update.TargetQueryTCU
@@ -136,6 +172,7 @@ func applyQueryComputeUpdate(_ *QueryCompute, update *QueryComputeUpdate) (*Quer
 					Status:         "SUCCEEDED",
 					TargetQueryTCU: &active,
 				},
+				NotificationConfiguration: notif,
 			},
 		}, nil
 	default:
@@ -144,4 +181,33 @@ func applyQueryComputeUpdate(_ *QueryCompute, update *QueryComputeUpdate) (*Quer
 			ErrValidation, update.ComputeMode, computeModeOnDemand, computeModeProvisioned,
 		)
 	}
+}
+
+// validateAccountSettingsNotificationConfiguration mirrors the real SDK's
+// client-side validation (validateAccountSettingsNotificationConfiguration in
+// validators.go): when a NotificationConfiguration is supplied, RoleArn is
+// required, and a nested SnsConfiguration requires TopicArn. A nil input is
+// valid (the field is optional) and returns nil, nil.
+func validateAccountSettingsNotificationConfiguration(
+	cfg *AccountSettingsNotificationConfiguration,
+) (*AccountSettingsNotificationConfiguration, error) {
+	if cfg == nil {
+		return nil, nil //nolint:nilnil // absent NotificationConfiguration is a valid, non-error state
+	}
+
+	if cfg.RoleArn == "" {
+		return nil, fmt.Errorf(
+			"%w: QueryCompute.ProvisionedCapacity.NotificationConfiguration.RoleArn is required",
+			ErrValidation,
+		)
+	}
+
+	if cfg.SnsConfiguration != nil && cfg.SnsConfiguration.TopicArn == "" {
+		return nil, fmt.Errorf(
+			"%w: QueryCompute.ProvisionedCapacity.NotificationConfiguration.SnsConfiguration.TopicArn is required",
+			ErrValidation,
+		)
+	}
+
+	return cfg, nil
 }

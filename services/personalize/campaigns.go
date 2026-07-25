@@ -3,6 +3,8 @@ package personalize
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- Campaign ---
@@ -11,6 +13,7 @@ import (
 func (b *InMemoryBackend) CreateCampaign(
 	name, solutionVersionArn string,
 	minProvisionedTPS int32,
+	campaignConfig map[string]any,
 	tags map[string]string,
 ) (*Campaign, error) {
 	b.mu.Lock("CreateCampaign")
@@ -22,6 +25,9 @@ func (b *InMemoryBackend) CreateCampaign(
 	if b.campaigns.Has(name) {
 		return nil, fmt.Errorf("%w: campaign %q already exists", ErrAlreadyExists, name)
 	}
+	if !b.solutionVersions.Has(solutionVersionArn) {
+		return nil, fmt.Errorf("%w: solution version %q not found", ErrNotFound, solutionVersionArn)
+	}
 
 	now := time.Now().UTC()
 	c := &Campaign{
@@ -29,6 +35,7 @@ func (b *InMemoryBackend) CreateCampaign(
 		Name:                name,
 		SolutionVersionArn:  solutionVersionArn,
 		MinProvisionedTPS:   minProvisionedTPS,
+		CampaignConfig:      campaignConfig,
 		Status:              statusActive,
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
@@ -53,10 +60,14 @@ func (b *InMemoryBackend) DescribeCampaign(nameOrArn string) (*Campaign, error) 
 	return nil, fmt.Errorf("%w: campaign %q not found", ErrNotFound, nameOrArn)
 }
 
-// UpdateCampaign updates a campaign's solution version or TPS.
+// UpdateCampaign updates a campaign's solution version, TPS, or config. Every
+// successful call records a types.CampaignUpdateSummary-shaped snapshot on
+// LatestCampaignUpdate -- the real API only populates that field once the
+// campaign has had at least one update.
 func (b *InMemoryBackend) UpdateCampaign(
 	nameOrArn, solutionVersionArn string,
 	minProvisionedTPS int32,
+	campaignConfig map[string]any,
 ) (*Campaign, error) {
 	b.mu.Lock("UpdateCampaign")
 	defer b.mu.Unlock()
@@ -66,12 +77,26 @@ func (b *InMemoryBackend) UpdateCampaign(
 		return nil, fmt.Errorf("%w: campaign %q not found", ErrNotFound, nameOrArn)
 	}
 	if solutionVersionArn != "" {
+		if !b.solutionVersions.Has(solutionVersionArn) {
+			return nil, fmt.Errorf("%w: solution version %q not found", ErrNotFound, solutionVersionArn)
+		}
 		c.SolutionVersionArn = solutionVersionArn
 	}
 	if minProvisionedTPS > 0 {
 		c.MinProvisionedTPS = minProvisionedTPS
 	}
+	if campaignConfig != nil {
+		c.CampaignConfig = campaignConfig
+	}
 	c.LastUpdatedDateTime = time.Now().UTC()
+	c.LatestCampaignUpdate = map[string]any{
+		"campaignConfig":       c.CampaignConfig,
+		keyCreationDateTime:    awstime.Epoch(c.LastUpdatedDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(c.LastUpdatedDateTime),
+		"minProvisionedTPS":    c.MinProvisionedTPS,
+		keySolutionVersionArn:  c.SolutionVersionArn,
+		keyStatus:              c.Status,
+	}
 
 	return c, nil
 }

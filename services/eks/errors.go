@@ -9,4 +9,12 @@ var (
 	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrConflict)
 	// ErrValidation is returned when request input fails validation.
 	ErrValidation = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
+	// ErrInvalidRequest is for state-conflict validation failures (e.g.
+	// cancelling an update whose type/status does not support cancellation)
+	// that real AWS EKS reports as InvalidRequestException rather than
+	// InvalidParameterValueException -- verified against
+	// aws-sdk-go-v2/service/eks's deserializers.go error-code switch, which
+	// lists InvalidRequestException as a distinct client-fault shape from
+	// InvalidParameterException on ops like CancelUpdate.
+	ErrInvalidRequest = awserr.New("InvalidRequestException", awserr.ErrConflict)
 )

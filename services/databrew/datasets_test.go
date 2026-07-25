@@ -24,6 +24,7 @@ func TestCreateDataset_Success(t *testing.T) {
 		s3Input("my-bucket", "data/"),
 		databrew.DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-dataset", ds.Name)
@@ -48,6 +49,7 @@ func TestCreateDataset_DataCatalogSource(t *testing.T) {
 		input,
 		databrew.DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "DATA_CATALOG", ds.Source)
@@ -69,6 +71,7 @@ func TestCreateDataset_DatabaseSource(t *testing.T) {
 		input,
 		databrew.DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "DATABASE", ds.Source)
@@ -84,6 +87,7 @@ func TestCreateDataset_EmptyName(t *testing.T) {
 		s3Input("b", "k"),
 		databrew.DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.Error(t, err)
 }
@@ -98,6 +102,7 @@ func TestCreateDataset_Duplicate(t *testing.T) {
 		s3Input("b", "k"),
 		databrew.DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	_, err = b.CreateDataset(
@@ -106,6 +111,7 @@ func TestCreateDataset_Duplicate(t *testing.T) {
 		"CSV",
 		s3Input("b", "k"),
 		databrew.DatasetFormatOptions{},
+		nil,
 		nil,
 	)
 	require.Error(t, err)
@@ -121,6 +127,7 @@ func TestDescribeDataset_Success(t *testing.T) {
 		s3Input("bkt", ""),
 		databrew.DatasetFormatOptions{},
 		map[string]string{"env": "test"},
+		nil,
 	)
 	require.NoError(t, err)
 	ds, err := b.DescribeDataset(context.Background(), "ds1")
@@ -146,6 +153,7 @@ func TestListDatasets(t *testing.T) {
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	_, err = b.CreateDataset(
@@ -154,6 +162,7 @@ func TestListDatasets(t *testing.T) {
 		"CSV",
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
+		nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -171,6 +180,7 @@ func TestUpdateDataset_Success(t *testing.T) {
 		s3Input("bkt", ""),
 		databrew.DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	err = b.UpdateDataset(
@@ -179,6 +189,7 @@ func TestUpdateDataset_Success(t *testing.T) {
 		"JSON",
 		s3Input("bkt2", "key"),
 		databrew.DatasetFormatOptions{},
+		nil,
 	)
 	require.NoError(t, err)
 	ds, err := b.DescribeDataset(context.Background(), "upd-ds")
@@ -195,6 +206,7 @@ func TestUpdateDataset_NotFound(t *testing.T) {
 		"CSV",
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
+		nil,
 	)
 	require.Error(t, err)
 }
@@ -208,6 +220,7 @@ func TestDeleteDataset_Success(t *testing.T) {
 		"CSV",
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
+		nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -314,4 +327,87 @@ func TestHandlerDeleteDataset(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	rec2 := databrewReq(t, h, http.MethodGet, "/databrew/v1/datasets/del-ds", nil)
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
+}
+
+// ---- Dataset PathOptions ----
+
+// TestCreateDataset_PathOptions verifies CreateDataset threads PathOptions
+// (S3 wildcard-path dataset config) through to the stored Dataset -- this
+// field was previously accepted by CreateDatasetInput/UpdateDatasetInput and
+// silently discarded (see PARITY.md gaps).
+func TestCreateDataset_PathOptions(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	pathOpts := &databrew.PathOptions{
+		FilesLimit: &databrew.FilesLimit{MaxFiles: 5, Order: "DESCENDING", OrderedBy: "LAST_MODIFIED_DATE"},
+		Parameters: map[string]databrew.DatasetParameter{
+			"year": {Name: "year", Type: "Number"},
+		},
+	}
+	ds, err := b.CreateDataset(
+		context.Background(), "po-ds", "CSV", s3Input("bkt", "path/{year}/"),
+		databrew.DatasetFormatOptions{}, nil, pathOpts,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ds.PathOptions)
+	assert.Equal(t, 5, ds.PathOptions.FilesLimit.MaxFiles)
+	assert.Equal(t, "Number", ds.PathOptions.Parameters["year"].Type)
+
+	described, err := b.DescribeDataset(context.Background(), "po-ds")
+	require.NoError(t, err)
+	require.NotNil(t, described.PathOptions)
+	assert.Equal(t, "DESCENDING", described.PathOptions.FilesLimit.Order)
+}
+
+// TestUpdateDataset_PathOptions verifies UpdateDataset threads PathOptions
+// through to the stored Dataset, same as CreateDataset.
+func TestUpdateDataset_PathOptions(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	_, err := b.CreateDataset(
+		context.Background(), "po-upd-ds", "CSV", s3Input("bkt", ""),
+		databrew.DatasetFormatOptions{}, nil, nil,
+	)
+	require.NoError(t, err)
+
+	pathOpts := &databrew.PathOptions{
+		LastModifiedDateCondition: &databrew.FilterExpression{
+			Expression: "after :d", ValuesMap: map[string]string{":d": "2024-01-01"},
+		},
+	}
+	err = b.UpdateDataset(
+		context.Background(), "po-upd-ds", "CSV", s3Input("bkt", ""),
+		databrew.DatasetFormatOptions{}, pathOpts,
+	)
+	require.NoError(t, err)
+
+	ds, err := b.DescribeDataset(context.Background(), "po-upd-ds")
+	require.NoError(t, err)
+	require.NotNil(t, ds.PathOptions)
+	require.NotNil(t, ds.PathOptions.LastModifiedDateCondition)
+	assert.Equal(t, "after :d", ds.PathOptions.LastModifiedDateCondition.Expression)
+}
+
+// TestHandlerCreateDataset_PathOptions verifies PathOptions round-trips
+// through the HTTP handler layer (JSON wire shape), not just the backend.
+func TestHandlerCreateDataset_PathOptions(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/datasets", map[string]any{
+		"Name":   "po-wire-ds",
+		"Format": "CSV",
+		"Input":  map[string]any{"S3InputDefinition": map[string]any{"Bucket": "b"}},
+		"PathOptions": map[string]any{
+			"FilesLimit": map[string]any{"MaxFiles": 3},
+		},
+	})
+	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/datasets/po-wire-ds", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	pathOptions, ok := resp["PathOptions"].(map[string]any)
+	require.True(t, ok, "PathOptions must round-trip as an object")
+	filesLimit, ok := pathOptions["FilesLimit"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, float64(3), filesLimit["MaxFiles"], 0)
 }

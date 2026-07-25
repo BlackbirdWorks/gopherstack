@@ -44,19 +44,6 @@ type StorageBackend interface {
 	UntagResource(resourceARN string, keys []string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 
-	// PackagingConfiguration CRUD
-	CreatePackagingConfiguration(
-		id, packagingGroupID, description string,
-		tags map[string]string,
-	) (*PackagingConfiguration, error)
-	DescribePackagingConfiguration(id string) (*PackagingConfiguration, error)
-	DeletePackagingConfiguration(id string) error
-	ListPackagingConfigurations(maxResults int, nextToken string) ([]*PackagingConfiguration, string, error)
-
-	// Channel lifecycle policy
-	PutChannelLifecyclePolicy(channelID, policy string) error
-	GetChannelLifecyclePolicy(channelID string) (string, error)
-
 	AccountID() string
 	Region() string
 	Reset()
@@ -144,16 +131,6 @@ type HarvestJob struct {
 	OriginEndpointID string
 	StartTime        string
 	Status           string
-}
-
-// PackagingConfiguration represents a MediaPackage VOD packaging configuration.
-type PackagingConfiguration struct {
-	Tags             map[string]string `json:"tags,omitempty"`
-	ARN              string
-	ID               string
-	PackagingGroupID string
-	Description      string
-	CreatedAt        string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

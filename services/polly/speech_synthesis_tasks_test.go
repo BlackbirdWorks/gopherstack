@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -100,10 +101,17 @@ func TestTaskListPaginationAndValidation(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), tc.wantErr, tc.query)
 	}
 
-	missing := request(t, handler, http.MethodGet, "/v1/synthesisTasks/not-created", nil)
-	// AWS models SynthesisTaskNotFoundException with httpStatusCode 400, not 404.
+	// A well-formed (UUID) but unknown TaskId is SynthesisTaskNotFoundException.
+	// AWS models it with httpStatusCode 400, not 404.
+	missing := request(t, handler, http.MethodGet, "/v1/synthesisTasks/"+uuid.NewString(), nil)
 	assert.Equal(t, http.StatusBadRequest, missing.Code)
 	assert.Contains(t, missing.Body.String(), "SynthesisTaskNotFoundException")
+
+	// A syntactically invalid TaskId (not a UUID) is InvalidTaskIdException,
+	// distinct from SynthesisTaskNotFoundException.
+	malformed := request(t, handler, http.MethodGet, "/v1/synthesisTasks/not-created", nil)
+	assert.Equal(t, http.StatusBadRequest, malformed.Code)
+	assert.Contains(t, malformed.Body.String(), "InvalidTaskIdException")
 }
 
 // TestStartSpeechSynthesisTaskRequiredAndLimit verifies that
@@ -205,6 +213,167 @@ func TestStartSpeechSynthesisTaskOutputURIFormat(t *testing.T) {
 
 			assert.True(t, strings.HasPrefix(uri, "s3://my-bucket/"), "OutputUri must use bucket")
 			assert.True(t, strings.HasSuffix(uri, id+"."+tc.ext), "OutputUri must end with taskID.ext")
+		})
+	}
+}
+
+// TestStartSpeechSynthesisTaskOutputS3KeyPrefix verifies that
+// OutputS3KeyPrefix, when supplied, is woven into the constructed OutputUri
+// ahead of the generated TaskId (AWS: "The Amazon S3 key prefix for the
+// output speech file").
+func TestStartSpeechSynthesisTaskOutputS3KeyPrefix(t *testing.T) {
+	t.Parallel()
+
+	rec := request(t, newHandler(), http.MethodPost, "/v1/synthesisTasks", map[string]any{
+		"OutputS3BucketName": "my-bucket",
+		"OutputS3KeyPrefix":  "audio/exports/",
+		"OutputFormat":       "mp3",
+		"Text":               "test audio",
+		"VoiceId":            "Joanna",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	task := responseMap(t, rec)["SynthesisTask"].(map[string]any)
+	id := task["TaskId"].(string)
+	uri := task["OutputUri"].(string)
+
+	assert.Equal(t, "s3://my-bucket/audio/exports/"+id+".mp3", uri)
+}
+
+// TestStartSpeechSynthesisTaskS3AndSnsValidation verifies that
+// StartSpeechSynthesisTask validates OutputS3BucketName format
+// (InvalidS3BucketException), OutputS3KeyPrefix format (InvalidS3KeyException),
+// and SnsTopicArn format (InvalidSnsTopicArnException).
+func TestStartSpeechSynthesisTaskS3AndSnsValidation(t *testing.T) {
+	t.Parallel()
+
+	validBody := func() map[string]any {
+		return map[string]any{
+			"OutputS3BucketName": "my-bucket",
+			"OutputFormat":       "mp3",
+			"Text":               "test audio",
+			"VoiceId":            "Joanna",
+		}
+	}
+
+	tests := []struct {
+		mutate   func(map[string]any)
+		name     string
+		wantErr  string
+		wantCode int
+	}{
+		{
+			name:     "valid request accepted",
+			mutate:   func(map[string]any) {},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "uppercase bucket name rejected",
+			mutate:   func(b map[string]any) { b["OutputS3BucketName"] = "My-Bucket" },
+			wantCode: http.StatusBadRequest,
+			wantErr:  "InvalidS3BucketException",
+		},
+		{
+			name:     "bucket name too short rejected",
+			mutate:   func(b map[string]any) { b["OutputS3BucketName"] = "ab" },
+			wantCode: http.StatusBadRequest,
+			wantErr:  "InvalidS3BucketException",
+		},
+		{
+			name:     "ip-formatted bucket name rejected",
+			mutate:   func(b map[string]any) { b["OutputS3BucketName"] = "192.168.1.1" },
+			wantCode: http.StatusBadRequest,
+			wantErr:  "InvalidS3BucketException",
+		},
+		{
+			name:     "bucket name with consecutive dots rejected",
+			mutate:   func(b map[string]any) { b["OutputS3BucketName"] = "my..bucket" },
+			wantCode: http.StatusBadRequest,
+			wantErr:  "InvalidS3BucketException",
+		},
+		{
+			name:     "bucket name ending in hyphen rejected",
+			mutate:   func(b map[string]any) { b["OutputS3BucketName"] = "my-bucket-" },
+			wantCode: http.StatusBadRequest,
+			wantErr:  "InvalidS3BucketException",
+		},
+		{
+			name:     "key prefix with control character rejected",
+			mutate:   func(b map[string]any) { b["OutputS3KeyPrefix"] = "audio/\x01bad" },
+			wantCode: http.StatusBadRequest,
+			wantErr:  "InvalidS3KeyException",
+		},
+		{
+			name:     "valid key prefix accepted",
+			mutate:   func(b map[string]any) { b["OutputS3KeyPrefix"] = "audio/exports/" },
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "malformed sns topic arn rejected",
+			mutate:   func(b map[string]any) { b["SnsTopicArn"] = "topic-arn" },
+			wantCode: http.StatusBadRequest,
+			wantErr:  "InvalidSnsTopicArnException",
+		},
+		{
+			name: "well-formed sns topic arn accepted",
+			mutate: func(b map[string]any) {
+				b["SnsTopicArn"] = "arn:aws:sns:us-east-1:123456789012:my-topic"
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := validBody()
+			tc.mutate(body)
+
+			rec := request(t, newHandler(), http.MethodPost, "/v1/synthesisTasks", body)
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.wantErr != "" {
+				assert.Contains(t, rec.Body.String(), tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestStartSpeechSynthesisTaskSSMLTextLimit verifies that
+// StartSpeechSynthesisTask enforces the SSML-specific 200,000-total-character
+// limit (vs 100,000 for plain text) per
+// https://docs.aws.amazon.com/polly/latest/dg/limits.html#limits-long.
+func TestStartSpeechSynthesisTaskSSMLTextLimit(t *testing.T) {
+	t.Parallel()
+
+	wrap := func(n int) string {
+		return "<speak>" + strings.Repeat("a", n-len("<speak></speak>")) + "</speak>"
+	}
+
+	tests := []struct {
+		name     string
+		text     string
+		wantCode int
+	}{
+		{name: "ssml at 200000 total passes", text: wrap(200000), wantCode: http.StatusOK},
+		{name: "ssml over 200000 total rejected", text: wrap(200001), wantCode: http.StatusBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := request(t, newHandler(), http.MethodPost, "/v1/synthesisTasks", map[string]any{
+				"OutputS3BucketName": "my-bucket",
+				"OutputFormat":       "mp3",
+				"Text":               tc.text,
+				"TextType":           "ssml",
+				"VoiceId":            "Joanna",
+			})
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.wantCode == http.StatusBadRequest {
+				assert.Contains(t, rec.Body.String(), "TextLengthExceededException")
+			}
 		})
 	}
 }

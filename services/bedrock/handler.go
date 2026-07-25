@@ -69,9 +69,27 @@ const (
 	promptRoutersPrefix              = "/prompt-routers"
 	importedModelsPrefix             = "/imported-models"
 	foundationModelAvailPath         = "/foundation-model-availability"
-	foundationModelAgreementsPath    = "/foundation-model-agreement-offers"
-	useCaseForModelAccessPath        = "/usecase-for-model-access"
-	enforcedGuardrailsPath           = "/enforced-guardrail-configuration"
+	// foundationModelAgreementOffersPath is the real ListFoundationModelAgreementOffers
+	// path family: GET "/list-foundation-model-agreement-offers/{modelId}"; gopherstack
+	// previously used the invented "/foundation-model-agreement-offers" (no modelId
+	// path param) and modeled the wrong resource entirely -- see
+	// foundation_model_agreements.go's ListFoundationModelAgreementOffers doc comment.
+	foundationModelAgreementOffersPath = "/list-foundation-model-agreement-offers"
+	// deleteFoundationModelAgreementPath is the real DeleteFoundationModelAgreement
+	// path: POST "/delete-foundation-model-agreement" with modelId in the JSON body;
+	// gopherstack previously used DELETE with modelId as a path suffix.
+	deleteFoundationModelAgreementPath = "/delete-foundation-model-agreement"
+	// useCaseForModelAccessPath is the real GetUseCaseForModelAccess /
+	// PutUseCaseForModelAccess path; gopherstack previously used the typo'd
+	// "/usecase-for-model-access" (no hyphen between "use" and "case").
+	useCaseForModelAccessPath = "/use-case-for-model-access"
+	// enforcedGuardrailsPath is the real PutEnforcedGuardrailConfiguration /
+	// ListEnforcedGuardrailsConfiguration / DeleteEnforcedGuardrailConfiguration
+	// path; gopherstack previously used the invented, kebab-case
+	// "/enforced-guardrail-configuration" instead of AWS's camelCase
+	// "/enforcedGuardrailsConfiguration". Delete additionally appends
+	// "/{configId}" as a path parameter (real AWS has no query-param form).
+	enforcedGuardrailsPath = "/enforcedGuardrailsConfiguration"
 )
 
 // isoTime is a [time.Time] that marshals as RFC3339.
@@ -289,7 +307,7 @@ func matchBedrockExtPrefixes(path string) bool {
 		strings.HasPrefix(path, promptRoutersPrefix) ||
 		strings.HasPrefix(path, importedModelsPrefix) ||
 		strings.HasPrefix(path, foundationModelAvailPath) ||
-		strings.HasPrefix(path, foundationModelAgreementsPath) ||
+		strings.HasPrefix(path, foundationModelAgreementOffersPath) ||
 		// CustomModelDeployment List/Get/Update/Delete share the same base path as
 		// Create ("/model-customization/custom-model-deployments"), with
 		// Get/Update/Delete appending "/{id}" — a prefix match covers all of them.
@@ -300,8 +318,11 @@ func matchBedrockExtPrefixes(path string) bool {
 func matchBedrockExactPaths(path string) bool {
 	return path == useCaseForModelAccessPath ||
 		path == enforcedGuardrailsPath ||
+		// DeleteEnforcedGuardrailConfiguration appends "/{configId}".
+		strings.HasPrefix(path, enforcedGuardrailsPath+"/") ||
 		path == loggingConfigPath ||
 		path == foundationModelAgreement ||
+		path == deleteFoundationModelAgreementPath ||
 		path == listTagsForResourcePath ||
 		path == tagResourcePath ||
 		path == untagResourcePath
@@ -448,7 +469,7 @@ func (h *Handler) dispatchExtended(c *echo.Context, path, method string, body []
 		return err
 	}
 
-	if ok, err := h.routeStubOps(c, path, method); ok {
+	if ok, err := h.routeStubOps(c, path, method, body); ok {
 		return err
 	}
 
@@ -459,12 +480,12 @@ func (h *Handler) dispatchExtended(c *echo.Context, path, method string, body []
 }
 
 // routeStubOps handles stub operations that return minimal valid responses.
-func (h *Handler) routeStubOps(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeStubOps(c *echo.Context, path, method string, body []byte) (bool, error) {
 	if ok, err := h.routeStubJobOps(c, path, method); ok {
 		return true, err
 	}
 
-	if ok, err := h.routeStubModelOps(c, path, method); ok {
+	if ok, err := h.routeStubModelOps(c, path, method, body); ok {
 		return true, err
 	}
 
@@ -481,12 +502,12 @@ func (h *Handler) routeStubJobOps(c *echo.Context, path, method string) (bool, e
 }
 
 // routeStubModelOps handles prompt router, imported model, and foundation model stubs.
-func (h *Handler) routeStubModelOps(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeStubModelOps(c *echo.Context, path, method string, body []byte) (bool, error) {
 	if ok, err := h.routeStubPromptRouterOps(c, path, method); ok {
 		return true, err
 	}
 
-	return h.routeStubFoundationModelOps(c, path, method)
+	return h.routeStubFoundationModelOps(c, path, method, body)
 }
 
 // routeStubMiscOps handles custom model deployment, use case, and enforced guardrail stubs.
@@ -495,7 +516,11 @@ func (h *Handler) routeStubMiscOps(c *echo.Context, path, method string) (bool, 
 		return true, err
 	}
 
-	return h.routeStubAccessOps(c, path, method)
+	if ok, err := h.routeUseCaseForModelAccess(c, path, method); ok {
+		return true, err
+	}
+
+	return h.routeEnforcedGuardrailConfig(c, path, method)
 }
 
 func (h *Handler) writeError(c *echo.Context, err error) error {

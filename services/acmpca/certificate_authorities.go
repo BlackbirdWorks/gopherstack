@@ -16,18 +16,58 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// createCAOptions holds the optional CreateCertificateAuthority fields beyond
+// the required caType/cfg (IdempotencyToken, KeyStorageSecurityStandard,
+// RevocationConfiguration, UsageMode -- see aws-sdk-go-v2's
+// CreateCertificateAuthorityInput). Zero value matches every pre-existing
+// caller that omits opts entirely.
+type createCAOptions struct {
+	revocationConfiguration    *RevocationConfiguration
+	idempotencyToken           string
+	keyStorageSecurityStandard string
+	usageMode                  string
+}
+
+// CreateCAOption customizes CreateCertificateAuthority. See WithCreateCA* below.
+type CreateCAOption func(*createCAOptions)
+
+// WithCreateCAIdempotencyToken deduplicates repeated CreateCertificateAuthority
+// calls bearing the same token within a 5-minute window: the original CA's ARN
+// is returned instead of creating a duplicate.
+func WithCreateCAIdempotencyToken(token string) CreateCAOption {
+	return func(o *createCAOptions) { o.idempotencyToken = token }
+}
+
+// WithCreateCAKeyStorageSecurityStandard sets KeyStorageSecurityStandard.
+func WithCreateCAKeyStorageSecurityStandard(std string) CreateCAOption {
+	return func(o *createCAOptions) { o.keyStorageSecurityStandard = std }
+}
+
+// WithCreateCAUsageMode sets UsageMode (GENERAL_PURPOSE or SHORT_LIVED_CERTIFICATE).
+func WithCreateCAUsageMode(mode string) CreateCAOption {
+	return func(o *createCAOptions) { o.usageMode = mode }
+}
+
+// WithCreateCARevocationConfiguration sets the CA's initial CRL/OCSP configuration.
+func WithCreateCARevocationConfiguration(rc *RevocationConfiguration) CreateCAOption {
+	return func(o *createCAOptions) { o.revocationConfiguration = rc }
+}
+
 // CreateCertificateAuthority creates a new Certificate Authority.
 func (b *InMemoryBackend) CreateCertificateAuthority(
 	ctx context.Context,
 	caType string,
 	cfg CertificateAuthorityConfiguration,
+	opts ...CreateCAOption,
 ) (*CertificateAuthority, error) {
-	if caType == "" {
-		caType = caTypePRoot
+	caType, err := resolveCAType(caType)
+	if err != nil {
+		return nil, err
 	}
 
-	if caType != caTypePRoot && caType != caTypeSubordinate {
-		return nil, fmt.Errorf("%w: CertificateAuthorityType must be ROOT or SUBORDINATE", ErrInvalidParameter)
+	o, keyStorageSecurityStandard, usageMode, err := resolveCreateCAOptions(opts)
+	if err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx, b.region)
@@ -35,6 +75,94 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 	b.mu.Lock("CreateCertificateAuthority")
 	defer b.mu.Unlock()
 
+	now := time.Now().UTC()
+
+	if cached, ok := b.lookupIdempotentCA(region, o.idempotencyToken, now); ok {
+		return cached, nil
+	}
+
+	ca, err := b.newCertificateAuthorityLocked(
+		region, caType, cfg, keyStorageSecurityStandard, usageMode, o.revocationConfiguration, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	b.rememberIdempotency(region, "CreateCertificateAuthority", o.idempotencyToken, ca.ARN, now)
+
+	cp := copyCA(ca)
+
+	return &cp, nil
+}
+
+// resolveCAType defaults an empty caType to ROOT and validates the result,
+// matching CreateCertificateAuthorityInput.CertificateAuthorityType.
+func resolveCAType(caType string) (string, error) {
+	if caType == "" {
+		caType = caTypePRoot
+	}
+
+	if caType != caTypePRoot && caType != caTypeSubordinate {
+		return "", fmt.Errorf("%w: CertificateAuthorityType must be ROOT or SUBORDINATE", ErrInvalidParameter)
+	}
+
+	return caType, nil
+}
+
+// resolveCreateCAOptions applies opts and validates/defaults every optional
+// CreateCertificateAuthority field, keeping that validation out of
+// CreateCertificateAuthority's own cyclomatic complexity.
+func resolveCreateCAOptions(opts []CreateCAOption) (createCAOptions, string, string, error) {
+	var o createCAOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	if err := validateRevocationConfiguration(o.revocationConfiguration); err != nil {
+		return o, "", "", err
+	}
+
+	keyStorageSecurityStandard, err := resolveKeyStorageSecurityStandard(o.keyStorageSecurityStandard)
+	if err != nil {
+		return o, "", "", err
+	}
+
+	usageMode, err := resolveUsageMode(o.usageMode)
+	if err != nil {
+		return o, "", "", err
+	}
+
+	return o, keyStorageSecurityStandard, usageMode, nil
+}
+
+// lookupIdempotentCA returns a copy of the CA previously created for
+// (region, token) within its idempotency window, if any. Must be called with
+// b.mu.Lock held.
+func (b *InMemoryBackend) lookupIdempotentCA(region, token string, now time.Time) (*CertificateAuthority, bool) {
+	cachedARN, found := b.idempotentResourceARN(region, "CreateCertificateAuthority", token, now)
+	if !found {
+		return nil, false
+	}
+
+	cached, ok := b.caGet(region, cachedARN)
+	if !ok {
+		return nil, false
+	}
+
+	cp := copyCA(cached)
+
+	return &cp, true
+}
+
+// newCertificateAuthorityLocked generates the CA's key/CSR, stores it, and
+// (for ROOT) self-signs and activates it. Must be called with b.mu.Lock held.
+func (b *InMemoryBackend) newCertificateAuthorityLocked(
+	region, caType string,
+	cfg CertificateAuthorityConfiguration,
+	keyStorageSecurityStandard, usageMode string,
+	revocationConfiguration *RevocationConfiguration,
+	now time.Time,
+) (*CertificateAuthority, error) {
 	id, err := newRandomID()
 	if err != nil {
 		return nil, err
@@ -60,7 +188,6 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 		return nil, fmt.Errorf("generate CSR: %w", err)
 	}
 
-	now := time.Now().UTC()
 	ca := &CertificateAuthority{
 		ARN:                               caARN,
 		OwnerAccount:                      b.accountID,
@@ -69,6 +196,10 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 		CertificateAuthorityConfiguration: cfg,
 		CSR:                               csrPEM,
 		CreatedAt:                         now,
+		LastStateChangeAt:                 now,
+		KeyStorageSecurityStandard:        keyStorageSecurityStandard,
+		UsageMode:                         usageMode,
+		RevocationConfiguration:           revocationConfiguration,
 		privKey:                           privKey,
 		region:                            region,
 	}
@@ -87,9 +218,93 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 		ca.Status = caStatusPendingCertificate
 	}
 
-	cp := copyCA(ca)
+	return ca, nil
+}
 
-	return &cp, nil
+// resolveKeyStorageSecurityStandard validates std against
+// types.KeyStorageSecurityStandard's known values, defaulting to
+// FIPS_140_2_LEVEL_3_OR_HIGHER (the real API's documented default) when empty.
+func resolveKeyStorageSecurityStandard(std string) (string, error) {
+	if std == "" {
+		return keyStorageStandardFips3, nil
+	}
+
+	switch std {
+	case keyStorageStandardFips2, keyStorageStandardFips3, keyStorageStandardCCPC1:
+		return std, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported KeyStorageSecurityStandard %q", ErrInvalidParameter, std)
+	}
+}
+
+// resolveUsageMode validates mode against types.CertificateAuthorityUsageMode's
+// known values, defaulting to GENERAL_PURPOSE (the real API's documented default)
+// when empty.
+func resolveUsageMode(mode string) (string, error) {
+	if mode == "" {
+		return usageModeGeneralPurpose, nil
+	}
+
+	switch mode {
+	case usageModeGeneralPurpose, usageModeShortLivedCertificate:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported UsageMode %q", ErrInvalidParameter, mode)
+	}
+}
+
+// validateRevocationConfiguration enforces the documented CreateCertificateAuthority/
+// UpdateCertificateAuthority constraints on rc (nil is always valid -- CRL/OCSP left
+// unconfigured): a configuration disabling CRLs or OCSP must set only Enabled=false,
+// and an *enabled* CRL configuration must specify the S3 bucket to write to.
+func validateRevocationConfiguration(rc *RevocationConfiguration) error {
+	if rc == nil {
+		return nil
+	}
+
+	if err := validateCrlConfiguration(rc.CrlConfiguration); err != nil {
+		return err
+	}
+
+	return validateOcspConfiguration(rc.OcspConfiguration)
+}
+
+// crlDisabledExtraFieldsSet reports whether crl sets any field beyond Enabled,
+// which is invalid once Enabled is false (see validateCrlConfiguration).
+func crlDisabledExtraFieldsSet(crl *CrlConfiguration) bool {
+	return crl.ExpirationInDays != 0 || crl.CustomCname != "" || crl.CustomPath != "" ||
+		crl.S3BucketName != "" || crl.S3ObjectACL != "" || crl.CrlType != "" || crl.OmitExtension
+}
+
+func validateCrlConfiguration(crl *CrlConfiguration) error {
+	if crl == nil {
+		return nil
+	}
+
+	switch {
+	case !crl.Enabled && crlDisabledExtraFieldsSet(crl):
+		return fmt.Errorf("%w: CrlConfiguration with Enabled=false must not set any other field", ErrInvalidParameter)
+	case crl.Enabled && crl.S3BucketName == "":
+		return fmt.Errorf("%w: CrlConfiguration.S3BucketName is required when Enabled=true", ErrInvalidParameter)
+	}
+
+	if crl.CrlType != "" && crl.CrlType != crlTypeComplete && crl.CrlType != crlTypePartitioned {
+		return fmt.Errorf("%w: unsupported CrlType %q", ErrInvalidParameter, crl.CrlType)
+	}
+
+	if crl.S3ObjectACL != "" && crl.S3ObjectACL != s3ObjectACLPublicRead && crl.S3ObjectACL != s3ObjectACLBucketOwner {
+		return fmt.Errorf("%w: unsupported S3ObjectAcl %q", ErrInvalidParameter, crl.S3ObjectACL)
+	}
+
+	return nil
+}
+
+func validateOcspConfiguration(ocsp *OcspConfiguration) error {
+	if ocsp != nil && !ocsp.Enabled && ocsp.OcspCustomCname != "" {
+		return fmt.Errorf("%w: OcspConfiguration with Enabled=false must not set OcspCustomCname", ErrInvalidParameter)
+	}
+
+	return nil
 }
 
 // selfSignAndActivate generates a self-signed certificate for the CA and sets it to ACTIVE.
@@ -105,6 +320,7 @@ func (b *InMemoryBackend) selfSignAndActivate(ca *CertificateAuthority, now time
 	ca.Status = caStatusActive
 	ca.NotBefore = now
 	ca.NotAfter = now.Add(10 * 365 * 24 * time.Hour)
+	ca.LastStateChangeAt = now
 
 	return nil
 }
@@ -152,9 +368,25 @@ func (b *InMemoryBackend) DescribeCertificateAuthority(
 }
 
 // ListCertificateAuthorities returns a paginated list of CAs sorted by ARN.
+// resourceOwner mirrors ListCertificateAuthoritiesInput.ResourceOwner: SELF
+// (or empty, the real API's default) lists CAs owned by this account;
+// OTHER_ACCOUNTS always returns an empty page, since gopherstack does not
+// model cross-account CA sharing (no CA here is ever owned by another
+// account -- see PARITY.md).
 func (b *InMemoryBackend) ListCertificateAuthorities(
-	ctx context.Context, nextToken string, maxItems int,
-) page.Page[CertificateAuthority] {
+	ctx context.Context, nextToken string, maxItems int, resourceOwner string,
+) (page.Page[CertificateAuthority], error) {
+	switch resourceOwner {
+	case "", resourceOwnerSelf:
+		// proceed below
+	case resourceOwnerOtherAccounts:
+		return page.Page[CertificateAuthority]{Data: []CertificateAuthority{}}, nil
+	default:
+		return page.Page[CertificateAuthority]{}, fmt.Errorf(
+			"%w: unsupported ResourceOwner %q", ErrInvalidParameter, resourceOwner,
+		)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	var cas []CertificateAuthority
@@ -171,7 +403,7 @@ func (b *InMemoryBackend) ListCertificateAuthorities(
 
 	sort.Slice(cas, func(i, j int) bool { return cas[i].ARN < cas[j].ARN })
 
-	return page.New(cas, nextToken, maxItems, defaultMaxItems)
+	return page.New(cas, nextToken, maxItems, defaultMaxItems), nil
 }
 
 // DeleteCertificateAuthority marks the CA as DELETED.
@@ -216,20 +448,55 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(
 		days = defaultPermanentDeletionDays
 	}
 
-	ca.RestorableUntil = time.Now().UTC().AddDate(0, 0, int(days))
+	now := time.Now().UTC()
+	ca.RestorableUntil = now.AddDate(0, 0, int(days))
 	ca.Status = caStatusDeleted
+	ca.LastStateChangeAt = now
 
 	return nil
 }
 
-// UpdateCertificateAuthority updates the CA status.
-func (b *InMemoryBackend) UpdateCertificateAuthority(ctx context.Context, caARN, status string) error {
+// updateCAOptions holds the optional UpdateCertificateAuthority fields beyond
+// the required caARN/status (RevocationConfiguration -- see aws-sdk-go-v2's
+// UpdateCertificateAuthorityInput). Zero value matches every pre-existing
+// caller that omits opts entirely.
+type updateCAOptions struct {
+	revocationConfiguration *RevocationConfiguration
+	revocationConfigSet     bool
+}
+
+// UpdateCAOption customizes UpdateCertificateAuthority. See WithUpdateCA* below.
+type UpdateCAOption func(*updateCAOptions)
+
+// WithUpdateCARevocationConfiguration replaces the CA's CRL/OCSP configuration.
+// Per the real API, omitting this option entirely (the zero-value default)
+// leaves the CA's existing RevocationConfiguration unchanged; passing rc (even
+// nil, meaning "clear it") always overwrites it.
+func WithUpdateCARevocationConfiguration(rc *RevocationConfiguration) UpdateCAOption {
+	return func(o *updateCAOptions) { o.revocationConfiguration = rc; o.revocationConfigSet = true }
+}
+
+// UpdateCertificateAuthority updates the CA status and/or revocation configuration.
+func (b *InMemoryBackend) UpdateCertificateAuthority(
+	ctx context.Context, caARN, status string, opts ...UpdateCAOption,
+) error {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return err
 	}
 
 	if status != "" && status != caStatusActive && status != caStatusDisabled {
 		return fmt.Errorf("%w: status must be ACTIVE or DISABLED", ErrInvalidParameter)
+	}
+
+	var o updateCAOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	if o.revocationConfigSet {
+		if err := validateRevocationConfiguration(o.revocationConfiguration); err != nil {
+			return err
+		}
 	}
 
 	region := getRegion(ctx, b.region)
@@ -244,6 +511,11 @@ func (b *InMemoryBackend) UpdateCertificateAuthority(ctx context.Context, caARN,
 
 	if status != "" {
 		ca.Status = status
+		ca.LastStateChangeAt = time.Now().UTC()
+	}
+
+	if o.revocationConfigSet {
+		ca.RevocationConfiguration = o.revocationConfiguration
 	}
 
 	return nil
@@ -304,6 +576,7 @@ func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(
 	ca.CertificateBody = certPEM
 	ca.CertificateChain = chainPEM
 	ca.Status = caStatusActive
+	ca.LastStateChangeAt = time.Now().UTC()
 
 	return nil
 }
@@ -355,6 +628,7 @@ func (b *InMemoryBackend) RestoreCertificateAuthority(ctx context.Context, caARN
 
 	ca.Status = caStatusDisabled
 	ca.RestorableUntil = time.Time{}
+	ca.LastStateChangeAt = time.Now().UTC()
 
 	return nil
 }

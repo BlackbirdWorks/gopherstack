@@ -194,7 +194,6 @@ func (h *Handler) buildOps() map[string]opFunc {
 		// SolutionVersion
 		"CreateSolutionVersion":       h.createSolutionVersion,
 		"DescribeSolutionVersion":     h.describeSolutionVersion,
-		"DeleteSolutionVersion":       h.deleteSolutionVersion,
 		"ListSolutionVersions":        h.listSolutionVersions,
 		"StopSolutionVersionCreation": h.stopSolutionVersionCreation,
 		"GetSolutionMetrics":          h.getSolutionMetrics,

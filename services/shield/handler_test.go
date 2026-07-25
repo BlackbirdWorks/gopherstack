@@ -248,7 +248,7 @@ func TestHandler_OpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := shield.NewHandler(shield.NewInMemoryBackend("000000000000", "us-east-1"))
-	assert.Equal(t, 37, shield.HandlerOpsLen(h))
+	assert.Equal(t, 36, shield.HandlerOpsLen(h))
 }
 
 // TestRefinement1_AccountID verifies AccountID returns the configured value.

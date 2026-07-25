@@ -23,9 +23,12 @@ func TestDevEndpoint_CRUD(t *testing.T) {
 		skipPreSeed bool
 	}{
 		{
-			name:        "create",
-			op:          "CreateDevEndpoint",
-			body:        map[string]any{"EndpointName": "dep1"},
+			name: "create",
+			op:   "CreateDevEndpoint",
+			body: map[string]any{
+				"EndpointName": "dep1",
+				"RoleArn":      "arn:aws:iam::123456789012:role/dep-role",
+			},
 			wantCode:    http.StatusOK,
 			skipPreSeed: true,
 			check: func(t *testing.T, body string) {
@@ -35,9 +38,12 @@ func TestDevEndpoint_CRUD(t *testing.T) {
 			},
 		},
 		{
-			name:     "create-duplicate",
-			op:       "CreateDevEndpoint",
-			body:     map[string]any{"EndpointName": "dep1"},
+			name: "create-duplicate",
+			op:   "CreateDevEndpoint",
+			body: map[string]any{
+				"EndpointName": "dep1",
+				"RoleArn":      "arn:aws:iam::123456789012:role/dep-role",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -101,7 +107,10 @@ func TestDevEndpoint_CRUD(t *testing.T) {
 
 			h := newTestHandler(t)
 			if !tt.skipPreSeed {
-				doGlueRequest(t, h, "CreateDevEndpoint", map[string]any{"EndpointName": "dep1"})
+				doGlueRequest(t, h, "CreateDevEndpoint", map[string]any{
+					"EndpointName": "dep1",
+					"RoleArn":      "arn:aws:iam::123456789012:role/dep-role",
+				})
 			}
 
 			rec := doGlueRequest(t, h, tt.op, tt.body)
@@ -117,7 +126,10 @@ func TestDevEndpoint_UpdateAndGet(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doGlueRequest(t, h, "CreateDevEndpoint", map[string]any{"EndpointName": "dep-upd"})
+	doGlueRequest(t, h, "CreateDevEndpoint", map[string]any{
+		"EndpointName": "dep-upd",
+		"RoleArn":      "arn:aws:iam::123456789012:role/dep-role",
+	})
 
 	doGlueRequest(t, h, "UpdateDevEndpoint", map[string]any{
 		"EndpointName": "dep-upd",
@@ -149,4 +161,50 @@ func TestUpdateDevEndpoint(t *testing.T) {
 		"EndpointName": "my-endpoint",
 		"AddArguments": map[string]any{"GLUE_PYTHON_VERSION": "3"},
 	})
+}
+
+// TestCreateDevEndpoint_RequiresRoleArn confirms CreateDevEndpoint rejects
+// requests missing the (AWS-required) RoleArn field.
+func TestCreateDevEndpoint_RequiresRoleArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doGlueRequest(t, h, "CreateDevEndpoint", map[string]any{"EndpointName": "no-role"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidInputException")
+}
+
+// TestUpdateDevEndpoint_PublicKeys covers AddPublicKeys/DeletePublicKeys
+// semantics, mirroring UpdateDevEndpointInput.
+func TestUpdateDevEndpoint_PublicKeys(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doGlueRequest(t, h, "CreateDevEndpoint", map[string]any{
+		"EndpointName": "keyed",
+		"RoleArn":      "arn:aws:iam::123456789012:role/dep-role",
+		"PublicKeys":   []string{"key-a", "key-b"},
+	})
+
+	doGlueRequest(t, h, "UpdateDevEndpoint", map[string]any{
+		"EndpointName":     "keyed",
+		"AddPublicKeys":    []string{"key-c"},
+		"DeletePublicKeys": []string{"key-a"},
+	})
+
+	getRec := doGlueRequest(t, h, "GetDevEndpoint", map[string]any{"EndpointName": "keyed"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	dep := out["DevEndpoint"].(map[string]any)
+	keysRaw, ok := dep["PublicKeys"].([]any)
+	require.True(t, ok)
+
+	keys := make([]string, 0, len(keysRaw))
+	for _, k := range keysRaw {
+		keys = append(keys, k.(string))
+	}
+
+	assert.ElementsMatch(t, []string{"key-b", "key-c"}, keys)
 }

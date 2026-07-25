@@ -284,11 +284,22 @@ func parseReportJobRoute(method, name string) backupRoute {
 	return backupRoute{operation: opUnknown}
 }
 
+// parseTieringRoute routes /tiering-configurations[/{TieringConfigurationName}].
+// Real AWS: Create is PUT on the bare collection path (the configuration's
+// name lives in the request body, not the URL); Get/Update/Delete address a
+// specific configuration by name in the path (Update is also PUT, so it is
+// the presence of a path suffix -- not the method -- that distinguishes
+// Create from Update).
 func parseTieringRoute(method, suffix string) backupRoute {
 	name := strings.TrimPrefix(suffix, "/")
 	if name == "" {
-		if method == http.MethodGet {
+		switch method {
+		case http.MethodGet:
+
 			return backupRoute{operation: opListTieringConfigurations}
+		case http.MethodPut:
+
+			return backupRoute{operation: opCreateTieringConfiguration}
 		}
 
 		return backupRoute{operation: opUnknown}
@@ -297,9 +308,6 @@ func parseTieringRoute(method, suffix string) backupRoute {
 	case http.MethodGet:
 
 		return backupRoute{operation: opGetTieringConfiguration, resource: name}
-	case http.MethodPost:
-
-		return backupRoute{operation: opCreateTieringConfiguration, resource: name}
 	case http.MethodPut:
 
 		return backupRoute{operation: opUpdateTieringConfiguration, resource: name}
@@ -768,12 +776,47 @@ func parseReportPlanRoute(method, suffix string) backupRoute {
 	return backupRoute{operation: opUnknown}
 }
 
+// parseLogicallyAirGappedRoute routes /logically-air-gapped-backup-vaults/{name}
+// (CreateLogicallyAirGappedBackupVault) and the restore-access-vault ops
+// nested under it. Real AWS addresses ListRestoreAccessBackupVaults and
+// RevokeRestoreAccessBackupVault as sub-resources of the source air-gapped
+// vault -- GET/DELETE
+// /logically-air-gapped-backup-vaults/{BackupVaultName}/restore-access-backup-vaults[/{arn}] --
+// not under the flat /restore-access-backup-vaults collection (which is only
+// used by Create).
 func parseLogicallyAirGappedRoute(method, suffix string) backupRoute {
 	name := strings.TrimPrefix(suffix, "/")
-	if name != "" && !strings.Contains(name, "/") {
-		// /logically-air-gapped-backup-vaults/{name}
-		if method == http.MethodPut {
-			return backupRoute{operation: opCreateLogicallyAirGappedBackupVault, resource: name}
+	if name == "" {
+		return backupRoute{operation: opUnknown}
+	}
+
+	if vaultName, rest, ok := strings.Cut(name, "/restore-access-backup-vaults"); ok {
+		return parseRestoreAccessVaultSubRoute(method, vaultName, strings.TrimPrefix(rest, "/"))
+	}
+
+	if !strings.Contains(name, "/") && method == http.MethodPut {
+		return backupRoute{operation: opCreateLogicallyAirGappedBackupVault, resource: name}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// parseRestoreAccessVaultSubRoute routes
+// /logically-air-gapped-backup-vaults/{vaultName}/restore-access-backup-vaults[/{arn}].
+// The resource field for Revoke is encoded as "vaultName|restoreAccessVaultArn".
+func parseRestoreAccessVaultSubRoute(method, vaultName, arnSuffix string) backupRoute {
+	if arnSuffix == "" {
+		if method == http.MethodGet {
+			return backupRoute{operation: opListRestoreAccessBackupVaults, resource: vaultName}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if method == http.MethodDelete {
+		return backupRoute{
+			operation: opRevokeRestoreAccessBackupVault,
+			resource:  vaultName + "|" + arnSuffix,
 		}
 	}
 
@@ -783,7 +826,9 @@ func parseLogicallyAirGappedRoute(method, suffix string) backupRoute {
 func parseRestoreAccessVaultRoute(method, suffix string) backupRoute {
 	id := strings.TrimPrefix(suffix, "/")
 	if id == "" {
-		// /restore-access-backup-vaults
+		// /restore-access-backup-vaults (Create only -- List/Revoke are nested
+		// under /logically-air-gapped-backup-vaults/{name}/..., see
+		// parseRestoreAccessVaultSubRoute).
 		if method == http.MethodPut {
 			return backupRoute{operation: opCreateRestoreAccessBackupVault}
 		}

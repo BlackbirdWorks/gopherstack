@@ -30,13 +30,7 @@ const (
 	opStopMetricStreams       = "StopMetricStreams"
 )
 
-const (
-	opSetAlarmState       = "SetAlarmState"
-	opUpdateAlarmMuteRule = "UpdateAlarmMuteRule"
-	opUpdateInsightRule   = "UpdateInsightRule"
-	opUpdateMetricStream  = "UpdateMetricStream"
-	opTestMetricFilter    = "TestMetricFilter"
-)
+const opSetAlarmState = "SetAlarmState"
 
 const (
 	opPutMetricData        = "PutMetricData"
@@ -54,7 +48,6 @@ const (
 	opPutMetricStream      = "PutMetricStream"
 	opListMetricStreams    = "ListMetricStreams"
 	opGetMetricStream      = "GetMetricStream"
-	opPutMetricFilter      = "PutMetricFilter"
 )
 
 const (
@@ -69,8 +62,6 @@ const (
 	opDeleteAnomalyDetector     = "DeleteAnomalyDetector"
 	opDeleteInsightRules        = "DeleteInsightRules"
 	opDeleteMetricStream        = "DeleteMetricStream"
-	opDescribeMetricFilters     = "DescribeMetricFilters"
-	opDeleteMetricFilter        = "DeleteMetricFilter"
 	opDescribeAlarmContributors = "DescribeAlarmContributors"
 	opDescribeAnomalyDetectors  = "DescribeAnomalyDetectors"
 	opDescribeInsightRules      = "DescribeInsightRules"
@@ -184,22 +175,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDeleteDashboards,
 		opPutAlarmMuteRule,
 		opDeleteAlarmMuteRule,
-		opUpdateAlarmMuteRule,
 		opPutAnomalyDetector,
 		opDeleteAnomalyDetector,
 		opPutInsightRule,
 		opDeleteInsightRules,
-		opUpdateInsightRule,
 		opGetInsightRuleReport,
 		opPutMetricStream,
 		opListMetricStreams,
 		opGetMetricStream,
 		opDeleteMetricStream,
-		opUpdateMetricStream,
-		opPutMetricFilter,
-		opDescribeMetricFilters,
-		opDeleteMetricFilter,
-		opTestMetricFilter,
 		opDescribeAlarmContributors,
 		opDescribeAnomalyDetectors,
 		opDescribeInsightRules,
@@ -446,14 +430,6 @@ func (h *Handler) dispatchExtendedFormAction(
 		return h.handleGetMetricStream(form, c)
 	case opDeleteMetricStream:
 		return h.handleDeleteMetricStream(form, c)
-	case opPutMetricFilter:
-		return h.handlePutMetricFilter(form, c)
-	case opDescribeMetricFilters:
-		return h.handleDescribeMetricFilters(form, c)
-	case opDeleteMetricFilter:
-		return h.handleDeleteMetricFilter(form, c)
-	case opTestMetricFilter:
-		return h.handleTestMetricFilter(form, c)
 	case opDescribeAlarmContributors:
 		return h.handleDescribeAlarmContributors(form, c)
 	default:
@@ -498,16 +474,10 @@ func (h *Handler) dispatchResourceUpsertFormAction(
 	switch action {
 	case opPutAlarmMuteRule:
 		return h.handlePutAlarmMuteRule(form, c)
-	case opUpdateAlarmMuteRule:
-		return h.handleUpdateAlarmMuteRule(form, c)
 	case opPutInsightRule:
 		return h.handlePutInsightRule(form, c)
-	case opUpdateInsightRule:
-		return h.handleUpdateInsightRule(form, c)
 	case opPutMetricStream:
 		return h.handlePutMetricStream(form, c)
-	case opUpdateMetricStream:
-		return h.handleUpdateMetricStream(form, c)
 	case opGetMetricWidgetImage:
 		return h.handleGetMetricWidgetImage(form, c)
 	case opListAlarmMuteRules:

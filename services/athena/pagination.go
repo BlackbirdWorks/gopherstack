@@ -89,6 +89,27 @@ func (c *pageTokenCodec) sign(s string) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
+// paginationStart returns the index of the first of n sorted-ascending
+// elements whose key (as returned by keyAt) is >= boundary, or n if every
+// key sorts before boundary. An empty boundary always resumes at 0.
+//
+// This gives WorkGroups/NamedQueries/DataCatalogs/PreparedStatements listing
+// mutation-stable pagination: resuming with a NextToken whose original
+// boundary item was deleted (or never existed -- a stale or unrecognized
+// token) lands on the first surviving item at or after that boundary instead
+// of silently restarting the page from offset 0, which would re-emit items
+// the caller already consumed. It mirrors the resume semantics
+// pageTokenCodec.paginateQueryExecutionIDs already uses for
+// ListQueryExecutions, applied here to the plain (non-opaque) boundary
+// tokens the other four listings use.
+func paginationStart(n int, boundary string, keyAt func(i int) string) int {
+	if boundary == "" {
+		return 0
+	}
+
+	return sort.Search(n, func(i int) bool { return keyAt(i) >= boundary })
+}
+
 // paginateQueryExecutionIDs applies AWS-style MaxResults/NextToken pagination to
 // a sorted list of query-execution IDs, using opaque tokens. ids MUST be sorted
 // ascending (ListQueryExecutions guarantees this). It returns the page of IDs

@@ -9,7 +9,7 @@ import (
 
 // CreateTableRestoreStatus creates a table restore status entry.
 func (b *InMemoryBackend) CreateTableRestoreStatus(
-	clusterID, _ /*snapshotID*/, sourceDatabaseName, sourceTableName, targetDatabaseName, targetTableName string,
+	clusterID, snapshotID, sourceDatabaseName, sourceTableName, targetDatabaseName, targetTableName string,
 ) (*TableRestoreStatus, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
@@ -22,6 +22,7 @@ func (b *InMemoryBackend) CreateTableRestoreStatus(
 	tr := &TableRestoreStatus{
 		TableRestoreRequestID: restoreID,
 		ClusterIdentifier:     clusterID,
+		SnapshotIdentifier:    snapshotID,
 		Status:                "IN_PROGRESS",
 		SourceDatabaseName:    sourceDatabaseName,
 		SourceTableName:       sourceTableName,

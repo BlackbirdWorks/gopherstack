@@ -185,7 +185,13 @@ func (b *InMemoryBackend) UpdateAnomalyMonitor(
 		return nil, ErrUnknownMonitor
 	}
 
-	mon.MonitorName = monitorName
+	// Real AWS: "Specify the fields that you want to update. Omitted fields are
+	// unchanged." MonitorName is the only mutable field, so an empty/omitted value
+	// leaves the existing name untouched instead of blanking it out.
+	if monitorName != "" {
+		mon.MonitorName = monitorName
+	}
+
 	mon.LastUpdatedDate = time.Now().UTC()
 
 	out := *mon

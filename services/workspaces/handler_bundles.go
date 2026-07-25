@@ -3,6 +3,7 @@ package workspaces
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -170,12 +171,59 @@ type describeBundleAssociationsInput struct {
 	AssociatedResourceTypes []string `json:"AssociatedResourceTypes"`
 }
 
+// bundleResourceAssociationResp mirrors the real BundleResourceAssociation
+// shape; Created/LastUpdatedTime are wire-format epoch-seconds numbers. The
+// pointer field is grouped separately below so gofmt's column alignment
+// doesn't widen every other field to match its longer type name.
+type bundleResourceAssociationResp struct {
+	StateReason *associationStateReasonResp `json:"StateReason,omitempty"`
+
+	AssociatedResourceId   string  `json:"AssociatedResourceId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	AssociatedResourceType string  `json:"AssociatedResourceType,omitempty"`
+	BundleId               string  `json:"BundleId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	State                  string  `json:"State,omitempty"`
+	Created                float64 `json:"Created,omitempty"`
+	LastUpdatedTime        float64 `json:"LastUpdatedTime,omitempty"`
+}
+
 type describeBundleAssociationsOutput struct {
-	Associations []any `json:"Associations"`
+	Associations []bundleResourceAssociationResp `json:"Associations"`
+}
+
+func bundleAssociationToResp(a BundleResourceAssociation) bundleResourceAssociationResp {
+	resp := bundleResourceAssociationResp{
+		AssociatedResourceId:   a.AssociatedResourceID,
+		AssociatedResourceType: a.AssociatedResourceType,
+		BundleId:               a.BundleID,
+		State:                  a.State,
+		Created:                awstime.Epoch(a.Created),
+		LastUpdatedTime:        awstime.Epoch(a.LastUpdatedTime),
+	}
+
+	if a.StateReasonErrorCode != "" || a.StateReasonErrorMessage != "" {
+		resp.StateReason = &associationStateReasonResp{
+			ErrorCode:    a.StateReasonErrorCode,
+			ErrorMessage: a.StateReasonErrorMessage,
+		}
+	}
+
+	return resp
 }
 
 func (h *Handler) handleDescribeBundleAssociations(
-	_ context.Context, _ *describeBundleAssociationsInput,
+	_ context.Context, req *describeBundleAssociationsInput,
 ) (*describeBundleAssociationsOutput, error) {
-	return &describeBundleAssociationsOutput{Associations: []any{}}, nil
+	associations, err := h.Backend.DescribeBundleAssociations(
+		req.BundleId, req.AssociatedResourceTypes,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]bundleResourceAssociationResp, 0, len(associations))
+	for _, a := range associations {
+		items = append(items, bundleAssociationToResp(a))
+	}
+
+	return &describeBundleAssociationsOutput{Associations: items}, nil
 }

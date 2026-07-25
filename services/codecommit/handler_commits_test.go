@@ -2,6 +2,7 @@ package codecommit_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -118,6 +119,56 @@ func TestHandler_CreateCommit_FilesAddedBlobID(t *testing.T) {
 		"blobId":         seen["a.txt"],
 	})
 	require.Equal(t, http.StatusOK, blobRec.Code)
+}
+
+// TestHandler_CreateCommit_FilesDeletedBlobID verifies CreateCommitOutput's
+// filesDeleted entries report the real blob ID that was removed from the
+// tree (mirroring the blobId fix already applied to filesAdded and to the
+// standalone DeleteFile op), instead of omitting blobId entirely.
+func TestHandler_CreateCommit_FilesDeletedBlobID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "cc-delete-blob-repo"})
+
+	addRec := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "cc-delete-blob-repo",
+		"branchName":     "main",
+		"putFiles": []map[string]any{
+			{"filePath": "gone.txt", "fileContent": "Z29uZQ=="},
+		},
+	})
+	require.Equal(t, http.StatusOK, addRec.Code)
+
+	var addResp map[string]any
+	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addResp))
+	filesAdded, ok := addResp["filesAdded"].([]any)
+	require.True(t, ok)
+	require.Len(t, filesAdded, 1)
+	addedEntry, ok := filesAdded[0].(map[string]any)
+	require.True(t, ok)
+	addedBlobID, _ := addedEntry["blobId"].(string)
+	require.NotEmpty(t, addedBlobID)
+
+	delRec := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "cc-delete-blob-repo",
+		"branchName":     "main",
+		"deleteFiles": []map[string]any{
+			{"filePath": "gone.txt"},
+		},
+	})
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	var delResp map[string]any
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp))
+	filesDeleted, ok := delResp["filesDeleted"].([]any)
+	require.True(t, ok)
+	require.Len(t, filesDeleted, 1)
+	deletedEntry, ok := filesDeleted[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "gone.txt", deletedEntry["filePath"])
+	assert.Equal(t, addedBlobID, deletedEntry["blobId"],
+		"filesDeleted[].blobId must report the blob that was removed from the tree")
 }
 
 func TestHandler_BatchGetCommits(t *testing.T) {
@@ -421,6 +472,37 @@ func TestHandler_CommitParentTracking(t *testing.T) {
 	}
 }
 
+// TestHandler_CreateCommit_ParentCommitIdOutdated verifies a stale
+// parentCommitId is rejected with the real AWS exception type
+// (ParentCommitIdOutdatedException). errCodeLookup (handler.go) was missing
+// an entry for this sentinel until this pass, so the error fell through to
+// a generic ValidationException instead of its real, SDK-matching type.
+func TestHandler_CreateCommit_ParentCommitIdOutdated(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "outdated-repo"})
+
+	rec := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "outdated-repo",
+		"branchName":     "main",
+		"commitMessage":  "initial",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "outdated-repo",
+		"branchName":     "main",
+		"commitMessage":  "second",
+		"parentCommitId": "not-the-real-tip",
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ParentCommitIdOutdatedException", resp["__type"])
+}
+
 // TestGetCommit_ParentsNotNull verifies that GetCommit always returns "parents" as a JSON
 // array, never null. AWS always returns "parents": [] even for root commits.
 func TestGetCommit_ParentsNotNull(t *testing.T) {
@@ -714,4 +796,78 @@ func TestGetDifferences_EmptyRepoReturnsEmptyArray(t *testing.T) {
 	diffs, ok := resp["differences"].([]any)
 	require.True(t, ok, "differences must be a JSON array, not null")
 	assert.Empty(t, diffs)
+}
+
+// TestGetDifferences_Pagination verifies GetDifferences honors MaxResults and
+// NextToken and returns every file exactly once across pages. It also locks
+// the request/response field names: unlike every other paginated op in this
+// service, GetDifferences capitalizes MaxResults/NextToken on the wire —
+// verified against aws-sdk-go-v2/service/codecommit's generated
+// (de)serializers (awsAwsjson11_serializeOpDocumentGetDifferencesInput /
+// awsAwsjson11_deserializeOpDocumentGetDifferencesOutput).
+func TestGetDifferences_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "page-repo"})
+
+	putFiles := make([]map[string]any, 0, 5)
+	for i := range 5 {
+		putFiles = append(putFiles, map[string]any{
+			"filePath":    fmt.Sprintf("file%d.txt", i),
+			"fileContent": "aGVsbG8=",
+		})
+	}
+	commitRec := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "page-repo",
+		"branchName":     "main",
+		"putFiles":       putFiles,
+	})
+	require.Equal(t, http.StatusOK, commitRec.Code)
+
+	var commitOut map[string]any
+	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut))
+	commitID := commitOut["commitId"].(string)
+
+	seenPaths := map[string]bool{}
+	nextToken := ""
+
+	for range 10 {
+		req := map[string]any{
+			"repositoryName":       "page-repo",
+			"afterCommitSpecifier": commitID,
+			"MaxResults":           2,
+		}
+		if nextToken != "" {
+			req["NextToken"] = nextToken
+		}
+
+		rec := doRequest(t, h, "GetDifferences", req)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		diffs, ok := resp["differences"].([]any)
+		require.True(t, ok)
+		assert.LessOrEqual(t, len(diffs), 2, "each page must respect MaxResults")
+
+		for _, raw := range diffs {
+			d, dOK := raw.(map[string]any)
+			require.True(t, dOK)
+			afterBlob, blobOK := d["afterBlob"].(map[string]any)
+			require.True(t, blobOK)
+			path, _ := afterBlob["path"].(string)
+			require.NotEmpty(t, path)
+			assert.False(t, seenPaths[path], "path %s must not repeat across pages", path)
+			seenPaths[path] = true
+		}
+
+		next, hasNext := resp["NextToken"].(string)
+		if !hasNext || next == "" {
+			break
+		}
+		nextToken = next
+	}
+
+	assert.Len(t, seenPaths, 5, "pagination must eventually surface every file exactly once")
 }

@@ -12,11 +12,14 @@ import (
 )
 
 type createWirelessDeviceRequest struct {
-	Name            string    `json:"Name"`
-	Type            string    `json:"Type"`
-	DestinationName string    `json:"DestinationName"`
-	Description     string    `json:"Description"`
-	Tags            []tags.KV `json:"Tags"`
+	LoRaWAN         map[string]any `json:"LoRaWAN,omitempty"`
+	Sidewalk        map[string]any `json:"Sidewalk,omitempty"`
+	Name            string         `json:"Name"`
+	Type            string         `json:"Type"`
+	DestinationName string         `json:"DestinationName"`
+	Description     string         `json:"Description"`
+	Positioning     string         `json:"Positioning,omitempty"`
+	Tags            []tags.KV      `json:"Tags"`
 }
 
 type createWirelessDeviceResponse struct {
@@ -25,17 +28,21 @@ type createWirelessDeviceResponse struct {
 }
 
 type wirelessDeviceEntry struct {
-	Arn             string `json:"Arn"`
-	ID              string `json:"Id"`
-	Name            string `json:"Name"`
-	Type            string `json:"Type"`
-	DestinationName string `json:"DestinationName"`
-	Description     string `json:"Description"`
-	ThingArn        string `json:"ThingArn,omitempty"`
-	ThingName       string `json:"ThingName,omitempty"`
+	LoRaWAN         map[string]any `json:"LoRaWAN,omitempty"`
+	Sidewalk        map[string]any `json:"Sidewalk,omitempty"`
+	Arn             string         `json:"Arn"`
+	ID              string         `json:"Id"`
+	Name            string         `json:"Name"`
+	Type            string         `json:"Type"`
+	DestinationName string         `json:"DestinationName"`
+	Description     string         `json:"Description"`
+	Positioning     string         `json:"Positioning,omitempty"`
+	ThingArn        string         `json:"ThingArn,omitempty"`
+	ThingName       string         `json:"ThingName,omitempty"`
 }
 
 type listWirelessDevicesResponse struct {
+	NextToken          string                `json:"NextToken"`
 	WirelessDeviceList []wirelessDeviceEntry `json:"WirelessDeviceList"`
 }
 
@@ -77,7 +84,9 @@ func (h *Handler) createWirelessDevice(c *echo.Context, body []byte) error {
 
 	d, err := h.Backend.CreateWirelessDevice(
 		h.AccountID, h.DefaultRegion,
-		req.Name, req.Type, req.DestinationName, req.Description, tagKVsToMap(req.Tags),
+		req.Name, req.Type, req.DestinationName, req.Description, req.Positioning,
+		req.LoRaWAN, req.Sidewalk,
+		tagKVsToMap(req.Tags),
 	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
@@ -94,34 +103,44 @@ func (h *Handler) getWirelessDevice(c *echo.Context, id string) error {
 
 	thingArn := h.Backend.GetWirelessDeviceThingArn(id)
 
-	return writeJSON(c, http.StatusOK, wirelessDeviceEntry{
+	entry := wirelessDeviceEntryFrom(d)
+	entry.ThingArn = thingArn
+	entry.ThingName = thingNameFromArn(thingArn)
+
+	return writeJSON(c, http.StatusOK, entry)
+}
+
+func (h *Handler) listWirelessDevices(c *echo.Context) error {
+	devices := h.Backend.ListWirelessDevices(h.AccountID, h.DefaultRegion)
+	pg, next := paginateQuery(c, devices)
+
+	entries := make([]wirelessDeviceEntry, 0, len(pg))
+
+	for _, d := range pg {
+		entries = append(entries, wirelessDeviceEntryFrom(d))
+	}
+
+	return writeJSON(c, http.StatusOK, listWirelessDevicesResponse{
+		WirelessDeviceList: entries,
+		NextToken:          next,
+	})
+}
+
+// wirelessDeviceEntryFrom builds a wirelessDeviceEntry from a backend
+// WirelessDevice, including the LoRaWAN/Sidewalk/Positioning fields real
+// AWS's WirelessDeviceStatistics list-entry shape carries.
+func wirelessDeviceEntryFrom(d *WirelessDevice) wirelessDeviceEntry {
+	return wirelessDeviceEntry{
 		Arn:             d.ARN,
 		ID:              d.ID,
 		Name:            d.Name,
 		Type:            d.Type,
 		DestinationName: d.DestinationName,
 		Description:     d.Description,
-		ThingArn:        thingArn,
-		ThingName:       thingNameFromArn(thingArn),
-	})
-}
-
-func (h *Handler) listWirelessDevices(c *echo.Context) error {
-	devices := h.Backend.ListWirelessDevices(h.AccountID, h.DefaultRegion)
-	entries := make([]wirelessDeviceEntry, 0, len(devices))
-
-	for _, d := range devices {
-		entries = append(entries, wirelessDeviceEntry{
-			Arn:             d.ARN,
-			ID:              d.ID,
-			Name:            d.Name,
-			Type:            d.Type,
-			DestinationName: d.DestinationName,
-			Description:     d.Description,
-		})
+		LoRaWAN:         d.LoRaWAN,
+		Sidewalk:        d.Sidewalk,
+		Positioning:     d.Positioning,
 	}
-
-	return writeJSON(c, http.StatusOK, listWirelessDevicesResponse{WirelessDeviceList: entries})
 }
 
 func (h *Handler) deleteWirelessDevice(c *echo.Context, id string) error {
@@ -153,9 +172,12 @@ func (h *Handler) associateWirelessDeviceWithThing(c *echo.Context, wirelessDevi
 
 func (h *Handler) updateWirelessDevice(c *echo.Context, id string) error {
 	var req struct {
-		Name            string `json:"Name"`
-		Description     string `json:"Description"`
-		DestinationName string `json:"DestinationName"`
+		LoRaWAN         map[string]any `json:"LoRaWAN"`
+		Sidewalk        map[string]any `json:"Sidewalk"`
+		Name            string         `json:"Name"`
+		Description     string         `json:"Description"`
+		DestinationName string         `json:"DestinationName"`
+		Positioning     string         `json:"Positioning"`
 	}
 
 	body := readStubBody(c)
@@ -163,7 +185,8 @@ func (h *Handler) updateWirelessDevice(c *echo.Context, id string) error {
 
 	if err := h.Backend.UpdateWirelessDevice(
 		h.AccountID, h.DefaultRegion, id,
-		req.Name, req.Description, req.DestinationName,
+		req.Name, req.Description, req.DestinationName, req.Positioning,
+		req.LoRaWAN, req.Sidewalk,
 	); err != nil {
 		return handleError(c, err)
 	}
@@ -195,7 +218,8 @@ func (h *Handler) disassociateWirelessDeviceFromThing(c *echo.Context, id string
 
 func (h *Handler) sendDataToWirelessDevice(c *echo.Context, wirelessDeviceID string) error {
 	var req struct {
-		PayloadData string `json:"PayloadData"`
+		PayloadData  string `json:"PayloadData"`
+		TransmitMode int32  `json:"TransmitMode"`
 	}
 
 	body := readStubBody(c)
@@ -205,9 +229,13 @@ func (h *Handler) sendDataToWirelessDevice(c *echo.Context, wirelessDeviceID str
 
 	// Real cross-op state: queue the downlink message so a subsequent
 	// ListQueuedMessages reflects it, instead of silently discarding it.
+	// TransmitMode is captured too -- ListQueuedMessages' DownlinkQueueMessage
+	// response echoes it back, so previously every queued message reported
+	// TransmitMode 0 regardless of what the client actually requested.
 	h.Backend.EnqueueMessage(wirelessDeviceID, QueuedMessage{
 		MessageID:     messageID,
 		PayloadBase64: req.PayloadData,
+		TransmitMode:  req.TransmitMode,
 		ReceivedAt:    time.Now(),
 	})
 
@@ -242,9 +270,10 @@ func (h *Handler) testWirelessDevice(c *echo.Context, id string) error {
 
 func (h *Handler) listQueuedMessages(c *echo.Context, wirelessDeviceID string) error {
 	msgs := h.Backend.ListQueuedMessages(wirelessDeviceID)
+	pg, next := paginateQuery(c, msgs)
 
-	items := make([]downlinkQueueMessageResponse, 0, len(msgs))
-	for _, m := range msgs {
+	items := make([]downlinkQueueMessageResponse, 0, len(pg))
+	for _, m := range pg {
 		items = append(items, downlinkQueueMessageResponse{
 			MessageID:    m.MessageID,
 			ReceivedAt:   m.ReceivedAt.UTC().Format(time.RFC3339),
@@ -254,6 +283,7 @@ func (h *Handler) listQueuedMessages(c *echo.Context, wirelessDeviceID string) e
 
 	return writeJSON(c, http.StatusOK, listQueuedMessagesResponse{
 		DownlinkQueueMessagesList: items,
+		NextToken:                 next,
 	})
 }
 

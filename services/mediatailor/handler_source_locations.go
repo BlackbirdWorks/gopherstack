@@ -57,14 +57,16 @@ func (h *Handler) handleListSourceLocations(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		out = append(out, map[string]any{
+		item := map[string]any{
 			keySourceLocationName: s.Name,
 			keyArn:                s.ARN,
 			"HttpConfiguration": map[string]any{
 				"BaseUrl": s.HTTPConfigurationURL,
 			},
 			keyTags: nilToEmpty(s.Tags),
-		})
+		}
+		addTimestamps(item, s.CreationTime, s.LastModified)
+		out = append(out, item)
 	}
 
 	resp := map[string]any{keyItems: out}
@@ -76,7 +78,7 @@ func (h *Handler) handleListSourceLocations(c *echo.Context) error {
 }
 
 func toSourceLocationOutput(sl *SourceLocation) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		keySourceLocationName: sl.Name,
 		keyArn:                sl.ARN,
 		"HttpConfiguration": map[string]any{
@@ -84,4 +86,7 @@ func toSourceLocationOutput(sl *SourceLocation) map[string]any {
 		},
 		keyTags: nilToEmpty(sl.Tags),
 	}
+	addTimestamps(out, sl.CreationTime, sl.LastModified)
+
+	return out
 }

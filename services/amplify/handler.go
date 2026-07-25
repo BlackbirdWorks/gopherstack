@@ -529,7 +529,8 @@ func (h *Handler) handleBackendError(ctx context.Context, c *echo.Context, op st
 		return amplifyErrorJSON(c, http.StatusNotFound, err.Error())
 	}
 
-	if errors.Is(err, awserr.ErrAlreadyExists) || errors.Is(err, awserr.ErrConflict) {
+	if errors.Is(err, awserr.ErrAlreadyExists) || errors.Is(err, awserr.ErrConflict) ||
+		errors.Is(err, awserr.ErrInvalidParameter) {
 		return amplifyErrorJSON(c, http.StatusBadRequest, err.Error())
 	}
 

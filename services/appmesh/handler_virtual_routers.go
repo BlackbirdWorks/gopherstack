@@ -49,7 +49,7 @@ func (h *Handler) handleCreateVirtualRouter(c *echo.Context, meshName string) er
 		Spec              json.RawMessage `json:"spec"`
 		Tags              []tagInput      `json:"tags"`
 	}
-	if err := c.Bind(&body); err != nil || body.VirtualRouterName == "" {
+	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualRouterName) {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "virtualRouterName is required"))
 	}
 	vr, err := h.Backend.CreateVirtualRouter(meshName, body.VirtualRouterName, body.Spec, tagsToMap(body.Tags))
@@ -183,7 +183,7 @@ func (h *Handler) handleCreateRoute(c *echo.Context, meshName, vrName string) er
 		Spec        json.RawMessage `json:"spec"`
 		Tags        []tagInput      `json:"tags"`
 	}
-	if err := c.Bind(&body); err != nil || body.RouteName == "" {
+	if err := c.Bind(&body); err != nil || !isValidResourceName(body.RouteName) {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "routeName is required"))
 	}
 	r, err := h.Backend.CreateRoute(meshName, vrName, body.RouteName, body.Spec, tagsToMap(body.Tags))

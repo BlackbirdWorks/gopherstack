@@ -69,7 +69,7 @@ func (b *InMemoryBackend) buildSourceAssoc(
 		SourceAPIID:                sourceAPIID,
 		MergedAPIID:                mergedAPIID,
 		Description:                description,
-		AssociationStatus:          "MERGE_SCHEDULED",
+		AssociationStatus:          SourceAPIAssociationStatusMergeScheduled,
 		SourceAPIAssociationConfig: &SourceAPIAssociationConfig{MergeType: mergeType},
 	}
 
@@ -165,4 +165,32 @@ func (b *InMemoryBackend) UpdateSourceAPIAssociation(
 	b.sourceAssocs.Put(&cp)
 
 	return &cp, nil
+}
+
+// StartSchemaMerge merges the schema of one source API association into its merged
+// API, keyed by (mergedAPIID, associationID) -- matching the real
+// StartSchemaMergeInput, which requires BOTH mergedApiIdentifier and associationId
+// (a merge always targets one specific association, never "the merged API" as a
+// whole). Merges in this emulator are synchronous and always succeed (no
+// conflicting-schema detection), returning the association's new
+// sourceApiAssociationStatus.
+func (b *InMemoryBackend) StartSchemaMerge(mergedAPIID, associationID string) (string, error) {
+	b.mu.Lock("StartSchemaMerge")
+	defer b.mu.Unlock()
+
+	if !b.apis.Has(mergedAPIID) {
+		return "", fmt.Errorf("%w: api %s not found", ErrNotFound, mergedAPIID)
+	}
+
+	assoc, ok := b.sourceAssocs.Get(associationID)
+	if !ok || assoc.MergedAPIID != mergedAPIID {
+		return "", fmt.Errorf("%w: source api association %s not found", ErrNotFound, associationID)
+	}
+
+	cp := *assoc
+	cp.AssociationStatus = SourceAPIAssociationStatusMergeSuccess
+
+	b.sourceAssocs.Put(&cp)
+
+	return cp.AssociationStatus, nil
 }

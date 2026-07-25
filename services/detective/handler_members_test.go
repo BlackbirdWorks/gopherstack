@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/detective"
 )
 
 func TestDetective_Members(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -392,14 +394,68 @@ func TestMemberDetail_AllRequiredFields_Present(t *testing.T) {
 
 	m := members[0].(map[string]any)
 	for _, field := range []string{
-		"AccountId", "AdministratorId", "EmailAddress",
-		"GraphArn", "InvitedTime", "MasterId", "Status", "UpdatedTime",
+		"AccountId", "AdministratorId", "DatasourcePackageIngestStates", "EmailAddress",
+		"GraphArn", "InvitationType", "InvitedTime", "MasterId", "Status", "UpdatedTime",
 	} {
 		_, ok := m[field]
 		assert.True(t, ok, "MemberDetail must include %q field", field)
 	}
 
 	assert.Equal(t, "INVITED", m["Status"], "initial member status must be INVITED")
+	assert.Equal(t, "INVITATION", m["InvitationType"],
+		"every member reaches the graph via CreateMembers invite flow, so InvitationType must be INVITATION")
+}
+
+// ---------------------------------------------------------------------------
+// MemberDetail: DatasourcePackageIngestStates mirrors graph-wide datasource state
+// ---------------------------------------------------------------------------
+
+// TestMemberDetail_DatasourcePackageIngestStates_MirrorsGraph verifies that
+// enabling a datasource package on the graph (UpdateDatasourcePackages) is
+// reflected in each member's DatasourcePackageIngestStates -- this emulator
+// does not track per-member datasource ingest separately from the graph,
+// matching the simplification already used by BatchGetGraphMemberDatasources.
+func TestMemberDetail_DatasourcePackageIngestStates_MirrorsGraph(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	graphArn := createResp["GraphArn"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/graph/members", map[string]any{
+		"GraphArn": graphArn,
+		"Accounts": []any{
+			map[string]any{"AccountId": "444444444444", "EmailAddress": "ds@example.com"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	updateRec := doRequest(t, h, http.MethodPost, "/graph/datasources/update", map[string]any{
+		"GraphArn":           graphArn,
+		"DatasourcePackages": []string{"ASFF_SECURITYHUB_FINDING"},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	getRec := doRequest(t, h, http.MethodPost, "/graph/members/get", map[string]any{
+		"GraphArn":   graphArn,
+		"AccountIds": []string{"444444444444"},
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	details, _ := getResp["MemberDetails"].([]any)
+	require.Len(t, details, 1)
+
+	m := details[0].(map[string]any)
+	states, ok := m["DatasourcePackageIngestStates"].(map[string]any)
+	require.True(t, ok, "DatasourcePackageIngestStates must be an object")
+	assert.Equal(t, "STARTED", states["ASFF_SECURITYHUB_FINDING"])
 }
 
 // ---------------------------------------------------------------------------
@@ -625,6 +681,48 @@ func TestDetective_Invitations(t *testing.T) { //nolint:paralleltest // existing
 			}
 		})
 	}
+}
+
+// TestListInvitationsOpaqueToken verifies ListInvitations' NextToken is an
+// opaque base64 offset, not the raw next GraphArn. A single backend instance
+// can never be a member of more than one graph through the normal
+// CreateMembers/AcceptInvitation flow (an account cannot invite itself), so
+// this seeds member records directly to exercise multi-page pagination.
+func TestListInvitationsOpaqueToken(t *testing.T) {
+	t.Parallel()
+	b := detective.NewInMemoryBackend("000000000000", "us-east-1")
+	h := detective.NewHandler(b)
+
+	detective.SeedGraph(b, "arn:aws:detective:us-east-1:111111111111:graph:aaaabbbbcccc00001111222233334444")
+	detective.SeedGraph(b, "arn:aws:detective:us-east-1:222222222222:graph:bbbbccccdddd00001111222233335555")
+	detective.SeedMember(b, "arn:aws:detective:us-east-1:111111111111:graph:aaaabbbbcccc00001111222233334444",
+		b.AccountID(), "INVITED")
+	detective.SeedMember(b, "arn:aws:detective:us-east-1:222222222222:graph:bbbbccccdddd00001111222233335555",
+		b.AccountID(), "ENABLED")
+
+	rec := doRequest(t, h, http.MethodPost, "/invitations/list", map[string]any{"MaxResults": 1})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	tok, hasTok := resp["NextToken"].(string)
+	require.True(t, hasTok, "NextToken must be present when more results exist")
+
+	_, err := base64.StdEncoding.DecodeString(tok)
+	require.NoError(t, err, "NextToken must be opaque base64, not a raw GraphArn")
+
+	rec2 := doRequest(t, h, http.MethodPost, "/invitations/list", map[string]any{"MaxResults": 1, "NextToken": tok})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	invitations, ok := resp2["Invitations"].([]any)
+	require.True(t, ok)
+	assert.Len(t, invitations, 1, "second page must return the remaining invitation")
+
+	_, hasTok2 := resp2["NextToken"]
+	assert.False(t, hasTok2, "NextToken must be absent on the last page")
 }
 
 func TestDetective_InvitationLifecycle(t *testing.T) { //nolint:paralleltest // existing issue.

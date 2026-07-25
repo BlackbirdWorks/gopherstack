@@ -631,3 +631,40 @@ func TestHandler_CreateCampaign(t *testing.T) {
 		})
 	}
 }
+
+// TestGetCampaignVersion_UnknownVersionNotFound locks that GetCampaignVersion
+// 404s for a version number absent from the campaign's history, matching the
+// documented NotFoundException response on the real
+// /v1/apps/{appId}/campaigns/{campaignId}/versions/{version} resource,
+// instead of silently substituting the current campaign under the wrong
+// Version number.
+func TestGetCampaignVersion_UnknownVersionNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	appID := createTestApp(t, h, "campaign-version-404-app")
+
+	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns",
+		map[string]any{"Name": "c1", "SegmentId": "seg-1"})
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&created))
+	campaignID, _ := created["Id"].(string)
+	require.NotEmpty(t, campaignID)
+
+	// Version 1 exists (created by CreateCampaign) -- confirm it's reachable.
+	v1Rec := doPinpointRequest(t, h, http.MethodGet,
+		"/v1/apps/"+appID+"/campaigns/"+campaignID+"/versions/1", nil)
+	require.Equal(t, http.StatusOK, v1Rec.Code)
+
+	// Version 999 was never created -- must 404, not fall back to version 1's
+	// (or the current campaign's) content.
+	missingRec := doPinpointRequest(t, h, http.MethodGet,
+		"/v1/apps/"+appID+"/campaigns/"+campaignID+"/versions/999", nil)
+	assert.Equal(t, http.StatusNotFound, missingRec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.NewDecoder(missingRec.Body).Decode(&errResp))
+	assert.Equal(t, "NotFoundException", errResp["__type"])
+}

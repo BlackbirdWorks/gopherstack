@@ -136,7 +136,7 @@ func (b *InMemoryBackend) findTagsInPolicyResources(region, resourceARN string) 
 	}
 
 	for _, sj := range b.serviceJobsByRegion.Get(region) {
-		if sj.ServiceJobArn == resourceARN {
+		if sj.JobArn == resourceARN {
 			return sj.Tags, true
 		}
 	}
@@ -214,7 +214,7 @@ func (b *InMemoryBackend) initTagsInPolicyResources(region, resourceARN string) 
 	}
 
 	for _, sj := range b.serviceJobsByRegion.Get(region) {
-		if sj.ServiceJobArn == resourceARN {
+		if sj.JobArn == resourceARN {
 			sj.Tags = make(map[string]string)
 
 			return

@@ -197,5 +197,81 @@ func Parse(definition string) (*StateMachine, error) {
 		return nil, fmt.Errorf("%w: StartAt state %q not found in States", ErrParseError, sm.StartAt)
 	}
 
+	if err := validateJitterStrategies(sm.States); err != nil {
+		return nil, err
+	}
+
 	return &sm, nil
+}
+
+// validRetryJitterStrategies are the only JitterStrategy values AWS accepts
+// on a Retry entry ("" is equivalent to the default, "NONE").
+var validRetryJitterStrategies = map[string]bool{ //nolint:gochecknoglobals // static lookup table, not mutated
+	"":     true,
+	"NONE": true,
+	"FULL": true,
+}
+
+// validateJitterStrategies recursively walks every state (including nested
+// Map/Parallel sub-state-machines via Iterator/ItemProcessor/Branches) and
+// rejects any Retry entry whose JitterStrategy isn't one of AWS's two
+// documented values. Real AWS rejects an invalid JitterStrategy at
+// CreateStateMachine/UpdateStateMachine time with ValidationException,
+// rather than silently treating it as "NONE".
+func validateJitterStrategies(states map[string]*State) error {
+	for name, st := range states {
+		if st == nil {
+			continue
+		}
+
+		if err := validateStateJitterStrategies(name, st); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateStateJitterStrategies checks one state's own Retry entries, then
+// recurses into any nested sub-state-machine the state type carries (Map's
+// Iterator/ItemProcessor, Parallel's Branches). Split out of
+// validateJitterStrategies to keep both functions' cognitive complexity low.
+func validateStateJitterStrategies(name string, st *State) error {
+	for _, r := range st.Retry {
+		if !validRetryJitterStrategies[r.JitterStrategy] {
+			return fmt.Errorf(
+				"%w: state %q: Retry.JitterStrategy %q must be \"FULL\" or \"NONE\"",
+				ErrParseError, name, r.JitterStrategy,
+			)
+		}
+	}
+
+	for _, sub := range nestedStateMachines(st) {
+		if err := validateJitterStrategies(sub); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// nestedStateMachines returns the States maps of every sub-state-machine
+// directly nested under st (Map's Iterator/ItemProcessor, Parallel's
+// Branches), in the order AWS documents them.
+func nestedStateMachines(st *State) []map[string]*State {
+	var subs []map[string]*State
+
+	if st.Iterator != nil {
+		subs = append(subs, st.Iterator.States)
+	}
+
+	if st.ItemProcessor != nil {
+		subs = append(subs, st.ItemProcessor.States)
+	}
+
+	for _, branch := range st.Branches {
+		subs = append(subs, branch.States)
+	}
+
+	return subs
 }

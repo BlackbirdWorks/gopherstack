@@ -89,6 +89,11 @@ const (
 	portalVisibilityEnabled  = "ENABLED"
 	portalVisibilityDisabled = "DISABLED"
 
+	// UserBackgroundSessionApplicationStatus values for
+	// PutApplicationSessionConfiguration/GetApplicationSessionConfiguration.
+	userBackgroundSessionStatusEnabled  = "ENABLED"
+	userBackgroundSessionStatusDisabled = "DISABLED"
+
 	// Application sign-in origin.
 	signInOriginApplication    = "APPLICATION"
 	signInOriginIdentityCenter = "IDENTITY_CENTER"
@@ -215,6 +220,14 @@ type Application struct {
 	InstanceArn            string            `json:"InstanceArn"`
 	Name                   string            `json:"Name"`
 	Status                 string            `json:"Status"`
+	// ApplicationAccount, CreatedFrom, and IdentityStoreArn mirror the real
+	// ssoadmin.types.Application wire shape (also present flat on
+	// CreateApplicationOutput/DescribeApplicationOutput -- see
+	// handler_applications.go). Not part of the CreateApplication request;
+	// derived from the owning instance at creation time.
+	ApplicationAccount string `json:"ApplicationAccount"`
+	CreatedFrom        string `json:"CreatedFrom"`
+	IdentityStoreArn   string `json:"IdentityStoreArn"`
 }
 
 // ApplicationAssignment represents a principal assigned to an application.

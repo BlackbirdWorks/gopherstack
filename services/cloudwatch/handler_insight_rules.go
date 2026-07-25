@@ -68,37 +68,20 @@ func (h *Handler) putInsightRule(ruleName string, form url.Values, c *echo.Conte
 		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
 	}
 
+	definition := form.Get("RuleDefinition")
+	if err := validateInsightRuleDefinition(definition); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+	}
+
 	if err := h.Backend.PutInsightRule(&InsightRule{
 		Name:       ruleName,
-		Definition: form.Get("RuleDefinition"),
+		Definition: definition,
 		State:      form.Get("RuleState"),
 	}); err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	return nil
-}
-
-func (h *Handler) handleUpdateInsightRule(form url.Values, c *echo.Context) error {
-	ruleName := form.Get("RuleName")
-	if ruleName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
-	}
-	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
-	}
-
-	if err := h.putInsightRule(ruleName, form, c); err != nil {
-		return err
-	}
-
-	type response struct {
-		XMLName   xml.Name `xml:"UpdateInsightRuleResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-	}
-
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
 func (h *Handler) handleDeleteInsightRules(form url.Values, c *echo.Context) error {

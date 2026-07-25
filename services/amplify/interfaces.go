@@ -1,6 +1,9 @@
 package amplify
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the interface for Amplify storage operations.
 type StorageBackend interface {
@@ -13,15 +16,20 @@ type StorageBackend interface {
 	CreateApp(
 		name, description, repository, platform string,
 		tagMap map[string]string,
+		opts ...AppOptions,
 	) (*App, error)
 	GetApp(appID string) (*App, error)
 	ListApps(nextToken string, maxResults int) ([]*App, string, error)
 	DeleteApp(appID string) error
-	UpdateApp(appID, name, description, repository, platform string) (*App, error)
+	UpdateApp(
+		appID, name, description, repository, platform string,
+		opts ...AppOptions,
+	) (*App, error)
 	CreateBranch(
 		appID, branchName, description, stage string,
 		enableAutoBuild bool,
 		tagMap map[string]string,
+		opts ...BranchOptions,
 	) (*Branch, error)
 	GetBranch(appID, branchName string) (*Branch, error)
 	ListBranches(appID, nextToken string, maxResults int) ([]*Branch, string, error)
@@ -29,12 +37,16 @@ type StorageBackend interface {
 	UpdateBranch(
 		appID, branchName, description, stage string,
 		enableAutoBuild bool,
+		opts ...BranchOptions,
 	) (*Branch, error)
 	TagResource(resourceARN string, tagMap map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 	// Jobs
-	StartJob(appID, branchName, jobType, commitID, commitMsg string) (*Job, error)
+	StartJob(
+		appID, branchName, jobType, jobID, commitID, commitMsg string,
+		commitTime time.Time,
+	) (*Job, error)
 	StopJob(appID, branchName, jobID string) (*Job, error)
 	GetJob(appID, branchName, jobID string) (*Job, error)
 	ListJobs(appID, branchName, nextToken string, maxResults int) ([]*Job, string, error)
@@ -74,7 +86,7 @@ type StorageBackend interface {
 	GenerateAccessLogs(appID, domainName, startTime, endTime string) (string, error)
 	GetArtifactURL(artifactID string) (string, string, error)
 	ListArtifacts(
-		appID, _, _, nextToken string,
+		appID, branchName, jobID, nextToken string,
 		maxResults int,
 	) ([]*Artifact, string, error)
 }

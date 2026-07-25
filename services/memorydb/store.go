@@ -12,6 +12,9 @@ import (
 
 const (
 	snapshotSourceManual = "manual"
+	// networkTypeIPv4 is the default NetworkType/IPDiscovery/SupportedNetworkTypes
+	// value for resources this mock only ever creates as IPv4.
+	networkTypeIPv4 = "ipv4"
 )
 
 const (
@@ -173,8 +176,10 @@ type InMemoryBackend struct {
 	reservedNodes              map[string]*store.Table[ReservedNode]
 	arnToResource              map[string]map[string]resourceRef
 	events                     map[string][]*Event
+	clock                      func() time.Time
 	accountID                  string
 	defaultRegion              string
+	lifecycleDelay             time.Duration
 	mu                         sync.RWMutex
 }
 

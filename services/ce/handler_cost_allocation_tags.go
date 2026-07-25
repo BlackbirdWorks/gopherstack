@@ -86,7 +86,7 @@ func (h *Handler) handleStartCostAllocationTagBackfill(
 	in *startCostAllocationTagBackfillInput,
 ) (*startCostAllocationTagBackfillOutput, error) {
 	if in.BackfillFrom == "" {
-		return nil, fmt.Errorf("%w: BackfillFrom is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: BackfillFrom is required", ErrValidation)
 	}
 
 	job := h.Backend.CreateBackfillJob(in.BackfillFrom)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -649,4 +650,95 @@ func TestGlobalCluster_NotFound_Paths(t *testing.T) {
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
 		})
 	}
+}
+
+// TestGlobalCluster_MemberTracking locks in the fix for the
+// "GlobalCluster has no GlobalClusterMembers subresource" gap identified in
+// PARITY.md: CreateGlobalCluster previously never added the source cluster
+// as a member, DescribeGlobalClusters always reported an empty member list,
+// and RemoveFromGlobalCluster was a pure no-op with respect to membership.
+func TestGlobalCluster_MemberTracking(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"member-src-cluster"},
+	})
+
+	// CreateGlobalCluster with a resolvable SourceDBClusterIdentifier must
+	// add that cluster as the initial writer member -- not an empty list.
+	createRR := doRequest(t, h, url.Values{
+		"Action":                    {"CreateGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"member-gc"},
+		"SourceDBClusterIdentifier": {"member-src-cluster"},
+	})
+	require.Equal(t, http.StatusOK, createRR.Code)
+	assert.Contains(t, createRR.Body.String(), "<GlobalClusterMember>")
+	assert.Contains(t, createRR.Body.String(), "member-src-cluster")
+	assert.Contains(t, createRR.Body.String(), "<IsWriter>true</IsWriter>")
+
+	// DescribeGlobalClusters must reflect the same real member, not an
+	// always-empty GlobalClusterMembers list.
+	describeRR := doRequest(t, h, url.Values{
+		"Action":                  {"DescribeGlobalClusters"},
+		"Version":                 {"2014-10-31"},
+		"GlobalClusterIdentifier": {"member-gc"},
+	})
+	require.Equal(t, http.StatusOK, describeRR.Code)
+	assert.Contains(t, describeRR.Body.String(), "<GlobalClusterMember>")
+	assert.Contains(t, describeRR.Body.String(), "member-src-cluster")
+
+	// FailoverGlobalCluster promoting a second real cluster must attach it
+	// as a new writer member and demote the prior writer, not silently no-op.
+	doRequest(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"member-target-cluster"},
+	})
+	failoverRR := doRequest(t, h, url.Values{
+		"Action":                    {"FailoverGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"member-gc"},
+		"TargetDbClusterIdentifier": {"member-target-cluster"},
+	})
+	require.Equal(t, http.StatusOK, failoverRR.Code)
+	body := failoverRR.Body.String()
+	assert.Contains(t, body, "member-target-cluster")
+	// Two members now: the original source (demoted) and the newly
+	// promoted target (writer).
+	assert.Equal(t, 2, strings.Count(body, "<GlobalClusterMember>"))
+
+	// RemoveFromGlobalCluster must genuinely delete the matching member,
+	// not leave the member list unchanged.
+	removeRR := doRequest(t, h, url.Values{
+		"Action":                  {"RemoveFromGlobalCluster"},
+		"Version":                 {"2014-10-31"},
+		"GlobalClusterIdentifier": {"member-gc"},
+		"DbClusterIdentifier":     {"member-target-cluster"},
+	})
+	require.Equal(t, http.StatusOK, removeRR.Code)
+	assert.NotContains(t, removeRR.Body.String(), "member-target-cluster")
+	assert.Equal(t, 1, strings.Count(removeRR.Body.String(), "<GlobalClusterMember>"))
+}
+
+// TestGlobalCluster_MemberTracking_UnresolvableSourceIsEmpty locks in that
+// an unresolvable SourceDBClusterIdentifier (no matching cluster in this
+// account/region) leaves GlobalClusterMembers empty rather than fabricating
+// a member entry -- matching this backend's existing leniency for a target
+// it cannot validate, while still doing real work for a target it can.
+func TestGlobalCluster_MemberTracking_UnresolvableSourceIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rr := doRequest(t, h, url.Values{
+		"Action":                    {"CreateGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"unresolved-gc"},
+		"SourceDBClusterIdentifier": {"does-not-exist"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.NotContains(t, rr.Body.String(), "<GlobalClusterMember>")
 }

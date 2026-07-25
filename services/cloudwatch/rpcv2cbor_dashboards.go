@@ -1,11 +1,29 @@
 package cloudwatch
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
 )
+
+// dashboardValidationMessagesCBOR converts DashboardValidationMessage entries
+// to their rpc-v2-cbor wire shape (DataPath + Message only, no IsError member —
+// matches aws-sdk-go-v2's types.DashboardValidationMessage).
+func dashboardValidationMessagesCBOR(msgs []DashboardValidationMessage) cbor.List {
+	out := make(cbor.List, 0, len(msgs))
+	for _, m := range msgs {
+		entry := cbor.Map{"Message": cbor.String(m.Message)}
+		if m.DataPath != "" {
+			entry["DataPath"] = cbor.String(m.DataPath)
+		}
+		out = append(out, entry)
+	}
+
+	return out
+}
 
 func (h *Handler) cborPutDashboard(input cbor.Map, c *echo.Context) error {
 	name := cborStr(input, "DashboardName")
@@ -20,11 +38,44 @@ func (h *Handler) cborPutDashboard(input cbor.Map, c *echo.Context) error {
 
 	body := cborStr(input, "DashboardBody")
 
-	if err := h.Backend.PutDashboard(name, body); err != nil {
+	messages, err := h.Backend.PutDashboard(name, body)
+	if err != nil {
+		var valErr *DashboardValidationError
+		if errors.As(err, &valErr) {
+			return h.cborDashboardValidationError(c, valErr.Messages)
+		}
+
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	return writeCBOR(c, cbor.Map{"DashboardValidationMessages": cbor.List{}})
+	return writeCBOR(c, cbor.Map{"DashboardValidationMessages": dashboardValidationMessagesCBOR(messages)})
+}
+
+// cborDashboardValidationError writes the DashboardInvalidInputError error
+// response for a PutDashboard call whose body failed schema validation,
+// embedding the full DashboardValidationMessages list in the error body
+// (matches the SDK's DashboardInvalidInputError exception shape).
+func (h *Handler) cborDashboardValidationError(
+	c *echo.Context,
+	messages []DashboardValidationMessage,
+) error {
+	summary := make([]string, 0, len(messages))
+	for _, m := range messages {
+		if m.IsError {
+			summary = append(summary, m.Message)
+		}
+	}
+
+	c.Response().Header().Set("Content-Type", "application/cbor")
+	c.Response().Header().Set("Smithy-Protocol", "rpc-v2-cbor")
+	c.Response().Header().Set("X-Amzn-Errortype", "DashboardInvalidInputError")
+	c.Response().WriteHeader(http.StatusBadRequest)
+	_, err := c.Response().Write(cbor.Encode(cbor.Map{
+		"message":                     cbor.String("The dashboard body is invalid: " + strings.Join(summary, "; ")),
+		"DashboardValidationMessages": dashboardValidationMessagesCBOR(messages),
+	}))
+
+	return err
 }
 
 func (h *Handler) cborGetDashboard(input cbor.Map, c *echo.Context) error {

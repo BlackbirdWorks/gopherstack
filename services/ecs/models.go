@@ -640,7 +640,12 @@ type Task struct {
 	PropagateTags        string                `json:"propagateTags,omitempty"`
 	// TaskRoleArn is the effective IAM role ARN for task containers.
 	// Resolved from Overrides.TaskRoleArn if set, else from the task definition.
-	TaskRoleArn          string           `json:"taskRoleArn,omitempty"`
+	TaskRoleArn string `json:"taskRoleArn,omitempty"`
+	// CapacityProviderName is the capacity provider actually selected to run this
+	// task. Set from RunTaskInput.CapacityProviderStrategy (the first entry, as a
+	// documented simplification: this backend does not model weight/base-driven
+	// distribution across multiple providers -- see RunTask in tasks.go).
+	CapacityProviderName string           `json:"capacityProviderName,omitempty"`
 	Tags                 []Tag            `json:"tags,omitempty"`
 	Attachments          []TaskAttachment `json:"attachments,omitempty"`
 	Containers           []Container      `json:"containers,omitempty"`
@@ -716,23 +721,24 @@ type UpdateServiceInput struct {
 
 // RunTaskInput holds input for RunTask.
 type RunTaskInput struct {
-	Overrides               *TaskOverride         `json:"overrides,omitempty"`
-	NetworkConfiguration    *NetworkConfiguration `json:"networkConfiguration,omitempty"`
-	Cluster                 string                `json:"cluster,omitempty"`
-	TaskDefinition          string                `json:"taskDefinition"`
-	LaunchType              string                `json:"launchType,omitempty"`
-	Group                   string                `json:"group,omitempty"`
-	StartedBy               string                `json:"startedBy,omitempty"`
-	PlatformVersion         string                `json:"platformVersion,omitempty"`
-	PropagateTags           string                `json:"propagateTags,omitempty"`
-	serviceNameForTags      string
-	Tags                    []Tag `json:"tags,omitempty"`
-	serviceTagsForPropagate []Tag
-	PlacementConstraints    []PlacementConstraint `json:"placementConstraints,omitempty"`
-	PlacementStrategy       []PlacementStrategy   `json:"placementStrategy,omitempty"`
-	Count                   int                   `json:"count,omitempty"`
-	EnableECSManagedTags    bool                  `json:"enableECSManagedTags,omitempty"`
-	EnableExecuteCommand    bool                  `json:"enableExecuteCommand,omitempty"`
+	Overrides                *TaskOverride         `json:"overrides,omitempty"`
+	NetworkConfiguration     *NetworkConfiguration `json:"networkConfiguration,omitempty"`
+	Cluster                  string                `json:"cluster,omitempty"`
+	TaskDefinition           string                `json:"taskDefinition"`
+	LaunchType               string                `json:"launchType,omitempty"`
+	Group                    string                `json:"group,omitempty"`
+	StartedBy                string                `json:"startedBy,omitempty"`
+	PlatformVersion          string                `json:"platformVersion,omitempty"`
+	PropagateTags            string                `json:"propagateTags,omitempty"`
+	serviceNameForTags       string
+	Tags                     []Tag `json:"tags,omitempty"`
+	serviceTagsForPropagate  []Tag
+	PlacementConstraints     []PlacementConstraint          `json:"placementConstraints,omitempty"`
+	PlacementStrategy        []PlacementStrategy            `json:"placementStrategy,omitempty"`
+	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
+	Count                    int                            `json:"count,omitempty"`
+	EnableECSManagedTags     bool                           `json:"enableECSManagedTags,omitempty"`
+	EnableExecuteCommand     bool                           `json:"enableExecuteCommand,omitempty"`
 }
 
 // ListTaskDefinitionsInput holds optional filters for ListTaskDefinitions.
@@ -767,23 +773,24 @@ type TaskSetScale struct {
 
 // TaskSet represents an ECS task set within a service.
 type TaskSet struct {
-	NetworkConfiguration *NetworkConfiguration `json:"networkConfiguration,omitempty"`
-	CreatedAt            time.Time             `json:"createdAt"`
-	UpdatedAt            time.Time             `json:"updatedAt"`
-	StabilityStatusAt    time.Time             `json:"stabilityStatusAt"`
-	Status               string                `json:"status"`
-	TaskSetArn           string                `json:"taskSetArn"`
-	ID                   string                `json:"id"`
-	ServiceArn           string                `json:"serviceArn"`
-	ClusterArn           string                `json:"clusterArn"`
-	TaskDefinition       string                `json:"taskDefinition"`
-	ExternalID           string                `json:"externalId,omitempty"`
-	PlatformVersion      string                `json:"platformVersion,omitempty"`
-	LaunchType           string                `json:"launchType,omitempty"`
-	StabilityStatus      string                `json:"stabilityStatus,omitempty"`
-	Scale                TaskSetScale          `json:"scale"`
-	LoadBalancers        []LoadBalancer        `json:"loadBalancers,omitempty"`
-	ServiceRegistries    []ServiceRegistry     `json:"serviceRegistries,omitempty"`
+	NetworkConfiguration     *NetworkConfiguration          `json:"networkConfiguration,omitempty"`
+	CreatedAt                time.Time                      `json:"createdAt"`
+	UpdatedAt                time.Time                      `json:"updatedAt"`
+	StabilityStatusAt        time.Time                      `json:"stabilityStatusAt"`
+	Status                   string                         `json:"status"`
+	TaskSetArn               string                         `json:"taskSetArn"`
+	ID                       string                         `json:"id"`
+	ServiceArn               string                         `json:"serviceArn"`
+	ClusterArn               string                         `json:"clusterArn"`
+	TaskDefinition           string                         `json:"taskDefinition"`
+	ExternalID               string                         `json:"externalId,omitempty"`
+	PlatformVersion          string                         `json:"platformVersion,omitempty"`
+	LaunchType               string                         `json:"launchType,omitempty"`
+	StabilityStatus          string                         `json:"stabilityStatus,omitempty"`
+	Scale                    TaskSetScale                   `json:"scale"`
+	LoadBalancers            []LoadBalancer                 `json:"loadBalancers,omitempty"`
+	ServiceRegistries        []ServiceRegistry              `json:"serviceRegistries,omitempty"`
+	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
 }
 
 // Session represents an ECS Exec interactive session.
@@ -805,14 +812,16 @@ type ExecuteCommandOutput struct {
 
 // CreateTaskSetInput holds input for CreateTaskSet.
 type CreateTaskSetInput struct {
-	NetworkConfiguration *NetworkConfiguration
-	Scale                *TaskSetScale
-	Cluster              string
-	Service              string
-	TaskDefinition       string
-	ExternalID           string
-	PlatformVersion      string
-	LaunchType           string
-	LoadBalancers        []LoadBalancer
-	ServiceRegistries    []ServiceRegistry
+	NetworkConfiguration     *NetworkConfiguration
+	Scale                    *TaskSetScale
+	Cluster                  string
+	Service                  string
+	TaskDefinition           string
+	ExternalID               string
+	PlatformVersion          string
+	LaunchType               string
+	LoadBalancers            []LoadBalancer
+	ServiceRegistries        []ServiceRegistry
+	CapacityProviderStrategy []CapacityProviderStrategyItem
+	Tags                     []Tag
 }

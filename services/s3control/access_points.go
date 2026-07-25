@@ -47,7 +47,7 @@ func (b *InMemoryBackend) SetAccessPointVpcConfig(accountID, name, vpcID, bucket
 
 	ap, ok := b.accessPoints.Get(accountID + ":" + name)
 	if !ok {
-		return ErrNotFound
+		return errAccessPointNotFound
 	}
 
 	ap.VpcID = vpcID
@@ -70,7 +70,7 @@ func (b *InMemoryBackend) GetAccessPoint(accountID, name string) (*AccessPoint, 
 
 	ap, ok := b.accessPoints.Get(accountID + ":" + name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, errAccessPointNotFound
 	}
 
 	cp := *ap
@@ -78,17 +78,28 @@ func (b *InMemoryBackend) GetAccessPoint(accountID, name string) (*AccessPoint, 
 	return &cp, nil
 }
 
-// DeleteAccessPoint removes an S3 access point.
+// DeleteAccessPoint removes an S3 access point and cascade-cleans every
+// piece of state keyed off it (policy, scope, per-AP PublicAccessBlock,
+// generic resource tags) so a delete/recreate cycle under the same name
+// never resurfaces stale state from the deleted access point.
 func (b *InMemoryBackend) DeleteAccessPoint(accountID, name string) error {
 	b.mu.Lock("DeleteAccessPoint")
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if !b.accessPoints.Delete(key) {
-		return ErrNotFound
+
+	ap, ok := b.accessPoints.Get(key)
+	if !ok {
+		return errAccessPointNotFound
 	}
 
+	arn := ap.AccessPointArn
+
+	b.accessPoints.Delete(key)
 	delete(b.accessPointPolicies, key)
+	delete(b.accessPointScopes, key)
+	b.accessPointPABs.Delete(key)
+	delete(b.resourceTags, arn)
 
 	return nil
 }
@@ -117,7 +128,7 @@ func (b *InMemoryBackend) PutAccessPointPolicy(accountID, name, policy string) e
 
 	key := accountID + ":" + name
 	if !b.accessPoints.Has(key) {
-		return ErrNotFound
+		return errAccessPointNotFound
 	}
 
 	b.accessPointPolicies[key] = policy
@@ -132,12 +143,12 @@ func (b *InMemoryBackend) GetAccessPointPolicy(accountID, name string) (string, 
 
 	key := accountID + ":" + name
 	if !b.accessPoints.Has(key) {
-		return "", ErrNotFound
+		return "", errAccessPointNotFound
 	}
 
 	policy, ok := b.accessPointPolicies[key]
 	if !ok {
-		return "", ErrNotFound
+		return "", errAccessPointPolicyNotFound
 	}
 
 	return policy, nil
@@ -150,7 +161,7 @@ func (b *InMemoryBackend) DeleteAccessPointPolicy(accountID, name string) error 
 
 	key := accountID + ":" + name
 	if !b.accessPoints.Has(key) {
-		return ErrNotFound
+		return errAccessPointNotFound
 	}
 
 	delete(b.accessPointPolicies, key)
@@ -216,6 +227,16 @@ func (b *InMemoryBackend) ListAccessPointsForDirectoryBuckets(accountID string) 
 }
 
 // ---- Per-AccessPoint PublicAccessBlock ----
+//
+// These three methods are internal storage plumbing, NOT separate AWS
+// operations -- aws-sdk-go-v2/service/s3control has no
+// Get/Put/DeleteAccessPointPublicAccessBlock ops (PublicAccessBlockConfiguration
+// is account-level only via Get/Put/DeletePublicAccessBlock, except for the
+// inline PublicAccessBlockConfiguration field the real CreateAccessPoint
+// request and GetAccessPoint response carry directly). A prior pass had
+// wired these up as three standalone fake REST operations; that routing was
+// removed (see handler_access_points.go), but the storage methods survive
+// to back the inline field.
 
 // GetAccessPointPublicAccessBlock returns the public access block configuration for an access point.
 func (b *InMemoryBackend) GetAccessPointPublicAccessBlock(accountID, name string) (*PublicAccessBlock, error) {

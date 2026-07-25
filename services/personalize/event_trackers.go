@@ -23,6 +23,9 @@ func (b *InMemoryBackend) CreateEventTracker(
 	if b.eventTrackers.Has(name) {
 		return nil, fmt.Errorf("%w: event tracker %q already exists", ErrAlreadyExists, name)
 	}
+	if b.findDatasetGroup(datasetGroupArn) == nil {
+		return nil, fmt.Errorf("%w: dataset group %q not found", ErrNotFound, datasetGroupArn)
+	}
 
 	now := time.Now().UTC()
 	et := &EventTracker{

@@ -166,7 +166,7 @@ func (rc *ResourceCreator) deleteLambdaLayerVersionPermission(physicalID string)
 		return nil
 	}
 
-	return imb.RemoveLayerVersionPermission(layerName, version, statementID)
+	return imb.RemoveLayerVersionPermission(layerName, version, statementID, "")
 }
 
 // ---- Lambda EventInvokeConfig and Url ----

@@ -3,6 +3,7 @@ package efs_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -120,6 +121,42 @@ func TestDescribeFileSystemPolicy_PolicyNotFound_HTTP(t *testing.T) {
 
 			resp := parseResp(t, rec)
 			assert.Equal(t, tt.wantErr, resp["ErrorCode"])
+		})
+	}
+}
+
+// TestPutFileSystemPolicy_InvalidPolicyRejected verifies that malformed or oversized
+// policy documents are rejected with InvalidPolicyException (HTTP 400), matching
+// botocore's efs/service-2.json PutFileSystemPolicy error catalog (BadRequest,
+// InternalServerError, FileSystemNotFound, InvalidPolicyException,
+// IncorrectFileSystemLifeCycleState -- notably no ValidationException).
+func TestPutFileSystemPolicy_InvalidPolicyRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		policy string
+	}{
+		{name: "malformed_json", policy: `{not valid json}`},
+		{name: "oversized_policy", policy: `{"Statement":[{"Sid":"` + strings.Repeat("a", 21*1024) + `"}]}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestEFSHandler()
+			fsID := createFS(t, h, "policy-invalid-"+tt.name)
+
+			rec := doREST(
+				t, h, http.MethodPut,
+				"/2015-02-01/file-systems/"+fsID+"/policy",
+				map[string]any{"Policy": tt.policy},
+			)
+			require.Equal(t, http.StatusBadRequest, rec.Code, "PutFileSystemPolicy body: %s", rec.Body.String())
+
+			resp := parseResp(t, rec)
+			assert.Equal(t, "InvalidPolicyException", resp["ErrorCode"])
 		})
 	}
 }

@@ -95,6 +95,12 @@ type SyncConfiguration struct {
 	RepositoryName          string    `json:"repositoryName"`
 	PublishDeploymentStatus string    `json:"publishDeploymentStatus,omitempty"`
 	TriggerResourceUpdateOn string    `json:"triggerResourceUpdateOn,omitempty"`
+	// PullRequestComment mirrors the real SyncConfiguration/
+	// CreateSyncConfigurationInput/UpdateSyncConfigurationInput
+	// PullRequestComment member (aws-sdk-go-v2/service/codeconnections@
+	// v1.10.22 types.PullRequestComment, ENABLED|DISABLED) -- present in this
+	// service's pinned SDK but previously never implemented here.
+	PullRequestComment string `json:"pullRequestComment,omitempty"`
 	// region is the store.Table composite-key qualifier: ResourceName+SyncType
 	// carries no region of its own and every lookup is scoped by the caller's
 	// context region, exactly like RepositoryLink.region above. See
@@ -123,11 +129,40 @@ type SyncEvent struct {
 	ExternalID string
 }
 
-// ResourceSyncStatus holds the latest sync attempt for an AWS resource.
+// Revision mirrors AWS CodeConnections' Revision type: the state of an AWS
+// resource as declared by its linked repository at a specific commit (real
+// aws-sdk-go-v2/service/codeconnections@v1.10.22 types.Revision -- Branch/
+// Directory/OwnerId/ProviderType/RepositoryName/Sha are all required wire
+// members).
+type Revision struct {
+	Branch         string
+	Directory      string
+	OwnerID        string
+	ProviderType   string
+	RepositoryName string
+	Sha            string
+}
+
+// ResourceSyncAttempt mirrors the real ResourceSyncAttempt type used for both
+// GetResourceSyncStatusOutput.LatestSync and .LatestSuccessfulSync (real
+// wire-required members: Events/InitialRevision/StartedAt/Status/Target/
+// TargetRevision).
+type ResourceSyncAttempt struct {
+	StartedAt       time.Time
+	Status          string
+	Target          string
+	InitialRevision Revision
+	TargetRevision  Revision
+	Events          []SyncEvent
+}
+
+// ResourceSyncStatus mirrors GetResourceSyncStatusOutput: the latest sync
+// attempt for an AWS resource, its desired state, and (when available) the
+// latest successful attempt.
 type ResourceSyncStatus struct {
-	StartedAt time.Time
-	Status    string
-	Events    []SyncEvent
+	LatestSuccessfulSync *ResourceSyncAttempt
+	DesiredState         Revision
+	LatestSync           ResourceSyncAttempt
 }
 
 // RepositorySyncDefinition describes a mapping from a repository branch to an

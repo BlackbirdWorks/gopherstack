@@ -3,30 +3,42 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"time"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ----- Integrations -----
 
 type integrationXML struct {
-	IntegrationArn  string `xml:"IntegrationArn"`
-	IntegrationName string `xml:"IntegrationName"`
-	SourceArn       string `xml:"SourceArn,omitempty"`
-	TargetArn       string `xml:"TargetArn,omitempty"`
-	Status          string `xml:"Status"`
-	Description     string `xml:"Description,omitempty"`
-	KmsKeyID        string `xml:"KmsKeyId,omitempty"`
+	CreateTime      string       `xml:"CreateTime,omitempty"`
+	IntegrationArn  string       `xml:"IntegrationArn"`
+	IntegrationName string       `xml:"IntegrationName"`
+	SourceArn       string       `xml:"SourceArn,omitempty"`
+	TargetArn       string       `xml:"TargetArn,omitempty"`
+	Status          string       `xml:"Status"`
+	Description     string       `xml:"Description,omitempty"`
+	KMSKeyID        string       `xml:"KMSKeyId,omitempty"`
+	Tags            []svcTags.KV `xml:"Tags>Tag,omitempty"`
 }
 
 func integrationToXML(ig *Integration) integrationXML {
-	return integrationXML{
+	x := integrationXML{
 		IntegrationArn:  ig.IntegrationArn,
 		IntegrationName: ig.IntegrationName,
 		SourceArn:       ig.SourceArn,
 		TargetArn:       ig.TargetArn,
 		Status:          ig.Status,
 		Description:     ig.Description,
-		KmsKeyID:        ig.KmsKeyID,
+		KMSKeyID:        ig.KmsKeyID,
+		Tags:            tagMapToKVList(ig.Tags),
 	}
+
+	if !ig.CreateTime.IsZero() {
+		x.CreateTime = ig.CreateTime.Format(time.RFC3339)
+	}
+
+	return x
 }
 
 type createIntegrationResponse struct {
@@ -35,13 +47,20 @@ type createIntegrationResponse struct {
 	Result  integrationXML `xml:"CreateIntegrationResult"`
 }
 
+// handleCreateIntegration implements CreateIntegration. Real aws-sdk-go-v2 clients
+// send the KMS key as "KMSKeyId" (confirmed against
+// awsAwsquery_serializeOpDocumentCreateIntegrationInput) and tags as "TagList", not
+// "KmsKeyId"/"Tags" -- both differ from this package's other Create* ops.
 func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
+	tags := parseTagListPrefixed(vals, "TagList")
+
 	ig, err := h.Backend.CreateIntegration(
 		vals.Get("IntegrationName"),
 		vals.Get("SourceArn"),
 		vals.Get("TargetArn"),
-		vals.Get("KmsKeyId"),
+		vals.Get("KMSKeyId"),
 		vals.Get("Description"),
+		tags,
 	)
 	if err != nil {
 		return nil, err
@@ -119,6 +138,7 @@ func (h *Handler) handleModifyIntegration(vals url.Values) (any, error) {
 	ig, err := h.Backend.ModifyIntegration(
 		vals.Get("IntegrationArn"),
 		vals.Get("Description"),
+		vals.Get("IntegrationName"),
 	)
 	if err != nil {
 		return nil, err

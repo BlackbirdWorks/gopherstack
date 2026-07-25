@@ -35,6 +35,29 @@ const (
 	attrName          = "name"
 	attrScheduledEvID = "scheduledEventId"
 	attrStartedEvID   = "startedEventId"
+
+	// Attribute-map key literals shared across decision_tasks.go,
+	// decision_orchestration.go, workflow_executions.go, activity_tasks.go,
+	// and signals.go's event-attribute/history-event-attribute maps.
+	attrWorkflowID      = "workflowId"
+	attrRunID           = "runId"
+	attrCause           = "cause"
+	attrControl         = "control"
+	attrChildPolicy     = "childPolicy"
+	attrTaskList        = "taskList"
+	attrWorkflowType    = "workflowType"
+	attrVersion         = "version"
+	attrExecToCloseTO   = "executionStartToCloseTimeout"
+	attrTaskToCloseTO   = "taskStartToCloseTimeout"
+	attrLambdaRole      = "lambdaRole"
+	attrTagList         = "tagList"
+	attrDTCEventID      = "decisionTaskCompletedEventId"
+	attrResult          = "result"
+	attrSignalName      = "signalName"
+	attrTimerID         = "timerId"
+	attrInitiatedEvID   = "initiatedEventId"
+	attrWorkflowExec    = "workflowExecution"
+	causeOpNotPermitted = "OPERATION_NOT_PERMITTED"
 )
 
 // WorkflowTypeDefaults holds the registered defaults for a workflow type.
@@ -184,24 +207,29 @@ type WorkflowType struct {
 
 // WorkflowExecution represents an SWF workflow execution.
 type WorkflowExecution struct {
-	WorkflowTypeVersion          string   `json:"workflowTypeVersion,omitempty"`
-	LambdaRole                   string   `json:"lambdaRole,omitempty"`
+	ChildPolicy                  string   `json:"childPolicy,omitempty"`
+	TaskPriority                 string   `json:"taskPriority,omitempty"`
 	RunID                        string   `json:"runID"`
 	TaskList                     string   `json:"taskList,omitempty"`
 	CloseStatus                  string   `json:"closeStatus,omitempty"`
 	LatestExecutionContext       string   `json:"latestExecutionContext,omitempty"`
-	TaskPriority                 string   `json:"taskPriority,omitempty"`
+	TaskStartToCloseTimeout      string   `json:"taskStartToCloseTimeout,omitempty"`
 	WorkflowTypeName             string   `json:"workflowTypeName,omitempty"`
 	WorkflowID                   string   `json:"workflowID"`
 	Input                        string   `json:"input,omitempty"`
+	LambdaRole                   string   `json:"lambdaRole,omitempty"`
 	Status                       string   `json:"status"`
-	TaskStartToCloseTimeout      string   `json:"taskStartToCloseTimeout,omitempty"`
-	ChildPolicy                  string   `json:"childPolicy,omitempty"`
+	ParentRunID                  string   `json:"parentRunID,omitempty"`
 	Domain                       string   `json:"domain"`
 	ExecutionStartToCloseTimeout string   `json:"executionStartToCloseTimeout,omitempty"`
+	ParentWorkflowID             string   `json:"parentWorkflowID,omitempty"`
+	WorkflowTypeVersion          string   `json:"workflowTypeVersion,omitempty"`
 	TagList                      []string `json:"tagList,omitempty"`
-	CloseTimestamp               float64  `json:"closeTimestamp,omitempty"`
+	OpenTimerIDs                 []string `json:"openTimerIDs,omitempty"`
 	StartTimestamp               float64  `json:"startTimestamp"`
+	CloseTimestamp               float64  `json:"closeTimestamp,omitempty"`
+	ParentInitiatedEventID       int64    `json:"parentInitiatedEventID,omitempty"`
+	ParentStartedEventID         int64    `json:"parentStartedEventID,omitempty"`
 	CancelRequested              bool     `json:"cancelRequested,omitempty"`
 }
 
@@ -301,15 +329,74 @@ type RecordMarkerDecisionAttrs struct {
 	Details    string
 }
 
+// WorkflowTypeRef identifies a workflow type by name/version within a decision's
+// attributes (mirrors the wire-level workflowType field shape).
+type WorkflowTypeRef struct {
+	Name    string
+	Version string
+}
+
+// ContinueAsNewWorkflowExecutionDecisionAttrs holds attributes for
+// ContinueAsNewWorkflowExecution. All fields are optional overrides: an empty
+// field falls back to the current execution's WorkflowType-registered
+// defaults, exactly like StartWorkflowExecution.
+type ContinueAsNewWorkflowExecutionDecisionAttrs struct {
+	Input                        string
+	ExecutionStartToCloseTimeout string
+	TaskList                     string
+	TaskStartToCloseTimeout      string
+	TaskPriority                 string
+	ChildPolicy                  string
+	LambdaRole                   string
+	WorkflowTypeVersion          string
+	TagList                      []string
+}
+
+// StartChildWorkflowExecutionDecisionAttrs holds attributes for StartChildWorkflowExecution.
+type StartChildWorkflowExecutionDecisionAttrs struct {
+	WorkflowID                   string
+	WorkflowType                 WorkflowTypeRef
+	Control                      string
+	Input                        string
+	ExecutionStartToCloseTimeout string
+	TaskList                     string
+	TaskPriority                 string
+	TaskStartToCloseTimeout      string
+	ChildPolicy                  string
+	LambdaRole                   string
+	TagList                      []string
+}
+
+// SignalExternalWorkflowExecutionDecisionAttrs holds attributes for SignalExternalWorkflowExecution.
+type SignalExternalWorkflowExecutionDecisionAttrs struct {
+	WorkflowID string
+	RunID      string
+	SignalName string
+	Input      string
+	Control    string
+}
+
+// RequestCancelExternalWorkflowExecutionDecisionAttrs holds attributes for
+// RequestCancelExternalWorkflowExecution.
+type RequestCancelExternalWorkflowExecutionDecisionAttrs struct {
+	WorkflowID string
+	RunID      string
+	Control    string
+}
+
 // Decision represents a single decision returned by a decider.
 type Decision struct {
-	CompleteWorkflowExecutionAttrs *CompleteWorkflowExecutionDecisionAttrs
-	FailWorkflowExecutionAttrs     *FailWorkflowExecutionDecisionAttrs
-	CancelWorkflowExecutionAttrs   *CancelWorkflowExecutionDecisionAttrs
-	ScheduleActivityTaskAttrs      *ScheduleActivityTaskDecisionAttrs
-	RequestCancelActivityTaskAttrs *RequestCancelActivityTaskDecisionAttrs
-	StartTimerAttrs                *StartTimerDecisionAttrs
-	CancelTimerAttrs               *CancelTimerDecisionAttrs
-	RecordMarkerAttrs              *RecordMarkerDecisionAttrs
-	DecisionType                   string
+	CompleteWorkflowExecutionAttrs              *CompleteWorkflowExecutionDecisionAttrs
+	FailWorkflowExecutionAttrs                  *FailWorkflowExecutionDecisionAttrs
+	CancelWorkflowExecutionAttrs                *CancelWorkflowExecutionDecisionAttrs
+	ScheduleActivityTaskAttrs                   *ScheduleActivityTaskDecisionAttrs
+	RequestCancelActivityTaskAttrs              *RequestCancelActivityTaskDecisionAttrs
+	StartTimerAttrs                             *StartTimerDecisionAttrs
+	CancelTimerAttrs                            *CancelTimerDecisionAttrs
+	RecordMarkerAttrs                           *RecordMarkerDecisionAttrs
+	ContinueAsNewWorkflowExecutionAttrs         *ContinueAsNewWorkflowExecutionDecisionAttrs
+	StartChildWorkflowExecutionAttrs            *StartChildWorkflowExecutionDecisionAttrs
+	SignalExternalWorkflowExecutionAttrs        *SignalExternalWorkflowExecutionDecisionAttrs
+	RequestCancelExternalWorkflowExecutionAttrs *RequestCancelExternalWorkflowExecutionDecisionAttrs
+	DecisionType                                string
 }

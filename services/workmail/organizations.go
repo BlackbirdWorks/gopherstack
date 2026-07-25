@@ -54,7 +54,9 @@ func (b *InMemoryBackend) CreateOrganization(
 		DomainName:                  defaultDomain,
 		IsDefault:                   true,
 		IsTestDomain:                true,
-		OwnershipVerificationStatus: "VERIFIED",
+		OwnershipVerificationStatus: dnsVerificationVerified,
+		DkimVerificationStatus:      dnsVerificationVerified,
+		Records:                     dnsRecordsForDomain(defaultDomain, region),
 		orgID:                       orgID,
 	})
 
@@ -66,7 +68,9 @@ func (b *InMemoryBackend) CreateOrganization(
 			DomainName:                  d,
 			IsDefault:                   false,
 			IsTestDomain:                false,
-			OwnershipVerificationStatus: "VERIFIED",
+			OwnershipVerificationStatus: dnsVerificationVerified,
+			DkimVerificationStatus:      dnsVerificationVerified,
+			Records:                     dnsRecordsForDomain(d, region),
 			orgID:                       orgID,
 		})
 	}
@@ -87,12 +91,16 @@ func (b *InMemoryBackend) DescribeOrganization(orgID string) (*Organization, err
 	return org, nil
 }
 
-// DeleteOrganization removes a WorkMail organization. It clears exactly the
-// same set of collections the pre-Phase-3.3 map-based implementation did --
-// globalAliases, availabilityConfigs, mobileDeviceRules,
-// mobileDeviceOverrides, emailMonitoring, inboundDmarc, retentionPolicies,
-// exportJobs, identityCenterApps, idpConfig, personalTokens, tags, and
-// issuedTokens are deliberately left untouched, matching prior behavior.
+// DeleteOrganization removes a WorkMail organization and every collection
+// nested under it, including the two that were previously left behind as
+// ghost rows (see deleteTagsForOrg/deleteGlobalAliasesForOrg): tags on the
+// organization itself and on every user/group/resource it contained, and
+// globalAliases rows (primary emails and CreateAlias-created aliases alike)
+// for every entity that belonged to it. availabilityConfigs,
+// mobileDeviceRules, mobileDeviceOverrides, emailMonitoring, inboundDmarc,
+// retentionPolicies, exportJobs, identityCenterApps, idpConfig,
+// personalTokens, and issuedTokens are deliberately left untouched, matching
+// prior behavior.
 func (b *InMemoryBackend) DeleteOrganization(orgID string, _ bool) error {
 	b.mu.Lock("DeleteOrganization")
 	defer b.mu.Unlock()
@@ -118,6 +126,8 @@ func (b *InMemoryBackend) DeleteOrganization(orgID string, _ bool) error {
 	deleteAllForOrg(b.accessRules, b.accessRulesByOrg, accessRuleKeyFn, orgID)
 	deleteAllForOrg(b.impersonation, b.impersonationByOrg, impersonationKeyFn, orgID)
 	delete(b.mailboxQuotas, orgID)
+	b.deleteTagsForOrg(org.ARN)
+	b.deleteGlobalAliasesForOrg(orgID)
 
 	return nil
 }

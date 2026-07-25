@@ -116,8 +116,8 @@ type containerPropertiesInput struct {
 }
 
 type consumableResourcePropertyInput struct {
-	ConsumableResource string  `json:"consumableResource"`
-	Quantity           float64 `json:"quantity"`
+	ConsumableResource string `json:"consumableResource"`
+	Quantity           int64  `json:"quantity"`
 }
 
 // consumableResourcePropertiesInput mirrors aws-sdk-go-v2/service/batch/
@@ -144,8 +144,10 @@ type registerJobDefinitionInput struct {
 	Timeout                      *jobDefinitionTimeout              `json:"timeout,omitempty"`
 	ContainerProperties          *containerPropertiesInput          `json:"containerProperties,omitempty"`
 	NodeProperties               *nodePropertiesInput               `json:"nodeProperties,omitempty"`
+	EksProperties                *EksProperties                     `json:"eksProperties,omitempty"`
 	RuntimePlatform              *runtimePlatformInput              `json:"runtimePlatform,omitempty"`
 	ConsumableResourceProperties *consumableResourcePropertiesInput `json:"consumableResourceProperties,omitempty"`
+	RetryStrategy                *RetryStrategy                     `json:"retryStrategy,omitempty"`
 	JobDefinitionName            string                             `json:"jobDefinitionName"`
 	Type                         string                             `json:"type"`
 	PlatformCapabilities         []string                           `json:"platformCapabilities,omitempty"`
@@ -341,11 +343,12 @@ func (h *Handler) handleRegisterJobDefinition(
 		in.SchedulingPriority,
 		containerPropertiesFromInput(in.ContainerProperties),
 		nodePropertiesFromInput(in.NodeProperties),
-		nil, // EksProperties not yet wired through handler input
+		in.EksProperties,
 		runtimePlatformFromInput(in.RuntimePlatform),
 		consumableResourcePropertiesFromInput(in.ConsumableResourceProperties),
 		in.Parameters,
 		in.PropagateTags,
+		in.RetryStrategy,
 	)
 	if err != nil {
 		return nil, err

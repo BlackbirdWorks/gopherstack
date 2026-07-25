@@ -155,6 +155,17 @@ func TestHandler_ListRegions_Pagination(t *testing.T) {
 	}
 }
 
+// TestHandler_ListRegions_InvalidNextToken verifies an undecodable pagination
+// cursor surfaces as ValidationException/400 through the full handler stack.
+func TestHandler_ListRegions_InvalidNextToken(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "/listRegions", map[string]any{"NextToken": "not-valid-base64!!"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "ValidationException", rec.Header().Get("X-Amzn-Errortype"))
+}
+
 func TestHandler_ListRegions_InvalidMaxResults(t *testing.T) {
 	t.Parallel()
 
@@ -194,7 +205,7 @@ func TestHandler_GetRegionOptStatus(t *testing.T) {
 			name: "opt_in_enabled", regionName: "ap-southeast-1",
 			wantStatus: "ENABLED", wantHTTPStatus: http.StatusOK,
 		},
-		{name: "unknown_region", regionName: "zz-fake-1", wantHTTPStatus: http.StatusNotFound},
+		{name: "unknown_region", regionName: "zz-fake-1", wantHTTPStatus: http.StatusBadRequest},
 		{name: "missing_region_name", regionName: "", wantHTTPStatus: http.StatusBadRequest},
 	}
 
@@ -297,7 +308,14 @@ func TestHandler_EnableDisableRegion_MissingRegionName(t *testing.T) {
 	}
 }
 
-func TestHandler_EnableDisableRegion_NotFound(t *testing.T) {
+// TestHandler_EnableDisableRegion_UnknownRegionName verifies an unrecognized
+// RegionName is reported as ValidationException/400, not
+// ResourceNotFoundException/404: EnableRegion and DisableRegion's real
+// modeled error sets (verified against aws-sdk-go-v2/service/account and the
+// public API reference) contain AccessDeniedException, ConflictException,
+// InternalServerException, TooManyRequestsException and ValidationException
+// -- ResourceNotFoundException is not a possible error for either operation.
+func TestHandler_EnableDisableRegion_UnknownRegionName(t *testing.T) {
 	t.Parallel()
 
 	for _, path := range []string{"/enableRegion", "/disableRegion"} {
@@ -306,7 +324,8 @@ func TestHandler_EnableDisableRegion_NotFound(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, path, map[string]any{"RegionName": "zz-invalid-1"})
-			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Equal(t, "ValidationException", rec.Header().Get("X-Amzn-Errortype"))
 		})
 	}
 }

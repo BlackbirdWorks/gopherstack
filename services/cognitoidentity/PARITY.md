@@ -6,34 +6,34 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cognitoidentity
 sdk_module: aws-sdk-go-v2/service/cognitoidentity@v1.33.20
-last_audit_commit: 659c9617
-last_audit_date: 2026-07-13
-overall: A                # 2 genuine wire-shape bugs found and fixed this pass
+last_audit_commit: a92c8f601
+last_audit_date: 2026-07-24
+overall: A                # error-taxonomy field-diff vs deserializers.go found 3 real gaps, all fixed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateIdentityPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed OpenIdConnectProviderARNs JSON key casing"}
+  CreateIdentityPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed OpenIdConnectProviderARNs JSON key casing (prior pass); LimitExceededException deferred, see deferred[]"}
   DeleteIdentityPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades identities/roles/principalTags"}
-  DescribeIdentityPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed OpenIdConnectProviderARNs JSON key casing"}
+  DescribeIdentityPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed OpenIdConnectProviderARNs JSON key casing (prior pass)"}
   ListIdentityPools: {wire: ok, errors: ok, state: ok, persist: ok, note: "name-cursor pagination verified"}
-  UpdateIdentityPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed OpenIdConnectProviderARNs JSON key casing"}
-  GetId: {wire: ok, errors: ok, state: ok, persist: ok, note: "merges logins into existing identity per AWS semantics"}
-  GetCredentialsForIdentity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed Expiration epoch-seconds vs epoch-millis bug; synthetic creds are an accepted simplification"}
-  GetOpenIdToken: {wire: ok, errors: ok, state: ok, persist: n/a}
-  SetIdentityPoolRoles: {wire: ok, errors: ok, state: ok, persist: ok, note: "partial-merge semantics (omitted keys preserved) — deliberately tested by prior Refinement2 pass, left as-is"}
+  UpdateIdentityPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed OpenIdConnectProviderARNs JSON key casing (prior pass); ConcurrentModificationException/LimitExceededException deferred"}
+  GetId: {wire: ok, errors: ok, state: ok, persist: ok, note: "merges logins into existing identity per AWS semantics; ExternalServiceException/LimitExceededException deferred"}
+  GetCredentialsForIdentity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed Expiration epoch-seconds vs epoch-millis bug (prior pass); NEW this pass: InvalidIdentityPoolConfigurationException when the pool has no IAM role for the identity's auth state (real business-logic gap, not just an error-code omission -- GetCredentialsForIdentity previously handed out credentials for pools with zero role configuration)"}
+  GetOpenIdToken: {wire: ok, errors: ok, state: ok, persist: n/a, note: "ExternalServiceException deferred"}
+  SetIdentityPoolRoles: {wire: ok, errors: ok, state: ok, persist: ok, note: "partial-merge semantics (omitted keys preserved) — deliberately tested by prior Refinement2 pass, left as-is; ConcurrentModificationException deferred"}
   GetIdentityPoolRoles: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteIdentities: {wire: ok, errors: ok, state: ok, persist: ok, note: "best-effort silent skip of missing IDs matches AWS"}
-  DescribeIdentity: {wire: ok, errors: ok, state: ok, persist: ok, note: "timestamps now routed through pkgs/awstime.Epoch"}
-  GetOpenIdTokenForDeveloperIdentity: {wire: ok, errors: ok, state: ok, persist: ok, note: "PrincipalTags input field accepted by SDK but not consumed (see gaps)"}
+  DescribeIdentity: {wire: ok, errors: ok, state: ok, persist: ok, note: "timestamps now routed through pkgs/awstime.Epoch (prior pass)"}
+  GetOpenIdTokenForDeveloperIdentity: {wire: ok, errors: ok, state: ok, persist: ok, note: "PrincipalTags input field accepted by SDK but not consumed (see gaps). NEW this pass: an explicit IdentityId was previously validated for existence but its Logins were silently dropped instead of being linked (a disguised stub per parity principle #4) -- now actually links them, and rejects a developer-provider login already claimed by a different identity with DeveloperUserAlreadyRegisteredException"}
   GetPrincipalTagAttributeMap: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListIdentities: {wire: ok, errors: ok, state: ok, persist: ok, note: "timestamps now routed through pkgs/awstime.Epoch"}
+  ListIdentities: {wire: ok, errors: ok, state: ok, persist: ok, note: "timestamps now routed through pkgs/awstime.Epoch (prior pass)"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
-  LookupDeveloperIdentity: {wire: ok, errors: ok, state: ok, persist: n/a}
+  LookupDeveloperIdentity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass: when both IdentityId and DeveloperUserIdentifier are supplied, they are now cross-validated and a ResourceConflictException is returned on mismatch, per the operation's own doc comment (\"If you supply both, DeveloperUserIdentifier will be matched against IdentityId... Otherwise, a ResourceConflictException is thrown\"); previously the DeveloperUserIdentifier argument was silently ignored whenever IdentityId was also set"}
   MergeDeveloperIdentities: {wire: ok, errors: ok, state: ok, persist: ok}
   SetPrincipalTagAttributeMap: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UnlinkDeveloperIdentity: {wire: ok, errors: ok, state: ok, persist: ok}
-  UnlinkIdentity: {wire: ok, errors: ok, state: ok, persist: ok}
+  UnlinkIdentity: {wire: ok, errors: ok, state: ok, persist: ok, note: "ExternalServiceException deferred"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families: {}
 gaps:                     # known divergences NOT fixed — link bd issue ids
@@ -41,6 +41,9 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - SetIdentityPoolRoles/GetOpenIdTokenForDeveloperIdentity TokenDuration are accepted/validated but not enforced against issued token lifetime (tokens are opaque synthetic strings, not real expiring JWTs).
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - HTTP status code choice for NotAuthorizedException (403 here) vs AWS's actual per-exception status (SDK error-type resolution is body-driven, not status-code-driven, so this doesn't break aws-sdk-go-v2 clients; only relevant to tooling that inspects raw HTTP status).
+  - ConcurrentModificationException (SetIdentityPoolRoles, UpdateIdentityPool per deserializers.go) is not emulated: there is no optimistic-concurrency/version token in this backend's resource model to make a genuine concurrent-write collision detectable, and fabricating one that never fires (or fires on arbitrary heuristics) would be worse than omitting it. Would need a real revision-counter field added to IdentityPool/IdentityRoles to do properly -- out of scope for an error-taxonomy pass.
+  - TooManyRequestsException (every op) and LimitExceededException (CreateIdentityPool/GetId/UpdateIdentityPool per deserializers.go) are throttling/account-quota conditions; this in-memory emulator has no request-rate tracking and AWS's actual per-account pool/identity quotas are account-specific soft limits, not fixed constants -- inventing an arbitrary hard-coded threshold would be a fabricated business rule, not a verified one. Left unimplemented, consistent with how other gopherstack services treat throttling.
+  - ExternalServiceException (GetCredentialsForIdentity, GetId, GetOpenIdToken, UnlinkIdentity per deserializers.go) is AWS's wrapper for a real external identity provider (Facebook/Google/a linked Cognito user pool) rejecting a token. This backend validates login tokens against its own stored state, not a real external IdP, so there is no authentic trigger condition for this exception here.
 leaks: {status: clean, note: "no goroutines/janitors in this service; single lockmetrics.RWMutex guards all store.Table access"}
 ---
 
@@ -99,3 +102,69 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single loc
 - Region isolation: every resource is keyed by composite `"region|id"` (`regionKey` in
   backend.go) via `store.Table`/`store.Index`, with per-request region resolved from
   `X-Amz-Region`/SigV4 via `regionContextKey`. Verified consistent across all ops.
+
+## 2026-07-24 pass — error-taxonomy field-diff
+
+Prior passes field-diffed wire *shapes* thoroughly but never field-diffed the *error
+taxonomy* against `aws-sdk-go-v2/service/cognitoidentity`'s `deserializers.go`, which encodes
+-- per operation, in its `awsAwsjson11_deserializeOpError<Op>` functions -- the exact set of
+`strings.EqualFold("<ExceptionName>", errorCode)` cases the real client recognizes. Extracted
+that table this pass (`awk` over `deserializers.go`) and diffed it against
+`cognitoIdentitySentinelErrors` in `handler.go`, which only implemented 4 of the 11 modeled
+exception types (`ResourceNotFoundException`/`ResourceConflictException`/
+`InvalidParameterException`/`NotAuthorizedException`). Findings:
+
+- **Bug fixed — generic-error fallback used the wrong wire type.** `resolveErrorType`'s
+  catch-all returned Query/EC2-protocol-style `"InternalFailure"`, which does not match any
+  case in *any* of cognitoidentity's 24 per-operation error switches (every one of them
+  recognizes `"InternalErrorException"` instead, confirmed by grepping every
+  `awsAwsjson11_deserializeOpError*` function). A real aws-sdk-go-v2 client hitting this path
+  would fall through to an untyped smithy API error instead of a typed
+  `*types.InternalErrorException`, breaking typed-exception-matching retry logic. Same bug
+  class previously found and fixed in bedrockruntime (see that service's PARITY.md). Fixed:
+  `resolveErrorType`'s fallback now returns `"InternalErrorException"`.
+
+- **Bug fixed — `LookupDeveloperIdentity` silently ignored `DeveloperUserIdentifier` when
+  `IdentityId` was also supplied.** The op's own doc comment in `api_op_LookupDeveloperIdentity.go`
+  states: "Either IdentityID or DeveloperUserIdentifier must not be null. If you supply only
+  one of these values, the other value will be searched... and returned... If you supply
+  both, DeveloperUserIdentifier will be matched against IdentityID... Otherwise, a
+  ResourceConflictException is thrown." The backend only ever branched on `identityID != ""`
+  first and never even looked at `developerUserIdentifier` in that case -- so a caller
+  supplying a mismatched pair got a silent (wrong) success instead of a conflict. Fixed by
+  resolving both lookups independently and reconciling them (`reconcileLookupMatch`); added
+  the new `ErrResourceConflict` sentinel (wire type `ResourceConflictException`, distinct
+  from the pool-name-collision `ErrIdentityPoolAlreadyExists` which shares the same wire
+  type per AWS, as multiple conditions can map to one exception type).
+
+- **Bug fixed — `GetOpenIdTokenForDeveloperIdentity` dropped logins when `IdentityId` was
+  explicit (disguised stub).** The op's doc comment says it "can also be used to... link new
+  logins... to an existing... identity, by providing the existing IdentityId." The backend
+  validated the identity existed but then discarded `logins` entirely instead of merging them
+  -- looked like real logic (existence check + real state read) but silently no-opped the
+  actual linking work, matching parity-principles.md's "disguised stub" pattern. Fixed with
+  `linkDeveloperLogins`, which also implements the previously entirely-unimplemented
+  `DeveloperUserAlreadyRegisteredException`: rejects linking a developer-provider login that's
+  already registered to a *different* identity in the pool (checked via the pool's
+  `DeveloperProviderName`, since `Logins` may also carry non-developer provider entries).
+
+- **Bug fixed — `GetCredentialsForIdentity` never checked identity-pool role
+  configuration.** Real AWS returns `InvalidIdentityPoolConfigurationException` when the pool
+  has no IAM role for the identity's auth state; gopherstack happily minted synthetic
+  credentials for pools with zero roles configured (or missing the specific auth/unauth role
+  needed), which is a real, common, user-visible AWS error condition ("Invalid identity pool
+  configuration. Check assigned IAM roles for this pool."). Fixed via `checkRoleConfigured`,
+  called after login-token validation (so `NotAuthorizedException` still takes precedence for
+  mismatched tokens, matching existing precedence). This is a real backend-state check
+  (`b.rolesGet`), not a fabricated rule -- it required touching ~7 existing tests that
+  previously called `GetCredentialsForIdentity` without ever configuring pool roles, which
+  is not how a real AWS caller could ever have gotten credentials in the first place.
+
+- **Deferred, with rationale recorded above:** `ConcurrentModificationException` (no
+  optimistic-concurrency model to make authentic), `TooManyRequestsException`/
+  `LimitExceededException` (no request-rate tracking; AWS's real limits are account-specific
+  soft quotas, not constants safe to hard-code), `ExternalServiceException` (wraps a real
+  external IdP's rejection; this backend has no real external IdP to fail). All three
+  categories were deliberately *not* implemented with fabricated trigger conditions, per the
+  no-stub/no-invented-business-rules principle -- an exception type with no real,
+  state-driven trigger condition is worse than an honestly-documented gap.

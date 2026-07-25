@@ -127,6 +127,145 @@ func Test_SDKRoundTrip_CreateTime_EpochSeconds(t *testing.T) {
 	assertRecentTime(t, *instOut.InstanceInfo.RegisterTime, before, "OnPremisesInstanceInfo.RegisterTime")
 }
 
+// Test_SDKRoundTrip_ApplicationRevision_EpochSeconds proves the newly-added
+// ApplicationRevision family's GenericRevisionInfo timestamps (registerTime,
+// firstUsedTime, lastUsedTime) decode correctly as epoch-seconds through the
+// real SDK client -- the same 1000x UnixMilli-vs-epoch-seconds bug class
+// documented at the top of this file for every other Timestamp shape in this
+// service. It also proves RegisterApplicationRevision/GetApplicationRevision
+// round-trip a real revision (not an echo of the request) and that
+// CreateDeployment auto-registers and touches a revision's usage timestamps.
+func Test_SDKRoundTrip_ApplicationRevision_EpochSeconds(t *testing.T) {
+	t.Parallel()
+
+	backend := codedeploy.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := codedeploy.NewHandler(backend)
+	client := newTestCodeDeployClient(t, h)
+
+	before := time.Now().Add(-time.Minute)
+
+	_, err := client.CreateApplication(t.Context(), &codedeploysdk.CreateApplicationInput{
+		ApplicationName: aws.String("rt-revision-app"),
+		ComputePlatform: types.ComputePlatformServer,
+	})
+	require.NoError(t, err)
+
+	revision := &types.RevisionLocation{
+		RevisionType: types.RevisionLocationTypeS3,
+		S3Location: &types.S3Location{
+			Bucket:     aws.String("rt-bucket"),
+			Key:        aws.String("rt-key"),
+			BundleType: types.BundleTypeZip,
+		},
+	}
+
+	_, err = client.RegisterApplicationRevision(t.Context(), &codedeploysdk.RegisterApplicationRevisionInput{
+		ApplicationName: aws.String("rt-revision-app"),
+		Revision:        revision,
+		Description:     aws.String("rt description"),
+	})
+	require.NoError(t, err)
+
+	getOut, err := client.GetApplicationRevision(t.Context(), &codedeploysdk.GetApplicationRevisionInput{
+		ApplicationName: aws.String("rt-revision-app"),
+		Revision:        revision,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.RevisionInfo)
+	assert.Equal(t, "rt description", aws.ToString(getOut.RevisionInfo.Description))
+	require.NotNil(t, getOut.RevisionInfo.RegisterTime)
+	assertRecentTime(t, *getOut.RevisionInfo.RegisterTime, before, "RevisionInfo.RegisterTime")
+	assert.Nil(t, getOut.RevisionInfo.FirstUsedTime, "never deployed, so FirstUsedTime must stay unset")
+
+	_, err = client.CreateDeploymentGroup(t.Context(), &codedeploysdk.CreateDeploymentGroupInput{
+		ApplicationName:     aws.String("rt-revision-app"),
+		DeploymentGroupName: aws.String("rt-revision-dg"),
+		ServiceRoleArn:      aws.String("arn:aws:iam::000000000000:role/role"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDeployment(t.Context(), &codedeploysdk.CreateDeploymentInput{
+		ApplicationName:     aws.String("rt-revision-app"),
+		DeploymentGroupName: aws.String("rt-revision-dg"),
+		Revision:            revision,
+	})
+	require.NoError(t, err)
+
+	getOut, err = client.GetApplicationRevision(t.Context(), &codedeploysdk.GetApplicationRevisionInput{
+		ApplicationName: aws.String("rt-revision-app"),
+		Revision:        revision,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.RevisionInfo.FirstUsedTime)
+	assertRecentTime(t, *getOut.RevisionInfo.FirstUsedTime, before, "RevisionInfo.FirstUsedTime")
+	require.NotNil(t, getOut.RevisionInfo.LastUsedTime)
+	assertRecentTime(t, *getOut.RevisionInfo.LastUsedTime, before, "RevisionInfo.LastUsedTime")
+	assert.Contains(t, getOut.RevisionInfo.DeploymentGroups, "rt-revision-dg")
+}
+
+// Test_SDKRoundTrip_DeploymentTarget_EpochSeconds proves GetDeploymentTarget's
+// computed instanceTarget.lastUpdatedAt decodes correctly as epoch-seconds
+// through the real SDK client, and that the target is resolved from a real
+// registered on-premises instance matched by the deployment group's tag
+// filters rather than fabricated for an arbitrary requested ID.
+func Test_SDKRoundTrip_DeploymentTarget_EpochSeconds(t *testing.T) {
+	t.Parallel()
+
+	backend := codedeploy.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := codedeploy.NewHandler(backend)
+	client := newTestCodeDeployClient(t, h)
+
+	before := time.Now().Add(-time.Minute)
+
+	_, err := client.CreateApplication(t.Context(), &codedeploysdk.CreateApplicationInput{
+		ApplicationName: aws.String("rt-target-app"),
+		ComputePlatform: types.ComputePlatformServer,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDeploymentGroup(t.Context(), &codedeploysdk.CreateDeploymentGroupInput{
+		ApplicationName:     aws.String("rt-target-app"),
+		DeploymentGroupName: aws.String("rt-target-dg"),
+		ServiceRoleArn:      aws.String("arn:aws:iam::000000000000:role/role"),
+		OnPremisesInstanceTagFilters: []types.TagFilter{
+			{Key: aws.String("env"), Value: aws.String("prod"), Type: types.TagFilterTypeKeyAndValue},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.RegisterOnPremisesInstance(t.Context(), &codedeploysdk.RegisterOnPremisesInstanceInput{
+		InstanceName: aws.String("rt-target-instance"),
+		IamUserArn:   aws.String("arn:aws:iam::000000000000:user/instance"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.AddTagsToOnPremisesInstances(t.Context(), &codedeploysdk.AddTagsToOnPremisesInstancesInput{
+		InstanceNames: []string{"rt-target-instance"},
+		Tags:          []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
+	})
+	require.NoError(t, err)
+
+	deployOut, err := client.CreateDeployment(t.Context(), &codedeploysdk.CreateDeploymentInput{
+		ApplicationName:     aws.String("rt-target-app"),
+		DeploymentGroupName: aws.String("rt-target-dg"),
+	})
+	require.NoError(t, err)
+
+	targetOut, err := client.GetDeploymentTarget(t.Context(), &codedeploysdk.GetDeploymentTargetInput{
+		DeploymentId: deployOut.DeploymentId,
+		TargetId:     aws.String("rt-target-instance"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, targetOut.DeploymentTarget)
+	require.NotNil(t, targetOut.DeploymentTarget.InstanceTarget)
+	assert.Equal(t, "rt-target-instance", aws.ToString(targetOut.DeploymentTarget.InstanceTarget.TargetId))
+	assert.Equal(t, types.TargetStatusSucceeded, targetOut.DeploymentTarget.InstanceTarget.Status)
+	require.NotNil(t, targetOut.DeploymentTarget.InstanceTarget.LastUpdatedAt)
+	assertRecentTime(
+		t, *targetOut.DeploymentTarget.InstanceTarget.LastUpdatedAt, before, "InstanceTarget.LastUpdatedAt",
+	)
+}
+
 // assertRecentTime fails the test unless got falls within a sane window of
 // "now" -- specifically after lowerBound and no more than an hour in the
 // future. A UnixMilli-as-seconds wire bug decodes to a timestamp tens of

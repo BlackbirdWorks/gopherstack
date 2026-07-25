@@ -8,7 +8,7 @@ type StorageBackend interface {
 	// Transcription jobs
 	StartTranscriptionJob(input *TranscriptionJob) (*TranscriptionJob, error)
 	GetTranscriptionJob(jobName string) (*TranscriptionJob, error)
-	ListTranscriptionJobs(statusFilter, nextToken string) ([]TranscriptionJob, string)
+	ListTranscriptionJobs(statusFilter, nameContains, nextToken string) ([]TranscriptionJob, string)
 	DeleteTranscriptionJob(jobName string) error
 
 	// Call Analytics categories
@@ -29,7 +29,7 @@ type StorageBackend interface {
 	// Call Analytics jobs
 	StartCallAnalyticsJob(job *CallAnalyticsJob) (*CallAnalyticsJob, error)
 	GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob, error)
-	ListCallAnalyticsJobs(statusFilter, nextToken string) ([]CallAnalyticsJob, string)
+	ListCallAnalyticsJobs(statusFilter, nameContains, nextToken string) ([]CallAnalyticsJob, string)
 	DeleteCallAnalyticsJob(jobName string) error
 
 	// Call Analytics categories (Get/Update/List)
@@ -41,35 +41,35 @@ type StorageBackend interface {
 	GetVocabulary(vocabularyName string) (*Vocabulary, error)
 	UpdateVocabulary(vocab *Vocabulary) (*Vocabulary, error)
 	DeleteVocabulary(vocabularyName string) error
-	ListVocabularies(stateFilter, nextToken string) ([]Vocabulary, string)
+	ListVocabularies(stateFilter, nameContains, nextToken string) ([]Vocabulary, string)
 
 	// Vocabulary filter CRUD
 	GetVocabularyFilter(vocabularyFilterName string) (*VocabularyFilter, error)
 	UpdateVocabularyFilter(vf *VocabularyFilter) (*VocabularyFilter, error)
 	DeleteVocabularyFilter(vocabularyFilterName string) error
-	ListVocabularyFilters(nextToken string) ([]VocabularyFilter, string)
+	ListVocabularyFilters(nameContains, nextToken string) ([]VocabularyFilter, string)
 
 	// Medical vocabulary CRUD
 	GetMedicalVocabulary(vocabularyName string) (*MedicalVocabulary, error)
 	UpdateMedicalVocabulary(vocabularyName, languageCode, vocabularyFileURI string) (*MedicalVocabulary, error)
 	DeleteMedicalVocabulary(vocabularyName string) error
-	ListMedicalVocabularies(stateFilter, nextToken string) ([]MedicalVocabulary, string)
+	ListMedicalVocabularies(stateFilter, nameContains, nextToken string) ([]MedicalVocabulary, string)
 
 	// Medical Scribe jobs
 	StartMedicalScribeJob(job *MedicalScribeJob) (*MedicalScribeJob, error)
 	GetMedicalScribeJob(jobName string) (*MedicalScribeJob, error)
-	ListMedicalScribeJobs(statusFilter, nextToken string) ([]MedicalScribeJob, string)
+	ListMedicalScribeJobs(statusFilter, nameContains, nextToken string) ([]MedicalScribeJob, string)
 	DeleteMedicalScribeJob(jobName string) error
 
 	// Medical Transcription jobs
 	StartMedicalTranscriptionJob(job *MedicalTranscriptionJob) (*MedicalTranscriptionJob, error)
 	GetMedicalTranscriptionJob(jobName string) (*MedicalTranscriptionJob, error)
-	ListMedicalTranscriptionJobs(statusFilter, nextToken string) ([]MedicalTranscriptionJob, string)
+	ListMedicalTranscriptionJobs(statusFilter, nameContains, nextToken string) ([]MedicalTranscriptionJob, string)
 	DeleteMedicalTranscriptionJob(jobName string) error
 
 	// Language model CRUD
 	DescribeLanguageModel(modelName string) (*LanguageModel, error)
-	ListLanguageModels(statusFilter, nextToken string) ([]LanguageModel, string)
+	ListLanguageModels(statusFilter, nameContains, nextToken string) ([]LanguageModel, string)
 
 	// Tags
 	TagResource(resourceArn string, tags map[string]string) error

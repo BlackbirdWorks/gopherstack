@@ -7,10 +7,85 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// controlInputParameterJSON is ControlInputParameter's wire shape: a single
+// {ParameterName, ParameterValue} pair, NOT a map -- a control can repeat
+// the same parameter name is not expected, but the wire type is an array
+// exactly like AWS's own types.ControlInputParameter.
+type controlInputParameterJSON struct {
+	ParameterName  string `json:"ParameterName"`
+	ParameterValue string `json:"ParameterValue"`
+}
+
+// controlScopeJSON is ControlScope's wire shape: a struct, NOT a free-form
+// map -- matches AWS's types.ControlScope exactly.
+type controlScopeJSON struct {
+	Tags                    map[string]string `json:"Tags,omitempty"`
+	ComplianceResourceIDs   []string          `json:"ComplianceResourceIds,omitempty"`
+	ComplianceResourceTypes []string          `json:"ComplianceResourceTypes,omitempty"`
+}
+
 type frameworkControlJSON struct {
-	ControlInputParameters map[string]string `json:"ControlInputParameters,omitempty"`
-	ControlScope           map[string]any    `json:"ControlScope,omitempty"`
-	ControlName            string            `json:"ControlName"`
+	ControlScope           *controlScopeJSON           `json:"ControlScope,omitempty"`
+	ControlName            string                      `json:"ControlName"`
+	ControlInputParameters []controlInputParameterJSON `json:"ControlInputParameters,omitempty"`
+}
+
+func controlScopeFromJSON(cs *controlScopeJSON) *ControlScope {
+	if cs == nil {
+		return nil
+	}
+
+	return &ControlScope{
+		ComplianceResourceIDs:   cs.ComplianceResourceIDs,
+		ComplianceResourceTypes: cs.ComplianceResourceTypes,
+		Tags:                    cs.Tags,
+	}
+}
+
+func controlScopeToJSON(cs *ControlScope) *controlScopeJSON {
+	if cs == nil {
+		return nil
+	}
+
+	return &controlScopeJSON{
+		ComplianceResourceIDs:   cs.ComplianceResourceIDs,
+		ComplianceResourceTypes: cs.ComplianceResourceTypes,
+		Tags:                    cs.Tags,
+	}
+}
+
+func frameworkControlsFromJSON(in []frameworkControlJSON) []FrameworkControl {
+	out := make([]FrameworkControl, 0, len(in))
+	for _, fc := range in {
+		params := make([]ControlInputParameter, 0, len(fc.ControlInputParameters))
+		for _, p := range fc.ControlInputParameters {
+			params = append(params, ControlInputParameter(p))
+		}
+		out = append(out, FrameworkControl{
+			ControlName:            fc.ControlName,
+			ControlInputParameters: params,
+			ControlScope:           controlScopeFromJSON(fc.ControlScope),
+		})
+	}
+
+	return out
+}
+
+func frameworkControlsToJSON(in []FrameworkControl) []frameworkControlJSON {
+	out := make([]frameworkControlJSON, 0, len(in))
+	for _, fc := range in {
+		params := make([]controlInputParameterJSON, 0, len(fc.ControlInputParameters))
+		for _, p := range fc.ControlInputParameters {
+			params = append(params, controlInputParameterJSON(p))
+		}
+		out = append(out, frameworkControlJSON{
+			ControlName:            fc.ControlName,
+			ControlInputParameters: params,
+			ControlScope:           controlScopeToJSON(fc.ControlScope),
+		})
+	}
+
+	return out
 }
 
 type createFrameworkBody struct {
@@ -23,20 +98,17 @@ type createFrameworkBody struct {
 func (h *Handler) handleCreateFramework(c *echo.Context, body []byte) error {
 	var in createFrameworkBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	if in.FrameworkName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "FrameworkName is required"),
+			errResp("MissingParameterValueException", "FrameworkName is required"),
 		)
 	}
 
-	controls := make([]FrameworkControl, 0, len(in.FrameworkControls))
-	for _, fc := range in.FrameworkControls {
-		controls = append(controls, FrameworkControl(fc))
-	}
+	controls := frameworkControlsFromJSON(in.FrameworkControls)
 	f, err := h.Backend.CreateFramework(in.FrameworkName, in.FrameworkDescription, controls)
 	if err != nil {
 		return h.handleError(c, err)
@@ -52,7 +124,7 @@ func (h *Handler) handleDescribeFramework(c *echo.Context, name string) error {
 	if name == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "FrameworkName is required"),
+			errResp("MissingParameterValueException", "FrameworkName is required"),
 		)
 	}
 
@@ -70,18 +142,7 @@ func (h *Handler) handleDescribeFramework(c *echo.Context, name string) error {
 		keyCreationTime:        epochSeconds(f.CreationTime),
 	}
 	if len(f.FrameworkControls) > 0 {
-		controls := make([]map[string]any, 0, len(f.FrameworkControls))
-		for _, fc := range f.FrameworkControls {
-			c2 := map[string]any{"ControlName": fc.ControlName}
-			if len(fc.ControlInputParameters) > 0 {
-				c2["ControlInputParameters"] = fc.ControlInputParameters
-			}
-			if fc.ControlScope != nil {
-				c2["ControlScope"] = fc.ControlScope
-			}
-			controls = append(controls, c2)
-		}
-		resp["FrameworkControls"] = controls
+		resp["FrameworkControls"] = frameworkControlsToJSON(f.FrameworkControls)
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -106,15 +167,16 @@ func (h *Handler) handleListFrameworks(c *echo.Context) error {
 }
 
 type updateFrameworkBody struct {
-	FrameworkDescription string `json:"FrameworkDescription,omitempty"`
-	IdempotencyToken     string `json:"IdempotencyToken,omitempty"`
+	FrameworkDescription string                 `json:"FrameworkDescription,omitempty"`
+	IdempotencyToken     string                 `json:"IdempotencyToken,omitempty"`
+	FrameworkControls    []frameworkControlJSON `json:"FrameworkControls,omitempty"`
 }
 
 func (h *Handler) handleUpdateFramework(c *echo.Context, name string, body []byte) error {
 	if name == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "FrameworkName is required"),
+			errResp("MissingParameterValueException", "FrameworkName is required"),
 		)
 	}
 
@@ -123,12 +185,21 @@ func (h *Handler) handleUpdateFramework(c *echo.Context, name string, body []byt
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
 
-	f, err := h.Backend.UpdateFramework(name, in.FrameworkDescription)
+	// Real AWS: FrameworkControls is optional on Update -- an omitted field
+	// leaves the framework's existing controls untouched (nil here signals
+	// "no change" to UpdateFramework, distinct from an explicit empty list).
+	var controls *[]FrameworkControl
+	if in.FrameworkControls != nil {
+		fc := frameworkControlsFromJSON(in.FrameworkControls)
+		controls = &fc
+	}
+
+	f, err := h.Backend.UpdateFramework(name, in.FrameworkDescription, controls)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -143,7 +214,7 @@ func (h *Handler) handleDeleteFramework(c *echo.Context, name string) error {
 	if name == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "FrameworkName is required"),
+			errResp("MissingParameterValueException", "FrameworkName is required"),
 		)
 	}
 

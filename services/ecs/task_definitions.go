@@ -380,6 +380,7 @@ func (b *InMemoryBackend) DeleteTaskDefinitions(
 			if r.TaskDefinitionArn == td.TaskDefinitionArn {
 				b.taskDefinitions[td.Family] = append(revs[:i], revs[i+1:]...)
 				b.taskDefByArn.Delete(td.TaskDefinitionArn)
+				b.deleteResourceTagsLocked(td.TaskDefinitionArn)
 
 				break
 			}

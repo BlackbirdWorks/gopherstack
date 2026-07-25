@@ -30,7 +30,11 @@ func TestBackend_RollbackApplication(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1), app.ApplicationVersionID)
 
-		updated, opID, err := b.UpdateApplication(ctx, "rollback-app", 1, "", "second description")
+		updated, opID, err := b.UpdateApplication(ctx, kinesisanalyticsv2.UpdateApplicationParams{
+			Name:                        "rollback-app",
+			CurrentApplicationVersionID: 1,
+			ApplicationDescription:      "second description",
+		})
 		require.NoError(t, err)
 		require.Equal(t, int64(2), updated.ApplicationVersionID)
 		require.NotEmpty(t, opID)
@@ -67,7 +71,11 @@ func TestBackend_RollbackApplication(t *testing.T) {
 		_, err := b.CreateApplication(ctx, "rollback-mismatch-app", "FLINK-1_18", "", "", "", nil)
 		require.NoError(t, err)
 
-		_, _, err = b.UpdateApplication(ctx, "rollback-mismatch-app", 1, "", "second description")
+		_, _, err = b.UpdateApplication(ctx, kinesisanalyticsv2.UpdateApplicationParams{
+			Name:                        "rollback-mismatch-app",
+			CurrentApplicationVersionID: 1,
+			ApplicationDescription:      "second description",
+		})
 		require.NoError(t, err)
 
 		_, _, err = b.RollbackApplication(ctx, "rollback-mismatch-app", 99)
@@ -96,7 +104,7 @@ func TestBackend_ApplicationVersionHistory(t *testing.T) {
 	_, err := b.CreateApplication(ctx, "version-history-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	err = b.AddApplicationCloudWatchLoggingOption(ctx, "version-history-app", 0,
+	_, err = b.AddApplicationCloudWatchLoggingOption(ctx, "version-history-app", 0,
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
 	require.NoError(t, err)
 

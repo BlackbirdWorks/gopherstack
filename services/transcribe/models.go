@@ -4,33 +4,34 @@ import "time"
 
 // TranscriptionJob represents an Amazon Transcribe transcription job.
 type TranscriptionJob struct {
-	StartTime                 time.Time                   `json:"startTime"`
-	CompletionTime            time.Time                   `json:"completionTime"`
-	CreationTime              time.Time                   `json:"creationTime"`
-	Tags                      map[string]string           `json:"tags,omitempty"`
-	Subtitles                 *SubtitlesOutput            `json:"subtitles,omitempty"`
-	ContentRedaction          *ContentRedaction           `json:"contentRedaction,omitempty"`
-	ModelSettings             *ModelSettings              `json:"modelSettings,omitempty"`
-	JobExecutionSettings      *JobExecutionSettings       `json:"jobExecutionSettings,omitempty"`
-	Settings                  *TranscriptionSettings      `json:"settings,omitempty"`
-	Media                     Media                       `json:"media"`
-	LanguageCode              string                      `json:"languageCode"`
-	JobStatus                 string                      `json:"jobStatus"`
-	MediaFormat               string                      `json:"mediaFormat,omitempty"`
-	OutputBucketName          string                      `json:"outputBucketName,omitempty"`
-	OutputKey                 string                      `json:"outputKey,omitempty"`
-	OutputEncryptionKMSKeyID  string                      `json:"outputEncryptionKMSKeyId,omitempty"`
-	TranscriptText            string                      `json:"transcriptText"`
-	JobName                   string                      `json:"jobName"`
-	FailureReason             string                      `json:"failureReason,omitempty"`
-	LanguageOptions           []string                    `json:"languageOptions,omitempty"`
-	ToxicityDetection         []ToxicityDetectionSettings `json:"toxicityDetection,omitempty"`
-	LanguageCodes             []LanguageCodeItem          `json:"languageCodes,omitempty"`
-	TranscriptJSON            []byte                      `json:"-"`
-	MediaSampleRateHertz      int32                       `json:"mediaSampleRateHertz,omitempty"`
-	IdentifiedLanguageScore   float32                     `json:"identifiedLanguageScore,omitempty"`
-	IdentifyLanguage          bool                        `json:"identifyLanguage,omitempty"`
-	IdentifyMultipleLanguages bool                        `json:"identifyMultipleLanguages,omitempty"`
+	StartTime                 time.Time                     `json:"startTime"`
+	CompletionTime            time.Time                     `json:"completionTime"`
+	CreationTime              time.Time                     `json:"creationTime"`
+	Tags                      map[string]string             `json:"tags,omitempty"`
+	Subtitles                 *SubtitlesOutput              `json:"subtitles,omitempty"`
+	ContentRedaction          *ContentRedaction             `json:"contentRedaction,omitempty"`
+	ModelSettings             *ModelSettings                `json:"modelSettings,omitempty"`
+	JobExecutionSettings      *JobExecutionSettings         `json:"jobExecutionSettings,omitempty"`
+	Settings                  *TranscriptionSettings        `json:"settings,omitempty"`
+	Media                     Media                         `json:"media"`
+	LanguageCode              string                        `json:"languageCode"`
+	JobStatus                 string                        `json:"jobStatus"`
+	MediaFormat               string                        `json:"mediaFormat,omitempty"`
+	OutputBucketName          string                        `json:"outputBucketName,omitempty"`
+	OutputKey                 string                        `json:"outputKey,omitempty"`
+	OutputEncryptionKMSKeyID  string                        `json:"outputEncryptionKMSKeyId,omitempty"`
+	TranscriptText            string                        `json:"transcriptText"`
+	JobName                   string                        `json:"jobName"`
+	FailureReason             string                        `json:"failureReason,omitempty"`
+	LanguageOptions           []string                      `json:"languageOptions,omitempty"`
+	ToxicityDetection         []ToxicityDetectionSettings   `json:"toxicityDetection,omitempty"`
+	LanguageCodes             []LanguageCodeItem            `json:"languageCodes,omitempty"`
+	LanguageIDSettings        map[string]LanguageIDSettings `json:"languageIdSettings,omitempty"`
+	TranscriptJSON            []byte                        `json:"-"`
+	MediaSampleRateHertz      int32                         `json:"mediaSampleRateHertz,omitempty"`
+	IdentifiedLanguageScore   float32                       `json:"identifiedLanguageScore,omitempty"`
+	IdentifyLanguage          bool                          `json:"identifyLanguage,omitempty"`
+	IdentifyMultipleLanguages bool                          `json:"identifyMultipleLanguages,omitempty"`
 }
 
 // CallAnalyticsCategory represents an Amazon Transcribe Call Analytics category.
@@ -53,6 +54,7 @@ type LanguageModel struct {
 	BaseModelName       string            `json:"baseModelName"`
 	LanguageCode        string            `json:"languageCode"`
 	ModelStatus         string            `json:"modelStatus"`
+	FailureReason       string            `json:"failureReason,omitempty"`
 	UpgradeAvailability bool              `json:"upgradeAvailability,omitempty"`
 }
 
@@ -64,6 +66,7 @@ type MedicalVocabulary struct {
 	LanguageCode      string            `json:"languageCode"`
 	VocabularyState   string            `json:"vocabularyState"`
 	VocabularyFileURI string            `json:"vocabularyFileUri"`
+	FailureReason     string            `json:"failureReason,omitempty"`
 }
 
 // Vocabulary represents an Amazon Transcribe custom vocabulary.
@@ -74,6 +77,7 @@ type Vocabulary struct {
 	LanguageCode      string            `json:"languageCode"`
 	VocabularyState   string            `json:"vocabularyState"`
 	VocabularyFileURI string            `json:"vocabularyFileUri,omitempty"`
+	FailureReason     string            `json:"failureReason,omitempty"`
 	Phrases           []string          `json:"phrases,omitempty"`
 }
 

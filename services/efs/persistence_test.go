@@ -266,12 +266,12 @@ func Test_InMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// replicationConfigs: SourceFileSystemRegion round-tripped without a
 	// hidden-field DTO, and stayed region-scoped.
-	eastRCs, err := fresh.DescribeReplicationConfigurations(ctxEast, "")
+	eastRCs, _, err := fresh.DescribeReplicationConfigurations(ctxEast, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, eastRCs, 1)
 	assert.Equal(t, east.fs.FileSystemID, eastRCs[0].SourceFileSystemID)
 
-	westRCs, err := fresh.DescribeReplicationConfigurations(ctxWest, "")
+	westRCs, _, err := fresh.DescribeReplicationConfigurations(ctxWest, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, westRCs, 1)
 	assert.Equal(t, west.fs.FileSystemID, westRCs[0].SourceFileSystemID)

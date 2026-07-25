@@ -71,7 +71,12 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 	return &cp, nil
 }
 
-// DeprecateDomain marks a domain as deprecated.
+// DeprecateDomain marks a domain as deprecated. Per the real AWS doc comment
+// on DeprecateDomain ("Deprecating a domain also deprecates all activity and
+// workflow types registered in the domain. Executions that were started
+// before the domain was deprecated continue to run."), this cascades
+// DEPRECATED onto every REGISTERED workflow/activity type in the domain --
+// executions are deliberately left untouched (they keep running).
 func (b *InMemoryBackend) DeprecateDomain(name string) error {
 	b.mu.Lock("DeprecateDomain")
 	defer b.mu.Unlock()
@@ -84,6 +89,17 @@ func (b *InMemoryBackend) DeprecateDomain(name string) error {
 		return fmt.Errorf("%w: %s", ErrDeprecated, name)
 	}
 	d.Status = statusDeprecated
+
+	for _, wt := range b.workflowsByDomain.Get(name) {
+		if wt.Status == statusRegistered {
+			wt.Status = statusDeprecated
+		}
+	}
+	for _, at := range b.activitiesByDomain.Get(name) {
+		if at.Status == statusRegistered {
+			at.Status = statusDeprecated
+		}
+	}
 
 	return nil
 }

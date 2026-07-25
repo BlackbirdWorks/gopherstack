@@ -52,8 +52,9 @@ func (h *Handler) handleDeleteAccessor(c *echo.Context, accessorID string) error
 }
 
 func (h *Handler) handleListAccessors(c *echo.Context) error {
+	q := c.Request().URL.Query()
 	filter := ListAccessorsFilter{
-		NetworkType: c.Request().URL.Query().Get("networkType"),
+		NetworkType: q.Get("networkType"),
 	}
 
 	accessors, err := h.Backend.ListAccessors(filter)
@@ -61,13 +62,15 @@ func (h *Handler) handleListAccessors(c *echo.Context) error {
 		return h.writeBackendError(c, err)
 	}
 
-	summaries := make([]accessorSummaryObject, 0, len(accessors))
+	pageItems, nextToken := paginate(accessors, q)
 
-	for _, a := range accessors {
+	summaries := make([]accessorSummaryObject, 0, len(pageItems))
+
+	for _, a := range pageItems {
 		summaries = append(summaries, toAccessorSummaryObject(a))
 	}
 
-	return c.JSON(http.StatusOK, listAccessorsResponse{Accessors: summaries})
+	return c.JSON(http.StatusOK, listAccessorsResponse{Accessors: summaries, NextToken: nextToken})
 }
 
 // toAccessorObject converts an Accessor to its JSON representation.

@@ -93,6 +93,12 @@ type JobStateTimeLimitAction struct {
 	MaxTimeSeconds int32  `json:"maxTimeSeconds"`
 }
 
+// ServiceEnvironmentOrder pairs a service environment with its ordering in a job queue.
+type ServiceEnvironmentOrder struct {
+	ServiceEnvironment string `json:"serviceEnvironment"`
+	Order              int32  `json:"order"`
+}
+
 // JobQueue represents a Batch job queue.
 type JobQueue struct {
 	Tags map[string]string `json:"tags"`
@@ -105,7 +111,9 @@ type JobQueue struct {
 	Status                   string                    `json:"status"`
 	StatusReason             string                    `json:"statusReason,omitempty"`
 	SchedulingPolicyArn      string                    `json:"schedulingPolicyArn,omitempty"`
+	JobQueueType             string                    `json:"jobQueueType,omitempty"`
 	ComputeEnvironmentOrder  []ComputeEnvironmentOrder `json:"computeEnvironmentOrder,omitempty"`
+	ServiceEnvironmentOrder  []ServiceEnvironmentOrder `json:"serviceEnvironmentOrder,omitempty"`
 	JobStateTimeLimitActions []JobStateTimeLimitAction `json:"jobStateTimeLimitActions,omitempty"`
 	Priority                 int32                     `json:"priority"`
 }
@@ -342,9 +350,12 @@ type EksProperties struct {
 }
 
 // ConsumableResourceProperty specifies a single consumable resource requirement.
+// Quantity is int64 (Long) to match aws-sdk-go-v2/service/batch/types.
+// ConsumableResourceRequirement.Quantity exactly; it was previously float64,
+// which is wrong for the real API (see PARITY.md gaps).
 type ConsumableResourceProperty struct {
-	ConsumableResource string  `json:"consumableResource"`
-	Quantity           float64 `json:"quantity"`
+	ConsumableResource string `json:"consumableResource"`
+	Quantity           int64  `json:"quantity"`
 }
 
 // ConsumableResourceProperties holds the consumable resources required by a
@@ -365,6 +376,11 @@ type JobDefinition struct {
 	NodeProperties      *NodeProperties      `json:"nodeProperties,omitempty"`
 	EksProperties       *EksProperties       `json:"eksProperties,omitempty"`
 	RuntimePlatform     *RuntimePlatform     `json:"runtimePlatform,omitempty"`
+	// RetryStrategy is the job-definition-level default retry strategy (real
+	// AWS Batch supports this in addition to the job-level RetryStrategy
+	// passed to SubmitJob; see aws-sdk-go-v2/service/batch/types.
+	// RegisterJobDefinitionInput.RetryStrategy).
+	RetryStrategy *RetryStrategy `json:"retryStrategy,omitempty"`
 	// Timeout is nested (wire key "timeout": {"attemptDurationSeconds": N}) to
 	// match aws-sdk-go-v2/service/batch/types.JobDefinition.Timeout; it must
 	// NOT be a flat "timeoutSeconds" integer.
@@ -440,6 +456,41 @@ type JobAttempt struct {
 	StatusReason string               `json:"statusReason,omitempty"`
 }
 
+// ContainerDetail mirrors aws-sdk-go-v2/service/batch/types.ContainerDetail:
+// the describe-side view of a job's container, which is ContainerProperties
+// plus a handful of runtime-only fields (Reason, ExitCode, LogStreamName).
+// Placement fields real AWS populates from live ECS/EC2 state
+// (ContainerInstanceArn, TaskArn, NetworkInterfaces, EnableExecuteCommand)
+// aren't modeled since this emulator doesn't simulate container placement.
+type ContainerDetail struct {
+	LinuxParameters              *LinuxParameters              `json:"linuxParameters,omitempty"`
+	RepositoryCredentials        *RepositoryCredentials        `json:"repositoryCredentials,omitempty"`
+	RuntimePlatform              *RuntimePlatform              `json:"runtimePlatform,omitempty"`
+	EphemeralStorage             *EphemeralStorage             `json:"ephemeralStorage,omitempty"`
+	FargatePlatformConfiguration *FargatePlatformConfiguration `json:"fargatePlatformConfiguration,omitempty"`
+	NetworkConfiguration         *NetworkConfiguration         `json:"networkConfiguration,omitempty"`
+	LogConfiguration             *LogConfiguration             `json:"logConfiguration,omitempty"`
+	ExitCode                     *int32                        `json:"exitCode,omitempty"`
+	JobRoleArn                   string                        `json:"jobRoleArn,omitempty"`
+	ExecutionRoleArn             string                        `json:"executionRoleArn,omitempty"`
+	User                         string                        `json:"user,omitempty"`
+	InstanceType                 string                        `json:"instanceType,omitempty"`
+	Image                        string                        `json:"image,omitempty"`
+	Reason                       string                        `json:"reason,omitempty"`
+	LogStreamName                string                        `json:"logStreamName,omitempty"`
+	Command                      []string                      `json:"command,omitempty"`
+	Secrets                      []Secret                      `json:"secrets,omitempty"`
+	ResourceRequirements         []ResourceRequirement         `json:"resourceRequirements,omitempty"`
+	Ulimits                      []Ulimit                      `json:"ulimits,omitempty"`
+	MountPoints                  []MountPoint                  `json:"mountPoints,omitempty"`
+	Volumes                      []Volume                      `json:"volumes,omitempty"`
+	Environment                  []KeyValuePair                `json:"environment,omitempty"`
+	Vcpus                        int32                         `json:"vcpus,omitempty"`
+	Memory                       int32                         `json:"memory,omitempty"`
+	ReadonlyRootFilesystem       bool                          `json:"readonlyRootFilesystem,omitempty"`
+	Privileged                   bool                          `json:"privileged,omitempty"`
+}
+
 // Job represents a submitted Batch job.
 type Job struct {
 	ContainerOverrides *ContainerOverrides `json:"containerOverrides,omitempty"`
@@ -450,6 +501,11 @@ type Job struct {
 	RetryStrategy      *RetryStrategy      `json:"retryStrategy,omitempty"`
 	Timeout            *JobTimeout         `json:"timeout,omitempty"`
 	ArrayProperties    *ArrayProperties    `json:"arrayProperties,omitempty"`
+	// Container is derived (not stored directly by callers) from the resolved
+	// job definition's ContainerProperties merged with ContainerOverrides; it
+	// is populated by DescribeJobs. Left nil for multi-node jobs, matching
+	// AWS's "for a multiple-container job, this object will be empty" note.
+	Container *ContainerDetail `json:"container,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey); see
 	// ComputeEnvironment.region for why it is unexported.
 	region                       string
@@ -464,9 +520,16 @@ type Job struct {
 	DependsOn                    []JobDependency               `json:"dependsOn,omitempty"`
 	ConsumableResourceProperties *ConsumableResourceProperties `json:"consumableResourceProperties,omitempty"`
 	Attempts                     []JobAttempt                  `json:"attempts,omitempty"`
-	CreatedAt                    int64                         `json:"createdAt"`
-	SchedulingPriorityOverride   int32                         `json:"schedulingPriorityOverride,omitempty"`
-	PropagateTags                bool                          `json:"propagateTags,omitempty"`
+	// PlatformCapabilities is copied from the resolved job definition at
+	// SubmitJob time (real AWS defaults to ["EC2"] when unspecified).
+	PlatformCapabilities       []string `json:"platformCapabilities,omitempty"`
+	CreatedAt                  int64    `json:"createdAt"`
+	SchedulingPriorityOverride int32    `json:"schedulingPriorityOverride,omitempty"`
+	PropagateTags              bool     `json:"propagateTags,omitempty"`
+	// IsCancelled/IsTerminated are set by CancelJob/TerminateJob respectively;
+	// see aws-sdk-go-v2/service/batch/types.JobDetail.IsCancelled/IsTerminated.
+	IsCancelled  bool `json:"isCancelled"`
+	IsTerminated bool `json:"isTerminated"`
 }
 
 // ConsumableResource represents a Batch consumable resource.
@@ -508,6 +571,12 @@ type SchedulingPolicy struct {
 	Name   string `json:"name"`
 }
 
+// CapacityLimit specifies the maximum capacity available for a service environment.
+type CapacityLimit struct {
+	CapacityUnit string `json:"capacityUnit,omitempty"`
+	MaxCapacity  int32  `json:"maxCapacity,omitempty"`
+}
+
 // ServiceEnvironment represents a Batch service environment.
 type ServiceEnvironment struct {
 	Tags map[string]string `json:"tags"`
@@ -519,23 +588,61 @@ type ServiceEnvironment struct {
 	ServiceEnvironmentType string `json:"serviceEnvironmentType"`
 	State                  string `json:"state"`
 	Status                 string `json:"status"`
+	// CapacityLimits is required by the real API on Create and in the
+	// ServiceEnvironmentDetail response (see aws-sdk-go-v2/service/batch/
+	// types.ServiceEnvironmentDetail.CapacityLimits); it was previously
+	// missing entirely from this model.
+	CapacityLimits []CapacityLimit `json:"capacityLimits"`
 }
 
-// ServiceJob represents a Batch service job.
+// ServiceJobEvaluateOnExit specifies a conditional retry rule for a service job.
+type ServiceJobEvaluateOnExit struct {
+	Action         string `json:"action"`
+	OnStatusReason string `json:"onStatusReason,omitempty"`
+}
+
+// ServiceJobRetryStrategy configures automatic retry behavior for a service job.
+// See aws-sdk-go-v2/service/batch/types.ServiceJobRetryStrategy; this is a
+// distinct (and structurally narrower) type from the regular Job's
+// RetryStrategy -- it has no OnReason/OnExitCode matching.
+type ServiceJobRetryStrategy struct {
+	EvaluateOnExit []ServiceJobEvaluateOnExit `json:"evaluateOnExit,omitempty"`
+	Attempts       int32                      `json:"attempts,omitempty"`
+}
+
+// ServiceJobTimeout configures the maximum duration for a service job attempt.
+type ServiceJobTimeout struct {
+	AttemptDurationSeconds int32 `json:"attemptDurationSeconds,omitempty"`
+}
+
+// ServiceJob represents a Batch service job. Service jobs are submitted
+// directly to a job queue (of type SAGEMAKER_TRAINING), not to a
+// "ServiceEnvironment" reference on the job itself -- the service environment
+// association lives on the JobQueue's ServiceEnvironmentOrder instead (see
+// aws-sdk-go-v2/service/batch's SubmitServiceJobInput, which has no
+// ServiceEnvironment field at all).
 type ServiceJob struct {
-	Tags      map[string]string `json:"tags"`
-	StartedAt *int64            `json:"startedAt,omitempty"`
-	StoppedAt *int64            `json:"stoppedAt,omitempty"`
+	Tags          map[string]string        `json:"tags"`
+	RetryStrategy *ServiceJobRetryStrategy `json:"retryStrategy,omitempty"`
+	TimeoutConfig *ServiceJobTimeout       `json:"timeoutConfig,omitempty"`
+	StartedAt     *int64                   `json:"startedAt,omitempty"`
+	StoppedAt     *int64                   `json:"stoppedAt,omitempty"`
+	ScheduledAt   *int64                   `json:"scheduledAt,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey); see
 	// ComputeEnvironment.region for why it is unexported.
-	region             string
-	ServiceJobID       string `json:"serviceJobId"`
-	ServiceJobArn      string `json:"serviceJobArn"`
-	ServiceJobName     string `json:"serviceJobName"`
-	ServiceEnvironment string `json:"serviceEnvironment"`
-	Status             string `json:"status"`
-	StatusReason       string `json:"statusReason,omitempty"`
-	CreatedAt          int64  `json:"createdAt"`
+	region                string
+	JobID                 string `json:"jobId"`
+	JobArn                string `json:"jobArn"`
+	JobName               string `json:"jobName"`
+	JobQueue              string `json:"jobQueue"`
+	ServiceJobType        string `json:"serviceJobType"`
+	Status                string `json:"status"`
+	StatusReason          string `json:"statusReason,omitempty"`
+	ServiceRequestPayload string `json:"serviceRequestPayload,omitempty"`
+	ShareIdentifier       string `json:"shareIdentifier,omitempty"`
+	CreatedAt             int64  `json:"createdAt"`
+	SchedulingPriority    int32  `json:"schedulingPriority,omitempty"`
+	IsTerminated          bool   `json:"isTerminated"`
 }
 
 // JobQueueSnapshot represents the front-of-queue state for a job queue.
@@ -543,14 +650,21 @@ type JobQueueSnapshot struct {
 	FrontOfQueue *FrontOfQueue `json:"frontOfQueue,omitempty"`
 }
 
-// FrontOfQueue holds jobs at the front of a job queue.
+// FrontOfQueue holds jobs at the front of a job queue. Field names and types
+// mirror aws-sdk-go-v2/service/batch/types.FrontOfQueueDetail exactly:
+// LastUpdatedAt (not "timestamp") as an epoch-millisecond int64 (not a
+// seconds-based float64) -- a real SDK client parsing the previous shape
+// would have silently dropped both fields.
 type FrontOfQueue struct {
-	Jobs      []FrontOfQueueJob `json:"jobs,omitempty"`
-	Timestamp float64           `json:"timestamp"`
+	Jobs          []FrontOfQueueJob `json:"jobs,omitempty"`
+	LastUpdatedAt int64             `json:"lastUpdatedAt,omitempty"`
 }
 
 // FrontOfQueueJob represents a single job at the front of a queue.
+// EarliestTimeAtPosition is an epoch-millisecond int64, matching
+// aws-sdk-go-v2/service/batch/types.FrontOfQueueJobSummary (not a
+// seconds-based float64).
 type FrontOfQueueJob struct {
-	JobArn                 string  `json:"jobArn"`
-	EarliestTimeAtPosition float64 `json:"earliestTimeAtPosition"`
+	JobArn                 string `json:"jobArn"`
+	EarliestTimeAtPosition int64  `json:"earliestTimeAtPosition,omitempty"`
 }

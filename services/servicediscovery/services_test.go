@@ -208,14 +208,18 @@ func TestBackend_ListServices_FilterByNamespace(t *testing.T) {
 	all := b.ListServices(servicediscovery.ListServicesFilter{})
 	assert.Len(t, all, 2)
 
-	filtered := b.ListServices(servicediscovery.ListServicesFilter{NamespaceID: nsID})
+	filtered := b.ListServices(servicediscovery.ListServicesFilter{
+		NamespaceID: servicediscovery.FilterValue{Values: []string{nsID}},
+	})
 	assert.Len(t, filtered, 1)
 	assert.Equal(t, "svc-in-ns", filtered[0].Name)
 }
 
-// TestHandler_ServiceTagsInGetResponse verifies that Tags and CreateDate
-// are included in GetService and CreateService responses.
-func TestHandler_ServiceTagsInGetResponse(t *testing.T) {
+// TestHandler_ServiceTagsViaListTagsForResource verifies that CreateDate is
+// included in GetService/CreateService responses, that neither ever returns a
+// Tags field (matching real Cloud Map's types.Service shape), and that tags
+// set at creation are retrievable via ListTagsForResource.
+func TestHandler_ServiceTagsViaListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -232,10 +236,11 @@ func TestHandler_ServiceTagsInGetResponse(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 
 	svc := createResp["Service"].(map[string]any)
-	assert.NotNil(t, svc["Tags"], "Tags must be in CreateService response")
+	assert.NotContains(t, svc, "Tags", "real CreateService never returns a Tags field")
 	assert.NotZero(t, svc["CreateDate"], "CreateDate must be in CreateService response")
 
 	svcID := svc["Id"].(string)
+	svcARN := svc["Arn"].(string)
 	getRec := doSDRequest(t, h, "GetService", map[string]any{"Id": svcID})
 	require.Equal(t, 200, getRec.Code)
 
@@ -243,7 +248,15 @@ func TestHandler_ServiceTagsInGetResponse(t *testing.T) {
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
 
 	svcGet := getResp["Service"].(map[string]any)
-	tags := svcGet["Tags"].([]any)
+	assert.NotContains(t, svcGet, "Tags", "real GetService never returns a Tags field")
+
+	tagsRec := doSDRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": svcARN})
+	require.Equal(t, 200, tagsRec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+
+	tags := tagsResp["Tags"].([]any)
 	assert.Len(t, tags, 1)
 	assert.Equal(t, "version", tags[0].(map[string]any)["Key"])
 }
@@ -280,6 +293,149 @@ func TestHandler_ListServicesNamespaceFilter(t *testing.T) {
 	var respFiltered map[string]any
 	require.NoError(t, json.Unmarshal(recFiltered.Body.Bytes(), &respFiltered))
 	assert.Len(t, respFiltered["Services"].([]any), 2)
+}
+
+// TestHandler_CreateService_DuplicateName verifies CreateService's documented
+// name-collision rule: within a DNS namespace, names that differ only by case
+// collide (ServiceAlreadyExists); within an HTTP namespace, they don't
+// (api_op_CreateService.go doc comment). Services in different namespaces (or
+// with no namespace at all) never collide.
+func TestHandler_CreateService_DuplicateName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		createNs      string // "http" = HTTP, "private" = DNS_PRIVATE
+		firstName     string
+		secondName    string
+		wantSecondErr bool
+	}{
+		{
+			name:          "http_namespace_exact_duplicate_collides",
+			createNs:      "http",
+			firstName:     "svc-x",
+			secondName:    "svc-x",
+			wantSecondErr: true,
+		},
+		{
+			name:          "http_namespace_case_variant_allowed",
+			createNs:      "http",
+			firstName:     "svc-x",
+			secondName:    "SVC-X",
+			wantSecondErr: false,
+		},
+		{
+			name:          "dns_namespace_exact_duplicate_collides",
+			createNs:      "private",
+			firstName:     "svc-y",
+			secondName:    "svc-y",
+			wantSecondErr: true,
+		},
+		{
+			name:          "dns_namespace_case_variant_collides",
+			createNs:      "private",
+			firstName:     "svc-y",
+			secondName:    "SVC-Y",
+			wantSecondErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var nsID string
+			if tt.createNs == "private" {
+				nsID = createPrivateDNSNamespaceHelper(t, h, "ns-dup-"+tt.name)
+			} else {
+				nsID = createNamespaceHelper(t, h, "ns-dup-"+tt.name)
+			}
+
+			rec1 := doSDRequest(t, h, "CreateService", map[string]any{"Name": tt.firstName, "NamespaceId": nsID})
+			require.Equal(t, http.StatusOK, rec1.Code, "first create should succeed: %s", rec1.Body.String())
+
+			rec2 := doSDRequest(t, h, "CreateService", map[string]any{"Name": tt.secondName, "NamespaceId": nsID})
+			if tt.wantSecondErr {
+				assert.Equal(t, http.StatusBadRequest, rec2.Code)
+				assert.Contains(t, rec2.Body.String(), "ServiceAlreadyExists")
+			} else {
+				assert.Equal(t, http.StatusOK, rec2.Code, "second create should succeed: %s", rec2.Body.String())
+			}
+		})
+	}
+}
+
+// TestHandler_CreateService_NoNamespaceNeverCollides verifies that services
+// with no NamespaceId are never subject to the name-collision check (there is
+// no namespace to scope uniqueness to).
+func TestHandler_CreateService_NoNamespaceNeverCollides(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec1 := doSDRequest(t, h, "CreateService", map[string]any{"Name": "no-ns-svc"})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := doSDRequest(t, h, "CreateService", map[string]any{"Name": "no-ns-svc"})
+	assert.Equal(t, http.StatusOK, rec2.Code, "services with no namespace never collide")
+}
+
+// TestHandler_ListServicesResourceOwnerFilter verifies the RESOURCE_OWNER
+// filter: this backend is single-account, so every service is always "SELF"
+// -- SELF (or no filter) matches everything, OTHER_ACCOUNTS matches nothing.
+func TestHandler_ListServicesResourceOwnerFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-owner-test"})
+
+	tests := []struct {
+		name    string
+		values  []string
+		wantLen int
+	}{
+		{name: "self_matches_all", values: []string{"SELF"}, wantLen: 1},
+		{name: "other_accounts_matches_none", values: []string{"OTHER_ACCOUNTS"}, wantLen: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSDRequest(t, h, "ListServices", map[string]any{
+				"Filters": []map[string]any{
+					{"Name": "RESOURCE_OWNER", "Values": tt.values},
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out["Services"].([]any), tt.wantLen)
+		})
+	}
+}
+
+// createPrivateDNSNamespaceHelper creates a private DNS namespace and returns its ID.
+func createPrivateDNSNamespaceHelper(t *testing.T, h *servicediscovery.Handler, name string) string {
+	t.Helper()
+
+	nsRec := doSDRequest(t, h, "CreatePrivateDnsNamespace", map[string]any{"Name": name, "Vpc": "vpc-1"})
+	require.Equal(t, http.StatusOK, nsRec.Code)
+
+	var nsResp map[string]any
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+
+	opID := nsResp["OperationId"].(string)
+	opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
+
+	var opResp map[string]any
+	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+
+	return opResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 }
 
 // TestCascadeDeleteUsesCorrectPrefix verifies two things: (1) real

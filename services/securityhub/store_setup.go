@@ -30,6 +30,8 @@ package securityhub
 // values):
 //   - tags: map[string]map[string]string (resourceArn -> tagKey -> tagValue)
 //   - findings: map[string]map[string]any (ASFF finding documents)
+//   - findingHistory: map[string][]map[string]any (finding key -> ordered
+//     FindingHistoryRecord-shaped change log, see recordFindingHistory)
 //   - controlParams: map[string]map[string]any (securityControlID -> params)
 //   - productSubscriptions: map[string]string (subscriptionArn -> productArn)
 //   - orgAdminAccounts: map[string]string (accountID -> status)

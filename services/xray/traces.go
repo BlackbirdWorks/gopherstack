@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // GetTraceSummaries returns all trace summaries sorted by start time (newest first).
@@ -146,7 +145,6 @@ func accumulateServiceID(summary *TraceSummaryData, seg *Segment, seen map[servi
 func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 	summary := TraceSummaryData{
 		TraceID:     traceID,
-		ApproxTime:  float64(time.Now().Unix()),
 		Annotations: map[string]any{},
 	}
 
@@ -180,7 +178,11 @@ func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 		// Root segment has no parent.
 		if seg.ParentID == "" {
 			hasRoot = true
-			summary.EntryPoint = seg.Name
+			entryType := seg.Origin
+			if entryType == "" {
+				entryType = seg.Namespace
+			}
+			summary.EntryPoint = &TraceSummaryServiceID{Name: seg.Name, Type: entryType}
 			summary.HTTP = extractRootHTTP(seg.HTTP, summary.HTTP)
 		}
 	}

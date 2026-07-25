@@ -27,6 +27,17 @@ func (b *InMemoryBackend) parameterGroupsInRegion(region string) []*DBParameterG
 	return b.parameterGroupsByRegion.Get(region)
 }
 
+// parameterOverridesFor returns (creating if necessary) the parameter
+// override map for a DB parameter group. Callers must hold the write lock.
+func (b *InMemoryBackend) parameterOverridesFor(region, name string) map[string]ParameterValue {
+	key := regionKey(region, name)
+	if b.parameterOverrides[key] == nil {
+		b.parameterOverrides[key] = make(map[string]ParameterValue)
+	}
+
+	return b.parameterOverrides[key]
+}
+
 // parameterGroupARN returns the region-scoped ARN for a Neptune DB parameter group.
 func (b *InMemoryBackend) parameterGroupARN(region, name string) string {
 	return arn.Build("rds", region, b.accountID, "pg:"+name)
@@ -109,6 +120,7 @@ func (b *InMemoryBackend) DeleteDBParameterGroup(ctx context.Context, name strin
 		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
 	b.parameterGroupDelete(region, name)
+	delete(b.parameterOverrides, regionKey(region, name))
 
 	return nil
 }
@@ -146,10 +158,14 @@ func (b *InMemoryBackend) DescribeDBParameterGroups(
 	return result, nil
 }
 
-// ModifyDBParameterGroup modifies a Neptune DB parameter group.
+// ModifyDBParameterGroup applies parameter value overrides to a Neptune DB
+// parameter group -- see parameter_catalog.go for the validation/storage
+// this now performs (previously a disguised no-op: params were accepted and
+// discarded).
 func (b *InMemoryBackend) ModifyDBParameterGroup(
 	ctx context.Context,
 	name string,
+	params []ParameterInput,
 ) (*DBParameterGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBParameterGroup")
@@ -158,15 +174,22 @@ func (b *InMemoryBackend) ModifyDBParameterGroup(
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
+	if err := applyParameterInputs(b.parameterOverridesFor(region, name), params); err != nil {
+		return nil, err
+	}
 	cp := *pg
 
 	return &cp, nil
 }
 
-// ResetDBParameterGroup resets a Neptune DB parameter group to its default values.
+// ResetDBParameterGroup resets a Neptune DB parameter group's parameters to
+// their engine-default values -- either all of them (resetAll) or only the
+// named subset.
 func (b *InMemoryBackend) ResetDBParameterGroup(
 	ctx context.Context,
 	name string,
+	resetAll bool,
+	params []ParameterInput,
 ) (*DBParameterGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ResetDBParameterGroup")
@@ -175,9 +198,25 @@ func (b *InMemoryBackend) ResetDBParameterGroup(
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
+	if err := resetParameterInputs(b.parameterOverridesFor(region, name), resetAll, params); err != nil {
+		return nil, err
+	}
 	cp := *pg
 
 	return &cp, nil
+}
+
+// DescribeDBParameters returns the merged engine-default/user-override
+// parameter list for a Neptune DB parameter group.
+func (b *InMemoryBackend) DescribeDBParameters(ctx context.Context, name string) ([]EngineParameter, error) {
+	region := getRegion(ctx, b.region)
+	b.mu.RLock("DescribeDBParameters")
+	defer b.mu.RUnlock()
+	if !b.parameterGroupHas(region, name) {
+		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
+	}
+
+	return describeParameters(b.parameterOverrides[regionKey(region, name)]), nil
 }
 
 // AddParameterGroupInternal creates a DB parameter group directly. Used for seeding tests.

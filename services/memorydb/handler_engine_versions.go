@@ -28,7 +28,6 @@ func (h *Handler) handleDescribeEngineVersions(ctx context.Context, c *echo.Cont
 			EngineVersion:        ev.EngineVersion,
 			EnginePatchVersion:   ev.EnginePatchVersion,
 			ParameterGroupFamily: ev.ParameterGroupFamily,
-			Description:          ev.Description,
 		})
 	}
 

@@ -132,7 +132,41 @@ func (b *InMemoryBackend) UpdateConfiguration(ec2ScanMode, ecrRescanDuration str
 	return nil
 }
 
-// ListAccountPermissions returns account-level Inspector2 permissions (stub).
-func (b *InMemoryBackend) ListAccountPermissions(_ string) ([]*AccountPermission, error) {
-	return []*AccountPermission{}, nil
+// accountPermissionOperations lists every real Operation enum value.
+func accountPermissionOperations() []string {
+	return []string{
+		"ENABLE_SCANNING",
+		"DISABLE_SCANNING",
+		"ENABLE_REPOSITORY",
+		"DISABLE_REPOSITORY",
+	}
+}
+
+// accountPermissionServices lists every real Service enum value.
+func accountPermissionServices() []string {
+	return []string{resourceTypeEC2, resourceTypeECR, resourceTypeLambda}
+}
+
+// ListAccountPermissions returns the account's Inspector2 configuration
+// permissions. gopherstack's mock account has no IAM engine to evaluate
+// against, so -- rather than the prior hardwired-empty stub, which silently
+// dropped every request -- it reports the full real Operation x Service
+// permission matrix (the account can perform every configuration
+// operation), narrowed by the optional service filter, matching real
+// AccountPermission wire shape (operation/service).
+func (b *InMemoryBackend) ListAccountPermissions(service string) ([]*AccountPermission, error) {
+	services := accountPermissionServices()
+	if service != "" {
+		services = []string{service}
+	}
+
+	perms := make([]*AccountPermission, 0, len(services)*len(accountPermissionOperations()))
+
+	for _, svc := range services {
+		for _, op := range accountPermissionOperations() {
+			perms = append(perms, &AccountPermission{Operation: op, Service: svc})
+		}
+	}
+
+	return perms, nil
 }

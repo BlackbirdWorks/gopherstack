@@ -52,3 +52,19 @@ func TestLDAPS(t *testing.T) {
 		})
 	}
 }
+
+func TestEnableLDAPS_InvalidType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+
+	rec := doRequest(t, h, "EnableLDAPS", map[string]any{
+		"DirectoryId": dirID,
+		"Type":        "Server",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "InvalidParameterException", body["__type"])
+}

@@ -55,11 +55,11 @@ func TestRegisterDeregisterDescribeResource(t *testing.T) {
 				return
 			}
 
-			err := b.RegisterResource(tt.resourceArn, tt.roleArn)
+			err := b.RegisterResource(tt.resourceArn, tt.roleArn, lakeformation.RegisterResourceOptions{})
 			require.NoError(t, err)
 
 			if tt.wantErr {
-				err = b.RegisterResource(tt.resourceArn, tt.roleArn)
+				err = b.RegisterResource(tt.resourceArn, tt.roleArn, lakeformation.RegisterResourceOptions{})
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "already")
 
@@ -132,7 +132,14 @@ func TestListResources(t *testing.T) {
 			b := lakeformation.NewInMemoryBackend()
 
 			for _, arn := range tt.arns {
-				require.NoError(t, b.RegisterResource(arn, "arn:aws:iam::123456789012:role/R"))
+				require.NoError(
+					t,
+					b.RegisterResource(
+						arn,
+						"arn:aws:iam::123456789012:role/R",
+						lakeformation.RegisterResourceOptions{},
+					),
+				)
 			}
 
 			resources, nextToken := b.ListResources(tt.maxResults, "")

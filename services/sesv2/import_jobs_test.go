@@ -55,11 +55,12 @@ func TestGetImportJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestListImportJobs tests the ListImportJobs operation.
+// TestListImportJobs tests the ListImportJobs operation, served as
+// POST /v2/email/import-jobs/list (filter/pagination in the JSON body).
 func TestListImportJobs(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodGet, "/v2/email/import-jobs", nil)
+	rec := doRequest(t, h, http.MethodPost, "/v2/email/import-jobs/list", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }

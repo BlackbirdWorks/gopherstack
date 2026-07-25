@@ -276,6 +276,32 @@ func TestHandler_DescribeConfigurationSettings(t *testing.T) {
 	}
 }
 
+// TestHandler_DescribeConfigurationSettings_EnvironmentIncludesFullFields locks
+// that an environment's ConfigurationSettingsDescription includes
+// DateCreated, DateUpdated, DeploymentStatus and PlatformArn -- fields
+// present on the real AWS wire type but previously omitted entirely.
+func TestHandler_DescribeConfigurationSettings_EnvironmentIncludesFullFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment"+
+		"&ApplicationName=full-app&EnvironmentName=full-env"+
+		"&PlatformArn=arn:aws:elasticbeanstalk:us-east-1::platform/MyPlatform/1.0.0")
+
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=DescribeConfigurationSettings"+
+		"&ApplicationName=full-app&EnvironmentName=full-env")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+
+	assert.Contains(t, body, "<DateCreated>")
+	assert.Contains(t, body, "<DateUpdated>")
+	// This backend applies environment updates synchronously, so a live
+	// environment's configuration set is always "deployed" -- see PARITY.md.
+	assert.Contains(t, body, "<DeploymentStatus>deployed</DeploymentStatus>")
+	assert.Contains(t, body, "<PlatformArn>arn:aws:elasticbeanstalk:us-east-1::platform/MyPlatform/1.0.0</PlatformArn>")
+}
+
 // TestHandler_DescribeConfigurationSettings_ByTemplateName verifies TemplateName-based lookup.
 func TestHandler_DescribeConfigurationSettings_ByTemplateName(t *testing.T) {
 	t.Parallel()
@@ -380,4 +406,94 @@ func TestHandler_PersistenceRoundTrip_ConfigTemplateAndPlatformVersion(t *testin
 		"Version=2010-12-01&Action=DeleteConfigurationTemplate&ApplicationName=my-app&TemplateName=my-tmpl",
 	)
 	assert.Equal(t, http.StatusOK, rec3.Code)
+}
+
+// TestHandler_CreateConfigurationTemplate_OptionSettingsAndPlatformArn locks
+// that OptionSettings and PlatformArn -- both real CreateConfigurationTemplate
+// request parameters -- are actually stored, not silently dropped, and are
+// readable back through both the create response and
+// DescribeConfigurationSettings.
+func TestHandler_CreateConfigurationTemplate_OptionSettingsAndPlatformArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	body := "Version=2010-12-01&Action=CreateConfigurationTemplate" +
+		"&ApplicationName=opt-app&TemplateName=opt-tmpl" +
+		"&PlatformArn=arn:aws:elasticbeanstalk:us-east-1::platform/MyPlatform/1.0.0" +
+		"&OptionSettings.member.1.Namespace=aws:autoscaling:asg" +
+		"&OptionSettings.member.1.OptionName=MinSize" +
+		"&OptionSettings.member.1.Value=2"
+
+	rec := postEBForm(t, h, body)
+	require.Equal(t, http.StatusOK, rec.Code)
+	createBody := rec.Body.String()
+	assert.Contains(t, createBody, "CreateConfigurationTemplateResponse")
+	assert.Contains(t, createBody,
+		"<PlatformArn>arn:aws:elasticbeanstalk:us-east-1::platform/MyPlatform/1.0.0</PlatformArn>")
+	assert.Contains(t, createBody, "<Namespace>aws:autoscaling:asg</Namespace>")
+	assert.Contains(t, createBody, "<OptionName>MinSize</OptionName>")
+	assert.Contains(t, createBody, "<Value>2</Value>")
+	assert.Contains(t, createBody, "<DateCreated>")
+	assert.Contains(t, createBody, "<DateUpdated>")
+
+	descRec := postEBForm(t, h,
+		"Version=2010-12-01&Action=DescribeConfigurationSettings&ApplicationName=opt-app&TemplateName=opt-tmpl")
+	require.Equal(t, http.StatusOK, descRec.Code)
+	descBody := descRec.Body.String()
+	assert.Contains(t, descBody, "<Namespace>aws:autoscaling:asg</Namespace>")
+	assert.Contains(t, descBody, "<OptionName>MinSize</OptionName>")
+	assert.Contains(t, descBody,
+		"<PlatformArn>arn:aws:elasticbeanstalk:us-east-1::platform/MyPlatform/1.0.0</PlatformArn>")
+	// A template is never associated with a running environment.
+	assert.NotContains(t, descBody, "<DeploymentStatus>")
+}
+
+// TestHandler_CreateConfigurationTemplate_SolutionStackAndPlatformArnMutuallyExclusive
+// locks real AWS's documented constraint: "If you specify PlatformArn, then
+// don't specify SolutionStackName".
+func TestHandler_CreateConfigurationTemplate_SolutionStackAndPlatformArnMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=CreateConfigurationTemplate"+
+		"&ApplicationName=excl-app&TemplateName=excl-tmpl"+
+		"&SolutionStackName=64bit+Amazon+Linux"+
+		"&PlatformArn=arn:aws:elasticbeanstalk:us-east-1::platform/MyPlatform/1.0.0")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+// TestHandler_UpdateConfigurationTemplate_OptionSettingsAndRemoval locks that
+// UpdateConfigurationTemplate's OptionSettings/OptionsToRemove parameters --
+// previously accepted on the wire but silently dropped -- actually mutate
+// the template's stored option settings.
+func TestHandler_UpdateConfigurationTemplate_OptionSettingsAndRemoval(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateConfigurationTemplate"+
+		"&ApplicationName=upd-app&TemplateName=upd-tmpl"+
+		"&OptionSettings.member.1.Namespace=aws:autoscaling:asg"+
+		"&OptionSettings.member.1.OptionName=MinSize"+
+		"&OptionSettings.member.1.Value=1"+
+		"&OptionSettings.member.2.Namespace=aws:autoscaling:asg"+
+		"&OptionSettings.member.2.OptionName=MaxSize"+
+		"&OptionSettings.member.2.Value=4")
+
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=UpdateConfigurationTemplate"+
+		"&ApplicationName=upd-app&TemplateName=upd-tmpl"+
+		"&OptionSettings.member.1.Namespace=aws:autoscaling:asg"+
+		"&OptionSettings.member.1.OptionName=MinSize"+
+		"&OptionSettings.member.1.Value=2"+
+		"&OptionsToRemove.member.1.Namespace=aws:autoscaling:asg"+
+		"&OptionsToRemove.member.1.OptionName=MaxSize")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	// MinSize updated to 2.
+	assert.Contains(t, body, "<OptionName>MinSize</OptionName><Value>2</Value>")
+	// MaxSize removed.
+	assert.NotContains(t, body, "MaxSize")
 }

@@ -6,9 +6,27 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateLayer creates a new layer in a stack.
+// isValidLayerType reports whether layerType is one of the exact LayerType
+// enum values from aws-sdk-go-v2/service/opsworks/types.LayerType.Values()
+// -- CreateLayer's Type member on the real API is restricted to this set,
+// not a free string.
+func isValidLayerType(layerType string) bool {
+	switch layerType {
+	case "aws-flow-ruby", "ecs-cluster", "java-app", "lb", "web", "php-app",
+		"rails-app", "nodejs-app", "memcached", "db-master", "monitoring-master", "custom":
+		return true
+	default:
+		return false
+	}
+}
+
+// CreateLayer creates a new layer in a stack. Name, Shortname, StackId, and
+// Type are all "This member is required" on the real CreateLayerInput
+// (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_CreateLayer.go), and Type is restricted to the LayerType enum, not
+// a free string.
 func (b *InMemoryBackend) CreateLayer(stackID, layerType, name, shortname string) (*Layer, error) {
-	if name == "" {
+	if name == "" || shortname == "" || stackID == "" || !isValidLayerType(layerType) {
 		return nil, ErrValidation
 	}
 

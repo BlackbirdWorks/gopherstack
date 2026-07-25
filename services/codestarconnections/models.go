@@ -78,15 +78,25 @@ type Host struct {
 }
 
 // RepositoryLink represents an in-memory AWS CodeStar Connections repository link.
+//
+// Tags: unlike SyncConfiguration, CreateRepositoryLinkInput has a real
+// `Tags []types.Tag` member (confirmed against aws-sdk-go-v2's generated
+// api_op_CreateRepositoryLink.go), so repository links are taggable via
+// TagResource/UntagResource/ListTagsForResource just like connections and
+// hosts. Note RepositoryLinkInfo (the Get/List/Create/Update response shape)
+// has no Tags member of its own -- tags are never echoed back in-line the
+// way CreateConnectionOutput/CreateHostOutput do; they are only visible via
+// ListTagsForResource.
 type RepositoryLink struct {
-	CreatedAt         time.Time `json:"createdAt"`
-	ConnectionArn     string    `json:"connectionArn"`
-	OwnerID           string    `json:"ownerID"`
-	RepositoryName    string    `json:"repositoryName"`
-	RepositoryLinkID  string    `json:"repositoryLinkID"`
-	RepositoryLinkArn string    `json:"repositoryLinkArn"`
-	ProviderType      string    `json:"providerType"`
-	EncryptionKeyArn  string    `json:"encryptionKeyArn,omitempty"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	Tags              map[string]string `json:"tags,omitempty"`
+	ConnectionArn     string            `json:"connectionArn"`
+	OwnerID           string            `json:"ownerID"`
+	RepositoryName    string            `json:"repositoryName"`
+	RepositoryLinkID  string            `json:"repositoryLinkID"`
+	RepositoryLinkArn string            `json:"repositoryLinkArn"`
+	ProviderType      string            `json:"providerType"`
+	EncryptionKeyArn  string            `json:"encryptionKeyArn,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey and
 	// store_setup.go); it is unexported so a plain json.Marshal(RepositoryLink)
 	// never sees it and is instead carried through persistence via a

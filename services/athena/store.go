@@ -185,6 +185,10 @@ func (b *InMemoryBackend) dataCatalogARN(name string) string {
 	return arn.Build("athena", b.region, b.accountID, fmt.Sprintf("datacatalog/%s", name))
 }
 
+func (b *InMemoryBackend) capacityReservationARN(name string) string {
+	return arn.Build("athena", b.region, b.accountID, fmt.Sprintf("capacity-reservation/%s", name))
+}
+
 // copyTags returns a shallow copy of the given tag map.
 func copyTags(tags map[string]string) map[string]string {
 	cp := make(map[string]string, len(tags))

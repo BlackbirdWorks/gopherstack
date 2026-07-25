@@ -68,6 +68,12 @@ const (
 	performanceModeMaxIO      = "maxIO"
 )
 
+const (
+	ipAddressTypeIPv4Only  = "IPV4_ONLY"
+	ipAddressTypeIPv6Only  = "IPV6_ONLY"
+	ipAddressTypeDualStack = "DUAL_STACK"
+)
+
 // InMemoryBackend is the in-memory store for EFS resources.
 //
 // The four resource collections below (fileSystems, mountTargets,
@@ -281,8 +287,21 @@ func describeByIDOrFilter[T any](
 }
 
 // paginate applies cursor-based pagination to a sorted slice.
-// Items after marker are returned up to maxItems. nextToken is non-empty when more items remain.
-// Marker lookup uses binary search (O(log n)) since the slice is already sorted by keyFn.
+// The marker returned as nextToken is the key of the first item NOT included in the
+// current page (see "next := keyFn(items[maxItems])" below); resuming with that marker
+// must therefore start AT (inclusive of) the matched index, not after it. Items from
+// marker onward are returned up to maxItems. nextToken is non-empty when more items
+// remain. Marker lookup uses binary search (O(log n)) since the slice is already
+// sorted by keyFn.
+//
+// Bug history: an earlier version resumed at items[idx+1:] (skip the matched item),
+// which silently dropped exactly one item -- the one at the page boundary -- every
+// time a caller paginated across more than one page. A client listing N resources
+// page by page would observe strictly fewer than N in total. Caught by a
+// DescribeReplicationConfigurations pagination regression test that checked the
+// *union* of all pages against the total created, something the pre-existing
+// FileSystems/MountTargets/AccessPoints pagination tests never did (they only
+// checked each page's length and NextMarker presence in isolation).
 func paginate[T any](
 	items []T,
 	marker string,
@@ -295,7 +314,7 @@ func paginate[T any](
 		if idx >= len(items) || keyFn(items[idx]) != marker {
 			return nil, "", fmt.Errorf("%w: invalid pagination marker", ErrValidation)
 		}
-		items = items[idx+1:]
+		items = items[idx:]
 	}
 
 	if maxItems <= 0 || maxItems >= len(items) {

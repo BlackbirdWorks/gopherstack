@@ -134,6 +134,27 @@ func TestCrl_EnableDisable(t *testing.T) {
 	}
 }
 
+// TestDeleteCrl_CascadesTags proves that deleting a CRL removes its tags too
+// (they live in a separate ARN-keyed map, not on the Crl struct itself), so
+// no ghost row survives the CRL it belonged to.
+func TestDeleteCrl_CascadesTags(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	crl, err := b.ImportCrl(context.Background(), "cascade-crl", []byte("data"), "arn:ta", true, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.TagResource(context.Background(), crl.CrlArn,
+		[]rolesanywhere.TagEntry{{Key: "env", Value: "prod"}}))
+
+	_, err = b.DeleteCrl(context.Background(), crl.CrlID)
+	require.NoError(t, err)
+
+	tags, err := b.ListTagsForResource(context.Background(), crl.CrlArn)
+	require.Error(t, err, "ListTagsForResource must report ResourceNotFoundException for the deleted CRL's ARN")
+	assert.Empty(t, tags)
+}
+
 func TestCrl_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -179,15 +200,55 @@ func TestCrl_NotFound(t *testing.T) {
 	}
 }
 
-func TestCrl_DuplicateNameRejected(t *testing.T) {
+// TestCrl_DuplicateNameAllowed proves importing two CRLs with the same name
+// succeeds -- real AWS Roles Anywhere has no uniqueness constraint on CRL
+// names (ImportCrl only models ValidationException/AccessDeniedException;
+// there is no ConflictException shape anywhere in the service), so the two
+// resources are distinguished only by their generated IDs/ARNs.
+func TestCrl_DuplicateNameAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.ImportCrl(context.Background(), "dup-crl", nil, "arn:ta", true, nil)
+	first, err := b.ImportCrl(context.Background(), "dup-crl", []byte("data"), "arn:ta", true, nil)
 	require.NoError(t, err)
 
-	_, err = b.ImportCrl(context.Background(), "dup-crl", nil, "arn:ta", true, nil)
-	require.Error(t, err)
+	second, err := b.ImportCrl(context.Background(), "dup-crl", []byte("data"), "arn:ta", true, nil)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, first.CrlID, second.CrlID)
+}
+
+// TestImportCrl_RequiredFields proves that ImportCrl rejects a missing
+// crlData or trustAnchorArn with ValidationException -- real AWS's
+// ImportCrlInput requires both (confirmed against validateOpImportCrlInput
+// in the SDK).
+func TestImportCrl_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		trustAnchorArn string
+		name           string
+		crlData        []byte
+		wantErr        bool
+	}{
+		{name: "missing crlData rejected", crlData: nil, trustAnchorArn: "arn:ta", wantErr: true},
+		{name: "missing trustAnchorArn rejected", crlData: []byte("data"), trustAnchorArn: "", wantErr: true},
+		{name: "both present succeeds", crlData: []byte("data"), trustAnchorArn: "arn:ta", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			_, err := b.ImportCrl(context.Background(), "req-fields-crl", tt.crlData, tt.trustAnchorArn, true, nil)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestImportCrl_EmptyName(t *testing.T) {
@@ -270,7 +331,7 @@ func TestAttributeMapping_PutGetDelete(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			p, _ := b.CreateProfile(context.Background(), "mapping-profile", nil, nil, nil, nil, "", false)
+			p, _ := b.CreateProfile(context.Background(), "mapping-profile", nil, nil, nil, nil, "", false, nil, nil)
 
 			_, err := b.PutAttributeMapping(context.Background(), p.ProfileID, tc.certificateField, tc.rules)
 			require.NoError(t, err)
@@ -304,7 +365,7 @@ func TestAttributeMapping_ReplacesExistingField(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	p, _ := b.CreateProfile(context.Background(), "replace-profile", nil, nil, nil, nil, "", false)
+	p, _ := b.CreateProfile(context.Background(), "replace-profile", nil, nil, nil, nil, "", false, nil, nil)
 
 	_, err := b.PutAttributeMapping(
 		context.Background(),
@@ -374,7 +435,7 @@ func TestNotificationSettings_PutResetCycle(t *testing.T) {
 
 			b := newBackend(t)
 			src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-			ta, err := b.CreateTrustAnchor(context.Background(), "notif-anchor", src, nil, nil)
+			ta, err := b.CreateTrustAnchor(context.Background(), "notif-anchor", src, nil, nil, nil)
 			require.NoError(t, err)
 
 			_, err = b.PutNotificationSettings(context.Background(), ta.TrustAnchorID, tc.settings)
@@ -413,7 +474,7 @@ func TestNotificationSettings_UpdateExisting(t *testing.T) {
 
 	b := newBackend(t)
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-	ta, _ := b.CreateTrustAnchor(context.Background(), "update-notif-anchor", src, nil, nil)
+	ta, _ := b.CreateTrustAnchor(context.Background(), "update-notif-anchor", src, nil, nil, nil)
 
 	_, err := b.PutNotificationSettings(context.Background(), ta.TrustAnchorID, []rolesanywhere.NotificationSetting{
 		{Event: "CA_CERTIFICATE_EXPIRY", Enabled: true},

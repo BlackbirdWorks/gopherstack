@@ -32,16 +32,25 @@ const workspacesSnapshotVersion = 1
 //
 // Tags is the one plain (non-store.Table) map that was already persisted
 // pre-Phase-3.3 (the original backendSnapshot carried Workspaces+Tags) and
-// remains so. directoryIpGroups, imagePermissions, clientProperties, and
-// appAssociations were NOT part of the pre-Phase-3.3 snapshot and are left
-// out here too -- ephemeral, matching prior behavior (see the field comments
-// on InMemoryBackend in backend.go). Version guards against decoding a
-// snapshot from an incompatible (older or newer) build of this backend as
-// though it were the current shape; see Restore.
+// remains so. DirectoryIpGroups, AccountConfig, and AccountModifications were
+// added when the AssociateIpGroups/DisassociateIpGroups and
+// DescribeAccountModifications persistence gaps were fixed (all were
+// ephemeral pre-fix, see PARITY.md gaps/deferred history) -- bumping
+// workspacesSnapshotVersion isn't required for these additions since an older
+// snapshot simply decodes with empty/nil/zero-value fields, matching the
+// prior (always-reset-after-restart) behavior exactly; no field changed
+// meaning or shape. imagePermissions, clientProperties, and appAssociations
+// remain NOT part of the snapshot -- still ephemeral, matching prior behavior
+// (see the field comments on InMemoryBackend in backend.go). Version guards
+// against decoding a snapshot from an incompatible (older or newer) build of
+// this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage   `json:"tables"`
-	Tags    map[string]map[string]string `json:"tags"`
-	Version int                          `json:"version"`
+	Tables               map[string]json.RawMessage     `json:"tables"`
+	Tags                 map[string]map[string]string   `json:"tags"`
+	DirectoryIpGroups    map[string]map[string]struct{} `json:"directoryIpGroups"` //nolint:revive,staticcheck // existing.
+	AccountConfig        storedAccountConfig            `json:"accountConfig"`
+	AccountModifications []AccountModification          `json:"accountModifications"`
+	Version              int                            `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
@@ -58,9 +67,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version: workspacesSnapshotVersion,
-		Tables:  tables,
-		Tags:    b.tags,
+		Version:              workspacesSnapshotVersion,
+		Tables:               tables,
+		Tags:                 b.tags,
+		DirectoryIpGroups:    b.directoryIpGroups,
+		AccountConfig:        b.accountConfig,
+		AccountModifications: b.accountModifications,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "workspaces", snap)
@@ -90,6 +102,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.tags = make(map[string]map[string]string)
+		b.directoryIpGroups = make(map[string]map[string]struct{})
+		b.accountConfig = storedAccountConfig{}
+		b.accountModifications = nil
 
 		return nil
 	}
@@ -102,6 +117,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	if b.tags == nil {
 		b.tags = make(map[string]map[string]string)
 	}
+
+	b.directoryIpGroups = snap.DirectoryIpGroups
+	if b.directoryIpGroups == nil {
+		b.directoryIpGroups = make(map[string]map[string]struct{})
+	}
+
+	b.accountConfig = snap.AccountConfig
+	b.accountModifications = snap.AccountModifications
 
 	return nil
 }

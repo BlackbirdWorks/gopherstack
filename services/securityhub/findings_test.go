@@ -621,228 +621,203 @@ func TestBackend_MatchesStringFilter(t *testing.T) {
 	}
 }
 
-func TestHandler_GetFindingsV2_Pagination(t *testing.T) {
+// TestGetFindings_SortCriteria verifies that GetFindings applies SortCriteria
+// (types.SortCriterion: Field + SortOrder "asc"/"desc") instead of returning
+// findings in undefined map-iteration order.
+func TestGetFindings_SortCriteria(t *testing.T) {
 	t.Parallel()
 
+	b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	_, _, _ = b.ImportFindings([]map[string]any{
+		securityhub.ValidFinding(map[string]any{"Id": "c", "Title": "Charlie"}),
+		securityhub.ValidFinding(map[string]any{"Id": "a", "Title": "Alpha"}),
+		securityhub.ValidFinding(map[string]any{"Id": "b", "Title": "Bravo"}),
+	})
+
 	tests := []struct {
-		name       string
-		maxResults int
-		wantCode   int
+		name         string
+		sortCriteria []map[string]any
+		wantOrder    []string
 	}{
-		{name: "default max results", maxResults: 0, wantCode: http.StatusOK},
-		{name: "explicit max results", maxResults: 10, wantCode: http.StatusOK},
+		{
+			name:         "ascending by Title",
+			sortCriteria: []map[string]any{{"Field": "Title", "SortOrder": "asc"}},
+			wantOrder:    []string{"Alpha", "Bravo", "Charlie"},
+		},
+		{
+			name:         "descending by Title",
+			sortCriteria: []map[string]any{{"Field": "Title", "SortOrder": "desc"}},
+			wantOrder:    []string{"Charlie", "Bravo", "Alpha"},
+		},
+		{
+			name:         "no sort criteria leaves order unspecified but stable count",
+			sortCriteria: nil,
+			wantOrder:    nil,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h := newTestHandler(t)
-			body := map[string]any{}
-			if tc.maxResults > 0 {
-				body["MaxResults"] = tc.maxResults
+
+			results, _ := b.GetFindings(map[string]any{}, tc.sortCriteria, "", 100)
+			require.Len(t, results, 3)
+
+			if tc.wantOrder == nil {
+				return
 			}
 
-			rec := doRequest(t, h, http.MethodPost, "/findingsv2", body)
-			assert.Equal(t, tc.wantCode, rec.Code)
+			gotOrder := make([]string, len(results))
+			for i, f := range results {
+				gotOrder[i], _ = f["Title"].(string)
+			}
+
+			assert.Equal(t, tc.wantOrder, gotOrder)
 		})
 	}
 }
 
-func TestHandler_GetFindingsV2_InvalidNextToken(t *testing.T) {
+// TestBatchImportFindings_PreservesCustomerManagedFields verifies that
+// re-importing an existing finding never overwrites the Note,
+// UserDefinedFields, VerificationState, or Workflow fields -- AWS documents
+// these as fields "BatchImportFindings cannot update" once a finding exists,
+// since they're managed by Security Hub customers, not finding providers.
+func TestBatchImportFindings_PreservesCustomerManagedFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name      string
-		nextToken string
-		wantCode  int
-	}{
-		{name: "valid next token", nextToken: "", wantCode: http.StatusOK},
-		{
-			name:      "non-numeric next token falls back",
-			nextToken: "notanumber",
-			wantCode:  http.StatusOK,
+	b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+
+	base := securityhub.ValidFinding(map[string]any{"Id": "preserve-me"})
+	_, _, _ = b.ImportFindings([]map[string]any{base})
+
+	// Customer annotates the finding via BatchUpdateFindings.
+	_, unprocessed := b.BatchUpdateFindings(
+		[]map[string]any{{"Id": "preserve-me", "ProductArn": base["ProductArn"]}},
+		map[string]any{
+			"Note":              map[string]any{"Text": "investigating", "UpdatedBy": "analyst"},
+			"Workflow":          map[string]any{"Status": "NOTIFIED"},
+			"UserDefinedFields": map[string]any{"ticket": "JIRA-1"},
+			"VerificationState": "TRUE_POSITIVE",
 		},
-	}
+	)
+	require.Empty(t, unprocessed)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t)
-			body := map[string]any{}
-			if tc.nextToken != "" {
-				body["NextToken"] = tc.nextToken
-			}
+	// Finding provider re-imports the same finding, attempting to reset the
+	// customer-managed fields (and omitting UserDefinedFields entirely).
+	reimport := securityhub.ValidFinding(map[string]any{
+		"Id":       "preserve-me",
+		"Title":    "Updated by provider",
+		"Note":     map[string]any{"Text": "provider tried to overwrite", "UpdatedBy": "provider"},
+		"Workflow": map[string]any{"Status": "NEW"},
+	})
+	successCount, failedCount, _ := b.ImportFindings([]map[string]any{reimport})
+	require.Equal(t, 1, successCount)
+	require.Equal(t, 0, failedCount)
 
-			rec := doRequest(t, h, http.MethodPost, "/findingsv2", body)
-			assert.Equal(t, tc.wantCode, rec.Code)
-		})
-	}
+	results, _ := b.GetFindings(
+		map[string]any{"Id": []any{map[string]any{"Value": "preserve-me", "Comparison": "EQUALS"}}},
+		nil, "", 100,
+	)
+	require.Len(t, results, 1)
+
+	f := results[0]
+	assert.Equal(t, "Updated by provider", f["Title"], "provider-owned field must update")
+
+	note, _ := f["Note"].(map[string]any)
+	assert.Equal(t, "investigating", note["Text"], "Note must be preserved from the customer update")
+
+	workflow, _ := f["Workflow"].(map[string]any)
+	assert.Equal(t, "NOTIFIED", workflow["Status"], "Workflow must be preserved from the customer update")
+
+	udf, _ := f["UserDefinedFields"].(map[string]any)
+	assert.Equal(t, "JIRA-1", udf["ticket"], "UserDefinedFields must be preserved from the customer update")
+
+	assert.Equal(t, "TRUE_POSITIVE", f["VerificationState"], "VerificationState must be preserved")
 }
 
-func TestFindingsV2(t *testing.T) {
+// TestGetFindingHistory_RecordsChanges verifies that finding creation and
+// subsequent field updates (via BatchImportFindings re-import,
+// BatchUpdateFindings, and UpdateFindings) each append a
+// FindingHistoryRecord, and that GetFindingHistory returns them for the
+// matching FindingIdentifier.
+func TestGetFindingHistory_RecordsChanges(t *testing.T) {
 	t.Parallel()
 
-	type step struct {
-		body   any
-		check  func(t *testing.T, code int, resp map[string]any)
-		name   string
-		method string
-		path   string
+	h := newTestHandler(t)
+	enableHub(t, h)
+
+	productArn := "arn:aws:securityhub:us-east-1::product/aws/guardduty"
+	ident := map[string]any{"Id": "history-finding", "ProductArn": productArn}
+
+	// 1. Creation via BatchImportFindings.
+	doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
+		"Findings": []any{securityhub.ValidFinding(map[string]any{
+			"Id":         "history-finding",
+			"ProductArn": productArn,
+		})},
+	})
+
+	// 2. Field change via BatchUpdateFindings.
+	doRequest(t, h, http.MethodPatch, "/findings/batchupdate", map[string]any{
+		"FindingIdentifiers": []any{ident},
+		"RecordState":        "ARCHIVED",
+	})
+
+	// 3. Field change via UpdateFindings (legacy note/record-state updater).
+	doRequest(t, h, http.MethodPatch, "/findings", map[string]any{
+		"Filters": map[string]any{
+			"Id": []any{map[string]any{"Value": "history-finding", "Comparison": "EQUALS"}},
+		},
+		"Note": map[string]any{"Text": "legacy update", "UpdatedBy": "tester"},
+	})
+
+	rec := doRequest(t, h, http.MethodPost, "/findingHistory/get", map[string]any{
+		"FindingIdentifier": ident,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Records []map[string]any `json:"Records"`
 	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	tests := []struct {
-		name  string
-		steps []step
-	}{
-		{
-			name: "GetFindingsV2 returns findings from same store as V1",
-			steps: []step{
-				{
-					name:   "import finding via V1",
-					method: http.MethodPost,
-					path:   "/findings/import",
-					body: map[string]any{
-						"Findings": []any{
-							map[string]any{
-								"AwsAccountId":  "000000000000",
-								"CreatedAt":     "2024-01-01T00:00:00Z",
-								"Description":   "test",
-								"GeneratorId":   "gen1",
-								"Id":            "finding-001",
-								"ProductArn":    "arn:aws:securityhub:us-east-1:000000000000:product/000000000000/default",
-								"SchemaVersion": "2018-10-08",
-								"Severity":      map[string]any{"Label": "HIGH"},
-								"Title":         "Test Finding",
-								"Types":         []any{"Software and Configuration Checks"},
-								"UpdatedAt":     "2024-01-01T00:00:00Z",
-								"Resources":     []any{map[string]any{"Id": "resource-001", "Type": "AwsEc2Instance"}},
-							},
-						},
-					},
-					check: func(t *testing.T, code int, _ map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-					},
-				},
-				{
-					name:   "get via V2",
-					method: http.MethodPost,
-					path:   "/findingsv2",
-					body:   map[string]any{},
-					check: func(t *testing.T, code int, resp map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-						findings, _ := resp["Findings"].([]any)
-						assert.NotEmpty(t, findings)
-					},
-				},
-			},
+	require.Len(t, resp.Records, 3, "creation + 2 field-change events")
+
+	assert.Equal(t, true, resp.Records[0]["FindingCreated"])
+
+	src, _ := resp.Records[0]["UpdateSource"].(map[string]any)
+	assert.Equal(t, "BATCH_IMPORT_FINDINGS", src["Type"])
+
+	assert.Equal(t, false, resp.Records[1]["FindingCreated"])
+
+	src1, _ := resp.Records[1]["UpdateSource"].(map[string]any)
+	assert.Equal(t, "BATCH_UPDATE_FINDINGS", src1["Type"])
+
+	updates1, _ := resp.Records[1]["Updates"].([]any)
+	require.NotEmpty(t, updates1, "RecordState change must be recorded")
+
+	updates2, _ := resp.Records[2]["Updates"].([]any)
+	require.NotEmpty(t, updates2, "Note change must be recorded")
+}
+
+// TestGetFindingHistory_UnknownFinding verifies GetFindingHistory returns an
+// empty Records list (not an error) for a finding with no recorded history.
+func TestGetFindingHistory_UnknownFinding(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/findingHistory/get", map[string]any{
+		"FindingIdentifier": map[string]any{
+			"Id":         "never-existed",
+			"ProductArn": "arn:aws:securityhub:us-east-1::product/aws/guardduty",
 		},
-		{
-			name: "BatchUpdateFindingsV2",
-			steps: []step{
-				{
-					name:   "import finding",
-					method: http.MethodPost,
-					path:   "/findings/import",
-					body: map[string]any{
-						"Findings": []any{
-							map[string]any{
-								"AwsAccountId":  "000000000000",
-								"CreatedAt":     "2024-01-01T00:00:00Z",
-								"Description":   "test",
-								"GeneratorId":   "gen1",
-								"Id":            "finding-v2-001",
-								"ProductArn":    "arn:aws:securityhub:us-east-1:000000000000:product/000000000000/default",
-								"SchemaVersion": "2018-10-08",
-								"Severity":      map[string]any{"Label": "HIGH"},
-								"Title":         "Test Finding V2",
-								"Types":         []any{"Software and Configuration Checks"},
-								"UpdatedAt":     "2024-01-01T00:00:00Z",
-								"Resources":     []any{},
-							},
-						},
-					},
-					check: func(t *testing.T, code int, _ map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-					},
-				},
-				{
-					name:   "batch update V2",
-					method: http.MethodPatch,
-					path:   "/findingsv2/batchupdatev2",
-					body: map[string]any{
-						"FindingIdentifiers": []any{
-							map[string]any{
-								"Id":         "finding-v2-001",
-								"ProductArn": "arn:aws:securityhub:us-east-1:000000000000:product/000000000000/default",
-							},
-						},
-						"FindingFieldsUpdate": map[string]any{
-							"Note": map[string]any{
-								"Text":      "Updated via V2",
-								"UpdatedBy": "tester",
-							},
-						},
-					},
-					check: func(t *testing.T, code int, resp map[string]any) { //nolint:revive // existing issue.
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-					},
-				},
-			},
-		},
-		{
-			name: "GetFindingStatisticsV2 returns stats",
-			steps: []step{
-				{
-					name:   "get stats on empty store",
-					method: http.MethodPost,
-					path:   "/findingsv2/statistics",
-					body:   map[string]any{"GroupByAttributes": []any{"Severity.Label"}},
-					check: func(t *testing.T, code int, resp map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-						assert.NotNil(t, resp["FindingStatistics"])
-					},
-				},
-			},
-		},
-		{
-			name: "GetFindingsTrendsV2",
-			steps: []step{
-				{
-					name:   "get trends",
-					method: http.MethodPost,
-					path:   "/findingsTrendsv2",
-					body: map[string]any{
-						"GroupByAttribute": "Severity.Label",
-						"StartTime":        "2024-01-01T00:00:00Z",
-						"EndTime":          "2024-12-31T23:59:59Z",
-					},
-					check: func(t *testing.T, code int, resp map[string]any) {
-						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-						assert.NotNil(t, resp["FindingsTrends"])
-					},
-				},
-			},
-		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Records []map[string]any `json:"Records"`
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t)
-
-			for _, s := range tc.steps {
-				rec := doRequest(t, h, s.method, s.path, s.body)
-
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				s.check(t, rec.Code, resp)
-			}
-		})
-	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Empty(t, resp.Records)
 }

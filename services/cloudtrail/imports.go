@@ -6,8 +6,11 @@ import (
 	"time"
 )
 
-// StartImport creates an import job.
-func (b *InMemoryBackend) StartImport(destinations []string, importSource string) (*Import, error) {
+// StartImport creates an import job. importSource may be nil (matching real
+// StartImportInput, where ImportSource is optional when ImportId is set to
+// retry an existing import -- this backend does not model retry-by-ImportId,
+// but tolerates a nil source for callers that only pass Destinations).
+func (b *InMemoryBackend) StartImport(destinations []string, importSource *ImportSource) (*Import, error) {
 	b.mu.Lock("StartImport")
 	defer b.mu.Unlock()
 

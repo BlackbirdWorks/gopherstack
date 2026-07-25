@@ -56,16 +56,28 @@ const (
 	triggerSourceCustomMessageSignUp      = "CustomMessage_SignUp"
 	triggerSourceCustomMessageResendCode  = "CustomMessage_ResendCode"
 	triggerSourceCustomMessageForgotPwd   = "CustomMessage_ForgotPassword"
+	triggerSourcePreAuthentication        = "PreAuthentication_Authentication"
+	triggerSourcePostAuthentication       = "PostAuthentication_Authentication"
+	triggerSourceDefineAuthChallenge      = "DefineAuthChallenge_Authentication"
+	triggerSourceCreateAuthChallenge      = "CreateAuthChallenge_Authentication"
+	triggerSourceVerifyAuthChallenge      = "VerifyAuthChallengeResponse_Authentication"
+	triggerSourceUserMigrationAuth        = "UserMigration_Authentication"
 )
 
 // LambdaConfig key names, matching the JSON field names of AWS's LambdaConfigType
 // exactly (LambdaConfig is stored as the raw client-supplied map, un-transformed --
 // see UserPool.LambdaConfig).
 const (
-	triggerKeyPreSignUp          = "PreSignUp"
-	triggerKeyPostConfirmation   = "PostConfirmation"
-	triggerKeyPreTokenGeneration = "PreTokenGeneration"
-	triggerKeyCustomMessage      = "CustomMessage"
+	triggerKeyPreSignUp           = "PreSignUp"
+	triggerKeyPostConfirmation    = "PostConfirmation"
+	triggerKeyPreTokenGeneration  = "PreTokenGeneration"
+	triggerKeyCustomMessage       = "CustomMessage"
+	triggerKeyPreAuthentication   = "PreAuthentication"
+	triggerKeyPostAuthentication  = "PostAuthentication"
+	triggerKeyDefineAuthChallenge = "DefineAuthChallenge"
+	triggerKeyCreateAuthChallenge = "CreateAuthChallenge"
+	triggerKeyVerifyAuthChallenge = "VerifyAuthChallengeResponse"
+	triggerKeyUserMigration       = "UserMigration"
 )
 
 // Trigger event request field names shared across every trigger's request
@@ -75,6 +87,8 @@ const (
 const (
 	eventKeyUserAttributes = "userAttributes"
 	eventKeyClientMetadata = "clientMetadata"
+	eventKeyValidationData = "validationData"
+	eventKeyChallengeName  = "challengeName"
 )
 
 // customMessageCodeParameter is the literal placeholder AWS Cognito puts in
@@ -341,4 +355,239 @@ func (b *InMemoryBackend) preTokenGenerationOverride(
 	claimsToAdd, claimsToSuppress := parseClaimsOverride(resp)
 
 	return claimsToAdd, claimsToSuppress, nil
+}
+
+// preAuthenticationCheck fires the PreAuthentication Lambda trigger (if configured)
+// before credentials are validated, letting a Lambda reject a sign-in attempt early
+// (e.g. based on validationData) by returning an error, which surfaces to the caller
+// as UserLambdaValidationException -- matching AWS: "To prevent the user from signing
+// in, throw an error in the Lambda function." The response object is always empty
+// (CognitoEventUserPoolsPreAuthenticationResponse has no fields), so on success there
+// is nothing to apply back onto state. Caller must hold b.mu (authenticate does).
+func (b *InMemoryBackend) preAuthenticationCheck(pool *UserPool, clientID string, user *User) error {
+	_, err := b.invokeLambdaTrigger(pool, triggerKeyPreAuthentication, triggerSourcePreAuthentication,
+		clientID, user.Username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(user.Attributes),
+			eventKeyValidationData: map[string]any{},
+		},
+		map[string]any{},
+	)
+
+	return err
+}
+
+// postAuthenticationNotify fires the PostAuthentication Lambda trigger (if configured)
+// after a successful sign-in, immediately before tokens are returned to the caller.
+// Like PreAuthentication, throwing from the Lambda fails the authentication attempt
+// (surfaced as UserLambdaValidationException); the response object is always empty.
+// newDeviceUsed is always reported false: this backend does not track device keys on
+// the authentication path, so there is no real signal to report here -- a
+// simplification, not a masked stub, since AWS-side device tracking has no bearing on
+// whether the trigger fires or what it is invoked with otherwise. Caller must hold
+// b.mu (issueTokensLocked does).
+func (b *InMemoryBackend) postAuthenticationNotify(pool *UserPool, clientID string, user *User) error {
+	_, err := b.invokeLambdaTrigger(pool, triggerKeyPostAuthentication, triggerSourcePostAuthentication,
+		clientID, user.Username,
+		map[string]any{
+			"newDeviceUsed":        false,
+			eventKeyUserAttributes: stringMapToAny(user.Attributes),
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{},
+	)
+
+	return err
+}
+
+// customAuthSessionToAny converts a CUSTOM_AUTH session history to the []any shape the
+// trigger event envelope needs (aws-lambda-go events.CognitoEventUserPoolsChallengeResult).
+func customAuthSessionToAny(session []customAuthChallengeResult) []any {
+	out := make([]any, len(session))
+	for i, r := range session {
+		out[i] = map[string]any{
+			eventKeyChallengeName: r.ChallengeName,
+			"challengeResult":     r.ChallengeResult,
+			"challengeMetadata":   r.ChallengeMetadata,
+		}
+	}
+
+	return out
+}
+
+// defineAuthChallenge invokes the DefineAuthChallenge Lambda trigger, the entry point
+// (and re-entry point, once per round) of the CUSTOM_AUTH state machine. The Lambda
+// decides, from the round history in session, whether to issue tokens, fail the
+// attempt outright, or present another challenge (identified by the returned
+// challengeName, the Lambda's own bookkeeping name -- not the fixed "CUSTOM_CHALLENGE"
+// ChallengeName Cognito always returns to the client). Returns an error both when the
+// invoker/Lambda call itself fails and when CUSTOM_AUTH is requested but the pool has
+// no DefineAuthChallenge trigger configured at all, since custom auth cannot function
+// without one -- matching AWS, which refuses to start a CUSTOM_AUTH flow in that case.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) defineAuthChallenge(
+	pool *UserPool, clientID, username string, userAttrs map[string]string,
+	session []customAuthChallengeResult, userNotFound bool,
+) (string, bool, bool, error) {
+	if lambdaConfigARN(pool.LambdaConfig, triggerKeyDefineAuthChallenge) == "" {
+		return "", false, false, fmt.Errorf(
+			"%w: CUSTOM_AUTH requires a DefineAuthChallenge Lambda trigger, "+
+				"which is not configured for user pool %q", ErrInvalidUserPoolConfig, pool.ID)
+	}
+
+	resp, err := b.invokeLambdaTrigger(pool, triggerKeyDefineAuthChallenge, triggerSourceDefineAuthChallenge,
+		clientID, username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(userAttrs),
+			"session":              customAuthSessionToAny(session),
+			eventKeyClientMetadata: map[string]any{},
+			"userNotFound":         userNotFound,
+		},
+		map[string]any{eventKeyChallengeName: "", "issueTokens": false, "failAuthentication": false},
+	)
+	if err != nil {
+		return "", false, false, err
+	}
+
+	challengeName, _ := resp[eventKeyChallengeName].(string)
+	issueTokens, _ := resp["issueTokens"].(bool)
+	failAuthentication, _ := resp["failAuthentication"].(bool)
+
+	return challengeName, issueTokens, failAuthentication, nil
+}
+
+// createAuthChallenge invokes the CreateAuthChallenge Lambda trigger to build the next
+// CUSTOM_AUTH challenge's public parameters (sent to the client) and private parameters
+// (kept server-side, used by verifyCustomAuthChallenge to judge the answer). Caller
+// must hold b.mu.
+func (b *InMemoryBackend) createAuthChallenge(
+	pool *UserPool, clientID, username string, userAttrs map[string]string,
+	challengeName string, session []customAuthChallengeResult,
+) (map[string]string, map[string]string, string, error) {
+	resp, err := b.invokeLambdaTrigger(pool, triggerKeyCreateAuthChallenge, triggerSourceCreateAuthChallenge,
+		clientID, username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(userAttrs),
+			eventKeyChallengeName:  challengeName,
+			"session":              customAuthSessionToAny(session),
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{
+			"publicChallengeParameters":  map[string]any{},
+			"privateChallengeParameters": map[string]any{},
+			"challengeMetadata":          "",
+		},
+	)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	public := anyMapToStringMap(resp["publicChallengeParameters"])
+	private := anyMapToStringMap(resp["privateChallengeParameters"])
+	metadata, _ := resp["challengeMetadata"].(string)
+
+	return public, private, metadata, nil
+}
+
+// verifyCustomAuthChallenge invokes the VerifyAuthChallengeResponse Lambda trigger to
+// judge whether answer is correct for the challenge previously created by
+// createAuthChallenge (private holds that round's privateChallengeParameters, never
+// exposed to the client). Caller must hold b.mu.
+func (b *InMemoryBackend) verifyCustomAuthChallenge(
+	pool *UserPool, clientID, username string, userAttrs, private map[string]string, answer string,
+) (bool, error) {
+	resp, err := b.invokeLambdaTrigger(pool, triggerKeyVerifyAuthChallenge, triggerSourceVerifyAuthChallenge,
+		clientID, username,
+		map[string]any{
+			eventKeyUserAttributes:       stringMapToAny(userAttrs),
+			"privateChallengeParameters": stringMapToAny(private),
+			"challengeAnswer":            answer,
+			eventKeyClientMetadata:       map[string]any{},
+		},
+		map[string]any{"answerCorrect": false},
+	)
+	if err != nil {
+		return false, err
+	}
+
+	answerCorrect, _ := resp["answerCorrect"].(bool)
+
+	return answerCorrect, nil
+}
+
+// anyMapToStringMap converts a map[string]any (as decoded from a Lambda's JSON
+// response) to map[string]string, dropping any non-string values. Returns an empty
+// (non-nil) map for a nil/non-map input so callers can range over the result safely.
+func anyMapToStringMap(v any) map[string]string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return map[string]string{}
+	}
+
+	out := make(map[string]string, len(m))
+
+	for k, val := range m {
+		if s, sOK := val.(string); sOK {
+			out[k] = s
+		}
+	}
+
+	return out
+}
+
+// userMigrationResult is the parsed response from a UserMigration Lambda trigger
+// (aws-lambda-go events.CognitoEventUserPoolsMigrateUserResponse); MessageAction,
+// DesiredDeliveryMediums, and ForceAliasCreation are part of the real response shape
+// but have no effect in this mock (no real email/SMS delivery pipeline or alias
+// system reacts to them here), matching the documented simplification already made
+// for CustomMessage trigger delivery.
+type userMigrationResult struct {
+	UserAttributes  map[string]string
+	FinalUserStatus string
+}
+
+// invokeUserMigrationTrigger invokes the UserMigration Lambda trigger (if configured)
+// with the plaintext password from the current sign-in attempt, letting the Lambda
+// validate it against an external identity store and, on success, supply the
+// attributes for a new Cognito user. Returns (nil, nil) -- not an error -- both when
+// no UserMigration trigger is configured and when the Lambda declines to migrate this
+// user (a response with no userAttributes), so the caller falls back to its normal
+// "unknown user" handling in either case. Caller must hold b.mu.
+func (b *InMemoryBackend) invokeUserMigrationTrigger(
+	pool *UserPool, clientID, username, password string,
+) (*userMigrationResult, error) {
+	if lambdaConfigARN(pool.LambdaConfig, triggerKeyUserMigration) == "" {
+		return nil, nil //nolint:nilnil // sentinel "not configured" pair, documented above
+	}
+
+	resp, err := b.invokeLambdaTrigger(pool, triggerKeyUserMigration, triggerSourceUserMigrationAuth,
+		clientID, username,
+		map[string]any{
+			"password":             password,
+			eventKeyValidationData: map[string]any{},
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{
+			"userAttributes":         map[string]any{},
+			"finalUserStatus":        "",
+			"messageAction":          "",
+			"desiredDeliveryMediums": []any{},
+			"forceAliasCreation":     false,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	attrs := anyMapToStringMap(resp["userAttributes"])
+	if len(attrs) == 0 {
+		// No attributes means the Lambda declined to migrate this user (e.g. the
+		// external system rejected the password) -- AWS treats this exactly like the
+		// trigger never having run, surfacing the original UserNotFoundException.
+		return nil, nil //nolint:nilnil // sentinel "declined" pair, documented above
+	}
+
+	finalStatus, _ := resp["finalUserStatus"].(string)
+
+	return &userMigrationResult{UserAttributes: attrs, FinalUserStatus: finalStatus}, nil
 }

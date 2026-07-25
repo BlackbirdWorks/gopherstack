@@ -34,6 +34,7 @@ func (h *Handler) handleDiscoverInstances(_ context.Context, body []byte) ([]byt
 		req.ServiceName,
 		req.HealthStatus,
 		req.QueryParameters,
+		req.OptionalParameters,
 	)
 	if err != nil {
 		return nil, err

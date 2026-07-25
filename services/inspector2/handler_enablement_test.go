@@ -207,6 +207,10 @@ func TestConfigurationGetUpdate(t *testing.T) {
 	}
 }
 
+// TestAccountPermissions locks the real Permission wire shape
+// (operation/service) -- the prior stub always returned an empty list, and
+// before that a gopherstack-invented "status" field stood in for the real
+// "service" field.
 func TestAccountPermissions(t *testing.T) {
 	t.Parallel()
 
@@ -216,8 +220,41 @@ func TestAccountPermissions(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	_, ok := resp["permissions"]
-	assert.True(t, ok)
+
+	perms, ok := resp["permissions"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, perms)
+
+	p, ok := perms[0].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, p["operation"])
+	assert.NotEmpty(t, p["service"])
+	assert.NotContains(t, p, "status", "real Permission shape has no \"status\" member")
+}
+
+// TestAccountPermissionsFilteredByService verifies the optional service
+// filter narrows the returned permission matrix.
+func TestAccountPermissionsFilteredByService(t *testing.T) {
+	t.Parallel()
+
+	h := newAuditHandler(t)
+	rec := auditDo(t, h, http.MethodPost, "/accountpermissions/list", map[string]any{
+		"service": "ECR",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	perms, ok := resp["permissions"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, perms)
+
+	for _, raw := range perms {
+		p, entryOk := raw.(map[string]any)
+		require.True(t, entryOk)
+		assert.Equal(t, "ECR", p["service"])
+	}
 }
 
 func TestEnableDisablePerResourceType(t *testing.T) {

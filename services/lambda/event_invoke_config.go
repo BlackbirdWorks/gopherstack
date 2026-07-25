@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -35,7 +36,7 @@ func (b *InMemoryBackend) PutFunctionEventInvokeConfig(
 
 	cfg := &FunctionEventInvokeConfig{
 		FunctionArn:              fn.FunctionArn,
-		LastModified:             time.Now().UTC(),
+		LastModified:             awstime.Epoch(time.Now().UTC()),
 		MaximumRetryAttempts:     input.MaximumRetryAttempts,
 		MaximumEventAgeInSeconds: input.MaximumEventAgeInSeconds,
 		DestinationConfig:        input.DestinationConfig,
@@ -101,7 +102,7 @@ func (b *InMemoryBackend) UpdateFunctionEventInvokeConfig(
 	}
 
 	cfg.FunctionArn = fn.FunctionArn
-	cfg.LastModified = time.Now().UTC()
+	cfg.LastModified = awstime.Epoch(time.Now().UTC())
 
 	return cfg, nil
 }

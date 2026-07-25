@@ -3,6 +3,7 @@ package workmail
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -109,7 +110,10 @@ func (b *InMemoryBackend) UpdateResource(orgID, entityID, name, description stri
 	return nil
 }
 
-// DeleteResource removes a resource.
+// DeleteResource removes a resource. See the doc comment on DeleteGroup in
+// groups.go for the shared-logic rationale.
+//
+//nolint:dupl // structurally-identical CRUD pair with DeleteGroup; see doc comment on DeleteGroup.
 func (b *InMemoryBackend) DeleteResource(orgID, entityID string) error {
 	b.mu.Lock("DeleteResource")
 	defer b.mu.Unlock()
@@ -134,15 +138,18 @@ func (b *InMemoryBackend) DeleteResource(orgID, entityID string) error {
 		delete(b.resourcesByEmail[orgID], r.Email)
 		b.globalAliases.Delete(r.Email)
 	}
+	b.cascadeCleanEntity(orgID, r.ResourceID, r.ARN)
 	b.resources.Delete(orgKey(orgID, r.ResourceID))
 	delete(b.delegates[orgID], r.ResourceID)
 
 	return nil
 }
 
-// ListResources returns a paginated list of resources.
+// ListResources returns a paginated list of resources, optionally narrowed
+// by filter (see ResourceFilter -- mirrors ListResourcesInput.Filters).
 func (b *InMemoryBackend) ListResources(
 	orgID string,
+	filter *ResourceFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*ResourceSummary, string, error) {
@@ -155,6 +162,9 @@ func (b *InMemoryBackend) ListResources(
 
 	rs := make([]*ResourceSummary, 0, len(b.resourcesByOrg.Get(orgID)))
 	for _, r := range b.resourcesByOrg.Get(orgID) {
+		if !resourceMatchesFilter(r, filter) {
+			continue
+		}
 		rs = append(rs, &ResourceSummary{
 			ResourceID:   r.ResourceID,
 			Name:         r.Name,
@@ -169,4 +179,23 @@ func (b *InMemoryBackend) ListResources(
 	items, next := paginate(rs, maxResults, nextToken)
 
 	return items, next, nil
+}
+
+// resourceMatchesFilter reports whether r satisfies every non-empty
+// dimension of filter. A nil filter matches everything.
+func resourceMatchesFilter(r *Resource, filter *ResourceFilter) bool {
+	if filter == nil {
+		return true
+	}
+	if filter.NamePrefix != "" && !strings.HasPrefix(r.Name, filter.NamePrefix) {
+		return false
+	}
+	if filter.PrimaryEmailPrefix != "" && !strings.HasPrefix(r.Email, filter.PrimaryEmailPrefix) {
+		return false
+	}
+	if filter.State != "" && r.State != filter.State {
+		return false
+	}
+
+	return true
 }

@@ -197,12 +197,20 @@ type ExportTask struct {
 }
 
 // ImportTask represents a CloudWatch Logs import task (from CloudTrail Lake).
+// Status values must be one of the real aws-sdk-go-v2 types.ImportStatus enum
+// members: IN_PROGRESS, CANCELLED, COMPLETED, FAILED (NOT "ACTIVE"/"SUCCEEDED",
+// which are not real CloudWatch Logs import statuses). The wire key for this
+// field is importStatus (aws-sdk-go-v2 types.Import.ImportStatus), not status;
+// ImportRoleArn is accepted on CreateImportTask but is deliberately not part
+// of the real Import describe/list shape (types.Import has no such field), so
+// it is kept here for this backend's own bookkeeping but is excluded when
+// serialized to the wire (see wireImportTask in handler_export_tasks.go).
 type ImportTask struct {
 	ImportID             string `json:"importId"`
 	ImportSourceArn      string `json:"importSourceArn"`
-	ImportRoleArn        string `json:"importRoleArn"`
+	ImportRoleArn        string `json:"-"`
 	ImportDestinationArn string `json:"importDestinationArn"`
-	Status               string `json:"status"`
+	Status               string `json:"importStatus"`
 	CreationTime         int64  `json:"creationTime"`
 	LastUpdatedTime      int64  `json:"lastUpdatedTime"`
 }
@@ -220,24 +228,41 @@ type Delivery struct {
 }
 
 // LogAnomalyDetector represents a CloudWatch Logs anomaly detector.
+// LogAnomalyDetector represents a CloudWatch Logs log anomaly detector.
+// Field-diffed against aws-sdk-go-v2 types.AnomalyDetector /
+// GetLogAnomalyDetectorOutput: the status wire key is anomalyDetectorStatus,
+// not detectorStatus (a previous version of this struct used the wrong key,
+// so a real SDK client would always see an empty/unknown status).
+// evaluationLookback and filterAnomalies were also removed here: neither
+// exists anywhere in the real SDK (types package, any api_op_*.go input, or
+// any doc comment) -- they were invented fields with no wire representation,
+// never read anywhere in this codebase either (grep found only their own
+// declaration), so they were dead weight rather than a real gap.
 type LogAnomalyDetector struct {
 	AnomalyDetectorArn    string   `json:"anomalyDetectorArn"`
 	DetectorName          string   `json:"detectorName,omitempty"`
-	DetectorStatus        string   `json:"detectorStatus,omitempty"`
+	AnomalyDetectorStatus string   `json:"anomalyDetectorStatus,omitempty"`
 	EvaluationFrequency   string   `json:"evaluationFrequency,omitempty"`
 	FilterPattern         string   `json:"filterPattern,omitempty"`
 	KmsKeyID              string   `json:"kmsKeyId,omitempty"`
 	LogGroupArnList       []string `json:"logGroupArnList"`
 	AnomalyVisibilityTime int64    `json:"anomalyVisibilityTime,omitempty"`
-	EvaluationLookback    int64    `json:"evaluationLookback,omitempty"`
 	CreationTimeStamp     int64    `json:"creationTimeStamp"`
 	LastModifiedTimeStamp int64    `json:"lastModifiedTimeStamp,omitempty"`
-	FilterAnomalies       bool     `json:"filterAnomalies,omitempty"`
 }
 
-// ScheduledQuery represents a CloudWatch Logs scheduled query.
+// ScheduledQuery represents a CloudWatch Logs scheduled query. The wire key
+// for the identifying ARN is scheduledQueryArn, not arn (aws-sdk-go-v2
+// GetScheduledQueryOutput.ScheduledQueryArn) -- a previous version of this
+// struct used the wrong key, so a real SDK client's ScheduledQueryArn field
+// would always deserialize empty. This struct only models the subset of
+// GetScheduledQueryOutput this backend currently tracks; see PARITY.md for
+// the fields (description, destinationConfiguration, executionRoleArn,
+// lastExecutionStatus/lastTriggeredTime/lastUpdatedTime, logGroupIdentifiers,
+// queryLanguage, scheduleEndTime/scheduleStartTime, startTimeOffset,
+// timezone) not yet implemented.
 type ScheduledQuery struct {
-	Arn                string `json:"arn"`
+	ScheduledQueryArn  string `json:"scheduledQueryArn"`
 	Name               string `json:"name"`
 	QueryString        string `json:"queryString"`
 	ScheduleExpression string `json:"scheduleExpression,omitempty"`
@@ -315,23 +340,40 @@ type ResourcePolicy struct {
 }
 
 // DeliveryDestination represents a CloudWatch Logs delivery destination.
+// These json tags describe this backend's own internal snapshot/persistence
+// encoding, not the AWS wire shape: the real aws-sdk-go-v2 types.
+// DeliveryDestination nests the target resource ARN under a
+// deliveryDestinationConfiguration.destinationResourceArn object (not a bare
+// string under that key, as TargetArn's tag alone would suggest) and carries
+// a separate deliveryDestinationType enum field; Policy is not part of this
+// type at all on the wire (it is returned by the dedicated
+// GetDeliveryDestinationPolicy operation instead). See
+// deliveryDestinationWireShape in handler_deliveries.go for the actual
+// AWS-shaped response mapping used by the handlers.
 type DeliveryDestination struct {
-	CreatedAt    time.Time         `json:"-"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	Name         string            `json:"name"`
-	Arn          string            `json:"arn"`
-	OutputFormat string            `json:"outputFormat,omitempty"`
-	TargetArn    string            `json:"deliveryDestinationConfiguration,omitempty"`
-	Policy       string            `json:"policy,omitempty"`
+	CreatedAt               time.Time         `json:"-"`
+	Tags                    map[string]string `json:"tags,omitempty"`
+	Name                    string            `json:"name"`
+	Arn                     string            `json:"arn"`
+	OutputFormat            string            `json:"outputFormat,omitempty"`
+	TargetArn               string            `json:"deliveryDestinationConfiguration,omitempty"`
+	DeliveryDestinationType string            `json:"deliveryDestinationType,omitempty"`
+	Policy                  string            `json:"policy,omitempty"`
 }
 
 // DeliverySource represents a CloudWatch Logs delivery source.
+// Service is not client-supplied (aws-sdk-go-v2 types.PutDeliverySourceInput
+// has no such field); AWS derives it server-side from the ARN of the
+// resource that is actually sending logs (types.DeliverySource.Service doc:
+// "The Amazon Web Services service that is sending logs"), so this backend
+// derives it the same way -- see serviceFromARN in deliveries.go.
 type DeliverySource struct {
 	CreatedAt    time.Time         `json:"-"`
 	Tags         map[string]string `json:"tags,omitempty"`
 	Name         string            `json:"name"`
 	Arn          string            `json:"arn"`
 	LogType      string            `json:"logType,omitempty"`
+	Service      string            `json:"service,omitempty"`
 	ResourceArns []string          `json:"resourceArns,omitempty"`
 }
 

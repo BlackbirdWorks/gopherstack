@@ -2,9 +2,22 @@ package redshift
 
 import "fmt"
 
+// scheduledActionState returns the wire State ("ACTIVE"/"DISABLED") for the given
+// Enable input. A nil enable (unspecified) defaults to enabled, matching this
+// backend's prior always-ACTIVE behavior for callers that don't pass Enable.
+func scheduledActionState(enable *bool) string {
+	if enable != nil && !*enable {
+		return "DISABLED"
+	}
+
+	return dataShareStatusActive
+}
+
 // CreateScheduledAction creates a new Redshift scheduled action.
 func (b *InMemoryBackend) CreateScheduledAction(
-	name, schedule, iamRole, description, targetAction string,
+	name, schedule, iamRole, description string,
+	target *ScheduledActionTarget,
+	enable *bool,
 ) (*ScheduledAction, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: ScheduledActionName is required", ErrInvalidParameter)
@@ -22,8 +35,8 @@ func (b *InMemoryBackend) CreateScheduledAction(
 		Schedule:                   schedule,
 		IamRole:                    iamRole,
 		ScheduledActionDescription: description,
-		State:                      "ACTIVE",
-		TargetAction:               targetAction,
+		State:                      scheduledActionState(enable),
+		TargetAction:               target,
 	}
 	b.scheduledActions.Put(action)
 
@@ -75,9 +88,12 @@ func (b *InMemoryBackend) DescribeScheduledActions(name string) ([]ScheduledActi
 	return result, nil
 }
 
-// ModifyScheduledAction updates a scheduled action's schedule, IAM role, or description.
+// ModifyScheduledAction updates a scheduled action's schedule, IAM role,
+// description, target action, and/or enabled state.
 func (b *InMemoryBackend) ModifyScheduledAction(
 	name, schedule, iamRole, description string,
+	target *ScheduledActionTarget,
+	enable *bool,
 ) (*ScheduledAction, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: ScheduledActionName is required", ErrInvalidParameter)
@@ -99,6 +115,12 @@ func (b *InMemoryBackend) ModifyScheduledAction(
 	}
 	if description != "" {
 		a.ScheduledActionDescription = description
+	}
+	if target != nil {
+		a.TargetAction = target
+	}
+	if enable != nil {
+		a.State = scheduledActionState(enable)
 	}
 
 	cp := *a

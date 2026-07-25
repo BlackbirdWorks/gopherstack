@@ -134,24 +134,13 @@ func (b *InMemoryBackend) purgeDaemonsLocked(clusterName string) {
 		return
 	}
 
-	daemonArns := make(map[string]bool, len(daemons))
-
 	for _, d := range daemons {
-		daemonArns[d.DaemonArn] = true
 		delete(b.daemonTaskDefs, d.DaemonArn)
-		// NOTE: daemonRevisions is keyed by DaemonRevisionArn (see
-		// createDaemonRevisionLocked), not DaemonArn -- this delete never
-		// actually matches an entry. Preserved byte-for-byte from the
-		// pre-conversion map-based code rather than fixed, per the Phase 3.3
-		// mechanical-conversion mandate.
-		b.daemonRevisions.Delete(d.DaemonArn)
 		b.daemons.Delete(daemonsKeyFn(d))
-	}
-
-	for _, dep := range b.daemonDeployments.All() {
-		if daemonArns[dep.DaemonArn] {
-			b.daemonDeployments.Delete(dep.DaemonDeploymentArn)
-		}
+		// daemonRevisions/daemonDeployments cleanup: see deleteDaemonAncillaryLocked
+		// doc comment (daemon.go) -- both tables are keyed by their own ARN, not
+		// DaemonArn, so a direct delete-by-DaemonArn here would never match.
+		b.deleteDaemonAncillaryLocked(d.DaemonArn)
 	}
 }
 

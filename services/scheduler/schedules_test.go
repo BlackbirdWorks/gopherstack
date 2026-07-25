@@ -950,6 +950,76 @@ func TestCreateSchedule_ScheduleExpressionTimezone(t *testing.T) {
 	assert.Equal(t, "America/New_York", resp["ScheduleExpressionTimezone"])
 }
 
+// TestCreateSchedule_ScheduleExpressionTimezone_Validation asserts ValidationException
+// for an unresolvable IANA timezone name, and that empty/valid names are accepted.
+// An invalid timezone can never be evaluated against wall-clock time by the runner
+// (see Runner.cachedLocation), so it is rejected at write time.
+func TestCreateSchedule_ScheduleExpressionTimezone_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		tz       string
+		wantCode int
+	}{
+		{name: "empty_defaults_to_utc", tz: "", wantCode: http.StatusOK},
+		{name: "valid_iana_name", tz: "Europe/London", wantCode: http.StatusOK},
+		{name: "unresolvable_name_rejected", tz: "Not/ARealZone", wantCode: http.StatusBadRequest},
+		{name: "garbage_rejected", tz: "not-a-timezone", wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSchedulerHandler(t)
+
+			rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
+				"Name":                       "tz-validate-" + tt.name,
+				"ScheduleExpression":         "rate(1 hour)",
+				"ScheduleExpressionTimezone": tt.tz,
+				"Target":                     map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
+				"FlexibleTimeWindow":         map[string]string{"Mode": "OFF"},
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, "ValidationException", resp["__type"])
+			}
+		})
+	}
+}
+
+// TestUpdateSchedule_ScheduleExpressionTimezone_Validation asserts UpdateSchedule
+// also rejects an unresolvable ScheduleExpressionTimezone.
+func TestUpdateSchedule_ScheduleExpressionTimezone_Validation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+
+	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
+		"Name":               "tz-update-sched",
+		"ScheduleExpression": "rate(1 hour)",
+		"Target":             map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
+		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+	})
+
+	rec := doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
+		"Name":                       "tz-update-sched",
+		"ScheduleExpression":         "rate(1 hour)",
+		"ScheduleExpressionTimezone": "Definitely/Invalid",
+		"Target":                     map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
+		"FlexibleTimeWindow":         map[string]string{"Mode": "OFF"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ValidationException", resp["__type"])
+}
+
 func TestSchedulerHandler_DeleteSchedule(t *testing.T) {
 	t.Parallel()
 

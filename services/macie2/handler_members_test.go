@@ -3,6 +3,7 @@ package macie2_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/macie2"
@@ -145,6 +146,86 @@ func TestMembers(t *testing.T) {
 			tc.fn(t, newTestHandler(t))
 		})
 	}
+}
+
+// TestListMembersOnlyAssociatedAndPagination locks the ListMembers gap fix:
+// onlyAssociated must default to true (hiding DISASSOCIATED members) and
+// honor "false" to include them, and maxResults/nextToken must actually
+// page results instead of always returning every member in one page.
+func TestListMembersOnlyAssociatedAndPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, http.MethodPost, "/members", map[string]any{
+		"account": map[string]string{"accountId": "111111111111", "email": "a@example.com"},
+	})
+	doRequest(t, h, http.MethodPost, "/members", map[string]any{
+		"account": map[string]string{"accountId": "222222222222", "email": "b@example.com"},
+	})
+
+	disassociateRec := doRequest(t, h, http.MethodPost, "/members/disassociate/222222222222", nil)
+	require.Equal(t, http.StatusOK, disassociateRec.Code)
+
+	t.Run("default onlyAssociated=true hides disassociated members", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, http.MethodGet, "/members", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		members, ok := resp["members"].([]any)
+		require.True(t, ok)
+		require.Len(t, members, 1)
+
+		member, ok := members[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "111111111111", member["accountId"])
+	})
+
+	t.Run("onlyAssociated=false includes disassociated members", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, http.MethodGet, "/members?onlyAssociated=false", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		members, ok := resp["members"].([]any)
+		require.True(t, ok)
+		assert.Len(t, members, 2)
+	})
+
+	t.Run("maxResults paginates and nextToken advances", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, http.MethodGet, "/members?onlyAssociated=false&maxResults=1", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		members, ok := resp["members"].([]any)
+		require.True(t, ok)
+		require.Len(t, members, 1)
+		require.NotEmpty(t, resp["nextToken"])
+
+		nextToken, ok := resp["nextToken"].(string)
+		require.True(t, ok)
+
+		rec2 := doRequest(
+			t, h, http.MethodGet,
+			"/members?onlyAssociated=false&maxResults=1&nextToken="+url.QueryEscape(nextToken), nil,
+		)
+		require.Equal(t, http.StatusOK, rec2.Code)
+
+		var resp2 map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		members2, ok := resp2["members"].([]any)
+		require.True(t, ok)
+		require.Len(t, members2, 1)
+		assert.Empty(t, resp2["nextToken"])
+	})
 }
 
 // --- invitations ---

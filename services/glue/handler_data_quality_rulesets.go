@@ -5,9 +5,12 @@ import (
 )
 
 type createDataQualityRulesetInput struct {
-	Tags    map[string]string `json:"Tags,omitempty"`
-	Name    string            `json:"Name"`
-	Ruleset string            `json:"Ruleset,omitempty"`
+	Tags                             map[string]string       `json:"Tags,omitempty"`
+	TargetTable                      *DataQualityTargetTable `json:"TargetTable,omitempty"`
+	Name                             string                  `json:"Name"`
+	Ruleset                          string                  `json:"Ruleset,omitempty"`
+	Description                      string                  `json:"Description,omitempty"`
+	DataQualitySecurityConfiguration string                  `json:"DataQualitySecurityConfiguration,omitempty"`
 }
 
 type createDataQualityRulesetOutput struct {
@@ -18,7 +21,11 @@ func (h *Handler) handleCreateDataQualityRuleset(
 	_ context.Context,
 	in *createDataQualityRulesetInput,
 ) (*createDataQualityRulesetOutput, error) {
-	r, err := h.Backend.CreateDataQualityRuleset(in.Name, in.Ruleset, in.Tags)
+	r, err := h.Backend.CreateDataQualityRulesetWithOptions(in.Name, in.Ruleset, in.Tags, DataQualityRulesetOptions{
+		Description:                      in.Description,
+		DataQualitySecurityConfiguration: in.DataQualitySecurityConfiguration,
+		TargetTable:                      in.TargetTable,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -31,12 +38,14 @@ type getDataQualityRulesetInput struct {
 }
 
 type getDataQualityRulesetOutput struct {
-	Name           string  `json:"Name"`
-	Ruleset        string  `json:"Ruleset,omitempty"`
-	Description    string  `json:"Description,omitempty"`
-	ARN            string  `json:"Arn,omitempty"`
-	CreatedOn      float64 `json:"CreatedOn,omitempty"`
-	LastModifiedOn float64 `json:"LastModifiedOn,omitempty"`
+	TargetTable                      *DataQualityTargetTable `json:"TargetTable,omitempty"`
+	Name                             string                  `json:"Name"`
+	Ruleset                          string                  `json:"Ruleset,omitempty"`
+	Description                      string                  `json:"Description,omitempty"`
+	ARN                              string                  `json:"Arn,omitempty"`
+	DataQualitySecurityConfiguration string                  `json:"DataQualitySecurityConfiguration,omitempty"`
+	CreatedOn                        float64                 `json:"CreatedOn,omitempty"`
+	LastModifiedOn                   float64                 `json:"LastModifiedOn,omitempty"`
 }
 
 func (h *Handler) handleGetDataQualityRuleset(
@@ -49,12 +58,14 @@ func (h *Handler) handleGetDataQualityRuleset(
 	}
 
 	return &getDataQualityRulesetOutput{
-		Name:           r.Name,
-		Ruleset:        r.Ruleset,
-		Description:    r.Description,
-		ARN:            r.ARN,
-		CreatedOn:      r.CreatedOn,
-		LastModifiedOn: r.LastModifiedOn,
+		Name:                             r.Name,
+		Ruleset:                          r.Ruleset,
+		Description:                      r.Description,
+		ARN:                              r.ARN,
+		DataQualitySecurityConfiguration: r.DataQualitySecurityConfiguration,
+		TargetTable:                      r.TargetTable,
+		CreatedOn:                        r.CreatedOn,
+		LastModifiedOn:                   r.LastModifiedOn,
 	}, nil
 }
 
@@ -74,15 +85,16 @@ func (h *Handler) handleDeleteDataQualityRuleset(
 }
 
 type updateDataQualityRulesetInput struct {
-	Name    string `json:"Name"`
-	Ruleset string `json:"Ruleset,omitempty"`
+	Name        string `json:"Name"`
+	Ruleset     string `json:"Ruleset,omitempty"`
+	Description string `json:"Description,omitempty"`
 }
 
 func (h *Handler) handleUpdateDataQualityRuleset(
 	_ context.Context,
 	in *updateDataQualityRulesetInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.UpdateDataQualityRuleset(in.Name, in.Ruleset); err != nil {
+	if err := h.Backend.UpdateDataQualityRuleset(in.Name, in.Ruleset, in.Description); err != nil {
 		return nil, err
 	}
 

@@ -454,6 +454,8 @@ const (
 	keyIntegrationName     = "integrationName"
 	keyIntegrationStatus   = "integrationStatus"
 	keyIntegrationType     = "integrationType"
+	keyAccessPolicy        = "accessPolicy"
+	keyCreationTime        = "creationTime"
 )
 
 // completenessActions returns dispatch entries for all previously notImplemented CloudWatch Logs operations.

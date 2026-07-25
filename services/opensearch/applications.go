@@ -39,12 +39,16 @@ func (b *InMemoryBackend) CreateApplication(
 		dataSources = []AppDataSource{}
 	}
 
+	now := float64(b.clock().Unix())
+
 	app := &Application{
-		ID:          id,
-		Name:        name,
-		ARN:         appARN,
-		AppConfigs:  appConfigs,
-		DataSources: dataSources,
+		ID:            id,
+		Name:          name,
+		ARN:           appARN,
+		AppConfigs:    appConfigs,
+		DataSources:   dataSources,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
 	}
 	b.applications.Put(app)
 
@@ -115,6 +119,8 @@ func (b *InMemoryBackend) UpdateApplication(
 	if dataSources != nil {
 		app.DataSources = dataSources
 	}
+
+	app.LastUpdatedAt = float64(b.clock().Unix())
 
 	cp := *app
 	cp.AppConfigs = make([]AppConfig, len(app.AppConfigs))

@@ -22,8 +22,8 @@ type deleteAPIKeyInput struct {
 }
 
 type updateAPIKeyInput struct {
-	UpdateAPIKeyInput
 	APIKeyID string `json:"apiKeyId"`
+	UpdateAPIKeyInput
 }
 
 // parseAPIGWAPIKeysPath handles /apikeys/... paths.

@@ -265,12 +265,14 @@ func (b *InMemoryBackend) SubscribeToShard(
 	case iteratorTypeAfterSequenceNumber:
 		startPos = findSequencePosition(&shard.Records, input.StartingPosition.SequenceNumber, true)
 	case iteratorTypeAtTimestamp:
-		ts := time.Time{}
-		if input.StartingPosition.Timestamp != nil {
-			ts = *input.StartingPosition.Timestamp
+		// Timestamp is required for AT_TIMESTAMP; a genuinely omitted value
+		// (nil) is rejected rather than silently treated as position 0,
+		// mirroring GetShardIterator (see shard_iterators.go).
+		if input.StartingPosition.Timestamp == nil {
+			return nil, ErrInvalidArgument
 		}
 
-		startPos = findTimestampPosition(&shard.Records, ts)
+		startPos = findTimestampPosition(&shard.Records, *input.StartingPosition.Timestamp)
 	default:
 		return nil, ErrInvalidArgument
 	}

@@ -156,6 +156,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayPolicyTable(id string) error {
 		return fmt.Errorf("%w: %s", ErrTGWPolicyTableNotFound, id)
 	}
 	b.tgwPolicyTables.Delete(id)
+	delete(b.tags, id)
 
 	for _, assoc := range b.tgwPolicyTableAssociations.All() {
 		key := tgwPolicyTableAssociationsKeyFn(assoc)
@@ -373,6 +374,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayRouteTableAnnouncement(id string) 
 		return fmt.Errorf("%w: %s", ErrTGWRouteTableAnnouncementNotFound, id)
 	}
 	b.tgwRouteTableAnnouncements.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

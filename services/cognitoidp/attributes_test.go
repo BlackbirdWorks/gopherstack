@@ -13,11 +13,11 @@ import (
 func TestVerifyUserAttribute_RealCodeValidation(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+	tests := []struct {
 		name        string
-		useRealCode bool
-		wantStatus  int
 		wantErrType string
+		wantStatus  int
+		useRealCode bool
 	}{
 		{
 			name:        "correct_code_succeeds",

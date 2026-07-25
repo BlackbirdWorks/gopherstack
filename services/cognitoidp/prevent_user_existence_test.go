@@ -186,9 +186,12 @@ func Test_ForgotPassword_PreventUserExistenceErrors(t *testing.T) {
 			assert.NotEmpty(t, code, "masked success must still return a code-shaped response")
 
 			// The fabricated code must not be usable: no real user was created, so
-			// ConfirmForgotPassword must still fail rather than silently "succeeding".
+			// ConfirmForgotPassword must still fail -- and because this client also has
+			// PreventUserExistenceErrors=ENABLED, the failure itself must be masked as
+			// CodeMismatchException (the same error a real account with a wrong code would
+			// get), not UserNotFoundException.
 			confirmErr := b.ConfirmForgotPassword(client.ClientID, "no-such-user", code, "NewPass1234!")
-			require.ErrorIs(t, confirmErr, cognitoidp.ErrUserNotFound)
+			require.ErrorIs(t, confirmErr, cognitoidp.ErrCodeMismatch)
 		})
 	}
 }
@@ -236,6 +239,95 @@ func Test_ResendConfirmationCode_PreventUserExistenceErrors(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, code, "masked success must still return a code-shaped response")
+		})
+	}
+}
+
+// Test_ConfirmSignUp_PreventUserExistenceErrors proves ConfirmSignUp reveals
+// UserNotFoundException for an unknown username only when the app client's
+// PreventUserExistenceErrors is "LEGACY"; "ENABLED" must mask that distinction behind the
+// exact same CodeMismatchException a real (but unconfirmed) account with a wrong code
+// produces, closing the same username-enumeration vector InitiateAuth/ForgotPassword/
+// ResendConfirmationCode already close.
+func Test_ConfirmSignUp_PreventUserExistenceErrors(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		wantErr    error
+		name       string
+		clientOpts cognitoidp.UserPoolClientOptions
+	}{
+		{
+			name:       "default (unset) is LEGACY: reveals UserNotFoundException",
+			clientOpts: cognitoidp.UserPoolClientOptions{},
+			wantErr:    cognitoidp.ErrUserNotFound,
+		},
+		{
+			name:       "explicit LEGACY reveals UserNotFoundException",
+			clientOpts: cognitoidp.UserPoolClientOptions{PreventUserExistenceErrors: "LEGACY"},
+			wantErr:    cognitoidp.ErrUserNotFound,
+		},
+		{
+			name:       "ENABLED masks as CodeMismatchException matching a wrong code",
+			clientOpts: cognitoidp.UserPoolClientOptions{PreventUserExistenceErrors: "ENABLED"},
+			wantErr:    cognitoidp.ErrCodeMismatch,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolName := "csu-peu-pool-" + sanitizeTestName(tc.name)
+			pool, err := b.CreateUserPoolWithOpts(poolName, cognitoidp.UserPoolOptions{})
+			require.NoError(t, err)
+
+			client, err := b.CreateUserPoolClientWithOpts(pool.ID, "csu-peu-client", tc.clientOpts)
+			require.NoError(t, err)
+
+			err = b.ConfirmSignUp(client.ClientID, "no-such-user", "123456")
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+// Test_ConfirmForgotPassword_PreventUserExistenceErrors mirrors
+// Test_ConfirmSignUp_PreventUserExistenceErrors for ConfirmForgotPassword.
+func Test_ConfirmForgotPassword_PreventUserExistenceErrors(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		wantErr    error
+		name       string
+		clientOpts cognitoidp.UserPoolClientOptions
+	}{
+		{
+			name:       "default (unset) is LEGACY: reveals UserNotFoundException",
+			clientOpts: cognitoidp.UserPoolClientOptions{},
+			wantErr:    cognitoidp.ErrUserNotFound,
+		},
+		{
+			name:       "ENABLED masks as CodeMismatchException matching a wrong code",
+			clientOpts: cognitoidp.UserPoolClientOptions{PreventUserExistenceErrors: "ENABLED"},
+			wantErr:    cognitoidp.ErrCodeMismatch,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolName := "cfp-peu-pool-" + sanitizeTestName(tc.name)
+			pool, err := b.CreateUserPoolWithOpts(poolName, cognitoidp.UserPoolOptions{})
+			require.NoError(t, err)
+
+			client, err := b.CreateUserPoolClientWithOpts(pool.ID, "cfp-peu-client", tc.clientOpts)
+			require.NoError(t, err)
+
+			err = b.ConfirmForgotPassword(client.ClientID, "no-such-user", "123456", "NewPass1234!")
+			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }

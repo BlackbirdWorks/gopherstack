@@ -243,7 +243,7 @@ func TestSyncBlocker_CreateGetResolve(t *testing.T) {
 
 	_, err = b.CreateSyncConfiguration(
 		ctx, "main", "sync.yaml", link.RepositoryLinkID, "my-stack",
-		"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "",
+		"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "", "",
 	)
 	require.NoError(t, err)
 
@@ -265,5 +265,54 @@ func TestSyncBlocker_CreateGetResolve(t *testing.T) {
 
 	_, err = b.UpdateSyncBlocker(ctx, "nonexistent-id", "fixed")
 	require.Error(t, err)
+	assert.ErrorIs(t, err, codeconnections.ErrSyncBlockerNotFound)
+}
+
+// TestDeleteSyncConfiguration_CleansUpSyncBlockers verifies that deleting a
+// sync configuration also removes any sync blockers that referenced it,
+// rather than leaving ghost rows in the syncBlockers table forever. Real
+// DeleteSyncConfiguration's error list has no "blockers still exist"-style
+// exception (botocore codeconnections/2023-12-01/service-2.json), so
+// deletion is unconditional -- but leaving the blockers behind would let
+// them silently resurface via GetSyncBlockerSummary if a sync configuration
+// for the same ResourceName+SyncType is ever recreated.
+func TestDeleteSyncConfiguration_CleansUpSyncBlockers(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	b := newTestBackend()
+
+	conn, err := b.CreateConnection(ctx, "cleanup-conn", "GitHub", "", nil)
+	require.NoError(t, err)
+
+	link, err := b.CreateRepositoryLink(ctx, conn.ConnectionArn, "my-org", "my-repo", "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateSyncConfiguration(
+		ctx, "main", "sync.yaml", link.RepositoryLinkID, "cleanup-stack",
+		"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "", "",
+	)
+	require.NoError(t, err)
+
+	blocker, err := b.CreateSyncBlocker(ctx, "cleanup-stack", "CFN_STACK_SYNC", "AUTOMATED", "drift detected")
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteSyncConfiguration(ctx, "cleanup-stack", "CFN_STACK_SYNC"))
+
+	// Recreate a sync configuration for the exact same ResourceName+SyncType.
+	// The old blocker must NOT resurface.
+	_, err = b.CreateSyncConfiguration(
+		ctx, "main", "sync.yaml", link.RepositoryLinkID, "cleanup-stack",
+		"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "", "",
+	)
+	require.NoError(t, err)
+
+	summary, err := b.GetSyncBlockerSummary(ctx, "cleanup-stack", "CFN_STACK_SYNC")
+	require.NoError(t, err)
+	assert.Empty(t, summary.LatestBlockers, "blockers from the deleted sync configuration must not resurface")
+
+	// UpdateSyncBlocker on the orphaned ID must also fail now: it belonged
+	// to a sync configuration that no longer (in this form) references it.
+	_, err = b.UpdateSyncBlocker(ctx, blocker.ID, "fixed")
 	assert.ErrorIs(t, err, codeconnections.ErrSyncBlockerNotFound)
 }

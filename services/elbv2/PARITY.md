@@ -1,9 +1,17 @@
 ---
 service: elbv2
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancingv2@v1.54.8
-last_audit_commit: d118e0d8
-last_audit_date: 2026-07-05
-overall: A            # ~240 LOC genuine production-code fixes across several severe/systemic bugs (+~260 LOC test changes/additions); most of the surface was already accurate (see families below)
+last_audit_commit: eb262719e
+last_audit_date: 2026-07-23
+overall: A            # this pass: re-verified the 2026-07-05 audit's claims and field-diffed the
+                       # two items it had explicitly left deferred/gap'd. Found and fixed two real
+                       # bugs: RegexValues (a real SDK field) was entirely unimplemented, and the
+                       # AddTrustStoreRevocations request/response shape had a gopherstack-invented
+                       # field (plain, non-S3 RevocationContents.member.N) plus a wrong scalar type
+                       # (RevocationId modeled as string; real wire type is int64). Also surveyed the
+                       # full types.go surface for fields added to the SDK since the last audit;
+                       # several genuinely new (2024/2025-era) AWS features are not yet implemented
+                       # here -- see deferred below, listed with reasons rather than silently ok'd.
 ops:
   CreateLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -39,7 +47,7 @@ ops:
   AddListenerCertificates: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeListenerCertificates: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveListenerCertificates: {wire: ok, errors: ok, state: ok, persist: ok}
-  AddTrustStoreRevocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response never returned AddTrustStoreRevocationsResult.TrustStoreRevocations at all (empty body) despite the mutation succeeding - classic disguised-stub shape; now echoes the added revocations with RevocationId/RevocationType/NumberOfRevokedEntries/TrustStoreArn"}
+  AddTrustStoreRevocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (2026-07-05): response never returned AddTrustStoreRevocationsResult.TrustStoreRevocations at all (empty body) despite the mutation succeeding - classic disguised-stub shape; now echoes the added revocations with RevocationId/RevocationType/NumberOfRevokedEntries/TrustStoreArn. fixed (2026-07-23): the request parser accepted a plain, non-S3 `RevocationContents.member.N` value (e.g. a bare string) as a complete revocation entry - this shape does NOT exist on the real wire (types.RevocationContent is always S3Bucket/S3Key/S3ObjectVersion/RevocationType, verified against serializers.go's awsAwsquery_serializeDocumentRevocationContent); DELETED per the no-invented-fields rule. Also fixed: RevocationId was generated client-request-side as a string (a literal echo of the invented plain field, or a `\"s3-<uuid>\"` for S3-structured entries) - real AWS RevocationId is int64, assigned server-side when AWS parses the uploaded file, never client-supplied (verified against types.TrustStoreRevocation.RevocationId *int64). Now backend-assigned via a monotonic int64 counter (InMemoryBackend.revocationIDCounter, persisted in Snapshot/Restore)."}
   CreateTrustStore: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteSharedTrustStoreAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteTrustStore: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -48,31 +56,34 @@ ops:
   DescribeSSLPolicies: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static policy list verified against real AWS SSL policy names/ciphers"}
   DescribeTrustStoreAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTrustStores: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeTrustStoreRevocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix: response list field was named RevocationContents; real wire field (verified against the SDK deserializer) is TrustStoreRevocations. A real SDK client parsing this response would have silently received an EMPTY list on every call despite the mock holding real revocation data"}
+  DescribeTrustStoreRevocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix (2026-07-05): response list field was named RevocationContents; real wire field (verified against the SDK deserializer) is TrustStoreRevocations. A real SDK client parsing this response would have silently received an EMPTY list on every call despite the mock holding real revocation data. RevocationId is now int64 (see AddTrustStoreRevocations note, 2026-07-23)."}
   GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTrustStoreCaCertificatesBundle: {wire: partial, errors: ok, state: ok, persist: n/a, note: "Location is always empty string; there is no real S3-backed bundle to point to in this emulator. Documented gap, not fixed (see gaps)"}
   GetTrustStoreRevocationContent: {wire: partial, errors: ok, state: ok, persist: n/a, note: "same Location-always-empty gap as GetTrustStoreCaCertificatesBundle"}
   ModifyCapacityReservation: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyIpPools: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyTrustStore: {wire: ok, errors: ok, state: ok, persist: ok}
-  RemoveTrustStoreRevocations: {wire: ok, errors: ok, state: ok, persist: ok}
+  RemoveTrustStoreRevocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (2026-07-23): RevocationIds.member.N is a list of int64 on the real wire (types.RemoveTrustStoreRevocationsInput.RevocationIds []int64); the mock previously treated each entry as an opaque string. Now parses each member as an int64 (ErrInvalidParameter on a non-numeric entry)."}
 families:
   error-codes-and-http-status: {status: ok, note: "SYSTEMIC fix — see Notes. All *NotFound / Duplicate* / ResourceInUse / OperationNotPermitted / InvalidConfigurationRequest / PriorityInUse sentinel errors now map to HTTP 400, matching real AWS query-protocol behaviour (verified against the elasticloadbalancingv2 api-2.json model, which sets httpStatusCode=400 for every exception shape in this service). Previously NotFound errors returned 404 and AlreadyExists/DuplicateListener returned 409, which is REST-JSON-style, not query-protocol-style (EC2, also query-protocol, already uses 400-for-everything in this codebase - confirmed as the established, correct pattern)."
   actions (forward/redirect/fixed-response/authenticate-cognito/authenticate-oidc): {status: ok, note: "verified field-by-field against Action/RedirectActionConfig/FixedResponseActionConfig/ForwardActionConfig/AuthenticateCognitoActionConfig/AuthenticateOidcActionConfig; all wire field names and nesting correct, no changes needed"}
-  conditions (host-header/path-pattern/http-header/query-string/source-ip/http-request-method): {status: ok, note: "verified nested *Config wire shapes (HostHeaderConfig.Values.member.N etc.) against RuleCondition; added legacy top-level Values.member.N fallback for host-header/path-pattern (see CreateRule/ModifyRule above). RegexValues (a newer AWS condition feature) is not implemented - see deferred."}
+  conditions (host-header/path-pattern/http-header/query-string/source-ip/http-request-method): {status: ok, note: "verified nested *Config wire shapes (HostHeaderConfig.Values.member.N etc.) against RuleCondition; added legacy top-level Values.member.N fallback for host-header/path-pattern (see CreateRule/ModifyRule above). fixed (2026-07-23): RegexValues (types.RuleCondition.RegexValues / HostHeaderConditionConfig.RegexValues / PathPatternConditionConfig.RegexValues / HttpHeaderConditionConfig.RegexValues - valid only for host-header, path-pattern, http-header) is now parsed (nested *Config.RegexValues.member.N form, with a top-level Conditions.member.N.RegexValues.member.N fallback matching the Values precedent) and serialized back on CreateRule/ModifyRule/DescribeRules responses. Condition.RegexValues added to the backend model."}
   listener-certificates / ssl-policies / trust-stores (association, revocation add/remove/describe): {status: ok, note: "AddTrustStoreRevocations and DescribeTrustStoreRevocations wire bugs fixed (see ops above); everything else in this family verified correct"}
   target-health-lifecycle (initial->healthy transition, draining->removed transition, reason codes): {status: ok, note: "healthStateHealthy/unhealthy/initial/draining and Elb.InitialHealthChecking/Target.DeregistrationInProgress/Target.NotRegistered reason codes verified byte-for-byte against types.TargetHealthStateEnum/TargetHealthReasonEnum. Port-defaulting fix applies across Register/Deregister/DescribeTargetHealth (see ops above)."}
-  load-balancer-attributes / target-group-attributes / listener-attributes (Modify/Describe): {status: ok, note: "unchanged this pass; default attribute maps for ALB vs NLB/GWLB verified against real AWS defaults"}
+  load-balancer-attributes / target-group-attributes / listener-attributes (Modify/Describe): {status: partial, note: "load-balancer-attributes/listener-attributes unchanged this pass, previously verified against real AWS defaults. target-group-attributes: ModifyTargetGroupAttributes/DescribeTargetGroupAttributes wire shape and any explicitly-set key/value round-trip correctly, but CreateTargetGroup's default attribute map (target_groups.go, 5 keys: deregistration_delay.timeout_seconds/stickiness.enabled/stickiness.type/load_balancing.algorithm.type/slow_start.duration_seconds) is missing several attributes real AWS always pre-populates on DescribeTargetGroupAttributes (verified against types.TargetGroupAttribute's doc comment: proxy_protocol_v2.enabled, preserve_client_ip.enabled, stickiness.app_cookie.*, target_group_health.dns_failover.*/unhealthy_state_routing.*, target_health_state.unhealthy.*, deregistration_delay.connection_termination.enabled, load_balancing.algorithm.anomaly_mitigation, target_failover.on_deregistration/on_unhealthy, and lambda.multi_value_headers.enabled for Lambda target groups) - see deferred"}
   capacity-reservation / ip-pools / resource-policy / account-limits / ssl-policies: {status: ok, note: "unchanged this pass; verified op-by-op, all accurate"}
 gaps:
   - ASG/ECS -> ELBv2 target registration is cross-service: RegisterTargets/DeregisterTargets/DescribeTargetHealth on the ELBv2 side are correct and complete (verified and improved this pass - see ops), but nothing on the ASG/ECS side calls them when instances/tasks scale (bd: gopherstack-18k) - NOT fixed here, out of scope per task instructions (elbv2-only edits)
   - GetTrustStoreCaCertificatesBundle / GetTrustStoreRevocationContent always return an empty Location (no real S3-backed object to point to) - documented simplification, not a hidden stub (the ops correctly validate the trust store/revocation exist and return 400 TrustStoreNotFound/RevocationIdNotFound otherwise)
-  - RevocationId is modeled/returned as a string in this mock (echoing the caller-supplied plain content, or a generated "s3-<uuid>" for S3-structured entries); real AWS RevocationId is an int64 assigned by AWS when it parses the uploaded CRL/bundle. Existing tests in this package already encode string-shaped RevocationIds (e.g. "s3://my-bucket/revocations.crl", "1") predating this pass. Reworking this to a real monotonic int64 ID space is a moderate, invasive change (touches the TrustStoreRevocation struct, persistence JSON shape, and ~6 existing tests) for a rarely-exercised feature; deferred rather than rushed. No bd id filed yet - recommend filing one if this is prioritized.
-  - The plain (non-S3) `RevocationContents.member.N` request field parsed by parseTrustStoreRevocations does not exist in the real AWS API (RevocationContent is always S3Bucket/S3Key/S3ObjectVersion/RevocationType - verified against types.RevocationContent) - harmless (real clients never send that shape so the branch is simply unreachable in practice), but worth removing in a future cleanup pass
+  - CreateTargetGroup's default TargetGroupAttributes map only pre-populates 5 of the ~15+ attribute keys real AWS always returns from DescribeTargetGroupAttributes (see target-group-attributes family note above) - explicitly-set attributes still round-trip correctly via ModifyTargetGroupAttributes, so this is a completeness gap in the *defaults*, not a wire-shape bug; deferred rather than rushed because the correct default value differs per target type (instance/ip vs lambda) and expanding the map risks breaking the ~30 existing tests that assert on today's 5-key map. No bd id filed yet - recommend filing one if prioritized.
 deferred:
-  - RegexValues on rule conditions (a newer AWS feature letting host-header/path-pattern/http-header conditions match by regex instead of exact/wildcard Values) - not implemented at all; SDK-side type exists (RuleCondition.RegexValues []string) but this pass did not add parsing/serialization for it
+  - RuleTransforms (Rule.Transforms / CreateRuleInput.Transforms / ModifyRuleInput.Transforms{Transforms,ResetTransforms} - host-header-rewrite and url-rewrite request transforms via RuleTransform{Type,HostHeaderRewriteConfig,UrlRewriteConfig}, each holding RewriteConfig{Regex,Replace} pairs) is a real, newer AWS ELB field (verified against types.go) that is entirely absent from the Rule model and CreateRule/ModifyRule/DescribeRules wire shapes here. Not in this task's explicit rules checklist (conditions + actions only); a full implementation is a new resource-sub-family (storage, wire parsing/serialization on 3 ops, tests) rather than a one-line fix. No bd id filed yet.
+  - jwt-validation is a real, newer Action type (types.ActionTypeEnum has "jwt-validation" alongside forward/redirect/fixed-response/authenticate-oidc/authenticate-cognito; backed by JwtValidationActionConfig/JwtValidationActionAdditionalClaim) not implemented here at all - not in this task's explicit actions checklist (forward/redirect/fixed-response/authenticate-oidc/authenticate-cognito). No bd id filed yet.
+  - AnomalyDetection (types.TargetHealth.AnomalyDetection) and AdministrativeOverride (types.TargetHealth.AdministrativeOverride) are newer DescribeTargetHealth response fields (anomaly mitigation / zonal-shift administrative override status) not modeled on the backend Target/TargetHealthDescription types - not in this task's explicit target-health checklist. No bd id filed yet.
+  - LoadBalancer fields added to the SDK since the last full field-diff: IpamPools, EnablePrefixForIpv6SourceNat, CustomerOwnedIpv4Pool, EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic (types.LoadBalancer / CreateLoadBalancerInput) - all Outposts/IPAM/UDP-source-NAT niche features, not in this task's explicit CreateLoadBalancer checklist (subnets/subnetMappings/securityGroups/scheme/ipAddressType). No bd id filed yet.
+  - MutualAuthenticationAttributes.AdvertiseTrustStoreCaNames and .TrustStoreAssociationStatus (types.go) are not modeled on the backend MutualAuthentication struct - a newer mTLS/shared-trust-store feature, not in this task's explicit trust-store checklist. No bd id filed yet.
   - AuthenticateCognitoConfig/AuthenticateOidcConfig were verified for field-name accuracy only, not behaviorally exercised (this emulator does not implement actual OIDC/Cognito redirect flows, matching every other gopherstack service's scope for auth actions)
-leaks: {status: clean, note: "runHealthReconciler's ticker-based goroutine is unchanged and already correctly stopped by Close(); targetReadyAt/targetDrainingUntil maps were the one place persistence was incomplete (see Notes) - now both fully round-trip through Snapshot/Restore, including a nil-map defensive re-init on Restore for snapshots taken before targetDrainingUntil existed (assigning into a nil top-level map panics on next write, e.g. the next RegisterTargets/DeregisterTargets call after a restore)."}
+leaks: {status: clean, note: "runHealthReconciler's ticker-based goroutine is unchanged and already correctly stopped by Close(); targetReadyAt/targetDrainingUntil maps were the one place persistence was incomplete (see Notes) - now both fully round-trip through Snapshot/Restore, including a nil-map defensive re-init on Restore for snapshots taken before targetDrainingUntil existed (assigning into a nil top-level map panics on next write, e.g. the next RegisterTargets/DeregisterTargets call after a restore). 2026-07-23: new revocationIDCounter field added under the same coarse b.mu lock as every other backend mutation (AddTrustStoreRevocations already held the write lock); no new lock paths, goroutines, or ghost rows introduced. elbv2SnapshotVersion bumped 1->2 (see Notes) because a v1 snapshot's trustStores table can hold string-shaped RevocationIds that would fail to unmarshal into the new int64 field - handled the same discard-cleanly-on-mismatch way as every other version bump in this codebase, not a partial-decode risk."}
 ---
 
 ## Notes
@@ -191,6 +202,52 @@ wire per `types.go`'s doc comment). The mock only ever read the modern
 `*Config.Values.member.N` form. Added a fallback to the legacy
 `Conditions.member.N.Values.member.N` form when the modern form is empty — cheap,
 additive, and closes a real (if rarely hit by modern SDKs/Terraform) parsing gap.
+
+### RegexValues on rule conditions (2026-07-23)
+
+`RuleCondition.RegexValues` (and the per-field `HostHeaderConditionConfig.RegexValues`
+/ `PathPatternConditionConfig.RegexValues` / `HttpHeaderConditionConfig.RegexValues`)
+lets host-header/path-pattern/http-header conditions match by regular expression
+instead of exact/wildcard `Values`. Verified the wire shape against
+`awsAwsquery_serializeDocumentRuleCondition`/`...HostHeaderConditionConfig` etc.: it's
+a `RegexValues.member.N` list, sibling to `Values.member.N`, both at the nested
+`*Config` level and (per `RuleCondition.RegexValues`) at the top level. Implemented
+end-to-end: `Condition.RegexValues []string` added to the backend model; parsed via
+`parseRegexValues` (nested `*Config.RegexValues.member.N` first, top-level
+`Conditions.member.N.RegexValues.member.N` fallback, mirroring the existing legacy
+`Values` fallback); serialized back via `xmlConditionValuesConfig.RegexValues` /
+`xmlHTTPHeaderConfig.RegexValues` (both `*xmlStringList`, nil-when-empty, matching the
+`AlpnPolicy` convention). `http-request-method`/`source-ip`/`query-string` conditions
+don't support `RegexValues` on the real API and the parser never reads it for them.
+
+### AddTrustStoreRevocations invented field + RevocationId wrong type (2026-07-23)
+
+Two related bugs in the trust-store revocation family, both traced by field-diffing
+`types.RevocationContent` / `types.TrustStoreRevocation` against the mock:
+
+1. The request parser (`parseTrustStoreRevocations`, now
+   `parseTrustStoreRevocationContents`) accepted a **plain, non-S3** form —
+   `RevocationContents.member.N` as a bare string — as a complete revocation entry.
+   This shape does not exist on the real wire; `types.RevocationContent` is always
+   `S3Bucket`/`S3Key`/`S3ObjectVersion`/`RevocationType` (verified against
+   `awsAwsquery_serializeDocumentRevocationContent`, which only ever writes those four
+   keys). This was a gopherstack invention flagged in a prior pass's gaps list as
+   "worth removing in a future cleanup pass" — deleted per the no-invented-fields rule.
+2. `RevocationId` was modeled as a `string` — server-generated as `"s3-" +
+   uuid.New().String()` for every entry (there being no plain caller-supplied ID left
+   once (1) is deleted). Real AWS `RevocationId` is `*int64`, assigned by AWS itself
+   when it parses the uploaded CRL/bundle — never client-supplied (verified against
+   `types.TrustStoreRevocation.RevocationId` / `types.DescribeTrustStoreRevocation.
+   RevocationId`, both `*int64`). A real SDK client unmarshalling this mock's old
+   string-shaped `<RevocationId>s3-3fa8...</RevocationId>` into its generated
+   `*int64` field would fail to decode. Fixed: `TrustStoreRevocation.RevocationID`
+   is now `int64`; `InMemoryBackend.AddTrustStoreRevocations` assigns each new
+   revocation an ID from a monotonic `revocationIDCounter` (same pattern as
+   `ruleCounter`), under the existing write lock. `RemoveTrustStoreRevocations`'s
+   `RevocationIds.member.N` request field is parsed as `int64` too (real wire type
+   `[]int64`, verified against `RemoveTrustStoreRevocationsInput`).
+   `elbv2SnapshotVersion` bumped 1→2 because this changes the JSON shape of the
+   `trustStores` table (see leaks note above).
 
 ### Traps for the next auditor
 

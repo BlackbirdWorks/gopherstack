@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1" //nolint:gosec // G505: AWS SNS SignatureVersion=1 spec requires SHA-1
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -84,6 +85,44 @@ func (s *notificationSigner) sign(canonical string) string {
 	}
 
 	return base64.StdEncoding.EncodeToString(sig)
+}
+
+// signSHA1 computes the RSA-SHA1 signature of the canonical notification string
+// per AWS SNS SignatureVersion=1 (the AWS default when a topic/subscription does
+// not explicitly set SignatureVersion=2) and returns it base64-encoded.
+func (s *notificationSigner) signSHA1(canonical string) string {
+	//nolint:gosec // G401: AWS SNS SignatureVersion=1 spec requires SHA-1, not a password hash.
+	h := sha1.Sum([]byte(canonical)) // codeql[go/insecure-password-hashing] signature, not a password
+	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA1, h[:])
+	if err != nil {
+		return "SIGN-ERROR"
+	}
+
+	return base64.StdEncoding.EncodeToString(sig)
+}
+
+// resolveSignatureVersion normalizes a topic's raw SignatureVersion attribute
+// value to the effective AWS SNS signature version: "2" only when the
+// attribute is explicitly set to "2"; every other value (including unset/"")
+// resolves to "1", matching the real AWS default (SetTopicAttributes API docs:
+// "By default, SignatureVersion is set to 1").
+func resolveSignatureVersion(attrValue string) string {
+	if attrValue == signatureVersion2 {
+		return signatureVersion2
+	}
+
+	return signatureVersion1
+}
+
+// signWithVersion signs canonical using the hash algorithm selected by the
+// resolved SignatureVersion ("1" -> SHA1withRSA, anything else -> SHA256withRSA)
+// and returns the base64-encoded signature.
+func (s *notificationSigner) signWithVersion(canonical, version string) string {
+	if version == signatureVersion1 {
+		return s.signSHA1(canonical)
+	}
+
+	return s.sign(canonical)
 }
 
 // canonicalNotificationString builds the string-to-sign for a Notification

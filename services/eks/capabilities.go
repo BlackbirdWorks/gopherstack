@@ -35,6 +35,7 @@ func (b *InMemoryBackend) CreateCapability(
 		t.Merge(kv)
 	}
 
+	now := time.Now().UTC()
 	capa := &Capability{
 		ClusterName:             clusterName,
 		CapabilityName:          capabilityName,
@@ -43,8 +44,10 @@ func (b *InMemoryBackend) CreateCapability(
 		RoleARN:                 roleARN,
 		DeletePropagationPolicy: deletePropagationPolicy,
 		Status:                  statusActive,
-		CreatedAt:               time.Now().UTC(),
+		CreatedAt:               now,
+		ModifiedAt:              now,
 		Tags:                    t,
+		Health:                  &CapabilityHealth{Issues: []CapabilityIssue{}},
 	}
 	b.capabilities.Put(capa)
 	cp := *capa
@@ -91,21 +94,27 @@ func (b *InMemoryBackend) DescribeCapability(clusterName, capabilityName string)
 	return &cp, nil
 }
 
-// ListCapabilities returns all capability names in a cluster sorted alphabetically.
-func (b *InMemoryBackend) ListCapabilities(clusterName string) []string {
+// ListCapabilities returns all capabilities in a cluster (deep-copied,
+// sorted by name). The real API's ListCapabilities returns
+// CapabilitySummary objects (name/arn/status/type/version/timestamps), not
+// bare names -- callers needing the summary shape should project the
+// returned Capability values themselves (see capabilitySummaryToJSON in
+// handler_capabilities.go).
+func (b *InMemoryBackend) ListCapabilities(clusterName string) []*Capability {
 	b.mu.RLock("ListCapabilities")
 	defer b.mu.RUnlock()
 
 	items := b.capabilitiesByCluster.Get(clusterName)
-	names := make([]string, len(items))
+	list := make([]*Capability, len(items))
 
 	for i, c := range items {
-		names[i] = c.CapabilityName
+		cp := *c
+		list[i] = &cp
 	}
 
-	sort.Strings(names)
+	sort.Slice(list, func(i, j int) bool { return list[i].CapabilityName < list[j].CapabilityName })
 
-	return names
+	return list
 }
 
 // UpdateCapability updates an existing capability's role ARN and/or delete
@@ -131,6 +140,8 @@ func (b *InMemoryBackend) UpdateCapability(
 		capa.DeletePropagationPolicy = deletePropagationPolicy
 	}
 
+	capa.ModifiedAt = time.Now().UTC()
+
 	cp := *capa
 
 	return &cp, nil
@@ -144,6 +155,10 @@ func (b *InMemoryBackend) AddCapabilityInternal(capa *Capability) {
 
 	if capa.Tags == nil {
 		capa.Tags = tags.New("eks.capability." + capa.ClusterName + "." + capa.CapabilityName + ".tags")
+	}
+
+	if capa.Health == nil {
+		capa.Health = &CapabilityHealth{Issues: []CapabilityIssue{}}
 	}
 
 	b.capabilities.Put(capa)

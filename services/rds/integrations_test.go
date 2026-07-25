@@ -42,6 +42,62 @@ func TestCreateIntegration_WireShapeIsFlat(t *testing.T) {
 	assert.Equal(t, "arn:aws:rds:us-east-1:123456789012:cluster:src", resp.Result.SourceArn)
 }
 
+// TestIntegration_WireFieldsPresentOnAllOps asserts that KMSKeyId/CreateTime/
+// Tags/Errors -- fields present on types.Integration and on every one of
+// Create/Delete/ModifyIntegrationOutput in the real SDK, but previously
+// modeled only partially (KmsKeyID/CreatedAt existed on this emulator's
+// internal Integration struct but were never serialized onto ANY of these
+// three operations' XML responses; Tags and Errors didn't exist at all) --
+// actually appear in the raw wire body, not just the backend struct. This is
+// the "disguised stub" bug class from .claude/memories/parity-principles.md:
+// a real-looking, correctly-populated Go value that a real SDK client would
+// never see because the XML struct never carried it.
+func TestIntegration_WireFieldsPresentOnAllOps(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+
+	createRec := postRDSForm(t, h,
+		"Action=CreateIntegration&Version=2014-10-31"+
+			"&IntegrationName=wire-fields-intg"+
+			"&SourceArn=arn:aws:rds:us-east-1:123456789012:cluster:src"+
+			"&TargetArn=arn:aws:redshift:us-east-1:123456789012:namespace:tgt"+
+			"&KMSKeyId=arn:aws:kms:us-east-1:123456789012:key/test-key")
+	require.Equal(t, http.StatusOK, createRec.Code, "body: %s", createRec.Body.String())
+	assertIntegrationWireFieldsPresent(t, "CreateIntegration", createRec.Body.String())
+
+	// Tags aren't accepted inline on CreateIntegration by this emulator (no
+	// RDS Create* op in this service parses Tags.Tag.N at creation time --
+	// see toXMLIntegration's doc comment), so add one via the standard
+	// AddTagsToResource flow every resource in this emulator uses, then
+	// confirm it shows up on the wire via Modify/Delete.
+	h.Backend.AddTagsToResource(
+		"arn:aws:rds:us-east-1:000000000000:integration:wire-fields-intg",
+		[]rds.Tag{{Key: "env", Value: "test"}},
+	)
+
+	modifyRec := postRDSForm(t, h,
+		"Action=ModifyIntegration&Version=2014-10-31&IntegrationIdentifier=wire-fields-intg&DataFilter=include:*")
+	require.Equal(t, http.StatusOK, modifyRec.Code, "body: %s", modifyRec.Body.String())
+	assertIntegrationWireFieldsPresent(t, "ModifyIntegration", modifyRec.Body.String())
+	assert.Contains(t, modifyRec.Body.String(), "<Key>env</Key>")
+	assert.Contains(t, modifyRec.Body.String(), "<Value>test</Value>")
+
+	deleteRec := postRDSForm(t, h,
+		"Action=DeleteIntegration&Version=2014-10-31&IntegrationIdentifier=wire-fields-intg")
+	require.Equal(t, http.StatusOK, deleteRec.Code, "body: %s", deleteRec.Body.String())
+	assertIntegrationWireFieldsPresent(t, "DeleteIntegration", deleteRec.Body.String())
+}
+
+func assertIntegrationWireFieldsPresent(t *testing.T, action, respBody string) {
+	t.Helper()
+
+	assert.Contains(t, respBody, "<KMSKeyId>", "action=%s missing KMSKeyId", action)
+	assert.Contains(t, respBody, "<CreateTime>", "action=%s missing CreateTime", action)
+	assert.Contains(t, respBody, "<Tags>", "action=%s missing Tags", action)
+	assert.Contains(t, respBody, "<Errors>", "action=%s missing Errors", action)
+}
+
 func TestCreateIntegration(t *testing.T) {
 	t.Parallel()
 

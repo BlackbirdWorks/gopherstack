@@ -162,6 +162,21 @@ func topicKey(clusterArn, topicName string) string {
 	return clusterArn + "|" + topicName
 }
 
+// nextVersionToken returns a new opaque optimistic-lock token, formatted like
+// the 14-character uppercase alphanumeric tokens real MSK issues for
+// Cluster.CurrentVersion / Replicator.CurrentVersion (e.g. "K3AEGXETSR30VB").
+// Real MSK bumps these on every successful mutating operation so that a
+// subsequent update must supply the version returned by the most recent
+// describe/create/update -- see newClusterOperationLocked and
+// InMemoryBackend.UpdateReplicationInfo.
+func nextVersionToken() string {
+	const tokenLen = 14
+
+	raw := strings.ToUpper(strings.ReplaceAll(uuid.New().String(), "-", ""))
+
+	return raw[:tokenLen]
+}
+
 // collectClusterChildrenLocked verifies the cluster exists, then returns the
 // clones of every value idx groups under clusterArn, sorted ascending by
 // sortKey. Callers must hold b.mu (read lock).
@@ -231,13 +246,4 @@ func nonNilTagsCopy(tags map[string]string) map[string]string {
 	}
 
 	return maps.Clone(tags)
-}
-
-// nonNilMapCopy returns a new non-nil copy of a string map; an empty map if nil.
-func nonNilMapCopy(m map[string]string) map[string]string {
-	if m == nil {
-		return make(map[string]string)
-	}
-
-	return maps.Clone(m)
 }

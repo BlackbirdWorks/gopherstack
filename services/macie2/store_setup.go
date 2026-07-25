@@ -18,9 +18,10 @@ package macie2
 // tables registered directly on b.registry, and persistence.go drives every
 // one of them through b.registry.SnapshotAll() / RestoreAll().
 //
-// storedCustomDataID.Deleted is a plain soft-delete flag on an otherwise
-// directly-registered value -- it rides along inside the table entry itself
-// (no hidden identity, so no DTO is needed for it either).
+// CustomDataIdentifier.Deleted (embedded into storedCustomDataID) is a plain
+// soft-delete flag on an otherwise directly-registered value -- it rides
+// along inside the table entry itself (no hidden identity, so no DTO is
+// needed for it either).
 //
 // Left as plain maps (not store.Table-backed), and persistence-audited in
 // persistence.go's backendSnapshot:

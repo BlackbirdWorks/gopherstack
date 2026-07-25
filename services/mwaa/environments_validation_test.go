@@ -2,6 +2,8 @@ package mwaa_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -20,6 +22,7 @@ func TestCreateEnvironment_WebserverAccessMode(t *testing.T) {
 	}{
 		{name: "public_only_valid", accessMode: "PUBLIC_ONLY", wantErr: false},
 		{name: "private_only_valid", accessMode: "PRIVATE_ONLY", wantErr: false},
+		{name: "public_and_private_valid", accessMode: "PUBLIC_AND_PRIVATE", wantErr: false},
 		{name: "empty_uses_default", accessMode: "", wantErr: false},
 		{name: "invalid_mode", accessMode: "INVALID_MODE", wantErr: true},
 	}
@@ -30,10 +33,11 @@ func TestCreateEnvironment_WebserverAccessMode(t *testing.T) {
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(context.Background(), "env", &mwaa.ExportedCreateEnvironmentRequest{
-				DagS3Path:           "dags/",
-				ExecutionRoleArn:    "arn:aws:iam::123456789012:role/role",
-				SourceBucketArn:     "arn:aws:s3:::bucket",
-				WebserverAccessMode: tt.accessMode,
+				DagS3Path:            "dags/",
+				ExecutionRoleArn:     "arn:aws:iam::123456789012:role/role",
+				SourceBucketArn:      "arn:aws:s3:::bucket",
+				NetworkConfiguration: testNetworkConfig(),
+				WebserverAccessMode:  tt.accessMode,
 			})
 
 			if tt.wantErr {
@@ -53,6 +57,7 @@ func TestCreateEnvironment_EnvironmentClass(t *testing.T) {
 		class   string
 		wantErr bool
 	}{
+		{name: "mw1_micro_valid", class: "mw1.micro", wantErr: false},
 		{name: "mw1_small_valid", class: "mw1.small", wantErr: false},
 		{name: "mw1_medium_valid", class: "mw1.medium", wantErr: false},
 		{name: "mw1_large_valid", class: "mw1.large", wantErr: false},
@@ -68,10 +73,11 @@ func TestCreateEnvironment_EnvironmentClass(t *testing.T) {
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(context.Background(), "env", &mwaa.ExportedCreateEnvironmentRequest{
-				DagS3Path:        "dags/",
-				ExecutionRoleArn: "arn:aws:iam::123456789012:role/role",
-				SourceBucketArn:  "arn:aws:s3:::bucket",
-				EnvironmentClass: tt.class,
+				DagS3Path:            "dags/",
+				ExecutionRoleArn:     "arn:aws:iam::123456789012:role/role",
+				SourceBucketArn:      "arn:aws:s3:::bucket",
+				NetworkConfiguration: testNetworkConfig(),
+				EnvironmentClass:     tt.class,
 			})
 
 			if tt.wantErr {
@@ -409,111 +415,29 @@ func TestMaxWorkers_Update_ZeroNoCheck(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestWorkerReplacementStrategy_CreateValid(t *testing.T) {
+// TestWorkerReplacementStrategy_AbsentFromCreate verifies WorkerReplacementStrategy
+// is not part of the CreateEnvironment request or response shape at all: AWS's
+// CreateEnvironmentInput has no such member (it only exists on
+// UpdateEnvironmentInput -- see models.go's createEnvironmentRequest doc
+// comment), so a value supplied on Create must be silently ignored rather than
+// validated or persisted anywhere on the resulting Environment.
+func TestWorkerReplacementStrategy_AbsentFromCreate(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		strategy string
-	}{
-		{name: "FORCED", strategy: "FORCED"},
-		{name: "TERMINATION_WITH_DRAIN", strategy: "TERMINATION_WITH_DRAIN"},
-		{name: "empty_defaults_ok", strategy: ""},
-	}
+	h := mwaa.NewHandler(mwaa.NewInMemoryBackend(testRegion, testAccountID))
+	rec := doMWAARequest(t, h, http.MethodPut, "/environments/wrs-create-ignored", map[string]any{
+		"DagS3Path":                 "dags/",
+		"ExecutionRoleArn":          "arn:aws:iam::123456789012:role/role",
+		"SourceBucketArn":           "arn:aws:s3:::bucket",
+		"NetworkConfiguration":      networkConfigBody(),
+		"WorkerReplacementStrategy": "BOGUS_VALUE_A_REAL_CLIENT_COULD_NEVER_SEND",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "an unknown/invented field on Create must not fail validation")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			req := newCreateReq()
-			req.WorkerReplacementStrategy = tt.strategy
-			env, err := b.CreateEnvironment(context.Background(), "wrs-create-"+tt.name, req)
-			require.NoError(t, err)
-
-			if tt.strategy != "" {
-				assert.Equal(t, tt.strategy, env.WorkerReplacementStrategy)
-			}
-		})
-	}
-}
-
-func TestWorkerReplacementStrategy_CreateInvalid(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		strategy string
-	}{
-		{name: "lowercase", strategy: "forced"},
-		{name: "bogus", strategy: "ROLLING"},
-		{name: "random", strategy: "BEST_EFFORT"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			req := newCreateReq()
-			req.WorkerReplacementStrategy = tt.strategy
-			_, err := b.CreateEnvironment(context.Background(), "wrs-inv-"+tt.name, req)
-			require.Error(t, err)
-		})
-	}
-}
-
-func TestWorkerReplacementStrategy_UpdatePersists(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		initial   string
-		updated   string
-		wantFinal string
-	}{
-		{
-			name:      "set_FORCED",
-			initial:   "TERMINATION_WITH_DRAIN",
-			updated:   "FORCED",
-			wantFinal: "FORCED",
-		},
-		{
-			name:      "set_TERMINATION_WITH_DRAIN",
-			initial:   "FORCED",
-			updated:   "TERMINATION_WITH_DRAIN",
-			wantFinal: "TERMINATION_WITH_DRAIN",
-		},
-		{
-			name:      "empty_update_keeps_current",
-			initial:   "FORCED",
-			updated:   "",
-			wantFinal: "FORCED",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			req := newCreateReq()
-			req.WorkerReplacementStrategy = tt.initial
-			envName := "wrs-upd-" + tt.name
-			_, err := b.CreateEnvironment(context.Background(), envName, req)
-			require.NoError(t, err)
-			_, _ = b.GetEnvironment(context.Background(), envName) // promote to AVAILABLE
-
-			_, err = b.UpdateEnvironment(context.Background(), envName, &mwaa.ExportedUpdateEnvironmentRequest{
-				WorkerReplacementStrategy: tt.updated,
-			})
-			require.NoError(t, err)
-
-			env, err := b.GetEnvironment(context.Background(), envName)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantFinal, env.WorkerReplacementStrategy)
-		})
-	}
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	_, hasField := resp["WorkerReplacementStrategy"]
+	assert.False(t, hasField, "CreateEnvironment response must never echo WorkerReplacementStrategy")
 }
 
 func TestWorkerReplacementStrategy_UpdateInvalid(t *testing.T) {
@@ -543,7 +467,7 @@ func TestWorkerReplacementStrategy_ValidValues(t *testing.T) {
 		name     string
 	}{
 		{name: "forced", strategy: "FORCED"},
-		{name: "drain", strategy: "TERMINATION_WITH_DRAIN"},
+		{name: "graceful", strategy: "GRACEFUL"},
 		{name: "empty", strategy: ""},
 	}
 
@@ -573,9 +497,9 @@ func TestWorkerReplacementStrategy_InvalidValues(t *testing.T) {
 
 	tests := []string{
 		"IMMEDIATE",
-		"GRACEFUL",
+		"TERMINATION_WITH_DRAIN", // not a real WorkerReplacementStrategy value
 		"forced",
-		"drain",
+		"graceful",
 		"TERMINATE",
 		"REPLACE",
 	}
@@ -632,7 +556,7 @@ func TestUpdateWorkerReplacementStrategy_Persisted(t *testing.T) {
 		strategy string
 	}{
 		{name: "forced", strategy: "FORCED"},
-		{name: "drain", strategy: "TERMINATION_WITH_DRAIN"},
+		{name: "graceful", strategy: "GRACEFUL"},
 	}
 
 	for _, tt := range tests {
@@ -671,6 +595,7 @@ func TestUpdateWebserverAccessMode_ValidValues(t *testing.T) {
 	}{
 		{name: "public", mode: "PUBLIC_ONLY"},
 		{name: "private", mode: "PRIVATE_ONLY"},
+		{name: "public_and_private", mode: "PUBLIC_AND_PRIVATE"},
 		{name: "empty", mode: ""},
 	}
 
@@ -734,7 +659,7 @@ func TestUpdateEnvironmentClass_ValidClasses(t *testing.T) {
 	t.Parallel()
 
 	classes := []string{
-		"mw1.small", "mw1.medium", "mw1.large", "mw1.xlarge", "mw1.2xlarge",
+		"mw1.micro", "mw1.small", "mw1.medium", "mw1.large", "mw1.xlarge", "mw1.2xlarge",
 	}
 
 	for _, cls := range classes {

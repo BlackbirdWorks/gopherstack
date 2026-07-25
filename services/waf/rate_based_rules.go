@@ -99,7 +99,9 @@ func (b *InMemoryBackend) UpdateRateBasedRule(
 	return nil
 }
 
-// DeleteRateBasedRule deletes a RateBasedRule.
+// DeleteRateBasedRule deletes a RateBasedRule. Real AWS rejects deletion
+// while the rule is still activated in a WebACL (WAFReferencedItemException)
+// or still contains any MatchPredicates (WAFNonEmptyEntityException).
 func (b *InMemoryBackend) DeleteRateBasedRule(id, changeToken string) error {
 	b.mu.Lock("DeleteRateBasedRule")
 	defer b.mu.Unlock()
@@ -108,12 +110,17 @@ func (b *InMemoryBackend) DeleteRateBasedRule(id, changeToken string) error {
 		return err
 	}
 
-	if !b.rateBasedRules.Has(id) {
+	rule, ok := b.rateBasedRules.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.ruleReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(rule.MatchPredicates) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.rateBasedRules.Delete(id)

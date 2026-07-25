@@ -15,7 +15,7 @@ func (b *InMemoryBackend) AddPartner(accountID, clusterID, databaseName, partner
 		return nil, fmt.Errorf("%w: DatabaseName is required", ErrInvalidParameter)
 	}
 	if partnerName == "" {
-		return nil, fmt.Errorf("%w: PartnerIntegrationId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: PartnerName is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("AddPartner")

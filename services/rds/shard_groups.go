@@ -29,6 +29,8 @@ func (b *InMemoryBackend) CreateDBShardGroup(
 	sg := &DBShardGroup{
 		DBShardGroupIdentifier: id,
 		DBClusterIdentifier:    clusterID,
+		DBShardGroupArn:        b.rdsARN("shard-group", id),
+		DBShardGroupResourceID: "shardgroup-" + id,
 		MaxACU:                 maxACU,
 		MinACU:                 minACU,
 		ComputeRedundancy:      computeRedundancy,

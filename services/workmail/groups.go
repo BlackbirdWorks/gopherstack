@@ -3,6 +3,7 @@ package workmail
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -92,7 +93,15 @@ func (b *InMemoryBackend) UpdateGroup(orgID, entityID string, hidden bool) error
 	return nil
 }
 
-// DeleteGroup deletes a group.
+// DeleteGroup deletes a group. Both DeleteGroup and DeleteResource are
+// org-check + find + state-guard + email/globalAliases cleanup +
+// cascadeCleanEntity (the actual shared cascade logic is already deduped
+// into cascadeCleanEntity in store.go) + own-table delete; the remaining
+// shape differs only in field/type names (Group/GroupID/groupsByEmail/
+// groupMembers vs Resource/ResourceID/resourcesByEmail/delegates), which a
+// generic helper isn't worth introducing for.
+//
+//nolint:dupl // structurally-identical CRUD pair with DeleteResource; see doc comment above.
 func (b *InMemoryBackend) DeleteGroup(orgID, entityID string) error {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
@@ -117,15 +126,18 @@ func (b *InMemoryBackend) DeleteGroup(orgID, entityID string) error {
 		delete(b.groupsByEmail[orgID], g.Email)
 		b.globalAliases.Delete(g.Email)
 	}
+	b.cascadeCleanEntity(orgID, g.GroupID, g.ARN)
 	b.groups.Delete(orgKey(orgID, g.GroupID))
 	delete(b.groupMembers[orgID], g.GroupID)
 
 	return nil
 }
 
-// ListGroups returns a paginated list of groups.
+// ListGroups returns a paginated list of groups, optionally narrowed by
+// filter (see GroupFilter -- mirrors ListGroupsInput.Filters).
 func (b *InMemoryBackend) ListGroups(
 	orgID string,
+	filter *GroupFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*GroupSummary, string, error) {
@@ -138,6 +150,9 @@ func (b *InMemoryBackend) ListGroups(
 
 	gs := make([]*GroupSummary, 0, len(b.groupsByOrg.Get(orgID)))
 	for _, g := range b.groupsByOrg.Get(orgID) {
+		if !groupMatchesFilter(g, filter) {
+			continue
+		}
 		gs = append(
 			gs,
 			&GroupSummary{GroupID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State},
@@ -148,6 +163,25 @@ func (b *InMemoryBackend) ListGroups(
 	items, next := paginate(gs, maxResults, nextToken)
 
 	return items, next, nil
+}
+
+// groupMatchesFilter reports whether g satisfies every non-empty dimension
+// of filter. A nil filter matches everything.
+func groupMatchesFilter(g *Group, filter *GroupFilter) bool {
+	if filter == nil {
+		return true
+	}
+	if filter.NamePrefix != "" && !strings.HasPrefix(g.Name, filter.NamePrefix) {
+		return false
+	}
+	if filter.PrimaryEmailPrefix != "" && !strings.HasPrefix(g.Email, filter.PrimaryEmailPrefix) {
+		return false
+	}
+	if filter.State != "" && g.State != filter.State {
+		return false
+	}
+
+	return true
 }
 
 // AssociateMemberToGroup adds a member to a group.
@@ -234,9 +268,12 @@ func (b *InMemoryBackend) ListGroupMembers(
 	return items, next, nil
 }
 
-// ListGroupsForEntity returns groups containing the given entity.
+// ListGroupsForEntity returns groups containing the given entity, optionally
+// narrowed to group names starting with groupNamePrefix (mirrors
+// ListGroupsForEntityInput.Filters.GroupNamePrefix, the ListGroupsForEntity
+// operation's single filter dimension).
 func (b *InMemoryBackend) ListGroupsForEntity(
-	orgID, entityID string,
+	orgID, entityID, groupNamePrefix string,
 	maxResults int32,
 	nextToken string,
 ) ([]*GroupSummary, string, error) {
@@ -249,12 +286,16 @@ func (b *InMemoryBackend) ListGroupsForEntity(
 
 	gs := make([]*GroupSummary, 0)
 	for _, g := range b.groupsByOrg.Get(orgID) {
-		if b.groupMembers[orgID][g.GroupID][entityID] {
-			gs = append(
-				gs,
-				&GroupSummary{GroupID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State},
-			)
+		if !b.groupMembers[orgID][g.GroupID][entityID] {
+			continue
 		}
+		if groupNamePrefix != "" && !strings.HasPrefix(g.Name, groupNamePrefix) {
+			continue
+		}
+		gs = append(
+			gs,
+			&GroupSummary{GroupID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State},
+		)
 	}
 	sort.Slice(gs, func(i, j int) bool { return gs[i].Name < gs[j].Name })
 

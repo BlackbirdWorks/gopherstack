@@ -238,11 +238,24 @@ func (h *Handler) handleAddLayerVersionPermission(
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Principal is required")
 	}
 
+	input.RevisionID = c.Request().URL.Query().Get("RevisionId")
+
 	out, addErr := bk.AddLayerVersionPermission(layerName, version, &input)
 	if addErr != nil {
 		if errors.Is(addErr, ErrLayerNotFound) || errors.Is(addErr, ErrLayerVersionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				fmt.Sprintf("Layer version not found: %s:%d", layerName, version))
+		}
+
+		if errors.Is(addErr, ErrFunctionAlreadyExists) {
+			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
+				"Permission statement already exists: "+input.StatementID)
+		}
+
+		if errors.Is(addErr, ErrPreconditionFailed) {
+			return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailedException",
+				"The RevisionId provided does not match the latest RevisionId. Fetch the latest version "+
+					"and try again.")
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", addErr.Error())
@@ -254,10 +267,18 @@ func (h *Handler) handleAddLayerVersionPermission(
 func (h *Handler) handleRemoveLayerVersionPermission(
 	c *echo.Context, bk *InMemoryBackend, layerName string, version int64, statementID string,
 ) error {
-	if err := bk.RemoveLayerVersionPermission(layerName, version, statementID); err != nil {
+	revisionID := c.Request().URL.Query().Get("RevisionId")
+
+	if err := bk.RemoveLayerVersionPermission(layerName, version, statementID, revisionID); err != nil {
 		if errors.Is(err, ErrLayerNotFound) || errors.Is(err, ErrLayerVersionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				fmt.Sprintf("Layer version not found: %s:%d", layerName, version))
+		}
+
+		if errors.Is(err, ErrPreconditionFailed) {
+			return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailedException",
+				"The RevisionId provided does not match the latest RevisionId. Fetch the latest version "+
+					"and try again.")
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())

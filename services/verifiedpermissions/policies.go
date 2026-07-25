@@ -3,6 +3,7 @@ package verifiedpermissions
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	cedar "github.com/cedar-policy/cedar-go"
@@ -46,9 +47,22 @@ func (b *InMemoryBackend) CreatePolicy(policyStoreID string, params CreatePolicy
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
+	fingerprint := createPolicyFingerprint(policyStoreID, params)
+
+	existingID, err := b.checkClientToken("CreatePolicy", params.ClientToken, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+
+	if existingID != "" {
+		if existing, ok := b.policies.Get(policyKey(policyStoreID, existingID)); ok {
+			return clonePolicy(existing), nil
+		}
+	}
+
 	if params.PolicyType == policyTypeStatic {
-		if err := parseCedarStatement(params.Statement); err != nil {
-			return nil, err
+		if statementErr := parseCedarStatement(params.Statement); statementErr != nil {
+			return nil, statementErr
 		}
 	}
 
@@ -81,8 +95,21 @@ func (b *InMemoryBackend) CreatePolicy(policyStoreID string, params CreatePolicy
 	b.policies.Put(p)
 	b.arnIndex[policyARN(b.accountID, policyStoreID, id)] = arnKindPolicy + ":" + policyStoreID + ":" + id
 	b.invalidatePolicySetCache(policyStoreID)
+	b.recordClientToken("CreatePolicy", params.ClientToken, fingerprint, id)
 
 	return clonePolicy(p), nil
+}
+
+// createPolicyFingerprint deterministically encodes the parameters of a
+// CreatePolicy call for ClientToken idempotency (see
+// InMemoryBackend.checkClientToken): a retry with the same ClientToken but a
+// different fingerprint is a real AWS ConflictException.
+func createPolicyFingerprint(policyStoreID string, params CreatePolicyParams) string {
+	return strings.Join([]string{
+		policyStoreID, params.PolicyType, params.Statement, params.Description,
+		params.PolicyTemplateID, params.PrincipalEntityType, params.PrincipalEntityID,
+		params.ResourceEntityType, params.ResourceEntityID,
+	}, "\x00")
 }
 
 // GetPolicy returns the policy with the given ID.
@@ -248,7 +275,9 @@ func (b *InMemoryBackend) DeletePolicy(policyStoreID, policyID string) error {
 		return fmt.Errorf("%w: policy %s not found", ErrPolicyNotFound, policyID)
 	}
 
-	delete(b.arnIndex, policyARN(b.accountID, policyStoreID, policyID))
+	resourceARN := policyARN(b.accountID, policyStoreID, policyID)
+	delete(b.arnIndex, resourceARN)
+	delete(b.resourceTags, resourceARN)
 	b.policies.Delete(policyKey(policyStoreID, policyID))
 	b.invalidatePolicySetCache(policyStoreID)
 

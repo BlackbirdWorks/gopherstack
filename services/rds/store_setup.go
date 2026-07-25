@@ -12,13 +12,22 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-func instancesKeyFn(v *DBInstance) string                 { return v.DBInstanceIdentifier }
-func snapshotsKeyFn(v *DBSnapshot) string                 { return v.DBSnapshotIdentifier }
-func subnetGroupsKeyFn(v *DBSubnetGroup) string           { return v.DBSubnetGroupName }
-func parameterGroupsKeyFn(v *DBParameterGroup) string     { return v.DBParameterGroupName }
-func optionGroupsKeyFn(v *OptionGroup) string             { return v.OptionGroupName }
-func clustersKeyFn(v *DBCluster) string                   { return v.DBClusterIdentifier }
-func clusterSnapshotsKeyFn(v *DBClusterSnapshot) string   { return v.DBClusterSnapshotIdentifier }
+// instancesKeyFn, snapshotsKeyFn, parameterGroupsKeyFn, clustersKeyFn, and
+// clusterSnapshotsKeyFn normalize through normalizeID (see its doc comment):
+// these five identifier families are case-insensitive on real AWS, while the
+// value's own identifier field keeps the caller's original casing for wire
+// output. parameterGroupsKeyFn backs both the parameterGroups AND
+// clusterParameterGroups tables (both store *DBParameterGroup — AWS's
+// DBClusterParameterGroupName is a distinct API name for the same shape).
+func instancesKeyFn(v *DBInstance) string             { return normalizeID(v.DBInstanceIdentifier) }
+func snapshotsKeyFn(v *DBSnapshot) string             { return normalizeID(v.DBSnapshotIdentifier) }
+func subnetGroupsKeyFn(v *DBSubnetGroup) string       { return v.DBSubnetGroupName }
+func parameterGroupsKeyFn(v *DBParameterGroup) string { return normalizeID(v.DBParameterGroupName) }
+func optionGroupsKeyFn(v *OptionGroup) string         { return v.OptionGroupName }
+func clustersKeyFn(v *DBCluster) string               { return normalizeID(v.DBClusterIdentifier) }
+func clusterSnapshotsKeyFn(v *DBClusterSnapshot) string {
+	return normalizeID(v.DBClusterSnapshotIdentifier)
+}
 func clusterEndpointsKeyFn(v *DBClusterEndpoint) string   { return v.DBClusterEndpointIdentifier }
 func exportTasksKeyFn(v *ExportTask) string               { return v.ExportTaskIdentifier }
 func globalClustersKeyFn(v *GlobalCluster) string         { return v.GlobalClusterIdentifier }
@@ -27,9 +36,19 @@ func dbSecurityGroupsKeyFn(v *DBSecurityGroup) string     { return v.DBSecurityG
 func blueGreenDeploymentsKeyFn(v *BlueGreenDeployment) string {
 	return v.BlueGreenDeploymentIdentifier
 }
-func snapshotAttributesKeyFn(v *DBSnapshotAttributesResult) string { return v.DBSnapshotIdentifier }
+
+// snapshotAttributesKeyFn / clusterSnapshotAttributesKeyFn also normalize:
+// these tables are satellite data keyed by the same case-insensitive
+// DBSnapshotIdentifier / DBClusterSnapshotIdentifier as the snapshots /
+// clusterSnapshots tables above, so leaving them case-sensitive would
+// re-introduce the same collision bug one level removed (e.g. Modify'ing
+// attributes as "MySnap" then Describe'ing them as "mysnap" would wrongly
+// report no attributes).
+func snapshotAttributesKeyFn(v *DBSnapshotAttributesResult) string {
+	return normalizeID(v.DBSnapshotIdentifier)
+}
 func clusterSnapshotAttributesKeyFn(v *DBClusterSnapshotAttributesResult) string {
-	return v.DBClusterSnapshotIdentifier
+	return normalizeID(v.DBClusterSnapshotIdentifier)
 }
 func reservedInstancesKeyFn(v *ReservedDBInstance) string { return v.ReservedDBInstanceID }
 func recommendationsKeyFn(v *DBRecommendation) string     { return v.RecommendationID }

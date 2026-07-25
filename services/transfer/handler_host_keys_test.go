@@ -53,9 +53,9 @@ func TestHandler_DescribeHostKeyIncludesFingerprint(t *testing.T) {
 	assert.True(t, hasFp, "HostKeyFingerprint must be present in DescribeHostKey response")
 	assert.Contains(t, fp, "SHA256:", "HostKeyFingerprint must start with SHA256:")
 
-	dateImported, hasDate := hk["DateImported"].(string)
-	assert.True(t, hasDate, "DateImported must be present in DescribeHostKey response")
-	assert.NotEmpty(t, dateImported)
+	dateImported, hasDate := hk["DateImported"].(float64)
+	assert.True(t, hasDate, "DateImported must be present in DescribeHostKey response as an epoch-seconds JSON number")
+	assert.Positive(t, dateImported)
 
 	arn, hasArn := hk["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in DescribeHostKey response")
@@ -100,9 +100,9 @@ func TestHandler_ListHostKeysIncludesFingerprintAndArn(t *testing.T) {
 	assert.True(t, hasFp, "HostKeyFingerprint must be present in ListHostKeys items")
 	assert.Contains(t, fp, "SHA256:", "HostKeyFingerprint must start with SHA256:")
 
-	dateImported, hasDate := item["DateImported"].(string)
-	assert.True(t, hasDate, "DateImported must be present in ListHostKeys items")
-	assert.NotEmpty(t, dateImported)
+	dateImported, hasDate := item["DateImported"].(float64)
+	assert.True(t, hasDate, "DateImported must be present in ListHostKeys items as an epoch-seconds JSON number")
+	assert.Positive(t, dateImported)
 
 	arn, hasArn := item["Arn"].(string)
 	assert.True(t, hasArn, "Arn must be present in ListHostKeys items")

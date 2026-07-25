@@ -10,6 +10,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// dataSetImportModeSPICE is the DataSetImportMode value that triggers a real,
+// describable Ingestion record on CreateDataSet/UpdateDataSet (see both
+// methods' doc comments).
+const dataSetImportModeSPICE = "SPICE"
+
 // ---- DataSets ----
 
 // CreateDataSet creates a dataset. When importMode is SPICE, AWS triggers an
@@ -37,7 +42,7 @@ func (b *InMemoryBackend) CreateDataSet(
 	}
 
 	if importMode == "" {
-		importMode = "SPICE"
+		importMode = dataSetImportModeSPICE
 	}
 
 	now := time.Now().UTC()
@@ -58,7 +63,7 @@ func (b *InMemoryBackend) CreateDataSet(
 	}
 
 	var ingestion *Ingestion
-	if importMode == "SPICE" {
+	if importMode == dataSetImportModeSPICE {
 		ing := &storedIngestion{
 			CreatedTime:     now,
 			IngestionID:     uuid.NewString(),
@@ -90,14 +95,22 @@ func (b *InMemoryBackend) DescribeDataSet(accountID, dataSetID string) (*DataSet
 	return ds.toDataSet(), nil
 }
 
-func (b *InMemoryBackend) UpdateDataSet(accountID, dataSetID, name, importMode string) (*DataSet, error) {
+// UpdateDataSet updates a dataset. Like CreateDataSet, real AWS's
+// UpdateDataSetOutput documents IngestionArn/IngestionId as "triggered as a
+// result of dataset creation if the import mode is SPICE" -- the same
+// conditional-on-ImportMode semantics apply here (UpdateDataSet requires the
+// full dataset definition including ImportMode on every call, so a SPICE
+// dataset effectively re-ingests on every update). This mirrors CreateDataSet
+// by creating a real, describable Ingestion record instead of fabricating an
+// ARN/ID, and only reporting one when the resulting ImportMode is SPICE.
+func (b *InMemoryBackend) UpdateDataSet(accountID, dataSetID, name, importMode string) (*DataSet, *Ingestion, error) {
 	b.mu.Lock("UpdateDataSet")
 	defer b.mu.Unlock()
 
 	key := dataSetKey(accountID, dataSetID)
 	ds, ok := b.dataSets.Get(key)
 	if !ok {
-		return nil, ErrDataSetNotFound
+		return nil, nil, ErrDataSetNotFound
 	}
 
 	if name != "" {
@@ -108,7 +121,25 @@ func (b *InMemoryBackend) UpdateDataSet(accountID, dataSetID, name, importMode s
 	}
 	ds.LastUpdatedTime = time.Now().UTC()
 
-	return ds.toDataSet(), nil
+	var ingestion *Ingestion
+	if ds.ImportMode == dataSetImportModeSPICE {
+		ing := &storedIngestion{
+			CreatedTime:     ds.LastUpdatedTime,
+			IngestionID:     uuid.NewString(),
+			DataSetID:       dataSetID,
+			IngestionStatus: statusCompleted,
+		}
+		ing.Arn = arn.Build(
+			"quicksight",
+			b.region,
+			accountID,
+			fmt.Sprintf("dataset/%s/ingestion/%s", dataSetID, ing.IngestionID),
+		)
+		b.ingestions.Put(ing)
+		ingestion = ing.toIngestion()
+	}
+
+	return ds.toDataSet(), ingestion, nil
 }
 
 func (b *InMemoryBackend) DeleteDataSet(accountID, dataSetID string) error {
@@ -300,6 +331,12 @@ func (b *InMemoryBackend) DescribeIngestion(accountID, dataSetID, ingestionID st
 	return ing.toIngestion(), nil
 }
 
+// CancelIngestion cancels an ongoing ingestion. Real AWS only supports
+// cancelling an ingestion that is still queued or running; an ingestion
+// already in a terminal state (COMPLETED, FAILED, or CANCELLED) can't be
+// cancelled again. Before this fix, this backend unconditionally overwrote
+// IngestionStatus to CANCELLED regardless of the current status, so cancelling
+// an already-COMPLETED ingestion would silently corrupt its terminal status.
 func (b *InMemoryBackend) CancelIngestion(accountID, dataSetID, ingestionID string) error {
 	b.mu.Lock("CancelIngestion")
 	defer b.mu.Unlock()
@@ -310,9 +347,25 @@ func (b *InMemoryBackend) CancelIngestion(accountID, dataSetID, ingestionID stri
 		return ErrIngestionNotFound
 	}
 
+	if isTerminalIngestionStatus(ing.IngestionStatus) {
+		return ErrIngestionNotCancellable
+	}
+
 	ing.IngestionStatus = statusCancelled
 
 	return nil
+}
+
+// isTerminalIngestionStatus reports whether status is one of the terminal
+// IngestionStatus values (types.IngestionStatus in the SDK: COMPLETED,
+// FAILED, CANCELLED) that CancelIngestion cannot transition out of.
+func isTerminalIngestionStatus(status string) bool {
+	switch status {
+	case statusCompleted, statusFailed, statusCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 //nolint:dupl // list functions share structure but operate on different stored types

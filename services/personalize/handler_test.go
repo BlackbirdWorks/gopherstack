@@ -75,17 +75,99 @@ func personalizeUnmarshal(t *testing.T, rec *httptest.ResponseRecorder) map[stri
 	return m
 }
 
+// personalizeCreateDatasetGroup creates a dataset group and returns its ARN.
+// FK validation on every Create* op means most fixtures below need a real
+// parent chain rather than a dangling made-up ARN.
+func personalizeCreateDatasetGroup(t *testing.T, h *personalize.Handler, name string) string {
+	t.Helper()
+
+	rec := personalizeDo(t, h, "CreateDatasetGroup", map[string]any{"name": name})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	dgArn, _ := personalizeUnmarshal(t, rec)["datasetGroupArn"].(string)
+	require.NotEmpty(t, dgArn)
+
+	return dgArn
+}
+
+// personalizeCreateSchema creates a schema and returns its ARN.
+func personalizeCreateSchema(t *testing.T, h *personalize.Handler, name string) string {
+	t.Helper()
+
+	rec := personalizeDo(t, h, "CreateSchema", map[string]any{
+		"name":   name,
+		"schema": `{"type":"record"}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	schemaArn, _ := personalizeUnmarshal(t, rec)["schemaArn"].(string)
+	require.NotEmpty(t, schemaArn)
+
+	return schemaArn
+}
+
+// personalizeCreateDataset creates a dataset group, a schema, and a dataset
+// atop both, returning the dataset ARN.
+func personalizeCreateDataset(t *testing.T, h *personalize.Handler, name string) string {
+	t.Helper()
+
+	dgArn := personalizeCreateDatasetGroup(t, h, name+"-dg")
+	schemaArn := personalizeCreateSchema(t, h, name+"-schema")
+
+	rec := personalizeDo(t, h, "CreateDataset", map[string]any{
+		"name":            name,
+		"datasetGroupArn": dgArn,
+		"datasetType":     "INTERACTIONS",
+		"schemaArn":       schemaArn,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	dsArn, _ := personalizeUnmarshal(t, rec)["datasetArn"].(string)
+	require.NotEmpty(t, dsArn)
+
+	return dsArn
+}
+
+// personalizeCreateSolution creates a dataset group and a solution atop it,
+// returning the solution ARN.
+func personalizeCreateSolution(t *testing.T, h *personalize.Handler, solutionName string) string {
+	t.Helper()
+
+	dgArn := personalizeCreateDatasetGroup(t, h, solutionName+"-dg")
+
+	rec := personalizeDo(t, h, "CreateSolution", map[string]any{
+		"name":            solutionName,
+		"datasetGroupArn": dgArn,
+		"recipeArn":       "arn:aws:personalize:::recipe/aws-user-personalization",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	solArn, _ := personalizeUnmarshal(t, rec)["solutionArn"].(string)
+	require.NotEmpty(t, solArn)
+
+	return solArn
+}
+
+// personalizeCreateSolutionVersion creates a dataset group, a solution atop
+// it, and a solution version atop that, returning the solution version ARN.
+func personalizeCreateSolutionVersion(t *testing.T, h *personalize.Handler, solutionName string) string {
+	t.Helper()
+
+	solArn := personalizeCreateSolution(t, h, solutionName)
+
+	rec := personalizeDo(t, h, "CreateSolutionVersion", map[string]any{"solutionArn": solArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	svArn, _ := personalizeUnmarshal(t, rec)["solutionVersionArn"].(string)
+	require.NotEmpty(t, svArn)
+
+	return svArn
+}
+
 // personalizeCreateCampaign creates a solution version then a campaign with the given name.
 func personalizeCreateCampaign(t *testing.T, h *personalize.Handler, name string) {
 	t.Helper()
 
-	rec := personalizeDo(t, h, "CreateSolutionVersion", map[string]any{
-		"solutionArn": "arn:aws:personalize:us-east-1:000000000000:solution/sol",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-	svArn := personalizeUnmarshal(t, rec)["solutionVersionArn"].(string)
+	svArn := personalizeCreateSolutionVersion(t, h, name+"-sol")
 
-	rec = personalizeDo(t, h, "CreateCampaign", map[string]any{
+	rec := personalizeDo(t, h, "CreateCampaign", map[string]any{
 		"name":               name,
 		"solutionVersionArn": svArn,
 	})
@@ -187,6 +269,7 @@ func TestPersonalize_ARNFormat(t *testing.T) {
 	const arnPrefix = "arn:aws:personalize:us-east-1:000000000000:"
 
 	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "arn-format-dg")
 
 	tests := []struct {
 		createAction string
@@ -211,25 +294,17 @@ func TestPersonalize_ARNFormat(t *testing.T) {
 			createAction: "CreateSolution",
 			createBody: map[string]any{
 				"name":            "arn-sol",
-				"datasetGroupArn": "arn:aws:personalize:us-east-1:000000000000:dataset-group/x",
+				"datasetGroupArn": dgArn,
+				"recipeArn":       "arn:aws:personalize:::recipe/aws-user-personalization",
 			},
 			arnField: "solutionArn",
-		},
-		{
-			name:         "campaign",
-			createAction: "CreateCampaign",
-			createBody: map[string]any{
-				"name":               "arn-camp",
-				"solutionVersionArn": "arn:aws:personalize:us-east-1:000000000000:solution/x/v1",
-			},
-			arnField: "campaignArn",
 		},
 		{
 			name:         "filter",
 			createAction: "CreateFilter",
 			createBody: map[string]any{
 				"name":             "arn-filter",
-				"datasetGroupArn":  "arn:aws:personalize:us-east-1:000000000000:dataset-group/x",
+				"datasetGroupArn":  dgArn,
 				"filterExpression": "INCLUDE ItemID WHERE Items.CATEGORY IN ($CATEGORIES)",
 			},
 			arnField: "filterArn",
@@ -248,6 +323,24 @@ func TestPersonalize_ARNFormat(t *testing.T) {
 				"ARN %q should have prefix %q", arn, arnPrefix)
 		})
 	}
+
+	// campaign needs a real solution-version parent chain, exercised
+	// separately from the table above since it isn't a flat one-call create.
+	t.Run("campaign", func(t *testing.T) {
+		t.Parallel()
+
+		hc := personalizeHandler(t)
+		svArn := personalizeCreateSolutionVersion(t, hc, "arn-camp-sol")
+
+		rec := personalizeDo(t, hc, "CreateCampaign", map[string]any{
+			"name":               "arn-camp",
+			"solutionVersionArn": svArn,
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+		arn, _ := personalizeUnmarshal(t, rec)["campaignArn"].(string)
+		assert.True(t, strings.HasPrefix(arn, arnPrefix),
+			"ARN %q should have prefix %q", arn, arnPrefix)
+	})
 }
 
 // --- DatasetGroup ---

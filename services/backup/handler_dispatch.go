@@ -150,7 +150,7 @@ func (h *Handler) dispatch(c *echo.Context, route backupRoute, body []byte) erro
 	}
 
 	return c.JSON(
-		http.StatusNotFound,
+		http.StatusBadRequest,
 		errResp("ResourceNotFoundException", "unknown operation: "+route.operation),
 	)
 }
@@ -529,21 +529,44 @@ func (h *Handler) dispatchReportPlanOps(
 	return false, nil
 }
 
+// handleError maps a backend error to its AWS Backup wire error code and HTTP
+// status. Verified against botocore's backup/2018-11-15 service-2.json: none
+// of Backup's modeled client-fault exceptions carry an explicit
+// httpStatusCode override, so the restJson1 protocol default of HTTP 400
+// applies to all of them -- including ResourceNotFoundException and
+// AlreadyExistsException, which many other REST-JSON services (e.g. Lambda)
+// return as 404/409 but Backup does not.
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 
-		return c.JSON(http.StatusConflict, errResp("AlreadyExistsException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("AlreadyExistsException", err.Error()))
+	case errors.Is(err, ErrInvalidRequest):
+
+		return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", err.Error()))
 	case errors.Is(err, ErrValidation), errors.Is(err, errInvalidRequest):
 
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp(missingOrInvalidParamCode(err), err.Error()))
 	default:
 
 		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 	}
+}
+
+// missingOrInvalidParamCode classifies a validation error as AWS Backup's
+// MissingParameterValueException (a required field was omitted) or
+// InvalidParameterValueException (a field was present but malformed) based
+// on the backend's error text -- every "is required" message in this
+// package names a missing required field.
+func missingOrInvalidParamCode(err error) string {
+	if strings.Contains(err.Error(), "is required") {
+		return "MissingParameterValueException"
+	}
+
+	return "InvalidParameterValueException"
 }
 
 func errResp(code, msg string) map[string]string {

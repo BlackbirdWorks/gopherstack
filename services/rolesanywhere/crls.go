@@ -15,6 +15,11 @@ func (b *InMemoryBackend) crlARN(region, id string) string {
 }
 
 // ImportCrl imports a new CRL.
+//
+// Real AWS Roles Anywhere has no uniqueness constraint on CRL names
+// (ImportCrl only models ValidationException/AccessDeniedException -- there
+// is no ConflictException shape anywhere in the service), so duplicate names
+// are accepted, matching the real API.
 func (b *InMemoryBackend) ImportCrl(
 	ctx context.Context,
 	name string,
@@ -23,7 +28,7 @@ func (b *InMemoryBackend) ImportCrl(
 	enabled bool,
 	tags []TagEntry,
 ) (*Crl, error) {
-	if name == "" {
+	if name == "" || len(crlData) == 0 || trustAnchorArn == "" {
 		return nil, ErrValidation
 	}
 
@@ -31,12 +36,6 @@ func (b *InMemoryBackend) ImportCrl(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-
-	for _, c := range b.crlsByRegion.Get(region) {
-		if c.Name == name {
-			return nil, ErrCrlAlreadyExists
-		}
-	}
 
 	id := uuid.NewString()
 	now := time.Now().UTC()
@@ -119,7 +118,9 @@ func (b *InMemoryBackend) UpdateCrl(ctx context.Context, id, name string, crlDat
 	return copyCrl(crl), nil
 }
 
-// DeleteCrl removes a CRL.
+// DeleteCrl removes a CRL. Its tags (held in a separate ARN-keyed map, not on
+// the Crl struct itself -- see store.go) are cascade-deleted so no ghost row
+// survives the CRL it belonged to.
 func (b *InMemoryBackend) DeleteCrl(ctx context.Context, id string) (*Crl, error) {
 	b.mu.Lock("DeleteCrl")
 	defer b.mu.Unlock()
@@ -133,6 +134,7 @@ func (b *InMemoryBackend) DeleteCrl(ctx context.Context, id string) (*Crl, error
 
 	snap := copyCrl(crl)
 	b.crls.Delete(regionKey(region, id))
+	delete(b.tagsStore(region), crl.CrlArn)
 
 	return snap, nil
 }

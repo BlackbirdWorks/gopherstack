@@ -2,6 +2,7 @@ package cloudtrail
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"time"
 )
@@ -32,7 +33,7 @@ func (b *InMemoryBackend) StartQuery(queryString, edsARN, deliveryS3URI string) 
 	return &cp, nil
 }
 
-// CancelQuery cancels a running query.
+// CancelQuery cancels a running (non-terminal) query.
 func (b *InMemoryBackend) CancelQuery(queryID string) (*Query, error) {
 	b.mu.Lock("CancelQuery")
 	defer b.mu.Unlock()
@@ -43,10 +44,11 @@ func (b *InMemoryBackend) CancelQuery(queryID string) (*Query, error) {
 
 	q, ok := b.queries.Get(queryID)
 	if !ok {
-		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
+		return nil, fmt.Errorf("%w: query %s not found", ErrQueryIDNotFound, queryID)
 	}
-	if q.QueryStatus == "FINISHED" || q.QueryStatus == "FAILED" || q.QueryStatus == "CANCELLED" {
-		return nil, fmt.Errorf("%w: query %s is already in terminal state %s", ErrValidation, queryID, q.QueryStatus)
+	if q.QueryStatus == "FINISHED" || q.QueryStatus == "FAILED" ||
+		q.QueryStatus == "CANCELLED" || q.QueryStatus == "TIMED_OUT" {
+		return nil, fmt.Errorf("%w: query %s is already in terminal state %s", ErrQueryInactive, queryID, q.QueryStatus)
 	}
 	q.QueryStatus = "CANCELLED"
 	cp := *q
@@ -54,10 +56,11 @@ func (b *InMemoryBackend) CancelQuery(queryID string) (*Query, error) {
 	return &cp, nil
 }
 
-// DescribeQuery returns details about a specific query.
+// DescribeQuery returns details about a specific query, materializing (lazily
+// executing) it first if it hasn't been read yet. See materializeQueryLocked.
 func (b *InMemoryBackend) DescribeQuery(queryID string) (*Query, error) {
-	b.mu.RLock("DescribeQuery")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeQuery")
+	defer b.mu.Unlock()
 
 	if queryID == "" {
 		return nil, fmt.Errorf("%w: QueryId is required", ErrValidation)
@@ -65,25 +68,68 @@ func (b *InMemoryBackend) DescribeQuery(queryID string) (*Query, error) {
 
 	q, ok := b.queries.Get(queryID)
 	if !ok {
-		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
+		return nil, fmt.Errorf("%w: query %s not found", ErrQueryIDNotFound, queryID)
 	}
+	b.materializeQueryLocked(q)
 	cp := *q
 
 	return &cp, nil
 }
 
-// GetQueryResults returns results for a completed query (stub returns empty rows).
+// GetQueryResults returns results for a query, materializing (lazily
+// executing) it first if it hasn't been read yet. See materializeQueryLocked.
 func (b *InMemoryBackend) GetQueryResults(queryID string) (*Query, error) {
-	b.mu.RLock("GetQueryResults")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetQueryResults")
+	defer b.mu.Unlock()
 
 	q, ok := b.queries.Get(queryID)
 	if !ok {
-		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
+		return nil, fmt.Errorf("%w: query %s not found", ErrQueryIDNotFound, queryID)
 	}
+	b.materializeQueryLocked(q)
 	cp := *q
 
 	return &cp, nil
+}
+
+// materializeQueryLocked lazily executes a QUEUED query's SQL against the
+// backend's recorded events (see query_exec.go), storing the resulting rows
+// and scan statistics on q and transitioning it to FINISHED. Queries are
+// deliberately left un-executed by StartQuery (mirroring AWS's async
+// QUEUED->RUNNING->FINISHED lifecycle) so a query started and immediately
+// cancelled is still cancellable -- only the first read (GetQueryResults or
+// DescribeQuery) triggers execution. A no-op for queries already in a
+// terminal state (e.g. CANCELLED before ever being read).
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) materializeQueryLocked(q *Query) {
+	if q.QueryStatus != "QUEUED" {
+		return
+	}
+
+	start := time.Now()
+	rows, stats := executeLakeQuery(q.QueryString, b.events)
+	q.QueryResultRows = rows
+	q.EventsScanned = stats.eventsScanned
+	q.EventsMatched = stats.eventsMatched
+	q.BytesScanned = stats.bytesScanned
+	q.ExecutionTimeInMillis = clampToInt32Millis(time.Since(start).Milliseconds())
+	q.QueryStatus = "FINISHED"
+}
+
+// clampToInt32Millis narrows a millisecond duration to int32
+// (ExecutionTimeInMillis mirrors the real int32 QueryStatisticsForDescribeQuery
+// field): an in-memory query never takes anywhere near ~24.8 days, but an
+// unchecked int64->int32 conversion would silently wrap on that theoretical
+// input, so this clamps explicitly instead.
+func clampToInt32Millis(ms int64) int32 {
+	if ms > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if ms < 0 {
+		return 0
+	}
+
+	return int32(ms)
 }
 
 // ListQueries returns all queries.

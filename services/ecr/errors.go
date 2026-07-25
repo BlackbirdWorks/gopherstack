@@ -76,6 +76,28 @@ var (
 		"ImageDigestDoesNotMatchException",
 		awserr.ErrInvalidParameter,
 	)
+	// ErrUploadNotFound is returned when CompleteLayerUpload or UploadLayerPart is
+	// called with an uploadId that matches no live InitiateLayerUpload session for
+	// the given repository (matches AWS UploadNotFoundException: "The upload could
+	// not be found, or the specified upload ID is not valid for this repository.").
+	ErrUploadNotFound = awserr.New("UploadNotFoundException", awserr.ErrNotFound)
+	// ErrEmptyUpload is returned when CompleteLayerUpload is called on a live
+	// upload session that never received any UploadLayerPart data (matches AWS
+	// EmptyUploadException: "The specified layer upload does not contain any
+	// layer parts.").
+	ErrEmptyUpload = awserr.New("EmptyUploadException", awserr.ErrInvalidParameter)
+	// ErrLayerPartTooSmall is returned when CompleteLayerUpload finds a non-final
+	// uploaded part smaller than the 5MiB minimum (matches AWS
+	// LayerPartTooSmallException: "Layer parts must be at least 5 MiB in size.").
+	ErrLayerPartTooSmall = awserr.New("LayerPartTooSmallException", awserr.ErrInvalidParameter)
+	// ErrImageAlreadyExists is returned when PutImage re-pushes a manifest that is
+	// already registered under the exact same tag -- a complete no-op push (matches
+	// AWS ImageAlreadyExistsException: "The specified image has already been
+	// pushed, and there were no changes to the manifest or image tag after the
+	// last push."). Independent of repository tag mutability, which instead
+	// governs the distinct ImageTagAlreadyExistsException case (retagging to a
+	// different digest).
+	ErrImageAlreadyExists = awserr.New("ImageAlreadyExistsException", awserr.ErrConflict)
 )
 
 // ErrLayerDigestMismatch is returned when the provided digest does not match the uploaded bytes.

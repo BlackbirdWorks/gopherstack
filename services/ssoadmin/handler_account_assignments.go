@@ -62,7 +62,7 @@ func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) er
 	status, _ := h.Backend.DescribeAccountAssignmentCreationStatus(req.InstanceArn, requestID)
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentCreationStatus": toProvisioningView(status),
+		"AccountAssignmentCreationStatus": toAccountAssignmentStatusView(status),
 	})
 }
 
@@ -84,7 +84,7 @@ func (h *Handler) handleDescribeAccountAssignmentCreationStatus(c *echo.Context,
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentCreationStatus": toProvisioningView(status),
+		"AccountAssignmentCreationStatus": toAccountAssignmentStatusView(status),
 	})
 }
 
@@ -121,7 +121,7 @@ func (h *Handler) handleDeleteAccountAssignment(c *echo.Context, body []byte) er
 	status, _ := h.Backend.DescribeAccountAssignmentDeletionStatus(req.InstanceArn, requestID)
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentDeletionStatus": toProvisioningView(status),
+		"AccountAssignmentDeletionStatus": toAccountAssignmentStatusView(status),
 	})
 }
 
@@ -143,7 +143,7 @@ func (h *Handler) handleDescribeAccountAssignmentDeletionStatus(c *echo.Context,
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentDeletionStatus": toProvisioningView(status),
+		"AccountAssignmentDeletionStatus": toAccountAssignmentStatusView(status),
 	})
 }
 
@@ -182,49 +182,23 @@ func (h *Handler) handleListAccountAssignments(c *echo.Context, body []byte) err
 }
 
 func (h *Handler) handleListAccountAssignmentCreationStatus(c *echo.Context, body []byte) error {
-	var req struct {
-		InstanceArn string `json:"InstanceArn"`
-		Filter      struct {
-			Status string `json:"Status"`
-		} `json:"Filter"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-	statuses := h.Backend.ListAccountAssignmentCreationStatus(req.InstanceArn, req.Filter.Status)
-
-	out := make([]provisioningStatusView, 0, len(statuses))
-	for _, status := range statuses {
-		out = append(out, toProvisioningView(status))
-	}
-
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentsCreationStatus": out,
-		keyNextToken:                       nil,
-	})
+	return listProvisioningStatusMetadata(
+		c, body,
+		h.Backend.ListAccountAssignmentCreationStatus,
+		toAccountAssignmentStatusMetadataView,
+		func(v accountAssignmentStatusMetadataView) string { return v.RequestID },
+		"AccountAssignmentsCreationStatus",
+	)
 }
 
 func (h *Handler) handleListAccountAssignmentDeletionStatus(c *echo.Context, body []byte) error {
-	var req struct {
-		InstanceArn string `json:"InstanceArn"`
-		Filter      struct {
-			Status string `json:"Status"`
-		} `json:"Filter"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-	statuses := h.Backend.ListAccountAssignmentDeletionStatus(req.InstanceArn, req.Filter.Status)
-
-	out := make([]provisioningStatusView, 0, len(statuses))
-	for _, status := range statuses {
-		out = append(out, toProvisioningView(status))
-	}
-
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignmentsDeletionStatus": out,
-		keyNextToken:                       nil,
-	})
+	return listProvisioningStatusMetadata(
+		c, body,
+		h.Backend.ListAccountAssignmentDeletionStatus,
+		toAccountAssignmentStatusMetadataView,
+		func(v accountAssignmentStatusMetadataView) string { return v.RequestID },
+		"AccountAssignmentsDeletionStatus",
+	)
 }
 
 func (h *Handler) handleListAccountAssignmentsForPrincipal(c *echo.Context, body []byte) error {
@@ -232,6 +206,11 @@ func (h *Handler) handleListAccountAssignmentsForPrincipal(c *echo.Context, body
 		InstanceArn   string `json:"InstanceArn"`
 		PrincipalID   string `json:"PrincipalId"`
 		PrincipalType string `json:"PrincipalType"`
+		Filter        struct {
+			AccountID string `json:"AccountId"`
+		} `json:"Filter"`
+		NextToken  string `json:"NextToken"`
+		MaxResults int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -250,6 +229,10 @@ func (h *Handler) handleListAccountAssignmentsForPrincipal(c *echo.Context, body
 
 	views := make([]assignmentView, 0, len(assignments))
 	for _, a := range assignments {
+		if req.Filter.AccountID != "" && a.AccountID != req.Filter.AccountID {
+			continue
+		}
+
 		views = append(views, assignmentView{
 			AccountID:        a.AccountID,
 			PermissionSetArn: a.PermissionSetArn,
@@ -258,8 +241,12 @@ func (h *Handler) handleListAccountAssignmentsForPrincipal(c *echo.Context, body
 		})
 	}
 
+	page, next := paginateBy(views, req.MaxResults, req.NextToken, func(v assignmentView) string {
+		return v.AccountID + "|" + v.PermissionSetArn + "|" + v.PrincipalType + "|" + v.PrincipalID
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"AccountAssignments": views,
-		keyNextToken:         nil,
+		"AccountAssignments": page,
+		keyNextToken:         next,
 	})
 }

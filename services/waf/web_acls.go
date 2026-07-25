@@ -103,7 +103,9 @@ func (b *InMemoryBackend) UpdateWebACL(
 	return nil
 }
 
-// DeleteWebACL deletes a WebACL.
+// DeleteWebACL deletes a WebACL. Real AWS rejects deletion while the WebACL
+// still contains any Rules (WAFNonEmptyEntityException) -- callers must
+// first UpdateWebACL to remove every ActivatedRule.
 func (b *InMemoryBackend) DeleteWebACL(id, changeToken string) error {
 	b.mu.Lock("DeleteWebACL")
 	defer b.mu.Unlock()
@@ -112,8 +114,13 @@ func (b *InMemoryBackend) DeleteWebACL(id, changeToken string) error {
 		return err
 	}
 
-	if !b.webACLs.Has(id) {
+	acl, ok := b.webACLs.Get(id)
+	if !ok {
 		return ErrNotFound
+	}
+
+	if len(acl.Rules) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.webACLs.Delete(id)

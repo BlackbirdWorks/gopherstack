@@ -172,6 +172,14 @@ func (h *Handler) handleDescribeAuditMitigationActionsTask(c *echo.Context) erro
 	return c.JSON(http.StatusOK, task)
 }
 
+// handleListAuditMitigationActionsTasks builds
+// types.AuditMitigationActionsTaskMetadata's real wire shape (confirmed
+// against v1.76.0): {taskId, taskStatus, startTime} only -- unlike the
+// detect-mitigation side above, this really is a narrower summary type than
+// DescribeAuditMitigationActionsTaskOutput's. This previously also emitted
+// an invented "endTime" key not present on the real type; a real client's
+// deserializer ignores unknown fields so this was harmless rather than
+// reachability-breaking, but it's removed for wire-shape accuracy.
 func (h *Handler) handleListAuditMitigationActionsTasks(c *echo.Context) error {
 	auditTaskID := c.QueryParam("auditTaskId")
 	taskStatus := c.QueryParam(keyTaskStatus)
@@ -184,7 +192,6 @@ func (h *Handler) handleListAuditMitigationActionsTasks(c *echo.Context) error {
 			keyTaskID:     t.TaskID,
 			keyTaskStatus: t.TaskStatus,
 			"startTime":   t.StartTime,
-			"endTime":     t.EndTime,
 		})
 	}
 
@@ -225,27 +232,54 @@ func (h *Handler) handleStartDetectMitigationActionsTask(c *echo.Context) error 
 	taskID := strings.TrimPrefix(c.Request().URL.Path, pathDetectMitigationTasks+"/")
 
 	var req struct {
-		Target                      *DetectMitigationActionsTaskTarget `json:"target"`
-		Actions                     []string                           `json:"actions"`
-		IncludeOnlyActiveViolations bool                               `json:"includeOnlyActiveViolations"`
-		IncludeSuppressedAlerts     bool                               `json:"includeSuppressedAlerts"`
+		Target                        *DetectMitigationActionsTaskTarget `json:"target"`
+		ViolationEventOccurrenceRange *ViolationEventOccurrenceRange     `json:"violationEventOccurrenceRange"`
+		Actions                       []string                           `json:"actions"`
+		IncludeOnlyActiveViolations   bool                               `json:"includeOnlyActiveViolations"`
+		IncludeSuppressedAlerts       bool                               `json:"includeSuppressedAlerts"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
 
 	task, err := h.Backend.StartDetectMitigationActionsTask(&StartDetectMitigationActionsTaskInput{
-		TaskID:                      taskID,
-		Target:                      req.Target,
-		Actions:                     req.Actions,
-		IncludeOnlyActiveViolations: req.IncludeOnlyActiveViolations,
-		IncludeSuppressedAlerts:     req.IncludeSuppressedAlerts,
+		TaskID:                        taskID,
+		Target:                        req.Target,
+		Actions:                       req.Actions,
+		IncludeOnlyActiveViolations:   req.IncludeOnlyActiveViolations,
+		IncludeSuppressedAlerts:       req.IncludeSuppressedAlerts,
+		ViolationEventOccurrenceRange: req.ViolationEventOccurrenceRange,
 	})
 	if err != nil {
 		return respondErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyTaskID: task.TaskID})
+}
+
+// detectMitigationTaskSummaryWire builds the real
+// DetectMitigationActionsTaskSummary wire shape (confirmed against
+// aws-sdk-go-v2/service/iot/types@v1.76.0) from the internal
+// DetectMitigationTask domain type. Used by both
+// DescribeDetectMitigationActionsTask and ListDetectMitigationActionsTasks,
+// which share the exact same real response element type (unlike the
+// audit-mitigation side, where ListAuditMitigationActionsTasks uses a
+// genuinely narrower AuditMitigationActionsTaskMetadata type) -- so, unlike
+// the audit side, this must NOT be reduced to a hand-picked subset of
+// fields.
+func (h *Handler) detectMitigationTaskSummaryWire(t *DetectMitigationTask) map[string]any {
+	return map[string]any{
+		"taskId":                        t.TaskID,
+		"taskStatus":                    t.TaskStatus,
+		"target":                        t.Target,
+		"taskStatistics":                t.TaskStatistics,
+		"actionsDefinition":             h.Backend.MitigationActionRefs(t.Actions),
+		"taskStartTime":                 t.StartTime,
+		"taskEndTime":                   t.EndTime,
+		"onlyActiveViolationsIncluded":  t.OnlyActiveViolationsIncluded,
+		"suppressedAlertsIncluded":      t.SuppressedAlertsIncluded,
+		"violationEventOccurrenceRange": t.ViolationEventOccurrenceRange,
+	}
 }
 
 func (h *Handler) handleDescribeDetectMitigationActionsTask(c *echo.Context) error {
@@ -256,9 +290,19 @@ func (h *Handler) handleDescribeDetectMitigationActionsTask(c *echo.Context) err
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"taskSummary": task})
+	return c.JSON(http.StatusOK, map[string]any{"taskSummary": h.detectMitigationTaskSummaryWire(task)})
 }
 
+// handleListDetectMitigationActionsTasks previously built a hand-picked
+// 4-field summary ({taskId,taskStatus,taskStartTime,taskEndTime}), but real
+// AWS's ListDetectMitigationActionsTasksOutput.Tasks is
+// []types.DetectMitigationActionsTaskSummary -- the exact same rich type
+// DescribeDetectMitigationActionsTask returns (confirmed against v1.76.0),
+// not a narrower list-only summary. A real client's deserializer would have
+// silently dropped target/actionsDefinition/taskStatistics/
+// onlyActiveViolationsIncluded/suppressedAlertsIncluded/
+// violationEventOccurrenceRange from every list entry. Fixed by sharing
+// detectMitigationTaskSummaryWire with Describe.
 func (h *Handler) handleListDetectMitigationActionsTasks(c *echo.Context) error {
 	startTime := parseIoTEpochQueryParam(c, "startTime")
 	endTime := parseIoTEpochQueryParam(c, "endTime")
@@ -267,12 +311,7 @@ func (h *Handler) handleListDetectMitigationActionsTasks(c *echo.Context) error 
 
 	summaries := make([]map[string]any, 0, len(tasks))
 	for _, t := range tasks {
-		summaries = append(summaries, map[string]any{
-			keyTaskID:       t.TaskID,
-			keyTaskStatus:   t.TaskStatus,
-			"taskStartTime": t.StartTime,
-			"taskEndTime":   t.EndTime,
-		})
+		summaries = append(summaries, h.detectMitigationTaskSummaryWire(t))
 	}
 
 	pageSize, start := parseIoTPagination(c)
@@ -323,8 +362,16 @@ func (h *Handler) handleListActiveViolations(c *echo.Context) error {
 	thingName := c.QueryParam("thingName")
 	securityProfileName := c.QueryParam("securityProfileName")
 	verificationState := c.QueryParam("verificationState")
+	listSuppressedAlerts := parseIoTBoolQueryParam(c, "listSuppressedAlerts")
+	behaviorCriteriaType := c.QueryParam("behaviorCriteriaType")
 
-	violations := h.Backend.ListActiveViolations(thingName, securityProfileName, verificationState)
+	violations := h.Backend.ListActiveViolations(
+		thingName,
+		securityProfileName,
+		verificationState,
+		listSuppressedAlerts,
+		behaviorCriteriaType,
+	)
 
 	pageSize, start := parseIoTPagination(c)
 	page, nextToken := paginateMaps(violations, pageSize, start)
@@ -343,8 +390,13 @@ func (h *Handler) handleListViolationEvents(c *echo.Context) error {
 	verificationState := c.QueryParam("verificationState")
 	startTime := parseIoTEpochQueryParam(c, "startTime")
 	endTime := parseIoTEpochQueryParam(c, "endTime")
+	listSuppressedAlerts := parseIoTBoolQueryParam(c, "listSuppressedAlerts")
+	behaviorCriteriaType := c.QueryParam("behaviorCriteriaType")
 
-	events := h.Backend.ListViolationEvents(thingName, securityProfileName, verificationState, startTime, endTime)
+	events := h.Backend.ListViolationEvents(
+		thingName, securityProfileName, verificationState, startTime, endTime,
+		listSuppressedAlerts, behaviorCriteriaType,
+	)
 
 	pageSize, start := parseIoTPagination(c)
 	page, nextToken := paginateMaps(events, pageSize, start)
@@ -416,6 +468,22 @@ func parseIoTEpochQueryParam(c *echo.Context, name string) float64 {
 	}
 
 	return f
+}
+
+// parseIoTBoolQueryParam parses a query parameter as a tri-state *bool,
+// returning nil (unset/unfiltered) if absent or invalid.
+func parseIoTBoolQueryParam(c *echo.Context, name string) *bool {
+	v := c.QueryParam(name)
+	if v == "" {
+		return nil
+	}
+
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return nil
+	}
+
+	return &b
 }
 
 func (h *Handler) handleCancelAuditMitigationActionsTask(c *echo.Context) error {

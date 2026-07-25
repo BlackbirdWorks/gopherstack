@@ -34,11 +34,32 @@ func (b *InMemoryBackend) StartIngestionJob(
 		Description:     description,
 		StartedAt:       now,
 		UpdatedAt:       now,
+		Statistics:      b.ingestionStatisticsLocked(kbID, dsID),
 	}
 
 	b.ingestionJobs.Put(job)
 
 	return jobCopy(job), nil
+}
+
+// ingestionStatisticsLocked computes document-count statistics for a data
+// source's ingestion job from the real KnowledgeBaseDocument store (b.mu
+// must already be held). This service has no crawler backing a data
+// source's real external content (S3/web/etc.), so the only documents it
+// can honestly account for are ones a client explicitly pushed via
+// IngestKnowledgeBaseDocuments; every one of those is counted as scanned
+// and newly indexed. Deleted/failed/modified counts stay zero since
+// gopherstack does not track a prior-job document snapshot to diff
+// against -- reporting non-zero there would be fabricated, not read from
+// real state.
+func (b *InMemoryBackend) ingestionStatisticsLocked(kbID, dsID string) *IngestionJobStatistics {
+	group := b.kbDocumentsByDataSource.Get(dsKey(kbID, dsID))
+	count := int64(len(group))
+
+	return &IngestionJobStatistics{
+		NumberOfDocumentsScanned:    count,
+		NumberOfNewDocumentsIndexed: count,
+	}
 }
 
 // GetIngestionJob returns an ingestion job.

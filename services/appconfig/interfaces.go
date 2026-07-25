@@ -75,10 +75,15 @@ type StorageBackend interface {
 	// DeleteConfigurationProfile deletes a configuration profile.
 	DeleteConfigurationProfile(applicationID, profileID string) error
 
-	// CreateHostedConfigurationVersion creates a hosted configuration version.
+	// CreateHostedConfigurationVersion creates a hosted configuration
+	// version. latestVersionNumber implements the optional
+	// optimistic-concurrency check real AWS binds to the
+	// "Latest-Version-Number" request header: when non-nil, it must match
+	// the profile's current latest version or the call is rejected.
 	CreateHostedConfigurationVersion(
 		applicationID, profileID, contentType, description, versionLabel string,
 		content []byte,
+		latestVersionNumber *int32,
 	) (*HostedConfigurationVersion, error)
 	// GetHostedConfigurationVersion retrieves a hosted configuration version.
 	GetHostedConfigurationVersion(
@@ -129,8 +134,11 @@ type StorageBackend interface {
 		applicationID, environmentID, nextToken string,
 		maxResults int,
 	) ([]Deployment, string, error)
-	// StopDeployment stops an in-progress deployment.
-	StopDeployment(applicationID, environmentID string, deploymentNumber int32) error
+	// StopDeployment stops an in-progress deployment, or -- when
+	// allowRevert is true and the deployment is already COMPLETE --
+	// reverts the environment to the previous configuration version
+	// (real StopDeploymentInput.AllowRevert semantics).
+	StopDeployment(applicationID, environmentID string, deploymentNumber int32, allowRevert bool) error
 
 	// ListTagsForResource returns the tags for a resource by ARN.
 	ListTagsForResource(resourceArn string) (map[string]string, error)
@@ -145,14 +153,14 @@ type StorageBackend interface {
 		actions map[string][]ExtensionAction,
 		parameters map[string]ExtensionParameter,
 	) (*Extension, error)
-	// GetExtension retrieves an extension by identifier (ID or name).
-	GetExtension(extensionIdentifier string) (*Extension, error)
-	// ListExtensions returns paginated extensions, optionally filtered by name and/or version.
+	// GetExtension retrieves an extension by identifier (ID or name) and
+	// optional version number (0 means unspecified: the highest version).
+	GetExtension(extensionIdentifier string, versionNumber int32) (*Extension, error)
+	// ListExtensions returns paginated extensions, optionally filtered by name.
 	ListExtensions(
 		nextToken string,
 		maxResults int,
 		nameFilter string,
-		versionNumber int32,
 	) ([]Extension, string)
 	// UpdateExtension updates an extension's description, actions, and
 	// parameters. A nil description leaves the field unchanged (real
@@ -163,8 +171,10 @@ type StorageBackend interface {
 		actions map[string][]ExtensionAction,
 		parameters map[string]ExtensionParameter,
 	) (*Extension, error)
-	// DeleteExtension deletes an extension by identifier (ID or name).
-	DeleteExtension(extensionIdentifier string) error
+	// DeleteExtension deletes an extension version by identifier (ID or
+	// name) and optional version number (0 means unspecified: the highest
+	// version).
+	DeleteExtension(extensionIdentifier string, versionNumber int32) error
 
 	// CreateExtensionAssociation creates an association between an extension and a resource.
 	CreateExtensionAssociation(
@@ -198,4 +208,20 @@ type StorageBackend interface {
 	) (*HostedConfigurationVersion, error)
 	// ValidateConfiguration validates a configuration version against its validators.
 	ValidateConfiguration(applicationID, profileID, configurationVersion string) error
+
+	// CurrentDeployedConfiguration returns the content, content type, and
+	// version label of the configuration currently active (the most
+	// recently COMPLETEd deployment) for the given
+	// application/environment/configuration-profile, each resolved by ID
+	// or name exactly like GetConfiguration. It has no caller within this
+	// package today -- it is a public read accessor exposed for a future
+	// appconfig -> appconfigdata bridge (bd gopherstack-uiyi): once a
+	// deployment completes, cli.go wiring (out of scope for this change)
+	// can call this and push the result into
+	// appconfigdata's SetConfiguration(app, env, profile, content,
+	// contentType) so GetLatestConfiguration polling reflects real
+	// deployment state instead of an unpopulated store.
+	CurrentDeployedConfiguration(
+		application, environment, configuration string,
+	) (content []byte, contentType, versionLabel string, err error)
 }

@@ -126,6 +126,20 @@ func TestHandler_PutCorsPolicy_Validation(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 		},
+		{
+			// CorsPolicy list caps at 100 rules (MediaStore API model
+			// CorsPolicy shape `max` trait); the real SDK's client-side
+			// validator never checks the rule count, so it must be enforced
+			// server-side.
+			name:       "too_many_rules_101",
+			corsPolicy: makeCorsRules(101),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "exactly_100_rules_allowed",
+			corsPolicy: makeCorsRules(100),
+			wantStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -142,4 +156,18 @@ func TestHandler_PutCorsPolicy_Validation(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+// makeCorsRules builds n structurally-valid CORS rules for rule-count-limit
+// test cases.
+func makeCorsRules(n int) []any {
+	rules := make([]any, n)
+	for i := range rules {
+		rules[i] = map[string]any{
+			"AllowedOrigins": []any{"https://example.com"},
+			"AllowedHeaders": []any{"*"},
+		}
+	}
+
+	return rules
 }

@@ -1,17 +1,30 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.54.0
-last_audit_commit: db25aeabef5bf3f7a33c8ed328247641b3ffcc15
-last_audit_date: 2026-07-12
-overall: A            # Terraform-lifecycle-focused re-audit (full apply/plan/destroy
-                       # cycle with no drift). Found + fixed 1 CreateKey-Policy-class
-                       # regression on ReplicateKey (aws_kms_replica_key would have hit
-                       # the same 10-minute GetKeyPolicy poll hang the already-fixed
-                       # CreateKey bug caused) and 1 real persistence gap (KMS resource
-                       # tags live in a Handler-level side map, not the backend, and were
-                       # never included in Snapshot/Restore -- silently dropped across any
-                       # process restart with persistence enabled, which is exactly the
-                       # perpetual-plan-drift bug class this sweep was hunting for).
+last_audit_commit: 13c27883a00454a6e63bc767d096528ecfd6c4b1
+last_audit_date: 2026-07-23
+overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
+                       # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
+                       # (Handler.tags -- a side map keyed by KeyID, entirely outside
+                       # InMemoryBackend -- was never cleaned up when the janitor
+                       # permanently purged a key, leaking one *tags.Tags, and the
+                       # lockmetrics/Prometheus registration it owns, per tagged key for
+                       # the process lifetime, since KMS key IDs are UUIDs and are never
+                       # reused). Closed all 3 still-open gaps (GrantConstraints.SourceArn,
+                       # CreateGrantInput.GrantTokens, GranteeServicePrincipal/
+                       # RetiringServicePrincipal) as real wire-shape/validation fixes.
+                       # IMPORTANT CORRECTION: GetKeyLastUsage was mislabeled "not a real
+                       # AWS KMS operation" by every prior audit pass on this file --
+                       # confirmed against the actual vendored aws-sdk-go-v2/service/
+                       # kms@v1.54.0 (api_op_GetKeyLastUsage.go exists, with a real
+                       # Client.GetKeyLastUsage method and TestSDKCompleteness already
+                       # silently accounting for it). It IS real, and gopherstack's
+                       # existing implementation was field-diffed as correct except for
+                       # one genuine behavioral gap (fixed this pass): the real API's
+                       # KeyId doc comment is explicit that "Alias names are not
+                       # supported," but gopherstack's GetKeyLastUsage accepted them like
+                       # every other KeyId-taking op. Re-tagged from `deferred` to a normal
+                       # `ops` row below.
 ops:
   CreateKey: {wire: ok, errors: fixed, state: ok, persist: ok, note: "invalid KeySpec now classifies as ValidationException (400), not InternalServiceError (500); tags now validated before the key is created (was: orphan-leak on bad tag)"}
   DescribeKey: {wire: fixed, errors: ok, state: ok, persist: ok, note: "DescribeKeyInput was missing the GrantTokens field entirely (real SDK: aws-sdk-go-v2/service/kms@v1.54.0 DescribeKeyInput carries GrantTokens []string; DescribeKey is a valid grant operation and declares InvalidGrantTokenException in its error set). Added the field + validateGrantTokenPresence (existence+TTL, no encryption-context check -- consistent with Sign/Verify/GetPublicKey/DeriveSharedSecret). Empty tokens is a no-op (the only case Terraform exercises)."}
@@ -43,7 +56,7 @@ ops:
   EnableKey: {wire: ok, errors: ok, state: ok, persist: ok}
   ScheduleKeyDeletion: {wire: ok, errors: ok, state: ok, persist: ok, note: "7-30 day window enforced; janitor purges past DeletionDate"}
   CancelKeyDeletion: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateGrant: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now resolves KeyId against the key's own region (ARN-embedded region for an ARN input) via resolveKeyAndRegion, so a grant created via a cross-region ARN is stored in the key's region -- was: stored in the request region, so ListGrants/RevokeGrant addressing the same ARN could not find it (root cause was resolveKeyID's resolution cache returning the request region on cache hits instead of the ARN's embedded region; fixed at source)"}
+  CreateGrant: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "region-resolution fix (see below) PLUS this pass's 3 gap closures: (1) GrantConstraints gained SourceArn (real SDK field; stored/round-tripped through ListGrants/ListRetirableGrants, NOT enforced -- no cross-service request-context plumbing exists anywhere in this mock to carry a caller/resource ARN through crypto calls, same documented scope boundary as grant-token authorization); (2) CreateGrantInput gained GrantTokens (real SDK field; accepted as a no-op, same precedent as CreateKeyInput/ReplicateKeyInput's BypassPolicyLockoutSafetyCheck -- no IAM layer exists to authorize the CreateGrant call itself); (3) CreateGrantInput/Grant gained GranteeServicePrincipal + RetiringServicePrincipal (real SDK fields), WITH real validation: exactly one of GranteePrincipal/GranteeServicePrincipal required, RetiringPrincipal/RetiringServicePrincipal mutually exclusive, and a service grantee requires a SourceArn constraint + a retiring principal of either kind, matching the real CreateGrantInput doc comments exactly. Also added Grant.IssuingAccount (real GrantListEntry field, was entirely absent -- populated from the backend's account ID). See TestCreateGrant_ServicePrincipals, TestGrantConstraint_SourceArn_RoundTrips, TestCreateGrant_IssuingAccount_Populated, TestCreateGrant_GrantTokens_AcceptedAsNoOp in grants_test.go, plus persistence coverage in TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip."}
   ListGrants: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant"}
   RevokeGrant: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant"}
   RetireGrant: {wire: ok, errors: ok, state: fixed, persist: ok, note: "GrantId+KeyId path now uses the key's own region; GrantId-only (no KeyId, no region hint) now searches all regions instead of only the request region"}
@@ -63,7 +76,7 @@ ops:
   ConnectCustomKeyStore: {wire: ok, errors: ok, state: ok, persist: ok}
   DisconnectCustomKeyStore: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateCustomKeyStore: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetKeyLastUsage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not a real AWS KMS op; internal telemetry accessor kept from a prior pass"}
+  GetKeyLastUsage: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "CORRECTION: every prior pass on this file mislabeled this as 'not a real AWS KMS operation' and filed it under deferred -- it IS real (confirmed against the vendored aws-sdk-go-v2/service/kms@v1.54.0's api_op_GetKeyLastUsage.go: a real Client.GetKeyLastUsage method exists, and TestSDKCompleteness already silently accounted for it without complaint, which is what surfaced the mislabel when this pass tried to remove the op from the wire). Field-diffed as correct: GetKeyLastUsageInput/Output shapes match exactly (KeyId/KeyCreationDate/TrackingStartDate/KeyLastUsage with CloudTrailEventId/KmsRequestId/Operation/Timestamp), and the set of operations that record last-usage (recordLastUsage callers in data_keys.go/encryption.go/hmac.go/key_agreement.go/signing.go) matches the real SDK's types.KeyLastUsageTrackingOperation enum values exactly (all 12: Decrypt, DeriveSharedSecret, Encrypt, GenerateDataKey(Pair)(WithoutPlaintext) x3, GenerateMac, ReEncrypt, Sign, Verify, VerifyMac). One real gap found and fixed: the real API's KeyId doc comment is explicit that 'Alias names are not supported' for this one operation (unlike almost every other KeyId-accepting KMS op), but gopherstack's GetKeyLastUsage routed through the general-purpose lookupKey, silently accepting aliases. Fixed with a new isAliasKeyID helper (store.go) called before taking any lock, rejecting alias names/alias ARNs with ValidationException. See TestGetKeyLastUsage_RejectsAliasKeyID in get_key_last_usage_test.go."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: fixed, note: "tags stored via pkgs/tags in a Handler-level side map (Handler.tags, keyed by KeyID), NOT in InMemoryBackend.backendSnapshot -- Handler.Snapshot previously delegated straight to Backend.Snapshot and never serialized Handler.tags at all, so a process restart with persistence enabled silently dropped every key's tags (ListResourceTags stayed correct within a single running process, masking the gap). Fixed: Handler.Snapshot/Restore now wrap the backend snapshot together with a tags map (see persistence.go's handlerSnapshot); a handlerFormat marker distinguishes the new wrapped shape from a legacy pre-fix snapshot (raw backend bytes) so old on-disk snapshots still restore backend state cleanly, just without tags (no worse than before)."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: fixed, note: "same Handler.tags persistence fix as TagResource"}
   ListResourceTags: {wire: ok, errors: ok, state: ok, persist: fixed, note: "same Handler.tags persistence fix as TagResource"}
@@ -73,15 +86,15 @@ families:
   key_state_machine: {status: ok, note: "Enabled/Disabled/PendingDeletion/PendingImport transitions all gated; keyStateError() maps Disabled->DisabledException, everything else->KMSInvalidStateException"}
   multi_region: {status: ok, note: "ReplicateKey/UpdatePrimaryRegion primary<->replica promotion verified by existing TestUpdatePrimaryRegion_RoleSwap; DescribeKey MultiRegionConfiguration built correctly for both primary and replica sides"}
 gaps:
-  - "GrantConstraints has no SourceArn field (real SDK: GrantConstraints.SourceArn); no operation in this mock threads a caller/resource ARN through crypto calls to check against it, and no other service adapter currently supplies one either — deferred, needs cross-cutting request-context plumbing, not a KMS-local fix (bd: gopherstack-w3k)"
-  - "CreateGrantInput has no GrantTokens field (real SDK: authorizes the CreateGrant call itself via an existing not-yet-consistent grant). No IAM/authorization layer exists anywhere in this mock, so this field would currently be a no-op; deferred, consistent with the rest of the codebase's scope"
-  - "GranteeServicePrincipal / RetiringServicePrincipal (AWS-service grantees) not modeled on CreateGrantInput; same no-IAM-layer scope reasoning as above"
+  - "RESOLVED 2026-07-23: GrantConstraints had no SourceArn field (real SDK: GrantConstraints.SourceArn). Added; round-trips through CreateGrant -> ListGrants/ListRetirableGrants/Snapshot-Restore. NOT enforced -- no operation in this mock threads a caller/resource ARN through crypto calls to check against it, and no other service adapter currently supplies one either; enforcement remains cross-cutting request-context plumbing, not a KMS-local fix (bd: gopherstack-w3k, still open for the enforcement half only)."
+  - "RESOLVED 2026-07-23: CreateGrantInput had no GrantTokens field (real SDK: authorizes the CreateGrant call itself via an existing not-yet-consistent grant). Added; accepted as a no-op (no IAM/authorization layer exists anywhere in this mock to authorize against), same precedent as CreateKeyInput/ReplicateKeyInput's BypassPolicyLockoutSafetyCheck."
+  - "RESOLVED 2026-07-23: GranteeServicePrincipal / RetiringServicePrincipal (AWS-service grantees) were not modeled on CreateGrantInput. Added, WITH real validation (exactly one of GranteePrincipal/GranteeServicePrincipal; RetiringPrincipal/RetiringServicePrincipal mutually exclusive; a service grantee requires a SourceArn constraint + a retiring principal), matching the real CreateGrantInput doc comments. No AWS-service-principal *simulation* exists (still no IAM layer), but the wire shape and its documented validation rules are both real and enforced now, unlike SourceArn's constraint-enforcement half above which has nothing local to check against."
   - "RESOLVED 2026-07-12: DescribeKeyInput was missing the GrantTokens field -- added + wired validateGrantTokenPresence (see the DescribeKey op row and describe_key_grant_tokens_test.go). Unlike the CreateGrant/CreateGrantInput GrantTokens gap above (which authorizes the CreateGrant call itself and has nothing to validate without an IAM layer), DescribeKey's GrantTokens resolve to real existing grants, so validation is meaningful and AWS-accurate here (DescribeKey declares InvalidGrantTokenException)."
   - "RESOLVED 2026-07-12: the region-scoped KeyId resolution inconsistency (GetKeyPolicy/PutKeyPolicy/CreateGrant/ListGrants/RevokeGrant/RetireGrant indexed their policiesStore/grantsRegion using the request region instead of an ARN's embedded region). Root cause was two-fold and both fixed at source: (1) these ops discarded the region resolveKeyID returned and re-used getRegion(ctx) -- fixed by adding a shared resolveKeyAndRegion helper (lookupKey now delegates to it too) that returns the key's actual region, and routing all six ops through it; (2) resolveKeyID's resolution cache stored only the resolved UUID and returned the REQUEST region on every cache hit, so even the region resolveKeyID returned was wrong for any ARN resolved more than once -- fixed by caching a {keyID, region} pair (region=\"\" sentinel for aliases means 'derive from request context', so alias behavior is unchanged; ARN caches its own embedded region, which is safe because the region is part of the ARN cache key). Verified by region_scoped_resolution_test.go (cross-region ReplicateKey -> replica-ARN Put/GetKeyPolicy round-trip + full grant lifecycle by ARN, all while ctx defaults to the primary's region)."
 deferred:
-  - Custom key store cryptographic connection/HSM simulation (ConnectCustomKeyStore is a pure state-machine transition; no CloudHSM cluster or XKS proxy is modeled, matching pre-existing scope)
-  - GetKeyLastUsage (not a real AWS KMS operation; left as-is from a prior pass, out of scope for this sweep)
-leaks: {status: found, note: "janitor.purgeKey deleted a purged key's grants from the canonical grants/grantsByToken maps but left the grantsByKey[region][keyID] secondary-index submap allocated forever (unreachable after purge, since the keyID can never resolve again) — fixed by dropping the submap in purgeKey. Verified by Test_KMS_Janitor_PurgeKey_CleansGrantByKeyIndex, which fails without the fix. All other maps already bounded (keyMaterialHistory capped at 100 entries/key, janitor sweeps PendingDeletion keys, resolution cache cleared via evictAliasesFromCache)."}
+  - Custom key store cryptographic connection/HSM simulation (ConnectCustomKeyStore is a pure state-machine transition; no CloudHSM cluster or XKS proxy is modeled, matching pre-existing scope). Re-audited 2026-07-23, still accurate -- no change.
+  - "REMOVED 2026-07-23: GetKeyLastUsage was listed here as 'not a real AWS KMS operation'. That was wrong on every prior pass -- see the GetKeyLastUsage ops row above. It is now field-diffed and current."
+leaks: {status: fixed, note: "Handler.tags (a side map of *tags.Tags keyed by KeyID, entirely outside InMemoryBackend -- see the TagResource/UntagResource/ListResourceTags ops rows for why tags live at the handler layer here) was never cleaned up when the janitor permanently purged a key. Every other per-key index the janitor purges (aliases, grants, lastUsage, and the grantsByKey secondary index fixed in a prior pass) lives inside InMemoryBackend and was already cascade-cleaned by purgeKey; Handler.tags structurally could not be, since Janitor only holds a *InMemoryBackend, not a *Handler. Since KMS key IDs are UUIDs that are never reused, an unfixed regression here leaks one *tags.Tags -- AND the lockmetrics/Prometheus collector registration it owns (see pkgs/tags.Tags.Close's doc comment: 'prevent unbounded growth of the global collector') -- per tagged-then-deleted key for the remaining lifetime of any long-running gopherstack process. Fixed by adding a Janitor.OnKeyPurged(region, keyID string) callback, invoked synchronously at the end of purgeKey (still under the backend's write lock; safe because Handler.tagsMu is never held while calling back into Backend anywhere in this package -- verified by reading every tagsMu-holding code path in handler_tags.go and persistence.go), and wired in Handler.WithJanitor to h.purgeTags, which Close()s and deletes the map entry. Verified by TestTagsLeak_PurgeKey in leak_test.go with a negative-control run (test fails with the exact leaked-tag symptom when the OnKeyPurged wiring is disabled, passes with it restored). All other maps confirmed still bounded (keyMaterialHistory capped at 100 entries/key, janitor sweeps PendingDeletion keys, resolution cache cleared via evictAliasesFromCache, grantsByKey dropped in purgeKey)."}
 ---
 
 ## Notes
@@ -482,3 +495,85 @@ That is `cli.go` + Secrets Manager backend work — main-thread / cross-service 
 per `PARITY_PHASE4_KICKOFF.md`, and needs no new KMS-side export (`Handler.Backend`'s
 `Encrypt`/`Decrypt`/`DescribeKey` already suffice, as documented in the cross-service
 punch-list above). No KMS-local gaps remain.
+
+## 2026-07-23 gap-closure + leak-hunt pass (bd: none filed yet — see report)
+
+Worked the 5 `gaps` + 2 `deferred` entries this file tracked at the start of the pass,
+plus a dedicated leak hunt (this file's `leaks` block said `status: found`, which on a
+literal reading meant "not yet fixed" even though its note described an already-applied
+fix from a prior pass — resolved by treating it as an instruction to re-audit for a
+*current*, unfixed leak, which turned up a real one; see the `leaks` block above).
+
+### Corrected this pass (process finding, not a code bug)
+
+**`GetKeyLastUsage` was mislabeled "not a real AWS KMS operation" by every prior audit
+pass on this file, going back to whichever pass first added it.** Caught only because
+this pass initially trusted that label and removed the op from the HTTP dispatch table
+(`GetSupportedOperations`/`buildDispatchTable` in handler.go) — `TestSDKCompleteness`
+immediately failed with `SDK methods found that are neither in GetSupportedOperations()
+nor in the notImplemented list: [GetKeyLastUsage]`, which is the completeness test
+correctly noticing the real SDK client (`aws-sdk-go-v2/service/kms@v1.54.0`) has a real
+`Client.GetKeyLastUsage` method backed by `api_op_GetKeyLastUsage.go`. Reverted the
+removal and field-diffed the real op properly instead (see the `ops` row above) — this
+is the exact "field-diff wire shapes against the real SDK types... do NOT mark a family
+ok on a no-stub basis alone" failure mode this campaign's task brief warns about, just
+inverted: trusting an old *removal* note instead of trusting an old *stub* note. Lesson
+for the next auditor: `notImplemented`/`deferred` labels claiming an op "isn't real AWS"
+are exactly as load-bearing as any other claim in this file and must be independently
+re-verified against the vendored SDK, not propagated forward pass after pass.
+
+### Fixed this pass
+
+1. **Leak: `Handler.tags` never cleaned up on permanent key purge.** See the `leaks`
+   block above for the full writeup. `janitor.go`'s `Janitor.OnKeyPurged` callback +
+   `handler_tags.go`'s `Handler.purgeTags`, wired in `Handler.WithJanitor`. Test:
+   `TestTagsLeak_PurgeKey` in `leak_test.go`, with a negative-control run.
+2. **`GrantConstraints.SourceArn`, `CreateGrantInput.GrantTokens`,
+   `GranteeServicePrincipal`/`RetiringServicePrincipal`** — all three previously-deferred
+   gaps closed as real wire-shape + validation fixes (not stubs: the two principal
+   fields have genuine, enforced validation rules taken directly from the real SDK's doc
+   comments). See the `CreateGrant` ops row above and `gaps` block for the full
+   before/after reasoning on why these are closeable without the cross-cutting IAM layer
+   that blocks *enforcement* of grant permissions generally. Also added
+   `Grant.IssuingAccount` (real `GrantListEntry` field that was entirely absent).
+   Tests: `TestCreateGrant_ServicePrincipals`, `TestGrantConstraint_SourceArn_RoundTrips`,
+   `TestCreateGrant_IssuingAccount_Populated`, `TestCreateGrant_GrantTokens_AcceptedAsNoOp`
+   in `grants_test.go`; persistence coverage added to the existing
+   `TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip`.
+3. **`GetKeyLastUsage` accepted alias-form `KeyId`, which the real API's doc comment
+   explicitly forbids** ("Specify the key ID or key ARN of the KMS key... Alias names
+   are not supported" — the one KeyId-accepting KMS op in this codebase with that
+   restriction; every other one accepts alias/ARN/bare-ID interchangeably). Fixed with a
+   new `isAliasKeyID` helper (`store.go`). Test: `TestGetKeyLastUsage_RejectsAliasKeyID`.
+
+### Newly found, NOT fixed this pass (items_still_open)
+
+1. **`CreateGrantInput.Name`-based retry idempotency is entirely unimplemented.** The
+   real SDK's doc comment on `CreateGrantInput.Name` is explicit: "When this value is
+   present, you can retry a CreateGrant request with identical parameters; if the grant
+   already exists, the original GrantId is returned without creating a new grant...
+   the returned grant token is unique with every CreateGrant request, even when a
+   duplicate GrantId is returned." gopherstack's `CreateGrant` (`grants.go`) creates a
+   brand-new `GrantID` and `GrantToken` on every call regardless of `Name`, with no
+   duplicate-detection at all. Not fixed this pass: correctly implementing "same
+   GrantId, fresh GrantToken every retry" requires either (a) letting a single stored
+   `Grant` hold multiple valid tokens, or (b) some other mechanism to keep an old,
+   already-issued token valid across a retry that mints a new one for the same grant —
+   both are real storage-model changes to `Grant`/the grants `store.Table`, not a
+   same-shape field addition like this pass's other three gap closures, and risked
+   destabilizing the grant-token expiry/constraint-checking logic
+   (`validateGrantTokenConstraints`/`validateGrantTokenPresence`) under time pressure.
+   Left for a dedicated follow-up pass.
+2. **`DryRun` is not implemented on any KMS operation.** The real SDK has a `DryRun
+   *bool` field on `CreateGrantInput` (and several other KMS inputs). gopherstack
+   implements `DryRun` for EC2 (`ec2/handler.go`: validate-then-`ErrDryRunOperation`/412
+   pattern) but nowhere in KMS. This is a broad, multi-op feature addition (every
+   DryRun-capable KMS op, not just CreateGrant) rather than a single documented gap this
+   file was already tracking, so it's out of scope for this pass's 5-gaps/2-deferred
+   closure brief. Noted for a future KMS pass; not a regression (nothing broke — DryRun
+   was already absent).
+
+Both `items_still_open` above are genuinely new findings (not previously tracked
+anywhere in this file), surfaced by the same real-SDK field-diffing this pass applied to
+the 5 gaps it was scoped to close — noted here rather than silently left out, per this
+campaign's "no bad tests, no reclassifying an unfinished item as ok" rule.

@@ -116,10 +116,12 @@ func (b *InMemoryBackend) PublishType(typeName string) error {
 func (b *InMemoryBackend) SetTypeDefaultVersion(typeArn, version string) error {
 	b.mu.Lock("SetTypeDefaultVersion")
 	defer b.mu.Unlock()
-	if t, ok := b.typeRegistry.Get(typeArn); ok {
-		t.DefaultVersion = version
-		t.VersionID = version
+	t, ok := b.typeRegistry.Get(typeArn)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
 	}
+	t.DefaultVersion = version
+	t.VersionID = version
 	// Update typeVersions IsDefault flags.
 	for _, v := range b.typeVersions[typeArn] {
 		v.IsDefault = v.VersionID == version

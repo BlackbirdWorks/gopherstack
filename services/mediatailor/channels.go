@@ -3,6 +3,7 @@ package mediatailor
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -10,16 +11,19 @@ import (
 )
 
 type storedChannel struct {
-	FillerSlate  *SlateSource      `json:"fillerSlate,omitempty"`
-	CreationTime time.Time         `json:"creationTime"`
-	LastModified time.Time         `json:"lastModified"`
-	Tags         map[string]string `json:"tags"`
-	Name         string            `json:"name"`
-	ARN          string            `json:"arn"`
-	PlaybackMode string            `json:"playbackMode"`
-	ChannelState string            `json:"channelState"`
-	Tier         string            `json:"tier"`
-	Outputs      []OutputItem      `json:"outputs"`
+	FillerSlate      *SlateSource            `json:"fillerSlate,omitempty"`
+	TimeShift        *TimeShiftConfiguration `json:"timeShiftConfiguration,omitempty"`
+	CreationTime     time.Time               `json:"creationTime"`
+	LastModified     time.Time               `json:"lastModified"`
+	Tags             map[string]string       `json:"tags"`
+	Name             string                  `json:"name"`
+	ARN              string                  `json:"arn"`
+	PlaybackMode     string                  `json:"playbackMode"`
+	ChannelState     string                  `json:"channelState"`
+	Tier             string                  `json:"tier"`
+	Outputs          []OutputItem            `json:"outputs"`
+	Audiences        []string                `json:"audiences,omitempty"`
+	LogConfiguration ChannelLogConfiguration `json:"logConfiguration"`
 }
 
 func (c *storedChannel) toChannel() *Channel {
@@ -30,15 +34,17 @@ func (c *storedChannel) toChannel() *Channel {
 	copy(outputs, c.Outputs)
 
 	ch := &Channel{
-		CreationTime: c.CreationTime,
-		LastModified: c.LastModified,
-		Tags:         tags,
-		Name:         c.Name,
-		ARN:          c.ARN,
-		PlaybackMode: c.PlaybackMode,
-		ChannelState: c.ChannelState,
-		Tier:         c.Tier,
-		Outputs:      outputs,
+		CreationTime:     c.CreationTime,
+		LastModified:     c.LastModified,
+		Tags:             tags,
+		Name:             c.Name,
+		ARN:              c.ARN,
+		PlaybackMode:     c.PlaybackMode,
+		ChannelState:     c.ChannelState,
+		Tier:             c.Tier,
+		Outputs:          outputs,
+		Audiences:        slices.Clone(c.Audiences),
+		LogConfiguration: ChannelLogConfiguration{LogTypes: slices.Clone(c.LogConfiguration.LogTypes)},
 	}
 
 	if c.FillerSlate != nil {
@@ -46,6 +52,11 @@ func (c *storedChannel) toChannel() *Channel {
 			SourceLocationName: c.FillerSlate.SourceLocationName,
 			VodSourceName:      c.FillerSlate.VodSourceName,
 		}
+	}
+
+	if c.TimeShift != nil {
+		ts := *c.TimeShift
+		ch.TimeShift = &ts
 	}
 
 	return ch
@@ -56,14 +67,17 @@ func (c *storedChannel) toSummary() *ChannelSummary {
 	maps.Copy(tags, c.Tags)
 
 	s := &ChannelSummary{
-		CreationTime: c.CreationTime,
-		LastModified: c.LastModified,
-		Tags:         tags,
-		Name:         c.Name,
-		ARN:          c.ARN,
-		PlaybackMode: c.PlaybackMode,
-		ChannelState: c.ChannelState,
-		Tier:         c.Tier,
+		CreationTime:     c.CreationTime,
+		LastModified:     c.LastModified,
+		Tags:             tags,
+		Name:             c.Name,
+		ARN:              c.ARN,
+		PlaybackMode:     c.PlaybackMode,
+		ChannelState:     c.ChannelState,
+		Tier:             c.Tier,
+		Outputs:          slices.Clone(c.Outputs),
+		Audiences:        slices.Clone(c.Audiences),
+		LogConfiguration: ChannelLogConfiguration{LogTypes: slices.Clone(c.LogConfiguration.LogTypes)},
 	}
 
 	if c.FillerSlate != nil {
@@ -73,6 +87,11 @@ func (c *storedChannel) toSummary() *ChannelSummary {
 		}
 	}
 
+	if c.TimeShift != nil {
+		ts := *c.TimeShift
+		s.TimeShift = &ts
+	}
+
 	return s
 }
 
@@ -80,9 +99,11 @@ func (c *storedChannel) toSummary() *ChannelSummary {
 
 // CreateChannel creates a new channel.
 func (b *InMemoryBackend) CreateChannel(
-	name, playbackMode string,
+	name, playbackMode, tier string,
 	outputs []OutputItem,
 	fillerSlate *SlateSource,
+	audiences []string,
+	timeShift *TimeShiftConfiguration,
 	tags map[string]string,
 ) (*Channel, error) {
 	if name == "" {
@@ -100,6 +121,16 @@ func (b *InMemoryBackend) CreateChannel(
 		)
 	}
 
+	switch tier {
+	case "":
+		tier = tierBasic
+	case tierBasic, tierStandard:
+	default:
+		return nil, fmt.Errorf(
+			"%w: Tier must be %s or %s", ErrInvalidParameter, tierBasic, tierStandard,
+		)
+	}
+
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
@@ -111,16 +142,18 @@ func (b *InMemoryBackend) CreateChannel(
 	copy(out, outputs)
 
 	now := time.Now().UTC()
+	chARN := b.channelARN(name)
 	ch := &storedChannel{
 		Tags:         copyTags(tags),
 		Name:         name,
-		ARN:          b.channelARN(name),
+		ARN:          chARN,
 		PlaybackMode: playbackMode,
 		ChannelState: channelStateStopped,
-		Tier:         "BASIC",
+		Tier:         tier,
 		CreationTime: now,
 		LastModified: now,
 		Outputs:      out,
+		Audiences:    slices.Clone(audiences),
 	}
 
 	if fillerSlate != nil {
@@ -130,7 +163,13 @@ func (b *InMemoryBackend) CreateChannel(
 		}
 	}
 
+	if timeShift != nil {
+		ts := *timeShift
+		ch.TimeShift = &ts
+	}
+
 	b.channels.Put(ch)
+	b.tags[chARN] = copyTags(tags)
 
 	return ch.toChannel(), nil
 }
@@ -152,8 +191,15 @@ func (b *InMemoryBackend) DescribeChannel(name string) (*Channel, error) {
 	return result, nil
 }
 
-// UpdateChannel updates a channel's outputs.
-func (b *InMemoryBackend) UpdateChannel(name string, outputs []OutputItem) (*Channel, error) {
+// UpdateChannel updates a channel's outputs, filler slate, audiences, and
+// time-shift configuration.
+func (b *InMemoryBackend) UpdateChannel(
+	name string,
+	outputs []OutputItem,
+	fillerSlate *SlateSource,
+	audiences []string,
+	timeShift *TimeShiftConfiguration,
+) (*Channel, error) {
 	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
 
@@ -165,11 +211,31 @@ func (b *InMemoryBackend) UpdateChannel(name string, outputs []OutputItem) (*Cha
 	out := make([]OutputItem, len(outputs))
 	copy(out, outputs)
 	ch.Outputs = out
+	ch.Audiences = slices.Clone(audiences)
+	ch.LastModified = time.Now().UTC()
+
+	if fillerSlate != nil {
+		ch.FillerSlate = &SlateSource{
+			SourceLocationName: fillerSlate.SourceLocationName,
+			VodSourceName:      fillerSlate.VodSourceName,
+		}
+	} else {
+		ch.FillerSlate = nil
+	}
+
+	if timeShift != nil {
+		ts := *timeShift
+		ch.TimeShift = &ts
+	} else {
+		ch.TimeShift = nil
+	}
 
 	return ch.toChannel(), nil
 }
 
-// DeleteChannel deletes a channel.
+// DeleteChannel deletes a channel, cascade-deleting its policy and every
+// program scheduled on it so no ghost rows remain in the programs table
+// (or its byChannel index) after the channel itself is gone.
 func (b *InMemoryBackend) DeleteChannel(name string) error {
 	b.mu.Lock("DeleteChannel")
 	defer b.mu.Unlock()
@@ -183,6 +249,11 @@ func (b *InMemoryBackend) DeleteChannel(name string) error {
 		return fmt.Errorf("%w: channel must be stopped before deleting", ErrConflict)
 	}
 
+	for _, prog := range slices.Clone(b.programsByChannel.Get(name)) {
+		b.programs.Delete(programKey(prog.ChannelName, prog.ProgramName))
+	}
+
+	delete(b.channelPolicies, name)
 	delete(b.tags, ch.ARN)
 	b.channels.Delete(name)
 
@@ -243,17 +314,19 @@ func (b *InMemoryBackend) StopChannel(name string) error {
 	return nil
 }
 
-// ConfigureLogsForChannel sets log types on a channel.
+// ConfigureLogsForChannel sets log types on a channel and persists them so
+// they are queryable back from Describe/List/CreateChannel's LogConfiguration.
 func (b *InMemoryBackend) ConfigureLogsForChannel(channelName string, logTypes []string) (string, []string, error) {
 	b.mu.Lock("ConfigureLogsForChannel")
 	defer b.mu.Unlock()
 
-	if !b.channels.Has(channelName) {
+	ch, ok := b.channels.Get(channelName)
+	if !ok {
 		return "", nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
 
-	result := make([]string, len(logTypes))
-	copy(result, logTypes)
+	result := slices.Clone(logTypes)
+	ch.LogConfiguration = ChannelLogConfiguration{LogTypes: slices.Clone(result)}
 
 	return channelName, result, nil
 }

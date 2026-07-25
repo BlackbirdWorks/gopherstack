@@ -101,17 +101,7 @@ func (b *InMemoryBackend) ListPreparedStatements(
 		limit = maxResults
 	}
 
-	start := 0
-	if nextToken != "" {
-		for i, s := range result {
-			if s.StatementName == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
+	start := paginationStart(len(result), nextToken, func(i int) string { return result[i].StatementName })
 	result = result[start:]
 
 	outToken := ""

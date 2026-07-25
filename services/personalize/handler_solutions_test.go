@@ -13,10 +13,11 @@ func TestPersonalize_Solution_FieldRetention(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "my-solution-dg")
 
 	rec := personalizeDo(t, h, "CreateSolution", map[string]any{
 		"name":            "my-solution",
-		"datasetGroupArn": "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1",
+		"datasetGroupArn": dgArn,
 		"recipeArn":       "arn:aws:personalize:::recipe/aws-user-personalization",
 		"performAutoML":   false,
 		"performHPO":      true,
@@ -35,6 +36,92 @@ func TestPersonalize_Solution_FieldRetention(t *testing.T) {
 	// performAutoTraining defaults to true when omitted from CreateSolution.
 	assert.Equal(t, true, sol["performAutoTraining"])
 	assert.Equal(t, false, sol["performIncrementalUpdate"])
+	// AutoML was not requested -- autoMLResult must be absent, not a
+	// fabricated empty object.
+	assert.NotContains(t, sol, "autoMLResult")
+}
+
+// TestPersonalize_Solution_ConfigEventTypeAndAutoMLResult locks three
+// previously-missing wire fields: eventType (a plain CreateSolutionInput
+// member that was completely unread), solutionConfig (round-tripped
+// opaquely, inherited onto SolutionVersion at training time), and
+// autoMLResult (types.AutoMLResult.bestRecipeArn, only populated when
+// performAutoML is true).
+func TestPersonalize_Solution_ConfigEventTypeAndAutoMLResult(t *testing.T) {
+	t.Parallel()
+
+	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "automl-dg")
+
+	rec := personalizeDo(t, h, "CreateSolution", map[string]any{
+		"name":            "automl-sol",
+		"datasetGroupArn": dgArn,
+		"eventType":       "click",
+		"performAutoML":   true,
+		"solutionConfig": map[string]any{
+			"eventValueThreshold": "0.5",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	solArn := personalizeUnmarshal(t, rec)["solutionArn"].(string)
+
+	rec = personalizeDo(t, h, "DescribeSolution", map[string]any{"solutionArn": solArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	sol := personalizeUnmarshal(t, rec)["solution"].(map[string]any)
+	assert.Equal(t, "click", sol["eventType"])
+	cfg, ok := sol["solutionConfig"].(map[string]any)
+	require.True(t, ok, "solutionConfig must round-trip on Describe")
+	assert.Equal(t, "0.5", cfg["eventValueThreshold"])
+	amlResult, ok := sol["autoMLResult"].(map[string]any)
+	require.True(t, ok, "autoMLResult must be populated when performAutoML is true")
+	assert.NotEmpty(t, amlResult["bestRecipeArn"])
+
+	// solutionConfig is inherited onto SolutionVersion at training time.
+	rec = personalizeDo(t, h, "CreateSolutionVersion", map[string]any{"solutionArn": solArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	svArn := personalizeUnmarshal(t, rec)["solutionVersionArn"].(string)
+
+	rec = personalizeDo(t, h, "DescribeSolutionVersion", map[string]any{"solutionVersionArn": svArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	sv := personalizeUnmarshal(t, rec)["solutionVersion"].(map[string]any)
+	svCfg, ok := sv["solutionConfig"].(map[string]any)
+	require.True(t, ok, "solutionVersion.solutionConfig must be inherited from the parent solution")
+	assert.Equal(t, "0.5", svCfg["eventValueThreshold"])
+}
+
+// TestPersonalize_Solution_LatestSolutionUpdate locks that
+// latestSolutionUpdate (types.SolutionUpdateSummary) only appears on
+// Describe once the solution has had at least one UpdateSolution call.
+func TestPersonalize_Solution_LatestSolutionUpdate(t *testing.T) {
+	t.Parallel()
+
+	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "latest-update-dg")
+
+	rec := personalizeDo(t, h, "CreateSolution", map[string]any{
+		"name":            "latest-update-sol",
+		"datasetGroupArn": dgArn,
+		"recipeArn":       "arn:aws:personalize:::recipe/aws-user-personalization",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	solArn := personalizeUnmarshal(t, rec)["solutionArn"].(string)
+
+	rec = personalizeDo(t, h, "DescribeSolution", map[string]any{"solutionArn": solArn})
+	sol := personalizeUnmarshal(t, rec)["solution"].(map[string]any)
+	assert.NotContains(t, sol, "latestSolutionUpdate")
+
+	rec = personalizeDo(t, h, "UpdateSolution", map[string]any{
+		"solutionArn":         solArn,
+		"performAutoTraining": false,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = personalizeDo(t, h, "DescribeSolution", map[string]any{"solutionArn": solArn})
+	sol = personalizeUnmarshal(t, rec)["solution"].(map[string]any)
+	update, ok := sol["latestSolutionUpdate"].(map[string]any)
+	require.True(t, ok, "latestSolutionUpdate must appear after an UpdateSolution call")
+	assert.Equal(t, false, update["performAutoTraining"])
+	assert.Equal(t, "ACTIVE", update["status"])
 }
 
 // TestPersonalize_Solution_Update verifies UpdateSolution mutates the
@@ -45,10 +132,11 @@ func TestPersonalize_Solution_Update(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "update-me-dg")
 
 	rec := personalizeDo(t, h, "CreateSolution", map[string]any{
 		"name":            "update-me",
-		"datasetGroupArn": "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1",
+		"datasetGroupArn": dgArn,
 		"recipeArn":       "arn:aws:personalize:::recipe/aws-user-personalization",
 		"performAutoML":   false,
 		"performHPO":      true,
@@ -88,7 +176,7 @@ func TestPersonalize_SolutionVersion_Lifecycle(t *testing.T) {
 
 	h := personalizeHandler(t)
 
-	solArn := "arn:aws:personalize:us-east-1:000000000000:solution/my-solution"
+	solArn := personalizeCreateSolution(t, h, "my-solution")
 
 	// Create solution version
 	rec := personalizeDo(t, h, "CreateSolutionVersion", map[string]any{
@@ -115,18 +203,39 @@ func TestPersonalize_SolutionVersion_Lifecycle(t *testing.T) {
 	assert.Len(t, versions, 1)
 }
 
+// TestPersonalize_DeleteSolutionVersion_NotARealOperation locks the removal
+// of a gopherstack-invented op: the real aws-sdk-go-v2/service/personalize
+// v1.47.11 Client has no DeleteSolutionVersion method at all (only
+// DeleteSolution removes a solution and all its versions together) --
+// verified by the absence of api_op_DeleteSolutionVersion.go in the SDK
+// module. It must now be rejected the same way any other unrecognized
+// operation name is, not silently succeed.
+func TestPersonalize_DeleteSolutionVersion_NotARealOperation(t *testing.T) {
+	t.Parallel()
+
+	h := personalizeHandler(t)
+	svArn := personalizeCreateSolutionVersion(t, h, "sol")
+
+	rec := personalizeDo(t, h, "DeleteSolutionVersion", map[string]any{"solutionVersionArn": svArn})
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	m := personalizeUnmarshal(t, rec)
+	assert.Equal(t, "InvalidInputException", m["__type"])
+
+	// The solution version must still exist -- the request never reached any
+	// delete logic.
+	rec = personalizeDo(t, h, "DescribeSolutionVersion", map[string]any{"solutionVersionArn": svArn})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestPersonalize_StopSolutionVersionCreation(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
 
-	rec := personalizeDo(t, h, "CreateSolutionVersion", map[string]any{
-		"solutionArn": "arn:aws:personalize:us-east-1:000000000000:solution/sol",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-	svArn := personalizeUnmarshal(t, rec)["solutionVersionArn"].(string)
+	svArn := personalizeCreateSolutionVersion(t, h, "sol")
 
-	rec = personalizeDo(t, h, "StopSolutionVersionCreation", map[string]any{"solutionVersionArn": svArn})
+	rec := personalizeDo(t, h, "StopSolutionVersionCreation", map[string]any{"solutionVersionArn": svArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = personalizeDo(t, h, "DescribeSolutionVersion", map[string]any{"solutionVersionArn": svArn})
@@ -141,13 +250,9 @@ func TestPersonalize_GetSolutionMetrics(t *testing.T) {
 
 	h := personalizeHandler(t)
 
-	rec := personalizeDo(t, h, "CreateSolutionVersion", map[string]any{
-		"solutionArn": "arn:aws:personalize:us-east-1:000000000000:solution/sol",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-	svArn := personalizeUnmarshal(t, rec)["solutionVersionArn"].(string)
+	svArn := personalizeCreateSolutionVersion(t, h, "sol")
 
-	rec = personalizeDo(t, h, "GetSolutionMetrics", map[string]any{"solutionVersionArn": svArn})
+	rec := personalizeDo(t, h, "GetSolutionMetrics", map[string]any{"solutionVersionArn": svArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	m := personalizeUnmarshal(t, rec)
 	assert.Equal(t, svArn, m["solutionVersionArn"])

@@ -300,3 +300,83 @@ func TestBackend_UpdateSourceAPIAssociation(t *testing.T) {
 		})
 	}
 }
+
+func TestBackend_StartSchemaMerge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		mergedAPIID   string
+		assocID       string
+		createAssoc   bool
+		mismatchedAPI bool
+		wantErr       bool
+	}{
+		{
+			name:        "success",
+			createAssoc: true,
+		},
+		{
+			name:        "merged_api_not_found",
+			createAssoc: false,
+			mergedAPIID: "nonexistent-merged",
+			assocID:     "nonexistent-assoc",
+			wantErr:     true,
+		},
+		{
+			name:          "association_belongs_to_different_merged_api",
+			createAssoc:   true,
+			mismatchedAPI: true,
+			wantErr:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			mergedAPIID := tt.mergedAPIID
+			assocID := tt.assocID
+
+			if tt.createAssoc {
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
+				require.NoError(t, err)
+				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+				require.NoError(t, err)
+
+				assoc, err := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "initial", "")
+				require.NoError(t, err)
+				assocID = assoc.AssociationID
+				mergedAPIID = merged.APIID
+
+				if tt.mismatchedAPI {
+					other, otherErr := b.CreateGraphqlAPI(
+						"OtherMergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+					)
+					require.NoError(t, otherErr)
+					mergedAPIID = other.APIID
+				}
+			}
+
+			status, err := b.StartSchemaMerge(mergedAPIID, assocID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, appsync.ErrNotFound)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, appsync.SourceAPIAssociationStatusMergeSuccess, status)
+
+			// The association's stored status must reflect the merge.
+			got, getErr := b.GetSourceAPIAssociation(mergedAPIID, assocID)
+			require.NoError(t, getErr)
+			assert.Equal(t, appsync.SourceAPIAssociationStatusMergeSuccess, got.AssociationStatus)
+		})
+	}
+}

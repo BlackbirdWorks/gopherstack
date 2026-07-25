@@ -154,12 +154,23 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 		)
 	}
 
-	// Verify x-amz-content-sha256 if supplied by the SDK.
+	// Verify x-amz-content-sha256 if supplied by the SDK. This mirrors real
+	// S3-family behavior (the "XAmzContentSHA256Mismatch" error, returned
+	// when the declared payload hash doesn't match the actual body) rather
+	// than a fabricated mediastoredata-specific exception name -- this check
+	// is a generic SigV4-payload-integrity concern shared by signed AWS REST
+	// APIs, not app-level validation specific to this service, so it isn't
+	// enumerated in mediastoredata's own narrow 4-exception model. It is also
+	// NOT redundant with pkgs/httputils.SigV4Validator: that validator only
+	// confirms the request signature is internally self-consistent with
+	// whatever payload hash the client declared -- it never independently
+	// recomputes the hash of the bytes actually received, so a declared hash
+	// that doesn't match the real body slips past it undetected.
 	if declared := r.Header.Get("X-Amz-Content-Sha256"); declared != "" &&
 		declared != "UNSIGNED-PAYLOAD" && declared != "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
 		if actual := contentSHA256(body); actual != declared {
 			return c.JSON(http.StatusBadRequest,
-				errorResponse("InvalidContentSHA256Exception",
+				errorResponse("XAmzContentSHA256Mismatch",
 					fmt.Sprintf("content SHA256 mismatch: got %s, expected %s", actual, declared)))
 		}
 	}
@@ -238,8 +249,14 @@ func (h *Handler) handleRangeGet(c *echo.Context, obj *Object, rangeHdr string) 
 	if !ok {
 		c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
 
+		// "RequestedRangeNotSatisfiableException" is the real modeled name
+		// (aws-sdk-go-v2/service/mediastoredata/types.
+		// RequestedRangeNotSatisfiableException) -- a fabricated
+		// "InvalidRangeException" __type here would not deserialize into the
+		// typed SDK error a real client checks for via errors.As, even
+		// though the HTTP status code (416) was already correct.
 		return c.JSON(http.StatusRequestedRangeNotSatisfiable,
-			errorResponse("InvalidRangeException", "requested range not satisfiable"))
+			errorResponse("RequestedRangeNotSatisfiableException", "requested range not satisfiable"))
 	}
 
 	chunk := obj.Body[start : end+1]
@@ -489,14 +506,19 @@ func parseByteRange(header string, size int64) (int64, int64, bool) {
 }
 
 // writeError maps backend errors to appropriate HTTP responses.
+//
+// ObjectNotFoundException and InternalServerError are both part of the real
+// mediastoredata SDK's 4-exception model. ErrInvalidPath/ErrInvalidStorageClass
+// already carry "ValidationException" as their wrapped message (see
+// errors.go) -- err.Error() below is used verbatim as both the message AND
+// (via the case's hardcoded literal) implicitly documents that the __type
+// must match, so there's no separate fabricated exception name here anymore.
 func (h *Handler) writeError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound, errorResponse("ObjectNotFoundException", err.Error()))
-	case errors.Is(err, ErrInvalidPath):
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidPathException", err.Error()))
-	case errors.Is(err, ErrInvalidStorageClass):
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidStorageClassException", err.Error()))
+	case errors.Is(err, ErrInvalidPath), errors.Is(err, ErrInvalidStorageClass):
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
 	}
 
 	return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerError", err.Error()))

@@ -256,22 +256,50 @@ func validRetentionDays() map[int32]struct{} {
 	}
 }
 
-// standardLogGroupFields returns the standard AWS CloudWatch Logs fields present in all log events.
-// All standard fields are present in 100% of events.
-func standardLogGroupFields() []LogGroupField {
-	const pct int32 = 100
+// GetLogGroupFields sampling window constants (aws-sdk-go-v2
+// api_op_GetLogGroupFields.go doc comment on GetLogGroupFieldsInput.Time):
+// "If you specify time, the 8 minutes before and 8 minutes after this time
+// are searched. If you omit time, the most recent 15 minutes up to the
+// current time are searched." Time is epoch *seconds* on the wire (unlike
+// most other CloudWatch Logs timestamp fields, which are epoch milliseconds).
+const (
+	logGroupFieldsCenteredHalfWindowMs = 8 * 60 * 1000
+	logGroupFieldsDefaultLookbackMs    = 15 * 60 * 1000
+)
 
-	return []LogGroupField{
-		{Name: keyMessageField, Percent: pct},
-		{Name: keyTimestamp, Percent: pct},
-		{Name: keyIngestionTime, Percent: pct},
-		{Name: keyLogStream, Percent: pct},
+// logGroupFieldsWindow returns the [start, end] millisecond window that
+// GetLogGroupFields samples events from, given the optional epoch-seconds
+// `time` request parameter.
+func logGroupFieldsWindow(timeSec *int64) (int64, int64) {
+	if timeSec != nil {
+		const msPerSec = 1000
+
+		centerMs := *timeSec * msPerSec
+
+		return centerMs - logGroupFieldsCenteredHalfWindowMs, centerMs + logGroupFieldsCenteredHalfWindowMs
 	}
+
+	nowMs := time.Now().UnixMilli()
+
+	return nowMs - logGroupFieldsDefaultLookbackMs, nowMs
 }
 
+// GetLogGroupFields returns the fields discovered in log events sampled from
+// the log group's streams within the search window (see logGroupFieldsWindow),
+// each paired with the percentage of sampled events that contained it. The
+// four built-in fields (@message/@timestamp/@ingestionTime/@logStream) are
+// present on every real log event, so they are counted like any other field
+// rather than hardcoded at 100%. Real AWS discovers additional fields by
+// parsing JSON-formatted messages; jsonMessageFields (shared with
+// DiscoverLogFields/GetLogFields) does the same here. Results are sorted by
+// descending percentage (AWS's documented order), then by name for
+// determinism on ties. An empty (non-nil) slice is returned when no events
+// fall in the window, matching "percentage of log events queried" having no
+// defined value over zero queried events.
 func (b *InMemoryBackend) GetLogGroupFields(
 	ctx context.Context,
 	logGroupName string,
+	timeSec *int64,
 ) ([]LogGroupField, error) {
 	if logGroupName == "" {
 		return nil, fmt.Errorf("%w: logGroupName is required", ErrValidation)
@@ -286,7 +314,57 @@ func (b *InMemoryBackend) GetLogGroupFields(
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
 	}
 
-	return standardLogGroupFields(), nil
+	windowStartMs, windowEndMs := logGroupFieldsWindow(timeSec)
+
+	fieldCounts := map[string]int{}
+	sampled := 0
+
+	for _, stream := range b.streamsInGroup(region, logGroupName) {
+		for _, ev := range stream.events {
+			// Synthetic test timestamps (before Sep 2001, see
+			// minRealisticTimestampMs) bypass the wall-clock window so
+			// fixture data authored with arbitrary timestamps is always
+			// sampled, mirroring the same bypass in classifyLogEvents.
+			if ev.Timestamp >= minRealisticTimestampMs &&
+				(ev.Timestamp < windowStartMs || ev.Timestamp > windowEndMs) {
+				continue
+			}
+
+			sampled++
+			fieldCounts[keyMessageField]++
+			fieldCounts[keyTimestamp]++
+			fieldCounts[keyIngestionTime]++
+			fieldCounts[keyLogStream]++
+
+			for _, name := range jsonMessageFields(ev.Message) {
+				fieldCounts[name]++
+			}
+		}
+	}
+
+	if sampled == 0 {
+		return []LogGroupField{}, nil
+	}
+
+	const pctScale = 100
+
+	fields := make([]LogGroupField, 0, len(fieldCounts))
+	for name, count := range fieldCounts {
+		// count <= sampled, both non-negative and well under int32 range for
+		// any realistic in-memory event count, so this conversion cannot overflow.
+		pct := int32(count*pctScale) / int32(sampled) //nolint:gosec // see comment above.
+		fields = append(fields, LogGroupField{Name: name, Percent: pct})
+	}
+
+	sort.Slice(fields, func(i, j int) bool {
+		if fields[i].Percent != fields[j].Percent {
+			return fields[i].Percent > fields[j].Percent
+		}
+
+		return fields[i].Name < fields[j].Name
+	})
+
+	return fields, nil
 }
 
 // ListLogGroups is the newer paginated list operation, equivalent to DescribeLogGroups.

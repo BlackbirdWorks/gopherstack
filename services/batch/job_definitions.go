@@ -34,6 +34,7 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 	consumableResourceProperties []ConsumableResourceProperty,
 	parameters map[string]string,
 	propagateTags bool,
+	retryStrategy *RetryStrategy,
 ) (*JobDefinition, error) {
 	region := getRegion(ctx, b.region)
 
@@ -83,6 +84,7 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 		ConsumableResourceProperties: newConsumableResourceProperties(consumableResourceProperties),
 		Parameters:                   maps.Clone(parameters),
 		PropagateTags:                propagateTags,
+		RetryStrategy:                cloneRetryStrategy(retryStrategy),
 	}
 	b.jobDefinitions.Put(jd)
 	cp := *jd

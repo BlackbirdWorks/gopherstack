@@ -3,6 +3,7 @@ package comprehend_test
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,6 +66,18 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
 	return out
+}
+
+// toJSON marshals input for use with rawRequest, for tests that need
+// rawRequest's non-200-status assertions but would otherwise duplicate
+// json.Marshal boilerplate at every call site.
+func toJSON(t *testing.T, input map[string]any) string {
+	t.Helper()
+
+	payload, err := json.Marshal(input)
+	require.NoError(t, err)
+
+	return string(payload)
 }
 
 func TestHandlerMetadataAndRouting(t *testing.T) {
@@ -147,8 +160,11 @@ func TestSynchronousDetectionOperations(t *testing.T) {
 		{
 			name:      "toxic",
 			operation: "DetectToxicContent",
-			input:     map[string]any{"TextSegments": []any{map[string]any{"Text": "I hate this"}}},
-			field:     "ResultList",
+			input: map[string]any{
+				"TextSegments": []any{map[string]any{"Text": "I hate this"}},
+				"LanguageCode": "en",
+			},
+			field: "ResultList",
 		},
 	}
 	for _, test := range tests {
@@ -244,7 +260,10 @@ func TestAsyncJobFailureAndStopLifecycle(t *testing.T) {
 			failed := request(t, handler, "Describe"+prefix, map[string]any{"JobId": id})
 			properties := failed[prefix+"Properties"].(map[string]any)
 			assert.Equal(t, "FAILED", properties["JobStatus"])
-			assert.NotEmpty(t, properties["FailureReason"])
+			// Real *Properties shapes name the failure description field
+			// "Message" (see jobMap's doc comment in handler_jobs.go) -- there
+			// is no "FailureReason" field on any of them.
+			assert.NotEmpty(t, properties["Message"])
 		})
 		t.Run(prefix+"_stopped", func(t *testing.T) {
 			t.Parallel()
@@ -370,38 +389,58 @@ func TestResourceCRUDAndTags(t *testing.T) {
 	}
 }
 
+// TestModelVersionsAndFlywheelIteration verifies that a new document
+// classifier/entity recognizer version is created by calling the SAME
+// Create op again with the same name and a new VersionName -- the real API
+// has no separate CreateDocumentClassifierVersion/CreateEntityRecognizerVersion
+// operation (confirmed: no such files exist among aws-sdk-go-v2/service/
+// comprehend's generated api_op_*.go, and CreateDocumentClassifierInput/
+// CreateEntityRecognizerInput both already carry an optional VersionName
+// field for exactly this purpose). A prior pass invented 8 operation names
+// for a fabricated "Version" resource family; they have been removed from
+// resourceSpecs (see handler_resources.go) and this test now exercises the
+// real versioning path instead.
 func TestModelVersionsAndFlywheelIteration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		parentPrefix  string
-		parentInput   map[string]any
-		parentARN     string
-		versionPrefix string
+		parentInput  map[string]any
+		parentPrefix string
+		parentARN    string
 	}{
 		{
-			parentPrefix:  "DocumentClassifier",
-			parentInput:   map[string]any{"DocumentClassifierName": "documents"},
-			parentARN:     "DocumentClassifierArn",
-			versionPrefix: "DocumentClassifierVersion",
+			parentPrefix: "DocumentClassifier",
+			parentInput:  map[string]any{"DocumentClassifierName": "documents"},
+			parentARN:    "DocumentClassifierArn",
 		},
 		{
-			parentPrefix:  "EntityRecognizer",
-			parentInput:   map[string]any{"RecognizerName": "entities"},
-			parentARN:     "EntityRecognizerArn",
-			versionPrefix: "EntityRecognizerVersion",
+			parentPrefix: "EntityRecognizer",
+			parentInput:  map[string]any{"RecognizerName": "entities"},
+			parentARN:    "EntityRecognizerArn",
 		},
 	}
 	for _, test := range tests {
-		handler := newHandler()
-		parent := request(t, handler, "Create"+test.parentPrefix, test.parentInput)
-		created := request(t, handler, "Create"+test.versionPrefix, map[string]any{
-			test.parentARN: parent[test.parentARN],
-			"VersionName":  "v2",
+		t.Run(test.parentPrefix, func(t *testing.T) {
+			t.Parallel()
+
+			handler := newHandler()
+			base := request(t, handler, "Create"+test.parentPrefix, test.parentInput)
+			baseARN, ok := base[test.parentARN].(string)
+			require.True(t, ok, "base create must return %s", test.parentARN)
+			require.NotEmpty(t, baseARN)
+
+			versionInput := map[string]any{"VersionName": "v2"}
+			maps.Copy(versionInput, test.parentInput)
+			versioned := request(t, handler, "Create"+test.parentPrefix, versionInput)
+			versionedARN, ok := versioned[test.parentARN].(string)
+			require.True(t, ok, "versioned create must return %s", test.parentARN)
+			require.NotEmpty(t, versionedARN)
+			assert.NotEqual(t, baseARN, versionedARN, "a version must get an ARN distinct from the base resource")
+			assert.Contains(t, versionedARN, "version/v2")
+
+			listed := request(t, handler, "List"+test.parentPrefix+"s", nil)
+			assert.Len(t, listed[test.parentPrefix+"PropertiesList"], 2, "base resource + one version")
 		})
-		assert.NotEmpty(t, created[test.parentARN])
-		listed := request(t, handler, "List"+test.versionPrefix+"s", nil)
-		assert.Len(t, listed[test.parentPrefix+"PropertiesList"], 1)
 	}
 
 	handler := newHandler()

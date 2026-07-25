@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -43,6 +44,44 @@ func cloneSMImage(img *SMImage) *SMImage {
 	cp.Tags = maps.Clone(img.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeImage.
+func (img *SMImage) MarshalJSON() ([]byte, error) {
+	type alias SMImage
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(img),
+		CreationTime:     epochSeconds(img.CreationTime),
+		LastModifiedTime: epochSeconds(img.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [SMImage.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (img *SMImage) UnmarshalJSON(data []byte) error {
+	type alias SMImage
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(img)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	img.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	img.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateImage creates a SageMaker image.
@@ -216,6 +255,44 @@ func cloneImageVersion(v *ImageVersion) *ImageVersion {
 	cp.Aliases = append([]string(nil), v.Aliases...)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeImageVersion.
+func (v *ImageVersion) MarshalJSON() ([]byte, error) {
+	type alias ImageVersion
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(v),
+		CreationTime:     epochSeconds(v.CreationTime),
+		LastModifiedTime: epochSeconds(v.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [ImageVersion.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (v *ImageVersion) UnmarshalJSON(data []byte) error {
+	type alias ImageVersion
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(v)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	v.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	v.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateImageVersion creates a new version for an image.

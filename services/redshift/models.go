@@ -43,9 +43,14 @@ type DataShareAssociation struct {
 
 // DataShare represents a Redshift data share.
 type DataShare struct {
-	DataShareArn                     string                 `json:"dataShareArn"`
-	ProducerArn                      string                 `json:"producerArn"`
-	ManagedBy                        string                 `json:"managedBy"`
+	DataShareArn string `json:"dataShareArn"`
+	ProducerArn  string `json:"producerArn"`
+	ManagedBy    string `json:"managedBy"`
+	// DataShareType mirrors types.DataShareType from the real SDK. "INTERNAL" is
+	// currently the only defined enum value (types.DataShareTypeInternal) --
+	// namespace-to-namespace shares created via RegisterNamespace would be the
+	// other case, which this backend does not yet model.
+	DataShareType                    string                 `json:"dataShareType"`
 	DataShareAssociations            []DataShareAssociation `json:"dataShareAssociations"`
 	AllowPubliclyAccessibleConsumers bool                   `json:"allowPubliclyAccessibleConsumers"`
 }
@@ -146,6 +151,11 @@ type SnapshotSchedule struct {
 	ScheduleIdentifier  string            `json:"scheduleIdentifier"`
 	Description         string            `json:"description"`
 	ScheduleDefinitions []string          `json:"scheduleDefinitions"`
+	// AssociatedClusters is derived at read time (see
+	// InMemoryBackend.snapshotScheduleAssociatedClusters) from the clusters whose
+	// SnapshotScheduleIdentifier matches this schedule; it is never persisted
+	// directly on the schedule itself.
+	AssociatedClusters []string `json:"-"`
 }
 
 // UsageLimit represents a usage limit for a Redshift feature.
@@ -176,6 +186,7 @@ type TableRestoreStatus struct {
 	RequestTime           time.Time `json:"requestTime"`
 	TableRestoreRequestID string    `json:"tableRestoreRequestId"`
 	ClusterIdentifier     string    `json:"clusterIdentifier"`
+	SnapshotIdentifier    string    `json:"snapshotIdentifier,omitempty"`
 	Status                string    `json:"status"`
 	Message               string    `json:"message"`
 	SourceDatabaseName    string    `json:"sourceDatabaseName"`
@@ -200,14 +211,44 @@ type HsmConfiguration struct {
 	HsmPartitionName           string            `json:"hsmPartitionName"`
 }
 
+// PauseClusterAction mirrors types.PauseClusterMessage: the ResizeCluster/
+// PauseCluster/ResumeCluster payload a ScheduledAction can target.
+type PauseClusterAction struct {
+	ClusterIdentifier string `json:"clusterIdentifier"`
+}
+
+// ResumeClusterAction mirrors types.ResumeClusterMessage.
+type ResumeClusterAction struct {
+	ClusterIdentifier string `json:"clusterIdentifier"`
+}
+
+// ResizeClusterAction mirrors types.ResizeClusterMessage.
+type ResizeClusterAction struct {
+	ClusterIdentifier            string `json:"clusterIdentifier"`
+	ClusterType                  string `json:"clusterType,omitempty"`
+	NodeType                     string `json:"nodeType,omitempty"`
+	ReservedNodeID               string `json:"reservedNodeId,omitempty"`
+	TargetReservedNodeOfferingID string `json:"targetReservedNodeOfferingId,omitempty"`
+	NumberOfNodes                int    `json:"numberOfNodes,omitempty"`
+	Classic                      bool   `json:"classic,omitempty"`
+}
+
+// ScheduledActionTarget mirrors types.ScheduledActionType: exactly one of these
+// three should be set, matching which Redshift API operation the schedule invokes.
+type ScheduledActionTarget struct {
+	PauseCluster  *PauseClusterAction  `json:"pauseCluster,omitempty"`
+	ResumeCluster *ResumeClusterAction `json:"resumeCluster,omitempty"`
+	ResizeCluster *ResizeClusterAction `json:"resizeCluster,omitempty"`
+}
+
 // ScheduledAction represents a Redshift scheduled action.
 type ScheduledAction struct {
-	ScheduledActionName        string `json:"scheduledActionName"`
-	Schedule                   string `json:"schedule"`
-	IamRole                    string `json:"iamRole"`
-	ScheduledActionDescription string `json:"scheduledActionDescription"`
-	State                      string `json:"state"`
-	TargetAction               string `json:"targetAction"`
+	TargetAction               *ScheduledActionTarget `json:"targetAction,omitempty"`
+	ScheduledActionName        string                 `json:"scheduledActionName"`
+	Schedule                   string                 `json:"schedule"`
+	IamRole                    string                 `json:"iamRole"`
+	ScheduledActionDescription string                 `json:"scheduledActionDescription"`
+	State                      string                 `json:"state"`
 }
 
 // CustomDomainAssociation represents a custom domain name associated with a Redshift cluster.
@@ -219,24 +260,29 @@ type CustomDomainAssociation struct {
 
 // EndpointAccess represents a Redshift managed VPC endpoint.
 type EndpointAccess struct {
-	ClusterIdentifier  string `json:"clusterIdentifier"`
-	EndpointName       string `json:"endpointName"`
-	EndpointStatus     string `json:"endpointStatus"`
-	EndpointCreateTime string `json:"endpointCreateTime"`
-	VpcID              string `json:"vpcId"`
-	Port               int    `json:"port"`
+	ClusterIdentifier   string   `json:"clusterIdentifier"`
+	EndpointName        string   `json:"endpointName"`
+	EndpointStatus      string   `json:"endpointStatus"`
+	EndpointCreateTime  string   `json:"endpointCreateTime"`
+	VpcID               string   `json:"vpcId"`
+	SubnetGroupName     string   `json:"subnetGroupName,omitempty"`
+	ResourceOwner       string   `json:"resourceOwner,omitempty"`
+	VpcSecurityGroupIDs []string `json:"vpcSecurityGroupIds,omitempty"`
+	Port                int      `json:"port"`
 }
 
 // Integration represents a zero-ETL integration from Redshift.
 type Integration struct {
-	IntegrationArn   string `json:"integrationArn"`
-	IntegrationName  string `json:"integrationName"`
-	SourceArn        string `json:"sourceArn"`
-	TargetArn        string `json:"targetArn"`
-	Status           string `json:"status"`
-	Description      string `json:"description"`
-	AdditionalEncKey string `json:"additionalEncryptionContext,omitempty"`
-	KmsKeyID         string `json:"kmsKeyId,omitempty"`
+	CreateTime       time.Time         `json:"createTime"`
+	Tags             map[string]string `json:"tags"`
+	IntegrationArn   string            `json:"integrationArn"`
+	IntegrationName  string            `json:"integrationName"`
+	SourceArn        string            `json:"sourceArn"`
+	TargetArn        string            `json:"targetArn"`
+	Status           string            `json:"status"`
+	Description      string            `json:"description"`
+	AdditionalEncKey string            `json:"additionalEncryptionContext,omitempty"`
+	KmsKeyID         string            `json:"kmsKeyId,omitempty"`
 }
 
 // IdcApplication represents a Redshift IDC application.
@@ -266,16 +312,18 @@ type ClusterPendingModifiedValues struct {
 type Cluster struct {
 	Tags                       *tags.Tags                    `json:"tags,omitempty"`
 	PendingModifiedValues      *ClusterPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
-	ClusterIdentifier          string                        `json:"clusterIdentifier"`
-	NodeType                   string                        `json:"nodeType"`
+	MasterUsername             string                        `json:"masterUsername"`
+	PreferredMaintenanceWindow string                        `json:"preferredMaintenanceWindow,omitempty"`
 	ClusterType                string                        `json:"clusterType"`
 	Endpoint                   string                        `json:"endpoint"`
 	Status                     string                        `json:"status"`
 	DBName                     string                        `json:"dbName"`
-	MasterUsername             string                        `json:"masterUsername"`
+	ClusterIdentifier          string                        `json:"clusterIdentifier"`
 	VpcID                      string                        `json:"vpcId,omitempty"`
 	KmsKeyID                   string                        `json:"kmsKeyId,omitempty"`
-	PreferredMaintenanceWindow string                        `json:"preferredMaintenanceWindow,omitempty"`
+	NodeType                   string                        `json:"nodeType"`
+	SnapshotScheduleState      string                        `json:"snapshotScheduleState,omitempty"`
+	SnapshotScheduleIdentifier string                        `json:"snapshotScheduleIdentifier,omitempty"`
 	IamRoles                   []string                      `json:"iamRoles,omitempty"`
 	Port                       int                           `json:"port"`
 	NumberOfNodes              int                           `json:"numberOfNodes"`

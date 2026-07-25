@@ -241,8 +241,8 @@ func newFullPersistenceTestBackend(t *testing.T) (*shield.InMemoryBackend, *shie
 
 	b.AddAttackInternal("attack1", resourceARN)
 
-	require.NoError(t, b.AssociateDRTLogBucket("shield-drt-bucket"))
 	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::000000000000:role/drt-role"))
+	require.NoError(t, b.AssociateDRTLogBucket("shield-drt-bucket"))
 
 	require.NoError(t, b.UpdateEmergencyContactSettings([]shield.EmergencyContact{
 		{EmailAddress: "ops@example.com", ContactNotes: "primary"},

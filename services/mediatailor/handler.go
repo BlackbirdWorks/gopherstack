@@ -319,7 +319,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 
 		opCreateProgram:      func() error { return h.handleCreateProgram(c, resource, extra, body) },
 		opDescribeProgram:    func() error { return h.handleDescribeProgram(c, resource, extra) },
-		opUpdateProgram:      func() error { return h.handleUpdateProgram(c, resource, extra) },
+		opUpdateProgram:      func() error { return h.handleUpdateProgram(c, resource, extra, body) },
 		opDeleteProgram:      func() error { return h.handleDeleteProgram(c, resource, extra) },
 		opGetChannelSchedule: func() error { return h.handleGetChannelSchedule(c, resource) },
 

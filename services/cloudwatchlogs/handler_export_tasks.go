@@ -57,8 +57,71 @@ type describeExportTasksInput struct {
 }
 
 type describeExportTasksOutput struct {
-	NextToken   string       `json:"nextToken,omitempty"`
-	ExportTasks []ExportTask `json:"exportTasks"`
+	NextToken   string           `json:"nextToken,omitempty"`
+	ExportTasks []wireExportTask `json:"exportTasks"`
+}
+
+// wireExportTaskStatus is the nested object aws-sdk-go-v2 types.ExportTaskStatus
+// serializes to on the wire: {"code": ..., "message": ...}, not a bare string.
+type wireExportTaskStatus struct {
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// wireExportTaskExecutionInfo is the nested object aws-sdk-go-v2
+// types.ExportTaskExecutionInfo serializes to on the wire:
+// {"creationTime": ..., "completionTime": ...}, not two flat top-level fields.
+type wireExportTaskExecutionInfo struct {
+	CreationTime   int64 `json:"creationTime,omitempty"`
+	CompletionTime int64 `json:"completionTime,omitempty"`
+}
+
+// wireExportTask is the AWS wire shape for one entry in DescribeExportTasks's
+// exportTasks array (aws-sdk-go-v2 types.ExportTask). This package's internal
+// ExportTask (models.go) keeps Status/StatusMessage/CreationTime/CompletionTime
+// as flat fields for simplicity of backend state mutation; toWireExportTask
+// nests them correctly for the wire. A real SDK client unmarshalling the flat
+// shape would see Status and ExecutionInfo as nil, since it expects nested
+// objects under those keys, not scalars.
+type wireExportTask struct {
+	Status              *wireExportTaskStatus        `json:"status,omitempty"`
+	ExecutionInfo       *wireExportTaskExecutionInfo `json:"executionInfo,omitempty"`
+	TaskID              string                       `json:"taskId,omitempty"`
+	TaskName            string                       `json:"taskName,omitempty"`
+	LogGroupName        string                       `json:"logGroupName,omitempty"`
+	LogStreamNamePrefix string                       `json:"logStreamNamePrefix,omitempty"`
+	Destination         string                       `json:"destination,omitempty"`
+	DestinationPrefix   string                       `json:"destinationPrefix,omitempty"`
+	From                int64                        `json:"from,omitempty"`
+	To                  int64                        `json:"to,omitempty"`
+}
+
+// toWireExportTask maps the internal flat ExportTask model to the nested AWS
+// wire shape (see wireExportTask doc comment).
+func toWireExportTask(t ExportTask) wireExportTask {
+	w := wireExportTask{
+		TaskID:              t.TaskID,
+		TaskName:            t.TaskName,
+		LogGroupName:        t.LogGroupName,
+		LogStreamNamePrefix: t.LogStreamNamePrefix,
+		Destination:         t.Destination,
+		DestinationPrefix:   t.DestinationPrefix,
+		From:                t.From,
+		To:                  t.To,
+	}
+
+	if t.Status != "" {
+		w.Status = &wireExportTaskStatus{Code: t.Status, Message: t.StatusMessage}
+	}
+
+	if t.CreationTime != 0 || t.CompletionTime != 0 {
+		w.ExecutionInfo = &wireExportTaskExecutionInfo{
+			CreationTime:   t.CreationTime,
+			CompletionTime: t.CompletionTime,
+		}
+	}
+
+	return w
 }
 
 // --- DescribeImportTasks ---.
@@ -164,7 +227,12 @@ func (h *Handler) handleDescribeExportTasks(
 		return nil, err
 	}
 
-	return &describeExportTasksOutput{ExportTasks: tasks, NextToken: next}, nil
+	wireTasks := make([]wireExportTask, len(tasks))
+	for i, t := range tasks {
+		wireTasks[i] = toWireExportTask(t)
+	}
+
+	return &describeExportTasksOutput{ExportTasks: wireTasks, NextToken: next}, nil
 }
 
 func (h *Handler) handleDescribeImportTasks(

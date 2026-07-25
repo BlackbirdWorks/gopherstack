@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // CreateApplication creates a new Kinesis Data Analytics v2 application.
@@ -24,23 +26,25 @@ func (b *InMemoryBackend) CreateApplication(
 	}
 
 	appARN := b.applicationARN(region, name)
+	now := time.Now().UTC()
 	app := &Application{
-		ApplicationARN:                  appARN,
-		ApplicationName:                 name,
-		ApplicationStatus:               ApplicationStatusReady,
-		RuntimeEnvironment:              runtimeEnv,
-		ServiceExecutionRole:            serviceRole,
-		ApplicationDescription:          description,
-		ApplicationMode:                 mode,
-		Region:                          region,
-		ApplicationVersionID:            1,
-		Tags:                            cloneTags(tags),
-		CreatedAt:                       time.Now().UTC(),
-		CloudWatchLoggingOptionDescs:    []CloudWatchLoggingOptionDesc{},
-		InputDescriptions:               []InputDescription{},
-		OutputDescriptions:              []OutputDescription{},
-		ReferenceDataSourceDescriptions: []ReferenceDataSourceDescription{},
-		VpcConfigurationDescriptions:    []VpcConfigurationDescription{},
+		ApplicationARN:                    appARN,
+		ApplicationName:                   name,
+		ApplicationStatus:                 ApplicationStatusReady,
+		RuntimeEnvironment:                runtimeEnv,
+		ServiceExecutionRole:              serviceRole,
+		ApplicationDescription:            description,
+		ApplicationMode:                   mode,
+		Region:                            region,
+		ApplicationVersionID:              1,
+		Tags:                              cloneTags(tags),
+		CreatedAt:                         now,
+		ApplicationVersionCreateTimestamp: now,
+		CloudWatchLoggingOptionDescs:      []CloudWatchLoggingOptionDesc{},
+		InputDescriptions:                 []InputDescription{},
+		OutputDescriptions:                []OutputDescription{},
+		ReferenceDataSourceDescriptions:   []ReferenceDataSourceDescription{},
+		VpcConfigurationDescriptions:      []VpcConfigurationDescription{},
 	}
 	b.applications.Put(app)
 	b.versionsStore(region)[name] = []*Application{appCopy(app)}
@@ -49,23 +53,18 @@ func (b *InMemoryBackend) CreateApplication(
 }
 
 // SeedApplicationConfiguration sets a newly created application's initial
-// input/output/reference-data-source/VPC/CloudWatch-logging configuration in
-// one step, without bumping ApplicationVersionId or appending a second
-// version-history entry -- this mirrors real AWS, where CreateApplication's
-// inline ApplicationConfiguration is part of the application's first
-// version (ApplicationVersionId stays 1), unlike the separately-versioned
-// Add* operations. Callers (handleCreateApplication) must invoke this
-// immediately after CreateApplication succeeds, before the new application
-// is exposed to any other caller. Returns ErrNotFound if name doesn't exist.
-func (b *InMemoryBackend) SeedApplicationConfiguration(
-	ctx context.Context,
-	name string,
-	inputs []InputDescription,
-	outputs []OutputDescription,
-	refDataSources []ReferenceDataSourceDescription,
-	vpcConfigs []VpcConfigurationDescription,
-	cwlOptions []CloudWatchLoggingOptionDesc,
-) error {
+// configuration (SQL inputs/outputs/reference-data-sources, VPC
+// configurations, CloudWatch logging options, and the Flink/Code/
+// Environment/Snapshot/Rollback/Encryption portions of
+// ApplicationConfiguration) in one step, without bumping ApplicationVersionId
+// or appending a second version-history entry -- this mirrors real AWS,
+// where CreateApplication's inline ApplicationConfiguration is part of the
+// application's first version (ApplicationVersionId stays 1), unlike the
+// separately-versioned Add* operations. Callers (handleCreateApplication)
+// must invoke this immediately after CreateApplication succeeds, before the
+// new application is exposed to any other caller. Returns ErrNotFound if
+// name doesn't exist.
+func (b *InMemoryBackend) SeedApplicationConfiguration(ctx context.Context, name string, cfg SeedConfig) error {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("SeedApplicationConfiguration")
@@ -76,24 +75,47 @@ func (b *InMemoryBackend) SeedApplicationConfiguration(
 		return ErrNotFound
 	}
 
-	for i := range inputs {
-		inputs[i].InputID = b.newResourceID("input")
+	b.seedSQLConfig(app, cfg)
+	b.seedVpcConfig(app, cfg.VpcConfigs)
+	b.seedCWLOptions(app, cfg.CWLOptions)
+	seedExtendedConfig(app, cfg)
+
+	// Refresh the version-1 history snapshot recorded by CreateApplication so
+	// DescribeApplicationVersion(name, 1) reflects the seeded configuration
+	// too, not just the bare application.
+	if vers := b.versionsStore(region)[name]; len(vers) > 0 {
+		vers[len(vers)-1] = appCopy(app)
 	}
 
-	app.InputDescriptions = append(app.InputDescriptions, inputs...)
+	return nil
+}
 
-	for i := range outputs {
-		outputs[i].OutputID = b.newResourceID("output")
+// seedSQLConfig appends the inline SqlApplicationConfiguration
+// inputs/outputs/reference-data-sources, assigning fresh resource IDs. Must
+// be called under b.mu.
+func (b *InMemoryBackend) seedSQLConfig(app *Application, cfg SeedConfig) {
+	for i := range cfg.Inputs {
+		cfg.Inputs[i].InputID = b.newResourceID("input")
 	}
 
-	app.OutputDescriptions = append(app.OutputDescriptions, outputs...)
+	app.InputDescriptions = append(app.InputDescriptions, cfg.Inputs...)
 
-	for i := range refDataSources {
-		refDataSources[i].ReferenceID = b.newResourceID("ref")
+	for i := range cfg.Outputs {
+		cfg.Outputs[i].OutputID = b.newResourceID("output")
 	}
 
-	app.ReferenceDataSourceDescriptions = append(app.ReferenceDataSourceDescriptions, refDataSources...)
+	app.OutputDescriptions = append(app.OutputDescriptions, cfg.Outputs...)
 
+	for i := range cfg.ReferenceDataSources {
+		cfg.ReferenceDataSources[i].ReferenceID = b.newResourceID("ref")
+	}
+
+	app.ReferenceDataSourceDescriptions = append(app.ReferenceDataSourceDescriptions, cfg.ReferenceDataSources...)
+}
+
+// seedVpcConfig appends inline VpcConfigurations, assigning fresh resource
+// IDs and normalizing nil subnet/security-group slices. Must be called under b.mu.
+func (b *InMemoryBackend) seedVpcConfig(app *Application, vpcConfigs []VpcConfigurationDescription) {
 	for i := range vpcConfigs {
 		vpcConfigs[i].VpcConfigurationID = b.newResourceID("vpc")
 
@@ -107,21 +129,48 @@ func (b *InMemoryBackend) SeedApplicationConfiguration(
 	}
 
 	app.VpcConfigurationDescriptions = append(app.VpcConfigurationDescriptions, vpcConfigs...)
+}
 
+// seedCWLOptions appends inline CloudWatchLoggingOptions, assigning fresh
+// resource IDs. Must be called under b.mu.
+func (b *InMemoryBackend) seedCWLOptions(app *Application, cwlOptions []CloudWatchLoggingOptionDesc) {
 	for i := range cwlOptions {
 		cwlOptions[i].CloudWatchLoggingOptionID = b.newResourceID("cwl")
 	}
 
 	app.CloudWatchLoggingOptionDescs = append(app.CloudWatchLoggingOptionDescs, cwlOptions...)
+}
 
-	// Refresh the version-1 history snapshot recorded by CreateApplication so
-	// DescribeApplicationVersion(name, 1) reflects the seeded configuration
-	// too, not just the bare application.
-	if vers := b.versionsStore(region)[name]; len(vers) > 0 {
-		vers[len(vers)-1] = appCopy(app)
+// seedExtendedConfig copies the Flink/Code/Environment/Snapshot/Rollback/
+// Encryption portions of an inline ApplicationConfiguration onto app,
+// replacing (not merging) any previously seeded value -- CreateApplication
+// only ever calls this once, so replace-vs-merge is unobservable here, but
+// matches applyApplicationConfigurationUpdate's replace semantics for
+// consistency. No locking requirement beyond the caller's b.mu.
+func seedExtendedConfig(app *Application, cfg SeedConfig) {
+	if cfg.CodeConfig != nil {
+		app.CodeConfig = cfg.CodeConfig
 	}
 
-	return nil
+	if cfg.FlinkConfig != nil {
+		app.FlinkConfig = cfg.FlinkConfig
+	}
+
+	if len(cfg.EnvironmentPropertyGroups) > 0 {
+		app.EnvironmentPropertyGroups = cfg.EnvironmentPropertyGroups
+	}
+
+	if cfg.SnapshotsEnabled != nil {
+		app.SnapshotsEnabled = cfg.SnapshotsEnabled
+	}
+
+	if cfg.RollbackEnabled != nil {
+		app.RollbackEnabled = cfg.RollbackEnabled
+	}
+
+	if cfg.EncryptionConfig != nil {
+		app.EncryptionConfig = cfg.EncryptionConfig
+	}
 }
 
 // DescribeApplication retrieves an application by name.
@@ -166,56 +215,75 @@ func (b *InMemoryBackend) ListApplications(ctx context.Context, nextToken string
 	return out[startIdx:end], outToken
 }
 
-// UpdateApplication updates an application's description and service role,
-// returning the OperationID of the recorded UpdateApplication operation (see
-// recordOperation). currentVersionID implements the optimistic-concurrency
-// check real AWS performs via CurrentApplicationVersionId (a zero/negative
-// value skips the check, matching checkAndBumpVersion's convention for the
-// Add*/Delete* config ops elsewhere in this package).
+// UpdateApplication updates an application, returning the OperationID of the
+// recorded UpdateApplication operation (see recordOperation).
+// params.CurrentApplicationVersionID/params.ConditionalToken implement the
+// two alternative optimistic-concurrency checks real AWS performs (see
+// checkAndBumpVersionOrToken). References inside
+// params.CloudWatchLoggingOptionUpdates/ApplicationConfigurationUpdate to
+// sub-resource IDs that don't exist are validated *before* the version is
+// bumped, so a rejected request never leaves a phantom version-history entry
+// (matching the Add*/Delete* config ops' "find before bumping" convention
+// elsewhere in this package).
 func (b *InMemoryBackend) UpdateApplication(
 	ctx context.Context,
-	name string,
-	currentVersionID int64,
-	serviceRole, description string,
+	params UpdateApplicationParams,
 ) (*Application, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.findApplication(region, name)
+	app, ok := b.findApplication(region, params.Name)
 	if !ok {
 		return nil, "", ErrNotFound
 	}
 
-	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+	if err := validateUpdateReferences(app, params); err != nil {
 		return nil, "", err
 	}
 
-	defer b.snapshotVersion(region, name, app)
-
-	if serviceRole != "" {
-		app.ServiceExecutionRole = serviceRole
+	if err := checkAndBumpVersionOrToken(app, params.CurrentApplicationVersionID, params.ConditionalToken); err != nil {
+		return nil, "", err
 	}
 
-	if description != "" {
-		app.ApplicationDescription = description
-	}
+	defer b.snapshotVersion(region, params.Name, app)
 
-	opID := b.recordOperation(region, name, "UpdateApplication")
+	applyApplicationUpdate(app, params)
+	app.LastUpdateTimestamp = time.Now().UTC()
 
-	return app, opID, nil
+	return app, b.recordOperation(region, params.Name, "UpdateApplication"), nil
 }
 
-// DeleteApplication deletes an application by name.
-func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string) error {
+// DeleteApplication deletes an application by name. createTimestampSeconds,
+// when non-nil, is validated against the application's actual CreateTimestamp
+// (real AWS's DeleteApplicationInput.CreateTimestamp is a required safety
+// check retrieved from a prior DescribeApplication) -- a mismatch returns
+// ErrValidation instead of deleting.
+func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, createTimestampSeconds *float64) error {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	if !b.applications.Has(applicationKey(region, name)) {
+	app, ok := b.findApplication(region, name)
+	if !ok {
 		return ErrNotFound
+	}
+
+	if createTimestampSeconds != nil {
+		// AWS JSON-protocol unixTimestamp values carry at most millisecond
+		// precision on the wire (smithy-go's FormatEpochSeconds/ParseEpochSeconds
+		// truncate to milliseconds), while app.CreatedAt -- and the CreateTimestamp
+		// echoed to the client in a prior DescribeApplication/CreateApplication
+		// response -- retains full nanosecond precision. A real SDK client can
+		// therefore only ever round-trip CreateTimestamp truncated to the
+		// millisecond, so the tolerance here must be at least 1ms or every
+		// legitimate DeleteApplication call would be rejected.
+		const epsilon = 1e-3
+		if diff := *createTimestampSeconds - awstime.Epoch(app.CreatedAt); diff > epsilon || diff < -epsilon {
+			return ErrValidation
+		}
 	}
 
 	snaps := slices.Clone(b.snapshotsByApp.Get(appParentKey(region, name)))
@@ -235,8 +303,16 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string) er
 // StartApplication sets the application status to RUNNING and returns the
 // OperationID of the recorded StartApplication operation (see recordOperation).
 // Returns ResourceInUseException if the application is not in READY state,
-// matching real AWS Kinesis Analytics v2 behavior.
-func (b *InMemoryBackend) StartApplication(ctx context.Context, name string) (string, error) {
+// matching real AWS Kinesis Analytics v2 behavior. runConfig, when non-nil,
+// is stored as the application's RunConfigurationDescription -- real AWS
+// clients (Terraform, CloudFormation) commonly start a Flink application
+// with ApplicationRestoreConfiguration set to restore from a snapshot, and
+// expect DescribeApplication to echo it back afterward.
+func (b *InMemoryBackend) StartApplication(
+	ctx context.Context,
+	name string,
+	runConfig *RunConfigInput,
+) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("StartApplication")
@@ -252,6 +328,7 @@ func (b *InMemoryBackend) StartApplication(ctx context.Context, name string) (st
 	}
 
 	app.ApplicationStatus = ApplicationStatusRunning
+	applyRunConfigInput(app, runConfig)
 
 	return b.recordOperation(region, name, "StartApplication"), nil
 }

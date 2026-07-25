@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/labstack/echo/v5"
 )
 
@@ -79,22 +80,30 @@ type describeGlobalRGsResultXML struct {
 	} `xml:"DescribeGlobalReplicationGroupsResult>GlobalReplicationGroups"`
 }
 
+// mapGlobalReplicationGroupErr maps a global-replication-group backend error
+// to its XML response. Shared by every mutating GRG op so the identical
+// NotFound/NotAvailable/InternalFailure three-way split isn't repeated in
+// each of the 7 handlers.
+func mapGlobalReplicationGroupErr(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrGlobalReplicationGroupNotFound):
+		return xmlError(
+			c, http.StatusNotFound, "GlobalReplicationGroupNotFoundFault", "Global replication group not found",
+		)
+	case errors.Is(err, ErrGlobalReplicationGroupNotAvailable):
+		return xmlError(c, http.StatusBadRequest, "InvalidGlobalReplicationGroupState", err.Error())
+	default:
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+}
+
 func (h *Handler) deleteGlobalReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("GlobalReplicationGroupId")
 	retainPrimary := strings.EqualFold(form.Get("RetainPrimaryReplicationGroup"), "true")
 
 	grg, err := h.Backend.DeleteGlobalReplicationGroup(ctx, id, retainPrimary)
 	if err != nil {
-		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(
-				c,
-				http.StatusNotFound,
-				"GlobalReplicationGroupNotFoundFault",
-				"Global replication group not found",
-			)
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapGlobalReplicationGroupErr(c, err)
 	}
 
 	type result struct {
@@ -111,20 +120,15 @@ func (h *Handler) deleteGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 
 func (h *Handler) describeGlobalReplicationGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("GlobalReplicationGroupId")
-	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeGlobalReplicationGroups(ctx, id, marker, maxRecords)
+	p, err := describeListChecked(c, form,
+		func(marker string, maxRecords int) (page.Page[GlobalReplicationGroup], error) {
+			return h.Backend.DescribeGlobalReplicationGroups(ctx, id, marker, maxRecords)
+		},
+		ErrGlobalReplicationGroupNotFound, http.StatusNotFound,
+		"GlobalReplicationGroupNotFoundFault", "Global replication group not found")
 	if err != nil {
-		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(
-				c,
-				http.StatusNotFound,
-				"GlobalReplicationGroupNotFoundFault",
-				"Global replication group not found",
-			)
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return err
 	}
 
 	var res describeGlobalRGsResultXML
@@ -148,16 +152,7 @@ func (h *Handler) disassociateGlobalReplicationGroup(ctx context.Context, c *ech
 
 	grg, err := h.Backend.DisassociateGlobalReplicationGroup(ctx, id, replicationGroupID, replicationGroupRegion)
 	if err != nil {
-		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(
-				c,
-				http.StatusNotFound,
-				"GlobalReplicationGroupNotFoundFault",
-				"Global replication group not found",
-			)
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapGlobalReplicationGroupErr(c, err)
 	}
 
 	type result struct {
@@ -179,16 +174,7 @@ func (h *Handler) failoverGlobalReplicationGroup(ctx context.Context, c *echo.Co
 
 	grg, err := h.Backend.FailoverGlobalReplicationGroup(ctx, id, primaryRegion, primaryReplicationGroupID)
 	if err != nil {
-		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(
-				c,
-				http.StatusNotFound,
-				"GlobalReplicationGroupNotFoundFault",
-				"Global replication group not found",
-			)
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapGlobalReplicationGroupErr(c, err)
 	}
 
 	type result struct {
@@ -213,16 +199,7 @@ func (h *Handler) increaseNodeGroupsInGlobalReplicationGroup(
 
 	grg, err := h.Backend.IncreaseNodeGroupsInGlobalReplicationGroup(ctx, id, int32(nodeGroupCount))
 	if err != nil {
-		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(
-				c,
-				http.StatusNotFound,
-				"GlobalReplicationGroupNotFoundFault",
-				"Global replication group not found",
-			)
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapGlobalReplicationGroupErr(c, err)
 	}
 
 	type result struct {
@@ -247,16 +224,7 @@ func (h *Handler) decreaseNodeGroupsInGlobalReplicationGroup(
 
 	grg, err := h.Backend.DecreaseNodeGroupsInGlobalReplicationGroup(ctx, id, int32(nodeGroupCount))
 	if err != nil {
-		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(
-				c,
-				http.StatusNotFound,
-				"GlobalReplicationGroupNotFoundFault",
-				"Global replication group not found",
-			)
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapGlobalReplicationGroupErr(c, err)
 	}
 
 	type result struct {
@@ -279,16 +247,7 @@ func (h *Handler) modifyGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 
 	grg, err := h.Backend.ModifyGlobalReplicationGroup(ctx, id, description, engineVersion, automaticFailoverEnabled)
 	if err != nil {
-		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(
-				c,
-				http.StatusNotFound,
-				"GlobalReplicationGroupNotFoundFault",
-				"Global replication group not found",
-			)
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapGlobalReplicationGroupErr(c, err)
 	}
 
 	type result struct {
@@ -308,16 +267,7 @@ func (h *Handler) rebalanceSlotsInGlobalReplicationGroup(ctx context.Context, c 
 
 	grg, err := h.Backend.RebalanceSlotsInGlobalReplicationGroup(ctx, id)
 	if err != nil {
-		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(
-				c,
-				http.StatusNotFound,
-				"GlobalReplicationGroupNotFoundFault",
-				"Global replication group not found",
-			)
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapGlobalReplicationGroupErr(c, err)
 	}
 
 	type result struct {

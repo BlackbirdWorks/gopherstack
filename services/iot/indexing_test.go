@@ -271,6 +271,80 @@ func TestBackend_SearchIndex_ThingGroups(t *testing.T) {
 	assert.Equal(t, "floor-1", out.ThingGroups[0].ThingGroupName)
 }
 
+// TestBackend_SearchIndex_ThingGroupWireShape is a regression test for a
+// wire-shape bug: SearchIndex's ThingGroup results previously sent a single
+// "parentGroupName" string (the direct parent only) and had no
+// "thingGroupDescription" field at all, but the real ThingGroupDocument
+// shape uses "parentGroupNames" (the FULL ancestor chain, as a list) and
+// does have "thingGroupDescription" -- verified against
+// aws-sdk-go-v2/service/iot@v1.76.0's
+// awsRestjson1_deserializeDocumentThingGroupDocument. A real SDK client's
+// deserializer would never find the "parentGroupNames" key it looks for
+// under the old shape, silently leaving that field empty.
+func TestBackend_SearchIndex_ThingGroupWireShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		groupName          string
+		wantDescription    string
+		wantParentGroupSeq []string
+	}{
+		{
+			name:               "root_group_has_no_parents",
+			groupName:          "root",
+			wantDescription:    "root group",
+			wantParentGroupSeq: nil,
+		},
+		{
+			name:               "child_group_has_one_parent",
+			groupName:          "child",
+			wantDescription:    "child group",
+			wantParentGroupSeq: []string{"root"},
+		},
+		{
+			name:               "grandchild_group_has_full_ancestor_chain",
+			groupName:          "grandchild",
+			wantDescription:    "grandchild group",
+			wantParentGroupSeq: []string{"child", "root"},
+		},
+	}
+
+	b := iot.NewInMemoryBackend()
+
+	_, err := b.CreateThingGroup(&iot.CreateThingGroupInput{
+		ThingGroupName: "root", Description: "root group",
+	})
+	require.NoError(t, err)
+	_, err = b.CreateThingGroup(&iot.CreateThingGroupInput{
+		ThingGroupName: "child", Description: "child group", ParentGroupName: "root",
+	})
+	require.NoError(t, err)
+	_, err = b.CreateThingGroup(&iot.CreateThingGroupInput{
+		ThingGroupName: "grandchild", Description: "grandchild group", ParentGroupName: "child",
+	})
+	require.NoError(t, err)
+
+	out, err := b.SearchIndex(&iot.SearchIndexInput{IndexName: "AWS_ThingGroups"})
+	require.NoError(t, err)
+
+	byName := make(map[string]*iot.SearchIndexThingGroupResult, len(out.ThingGroups))
+	for _, g := range out.ThingGroups {
+		byName[g.ThingGroupName] = g
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			g, ok := byName[tt.groupName]
+			require.True(t, ok, "group %q missing from SearchIndex results", tt.groupName)
+			assert.Equal(t, tt.wantDescription, g.ThingGroupDescription)
+			assert.Equal(t, tt.wantParentGroupSeq, g.ParentGroupNames)
+		})
+	}
+}
+
 func seedNumericThings(t *testing.T, b *iot.InMemoryBackend) {
 	t.Helper()
 
@@ -316,6 +390,10 @@ func TestBackend_GetStatistics(t *testing.T) {
 	assert.InDelta(t, 50, stats.Maximum, 0.001)
 	assert.InDelta(t, 30, stats.Average, 0.001)
 	assert.InDelta(t, 150, stats.Sum, 0.001)
+	// Regression: SumOfSquares was entirely missing from the Statistics type
+	// (and therefore from GetStatistics' wire response) despite being a real
+	// field on aws-sdk-go-v2/service/iot/types.Statistics.
+	assert.InDelta(t, 5500, stats.SumOfSquares, 0.001) // 10^2+20^2+30^2+40^2+50^2
 	assert.Greater(t, stats.StdDeviation, 0.0)
 }
 

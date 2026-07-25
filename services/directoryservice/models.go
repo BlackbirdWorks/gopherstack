@@ -22,37 +22,41 @@ type storedDirectory struct {
 	// built by toDirectory, never by marshaling storedDirectory directly),
 	// but persistence.go must carry it through a DTO explicitly since
 	// json.Marshal never sees unexported fields.
-	region      string
-	LaunchTime  time.Time          `json:"launchTime"`
-	Tags        map[string]string  `json:"tags"`
-	VpcSettings *storedVpcSettings `json:"vpcSettings,omitempty"`
-	DirectoryID string             `json:"directoryId"`
-	Name        string             `json:"name"`
-	ShortName   string             `json:"shortName"`
-	Description string             `json:"description"`
-	Alias       string             `json:"alias"`
-	AccessURL   string             `json:"accessUrl"`
-	DirType     string             `json:"type"`
-	Stage       string             `json:"stage"`
-	Size        string             `json:"size"`
-	Edition     string             `json:"edition"`
-	SsoEnabled  bool               `json:"ssoEnabled"`
+	region                   string
+	LaunchTime               time.Time          `json:"launchTime"`
+	StageLastUpdatedDateTime time.Time          `json:"stageLastUpdatedDateTime"`
+	Tags                     map[string]string  `json:"tags"`
+	VpcSettings              *storedVpcSettings `json:"vpcSettings,omitempty"`
+	DirectoryID              string             `json:"directoryId"`
+	Name                     string             `json:"name"`
+	ShortName                string             `json:"shortName"`
+	Description              string             `json:"description"`
+	Alias                    string             `json:"alias"`
+	AccessURL                string             `json:"accessUrl"`
+	DirType                  string             `json:"type"`
+	Stage                    string             `json:"stage"`
+	Size                     string             `json:"size"`
+	Edition                  string             `json:"edition"`
+	DNSIPAddrs               []string           `json:"dnsIpAddrs"`
+	SsoEnabled               bool               `json:"ssoEnabled"`
 }
 
 func (d *storedDirectory) toDirectory() Directory {
 	dir := Directory{
-		LaunchTime:  d.LaunchTime,
-		DirectoryID: d.DirectoryID,
-		Name:        d.Name,
-		ShortName:   d.ShortName,
-		Description: d.Description,
-		Alias:       d.Alias,
-		AccessURL:   d.AccessURL,
-		Type:        DirectoryType(d.DirType),
-		Stage:       DirectoryStage(d.Stage),
-		Size:        DirectorySize(d.Size),
-		Edition:     DirectoryEdition(d.Edition),
-		SsoEnabled:  d.SsoEnabled,
+		LaunchTime:               d.LaunchTime,
+		StageLastUpdatedDateTime: d.StageLastUpdatedDateTime,
+		DirectoryID:              d.DirectoryID,
+		Name:                     d.Name,
+		ShortName:                d.ShortName,
+		Description:              d.Description,
+		Alias:                    d.Alias,
+		AccessURL:                d.AccessURL,
+		Type:                     DirectoryType(d.DirType),
+		Stage:                    DirectoryStage(d.Stage),
+		Size:                     DirectorySize(d.Size),
+		Edition:                  DirectoryEdition(d.Edition),
+		DNSIPAddrs:               d.DNSIPAddrs,
+		SsoEnabled:               d.SsoEnabled,
 	}
 	if d.VpcSettings != nil {
 		dir.VpcSettings = &DirectoryVpcSettings{
@@ -106,12 +110,15 @@ type storedIpRoute struct { //nolint:revive,staticcheck // existing issue.
 // storedDirectory.region), which is distinct from RegionName (the DS
 // replication-region resource attribute itself).
 type storedRegion struct {
-	region      string
-	LaunchTime  time.Time `json:"launchTime"`
-	DirectoryID string    `json:"directoryId"`
-	RegionName  string    `json:"regionName"`
-	RegionType  string    `json:"regionType"`
-	Status      string    `json:"status"`
+	region                     string
+	VpcSettings                *storedVpcSettings `json:"vpcSettings"`
+	LaunchTime                 time.Time          `json:"launchTime"`
+	StatusLastUpdatedDateTime  time.Time          `json:"statusLastUpdatedDateTime"`
+	DirectoryID                string             `json:"directoryId"`
+	RegionName                 string             `json:"regionName"`
+	RegionType                 string             `json:"regionType"`
+	Status                     string             `json:"status"`
+	DesiredNumberOfDomainCtrls int32              `json:"desiredNumberOfDomainControllers"`
 }
 
 type storedSchemaExtension struct {
@@ -307,11 +314,14 @@ type IpRoute struct { //nolint:revive,staticcheck // existing issue.
 
 // RegionDescription domain type.
 type RegionDescription struct {
-	LaunchTime  time.Time
-	DirectoryID string
-	RegionName  string
-	RegionType  string
-	Status      string
+	LaunchTime                 time.Time
+	StatusLastUpdatedDateTime  time.Time
+	VpcSettings                *DirectoryVpcSettings
+	DirectoryID                string
+	RegionName                 string
+	RegionType                 string
+	Status                     string
+	DesiredNumberOfDomainCtrls int32
 }
 
 // SchemaExtension domain type.

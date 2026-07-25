@@ -34,6 +34,10 @@ const (
 	appsyncSourcePrefix     = "/v1/sourceApis"
 	appsyncMergedPrefix     = "/v1/mergedApis"
 	appsyncIntrospectPrefix = "/v1/dataSource-introspections"
+	// appsyncRealIntrospectPrefix matches the real AWS SDK endpoint
+	// "/v1/datasources/introspections" for Start/GetDataSourceIntrospection (distinct
+	// from the legacy appsyncIntrospectPrefix alias above).
+	appsyncRealIntrospectPrefix = "/v1/datasources/introspections"
 	// appsyncEvalCodePrefix and appsyncEvalTemplatePrefix match the real AWS SDK
 	// endpoints ("/v1/dataplane-evaluatecode" and "/v1/dataplane-evaluatetemplate" —
 	// two distinct top-level paths, not "/v1/dataplane-evaluations/{code,template}").
@@ -75,12 +79,14 @@ const (
 // Operation names referenced from more than one place (route labeling, dispatch,
 // error logging, GetSupportedOperations) — deduplicated per goconst.
 const (
-	opListSourceAPIAssociations = "ListSourceApiAssociations"
-	opFlushAPICache             = "FlushApiCache"
-	opUpdateAPICache            = "UpdateApiCache"
-	opListTagsForResource       = "ListTagsForResource"
-	opTagResource               = "TagResource"
-	opUntagResource             = "UntagResource"
+	opListSourceAPIAssociations    = "ListSourceApiAssociations"
+	opFlushAPICache                = "FlushApiCache"
+	opUpdateAPICache               = "UpdateApiCache"
+	opListTagsForResource          = "ListTagsForResource"
+	opTagResource                  = "TagResource"
+	opUntagResource                = "UntagResource"
+	opStartDataSourceIntrospection = "StartDataSourceIntrospection"
+	opGetDataSourceIntrospection   = "GetDataSourceIntrospection"
 )
 
 // Handler is the Echo HTTP handler for AppSync operations.
@@ -180,9 +186,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUntagResource,
 		"EvaluateCode",
 		"EvaluateMappingTemplate",
-		"GetDataSourceIntrospection",
+		opGetDataSourceIntrospection,
 		"ListTypesByAssociation",
-		"StartDataSourceIntrospection",
+		opStartDataSourceIntrospection,
 		"StartSchemaMerge",
 		"UpdateSourceApiAssociation",
 	}
@@ -218,6 +224,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, appsyncSourcePrefix) ||
 			strings.HasPrefix(path, appsyncMergedPrefix) ||
 			strings.HasPrefix(path, appsyncIntrospectPrefix) ||
+			strings.HasPrefix(path, appsyncRealIntrospectPrefix) ||
 			strings.HasPrefix(path, appsyncEvalCodePrefix) ||
 			strings.HasPrefix(path, appsyncEvalTemplatePrefix) ||
 			strings.HasPrefix(path, appsyncTagsPrefix)
@@ -272,6 +279,8 @@ func parseOperation(method, path string) string {
 		return parseOperationMergedAPIs(method, segs)
 	case "dataSource-introspections":
 		return parseOperationDataSourceIntrospections(method, segs)
+	case pathSegDatasources:
+		return parseOperationRealDataSourceIntrospections(method, segs)
 	case "dataplane-evaluatecode":
 		return parseOperationEvaluate(method, len(segs), "EvaluateCode")
 	case "dataplane-evaluatetemplate":
@@ -380,6 +389,10 @@ func parseOperationMergedAPIs(method string, segs []string) string {
 		if segs[5] == pathSegTypes {
 			return "ListTypesByAssociation"
 		}
+		// /v1/mergedApis/{id}/sourceApiAssociations/{assocId}/merge
+		if segs[5] == "merge" && method == http.MethodPost {
+			return "StartSchemaMerge"
+		}
 	}
 
 	return opUnknown
@@ -390,12 +403,36 @@ func parseOperationDataSourceIntrospections(method string, segs []string) string
 	case pathSegsAPIs:
 		// /v1/dataSource-introspections
 		if method == http.MethodPost {
-			return "StartDataSourceIntrospection"
+			return opStartDataSourceIntrospection
 		}
 	case pathSegsAPIID:
 		// /v1/dataSource-introspections/{introspectionId}
 		if method == http.MethodGet {
-			return "GetDataSourceIntrospection"
+			return opGetDataSourceIntrospection
+		}
+	}
+
+	return opUnknown
+}
+
+// parseOperationRealDataSourceIntrospections maps the real AWS SDK endpoint
+// "/v1/datasources/introspections[/{introspectionId}]" (distinct from the legacy
+// "/v1/dataSource-introspections" alias handled by parseOperationDataSourceIntrospections).
+func parseOperationRealDataSourceIntrospections(method string, segs []string) string {
+	if len(segs) < pathSegsAPIID || segs[2] != "introspections" {
+		return opUnknown
+	}
+
+	switch len(segs) {
+	case pathSegsAPIID:
+		// /v1/datasources/introspections
+		if method == http.MethodPost {
+			return opStartDataSourceIntrospection
+		}
+	case pathSegsAPISubresource:
+		// /v1/datasources/introspections/{introspectionId}
+		if method == http.MethodGet {
+			return opGetDataSourceIntrospection
 		}
 	}
 
@@ -606,8 +643,6 @@ func parseOperationSub(method, seg string) string {
 			"PutGraphqlApiEnvironmentVariables", "GetGraphqlApiEnvironmentVariables")
 	case "graphql":
 		return "ExecuteGraphQL"
-	case "schemaMerge":
-		return "StartSchemaMerge"
 	case pathSegTags:
 		// Legacy convenience alias: the real AWS SDK sends tag ops to
 		// "/v1/tags/{resourceArn}" instead (see parseOperationTags), but this
@@ -817,6 +852,8 @@ func (h *Handler) dispatchTopLevel(ctx context.Context, c *echo.Context, segs []
 		return true, h.handleMergedAPIs(ctx, c, segs)
 	case "dataSource-introspections":
 		return true, h.handleDataSourceIntrospections(ctx, c, segs)
+	case pathSegDatasources:
+		return true, h.handleRealDataSourceIntrospections(ctx, c, segs)
 	case "dataplane-evaluations":
 		// Legacy convenience alias; the real AWS SDK sends these to the two
 		// standalone paths below instead (see appsyncEvalCodePrefix/
@@ -911,8 +948,6 @@ func (h *Handler) handleAPIResourceExtra(ctx context.Context, c *echo.Context, a
 		return h.handleTags(ctx, c, apiID)
 	case keyEnvironmentVariables:
 		return h.handleEnvironmentVariables(ctx, c, apiID)
-	case "schemaMerge":
-		return h.handleSchemaMerge(ctx, c, apiID)
 	case keySourceAPIAssociations:
 		// /v1/apis/{apiId}/sourceApiAssociations — the real AWS SDK endpoint for
 		// ListSourceApiAssociations (distinct from the /v1/mergedApis/{id}/... path

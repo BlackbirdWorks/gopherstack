@@ -153,24 +153,6 @@ type MetricDataQuery struct {
 	ReturnData bool       `json:"ReturnData"`
 }
 
-// MetricFilter represents a CloudWatch Logs metric filter.
-type MetricFilter struct {
-	CreationTime          time.Time              `json:"CreationTime"`
-	FilterName            string                 `json:"FilterName"`
-	LogGroupName          string                 `json:"LogGroupName"`
-	FilterPattern         string                 `json:"FilterPattern"`
-	MetricTransformations []MetricTransformation `json:"MetricTransformations,omitempty"`
-}
-
-// MetricTransformation describes how to map matched log events to a metric.
-type MetricTransformation struct {
-	MetricName      string  `json:"MetricName"`
-	MetricNamespace string  `json:"MetricNamespace"`
-	MetricValue     string  `json:"MetricValue"`
-	Unit            string  `json:"Unit,omitempty"`
-	DefaultValue    float64 `json:"DefaultValue,omitempty"`
-}
-
 // MetricDataMessage is a diagnostic message returned by GetMetricData, either
 // at the top level of the response or attached to an individual MetricDataResult.
 // Code is a short machine-readable identifier (e.g. "ArithmeticError",
@@ -207,6 +189,21 @@ type DashboardEntry struct {
 	DashboardArn  string    `json:"DashboardArn"`
 	DashboardName string    `json:"DashboardName"`
 	Size          int64     `json:"Size"`
+}
+
+// DashboardValidationMessage mirrors aws-sdk-go-v2's
+// types.DashboardValidationMessage (DataPath + Message only on the wire).
+// IsError is emulator-internal bookkeeping (never serialized): when any message
+// in a PutDashboard validation pass has IsError set, the whole call fails and the
+// dashboard body is not persisted (matches AWS's documented "if this result
+// includes error messages, the input was not valid and the operation failed" /
+// "if this result includes only warning messages, the dashboard was still
+// created or modified" distinction, which the response shape itself does not
+// carry directly — it's inferred from whether the API call succeeded at all).
+type DashboardValidationMessage struct {
+	DataPath string `json:"DataPath,omitempty"`
+	Message  string `json:"Message"`
+	IsError  bool   `json:"-"`
 }
 
 // AnomalyDetector represents a CloudWatch anomaly detector.

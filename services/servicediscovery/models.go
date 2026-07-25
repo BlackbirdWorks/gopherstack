@@ -1,6 +1,10 @@
 package servicediscovery
 
-import "time"
+import (
+	"slices"
+	"strings"
+	"time"
+)
 
 // DNSRecord represents a single DNS record configuration in a Cloud Map service.
 type DNSRecord struct {
@@ -107,19 +111,74 @@ type Operation struct {
 	ErrorMessage string            `json:"errorMessage,omitempty"`
 }
 
+// FilterValue models one AWS ListXxxFilter entry: the Values to compare
+// against and the comparison operator (Condition). An empty/unset Condition
+// defaults to EQ, matching every ListXxxFilter's documented default. A zero
+// FilterValue (no Values) means "no filter" and matches everything.
+type FilterValue struct {
+	Condition string
+	Values    []string
+}
+
+// empty reports whether no filter was specified for this field.
+func (f FilterValue) empty() bool { return len(f.Values) == 0 }
+
+// matches reports whether actual satisfies this filter. Supported
+// conditions: EQ (default, single-value equality), BEGINS_WITH (single-value
+// prefix match), IN (actual must equal one of the values). An unrecognized
+// Condition matches everything rather than rejecting the request, consistent
+// with this backend's existing lenient-filter-parsing convention.
+func (f FilterValue) matches(actual string) bool {
+	if f.empty() {
+		return true
+	}
+
+	switch f.Condition {
+	case "", "EQ":
+		return actual == f.Values[0]
+	case "BEGINS_WITH":
+		return strings.HasPrefix(actual, f.Values[0])
+	case "IN":
+		return slices.Contains(f.Values, actual)
+	default:
+		return true
+	}
+}
+
+// resourceOwnerMatches evaluates a RESOURCE_OWNER FilterValue (Values one or
+// both of "SELF"/"OTHER_ACCOUNTS") against this backend's single-account
+// model, where every resource is always self-owned: it matches whenever
+// "SELF" is among the requested values (or the filter is unset), and never
+// matches an OTHER_ACCOUNTS-only request since no cross-account sharing is
+// emulated.
+func resourceOwnerMatches(f FilterValue) bool {
+	if f.empty() {
+		return true
+	}
+
+	return slices.Contains(f.Values, "SELF")
+}
+
 // ListNamespacesFilter contains optional filter parameters for ListNamespaces.
 type ListNamespacesFilter struct {
-	Type string
-	Name string
+	Type          FilterValue
+	Name          FilterValue
+	HTTPName      FilterValue
+	ResourceOwner FilterValue
 }
 
 // ListServicesFilter contains optional filter parameters for ListServices.
 type ListServicesFilter struct {
-	NamespaceID string
+	NamespaceID   FilterValue
+	ResourceOwner FilterValue
 }
 
 // ListOperationsFilter contains optional filter parameters for ListOperations.
 type ListOperationsFilter struct {
-	Status string
-	Type   string
+	UpdateDateStart *time.Time
+	UpdateDateEnd   *time.Time
+	NamespaceID     FilterValue
+	ServiceID       FilterValue
+	Status          FilterValue
+	Type            FilterValue
 }

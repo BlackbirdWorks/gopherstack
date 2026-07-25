@@ -15,11 +15,23 @@ func agActionGroupKey(agentID, agentVersion, actionGroupID string) string {
 }
 
 // CreateAgentActionGroup creates an action group for an agent version.
+//
+// Real AWS constrains the {agentVersion} URI path parameter to the literal
+// "DRAFT" (fixed length 5, pattern `DRAFT`, per the CreateAgentActionGroup
+// API reference) -- action groups can only ever be created against the
+// mutable DRAFT version; numbered versions are immutable snapshots. A
+// request path with any other value fails validation.
 func (b *InMemoryBackend) CreateAgentActionGroup(
-	_ context.Context, agentID string, cfg ActionGroupConfig,
+	_ context.Context, agentID, agentVersion string, cfg ActionGroupConfig,
 ) (*AgentActionGroup, error) {
 	if cfg.ActionGroupName == "" {
 		return nil, fmt.Errorf("%w: actionGroupName is required", ErrValidation)
+	}
+
+	if agentVersion != defaultAgentVersion {
+		return nil, fmt.Errorf(
+			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
+		)
 	}
 
 	b.mu.Lock()
@@ -30,7 +42,6 @@ func (b *InMemoryBackend) CreateAgentActionGroup(
 	}
 
 	id := b.nextID("ag", &b.actionGroupCounter)
-	agentVersion := defaultAgentVersion
 	now := time.Now().UTC()
 
 	ag := &AgentActionGroup{

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 func resolveThingGroupOps(path, method string) string {
@@ -148,6 +150,19 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
+	metadata := map[string]any{
+		keyCreationDate:   awstime.Epoch(tg.CreatedAt),
+		"parentGroupName": tg.ParentGroupName,
+	}
+
+	// rootToParentThingGroups is only present (per real AWS behavior) when
+	// the group actually has ancestors -- verified against
+	// aws-sdk-go-v2/service/iot@v1.76.0's ThingGroupMetadata; a root-level
+	// group has no ParentGroupName and an empty ancestor chain.
+	if roots := h.Backend.RootToParentThingGroups(thingGroupName); len(roots) > 0 {
+		metadata["rootToParentThingGroups"] = roots
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyThingGroupName: tg.ThingGroupName,
 		keyThingGroupArn:  tg.ThingGroupARN,
@@ -157,10 +172,7 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 			"thingGroupDescription": tg.Description,
 			"attributePayload":      map[string]any{keyAttributes: tg.Attributes},
 		},
-		"thingGroupMetadata": map[string]any{
-			keyCreationDate:   tg.CreatedAt,
-			"parentGroupName": tg.ParentGroupName,
-		},
+		"thingGroupMetadata": metadata,
 	})
 }
 

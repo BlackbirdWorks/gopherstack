@@ -3,7 +3,9 @@ package iotanalytics_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,6 +122,34 @@ func TestHandler_DatasetContentLifecycle(t *testing.T) {
 			assert.Equal(t, tt.wantDelete, deleteRec.Code)
 		})
 	}
+}
+
+// TestHandler_CreateDatasetContent_ExplicitVersionID verifies CreateDatasetContent honors an
+// explicit versionId in the request body (CreateDatasetContentInput.VersionId in the real
+// SDK) instead of always generating a random one, and rejects a duplicate versionId against
+// the same dataset with 409 rather than silently overwriting the existing content version.
+func TestHandler_CreateDatasetContent_ExplicitVersionID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": "explicit_ver_ds"})
+
+	rec := doRequest(t, h, http.MethodPost, "/datasets/explicit_ver_ds/content", map[string]string{
+		"versionId": "my-custom-version",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "my-custom-version", resp["versionId"])
+
+	getRec := doRequest(t, h, http.MethodGet, "/datasets/explicit_ver_ds/content?versionId=my-custom-version", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	dupRec := doRequest(t, h, http.MethodPost, "/datasets/explicit_ver_ds/content", map[string]string{
+		"versionId": "my-custom-version",
+	})
+	assert.Equal(t, http.StatusConflict, dupRec.Code)
 }
 
 // TestHandler_GetDatasetContent_MagicVersionStrings verifies GetDatasetContent honors the
@@ -264,6 +294,76 @@ func TestHandler_ListDatasetContents_PaginationAcrossPages(t *testing.T) {
 
 	for vid := range wantVersions {
 		assert.True(t, seen[vid], "version %q must appear in some page", vid)
+	}
+}
+
+// TestHandler_ListDatasetContents_ScheduleTime verifies each dataset content summary carries
+// a scheduleTime field (AWS docs: "the time the creation of the dataset contents was
+// scheduled to start", distinct from creationTime) and that it matches creationTime for a
+// directly (non-schedule-triggered) created content version.
+func TestHandler_ListDatasetContents_ScheduleTime(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": "sched_ds"})
+
+	rec := doRequest(t, h, http.MethodPost, "/datasets/sched_ds/content", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	listRec := doRequest(t, h, http.MethodGet, "/datasets/sched_ds/contents", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+
+	summaries, _ := resp["datasetContentSummaries"].([]any)
+	require.Len(t, summaries, 1)
+
+	summary, _ := summaries[0].(map[string]any)
+	require.Contains(t, summary, "scheduleTime")
+	assert.InDelta(t, summary["creationTime"], summary["scheduleTime"], 1)
+}
+
+// TestHandler_ListDatasetContents_ScheduledFilters verifies the scheduledBefore and
+// scheduledOnOrAfter query filters on ListDatasetContents (ListDatasetContentsInput fields
+// documented against DatasetContentSummary.ScheduleTime).
+func TestHandler_ListDatasetContents_ScheduledFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": "sched_filter_ds"})
+
+	rec := doRequest(t, h, http.MethodPost, "/datasets/sched_filter_ds/content", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	future := url.QueryEscape(time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
+	past := url.QueryEscape(time.Now().Add(-time.Hour).UTC().Format(time.RFC3339))
+
+	tests := []struct {
+		name    string
+		query   string
+		wantLen int
+	}{
+		{name: "scheduledBefore_future_includes", query: "?scheduledBefore=" + future, wantLen: 1},
+		{name: "scheduledBefore_past_excludes", query: "?scheduledBefore=" + past, wantLen: 0},
+		{name: "scheduledOnOrAfter_past_includes", query: "?scheduledOnOrAfter=" + past, wantLen: 1},
+		{name: "scheduledOnOrAfter_future_excludes", query: "?scheduledOnOrAfter=" + future, wantLen: 0},
+		{name: "no_filter_includes", query: "", wantLen: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			listRec := doRequest(t, h, http.MethodGet, "/datasets/sched_filter_ds/contents"+tt.query, nil)
+			require.Equal(t, http.StatusOK, listRec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+
+			summaries, _ := resp["datasetContentSummaries"].([]any)
+			assert.Len(t, summaries, tt.wantLen)
+		})
 	}
 }
 

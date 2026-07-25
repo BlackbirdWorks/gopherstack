@@ -28,6 +28,7 @@ func TestDataBrew_RestoreVersionMismatch(t *testing.T) {
 	b := NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateDataset(
 		databrewCtxRegion("us-east-1"), "seed-ds", "CSV", DatasetInput{}, DatasetFormatOptions{}, nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -52,6 +53,7 @@ func TestDataBrew_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	b := NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateDataset(
 		databrewCtxRegion("us-east-1"), "seed-ds", "CSV", DatasetInput{}, DatasetFormatOptions{}, nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -93,6 +95,7 @@ func seedPersistenceState(t *testing.T, b *InMemoryBackend) persistenceSeed {
 	dataset, err := b.CreateDataset(
 		ctxEast, "ds-1", "CSV", DatasetInput{S3InputDefinition: &S3Location{Bucket: "b", Key: "k"}},
 		DatasetFormatOptions{}, map[string]string{"env": "test"},
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -112,6 +115,7 @@ func seedPersistenceState(t *testing.T, b *InMemoryBackend) persistenceSeed {
 		ctxEast, "job-1", "RECIPE", dataset.Name, project.Name, recipe.Name,
 		"arn:aws:iam::123456789012:role/r", []Output{{Format: "CSV", Location: S3Location{Bucket: "out"}}},
 		map[string]string{"kind": "recipe"},
+		JobExtras{},
 	)
 	require.NoError(t, err)
 
@@ -135,6 +139,7 @@ func seedPersistenceState(t *testing.T, b *InMemoryBackend) persistenceSeed {
 	// touched region -- not just the one the other resources happen to share.
 	_, err = b.CreateDataset(
 		ctxWest, "ds-west", "JSON", DatasetInput{}, DatasetFormatOptions{}, nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -187,7 +192,7 @@ func assertResourceTablesRestored(ctx context.Context, t *testing.T, fresh *InMe
 	assert.Equal(t, seed.dataset.Format, gotDS.Format)
 	assert.Equal(t, "test", gotDS.Tags["env"])
 
-	gotRecipe, err := fresh.DescribeRecipe(ctx, seed.recipe.Name)
+	gotRecipe, err := fresh.DescribeRecipe(ctx, seed.recipe.Name, "")
 	require.NoError(t, err)
 	assert.Equal(t, seed.recipe.Description, gotRecipe.Description)
 	require.Len(t, gotRecipe.Steps, 1)

@@ -479,36 +479,41 @@ func TestTagMutability_Enforcement(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		mutability   string
-		digest1      string
-		digest2      string
-		tag          string
-		wantRetagErr bool
+		wantErr    error
+		name       string
+		mutability string
+		digest1    string
+		digest2    string
+		tag        string
 	}{
 		{
-			name:         "mutable_allows_retag",
-			mutability:   "MUTABLE",
-			digest1:      "sha256:aaa",
-			digest2:      "sha256:bbb",
-			tag:          "latest",
-			wantRetagErr: false,
+			name:       "mutable_allows_retag",
+			mutability: "MUTABLE",
+			digest1:    "sha256:aaa",
+			digest2:    "sha256:bbb",
+			tag:        "latest",
 		},
 		{
-			name:         "immutable_rejects_retag",
-			mutability:   "IMMUTABLE",
-			digest1:      "sha256:ccc",
-			digest2:      "sha256:ddd",
-			tag:          "v1",
-			wantRetagErr: true,
+			name:       "immutable_rejects_retag",
+			mutability: "IMMUTABLE",
+			digest1:    "sha256:ccc",
+			digest2:    "sha256:ddd",
+			tag:        "v1",
+			wantErr:    ecr.ErrImageTagAlreadyExists,
 		},
 		{
-			name:         "immutable_allows_same_digest",
-			mutability:   "IMMUTABLE",
-			digest1:      "sha256:eee",
-			digest2:      "sha256:eee",
-			tag:          "stable",
-			wantRetagErr: false,
+			// Re-pushing the exact same digest under the exact same tag is a
+			// complete no-op push and is rejected with
+			// ImageAlreadyExistsException, independent of repository tag
+			// mutability -- see the PutImage ImageAlreadyExistsException doc
+			// comment in images.go. This case used to assert success (the
+			// gap this test now locks the closure of).
+			name:       "immutable_same_digest_rejected_as_no_op_push",
+			mutability: "IMMUTABLE",
+			digest1:    "sha256:eee",
+			digest2:    "sha256:eee",
+			tag:        "stable",
+			wantErr:    ecr.ErrImageAlreadyExists,
 		},
 	}
 
@@ -536,8 +541,8 @@ func TestTagMutability_Enforcement(t *testing.T) {
 			}
 			_, err = b.PutImage(context.Background(), "mut-repo", img2)
 
-			if tt.wantRetagErr {
-				assert.ErrorIs(t, err, ecr.ErrImageTagAlreadyExists)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
 			} else {
 				assert.NoError(t, err)
 			}

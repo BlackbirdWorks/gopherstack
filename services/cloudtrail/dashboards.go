@@ -3,13 +3,20 @@ package cloudtrail
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // CreateDashboard creates a new CloudTrail dashboard.
-func (b *InMemoryBackend) CreateDashboard(name, dashType string, kv map[string]string) (*Dashboard, error) {
+func (b *InMemoryBackend) CreateDashboard(
+	name, dashType string,
+	kv map[string]string,
+	widgets []Widget,
+	refreshSchedule *RefreshSchedule,
+	terminationProtected bool,
+) (*Dashboard, error) {
 	b.mu.Lock("CreateDashboard")
 	defer b.mu.Unlock()
 
@@ -27,13 +34,19 @@ func (b *InMemoryBackend) CreateDashboard(name, dashType string, kv map[string]s
 	if len(kv) > 0 {
 		t.Merge(kv)
 	}
+	now := time.Now().UTC()
 	d := &Dashboard{
-		DashboardID:  id,
-		DashboardARN: dashARN,
-		Name:         name,
-		Type:         dashType,
-		Status:       "CREATED",
-		Tags:         t,
+		DashboardID:                  id,
+		DashboardARN:                 dashARN,
+		Name:                         name,
+		Type:                         dashType,
+		Status:                       "CREATED",
+		Tags:                         t,
+		Widgets:                      widgets,
+		RefreshSchedule:              refreshSchedule,
+		TerminationProtectionEnabled: terminationProtected,
+		CreatedTimestamp:             now,
+		UpdatedTimestamp:             now,
 	}
 	b.dashboards.Put(d)
 
@@ -72,8 +85,17 @@ func (b *InMemoryBackend) GetDashboard(dashIDOrARN string) (*Dashboard, error) {
 	return &cp, nil
 }
 
-// UpdateDashboard updates an existing dashboard.
-func (b *InMemoryBackend) UpdateDashboard(dashIDOrARN string, name string) (*Dashboard, error) {
+// UpdateDashboard updates an existing dashboard's refresh schedule, widgets,
+// and/or termination protection. Real UpdateDashboardInput has no Name field
+// (dashboards cannot be renamed) -- a previous version of this backend
+// accepted a rename-via-Name parameter that does not exist on the real API;
+// it has been removed.
+func (b *InMemoryBackend) UpdateDashboard(
+	dashIDOrARN string,
+	widgets []Widget,
+	refreshSchedule *RefreshSchedule,
+	terminationProtected *bool,
+) (*Dashboard, error) {
 	b.mu.Lock("UpdateDashboard")
 	defer b.mu.Unlock()
 
@@ -81,14 +103,17 @@ func (b *InMemoryBackend) UpdateDashboard(dashIDOrARN string, name string) (*Das
 	if d == nil {
 		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
 	}
-	if name != "" && name != d.Name {
-		// d.Name is an indexed field (dashboardsByName): delete before mutating
-		// so the old index entry is removed using the pre-mutation value, then
-		// re-Put to rebuild every index (byARN, byName) under the new state.
-		b.dashboards.Delete(d.DashboardID)
-		d.Name = name
-		b.dashboards.Put(d)
+	if widgets != nil {
+		d.Widgets = widgets
 	}
+	if refreshSchedule != nil {
+		d.RefreshSchedule = refreshSchedule
+	}
+	if terminationProtected != nil {
+		d.TerminationProtectionEnabled = *terminationProtected
+	}
+	d.Status = "UPDATED"
+	d.UpdatedTimestamp = time.Now().UTC()
 	cp := *d
 
 	return &cp, nil
@@ -110,7 +135,12 @@ func (b *InMemoryBackend) ListDashboards() []*Dashboard {
 	return list
 }
 
-// StartDashboardRefresh triggers a refresh of a dashboard (sets status to REFRESHING).
+// StartDashboardRefresh triggers a refresh of a dashboard, recording a new
+// LastRefreshId. "REFRESHING" is not a valid DashboardStatus (real values are
+// CREATING/CREATED/UPDATING/UPDATED/DELETING only) -- a previous version of
+// this backend set it as the dashboard's Status, which real
+// StartDashboardRefreshOutput has no Status field on anyway (it returns only
+// RefreshId; see handleStartDashboardRefresh).
 func (b *InMemoryBackend) StartDashboardRefresh(dashIDOrARN string) (*Dashboard, error) {
 	b.mu.Lock("StartDashboardRefresh")
 	defer b.mu.Unlock()
@@ -119,7 +149,8 @@ func (b *InMemoryBackend) StartDashboardRefresh(dashIDOrARN string) (*Dashboard,
 	if d == nil {
 		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
 	}
-	d.Status = "REFRESHING"
+	b.dashboardCounter++
+	d.LastRefreshID = fmt.Sprintf("refresh-%06d", b.dashboardCounter)
 	cp := *d
 
 	return &cp, nil

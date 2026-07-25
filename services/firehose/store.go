@@ -193,9 +193,24 @@ func streamCopy(s *DeliveryStream) *DeliveryStream {
 		cp.OpenSearchDestination = &os
 	}
 
+	if s.ElasticsearchDestination != nil {
+		es := *s.ElasticsearchDestination
+		cp.ElasticsearchDestination = &es
+	}
+
 	if s.SplunkDestination != nil {
 		sp := *s.SplunkDestination
 		cp.SplunkDestination = &sp
+	}
+
+	if s.IcebergDestination != nil {
+		ic := *s.IcebergDestination
+		cp.IcebergDestination = &ic
+	}
+
+	if s.SnowflakeDestination != nil {
+		sf := *s.SnowflakeDestination
+		cp.SnowflakeDestination = &sf
 	}
 
 	if s.Encryption != nil {

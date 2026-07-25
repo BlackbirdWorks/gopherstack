@@ -1,7 +1,24 @@
 package codebuild
 
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+const webhookStatusActive = "ACTIVE"
+
 func (b *InMemoryBackend) buildWebhookURL(projectName string) string {
 	return "https://codebuild." + b.region + ".amazonaws.com/webhooks/" + projectName
+}
+
+// WebhookConfig holds the configurable, additive fields accepted by
+// CreateWebhook/UpdateWebhook beyond branchFilter/buildType/filterGroups.
+type WebhookConfig struct {
+	ManualCreation         *bool
+	PullRequestBuildPolicy *PullRequestBuildPolicy
+	ScopeConfiguration     *ScopeConfiguration
+	RotateSecret           bool
 }
 
 // CreateWebhook creates a webhook for a CodeBuild project.
@@ -9,9 +26,11 @@ func (b *InMemoryBackend) buildWebhookURL(projectName string) string {
 // Real AWS surfaces the created webhook back on the project itself (the
 // Project.Webhook field returned by BatchGetProjects/GetProject), so the new
 // webhook is mirrored onto the project record here as well as stored in the
-// webhooks table.
+// webhooks table. This emulator doesn't perform a real GitHub/GitLab/Bitbucket
+// round-trip, so webhook creation always succeeds immediately with status
+// ACTIVE (matching the real terminal state a client would eventually observe).
 func (b *InMemoryBackend) CreateWebhook(
-	projectName, branchFilter, buildType string, filterGroups [][]WebhookFilter,
+	projectName, branchFilter, buildType string, filterGroups [][]WebhookFilter, cfg WebhookConfig,
 ) (*Webhook, error) {
 	b.mu.Lock("CreateWebhook")
 	defer b.mu.Unlock()
@@ -25,13 +44,20 @@ func (b *InMemoryBackend) CreateWebhook(
 		return nil, ErrAlreadyExists
 	}
 
+	now := float64(time.Now().Unix())
 	w := &Webhook{
-		ProjectName:  projectName,
-		URL:          b.buildWebhookURL(projectName),
-		PayloadURL:   b.buildWebhookURL(projectName),
-		BranchFilter: branchFilter,
-		BuildType:    buildType,
-		FilterGroups: filterGroups,
+		ProjectName:            projectName,
+		URL:                    b.buildWebhookURL(projectName),
+		PayloadURL:             b.buildWebhookURL(projectName),
+		BranchFilter:           branchFilter,
+		BuildType:              buildType,
+		FilterGroups:           filterGroups,
+		ManualCreation:         cfg.ManualCreation,
+		PullRequestBuildPolicy: cfg.PullRequestBuildPolicy,
+		ScopeConfiguration:     cfg.ScopeConfiguration,
+		Secret:                 uuid.NewString(),
+		LastModifiedSecret:     now,
+		Status:                 webhookStatusActive,
 	}
 	b.webhooks.Put(w)
 
@@ -58,9 +84,11 @@ func (b *InMemoryBackend) DeleteWebhook(projectName string) error {
 	return nil
 }
 
-// UpdateWebhook updates the branchFilter and buildType of an existing webhook.
+// UpdateWebhook updates the branchFilter, buildType, filterGroups and
+// additive fields of an existing webhook. rotateSecret regenerates Secret and
+// bumps LastModifiedSecret, matching real AWS's rotateSecret request field.
 func (b *InMemoryBackend) UpdateWebhook(
-	projectName, branchFilter, buildType string, filterGroups [][]WebhookFilter,
+	projectName, branchFilter, buildType string, filterGroups [][]WebhookFilter, cfg WebhookConfig,
 ) (*Webhook, error) {
 	b.mu.Lock("UpdateWebhook")
 	defer b.mu.Unlock()
@@ -75,6 +103,15 @@ func (b *InMemoryBackend) UpdateWebhook(
 
 	if filterGroups != nil {
 		w.FilterGroups = filterGroups
+	}
+
+	if cfg.PullRequestBuildPolicy != nil {
+		w.PullRequestBuildPolicy = cfg.PullRequestBuildPolicy
+	}
+
+	if cfg.RotateSecret {
+		w.Secret = uuid.NewString()
+		w.LastModifiedSecret = float64(time.Now().Unix())
 	}
 
 	out := *w

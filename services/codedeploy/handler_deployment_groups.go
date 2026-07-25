@@ -143,18 +143,26 @@ type deploymentGroupInfoOutput struct {
 }
 
 // dgToOutput converts a backend DeploymentGroup to the wire output format.
-//
-//nolint:gocognit,cyclop,funlen // wire-format conversion requires many field mappings
+// The rich, optional sub-structures (load balancer info, blue/green config,
+// alarms, tag sets) are each handled by their own dgXToOutput helper below to
+// keep this function's own complexity low.
 func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 	out := deploymentGroupInfoOutput{
-		ApplicationName:           dg.ApplicationName,
-		DeploymentGroupID:         dg.DeploymentGroupID,
-		DeploymentGroupName:       dg.DeploymentGroupName,
-		ServiceRoleArn:            dg.ServiceRoleArn,
-		DeploymentConfigName:      dg.DeploymentConfigName,
-		ComputePlatform:           dg.ComputePlatform,
-		OutdatedInstancesStrategy: dg.OutdatedInstancesStrategy,
-		TerminationHookEnabled:    dg.TerminationHookEnabled,
+		ApplicationName:                  dg.ApplicationName,
+		DeploymentGroupID:                dg.DeploymentGroupID,
+		DeploymentGroupName:              dg.DeploymentGroupName,
+		ServiceRoleArn:                   dg.ServiceRoleArn,
+		DeploymentConfigName:             dg.DeploymentConfigName,
+		ComputePlatform:                  dg.ComputePlatform,
+		OutdatedInstancesStrategy:        dg.OutdatedInstancesStrategy,
+		TerminationHookEnabled:           dg.TerminationHookEnabled,
+		LoadBalancerInfo:                 dgLoadBalancerInfoToOutput(dg.LoadBalancerInfo),
+		DeploymentStyle:                  dgDeploymentStyleToOutput(dg.DeploymentStyle),
+		BlueGreenDeploymentConfiguration: dgBlueGreenConfigToOutput(dg.BlueGreenDeploymentConfiguration),
+		AlarmConfiguration:               dgAlarmConfigToOutput(dg.AlarmConfiguration),
+		AutoRollbackConfiguration:        dgAutoRollbackConfigToOutput(dg.AutoRollbackConfiguration),
+		Ec2TagSet:                        dgEc2TagSetToOutput(dg.Ec2TagSet),
+		OnPremisesTagSet:                 dgOnPremTagSetToOutput(dg.OnPremisesTagSet),
 	}
 
 	for _, f := range dg.Ec2TagFilters {
@@ -178,109 +186,150 @@ func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 		out.ECSServices = append(out.ECSServices, ecsServiceEntry(svc))
 	}
 
-	if dg.LoadBalancerInfo != nil {
-		lbi := &loadBalancerInfoEntry{}
-		for _, e := range dg.LoadBalancerInfo.ElbInfoList {
-			lbi.ElbInfoList = append(lbi.ElbInfoList, elbInfoEntry(e))
-		}
-		for _, tg := range dg.LoadBalancerInfo.TargetGroupInfoList {
-			lbi.TargetGroupInfoList = append(lbi.TargetGroupInfoList, targetGroupInfoEntry(tg))
-		}
-		for _, pair := range dg.LoadBalancerInfo.TargetGroupPairInfoList {
-			p := targetGroupPairInfoEntry{}
-			if pair.ProdTrafficRoute != nil {
-				p.ProdTrafficRoute = &trafficRouteEntry{ListenerArns: pair.ProdTrafficRoute.ListenerArns}
-			}
-			if pair.TestTrafficRoute != nil {
-				p.TestTrafficRoute = &trafficRouteEntry{ListenerArns: pair.TestTrafficRoute.ListenerArns}
-			}
-			for _, tg := range pair.TargetGroups {
-				p.TargetGroups = append(p.TargetGroups, targetGroupInfoEntry(tg))
-			}
-			lbi.TargetGroupPairInfoList = append(lbi.TargetGroupPairInfoList, p)
-		}
-		out.LoadBalancerInfo = lbi
-	}
-
-	if dg.DeploymentStyle != nil {
-		out.DeploymentStyle = &deploymentStyleEntry{
-			DeploymentType:   dg.DeploymentStyle.DeploymentType,
-			DeploymentOption: dg.DeploymentStyle.DeploymentOption,
-		}
-	}
-
-	if dg.BlueGreenDeploymentConfiguration != nil {
-		bgc := &blueGreenConfigEntry{}
-		if dg.BlueGreenDeploymentConfiguration.TerminateBlueInstancesOnDeploymentSuccess != nil {
-			tb := dg.BlueGreenDeploymentConfiguration.TerminateBlueInstancesOnDeploymentSuccess
-			bgc.TerminateBlueInstancesOnDeploymentSuccess = &terminateBlueEntry{
-				Action:                       tb.Action,
-				TerminationWaitTimeInMinutes: tb.TerminationWaitTimeInMinutes,
-			}
-		}
-		if dg.BlueGreenDeploymentConfiguration.DeploymentReadyOption != nil {
-			dr := dg.BlueGreenDeploymentConfiguration.DeploymentReadyOption
-			bgc.DeploymentReadyOption = &deploymentReadyEntry{
-				ActionOnTimeout:   dr.ActionOnTimeout,
-				WaitTimeInMinutes: dr.WaitTimeInMinutes,
-			}
-		}
-		if dg.BlueGreenDeploymentConfiguration.GreenFleetProvisioningOption != nil {
-			bgc.GreenFleetProvisioningOption = &greenFleetEntry{
-				Action: dg.BlueGreenDeploymentConfiguration.GreenFleetProvisioningOption.Action,
-			}
-		}
-		out.BlueGreenDeploymentConfiguration = bgc
-	}
-
-	if dg.AlarmConfiguration != nil {
-		ac := &alarmConfigEntry{
-			Enabled:                dg.AlarmConfiguration.Enabled,
-			IgnorePollAlarmFailure: dg.AlarmConfiguration.IgnorePollAlarmFailure,
-		}
-		for _, a := range dg.AlarmConfiguration.Alarms {
-			ac.Alarms = append(ac.Alarms, alarmEntry(a))
-		}
-		out.AlarmConfiguration = ac
-	}
-
-	if dg.AutoRollbackConfiguration != nil {
-		out.AutoRollbackConfiguration = &autoRollbackConfigEntry{
-			Events:  dg.AutoRollbackConfiguration.Events,
-			Enabled: dg.AutoRollbackConfiguration.Enabled,
-		}
-	}
-
-	if dg.Ec2TagSet != nil {
-		ets := &ec2TagSetEntry{}
-		for _, group := range dg.Ec2TagSet.Ec2TagSetList {
-			row := make([]tagFilterEntry, 0, len(group))
-			for _, f := range group {
-				row = append(row, tagFilterEntry(f))
-			}
-			ets.Ec2TagSetList = append(ets.Ec2TagSetList, row)
-		}
-		out.Ec2TagSet = ets
-	}
-
-	if dg.OnPremisesTagSet != nil {
-		opts := &onPremTagSetEntry{}
-		for _, group := range dg.OnPremisesTagSet.OnPremisesTagSetList {
-			row := make([]tagFilterEntry, 0, len(group))
-			for _, f := range group {
-				row = append(row, tagFilterEntry(f))
-			}
-			opts.OnPremisesTagSetList = append(opts.OnPremisesTagSetList, row)
-		}
-		out.OnPremisesTagSet = opts
-	}
-
 	return out
 }
 
-// dgInputFromWire converts wire-format deployment group input fields to backend DeploymentGroupInput.
-//
-//nolint:gocognit,cyclop,funlen // wire-format conversion requires many field mappings
+// dgLoadBalancerInfoToOutput converts the optional LoadBalancerInfo sub-structure.
+func dgLoadBalancerInfoToOutput(lb *LoadBalancerInfo) *loadBalancerInfoEntry {
+	if lb == nil {
+		return nil
+	}
+
+	lbi := &loadBalancerInfoEntry{}
+	for _, e := range lb.ElbInfoList {
+		lbi.ElbInfoList = append(lbi.ElbInfoList, elbInfoEntry(e))
+	}
+	for _, tg := range lb.TargetGroupInfoList {
+		lbi.TargetGroupInfoList = append(lbi.TargetGroupInfoList, targetGroupInfoEntry(tg))
+	}
+	for _, pair := range lb.TargetGroupPairInfoList {
+		p := targetGroupPairInfoEntry{}
+		if pair.ProdTrafficRoute != nil {
+			p.ProdTrafficRoute = &trafficRouteEntry{ListenerArns: pair.ProdTrafficRoute.ListenerArns}
+		}
+		if pair.TestTrafficRoute != nil {
+			p.TestTrafficRoute = &trafficRouteEntry{ListenerArns: pair.TestTrafficRoute.ListenerArns}
+		}
+		for _, tg := range pair.TargetGroups {
+			p.TargetGroups = append(p.TargetGroups, targetGroupInfoEntry(tg))
+		}
+		lbi.TargetGroupPairInfoList = append(lbi.TargetGroupPairInfoList, p)
+	}
+
+	return lbi
+}
+
+// dgDeploymentStyleToOutput converts the optional DeploymentStyle sub-structure.
+func dgDeploymentStyleToOutput(style *DeploymentStyle) *deploymentStyleEntry {
+	if style == nil {
+		return nil
+	}
+
+	return &deploymentStyleEntry{
+		DeploymentType:   style.DeploymentType,
+		DeploymentOption: style.DeploymentOption,
+	}
+}
+
+// dgBlueGreenConfigToOutput converts the optional BlueGreenDeploymentConfiguration sub-structure.
+func dgBlueGreenConfigToOutput(cfg *BlueGreenDeploymentConfiguration) *blueGreenConfigEntry {
+	if cfg == nil {
+		return nil
+	}
+
+	bgc := &blueGreenConfigEntry{}
+	if cfg.TerminateBlueInstancesOnDeploymentSuccess != nil {
+		tb := cfg.TerminateBlueInstancesOnDeploymentSuccess
+		bgc.TerminateBlueInstancesOnDeploymentSuccess = &terminateBlueEntry{
+			Action:                       tb.Action,
+			TerminationWaitTimeInMinutes: tb.TerminationWaitTimeInMinutes,
+		}
+	}
+	if cfg.DeploymentReadyOption != nil {
+		dr := cfg.DeploymentReadyOption
+		bgc.DeploymentReadyOption = &deploymentReadyEntry{
+			ActionOnTimeout:   dr.ActionOnTimeout,
+			WaitTimeInMinutes: dr.WaitTimeInMinutes,
+		}
+	}
+	if cfg.GreenFleetProvisioningOption != nil {
+		bgc.GreenFleetProvisioningOption = &greenFleetEntry{
+			Action: cfg.GreenFleetProvisioningOption.Action,
+		}
+	}
+
+	return bgc
+}
+
+// dgAlarmConfigToOutput converts the optional AlarmConfiguration sub-structure.
+func dgAlarmConfigToOutput(cfg *AlarmConfiguration) *alarmConfigEntry {
+	if cfg == nil {
+		return nil
+	}
+
+	ac := &alarmConfigEntry{
+		Enabled:                cfg.Enabled,
+		IgnorePollAlarmFailure: cfg.IgnorePollAlarmFailure,
+	}
+	for _, a := range cfg.Alarms {
+		ac.Alarms = append(ac.Alarms, alarmEntry(a))
+	}
+
+	return ac
+}
+
+// dgAutoRollbackConfigToOutput converts the optional AutoRollbackConfiguration sub-structure.
+func dgAutoRollbackConfigToOutput(cfg *AutoRollbackConfiguration) *autoRollbackConfigEntry {
+	if cfg == nil {
+		return nil
+	}
+
+	return &autoRollbackConfigEntry{
+		Events:  cfg.Events,
+		Enabled: cfg.Enabled,
+	}
+}
+
+// dgEc2TagSetToOutput converts the optional Ec2TagSet sub-structure.
+func dgEc2TagSetToOutput(set *Ec2TagSet) *ec2TagSetEntry {
+	if set == nil {
+		return nil
+	}
+
+	ets := &ec2TagSetEntry{}
+	for _, group := range set.Ec2TagSetList {
+		row := make([]tagFilterEntry, 0, len(group))
+		for _, f := range group {
+			row = append(row, tagFilterEntry(f))
+		}
+		ets.Ec2TagSetList = append(ets.Ec2TagSetList, row)
+	}
+
+	return ets
+}
+
+// dgOnPremTagSetToOutput converts the optional on-premises TagSet sub-structure.
+func dgOnPremTagSetToOutput(set *TagSet) *onPremTagSetEntry {
+	if set == nil {
+		return nil
+	}
+
+	opts := &onPremTagSetEntry{}
+	for _, group := range set.OnPremisesTagSetList {
+		row := make([]tagFilterEntry, 0, len(group))
+		for _, f := range group {
+			row = append(row, tagFilterEntry(f))
+		}
+		opts.OnPremisesTagSetList = append(opts.OnPremisesTagSetList, row)
+	}
+
+	return opts
+}
+
+// dgInputFromWire converts wire-format deployment group input fields to
+// backend DeploymentGroupInput. The rich, optional sub-structures are each
+// handled by their own dgXFromWire helper below to keep this function's own
+// complexity low.
 func dgInputFromWire(
 	serviceRoleArn, deploymentConfigName, outdatedInstancesStrategy string,
 	terminationHookEnabled bool,
@@ -298,10 +347,17 @@ func dgInputFromWire(
 	onPremTagSet *onPremTagSetEntry,
 ) DeploymentGroupInput {
 	input := DeploymentGroupInput{
-		ServiceRoleArn:            serviceRoleArn,
-		DeploymentConfigName:      deploymentConfigName,
-		OutdatedInstancesStrategy: outdatedInstancesStrategy,
-		TerminationHookEnabled:    terminationHookEnabled,
+		ServiceRoleArn:                   serviceRoleArn,
+		DeploymentConfigName:             deploymentConfigName,
+		OutdatedInstancesStrategy:        outdatedInstancesStrategy,
+		TerminationHookEnabled:           terminationHookEnabled,
+		LoadBalancerInfo:                 dgLoadBalancerInfoFromWire(lbi),
+		DeploymentStyle:                  dgDeploymentStyleFromWire(style),
+		BlueGreenDeploymentConfiguration: dgBlueGreenConfigFromWire(bgConfig),
+		AlarmConfiguration:               dgAlarmConfigFromWire(alarmConfig),
+		AutoRollbackConfiguration:        dgAutoRollbackConfigFromWire(autoRollback),
+		Ec2TagSet:                        dgEc2TagSetFromWire(ec2TagSet),
+		OnPremisesTagSet:                 dgOnPremTagSetFromWire(onPremTagSet),
 	}
 
 	for _, f := range ec2TagFilters {
@@ -321,103 +377,143 @@ func dgInputFromWire(
 		input.ECSServices = append(input.ECSServices, ECSService(svc))
 	}
 
-	if lbi != nil {
-		lb := &LoadBalancerInfo{}
-		for _, e := range lbi.ElbInfoList {
-			lb.ElbInfoList = append(lb.ElbInfoList, ElbInfo(e))
-		}
-		for _, tg := range lbi.TargetGroupInfoList {
-			lb.TargetGroupInfoList = append(lb.TargetGroupInfoList, TargetGroupInfo(tg))
-		}
-		for _, pair := range lbi.TargetGroupPairInfoList {
-			p := TargetGroupPairInfo{}
-			if pair.ProdTrafficRoute != nil {
-				p.ProdTrafficRoute = &TrafficRoute{ListenerArns: pair.ProdTrafficRoute.ListenerArns}
-			}
-			if pair.TestTrafficRoute != nil {
-				p.TestTrafficRoute = &TrafficRoute{ListenerArns: pair.TestTrafficRoute.ListenerArns}
-			}
-			for _, tg := range pair.TargetGroups {
-				p.TargetGroups = append(p.TargetGroups, TargetGroupInfo(tg))
-			}
-			lb.TargetGroupPairInfoList = append(lb.TargetGroupPairInfoList, p)
-		}
-		input.LoadBalancerInfo = lb
-	}
-
-	if style != nil {
-		input.DeploymentStyle = &DeploymentStyle{
-			DeploymentType:   style.DeploymentType,
-			DeploymentOption: style.DeploymentOption,
-		}
-	}
-
-	if bgConfig != nil {
-		bgc := &BlueGreenDeploymentConfiguration{}
-		if bgConfig.TerminateBlueInstancesOnDeploymentSuccess != nil {
-			tb := bgConfig.TerminateBlueInstancesOnDeploymentSuccess
-			bgc.TerminateBlueInstancesOnDeploymentSuccess = &TerminateBlueInstancesOnDeploymentSuccess{
-				Action:                       tb.Action,
-				TerminationWaitTimeInMinutes: tb.TerminationWaitTimeInMinutes,
-			}
-		}
-		if bgConfig.DeploymentReadyOption != nil {
-			bgc.DeploymentReadyOption = &DeploymentReadyOption{
-				ActionOnTimeout:   bgConfig.DeploymentReadyOption.ActionOnTimeout,
-				WaitTimeInMinutes: bgConfig.DeploymentReadyOption.WaitTimeInMinutes,
-			}
-		}
-		if bgConfig.GreenFleetProvisioningOption != nil {
-			bgc.GreenFleetProvisioningOption = &GreenFleetProvisioningOption{
-				Action: bgConfig.GreenFleetProvisioningOption.Action,
-			}
-		}
-		input.BlueGreenDeploymentConfiguration = bgc
-	}
-
-	if alarmConfig != nil {
-		ac := &AlarmConfiguration{
-			Enabled:                alarmConfig.Enabled,
-			IgnorePollAlarmFailure: alarmConfig.IgnorePollAlarmFailure,
-		}
-		for _, a := range alarmConfig.Alarms {
-			ac.Alarms = append(ac.Alarms, Alarm(a))
-		}
-		input.AlarmConfiguration = ac
-	}
-
-	if autoRollback != nil {
-		input.AutoRollbackConfiguration = &AutoRollbackConfiguration{
-			Events:  autoRollback.Events,
-			Enabled: autoRollback.Enabled,
-		}
-	}
-
-	if ec2TagSet != nil {
-		ets := &Ec2TagSet{}
-		for _, group := range ec2TagSet.Ec2TagSetList {
-			row := make([]TagFilter, 0, len(group))
-			for _, f := range group {
-				row = append(row, TagFilter(f))
-			}
-			ets.Ec2TagSetList = append(ets.Ec2TagSetList, row)
-		}
-		input.Ec2TagSet = ets
-	}
-
-	if onPremTagSet != nil {
-		opts := &TagSet{}
-		for _, group := range onPremTagSet.OnPremisesTagSetList {
-			row := make([]TagFilter, 0, len(group))
-			for _, f := range group {
-				row = append(row, TagFilter(f))
-			}
-			opts.OnPremisesTagSetList = append(opts.OnPremisesTagSetList, row)
-		}
-		input.OnPremisesTagSet = opts
-	}
-
 	return input
+}
+
+// dgLoadBalancerInfoFromWire converts the optional wire loadBalancerInfoEntry.
+func dgLoadBalancerInfoFromWire(lbi *loadBalancerInfoEntry) *LoadBalancerInfo {
+	if lbi == nil {
+		return nil
+	}
+
+	lb := &LoadBalancerInfo{}
+	for _, e := range lbi.ElbInfoList {
+		lb.ElbInfoList = append(lb.ElbInfoList, ElbInfo(e))
+	}
+	for _, tg := range lbi.TargetGroupInfoList {
+		lb.TargetGroupInfoList = append(lb.TargetGroupInfoList, TargetGroupInfo(tg))
+	}
+	for _, pair := range lbi.TargetGroupPairInfoList {
+		p := TargetGroupPairInfo{}
+		if pair.ProdTrafficRoute != nil {
+			p.ProdTrafficRoute = &TrafficRoute{ListenerArns: pair.ProdTrafficRoute.ListenerArns}
+		}
+		if pair.TestTrafficRoute != nil {
+			p.TestTrafficRoute = &TrafficRoute{ListenerArns: pair.TestTrafficRoute.ListenerArns}
+		}
+		for _, tg := range pair.TargetGroups {
+			p.TargetGroups = append(p.TargetGroups, TargetGroupInfo(tg))
+		}
+		lb.TargetGroupPairInfoList = append(lb.TargetGroupPairInfoList, p)
+	}
+
+	return lb
+}
+
+// dgDeploymentStyleFromWire converts the optional wire deploymentStyleEntry.
+func dgDeploymentStyleFromWire(style *deploymentStyleEntry) *DeploymentStyle {
+	if style == nil {
+		return nil
+	}
+
+	return &DeploymentStyle{
+		DeploymentType:   style.DeploymentType,
+		DeploymentOption: style.DeploymentOption,
+	}
+}
+
+// dgBlueGreenConfigFromWire converts the optional wire blueGreenConfigEntry.
+func dgBlueGreenConfigFromWire(bgConfig *blueGreenConfigEntry) *BlueGreenDeploymentConfiguration {
+	if bgConfig == nil {
+		return nil
+	}
+
+	bgc := &BlueGreenDeploymentConfiguration{}
+	if bgConfig.TerminateBlueInstancesOnDeploymentSuccess != nil {
+		tb := bgConfig.TerminateBlueInstancesOnDeploymentSuccess
+		bgc.TerminateBlueInstancesOnDeploymentSuccess = &TerminateBlueInstancesOnDeploymentSuccess{
+			Action:                       tb.Action,
+			TerminationWaitTimeInMinutes: tb.TerminationWaitTimeInMinutes,
+		}
+	}
+	if bgConfig.DeploymentReadyOption != nil {
+		bgc.DeploymentReadyOption = &DeploymentReadyOption{
+			ActionOnTimeout:   bgConfig.DeploymentReadyOption.ActionOnTimeout,
+			WaitTimeInMinutes: bgConfig.DeploymentReadyOption.WaitTimeInMinutes,
+		}
+	}
+	if bgConfig.GreenFleetProvisioningOption != nil {
+		bgc.GreenFleetProvisioningOption = &GreenFleetProvisioningOption{
+			Action: bgConfig.GreenFleetProvisioningOption.Action,
+		}
+	}
+
+	return bgc
+}
+
+// dgAlarmConfigFromWire converts the optional wire alarmConfigEntry.
+func dgAlarmConfigFromWire(alarmConfig *alarmConfigEntry) *AlarmConfiguration {
+	if alarmConfig == nil {
+		return nil
+	}
+
+	ac := &AlarmConfiguration{
+		Enabled:                alarmConfig.Enabled,
+		IgnorePollAlarmFailure: alarmConfig.IgnorePollAlarmFailure,
+	}
+	for _, a := range alarmConfig.Alarms {
+		ac.Alarms = append(ac.Alarms, Alarm(a))
+	}
+
+	return ac
+}
+
+// dgAutoRollbackConfigFromWire converts the optional wire autoRollbackConfigEntry.
+func dgAutoRollbackConfigFromWire(autoRollback *autoRollbackConfigEntry) *AutoRollbackConfiguration {
+	if autoRollback == nil {
+		return nil
+	}
+
+	return &AutoRollbackConfiguration{
+		Events:  autoRollback.Events,
+		Enabled: autoRollback.Enabled,
+	}
+}
+
+// dgEc2TagSetFromWire converts the optional wire ec2TagSetEntry.
+func dgEc2TagSetFromWire(ec2TagSet *ec2TagSetEntry) *Ec2TagSet {
+	if ec2TagSet == nil {
+		return nil
+	}
+
+	ets := &Ec2TagSet{}
+	for _, group := range ec2TagSet.Ec2TagSetList {
+		row := make([]TagFilter, 0, len(group))
+		for _, f := range group {
+			row = append(row, TagFilter(f))
+		}
+		ets.Ec2TagSetList = append(ets.Ec2TagSetList, row)
+	}
+
+	return ets
+}
+
+// dgOnPremTagSetFromWire converts the optional wire onPremTagSetEntry.
+func dgOnPremTagSetFromWire(onPremTagSet *onPremTagSetEntry) *TagSet {
+	if onPremTagSet == nil {
+		return nil
+	}
+
+	opts := &TagSet{}
+	for _, group := range onPremTagSet.OnPremisesTagSetList {
+		row := make([]TagFilter, 0, len(group))
+		for _, f := range group {
+			row = append(row, TagFilter(f))
+		}
+		opts.OnPremisesTagSetList = append(opts.OnPremisesTagSetList, row)
+	}
+
+	return opts
 }
 
 type createDeploymentGroupInput struct {

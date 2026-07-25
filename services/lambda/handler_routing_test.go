@@ -195,6 +195,60 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			path:   "/2018-10-31/layers/my-layer/bad",
 			wantOp: "Unknown",
 		},
+		{
+			name:   "durable_exec_get",
+			method: http.MethodGet,
+			path:   "/2025-12-01/durable-executions/test-arn",
+			wantOp: "GetDurableExecution",
+		},
+		{
+			name:   "durable_exec_history",
+			method: http.MethodGet,
+			path:   "/2025-12-01/durable-executions/test-arn/history",
+			wantOp: "GetDurableExecutionHistory",
+		},
+		{
+			name:   "durable_exec_state",
+			method: http.MethodGet,
+			path:   "/2025-12-01/durable-executions/test-arn/state",
+			wantOp: "GetDurableExecutionState",
+		},
+		{
+			name:   "durable_exec_checkpoint",
+			method: http.MethodPost,
+			path:   "/2025-12-01/durable-executions/test-arn/checkpoint",
+			wantOp: "CheckpointDurableExecution",
+		},
+		{
+			name:   "durable_exec_stop",
+			method: http.MethodPost,
+			path:   "/2025-12-01/durable-executions/test-arn/stop",
+			wantOp: "StopDurableExecution",
+		},
+		{
+			name:   "durable_exec_list_by_function",
+			method: http.MethodGet,
+			path:   "/2025-12-01/functions/my-func/durable-executions",
+			wantOp: "ListDurableExecutionsByFunction",
+		},
+		{
+			name:   "durable_exec_callback_succeed",
+			method: http.MethodPost,
+			path:   "/2025-12-01/durable-execution-callbacks/cb-1/succeed",
+			wantOp: "SendDurableExecutionCallbackSuccess",
+		},
+		{
+			name:   "durable_exec_callback_fail",
+			method: http.MethodPost,
+			path:   "/2025-12-01/durable-execution-callbacks/cb-1/fail",
+			wantOp: "SendDurableExecutionCallbackFailure",
+		},
+		{
+			name:   "durable_exec_callback_heartbeat",
+			method: http.MethodPost,
+			path:   "/2025-12-01/durable-execution-callbacks/cb-1/heartbeat",
+			wantOp: "SendDurableExecutionCallbackHeartbeat",
+		},
 	}
 
 	for _, tt := range tests {

@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -34,14 +35,16 @@ type AutoMLJobObjective struct {
 
 // AutoMLJob represents a SageMaker AutoML job.
 type AutoMLJob struct {
-	CreationTime       time.Time               `json:"CreationTime"`
-	Tags               map[string]string       `json:"Tags,omitempty"`
-	OutputDataConfig   *AutoMLOutputDataConfig `json:"OutputDataConfig,omitempty"`
-	AutoMLJobObjective *AutoMLJobObjective     `json:"AutoMLJobObjective,omitempty"`
-	AutoMLJobName      string                  `json:"AutoMLJobName"`
-	AutoMLJobArn       string                  `json:"AutoMLJobArn"`
-	AutoMLJobStatus    string                  `json:"AutoMLJobStatus"`
-	RoleArn            string                  `json:"RoleArn,omitempty"`
+	CreationTime             time.Time               `json:"CreationTime"`
+	LastModifiedTime         time.Time               `json:"LastModifiedTime"`
+	Tags                     map[string]string       `json:"Tags,omitempty"`
+	OutputDataConfig         *AutoMLOutputDataConfig `json:"OutputDataConfig,omitempty"`
+	AutoMLJobObjective       *AutoMLJobObjective     `json:"AutoMLJobObjective,omitempty"`
+	AutoMLJobName            string                  `json:"AutoMLJobName"`
+	AutoMLJobArn             string                  `json:"AutoMLJobArn"`
+	AutoMLJobStatus          string                  `json:"AutoMLJobStatus"`
+	AutoMLJobSecondaryStatus string                  `json:"AutoMLJobSecondaryStatus"`
+	RoleArn                  string                  `json:"RoleArn,omitempty"`
 }
 
 func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
@@ -59,6 +62,44 @@ func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
 	}
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeAutoMLJob.
+func (j *AutoMLJob) MarshalJSON() ([]byte, error) {
+	type alias AutoMLJob
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(j),
+		CreationTime:     epochSeconds(j.CreationTime),
+		LastModifiedTime: epochSeconds(j.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [AutoMLJob.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (j *AutoMLJob) UnmarshalJSON(data []byte) error {
+	type alias AutoMLJob
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(j)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	j.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	j.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateAutoMLJob creates an AutoML job.
@@ -81,14 +122,17 @@ func (b *InMemoryBackend) CreateAutoMLJob(
 	}
 
 	jobARN := arn.Build("sagemaker", region, b.accountID, "automl-job/"+name)
+	now := time.Now()
 
 	j := &AutoMLJob{
-		AutoMLJobName:   name,
-		AutoMLJobArn:    jobARN,
-		AutoMLJobStatus: trainingJobStatusInProgress,
-		RoleArn:         roleArn,
-		Tags:            mergeTags(nil, tags),
-		CreationTime:    time.Now(),
+		AutoMLJobName:            name,
+		AutoMLJobArn:             jobARN,
+		AutoMLJobStatus:          trainingJobStatusInProgress,
+		AutoMLJobSecondaryStatus: secondaryStatusStarting,
+		RoleArn:                  roleArn,
+		Tags:                     mergeTags(nil, tags),
+		CreationTime:             now,
+		LastModifiedTime:         now,
 	}
 	b.autoMLJobsStore(region).Put(j)
 
@@ -129,6 +173,8 @@ func (b *InMemoryBackend) StopAutoMLJob(ctx context.Context, name string) error 
 	}
 
 	j.AutoMLJobStatus = pipelineStatusStopped
+	j.AutoMLJobSecondaryStatus = pipelineStatusStopped
+	j.LastModifiedTime = time.Now()
 
 	return nil
 }

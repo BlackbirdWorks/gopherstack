@@ -1,19 +1,38 @@
 package awsconfig
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 const conformancePackStateComplete = "COMPLETE"
 
-// PutConformancePack creates or updates a conformance pack.
-func (b *InMemoryBackend) PutConformancePack(name, deliveryS3Bucket, deliveryS3KeyPrefix string) error {
+// PutConformancePack creates or updates a conformance pack. When templateBody
+// is a JSON CloudFormation-shaped template containing AWS::Config::ConfigRule
+// resources (see conformance_pack_template.go), those rules are created/updated
+// as real config rules and linked to the pack, matching real AWS Config where a
+// conformance pack literally deploys managed config rules on the account --
+// this makes the compliance family (DescribeConformancePackCompliance et al.)
+// derivable from genuine per-rule evaluation state instead of an empty stub.
+// Updating an existing pack's template replaces its rule set: rules no longer
+// present in the new template are deleted along with their evaluations
+// (cascade), matching AWS's conformance-pack-update semantics.
+func (b *InMemoryBackend) PutConformancePack(name, deliveryS3Bucket, deliveryS3KeyPrefix, templateBody string) error {
 	if name == "" {
 		return fmt.Errorf("%w: ConformancePackName is required", ErrValidation)
 	}
 
+	rules := parseConformancePackConfigRules(templateBody, name)
+
 	b.mu.Lock("PutConformancePack")
 	defer b.mu.Unlock()
 
-	b.conformancePackCounter++
+	b.replacePackRulesLocked(name, rules)
+
+	if _, exists := b.conformancePacks.Get(name); !exists {
+		b.conformancePackCounter++
+	}
+
 	packID := fmt.Sprintf("conformance-pack-%08d", b.conformancePackCounter)
 	arn := fmt.Sprintf(
 		"arn:aws:config:%s:%s:conformance-pack/%s/%s",
@@ -31,7 +50,39 @@ func (b *InMemoryBackend) PutConformancePack(name, deliveryS3Bucket, deliveryS3K
 	return nil
 }
 
-// DeleteConformancePack deletes a conformance pack by name.
+// replacePackRulesLocked registers newRules as packName's deployed config
+// rules, deleting (cascade: config rule + its evaluations + its link entry)
+// any previously-linked rule that is absent from newRules. Caller must already
+// hold the write lock.
+func (b *InMemoryBackend) replacePackRulesLocked(packName string, newRules []*ConfigRule) {
+	newNames := make(map[string]struct{}, len(newRules))
+	for _, r := range newRules {
+		newNames[r.ConfigRuleName] = struct{}{}
+	}
+
+	for _, link := range slices.Clone(b.conformancePackRulesByPack.Get(packName)) {
+		if _, keep := newNames[link.ConfigRuleName]; keep {
+			continue
+		}
+
+		b.configRules.Delete(link.ConfigRuleName)
+		b.clearRuleEvaluationsLocked(link.ConfigRuleName)
+		b.conformancePackRules.Delete(conformancePackRuleLinkKeyFn(link))
+	}
+
+	for _, r := range newRules {
+		b.putConfigRuleLocked(r)
+		b.conformancePackRules.Put(&ConformancePackRuleLink{
+			ConformancePackName: packName,
+			ConfigRuleName:      r.ConfigRuleName,
+		})
+	}
+}
+
+// DeleteConformancePack deletes a conformance pack by name, cascade-deleting
+// every config rule it deployed (and their evaluations) along with it --
+// matching real AWS Config, where deleting a conformance pack removes the
+// managed rules it created.
 func (b *InMemoryBackend) DeleteConformancePack(name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: ConformancePackName is required", ErrValidation)
@@ -44,6 +95,7 @@ func (b *InMemoryBackend) DeleteConformancePack(name string) error {
 		return fmt.Errorf("%w: %s", ErrNoSuchConformancePack, name)
 	}
 
+	b.replacePackRulesLocked(name, nil)
 	b.conformancePacks.Delete(name)
 
 	return nil
@@ -62,11 +114,6 @@ func (b *InMemoryBackend) DescribeConformancePacks() []ConformancePack {
 	}
 
 	return out
-}
-
-// DescribeAggregateComplianceByConformancePacks returns an empty list.
-func (b *InMemoryBackend) DescribeAggregateComplianceByConformancePacks() []any {
-	return []any{}
 }
 
 // DescribeConformancePackStatus returns conformance pack statuses.
@@ -110,23 +157,3 @@ func (b *InMemoryBackend) DescribeConformancePackStatus(names []string) []Confor
 
 	return out
 }
-
-// DescribeConformancePackCompliance returns compliance items for a conformance pack.
-// Returns an empty list (intentionally minimal stub).
-func (b *InMemoryBackend) DescribeConformancePackCompliance(_ string) []ConformancePackComplianceItem {
-	return []ConformancePackComplianceItem{}
-}
-
-// GetAggregateConformancePackComplianceSummary returns an empty summary (intentionally minimal stub).
-func (b *InMemoryBackend) GetAggregateConformancePackComplianceSummary() []any { return []any{} }
-
-// ListConformancePackComplianceScores returns an empty list.
-func (b *InMemoryBackend) ListConformancePackComplianceScores() []any {
-	return []any{}
-}
-
-// GetConformancePackComplianceDetails returns an empty list (intentionally minimal stub).
-func (b *InMemoryBackend) GetConformancePackComplianceDetails() []any { return []any{} }
-
-// GetConformancePackComplianceSummary returns an empty list (intentionally minimal stub).
-func (b *InMemoryBackend) GetConformancePackComplianceSummary() []any { return []any{} }

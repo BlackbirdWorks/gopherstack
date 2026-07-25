@@ -104,12 +104,43 @@ func (h *Handler) dispatchOrganizationsAccessOps(
 	}
 }
 
+// parseStackSetOptions parses the optional CreateStackSet/UpdateStackSet form
+// fields (administration/execution roles, capabilities, parameters, tags,
+// permission model, OU targets, auto-deployment, managed execution) shared by
+// both operations' request shapes.
+func parseStackSetOptions(form url.Values) StackSetOptions {
+	opts := StackSetOptions{
+		AdministrationRoleARN: form.Get("AdministrationRoleARN"),
+		ExecutionRoleName:     form.Get("ExecutionRoleName"),
+		PermissionModel:       form.Get("PermissionModel"),
+		Capabilities:          parseCapabilities(form),
+		Parameters:            parseParams(form),
+		Tags:                  parseTags(form),
+		OrganizationalUnitIDs: parseMemberList(form, "OrganizationalUnitIds."),
+	}
+
+	if v := form.Get("AutoDeployment.Enabled"); v != "" {
+		opts.AutoDeployment = &AutoDeployment{
+			Enabled:                      v == boolTrue,
+			RetainStacksOnAccountRemoval: form.Get("AutoDeployment.RetainStacksOnAccountRemoval") == boolTrue,
+		}
+	}
+
+	if v := form.Get("ManagedExecution.Active"); v != "" {
+		opts.ManagedExecution = &ManagedExecution{Active: v == boolTrue}
+	}
+
+	return opts
+}
+
 func (h *Handler) handleCreateStackSet(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
-	ss, err := h.Backend.CreateStackSet(name, form.Get("Description"), form.Get("TemplateBody"))
+	ss, err := h.Backend.CreateStackSet(
+		name, form.Get("Description"), form.Get("TemplateBody"), parseStackSetOptions(form),
+	)
 	if err != nil {
 		return h.xmlError(c, "NameAlreadyExistsException", err.Error())
 	}
@@ -138,7 +169,10 @@ func (h *Handler) handleUpdateStackSet(form url.Values, c *echo.Context) error {
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
-	if _, err := h.Backend.UpdateStackSet(name, form.Get("Description"), form.Get("TemplateBody")); err != nil {
+	_, err := h.Backend.UpdateStackSet(
+		name, form.Get("Description"), form.Get("TemplateBody"), parseStackSetOptions(form),
+	)
+	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
 	type response struct {
@@ -171,6 +205,104 @@ func (h *Handler) handleDeleteStackSet(form url.Values, c *echo.Context) error {
 	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
 }
 
+// stackSetParamXML/stackSetTagXML mirror Parameter/Tag's XML shape for
+// embedding inside a StackSet response (the shared Parameter/Tag structs
+// carry no XML tags of their own since most call sites build their envelopes
+// by hand -- see handler_stacks.go).
+type stackSetParamXML struct {
+	ParameterKey   string `xml:"ParameterKey"`
+	ParameterValue string `xml:"ParameterValue"`
+}
+
+type stackSetTagXML struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+type stackSetAutoDeploymentXML struct {
+	Enabled                      bool `xml:"Enabled"`
+	RetainStacksOnAccountRemoval bool `xml:"RetainStacksOnAccountRemoval"` //nolint:lll // AWS-compatible field name exceeds line limit
+}
+
+type stackSetManagedExecutionXML struct {
+	Active bool `xml:"Active"`
+}
+
+// ssXML is the full DescribeStackSetResult.StackSet wire shape, field-diffed
+// against aws-sdk-go-v2/service/cloudformation@v1.71.7's
+// awsAwsquery_deserializeDocumentStackSet.
+type ssXML struct {
+	AutoDeployment        *stackSetAutoDeploymentXML   `xml:"AutoDeployment,omitempty"`
+	ManagedExecution      *stackSetManagedExecutionXML `xml:"ManagedExecution,omitempty"`
+	Status                string                       `xml:"Status"`
+	StackSetID            string                       `xml:"StackSetId"`
+	StackSetName          string                       `xml:"StackSetName"`
+	Description           string                       `xml:"Description,omitempty"`
+	StackSetARN           string                       `xml:"StackSetARN,omitempty"`
+	AdministrationRoleARN string                       `xml:"AdministrationRoleARN,omitempty"`
+	ExecutionRoleName     string                       `xml:"ExecutionRoleName,omitempty"`
+	PermissionModel       string                       `xml:"PermissionModel,omitempty"`
+	OrganizationalUnitIDs []string                     `xml:"OrganizationalUnitIds>member,omitempty"`
+	Regions               []string                     `xml:"Regions>member,omitempty"`
+	Tags                  []stackSetTagXML             `xml:"Tags>member,omitempty"`
+	Parameters            []stackSetParamXML           `xml:"Parameters>member,omitempty"`
+	Capabilities          []string                     `xml:"Capabilities>member,omitempty"`
+}
+
+func stackSetToXML(ss *StackSet, regions []string) ssXML {
+	params := make([]stackSetParamXML, 0, len(ss.Parameters))
+	for _, p := range ss.Parameters {
+		params = append(params, stackSetParamXML{ParameterKey: p.ParameterKey, ParameterValue: p.ParameterValue})
+	}
+	tags := make([]stackSetTagXML, 0, len(ss.Tags))
+	for _, t := range ss.Tags {
+		tags = append(tags, stackSetTagXML(t))
+	}
+
+	x := ssXML{
+		StackSetID:            ss.StackSetID,
+		StackSetName:          ss.StackSetName,
+		Status:                ss.Status,
+		Description:           ss.Description,
+		StackSetARN:           ss.StackSetARN,
+		AdministrationRoleARN: ss.AdministrationRoleARN,
+		ExecutionRoleName:     ss.ExecutionRoleName,
+		PermissionModel:       ss.PermissionModel,
+		Capabilities:          ss.Capabilities,
+		Parameters:            params,
+		Tags:                  tags,
+		OrganizationalUnitIDs: ss.OrganizationalUnitIDs,
+		Regions:               regions,
+	}
+	if ss.AutoDeployment != nil {
+		x.AutoDeployment = &stackSetAutoDeploymentXML{
+			Enabled:                      ss.AutoDeployment.Enabled,
+			RetainStacksOnAccountRemoval: ss.AutoDeployment.RetainStacksOnAccountRemoval,
+		}
+	}
+	if ss.ManagedExecution != nil {
+		x.ManagedExecution = &stackSetManagedExecutionXML{Active: ss.ManagedExecution.Active}
+	}
+
+	return x
+}
+
+// describeStackSetResult/describeStackSetResponse are package-level (rather
+// than function-local, like most other handlers' envelope types in this
+// file) purely so govet's fieldalignment can reorder ssXML's large
+// slice/pointer payload against the small XMLName/Xmlns/RequestID fields --
+// it does not rewrite function-local type declarations.
+type describeStackSetResult struct {
+	StackSet ssXML `xml:"StackSet"`
+}
+
+type describeStackSetResponse struct {
+	XMLName   xml.Name               `xml:"DescribeStackSetResponse"`
+	Xmlns     string                 `xml:"xmlns,attr"`
+	RequestID string                 `xml:"ResponseMetadata>RequestId"`
+	Result    describeStackSetResult `xml:"DescribeStackSetResult"`
+}
+
 func (h *Handler) handleDescribeStackSet(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
 	if name == "" {
@@ -180,32 +312,10 @@ func (h *Handler) handleDescribeStackSet(form url.Values, c *echo.Context) error
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
-	type ssXML struct {
-		StackSetID   string `xml:"StackSetId"`
-		StackSetName string `xml:"StackSetName"`
-		Status       string `xml:"Status"`
-		Description  string `xml:"Description,omitempty"`
-	}
-	type result struct {
-		StackSet ssXML `xml:"StackSet"`
-	}
-	type response struct {
-		XMLName   xml.Name `xml:"DescribeStackSetResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		Result    result   `xml:"DescribeStackSetResult"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-	}
 
-	return writeXML(c, response{
-		Xmlns: cfnNS,
-		Result: result{
-			StackSet: ssXML{
-				StackSetID:   ss.StackSetID,
-				StackSetName: ss.StackSetName,
-				Status:       ss.Status,
-				Description:  ss.Description,
-			},
-		},
+	return writeXML(c, describeStackSetResponse{
+		Xmlns:     cfnNS,
+		Result:    describeStackSetResult{StackSet: stackSetToXML(ss, h.Backend.StackSetRegions(name))},
 		RequestID: uuid.New().String(),
 	})
 }
@@ -476,6 +586,10 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 	opID := form.Get("OperationId")
 	op, err := h.Backend.DescribeStackSetOperation(name, opID)
 	if err != nil {
+		if errors.Is(err, ErrStackSetNotFound) {
+			return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		}
+
 		return h.xmlError(c, "OperationNotFoundException", err.Error())
 	}
 	type result struct {

@@ -24,20 +24,18 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 	return defaultRegion
 }
 
+// ApplicationStatus's six real v1 values (aws-sdk-go-v2/service/kinesisanalytics/types.
+// ApplicationStatus.Values()) are DELETING/STARTING/STOPPING/READY/RUNNING/UPDATING --
+// no AUTOSCALING/FORCE_STOPPING/MAINTENANCE/ROLLING_BACK/ROLLED_BACK values exist for v1
+// (those belong to kinesisanalyticsv2's distinct, larger ApplicationStatus enum and do not
+// apply here).
 const (
-	statusReady         = "READY"
-	statusRunning       = "RUNNING"
-	statusStarting      = "STARTING"
-	statusStopping      = "STOPPING"
-	statusUpdating      = "UPDATING"
-	statusDeleting      = "DELETING"
-	statusAutoScaling   = "AUTOSCALING"    //nolint:deadcode // AWS status constant
-	statusForceStopping = "FORCE_STOPPING" //nolint:deadcode // AWS status constant
-	statusMaintenance   = "MAINTENANCE"    //nolint:deadcode // AWS status constant
-	statusRollingBack   = "ROLLING_BACK"   //nolint:deadcode // AWS status constant
-	statusRolledBack    = "ROLLED_BACK"    //nolint:deadcode // AWS status constant
-
-	runtimeEnvironmentV1 = "SQL-1_0"
+	statusReady    = "READY"
+	statusRunning  = "RUNNING"
+	statusStarting = "STARTING"
+	statusStopping = "STOPPING"
+	statusUpdating = "UPDATING"
+	statusDeleting = "DELETING"
 
 	maxApplicationsPerRegion = 50
 	maxInputs                = 1
@@ -70,7 +68,7 @@ var appNameRegexp = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
 
 // StorageBackend is the interface for the Kinesis Analytics in-memory backend.
 type StorageBackend interface {
-	CreateApplication(ctx context.Context, name, description, code, serviceRole string,
+	CreateApplication(ctx context.Context, name, description, code string,
 		inputs []InputDescription, outputs []OutputDescription,
 		cwlOptions []CloudWatchLoggingOptionDesc, tags map[string]string) (*Application, error)
 	DeleteApplication(ctx context.Context, name string, createTimestamp *time.Time) error

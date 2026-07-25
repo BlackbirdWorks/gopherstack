@@ -18,13 +18,17 @@ type StorageBackend interface {
 	SearchFaces(collectionID, faceID string, maxFaces int32) ([]*FaceMatch, error)
 	SearchFacesByImage(collectionID string, maxFaces int32, imageKey string) ([]*FaceMatch, error)
 
-	CreateStreamProcessor(name, roleARN string, tags map[string]string) (*StreamProcessor, error)
+	CreateStreamProcessor(
+		name, roleARN string,
+		params CreateStreamProcessorParams,
+		tags map[string]string,
+	) (*StreamProcessor, error)
 	DeleteStreamProcessor(name string) error
 	DescribeStreamProcessor(name string) (*StreamProcessor, error)
 	ListStreamProcessors(maxResults int32, nextToken string) ([]*StreamProcessor, string, error)
 	StartStreamProcessor(name string) error
 	StopStreamProcessor(name string) error
-	UpdateStreamProcessor(name string) error
+	UpdateStreamProcessor(name string, params UpdateStreamProcessorParams) error
 
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
@@ -34,7 +38,11 @@ type StorageBackend interface {
 	CreateProject(name string) (*Project, error)
 	DeleteProject(projectARN string) error
 	DescribeProjects(projectARNs []string, maxResults int32, nextToken string) ([]*Project, string, error)
-	CreateProjectVersion(projectARN, versionName string) (*ProjectVersion, error)
+	CreateProjectVersion(
+		projectARN, versionName string,
+		params CreateProjectVersionParams,
+		tags map[string]string,
+	) (*ProjectVersion, error)
 	DeleteProjectVersion(projectVersionARN string) error
 	DescribeProjectVersions(projectARN string, versionNames []string, maxResults int32, nextToken string) (
 		[]*ProjectVersion, string, error)
@@ -112,15 +120,110 @@ type FaceMatch struct {
 	Similarity float64
 }
 
-// StreamProcessor represents a Rekognition stream processor.
-// CreationTimestamp is first so its non-pointer prefix reduces GC pointer bytes.
+// StreamProcessorInput mirrors AWS's types.StreamProcessorInput: the Kinesis
+// video stream that provides the source streaming video.
+type StreamProcessorInput struct {
+	KinesisVideoStreamARN string
+}
+
+// StreamProcessorOutput mirrors AWS's types.StreamProcessorOutput: either a
+// Kinesis data stream (face search) or an S3 destination (label detection).
+type StreamProcessorOutput struct {
+	KinesisDataStreamARN string
+	S3Bucket             string
+	S3KeyPrefix          string
+}
+
+// StreamProcessorSettings mirrors AWS's types.StreamProcessorSettings: either
+// ConnectedHome (label detection) or FaceSearch settings.
+type StreamProcessorSettings struct {
+	ConnectedHomeMinConfidence   *float32
+	FaceSearchFaceMatchThreshold *float32
+	FaceSearchCollectionID       string
+	ConnectedHomeLabels          []string
+}
+
+// Point mirrors AWS's types.Point: a single vertex of a RegionOfInterest polygon.
+type Point struct {
+	X *float32
+	Y *float32
+}
+
+// BoundingBox mirrors AWS's types.BoundingBox: a rectangular region of interest.
+type BoundingBox struct {
+	Height *float32
+	Left   *float32
+	Top    *float32
+	Width  *float32
+}
+
+// RegionOfInterest mirrors AWS's types.RegionOfInterest: a box or polygon
+// area a stream processor checks for objects/people.
+type RegionOfInterest struct {
+	BoundingBox *BoundingBox
+	Polygon     []Point
+}
+
+// StreamProcessorNotificationChannel mirrors AWS's
+// types.StreamProcessorNotificationChannel.
+type StreamProcessorNotificationChannel struct {
+	SNSTopicARN string
+}
+
+// StreamProcessorDataSharingPreference mirrors AWS's
+// types.StreamProcessorDataSharingPreference.
+type StreamProcessorDataSharingPreference struct {
+	OptIn bool
+}
+
+// CreateStreamProcessorParams groups CreateStreamProcessorInput's
+// AWS-modeled fields beyond Name/RoleArn/Tags (Input/Output/Settings/
+// NotificationChannel/DataSharingPreference/RegionsOfInterest/KmsKeyId), so
+// the CreateStreamProcessor backend method signature doesn't grow an
+// unbounded positional parameter list as fields are added.
+type CreateStreamProcessorParams struct {
+	Input                 *StreamProcessorInput
+	Output                *StreamProcessorOutput
+	Settings              *StreamProcessorSettings
+	NotificationChannel   *StreamProcessorNotificationChannel
+	DataSharingPreference *StreamProcessorDataSharingPreference
+	KmsKeyID              string
+	RegionsOfInterest     []RegionOfInterest
+}
+
+// UpdateStreamProcessorParams groups UpdateStreamProcessorInput's
+// update-only fields. Presence/absence is signaled the same way the AWS wire
+// shape does: a nil pointer/slice means "leave unchanged", a non-nil
+// (possibly empty) pointer/slice means "the caller supplied this field".
+// ParametersToDelete additionally clears RegionsOfInterest or
+// ConnectedHomeMinConfidence regardless of what else is set, matching
+// AWS's documented apply-then-delete semantics.
+type UpdateStreamProcessorParams struct {
+	DataSharingPreference      *StreamProcessorDataSharingPreference
+	ConnectedHomeMinConfidence *float32
+	ParametersToDelete         []string
+	RegionsOfInterest          []RegionOfInterest
+	ConnectedHomeLabels        []string
+}
+
+// StreamProcessor represents a Rekognition stream processor. Field order is
+// fieldalignment-optimal (see `fieldalignment -fix`), not meaningful otherwise.
 type StreamProcessor struct {
-	CreationTimestamp  time.Time
-	Tags               map[string]string
-	Name               string
-	StreamProcessorARN string
-	RoleARN            string
-	Status             string
+	LastUpdateTimestamp   time.Time
+	CreationTimestamp     time.Time
+	Input                 *StreamProcessorInput
+	Tags                  map[string]string
+	DataSharingPreference *StreamProcessorDataSharingPreference
+	NotificationChannel   *StreamProcessorNotificationChannel
+	Settings              *StreamProcessorSettings
+	Output                *StreamProcessorOutput
+	Name                  string
+	KmsKeyID              string
+	StatusMessage         string
+	Status                string
+	RoleARN               string
+	StreamProcessorARN    string
+	RegionsOfInterest     []RegionOfInterest
 }
 
 // Project represents a Rekognition Custom Labels project.
@@ -132,13 +235,33 @@ type Project struct {
 
 // ProjectVersion represents a model version within a project.
 type ProjectVersion struct {
-	CreationTimestamp time.Time
-	ProjectVersionARN string
-	ProjectARN        string
-	VersionName       string
-	Status            string
-	StatusMessage     string
-	MinInferenceUnits int32
+	CreationTimestamp       time.Time
+	Tags                    map[string]string
+	ProjectVersionARN       string
+	ProjectARN              string
+	VersionName             string
+	Status                  string
+	StatusMessage           string
+	OutputConfigS3Bucket    string
+	OutputConfigS3KeyPrefix string
+	KmsKeyID                string
+	VersionDescription      string
+	MinInferenceUnits       int32
+}
+
+// CreateProjectVersionParams groups CreateProjectVersionInput's fields
+// beyond ProjectArn/VersionName/Tags (OutputConfig/KmsKeyId/
+// VersionDescription), so the CreateProjectVersion backend method signature
+// stays manageable as fields are added. TrainingData/TestingData/
+// FeatureConfig (the external-manifest / feature-customization fields) are
+// intentionally NOT modeled here -- see PARITY.md deferred: they describe a
+// Custom Labels training-data manifest with no corresponding backing
+// resource this in-memory backend can meaningfully echo back.
+type CreateProjectVersionParams struct {
+	OutputConfigS3Bucket    string
+	OutputConfigS3KeyPrefix string
+	KmsKeyID                string
+	VersionDescription      string
 }
 
 // ProjectPolicy represents a project policy.

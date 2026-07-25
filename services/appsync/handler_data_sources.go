@@ -120,29 +120,55 @@ func (h *Handler) updateDataSource(ctx context.Context, c *echo.Context, apiID, 
 	return c.JSON(http.StatusOK, map[string]any{keyDataSource: updated})
 }
 
-// handleDataSourceIntrospections handles /v1/dataSource-introspections[/{introspectionId}].
+// handleDataSourceIntrospections handles the legacy convenience alias
+// /v1/dataSource-introspections[/{introspectionId}]. The real AWS SDK endpoint is
+// /v1/datasources/introspections instead (see handleRealDataSourceIntrospections) --
+// this alias is kept working for non-SDK/manual callers, now routed to the same
+// corrected rdsDataApiConfig-based backend contract.
 func (h *Handler) handleDataSourceIntrospections(ctx context.Context, c *echo.Context, segs []string) error {
 	switch len(segs) {
 	case pathSegsAPIs:
 		// POST /v1/dataSource-introspections → StartDataSourceIntrospection
-		if c.Request().Method != http.MethodPost {
-			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
-		}
-
-		return h.startDataSourceIntrospection(ctx, c)
+		return h.requireMethod(c, http.MethodPost, func() error {
+			return h.startDataSourceIntrospection(ctx, c)
+		})
 	case pathSegsAPIID:
 		// GET /v1/dataSource-introspections/{introspectionId}
-		if c.Request().Method != http.MethodGet {
-			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
-		}
-
-		return h.getDataSourceIntrospection(ctx, c, segs[2])
+		return h.requireMethod(c, http.MethodGet, func() error {
+			return h.getDataSourceIntrospection(ctx, c, segs[2])
+		})
 	}
 
 	return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
 }
 
-// startDataSourceIntrospection handles POST /v1/dataSource-introspections.
+// handleRealDataSourceIntrospections handles the real AWS SDK endpoint
+// /v1/datasources/introspections[/{introspectionId}] (POST for
+// StartDataSourceIntrospection, GET for GetDataSourceIntrospection). Distinct from the
+// legacy /v1/dataSource-introspections alias above.
+func (h *Handler) handleRealDataSourceIntrospections(ctx context.Context, c *echo.Context, segs []string) error {
+	if len(segs) < pathSegsAPIID || segs[2] != "introspections" {
+		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
+	}
+
+	switch len(segs) {
+	case pathSegsAPIID:
+		// POST /v1/datasources/introspections → StartDataSourceIntrospection
+		return h.requireMethod(c, http.MethodPost, func() error {
+			return h.startDataSourceIntrospection(ctx, c)
+		})
+	case pathSegsAPISubresource:
+		// GET /v1/datasources/introspections/{introspectionId}
+		return h.requireMethod(c, http.MethodGet, func() error {
+			return h.getDataSourceIntrospection(ctx, c, segs[3])
+		})
+	}
+
+	return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
+}
+
+// startDataSourceIntrospection handles POST /v1/datasources/introspections (and the
+// legacy /v1/dataSource-introspections alias).
 func (h *Handler) startDataSourceIntrospection(ctx context.Context, c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -150,28 +176,37 @@ func (h *Handler) startDataSourceIntrospection(ctx context.Context, c *echo.Cont
 	}
 
 	var input struct {
-		APIID          string `json:"apiId"`
-		DataSourceName string `json:"dataSourceName"`
+		RDSDataAPIConfig *RDSDataAPIConfig `json:"rdsDataApiConfig"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	id, startErr := h.Backend.StartDataSourceIntrospection(input.APIID, input.DataSourceName)
+	rec, startErr := h.Backend.StartDataSourceIntrospection(input.RDSDataAPIConfig)
 	if startErr != nil {
-		return h.handleError(ctx, c, "StartDataSourceIntrospection", startErr)
+		return h.handleError(ctx, c, opStartDataSourceIntrospection, startErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"introspectionId": id})
+	return c.JSON(http.StatusCreated, map[string]any{
+		"introspectionId":           rec.IntrospectionID,
+		"introspectionStatus":       rec.IntrospectionStatus,
+		"introspectionStatusDetail": rec.IntrospectionStatusDetail,
+	})
 }
 
-// getDataSourceIntrospection handles GET /v1/dataSource-introspections/{introspectionId}.
+// getDataSourceIntrospection handles GET /v1/datasources/introspections/{introspectionId}
+// (and the legacy /v1/dataSource-introspections/{introspectionId} alias).
 func (h *Handler) getDataSourceIntrospection(ctx context.Context, c *echo.Context, introspectionID string) error {
-	result, err := h.Backend.GetDataSourceIntrospection(introspectionID)
+	rec, err := h.Backend.GetDataSourceIntrospection(introspectionID)
 	if err != nil {
-		return h.handleError(ctx, c, "GetDataSourceIntrospection", err)
+		return h.handleError(ctx, c, opGetDataSourceIntrospection, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"introspectionResult": result})
+	return c.JSON(http.StatusOK, map[string]any{
+		"introspectionId":           rec.IntrospectionID,
+		"introspectionResult":       rec.IntrospectionResult,
+		"introspectionStatus":       rec.IntrospectionStatus,
+		"introspectionStatusDetail": rec.IntrospectionStatusDetail,
+	})
 }

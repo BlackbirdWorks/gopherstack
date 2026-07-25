@@ -137,25 +137,31 @@ type KBDocument struct {
 // ---------------------------------------------------------------------------
 
 // Agent represents a Bedrock Agent.
+//
+// Tags are deliberately NOT a field here: the real aws-sdk-go-v2
+// types.Agent (returned by CreateAgent/GetAgent/UpdateAgent) has no "tags"
+// member -- tags are write-only on CreateAgentInput and only ever read back
+// via ListTagsForResource. gopherstack used to echo an invented "tags" key
+// in these responses; that struct field is gone, and CreateAgent seeds
+// b.tags[AgentARN] directly instead (see agents.go).
 type Agent struct {
-	CreatedAt                   time.Time         `json:"createdAt"`
-	UpdatedAt                   time.Time         `json:"updatedAt"`
-	PreparedAt                  *time.Time        `json:"preparedAt,omitempty"`
-	Tags                        map[string]string `json:"tags,omitempty"`
-	Guardrail                   map[string]any    `json:"guardrailConfiguration,omitempty"`
-	Memory                      map[string]any    `json:"memoryConfiguration,omitempty"`
-	PromptOverrideConfiguration map[string]any    `json:"promptOverrideConfiguration"`
-	AgentID                     string            `json:"agentId"`
-	AgentARN                    string            `json:"agentArn"`
-	AgentName                   string            `json:"agentName"`
-	AgentVersion                string            `json:"agentVersion"`
-	AgentStatus                 string            `json:"agentStatus"`
-	Collaboration               string            `json:"agentCollaboration"`
-	Description                 string            `json:"description,omitempty"`
-	FoundationModel             string            `json:"foundationModel,omitempty"`
-	Instruction                 string            `json:"instruction,omitempty"`
-	RoleARN                     string            `json:"agentResourceRoleArn,omitempty"`
-	IdleSessionTTLInSeconds     int               `json:"idleSessionTTLInSeconds"`
+	CreatedAt                   time.Time      `json:"createdAt"`
+	UpdatedAt                   time.Time      `json:"updatedAt"`
+	PreparedAt                  *time.Time     `json:"preparedAt,omitempty"`
+	Guardrail                   map[string]any `json:"guardrailConfiguration,omitempty"`
+	Memory                      map[string]any `json:"memoryConfiguration,omitempty"`
+	PromptOverrideConfiguration map[string]any `json:"promptOverrideConfiguration"`
+	AgentID                     string         `json:"agentId"`
+	AgentARN                    string         `json:"agentArn"`
+	AgentName                   string         `json:"agentName"`
+	AgentVersion                string         `json:"agentVersion"`
+	AgentStatus                 string         `json:"agentStatus"`
+	Collaboration               string         `json:"agentCollaboration"`
+	Description                 string         `json:"description,omitempty"`
+	FoundationModel             string         `json:"foundationModel,omitempty"`
+	Instruction                 string         `json:"instruction,omitempty"`
+	RoleARN                     string         `json:"agentResourceRoleArn,omitempty"`
+	IdleSessionTTLInSeconds     int            `json:"idleSessionTTLInSeconds"`
 }
 
 // AgentSummary is the condensed agent representation used in list responses.
@@ -219,18 +225,19 @@ type AliasRouting struct {
 	AgentVersion string `json:"agentVersion"`
 }
 
-// AgentAlias routes traffic to a specific agent version.
+// AgentAlias routes traffic to a specific agent version. Tags are
+// deliberately NOT a field here -- the real types.AgentAlias has no "tags"
+// member; CreateAgentAlias seeds b.tags[AgentAliasARN] directly instead.
 type AgentAlias struct {
-	CreatedAt            time.Time         `json:"createdAt"`
-	UpdatedAt            time.Time         `json:"updatedAt"`
-	Tags                 map[string]string `json:"tags,omitempty"`
-	AgentAliasID         string            `json:"agentAliasId"`
-	AgentAliasARN        string            `json:"agentAliasArn"`
-	AgentAliasName       string            `json:"agentAliasName"`
-	AgentAliasStatus     string            `json:"agentAliasStatus"`
-	AgentID              string            `json:"agentId"`
-	Description          string            `json:"description,omitempty"`
-	RoutingConfiguration []AliasRouting    `json:"routingConfiguration"`
+	CreatedAt            time.Time      `json:"createdAt"`
+	UpdatedAt            time.Time      `json:"updatedAt"`
+	AgentAliasID         string         `json:"agentAliasId"`
+	AgentAliasARN        string         `json:"agentAliasArn"`
+	AgentAliasName       string         `json:"agentAliasName"`
+	AgentAliasStatus     string         `json:"agentAliasStatus"`
+	AgentID              string         `json:"agentId"`
+	Description          string         `json:"description,omitempty"`
+	RoutingConfiguration []AliasRouting `json:"routingConfiguration"`
 }
 
 // AgentAliasSummary is used in list responses.
@@ -255,19 +262,20 @@ type AgentCollaborator struct {
 	CollaboratorStatus       string         `json:"collaboratorStatus"`
 }
 
-// KnowledgeBase is a Bedrock Knowledge Base.
+// KnowledgeBase is a Bedrock Knowledge Base. Tags are deliberately NOT a
+// field here -- the real types.KnowledgeBase has no "tags" member;
+// CreateKnowledgeBase seeds b.tags[KnowledgeBaseARN] directly instead.
 type KnowledgeBase struct {
-	CreatedAt            time.Time         `json:"createdAt"`
-	UpdatedAt            time.Time         `json:"updatedAt"`
-	Tags                 map[string]string `json:"tags,omitempty"`
-	KBConfiguration      map[string]any    `json:"knowledgeBaseConfiguration,omitempty"`
-	StorageConfiguration map[string]any    `json:"storageConfiguration,omitempty"`
-	KnowledgeBaseID      string            `json:"knowledgeBaseId"`
-	KnowledgeBaseARN     string            `json:"knowledgeBaseArn"`
-	Name                 string            `json:"name"`
-	Status               string            `json:"status"`
-	Description          string            `json:"description,omitempty"`
-	RoleARN              string            `json:"roleArn,omitempty"`
+	CreatedAt            time.Time      `json:"createdAt"`
+	UpdatedAt            time.Time      `json:"updatedAt"`
+	KBConfiguration      map[string]any `json:"knowledgeBaseConfiguration,omitempty"`
+	StorageConfiguration map[string]any `json:"storageConfiguration,omitempty"`
+	KnowledgeBaseID      string         `json:"knowledgeBaseId"`
+	KnowledgeBaseARN     string         `json:"knowledgeBaseArn"`
+	Name                 string         `json:"name"`
+	Status               string         `json:"status"`
+	Description          string         `json:"description,omitempty"`
+	RoleARN              string         `json:"roleArn,omitempty"`
 }
 
 // KnowledgeBaseSummary is used in list responses.
@@ -316,28 +324,44 @@ type DataSourceSummary struct {
 
 // IngestionJob is a knowledge base data ingestion job.
 type IngestionJob struct {
-	StartedAt       time.Time `json:"startedAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
-	IngestionJobID  string    `json:"ingestionJobId"`
-	KnowledgeBaseID string    `json:"knowledgeBaseId"`
-	DataSourceID    string    `json:"dataSourceId"`
-	Status          string    `json:"status"`
-	Description     string    `json:"description,omitempty"`
+	StartedAt       time.Time               `json:"startedAt"`
+	UpdatedAt       time.Time               `json:"updatedAt"`
+	Statistics      *IngestionJobStatistics `json:"statistics,omitempty"`
+	IngestionJobID  string                  `json:"ingestionJobId"`
+	KnowledgeBaseID string                  `json:"knowledgeBaseId"`
+	DataSourceID    string                  `json:"dataSourceId"`
+	Status          string                  `json:"status"`
+	Description     string                  `json:"description,omitempty"`
 }
 
-// Flow is a Bedrock prompt flow.
+// IngestionJobStatistics holds document-count statistics for an ingestion
+// job. Field names match the real aws-sdk-go-v2 wire shape exactly (see
+// awsRestjson1_deserializeDocumentIngestionJobStatistics in the SDK's
+// deserializers.go): plain PrimitiveLong integers, not epoch timestamps.
+type IngestionJobStatistics struct {
+	NumberOfDocumentsScanned          int64 `json:"numberOfDocumentsScanned"`
+	NumberOfMetadataDocumentsScanned  int64 `json:"numberOfMetadataDocumentsScanned"`
+	NumberOfNewDocumentsIndexed       int64 `json:"numberOfNewDocumentsIndexed"`
+	NumberOfModifiedDocumentsIndexed  int64 `json:"numberOfModifiedDocumentsIndexed"`
+	NumberOfMetadataDocumentsModified int64 `json:"numberOfMetadataDocumentsModified"`
+	NumberOfDocumentsDeleted          int64 `json:"numberOfDocumentsDeleted"`
+	NumberOfDocumentsFailed           int64 `json:"numberOfDocumentsFailed"`
+}
+
+// Flow is a Bedrock prompt flow. Tags are deliberately NOT a field here --
+// the real GetFlowOutput/CreateFlowOutput has no "tags" member;
+// CreateFlow seeds b.tags[FlowARN] directly instead.
 type Flow struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	Definition  map[string]any    `json:"definition,omitempty"`
-	FlowID      string            `json:"id"`
-	FlowARN     string            `json:"arn"`
-	Name        string            `json:"name"`
-	Status      string            `json:"status"`
-	Description string            `json:"description,omitempty"`
-	RoleARN     string            `json:"executionRoleArn,omitempty"`
-	Version     string            `json:"version"`
+	CreatedAt   time.Time      `json:"createdAt"`
+	UpdatedAt   time.Time      `json:"updatedAt"`
+	Definition  map[string]any `json:"definition,omitempty"`
+	FlowID      string         `json:"id"`
+	FlowARN     string         `json:"arn"`
+	Name        string         `json:"name"`
+	Status      string         `json:"status"`
+	Description string         `json:"description,omitempty"`
+	RoleARN     string         `json:"executionRoleArn,omitempty"`
+	Version     string         `json:"version"`
 }
 
 // FlowSummary is used in list responses.
@@ -378,11 +402,12 @@ type FlowAliasRouting struct {
 	FlowVersion string `json:"flowVersion"`
 }
 
-// FlowAlias routes traffic to a specific flow version.
+// FlowAlias routes traffic to a specific flow version. Tags are
+// deliberately NOT a field here -- the real CreateFlowAliasOutput has no
+// "tags" member; CreateFlowAlias seeds b.tags[AliasARN] directly instead.
 type FlowAlias struct {
 	CreatedAt            time.Time          `json:"createdAt"`
 	UpdatedAt            time.Time          `json:"updatedAt"`
-	Tags                 map[string]string  `json:"tags,omitempty"`
 	AliasID              string             `json:"id"`
 	AliasARN             string             `json:"arn"`
 	FlowID               string             `json:"flowId"`
@@ -408,18 +433,19 @@ type FlowValidationError struct {
 	Severity string `json:"severity"`
 }
 
-// Prompt is a Bedrock Prompt resource.
+// Prompt is a Bedrock Prompt resource. Tags are deliberately NOT a field
+// here -- the real GetPromptOutput/CreatePromptOutput has no "tags"
+// member; CreatePrompt seeds b.tags[PromptARN] directly instead.
 type Prompt struct {
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
-	Tags           map[string]string `json:"tags,omitempty"`
-	PromptID       string            `json:"id"`
-	PromptARN      string            `json:"arn"`
-	Name           string            `json:"name"`
-	Description    string            `json:"description,omitempty"`
-	DefaultVariant string            `json:"defaultVariant,omitempty"`
-	Version        string            `json:"version"`
-	Variants       []map[string]any  `json:"variants,omitempty"`
+	CreatedAt      time.Time        `json:"createdAt"`
+	UpdatedAt      time.Time        `json:"updatedAt"`
+	PromptID       string           `json:"id"`
+	PromptARN      string           `json:"arn"`
+	Name           string           `json:"name"`
+	Description    string           `json:"description,omitempty"`
+	DefaultVariant string           `json:"defaultVariant,omitempty"`
+	Version        string           `json:"version"`
+	Variants       []map[string]any `json:"variants,omitempty"`
 }
 
 // PromptSummary is used in list responses.

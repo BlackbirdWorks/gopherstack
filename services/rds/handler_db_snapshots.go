@@ -29,6 +29,10 @@ func (h *Handler) handleDescribeDBSnapshots(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	snaps, err = applyDBSnapshotFilters(vals, snaps)
+	if err != nil {
+		return nil, err
+	}
 	members, marker, err := paginateDescribe(vals, snaps, func(a, b DBSnapshot) bool {
 		return a.DBSnapshotIdentifier < b.DBSnapshotIdentifier
 	}, func(item DBSnapshot) xmlDBSnapshot {
@@ -70,6 +74,7 @@ func toXMLSnapshot(snap *DBSnapshot) xmlDBSnapshot {
 	return xmlDBSnapshot{
 		DBSnapshotIdentifier: snap.DBSnapshotIdentifier,
 		DBInstanceIdentifier: snap.DBInstanceIdentifier,
+		DbiResourceID:        snap.DbiResourceID,
 		Engine:               snap.Engine,
 		EngineVersion:        snap.EngineVersion,
 		Status:               snap.Status,
@@ -90,6 +95,7 @@ func toXMLSnapshot(snap *DBSnapshot) xmlDBSnapshot {
 type xmlDBSnapshot struct {
 	DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"`
 	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
+	DbiResourceID        string `xml:"DbiResourceId,omitempty"`
 	Engine               string `xml:"Engine"`
 	EngineVersion        string `xml:"EngineVersion,omitempty"`
 	Status               string `xml:"Status"`

@@ -13,18 +13,33 @@ var ErrNatGatewayNotFound = errors.New("InvalidNatGatewayID.NotFound")
 
 // NatGateway represents an EC2 NAT Gateway.
 type NatGateway struct {
-	CreateTime   time.Time `json:"createTime"`
-	ID           string    `json:"id,omitempty"`
-	SubnetID     string    `json:"subnetID,omitempty"`
-	VPCID        string    `json:"vpcID,omitempty"`
-	AllocationID string    `json:"allocationID,omitempty"`
-	PublicIP     string    `json:"publicIP,omitempty"`
-	PrivateIP    string    `json:"privateIP,omitempty"`
-	State        string    `json:"state,omitempty"`
+	CreateTime time.Time `json:"createTime"`
+	ID         string    `json:"id,omitempty"`
+	SubnetID   string    `json:"subnetID,omitempty"`
+	VPCID      string    `json:"vpcID,omitempty"`
+	// AllocationID / AssociationID / PublicIP / PrivateIP describe the
+	// gateway's primary (IsPrimary=true) EIP association, set at creation.
+	AllocationID  string `json:"allocationID,omitempty"`
+	AssociationID string `json:"associationID,omitempty"`
+	PublicIP      string `json:"publicIP,omitempty"`
+	PrivateIP     string `json:"privateIP,omitempty"`
+	State         string `json:"state,omitempty"`
+	// SecondaryAddresses holds additional public IP associations added via
+	// AssociateNatGatewayAddress and removed via DisassociateNatGatewayAddress.
+	SecondaryAddresses []NatGatewayAddress `json:"secondaryAddresses,omitempty"`
 	// SecondaryPrivateIPs holds additional private IPs assigned via
 	// AssignPrivateNatGatewayAddress and removed via
 	// UnassignPrivateNatGatewayAddress.
 	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
+}
+
+// NatGatewayAddress represents one secondary (non-primary) EIP association on
+// a public NAT gateway, as added by AssociateNatGatewayAddress.
+type NatGatewayAddress struct {
+	AllocationID  string `json:"allocationID,omitempty"`
+	AssociationID string `json:"associationID,omitempty"`
+	PrivateIP     string `json:"privateIP,omitempty"`
+	PublicIP      string `json:"publicIP,omitempty"`
 }
 
 // CreateNatGateway creates a new NAT Gateway.
@@ -44,14 +59,15 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 
 	id := "nat-" + uuid.New().String()[:17]
 	ngw := &NatGateway{
-		ID:           id,
-		SubnetID:     subnetID,
-		VPCID:        subnet.VPCID,
-		AllocationID: allocationID,
-		PublicIP:     addr.PublicIP,
-		PrivateIP:    b.allocPrivateIP(),
-		State:        stateAvailable,
-		CreateTime:   time.Now(),
+		ID:            id,
+		SubnetID:      subnetID,
+		VPCID:         subnet.VPCID,
+		AllocationID:  allocationID,
+		AssociationID: "eipassoc-" + uuid.New().String()[:17],
+		PublicIP:      addr.PublicIP,
+		PrivateIP:     b.allocPrivateIP(),
+		State:         stateAvailable,
+		CreateTime:    time.Now(),
 	}
 	b.natGateways.Put(ngw)
 	b.indexNatGatewayLocked(ngw)
@@ -59,7 +75,9 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	return ngw, nil
 }
 
-// DeleteNatGateway removes a NAT Gateway and recycles its private IP.
+// DeleteNatGateway removes a NAT Gateway and recycles every private IP it
+// holds: the primary address, any secondary EIP associations, and any
+// secondary private IPs assigned via AssignPrivateNatGatewayAddress.
 func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	b.mu.Lock("DeleteNatGateway")
 	defer b.mu.Unlock()
@@ -70,6 +88,15 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	}
 
 	b.recycleIPLocked(ngw.PrivateIP)
+
+	for _, sa := range ngw.SecondaryAddresses {
+		b.recycleIPLocked(sa.PrivateIP)
+	}
+
+	for _, ip := range ngw.SecondaryPrivateIPs {
+		b.recycleIPLocked(ip)
+	}
+
 	b.deindexNatGatewayLocked(ngw)
 	b.natGateways.Delete(id)
 	delete(b.tags, id)
@@ -110,36 +137,95 @@ func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
 	return out
 }
 
-// DisassociateNatGatewayAddress removes a secondary IP from a NAT gateway.
-func (b *InMemoryBackend) DisassociateNatGatewayAddress(natGatewayID string) error {
+// DisassociateNatGatewayAddress removes secondary EIP associations (added via
+// AssociateNatGatewayAddress) from a public NAT gateway by AssociationId,
+// recycling their private IPs. Returns the updated NAT gateway.
+func (b *InMemoryBackend) DisassociateNatGatewayAddress(
+	natGatewayID string, associationIDs []string,
+) (*NatGateway, error) {
 	if natGatewayID == "" {
-		return fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("DisassociateNatGatewayAddress")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.natGateways.Get(natGatewayID); !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, natGatewayID)
+	if len(associationIDs) == 0 {
+		return nil, fmt.Errorf("%w: AssociationId is required", ErrInvalidParameter)
 	}
 
-	return nil
+	b.mu.Lock("DisassociateNatGatewayAddress")
+	defer b.mu.Unlock()
+
+	ngw, ok := b.natGateways.Get(natGatewayID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNatGatewayNotFound, natGatewayID)
+	}
+
+	for _, assocID := range associationIDs {
+		idx := -1
+
+		for i, sa := range ngw.SecondaryAddresses {
+			if sa.AssociationID == assocID {
+				idx = i
+
+				break
+			}
+		}
+
+		if idx == -1 {
+			return nil, fmt.Errorf("%w: %s", ErrAssociationNotFound, assocID)
+		}
+
+		b.recycleIPLocked(ngw.SecondaryAddresses[idx].PrivateIP)
+		ngw.SecondaryAddresses = append(
+			ngw.SecondaryAddresses[:idx], ngw.SecondaryAddresses[idx+1:]...,
+		)
+	}
+
+	cp := *ngw
+	cp.SecondaryAddresses = append([]NatGatewayAddress(nil), ngw.SecondaryAddresses...)
+
+	return &cp, nil
 }
 
-// AssociateNatGatewayAddress adds an allocation to a NAT gateway.
-func (b *InMemoryBackend) AssociateNatGatewayAddress(natGatewayID, _ string) error {
+// AssociateNatGatewayAddress associates one or more additional Elastic IP
+// allocations with a public NAT gateway, allocating a fresh private IP and
+// AssociationId for each. Returns the updated NAT gateway.
+func (b *InMemoryBackend) AssociateNatGatewayAddress(
+	natGatewayID string, allocationIDs []string,
+) (*NatGateway, error) {
 	if natGatewayID == "" {
-		return fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("AssociateNatGatewayAddress")
-	defer b.mu.RUnlock()
-
-	if _, ok := b.natGateways.Get(natGatewayID); !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, natGatewayID)
+	if len(allocationIDs) == 0 {
+		return nil, fmt.Errorf("%w: AllocationId is required", ErrInvalidParameter)
 	}
 
-	return nil
+	b.mu.Lock("AssociateNatGatewayAddress")
+	defer b.mu.Unlock()
+
+	ngw, ok := b.natGateways.Get(natGatewayID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNatGatewayNotFound, natGatewayID)
+	}
+
+	for _, allocID := range allocationIDs {
+		addr, addrOK := b.addresses.Get(allocID)
+		if !addrOK {
+			return nil, fmt.Errorf("%w: %s", ErrAddressNotFound, allocID)
+		}
+
+		ngw.SecondaryAddresses = append(ngw.SecondaryAddresses, NatGatewayAddress{
+			AllocationID:  allocID,
+			AssociationID: "eipassoc-" + uuid.New().String()[:17],
+			PrivateIP:     b.allocPrivateIP(),
+			PublicIP:      addr.PublicIP,
+		})
+	}
+
+	cp := *ngw
+	cp.SecondaryAddresses = append([]NatGatewayAddress(nil), ngw.SecondaryAddresses...)
+
+	return &cp, nil
 }
 
 // AssignPrivateNatGatewayAddress assigns a new secondary private IP to a NAT

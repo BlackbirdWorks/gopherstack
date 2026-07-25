@@ -600,3 +600,118 @@ func TestJSONEncoding_TermCount(t *testing.T) {
 	require.True(t, ok, "TermCount must be a JSON number not a string")
 	assert.InDelta(t, float64(2), termCount, 0)
 }
+
+// TestImportTerminology_MissingTerminologyDataRejected verifies that
+// omitting TerminologyData entirely (a required top-level member of
+// ImportTerminologyRequest) is rejected rather than silently defaulted to an
+// empty CSV terminology.
+func TestImportTerminology_MissingTerminologyDataRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "ImportTerminology", map[string]any{
+		"Name":          "no-data-term",
+		"MergeStrategy": "OVERWRITE",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	m := unmarshalJSON(t, rec.Body.Bytes())
+	assert.Equal(t, "InvalidParameterValueException", m["__type"])
+}
+
+// TestImportTerminology_FileSizeLimitExceeded verifies that a
+// TerminologyData.File larger than the 10 MB custom terminology file size
+// quota is rejected as LimitExceededException.
+func TestImportTerminology_FileSizeLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	const overLimit = 10*1024*1024 + 1
+
+	rec := doRequest(t, h, "ImportTerminology", map[string]any{
+		"Name":          "big-term",
+		"MergeStrategy": "OVERWRITE",
+		"TerminologyData": map[string]any{
+			"File":   b64(strings.Repeat("a", overLimit)),
+			"Format": "CSV",
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	m := unmarshalJSON(t, rec.Body.Bytes())
+	assert.Equal(t, "LimitExceededException", m["__type"])
+}
+
+// TestImportTerminology_TooManyTagsRejected verifies that importing a
+// terminology with more than 50 tags is rejected as TooManyTagsException.
+func TestImportTerminology_TooManyTagsRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	const tooMany = 51
+
+	tags := make([]map[string]any, 0, tooMany)
+	for i := range tooMany {
+		tags = append(tags, map[string]any{"Key": "k" + string(rune('a'+i)), "Value": "v"})
+	}
+
+	rec := doRequest(t, h, "ImportTerminology", map[string]any{
+		"Name":            "many-tags-term",
+		"MergeStrategy":   "OVERWRITE",
+		"TerminologyData": map[string]any{"Format": "CSV"},
+		"Tags":            tags,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	m := unmarshalJSON(t, rec.Body.Bytes())
+	assert.Equal(t, "TooManyTagsException", m["__type"])
+}
+
+// TestImportTerminology_FormatValidation verifies that TerminologyData.Format
+// is restricted to the modeled CSV|TMX|TSV enum.
+func TestImportTerminology_FormatValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		format   string
+		wantCode int
+	}{
+		{name: "csv_accepted", format: "CSV", wantCode: http.StatusOK},
+		{name: "tmx_accepted", format: "TMX", wantCode: http.StatusOK},
+		{name: "tsv_accepted", format: "TSV", wantCode: http.StatusOK},
+		{name: "invalid_rejected", format: "XML", wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "ImportTerminology", map[string]any{
+				"Name":            "format-test-" + tt.name,
+				"MergeStrategy":   "OVERWRITE",
+				"TerminologyData": map[string]any{"Format": tt.format},
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestGetTerminology_MissingNameIsInvalidParameter verifies that GetTerminology
+// (which models InvalidParameterValueException, not InvalidRequestException)
+// reports the correct __type for a missing Name.
+func TestGetTerminology_MissingNameIsInvalidParameter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "GetTerminology", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	m := unmarshalJSON(t, rec.Body.Bytes())
+	assert.Equal(t, "InvalidParameterValueException", m["__type"])
+}

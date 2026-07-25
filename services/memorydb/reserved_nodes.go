@@ -58,9 +58,6 @@ func (b *InMemoryBackend) DescribeReservedNodes(
 
 	result := make([]*ReservedNode, 0, len(all))
 	for _, rn := range all {
-		if req.ReservedNodeID != "" && rn.ReservedNodeID != req.ReservedNodeID {
-			continue
-		}
 		if req.ReservationID != "" && rn.ReservationID != req.ReservationID {
 			continue
 		}
@@ -74,7 +71,7 @@ func (b *InMemoryBackend) DescribeReservedNodes(
 		result = append(result, &cp)
 	}
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].ReservedNodeID < result[j].ReservedNodeID
+		return result[i].ReservationID < result[j].ReservationID
 	})
 
 	return result, nil
@@ -170,18 +167,17 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 	rnARN := arn.Build("memorydb", region, b.accountID, "reservednode/"+reservationID)
 
 	rn := &ReservedNode{
-		ReservedNodeID:   reservationID,
-		ReservationID:    req.ReservedNodesOfferingID,
-		NodeType:         offering.NodeType,
-		Duration:         offering.Duration,
-		FixedPrice:       offering.FixedPrice,
-		UsagePrice:       offering.UsagePrice,
-		OfferingType:     offering.OfferingType,
-		RecurringCharges: offering.RecurringCharges,
-		State:            "active",
-		StartTime:        awstime.Epoch(time.Now().UTC()),
-		NodeCount:        nodeCount,
-		ARN:              rnARN,
+		ReservationID:           reservationID,
+		ReservedNodesOfferingID: req.ReservedNodesOfferingID,
+		NodeType:                offering.NodeType,
+		Duration:                offering.Duration,
+		FixedPrice:              offering.FixedPrice,
+		OfferingType:            offering.OfferingType,
+		RecurringCharges:        offering.RecurringCharges,
+		State:                   "active",
+		StartTime:               awstime.Epoch(time.Now().UTC()),
+		NodeCount:               nodeCount,
+		ARN:                     rnARN,
 	}
 
 	b.reservedNodesStore(region).Put(rn)

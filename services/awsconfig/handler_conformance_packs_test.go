@@ -52,7 +52,7 @@ func TestAWSConfigHandler_DeleteConformancePack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConformancePack("my-pack", "", ""))
+				require.NoError(t, h.Backend.PutConformancePack("my-pack", "", "", ""))
 			},
 			body:     map[string]any{"ConformancePackName": "my-pack"},
 			wantCode: http.StatusOK,
@@ -77,4 +77,76 @@ func TestAWSConfigHandler_DeleteConformancePack(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestAWSConfigHandler_PutConformancePack_TemplateBodyDeploysRules verifies
+// the TemplateBody wire field reaches the backend and its declared config
+// rules become visible via DescribeConformancePackCompliance.
+func TestAWSConfigHandler_PutConformancePack_TemplateBodyDeploysRules(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+
+	const template = `{"Resources":{"RuleA":{"Type":"AWS::Config::ConfigRule",
+		"Properties":{"ConfigRuleName":"rule-a","Source":{"Owner":"AWS","SourceIdentifier":"ENCRYPTED_VOLUMES"}}}}}`
+
+	putRec := doAWSConfigRequest(t, h, "PutConformancePack", map[string]any{
+		"ConformancePackName": "pack1",
+		"TemplateBody":        template,
+	})
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	complianceRec := doAWSConfigRequest(t, h, "DescribeConformancePackCompliance", map[string]any{
+		"ConformancePackName": "pack1",
+	})
+	require.Equal(t, http.StatusOK, complianceRec.Code)
+
+	var out struct {
+		ConformancePackRuleComplianceList []struct {
+			ConfigRuleName string `json:"ConfigRuleName"`
+			ComplianceType string `json:"ComplianceType"`
+		} `json:"ConformancePackRuleComplianceList"`
+	}
+	require.NoError(t, json.Unmarshal(complianceRec.Body.Bytes(), &out))
+	require.Len(t, out.ConformancePackRuleComplianceList, 1)
+	assert.Equal(t, "rule-a", out.ConformancePackRuleComplianceList[0].ConfigRuleName)
+	assert.Equal(t, "INSUFFICIENT_DATA", out.ConformancePackRuleComplianceList[0].ComplianceType)
+}
+
+// TestAWSConfigHandler_DescribeConformancePackCompliance_UnknownPack verifies
+// the wire error type for a not-found conformance pack.
+func TestAWSConfigHandler_DescribeConformancePackCompliance_UnknownPack(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	rec := doAWSConfigRequest(t, h, "DescribeConformancePackCompliance", map[string]any{
+		"ConformancePackName": "does-not-exist",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "NoSuchConformancePackException")
+}
+
+// TestAWSConfigHandler_ListConformancePackComplianceScores verifies the
+// nested Filters.ConformancePackNames wire field is parsed correctly.
+func TestAWSConfigHandler_ListConformancePackComplianceScores(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	require.NoError(t, h.Backend.PutConformancePack("pack1", "", "", ""))
+
+	rec := doAWSConfigRequest(t, h, "ListConformancePackComplianceScores", map[string]any{
+		"Filters": map[string]any{"ConformancePackNames": []string{"pack1"}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		ConformancePackComplianceScores []struct {
+			ConformancePackName string `json:"ConformancePackName"`
+			Score               string `json:"Score"`
+		} `json:"ConformancePackComplianceScores"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.ConformancePackComplianceScores, 1)
+	assert.Equal(t, "pack1", out.ConformancePackComplianceScores[0].ConformancePackName)
+	assert.Equal(t, "INSUFFICIENT_DATA", out.ConformancePackComplianceScores[0].Score)
 }

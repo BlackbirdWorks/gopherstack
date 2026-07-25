@@ -1,12 +1,33 @@
 package bedrockruntime
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+)
+
+// Request/response header names used by the InvokeModel family (see
+// aws-sdk-go-v2/service/bedrockruntime serializers.go/deserializers.go).
+// InvokeModel binds its Accept/ContentType members to the standard
+// "Accept"/"Content-Type" headers, but InvokeModelWithResponseStream binds
+// the equivalent members to X-Amzn-Bedrock-prefixed headers instead (its
+// HTTP-level Content-Type is fixed to the eventstream framing type).
+const (
+	hdrGuardrailIdentifier = "X-Amzn-Bedrock-Guardrailidentifier"
+	hdrGuardrailVersion    = "X-Amzn-Bedrock-Guardrailversion"
+	// hdrPerformanceConfigLatency uses Go's canonical header casing
+	// ("Performanceconfig", not "PerformanceConfig"); HTTP header names are
+	// case-insensitive on the wire, so this doesn't change what real SDK
+	// clients (which also canonicalize before matching) observe.
+	hdrPerformanceConfigLatency = "X-Amzn-Bedrock-Performanceconfig-Latency"
+	hdrBedrockAccept            = "X-Amzn-Bedrock-Accept"
+	hdrBedrockContentType       = "X-Amzn-Bedrock-Content-Type"
+
+	contentTypeJSON = "application/json"
 )
 
 // charsPerToken is an approximation used for CountTokens (BPE models: ~4 chars/token).
@@ -18,12 +39,80 @@ const charsPerTokenTitan = 6
 // resolveResponseContentType returns the Content-Type to use for model responses.
 // It checks the Accept header; if absent or wildcard, uses application/json.
 func resolveResponseContentType(r *http.Request) string {
-	accept := r.Header.Get("Accept")
+	return resolveContentType(r.Header.Get("Accept"))
+}
+
+// resolveStreamResponseContentType mirrors resolveResponseContentType for
+// InvokeModelWithResponseStream, whose Accept input member is bound to the
+// X-Amzn-Bedrock-Accept header (not the standard Accept header) -- see
+// awsRestjson1_serializeOpHttpBindingsInvokeModelWithResponseStreamInput in
+// the real SDK's serializers.go.
+func resolveStreamResponseContentType(r *http.Request) string {
+	return resolveContentType(r.Header.Get(hdrBedrockAccept))
+}
+
+func resolveContentType(accept string) string {
 	if accept == "" || accept == "*/*" {
-		return "application/json"
+		return contentTypeJSON
 	}
 
 	return accept
+}
+
+// validateGuardrailHeaders enforces the two documented preconditions on
+// InvokeModel/InvokeModelWithResponseStream's guardrail headers (see
+// InvokeModelInput.GuardrailIdentifier's doc comment in the real SDK's
+// api_op_InvokeModel.go): a guardrail identifier requires guardrailVersion,
+// and requires the request body content type to be application/json.
+// Returns "" when the request is valid, or a ValidationException message
+// otherwise.
+func validateGuardrailHeaders(r *http.Request) string {
+	id := r.Header.Get(hdrGuardrailIdentifier)
+	if id == "" {
+		return ""
+	}
+
+	if r.Header.Get(hdrGuardrailVersion) == "" {
+		return "guardrailVersion is required when guardrailIdentifier is specified"
+	}
+
+	// Compare only the media type, ignoring parameters like ";charset=utf-8"
+	// that a real client may legitimately append.
+	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, contentTypeJSON) {
+		return "contentType must be application/json when guardrailIdentifier is specified"
+	}
+
+	return ""
+}
+
+// echoPerformanceConfigLatency mirrors the request's PerformanceConfigLatency
+// header onto the response, matching {InvokeModel,InvokeModelWithResponseStream}
+// Output.PerformanceConfigLatency (see deserializers.go's
+// awsRestjson1_deserializeOpHttpBindingsInvokeModelOutput, which reads the
+// header back from the response). gopherstack has no real latency-optimized
+// inference tier to model, so it reflects whatever the caller requested
+// rather than fabricating a value when none was sent.
+func echoPerformanceConfigLatency(c *echo.Context) {
+	if v := c.Request().Header.Get(hdrPerformanceConfigLatency); v != "" {
+		c.Response().Header().Set(hdrPerformanceConfigLatency, v)
+	}
+}
+
+// modelResponsePayloadPart wraps a mock model response in the real
+// PayloadPart / BidirectionalOutputPayloadPart wire shape: a JSON document
+// with a single "bytes" member holding the base64-encoded response bytes
+// (see aws-sdk-go-v2/service/bedrockruntime/deserializers.go's
+// awsRestjson1_deserializeDocumentPayloadPart). The event message payload is
+// NOT the raw model-response JSON itself -- sending that directly (as this
+// package used to) leaves the real SDK's PayloadPart.Bytes field empty,
+// since "bytes" is the only key deserializers.go looks for.
+func modelResponsePayloadPart(out []byte) []byte {
+	part := map[string]string{"bytes": base64.StdEncoding.EncodeToString(out)}
+
+	// Marshaling a map[string]string with one entry never fails.
+	b, _ := json.Marshal(part)
+
+	return b
 }
 
 // handleInvokeModel handles POST /model/{modelId}/invoke.
@@ -33,6 +122,10 @@ func (h *Handler) handleInvokeModel(
 	modelID string,
 	body []byte,
 ) error {
+	if msg := validateGuardrailHeaders(c.Request()); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
 	resp := mockInvokeModelResponse(modelID)
 
 	out, err := json.Marshal(resp)
@@ -45,6 +138,7 @@ func (h *Handler) handleInvokeModel(
 	ct := resolveResponseContentType(c.Request())
 	c.Response().Header().Set("Content-Type", ct)
 	setInvokeModelTokenHeaders(c.Response(), modelID)
+	echoPerformanceConfigLatency(c)
 
 	return c.JSONBlob(http.StatusOK, out)
 }
@@ -73,6 +167,10 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 	modelID string,
 	body []byte,
 ) error {
+	if msg := validateGuardrailHeaders(c.Request()); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
 	resp := mockInvokeModelResponse(modelID)
 
 	out, err := json.Marshal(resp)
@@ -90,10 +188,12 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 	frame := encodeEventStreamMsg([][2]string{
 		{hdrMessageType, hdrMessageTypeEvent},
 		{hdrEventType, "chunk"},
-		{hdrContentType, "application/octet-stream"},
-	}, out)
+		{hdrContentType, contentTypeJSON},
+	}, modelResponsePayloadPart(out))
 
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+	c.Response().Header().Set(hdrBedrockContentType, resolveStreamResponseContentType(c.Request()))
+	echoPerformanceConfigLatency(c)
 	c.Response().WriteHeader(http.StatusOK)
 	_, _ = c.Response().Write(frame)
 	flushResponse(c.Response())
@@ -125,8 +225,8 @@ func (h *Handler) handleInvokeModelWithBidirectionalStream(
 	frame := encodeEventStreamMsg([][2]string{
 		{hdrMessageType, hdrMessageTypeEvent},
 		{hdrEventType, "chunk"},
-		{hdrContentType, "application/octet-stream"},
-	}, out)
+		{hdrContentType, contentTypeJSON},
+	}, modelResponsePayloadPart(out))
 
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
@@ -238,7 +338,7 @@ func (h *Handler) handleCountTokens(
 
 	h.Backend.RecordInvocation(opCountTokens, modelID, truncateString(string(body)), truncateString(string(out)))
 
-	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("Content-Type", contentTypeJSON)
 
 	return c.JSONBlob(http.StatusOK, out)
 }

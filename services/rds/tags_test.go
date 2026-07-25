@@ -218,6 +218,32 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 			check: "Action=ListTagsForResource&Version=2014-10-31" +
 				"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster-endpoint:tag-ep",
 		},
+		{
+			// Regression test for a ghost-row leak: deleting a cluster must
+			// cascade-delete its custom cluster endpoints (and their tags)
+			// too, not just deleting an endpoint directly (the case above).
+			// Before this fix, DeleteDBCluster left the cluster's endpoints
+			// (and their tags) behind forever in the backend's maps.
+			name: "cluster_endpoint_cascade_via_cluster_delete",
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
+				postRDSForm(t, h,
+					"Action=CreateDBCluster&Version=2014-10-31"+
+						"&DBClusterIdentifier=cascade-ep-cluster&Engine=aurora-postgresql"+
+						"&MasterUsername=admin&MasterUserPassword=pass")
+				postRDSForm(t, h,
+					"Action=CreateDBClusterEndpoint&Version=2014-10-31"+
+						"&DBClusterEndpointIdentifier=cascade-ep"+
+						"&DBClusterIdentifier=cascade-ep-cluster&EndpointType=READER")
+				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
+					"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster-endpoint:cascade-ep"+
+					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
+			},
+			del: "Action=DeleteDBCluster&Version=2014-10-31" +
+				"&DBClusterIdentifier=cascade-ep-cluster&SkipFinalSnapshot=true",
+			check: "Action=ListTagsForResource&Version=2014-10-31" +
+				"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster-endpoint:cascade-ep",
+		},
 	}
 
 	for _, tt := range tests {

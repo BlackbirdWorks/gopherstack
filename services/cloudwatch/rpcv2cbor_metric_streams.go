@@ -1,6 +1,7 @@
 package cloudwatch
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/aws/smithy-go/encoding/cbor"
@@ -49,22 +50,14 @@ func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 		IncludeFilters: cborMetricStreamFilters(input, "IncludeFilters"),
 		ExcludeFilters: cborMetricStreamFilters(input, "ExcludeFilters"),
 	}); err != nil {
+		if errors.Is(err, ErrValidation) {
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
+
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	return writeCBOR(c, cbor.Map{})
-}
-
-func (h *Handler) cborUpdateMetricStream(input cbor.Map, c *echo.Context) error {
-	name := cborStr(input, keyName)
-	if name == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
-	}
-	if _, err := h.Backend.GetMetricStream(name); err != nil {
-		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
-	}
-
-	return h.cborPutMetricStream(input, c)
 }
 
 func (h *Handler) cborListMetricStreams(input cbor.Map, c *echo.Context) error {

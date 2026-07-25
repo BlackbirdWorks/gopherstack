@@ -285,13 +285,13 @@ func TestHandler_BackendReset(t *testing.T) {
 	bk := iotwireless.NewInMemoryBackend()
 
 	// Add some data
-	_, err := bk.CreateMulticastGroup(testAccountID, testRegion, "mg1", "", nil)
+	_, err := bk.CreateMulticastGroup(testAccountID, testRegion, "mg1", "", nil, nil)
 	require.NoError(t, err)
 
 	err = bk.PutResourceLogLevel("res1", "DEBUG")
 	require.NoError(t, err)
 
-	_, err = bk.CreateWirelessGatewayTaskDefinition("000000000000", "us-east-1", "def1", false)
+	_, err = bk.CreateWirelessGatewayTaskDefinition("000000000000", "us-east-1", "def1", false, nil)
 	require.NoError(t, err)
 
 	// Reset

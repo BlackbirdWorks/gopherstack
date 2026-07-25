@@ -26,6 +26,8 @@ var (
 	ErrAccessPointNotFound = awserr.New("AccessPointNotFound", awserr.ErrNotFound)
 	// ErrPolicyNotFound is returned when no resource policy is configured for a file system.
 	ErrPolicyNotFound = awserr.New("PolicyNotFound", awserr.ErrNotFound)
+	// ErrInvalidPolicy is returned when a file system policy document is malformed or too large.
+	ErrInvalidPolicy = awserr.New("InvalidPolicyException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrFileSystemInUse is returned when attempting to delete a file system that has mount targets.

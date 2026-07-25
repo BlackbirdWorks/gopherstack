@@ -17,6 +17,13 @@ import (
 
 const (
 	contentTypeOctetStream = "application/octet-stream"
+
+	// contentTypeHostedLocation is the well-known ConfigurationProfile
+	// LocationUri value ("hosted") that marks a profile's configuration
+	// as stored by AppConfig itself (hostedConfigVersions), as opposed to
+	// an external source (SSM Parameter Store, S3, ...) this backend
+	// cannot validate against.
+	contentTypeHostedLocation = "hosted"
 )
 
 const appConfigIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -82,47 +89,39 @@ func newResourceID() string {
 //     current contents would under-count after any delete.
 //   - accountSettings is a single struct, not a map at all.
 type InMemoryBackend struct {
-	registry *store.Registry
-
-	applications       *store.Table[Application]
-	applicationsByName *store.Index[Application]
-
-	environments          *store.Table[Environment]
-	environmentsByApp     *store.Index[Environment]
-	environmentsByAppName *store.Index[Environment]
-
-	configProfiles          *store.Table[ConfigurationProfile]
-	configProfilesByApp     *store.Index[ConfigurationProfile]
-	configProfilesByAppName *store.Index[ConfigurationProfile]
-
+	deploymentsByEnv              *store.Index[Deployment]
+	deploymentsByApp              *store.Index[Deployment]
+	applicationsByName            *store.Index[Application]
+	environments                  *store.Table[Environment]
+	environmentsByApp             *store.Index[Environment]
+	environmentsByAppName         *store.Index[Environment]
+	configProfiles                *store.Table[ConfigurationProfile]
+	configProfilesByApp           *store.Index[ConfigurationProfile]
+	configProfilesByAppName       *store.Index[ConfigurationProfile]
 	hostedConfigVersions          *store.Table[HostedConfigurationVersion]
 	hostedConfigVersionsByProfile *store.Index[HostedConfigurationVersion]
 	hostedConfigVersionsByApp     *store.Index[HostedConfigurationVersion]
 	hostedConfigVersionsByLabel   *store.Index[HostedConfigurationVersion]
-
-	deploymentStrategies       *store.Table[DeploymentStrategy]
-	deploymentStrategiesByName *store.Index[DeploymentStrategy]
-
-	deployments      *store.Table[Deployment]
-	deploymentsByEnv *store.Index[Deployment]
-	deploymentsByApp *store.Index[Deployment]
-
-	extensions       *store.Table[Extension]
-	extensionsByName *store.Index[Extension]
-
-	extensionAssociations *store.Table[ExtensionAssociation]
-
-	tags               map[string]map[string]string
-	versionCounters    map[string]map[string]int32
-	deploymentCounters map[string]map[string]int32
-
-	mu *lockmetrics.RWMutex
-
-	accountSettings AccountSettings
-
-	paginationSecret string
-	accountID        string
-	region           string
+	deploymentStrategies          *store.Table[DeploymentStrategy]
+	deploymentStrategiesByName    *store.Index[DeploymentStrategy]
+	deployments                   *store.Table[Deployment]
+	applications                  *store.Table[Application]
+	extensions                    *store.Table[Extension]
+	registry                      *store.Registry
+	extensionsByID                *store.Index[Extension]
+	extensionsByName              *store.Index[Extension]
+	extensionAssociations         *store.Table[ExtensionAssociation]
+	tags                          map[string]map[string]string
+	versionCounters               map[string]map[string]int32
+	deploymentCounters            map[string]map[string]int32
+	deployedConfigs               map[string]string
+	deploymentTimers              map[string]*deploymentTimer
+	accountSettings               AccountSettings
+	mu                            *lockmetrics.RWMutex
+	paginationSecret              string
+	accountID                     string
+	region                        string
+	deploymentReconcilerAlive     bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend for AppConfig.
@@ -131,6 +130,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		tags:               make(map[string]map[string]string),
 		versionCounters:    make(map[string]map[string]int32),
 		deploymentCounters: make(map[string]map[string]int32),
+		deployedConfigs:    make(map[string]string),
+		deploymentTimers:   make(map[string]*deploymentTimer),
 		registry:           store.NewRegistry(),
 		mu:                 lockmetrics.New("appconfig"),
 		paginationSecret:   uuid.NewString(),
@@ -177,6 +178,18 @@ func hcvLabelKey(applicationID, profileID, label string) string {
 
 func deploymentKey(applicationID, environmentID string, deploymentNumber int32) string {
 	return appEnvKey(applicationID, environmentID) + "|" + strconv.FormatInt(int64(deploymentNumber), 10)
+}
+
+// appEnvProfileKey builds the deployedConfigs key for a given
+// application/environment/configuration-profile triple.
+func appEnvProfileKey(applicationID, environmentID, profileID string) string {
+	return appEnvKey(applicationID, environmentID) + "|" + profileID
+}
+
+// extensionVersionKey builds the composite key extensions registers under:
+// each row is one addressable (extensionID, versionNumber) pair.
+func extensionVersionKey(extensionID string, versionNumber int32) string {
+	return extensionID + "|" + strconv.FormatInt(int64(versionNumber), 10)
 }
 
 // appConfigPaginate applies HMAC-signed token-based pagination to a sorted slice.

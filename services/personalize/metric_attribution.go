@@ -29,6 +29,9 @@ func (b *InMemoryBackend) CreateMetricAttribution(
 	if b.metricAttributions.Has(name) {
 		return nil, fmt.Errorf("%w: metric attribution %q already exists", ErrAlreadyExists, name)
 	}
+	if b.findDatasetGroup(datasetGroupArn) == nil {
+		return nil, fmt.Errorf("%w: dataset group %q not found", ErrNotFound, datasetGroupArn)
+	}
 
 	now := time.Now().UTC()
 	ma := &MetricAttribution{

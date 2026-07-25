@@ -93,13 +93,13 @@ func (b *InMemoryBackend) ListConfiguredTableAssociations(
 			Name:                                 a.Name,
 			CreateTime:                           a.CreateTime,
 			UpdateTime:                           a.UpdateTime,
-			ID:                                   a.ConfiguredTableAssociationIdentifier,
-			MembershipID:                         a.MembershipIdentifier,
-			ConfiguredTableID:                    a.ConfiguredTableIdentifier,
+			ID:                                   a.ID,
+			MembershipID:                         a.MembershipID,
+			ConfiguredTableID:                    a.ConfiguredTableID,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
-		return items[i].ConfiguredTableAssociationIdentifier < items[j].ConfiguredTableAssociationIdentifier
+		return items[i].ID < items[j].ID
 	})
 	page, next := paginate(items, maxResults, nextToken)
 

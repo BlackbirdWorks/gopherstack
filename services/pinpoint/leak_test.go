@@ -163,3 +163,27 @@ func TestUpdateEmailTemplate_CapsVersionHistory(t *testing.T) {
 	require.LessOrEqual(t, count, pinpoint.MaxTemplateVersions,
 		"template version history must not exceed the cap")
 }
+
+// TestDeleteVoiceTemplate_ReleasesVersionHistory verifies that deleting a
+// voice template removes its version history from templateVersionHistory,
+// mirroring TestDeleteEmailTemplate_ReleasesVersionHistory. DeleteVoiceTemplate
+// previously omitted this cleanup (unlike Delete{Email,InApp,Push,Sms}Template,
+// which all clean up their own version-history entry) -- fixed as part of
+// bringing voice templates to full field parity with the other template
+// types, and locked here so it cannot regress.
+func TestDeleteVoiceTemplate_ReleasesVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	b := pinpoint.NewInMemoryBackend(leakRegion, leakAccountID)
+
+	require.NoError(t, pinpoint.CreateVoiceTemplateForTest(b, leakRegion, leakAccountID, "my-voice-tpl", "hello"))
+
+	require.Equal(t, 1, pinpoint.TemplateVersionCount(b, "my-voice-tpl", "VOICE"),
+		"version entry must exist after create")
+
+	_, err := b.DeleteVoiceTemplate("my-voice-tpl")
+	require.NoError(t, err)
+
+	require.Equal(t, 0, pinpoint.TemplateVersionCount(b, "my-voice-tpl", "VOICE"),
+		"version history must be removed after delete")
+}

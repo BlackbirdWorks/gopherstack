@@ -87,7 +87,9 @@ func (b *InMemoryBackend) UpdateRule(id, changeToken string, updates []RuleUpdat
 	return nil
 }
 
-// DeleteRule deletes a Rule.
+// DeleteRule deletes a Rule. Real AWS rejects deletion while the Rule is
+// still activated in a WebACL/RuleGroup (WAFReferencedItemException) or
+// still contains any Predicates (WAFNonEmptyEntityException).
 func (b *InMemoryBackend) DeleteRule(id, changeToken string) error {
 	b.mu.Lock("DeleteRule")
 	defer b.mu.Unlock()
@@ -96,12 +98,17 @@ func (b *InMemoryBackend) DeleteRule(id, changeToken string) error {
 		return err
 	}
 
-	if !b.rules.Has(id) {
+	rule, ok := b.rules.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.ruleReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(rule.Predicates) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.rules.Delete(id)

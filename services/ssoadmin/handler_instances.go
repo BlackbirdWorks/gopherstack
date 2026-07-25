@@ -3,7 +3,6 @@ package ssoadmin
 import (
 	"encoding/json"
 	"net/http"
-	"sort"
 
 	"github.com/labstack/echo/v5"
 )
@@ -86,12 +85,11 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
 	}
 
-	tagList := make([]tagView, 0, len(inst.Tags))
-	for k, v := range inst.Tags {
-		tagList = append(tagList, tagView{Key: k, Value: v})
-	}
-	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
-
+	// Real DescribeInstanceOutput has no Tags member (gopherstack previously
+	// invented one here) -- tags are fetched separately via
+	// ListTagsForResource, matching every other taggable ssoadmin resource;
+	// see awsAwsjson11_deserializeOpDocumentDescribeInstanceOutput in the real
+	// SDK's deserializers.go.
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyInstanceArn:    inst.InstanceArn,
 		"OwnerAccountId":  inst.OwnerAccountID,
@@ -99,7 +97,6 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 		keyName:           inst.Name,
 		keyStatus:         inst.Status,
 		"CreatedDate":     float64(inst.CreatedDate.Unix()),
-		keyTags:           tagList,
 	})
 }
 

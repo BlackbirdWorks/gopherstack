@@ -43,6 +43,11 @@ func (h *Handler) handleAddApplicationReferenceDataSource(
 		return nil, fmt.Errorf("%w: ReferenceDataSource.ReferenceSchema is required", ErrValidation)
 	}
 
+	schema, err := convertSourceSchema(rds.ReferenceSchema)
+	if err != nil {
+		return nil, err
+	}
+
 	var ref ReferenceDataSourceDescription
 
 	ref.TableName = rds.TableName
@@ -51,14 +56,12 @@ func (h *Handler) handleAddApplicationReferenceDataSource(
 		FileKey:          rds.S3ReferenceDataSource.FileKey,
 		ReferenceRoleARN: rds.S3ReferenceDataSource.ReferenceRoleARN,
 	}
-
-	schema := convertSourceSchema(rds.ReferenceSchema)
 	ref.ReferenceSchema = &schema
 
-	if err := h.Backend.AddApplicationReferenceDataSource(
+	if addErr := h.Backend.AddApplicationReferenceDataSource(
 		ctx, in.ApplicationName, in.CurrentApplicationVersionID, ref,
-	); err != nil {
-		return nil, err
+	); addErr != nil {
+		return nil, addErr
 	}
 
 	return &struct{}{}, nil

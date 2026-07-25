@@ -29,7 +29,7 @@ func (b *InMemoryBackend) CreateHost(
 	vpcConfig *VpcConfiguration,
 	tags map[string]string,
 ) (*Host, error) {
-	if err := validateConnectionName(name); err != nil {
+	if err := validateHostName(name); err != nil {
 		return nil, err
 	}
 

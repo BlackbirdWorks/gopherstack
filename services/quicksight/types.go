@@ -146,6 +146,7 @@ type Folder struct {
 	Name            string
 	FolderType      string
 	ParentFolderArn string
+	SharingModel    string
 	Permissions     []ResourcePermission
 }
 

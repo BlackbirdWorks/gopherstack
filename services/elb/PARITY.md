@@ -6,18 +6,18 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elb
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancing@v1.33.21   # version audited against
-last_audit_commit: 49e505cb                       # HEAD when this audit began (working tree, pre-commit)
-last_audit_date: 2026-07-12
+last_audit_commit: c9c03908                       # HEAD when this audit began (working tree, pre-commit)
+last_audit_date: 2026-07-24
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed InvalidScheme/UnsupportedProtocol/TooManyLoadBalancers/DuplicateTagKeys/TooManyTags error codes (were generic ValidationError)"}
+  CreateLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed InvalidScheme/UnsupportedProtocol/TooManyLoadBalancers/DuplicateTagKeys/TooManyTags error codes (were generic ValidationError); parity-3: inline HTTPS/SSL Listeners.member.N.SSLCertificateId now runs the same ARN-format check as SetLoadBalancerListenerSSLCertificate (was accepted unchecked at creation time, format-checked only on later Set calls)"}
   DeleteLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing DeleteLoadBalancerResult wrapper (real SDK GetElement failed)"}
-  DescribeLoadBalancers: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateLoadBalancerListeners: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed UnsupportedProtocol error code via shared parseOneListener"}
+  DescribeLoadBalancers: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-3: fixed missing LoadBalancerDescription.Policies field -- was entirely absent from the response struct, so every real client saw an always-empty Policies regardless of what stickiness/other policies existed; now populates AppCookieStickinessPolicies/LBCookieStickinessPolicies/OtherPolicies from the LB's policy set"}
+  CreateLoadBalancerListeners: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed UnsupportedProtocol error code via shared parseOneListener; parity-3: fixed classic-listeners limit-exceeded error code (was ValidationError, real op's typed-error switch only has InvalidConfigurationRequest/CertificateNotFound/DuplicateListener/LoadBalancerNotFound/UnsupportedProtocol); inline SSLCertificateId now format-validated (see CreateLoadBalancer note)"}
   DeleteLoadBalancerListeners: {wire: ok, errors: ok, state: ok, persist: ok}
-  RegisterInstancesWithLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok}
+  RegisterInstancesWithLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-3: deleted invented classic-registered-instances (1000) hard-reject -- real op's typed-error switch only recognizes InvalidInstance/LoadBalancerNotFound, no typed exception exists for exceeding this DescribeAccountLimits-advertised limit, so enforcing it rejected requests a real AWS client would have had accepted"}
   DeregisterInstancesFromLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok}
   ConfigureHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyLoadBalancerAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -36,7 +36,7 @@ ops:
   CreateAppCookieStickinessPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
   CreateLBCookieStickinessPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
   CreateLoadBalancerPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper; fixed PolicyTypeNotFound error code (was generic ValidationError); added missing PublicKeyPolicyType to allowlist; TooManyPolicies not enforced (gap, see below)"}
-  DeleteLoadBalancerPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
+  DeleteLoadBalancerPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper; parity-3: fixed policy-still-in-use error code (was ValidationError, real op's typed-error switch only has InvalidConfigurationRequest/LoadBalancerNotFound -- a ValidationError code would not deserialize into InvalidConfigurationRequestException, so errors.As would silently fail to match on a real client). Proven by Test_SDKRoundTrip_DeleteLoadBalancerPolicyInUse_IsTyped"}
   DescribeAccountLimits: {wire: ok, errors: ok, state: ok, persist: n/a-static}
   DescribeInstanceHealth: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLoadBalancerPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "no-LoadBalancerName sample-policy fallback verified correct vs AWS docs, not a bug"}
@@ -50,7 +50,7 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - SetLoadBalancerListenerSSLCertificate / CreateLoadBalancer HTTPS listeners validate SSLCertificateId only by ARN-prefix regex, not cross-service ACM/IAM existence (real AWS returns CertificateNotFound) -- cross-service, out of scope
   - CreateLoadBalancerPolicy has no TooManyPolicies limit (AWS models TooManyPoliciesException for this op per the SDK's op-specific error switch, but no default per-LB policy count limit is documented anywhere gopherstack could source a correct number from; fabricating one risked being wrong, so left unenforced rather than guessed)
 deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - none — full op-by-op pass completed this round
+  - none — full op-by-op pass completed this round (parity-3: re-verified after the Go-refactoring-2 file split; all backend.go/handler.go logic re-read post-split and re-diffed against the SDK)
 leaks: {status: clean, note: "Reset()/Snapshot()/Restore() all close+recreate tags.Tags registries correctly (no Prometheus label leak); DeleteLoadBalancer cascade-deletes policies via policiesByLB index with a cloned slice before delete to avoid corrupting the in-progress scan"}
 ---
 
@@ -141,3 +141,76 @@ deserializer's error-type dispatch.
   type-asserts its `StorageBackend` to a `snapshotter`/`restorer` interface and
   delegates to `InMemoryBackend.Snapshot`/`Restore`, exactly mirroring the
   `services/securityhub` pattern referenced in its doc comment.
+
+## parity-3 pass (2026-07-24)
+
+Since the 2026-07-12 audit, `services/elb/` went through a full file-split refactor
+(`backend.go`/`handler.go` → one file per resource family: `load_balancers.go`,
+`listeners.go`, `instances.go`, `policies.go`, `attributes.go`, etc., plus matching
+`handler_*.go` files) with no intended behavior change. This pass re-read every
+production file post-split and re-diffed each op's wire shape and error codes against
+`deserializers.go`'s per-op typed-error switch tables (the same ground-truth method the
+2026-07-12 pass established), rather than trusting the refactor was behavior-preserving.
+It found four real, in-scope bugs the split either introduced or left unaudited:
+
+1. **`DescribeLoadBalancers`' `LoadBalancerDescription.Policies` field was entirely
+   missing from `xmlLoadBalancerDescription`.** Every real client's `DescribeLoadBalancers`
+   call saw an always-empty `Policies` (`AppCookieStickinessPolicies`/
+   `LBCookieStickinessPolicies`/`OtherPolicies` all nil), regardless of how many
+   policies actually existed on the LB. This doesn't fail deserialization (the
+   query/xml decoder tolerates missing optional elements, unlike the `<XxxResult>`
+   wrapper bug class from the prior pass), so it would never surface as a client error
+   — only as silently-wrong data. Fixed by adding `toXMLPolicies` (routes each policy by
+   `PolicyTypeName` into the three sub-lists, mirroring `types.Policies`) and threading
+   each LB's policies (fetched via the existing `DescribeLoadBalancerPolicies` backend
+   method) through to `toXMLLoadBalancer`. Proven by
+   `Test_SDKRoundTrip_LoadBalancerPolicies_WireShape`, which creates one policy of each
+   kind and asserts the real SDK client's typed `Policies` struct via
+   `DescribeLoadBalancers`.
+
+2. **Two ops used the generic `ValidationError` code where the real op's typed-error
+   switch requires `InvalidConfigurationRequest`**: `DeleteLoadBalancerPolicy`'s
+   policy-still-in-use rejection, and `CreateLoadBalancerListeners`' classic-listeners
+   (100) limit-exceeded rejection. Per `deserializers.go`,
+   `awsAwsquery_deserializeOpErrorDeleteLoadBalancerPolicy` and
+   `awsAwsquery_deserializeOpErrorCreateLoadBalancerListeners` only recognize
+   `InvalidConfigurationRequest`/`LoadBalancerNotFound` (plus `CertificateNotFound`/
+   `DuplicateListener`/`UnsupportedProtocol` for the latter) — `ValidationError` isn't
+   in either switch, so on a real client `errors.As` against the typed exception would
+   silently fail to match even though the HTTP status and generic error string looked
+   right. Both now use the existing `ErrInvalidConfiguration` sentinel. The dead
+   `ErrValidation` sentinel (a byte-for-byte duplicate of `ErrInvalidParameter`'s
+   `"ValidationError"` code, used only by these two call sites) was deleted along with
+   them. Proven by `Test_SDKRoundTrip_DeleteLoadBalancerPolicyInUse_IsTyped` (typed
+   `InvalidConfigurationRequestException` via `errors.As`) and
+   `TestAccountLimitMaxListeners` (asserts the `InvalidConfigurationRequest` code
+   string in the response body).
+
+3. **`RegisterInstancesWithLoadBalancer` hard-rejected registration past 1000
+   instances with an invented error.** `DescribeAccountLimits` correctly advertises
+   `classic-registered-instances: 1000` as an account limit (that part is real AWS
+   behavior), but the real `RegisterInstancesWithLoadBalancer` op has no typed
+   exception for exceeding it — `awsAwsquery_deserializeOpErrorRegisterInstancesWithLoadBalancer`
+   only recognizes `InvalidInstance`/`LoadBalancerNotFound`. A real AWS account can
+   register past the soft limit (it's advisory, enforced by different means, if at
+   all, not by this API rejecting the call); gopherstack's hard 1000-instance cap
+   would incorrectly fail requests a real client would have had succeed. Deleted per
+   the "delete invented errors not in the real SDK" rule — no replacement behavior was
+   substituted since none is documented.
+
+4. **Inline `SSLCertificateId` on `CreateLoadBalancer`/`CreateLoadBalancerListeners`
+   skipped the ARN-format check** (`validateCertificateID`, the same regex-based
+   `arn:aws:(acm|iam):` check `SetLoadBalancerListenerSSLCertificate` already ran).
+   Both code paths share `parseOneListener`, but only the required-non-empty check ran
+   there — the format check was applied only when the cert was set *after* creation,
+   letting a malformed cert ARN through at LB/listener creation time while rejecting
+   the identical string via `SetLoadBalancerListenerSSLCertificate`. Now both paths
+   validate identically. This is a same-service, in-scope consistency fix, distinct
+   from the pre-existing cross-service `CertificateNotFound` gap noted above (which
+   remains a gap: neither path can verify the cert ARN actually *exists* in ACM/IAM,
+   only that it's shaped like one).
+
+All four are covered by new/extended tests: `Test_SDKRoundTrip_LoadBalancerPolicies_WireShape`,
+`Test_SDKRoundTrip_DeleteLoadBalancerPolicyInUse_IsTyped`, the `malformed_cert_arn_rejected`
+case in `TestDuplicateListenerCreateListeners`, and
+`TestCreateLoadBalancerRejectsMalformedInlineCertARN`.

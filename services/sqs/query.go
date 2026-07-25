@@ -132,8 +132,45 @@ func queryErrorDetails(err error) (string, string, int) {
 			http.StatusBadRequest
 	}
 
+	if code, message, status, ok := legacyQueryErrorOverride(err); ok {
+		return code, message, status
+	}
+
 	// Fall through to shared JSON-API details for all other errors.
 	return errorDetails(err)
+}
+
+// legacyQueryErrorOverride checks err against the sentinel errors whose Query
+// (XML) protocol error code is NOT the JSON protocol's
+// "com.amazonaws.sqs#"-namespaced __type string. Each of these sentinels was
+// already declared in errors.go with its .Error() text set to the
+// AWS-documented legacy Query-protocol code (e.g. ErrPurgeQueueInProgress =
+// errors.New("AWS.SimpleQueueService.PurgeQueueInProgress")) specifically for
+// this purpose, but queryErrorDetails previously only consulted that text for
+// ErrQueueNotFound and silently fell through to errorDetails' JSON errType
+// for everything else — leaking the "com.amazonaws.sqs#" namespace prefix
+// into the XML <Code> element, which is never valid for the Query/XML
+// protocol (that prefix is a Smithy JSON shape ID, meaningless outside the
+// JSON __type field).
+func legacyQueryErrorOverride(err error) (string, string, int, bool) {
+	sentinels := [...]error{
+		ErrInvalidBatchEntry,
+		ErrTooManyEntriesInBatch,
+		ErrBatchEntryIDsNotDistinct,
+		ErrPurgeQueueInProgress,
+		ErrBatchRequestTooLong,
+		ErrQueueDeletedRecently,
+	}
+
+	for _, sentinel := range sentinels {
+		if errors.Is(err, sentinel) {
+			_, msg, st := errorDetails(err)
+
+			return sentinel.Error(), msg, st, true
+		}
+	}
+
+	return "", "", 0, false
 }
 
 // marshalXML marshals v to XML bytes. It intentionally does NOT prepend the

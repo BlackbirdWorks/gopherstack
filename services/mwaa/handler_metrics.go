@@ -10,27 +10,6 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-func (h *Handler) handleGetMetrics(c *echo.Context, name string) error {
-	metrics, err := h.Backend.GetMetrics(h.contextWithRegion(c), name)
-	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	if metrics == nil {
-		metrics = []MetricDatum{}
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{
-		"MetricData": metrics,
-	})
-
-	return nil
-}
-
 func (h *Handler) handlePublishMetrics(c *echo.Context, name string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {

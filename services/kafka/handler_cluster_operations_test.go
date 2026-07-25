@@ -110,7 +110,10 @@ func TestClusterOperationTracking_V1(t *testing.T) {
 	clusterArn := createTestClusterWithStorage(t, h, "op-tracking-v1")
 	encoded := url.PathEscape(clusterArn)
 
-	// Trigger two update ops.
+	// Trigger two update ops. Real MSK bumps CurrentVersion on every successful
+	// update, so the second call must fetch the version the first call left
+	// behind rather than reusing DefaultClusterVersion (a stale-version reuse
+	// is correctly rejected -- see TestUpdateOpsRequireCurrentVersion).
 	resp1, code := doKafkaRequestJSON(t, h, http.MethodPut,
 		"/v1/clusters/"+encoded+"/nodes/count",
 		map[string]any{
@@ -121,10 +124,16 @@ func TestClusterOperationTracking_V1(t *testing.T) {
 	op1Arn, _ := resp1["clusterOperationArn"].(string)
 	require.NotEmpty(t, op1Arn)
 
+	descAfterFirst := decodeJSONResponse(t, doKafkaRequest(t, h, http.MethodGet, "/v1/clusters/"+encoded, nil))
+	clusterInfoAfterFirst, ok := descAfterFirst["clusterInfo"].(map[string]any)
+	require.True(t, ok)
+	versionAfterFirst, _ := clusterInfoAfterFirst["currentVersion"].(string)
+	require.NotEmpty(t, versionAfterFirst)
+
 	resp2, code := doKafkaRequestJSON(t, h, http.MethodPut,
 		"/v1/clusters/"+encoded+"/nodes/type",
 		map[string]any{
-			"currentVersion":     kafka.DefaultClusterVersion,
+			"currentVersion":     versionAfterFirst,
 			"targetInstanceType": "kafka.m5.xlarge",
 		})
 	require.Equal(t, http.StatusOK, code)

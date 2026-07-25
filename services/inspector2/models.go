@@ -20,21 +20,58 @@ type Filter struct {
 // (tests, fixtures, the dashboard) can inject realistic findings that
 // ListFindings will then return and filter — behavior that exceeds LocalStack,
 // which always returns an empty list.
+//
+// EpssScore/RiskScore/Cwes/ReferenceUrls/Tools back BatchGetFindingDetails
+// only (real FindingDetail shape) -- findingToWire (ListFindings' wire
+// shape) never renders them, matching the real API where these live on a
+// separate FindingDetail resource, not on Finding itself. (Field order below
+// is fieldalignment-optimized, not declaration/doc order.)
 type Finding struct {
 	FirstObservedAt time.Time         `json:"firstObservedAt"`
 	LastObservedAt  time.Time         `json:"lastObservedAt"`
 	UpdatedAt       time.Time         `json:"updatedAt"`
+	Title           string            `json:"title,omitempty"`
+	FindingArn      string            `json:"findingArn"`
+	ResourceID      string            `json:"-"`
+	ResourceType    string            `json:"-"`
+	FixAvailable    string            `json:"fixAvailable,omitempty"`
 	Description     string            `json:"description"`
 	AccountID       string            `json:"awsAccountId"`
 	Type            string            `json:"type"`
 	Status          string            `json:"status"`
-	Title           string            `json:"title,omitempty"`
-	FindingArn      string            `json:"findingArn"`
-	FixAvailable    string            `json:"fixAvailable,omitempty"`
-	ResourceType    string            `json:"-"`
-	ResourceID      string            `json:"-"`
-	Severity        FindingSeverity   `json:"severity"`
 	Resources       []FindingResource `json:"resources,omitempty"`
+	Cwes            []string          `json:"cwes,omitempty"`
+	Severity        FindingSeverity   `json:"severity"`
+	Tools           []string          `json:"tools,omitempty"`
+	ReferenceUrls   []string          `json:"referenceUrls,omitempty"`
+	EpssScore       float64           `json:"epssScore,omitempty"`
+	RiskScore       int32             `json:"riskScore,omitempty"`
+}
+
+// CodeLine is a single line of a retrieved code snippet (real CodeLine shape).
+type CodeLine struct {
+	Content    string `json:"content"`
+	LineNumber int32  `json:"lineNumber"`
+}
+
+// SuggestedFix is a suggested remediation for a code vulnerability finding
+// (real SuggestedFix shape).
+type SuggestedFix struct {
+	Code        string `json:"code,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// codeSnippet holds the seeded code snippet content for one finding ARN,
+// backing BatchGetCodeSnippet. Real AWS only ever returns a snippet for
+// findings it has associated code context with; gopherstack has no static
+// analysis engine to derive that content, so it must be seeded (same
+// additive-capability precedent as SeedFinding/SeedCoverage/SeedVulnerability).
+type codeSnippet struct {
+	FindingArn     string         `json:"findingArn"`
+	Lines          []CodeLine     `json:"codeSnippet,omitempty"`
+	SuggestedFixes []SuggestedFix `json:"suggestedFixes,omitempty"`
+	StartLine      int32          `json:"startLine,omitempty"`
+	EndLine        int32          `json:"endLine,omitempty"`
 }
 
 // FindingSeverity holds severity details for a finding.
@@ -195,44 +232,87 @@ type CodeSecurityScanConfigurationAssociation struct {
 	Status               string `json:"status"`
 }
 
-// FindingsReport represents an async findings report job.
+// FindingsReport represents an async findings report job. FilterCriteria and
+// ReportFormat are captured from CreateFindingsReport's request and echoed
+// back by GetFindingsReportStatus (real GetFindingsReportStatusOutput wire
+// keys: destination/errorCode/errorMessage/filterCriteria/reportId/status --
+// note the real shape has no createdAt member at all, so CreatedAt below is
+// backend bookkeeping only and must never reach the wire).
 type FindingsReport struct {
-	CreatedAt    time.Time      `json:"createdAt"`
-	Destination  map[string]any `json:"destination,omitempty"`
-	ReportID     string         `json:"reportId"`
-	Status       string         `json:"status"`
-	ErrorCode    string         `json:"errorCode,omitempty"`
-	ErrorMessage string         `json:"errorMessage,omitempty"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	Destination    map[string]any `json:"destination,omitempty"`
+	FilterCriteria map[string]any `json:"filterCriteria,omitempty"`
+	ReportID       string         `json:"reportId"`
+	ReportFormat   string         `json:"reportFormat,omitempty"`
+	Status         string         `json:"status"`
+	ErrorCode      string         `json:"errorCode,omitempty"`
+	ErrorMessage   string         `json:"errorMessage,omitempty"`
 }
 
-// SbomExport represents an async SBOM export job.
+// SbomExport represents an async SBOM export job. Real GetSbomExportOutput
+// wire keys: errorCode/errorMessage/filterCriteria/format/reportId/
+// s3Destination/status (no createdAt member; see FindingsReport's doc comment).
 type SbomExport struct {
-	CreatedAt    time.Time      `json:"createdAt"`
-	Destination  map[string]any `json:"destination,omitempty"`
-	ReportID     string         `json:"reportId"`
-	Status       string         `json:"status"`
-	ErrorCode    string         `json:"errorCode,omitempty"`
-	ErrorMessage string         `json:"errorMessage,omitempty"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	Destination    map[string]any `json:"s3Destination,omitempty"`
+	FilterCriteria map[string]any `json:"filterCriteria,omitempty"`
+	ReportID       string         `json:"reportId"`
+	Format         string         `json:"format,omitempty"`
+	Status         string         `json:"status"`
+	ErrorCode      string         `json:"errorCode,omitempty"`
+	ErrorMessage   string         `json:"errorMessage,omitempty"`
 }
 
-// CoverageEntry represents a resource covered by Inspector2.
+// CoverageScanStatus mirrors the real ScanStatus shape (statusCode/reason).
+type CoverageScanStatus struct {
+	StatusCode string `json:"statusCode"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// CoverageEntry represents a resource covered by Inspector2, matching the
+// real CoveredResource shape (accountId/resourceId/resourceType/scanType are
+// required; lastScannedAt/scanMode/scanStatus are optional). Seeded via
+// SeedCoverage -- ListCoverage/ListCoverageStatistics were previously
+// hardwired-empty stubs with no way to populate real data, unlike Finding's
+// SeedFinding.
 type CoverageEntry struct {
-	ScanStatus   map[string]any `json:"scanStatus"`
-	AccountID    string         `json:"accountId"`
-	ResourceID   string         `json:"resourceId"`
-	ResourceType string         `json:"resourceType"`
-	ScanType     string         `json:"scanType"`
+	LastScannedAt time.Time           `json:"lastScannedAt"`
+	ScanStatus    *CoverageScanStatus `json:"scanStatus,omitempty"`
+	AccountID     string              `json:"accountId"`
+	ResourceID    string              `json:"resourceId"`
+	ResourceType  string              `json:"resourceType"`
+	ScanType      string              `json:"scanType"`
+	ScanMode      string              `json:"scanMode,omitempty"`
 }
 
-// Vulnerability represents a known vulnerability.
+// Vulnerability represents a known vulnerability, matching the real
+// Vulnerability shape's field names (wire key "id", not "vulnerabilityId";
+// "vendorSeverity", not the gopherstack-invented "severity"). Only the
+// scalar/list fields are modeled -- the nested AtigData/CisaData/Cvss*/Epss/
+// ExploitObserved objects are real but omitted here (an omitted optional
+// field is unset on the wire, not wire-breaking, unlike a wrong key name).
+// Seeded via SeedVulnerability, following the same additive-capability
+// precedent as Finding's SeedFinding: SearchVulnerabilities queries AWS's
+// own global vulnerability intelligence database in real Inspector2, which
+// gopherstack has no equivalent data source for.
 type Vulnerability struct {
-	VulnerabilityID string `json:"vulnerabilityId"`
-	Description     string `json:"description"`
-	Severity        string `json:"severity"`
+	VendorCreatedAt        time.Time `json:"vendorCreatedAt"`
+	VendorUpdatedAt        time.Time `json:"vendorUpdatedAt"`
+	ID                     string    `json:"id"`
+	Description            string    `json:"description,omitempty"`
+	Source                 string    `json:"source,omitempty"`
+	SourceURL              string    `json:"sourceUrl,omitempty"`
+	VendorSeverity         string    `json:"vendorSeverity,omitempty"`
+	Cwes                   []string  `json:"cwes,omitempty"`
+	ReferenceUrls          []string  `json:"referenceUrls,omitempty"`
+	RelatedVulnerabilities []string  `json:"relatedVulnerabilities,omitempty"`
 }
 
-// AccountPermission represents an Inspector2 account-level permission.
+// AccountPermission represents an Inspector2 account-level permission,
+// matching the real Permission shape (operation/service). The prior "status"
+// field was a gopherstack-invented member with no counterpart in the real
+// API -- deleted in favor of the real "service" field.
 type AccountPermission struct {
 	Operation string `json:"operation"`
-	Status    string `json:"status"`
+	Service   string `json:"service"`
 }

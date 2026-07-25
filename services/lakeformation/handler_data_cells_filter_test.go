@@ -452,6 +452,79 @@ func TestDataCellsFilter_RowFilterAndColumns(t *testing.T) {
 	assert.Len(t, cols, 2)
 }
 
+// TestDataCellsFilter_ColumnWildcard verifies the real API's ColumnWildcard
+// field (an exclusion-list alternative to ColumnNames) round-trips, and that
+// specifying both ColumnNames and ColumnWildcard together is rejected --
+// per types.DataCellsFilter.ColumnWildcard's doc comment: "You must specify
+// either a ColumnNames list or the ColumnWildCard".
+func TestDataCellsFilter_ColumnWildcard(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tableData  map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "ColumnWildcard alone is accepted",
+			tableData: map[string]any{
+				"TableCatalogId": "123456789012",
+				"DatabaseName":   "mydb",
+				"TableName":      "mytable",
+				"Name":           "wildcard-filter",
+				"ColumnWildcard": map[string]any{"ExcludedColumnNames": []any{"ssn"}},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "ColumnNames and ColumnWildcard together are rejected",
+			tableData: map[string]any{
+				"TableCatalogId": "123456789012",
+				"DatabaseName":   "mydb",
+				"TableName":      "mytable",
+				"Name":           "both-filter",
+				"ColumnNames":    []any{"col1"},
+				"ColumnWildcard": map[string]any{"ExcludedColumnNames": []any{"ssn"}},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+			h := lakeformation.NewHandler(b)
+
+			rec := postJSON(t, h, "/CreateDataCellsFilter", map[string]any{"TableData": tt.tableData})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			rec2 := postJSON(t, h, "/GetDataCellsFilter", map[string]any{
+				"TableCatalogId": tt.tableData["TableCatalogId"],
+				"DatabaseName":   tt.tableData["DatabaseName"],
+				"TableName":      tt.tableData["TableName"],
+				"Name":           tt.tableData["Name"],
+			})
+			require.Equal(t, http.StatusOK, rec2.Code)
+
+			var out map[string]any
+			require.NoError(t, jsonDecode(rec2.Body, &out))
+			filter := out["DataCellsFilter"].(map[string]any)
+
+			wildcard, ok := filter["ColumnWildcard"].(map[string]any)
+			require.True(t, ok, "ColumnWildcard should round-trip")
+			excluded := wildcard["ExcludedColumnNames"].([]any)
+			assert.Equal(t, []any{"ssn"}, excluded)
+			assert.NotEmpty(t, filter["VersionId"], "Create/UpdateDataCellsFilter must assign a VersionId")
+		})
+	}
+}
+
 // --- #15: ListDataCellsFilter requires Table ---
 
 func TestListDataCellsFilter_RequiresTable(t *testing.T) {

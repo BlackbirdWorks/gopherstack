@@ -7,17 +7,27 @@ import (
 )
 
 // CreatePackage creates a new Elasticsearch package (e.g., a dictionary file).
-func (b *InMemoryBackend) CreatePackage(ctx context.Context, name, packageType, description string) (*Package, error) {
+// PackageSource (S3BucketName + S3Key) is a required member of
+// CreatePackageInput in the real API (types.CreatePackageInput.PackageSource
+// has no default), so a missing/incomplete source is rejected exactly like a
+// missing name or an invalid type.
+func (b *InMemoryBackend) CreatePackage(
+	ctx context.Context, name, packageType, description string, source PackageSource,
+) (*Package, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: PackageName is required", ErrValidation)
 	}
 
 	if !validPackageTypes[packageType] {
 		return nil, fmt.Errorf(
-			"%w: PackageType must be TXT-DICTIONARY or ZIP-PLUGIN, got %q",
+			"%w: PackageType must be TXT-DICTIONARY, got %q",
 			ErrValidation,
 			packageType,
 		)
+	}
+
+	if source.S3BucketName == "" || source.S3Key == "" {
+		return nil, fmt.Errorf("%w: PackageSource.S3BucketName and PackageSource.S3Key are required", ErrValidation)
 	}
 
 	region := getRegion(ctx, b.region)
@@ -31,12 +41,13 @@ func (b *InMemoryBackend) CreatePackage(ctx context.Context, name, packageType, 
 
 	id := fmt.Sprintf("F%010d", b.nextIDLocked())
 	pkg := &Package{
-		ID:          id,
-		Name:        name,
-		PackageType: packageType,
-		Description: description,
-		Status:      "AVAILABLE",
-		region:      region,
+		ID:            id,
+		Name:          name,
+		PackageType:   packageType,
+		Description:   description,
+		Status:        "AVAILABLE",
+		PackageSource: source,
+		region:        region,
 	}
 	b.packagePut(pkg)
 	packagesByName[name] = id

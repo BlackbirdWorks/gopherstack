@@ -22,7 +22,7 @@ func (b *InMemoryBackend) CreateLocationFsxLustre(
 	now := time.Now().UTC()
 
 	sub := strings.TrimPrefix(subdirectory, "/")
-	locationURI := fmt.Sprintf("lustre://%s/%s", fsxFilesystemArn, sub)
+	locationURI := fmt.Sprintf("%s%s/%s", fsxLustreURIScheme, fsxFilesystemArn, sub)
 
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
@@ -92,7 +92,7 @@ func (b *InMemoryBackend) UpdateLocationFsxLustre(locationArn, subdirectory stri
 		}
 
 		sub := strings.TrimPrefix(subdirectory, "/")
-		l.LocationURI = fmt.Sprintf("lustre://%s/%s", fsArn, sub)
+		l.LocationURI = fmt.Sprintf("%s%s/%s", fsxLustreURIScheme, fsArn, sub)
 	}
 
 	return nil

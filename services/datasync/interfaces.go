@@ -18,6 +18,7 @@ type StorageBackend interface {
 	CreateLocationS3(
 		subdirectory, s3BucketArn, s3StorageClass string,
 		s3Config S3Config,
+		agentArns []string,
 		tags map[string]string,
 	) (*Location, error)
 	DescribeLocationS3(locationArn string) (*LocationS3, error)
@@ -27,10 +28,11 @@ type StorageBackend interface {
 	// Task operations
 	CreateTask(
 		sourceLocationArn, destinationLocationArn, name, cloudWatchLogGroupArn string,
+		settings TaskSettings,
 		tags map[string]string,
 	) (*Task, error)
 	DescribeTask(taskArn string) (*Task, error)
-	UpdateTask(taskArn, name, cloudWatchLogGroupArn string) error
+	UpdateTask(taskArn, name, cloudWatchLogGroupArn string, settings TaskSettings) error
 	DeleteTask(taskArn string) error
 	ListTasks(maxResults int32, nextToken string) ([]*TaskListEntry, string, error)
 
@@ -48,14 +50,14 @@ type StorageBackend interface {
 
 	// Location operations (Azure Blob)
 	CreateLocationAzureBlob(
-		containerURL, subdirectory, blobType, accessTier string,
+		containerURL, subdirectory, blobType, accessTier, authenticationType string,
 		sasConfig *SasConfiguration,
 		agentArns []string,
 		tags map[string]string,
 	) (*Location, error)
 	DescribeLocationAzureBlob(locationArn string) (*LocationAzureBlob, error)
 	UpdateLocationAzureBlob(
-		locationArn, containerURL, subdirectory, blobType, accessTier string,
+		locationArn, containerURL, subdirectory, blobType, accessTier, authenticationType string,
 		sasConfig *SasConfiguration,
 		agentArns []string,
 	) error
@@ -158,14 +160,14 @@ type StorageBackend interface {
 
 	// Location operations (SMB)
 	CreateLocationSmb(
-		serverHostname, subdirectory, domain, user, password string,
+		serverHostname, subdirectory, domain, user, password, authenticationType string,
 		mountOptions *MountOptions,
 		agentArns []string,
 		tags map[string]string,
 	) (*Location, error)
 	DescribeLocationSmb(locationArn string) (*LocationSmb, error)
 	UpdateLocationSmb(
-		locationArn, subdirectory, domain, user, password string,
+		locationArn, subdirectory, domain, user, password, authenticationType string,
 		mountOptions *MountOptions,
 		agentArns []string,
 	) error
@@ -223,6 +225,7 @@ type LocationS3 struct {
 	S3BucketArn    string
 	Subdirectory   string
 	S3StorageClass string
+	AgentArns      []string
 }
 
 // LocationListEntry is a location entry in a list response.
@@ -232,11 +235,44 @@ type LocationListEntry struct {
 	LocationURI  string
 }
 
+// FilterRule is a DataSync include/exclude filter (SIMPLE_PATTERN rules only).
+type FilterRule struct {
+	FilterType string
+	Value      string
+}
+
+// TaskSchedule holds a task's cron/rate schedule expression and enabled status.
+type TaskSchedule struct {
+	ScheduleExpression string
+	Status             string
+}
+
+// TaskSettings groups the optional CreateTask/UpdateTask configuration knobs
+// that mirror AWS's own grouping in CreateTaskInput/UpdateTaskInput (Options,
+// Schedule, Excludes, Includes, ManifestConfig, TaskReportConfig, TaskMode).
+// A nil/zero field means "not supplied" (leave unchanged on UpdateTask);
+// Options/ManifestConfig/TaskReportConfig are opaque pass-through blobs
+// (echoed back verbatim on Describe) since their AWS shapes are deep and
+// advisory rather than FK-validated.
+type TaskSettings struct {
+	Options          map[string]any
+	Schedule         *TaskSchedule
+	ManifestConfig   map[string]any
+	TaskReportConfig map[string]any
+	TaskMode         string
+	Excludes         []FilterRule
+	Includes         []FilterRule
+}
+
 // Task represents a DataSync transfer task.
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type Task struct {
 	CreationTime            time.Time
 	Tags                    map[string]string
+	Options                 map[string]any
+	Schedule                *TaskSchedule
+	ManifestConfig          map[string]any
+	TaskReportConfig        map[string]any
 	TaskArn                 string
 	Name                    string
 	Status                  string
@@ -244,6 +280,9 @@ type Task struct {
 	DestinationLocationArn  string
 	CloudWatchLogGroupArn   string
 	CurrentTaskExecutionArn string
+	TaskMode                string
+	Excludes                []FilterRule
+	Includes                []FilterRule
 }
 
 // TaskListEntry is a task entry in a list response.
@@ -280,15 +319,16 @@ type SasConfiguration struct {
 // LocationAzureBlob is a DataSync Azure Blob location with full details.
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type LocationAzureBlob struct {
-	CreationTime     time.Time
-	SasConfiguration *SasConfiguration
-	LocationArn      string
-	LocationURI      string
-	ContainerURL     string
-	BlobType         string
-	AccessTier       string
-	Subdirectory     string
-	AgentArns        []string
+	CreationTime       time.Time
+	SasConfiguration   *SasConfiguration
+	LocationArn        string
+	LocationURI        string
+	ContainerURL       string
+	BlobType           string
+	AccessTier         string
+	AuthenticationType string
+	Subdirectory       string
+	AgentArns          []string
 }
 
 // Ec2Config holds EC2 configuration for an EFS location.
@@ -354,6 +394,7 @@ type LocationFsxOntap struct {
 	LocationArn              string
 	LocationURI              string
 	StorageVirtualMachineArn string
+	FsxFilesystemArn         string
 	Subdirectory             string
 	SecurityGroupArns        []string
 }
@@ -443,15 +484,16 @@ type LocationObjectStorage struct {
 // LocationSmb is a DataSync SMB location with full details.
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type LocationSmb struct {
-	CreationTime   time.Time
-	MountOptions   *MountOptions
-	LocationArn    string
-	LocationURI    string
-	ServerHostname string
-	Domain         string
-	User           string
-	Subdirectory   string
-	AgentArns      []string
+	CreationTime       time.Time
+	MountOptions       *MountOptions
+	LocationArn        string
+	LocationURI        string
+	ServerHostname     string
+	Domain             string
+	User               string
+	AuthenticationType string
+	Subdirectory       string
+	AgentArns          []string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

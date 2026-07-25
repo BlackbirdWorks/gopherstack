@@ -1,20 +1,20 @@
 ---
 service: apigateway
 sdk_module: aws-sdk-go-v2/service/apigateway@v1.38.6
-last_audit_commit: 83adaebe
-last_audit_date: 2026-07-11
-overall: A            # re-audit sweep: no SDK/local drift since ce30166a; found+fixed one real gap (ApiKey.customerId) plus a misleading-wire-shape doc/test fix on UpdateUsage
+last_audit_commit: 01f7563b
+last_audit_date: 2026-07-23
+overall: A            # closed all 5 documented gaps + 3 deferred items from the 2026-07-11 sweep: RestApi.{ApiStatus,ApiStatusMessage,DisableExecuteApiEndpoint,EndpointAccessMode}, Stage.DocumentationVersion, ApiKey.StageKeys (Create + PATCH /stages), UsagePlan per-route throttle PATCH, Stage canarySettings.stageVariableOverrides PATCH, MethodSetting.{CacheDataEncrypted,UnauthorizedCacheControlHeaderStrategy} + their PATCH paths, and 2 concrete instances of the top-level-scalar-PATCH-remove gap (RestApi./description, Authorizer./identitySource). Found+fixed 2 new bugs while doing so (see Notes): a multi-op-per-request PATCH clobbering bug in the 3 resolvers this sweep touches, and UpdateUsagePlan returning an unprotected pointer into backend state. Found+documented (not fixed, out of assigned scope) a pre-existing UpdateDomainName PATCH gap.
 ops:
-  UpdateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH semantics rewritten this sweep: /variables/{name}, canary-promotion copy op, /canarySettings/*, /accessLogSettings/*, per-route method settings, cacheCluster* fields added"}
-  UpdateRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /binaryMediaTypes/{escaped} add/remove now merges (was silently dropped); minimumCompressionSize string->int coercion fixed"}
+  UpdateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH semantics rewritten (/variables/{name}, canary-promotion copy op, /canarySettings/*, /accessLogSettings/*, per-route method settings, cacheCluster* fields). This sweep: documentationVersion field + PATCH added; /canarySettings/stageVariableOverrides whole-map-replace PATCH added; caching/dataEncrypted + caching/unauthorizedCacheControlHeaderStrategy per-route PATCH properties added"}
+  UpdateRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH /binaryMediaTypes/{escaped} add/remove merge, minimumCompressionSize coercion. This sweep: ApiStatus/ApiStatusMessage/DisableExecuteApiEndpoint/EndpointAccessMode fields added (Create + Update + PATCH replace); Description switched to *string so PATCH remove on /description actually clears it (was a silent no-op) — see Notes"}
   UpdateAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "CloudwatchRoleARN field added to UpdateAccountInput (previously unsettable at all); /throttle/{rateLimit,burstLimit} nested PATCH now merges"}
-  UpdateUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "/apiStages add/remove (value 'restApiId:stage') now merges; fixed InMemoryBackend.UpdateUsagePlan's len()>0 check so removing the last API stage actually applies"}
+  UpdateUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: /apiStages add/remove (value 'restApiId:stage') merge, len()>0 fix. This sweep: per-route throttle overrides added (/apiStages/{id:stage}/throttle/{resourcePath}/{httpMethod}[/rateLimit|burstLimit], remove of the whole entry at 5 segments, add/replace of one field at 6); also fixed UpdateUsagePlan returning an unprotected pointer into backend state (now returns a defensive copy like every other Update*) — see Notes"}
   UpdateGatewayResponse: {wire: ok, errors: ok, state: ok, persist: ok, note: "now backed by a dedicated merge-based backend method (was reusing PutGatewayResponse's full-replace, silently wiping ResponseParameters/ResponseTemplates/StatusCode on every partial PATCH); /responseParameters/{key} and /responseTemplates/{key} per-entry PATCH added"}
-  UpdateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "top-level enabled bool now coerced from its string-typed PATCH value (see Notes #1); this sweep added the missing customerId field (create/get/patch) — see Notes"}
+  UpdateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: enabled bool coercion, customerId field. This sweep: StageKeys field + PATCH /stages add/remove added (value '{restApiId}/{stageName}', deprecated-for-usage-plans per the SDK doc comment but still real and wire-modeled) — see Notes"}
   UpdateUsage: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: verified against AWS's patch-operations.html + CLI reference that the real (and only) supported path is the single-segment scalar /remaining, NOT a per-date path as the prior code comment and test claimed; behavior was already correct (the backend loop only reads map values, not keys) but doc/test were misleading — corrected both, see Notes"}
   UpdateRequestValidator: {wire: ok, errors: ok, state: ok, persist: ok, note: "validateRequestBody/validateRequestParameters bool coercion fixed"}
   UpdateMethod: {wire: ok, errors: ok, state: ok, persist: ok, note: "apiKeyRequired bool coercion fixed"}
-  UpdateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "authorizerResultTtlInSeconds int coercion fixed"}
+  UpdateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: authorizerResultTtlInSeconds int coercion. This sweep: IdentitySource switched to *string so PATCH remove on /identitySource actually clears it (was a silent no-op, AWS-documented as supported) — see Notes"}
   UpdateDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDomainName: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -27,8 +27,8 @@ ops:
   UpdateModel: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateClientCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateRestApi: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetRestApi: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: DisableExecuteApiEndpoint/EndpointAccessMode inputs wired; ApiStatus always AVAILABLE (gopherstack creates RestApis synchronously, no UPDATING/PENDING/FAILED transition)"}
+  GetRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: apiStatus/apiStatusMessage/disableExecuteApiEndpoint/endpointAccessMode now included in the response"}
   GetRestApis: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRestApi: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "{proxy+} greedy + trie-based routing (bd gopherstack fix #1403), parent-child tree verified"}
@@ -51,8 +51,8 @@ ops:
   GetDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDeployments: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "cacheCluster{Enabled,Size,Status} fields added this sweep"}
-  GetStage: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: cacheCluster{Enabled,Size,Status} fields. This sweep: documentationVersion field added, wired through the stageSnapshot DTO for persistence"}
+  GetStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: documentationVersion now included in the response"}
   GetStages: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteStage: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "TOKEN/REQUEST/COGNITO_USER_POOLS identitySource + TTL; cache bounded (bd gopherstack #1403)"}
@@ -60,9 +60,9 @@ ops:
   GetAuthorizers: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok}
   TestInvokeAuthorizer: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CreateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId (AWS Marketplace SaaS integration field, types.CreateApiKeyInput.CustomerId) added this sweep — was entirely absent from CreateAPIKeyInput/APIKey, silently dropped on create"}
-  GetApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId now included in the response"}
-  GetApiKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId now included per item"}
+  CreateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: customerId field. This sweep: StageKeys ([]types.StageKey -> validated + formatted '{restApiId}/{stageName}' strings, referenced stage must exist or NotFoundException) added — see Notes"}
+  GetApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId (prior sweep) and stageKeys (this sweep) now included in the response"}
+  GetApiKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId (prior sweep) and stageKeys (this sweep) now included per item"}
   DeleteApiKey: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -133,16 +133,14 @@ families:
   authorizers_runtime: {status: ok, note: "TOKEN/REQUEST/COGNITO_USER_POOLS resolution + JWKS validation via injected JWKSProvider, TTL-bounded cache (bd gopherstack #1403 fixed prior unbounded growth)"}
   patch_semantics: {status: ok, note: "REWRITTEN this sweep — see Notes; was the single biggest gap in the service"}
 gaps:
-  - "PATCH 'remove' on bare top-level SCALAR fields (e.g. /description, /policy) is still a no-op: every Update*Input's backend merge uses a zero-value-means-not-provided check (if input.X != \"\" / != nil), so an explicit remove can't be distinguished from absence without adding presence-tracking (pointer types or an explicit field mask) to every Update*Input across ~15 resources. Map/list-valued fields (variables, binaryMediaTypes, apiStages, responseParameters/Templates, methodSettings) DO support remove correctly (this sweep) because their merge goes through a full non-nil replacement value. (bd: gopherstack-0s6, follow-up)"
-  - "UsagePlan per-api-stage throttle overrides via PATCH path /apiStages/{restApiId}:{stage}/throttle/{resourcePath}~1{httpMethod}/{rateLimit,burstLimit} are not implemented (only whole-apiStage add/remove via the single-segment /apiStages path is). (bd: gopherstack-0s6, follow-up)"
-  - "Stage CanarySettings.StageVariableOverrides nested PATCH (/canarySettings/stageVariableOverrides/{name}) is not implemented; canarySettings/{deploymentId,percentTraffic,useStageCache} are."
-  - "MethodSetting.CacheDataEncrypted and UnauthorizedCacheControlHeaderStrategy have no field on gopherstack's MethodSetting struct at all (predates this sweep), so their PATCH property paths (caching/dataEncrypted, caching/unauthorizedCacheControlHeaderStrategy) are unrecognized and fall through as no-ops."
-  - "The exact property-path strings for per-route stage method settings (stageMethodSettingProperty in patch.go, e.g. \"logging/dataTrace\") are a best-effort mapping from AWS's PATCH-operations reference docs, not verified against an SDK-level enum (PatchOperation.Path is a free string in aws-sdk-go-v2 with no typed catalog to check against). Flag for correction if a live wire capture disagrees."
+  - "PATCH 'remove' on bare top-level SCALAR fields is a no-op EXCEPT for the two instances fixed this sweep (RestApi./description via UpdateRestAPIInput.Description *string, Authorizer./identitySource via UpdateAuthorizerInput.IdentitySource *string — both verified against patch-operations.html as the only top-level-scalar remove-supported paths on those two resources' Update tables). Every OTHER Update*Input still uses a zero-value-means-not-provided check (if input.X != \"\" / != nil), so explicit remove still can't be distinguished from absence there without the same presence-tracking treatment (pointer types) across the rest of ~15 resources. Map/list-valued fields (variables, binaryMediaTypes, apiStages, responseParameters/Templates, methodSettings, stageKeys) support remove correctly because their merge goes through a full non-nil replacement value. (bd: gopherstack-0s6, follow-up, narrowed this sweep)"
+  - "NEW this sweep (found while implementing the two fixes above): applyStructuredPatch's resource-specific resolvers (applyStageVariablePatch, applyStageCanaryPatch, applyStageAccessLogPatch, applyRestAPIPatchOp's binaryMediaTypes case, applyAccountPatchOp, applyGatewayResponsePatchOp) each independently re-derive their starting map/struct from CURRENT BACKEND STATE rather than checking whether an earlier op in the SAME PATCH request's patchOperations array already staged that field into `out`. A single request with two ops touching the same merged field (e.g. two different /variables/{name} entries, or a canary field then a variable) — the LAST op's write to out[field] wins, silently discarding earlier ops in that request. Fixed this sweep only for the three resolvers this sweep's new code touches (applyStageMethodSettingPatch, applyUsagePlan{APIStageMembership,Throttle}Patch, applyAPIKeyPatchOp) via the new stagedValue[T] helper (patch.go) — verified by Test_ApplyStructuredPatch_UsagePlanPerRouteThrottle, which combines a rateLimit and a burstLimit op in one request. The six resolvers listed above predate this sweep and are NOT fixed; each single-op-per-request PATCH still works correctly (which is what every existing test exercised), only multi-op-per-request against the SAME field is affected. (bd: gopherstack-0s6, follow-up)"
+  - "UpdateDomainName's nested/list PATCH paths (/mutualTlsAuthentication/truststoreUri, /certificateName, /endpointConfiguration/types, etc. — patch-operations.html's UpdateDomainName table) are entirely unhandled by applyResourcePatchOp (no case for opUpdateDomainName), so every multi-segment DomainName PATCH silently no-ops via applyTopLevelPatchOp's path-contains-\"/\" guard. Discovered this sweep while auditing patch.go's dispatch table for the assigned gaps; PARITY.md's domain_names family was previously marked ok without this being caught. Out of this sweep's assigned scope (not one of the 5 listed gaps/3 deferred items); flagging for a dedicated domain_names PATCH-semantics sweep."
+  - "The exact property-path strings for per-route stage method settings (stageMethodSettingProperty in patch.go, e.g. \"logging/dataTrace\", \"caching/dataEncrypted\", \"caching/unauthorizedCacheControlHeaderStrategy\") were fetched and verified this sweep directly against the live AWS documentation page https://docs.aws.amazon.com/apigateway/latest/api/patch-operations.html (UpdateStage table) — every string in the map matches exactly, including the two new caching/* entries added this sweep. Still not backed by an SDK-level typed enum (PatchOperation.Path is a free string in aws-sdk-go-v2), so this remains a doc-fetch verification rather than a compile-time guarantee; re-verify if AWS changes the doc."
+  - "UsagePlan.apiStages per-route throttle PATCH value-format details (JSON-Pointer escaping of resourcePath, the httpMethod segment, routeKey joined as \"{httpMethod} {resourcePath}\" to match APIStageAssociation.Throttle's pre-existing key convention from usage.go/usage_plans_test.go) are inferred by direct analogy with Stage's already-implemented per-route method-settings path shape, since AWS's patch-operations.html table and CLI reference docs for update-usage-plan both omit a worked example for this specific path. Flag for correction if a live wire capture disagrees."
 deferred:
-  - "RestApi.ApiStatus/ApiStatusMessage/DisableExecuteApiEndpoint/EndpointAccessMode (present in aws-sdk-go-v2 types.RestApi, absent from gopherstack's RestAPI struct) — cosmetic/status-only fields, low client impact, out of scope this pass."
-  - "Stage.DocumentationVersion (present in AWS's Stage type) not modeled."
-  - "ApiKey.StageKeys (types.ApiKey.StageKeys / types.CreateApiKeyInput.StageKeys) not modeled, so CreateApiKey's stageKeys and UpdateApiKey's PATCH /stages add/remove are unimplemented. Checked this sweep against aws-sdk-go-v2 CreateApiKeyInput's doc comment: 'DEPRECATED FOR USAGE PLANS - Specifies stages associated with the API key. ... This parameter is deprecated and should not be used.' Low real-world impact; deferred. The PATCH /labels add/remove path from patch-operations.html has no corresponding field anywhere in aws-sdk-go-v2/service/apigateway/types.ApiKey either (likely a stale doc artifact from a pre-Tags API generation) — nothing to implement against."
-leaks: {status: clean, note: "no new goroutines/tickers/persistent state introduced this sweep — patch.go is pure request-scoped transform code; authorizer cache and resource routing trie growth were already bounded by a prior sweep (bd gopherstack #1403)"}
+  - "ApiKey.StageKeys's PATCH /labels add/remove path (listed in patch-operations.html's UpdateApiKey table) still has no corresponding field anywhere in aws-sdk-go-v2/service/apigateway/types.ApiKey (re-verified this sweep) — likely a stale doc artifact from a pre-Tags API generation. Nothing to implement against; distinct from /stages, which this sweep DID implement (see Notes)."
+leaks: {status: clean, note: "no new goroutines/tickers/persistent state introduced this sweep — all new code (StageKeyInput resolution, patch.go's new resolvers/stagedValue helper) is request-scoped and synchronous under the existing coarse b.mu; UpdateUsagePlan's missing defensive copy (return p instead of a copy, found while extending it for per-route throttle) was also fixed, closing a latent aliasing hole where a caller mutating the returned *UsagePlan would have corrupted backend state directly"}
 ---
 
 ## Notes
@@ -318,3 +316,134 @@ with nothing to implement against.
 No other rows changed. Gates: `go build`/`go vet`/`go test -race`/`go fix
 -diff`/`golangci-lint run`, all scoped to `./services/apigateway/...`, pass
 clean both before and after this sweep's edits.
+
+## 2026-07-23 sweep
+
+Closed all 5 documented `gaps` and all 3 `deferred` items from the 2026-07-11
+sweep. Field-diffed every new field/path against the vendored
+`aws-sdk-go-v2/service/apigateway@v1.38.6` types (`types.go`,
+`api_op_*.go`, `serializers.go`) and, for PATCH path shapes, against a live
+fetch of https://docs.aws.amazon.com/apigateway/latest/api/patch-operations.html
+(the previous sweep's `gaps` entry #5 flagged the method-settings property
+strings as unverified against a typed enum — no such enum exists in the SDK,
+so this sweep instead fetched the actual doc table and confirmed every
+existing string plus the two added this sweep match exactly).
+
+**Deferred item 1 (RestApi cosmetic fields) — all four fields are real,
+confirmed in `types.go`**: `ApiStatus` (enum `UPDATING`/`AVAILABLE`/`PENDING`/
+`FAILED`), `ApiStatusMessage`, `DisableExecuteApiEndpoint`,
+`EndpointAccessMode` (enum `BASIC`/`STRICT`). All four are present in
+`CreateRestApiInput` too (not create-then-immutable), confirmed by reading
+`api_op_CreateRestApi.go`. `ApiStatus` is AWS-managed/read-only (no PATCH path
+in patch-operations.html); gopherstack sets it to `AVAILABLE` unconditionally
+on create since RestApi creation here is always synchronous with no
+UPDATING/PENDING/FAILED transition to model. `DisableExecuteApiEndpoint` and
+`EndpointAccessMode` are both real PATCH paths (`patch-operations.html`'s
+UpdateRestApi table: both replace-only, no add/remove) — wired through
+`patchFieldKind`'s bool-coercion table for the former (a wire string like
+`"true"` must coerce to a JSON bool before hitting the `*bool` field).
+
+**Deferred item 2 (Stage.DocumentationVersion) — real field, real PATCH
+path**: added to `Stage`, `CreateStageInput`, `UpdateStageInput`, and (since
+Stage is a DTO'd table, unlike RestApi/ApiKey/UsagePlan's "clean" tables) the
+`stageSnapshot` DTO in `persistence.go` — a field added to `Stage` alone
+without the DTO update would silently NOT persist across Snapshot/Restore,
+the exact bug class `pkgs-catalog.md`'s "clean/dirty table split" note warns
+about.
+
+**Deferred item 3 (ApiKey.StageKeys) — implemented, contrary to the prior
+sweep's decision to leave it out.** Re-read the SDK doc comment: it says
+"DEPRECATED FOR USAGE PLANS ... should not be used" as *guidance*, not a
+removal — the field is still fully present and functional in
+`CreateApiKeyInput.StageKeys` (`[]types.StageKey`, object form: `restApiId`/
+`stageName`), `CreateApiKeyOutput.StageKeys`/`GetApiKeyOutput.StageKeys`/
+`UpdateApiKeyOutput.StageKeys` (`[]string`, confirmed serialized as
+`{restApiId}/{stageName}` by reading `awsRestjson1_serializeDocumentStageKey`
+in `serializers.go`), and `UpdateApiKey`'s `/stages` PATCH path (add/remove,
+`patch-operations.html`'s UpdateApiKey table). AWS deprecating a field in
+favor of a newer mechanism (usage plans) doesn't make the field non-functional
+or out of scope for parity — a real client can still call it and expects a
+real response, so implementing it is the correct call under this campaign's
+no-stub rule. `CreateApiKey` validates each referenced REST API + stage
+exists (`NotFoundException` otherwise, mirroring `CreateUsagePlanKey`'s
+existing FK-validation pattern) and formats survivors as
+`{restApiId}/{stageName}` via the new `formatAPIKeyStageKey` helper. Also
+re-confirmed the prior sweep's finding that `/labels` (a second ApiKey PATCH
+path `patch-operations.html` lists) has no corresponding field anywhere in
+`types.ApiKey` — left in `deferred` since there's genuinely nothing to wire
+it to.
+
+**Gap "PATCH remove on top-level scalars" — narrowed, not closed.** The
+architectural fix (pointer-ify every Update*Input field) is out of this
+sweep's budget across all ~15 resources, but two concrete instances are now
+real: `UpdateRestAPIInput.Description` and `UpdateAuthorizerInput.IdentitySource`
+both became `*string`, and their handler-level wire structs
+(`updateRestAPIHandlerInput` embeds `UpdateRestAPIInput` directly;
+`updateAuthorizerInput` in `handler_authorizers.go` is a separate
+hand-written struct that had to be migrated too, since it doesn't embed the
+backend input type) plus `patch.go`'s new `removableTopLevelScalar` table
+(gating exactly which action+field pairs get an explicit `""` write on
+`remove`, vs. every other field which still silently no-ops) make `remove`
+on `/description` (RestApi) and `/identitySource` (Authorizer) actually work
+end to end. Verified both are genuinely the only top-level-scalar
+`op:remove`-supported paths on their respective resources per
+`patch-operations.html` (every other remove-supported path on every other
+resource's table is either already map/list-handled, or — for
+UpdateDomainName — entirely unhandled for an unrelated reason; see the new
+`gaps` entry on that).
+
+**Two bugs found (not assigned, found while extending adjacent code) and
+fixed:**
+
+1. `InMemoryBackend.UpdateUsagePlan` returned `p, nil` — a pointer straight
+   into the backend's own stored `*UsagePlan`, not a defensive copy, unlike
+   every other `Update*` method in this service (`cp := *x; return &cp`). A
+   caller mutating the returned value would have corrupted backend state
+   without going through the lock. Found while extending this method's PATCH
+   coverage for per-route throttle; fixed to match the established pattern.
+2. Multiple PATCH ops in one request targeting the *same* merged field
+   (discovered via `Test_ApplyStructuredPatch_UsagePlanPerRouteThrottle`,
+   which legitimately sets both `rateLimit` and `burstLimit` for one route in
+   a single request — a very plausible real-client pattern) clobbered each
+   other: `applyStageMethodSettingPatch` (and, before this sweep's fix, the
+   two new UsagePlan/ApiKey resolvers) each independently re-derived their
+   starting map from **current backend state**, ignorant of what an earlier
+   op in the same request had already staged into `out`. The last op's
+   `setJSONValue(out, field, ...)` call wins, discarding earlier ones. Added
+   `stagedValue[T]` (a small generic helper) and wired it into the three
+   resolvers this sweep's new code touches
+   (`applyStageMethodSettingPatch`, `applyUsagePlanAPIStageMembershipPatch`
+   + `applyUsagePlanThrottlePatch` via the new `currentUsagePlanAPIStages`
+   helper, `applyAPIKeyPatchOp`). The same bug pattern exists, unfixed, in
+   six pre-existing resolvers this sweep didn't need to touch
+   (`applyStageVariablePatch`, `applyStageCanaryPatch`,
+   `applyStageAccessLogPatch`, `applyRestAPIPatchOp`'s binaryMediaTypes case,
+   `applyAccountPatchOp`, `applyGatewayResponsePatchOp`) — every existing
+   test for those only ever sends one op per request per field, so the bug
+   was never exercised. Logged as a `gaps` entry rather than silently fixed
+   everywhere, since a blanket fix across 6 more call sites was judged
+   outside this sweep's assigned scope (5 gaps + 3 deferred, all now
+   addressed) and deserves its own focused verification pass.
+
+**New gap found (not fixed, out of scope): `UpdateDomainName`'s PATCH
+semantics.** `applyResourcePatchOp`'s switch (`patch.go`) has no case for
+`opUpdateDomainName`, so every nested/multi-segment DomainName PATCH path
+(`/mutualTlsAuthentication/truststoreUri`, `/certificateName`,
+`/endpointConfiguration/types/{type}`, etc. — all real, per
+`patch-operations.html`'s UpdateDomainName table, which has more distinct
+paths than any other resource in this service) falls through to
+`applyTopLevelPatchOp`, which no-ops anything containing `/` after the
+leading slash. This predates this sweep and was not one of the 5 assigned
+gaps/3 deferred items, so left unfixed here — flagging for a dedicated
+`domain_names` PATCH-semantics sweep, since it looks like a comparably-sized
+gap to the one this whole PATCH rewrite effort (see the 2026-07-\* sweeps
+above) already closed for every other resource.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `gofmt -l` (clean),
+`golangci-lint run` (0 issues), and a grep for banned
+`cyclop`/`gocyclo`/`gocognit`/`funlen` nolints (empty) — all scoped to
+`./services/apigateway/...` — pass clean after this sweep's edits. One
+cyclop violation surfaced mid-sweep (`applyStageCanaryPatch` hit 17 after
+adding the `stageVariableOverrides` case, max 15) and was resolved by
+extracting the per-property switch into `applyStageCanaryProp`, not a
+nolint.

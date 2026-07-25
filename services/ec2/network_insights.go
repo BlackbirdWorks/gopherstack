@@ -43,6 +43,7 @@ func (b *InMemoryBackend) DeleteNetworkInsightsPath(id string) error {
 		return fmt.Errorf("%w: %s", ErrNetworkInsightsPathNotFound, id)
 	}
 	b.networkInsightsPaths.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -99,6 +100,7 @@ func (b *InMemoryBackend) DeleteNetworkInsightsAnalysis(id string) error {
 		return fmt.Errorf("%w: %s", ErrNetworkInsightsAnalysisNotFound, id)
 	}
 	b.networkInsightsAnalyses.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -149,6 +151,7 @@ func (b *InMemoryBackend) DeleteNetworkInsightsAccessScope(id string) error {
 		return fmt.Errorf("%w: %s", ErrNetworkInsightsAccessScopeNF, id)
 	}
 	b.networkInsightsAccessScopes.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -207,6 +210,7 @@ func (b *InMemoryBackend) DeleteNetworkInsightsAccessScopeAnalysis(id string) er
 		return fmt.Errorf("%w: %s", ErrNetworkInsightsAccessScopeAnaNF, id)
 	}
 	b.networkInsightsAccessScopeAnalyses.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

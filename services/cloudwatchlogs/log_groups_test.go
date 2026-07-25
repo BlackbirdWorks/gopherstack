@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/stretchr/testify/assert"
@@ -357,58 +358,166 @@ func TestCloudWatchLogsBackend_DisassociateKmsKey(t *testing.T) {
 	}
 }
 
+// putSyntheticFields creates "my-group"/"my-stream" and ingests msgs with a
+// pre-2001-epoch timestamp, which GetLogGroupFields treats as always inside
+// its sampling window (mirroring PutLogEvents' own synthetic-timestamp
+// bypass), so tests don't have to race real wall-clock time.
+func putSyntheticFields(t *testing.T, b *cloudwatchlogs.InMemoryBackend, msgs []string) {
+	t.Helper()
+
+	ctx := context.Background()
+	_, err := b.CreateLogGroup(ctx, "my-group", "", "")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream(ctx, "my-group", "my-stream")
+	require.NoError(t, err)
+
+	events := make([]cloudwatchlogs.InputLogEvent, len(msgs))
+	for i, m := range msgs {
+		events[i] = cloudwatchlogs.InputLogEvent{Message: m, Timestamp: int64(i + 1)}
+	}
+
+	_, err = b.PutLogEvents(ctx, "my-group", "my-stream", "", events)
+	require.NoError(t, err)
+}
+
+func fieldPercent(t *testing.T, fields []cloudwatchlogs.LogGroupField, name string) (int32, bool) {
+	t.Helper()
+
+	for _, f := range fields {
+		if f.Name == name {
+			return f.Percent, true
+		}
+	}
+
+	return 0, false
+}
+
 func TestCloudWatchLogsBackend_GetLogGroupFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		wantErr      error
-		setup        func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
-		name         string
-		logGroupName string
-		wantFields   int
-	}{
-		{
-			name: "success",
-			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
-				t.Helper()
-				_, err := b.CreateLogGroup(context.Background(), "my-group", "", "")
-				require.NoError(t, err)
-			},
-			logGroupName: "my-group",
-			wantFields:   4,
-		},
-		{
-			name:         "not_found",
-			logGroupName: "nonexistent",
-			wantErr:      cloudwatchlogs.ErrLogGroupNotFound,
-		},
-		{
-			name:    "empty_name",
-			wantErr: cloudwatchlogs.ErrValidation,
-		},
-	}
+	t.Run("empty_name", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		b := cloudwatchlogs.NewInMemoryBackend()
+		_, err := b.GetLogGroupFields(context.Background(), "", nil)
+		require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+	})
 
-			b := cloudwatchlogs.NewInMemoryBackend()
-			if tt.setup != nil {
-				tt.setup(t, b)
-			}
+	t.Run("not_found", func(t *testing.T) {
+		t.Parallel()
 
-			fields, err := b.GetLogGroupFields(context.Background(), tt.logGroupName)
+		b := cloudwatchlogs.NewInMemoryBackend()
+		_, err := b.GetLogGroupFields(context.Background(), "nonexistent", nil)
+		require.ErrorIs(t, err, cloudwatchlogs.ErrLogGroupNotFound)
+	})
 
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
+	t.Run("no_events_in_window_returns_empty", func(t *testing.T) {
+		t.Parallel()
 
-				return
-			}
+		b := cloudwatchlogs.NewInMemoryBackend()
+		_, err := b.CreateLogGroup(context.Background(), "my-group", "", "")
+		require.NoError(t, err)
 
-			require.NoError(t, err)
-			assert.Len(t, fields, tt.wantFields)
+		fields, err := b.GetLogGroupFields(context.Background(), "my-group", nil)
+		require.NoError(t, err)
+		assert.Empty(t, fields)
+	})
+
+	t.Run("plain_text_events_yield_only_standard_fields_at_100pct", func(t *testing.T) {
+		t.Parallel()
+
+		b := cloudwatchlogs.NewInMemoryBackend()
+		putSyntheticFields(t, b, []string{"hello", "world"})
+
+		fields, err := b.GetLogGroupFields(context.Background(), "my-group", nil)
+		require.NoError(t, err)
+		require.Len(t, fields, 4)
+
+		for _, name := range []string{"@message", "@timestamp", "@ingestionTime", "@logStream"} {
+			pct, ok := fieldPercent(t, fields, name)
+			require.Truef(t, ok, "expected field %s present", name)
+			assert.Equal(t, int32(100), pct)
+		}
+	})
+
+	t.Run("json_field_percentage_reflects_partial_match", func(t *testing.T) {
+		t.Parallel()
+
+		b := cloudwatchlogs.NewInMemoryBackend()
+		putSyntheticFields(t, b, []string{
+			`{"level":"ERROR"}`,
+			`{"level":"INFO"}`,
+			`plain text, no json`,
+			`plain text, no json`,
 		})
-	}
+
+		fields, err := b.GetLogGroupFields(context.Background(), "my-group", nil)
+		require.NoError(t, err)
+
+		pct, ok := fieldPercent(t, fields, "level")
+		require.True(t, ok, "expected discovered JSON field \"level\" present")
+		assert.Equal(t, int32(50), pct)
+
+		msgPct, ok := fieldPercent(t, fields, "@message")
+		require.True(t, ok)
+		assert.Equal(t, int32(100), msgPct)
+
+		// AWS sorts by descending percentage, so the 100%-present standard
+		// fields must sort ahead of the 50%-present discovered field.
+		require.GreaterOrEqual(t, len(fields), 2)
+		assert.Equal(t, int32(100), fields[0].Percent)
+		assert.Equal(t, "level", fields[len(fields)-1].Name)
+	})
+
+	t.Run("realistic_timestamps_outside_default_lookback_are_excluded", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		b := cloudwatchlogs.NewInMemoryBackend()
+		_, err := b.CreateLogGroup(ctx, "my-group", "", "")
+		require.NoError(t, err)
+		_, err = b.CreateLogStream(ctx, "my-group", "my-stream")
+		require.NoError(t, err)
+
+		oldMs := time.Now().Add(-1 * time.Hour).UnixMilli()
+		_, err = b.PutLogEvents(ctx, "my-group", "my-stream", "", []cloudwatchlogs.InputLogEvent{
+			{Message: "stale", Timestamp: oldMs},
+		})
+		require.NoError(t, err)
+
+		fields, err := b.GetLogGroupFields(ctx, "my-group", nil)
+		require.NoError(t, err)
+		assert.Empty(t, fields, "event outside the default 15-minute lookback must not be sampled")
+	})
+
+	t.Run("time_param_centers_an_8_minute_window", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		b := cloudwatchlogs.NewInMemoryBackend()
+		_, err := b.CreateLogGroup(ctx, "my-group", "", "")
+		require.NoError(t, err)
+		_, err = b.CreateLogStream(ctx, "my-group", "my-stream")
+		require.NoError(t, err)
+
+		centerSec := time.Now().Add(-2 * time.Hour).Unix()
+		inWindowMs := centerSec*1000 + 60_000   // 1 minute after center: inside +-8min
+		outWindowMs := centerSec*1000 - 600_000 // 10 minutes before center: outside +-8min
+
+		_, err = b.PutLogEvents(ctx, "my-group", "my-stream", "", []cloudwatchlogs.InputLogEvent{
+			{Message: "out-of-window", Timestamp: outWindowMs},
+			{Message: "in-window", Timestamp: inWindowMs},
+		})
+		require.NoError(t, err)
+
+		fields, err := b.GetLogGroupFields(ctx, "my-group", &centerSec)
+		require.NoError(t, err)
+		require.Len(t, fields, 4)
+
+		pct, ok := fieldPercent(t, fields, "@message")
+		require.True(t, ok)
+		assert.Equal(t, int32(100), pct, "only the in-window event should have been sampled")
+	})
 }
 
 func TestCloudWatchLogsBackend_ListLogGroups(t *testing.T) {

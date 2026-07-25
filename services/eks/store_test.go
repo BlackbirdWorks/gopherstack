@@ -154,7 +154,10 @@ func TestResetClearsAllResourceKinds(t *testing.T) {
 		"roleArn":                 "arn:aws:iam::123456789012:role/capability-role",
 		"deletePropagationPolicy": "RETAIN",
 	})
-	doREST(t, h, http.MethodPost, "/eks-anywhere-subscriptions", map[string]any{"name": "sub1"})
+	doREST(t, h, http.MethodPost, "/eks-anywhere-subscriptions", map[string]any{
+		"name": "sub1",
+		"term": map[string]any{"unit": "MONTHS", "duration": 12},
+	})
 
 	assert.Equal(t, 1, h.Backend.ClusterCount())
 	assert.Equal(t, 1, h.Backend.AddonCount())

@@ -22,11 +22,14 @@ const (
 // comment for why, and persistence.go's doc comment for the persistence
 // audit of each.
 type InMemoryBackend struct {
-	registry         *store.Registry
-	recorders        *store.Table[ConfigurationRecorder]
-	channels         *store.Table[DeliveryChannel]
-	aggregationAuths *store.Table[AggregationAuthorization]
-	configRules      *store.Table[ConfigRule]
+	registry  *store.Registry
+	recorders *store.Table[ConfigurationRecorder]
+	// serviceLinkedRecorders tracks servicePrincipal -> recorder-name links for
+	// service-linked recorders (see ServiceLinkedRecorderLink's doc comment).
+	serviceLinkedRecorders *store.Table[ServiceLinkedRecorderLink]
+	channels               *store.Table[DeliveryChannel]
+	aggregationAuths       *store.Table[AggregationAuthorization]
+	configRules            *store.Table[ConfigRule]
 	// ruleEvaluations is a scalar-valued map (rule name → rolled-up compliance
 	// type) -- no *T for store.Table to key on -- so it stays a plain map.
 	ruleEvaluations map[string]string
@@ -50,13 +53,26 @@ type InMemoryBackend struct {
 	resourceEvaluations *store.Table[ResourceEvaluation]
 	aggregators         *store.Table[ConfigurationAggregator]
 	conformancePacks    *store.Table[ConformancePack]
-	orgConfigRules      *store.Table[OrganizationConfigRule]
-	orgConformancePacks *store.Table[OrganizationConformancePack]
-	storedQueries       *store.Table[StoredQuery]
+	// conformancePackRules tracks which config rules each conformance pack
+	// deployed (see ConformancePackRuleLink's doc comment), keyed by
+	// "<packName>|<ruleName>" with a "byPack" index answering "every rule this
+	// pack deployed" (used by the compliance family and cascade delete).
+	conformancePackRules       *store.Table[ConformancePackRuleLink]
+	conformancePackRulesByPack *store.Index[ConformancePackRuleLink]
+	orgConfigRules             *store.Table[OrganizationConfigRule]
+	orgConformancePacks        *store.Table[OrganizationConformancePack]
+	storedQueries              *store.Table[StoredQuery]
 	// resourceTags is a slice-valued map (ARN → tags) -- left as a plain map.
 	resourceTags       map[string][]Tag
 	retentionConfigs   *store.Table[RetentionConfiguration]
 	remediationConfigs *store.Table[RemediationConfiguration]
+	// remediationExecutions tracks StartRemediationExecution runs, keyed by
+	// "<ruleName>|<resourceType>\x1f<resourceID>" with a "byRule" index
+	// answering "every execution for this rule" (used by
+	// DescribeRemediationExecutionStatus), mirroring ruleResourceEvals'
+	// composite-key pattern.
+	remediationExecutions       *store.Table[RemediationExecutionStatusEntry]
+	remediationExecutionsByRule *store.Index[RemediationExecutionStatusEntry]
 	// remediationExceptions is a slice-valued map (rule name → exceptions) --
 	// left as a plain map.
 	remediationExceptions map[string][]RemediationException

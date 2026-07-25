@@ -87,6 +87,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", mediastoreSnapshotVersion)
 
 		b.containers = make(map[string]*store.Table[Container])
+		b.containerTransitions = make(map[string]*containerTransition)
 
 		return nil
 	}
@@ -95,6 +96,19 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	for region, items := range snap.Containers {
 		b.containersStore(region).Restore(items)
 	}
+
+	// containerTransitions holds in-flight lifecycle state (like
+	// services/redshift's clusterTransitions), intentionally never persisted:
+	// a restored container is either already ACTIVE in the snapshot (the
+	// common case, since activationDelay defaults to zero) or, if a delay was
+	// configured, any transition still pending across a process restart would
+	// be resolved against a stale wall-clock deadline anyway. Restore simply
+	// leaves restored containers in whatever terminal-ish status the
+	// snapshot captured; a genuinely still-CREATING/DELETING container from a
+	// snapshot just stays in that status permanently rather than reviving a
+	// transition with no clock to drive it, matching the pagination-secret
+	// "does not survive a restart" limitation already documented above.
+	b.containerTransitions = make(map[string]*containerTransition)
 
 	return nil
 }

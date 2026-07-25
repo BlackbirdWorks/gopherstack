@@ -36,10 +36,11 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 	vpcID := vpcIDFromSubnets(subnetIDs)
 
 	sg := &SubnetGroup{
-		SubnetGroupName: name,
-		Description:     description,
-		VpcID:           vpcID,
-		Subnets:         subnets,
+		SubnetGroupName:       name,
+		Description:           description,
+		VpcID:                 vpcID,
+		Subnets:               subnets,
+		SupportedNetworkTypes: []string{NetworkTypeIPv4},
 	}
 
 	b.subnetGroups.Put(sg)
@@ -129,6 +130,7 @@ func (b *InMemoryBackend) DeleteSubnetGroup(name string) error {
 func subnetGroupCopy(sg *SubnetGroup) *SubnetGroup {
 	cp := *sg
 	cp.Subnets = append([]SubnetEntry(nil), sg.Subnets...)
+	cp.SupportedNetworkTypes = append([]string(nil), sg.SupportedNetworkTypes...)
 
 	return &cp
 }

@@ -36,7 +36,7 @@ func (b *InMemoryBackend) CreateProject(
 	p := &Project{
 		Name: name, Arn: b.projectARN(region, name), DatasetName: datasetName,
 		RecipeName: recipeName, RoleArn: roleArn, Sample: sample,
-		Tags: maps.Clone(tags), SessionStatus: "READY",
+		Tags: maps.Clone(tags), SessionStatus: "READY", AccountID: b.accountID,
 		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
 	}
 	t.Put(p)
@@ -81,9 +81,14 @@ func (b *InMemoryBackend) ListProjects(
 	return out, next
 }
 
+// UpdateProject modifies a project's RoleArn and Sample. DatasetName is
+// deliberately NOT settable here: aws-sdk-go-v2/service/databrew's
+// UpdateProjectInput has no DatasetName member (only Name/RoleArn/Sample) --
+// a project's dataset is fixed at creation and is not one of the documented
+// updatable fields.
 func (b *InMemoryBackend) UpdateProject(
 	ctx context.Context,
-	name, datasetName, roleArn string,
+	name, roleArn string,
 	sample Sample,
 ) error {
 	b.mu.Lock("UpdateProject")
@@ -96,9 +101,6 @@ func (b *InMemoryBackend) UpdateProject(
 	if sample.Type != "" && sample.Type != "FIRST_N" && sample.Type != "LAST_N" &&
 		sample.Type != "RANDOM" {
 		return fmt.Errorf("%w: invalid Sample.Type %q", ErrValidation, sample.Type)
-	}
-	if datasetName != "" {
-		p.DatasetName = datasetName
 	}
 	if roleArn != "" {
 		p.RoleArn = roleArn

@@ -38,41 +38,30 @@ type storedWorkspace struct {
 // comments below and persistence.go's doc comment for which of these were
 // persisted before this refactor and remain so.
 type InMemoryBackend struct {
-	mu       *lockmetrics.RWMutex
-	registry *store.Registry
-
-	workspaces     *store.Table[storedWorkspace]
-	ipGroups       *store.Table[storedIpGroup]
-	connAliases    *store.Table[storedConnAlias]
-	customBundles  *store.Table[storedCustomBundle]
-	images         *store.Table[storedImage]
-	pools          *store.Table[storedPool]
-	poolSessions   *store.Table[storedPoolSession]
-	connectAddIns  *store.Table[storedConnectAddIn]
-	clientBranding *store.Table[storedClientBranding]
-	accountLinks   *store.Table[storedAccountLink]
-	applications   *store.Table[storedApplication]
-	dirSettings    *store.Table[storedDirSettings]
-
-	// tags was persisted pre-Phase-3.3 (backendSnapshot.Tags) and remains so;
-	// see persistence.go. Values are plain maps, not *T, so store.Table does
-	// not apply.
-	tags map[string]map[string]string // resourceID → tags
-
-	// directoryIpGroups, imagePermissions, clientProperties, and
-	// appAssociations were NOT persisted pre-Phase-3.3 (backendSnapshot only
-	// carried Workspaces+Tags) and remain unpersisted -- ephemeral,
-	// consistent with the prior behavior. Values are plain maps/scalars, not
-	// *T, so store.Table does not apply either way.
-	directoryIpGroups map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
-	imagePermissions  map[string]map[string]bool
-	clientProperties  map[string]storedClientProps
-	appAssociations   map[string]map[string]struct{}
-
-	accountConfig storedAccountConfig
-	accountID     string
-	region        string
-	counter       int
+	applications         *store.Table[storedApplication]
+	images               *store.Table[storedImage]
+	workspaces           *store.Table[storedWorkspace]
+	ipGroups             *store.Table[storedIpGroup]
+	connAliases          *store.Table[storedConnAlias]
+	customBundles        *store.Table[storedCustomBundle]
+	accountLinks         *store.Table[storedAccountLink]
+	pools                *store.Table[storedPool]
+	poolSessions         *store.Table[storedPoolSession]
+	connectAddIns        *store.Table[storedConnectAddIn]
+	registry             *store.Registry
+	clientBranding       *store.Table[storedClientBranding]
+	imagePermissions     map[string]map[string]bool
+	dirSettings          *store.Table[storedDirSettings]
+	tags                 map[string]map[string]string
+	directoryIpGroups    map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
+	mu                   *lockmetrics.RWMutex
+	clientProperties     map[string]storedClientProps
+	appAssociations      map[string]map[string]struct{}
+	accountConfig        storedAccountConfig
+	accountID            string
+	region               string
+	accountModifications []AccountModification
+	counter              int
 }
 
 // ---------------------------------------------------------------------------
@@ -144,15 +133,17 @@ type storedImage struct {
 // ---------------------------------------------------------------------------
 
 type storedPool struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	Tags        map[string]string `json:"tags"`
-	PoolID      string            `json:"poolId"`
-	PoolArn     string            `json:"poolArn"`
-	PoolName    string            `json:"poolName"`
-	BundleID    string            `json:"bundleId"`
-	DirectoryID string            `json:"directoryId"`
-	Description string            `json:"description"`
-	State       string            `json:"state"`
+	CreatedAt           time.Time         `json:"createdAt"`
+	Tags                map[string]string `json:"tags"`
+	PoolID              string            `json:"poolId"`
+	PoolArn             string            `json:"poolArn"`
+	PoolName            string            `json:"poolName"`
+	BundleID            string            `json:"bundleId"`
+	DirectoryID         string            `json:"directoryId"`
+	Description         string            `json:"description"`
+	State               string            `json:"state"`
+	RunningMode         string            `json:"runningMode"`
+	DesiredUserSessions int32             `json:"desiredUserSessions"`
 }
 
 type storedPoolSession struct {

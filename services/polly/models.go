@@ -2,12 +2,6 @@ package polly
 
 import "time"
 
-// Tag is a Polly resource tag.
-type Tag struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
-}
-
 // Lexicon stores pronunciation content and computed lexicon attributes.
 type Lexicon struct {
 	LastModified time.Time
@@ -52,7 +46,7 @@ type SpeechSynthesisTask struct {
 	TaskStatusReason   string
 	OutputURI          string
 	OutputS3BucketName string
-	SNSRoleArn         string
+	OutputS3KeyPrefix  string
 	SNSTopicArn        string
 	Options            SynthesisOptions
 	polls              int

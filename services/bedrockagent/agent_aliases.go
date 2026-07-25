@@ -57,13 +57,19 @@ func (b *InMemoryBackend) CreateAgentAlias(
 		AgentAliasStatus:     aliasStatusPrepared,
 		AgentID:              agentID,
 		Description:          cfg.Description,
-		Tags:                 maps.Clone(cfg.Tags),
 		RoutingConfiguration: routing,
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
 
 	b.agentAliases.Put(al)
+	// Real AWS: CreateAgentAliasInput accepts a "tags" member, but the
+	// AgentAlias response shape never echoes tags back -- they are only
+	// readable via ListTagsForResource(AgentAliasArn). Was previously
+	// dropped entirely (stored only on the now-removed invented
+	// AgentAlias.Tags wire field, so ListTagsForResource on a
+	// freshly-created alias incorrectly returned empty).
+	b.tags[al.AgentAliasARN] = maps.Clone(cfg.Tags)
 
 	return aliasCopy(al), nil
 }
@@ -105,26 +111,25 @@ func (b *InMemoryBackend) UpdateAgentAlias(
 		al.RoutingConfiguration = cfg.RoutingConfiguration
 	}
 
-	if cfg.Tags != nil {
-		al.Tags = maps.Clone(cfg.Tags)
-	}
-
 	al.UpdatedAt = time.Now().UTC()
 
 	return aliasCopy(al), nil
 }
 
-// DeleteAgentAlias deletes an agent alias.
+// DeleteAgentAlias deletes an agent alias and its tags map entry.
 func (b *InMemoryBackend) DeleteAgentAlias(_ context.Context, agentID, aliasID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	key := aliasKey(agentID, aliasID)
-	if !b.agentAliases.Has(key) {
+
+	al, ok := b.agentAliases.Get(key)
+	if !ok {
 		return fmt.Errorf("%w: alias %q not found", ErrNotFound, aliasID)
 	}
 
 	b.agentAliases.Delete(key)
+	delete(b.tags, al.AgentAliasARN)
 
 	return nil
 }
@@ -157,7 +162,6 @@ func (b *InMemoryBackend) ListAgentAliases(
 
 func aliasCopy(al *AgentAlias) *AgentAlias {
 	cp := *al
-	cp.Tags = maps.Clone(al.Tags)
 
 	if al.RoutingConfiguration != nil {
 		cp.RoutingConfiguration = append([]AliasRouting{}, al.RoutingConfiguration...)

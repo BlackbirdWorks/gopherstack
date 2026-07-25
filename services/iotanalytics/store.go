@@ -168,6 +168,52 @@ func validateRetentionPeriod(rp *RetentionPeriod) error {
 	return nil
 }
 
+// validateDatastorePartitions checks that every partition dimension has exactly one of
+// AttributePartition/TimestampPartition set, and that the set variant carries a non-empty
+// AttributeName. This mirrors the AWS SDK's client-side validators (validatePartition /
+// validateTimestampPartition in the generated iotanalytics client), which require
+// AttributeName on both variants; a raw HTTP caller bypassing SDK-side validation would hit
+// this same requirement server-side.
+func validateDatastorePartitions(p *DatastorePartitions) error {
+	if p == nil {
+		return nil
+	}
+
+	for i, entry := range p.Partitions {
+		if err := validateDatastorePartitionEntry(i, entry); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateDatastorePartitionEntry validates a single partition dimension union at index i.
+func validateDatastorePartitionEntry(i int, entry DatastorePartitionEntry) error {
+	switch {
+	case entry.AttributePartition != nil && entry.TimestampPartition != nil:
+		return fmt.Errorf(
+			"%w: partitions[%d]: exactly one of attributePartition or timestampPartition must be set",
+			ErrValidation, i,
+		)
+	case entry.AttributePartition != nil:
+		if entry.AttributePartition.AttributeName == "" {
+			return fmt.Errorf("%w: partitions[%d]: attributePartition.attributeName is required", ErrValidation, i)
+		}
+	case entry.TimestampPartition != nil:
+		if entry.TimestampPartition.AttributeName == "" {
+			return fmt.Errorf("%w: partitions[%d]: timestampPartition.attributeName is required", ErrValidation, i)
+		}
+	default:
+		return fmt.Errorf(
+			"%w: partitions[%d]: exactly one of attributePartition or timestampPartition must be set",
+			ErrValidation, i,
+		)
+	}
+
+	return nil
+}
+
 // InMemoryBackend is the in-memory backend for IoT Analytics.
 //
 // channels, datastores, datasets, and pipelines are each a *store.Table[T]

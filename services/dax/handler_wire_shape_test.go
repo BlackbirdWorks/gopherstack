@@ -170,3 +170,99 @@ func TestHandlerParameterGroupNodeIdsToRebootWireKey(t *testing.T) {
 	_, hasLegacyKey := pg["NodeIDsToReboot"]
 	assert.False(t, hasLegacyKey, "NodeIDsToReboot is not a real DAX wire key")
 }
+
+// TestHandlerClusterNetworkTypeWireKey verifies NetworkType is emitted under
+// its real wire key "NetworkType" (types.Cluster.NetworkType /
+// awsAwsjson11_deserializeDocumentCluster case "NetworkType") and defaults to
+// "ipv4" when the request omits it.
+func TestHandlerClusterNetworkTypeWireKey(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	rec := daxRequest(t, h, "CreateCluster", validClusterBody("network-type-cluster"))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	cluster := resp["Cluster"].(map[string]any)
+	assert.Equal(t, "ipv4", cluster["NetworkType"])
+}
+
+// TestHandlerDecreaseReplicationFactorNodeIdsToRemoveWireKey verifies the
+// transient node-removal list surfaces under the real wire key
+// "NodeIdsToRemove" (types.Cluster.NodeIdsToRemove) while a
+// DecreaseReplicationFactor is in flight.
+func TestHandlerDecreaseReplicationFactorNodeIdsToRemoveWireKey(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	body := validClusterBody("decrease-wire")
+	body["ReplicationFactor"] = 3
+	daxRequest(t, h, "CreateCluster", body)
+
+	rec := daxRequest(t, h, "DecreaseReplicationFactor", map[string]any{
+		"ClusterName":          "decrease-wire",
+		"NewReplicationFactor": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	cluster := resp["Cluster"].(map[string]any)
+	nodeIDs, ok := cluster["NodeIdsToRemove"].([]any)
+	require.True(t, ok, "NodeIdsToRemove must be present under the real wire key while modifying")
+	assert.Len(t, nodeIDs, 2)
+}
+
+// TestHandlerSubnetGroupSupportedNetworkTypesWireKey verifies the
+// SupportedNetworkTypes field surfaces under its real wire key
+// (types.SubnetGroup.SupportedNetworkTypes).
+func TestHandlerSubnetGroupSupportedNetworkTypesWireKey(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	rec := daxRequest(t, h, "CreateSubnetGroup", map[string]any{
+		"SubnetGroupName": "wire-sg",
+		"SubnetIds":       []string{"subnet-11111111"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	sg := resp["SubnetGroup"].(map[string]any)
+	types, ok := sg["SupportedNetworkTypes"].([]any)
+	require.True(t, ok, "SupportedNetworkTypes must be present under the real wire key")
+	assert.Equal(t, []any{"ipv4"}, types)
+}
+
+// TestHandlerDescribeParametersSourceFilter verifies the request's "Source"
+// field (types.DescribeParametersInput.Source) is honored end-to-end through
+// the HTTP handler, not just the backend method.
+func TestHandlerDescribeParametersSourceFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "src-filter-pg"})
+	daxRequest(t, h, "UpdateParameterGroup", map[string]any{
+		"ParameterGroupName": "src-filter-pg",
+		"ParameterNameValues": []map[string]any{
+			{"ParameterName": "query-ttl-millis", "ParameterValue": "60000"},
+		},
+	})
+
+	rec := daxRequest(t, h, "DescribeParameters", map[string]any{
+		"ParameterGroupName": "src-filter-pg",
+		"Source":             "user",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	params := resp["Parameters"].([]any)
+	require.Len(t, params, 1)
+	assert.Equal(t, "query-ttl-millis", params[0].(map[string]any)["ParameterName"])
+}

@@ -50,6 +50,7 @@ type StorageBackend interface {
 	// ThingGroup operations.
 	CreateThingGroup(input *CreateThingGroupInput) (*ThingGroup, error)
 	DescribeThingGroup(thingGroupName string) (*ThingGroup, error)
+	RootToParentThingGroups(thingGroupName string) []GroupNameAndARN
 	ListThingGroups() []*ThingGroup
 	UpdateThingGroup(input *UpdateThingGroupInput) (int64, error)
 	DeleteThingGroup(thingGroupName string) error
@@ -99,8 +100,12 @@ type StorageBackend interface {
 	DeleteJob(jobID string) error
 	GetJobDocument(jobID string) (string, error)
 	DescribeJobExecution(jobID, thingName string) (*JobExecution, error)
-	CancelJobExecution(jobID, thingName string) error
-	DeleteJobExecution(jobID, thingName string) error
+	CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error
+	DeleteJobExecution(jobID, thingName string, force bool) error
+	// ThingARN builds a Thing's ARN from its name, used by handler_jobs.go to
+	// derive JobExecution's real "thingArn" wire field from the internal
+	// ThingName lookup key (see JobExecution's doc comment).
+	ThingARN(thingName string) string
 
 	// JobTemplate operations.
 	CreateJobTemplate(input *CreateJobTemplateInput) (*JobTemplate, error)
@@ -164,8 +169,9 @@ type StorageBackend interface {
 	CreateSecurityProfile(input *CreateSecurityProfileInput) (*SecurityProfile, error)
 	DescribeSecurityProfile(name string) (*SecurityProfile, error)
 	ListSecurityProfiles() []*SecurityProfile
-	UpdateSecurityProfile(name, description string) (*SecurityProfile, error)
+	UpdateSecurityProfile(input *UpdateSecurityProfileInput) (*SecurityProfile, error)
 	DeleteSecurityProfile(name string) error
+	SecurityProfileARN(name string) string
 
 	// Batch 2: CACertificate operations.
 	RegisterCACertificate(pem, status string) (*CACertificate, error)
@@ -285,7 +291,7 @@ type StorageBackend interface {
 
 	// Batch 3: Audit findings.
 	DescribeAuditFinding(findingID string) (*AuditFinding, error)
-	ListAuditFindings() []*AuditFinding
+	ListAuditFindings(filter ListAuditFindingsFilter) []*AuditFinding
 	ListRelatedResourcesForAuditFinding(findingID string) ([]map[string]any, error)
 
 	// Batch 3: V2 logging.
@@ -304,8 +310,8 @@ type StorageBackend interface {
 
 	// Batch 3: Keys and certs.
 	CreateKeysAndCertificate(setAsActive bool) (*Certificate, string, string, error)
-	TransferCertificate(certID, targetAccount string) error
-	RejectCertificateTransfer(certID string) error
+	TransferCertificate(certID, targetAccount, transferMessage string) error
+	RejectCertificateTransfer(certID, rejectReason string) error
 
 	// Batch 3: Event configurations.
 	DescribeEventConfigurations() *EventConfigurations
@@ -386,12 +392,19 @@ type StorageBackend interface {
 	ListDetectMitigationActionsTasks(startTime, endTime float64) []*DetectMitigationTask
 	ListDetectMitigationActionsExecutions(taskID, violationID, thingName string) []*DetectMitigationActionExecution
 	CancelDetectMitigationActionsTask(taskID string) error
+	MitigationActionRefs(names []string) []MitigationActionRef
 
 	// Device Defender: violations.
-	ListActiveViolations(thingName, securityProfileName, verificationState string) []*ActiveViolation
+	ListActiveViolations(
+		thingName, securityProfileName, verificationState string,
+		listSuppressedAlerts *bool,
+		behaviorCriteriaType string,
+	) []*ActiveViolation
 	ListViolationEvents(
 		thingName, securityProfileName, verificationState string,
 		startTime, endTime float64,
+		listSuppressedAlerts *bool,
+		behaviorCriteriaType string,
 	) []*ViolationEvent
 	PutVerificationStateOnViolation(violationID, verificationState, description string) error
 	SeedActiveViolation(input *SeedActiveViolationInput) (*ActiveViolation, error)

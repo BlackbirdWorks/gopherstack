@@ -42,7 +42,8 @@ func TestConfigRuleARNGenerated(t *testing.T) {
 	b := newTestAWSConfigHandler(t).Backend
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 
-	rules := b.DescribeConfigRules([]string{"rule-x"})
+	rules, err := b.DescribeConfigRules([]string{"rule-x"})
+	require.NoError(t, err)
 	require.Len(t, rules, 1)
 	assert.Contains(t, rules[0].ConfigRuleArn, "arn:aws:config:")
 	assert.Contains(t, rules[0].ConfigRuleArn, "config-rule-")
@@ -56,7 +57,8 @@ func TestConfigRuleStateActive(t *testing.T) {
 	b := newTestAWSConfigHandler(t).Backend
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-y"}))
 
-	rules := b.DescribeConfigRules(nil)
+	rules, err := b.DescribeConfigRules(nil)
+	require.NoError(t, err)
 	require.Len(t, rules, 1)
 	assert.Equal(t, "ACTIVE", rules[0].ConfigRuleState)
 }
@@ -135,6 +137,7 @@ func TestAWSConfigHandler_DescribeConfigRulesAndCompliance(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup     func(t *testing.T, h *awsconfig.Handler)
 		body      any
 		name      string
 		action    string
@@ -149,25 +152,38 @@ func TestAWSConfigHandler_DescribeConfigRulesAndCompliance(t *testing.T) {
 			wantField: "ConfigRules",
 		},
 		{
-			name:      "describe_config_rules_with_names",
-			action:    "DescribeConfigRules",
+			name:   "describe_config_rules_with_names",
+			action: "DescribeConfigRules",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "my-rule"}))
+			},
 			body:      map[string]any{"ConfigRuleNames": []string{"my-rule"}},
 			wantCode:  http.StatusOK,
 			wantField: "ConfigRules",
 		},
 		{
-			name:      "get_compliance_details_empty",
-			action:    "GetComplianceDetailsByConfigRule",
+			name:     "describe_config_rules_unknown_name_errors",
+			action:   "DescribeConfigRules",
+			body:     map[string]any{"ConfigRuleNames": []string{"does-not-exist"}},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:   "get_compliance_details_empty",
+			action: "GetComplianceDetailsByConfigRule",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "my-rule"}))
+			},
 			body:      map[string]any{"ConfigRuleName": "my-rule"},
 			wantCode:  http.StatusOK,
 			wantField: "EvaluationResults",
 		},
 		{
-			name:      "get_compliance_details_no_name",
-			action:    "GetComplianceDetailsByConfigRule",
-			body:      map[string]any{},
-			wantCode:  http.StatusOK,
-			wantField: "EvaluationResults",
+			name:     "get_compliance_details_no_name_errors",
+			action:   "GetComplianceDetailsByConfigRule",
+			body:     map[string]any{},
+			wantCode: http.StatusNotFound,
 		},
 	}
 
@@ -176,8 +192,16 @@ func TestAWSConfigHandler_DescribeConfigRulesAndCompliance(t *testing.T) {
 			t.Parallel()
 
 			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
 			rec := doAWSConfigRequest(t, h, tt.action, tt.body)
 			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantField == "" {
+				return
+			}
 
 			var out map[string]any
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))

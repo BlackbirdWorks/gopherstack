@@ -51,8 +51,8 @@ func TestFirewallRule_BlockOverrideFields(t *testing.T) {
 					"Action":               "BLOCK",
 					"BlockResponse":        "OVERRIDE",
 					"BlockOverrideDomain":  "safe.example.com",
-					"BlockOverrideDNSType": "CNAME",
-					"BlockOverrideTTL":     300,
+					"BlockOverrideDnsType": "CNAME",
+					"BlockOverrideTtl":     300,
 					"Name":                 "block-override",
 				}
 			},
@@ -61,8 +61,11 @@ func TestFirewallRule_BlockOverrideFields(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, "OVERRIDE", rule["BlockResponse"])
 				assert.Equal(t, "safe.example.com", rule["BlockOverrideDomain"])
-				assert.Equal(t, "CNAME", rule["BlockOverrideDNSType"])
-				assert.EqualValues(t, 300, rule["BlockOverrideTTL"])
+				// Wire key is "BlockOverrideDnsType"/"BlockOverrideTtl" -- verified
+				// against the real SDK's hand-rolled awsjson1.1 deserializer, which
+				// does exact-case map-key matching (see firewallRuleOutput doc comment).
+				assert.Equal(t, "CNAME", rule["BlockOverrideDnsType"])
+				assert.EqualValues(t, 300, rule["BlockOverrideTtl"])
 			},
 		},
 		{
@@ -160,34 +163,13 @@ func TestFirewallRule_BlockOverrideFields(t *testing.T) {
 
 // --- Issue 22: UpdateFirewallRule with extended fields ---
 
+// TestUpdateFirewallRule_ExtendedFields verifies UpdateFirewallRule applies
+// extended fields. Per the real UpdateFirewallRuleInput (verified against
+// api_op_UpdateFirewallRule.go) there is no FirewallRuleId member -- a rule
+// is identified by the (FirewallRuleGroupId, FirewallDomainListId) pair it
+// was created with, so each case supplies that pair instead of a synthetic ID.
 func TestUpdateFirewallRule_ExtendedFields(t *testing.T) {
 	t.Parallel()
-
-	h := newTestHandler(t)
-
-	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "update-rule-grp"})
-	require.Equal(t, http.StatusOK, grpRec.Code)
-	var grpResp map[string]any
-	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
-	groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
-
-	dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "update-rule-dl"})
-	require.Equal(t, http.StatusOK, dlRec.Code)
-	var dlResp map[string]any
-	require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp))
-	dlID := dlResp["FirewallDomainList"].(map[string]any)["Id"].(string)
-
-	createRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
-		"FirewallRuleGroupId":  groupID,
-		"FirewallDomainListId": dlID,
-		"Priority":             100,
-		"Action":               "ALLOW",
-		"Name":                 "rule-to-update",
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	ruleID := createResp["FirewallRule"].(map[string]any)["Id"].(string)
 
 	tests := []struct {
 		update  map[string]any
@@ -249,12 +231,10 @@ func TestUpdateFirewallRule_ExtendedFields(t *testing.T) {
 				"Name":                 "rule-to-upd",
 			})
 			require.Equal(t, http.StatusOK, createRec2.Code)
-			var createR2 map[string]any
-			require.NoError(t, json.Unmarshal(createRec2.Body.Bytes(), &createR2))
-			rID := createR2["FirewallRule"].(map[string]any)["Id"].(string)
 
 			upd := tt.update
-			upd["FirewallRuleId"] = rID
+			upd["FirewallRuleGroupId"] = gID
+			upd["FirewallDomainListId"] = dID
 			rec := doRequest(t, h2, "UpdateFirewallRule", upd)
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -264,8 +244,6 @@ func TestUpdateFirewallRule_ExtendedFields(t *testing.T) {
 			tt.checkFn(t, rule)
 		})
 	}
-
-	_ = ruleID // used in setup only
 }
 
 // --- Issue 23: FirewallRuleGroup ShareStatus + timestamps ---
@@ -449,9 +427,17 @@ func TestCreateFirewallRule_ActionValidation(t *testing.T) {
 	}
 }
 
-// --- Firewall rule Id and Arn in output ---
+// --- Firewall rule has no independent Id/Arn ---
 
-func TestCreateFirewallRule_IdAndArnInOutput(t *testing.T) {
+// TestCreateFirewallRule_NoIdOrArnInOutput verifies the FirewallRule
+// response has no Id or Arn field. Per the real types.FirewallRule (verified
+// against aws-sdk-go-v2/service/route53resolver/types/types.go) a firewall
+// rule carries no independent identity -- it is addressed by the
+// (FirewallRuleGroupId, FirewallDomainListId) pair it was created with. An
+// earlier revision of gopherstack invented Id/Arn fields on this response;
+// this test used to assert their presence and has been corrected to assert
+// their absence instead (see PARITY.md for the fix note).
+func TestCreateFirewallRule_NoIdOrArnInOutput(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -463,11 +449,18 @@ func TestCreateFirewallRule_IdAndArnInOutput(t *testing.T) {
 	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
 	grpID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
+	dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "id-test-dl"})
+	require.Equal(t, http.StatusOK, dlRec.Code)
+	var dlResp map[string]any
+	require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp))
+	dlID := dlResp["FirewallDomainList"].(map[string]any)["Id"].(string)
+
 	ruleRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
-		"FirewallRuleGroupId": grpID,
-		"Name":                "my-fw-rule",
-		"Action":              "ALLOW",
-		"Priority":            10,
+		"FirewallRuleGroupId":  grpID,
+		"FirewallDomainListId": dlID,
+		"Name":                 "my-fw-rule",
+		"Action":               "ALLOW",
+		"Priority":             10,
 	})
 	require.Equal(t, http.StatusOK, ruleRec.Code)
 
@@ -475,8 +468,12 @@ func TestCreateFirewallRule_IdAndArnInOutput(t *testing.T) {
 	require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleResp))
 	rule, ok := ruleResp["FirewallRule"].(map[string]any)
 	require.True(t, ok)
-	assert.NotEmpty(t, rule["Id"])
-	assert.Contains(t, rule["Arn"].(string), "arn:aws:route53resolver:")
+	_, hasID := rule["Id"]
+	_, hasArn := rule["Arn"]
+	assert.False(t, hasID, "FirewallRule response must not carry an Id field")
+	assert.False(t, hasArn, "FirewallRule response must not carry an Arn field")
+	assert.Equal(t, grpID, rule["FirewallRuleGroupId"])
+	assert.Equal(t, dlID, rule["FirewallDomainListId"])
 }
 
 // --- Export count helpers ---
@@ -652,25 +649,104 @@ func TestFirewallRuleCRUD(t *testing.T) {
 		"CreatorRequestId":     "req-5",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	ruleResp := decodeJSON(t, rec)
-	rule, _ := ruleResp["FirewallRule"].(map[string]any)
-	ruleID, _ := rule["Id"].(string)
-	require.NotEmpty(t, ruleID)
 
 	// ListFirewallRules.
 	rec = doRequest(t, h, "ListFirewallRules", map[string]any{"FirewallRuleGroupId": rgID})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// UpdateFirewallRule.
+	// UpdateFirewallRule. Real AWS addresses a rule by the
+	// (FirewallRuleGroupId, FirewallDomainListId) pair it was created with --
+	// there is no FirewallRuleId (verified against api_op_UpdateFirewallRule.go).
 	rec = doRequest(t, h, "UpdateFirewallRule", map[string]any{
-		"FirewallRuleId": ruleID,
-		"Priority":       200,
+		"FirewallRuleGroupId":  rgID,
+		"FirewallDomainListId": dlID,
+		"Priority":             200,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// DeleteFirewallRule.
 	rec = doRequest(t, h, "DeleteFirewallRule", map[string]any{
-		"FirewallRuleId": ruleID,
+		"FirewallRuleGroupId":  rgID,
+		"FirewallDomainListId": dlID,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestListFirewallRules_ActionAndPriorityFilters verifies the optional
+// Action/Priority filters on ListFirewallRules (verified against
+// api_op_ListFirewallRules.go).
+func TestListFirewallRules_ActionAndPriorityFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "filter-grp"})
+	require.Equal(t, http.StatusOK, grpRec.Code)
+	grpResp := decodeJSON(t, grpRec)
+	grpID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+	dl1Rec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "filter-dl-1"})
+	require.Equal(t, http.StatusOK, dl1Rec.Code)
+	dl1ID := decodeJSON(t, dl1Rec)["FirewallDomainList"].(map[string]any)["Id"].(string)
+
+	dl2Rec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "filter-dl-2"})
+	require.Equal(t, http.StatusOK, dl2Rec.Code)
+	dl2ID := decodeJSON(t, dl2Rec)["FirewallDomainList"].(map[string]any)["Id"].(string)
+
+	rec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+		"FirewallRuleGroupId":  grpID,
+		"FirewallDomainListId": dl1ID,
+		"Name":                 "allow-rule",
+		"Action":               "ALLOW",
+		"Priority":             100,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateFirewallRule", map[string]any{
+		"FirewallRuleGroupId":  grpID,
+		"FirewallDomainListId": dl2ID,
+		"Name":                 "block-rule",
+		"Action":               "BLOCK",
+		"Priority":             200,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	tests := []struct {
+		body    map[string]any
+		name    string
+		wantLen int
+	}{
+		{
+			name:    "no_filter_returns_both",
+			body:    map[string]any{"FirewallRuleGroupId": grpID},
+			wantLen: 2,
+		},
+		{
+			name:    "action_filter",
+			body:    map[string]any{"FirewallRuleGroupId": grpID, "Action": "BLOCK"},
+			wantLen: 1,
+		},
+		{
+			name:    "priority_filter",
+			body:    map[string]any{"FirewallRuleGroupId": grpID, "Priority": float64(100)},
+			wantLen: 1,
+		},
+		{
+			name:    "action_and_priority_no_match",
+			body:    map[string]any{"FirewallRuleGroupId": grpID, "Action": "ALLOW", "Priority": float64(200)},
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			listRec := doRequest(t, h, "ListFirewallRules", tt.body)
+			require.Equal(t, http.StatusOK, listRec.Code)
+			resp := decodeJSON(t, listRec)
+			items, _ := resp["FirewallRules"].([]any)
+			assert.Len(t, items, tt.wantLen)
+		})
+	}
 }

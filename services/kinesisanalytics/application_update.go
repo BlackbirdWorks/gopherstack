@@ -46,10 +46,6 @@ func applyOneInputUpdate(inp *InputDescription, iu *inputUpdate) error {
 
 	applyInputSchemaUpdate(inp, iu.InputSchemaUpdate)
 
-	if iu.InputStartingPositionConfiguration != nil {
-		inp.InputStartingPositionConfiguration = iu.InputStartingPositionConfiguration
-	}
-
 	if iu.InputProcessingConfigurationUpdate != nil &&
 		iu.InputProcessingConfigurationUpdate.InputLambdaProcessor != nil {
 		inp.InputProcessingConfigurationDescription = &InputProcessingConfigurationDesc{
@@ -207,7 +203,11 @@ func applyReferenceDataSourceUpdates(
 		}
 
 		if ru.ReferenceSchemaUpdate != nil {
-			schema := convertSourceSchema(ru.ReferenceSchemaUpdate)
+			schema, err := convertSourceSchema(ru.ReferenceSchemaUpdate)
+			if err != nil {
+				return err
+			}
+
 			ref.ReferenceSchema = &schema
 		}
 	}

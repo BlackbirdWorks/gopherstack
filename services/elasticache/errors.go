@@ -30,6 +30,18 @@ var (
 	)
 )
 
+// State-transition guard sentinels: a resource must be "available" before it
+// can accept a new Modify/Delete/failover-style mutation. AWS models these as
+// Invalid<Resource>State(Fault) on every mutating op (verified against
+// aws-sdk-go-v2's per-operation error deserializers), returned e.g. while a
+// resource is still "creating", "modifying", or "deleting" from a prior call.
+var (
+	ErrClusterNotAvailable                = errors.New("cache cluster is not in the available state")
+	ErrReplicationGroupNotAvailable       = errors.New("replication group is not in the available state")
+	ErrServerlessCacheNotAvailable        = errors.New("serverless cache is not in the available state")
+	ErrGlobalReplicationGroupNotAvailable = errors.New("global replication group is not in the available state")
+)
+
 // ----------------------------------------
 // New model types (gaps #1–#15)
 // ----------------------------------------

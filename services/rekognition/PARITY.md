@@ -2,8 +2,8 @@
 service: rekognition
 sdk_module: aws-sdk-go-v2/service/rekognition@v1.51.26   # version audited against
 last_audit_commit: 6642a73c                       # HEAD when this manifest was written
-last_audit_date: 2026-07-12
-overall: A            # fresh audit — 4 real classes of bugs found and fixed (see families below)
+last_audit_date: 2026-07-23
+overall: A            # this sweep closed every remaining gaps-list item from the prior audit (see Notes #5)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -23,20 +23,20 @@ ops:
   DisassociateFaces: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchUsers: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchUsersByImage: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateStreamProcessor: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: duplicate Name now returns ResourceInUseException (was ResourceAlreadyExistsException) — see Notes #2. Gap (pre-existing, not fixed): Input/Output/Settings/RegionsOfInterest/NotificationChannel/KmsKeyId/DataSharingPreference are parsed from neither the request nor stored/returned by Describe — see gaps"}
+  CreateStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): Input/Output/Settings/RegionsOfInterest/NotificationChannel/KmsKeyId/DataSharingPreference are now parsed from the request and stored (see Notes #5). Also FIXED prior sweep: duplicate Name now returns ResourceInUseException (was ResourceAlreadyExistsException) — see Notes #2"}
   DeleteStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeStreamProcessor: {wire: partial, errors: ok, state: ok, persist: ok, note: "returns Name/RoleArn/Status/StreamProcessorArn/CreationTimestamp only; Input/Output/Settings/LastUpdateTimestamp/StatusMessage/etc always absent — see gaps. CreationTimestamp already epoch-seconds (float64(t.Unix())), left as-is (correct, just not routed through the epochSeconds() helper used elsewhere)"}
+  DescribeStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): now returns Input/Output/Settings/RegionsOfInterest/NotificationChannel/KmsKeyId/DataSharingPreference/LastUpdateTimestamp/StatusMessage, all routed through epochSeconds() for the two timestamp fields — see Notes #5"}
   ListStreamProcessors: {wire: ok, errors: ok, state: ok, persist: ok}
   StartStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok}
   StopStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateStreamProcessor: {wire: partial, errors: ok, state: ok, persist: ok, note: "existence-check only, no field actually updated — pre-existing, out of audit budget"}
+  UpdateStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): DataSharingPreferenceForUpdate/ParametersToDelete/RegionsOfInterestForUpdate/SettingsForUpdate.ConnectedHomeForUpdate now actually mutate the stored stream processor (was a pure existence-check no-op) — see Notes #5"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: resourceExists() now also recognizes ProjectVersion ARNs (the 'Custom Labels model' AWS's TagResource doc says is taggable, alongside collections/stream processors) — was previously always ResourceNotFoundException for a real, existing ProjectVersion — see Notes #3"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: duplicate name now returns ResourceInUseException (was ResourceAlreadyExistsException) — see Notes #2"}
   DeleteProject: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeProjects: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp was an ISO8601 string ('2006-01-02T15:04:05.000Z' Format()) — real awsjson1.1 wire shape is an epoch-seconds JSON number; SDK deserializer errors with 'expected DateTime to be a JSON Number, got string instead'. Now epochSeconds() — see Notes #1"}
-  CreateProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: duplicate (ProjectArn,VersionName) now returns ResourceInUseException — see Notes #2. Gap (not fixed): Tags/OutputConfig/TrainingData/TestingData/FeatureConfig accepted by the real API but not parsed here — low-traffic Custom Labels training flow, out of audit budget"}
+  CreateProjectVersion: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): Tags/OutputConfig/KmsKeyId/VersionDescription now parsed, stored, and echoed back by DescribeProjectVersions; initial Tags applied to the ProjectVersion ARN the same way CreateStreamProcessor applies its tags — see Notes #5. Also FIXED prior sweep: duplicate (ProjectArn,VersionName) now returns ResourceInUseException — see Notes #2. Still gap (not fixed, see gaps): TrainingData/TestingData/FeatureConfig — genuinely complex nested Custom Labels training-manifest structures with no backing resource this mock can meaningfully echo, out of budget this sweep too"}
   DeleteProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeProjectVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
   CopyProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -45,7 +45,7 @@ ops:
   ListProjectPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp + LastUpdatedTimestamp string->epoch-seconds — see Notes #1"}
   PutProjectPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteProjectPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "datasetARN always uuid-suffixed so duplicate-dataset-type-per-project never collides; real AWS rejects a second dataset of the same type for a project with ResourceAlreadyExistsException — missing validation, not a wire bug, deferred"}
+  CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): now rejects a duplicate (ProjectArn,DatasetType) pair with ResourceAlreadyExistsException (via an explicit b.datasets.Range scan, since datasetARN is still always uuid-suffixed so the table key itself never collides) — see Notes #5"}
   DeleteDataset: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp + LastUpdatedTimestamp string->epoch-seconds — see Notes #1"}
   ListDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -62,12 +62,10 @@ families:
   async_video_jobs: {status: ok, note: "Start*/Get* (CelebrityRecognition, ContentModeration, FaceDetection, FaceSearch, LabelDetection, PersonTracking, SegmentDetection, TextDetection) — real StartAsyncJob/GetAsyncJob state machine (IN_PROGRESS -> SUCCEEDED on 2nd poll, PollCount persisted); Get* response bodies are synthesized empty/placeholder result arrays (acceptable mock, same ML-inherent-op exemption)"}
 routing: {status: ok, note: "single X-Amz-Target: RekognitionService.<Op> POST endpoint (awsjson1.1), verified every op in the dispatch map (buildOps + appendixAOps) against a real op name in aws-sdk-go-v2/service/rekognition; no name mismatches found"}
 gaps:
-  - CreateStreamProcessor / DescribeStreamProcessor: Input/Output/Settings/RegionsOfInterest/NotificationChannel/KmsKeyId/DataSharingPreference are accepted by the real API but neither parsed from the request nor stored/returned — file a bd issue if stream-processor-heavy workloads need this
-  - UpdateStreamProcessor is an existence-check no-op; none of UpdateStreamProcessorInput's fields (DataSharingPreferenceForUpdate, ParametersToDelete, RegionsOfInterestForUpdate, SettingsForUpdate) are applied
-  - CreateProjectVersion drops Tags/OutputConfig/TrainingData/TestingData/FeatureConfig from the request (Custom Labels training config, low-traffic)
-  - CreateDataset never rejects a duplicate (ProjectArn, DatasetType) pair (real AWS: ResourceAlreadyExistsException) because datasetARN is always uuid-suffixed
+  - CreateProjectVersion still drops TrainingData/TestingData/FeatureConfig from the request (Custom Labels training-manifest config: nested GroundTruthManifest/Asset structures with no backing resource this in-memory mock can meaningfully echo back) — low-traffic Custom Labels training flow, file a bd issue if this is needed
 deferred:
   - Full field-level completeness audit of the async-video Get* response bodies (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections arrays) — always empty; acceptable per the ML-mock exemption but not individually wire-diffed field-by-field this sweep
+  - Full field-level completeness audit of ProjectVersionDescription (BaseModelVersion/BillableTrainingTimeInSeconds/EvaluationResult/Feature/ManifestSummary/MaxInferenceUnits/SourceProjectVersionArn/TestingDataResult/TrainingDataResult/TrainingEndTimestamp) beyond the OutputConfig/KmsKeyId/VersionDescription fields added this sweep — DescribeProjectVersions was already marked wire:ok by a prior audit and expanding its full field set was out of this sweep's assigned gap list (CreateProjectVersion's dropped-fields gap only)
 leaks: {status: clean, note: "no goroutines/janitors in this service; lockmetrics.RWMutex coarse lock verified around every backend mutation; Snapshot/Restore delegation (Handler->Backend) verified wired (persistence.go)"}
 ---
 
@@ -148,3 +146,65 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; lockmetric
      IN_PROGRESS → SUCCEEDED state transition) is real, persisted state, not a
      stub — verified `GetAsyncJob` mutates and returns based on
      `storedAsyncJob.PollCount`.
+
+5. **2026-07-23 sweep: closed every remaining `gaps:` item from the prior
+   audit except the CreateProjectVersion TrainingData/TestingData/
+   FeatureConfig one (kept as a gap, see above — deliberately deferred, not
+   an oversight).**
+   - **Stream processor config fields.** `CreateStreamProcessor` previously
+     accepted `Input`/`Output`/`Settings`/`RegionsOfInterest`/
+     `NotificationChannel`/`KmsKeyId`/`DataSharingPreference` but discarded
+     them; `DescribeStreamProcessor` always returned them absent. Added
+     `StreamProcessorInput`/`StreamProcessorOutput`/`StreamProcessorSettings`/
+     `RegionOfInterest`/`BoundingBox`/`Point`/
+     `StreamProcessorNotificationChannel`/`StreamProcessorDataSharingPreference`
+     domain types (`interfaces.go`) mirroring the real SDK's nested
+     `types.*` shapes field-for-field (verified against
+     `aws-sdk-go-v2/service/rekognition@v1.51.26/types/types.go` and the
+     `awsAwsjson11_serialize/deserializeDocument*` functions for exact JSON
+     key names/nesting), threaded through a `CreateStreamProcessorParams`
+     struct (avoids an unbounded positional-parameter CreateStreamProcessor
+     signature), stored on `storedStreamProcessor`, and echoed back by
+     `DescribeStreamProcessor` (`handler_stream_processors.go`'s
+     `*Wire` request/response types + `*FromDomain`/`.toDomain()`
+     converters). Optional pointer wire fields use `omitempty` so an unset
+     field is *absent* from the JSON (matching the real serializer's
+     `if v.X != nil { ... }` guards), not present-as-`null`.
+   - **`UpdateStreamProcessor` was a pure existence-check no-op.** Now
+     applies `DataSharingPreferenceForUpdate`,
+     `SettingsForUpdate.ConnectedHomeForUpdate.{Labels,MinConfidence}`, and
+     `RegionsOfInterestForUpdate` (wholesale replace, not merge), with
+     `ParametersToDelete` (`RegionsOfInterest` / `ConnectedHomeMinConfidence`)
+     applied last so a delete always wins over a same-request set — matches
+     AWS's documented apply-then-delete order. Presence/absence of each
+     update field is signaled the same way the AWS wire shape does: Go's
+     `encoding/json` leaves an absent key's pointer/slice field `nil` and a
+     present-but-empty JSON array as a non-nil empty slice, so no extra
+     `*Set bool` sidecar fields were needed.
+   - **`CreateDataset` never rejected a duplicate `(ProjectArn,DatasetType)`
+     pair.** `datasetARN` is still always uuid-suffixed (so the table key
+     itself never collides — left as-is, this is how dataset identity is
+     modeled here), so the check is now explicit: a `b.datasets.Range` scan
+     for an existing dataset with the same `(ProjectARN, DatasetType)`
+     before insert, returning the new `ErrDatasetAlreadyExists` sentinel
+     (→ `ResourceAlreadyExistsException`, verified against
+     `CreateDataset`'s own error-deserializer switch — same exception type
+     as `CreateCollection`, not `ResourceInUseException`).
+   - **`CreateProjectVersion` dropped `Tags`/`OutputConfig`/`KmsKeyId`/
+     `VersionDescription`.** These four are now parsed, stored on
+     `storedProjectVersion`, and (for `OutputConfig`/`KmsKeyId`/
+     `VersionDescription`) echoed back by `DescribeProjectVersions`; initial
+     `Tags` are applied to the ProjectVersion ARN's tag-store entry the same
+     way `CreateStreamProcessor` applies its initial tags (ProjectVersion
+     ARNs are already confirmed taggable — see Notes #3). `TrainingData`/
+     `TestingData`/`FeatureConfig` remain a deliberate gap (see `gaps:`):
+     each describes a nested Custom Labels training-manifest structure
+     (`GroundTruthManifest`/`Asset`/feature-variant unions) with no backing
+     resource this in-memory backend can meaningfully simulate, and are
+     lower-traffic than the four fields fixed this sweep.
+   - Added `fieldalignment`-optimal struct field ordering (via
+     `fieldalignment -fix`) to every struct touched this sweep
+     (`storedStreamProcessor`, `StreamProcessor`, `StreamProcessorSettings`,
+     `CreateStreamProcessorParams`) to keep `golangci-lint`'s `govet`
+     fieldalignment check at 0 issues; field order in those structs carries
+     no semantic meaning beyond that.

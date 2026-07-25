@@ -19,6 +19,23 @@ func (b *InMemoryBackend) StartTextTranslationJob(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	// A referenced TerminologyNames/ParallelDataNames entry that doesn't
+	// exist is the only named-resource lookup StartTextTranslationJob
+	// performs, and the operation models ResourceNotFoundException
+	// (api-2.json) for exactly this: "For a list of available ... resources,
+	// use List{Terminologies,ParallelData}" in the real API reference.
+	for _, name := range terminologyNames {
+		if !b.terminologies.Has(name) {
+			return nil, fmt.Errorf("%w: terminology %q not found", ErrNotFound, name)
+		}
+	}
+
+	for _, name := range parallelDataNames {
+		if !b.parallelData.Has(name) {
+			return nil, fmt.Errorf("%w: parallel data %q not found", ErrNotFound, name)
+		}
+	}
+
 	jobID := uuid.New().String()
 
 	job := &TranslationJob{

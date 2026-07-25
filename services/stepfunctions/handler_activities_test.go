@@ -1462,3 +1462,120 @@ func TestDeleteActivityNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrActivityDoesNotExist)
 }
+
+// TestCreateActivity_EncryptionConfiguration verifies CreateActivity's
+// encryptionConfiguration input field (present on the real AWS
+// CreateActivityInput but previously entirely unparsed by this emulator) is
+// applied and echoed back by DescribeActivity.
+func TestCreateActivity_EncryptionConfiguration(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+
+	body, err := json.Marshal(map[string]any{
+		"name": "kms-activity",
+		"encryptionConfiguration": map[string]any{
+			"type":                         "CUSTOMER_MANAGED_KMS_KEY",
+			"kmsKeyId":                     "arn:aws:kms:us-east-1:123456789012:key/test-key",
+			"kmsDataKeyReusePeriodSeconds": 300,
+		},
+	})
+	require.NoError(t, err)
+
+	rec := sfnPost(ctx, t, h, e, "CreateActivity", string(body))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	actARN, _ := createResp["activityArn"].(string)
+	require.NotEmpty(t, actARN)
+
+	descBody, _ := json.Marshal(map[string]string{"activityArn": actARN})
+	descRec := sfnPost(ctx, t, h, e, "DescribeActivity", string(descBody))
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	encCfg, ok := descResp["encryptionConfiguration"].(map[string]any)
+	require.True(t, ok, "expected encryptionConfiguration echoed back on DescribeActivity")
+	assert.Equal(t, "CUSTOMER_MANAGED_KMS_KEY", encCfg["type"])
+	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/test-key", encCfg["kmsKeyId"])
+}
+
+// TestCreateActivity_InlineTags verifies CreateActivity's tags input field
+// applies tags visible to ListTagsForResource.
+func TestCreateActivity_InlineTags(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+
+	body, err := json.Marshal(map[string]any{
+		"name": "tagged-activity",
+		"tags": []map[string]string{
+			{"key": "env", "value": "prod"},
+		},
+	})
+	require.NoError(t, err)
+
+	rec := sfnPost(ctx, t, h, e, "CreateActivity", string(body))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	actARN, _ := createResp["activityArn"].(string)
+	require.NotEmpty(t, actARN)
+
+	tagsBody, _ := json.Marshal(map[string]string{"resourceArn": actARN})
+	tagsRec := sfnPost(ctx, t, h, e, "ListTagsForResource", string(tagsBody))
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+	tagList, _ := tagsResp["tags"].([]any)
+	require.Len(t, tagList, 1)
+
+	tagEntry, _ := tagList[0].(map[string]any)
+	assert.Equal(t, "env", tagEntry["key"])
+	assert.Equal(t, "prod", tagEntry["value"])
+}
+
+// TestDeleteActivity_ClearsTags verifies DeleteActivity cleans up the
+// handler's tags map (mirroring DeleteStateMachine's cleanup), so repeated
+// create/tag/delete cycles don't leak tombstone entries.
+func TestDeleteActivity_ClearsTags(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+
+	createBody, _ := json.Marshal(map[string]any{"name": "del-tagged-activity"})
+	rec := sfnPost(ctx, t, h, e, "CreateActivity", string(createBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	actARN, _ := createResp["activityArn"].(string)
+	require.NotEmpty(t, actARN)
+
+	tagBody, _ := json.Marshal(map[string]any{
+		"resourceArn": actARN,
+		"tags":        map[string]string{"k": "v"},
+	})
+	tagRec := sfnPost(ctx, t, h, e, "TagResource", string(tagBody))
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	delBody, _ := json.Marshal(map[string]string{"activityArn": actARN})
+	delRec := sfnPost(ctx, t, h, e, "DeleteActivity", string(delBody))
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	tagsBody, _ := json.Marshal(map[string]string{"resourceArn": actARN})
+	tagsRec := sfnPost(ctx, t, h, e, "ListTagsForResource", string(tagsBody))
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+	tagList, _ := tagsResp["tags"].([]any)
+	assert.Empty(t, tagList, "tags must be cleared after DeleteActivity")
+}

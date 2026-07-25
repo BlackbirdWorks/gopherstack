@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- Solution ---
@@ -14,8 +16,9 @@ import (
 // in the real API when the caller omits it, so it is passed as an already
 // caller-resolved bool rather than re-defaulted here.
 func (b *InMemoryBackend) CreateSolution(
-	name, datasetGroupArn, recipeArn string,
+	name, datasetGroupArn, recipeArn, eventType string,
 	performAutoML, performHPO, performAutoTraining, performIncrementalUpdate bool,
+	solutionConfig map[string]any,
 	tags map[string]string,
 ) (*Solution, error) {
 	b.mu.Lock("CreateSolution")
@@ -27,6 +30,14 @@ func (b *InMemoryBackend) CreateSolution(
 	if b.solutions.Has(name) {
 		return nil, fmt.Errorf("%w: solution %q already exists", ErrAlreadyExists, name)
 	}
+	if b.findDatasetGroup(datasetGroupArn) == nil {
+		return nil, fmt.Errorf("%w: dataset group %q not found", ErrNotFound, datasetGroupArn)
+	}
+	// recipeArn is required only when performAutoML is false; when omitted
+	// (the AutoML path) there is nothing to validate.
+	if recipeArn != "" && !recipeExists(recipeArn) {
+		return nil, fmt.Errorf("%w: recipe %q not found", ErrNotFound, recipeArn)
+	}
 
 	now := time.Now().UTC()
 	sol := &Solution{
@@ -34,13 +45,24 @@ func (b *InMemoryBackend) CreateSolution(
 		Name:                     name,
 		DatasetGroupArn:          datasetGroupArn,
 		RecipeArn:                recipeArn,
+		EventType:                eventType,
 		PerformAutoML:            performAutoML,
 		PerformHPO:               performHPO,
 		PerformAutoTraining:      performAutoTraining,
 		PerformIncrementalUpdate: performIncrementalUpdate,
+		SolutionConfig:           solutionConfig,
 		Status:                   statusActive,
 		CreationDateTime:         now,
 		LastUpdatedDateTime:      now,
+	}
+	if performAutoML {
+		// AutoMLResult.BestRecipeArn is only meaningful when AutoML actually
+		// ran; this deterministic mock always "selects" USER_PERSONALIZATION
+		// (matches the recipe getBuiltinRecipes always returns as
+		// candidate #1), since there is no real training loop to search.
+		sol.AutoMLResult = map[string]any{
+			"bestRecipeArn": "arn:aws:personalize:::recipe/aws-user-personalization",
+		}
 	}
 	b.solutions.Put(sol)
 	if len(tags) > 0 {
@@ -85,6 +107,13 @@ func (b *InMemoryBackend) UpdateSolution(
 		sol.PerformIncrementalUpdate = *performIncrementalUpdate
 	}
 	sol.LastUpdatedDateTime = time.Now().UTC()
+	sol.LatestSolutionUpdate = map[string]any{
+		keyCreationDateTime:        awstime.Epoch(sol.LastUpdatedDateTime),
+		keyLastUpdatedDateTime:     awstime.Epoch(sol.LastUpdatedDateTime),
+		"performAutoTraining":      sol.PerformAutoTraining,
+		"performIncrementalUpdate": sol.PerformIncrementalUpdate,
+		keyStatus:                  sol.Status,
+	}
 
 	return sol, nil
 }
@@ -150,15 +179,23 @@ func (b *InMemoryBackend) CreateSolutionVersion(
 	if solutionArn == "" {
 		return nil, fmt.Errorf("%w: solutionArn is required", ErrValidation)
 	}
+	sol := b.findSolution(solutionArn)
+	if sol == nil {
+		return nil, fmt.Errorf("%w: solution %q not found", ErrNotFound, solutionArn)
+	}
 
 	versionID := uuid.New().String()
 	now := time.Now().UTC()
 	sv := &SolutionVersion{
-		SolutionVersionArn:  solutionArn + "/" + versionID,
-		SolutionArn:         solutionArn,
-		Status:              statusActive,
-		TrainingMode:        trainingMode,
-		TrainingHours:       mockMetricValue,
+		SolutionVersionArn: sol.SolutionArn + "/" + versionID,
+		SolutionArn:        sol.SolutionArn,
+		Status:             statusActive,
+		TrainingMode:       trainingMode,
+		TrainingHours:      mockMetricValue,
+		// SolutionConfig reflects the configuration used to train this
+		// version, inherited from the parent solution at training time
+		// (the real API has no per-version override on CreateSolutionVersion).
+		SolutionConfig:      sol.SolutionConfig,
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
@@ -181,20 +218,6 @@ func (b *InMemoryBackend) DescribeSolutionVersion(svArn string) (*SolutionVersio
 	}
 
 	return sv, nil
-}
-
-// DeleteSolutionVersion removes a solution version.
-func (b *InMemoryBackend) DeleteSolutionVersion(svArn string) error {
-	b.mu.Lock("DeleteSolutionVersion")
-	defer b.mu.Unlock()
-
-	if !b.solutionVersions.Has(svArn) {
-		return fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
-	}
-	b.solutionVersions.Delete(svArn)
-	delete(b.tags, svArn)
-
-	return nil
 }
 
 // ListSolutionVersions returns solution versions for a given solution ARN.

@@ -3,16 +3,20 @@ package inspector2
 import "time"
 
 // CreateSbomExport creates an async SBOM export.
-func (b *InMemoryBackend) CreateSbomExport(destination map[string]any) (*SbomExport, error) {
+func (b *InMemoryBackend) CreateSbomExport(
+	destination, filterCriteria map[string]any, format string,
+) (*SbomExport, error) {
 	b.mu.Lock("CreateSbomExport")
 	defer b.mu.Unlock()
 
 	reportID := b.buildReportARN()
 	export := &SbomExport{
-		ReportID:    reportID,
-		Status:      "SUCCEEDED",
-		Destination: destination,
-		CreatedAt:   time.Now().UTC(),
+		ReportID:       reportID,
+		Status:         "SUCCEEDED",
+		Destination:    destination,
+		FilterCriteria: filterCriteria,
+		Format:         format,
+		CreatedAt:      time.Now().UTC(),
 	}
 	b.sbomExports.Put(export)
 

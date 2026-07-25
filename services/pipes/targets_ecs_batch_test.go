@@ -57,6 +57,7 @@ func TestTargetParams_Batch(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-batch-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:batch:us-west-2:123456789012:job-queue/my-queue",
 				"DesiredState": "RUNNING",
@@ -104,6 +105,7 @@ func TestTargetParams_ECS(t *testing.T) {
 
 			h := auditNewHandler(t)
 			resp := auditCreate(t, h, tt.name+"-ecs-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:ecs:us-west-2:123456789012:cluster/my-cluster",
 				"DesiredState": "RUNNING",
@@ -163,8 +165,9 @@ func TestECS_NetworkConfiguration(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2ECSTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2ECSTarget,
 				"TargetParameters": map[string]any{
 					"EcsTaskParameters": map[string]any{
 						"TaskDefinitionArn": "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
@@ -242,8 +245,9 @@ func TestECS_CapacityProviderStrategy(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2ECSTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2ECSTarget,
 				"TargetParameters": map[string]any{
 					"EcsTaskParameters": map[string]any{
 						"TaskDefinitionArn":        "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
@@ -304,8 +308,9 @@ func TestECS_PlacementConstraints(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2ECSTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2ECSTarget,
 				"TargetParameters": map[string]any{
 					"EcsTaskParameters": map[string]any{
 						"TaskDefinitionArn":    "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
@@ -368,8 +373,9 @@ func TestECS_PlacementStrategy(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2ECSTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2ECSTarget,
 				"TargetParameters": map[string]any{
 					"EcsTaskParameters": map[string]any{
 						"TaskDefinitionArn": "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
@@ -447,8 +453,9 @@ func TestECS_Overrides(t *testing.T) {
 			}
 
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2ECSTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2ECSTarget,
 				"TargetParameters": map[string]any{
 					"EcsTaskParameters": map[string]any{
 						"TaskDefinitionArn": "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
@@ -540,8 +547,9 @@ func TestECS_ExtraFields(t *testing.T) {
 			}
 
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2ECSTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2ECSTarget,
 				"TargetParameters": map[string]any{
 					"EcsTaskParameters": ecsParams,
 				},
@@ -588,9 +596,10 @@ func TestECS_FullParams(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: b2SQSSource,
-				Target: b2ECSTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  b2SQSSource,
+				Target:  b2ECSTarget,
 				TargetParameters: &pipes.TargetParameters{
 					EcsTaskParameters: &pipes.ECSTaskTargetParameters{
 						TaskDefinitionArn:    "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
@@ -691,8 +700,9 @@ func TestBatch_DependsOn(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": "arn:aws:batch:us-east-1:123456789012:job-queue/q",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
 				"TargetParameters": map[string]any{
 					"BatchJobParameters": map[string]any{
 						"JobDefinition": "arn:aws:batch:us-east-1:123456789012:job-definition/jd:1",
@@ -762,8 +772,9 @@ func TestBatch_ContainerOverrides(t *testing.T) {
 			}
 
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": "arn:aws:batch:us-east-1:123456789012:job-queue/q",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
 				"TargetParameters": map[string]any{
 					"BatchJobParameters": map[string]any{
 						"JobDefinition":      "arn:aws:batch:us-east-1:123456789012:job-definition/jd:1",
@@ -811,8 +822,9 @@ func TestBatch_ArrayProperties(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": "arn:aws:batch:us-east-1:123456789012:job-queue/q",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
 				"TargetParameters": map[string]any{
 					"BatchJobParameters": map[string]any{
 						"JobDefinition":   "arn:aws:batch:us-east-1:123456789012:job-definition/jd:1",
@@ -850,8 +862,9 @@ func TestBatch_RetryStrategy(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": "arn:aws:batch:us-east-1:123456789012:job-queue/q",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
 				"TargetParameters": map[string]any{
 					"BatchJobParameters": map[string]any{
 						"JobDefinition": "arn:aws:batch:us-east-1:123456789012:job-definition/jd:1",
@@ -887,9 +900,10 @@ func TestBatch_FullParams(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: b2SQSSource,
-				Target: "arn:aws:batch:us-east-1:123456789012:job-queue/q",
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  b2SQSSource,
+				Target:  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
 				TargetParameters: &pipes.TargetParameters{
 					BatchJobParameters: &pipes.BatchJobTargetParameters{
 						JobDefinition:   "arn:aws:batch:us-east-1:123456789012:job-definition/jd:1",
@@ -947,9 +961,10 @@ func TestClone_ECSNetworkIsolation(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: b2SQSSource,
-				Target: b2ECSTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  b2SQSSource,
+				Target:  b2ECSTarget,
 				TargetParameters: &pipes.TargetParameters{
 					EcsTaskParameters: &pipes.ECSTaskTargetParameters{
 						TaskDefinitionArn: "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
@@ -1013,9 +1028,10 @@ func TestClone_BatchDependsOnIsolation(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: b2SQSSource,
-				Target: "arn:aws:batch:us-east-1:123456789012:job-queue/q",
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  b2SQSSource,
+				Target:  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
 				TargetParameters: &pipes.TargetParameters{
 					BatchJobParameters: &pipes.BatchJobTargetParameters{
 						JobDefinition: "jd",
@@ -1083,8 +1099,9 @@ func TestUpdate_ECSParams(t *testing.T) {
 
 			h := b2Handler(t)
 			b2Create(t, h, tt.name, map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2ECSTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2ECSTarget,
 				"TargetParameters": map[string]any{
 					"EcsTaskParameters": map[string]any{
 						"TaskDefinitionArn": "arn:aws:ecs:us-east-1:123456789012:task-definition/td:1",
@@ -1094,6 +1111,7 @@ func TestUpdate_ECSParams(t *testing.T) {
 			})
 
 			updated := b2Update(t, h, tt.name, map[string]any{
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
 				"TargetParameters": map[string]any{
 					"EcsTaskParameters": map[string]any{
 						"TaskDefinitionArn": "arn:aws:ecs:us-east-1:123456789012:task-definition/td:2",
@@ -1151,14 +1169,16 @@ func TestUpdate_BatchDependsOn(t *testing.T) {
 				initialBatch["DependsOn"] = tt.initialDeps
 			}
 			b2Create(t, h, tt.name, map[string]any{
-				"Source": b2SQSSource,
-				"Target": "arn:aws:batch:us-east-1:123456789012:job-queue/q",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
 				"TargetParameters": map[string]any{
 					"BatchJobParameters": initialBatch,
 				},
 			})
 
 			updated := b2Update(t, h, tt.name, map[string]any{
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
 				"TargetParameters": map[string]any{
 					"BatchJobParameters": map[string]any{
 						"JobDefinition": "jd",

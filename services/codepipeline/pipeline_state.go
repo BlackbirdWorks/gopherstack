@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -131,25 +132,11 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 		}
 
 		actionExecs := b.actionExecutionsStore(region)[pipelineName]
+		revisions := b.actionRevisionsStore(region)
 		actionStates := make([]map[string]any, len(stage.Actions))
-		for j, action := range stage.Actions {
-			state := map[string]any{
-				"actionName": action.Name,
-			}
-			// Walk backwards to find the most recent execution for this stage/action pair.
-			for _, ae := range slices.Backward(actionExecs) {
-				if ae.StageName == stage.Name && ae.ActionName == action.Name {
-					state["latestExecution"] = map[string]any{
-						"actionExecutionId": ae.ActionExecutionID,
-						keyStatus:           ae.Status,
-						"startTime":         float64(ae.StartTime.Unix()),
-						"lastUpdateTime":    float64(ae.LastUpdateTime.Unix()),
-					}
 
-					break
-				}
-			}
-			actionStates[j] = state
+		for j, action := range stage.Actions {
+			actionStates[j] = buildActionState(actionExecs, revisions, pipelineName, stage.Name, action.Name)
 		}
 
 		states[i] = StageState{
@@ -163,50 +150,247 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 	return states, nil
 }
 
-// RetryStageExecution retries a failed stage in a pipeline.
-func (b *InMemoryBackend) RetryStageExecution(
-	ctx context.Context,
-	pipelineName, stageName, executionID string,
-) (*PipelineExecution, error) {
-	b.mu.RLock("RetryStageExecution")
-	defer b.mu.RUnlock()
+// buildActionState builds the ActionState wire map for a single stage/action
+// pair: the most recent action-execution record (if any), and the most
+// recently tracked ActionRevision (if any, from PutActionRevision).
+func buildActionState(
+	actionExecs []*ActionExecution,
+	revisions map[string]*ActionRevisionRecord,
+	pipelineName, stageName, actionName string,
+) map[string]any {
+	state := map[string]any{"actionName": actionName}
 
-	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
-		return nil, ErrNotFound
+	// Walk backwards to find the most recent execution for this stage/action pair.
+	for _, ae := range slices.Backward(actionExecs) {
+		if ae.StageName != stageName || ae.ActionName != actionName {
+			continue
+		}
+
+		latest := map[string]any{
+			"actionExecutionId": ae.ActionExecutionID,
+			keyStatus:           ae.Status,
+			"startTime":         float64(ae.StartTime.Unix()),
+			"lastUpdateTime":    float64(ae.LastUpdateTime.Unix()),
+			"lastStatusChange":  float64(ae.LastUpdateTime.Unix()),
+		}
+
+		if ae.Summary != "" {
+			latest["summary"] = ae.Summary
+		}
+
+		if ae.Token != "" {
+			latest["token"] = ae.Token
+		}
+
+		state["latestExecution"] = latest
+
+		break
 	}
 
-	_ = stageName
+	if rev, ok := revisions[actionRevisionKey(pipelineName, stageName, actionName)]; ok {
+		state["currentRevision"] = map[string]any{
+			"revisionId":       rev.RevisionID,
+			"revisionChangeId": rev.RevisionChangeID,
+			"created":          rev.Created,
+		}
+	}
 
-	return &PipelineExecution{
-		PipelineName:        pipelineName,
-		PipelineExecutionID: executionID,
-		Status:              statusInProgress,
-	}, nil
+	return state
 }
 
-// RollbackStage rolls back a stage to a previous successful execution.
+// RetryStageExecution retries the failed actions of a stage within a
+// specific pipeline execution. RetryMode FAILED_ACTIONS (the common case)
+// resets only actions currently Failed/Abandoned in that stage; ALL_ACTIONS
+// resets every action in the stage regardless of status. Either way, at
+// least one action in the stage must currently be Failed/Abandoned for this
+// execution or StageNotRetryableException is returned (matching real AWS,
+// which only allows retrying a stage that actually failed). The reset
+// actions are then re-run synchronously via runPipelineActions, resuming the
+// SAME pipeline execution from that point -- unlike RollbackStage, retry
+// never creates a new execution.
+func (b *InMemoryBackend) RetryStageExecution(
+	ctx context.Context,
+	pipelineName, stageName, executionID, retryMode string,
+) (*PipelineExecution, error) {
+	b.mu.Lock("RetryStageExecution")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+	}
+
+	if findStage(p, stageName) == nil {
+		return nil, fmt.Errorf("%w: stage %q not found in pipeline %q", ErrStageNotFound, stageName, pipelineName)
+	}
+
+	exec := findExecution(b.executionsStore(region)[pipelineName], executionID)
+	if exec == nil {
+		return nil, fmt.Errorf("%w: pipeline %q execution %q", ErrExecutionNotFound, pipelineName, executionID)
+	}
+
+	actionExecs := b.actionExecutionsStore(region)[pipelineName]
+	if !resetStageActions(actionExecs, executionID, stageName, retryMode == stageRetryModeAllActions) {
+		return nil, fmt.Errorf("%w: stage %q of execution %q has no failed action to retry",
+			ErrStageNotRetryable, stageName, executionID)
+	}
+
+	exec.Status = statusInProgress
+	b.runPipelineActions(region, p, exec)
+	exec.LastUpdateTime = time.Now().UTC()
+
+	cp := *exec
+
+	return &cp, nil
+}
+
+// resetStageActions resets the action executions belonging to executionID's
+// stageName back to Succeeded so runPipelineActions can re-run them. It
+// first requires (and reports via its bool return) that at least one such
+// action is currently Failed or Abandoned -- a stage with no failed action
+// is not retryable in real AWS. When allActions is true (StageRetryMode
+// ALL_ACTIONS) every action in the stage is reset, not just the failed ones.
+func resetStageActions(actionExecs []*ActionExecution, executionID, stageName string, allActions bool) bool {
+	failedFound := false
+
+	for _, ae := range actionExecs {
+		if ae.PipelineExecutionID != executionID || ae.StageName != stageName {
+			continue
+		}
+
+		if ae.Status == statusFailed || ae.Status == statusActionAbandoned {
+			failedFound = true
+		}
+	}
+
+	if !failedFound {
+		return false
+	}
+
+	now := time.Now().UTC()
+
+	for _, ae := range actionExecs {
+		if ae.PipelineExecutionID != executionID || ae.StageName != stageName {
+			continue
+		}
+
+		if allActions || ae.Status == statusFailed || ae.Status == statusActionAbandoned {
+			ae.Status = statusSucceeded
+			ae.StartTime = now
+			ae.LastUpdateTime = now
+			ae.Token = ""
+			ae.Summary = ""
+		}
+	}
+
+	return true
+}
+
+// RollbackStage rolls back stageName to the state it was in after
+// targetExecutionID last completed it successfully, creating (and
+// persisting) a new ROLLBACK-type PipelineExecution rather than mutating the
+// target execution. Real AWS requires the target execution to have actually
+// succeeded through that stage; this backend enforces the same precondition
+// via stageSucceededInExecution and returns UnableToRollbackStageException
+// otherwise.
 func (b *InMemoryBackend) RollbackStage(
 	ctx context.Context,
 	pipelineName, stageName, targetExecutionID string,
 ) (*PipelineExecution, error) {
-	b.mu.RLock("RollbackStage")
-	defer b.mu.RUnlock()
+	b.mu.Lock("RollbackStage")
+	defer b.mu.Unlock()
 
-	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
-		return nil, ErrNotFound
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
 	}
 
-	_ = stageName
-	_ = targetExecutionID
+	stage := findStage(p, stageName)
+	if stage == nil {
+		return nil, fmt.Errorf("%w: stage %q not found in pipeline %q", ErrStageNotFound, stageName, pipelineName)
+	}
 
-	return &PipelineExecution{
-		PipelineName:        pipelineName,
-		PipelineExecutionID: uuid.NewString(),
-		Status:              statusInProgress,
-	}, nil
+	actionExecs := b.actionExecutionsStore(region)[pipelineName]
+	if !stageSucceededInExecution(actionExecs, stage, targetExecutionID) {
+		return nil, fmt.Errorf(
+			"%w: pipeline %q execution %q did not complete stage %q successfully",
+			ErrUnableToRollbackStage, pipelineName, targetExecutionID, stageName,
+		)
+	}
+
+	now := time.Now().UTC()
+	exec := &PipelineExecution{
+		PipelineName:              pipelineName,
+		PipelineExecutionID:       uuid.NewString(),
+		Status:                    statusSucceeded,
+		PipelineVersion:           p.Declaration.Version,
+		ExecutionMode:             p.Declaration.ExecutionMode,
+		ExecutionType:             executionTypeRollback,
+		Trigger:                   triggerTypeManualRollback,
+		RollbackTargetExecutionID: targetExecutionID,
+		StartTime:                 now,
+		LastUpdateTime:            now,
+	}
+
+	execs := b.executionsStore(region)
+	execs[pipelineName] = append(execs[pipelineName], exec)
+
+	actionExecStore := b.actionExecutionsStore(region)
+	for _, action := range stage.Actions {
+		actionExecStore[pipelineName] = append(actionExecStore[pipelineName], &ActionExecution{
+			PipelineExecutionID: exec.PipelineExecutionID,
+			ActionExecutionID:   uuid.NewString(),
+			StageName:           stage.Name,
+			ActionName:          action.Name,
+			Status:              statusSucceeded,
+			StartTime:           now,
+			LastUpdateTime:      now,
+		})
+	}
+
+	cp := *exec
+
+	return &cp, nil
 }
 
-// OverrideStageCondition overrides a stage condition.
+// stageSucceededInExecution reports whether every action in stage has a
+// Succeeded action-execution record under executionID -- the real-AWS
+// precondition for RollbackStage's target execution.
+func stageSucceededInExecution(actionExecs []*ActionExecution, stage *Stage, executionID string) bool {
+	if len(stage.Actions) == 0 {
+		return false
+	}
+
+	succeeded := make(map[string]bool, len(stage.Actions))
+
+	for _, ae := range actionExecs {
+		if ae.PipelineExecutionID == executionID && ae.StageName == stage.Name && ae.Status == statusSucceeded {
+			succeeded[ae.ActionName] = true
+		}
+	}
+
+	for _, action := range stage.Actions {
+		if !succeeded[action.Name] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// OverrideStageCondition overrides a stage's before-entry condition result,
+// letting a pipeline execution proceed past a blocking condition. This
+// backend has no condition-rule engine anywhere (see ListRuleExecutions in
+// rules.go, which is deliberately empty/static for the same reason), so
+// there is no blocked-condition state to actually override; this validates
+// the pipeline, stage, and pipeline execution referenced by the request all
+// exist (real backend logic, not a stub) and otherwise performs no
+// additional mutation, which is the AWS-correct wire shape for this op
+// (OverrideStageConditionOutput carries no fields).
 func (b *InMemoryBackend) OverrideStageCondition(
 	ctx context.Context,
 	pipelineName, stageName, executionID string,
@@ -214,12 +398,20 @@ func (b *InMemoryBackend) OverrideStageCondition(
 	b.mu.RLock("OverrideStageCondition")
 	defer b.mu.RUnlock()
 
-	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
-		return ErrNotFound
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
+	if !ok {
+		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
 	}
 
-	_ = stageName
-	_ = executionID
+	if findStage(p, stageName) == nil {
+		return fmt.Errorf("%w: stage %q not found in pipeline %q", ErrStageNotFound, stageName, pipelineName)
+	}
+
+	if findExecution(b.executionsStore(region)[pipelineName], executionID) == nil {
+		return fmt.Errorf("%w: pipeline %q execution %q", ErrExecutionNotFound, pipelineName, executionID)
+	}
 
 	return nil
 }

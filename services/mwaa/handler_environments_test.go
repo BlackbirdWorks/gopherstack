@@ -27,9 +27,10 @@ func TestHandler_CreateEnvironment(t *testing.T) {
 			name:    "creates_environment",
 			envName: "my-env",
 			body: map[string]any{
-				"DagS3Path":        "dags/",
-				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/mwaa-role",
-				"SourceBucketArn":  "arn:aws:s3:::my-bucket",
+				"DagS3Path":            "dags/",
+				"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/mwaa-role",
+				"SourceBucketArn":      "arn:aws:s3:::my-bucket",
+				"NetworkConfiguration": networkConfigBody(),
 			},
 			wantStatus: http.StatusOK,
 			wantArn:    true,
@@ -42,9 +43,10 @@ func TestHandler_CreateEnvironment(t *testing.T) {
 			name:    "duplicate_returns_validation_error",
 			envName: "dupe-env",
 			body: map[string]any{
-				"DagS3Path":        "dags/",
-				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/mwaa-role",
-				"SourceBucketArn":  "arn:aws:s3:::bucket",
+				"DagS3Path":            "dags/",
+				"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/mwaa-role",
+				"SourceBucketArn":      "arn:aws:s3:::bucket",
+				"NetworkConfiguration": networkConfigBody(),
 			},
 			wantStatus: http.StatusBadRequest,
 			wantArn:    false,
@@ -105,9 +107,10 @@ func TestHandler_GetEnvironment(t *testing.T) {
 
 			if tt.seed {
 				rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
-					"DagS3Path":        "dags/",
-					"ExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
-					"SourceBucketArn":  "arn:aws:s3:::bucket",
+					"DagS3Path":            "dags/",
+					"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+					"SourceBucketArn":      "arn:aws:s3:::bucket",
+					"NetworkConfiguration": networkConfigBody(),
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -153,6 +156,7 @@ func TestHandler_ListEnvironments(t *testing.T) {
 			for _, n := range tt.seedNames {
 				doMWAARequest(t, h, http.MethodPut, "/environments/"+n, map[string]any{
 					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+					"NetworkConfiguration": networkConfigBody(),
 				})
 			}
 
@@ -201,6 +205,7 @@ func TestHandler_DeleteEnvironment(t *testing.T) {
 			if tt.seed {
 				rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
 					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+					"NetworkConfiguration": networkConfigBody(),
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -216,9 +221,10 @@ func TestCreateEnvironment_AWSParity(t *testing.T) {
 
 	baseValid := func() map[string]any {
 		return map[string]any{
-			"DagS3Path":        "dags/",
-			"ExecutionRoleArn": "arn:aws:iam::123456789012:role/mwaa-role",
-			"SourceBucketArn":  "arn:aws:s3:::my-bucket",
+			"DagS3Path":            "dags/",
+			"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/mwaa-role",
+			"SourceBucketArn":      "arn:aws:s3:::my-bucket",
+			"NetworkConfiguration": networkConfigBody(),
 		}
 	}
 
@@ -292,6 +298,7 @@ func TestGetEnvironment_DerivedFields(t *testing.T) {
 		"DagS3Path":                   "dags/",
 		"ExecutionRoleArn":            "arn:aws:iam::123456789012:role/mwaa-role",
 		"SourceBucketArn":             "arn:aws:s3:::my-bucket",
+		"NetworkConfiguration":        networkConfigBody(),
 		"AirflowConfigurationOptions": map[string]string{"core.parallelism": "32"},
 	}
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/derived-env", createBody)
@@ -322,9 +329,10 @@ func TestListEnvironments_Pagination(t *testing.T) {
 	h := newHandlerForTest(t)
 	for _, n := range []string{"a", "b", "c", "d", "e"} {
 		body := map[string]any{
-			"DagS3Path":        "dags/",
-			"ExecutionRoleArn": "arn:aws:iam::123456789012:role/mwaa-role",
-			"SourceBucketArn":  "arn:aws:s3:::my-bucket",
+			"DagS3Path":            "dags/",
+			"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/mwaa-role",
+			"SourceBucketArn":      "arn:aws:s3:::my-bucket",
+			"NetworkConfiguration": networkConfigBody(),
 		}
 		rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+n, body)
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -410,6 +418,7 @@ func TestWeeklyMaint_Create_HTTP_Invalid(t *testing.T) {
 		"DagS3Path":                    "dags/",
 		"ExecutionRoleArn":             "arn:aws:iam::123456789012:role/r",
 		"SourceBucketArn":              "arn:aws:s3:::b",
+		"NetworkConfiguration":         networkConfigBody(),
 		"WeeklyMaintenanceWindowStart": "MON:25:00",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -471,9 +480,10 @@ func TestListEnvironments_HTTP_NextToken_Pagination(t *testing.T) {
 			t, h, http.MethodPut,
 			fmt.Sprintf("/environments/page-env-%02d", i),
 			map[string]any{
-				"DagS3Path":        "dags/",
-				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
-				"SourceBucketArn":  "arn:aws:s3:::b",
+				"DagS3Path":            "dags/",
+				"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+				"SourceBucketArn":      "arn:aws:s3:::b",
+				"NetworkConfiguration": networkConfigBody(),
 			},
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -516,9 +526,10 @@ func TestHTTP_GetEnvironment_DefaultsPresent(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	createRec := doMWAARequest(t, h, http.MethodPut, "/environments/snap-defaults-env", map[string]any{
-		"DagS3Path":        "dags/",
-		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
-		"SourceBucketArn":  "arn:aws:s3:::b",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -581,9 +592,10 @@ func TestEnvironmentName_HTTPValidation(t *testing.T) {
 
 			h := newHandlerForTest(t)
 			rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
-				"DagS3Path":        "dags/",
-				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
-				"SourceBucketArn":  "arn:aws:s3:::bucket",
+				"DagS3Path":            "dags/",
+				"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/role",
+				"SourceBucketArn":      "arn:aws:s3:::bucket",
+				"NetworkConfiguration": networkConfigBody(),
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
 		})
@@ -595,10 +607,11 @@ func TestAirflowVersion_HTTPCreate_InvalidVersion(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/ver-test", map[string]any{
-		"DagS3Path":        "dags/",
-		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
-		"SourceBucketArn":  "arn:aws:s3:::bucket",
-		"AirflowVersion":   "3.0.0",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/role",
+		"SourceBucketArn":      "arn:aws:s3:::bucket",
+		"NetworkConfiguration": networkConfigBody(),
+		"AirflowVersion":       "3.0.0",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 }
@@ -608,10 +621,11 @@ func TestAirflowVersion_HTTPCreate_ValidVersion(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/ver-test-ok", map[string]any{
-		"DagS3Path":        "dags/",
-		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
-		"SourceBucketArn":  "arn:aws:s3:::bucket",
-		"AirflowVersion":   "2.9.2",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/role",
+		"SourceBucketArn":      "arn:aws:s3:::bucket",
+		"NetworkConfiguration": networkConfigBody(),
+		"AirflowVersion":       "2.9.2",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
@@ -623,6 +637,7 @@ func TestAirflowVersion_Update_HTTP_Invalid(t *testing.T) {
 
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/ver-upd-env", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -642,8 +657,9 @@ func TestMaxWorkers_HTTP_Exceeds(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/workers-http-env", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-		"MaxWorkers": 50,
-		"MinWorkers": 1,
+		"NetworkConfiguration": networkConfigBody(),
+		"MaxWorkers":           50,
+		"MinWorkers":           1,
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 }
@@ -654,8 +670,9 @@ func TestMaxWorkers_HTTP_AtLimit(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/workers-at-limit", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-		"MaxWorkers": 25,
-		"MinWorkers": 1,
+		"NetworkConfiguration": networkConfigBody(),
+		"MaxWorkers":           25,
+		"MinWorkers":           1,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
@@ -666,6 +683,7 @@ func TestMaxWorkers_HTTP_Update_Exceeds(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/workers-upd-http", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -688,7 +706,8 @@ func TestWorkerReplacementStrategy_HTTP(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "forced_valid", strategy: "FORCED", wantStatus: http.StatusOK},
-		{name: "drain_valid", strategy: "TERMINATION_WITH_DRAIN", wantStatus: http.StatusOK},
+		{name: "graceful_valid", strategy: "GRACEFUL", wantStatus: http.StatusOK},
+		{name: "drain_invalid", strategy: "TERMINATION_WITH_DRAIN", wantStatus: http.StatusBadRequest},
 		{name: "invalid", strategy: "IMMEDIATE", wantStatus: http.StatusBadRequest},
 	}
 
@@ -699,6 +718,7 @@ func TestWorkerReplacementStrategy_HTTP(t *testing.T) {
 			h := newHandlerForTest(t)
 			rec := doMWAARequest(t, h, http.MethodPut, "/environments/ws-"+tt.name, map[string]any{
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+				"NetworkConfiguration": networkConfigBody(),
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 			doMWAARequest(t, h, http.MethodGet, "/environments/ws-"+tt.name, nil) // promote CREATING → AVAILABLE
@@ -721,6 +741,7 @@ func TestUpdateWebserverAccessMode_HTTP(t *testing.T) {
 	}{
 		{name: "public_valid", mode: "PUBLIC_ONLY", wantStatus: http.StatusOK},
 		{name: "private_valid", mode: "PRIVATE_ONLY", wantStatus: http.StatusOK},
+		{name: "public_and_private_valid", mode: "PUBLIC_AND_PRIVATE", wantStatus: http.StatusOK},
 		{name: "invalid", mode: "UNKNOWN", wantStatus: http.StatusBadRequest},
 	}
 
@@ -731,6 +752,7 @@ func TestUpdateWebserverAccessMode_HTTP(t *testing.T) {
 			h := newHandlerForTest(t)
 			rec := doMWAARequest(t, h, http.MethodPut, "/environments/wam-http-"+tt.name, map[string]any{
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+				"NetworkConfiguration": networkConfigBody(),
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 			doMWAARequest(t, h, http.MethodGet, "/environments/wam-http-"+tt.name, nil) // promote CREATING → AVAILABLE
@@ -762,6 +784,7 @@ func TestUpdateEnvironmentClass_HTTP(t *testing.T) {
 			h := newHandlerForTest(t)
 			rec := doMWAARequest(t, h, http.MethodPut, "/environments/cls-http-"+tt.name, map[string]any{
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+				"NetworkConfiguration": networkConfigBody(),
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 			doMWAARequest(t, h, http.MethodGet, "/environments/cls-http-"+tt.name, nil) // promote CREATING → AVAILABLE
@@ -811,6 +834,7 @@ func TestHandler_UpdateEnvironment(t *testing.T) {
 			if tt.seed {
 				rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
 					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+					"NetworkConfiguration": networkConfigBody(),
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				doMWAARequest(t, h, http.MethodGet, "/environments/"+tt.envName, nil)
@@ -834,7 +858,8 @@ func TestCreateEnvironment_MinWorkersValidation(t *testing.T) {
 			name: "valid_min_max",
 			body: map[string]any{
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-				"MinWorkers": 1, "MaxWorkers": 5,
+				"NetworkConfiguration": networkConfigBody(),
+				"MinWorkers":           1, "MaxWorkers": 5,
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -842,7 +867,8 @@ func TestCreateEnvironment_MinWorkersValidation(t *testing.T) {
 			name: "min_greater_than_max",
 			body: map[string]any{
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-				"MinWorkers": 10, "MaxWorkers": 5,
+				"NetworkConfiguration": networkConfigBody(),
+				"MinWorkers":           10, "MaxWorkers": 5,
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -866,11 +892,12 @@ func TestHandler_UpdateEnvironment_ValidationError(t *testing.T) {
 
 	// Create environment first.
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/update-valid", map[string]any{
-		"DagS3Path":        "dags/",
-		"ExecutionRoleArn": "arn:r",
-		"SourceBucketArn":  "arn:b",
-		"MinWorkers":       int32(1),
-		"MaxWorkers":       int32(10),
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:r",
+		"SourceBucketArn":      "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
+		"MinWorkers":           int32(1),
+		"MaxWorkers":           int32(10),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -888,6 +915,7 @@ func TestLoggingConfig_HTTP_InvalidLevel_Create(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/http-log-inv", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 		"LoggingConfiguration": map[string]any{
 			"SchedulerLogs": map[string]any{"LogLevel": "BOGUS"},
 		},
@@ -901,6 +929,7 @@ func TestLoggingConfig_HTTP_ValidLevel_Create(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/http-log-ok", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 		"LoggingConfiguration": map[string]any{
 			"SchedulerLogs": map[string]any{"LogLevel": "INFO"},
 			"WorkerLogs":    map[string]any{"LogLevel": "WARNING"},
@@ -915,6 +944,7 @@ func TestLoggingConfig_HTTP_InvalidLevel_Update(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/http-log-upd-inv", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -933,6 +963,7 @@ func TestLifecycle_HTTP_CreateResponseDoesNotExposeStatus(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/http-lc-env", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -948,6 +979,7 @@ func TestLifecycle_HTTP_GetEnvShowsCreatingThenAvailable(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/http-lc-get-env", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -982,7 +1014,8 @@ func TestS3Paths_HTTP_PluginsWithoutVersion(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/http-s3-inv", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-		"PluginsS3Path": "plugins.zip",
+		"NetworkConfiguration": networkConfigBody(),
+		"PluginsS3Path":        "plugins.zip",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -993,7 +1026,8 @@ func TestS3Paths_HTTP_AllThreeWithVersions(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/http-s3-ok", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-		"PluginsS3Path": "plugins.zip", "PluginsS3ObjectVersion": "v1",
+		"NetworkConfiguration": networkConfigBody(),
+		"PluginsS3Path":        "plugins.zip", "PluginsS3ObjectVersion": "v1",
 		"RequirementsS3Path": "req.txt", "RequirementsS3ObjectVersion": "v2",
 		"StartupScriptS3Path": "start.sh", "StartupScriptS3ObjectVersion": "v3",
 	})
@@ -1010,6 +1044,7 @@ func TestNetworkConfig_HTTP_UpdateSecurityGroupsOnlyAccepted(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/nc-http-upd", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1035,7 +1070,8 @@ func TestKmsKey_HTTP_InvalidRejected(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/kms-http-inv", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-		"KmsKey": "not-an-arn",
+		"NetworkConfiguration": networkConfigBody(),
+		"KmsKey":               "not-an-arn",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -1064,7 +1100,8 @@ func TestEndpointManagement_HTTP(t *testing.T) {
 			h := newHandlerForTest(t)
 			rec := doMWAARequest(t, h, http.MethodPut, "/environments/em-http-"+tt.name, map[string]any{
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-				"EndpointManagement": tt.mgmt,
+				"NetworkConfiguration": networkConfigBody(),
+				"EndpointManagement":   tt.mgmt,
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -1081,6 +1118,7 @@ func TestWeeklyMaintenance_HTTP_Update_Invalid(t *testing.T) {
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/wmw-http-upd", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1097,13 +1135,14 @@ func TestHTTP_FullCRUDLifecycle(t *testing.T) {
 
 	// Create.
 	createRec := doMWAARequest(t, h, http.MethodPut, "/environments/full-crud-env", map[string]any{
-		"DagS3Path":        "dags/",
-		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
-		"SourceBucketArn":  "arn:aws:s3:::bucket",
-		"AirflowVersion":   "2.9.2",
-		"EnvironmentClass": "mw1.medium",
-		"MaxWorkers":       5,
-		"MinWorkers":       1,
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::bucket",
+		"NetworkConfiguration": networkConfigBody(),
+		"AirflowVersion":       "2.9.2",
+		"EnvironmentClass":     "mw1.medium",
+		"MaxWorkers":           5,
+		"MinWorkers":           1,
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -1178,6 +1217,7 @@ func TestHTTP_LoggingConfig_AllModules(t *testing.T) {
 	h := newHandlerForTest(t)
 	createRec := doMWAARequest(t, h, http.MethodPut, "/environments/http-log-all", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 		"LoggingConfiguration": map[string]any{
 			"DagProcessingLogs": map[string]any{"LogLevel": "INFO"},
 			"SchedulerLogs":     map[string]any{"LogLevel": "WARNING"},
@@ -1213,9 +1253,10 @@ func TestUpdateEnvironment_HTTP_NonAvailable_Returns400(t *testing.T) {
 	h := newHandlerForTest(t)
 	// Create env – stays in CREATING until first GET promotes it.
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/upd-http-env", map[string]any{
-		"DagS3Path":        "dags/",
-		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
-		"SourceBucketArn":  "arn:aws:s3:::b",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

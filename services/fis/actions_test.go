@@ -608,10 +608,16 @@ func TestFISHandler_StopExperiment_AlreadyStopped(t *testing.T) {
 
 		s := resp.Experiment.Status.Status
 
-		return s == "stopped" || s == "completed"
+		// Stopping this fast after StartExperiment races the background
+		// lifecycle goroutine: it may still be in "pending"/"initiating" when
+		// the stop signal arrives, in which case real AWS FIS reports
+		// "cancelled" rather than "stopped" (see runExperiment); it may also
+		// have already reached "completed" if the template has no timed
+		// actions. All three are valid terminal outcomes of this race.
+		return s == "stopped" || s == "completed" || s == "cancelled"
 	}, 5*time.Second, 50*time.Millisecond)
 
-	// Attempt to stop already-stopped experiment — should fail with 400
+	// Attempt to stop the now-terminal experiment — should fail with 400
 	// ValidationException. StopExperiment's generated deserializer in
 	// aws-sdk-go-v2/service/fis only recognizes ResourceNotFoundException and
 	// ValidationException — it has no ConflictException case.
@@ -677,26 +683,42 @@ func TestFISHandler_ExperimentFails_WhenActionProviderFails(t *testing.T) {
 	mustJSON(t, rec2, &expResp)
 	expID := expResp.Experiment.ID
 
+	var finalResp struct {
+		Experiment struct {
+			Status struct {
+				Error *struct {
+					Code      string `json:"code"`
+					Location  string `json:"location"`
+					AccountID string `json:"accountId"`
+				} `json:"error"`
+				Status string `json:"status"`
+				Reason string `json:"reason"`
+			} `json:"status"`
+		} `json:"experiment"`
+	}
+
 	require.Eventually(t, func() bool {
 		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
 		if rec3.Code != http.StatusOK {
 			return false
 		}
 
-		var resp struct {
-			Experiment struct {
-				Status struct {
-					Status string `json:"status"`
-				} `json:"status"`
-			} `json:"experiment"`
-		}
-
-		if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
+		if err := json.Unmarshal(rec3.Body.Bytes(), &finalResp); err != nil {
 			return false
 		}
 
-		return resp.Experiment.Status.Status == "failed"
+		return finalResp.Experiment.Status.Status == "failed"
 	}, 5*time.Second, 50*time.Millisecond)
+
+	// Regression test: cleanupActions used to unconditionally overwrite
+	// exp.Status right after markExperimentFailed set it, clobbering the
+	// structured ExperimentStatusError before any client could ever observe
+	// it. Verify Reason and the full structured error survive end-to-end.
+	assert.NotEmpty(t, finalResp.Experiment.Status.Reason, "failed experiment must retain its reason")
+	require.NotNil(t, finalResp.Experiment.Status.Error, "failed experiment must retain its structured error")
+	assert.Equal(t, "ActionExecutionFailed", finalResp.Experiment.Status.Error.Code)
+	assert.Equal(t, "fail", finalResp.Experiment.Status.Error.Location)
+	assert.Equal(t, "000000000000", finalResp.Experiment.Status.Error.AccountID)
 }
 
 func TestFISHandler_ExperimentSucceeds_WithMockActionProvider(t *testing.T) {

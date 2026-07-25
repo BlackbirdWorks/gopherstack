@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -223,6 +224,86 @@ func (b *InMemoryBackend) initOrgMaps(orgID string) {
 func deleteAllForOrg[V any](t *store.Table[V], idx *store.Index[V], keyFn func(*V) string, orgID string) {
 	for _, v := range slices.Clone(idx.Get(orgID)) {
 		t.Delete(keyFn(v))
+	}
+}
+
+// cascadeCleanEntity removes every trace of entityID (a user, group, or
+// resource identified by its own store ID) from the collections that
+// reference entities by ID but are not covered by the entity's own table
+// delete: aliases the entity owns (plus their globalAliases reverse-index
+// rows), tags keyed by its ARN, mailbox permissions where it is either the
+// target entity or the grantee, its membership in every group, and its
+// listing as a delegate on every resource. Callers must hold b.mu.Lock; the
+// entity's own row in its own table (users/groups/resources) and its own
+// primary-email index entries are the caller's responsibility (see
+// DeleteUser/DeleteGroup/DeleteResource).
+func (b *InMemoryBackend) cascadeCleanEntity(orgID, entityID, arn string) {
+	for _, a := range b.aliases[orgID][entityID] {
+		b.globalAliases.Delete(a)
+	}
+	delete(b.aliases[orgID], entityID)
+
+	delete(b.tags, arn)
+
+	b.cascadeCleanPermissions(orgID, entityID)
+
+	for _, members := range b.groupMembers[orgID] {
+		delete(members, entityID)
+	}
+	for _, delegateSet := range b.delegates[orgID] {
+		delete(delegateSet, entityID)
+	}
+}
+
+// cascadeCleanPermissions removes every mailbox-permission row where
+// entityID is either the target entity or the grantee. Split out of
+// cascadeCleanEntity to keep it small. Callers must hold b.mu.Lock.
+func (b *InMemoryBackend) cascadeCleanPermissions(orgID, entityID string) {
+	for _, p := range slices.Clone(b.permissionsByOrgEntity.Get(permissionOrgEntityKey(orgID, entityID))) {
+		b.permissions.Delete(permissionKey(orgID, p.entityID, p.GranteeID))
+	}
+
+	var granteeKeys []string
+	b.permissions.Range(func(p *Permission) bool {
+		if p.orgID == orgID && p.GranteeID == entityID {
+			granteeKeys = append(granteeKeys, permissionKey(p.orgID, p.entityID, p.GranteeID))
+		}
+
+		return true
+	})
+	for _, k := range granteeKeys {
+		b.permissions.Delete(k)
+	}
+}
+
+// deleteTagsForOrg removes the organization's own tag entry plus every tag
+// entry belonging to a resource ARN nested under it (users/groups/resources
+// all mint ARNs of the form "<orgARN>/<type>/<id>" -- see entityARN).
+// Callers must hold b.mu.Lock.
+func (b *InMemoryBackend) deleteTagsForOrg(orgARN string) {
+	delete(b.tags, orgARN)
+	prefix := orgARN + "/"
+	for arn := range b.tags {
+		if strings.HasPrefix(arn, prefix) {
+			delete(b.tags, arn)
+		}
+	}
+}
+
+// deleteGlobalAliasesForOrg removes every globalAliases row (primary emails
+// and CreateAlias-created aliases alike) belonging to orgID. Callers must
+// hold b.mu.Lock.
+func (b *InMemoryBackend) deleteGlobalAliasesForOrg(orgID string) {
+	var keys []string
+	b.globalAliases.Range(func(ta *trackedAlias) bool {
+		if ta.OrgID == orgID {
+			keys = append(keys, ta.Alias)
+		}
+
+		return true
+	})
+	for _, k := range keys {
+		b.globalAliases.Delete(k)
 	}
 }
 

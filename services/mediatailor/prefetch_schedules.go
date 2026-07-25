@@ -4,8 +4,16 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+const (
+	prefetchScheduleTypeSingle    = "SINGLE"
+	prefetchScheduleTypeRecurring = "RECURRING"
+
+	listPrefetchScheduleTypeAll = "ALL"
 )
 
 // --- PrefetchSchedule operations ---
@@ -16,10 +24,23 @@ func prefetchScheduleKey(playbackConfigName, name string) string {
 
 // CreatePrefetchSchedule creates a prefetch schedule.
 func (b *InMemoryBackend) CreatePrefetchSchedule(
-	playbackConfigName, name string,
+	playbackConfigName, name, scheduleType, streamID string,
 	retrieval *PrefetchRetrieval,
 	consumption *PrefetchConsumption,
+	recurringConfig map[string]any,
+	tags map[string]string,
 ) (*PrefetchSchedule, error) {
+	switch scheduleType {
+	case "":
+		scheduleType = prefetchScheduleTypeSingle
+	case prefetchScheduleTypeSingle, prefetchScheduleTypeRecurring:
+	default:
+		return nil, fmt.Errorf(
+			"%w: ScheduleType must be %s or %s",
+			ErrInvalidParameter, prefetchScheduleTypeSingle, prefetchScheduleTypeRecurring,
+		)
+	}
+
 	b.mu.Lock("CreatePrefetchSchedule")
 	defer b.mu.Unlock()
 
@@ -32,11 +53,16 @@ func (b *InMemoryBackend) CreatePrefetchSchedule(
 		b.region, b.accountID, playbackConfigName, name,
 	)
 	ps := &PrefetchSchedule{
-		ARN:                       psARN,
-		Name:                      name,
-		PlaybackConfigurationName: playbackConfigName,
-		Retrieval:                 retrieval,
-		Consumption:               consumption,
+		ARN:                            psARN,
+		Name:                           name,
+		PlaybackConfigurationName:      playbackConfigName,
+		ScheduleType:                   scheduleType,
+		StreamID:                       streamID,
+		Retrieval:                      retrieval,
+		Consumption:                    consumption,
+		RecurringPrefetchConfiguration: recurringConfig,
+		CreationTime:                   time.Now().UTC(),
+		Tags:                           copyTags(tags),
 	}
 	b.prefetchSchedules.Put(ps)
 
@@ -71,9 +97,12 @@ func (b *InMemoryBackend) DeletePrefetchSchedule(playbackConfigName, name string
 	return nil
 }
 
-// ListPrefetchSchedules returns prefetch schedules for a playback configuration.
+// ListPrefetchSchedules returns prefetch schedules for a playback
+// configuration, optionally filtered by scheduleType ("SINGLE", "RECURRING",
+// "ALL", or "" -- all three are treated as no filter, matching
+// ListPrefetchScheduleType's ALL member) and by an exact streamID match.
 func (b *InMemoryBackend) ListPrefetchSchedules(
-	playbackConfigName string,
+	playbackConfigName, scheduleType, streamID string,
 	maxResults int,
 	nextToken string,
 ) ([]*PrefetchSchedule, string, error) {
@@ -82,9 +111,23 @@ func (b *InMemoryBackend) ListPrefetchSchedules(
 
 	all := slices.Clone(b.prefetchSchedulesByConfig.Get(playbackConfigName))
 
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	filtered := all[:0:0]
 
-	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+	for _, ps := range all {
+		if scheduleType != "" && scheduleType != listPrefetchScheduleTypeAll && ps.ScheduleType != scheduleType {
+			continue
+		}
+
+		if streamID != "" && ps.StreamID != streamID {
+			continue
+		}
+
+		filtered = append(filtered, ps)
+	}
+
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Name < filtered[j].Name })
+
+	pg := page.New(filtered, nextToken, maxResults, defaultMaxResults)
 
 	return pg.Data, pg.Next, nil
 }

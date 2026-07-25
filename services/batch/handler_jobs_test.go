@@ -213,7 +213,8 @@ func TestHandler_SubmitJob_JobARNPresent(t *testing.T) {
 
 	job := jobs[0].(map[string]any)
 	assert.NotEmpty(t, job["jobArn"], "job ARN should be set")
-	assert.Equal(t, "q-arn", job["jobQueue"], "jobQueue should be canonical queue name")
+	// JobDetail.JobQueue is documented as the queue's ARN, not its name.
+	assert.Contains(t, job["jobQueue"], "job-queue/q-arn", "jobQueue should be the queue's ARN")
 }
 
 func TestHandler_SubmitJob_WithOptions(t *testing.T) {
@@ -720,4 +721,121 @@ func TestListJobs_InvalidJobStatus(t *testing.T) {
 		"jobStatus": "INVALID_STATUS",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "invalid jobStatus must return 400")
+}
+
+// TestDescribeJobs_ExecutionDetails verifies the previously-unmodeled
+// JobDetail fields (see PARITY.md gaps): container (derived from the job
+// definition's ContainerProperties), platformCapabilities (snapshotted from
+// the job definition at submit time), and isCancelled/isTerminated (set by
+// CancelJob/TerminateJob respectively).
+func TestDescribeJobs_ExecutionDetails(t *testing.T) {
+	t.Parallel()
+
+	t.Run("container_and_platform_capabilities", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+
+		rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+			"computeEnvironmentName": "ce-exec", "type": "MANAGED", "state": "ENABLED",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		rec = post(t, h, "/v1/createjobqueue", map[string]any{
+			"jobQueueName": "q-exec", "priority": 1, "state": "ENABLED",
+			"computeEnvironmentOrder": []map[string]any{{"computeEnvironment": "ce-exec", "order": 1}},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+			"jobDefinitionName":    "jd-exec",
+			"type":                 "container",
+			"platformCapabilities": []string{"EC2"},
+			"containerProperties": map[string]any{
+				"image": "busybox", "vcpus": 1, "memory": 128,
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		rec = post(t, h, "/v1/submitjob", map[string]any{
+			"jobName": "job-exec", "jobQueue": "q-exec", "jobDefinition": "jd-exec",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var submitOut map[string]any
+		mustUnmarshal(t, rec, &submitOut)
+		jobID := submitOut["jobId"].(string)
+
+		rec = post(t, h, "/v1/describejobs", map[string]any{"jobs": []string{jobID}})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		mustUnmarshal(t, rec, &out)
+		jobs := out["jobs"].([]any)
+		require.Len(t, jobs, 1)
+
+		job := jobs[0].(map[string]any)
+		caps, ok := job["platformCapabilities"].([]any)
+		require.True(t, ok, "platformCapabilities should be present")
+		assert.Equal(t, []any{"EC2"}, caps)
+
+		container, ok := job["container"].(map[string]any)
+		require.True(t, ok, "container should be derived from the job definition")
+		assert.Equal(t, "busybox", container["image"])
+		assert.InEpsilon(t, float64(1), container["vcpus"].(float64), 0.001)
+	})
+
+	t.Run("is_cancelled_set_by_cancel_job", func(t *testing.T) {
+		t.Parallel()
+
+		h := newAuditHandlerWithQueue(t, "q-cancel-flag")
+
+		rec := post(t, h, "/v1/submitjob", map[string]any{
+			"jobName": "job-cancel-flag", "jobQueue": "q-cancel-flag", "jobDefinition": "audit-jd",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var submitOut map[string]any
+		mustUnmarshal(t, rec, &submitOut)
+		jobID := submitOut["jobId"].(string)
+
+		rec = post(t, h, "/v1/canceljob", map[string]any{"jobId": jobID, "reason": "test"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		rec = post(t, h, "/v1/describejobs", map[string]any{"jobs": []string{jobID}})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		mustUnmarshal(t, rec, &out)
+		job := out["jobs"].([]any)[0].(map[string]any)
+		assert.Equal(t, true, job["isCancelled"])
+		assert.Equal(t, false, job["isTerminated"])
+	})
+
+	t.Run("is_terminated_set_by_terminate_job", func(t *testing.T) {
+		t.Parallel()
+
+		h := newAuditHandlerWithQueue(t, "q-terminate-flag")
+
+		rec := post(t, h, "/v1/submitjob", map[string]any{
+			"jobName": "job-terminate-flag", "jobQueue": "q-terminate-flag", "jobDefinition": "audit-jd",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var submitOut map[string]any
+		mustUnmarshal(t, rec, &submitOut)
+		jobID := submitOut["jobId"].(string)
+
+		rec = post(t, h, "/v1/terminatejob", map[string]any{"jobId": jobID, "reason": "test"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		rec = post(t, h, "/v1/describejobs", map[string]any{"jobs": []string{jobID}})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		mustUnmarshal(t, rec, &out)
+		job := out["jobs"].([]any)[0].(map[string]any)
+		assert.Equal(t, true, job["isTerminated"])
+		assert.Equal(t, false, job["isCancelled"])
+	})
 }

@@ -55,7 +55,7 @@ func TestBackend_UpdateIdentitySource(t *testing.T) {
 				"User",
 				verifiedpermissions.IdentitySourceConfig{
 					UserPoolArn: "arn:aws:cognito-idp:us-east-1:123456789012:userpool/original",
-				},
+				}, "",
 			)
 			require.NoError(t, err)
 

@@ -21,6 +21,7 @@ type StorageBackend interface {
 		resolverEndpointType string,
 		protocols []string,
 		outpostArn, preferredInstanceType, creatorRequestID string,
+		rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled bool,
 	) (*ResolverEndpoint, error)
 	GetResolverEndpoint(ctx context.Context, id string) (*ResolverEndpoint, error)
 	ListResolverEndpoints(ctx context.Context) []*ResolverEndpoint
@@ -34,6 +35,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		id, name, resolverEndpointType string,
 		protocols []string,
+		rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled *bool,
 	) (*ResolverEndpoint, error)
 	DisassociateResolverEndpointIPAddress(ctx context.Context, endpointID, ipID string) (*ResolverEndpoint, error)
 
@@ -96,7 +98,10 @@ type StorageBackend interface {
 
 	// Firewall rule operations
 	CreateFirewallRule(ctx context.Context, p CreateFirewallRuleParams) (*FirewallRule, error)
-	DeleteFirewallRule(ctx context.Context, id string) (*FirewallRule, error)
+	DeleteFirewallRule(
+		ctx context.Context,
+		firewallRuleGroupID, firewallDomainListID string,
+	) (*FirewallRule, error)
 	UpdateFirewallRule(ctx context.Context, p UpdateFirewallRuleParams) (*FirewallRule, error)
 	ListFirewallRules(ctx context.Context, firewallRuleGroupID string) []*FirewallRule
 

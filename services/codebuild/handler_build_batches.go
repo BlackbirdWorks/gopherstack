@@ -49,22 +49,54 @@ func (h *Handler) handleDeleteBuildBatch(
 	return &deleteBuildBatchOutput{StatusCode: buildStatusSucceeded}, nil
 }
 
-type listBuildBatchesInput struct{}
-
-type listBuildBatchesOutput struct {
-	IDs []string `json:"ids"`
+// buildBatchFilter mirrors the wire shape of the real SDK's BuildBatchFilter
+// (a single optional status field).
+type buildBatchFilter struct {
+	Status string `json:"status"`
 }
 
-func (h *Handler) handleListBuildBatches(_ context.Context, _ *listBuildBatchesInput) (*listBuildBatchesOutput, error) {
-	return &listBuildBatchesOutput{IDs: h.Backend.ListBuildBatches()}, nil
+type listBuildBatchesInput struct {
+	Filter     *buildBatchFilter `json:"filter"`
+	NextToken  string            `json:"nextToken"`
+	SortOrder  string            `json:"sortOrder"`
+	MaxResults int32             `json:"maxResults"`
+}
+
+type listBuildBatchesOutput struct {
+	NextToken string   `json:"nextToken,omitempty"`
+	IDs       []string `json:"ids"`
+}
+
+func (h *Handler) handleListBuildBatches(
+	_ context.Context,
+	in *listBuildBatchesInput,
+) (*listBuildBatchesOutput, error) {
+	var status string
+	if in.Filter != nil {
+		status = in.Filter.Status
+	}
+
+	ids := h.Backend.ListBuildBatches(status)
+
+	pg, err := paginateIDs(ids, in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listBuildBatchesOutput{IDs: pg.Data, NextToken: pg.Next}, nil
 }
 
 type listBuildBatchesForProjectInput struct {
-	ProjectName string `json:"projectName"`
+	Filter      *buildBatchFilter `json:"filter"`
+	ProjectName string            `json:"projectName"`
+	NextToken   string            `json:"nextToken"`
+	SortOrder   string            `json:"sortOrder"`
+	MaxResults  int32             `json:"maxResults"`
 }
 
 type listBuildBatchesForProjectOutput struct {
-	IDs []string `json:"ids"`
+	NextToken string   `json:"nextToken,omitempty"`
+	IDs       []string `json:"ids"`
 }
 
 func (h *Handler) handleListBuildBatchesForProject(
@@ -75,12 +107,22 @@ func (h *Handler) handleListBuildBatchesForProject(
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	ids, err := h.Backend.ListBuildBatchesForProject(in.ProjectName)
+	var status string
+	if in.Filter != nil {
+		status = in.Filter.Status
+	}
+
+	ids, err := h.Backend.ListBuildBatchesForProject(in.ProjectName, status)
 	if err != nil {
 		return nil, err
 	}
 
-	return &listBuildBatchesForProjectOutput{IDs: ids}, nil
+	pg, err := paginateIDs(ids, in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listBuildBatchesForProjectOutput{IDs: pg.Data, NextToken: pg.Next}, nil
 }
 
 type retryBuildBatchInput struct {

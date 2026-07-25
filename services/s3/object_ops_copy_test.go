@@ -600,3 +600,152 @@ func TestHandler_CopyObject_Versioned(t *testing.T) {
 		})
 	}
 }
+
+// TestCopyObject_SSEAndChecksum is a table test covering three related
+// CopyObject wire-shape fixes:
+//   - checksum propagation: CopyObjectResult now includes the destination's
+//     checksum, matching real S3's types.CopyObjectResult (ChecksumCRC32/
+//     CRC32C/SHA1/SHA256/CRC64NVME alongside ETag/LastModified);
+//   - destination SSE-KMS: CopyObject now honors destination-side
+//     server-side-encryption headers (independent of whatever encryption, if
+//     any, the source object used) and echoes the SSE-KMS response headers
+//     exactly like PutObject does;
+//   - copy-source SSE-C: copying an SSE-C encrypted source object now fails
+//     with 400 InvalidRequest when the caller omits the
+//     x-amz-copy-source-server-side-encryption-customer-* headers, and 400
+//     BadDigest when the supplied key-MD5 is wrong, instead of the pre-fix
+//     behavior where decryptVersionForGet silently handed back ciphertext and
+//     the copy "succeeded" with corrupted, unreadable data at the
+//     destination; supplying the correct key decrypts correctly.
+//
+// Fixture buckets/objects (checksum source, plaintext source, SSE-C source)
+// are created once and shared read-only across parallel subtests, each of
+// which copies to its own distinct destination key.
+func TestCopyObject_SSEAndChecksum(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "copy-fixture-src")
+	mustCreateBucket(t, backend, "copy-fixture-dst")
+
+	checksumPutRec := doRequest(handler, http.MethodPut, "/copy-fixture-src/checksum-obj",
+		strings.NewReader("hello checksum"), map[string]string{
+			"X-Amz-Checksum-Algorithm": "CRC32",
+		})
+	require.Equal(t, http.StatusOK, checksumPutRec.Code)
+	wantChecksum := checksumPutRec.Header().Get("X-Amz-Checksum-Crc32")
+	require.NotEmpty(t, wantChecksum, "PutObject must have computed a CRC32 checksum")
+
+	mustPutObject(t, backend, "copy-fixture-src", "plain-obj", []byte("unencrypted source"))
+
+	const ssecPlaintext = "sensitive payload"
+	ssecKeyB64, ssecKeyMD5 := mustPutSSECObject(t, handler, "copy-fixture-src", "secret-obj", ssecPlaintext)
+
+	tests := []struct {
+		check          func(t *testing.T, rec *httptest.ResponseRecorder, destKey string)
+		name           string
+		destKey        string
+		copyHeaders    map[string]string
+		wantBodySubstr string
+		wantStatus     int
+	}{
+		{
+			name:    "checksum propagated from source to CopyObjectResult",
+			destKey: "checksum-copy",
+			copyHeaders: map[string]string{
+				"X-Amz-Copy-Source": "copy-fixture-src/checksum-obj",
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+				t.Helper()
+
+				var result s3.CopyObjectResult
+				require.NoError(t, xml.NewDecoder(rec.Body).Decode(&result))
+				assert.Equal(t, wantChecksum, result.ChecksumCRC32)
+			},
+		},
+		{
+			name:    "destination SSE-KMS honored and round-trips",
+			destKey: "kms-copy",
+			copyHeaders: map[string]string{
+				"X-Amz-Copy-Source":                           "copy-fixture-src/plain-obj",
+				"X-Amz-Server-Side-Encryption":                "aws:kms",
+				"X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id": "arn:aws:kms:us-east-1:000000000000:key/test-key",
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, destKey string) {
+				t.Helper()
+
+				assert.Equal(t, "aws:kms", rec.Header().Get("X-Amz-Server-Side-Encryption"))
+				assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/test-key",
+					rec.Header().Get("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id"))
+
+				// The destination object must actually be readable back
+				// (round-trips through the KMS-envelope encryption path, not
+				// left as plaintext).
+				getRec := doRequest(handler, http.MethodGet, "/copy-fixture-dst/"+destKey, nil, nil)
+				require.Equal(t, http.StatusOK, getRec.Code)
+				assert.Equal(t, "unencrypted source", getRec.Body.String())
+				assert.Equal(t, "aws:kms", getRec.Header().Get("X-Amz-Server-Side-Encryption"))
+			},
+		},
+		{
+			name:    "SSE-C source without copy-source key rejected",
+			destKey: "ssec-no-key-copy",
+			copyHeaders: map[string]string{
+				"X-Amz-Copy-Source": "copy-fixture-src/secret-obj",
+			},
+			wantStatus:     http.StatusBadRequest,
+			wantBodySubstr: "InvalidRequest",
+		},
+		{
+			name:    "SSE-C source with wrong copy-source key-MD5 rejected",
+			destKey: "ssec-wrong-md5-copy",
+			copyHeaders: map[string]string{
+				"X-Amz-Copy-Source": "copy-fixture-src/secret-obj",
+				"X-Amz-Copy-Source-Server-Side-Encryption-Customer-Algorithm": "AES256",
+				"X-Amz-Copy-Source-Server-Side-Encryption-Customer-Key":       ssecKeyB64,
+				"X-Amz-Copy-Source-Server-Side-Encryption-Customer-Key-Md5":   "bm90dGhlcmlnaHRtZDU=",
+			},
+			wantStatus:     http.StatusBadRequest,
+			wantBodySubstr: "BadDigest",
+		},
+		{
+			name:    "SSE-C source with correct copy-source key decrypts",
+			destKey: "ssec-with-key-copy",
+			copyHeaders: map[string]string{
+				"X-Amz-Copy-Source": "copy-fixture-src/secret-obj",
+				"X-Amz-Copy-Source-Server-Side-Encryption-Customer-Algorithm": "AES256",
+				"X-Amz-Copy-Source-Server-Side-Encryption-Customer-Key":       ssecKeyB64,
+				"X-Amz-Copy-Source-Server-Side-Encryption-Customer-Key-Md5":   ssecKeyMD5,
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, _ *httptest.ResponseRecorder, destKey string) {
+				t.Helper()
+
+				// Destination itself is unencrypted here, so a plain GET
+				// reads back the decrypted plaintext directly.
+				getRec := doRequest(handler, http.MethodGet, "/copy-fixture-dst/"+destKey, nil, nil)
+				require.Equal(t, http.StatusOK, getRec.Code)
+				assert.Equal(t, ssecPlaintext, getRec.Body.String())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(handler, http.MethodPut, "/copy-fixture-dst/"+tt.destKey, nil, tt.copyHeaders)
+			require.Equal(t, tt.wantStatus, rec.Code, "body=%s", rec.Body.String())
+
+			if tt.wantBodySubstr != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodySubstr)
+			}
+
+			if tt.check != nil {
+				tt.check(t, rec, tt.destKey)
+			}
+		})
+	}
+}

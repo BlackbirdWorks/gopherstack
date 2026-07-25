@@ -108,21 +108,25 @@ func TestUpdateProject_Success(t *testing.T) {
 	err = b.UpdateProject(
 		context.Background(),
 		"upd-p",
-		"new-ds",
 		"new-role",
 		databrew.Sample{Type: "RANDOM", Size: 100},
 	)
 	require.NoError(t, err)
 	p, err := b.DescribeProject(context.Background(), "upd-p")
 	require.NoError(t, err)
-	assert.Equal(t, "new-ds", p.DatasetName)
+	assert.Equal(
+		t,
+		"old-ds",
+		p.DatasetName,
+		"DatasetName is not one of UpdateProjectInput's fields; it must be unchanged",
+	)
 	assert.Equal(t, "new-role", p.RoleArn)
 }
 
 func TestUpdateProject_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	err := b.UpdateProject(context.Background(), "no-such", "", "", databrew.Sample{})
+	err := b.UpdateProject(context.Background(), "no-such", "", databrew.Sample{})
 	require.Error(t, err)
 }
 
@@ -142,7 +146,6 @@ func TestUpdateProject_InvalidSampleType(t *testing.T) {
 	err = b.UpdateProject(
 		context.Background(),
 		"upd-bad-p",
-		"",
 		"",
 		databrew.Sample{Type: "INVALID"},
 	)
@@ -199,12 +202,21 @@ func TestHandlerUpdateProject(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/projects", map[string]any{
-		"Name": "upd-proj", "RecipeName": "r1",
+		"Name": "upd-proj", "RecipeName": "r1", "DatasetName": "orig-ds",
 	})
+	// UpdateProjectInput has no DatasetName member (real SDK shape); only
+	// RoleArn/Sample are updatable.
 	rec := databrewReq(t, h, http.MethodPut, "/databrew/v1/projects/upd-proj", map[string]any{
-		"DatasetName": "new-ds",
+		"RoleArn": "arn:aws:iam::123456789012:role/new",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	desc := databrewReq(t, h, http.MethodGet, "/databrew/v1/projects/upd-proj", nil)
+	require.Equal(t, http.StatusOK, desc.Code)
+	var proj map[string]any
+	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &proj))
+	assert.Equal(t, "orig-ds", proj["DatasetName"], "DatasetName must be immutable via UpdateProject")
+	assert.Equal(t, "arn:aws:iam::123456789012:role/new", proj["RoleArn"])
 }
 
 func TestHandlerDeleteProject(t *testing.T) {

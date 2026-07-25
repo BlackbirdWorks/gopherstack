@@ -34,6 +34,10 @@ func (b *InMemoryBackend) CreateProbe(
 		return nil, fmt.Errorf("%w: monitor %q not found", ErrNotFound, monitorName)
 	}
 
+	if quotaErr := validateProbeQuotas(m.Probes, []string{pi.SourceArn}); quotaErr != nil {
+		return nil, quotaErr
+	}
+
 	now := time.Now().UTC()
 	probeID := b.nextProbeID()
 	probeARN := b.buildProbeARN(region, monitorName, probeID)
@@ -239,10 +243,6 @@ func applyProbeUpdate(probe *Probe, req *updateProbeRequest, normalizedProtocol 
 		probe.State = strings.ToUpper(req.State)
 	}
 
-	if req.Tags != nil {
-		maps.Copy(probe.Tags, req.Tags)
-	}
-
 	probe.ModifiedAt = &now
 }
 
@@ -318,6 +318,43 @@ func validatePacketSize(size *int32) error {
 
 	if *size < minPacketSize || *size > maxPacketSize {
 		return fmt.Errorf("%w: packetSize must be between 56 and 8500", ErrValidation)
+	}
+
+	return nil
+}
+
+// validateProbeQuotas enforces the two probe-related Network Synthetic
+// Monitor service quotas (see the max*PerMonitor constants in store.go) for
+// a set of newSourceArns about to be added to a monitor that already holds
+// existingProbes: at most maxProbesPerMonitor probes total, and at most
+// maxProbesPerSubnetPerMonitor probes sharing the same sourceArn (subnet)
+// within that monitor. Called for both CreateMonitor's nested probes
+// (existingProbes is nil) and CreateProbe (existingProbes is the monitor's
+// current probe list).
+func validateProbeQuotas(existingProbes []*Probe, newSourceArns []string) error {
+	if len(existingProbes)+len(newSourceArns) > maxProbesPerMonitor {
+		return fmt.Errorf(
+			"%w: a monitor cannot have more than %d probes",
+			ErrServiceQuotaExceeded,
+			maxProbesPerMonitor,
+		)
+	}
+
+	perSubnet := make(map[string]int, len(existingProbes)+len(newSourceArns))
+	for _, p := range existingProbes {
+		perSubnet[p.SourceArn]++
+	}
+
+	for _, sourceARN := range newSourceArns {
+		perSubnet[sourceARN]++
+
+		if perSubnet[sourceARN] > maxProbesPerSubnetPerMonitor {
+			return fmt.Errorf(
+				"%w: a subnet cannot have more than %d probes in a monitor",
+				ErrServiceQuotaExceeded,
+				maxProbesPerSubnetPerMonitor,
+			)
+		}
 	}
 
 	return nil

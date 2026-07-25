@@ -1,6 +1,7 @@
 package xray
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 )
@@ -14,26 +15,31 @@ func (b *InMemoryBackend) AddTraceRetrievalInternal(retrieval TraceRetrieval) {
 }
 
 // CancelTraceRetrieval marks a trace retrieval as cancelled.
-// If the token is not found the operation is a no-op (idempotent).
-func (b *InMemoryBackend) CancelTraceRetrieval(retrievalToken string) {
+// Returns ErrTraceRetrievalNotFound if the token was never created by StartTraceRetrieval
+// (real AWS declares ResourceNotFoundException for CancelTraceRetrieval on unknown tokens).
+func (b *InMemoryBackend) CancelTraceRetrieval(retrievalToken string) error {
 	b.mu.Lock("CancelTraceRetrieval")
 	defer b.mu.Unlock()
 
-	b.traceRetrievals.Delete(retrievalToken)
+	if !b.traceRetrievals.Delete(retrievalToken) {
+		return fmt.Errorf("%w: retrieval token %s not found", ErrTraceRetrievalNotFound, retrievalToken)
+	}
+
+	return nil
 }
 
 // GetRetrievedTracesGraph returns the status and services for a retrieval token.
-// If the token is not found a COMPLETE status is returned.
-func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace) {
+// Returns ErrTraceRetrievalNotFound if the token was never created by StartTraceRetrieval.
+func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace, error) {
 	b.mu.RLock("GetRetrievedTracesGraph")
 	defer b.mu.RUnlock()
 
 	tr, ok := b.traceRetrievals.Get(retrievalToken)
 	if !ok {
-		return traceRetrievalStatusComplete, nil
+		return "", nil, fmt.Errorf("%w: retrieval token %s not found", ErrTraceRetrievalNotFound, retrievalToken)
 	}
 
-	return tr.Status, nil
+	return tr.Status, nil, nil
 }
 
 // StartTraceRetrieval creates a new retrieval job for the given trace IDs and returns a token.
@@ -73,13 +79,14 @@ func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string) string {
 }
 
 // ListRetrievedTraces returns the status and traces associated with a retrieval token.
-func (b *InMemoryBackend) ListRetrievedTraces(retrievalToken string) (string, []*Trace) {
+// Returns ErrTraceRetrievalNotFound if the token was never created by StartTraceRetrieval.
+func (b *InMemoryBackend) ListRetrievedTraces(retrievalToken string) (string, []*Trace, error) {
 	b.mu.RLock("ListRetrievedTraces")
 	defer b.mu.RUnlock()
 
 	tr, ok := b.traceRetrievals.Get(retrievalToken)
 	if !ok {
-		return traceRetrievalStatusComplete, nil
+		return "", nil, fmt.Errorf("%w: retrieval token %s not found", ErrTraceRetrievalNotFound, retrievalToken)
 	}
 
 	traces := b.retrievedTraces[retrievalToken]
@@ -90,10 +97,11 @@ func (b *InMemoryBackend) ListRetrievedTraces(retrievalToken string) (string, []
 		out[i] = &cp
 	}
 
-	return tr.Status, out
+	return tr.Status, out, nil
 }
 
 const (
-	// traceRetrievalStatusComplete is the retrieval status returned for unknown tokens.
+	// traceRetrievalStatusComplete is the retrieval status assigned to a newly
+	// started trace retrieval; gopherstack completes retrievals synchronously.
 	traceRetrievalStatusComplete = "COMPLETE"
 )

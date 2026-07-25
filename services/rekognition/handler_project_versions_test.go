@@ -128,6 +128,70 @@ func TestProjectVersion_Lifecycle(t *testing.T) { //nolint:paralleltest // exist
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// ---------------------------------------------------------------------------
+// CreateProjectVersion persists and echoes OutputConfig/KmsKeyId/
+// VersionDescription/Tags back through DescribeProjectVersions and
+// ListTagsForResource. These were previously accepted by the request but
+// silently dropped -- see PARITY.md gaps.
+// ---------------------------------------------------------------------------
+
+func TestCreateProjectVersion_FullFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "full-ver-proj"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var projResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	projectARN := projResp["ProjectArn"].(string)
+
+	rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
+		"ProjectArn":  projectARN,
+		"VersionName": "v-full",
+		"OutputConfig": map[string]any{
+			"S3Bucket":    "my-output-bucket",
+			"S3KeyPrefix": "training-output/",
+		},
+		"KmsKeyId":           "arn:aws:kms:us-east-1:000000000000:key/abc",
+		"VersionDescription": "a test model version",
+		"Tags":               map[string]any{"team": "vision"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var verResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp))
+	versionARN := verResp["ProjectVersionArn"].(string)
+
+	rec = doRequest(t, h, "DescribeProjectVersions", map[string]any{"ProjectArn": projectARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	versions := descResp["ProjectVersionDescriptions"].([]any)
+	require.Len(t, versions, 1)
+
+	desc := versions[0].(map[string]any)
+	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/abc", desc["KmsKeyId"])
+	assert.Equal(t, "a test model version", desc["VersionDescription"])
+
+	outputConfig, _ := desc["OutputConfig"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "my-output-bucket", outputConfig["S3Bucket"])
+	assert.Equal(t, "training-output/", outputConfig["S3KeyPrefix"])
+
+	// ProjectVersion ARNs are taggable (see PARITY.md Notes #3) -- confirm
+	// the initial Tags made it into the tag store.
+	rec = doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": versionARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	tags, _ := tagsResp["Tags"].(map[string]any)
+	assert.Equal(t, "vision", tags["team"])
+}
+
 func TestCopyProjectVersion(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 

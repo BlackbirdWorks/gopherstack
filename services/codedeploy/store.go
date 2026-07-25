@@ -12,16 +12,30 @@ import (
 const (
 	statusSucceeded       = "Succeeded"
 	statusStopped         = "Stopped"
+	statusFailed          = "Failed"
 	computePlatformServer = "Server"
 	computePlatformLambda = "Lambda"
 	computePlatformECS    = "ECS"
 )
 
+// Deployment target/instance type discriminators shared between the backend
+// computation (deployment_instances.go) and its wire conversion
+// (handler_deployment_instances.go).
+const (
+	targetTypeInstance = "instanceTarget"
+	targetTypeECS      = "ecsTarget"
+	targetTypeLambda   = "lambdaTarget"
+)
+
 // InMemoryBackend is the in-memory store for CodeDeploy resources.
 //
-// deployments and deploymentConfigs carry a real, wire-visible identity
-// field and no live *tags.Tags field, so each registers directly on
-// b.registry as a "clean" *store.Table.
+// deployments, deploymentConfigs, and applicationRevisions carry a real,
+// wire-visible identity field and no live *tags.Tags field, so each
+// registers directly on b.registry as a "clean" *store.Table.
+// applicationRevisions is keyed by a composite appName+canonical-revision-JSON
+// string (see applicationRevisionKey in store_setup.go), with
+// applicationRevisionsByApp replacing a per-application scan for
+// ListApplicationRevisions.
 //
 // applications, deploymentGroups, and onPremisesInstances each carry a live
 // *tags.Tags field marked json:"-", so each is a "dirty" table (store.New
@@ -36,17 +50,19 @@ const (
 // (map[string]struct{}), so there is no *T value for store.Table to key on.
 // It remains a plain map, unchanged by this refactor.
 type InMemoryBackend struct {
-	registry              *store.Registry
-	applications          *store.Table[Application]
-	deploymentGroups      *store.Table[DeploymentGroup]
-	deploymentGroupsByApp *store.Index[DeploymentGroup]
-	deployments           *store.Table[Deployment]
-	onPremisesInstances   *store.Table[OnPremisesInstance]
-	deploymentConfigs     *store.Table[DeploymentConfig]
-	githubTokens          map[string]struct{}
-	mu                    *lockmetrics.RWMutex
-	accountID             string
-	region                string
+	registry                  *store.Registry
+	applications              *store.Table[Application]
+	deploymentGroups          *store.Table[DeploymentGroup]
+	deploymentGroupsByApp     *store.Index[DeploymentGroup]
+	deployments               *store.Table[Deployment]
+	onPremisesInstances       *store.Table[OnPremisesInstance]
+	deploymentConfigs         *store.Table[DeploymentConfig]
+	applicationRevisions      *store.Table[ApplicationRevision]
+	applicationRevisionsByApp *store.Index[ApplicationRevision]
+	githubTokens              map[string]struct{}
+	mu                        *lockmetrics.RWMutex
+	accountID                 string
+	region                    string
 }
 
 // NewInMemoryBackend creates a new in-memory CodeDeploy backend with pre-seeded default configs.

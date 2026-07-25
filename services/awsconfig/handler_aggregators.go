@@ -95,16 +95,22 @@ func (h *Handler) handleDescribeConfigurationAggregators(
 }
 
 // DescribeConfigurationAggregatorSourcesStatus request/response types and handler.
+type describeConfigurationAggregatorSourcesStatusInput struct {
+	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+}
 type describeConfigurationAggregatorSourcesStatusOutput struct {
-	AggregatedSourceStatusList []any `json:"AggregatedSourceStatusList"`
+	AggregatedSourceStatusList []AggregatedSourceStatus `json:"AggregatedSourceStatusList"`
 }
 
 func (h *Handler) handleDescribeConfigurationAggregatorSourcesStatus(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeConfigurationAggregatorSourcesStatusInput,
 ) (*describeConfigurationAggregatorSourcesStatusOutput, error) {
-	return &describeConfigurationAggregatorSourcesStatusOutput{
-		AggregatedSourceStatusList: h.Backend.DescribeConfigurationAggregatorSourcesStatus(),
-	}, nil
+	statuses, err := h.Backend.DescribeConfigurationAggregatorSourcesStatus(in.ConfigurationAggregatorName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeConfigurationAggregatorSourcesStatusOutput{AggregatedSourceStatusList: statuses}, nil
 }
 
 // DeleteConfigurationAggregator request/response types and handler.
@@ -159,7 +165,7 @@ func (h *Handler) handleDeletePendingAggregationRequest(
 
 // DescribePendingAggregationRequests request/response types and handler.
 type describePendingAggregationRequestsOutput struct {
-	PendingAggregationRequests []any `json:"PendingAggregationRequests"`
+	PendingAggregationRequests []PendingAggregationRequest `json:"PendingAggregationRequests"`
 }
 
 func (h *Handler) handleDescribePendingAggregationRequests(

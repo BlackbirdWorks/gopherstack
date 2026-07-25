@@ -33,27 +33,58 @@ func TestGrantRevokeListPermissions(t *testing.T) {
 
 			b := lakeformation.NewInMemoryBackend()
 
+			resource := &lakeformation.Resource{
+				DataLocation: &lakeformation.DataLocationResource{ResourceArn: tt.resourceArn},
+			}
 			entry := &lakeformation.PermissionEntry{
 				Principal: &lakeformation.DataLakePrincipal{
 					DataLakePrincipalIdentifier: tt.principal,
 				},
-				Resource: &lakeformation.Resource{
-					DataLocation: &lakeformation.DataLocationResource{ResourceArn: tt.resourceArn},
-				},
+				Resource:    resource,
 				Permissions: tt.perms,
 			}
 
 			require.NoError(t, b.GrantPermissions(entry))
 
-			entries, _ := b.ListPermissions(tt.resourceArn, 0, "", nil, "")
+			entries, _ := b.ListPermissions(resource, 0, "", nil, "")
 			assert.Len(t, entries, tt.wantCount)
+			require.Len(t, entries, tt.wantCount)
+
+			if tt.wantCount > 0 {
+				assert.NotNil(t, entries[0].LastUpdated, "GrantPermissions must stamp LastUpdated")
+			}
 
 			require.NoError(t, b.RevokePermissions(entry))
 
-			entries, _ = b.ListPermissions(tt.resourceArn, 0, "", nil, "")
+			entries, _ = b.ListPermissions(resource, 0, "", nil, "")
 			assert.Empty(t, entries)
 		})
 	}
+}
+
+func TestGrantPermissions_ConditionRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+
+	resource := &lakeformation.Resource{
+		Database: &lakeformation.DatabaseResource{Name: "conditional-db"},
+	}
+	entry := &lakeformation.PermissionEntry{
+		Principal: &lakeformation.DataLakePrincipal{
+			DataLakePrincipalIdentifier: "arn:aws:iam::123456789012:user/alice",
+		},
+		Resource:    resource,
+		Permissions: []string{"CREATE_TABLE"},
+		Condition:   &lakeformation.Condition{Expression: "principal.department == \"eng\""},
+	}
+
+	require.NoError(t, b.GrantPermissions(entry))
+
+	entries, _ := b.ListPermissions(resource, 0, "", nil, "")
+	require.Len(t, entries, 1)
+	require.NotNil(t, entries[0].Condition)
+	assert.Equal(t, "principal.department == \"eng\"", entries[0].Condition.Expression)
 }
 
 func TestBatchGrantRevokePermissions(t *testing.T) {
@@ -61,13 +92,14 @@ func TestBatchGrantRevokePermissions(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		entries      []*lakeformation.PermissionEntry
+		entries      []*lakeformation.BatchPermissionsRequestEntry
 		wantFailures int
 	}{
 		{
 			name: "batch_grant_no_failures",
-			entries: []*lakeformation.PermissionEntry{
+			entries: []*lakeformation.BatchPermissionsRequestEntry{
 				{
+					ID:        "entry-1",
 					Principal: &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/a"},
 					Resource: &lakeformation.Resource{
 						DataLocation: &lakeformation.DataLocationResource{ResourceArn: "arn:aws:s3:::bucket-a"},
@@ -76,6 +108,40 @@ func TestBatchGrantRevokePermissions(t *testing.T) {
 				},
 			},
 			wantFailures: 0,
+		},
+		{
+			name: "batch_grant_invalid_permission_fails",
+			entries: []*lakeformation.BatchPermissionsRequestEntry{
+				{
+					ID:        "entry-2",
+					Principal: &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/b"},
+					Resource: &lakeformation.Resource{
+						DataLocation: &lakeformation.DataLocationResource{ResourceArn: "arn:aws:s3:::bucket-b"},
+					},
+					Permissions: []string{"NOT_A_REAL_PERMISSION"},
+				},
+			},
+			wantFailures: 1,
+		},
+		{
+			// BatchGrantPermissions must apply the same "PermissionsWithGrantOption
+			// must be a subset of Permissions" validation GrantPermissions enforces
+			// -- as a per-entry Failures[] item, not a whole-request rejection.
+			name: "batch_grant_option_not_subset_fails",
+			entries: []*lakeformation.BatchPermissionsRequestEntry{
+				{
+					ID: "entry-3",
+					Principal: &lakeformation.DataLakePrincipal{
+						DataLakePrincipalIdentifier: "arn:aws:iam::123:user/c",
+					},
+					Resource: &lakeformation.Resource{
+						Database: &lakeformation.DatabaseResource{Name: "db1"},
+					},
+					Permissions:                []string{"SELECT"},
+					PermissionsWithGrantOption: []string{"INSERT"},
+				},
+			},
+			wantFailures: 1,
 		},
 	}
 
@@ -88,8 +154,11 @@ func TestBatchGrantRevokePermissions(t *testing.T) {
 			failures := b.BatchGrantPermissions(tt.entries)
 			assert.Len(t, failures, tt.wantFailures)
 
-			failures = b.BatchRevokePermissions(tt.entries)
-			assert.Len(t, failures, tt.wantFailures)
+			if tt.wantFailures > 0 {
+				require.NotNil(t, failures[0].RequestEntry)
+				assert.Equal(t, tt.entries[0].ID, failures[0].RequestEntry.ID,
+					"failure must echo back the caller-supplied Id for correlation")
+			}
 		})
 	}
 }
@@ -130,7 +199,7 @@ func TestRevokePermissions_NoDanglingPointers(t *testing.T) {
 			// Revoke first entry.
 			require.NoError(t, b.RevokePermissions(p1))
 
-			entries, _ := b.ListPermissions("", 0, "", nil, "")
+			entries, _ := b.ListPermissions(nil, 0, "", nil, "")
 			assert.Len(t, entries, 1)
 			assert.Equal(t, "arn:aws:iam::123:user/b", entries[0].Principal.DataLakePrincipalIdentifier)
 		})
@@ -199,24 +268,29 @@ func TestPermissionMatches_EdgeCases(t *testing.T) {
 			require.NoError(t, b.GrantPermissions(entry))
 			require.NoError(t, b.RevokePermissions(entry))
 
-			entries, _ := b.ListPermissions("", 0, "", nil, "")
+			entries, _ := b.ListPermissions(nil, 0, "", nil, "")
 			assert.Len(t, entries, tt.wantRemain)
 		})
 	}
 }
 
-func TestPermissionMatches_NilHandling(t *testing.T) {
+func TestListPermissions_ResourceFilter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		filter    *lakeformation.Resource
 		name      string
-		principal string
 		wantCount int
 	}{
 		{
-			name:      "nil resource for permissionMatchesARN returns no match",
-			principal: "arn:aws:iam::123:user/x",
-			wantCount: 1, // entry with nil DataLocation should not be matched by ARN filter
+			name:      "filter by non-matching database returns nothing",
+			filter:    &lakeformation.Resource{Database: &lakeformation.DatabaseResource{Name: "no-match"}},
+			wantCount: 0,
+		},
+		{
+			name:      "nil filter returns everything",
+			filter:    nil,
+			wantCount: 1,
 		},
 	}
 
@@ -226,10 +300,10 @@ func TestPermissionMatches_NilHandling(t *testing.T) {
 
 			b := lakeformation.NewInMemoryBackend()
 
-			// Entry with Catalog resource (no DataLocation) - won't match ARN filter.
+			// Entry with Catalog resource (no Database) - won't match the database filter.
 			entry := &lakeformation.PermissionEntry{
 				Principal: &lakeformation.DataLakePrincipal{
-					DataLakePrincipalIdentifier: tt.principal,
+					DataLakePrincipalIdentifier: "arn:aws:iam::123:user/x",
 				},
 				Resource:    &lakeformation.Resource{Catalog: &lakeformation.CatalogResource{}},
 				Permissions: []string{"ALL"},
@@ -237,13 +311,8 @@ func TestPermissionMatches_NilHandling(t *testing.T) {
 
 			require.NoError(t, b.GrantPermissions(entry))
 
-			// Filter by a specific ARN - should not match the catalog resource.
-			filtered, _ := b.ListPermissions("arn:aws:s3:::no-match", 0, "", nil, "")
-			assert.Empty(t, filtered)
-
-			// Filter by empty ARN - should return the catalog entry.
-			all, _ := b.ListPermissions("", 0, "", nil, "")
-			assert.Len(t, all, tt.wantCount)
+			filtered, _ := b.ListPermissions(tt.filter, 0, "", nil, "")
+			assert.Len(t, filtered, tt.wantCount)
 		})
 	}
 }
@@ -275,7 +344,7 @@ func TestListPermissions_SortedDeterministic(t *testing.T) {
 		Permissions: []string{"SELECT"},
 	})
 
-	perms, _ := b.ListPermissions("", 0, "", nil, "")
+	perms, _ := b.ListPermissions(nil, 0, "", nil, "")
 	require.Len(t, perms, 2)
 	// alice sorts before bob
 	assert.Equal(t, "arn:aws:iam::000000000000:user/alice", perms[0].Principal.DataLakePrincipalIdentifier)

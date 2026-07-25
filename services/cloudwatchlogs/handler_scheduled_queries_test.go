@@ -36,6 +36,42 @@ func TestHandler_ScheduledQuery_Create(t *testing.T) {
 	assert.Equal(t, "DISABLED", out["state"])
 }
 
+// TestHandler_GetScheduledQuery_WireShape locks the AWS wire key for a
+// scheduled query's ARN: aws-sdk-go-v2 GetScheduledQueryOutput.ScheduledQueryArn
+// serializes to "scheduledQueryArn", not "arn". A previous version of the
+// ScheduledQuery model used the wrong key, so a real SDK client's
+// ScheduledQueryArn field would always deserialize empty from
+// GetScheduledQuery/ListScheduledQueries responses.
+func TestHandler_GetScheduledQuery_WireShape(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	createRec := doLogsRequest(t, h, e, "CreateScheduledQuery",
+		`{"name":"my-sched","queryString":"fields @message | limit 100"}`)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	queryARN, ok := createOut["scheduledQueryArn"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, queryARN)
+
+	getRec := doLogsRequest(t, h, e, "GetScheduledQuery", `{"scheduledQueryArn":"`+queryARN+`"}`)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	sq, ok := getOut["scheduledQuery"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, queryARN, sq["scheduledQueryArn"], "wire key must be scheduledQueryArn, not arn")
+	_, hasOldKey := sq["arn"]
+	assert.False(t, hasOldKey, "bare \"arn\" key must not appear on a scheduled query")
+}
+
 func TestHandler_CreateScheduledQuery_StateValidation(t *testing.T) {
 	t.Parallel()
 

@@ -6,25 +6,35 @@ import (
 )
 
 type createCrawlerInput struct {
-	Tags          map[string]string `json:"Tags,omitempty"`
-	Name          string            `json:"Name"`
-	Role          string            `json:"Role"`
-	DatabaseName  string            `json:"DatabaseName"`
-	Description   string            `json:"Description,omitempty"`
-	Schedule      string            `json:"Schedule,omitempty"`
-	Configuration string            `json:"Configuration,omitempty"`
-	TablePrefix   string            `json:"TablePrefix,omitempty"`
-	Classifiers   []string          `json:"Classifiers,omitempty"`
-	Targets       CrawlerTarget     `json:"Targets,omitzero"`
+	Tags                         map[string]string           `json:"Tags,omitempty"`
+	LakeFormationConfiguration   *LakeFormationConfiguration `json:"LakeFormationConfiguration,omitempty"`
+	LineageConfiguration         *LineageConfiguration       `json:"LineageConfiguration,omitempty"`
+	RecrawlPolicy                *RecrawlPolicy              `json:"RecrawlPolicy,omitempty"`
+	SchemaChangePolicy           *SchemaChangePolicy         `json:"SchemaChangePolicy,omitempty"`
+	Configuration                string                      `json:"Configuration,omitempty"`
+	Schedule                     string                      `json:"Schedule,omitempty"`
+	TablePrefix                  string                      `json:"TablePrefix,omitempty"`
+	CrawlerSecurityConfiguration string                      `json:"CrawlerSecurityConfiguration,omitempty"`
+	Description                  string                      `json:"Description,omitempty"`
+	DatabaseName                 string                      `json:"DatabaseName"`
+	Role                         string                      `json:"Role"`
+	Name                         string                      `json:"Name"`
+	Targets                      CrawlerTarget               `json:"Targets,omitzero"`
+	Classifiers                  []string                    `json:"Classifiers,omitempty"`
 }
 
 func (h *Handler) handleCreateCrawler(_ context.Context, in *createCrawlerInput) (*emptyOutput, error) {
 	_, err := h.Backend.CreateCrawlerWithOptions(in.Name, in.Role, in.DatabaseName, in.Targets, in.Tags, CrawlerOptions{
-		Description:   in.Description,
-		Schedule:      in.Schedule,
-		Configuration: in.Configuration,
-		TablePrefix:   in.TablePrefix,
-		Classifiers:   in.Classifiers,
+		Description:                  in.Description,
+		Schedule:                     in.Schedule,
+		Configuration:                in.Configuration,
+		TablePrefix:                  in.TablePrefix,
+		Classifiers:                  in.Classifiers,
+		CrawlerSecurityConfiguration: in.CrawlerSecurityConfiguration,
+		SchemaChangePolicy:           in.SchemaChangePolicy,
+		RecrawlPolicy:                in.RecrawlPolicy,
+		LineageConfiguration:         in.LineageConfiguration,
+		LakeFormationConfiguration:   in.LakeFormationConfiguration,
 	})
 	if err != nil {
 		return nil, err
@@ -63,24 +73,34 @@ func (h *Handler) handleGetCrawlers(_ context.Context, _ *getCrawlersInput) (*ge
 }
 
 type updateCrawlerInput struct {
-	Name          string        `json:"Name"`
-	Role          string        `json:"Role"`
-	DatabaseName  string        `json:"DatabaseName"`
-	Description   string        `json:"Description,omitempty"`
-	Schedule      string        `json:"Schedule,omitempty"`
-	Configuration string        `json:"Configuration,omitempty"`
-	TablePrefix   string        `json:"TablePrefix,omitempty"`
-	Classifiers   []string      `json:"Classifiers,omitempty"`
-	Targets       CrawlerTarget `json:"Targets,omitzero"`
+	SchemaChangePolicy           *SchemaChangePolicy         `json:"SchemaChangePolicy,omitempty"`
+	LakeFormationConfiguration   *LakeFormationConfiguration `json:"LakeFormationConfiguration,omitempty"`
+	LineageConfiguration         *LineageConfiguration       `json:"LineageConfiguration,omitempty"`
+	RecrawlPolicy                *RecrawlPolicy              `json:"RecrawlPolicy,omitempty"`
+	TablePrefix                  string                      `json:"TablePrefix,omitempty"`
+	Configuration                string                      `json:"Configuration,omitempty"`
+	Name                         string                      `json:"Name"`
+	CrawlerSecurityConfiguration string                      `json:"CrawlerSecurityConfiguration,omitempty"`
+	Schedule                     string                      `json:"Schedule,omitempty"`
+	Description                  string                      `json:"Description,omitempty"`
+	DatabaseName                 string                      `json:"DatabaseName"`
+	Role                         string                      `json:"Role"`
+	Targets                      CrawlerTarget               `json:"Targets,omitzero"`
+	Classifiers                  []string                    `json:"Classifiers,omitempty"`
 }
 
 func (h *Handler) handleUpdateCrawler(_ context.Context, in *updateCrawlerInput) (*emptyOutput, error) {
 	err := h.Backend.UpdateCrawlerWithOptions(in.Name, in.Role, in.DatabaseName, in.Targets, CrawlerOptions{
-		Description:   in.Description,
-		Schedule:      in.Schedule,
-		Configuration: in.Configuration,
-		TablePrefix:   in.TablePrefix,
-		Classifiers:   in.Classifiers,
+		Description:                  in.Description,
+		Schedule:                     in.Schedule,
+		Configuration:                in.Configuration,
+		TablePrefix:                  in.TablePrefix,
+		Classifiers:                  in.Classifiers,
+		CrawlerSecurityConfiguration: in.CrawlerSecurityConfiguration,
+		SchemaChangePolicy:           in.SchemaChangePolicy,
+		RecrawlPolicy:                in.RecrawlPolicy,
+		LineageConfiguration:         in.LineageConfiguration,
+		LakeFormationConfiguration:   in.LakeFormationConfiguration,
 	})
 	if err != nil {
 		return nil, err

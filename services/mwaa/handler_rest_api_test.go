@@ -92,8 +92,10 @@ func TestHandler_InvokeRestApi(t *testing.T) {
 			if tt.seed {
 				seedRec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
 					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+					"NetworkConfiguration": networkConfigBody(),
 				})
 				require.Equal(t, http.StatusOK, seedRec.Code)
+				doMWAARequest(t, h, http.MethodGet, "/environments/"+tt.envName, nil) // promote CREATING → AVAILABLE
 			}
 
 			method := http.MethodPost
@@ -174,7 +176,9 @@ func TestInvokeRestApi_HTTP_Variations(t *testing.T) {
 			h := newHandlerForTest(t)
 			doMWAARequest(t, h, http.MethodPut, "/environments/http-restapi-env", map[string]any{
 				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+				"NetworkConfiguration": networkConfigBody(),
 			})
+			doMWAARequest(t, h, http.MethodGet, "/environments/http-restapi-env", nil) // promote CREATING → AVAILABLE
 
 			rec := doMWAARequest(t, h, http.MethodPost, "/restapi/http-restapi-env", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)

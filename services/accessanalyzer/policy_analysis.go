@@ -323,28 +323,63 @@ func CheckNoPublicAccess(policyDoc string) PolicyCheckResult {
 }
 
 // ValidatePolicyFinding is a single finding from policy validation.
+// FindingDetails is a required member of the real types.ValidatePolicyFinding
+// ("a localized message that explains the finding and provides guidance on
+// how to address it"); it is populated from findingDetailMessages, keyed by
+// IssueCode, rather than left empty.
 type ValidatePolicyFinding struct {
-	FindingType   string           `json:"findingType"`
-	IssueCode     string           `json:"issueCode"`
-	LearnMoreLink string           `json:"learnMoreLink"`
-	Locations     []map[string]any `json:"locations"`
+	FindingType    string           `json:"findingType"`
+	IssueCode      string           `json:"issueCode"`
+	FindingDetails string           `json:"findingDetails"`
+	LearnMoreLink  string           `json:"learnMoreLink"`
+	Locations      []map[string]any `json:"locations"`
+}
+
+// findingDetailMessages maps every IssueCode this package's validators can
+// produce to the human-readable message types.ValidatePolicyFinding.FindingDetails
+// requires. Every errFinding/warnFinding call site's code MUST have an entry
+// here (see the exhaustive test in handler_policy_validation_test.go).
+//
+//nolint:gochecknoglobals // static lookup table, same pattern as errCodeLookup elsewhere
+var findingDetailMessages = map[string]string{
+	"INVALID_POLICY_SYNTAX": "The policy document is not valid JSON.",
+	"MISSING_VERSION": "Add a Version element to the policy. Without one, the policy defaults to " +
+		"the oldest, most limited version.",
+	"INVALID_VERSION":                  "The Version element must be either 2012-10-17 or 2008-10-17.",
+	"INVALID_EFFECT":                   "The Effect element of a statement must be either Allow or Deny.",
+	"MISSING_ACTION_OR_NOT_ACTION":     "A statement must contain either an Action or a NotAction element.",
+	"BOTH_ACTION_AND_NOT_ACTION":       "A statement cannot contain both an Action and a NotAction element.",
+	"MISSING_RESOURCE_OR_NOT_RESOURCE": "A statement must contain either a Resource or a NotResource element.",
+	"BOTH_RESOURCE_AND_NOT_RESOURCE":   "A statement cannot contain both a Resource and a NotResource element.",
+	"PASS_ROLE_WITH_STAR": "Using a wildcard action with a wildcard resource in an Allow statement " +
+		"is overly permissive.",
+}
+
+func findingDetailsFor(code string) string {
+	if msg, ok := findingDetailMessages[code]; ok {
+		return msg
+	}
+
+	return ""
 }
 
 func errFinding(code string, locs []map[string]any) ValidatePolicyFinding {
 	return ValidatePolicyFinding{
-		FindingType:   findingTypeError,
-		IssueCode:     code,
-		LearnMoreLink: learnMoreBase,
-		Locations:     locs,
+		FindingType:    findingTypeError,
+		IssueCode:      code,
+		FindingDetails: findingDetailsFor(code),
+		LearnMoreLink:  learnMoreBase,
+		Locations:      locs,
 	}
 }
 
 func warnFinding(findingType, code string, locs []map[string]any) ValidatePolicyFinding {
 	return ValidatePolicyFinding{
-		FindingType:   findingType,
-		IssueCode:     code,
-		LearnMoreLink: learnMoreBase,
-		Locations:     locs,
+		FindingType:    findingType,
+		IssueCode:      code,
+		FindingDetails: findingDetailsFor(code),
+		LearnMoreLink:  learnMoreBase,
+		Locations:      locs,
 	}
 }
 

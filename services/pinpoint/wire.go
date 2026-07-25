@@ -30,9 +30,13 @@ type createCampaignRequest struct {
 }
 
 // createEmailTemplateRequest is the request body for CreateEmailTemplate.
+//
+// DefaultSubstitutions is a JSON-encoded string on the wire (confirmed
+// against EmailTemplateRequest's serializer -- object.Key("DefaultSubstitutions").String(*v)),
+// not a nested object; the caller supplies an already-serialized JSON string.
 type createEmailTemplateRequest struct {
-	DefaultSubstitutions map[string]any    `json:"DefaultSubstitutions,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
+	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
 	HTMLPart             string            `json:"HtmlPart,omitempty"`
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
 	Subject              string            `json:"Subject,omitempty"`
@@ -57,6 +61,7 @@ type createImportJobRequest struct {
 // createInAppTemplateRequest is the request body for CreateInAppTemplate.
 type createInAppTemplateRequest struct {
 	Tags                map[string]string `json:"tags,omitempty"`
+	CustomConfig        map[string]string `json:"CustomConfig,omitempty"`
 	Layout              string            `json:"Layout,omitempty"`
 	TemplateDescription string            `json:"TemplateDescription,omitempty"`
 	Content             []map[string]any  `json:"Content,omitempty"`
@@ -81,14 +86,20 @@ type createJourneyRequest struct {
 }
 
 // createPushTemplateRequest is the request body for CreatePushTemplate.
+//
+// There is no top-level Body/Title on the real PushNotificationTemplateRequest
+// (confirmed against awsRestjson1_serializeDocumentPushNotificationTemplateRequest) --
+// per-platform body/title live inside ADM/APNS/Baidu/Default/GCM.
 type createPushTemplateRequest struct {
-	APNS                map[string]any    `json:"APNS,omitempty"`
-	Default             map[string]any    `json:"Default,omitempty"`
-	GCM                 map[string]any    `json:"GCM,omitempty"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	Body                string            `json:"Body,omitempty"`
-	TemplateDescription string            `json:"TemplateDescription,omitempty"`
-	Title               string            `json:"Title,omitempty"`
+	ADM                  map[string]any    `json:"ADM,omitempty"`
+	APNS                 map[string]any    `json:"APNS,omitempty"`
+	Baidu                map[string]any    `json:"Baidu,omitempty"`
+	Default              map[string]any    `json:"Default,omitempty"`
+	GCM                  map[string]any    `json:"GCM,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
+	RecommenderID        string            `json:"RecommenderId,omitempty"`
+	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 }
 
 // createRecommenderConfigRequest is the request body for CreateRecommenderConfiguration.
@@ -112,11 +123,17 @@ type createSegmentRequest struct {
 }
 
 // createSmsTemplateRequest is the request body for CreateSmsTemplate.
+//
+// There is no SenderId field on the real SMSTemplateRequest (confirmed
+// against awsRestjson1_serializeDocumentSMSTemplateRequest); a prior pass had
+// invented it. SMS sender ID is configured on the SMS *channel*, not the
+// template.
 type createSmsTemplateRequest struct {
-	Body                string            `json:"Body,omitempty"`
-	SenderID            string            `json:"SenderId,omitempty"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	TemplateDescription string            `json:"TemplateDescription,omitempty"`
+	Body                 string            `json:"Body,omitempty"`
+	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
+	RecommenderID        string            `json:"RecommenderId,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 }
 
 // ──────────────────────────────────────────────────
@@ -282,10 +299,16 @@ type appSettingsResponse struct {
 // New request types for additional operations
 // ──────────────────────────────────────────────────
 
-// createVoiceTemplateRequest is the request body for CreateVoiceTemplate.
+// createVoiceTemplateRequest is the request body for CreateVoiceTemplate,
+// field-diffed against VoiceTemplateRequest's serializer
+// (awsRestjson1_serializeDocumentVoiceTemplateRequest).
 type createVoiceTemplateRequest struct {
-	Tags map[string]string `json:"tags,omitempty"`
-	Body string            `json:"Body,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	Body                 string            `json:"Body,omitempty"`
+	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
+	LanguageCode         string            `json:"LanguageCode,omitempty"`
+	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	VoiceID              string            `json:"VoiceId,omitempty"`
 }
 
 // updateCampaignRequest is the request body for UpdateCampaign.
@@ -398,20 +421,27 @@ type updateAPNSChannelRequest struct {
 
 // updateEmailChannelRequest is the request body for UpdateEmailChannel.
 type updateEmailChannelRequest struct {
-	ConfigurationSet string `json:"ConfigurationSet,omitempty"`
-	FromAddress      string `json:"FromAddress,omitempty"`
-	Identity         string `json:"Identity,omitempty"`
-	RoleArn          string `json:"RoleArn,omitempty"`
-	Enabled          bool   `json:"Enabled"`
+	ConfigurationSet            string `json:"ConfigurationSet,omitempty"`
+	FromAddress                 string `json:"FromAddress,omitempty"`
+	Identity                    string `json:"Identity,omitempty"`
+	OrchestrationSendingRoleArn string `json:"OrchestrationSendingRoleArn,omitempty"`
+	RoleArn                     string `json:"RoleArn,omitempty"`
+	Enabled                     bool   `json:"Enabled"`
 }
 
 // updateSMSChannelRequest is the request body for UpdateSmsChannel.
+//
+// PromotionalMessagesPerSecond/TransactionalMessagesPerSecond are NOT present
+// here: they exist only on SMSChannelResponse (AWS-computed account
+// throughput), not on SMSChannelRequest (confirmed against
+// aws-sdk-go-v2/service/pinpoint/types) -- a real SDK client has no field to
+// send them through. A prior pass accepted them on write and echoed them
+// back, which isn't a real bug (harmless when no real client sends them) but
+// is wire-shape noise; removed for hygiene.
 type updateSMSChannelRequest struct {
-	SenderID                       string `json:"SenderId,omitempty"`
-	ShortCode                      string `json:"ShortCode,omitempty"`
-	PromotionalMessagesPerSecond   int    `json:"PromotionalMessagesPerSecond,omitempty"`
-	TransactionalMessagesPerSecond int    `json:"TransactionalMessagesPerSecond,omitempty"`
-	Enabled                        bool   `json:"Enabled"`
+	SenderID  string `json:"SenderId,omitempty"`
+	ShortCode string `json:"ShortCode,omitempty"`
+	Enabled   bool   `json:"Enabled"`
 }
 
 // updateADMChannelRequest is the request body for UpdateAdmChannel.
@@ -477,14 +507,6 @@ type phoneNumberValidateRequest struct {
 // ──────────────────────────────────────────────────
 
 // voiceTemplateResponse is the JSON wire format of VoiceTemplateResponse.
-type voiceTemplateResponse struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	ARN          string            `json:"Arn,omitempty"`
-	TemplateName string            `json:"TemplateName"`
-	Body         string            `json:"Body,omitempty"`
-	CreationDate string            `json:"CreationDate,omitempty"`
-}
-
 // templateListItem is one entry in the ListTemplates response.
 type templateListItem struct {
 	TemplateName string `json:"TemplateName"`

@@ -152,8 +152,13 @@ func TestHandler_UserResponse_ACLNames(t *testing.T) {
 	assert.False(t, hasOld, "UserGroupCount must not appear in response")
 }
 
-// TestParity_UserResponse_Engine verifies Engine field is present in user response.
-func TestHandler_UserResponse_Engine(t *testing.T) {
+// TestHandler_UserResponse_NoEngineField verifies the User response has no
+// "Engine" field -- confirmed absent from the real SDK's User type
+// (deserializers.go's awsAwsjson11_deserializeDocumentUser only recognizes
+// AccessString, ACLNames, ARN, Authentication, MinimumEngineVersion, Name,
+// Status); a prior pass fabricated one and this locked its presence in, which
+// this test now inverts.
+func TestHandler_UserResponse_NoEngineField(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -168,7 +173,8 @@ func TestHandler_UserResponse_Engine(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	u, _ := resp["User"].(map[string]any)
-	assert.NotEmpty(t, u["Engine"], "Engine field must be present in user response")
+	_, hasEngine := u["Engine"]
+	assert.False(t, hasEngine, "Engine must not appear in the User response (not part of the real SDK type)")
 }
 
 // TestParity_UserResponse_ACLNames_CreateReturnsEmpty verifies newly created user has empty ACLNames.
@@ -244,7 +250,7 @@ func TestHandler_User_CRUD(t *testing.T) {
 			name:       "describe users not found",
 			op:         "DescribeUsers",
 			body:       map[string]any{"UserName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "delete user",
@@ -272,7 +278,7 @@ func TestHandler_User_CRUD(t *testing.T) {
 			name:       "delete user not found",
 			op:         "DeleteUser",
 			body:       map[string]any{"UserName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "update user",
@@ -303,7 +309,7 @@ func TestHandler_User_CRUD(t *testing.T) {
 			name:       "update user not found",
 			op:         "UpdateUser",
 			body:       map[string]any{"UserName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -512,12 +518,12 @@ func TestHandler_UpdateUser_WithAuthMode(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name: "update nonexistent user returns 404",
+			name: "update nonexistent user returns 400",
 			updateBody: map[string]any{
 				"UserName":     "no-such-user",
 				"AccessString": "on ~*",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -527,7 +533,7 @@ func TestHandler_UpdateUser_WithAuthMode(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.name != "update nonexistent user returns 404" {
+			if tt.name != "update nonexistent user returns 400" {
 				doRequest(t, h, "CreateUser", map[string]any{
 					"UserName":     "update-user",
 					"AccessString": "on ~*",
@@ -619,7 +625,7 @@ func TestHandler_DeleteUser_InACL(t *testing.T) {
 		name       string
 		wantStatus int
 	}{
-		{name: "delete user in ACL returns 409", wantStatus: http.StatusConflict},
+		{name: "delete user in ACL returns 400", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {

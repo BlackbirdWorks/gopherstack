@@ -645,6 +645,56 @@ func TestHandler_GetInsightSummaries_ResponseShape(t *testing.T) {
 	assert.Contains(t, s, "GroupName")
 	assert.Contains(t, s, "State")
 	assert.Contains(t, s, "StartTime")
+	// LastUpdateTime is a real InsightSummary field ("the time...that the insight was
+	// last updated") that was previously entirely absent from gopherstack's wire view.
+	assert.Contains(t, s, "LastUpdateTime")
+}
+
+// TestGetInsightSummaries_LastUpdateTimeReflectsActivity guards against a real gap
+// found during parity audit: InsightSummary.LastUpdateTime was completely absent.
+// GetInsight's Insight type genuinely has no LastUpdateTime field (unlike
+// InsightSummary), so this must only appear on GetInsightSummaries.
+func TestGetInsightSummaries_LastUpdateTimeReflectsActivity(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandlerWithBackend(t)
+
+	now := time.Now()
+	b.AddInsightInternal(xray.Insight{
+		InsightID:      "lut-id",
+		GroupName:      "my-group",
+		GroupARN:       "arn:aws:xray:us-east-1:123456789012:group/default/my-group",
+		State:          "ACTIVE",
+		StartTime:      now.Add(-time.Hour),
+		LastUpdateTime: now,
+	})
+
+	rec := doXrayRequest(t, h, "/InsightSummaries", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	summaries, ok := resp["InsightSummaries"].([]any)
+	require.True(t, ok)
+	require.Len(t, summaries, 1)
+
+	s, ok := summaries[0].(map[string]any)
+	require.True(t, ok)
+
+	lastUpdate, ok := s["LastUpdateTime"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, float64(now.Unix()), lastUpdate, 1)
+
+	// GetInsight (singular) must NOT expose LastUpdateTime -- the real Insight type
+	// (unlike InsightSummary) has no such field.
+	getRec := doXrayRequest(t, h, "/Insight", map[string]any{"InsightId": "lut-id"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	insight, ok := getResp["Insight"].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, insight, "LastUpdateTime")
 }
 
 func TestGetInsight_FieldsReturned(t *testing.T) {

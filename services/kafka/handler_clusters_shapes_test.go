@@ -599,13 +599,13 @@ func TestGetBootstrapBrokers_Variants(t *testing.T) {
 			}
 
 			if tt.wantPublicTLS {
-				assert.NotEmpty(t, resp["bootstrapBrokerStringTlsPublic"], "public TLS broker string should be present")
+				assert.NotEmpty(t, resp["bootstrapBrokerStringPublicTls"], "public TLS broker string should be present")
 			}
 
 			if tt.wantVpcTLS {
 				assert.NotEmpty(
 					t,
-					resp["bootstrapBrokerStringVpcConnectivityTLS"],
+					resp["bootstrapBrokerStringVpcConnectivityTls"],
 					"VPC TLS broker string should be present",
 				)
 			}
@@ -643,8 +643,8 @@ func TestGetBootstrapBrokers_ScramPublic(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	assert.NotEmpty(t, resp["bootstrapBrokerStringSaslScram"])
-	assert.NotEmpty(t, resp["bootstrapBrokerStringTlsPublic"])
-	assert.NotEmpty(t, resp["bootstrapBrokerStringSaslScramPublic"])
+	assert.NotEmpty(t, resp["bootstrapBrokerStringPublicTls"])
+	assert.NotEmpty(t, resp["bootstrapBrokerStringPublicSaslScram"])
 }
 
 // TestRefinement2_DescribeCluster_V1_IncludesNewFields verifies new fields present in V1.

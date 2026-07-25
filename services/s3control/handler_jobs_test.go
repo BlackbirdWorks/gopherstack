@@ -151,7 +151,10 @@ func TestBackend_BatchJob_Operations(t *testing.T) {
 			case "get":
 				job, err := b.GetJob("acct1", jobID)
 				if tt.wantErr {
-					require.Error(t, err)
+					// AWS error code must be NoSuchJob, not the unrelated
+					// NoSuchPublicAccessBlockConfiguration sentinel this
+					// used to wrongly share.
+					require.ErrorContains(t, err, "NoSuchJob")
 				} else {
 					require.NoError(t, err)
 					assert.Equal(t, jobID, job.JobID)
@@ -162,7 +165,7 @@ func TestBackend_BatchJob_Operations(t *testing.T) {
 			case "priority":
 				job, err := b.UpdateJobPriority("acct1", jobID, 99)
 				if tt.wantErr {
-					require.Error(t, err)
+					require.ErrorContains(t, err, "NoSuchJob")
 				} else {
 					require.NoError(t, err)
 					assert.Equal(t, int32(99), job.Priority)
@@ -170,7 +173,7 @@ func TestBackend_BatchJob_Operations(t *testing.T) {
 			case "status":
 				job, err := b.UpdateJobStatus("acct1", jobID, "Complete")
 				if tt.wantErr {
-					require.Error(t, err)
+					require.ErrorContains(t, err, "NoSuchJob")
 				} else {
 					require.NoError(t, err)
 					assert.Equal(t, "Complete", job.Status)
@@ -409,7 +412,7 @@ func TestBatchJob_UpdateDetails_MissingJob(t *testing.T) {
 
 	b := s3control.NewInMemoryBackend()
 	err := b.UpdateJobDetails("000000000000", "nonexistent", "desc", "", "", "", false)
-	require.Error(t, err)
+	require.ErrorContains(t, err, "NoSuchJob")
 }
 
 func TestHandler_CreateJob_ExtendedFields(t *testing.T) {

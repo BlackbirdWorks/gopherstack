@@ -1,12 +1,14 @@
 package cloudtrail_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/services/cloudtrail"
 )
 
@@ -972,4 +974,39 @@ func TestGetTrailStatusTimeLoggingStopped(t *testing.T) {
 
 	_, isString := resp["TimeLoggingStopped"].(string)
 	assert.True(t, isString, "TimeLoggingStopped must be a string timestamp")
+}
+
+// TestListTrails_NextTokenPagination verifies ListTrails honors a
+// caller-supplied NextToken (previously always returned every trail in one
+// page, silently ignoring any NextToken from a prior call).
+func TestListTrails_NextTokenPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+
+	for i := range 3 {
+		rec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+			"Name":         fmt.Sprintf("trail-%d", i),
+			"S3BucketName": "bucket",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doCloudTrailOp(t, h, "ListTrails", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseCloudTrailResp(t, rec)
+	trails, ok := resp["Trails"].([]any)
+	require.True(t, ok)
+	assert.Len(t, trails, 3)
+	assert.Nil(t, resp["NextToken"], "no NextToken when everything fits in the default page")
+
+	// Skip the first 2 (sorted-by-ARN) trails via an opaque NextToken -- the
+	// same token shape page.New produces internally -- and verify the
+	// returned page actually starts from the offset instead of ignoring it.
+	rec = doCloudTrailOp(t, h, "ListTrails", map[string]any{"NextToken": page.EncodeToken(2)})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseCloudTrailResp(t, rec)
+	trails, ok = resp["Trails"].([]any)
+	require.True(t, ok)
+	assert.Len(t, trails, 1, "NextToken skipping 2 of 3 trails must leave exactly 1")
 }

@@ -338,6 +338,147 @@ func TestPersistence_SnapshotRestoreDeepCopy(t *testing.T) {
 	assert.Equal(t, 1, s3control.AccessBlockCount(b2))
 }
 
+// TestPersistence_Batch1Maps_SnapshotRestore locks in the version-1-to-2
+// persistence-gap fix: accessPointScopes, objectLambdaAPPolicies,
+// objectLambdaAPConfigs, bucketPolicies, bucketTagging, bucketLifecycle,
+// bucketVersioning, mrapRoutes, accessGrantsInstancePolicies, and jobTags
+// were declared on InMemoryBackend but never wired into backendSnapshot, so
+// a Snapshot/Restore cycle silently dropped every one of them even though
+// the owning resource survived. Each subtest seeds one such field and
+// asserts it round-trips.
+func TestPersistence_Batch1Maps_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	const accountID = "000000000000"
+
+	tests := []struct {
+		setup  func(t *testing.T, b *s3control.InMemoryBackend)
+		verify func(t *testing.T, b *s3control.InMemoryBackend)
+		name   string
+	}{
+		{
+			name: "access_point_scope",
+			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				b.CreateAccessPoint(accountID, "scoped-ap", "my-bucket")
+				require.NoError(t, b.PutAccessPointScope(accountID, "scoped-ap", "<Scope/>"))
+			},
+			verify: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				scope, err := b.GetAccessPointScope(accountID, "scoped-ap")
+				require.NoError(t, err)
+				assert.Equal(t, "<Scope/>", scope)
+			},
+		},
+		{
+			name: "object_lambda_ap_policy_and_config",
+			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				b.CreateAccessPointForObjectLambda(accountID, "olap-1")
+				require.NoError(t, b.PutAccessPointPolicyForObjectLambda(accountID, "olap-1", `{"p":1}`))
+				require.NoError(t, b.PutAccessPointConfigurationForObjectLambda(accountID, "olap-1", "<Config/>"))
+			},
+			verify: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				policy, err := b.GetAccessPointPolicyForObjectLambda(accountID, "olap-1")
+				require.NoError(t, err)
+				assert.Equal(t, `{"p":1}`, policy)
+				cfg, err := b.GetAccessPointConfigurationForObjectLambda(accountID, "olap-1")
+				require.NoError(t, err)
+				assert.Equal(t, "<Config/>", cfg)
+			},
+		},
+		{
+			name: "bucket_policy_tagging_lifecycle_versioning",
+			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				b.CreateBucket(accountID, "batch1-bucket")
+				require.NoError(t, b.PutBucketPolicy(accountID, "batch1-bucket", `{"p":1}`))
+				require.NoError(t, b.PutBucketTagging(accountID, "batch1-bucket", s3control.TagSet{"k": "v"}))
+				require.NoError(t, b.PutBucketLifecycleConfiguration(accountID, "batch1-bucket", "<Lifecycle/>"))
+				require.NoError(t, b.PutBucketVersioning(accountID, "batch1-bucket", "Enabled"))
+			},
+			verify: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				policy, err := b.GetBucketPolicy(accountID, "batch1-bucket")
+				require.NoError(t, err)
+				assert.Equal(t, `{"p":1}`, policy)
+				tags, err := b.GetBucketTagging(accountID, "batch1-bucket")
+				require.NoError(t, err)
+				assert.Equal(t, s3control.TagSet{"k": "v"}, tags)
+				lc, err := b.GetBucketLifecycleConfiguration(accountID, "batch1-bucket")
+				require.NoError(t, err)
+				assert.Equal(t, "<Lifecycle/>", lc)
+				v, err := b.GetBucketVersioning(accountID, "batch1-bucket")
+				require.NoError(t, err)
+				assert.Equal(t, "Enabled", v)
+			},
+		},
+		{
+			name: "mrap_routes",
+			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				b.CreateMultiRegionAccessPoint(accountID, "routed-mrap", "")
+				require.NoError(t, b.SubmitMultiRegionAccessPointRoutes(accountID, "routed-mrap", "<Routes/>"))
+			},
+			verify: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				routes, err := b.GetMultiRegionAccessPointRoutes(accountID, "routed-mrap")
+				require.NoError(t, err)
+				assert.Equal(t, "<Routes/>", routes)
+			},
+		},
+		{
+			name: "access_grants_instance_resource_policy",
+			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				b.CreateAccessGrantsInstance(accountID, "")
+				b.PutAccessGrantsInstanceResourcePolicy(accountID, `{"p":1}`)
+			},
+			verify: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				policy, err := b.GetAccessGrantsInstanceResourcePolicy(accountID)
+				require.NoError(t, err)
+				assert.Equal(t, `{"p":1}`, policy)
+			},
+		},
+		{
+			name: "job_tags",
+			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				job, err := b.CreateJob(accountID, "arn:aws:iam::000000000000:role/R", 1)
+				require.NoError(t, err)
+				require.NoError(t, b.PutJobTagging(accountID, job.JobID, s3control.TagSet{"env": "prod"}))
+			},
+			verify: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				jobs := b.ListJobs(accountID)
+				require.Len(t, jobs, 1)
+				tags, err := b.GetJobTagging(accountID, jobs[0].JobID)
+				require.NoError(t, err)
+				assert.Equal(t, s3control.TagSet{"env": "prod"}, tags)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := s3control.NewInMemoryBackend()
+			tt.setup(t, b)
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := s3control.NewInMemoryBackend()
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			tt.verify(t, fresh)
+		})
+	}
+}
+
 func TestPersistence_SnapshotRestore_AccessGrantsAndJobs(t *testing.T) {
 	t.Parallel()
 

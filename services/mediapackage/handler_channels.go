@@ -188,21 +188,3 @@ func (h *Handler) handleRotateIngestEndpointCredentials(c *echo.Context, path st
 
 	return c.JSON(http.StatusOK, toChannelOutput(ch))
 }
-
-func (h *Handler) handlePutChannelLifecyclePolicy(c *echo.Context, channelID string, body map[string]any) error {
-	policy, _ := body["policy"].(string)
-	if err := h.Backend.PutChannelLifecyclePolicy(channelID, policy); err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
-}
-
-func (h *Handler) handleGetChannelLifecyclePolicy(c *echo.Context, channelID string) error {
-	policy, err := h.Backend.GetChannelLifecyclePolicy(channelID)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"policy": policy})
-}

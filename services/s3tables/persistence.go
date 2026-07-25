@@ -20,14 +20,20 @@ import (
 // so an old snapshot decodes with Version == 0, which is guaranteed to
 // mismatch s3tablesSnapshotVersion and is discarded the same way any other
 // incompatible snapshot is.
-const s3tablesSnapshotVersion = 1
+//
+// Bumped 1 -> 2 when tableReplication (previously a bare map[string]bool)
+// and tableReplicationConfigs (previously map[string]map[string]any) were
+// replaced by a single typed *store.Table[TableReplicationConfig] carrying
+// the real role/rules/versionToken wire shape -- see models.go's
+// TableReplicationConfig doc comment.
+const s3tablesSnapshotVersion = 2
 
 // arnDTO wraps a value type that carries no identity of its own (see
-// BucketReplicationConfig and TableRecordExpiryConfig's doc comments in
-// backend.go) for JSON round-tripping through the ephemeral persistence
-// registry below. ARN mirrors the resource's own json:"-" identity field so
-// the DTO table itself has a stable key independent of Value's (unmarshaled)
-// fields.
+// BucketReplicationConfig, TableReplicationConfig, and
+// TableRecordExpiryConfig's doc comments in models.go) for JSON
+// round-tripping through the ephemeral persistence registry below. ARN
+// mirrors the resource's own json:"-" identity field so the DTO table
+// itself has a stable key independent of Value's (unmarshaled) fields.
 type arnDTO[V any] struct {
 	Value *V     `json:"value"`
 	ARN   string `json:"arn"`
@@ -35,18 +41,19 @@ type arnDTO[V any] struct {
 
 func arnDTOKeyFn[V any](d *arnDTO[V]) string { return d.ARN }
 
-// persistenceDTOTables groups the two ephemeral DTO tables
+// persistenceDTOTables groups the three ephemeral DTO tables
 // buildPersistenceDTORegistry constructs, so Snapshot/Restore can pass them
 // around as one value.
 type persistenceDTOTables struct {
 	registry          *store.Registry
 	bucketReplication *store.Table[arnDTO[BucketReplicationConfig]]
+	tableReplication  *store.Table[arnDTO[TableReplicationConfig]]
 	tableRecordExpiry *store.Table[arnDTO[TableRecordExpiryConfig]]
 }
 
 // buildPersistenceDTORegistry constructs the ephemeral DTO registry used by
-// both Snapshot and Restore for the two tables that are NOT on b.registry
-// (see store_setup.go). It is built fresh on every call, mirroring
+// both Snapshot and Restore for the tables that are NOT on b.registry (see
+// store_setup.go). It is built fresh on every call, mirroring
 // services/workmail's and services/emr's buildPersistenceDTORegistry.
 func buildPersistenceDTORegistry() persistenceDTOTables {
 	dtoReg := store.NewRegistry()
@@ -55,6 +62,9 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 		registry: dtoReg,
 		bucketReplication: store.Register(
 			dtoReg, "bucketReplication", store.New(arnDTOKeyFn[BucketReplicationConfig]),
+		),
+		tableReplication: store.Register(
+			dtoReg, "tableReplication", store.New(arnDTOKeyFn[TableReplicationConfig]),
 		),
 		tableRecordExpiry: store.Register(
 			dtoReg, "tableRecordExpiry", store.New(arnDTOKeyFn[TableRecordExpiryConfig]),
@@ -66,25 +76,22 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 //
 // Tables holds one JSON-encoded array per table name: "tableBuckets",
 // "namespaces", and "tables" produced directly by b.registry.SnapshotAll()
-// (none hides any field from JSON), plus "bucketReplication" and
-// "tableRecordExpiry" built by buildPersistenceDTORegistry above (each
-// hides its identity field behind json:"-").
+// (none hides any field from JSON), plus "bucketReplication",
+// "tableReplication", and "tableRecordExpiry" built by
+// buildPersistenceDTORegistry above (each hides its identity field behind
+// json:"-").
 //
-// TableReplication, Tags, and TableReplicationConfigs are the plain
-// (non-store.Table) maps left unconverted by Phase 3.3 -- see the field
-// comments on InMemoryBackend in backend.go: none holds a *T value with an
-// identity of its own. All three are persisted directly here, matching
-// their pre-refactor persistence. Version guards against decoding a
-// snapshot from an incompatible (older or newer) build of this backend as
-// though it were the current shape; see Restore.
+// Tags is the one remaining plain (non-store.Table) map -- see the field
+// comment on InMemoryBackend in store.go: it holds no *T value with an
+// identity of its own. It is persisted directly here. Version guards
+// against decoding a snapshot from an incompatible (older or newer) build
+// of this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables                  map[string]json.RawMessage   `json:"tables"`
-	TableReplication        map[string]bool              `json:"tableReplication"`
-	Tags                    map[string]map[string]string `json:"tags"`
-	TableReplicationConfigs map[string]map[string]any    `json:"tableReplicationConfigs"`
-	AccountID               string                       `json:"accountID"`
-	Region                  string                       `json:"region"`
-	Version                 int                          `json:"version"`
+	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tags      map[string]map[string]string `json:"tags"`
+	AccountID string                       `json:"accountID"`
+	Region    string                       `json:"region"`
+	Version   int                          `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -111,6 +118,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		dtos.bucketReplication.Put(&arnDTO[BucketReplicationConfig]{Value: v, ARN: v.TableBucketARN})
 	}
 
+	for _, v := range b.tableReplication.Snapshot() {
+		dtos.tableReplication.Put(&arnDTO[TableReplicationConfig]{Value: v, ARN: v.TableARN})
+	}
+
 	for _, v := range b.tableRecordExpiry.Snapshot() {
 		dtos.tableRecordExpiry.Put(&arnDTO[TableRecordExpiryConfig]{Value: v, ARN: v.TableARN})
 	}
@@ -125,13 +136,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	maps.Copy(tables, dtoTables)
 
 	snap := backendSnapshot{
-		Version:                 s3tablesSnapshotVersion,
-		Tables:                  tables,
-		TableReplication:        b.tableReplication,
-		Tags:                    b.tags,
-		TableReplicationConfigs: b.tableReplicationConfigs,
-		AccountID:               b.accountID,
-		Region:                  b.region,
+		Version:   s3tablesSnapshotVersion,
+		Tables:    tables,
+		Tags:      b.tags,
+		AccountID: b.accountID,
+		Region:    b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "s3tables", snap)
@@ -167,10 +176,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.bucketReplication.Reset()
+		b.tableReplication.Reset()
 		b.tableRecordExpiry.Reset()
-		b.tableReplication = make(map[string]bool)
 		b.tags = make(map[string]map[string]string)
-		b.tableReplicationConfigs = make(map[string]map[string]any)
 
 		return nil
 	}
@@ -203,6 +211,9 @@ func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessag
 	b.bucketReplication.Restore(unwrapARNDTOs(dtos.bucketReplication, func(v *BucketReplicationConfig, arn string) {
 		v.TableBucketARN = arn
 	}))
+	b.tableReplication.Restore(unwrapARNDTOs(dtos.tableReplication, func(v *TableReplicationConfig, arn string) {
+		v.TableARN = arn
+	}))
 	b.tableRecordExpiry.Restore(unwrapARNDTOs(dtos.tableRecordExpiry, func(v *TableRecordExpiryConfig, arn string) {
 		v.TableARN = arn
 	}))
@@ -231,24 +242,14 @@ func unwrapARNDTOs[V any](dtos *store.Table[arnDTO[V]], setARN func(*V, string))
 	return items
 }
 
-// restoreRawMaps restores every plain (non-store.Table) persisted map from
-// snap, defaulting each to an empty map when absent from the snapshot.
-// Callers must hold b.muState.Lock (and, for consistency with Restore's
-// broader critical section, every other mutex too).
+// restoreRawMaps restores the one remaining plain (non-store.Table)
+// persisted map from snap, defaulting it to an empty map when absent from
+// the snapshot. Callers must hold b.muState.Lock (and, for consistency with
+// Restore's broader critical section, every other mutex too).
 func (b *InMemoryBackend) restoreRawMaps(snap *backendSnapshot) {
-	b.tableReplication = snap.TableReplication
-	if b.tableReplication == nil {
-		b.tableReplication = make(map[string]bool)
-	}
-
 	b.tags = snap.Tags
 	if b.tags == nil {
 		b.tags = make(map[string]map[string]string)
-	}
-
-	b.tableReplicationConfigs = snap.TableReplicationConfigs
-	if b.tableReplicationConfigs == nil {
-		b.tableReplicationConfigs = make(map[string]map[string]any)
 	}
 }
 

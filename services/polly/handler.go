@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/labstack/echo/v5"
@@ -30,13 +31,10 @@ const (
 	opGetSpeechSynthesisTask     = "GetSpeechSynthesisTask"
 	opListLexicons               = "ListLexicons"
 	opListSpeechSynthesisTasks   = "ListSpeechSynthesisTasks"
-	opListTagsForResource        = "ListTagsForResource"
 	opPutLexicon                 = "PutLexicon"
 	opStartSpeechSynthesisStream = "StartSpeechSynthesisStream"
 	opStartSpeechSynthesisTask   = "StartSpeechSynthesisTask"
 	opSynthesizeSpeech           = "SynthesizeSpeech"
-	opTagResource                = "TagResource"
-	opUntagResource              = "UntagResource"
 	opUnknown                    = "Unknown"
 	queryEngine                  = "Engine"
 	queryLanguageCode            = "LanguageCode"
@@ -82,13 +80,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetSpeechSynthesisTask,
 		opListLexicons,
 		opListSpeechSynthesisTasks,
-		opListTagsForResource,
 		opPutLexicon,
 		opStartSpeechSynthesisStream,
 		opStartSpeechSynthesisTask,
 		opSynthesizeSpeech,
-		opTagResource,
-		opUntagResource,
 	}
 }
 
@@ -174,25 +169,11 @@ func parseRoute(method, path string) route {
 				http.MethodPut: opPutLexicon, http.MethodGet: opGetLexicon, http.MethodDelete: opDeleteLexicon,
 			},
 		},
-		{
-			prefix: "/v1/tags/",
-			operations: map[string]string{
-				http.MethodGet:    opListTagsForResource,
-				http.MethodPost:   opTagResource,
-				http.MethodDelete: opUntagResource,
-			},
-		},
 	}
 	for _, configured := range resourceRoutes {
 		if strings.HasPrefix(path, configured.prefix) {
 			if operation, ok := configured.operations[method]; ok {
-				resource := suffix(path, configured.prefix)
-				// /v1/tags/{arn} is shared across many services; restrict to Polly ARNs.
-				if configured.prefix == "/v1/tags/" && !strings.Contains(resource, ":polly:") {
-					continue
-				}
-
-				return route{operation: operation, resource: resource}
+				return route{operation: operation, resource: suffix(path, configured.prefix)}
 			}
 		}
 	}
@@ -231,12 +212,6 @@ func (h *Handler) dispatch(c *echo.Context, r route) error {
 		return h.listLexicons(c)
 	case opDescribeVoices:
 		return h.describeVoices(c)
-	case opTagResource:
-		return h.tagResource(c, r.resource)
-	case opUntagResource:
-		return h.untagResource(c, r.resource)
-	case opListTagsForResource:
-		return h.listTags(c, r.resource)
 	default:
 		return fmt.Errorf("%w: unknown operation", ErrValidation)
 	}
@@ -292,14 +267,19 @@ func (h *Handler) startSpeechSynthesisStream(c *echo.Context) error {
 
 	text, textType, err := decodeStreamText(c.Request().Body)
 	if err != nil {
-		return fmt.Errorf("%w: invalid synthesis stream: %w", ErrValidation, err)
+		return fmt.Errorf("%w: invalid synthesis stream: %w", ErrStreamValidation, err)
 	}
 	options.Text = text
 	options.TextType = textType
 
 	result, err := h.Backend.SynthesizeSpeech(options)
 	if err != nil {
-		return err
+		// AWS models StartSpeechSynthesisStream's client errors as the generic
+		// ValidationException, not SynthesizeSpeech's op-specific exceptions --
+		// see ErrStreamValidation's doc comment. writeBackendError checks
+		// ErrStreamValidation before any of the more specific sentinels this
+		// wraps, so this remapping wins regardless of which validation failed.
+		return fmt.Errorf("%w: %w", ErrStreamValidation, err)
 	}
 
 	var stream bytes.Buffer
@@ -377,13 +357,12 @@ func encodeEvent(encoder *eventstream.Encoder, out io.Writer, eventType string, 
 
 type startTaskInput struct {
 	OutputS3BucketName string `json:"OutputS3BucketName"`
-	SNSRoleArn         string `json:"SnsRoleArn"`
+	OutputS3KeyPrefix  string `json:"OutputS3KeyPrefix"`
 	SNSTopicArn        string `json:"SnsTopicArn"`
 	synthesisInput
 }
 
 type taskOutput struct {
-	SNSRoleArn        string   `json:"SnsRoleArn,omitempty"`
 	SNSTopicArn       string   `json:"SnsTopicArn,omitempty"`
 	LanguageCode      string   `json:"LanguageCode,omitempty"`
 	VoiceID           string   `json:"VoiceId"`
@@ -411,7 +390,6 @@ func buildTaskOutput(task *SpeechSynthesisTask) taskOutput {
 		OutputURI:         task.OutputURI,
 		RequestCharacters: len(task.Options.Text),
 		SampleRate:        task.Options.SampleRate,
-		SNSRoleArn:        task.SNSRoleArn,
 		SNSTopicArn:       task.SNSTopicArn,
 		SpeechMarkTypes:   task.Options.SpeechMarkTypes,
 		TaskID:            task.TaskID,
@@ -429,7 +407,7 @@ func (h *Handler) startTask(c *echo.Context) error {
 	}
 
 	task, err := h.Backend.StartSpeechSynthesisTask(
-		in.options(), in.OutputS3BucketName, in.SNSRoleArn, in.SNSTopicArn,
+		in.options(), in.OutputS3BucketName, in.OutputS3KeyPrefix, in.SNSTopicArn,
 	)
 	if err != nil {
 		return err
@@ -571,43 +549,6 @@ func (h *Handler) describeVoices(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"Voices": voices})
 }
 
-type tagResourceInput struct {
-	Tags []Tag `json:"Tags"`
-}
-
-func (h *Handler) tagResource(c *echo.Context, resource string) error {
-	var in tagResourceInput
-	if err := decodeRequest(c, &in); err != nil {
-		return err
-	}
-	if err := h.Backend.TagResource(resource, in.Tags); err != nil {
-		return err
-	}
-
-	return c.JSON(http.StatusOK, struct{}{})
-}
-
-func (h *Handler) untagResource(c *echo.Context, resource string) error {
-	keys := c.QueryParams()["tagKeys"]
-	if len(keys) == 0 {
-		keys = c.QueryParams()["TagKeys"]
-	}
-	if err := h.Backend.UntagResource(resource, keys); err != nil {
-		return err
-	}
-
-	return c.JSON(http.StatusOK, struct{}{})
-}
-
-func (h *Handler) listTags(c *echo.Context, resource string) error {
-	tags, err := h.Backend.ListTagsForResource(resource)
-	if err != nil {
-		return err
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"Tags": tags})
-}
-
 func decodeRequest(c *echo.Context, value any) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -620,36 +561,62 @@ func decodeRequest(c *echo.Context, value any) error {
 	return nil
 }
 
-func (h *Handler) writeBackendError(c *echo.Context, err error) error {
-	switch {
-	case errors.Is(err, ErrLexiconNotFound):
-		return writeError(c, http.StatusNotFound, "LexiconNotFoundException", err.Error())
-	case errors.Is(err, ErrTaskNotFound):
+// pollyErrorEntry maps a backend sentinel error to its AWS __type name and
+// HTTP status code.
+type pollyErrorEntry struct {
+	sentinel error
+	typ      string
+	status   int
+}
+
+// onceErrorTable lazily builds the ordered sentinel-error-to-wire-shape
+// table exactly once. Order matters: it is scanned top to bottom and the
+// first errors.Is match wins. ErrStreamValidation must stay first --
+// startSpeechSynthesisStream wraps the more specific sentinels below
+// (ErrEngineNotSupported, ErrValidation, ...) inside ErrStreamValidation, and
+// errors.Is walks the whole chain, so checking it first ensures
+// StartSpeechSynthesisStream always reports the AWS-accurate generic
+// ValidationException instead of a SynthesizeSpeech-specific exception name
+// that operation never returns. ErrValidation stays last since it is every
+// other sentinel's fallback (see ErrValidation's doc comment).
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2 style
+var onceErrorTable = sync.OnceValue(func() []pollyErrorEntry {
+	return []pollyErrorEntry{
+		{ErrStreamValidation, "ValidationException", http.StatusBadRequest},
+		{ErrLexiconNotFound, "LexiconNotFoundException", http.StatusNotFound},
+		{ErrInvalidTaskID, "InvalidTaskIdException", http.StatusBadRequest},
 		// AWS models SynthesisTaskNotFoundException with httpStatusCode 400, not 404.
-		return writeError(c, http.StatusBadRequest, "SynthesisTaskNotFoundException", err.Error())
-	case errors.Is(err, ErrResourceNotFound):
-		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-	case errors.Is(err, ErrTextLengthExceeded):
-		return writeError(c, http.StatusBadRequest, "TextLengthExceededException", err.Error())
-	case errors.Is(err, ErrInvalidSampleRate):
-		return writeError(c, http.StatusBadRequest, "InvalidSampleRateException", err.Error())
-	case errors.Is(err, ErrEngineNotSupported):
-		return writeError(c, http.StatusBadRequest, "EngineNotSupportedException", err.Error())
-	case errors.Is(err, ErrLanguageNotSupported):
-		return writeError(c, http.StatusBadRequest, "LanguageNotSupportedException", err.Error())
-	case errors.Is(err, ErrMarksNotSupportedForFormat):
-		return writeError(c, http.StatusBadRequest, "MarksNotSupportedForFormatException", err.Error())
-	case errors.Is(err, ErrSsmlMarksNotSupportedForTextType):
-		return writeError(c, http.StatusBadRequest, "SsmlMarksNotSupportedForTextTypeException", err.Error())
-	case errors.Is(err, ErrInvalidNextToken):
-		return writeError(c, http.StatusBadRequest, "InvalidNextTokenException", err.Error())
-	case errors.Is(err, ErrInvalidLexicon):
-		return writeError(c, http.StatusBadRequest, "InvalidLexiconException", err.Error())
-	case errors.Is(err, ErrValidation):
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
-	default:
-		return writeError(c, http.StatusInternalServerError, "ServiceFailureException", err.Error())
+		{ErrTaskNotFound, "SynthesisTaskNotFoundException", http.StatusBadRequest},
+		{ErrTextLengthExceeded, "TextLengthExceededException", http.StatusBadRequest},
+		{ErrInvalidSampleRate, "InvalidSampleRateException", http.StatusBadRequest},
+		{ErrEngineNotSupported, "EngineNotSupportedException", http.StatusBadRequest},
+		{ErrLanguageNotSupported, "LanguageNotSupportedException", http.StatusBadRequest},
+		{ErrMarksNotSupportedForFormat, "MarksNotSupportedForFormatException", http.StatusBadRequest},
+		{ErrSsmlMarksNotSupportedForTextType, "SsmlMarksNotSupportedForTextTypeException", http.StatusBadRequest},
+		{ErrInvalidSsml, "InvalidSsmlException", http.StatusBadRequest},
+		{ErrInvalidNextToken, "InvalidNextTokenException", http.StatusBadRequest},
+		{ErrInvalidLexicon, "InvalidLexiconException", http.StatusBadRequest},
+		{ErrLexiconSizeExceeded, "LexiconSizeExceededException", http.StatusBadRequest},
+		{ErrMaxLexemeLengthExceeded, "MaxLexemeLengthExceededException", http.StatusBadRequest},
+		{ErrMaxLexiconsNumberExceeded, "MaxLexiconsNumberExceededException", http.StatusBadRequest},
+		{ErrUnsupportedPlsAlphabet, "UnsupportedPlsAlphabetException", http.StatusBadRequest},
+		{ErrUnsupportedPlsLanguage, "UnsupportedPlsLanguageException", http.StatusBadRequest},
+		{ErrInvalidS3Bucket, "InvalidS3BucketException", http.StatusBadRequest},
+		{ErrInvalidS3Key, "InvalidS3KeyException", http.StatusBadRequest},
+		{ErrInvalidSnsTopicArn, "InvalidSnsTopicArnException", http.StatusBadRequest},
+		{ErrValidation, "InvalidParameterValueException", http.StatusBadRequest},
 	}
+})
+
+func (h *Handler) writeBackendError(c *echo.Context, err error) error {
+	for _, entry := range onceErrorTable() {
+		if errors.Is(err, entry.sentinel) {
+			return writeError(c, entry.status, entry.typ, err.Error())
+		}
+	}
+
+	return writeError(c, http.StatusInternalServerError, "ServiceFailureException", err.Error())
 }
 
 func writeError(c *echo.Context, code int, typ, message string) error {

@@ -543,6 +543,56 @@ func TestCreateJob_AccelerationDisabled(t *testing.T) {
 	assert.Equal(t, "NOT_APPLICABLE", j.AccelerationStatus)
 }
 
+// TestCreateJob_StatusUpdateIntervalDefault verifies the real API's documented
+// default (SECONDS_60) is applied when the caller doesn't specify one.
+func TestCreateJob_StatusUpdateIntervalDefault(t *testing.T) {
+	t.Parallel()
+
+	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+	j, err := b.CreateJobFull("arn:aws:iam::123:role/r", "", "", nil, nil, nil,
+		"", "", "", "", 0, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "SECONDS_60", j.StatusUpdateInterval)
+}
+
+// TestCreateJob_StatusUpdateIntervalAndSimulateReservedQueue verifies both
+// CreateJobInput fields are honored rather than silently overridden with
+// hardcoded defaults (real CreateJobInput accepts both).
+func TestCreateJob_StatusUpdateIntervalAndSimulateReservedQueue(t *testing.T) {
+	t.Parallel()
+
+	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+	j, err := b.CreateJobFull("arn:aws:iam::123:role/r", "", "", nil, nil, nil,
+		"", "", "", "", 0, nil,
+		mediaconvert.JobCreateExtras{
+			StatusUpdateInterval:  "SECONDS_10",
+			SimulateReservedQueue: "ENABLED",
+		})
+	require.NoError(t, err)
+	assert.Equal(t, "SECONDS_10", j.StatusUpdateInterval)
+	assert.Equal(t, "ENABLED", j.SimulateReservedQueue)
+}
+
+// TestCreateJob_StatusUpdateIntervalViaHTTP verifies JSON parsing of the
+// statusUpdateInterval and simulateReservedQueue request fields end-to-end.
+func TestCreateJob_StatusUpdateIntervalViaHTTP(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/2017-08-29/jobs", map[string]any{
+		"role":                  "arn:aws:iam::123:role/r",
+		"statusUpdateInterval":  "SECONDS_20",
+		"simulateReservedQueue": "ENABLED",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	jobData := out["job"].(map[string]any)
+	assert.Equal(t, "SECONDS_20", jobData["statusUpdateInterval"])
+	assert.Equal(t, "ENABLED", jobData["simulateReservedQueue"])
+}
+
 // TestCreateJob_AccelerationViaHTTP verifies JSON input parsing.
 func TestCreateJob_AccelerationViaHTTP(t *testing.T) {
 	t.Parallel()

@@ -102,7 +102,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, original.CreateSampleFindings(detectorID, []string{"Sample:Type"}))
-	findingIDs, err := original.ListFindings(detectorID)
+	findingIDs, _, err := original.ListFindings(detectorID, guardduty.FindingsQuery{})
 	require.NoError(t, err)
 	require.Len(t, findingIDs, 1)
 
@@ -112,10 +112,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	tiSet, err := original.CreateThreatIntelSet(detectorID, "ti-1", "TXT", "s3://bucket/ti", true, nil)
 	require.NoError(t, err)
 
-	teSet, err := original.CreateThreatEntitySet(detectorID, "te-1", "TXT", "s3://bucket/te", true, nil)
+	teSet, err := original.CreateThreatEntitySet(detectorID, "te-1", "TXT", "s3://bucket/te", true, nil, "999988887777")
 	require.NoError(t, err)
 
-	trSet, err := original.CreateTrustedEntitySet(detectorID, "tr-1", "TXT", "s3://bucket/tr", true, nil)
+	trSet, err := original.CreateTrustedEntitySet(detectorID, "tr-1", "TXT", "s3://bucket/tr", true, nil, "")
 	require.NoError(t, err)
 
 	created, unprocessed := original.CreateMembers(detectorID, []map[string]any{
@@ -182,7 +182,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, filter.Description, gotFilter.Description)
 
 	// findings ("clean", detector-composite).
-	gotFindingIDs, err := restored.ListFindings(detectorID)
+	gotFindingIDs, _, err := restored.ListFindings(detectorID, guardduty.FindingsQuery{})
 	require.NoError(t, err)
 	assert.Equal(t, findingIDs, gotFindingIDs)
 
@@ -200,6 +200,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotTESetIDs, err := restored.ListThreatEntitySets(detectorID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{teSet.ThreatEntitySetID}, gotTESetIDs)
+
+	gotTESet, err := restored.GetThreatEntitySet(detectorID, teSet.ThreatEntitySetID)
+	require.NoError(t, err)
+	assert.Equal(t, "999988887777", gotTESet.ExpectedBucketOwner)
 
 	gotTRSetIDs, err := restored.ListTrustedEntitySets(detectorID)
 	require.NoError(t, err)
@@ -248,6 +252,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotScan, err := restored.GetMalwareScan(scanID)
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", gotScan.ScanStatus)
+	assert.Equal(t, "arn:aws:ec2:us-west-2:222233334444:instance/i-1", gotScan.ResourceArn)
+	assert.Equal(t, "EC2_INSTANCE", gotScan.ResourceType)
+	assert.Equal(t, detectorID, gotScan.DetectorID, "StartMalwareScan resolves the account's own detector")
 
 	// malwareScanSettings ("dirty", identity-less).
 	settings, err := restored.GetMalwareScanSettings(detectorID)

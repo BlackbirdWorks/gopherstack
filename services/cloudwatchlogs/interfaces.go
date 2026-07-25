@@ -144,10 +144,12 @@ type StorageBackend interface {
 		limit int,
 		nextToken string,
 	) ([]LogAnomalyDetector, string, error)
-	// UpdateLogAnomalyDetector updates evaluation frequency and/or anomaly visibility time.
+	// UpdateLogAnomalyDetector updates evaluation frequency and/or anomaly
+	// visibility time, and pauses/resumes the detector via enabled.
 	UpdateLogAnomalyDetector(
 		detectorArn, evaluationFrequency string,
 		anomalyVisibilityTime int64,
+		enabled bool,
 	) error
 	// DeleteScheduledQuery deletes a scheduled query by ARN.
 	DeleteScheduledQuery(scheduledQueryArn string) error
@@ -202,8 +204,11 @@ type StorageBackend interface {
 	GetLogAnomalyDetector(detectorArn string) (*LogAnomalyDetector, error)
 	// GetScheduledQuery returns the scheduled query with the given ARN.
 	GetScheduledQuery(scheduledQueryArn string) (*ScheduledQuery, error)
-	// GetLogGroupFields returns the most common log fields for a log group.
-	GetLogGroupFields(ctx context.Context, logGroupName string) ([]LogGroupField, error)
+	// GetLogGroupFields returns the fields discovered in log events sampled from
+	// the log group, each with the percentage of sampled events that contained
+	// it. timeSec (epoch seconds), when non-nil, centers an 8-minutes-either-side
+	// sampling window; when nil, the most recent 15 minutes up to now is sampled.
+	GetLogGroupFields(ctx context.Context, logGroupName string, timeSec *int64) ([]LogGroupField, error)
 	// GetLogRecord returns a single log event by its log record pointer.
 	GetLogRecord(ctx context.Context, logRecordPointer string) (map[string]string, error)
 	// ListAnomalies lists anomalies for the given anomaly detector ARN with pagination.

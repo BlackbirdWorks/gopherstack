@@ -130,3 +130,61 @@ func TestLayer(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateLayerValidation verifies CreateLayer rejects requests missing a
+// required member or using a Type outside the real LayerType enum. Name,
+// Shortname, StackId, and Type are all "This member is required" on the
+// real CreateLayerInput.
+func TestCreateLayerValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		buildBody func(stackID string) map[string]any
+		name      string
+	}{
+		{
+			name: "missing Name",
+			buildBody: func(stackID string) map[string]any {
+				return map[string]any{"StackId": stackID, "Type": "custom", "Shortname": "sn"}
+			},
+		},
+		{
+			name: "missing Shortname",
+			buildBody: func(stackID string) map[string]any {
+				return map[string]any{"StackId": stackID, "Type": "custom", "Name": "n"}
+			},
+		},
+		{
+			name: "missing StackId",
+			buildBody: func(_ string) map[string]any {
+				return map[string]any{"Type": "custom", "Name": "n", "Shortname": "sn"}
+			},
+		},
+		{
+			name: "Type outside the LayerType enum",
+			buildBody: func(stackID string) map[string]any {
+				return map[string]any{"StackId": stackID, "Type": "not-a-real-type", "Name": "n", "Shortname": "sn"}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTarget(t, h, "CreateStack", map[string]any{
+				"Name":                      "stack",
+				"Region":                    "us-east-1",
+				"DefaultInstanceProfileArn": "arn:aws:iam::000000000000:instance-profile/test",
+				"ServiceRoleArn":            "arn:aws:iam::000000000000:role/test",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+			stackID := parseJSON(t, rec.Body.Bytes())["StackId"].(string)
+
+			rec = doTarget(t, h, "CreateLayer", tt.buildBody(stackID))
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ValidationException")
+		})
+	}
+}

@@ -89,6 +89,9 @@ type StorageBackend interface {
 	) (*storedCustomBundle, error)
 	DeleteWorkspaceBundle(bundleID string) error
 	UpdateWorkspaceBundle(bundleID, imageID string) error
+	DescribeBundleAssociations(
+		bundleID string, resourceTypes []string,
+	) ([]BundleResourceAssociation, error)
 
 	// Images
 	CopyWorkspaceImage(
@@ -118,10 +121,14 @@ type StorageBackend interface {
 	DescribeWorkspaceImagePermissions(imageID string) (string, map[string]bool, error)
 	UpdateWorkspaceImagePermission(imageID, sharedAccountID string, allowCopy bool) error
 	DescribeCustomWorkspaceImageImport(imageID string) (*storedImage, error)
+	DescribeImageAssociations(
+		imageID string, resourceTypes []string,
+	) ([]ImageResourceAssociation, error)
 
 	// Pools
 	CreateWorkspacesPool(
-		poolName, bundleID, directoryID, description string,
+		poolName, bundleID, directoryID, description, runningMode string,
+		desiredUserSessions int32,
 		tags map[string]string,
 	) (*storedPool, error)
 	DescribeWorkspacesPools(
@@ -132,7 +139,10 @@ type StorageBackend interface {
 	StartWorkspacesPool(poolID string) error
 	StopWorkspacesPool(poolID string) error
 	TerminateWorkspacesPool(poolID string) error
-	UpdateWorkspacesPool(poolID, description, bundleID, directoryID string) (*storedPool, error)
+	UpdateWorkspacesPool(
+		poolID, description, bundleID, directoryID, runningMode string,
+		desiredUserSessions int32,
+	) (*storedPool, error)
 	DescribeWorkspacesPoolSessions(
 		poolID, userID string,
 		limit int32,
@@ -148,6 +158,12 @@ type StorageBackend interface {
 	DescribeAccount() storedAccountConfig
 	ModifyAccount(dedicatedTenancyCidr, dedicatedTenancySupport string) error
 	ModifyEndpointEncryptionMode(directoryID, mode string) error
+	DescribeAccountModifications(
+		nextToken string,
+	) ([]AccountModification, string, error)
+	ListAvailableManagementCidrRanges(
+		constraint string, maxResults int32, nextToken string,
+	) ([]string, string, error)
 
 	// Connect Client Add-Ins
 	CreateConnectClientAddIn(name, resourceID, url string) (string, error)
@@ -208,10 +224,9 @@ type StorageBackend interface {
 	// Workspace-level ops
 	MigrateWorkspace(sourceWorkspaceID, bundleID string) (sourceID, targetID string, err error)
 	RestoreWorkspace(workspaceID string) error
-	CreateStandbyWorkspaces(
-		primaryRegion string,
-		standby []map[string]string,
-	) ([]map[string]string, []map[string]string, error)
+	CreateStandbyWorkspace(
+		ctx context.Context, spec StandbyWorkspaceSpec,
+	) (*PendingStandbyWorkspace, error)
 
 	AccountID() string
 	Region() string
@@ -238,11 +253,16 @@ type Workspace struct {
 	RootVolumeEncryptionEnabled bool
 }
 
-// WorkspaceConnectionStatus holds connection status for a WorkSpace.
+// WorkspaceConnectionStatus holds connection status for a WorkSpace, matching
+// the real WorkspaceConnectionStatus SDK type's four fields (ConnectionState,
+// ConnectionStateCheckTimestamp, LastKnownUserConnectionTimestamp,
+// WorkspaceId) -- LastKnownUserConnectionTimestamp stays the zero time since
+// this backend models no actual client connection activity.
 type WorkspaceConnectionStatus struct {
-	LastKnownUserTime time.Time
-	WorkspaceID       string
-	ConnectionState   string
+	ConnectionStateCheckTimestamp    time.Time
+	LastKnownUserConnectionTimestamp time.Time
+	WorkspaceID                      string
+	ConnectionState                  string
 }
 
 // WorkspaceProperties holds mutable WorkSpace properties.
@@ -281,6 +301,69 @@ type WorkspaceBundle struct {
 	ImageID     string
 	UserStorage BundleStorage
 	RootStorage BundleStorage
+}
+
+// StandbyWorkspaceSpec holds the fields for creating a single standby
+// WorkSpace, matching the real StandbyWorkspace request shape (DirectoryId,
+// PrimaryWorkspaceId, DataReplication, Tags, VolumeEncryptionKey -- no
+// UserName/BundleId, unlike WorkspaceCreationSpec).
+type StandbyWorkspaceSpec struct {
+	Tags                map[string]string
+	DirectoryID         string
+	PrimaryWorkspaceID  string
+	DataReplication     string
+	VolumeEncryptionKey string
+}
+
+// PendingStandbyWorkspace holds the identity of a newly created standby
+// WorkSpace, matching the real PendingCreateStandbyWorkspacesRequest shape.
+type PendingStandbyWorkspace struct {
+	WorkspaceID string
+	DirectoryID string
+	State       string
+}
+
+// ImageResourceAssociation describes an application association for an image,
+// matching the real ImageResourceAssociation SDK type. A freshly emulated
+// account always returns an empty list from DescribeImageAssociations since
+// there is no public API to create this kind of association (see
+// DescribeImageAssociations doc comment in images.go) -- this type exists so
+// the wire shape is correct if that ever changes.
+type ImageResourceAssociation struct {
+	Created                 time.Time
+	LastUpdatedTime         time.Time
+	AssociatedResourceID    string
+	AssociatedResourceType  string
+	ImageID                 string
+	State                   string
+	StateReasonErrorCode    string
+	StateReasonErrorMessage string
+}
+
+// BundleResourceAssociation describes an application association for a
+// bundle, matching the real BundleResourceAssociation SDK type. See
+// ImageResourceAssociation -- same "always empty in this emulator" rationale.
+type BundleResourceAssociation struct {
+	Created                 time.Time
+	LastUpdatedTime         time.Time
+	AssociatedResourceID    string
+	AssociatedResourceType  string
+	BundleID                string
+	State                   string
+	StateReasonErrorCode    string
+	StateReasonErrorMessage string
+}
+
+// AccountModification records one completed change to the account's BYOL
+// (Bring Your Own License) configuration, matching the real AccountModification
+// SDK type (ErrorCode/ErrorMessage are omitted here: ModifyAccount in this
+// backend always succeeds once it validates, so no failure path populates
+// them).
+type AccountModification struct {
+	StartTime                           time.Time
+	ModificationState                   string
+	DedicatedTenancySupport             string
+	DedicatedTenancyManagementCidrRange string
 }
 
 // WorkspaceDirectory holds WorkSpace directory details.

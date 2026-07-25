@@ -81,7 +81,7 @@ func TestWireShape_MalwareProtectionPlan_CreatedAtIsEpochNumber(t *testing.T) {
 
 	createResp := doJSON(t, h, http.MethodPost, "/malware-protection-plan", map[string]any{
 		"role":              "arn:aws:iam::123456789012:role/GuardDutyS3Role",
-		"protectedResource": map[string]any{},
+		"protectedResource": map[string]any{"s3Bucket": map[string]any{"bucketName": "my-bucket"}},
 		"actions":           map[string]any{},
 	})
 	planID := createResp["malwareProtectionPlanId"].(string)
@@ -133,6 +133,14 @@ func TestWireShape_GetMalwareScan_UsesRealFieldNames(t *testing.T) {
 
 	h := wireShapeHandler(t)
 
+	// StartMalwareScan takes no detectorId (GuardDuty resolves the caller's
+	// own detector server-side; see StartMalwareScanInput) -- create one
+	// first so detectorId/adminDetectorId are populated on the response,
+	// matching GetMalwareScanOutput's doc: "If the account is an
+	// administrator, the AdminDetectorId will be the same as the one used
+	// for DetectorId."
+	detID := doJSON(t, h, http.MethodPost, "/detector", map[string]any{"enable": true})["detectorId"].(string)
+
 	startResp := doJSON(t, h, http.MethodPost, "/malware-scan/start", map[string]any{
 		"resourceArn": "arn:aws:ec2:us-east-1:123456789012:instance/i-1",
 	})
@@ -149,9 +157,24 @@ func TestWireShape_GetMalwareScan_UsesRealFieldNames(t *testing.T) {
 		assert.Falsef(t, present, "GetMalwareScanOutput has no %s member on the real wire", badKey)
 	}
 
-	goodKeys := []string{"scanId", "detectorId", "scanStatus", "scanType", "scanStartedAt", "scanCompletedAt"}
+	// scanCompletedAt is a *time.Time on the real output -- correctly absent
+	// while the scan is still RUNNING (it only appears once a scan
+	// completes), so it is deliberately not asserted present here.
+	goodKeys := []string{
+		"scanId", "detectorId", "adminDetectorId", "scanStatus", "scanType",
+		"resourceArn", "resourceType", "scanCategory", "scanStartedAt",
+		"scannedResourcesCount", "skippedResourcesCount", "failedResourcesCount",
+	}
 	for _, goodKey := range goodKeys {
 		_, present := raw[goodKey]
 		assert.Truef(t, present, "GetMalwareScanOutput must include %s", goodKey)
 	}
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, detID, got["detectorId"], "detectorId must resolve to the account's own detector")
+	assert.Equal(t, "EC2_INSTANCE", got["resourceType"], "resourceType must be inferred from the resource ARN")
+
+	_, hasCompletedAt := raw["scanCompletedAt"]
+	assert.False(t, hasCompletedAt, "scanCompletedAt must be absent while the scan is still RUNNING")
 }

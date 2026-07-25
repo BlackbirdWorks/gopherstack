@@ -158,7 +158,7 @@ func markRestoredExperimentsTerminal(experiments []*Experiment) {
 // isActiveStatus returns true for non-terminal experiment statuses.
 func isActiveStatus(s string) bool {
 	switch s {
-	case statusPending, statusInitiating, statusRunning, statusCompleting, statusStopping:
+	case statusPending, statusInitiating, statusRunning, statusStopping:
 		return true
 	}
 

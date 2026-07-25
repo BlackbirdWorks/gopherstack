@@ -107,6 +107,35 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	return t.Clone()
 }
 
+// deleteTags drops the entire Handler-level tag entry for resourceID. Must be
+// called when the underlying resource (instance profile, MFA device, SAML/OIDC
+// provider, server certificate — the taggable kinds whose tags live only on
+// the Handler, not the backend entity) is deleted, so a later resource
+// created with the same name/ID does not resurrect stale tags.
+func (h *Handler) deleteTags(resourceID string) {
+	h.tagsMu.Lock("deleteTags")
+	defer h.tagsMu.Unlock()
+	delete(h.tags, resourceID)
+}
+
+// renameTags moves the Handler-level tag entry from oldResourceID to
+// newResourceID. Must be called whenever a taggable resource whose tags live
+// only on the Handler (see deleteTags) is renamed (e.g.
+// UpdateServerCertificate's NewServerCertificateName), so the tags follow the
+// resource under its new key instead of becoming orphaned.
+func (h *Handler) renameTags(oldResourceID, newResourceID string) {
+	h.tagsMu.Lock("renameTags")
+	defer h.tagsMu.Unlock()
+
+	t, ok := h.tags[oldResourceID]
+	if !ok {
+		return
+	}
+
+	delete(h.tags, oldResourceID)
+	h.tags[newResourceID] = t
+}
+
 // tagsSnapshot returns a deep copy of every Handler-level resource tag map, for
 // persistence. Role/User/Group/Policy tags live on the entity itself and are
 // captured by the backend's own Snapshot; this covers the remaining taggable
@@ -185,7 +214,8 @@ func coreIAMOperations() []string {
 		"ListRoleTags", "TagRole", "UntagRole",
 		"ListPolicyTags", "TagPolicy", "UntagPolicy",
 		"ListUserTags", "TagUser", "UntagUser",
-		"ListGroupTags", "TagGroup", "UntagGroup",
+		// Note: real IAM does not support tagging Groups — no ListGroupTags/
+		// TagGroup/UntagGroup actions exist (types.Group has no Tags field).
 		// SAML Providers
 		"CreateSAMLProvider", "UpdateSAMLProvider", "DeleteSAMLProvider",
 		"GetSAMLProvider", "ListSAMLProviders",
@@ -238,8 +268,6 @@ func extendedIAMOperations() []string {
 		"CreateVirtualMFADevice",
 		// New operations (second pass)
 		"UpdateServiceSpecificCredential",
-		"GetUserPermissionsBoundary",
-		"GetRolePermissionsBoundary",
 		"GetContextKeysForCustomPolicy",
 		"GetContextKeysForPrincipalPolicy",
 		"GetMFADevice",
@@ -803,7 +831,6 @@ func (h *Handler) iamRefinementDispatchTable() map[string]iamActionFn {
 		h.iamInstanceProfileRefinementDispatch(),
 		h.iamSimulateCustomPolicyDispatch(),
 		h.iamServiceLinkedRoleStatusDispatch(),
-		h.iamGroupTagsDispatch(),
 	}
 
 	for _, t := range tables {

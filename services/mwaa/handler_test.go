@@ -59,6 +59,18 @@ func doMWAARequest(t *testing.T, h *mwaa.Handler, method, path string, body any)
 	return rec
 }
 
+// networkConfigBody returns a minimal valid NetworkConfiguration JSON value (2
+// SubnetIds, 1 SecurityGroupId) for embedding in CreateEnvironment HTTP
+// request bodies. AWS's CreateEnvironmentInput requires NetworkConfiguration
+// with SubnetIds fixed at exactly 2 and SecurityGroupIds 1-5 -- see
+// validateNetworkConfigCreate.
+func networkConfigBody() map[string]any {
+	return map[string]any{
+		"SubnetIds":        []string{"subnet-aaaa1111", "subnet-bbbb2222"},
+		"SecurityGroupIds": []string{"sg-cccc3333"},
+	}
+}
+
 // makeEchoContext creates an echo.Context for the given method and path.
 func makeEchoContext(t *testing.T, method, path string) *echo.Context {
 	t.Helper()
@@ -132,8 +144,10 @@ func TestHandlerReset(t *testing.T) {
 }
 
 // TestGetSupportedOperations verifies the full set of MWAA operations the
-// handler advertises, including the InvokeRestApi/PublishMetrics/GetMetrics
-// trio, and that GetSupportedOperations reports no more than the expected count.
+// handler advertises, including InvokeRestApi/PublishMetrics, and that
+// GetSupportedOperations reports no more than the expected count. GetMetrics is
+// deliberately absent: it is not a real MWAA API operation (only PublishMetrics
+// exists on the real wire surface -- see handler.go's extractMetricsOperation).
 func TestGetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
@@ -146,7 +160,7 @@ func TestGetSupportedOperations(t *testing.T) {
 		"CreateEnvironment", "GetEnvironment", "DeleteEnvironment",
 		"UpdateEnvironment", "ListEnvironments", "ListTagsForResource",
 		"TagResource", "UntagResource", "CreateCliToken",
-		"CreateWebLoginToken", "InvokeRestApi", "PublishMetrics", "GetMetrics",
+		"CreateWebLoginToken", "InvokeRestApi", "PublishMetrics",
 	}
 
 	for _, op := range expectedOps {
@@ -157,7 +171,8 @@ func TestGetSupportedOperations(t *testing.T) {
 }
 
 // TestExtractOperation covers every routed path/method combination, including
-// the InvokeRestApi/PublishMetrics/GetMetrics operations.
+// the InvokeRestApi/PublishMetrics operations and the GET-on-metrics-path
+// Unknown case (GetMetrics is not a real MWAA operation; see handler.go).
 func TestExtractOperation(t *testing.T) {
 	t.Parallel()
 
@@ -173,7 +188,7 @@ func TestExtractOperation(t *testing.T) {
 		{path: "/webtoken/env", method: http.MethodPost, wantOp: "CreateWebLoginToken"},
 		{path: "/restapi/env", method: http.MethodPost, wantOp: "InvokeRestApi"},
 		{path: "/metrics/environments/env", method: http.MethodPost, wantOp: "PublishMetrics"},
-		{path: "/metrics/environments/env", method: http.MethodGet, wantOp: "GetMetrics"},
+		{path: "/metrics/environments/env", method: http.MethodGet, wantOp: "Unknown"},
 		{path: "/tags/some-arn", method: http.MethodGet, wantOp: "ListTagsForResource"},
 		{path: "/tags/some-arn", method: http.MethodPost, wantOp: "TagResource"},
 		{path: "/tags/some-arn", method: http.MethodDelete, wantOp: "UntagResource"},

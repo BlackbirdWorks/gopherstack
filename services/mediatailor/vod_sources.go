@@ -5,11 +5,14 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type storedVodSource struct {
+	CreationTime              time.Time                  `json:"creationTime"`
+	LastModified              time.Time                  `json:"lastModified"`
 	Tags                      map[string]string          `json:"tags"`
 	SourceLocationName        string                     `json:"sourceLocationName"`
 	VodSourceName             string                     `json:"vodSourceName"`
@@ -25,6 +28,8 @@ func (v *storedVodSource) toVodSource() *VodSource {
 	copy(cfgs, v.HTTPPackageConfigurations)
 
 	return &VodSource{
+		CreationTime:              v.CreationTime,
+		LastModified:              v.LastModified,
 		Tags:                      tags,
 		SourceLocationName:        v.SourceLocationName,
 		VodSourceName:             v.VodSourceName,
@@ -38,6 +43,8 @@ func (v *storedVodSource) toSummary() *VodSourceSummary {
 	maps.Copy(tags, v.Tags)
 
 	return &VodSourceSummary{
+		CreationTime:       v.CreationTime,
+		LastModified:       v.LastModified,
 		Tags:               tags,
 		SourceLocationName: v.SourceLocationName,
 		VodSourceName:      v.VodSourceName,
@@ -80,15 +87,20 @@ func (b *InMemoryBackend) CreateVodSource(
 	cfgs := make([]HTTPPackageConfiguration, len(httpPackageConfigurations))
 	copy(cfgs, httpPackageConfigurations)
 
+	now := time.Now().UTC()
+	vsARN := b.vodSourceARN(sourceLocationName, vodSourceName)
 	vs := &storedVodSource{
+		CreationTime:              now,
+		LastModified:              now,
 		Tags:                      copyTags(tags),
 		SourceLocationName:        sourceLocationName,
 		VodSourceName:             vodSourceName,
-		ARN:                       b.vodSourceARN(sourceLocationName, vodSourceName),
+		ARN:                       vsARN,
 		HTTPPackageConfigurations: cfgs,
 	}
 
 	b.vodSources.Put(vs)
+	b.tags[vsARN] = copyTags(tags)
 
 	return vs.toVodSource(), nil
 }
@@ -130,6 +142,7 @@ func (b *InMemoryBackend) UpdateVodSource(
 	cfgs := make([]HTTPPackageConfiguration, len(httpPackageConfigurations))
 	copy(cfgs, httpPackageConfigurations)
 	vs.HTTPPackageConfigurations = cfgs
+	vs.LastModified = time.Now().UTC()
 
 	return vs.toVodSource(), nil
 }

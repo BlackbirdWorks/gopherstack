@@ -33,6 +33,7 @@ func (b *InMemoryBackend) DeleteTrafficMirrorFilter(id string) error {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorFilterNotFound, id)
 	}
 	b.trafficMirrorFilters.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -148,6 +149,7 @@ func (b *InMemoryBackend) DeleteTrafficMirrorFilterRule(id string) error {
 		f.EgressFilterRules = removeTrafficMirrorFilterRule(f.EgressFilterRules, id)
 	}
 	b.trafficMirrorFilterRules.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -259,6 +261,7 @@ func (b *InMemoryBackend) DeleteTrafficMirrorSession(id string) error {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorSessionNotFound, id)
 	}
 	b.trafficMirrorSessions.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -365,6 +368,7 @@ func (b *InMemoryBackend) DeleteTrafficMirrorTarget(id string) error {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorTargetNotFound, id)
 	}
 	b.trafficMirrorTargets.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

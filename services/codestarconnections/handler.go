@@ -18,6 +18,11 @@ import (
 
 const (
 	codestarTargetPrefix = "CodeStar_connections_20191201."
+	// errTypeInvalidInput is the wire error type used for every malformed-
+	// input case that maps to the real InvalidInputException (see
+	// ErrValidation's doc comment in errors.go for why the real error
+	// catalog has no ValidationException).
+	errTypeInvalidInput = "InvalidInputException"
 )
 
 var (
@@ -236,18 +241,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrSyncBlockerNotFound):
 		errType, statusCode = "SyncBlockerDoesNotExistException", http.StatusBadRequest
 	case errors.Is(err, ErrResourceInUse):
-		errType, statusCode = "ConflictException", http.StatusBadRequest
+		errType, statusCode = "ResourceUnavailableException", http.StatusBadRequest
 	case errors.Is(err, ErrSyncConfigStillExists):
 		errType, statusCode = "SyncConfigurationStillExistsException", http.StatusBadRequest
 	case errors.Is(err, ErrResourceAlreadyExists):
 		errType, statusCode = "ResourceAlreadyExistsException", http.StatusBadRequest
-	case errors.Is(err, ErrAlreadyExists):
-		errType, statusCode = "InvalidInputException", http.StatusBadRequest
-	case errors.Is(err, ErrValidation):
-		errType, statusCode = "ValidationException", http.StatusBadRequest
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+	case errors.Is(err, ErrTagLimitExceeded):
+		errType, statusCode = "LimitExceededException", http.StatusBadRequest
+	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrValidation),
+		errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		errType, statusCode = "InvalidInputException", http.StatusBadRequest
+		errType, statusCode = errTypeInvalidInput, http.StatusBadRequest
 	default:
 		errType, statusCode = "InternalFailure", http.StatusInternalServerError
 	}

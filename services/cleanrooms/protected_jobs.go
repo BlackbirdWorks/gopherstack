@@ -85,7 +85,7 @@ func (b *InMemoryBackend) ListProtectedJobs(
 			Status:               j.Status,
 			Type:                 j.Type,
 			CreateTime:           j.CreateTime,
-			MembershipID:         j.MembershipIdentifier,
+			MembershipID:         j.MembershipID,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) UpdateProtectedJob(
 // terminal (no further transitions permitted).
 func isTerminalProtectedJobStatus(status string) bool {
 	switch status {
-	case "SUCCESS", "FAILED", "CANCELLED":
+	case "SUCCESS", "FAILED", statusCancelled:
 		return true
 	default:
 		return false

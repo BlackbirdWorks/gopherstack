@@ -8,6 +8,45 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestDeleteDBCluster_CascadeDeletesClusterEndpoints is a regression test for
+// a ghost-row leak: DeleteDBClusterWithOptions must remove every custom
+// cluster endpoint belonging to the deleted cluster, not just the cluster
+// itself. Before the fix, DescribeDBClusterEndpoints kept returning
+// endpoints pointing at a deleted cluster forever (the clusterEndpoints map
+// only shrank when a client explicitly called DeleteDBClusterEndpoint).
+func TestDeleteDBCluster_CascadeDeletesClusterEndpoints(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	_, err := b.CreateDBCluster(
+		"leak-cluster", "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{},
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateDBClusterEndpoint("leak-endpoint-1", "leak-cluster", "READER")
+	require.NoError(t, err)
+	_, err = b.CreateDBClusterEndpoint("leak-endpoint-2", "leak-cluster", "WRITER")
+	require.NoError(t, err)
+
+	// Sanity check: both endpoints exist before delete.
+	before, err := b.DescribeDBClusterEndpoints("leak-cluster", "")
+	require.NoError(t, err)
+	assert.Len(t, before, 2)
+
+	_, err = b.DeleteDBClusterWithOptions("leak-cluster", true, "")
+	require.NoError(t, err)
+
+	// The endpoints must be gone, not just the cluster.
+	_, err = b.DescribeDBClusterEndpoints("", "leak-endpoint-1")
+	require.ErrorIs(t, err, rds.ErrClusterEndpointNotFound)
+	_, err = b.DescribeDBClusterEndpoints("", "leak-endpoint-2")
+	require.ErrorIs(t, err, rds.ErrClusterEndpointNotFound)
+
+	after, err := b.DescribeDBClusterEndpoints("leak-cluster", "")
+	require.NoError(t, err)
+	assert.Empty(t, after)
+}
+
 func TestModifyDBClusterEndpoint(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

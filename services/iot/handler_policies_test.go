@@ -179,10 +179,17 @@ func TestHandler_GetPolicy_HTTP(t *testing.T) {
 	resp := doRequest(t, h, http.MethodGet, "/policies/http-policy", nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var out map[string]string
+	// creationDate/lastModifiedDate are JSON numbers (epoch seconds), not
+	// RFC3339 strings, so this must decode into map[string]any.
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	assert.Equal(t, "http-policy", out["policyName"])
 	assert.NotEmpty(t, out["policyArn"])
+
+	for _, field := range []string{"creationDate", "lastModifiedDate"} {
+		_, isNumber := out[field].(float64)
+		assert.True(t, isNumber, "%s must be a JSON number (epoch seconds), got %T: %v", field, out[field], out[field])
+	}
 }
 
 func TestHandler_DeletePolicy_HTTP(t *testing.T) {

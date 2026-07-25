@@ -10,11 +10,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// Indicator type constants mirroring Amazon Detective's FindingType enum.
+// Indicator type constants mirroring Amazon Detective's IndicatorType enum
+// (all 8 real values: aws-sdk-go-v2/service/detective/types.IndicatorType).
 const (
 	indicatorImpossibleTravel    = "IMPOSSIBLE_TRAVEL"
 	indicatorFlaggedIPAddress    = "FLAGGED_IP_ADDRESS"
 	indicatorNewGeolocation      = "NEW_GEOLOCATION"
+	indicatorNewASO              = "NEW_ASO"
+	indicatorNewUserAgent        = "NEW_USER_AGENT"
 	indicatorTTPObserved         = "TTP_OBSERVED"
 	indicatorRelatedFinding      = "RELATED_FINDING"
 	indicatorRelatedFindingGroup = "RELATED_FINDING_GROUP"
@@ -24,15 +27,49 @@ const (
 // Real Detective derives indicators from VPC Flow Logs, CloudTrail, and GuardDuty.
 // The emulator generates a fixed representative set seeded by the investigation ID
 // so repeated calls for the same investigation return consistent results.
+//
+// Each Indicator's Detail carries exactly one populated type-specific
+// sub-struct, matching the real (union-like) IndicatorDetail wire shape --
+// the real API has no free-text "Title" member.
 func builtInIndicators(inv *storedInvestigation) []*Indicator {
 	indicators := []*Indicator{
 		{
 			IndicatorType: indicatorTTPObserved,
-			Title:         "Observed tactics, techniques and procedures for entity " + inv.EntityARN,
+			Detail: IndicatorDetail{
+				TTPsObserved: &TTPsObservedDetail{
+					Tactic:          "Discovery",
+					Procedure:       "Enumerated IAM permissions for " + inv.EntityARN,
+					APIName:         "ListRoles",
+					APISuccessCount: 1,
+				},
+			},
 		},
 		{
 			IndicatorType: indicatorNewGeolocation,
-			Title:         "API calls from a previously unseen geographic location",
+			Detail: IndicatorDetail{
+				NewGeolocation: &NewGeolocationDetail{
+					Location:              "Unknown",
+					IsNewForEntireAccount: false,
+				},
+			},
+		},
+		{
+			IndicatorType: indicatorNewASO,
+			Detail: IndicatorDetail{
+				NewASO: &NewASODetail{
+					ASO:                   "Unknown",
+					IsNewForEntireAccount: false,
+				},
+			},
+		},
+		{
+			IndicatorType: indicatorNewUserAgent,
+			Detail: IndicatorDetail{
+				NewUserAgent: &NewUserAgentDetail{
+					UserAgent:             "aws-sdk-unknown",
+					IsNewForEntireAccount: false,
+				},
+			},
 		},
 	}
 
@@ -41,11 +78,17 @@ func builtInIndicators(inv *storedInvestigation) []*Indicator {
 		indicators = append(indicators,
 			&Indicator{
 				IndicatorType: indicatorFlaggedIPAddress,
-				Title:         "Activity from a threat-intelligence flagged IP address",
+				Detail: IndicatorDetail{
+					FlaggedIPAddress: &FlaggedIPAddressDetail{
+						Reason: "AWS_THREAT_INTELLIGENCE",
+					},
+				},
 			},
 			&Indicator{
 				IndicatorType: indicatorImpossibleTravel,
-				Title:         "Geographically impossible API activity within a short time window",
+				Detail: IndicatorDetail{
+					ImpossibleTravel: &ImpossibleTravelDetail{},
+				},
 			},
 		)
 	}
@@ -54,11 +97,19 @@ func builtInIndicators(inv *storedInvestigation) []*Indicator {
 		indicators = append(indicators,
 			&Indicator{
 				IndicatorType: indicatorRelatedFinding,
-				Title:         "Related GuardDuty finding associated with the entity",
+				Detail: IndicatorDetail{
+					RelatedFinding: &RelatedFindingDetail{
+						Type: "Recon:IAMUser/MaliciousIPCaller",
+					},
+				},
 			},
 			&Indicator{
 				IndicatorType: indicatorRelatedFindingGroup,
-				Title:         "Cluster of related findings involving the same entity",
+				Detail: IndicatorDetail{
+					RelatedFindingGroup: &RelatedFindingGroupDetail{
+						ID: inv.InvestigationID,
+					},
+				},
 			},
 		)
 	}
@@ -161,15 +212,13 @@ func (b *InMemoryBackend) ListInvestigations(
 	items := slices.Clone(b.investigationsByGraph.Get(graphARN))
 	sort.Slice(items, func(i, j int) bool { return items[i].InvestigationID < items[j].InvestigationID })
 
-	start := 0
-	if nextToken != "" {
-		for i, inv := range items {
-			if inv.InvestigationID == nextToken {
-				start = i
+	start, err := decodePageToken(nextToken)
+	if err != nil {
+		return nil, "", err
+	}
 
-				break
-			}
-		}
+	if start > len(items) {
+		start = len(items)
 	}
 
 	limit := int(maxResults)
@@ -187,7 +236,7 @@ func (b *InMemoryBackend) ListInvestigations(
 
 	var outToken string
 	if end < len(items) {
-		outToken = items[end].InvestigationID
+		outToken = encodePageToken(end)
 	}
 
 	return result, outToken, nil

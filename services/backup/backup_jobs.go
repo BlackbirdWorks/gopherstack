@@ -127,7 +127,7 @@ func (b *InMemoryBackend) ListBackupJobSummaries() []map[string]any {
 			"State":          status,
 			keySummaryCount:  count,
 			keySummaryRegion: b.region,
-			"AccountId":      b.accountID,
+			keyAccountID:     b.accountID,
 		})
 	}
 

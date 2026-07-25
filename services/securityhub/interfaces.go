@@ -187,6 +187,7 @@ type StorageBackend interface {
 	) ([]map[string]any, string)
 	BatchUpdateFindingsV2(
 		findingIdentifiers []map[string]any,
+		metadataUids []string,
 		updates map[string]any,
 	) ([]map[string]any, []map[string]any)
 	GetFindingStatisticsV2(groupByAttributes []string) []map[string]any

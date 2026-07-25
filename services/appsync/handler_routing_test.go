@@ -50,6 +50,96 @@ func TestParseOperation_DataSourceIntrospections(t *testing.T) {
 	}
 }
 
+// TestHandler_ExtractOperation_RealDataSourceIntrospections locks the real AWS SDK
+// endpoint "/v1/datasources/introspections[/{id}]" (distinct from the legacy
+// "/v1/dataSource-introspections" alias exercised by
+// TestParseOperation_DataSourceIntrospections above).
+func TestHandler_ExtractOperation_RealDataSourceIntrospections(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		wantOp string
+	}{
+		{
+			name:   "start_introspection",
+			method: http.MethodPost,
+			path:   "/v1/datasources/introspections",
+			wantOp: "StartDataSourceIntrospection",
+		},
+		{
+			name:   "get_introspection",
+			method: http.MethodGet,
+			path:   "/v1/datasources/introspections/abc123",
+			wantOp: "GetDataSourceIntrospection",
+		},
+		{
+			name:   "wrong_subpath",
+			method: http.MethodPost,
+			path:   "/v1/datasources/somethingelse",
+			wantOp: "Unknown",
+		},
+		{
+			name:   "get_on_collection_wrong_method",
+			method: http.MethodGet,
+			path:   "/v1/datasources/introspections",
+			wantOp: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(""))
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
+// TestHandler_ExtractOperation_StartSchemaMerge locks the real AWS SDK endpoint
+// "POST /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations/{associationId}/merge".
+func TestHandler_ExtractOperation_StartSchemaMerge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		wantOp string
+	}{
+		{
+			name:   "post_merge",
+			method: http.MethodPost,
+			path:   "/v1/mergedApis/merged1/sourceApiAssociations/assoc1/merge",
+			wantOp: "StartSchemaMerge",
+		},
+		{
+			name:   "get_merge_wrong_method",
+			method: http.MethodGet,
+			path:   "/v1/mergedApis/merged1/sourceApiAssociations/assoc1/merge",
+			wantOp: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(""))
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
 func TestParseOperation_DataplaneEvaluations(t *testing.T) {
 	t.Parallel()
 
@@ -978,6 +1068,12 @@ func TestRouteMatcher_RealPaths(t *testing.T) {
 		{method: http.MethodPost, path: "/v1/apis/abc123/ApiCaches/update"},
 		{method: http.MethodDelete, path: "/v1/apis/abc123/FlushCache"},
 		{method: http.MethodGet, path: "/v1/apis/abc123/sourceApiAssociations"},
+		{method: http.MethodPost, path: "/v1/datasources/introspections"},
+		{method: http.MethodGet, path: "/v1/datasources/introspections/abc123"},
+		{
+			method: http.MethodPost,
+			path:   "/v1/mergedApis/merged1/sourceApiAssociations/assoc1/merge",
+		},
 	}
 
 	e := echo.New()

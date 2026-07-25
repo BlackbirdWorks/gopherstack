@@ -83,6 +83,14 @@ func (b *InMemoryBackend) GetHost(ctx context.Context, hostArn string) (*Host, e
 	return &cp, nil
 }
 
+// hostExistsLocked returns true if a host with hostArn exists in region.
+// Must be called with at least an RLock held.
+func (b *InMemoryBackend) hostExistsLocked(region, hostArn string) bool {
+	_, ok := b.hosts.Get(hostArn)
+
+	return ok && regionFromARN(hostArn) == region
+}
+
 // connectionHasReferenceToHostLocked returns true if any connection in region
 // references hostArn. Must be called with at least an RLock held.
 func (b *InMemoryBackend) connectionHasReferenceToHostLocked(region, hostArn string) bool {

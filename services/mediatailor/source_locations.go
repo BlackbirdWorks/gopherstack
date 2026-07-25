@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type storedSourceLocation struct {
+	CreationTime         time.Time         `json:"creationTime"`
+	LastModified         time.Time         `json:"lastModified"`
 	Tags                 map[string]string `json:"tags"`
 	Name                 string            `json:"name"`
 	ARN                  string            `json:"arn"`
@@ -20,6 +23,8 @@ func (s *storedSourceLocation) toSourceLocation() *SourceLocation {
 	maps.Copy(tags, s.Tags)
 
 	return &SourceLocation{
+		CreationTime:         s.CreationTime,
+		LastModified:         s.LastModified,
 		Tags:                 tags,
 		Name:                 s.Name,
 		ARN:                  s.ARN,
@@ -32,6 +37,8 @@ func (s *storedSourceLocation) toSummary() *SourceLocationSummary {
 	maps.Copy(tags, s.Tags)
 
 	return &SourceLocationSummary{
+		CreationTime:         s.CreationTime,
+		LastModified:         s.LastModified,
 		Tags:                 tags,
 		Name:                 s.Name,
 		ARN:                  s.ARN,
@@ -61,14 +68,19 @@ func (b *InMemoryBackend) CreateSourceLocation(
 		return nil, fmt.Errorf("%w: source location %s already exists", ErrConflict, name)
 	}
 
+	now := time.Now().UTC()
+	slARN := b.sourceLocationARN(name)
 	sl := &storedSourceLocation{
+		CreationTime:         now,
+		LastModified:         now,
 		Tags:                 copyTags(tags),
 		Name:                 name,
-		ARN:                  b.sourceLocationARN(name),
+		ARN:                  slARN,
 		HTTPConfigurationURL: baseURL,
 	}
 
 	b.sourceLocations.Put(sl)
+	b.tags[slARN] = copyTags(tags)
 
 	return sl.toSourceLocation(), nil
 }
@@ -103,6 +115,8 @@ func (b *InMemoryBackend) UpdateSourceLocation(name, baseURL string) (*SourceLoc
 	if baseURL != "" {
 		sl.HTTPConfigurationURL = baseURL
 	}
+
+	sl.LastModified = time.Now().UTC()
 
 	return sl.toSourceLocation(), nil
 }

@@ -460,31 +460,40 @@ func TestInMemoryBackend_GetDataSource_APINotFound(t *testing.T) {
 func TestBackend_StartDataSourceIntrospection(t *testing.T) {
 	t.Parallel()
 
+	validConfig := &appsync.RDSDataAPIConfig{
+		DatabaseName: "mydb",
+		ResourceARN:  "arn:aws:rds:us-east-1:000000000000:cluster:mycluster",
+		SecretARN:    "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret",
+	}
+
 	tests := []struct {
-		name           string
-		dataSourceName string
-		setupAPIID     bool
-		setupDS        bool
-		wantErr        bool
+		cfg     *appsync.RDSDataAPIConfig
+		name    string
+		wantErr bool
 	}{
 		{
-			name:           "success",
-			setupAPIID:     true,
-			setupDS:        true,
-			dataSourceName: "MyDS",
+			name: "success",
+			cfg:  validConfig,
 		},
 		{
-			name:       "api_not_found",
-			setupAPIID: false,
-			setupDS:    false,
-			wantErr:    true,
+			name:    "nil_config",
+			cfg:     nil,
+			wantErr: true,
 		},
 		{
-			name:           "datasource_not_found",
-			setupAPIID:     true,
-			setupDS:        false,
-			dataSourceName: "NoSuchDS",
-			wantErr:        true,
+			name:    "missing_resource_arn",
+			cfg:     &appsync.RDSDataAPIConfig{DatabaseName: "mydb", SecretARN: "arn:secret"},
+			wantErr: true,
+		},
+		{
+			name:    "missing_secret_arn",
+			cfg:     &appsync.RDSDataAPIConfig{DatabaseName: "mydb", ResourceARN: "arn:resource"},
+			wantErr: true,
+		},
+		{
+			name:    "missing_database_name",
+			cfg:     &appsync.RDSDataAPIConfig{ResourceARN: "arn:resource", SecretARN: "arn:secret"},
+			wantErr: true,
 		},
 	}
 
@@ -493,32 +502,26 @@ func TestBackend_StartDataSourceIntrospection(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			apiID := "nonexistent"
 
-			if tt.setupAPIID {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
-				require.NoError(t, err)
-				apiID = api.APIID
-			}
-
-			if tt.setupDS {
-				_, err := b.CreateDataSource(apiID, &appsync.DataSource{
-					Name: tt.dataSourceName,
-					Type: appsync.DataSourceTypeNone,
-				})
-				require.NoError(t, err)
-			}
-
-			id, err := b.StartDataSourceIntrospection(apiID, tt.dataSourceName)
+			rec, err := b.StartDataSourceIntrospection(tt.cfg)
 
 			if tt.wantErr {
 				require.Error(t, err)
+				assert.ErrorIs(t, err, appsync.ErrValidation)
 
 				return
 			}
 
 			require.NoError(t, err)
-			assert.NotEmpty(t, id)
+			assert.NotEmpty(t, rec.IntrospectionID)
+			assert.Equal(t, appsync.DataSourceIntrospectionStatusSuccess, rec.IntrospectionStatus)
+			require.NotNil(t, rec.IntrospectionResult)
+			assert.Empty(t, rec.IntrospectionResult.Models)
+
+			// The job must be persisted -- retrievable again by ID.
+			got, getErr := b.GetDataSourceIntrospection(rec.IntrospectionID)
+			require.NoError(t, getErr)
+			assert.Equal(t, rec.IntrospectionID, got.IntrospectionID)
 		})
 	}
 }
@@ -526,38 +529,38 @@ func TestBackend_StartDataSourceIntrospection(t *testing.T) {
 func TestBackend_GetDataSourceIntrospection(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name            string
-		introspectionID string
-		wantErr         bool
-	}{
-		{
-			name:            "valid_id",
-			introspectionID: "abc123",
-		},
-		{
-			name:            "empty_id",
-			introspectionID: "",
-			wantErr:         true,
-		},
-	}
+	t.Run("found", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := newTestBackend()
-			result, err := b.GetDataSourceIntrospection(tt.introspectionID)
-
-			if tt.wantErr {
-				require.Error(t, err)
-
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.introspectionID, result.IntrospectionID)
-			assert.Equal(t, "SUCCESS", result.Status)
+		b := newTestBackend()
+		started, err := b.StartDataSourceIntrospection(&appsync.RDSDataAPIConfig{
+			DatabaseName: "mydb",
+			ResourceARN:  "arn:aws:rds:us-east-1:000000000000:cluster:mycluster",
+			SecretARN:    "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret",
 		})
-	}
+		require.NoError(t, err)
+
+		result, getErr := b.GetDataSourceIntrospection(started.IntrospectionID)
+		require.NoError(t, getErr)
+		assert.Equal(t, started.IntrospectionID, result.IntrospectionID)
+		assert.Equal(t, appsync.DataSourceIntrospectionStatusSuccess, result.IntrospectionStatus)
+	})
+
+	t.Run("not_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		_, err := b.GetDataSourceIntrospection("nonexistent-id")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, appsync.ErrNotFound)
+	})
+
+	t.Run("empty_id", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		_, err := b.GetDataSourceIntrospection("")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, appsync.ErrValidation)
+	})
 }

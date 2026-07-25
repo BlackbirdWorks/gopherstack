@@ -10,9 +10,9 @@ import (
 
 // nodeOutput mirrors DescribeNodeOutput/CreateNodeOutput/UpdateNodeOutput/
 // UpdateNodeStateOutput exactly -- like Cluster, the real API has NO "tags"
-// field here (only ListTagsForResource echoes Node tags). It does have
-// "channelPlacementGroups", which gopherstack doesn't track per-node;
-// emitted as an empty list (derived).
+// field here (only ListTagsForResource echoes Node tags). "channelPlacementGroups"
+// is derived live from ChannelPlacementGroup.Nodes (see
+// channelPlacementGroupIDsForNode).
 type nodeOutput struct {
 	Arn                    string   `json:"arn"`
 	ID                     string   `json:"id"`
@@ -25,6 +25,11 @@ type nodeOutput struct {
 }
 
 func toNodeOutput(n *Node) nodeOutput {
+	cpgIDs := n.ChannelPlacementGroups
+	if cpgIDs == nil {
+		cpgIDs = []string{}
+	}
+
 	return nodeOutput{
 		Arn:                    n.ARN,
 		ID:                     n.ID,
@@ -33,7 +38,7 @@ func toNodeOutput(n *Node) nodeOutput {
 		Role:                   n.Role,
 		State:                  n.State,
 		ConnectionState:        n.ConnectionState,
-		ChannelPlacementGroups: []string{},
+		ChannelPlacementGroups: cpgIDs,
 	}
 }
 
@@ -111,6 +116,11 @@ func (h *Handler) handleListNodes(c *echo.Context, clusterID string) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
+		cpgIDs := s.ChannelPlacementGroups
+		if cpgIDs == nil {
+			cpgIDs = []string{}
+		}
+
 		out = append(out, map[string]any{
 			keyArn:                   s.ARN,
 			keyID:                    s.ID,
@@ -119,7 +129,7 @@ func (h *Handler) handleListNodes(c *echo.Context, clusterID string) error {
 			"clusterId":              s.ClusterID,
 			"role":                   s.Role,
 			"connectionState":        s.ConnectionState,
-			"channelPlacementGroups": []string{},
+			"channelPlacementGroups": cpgIDs,
 		})
 	}
 

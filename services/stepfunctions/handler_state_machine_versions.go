@@ -10,10 +10,6 @@ type publishStateMachineVersionInput struct {
 	RevisionID      string `json:"revisionId"`
 }
 
-type describeStateMachineVersionInput struct {
-	StateMachineVersionArn string `json:"stateMachineVersionArn"`
-}
-
 type deleteStateMachineVersionInput struct {
 	StateMachineVersionArn string `json:"stateMachineVersionArn"`
 }
@@ -43,14 +39,6 @@ func (h *Handler) versionActions() map[string]actionFn {
 				input.Description,
 				input.RevisionID,
 			)
-		},
-		"DescribeStateMachineVersion": func(b []byte) (any, error) {
-			var input describeStateMachineVersionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DescribeStateMachineVersion(input.StateMachineVersionArn)
 		},
 		"DeleteStateMachineVersion": func(b []byte) (any, error) {
 			var input deleteStateMachineVersionInput

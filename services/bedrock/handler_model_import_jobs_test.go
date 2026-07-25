@@ -11,14 +11,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// validModelImportJobBody returns a CreateModelImportJob request body with
+// every real-AWS-required field populated (importedModelName, roleArn,
+// modelDataSource) alongside jobName.
+func validModelImportJobBody(jobName string) map[string]any {
+	return map[string]any{
+		"jobName":           jobName,
+		"importedModelName": jobName + "-model",
+		"roleArn":           "arn:aws:iam::000000000000:role/import-role",
+		"modelDataSource": map[string]any{
+			"s3DataSource": map[string]any{"s3Uri": "s3://my-bucket/model-data/"},
+		},
+	}
+}
+
+func createTestModelImportJob(
+	t *testing.T, b *bedrock.InMemoryBackend, jobName string,
+) *bedrock.ModelImportJob {
+	t.Helper()
+
+	job, err := b.CreateModelImportJob(
+		jobName, jobName+"-model", "arn:aws:iam::000000000000:role/import-role",
+		"s3://my-bucket/model-data/", nil,
+	)
+	require.NoError(t, err)
+
+	return job
+}
+
 func TestAccuracy_ModelImportJob_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
 	// Create.
-	rec := doRequest(t, h, http.MethodPost, "/model-import-jobs",
-		map[string]any{"jobName": "my-import-job"})
+	rec := doRequest(t, h, http.MethodPost, "/model-import-jobs", validModelImportJobBody("my-import-job"))
 
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -30,6 +57,8 @@ func TestAccuracy_ModelImportJob_Lifecycle(t *testing.T) {
 	assert.NotEmpty(t, createOut["creationTime"])
 	assert.NotEmpty(t, createOut["lastModifiedTime"])
 	assert.NotEmpty(t, createOut["importedModelArn"])
+	assert.Equal(t, "my-import-job-model", createOut["importedModelName"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/import-role", createOut["roleArn"])
 
 	// List.
 	recList := doRequest(t, h, http.MethodGet, "/model-import-jobs", nil)
@@ -59,6 +88,32 @@ func TestAccuracy_ModelImportJob_MissingJobName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestAccuracy_ModelImportJob_MissingRequiredFieldsRejected locks in that
+// importedModelName and roleArn are required (real AWS: CreateModelImportJobInput
+// marks both "This member is required") -- gopherstack previously accepted a
+// bare {"jobName": ...} body and silently dropped both.
+func TestAccuracy_ModelImportJob_MissingRequiredFieldsRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{name: "missing importedModelName", body: map[string]any{"jobName": "j1", "roleArn": "arn:role"}},
+		{name: "missing roleArn", body: map[string]any{"jobName": "j2", "importedModelName": "m1"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/model-import-jobs", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
 func TestAccuracy_ImportedModel_VisibleAfterImportJob(t *testing.T) {
 	t.Parallel()
 
@@ -77,8 +132,7 @@ func TestAccuracy_ImportedModel_VisibleAfterImportJob(t *testing.T) {
 			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 			h := bedrock.NewHandler(b)
 
-			job, err := b.CreateModelImportJob(tt.jobName, nil)
-			require.NoError(t, err)
+			job := createTestModelImportJob(t, b, tt.jobName)
 			assert.NotEmpty(t, job.ImportedModelArn)
 
 			// Imported model should be listable.
@@ -98,6 +152,12 @@ func TestAccuracy_ImportedModel_VisibleAfterImportJob(t *testing.T) {
 			var modelOut map[string]any
 			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &modelOut))
 			assert.Equal(t, job.ImportedModelArn, modelOut["modelArn"])
+			assert.Equal(t, tt.jobName+"-model", modelOut["modelName"])
+			assert.Equal(t, job.JobArn, modelOut["jobArn"])
+			assert.Equal(t, tt.jobName, modelOut["jobName"])
+			assert.NotEmpty(t, modelOut["creationTime"])
+			_, hasStatus := modelOut["status"]
+			assert.False(t, hasStatus, "ImportedModel has no real 'status' field")
 		})
 	}
 }
@@ -108,12 +168,11 @@ func TestAccuracy_ImportedModel_DeleteRemovesFromList(t *testing.T) {
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrock.NewHandler(b)
 
-	job, err := b.CreateModelImportJob("del-import-job", nil)
-	require.NoError(t, err)
+	job := createTestModelImportJob(t, b, "del-import-job")
 
 	rec := doRequest(t, h, http.MethodDelete,
 		"/imported-models/"+url.PathEscape(job.ImportedModelArn), nil)
-	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 
 	recList := doRequest(t, h, http.MethodGet, "/imported-models", nil)
 	require.Equal(t, http.StatusOK, recList.Code)
@@ -128,8 +187,7 @@ func TestAccuracy_ModelImportJob_EndTimeAbsentWhileInProgress(t *testing.T) {
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrock.NewHandler(b)
-	job, err := b.CreateModelImportJob("no-endtime-job", nil)
-	require.NoError(t, err)
+	job := createTestModelImportJob(t, b, "no-endtime-job")
 	assert.Equal(t, "InProgress", job.Status)
 
 	rec := doRequest(t, h, http.MethodGet,
@@ -158,8 +216,7 @@ func TestAccuracy_ModelImportJob_AdvanceStatusToCompleted(t *testing.T) {
 			t.Parallel()
 
 			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-			job, err := b.CreateModelImportJob(tt.jobName, nil)
-			require.NoError(t, err)
+			job := createTestModelImportJob(t, b, tt.jobName)
 			assert.Equal(t, "InProgress", job.Status)
 
 			n := b.AdvanceCopyImportJobStatuses(0)
@@ -176,8 +233,7 @@ func TestAccuracy_ModelImportJob_ImportedModelStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model-import-jobs",
-		map[string]any{"jobName": "import-status-job"})
+	rec := doRequest(t, h, http.MethodPost, "/model-import-jobs", validModelImportJobBody("import-status-job"))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
@@ -198,12 +254,11 @@ func TestAccuracy_ModelImportJob_TagsPreserved(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model-import-jobs", map[string]any{
-		"jobName": "tagged-import",
-		"tags": []map[string]any{
-			{"key": "purpose", "value": "testing"},
-		},
-	})
+	body := validModelImportJobBody("tagged-import")
+	body["tags"] = []map[string]any{
+		{"key": "purpose", "value": "testing"},
+	}
+	rec := doRequest(t, h, http.MethodPost, "/model-import-jobs", body)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
@@ -226,7 +281,7 @@ func TestAccuracy_ImportedModel_AvailableAfterJobComplete(t *testing.T) {
 
 	// Create import job and advance to completed
 	importRec := doRequest(t, h, http.MethodPost, "/model-import-jobs",
-		map[string]any{"jobName": "completed-import-job"})
+		validModelImportJobBody("completed-import-job"))
 	require.Equal(t, http.StatusCreated, importRec.Code)
 
 	var importOut map[string]any
@@ -255,6 +310,28 @@ func TestAccuracy_ImportedModel_AvailableAfterJobComplete(t *testing.T) {
 	assert.NotEmpty(t, models)
 }
 
+// TestAccuracy_ImportedModel_ListFilterByNameContains locks in the
+// nameContains query filter and nextToken pagination that ListImportedModels
+// previously ignored entirely.
+func TestAccuracy_ImportedModel_ListFilterByNameContains(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+	h := bedrock.NewHandler(b)
+
+	createTestModelImportJob(t, b, "alpha-import")
+	createTestModelImportJob(t, b, "beta-import")
+
+	rec := doRequest(t, h, http.MethodGet, "/imported-models?nameContains=alpha", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	models := out["modelSummaries"].([]any)
+	require.Len(t, models, 1)
+	assert.Equal(t, "alpha-import-model", models[0].(map[string]any)["modelName"])
+}
+
 func TestHandler_ImportedModel_ListAndGet(t *testing.T) {
 	t.Parallel()
 
@@ -270,8 +347,7 @@ func TestHandler_ImportedModel_ListAndGet(t *testing.T) {
 	assert.Empty(t, out["modelSummaries"])
 
 	// Create an import job (which seeds an imported model ARN)
-	job, err := b.CreateModelImportJob("test-import", nil)
-	require.NoError(t, err)
+	job := createTestModelImportJob(t, b, "test-import")
 
 	// Advance so imported model ARN is set
 	b.AdvanceCopyImportJobStatuses(0)
@@ -296,7 +372,7 @@ func TestHandler_ImportedModel_ListAndGet(t *testing.T) {
 
 	// Delete
 	rec4 := doRequest(t, h, http.MethodDelete, "/imported-models/"+url.PathEscape(modelARN), nil)
-	assert.Equal(t, http.StatusNoContent, rec4.Code)
+	assert.Equal(t, http.StatusOK, rec4.Code)
 
 	// Get after delete
 	rec5 := doRequest(t, h, http.MethodGet, "/imported-models/"+url.PathEscape(modelARN), nil)

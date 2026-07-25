@@ -69,3 +69,14 @@ func ServiceOperationStats(b *InMemoryBackend, serviceArn string) (int, int) {
 
 // MaxOperationsPerService exposes the per-service operation cap for tests.
 const MaxOperationsPerService = maxOperationsPerService
+
+// CustomDomainMapEntries returns the number of serviceArn keys present in the
+// backend's raw customDomains map, for leak-detection tests verifying
+// DeleteService cascades its custom domain associations rather than leaving
+// a ghost, permanently-unreachable entry behind.
+func CustomDomainMapEntries(b *InMemoryBackend) int {
+	b.mu.RLock("CustomDomainMapEntries")
+	defer b.mu.RUnlock()
+
+	return len(b.customDomains)
+}

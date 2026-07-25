@@ -39,7 +39,7 @@ func TestHandler_GrantRevokeListPermissions(t *testing.T) {
 			rec := doLFRequest(t, h, "/GrantPermissions", grantBody)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			listBody := `{"ResourceArn":"` + tt.resourceArn + `"}`
+			listBody := `{"Resource":{"DataLocation":{"ResourceArn":"` + tt.resourceArn + `"}}}`
 			rec = doLFRequest(t, h, "/ListPermissions", listBody)
 			assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -64,7 +64,7 @@ func TestHandler_BatchGrantRevokePermissions(t *testing.T) {
 	}{
 		{
 			name: "batch_grant_success",
-			body: `{"Entries":[{"Principal":{"DataLakePrincipalIdentifier":"arn:aws:iam::123:user/a"},` +
+			body: `{"Entries":[{"Id":"entry-1","Principal":{"DataLakePrincipalIdentifier":"arn:aws:iam::123:user/a"},` +
 				`"Resource":{"DataLocation":{"ResourceArn":"arn:aws:s3:::b"}},` +
 				`"Permissions":["DATA_LOCATION_ACCESS"]}]}`,
 			wantStatus: http.StatusOK,
@@ -153,6 +153,7 @@ func TestBatchGrant_ErrorCodeMapping(t *testing.T) {
 	rec := postJSON(t, h, "/BatchGrantPermissions", map[string]any{
 		"Entries": []any{
 			map[string]any{
+				"Id": "entry-1",
 				// Missing Principal and Resource → validation error in GrantPermissions
 				"Permissions": []string{"SELECT"},
 			},
@@ -169,6 +170,68 @@ func TestBatchGrant_ErrorCodeMapping(t *testing.T) {
 	errDetail := failure["Error"].(map[string]any)
 	// validation errors should map to InvalidInputException
 	assert.Equal(t, "InvalidInputException", errDetail["ErrorCode"])
+}
+
+func TestBatchGrantPermissions_MissingIDRejected(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	// The real BatchPermissionsRequestEntry.Id member is required so
+	// BatchFailureEntry.RequestEntry can be correlated back to the caller's
+	// request; omitting it must be rejected up front (400), not silently
+	// accepted or surfaced only inside a per-entry Failures[] error.
+	rec := postJSON(t, h, "/BatchGrantPermissions", map[string]any{
+		"Entries": []any{
+			map[string]any{
+				"Principal":   map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/a"},
+				"Resource":    map[string]any{"Database": map[string]any{"Name": "db"}},
+				"Permissions": []any{"SELECT"},
+			},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestListPermissions_ResourceShapedFilter(t *testing.T) {
+	t.Parallel()
+
+	// The real ListPermissionsInput filters by a nested Resource object (the
+	// same shape GrantPermissions/RevokePermissions use), not a flat
+	// ResourceArn string -- a real aws-sdk-go-v2 client would never send
+	// ResourceArn for this operation.
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	postJSON(t, h, "/GrantPermissions", map[string]any{
+		"Principal":   map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/alice"},
+		"Resource":    map[string]any{"Database": map[string]any{"Name": "matchdb"}},
+		"Permissions": []any{"SELECT"},
+	})
+	postJSON(t, h, "/GrantPermissions", map[string]any{
+		"Principal":   map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/bob"},
+		"Resource":    map[string]any{"Database": map[string]any{"Name": "otherdb"}},
+		"Permissions": []any{"SELECT"},
+	})
+
+	rec := postJSON(t, h, "/ListPermissions", map[string]any{
+		"Resource": map[string]any{"Database": map[string]any{"Name": "matchdb"}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, jsonDecode(rec.Body, &out))
+	entries := out["PrincipalResourcePermissions"].([]any)
+	require.Len(t, entries, 1)
+	entry := entries[0].(map[string]any)
+	principal := entry["Principal"].(map[string]any)
+	assert.Equal(t, "arn:aws:iam::123:user/alice", principal["DataLakePrincipalIdentifier"])
+
+	// LastUpdated must be a JSON number (epoch seconds), never an RFC3339 string.
+	_, isNumber := entry["LastUpdated"].(float64)
+	assert.True(t, isNumber, "LastUpdated must serialize as epoch seconds, got %T: %v",
+		entry["LastUpdated"], entry["LastUpdated"])
 }
 
 func TestGetEffectivePermissionsForPath_Empty(t *testing.T) {
@@ -216,13 +279,32 @@ func TestGrantPermissions_InvalidEnum(t *testing.T) {
 			wantStatus:  http.StatusBadRequest,
 		},
 		{
-			name:        "CREATE_LAKE_FORMATION_OPT_IN accepted",
+			// CREATE_LAKE_FORMATION_OPT_IN does not exist in the real
+			// types.Permission enum (aws-sdk-go-v2/service/lakeformation) --
+			// it must be rejected, not silently accepted.
+			name:        "CREATE_LAKE_FORMATION_OPT_IN not a real permission, rejected",
 			permissions: []any{"CREATE_LAKE_FORMATION_OPT_IN"},
-			wantStatus:  http.StatusOK,
+			wantStatus:  http.StatusBadRequest,
 		},
 		{
 			name:        "DROP accepted",
 			permissions: []any{"DROP"},
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "SUPER_USER accepted",
+			permissions: []any{"SUPER_USER"},
+			wantStatus:  http.StatusOK,
+		},
+		{
+			// SUPER is a gopherstack-invented typo for SUPER_USER; must be rejected.
+			name:        "SUPER (typo of SUPER_USER) rejected",
+			permissions: []any{"SUPER"},
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "CREATE_LF_TAG_EXPRESSION accepted",
+			permissions: []any{"CREATE_LF_TAG_EXPRESSION"},
 			wantStatus:  http.StatusOK,
 		},
 	}

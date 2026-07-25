@@ -46,7 +46,7 @@ func TestHandler_AssociateDataShareConsumer(t *testing.T) {
 			name:         "data_share_not_found",
 			body:         "Action=AssociateDataShareConsumer&Version=2012-12-01&DataShareArn=nonexistent&ConsumerArn=consumer",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"DataShareNotFound"},
+			wantContains: []string{"InvalidDataShareFault"},
 		},
 	}
 
@@ -112,7 +112,7 @@ func TestHandler_AuthorizeDataShare(t *testing.T) {
 			name:         "data_share_not_found",
 			body:         "Action=AuthorizeDataShare&Version=2012-12-01&DataShareArn=nonexistent&ConsumerIdentifier=consumer",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"DataShareNotFound"},
+			wantContains: []string{"InvalidDataShareFault"},
 		},
 	}
 
@@ -191,7 +191,7 @@ func TestDataShare_NotFound(t *testing.T) {
 			rec := postRedshiftForm(t, h, tt.body)
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
-			assert.Contains(t, rec.Body.String(), "DataShareNotFound")
+			assert.Contains(t, rec.Body.String(), "InvalidDataShareFault")
 		})
 	}
 }

@@ -64,6 +64,417 @@ func TestListPermissionSets_Pagination(t *testing.T) {
 	assert.Len(t, seen, 5)
 }
 
+// TestListManagedPoliciesInPermissionSet_Pagination locks in MaxResults +
+// NextToken pagination on ListManagedPoliciesInPermissionSet, which
+// previously ignored MaxResults entirely and always returned a nil NextToken.
+func TestListManagedPoliciesInPermissionSet_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "mp-pagination-inst")
+	psArn := createPermissionSet(t, h, instanceArn, "MPPaginationPS")
+
+	for _, arn := range []string{
+		"arn:aws:iam::aws:policy/AlphaPolicy",
+		"arn:aws:iam::aws:policy/BetaPolicy",
+		"arn:aws:iam::aws:policy/GammaPolicy",
+	} {
+		rec := doRequest(t, h, "AttachManagedPolicyToPermissionSet", map[string]any{
+			"InstanceArn":      instanceArn,
+			"PermissionSetArn": psArn,
+			"ManagedPolicyArn": arn,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	var token any
+
+	seen := map[string]bool{}
+
+	for {
+		body := map[string]any{"InstanceArn": instanceArn, "PermissionSetArn": psArn, "MaxResults": 2}
+		if token != nil {
+			body["NextToken"] = token
+		}
+
+		rec := doRequest(t, h, "ListManagedPoliciesInPermissionSet", body)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		resp := parseResponse(t, rec)
+		policies, ok := resp["AttachedManagedPolicies"].([]any)
+		require.True(t, ok)
+		assert.LessOrEqual(t, len(policies), 2)
+
+		for _, p := range policies {
+			m, mOK := p.(map[string]any)
+			require.True(t, mOK)
+			arn, arnOK := m["Arn"].(string)
+			require.True(t, arnOK)
+			seen[arn] = true
+		}
+
+		token = resp["NextToken"]
+		if token == nil {
+			break
+		}
+	}
+
+	assert.Len(t, seen, 3)
+}
+
+// TestListCustomerManagedPolicyReferencesInPermissionSet_Pagination locks in
+// MaxResults + NextToken pagination, previously ignored entirely.
+func TestListCustomerManagedPolicyReferencesInPermissionSet_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "cmpr-pagination-inst")
+	psArn := createPermissionSet(t, h, instanceArn, "CMPRPaginationPS")
+
+	for _, name := range []string{"AlphaRef", "BetaRef", "GammaRef"} {
+		rec := doRequest(t, h, "AttachCustomerManagedPolicyReferenceToPermissionSet", map[string]any{
+			"InstanceArn":      instanceArn,
+			"PermissionSetArn": psArn,
+			"CustomerManagedPolicyReference": map[string]any{
+				"Name": name,
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "ListCustomerManagedPolicyReferencesInPermissionSet", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"MaxResults":       2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	refs, ok := resp["CustomerManagedPolicyReferences"].([]any)
+	require.True(t, ok)
+	assert.Len(t, refs, 2, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+}
+
+// TestListApplicationAccessScopes_Pagination locks in MaxResults + NextToken
+// pagination, previously ignored entirely.
+func TestListApplicationAccessScopes_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "aas-pagination-inst")
+	appArn := createApplication(t, h, instanceArn, "AASPaginationApp")
+
+	for _, scope := range []string{"scope:alpha", "scope:beta", "scope:gamma"} {
+		rec := doRequest(t, h, "PutApplicationAccessScope", map[string]any{
+			"ApplicationArn": appArn,
+			"Scope":          scope,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "ListApplicationAccessScopes", map[string]any{
+		"ApplicationArn": appArn,
+		"MaxResults":     2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	scopes, ok := resp["Scopes"].([]any)
+	require.True(t, ok)
+	assert.Len(t, scopes, 2, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+}
+
+// TestListTrustedTokenIssuers_Pagination locks in MaxResults + NextToken
+// pagination, previously ignored entirely.
+func TestListTrustedTokenIssuers_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "tti-pagination-inst")
+
+	for _, name := range []string{"IssuerAlpha", "IssuerBeta", "IssuerGamma"} {
+		rec := doRequest(t, h, "CreateTrustedTokenIssuer", map[string]any{
+			"InstanceArn":            instanceArn,
+			"Name":                   name,
+			"TrustedTokenIssuerType": "OIDC_JWT",
+			"TrustedTokenIssuerConfiguration": map[string]any{
+				"OidcJwtConfiguration": map[string]any{
+					"IssuerUrl":                  "https://issuer.example.com/" + name,
+					"ClaimAttributePath":         "email",
+					"IdentityStoreAttributePath": "emails.value",
+					"JwksRetrievalOption":        "OPEN_ID_DISCOVERY",
+				},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	rec := doRequest(t, h, "ListTrustedTokenIssuers", map[string]any{
+		"InstanceArn": instanceArn,
+		"MaxResults":  2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	issuers, ok := resp["TrustedTokenIssuers"].([]any)
+	require.True(t, ok)
+	assert.Len(t, issuers, 2, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+}
+
+// TestListRegions_Pagination locks in MaxResults + NextToken pagination on
+// ListRegions, previously ignored entirely.
+func TestListRegions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "region-pagination-inst")
+
+	for _, region := range []string{"us-west-2", "eu-west-1", "ap-south-1"} {
+		rec := doRequest(t, h, "AddRegion", map[string]any{
+			"InstanceArn": instanceArn,
+			"RegionName":  region,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "ListRegions", map[string]any{
+		"InstanceArn": instanceArn,
+		"MaxResults":  2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	regions, ok := resp["Regions"].([]any)
+	require.True(t, ok)
+	assert.Len(t, regions, 2, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+}
+
+// TestListApplicationProviders_Pagination locks in MaxResults + NextToken
+// pagination on ListApplicationProviders (previously ignored entirely) and
+// the FederationProtocol wire field (previously silently dropped even though
+// populated in every seeded catalog entry).
+func TestListApplicationProviders_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doRequest(t, h, "ListApplicationProviders", map[string]any{"MaxResults": 2})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	providers, ok := resp["ApplicationProviders"].([]any)
+	require.True(t, ok)
+	assert.Len(t, providers, 2, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+
+	for _, p := range providers {
+		m, mOK := p.(map[string]any)
+		require.True(t, mOK)
+		assert.Equal(t, "SAML", m["FederationProtocol"], "FederationProtocol must be present on the wire")
+	}
+}
+
+// TestListApplicationAssignments_Pagination locks in MaxResults + NextToken
+// pagination, previously ignored entirely.
+func TestListApplicationAssignments_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "appassign-pagination-inst")
+	appArn := createApplication(t, h, instanceArn, "AppAssignPaginationApp")
+
+	for _, id := range []string{"user-a", "user-b", "user-c"} {
+		rec := doRequest(t, h, "CreateApplicationAssignment", map[string]any{
+			"ApplicationArn": appArn,
+			"PrincipalId":    id,
+			"PrincipalType":  "USER",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "ListApplicationAssignments", map[string]any{
+		"ApplicationArn": appArn,
+		"MaxResults":     2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	assignments, ok := resp["ApplicationAssignments"].([]any)
+	require.True(t, ok)
+	assert.Len(t, assignments, 2, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+}
+
+// TestListApplicationAssignmentsForPrincipal_FilterAndPagination locks in
+// both the Filter.ApplicationArn support and MaxResults + NextToken
+// pagination on ListApplicationAssignmentsForPrincipal, previously ignored
+// entirely (always returned every assignment for the principal in one page).
+func TestListApplicationAssignmentsForPrincipal_FilterAndPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "appassign-principal-inst")
+	app1 := createApplication(t, h, instanceArn, "FilterApp1")
+	app2 := createApplication(t, h, instanceArn, "FilterApp2")
+
+	for _, appArn := range []string{app1, app2} {
+		rec := doRequest(t, h, "CreateApplicationAssignment", map[string]any{
+			"ApplicationArn": appArn,
+			"PrincipalId":    "shared-user",
+			"PrincipalType":  "USER",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// Filter to just app1.
+	rec := doRequest(t, h, "ListApplicationAssignmentsForPrincipal", map[string]any{
+		"InstanceArn":   instanceArn,
+		"PrincipalId":   "shared-user",
+		"PrincipalType": "USER",
+		"Filter":        map[string]any{"ApplicationArn": app1},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	assignments, ok := resp["ApplicationAssignments"].([]any)
+	require.True(t, ok)
+	require.Len(t, assignments, 1)
+	first, ok := assignments[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, app1, first["ApplicationArn"])
+
+	// No filter + MaxResults=1 must paginate across both.
+	rec = doRequest(t, h, "ListApplicationAssignmentsForPrincipal", map[string]any{
+		"InstanceArn":   instanceArn,
+		"PrincipalId":   "shared-user",
+		"PrincipalType": "USER",
+		"MaxResults":    1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseResponse(t, rec)
+	assignments, ok = resp["ApplicationAssignments"].([]any)
+	require.True(t, ok)
+	assert.Len(t, assignments, 1, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+}
+
+// TestListAccountAssignmentsForPrincipal_FilterAndPagination locks in both
+// the Filter.AccountId support and MaxResults + NextToken pagination on
+// ListAccountAssignmentsForPrincipal, previously ignored entirely.
+func TestListAccountAssignmentsForPrincipal_FilterAndPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "acctassign-principal-inst")
+	psArn := createPermissionSet(t, h, instanceArn, "AcctAssignPrincipalPS")
+
+	for _, account := range []string{"111111111111", "222222222222"} {
+		rec := doRequest(t, h, "CreateAccountAssignment", map[string]any{
+			"InstanceArn":      instanceArn,
+			"PermissionSetArn": psArn,
+			"TargetId":         account,
+			"TargetType":       "AWS_ACCOUNT",
+			"PrincipalId":      "shared-user",
+			"PrincipalType":    "USER",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// Filter to just the first account.
+	rec := doRequest(t, h, "ListAccountAssignmentsForPrincipal", map[string]any{
+		"InstanceArn":   instanceArn,
+		"PrincipalId":   "shared-user",
+		"PrincipalType": "USER",
+		"Filter":        map[string]any{"AccountId": "111111111111"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	assignments, ok := resp["AccountAssignments"].([]any)
+	require.True(t, ok)
+	require.Len(t, assignments, 1)
+	first, ok := assignments[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "111111111111", first["AccountId"])
+
+	// No filter + MaxResults=1 must paginate across both.
+	rec = doRequest(t, h, "ListAccountAssignmentsForPrincipal", map[string]any{
+		"InstanceArn":   instanceArn,
+		"PrincipalId":   "shared-user",
+		"PrincipalType": "USER",
+		"MaxResults":    1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseResponse(t, rec)
+	assignments, ok = resp["AccountAssignments"].([]any)
+	require.True(t, ok)
+	assert.Len(t, assignments, 1, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+}
+
+// TestListPermissionSetsProvisionedToAccount_Pagination locks in MaxResults +
+// NextToken pagination, previously ignored entirely.
+func TestListPermissionSetsProvisionedToAccount_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "pstpa-pagination-inst")
+
+	for _, name := range []string{"PSAlpha", "PSBeta", "PSGamma"} {
+		psArn := createPermissionSet(t, h, instanceArn, name)
+		rec := doRequest(t, h, "CreateAccountAssignment", map[string]any{
+			"InstanceArn":      instanceArn,
+			"PermissionSetArn": psArn,
+			"TargetId":         "333333333333",
+			"TargetType":       "AWS_ACCOUNT",
+			"PrincipalId":      "user-x",
+			"PrincipalType":    "USER",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "ListPermissionSetsProvisionedToAccount", map[string]any{
+		"InstanceArn": instanceArn,
+		"AccountId":   "333333333333",
+		"MaxResults":  2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	sets, ok := resp["PermissionSets"].([]any)
+	require.True(t, ok)
+	assert.Len(t, sets, 2, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+}
+
+// TestListAccountsForProvisionedPermissionSet_Pagination locks in MaxResults
+// + NextToken pagination, previously ignored entirely.
+func TestListAccountsForProvisionedPermissionSet_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "afpps-pagination-inst")
+	psArn := createPermissionSet(t, h, instanceArn, "AFPPSPaginationPS")
+
+	for _, account := range []string{"111111111111", "222222222222", "333333333333"} {
+		rec := doRequest(t, h, "CreateAccountAssignment", map[string]any{
+			"InstanceArn":      instanceArn,
+			"PermissionSetArn": psArn,
+			"TargetId":         account,
+			"TargetType":       "AWS_ACCOUNT",
+			"PrincipalId":      "user-y",
+			"PrincipalType":    "USER",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "ListAccountsForProvisionedPermissionSet", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"MaxResults":       2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	accounts, ok := resp["AccountIds"].([]any)
+	require.True(t, ok)
+	assert.Len(t, accounts, 2, "MaxResults must cap the page size")
+	require.NotNil(t, resp["NextToken"])
+}
+
 func TestListInstances_Pagination(t *testing.T) {
 	t.Parallel()
 

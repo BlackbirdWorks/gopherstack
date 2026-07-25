@@ -578,9 +578,9 @@ func TestFISPaginateOpaqueToken(t *testing.T) {
 			rec1 := doRequest(t, h, http.MethodGet, url1, nil)
 			require.Equal(t, http.StatusOK, rec1.Code)
 
-			var resp1 struct { //nolint:govet // field order chosen for readability
-				ExperimentTemplates []any  `json:"experimentTemplates"`
+			var resp1 struct {
 				NextToken           string `json:"nextToken"`
+				ExperimentTemplates []any  `json:"experimentTemplates"`
 			}
 
 			jsonUnmarshalFIS(t, rec1.Body.Bytes(), &resp1)
@@ -606,9 +606,9 @@ func TestFISPaginateOpaqueToken(t *testing.T) {
 			rec2 := doRequest(t, h, http.MethodGet, url2, nil)
 			require.Equal(t, http.StatusOK, rec2.Code)
 
-			var resp2 struct { //nolint:govet // field order chosen for readability
-				ExperimentTemplates []any  `json:"experimentTemplates"`
+			var resp2 struct {
 				NextToken           string `json:"nextToken"`
+				ExperimentTemplates []any  `json:"experimentTemplates"`
 			}
 
 			jsonUnmarshalFIS(t, rec2.Body.Bytes(), &resp2)

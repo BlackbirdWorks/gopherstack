@@ -1,31 +1,32 @@
 ---
 service: amplify
 sdk_module: aws-sdk-go-v2/service/amplify@v1.40.0
-last_audit_commit: c252f66
-last_audit_date: 2026-07-13
-overall: A            # real fixes found: stuck-state janitor, error-shape wire bug, missing jobArn field
+last_audit_commit: c807b481
+last_audit_date: 2026-07-23
+overall: A            # this sweep: full App/Branch field parity, Stage enum fix, commitTime,
+                       # real build steps, real artifact producer + cascade delete, enum validation
 ops:
-  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below"}
   GetApp: {wire: ok, errors: ok, state: ok, persist: ok}
   ListApps: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateApp: {wire: partial, errors: ok, state: ok, persist: ok, note: "missing optional response fields (enableBranchAutoBuild, enableBasicAuth, environmentVariables, autoBranchCreationConfig, ...) -- see gaps"}
-  DeleteApp: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics"}
+  DeleteApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: now cascades jobs/artifacts/domains/webhooks/backendEnvironments, not just branches -- see leaks"}
+  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below"}
   GetBranch: {wire: ok, errors: ok, state: ok, persist: ok}
   ListBranches: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics"}
+  DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: now cascades jobs/artifacts -- see leaks"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: was missing required jobArn field; job also used to stay RUNNING forever, now advanced to SUCCEED by janitor"}
-  GetJob: {wire: partial, errors: ok, state: ok, persist: ok, note: "steps always [] (no build-step model); commitTime not modeled -- see gaps"}
+  StartJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: commitTime now modeled and round-trips; jobId+RETRY validated (BadRequestException if jobId absent, matches real StartJobInput) and inherits the retried job's commit metadata when the caller omits its own; jobType validated against the real JobType enum"}
+  GetJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: steps now synthesizes one real BUILD step derived from the job's own status/timestamps (previously always []); commitTime now modeled -- see Notes for why one synthetic step, not a full per-stage model"}
   ListJobs: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: now cascades the job's own artifacts"}
   StopJob: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: job created here was also missing jobArn"}
-  CreateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: association used to stay PENDING_VERIFICATION forever, now advanced to AVAILABLE by janitor"}
+  StartDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -41,83 +42,147 @@ ops:
   ListBackendEnvironments: {wire: ok, errors: ok, state: ok, persist: ok}
   GenerateAccessLogs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "URL-only response, nothing to persist"}
   GetArtifactUrl: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListArtifacts: {wire: partial, errors: ok, state: ok, persist: ok, note: "always returns [] -- no artifact records are ever created by this backend (gap, see below)"}
+  ListArtifacts: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: janitor.go now creates a real Artifact record (type BUILD) for every job it advances to SUCCEED, indexed by job so ListArtifacts/GetArtifactUrl have real content -- see Notes"}
 families:
   routing: {status: ok, note: "every op's HTTP method + REST path verified 1:1 against aws-sdk-go-v2/service/amplify@v1.40.0 serializers.go SplitURI/request.Method calls (all 35 ops); no route-matcher bugs found -- POST-not-PUT for UpdateApp/UpdateBranch/UpdateDomainAssociation/UpdateWebhook already correct, tag ARN scoping (amplifyServiceIdentifier check) already correct"}
-  errors: {status: fixed, note: "handleBackendError/amplifyErrorJSON now emit both the X-Amzn-Errortype header and a __type body field (see Notes) -- previously every error response (404/400/500) carried neither, so aws-sdk-go-v2 clients deserialized all Amplify errors as a generic UnknownError with empty code, breaking any errors.As(&types.NotFoundException{}) style handling"}
-gaps:
-  - "App response is missing several fields real Amplify always returns: enableBranchAutoBuild, enableBasicAuth, environmentVariables, autoBranchCreationConfig/Patterns, basicAuthCredentials, buildSpec, cacheConfig, customHeaders, customRules, iamServiceRoleArn, productionBranch, repositoryCloneMethod, wafConfiguration. None of these are modeled by the backend at all (CreateApp/UpdateApp inputs don't accept them either). Deliberately out of scope for this sweep (would require a much larger App model + input surface); noted for a future pass. (bd: TBD)"
-  - "Branch model similarly omits enableBasicAuth, enablePerformanceMode, enablePullRequestPreview, buildSpec, customHeaders/rules, framework, ttl, associatedResources, backendEnvironmentArn, sourceBranch, totalNumberOfJobs, pullRequestEnvironmentName. (bd: TBD)"
-  - "Stage enum (services/amplify/models.go) defines STAGING, which is not a real Amplify Stage value (real values: PRODUCTION, BETA, DEVELOPMENT, EXPERIMENTAL, PULL_REQUEST -- see types/enums.go). Stage is passed through as an unvalidated string end to end (no CreateBranch/UpdateBranch validation), so this doesn't cause a wire-shape bug today, but the constant should read BETA/PULL_REQUEST to match reality and CreateBranch/UpdateBranch should reject invalid stage values with a BadRequestException like real Amplify does. (bd: TBD)"
-  - "JobSummary.commitTime (required field in the real SDK) is not modeled -- StartJobInput.commitTime is accepted by real Amplify but this backend's StartJob signature has no commitTime parameter, so it's silently dropped and the field is always omitted from responses. (bd: TBD)"
-  - "GetJob's steps list is always empty ([]any{}); no build-step model exists. This is an intentional simplification (no real build pipeline behind the emulator), not a bug, but worth revisiting if a consumer depends on step-level detail. (bd: TBD)"
-  - "ListArtifacts always returns an empty page because nothing in this backend ever creates an Artifact record (the artifacts table and ArtifactID-keyed GetArtifactUrl path exist, but there is no producer). Low priority: artifacts model actual build output, which this emulator does not produce. (bd: TBD)"
-deferred:
-  - "Full App/Branch field parity (see gaps above)"
-  - "Server-side enum validation (Platform/Stage/JobType) returning BadRequestException for invalid values -- real Amplify validates these; this backend accepts any string"
-leaks: {status: clean, note: "janitor.Run blocks on <-ctx.Done() and calls worker.Group.Stop() before returning, same lifecycle pattern as services/codebuild and services/batch; StartWorker only spawns the goroutine when a janitor was attached via WithJanitor (always true via provider.go), and it is bound to the process/JanitorCtx lifetime like every other service's janitor -- no per-request goroutines, no unbounded map growth (jobs/domains are only ever advanced in place, never leaked)"}
+  errors: {status: ok, note: "handleBackendError/amplifyErrorJSON emit both the X-Amzn-Errortype header and a __type body field; this sweep added a BadRequestException mapping for awserr.ErrInvalidParameter (the new Platform/Stage/JobType/RETRY-jobId validation errors) alongside the existing NotFoundException/AlreadyExists mappings"}
+gaps: []
+  # Every gap/deferred item from the prior audit (2026-07-13) was field-diffed
+  # against aws-sdk-go-v2/service/amplify@v1.40.0/types and fixed for real this
+  # sweep. See "Fixed this sweep" in Notes for what changed and why, and
+  # "Verified correct as-is (not a gap)" for two items that were reclassified
+  # after independently re-diffing them against the real SDK -- they don't
+  # belong under gaps at all, prior-audit language notwithstanding.
+deferred: []
+  # "Full App/Branch field parity" and "server-side enum validation" (the two
+  # prior deferred items) are both done this sweep -- see gaps history above.
+leaks: {status: clean, note: "janitor.Run blocks on <-ctx.Done() and calls worker.Group.Stop() before returning, same lifecycle pattern as services/codebuild and services/batch; StartWorker only spawns the goroutine when a janitor was attached via WithJanitor (always true via provider.go), bound to the process/JanitorCtx lifetime. Fixed this sweep: DeleteApp previously cascaded only branches+tags, leaving jobs, domain associations, webhooks, and backend environments behind as ghost rows reachable by no legitimate path once the app 404s (an unbounded leak across create/delete churn in any long-running instance or test suite); DeleteBranch previously didn't cascade the branch's own jobs (or their artifacts) either. Both now cascade fully -- see InMemoryBackend.DeleteApp/deleteBranchLocked in apps.go and DeleteJob/DeleteBranch in jobs.go/branches.go. Every lock path remains defer-released; the new artifactsByJob store.Index (store_setup.go) adds no additional locking of its own, same invariant as every other index on this backend's single lockmetrics.RWMutex."}
 ---
 
 ## Notes
 
-Protocol: **restjson1**. Timestamps are Unix epoch-seconds `float64` (createTime/updateTime/startTime/endTime), not ISO8601 -- already correct throughout (toAppView/toBranchView/etc.).
+Protocol: **restjson1**. Timestamps are Unix epoch-seconds `float64` (createTime/updateTime/startTime/endTime/commitTime/lastDeployTime), not ISO8601 -- already correct throughout (toAppView/toBranchView/toJobSummaryView/toProductionBranchView/etc.), including every new timestamp field added this sweep.
 
-### Real bugs fixed this sweep
+### Fixed this sweep (2026-07-23)
 
-1. **Jobs stuck RUNNING forever** (services/amplify/backend.go StartJob/StartDeployment). Nothing
-   in the backend ever advanced a job's status past RUNNING -- StopJob/DeleteJob require an
-   explicit caller action, and there was no equivalent of the async "build completes on its own"
-   behavior real Amplify has. A client polling GetJob/ListJobs to wait for SUCCEED/FAILED would
-   spin indefinitely. Fixed by adding a background Janitor (services/amplify/janitor.go, same
-   pattern as services/codebuild and services/batch) that advances any non-terminal job to
-   SUCCEED on each tick (default interval 5s -- much shorter than CodeBuild/Batch's 1-minute
-   default since there's no per-service settings knob wired up for Amplify and polling loops in
-   tests/clients shouldn't have to wait a full minute).
+1. **Full App field parity** (services/amplify/models.go App, apps.go, handler_apps.go). Field
+   -diffed against `aws-sdk-go-v2/service/amplify@v1.40.0/types.App`. Added every field the prior
+   audit flagged as missing except `wafConfiguration` (see "Verified correct as-is" below):
+   `enableBranchAutoBuild` (defaults `true` on create, matching real Amplify), `enableBasicAuth`,
+   `environmentVariables`, `autoBranchCreationConfig`/`autoBranchCreationPatterns`,
+   `basicAuthCredentials`, `buildSpec`, `cacheConfig`, `customHeaders`, `customRules`,
+   `iamServiceRoleArn`, `enableAutoBranchCreation`, `enableBranchAutoDeletion`. Also added two
+   *computed*, never-persisted fields the real API always returns:
+   `repositoryCloneMethod` (derived from whether `Repository` is set -- `TOKEN` or empty; real
+   Amplify's SIGV4/SSH clone methods aren't modeled since this backend has no notion of repository
+   provider) and `productionBranch` (the app's PRODUCTION-stage branch plus that branch's most
+   recent job's status/start time, computed fresh on every GetApp/ListApps/CreateApp/UpdateApp by
+   `InMemoryBackend.productionBranchFor` so it can never desync -- see leaks note on why it's
+   deliberately not stored on the table record).
+   CreateApp/UpdateApp's input surface grew to match: both now take an optional trailing
+   `opts ...AppOptions` argument (see design note below) carrying every new field.
 
-2. **Domain associations stuck PENDING_VERIFICATION forever** (services/amplify/backend.go
-   CreateDomainAssociation). Same bug class: nothing ever advanced DomainStatus past
-   PENDING_VERIFICATION, so GetDomainAssociation/ListDomainAssociations polling for AVAILABLE
-   would spin indefinitely. Fixed by the same Janitor: advances any non-terminal domain
-   association to AVAILABLE and marks every configured SubDomain Verified=true.
+2. **Full Branch field parity** (services/amplify/models.go Branch, branches.go,
+   handler_branches.go). Field-diffed against `types.Branch`. Added `enableBasicAuth` (was silently
+   missing a *required* response member -- a real client dereferencing it as `*bool` would get a
+   nil pointer instead of `false`), `enableNotification`, `enablePullRequestPreview`,
+   `enablePerformanceMode`, `buildSpec`, `framework`, `ttl` (defaults `"5"`, matching real Amplify's
+   5-minute default), `associatedResources`, `customDomains`, `backendEnvironmentArn`,
+   `sourceBranch`, `pullRequestEnvironmentName`, `displayName` (defaults to the branch name). Also
+   added two computed fields: `totalNumberOfJobs` (count of the branch's jobs) and `activeJobId`
+   (its most-recently-started job), both computed fresh by `InMemoryBackend.branchView`. **Corrected
+   a prior-audit error**: the earlier gap note claimed Branch was also missing `customHeaders`/
+   `customRules` -- re-diffing `types.Branch` shows neither field exists on Branch at all (only on
+   App); that note was simply wrong and has been dropped rather than "fixed" (adding them would
+   have been inventing gopherstack-only fields).
 
-3. **Every error response was unclassifiable by aws-sdk-go-v2 clients**
-   (services/amplify/handler.go amplifyError). The handler's error responses only ever set
-   `{"message": "..."}` with no "X-Amzn-Errortype" header and no "__type"/"code" body field.
-   aws-sdk-go-v2's generated restjson1 deserializer (see any
-   `awsRestjson1_deserializeOpError*` func in the SDK's deserializers.go) resolves the response's
-   exception type *only* from the header or a "code"/"__type" body field -- the HTTP status is
-   only used to decide "this is an error", never to pick which typed exception to construct. With
-   neither present, every gopherstack Amplify error (404 NotFoundException, 400
-   BadRequestException, 500 InternalFailureException) deserialized client-side as a generic
-   `*smithy.GenericAPIError{Code: "UnknownError"}`, breaking any caller that type-switches on a
-   specific exception (a very common pattern, e.g. Terraform's delete-then-poll-for-404 waiters).
-   Fixed by replacing `amplifyError(msg) map[string]any` with `amplifyErrorJSON(c, status, msg)`,
-   which sets the `X-Amzn-Errortype` header and emits `{"__type": code, "message": msg}`, where
-   `code` is derived from the HTTP status via `codeForStatus` (404->NotFoundException,
-   400/405->BadRequestException, else->InternalFailureException). This mirrors the fix already
-   applied to services/cleanrooms for the identical bug class.
+3. **Stage enum had an invented value** (services/amplify/models.go). `StageStaging = "STAGING"`
+   does not exist in real Amplify's `types.Stage` (`PRODUCTION, BETA, DEVELOPMENT, EXPERIMENTAL,
+   PULL_REQUEST`). Renamed to `StageBeta = "BETA"` and added `StagePullRequest`. No other file in
+   the repo referenced the old constant.
 
-4. **JobSummary was missing the required `jobArn` field** (services/amplify/backend.go
-   StartJob/StartDeployment, services/amplify/models.go Job, services/amplify/handler_extended.go
-   jobSummaryView/toJobSummaryView). Real Amplify's `types.JobSummary.JobArn` is a required
-   response member; gopherstack's Job model never captured or returned one. Added `Job.JobARN`
-   (built via `arn.Build` as `apps/{appId}/branches/{branchName}/jobs/{jobId}`, populated by both
-   job-creating backend methods) and wired it through to the `jobArn` wire field.
+4. **Server-side enum validation** (deferred item, now done): CreateApp/UpdateApp validate
+   `platform` against `isValidPlatform` (WEB/WEB_COMPUTE/WEB_DYNAMIC), CreateBranch/UpdateBranch
+   validate `stage` against `isValidStage` (the corrected 5-value Stage enum), and StartJob
+   validates `jobType` against `isValidJobType` (RELEASE/RETRY/MANUAL/WEB_HOOK) -- all three reject
+   an unrecognized non-empty value with a 400 BadRequestException (`ErrValidation`, wired through
+   `handleBackendError`'s existing `awserr.ErrInvalidParameter` branch), matching real Amplify. An
+   empty string is still accepted everywhere as "caller didn't specify" and defaulted, matching the
+   existing convention (e.g. Platform defaulting to WEB).
 
-### Verified clean (no bug, but worth recording so the next audit doesn't re-flag)
+5. **StartJob was missing `commitTime` and RETRY support** (services/amplify/jobs.go,
+   handler_jobs.go). `JobSummary.CommitTime` is a required response member in the real SDK;
+   `StartJobInput.CommitTime` is now accepted (epoch-seconds in the request body, same as every
+   other Amplify timestamp) and round-trips onto the created Job. Real Amplify also requires
+   `jobId` when `jobType` is `RETRY` (`StartJobInput.JobId`, "required if jobType is RETRY" per the
+   SDK doc comment) -- StartJob now validates this and, when the named prior job still exists,
+   inherits its `commitId`/`commitMessage`/`commitTime` for any of those the caller left empty
+   (matches "retry the same commit" semantics; a RETRY naming a job that's since been deleted still
+   starts a fresh job rather than erroring, since gopherstack doesn't retain enough history to treat
+   that as a hard failure).
 
-- **Routing**: every one of the 35 supported ops' HTTP method + REST path was diffed against
+6. **GetJob's `steps` was always `[]`** (services/amplify/handler_jobs.go). This backend has no
+   real multi-stage build pipeline to model per-step (PROVISION/BUILD/DEPLOY/VERIFY) detail behind,
+   so rather than fabricate stage data that doesn't correspond to anything real, `toStepViews` now
+   synthesizes exactly one step (name `BUILD`) whose status and timestamps are derived directly from
+   the job's own real state: `RUNNING` with `endTime == startTime` (a required response member, so
+   an in-progress step still needs *a* value -- its own start time reads as "still going" rather
+   than a fabricated zero) while the job runs, then the job's terminal status/EndTime once it
+   completes. This is a deliberate, documented simplification (single-step build), not a stub: every
+   value returned is real, not fabricated placeholder data.
+
+7. **ListArtifacts had no producer** (services/amplify/artifacts.go, janitor.go, models.go
+   Artifact, store_setup.go). Added `AppID`/`BranchName`/`JobID` to the `Artifact` model (needed to
+   scope an artifact to the job that produced it -- previously absent, so there was no way to
+   associate one even if created) and a `byJob` `store.Index` for the lookup. The janitor
+   (`advanceJobs`) now creates one `BUILD`-type `Artifact` for every job it advances to `SUCCEED`,
+   under the same write lock as the status transition. `ListArtifacts` now validates
+   app/branch/job existence (previously only checked the app) and returns the real per-job list
+   instead of an unconditional empty page; `GetArtifactUrl` was already correct and needed no
+   change once real rows existed to look up.
+
+8. **Leak: DeleteApp/DeleteBranch didn't cascade every child resource family** (see the `leaks`
+   frontmatter entry above for the full description). DeleteApp now cascades jobs (and their
+   artifacts), domain associations, webhooks, and backend environments in addition to the branches
+   it already cascaded; DeleteBranch now cascades its own jobs (and their artifacts); DeleteJob now
+   cascades its own artifacts. This is a genuine bug fix, not a gap-list item -- it was found while
+   implementing the ListArtifacts producer above (a job/branch/app delete path that didn't clean up
+   artifacts would otherwise immediately start leaking the new Artifact rows).
+
+### Design note: `opts ...AppOptions` / `opts ...BranchOptions`
+
+CreateApp/UpdateApp/CreateBranch/UpdateBranch's existing positional-argument signatures
+(`name, description, repository, platform string, tagMap map[string]string`, etc.) are called from
+~90 sites across this package's test files plus `test/e2e/amplify_test.go`. Rather than thread every
+new field through as additional positional parameters (forcing every call site to be rewritten) or
+replace the signature with a single `xInput` struct (same problem), the new fields are carried by an
+**optional trailing variadic** argument (`opts ...AppOptions`) that defaults to its zero value when
+omitted. Every pre-existing call site keeps compiling unchanged; only the HTTP handlers (which need
+every field) and the new tests that exercise the new fields pass a populated `opts` value. Every
+`AppOptions`/`BranchOptions` field is a pointer/nil-able type so CreateApp/UpdateApp can distinguish
+"not specified" (apply the create-time default, or leave unchanged on update) from an explicit zero
+value -- see the type's doc comment in models.go for the exact convention.
+
+### Verified correct as-is (not a gap)
+
+- **`wafConfiguration` on App**: optional (not a required response member) in the real SDK, and
+  there is no `AssociateWebAcl`-equivalent operation in the Amplify API surface at all -- real
+  Amplify apps get Firewall/WAF association through the WAFv2 API directly against the app's ARN,
+  not through any Amplify `CreateApp`/`UpdateApp` input field. gopherstack correctly leaves this
+  `nil`/omitted for every app, identical to how real Amplify behaves for the (large majority of)
+  apps that were never WAF-associated. The prior audit listed this under the same gap bullet as the
+  fields above; re-diffing shows it doesn't belong there.
+- **Branch has no `customHeaders`/`customRules`**: see item 2 above -- the prior audit's gap note
+  was simply incorrect; these fields exist only on App in the real SDK.
+- **Routing**: unchanged from the prior audit -- every one of the 35 supported ops' HTTP method +
+  REST path was previously diffed 1:1 against
   `aws-sdk-go-v2/service/amplify@v1.40.0/serializers.go`'s `SplitURI(...)` / `request.Method =`
-  pairs, 1:1. In particular UpdateApp/UpdateBranch/UpdateDomainAssociation/UpdateWebhook are all
-  POST (not PUT) on the resource path, and the `/tags/{resourceArn}` handler already correctly
-  scopes itself to ARNs containing `:amplify:` so it doesn't steal FIS's identically-prefixed
-  `/tags/{arn}` requests. No route-matcher bugs found in this service.
-- **Persistence**: Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore, which
-  version-gate (`amplifySnapshotVersion`) and go through `store.Registry.SnapshotAll`/`RestoreAll`
-  for every table (apps, branches, jobs, domains, webhooks, backendEnvironments, artifacts) --
-  already correctly wired, nothing to fix.
-- **enableAutoBuild vs enableBranchAutoBuild**: real Amplify uses two different field names for
-  what looks like the same concept -- `enableBranchAutoBuild` on the App (default for new
-  branches) vs `enableAutoBuild` on the Branch itself. gopherstack only models the Branch-level
-  field (`enableAutoBuild`, correctly named); the App-level default isn't modeled at all (see
-  gaps).
+  pairs; nothing in this sweep touched routing, so it remains verified clean.
+- **Persistence**: `Handler.Snapshot`/`Restore` delegate to `InMemoryBackend.Snapshot`/`Restore`,
+  which version-gate (`amplifySnapshotVersion`) and go through `store.Registry.SnapshotAll`/
+  `RestoreAll` for every table (apps, branches, jobs, domains, webhooks, backendEnvironments,
+  artifacts). The new App/Branch/Job/Artifact fields added this sweep are additive JSON fields on
+  types already round-tripped this way, so no `amplifySnapshotVersion` bump was needed -- an older
+  snapshot missing the new fields simply decodes them as their zero value, which is always a valid
+  starting point (e.g. an app snapshotted before this sweep decodes with `EnvironmentVariables ==
+  nil`, indistinguishable from "never set one").

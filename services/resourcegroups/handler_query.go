@@ -11,6 +11,7 @@ type searchResourcesInput struct {
 
 type searchResourcesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	ResourceIdentifiers []ResourceIdentifier `json:"ResourceIdentifiers"`
+	QueryErrors         []queryErrorWire     `json:"QueryErrors,omitempty"`
 	NextToken           string               `json:"NextToken,omitempty"`
 }
 

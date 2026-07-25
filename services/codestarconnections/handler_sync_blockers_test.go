@@ -217,6 +217,46 @@ func TestUpdateSyncBlocker_MissingId(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestUpdateSyncBlocker_RequiredFields verifies ResourceName, SyncType, and
+// ResolvedReason are enforced as required input, matching real
+// UpdateSyncBlockerInput (all four members -- Id, ResolvedReason,
+// ResourceName, SyncType -- are "This member is required" in
+// aws-sdk-go-v2's generated api_op_UpdateSyncBlocker.go).
+func TestUpdateSyncBlocker_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "missing_resolved_reason",
+			body: map[string]any{"Id": "some-id", "ResourceName": "my-stack", "SyncType": "CFN_STACK_SYNC"},
+		},
+		{
+			name: "missing_resource_name",
+			body: map[string]any{"Id": "some-id", "ResolvedReason": "fixed", "SyncType": "CFN_STACK_SYNC"},
+		},
+		{
+			name: "missing_sync_type",
+			body: map[string]any{"Id": "some-id", "ResolvedReason": "fixed", "ResourceName": "my-stack"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "UpdateSyncBlocker", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			resp := parseResp(t, rec)
+			assert.Equal(t, "InvalidInputException", resp["__type"])
+		})
+	}
+}
+
 func TestGetSyncBlockerSummary_EmptyBlockersIsArray(t *testing.T) {
 	t.Parallel()
 

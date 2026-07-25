@@ -40,3 +40,19 @@ func WorkspaceProps(b *InMemoryBackend, id string) *WorkspaceProperties {
 
 	return &p
 }
+
+// DirectoryIPGroupIDs returns the IP group IDs associated with a directory
+// via AssociateIpGroups, for verifying persistence round-trips.
+func DirectoryIPGroupIDs(b *InMemoryBackend, directoryID string) []string {
+	b.mu.RLock("DirectoryIPGroupIDs")
+	defer b.mu.RUnlock()
+
+	groups := b.directoryIpGroups[directoryID]
+	ids := make([]string, 0, len(groups))
+
+	for id := range groups {
+		ids = append(ids, id)
+	}
+
+	return ids
+}

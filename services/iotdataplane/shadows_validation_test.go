@@ -260,6 +260,71 @@ func Test_ShadowDocumentValidation_BackendSizeCheck(t *testing.T) {
 	require.ErrorIs(t, err, iotdataplane.ErrRequestTooLarge,
 		"oversized shadow doc must be RequestEntityTooLargeException, not InvalidRequestException")
 }
+
+// buildNestedShadowStateJSON returns a JSON object literal nested to exactly
+// depth levels (e.g. depth=1 -> `{"k":1}`, depth=2 -> `{"k":{"k":1}}`), for
+// exercising the maxShadowStateDepth boundary.
+func buildNestedShadowStateJSON(depth int) string {
+	s := "1"
+	for range depth {
+		s = fmt.Sprintf(`{"k":%s}`, s)
+	}
+
+	return s
+}
+
+func Test_ShadowStateDepth_AtMaxAccepted(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+
+	doc := fmt.Appendf(nil, `{"state":{"desired":%s}}`, buildNestedShadowStateJSON(iotdataplane.MaxShadowStateDepth))
+
+	_, err := b.UpdateThingShadow("thing1", "", doc)
+	require.NoError(t, err, "state.desired at exactly the documented AWS max depth (%d) must be accepted",
+		iotdataplane.MaxShadowStateDepth)
+}
+func Test_ShadowStateDepth_ExceedsMaxRejected(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+
+	tests := []struct {
+		section string
+	}{
+		{section: "desired"},
+		{section: "reported"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.section, func(t *testing.T) {
+			t.Parallel()
+
+			nested := buildNestedShadowStateJSON(iotdataplane.MaxShadowStateDepth + 1)
+			doc := fmt.Appendf(nil, `{"state":{%q:%s}}`, tt.section, nested)
+
+			_, err := b.UpdateThingShadow("thing1", tt.section, doc)
+			require.ErrorIs(t, err, iotdataplane.ErrValidation,
+				"state.%s exceeding the documented AWS max depth (%d) must be InvalidRequestException",
+				tt.section, iotdataplane.MaxShadowStateDepth)
+		})
+	}
+}
+func Test_ShadowStateDepth_ViaHTTP(t *testing.T) {
+	t.Parallel()
+
+	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
+
+	nested := buildNestedShadowStateJSON(iotdataplane.MaxShadowStateDepth + 1)
+	body := fmt.Appendf(nil, `{"state":{"desired":%s}}`, nested)
+
+	rec := doRequest(t, h, http.MethodPost, "/things/thing1/shadow", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidRequestException", resp["error"])
+}
 func Test_ShadowName_ReservedKeywords(t *testing.T) {
 	t.Parallel()
 

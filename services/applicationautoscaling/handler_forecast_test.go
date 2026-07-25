@@ -42,7 +42,7 @@ func TestHandler_GetPredictiveScalingForecast(t *testing.T) {
 				"StartTime":         1704067200,
 				"EndTime":           1704078000,
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:      "invalid_start_time",
@@ -78,6 +78,7 @@ func TestHandler_GetPredictiveScalingForecast(t *testing.T) {
 
 			h := newTestHandler(t)
 			if tt.preCreate {
+				seedTarget(t, h, "service/default/my-svc", 1, 10)
 				doRequest(t, h, "PutScalingPolicy", map[string]any{
 					"ServiceNamespace":  "ecs",
 					"ResourceId":        "service/default/my-svc",
@@ -97,6 +98,7 @@ func TestHandler_GetPredictiveScalingForecast_DataPoints(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	doRequest(t, h, "PutScalingPolicy", map[string]any{
 		"ServiceNamespace":  "ecs",
 		"ResourceId":        "service/default/my-svc",
@@ -195,6 +197,7 @@ func TestHandler_GetPredictiveScalingForecast_TimeValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			seedTarget(t, h, "service/default/my-svc", 1, 10)
 			doRequest(t, h, "PutScalingPolicy", map[string]any{
 				"ServiceNamespace":  "ecs",
 				"ResourceId":        "service/default/my-svc",
@@ -213,6 +216,7 @@ func TestHandler_GetPredictiveScalingForecast_NonHourBoundaryStart(t *testing.T)
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	doRequest(t, h, "PutScalingPolicy", map[string]any{
 		"ServiceNamespace":  "ecs",
 		"ResourceId":        "service/default/my-svc",
@@ -260,6 +264,7 @@ func TestHandler_GetPredictiveScalingForecast_WrongPolicyType(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create a TargetTracking policy (not PredictiveScaling)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	doRequest(t, h, "PutScalingPolicy", map[string]any{
 		"ServiceNamespace":  "ecs",
 		"ResourceId":        "service/default/my-svc",

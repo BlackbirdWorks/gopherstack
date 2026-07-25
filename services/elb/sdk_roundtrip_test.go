@@ -431,3 +431,124 @@ func Test_SDKRoundTrip_PublicKeyPolicyType_IsAccepted(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// Test_SDKRoundTrip_LoadBalancerPolicies_WireShape proves that
+// LoadBalancerDescription.Policies -- previously entirely absent from
+// DescribeLoadBalancers' response, meaning every real client saw an always-empty
+// Policies struct regardless of what policies were actually created -- now
+// reports app-cookie stickiness, LB-cookie stickiness, and "other" (e.g. SSL
+// negotiation) policies in their correct typed sub-lists, matching
+// types.Policies in the real SDK.
+func Test_SDKRoundTrip_LoadBalancerPolicies_WireShape(t *testing.T) {
+	t.Parallel()
+
+	backend := elb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := elb.NewHandler(backend)
+	client := newTestELBClient(t, h)
+	ctx := t.Context()
+
+	const lbName = "rt-policies-lb"
+
+	_, err := client.CreateLoadBalancer(ctx, &elbsdk.CreateLoadBalancerInput{
+		LoadBalancerName:  aws.String(lbName),
+		AvailabilityZones: []string{"us-east-1a"},
+		Listeners: []types.Listener{
+			{Protocol: aws.String("HTTP"), LoadBalancerPort: 80, InstancePort: aws.Int32(8080)},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateAppCookieStickinessPolicy(ctx, &elbsdk.CreateAppCookieStickinessPolicyInput{
+		LoadBalancerName: aws.String(lbName),
+		PolicyName:       aws.String("rt-app-cookie-pol"),
+		CookieName:       aws.String("JSESSIONID"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateLBCookieStickinessPolicy(ctx, &elbsdk.CreateLBCookieStickinessPolicyInput{
+		LoadBalancerName:       aws.String(lbName),
+		PolicyName:             aws.String("rt-lb-cookie-pol"),
+		CookieExpirationPeriod: aws.Int64(3600),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateLoadBalancerPolicy(ctx, &elbsdk.CreateLoadBalancerPolicyInput{
+		LoadBalancerName: aws.String(lbName),
+		PolicyName:       aws.String("rt-other-pol"),
+		PolicyTypeName:   aws.String("ProxyProtocolPolicyType"),
+		PolicyAttributes: []types.PolicyAttribute{
+			{AttributeName: aws.String("ProxyProtocol"), AttributeValue: aws.String("true")},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeLoadBalancers(ctx, &elbsdk.DescribeLoadBalancersInput{
+		LoadBalancerNames: []string{lbName},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.LoadBalancerDescriptions, 1)
+
+	pol := out.LoadBalancerDescriptions[0].Policies
+	require.NotNil(t, pol)
+
+	require.Len(t, pol.AppCookieStickinessPolicies, 1)
+	require.Equal(t, "rt-app-cookie-pol", aws.ToString(pol.AppCookieStickinessPolicies[0].PolicyName))
+	require.Equal(t, "JSESSIONID", aws.ToString(pol.AppCookieStickinessPolicies[0].CookieName))
+
+	require.Len(t, pol.LBCookieStickinessPolicies, 1)
+	require.Equal(t, "rt-lb-cookie-pol", aws.ToString(pol.LBCookieStickinessPolicies[0].PolicyName))
+	require.Equal(t, int64(3600), aws.ToInt64(pol.LBCookieStickinessPolicies[0].CookieExpirationPeriod))
+
+	require.Equal(t, []string{"rt-other-pol"}, pol.OtherPolicies)
+}
+
+// Test_SDKRoundTrip_DeleteLoadBalancerPolicyInUse_IsTyped proves that
+// deleting a policy still attached to a listener returns a typed
+// InvalidConfigurationRequestException, not a generic ValidationError.
+// Real AWS's DeleteLoadBalancerPolicy typed-error switch only recognizes
+// InvalidConfigurationRequest and LoadBalancerNotFound for this op (see
+// deserializers.go's awsAwsquery_deserializeOpErrorDeleteLoadBalancerPolicy);
+// a ValidationError code would not deserialize into any typed exception on a
+// real client, so errors.As would silently fail to match.
+func Test_SDKRoundTrip_DeleteLoadBalancerPolicyInUse_IsTyped(t *testing.T) {
+	t.Parallel()
+
+	backend := elb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := elb.NewHandler(backend)
+	client := newTestELBClient(t, h)
+	ctx := t.Context()
+
+	const lbName = "rt-policy-in-use-lb"
+
+	_, err := client.CreateLoadBalancer(ctx, &elbsdk.CreateLoadBalancerInput{
+		LoadBalancerName:  aws.String(lbName),
+		AvailabilityZones: []string{"us-east-1a"},
+		Listeners: []types.Listener{
+			{Protocol: aws.String("HTTP"), LoadBalancerPort: 80, InstancePort: aws.Int32(8080)},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateLBCookieStickinessPolicy(ctx, &elbsdk.CreateLBCookieStickinessPolicyInput{
+		LoadBalancerName: aws.String(lbName),
+		PolicyName:       aws.String("rt-inuse-pol"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.SetLoadBalancerPoliciesOfListener(ctx, &elbsdk.SetLoadBalancerPoliciesOfListenerInput{
+		LoadBalancerName: aws.String(lbName),
+		LoadBalancerPort: 80,
+		PolicyNames:      []string{"rt-inuse-pol"},
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteLoadBalancerPolicy(ctx, &elbsdk.DeleteLoadBalancerPolicyInput{
+		LoadBalancerName: aws.String(lbName),
+		PolicyName:       aws.String("rt-inuse-pol"),
+	})
+	require.Error(t, err)
+
+	var invalidConfig *types.InvalidConfigurationRequestException
+	require.ErrorAs(t, err, &invalidConfig,
+		"expected a typed InvalidConfigurationRequestException from DeleteLoadBalancerPolicy, got %v", err)
+}

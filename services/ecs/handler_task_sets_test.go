@@ -844,3 +844,93 @@ func TestTaskSet_DescribePreservesLBAndNC(t *testing.T) {
 	lbs := ts["loadBalancers"].([]any)
 	assert.Len(t, lbs, 1)
 }
+
+// TestDescribeTaskSets_TagsRequireInclude proves that DescribeTaskSets only
+// returns tags when Include=["TAGS"] is specified, matching real AWS's
+// DescribeTaskSetsInput.Include gating. Previously the wire shape had no
+// tags field at all.
+func TestDescribeTaskSets_TagsRequireInclude(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tdArn := createTestServiceForTaskSet(t, h, "ts-tags-cluster", "ts-tags-svc")
+
+	createResp := doECSRequest(t, h, "CreateTaskSet", map[string]any{
+		"cluster":        "ts-tags-cluster",
+		"service":        "ts-tags-svc",
+		"taskDefinition": tdArn,
+		"tags":           []map[string]any{{"key": "env", "value": "prod"}},
+	})
+	require.Equal(t, http.StatusOK, createResp.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	taskSetArn := createOut["taskSet"].(map[string]any)["taskSetArn"].(string)
+
+	// CreateTaskSet echoes tags unconditionally (no Include gating on Create).
+	createTags := createOut["taskSet"].(map[string]any)["tags"].([]any)
+	require.Len(t, createTags, 1)
+
+	t.Run("without include", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doECSRequest(t, h, "DescribeTaskSets", map[string]any{
+			"cluster":  "ts-tags-cluster",
+			"service":  "ts-tags-svc",
+			"taskSets": []string{taskSetArn},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		ts := resp["taskSets"].([]any)[0].(map[string]any)
+		assert.Nil(t, ts["tags"])
+	})
+
+	t.Run("with include TAGS", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doECSRequest(t, h, "DescribeTaskSets", map[string]any{
+			"cluster":  "ts-tags-cluster",
+			"service":  "ts-tags-svc",
+			"taskSets": []string{taskSetArn},
+			"include":  []string{"TAGS"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		ts := resp["taskSets"].([]any)[0].(map[string]any)
+		tags := ts["tags"].([]any)
+		require.Len(t, tags, 1)
+		assert.Equal(t, "env", tags[0].(map[string]any)["key"])
+	})
+}
+
+// TestCreateTaskSet_CapacityProviderStrategy_Roundtrip proves that
+// CreateTaskSet accepts and echoes a capacityProviderStrategy (previously
+// entirely absent from CreateTaskSetInput and the TaskSet wire shape).
+func TestCreateTaskSet_CapacityProviderStrategy_Roundtrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tdArn := createTestServiceForTaskSet(t, h, "ts-cps-cluster", "ts-cps-svc")
+
+	resp := doECSRequest(t, h, "CreateTaskSet", map[string]any{
+		"cluster":        "ts-cps-cluster",
+		"service":        "ts-cps-svc",
+		"taskDefinition": tdArn,
+		"capacityProviderStrategy": []any{
+			map[string]any{"capacityProvider": "FARGATE", "weight": 1},
+			map[string]any{"capacityProvider": "FARGATE_SPOT", "weight": 3},
+		},
+	})
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	strategy := out["taskSet"].(map[string]any)["capacityProviderStrategy"].([]any)
+	require.Len(t, strategy, 2)
+}

@@ -6,8 +6,13 @@ import "time"
 
 // RetainedMessage holds the details of a retained MQTT message stored by IoT.
 type RetainedMessage struct {
-	Topic            string
-	Payload          []byte
+	Topic   string
+	Payload []byte
+	// UserProperties holds the raw (base64-decoded) bytes of the MQTT5 user
+	// properties JSON array supplied on the Publish call that established
+	// this retained value, or nil when none were set. Mirrors
+	// GetRetainedMessageOutput.UserProperties in the real SDK.
+	UserProperties   []byte
 	Qos              int32
 	LastModifiedTime int64 // epoch milliseconds
 }

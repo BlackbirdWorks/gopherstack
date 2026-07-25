@@ -34,6 +34,10 @@ func TestCreateSubnetGroup(t *testing.T) {
 				assert.Len(t, sg.Subnets, 2)
 				assert.Equal(t, "subnet-11111111", sg.Subnets[0].SubnetID)
 				assert.Equal(t, "us-east-1a", sg.Subnets[0].AvailabilityZone)
+				// gopherstack does not model per-subnet IPv4/IPv6 CIDR allocation, so
+				// SupportedNetworkTypes (types.SubnetGroup.SupportedNetworkTypes) is
+				// always reported as IPv4-only.
+				assert.Equal(t, []string{dax.NetworkTypeIPv4}, sg.SupportedNetworkTypes)
 			},
 		},
 		{

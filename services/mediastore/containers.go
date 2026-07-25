@@ -47,6 +47,11 @@ func (b *InMemoryBackend) CreateContainer(
 
 	region := regionFromContext(ctx)
 
+	// Advance any due transitions before creating, so a container name that
+	// was mid-DELETING is fully gone (rather than colliding with tbl.Has
+	// below) once its delay has elapsed.
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
@@ -61,16 +66,33 @@ func (b *InMemoryBackend) CreateContainer(
 	t := make(map[string]string)
 	maps.Copy(t, tags)
 
+	status := containerStatusActive
+	if b.activationDelay > 0 {
+		status = containerStatusCreating
+	}
+
 	c := &Container{
 		Name:         name,
 		ARN:          containerARN(region, accountID, name),
 		Endpoint:     containerEndpoint(name, region),
-		Status:       containerStatusActive,
+		Status:       status,
 		CreationTime: &now,
 		Tags:         t,
 	}
 
 	tbl.Put(c)
+
+	// Schedule the creating->active transition instead of spawning an
+	// unmanaged per-container goroutine -- advanceContainerStates (called
+	// lazily by DescribeContainer/ListContainers/CreateContainer/
+	// DeleteContainer) advances it deterministically, so there is no
+	// goroutine to leak and Restore can simply drop pending transitions.
+	if b.activationDelay > 0 {
+		b.scheduleContainerTransitionLocked(region, name, &containerTransition{
+			effectiveAt: now.Add(b.activationDelay),
+			status:      containerStatusActive,
+		})
+	}
 
 	return copyContainer(c), nil
 }
@@ -79,15 +101,36 @@ func (b *InMemoryBackend) CreateContainer(
 func (b *InMemoryBackend) DeleteContainer(ctx context.Context, name string) error {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("DeleteContainer")
 	defer b.mu.Unlock()
 
 	tbl := b.containerRegion(region)
-
-	if tbl == nil || !tbl.Has(name) {
+	if tbl == nil {
 		return ErrContainerNotFound
 	}
 
+	c, exists := tbl.Get(name)
+	if !exists {
+		return ErrContainerNotFound
+	}
+
+	// When an activation delay is configured, model AWS's asynchronous
+	// deletion: the container enters DELETING and is actually removed by a
+	// later advanceContainerStates call once the delay elapses. This
+	// supersedes any pending creating->active transition for the same name.
+	if b.activationDelay > 0 {
+		c.Status = containerStatusDeleting
+		b.scheduleContainerTransitionLocked(region, name, &containerTransition{
+			effectiveAt: time.Now().Add(b.activationDelay),
+			remove:      true,
+		})
+
+		return nil
+	}
+
+	delete(b.containerTransitions, containerTransitionKey(region, name))
 	tbl.Delete(name)
 
 	return nil
@@ -96,6 +139,10 @@ func (b *InMemoryBackend) DeleteContainer(ctx context.Context, name string) erro
 // DescribeContainer returns details about a container in the ctx region.
 func (b *InMemoryBackend) DescribeContainer(ctx context.Context, name string) (*Container, error) {
 	region := regionFromContext(ctx)
+
+	// Advance any due lifecycle transitions before reading so SDK waiters
+	// that poll DescribeContainer always observe the current state.
+	b.advanceContainerStates(time.Now())
 
 	b.mu.RLock("DescribeContainer")
 	defer b.mu.RUnlock()
@@ -115,6 +162,10 @@ func (b *InMemoryBackend) ListContainers(
 	maxResults int,
 ) ([]*Container, string, error) {
 	region := regionFromContext(ctx)
+
+	// Advance any due lifecycle transitions before reading, matching
+	// DescribeContainer.
+	b.advanceContainerStates(time.Now())
 
 	b.mu.RLock("ListContainers")
 	defer b.mu.RUnlock()

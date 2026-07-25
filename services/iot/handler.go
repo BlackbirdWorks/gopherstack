@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -28,8 +29,9 @@ const (
 
 // Handler is the Echo HTTP handler for IoT control-plane operations.
 type Handler struct {
-	Backend StorageBackend
-	broker  *Broker
+	Backend   StorageBackend
+	broker    *Broker
+	brokerRun worker.SingleRun
 }
 
 // NewHandler creates a new IoT Handler.
@@ -121,6 +123,9 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // StartWorker starts the embedded MQTT broker as a background worker.
+// Implements service.BackgroundWorker. The broker is run under a
+// worker.SingleRun so Shutdown can deterministically wait for its goroutine
+// to exit instead of only relying on ctx cancellation propagating.
 func (h *Handler) StartWorker(ctx context.Context) error {
 	if h.broker == nil {
 		return nil
@@ -129,14 +134,24 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "starting IoT MQTT broker", "port", h.broker.port)
 
-	go func() {
-		if err := h.broker.Start(ctx); err != nil {
-			log.ErrorContext(ctx, "IoT MQTT broker stopped", keyError, err)
-		}
-	}()
+	h.brokerRun.Start(ctx, h.broker)
 
 	return nil
 }
+
+// Shutdown stops the embedded MQTT broker and waits for its goroutine to
+// exit (or for ctx to be done), so no goroutine outlives the service.
+// Invoked on server shutdown via service.Shutdowner.
+func (h *Handler) Shutdown(ctx context.Context) {
+	h.brokerRun.Stop(ctx)
+}
+
+// Ensure Handler implements service.BackgroundWorker and service.Shutdowner
+// at compile time.
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // Handler returns the Echo handler function for IoT operations.
 func (h *Handler) Handler() echo.HandlerFunc {
@@ -214,49 +229,11 @@ func (h *Handler) dispatchThingOps(c *echo.Context, op string) (bool, error) {
 }
 
 // handleError maps backend errors to appropriate HTTP responses.
+// handleError maps a backend sentinel error to the AWS IoT restjson1 error
+// shape and HTTP status. See writeIoTError (handler_helpers.go) for the
+// canonical mapping shared with respondErr.
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	type awsErr struct {
-		Type    string `json:"__type"`
-		Message string `json:"message"`
-	}
-	switch {
-	case errors.Is(err, ErrThingNotFound),
-		errors.Is(err, ErrRuleNotFound),
-		errors.Is(err, ErrPolicyNotFound),
-		errors.Is(err, ErrThingTypeNotFound),
-		errors.Is(err, ErrThingGroupNotFound),
-		errors.Is(err, ErrCertificateNotFound),
-		errors.Is(err, ErrCertificateProviderNotFound),
-		errors.Is(err, ErrTopicRuleDestinationNotFound),
-		errors.Is(err, ErrPolicyVersionNotFound),
-		errors.Is(err, ErrRegistrationTaskNotFound),
-		errors.Is(err, ErrManagedJobTemplateNotFound),
-		errors.Is(err, ErrIndexNotFound),
-		errors.Is(err, ErrShadowNotFound):
-
-		return c.JSON(http.StatusNotFound, awsErr{"ResourceNotFoundException", err.Error()})
-	case errors.Is(err, ErrValidation):
-
-		return c.JSON(http.StatusBadRequest, awsErr{"InvalidRequestException", err.Error()})
-	case errors.Is(err, ErrAlreadyExists):
-
-		return c.JSON(http.StatusConflict, awsErr{"ResourceAlreadyExistsException", err.Error()})
-	case errors.Is(err, ErrVersionConflict):
-
-		return c.JSON(http.StatusConflict, awsErr{"VersionConflictException", err.Error()})
-	case errors.Is(err, ErrDeleteConflict):
-
-		return c.JSON(http.StatusConflict, awsErr{"DeleteConflictException", err.Error()})
-	case errors.Is(err, ErrVersionsLimitExceeded):
-
-		return c.JSON(http.StatusConflict, awsErr{"VersionsLimitExceededException", err.Error()})
-	default:
-
-		return c.JSON(
-			http.StatusInternalServerError,
-			awsErr{"InternalFailureException", err.Error()},
-		)
-	}
+	return writeIoTError(c, err)
 }
 
 func (h *Handler) handleCreateThing(c *echo.Context) error {

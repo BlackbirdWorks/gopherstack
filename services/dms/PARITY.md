@@ -7,32 +7,45 @@
 service: dms
 sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.61.8
 last_audit_commit: d13e2307f4f1086d83076beb50c1303761fa8369
-last_audit_date: 2026-07-12
-overall: A            # genuine fixes found: disguised no-ops in the Serverless
-                       # Replication family, SubnetGroup Modify, StartRecommendations
+last_audit_date: 2026-07-23
+overall: A            # this pass: closed all 4 gaps + all 3 deferred families
+                       # from the prior audit (DescribeMetadataModel shape,
+                       # ReloadTables/ReloadReplicationTables state
+                       # validation + wire-field-name bug, Endpoint enum
+                       # validation, ApplyPendingMaintenanceAction enum
+                       # validation, the whole metadata-model Describe/Cancel/
+                       # GetTargetSelectionRules wire-shape family, Fleet
+                       # Advisor Lsa/SchemaObjectSummary/Schemas field-diff,
+                       # and a real premigration-assessment-run state machine
+                       # replacing always-empty individual-assessment/result
+                       # lists). Also fixed a genuine epoch-timestamp bug
+                       # (InstanceCreateTime/ReplicationTaskCreationDate were
+                       # missing from the wire entirely).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- InstanceCreateTime was entirely missing from the wire response (epoch-seconds bug class); now emitted via pkgs/awstime.Epoch"}
   DescribeReplicationInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects delete while tasks attached"}
   ModifyReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   RebootReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "synchronous no-op reboot is correct emulation -- real reboot causes only a momentary outage, no persistent field changes"}
-  ApplyPendingMaintenanceAction: {wire: ok, errors: ok, state: partial, persist: n/a, note: "correctly returns ResourcePendingMaintenanceActions (not ReplicationInstance); ApplyAction/OptInType accepted but not tracked -- low value, no actual pending actions ever exist to apply"}
-  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  ApplyPendingMaintenanceAction: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- ApplyAction/OptInType previously accepted arbitrary strings; now validated against the SDK's documented valid-values lists (os-upgrade|system-update|db-upgrade|os-patch and immediate|next-maintenance|undo-opt-in), 400 ValidationException otherwise. Still correctly returns an empty PendingMaintenanceActionDetails -- no pending-maintenance-action producer exists in this emulation, matching a freshly-created instance's real state."}
+  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- EndpointType/EngineName previously accepted any string; now validated against types.ReplicationEndpointTypeValue (lowercase source|target) and the documented EngineName valid-values list"}
   DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects delete while referenced by a task"}
-  ModifyEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  ModifyEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- EndpointType/EngineName were entirely unsupported on Modify (real API allows changing both); now accepted, validated with the same enum check as Create, and applied"}
   TestConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "records a Connection row, visible via DescribeConnections"}
   DescribeConnections: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates source/target endpoint and instance ARNs exist"}
+  CreateReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates source/target endpoint and instance ARNs exist. FIXED this pass -- ReplicationTaskCreationDate was entirely missing from the wire response (epoch-seconds bug class); now emitted via pkgs/awstime.Epoch"}
   DescribeReplicationTasks: {wire: ok, errors: ok, state: ok, persist: ok}
   StartReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok}
   StopReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects stop unless currently running"}
   DeleteReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects delete while running"}
   ModifyReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects modify while running"}
   MoveReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok}
+  ReloadTables: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- was a disguised no-op that echoed ReplicationTaskArn without validating anything; now requires TablesToReload, validates ReloadOption enum, 404s on an unknown task, and 400 InvalidResourceStateFault unless the task is currently RUNNING (matches the SDK doc: 'You can only use this operation with a task in the RUNNING state')"}
+  ReloadReplicationTables: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- two bugs: (1) the request field was wrongly named ReplicationTaskArn instead of the real ReplicationConfigArn, silently discarding the client's ARN; (2) it never validated anything. Now requires TablesToReload, validates ReloadOption, 404s on an unknown replication config, and 400s unless the associated Replication is RUNNING"}
   CreateReplicationSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- now validates ReplicationSubnetGroupDescription/SubnetIds as required (real API marks both required); SubnetIds accepted but not modeled (no VPC subnet emulation), matching pre-existing convention"}
   DescribeReplicationSubnetGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyReplicationSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- was a disguised no-op (looked up and echoed the existing group, discarding ReplicationSubnetGroupDescription entirely); now a real backend.ModifyReplicationSubnetGroup mutates and persists the description"}
@@ -81,21 +94,38 @@ ops:
   DescribeEngineVersions: {wire: ok, errors: ok, state: n/a, note: "static reference catalog"}
   DescribeEndpointTypes: {wire: ok, errors: ok, state: n/a, note: "static reference catalog"}
   DescribeEventCategories: {wire: ok, errors: ok, state: n/a, note: "static reference catalog"}
+  DescribeMetadataModel: {wire: ok, errors: ok, state: n/a, note: "FIXED this pass (gap #1) -- was an always-empty {} that only checked MigrationProjectIdentifier. Now requires MigrationProjectIdentifier/Origin/SelectionRules (all three are 'This member is required' on the real input) and returns the real {Definition, MetadataModelName, MetadataModelType, TargetMetadataModels} shape. Definition/MetadataModelName/MetadataModelType stay empty -- no schema-conversion engine exists to produce them, and the SDK doc explicitly says Definition 'might not be populated for some metadata models', so an empty-but-correctly-shaped response is not a stub (rule 4)."}
+  DescribeMetadataModelAssessments: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- wire content used invented field names (MigrationProjectIdentifier/SelectionRules) instead of the real SchemaConversionRequest shape (RequestIdentifier/MigrationProjectArn/Status); now correct. MigrationProjectIdentifier is now required, matching the real input"}
+  DescribeMetadataModelConversions: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
+  DescribeMetadataModelCreations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
+  DescribeMetadataModelExportsAsScript: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
+  DescribeMetadataModelExportsToTarget: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
+  DescribeMetadataModelImports: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
+  DescribeMetadataModelChildren: {wire: ok, errors: ok, state: n/a, note: "FIXED this pass -- response field was named 'Items' with the wrong (request) shape; real field is MetadataModelChildren, a list of MetadataModelReference{MetadataModelName,SelectionRules}. Now requires MigrationProjectIdentifier/Origin/SelectionRules like DescribeMetadataModel. Always empty -- no child-model producer exists (there is no StartMetadataModelChildren op in the real API either; children only ever arise from a completed schema conversion)."}
+  CancelMetadataModelConversion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- output was a flat {RequestIdentifier}; real shape is {Request: SchemaConversionRequest}. Cancelling an untracked request still succeeds (real AWS's Cancel ops are fire-and-forget), echoing a minimal SchemaConversionRequest"}
+  CancelMetadataModelCreation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as CancelMetadataModelConversion"}
+  DescribeConversionConfiguration: {wire: ok, errors: ok, state: n/a, note: "pre-existing, matches the real {ConversionConfiguration, MigrationProjectIdentifier} shape"}
+  ModifyConversionConfiguration: {wire: ok, errors: ok, state: n/a, note: "pre-existing, matches the real shape; echoes the caller's ConversionConfiguration (no real schema-conversion config store)"}
+  DescribeExtensionPackAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- was hardcoded to always return an empty list, disconnected from StartExtensionPackAssociation. Now reads real extension-pack request rows"}
+  StartExtensionPackAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- was a disguised no-op returning a random UUID with no backend write, so the request was invisible to DescribeExtensionPackAssociations. Now records a real request row and requires MigrationProjectIdentifier"}
+  GetTargetSelectionRules: {wire: ok, errors: ok, state: n/a, note: "FIXED this pass -- output was an invented {Rules: []} list shape; real output is a single TargetSelectionRules string. Now requires MigrationProjectIdentifier/SelectionRules and echoes the source rules as a best-effort identity mapping (no real schema-conversion engine to compute a genuine target counterpart)"}
+  ExportMetadataModelAssessment: {wire: ok, errors: ok, state: n/a, note: "FIXED this pass -- PdfReport/CsvReport were missing the ObjectURL field (real ExportMetadataModelAssessmentResultEntry has both ObjectURL and S3ObjectKey); now both are legitimately omitted (optional pointer fields, no real S3 integration exists) instead of one being a fabricated empty string. MigrationProjectIdentifier/SelectionRules are now required"}
+  DescribeApplicableIndividualAssessments: {wire: ok, errors: ok, state: n/a, note: "FIXED this pass -- was hardcoded to always return an empty list; now returns a representative static catalog of individual assessment names (legitimate reference-data emulation per rule 4 -- the SDK does not model these names as an enum, they're plain strings)"}
+  DescribeReplicationTaskIndividualAssessments: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (deferred item #3) -- was hardcoded to always return an empty list regardless of any assessment run. Now populated by StartReplicationTaskAssessmentRun and filterable by replication-task-assessment-run-arn/replication-task-arn/status"}
+  DescribeReplicationTaskAssessmentResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (deferred item #3) -- was hardcoded to always return an empty list. Now: with ReplicationTaskArn, returns exactly one result for that task's latest run (ignoring Marker/MaxRecords, matching the SDK doc); without it, lists the latest result per assessed task"}
+  StartReplicationTaskAssessmentRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- AssessmentRunName/ReplicationTaskArn/ResultLocationBucket/ServiceAccessRoleArn were all documented as required but never validated; IncludeOnly/Exclude were accepted but ignored. Now validates all four required fields, rejects setting both IncludeOnly and Exclude, and synchronously completes the run (Status passed) with real IndividualAssessment rows and ResultStatistic counts -- no goroutines/tickers, matching the service's leak-free convention"}
+  CancelReplicationTaskAssessmentRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- output was a hand-rolled {ReplicationTaskAssessmentRunArn, Status} map; now the real {ReplicationTaskAssessmentRun: ReplicationTaskAssessmentRun} shape"}
+  DeleteReplicationTaskAssessmentRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "same wire-shape fix as CancelReplicationTaskAssessmentRun"}
+  DescribeReplicationTaskAssessmentRuns: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- output items were a hand-rolled 4-field map; now the real ReplicationTaskAssessmentRun shape (AssessmentProgress, ResultStatistic, ResultLocationBucket/Folder, ServiceAccessRoleArn, creation-date epoch, IsLatestTaskAssessmentRun). Filters extended to replication-task-assessment-run-arn/replication-instance-arn/status (previously only replication-task-arn)"}
+  StartReplicationTaskAssessment: {wire: ok, errors: ok, state: ok, persist: n/a}
 families:
-  fleet-advisor: {status: ok, note: "CreateFleetAdvisorCollector/DeleteFleetAdvisorCollector/DescribeFleetAdvisorCollectors/DescribeFleetAdvisorDatabases/DeleteFleetAdvisorDatabases all mutate/read real backend state and persist. AWS is ending support for Fleet Advisor entirely on 2026-05-20 (already past as of this audit) -- low future value, audited but not deep-dived further."}
-  metadata-model: {status: partial, note: "StartMetadataModelAssessment/Conversion/Creation/ExportAsScript/ExportToTarget/Import all real-write to metadataModelRequests (persisted); the corresponding Describe* ops read them back via ListMetadataModelRequests. DescribeMetadataModel itself returns an always-empty {} instead of {Definition, MetadataModelName} -- see gaps."}
-  static-reference-data: {status: ok, note: "DescribeOrderableReplicationInstances/DescribeEngineVersions/DescribeEndpointTypes/DescribeEventCategories/DescribeApplicableIndividualAssessments return realistic static catalogs; legitimate for AWS reference-data ops (rule 4: an op with no mutable backend state behind it is not a stub)."}
-  reload-tables: {status: partial, note: "ReloadReplicationTables/ReloadTables echo ReplicationTaskArn (matches real void-ish output) but never validate the task ARN exists -- see gaps."}
-gaps:
-  - "DescribeMetadataModel returns an empty {} instead of the real {Definition, MetadataModelName} shape (low-value SCT-adjacent feature; would require modeling schema-conversion SQL text, not attempted this pass)."
-  - "ReloadReplicationTables / ReloadTables do not validate ReplicationTaskArn exists (would 404 on real AWS); currently accept any ARN silently."
-  - "CreateEndpoint / ModifyEndpoint do not validate EndpointType (source|target) or EngineName against AWS's enum list; accepts arbitrary strings."
-  - "ApplyPendingMaintenanceAction accepts ApplyAction/OptInType but never tracks a real pending-maintenance-action list (DescribePendingMaintenanceActions always returns empty), so apply is a true no-op on top of an always-empty list -- self-consistent but not a full emulation."
-deferred:
-  - "DescribeMetadataModel{Assessments,Children,Conversions,Creations,ExportsAsScript,ExportsToTarget,Imports} -- read paths for metadata-model family verified at a high level (backed by real metadataModelRequests table) but not exhaustively wire-checked field-by-field against types.go."
-  - "Fleet Advisor Lsa Analysis / SchemaObjectSummary / Schemas describe ops -- static/empty responses, not deep-audited (AWS EOL'd 2026-05-20)."
-  - "DescribeApplicableIndividualAssessments / DescribeReplicationTaskIndividualAssessments / DescribeReplicationTaskAssessmentResults -- always-empty lists; the assessment-run lifecycle (Start/Cancel/Delete/DescribeReplicationTaskAssessmentRuns) is real and persisted, but the *results* of an assessment run are never populated. Low value: assessments are informational pre-migration checks, not stateful resources Terraform/SDKs poll for correctness."
-leaks: {status: clean, note: "no goroutines, janitors, or timers in this service; all state lives in store.Table/store.Index behind the single lockmetrics.RWMutex. leak_test.go / isolation_test.go pre-existing and passing."}
+  fleet-advisor: {status: ok, note: "CreateFleetAdvisorCollector/DeleteFleetAdvisorCollector/DescribeFleetAdvisorCollectors/DescribeFleetAdvisorDatabases/DeleteFleetAdvisorDatabases all mutate/read real backend state and persist. DescribeFleetAdvisorLsaAnalysis/SchemaObjectSummary/Schemas field-diffed this pass (deferred item #2, now resolved): response field names (Analysis/FleetAdvisorSchemaObjects/FleetAdvisorSchemas + NextToken) match types.go exactly; the lists are legitimately always-empty since no LSA-analysis or schema-conversion engine exists to populate them (rule 4). AWS ended support for Fleet Advisor entirely on 2026-05-20 (already past as of this audit) -- low future value."}
+  metadata-model: {status: ok, note: "FIXED this pass -- DescribeMetadataModel/DescribeMetadataModelChildren/the six Describe*Requests list ops/Cancel*/GetTargetSelectionRules/ExportMetadataModelAssessment/StartExtensionPackAssociation were all field-diffed against types.go and api_op_*.go this pass (deferred item #1, now resolved) and every wire-shape bug found was fixed -- see the per-op notes above. Definition/MetadataModelName/MetadataModelType/schema-object contents stay legitimately empty; no schema-conversion SQL-generation engine exists, matching the SDK doc's 'might not be populated' language."}
+  static-reference-data: {status: ok, note: "DescribeOrderableReplicationInstances/DescribeEngineVersions/DescribeEndpointTypes/DescribeEventCategories/DescribeApplicableIndividualAssessments return realistic static catalogs; legitimate for AWS reference-data ops (rule 4: an op with no mutable backend state behind it is not a stub). DescribeEndpointTypes FIXED this pass -- EndpointType values were hardcoded uppercase SOURCE/TARGET, but the real enum is lowercase source/target."}
+  assessment-runs: {status: ok, note: "FIXED this pass (deferred item #3, now resolved) -- StartReplicationTaskAssessmentRun now validates its four required fields and IncludeOnly/Exclude mutual exclusion, then synchronously runs a real (bounded, static-catalog-backed) set of IndividualAssessment checks, all passing. DescribeReplicationTaskIndividualAssessments and DescribeReplicationTaskAssessmentResults are now backed by that real state instead of hardcoded empty lists. Cancel/Delete/DescribeReplicationTaskAssessmentRuns now return the full real ReplicationTaskAssessmentRun wire shape instead of a hand-rolled 4-field map."}
+gaps: []
+deferred: []
+leaks: {status: clean, note: "no goroutines, janitors, or timers in this service; all state lives in store.Table/store.Index behind the single lockmetrics.RWMutex. leak_test.go / isolation_test.go pre-existing and passing. Confirmed again this pass -- no new goroutines/tickers/channels were introduced by the assessment-run rework (StartReplicationTaskAssessmentRun completes synchronously)."}
 ---
 
 ## Notes
@@ -152,3 +182,40 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
   audit passes should deprioritize these families relative to the core
   ReplicationInstance/Endpoint/ReplicationTask/SubnetGroup/ReplicationConfig
   surface.
+
+- **Epoch-seconds timestamp bug class (2026-07-23 pass)**: `ReplicationInstance`
+  and `ReplicationTask` both track a `CreationTime time.Time` field
+  internally (used correctly for persistence ordering) but neither
+  `InstanceCreateTime` (real field name on `ReplicationInstance`) nor
+  `ReplicationTaskCreationDate` (real field name on `ReplicationTask`) was
+  ever put on the wire -- not wrong-format, just entirely absent. Fixed by
+  adding both fields to `replicationInstanceJSON`/`replicationTaskJSON` as
+  `float64` populated via `pkgs/awstime.Epoch`, matching awsjson1.1's
+  unixTimestamp format. `Endpoint` has no timestamp field on the real wire
+  shape, so it was correctly left alone.
+
+- **`EndpointType` is lowercase, unlike most other DMS enum-ish fields**:
+  `types.ReplicationEndpointTypeValue` is `"source"`/`"target"` (not
+  `"SOURCE"`/`"TARGET"`). This is easy to get backwards since
+  `types.OriginTypeValue` (used by the metadata-model family's `Origin`
+  field) genuinely IS uppercase (`"SOURCE"`/`"TARGET"`). Don't "fix" one to
+  match the other without re-checking `enums.go`.
+
+- **DMS Serverless "ReloadReplicationTables" targets a *config*, not a
+  *task***: `ReloadReplicationTablesInput.ReplicationConfigArn` is the real
+  field name (a previous implementation used `ReplicationTaskArn`, silently
+  discarding the client's ARN and never validating anything). Don't
+  conflate this with `ReloadTablesInput.ReplicationTaskArn`, which is the
+  correct field name for the *non*-serverless `ReloadTables` op.
+
+- **Premigration assessment runs complete synchronously in this emulation**:
+  real AWS runs `StartReplicationTaskAssessmentRun` asynchronously against
+  actual source/target connectivity; gopherstack has neither, so (matching
+  the service's leak-free, goroutine-free convention -- see `leak_test.go`)
+  the run transitions straight to `Status: "passed"` with every selected
+  `IndividualAssessment` also `"passed"`. `defaultApplicableIndividualAssessments()`
+  in `assessment_runs.go` is a representative static catalog, not derived
+  from AWS docs verbatim -- the SDK does not model these names as an enum
+  (`IndividualAssessmentName` is a plain `*string`), so any reasonable
+  catalog is wire-accurate; only the *shape* (a flat list of strings) is a
+  real constraint.

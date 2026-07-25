@@ -60,7 +60,7 @@ func TestRestoreTestingPlanStartWindowHours(t *testing.T) {
 					"StartWindowHours":       tc.startWindowHours,
 				},
 			})
-			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, http.StatusCreated, rec.Code)
 
 			rec2 := doREST(t, h, http.MethodGet, "/restore-testing/plans/swh-plan", nil)
 			assert.Equal(t, http.StatusOK, rec2.Code)
@@ -212,7 +212,7 @@ func TestCreateRestoreTestingPlan(t *testing.T) {
 						"ScheduleExpression":     "cron(0 1 ? * * *)",
 					},
 				})
-				require.Equal(t, http.StatusOK, rec.Code)
+				require.Equal(t, http.StatusCreated, rec.Code)
 				resp := parseResp(t, rec)
 				assert.Equal(t, "my-test-plan", resp["RestoreTestingPlanName"])
 				assert.NotEmpty(t, resp["RestoreTestingPlanArn"])
@@ -229,7 +229,7 @@ func TestCreateRestoreTestingPlan(t *testing.T) {
 				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans", map[string]any{
 					"RestoreTestingPlan": map[string]any{"RestoreTestingPlanName": "dup-plan"},
 				})
-				assert.Equal(t, http.StatusConflict, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -273,13 +273,24 @@ func TestCreateRestoreTestingSelection(t *testing.T) {
 					"RestoreTestingSelection": map[string]any{
 						"RestoreTestingSelectionName": "my-selection",
 						"ProtectedResourceType":       "EC2",
+						"IamRoleArn":                  "arn:aws:iam::123456789012:role/restore-role",
+						"ProtectedResourceArns":       []string{"*"},
+						"ValidationWindowHours":       12,
 					},
 				})
-				require.Equal(t, http.StatusOK, rec.Code)
+				require.Equal(t, http.StatusCreated, rec.Code)
 				resp := parseResp(t, rec)
 				assert.Equal(t, "my-plan", resp["RestoreTestingPlanName"])
 				assert.Equal(t, "my-selection", resp["RestoreTestingSelectionName"])
 				assert.NotEmpty(t, resp["RestoreTestingPlanArn"])
+
+				getRec := doREST(t, h, http.MethodGet, "/restore-testing/plans/my-plan/selections/my-selection", nil)
+				require.Equal(t, http.StatusOK, getRec.Code)
+				got := parseResp(t, getRec)
+				sel, ok := got["RestoreTestingSelection"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "arn:aws:iam::123456789012:role/restore-role", sel["IamRoleArn"])
+				assert.InEpsilon(t, float64(12), sel["ValidationWindowHours"], 0)
 			},
 		},
 		{
@@ -289,9 +300,11 @@ func TestCreateRestoreTestingSelection(t *testing.T) {
 				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans/missing-plan/selections", map[string]any{
 					"RestoreTestingSelection": map[string]any{
 						"RestoreTestingSelectionName": "sel",
+						"ProtectedResourceType":       "EC2",
+						"IamRoleArn":                  "arn:aws:iam::123456789012:role/restore-role",
 					},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -302,11 +315,17 @@ func TestCreateRestoreTestingSelection(t *testing.T) {
 					"RestoreTestingPlan": map[string]any{"RestoreTestingPlanName": "plan-b"},
 				})
 				selBody := map[string]any{
-					"RestoreTestingSelection": map[string]any{"RestoreTestingSelectionName": "sel-b"},
+					"RestoreTestingSelection": map[string]any{
+						"RestoreTestingSelectionName": "sel-b",
+						"ProtectedResourceType":       "EC2",
+						"IamRoleArn":                  "arn:aws:iam::123456789012:role/restore-role",
+					},
 				}
-				doREST(t, h, http.MethodPut, "/restore-testing/plans/plan-b/selections", selBody)
+				firstRec := doREST(t, h, http.MethodPut, "/restore-testing/plans/plan-b/selections", selBody)
+				require.Equal(t, http.StatusCreated, firstRec.Code)
 				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans/plan-b/selections", selBody)
-				assert.Equal(t, http.StatusConflict, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.Contains(t, rec.Body.String(), "AlreadyExistsException")
 			},
 		},
 		{
@@ -320,6 +339,23 @@ func TestCreateRestoreTestingSelection(t *testing.T) {
 					"RestoreTestingSelection": map[string]any{},
 				})
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "missing_iam_role_arn",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/restore-testing/plans", map[string]any{
+					"RestoreTestingPlan": map[string]any{"RestoreTestingPlanName": "plan-d"},
+				})
+				rec := doREST(t, h, http.MethodPut, "/restore-testing/plans/plan-d/selections", map[string]any{
+					"RestoreTestingSelection": map[string]any{
+						"RestoreTestingSelectionName": "sel-d",
+						"ProtectedResourceType":       "EC2",
+					},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.Contains(t, rec.Body.String(), "MissingParameterValueException")
 			},
 		},
 	}
@@ -346,7 +382,7 @@ func TestRestoreTestingPlan_CRUD(t *testing.T) {
 			"StartWindowHours":       1,
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusCreated, rec.Code)
 	resp := parseResp(t, rec)
 	planName, ok := resp["RestoreTestingPlanName"].(string)
 	require.True(t, ok)
@@ -374,5 +410,5 @@ func TestRestoreTestingPlan_CRUD(t *testing.T) {
 
 	// Delete
 	rec5 := doREST(t, h, http.MethodDelete, "/restore-testing/plans/"+planName, nil)
-	assert.Equal(t, http.StatusOK, rec5.Code)
+	assert.Equal(t, http.StatusNoContent, rec5.Code)
 }

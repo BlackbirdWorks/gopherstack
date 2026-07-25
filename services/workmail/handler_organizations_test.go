@@ -117,3 +117,24 @@ func TestWorkMail_Organizations_Lifecycle(t *testing.T) {
 		})
 	}
 }
+
+// TestDescribeOrganization_MigrationAdminField locks
+// DescribeOrganizationOutput.MigrationAdmin's wire shape: the real API
+// exposes no operation that ever sets it (no migration/interoperability
+// admin flow is simulated), so the field must be present in the response
+// struct (surviving a real client's field access) but always absent from
+// the marshaled JSON via omitempty, matching every real organization that
+// never configured migration.
+func TestDescribeOrganization_MigrationAdminField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	orgID := createTestOrg(t, h, "migration-admin-org")
+
+	rec := doOp(t, h, "DescribeOrganization", fmt.Sprintf(`{"OrganizationId":%q}`, orgID))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	m := decodeJSON(t, rec)
+	_, present := m["MigrationAdmin"]
+	assert.False(t, present, "MigrationAdmin should be omitted (empty) since nothing ever sets it")
+}

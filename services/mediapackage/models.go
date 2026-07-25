@@ -13,7 +13,6 @@ type storedIngestEndpoint struct {
 
 type storedChannel struct {
 	Tags                map[string]string      `json:"tags"`
-	LifecyclePolicy     *string                `json:"lifecyclePolicy,omitempty"`
 	EgressLogGroupName  *string                `json:"egressLogGroupName,omitempty"`
 	IngressLogGroupName *string                `json:"ingressLogGroupName,omitempty"`
 	ARN                 string                 `json:"arn"`
@@ -128,29 +127,6 @@ type storedHarvestJob struct {
 	OriginEndpointID string               `json:"originEndpointId"`
 	StartTime        string               `json:"startTime"`
 	Status           string               `json:"status"`
-}
-
-type storedPackagingConfiguration struct {
-	Tags             map[string]string `json:"tags"`
-	ARN              string            `json:"arn"`
-	ID               string            `json:"id"`
-	PackagingGroupID string            `json:"packagingGroupId"`
-	Description      string            `json:"description"`
-	CreatedAt        string            `json:"createdAt"`
-}
-
-func (p *storedPackagingConfiguration) toPackagingConfiguration() *PackagingConfiguration {
-	tags := make(map[string]string, len(p.Tags))
-	maps.Copy(tags, p.Tags)
-
-	return &PackagingConfiguration{
-		Tags:             tags,
-		ARN:              p.ARN,
-		ID:               p.ID,
-		PackagingGroupID: p.PackagingGroupID,
-		Description:      p.Description,
-		CreatedAt:        p.CreatedAt,
-	}
 }
 
 func (j *storedHarvestJob) toHarvestJob() *HarvestJob {

@@ -33,22 +33,22 @@ package s3tables
 //     "byBucket" (TableBucketARN -> tables) serves ListTables and
 //     DeleteTableBucket's cascade, mirroring namespaces' byBucket index.
 //
-// bucketReplication and tableRecordExpiry hold value types
-// (BucketReplicationConfig, TableRecordExpiryConfig) that carried no
-// identity of their own pre-refactor -- they were keyed purely by the
-// external map key (a bucket or table ARN the caller supplies). Each type
-// gained a json:"-" identity field (TableBucketARN, TableARN respectively;
-// see their doc comments in backend.go) so their store.Table has something
-// to key on, but a plain json.Marshal always drops a json:"-" field, so
-// neither is on b.registry -- persistence.go builds a separate ephemeral
-// DTO registry for them instead (the same technique services/codecommit and
-// services/emr use for their identity-less/hidden-field resources).
+// bucketReplication, tableReplication, and tableRecordExpiry hold value
+// types (BucketReplicationConfig, TableReplicationConfig,
+// TableRecordExpiryConfig) that carry no identity of their own -- they are
+// keyed purely by the external map key (a bucket or table ARN the caller
+// supplies). Each type has a json:"-" identity field (TableBucketARN,
+// TableARN respectively; see their doc comments in models.go) so their
+// store.Table has something to key on, but a plain json.Marshal always
+// drops a json:"-" field, so none of the three is on b.registry --
+// persistence.go builds a separate ephemeral DTO registry for them instead
+// (the same technique services/codecommit and services/emr use for their
+// identity-less/hidden-field resources).
 //
-// tableReplication (map[string]bool), tags (map[string]map[string]string),
-// and tableReplicationConfigs (map[string]map[string]any) are left as plain
-// maps: none holds a *T value with an identity of its own, so none fits
-// store.Table's keyed-collection shape. See persistence.go for how they
-// round-trip alongside the tables above.
+// tags (map[string]map[string]string) is left as a plain map: it does not
+// hold a *T value with an identity of its own, so it does not fit
+// store.Table's keyed-collection shape. See persistence.go for how it
+// round-trips alongside the tables above.
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -71,6 +71,8 @@ func tableBucketIndexKeyFn(v *Table) string { return v.TableBucketARN }
 
 func bucketReplicationKeyFn(v *BucketReplicationConfig) string { return v.TableBucketARN }
 
+func tableReplicationKeyFn(v *TableReplicationConfig) string { return v.TableARN }
+
 func tableRecordExpiryKeyFn(v *TableRecordExpiryConfig) string { return v.TableARN }
 
 // registerAllTables registers every converted resource collection exactly
@@ -89,8 +91,10 @@ func registerAllTables(b *InMemoryBackend) {
 	b.tablesByComposite = b.tables.AddIndex("byComposite", tableCompositeIndexKeyFn)
 	b.tablesByBucket = b.tables.AddIndex("byBucket", tableBucketIndexKeyFn)
 
-	// bucketReplication and tableRecordExpiry are deliberately built with
-	// store.New only, NOT store.Register -- see this file's doc comment.
+	// bucketReplication, tableReplication, and tableRecordExpiry are
+	// deliberately built with store.New only, NOT store.Register -- see
+	// this file's doc comment.
 	b.bucketReplication = store.New(bucketReplicationKeyFn)
+	b.tableReplication = store.New(tableReplicationKeyFn)
 	b.tableRecordExpiry = store.New(tableRecordExpiryKeyFn)
 }

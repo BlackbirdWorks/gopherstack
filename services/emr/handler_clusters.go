@@ -12,6 +12,7 @@ type runJobFlowInput struct {
 	OSReleaseLabel          string                  `json:"OSReleaseLabel"`
 	LogURI                  string                  `json:"LogUri"`
 	ServiceRole             string                  `json:"ServiceRole"`
+	JobFlowRole             string                  `json:"JobFlowRole"`
 	AutoScalingRole         string                  `json:"AutoScalingRole"`
 	Name                    string                  `json:"Name"`
 	ScaleDownBehavior       string                  `json:"ScaleDownBehavior"`
@@ -21,6 +22,10 @@ type runJobFlowInput struct {
 	Configurations          []Configuration         `json:"Configurations"`
 	Steps                   []StepSpec              `json:"Steps"`
 	BootstrapActions        []BootstrapActionConfig `json:"BootstrapActions"`
+	KerberosAttributes      *KerberosAttributes     `json:"KerberosAttributes"`
+	PlacementGroupConfigs   []PlacementGroupConfig  `json:"PlacementGroupConfigs"`
+	ManagedScalingPolicy    *ManagedScalingPolicy   `json:"ManagedScalingPolicy"`
+	AutoTerminationPolicy   *AutoTerminationPolicy  `json:"AutoTerminationPolicy"`
 	Instances               RunJobFlowInstances     `json:"Instances"`
 	StepConcurrencyLevel    int                     `json:"StepConcurrencyLevel"`
 	EbsRootVolumeSize       int                     `json:"EbsRootVolumeSize"`
@@ -44,9 +49,14 @@ func (h *Handler) handleRunJobFlow(ctx context.Context, in *runJobFlowInput) (*r
 		Configurations:          in.Configurations,
 		Steps:                   in.Steps,
 		BootstrapActions:        in.BootstrapActions,
+		KerberosAttributes:      in.KerberosAttributes,
+		PlacementGroupConfigs:   in.PlacementGroupConfigs,
+		ManagedScalingPolicy:    in.ManagedScalingPolicy,
+		AutoTerminationPolicy:   in.AutoTerminationPolicy,
 		Instances:               in.Instances,
 		LogURI:                  in.LogURI,
 		ServiceRole:             in.ServiceRole,
+		JobFlowRole:             in.JobFlowRole,
 		AutoScalingRole:         in.AutoScalingRole,
 		ScaleDownBehavior:       in.ScaleDownBehavior,
 		SecurityConfiguration:   in.SecurityConfiguration,

@@ -21,8 +21,14 @@ func (h *Handler) handleGetClustersForImage(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
 	}
 
+	// Real GetClustersForImageInput nests the required resourceId under a
+	// "filter" object (ClusterForImageFilterCriteria), not a bare
+	// "filterCriteria" map -- decoding into the wrong key silently drops the
+	// value on every real request.
 	var req struct {
-		FilterCriteria map[string]any `json:"filterCriteria"`
+		Filter struct {
+			ResourceID string `json:"resourceId"`
+		} `json:"filter"`
 	}
 
 	if len(body) > 0 {
@@ -34,7 +40,7 @@ func (h *Handler) handleGetClustersForImage(c *echo.Context) error {
 		}
 	}
 
-	result, getErr := h.Backend.GetClustersForImage(req.FilterCriteria)
+	result, getErr := h.Backend.GetClustersForImage(req.Filter.ResourceID)
 	if getErr != nil {
 		return h.mapError(c, getErr)
 	}

@@ -2,7 +2,6 @@ package athena
 
 import (
 	"fmt"
-	"maps"
 	"sort"
 	"time"
 )
@@ -40,7 +39,6 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 		Status:        "ACTIVE",
 		TargetDpus:    targetDPUs,
 		AllocatedDpus: targetDPUs,
-		Tags:          maps.Clone(tags),
 		CreationTime:  now,
 		LastAllocation: &CapacityAllocation{
 			RequestTime:           now,
@@ -49,6 +47,10 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 		},
 		LastSuccessfulAllocationTime: now,
 	})
+
+	if len(tags) > 0 {
+		b.resourceTags[b.capacityReservationARN(name)] = copyTags(tags)
+	}
 
 	return nil
 }
@@ -89,6 +91,7 @@ func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
 	}
 
 	b.capacityReservations.Delete(name)
+	delete(b.resourceTags, b.capacityReservationARN(name))
 
 	return nil
 }
@@ -104,7 +107,6 @@ func (b *InMemoryBackend) GetCapacityReservation(name string) (*CapacityReservat
 	}
 
 	cp := *cr
-	cp.Tags = maps.Clone(cr.Tags)
 
 	return &cp, nil
 }
@@ -116,9 +118,7 @@ func (b *InMemoryBackend) ListCapacityReservations() ([]CapacityReservation, err
 
 	out := make([]CapacityReservation, 0, b.capacityReservations.Len())
 	for _, cr := range b.capacityReservations.All() {
-		cp := *cr
-		cp.Tags = maps.Clone(cr.Tags)
-		out = append(out, cp)
+		out = append(out, *cr)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

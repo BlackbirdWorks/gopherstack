@@ -31,6 +31,7 @@ func (b *InMemoryBackend) CreateWorkflow(
 		Description:  description,
 		Engine:       engine,
 		Type:         "PRIVATE",
+		UUID:         newID(),
 		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: time.Now().UTC(),
@@ -91,8 +92,10 @@ func (b *InMemoryBackend) GetWorkflow(id string) (*Workflow, error) {
 	return &result, nil
 }
 
-// ListWorkflows lists workflows.
+// ListWorkflows lists workflows, optionally filtered by name/type (real AWS
+// ListWorkflowsInput query parameters).
 func (b *InMemoryBackend) ListWorkflows(
+	filter *WorkflowFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*Workflow, string, error) {
@@ -103,6 +106,16 @@ func (b *InMemoryBackend) ListWorkflows(
 	ids := make([]string, 0, len(all))
 
 	for _, wf := range all {
+		if filter != nil {
+			if filter.Name != "" && wf.Name != filter.Name {
+				continue
+			}
+
+			if filter.Type != "" && wf.Type != filter.Type {
+				continue
+			}
+		}
+
 		ids = append(ids, wf.ID)
 	}
 
@@ -235,9 +248,13 @@ func (b *InMemoryBackend) GetWorkflowVersion(
 	return &result, nil
 }
 
-// ListWorkflowVersions lists versions of a workflow.
+// ListWorkflowVersions lists versions of a workflow, optionally filtered by
+// type (real AWS ListWorkflowVersionsInput "type" query parameter).
+//
+//nolint:dupl // structurally-identical parent-scoped List op (already deduped via listChildFiltered)
 func (b *InMemoryBackend) ListWorkflowVersions(
 	workflowID string,
+	filter *WorkflowVersionFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*WorkflowVersion, string, error) {
@@ -249,15 +266,13 @@ func (b *InMemoryBackend) ListWorkflowVersions(
 	}
 
 	group := b.workflowVersionsByWorkflow.Get(workflowID)
-	names := make([]string, 0, len(group))
-
-	for _, wv := range group {
-		names = append(names, wv.VersionName)
-	}
-
-	result, outToken := paginatedCopies(names, nextToken, maxResults, func(id string) (*WorkflowVersion, bool) {
-		return b.workflowVersions.Get(parentKey(workflowID, id))
-	})
+	result, outToken := listChildFiltered(
+		group,
+		func(wv *WorkflowVersion) string { return wv.VersionName },
+		func(wv *WorkflowVersion) bool { return filter == nil || filter.Type == "" || wv.Type == filter.Type },
+		nextToken, maxResults,
+		func(id string) (*WorkflowVersion, bool) { return b.workflowVersions.Get(parentKey(workflowID, id)) },
+	)
 
 	return result, outToken, nil
 }

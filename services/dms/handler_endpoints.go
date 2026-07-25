@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -24,6 +25,48 @@ type createEndpointOutput struct {
 	Endpoint endpointJSON `json:"Endpoint"`
 }
 
+// validEndpointTypesTable lazily builds the EndpointType lookup table exactly
+// once.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2-style
+var validEndpointTypesTable = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		endpointTypeSource: true,
+		"target":           true,
+	}
+})
+
+// validEndpointTypes mirrors types.ReplicationEndpointTypeValue.Values() --
+// AWS models EndpointType as a lowercase enum ("source"/"target"); unlike
+// many other DMS string fields it IS validated server-side.
+func validEndpointTypes(s string) bool {
+	return validEndpointTypesTable()[s]
+}
+
+// validEngineNamesTable lazily builds the EngineName lookup table exactly
+// once.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2-style
+var validEngineNamesTable = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		engineNameMySQL: true, engineNameOracle: true, engineNamePostgres: true, "mariadb": true,
+		"aurora": true, engineNameAuroraPostgreSQL: true, "opensearch": true,
+		"redshift": true, "s3": true, "db2": true, "db2-zos": true,
+		"azuredb": true, "sybase": true, "dynamodb": true, "mongodb": true,
+		"kinesis": true, "kafka": true, "elasticsearch": true, "docdb": true,
+		engineNameSQLServer: true, "neptune": true, "babelfish": true,
+		"redshift-serverless": true, "aurora-serverless": true,
+		"aurora-postgresql-serverless": true, "gcp-mysql": true,
+		"azure-sql-managed-instance": true, "redis": true, "dms-transfer": true,
+	}
+})
+
+// validEngineNames mirrors the EngineName valid-values list documented on
+// CreateEndpointInput.EngineName in the SDK.
+func validEngineNames(s string) bool {
+	return validEngineNamesTable()[s]
+}
+
 func (h *Handler) handleCreateEndpoint(
 	ctx context.Context, in *createEndpointInput,
 ) (*createEndpointOutput, error) {
@@ -39,8 +82,16 @@ func (h *Handler) handleCreateEndpoint(
 		return nil, fmt.Errorf("%w: EndpointType is required", ErrValidation)
 	}
 
+	if !validEndpointTypes(endpointType) {
+		return nil, fmt.Errorf("%w: invalid EndpointType %q; valid: source, target", ErrValidation, endpointType)
+	}
+
 	if engineName == "" {
 		return nil, fmt.Errorf("%w: EngineName is required", ErrValidation)
+	}
+
+	if !validEngineNames(engineName) {
+		return nil, fmt.Errorf("%w: invalid EngineName %q", ErrValidation, engineName)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -190,21 +241,21 @@ func (h *Handler) handleDescribeEndpointTypes(
 	_ context.Context, _ *describeEndpointTypesInput,
 ) (*describeEndpointTypesOutput, error) {
 	engines := []string{
-		"mysql",
-		"postgres",
-		"oracle",
-		"sqlserver",
+		engineNameMySQL,
+		engineNamePostgres,
+		engineNameOracle,
+		engineNameSQLServer,
 		"mongodb",
 		"s3",
 		"kinesis",
 		"kafka",
 		"aurora",
-		"aurora-postgresql",
+		engineNameAuroraPostgreSQL,
 		"mariadb",
 		"redshift",
 		"dynamodb",
 	}
-	const endpointDirections = 2 // SOURCE and TARGET
+	const endpointDirections = 2 // source and target
 	types := make([]supportedEndpointTypeJSON, 0, len(engines)*endpointDirections)
 
 	for _, e := range engines {
@@ -213,13 +264,13 @@ func (h *Handler) handleDescribeEndpointTypes(
 			supportedEndpointTypeJSON{
 				EngineName:        e,
 				SupportsCDC:       true,
-				EndpointType:      "SOURCE",
+				EndpointType:      endpointTypeSource,
 				EngineDisplayName: e,
 			},
 			supportedEndpointTypeJSON{
 				EngineName:        e,
 				SupportsCDC:       true,
-				EndpointType:      "TARGET",
+				EndpointType:      "target",
 				EngineDisplayName: e,
 			},
 		)
@@ -314,6 +365,8 @@ func (h *Handler) handleDescribeSchemas(
 
 type modifyEndpointInput struct {
 	EndpointArn  *string `json:"EndpointArn"`
+	EndpointType *string `json:"EndpointType"`
+	EngineName   *string `json:"EngineName"`
 	ServerName   *string `json:"ServerName"`
 	DatabaseName *string `json:"DatabaseName"`
 	Username     *string `json:"Username"`
@@ -327,9 +380,21 @@ type modifyEndpointOutput struct {
 func (h *Handler) handleModifyEndpoint(
 	ctx context.Context, in *modifyEndpointInput,
 ) (*modifyEndpointOutput, error) {
+	endpointType := ptrconv.String(in.EndpointType)
+	if endpointType != "" && !validEndpointTypes(endpointType) {
+		return nil, fmt.Errorf("%w: invalid EndpointType %q; valid: source, target", ErrValidation, endpointType)
+	}
+
+	engineName := ptrconv.String(in.EngineName)
+	if engineName != "" && !validEngineNames(engineName) {
+		return nil, fmt.Errorf("%w: invalid EngineName %q", ErrValidation, engineName)
+	}
+
 	ep, err := h.Backend.ModifyEndpoint(
 		ctx,
 		ptrconv.String(in.EndpointArn),
+		endpointType,
+		engineName,
 		ptrconv.String(in.ServerName),
 		ptrconv.String(in.DatabaseName),
 		ptrconv.String(in.Username),

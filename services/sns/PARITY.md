@@ -1,9 +1,9 @@
 ---
 service: sns
 sdk_module: aws-sdk-go-v2/service/sns@v1.41.0
-last_audit_commit: 3d4de4f9
-last_audit_date: 2026-07-11
-overall: B
+last_audit_commit: 3afc23468
+last_audit_date: 2026-07-25
+overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -12,13 +12,13 @@ ops:
   ListTopics: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTopicAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "computed attrs (Owner/TopicArn/EffectiveDeliveryPolicy/SubscriptionsConfirmed|Pending|Deleted) correct"}
   SetTopicAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  Subscribe: {wire: ok, errors: ok, state: ok, persist: ok, note: "all 9 protocols; pending-confirmation literal 'pending confirmation'; firehose requires SubscriptionRoleArn; dedup on existing confirmed sub"}
+  Subscribe: {wire: ok, errors: ok, state: ok, persist: ok, note: "all 9 protocols; pending-confirmation literal 'pending confirmation'; firehose requires SubscriptionRoleArn; dedup on existing confirmed sub; fixed this pass: FilterPolicy 5-key cap, FilterPolicyLimitExceeded (200/topic, 10,000/account), SubscriptionLimitExceeded (12,500,000/topic, test-overridable) were all previously unenforced; fixed this pass: per-protocol Endpoint validation (sqs/lambda/firehose require a matching-service ARN with the expected resource prefix, application requires an sns endpoint/ ARN, http/https require a URL whose scheme matches the protocol) — previously any string was accepted for every non-SMS/email protocol"}
   ConfirmSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
   Unsubscribe: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSubscriptionsByTopic: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSubscriptionAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  SetSubscriptionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "FilterPolicy/FilterPolicyScope/RedrivePolicy(+DLQ existence check)/DeliveryPolicy/ReplayPolicy/RawMessageDelivery/SubscriptionRoleArn"}
+  SetSubscriptionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "FilterPolicy/FilterPolicyScope/RedrivePolicy(+DLQ existence check)/DeliveryPolicy/ReplayPolicy/RawMessageDelivery/SubscriptionRoleArn; fixed this pass: ReplayPolicy is now rejected (InvalidParameter) unless the subscription's topic is FIFO and its protocol is sqs/lambda/firehose (the real AWS application-to-application scope), was previously accepted unconditionally on any topic/protocol"}
   Publish: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: Lambda/Firehose/SQS-emitter now share one signed envelope (buildPublishedEvent) instead of Lambda fabricating a random-UUID signature"}
   PublishBatch: {wire: partial->ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: per-entry MessageAttributes field prefix was missing '.MessageAttributes' segment (verified against serializers.go) — every batch entry's attributes were silently dropped, breaking FilterPolicy matching for PublishBatch"}
   PublishToTargetArn (TargetArn publish): {wire: ok, errors: ok, state: ok, persist: n/a, note: "EndpointDisabled enforced"}
@@ -33,8 +33,8 @@ ops:
   SetEndpointAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   ListEndpointsByPlatformApplication: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  AddPermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "stored on Topic.Permissions, travels with topic snapshot"}
-  RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok}
+  AddPermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "stored on Topic.Permissions, travels with topic snapshot; fixed this pass: AuthorizationError now returns HTTP 403 (was 400 — handleBackendError had no 403 bucket at all)"}
+  RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: AuthorizationError (label not found) now returns HTTP 403, see AddPermission"}
   GetSMSSandboxAccountStatus/CreateSMSSandboxPhoneNumber/DeleteSMSSandboxPhoneNumber/ListSMSSandboxPhoneNumbers/VerifySMSSandboxPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok}
   CheckIfPhoneNumberIsOptedOut/ListPhoneNumbersOptedOut/OptInPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: ErrOptedOut sentinel text was the unrelated copy-pasted string 'KMSOptInRequired'"}
   GetSMSAttributes/SetSMSAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -42,16 +42,13 @@ ops:
   ListOriginationNumbers: {wire: ok, errors: ok, state: ok, persist: ok, note: "AWS has no public create API; empty by default, SeedOriginationNumber for tests"}
   TagResource/UntagResource/ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed"}
 families:
-  filter_policy_matching: {status: ok, note: "prefix/suffix/equals-ignore-case/anything-but(+nested)/exists/numeric(6 ops)/wildcard/cidr/$or, MessageBody vs MessageAttributes scope, String.Array expansion, 150-condition cap, 256KiB size cap — read in full, no gaps found"}
+  filter_policy_matching: {status: ok, note: "prefix/suffix/equals-ignore-case/anything-but(+nested)/exists/numeric(6 ops)/wildcard/cidr/$or, MessageBody vs MessageAttributes scope, String.Array expansion, 150-condition cap, 256KiB size cap, 5-key-per-policy cap (fixed this pass, was unenforced), FilterPolicyLimitExceeded 200/topic+10,000/account quota (fixed this pass, was unenforced and the error sentinel/code did not exist at all) — field-diffed against docs.aws.amazon.com/sns/latest/dg/subscription-filter-policy-constraints.html and API_Subscribe.html Errors table"}
   fifo_topics: {status: ok, note: "MessageGroupId required, ContentBasedDeduplication (SHA-256 body digest) vs explicit MessageDeduplicationId mutually exclusive, 5-min dedup window with bounded+swept map, 20-digit zero-padded monotonic SequenceNumber per topic, PublishBatch per-entry dedup"}
   delivery_lambda_firehose_sms_application: {status: ok, note: "fixed this pass: (1) Lambda envelope now carries the real per-publish Timestamp/Signature/SigningCertURL/UnsubscribeURL instead of a fabricated random-UUID signature and empty cert/unsub URLs; (2) Firehose now respects RawMessageDelivery (envelopes as JSON when false, matching AWS default, previously always sent the bare message); DLQ redrive on failure now forwards the same body that was attempted"}
-  replay_policy_archive: {status: ok, note: "fixed this pass: replay previously only reached HTTP/HTTPS (direct call) and SQS (via the publish emitter) — Lambda/Firehose/SMS/Application subscriptions with a ReplayPolicy silently replayed nothing. Now fans out through the same per-protocol delivery functions Publish uses. NOT investigated: real AWS restricts archive/replay to FIFO topics + SQS/Lambda/Firehose only; this backend allows ArchivePolicy on standard topics and replays to HTTP/email/sms/application too (see gaps)"}
-  http_https_delivery: {status: ok, note: "RSA-2048 self-signed cert + SignatureVersion=2 SHA256 signing, retry via DeliveryPolicy/EffectiveDeliveryPolicy, DLQ redrive, concurrency-capped worker semaphore, ctx-cancel on shutdown"}
-  error_codes: {status: ok, note: "NotFound/TopicAlreadyExists/PlatformApplicationAlreadyExists/InvalidParameter/EndpointDisabled/OptedOut/AuthorizationError(permission label) all map to correct AWS code strings; 400 vs 500 split verified in handleBackendError"}
-gaps:
-  - "ArchivePolicy/ReplayPolicy are accepted on any topic and fan out to any protocol (HTTP/email/sms/application); real AWS restricts message archiving/replay to FIFO topics with SQS/Lambda/Firehose subscribers only. Not fixed this pass — no doc access to confirm the exact restriction text/error code, and existing tests exercise HTTP replay deliberately. (bd: gopherstack-bz6)"
-  - "Subscribe does not validate that an 'sqs' protocol endpoint is a well-formed SQS queue ARN (any string is accepted); AWS rejects malformed endpoint ARNs per-protocol. Low value — SDK-driven callers always pass valid ARNs. (bd: gopherstack-bz6)"
-  - "SignatureVersion topic/subscription attribute is accepted and stored (isKnownTopicAttribute) but delivery always signs with SHA-256 (AWS 'SignatureVersion 2'); a topic explicitly set to SignatureVersion=1 should sign with SHA-1 instead. Not fixed — no consumer in this codebase verifies signatures, so behavior is unobservable, and getting this wrong is worse than leaving it (bd: gopherstack-bz6)"
+  replay_policy_archive: {status: ok, note: "fans out through the same per-protocol delivery functions Publish uses (SQS via the emitter, Lambda/Firehose via their delivery functions). fixed this pass (bd: gopherstack-bz6), re-verified against docs.aws.amazon.com/sns/latest/dg/fifo-message-archiving-replay.html and message-archiving-and-replay-topic-owner.html ('Amazon SNS message archiving and replay is only available for application-to-application (A2A) FIFO topics'): ArchivePolicy is now rejected (InvalidParameter) on non-FIFO topics at both CreateTopic and SetTopicAttributes; ReplayPolicy is now rejected (InvalidParameter) unless the subscription's topic is FIFO and its protocol is sqs/lambda/firehose. Previously ArchivePolicy/ReplayPolicy were accepted on any topic and fanned out to any protocol (HTTP/email/sms/application), which is not real AWS behavior — standard topics have no archive/replay mechanism at all, and SMS/Application/HTTP/HTTPS are A2P protocols never eligible even on a FIFO topic"}
+  http_https_delivery: {status: ok, note: "RSA-2048 self-signed cert; SignatureVersion-aware signing (SHA1withRSA for the AWS default SignatureVersion=1, SHA256withRSA when a topic explicitly sets SignatureVersion=2), retry via DeliveryPolicy/EffectiveDeliveryPolicy, DLQ redrive, concurrency-capped worker semaphore, ctx-cancel on shutdown; fixed this pass: delivery previously always signed with SHA-256 regardless of the topic's SignatureVersion attribute (and always declared SignatureVersion=2 in every envelope: HTTP/HTTPS, Lambda, Firehose, and the SQS delivery envelope built by services/sqs) — now resolveSignatureVersion/signWithVersion select SHA1 vs SHA256 per-topic and every envelope declares the version that actually produced its Signature"}
+  error_codes: {status: ok, note: "NotFound/TopicAlreadyExists/PlatformApplicationAlreadyExists/InvalidParameter/EndpointDisabled/OptedOut/AuthorizationError(permission label)/SubscriptionLimitExceeded/FilterPolicyLimitExceeded all map to correct AWS code strings; fixed this pass: handleBackendError previously only split 400-vs-500 (per the prior audit's own 'verified' note) with NO 403 bucket at all, so AuthorizationError/SubscriptionLimitExceeded/FilterPolicyLimitExceeded (all documented HTTP 403 in the SNS API errors tables) were silently returning 400; EndpointDisabled correctly stays 400 (confirmed against API_Publish.html, not 403 despite being permission-adjacent)"}
+gaps: []
 deferred:
   - "GetDataProtectionPolicy/PutDataProtectionPolicy: not verified against the real data-identifier grammar (e.g. built-in identifiers like 'Name', 'Address'); only checked that the policy round-trips as an opaque JSON string"
   - "Cross-service integration (test/integration/*_parity_test.go) was not run this pass — see parity-principles.md note that unit tests are not parity proof; recommend running the SDK-driven integration suite in a follow-up"
@@ -62,6 +59,144 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 
 Freeform notes for the next auditor — AWS-behavior specifics worth remembering, and
 "looks-wrong-but-correct" traps.
+
+### 2026-07-25 re-audit (parity-3 phase 2, bd: gopherstack-bz6)
+Closed all three items the prior pass had deliberately left in `gaps:` rather than
+deferring/guessing at them. Each was re-verified against live AWS documentation
+before the behavior change (not just re-asserted from the prior ledger):
+
+1. **ArchivePolicy/ReplayPolicy FIFO-only restriction.** Re-confirmed against
+   `docs.aws.amazon.com/sns/latest/dg/fifo-message-archiving-replay.html` ("Amazon
+   SNS message archiving and replay is only available for application-to-application
+   (A2A) FIFO topics") and `message-archiving-and-replay-topic-owner.html` (same
+   console-note language, repeated verbatim). "A2A" means the subscription protocol
+   must be sqs, lambda, or firehose — HTTP/HTTPS/email/email-json/sms/application are
+   "A2P" (application-to-person) and are never eligible, even on a FIFO topic.
+   Implemented: `ArchivePolicy` is now rejected (`InvalidParameter`) on a non-FIFO
+   topic at both `CreateTopic` and `SetTopicAttributes` (`validateCreateTopicAttrs`,
+   `validateTopicAttributeValue`); `ReplayPolicy` is now rejected unless the
+   subscription's topic is FIFO AND its protocol is sqs/lambda/firehose
+   (`validateReplayPolicyEligibleLocked`, called from `setSubscriptionAttributesLocked`
+   before the attribute is applied — covers both direct `SetSubscriptionAttributes`
+   calls and the attrs-at-Subscribe-time path in `handleSubscribe`, since both route
+   through the same function). `replayMessagesToSubscription` (archive.go) was
+   simplified to only fan out to Lambda/Firehose (SQS already goes through the
+   unconditional emitter path) — the HTTP/SMS/Application branches were deleted
+   since they are now provably unreachable rather than left as dead defensive code.
+   Rewrote `archive_test.go`'s HTTP-replay coverage (`TestReplayPolicyTriggersHTTPReplay`
+   → `TestReplayPolicyTriggersLambdaReplay`, using the existing `mockLambdaInvoker`
+   test double plus a new `All()` accessor for ordering assertions, since HTTP is no
+   longer a valid replay target) and `TestReplayPolicyDeliversToAllSubscriptionProtocols`
+   (split into `TestReplayPolicyDeliversToA2AProtocols` — lambda/firehose only — and a
+   new `TestReplayPolicyRejectedForIneligibleProtocolOrTopic` table asserting rejection
+   for sms/http/https on a FIFO topic and sqs/lambda on a standard topic). Every other
+   `archive_test.go`/`subscription_attributes_test.go`/`persistence_test.go` test that
+   exercised ArchivePolicy/ReplayPolicy on a bare (non-`.fifo`) topic name was updated
+   to a `.fifo` name — `CreateTopic` auto-sets `FifoTopic=true` from the name suffix, so
+   this is a mechanical rename, not a behavior change to what each test verifies.
+2. **Subscribe per-protocol Endpoint validation.** Added `validateSubscribeEndpoint`
+   cases (previously only sms/email/email-json were checked) for sqs, lambda,
+   firehose, application, and http/https: sqs/lambda/firehose/application must be a
+   well-formed ARN (`arn:{partition}:{service}:{region}:{account}:{resource}`) for the
+   matching service, with the expected resource prefix (`function:` for lambda,
+   `deliverystream/` for firehose, `endpoint/` for the sns-service application
+   protocol; sqs has no further resource-prefix constraint beyond the service match);
+   http/https must be a syntactically valid URL whose scheme matches the protocol
+   (AWS rejects an `http` Subscribe whose Endpoint is `https://...` and vice versa).
+   This surfaced and fixed a handful of pre-existing test fixtures that used
+   filler/placeholder endpoints ("x", "y", "q", a scheme-mismatched URL) for `sqs`/
+   `http` subscriptions in scenarios unrelated to endpoint validity (pagination,
+   listing, unsubscribe) — all replaced with well-formed fake ARNs/URLs. Also
+   surfaced one real bug in `services/cloudformation/resources_storage_test.go`'s
+   `TestResourceCreator_SNSSubscription`: it passed an SQS queue **URL**
+   (`https://sqs.us-east-1.amazonaws.com/.../my-queue`) as the `Endpoint` for a
+   `Protocol: sqs` `AWS::SNS::Subscription`, which is not what real AWS CloudFormation
+   accepts either (the SNS Subscribe API requires the SQS **ARN** for the sqs
+   protocol) — fixed the fixture to use a proper ARN.
+3. **SignatureVersion-aware signing.** Confirmed against
+   `docs.aws.amazon.com/sns/latest/api/API_SetTopicAttributes.html` ("By default,
+   SignatureVersion is set to 1") and `sns-verify-signature-of-message.html`
+   ("SignatureVersion1 – Uses an SHA1 hash of the message. SignatureVersion2 – Uses an
+   SHA256 hash of the message"). Added `notificationSigner.signSHA1` /
+   `resolveSignatureVersion` / `signWithVersion` (signing.go); `Publish` now resolves
+   the topic's `SignatureVersion` attribute once under the read lock and threads the
+   resolved value ("1" unless the attribute is explicitly "2") through
+   `buildPublishedEvent` and every `httpDelivery` so HTTP/HTTPS, Lambda, and Firehose
+   envelopes all sign with — and declare — the same version. `SetTopicAttributes` now
+   rejects a `SignatureVersion` value other than "1"/"2". **Cross-package fix (flagged
+   per HARD CONSTRAINTS):** `pkgs/events.SNSPublishedEvent` gained a new
+   `SignatureVersion` field (additive, no existing field changed) so the SQS delivery
+   path (`services/sqs/sns_delivery.go`, which re-embeds `ev.Signature` in its own SQS
+   notification envelope) can declare the version that actually produced that
+   signature — it previously hardcoded `SignatureVersion: "1"` unconditionally, which
+   would have been silently wrong for any topic explicitly set to SignatureVersion=2.
+   `services/sqs` was linted and its tests (`go test ./services/sqs/...`) re-run clean.
+   Made observable per the task's requirement (previously "unobservable" was the
+   stated reason for leaving this unfixed): `signing_test.go` now has
+   `TestSignatureVersion1UsesSHA1Signing` (new — default/unset topic, verifies the
+   emitted `Signature` against the signing cert using SHA1) and
+   `TestSignatureVersion2UsesSHA256Signing` (rewritten from
+   `TestSignatureIsValidRSASHA256`, now explicitly sets `SignatureVersion=2` before
+   publishing so it genuinely exercises the SHA256 path rather than relying on it
+   being the unconditional default). `TestNotificationSignatureNotMock`,
+   `TestSubjectIncludedInSignature`, and `TestNotificationEnvelopeFields` were updated
+   from asserting `SignatureVersion == "2"` (the old unconditional hardcode) to `"1"`
+   (the real AWS default, since none of those three set the attribute).
+
+Full-tree gates (`go build`/`go vet`/`-race` test for services/sns, services/sqs,
+services/cloudformation, pkgs/events/gofmt/golangci-lint) pass clean with zero
+issues; no banned nolints introduced.
+
+### 2026-07-23 re-audit (parity-5)
+Between `3d4de4f9` and this pass, `services/sns/` had only a mechanical file/test
+reorg (`backend.go`/`accuracy*_test.go`/etc. split into per-op-family files, e.g.
+`refactor: idiomatic file/test reorg` #2385) — diffed and confirmed no behavior
+change, `buildActions()` still routes all 42 real SDK ops 1:1. SDK module pinned
+at `v1.41.0` (unchanged). This pass field-diffed against live AWS documentation
+(`docs.aws.amazon.com/sns/latest/api/API_Subscribe.html`,
+`.../dg/subscription-filter-policy-constraints.html`, `.../api/API_Publish.html`,
+`.../api/CommonErrors.html`) rather than relying on the prior ledger's "ok"
+classifications, and found four real, previously-unenforced gaps, all fixed:
+1. **`AuthorizationError` (and by extension `SubscriptionLimitExceeded`/
+   `FilterPolicyLimitExceeded`) were returning HTTP 400, not 403.**
+   `handleBackendError` had exactly two status buckets — the default 400 and an
+   explicit 500 for unmapped errors — with no 403 path at all, despite the prior
+   ledger's own note claiming "400 vs 500 split verified". Every AWS SNS error
+   table (Subscribe, Publish, ...) documents `AuthorizationError` as HTTP 403.
+   Fixed by adding a `http.StatusForbidden` case in `handleBackendError`.
+   `EndpointDisabled` was re-confirmed to correctly stay 400 (verified against
+   `API_Publish.html` — it is NOT 403 despite being permission-adjacent).
+2. **`FilterPolicyLimitExceeded` did not exist at all** — no sentinel error, no
+   quota enforcement. Real AWS SNS caps filter-policy-bearing subscriptions at
+   200/topic and 10,000/account (both adjustable) and returns this exact error
+   code (HTTP 403) when exceeded (documented on `Subscribe`'s Errors table).
+   Added `ErrFilterPolicyLimitExceeded`, `maxFilterPoliciesPerTopic`,
+   `maxFilterPoliciesPerAccount`, and `checkFilterPolicyQuotaLocked` (called from
+   both `Subscribe` and `SetSubscriptionAttributes`, with self-exclusion so
+   updating a subscription's own existing filter policy in place doesn't
+   double-count).
+3. **`SubscriptionLimitExceeded` did not exist at all.** Real AWS caps
+   subscriptions at 12,500,000/topic (fixed quota) and returns this error (HTTP
+   403, "the customer already owns the maximum allowed number of
+   subscriptions") when exceeded. Added `ErrSubscriptionLimitExceeded` and a
+   `subscriptionLimitPerTopic` backend field (defaults to the real 12.5M quota,
+   overridable via `SetSubscriptionLimitPerTopicForTest` so tests don't need to
+   create millions of subscriptions to exercise the path).
+4. **FilterPolicy's "maximum of five keys" constraint was completely
+   unenforced** — `parseFilterPolicy` checked size (256 KiB) and total
+   combination/condition count (150) but never the AWS-documented 5-key-per-policy
+   cap. Added a `len(rawPolicy) > maxFilterPolicyKeys` check. Note: this backend
+   does not parse genuinely nested MessageBody filter policies (pre-existing,
+   documented gap — "Nesting depth ... not yet enforced"), so the 5-key check
+   uses top-level key count for both scopes; AWS's real leaf-key counting for
+   nested payload-based policies is not replicated. The check is also applied
+   recursively to each `$or` sub-policy object (each is parsed via the same
+   `parseFilterPolicy` path) — this is a reasonable but NOT doc-confirmed
+   interpretation of how the 5-key cap composes with `$or`; flagging for the
+   next auditor rather than asserting certainty.
+All four fixes are covered by new tests in `subscription_limits_test.go` and
+`permissions_test.go`. Gates (build/vet/`-race` test/gofmt/golangci-lint) pass
+clean with zero issues; no banned nolints introduced.
 
 ### 2026-07-11 re-audit (parity-4)
 No code changes made — no genuine bugs found. `services/sns/` had zero commits between
@@ -132,12 +267,17 @@ hand-derived guess.
   `Publish`/`PublishBatch` responses do NOT include any MD5 field** — that's an
   SQS-only concept; don't add one here, it would be a fabricated field AWS never
   returns.
-- This backend always signs with SHA-256 ("SignatureVersion 2") regardless of the
-  topic's `SignatureVersion` attribute value. Real AWS defaults to SignatureVersion 1
-  (SHA-1) and only uses SHA-256 when the topic attribute is explicitly "2". Left
-  as a known gap (see `gaps:`) rather than guessed at, since nothing in this codebase
-  verifies the signature and getting the SHA-1 codepath subtly wrong (e.g. real AWS's
-  exact PKCS1v15 padding/hash combination) is worse than a consistently-SHA-256 mock.
+- **Fixed 2026-07-25**: this backend now signs with SHA1withRSA by default
+  ("SignatureVersion 1", matching real AWS's documented default) and only switches to
+  SHA256withRSA ("SignatureVersion 2") when the topic's `SignatureVersion` attribute
+  is explicitly set to `"2"`. `resolveSignatureVersion`/`signWithVersion`
+  (signing.go) select the hash; `Publish` resolves the topic's attribute once under
+  the read lock and threads it through `buildPublishedEvent`/`httpDelivery` so every
+  channel (HTTP/HTTPS, Lambda, Firehose, and — via the new
+  `events.SNSPublishedEvent.SignatureVersion` field — the SQS delivery envelope built
+  by `services/sqs`) signs with, and declares, the same version. Both PKCS1v15/SHA1
+  and PKCS1v15/SHA256 use Go's standard `rsa.SignPKCS1v15`, so there is no bespoke
+  padding logic to get subtly wrong.
 
 ### Subscription ARN format
 - Confirmed subscription ARN: `arn:{partition}:sns:{region}:{account}:{topicName}:{uuid}`

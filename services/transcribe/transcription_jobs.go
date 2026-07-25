@@ -170,16 +170,17 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 	return &cp, nil
 }
 
-// ListTranscriptionJobs returns transcription jobs, optionally filtered by status, with pagination.
+// ListTranscriptionJobs returns transcription jobs, optionally filtered by status and
+// name substring, with pagination.
 func (b *InMemoryBackend) ListTranscriptionJobs(
-	statusFilter, nextToken string,
+	statusFilter, nameContains, nextToken string,
 ) ([]TranscriptionJob, string) {
 	b.mu.RLock("ListTranscriptionJobs")
 	defer b.mu.RUnlock()
 
 	all := make([]TranscriptionJob, 0, b.jobs.Len())
 	for _, j := range b.jobs.All() {
-		if statusFilter == "" || j.JobStatus == statusFilter {
+		if (statusFilter == "" || j.JobStatus == statusFilter) && matchesNameContains(j.JobName, nameContains) {
 			all = append(all, *j)
 		}
 	}

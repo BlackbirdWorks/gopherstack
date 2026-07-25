@@ -14,6 +14,64 @@ const (
 	pTestRegion    = "us-west-2"
 )
 
+// --- Seed helpers ---
+//
+// FK validation on Create* ops (added alongside true-parity FK checks) means
+// every seed below must build its real parent chain instead of pointing at a
+// dangling made-up ARN.
+
+func pSeedDatasetGroup(t *testing.T, b *personalize.InMemoryBackend) string {
+	t.Helper()
+
+	dg, err := b.CreateDatasetGroup("dg-1", "ECOMMERCE", "arn:aws:kms:us-west-2:111122223333:key/k", "", nil)
+	require.NoError(t, err)
+
+	return dg.DatasetGroupArn
+}
+
+func pSeedSchema(t *testing.T, b *personalize.InMemoryBackend) string {
+	t.Helper()
+
+	s, err := b.CreateSchema("sc-1", `{"type":"record"}`, "ECOMMERCE")
+	require.NoError(t, err)
+
+	return s.SchemaArn
+}
+
+func pSeedDataset(t *testing.T, b *personalize.InMemoryBackend) string {
+	t.Helper()
+
+	dgArn := pSeedDatasetGroup(t, b)
+	scArn := pSeedSchema(t, b)
+	ds, err := b.CreateDataset("ds-1", dgArn, "INTERACTIONS", scArn, nil)
+	require.NoError(t, err)
+
+	return ds.DatasetArn
+}
+
+func pSeedSolution(t *testing.T, b *personalize.InMemoryBackend) string {
+	t.Helper()
+
+	dgArn := pSeedDatasetGroup(t, b)
+	sol, err := b.CreateSolution(
+		"sol-1", dgArn, "arn:aws:personalize:::recipe/aws-user-personalization", "",
+		true, false, true, false, nil, nil,
+	)
+	require.NoError(t, err)
+
+	return sol.SolutionArn
+}
+
+func pSeedSolutionVersion(t *testing.T, b *personalize.InMemoryBackend) string {
+	t.Helper()
+
+	solArn := pSeedSolution(t, b)
+	sv, err := b.CreateSolutionVersion(solArn, "FULL", nil)
+	require.NoError(t, err)
+
+	return sv.SolutionVersionArn
+}
+
 // Test_Persistence_RestoreInvalidData verifies that malformed JSON is
 // reported as an error rather than silently discarded or partially applied.
 func Test_Persistence_RestoreInvalidData(t *testing.T) {
@@ -88,8 +146,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "datasetGroups",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateDatasetGroup("dg-1", "ECOMMERCE", "arn:aws:kms:us-west-2:111122223333:key/k", "", nil)
-				require.NoError(t, err)
+				pSeedDatasetGroup(t, b)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
@@ -102,9 +159,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "datasets",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateDataset("ds-1", "arn:aws:personalize:us-west-2:111122223333:dataset-group/dg-1",
-					"INTERACTIONS", "arn:aws:personalize:us-west-2:111122223333:schema/sc-1", nil)
-				require.NoError(t, err)
+				pSeedDataset(t, b)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
@@ -117,8 +172,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "schemas",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSchema("sc-1", `{"type":"record"}`, "ECOMMERCE")
-				require.NoError(t, err)
+				pSeedSchema(t, b)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
@@ -131,9 +185,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "solutions",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSolution("sol-1", "arn:aws:personalize:us-west-2:111122223333:dataset-group/dg-1",
-					"arn:aws:personalize:::recipe/aws-user-personalization", true, false, true, false, nil)
-				require.NoError(t, err)
+				pSeedSolution(t, b)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
@@ -146,10 +198,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "solutionVersions",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSolutionVersion(
-					"arn:aws:personalize:us-west-2:111122223333:solution/sol-1", "FULL", nil,
-				)
-				require.NoError(t, err)
+				pSeedSolutionVersion(t, b)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
@@ -162,9 +211,8 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "campaigns",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateCampaign(
-					"camp-1", "arn:aws:personalize:us-west-2:111122223333:solution/sol-1/v1", 5, nil,
-				)
+				svArn := pSeedSolutionVersion(t, b)
+				_, err := b.CreateCampaign("camp-1", svArn, 5, nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
@@ -178,7 +226,8 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "datasetImportJobs",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateDatasetImportJob("dij-1", "arn:aws:personalize:us-west-2:111122223333:dataset/ds-1",
+				dsArn := pSeedDataset(t, b)
+				_, err := b.CreateDatasetImportJob("dij-1", dsArn,
 					"arn:aws:iam::111122223333:role/r", map[string]any{"dataLocation": "s3://bucket/key"}, nil)
 				require.NoError(t, err)
 			},
@@ -193,7 +242,8 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "datasetExportJobs",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateDatasetExportJob("dej-1", "arn:aws:personalize:us-west-2:111122223333:dataset/ds-1",
+				dsArn := pSeedDataset(t, b)
+				_, err := b.CreateDatasetExportJob("dej-1", dsArn,
 					"arn:aws:iam::111122223333:role/r", map[string]any{"s3DataDestination": "s3://bucket/out"}, nil)
 				require.NoError(t, err)
 			},
@@ -208,9 +258,10 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "batchInferenceJobs",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
+				svArn := pSeedSolutionVersion(t, b)
 				_, err := b.CreateBatchInferenceJob(
 					"bij-1",
-					"arn:aws:personalize:us-west-2:111122223333:solution/sol-1/v1",
+					svArn,
 					"arn:aws:iam::111122223333:role/r",
 					map[string]any{"in": "s3://in"},
 					map[string]any{"out": "s3://out"},
@@ -229,9 +280,10 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "batchSegmentJobs",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
+				svArn := pSeedSolutionVersion(t, b)
 				_, err := b.CreateBatchSegmentJob(
 					"bsj-1",
-					"arn:aws:personalize:us-west-2:111122223333:solution/sol-1/v1",
+					svArn,
 					"arn:aws:iam::111122223333:role/r",
 					map[string]any{"in": "s3://in"},
 					map[string]any{"out": "s3://out"},
@@ -250,11 +302,8 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "eventTrackers",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateEventTracker(
-					"et-1",
-					"arn:aws:personalize:us-west-2:111122223333:dataset-group/dg-1",
-					nil,
-				)
+				dgArn := pSeedDatasetGroup(t, b)
+				_, err := b.CreateEventTracker("et-1", dgArn, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
@@ -268,7 +317,8 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "filters",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateFilter("f-1", "arn:aws:personalize:us-west-2:111122223333:dataset-group/dg-1",
+				dgArn := pSeedDatasetGroup(t, b)
+				_, err := b.CreateFilter("f-1", dgArn,
 					"INCLUDE ItemID WHERE Interactions.EVENT_TYPE IN (\"click\")", nil)
 				require.NoError(t, err)
 			},
@@ -283,8 +333,9 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "recommenders",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateRecommender("rec-1", "arn:aws:personalize:us-west-2:111122223333:dataset-group/dg-1",
-					"arn:aws:personalize:::recipe/aws-similar-items", 3, nil)
+				dgArn := pSeedDatasetGroup(t, b)
+				_, err := b.CreateRecommender("rec-1", dgArn,
+					"arn:aws:personalize:::recipe/aws-similar-items", 3, nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
@@ -298,12 +349,13 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "metricAttributions",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
+				dgArn := pSeedDatasetGroup(t, b)
 				metrics := []personalize.MetricAttribute{
 					{EventType: "click", Expression: "SUM(Items.PRICE)", MetricName: "m1"},
 				}
 				_, err := b.CreateMetricAttribution(
 					"ma-1",
-					"arn:aws:personalize:us-west-2:111122223333:dataset-group/dg-1",
+					dgArn,
 					metrics,
 					map[string]any{"s3DataDestination": map[string]any{"path": "s3://bucket/metrics"}},
 					nil,
@@ -321,9 +373,10 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "dataDeletionJobs",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
+				dgArn := pSeedDatasetGroup(t, b)
 				_, err := b.CreateDataDeletionJob(
 					"ddj-1",
-					"arn:aws:personalize:us-west-2:111122223333:dataset-group/dg-1",
+					dgArn,
 					"arn:aws:iam::111122223333:role/r",
 					map[string]any{"dataSource": "s3://bucket/delete"},
 					nil,

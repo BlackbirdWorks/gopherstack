@@ -119,3 +119,74 @@ func TestWorkMail_MailDomains(t *testing.T) {
 		})
 	}
 }
+
+// TestGetMailDomain_DkimAndRecords locks GetMailDomainOutput.
+// DkimVerificationStatus and .Records (the recommended DNS record list):
+// previously the backend modeled neither -- DkimVerificationStatus was
+// absent from the wire shape entirely and Records, though present on the
+// MailDomain struct, was never populated by RegisterMailDomain/
+// CreateOrganization.
+func TestGetMailDomain_DkimAndRecords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *workmail.Handler, orgID string) string
+		name       string
+		wantStatus string
+	}{
+		{
+			name: "registered_domain_is_pending",
+			setup: func(t *testing.T, h *workmail.Handler, orgID string) string {
+				t.Helper()
+				domain := "dkim-registered.example"
+				require.Equal(t, http.StatusOK, doOp(t, h, "RegisterMailDomain", fmt.Sprintf(
+					`{"OrganizationId":%q,"DomainName":%q}`, orgID, domain,
+				)).Code)
+
+				return domain
+			},
+			wantStatus: "PENDING",
+		},
+		{
+			name: "default_domain_is_verified",
+			setup: func(t *testing.T, h *workmail.Handler, orgID string) string {
+				t.Helper()
+				rec := doOp(t, h, "DescribeOrganization", fmt.Sprintf(`{"OrganizationId":%q}`, orgID))
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return decodeJSON(t, rec)["DefaultMailDomain"].(string)
+			},
+			wantStatus: "VERIFIED",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			orgID := createTestOrg(t, h, "dkim-org-"+tc.name)
+			domain := tc.setup(t, h, orgID)
+
+			rec := doOp(t, h, "GetMailDomain", fmt.Sprintf(
+				`{"OrganizationId":%q,"DomainName":%q}`, orgID, domain,
+			))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			m := decodeJSON(t, rec)
+			assert.Equal(t, tc.wantStatus, m["DkimVerificationStatus"])
+
+			records, ok := m["Records"].([]any)
+			require.True(t, ok, "Records field missing or wrong type")
+			require.NotEmpty(t, records)
+			for _, raw := range records {
+				rec := raw.(map[string]any)
+				assert.NotEmpty(t, rec["Hostname"])
+				assert.NotEmpty(t, rec["Type"])
+				assert.NotEmpty(t, rec["Value"])
+			}
+			// MX + SPF TXT + autodiscover CNAME + 3 DKIM CNAMEs.
+			assert.Len(t, records, 6)
+		})
+	}
+}

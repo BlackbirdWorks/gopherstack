@@ -42,13 +42,29 @@ func (b *InMemoryBackend) CreateChannelPlacementGroup(
 		Name:      name,
 		ClusterID: clusterID,
 		State:     channelPlacementGroupStateUnassigned,
-		Channels:  []string{},
 		Nodes:     ns,
 	}
 
 	b.channelPlacementGroups.Put(g)
 
-	return g.toGroup(), nil
+	return g.toGroup(b.channelIDsForPlacementGroup(id)), nil
+}
+
+// channelIDsForPlacementGroup returns the sorted set of Channel IDs whose
+// AnywhereSettings.ChannelPlacementGroupID matches groupID. Caller must
+// already hold b.mu (Lock or RLock).
+func (b *InMemoryBackend) channelIDsForPlacementGroup(groupID string) []string {
+	ids := []string{}
+
+	for _, ch := range b.channels.All() {
+		if ch.AnywhereSettings.ChannelPlacementGroupID == groupID {
+			ids = append(ids, ch.ID)
+		}
+	}
+
+	sort.Strings(ids)
+
+	return ids
 }
 
 // DescribeChannelPlacementGroup returns a placement group by cluster and group ID.
@@ -63,7 +79,7 @@ func (b *InMemoryBackend) DescribeChannelPlacementGroup(
 		return nil, fmt.Errorf("%w: channelPlacementGroup %s not found", ErrNotFound, groupID)
 	}
 
-	return g.toGroup(), nil
+	return g.toGroup(b.channelIDsForPlacementGroup(groupID)), nil
 }
 
 // UpdateChannelPlacementGroup updates a placement group's mutable fields.
@@ -89,7 +105,7 @@ func (b *InMemoryBackend) UpdateChannelPlacementGroup(
 		g.Nodes = ns
 	}
 
-	return g.toGroup(), nil
+	return g.toGroup(b.channelIDsForPlacementGroup(groupID)), nil
 }
 
 // DeleteChannelPlacementGroup deletes a placement group.
@@ -107,8 +123,9 @@ func (b *InMemoryBackend) DeleteChannelPlacementGroup(
 	}
 
 	g.State = channelPlacementGroupStateDeleting
-	out := g.toGroup()
+	out := g.toGroup(b.channelIDsForPlacementGroup(groupID))
 	b.channelPlacementGroups.Delete(key)
+	delete(b.tags, g.ARN)
 
 	return out, nil
 }
@@ -139,7 +156,7 @@ func (b *InMemoryBackend) ListChannelPlacementGroups(
 
 	out := make([]*ChannelPlacementGroup, 0, len(pg.Data))
 	for _, g := range pg.Data {
-		out = append(out, g.toGroup())
+		out = append(out, g.toGroup(b.channelIDsForPlacementGroup(g.ID)))
 	}
 
 	return out, pg.Next, nil

@@ -94,10 +94,19 @@ func (h *Handler) handleDeleteResource(_ context.Context, req *deleteResourceReq
 	return &emptyResp{}, nil
 }
 
+// listResourcesFiltersReq mirrors aws-sdk-go-v2/service/workmail/types.
+// ListResourcesFilters, the ListResourcesInput.Filters wire shape.
+type listResourcesFiltersReq struct {
+	NamePrefix         string `json:"NamePrefix"`
+	PrimaryEmailPrefix string `json:"PrimaryEmailPrefix"`
+	State              string `json:"State"`
+}
+
 type listResourcesReq struct {
-	OrganizationID string `json:"OrganizationId"`
-	NextToken      string `json:"NextToken"`
-	MaxResults     int32  `json:"MaxResults"`
+	Filters        *listResourcesFiltersReq `json:"Filters"`
+	OrganizationID string                   `json:"OrganizationId"`
+	NextToken      string                   `json:"NextToken"`
+	MaxResults     int32                    `json:"MaxResults"`
 }
 
 type resourceSummaryResp struct {
@@ -115,7 +124,16 @@ type listResourcesResp struct {
 }
 
 func (h *Handler) handleListResources(_ context.Context, req *listResourcesReq) (*listResourcesResp, error) {
-	resources, next, err := h.Backend.ListResources(req.OrganizationID, req.MaxResults, req.NextToken)
+	var filter *ResourceFilter
+	if req.Filters != nil {
+		filter = &ResourceFilter{
+			NamePrefix:         req.Filters.NamePrefix,
+			PrimaryEmailPrefix: req.Filters.PrimaryEmailPrefix,
+			State:              req.Filters.State,
+		}
+	}
+
+	resources, next, err := h.Backend.ListResources(req.OrganizationID, filter, req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}

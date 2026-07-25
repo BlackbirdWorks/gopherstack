@@ -8,9 +8,12 @@ type storedAllowList struct {
 }
 
 // storedCustomDataID holds the custom data identifier with internal fields.
+// The soft-delete flag lives directly on the embedded CustomDataIdentifier
+// (its Deleted field) since the real GetCustomDataIdentifierOutput/
+// BatchGetCustomDataIdentifierSummary shapes both carry it too -- no
+// separate internal-only field is needed.
 type storedCustomDataID struct {
 	CustomDataIdentifier
-	Deleted bool `json:"deleted"`
 }
 
 // storedFindingsFilter holds the findings filter with all fields.
@@ -86,7 +89,20 @@ type CustomDataIdentifier struct {
 	Regex                string            `json:"regex"`
 	IgnoreWords          []string          `json:"ignoreWords,omitempty"`
 	Keywords             []string          `json:"keywords,omitempty"`
+	SeverityLevels       []SeverityLevel   `json:"severityLevels,omitempty"`
 	MaximumMatchDistance int32             `json:"maximumMatchDistance"`
+	// Deleted reflects real GetCustomDataIdentifierOutput/
+	// BatchGetCustomDataIdentifierSummary soft-delete semantics: Amazon Macie
+	// never hard-deletes a custom data identifier, so Get/BatchGet keep
+	// returning it (with deleted:true) after DeleteCustomDataIdentifier.
+	Deleted bool `json:"deleted"`
+}
+
+// SeverityLevel specifies a severity level for findings that a custom data
+// identifier produces, keyed by an occurrence-count threshold.
+type SeverityLevel struct {
+	Severity             string `json:"severity"`
+	OccurrencesThreshold int64  `json:"occurrencesThreshold"`
 }
 
 // CustomDataIdentifierSummary is the summary view of a custom data identifier.
@@ -126,23 +142,73 @@ type FindingType string
 
 // Finding represents a Macie finding.
 type Finding struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	AccountID   string    `json:"accountId"`
-	Category    string    `json:"category"`
-	Description string    `json:"description"`
-	ID          string    `json:"id"`
-	Region      string    `json:"region"`
-	Title       string    `json:"title"`
-	Type        string    `json:"type"`
-	Severity    Severity  `json:"severity"`
-	Archived    bool      `json:"archived"`
+	CreatedAt             time.Time              `json:"createdAt"`
+	UpdatedAt             time.Time              `json:"updatedAt"`
+	ClassificationDetails *ClassificationDetails `json:"classificationDetails,omitempty"`
+	ResourcesAffected     *ResourcesAffected     `json:"resourcesAffected,omitempty"`
+	AccountID             string                 `json:"accountId"`
+	Category              string                 `json:"category"`
+	Description           string                 `json:"description"`
+	ID                    string                 `json:"id"`
+	Partition             string                 `json:"partition,omitempty"`
+	Region                string                 `json:"region"`
+	SchemaVersion         string                 `json:"schemaVersion,omitempty"`
+	Title                 string                 `json:"title"`
+	Type                  string                 `json:"type"`
+	Severity              Severity               `json:"severity"`
+	Count                 int64                  `json:"count"`
+	Archived              bool                   `json:"archived"`
+	Sample                bool                   `json:"sample"`
 }
 
-// Severity holds finding severity details.
+// ClassificationDetails describes how a sensitive-data finding was produced.
+// Nil for policy findings.
+type ClassificationDetails struct {
+	Result     *ClassificationResult `json:"result,omitempty"`
+	JobArn     string                `json:"jobArn,omitempty"`
+	JobID      string                `json:"jobId,omitempty"`
+	OriginType string                `json:"originType,omitempty"`
+}
+
+// ClassificationResult holds the status and other details of a sensitive
+// data finding.
+type ClassificationResult struct {
+	Status         *ClassificationResultStatus `json:"status,omitempty"`
+	MimeType       string                      `json:"mimeType,omitempty"`
+	SizeClassified int64                       `json:"sizeClassified,omitempty"`
+}
+
+// ClassificationResultStatus holds the status of a classification result.
+type ClassificationResultStatus struct {
+	Code   string `json:"code,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ResourcesAffected identifies the S3 bucket/object a finding applies to.
+type ResourcesAffected struct {
+	S3Bucket *AffectedS3Bucket `json:"s3Bucket,omitempty"`
+	S3Object *AffectedS3Object `json:"s3Object,omitempty"`
+}
+
+// AffectedS3Bucket is the bucket-level detail of ResourcesAffected.
+type AffectedS3Bucket struct {
+	Arn  string `json:"arn,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+// AffectedS3Object is the object-level detail of ResourcesAffected.
+type AffectedS3Object struct {
+	BucketArn string `json:"bucketArn,omitempty"`
+	Key       string `json:"key,omitempty"`
+	Path      string `json:"path,omitempty"`
+}
+
+// Severity holds finding severity details. Score is an integer 1 (Low) to 3
+// (High) on the wire (types.Severity.Score is *int64 in the real SDK) -- not
+// a fractional value.
 type Severity struct {
-	Description string  `json:"description"`
-	Score       float64 `json:"score"`
+	Description string `json:"description"`
+	Score       int64  `json:"score"`
 }
 
 // FindingStatisticsGroup holds a group of finding statistics.
@@ -153,32 +219,64 @@ type FindingStatisticsGroup struct {
 
 // ClassificationJob represents a Macie classification job.
 type ClassificationJob struct {
-	Tags               map[string]string `json:"tags,omitempty"`
-	S3JobDefinition    map[string]any    `json:"s3JobDefinition,omitempty"`
-	ScheduleFrequency  map[string]any    `json:"scheduleFrequency,omitempty"`
-	LastRunTime        *time.Time        `json:"lastRunTime,omitempty"`
-	CreatedAt          time.Time         `json:"createdAt"`
-	Arn                string            `json:"jobArn"`
-	ClientToken        string            `json:"clientToken,omitempty"`
-	Description        string            `json:"description,omitempty"`
-	JobID              string            `json:"jobId"`
-	JobStatus          string            `json:"jobStatus"`
-	JobType            string            `json:"jobType"`
-	Name               string            `json:"name"`
-	SamplingPercentage int32             `json:"samplingPercentage"`
-	InitialRun         bool              `json:"initialRun"`
+	Tags                          map[string]string      `json:"tags,omitempty"`
+	S3JobDefinition               map[string]any         `json:"s3JobDefinition,omitempty"`
+	ScheduleFrequency             map[string]any         `json:"scheduleFrequency,omitempty"`
+	LastRunTime                   *time.Time             `json:"lastRunTime,omitempty"`
+	LastRunErrorStatus            *JobLastRunErrorStatus `json:"lastRunErrorStatus,omitempty"`
+	Statistics                    *JobStatistics         `json:"statistics,omitempty"`
+	UserPausedDetails             *JobUserPausedDetails  `json:"userPausedDetails,omitempty"`
+	CreatedAt                     time.Time              `json:"createdAt"`
+	Arn                           string                 `json:"jobArn"`
+	ClientToken                   string                 `json:"clientToken,omitempty"`
+	Description                   string                 `json:"description,omitempty"`
+	JobID                         string                 `json:"jobId"`
+	JobStatus                     string                 `json:"jobStatus"`
+	JobType                       string                 `json:"jobType"`
+	ManagedDataIdentifierSelector string                 `json:"managedDataIdentifierSelector,omitempty"`
+	Name                          string                 `json:"name"`
+	AllowListIDs                  []string               `json:"allowListIds,omitempty"`
+	CustomDataIdentifierIDs       []string               `json:"customDataIdentifierIds,omitempty"`
+	ManagedDataIdentifierIDs      []string               `json:"managedDataIdentifierIds,omitempty"`
+	SamplingPercentage            int32                  `json:"samplingPercentage"`
+	InitialRun                    bool                   `json:"initialRun"`
+}
+
+// JobLastRunErrorStatus indicates whether account- or bucket-level access
+// errors occurred during a classification job's most recent run.
+type JobLastRunErrorStatus struct {
+	Code string `json:"code,omitempty"`
+}
+
+// JobStatistics holds run-count and remaining-object processing stats for a
+// classification job.
+type JobStatistics struct {
+	ApproximateNumberOfObjectsToProcess float64 `json:"approximateNumberOfObjectsToProcess"`
+	NumberOfRuns                        float64 `json:"numberOfRuns"`
+}
+
+// JobUserPausedDetails records when a job was paused by the user and when it
+// will expire if not resumed. Present only while JobStatus is USER_PAUSED.
+type JobUserPausedDetails struct {
+	JobExpiresAt                        *time.Time `json:"jobExpiresAt,omitempty"`
+	JobPausedAt                         *time.Time `json:"jobPausedAt,omitempty"`
+	JobImminentExpirationHealthEventArn string     `json:"jobImminentExpirationHealthEventArn,omitempty"`
 }
 
 // ClassificationJobSummary is the list-view of a classification job.
 type ClassificationJobSummary struct {
-	Tags        map[string]string `json:"tags,omitempty"`
-	LastRunTime *time.Time        `json:"lastRunTime,omitempty"`
-	CreatedAt   time.Time         `json:"createdAt"`
-	Description string            `json:"description,omitempty"`
-	JobID       string            `json:"jobId"`
-	JobStatus   string            `json:"jobStatus"`
-	JobType     string            `json:"jobType"`
-	Name        string            `json:"name"`
+	Tags               map[string]string      `json:"tags,omitempty"`
+	LastRunTime        *time.Time             `json:"lastRunTime,omitempty"`
+	BucketCriteria     any                    `json:"bucketCriteria,omitempty"`
+	BucketDefinitions  any                    `json:"bucketDefinitions,omitempty"`
+	LastRunErrorStatus *JobLastRunErrorStatus `json:"lastRunErrorStatus,omitempty"`
+	UserPausedDetails  *JobUserPausedDetails  `json:"userPausedDetails,omitempty"`
+	CreatedAt          time.Time              `json:"createdAt"`
+	Description        string                 `json:"description,omitempty"`
+	JobID              string                 `json:"jobId"`
+	JobStatus          string                 `json:"jobStatus"`
+	JobType            string                 `json:"jobType"`
+	Name               string                 `json:"name"`
 }
 
 // Member represents a Macie member account.
@@ -223,12 +321,12 @@ type OrgAdminAccount struct {
 	Status    string `json:"status"`
 }
 
-// OrgConfig holds organization-level Macie configuration.
+// OrgConfig holds organization-level Macie configuration. Matches
+// DescribeOrganizationConfigurationOutput exactly: AutoEnable and
+// MaxAccountLimitReached are its only two fields in the real SDK.
 type OrgConfig struct {
-	DataSources            map[string]any   `json:"dataSources,omitempty"`
-	Features               []map[string]any `json:"features,omitempty"`
-	AutoEnable             bool             `json:"autoEnable"`
-	MaxAccountLimitReached bool             `json:"maxAccountLimitReached"`
+	AutoEnable             bool `json:"autoEnable"`
+	MaxAccountLimitReached bool `json:"maxAccountLimitReached"`
 }
 
 // AutoDiscoveryConfig holds automated discovery configuration.

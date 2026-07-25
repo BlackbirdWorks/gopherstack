@@ -27,15 +27,25 @@ func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBClusterSnapshot, 0, len(snaps))
-	for _, snap := range snaps {
-		cp := snap
-		members = append(members, toXMLClusterSnapshot(&cp))
+	snaps, err = applyDBClusterSnapshotFilters(vals, snaps)
+	if err != nil {
+		return nil, err
+	}
+	members, marker, err := paginateDescribe(vals, snaps, func(a, b DBClusterSnapshot) bool {
+		return a.DBClusterSnapshotIdentifier < b.DBClusterSnapshotIdentifier
+	}, func(item DBClusterSnapshot) xmlDBClusterSnapshot {
+		cp := item
+
+		return toXMLClusterSnapshot(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBClusterSnapshotsResponse{
 		Xmlns:              rdsXMLNS,
 		DBClusterSnapshots: xmlDBClusterSnapshotList{Members: members},
+		Marker:             marker,
 	}, nil
 }
 
@@ -75,9 +85,11 @@ func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
 	return xmlDBClusterSnapshot{
 		DBClusterSnapshotIdentifier: s.DBClusterSnapshotIdentifier,
 		DBClusterIdentifier:         s.DBClusterIdentifier,
+		DBClusterResourceID:         s.DBClusterResourceID,
 		Engine:                      s.Engine,
 		EngineVersion:               s.EngineVersion,
 		Status:                      s.Status,
+		SnapshotType:                s.SnapshotType,
 		SnapshotCreateTime:          snapshotCreateTime,
 		PercentProgress:             s.PercentProgress,
 		StorageEncrypted:            s.StorageEncrypted,
@@ -87,9 +99,11 @@ func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
 type xmlDBClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
+	DBClusterResourceID         string `xml:"DbClusterResourceId,omitempty"`
 	Engine                      string `xml:"Engine"`
 	EngineVersion               string `xml:"EngineVersion,omitempty"`
 	Status                      string `xml:"Status"`
+	SnapshotType                string `xml:"SnapshotType,omitempty"`
 	SnapshotCreateTime          string `xml:"SnapshotCreateTime,omitempty"`
 	PercentProgress             int    `xml:"PercentProgress,omitempty"`
 	StorageEncrypted            bool   `xml:"StorageEncrypted,omitempty"`
@@ -108,6 +122,7 @@ type createDBClusterSnapshotResponse struct {
 type describeDBClusterSnapshotsResponse struct {
 	XMLName            xml.Name                 `xml:"DescribeDBClusterSnapshotsResponse"`
 	Xmlns              string                   `xml:"xmlns,attr"`
+	Marker             string                   `xml:"DescribeDBClusterSnapshotsResult>Marker,omitempty"`
 	DBClusterSnapshots xmlDBClusterSnapshotList `xml:"DescribeDBClusterSnapshotsResult>DBClusterSnapshots"`
 }
 

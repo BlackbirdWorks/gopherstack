@@ -43,6 +43,11 @@ const (
 	resourceRegionScopeRegional = "REGIONAL"
 	// resourceRegionScopeGlobal indicates a resource is globally scoped.
 	resourceRegionScopeGlobal = "GLOBAL"
+	// replaceWorkStatusCompleted is the terminal status for a ReplacePermissionAssociations
+	// background work item. This mock performs the association swap synchronously, so a
+	// work item is always COMPLETED by the time it is persisted (IN_PROGRESS/FAILED are
+	// valid real-AWS states but never occur here).
+	replaceWorkStatusCompleted = "COMPLETED"
 	// accountIDLen is the number of digits in an AWS account ID.
 	accountIDLen = 12
 	// arnPartCountPrincipal is the min number of colon-separated parts to extract an account from an ARN.
@@ -126,6 +131,7 @@ type InMemoryBackend struct {
 	permissions      *store.Table[Permission]
 	sharePermissions map[string]map[string]int32 // shareARN -> permissionARN -> version
 	invitations      *store.Table[ResourceShareInvitation]
+	replaceWorks     *store.Table[ReplacePermissionAssociationsWork]
 	registry         *store.Registry
 	mu               *lockmetrics.RWMutex
 	accountID        string

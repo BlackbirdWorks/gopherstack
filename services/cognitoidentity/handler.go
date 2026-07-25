@@ -205,6 +205,9 @@ var cognitoIdentitySentinelErrors = []struct { //nolint:gochecknoglobals // pack
 	{ErrIdentityPoolAlreadyExists, ErrIdentityPoolAlreadyExists.Error()},
 	{ErrInvalidParameter, ErrInvalidParameter.Error()},
 	{ErrNotAuthorized, ErrNotAuthorized.Error()},
+	{ErrResourceConflict, ErrResourceConflict.Error()},
+	{ErrDeveloperUserAlreadyRegistered, ErrDeveloperUserAlreadyRegistered.Error()},
+	{ErrInvalidIdentityPoolConfiguration, ErrInvalidIdentityPoolConfiguration.Error()},
 	{errUnknownAction, "UnknownOperationException"},
 }
 
@@ -230,5 +233,11 @@ func resolveErrorType(err error) (string, int) {
 		return "InvalidParameterException", http.StatusBadRequest
 	}
 
-	return "InternalFailure", http.StatusInternalServerError
+	// InternalErrorException is cognitoidentity's modeled generic-server-error wire type
+	// (confirmed in aws-sdk-go-v2/service/cognitoidentity deserializers.go's per-operation
+	// errorCode switches, which recognize "InternalErrorException" on every operation).
+	// The Query/EC2-protocol-style "InternalFailure" used by some other gopherstack
+	// services does not match any case there, so a real client would fall back to an
+	// untyped smithy API error instead of a typed *types.InternalErrorException.
+	return "InternalErrorException", http.StatusInternalServerError
 }

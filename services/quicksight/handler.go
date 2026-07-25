@@ -520,7 +520,51 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // GetSupportedOperations returns the list of implemented QuickSight operations.
-func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existing issue.
+func (h *Handler) GetSupportedOperations() []string {
+	groups := [][]string{
+		namespaceAndGroupOps(),
+		userOps(),
+		dataSourceOps(),
+		dataSetOps(),
+		ingestionOps(),
+		dashboardOps(),
+		analysisOps(),
+		tagOps(),
+		folderOps(),
+		templateOps(),
+		themeOps(),
+		topicOps(),
+		vpcConnectionOps(),
+		iamPolicyAssignmentOps(),
+		customPermissionsOps(),
+		roleOps(),
+		userCustomPermissionOps(),
+		dashboardExtraOps(),
+		analysisExtraOps(),
+		dataSetExtraOps(),
+		dataSourceExtraOps(),
+		brandOps(),
+		oauthAppOps(),
+		actionConnectorOps(),
+		identityPropagationOps(),
+		assetBundleOps(),
+		automationOps(),
+		accountLevelOps(),
+		embedOps(),
+		searchOps(),
+		flowOps(),
+		selfUpgradeOps(),
+	}
+
+	var ops []string
+	for _, g := range groups {
+		ops = append(ops, g...)
+	}
+
+	return ops
+}
+
+func namespaceAndGroupOps() []string {
 	return []string{
 		opCreateNamespace,
 		opDescribeNamespace,
@@ -536,6 +580,11 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opDescribeGroupMembership,
 		opDeleteGroupMembership,
 		opListGroupMemberships,
+	}
+}
+
+func userOps() []string {
+	return []string{
 		opRegisterUser,
 		opDescribeUser,
 		opUpdateUser,
@@ -543,36 +592,70 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opDeleteUserByPrincipalID,
 		opListUsers,
 		opListUserGroups,
+	}
+}
+
+func dataSourceOps() []string {
+	return []string{
 		opCreateDataSource,
 		opDescribeDataSource,
 		opUpdateDataSource,
 		opDeleteDataSource,
 		opListDataSources,
+	}
+}
+
+func dataSetOps() []string {
+	return []string{
 		opCreateDataSet,
 		opDescribeDataSet,
 		opUpdateDataSet,
 		opDeleteDataSet,
 		opListDataSets,
+	}
+}
+
+func ingestionOps() []string {
+	return []string{
 		opCreateIngestion,
 		opDescribeIngestion,
 		opCancelIngestion,
 		opListIngestions,
+	}
+}
+
+func dashboardOps() []string {
+	return []string{
 		opCreateDashboard,
 		opDescribeDashboard,
 		opUpdateDashboard,
 		opDeleteDashboard,
 		opListDashboards,
 		opListDashboardVersions,
+	}
+}
+
+func analysisOps() []string {
+	return []string{
 		opCreateAnalysis,
 		opDescribeAnalysis,
 		opUpdateAnalysis,
 		opDeleteAnalysis,
 		opListAnalyses,
 		opRestoreAnalysis,
+	}
+}
+
+func tagOps() []string {
+	return []string{
 		opTagResource,
 		opUntagResource,
 		opListTagsForResource,
-		// folder ops
+	}
+}
+
+func folderOps() []string {
+	return []string{
 		opCreateFolder,
 		opDescribeFolder,
 		opUpdateFolder,
@@ -586,7 +669,11 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opDescribeFolderPermissions,
 		opDescribeFolderResolvedPerms,
 		opUpdateFolderPermissions,
-		// template ops
+	}
+}
+
+func templateOps() []string {
+	return []string{
 		opCreateTemplate,
 		opDescribeTemplate,
 		opUpdateTemplate,
@@ -601,7 +688,11 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opUpdateTemplateAlias,
 		opDeleteTemplateAlias,
 		opListTemplateAliases,
-		// theme ops
+	}
+}
+
+func themeOps() []string {
+	return []string{
 		opCreateTheme,
 		opDescribeTheme,
 		opUpdateTheme,
@@ -615,7 +706,11 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opUpdateThemeAlias,
 		opDeleteThemeAlias,
 		opListThemeAliases,
-		// topic ops
+	}
+}
+
+func topicOps() []string {
+	return []string{
 		opCreateTopic,
 		opDescribeTopic,
 		opUpdateTopic,
@@ -633,36 +728,60 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opBatchCreateTopicAnswers,
 		opBatchDeleteTopicAnswers,
 		opListTopicReviewedAnswers,
-		// VPC connection ops
+	}
+}
+
+func vpcConnectionOps() []string {
+	return []string{
 		opCreateVPCConnection,
 		opDescribeVPCConnection,
 		opUpdateVPCConnection,
 		opDeleteVPCConnection,
 		opListVPCConnections,
-		// IAM policy assignment ops
+	}
+}
+
+func iamPolicyAssignmentOps() []string {
+	return []string{
 		opCreateIAMPolicyAssignment,
 		opDescribeIAMPolicyAssignment,
 		opUpdateIAMPolicyAssignment,
 		opDeleteIAMPolicyAssignment,
 		opListIAMPolicyAssignments,
 		opListIAMPolicyAssignmentsForUser,
-		// custom permissions ops
+	}
+}
+
+func customPermissionsOps() []string {
+	return []string{
 		opCreateCustomPermissions,
 		opDescribeCustomPermissions,
 		opUpdateCustomPermissions,
 		opDeleteCustomPermissions,
 		opListCustomPermissions,
-		// role ops
+	}
+}
+
+func roleOps() []string {
+	return []string{
 		opCreateRoleMembership,
 		opDeleteRoleMembership,
 		opListRoleMemberships,
 		opGetRoleCustomPermission,
 		opUpdateRoleCustomPermission,
 		opDeleteRoleCustomPermission,
-		// user custom permission ops
+	}
+}
+
+func userCustomPermissionOps() []string {
+	return []string{
 		opUpdateUserCustomPermission,
 		opDeleteUserCustomPermission,
-		// dashboard extra ops
+	}
+}
+
+func dashboardExtraOps() []string {
+	return []string{
 		opDescribeDashboardDefinition,
 		opDescribeDashboardPerms,
 		opUpdateDashboardPerms,
@@ -675,11 +794,19 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opGetDashboardEmbedUrl,
 		opDescribeDashboardsQAConfiguration,
 		opUpdateDashboardsQAConfiguration,
-		// analysis extra ops
+	}
+}
+
+func analysisExtraOps() []string {
+	return []string{
 		opDescribeAnalysisDefinition,
 		opDescribeAnalysisPerms,
 		opUpdateAnalysisPerms,
-		// data-set extra ops
+	}
+}
+
+func dataSetExtraOps() []string {
+	return []string{
 		opDescribeDataSetPerms,
 		opUpdateDataSetPerms,
 		opCreateRefreshSchedule,
@@ -690,10 +817,18 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opPutDataSetRefreshProperties,
 		opDescribeDataSetRefreshProps,
 		opDeleteDataSetRefreshProps,
-		// data-source extra ops
+	}
+}
+
+func dataSourceExtraOps() []string {
+	return []string{
 		opDescribeDataSourcePerms,
 		opUpdateDataSourcePerms,
-		// brand ops
+	}
+}
+
+func brandOps() []string {
+	return []string{
 		opCreateBrand,
 		opDescribeBrand,
 		opUpdateBrand,
@@ -704,13 +839,21 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opDeleteBrandAssignment,
 		opDescribeBrandPublishedVer,
 		opUpdateBrandPublishedVer,
-		// OAuth app ops
+	}
+}
+
+func oauthAppOps() []string {
+	return []string{
 		opCreateOAuthClientApp,
 		opDescribeOAuthClientApp,
 		opUpdateOAuthClientApp,
 		opDeleteOAuthClientApp,
 		opListOAuthClientApps,
-		// action connector ops
+	}
+}
+
+func actionConnectorOps() []string {
+	return []string{
 		opCreateActionConnector,
 		opDescribeActionConnector,
 		opUpdateActionConnector,
@@ -719,21 +862,37 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opSearchActionConnectors,
 		opDescribeActionConnectorPerms,
 		opUpdateActionConnectorPerms,
-		// identity propagation ops
+	}
+}
+
+func identityPropagationOps() []string {
+	return []string{
 		opListIdentityPropagationConfigs,
 		opUpdateIdentityPropagationConfig,
 		opDeleteIdentityPropagationConfig,
-		// asset bundle ops
+	}
+}
+
+func assetBundleOps() []string {
+	return []string{
 		opStartAssetBundleExportJob,
 		opDescribeAssetBundleExportJob,
 		opListAssetBundleExportJobs,
 		opStartAssetBundleImportJob,
 		opDescribeAssetBundleImportJob,
 		opListAssetBundleImportJobs,
-		// automation ops
+	}
+}
+
+func automationOps() []string {
+	return []string{
 		opStartAutomationJob,
 		opDescribeAutomationJob,
-		// account-level ops
+	}
+}
+
+func accountLevelOps() []string {
+	return []string{
 		opCreateAccountCustomization,
 		opDescribeAccountCustomization,
 		opUpdateAccountCustomization,
@@ -762,23 +921,39 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // existin
 		opUpdateAppTokenGrant,
 		opGetIdentityContext,
 		opPredictQAResults,
-		// embed ops
+	}
+}
+
+func embedOps() []string {
+	return []string{
 		opGenerateEmbedForAnonUser,
 		opGenerateEmbedForRegUser,
 		opGenerateEmbedForRegUserIdentity,
 		opGetSessionEmbedUrl,
-		// search ops
+	}
+}
+
+func searchOps() []string {
+	return []string{
 		opSearchAnalyses,
 		opSearchDashboards,
 		opSearchDataSets,
 		opSearchDataSources,
-		// flow ops
+	}
+}
+
+func flowOps() []string {
+	return []string{
 		opListFlows,
 		opSearchFlows,
 		opGetFlowMetadata,
 		opGetFlowPermissions,
 		opUpdateFlowPerms,
-		// namespace self-upgrade ops
+	}
+}
+
+func selfUpgradeOps() []string {
+	return []string{
 		opDescribeSelfUpgradeConfig,
 		opUpdateSelfUpgradeConfig,
 		opListSelfUpgrades,

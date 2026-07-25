@@ -658,6 +658,13 @@ var backendErrorTable = []backendErrorMapping{
 	{ErrCidrCollectionInUse, "CidrCollectionInUseException", http.StatusBadRequest},
 	// AWS: DelegationSetInUse has httpStatusCode 400.
 	{ErrDelegationSetInUse, "DelegationSetInUse", http.StatusBadRequest},
+	// AWS: HostedZoneNotFound (CreateReusableDelegationSet's HostedZoneId
+	// validation) has httpStatusCode 400 — distinct from NoSuchHostedZone,
+	// which every other hosted-zone-lookup op returns.
+	{ErrHostedZoneNotFoundForDelegationSet, "HostedZoneNotFound", http.StatusBadRequest},
+	{ErrDelegationSetAlreadyReusable, "DelegationSetAlreadyReusable", http.StatusBadRequest},
+	{ErrDelegationSetAlreadyCreated, "DelegationSetAlreadyCreated", http.StatusBadRequest},
+	{ErrInvalidKMSArn, "InvalidKMSArn", http.StatusBadRequest},
 }
 
 // handleBackendError maps a backend sentinel error to its AWS wire error

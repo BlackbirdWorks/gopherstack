@@ -127,3 +127,15 @@ type GroupingFailedItem struct {
 	ErrorCode    string `json:"ErrorCode"`
 	ErrorMessage string `json:"ErrorMessage"`
 }
+
+// queryErrorWire mirrors the real types.QueryError shape (ErrorCode, Message)
+// returned by SearchResources/ListGroupResources. Its documented ErrorCode
+// values (CLOUDFORMATION_STACK_INACTIVE, CLOUDFORMATION_STACK_NOT_EXISTING,
+// CLOUDFORMATION_STACK_UNASSUMABLE_ROLE, RESOURCE_TYPE_NOT_SUPPORTED) only
+// ever arise for CLOUDFORMATION_STACK_1_0-based groups, which this emulator
+// does not model -- so this always serializes as an empty/omitted list here.
+// See PARITY.md gaps.
+type queryErrorWire struct {
+	ErrorCode string `json:"ErrorCode,omitempty"`
+	Message   string `json:"Message,omitempty"`
+}

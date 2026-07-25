@@ -233,16 +233,18 @@ func (b *InMemoryBackend) GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob
 	return &cp, nil
 }
 
-// ListCallAnalyticsJobs returns Call Analytics jobs with optional status filter and pagination.
+// ListCallAnalyticsJobs returns Call Analytics jobs with optional status filter, name
+// substring filter, and pagination.
 func (b *InMemoryBackend) ListCallAnalyticsJobs(
-	statusFilter, nextToken string,
+	statusFilter, nameContains, nextToken string,
 ) ([]CallAnalyticsJob, string) {
 	b.mu.RLock("ListCallAnalyticsJobs")
 	defer b.mu.RUnlock()
 
 	all := make([]CallAnalyticsJob, 0, b.callAnalyticsJobs.Len())
 	for _, j := range b.callAnalyticsJobs.All() {
-		if statusFilter == "" || j.CallAnalyticsJobStatus == statusFilter {
+		if (statusFilter == "" || j.CallAnalyticsJobStatus == statusFilter) &&
+			matchesNameContains(j.CallAnalyticsJobName, nameContains) {
 			all = append(all, *j)
 		}
 	}

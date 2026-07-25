@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -36,6 +37,44 @@ func cloneClusterSchedulerConfig(c *ClusterSchedulerConfig) *ClusterSchedulerCon
 	cp.Tags = maps.Clone(c.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeClusterSchedulerConfig.
+func (c *ClusterSchedulerConfig) MarshalJSON() ([]byte, error) {
+	type alias ClusterSchedulerConfig
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(c),
+		CreationTime:     epochSeconds(c.CreationTime),
+		LastModifiedTime: epochSeconds(c.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [ClusterSchedulerConfig.MarshalJSON], read
+// by persistence.go's snapshot restore path.
+func (c *ClusterSchedulerConfig) UnmarshalJSON(data []byte) error {
+	type alias ClusterSchedulerConfig
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(c)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	c.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	c.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateClusterSchedulerConfigOptions holds input fields for CreateClusterSchedulerConfig.
@@ -180,6 +219,44 @@ func cloneComputeQuota(q *ComputeQuota) *ComputeQuota {
 	cp.Tags = maps.Clone(q.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeComputeQuota.
+func (q *ComputeQuota) MarshalJSON() ([]byte, error) {
+	type alias ComputeQuota
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(q),
+		CreationTime:     epochSeconds(q.CreationTime),
+		LastModifiedTime: epochSeconds(q.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [ComputeQuota.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (q *ComputeQuota) UnmarshalJSON(data []byte) error {
+	type alias ComputeQuota
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(q)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	q.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	q.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateComputeQuotaOptions holds input fields for CreateComputeQuota.

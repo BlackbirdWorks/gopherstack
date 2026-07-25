@@ -180,7 +180,11 @@ func TestPersistence_GroupMembers_RoundTrip(t *testing.T) {
 	require.NoError(t, b2.RemoveUserFromGroup("devs", "carol"))
 }
 
-func TestDeleteUser_CleansGroupMembership(t *testing.T) {
+// Real AWS DeleteUser does not cascade-remove group memberships — it rejects
+// the request with DeleteConflictException until the caller calls
+// RemoveUserFromGroup for every group first. See
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html.
+func TestDeleteUser_FailsWhenGroupMembershipExists(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -189,7 +193,7 @@ func TestDeleteUser_CleansGroupMembership(t *testing.T) {
 		delUser string
 	}{
 		{
-			name: "user_removed_from_groups_on_deletion",
+			name: "member_of_two_groups",
 			setup: func(b *iam.InMemoryBackend) {
 				_, err := b.CreateUser("alice", "/", "")
 				require.NoError(t, err)
@@ -203,7 +207,7 @@ func TestDeleteUser_CleansGroupMembership(t *testing.T) {
 			delUser: "alice",
 		},
 		{
-			name: "recreated_user_not_in_old_group",
+			name: "member_of_one_group",
 			setup: func(b *iam.InMemoryBackend) {
 				_, err := b.CreateUser("bob", "/", "")
 				require.NoError(t, err)
@@ -222,28 +226,48 @@ func TestDeleteUser_CleansGroupMembership(t *testing.T) {
 			b := iam.NewInMemoryBackend()
 			tt.setup(b)
 
-			require.NoError(t, b.DeleteUser(tt.delUser))
+			err := b.DeleteUser(tt.delUser)
+			require.Error(t, err)
+			require.ErrorIs(t, err, iam.ErrDeleteConflict)
 
-			// Re-create the same username; AddUserToGroup for any group
-			// must work without "already a member" from stale state.
-			_, err := b.CreateUser(tt.delUser, "/", "")
-			require.NoError(t, err)
-
-			// The user should not be in any group after re-creation.
-			// AddUserToGroup must succeed (idempotent on fresh membership).
-			for _, groupName := range []string{"admins", "devs", "ops"} {
-				// Only test groups that actually exist in the setup.
-				addErr := b.AddUserToGroup(groupName, tt.delUser)
-				if addErr != nil {
-					// Group may not exist — that's fine.
-					require.ErrorIs(t, addErr, iam.ErrGroupNotFound)
-				}
-			}
+			// The user must still exist since the delete was rejected.
+			_, getErr := b.GetUser(tt.delUser)
+			require.NoError(t, getErr)
 		})
 	}
 }
 
-func TestDeleteGroup_CleansGroupMembers(t *testing.T) {
+// TestDeleteUser_SucceedsAfterGroupsRemoved verifies the documented AWS
+// workflow: RemoveUserFromGroup for every group, then DeleteUser succeeds
+// and the username is immediately reusable with no stale membership.
+func TestDeleteUser_SucceedsAfterGroupsRemoved(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+	_, err := b.CreateUser("alice", "/", "")
+	require.NoError(t, err)
+	_, err = b.CreateGroup("admins", "/")
+	require.NoError(t, err)
+	_, err = b.CreateGroup("devs", "/")
+	require.NoError(t, err)
+	require.NoError(t, b.AddUserToGroup("admins", "alice"))
+	require.NoError(t, b.AddUserToGroup("devs", "alice"))
+
+	require.NoError(t, b.RemoveUserFromGroup("admins", "alice"))
+	require.NoError(t, b.RemoveUserFromGroup("devs", "alice"))
+	require.NoError(t, b.DeleteUser("alice"))
+
+	// Re-create the same username; AddUserToGroup must succeed (no stale
+	// membership left behind from before deletion).
+	_, err = b.CreateUser("alice", "/", "")
+	require.NoError(t, err)
+	require.NoError(t, b.AddUserToGroup("admins", "alice"))
+}
+
+// Real AWS DeleteGroup requires "The group must not contain any users or
+// have any attached policies" — rejected with DeleteConflictException
+// otherwise. See https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteGroup.html.
+func TestDeleteGroup_FailsWhenGroupContainsUsers(t *testing.T) {
 	t.Parallel()
 
 	b := iam.NewInMemoryBackend()
@@ -253,6 +277,30 @@ func TestDeleteGroup_CleansGroupMembers(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, b.AddUserToGroup("temp-group", "alice"))
 
+	err = b.DeleteGroup("temp-group")
+	require.Error(t, err)
+	require.ErrorIs(t, err, iam.ErrDeleteConflict)
+
+	// The group must still exist since the delete was rejected.
+	_, getErr := b.GetGroup("temp-group")
+	require.NoError(t, getErr)
+}
+
+// TestDeleteGroup_SucceedsAfterMembersRemoved verifies the documented AWS
+// workflow: RemoveUserFromGroup for every member, then DeleteGroup succeeds
+// and leaves no stale membership behind (including across a persistence
+// round-trip).
+func TestDeleteGroup_SucceedsAfterMembersRemoved(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+	_, err := b.CreateGroup("temp-group", "/")
+	require.NoError(t, err)
+	_, err = b.CreateUser("alice", "/", "")
+	require.NoError(t, err)
+	require.NoError(t, b.AddUserToGroup("temp-group", "alice"))
+
+	require.NoError(t, b.RemoveUserFromGroup("temp-group", "alice"))
 	require.NoError(t, b.DeleteGroup("temp-group"))
 
 	// Snapshot must not contain the stale members entry.
@@ -381,59 +429,10 @@ func TestUpdateGroup_Backend(t *testing.T) {
 	}
 }
 
-func TestTagGroup_StoresOnModel(t *testing.T) {
-	t.Parallel()
-
-	b := newBackend(t)
-	_, err := b.CreateGroup("Admins", "/")
-	require.NoError(t, err)
-
-	require.NoError(t, b.TagGroup("Admins", map[string]string{"tier": "gold"}))
-
-	g, err := b.GetGroup("Admins")
-	require.NoError(t, err)
-	assert.Equal(t, "gold", g.Tags["tier"])
-}
-
-func TestTagGroup_NotFoundError(t *testing.T) {
-	t.Parallel()
-
-	b := newBackend(t)
-	err := b.TagGroup("Ghost", map[string]string{"k": "v"})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, iam.ErrGroupNotFound)
-}
-
-func TestUntagGroup_RemovesKeys(t *testing.T) {
-	t.Parallel()
-
-	b := newBackend(t)
-	_, _ = b.CreateGroup("G1", "/")
-	require.NoError(t, b.TagGroup("G1", map[string]string{"a": "1", "b": "2"}))
-	require.NoError(t, b.UntagGroup("G1", []string{"b"}))
-
-	g, err := b.GetGroup("G1")
-	require.NoError(t, err)
-	assert.Equal(t, "1", g.Tags["a"])
-	assert.Empty(t, g.Tags["b"])
-}
-
-func TestTagGroup_SurvivesMultipleOperations(t *testing.T) {
-	t.Parallel()
-
-	b := newBackend(t)
-	_, _ = b.CreateGroup("Engineers", "/")
-
-	require.NoError(t, b.TagGroup("Engineers", map[string]string{"tier": "senior", "dept": "eng"}))
-	require.NoError(t, b.UntagGroup("Engineers", []string{"tier"}))
-	require.NoError(t, b.TagGroup("Engineers", map[string]string{"region": "us-east"}))
-
-	g, err := b.GetGroup("Engineers")
-	require.NoError(t, err)
-	assert.Empty(t, g.Tags["tier"])
-	assert.Equal(t, "eng", g.Tags["dept"])
-	assert.Equal(t, "us-east", g.Tags["region"])
-}
+// Note: real IAM does not support tagging Groups (no TagGroup/UntagGroup/
+// ListGroupTags actions, and types.Group has no Tags field), so no tests for
+// group tagging exist here. Gopherstack previously invented this surface;
+// it has been removed as part of parity de-invention.
 
 func TestGroupID_Format(t *testing.T) {
 	t.Parallel()
@@ -477,6 +476,38 @@ func TestUpdateGroup_Rename(t *testing.T) {
 	g, err := b.GetGroup("NewGroup")
 	require.NoError(t, err)
 	assert.Equal(t, "NewGroup", g.GroupName)
+}
+
+// TestUpdateGroup_Rename_KeepsPolicyAttachmentInSync guards against a rename
+// desyncing the reverse policyAttachments index: renaming a group with an
+// attached managed policy must let the policy still be detached (and
+// eventually deleted) under the group's NEW name. Before this was fixed, the
+// reverse index kept referencing the pre-rename group name forever, so
+// DetachGroupPolicy(newName, ...) silently no-op'd and DeletePolicy stayed
+// permanently blocked by a DeleteConflict against a name nothing pointed to
+// anymore.
+func TestUpdateGroup_Rename_KeepsPolicyAttachmentInSync(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+	_, err := b.CreateGroup("OldGroup", "/")
+	require.NoError(t, err)
+	pol, err := b.CreatePolicy(
+		"RenameGroupPolicy", "/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
+	require.NoError(t, err)
+	require.NoError(t, b.AttachGroupPolicy("OldGroup", pol.Arn))
+
+	require.NoError(t, b.UpdateGroup("OldGroup", "", "NewGroup"))
+
+	attached, err := b.ListAttachedGroupPolicies("NewGroup")
+	require.NoError(t, err)
+	require.Len(t, attached, 1, "attachment must follow the group under its new name")
+
+	// Detaching under the NEW name must actually clear the attachment.
+	require.NoError(t, b.DetachGroupPolicy("NewGroup", pol.Arn))
+	require.NoError(t, b.DeletePolicy(pol.Arn), "policy must be deletable once detached under the new name")
 }
 
 func TestInMemoryBackend_Groups(t *testing.T) {

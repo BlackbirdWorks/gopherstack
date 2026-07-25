@@ -22,11 +22,11 @@ const (
 	openSearchPackagesPath           = "/2021-01-01/packages"
 	openSearchServiceSwPath          = "/2021-01-01/opensearch/serviceSoftwareUpdate"
 	openSearchApplicationPath        = "/2021-01-01/opensearch/application"
+	openSearchDefaultAppSettingPath  = "/2021-01-01/opensearch/defaultApplicationSetting"
 	openSearchVersionsPath           = "/2021-01-01/opensearch/versions"
 	openSearchInstanceTypesPath      = "/2021-01-01/opensearch/instanceTypeDetails"
 	openSearchCompatiblePath         = "/2021-01-01/opensearch/compatibleVersions"
 	openSearchVpcEndpointsPath       = "/2021-01-01/opensearch/vpcEndpoints"
-	openSearchScheduledActionsPath   = "/2021-01-01/opensearch/scheduledActions"
 	openSearchReservedPath           = "/2021-01-01/opensearch/reservedInstances"
 	openSearchUpgradePath            = "/2021-01-01/opensearch/upgradeDomain"
 	openSearchInstanceTypeLimitsPath = "/2021-01-01/opensearch/instanceTypeLimits"
@@ -50,8 +50,10 @@ const (
 	jsonKeyStatusCode       = "StatusCode"
 	jsonKeyAppName          = "Name"
 	jsonKeyAppArn           = "Arn"
-	jsonKeyDataSource       = "DataSource"
 	jsonKeyDomainConfig     = "DomainConfig"
+	jsonKeyDataSources      = "DataSources"
+	jsonKeyCreatedAt        = "CreatedAt"
+	jsonKeyLastUpdatedAt    = "LastUpdatedAt"
 	// Index data-plane operation segments and document response keys.
 	indexOpDoc      = "_doc"
 	indexOpSearch   = "_search"
@@ -92,7 +94,6 @@ var openSearchPathPrefixes = []string{
 	openSearchInstanceTypesPath,
 	openSearchCompatiblePath,
 	openSearchVpcEndpointsPath,
-	openSearchScheduledActionsPath,
 	openSearchReservedPath,
 	openSearchUpgradePath,
 	openSearchInstanceTypeLimitsPath,
@@ -160,6 +161,8 @@ func (h *Handler) dispatchNonDomainCoreRoutes(w http.ResponseWriter, r *http.Req
 		h.handlePackageRoutes(w, r)
 	case strings.HasPrefix(path, openSearchServiceSwPath):
 		h.handleServiceSoftwareRoutes(w, r)
+	case strings.HasPrefix(path, openSearchDefaultAppSettingPath):
+		h.handleDefaultApplicationSettingRoutes(w, r)
 	case strings.HasPrefix(path, openSearchApplicationPath):
 		h.handleApplicationRoutes(w, r)
 	case strings.HasPrefix(path, openSearchVersionsPath):
@@ -182,8 +185,6 @@ func (h *Handler) dispatchNonDomainExtRoutes(w http.ResponseWriter, r *http.Requ
 		h.handleCompatibleVersionsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchVpcEndpointsPath):
 		h.handleVpcEndpointsRoutes(w, r)
-	case strings.HasPrefix(path, openSearchScheduledActionsPath):
-		h.handleScheduledActionsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchReservedPath):
 		h.handleReservedInstancesRoutes(w, r)
 	case strings.HasPrefix(path, openSearchInstanceTypeLimitsPath):
@@ -266,6 +267,20 @@ func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request
 	// UpdateIndex: PUT {domainName}/index/{indexName}
 	if strings.Contains(trimmed, "/index/") {
 		h.handleUpdateIndexRoute(w, r, trimmed)
+
+		return
+	}
+
+	// UpdateScheduledAction: PUT {domainName}/scheduledAction/update
+	if domainName, ok := strings.CutSuffix(trimmed, "/scheduledAction/update"); ok {
+		h.handleUpdateScheduledAction(w, r, domainName)
+
+		return
+	}
+
+	// UpdateDataSource: PUT {domainName}/dataSource/{name}
+	if domainName, dsName, ok := strings.Cut(trimmed, "/dataSource/"); ok && dsName != "" {
+		h.handleUpdateDataSource(w, r, domainName, dsName)
 
 		return
 	}
@@ -445,17 +460,25 @@ func (h *Handler) dispatchDomainGetResourceRoutes(
 	case strings.HasSuffix(trimmed, "/dataSource"):
 		domainName, _ := strings.CutSuffix(trimmed, "/dataSource")
 		sources, _ := h.Backend.ListDataSources(domainName)
-		if sources == nil {
-			sources = []*DataSource{}
+		items := make([]dataSourceJSON, 0, len(sources))
+		for _, ds := range sources {
+			items = append(items, toDataSourceJSON(ds))
 		}
-		h.writeJSON(r, w, map[string]any{"DataSources": sources})
+		h.writeJSON(r, w, map[string]any{jsonKeyDataSources: items})
 	case strings.HasSuffix(trimmed, "/packages"):
 		domainName, _ := strings.CutSuffix(trimmed, "/packages")
-		h.writeJSON(
-			r,
-			w,
-			map[string]any{jsonKeyPkgDetailsList: h.Backend.ListPackagesForDomain(domainName)},
-		)
+		pkgs := h.Backend.ListPackagesForDomain(domainName)
+		outList := make([]domainPackageDetailsJSON, 0, len(pkgs))
+		for _, pkg := range pkgs {
+			outList = append(outList, domainPackageDetailsJSON{
+				PackageID:           pkg.PackageID,
+				DomainName:          domainName,
+				DomainPackageStatus: pkgStateActive,
+				PackageName:         pkg.PackageName,
+				PackageType:         pkg.PackageType,
+			})
+		}
+		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: outList})
 	case strings.HasSuffix(trimmed, "/maintenance"):
 		domainName, _ := strings.CutSuffix(trimmed, "/maintenance")
 		maintenances, _ := h.Backend.ListDomainMaintenances(domainName)
@@ -463,6 +486,13 @@ func (h *Handler) dispatchDomainGetResourceRoutes(
 			maintenances = []*DomainMaintenance{}
 		}
 		h.writeJSON(r, w, map[string]any{"DomainMaintenances": maintenances})
+	case strings.HasSuffix(trimmed, "/scheduledActions"):
+		domainName, _ := strings.CutSuffix(trimmed, "/scheduledActions")
+		actions := h.Backend.ListScheduledActions(domainName)
+		if actions == nil {
+			actions = []*ScheduledAction{}
+		}
+		h.writeJSON(r, w, map[string]any{"ScheduledActions": actions})
 	default:
 		return false
 	}
@@ -481,17 +511,17 @@ func (h *Handler) dispatchDomainGetResourceByID(
 	case strings.Contains(trimmed, "/dataSource/"):
 		domainName, dsName, ok := strings.Cut(trimmed, "/dataSource/")
 		if !ok || dsName == "" {
-			h.writeJSON(r, w, map[string]any{jsonKeyDataSource: map[string]any{}})
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 
 			return true
 		}
 		ds, err := h.Backend.GetDataSource(domainName, dsName)
 		if err != nil {
-			h.writeJSON(r, w, map[string]any{jsonKeyDataSource: map[string]any{}})
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 			return true
 		}
-		h.writeJSON(r, w, map[string]any{jsonKeyDataSource: ds})
+		h.writeJSON(r, w, toDataSourceJSON(ds))
 	case strings.Contains(trimmed, "/maintenance/"):
 		domainName, maintenanceID, ok := strings.Cut(trimmed, "/maintenance/")
 		if !ok || maintenanceID == "" {
@@ -577,19 +607,6 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 				"Description":     opts.Description,
 			},
 		})
-	case strings.HasSuffix(trimmed, "/updateDataSource"):
-		// UpdateDataSource
-		domainName, _ := strings.CutSuffix(trimmed, "/updateDataSource")
-		body, _ := httputils.ReadBody(r)
-		var req struct {
-			Name        string `json:"Name"`
-			Description string `json:"Description"`
-		}
-		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
-		}
-		_ = h.Backend.UpdateDataSource(domainName, req.Name, req.Description)
-		h.writeJSON(r, w, map[string]any{"Message": "DataSource updated"})
 	case strings.Contains(trimmed, "/index/"):
 		return h.handleCreateIndexRoute(w, r, trimmed)
 	default:

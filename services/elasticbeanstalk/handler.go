@@ -25,9 +25,26 @@ const (
 const (
 	ebXMLNS = "https://elasticbeanstalk.amazonaws.com/docs/2010-12-01/"
 
-	nsAutoScalingASG = "aws:autoscaling:asg"
+	nsAutoScalingASG          = "aws:autoscaling:asg"
+	nsAutoScalingLaunchConfig = "aws:autoscaling:launchconfiguration"
+	nsAutoScalingTrigger      = "aws:autoscaling:trigger"
+	nsEC2VPC                  = "aws:ec2:vpc"
+	nsEBApplication           = "aws:elasticbeanstalk:application"
+	nsEBCloudWatchLogs        = "aws:elasticbeanstalk:cloudwatch:logs"
+	nsEBEnvironment           = "aws:elasticbeanstalk:environment"
+	nsEBEnvironmentProxy      = "aws:elasticbeanstalk:environment:proxy"
+	nsEBHealthReportingSystem = "aws:elasticbeanstalk:healthreporting:system"
+	nsEBManagedActions        = "aws:elasticbeanstalk:managedactions"
+	nsEBMonitoring            = "aws:elasticbeanstalk:monitoring"
+	nsEBSNSTopics             = "aws:elasticbeanstalk:sns:topics"
+	nsEBXRay                  = "aws:elasticbeanstalk:xray"
+	nsELBLoadBalancer         = "aws:elb:loadbalancer"
+	nsELBv2LoadBalancer       = "aws:elbv2:loadbalancer"
+	nsRDSDBInstance           = "aws:rds:dbinstance"
 
 	optionValueTypeScalar      = "Scalar"
+	optionValueTypeList        = "List"
+	optionValueTypeBoolean     = "Boolean"
 	platformLifecycleSupported = "Supported"
 
 	quotaApplications        = 75
@@ -67,7 +84,6 @@ func (h *Handler) buildOps() map[string]formOpFunc {
 		"ApplyEnvironmentManagedAction":           h.handleApplyEnvironmentManagedAction,
 		"AssociateEnvironmentOperationsRole":      h.handleAssociateEnvironmentOperationsRole,
 		"CheckDNSAvailability":                    h.handleCheckDNSAvailability,
-		"CloneEnvironment":                        h.handleCloneEnvironment,
 		"ComposeEnvironments":                     h.handleComposeEnvironments,
 		"CreateApplication":                       h.handleCreateApplication,
 		"CreateConfigurationTemplate":             h.handleCreateConfigurationTemplate,
@@ -124,7 +140,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ApplyEnvironmentManagedAction",
 		"AssociateEnvironmentOperationsRole",
 		"CheckDNSAvailability",
-		"CloneEnvironment",
 		"ComposeEnvironments",
 		"CreateApplication",
 		"CreateConfigurationTemplate",

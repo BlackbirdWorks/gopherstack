@@ -8,6 +8,24 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
+// verificationStatusVerified is the ResourceInfo.VerificationStatus value the
+// emulator always reports: it never performs real IAM verification of the
+// registered role's access to the Amazon S3 location, so registration always
+// "succeeds" (matches VerificationStatusVerified in aws-sdk-go-v2's
+// types.VerificationStatus enum).
+const verificationStatusVerified = "VERIFIED"
+
+// RegisterResourceOptions carries the RegisterResource/UpdateResource fields
+// beyond ResourceArn/RoleArn that the real AWS API supports (see
+// types.RegisterResourceInput / types.UpdateResourceInput). A zero value
+// matches the pre-existing 2-arg registration behavior.
+type RegisterResourceOptions struct {
+	ExpectedResourceOwnerAccount string
+	WithFederation               bool
+	WithPrivilegedAccess         bool
+	HybridAccessEnabled          bool
+}
+
 // AddResourceInternal seeds a registered resource directly for testing.
 func (b *InMemoryBackend) AddResourceInternal(resourceArn, roleArn string) {
 	b.mu.Lock("AddResourceInternal")
@@ -15,14 +33,15 @@ func (b *InMemoryBackend) AddResourceInternal(resourceArn, roleArn string) {
 
 	now := time.Now()
 	b.resources.Put(&ResourceInfo{
-		ResourceArn:  resourceArn,
-		RoleArn:      roleArn,
-		LastModified: &now,
+		ResourceArn:        resourceArn,
+		RoleArn:            roleArn,
+		LastModified:       &now,
+		VerificationStatus: verificationStatusVerified,
 	})
 }
 
 // RegisterResource registers an S3 location as a data lake resource.
-func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
+func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string, opts RegisterResourceOptions) error {
 	if resourceArn == "" {
 		return fmt.Errorf("ResourceArn is required: %w", ErrValidation)
 	}
@@ -39,9 +58,16 @@ func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
 
 	now := time.Now()
 	b.resources.Put(&ResourceInfo{
-		ResourceArn:  resourceArn,
-		RoleArn:      roleArn,
-		LastModified: &now,
+		ResourceArn:                  resourceArn,
+		RoleArn:                      roleArn,
+		LastModified:                 &now,
+		ExpectedResourceOwnerAccount: opts.ExpectedResourceOwnerAccount,
+		WithFederation:               opts.WithFederation,
+		WithPrivilegedAccess:         opts.WithPrivilegedAccess,
+		HybridAccessEnabled:          opts.HybridAccessEnabled,
+		// The emulator never performs real IAM verification, so a registered
+		// role is always reported as able to access the location.
+		VerificationStatus: verificationStatusVerified,
 	})
 
 	return nil
@@ -116,29 +142,36 @@ func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*Re
 	return paginate(all, maxResults, nextToken, defaultMaxResults)
 }
 
-// resourceToKey returns a stable string key for a Resource pointer (used to index resourceLFTags).
+// resourceToKey returns a stable string key for a Resource pointer (used to
+// index resourceLFTags and as the permission-map key component). Exactly one
+// of Resource's fields is expected to be set (AWS models Resource as a
+// union), so the checks below are mutually exclusive in practice.
 func resourceToKey(r *Resource) string {
 	if r == nil {
 		return ""
 	}
 
-	if r.DataLocation != nil {
+	switch {
+	case r.DataLocation != nil:
 		return "datalocation:" + r.DataLocation.ResourceArn
-	}
-
-	if r.Database != nil {
+	case r.Database != nil:
 		return "database:" + r.Database.Name
-	}
-
-	if r.Table != nil {
+	case r.Table != nil:
 		return "table:" + r.Table.DatabaseName + "." + r.Table.Name
+	case r.DataCellsFilter != nil:
+		return "datacellsfilter:" + r.DataCellsFilter.TableCatalogID + "|" + r.DataCellsFilter.DatabaseName +
+			"|" + r.DataCellsFilter.TableName + "|" + r.DataCellsFilter.Name
+	case r.LFTag != nil:
+		return "lftag:" + r.LFTag.CatalogID + "|" + r.LFTag.TagKey
+	case r.LFTagExpression != nil:
+		return "lftagexpression:" + r.LFTagExpression.CatalogID + "|" + r.LFTagExpression.Name
+	case r.LFTagPolicy != nil:
+		return "lftagpolicy:" + r.LFTagPolicy.CatalogID + "|" + r.LFTagPolicy.ResourceType
+	case r.Catalog != nil:
+		return "catalog:" + r.Catalog.ID
+	default:
+		return ""
 	}
-
-	if r.Catalog != nil {
-		return "catalog"
-	}
-
-	return ""
 }
 
 // copyResource returns a shallow copy of a Resource, preserving nested pointers.
@@ -170,12 +203,48 @@ func copyResource(r *Resource) *Resource {
 			twc.ColumnNames = make([]string, len(r.TableWithColumns.ColumnNames))
 			copy(twc.ColumnNames, r.TableWithColumns.ColumnNames)
 		}
+
+		if r.TableWithColumns.ColumnWildcard != nil {
+			cw := *r.TableWithColumns.ColumnWildcard
+			twc.ColumnWildcard = &cw
+		}
+
 		cp.TableWithColumns = &twc
 	}
 
 	if r.DataLocation != nil {
 		dl := *r.DataLocation
 		cp.DataLocation = &dl
+	}
+
+	if r.DataCellsFilter != nil {
+		dcf := *r.DataCellsFilter
+		cp.DataCellsFilter = &dcf
+	}
+
+	if r.LFTag != nil {
+		lt := *r.LFTag
+		if r.LFTag.TagValues != nil {
+			lt.TagValues = make([]string, len(r.LFTag.TagValues))
+			copy(lt.TagValues, r.LFTag.TagValues)
+		}
+
+		cp.LFTag = &lt
+	}
+
+	if r.LFTagExpression != nil {
+		le := *r.LFTagExpression
+		cp.LFTagExpression = &le
+	}
+
+	if r.LFTagPolicy != nil {
+		lp := *r.LFTagPolicy
+		if r.LFTagPolicy.Expression != nil {
+			lp.Expression = make([]LFTag, len(r.LFTagPolicy.Expression))
+			copy(lp.Expression, r.LFTagPolicy.Expression)
+		}
+
+		cp.LFTagPolicy = &lp
 	}
 
 	return cp
@@ -188,8 +257,13 @@ func copyResourceInfo(ri *ResourceInfo) *ResourceInfo {
 	}
 
 	cp := &ResourceInfo{
-		ResourceArn: ri.ResourceArn,
-		RoleArn:     ri.RoleArn,
+		ResourceArn:                  ri.ResourceArn,
+		RoleArn:                      ri.RoleArn,
+		ExpectedResourceOwnerAccount: ri.ExpectedResourceOwnerAccount,
+		VerificationStatus:           ri.VerificationStatus,
+		HybridAccessEnabled:          ri.HybridAccessEnabled,
+		WithFederation:               ri.WithFederation,
+		WithPrivilegedAccess:         ri.WithPrivilegedAccess,
 	}
 
 	if ri.LastModified != nil {
@@ -201,7 +275,7 @@ func copyResourceInfo(ri *ResourceInfo) *ResourceInfo {
 }
 
 // UpdateResource updates the role ARN of an already registered resource.
-func (b *InMemoryBackend) UpdateResource(resourceArn, roleArn string) error {
+func (b *InMemoryBackend) UpdateResource(resourceArn, roleArn string, opts RegisterResourceOptions) error {
 	if resourceArn == "" {
 		return fmt.Errorf("ResourceArn is required: %w", ErrValidation)
 	}
@@ -222,6 +296,13 @@ func (b *InMemoryBackend) UpdateResource(resourceArn, roleArn string) error {
 	}
 
 	info.RoleArn = roleArn
+	info.WithFederation = opts.WithFederation
+	info.HybridAccessEnabled = opts.HybridAccessEnabled
+
+	if opts.ExpectedResourceOwnerAccount != "" {
+		info.ExpectedResourceOwnerAccount = opts.ExpectedResourceOwnerAccount
+	}
+
 	now := time.Now()
 	info.LastModified = &now
 

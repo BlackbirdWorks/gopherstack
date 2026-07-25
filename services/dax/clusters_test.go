@@ -172,6 +172,39 @@ func TestCreateCluster(t *testing.T) {
 			}(),
 			wantErr: true,
 		},
+		{
+			// If no explicit NetworkType is provided, the real API derives it from
+			// the subnet group; gopherstack subnet groups are always IPv4-only.
+			name:  "NetworkType defaults to ipv4",
+			input: validCreateInput("network-default"),
+			check: func(t *testing.T, c *dax.Cluster) {
+				t.Helper()
+				assert.Equal(t, dax.NetworkTypeIPv4, c.NetworkType)
+			},
+		},
+		{
+			name: "NetworkType explicit dual_stack accepted",
+			input: func() dax.CreateClusterInput {
+				in := validCreateInput("network-dual")
+				in.NetworkType = dax.NetworkTypeDualStack
+
+				return in
+			}(),
+			check: func(t *testing.T, c *dax.Cluster) {
+				t.Helper()
+				assert.Equal(t, dax.NetworkTypeDualStack, c.NetworkType)
+			},
+		},
+		{
+			name: "invalid NetworkType",
+			input: func() dax.CreateClusterInput {
+				in := validCreateInput("x")
+				in.NetworkType = "ipv7"
+
+				return in
+			}(),
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

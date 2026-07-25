@@ -21,7 +21,11 @@ import (
 // to be compatible with -- any snapshot without a matching Version (including
 // one with no version field, which decodes as 0) is discarded the same way
 // any other incompatible snapshot is.
-const codecommitSnapshotVersion = 1
+//
+// Bumped 1 -> 2 when fileHistory's value type changed from []string (bare
+// commit IDs) to []FileHistoryEntry (commit ID + blob ID pairs), needed to
+// build AWS's FileVersion shape for ListFileCommitHistory.
+const codecommitSnapshotVersion = 2
 
 // commentSnapshot, fileSnapshot, and prApprovalRuleSnapshot are DTOs used
 // ONLY for Snapshot/Restore. Each mirrors its live type field for field,
@@ -178,19 +182,19 @@ func buildPersistenceDTORegistry() (
 // Repositories, and is rebuilt by rebuildRepositoriesByARN on Restore rather
 // than persisted.
 type backendSnapshot struct {
-	Tables            map[string]json.RawMessage     `json:"tables"`
-	RepoTemplateAssoc map[string]map[string]struct{} `json:"repoTemplateAssoc"`
-	PRApprovals       map[string]map[string]string   `json:"prApprovals"`
-	PROverrides       map[string]bool                `json:"prOverrides"`
-	PROverriders      map[string]string              `json:"prOverriders"`
-	PREvents          map[string][]PullRequestEvent  `json:"prEvents"`
-	CommentReactions  map[string][]Reaction          `json:"commentReactions"`
-	FileHistory       map[string]map[string][]string `json:"fileHistory"`
-	Triggers          map[string][]RepositoryTrigger `json:"triggers"`
-	AccountID         string                         `json:"accountId"`
-	Region            string                         `json:"region"`
-	NextPRCounter     int                            `json:"nextPrCounter"`
-	Version           int                            `json:"version"`
+	Tables            map[string]json.RawMessage               `json:"tables"`
+	RepoTemplateAssoc map[string]map[string]struct{}           `json:"repoTemplateAssoc"`
+	PRApprovals       map[string]map[string]string             `json:"prApprovals"`
+	PROverrides       map[string]bool                          `json:"prOverrides"`
+	PROverriders      map[string]string                        `json:"prOverriders"`
+	PREvents          map[string][]PullRequestEvent            `json:"prEvents"`
+	CommentReactions  map[string][]Reaction                    `json:"commentReactions"`
+	FileHistory       map[string]map[string][]FileHistoryEntry `json:"fileHistory"`
+	Triggers          map[string][]RepositoryTrigger           `json:"triggers"`
+	AccountID         string                                   `json:"accountId"`
+	Region            string                                   `json:"region"`
+	NextPRCounter     int                                      `json:"nextPrCounter"`
+	Version           int                                      `json:"version"`
 }
 
 // Snapshot serializes current state to JSON. It implements
@@ -278,7 +282,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.prOverriders = make(map[string]string)
 		b.prEvents = make(map[string][]PullRequestEvent)
 		b.commentReactions = make(map[string][]Reaction)
-		b.fileHistory = make(map[string]map[string][]string)
+		b.fileHistory = make(map[string]map[string][]FileHistoryEntry)
 		b.triggers = make(map[string][]RepositoryTrigger)
 		b.nextPRCounter = 0
 
@@ -378,7 +382,7 @@ func (b *InMemoryBackend) restorePlainMaps(s *backendSnapshot) {
 
 	b.fileHistory = s.FileHistory
 	if b.fileHistory == nil {
-		b.fileHistory = make(map[string]map[string][]string)
+		b.fileHistory = make(map[string]map[string][]FileHistoryEntry)
 	}
 
 	b.triggers = s.Triggers

@@ -65,6 +65,24 @@ var (
 	ErrTooManyMetricRules = errors.New(
 		"metric policy may have at most 5 rules",
 	)
+	// ErrObjectGroupInvalid is returned when a MetricPolicyRule's ObjectGroup
+	// exceeds 900 characters or fails the required character-set pattern
+	// (max/pattern per the ObjectGroup shape in the MediaStore API model).
+	ErrObjectGroupInvalid = errors.New(
+		"MetricPolicyRule ObjectGroup must be 1-900 characters and match the pattern" +
+			` /?(?:[A-Za-z0-9_=:\.\-\~\*]+/){0,10}(?:[A-Za-z0-9_=:\.\-\~\*]+)?/?`,
+	)
+	// ErrObjectGroupNameInvalid is returned when a MetricPolicyRule's
+	// ObjectGroupName exceeds 30 characters or contains characters outside
+	// [a-zA-Z0-9_] (max/pattern per the ObjectGroupName shape in the model).
+	ErrObjectGroupNameInvalid = errors.New(
+		"MetricPolicyRule ObjectGroupName must be 1-30 characters and contain only" +
+			" letters, numbers, and underscores",
+	)
+	// ErrTooManyCorsRules is returned when a CORS policy has more than 100 rules.
+	ErrTooManyCorsRules = errors.New(
+		"CORS policy may have at most 100 rules",
+	)
 	// ErrEmptyTagKey is returned when a tag with an empty key is provided.
 	ErrEmptyTagKey = errors.New("tag key must not be empty")
 )

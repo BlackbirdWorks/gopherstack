@@ -54,12 +54,17 @@ func TestSchemasBackend(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			// Inject a fake schema using Restore
+			// Inject a fake schema using Restore. Field names here are the raw Go
+			// struct fields (not the lowerCamel wire keys) because store.Table's
+			// Snapshot/Restore round-trips through the same struct tags used for
+			// persistence -- CollaborationID/ID are the fields with real
+			// (non-json:"-") tags that the composite-key functions in
+			// store_setup.go actually key off of.
 			snapJSON := `{"version":1,"tables":{` +
-				`"collaborations":[{"CollaborationIdentifier":"` + collab.CollaborationIdentifier + `"}],` +
-				`"schemas":[{"CollaborationIdentifier":"` + collab.CollaborationIdentifier +
+				`"collaborations":[{"ID":"` + collab.CollaborationIdentifier + `"}],` +
+				`"schemas":[{"CollaborationID":"` + collab.CollaborationIdentifier +
 				`","Name":"` + tt.args.name + `","Type":"TABLE","AnalysisMethod":"DIRECT_QUERY"}],` +
-				`"schemaAnalysisRules":[{"CollaborationIdentifier":"` + collab.CollaborationIdentifier +
+				`"schemaAnalysisRules":[{"CollaborationID":"` + collab.CollaborationIdentifier +
 				`","Name":"` + tt.args.name + `","Type":"AGGREGATION"}]}}`
 			err = b.Restore(t.Context(), []byte(snapJSON))
 			require.NoError(t, err)

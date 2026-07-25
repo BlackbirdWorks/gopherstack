@@ -73,7 +73,34 @@ func TestWAF_ByteMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	sets := listResp["ByteMatchSets"].([]any)
 	assert.Len(t, sets, 1)
 
-	// Delete
+	// Delete while non-empty must fail with WAFNonEmptyEntityException.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "DeleteByteMatchSet", map[string]any{
+		"ChangeToken":    token,
+		"ByteMatchSetId": id,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "WAFNonEmptyEntityException", errType(t, rec.Body.Bytes()))
+
+	// Remove the tuple, then delete succeeds.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "UpdateByteMatchSet", map[string]any{
+		"ChangeToken":    token,
+		"ByteMatchSetId": id,
+		"Updates": []map[string]any{
+			{
+				"Action": "DELETE",
+				"ByteMatchTuple": map[string]any{
+					"FieldToMatch":         map[string]any{"Type": "URI"},
+					"TargetString":         "/admin",
+					"PositionalConstraint": "STARTS_WITH",
+					"TextTransformation":   "NONE",
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	token = wafGetToken(t, h)
 	rec = wafDo(t, h, "DeleteByteMatchSet", map[string]any{
 		"ChangeToken":    token,

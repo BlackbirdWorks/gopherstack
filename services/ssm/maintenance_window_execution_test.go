@@ -101,8 +101,8 @@ func TestGetMaintenanceWindowExecution_FullOutput(t *testing.T) {
 			assert.Equal(t, execID, out.WindowExecutionID)
 			assert.Equal(t, "Success", out.Status)
 			assert.NotEmpty(t, out.StatusDetails)
-			assert.False(t, out.StartTime.IsZero(), "StartTime must be populated")
-			assert.NotNil(t, out.EndTime, "EndTime must be populated")
+			assert.NotZero(t, out.StartTime, "StartTime must be populated")
+			assert.NotZero(t, out.EndTime, "EndTime must be populated")
 
 			taskOut, err := b.GetMaintenanceWindowExecutionTask(
 				ctx,
@@ -114,7 +114,7 @@ func TestGetMaintenanceWindowExecution_FullOutput(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "Success", taskOut.Status)
 			assert.NotEmpty(t, taskOut.StatusDetails)
-			assert.False(t, taskOut.StartTime.IsZero())
+			assert.NotZero(t, taskOut.StartTime)
 
 			invOut, err := b.GetMaintenanceWindowExecutionTaskInvocation(
 				ctx,
@@ -126,7 +126,7 @@ func TestGetMaintenanceWindowExecution_FullOutput(t *testing.T) {
 			)
 			require.NoError(t, err)
 			assert.Equal(t, "Success", invOut.Status)
-			assert.False(t, invOut.StartTime.IsZero())
+			assert.NotZero(t, invOut.StartTime)
 		})
 	}
 }

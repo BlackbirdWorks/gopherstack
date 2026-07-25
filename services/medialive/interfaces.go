@@ -8,9 +8,17 @@ import (
 // StorageBackend is the interface for MediaLive storage operations.
 type StorageBackend interface {
 	// Channels
-	CreateChannel(name, channelClass, roleArn string, tags map[string]string) (*Channel, error)
+	CreateChannel(
+		name, channelClass, roleArn string,
+		anywhereSettings ChannelAnywhereSettings,
+		tags map[string]string,
+	) (*Channel, error)
 	DescribeChannel(channelID string) (*Channel, error)
-	UpdateChannel(channelID, name, roleArn string) (*Channel, error)
+	UpdateChannel(
+		channelID, name, roleArn string,
+		anywhereSettings ChannelAnywhereSettings,
+		hasAnywhereSettings bool,
+	) (*Channel, error)
 	DeleteChannel(channelID string) (*Channel, error)
 	ListChannels(maxResults int, nextToken string) ([]*ChannelSummary, string, error)
 	StartChannel(channelID string) (*Channel, error)
@@ -94,10 +102,15 @@ type StorageBackend interface {
 	// Clusters
 	CreateCluster(
 		name, clusterType, instanceRoleArn string,
+		networkSettings ClusterNetworkSettings,
 		tags map[string]string,
 	) (*Cluster, error)
 	DescribeCluster(clusterID string) (*Cluster, error)
-	UpdateCluster(clusterID, name string) (*Cluster, error)
+	UpdateCluster(
+		clusterID, name string,
+		networkSettings ClusterNetworkSettings,
+		hasNetworkSettings bool,
+	) (*Cluster, error)
 	DeleteCluster(clusterID string) (*Cluster, error)
 	ListClusters(maxResults int, nextToken string) ([]*ClusterSummary, string, error)
 
@@ -139,7 +152,7 @@ type StorageBackend interface {
 	ListCloudWatchAlarmTemplateGroups(
 		maxResults int,
 		nextToken string,
-	) ([]*CloudWatchAlarmTemplateGroup, string, error)
+	) ([]*CloudWatchAlarmTemplateGroupSummary, string, error)
 	UpdateCloudWatchAlarmTemplateGroup(
 		identifier, name, description string,
 	) (*CloudWatchAlarmTemplateGroup, error)
@@ -190,7 +203,7 @@ type StorageBackend interface {
 	ListEventBridgeRuleTemplateGroups(
 		maxResults int,
 		nextToken string,
-	) ([]*EventBridgeRuleTemplateGroup, string, error)
+	) ([]*EventBridgeRuleTemplateGroupSummary, string, error)
 	UpdateEventBridgeRuleTemplateGroup(
 		identifier, name, description string,
 	) (*EventBridgeRuleTemplateGroup, error)
@@ -206,7 +219,7 @@ type StorageBackend interface {
 	ListEventBridgeRuleTemplates(
 		maxResults int,
 		nextToken string,
-	) ([]*EventBridgeRuleTemplate, string, error)
+	) ([]*EventBridgeRuleTemplateSummary, string, error)
 	UpdateEventBridgeRuleTemplate(
 		identifier, name, description, groupIdentifier, eventType string,
 		eventTargets []EventBridgeRuleTemplateTarget,
@@ -221,12 +234,17 @@ type StorageBackend interface {
 	PurchaseOffering(
 		offeringID, name string,
 		count int32,
+		renewalSettings RenewalSettings,
 		tags map[string]string,
 	) (*Reservation, error)
 	ListReservations(maxResults int, nextToken string) ([]*Reservation, string, error)
 	DescribeReservation(reservationID string) (*Reservation, error)
 	DeleteReservation(reservationID string) (*Reservation, error)
-	UpdateReservation(reservationID, name string) (*Reservation, error)
+	UpdateReservation(
+		reservationID, name string,
+		renewalSettings RenewalSettings,
+		hasRenewalSettings bool,
+	) (*Reservation, error)
 
 	// Batch ops
 	// BatchStart/BatchStop take only channel and multiplex IDs -- the real
@@ -375,25 +393,47 @@ type ChannelEngineVersion struct {
 	Version        string
 }
 
+// ChannelAnywhereSettings holds the MediaLive Anywhere Cluster/
+// ChannelPlacementGroup association for a Channel. Wire keys
+// (anywhereSettings.clusterId/channelPlacementGroupId) verified against
+// aws-sdk-go-v2/service/medialive's types.AnywhereSettings. Before this fix,
+// gopherstack didn't track this at all: CreateChannel/UpdateChannel
+// silently dropped a caller's anywhereSettings, and Cluster.ChannelIds/
+// ChannelPlacementGroup.Channels/Node.ChannelPlacementGroups (all real wire
+// fields) had nothing to derive from and were hardcoded to empty lists.
+type ChannelAnywhereSettings struct {
+	ClusterID               string
+	ChannelPlacementGroupID string
+}
+
+// hasAnywhereSettings reports whether s has any real content, so callers can
+// omit an empty "anywhereSettings" key the same way a real, non-Anywhere
+// Channel omits it entirely.
+func (s ChannelAnywhereSettings) hasAnywhereSettings() bool {
+	return s.ClusterID != "" || s.ChannelPlacementGroupID != ""
+}
+
 // Channel represents a MediaLive channel.
 // Tags first: reduces GC pointer scan from 104 to 96 bytes.
 type Channel struct {
-	Tags         map[string]string
-	ARN          string
-	ID           string
-	Name         string
-	ChannelClass string
-	RoleARN      string
-	State        string
+	Tags             map[string]string
+	ARN              string
+	ID               string
+	Name             string
+	ChannelClass     string
+	RoleARN          string
+	State            string
+	AnywhereSettings ChannelAnywhereSettings
 }
 
 // ChannelSummary is a channel in a list response.
 type ChannelSummary struct {
-	ARN          string
-	ID           string
-	Name         string
-	ChannelClass string
-	State        string
+	ARN              string
+	ID               string
+	Name             string
+	ChannelClass     string
+	State            string
+	AnywhereSettings ChannelAnywhereSettings
 }
 
 // Input represents a MediaLive input.
@@ -522,50 +562,85 @@ type MultiplexProgramSummary struct {
 	ChannelID   string
 }
 
+// InterfaceMapping logically connects one interface on every Node in a
+// Cluster with one Network. Wire keys (networkSettings.interfaceMappings[])
+// are lowerCamel "logicalInterfaceName"/"networkId" -- verified against
+// aws-sdk-go-v2/service/medialive's types.InterfaceMapping.
+type InterfaceMapping struct {
+	LogicalInterfaceName string
+	NetworkID            string
+}
+
+// ClusterNetworkSettings connects the Nodes in a Cluster to one or more of
+// the Networks the Cluster is associated with. A real DescribeCluster/
+// CreateCluster/UpdateCluster/ListClusters response's "networkSettings" is
+// nil/absent until the caller configures it (verified against
+// aws-sdk-go-v2/service/medialive's ClusterNetworkSettings type and
+// DescribeClusterOutput's deserializer) -- gopherstack tracked NO fields for
+// this at all before this fix, silently dropping every caller's
+// networkSettings on Create/UpdateCluster.
+type ClusterNetworkSettings struct {
+	DefaultRoute      string
+	InterfaceMappings []InterfaceMapping
+}
+
+// hasNetworkSettings reports whether ns has any real content, so callers can
+// omit an empty "networkSettings" key the same way a real, never-configured
+// Cluster omits it entirely.
+func (ns ClusterNetworkSettings) hasNetworkSettings() bool {
+	return ns.DefaultRoute != "" || len(ns.InterfaceMappings) > 0
+}
+
 // Cluster represents a MediaLive Anywhere Cluster resource.
 // Tags first: reduces GC pointer scan.
 type Cluster struct {
 	Tags            map[string]string
+	NetworkSettings ClusterNetworkSettings
 	ARN             string
 	ID              string
 	Name            string
 	ClusterType     string
 	InstanceRoleArn string
 	State           string
+	ChannelIDs      []string
 }
 
 // ClusterSummary is a Cluster in a list response.
 type ClusterSummary struct {
+	NetworkSettings ClusterNetworkSettings
 	ARN             string
 	ID              string
 	Name            string
 	ClusterType     string
 	InstanceRoleArn string
 	State           string
+	ChannelIDs      []string
 }
 
 // Node represents a MediaLive Anywhere Node within a Cluster.
 // Tags first: reduces GC pointer scan.
 type Node struct {
-	Tags            map[string]string
-	ARN             string
-	ID              string
-	Name            string
-	ClusterID       string
-	Role            string
-	State           string
-	ConnectionState string
+	Tags                   map[string]string
+	ARN                    string
+	ID                     string
+	Name                   string
+	ClusterID              string
+	Role                   string
+	State                  string
+	ConnectionState        string
+	ChannelPlacementGroups []string
 }
 
 // NodeSummary is a Node in a list response.
 type NodeSummary struct {
-	ARN             string
-	ID              string
-	Name            string
-	ClusterID       string
-	Role            string
-	State           string
-	ConnectionState string
+	ARN                    string
+	ID                     string
+	Name                   string
+	ClusterID              string
+	Role                   string
+	State                  string
+	ConnectionState        string
+	ChannelPlacementGroups []string
 }
 
 // SignalMap represents a MediaLive signal map resource.
@@ -593,6 +668,18 @@ type CloudWatchAlarmTemplateGroup struct {
 	ID          string
 	Name        string
 	Description string
+}
+
+// CloudWatchAlarmTemplateGroupSummary is a CloudWatchAlarmTemplateGroup in a
+// list response. The real ListCloudWatchAlarmTemplateGroupsOutput items use
+// the CloudWatchAlarmTemplateGroupSummary shape, which has "templateCount"
+// -- a field that does NOT exist on Get/Create/Update's response shape
+// (verified against aws-sdk-go-v2/service/medialive's
+// CloudWatchAlarmTemplateGroupSummary vs CloudWatchAlarmTemplateGroup
+// types).
+type CloudWatchAlarmTemplateGroupSummary struct {
+	CloudWatchAlarmTemplateGroup
+	TemplateCount int32
 }
 
 // CloudWatchAlarmTemplate is a template for generating CloudWatch alarms.
@@ -629,6 +716,14 @@ type EventBridgeRuleTemplateGroup struct {
 	Description string
 }
 
+// EventBridgeRuleTemplateGroupSummary is an EventBridgeRuleTemplateGroup in
+// a list response -- same "templateCount only on the List Summary shape"
+// nuance as CloudWatchAlarmTemplateGroupSummary (see its doc comment).
+type EventBridgeRuleTemplateGroupSummary struct {
+	EventBridgeRuleTemplateGroup
+	TemplateCount int32
+}
+
 // EventBridgeRuleTemplateTarget is a target ARN for an EventBridge rule.
 type EventBridgeRuleTemplateTarget struct {
 	Arn string `json:"arn"`
@@ -647,6 +742,17 @@ type EventBridgeRuleTemplate struct {
 	GroupIdentifier string
 	EventType       string
 	EventTargets    []EventBridgeRuleTemplateTarget
+}
+
+// EventBridgeRuleTemplateSummary is an EventBridgeRuleTemplate in a list
+// response. The real ListEventBridgeRuleTemplatesOutput items use the
+// EventBridgeRuleTemplateSummary shape, which has "eventTargetCount"
+// (an integer) instead of the full "eventTargets" array (verified against
+// aws-sdk-go-v2/service/medialive's EventBridgeRuleTemplateSummary vs
+// EventBridgeRuleTemplate types).
+type EventBridgeRuleTemplateSummary struct {
+	EventBridgeRuleTemplate
+	EventTargetCount int32
 }
 
 // OfferingResourceSpecification describes the resource type for an offering.
@@ -675,22 +781,38 @@ type Offering struct {
 	Duration              int32
 }
 
+// RenewalSettings holds a Reservation's renewal configuration. Wire keys
+// (renewalSettings.automaticRenewal/renewalCount) verified against
+// aws-sdk-go-v2/service/medialive's
+// awsRestjson1_serializeDocumentRenewalSettings.
+type RenewalSettings struct {
+	AutomaticRenewal string
+	RenewalCount     int32
+}
+
+// hasRenewalSettings reports whether rs has any real content, so callers can
+// omit an empty "renewalSettings" key.
+func (rs RenewalSettings) hasRenewalSettings() bool {
+	return rs.AutomaticRenewal != "" || rs.RenewalCount != 0
+}
+
 // Reservation is a purchased Offering.
 type Reservation struct {
 	Tags                  map[string]string
 	ResourceSpecification OfferingResourceSpecification
-	CurrencyCode          string
+	OfferingType          string
+	End                   string
 	Start                 string
 	Name                  string
 	OfferingID            string
 	OfferingDescription   string
-	OfferingType          string
+	DurationUnits         string
 	Arn                   string
 	ReservationID         string
-	End                   string
+	CurrencyCode          string
 	Region                string
 	State                 string
-	DurationUnits         string
+	RenewalSettings       RenewalSettings
 	UsagePrice            float64
 	FixedPrice            float64
 	Duration              int32

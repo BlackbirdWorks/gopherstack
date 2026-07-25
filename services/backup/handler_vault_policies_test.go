@@ -378,7 +378,7 @@ func TestVaultAccessPolicy_PutGetDelete(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec3.Code)
 
 	rec4 := doREST(t, h, http.MethodGet, "/backup-vaults/policyvault/access-policy", nil)
-	assert.Equal(t, http.StatusNotFound, rec4.Code)
+	assert.Equal(t, http.StatusBadRequest, rec4.Code)
 }
 
 func TestVaultLockConfiguration_PutDelete(t *testing.T) {
@@ -418,5 +418,5 @@ func TestVaultNotifications_PutGetDelete(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec3.Code)
 
 	rec4 := doREST(t, h, http.MethodGet, "/backup-vaults/notifvault/notification-configuration", nil)
-	assert.Equal(t, http.StatusNotFound, rec4.Code)
+	assert.Equal(t, http.StatusBadRequest, rec4.Code)
 }

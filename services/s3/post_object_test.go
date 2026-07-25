@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/blackbirdworks/gopherstack/services/s3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -103,6 +104,119 @@ func TestHandler_PostObject(t *testing.T) {
 				require.Equal(t, tt.wantObjectContents, got)
 				require.Equal(t, tt.wantObjectType, aws.ToString(out.ContentType))
 			}
+		})
+	}
+}
+
+// TestHandler_PostObject_FormFieldPassthrough is a table test covering three
+// presigned-POST form fields that were previously silently ignored and are
+// now applied to the uploaded object exactly like their PutObject header
+// equivalents:
+//   - x-amz-server-side-encryption / -aws-kms-key-id (SSE-KMS): the object
+//     must be encrypted and the response must echo matching SSE headers;
+//   - x-amz-storage-class: the stored object's StorageClass must reflect it;
+//   - x-amz-checksum-algorithm: the object must get a server-computed
+//     checksum of that algorithm.
+//
+// Each case uses its own bucket/key so subtests can run fully in parallel.
+func TestHandler_PostObject_FormFieldPassthrough(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		fields   map[string]string
+		check    func(t *testing.T, rec *httptest.ResponseRecorder, backend *s3.InMemoryBackend)
+		name     string
+		bucket   string
+		key      string
+		contents []byte
+	}{
+		{
+			name:     "x-amz-server-side-encryption applies SSE-KMS and echoes response headers",
+			bucket:   "form-sse-bkt",
+			key:      "encrypted.txt",
+			contents: []byte("secret contents"),
+			fields: map[string]string{
+				"key":                          "encrypted.txt",
+				"x-amz-server-side-encryption": "aws:kms",
+				"x-amz-server-side-encryption-aws-kms-key-id": "arn:aws:kms:us-east-1:000000000000:key/test-key",
+			},
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, backend *s3.InMemoryBackend) {
+				t.Helper()
+
+				require.Equal(t, "aws:kms", rec.Header().Get("X-Amz-Server-Side-Encryption"))
+				require.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/test-key",
+					rec.Header().Get("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id"))
+
+				out, err := backend.GetObject(context.Background(), &sdk_s3.GetObjectInput{
+					Bucket: aws.String("form-sse-bkt"),
+					Key:    aws.String("encrypted.txt"),
+				})
+				require.NoError(t, err)
+				got, err := io.ReadAll(out.Body)
+				require.NoError(t, err)
+				require.Equal(t, []byte("secret contents"), got)
+				require.Equal(t, "aws:kms", string(out.ServerSideEncryption))
+			},
+		},
+		{
+			name:     "x-amz-storage-class applies to the stored object",
+			bucket:   "form-sc-bkt",
+			key:      "archive.txt",
+			contents: []byte("cold data"),
+			fields: map[string]string{
+				"key":                 "archive.txt",
+				"x-amz-storage-class": "STANDARD_IA",
+			},
+			check: func(t *testing.T, _ *httptest.ResponseRecorder, backend *s3.InMemoryBackend) {
+				t.Helper()
+
+				out, err := backend.HeadObject(context.Background(), &sdk_s3.HeadObjectInput{
+					Bucket: aws.String("form-sc-bkt"),
+					Key:    aws.String("archive.txt"),
+				})
+				require.NoError(t, err)
+				require.Equal(t, "STANDARD_IA", string(out.StorageClass))
+			},
+		},
+		{
+			name:     "x-amz-checksum-algorithm computes a checksum server-side",
+			bucket:   "form-checksum-bkt",
+			key:      "checked.txt",
+			contents: []byte("checksum me"),
+			fields: map[string]string{
+				"key":                      "checked.txt",
+				"x-amz-checksum-algorithm": "CRC32",
+			},
+			check: func(t *testing.T, _ *httptest.ResponseRecorder, backend *s3.InMemoryBackend) {
+				t.Helper()
+
+				out, err := backend.HeadObject(context.Background(), &sdk_s3.HeadObjectInput{
+					Bucket: aws.String("form-checksum-bkt"),
+					Key:    aws.String("checked.txt"),
+				})
+				require.NoError(t, err)
+				require.NotNil(t, out.ChecksumCRC32)
+				require.NotEmpty(t, *out.ChecksumCRC32)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
+
+			body, contentType := buildPostForm(t, tt.fields, tt.key, tt.contents)
+
+			req := httptest.NewRequest(http.MethodPost, "/"+tt.bucket, body)
+			req.Header.Set("Content-Type", contentType)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			require.Equal(t, http.StatusNoContent, rec.Code)
+
+			tt.check(t, rec, backend)
 		})
 	}
 }

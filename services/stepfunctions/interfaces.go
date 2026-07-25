@@ -17,9 +17,8 @@ type StorageBackend interface {
 		maxResults int,
 	) ([]StateMachine, string, error)
 	DescribeStateMachine(arn string) (*StateMachine, error)
-	UpdateStateMachine(arn, definition, roleArn string) (float64, error)
+	UpdateStateMachine(arn, definition, roleArn string) (updateDate float64, revisionID string, err error)
 	PublishStateMachineVersion(smARN, description, revisionID string) (*StateMachineVersion, error)
-	DescribeStateMachineVersion(versionARN string) (*StateMachineVersion, error)
 	DeleteStateMachineVersion(versionARN string) error
 	ListStateMachineVersions(
 		smARN, nextToken string,
@@ -55,6 +54,7 @@ type StorageBackend interface {
 		reverseOrder bool,
 	) ([]HistoryEvent, string, error)
 	CreateActivity(ctx context.Context, name string) (*Activity, error)
+	SetActivityEncryptionConfiguration(activityArn string, encryption *EncryptionConfiguration) error
 	DeleteActivity(activityArn string) error
 	DescribeActivity(activityArn string) (*Activity, error)
 	ListActivities(

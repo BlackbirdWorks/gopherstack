@@ -2622,7 +2622,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
 
-	// Wire Step Functions → SQS/SNS/DynamoDB/ECS/Glue/EventBridge service integrations.
+	// Wire Step Functions → SQS/SNS/DynamoDB/ECS/Glue/EventBridge/S3 service integrations.
 	wireStepFunctionsServiceIntegrations(
 		byName["StepFunctions"],
 		byName["SQS"],
@@ -2631,10 +2631,17 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["ECS"],
 		byName["Glue"],
 		byName["EventBridge"],
+		byName["S3"],
 	)
 
 	// Wire SSM → KMS for SecureString encryption with customer-managed keys.
 	wireSSMKMS(byName["SSM"], byName["KMS"])
+
+	// Wire SSM → EventBridge so parameter-policy notifications are actually emitted.
+	wireSSMParameterPolicyNotifications(byName["SSM"], byName["EventBridge"])
+
+	// Wire Kinesis → KMS so StartStreamEncryption validates KeyId against real key state.
+	wireKinesisKMS(byName["Kinesis"], byName["KMS"])
 
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["APIGatewayV2"], byName["Lambda"])
@@ -2785,8 +2792,21 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["ECS"],
 	)
 
-	// Wire Pipes runner → SQS (source), Lambda, and StepFunctions (targets).
-	wirePipesRunner(byName["Pipes"], byName["SQS"], byName["Lambda"], byName["StepFunctions"])
+	// Wire Pipes runner → SQS/Kinesis/DynamoDB Streams (sources), and
+	// Lambda/StepFunctions/SNS/SQS/Kinesis/EventBridge/CloudWatchLogs/Firehose
+	// (targets + DLQ).
+	wirePipesRunner(
+		byName["Pipes"],
+		byName["SQS"],
+		byName["Lambda"],
+		byName["StepFunctions"],
+		byName["SNS"],
+		byName["Kinesis"],
+		byName["EventBridge"],
+		byName["CloudWatchLogs"],
+		byName["Firehose"],
+		byName["DynamoDB"],
+	)
 
 	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
 	// aggregate and mutate tags across all services.
@@ -3569,6 +3589,29 @@ func wireSSMKMS(ssmReg, kmsReg service.Registerable) {
 	ssmBk.WithKMS(&ssmKMSAdapter{backend: kmsBk})
 }
 
+// wireSSMParameterPolicyNotifications lets SSM emit EventBridge events when a
+// parameter's ExpirationNotification or NoChangeNotification policy comes due.
+// Without this the notifier stays nil and the janitor sweep is a no-op.
+func wireSSMParameterPolicyNotifications(ssmReg, ebReg service.Registerable) {
+	ssmH, ok := ssmReg.(*ssmbackend.Handler)
+	if !ok {
+		return
+	}
+	ssmBk, ok := ssmH.Backend.(*ssmbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	ebH, ok := ebReg.(*ebbackend.Handler)
+	if !ok {
+		return
+	}
+	ebBk, ok := ebH.Backend.(*ebbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	ssmBk.SetParameterPolicyNotifier(ebBk)
+}
+
 // ssmKMSAdapter adapts kms.InMemoryBackend to ssm.KMSEncryptor.
 type ssmKMSAdapter struct {
 	backend *kmsbackend.InMemoryBackend
@@ -3595,6 +3638,56 @@ func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 	}
 
 	return out.Plaintext, nil
+}
+
+// wireKinesisKMS connects the Kinesis backend to the KMS backend so
+// StartStreamEncryption's KeyId is validated against real KMS key state
+// (KMSNotFoundException/KMSDisabledException/KMSInvalidStateException),
+// mirroring wireSSMKMS above.
+func wireKinesisKMS(kinesisReg, kmsReg service.Registerable) {
+	kinesisH, ok := kinesisReg.(*kinesisbackend.Handler)
+	if !ok {
+		return
+	}
+	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	kmsH, ok := kmsReg.(*kmsbackend.Handler)
+	if !ok {
+		return
+	}
+	kmsBk, ok := kmsH.Backend.(*kmsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	kinesisBk.WithKMSValidator(&kinesisKMSAdapter{backend: kmsBk})
+}
+
+// kinesisKMSAdapter adapts kms.InMemoryBackend to kinesis.KMSKeyValidator.
+type kinesisKMSAdapter struct {
+	backend *kmsbackend.InMemoryBackend
+}
+
+func (a *kinesisKMSAdapter) ValidateKMSKey(ctx context.Context, keyID string) error {
+	out, err := a.backend.DescribeKey(ctx, &kmsbackend.DescribeKeyInput{KeyID: keyID})
+	if err != nil {
+		// ErrKeyNotFound (nonexistent key/alias) and any other DescribeKey
+		// failure (e.g. a malformed KeyId that slipped past kinesis's own
+		// format check) both surface as "key not found" -- kinesis has no
+		// finer-grained sentinel for "KMS backend rejected the lookup".
+		return kinesisbackend.ErrKMSNotFound
+	}
+
+	switch out.KeyMetadata.KeyState {
+	case kmsbackend.KeyStateEnabled:
+		return nil
+	case kmsbackend.KeyStateDisabled:
+		return kinesisbackend.ErrKMSDisabled
+	default:
+		// PendingDeletion, PendingImport, or any other non-Enabled state.
+		return kinesisbackend.ErrKMSInvalidState
+	}
 }
 
 // wireSecretsManagerKMS connects the Secrets Manager backend to the KMS backend
@@ -3823,10 +3916,10 @@ func (a *cognitoLambdaTriggerAdapter) InvokeTrigger(
 }
 
 // wireStepFunctionsServiceIntegrations connects the Step Functions backend to SQS, SNS, DynamoDB,
-// ECS, Glue, and EventBridge backends so that Task states with service integration resources can
-// invoke those services.
+// ECS, Glue, EventBridge, and S3 backends so that Task states with service integration resources
+// (and Distributed Map's S3 ItemReader) can invoke those services.
 func wireStepFunctionsServiceIntegrations(
-	sfnReg, sqsReg, snsReg, ddbReg, ecsReg, glueReg, ebReg service.Registerable,
+	sfnReg, sqsReg, snsReg, ddbReg, ecsReg, glueReg, ebReg, s3Reg service.Registerable,
 ) {
 	sfnH, ok := sfnReg.(*sfnbackend.Handler)
 	if !ok {
@@ -3866,6 +3959,10 @@ func wireStepFunctionsServiceIntegrations(
 		if ebBk, ebBkOk := ebH.Backend.(*ebbackend.InMemoryBackend); ebBkOk {
 			sfnBk.SetEventBridgeIntegration(ebBk)
 		}
+	}
+
+	if s3H, s3Ok := s3Reg.(*s3backend.S3Handler); s3Ok {
+		sfnBk.SetS3Reader(sfnbackend.NewS3Integration(s3H.Backend))
 	}
 }
 
@@ -6632,9 +6729,18 @@ func (a *sfnStarterAdapter) StartExecution(stateMachineARN, name, input string) 
 	return err
 }
 
-// wirePipesRunner configures the Pipes runner with SQS source reader and Lambda/StepFunctions
-// target invokers so that running pipes actually forward records to their targets.
-func wirePipesRunner(pipesReg, sqsReg, lambdaReg, sfnReg service.Registerable) {
+// wirePipesRunner configures the Pipes runner with every source reader (SQS,
+// Kinesis, DynamoDB Streams) and every target/DLQ invoker (Lambda,
+// StepFunctions, SNS, SQS, Kinesis, EventBridge, CloudWatch Logs, Firehose)
+// backed by real service backends, so a RUNNING pipe actually polls its
+// source and delivers to its target instead of silently stranding messages
+// behind ErrTargetInvokerUnwired. MSK, self-managed Kafka, RabbitMQ, and
+// ActiveMQ sources are intentionally left unwired: gopherstack has no
+// in-process Kafka-wire-protocol or AMQP/OpenWire broker to poll (see
+// services/pipes/PARITY.md and runner.go's pollPipe doc comment).
+func wirePipesRunner(
+	pipesReg, sqsReg, lambdaReg, sfnReg, snsReg, kinesisReg, ebReg, cwlogsReg, firehoseReg, ddbReg service.Registerable,
+) {
 	pipesH, ok := pipesReg.(*pipesbackend.Handler)
 	if !ok {
 		return
@@ -6642,12 +6748,36 @@ func wirePipesRunner(pipesReg, sqsReg, lambdaReg, sfnReg service.Registerable) {
 
 	runner := pipesH.GetRunner()
 
+	wirePipesSources(runner, sqsReg, kinesisReg, ddbReg)
+	wirePipesInvokers(runner, lambdaReg, sfnReg)
+	wirePipesTargets(runner, snsReg, sqsReg, kinesisReg, ebReg, cwlogsReg, firehoseReg)
+}
+
+// wirePipesSources wires every pipe source reader backed by a real in-repo
+// backend: SQS, Kinesis, and DynamoDB Streams.
+func wirePipesSources(runner *pipesbackend.Runner, sqsReg, kinesisReg, ddbReg service.Registerable) {
 	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
 		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
 			runner.SetSQSReader(&pipesSQSReaderAdapter{backend: sqsBk})
 		}
 	}
 
+	if kinesisH, kinesisOk := kinesisReg.(*kinesisbackend.Handler); kinesisOk {
+		if kinesisBk, bkOk := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); bkOk {
+			runner.SetKinesisReader(&pipesKinesisReaderAdapter{backend: kinesisBk})
+		}
+	}
+
+	if ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler); ddbOk {
+		if ddbBk, bkOk := ddbH.Backend.(*ddbbackend.InMemoryDB); bkOk {
+			runner.SetDynamoDBStreamsReader(&pipesDDBStreamsReaderAdapter{backend: ddbBk})
+		}
+	}
+}
+
+// wirePipesInvokers wires the enrichment/target invokers that call into
+// another service's function/execution runtime (Lambda, StepFunctions).
+func wirePipesInvokers(runner *pipesbackend.Runner, lambdaReg, sfnReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			runner.SetLambdaInvoker(&schedulerLambdaAdapter{backend: lambdaBk})
@@ -6657,6 +6787,50 @@ func wirePipesRunner(pipesReg, sqsReg, lambdaReg, sfnReg service.Registerable) {
 	if sfnH, sfnOk := sfnReg.(*sfnbackend.Handler); sfnOk {
 		if sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend); bkOk {
 			runner.SetStepFunctionsStarter(&pipesSFNStarterAdapter{backend: sfnBk})
+		}
+	}
+}
+
+// wirePipesTargets wires every direct-delivery pipe target (SNS, SQS, Kinesis,
+// EventBridge, CloudWatch Logs, Firehose). SNS and SQS double as the two
+// supported dead-letter-queue target types (handlePipeFailure/sendToDLQ).
+func wirePipesTargets(
+	runner *pipesbackend.Runner,
+	snsReg, sqsReg, kinesisReg, ebReg, cwlogsReg, firehoseReg service.Registerable,
+) {
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		if snsBk, bkOk := snsH.Backend.(*snsbackend.InMemoryBackend); bkOk {
+			runner.SetSNSPublisher(&pipesSNSPublisherAdapter{backend: snsBk})
+		}
+	}
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
+			runner.SetSQSSender(&pipesSQSSenderAdapter{backend: sqsBk})
+		}
+	}
+
+	if kinesisH, kinesisOk := kinesisReg.(*kinesisbackend.Handler); kinesisOk {
+		if kinesisBk, bkOk := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); bkOk {
+			runner.SetKinesisPutter(&pipesKinesisPutterAdapter{backend: kinesisBk})
+		}
+	}
+
+	if ebH, ebOk := ebReg.(*ebbackend.Handler); ebOk {
+		if ebBk, bkOk := ebH.Backend.(*ebbackend.InMemoryBackend); bkOk {
+			runner.SetEventBridgePutter(&pipesEventBridgePutterAdapter{backend: ebBk})
+		}
+	}
+
+	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
+		if cwlogsBk, bkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); bkOk {
+			runner.SetCloudWatchLogsPutter(&pipesCloudWatchLogsPutterAdapter{backend: cwlogsBk})
+		}
+	}
+
+	if firehoseH, firehoseOk := firehoseReg.(*firehosebackend.Handler); firehoseOk {
+		if firehoseBk, bkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); bkOk {
+			runner.SetFirehosePutter(&pipesFirehosePutterAdapter{backend: firehoseBk})
 		}
 	}
 }
@@ -6706,4 +6880,333 @@ func (a *pipesSFNStarterAdapter) StartExecution(stateMachineARN, name, input str
 	_, err := a.backend.StartExecution(stateMachineARN, name, input)
 
 	return err
+}
+
+// pipesKinesisReaderAdapter adapts the Kinesis backend to the pipes.PipeKinesisReader
+// source interface, mirroring kinesisReaderAdapter (Lambda's Kinesis ESM reader) but
+// returning pipesbackend's own record type.
+type pipesKinesisReaderAdapter struct {
+	backend *kinesisbackend.InMemoryBackend
+}
+
+func (a *pipesKinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) {
+	out, err := a.backend.DescribeStream(
+		context.Background(),
+		&kinesisbackend.DescribeStreamInput{StreamName: streamName},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, len(out.Shards))
+	for i, s := range out.Shards {
+		ids[i] = s.ShardID
+	}
+
+	return ids, nil
+}
+
+func (a *pipesKinesisReaderAdapter) GetShardIterator(
+	streamName, shardID, iteratorType, startingSeqNum string,
+) (string, error) {
+	out, err := a.backend.GetShardIterator(context.Background(), &kinesisbackend.GetShardIteratorInput{
+		StreamName:             streamName,
+		ShardID:                shardID,
+		ShardIteratorType:      iteratorType,
+		StartingSequenceNumber: startingSeqNum,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return out.ShardIterator, nil
+}
+
+func (a *pipesKinesisReaderAdapter) GetRecords(
+	iteratorToken string,
+	limit int,
+) ([]pipesbackend.KinesisRecord, string, error) {
+	out, err := a.backend.GetRecords(context.Background(), &kinesisbackend.GetRecordsInput{
+		ShardIterator: iteratorToken,
+		Limit:         limit,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	records := make([]pipesbackend.KinesisRecord, len(out.Records))
+	for i, r := range out.Records {
+		records[i] = pipesbackend.KinesisRecord{
+			PartitionKey:   r.PartitionKey,
+			SequenceNumber: r.SequenceNumber,
+			Data:           r.Data,
+			ArrivalTime:    r.ApproximateArrivalTimestamp,
+		}
+	}
+
+	return records, out.NextShardIterator, nil
+}
+
+// pipesDDBStreamsReaderAdapter adapts the DynamoDB InMemoryDB to the
+// pipes.PipeDynamoDBStreamsReader source interface, mirroring
+// ddbStreamsReaderAdapter (Lambda's DynamoDB Streams ESM reader) but returning
+// pipesbackend's own record type.
+type pipesDDBStreamsReaderAdapter struct {
+	backend *ddbbackend.InMemoryDB
+}
+
+func (a *pipesDDBStreamsReaderAdapter) DescribeStreamShards(streamARN string) ([]string, error) {
+	out, err := a.backend.DescribeStream(
+		context.Background(),
+		&awsddbstreams.DescribeStreamInput{StreamArn: aws.String(streamARN)},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if out.StreamDescription == nil {
+		return nil, nil
+	}
+
+	shardIDs := make([]string, 0, len(out.StreamDescription.Shards))
+	for _, s := range out.StreamDescription.Shards {
+		if s.ShardId != nil {
+			shardIDs = append(shardIDs, *s.ShardId)
+		}
+	}
+
+	return shardIDs, nil
+}
+
+func (a *pipesDDBStreamsReaderAdapter) GetStreamShardIterator(
+	streamARN, shardID, iteratorType string,
+) (string, error) {
+	out, err := a.backend.GetShardIterator(
+		context.Background(),
+		&awsddbstreams.GetShardIteratorInput{
+			StreamArn:         aws.String(streamARN),
+			ShardId:           aws.String(shardID),
+			ShardIteratorType: ddbstreamstypes.ShardIteratorType(iteratorType),
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	return aws.ToString(out.ShardIterator), nil
+}
+
+func (a *pipesDDBStreamsReaderAdapter) GetStreamRecords(
+	iteratorToken string,
+	limit int,
+) ([]pipesbackend.DynamoDBStreamRecord, string, error) {
+	// Clamp limit to a valid int32 range, mirroring ddbStreamsReaderAdapter.GetStreamRecords.
+	const maxStreamRecordsLimit = math.MaxInt32
+
+	lim := int32(math.MaxInt32)
+	if limit > 0 && limit <= maxStreamRecordsLimit {
+		lim = int32(limit)
+	}
+
+	out, err := a.backend.GetRecords(context.Background(), &awsddbstreams.GetRecordsInput{
+		ShardIterator: aws.String(iteratorToken),
+		Limit:         &lim,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	records := make([]pipesbackend.DynamoDBStreamRecord, 0, len(out.Records))
+
+	for _, r := range out.Records {
+		rec := pipesbackend.DynamoDBStreamRecord{
+			EventID:   aws.ToString(r.EventID),
+			EventName: string(r.EventName),
+		}
+
+		populatePipesDDBStreamRecord(&rec, r.Dynamodb)
+		records = append(records, rec)
+	}
+
+	return records, aws.ToString(out.NextShardIterator), nil
+}
+
+// populatePipesDDBStreamRecord fills in the DynamoDB-specific fields of a
+// pipesbackend.DynamoDBStreamRecord from the SDK StreamRecord payload. Mirrors
+// populateDDBStreamRecord (Lambda's equivalent) field-for-field.
+func populatePipesDDBStreamRecord(
+	rec *pipesbackend.DynamoDBStreamRecord,
+	ddb *ddbstreamstypes.StreamRecord,
+) {
+	if ddb == nil {
+		return
+	}
+
+	rec.SequenceNumber = aws.ToString(ddb.SequenceNumber)
+	rec.StreamViewType = string(ddb.StreamViewType)
+
+	if ddb.SizeBytes != nil {
+		rec.SizeBytes = *ddb.SizeBytes
+	}
+
+	if ddb.ApproximateCreationDateTime != nil {
+		rec.ApproximateCreationDateTime = float64(ddb.ApproximateCreationDateTime.Unix())
+	}
+
+	if ddb.NewImage != nil {
+		rec.NewImage = sdkDDBStreamItemToWire(ddb.NewImage)
+	}
+
+	if ddb.OldImage != nil {
+		rec.OldImage = sdkDDBStreamItemToWire(ddb.OldImage)
+	}
+
+	if ddb.Keys != nil {
+		rec.Keys = sdkDDBStreamItemToWire(ddb.Keys)
+	}
+}
+
+// pipesSNSPublisherAdapter adapts the SNS backend to the pipes.SNSPublisher
+// target/DLQ interface.
+type pipesSNSPublisherAdapter struct {
+	backend *snsbackend.InMemoryBackend
+}
+
+func (a *pipesSNSPublisherAdapter) PublishMessage(_ context.Context, topicARN, message string) error {
+	_, err := a.backend.Publish(topicARN, message, "", "", nil)
+
+	return err
+}
+
+// pipesSQSSenderAdapter adapts the SQS backend to the pipes.SQSSender
+// target/DLQ interface.
+type pipesSQSSenderAdapter struct {
+	backend *sqsbackend.InMemoryBackend
+}
+
+func (a *pipesSQSSenderAdapter) SendMessage(
+	_ context.Context,
+	queueARN, body, groupID, dedupID string,
+) error {
+	url := arnToSQSQueueURL(queueARN)
+	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
+		QueueURL:               url,
+		MessageBody:            body,
+		MessageGroupID:         groupID,
+		MessageDeduplicationID: dedupID,
+	})
+
+	return err
+}
+
+// pipesKinesisPutterAdapter adapts the Kinesis backend to the
+// pipes.PipeKinesisPutter target interface.
+type pipesKinesisPutterAdapter struct {
+	backend *kinesisbackend.InMemoryBackend
+}
+
+func (a *pipesKinesisPutterAdapter) PutRecord(ctx context.Context, streamARN, partitionKey string, data []byte) error {
+	// Convert Kinesis stream ARN to stream name (last segment after '/').
+	parts := strings.Split(streamARN, "/")
+	streamName := parts[len(parts)-1]
+
+	_, err := a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
+		StreamName:   streamName,
+		PartitionKey: partitionKey,
+		Data:         data,
+	})
+
+	return err
+}
+
+// pipesEventBridgePutterAdapter adapts the EventBridge backend to the
+// pipes.PipeEventBridgePutter target interface.
+type pipesEventBridgePutterAdapter struct {
+	backend *ebbackend.InMemoryBackend
+}
+
+func (a *pipesEventBridgePutterAdapter) PutEvents(
+	ctx context.Context,
+	eventBusARN string,
+	events []map[string]any,
+) error {
+	// Convert event bus ARN to bus name (last segment after '/').
+	parts := strings.Split(eventBusARN, "/")
+	busName := parts[len(parts)-1]
+
+	entries := make([]ebbackend.EventEntry, 0, len(events))
+
+	for _, e := range events {
+		entry := ebbackend.EventEntry{EventBusName: busName}
+		if v, ok := e["Source"].(string); ok {
+			entry.Source = v
+		}
+		if v, ok := e["DetailType"].(string); ok {
+			entry.DetailType = v
+		}
+		if v, ok := e["Detail"].(string); ok {
+			entry.Detail = v
+		}
+
+		entries = append(entries, entry)
+	}
+
+	_, err := a.backend.PutEvents(ctx, entries)
+
+	return err
+}
+
+// pipesCloudWatchLogsPutterAdapter adapts the CloudWatch Logs backend to the
+// pipes.PipeCloudWatchLogsPutter target interface.
+type pipesCloudWatchLogsPutterAdapter struct {
+	backend *cwlogsbackend.InMemoryBackend
+}
+
+func (a *pipesCloudWatchLogsPutterAdapter) PutLogEvents(
+	ctx context.Context,
+	logGroupARN, logStreamName string,
+	messages []string,
+) error {
+	groupName := logGroupNameFromLogsARN(logGroupARN)
+	now := time.Now().UnixMilli()
+
+	events := make([]cwlogsbackend.InputLogEvent, len(messages))
+	for i, msg := range messages {
+		events[i] = cwlogsbackend.InputLogEvent{Message: msg, Timestamp: now}
+	}
+
+	_, err := a.backend.PutLogEvents(ctx, groupName, logStreamName, "", events)
+
+	return err
+}
+
+// logGroupNameFromLogsARN converts a CloudWatch Logs log group identifier to a
+// log group name. Log group identifiers may be ARNs
+// (arn:...:log-group:<name>[:*]); in that case the name is extracted and any
+// trailing ":*" wildcard suffix (the form other AWS services commonly specify
+// a log group ARN target in) is stripped. Non-ARN identifiers are returned
+// unchanged.
+func logGroupNameFromLogsARN(id string) string {
+	const marker = ":log-group:"
+
+	idx := strings.LastIndex(id, marker)
+	if idx < 0 {
+		return id
+	}
+
+	return strings.TrimSuffix(id[idx+len(marker):], ":*")
+}
+
+// pipesFirehosePutterAdapter adapts the Firehose backend to the
+// pipes.PipeFirehosePutter target interface.
+type pipesFirehosePutterAdapter struct {
+	backend *firehosebackend.InMemoryBackend
+}
+
+func (a *pipesFirehosePutterAdapter) PutRecord(ctx context.Context, deliveryStreamARN string, data []byte) error {
+	// Convert Firehose delivery stream ARN to stream name (last segment after '/').
+	parts := strings.Split(deliveryStreamARN, "/")
+	streamName := parts[len(parts)-1]
+
+	return a.backend.PutRecord(ctx, streamName, data)
 }

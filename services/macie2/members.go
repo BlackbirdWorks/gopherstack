@@ -62,27 +62,26 @@ func (b *InMemoryBackend) DeleteMember(accountID string) error {
 	return nil
 }
 
-// ListMembers returns all member accounts.
-func (b *InMemoryBackend) ListMembers(onlyAssociated bool) ([]*Member, error) {
-	b.mu.RLock("ListMembers")
-	defer b.mu.RUnlock()
+// ListMembers returns member accounts, optionally filtered to only accounts
+// still associated with this administrator, paginated by limit/token.
+func (b *InMemoryBackend) ListMembers(onlyAssociated bool, limit int, token string) ([]*Member, string, error) {
+	return listPaginated(
+		b, "ListMembers", b.members.All(),
+		func(m *Member) (*Member, bool) {
+			if onlyAssociated && m.RelationshipStatus == "DISASSOCIATED" {
+				return nil, false
+			}
 
-	members := b.members.All()
-	result := make([]*Member, 0, len(members))
+			cp := *m
+			cp.Tags = maps.Clone(m.Tags)
 
-	for _, m := range members {
-		if onlyAssociated && m.RelationshipStatus == "DISASSOCIATED" {
-			continue
-		}
-
-		cp := *m
-		cp.Tags = maps.Clone(m.Tags)
-		result = append(result, &cp)
-	}
-
-	sort.Slice(result, func(i, j int) bool { return result[i].AccountID < result[j].AccountID })
-
-	return result, nil
+			return &cp, true
+		},
+		func(result []*Member) {
+			sort.Slice(result, func(i, j int) bool { return result[i].AccountID < result[j].AccountID })
+		},
+		token, limit,
+	)
 }
 
 // DisassociateMember sets a member's relationship status to DISASSOCIATED.

@@ -2,6 +2,7 @@ package networkmonitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sync"
@@ -30,12 +31,15 @@ var (
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned for invalid input parameters.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrServiceQuotaExceeded is returned when a create operation would exceed
+	// one of the documented Network Synthetic Monitor service quotas (see the
+	// max*PerAccount/max*PerMonitor constants below).
+	ErrServiceQuotaExceeded = errors.New("networkmonitor: service quota exceeded")
 )
 
 const (
 	monitorStateActive  = "ACTIVE"
 	monitorStatePending = "PENDING"
-	monitorStateDeleted = "DELETED"
 
 	probeStateActive  = "ACTIVE"
 	probeStatePending = "PENDING"
@@ -58,8 +62,25 @@ const (
 	maxPacketSize = int32(8500)
 
 	// minDestinationPort/maxDestinationPort bound the probe destinationPort.
+	// The real API's documented range for every op that carries a
+	// destinationPort (CreateMonitorProbeInput, ProbeInput, Probe,
+	// CreateProbeOutput/GetProbeOutput, UpdateProbeInput/Output -- see
+	// aws-sdk-go-v2/service/networkmonitor/types/types.go doc comments) is
+	// consistently "a number between 1 and 65536", so 65536 (not TCP's usual
+	// 65535 ceiling) is the correct upper bound here.
 	minDestinationPort = int32(1)
-	maxDestinationPort = int32(65535)
+	maxDestinationPort = int32(65536)
+
+	// Service quotas for Network Synthetic Monitor, confirmed against
+	// https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_limits.html#nw-monitor-quotas
+	// (service code "networkmonitor"): "Number of monitors per account per AWS
+	// region" (default 100), "Number of probes per monitor" (default 24), and
+	// "Number of probes per subnet for each monitor" (default 4). All three
+	// are adjustable in real AWS but gopherstack emulates the unmodified
+	// defaults.
+	maxMonitorsPerAccountRegion  = 100
+	maxProbesPerMonitor          = 24
+	maxProbesPerSubnetPerMonitor = 4
 )
 
 var monitorNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,200}$`)

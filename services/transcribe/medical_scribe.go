@@ -60,16 +60,18 @@ func (b *InMemoryBackend) GetMedicalScribeJob(jobName string) (*MedicalScribeJob
 	return &cp, nil
 }
 
-// ListMedicalScribeJobs returns Medical Scribe jobs with optional status filter and pagination.
+// ListMedicalScribeJobs returns Medical Scribe jobs with optional status filter, name
+// substring filter, and pagination.
 func (b *InMemoryBackend) ListMedicalScribeJobs(
-	statusFilter, nextToken string,
+	statusFilter, nameContains, nextToken string,
 ) ([]MedicalScribeJob, string) {
 	b.mu.RLock("ListMedicalScribeJobs")
 	defer b.mu.RUnlock()
 
 	all := make([]MedicalScribeJob, 0, b.medicalScribeJobs.Len())
 	for _, j := range b.medicalScribeJobs.All() {
-		if statusFilter == "" || j.MedicalScribeJobStatus == statusFilter {
+		if (statusFilter == "" || j.MedicalScribeJobStatus == statusFilter) &&
+			matchesNameContains(j.MedicalScribeJobName, nameContains) {
 			all = append(all, *j)
 		}
 	}

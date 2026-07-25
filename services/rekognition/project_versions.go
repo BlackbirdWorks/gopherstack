@@ -2,6 +2,7 @@ package rekognition
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 )
@@ -10,8 +11,22 @@ func (b *InMemoryBackend) projectVersionARN(projectARN, versionName string) stri
 	return fmt.Sprintf("%s/version/%s", projectARN, versionName)
 }
 
-// CreateProjectVersion creates a new model version within a project.
-func (b *InMemoryBackend) CreateProjectVersion(projectARN, versionName string) (*ProjectVersion, error) {
+// CreateProjectVersion creates a new model version within a project. params
+// carries CreateProjectVersionInput's fields beyond ProjectArn/VersionName/
+// Tags (OutputConfig/KmsKeyId/VersionDescription) -- all stored verbatim and
+// returned unchanged by DescribeProjectVersions. tags are applied the same
+// way CreateStreamProcessor applies its initial tags (b.tags keyed by ARN);
+// ProjectVersion ARNs are taggable per TagResource's doc (see resourceExists
+// in tags.go).
+func (b *InMemoryBackend) CreateProjectVersion(
+	projectARN, versionName string,
+	params CreateProjectVersionParams,
+	tags map[string]string,
+) (*ProjectVersion, error) {
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateProjectVersion")
 	defer b.mu.Unlock()
 
@@ -25,14 +40,26 @@ func (b *InMemoryBackend) CreateProjectVersion(projectARN, versionName string) (
 		return nil, ErrProjectVersionAlreadyExists
 	}
 
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
 	v := &storedProjectVersion{
-		CreationTimestamp: time.Now(),
-		ProjectVersionARN: arn,
-		ProjectARN:        projectARN,
-		VersionName:       versionName,
-		Status:            "TRAINING_IN_PROGRESS",
+		CreationTimestamp:       time.Now(),
+		ProjectVersionARN:       arn,
+		ProjectARN:              projectARN,
+		VersionName:             versionName,
+		Status:                  "TRAINING_IN_PROGRESS",
+		Tags:                    tagsCopy,
+		OutputConfigS3Bucket:    params.OutputConfigS3Bucket,
+		OutputConfigS3KeyPrefix: params.OutputConfigS3KeyPrefix,
+		KmsKeyID:                params.KmsKeyID,
+		VersionDescription:      params.VersionDescription,
 	}
 	b.projectVersions.Put(v)
+
+	if len(tagsCopy) > 0 {
+		b.tags[arn] = tagsCopy
+	}
 
 	return v.toProjectVersion(), nil
 }

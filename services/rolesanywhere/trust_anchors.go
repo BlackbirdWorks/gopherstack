@@ -16,14 +16,21 @@ func (b *InMemoryBackend) trustAnchorARN(region, id string) string {
 
 // CreateTrustAnchor creates a new trust anchor. enabled defaults to true when
 // nil, matching the AWS CreateTrustAnchorRequest.enabled default.
+//
+// Real AWS Roles Anywhere has no uniqueness constraint on trust anchor names
+// (only ResourceNotFoundException/ValidationException/AccessDeniedException
+// are modeled for CreateTrustAnchor -- there is no ConflictException shape
+// anywhere in the service at all), so duplicate names are accepted, matching
+// the real API; the identifier of record is the generated ID/ARN.
 func (b *InMemoryBackend) CreateTrustAnchor(
 	ctx context.Context,
 	name string,
 	source TrustAnchorSource,
 	tags []TagEntry,
 	enabled *bool,
+	notificationSettings []NotificationSetting,
 ) (*TrustAnchor, error) {
-	if name == "" {
+	if name == "" || source.SourceType == "" {
 		return nil, ErrValidation
 	}
 
@@ -31,12 +38,6 @@ func (b *InMemoryBackend) CreateTrustAnchor(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-
-	for _, ta := range b.trustAnchorsByRegion.Get(region) {
-		if ta.Name == name {
-			return nil, ErrTrustAnchorAlreadyExists
-		}
-	}
 
 	id := uuid.NewString()
 	now := time.Now().UTC()
@@ -49,10 +50,17 @@ func (b *InMemoryBackend) CreateTrustAnchor(
 		Enabled:        enabled == nil || *enabled,
 		CreatedAt:      now,
 		UpdatedAt:      now,
-		Tags:           cloneTags(tags),
 	}
 
 	b.trustAnchors.Put(ta)
+
+	if len(tags) > 0 {
+		b.tagsStore(region)[ta.TrustAnchorArn] = cloneTags(tags)
+	}
+
+	if len(notificationSettings) > 0 {
+		b.putNotificationSettingsLocked(region, id, notificationSettings)
+	}
 
 	return copyTrustAnchor(ta), nil
 }
@@ -95,7 +103,10 @@ func (b *InMemoryBackend) ListTrustAnchors(
 }
 
 // DeleteTrustAnchor removes a trust anchor and returns its state immediately
-// before deletion, matching AWS's DeleteTrustAnchorResponse.trustAnchor.
+// before deletion, matching AWS's DeleteTrustAnchorResponse.trustAnchor. Its
+// notification settings and tags (both held in separate ARN/ID-keyed maps,
+// not on the TrustAnchor struct itself -- see store.go) are cascade-deleted
+// so no ghost rows survive the trust anchor they belonged to.
 func (b *InMemoryBackend) DeleteTrustAnchor(ctx context.Context, id string) (*TrustAnchor, error) {
 	b.mu.Lock("DeleteTrustAnchor")
 	defer b.mu.Unlock()
@@ -109,6 +120,8 @@ func (b *InMemoryBackend) DeleteTrustAnchor(ctx context.Context, id string) (*Tr
 
 	snap := copyTrustAnchor(ta)
 	b.trustAnchors.Delete(regionKey(region, id))
+	delete(b.notificationSettingsStore(region), id)
+	delete(b.tagsStore(region), ta.TrustAnchorArn)
 
 	return snap, nil
 }

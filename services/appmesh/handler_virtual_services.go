@@ -49,7 +49,7 @@ func (h *Handler) handleCreateVirtualService(c *echo.Context, meshName string) e
 		Spec               json.RawMessage `json:"spec"`
 		Tags               []tagInput      `json:"tags"`
 	}
-	if err := c.Bind(&body); err != nil || body.VirtualServiceName == "" {
+	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualServiceName) {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "virtualServiceName is required"))
 	}
 	vs, err := h.Backend.CreateVirtualService(meshName, body.VirtualServiceName, body.Spec, tagsToMap(body.Tags))

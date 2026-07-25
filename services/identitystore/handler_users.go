@@ -13,6 +13,20 @@ import (
 // User request/response types
 // ----------------------------------------
 
+// createUserRequest has no ExternalIds field -- the real CreateUserRequest
+// smithy shape does not accept one (confirmed against botocore's
+// service-2.json CreateUserRequest members: IdentityStoreId, UserName, Name,
+// DisplayName, NickName, ProfileUrl, Emails, Addresses, PhoneNumbers,
+// UserType, Title, PreferredLanguage, Locale, Timezone, Photos, Website,
+// Birthdate, Roles, Extensions -- no ExternalIds). A previous revision of
+// this struct accepted an ExternalIds field and forwarded it into
+// CreateUserRequest, giving a real client's CreateUser call the ability to
+// set ExternalIds even though real AWS's CreateUser API cannot -- the same
+// gopherstack-invented-field bug class CreateGroupRequest.ExternalIds was
+// already fixed for (see the doc comment on CreateGroupRequest in groups.go)
+// but was missed here. ExternalIds is settable only via UpdateUser's
+// AttributeOperations (applyUserSliceAttribute's "externalids" case), which
+// mirrors the real GetUserId/UpdateUser-only path for this attribute.
 type createUserRequest struct {
 	IdentityStoreID string        `json:"IdentityStoreId"`
 	UserName        string        `json:"UserName"`
@@ -32,7 +46,6 @@ type createUserRequest struct {
 	PhoneNumbers    []PhoneNumber `json:"PhoneNumbers"`
 	Photos          []Photo       `json:"Photos"`
 	Roles           []Role        `json:"Roles"`
-	ExternalIDs     []ExternalID  `json:"ExternalIds"`
 }
 
 type createUserResponse struct {
@@ -73,8 +86,8 @@ func (h *Handler) handleCreateUser(ctx context.Context, c *echo.Context, body []
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	user, err := h.Backend.CreateUser(ctx, req.IdentityStoreID, &CreateUserRequest{
@@ -95,7 +108,6 @@ func (h *Handler) handleCreateUser(ctx context.Context, c *echo.Context, body []
 		PhoneNumbers:  req.PhoneNumbers,
 		Photos:        req.Photos,
 		Roles:         req.Roles,
-		ExternalIDs:   req.ExternalIDs,
 	})
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -113,8 +125,8 @@ func (h *Handler) handleDescribeUser(ctx context.Context, c *echo.Context, body 
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.UserID) == "" {
@@ -136,11 +148,15 @@ func (h *Handler) handleListUsers(ctx context.Context, c *echo.Context, body []b
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if err := validateMaxResults(req.MaxResults); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
+	if err := validateFilters(req.Filters); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
@@ -160,12 +176,16 @@ func (h *Handler) handleUpdateUser(ctx context.Context, c *echo.Context, body []
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.UserID) == "" {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "UserId is required")
+	}
+
+	if err := validateOperations(req.Operations); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
 	if err := h.Backend.UpdateUser(ctx, req.IdentityStoreID, req.UserID, req.Operations); err != nil {
@@ -181,8 +201,8 @@ func (h *Handler) handleDeleteUser(ctx context.Context, c *echo.Context, body []
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.UserID) == "" {

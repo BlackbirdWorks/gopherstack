@@ -27,6 +27,13 @@ func (b *InMemoryBackend) CreatePermission(
 		return nil, fmt.Errorf("%w: Principal is required", ErrInvalidParameter)
 	}
 
+	// Per aws-sdk-go-v2's CreatePermissionInput.Principal doc comment: "At this
+	// time, the only valid principal is acm.amazonaws.com." Real AWS rejects
+	// anything else; gopherstack previously accepted any string.
+	if principal != acmServicePrincipal {
+		return nil, fmt.Errorf("%w: Principal must be %s", ErrInvalidParameter, acmServicePrincipal)
+	}
+
 	if len(actions) == 0 {
 		return nil, fmt.Errorf("%w: Actions is required", ErrInvalidParameter)
 	}

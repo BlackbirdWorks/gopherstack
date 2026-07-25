@@ -521,7 +521,7 @@ func TestUpdateStateMachine_UpdatesDefinition(t *testing.T) {
 	require.NoError(t, err)
 
 	newDef := `{"StartAt":"S2","States":{"S2":{"Type":"Pass","End":true}}}`
-	_, err = b.UpdateStateMachine(sm.StateMachineArn, newDef, "")
+	_, _, err = b.UpdateStateMachine(sm.StateMachineArn, newDef, "")
 	require.NoError(t, err)
 
 	updated, err := b.DescribeStateMachine(sm.StateMachineArn)
@@ -838,7 +838,7 @@ func TestUpdateStateMachine(t *testing.T) {
 				smARN = "arn:aws:states:us-east-1:123456789012:stateMachine:nonexistent"
 			}
 
-			updateDate, err := b.UpdateStateMachine(smARN, tt.newDefinition, tt.newRoleArn)
+			updateDate, revisionID, err := b.UpdateStateMachine(smARN, tt.newDefinition, tt.newRoleArn)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errIs != nil {
@@ -850,6 +850,7 @@ func TestUpdateStateMachine(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Greater(t, updateDate, float64(0))
+			assert.NotEmpty(t, revisionID)
 
 			sm, err := b.DescribeStateMachine(smARN)
 			require.NoError(t, err)
@@ -922,7 +923,23 @@ func TestUpdateStateMachineInvalidDefinition(t *testing.T) {
 	sm, err := b.CreateStateMachine(context.Background(), "sm1", validPassDef, "arn:role", "STANDARD")
 	require.NoError(t, err)
 
-	_, err = b.UpdateStateMachine(sm.StateMachineArn, `{"StartAt":"Missing"}`, "")
+	_, _, err = b.UpdateStateMachine(sm.StateMachineArn, `{"StartAt":"Missing"}`, "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepfunctions.ErrInvalidDefinition)
+}
+
+// TestCreateStateMachine_InvalidJitterStrategyRejected verifies AWS's
+// documented Retry.JitterStrategy enum ("FULL" or "NONE" only) is enforced
+// at CreateStateMachine time, not silently accepted and treated as "NONE".
+func TestCreateStateMachine_InvalidJitterStrategyRejected(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	badDef := `{"StartAt":"T","States":{"T":{"Type":"Task",
+"Resource":"arn:aws:lambda:us-east-1:123:function:f",
+"Retry":[{"ErrorEquals":["States.ALL"],"JitterStrategy":"EXPONENTIAL"}],"End":true}}}`
+
+	_, err := b.CreateStateMachine(context.Background(), "bad-jitter-sm", badDef, validRoleARN, "STANDARD")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, stepfunctions.ErrInvalidDefinition)
 }

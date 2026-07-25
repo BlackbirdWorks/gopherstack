@@ -8,23 +8,37 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-// firewallRuleOutput is the JSON representation of a FirewallRule.
+// firewallRuleOutput is the wire shape of types.FirewallRule. Note: the real
+// SDK type has no Id or Arn member -- a firewall rule has no independent
+// identity on the wire, it is addressed by the (FirewallRuleGroupId,
+// FirewallDomainListId) pair (verified against types.FirewallRule and
+// api_op_{Update,Delete,List}FirewallRule.go, none of which have an
+// Id/Arn/FirewallRuleId member). An earlier revision of this handler invented
+// Id/Arn fields here; they have been removed (see firewall_rules_test.go and
+// PARITY.md for the fix note).
+//
+// BlockOverrideDnsType/BlockOverrideTtl json tags: verified against the real
+// SDK's hand-rolled awsjson1.1 deserializer (deserializers.go,
+// awsAwsjson11_deserializeDocumentFirewallRule), which does exact-case
+// map-key matching, not case-insensitive struct-tag matching (same bug class
+// as the OwnerID/OwnerId note elsewhere in this package). The wire keys are
+// "BlockOverrideDnsType" and "BlockOverrideTtl" -- NOT "BlockOverrideDNSType"
+// / "BlockOverrideTTL". A prior revision used the wrong casing here; real SDK
+// clients would have silently never seen these two fields populated.
 type firewallRuleOutput struct {
-	ID                   string `json:"Id"`
-	Arn                  string `json:"Arn"`
 	Name                 string `json:"Name"`
 	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
 	FirewallDomainListID string `json:"FirewallDomainListId"`
 	Action               string `json:"Action"`
 	BlockResponse        string `json:"BlockResponse,omitempty"`
 	BlockOverrideDomain  string `json:"BlockOverrideDomain,omitempty"`
-	BlockOverrideDNSType string `json:"BlockOverrideDNSType,omitempty"`
+	BlockOverrideDNSType string `json:"BlockOverrideDnsType,omitempty"`
 	Qtype                string `json:"Qtype,omitempty"`
 	ConfidenceThreshold  string `json:"ConfidenceThreshold,omitempty"`
 	CreatorRequestID     string `json:"CreatorRequestId,omitempty"`
 	CreationTime         string `json:"CreationTime,omitempty"`
 	ModificationTime     string `json:"ModificationTime,omitempty"`
-	BlockOverrideTTL     int32  `json:"BlockOverrideTTL,omitempty"`
+	BlockOverrideTTL     int32  `json:"BlockOverrideTtl,omitempty"`
 	Priority             int32  `json:"Priority"`
 }
 
@@ -36,10 +50,10 @@ type createFirewallRuleInput struct {
 	Name                 string `json:"Name"`
 	BlockResponse        string `json:"BlockResponse"`
 	BlockOverrideDomain  string `json:"BlockOverrideDomain"`
-	BlockOverrideDNSType string `json:"BlockOverrideDNSType"`
+	BlockOverrideDNSType string `json:"BlockOverrideDnsType"`
 	Qtype                string `json:"Qtype"`
 	ConfidenceThreshold  string `json:"ConfidenceThreshold"`
-	BlockOverrideTTL     int32  `json:"BlockOverrideTTL"`
+	BlockOverrideTTL     int32  `json:"BlockOverrideTtl"`
 	Priority             int32  `json:"Priority"`
 }
 
@@ -49,8 +63,6 @@ type createFirewallRuleOutput struct {
 
 func firewallRuleToOutput(r *FirewallRule) firewallRuleOutput {
 	return firewallRuleOutput{
-		ID:                   r.ID,
-		Arn:                  r.ARN,
 		Name:                 r.Name,
 		FirewallRuleGroupID:  r.FirewallRuleGroupID,
 		FirewallDomainListID: r.FirewallDomainListID,
@@ -116,8 +128,15 @@ func (h *Handler) handleCreateFirewallRule(
 
 // --- CreateOutpostResolver ---
 
+// deleteFirewallRuleInput matches the real DeleteFirewallRuleInput shape:
+// there is no FirewallRuleId member. A rule is addressed by the
+// (FirewallRuleGroupId, FirewallDomainListId) pair it was created with
+// (verified against api_op_DeleteFirewallRule.go; FirewallThreatProtectionId
+// is the DNS Firewall Advanced counterpart to FirewallDomainListId and is not
+// modeled here, matching this pass's declared scope).
 type deleteFirewallRuleInput struct {
-	FirewallRuleID string `json:"FirewallRuleId"`
+	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
+	FirewallDomainListID string `json:"FirewallDomainListId"`
 }
 
 type deleteFirewallRuleOutput struct {
@@ -128,10 +147,13 @@ func (h *Handler) handleDeleteFirewallRule(
 	ctx context.Context,
 	in *deleteFirewallRuleInput,
 ) (*deleteFirewallRuleOutput, error) {
-	if in.FirewallRuleID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleId is required", ErrValidation)
+	if in.FirewallRuleGroupID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
 	}
-	rule, err := h.Backend.DeleteFirewallRule(ctx, in.FirewallRuleID)
+	if in.FirewallDomainListID == "" {
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+	}
+	rule, err := h.Backend.DeleteFirewallRule(ctx, in.FirewallRuleGroupID, in.FirewallDomainListID)
 	if err != nil {
 		return nil, err
 	}
@@ -141,17 +163,22 @@ func (h *Handler) handleDeleteFirewallRule(
 
 // --- UpdateFirewallRule ---
 
+// updateFirewallRuleInput matches the real UpdateFirewallRuleInput shape:
+// there is no FirewallRuleId member. FirewallRuleGroupId+FirewallDomainListId
+// identify which rule to update -- the domain list a rule targets is part of
+// its identity, not a mutable property (verified against
+// api_op_UpdateFirewallRule.go).
 type updateFirewallRuleInput struct {
-	FirewallRuleID       string `json:"FirewallRuleId"`
+	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
+	FirewallDomainListID string `json:"FirewallDomainListId"`
 	Name                 string `json:"Name"`
 	Action               string `json:"Action"`
 	BlockResponse        string `json:"BlockResponse"`
 	BlockOverrideDomain  string `json:"BlockOverrideDomain"`
-	BlockOverrideDNSType string `json:"BlockOverrideDNSType"`
+	BlockOverrideDNSType string `json:"BlockOverrideDnsType"`
 	Qtype                string `json:"Qtype"`
 	ConfidenceThreshold  string `json:"ConfidenceThreshold"`
-	FirewallDomainListID string `json:"FirewallDomainListId"`
-	BlockOverrideTTL     int32  `json:"BlockOverrideTTL"`
+	BlockOverrideTTL     int32  `json:"BlockOverrideTtl"`
 	Priority             int32  `json:"Priority"`
 }
 
@@ -163,11 +190,15 @@ func (h *Handler) handleUpdateFirewallRule(
 	ctx context.Context,
 	in *updateFirewallRuleInput,
 ) (*updateFirewallRuleOutput, error) {
-	if in.FirewallRuleID == "" {
-		return nil, fmt.Errorf("%w: FirewallRuleId is required", ErrValidation)
+	if in.FirewallRuleGroupID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+	}
+	if in.FirewallDomainListID == "" {
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
 	}
 	rule, err := h.Backend.UpdateFirewallRule(ctx, UpdateFirewallRuleParams{
-		ID:                   in.FirewallRuleID,
+		FirewallRuleGroupID:  in.FirewallRuleGroupID,
+		FirewallDomainListID: in.FirewallDomainListID,
 		Name:                 in.Name,
 		Action:               in.Action,
 		BlockResponse:        in.BlockResponse,
@@ -176,7 +207,6 @@ func (h *Handler) handleUpdateFirewallRule(
 		BlockOverrideTTL:     in.BlockOverrideTTL,
 		Qtype:                in.Qtype,
 		ConfidenceThreshold:  in.ConfidenceThreshold,
-		FirewallDomainListID: in.FirewallDomainListID,
 		Priority:             in.Priority,
 	})
 	if err != nil {
@@ -189,8 +219,10 @@ func (h *Handler) handleUpdateFirewallRule(
 // --- ListFirewallRules ---
 
 type listFirewallRulesInput struct {
+	Priority            *int32 `json:"Priority,omitempty"`
 	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
 	NextToken           string `json:"NextToken"`
+	Action              string `json:"Action"`
 	MaxResults          int32  `json:"MaxResults"`
 }
 
@@ -206,6 +238,12 @@ func (h *Handler) handleListFirewallRules(
 	rules := h.Backend.ListFirewallRules(ctx, in.FirewallRuleGroupID)
 	items := make([]firewallRuleOutput, 0, len(rules))
 	for _, r := range rules {
+		if in.Action != "" && r.Action != in.Action {
+			continue
+		}
+		if in.Priority != nil && r.Priority != *in.Priority {
+			continue
+		}
 		items = append(items, firewallRuleToOutput(r))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })

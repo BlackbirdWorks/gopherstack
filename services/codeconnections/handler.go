@@ -244,13 +244,13 @@ func resolveErrorType(err error) (string, int) {
 	case errors.Is(err, ErrSyncBlockerNotFound):
 		return "SyncBlockerDoesNotExistException", http.StatusBadRequest
 	case errors.Is(err, ErrResourceInUse):
-		return "ConflictException", http.StatusBadRequest
+		return "ResourceUnavailableException", http.StatusBadRequest
 	case errors.Is(err, ErrSyncConfigStillExists):
 		return "SyncConfigurationStillExistsException", http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		return "ResourceAlreadyExistsException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation):
-		return "ValidationException", http.StatusBadRequest
+		return "InvalidInputException", http.StatusBadRequest
 	case errors.Is(err, errUnknownAction):
 		return "UnknownOperationException", http.StatusBadRequest
 	default:

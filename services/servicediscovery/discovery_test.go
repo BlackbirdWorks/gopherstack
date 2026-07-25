@@ -151,7 +151,7 @@ func TestInMemoryBackend_DiscoverInstances_HealthyOrElseAll(t *testing.T) {
 				require.NoError(t, b.UpdateInstanceCustomHealthStatus(svc.ID, id, "UNHEALTHY"))
 			}
 
-			discovered, _, err := b.DiscoverInstances("ns-fail-open", "svc-fail-open", "HEALTHY_OR_ELSE_ALL", nil)
+			discovered, _, err := b.DiscoverInstances("ns-fail-open", "svc-fail-open", "HEALTHY_OR_ELSE_ALL", nil, nil)
 			require.NoError(t, err)
 
 			gotIDs := make([]string, 0, len(discovered))
@@ -267,6 +267,87 @@ func TestHandler_DiscoverInstancesQueryParameters(t *testing.T) {
 	insts := resp["Instances"].([]any)
 	assert.Len(t, insts, 1)
 	assert.Equal(t, "i-web", insts[0].(map[string]any)["InstanceId"])
+}
+
+// TestHandler_DiscoverInstancesOptionalParameters verifies OptionalParameters'
+// documented "opportunistic" semantics: "If there are instances that match
+// both the filters specified in both the QueryParameters parameter and this
+// parameter, all of these instances are returned. Otherwise, the filters are
+// ignored, and only instances that match the filters that are specified in
+// the QueryParameters parameter are returned." (DiscoverInstancesInput
+// .OptionalParameters doc comment).
+func TestHandler_DiscoverInstancesOptionalParameters(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) *servicediscovery.Handler {
+		t.Helper()
+
+		h := newTestHandler(t)
+
+		nsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ns-optparams"})
+		var nsResp map[string]any
+		require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+		nsOpID := nsResp["OperationId"].(string)
+		nsOpRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": nsOpID})
+		var nsOpResp map[string]any
+		require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp))
+		nsID := nsOpResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
+
+		svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-optparams", "NamespaceId": nsID})
+		var svcResp map[string]any
+		require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+		svcID := svcResp["Service"].(map[string]any)["Id"].(string)
+
+		doSDRequest(t, h, "RegisterInstance", map[string]any{
+			"ServiceId": svcID, "InstanceId": "i-blue-web",
+			"Attributes": map[string]string{"color": "blue", "tier": "web"},
+		})
+		doSDRequest(t, h, "RegisterInstance", map[string]any{
+			"ServiceId": svcID, "InstanceId": "i-green-web",
+			"Attributes": map[string]string{"color": "green", "tier": "web"},
+		})
+
+		return h
+	}
+
+	t.Run("optional_match_narrows_results", func(t *testing.T) {
+		t.Parallel()
+
+		h := setup(t)
+
+		rec := doSDRequest(t, h, "DiscoverInstances", map[string]any{
+			"NamespaceName":      "ns-optparams",
+			"ServiceName":        "svc-optparams",
+			"QueryParameters":    map[string]string{"tier": "web"},
+			"OptionalParameters": map[string]string{"color": "blue"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		insts := resp["Instances"].([]any)
+		require.Len(t, insts, 1, "only the instance matching both QueryParameters and OptionalParameters")
+		assert.Equal(t, "i-blue-web", insts[0].(map[string]any)["InstanceId"])
+	})
+
+	t.Run("no_optional_match_falls_back_to_query_parameters_only", func(t *testing.T) {
+		t.Parallel()
+
+		h := setup(t)
+
+		rec := doSDRequest(t, h, "DiscoverInstances", map[string]any{
+			"NamespaceName":      "ns-optparams",
+			"ServiceName":        "svc-optparams",
+			"QueryParameters":    map[string]string{"tier": "web"},
+			"OptionalParameters": map[string]string{"color": "purple"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		insts := resp["Instances"].([]any)
+		assert.Len(t, insts, 2, "no instance matches OptionalParameters, so it's ignored")
+	})
 }
 
 // TestHandler_DiscoverInstancesUnhealthyFilter verifies UNHEALTHY filter.

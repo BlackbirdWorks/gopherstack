@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -51,16 +52,25 @@ func (h *Handler) startJob(ctx context.Context, c *echo.Context, appID, branchNa
 	}
 
 	var input struct {
-		CommitID  string `json:"commitId"`
-		CommitMsg string `json:"commitMessage"`
-		JobType   string `json:"jobType"`
+		CommitID   string  `json:"commitId"`
+		CommitMsg  string  `json:"commitMessage"`
+		JobType    string  `json:"jobType"`
+		JobID      string  `json:"jobId"`
+		CommitTime float64 `json:"commitTime"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	job, startErr := h.Backend.StartJob(appID, branchName, input.JobType, input.CommitID, input.CommitMsg)
+	var commitTime time.Time
+	if input.CommitTime != 0 {
+		commitTime = time.Unix(int64(input.CommitTime), 0).UTC()
+	}
+
+	job, startErr := h.Backend.StartJob(
+		appID, branchName, input.JobType, input.JobID, input.CommitID, input.CommitMsg, commitTime,
+	)
 	if startErr != nil {
 		return h.handleBackendError(ctx, c, "StartJob", startErr)
 	}
@@ -102,7 +112,7 @@ func (h *Handler) getJob(ctx context.Context, c *echo.Context, appID, branchName
 
 	jobResp := map[string]any{
 		"summary": toJobSummaryView(job),
-		"steps":   []any{},
+		"steps":   toStepViews(job),
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"job": jobResp})
@@ -129,14 +139,15 @@ func (h *Handler) stopJob(ctx context.Context, c *echo.Context, appID, branchNam
 }
 
 type jobSummaryView struct {
-	JobID     string  `json:"jobId"`
-	JobARN    string  `json:"jobArn"`
-	CommitID  string  `json:"commitId,omitempty"`
-	CommitMsg string  `json:"commitMessage,omitempty"`
-	Status    string  `json:"status"`
-	Type      string  `json:"jobType"`
-	StartTime float64 `json:"startTime"`
-	EndTime   float64 `json:"endTime,omitempty"`
+	JobID      string  `json:"jobId"`
+	JobARN     string  `json:"jobArn"`
+	CommitID   string  `json:"commitId,omitempty"`
+	CommitMsg  string  `json:"commitMessage,omitempty"`
+	Status     string  `json:"status"`
+	Type       string  `json:"jobType"`
+	StartTime  float64 `json:"startTime"`
+	EndTime    float64 `json:"endTime,omitempty"`
+	CommitTime float64 `json:"commitTime,omitempty"`
 }
 
 func toJobSummaryView(j *Job) jobSummaryView {
@@ -154,6 +165,10 @@ func toJobSummaryView(j *Job) jobSummaryView {
 		v.EndTime = float64(j.EndTime.Unix())
 	}
 
+	if !j.CommitTime.IsZero() {
+		v.CommitTime = float64(j.CommitTime.Unix())
+	}
+
 	return v
 }
 
@@ -164,4 +179,42 @@ func toJobSummaryViews(jobs []*Job) []jobSummaryView {
 	}
 
 	return views
+}
+
+// stepView is the JSON representation of a build step (types.Step) with
+// timestamps as Unix epoch float64 values.
+type stepView struct {
+	StepName  string  `json:"stepName"`
+	Status    string  `json:"status"`
+	StartTime float64 `json:"startTime"`
+	EndTime   float64 `json:"endTime"`
+}
+
+// buildStepName is the single synthetic step gopherstack reports for every
+// job -- there is no real build pipeline behind this emulator to model
+// per-stage (e.g. PROVISION/BUILD/DEPLOY/VERIFY) detail, so the whole job's
+// lifecycle is reported as one step. This is a deliberate simplification
+// (see PARITY.md), not a stub: the step's status/timestamps are real,
+// derived from the job's own state, not fabricated.
+const buildStepName = "BUILD"
+
+// toStepViews synthesizes the Steps list real Amplify's GetJob response
+// carries. EndTime is a required response member even for a step still in
+// progress, so an in-progress job reports its own StartTime as a
+// provisional EndTime (matches "this step has been running since StartTime
+// and has no completion time yet" rather than an all-zero placeholder).
+func toStepViews(j *Job) []stepView {
+	end := j.EndTime
+	if end.IsZero() {
+		end = j.StartTime
+	}
+
+	return []stepView{
+		{
+			StepName:  buildStepName,
+			Status:    string(j.Status),
+			StartTime: float64(j.StartTime.Unix()),
+			EndTime:   float64(end.Unix()),
+		},
+	}
 }

@@ -448,3 +448,88 @@ func TestHandler_AccountAlias_RoundTrip(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(req3, rec3)))
 	assert.Equal(t, http.StatusOK, rec3.Code)
 }
+
+// TestOutboundWebIdentityFederation_Handler exercises Enable/Disable
+// OutboundWebIdentityFederation and GetOutboundWebIdentityFederationInfo over
+// HTTP, verifying the real SDK's wire field names (IssuerIdentifier,
+// JwtVendingEnabled -- confirmed against aws-sdk-go-v2/service/iam@v1.55.0's
+// api_op_{Enable,Disable,GetOutboundWebIdentityFederationInfo}.go) appear on
+// the wire instead of the previous no-op stub's generic empty body.
+func TestOutboundWebIdentityFederation_Handler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(*iam.InMemoryBackend)
+		name        string
+		action      string
+		wantContain []string
+		wantCode    int
+	}{
+		{
+			name:   "GetOutboundWebIdentityFederationInfo_default_enabled",
+			action: "GetOutboundWebIdentityFederationInfo",
+			setup:  func(_ *iam.InMemoryBackend) {},
+			wantContain: []string{
+				"GetOutboundWebIdentityFederationInfoResponse",
+				"<JwtVendingEnabled>true</JwtVendingEnabled>",
+				"<IssuerIdentifier>https://",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:   "DisableOutboundWebIdentityFederation",
+			action: "DisableOutboundWebIdentityFederation",
+			setup:  func(_ *iam.InMemoryBackend) {},
+			wantContain: []string{
+				"DisableOutboundWebIdentityFederationResponse",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:   "GetOutboundWebIdentityFederationInfo_after_disable",
+			action: "GetOutboundWebIdentityFederationInfo",
+			setup: func(b *iam.InMemoryBackend) {
+				b.DisableOutboundWebIdentityFederation()
+			},
+			wantContain: []string{
+				"<JwtVendingEnabled>false</JwtVendingEnabled>",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:   "EnableOutboundWebIdentityFederation",
+			action: "EnableOutboundWebIdentityFederation",
+			setup: func(b *iam.InMemoryBackend) {
+				b.DisableOutboundWebIdentityFederation()
+			},
+			wantContain: []string{
+				"EnableOutboundWebIdentityFederationResponse",
+				"<IssuerIdentifier>https://",
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iam.NewInMemoryBackend()
+			tt.setup(b)
+			h := iam.NewHandler(b)
+
+			e := echo.New()
+			req := iamRequest(tt.action, map[string]string{})
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, want := range tt.wantContain {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}

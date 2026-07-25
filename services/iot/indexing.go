@@ -292,16 +292,109 @@ func (b *InMemoryBackend) searchThingGroupsIndex(input *SearchIndexInput) *Searc
 		}
 
 		matched = append(matched, &SearchIndexThingGroupResult{
-			ThingGroupName:  g.ThingGroupName,
-			ThingGroupID:    g.ThingGroupID,
-			Attributes:      copyStringMap(g.Attributes),
-			ParentGroupName: g.ParentGroupName,
+			ThingGroupName:        g.ThingGroupName,
+			ThingGroupID:          g.ThingGroupID,
+			ThingGroupDescription: g.Description,
+			Attributes:            copyStringMap(g.Attributes),
+			ParentGroupNames:      b.thingGroupAncestorNames(g),
 		})
 	}
 
 	page, nextToken := paginateMaps(matched, searchPageSize(input.MaxResults), searchStartOffset(input.NextToken))
 
 	return &SearchIndexOutput{ThingGroups: page, NextToken: nextToken}
+}
+
+// maxThingGroupDepth bounds thing-group ancestor-chain walks (SearchIndex's
+// ParentGroupNames, DescribeThingGroup's RootToParentThingGroups) against an
+// (invalid, but not otherwise rejected elsewhere) parent cycle turning a
+// walk into an infinite loop.
+const maxThingGroupDepth = 64
+
+// thingGroupAncestors walks g's ParentGroupName chain up to the root,
+// returning every ancestor ThingGroup in immediate-parent-first order.
+// gopherstack's ThingGroup domain type only stores the direct parent's name
+// per group, so the full chain is reconstructed by repeated store lookups.
+// Callers must hold at least a read lock.
+func (b *InMemoryBackend) thingGroupAncestors(g *ThingGroup) []*ThingGroup {
+	var ancestors []*ThingGroup
+
+	seen := make(map[string]bool, maxThingGroupDepth)
+	cur := g
+
+	for range maxThingGroupDepth {
+		if cur.ParentGroupName == "" || seen[cur.ParentGroupName] {
+			break
+		}
+
+		seen[cur.ParentGroupName] = true
+
+		parent, ok := b.thingGroups.Get(cur.ParentGroupName)
+		if !ok {
+			break
+		}
+
+		ancestors = append(ancestors, parent)
+		cur = parent
+	}
+
+	return ancestors
+}
+
+// thingGroupAncestorNames returns thingGroupAncestors' names, in
+// immediate-parent-first order -- what the real ThingGroupDocument's
+// "parentGroupNames" SearchIndex wire field carries. Callers must hold at
+// least a read lock.
+func (b *InMemoryBackend) thingGroupAncestorNames(g *ThingGroup) []string {
+	ancestors := b.thingGroupAncestors(g)
+	if len(ancestors) == 0 {
+		return nil
+	}
+
+	names := make([]string, len(ancestors))
+	for i, a := range ancestors {
+		names[i] = a.ThingGroupName
+	}
+
+	return names
+}
+
+// RootToParentThingGroups returns the root-first ancestor chain (name+ARN
+// pairs) for the named thing group, for DescribeThingGroup's
+// thingGroupMetadata.rootToParentThingGroups wire field. Returns nil (not an
+// error) when the group does not exist, matching the caller's other
+// best-effort-metadata pattern -- the group's own existence is already
+// validated by DescribeThingGroup before this is called.
+func (b *InMemoryBackend) RootToParentThingGroups(thingGroupName string) []GroupNameAndARN {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	g, ok := b.thingGroups.Get(thingGroupName)
+	if !ok {
+		return nil
+	}
+
+	return b.rootToParentThingGroups(g)
+}
+
+// rootToParentThingGroups returns thingGroupAncestors' entries reversed into
+// root-first order (root ... immediate parent), paired with each ancestor's
+// ARN -- what the real ThingGroupMetadata's "rootToParentThingGroups"
+// DescribeThingGroup wire field carries. Callers must hold at least a read
+// lock.
+func (b *InMemoryBackend) rootToParentThingGroups(g *ThingGroup) []GroupNameAndARN {
+	ancestors := b.thingGroupAncestors(g)
+	if len(ancestors) == 0 {
+		return nil
+	}
+
+	out := make([]GroupNameAndARN, len(ancestors))
+	for i, a := range ancestors {
+		// ancestors is immediate-parent-first; reverse into root-first.
+		out[len(ancestors)-1-i] = GroupNameAndARN{GroupName: a.ThingGroupName, GroupARN: a.ThingGroupARN}
+	}
+
+	return out
 }
 
 // searchPageSize returns the effective page size for a SearchIndex/aggregation
@@ -559,10 +652,11 @@ func computeStatistics(values []float64) *Statistics {
 	stats.Minimum = values[0]
 	stats.Maximum = values[0]
 
-	var sum float64
+	var sum, sumOfSquares float64
 
 	for _, v := range values {
 		sum += v
+		sumOfSquares += v * v
 
 		if v < stats.Minimum {
 			stats.Minimum = v
@@ -574,6 +668,7 @@ func computeStatistics(values []float64) *Statistics {
 	}
 
 	stats.Sum = sum
+	stats.SumOfSquares = sumOfSquares
 	stats.Average = sum / float64(len(values))
 
 	var sqDiff float64

@@ -3,6 +3,7 @@ package neptune
 import (
 	"context"
 	"encoding/xml"
+	"fmt"
 	"net/url"
 )
 
@@ -73,23 +74,27 @@ func (h *Handler) handleDescribeDBParameterGroups(
 
 func (h *Handler) handleDescribeDBParameters(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
-	if name != "" {
-		if _, err := h.Backend.DescribeDBParameterGroups(ctx, name); err != nil {
-			return nil, err
-		}
+	params, err := h.Backend.DescribeDBParameters(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	members := make([]xmlParameter, 0, len(params))
+	for _, p := range params {
+		members = append(members, toXMLParameter(p))
 	}
 
 	return &describeDBParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeDBParametersResult{
-			Parameters: xmlParameterList{},
+			Parameters: xmlParameterList{Members: members},
 		},
 	}, nil
 }
 
 func (h *Handler) handleModifyDBParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
-	pg, err := h.Backend.ModifyDBParameterGroup(ctx, name)
+	params := parseParameterEntries(vals)
+	pg, err := h.Backend.ModifyDBParameterGroup(ctx, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +107,9 @@ func (h *Handler) handleModifyDBParameterGroup(ctx context.Context, vals url.Val
 
 func (h *Handler) handleResetDBParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
-	pg, err := h.Backend.ResetDBParameterGroup(ctx, name)
+	params := parseParameterEntries(vals)
+	resetAll := vals.Get("ResetAllParameters") == formTrue
+	pg, err := h.Backend.ResetDBParameterGroup(ctx, name, resetAll, params)
 	if err != nil {
 		return nil, err
 	}
@@ -121,13 +128,18 @@ func (h *Handler) handleDescribeEngineDefaultParameters(
 	if family == "" {
 		family = pgFamilyNeptune13
 	}
+	catalog := neptuneParameterCatalog()
+	members := make([]xmlParameter, 0, len(catalog))
+	for _, p := range catalog {
+		members = append(members, toXMLParameter(p))
+	}
 
 	return &describeEngineDefaultParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeEngineDefaultParametersResult{
 			EngineDefaults: xmlEngineDefaults{
 				DBParameterGroupFamily: family,
-				Parameters:             xmlParameterList{},
+				Parameters:             xmlParameterList{Members: members},
 			},
 		},
 	}, nil
@@ -198,9 +210,44 @@ type xmlParameterList struct {
 }
 
 type xmlParameter struct {
-	ParameterName  string `xml:"ParameterName"`
-	ParameterValue string `xml:"ParameterValue,omitempty"`
-	Description    string `xml:"Description,omitempty"`
+	ParameterName        string `xml:"ParameterName"`
+	ParameterValue       string `xml:"ParameterValue,omitempty"`
+	Description          string `xml:"Description,omitempty"`
+	Source               string `xml:"Source,omitempty"`
+	ApplyType            string `xml:"ApplyType,omitempty"`
+	DataType             string `xml:"DataType,omitempty"`
+	AllowedValues        string `xml:"AllowedValues,omitempty"`
+	MinimumEngineVersion string `xml:"MinimumEngineVersion,omitempty"`
+	ApplyMethod          string `xml:"ApplyMethod,omitempty"`
+	IsModifiable         bool   `xml:"IsModifiable"`
+}
+
+// toXMLParameter renders an EngineParameter (the merged catalog-default +
+// per-group-override view built by describeParameters) as the wire shape.
+func toXMLParameter(p EngineParameter) xmlParameter {
+	return xmlParameter(p)
+}
+
+// parseParameterEntries reads the Parameters.Parameter.N.{ParameterName,
+// ParameterValue,ApplyMethod} triples a real aws-sdk-go-v2 Neptune client
+// sends for Modify/Reset(DBCluster)ParameterGroup (see
+// awsAwsquery_serializeDocumentParametersList in the SDK's serializers.go --
+// the list member wrapper is "Parameter", not the generic query-protocol
+// "member").
+func parseParameterEntries(vals url.Values) []ParameterInput {
+	var result []ParameterInput
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("Parameters.Parameter.%d.", i)
+		name := vals.Get(prefix + "ParameterName")
+		if name == "" {
+			return result
+		}
+		result = append(result, ParameterInput{
+			ParameterName:  name,
+			ParameterValue: vals.Get(prefix + "ParameterValue"),
+			ApplyMethod:    vals.Get(prefix + "ApplyMethod"),
+		})
+	}
 }
 
 type describeDBParametersResult struct {

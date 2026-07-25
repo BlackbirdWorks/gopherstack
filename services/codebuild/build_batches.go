@@ -41,16 +41,21 @@ func (b *InMemoryBackend) BatchGetBuildBatches(ids []string) ([]*BuildBatch, []s
 	return found, notFound
 }
 
-// ListBuildBatches returns all build batch IDs in sorted order.
-func (b *InMemoryBackend) ListBuildBatches() []string {
+// ListBuildBatches returns all build batch IDs in sorted order, optionally
+// filtered by status (empty statusFilter returns every batch).
+func (b *InMemoryBackend) ListBuildBatches(statusFilter string) []string {
 	b.mu.RLock("ListBuildBatches")
 	defer b.mu.RUnlock()
 
 	items := b.buildBatches.Snapshot()
-	ids := make([]string, len(items))
+	ids := make([]string, 0, len(items))
 
-	for i, bb := range items {
-		ids[i] = bb.ID
+	for _, bb := range items {
+		if statusFilter != "" && bb.BuildBatchStatus != statusFilter {
+			continue
+		}
+
+		ids = append(ids, bb.ID)
 	}
 
 	return ids
@@ -137,8 +142,10 @@ func (b *InMemoryBackend) StopBuildBatch(id string) (*BuildBatch, error) {
 	return &out, nil
 }
 
-// ListBuildBatchesForProject returns all batch IDs for a project in sorted order.
-func (b *InMemoryBackend) ListBuildBatchesForProject(projectName string) ([]string, error) {
+// ListBuildBatchesForProject returns all batch IDs for a project in sorted
+// order, optionally filtered by status (empty statusFilter returns every
+// batch for the project).
+func (b *InMemoryBackend) ListBuildBatchesForProject(projectName, statusFilter string) ([]string, error) {
 	b.mu.RLock("ListBuildBatchesForProject")
 	defer b.mu.RUnlock()
 
@@ -147,10 +154,14 @@ func (b *InMemoryBackend) ListBuildBatchesForProject(projectName string) ([]stri
 	}
 
 	group := b.buildBatchesByProject.Get(projectName)
-	ids := make([]string, len(group))
+	ids := make([]string, 0, len(group))
 
-	for i, bb := range group {
-		ids[i] = bb.ID
+	for _, bb := range group {
+		if statusFilter != "" && bb.BuildBatchStatus != statusFilter {
+			continue
+		}
+
+		ids = append(ids, bb.ID)
 	}
 
 	sort.Strings(ids)

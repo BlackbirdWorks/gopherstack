@@ -2,6 +2,7 @@ package rolesanywhere_test
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,11 +13,26 @@ import (
 
 // ---- Tags ----
 
+// newTaggableTrustAnchor creates a trust anchor and returns its ARN, for
+// tests that need a real resourceArn -- TagResource/ListTagsForResource
+// validate that the ARN corresponds to an existing trust anchor, profile, or
+// CRL (real AWS models ResourceNotFoundException for both), so synthetic
+// ARNs are no longer accepted the way they were before that fix.
+func newTaggableTrustAnchor(t *testing.T, b *rolesanywhere.InMemoryBackend) string {
+	t.Helper()
+
+	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
+	ta, err := b.CreateTrustAnchor(context.Background(), t.Name(), src, nil, nil, nil)
+	require.NoError(t, err)
+
+	return ta.TrustAnchorArn
+}
+
 func TestTagResource_Roundtrip(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	resARN := "arn:aws:rolesanywhere:us-east-1:000000000000:trust-anchor/some-id"
+	resARN := newTaggableTrustAnchor(t, b)
 
 	tags := []rolesanywhere.TagEntry{
 		{Key: "env", Value: "prod"},
@@ -42,7 +58,7 @@ func TestUntagResource_RemovesTags(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	resARN := "arn:aws:rolesanywhere:us-east-1:000000000000:trust-anchor/untag-id"
+	resARN := newTaggableTrustAnchor(t, b)
 
 	_ = b.TagResource(
 		context.Background(),
@@ -93,7 +109,7 @@ func TestTagResource_Upsert(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			arn := "arn:aws:test::" + tt.name
+			arn := newTaggableTrustAnchor(t, b)
 			require.NoError(t, b.TagResource(context.Background(), arn, tt.initial))
 			require.NoError(t, b.TagResource(context.Background(), arn, tt.updates))
 
@@ -107,4 +123,74 @@ func TestTagResource_Upsert(t *testing.T) {
 			assert.Equal(t, tt.wantValues, found)
 		})
 	}
+}
+
+// TestTagResource_UnknownResourceNotFound proves that TagResource and
+// ListTagsForResource reject an ARN that matches no trust anchor, profile,
+// or CRL with ResourceNotFoundException, matching real AWS (both operations
+// model that exception). UntagResource does not model
+// ResourceNotFoundException at all and is left to silently no-op instead.
+func TestTagResource_UnknownResourceNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	unknownARN := "arn:aws:rolesanywhere:us-east-1:000000000000:trust-anchor/does-not-exist"
+
+	err := b.TagResource(context.Background(), unknownARN, []rolesanywhere.TagEntry{{Key: "a", Value: "1"}})
+	require.Error(t, err)
+
+	_, err = b.ListTagsForResource(context.Background(), unknownARN)
+	require.Error(t, err)
+
+	// UntagResource has no ResourceNotFoundException in the real API and
+	// stays a no-op against an unknown ARN.
+	assert.NoError(t, b.UntagResource(context.Background(), unknownARN, []string{"a"}))
+}
+
+// TestTagResource_DeleteCascadesTags proves that deleting a trust anchor
+// removes its tags from the tag store too, so a subsequent TagResource
+// against the same (now-gone) ARN correctly reports ResourceNotFoundException
+// rather than resurrecting a ghost row.
+func TestTagResource_DeleteCascadesTags(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
+	ta, err := b.CreateTrustAnchor(context.Background(), "cascade-anchor", src, nil, nil, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.TagResource(context.Background(), ta.TrustAnchorArn,
+		[]rolesanywhere.TagEntry{{Key: "a", Value: "1"}}))
+
+	_, err = b.DeleteTrustAnchor(context.Background(), ta.TrustAnchorID)
+	require.NoError(t, err)
+
+	_, err = b.ListTagsForResource(context.Background(), ta.TrustAnchorArn)
+	require.Error(t, err)
+}
+
+// TestTagResource_TooManyTags proves that pushing a resource's total tag
+// count past the 200-tag limit (the same limit the real SDK's shared
+// TagList shape enforces, max: 200) returns TooManyTagsException without
+// applying any of the offending batch, rather than partially tagging past
+// the limit.
+func TestTagResource_TooManyTags(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	resARN := newTaggableTrustAnchor(t, b)
+
+	const overLimit = 201
+
+	tags := make([]rolesanywhere.TagEntry, overLimit)
+	for i := range tags {
+		tags[i] = rolesanywhere.TagEntry{Key: "k" + strconv.Itoa(i), Value: "v"}
+	}
+
+	err := b.TagResource(context.Background(), resARN, tags)
+	require.Error(t, err)
+
+	got, listErr := b.ListTagsForResource(context.Background(), resARN)
+	require.NoError(t, listErr)
+	assert.Empty(t, got, "the over-limit batch must not be partially applied")
 }

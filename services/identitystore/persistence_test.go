@@ -2,6 +2,7 @@ package identitystore //nolint:testpackage // needs isCtxRegion (isolation_test.
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -152,6 +153,26 @@ func TestInMemoryBackend_SnapshotRestoreFullState(t *testing.T) {
 		// restore, proving it was rebuilt (not left empty) by Table.Restore.
 		_, err = fresh.CreateUser(isCtxRegion("us-east-1"), storeID, &CreateUserRequest{UserName: "alice"})
 		require.ErrorIs(t, err, ErrConflict)
+	})
+
+	t.Run("timestamps and actor survive the round trip", func(t *testing.T) {
+		t.Parallel()
+
+		// epochTime implements custom MarshalJSON/UnmarshalJSON (see
+		// models.go) specifically so it round-trips through Snapshot/Restore.
+		// The comparison tolerates sub-millisecond drift: encoding a
+		// nanosecond-precision time.Time as a float64 seconds count (the
+		// real AWS JSON-protocol wire format) is inherently slightly lossy
+		// at that scale, so exact time.Time equality is not the right bar --
+		// only "the same instant, as far as the wire format can represent"
+		// is.
+		got, err := fresh.DescribeUser(isCtxRegion("us-east-1"), storeID, user.UserID)
+		require.NoError(t, err)
+		assert.WithinDuration(t, time.Time(user.CreatedAt), time.Time(got.CreatedAt), time.Millisecond)
+		assert.WithinDuration(t, time.Time(user.UpdatedAt), time.Time(got.UpdatedAt), time.Millisecond)
+		assert.Equal(t, user.CreatedBy, got.CreatedBy)
+		assert.Equal(t, user.UpdatedBy, got.UpdatedBy)
+		assert.False(t, time.Time(got.CreatedAt).IsZero())
 	})
 
 	t.Run("groups table plus byDisplayName index", func(t *testing.T) {
