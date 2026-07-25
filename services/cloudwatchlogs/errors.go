@@ -31,3 +31,9 @@ var (
 	ErrTransformerNotFound         = errors.New("ResourceNotFoundException")
 	ErrIntegrationNotFound         = errors.New("ResourceNotFoundException")
 )
+
+var (
+	ErrLookupTableNotFound         = errors.New("ResourceNotFoundException")
+	ErrLookupTableAlreadyExists    = errors.New("ResourceAlreadyExistsException")
+	ErrSyslogConfigurationNotFound = errors.New("ResourceNotFoundException")
+)

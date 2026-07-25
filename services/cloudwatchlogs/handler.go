@@ -73,7 +73,27 @@ func (h *Handler) Name() string { return "CloudWatchLogs" }
 
 // GetSupportedOperations returns all mocked CloudWatch Logs operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return append(cwlCoreOps(), cwlCompletenessOps()...)
+	ops := append(cwlCoreOps(), cwlCompletenessOps()...)
+
+	return append(ops, cwlLatestOps()...)
+}
+
+// cwlLatestOps returns CloudWatch Logs operations added in the parity-4 SDK
+// bump (aws-sdk-go-v2/service/cloudwatchlogs v1.80.0): lookup tables, syslog
+// configurations, and the account-level storage tier policy.
+func cwlLatestOps() []string {
+	return []string{
+		"CreateLookupTable",
+		"GetLookupTable",
+		"UpdateLookupTable",
+		"DeleteLookupTable",
+		"DescribeLookupTables",
+		"PutSyslogConfiguration",
+		"ListSyslogConfigurations",
+		"DeleteSyslogConfiguration",
+		"GetStorageTierPolicy",
+		"PutStorageTierPolicy",
+	}
 }
 
 func cwlCoreOps() []string {
@@ -338,8 +358,26 @@ func (h *Handler) buildOps() map[string]actionFn {
 	maps.Copy(table, h.insightsActions())
 	maps.Copy(table, h.newOperationsActions())
 	maps.Copy(table, h.completenessActions())
+	maps.Copy(table, h.latestOperationsActions())
 
 	return table
+}
+
+// latestOperationsActions returns dispatch entries for the parity-4 SDK bump
+// operations (see cwlLatestOps).
+func (h *Handler) latestOperationsActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreateLookupTable":         h.handleCreateLookupTable,
+		"GetLookupTable":            h.handleGetLookupTable,
+		"UpdateLookupTable":         h.handleUpdateLookupTable,
+		"DeleteLookupTable":         h.handleDeleteLookupTable,
+		"DescribeLookupTables":      h.handleDescribeLookupTables,
+		"PutSyslogConfiguration":    h.handlePutSyslogConfiguration,
+		"ListSyslogConfigurations":  h.handleListSyslogConfigurations,
+		"DeleteSyslogConfiguration": h.handleDeleteSyslogConfiguration,
+		"GetStorageTierPolicy":      h.handleGetStorageTierPolicy,
+		"PutStorageTierPolicy":      h.handlePutStorageTierPolicy,
+	}
 }
 
 // dispatch routes the action to the correct handler function.
@@ -375,10 +413,12 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrResourcePolicyNotFound), errors.Is(reqErr, ErrDeliveryDestinationNotFound),
 		errors.Is(reqErr, ErrDeliverySourceNotFound), errors.Is(reqErr, ErrDestinationNotFound),
 		errors.Is(reqErr, ErrIndexPolicyNotFound), errors.Is(reqErr, ErrTransformerNotFound),
-		errors.Is(reqErr, ErrIntegrationNotFound):
+		errors.Is(reqErr, ErrIntegrationNotFound), errors.Is(reqErr, ErrLookupTableNotFound),
+		errors.Is(reqErr, ErrSyslogConfigurationNotFound):
 		errType = "ResourceNotFoundException"
 		statusCode = http.StatusNotFound
-	case errors.Is(reqErr, ErrLogGroupAlreadyExists), errors.Is(reqErr, ErrLogStreamAlreadyExist):
+	case errors.Is(reqErr, ErrLogGroupAlreadyExists), errors.Is(reqErr, ErrLogStreamAlreadyExist),
+		errors.Is(reqErr, ErrLookupTableAlreadyExists):
 		errType = "ResourceAlreadyExistsException"
 		statusCode = http.StatusConflict
 	case errors.Is(reqErr, ErrSubscriptionFilterLimitExceed):
@@ -456,6 +496,8 @@ const (
 	keyIntegrationType     = "integrationType"
 	keyAccessPolicy        = "accessPolicy"
 	keyCreationTime        = "creationTime"
+	keyLookupTableArn      = "lookupTableArn"
+	keyLastUpdatedTime     = "lastUpdatedTime"
 )
 
 // completenessActions returns dispatch entries for all previously notImplemented CloudWatch Logs operations.
