@@ -11,10 +11,17 @@ import (
 )
 
 const (
-	quicksightServiceName   = "QuickSight"
-	quicksightSigningName   = "quicksight"
-	quicksightPathPrefix    = "/accounts/"
-	quicksightTagPrefix     = "/resources/"
+	quicksightServiceName = "QuickSight"
+	quicksightSigningName = "quicksight"
+	quicksightPathPrefix  = "/accounts/"
+	quicksightTagPrefix   = "/resources/"
+	// quicksightV1PathPrefix covers the KnowledgeBase and Space families,
+	// the only QuickSight operations minted under "/v1/accounts/..."
+	// instead of the usual "/accounts/..." (see classifyRequest's v1-strip
+	// comment in handler_paths.go). Safe to match broadly here since
+	// RouteMatcher still requires the Authorization header to name
+	// "quicksight" below, same disambiguation as quicksightPathPrefix.
+	quicksightV1PathPrefix  = "/v1/accounts/"
 	quicksightMatchPriority = service.PriorityPathVersioned + 1
 
 	opUnknown = "Unknown"
@@ -299,6 +306,46 @@ const (
 	opGetFlowMetadata    = "GetFlowMetadata"
 	opGetFlowPermissions = "GetFlowPermissions"
 	opUpdateFlowPerms    = "UpdateFlowPermissions"
+	opCreateFlow         = "CreateFlow"
+	opDescribeFlow       = "DescribeFlow"
+	opUpdateFlow         = "UpdateFlow"
+	opDeleteFlow         = "DeleteFlow"
+
+	// agent ops.
+	opCreateAgent        = "CreateAgent"
+	opDescribeAgent      = "DescribeAgent"
+	opUpdateAgent        = "UpdateAgent"
+	opDeleteAgent        = "DeleteAgent"
+	opListAgents         = "ListAgents"
+	opSearchAgents       = "SearchAgents"
+	opDescribeAgentPerms = "DescribeAgentPermissions"
+	opUpdateAgentPerms   = "UpdateAgentPermissions"
+
+	// knowledge base ops.
+	opCreateKnowledgeBase        = "CreateKnowledgeBase"
+	opDescribeKnowledgeBase      = "DescribeKnowledgeBase"
+	opUpdateKnowledgeBase        = "UpdateKnowledgeBase"
+	opDeleteKnowledgeBase        = "DeleteKnowledgeBase"
+	opBatchDeleteKnowledgeBase   = "BatchDeleteKnowledgeBase"
+	opListKnowledgeBases         = "ListKnowledgeBases"
+	opSearchKnowledgeBases       = "SearchKnowledgeBases"
+	opDescribeKnowledgeBasePerms = "DescribeKnowledgeBasePermissions"
+	opUpdateKnowledgeBasePerms   = "UpdateKnowledgeBasePermissions"
+
+	// space ops.
+	opCreateSpace          = "CreateSpace"
+	opDescribeSpace        = "DescribeSpace"
+	opUpdateSpace          = "UpdateSpace"
+	opDeleteSpace          = "DeleteSpace"
+	opListSpaces           = "ListSpaces"
+	opSearchSpaces         = "SearchSpaces"
+	opDescribeSpacePerms   = "DescribeSpacePermissions"
+	opUpdateSpacePerms     = "UpdateSpacePermissions"
+	opListSpaceResources   = "ListSpaceResources"
+	opUpdateSpaceResources = "UpdateSpaceResources"
+
+	// user index capacity.
+	opListUsersIndexCapacity = "ListUsersIndexCapacity"
 
 	// namespace self-upgrade ops.
 	opDescribeSelfUpgradeConfig = "DescribeSelfUpgradeConfiguration"
@@ -445,6 +492,13 @@ const (
 	pathSegMetadata             = "metadata"
 	pathSegRefresh              = "refresh"
 	pathSegResult               = "result"
+	pathSegV1                   = "v1"
+	pathSegAgents               = "agents"
+	pathSegKnowledgeBases       = "knowledge-bases"
+	pathSegSpaces               = "spaces"
+	pathSegQuickIndex           = "quick-index"
+	pathSegUserCapacity         = "user-capacity"
+	pathSegBatchDelete          = "batch-delete"
 
 	// error codes.
 	errInvalidParam = "InvalidParameterValueException"
@@ -491,7 +545,8 @@ func (h *Handler) MatchPriority() int { return quicksightMatchPriority }
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
-		if strings.HasPrefix(path, quicksightPathPrefix) || strings.HasPrefix(path, quicksightTagPrefix) {
+		if strings.HasPrefix(path, quicksightPathPrefix) || strings.HasPrefix(path, quicksightTagPrefix) ||
+			strings.HasPrefix(path, quicksightV1PathPrefix) {
 			return isQuickSightRequest(c)
 		}
 
@@ -554,6 +609,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		searchOps(),
 		flowOps(),
 		selfUpgradeOps(),
+		agentOps(),
+		knowledgeBaseOps(),
+		spaceOps(),
+		userIndexCapacityOps(),
 	}
 
 	var ops []string
@@ -949,6 +1008,10 @@ func flowOps() []string {
 		opGetFlowMetadata,
 		opGetFlowPermissions,
 		opUpdateFlowPerms,
+		opCreateFlow,
+		opDescribeFlow,
+		opUpdateFlow,
+		opDeleteFlow,
 	}
 }
 
@@ -959,6 +1022,52 @@ func selfUpgradeOps() []string {
 		opListSelfUpgrades,
 		opUpdateSelfUpgrade,
 	}
+}
+
+func agentOps() []string {
+	return []string{
+		opCreateAgent,
+		opDescribeAgent,
+		opUpdateAgent,
+		opDeleteAgent,
+		opListAgents,
+		opSearchAgents,
+		opDescribeAgentPerms,
+		opUpdateAgentPerms,
+	}
+}
+
+func knowledgeBaseOps() []string {
+	return []string{
+		opCreateKnowledgeBase,
+		opDescribeKnowledgeBase,
+		opUpdateKnowledgeBase,
+		opDeleteKnowledgeBase,
+		opBatchDeleteKnowledgeBase,
+		opListKnowledgeBases,
+		opSearchKnowledgeBases,
+		opDescribeKnowledgeBasePerms,
+		opUpdateKnowledgeBasePerms,
+	}
+}
+
+func spaceOps() []string {
+	return []string{
+		opCreateSpace,
+		opDescribeSpace,
+		opUpdateSpace,
+		opDeleteSpace,
+		opListSpaces,
+		opSearchSpaces,
+		opDescribeSpacePerms,
+		opUpdateSpacePerms,
+		opListSpaceResources,
+		opUpdateSpaceResources,
+	}
+}
+
+func userIndexCapacityOps() []string {
+	return []string{opListUsersIndexCapacity}
 }
 
 // Handler returns the Echo handler function.

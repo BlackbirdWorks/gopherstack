@@ -60,13 +60,44 @@ func isTopicFamilyOp(op string) bool {
 		isFinalStubOp(op)
 }
 
+// isGenerativeBIOp reports whether op is one of the Agent, Knowledge Base, or
+// Space operations, or ListUsersIndexCapacity -- the "Quick Suite"
+// generative-BI resource families added to the SDK after the prior parity
+// pass. Folded into isFinalStubOp/dispatchFinalStub (rather than given its
+// own case in dispatchTopicFamily's switch) purely to keep
+// dispatchTopicFamily's complexity in budget.
+func isGenerativeBIOp(op string) bool {
+	return isAgentOp(op) || isKnowledgeBaseOp(op) || isSpaceOp(op) || op == opListUsersIndexCapacity
+}
+
+func (h *Handler) dispatchGenerativeBI(c *echo.Context, op string) error {
+	switch {
+	case isAgentOp(op):
+		return h.dispatchAgent(c, op)
+	case isKnowledgeBaseOp(op):
+		return h.dispatchKnowledgeBase(c, op)
+	case isSpaceOp(op):
+		return h.dispatchSpace(c, op)
+	case op == opListUsersIndexCapacity:
+		return h.handleListUsersIndexCapacity(c)
+	}
+
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		fmt.Sprintf("operation %q not implemented", op),
+	)
+}
+
 // isFinalStubOp reports whether op is one of the Action Connector, Automation
 // Job, Flow, or namespace Self-Upgrade operations — the last Appendix-A
 // canned-stub families to gain real backend implementations. Grouped behind
 // one predicate/dispatch pair purely to keep isTopicFamilyOp/
 // dispatchTopicFamily's complexity in budget.
 func isFinalStubOp(op string) bool {
-	return isActionConnectorOp(op) || isAutomationJobOp(op) || isFlowOp(op) || isSelfUpgradeOp(op)
+	return isActionConnectorOp(op) || isAutomationJobOp(op) || isFlowOp(op) || isSelfUpgradeOp(op) ||
+		isGenerativeBIOp(op)
 }
 
 func (h *Handler) dispatchFinalStub(c *echo.Context, op string) error {
@@ -79,6 +110,8 @@ func (h *Handler) dispatchFinalStub(c *echo.Context, op string) error {
 		return h.dispatchFlow(c, op)
 	case isSelfUpgradeOp(op):
 		return h.dispatchSelfUpgrade(c, op)
+	case isGenerativeBIOp(op):
+		return h.dispatchGenerativeBI(c, op)
 	}
 
 	return writeError(

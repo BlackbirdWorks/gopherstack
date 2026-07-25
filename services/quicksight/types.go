@@ -467,13 +467,21 @@ type AutomationJob struct {
 	OutputPayload     string
 }
 
-// Flow represents a QuickSight flow. QuickSight's API exposes no CreateFlow
-// operation (flows are authored via the console/Quick Suite); only
-// list/search/describe/permission operations are available.
+// FlowStepAlias represents one step-alias mapping in a flow's definition.
+type FlowStepAlias struct {
+	StepID    string
+	StepAlias string
+}
+
+// Flow represents a QuickSight flow. FlowDefinition and StepAliases are only
+// populated for DescribeFlow (the real API's FlowDetail shape); the summary
+// operations (ListFlows/SearchFlows/GetFlowMetadata) leave them nil, mirroring
+// how real AWS's FlowSummary carries no definition.
 type Flow struct {
 	CreatedTime     time.Time
 	LastUpdatedTime time.Time
 	LastPublishedAt time.Time
+	FlowDefinition  map[string]any
 	Description     string
 	Arn             string
 	Name            string
@@ -483,8 +491,134 @@ type Flow struct {
 	LastUpdatedBy   string
 	PublishState    string
 	Permissions     []ResourcePermission
+	StepAliases     []FlowStepAlias
 	RunCount        int32
 	UserCount       int32
+}
+
+// Agent represents a QuickSight agent: an AI-powered conversational
+// assistant scoped to a set of action connectors and spaces.
+type Agent struct {
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	AgentID          string
+	Arn              string
+	Name             string
+	Description      string
+	IconID           string
+	WelcomeMessage   string
+	Creator          string
+	AgentLifecycle   string
+	AgentStatus      string
+	ErrorMessage     string
+	ActionConnectors []string
+	Spaces           []string
+	StarterPrompts   []string
+	Permissions      []ResourcePermission
+}
+
+// AssociationFailure represents one ARN that could not be attached to or
+// detached from a resource, mirroring the real API's
+// FailedToUpdateAssociation (UpdateAgent) / FailedSpaceResourceOperation
+// (UpdateSpaceResources) shapes. ResourceType is empty for Agent
+// associations (the real shape carries none) and set for Space resource
+// operations.
+type AssociationFailure struct {
+	Arn          string
+	ResourceType string
+	ErrorCode    string
+	ErrorMessage string
+}
+
+// AgentAssociationUpdate holds the per-ARN failures from one UpdateAgent
+// call's attach/detach of action connectors and spaces.
+type AgentAssociationUpdate struct {
+	FailedToAddActionConnectors    []AssociationFailure
+	FailedToAddSpaces              []AssociationFailure
+	FailedToRemoveActionConnectors []AssociationFailure
+	FailedToRemoveSpaces           []AssociationFailure
+}
+
+// KnowledgeBase represents a QuickSight knowledge base: an indexed corpus of
+// documents from a data source that agents/flows can query for
+// retrieval-augmented answers. Configuration/AccessControlConfiguration/
+// MediaExtractionConfiguration are stored as opaque pass-through documents
+// (like Dashboard.Definition elsewhere in this backend) since their real
+// shapes are deeply nested and this backend has no processing logic that
+// needs to interpret them.
+type KnowledgeBase struct {
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	Configuration                map[string]any
+	AccessControlConfiguration   map[string]any
+	MediaExtractionConfiguration map[string]any
+	KnowledgeBaseID              string
+	Arn                          string
+	Name                         string
+	Description                  string
+	DataSourceArn                string
+	Status                       string
+	PrimaryOwnerArn              string
+	Permissions                  []ResourcePermission
+	DocumentCount                int64
+	SizeBytes                    int64
+	EmailNotificationOptedIn     bool
+}
+
+// KnowledgeBaseDeleteResult identifies one knowledge base successfully
+// deleted by BatchDeleteKnowledgeBase.
+type KnowledgeBaseDeleteResult struct {
+	KnowledgeBaseID string
+	Arn             string
+}
+
+// KnowledgeBaseDeleteError identifies one knowledge base BatchDeleteKnowledgeBase
+// failed to delete.
+type KnowledgeBaseDeleteError struct {
+	KnowledgeBaseID string
+	ErrorCode       string
+	ErrorMessage    string
+}
+
+// SpaceResource represents one QuickSight asset (identified by ARN and
+// type) attached to a space.
+type SpaceResource struct {
+	UpdatedAt    time.Time
+	ResourceArn  string
+	ResourceType string
+	ResourceName string
+}
+
+// UserIndexCapacity represents one user's derived index-capacity
+// consumption: the number and size of the knowledge bases and spaces they
+// own, computed from this backend's actual KnowledgeBase/Space state (see
+// InMemoryBackend.ListUsersIndexCapacity) rather than fabricated.
+type UserIndexCapacity struct {
+	UserArn                 string
+	UserName                string
+	Email                   string
+	Role                    string
+	KBCount                 int32
+	SpaceCount              int32
+	TotalCapacityBytes      int64
+	TotalKBCapacityBytes    int64
+	TotalSpaceCapacityBytes int64
+}
+
+// Space represents a QuickSight space: a named collection of resources
+// (topics, dashboards, knowledge bases, action connectors, datasets)
+// grouped together to scope agent/flow context.
+type Space struct {
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	SpaceID      string
+	Arn          string
+	Name         string
+	Description  string
+	CreatedBy    string
+	CreatedByArn string
+	Resources    []SpaceResource
+	Permissions  []ResourcePermission
 }
 
 // SelfUpgradeRequestDetail represents one namespace self-upgrade request (a

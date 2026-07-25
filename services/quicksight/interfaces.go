@@ -598,8 +598,7 @@ type StorageBackend interface {
 	// SPICE capacity configuration
 	UpdateSPICECapacityConfiguration(accountID, purchaseMode string) error
 
-	// Flows (QuickSight exposes no CreateFlow API; flows are authored via the
-	// console/Quick Suite and only read/searched/permissioned through the API).
+	// Flows
 	ListFlows(accountID string, maxResults int32, nextToken string) ([]*Flow, string, error)
 	SearchFlows(
 		accountID string,
@@ -613,6 +612,101 @@ type StorageBackend interface {
 		accountID, flowID string,
 		grant, revoke []ResourcePermission,
 	) (*Flow, []ResourcePermission, error)
+	CreateFlow(
+		accountID, name, description string,
+		flowDefinition map[string]any,
+		permissions []ResourcePermission,
+	) (*Flow, error)
+	DescribeFlow(accountID, flowID string) (*Flow, error)
+	UpdateFlow(accountID, flowID, name, description string, flowDefinition map[string]any) (*Flow, error)
+	DeleteFlow(accountID, flowID string) error
+
+	// Agents
+	CreateAgent(
+		accountID, agentID, name, description, iconID, welcomeMessage, agentLifecycle string,
+		actionConnectors, spaces, starterPrompts []string,
+		permissions []ResourcePermission,
+		tags map[string]string,
+	) (*Agent, error)
+	DescribeAgent(accountID, agentID string) (*Agent, error)
+	UpdateAgent(
+		accountID, agentID, name, description, iconID, welcomeMessage string,
+		actionConnectorsToAdd, actionConnectorsToRemove, spacesToAdd, spacesToRemove, starterPrompts []string,
+	) (*Agent, *AgentAssociationUpdate, error)
+	DeleteAgent(accountID, agentID string) error
+	ListAgents(accountID string, maxResults int32, nextToken string) ([]*Agent, string, error)
+	SearchAgents(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Agent, string, error)
+	DescribeAgentPermissions(accountID, agentID string) (*Agent, []ResourcePermission, error)
+	UpdateAgentPermissions(
+		accountID, agentID string,
+		grant, revoke []ResourcePermission,
+	) (*Agent, []ResourcePermission, error)
+
+	// Knowledge bases
+	CreateKnowledgeBase(
+		accountID, knowledgeBaseID, name, description, dataSourceArn, primaryOwnerArn string,
+		configuration, accessControlConfiguration, mediaExtractionConfiguration map[string]any,
+		permissions []ResourcePermission,
+		tags map[string]string,
+	) (*KnowledgeBase, error)
+	DescribeKnowledgeBase(accountID, knowledgeBaseID string) (*KnowledgeBase, error)
+	UpdateKnowledgeBase(
+		accountID, knowledgeBaseID, name, description string,
+		emailNotificationOptedIn *bool,
+		configuration, accessControlConfiguration, mediaExtractionConfiguration map[string]any,
+	) (*KnowledgeBase, error)
+	DeleteKnowledgeBase(accountID, knowledgeBaseID string) (*KnowledgeBase, error)
+	BatchDeleteKnowledgeBase(
+		accountID string,
+		knowledgeBaseIDs []string,
+	) ([]KnowledgeBaseDeleteResult, []KnowledgeBaseDeleteError)
+	ListKnowledgeBases(accountID string, maxResults int32, nextToken string) ([]*KnowledgeBase, string, error)
+	SearchKnowledgeBases(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*KnowledgeBase, string, error)
+	DescribeKnowledgeBasePermissions(accountID, knowledgeBaseID string) (*KnowledgeBase, []ResourcePermission, error)
+	UpdateKnowledgeBasePermissions(
+		accountID, knowledgeBaseID string,
+		grant, revoke []ResourcePermission,
+	) (*KnowledgeBase, []ResourcePermission, error)
+
+	// Spaces
+	CreateSpace(accountID, spaceID, name, description string) (*Space, error)
+	DescribeSpace(accountID, spaceID string) (*Space, error)
+	UpdateSpace(accountID, spaceID, name, description string) (*Space, error)
+	DeleteSpace(accountID, spaceID string) (*Space, error)
+	ListSpaces(accountID string, maxResults int32, nextToken string) ([]*Space, string, error)
+	SearchSpaces(
+		accountID string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Space, string, error)
+	DescribeSpacePermissions(accountID, spaceID string) (*Space, []ResourcePermission, error)
+	UpdateSpacePermissions(
+		accountID, spaceID string,
+		grant, revoke []ResourcePermission,
+	) (*Space, []ResourcePermission, error)
+	ListSpaceResources(accountID, spaceID string) ([]SpaceResource, error)
+	UpdateSpaceResources(
+		accountID, spaceID string,
+		add, remove []SpaceResource,
+	) (*Space, []AssociationFailure, error)
+
+	// User index capacity
+	ListUsersIndexCapacity(
+		accountID, namespace string,
+		maxResults int32,
+		nextToken string,
+	) ([]UserIndexCapacity, string, error)
 
 	// Namespace self-upgrade
 	DescribeSelfUpgradeConfiguration(accountID, namespace string) (string, error)

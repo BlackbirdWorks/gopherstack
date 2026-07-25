@@ -105,6 +105,10 @@ type InMemoryBackend struct {
 	flows            *store.Table[storedFlow]
 	spiceCapacity    map[string]string
 
+	agents         *store.Table[storedAgent]
+	knowledgeBases *store.Table[storedKnowledgeBase]
+	spaces         *store.Table[storedSpace]
+
 	selfUpgradeConfig   map[string]string
 	selfUpgradeRequests *store.Table[storedSelfUpgradeRequest]
 

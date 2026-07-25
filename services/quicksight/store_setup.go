@@ -226,6 +226,21 @@ var tableRegistrations = []func(*InMemoryBackend){
 		}))
 	},
 	func(b *InMemoryBackend) {
+		b.agents = store.Register(b.registry, "agents", store.New(func(v *storedAgent) string {
+			return agentKey(b.accountID, v.AgentID)
+		}))
+	},
+	func(b *InMemoryBackend) {
+		b.knowledgeBases = store.Register(b.registry, "knowledgeBases", store.New(func(v *storedKnowledgeBase) string {
+			return knowledgeBaseKey(b.accountID, v.KnowledgeBaseID)
+		}))
+	},
+	func(b *InMemoryBackend) {
+		b.spaces = store.Register(b.registry, "spaces", store.New(func(v *storedSpace) string {
+			return spaceKey(b.accountID, v.SpaceID)
+		}))
+	},
+	func(b *InMemoryBackend) {
 		b.selfUpgradeRequests = store.Register(
 			b.registry,
 			"selfUpgradeRequests",

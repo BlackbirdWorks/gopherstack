@@ -81,6 +81,10 @@ var resourceTypeDispatchTable = sync.OnceValue(func() map[string]resourceTypeCla
 		pathSegAssetBundleImport:   classifyAssetBundleImportPaths,
 		pathSegAutomationGroups:    classifyAutomationPaths,
 		pathSegFlows:               classifyFlowPaths,
+		pathSegAgents:              classifyAgentPaths,
+		pathSegKnowledgeBases:      classifyKnowledgeBasePaths,
+		pathSegSpaces:              classifySpacePaths,
+		pathSegQuickIndex:          classifyQuickIndexPaths,
 		pathSegResource2:           classifyResourceFoldersPaths,
 		pathSegCustomizations:      classifyCustomizationPaths,
 		pathSegCustomPermission:    classifyAccountCustomPermissionPaths,
@@ -144,8 +148,27 @@ func classifyQAPaths(method string, segs []string, n int) (string, string) {
 	return opUnknown, ""
 }
 
+// stripV1Prefix drops a leading "v1" segment when followed by "accounts".
+// The KnowledgeBase and Space families are the only QuickSight operations
+// minted under a "/v1/accounts/..." prefix instead of the service's usual
+// "/accounts/..." -- confirmed against aws-sdk-go-v2/service/quicksight's
+// serializers.go (every other family's opPath starts
+// "/accounts/{AwsAccountId}/...", these two start
+// "/v1/accounts/{AwsAccountId}/..."). Stripping the leading "v1" segment
+// lets the rest of the routing/handler code treat them identically to every
+// other /accounts/{id}/{resourceType}/... family. Used by both
+// classifyRequest (routing) and pathSegsFromCtx (every handler's own
+// segment re-parse) so the two never disagree on segment indices.
+func stripV1Prefix(segs []string) []string {
+	if len(segs) >= nSegsAccountRoot && segs[0] == pathSegV1 && segs[1] == pathSegAccounts {
+		return segs[1:]
+	}
+
+	return segs
+}
+
 func classifyRequest(method, path string) (string, string) {
-	segs := pathSegs(path)
+	segs := stripV1Prefix(pathSegs(path))
 	n := len(segs)
 
 	// /resources/{arn}/tags — tag operations
@@ -860,6 +883,23 @@ func classifySearchPaths(method string, segs []string, n int) (string, string) {
 		return opSearchActionConnectors, ""
 	case pathSegTopics:
 		return opSearchTopics, ""
+	case pathSegAgents:
+		return opSearchAgents, ""
+	case pathSegKnowledgeBases:
+		return opSearchKnowledgeBases, ""
+	case pathSegSpaces:
+		return opSearchSpaces, ""
+	}
+
+	return opUnknown, ""
+}
+
+// classifyQuickIndexPaths classifies POST
+// /accounts/{id}/quick-index/user-capacity (ListUsersIndexCapacity is a POST
+// per the real API despite being a read-only listing op).
+func classifyQuickIndexPaths(method string, segs []string, n int) (string, string) {
+	if n == nSegsAccountResID && seg(segs, segResID) == pathSegUserCapacity && method == http.MethodPost {
+		return opListUsersIndexCapacity, seg(segs, segAccountID)
 	}
 
 	return opUnknown, ""
@@ -900,6 +940,25 @@ func intField(body map[string]any, key string) int32 {
 	}
 
 	return 0
+}
+
+// strSliceField extracts a []string from a JSON array field, used for
+// request fields like Agent's ActionConnectors/Spaces/StarterPrompts and
+// KnowledgeBase's BatchDelete KnowledgeBaseIds.
+func strSliceField(body map[string]any, key string) []string {
+	raw, _ := body[key].([]any)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+
+	return out
 }
 
 func tagsFromBody(body map[string]any) map[string]string {
@@ -982,5 +1041,5 @@ func httpErr(c *echo.Context, err error) error {
 }
 
 func pathSegsFromCtx(c *echo.Context) []string {
-	return pathSegs(c.Request().URL.Path)
+	return stripV1Prefix(pathSegs(c.Request().URL.Path))
 }

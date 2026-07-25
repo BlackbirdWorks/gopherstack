@@ -3,20 +3,25 @@ package quicksight
 import (
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // filterFlowAssetName is the SearchFlows filter attribute name for matching
 // on a flow's display name (the "assetName" filter per the QuickSight API).
 const filterFlowAssetName = "assetName"
 
-// storedFlow is the persisted representation of a QuickSight flow. There is
-// no CreateFlow operation in the QuickSight API (flows are authored via the
-// console/Quick Suite); flows only ever enter backend state via seedFlow,
-// used by tests to populate fixtures for List/Search/Get.
+// storedFlow is the persisted representation of a QuickSight flow.
+// CreateFlow was added to the QuickSight API after the prior parity pass
+// (see PARITY.md); seedFlow remains available for tests that want to
+// populate a flow without exercising the full Create/Describe/Update
+// lifecycle (e.g. fixtures for List/Search/GetFlowMetadata that don't care
+// about FlowDefinition/StepAliases).
 type storedFlow struct {
 	CreatedTime     time.Time            `json:"createdTime"`
 	LastUpdatedTime time.Time            `json:"lastUpdatedTime"`
 	LastPublishedAt time.Time            `json:"lastPublishedAt,omitzero"`
+	FlowDefinition  map[string]any       `json:"flowDefinition,omitempty"`
 	Description     string               `json:"description,omitempty"`
 	Arn             string               `json:"arn"`
 	Name            string               `json:"name"`
@@ -47,6 +52,130 @@ func (f *storedFlow) toFlow() *Flow {
 		UserCount:       f.UserCount,
 		Permissions:     clonePermissions(f.Permissions),
 	}
+}
+
+// toFlowDetail returns the FlowDetail-shaped view used by DescribeFlow,
+// which (unlike FlowSummary) carries FlowDefinition and StepAliases but
+// omits RunCount/UserCount/LastPublishedAt/LastPublishedBy (real
+// FlowDetail has no such fields). StepAliases is always empty: real AWS
+// derives it from parsing the flow definition's steps, which this backend
+// stores opaquely (see CreateFlow) rather than interpreting -- an honest
+// omission, not a fabricated value.
+func (f *storedFlow) toFlowDetail() *Flow {
+	return &Flow{
+		CreatedTime:     f.CreatedTime,
+		LastUpdatedTime: f.LastUpdatedTime,
+		FlowDefinition:  f.FlowDefinition,
+		FlowID:          f.FlowID,
+		Arn:             f.Arn,
+		Name:            f.Name,
+		Description:     f.Description,
+		CreatedBy:       f.CreatedBy,
+		LastUpdatedBy:   f.LastUpdatedBy,
+		PublishState:    f.PublishState,
+	}
+}
+
+// ---- Flow CRUD ----
+
+const flowPublishStatePublished = "PUBLISHED"
+
+// CreateFlow creates a new flow. Real AWS creates both a DRAFT and a
+// PUBLISHED (auto-published) version; this backend has no versioning
+// concept, so it stores a single definition and reports PublishState
+// PUBLISHED, matching the real op's documented auto-publish behavior.
+func (b *InMemoryBackend) CreateFlow(
+	_, name, description string,
+	flowDefinition map[string]any,
+	permissions []ResourcePermission,
+) (*Flow, error) {
+	if name == "" || flowDefinition == nil {
+		return nil, ErrValidation
+	}
+
+	b.mu.Lock("CreateFlow")
+	defer b.mu.Unlock()
+
+	flowID := uuid.New().String()
+	now := time.Now().UTC()
+	f := &storedFlow{
+		CreatedTime:     now,
+		LastUpdatedTime: now,
+		LastPublishedAt: now,
+		FlowDefinition:  flowDefinition,
+		Description:     description,
+		Arn:             b.buildARN("flow", flowID),
+		Name:            name,
+		FlowID:          flowID,
+		PublishState:    flowPublishStatePublished,
+		Permissions:     clonePermissions(permissions),
+	}
+	b.flows.Put(f)
+
+	return f.toFlow(), nil
+}
+
+// DescribeFlow returns the FlowDetail-shaped view of a flow. Real AWS scopes
+// the response to a requested PublishState (DRAFT/PUBLISHED/
+// PENDING_APPROVAL); this backend stores a single definition (no draft/
+// published divergence), so publishState is accepted by the handler for
+// wire fidelity but doesn't change which data is returned.
+func (b *InMemoryBackend) DescribeFlow(accountID, flowID string) (*Flow, error) {
+	b.mu.RLock("DescribeFlow")
+	defer b.mu.RUnlock()
+
+	f, ok := b.flows.Get(flowKey(accountID, flowID))
+	if !ok {
+		return nil, ErrFlowNotFound
+	}
+
+	return f.toFlowDetail(), nil
+}
+
+// UpdateFlow updates a flow's mutable fields. Per CreateFlow, replacing
+// FlowDefinition replaces the entire definition (matching the real op's
+// documented all-or-nothing step replacement).
+func (b *InMemoryBackend) UpdateFlow(
+	accountID, flowID, name, description string,
+	flowDefinition map[string]any,
+) (*Flow, error) {
+	b.mu.Lock("UpdateFlow")
+	defer b.mu.Unlock()
+
+	key := flowKey(accountID, flowID)
+	f, ok := b.flows.Get(key)
+	if !ok {
+		return nil, ErrFlowNotFound
+	}
+
+	if name != "" {
+		f.Name = name
+	}
+	if description != "" {
+		f.Description = description
+	}
+	if flowDefinition != nil {
+		f.FlowDefinition = flowDefinition
+	}
+	f.LastUpdatedTime = time.Now().UTC()
+
+	return f.toFlow(), nil
+}
+
+func (b *InMemoryBackend) DeleteFlow(accountID, flowID string) error {
+	b.mu.Lock("DeleteFlow")
+	defer b.mu.Unlock()
+
+	key := flowKey(accountID, flowID)
+	f, ok := b.flows.Get(key)
+	if !ok {
+		return ErrFlowNotFound
+	}
+
+	delete(b.tags, f.Arn)
+	b.flows.Delete(key)
+
+	return nil
 }
 
 func flowKey(accountID, flowID string) string {

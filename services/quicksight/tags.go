@@ -75,7 +75,8 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 // included: namespace, group, user, data source, dataset, dashboard,
 // analysis, folder, template, theme, topic, VPC connection, brand, custom
 // permissions profile, OAuth client application, asset bundle export/import
-// job, dashboard snapshot job, action connector, automation job, flow.
+// job, dashboard snapshot job, action connector, automation job, flow,
+// agent, knowledge base, space.
 //
 //nolint:gochecknoglobals // registration table, analogous to tableRegistrations/errCodeLookup elsewhere
 var arnCollectorFuncs = []func(*InMemoryBackend) []string{
@@ -141,6 +142,15 @@ var arnCollectorFuncs = []func(*InMemoryBackend) []string{
 	},
 	func(b *InMemoryBackend) []string {
 		return arnsOf(b.flows.All(), func(v *storedFlow) string { return v.Arn })
+	},
+	func(b *InMemoryBackend) []string {
+		return arnsOf(b.agents.All(), func(v *storedAgent) string { return v.Arn })
+	},
+	func(b *InMemoryBackend) []string {
+		return arnsOf(b.knowledgeBases.All(), func(v *storedKnowledgeBase) string { return v.Arn })
+	},
+	func(b *InMemoryBackend) []string {
+		return arnsOf(b.spaces.All(), func(v *storedSpace) string { return v.Arn })
 	},
 }
 
