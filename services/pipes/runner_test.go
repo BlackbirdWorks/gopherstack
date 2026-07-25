@@ -473,6 +473,65 @@ func TestPipeSourceFiltering(t *testing.T) {
 	}
 }
 
+// TestPipesRunner_ShardIteratorSweep proves that stale shard iterator cache
+// entries are pruned once their pipe is no longer RUNNING, bounding the cache
+// instead of growing it unboundedly for every stopped/deleted stream pipe.
+// The cache is unexported, so this drives the real background poll loop
+// (Runner.Start, which ticks and sweeps on its own) through a stop/restart
+// cycle and observes the prune indirectly: a pruned iterator forces a fresh
+// GetShardIterator call the next time the pipe is polled, whereas a leaked
+// (un-pruned) iterator would silently be reused forever without ever calling
+// GetShardIterator again.
+func TestPipesRunner_ShardIteratorSweep(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestPipeBackend(t)
+	kinesisARN := "arn:aws:kinesis:us-east-1:000000000000:stream/sweep-stream"
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+	createTestPipe(t, backend, "sweep-pipe", kinesisARN, lambdaARN, "RUNNING")
+
+	reader := &fakeKinesisReader{
+		shardIDs: []string{"shard-1"},
+		pending:  map[string][]pipes.KinesisRecord{},
+	}
+	runner := pipes.NewRunner(backend)
+	runner.SetKinesisReader(reader)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	runner.Start(ctx)
+
+	getIterCalls := func() int {
+		reader.mu.Lock()
+		defer reader.mu.Unlock()
+
+		return reader.getIterCalls
+	}
+
+	// The runner's first background tick polls the running pipe and caches
+	// one shard iterator for it.
+	require.Eventually(t, func() bool { return getIterCalls() >= 1 }, 3*time.Second, 20*time.Millisecond,
+		"expected the runner's first tick to request a shard iterator for the running pipe")
+
+	_, err := backend.StopPipe(context.Background(), "sweep-pipe")
+	require.NoError(t, err)
+	pipes.WaitPipeStopped(t, backend, "sweep-pipe")
+
+	// Give the background ticker at least one full cycle while the pipe is
+	// stopped, so the sweep observes it outside the running set and prunes
+	// its cached shard iterator (the pipe itself is not polled while
+	// stopped, so this cannot be observed until it runs again below).
+	time.Sleep(1500 * time.Millisecond)
+
+	_, err = backend.StartPipe(context.Background(), "sweep-pipe")
+	require.NoError(t, err)
+	pipes.WaitPipeRunning(t, backend, "sweep-pipe")
+
+	require.Eventually(t, func() bool { return getIterCalls() >= 2 }, 3*time.Second, 20*time.Millisecond,
+		"expected a fresh GetShardIterator call after the pipe restarted, proving the sweep "+
+			"pruned the stale cache entry while the pipe was stopped")
+}
+
 // TestPipesRunner_InputTemplate tests that TargetParameters.InputTemplate overrides default payload.
 func TestPipesRunner_InputTemplate(t *testing.T) {
 	t.Parallel()
