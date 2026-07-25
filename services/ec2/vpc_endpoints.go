@@ -274,6 +274,7 @@ func (b *InMemoryBackend) DeleteVpcEndpoints(ids []string) ([]string, error) {
 			continue
 		}
 		b.vpcEndpoints.Delete(id)
+		delete(b.tags, id)
 	}
 
 	if len(unsuccessful) > 0 {

@@ -435,24 +435,39 @@ func cloneProfile(p *Profile) *Profile {
 	return &cp
 }
 
-// WebAppIdentityProviderDetails holds identity provider configuration for a web app.
-type WebAppIdentityProviderDetails struct {
-	IdentityProviderType string `json:"identity_provider_type,omitempty"`
-	InstanceArn          string `json:"instance_arn,omitempty"`
-	Role                 string `json:"role,omitempty"`
-	URL                  string `json:"url,omitempty"`
-	Directory            string `json:"directory,omitempty"`
-	Function             string `json:"function,omitempty"`
+// WebAppIdentityCenterConfig holds IAM Identity Center configuration for a web app's
+// identity provider. Real AWS web apps support ONLY IdentityCenterConfig as an
+// identity provider (unlike Transfer servers, which additionally support
+// SERVICE_MANAGED / AWS_DIRECTORY_SERVICE / AWS_LAMBDA / API_GATEWAY).
+type WebAppIdentityCenterConfig struct {
+	// ApplicationArn is assigned automatically by AWS when the web app is created;
+	// it is not settable by the caller.
+	ApplicationArn string `json:"application_arn,omitempty"`
+	InstanceArn    string `json:"instance_arn,omitempty"`
+	Role           string `json:"role,omitempty"`
+}
+
+// WebAppVpcConfig holds the VPC configuration for a web app endpoint hosted within a VPC.
+type WebAppVpcConfig struct {
+	VpcID            string   `json:"vpc_id,omitempty"`
+	VpcEndpointID    string   `json:"vpc_endpoint_id,omitempty"`
+	SecurityGroupIDs []string `json:"security_group_ids,omitempty"`
+	SubnetIDs        []string `json:"subnet_ids,omitempty"`
 }
 
 // WebApp represents an AWS Transfer web application.
 type WebApp struct {
-	IdentityProviderDetails *WebAppIdentityProviderDetails `json:"identity_provider_details,omitempty"`
-	CreatedAt               time.Time                      `json:"created_at"`
-	Tags                    map[string]string              `json:"tags"`
-	WebAppID                string                         `json:"web_app_id"`
-	AccountID               string                         `json:"account_id"`
-	Region                  string                         `json:"region"`
+	CreatedAt            time.Time                   `json:"created_at"`
+	IdentityCenterConfig *WebAppIdentityCenterConfig `json:"identity_center_config,omitempty"`
+	VpcConfig            *WebAppVpcConfig            `json:"vpc_config,omitempty"`
+	Tags                 map[string]string           `json:"tags"`
+	WebAppID             string                      `json:"web_app_id"`
+	AccessEndpoint       string                      `json:"access_endpoint,omitempty"`
+	WebAppEndpoint       string                      `json:"web_app_endpoint,omitempty"`
+	WebAppEndpointPolicy string                      `json:"web_app_endpoint_policy,omitempty"`
+	AccountID            string                      `json:"account_id"`
+	Region               string                      `json:"region"`
+	WebAppUnits          int32                       `json:"web_app_units,omitempty"`
 }
 
 // cloneWebApp returns a deep copy of a WebApp.
@@ -461,9 +476,16 @@ func cloneWebApp(w *WebApp) *WebApp {
 	cp.Tags = make(map[string]string, len(w.Tags))
 	maps.Copy(cp.Tags, w.Tags)
 
-	if w.IdentityProviderDetails != nil {
-		ipd := *w.IdentityProviderDetails
-		cp.IdentityProviderDetails = &ipd
+	if w.IdentityCenterConfig != nil {
+		icc := *w.IdentityCenterConfig
+		cp.IdentityCenterConfig = &icc
+	}
+
+	if w.VpcConfig != nil {
+		vc := *w.VpcConfig
+		vc.SecurityGroupIDs = append([]string(nil), w.VpcConfig.SecurityGroupIDs...)
+		vc.SubnetIDs = append([]string(nil), w.VpcConfig.SubnetIDs...)
+		cp.VpcConfig = &vc
 	}
 
 	return &cp
@@ -576,19 +598,22 @@ func cloneWorkflow(w *Workflow) *Workflow {
 
 // Certificate represents an imported AWS Transfer certificate.
 type Certificate struct {
-	NotBeforeDate time.Time         `json:"not_before_date,omitzero"`
-	NotAfterDate  time.Time         `json:"not_after_date,omitzero"`
-	ActiveDate    time.Time         `json:"active_date,omitzero"`
-	InactiveDate  time.Time         `json:"inactive_date,omitzero"`
-	CreatedAt     time.Time         `json:"created_at"`
-	Tags          map[string]string `json:"tags"`
-	CertificateID string            `json:"certificate_id"`
-	Description   string            `json:"description"`
-	Usage         string            `json:"usage"`
-	Body          string            `json:"body"`
-	Status        string            `json:"status"`
-	AccountID     string            `json:"account_id"`
-	Region        string            `json:"region"`
+	NotBeforeDate    time.Time         `json:"not_before_date,omitzero"`
+	NotAfterDate     time.Time         `json:"not_after_date,omitzero"`
+	ActiveDate       time.Time         `json:"active_date,omitzero"`
+	InactiveDate     time.Time         `json:"inactive_date,omitzero"`
+	CreatedAt        time.Time         `json:"created_at"`
+	Tags             map[string]string `json:"tags"`
+	CertificateID    string            `json:"certificate_id"`
+	Description      string            `json:"description"`
+	Usage            string            `json:"usage"`
+	Body             string            `json:"body"`
+	CertificateChain string            `json:"certificate_chain,omitempty"`
+	Serial           string            `json:"serial,omitempty"`
+	Status           string            `json:"status"`
+	AccountID        string            `json:"account_id"`
+	Region           string            `json:"region"`
+	HasPrivateKey    bool              `json:"has_private_key,omitempty"`
 }
 
 // HostKey represents an SSH host key associated with a Transfer server.

@@ -51,7 +51,7 @@ type StorageBackend interface {
 	StartAppBlockBuilder(name string) error
 	StopAppBlockBuilder(name string) error
 	UpdateAppBlockBuilder(name, description, instanceType string) (*AppBlockBuilder, error)
-	CreateAppBlockBuilderStreamingURL(name string) (string, error)
+	CreateAppBlockBuilderStreamingURL(name string, validitySeconds int64) (string, time.Time, error)
 
 	// AppBlockBuilder-AppBlock associations. appBlockID accepts either the
 	// app block Name or its Arn (real AWS's request carries AppBlockArn).
@@ -90,6 +90,8 @@ type StorageBackend interface {
 	CreateDirectoryConfig(
 		name string,
 		ouDNs []string, //nolint:revive,staticcheck // existing issue.
+		cred ServiceAccountCredentials,
+		certAuth CertificateBasedAuthProperties,
 	) (*DirectoryConfig, error)
 
 	DeleteDirectoryConfig(name string) error
@@ -97,6 +99,8 @@ type StorageBackend interface {
 	UpdateDirectoryConfig(
 		name string,
 		ouDNs []string, //nolint:revive,staticcheck // existing issue.
+		cred ServiceAccountCredentials,
+		certAuth CertificateBasedAuthProperties,
 	) (*DirectoryConfig, error)
 
 	// Images
@@ -113,9 +117,9 @@ type StorageBackend interface {
 	CreateImageBuilder(name, description, platform, instanceType string, tags map[string]string) (*ImageBuilder, error)
 	DeleteImageBuilder(name string) (string, error)
 	DescribeImageBuilders(names []string) ([]*ImageBuilder, error)
-	StartImageBuilder(name, appstreamAgentVersion string) (string, error)
+	StartImageBuilder(name, appstreamAgentVersion string) error
 	StopImageBuilder(name string) (*ImageBuilder, error)
-	CreateImageBuilderStreamingURL(name string) (string, error)
+	CreateImageBuilderStreamingURL(name string, validitySeconds int64) (string, time.Time, error)
 
 	// Software associations
 	AssociateSoftwareToImageBuilder(imageBuilderName string, software []string) error
@@ -124,9 +128,12 @@ type StorageBackend interface {
 	StartSoftwareDeploymentToImageBuilder(imageBuilderName string) error
 
 	// ExportImageTasks
-	CreateExportImageTask(imageName, s3Bucket, s3Prefix string) (*ExportImageTask, error)
+	CreateExportImageTask(
+		imageName, amiName, amiDescription, iamRoleArn string,
+		tagSpecifications map[string]string,
+	) (*ExportImageTask, error)
 	GetExportImageTask(taskID string) (*ExportImageTask, error)
-	ListExportImageTasks(imageNames []string) ([]*ExportImageTask, error)
+	ListExportImageTasks(maxResults int32, nextToken string) ([]*ExportImageTask, string, error)
 
 	// UsageReportSubscriptions
 	CreateUsageReportSubscription(schedule, s3Bucket string) (*UsageReportSubscription, error)
@@ -155,7 +162,7 @@ type StorageBackend interface {
 	DescribeSessions(stackName, fleetName, userID string) ([]*Session, error)
 	DrainSessionInstance(sessionID string) error
 	ExpireSession(sessionID string) error
-	CreateStreamingURL(stackName, fleetName, userID string) (string, error)
+	CreateStreamingURL(stackName, fleetName, userID string, validitySeconds int64) (string, time.Time, error)
 
 	AccountID() string
 	Region() string
@@ -265,9 +272,25 @@ type EntitledApplication struct {
 	ApplicationIdentifier string
 }
 
+// ServiceAccountCredentials are the AD service-account credentials a fleet or
+// image builder uses to join a directory.
+type ServiceAccountCredentials struct {
+	AccountName     string
+	AccountPassword string
+}
+
+// CertificateBasedAuthProperties configures SAML 2.0 certificate-based
+// authentication for a directory config.
+type CertificateBasedAuthProperties struct {
+	CertificateAuthorityArn string
+	Status                  string
+}
+
 // DirectoryConfig holds Active Directory connection details.
 type DirectoryConfig struct {
 	CreatedTime                          time.Time
+	ServiceAccountCredentials            ServiceAccountCredentials
+	CertificateBasedAuthProperties       CertificateBasedAuthProperties
 	DirectoryName                        string
 	Arn                                  string
 	OrganizationalUnitDistinguishedNames []string
@@ -317,14 +340,17 @@ type SoftwareAssociation struct {
 	Software         string
 }
 
-// ExportImageTask represents an image export operation to S3.
+// ExportImageTask represents a task exporting a WorkSpaces Applications image
+// to an EC2 AMI.
 type ExportImageTask struct {
-	CreatedAt time.Time
-	TaskID    string
-	ImageName string
-	S3Bucket  string
-	S3Key     string
-	Status    string
+	CreatedDate       time.Time
+	TagSpecifications map[string]string
+	TaskID            string
+	ImageArn          string
+	AmiName           string
+	AmiDescription    string
+	AmiID             string
+	State             string
 }
 
 // UsageReportSubscription represents an AppStream usage report subscription.

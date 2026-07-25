@@ -1,6 +1,7 @@
 package transcribe_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -126,4 +127,63 @@ func TestHTTP_MedicalVocabularyEndpoints(t *testing.T) {
 		"VocabularyName": "med-vocab-test",
 	})
 	require.Equal(t, http.StatusOK, delRec.Code)
+}
+
+// TestListMedicalVocabularies_NameContains verifies the NameContains filter
+// (case-insensitive substring match), per the real ListMedicalVocabulariesInput field.
+func TestListMedicalVocabularies_NameContains(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	b.AddMedicalVocabularyInternal(&transcribe.MedicalVocabulary{VocabularyName: "cardiology-terms"})
+	b.AddMedicalVocabularyInternal(&transcribe.MedicalVocabulary{VocabularyName: "oncology-terms"})
+	b.AddMedicalVocabularyInternal(&transcribe.MedicalVocabulary{VocabularyName: "general-list"})
+
+	list, _ := b.ListMedicalVocabularies("", "terms", "")
+	require.Len(t, list, 2)
+
+	list, _ = b.ListMedicalVocabularies("", "GENERAL", "")
+	require.Len(t, list, 1, "NameContains must be case-insensitive")
+	assert.Equal(t, "general-list", list[0].VocabularyName)
+}
+
+// TestMedicalVocabulary_LastModifiedTimeAndFailureReason verifies Create/Update
+// surface LastModifiedTime and Get surfaces FailureReason, matching the real
+// CreateMedicalVocabularyOutput/UpdateMedicalVocabularyOutput/GetMedicalVocabularyOutput
+// shapes.
+func TestMedicalVocabulary_LastModifiedTimeAndFailureReason(t *testing.T) {
+	t.Parallel()
+
+	h := newTestTranscribeHandler(t)
+
+	createRec := doTranscribeRequest(t, h, "CreateMedicalVocabulary", map[string]any{
+		"VocabularyName":    "wire-shape-medvocab",
+		"LanguageCode":      "en-US",
+		"VocabularyFileUri": "s3://bucket/vocab.txt",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+	var createRaw map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createRaw))
+	assert.Contains(t, createRaw, "LastModifiedTime")
+
+	getRec := doTranscribeRequest(t, h, "GetMedicalVocabulary", map[string]any{
+		"VocabularyName": "wire-shape-medvocab",
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getRaw map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRaw))
+	_, hasFailureReason := getRaw["FailureReason"]
+	assert.False(t, hasFailureReason, "FailureReason must be omitted (empty) on success")
+
+	updateRec := doTranscribeRequest(t, h, "UpdateMedicalVocabulary", map[string]any{
+		"VocabularyName":    "wire-shape-medvocab",
+		"VocabularyFileUri": "s3://bucket/vocab2.txt",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updateRaw map[string]any
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateRaw))
+	assert.Contains(t, updateRaw, "LastModifiedTime")
 }

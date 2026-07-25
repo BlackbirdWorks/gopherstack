@@ -51,3 +51,12 @@ func VersionsMapKeyCount(b *InMemoryBackend, region string) int {
 
 	return len(b.versions[region])
 }
+
+// ConditionalTokenForTest exposes the unexported conditionalToken derivation
+// for tests exercising UpdateApplicationParams.ConditionalToken at the
+// backend level (the HTTP layer surfaces the same value via
+// ApplicationDetail.ConditionalToken, but backend-level tests have no other
+// way to obtain a valid token to round-trip).
+func ConditionalTokenForTest(app *Application) string {
+	return conditionalToken(app)
+}

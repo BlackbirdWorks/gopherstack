@@ -130,7 +130,7 @@ func TestSubscriptionReplayPolicyRoundTrips(t *testing.T) {
 	t.Parallel()
 
 	b := newA1679Backend(t)
-	tp, err := b.CreateTopic("replay-policy-topic", nil)
+	tp, err := b.CreateTopic("replay-policy-topic.fifo", nil)
 	require.NoError(t, err)
 
 	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:rp-q", "")
@@ -150,7 +150,7 @@ func TestSubscriptionReplayPolicyClear(t *testing.T) {
 	t.Parallel()
 
 	b := newA1679Backend(t)
-	tp, err := b.CreateTopic("rp-clear-topic", nil)
+	tp, err := b.CreateTopic("rp-clear-topic.fifo", nil)
 	require.NoError(t, err)
 
 	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:rp-clear-q", "")
@@ -171,7 +171,7 @@ func TestSubscriptionDeliveryAndReplayPolicyCoexist(t *testing.T) {
 	t.Parallel()
 
 	b := newA1679Backend(t)
-	tp, err := b.CreateTopic("coexist-topic", nil)
+	tp, err := b.CreateTopic("coexist-topic.fifo", nil)
 	require.NoError(t, err)
 
 	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:coexist-q", "")
@@ -225,7 +225,7 @@ func TestSubscriptionReplayPolicyViaHandler(t *testing.T) {
 	t.Parallel()
 
 	h, b := newA1679Handler(t)
-	tp, err := b.CreateTopic("handler-rp-topic", nil)
+	tp, err := b.CreateTopic("handler-rp-topic.fifo", nil)
 	require.NoError(t, err)
 
 	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:handler-rp-q", "")

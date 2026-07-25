@@ -118,17 +118,27 @@ func (h *Handler) handleUpdateDataSet(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	ds, err := h.Backend.UpdateDataSet(accountID, dataSetID, strField(body, "Name"), strField(body, "ImportMode"))
+	ds, ingestion, err := h.Backend.UpdateDataSet(
+		accountID, dataSetID, strField(body, "Name"), strField(body, "ImportMode"),
+	)
 	if err != nil {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyArn:       ds.Arn,
 		keyDataSetID: ds.DataSetID,
 		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
-	})
+	}
+	// As with CreateDataSet, AWS only triggers (and reports) an ingestion
+	// when the dataset's resulting import mode is SPICE.
+	if ingestion != nil {
+		resp["IngestionArn"] = ingestion.Arn
+		resp["IngestionId"] = ingestion.IngestionID
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteDataSet(c *echo.Context) error {

@@ -58,6 +58,20 @@ func (b *InMemoryBackend) CreateMountTarget(
 	ctx context.Context,
 	req CreateMountTargetRequest,
 ) (*MountTarget, error) {
+	if req.IPAddressType == "" {
+		req.IPAddressType = ipAddressTypeIPv4Only
+	}
+	switch req.IPAddressType {
+	case ipAddressTypeIPv4Only, ipAddressTypeIPv6Only, ipAddressTypeDualStack:
+		// valid
+	default:
+		return nil, fmt.Errorf(
+			"%w: invalid IpAddressType %q, must be IPV4_ONLY, IPV6_ONLY, or DUAL_STACK",
+			ErrValidation,
+			req.IPAddressType,
+		)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateMountTarget")
@@ -115,6 +129,8 @@ func (b *InMemoryBackend) CreateMountTarget(
 		AvailabilityZoneName: azName,
 		AvailabilityZoneID:   azID,
 		IPAddress:            req.IPAddress,
+		IPAddressType:        req.IPAddressType,
+		IPv6Address:          req.IPv6Address,
 		NetworkInterfaceID:   eniID,
 		LifeCycleState:       statusAvailable,
 		OwnerID:              b.accountID,

@@ -43,6 +43,19 @@ const (
 // engineValkeyCap is the display-name capitalisation for Valkey.
 const engineValkeyCap = "Valkey"
 
+// User authentication types. authTypePassword/authTypeIAM are shared by both
+// the wire OUTPUT enum (types.AuthenticationType) and INPUT enum
+// (types.InputAuthenticationType) -- only the "no password" case differs
+// between the two ("no-password" on output, "no-password-required" on
+// input), so that one is split into two constants.
+const (
+	authTypePassword         = "password"
+	authTypeIAM              = "iam"
+	authTypeNoPasswordOutput = "no-password"
+	authTypeNoPasswordInput  = "no-password-required"
+	maxUserPasswords         = 2
+)
+
 const (
 	snapshotSourceManual        = "manual"
 	snapshotSourceAutomated     = "automated"

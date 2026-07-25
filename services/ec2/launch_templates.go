@@ -19,6 +19,7 @@ func (b *InMemoryBackend) DeleteLaunchTemplate(id string) error {
 		return fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
 	}
 	b.launchTemplates.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

@@ -249,6 +249,67 @@ func TestHandler_DeliveryDestination(t *testing.T) {
 	}
 }
 
+// TestHandler_DeliveryDestination_WireShape locks the AWS wire shape for
+// aws-sdk-go-v2 types.DeliveryDestination: the target resource ARN must
+// appear nested as
+// deliveryDestinationConfiguration.destinationResourceArn (not a flat
+// string under deliveryDestinationConfiguration), deliveryDestinationType
+// must be present as a top-level sibling field, and the response must not
+// carry a flat "policy" key (policy is a different operation's shape).
+func TestHandler_DeliveryDestination_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+
+	putRec := doLogsRequest(t, h, e, "PutDeliveryDestination", `{
+		"name": "my-dest",
+		"outputFormat": "json",
+		"deliveryDestinationType": "S3",
+		"deliveryDestinationConfiguration": {"destinationResourceArn": "arn:aws:s3:::my-bucket"}
+	}`)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	checkShape := func(t *testing.T, dest map[string]any) {
+		t.Helper()
+
+		assert.Equal(t, "S3", dest["deliveryDestinationType"])
+
+		config, ok := dest["deliveryDestinationConfiguration"].(map[string]any)
+		require.True(t, ok, "deliveryDestinationConfiguration must be a nested object")
+		assert.Equal(t, "arn:aws:s3:::my-bucket", config["destinationResourceArn"])
+
+		_, hasPolicy := dest["policy"]
+		assert.False(t, hasPolicy, "policy must not appear on a DeliveryDestination")
+	}
+
+	var putOut map[string]any
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	putDest, ok := putOut["deliveryDestination"].(map[string]any)
+	require.True(t, ok)
+	checkShape(t, putDest)
+
+	getRec := doLogsRequest(t, h, e, "GetDeliveryDestination", `{"name":"my-dest"}`)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	getDest, ok := getOut["deliveryDestination"].(map[string]any)
+	require.True(t, ok)
+	checkShape(t, getDest)
+
+	describeRec := doLogsRequest(t, h, e, "DescribeDeliveryDestinations", `{}`)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	var describeOut map[string]any
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut))
+	dests, ok := describeOut["deliveryDestinations"].([]any)
+	require.True(t, ok)
+	require.Len(t, dests, 1)
+	describedDest, ok := dests[0].(map[string]any)
+	require.True(t, ok)
+	checkShape(t, describedDest)
+}
+
 func TestHandler_DeliverySource(t *testing.T) {
 	t.Parallel()
 
@@ -263,9 +324,9 @@ func TestHandler_DeliverySource(t *testing.T) {
 			name:   "PutDeliverySource/OK",
 			action: "PutDeliverySource",
 			body: map[string]any{
-				"name":         "my-src",
-				"logType":      "APPLICATION_LOGS",
-				"resourceArns": []string{"arn:aws:ec2:::instance/i-123"},
+				"name":        "my-src",
+				"logType":     "APPLICATION_LOGS",
+				"resourceArn": "arn:aws:ec2:::instance/i-123",
 			},
 			wantCode: http.StatusOK,
 		},
@@ -338,6 +399,68 @@ func TestHandler_DeliverySource(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestHandler_DeliverySource_WireShape locks two things about the AWS wire
+// contract for aws-sdk-go-v2 types.DeliverySource / PutDeliverySourceInput:
+//
+//  1. The input field is the singular "resourceArn" (a plain string), not a
+//     "resourceArns" array -- a previous version of this handler parsed the
+//     wrong (plural) key, so a real SDK client's request silently lost its
+//     resource ARN entirely (the backend always saw an empty slice).
+//  2. The response includes logType/resourceArns/service/tags, not just
+//     name/arn -- service is never client-supplied; it is derived
+//     server-side from the resource ARN's service segment.
+func TestHandler_DeliverySource_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+
+	putRec := doLogsRequest(t, h, e, "PutDeliverySource", `{
+		"name": "my-src",
+		"logType": "APPLICATION_LOGS",
+		"resourceArn": "arn:aws:workmail:us-east-1:123456789012:organization/m-abc"
+	}`)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	checkShape := func(t *testing.T, src map[string]any) {
+		t.Helper()
+
+		assert.Equal(t, "APPLICATION_LOGS", src["logType"])
+		assert.Equal(t, "workmail", src["service"], "service must be derived from the resource ARN")
+
+		arns, ok := src["resourceArns"].([]any)
+		require.True(t, ok, "resourceArns must be present as an array")
+		require.Len(t, arns, 1)
+		assert.Equal(t, "arn:aws:workmail:us-east-1:123456789012:organization/m-abc", arns[0])
+	}
+
+	var putOut map[string]any
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	putSrc, ok := putOut["deliverySource"].(map[string]any)
+	require.True(t, ok)
+	checkShape(t, putSrc)
+
+	getRec := doLogsRequest(t, h, e, "GetDeliverySource", `{"name":"my-src"}`)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	getSrc, ok := getOut["deliverySource"].(map[string]any)
+	require.True(t, ok)
+	checkShape(t, getSrc)
+
+	describeRec := doLogsRequest(t, h, e, "DescribeDeliverySources", `{}`)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	var describeOut map[string]any
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut))
+	srcs, ok := describeOut["deliverySources"].([]any)
+	require.True(t, ok)
+	require.Len(t, srcs, 1)
+	describedSrc, ok := srcs[0].(map[string]any)
+	require.True(t, ok)
+	checkShape(t, describedSrc)
 }
 
 func TestHandler_UpdateDeliveryConfiguration(t *testing.T) {

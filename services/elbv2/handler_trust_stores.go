@@ -4,8 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
-
-	"github.com/google/uuid"
+	"strconv"
 )
 
 func (h *Handler) handleCreateTrustStore(vals url.Values) (any, error) {
@@ -75,14 +74,15 @@ func (h *Handler) handleAddTrustStoreRevocations(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
-	revocations := parseTrustStoreRevocations(vals)
+	contents := parseTrustStoreRevocationContents(vals)
 
-	if err := h.Backend.AddTrustStoreRevocations(tsArn, revocations); err != nil {
+	added, err := h.Backend.AddTrustStoreRevocations(tsArn, contents)
+	if err != nil {
 		return nil, err
 	}
 
-	members := make([]xmlRevocationContent, 0, len(revocations))
-	for _, r := range revocations {
+	members := make([]xmlRevocationContent, 0, len(added))
+	for _, r := range added {
 		members = append(members, xmlRevocationContent{
 			RevocationID:           r.RevocationID,
 			RevocationType:         r.RevocationType,
@@ -100,22 +100,24 @@ func (h *Handler) handleAddTrustStoreRevocations(vals url.Values) (any, error) {
 	}, nil
 }
 
-// parseTrustStoreRevocations extracts RevocationContents from form values.
-// Supports both plain RevocationId fields and S3-structured entries.
-// Iteration is capped at 1000 to prevent potential DoS from malicious input.
-func parseTrustStoreRevocations(vals url.Values) []TrustStoreRevocation {
+// parseTrustStoreRevocationContents extracts RevocationContents from form values.
+// Real AWS's RevocationContent shape (verified against aws-sdk-go-v2
+// types.RevocationContent) is S3Bucket/S3Key/S3ObjectVersion/RevocationType only --
+// there is no plain/inline revocation-content field on the wire, and RevocationId is
+// never client-supplied (AWS assigns it when it parses the uploaded file). Iteration
+// is capped at 1000 to prevent potential DoS from malicious input.
+func parseTrustStoreRevocationContents(vals url.Values) []RevocationContentInput {
 	const maxRevocations = 1000
-	revocations := make([]TrustStoreRevocation, 0)
+	contents := make([]RevocationContentInput, 0)
 
 	for i := 1; i <= maxRevocations; i++ {
 		prefix := fmt.Sprintf("RevocationContents.member.%d.", i)
-		// S3-structured entry fields.
 		s3Bucket := vals.Get(prefix + "S3Bucket")
 		s3Key := vals.Get(prefix + "S3Key")
+		s3Version := vals.Get(prefix + "S3ObjectVersion")
 		revType := vals.Get(prefix + "RevocationType")
-		plain := vals.Get(fmt.Sprintf("RevocationContents.member.%d", i))
 
-		if s3Bucket == "" && s3Key == "" && revType == "" && plain == "" {
+		if s3Bucket == "" && s3Key == "" && s3Version == "" && revType == "" {
 			break
 		}
 
@@ -123,20 +125,15 @@ func parseTrustStoreRevocations(vals url.Values) []TrustStoreRevocation {
 			revType = "CRL"
 		}
 
-		revID := plain
-		if revID == "" {
-			// S3-format entries have no plain value; assign a unique ID server-side
-			// so callers can reference the revocation in RemoveTrustStoreRevocations.
-			revID = "s3-" + uuid.New().String()
-		}
-
-		revocations = append(revocations, TrustStoreRevocation{
-			RevocationID:   revID,
-			RevocationType: revType,
+		contents = append(contents, RevocationContentInput{
+			S3Bucket:        s3Bucket,
+			S3Key:           s3Key,
+			S3ObjectVersion: s3Version,
+			RevocationType:  revType,
 		})
 	}
 
-	return revocations
+	return contents
 }
 
 func (h *Handler) handleDescribeTrustStoreAssociations(vals url.Values) (any, error) {
@@ -245,19 +242,42 @@ func (h *Handler) handleRemoveTrustStoreRevocations(vals url.Values) (any, error
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
-	revocationIDs := parseMembers(vals, "RevocationIds.member")
+	revocationIDs, err := parseRevocationIDs(vals, "RevocationIds.member")
+	if err != nil {
+		return nil, err
+	}
+
 	if len(revocationIDs) == 0 {
 		return nil, fmt.Errorf("%w: at least one RevocationId is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.RemoveTrustStoreRevocations(tsArn, revocationIDs); err != nil {
-		return nil, err
+	if removeErr := h.Backend.RemoveTrustStoreRevocations(tsArn, revocationIDs); removeErr != nil {
+		return nil, removeErr
 	}
 
 	return &removeTrustStoreRevocationsResponse{
 		Xmlns:            elbv2XMLNS,
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-remove-ts-revocations"},
 	}, nil
+}
+
+// parseRevocationIDs parses RevocationIds.member.N into int64 values, matching the
+// real wire type (aws-sdk-go-v2 RemoveTrustStoreRevocationsInput.RevocationIds
+// []int64). A non-numeric entry is a client error on the real API too.
+func parseRevocationIDs(vals url.Values, prefix string) ([]int64, error) {
+	raw := parseMembers(vals, prefix)
+	ids := make([]int64, 0, len(raw))
+
+	for _, r := range raw {
+		id, err := strconv.ParseInt(r, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid RevocationId %q", ErrInvalidParameter, r)
+		}
+
+		ids = append(ids, id)
+	}
+
+	return ids, nil
 }
 
 func (h *Handler) handleGetTrustStoreCaCertificatesBundle(vals url.Values) (any, error) {
@@ -402,9 +422,9 @@ type modifyTrustStoreResponse struct {
 // DescribeTrustStoreRevocationsResult) — both have the same RevocationId/RevocationType/
 // NumberOfRevokedEntries/TrustStoreArn fields on the wire.
 type xmlRevocationContent struct {
-	RevocationID           string `xml:"RevocationId"`
 	RevocationType         string `xml:"RevocationType,omitempty"`
 	TrustStoreArn          string `xml:"TrustStoreArn,omitempty"`
+	RevocationID           int64  `xml:"RevocationId"`
 	NumberOfRevokedEntries int64  `xml:"NumberOfRevokedEntries,omitempty"`
 }
 

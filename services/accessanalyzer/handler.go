@@ -24,7 +24,6 @@ const (
 	pathScan              = "scan"
 	pathEnable            = "enable"
 	pathDisable           = "disable"
-	pathAnalyzedResource  = "analyzedResource"
 
 	opUnknown = "Unknown"
 
@@ -136,7 +135,6 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		for _, prefix := range []string{
 			"/" + pathResource + "/" + pathScan,
-			"/" + pathAnalyzedResource,
 			"/" + pathArchiveRuleRoot,
 			"/" + pathAccessPreview,
 			"/" + pathServiceLinkedAnalyzer,
@@ -310,8 +308,6 @@ func parseRESTPath(method, path string) (string, string) {
 		if len(segments) >= 2 && segments[1] == pathScan && method == http.MethodPost {
 			return opStartResourceScan, ""
 		}
-	case pathAnalyzedResource:
-		// skip — not in supported ops list but valid path
 	}
 
 	return opUnknown, ""

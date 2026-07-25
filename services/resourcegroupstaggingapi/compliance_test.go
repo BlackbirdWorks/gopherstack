@@ -93,8 +93,9 @@ func TestGetComplianceSummary_WithFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out := b.GetComplianceSummary(context.Background(), tt.input)
+			out, err := b.GetComplianceSummary(context.Background(), tt.input)
 
+			require.NoError(t, err)
 			require.NotNil(t, out)
 			// Mock has no tag policy → always returns 0 non-compliant resources.
 			assert.NotNil(t, out.SummaryList)
@@ -109,7 +110,7 @@ func TestGetComplianceSummary_RegionFilter_FiltersResources(t *testing.T) {
 	b := newBackend(t)
 
 	// Only call GetComplianceSummary to ensure it doesn't panic with various filter combos.
-	out := b.GetComplianceSummary(context.Background(), &resourcegroupstaggingapi.GetComplianceSummaryInput{
+	out, err := b.GetComplianceSummary(context.Background(), &resourcegroupstaggingapi.GetComplianceSummaryInput{
 		RegionFilters:       []string{"us-east-1", "eu-west-1"},
 		ResourceTypeFilters: []string{"ec2:instance"},
 		TagKeyFilters:       []string{"env"},
@@ -117,6 +118,7 @@ func TestGetComplianceSummary_RegionFilter_FiltersResources(t *testing.T) {
 		MaxResults:          ptr(int32(100)),
 	})
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.NotNil(t, out.SummaryList)
 }
@@ -125,12 +127,52 @@ func TestGetComplianceSummary_EmptyList(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	out := b.GetComplianceSummary(context.Background(), &resourcegroupstaggingapi.GetComplianceSummaryInput{})
+	out, err := b.GetComplianceSummary(context.Background(), &resourcegroupstaggingapi.GetComplianceSummaryInput{})
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.NotNil(t, out.SummaryList)
 	assert.Empty(t, out.SummaryList)
 	assert.Nil(t, out.PaginationToken)
+}
+
+// TestGetComplianceSummary_MaxResultsValidation covers the real API's
+// MaxResultsGetComplianceSummary shape constraint (min: 1, max: 1000).
+func TestGetComplianceSummary_MaxResultsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		maxResults *int32
+		name       string
+		wantErr    bool
+	}{
+		{name: "unset_uses_default", maxResults: nil},
+		{name: "exactly_min_1", maxResults: ptr(int32(1))},
+		{name: "exactly_max_1000", maxResults: ptr(int32(1000))},
+		{name: "zero_rejected", maxResults: ptr(int32(0)), wantErr: true},
+		{name: "negative_rejected", maxResults: ptr(int32(-1)), wantErr: true},
+		{name: "over_max_1001_rejected", maxResults: ptr(int32(1001)), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			input := &resourcegroupstaggingapi.GetComplianceSummaryInput{MaxResults: tt.maxResults}
+			out, err := b.GetComplianceSummary(context.Background(), input)
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, resourcegroupstaggingapi.ErrValidation)
+				assert.Nil(t, out)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, out)
+		})
+	}
 }
 
 func TestGetComplianceSummaryJSONShape(t *testing.T) {

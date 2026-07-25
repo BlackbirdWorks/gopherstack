@@ -18,6 +18,9 @@ func (b *InMemoryBackend) CreateSchema(name, schema, domain string) (*Schema, er
 	if b.schemas.Has(name) {
 		return nil, fmt.Errorf("%w: schema %q already exists", ErrAlreadyExists, name)
 	}
+	if !validDomain(domain) {
+		return nil, fmt.Errorf("%w: domain %q is invalid", ErrValidation, domain)
+	}
 
 	now := time.Now().UTC()
 	s := &Schema{

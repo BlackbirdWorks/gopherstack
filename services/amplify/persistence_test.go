@@ -2,6 +2,7 @@ package amplify_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,7 +84,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	job, err := original.StartJob(app.AppID, branch.BranchName, "RELEASE", "abc123", "commit msg")
+	job, err := original.StartJob(
+		app.AppID, branch.BranchName, "RELEASE", "", "abc123", "commit msg", time.Unix(1700000000, 0).UTC(),
+	)
 	require.NoError(t, err)
 
 	domain, err := original.CreateDomainAssociation(
@@ -181,4 +184,76 @@ func TestInMemoryBackend_DeleteApp_CascadesBranches(t *testing.T) {
 
 	_, _, err = b.ListBranches(app.AppID, "", 0)
 	require.Error(t, err)
+}
+
+// TestInMemoryBackend_DeleteApp_CascadesAllChildren verifies DeleteApp
+// removes every child resource family, not just branches: jobs, domain
+// associations, webhooks, and backend environments. Before this cascade was
+// added, deleting an app left every one of these behind as a ghost row that
+// nothing could ever reach again (the app 404s, so no ListJobs/
+// ListDomainAssociations/ListWebhooks/ListBackendEnvironments call could
+// still name it) -- an unbounded per-create/delete-cycle leak.
+func TestInMemoryBackend_DeleteApp_CascadesAllChildren(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	app := seedApp(t, b, "cascade-full-app")
+	branch := seedMainBranch(t, b, app.AppID)
+
+	job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
+	require.NoError(t, err)
+
+	_, err = b.CreateDomainAssociation(
+		app.AppID, "example.com",
+		[]amplify.SubDomainSetting{{Prefix: "www", BranchName: branch.BranchName}},
+		true,
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateWebhook(app.AppID, branch.BranchName, "wh")
+	require.NoError(t, err)
+
+	_, err = b.CreateBackendEnvironment(app.AppID, "dev", "stack", "artifacts")
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteApp(app.AppID))
+
+	_, err = b.GetApp(app.AppID)
+	require.Error(t, err)
+
+	_, err = b.GetBranch(app.AppID, branch.BranchName)
+	require.Error(t, err, "branch must not survive its app's deletion")
+
+	_, err = b.GetJob(app.AppID, branch.BranchName, job.JobID)
+	require.Error(t, err, "job must not survive its app's deletion")
+
+	_, err = b.GetDomainAssociation(app.AppID, "example.com")
+	require.Error(t, err, "domain association must not survive its app's deletion")
+
+	_, err = b.GetBackendEnvironment(app.AppID, "dev")
+	require.Error(t, err, "backend environment must not survive its app's deletion")
+}
+
+// TestInMemoryBackend_DeleteBranch_CascadesJobs verifies DeleteBranch removes
+// every job that belongs to the branch (jobs are keyed
+// "<appId>|<branchName>|<jobId>" and indexed by branch, so nothing else
+// would ever clean them up once the branch itself 404s).
+func TestInMemoryBackend_DeleteBranch_CascadesJobs(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	app := seedApp(t, b, "cascade-branch-app")
+	branch := seedMainBranch(t, b, app.AppID)
+
+	job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteBranch(app.AppID, branch.BranchName))
+
+	_, err = b.GetJob(app.AppID, branch.BranchName, job.JobID)
+	require.Error(t, err, "job must not survive its branch's deletion")
+
+	jobs, _, err := b.ListJobs(app.AppID, branch.BranchName, "", 0)
+	require.NoError(t, err)
+	assert.Empty(t, jobs)
 }

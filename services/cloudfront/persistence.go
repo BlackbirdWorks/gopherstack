@@ -219,6 +219,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.tenantInvalidations.Reset()
 		b.resetDistributions()
 		b.resetPoliciesAndKeys()
+		b.seedManagedPoliciesLocked()
 		b.rebuildDistributionSearchIndex()
 		b.accountID = snap.AccountID
 		b.region = snap.Region
@@ -238,6 +239,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	idx := rebuildIndexes(&snap)
 	b.restoreAssociationMaps(&snap)
 	b.restoreIndexes(&idx)
+	// The managed cache/origin-request/response-headers policies always exist in a
+	// real AWS account regardless of what a snapshot happened to capture (e.g. a
+	// pre-existing snapshot taken before this seeding was added, or a hand-built
+	// snapshot in a test). Re-seed defensively: Put on a fixed, deterministic ID is
+	// idempotent, so this can never create duplicates for snapshots that already
+	// captured them.
+	b.seedManagedPoliciesLocked()
 	b.rebuildDistributionSearchIndex()
 	b.accountID = snap.AccountID
 	b.region = snap.Region

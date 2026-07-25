@@ -33,7 +33,7 @@ func CreateApp(
 ) (*Application, error) {
 	ctx := context.WithValue(context.Background(), regionContextKey{}, region)
 
-	return b.CreateApplication(ctx, name, description, code, "", nil, nil, nil, tags)
+	return b.CreateApplication(ctx, name, description, code, nil, nil, nil, tags)
 }
 
 // StartAppNoConfig is a test helper that calls StartApplication with no InputConfigurations.

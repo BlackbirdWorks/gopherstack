@@ -91,7 +91,7 @@ func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, 
 			"ProjectArn":    p.ProjectArn,
 			"ProjectId":     p.ProjectID,
 			"ProjectStatus": p.ProjectStatus,
-			keyCreationTime: p.CreationTime,
+			keyCreationTime: epochSeconds(p.CreationTime),
 		})
 	}
 

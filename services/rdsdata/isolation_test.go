@@ -49,7 +49,7 @@ func TestRDSDataRegionIsolation(t *testing.T) {
 	assert.Contains(t, westTxns, westTxID)
 
 	// 3. Execute a statement in us-east-1. The west region must not see it.
-	_, _, _, err = backend.ExecuteStatement(
+	_, _, _, _, err = backend.ExecuteStatement(
 		ctxEast,
 		"arn:aws:rds:us-east-1:000000000000:cluster:shared",
 		"SELECT 1",

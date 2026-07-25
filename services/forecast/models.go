@@ -6,10 +6,21 @@ const (
 	statusCreatePending = "CREATE_PENDING"
 	statusActive        = "ACTIVE"
 	statusCreateFailed  = "CREATE_FAILED"
+	// statusStopped is the emulator's convention for a resource that
+	// StopResource has transitioned (see UpdateResourceStatus in store.go).
+	// Real Amazon Forecast models this per-kind as ACTIVE_STOPPED/
+	// CREATE_STOPPED, but this emulator uses a single STOPPED value across
+	// every stoppable kind.
+	statusStopped = "STOPPED"
 
 	defaultAccountID = "000000000000"
 	defaultRegion    = "us-east-1"
 )
+
+// fieldPredictorArn is the Amazon Forecast API field name shared by every
+// operation that references a Predictor by ARN (CreateForecast,
+// CreatePredictorBacktestExportJob, CreateMonitor's alias, ...).
+const fieldPredictorArn = "PredictorArn"
 
 // maxResourceNameLen is the maximum number of characters allowed in any Amazon
 // Forecast resource name (DatasetName, PredictorName, etc.).

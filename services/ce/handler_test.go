@@ -440,10 +440,23 @@ func TestHandler_ErrorWireShape(t *testing.T) {
 					"SubscriptionName": "BadSub",
 					"Frequency":        "DAILY",
 					"MonitorArnList":   []string{missingARN},
+					"Subscribers": []map[string]any{
+						{"Address": "a@example.com", "Type": "EMAIL"},
+					},
 				},
 			},
 			wantStatus: http.StatusBadRequest,
 			wantType:   "UnknownMonitorException",
+		},
+		{
+			// Real AWS CE's documented common-error type for a malformed/missing-required-
+			// member request is "ValidationError" (CommonErrors.html), not the invented
+			// "InvalidParameterException" this used to emit.
+			name:       "missing_required_field_returns_validation_error",
+			action:     "DeleteAnomalyMonitor",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "ValidationError",
 		},
 	}
 

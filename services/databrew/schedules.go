@@ -31,7 +31,7 @@ func (b *InMemoryBackend) CreateSchedule(
 	}
 	sc := &Schedule{
 		Name: name, Arn: b.scheduleARN(region, name), JobNames: append([]string(nil), jobNames...),
-		CronExpression: cron, Tags: maps.Clone(tags),
+		CronExpression: cron, Tags: maps.Clone(tags), AccountID: b.accountID,
 		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
 	}
 	t.Put(sc)

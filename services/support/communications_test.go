@@ -39,9 +39,11 @@ func TestSupport_AddCommunicationToCase(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
+			// CaseIdNotFound has no httpError override in the real service
+			// model, so awsjson1.1's client-fault default (400) applies.
 			name:     "unknown caseId",
 			body:     map[string]any{"caseId": "nonexistent", "communicationBody": "Hello"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -93,9 +95,11 @@ func TestSupport_DescribeCommunications(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
+			// CaseIdNotFound has no httpError override in the real service
+			// model, so awsjson1.1's client-fault default (400) applies.
 			name:     "unknown caseId",
 			body:     map[string]any{"caseId": "nonexistent"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

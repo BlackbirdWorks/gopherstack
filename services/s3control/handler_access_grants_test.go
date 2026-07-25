@@ -36,6 +36,26 @@ func TestAccessGrantsInstance(t *testing.T) {
 		require.Error(t, err)
 	})
 
+	// "delete instance cascade cleans state" locks in the ghost-map-row
+	// fix: DeleteAccessGrantsInstance previously only removed the instance
+	// row itself, leaving its resource policy and generic resource tags
+	// behind forever.
+	t.Run("delete instance cascade cleans state", func(t *testing.T) {
+		t.Parallel()
+		b := s3control.NewInMemoryBackend()
+		inst := b.CreateAccessGrantsInstance("000000000000", "")
+		b.PutAccessGrantsInstanceResourcePolicy("000000000000", `{"p":1}`)
+		b.TagResource(inst.AccessGrantsInstanceArn, map[string]string{"env": "test"})
+
+		require.NoError(t, b.DeleteAccessGrantsInstance("000000000000"))
+
+		policy, err := b.GetAccessGrantsInstanceResourcePolicy("000000000000")
+		require.NoError(t, err)
+		assert.Empty(t, policy, "resource policy must not survive delete")
+
+		assert.Empty(t, b.ListTagsForResource(inst.AccessGrantsInstanceArn), "tags must not survive delete")
+	})
+
 	t.Run("resource policy CRUD", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
@@ -126,6 +146,34 @@ func TestAccessGrantsCRUD(t *testing.T) {
 		)
 		require.NoError(t, b2.DeleteAccessGrant("000000000000", g.AccessGrantID))
 	})
+
+	// "delete grant cascade cleans tags" locks in the ghost-map-row fix:
+	// DeleteAccessGrant previously left generic resource tags behind
+	// forever after the grant row itself was removed.
+	t.Run("delete grant cascade cleans tags", func(t *testing.T) {
+		t.Parallel()
+		b2 := s3control.NewInMemoryBackend()
+		b2.CreateAccessGrantsInstance("000000000000", "")
+		l := b2.CreateAccessGrantsLocation(
+			"000000000000",
+			"s3://bucket/",
+			"arn:aws:iam::000000000000:role/r",
+		)
+		g, err := b2.CreateAccessGrant(
+			"000000000000",
+			l.AccessGrantsLocationID,
+			"IAMUser",
+			"arn:test",
+			"READ",
+			"",
+		)
+		require.NoError(t, err)
+		b2.TagResource(g.AccessGrantArn, map[string]string{"env": "test"})
+
+		require.NoError(t, b2.DeleteAccessGrant("000000000000", g.AccessGrantID))
+
+		assert.Empty(t, b2.ListTagsForResource(g.AccessGrantArn), "tags must not survive delete")
+	})
 }
 
 func TestAccessGrantsLocation(t *testing.T) {
@@ -168,6 +216,20 @@ func TestAccessGrantsLocation(t *testing.T) {
 		b2 := s3control.NewInMemoryBackend()
 		l := b2.CreateAccessGrantsLocation("000000000000", "s3://b/", "arn:test")
 		require.NoError(t, b2.DeleteAccessGrantsLocation("000000000000", l.AccessGrantsLocationID))
+	})
+
+	// "delete location cascade cleans tags" locks in the ghost-map-row fix:
+	// DeleteAccessGrantsLocation previously left generic resource tags
+	// behind forever after the location row itself was removed.
+	t.Run("delete location cascade cleans tags", func(t *testing.T) {
+		t.Parallel()
+		b2 := s3control.NewInMemoryBackend()
+		l := b2.CreateAccessGrantsLocation("000000000000", "s3://b/", "arn:test")
+		b2.TagResource(l.AccessGrantsLocationArn, map[string]string{"env": "test"})
+
+		require.NoError(t, b2.DeleteAccessGrantsLocation("000000000000", l.AccessGrantsLocationID))
+
+		assert.Empty(t, b2.ListTagsForResource(l.AccessGrantsLocationArn), "tags must not survive delete")
 	})
 }
 

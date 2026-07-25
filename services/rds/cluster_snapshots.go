@@ -2,6 +2,7 @@ package rds
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 	"time"
 )
@@ -16,10 +17,10 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 	}
 	b.mu.Lock("CreateDBClusterSnapshot")
 	defer b.mu.Unlock()
-	if _, exists := b.clusterSnapshots.Get(snapshotID); exists {
+	if _, exists := b.clusterSnapshots.Get(normalizeID(snapshotID)); exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s already exists", ErrClusterSnapshotAlreadyExists, snapshotID)
 	}
-	cluster, exists := b.clusters.Get(clusterID)
+	cluster, exists := b.clusters.Get(normalizeID(clusterID))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -38,9 +39,11 @@ func (b *InMemoryBackend) newManualClusterSnapshotLocked(snapshotID string, clus
 		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: snapshotID,
 		DBClusterIdentifier:         cluster.DBClusterIdentifier,
+		DBClusterResourceID:         cluster.DBClusterResourceID,
 		Engine:                      cluster.Engine,
 		EngineVersion:               cluster.EngineVersion,
 		Status:                      instanceStatusAvailable,
+		SnapshotType:                snapshotTypeManual,
 		PercentProgress:             percentProgressComplete,
 		StorageEncrypted:            cluster.StorageEncrypted,
 	}
@@ -52,7 +55,7 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID strin
 	b.mu.RLock("DescribeDBClusterSnapshots")
 	defer b.mu.RUnlock()
 	if snapshotID != "" {
-		snap, exists := b.clusterSnapshots.Get(snapshotID)
+		snap, exists := b.clusterSnapshots.Get(normalizeID(snapshotID))
 		if !exists {
 			return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 		}
@@ -62,7 +65,7 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID strin
 	}
 	result := make([]DBClusterSnapshot, 0, b.clusterSnapshots.Len())
 	for _, snap := range b.clusterSnapshots.All() {
-		if clusterID != "" && snap.DBClusterIdentifier != clusterID {
+		if clusterID != "" && !idEqual(snap.DBClusterIdentifier, clusterID) {
 			continue
 		}
 		result = append(result, *snap)
@@ -81,6 +84,69 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID strin
 	return result, nil
 }
 
+// isKnownDBClusterSnapshotFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for DescribeDBClusterSnapshots.
+func isKnownDBClusterSnapshotFilterName(name string) bool {
+	switch name {
+	case filterNameDBClusterID, "db-cluster-snapshot-id", filterNameSnapshotType, filterNameEngine:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBClusterSnapshotFilters narrows snaps per the AWS
+// DescribeDBClusterSnapshots Filters contract: each filter ANDs together,
+// and a filter's Values list is OR-matched against the corresponding
+// snapshot field. An unrecognized filter name returns InvalidParameterValue,
+// matching real AWS.
+func applyDBClusterSnapshotFilters(vals url.Values, snaps []DBClusterSnapshot) ([]DBClusterSnapshot, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return snaps, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBClusterSnapshotFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBClusterSnapshot, 0, len(snaps))
+	for _, s := range snaps {
+		if matchesAllDBClusterSnapshotFilters(s, filters) {
+			filtered = append(filtered, s)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBClusterSnapshotFilters(s DBClusterSnapshot, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameDBClusterID:
+			if !containsFold(values, s.DBClusterIdentifier) {
+				return false
+			}
+		case "db-cluster-snapshot-id":
+			if !containsFold(values, s.DBClusterSnapshotIdentifier) {
+				return false
+			}
+		case filterNameSnapshotType:
+			if !slices.Contains(values, s.SnapshotType) {
+				return false
+			}
+		case filterNameEngine:
+			if !slices.Contains(values, s.Engine) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 // DeleteDBClusterSnapshot removes the given cluster snapshot.
 func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error) {
 	if snapshotID == "" {
@@ -88,13 +154,15 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 	}
 	b.mu.Lock("DeleteDBClusterSnapshot")
 	defer b.mu.Unlock()
-	snap, exists := b.clusterSnapshots.Get(snapshotID)
+	snap, exists := b.clusterSnapshots.Get(normalizeID(snapshotID))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 	}
 	cp := *snap
-	b.clusterSnapshots.Delete(snapshotID)
-	delete(b.tags, b.rdsARN("cluster-snapshot", snapshotID))
+	b.clusterSnapshots.Delete(normalizeID(snapshotID))
+	// Use snap.DBClusterSnapshotIdentifier (the stored, creation-time casing)
+	// rather than the raw snapshotID argument -- see normalizeID.
+	delete(b.tags, b.rdsARN("cluster-snapshot", snap.DBClusterSnapshotIdentifier))
 
 	return &cp, nil
 }
@@ -109,11 +177,11 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 	}
 	b.mu.Lock("CopyDBClusterSnapshot")
 	defer b.mu.Unlock()
-	source, srcExists := b.clusterSnapshots.Get(sourceSnapshotID)
+	source, srcExists := b.clusterSnapshots.Get(normalizeID(sourceSnapshotID))
 	if !srcExists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, sourceSnapshotID)
 	}
-	if _, dstExists := b.clusterSnapshots.Get(targetSnapshotID); dstExists {
+	if _, dstExists := b.clusterSnapshots.Get(normalizeID(targetSnapshotID)); dstExists {
 		return nil, fmt.Errorf(
 			"%w: cluster snapshot %s already exists",
 			ErrClusterSnapshotAlreadyExists,
@@ -121,10 +189,16 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 		)
 	}
 	snap := &DBClusterSnapshot{
+		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: targetSnapshotID,
 		DBClusterIdentifier:         source.DBClusterIdentifier,
+		DBClusterResourceID:         source.DBClusterResourceID,
 		Engine:                      source.Engine,
+		EngineVersion:               source.EngineVersion,
 		Status:                      instanceStatusAvailable,
+		SnapshotType:                snapshotTypeManual,
+		PercentProgress:             percentProgressComplete,
+		StorageEncrypted:            source.StorageEncrypted,
 	}
 	b.clusterSnapshots.Put(snap)
 	cp := *snap
@@ -138,10 +212,10 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshotAttributes(
 ) (*DBClusterSnapshotAttributesResult, error) {
 	b.mu.RLock("DescribeDBClusterSnapshotAttributes")
 	defer b.mu.RUnlock()
-	if _, ok := b.clusterSnapshots.Get(snapshotID); !ok {
+	if _, ok := b.clusterSnapshots.Get(normalizeID(snapshotID)); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	if attrs, ok := b.clusterSnapshotAttributes.Get(snapshotID); ok {
+	if attrs, ok := b.clusterSnapshotAttributes.Get(normalizeID(snapshotID)); ok {
 		cp := *attrs
 
 		return &cp, nil
@@ -162,10 +236,10 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 ) (*DBClusterSnapshotAttributesResult, error) {
 	b.mu.Lock("ModifyDBClusterSnapshotAttribute")
 	defer b.mu.Unlock()
-	if _, ok := b.clusterSnapshots.Get(snapshotID); !ok {
+	if _, ok := b.clusterSnapshots.Get(normalizeID(snapshotID)); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	result, ok := b.clusterSnapshotAttributes.Get(snapshotID)
+	result, ok := b.clusterSnapshotAttributes.Get(normalizeID(snapshotID))
 	if !ok {
 		result = &DBClusterSnapshotAttributesResult{
 			DBClusterSnapshotIdentifier: snapshotID,

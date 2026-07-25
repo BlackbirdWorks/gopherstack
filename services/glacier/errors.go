@@ -28,6 +28,10 @@ var (
 	ErrProvisionedCapacityLimit = errors.New("LimitExceededException: maximum 2 provisioned capacity units per account")
 	// ErrInvalidTag is returned when a tag key or value fails validation.
 	ErrInvalidTag = errors.New("InvalidParameterValueException: invalid tag key or value")
+	// ErrMissingParameter is returned when a required parameter is omitted entirely
+	// (as opposed to ErrValidation, which covers a parameter that was supplied but is
+	// malformed/out-of-range) -- maps to AWS's distinct MissingParameterValueException.
+	ErrMissingParameter = errors.New("MissingParameterValueException: required parameter missing")
 )
 
 // Handler-level sentinel errors used as wrapping targets to satisfy err113.

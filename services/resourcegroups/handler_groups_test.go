@@ -260,57 +260,75 @@ func TestListGroups_PaginationViaHandler(t *testing.T) {
 	}
 }
 
-// TestListGroupsNamePrefixFilterViaHandler verifies the handler-level name-prefix filter.
-func TestListGroupsNamePrefixFilterViaHandler(t *testing.T) {
+// TestListGroupsDisplayNameFilterViaHandler verifies the handler-level
+// "display-name" filter (the real types.GroupFilterName enum has no
+// "name-prefix" value -- see PARITY.md).
+func TestListGroupsDisplayNameFilterViaHandler(t *testing.T) {
 	t.Parallel()
 
 	h := newTestResourceGroupsHandler(t)
 
 	for _, name := range []string{"web-frontend", "web-backend", "db-primary", "cache-main"} {
 		doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": name})
+		doResourceGroupsRequest(t, h, "UpdateGroup", map[string]any{
+			"Group":       name,
+			"DisplayName": name,
+		})
 	}
 
 	rec := doResourceGroupsRequest(t, h, "ListGroups", map[string]any{
 		"Filters": []map[string]any{
-			{"Name": "name-prefix", "Values": []string{"web"}},
+			{"Name": "display-name", "Values": []string{"web-frontend"}},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := rec.Body.String()
 	assert.Contains(t, body, "web-frontend")
-	assert.Contains(t, body, "web-backend")
+	assert.NotContains(t, body, "web-backend")
 	assert.NotContains(t, body, "db-primary")
 	assert.NotContains(t, body, "cache-main")
 }
 
-// TestListGroupsNamePrefixFilterCases verifies the name-prefix filter on ListGroups
-// across several prefixes and non-matching cases.
-func TestListGroupsNamePrefixFilterCases(t *testing.T) {
+// TestListGroupsOwnerCriticalityFilterCases verifies the "owner" and
+// "criticality" filters on ListGroups across several matching and
+// non-matching cases.
+func TestListGroupsOwnerCriticalityFilterCases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name         string
-		prefix       string
+		filterName   string
+		filterValue  string
 		wantContains []string
 		wantExcludes []string
 	}{
 		{
-			name:         "prefix_alpha",
-			prefix:       "alpha",
+			name:         "owner_alpha",
+			filterName:   "owner",
+			filterValue:  "team-alpha@example.com",
 			wantContains: []string{"alpha-prod", "alpha-dev"},
 			wantExcludes: []string{"beta-prod"},
 		},
 		{
-			name:         "prefix_beta",
-			prefix:       "beta",
+			name:         "owner_beta",
+			filterName:   "owner",
+			filterValue:  "team-beta@example.com",
 			wantContains: []string{"beta-prod"},
 			wantExcludes: []string{"alpha-prod", "alpha-dev"},
 		},
 		{
-			name:         "no_match_prefix",
-			prefix:       "gamma",
-			wantExcludes: []string{"alpha-prod", "beta-prod"},
+			name:         "owner_no_match",
+			filterName:   "owner",
+			filterValue:  "team-gamma@example.com",
+			wantExcludes: []string{"alpha-prod", "alpha-dev", "beta-prod"},
+		},
+		{
+			name:         "criticality_match",
+			filterName:   "criticality",
+			filterValue:  "4",
+			wantContains: []string{"beta-prod"},
+			wantExcludes: []string{"alpha-prod", "alpha-dev"},
 		},
 	}
 
@@ -319,13 +337,29 @@ func TestListGroupsNamePrefixFilterCases(t *testing.T) {
 			t.Parallel()
 
 			h := newTestResourceGroupsHandler(t)
+			groupOwners := map[string]string{
+				"alpha-prod": "team-alpha@example.com",
+				"alpha-dev":  "team-alpha@example.com",
+				"beta-prod":  "team-beta@example.com",
+			}
+			groupCriticality := map[string]int{
+				"alpha-prod": 1,
+				"alpha-dev":  1,
+				"beta-prod":  4,
+			}
+
 			for _, n := range []string{"alpha-prod", "alpha-dev", "beta-prod"} {
 				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": n})
+				doResourceGroupsRequest(t, h, "UpdateGroup", map[string]any{
+					"Group":       n,
+					"Owner":       groupOwners[n],
+					"Criticality": groupCriticality[n],
+				})
 			}
 
 			rec := doResourceGroupsRequest(t, h, "ListGroups", map[string]any{
 				"Filters": []map[string]any{
-					{"Name": "name-prefix", "Values": []string{tt.prefix}},
+					{"Name": tt.filterName, "Values": []string{tt.filterValue}},
 				},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -614,7 +648,8 @@ func TestUpdateGroup_NameRequired(t *testing.T) {
 	}
 }
 
-// TestUpdateGroup_CriticalityBoundary verifies boundary values 1 and 5.
+// TestUpdateGroup_CriticalityBoundary verifies boundary values 1 and 10 (the
+// real API's documented "scale of 1 to 10" for Criticality).
 func TestUpdateGroup_CriticalityBoundary(t *testing.T) {
 	t.Parallel()
 
@@ -624,9 +659,9 @@ func TestUpdateGroup_CriticalityBoundary(t *testing.T) {
 		wantCode    int
 	}{
 		{name: "boundary_1", criticality: 1, wantCode: http.StatusOK},
-		{name: "boundary_5", criticality: 5, wantCode: http.StatusOK},
+		{name: "boundary_10", criticality: 10, wantCode: http.StatusOK},
 		{name: "too_low_minus1", criticality: -1, wantCode: http.StatusBadRequest},
-		{name: "too_high_6", criticality: 6, wantCode: http.StatusBadRequest},
+		{name: "too_high_11", criticality: 11, wantCode: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {

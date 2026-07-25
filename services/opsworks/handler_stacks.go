@@ -187,7 +187,7 @@ func (h *Handler) handleDescribeStackProvisioningParameters(_ context.Context, b
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	params, stackArn, err := h.Backend.DescribeStackProvisioningParameters(req.StackID)
+	params, err := h.Backend.DescribeStackProvisioningParameters(req.StackID)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,6 @@ func (h *Handler) handleDescribeStackProvisioningParameters(_ context.Context, b
 	return map[string]any{
 		"Parameters":        params,
 		"AgentInstallerUrl": params["AgentInstallerUrl"],
-		"StackArn":          stackArn,
 	}, nil
 }
 
@@ -209,7 +208,6 @@ func stacksToJSON(stacks []*Stack) []map[string]any {
 			fieldRegion:                 s.Region,
 			"DefaultInstanceProfileArn": s.DefaultInstanceProfileArn,
 			"ServiceRoleArn":            s.ServiceRoleArn,
-			keyStatus:                   s.Status,
 			keyCreatedAt:                s.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
 		})
 	}
@@ -217,23 +215,44 @@ func stacksToJSON(stacks []*Stack) []map[string]any {
 	return result
 }
 
-func stackSummaryToJSON(s *StackSummary) map[string]any {
-	ic := map[string]any{}
-	if s.InstancesCount != nil {
-		ic = map[string]any{
-			"Online":   s.InstancesCount.Online,
-			"Stopped":  s.InstancesCount.Stopped,
-			"Starting": s.InstancesCount.Starting,
-			"Stopping": s.InstancesCount.Stopping,
-			"Total":    s.InstancesCount.Total,
-		}
+// instancesCountToJSON mirrors the real types.InstancesCount field set
+// exactly (19 states, all always present) -- see InstancesCount's doc
+// comment in interfaces.go for why "Total"/"Starting" are not among them.
+func instancesCountToJSON(ic *InstancesCount) map[string]any {
+	if ic == nil {
+		ic = &InstancesCount{}
 	}
 
+	return map[string]any{
+		"Assigning":      ic.Assigning,
+		"Booting":        ic.Booting,
+		"ConnectionLost": ic.ConnectionLost,
+		"Deregistering":  ic.Deregistering,
+		"Online":         ic.Online,
+		"Pending":        ic.Pending,
+		"Rebooting":      ic.Rebooting,
+		"Registered":     ic.Registered,
+		"Registering":    ic.Registering,
+		"Requested":      ic.Requested,
+		"RunningSetup":   ic.RunningSetup,
+		"SetupFailed":    ic.SetupFailed,
+		"ShuttingDown":   ic.ShuttingDown,
+		"StartFailed":    ic.StartFailed,
+		"StopFailed":     ic.StopFailed,
+		"Stopped":        ic.Stopped,
+		"Stopping":       ic.Stopping,
+		"Terminated":     ic.Terminated,
+		"Terminating":    ic.Terminating,
+		"Unassigning":    ic.Unassigning,
+	}
+}
+
+func stackSummaryToJSON(s *StackSummary) map[string]any {
 	return map[string]any{
 		keyStackID:       s.StackID,
 		keyArn:           s.Arn,
 		keyName:          s.Name,
-		"InstancesCount": ic,
+		"InstancesCount": instancesCountToJSON(s.InstancesCount),
 		"LayersCount":    s.LayersCount,
 		"AppsCount":      s.AppsCount,
 	}

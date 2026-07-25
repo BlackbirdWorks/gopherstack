@@ -52,10 +52,11 @@ func newPersistenceTestBackend(t *testing.T) (*InMemoryBackend, persistenceFixtu
 	// snapshot without re-fetching between calls.
 	const skipVersionCheck = 0
 
-	require.NoError(t, b.AddApplicationCloudWatchLoggingOption(
+	_, cwlErr := b.AddApplicationCloudWatchLoggingOption(
 		ctx, app.ApplicationName, skipVersionCheck,
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "arn:aws:iam::000000000000:role/logs",
-	))
+	)
+	require.NoError(t, cwlErr)
 
 	require.NoError(t, b.AddApplicationInput(ctx, app.ApplicationName, skipVersionCheck, InputDescription{
 		NamePrefix: "in1",
@@ -94,15 +95,16 @@ func newPersistenceTestBackend(t *testing.T) (*InMemoryBackend, persistenceFixtu
 		},
 	))
 
-	require.NoError(t, b.AddApplicationVpcConfiguration(
+	_, vpcErr := b.AddApplicationVpcConfiguration(
 		ctx, app.ApplicationName, skipVersionCheck, VpcConfigurationDescription{
 			VpcID:            "vpc-1",
 			SubnetIDs:        []string{"subnet-1"},
 			SecurityGroupIDs: []string{"sg-1"},
 		},
-	))
+	)
+	require.NoError(t, vpcErr)
 
-	_, err = b.StartApplication(ctx, app.ApplicationName)
+	_, err = b.StartApplication(ctx, app.ApplicationName, nil)
 	require.NoError(t, err)
 
 	snap, err := b.CreateApplicationSnapshot(ctx, app.ApplicationName, "snap1")
@@ -300,7 +302,7 @@ func TestPersistence_RoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.StartApplication(ctx, "persist-app")
+	_, err = b.StartApplication(ctx, "persist-app", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateApplicationSnapshot(ctx, "persist-app", "snap-1")
@@ -354,7 +356,7 @@ func TestPersistence_NextIDPreserved(t *testing.T) {
 	_, err := b.CreateApplication(ctx, "id-app", "SQL-1_0", "", "", "", nil)
 	require.NoError(t, err)
 
-	err = b.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
+	_, err = b.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
 	require.NoError(t, err)
 
@@ -367,7 +369,7 @@ func TestPersistence_NextIDPreserved(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), data))
 
 	// Adding another CWL option on b2 should generate a new distinct ID
-	err = b2.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
+	_, err = b2.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s2", "")
 	require.NoError(t, err)
 
@@ -379,4 +381,91 @@ func TestPersistence_NextIDPreserved(t *testing.T) {
 		app.CloudWatchLoggingOptionDescs[0].CloudWatchLoggingOptionID,
 		app.CloudWatchLoggingOptionDescs[1].CloudWatchLoggingOptionID,
 	)
+}
+
+// TestPersistence_ExtendedConfigSurvivesRoundTrip verifies the v2
+// persistedApplication fields (CodeConfig/FlinkConfig/
+// EnvironmentPropertyGroups/SnapshotsEnabled/RollbackEnabled/
+// EncryptionConfig/RunConfig/MaintenanceWindowStartTime/timestamps/
+// version-lineage pointers) survive a Snapshot/Restore round trip -- before
+// the v2 snapshot-version bump, every one of these fields was either absent
+// from persistedApplication entirely or (MaintenanceWindowStartTime)
+// declared but never assigned, so Restore silently dropped them.
+func TestPersistence_ExtendedConfigSurvivesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateApplication(ctx, "ext-cfg-app", "FLINK-1_18", "", "", "", nil)
+	require.NoError(t, err)
+
+	_, err = b.UpdateApplicationMaintenanceConfiguration(ctx, "ext-cfg-app", "06:00")
+	require.NoError(t, err)
+
+	_, _, err = b.UpdateApplication(ctx, UpdateApplicationParams{
+		Name: "ext-cfg-app",
+		ApplicationConfigurationUpdate: &ApplicationConfigurationUpdate{
+			ApplicationCodeConfigurationUpdate: &ApplicationCodeConfigUpdate{
+				CodeContentTypeUpdate: "PLAINTEXT",
+				CodeContentUpdate:     &CodeContentUpdate{TextContentUpdate: new("SELECT 1;")},
+			},
+			FlinkApplicationConfigurationUpdate: &FlinkApplicationConfigUpdate{
+				CheckpointConfigurationUpdate: &CheckpointConfigUpdate{ConfigurationTypeUpdate: "DEFAULT"},
+			},
+			HasEnvironmentPropertyUpdates: true,
+			EnvironmentPropertyUpdates: []PropertyGroup{
+				{PropertyGroupID: "g1", PropertyMap: map[string]string{"k": "v"}},
+			},
+			ApplicationSnapshotConfigurationUpdate:       new(true),
+			ApplicationSystemRollbackConfigurationUpdate: new(true),
+			ApplicationEncryptionConfigurationUpdate: &ApplicationEncryptionConfigDesc{
+				KeyType: "CUSTOMER_MANAGED_KEY", KeyID: "alias/k",
+			},
+		},
+		RunConfigurationUpdate: &RunConfigInput{
+			FlinkRunConfiguration: &FlinkRunConfig{AllowNonRestoredState: new(true)},
+		},
+	})
+	require.NoError(t, err)
+
+	before, err := b.DescribeApplication(ctx, "ext-cfg-app")
+	require.NoError(t, err)
+	require.NotZero(t, before.LastUpdateTimestamp)
+	require.NotZero(t, before.ApplicationVersionCreateTimestamp)
+	require.NotNil(t, before.ApplicationVersionUpdatedFrom)
+
+	h := NewHandler(b)
+	data := h.Snapshot(ctx)
+	require.NotNil(t, data)
+
+	b2 := NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := NewHandler(b2)
+	require.NoError(t, h2.Restore(ctx, data))
+
+	after, err := b2.DescribeApplication(ctx, "ext-cfg-app")
+	require.NoError(t, err)
+
+	assert.Equal(t, "06:00", after.MaintenanceWindowStartTime)
+	require.NotNil(t, after.CodeConfig)
+	require.NotNil(t, after.CodeConfig.CodeContentDescription)
+	assert.Equal(t, "SELECT 1;", after.CodeConfig.CodeContentDescription.TextContent)
+	require.NotNil(t, after.FlinkConfig)
+	require.NotNil(t, after.FlinkConfig.CheckpointConfigurationDescription)
+	assert.Equal(t, int64(60000), *after.FlinkConfig.CheckpointConfigurationDescription.CheckpointInterval)
+	require.Len(t, after.EnvironmentPropertyGroups, 1)
+	assert.Equal(t, "g1", after.EnvironmentPropertyGroups[0].PropertyGroupID)
+	require.NotNil(t, after.SnapshotsEnabled)
+	assert.True(t, *after.SnapshotsEnabled)
+	require.NotNil(t, after.RollbackEnabled)
+	assert.True(t, *after.RollbackEnabled)
+	require.NotNil(t, after.EncryptionConfig)
+	assert.Equal(t, "alias/k", after.EncryptionConfig.KeyID)
+	require.NotNil(t, after.RunConfig)
+	require.NotNil(t, after.RunConfig.FlinkRunConfigurationDescription)
+	assert.True(t, *after.RunConfig.FlinkRunConfigurationDescription.AllowNonRestoredState)
+	assert.Equal(t, before.LastUpdateTimestamp.Unix(), after.LastUpdateTimestamp.Unix())
+	assert.Equal(t, before.ApplicationVersionCreateTimestamp.Unix(), after.ApplicationVersionCreateTimestamp.Unix())
+	require.NotNil(t, after.ApplicationVersionUpdatedFrom)
+	assert.Equal(t, *before.ApplicationVersionUpdatedFrom, *after.ApplicationVersionUpdatedFrom)
 }

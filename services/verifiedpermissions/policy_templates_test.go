@@ -23,13 +23,13 @@ func TestBackend_PolicyTemplate(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				pt, err := b.CreatePolicyTemplate(
 					ps.PolicyStoreID,
 					"My Template",
-					"permit(principal == ?principal, action, resource);",
+					"permit(principal == ?principal, action, resource);", "",
 				)
 				require.NoError(t, err)
 
@@ -82,7 +82,7 @@ func TestBackend_ListPolicyTemplates(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID
@@ -110,7 +110,7 @@ func TestBackend_ListPolicyTemplates(t *testing.T) {
 				_, err := b.CreatePolicyTemplate(
 					storeID,
 					fmt.Sprintf("template %d", i),
-					"permit(principal == ?principal, action, resource);",
+					"permit(principal == ?principal, action, resource);", "",
 				)
 				require.NoError(t, err)
 			}
@@ -143,13 +143,13 @@ func TestBackend_UpdatePolicyTemplate(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				pt, err := b.CreatePolicyTemplate(
 					ps.PolicyStoreID,
 					"original",
-					"permit(principal == ?principal, action, resource);",
+					"permit(principal == ?principal, action, resource);", "",
 				)
 				require.NoError(t, err)
 
@@ -204,13 +204,13 @@ func TestBackend_DeletePolicyTemplate(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				pt, err := b.CreatePolicyTemplate(
 					ps.PolicyStoreID,
 					"desc",
-					"permit(principal == ?principal, action, resource);",
+					"permit(principal == ?principal, action, resource);", "",
 				)
 				require.NoError(t, err)
 
@@ -223,7 +223,7 @@ func TestBackend_DeletePolicyTemplate(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID, "nonexistent-template"
@@ -265,7 +265,12 @@ func TestBackend_CreatePolicyTemplate_NonExistentStore(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.CreatePolicyTemplate("nonexistent-store", "desc", "permit(principal == ?principal, action, resource);")
+	_, err := b.CreatePolicyTemplate(
+		"nonexistent-store",
+		"desc",
+		"permit(principal == ?principal, action, resource);",
+		"",
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrNotFound)
 }
@@ -275,7 +280,7 @@ func TestBackend_GetPolicyTemplate_NonExistentInExistingStore(t *testing.T) {
 
 	b := newTestBackend()
 
-	ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+	ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 	require.NoError(t, err)
 
 	_, err = b.GetPolicyTemplate(ps.PolicyStoreID, "nonexistent-template")
@@ -290,4 +295,49 @@ func TestBackend_UpdatePolicyTemplate_NonExistentStore(t *testing.T) {
 	_, err := b.UpdatePolicyTemplate("nonexistent-store", "nonexistent-template", "desc", "stmt")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+// TestBackend_DeletePolicyTemplate_CascadesToLinkedPolicies locks in the
+// real SDK's documented DeletePolicyTemplate behavior ("This operation also
+// deletes any policies that were created from the specified policy
+// template"): every TEMPLATE_LINKED policy referencing the deleted template
+// must itself be deleted (ARN index, tags, and the policy row), while a
+// STATIC policy in the same store is left untouched.
+func TestBackend_DeletePolicyTemplate_CascadesToLinkedPolicies(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	ps := seedPolicyStore(t, b, "cascade store")
+
+	tmpl, err := b.CreatePolicyTemplate(
+		ps.PolicyStoreID, "tmpl", `permit(principal == ?principal, action, resource);`, "",
+	)
+	require.NoError(t, err)
+
+	linked, err := b.CreatePolicy(ps.PolicyStoreID, verifiedpermissions.CreatePolicyParams{
+		PolicyType:          "TEMPLATE_LINKED",
+		PolicyTemplateID:    tmpl.PolicyTemplateID,
+		PrincipalEntityType: "User",
+		PrincipalEntityID:   "alice",
+	})
+	require.NoError(t, err)
+
+	static, err := b.CreatePolicy(ps.PolicyStoreID, verifiedpermissions.CreatePolicyParams{
+		PolicyType: "STATIC",
+		Statement:  "permit(principal, action, resource);",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeletePolicyTemplate(ps.PolicyStoreID, tmpl.PolicyTemplateID))
+
+	_, err = b.GetPolicy(ps.PolicyStoreID, linked.PolicyID)
+	require.ErrorIs(t, err, awserr.ErrNotFound, "template-linked policy must be cascade-deleted with its template")
+
+	got, err := b.GetPolicy(ps.PolicyStoreID, static.PolicyID)
+	require.NoError(t, err, "static policy in the same store must survive the template deletion")
+	assert.Equal(t, static.PolicyID, got.PolicyID)
+
+	policies, _, err := b.ListPolicies(ps.PolicyStoreID, verifiedpermissions.ListPoliciesFilter{}, "", 0)
+	require.NoError(t, err)
+	assert.Len(t, policies, 1, "only the static policy should remain")
 }

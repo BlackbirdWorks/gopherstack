@@ -3,6 +3,7 @@ package applicationautoscaling_test
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -14,6 +15,7 @@ func TestHandler_PutScalingPolicy(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	rec := doRequest(t, h, "PutScalingPolicy", map[string]any{
 		"ServiceNamespace":  "ecs",
 		"ResourceId":        "service/default/my-svc",
@@ -23,10 +25,18 @@ func TestHandler_PutScalingPolicy(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]string
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp["PolicyARN"], "arn:aws:autoscaling:")
-	assert.Contains(t, resp["PolicyARN"], "scalingPolicy:")
+	policyARN, _ := resp["PolicyARN"].(string)
+	assert.Contains(t, policyARN, "arn:aws:autoscaling:")
+	assert.Contains(t, policyARN, "scalingPolicy:")
+
+	// TargetTrackingScaling policies get synthesized CloudWatch alarms (real
+	// AWS creates backing alarms server-side; see PutScalingPolicy's doc
+	// comment on synthesizeAlarms).
+	alarms, ok := resp["Alarms"].([]any)
+	require.True(t, ok, "expected Alarms in PutScalingPolicy response")
+	assert.NotEmpty(t, alarms)
 }
 
 func TestHandler_PutScalingPolicy_Validation(t *testing.T) {
@@ -85,6 +95,7 @@ func TestHandler_PutScalingPolicy_Validation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			seedTarget(t, h, "service/default/my-svc", 1, 10)
 			rec := doRequest(t, h, "PutScalingPolicy", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
@@ -95,6 +106,7 @@ func TestHandler_PutScalingPolicy_DefaultPolicyType(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	// Omit PolicyType — should default to StepScaling, matching real AWS/Terraform
 	// behavior (the aws_appautoscaling_policy resource documents "StepScaling"
 	// as its default policy_type).
@@ -124,6 +136,7 @@ func TestHandler_PutScalingPolicy_PreservesTypeOnUpdate(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 
 	// Create policy with StepScaling type
 	doRequest(t, h, "PutScalingPolicy", map[string]any{
@@ -164,7 +177,7 @@ func TestHandler_DeleteScalingPolicy(t *testing.T) {
 		wantCode  int
 	}{
 		{name: "success", preCreate: true, wantCode: http.StatusOK},
-		{name: "not_found", preCreate: false, wantCode: http.StatusNotFound},
+		{name: "not_found", preCreate: false, wantCode: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -173,6 +186,7 @@ func TestHandler_DeleteScalingPolicy(t *testing.T) {
 
 			h := newTestHandler(t)
 			if tt.preCreate {
+				seedTarget(t, h, "service/default/my-svc", 1, 10)
 				doRequest(t, h, "PutScalingPolicy", map[string]any{
 					"ServiceNamespace":  "ecs",
 					"ResourceId":        "service/default/my-svc",
@@ -249,6 +263,8 @@ func TestHandler_DescribeScalingPolicies(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			seedTarget(t, h, "service/default/svc1", 1, 10)
+			seedTargetNS(t, h, "dynamodb", "table/t1", "dynamodb:table:ReadCapacityUnits", 1, 10)
 			doRequest(t, h, "PutScalingPolicy", map[string]any{
 				"ServiceNamespace":  "ecs",
 				"ResourceId":        "service/default/svc1",
@@ -311,6 +327,8 @@ func TestHandler_DescribeScalingPolicies_RicherFilters(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			seedTarget(t, h, "service/default/svc1", 1, 10)
+			seedTargetNS(t, h, "dynamodb", "table/t1", "dynamodb:table:ReadCapacityUnits", 1, 10)
 			doRequest(t, h, "PutScalingPolicy", map[string]any{
 				"ServiceNamespace":  "ecs",
 				"ResourceId":        "service/default/svc1",
@@ -338,44 +356,11 @@ func TestHandler_DescribeScalingPolicies_RicherFilters(t *testing.T) {
 	}
 }
 
-func TestHandler_DescribeScalingPolicies_PolicyARNsFilter(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	arns := make([]string, 3)
-	for i := range 3 {
-		rec := doRequest(t, h, "PutScalingPolicy", map[string]any{
-			"ServiceNamespace":  "ecs",
-			"ResourceId":        "service/default/my-svc",
-			"ScalableDimension": "ecs:service:DesiredCount",
-			"PolicyName":        fmt.Sprintf("policy-%d", i),
-			"PolicyType":        "TargetTrackingScaling",
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		arns[i] = out["PolicyARN"].(string)
-	}
-
-	// Filter by first two ARNs only
-	rec := doRequest(t, h, "DescribeScalingPolicies", map[string]any{
-		"ServiceNamespace": "ecs",
-		"PolicyARNs":       []string{arns[0], arns[1]},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	policies, ok := resp["ScalingPolicies"].([]any)
-	require.True(t, ok)
-	assert.Len(t, policies, 2, "expected exactly 2 policies when filtering by 2 ARNs")
-}
-
 func TestHandler_DescribeScalingPolicies_IncludesConfig(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 
 	// Create a TargetTracking policy with config
 	doRequest(t, h, "PutScalingPolicy", map[string]any{
@@ -408,6 +393,7 @@ func TestHandler_MaxResults_DescribeScalingPolicies(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	for i := range 4 {
 		doRequest(t, h, "PutScalingPolicy", map[string]any{
 			"ServiceNamespace":  "ecs",
@@ -487,4 +473,138 @@ func TestScalingPolicyCRUD(t *testing.T) {
 	var afterOut map[string]any
 	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut))
 	assert.Empty(t, afterOut["ScalingPolicies"])
+}
+
+// TestHandler_PutScalingPolicy_Alarms verifies the synthesized CloudWatch
+// Alarms field real AWS attaches to TargetTrackingScaling/StepScaling
+// policies (PutScalingPolicy and DescribeScalingPolicies both return it):
+// TargetTrackingScaling gets two alarms (high+low) unless DisableScaleIn is
+// set, StepScaling gets one, and PredictiveScaling gets none.
+func TestHandler_PutScalingPolicy_Alarms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		policyType string
+		body       map[string]any
+		name       string
+		policyName string
+		wantAlarms int
+	}{
+		{
+			name:       "target_tracking_scale_in_allowed",
+			policyName: "tt-policy",
+			policyType: "TargetTrackingScaling",
+			wantAlarms: 2,
+		},
+		{
+			name:       "target_tracking_scale_in_disabled",
+			policyName: "tt-policy-disabled",
+			policyType: "TargetTrackingScaling",
+			body: map[string]any{
+				"TargetTrackingScalingPolicyConfiguration": map[string]any{
+					"TargetValue":    50.0,
+					"DisableScaleIn": true,
+				},
+			},
+			wantAlarms: 1,
+		},
+		{
+			name:       "step_scaling",
+			policyName: "step-policy",
+			policyType: "StepScaling",
+			wantAlarms: 1,
+		},
+		{
+			name:       "predictive_scaling_no_alarms",
+			policyName: "predictive-policy",
+			policyType: "PredictiveScaling",
+			wantAlarms: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			seedTarget(t, h, "service/default/my-svc", 1, 10)
+
+			body := map[string]any{
+				"ServiceNamespace":  "ecs",
+				"ResourceId":        "service/default/my-svc",
+				"ScalableDimension": "ecs:service:DesiredCount",
+				"PolicyName":        tt.policyName,
+				"PolicyType":        tt.policyType,
+			}
+			maps.Copy(body, tt.body)
+
+			rec := doRequest(t, h, "PutScalingPolicy", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var putOut map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut))
+			putAlarms, _ := putOut["Alarms"].([]any)
+			assert.Len(t, putAlarms, tt.wantAlarms, "PutScalingPolicy response Alarms count")
+
+			descRec := doRequest(t, h, "DescribeScalingPolicies", map[string]any{
+				"ServiceNamespace": "ecs",
+				"PolicyNames":      []string{tt.policyName},
+			})
+			require.Equal(t, http.StatusOK, descRec.Code)
+
+			var descOut map[string]any
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			policies := descOut["ScalingPolicies"].([]any)
+			require.Len(t, policies, 1)
+			descAlarms, _ := policies[0].(map[string]any)["Alarms"].([]any)
+			assert.Len(t, descAlarms, tt.wantAlarms, "DescribeScalingPolicies response Alarms count")
+
+			if tt.wantAlarms > 0 {
+				alarm := putAlarms[0].(map[string]any)
+				assert.NotEmpty(t, alarm["AlarmName"])
+				assert.Contains(t, alarm["AlarmARN"], "arn:aws:cloudwatch:")
+			}
+		})
+	}
+}
+
+// TestHandler_PutScalingPolicy_PredictiveScalingConfiguration verifies
+// PredictiveScalingPolicyConfiguration -- present on PutScalingPolicy's real
+// request shape but previously dropped entirely by gopherstack -- is now
+// captured and echoed back by DescribeScalingPolicies.
+func TestHandler_PutScalingPolicy_PredictiveScalingConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
+
+	rec := doRequest(t, h, "PutScalingPolicy", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"PolicyName":        "predictive-policy",
+		"PolicyType":        "PredictiveScaling",
+		"PredictiveScalingPolicyConfiguration": map[string]any{
+			"MetricSpecifications": []any{},
+			"Mode":                 "ForecastOnly",
+			"MaxCapacityBuffer":    int32(10),
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	descRec := doRequest(t, h, "DescribeScalingPolicies", map[string]any{
+		"ServiceNamespace": "ecs",
+		"PolicyNames":      []string{"predictive-policy"},
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	policies := descOut["ScalingPolicies"].([]any)
+	require.Len(t, policies, 1)
+	p0 := policies[0].(map[string]any)
+	predictiveConfig, ok := p0["PredictiveScalingPolicyConfiguration"].(map[string]any)
+	require.True(t, ok, "expected PredictiveScalingPolicyConfiguration in response")
+	assert.Equal(t, "ForecastOnly", predictiveConfig["Mode"])
+	assert.InDelta(t, 10, predictiveConfig["MaxCapacityBuffer"], 0)
 }

@@ -15,7 +15,7 @@ func (b *InMemoryBackend) BatchStartRecommendations(ctx context.Context) error {
 	region := getRegion(ctx, b.region)
 
 	for _, ep := range b.endpointsByRegion.Get(region) {
-		if ep.EndpointType == "source" {
+		if ep.EndpointType == endpointTypeSource {
 			b.recommendations[region] = append(b.recommendations[region], &Recommendation{
 				DatabaseID: ep.EndpointArn,
 				EngineName: "aurora-mysql",

@@ -171,3 +171,82 @@ func Test_CountZonesByReusableDelegationSet_NotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, route53.ErrDelegationSetNotFound)
 }
+
+// The tests below cover CreateReusableDelegationSet's HostedZoneId
+// parameter: real AWS's "mark an existing hosted zone's delegation set as
+// reusable" mode, distinct from the always-used CallerReference-only "brand
+// new reusable set" mode covered above. Before this pass the parameter was
+// parsed off the wire and then silently ignored.
+
+func Test_CreateReusableDelegationSet_FromHostedZone(t *testing.T) {
+	t.Parallel()
+
+	b := route53.NewInMemoryBackend()
+
+	// Give the source zone distinct (non-default) name servers via an
+	// existing reusable delegation set, so the assertion below can't pass
+	// by coincidence against the hardcoded default pair.
+	source, err := b.CreateReusableDelegationSet("ds-ref-source", "")
+	require.NoError(t, err)
+
+	zone, err := b.CreateHostedZone("source.example.com", "zone-ref-source", "", false, source.ID)
+	require.NoError(t, err)
+	require.Equal(t, source.NameServers, zone.NameServers)
+
+	extracted, err := b.CreateReusableDelegationSet("ds-ref-extracted", zone.ID)
+	require.NoError(t, err)
+	assert.Equal(t, zone.NameServers, extracted.NameServers)
+	assert.NotEqual(t, source.ID, extracted.ID, "extraction must create a distinct delegation set")
+}
+
+func Test_CreateReusableDelegationSet_FromHostedZone_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := route53.NewInMemoryBackend()
+
+	_, err := b.CreateReusableDelegationSet("ds-ref-nf", "ZBOGUSZONE")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, route53.ErrHostedZoneNotFoundForDelegationSet)
+}
+
+func Test_CreateReusableDelegationSet_FromHostedZone_PrivateZoneRejected(t *testing.T) {
+	t.Parallel()
+
+	b := route53.NewInMemoryBackend()
+
+	zone, err := b.CreateHostedZone("private.example.com", "zone-ref-priv", "", true, "")
+	require.NoError(t, err)
+
+	_, err = b.CreateReusableDelegationSet("ds-ref-priv", zone.ID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, route53.ErrInvalidInput)
+}
+
+func Test_CreateReusableDelegationSet_FromHostedZone_AlreadyReusable(t *testing.T) {
+	t.Parallel()
+
+	b := route53.NewInMemoryBackend()
+
+	zone, err := b.CreateHostedZone("dup.example.com", "zone-ref-dup", "", false, "")
+	require.NoError(t, err)
+
+	_, err = b.CreateReusableDelegationSet("ds-ref-dup-1", zone.ID)
+	require.NoError(t, err)
+
+	_, err = b.CreateReusableDelegationSet("ds-ref-dup-2", zone.ID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, route53.ErrDelegationSetAlreadyReusable)
+}
+
+func Test_CreateReusableDelegationSet_DuplicateCallerReference(t *testing.T) {
+	t.Parallel()
+
+	b := route53.NewInMemoryBackend()
+
+	_, err := b.CreateReusableDelegationSet("ds-ref-samecaller", "")
+	require.NoError(t, err)
+
+	_, err = b.CreateReusableDelegationSet("ds-ref-samecaller", "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, route53.ErrDelegationSetAlreadyCreated)
+}

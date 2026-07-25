@@ -35,8 +35,9 @@ func (b *InMemoryBackend) RegisterConnection(clientID, sourceIP string) error {
 	return nil
 }
 
-// DeleteConnection removes an MQTT client connection from the backend.
-// If the clientID does not exist the operation is a no-op (idempotent).
+// DeleteConnection disconnects a tracked MQTT client connection.
+// Returns ErrConnectionNotFound if clientID has no tracked connection (real AWS
+// models ResourceNotFoundException for this op -- see ErrConnectionNotFound).
 // ClientIDs beginning with '$' are rejected per AWS rules.
 func (b *InMemoryBackend) DeleteConnection(clientID string) error {
 	if strings.HasPrefix(clientID, "$") {
@@ -45,6 +46,10 @@ func (b *InMemoryBackend) DeleteConnection(clientID string) error {
 
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
+
+	if !b.connections.Has(clientID) {
+		return fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
+	}
 
 	b.connections.Delete(clientID)
 

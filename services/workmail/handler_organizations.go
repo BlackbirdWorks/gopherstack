@@ -52,6 +52,7 @@ type describeOrgResp struct {
 	DirectoryType           string `json:"DirectoryType"`
 	DefaultMailDomain       string `json:"DefaultMailDomain"`
 	ErrorMessage            string `json:"ErrorMessage,omitempty"`
+	MigrationAdmin          string `json:"MigrationAdmin,omitempty"`
 	CompletedDate           int64  `json:"CompletedDate"`
 	InteroperabilityEnabled bool   `json:"InteroperabilityEnabled"`
 }
@@ -71,6 +72,7 @@ func (h *Handler) handleDescribeOrganization(_ context.Context, req *describeOrg
 		DirectoryType:     org.DirectoryType,
 		DefaultMailDomain: org.DefaultMailDomain,
 		ErrorMessage:      org.ErrorMessage,
+		MigrationAdmin:    org.MigrationAdmin,
 		CompletedDate:     org.CompletedDate.Unix(),
 	}, nil
 }

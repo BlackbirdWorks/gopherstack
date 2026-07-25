@@ -79,13 +79,15 @@ type Account struct {
 // MemberDetail is the detail of a behavior graph member.
 // time.Time fields are first so their non-pointer prefix reduces GC pointer bytes.
 type MemberDetail struct {
-	InvitedTime     time.Time
-	UpdatedTime     time.Time
-	AccountID       string
-	AdministratorID string
-	EmailAddress    string
-	GraphARN        string
-	Status          string
+	InvitedTime                   time.Time
+	UpdatedTime                   time.Time
+	DatasourcePackageIngestStates map[string]string
+	AccountID                     string
+	AdministratorID               string
+	EmailAddress                  string
+	GraphARN                      string
+	InvitationType                string
+	Status                        string
 }
 
 // UnprocessedAccount is an account that could not be processed.
@@ -127,10 +129,82 @@ type InvestigationDetail struct {
 	Status          string
 }
 
-// Indicator is a compromise indicator within an investigation.
+// Indicator is a compromise indicator within an investigation. The real
+// IndicatorDetail shape has no "Title" member; it is a union-like struct with
+// one type-specific sub-detail populated per IndicatorType.
 type Indicator struct {
+	Detail        IndicatorDetail
 	IndicatorType string
-	Title         string
+}
+
+// IndicatorDetail holds type-specific detail for a compromise indicator.
+// Exactly one field is populated, selected by the sibling IndicatorType,
+// mirroring the real (union-like) aws-sdk-go-v2 IndicatorDetail shape.
+type IndicatorDetail struct {
+	FlaggedIPAddress    *FlaggedIPAddressDetail
+	ImpossibleTravel    *ImpossibleTravelDetail
+	NewASO              *NewASODetail
+	NewGeolocation      *NewGeolocationDetail
+	NewUserAgent        *NewUserAgentDetail
+	RelatedFinding      *RelatedFindingDetail
+	RelatedFindingGroup *RelatedFindingGroupDetail
+	TTPsObserved        *TTPsObservedDetail
+}
+
+// FlaggedIPAddressDetail describes a threat-intelligence-flagged IP address.
+type FlaggedIPAddressDetail struct {
+	IPAddress string
+	Reason    string
+}
+
+// ImpossibleTravelDetail describes geographically impossible activity.
+type ImpossibleTravelDetail struct {
+	StartingIPAddress string
+	StartingLocation  string
+	EndingIPAddress   string
+	EndingLocation    string
+	HourlyTimeDelta   int32
+}
+
+// NewASODetail describes a newly observed Autonomous System Organization.
+type NewASODetail struct {
+	ASO                   string
+	IsNewForEntireAccount bool
+}
+
+// NewGeolocationDetail describes a newly observed access geolocation.
+type NewGeolocationDetail struct {
+	IPAddress             string
+	Location              string
+	IsNewForEntireAccount bool
+}
+
+// NewUserAgentDetail describes a newly observed client user agent.
+type NewUserAgentDetail struct {
+	UserAgent             string
+	IsNewForEntireAccount bool
+}
+
+// RelatedFindingDetail describes a GuardDuty finding related to the entity.
+type RelatedFindingDetail struct {
+	Arn       string
+	Type      string
+	IPAddress string
+}
+
+// RelatedFindingGroupDetail describes a cluster of related findings.
+type RelatedFindingGroupDetail struct {
+	ID string
+}
+
+// TTPsObservedDetail describes an observed tactic/technique/procedure.
+type TTPsObservedDetail struct {
+	Tactic          string
+	Procedure       string
+	APIName         string
+	IPAddress       string
+	APISuccessCount int64
+	APIFailureCount int64
 }
 
 // DatasourcePackageIngestDetail holds the ingest state for a datasource package.

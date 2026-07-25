@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 func resolvePolicyVersionOps(path, method string) string {
@@ -195,8 +197,8 @@ func (h *Handler) handleGetPolicy(c *echo.Context) error {
 		keyPolicyArn:        out.PolicyARN,
 		keyPolicyDocument:   out.PolicyDocument,
 		"defaultVersionId":  out.DefaultVersionID,
-		"creationDate":      out.CreatedAt,
-		keyLastModifiedDate: out.LastModifiedAt,
+		keyCreationDate:     awstime.Epoch(out.CreatedAt),
+		keyLastModifiedDate: awstime.Epoch(out.LastModifiedAt),
 	})
 }
 
@@ -298,8 +300,14 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
+	policyARN := ""
+	if policy, lookupErr := h.Backend.GetPolicy(policyName); lookupErr == nil {
+		policyARN = policy.PolicyARN
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyPolicyVersionID:  pv.VersionID,
+		keyPolicyArn:        policyARN,
 		keyPolicyDocument:   pv.PolicyDocument,
 		keyIsDefaultVersion: pv.IsDefaultVersion,
 	})
@@ -330,7 +338,15 @@ func (h *Handler) handleGetPolicyVersion(c *echo.Context) error {
 		keyPolicyVersionID:  pv.VersionID,
 		keyPolicyDocument:   pv.PolicyDocument,
 		keyIsDefaultVersion: pv.IsDefaultVersion,
-		"createDate":        pv.CreatedAt,
+		"generationId":      pv.GenerationID,
+		// GetPolicyVersionOutput's date field is "creationDate", unlike the
+		// ListPolicyVersions summary shape's "createDate" a few lines up --
+		// verified against v1.76.0's
+		// awsRestjson1_deserializeOpDocumentGetPolicyVersionOutput. Policy
+		// versions are immutable once created, so lastModifiedDate equals
+		// creationDate.
+		keyCreationDate:     awstime.Epoch(pv.CreatedAt),
+		keyLastModifiedDate: awstime.Epoch(pv.CreatedAt),
 	})
 }
 
@@ -346,7 +362,7 @@ func (h *Handler) handleListPolicyVersions(c *echo.Context) error {
 		out = append(out, map[string]any{
 			"versionId":         v.VersionID,
 			keyIsDefaultVersion: v.IsDefaultVersion,
-			"createDate":        v.CreatedAt,
+			"createDate":        awstime.Epoch(v.CreatedAt),
 		})
 	}
 

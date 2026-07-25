@@ -80,7 +80,12 @@ func (b *InMemoryBackend) GetModelInvocationJob(jobARN string) (*ModelInvocation
 	return &cp, nil
 }
 
-// ListModelInvocationJobs returns invocation jobs with optional filters and pagination.
+// ListModelInvocationJobs returns invocation jobs with optional filters and
+// pagination. Structurally similar to ListEvaluationJobs (same
+// filter/sort/paginate shape) but over a distinct resource type and filter
+// set; see matchesInvocationJobFilter.
+//
+//nolint:dupl // see doc comment above.
 func (b *InMemoryBackend) ListModelInvocationJobs(
 	in *ListModelInvocationJobsInput,
 ) ([]*ModelInvocationJob, string) {

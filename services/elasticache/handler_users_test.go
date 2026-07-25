@@ -1,6 +1,7 @@
 package elasticache_test
 
 import (
+	"net/http"
 	"testing"
 
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
@@ -467,4 +468,163 @@ func TestCreateUser(t *testing.T) {
 			assert.NotEmpty(t, aws.ToString(out.ARN))
 		})
 	}
+}
+
+// TestHandler_CreateUser_AuthenticationWireShape locks the User response's
+// Authentication struct (Type + PasswordCount) and UserGroupIds list --
+// both part of the real elasticachetypes.User shape but previously entirely
+// absent from the wire response (and a gopherstack-invented NoPasswordRequired
+// output field was serialized in their place, which no real ElastiCache
+// response has). Field-diffed against aws-sdk-go-v2's deserializer for the
+// User document.
+func TestHandler_CreateUser_AuthenticationWireShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input             *elasticachesdk.CreateUserInput
+		name              string
+		wantType          elasticachetypes.AuthenticationType
+		wantPasswordCount int32
+	}{
+		{
+			name: "legacy_no_password_required",
+			input: &elasticachesdk.CreateUserInput{
+				UserId:             aws.String("auth-legacy-nopass"),
+				UserName:           aws.String("auth-legacy-nopass"),
+				AccessString:       aws.String("on ~* +@all"),
+				Engine:             aws.String("redis"),
+				NoPasswordRequired: aws.Bool(true),
+			},
+			wantType:          elasticachetypes.AuthenticationTypeNoPassword,
+			wantPasswordCount: 0,
+		},
+		{
+			name: "authentication_mode_iam",
+			input: &elasticachesdk.CreateUserInput{
+				UserId:       aws.String("auth-iam"),
+				UserName:     aws.String("auth-iam"),
+				AccessString: aws.String("on ~* +@all"),
+				Engine:       aws.String("redis"),
+				AuthenticationMode: &elasticachetypes.AuthenticationMode{
+					Type: elasticachetypes.InputAuthenticationTypeIam,
+				},
+			},
+			wantType:          elasticachetypes.AuthenticationTypeIam,
+			wantPasswordCount: 0,
+		},
+		{
+			name: "authentication_mode_password_two_passwords",
+			input: &elasticachesdk.CreateUserInput{
+				UserId:       aws.String("auth-pw2"),
+				UserName:     aws.String("auth-pw2"),
+				AccessString: aws.String("on ~* +@all"),
+				Engine:       aws.String("redis"),
+				AuthenticationMode: &elasticachetypes.AuthenticationMode{
+					Type:      elasticachetypes.InputAuthenticationTypePassword,
+					Passwords: []string{"a-very-long-password-1234567890", "another-long-password-0987654321"},
+				},
+			},
+			wantType:          elasticachetypes.AuthenticationTypePassword,
+			wantPasswordCount: 2,
+		},
+		{
+			name: "legacy_passwords_without_explicit_mode",
+			input: &elasticachesdk.CreateUserInput{
+				UserId:       aws.String("auth-legacy-pw"),
+				UserName:     aws.String("auth-legacy-pw"),
+				AccessString: aws.String("on ~* +@all"),
+				Engine:       aws.String("redis"),
+				Passwords:    []string{"a-very-long-password-1234567890"},
+			},
+			wantType:          elasticachetypes.AuthenticationTypePassword,
+			wantPasswordCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			out, err := client.CreateUser(t.Context(), tt.input)
+			require.NoError(t, err)
+			require.NotNil(t, out.Authentication)
+			assert.Equal(t, tt.wantType, out.Authentication.Type)
+			assert.Equal(t, tt.wantPasswordCount, aws.ToInt32(out.Authentication.PasswordCount))
+			assert.Empty(t, out.UserGroupIds, "a freshly created user belongs to no groups")
+
+			// DescribeUsers must echo the same Authentication shape back.
+			desc, err := client.DescribeUsers(t.Context(), &elasticachesdk.DescribeUsersInput{
+				UserId: tt.input.UserId,
+			})
+			require.NoError(t, err)
+			require.Len(t, desc.Users, 1)
+			require.NotNil(t, desc.Users[0].Authentication)
+			assert.Equal(t, tt.wantType, desc.Users[0].Authentication.Type)
+		})
+	}
+}
+
+// TestHandler_CreateUser_PasswordCountOutOfRange locks AWS's 1-2 password
+// limit (InvalidParameterValueException otherwise) for AuthenticationMode
+// Type=password.
+func TestHandler_CreateUser_PasswordCountOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	client := newTestStack(t)
+
+	_, err := client.CreateUser(t.Context(), &elasticachesdk.CreateUserInput{
+		UserId:       aws.String("auth-too-many-pw"),
+		UserName:     aws.String("auth-too-many-pw"),
+		AccessString: aws.String("on ~* +@all"),
+		Engine:       aws.String("redis"),
+		AuthenticationMode: &elasticachetypes.AuthenticationMode{
+			Type:      elasticachetypes.InputAuthenticationTypePassword,
+			Passwords: []string{"password-one-long-enough", "password-two-long-enough", "password-three-long-enough"},
+		},
+	})
+	require.Error(t, err)
+	requireFault[elasticachetypes.InvalidParameterValueException](t, err)
+	requireHTTPStatus(t, err, http.StatusBadRequest)
+}
+
+// TestHandler_ModifyUser_AppendAccessString locks AppendAccessString (adds
+// to the existing ACL string rather than replacing it) and UserGroupIds
+// reflecting group membership after CreateUserGroup.
+func TestHandler_ModifyUser_AppendAccessString(t *testing.T) {
+	t.Parallel()
+
+	client := newTestStack(t)
+
+	_, err := client.CreateUser(t.Context(), &elasticachesdk.CreateUserInput{
+		UserId:             aws.String("append-user"),
+		UserName:           aws.String("append-user"),
+		AccessString:       aws.String("on ~key:* +get"),
+		Engine:             aws.String("redis"),
+		NoPasswordRequired: aws.Bool(true),
+	})
+	require.NoError(t, err)
+
+	out, err := client.ModifyUser(t.Context(), &elasticachesdk.ModifyUserInput{
+		UserId:             aws.String("append-user"),
+		AppendAccessString: aws.String("+set"),
+	})
+	require.NoError(t, err)
+	assert.Contains(t, aws.ToString(out.AccessString), "+set")
+	assert.Contains(t, aws.ToString(out.AccessString), "+get")
+
+	_, err = client.CreateUserGroup(t.Context(), &elasticachesdk.CreateUserGroupInput{
+		UserGroupId: aws.String("append-user-group"),
+		Engine:      aws.String("redis"),
+		UserIds:     []string{"append-user"},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeUsers(t.Context(), &elasticachesdk.DescribeUsersInput{
+		UserId: aws.String("append-user"),
+	})
+	require.NoError(t, err)
+	require.Len(t, desc.Users, 1)
+	assert.Equal(t, []string{"append-user-group"}, desc.Users[0].UserGroupIds)
 }

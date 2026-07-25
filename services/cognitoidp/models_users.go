@@ -24,34 +24,6 @@ type User struct {
 	TOTPVerified         bool              `json:"totpVerified,omitempty"`
 }
 
-type adminCreateUserInput struct {
-	UserPoolID        string          `json:"UserPoolId,omitempty"`
-	Username          string          `json:"Username,omitempty"`
-	TemporaryPassword string          `json:"TemporaryPassword,omitempty"`
-	UserAttributes    []attributeType `json:"UserAttributes,omitempty"`
-}
-
-type adminUserType struct {
-	Username       string          `json:"Username,omitempty"`
-	UserStatus     string          `json:"UserStatus,omitempty"`
-	Attributes     []attributeType `json:"Attributes,omitempty"`
-	UserCreateDate float64         `json:"UserCreateDate,omitempty"`
-	Enabled        bool            `json:"Enabled"`
-}
-
-type adminCreateUserOutput struct {
-	User adminUserType `json:"User"`
-}
-
-type adminSetUserPasswordInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Username   string `json:"Username,omitempty"`
-	Password   string `json:"Password,omitempty"`
-	Permanent  bool   `json:"Permanent,omitempty"`
-}
-
-type adminSetUserPasswordOutput struct{}
-
 type adminGetUserInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
 	Username   string `json:"Username,omitempty"`
@@ -96,15 +68,6 @@ type userSummary struct {
 	Enabled          bool            `json:"Enabled"`
 }
 
-type getUserInput struct {
-	AccessToken string `json:"AccessToken,omitempty"`
-}
-
-type getUserOutput struct {
-	Username       string          `json:"Username,omitempty"`
-	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
-}
-
 type providerUserIdentifierType struct {
 	ProviderAttributeName  string `json:"ProviderAttributeName,omitempty"`
 	ProviderAttributeValue string `json:"ProviderAttributeValue,omitempty"`
@@ -131,7 +94,7 @@ type deleteUserInput struct {
 
 type deleteUserOutput struct{}
 
-// getUserWithMFAOutput extends getUserOutput with MFA preference fields.
+// getUserWithMFAOutput is the wire format for GetUser, including MFA preference fields.
 type getUserWithMFAOutput struct {
 	Username            string          `json:"Username,omitempty"`
 	PreferredMfaSetting string          `json:"PreferredMfaSetting,omitempty"`

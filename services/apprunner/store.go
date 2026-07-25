@@ -68,6 +68,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		tags:          make(map[string]map[string]string),
 	}
 	registerAllTables(b)
+	b.ensureDefaultAutoScalingConfiguration()
 
 	return b
 }
@@ -126,6 +127,7 @@ func (b *InMemoryBackend) addOperation(svc *storedService, opType string) {
 		TargetArn: svc.ServiceArn,
 		StartedAt: now,
 		EndedAt:   now,
+		UpdatedAt: now,
 	}
 	svc.Operations = append(svc.Operations, op)
 
@@ -155,4 +157,5 @@ func (b *InMemoryBackend) Reset() {
 	b.obsByName = make(map[string][]*storedObservabilityConfiguration)
 	b.customDomains = make(map[string][]*storedCustomDomain)
 	b.tags = make(map[string]map[string]string)
+	b.ensureDefaultAutoScalingConfiguration()
 }

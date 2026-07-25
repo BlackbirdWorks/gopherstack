@@ -143,6 +143,7 @@ func (b *InMemoryBackend) DeleteIpamPolicy(id string) (*IpamPolicy, error) {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPolicyNotFound, id)
 	}
 	b.ipamPolicies.Delete(id)
+	delete(b.tags, id)
 
 	for target, enabledID := range b.ipamPolicyEnabledTargets {
 		if enabledID == id {

@@ -230,15 +230,63 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 type executeStatementRequest struct {
-	ResourceArn           string         `json:"resourceArn"`
-	SecretArn             string         `json:"secretArn"`
-	SQL                   string         `json:"sql"`
-	Database              string         `json:"database"`
-	Schema                string         `json:"schema"`
-	TransactionID         string         `json:"transactionId"`
-	FormatRecordsAs       string         `json:"formatRecordsAs"`
-	Parameters            []SQLParameter `json:"parameters"`
-	IncludeResultMetadata bool           `json:"includeResultMetadata"`
+	ResultSetOptions      *resultSetOptionsRequest `json:"resultSetOptions"`
+	ResourceArn           string                   `json:"resourceArn"`
+	SecretArn             string                   `json:"secretArn"`
+	SQL                   string                   `json:"sql"`
+	Database              string                   `json:"database"`
+	Schema                string                   `json:"schema"`
+	TransactionID         string                   `json:"transactionId"`
+	FormatRecordsAs       string                   `json:"formatRecordsAs"`
+	Parameters            []SQLParameter           `json:"parameters"`
+	IncludeResultMetadata bool                     `json:"includeResultMetadata"`
+	ContinueAfterTimeout  bool                     `json:"continueAfterTimeout"`
+}
+
+// resultSetOptionsRequest mirrors types.ResultSetOptions
+// (aws-sdk-go-v2/service/rdsdata). Both fields are enums validated by
+// validateResultSetOptions before being handed to the engine as
+// resultSetOptions (store.go).
+type resultSetOptionsRequest struct {
+	DecimalReturnType string `json:"decimalReturnType"`
+	LongReturnType    string `json:"longReturnType"`
+}
+
+// validateResultSetOptions reports an error for any decimalReturnType/
+// longReturnType value other than the real API's enum members ("" is treated
+// as the default for each). A nil opts is valid (the field is optional).
+func validateResultSetOptions(opts *resultSetOptionsRequest) error {
+	if opts == nil {
+		return nil
+	}
+
+	switch opts.DecimalReturnType {
+	case "", decimalReturnTypeString, decimalReturnTypeDoubleOrLong:
+	default:
+		return fmt.Errorf("%w: invalid resultSetOptions.decimalReturnType %q", ErrValidation, opts.DecimalReturnType)
+	}
+
+	switch opts.LongReturnType {
+	case "", longReturnTypeString, longReturnTypeLong:
+	default:
+		return fmt.Errorf("%w: invalid resultSetOptions.longReturnType %q", ErrValidation, opts.LongReturnType)
+	}
+
+	return nil
+}
+
+// validateNoArrayParameters rejects any parameter whose value is an
+// arrayValue: real AWS documents "Array parameters are not supported" for
+// both ExecuteStatementInput.Parameters and BatchExecuteStatementInput.
+// ParameterSets.
+func validateNoArrayParameters(params []SQLParameter) error {
+	for _, p := range params {
+		if p.Value.ArrayValue != nil {
+			return fmt.Errorf("%w: array parameters are not supported (parameter %q)", ErrValidation, p.Name)
+		}
+	}
+
+	return nil
 }
 
 // validateFormatRecordsAs reports an error for any formatRecordsAs value
@@ -286,16 +334,35 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	records, columns, updated, err := h.Backend.ExecuteStatement(
+	if err := validateResultSetOptions(req.ResultSetOptions); err != nil {
+		return nil, err
+	}
+
+	if err := validateNoArrayParameters(req.Parameters); err != nil {
+		return nil, err
+	}
+
+	if req.ResultSetOptions != nil {
+		ctx = context.WithValue(ctx, resultSetOptionsContextKey{}, resultSetOptions{
+			DecimalReturnType: req.ResultSetOptions.DecimalReturnType,
+			LongReturnType:    req.ResultSetOptions.LongReturnType,
+		})
+	}
+
+	records, columns, updated, generatedFields, err := h.Backend.ExecuteStatement(
 		ctx, req.ResourceArn, req.SQL, req.TransactionID, req.Parameters...)
 	if err != nil {
 		return nil, err
 	}
 
+	if generatedFields == nil {
+		generatedFields = []Field{}
+	}
+
 	// Use a map so columnMetadata/records/formattedRecords can be
 	// conditionally included, matching real AWS response shaping.
 	resp := map[string]any{
-		"generatedFields":        []Field{},
+		"generatedFields":        generatedFields,
 		"numberOfRecordsUpdated": updated,
 	}
 
@@ -387,6 +454,12 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		requiredField{name: "sql", value: req.SQL},
 	); err != nil {
 		return nil, err
+	}
+
+	for _, params := range req.ParameterSets {
+		if err := validateNoArrayParameters(params); err != nil {
+			return nil, err
+		}
 	}
 
 	results, err := h.Backend.BatchExecuteStatement(ctx, req.ResourceArn, req.SQL, req.TransactionID, req.ParameterSets)

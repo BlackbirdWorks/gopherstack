@@ -31,6 +31,83 @@ func TestHandler_GetEventBusPolicy(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "allow-123")
 }
 
+// TestHandler_DescribeEventBus_EchoesPolicy verifies the real AWS wire path
+// for reading a bus policy: DescribeEventBusOutput.Policy (and
+// ListEventBusesOutput's per-bus types.EventBus.Policy), not the
+// non-SDK-modeled GetEventBusPolicy helper above. Previously this field
+// didn't exist on EventBus at all, so a policy set via PutPermission was
+// invisible on Describe/List despite PARITY.md claiming this was the real
+// read path.
+func TestHandler_DescribeEventBus_EchoesPolicy(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "PutPermission", map[string]any{
+		"StatementId": "allow-policy-echo",
+		"Action":      "events:PutEvents",
+		"Principal":   "123456789013",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditMakeRequest(t, h, e, "DescribeEventBus", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var describeResp struct {
+		Policy string `json:"Policy"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp))
+	assert.Contains(t, describeResp.Policy, "allow-policy-echo")
+
+	rec = auditMakeRequest(t, h, e, "ListEventBuses", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		EventBuses []struct {
+			Name   string `json:"Name"`
+			Policy string `json:"Policy"`
+		} `json:"EventBuses"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	found := false
+	for _, bus := range listResp.EventBuses {
+		if bus.Name == "default" {
+			found = true
+			assert.Contains(t, bus.Policy, "allow-policy-echo")
+		}
+	}
+	assert.True(t, found, "default bus must be present in ListEventBuses")
+}
+
+// TestHandler_EventBus_TimestampsAreEpochSeconds proves DescribeEventBus and
+// ListEventBuses emit CreationTime/LastModifiedTime as AWS json-1.1 wire
+// format epoch-seconds JSON numbers, not RFC3339 strings -- a raw
+// json.Marshal of eventbridge.EventBus's time.Time fields would produce the
+// latter, which a real AWS SDK client's deserializer rejects.
+func TestHandler_EventBus_TimestampsAreEpochSeconds(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	rec := auditMakeRequest(t, h, e, "DescribeEventBus", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+
+	creationRaw, ok := raw["CreationTime"]
+	require.True(t, ok, "CreationTime must be present")
+
+	var f float64
+	require.NoError(t, json.Unmarshal(creationRaw, &f),
+		"CreationTime must be a JSON number (epoch seconds), got: %s", string(creationRaw))
+	assert.Greater(t, f, float64(0))
+}
+
 func TestHandler_UpdateEventBus(t *testing.T) {
 	t.Parallel()
 	e := echo.New()
@@ -312,9 +389,17 @@ func TestHandler_CreateAndListEventBuses(t *testing.T) {
 			rec := makeRequestWithHandler(t, handler, e, "ListEventBuses", `{}`)
 			assert.Equal(t, http.StatusOK, rec.Code)
 
+			// EventBuses' timestamps are wire-format epoch-seconds JSON numbers
+			// (AWS json-1.1 protocol), not RFC3339 strings, so this can't
+			// unmarshal directly into eventbridge.EventBus (whose CreatedTime is
+			// a plain time.Time) -- decode against the wire shape instead.
 			var resp struct {
-				NextToken  string                 `json:"NextToken"`
-				EventBuses []eventbridge.EventBus `json:"EventBuses"`
+				NextToken  string `json:"NextToken"`
+				EventBuses []struct {
+					Name         string  `json:"Name"`
+					Arn          string  `json:"Arn"`
+					CreationTime float64 `json:"CreationTime"`
+				} `json:"EventBuses"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			assert.GreaterOrEqual(t, len(resp.EventBuses), tt.wantMinCount)

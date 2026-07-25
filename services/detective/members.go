@@ -71,7 +71,7 @@ func (b *InMemoryBackend) CreateMembers(
 			UpdatedTime:     now,
 		}
 		b.members.Put(m)
-		cp := m.toMemberDetail()
+		cp := m.toMemberDetail(b.datasources[graphARN])
 		members = append(members, &cp)
 	}
 
@@ -127,7 +127,7 @@ func (b *InMemoryBackend) GetMembers(
 
 	for _, id := range accountIDs {
 		if m, ok := b.members.Get(memberKey(graphARN, id)); ok {
-			cp := m.toMemberDetail()
+			cp := m.toMemberDetail(b.datasources[graphARN])
 			members = append(members, &cp)
 		} else {
 			unprocessed = append(unprocessed, UnprocessedAccount{
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) ListMembers(
 
 	result := make([]*MemberDetail, 0, end-start)
 	for _, m := range items[start:end] {
-		cp := m.toMemberDetail()
+		cp := m.toMemberDetail(b.datasources[graphARN])
 		result = append(result, &cp)
 	}
 
@@ -265,7 +265,7 @@ func (b *InMemoryBackend) ListInvitations(maxResults int32, nextToken string) ([
 	var invitations []*MemberDetail
 	for _, m := range b.members.All() {
 		if m.AccountID == b.accountID && (m.Status == memberStatusInvited || m.Status == memberStatusEnabled) {
-			cp := m.toMemberDetail()
+			cp := m.toMemberDetail(b.datasources[m.GraphARN])
 			invitations = append(invitations, &cp)
 		}
 	}
@@ -274,15 +274,13 @@ func (b *InMemoryBackend) ListInvitations(maxResults int32, nextToken string) ([
 		return invitations[i].GraphARN < invitations[j].GraphARN
 	})
 
-	start := 0
-	if nextToken != "" {
-		for i, inv := range invitations {
-			if inv.GraphARN == nextToken {
-				start = i
+	start, err := decodePageToken(nextToken)
+	if err != nil {
+		return nil, "", err
+	}
 
-				break
-			}
-		}
+	if start > len(invitations) {
+		start = len(invitations)
 	}
 
 	limit := int(maxResults)
@@ -295,7 +293,7 @@ func (b *InMemoryBackend) ListInvitations(maxResults int32, nextToken string) ([
 
 	var outToken string
 	if end < len(invitations) {
-		outToken = invitations[end].GraphARN
+		outToken = encodePageToken(end)
 	}
 
 	return result, outToken, nil

@@ -29,7 +29,7 @@ func (h *Handler) handleCreateConditionalForwarder(c *echo.Context) error { //no
 	if req.DirectoryID == "" || req.RemoteDomainName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ClientException", "DirectoryId and RemoteDomainName are required"),
+			errResp("InvalidParameterException", "DirectoryId and RemoteDomainName are required"),
 		)
 	}
 
@@ -64,7 +64,7 @@ func (h *Handler) handleUpdateConditionalForwarder(c *echo.Context) error { //no
 	if req.DirectoryID == "" || req.RemoteDomainName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ClientException", "DirectoryId and RemoteDomainName are required"),
+			errResp("InvalidParameterException", "DirectoryId and RemoteDomainName are required"),
 		)
 	}
 
@@ -107,7 +107,7 @@ func (h *Handler) handleDescribeConditionalForwarders(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	fwds, descErr := h.Backend.DescribeConditionalForwarders(

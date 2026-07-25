@@ -230,48 +230,53 @@ func marshalError(errType, message string) []byte {
 	return payload
 }
 
+// errorWireMapping associates a sentinel error with the AWS wire error type
+// and HTTP status real AWS Config uses for it.
+type errorWireMapping struct {
+	sentinel   error
+	wireType   string
+	httpStatus int
+}
+
+// errorWireMappings is the ordered sentinel -> (wireType, httpStatus) table
+// handleError walks. Data-driven instead of a long switch so adding a new
+// sentinel/wire-type pair never grows handleError's cyclomatic complexity.
+//
+//nolint:gochecknoglobals // lookup table, analogous to errCodeLookup-style lookup tables elsewhere
+var errorWireMappings = []errorWireMapping{
+	{ErrNotFound, "NoSuchConfigurationRecorderException", http.StatusNotFound},
+	{ErrNoSuchDeliveryChannel, "NoSuchDeliveryChannelException", http.StatusNotFound},
+	{ErrNoSuchConfigRule, "NoSuchConfigRuleException", http.StatusNotFound},
+	{ErrNoSuchAggregator, "NoSuchConfigurationAggregatorException", http.StatusNotFound},
+	{ErrNoSuchConformancePack, "NoSuchConformancePackException", http.StatusNotFound},
+	{ErrNoSuchOrganizationConfigRule, "NoSuchOrganizationConfigRuleException", http.StatusNotFound},
+	{ErrNoSuchOrganizationConformancePack, "NoSuchOrganizationConformancePackException", http.StatusNotFound},
+	{ErrResourceNotFound, "ResourceNotFoundException", http.StatusBadRequest},
+	{ErrAlreadyExists, "MaxNumberOfConfigurationRecordersExceededException", http.StatusConflict},
+	{ErrNoDeliveryChannel, "NoAvailableDeliveryChannelException", http.StatusBadRequest},
+	{ErrNoSuchConfigRuleInConformancePack, "NoSuchConfigRuleInConformancePackException", http.StatusNotFound},
+	{ErrNoSuchRemediationConfiguration, "NoSuchRemediationConfigurationException", http.StatusNotFound},
+	{ErrNoAvailableConfigurationRecorder, "NoAvailableConfigurationRecorderException", http.StatusBadRequest},
+	{ErrNoRunningConfigurationRecorder, "NoRunningConfigurationRecorderException", http.StatusBadRequest},
+	{ErrInvalidConfigurationRecorderName, "InvalidConfigurationRecorderNameException", http.StatusBadRequest},
+	{ErrInvalidRole, "InvalidRoleException", http.StatusBadRequest},
+	{ErrInvalidDeliveryChannelName, "InvalidDeliveryChannelNameException", http.StatusBadRequest},
+	{ErrValidation, "ValidationException", http.StatusBadRequest},
+}
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	for _, m := range errorWireMappings {
+		if errors.Is(err, m.sentinel) {
+			return c.JSONBlob(m.httpStatus, marshalError(m.wireType, err.Error()))
+		}
+	}
+
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchConfigurationRecorderException", err.Error()))
-	case errors.Is(err, ErrNoSuchDeliveryChannel):
-		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchDeliveryChannelException", err.Error()))
-	case errors.Is(err, ErrNoSuchConfigRule):
-		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchConfigRuleException", err.Error()))
-	case errors.Is(err, ErrNoSuchAggregator):
-		return c.JSONBlob(
-			http.StatusNotFound,
-			marshalError("NoSuchConfigurationAggregatorException", err.Error()),
-		)
-	case errors.Is(err, ErrNoSuchConformancePack):
-		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchConformancePackException", err.Error()))
-	case errors.Is(err, ErrNoSuchOrganizationConfigRule):
-		return c.JSONBlob(
-			http.StatusNotFound,
-			marshalError("NoSuchOrganizationConfigRuleException", err.Error()),
-		)
-	case errors.Is(err, ErrNoSuchOrganizationConformancePack):
-		return c.JSONBlob(
-			http.StatusNotFound,
-			marshalError("NoSuchOrganizationConformancePackException", err.Error()),
-		)
-	case errors.Is(err, ErrResourceNotFound):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("ResourceNotFoundException", err.Error()))
-	case errors.Is(err, ErrAlreadyExists):
-		return c.JSONBlob(
-			http.StatusConflict,
-			marshalError("MaxNumberOfConfigurationRecordersExceededException", err.Error()),
-		)
-	case errors.Is(err, ErrNoDeliveryChannel):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("NoAvailableDeliveryChannelException", err.Error()))
-	case errors.Is(err, ErrValidation):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
-	case errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	if errors.Is(err, errUnknownAction) || errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
-	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
+
+	return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 }

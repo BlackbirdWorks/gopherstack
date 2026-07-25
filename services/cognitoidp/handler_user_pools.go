@@ -20,27 +20,6 @@ func poolToData(pool *UserPool) userPoolData {
 	}
 }
 
-func (h *Handler) handleCreateUserPool(_ context.Context, in *createUserPoolInput) (*createUserPoolOutput, error) {
-	pool, err := h.Backend.CreateUserPool(in.PoolName)
-	if err != nil {
-		return nil, err
-	}
-
-	return &createUserPoolOutput{UserPool: poolToData(pool)}, nil
-}
-
-func (h *Handler) handleDescribeUserPool(
-	_ context.Context,
-	in *describeUserPoolInput,
-) (*describeUserPoolOutput, error) {
-	pool, err := h.Backend.DescribeUserPool(in.UserPoolID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &describeUserPoolOutput{UserPool: poolToData(pool)}, nil
-}
-
 func (h *Handler) handleListUserPools(
 	_ context.Context,
 	in *listUserPoolsInput,
@@ -87,42 +66,6 @@ func (h *Handler) handleDeleteUserPool(_ context.Context, in *deleteUserPoolInpu
 	}
 
 	return &deleteUserPoolOutput{}, nil
-}
-
-func (h *Handler) handleGetUserPoolMfaConfig(
-	_ context.Context,
-	in *getUserPoolMfaConfigInput,
-) (*getUserPoolMfaConfigOutput, error) {
-	pool, err := h.Backend.DescribeUserPool(in.UserPoolID)
-	if err != nil {
-		return nil, err
-	}
-
-	mfa := pool.MfaConfiguration
-	if mfa == "" {
-		mfa = mfaConfigOFF
-	}
-
-	return &getUserPoolMfaConfigOutput{MfaConfiguration: mfa}, nil
-}
-
-func (h *Handler) handleSetUserPoolMfaConfig(
-	_ context.Context,
-	in *setUserPoolMfaConfigInput,
-) (*setUserPoolMfaConfigOutput, error) {
-	if err := h.Backend.SetUserPoolMfaConfig(in.UserPoolID, in.MfaConfiguration); err != nil {
-		return nil, err
-	}
-
-	return &setUserPoolMfaConfigOutput{MfaConfiguration: in.MfaConfiguration}, nil
-}
-
-func (h *Handler) handleUpdateUserPool(_ context.Context, in *updateUserPoolInput) (*updateUserPoolOutput, error) {
-	if err := h.Backend.UpdateUserPool(in.UserPoolID, in.MfaConfiguration); err != nil {
-		return nil, err
-	}
-
-	return &updateUserPoolOutput{}, nil
 }
 
 const (
@@ -380,15 +323,14 @@ func (h *Handler) handleSetUserPoolMfaConfigFull(
 	return out, nil
 }
 
+// userPoolsOpsA registers the ops in this file that have no accurate twin in
+// userPoolsOpsB/C (CreateUserPool, DescribeUserPool, UpdateUserPool,
+// GetUserPoolMfaConfig, SetUserPoolMfaConfig all moved there only -- see
+// de-stub-hygiene note in PARITY.md).
 func (h *Handler) userPoolsOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateUserPool":       service.WrapOp(h.handleCreateUserPool),
-		"DescribeUserPool":     service.WrapOp(h.handleDescribeUserPool),
-		"ListUserPools":        service.WrapOp(h.handleListUserPools),
-		"DeleteUserPool":       service.WrapOp(h.handleDeleteUserPool),
-		"UpdateUserPool":       service.WrapOp(h.handleUpdateUserPool),
-		"GetUserPoolMfaConfig": service.WrapOp(h.handleGetUserPoolMfaConfig),
-		"SetUserPoolMfaConfig": service.WrapOp(h.handleSetUserPoolMfaConfig),
+		"ListUserPools":  service.WrapOp(h.handleListUserPools),
+		"DeleteUserPool": service.WrapOp(h.handleDeleteUserPool),
 	}
 }
 

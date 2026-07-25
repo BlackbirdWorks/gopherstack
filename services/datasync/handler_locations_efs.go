@@ -69,12 +69,15 @@ type ec2ConfigOutput struct {
 	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
 }
 
+// describeLocationEfsOutput intentionally has no EfsFilesystemArn or
+// Subdirectory field: the real DescribeLocationEfsOutput has neither -- the
+// file system and path are folded into LocationUri only (confirmed against
+// aws-sdk-go-v2 v1.59.2: AccessPointArn, CreationTime, Ec2Config,
+// FileSystemAccessRoleArn, InTransitEncryption, LocationArn, LocationUri).
 type describeLocationEfsOutput struct {
 	Ec2Config               *ec2ConfigOutput `json:"Ec2Config,omitempty"`
 	LocationArn             string           `json:"LocationArn"`
 	LocationURI             string           `json:"LocationUri"`
-	EfsFilesystemArn        string           `json:"EfsFilesystemArn,omitempty"`
-	Subdirectory            string           `json:"Subdirectory,omitempty"`
 	AccessPointArn          string           `json:"AccessPointArn,omitempty"`
 	FileSystemAccessRoleArn string           `json:"FileSystemAccessRoleArn,omitempty"`
 	InTransitEncryption     string           `json:"InTransitEncryption,omitempty"`
@@ -97,8 +100,6 @@ func (h *Handler) handleDescribeLocationEfs(
 	out := &describeLocationEfsOutput{
 		LocationArn:             l.LocationArn,
 		LocationURI:             l.LocationURI,
-		EfsFilesystemArn:        l.EfsFilesystemArn,
-		Subdirectory:            l.Subdirectory,
 		AccessPointArn:          l.AccessPointArn,
 		FileSystemAccessRoleArn: l.FileSystemAccessRoleArn,
 		InTransitEncryption:     l.InTransitEncryption,

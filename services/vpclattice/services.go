@@ -61,6 +61,7 @@ func (b *InMemoryBackend) CreateService(
 		CertificateArn:   certificateArn,
 		CustomDomainName: customDomainName,
 		DNSName:          id + ".vpc-lattice-svcs." + region + ".on.aws",
+		HostedZoneID:     newHostedZoneID(),
 		Status:           statusActive,
 		Tags:             copyTags(tags),
 		CreatedAt:        now,
@@ -112,7 +113,12 @@ func (b *InMemoryBackend) UpdateService(
 	return svc.toService(), nil
 }
 
-// DeleteService deletes a service.
+// DeleteService deletes a service. Real AWS rejects the delete with
+// ConflictException while the service is still associated with a service
+// network, and otherwise cascades the delete through the service's
+// listeners, listener rules, resource policy, auth policy, and access log
+// subscriptions -- see the DeleteService doc comment in
+// aws-sdk-go-v2/service/vpclattice's api_op_DeleteService.go.
 func (b *InMemoryBackend) DeleteService(serviceID string) (*Service, error) {
 	b.mu.Lock("DeleteService")
 	defer b.mu.Unlock()
@@ -122,14 +128,41 @@ func (b *InMemoryBackend) DeleteService(serviceID string) (*Service, error) {
 		return nil, ErrNotFound
 	}
 
+	for _, s := range b.snsas.All() {
+		if s.ServiceID == id {
+			return nil, ErrDependencyConflict
+		}
+	}
+
 	svc, _ := b.services.Get(id)
 	out := svc.toService()
 	out.Status = statusDeleted
 
+	b.deleteServiceDependents(svc.ARN, id)
 	b.services.Delete(id)
 	delete(b.tags, svc.ARN)
 
 	return out, nil
+}
+
+// deleteServiceDependents removes the resources DeleteService cascades
+// through: every listener on the service (and, transitively, their rules,
+// via deleteListenerCascade), the resource policy, the auth policy, and any
+// access log subscriptions attached directly to the service.
+func (b *InMemoryBackend) deleteServiceDependents(serviceARN, serviceID string) {
+	for _, l := range slices.Clone(b.listenersByService.Get(serviceID)) {
+		b.deleteListenerCascade(l)
+	}
+
+	delete(b.authPolicies, serviceARN)
+	delete(b.resourcePolicies, serviceARN)
+
+	for _, a := range b.alss.All() {
+		if a.ResourceARN == serviceARN {
+			b.alss.Delete(a.ID)
+			delete(b.tags, a.ARN)
+		}
+	}
 }
 
 // ListServices returns a paginated list of services.

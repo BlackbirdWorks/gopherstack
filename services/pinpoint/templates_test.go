@@ -92,6 +92,63 @@ func TestVoiceTemplate_FullCRUD(t *testing.T) {
 	}
 }
 
+// TestVoiceTemplate_FullFieldSet locks VoiceTemplateResponse's real wire
+// shape (field-diffed against aws-sdk-go-v2/service/pinpoint/types): a real
+// client's GET must see TemplateType (required, "VOICE"), LastModifiedDate
+// (required), plus the previously-missing DefaultSubstitutions, LanguageCode,
+// TemplateDescription, Version, and VoiceId. A prior pass only round-tripped
+// ARN/TemplateName/Body/Tags/CreationDate.
+func TestVoiceTemplate_FullFieldSet(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	templateName := "voice-full-fields"
+
+	createRec := doPinpointRequest(t, h, http.MethodPost,
+		"/v1/templates/"+templateName+"/voice", map[string]any{
+			"Body":                 "Your code is {{code}}",
+			"DefaultSubstitutions": `{"code":"0000"}`,
+			"LanguageCode":         "en-US",
+			"TemplateDescription":  "OTP voice template",
+			"VoiceId":              "Joanna",
+		})
+	require.Equal(t, http.StatusCreated, createRec.Code, "body: %s", createRec.Body.String())
+
+	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/templates/"+templateName+"/voice", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var gr map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gr))
+
+	assert.Equal(t, templateName, gr["TemplateName"])
+	assert.Equal(t, "VOICE", gr["TemplateType"])
+	assert.Equal(t, "Your code is {{code}}", gr["Body"])
+	assert.JSONEq(t, `{"code":"0000"}`, gr["DefaultSubstitutions"].(string))
+	assert.Equal(t, "en-US", gr["LanguageCode"])
+	assert.Equal(t, "OTP voice template", gr["TemplateDescription"])
+	assert.Equal(t, "Joanna", gr["VoiceId"])
+	assert.Equal(t, "1", gr["Version"])
+	assert.NotEmpty(t, gr["CreationDate"])
+	assert.NotEmpty(t, gr["LastModifiedDate"])
+
+	updateRec := doPinpointRequest(t, h, http.MethodPut, "/v1/templates/"+templateName+"/voice",
+		map[string]any{"VoiceId": "Matthew", "LanguageCode": "en-GB"})
+	require.Equal(t, http.StatusAccepted, updateRec.Code)
+
+	getRec2 := doPinpointRequest(t, h, http.MethodGet, "/v1/templates/"+templateName+"/voice", nil)
+	require.Equal(t, http.StatusOK, getRec2.Code)
+
+	var gr2 map[string]any
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &gr2))
+
+	assert.Equal(t, "Matthew", gr2["VoiceId"])
+	assert.Equal(t, "en-GB", gr2["LanguageCode"])
+	assert.Equal(t, "2", gr2["Version"], "Version must advance on update")
+	// Fields not present in the update body must be preserved, not cleared.
+	assert.Equal(t, "Your code is {{code}}", gr2["Body"])
+	assert.Equal(t, "OTP voice template", gr2["TemplateDescription"])
+}
+
 // ──────────────────────────────────────────────────
 // VoiceTemplate version history
 // ──────────────────────────────────────────────────

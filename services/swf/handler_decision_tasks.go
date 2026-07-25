@@ -116,17 +116,61 @@ type recordMarkerDecisionAttrs struct {
 	Details    string `json:"details,omitempty"`
 }
 
+type continueAsNewWorkflowDecisionAttrs struct {
+	Input                        string       `json:"input,omitempty"`
+	ExecutionStartToCloseTimeout string       `json:"executionStartToCloseTimeout,omitempty"`
+	TaskList                     *taskListRef `json:"taskList,omitempty"`
+	TaskStartToCloseTimeout      string       `json:"taskStartToCloseTimeout,omitempty"`
+	TaskPriority                 string       `json:"taskPriority,omitempty"`
+	ChildPolicy                  string       `json:"childPolicy,omitempty"`
+	LambdaRole                   string       `json:"lambdaRole,omitempty"`
+	WorkflowTypeVersion          string       `json:"workflowTypeVersion,omitempty"`
+	TagList                      []string     `json:"tagList,omitempty"`
+}
+
+type startChildWorkflowExecutionDecisionAttrs struct {
+	WorkflowID                   string          `json:"workflowId"`
+	WorkflowType                 workflowTypeRef `json:"workflowType"`
+	Control                      string          `json:"control,omitempty"`
+	Input                        string          `json:"input,omitempty"`
+	ExecutionStartToCloseTimeout string          `json:"executionStartToCloseTimeout,omitempty"`
+	TaskList                     *taskListRef    `json:"taskList,omitempty"`
+	TaskPriority                 string          `json:"taskPriority,omitempty"`
+	TaskStartToCloseTimeout      string          `json:"taskStartToCloseTimeout,omitempty"`
+	ChildPolicy                  string          `json:"childPolicy,omitempty"`
+	LambdaRole                   string          `json:"lambdaRole,omitempty"`
+	TagList                      []string        `json:"tagList,omitempty"`
+}
+
+type signalExternalWorkflowExecutionDecisionAttrs struct {
+	WorkflowID string `json:"workflowId"`
+	RunID      string `json:"runId,omitempty"`
+	SignalName string `json:"signalName"`
+	Input      string `json:"input,omitempty"`
+	Control    string `json:"control,omitempty"`
+}
+
+type requestCancelExternalWorkflowExecutionDecisionAttrs struct {
+	WorkflowID string `json:"workflowId"`
+	RunID      string `json:"runId,omitempty"`
+	Control    string `json:"control,omitempty"`
+}
+
 //nolint:lll // AWS API field names exceed 120 chars; cannot shorten JSON tags
 type decisionInput struct {
-	CompleteWorkflowExecutionDecisionAttributes *completeWorkflowDecisionAttrs      `json:"completeWorkflowExecutionDecisionAttributes,omitempty"`
-	FailWorkflowExecutionDecisionAttributes     *failWorkflowDecisionAttrs          `json:"failWorkflowExecutionDecisionAttributes,omitempty"`
-	CancelWorkflowExecutionDecisionAttributes   *cancelWorkflowDecisionAttrs        `json:"cancelWorkflowExecutionDecisionAttributes,omitempty"`
-	ScheduleActivityTaskDecisionAttributes      *scheduleActivityDecisionAttrs      `json:"scheduleActivityTaskDecisionAttributes,omitempty"`
-	RequestCancelActivityTaskDecisionAttributes *requestCancelActivityDecisionAttrs `json:"requestCancelActivityTaskDecisionAttributes,omitempty"`
-	StartTimerDecisionAttributes                *startTimerDecisionAttrs            `json:"startTimerDecisionAttributes,omitempty"`
-	CancelTimerDecisionAttributes               *cancelTimerDecisionAttrs           `json:"cancelTimerDecisionAttributes,omitempty"`
-	RecordMarkerDecisionAttributes              *recordMarkerDecisionAttrs          `json:"recordMarkerDecisionAttributes,omitempty"`
-	DecisionType                                string                              `json:"decisionType"`
+	CompleteWorkflowExecutionDecisionAttributes              *completeWorkflowDecisionAttrs                       `json:"completeWorkflowExecutionDecisionAttributes,omitempty"`
+	FailWorkflowExecutionDecisionAttributes                  *failWorkflowDecisionAttrs                           `json:"failWorkflowExecutionDecisionAttributes,omitempty"`
+	CancelWorkflowExecutionDecisionAttributes                *cancelWorkflowDecisionAttrs                         `json:"cancelWorkflowExecutionDecisionAttributes,omitempty"`
+	ScheduleActivityTaskDecisionAttributes                   *scheduleActivityDecisionAttrs                       `json:"scheduleActivityTaskDecisionAttributes,omitempty"`
+	RequestCancelActivityTaskDecisionAttributes              *requestCancelActivityDecisionAttrs                  `json:"requestCancelActivityTaskDecisionAttributes,omitempty"`
+	StartTimerDecisionAttributes                             *startTimerDecisionAttrs                             `json:"startTimerDecisionAttributes,omitempty"`
+	CancelTimerDecisionAttributes                            *cancelTimerDecisionAttrs                            `json:"cancelTimerDecisionAttributes,omitempty"`
+	RecordMarkerDecisionAttributes                           *recordMarkerDecisionAttrs                           `json:"recordMarkerDecisionAttributes,omitempty"`
+	ContinueAsNewWorkflowExecutionDecisionAttributes         *continueAsNewWorkflowDecisionAttrs                  `json:"continueAsNewWorkflowExecutionDecisionAttributes,omitempty"`
+	StartChildWorkflowExecutionDecisionAttributes            *startChildWorkflowExecutionDecisionAttrs            `json:"startChildWorkflowExecutionDecisionAttributes,omitempty"`
+	SignalExternalWorkflowExecutionDecisionAttributes        *signalExternalWorkflowExecutionDecisionAttrs        `json:"signalExternalWorkflowExecutionDecisionAttributes,omitempty"`
+	RequestCancelExternalWorkflowExecutionDecisionAttributes *requestCancelExternalWorkflowExecutionDecisionAttrs `json:"requestCancelExternalWorkflowExecutionDecisionAttributes,omitempty"`
+	DecisionType                                             string                                               `json:"decisionType"`
 }
 
 type handleRespondDecisionTaskCompletedInput struct {
@@ -206,6 +250,69 @@ func convertDecisionTaskAttrs(d decisionInput, dec *Decision) {
 	}
 }
 
+// convertDecisionOrchestrationAttrs copies the cross-execution decision
+// attributes (ContinueAsNewWorkflowExecution/StartChildWorkflowExecution/
+// SignalExternalWorkflowExecution/RequestCancelExternalWorkflowExecution)
+// from the wire input onto dec.
+func convertDecisionOrchestrationAttrs(d decisionInput, dec *Decision) {
+	if d.ContinueAsNewWorkflowExecutionDecisionAttributes != nil {
+		ca := d.ContinueAsNewWorkflowExecutionDecisionAttributes
+		taskList := ""
+		if ca.TaskList != nil {
+			taskList = ca.TaskList.Name
+		}
+		dec.ContinueAsNewWorkflowExecutionAttrs = &ContinueAsNewWorkflowExecutionDecisionAttrs{
+			Input:                        ca.Input,
+			ExecutionStartToCloseTimeout: ca.ExecutionStartToCloseTimeout,
+			TaskList:                     taskList,
+			TaskStartToCloseTimeout:      ca.TaskStartToCloseTimeout,
+			TaskPriority:                 ca.TaskPriority,
+			ChildPolicy:                  ca.ChildPolicy,
+			LambdaRole:                   ca.LambdaRole,
+			WorkflowTypeVersion:          ca.WorkflowTypeVersion,
+			TagList:                      ca.TagList,
+		}
+	}
+	if d.StartChildWorkflowExecutionDecisionAttributes != nil {
+		sc := d.StartChildWorkflowExecutionDecisionAttributes
+		taskList := ""
+		if sc.TaskList != nil {
+			taskList = sc.TaskList.Name
+		}
+		dec.StartChildWorkflowExecutionAttrs = &StartChildWorkflowExecutionDecisionAttrs{
+			WorkflowID:                   sc.WorkflowID,
+			WorkflowType:                 WorkflowTypeRef{Name: sc.WorkflowType.Name, Version: sc.WorkflowType.Version},
+			Control:                      sc.Control,
+			Input:                        sc.Input,
+			ExecutionStartToCloseTimeout: sc.ExecutionStartToCloseTimeout,
+			TaskList:                     taskList,
+			TaskPriority:                 sc.TaskPriority,
+			TaskStartToCloseTimeout:      sc.TaskStartToCloseTimeout,
+			ChildPolicy:                  sc.ChildPolicy,
+			LambdaRole:                   sc.LambdaRole,
+			TagList:                      sc.TagList,
+		}
+	}
+	if d.SignalExternalWorkflowExecutionDecisionAttributes != nil {
+		se := d.SignalExternalWorkflowExecutionDecisionAttributes
+		dec.SignalExternalWorkflowExecutionAttrs = &SignalExternalWorkflowExecutionDecisionAttrs{
+			WorkflowID: se.WorkflowID,
+			RunID:      se.RunID,
+			SignalName: se.SignalName,
+			Input:      se.Input,
+			Control:    se.Control,
+		}
+	}
+	if d.RequestCancelExternalWorkflowExecutionDecisionAttributes != nil {
+		rc := d.RequestCancelExternalWorkflowExecutionDecisionAttributes
+		dec.RequestCancelExternalWorkflowExecutionAttrs = &RequestCancelExternalWorkflowExecutionDecisionAttrs{
+			WorkflowID: rc.WorkflowID,
+			RunID:      rc.RunID,
+			Control:    rc.Control,
+		}
+	}
+}
+
 func (h *Handler) handleRespondDecisionTaskCompleted(
 	_ context.Context,
 	in *handleRespondDecisionTaskCompletedInput,
@@ -215,6 +322,7 @@ func (h *Handler) handleRespondDecisionTaskCompleted(
 		dec := Decision{DecisionType: d.DecisionType}
 		convertDecisionCloseAttrs(d, &dec)
 		convertDecisionTaskAttrs(d, &dec)
+		convertDecisionOrchestrationAttrs(d, &dec)
 		decisions = append(decisions, dec)
 	}
 	if err := h.Backend.RespondDecisionTaskCompleted(in.TaskToken, in.ExecutionContext, decisions); err != nil {

@@ -21,13 +21,47 @@ const (
 	// AWS MQ rejects configuration data larger than 250 KiB; we enforce the same limit
 	// to avoid unbounded memory growth from a malicious or buggy client.
 	maxConfigurationDataBytes = 256 * 1024
+
+	// minConfigurationNameLen and maxConfigurationNameLen bound a configuration
+	// name per CreateConfigurationRequest.Name in the MQ API reference.
+	minConfigurationNameLen = 1
+	maxConfigurationNameLen = 150
 )
+
+// validateConfigurationName enforces AWS MQ configuration-name constraints:
+// 1-150 characters, alphanumeric plus dashes, periods, underscores, and
+// tildes (matching the ActiveMQ/RabbitMQ configuration name charset
+// documented for CreateConfigurationRequest.Name).
+func validateConfigurationName(name string) error {
+	if len(name) < minConfigurationNameLen || len(name) > maxConfigurationNameLen {
+		return fmt.Errorf(
+			"%w: configuration name must be %d-%d characters (got %d)",
+			ErrValidation, minConfigurationNameLen, maxConfigurationNameLen, len(name),
+		)
+	}
+
+	for _, c := range name {
+		if !isAlphanumeric(c) && c != '-' && c != '.' && c != '_' && c != '~' {
+			return fmt.Errorf(
+				"%w: configuration name must contain only alphanumeric characters, "+
+					"dashes, periods, underscores, and tildes, got %q",
+				ErrValidation, c,
+			)
+		}
+	}
+
+	return nil
+}
 
 // CreateConfiguration creates a new Amazon MQ configuration.
 func (b *InMemoryBackend) CreateConfiguration(
 	name, description, engineType, engineVersion string,
 	tags map[string]string,
 ) (*Configuration, error) {
+	if err := validateConfigurationName(name); err != nil {
+		return nil, err
+	}
+
 	if err := validateTagsMap(tags); err != nil {
 		return nil, err
 	}

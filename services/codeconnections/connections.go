@@ -34,6 +34,16 @@ func (b *InMemoryBackend) CreateConnection(
 		return nil, fmt.Errorf("%w: connection %q already exists", ErrAlreadyExists, name)
 	}
 
+	// CreateConnection's real error list is [LimitExceededException,
+	// ResourceNotFoundException, ResourceUnavailableException] (botocore
+	// codeconnections/2023-12-01/service-2.json) -- a HostArn referencing a
+	// host that does not exist in the caller's region maps to
+	// ResourceNotFoundException, the same real type GetHost/DeleteHost use
+	// for a missing host.
+	if hostArn != "" && !b.hostExistsLocked(region, hostArn) {
+		return nil, fmt.Errorf("%w: host %q does not exist", ErrNotFound, hostArn)
+	}
+
 	id := uuid.NewString()
 	connectionArn := arn.Build("codeconnections", region, b.accountID, "connection/"+id)
 

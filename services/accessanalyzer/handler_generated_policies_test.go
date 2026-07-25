@@ -104,6 +104,26 @@ func TestGetGeneratedPolicy(t *testing.T) {
 
 			rec := doRequest(t, h, http.MethodGet, "/policy/generation/"+jobID, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			// types.JobDetails (GetGeneratedPolicyOutput.jobDetails) has no
+			// principalArn member -- that value only appears under
+			// generatedPolicyResult.properties.principalArn for this operation.
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			jobDetails, ok := resp["jobDetails"].(map[string]any)
+			require.True(t, ok)
+			_, hasPrincipalArn := jobDetails["principalArn"]
+			assert.False(t, hasPrincipalArn, "jobDetails must not carry principalArn")
+
+			result, ok := resp["generatedPolicyResult"].(map[string]any)
+			require.True(t, ok)
+			properties, ok := result["properties"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "arn:aws:iam::000000000000:role/R", properties["principalArn"])
 		})
 	}
 }

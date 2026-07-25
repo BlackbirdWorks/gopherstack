@@ -36,48 +36,74 @@ func validateTransactWriteItems(
 	totalBytes := 0
 
 	for i, ti := range items {
+		if err := validateTransactUnusedExpressionAttrs(ti); err != nil {
+			return err
+		}
+
 		if err := validateTransactUpdateKeys(ti, tables); err != nil {
 			return err
 		}
 
-		tableName, keyItem, itemForSize := extractTransactWriteKeyAndItem(ti)
-		if tableName == "" {
-			continue
+		if err := checkTransactWriteItemSizeAndDupe(i, ti, items, tables, seen, &totalBytes); err != nil {
+			return err
 		}
+	}
 
-		// Accumulate size estimate.
-		if itemForSize != nil {
-			sz, _ := CalculateItemSize(models.FromSDKItem(itemForSize))
-			totalBytes += sz
+	return nil
+}
+
+// checkTransactWriteItemSizeAndDupe accumulates the running total-size estimate
+// for one TransactWriteItem and checks it against the same-key duplicate-write
+// set, returning ValidationException on the 4 MB limit or
+// TransactionCanceledException on a duplicate key. Split out of
+// validateTransactWriteItems to keep that function's cognitive complexity low.
+func checkTransactWriteItemSizeAndDupe(
+	i int,
+	ti types.TransactWriteItem,
+	items []types.TransactWriteItem,
+	tables map[string]*Table,
+	seen map[transactWriteKey]bool,
+	totalBytes *int,
+) error {
+	tableName, keyItem, itemForSize := extractTransactWriteKeyAndItem(ti)
+	if tableName == "" {
+		return nil
+	}
+
+	// Accumulate size estimate.
+	if itemForSize != nil {
+		sz, _ := CalculateItemSize(models.FromSDKItem(itemForSize))
+		*totalBytes += sz
+	}
+
+	if *totalBytes > maxTransactWriteSizeBytes {
+		return NewValidationException(
+			"Transaction size exceeded: maximum allowed is 4 MB",
+		)
+	}
+
+	if keyItem == nil {
+		return nil
+	}
+
+	wireKey := models.FromSDKItem(keyItem)
+
+	// Resolve the table to extract only the key attributes.
+	if table, ok := tables[tableName]; ok {
+		pkDef, skDef := getPKAndSK(table.KeySchema)
+		keyOnly := map[string]any{pkDef.AttributeName: wireKey[pkDef.AttributeName]}
+		if skDef.AttributeName != "" {
+			keyOnly[skDef.AttributeName] = wireKey[skDef.AttributeName]
 		}
+		wireKey = keyOnly
+	}
 
-		if totalBytes > maxTransactWriteSizeBytes {
-			return NewValidationException(
-				"Transaction size exceeded: maximum allowed is 4 MB",
-			)
-		}
-
-		if keyItem == nil {
-			continue
-		}
-
-		wireKey := models.FromSDKItem(keyItem)
-
-		// Resolve the table to extract only the key attributes.
-		if table, ok := tables[tableName]; ok {
-			pkDef, skDef := getPKAndSK(table.KeySchema)
-			keyOnly := map[string]any{pkDef.AttributeName: wireKey[pkDef.AttributeName]}
-			if skDef.AttributeName != "" {
-				keyOnly[skDef.AttributeName] = wireKey[skDef.AttributeName]
-			}
-			wireKey = keyOnly
-		}
-
-		keyBytes, err := json.Marshal(wireKey)
-		if err != nil {
-			continue
-		}
-
+	// A marshal failure only affects duplicate-key detection (not a real
+	// validation error), so it's not surfaced — the item is simply not
+	// tracked in seen and duplicate detection silently skips it, matching
+	// the pre-refactor loop's "continue on marshal error" behavior.
+	keyBytes, marshalErr := json.Marshal(wireKey)
+	if marshalErr == nil {
 		twk := transactWriteKey{TableName: tableName, KeyJSON: string(keyBytes)}
 		if seen[twk] {
 			reasons := makeDuplicateKeyReasons(items, i)
@@ -115,6 +141,62 @@ func validateTransactUpdateKeys(ti types.TransactWriteItem, tables map[string]*T
 		ti.Update.ExpressionAttributeNames,
 		table.KeySchema,
 	)
+}
+
+// validateTransactUnusedExpressionAttrs rejects a TransactWriteItem whose
+// ExpressionAttributeNames or ExpressionAttributeValues declare a placeholder
+// that no expression on that item actually references (ConditionExpression
+// for Put/Delete/ConditionCheck; UpdateExpression + ConditionExpression for
+// Update) — the same requirement plain PutItem/UpdateItem/DeleteItem enforce
+// via checkUnusedExpressionAttributeNames/Values (see item_ops_crud.go).
+// Before this check, a transactional Put/Update/Delete/ConditionCheck with an
+// unused EAN/EAV silently succeeded instead of returning ValidationException
+// like the single-item equivalent.
+func validateTransactUnusedExpressionAttrs(ti types.TransactWriteItem) error {
+	switch {
+	case ti.Put != nil:
+		return checkUnusedExpressionAttrs(
+			ti.Put.ExpressionAttributeNames,
+			ti.Put.ExpressionAttributeValues,
+			aws.ToString(ti.Put.ConditionExpression),
+		)
+	case ti.Delete != nil:
+		return checkUnusedExpressionAttrs(
+			ti.Delete.ExpressionAttributeNames,
+			ti.Delete.ExpressionAttributeValues,
+			aws.ToString(ti.Delete.ConditionExpression),
+		)
+	case ti.Update != nil:
+		return checkUnusedExpressionAttrs(
+			ti.Update.ExpressionAttributeNames,
+			ti.Update.ExpressionAttributeValues,
+			aws.ToString(ti.Update.UpdateExpression),
+			aws.ToString(ti.Update.ConditionExpression),
+		)
+	case ti.ConditionCheck != nil:
+		return checkUnusedExpressionAttrs(
+			ti.ConditionCheck.ExpressionAttributeNames,
+			ti.ConditionCheck.ExpressionAttributeValues,
+			aws.ToString(ti.ConditionCheck.ConditionExpression),
+		)
+	}
+
+	return nil
+}
+
+// checkUnusedExpressionAttrs runs both the EAN and EAV unused-placeholder
+// checks (checkUnusedExpressionAttributeNames/Values in expressions.go)
+// against the combined expression text.
+func checkUnusedExpressionAttrs(
+	ean map[string]string,
+	eav map[string]types.AttributeValue,
+	exprs ...string,
+) error {
+	if err := checkUnusedExpressionAttributeNames(ean, exprs...); err != nil {
+		return err
+	}
+
+	return checkUnusedExpressionAttributeValues(models.FromSDKItem(eav), exprs...)
 }
 
 // extractTransactWriteKeyAndItem returns the table name, key map, and item map

@@ -202,51 +202,15 @@ func (h *Handler) iamPermissionBoundaryDispatchTable() map[string]iamActionFn {
 	}
 }
 
-// iamRefinement2PermsBoundaryTable handles permissions boundary getters and context key stubs.
+// iamRefinement2PermsBoundaryTable handles context key stub operations.
+//
+// NOTE: real IAM has no GetUserPermissionsBoundary / GetRolePermissionsBoundary
+// actions — permissions-boundary info is returned as part of GetUser/GetRole
+// (see UserXML.PermissionsBoundary / RoleXML.PermissionsBoundary in
+// handler_users.go / handler_roles.go). A gopherstack-invented pair of getters
+// with those exact response shapes previously lived here and has been removed.
 func (h *Handler) iamRefinement2PermsBoundaryTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"GetUserPermissionsBoundary": func(vals url.Values, reqID string) (any, error) {
-			u, err := h.Backend.GetUser(vals.Get("UserName"))
-			if err != nil {
-				return nil, err
-			}
-
-			var pb *PermissionsBoundaryXML
-			if u.PermissionsBoundary != "" {
-				pb = &PermissionsBoundaryXML{
-					PermissionsBoundaryArn:  u.PermissionsBoundary,
-					PermissionsBoundaryType: xmlElemPolicy,
-				}
-			}
-
-			return &GetUserResponse{
-				Xmlns:            iamXMLNS,
-				GetUserResult:    GetUserResult{User: UserXML{PermissionsBoundary: pb}},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-
-		"GetRolePermissionsBoundary": func(vals url.Values, reqID string) (any, error) {
-			r, err := h.Backend.GetRole(vals.Get("RoleName"))
-			if err != nil {
-				return nil, err
-			}
-
-			var pb *PermissionsBoundaryXML
-			if r.PermissionsBoundary != "" {
-				pb = &PermissionsBoundaryXML{
-					PermissionsBoundaryArn:  r.PermissionsBoundary,
-					PermissionsBoundaryType: xmlElemPolicy,
-				}
-			}
-
-			return &GetRoleResponse{
-				Xmlns:            iamXMLNS,
-				GetRoleResult:    GetRoleResult{Role: RoleXML{PermissionsBoundary: pb}},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-
 		"GetContextKeysForCustomPolicy": func(vals url.Values, reqID string) (any, error) {
 			keys := contextKeysFromPolicyDocuments(collectPolicyInputList(vals))
 

@@ -106,12 +106,12 @@ func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
 func TestTokenExpiryFor_Backend(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+	tests := []struct {
 		name      string
-		validity  int32
 		unit      string
 		tokenType string
 		wantSecs  float64
+		validity  int32
 	}{
 		{name: "access_minutes", validity: 60, unit: "minutes", tokenType: "AccessToken", wantSecs: 3600},
 		{name: "id_hours", validity: 2, unit: "hours", tokenType: "IdToken", wantSecs: 7200},
@@ -140,11 +140,11 @@ func TestTokenExpiryFor_Backend(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp struct {
-				UserPoolClient struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+				UserPoolClient struct {
+					TokenValidityUnits   map[string]any `json:"TokenValidityUnits"`
 					AccessTokenValidity  int32          `json:"AccessTokenValidity"`
 					IDTokenValidity      int32          `json:"IdTokenValidity"`
 					RefreshTokenValidity int32          `json:"RefreshTokenValidity"`
-					TokenValidityUnits   map[string]any `json:"TokenValidityUnits"`
 				} `json:"UserPoolClient"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))

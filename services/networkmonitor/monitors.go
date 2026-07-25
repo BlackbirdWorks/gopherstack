@@ -41,38 +41,20 @@ func (b *InMemoryBackend) CreateMonitor(
 		return nil, fmt.Errorf("%w: monitor %q already exists", ErrAlreadyExists, name)
 	}
 
+	if len(b.monitorsByRegion.Get(region)) >= maxMonitorsPerAccountRegion {
+		return nil, fmt.Errorf(
+			"%w: an account cannot have more than %d monitors per Region",
+			ErrServiceQuotaExceeded,
+			maxMonitorsPerAccountRegion,
+		)
+	}
+
 	now := time.Now().UTC()
 	monARN := b.buildMonitorARN(region, name)
 
-	var probes []*Probe
-
-	for _, pi := range probeInputs {
-		proto, err := validateProbeInput(pi.Destination, pi.Protocol, pi.SourceArn, pi.DestinationPort, pi.PacketSize)
-		if err != nil {
-			return nil, err
-		}
-
-		probeID := b.nextProbeID()
-		probeARN := b.buildProbeARN(region, name, probeID)
-		af := detectAddressFamily(pi.Destination)
-
-		probeTags := make(map[string]string, len(pi.Tags))
-		maps.Copy(probeTags, pi.Tags)
-
-		probes = append(probes, &Probe{
-			ProbeID:         probeID,
-			ProbeArn:        probeARN,
-			SourceArn:       pi.SourceArn,
-			Destination:     pi.Destination,
-			Protocol:        proto,
-			DestinationPort: pi.DestinationPort,
-			PacketSize:      pi.PacketSize,
-			State:           probeStateActive,
-			AddressFamily:   af,
-			CreatedAt:       &now,
-			ModifiedAt:      &now,
-			Tags:            probeTags,
-		})
+	probes, err := b.buildNestedProbes(region, name, probeInputs, now)
+	if err != nil {
+		return nil, err
 	}
 
 	tagsCopy := make(map[string]string, len(tags))
@@ -94,6 +76,64 @@ func (b *InMemoryBackend) CreateMonitor(
 	b.regionARNIndex(region)[monARN] = name
 
 	return monitorCopy(m), nil
+}
+
+// buildNestedProbes field-validates and builds the []*Probe for
+// CreateMonitor's nested probes list. Must be called with b.mu held (write
+// lock) since it allocates probe IDs. Field validation (400
+// ValidationException) runs for every input before the probe-count/
+// per-subnet quota check (402 ServiceQuotaExceededException) so malformed
+// input takes precedence over a resource-limit condition, matching how AWS
+// APIs generally order member validation ahead of business-logic checks.
+func (b *InMemoryBackend) buildNestedProbes(
+	region, monitorName string,
+	probeInputs []createMonitorProbeInput,
+	now time.Time,
+) ([]*Probe, error) {
+	protocols := make([]string, len(probeInputs))
+	sourceArns := make([]string, len(probeInputs))
+
+	for i, pi := range probeInputs {
+		proto, err := validateProbeInput(pi.Destination, pi.Protocol, pi.SourceArn, pi.DestinationPort, pi.PacketSize)
+		if err != nil {
+			return nil, err
+		}
+
+		protocols[i] = proto
+		sourceArns[i] = pi.SourceArn
+	}
+
+	if err := validateProbeQuotas(nil, sourceArns); err != nil {
+		return nil, err
+	}
+
+	var probes []*Probe
+
+	for i, pi := range probeInputs {
+		probeID := b.nextProbeID()
+		probeARN := b.buildProbeARN(region, monitorName, probeID)
+		af := detectAddressFamily(pi.Destination)
+
+		probeTags := make(map[string]string, len(pi.Tags))
+		maps.Copy(probeTags, pi.Tags)
+
+		probes = append(probes, &Probe{
+			ProbeID:         probeID,
+			ProbeArn:        probeARN,
+			SourceArn:       pi.SourceArn,
+			Destination:     pi.Destination,
+			Protocol:        protocols[i],
+			DestinationPort: pi.DestinationPort,
+			PacketSize:      pi.PacketSize,
+			State:           probeStateActive,
+			AddressFamily:   af,
+			CreatedAt:       &now,
+			ModifiedAt:      &now,
+			Tags:            probeTags,
+		})
+	}
+
+	return probes, nil
 }
 
 // DeleteMonitor deletes a monitor and its probes.

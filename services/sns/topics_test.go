@@ -210,7 +210,7 @@ func TestInMemoryBackend_ListAll(t *testing.T) {
 		t.Parallel()
 		b := sns.NewInMemoryBackend()
 		arn := mustCreateTopic(t, b, "la-topic")
-		mustSubscribe(t, b, arn, "sqs", "q")
+		mustSubscribe(t, b, arn, "sqs", "arn:aws:sqs:us-east-1:000000000000:la-q")
 		all := b.ListAllSubscriptions()
 		require.Len(t, all, 1)
 		assert.Equal(t, arn, all[0].TopicArn)

@@ -313,7 +313,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts Traini
 		TrainingJobName:                       opts.TrainingJobName,
 		TrainingJobArn:                        jobARN,
 		TrainingJobStatus:                     trainingJobStatusInProgress,
-		SecondaryStatus:                       "Starting",
+		SecondaryStatus:                       secondaryStatusStarting,
 		RoleArn:                               opts.RoleArn,
 		AlgorithmSpecification:                opts.AlgorithmSpecification,
 		InputDataConfig:                       opts.InputDataConfig,
@@ -332,7 +332,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts Traini
 		EnableManagedSpotTraining:             opts.EnableManagedSpotTraining,
 		EnableInterContainerTrafficEncryption: opts.EnableInterContainerTrafficEncryption,
 		SecondaryStatusTransitions: []SecondaryStatusTransition{
-			{StartTime: now, Status: "Starting", StatusMessage: "Launching requested ML instances"},
+			{StartTime: now, Status: secondaryStatusStarting, StatusMessage: "Launching requested ML instances"},
 		},
 	}
 	b.trainingJobsStore(region).Put(tj)

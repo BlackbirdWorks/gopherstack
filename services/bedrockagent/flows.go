@@ -39,7 +39,6 @@ func (b *InMemoryBackend) CreateFlow(ctx context.Context, cfg FlowConfig) (*Flow
 		Description: cfg.Description,
 		RoleARN:     cfg.RoleARN,
 		Definition:  cfg.Definition,
-		Tags:        maps.Clone(cfg.Tags),
 		Version:     "DRAFT",
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -97,10 +96,6 @@ func applyFlowConfig(f *Flow, cfg FlowConfig) {
 	if cfg.Definition != nil {
 		f.Definition = cfg.Definition
 	}
-
-	if cfg.Tags != nil {
-		f.Tags = maps.Clone(cfg.Tags)
-	}
 }
 
 // DeleteFlow deletes a flow.
@@ -115,12 +110,18 @@ func (b *InMemoryBackend) DeleteFlow(_ context.Context, flowID string) error {
 
 	delete(b.flowsByName, f.Name)
 	b.flows.Delete(flowID)
+	delete(b.tags, f.FlowARN)
 
 	for _, fv := range slices.Clone(b.flowVersionsByFlow.Get(flowID)) {
 		b.flowVersions.Delete(flowVersionKey(fv.FlowID, fv.Version))
 	}
 
 	delete(b.flowVersionCtrs, flowID)
+
+	for _, al := range slices.Clone(b.flowAliasesByFlow.Get(flowID)) {
+		b.flowAliases.Delete(flowAliasKey(al.FlowID, al.AliasID))
+		delete(b.tags, al.AliasARN)
+	}
 
 	return nil
 }
@@ -317,12 +318,15 @@ func (b *InMemoryBackend) CreateFlowAlias(
 		Name:                 cfg.Name,
 		Description:          cfg.Description,
 		RoutingConfiguration: cfg.RoutingConfiguration,
-		Tags:                 maps.Clone(cfg.Tags),
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
 
 	b.flowAliases.Put(al)
+	// Real AWS: CreateFlowAliasInput accepts a "tags" member, but
+	// CreateFlowAliasOutput never echoes tags back -- readable only via
+	// ListTagsForResource(AliasArn).
+	b.tags[al.AliasARN] = maps.Clone(cfg.Tags)
 
 	return flowAliasCopy(al), nil
 }
@@ -364,10 +368,6 @@ func (b *InMemoryBackend) UpdateFlowAlias(
 		al.RoutingConfiguration = cfg.RoutingConfiguration
 	}
 
-	if cfg.Tags != nil {
-		al.Tags = maps.Clone(cfg.Tags)
-	}
-
 	al.UpdatedAt = time.Now().UTC()
 
 	return flowAliasCopy(al), nil
@@ -379,11 +379,14 @@ func (b *InMemoryBackend) DeleteFlowAlias(_ context.Context, flowID, aliasID str
 	defer b.mu.Unlock()
 
 	key := flowAliasKey(flowID, aliasID)
-	if !b.flowAliases.Has(key) {
+
+	al, ok := b.flowAliases.Get(key)
+	if !ok {
 		return fmt.Errorf("%w: flow alias %q not found", ErrNotFound, aliasID)
 	}
 
 	b.flowAliases.Delete(key)
+	delete(b.tags, al.AliasARN)
 
 	return nil
 }
@@ -419,7 +422,6 @@ func (b *InMemoryBackend) ListFlowAliases(
 
 func flowCopy(f *Flow) *Flow {
 	cp := *f
-	cp.Tags = maps.Clone(f.Tags)
 
 	return &cp
 }
@@ -432,7 +434,6 @@ func flowVersionCopy(fv *FlowVersion) *FlowVersion {
 
 func flowAliasCopy(al *FlowAlias) *FlowAlias {
 	cp := *al
-	cp.Tags = maps.Clone(al.Tags)
 
 	if al.RoutingConfiguration != nil {
 		cp.RoutingConfiguration = append([]FlowAliasRouting{}, al.RoutingConfiguration...)

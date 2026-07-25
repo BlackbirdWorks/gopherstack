@@ -73,6 +73,50 @@ func paginateMapKeys(keys []string, nextToken string, maxResults int32) ([]strin
 	return p.Data, p.Next
 }
 
+// describeResourcesPaginated implements the "describe by explicit
+// names/ARNs, else paginate over all region-scoped entries sorted by name"
+// pattern shared by DescribeComputeEnvironments, DescribeJobQueues, and
+// DescribeServiceEnvironments. When names is non-empty, each is resolved via
+// lookup (unresolved names are silently skipped, matching AWS's
+// filter-not-error behavior for these ops) and no pagination token is
+// returned. Otherwise sortedRegionKeys supplies every in-region key sorted by
+// name, which is paginated via maxResults/nextToken and resolved one-by-one
+// via getByKey. cloneWithTags must return a tag-cloned copy of v (see
+// tagsCloneOrEmpty) so callers never leak internal map references. Caller
+// must hold at least a read lock.
+func describeResourcesPaginated[V any](
+	names []string,
+	maxResults int32,
+	nextToken string,
+	lookup func(nameOrARN string) (*V, bool),
+	sortedRegionKeys func() []string,
+	getByKey func(key string) (*V, bool),
+	cloneWithTags func(*V) *V,
+) ([]*V, string) {
+	if len(names) > 0 {
+		list := make([]*V, 0, len(names))
+
+		for _, nameOrARN := range names {
+			if v, ok := lookup(nameOrARN); ok {
+				list = append(list, cloneWithTags(v))
+			}
+		}
+
+		return list, ""
+	}
+
+	keys, next := paginateMapKeys(sortedRegionKeys(), nextToken, maxResults)
+	out := make([]*V, 0, len(keys))
+
+	for _, k := range keys {
+		if v, ok := getByKey(k); ok {
+			out = append(out, cloneWithTags(v))
+		}
+	}
+
+	return out, next
+}
+
 // regionKey builds the composite store.Table primary key ("region|id") shared
 // by every region-nested resource table converted in Phase 3.3 (see
 // store_setup.go). Every resource type it is used with carries its own

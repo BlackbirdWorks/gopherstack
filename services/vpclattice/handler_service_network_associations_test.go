@@ -139,12 +139,20 @@ func TestSNSAIncludesCustomDomainNameAndDNSEntry(t *testing.T) {
 	dnsEntry, ok := assoc["dnsEntry"].(map[string]any)
 	require.True(t, ok, "dnsEntry must be present on CreateServiceNetworkServiceAssociation response")
 	assert.NotEmpty(t, dnsEntry["domainName"])
+	assert.NotEmpty(
+		t,
+		dnsEntry["hostedZoneId"],
+		"dnsEntry.hostedZoneId must be populated, matching real AWS's DnsEntry shape",
+	)
 
 	assocID, _ := assoc["id"].(string)
 	getRec := doRequest(t, h, http.MethodGet, "/servicenetworkserviceassociations/"+assocID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	got := parseBody(t, getRec)
 	assert.Equal(t, "example.com", got["customDomainName"])
+	gotDNSEntry, ok := got["dnsEntry"].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, gotDNSEntry["hostedZoneId"])
 
 	listRec := doRequest(t, h, http.MethodGet, "/servicenetworkserviceassociations", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
@@ -153,4 +161,72 @@ func TestSNSAIncludesCustomDomainNameAndDNSEntry(t *testing.T) {
 	summary, _ := items[0].(map[string]any)
 	assert.Equal(t, "example.com", summary["customDomainName"])
 	assert.NotEmpty(t, summary["dnsEntry"])
+}
+
+// TestServiceIncludesHostedZoneIDInDNSEntry verifies that Service responses'
+// dnsEntry includes "hostedZoneId" alongside "domainName", matching real
+// AWS's DnsEntry shape (domainName + hostedZoneId). The emulator previously
+// only populated domainName.
+func TestServiceIncludesHostedZoneIDInDNSEntry(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-hosted-zone"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	svc := parseBody(t, rec)
+
+	dnsEntry, ok := svc["dnsEntry"].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, dnsEntry["domainName"])
+	assert.NotEmpty(t, dnsEntry["hostedZoneId"])
+
+	svcID, _ := svc["id"].(string)
+	listRec := doRequest(t, h, http.MethodGet, "/services", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	items, _ := parseBody(t, listRec)["items"].([]any)
+	require.Len(t, items, 1)
+	summary, _ := items[0].(map[string]any)
+	require.Equal(t, svcID, summary["id"])
+	summaryDNSEntry, ok := summary["dnsEntry"].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, summaryDNSEntry["hostedZoneId"])
+}
+
+// TestSNVAIncludesPrivateDNSEnabled verifies that a privateDnsEnabled flag
+// set on CreateServiceNetworkVpcAssociation round-trips through
+// Create/Get/List responses, matching real AWS's
+// CreateServiceNetworkVpcAssociationOutput/
+// GetServiceNetworkVpcAssociationOutput/
+// ServiceNetworkVpcAssociationSummary shapes (all three carry
+// privateDnsEnabled).
+func TestSNVAIncludesPrivateDNSEnabled(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	recSN := doRequest(t, h, http.MethodPost, "/servicenetworks", map[string]any{"name": "sn-private-dns"})
+	require.Equal(t, http.StatusCreated, recSN.Code)
+	snID, _ := parseBody(t, recSN)["id"].(string)
+
+	rec := doRequest(t, h, http.MethodPost, "/servicenetworkvpcassociations", map[string]any{
+		"serviceNetworkIdentifier": snID,
+		"vpcIdentifier":            "vpc-private-dns",
+		"privateDnsEnabled":        true,
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assoc := parseBody(t, rec)
+	assert.Equal(t, true, assoc["privateDnsEnabled"])
+
+	assocID, _ := assoc["id"].(string)
+	getRec := doRequest(t, h, http.MethodGet, "/servicenetworkvpcassociations/"+assocID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+	assert.Equal(t, true, parseBody(t, getRec)["privateDnsEnabled"])
+
+	listRec := doRequest(t, h, http.MethodGet, "/servicenetworkvpcassociations", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	items, _ := parseBody(t, listRec)["items"].([]any)
+	require.Len(t, items, 1)
+	summary, _ := items[0].(map[string]any)
+	assert.Equal(t, true, summary["privateDnsEnabled"])
 }

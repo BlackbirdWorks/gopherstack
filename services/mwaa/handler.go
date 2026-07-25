@@ -64,7 +64,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateWebLoginToken",
 		"InvokeRestApi",
 		"PublishMetrics",
-		"GetMetrics",
 	}
 }
 
@@ -131,12 +130,14 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 }
 
 // extractMetricsOperation returns the operation name for a /metrics/environments/ path.
+// GET is intentionally unhandled here: real MWAA has no GetMetrics operation --
+// PublishMetrics (POST) is the only real API surface on this path (it's
+// documented as "internal use only", used by the Airflow environment itself to
+// push metrics to CloudWatch) -- so a GET falls through to opUnknown/405 like
+// any other unsupported verb on a matched path.
 func extractMetricsOperation(method string) string {
-	switch method {
-	case http.MethodPost:
+	if method == http.MethodPost {
 		return "PublishMetrics"
-	case http.MethodGet:
-		return "GetMetrics"
 	}
 
 	return opUnknown
@@ -381,14 +382,14 @@ func (h *Handler) dispatchRestAPI(c *echo.Context, path string) error {
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
 }
 
+// dispatchMetrics handles /metrics/environments/{Name}. Only POST
+// (PublishMetrics) is a real MWAA operation on this path -- see
+// extractMetricsOperation for why GET is not routed to a handler.
 func (h *Handler) dispatchMetrics(c *echo.Context, path string) error {
 	name := strings.TrimPrefix(path, pathMetricsPrefix)
 
-	switch c.Request().Method {
-	case http.MethodPost:
+	if c.Request().Method == http.MethodPost {
 		return h.handlePublishMetrics(c, name)
-	case http.MethodGet:
-		return h.handleGetMetrics(c, name)
 	}
 
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")

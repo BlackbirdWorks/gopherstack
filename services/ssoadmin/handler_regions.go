@@ -53,6 +53,8 @@ func (h *Handler) handleRemoveRegion(c *echo.Context, body []byte) error {
 func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		NextToken   string `json:"NextToken"`
+		MaxResults  int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -70,9 +72,15 @@ func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
 		out = append(out, regionMetadataView(r))
 	}
 
+	page, next := paginateBy(out, req.MaxResults, req.NextToken, func(v map[string]any) string {
+		name, _ := v["RegionName"].(string)
+
+		return name
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Regions":    out,
-		keyNextToken: nil,
+		"Regions":    page,
+		keyNextToken: next,
 	})
 }
 

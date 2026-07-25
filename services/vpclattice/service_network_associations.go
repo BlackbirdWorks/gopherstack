@@ -86,6 +86,7 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 		CreatedBy:          b.accountID,
 		CustomDomainName:   svc.CustomDomainName,
 		DNSName:            svc.DNSName,
+		HostedZoneID:       svc.HostedZoneID,
 		Tags:               copyTags(tags),
 		CreatedAt:          now,
 		Region:             region,
@@ -175,6 +176,7 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 	ctx context.Context,
 	serviceNetworkID, vpcID string,
 	securityGroupIDs []string,
+	privateDNSEnabled bool,
 	tags map[string]string,
 ) (*ServiceNetworkVpcAssociation, error) {
 	if vpcID == "" {
@@ -215,6 +217,7 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 		SecurityGroupIDs:   sgs,
 		Status:             statusActive,
 		CreatedBy:          b.accountID,
+		PrivateDNSEnabled:  privateDNSEnabled,
 		Tags:               copyTags(tags),
 		CreatedAt:          now,
 		LastUpdatedAt:      now,

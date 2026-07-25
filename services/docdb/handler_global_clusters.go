@@ -116,15 +116,35 @@ type describeGlobalClustersResponse struct {
 	GlobalClusters xmlGlobalClusterList `xml:"DescribeGlobalClustersResult>GlobalClusters"`
 }
 
+// xmlGlobalClusterMember mirrors types.GlobalClusterMember's wire shape:
+// DBClusterArn/IsWriter/Readers/SynchronizationStatus (see
+// awsAwsquery_deserializeDocumentGlobalClusterMember). Readers uses the
+// generic "member" list-item wrapper (awsAwsquery_deserializeDocumentReadersArnList).
+type xmlGlobalClusterMember struct {
+	DBClusterArn          string         `xml:"DBClusterArn,omitempty"`
+	SynchronizationStatus string         `xml:"SynchronizationStatus,omitempty"`
+	Readers               xmlReadersList `xml:"Readers"`
+	IsWriter              bool           `xml:"IsWriter"`
+}
+
+type xmlReadersList struct {
+	Members []string `xml:"member"`
+}
+
+type xmlGlobalClusterMemberList struct {
+	Members []xmlGlobalClusterMember `xml:"GlobalClusterMember"`
+}
+
 type xmlGlobalCluster struct {
-	GlobalClusterIdentifier   string `xml:"GlobalClusterIdentifier"`
-	SourceDBClusterIdentifier string `xml:"SourceDBClusterIdentifier,omitempty"`
-	Engine                    string `xml:"Engine,omitempty"`
-	EngineVersion             string `xml:"EngineVersion,omitempty"`
-	GlobalClusterArn          string `xml:"GlobalClusterArn,omitempty"`
-	Status                    string `xml:"Status"`
-	StorageEncrypted          bool   `xml:"StorageEncrypted"`
-	DeletionProtection        bool   `xml:"DeletionProtection"`
+	GlobalClusterIdentifier   string                     `xml:"GlobalClusterIdentifier"`
+	SourceDBClusterIdentifier string                     `xml:"SourceDBClusterIdentifier,omitempty"`
+	Engine                    string                     `xml:"Engine,omitempty"`
+	EngineVersion             string                     `xml:"EngineVersion,omitempty"`
+	GlobalClusterArn          string                     `xml:"GlobalClusterArn,omitempty"`
+	Status                    string                     `xml:"Status"`
+	GlobalClusterMembers      xmlGlobalClusterMemberList `xml:"GlobalClusterMembers"`
+	StorageEncrypted          bool                       `xml:"StorageEncrypted"`
+	DeletionProtection        bool                       `xml:"DeletionProtection"`
 }
 
 type createGlobalClusterResponse struct {
@@ -164,6 +184,18 @@ type switchoverGlobalClusterResponse struct {
 }
 
 func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
+	members := make([]xmlGlobalClusterMember, 0, len(gc.GlobalClusterMembers))
+	for _, m := range gc.GlobalClusterMembers {
+		readers := make([]string, len(m.Readers))
+		copy(readers, m.Readers)
+		members = append(members, xmlGlobalClusterMember{
+			DBClusterArn:          m.DBClusterArn,
+			SynchronizationStatus: m.SynchronizationStatus,
+			Readers:               xmlReadersList{Members: readers},
+			IsWriter:              m.IsWriter,
+		})
+	}
+
 	return xmlGlobalCluster{
 		GlobalClusterIdentifier:   gc.GlobalClusterIdentifier,
 		SourceDBClusterIdentifier: gc.SourceDBClusterID,
@@ -171,6 +203,7 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		EngineVersion:             gc.EngineVersion,
 		GlobalClusterArn:          gc.GlobalClusterArn,
 		Status:                    gc.Status,
+		GlobalClusterMembers:      xmlGlobalClusterMemberList{Members: members},
 		StorageEncrypted:          gc.StorageEncrypted,
 		DeletionProtection:        gc.DeletionProtection,
 	}

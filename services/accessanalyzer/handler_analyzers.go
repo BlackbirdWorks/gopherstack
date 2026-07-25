@@ -42,7 +42,7 @@ func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any,
 
 		return nil, c, true, e
 	case opUpdateAnalyzer:
-		r, c, e := h.handleUpdateAnalyzer(path)
+		r, c, e := h.handleUpdateAnalyzer(path, body)
 
 		return r, c, true, e
 	case opCreateServiceLinkedAnalyzer:
@@ -62,9 +62,11 @@ func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any,
 
 func (h *Handler) handleCreateAnalyzer(body []byte) (any, int, error) {
 	var req struct {
-		Tags         map[string]string `json:"tags"`
-		AnalyzerName string            `json:"analyzerName"`
-		Type         string            `json:"type"`
+		Tags          map[string]string   `json:"tags"`
+		Configuration json.RawMessage     `json:"configuration"`
+		AnalyzerName  string              `json:"analyzerName"`
+		Type          string              `json:"type"`
+		ArchiveRules  []inlineArchiveRule `json:"archiveRules"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -80,12 +82,39 @@ func (h *Handler) handleCreateAnalyzer(body []byte) (any, int, error) {
 		analyzerType = AnalyzerTypeAccount
 	}
 
-	a, err := h.Backend.CreateAnalyzer(req.AnalyzerName, analyzerType, req.Tags)
+	a, err := h.Backend.CreateAnalyzer(req.AnalyzerName, analyzerType, req.Tags, req.Configuration)
 	if err != nil {
 		return nil, 0, err
 	}
 
+	if arErr := h.createInlineArchiveRules(a.Name, req.ArchiveRules); arErr != nil {
+		return nil, 0, arErr
+	}
+
 	return map[string]string{keyARN: a.Arn}, http.StatusOK, nil
+}
+
+// inlineArchiveRule mirrors the wire shape of one element of
+// CreateAnalyzer/CreateServiceLinkedAnalyzer's "archiveRules" array
+// (types.InlineArchiveRule): the same {ruleName, filter} shape
+// CreateArchiveRule itself takes.
+type inlineArchiveRule struct {
+	Filter   map[string]FilterCriterion `json:"filter"`
+	RuleName string                     `json:"ruleName"`
+}
+
+// createInlineArchiveRules creates the archive rules an analyzer was
+// created with (CreateAnalyzer/CreateServiceLinkedAnalyzer's optional
+// "archiveRules" array), each of which also auto-archives any
+// already-active findings, matching CreateArchiveRule's own behavior.
+func (h *Handler) createInlineArchiveRules(analyzerName string, rules []inlineArchiveRule) error {
+	for _, r := range rules {
+		if _, err := h.Backend.CreateArchiveRule(analyzerName, r.RuleName, r.Filter); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (h *Handler) handleGetAnalyzer(path string) (any, int, error) {
@@ -96,7 +125,10 @@ func (h *Handler) handleGetAnalyzer(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{keyAnalyzer: analyzerToJSON(a)}, http.StatusOK, nil
+	// GetAnalyzer includes "configuration" in its response when the
+	// analyzer has one; ListAnalyzers omits it (see analyzerToJSON's doc
+	// comment).
+	return map[string]any{keyAnalyzer: analyzerToJSON(a, true)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListAnalyzers(query string) (any, int, error) {
@@ -116,7 +148,7 @@ func (h *Handler) handleListAnalyzers(query string) (any, int, error) {
 	list := make([]any, 0, len(analyzers))
 
 	for _, a := range analyzers {
-		list = append(list, analyzerToJSON(a))
+		list = append(list, analyzerToJSON(a, false))
 	}
 
 	return map[string]any{"analyzers": list}, http.StatusOK, nil
@@ -132,20 +164,39 @@ func (h *Handler) handleDeleteAnalyzer(path string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateAnalyzer(path string) (any, int, error) {
+// handleUpdateAnalyzer serves PUT /analyzer/{name}. UpdateAnalyzerOutput
+// carries only "configuration" (the analyzer's AnalyzerConfiguration union
+// after the update) -- unlike CreateAnalyzer/CreateServiceLinkedAnalyzer, it
+// has no "arn" field.
+func (h *Handler) handleUpdateAnalyzer(path string, body []byte) (any, int, error) {
 	name := extractAnalyzerName(path)
 
-	a, err := h.Backend.UpdateAnalyzer(name)
+	var req struct {
+		Configuration json.RawMessage `json:"configuration"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	a, err := h.Backend.UpdateAnalyzer(name, req.Configuration)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return map[string]any{"configuration": map[string]any{}, "arn": a.Arn}, http.StatusOK, nil
+	resp := map[string]any{}
+	if len(a.Configuration) > 0 {
+		resp["configuration"] = a.Configuration
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleCreateServiceLinkedAnalyzer(body []byte) (any, int, error) {
 	var req struct {
-		Type string `json:"type"`
+		Configuration json.RawMessage     `json:"configuration"`
+		Type          string              `json:"type"`
+		ArchiveRules  []inlineArchiveRule `json:"archiveRules"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -157,9 +208,13 @@ func (h *Handler) handleCreateServiceLinkedAnalyzer(body []byte) (any, int, erro
 		analyzerType = AnalyzerTypeAccountUnusedAccess
 	}
 
-	a, err := h.Backend.CreateServiceLinkedAnalyzer(analyzerType)
+	a, err := h.Backend.CreateServiceLinkedAnalyzer(analyzerType, req.Configuration)
 	if err != nil {
 		return nil, 0, err
+	}
+
+	if arErr := h.createInlineArchiveRules(a.Name, req.ArchiveRules); arErr != nil {
+		return nil, 0, arErr
 	}
 
 	return map[string]string{keyARN: a.Arn}, http.StatusOK, nil
@@ -233,7 +288,12 @@ func parseServiceLinkedAnalyzerPath(method string, segments []string) (string, s
 
 // ---- JSON serialization ----
 
-func analyzerToJSON(a *Analyzer) map[string]any {
+// analyzerToJSON builds the AnalyzerSummary wire shape used by GetAnalyzer
+// and ListAnalyzers. includeConfiguration controls whether "configuration"
+// is included: per the real API, the GetAnalyzer action includes this
+// property in its response if a configuration is specified, while the
+// ListAnalyzers action omits it.
+func analyzerToJSON(a *Analyzer, includeConfiguration bool) map[string]any {
 	m := map[string]any{
 		keyARN:       a.Arn,
 		"name":       a.Name,
@@ -248,6 +308,10 @@ func analyzerToJSON(a *Analyzer) map[string]any {
 
 	if a.LastResourceAnalyzedAt != nil {
 		m["lastResourceAnalyzedAt"] = a.LastResourceAnalyzedAt.Format(time.RFC3339)
+	}
+
+	if includeConfiguration && len(a.Configuration) > 0 {
+		m["configuration"] = a.Configuration
 	}
 
 	return m

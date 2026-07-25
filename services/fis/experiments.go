@@ -16,6 +16,26 @@ import (
 // Experiment lifecycle
 // ----------------------------------------
 
+// resolveActionsMode validates and resolves the experiment options' actions mode,
+// defaulting to "run-all" when the caller omits experimentOptions entirely (real
+// AWS FIS behaviour: skip-all is opt-in for dry-run validation of an experiment's
+// configuration without injecting faults).
+func resolveActionsMode(opts *startExperimentExperimentOptionsDTO) (string, error) {
+	if opts == nil || opts.ActionsMode == "" {
+		return actionsModeRunAll, nil
+	}
+
+	switch opts.ActionsMode {
+	case actionsModeRunAll, actionsModeSkipAll:
+		return opts.ActionsMode, nil
+	default:
+		return "", fmt.Errorf(
+			"%w: experimentOptions.actionsMode must be %q or %q; got %q",
+			ErrValidation, actionsModeRunAll, actionsModeSkipAll, opts.ActionsMode,
+		)
+	}
+}
+
 // StartExperiment creates and starts a new experiment from a template.
 func (b *InMemoryBackend) StartExperiment(
 	_ context.Context,
@@ -33,27 +53,9 @@ func (b *InMemoryBackend) StartExperiment(
 		}
 	}
 
-	b.mu.RLock("StartExperiment")
-	tpl, ok := b.templates.Get(input.ExperimentTemplateID)
-	leverEngaged := b.safetyLever != nil && b.safetyLever.State.Status == "engaged"
-	experimentCount := b.experiments.Len()
-	tplAccountCount := len(b.targetAccountConfigsByTemplate.Get(input.ExperimentTemplateID))
-	b.mu.RUnlock()
-
-	if leverEngaged {
-		return nil, fmt.Errorf("%w: safety lever is engaged", ErrSafetyLeverEngaged)
-	}
-
-	if experimentCount >= maxExperiments {
-		return nil, fmt.Errorf(
-			"%w: experiment count would exceed the limit of %d",
-			ErrTooManyExperiments,
-			maxExperiments,
-		)
-	}
-
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, input.ExperimentTemplateID)
+	actionsMode, err := resolveActionsMode(input.ExperimentOptions)
+	if err != nil {
+		return nil, err
 	}
 
 	id := generateID("EXP")
@@ -62,16 +64,46 @@ func (b *InMemoryBackend) StartExperiment(
 	// expCtx derives from b.svcCtx — NOT the HTTP request context — so the experiment
 	// goroutine is not cancelled when the HTTP response is sent, but IS cancelled on shutdown.
 	expCtx, cancel := context.WithCancel(b.svcCtx)
-	exp := buildExperimentFromTemplate(id, arnStr, tpl, input.Tags, cancel)
-	exp.TargetAccountConfigurationsCount = tplAccountCount
 
-	// Clone the template BEFORE passing to the goroutine so template updates don't race.
-	tplForRun := cloneTemplate(tpl)
+	var (
+		snapshot  *Experiment
+		tplForRun *ExperimentTemplate
+	)
 
-	var snapshot *Experiment
-	func() {
+	// The lever-engaged / quota / template-lookup checks and the Put that follows
+	// them must happen under a single write lock: reading them under an RLock and
+	// re-locking to write (the previous approach) left a TOCTOU window where two
+	// concurrent StartExperiment calls could both observe experimentCount <
+	// maxExperiments before either had written its new experiment.
+	startErr := func() error {
 		b.mu.Lock("StartExperiment")
 		defer b.mu.Unlock()
+
+		if b.safetyLever != nil && b.safetyLever.State.Status == "engaged" {
+			return fmt.Errorf("%w: safety lever is engaged", ErrSafetyLeverEngaged)
+		}
+
+		if b.experiments.Len() >= maxExperiments {
+			return fmt.Errorf(
+				"%w: experiment count would exceed the limit of %d",
+				ErrTooManyExperiments,
+				maxExperiments,
+			)
+		}
+
+		tpl, ok := b.templates.Get(input.ExperimentTemplateID)
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrTemplateNotFound, input.ExperimentTemplateID)
+		}
+
+		tplAccountCount := len(b.targetAccountConfigsByTemplate.Get(input.ExperimentTemplateID))
+
+		exp := buildExperimentFromTemplate(id, arnStr, tpl, input.Tags, actionsMode, cancel)
+		exp.TargetAccountConfigurationsCount = tplAccountCount
+
+		// Clone the template BEFORE passing to the goroutine so template updates don't race.
+		tplForRun = cloneTemplate(tpl)
+
 		b.experiments.Put(exp)
 
 		if input.ClientToken != "" {
@@ -81,40 +113,77 @@ func (b *InMemoryBackend) StartExperiment(
 		// Take the snapshot while holding the lock, before launching the goroutine,
 		// so the background goroutine cannot mutate exp while we're reading it.
 		snapshot = cloneExperiment(exp)
+
+		return nil
 	}()
+	if startErr != nil {
+		cancel() // release the context created above; no goroutine will consume it
+
+		return nil, startErr
+	}
 
 	// Run the experiment lifecycle in the background.
-	go b.runExperiment(expCtx, id, tplForRun)
+	go b.runExperiment(expCtx, id, tplForRun, actionsMode)
 
 	return snapshot, nil
 }
 
-// buildExperimentFromTemplate constructs a new Experiment from a template and input tags.
+// buildExperimentTargets converts template targets into their experiment-scoped
+// equivalent, carrying Filters/ResourceTags/SelectionMode through as
+// informational metadata alongside the (not-yet-resolved) ResourceArns —
+// matching the real AWS FIS wire shape (types.ExperimentTarget).
+func buildExperimentTargets(tplTargets map[string]ExperimentTemplateTarget) map[string]ExperimentTarget {
+	targets := make(map[string]ExperimentTarget, len(tplTargets))
+
+	for name, t := range tplTargets {
+		filters := make([]ExperimentTemplateTargetFilter, len(t.Filters))
+		for i, f := range t.Filters {
+			filters[i] = ExperimentTemplateTargetFilter{
+				Path:   f.Path,
+				Values: append([]string(nil), f.Values...),
+			}
+		}
+
+		targets[name] = ExperimentTarget{
+			ResourceType:  t.ResourceType,
+			SelectionMode: t.SelectionMode,
+			ResourceArns:  append([]string(nil), t.ResourceArns...),
+			ResourceTags:  copyStringMap(t.ResourceTags),
+			Filters:       filters,
+			Parameters:    copyStringMap(t.Parameters),
+		}
+	}
+
+	return targets
+}
+
+// buildExperimentActions converts template actions into their experiment-scoped
+// equivalent, all initialised to pending.
+func buildExperimentActions(tplActions map[string]ExperimentTemplateAction) map[string]ExperimentAction {
+	actions := make(map[string]ExperimentAction, len(tplActions))
+
+	for name, a := range tplActions {
+		actions[name] = ExperimentAction{
+			ActionID:    a.ActionID,
+			Description: a.Description,
+			Parameters:  copyStringMap(a.Parameters),
+			Targets:     copyStringMap(a.Targets),
+			Status:      ExperimentActionStatus{Status: actionStatusPending},
+		}
+	}
+
+	return actions
+}
+
+// buildExperimentFromTemplate constructs a new Experiment from a template, input
+// tags, and the resolved actions mode.
 func buildExperimentFromTemplate(
 	id, arnStr string,
 	tpl *ExperimentTemplate,
 	inputTags map[string]string,
+	actionsMode string,
 	cancel context.CancelFunc,
 ) *Experiment {
-	targets := make(map[string]ExperimentTarget, len(tpl.Targets))
-	for name, t := range tpl.Targets {
-		targets[name] = ExperimentTarget{
-			ResourceType: t.ResourceType,
-			ResourceArns: append([]string(nil), t.ResourceArns...),
-			Parameters:   copyStringMap(t.Parameters),
-		}
-	}
-
-	actions := make(map[string]ExperimentAction, len(tpl.Actions))
-	for name, a := range tpl.Actions {
-		actions[name] = ExperimentAction{
-			ActionID:   a.ActionID,
-			Parameters: copyStringMap(a.Parameters),
-			Targets:    copyStringMap(a.Targets),
-			Status:     ExperimentActionStatus{Status: actionStatusPending},
-		}
-	}
-
 	stopConditions := make([]ExperimentStopCondition, len(tpl.StopConditions))
 	for i, sc := range tpl.StopConditions {
 		stopConditions[i] = ExperimentStopCondition(sc)
@@ -122,12 +191,17 @@ func buildExperimentFromTemplate(
 
 	logConfig := copyLogConfiguration(tpl.LogConfiguration)
 
-	var expOptions *ExperimentExperimentOptions
+	expOptions := &ExperimentExperimentOptions{ActionsMode: actionsMode}
 	if tpl.ExperimentOptions != nil {
-		expOptions = &ExperimentExperimentOptions{
-			AccountTargeting:          tpl.ExperimentOptions.AccountTargeting,
-			EmptyTargetResolutionMode: tpl.ExperimentOptions.EmptyTargetResolutionMode,
-		}
+		expOptions.AccountTargeting = tpl.ExperimentOptions.AccountTargeting
+		expOptions.EmptyTargetResolutionMode = tpl.ExperimentOptions.EmptyTargetResolutionMode
+	}
+
+	reportConfig := copyReportConfigForExperiment(tpl.ExperimentReportConfiguration)
+
+	var report *ExperimentReport
+	if reportConfig != nil {
+		report = &ExperimentReport{State: &ExperimentReportState{Status: experimentReportStatusPending}}
 	}
 
 	// expCtx derives from svcCtx — NOT the HTTP request context — so the experiment
@@ -137,21 +211,61 @@ func buildExperimentFromTemplate(
 	now := time.Now()
 
 	return &Experiment{
-		ID:                   id,
-		Arn:                  arnStr,
-		ExperimentTemplateID: tpl.ID,
-		RoleArn:              tpl.RoleArn,
-		Status:               ExperimentStatus{Status: statusPending},
-		Targets:              targets,
-		Actions:              actions,
-		StopConditions:       stopConditions,
-		LogConfiguration:     logConfig,
-		ExperimentOptions:    expOptions,
-		Tags:                 copyStringMap(inputTags),
-		CreationTime:         now,
-		StartTime:            now,
-		cancel:               cancel,
+		ID:                            id,
+		Arn:                           arnStr,
+		ExperimentTemplateID:          tpl.ID,
+		RoleArn:                       tpl.RoleArn,
+		Status:                        ExperimentStatus{Status: statusPending},
+		Targets:                       buildExperimentTargets(tpl.Targets),
+		Actions:                       buildExperimentActions(tpl.Actions),
+		StopConditions:                stopConditions,
+		LogConfiguration:              logConfig,
+		ExperimentOptions:             expOptions,
+		ExperimentReportConfiguration: reportConfig,
+		ExperimentReport:              report,
+		Tags:                          copyStringMap(inputTags),
+		CreationTime:                  now,
+		StartTime:                     now,
+		cancel:                        cancel,
 	}
+}
+
+// copyReportConfigForExperiment deep-copies a template's report configuration
+// into the experiment-scoped equivalent shape (identical wire fields, distinct
+// Go types mirroring the ExperimentTemplateReportConfiguration /
+// ExperimentReportConfiguration split in the real AWS FIS SDK).
+func copyReportConfigForExperiment(cfg *ExperimentTemplateReportConfiguration) *ExperimentReportConfiguration {
+	if cfg == nil {
+		return nil
+	}
+
+	out := &ExperimentReportConfiguration{
+		PreExperimentDuration:  cfg.PreExperimentDuration,
+		PostExperimentDuration: cfg.PostExperimentDuration,
+	}
+
+	if cfg.DataSources != nil {
+		dashboards := make(
+			[]ExperimentReportConfigurationCloudWatchDashboard,
+			len(cfg.DataSources.CloudWatchDashboards),
+		)
+		for i, d := range cfg.DataSources.CloudWatchDashboards {
+			dashboards[i] = ExperimentReportConfigurationCloudWatchDashboard(d)
+		}
+
+		out.DataSources = &ExperimentReportConfigurationDataSources{CloudWatchDashboards: dashboards}
+	}
+
+	if cfg.Outputs != nil && cfg.Outputs.S3Configuration != nil {
+		out.Outputs = &ExperimentReportConfigurationOutputs{
+			S3Configuration: &ExperimentReportConfigurationOutputsS3Configuration{
+				BucketName: cfg.Outputs.S3Configuration.BucketName,
+				Prefix:     cfg.Outputs.S3Configuration.Prefix,
+			},
+		}
+	}
+
+	return out
 }
 
 // copyLogConfiguration deep-copies a template log configuration into its experiment equivalent.
@@ -208,7 +322,7 @@ func (b *InMemoryBackend) StopExperiment(id string) (*Experiment, error) {
 		}
 
 		s := exp.Status.Status
-		if s != statusPending && s != statusInitiating && s != statusRunning && s != statusCompleting {
+		if s != statusPending && s != statusInitiating && s != statusRunning {
 			lockErr = fmt.Errorf("%w: %s", ErrExperimentNotRunning, id)
 
 			return
@@ -308,39 +422,8 @@ func cloneExperiment(exp *Experiment) *Experiment {
 	cp.cancel = nil
 	cp.CreationTime = exp.CreationTime
 	cp.Tags = copyStringMap(exp.Tags)
-
-	if exp.Targets != nil {
-		cp.Targets = make(map[string]ExperimentTarget, len(exp.Targets))
-
-		for k, v := range exp.Targets {
-			t := v
-			t.ResourceArns = append([]string(nil), v.ResourceArns...)
-			t.Parameters = copyStringMap(v.Parameters)
-			cp.Targets[k] = t
-		}
-	}
-
-	if exp.Actions != nil {
-		cp.Actions = make(map[string]ExperimentAction, len(exp.Actions))
-
-		for k, v := range exp.Actions {
-			a := v
-			a.Parameters = copyStringMap(v.Parameters)
-			a.Targets = copyStringMap(v.Targets)
-
-			if v.StartTime != nil {
-				st := *v.StartTime
-				a.StartTime = &st
-			}
-
-			if v.EndTime != nil {
-				et := *v.EndTime
-				a.EndTime = &et
-			}
-
-			cp.Actions[k] = a
-		}
-	}
+	cp.Targets = cloneExperimentTargets(exp.Targets)
+	cp.Actions = cloneExperimentActions(exp.Actions)
 
 	if exp.StopConditions != nil {
 		cp.StopConditions = append([]ExperimentStopCondition(nil), exp.StopConditions...)
@@ -351,24 +434,143 @@ func cloneExperiment(exp *Experiment) *Experiment {
 		cp.EndTime = &et
 	}
 
-	if exp.LogConfiguration != nil {
-		lc := *exp.LogConfiguration
-		if exp.LogConfiguration.CloudWatchLogsConfiguration != nil {
-			cwl := *exp.LogConfiguration.CloudWatchLogsConfiguration
-			lc.CloudWatchLogsConfiguration = &cwl
-		}
-
-		if exp.LogConfiguration.S3Configuration != nil {
-			s3 := *exp.LogConfiguration.S3Configuration
-			lc.S3Configuration = &s3
-		}
-
-		cp.LogConfiguration = &lc
-	}
+	cp.LogConfiguration = cloneExperimentLogConfiguration(exp.LogConfiguration)
 
 	if exp.ExperimentOptions != nil {
 		opt := *exp.ExperimentOptions
 		cp.ExperimentOptions = &opt
+	}
+
+	cp.ExperimentReportConfiguration = cloneExperimentReportConfig(exp.ExperimentReportConfiguration)
+	cp.ExperimentReport = cloneExperimentReport(exp.ExperimentReport)
+
+	return &cp
+}
+
+// cloneExperimentTargets deep-copies a running experiment's resolved targets.
+func cloneExperimentTargets(targets map[string]ExperimentTarget) map[string]ExperimentTarget {
+	if targets == nil {
+		return nil
+	}
+
+	cp := make(map[string]ExperimentTarget, len(targets))
+
+	for k, v := range targets {
+		t := v
+		t.ResourceArns = append([]string(nil), v.ResourceArns...)
+		t.ResourceTags = copyStringMap(v.ResourceTags)
+		t.Parameters = copyStringMap(v.Parameters)
+
+		filters := make([]ExperimentTemplateTargetFilter, len(v.Filters))
+		for i, f := range v.Filters {
+			filters[i] = ExperimentTemplateTargetFilter{
+				Path:   f.Path,
+				Values: append([]string(nil), f.Values...),
+			}
+		}
+
+		t.Filters = filters
+		cp[k] = t
+	}
+
+	return cp
+}
+
+// cloneExperimentLogConfiguration deep-copies a running experiment's log configuration.
+func cloneExperimentLogConfiguration(logConfig *ExperimentLogConfiguration) *ExperimentLogConfiguration {
+	if logConfig == nil {
+		return nil
+	}
+
+	lc := *logConfig
+
+	if logConfig.CloudWatchLogsConfiguration != nil {
+		cwl := *logConfig.CloudWatchLogsConfiguration
+		lc.CloudWatchLogsConfiguration = &cwl
+	}
+
+	if logConfig.S3Configuration != nil {
+		s3 := *logConfig.S3Configuration
+		lc.S3Configuration = &s3
+	}
+
+	return &lc
+}
+
+// cloneExperimentActions deep-copies a running experiment's actions.
+func cloneExperimentActions(actions map[string]ExperimentAction) map[string]ExperimentAction {
+	if actions == nil {
+		return nil
+	}
+
+	cp := make(map[string]ExperimentAction, len(actions))
+
+	for k, v := range actions {
+		a := v
+		a.Parameters = copyStringMap(v.Parameters)
+		a.Targets = copyStringMap(v.Targets)
+
+		if v.StartTime != nil {
+			st := *v.StartTime
+			a.StartTime = &st
+		}
+
+		if v.EndTime != nil {
+			et := *v.EndTime
+			a.EndTime = &et
+		}
+
+		cp[k] = a
+	}
+
+	return cp
+}
+
+// cloneExperimentReportConfig deep-copies an experiment's report configuration.
+func cloneExperimentReportConfig(cfg *ExperimentReportConfiguration) *ExperimentReportConfiguration {
+	if cfg == nil {
+		return nil
+	}
+
+	cp := *cfg
+
+	if cfg.DataSources != nil {
+		ds := *cfg.DataSources
+		ds.CloudWatchDashboards = append(
+			[]ExperimentReportConfigurationCloudWatchDashboard(nil),
+			cfg.DataSources.CloudWatchDashboards...,
+		)
+		cp.DataSources = &ds
+	}
+
+	if cfg.Outputs != nil {
+		out := *cfg.Outputs
+		if cfg.Outputs.S3Configuration != nil {
+			s3 := *cfg.Outputs.S3Configuration
+			out.S3Configuration = &s3
+		}
+		cp.Outputs = &out
+	}
+
+	return &cp
+}
+
+// cloneExperimentReport deep-copies an experiment's generated report.
+func cloneExperimentReport(rep *ExperimentReport) *ExperimentReport {
+	if rep == nil {
+		return nil
+	}
+
+	cp := *rep
+	cp.S3Reports = append([]ExperimentReportS3Report(nil), rep.S3Reports...)
+
+	if rep.State != nil {
+		st := *rep.State
+		if rep.State.Error != nil {
+			errCp := *rep.State.Error
+			st.Error = &errCp
+		}
+		cp.State = &st
 	}
 
 	return &cp
@@ -382,8 +584,17 @@ func cloneExperiment(exp *Experiment) *Experiment {
 // SDK polling can observe intermediate states (initiating, completing, stopping).
 const lifecycleDelay = 10 * time.Millisecond
 
-// runExperiment manages the full lifecycle of a single experiment.
-func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *ExperimentTemplate) {
+// runExperiment manages the full lifecycle of a single experiment: pending →
+// initiating → running → completed/stopped/cancelled/failed. These are exactly
+// the statuses in the real AWS FIS SDK's types.ExperimentStatus enum — there is
+// deliberately no "completing" broadcast between running and completed (an
+// earlier revision invented one; see the status constants in store.go).
+func (b *InMemoryBackend) runExperiment(
+	ctx context.Context,
+	expID string,
+	tpl *ExperimentTemplate,
+	actionsMode string,
+) {
 	// PENDING → INITIATING.
 	b.setExperimentStatus(expID, statusInitiating)
 	b.setAllActionStatuses(expID, actionStatusInitiating)
@@ -392,7 +603,10 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 	defer initiatingTimer.Stop()
 	select {
 	case <-ctx.Done():
-		b.cleanupActions(nil, expID, statusStopped, actionStatusCancelled)
+		// Stopped before the experiment ever started running: real AWS FIS
+		// reports this as "cancelled", distinct from "stopped" (interrupting an
+		// experiment that had already reached "running").
+		b.cleanupActions(nil, expID, statusCancelled, actionStatusCancelled)
 
 		return
 	case <-initiatingTimer.C:
@@ -400,34 +614,62 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 
 	// INITIATING → RUNNING.
 	b.setExperimentStatus(expID, statusRunning)
-	b.setAllActionStatuses(expID, actionStatusRunning)
 
-	// Build fault rules and run actions respecting startAfter dependencies.
-	faultRules, maxDuration, failReason := b.executeActionsOrdered(ctx, expID, tpl)
+	skip := actionsMode == actionsModeSkipAll
+	if skip {
+		// Dry-run mode: validate targets/stop-conditions/permissions without
+		// injecting any faults or calling any external action provider.
+		b.setAllActionStatuses(expID, actionStatusSkipped)
+	} else {
+		b.setAllActionStatuses(expID, actionStatusRunning)
+	}
+
+	var (
+		faultRules  []chaos.FaultRule
+		maxDuration time.Duration
+		failReason  string
+	)
+
+	if !skip {
+		// Build fault rules and run actions respecting startAfter dependencies.
+		faultRules, maxDuration, failReason = b.executeActionsOrdered(ctx, expID, tpl)
+	}
 
 	if failReason != "" {
-		b.cleanupActions(faultRules, expID, statusFailed, actionStatusFailed)
+		// markExperimentFailed (called from within executeActionsOrdered) already
+		// finalized exp.Status/EndTime/Actions/ExperimentReport with the
+		// structured failure info — only release resources here, don't re-set
+		// status (that would clobber the structured ExperimentStatusError).
+		b.releaseFaultRulesAndCancel(faultRules, expID)
 
 		return
 	}
 
-	// Wait for duration, stop signal, or context cancellation.
-	// If maxDuration is 0 (e.g. all actions are immediate/non-timed), complete right away.
-	if maxDuration == 0 {
-		b.setExperimentStatus(expID, statusCompleting)
-		b.setAllActionStatuses(expID, actionStatusCompleting)
+	b.waitForCompletionOrStop(ctx, expID, faultRules, maxDuration)
+}
 
-		completingTimer := time.NewTimer(lifecycleDelay)
-		defer completingTimer.Stop()
+// waitForCompletionOrStop waits for the experiment's action duration to elapse
+// (or completes immediately when there is none) and transitions to the terminal
+// completed/stopped status, reacting to an early stop signal via ctx
+// cancellation at any point.
+func (b *InMemoryBackend) waitForCompletionOrStop(
+	ctx context.Context,
+	expID string,
+	faultRules []chaos.FaultRule,
+	maxDuration time.Duration,
+) {
+	if maxDuration == 0 {
+		// No timed actions: give SDK polling a brief window to observe "running"
+		// before completing.
+		grace := time.NewTimer(lifecycleDelay)
+		defer grace.Stop()
+
 		select {
 		case <-ctx.Done():
 			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
-
-			return
-		case <-completingTimer.C:
+		case <-grace.C:
+			b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
 		}
-
-		b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
 
 		return
 	}
@@ -441,16 +683,14 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 		b.setExperimentStatus(expID, statusStopping)
 		b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
 	case <-timer.C:
-		// All actions completed naturally — transition through completing.
-		b.setExperimentStatus(expID, statusCompleting)
-		b.setAllActionStatuses(expID, actionStatusCompleting)
+		// All actions completed naturally.
+		grace := time.NewTimer(lifecycleDelay)
+		defer grace.Stop()
 
-		finalTimer := time.NewTimer(lifecycleDelay)
-		defer finalTimer.Stop()
 		select {
 		case <-ctx.Done():
 			b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
-		case <-finalTimer.C:
+		case <-grace.C:
 			b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
 		}
 	}
@@ -468,11 +708,10 @@ func (b *InMemoryBackend) executeActionsOrdered(
 
 	var maxDuration time.Duration
 
-	// Sort actions into topological order respecting startAfter.
+	// Sort actions into topological order respecting startAfter: topoSortActions
+	// already guarantees every action appears after all of its dependencies, so
+	// no separate per-action dependency wait is needed here.
 	ordered := topoSortActions(tpl.Actions)
-
-	// Track which action names have completed so downstream deps can be released.
-	completed := make(map[string]bool, len(tpl.Actions))
 
 	for _, name := range ordered {
 		action := tpl.Actions[name]
@@ -482,15 +721,6 @@ func (b *InMemoryBackend) executeActionsOrdered(
 		case <-ctx.Done():
 			return faultRules, maxDuration, ""
 		default:
-		}
-
-		// Wait for all startAfter dependencies.
-		for _, dep := range action.StartAfter {
-			if !completed[dep] {
-				// Dep should already be done since we process in topo order,
-				// but guard against topo sort edge cases.
-				continue
-			}
 		}
 
 		dur := parseISODuration(action.Parameters["duration"])
@@ -526,8 +756,6 @@ func (b *InMemoryBackend) executeActionsOrdered(
 
 			b.setActionStatus(expID, name, actionStatusCompleted)
 		}
-
-		completed[name] = true
 	}
 
 	return faultRules, maxDuration, ""
@@ -662,16 +890,45 @@ func (b *InMemoryBackend) cleanupActions(faultRules []chaos.FaultRule, expID, ex
 		exp.EndTime = &now
 
 		for name, action := range exp.Actions {
-			action.Status = ExperimentActionStatus{Status: actionStatus}
+			// Skipped actions (actionsMode "skip-all") keep their terminal
+			// "skipped" status rather than being overwritten by the
+			// experiment's own terminal actionStatus.
+			if action.Status.Status != actionStatusSkipped {
+				action.Status = ExperimentActionStatus{Status: actionStatus}
+			}
+
 			endTime := now
 			action.EndTime = &endTime
 			exp.Actions[name] = action
+		}
+
+		if exp.ExperimentReportConfiguration != nil {
+			exp.ExperimentReport = computeExperimentReport(exp.ExperimentReportConfiguration, exp.ID, expStatus)
 		}
 
 		// Release context resources; safe to call multiple times.
 		if exp.cancel != nil {
 			exp.cancel()
 		}
+	}
+}
+
+// releaseFaultRulesAndCancel removes fault rules and cancels the experiment's
+// context after its terminal status has already been finalized elsewhere (by
+// markExperimentFailed). It deliberately does NOT touch exp.Status/EndTime/
+// Actions/ExperimentReport the way cleanupActions does — markExperimentFailed
+// already set those, including the structured ExperimentStatusError, and
+// re-setting them here would clobber that error info.
+func (b *InMemoryBackend) releaseFaultRulesAndCancel(faultRules []chaos.FaultRule, expID string) {
+	if len(faultRules) > 0 && b.getFaultStore() != nil {
+		b.getFaultStore().DeleteRules(faultRules)
+	}
+
+	b.mu.Lock("releaseFaultRulesAndCancel")
+	defer b.mu.Unlock()
+
+	if exp, ok := b.experiments.Get(expID); ok && exp.cancel != nil {
+		exp.cancel()
 	}
 }
 
@@ -748,5 +1005,62 @@ func (b *InMemoryBackend) markExperimentFailed(expID, actionName, reason string)
 			action.EndTime = &endTime
 			exp.Actions[name] = action
 		}
+	}
+
+	if exp.ExperimentReportConfiguration != nil {
+		exp.ExperimentReport = computeExperimentReport(exp.ExperimentReportConfiguration, exp.ID, statusFailed)
+	}
+}
+
+// reportGeneratedType labels the single generated experiment-report artifact.
+// ExperimentReportS3Report.ReportType is a free-form string in the real AWS FIS
+// SDK model (no fixed enum), so this labels the artifact without inventing a
+// modeled enum value.
+const reportGeneratedType = "experiment-report"
+
+// missingReportOutputCode is the ExperimentReportError.Code reported when a
+// report configuration has no S3 output destination, so the generated report
+// has nowhere to be written. Like ExperimentReportS3Report.ReportType,
+// ExperimentReportError.Code is a free-form string in the SDK model, not a
+// modeled enum.
+const missingReportOutputCode = "MissingReportOutputConfiguration"
+
+// computeExperimentReport synthesizes the terminal state of an experiment
+// report once its owning experiment reaches a terminal status. Real AWS FIS
+// generates the report asynchronously after the experiment finishes;
+// gopherstack computes the terminal result immediately since there is no real
+// S3/CloudWatch backend to wait on. expTerminalStatus is the experiment's own
+// terminal status (statusCompleted/statusStopped/statusCancelled/statusFailed):
+// when the experiment was cancelled before it ever started running, there is
+// nothing to report, so the report itself is marked cancelled too regardless of
+// output configuration.
+func computeExperimentReport(cfg *ExperimentReportConfiguration, expID, expTerminalStatus string) *ExperimentReport {
+	if expTerminalStatus == statusCancelled {
+		return &ExperimentReport{
+			State: &ExperimentReportState{
+				Status: experimentReportStatusCancelled,
+				Reason: "the experiment was cancelled before it started running",
+			},
+		}
+	}
+
+	if cfg.Outputs == nil || cfg.Outputs.S3Configuration == nil || cfg.Outputs.S3Configuration.BucketName == "" {
+		return &ExperimentReport{
+			State: &ExperimentReportState{
+				Status: experimentReportStatusFailed,
+				Reason: "the experiment report configuration has no S3 output destination",
+				Error:  &ExperimentReportError{Code: missingReportOutputCode},
+			},
+		}
+	}
+
+	bucket := cfg.Outputs.S3Configuration.BucketName
+	key := cfg.Outputs.S3Configuration.Prefix + expID + "/report.json"
+
+	return &ExperimentReport{
+		S3Reports: []ExperimentReportS3Report{
+			{Arn: arn.BuildS3(bucket + "/" + key), ReportType: reportGeneratedType},
+		},
+		State: &ExperimentReportState{Status: experimentReportStatusCompleted},
 	}
 }

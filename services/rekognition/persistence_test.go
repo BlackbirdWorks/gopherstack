@@ -61,13 +61,16 @@ func newPersistenceTestBackend(t *testing.T) (*rekognition.InMemoryBackend, pers
 	_, err = b.IndexFaces("coll2", "ext2")
 	require.NoError(t, err)
 
-	sp, err := b.CreateStreamProcessor("sp1", "arn:aws:iam::000000000000:role/r", map[string]string{"k": "v"})
+	sp, err := b.CreateStreamProcessor(
+		"sp1", "arn:aws:iam::000000000000:role/r",
+		rekognition.CreateStreamProcessorParams{}, map[string]string{"k": "v"},
+	)
 	require.NoError(t, err)
 
 	proj, err := b.CreateProject("proj1")
 	require.NoError(t, err)
 
-	_, err = b.CreateProjectVersion(proj.ProjectARN, "v1")
+	_, err = b.CreateProjectVersion(proj.ProjectARN, "v1", rekognition.CreateProjectVersionParams{}, nil)
 	require.NoError(t, err)
 
 	_, err = b.PutProjectPolicy(proj.ProjectARN, "policy1", `{"Version":"2012-10-17"}`, "")

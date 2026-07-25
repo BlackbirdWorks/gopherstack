@@ -18,10 +18,15 @@ type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	sessions         *store.Table[Session]
 	asyncInvocations *store.Table[AsyncInvocation]
-	accountID        string
-	region           string
-	invocations      []*Invocation
-	nextID           uint64
+	// endpointLookup, when wired via SetEndpointLookup, lets InvokeEndpoint/
+	// InvokeEndpointAsync/InvokeEndpointWithResponseStream validate
+	// EndpointName against services/sagemaker's real endpoint registry. See
+	// endpoint_lookup.go.
+	endpointLookup EndpointLookup
+	accountID      string
+	region         string
+	invocations    []*Invocation
+	nextID         uint64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

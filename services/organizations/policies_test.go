@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/organizations"
@@ -873,6 +874,134 @@ func TestCreatePolicy_ValidTypes(t *testing.T) {
 			assert.Equal(t, pt, p.PolicySummary.Type)
 		})
 	}
+}
+
+// TestCreatePolicy_MalformedContent verifies CreatePolicy rejects non-JSON
+// content with MalformedPolicyDocumentException, matching real AWS behavior.
+func TestCreatePolicy_MalformedContent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "not_json_at_all", content: "this is not json"},
+		{name: "truncated_json", content: `{"Version":"2012-10-17"`},
+		{name: "trailing_garbage", content: `{}garbage`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newOrgBackend(t)
+
+			_, err := b.CreatePolicy("bad-content", "", tt.content, "SERVICE_CONTROL_POLICY", nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "MalformedPolicyDocumentException")
+		})
+	}
+}
+
+// TestCreatePolicy_MalformedContent_ViaHandler verifies the HTTP wire error
+// for a non-JSON policy document.
+func TestCreatePolicy_MalformedContent_ViaHandler(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerWithOrg(t)
+
+	rec := doRequest(t, h, "CreatePolicy", map[string]any{
+		"Name":        "bad",
+		"Description": "",
+		"Content":     "not json",
+		"Type":        "SERVICE_CONTROL_POLICY",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]string
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	assert.Equal(t, "MalformedPolicyDocumentException", errResp["__type"])
+}
+
+// TestCreatePolicy_ContentSizeLimit verifies CreatePolicy enforces the
+// per-policy-type maximum document size with ConstraintViolationException
+// (reason POLICY_CONTENT_LIMIT_EXCEEDED), matching real AWS quotas.
+func TestCreatePolicy_ContentSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		policyType string
+		limit      int
+	}{
+		{name: "scp", policyType: "SERVICE_CONTROL_POLICY", limit: 5120},
+		{name: "resource_control", policyType: "RESOURCE_CONTROL_POLICY", limit: 5120},
+		{name: "tag", policyType: "TAG_POLICY", limit: 10000},
+		{name: "backup", policyType: "BACKUP_POLICY", limit: 10000},
+		{name: "ai_opt_out", policyType: "AISERVICES_OPT_OUT_POLICY", limit: 2500},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newOrgBackend(t)
+
+			// Build oversized-but-valid JSON: a big string value padded past the limit.
+			pad := strings.Repeat("a", tt.limit)
+			oversized := `{"k":"` + pad + `"}`
+
+			_, err := b.CreatePolicy("too-big", "", oversized, tt.policyType, nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "ConstraintViolationException")
+			assert.Contains(t, err.Error(), "POLICY_CONTENT_LIMIT_EXCEEDED")
+
+			// A document right at the limit is accepted.
+			atLimit := `{"k":"` + strings.Repeat("a", tt.limit-8) + `"}`
+			require.Len(t, atLimit, tt.limit)
+
+			_, err = b.CreatePolicy("just-right", "", atLimit, tt.policyType, nil)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestUpdatePolicy_MalformedContent verifies UpdatePolicy rejects non-JSON
+// content and leaves the existing policy untouched (name/description are not
+// partially applied either), matching AWS's "the entire request fails" semantics.
+func TestUpdatePolicy_MalformedContent(t *testing.T) {
+	t.Parallel()
+
+	b, _ := newOrgBackend(t)
+
+	p, err := b.CreatePolicy("orig-name", "orig-desc", `{"Version":"2012-10-17"}`, "SERVICE_CONTROL_POLICY", nil)
+	require.NoError(t, err)
+
+	_, err = b.UpdatePolicy(p.PolicySummary.ID, "new-name", "new-desc", "not json")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MalformedPolicyDocumentException")
+
+	desc, err := b.DescribePolicy(p.PolicySummary.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "orig-name", desc.PolicySummary.Name, "name must not be partially applied")
+	assert.Equal(t, "orig-desc", desc.PolicySummary.Description, "description must not be partially applied")
+	assert.JSONEq(t, `{"Version":"2012-10-17"}`, desc.Content, "content must not be partially applied")
+}
+
+// TestUpdatePolicy_ContentSizeLimit verifies UpdatePolicy enforces the same
+// per-type size quota as CreatePolicy.
+func TestUpdatePolicy_ContentSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	b, _ := newOrgBackend(t)
+
+	p, err := b.CreatePolicy("scp", "", `{}`, "SERVICE_CONTROL_POLICY", nil)
+	require.NoError(t, err)
+
+	oversized := `{"k":"` + strings.Repeat("a", 5120) + `"}`
+	_, err = b.UpdatePolicy(p.PolicySummary.ID, "", "", oversized)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "POLICY_CONTENT_LIMIT_EXCEEDED")
 }
 
 // TestBackend_AddPolicyInternal verifies policy seed helper.

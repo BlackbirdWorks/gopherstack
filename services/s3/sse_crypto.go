@@ -36,6 +36,40 @@ const headerSSECKey = "X-Amz-Server-Side-Encryption-Customer-Key"
 // headerSSECKeyMD5 is the request header for the MD5 of the SSE-C customer key.
 const headerSSECKeyMD5 = "X-Amz-Server-Side-Encryption-Customer-Key-Md5"
 
+// headerCopySourceSSECAlgorithm/-Key/-KeyMD5 are the CopyObject/UploadPartCopy
+// request headers that carry the SSE-C key needed to decrypt an SSE-C
+// encrypted *source* object, mirroring types.CopyObjectInput's
+// CopySourceSSECustomerAlgorithm/CopySourceSSECustomerKey/
+// CopySourceSSECustomerKeyMD5 fields. These are distinct from headerSSEC*
+// above, which carry the key used to encrypt the *destination* object.
+const (
+	headerCopySourceSSECAlgorithm = "X-Amz-Copy-Source-Server-Side-Encryption-Customer-Algorithm"
+	headerCopySourceSSECKey       = "X-Amz-Copy-Source-Server-Side-Encryption-Customer-Key"
+	headerCopySourceSSECKeyMD5    = "X-Amz-Copy-Source-Server-Side-Encryption-Customer-Key-Md5"
+)
+
+// extractCopySourceSSECInfo reads the copy-source SSE-C headers from a
+// CopyObject/UploadPartCopy request, returning an sseInfo populated in the
+// SSEC* fields only (suitable for decrypting the source object). Returns the
+// zero value when no copy-source SSE-C key was supplied.
+func extractCopySourceSSECInfo(r *http.Request) (sseInfo, error) {
+	rawKey := r.Header.Get(headerCopySourceSSECKey)
+	if rawKey == "" {
+		return sseInfo{}, nil
+	}
+
+	md5B64 := r.Header.Get(headerCopySourceSSECKeyMD5)
+	if err := validateSSECKey(rawKey, md5B64); err != nil {
+		return sseInfo{}, err
+	}
+
+	return sseInfo{
+		SSECAlgorithm: r.Header.Get(headerCopySourceSSECAlgorithm),
+		SSECKeyMD5:    md5B64,
+		SSECKeyB64:    rawKey,
+	}, nil
+}
+
 // sseInfo captures SSE parameters extracted from an HTTP request.
 type sseInfo struct {
 	// Algorithm is one of "AES256", "aws:kms", "aws:kms:dsse", or "" (none).

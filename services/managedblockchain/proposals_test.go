@@ -512,7 +512,7 @@ func TestHandler_ListProposalsNoStatusFilterReturnsAll(t *testing.T) {
 	// Create network with 1-member for simple unanimous vote.
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "all-proposals-net",
-		"MemberConfiguration": map[string]any{"Name": "owner"},
+		"MemberConfiguration": testMemberConfiguration("owner"),
 		"VotingPolicy": map[string]any{
 			"ApprovalThresholdPolicy": map[string]any{
 				"ThresholdComparator":     "GREATER_THAN_OR_EQUAL_TO",

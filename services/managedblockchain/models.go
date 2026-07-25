@@ -28,16 +28,34 @@ type ListAccessorsFilter struct {
 
 // Network represents an Amazon Managed Blockchain network.
 type Network struct {
-	CreationDate     *time.Time        `json:"creationDate"`
-	Tags             map[string]string `json:"tags"`
-	VotingPolicy     *VotingPolicy     `json:"votingPolicy,omitempty"`
-	Arn              string            `json:"arn"`
-	Description      string            `json:"description"`
-	Framework        string            `json:"framework"`
-	FrameworkVersion string            `json:"frameworkVersion"`
-	ID               string            `json:"id"`
-	Name             string            `json:"name"`
-	Status           string            `json:"status"`
+	CreationDate           *time.Time                       `json:"creationDate"`
+	Tags                   map[string]string                `json:"tags"`
+	VotingPolicy           *VotingPolicy                    `json:"votingPolicy,omitempty"`
+	FrameworkAttributes    *NetworkFrameworkAttributesState `json:"frameworkAttributes,omitempty"`
+	Arn                    string                           `json:"arn"`
+	Description            string                           `json:"description"`
+	Framework              string                           `json:"framework"`
+	FrameworkVersion       string                           `json:"frameworkVersion"`
+	ID                     string                           `json:"id"`
+	Name                   string                           `json:"name"`
+	Status                 string                           `json:"status"`
+	VpcEndpointServiceName string                           `json:"vpcEndpointServiceName,omitempty"`
+}
+
+// NetworkFrameworkAttributesState holds framework-specific network attributes.
+// gopherstack only emulates the Hyperledger Fabric framework (CreateNetwork's
+// real API also documents itself as "Applies only to Hyperledger Fabric" --
+// new networks can no longer be created on the Ethereum framework), so only
+// Fabric is modeled; the real API's sibling Ethereum field is intentionally
+// omitted here since gopherstack never populates it.
+type NetworkFrameworkAttributesState struct {
+	Fabric *NetworkFabricAttributesState `json:"fabric,omitempty"`
+}
+
+// NetworkFabricAttributesState holds Hyperledger Fabric-specific network attributes.
+type NetworkFabricAttributesState struct {
+	Edition                 string `json:"edition,omitempty"`
+	OrderingServiceEndpoint string `json:"orderingServiceEndpoint,omitempty"`
 }
 
 // VotingPolicy defines how a network votes on proposals.
@@ -69,13 +87,27 @@ type Member struct {
 	CreationDate               *time.Time                      `json:"creationDate"`
 	Tags                       map[string]string               `json:"tags"`
 	LogPublishingConfiguration *MemberLogPublishingConfigState `json:"logPublishingConfiguration,omitempty"`
+	FrameworkAttributes        *MemberFrameworkAttributesState `json:"frameworkAttributes,omitempty"`
 	Arn                        string                          `json:"arn"`
 	Description                string                          `json:"description"`
 	ID                         string                          `json:"id"`
+	KmsKeyArn                  string                          `json:"kmsKeyArn,omitempty"`
 	Name                       string                          `json:"name"`
 	NetworkID                  string                          `json:"networkID"`
 	Status                     string                          `json:"status"`
 	IsOwned                    bool                            `json:"isOwned"`
+}
+
+// MemberFrameworkAttributesState holds framework-specific member attributes.
+// Only Fabric is modeled -- see Network.FrameworkAttributes' doc comment.
+type MemberFrameworkAttributesState struct {
+	Fabric *MemberFabricAttributesState `json:"fabric,omitempty"`
+}
+
+// MemberFabricAttributesState holds Hyperledger Fabric-specific member attributes.
+type MemberFabricAttributesState struct {
+	AdminUsername string `json:"adminUsername,omitempty"`
+	CaEndpoint    string `json:"caEndpoint,omitempty"`
 }
 
 // MemberLogPublishingConfigState stores log publishing configuration for a member.
@@ -114,13 +146,31 @@ type Node struct {
 	CreationDate               *time.Time                    `json:"creationDate"`
 	Tags                       map[string]string             `json:"tags"`
 	LogPublishingConfiguration *NodeLogPublishingConfigState `json:"logPublishingConfiguration,omitempty"`
+	FrameworkAttributes        *NodeFrameworkAttributesState `json:"frameworkAttributes,omitempty"`
 	Arn                        string                        `json:"arn"`
 	AvailabilityZone           string                        `json:"availabilityZone"`
 	ID                         string                        `json:"id"`
 	InstanceType               string                        `json:"instanceType"`
+	KmsKeyArn                  string                        `json:"kmsKeyArn,omitempty"`
 	MemberID                   string                        `json:"memberID"`
 	NetworkID                  string                        `json:"networkID"`
+	StateDB                    string                        `json:"stateDB,omitempty"`
 	Status                     string                        `json:"status"`
+}
+
+// NodeFrameworkAttributesState holds framework-specific node attributes.
+// Only Fabric is modeled -- see Network.FrameworkAttributes' doc comment;
+// gopherstack's nodes always belong to a Fabric member (CreateNode requires
+// MemberId, see ErrMissingNodeMemberID), so the real API's sibling Ethereum
+// field is intentionally omitted here since gopherstack never populates it.
+type NodeFrameworkAttributesState struct {
+	Fabric *NodeFabricAttributesState `json:"fabric,omitempty"`
+}
+
+// NodeFabricAttributesState holds Hyperledger Fabric-specific node attributes.
+type NodeFabricAttributesState struct {
+	PeerEndpoint      string `json:"peerEndpoint,omitempty"`
+	PeerEventEndpoint string `json:"peerEventEndpoint,omitempty"`
 }
 
 // NodeLogPublishingConfigState stores log publishing configuration for a node.
@@ -148,14 +198,28 @@ type NodeSummary struct {
 
 // createNetworkRequest is the request body for POST /networks.
 type createNetworkRequest struct {
-	Tags                map[string]string    `json:"Tags"`
-	VotingPolicy        *votingPolicyRequest `json:"VotingPolicy"`
-	ClientRequestToken  string               `json:"ClientRequestToken"`
-	Description         string               `json:"Description"`
-	Framework           string               `json:"Framework"`
-	FrameworkVersion    string               `json:"FrameworkVersion"`
-	MemberConfiguration memberConfiguration  `json:"MemberConfiguration"`
-	Name                string               `json:"Name"`
+	Tags                   map[string]string                     `json:"Tags"`
+	VotingPolicy           *votingPolicyRequest                  `json:"VotingPolicy"`
+	FrameworkConfiguration *networkFrameworkConfigurationRequest `json:"FrameworkConfiguration"`
+	ClientRequestToken     string                                `json:"ClientRequestToken"`
+	Description            string                                `json:"Description"`
+	Framework              string                                `json:"Framework"`
+	FrameworkVersion       string                                `json:"FrameworkVersion"`
+	MemberConfiguration    memberConfiguration                   `json:"MemberConfiguration"`
+	Name                   string                                `json:"Name"`
+}
+
+// networkFrameworkConfigurationRequest is the request body for a network's
+// FrameworkConfiguration. Only Fabric is modeled -- see
+// Network.FrameworkAttributes' doc comment.
+type networkFrameworkConfigurationRequest struct {
+	Fabric *networkFabricConfigurationRequest `json:"Fabric,omitempty"`
+}
+
+// networkFabricConfigurationRequest is the request body for a network's
+// Fabric-specific FrameworkConfiguration.
+type networkFabricConfigurationRequest struct {
+	Edition string `json:"Edition"`
 }
 
 // votingPolicyRequest is the request body for VotingPolicy.
@@ -172,8 +236,29 @@ type approvalThresholdPolicyRequest struct {
 
 // memberConfiguration holds the configuration for the first (or new) member.
 type memberConfiguration struct {
-	Description string `json:"Description"`
-	Name        string `json:"Name"`
+	FrameworkConfiguration *memberFrameworkConfigurationRequest `json:"FrameworkConfiguration"`
+	Description            string                               `json:"Description"`
+	KmsKeyArn              string                               `json:"KmsKeyArn,omitempty"`
+	Name                   string                               `json:"Name"`
+}
+
+// memberFrameworkConfigurationRequest is the request body for a member's
+// FrameworkConfiguration. Only Fabric is modeled -- see
+// Network.FrameworkAttributes' doc comment.
+type memberFrameworkConfigurationRequest struct {
+	Fabric *memberFabricConfigurationRequest `json:"Fabric,omitempty"`
+}
+
+// memberFabricConfigurationRequest is the request body for a member's
+// Fabric-specific FrameworkConfiguration. AdminUsername and AdminPassword
+// are both required by the real API's client-side validator
+// (validateMemberFabricConfiguration in aws-sdk-go-v2); AdminPassword is
+// never stored or echoed back anywhere -- like real AWS, gopherstack only
+// uses it to seed AdminUsername/CaEndpoint on the resulting member and then
+// discards it.
+type memberFabricConfigurationRequest struct {
+	AdminPassword string `json:"AdminPassword"`
+	AdminUsername string `json:"AdminUsername"`
 }
 
 // createNetworkResponse is the response body for POST /networks.
@@ -184,16 +269,29 @@ type createNetworkResponse struct {
 
 // networkObject is the JSON representation of a network for GetNetwork.
 type networkObject struct {
-	CreationDate     *time.Time          `json:"CreationDate,omitempty"`
-	Tags             map[string]string   `json:"Tags,omitempty"`
-	VotingPolicy     *votingPolicyObject `json:"VotingPolicy,omitempty"`
-	Arn              string              `json:"Arn"`
-	Description      string              `json:"Description,omitempty"`
-	Framework        string              `json:"Framework"`
-	FrameworkVersion string              `json:"FrameworkVersion"`
-	ID               string              `json:"Id"`
-	Name             string              `json:"Name"`
-	Status           string              `json:"Status"`
+	CreationDate           *time.Time                         `json:"CreationDate,omitempty"`
+	Tags                   map[string]string                  `json:"Tags,omitempty"`
+	VotingPolicy           *votingPolicyObject                `json:"VotingPolicy,omitempty"`
+	FrameworkAttributes    *networkFrameworkAttributesRespObj `json:"FrameworkAttributes,omitempty"`
+	Arn                    string                             `json:"Arn"`
+	Description            string                             `json:"Description,omitempty"`
+	Framework              string                             `json:"Framework"`
+	FrameworkVersion       string                             `json:"FrameworkVersion"`
+	ID                     string                             `json:"Id"`
+	Name                   string                             `json:"Name"`
+	Status                 string                             `json:"Status"`
+	VpcEndpointServiceName string                             `json:"VpcEndpointServiceName,omitempty"`
+}
+
+// networkFrameworkAttributesRespObj is the response JSON for a network's FrameworkAttributes.
+type networkFrameworkAttributesRespObj struct {
+	Fabric *networkFabricAttributesRespObj `json:"Fabric,omitempty"`
+}
+
+// networkFabricAttributesRespObj is the response JSON for a network's Fabric-specific attributes.
+type networkFabricAttributesRespObj struct {
+	Edition                 string `json:"Edition,omitempty"`
+	OrderingServiceEndpoint string `json:"OrderingServiceEndpoint,omitempty"`
 }
 
 // votingPolicyObject is the JSON representation of a VotingPolicy in responses.
@@ -259,13 +357,26 @@ type memberObject struct {
 	CreationDate               *time.Time                        `json:"CreationDate,omitempty"`
 	Tags                       map[string]string                 `json:"Tags,omitempty"`
 	LogPublishingConfiguration *memberLogPublishingConfigRespObj `json:"LogPublishingConfiguration,omitempty"`
+	FrameworkAttributes        *memberFrameworkAttributesRespObj `json:"FrameworkAttributes,omitempty"`
 	Arn                        string                            `json:"Arn"`
 	Description                string                            `json:"Description,omitempty"`
 	ID                         string                            `json:"Id"`
+	KmsKeyArn                  string                            `json:"KmsKeyArn,omitempty"`
 	Name                       string                            `json:"Name"`
 	NetworkID                  string                            `json:"NetworkId"`
 	Status                     string                            `json:"Status"`
 	IsOwned                    bool                              `json:"IsOwned"`
+}
+
+// memberFrameworkAttributesRespObj is the response JSON for a member's FrameworkAttributes.
+type memberFrameworkAttributesRespObj struct {
+	Fabric *memberFabricAttributesRespObj `json:"Fabric,omitempty"`
+}
+
+// memberFabricAttributesRespObj is the response JSON for a member's Fabric-specific attributes.
+type memberFabricAttributesRespObj struct {
+	AdminUsername string `json:"AdminUsername,omitempty"`
+	CaEndpoint    string `json:"CaEndpoint,omitempty"`
 }
 
 // memberLogPublishingConfigRespObj is the response JSON for member log publishing config.
@@ -330,6 +441,7 @@ type errorResponse struct {
 type nodeConfiguration struct {
 	AvailabilityZone string `json:"AvailabilityZone"`
 	InstanceType     string `json:"InstanceType"`
+	StateDB          string `json:"StateDB,omitempty"`
 }
 
 // createNodeResponse is the response body for POST /networks/{networkId}/nodes.
@@ -342,13 +454,27 @@ type nodeObject struct {
 	CreationDate               *time.Time                      `json:"CreationDate,omitempty"`
 	Tags                       map[string]string               `json:"Tags,omitempty"`
 	LogPublishingConfiguration *nodeLogPublishingConfigRespObj `json:"LogPublishingConfiguration,omitempty"`
+	FrameworkAttributes        *nodeFrameworkAttributesRespObj `json:"FrameworkAttributes,omitempty"`
 	Arn                        string                          `json:"Arn"`
 	AvailabilityZone           string                          `json:"AvailabilityZone,omitempty"`
 	ID                         string                          `json:"Id"`
 	InstanceType               string                          `json:"InstanceType"`
+	KmsKeyArn                  string                          `json:"KmsKeyArn,omitempty"`
 	MemberID                   string                          `json:"MemberId"`
 	NetworkID                  string                          `json:"NetworkId"`
+	StateDB                    string                          `json:"StateDB,omitempty"`
 	Status                     string                          `json:"Status"`
+}
+
+// nodeFrameworkAttributesRespObj is the response JSON for a node's FrameworkAttributes.
+type nodeFrameworkAttributesRespObj struct {
+	Fabric *nodeFabricAttributesRespObj `json:"Fabric,omitempty"`
+}
+
+// nodeFabricAttributesRespObj is the response JSON for a node's Fabric-specific attributes.
+type nodeFabricAttributesRespObj struct {
+	PeerEndpoint      string `json:"PeerEndpoint,omitempty"`
+	PeerEventEndpoint string `json:"PeerEventEndpoint,omitempty"`
 }
 
 // nodeLogPublishingConfigRespObj is the response JSON for node log publishing config.

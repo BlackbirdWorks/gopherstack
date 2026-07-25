@@ -82,13 +82,15 @@ func (h *Handler) handleDeleteApp(_ context.Context, body []byte) (any, error) {
 	return map[string]any{}, nil
 }
 
+// appsToJSON deliberately omits Arn: the real types.App has no Arn member
+// (see App's doc comment in interfaces.go) -- a previous pass invented one
+// and serialized it on the wire.
 func appsToJSON(apps []*App) []map[string]any {
 	result := make([]map[string]any, 0, len(apps))
 	for _, a := range apps {
 		result = append(result, map[string]any{
 			keyAppID:     a.AppID,
 			keyStackID:   a.StackID,
-			keyArn:       a.Arn,
 			keyName:      a.Name,
 			keyType:      a.Type,
 			keyCreatedAt: a.CreatedAt.Format("2006-01-02T15:04:05+00:00"),

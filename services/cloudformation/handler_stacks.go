@@ -442,7 +442,7 @@ func (h *Handler) handleUpdateTerminationProtection(form url.Values, c *echo.Con
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
-	enable := form.Get("EnableTerminationProtection") == "true"
+	enable := form.Get("EnableTerminationProtection") == boolTrue
 	if err := h.Backend.UpdateTerminationProtection(name, enable); err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}

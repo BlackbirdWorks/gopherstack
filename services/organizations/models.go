@@ -1,13 +1,19 @@
 // Package organizations provides an in-memory stub for the AWS Organizations API.
 package organizations
 
-import "time"
+import (
+	"time"
 
-// epochSeconds returns t as Unix epoch seconds (float64).
-// The AWS SDK Go v2 deserializes JSON timestamps as float64 epoch seconds,
-// so all timestamp fields in JSON response types must use this type.
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+)
+
+// epochSeconds returns t as Unix epoch seconds (float64), preserving sub-second
+// precision. The AWS SDK Go v2 deserializes JSON timestamps as float64 epoch
+// seconds, so all timestamp fields in JSON response types must use this type.
+// Delegates to pkgs/awstime.Epoch (see pkgs-catalog.md) rather than
+// reimplementing epoch conversion locally.
 func epochSeconds(t time.Time) float64 {
-	return float64(t.Unix())
+	return awstime.Epoch(t)
 }
 
 // ----------------------------------------

@@ -1,6 +1,10 @@
 package transcribe
 
-import "context"
+import (
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+)
 
 // --- CreateVocabularyFilter ---
 
@@ -13,8 +17,9 @@ type createVocabularyFilterInput struct {
 }
 
 type createVocabularyFilterOutput struct {
-	VocabularyFilterName string `json:"VocabularyFilterName"`
-	LanguageCode         string `json:"LanguageCode"`
+	LastModifiedTime     *float64 `json:"LastModifiedTime,omitempty"`
+	VocabularyFilterName string   `json:"VocabularyFilterName"`
+	LanguageCode         string   `json:"LanguageCode"`
 }
 
 func (h *Handler) handleCreateVocabularyFilter(
@@ -32,10 +37,21 @@ func (h *Handler) handleCreateVocabularyFilter(
 		return nil, err
 	}
 
-	return &createVocabularyFilterOutput{
+	return buildCreateVocabularyFilterOutput(f), nil
+}
+
+func buildCreateVocabularyFilterOutput(f *VocabularyFilter) *createVocabularyFilterOutput {
+	out := &createVocabularyFilterOutput{
 		VocabularyFilterName: f.VocabularyFilterName,
 		LanguageCode:         f.LanguageCode,
-	}, nil
+	}
+
+	if !f.LastModifiedTime.IsZero() {
+		t := awstime.Epoch(f.LastModifiedTime)
+		out.LastModifiedTime = &t
+	}
+
+	return out
 }
 
 // --- GetVocabularyFilter ---
@@ -45,13 +61,16 @@ type getVocabularyFilterInput struct {
 }
 
 type vocabularyFilterOutput struct {
-	VocabularyFilterName string `json:"VocabularyFilterName"`
-	LanguageCode         string `json:"LanguageCode"`
+	LastModifiedTime     *float64 `json:"LastModifiedTime,omitempty"`
+	VocabularyFilterName string   `json:"VocabularyFilterName"`
+	LanguageCode         string   `json:"LanguageCode"`
 }
 
 type getVocabularyFilterOutput struct {
-	VocabularyFilterName string `json:"VocabularyFilterName"`
-	LanguageCode         string `json:"LanguageCode"`
+	LastModifiedTime     *float64 `json:"LastModifiedTime,omitempty"`
+	VocabularyFilterName string   `json:"VocabularyFilterName"`
+	LanguageCode         string   `json:"LanguageCode"`
+	DownloadURI          string   `json:"DownloadUri,omitempty"`
 }
 
 func (h *Handler) handleGetVocabularyFilter(
@@ -63,10 +82,18 @@ func (h *Handler) handleGetVocabularyFilter(
 		return nil, err
 	}
 
-	return &getVocabularyFilterOutput{
+	out := &getVocabularyFilterOutput{
 		VocabularyFilterName: f.VocabularyFilterName,
 		LanguageCode:         f.LanguageCode,
-	}, nil
+		DownloadURI:          f.VocabularyFilterFileURI,
+	}
+
+	if !f.LastModifiedTime.IsZero() {
+		t := awstime.Epoch(f.LastModifiedTime)
+		out.LastModifiedTime = &t
+	}
+
+	return out, nil
 }
 
 // --- UpdateVocabularyFilter ---
@@ -92,10 +119,21 @@ func (h *Handler) handleUpdateVocabularyFilter(
 		return nil, err
 	}
 
-	return &vocabularyFilterOutput{
+	return buildVocabularyFilterOutput(f), nil
+}
+
+func buildVocabularyFilterOutput(f *VocabularyFilter) *vocabularyFilterOutput {
+	out := &vocabularyFilterOutput{
 		VocabularyFilterName: f.VocabularyFilterName,
 		LanguageCode:         f.LanguageCode,
-	}, nil
+	}
+
+	if !f.LastModifiedTime.IsZero() {
+		t := awstime.Epoch(f.LastModifiedTime)
+		out.LastModifiedTime = &t
+	}
+
+	return out
 }
 
 // --- DeleteVocabularyFilter ---
@@ -118,7 +156,8 @@ func (h *Handler) handleDeleteVocabularyFilter(
 // --- ListVocabularyFilters ---
 
 type listVocabularyFiltersInput struct {
-	NextToken string `json:"NextToken"`
+	NameContains string `json:"NameContains"`
+	NextToken    string `json:"NextToken"`
 }
 
 type listVocabularyFiltersOutput struct {
@@ -130,14 +169,11 @@ func (h *Handler) handleListVocabularyFilters(
 	_ context.Context,
 	in *listVocabularyFiltersInput,
 ) (*listVocabularyFiltersOutput, error) {
-	filters, nextToken := h.Backend.ListVocabularyFilters(in.NextToken)
+	filters, nextToken := h.Backend.ListVocabularyFilters(in.NameContains, in.NextToken)
 
 	result := make([]vocabularyFilterOutput, 0, len(filters))
-	for _, f := range filters {
-		result = append(result, vocabularyFilterOutput{
-			VocabularyFilterName: f.VocabularyFilterName,
-			LanguageCode:         f.LanguageCode,
-		})
+	for i := range filters {
+		result = append(result, *buildVocabularyFilterOutput(&filters[i]))
 	}
 
 	return &listVocabularyFiltersOutput{

@@ -6,20 +6,20 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: glacier
 sdk_module: aws-sdk-go-v2/service/glacier@v1.32.4
-last_audit_commit: 2b6e7cfbeda75dd7c0cf87e417157275792ac5e3
-last_audit_date: 2026-07-12
-overall: A            # 2 genuine wire-shape fixes found; rest of surface already accurate
+last_audit_commit: f8ae77eb7c84189d9fca29cce357a9cfaf72fd9c
+last_audit_date: 2026-07-24
+overall: A            # both deferred resource families (Select jobs, range inventory retrieval) now implemented for real + field-diffed; 1 pre-existing leak fixed
 ops:
   CreateVault:            {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeVault:          {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteVault:            {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-deletes jobs/uploads/lock; blocks on non-empty vault"}
+  DeleteVault:            {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-deletes jobs/uploads/lock; blocks on non-empty vault; this pass fixed a leak where cascade-deleting a vault's multipart uploads dropped the store.Table row but orphaned the raw multipartParts map entry (see Notes)"}
   ListVaults:             {wire: ok, errors: ok, state: ok, persist: ok, note: "marker/limit pagination verified vs SDK Marker/VaultList shape"}
   UploadArchive:          {wire: ok, errors: ok, state: ok, persist: ok, note: "ArchiveId/Checksum/Location are header-only on real wire (confirmed via awsRestjson1_deserializeOpHttpBindingsUploadArchiveOutput); gopherstack sets all three headers correctly, body is a harmless bonus"}
   DeleteArchive:          {wire: ok, errors: ok, state: ok, persist: ok}
-  InitiateJob:            {wire: ok, errors: ok, state: ok, persist: ok, note: "response is header-only (X-Amz-Job-Id/Location) on real wire; verified"}
-  DescribeJob:            {wire: fixed, errors: ok, state: ok, persist: ok, note: "was missing ArchiveSHA256TreeHash wire field entirely (see Notes)"}
-  ListJobs:               {wire: fixed, errors: ok, state: ok, persist: ok, note: "same describeJobResponse DTO as DescribeJob, same fix applies"}
-  GetJobOutput:           {wire: fixed, errors: ok, state: ok, persist: ok, note: "was missing X-Amz-Archive-Description response header for archive-retrieval jobs (see Notes)"}
+  InitiateJob:            {wire: ok, errors: ok, state: ok, persist: ok, note: "response is header-only (X-Amz-Job-Id/x-amz-job-output-path/Location) on real wire; verified. This pass added real support for JobParameters.Type=select (SelectParameters/OutputLocation, full field validation, MissingParameterValueException vs InvalidParameterValueException distinguished) and JobParameters.InventoryRetrievalParameters (range inventory retrieval: StartDate/EndDate/Limit/Marker, validated) -- see Notes"}
+  DescribeJob:            {wire: ok, errors: ok, state: ok, persist: ok, note: "GlacierJobDescription now also carries JobOutputPath/OutputLocation/SelectParameters (select jobs) and a proper nested InventoryRetrievalParameters object (range inventory retrieval jobs) -- see Notes for the invented top-level Format field this replaced"}
+  ListJobs:               {wire: ok, errors: ok, state: ok, persist: ok, note: "same describeJobResponse DTO as DescribeJob, same coverage applies"}
+  GetJobOutput:           {wire: ok, errors: ok, state: ok, persist: ok, note: "archive-retrieval/inventory-retrieval unchanged; select jobs now execute their SQL Expression for real against the stored archive (see select_jobs family note) instead of erroring/stubbing"}
   SetVaultNotifications:      {wire: ok, errors: ok, state: ok, persist: ok}
   GetVaultNotifications:      {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVaultNotifications:   {wire: ok, errors: ok, state: ok, persist: ok}
@@ -45,16 +45,12 @@ ops:
   PurchaseProvisionedCapacity:  {wire: ok, errors: ok, state: ok, persist: ok, note: "2-unit cap + monthly expiry verified"}
 families:
   route_matching: {status: ok, note: "RouteMatcher + parseGlacierPath path/method table cross-checked against every literal opPath in serializers.go (SplitURI calls) -- all 32 ops match prefix+method; no unreachable-op bug found"}
-  persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore (persistence.go); registered snapshot version-guarded (glacierSnapshotVersion); cli.go wiring not touched/verified this pass (out of scope), but Handler exposes the exact Snapshot(ctx)[]byte / Restore(ctx,[]byte)error signature setupPersistence expects"}
-  select_jobs: {status: deferred, note: "Select-type jobs (Type=select, SelectParameters/OutputLocation/CSVInput/CSVOutput) are not implemented -- InitiateJob only recognizes archive-retrieval/inventory-retrieval. Low priority: Select was a rarely-used, since-deprecated Athena-style query-in-place feature."}
-  range_inventory_retrieval: {status: deferred, note: "InventoryRetrievalParameters (StartDate/EndDate/Marker/Limit sub-object on InitiateJob request, echoed back on DescribeJob) is not parsed or stored. Inventory retrieval always returns the full vault inventory. Edge feature, not core traffic."}
-gaps:
-  - Select-job type unsupported (bd: file if range/Select support requested)
-  - InventoryRetrievalParameters range-filtering unsupported (bd: file if requested)
-deferred:
-  - Select jobs (SelectParameters/OutputLocation/CSVInput/CSVOutput)
-  - InventoryRetrievalParameters range inventory retrieval
-leaks: {status: clean, note: "no goroutines/janitors in this service; retrievalDelay promotion is read-triggered (promoteJobIfReady), not a background timer"}
+  persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore (persistence.go); registered snapshot version-guarded (glacierSnapshotVersion); cli.go wiring not touched/verified this pass (out of scope), but Handler exposes the exact Snapshot(ctx)[]byte / Restore(ctx,[]byte)error signature setupPersistence expects. This pass verified the new Job fields (SelectParameters/OutputLocation/JobOutputPath, InventoryRetrieval* range fields) round-trip through Snapshot/Restore (TestPersistenceRoundTrip_SelectAndRangeInventoryJobs) -- additive fields on an already-JSON-round-trippable struct, no snapshot version bump needed"}
+  select_jobs: {status: ok, note: "IMPLEMENTED this pass (was deferred). InitiateJob Type=select is fully validated (ArchiveId existence, SelectParameters.Expression/ExpressionType=SQL/InputSerialization.Csv/OutputSerialization.Csv all required with MissingParameterValueException vs InvalidParameterValueException distinguished per-field, OutputLocation.S3.BucketName required, Expression syntax-checked) and the SQL query is REALLY executed against the stored archive bytes (select.go/select_sql.go: hand-rolled tokenizer+recursive-descent parser+evaluator for a documented SQL subset -- SELECT */columns [AS alias] FROM table [alias] [WHERE pred (AND|OR pred)*] [LIMIT n], positional _N or header-name column refs, numeric-or-lexical comparison). DEVIATION (documented, not a wire bug): real AWS never serves select results via GetJobOutput (they go to an S3 OutputLocation); gopherstack has no cross-service S3 write-back so it serves the real computed result via GetJobOutput instead of silently discarding the query -- InitiateJob/DescribeJob still report the correct (synthetic) JobOutputPath/OutputLocation wire shape. See select.go's package doc."}
+  range_inventory_retrieval: {status: ok, note: "IMPLEMENTED this pass (was deferred). InventoryRetrievalParameters (StartDate/EndDate/Limit/Marker) on InitiateJob is validated (ISO-8601 dates, positive-integer Limit) and echoed back correctly nested under InventoryRetrievalParameters on DescribeJob/ListJobs (inventory_retrieval.go). GetJobOutput's inventory listing is actually filtered by the stored parameters: StartDate inclusive / EndDate exclusive bound on Archive.CreationDate, Marker resumes strictly after the named ArchiveId, Limit caps the count -- filterArchivesForInventory, covered by TestGetJobOutput_InventoryRetrieval_{DateRangeFilters,Limit,Marker}."}
+gaps: []
+deferred: []
+leaks: {status: clean, note: "no goroutines/janitors in this service; retrievalDelay promotion is read-triggered (promoteJobIfReady), not a background timer. FIXED this pass: DeleteVault's multipart-upload cascade deleted the store.Table row but never the corresponding raw-map multipartParts[uploadKey] row (AbortMultipartUpload/CompleteMultipartUpload already did this correctly; DeleteVault's cascade loop did not) -- every vault deleted with an in-progress multipart upload left an orphaned parts row forever. Fixed in vaults.go's DeleteVault; regression test TestDeleteVault_CascadeCleansMultipartParts (leak_test.go)."}
 ---
 
 ## Notes
@@ -100,16 +96,47 @@ correct throughout (`formatDate` in models.go).
    since AWS has no such field there), and `handleArchiveJobOutput` sets the
    header when non-empty.
 
+### Bugs/gaps fixed this pass (2026-07-24)
+
+3. **Select jobs (`Type=select`) were entirely unimplemented** — `InitiateJob`
+   only recognized `archive-retrieval`/`inventory-retrieval`, so any real SDK
+   client requesting a select job got a generic `InvalidParameterValueException`
+   for an unrecognized `Type` instead of a working job. Implemented for real:
+   full request-shape validation (`SelectParameters`/`OutputLocation` field-by-
+   field against the real `JobParameters`/`SelectParameters`/`OutputLocation`/
+   `S3Location`/`CSVInput`/`CSVOutput` types), a real SQL query engine
+   (`select.go`, `select_sql.go`) that actually executes the `Expression`
+   against the archive's CSV bytes, and correct `GlacierJobDescription` echo of
+   `JobOutputPath`/`OutputLocation`/`SelectParameters`. See the `select_jobs`
+   family note above for the one documented AWS-behavior deviation (GetJobOutput
+   delivery in lieu of cross-service S3 write-back).
+
+4. **Range inventory retrieval (`InventoryRetrievalParameters`) was entirely
+   unimplemented** — the request field was silently dropped, so inventory jobs
+   always returned the full vault inventory regardless of any
+   `StartDate`/`EndDate`/`Limit`/`Marker` the caller specified, with no
+   validation error to warn them. Implemented for real: validated parsing,
+   correct nested-object echo on `DescribeJob`/`ListJobs` (see bug 5 below),
+   and actual `CreationDate`-range/marker/limit filtering of the inventory
+   returned by `GetJobOutput` (`inventory_retrieval.go`).
+
+5. **`describeJobResponse.InventoryFormat` (`json:"Format"`) was a
+   gopherstack-invented top-level field** — the real `GlacierJobDescription`
+   type has **no top-level `Format` field** at all; `Format` only ever exists
+   nested under `InventoryRetrievalParameters`. Per this campaign's "delete
+   gopherstack-invented fields" rule, the top-level field is now gone,
+   replaced by a real `InventoryRetrievalParameters` nested object (which also
+   now carries `StartDate`/`EndDate`/`Limit`/`Marker`, previously entirely
+   absent — see bug 4). (Previously this was logged as a "harmless, do not
+   fix" trap because removing it without also implementing the real nested
+   object would have been a net regression; it is safe now that the real
+   field exists.)
+
+6. **`DeleteVault` leaked `multipartParts` rows** (leak, not a wire bug) — see
+   the `leaks` field above for detail; fixed in `vaults.go`.
+
 ### Traps for the next auditor
 
-- `describeJobResponse.InventoryFormat` (`json:"Format"`) is sent by
-  gopherstack at the top level of the `DescribeJob` response, but the real
-  `GlacierJobDescription` type has **no top-level `Format` field** at all (only
-  nested under the unimplemented `InventoryRetrievalParameters`). This is
-  **harmless** — restjson1 deserializers silently ignore unknown JSON keys
-  (`default: _, _ = key, value` in the generated switch) — so it is not a wire
-  bug, just a field the real SDK will never read. Do not "fix" this by
-  removing it without checking whether any test depends on it.
 - `UploadArchive` / `CompleteMultipartUpload` / `InitiateJob` /
   `InitiateMultipartUpload` responses carry a JSON body in gopherstack
   (`uploadArchiveResponse`, `completeMultipartUploadResponse`,
@@ -137,3 +164,19 @@ correct throughout (`formatDate` in models.go).
   SDK's `serializers.go` (32 matches, one per op) plus HTTP verb per branch —
   no unreachable-op bug found this pass, unlike several other services hit by
   that bug class.
+- The Select job SQL engine (`select_sql.go`) intentionally supports a
+  **documented subset** of SQL, not full ANSI SQL: no parenthesized/nested
+  boolean expressions (`WHERE` is a flat OR-of-AND-groups only), no `CAST`,
+  no aggregate functions, no joins. This mirrors the real Glacier/S3 Select
+  feature's own documented SQL-subset scope, not an emulator shortcut passed
+  off as complete — do not treat a rejected complex expression as a bug
+  without checking whether real Glacier Select supports it either. See
+  `select.go`'s package doc comment for the exact grammar.
+- Select job results are served via `GetJobOutput` in gopherstack, which real
+  AWS does **not** do (real results only ever land in the `OutputLocation` S3
+  bucket, never retrievable via `GetJobOutput`). This is a deliberate,
+  documented deviation forced by the lack of cross-service S3 write-back in
+  this codebase (see the `select_jobs` family note above) — `InitiateJob` and
+  `DescribeJob` still report the correct real-wire `JobOutputPath`/
+  `OutputLocation` fields regardless. Do not "fix" `GetJobOutput` by making it
+  reject select jobs; that would turn a real implementation back into a stub.

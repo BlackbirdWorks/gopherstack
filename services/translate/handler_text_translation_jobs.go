@@ -2,11 +2,69 @@ package translate
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- Translation Jobs ---
+
+// startTextTranslationJobRequired validates the top-level required members of
+// StartTextTranslationJobRequest (DataAccessRoleArn, InputDataConfig,
+// OutputDataConfig, SourceLanguageCode, TargetLanguageCodes -- confirmed
+// against StartTextTranslationJobRequest's "required" list in the smithy
+// model) and InputDataConfig/OutputDataConfig's own required members
+// (S3Uri+ContentType, S3Uri respectively). StartTextTranslationJob models
+// both InvalidRequestException and InvalidParameterValueException; missing
+// structural members use ErrValidation (InvalidRequestException), matching
+// the convention CreateParallelData/UpdateParallelData already use for the
+// same class of "request is incomplete" failure.
+func startTextTranslationJobRequired(
+	dataAccessRoleARN, sourceLang string,
+	targetLangs []string,
+	inputCfg, outputCfg map[string]any,
+) error {
+	if dataAccessRoleARN == "" {
+		return fmt.Errorf("%w: DataAccessRoleArn is required", ErrValidation)
+	}
+
+	if inputCfg == nil || strField(inputCfg, "S3Uri") == "" || strField(inputCfg, "ContentType") == "" {
+		return fmt.Errorf("%w: InputDataConfig.S3Uri and InputDataConfig.ContentType are required", ErrValidation)
+	}
+
+	if outputCfg == nil || strField(outputCfg, "S3Uri") == "" {
+		return fmt.Errorf("%w: OutputDataConfig.S3Uri is required", ErrValidation)
+	}
+
+	if sourceLang == "" {
+		return fmt.Errorf("%w: SourceLanguageCode is required", ErrValidation)
+	}
+
+	if len(targetLangs) == 0 {
+		return fmt.Errorf("%w: TargetLanguageCodes is required", ErrValidation)
+	}
+
+	return nil
+}
+
+// validateLanguagePair rejects a SourceLanguageCode ("auto" always passes --
+// it is resolved per-document at translation time, not a real language code
+// to validate) or target code(s) outside Translate's supported language list
+// (handler_languages.go's knownLanguages, the same list ListLanguages
+// serves).
+func validateLanguagePair(sourceLang string, targetLangs []string) error {
+	if sourceLang != sourceLangAuto && !isKnownLanguageCode(sourceLang) {
+		return fmt.Errorf("%w: source language %q is not supported", ErrUnsupportedLanguagePair, sourceLang)
+	}
+
+	for _, t := range targetLangs {
+		if !isKnownLanguageCode(t) {
+			return fmt.Errorf("%w: target language %q is not supported", ErrUnsupportedLanguagePair, t)
+		}
+	}
+
+	return nil
+}
 
 func (h *Handler) startTextTranslationJob(input map[string]any) (map[string]any, error) {
 	jobName, _ := input["JobName"].(string)
@@ -21,6 +79,23 @@ func (h *Handler) startTextTranslationJob(input map[string]any) (map[string]any,
 	outputCfg, _ := input["OutputDataConfig"].(map[string]any)
 	settings, _ := input["Settings"].(map[string]any)
 	tags := extractTags(input)
+
+	if err := startTextTranslationJobRequired(
+		dataAccessRoleARN, sourceLang, targetLangs, inputCfg, outputCfg,
+	); err != nil {
+		return nil, err
+	}
+
+	if err := validateLanguagePair(sourceLang, targetLangs); err != nil {
+		return nil, err
+	}
+
+	// StartTextTranslationJob's API reference documents "Brevity: not
+	// supported" for batch jobs, unlike TranslateText/TranslateDocument
+	// (handler_translation.go), which both allow Brevity: ON.
+	if err := validSettingsEnums(settings, false); err != nil {
+		return nil, err
+	}
 
 	job, err := h.Backend.StartTextTranslationJob(
 		jobName, dataAccessRoleARN, sourceLang,
@@ -40,7 +115,12 @@ func (h *Handler) startTextTranslationJob(input map[string]any) (map[string]any,
 func (h *Handler) stopTextTranslationJob(input map[string]any) (map[string]any, error) {
 	jobID, _ := input[keyJobID].(string)
 	if jobID == "" {
-		return nil, fmt.Errorf("%w: JobId is required", ErrValidation)
+		// StopTextTranslationJob models neither InvalidRequestException nor
+		// InvalidParameterValueException (api-2.json) -- only
+		// ResourceNotFoundException, TooManyRequestsException, and
+		// InternalServerException -- so an empty JobId surfaces the same way
+		// a well-formed-but-absent one does.
+		return nil, fmt.Errorf("%w: JobId is required", ErrNotFound)
 	}
 
 	job, err := h.Backend.StopTextTranslationJob(jobID)
@@ -57,7 +137,9 @@ func (h *Handler) stopTextTranslationJob(input map[string]any) (map[string]any, 
 func (h *Handler) describeTextTranslationJob(input map[string]any) (map[string]any, error) {
 	jobID, _ := input[keyJobID].(string)
 	if jobID == "" {
-		return nil, fmt.Errorf("%w: JobId is required", ErrValidation)
+		// Same rationale as stopTextTranslationJob above: DescribeTextTranslationJob
+		// has no validation exception modeled at all.
+		return nil, fmt.Errorf("%w: JobId is required", ErrNotFound)
 	}
 
 	job, err := h.Backend.DescribeTextTranslationJob(jobID)
@@ -70,6 +152,18 @@ func (h *Handler) describeTextTranslationJob(input map[string]any) (map[string]a
 	}, nil
 }
 
+// validJobStatusesTable is the JobStatus enum (types.JobStatus), used to
+// validate ListTextTranslationJobs' Filter.JobStatus.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2-style
+var validJobStatusesTable = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		jobStatusSubmitted: true, jobStatusInProgress: true, jobStatusCompleted: true,
+		"COMPLETED_WITH_ERROR": true, jobStatusFailed: true,
+		jobStatusStopRequested: true, jobStatusStopped: true,
+	}
+})
+
 func (h *Handler) listTextTranslationJobs(input map[string]any) (map[string]any, error) {
 	maxResults := maxResultsField(input)
 	nextToken, _ := input["NextToken"].(string)
@@ -77,6 +171,9 @@ func (h *Handler) listTextTranslationJobs(input map[string]any) (map[string]any,
 	var statusFilter string
 	if f, ok := input["Filter"].(map[string]any); ok {
 		statusFilter, _ = f[keyJobStatus].(string)
+		if statusFilter != "" && !validJobStatusesTable()[statusFilter] {
+			return nil, fmt.Errorf("%w: Filter.JobStatus %q is not a valid job status", ErrInvalidFilter, statusFilter)
+		}
 	}
 
 	list, outToken := h.Backend.ListTextTranslationJobs(statusFilter, maxResults, nextToken)

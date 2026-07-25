@@ -12,6 +12,7 @@ import (
 // CreateChannel creates a new channel.
 func (b *InMemoryBackend) CreateChannel(
 	name, channelClass, roleArn string,
+	anywhereSettings ChannelAnywhereSettings,
 	tags map[string]string,
 ) (*Channel, error) {
 	if name == "" {
@@ -22,19 +23,26 @@ func (b *InMemoryBackend) CreateChannel(
 		channelClass = channelClassStandard
 	}
 
-	id := newID()
-	ch := &storedChannel{
-		ARN:          b.channelARN(id),
-		ID:           id,
-		Name:         name,
-		ChannelClass: channelClass,
-		RoleARN:      roleArn,
-		State:        stateIdle,
-		Tags:         copyTags(tags),
-	}
-
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
+
+	if anywhereSettings.ClusterID != "" && !b.clusters.Has(anywhereSettings.ClusterID) {
+		return nil, fmt.Errorf(
+			"%w: cluster %s not found", ErrInvalidParameter, anywhereSettings.ClusterID,
+		)
+	}
+
+	id := newID()
+	ch := &storedChannel{
+		ARN:              b.channelARN(id),
+		ID:               id,
+		Name:             name,
+		ChannelClass:     channelClass,
+		RoleARN:          roleArn,
+		State:            stateIdle,
+		Tags:             copyTags(tags),
+		AnywhereSettings: anywhereSettings,
+	}
 
 	b.channels.Put(ch)
 
@@ -55,7 +63,11 @@ func (b *InMemoryBackend) DescribeChannel(channelID string) (*Channel, error) {
 }
 
 // UpdateChannel updates a channel's mutable fields.
-func (b *InMemoryBackend) UpdateChannel(channelID, name, roleArn string) (*Channel, error) {
+func (b *InMemoryBackend) UpdateChannel(
+	channelID, name, roleArn string,
+	anywhereSettings ChannelAnywhereSettings,
+	hasAnywhereSettings bool,
+) (*Channel, error) {
 	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
 
@@ -70,6 +82,16 @@ func (b *InMemoryBackend) UpdateChannel(channelID, name, roleArn string) (*Chann
 
 	if roleArn != "" {
 		ch.RoleARN = roleArn
+	}
+
+	if hasAnywhereSettings {
+		if anywhereSettings.ClusterID != "" && !b.clusters.Has(anywhereSettings.ClusterID) {
+			return nil, fmt.Errorf(
+				"%w: cluster %s not found", ErrInvalidParameter, anywhereSettings.ClusterID,
+			)
+		}
+
+		ch.AnywhereSettings = anywhereSettings
 	}
 
 	return ch.toChannel(), nil

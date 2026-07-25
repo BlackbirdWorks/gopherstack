@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -72,6 +73,44 @@ func cloneCompilationJob(j *CompilationJob) *CompilationJob {
 	}
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeCompilationJob.
+func (j *CompilationJob) MarshalJSON() ([]byte, error) {
+	type alias CompilationJob
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(j),
+		CreationTime:     epochSeconds(j.CreationTime),
+		LastModifiedTime: epochSeconds(j.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [CompilationJob.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (j *CompilationJob) UnmarshalJSON(data []byte) error {
+	type alias CompilationJob
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(j)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	j.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	j.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateCompilationJob creates a compilation job.

@@ -31,6 +31,17 @@ func (b *InMemoryBackend) clusterParameterGroupsInRegion(region string) []*DBClu
 	return b.clusterParameterGroupsByRegion.Get(region)
 }
 
+// clusterParameterOverridesFor returns (creating if necessary) the parameter
+// override map for a DB cluster parameter group. Callers must hold the write lock.
+func (b *InMemoryBackend) clusterParameterOverridesFor(region, name string) map[string]ParameterValue {
+	key := regionKey(region, name)
+	if b.clusterParameterOverrides[key] == nil {
+		b.clusterParameterOverrides[key] = make(map[string]ParameterValue)
+	}
+
+	return b.clusterParameterOverrides[key]
+}
+
 // clusterParameterGroupARN returns the region-scoped ARN for a Neptune DB cluster parameter group.
 func (b *InMemoryBackend) clusterParameterGroupARN(region, name string) string {
 	return arn.Build("rds", region, b.accountID, "cluster-pg:"+name)
@@ -120,13 +131,16 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(ctx context.Context, nam
 	}
 	b.clusterParameterGroupDelete(region, name)
 	delete(b.tagsStore(region), b.clusterParameterGroupARN(region, name))
+	delete(b.clusterParameterOverrides, regionKey(region, name))
 
 	return nil
 }
 
-// ModifyDBClusterParameterGroup modifies a Neptune DB cluster parameter group.
+// ModifyDBClusterParameterGroup applies parameter value overrides to a
+// Neptune DB cluster parameter group -- see parameter_catalog.go for the
+// validation/storage this now performs (previously a disguised no-op).
 func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
-	ctx context.Context, name string,
+	ctx context.Context, name string, params []ParameterInput,
 ) (*DBClusterParameterGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBClusterParameterGroup")
@@ -139,9 +153,31 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 			name,
 		)
 	}
+	if err := applyParameterInputs(b.clusterParameterOverridesFor(region, name), params); err != nil {
+		return nil, err
+	}
 	cp := *pg
 
 	return &cp, nil
+}
+
+// DescribeDBClusterParameters returns the merged engine-default/user-override
+// parameter list for a Neptune DB cluster parameter group.
+func (b *InMemoryBackend) DescribeDBClusterParameters(
+	ctx context.Context, name string,
+) ([]EngineParameter, error) {
+	region := getRegion(ctx, b.region)
+	b.mu.RLock("DescribeDBClusterParameters")
+	defer b.mu.RUnlock()
+	if !b.clusterParameterGroupHas(region, name) {
+		return nil, fmt.Errorf(
+			"%w: cluster parameter group %s not found",
+			ErrClusterParameterGroupNotFound,
+			name,
+		)
+	}
+
+	return describeParameters(b.clusterParameterOverrides[regionKey(region, name)]), nil
 }
 
 // CopyDBClusterParameterGroup copies a Neptune DB cluster parameter group.
@@ -175,9 +211,11 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 	return &cp, nil
 }
 
-// ResetDBClusterParameterGroup resets a Neptune DB cluster parameter group to its default values.
+// ResetDBClusterParameterGroup resets a Neptune DB cluster parameter group's
+// parameters to their engine-default values -- either all of them (resetAll)
+// or only the named subset.
 func (b *InMemoryBackend) ResetDBClusterParameterGroup(
-	ctx context.Context, name string,
+	ctx context.Context, name string, resetAll bool, params []ParameterInput,
 ) (*DBClusterParameterGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ResetDBClusterParameterGroup")
@@ -189,6 +227,9 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 			ErrClusterParameterGroupNotFound,
 			name,
 		)
+	}
+	if err := resetParameterInputs(b.clusterParameterOverridesFor(region, name), resetAll, params); err != nil {
+		return nil, err
 	}
 	cp := *pg
 

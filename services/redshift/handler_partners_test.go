@@ -29,19 +29,19 @@ func TestHandler_AddPartner(t *testing.T) {
 				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=partner-cluster")
 			},
 			body: "Action=AddPartner&Version=2012-12-01" +
-				"&ClusterIdentifier=partner-cluster&DatabaseName=mydb&PartnerIntegrationId=my-partner",
+				"&ClusterIdentifier=partner-cluster&DatabaseName=mydb&PartnerName=my-partner",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"AddPartnerResponse", "mydb", "my-partner"},
 		},
 		{
 			name:         "missing_cluster_identifier",
-			body:         "Action=AddPartner&Version=2012-12-01&DatabaseName=mydb&PartnerIntegrationId=my-partner",
+			body:         "Action=AddPartner&Version=2012-12-01&DatabaseName=mydb&PartnerName=my-partner",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
 		{
 			name:         "missing_database_name",
-			body:         "Action=AddPartner&Version=2012-12-01&ClusterIdentifier=c1&PartnerIntegrationId=my-partner",
+			body:         "Action=AddPartner&Version=2012-12-01&ClusterIdentifier=c1&PartnerName=my-partner",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
@@ -54,7 +54,7 @@ func TestHandler_AddPartner(t *testing.T) {
 		{
 			name: "cluster_not_found",
 			body: "Action=AddPartner&Version=2012-12-01" +
-				"&ClusterIdentifier=nonexistent&DatabaseName=mydb&PartnerIntegrationId=p1",
+				"&ClusterIdentifier=nonexistent&DatabaseName=mydb&PartnerName=p1",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ClusterNotFound"},
 		},
@@ -171,7 +171,7 @@ func TestAddPartner_ResponseIncludesClusterIdentifier(t *testing.T) {
 		"Action=AddPartner&Version=2012-12-01"+
 			"&ClusterIdentifier=ap-cluster"+
 			"&DatabaseName=mydb"+
-			"&PartnerIntegrationId=mypartner")
+			"&PartnerName=mypartner")
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
@@ -179,6 +179,35 @@ func TestAddPartner_ResponseIncludesClusterIdentifier(t *testing.T) {
 	assert.Contains(t, body, "ap-cluster")
 	assert.Contains(t, body, "mydb")
 	assert.Contains(t, body, "mypartner")
+}
+
+// TestPartner_WireFieldIsPartnerName locks in that the Partner family's request
+// parameter and response element are named "PartnerName" end to end. Before this
+// fix, every Partner op (AddPartner, DeletePartner, DescribePartners,
+// UpdatePartnerStatus) read/wrote a fabricated "PartnerIntegrationId" name that
+// does not exist anywhere in the real aws-sdk-go-v2/service/redshift@v1.62.3 wire
+// shape (confirmed against AddPartnerInput/Output, DescribePartnersInput, and
+// PartnerIntegrationInfo, which all use PartnerName) -- so a real SDK client's
+// PartnerName value was silently dropped on every request, and every response
+// field a real client tried to read came back empty.
+func TestPartner_WireFieldIsPartnerName(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=wire-cluster")
+
+	rec := postRedshiftForm(t, h,
+		"Action=AddPartner&Version=2012-12-01"+
+			"&ClusterIdentifier=wire-cluster&DatabaseName=mydb&PartnerName=wire-partner")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<PartnerName>wire-partner</PartnerName>")
+	assert.NotContains(t, rec.Body.String(), "PartnerIntegrationId")
+
+	rec = postRedshiftForm(t, h,
+		"Action=DescribePartners&Version=2012-12-01&ClusterIdentifier=wire-cluster")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<PartnerName>wire-partner</PartnerName>")
+	assert.NotContains(t, rec.Body.String(), "PartnerIntegrationId")
 }
 
 // ---- DeletePartner ----
@@ -202,24 +231,24 @@ func TestHandler_DeletePartner(t *testing.T) {
 					t,
 					h,
 					"Action=AddPartner&Version=2012-12-01"+
-						"&ClusterIdentifier=dp-cluster&DatabaseName=mydb&PartnerIntegrationId=mypartner",
+						"&ClusterIdentifier=dp-cluster&DatabaseName=mydb&PartnerName=mypartner",
 				)
 			},
 			body: "Action=DeletePartner&Version=2012-12-01" +
-				"&ClusterIdentifier=dp-cluster&DatabaseName=mydb&PartnerIntegrationId=mypartner",
+				"&ClusterIdentifier=dp-cluster&DatabaseName=mydb&PartnerName=mypartner",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DeletePartnerResponse", "dp-cluster"},
 		},
 		{
 			name: "not_found",
 			body: "Action=DeletePartner&Version=2012-12-01" +
-				"&ClusterIdentifier=dp-cluster&DatabaseName=mydb&PartnerIntegrationId=missing",
+				"&ClusterIdentifier=dp-cluster&DatabaseName=mydb&PartnerName=missing",
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "missing_cluster_id",
 			body: "Action=DeletePartner&Version=2012-12-01" +
-				"&ClusterIdentifier=&DatabaseName=mydb&PartnerIntegrationId=mypartner",
+				"&ClusterIdentifier=&DatabaseName=mydb&PartnerName=mypartner",
 			wantCode: http.StatusBadRequest,
 		},
 	}
@@ -273,7 +302,7 @@ func TestHandler_DescribePartners(t *testing.T) {
 				postRedshiftForm(
 					t,
 					h,
-					"Action=AddPartner&Version=2012-12-01&ClusterIdentifier=c2&DatabaseName=db1&PartnerIntegrationId=partner1",
+					"Action=AddPartner&Version=2012-12-01&ClusterIdentifier=c2&DatabaseName=db1&PartnerName=partner1",
 				)
 			},
 			body:         "Action=DescribePartners&Version=2012-12-01&ClusterIdentifier=c2",
@@ -322,24 +351,24 @@ func TestHandler_UpdatePartnerStatus(t *testing.T) {
 					t,
 					h,
 					"Action=AddPartner&Version=2012-12-01"+
-						"&ClusterIdentifier=ups-cluster&DatabaseName=db1&PartnerIntegrationId=partner1",
+						"&ClusterIdentifier=ups-cluster&DatabaseName=db1&PartnerName=partner1",
 				)
 			},
 			body: "Action=UpdatePartnerStatus&Version=2012-12-01" +
-				"&ClusterIdentifier=ups-cluster&DatabaseName=db1&PartnerIntegrationId=partner1&Status=Active&StatusMessage=ok",
+				"&ClusterIdentifier=ups-cluster&DatabaseName=db1&PartnerName=partner1&Status=Active&StatusMessage=ok",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"UpdatePartnerStatusResponse", "ups-cluster"},
 		},
 		{
 			name: "not_found",
 			body: "Action=UpdatePartnerStatus&Version=2012-12-01" +
-				"&ClusterIdentifier=ups-cluster&DatabaseName=db1&PartnerIntegrationId=missing",
+				"&ClusterIdentifier=ups-cluster&DatabaseName=db1&PartnerName=missing",
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "missing_cluster_id",
 			body: "Action=UpdatePartnerStatus&Version=2012-12-01" +
-				"&ClusterIdentifier=&DatabaseName=db1&PartnerIntegrationId=partner1",
+				"&ClusterIdentifier=&DatabaseName=db1&PartnerName=partner1",
 			wantCode: http.StatusBadRequest,
 		},
 	}

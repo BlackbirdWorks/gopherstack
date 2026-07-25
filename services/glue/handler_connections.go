@@ -29,9 +29,12 @@ type createConnectionInput struct {
 }
 
 type connectionInput struct {
-	ConnectionProperties map[string]string `json:"ConnectionProperties,omitempty"`
-	Name                 string            `json:"Name"`
-	ConnectionType       string            `json:"ConnectionType,omitempty"`
+	ConnectionProperties           map[string]string               `json:"ConnectionProperties,omitempty"`
+	PhysicalConnectionRequirements *PhysicalConnectionRequirements `json:"PhysicalConnectionRequirements,omitempty"`
+	Name                           string                          `json:"Name"`
+	ConnectionType                 string                          `json:"ConnectionType,omitempty"`
+	Description                    string                          `json:"Description,omitempty"`
+	MatchCriteria                  []string                        `json:"MatchCriteria,omitempty"`
 }
 
 type createConnectionOutput struct {
@@ -42,11 +45,16 @@ func (h *Handler) handleCreateConnection(
 	_ context.Context,
 	in *createConnectionInput,
 ) (*createConnectionOutput, error) {
-	c, err := h.Backend.CreateConnection(
+	c, err := h.Backend.CreateConnectionWithOptions(
 		in.ConnectionInput.Name,
 		in.ConnectionInput.ConnectionType,
 		in.ConnectionInput.ConnectionProperties,
 		in.Tags,
+		ConnectionOptions{
+			Description:                    in.ConnectionInput.Description,
+			MatchCriteria:                  in.ConnectionInput.MatchCriteria,
+			PhysicalConnectionRequirements: in.ConnectionInput.PhysicalConnectionRequirements,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -158,10 +166,15 @@ func (h *Handler) handleUpdateConnection(
 	_ context.Context,
 	in *updateConnectionInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.UpdateConnection(
+	if err := h.Backend.UpdateConnectionWithOptions(
 		in.Name,
 		in.ConnectionInput.ConnectionType,
 		in.ConnectionInput.ConnectionProperties,
+		ConnectionOptions{
+			Description:                    in.ConnectionInput.Description,
+			MatchCriteria:                  in.ConnectionInput.MatchCriteria,
+			PhysicalConnectionRequirements: in.ConnectionInput.PhysicalConnectionRequirements,
+		},
 	); err != nil {
 		return nil, err
 	}

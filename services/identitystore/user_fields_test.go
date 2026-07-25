@@ -558,12 +558,27 @@ func TestUpdateUserExternalIDs(t *testing.T) {
 				createRec := doRequest(t, h, "CreateUser", map[string]any{
 					"IdentityStoreId": testStoreID,
 					"UserName":        "extid.update",
-					"ExternalIds": []map[string]any{
-						{"Issuer": "okta", "Id": "okta-old-123"},
-					},
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				userID := parseResponse(t, createRec)["UserId"].(string)
+
+				// ExternalIds is not settable via CreateUser (see the doc
+				// comment on createUserRequest in handler_users.go), so the
+				// "old" value being replaced below is seeded via UpdateUser
+				// too, rather than at creation time.
+				seed := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+					"Operations": []map[string]any{
+						{
+							"AttributePath": "externalIds",
+							"AttributeValue": []map[string]any{
+								{"Issuer": "okta", "Id": "okta-old-123"},
+							},
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, seed.Code)
 
 				upd := doRequest(t, h, "UpdateUser", map[string]any{
 					"IdentityStoreId": testStoreID,
@@ -599,12 +614,25 @@ func TestUpdateUserExternalIDs(t *testing.T) {
 				createRec := doRequest(t, h, "CreateUser", map[string]any{
 					"IdentityStoreId": testStoreID,
 					"UserName":        "extid.clear",
-					"ExternalIds": []map[string]any{
-						{"Issuer": "saml", "Id": "saml-xyz"},
-					},
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				userID := parseResponse(t, createRec)["UserId"].(string)
+
+				// ExternalIds is not settable via CreateUser (see the doc
+				// comment on createUserRequest in handler_users.go).
+				seed := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+					"Operations": []map[string]any{
+						{
+							"AttributePath": "externalIds",
+							"AttributeValue": []map[string]any{
+								{"Issuer": "saml", "Id": "saml-xyz"},
+							},
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, seed.Code)
 
 				upd := doRequest(t, h, "UpdateUser", map[string]any{
 					"IdentityStoreId": testStoreID,

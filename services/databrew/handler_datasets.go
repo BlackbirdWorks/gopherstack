@@ -68,6 +68,7 @@ func (h *Handler) handleCreateDataset(ctx context.Context, body []byte) ([]byte,
 	var req struct {
 		FormatOptions DatasetFormatOptions `json:"FormatOptions"`
 		Input         DatasetInput         `json:"Input"`
+		PathOptions   *PathOptions         `json:"PathOptions"`
 		Tags          map[string]string    `json:"Tags"`
 		Name          string               `json:"Name"`
 		Format        string               `json:"Format"`
@@ -75,7 +76,9 @@ func (h *Handler) handleCreateDataset(ctx context.Context, body []byte) ([]byte,
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	ds, err := h.Backend.CreateDataset(ctx, req.Name, req.Format, req.Input, req.FormatOptions, req.Tags)
+	ds, err := h.Backend.CreateDataset(
+		ctx, req.Name, req.Format, req.Input, req.FormatOptions, req.Tags, req.PathOptions,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -115,13 +118,16 @@ func (h *Handler) handleUpdateDataset(ctx context.Context, body []byte) ([]byte,
 	var req struct {
 		FormatOptions DatasetFormatOptions `json:"FormatOptions"`
 		Input         DatasetInput         `json:"Input"`
+		PathOptions   *PathOptions         `json:"PathOptions"`
 		Name          string               `json:"Name"`
 		Format        string               `json:"Format"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.UpdateDataset(ctx, req.Name, req.Format, req.Input, req.FormatOptions); err != nil {
+	if err := h.Backend.UpdateDataset(
+		ctx, req.Name, req.Format, req.Input, req.FormatOptions, req.PathOptions,
+	); err != nil {
 		return nil, err
 	}
 

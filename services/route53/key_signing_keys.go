@@ -2,11 +2,21 @@ package route53
 
 import (
 	"fmt"
+	"regexp"
 	"time"
 )
 
 // kskKey builds the map key for a key signing key.
 func kskKey(hostedZoneID, name string) string { return hostedZoneID + "|" + name }
+
+// reKMSArn matches a well-formed KMS customer managed key ARN, e.g.
+// "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+// or the equivalent "key/mrk-..." multi-region form. Route 53 DNSSEC requires
+// KeyManagementServiceArn to reference a *key* resource specifically (not an
+// alias ARN), across the standard/China/GovCloud partitions.
+var reKMSArn = regexp.MustCompile(
+	`^arn:(aws|aws-cn|aws-us-gov):kms:[a-z0-9-]+:\d{12}:key/[A-Za-z0-9-]+$`,
+)
 
 // CreateKeySigningKey creates a new key signing key for a hosted zone.
 func (b *InMemoryBackend) CreateKeySigningKey(
@@ -25,6 +35,14 @@ func (b *InMemoryBackend) CreateKeySigningKey(
 
 	if _, ok := b.zones.Get(hostedZoneID); !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, hostedZoneID)
+	}
+
+	if !reKMSArn.MatchString(kmsArn) {
+		return nil, fmt.Errorf(
+			"%w: %s is not a valid KMS customer managed key ARN",
+			ErrInvalidKMSArn,
+			kmsArn,
+		)
 	}
 
 	if b.keySigningKeys.Has(kskKey(hostedZoneID, name)) {

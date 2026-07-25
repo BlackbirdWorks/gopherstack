@@ -136,6 +136,7 @@ func (h *Handler) handleCreateCloudFormationChangeSet(
 		CreateCloudFormationChangeSetOptions{
 			Capabilities: createReq.Capabilities,
 			Tags:         createReq.Tags,
+			TemplateID:   createReq.TemplateID,
 		},
 	)
 	if backendErr != nil {

@@ -63,7 +63,9 @@ type disassociateKmsKeyOutput struct{}
 
 // --- GetLogGroupFields ---.
 type getLogGroupFieldsInput struct {
-	LogGroupName string `json:"logGroupName"`
+	Time               *int64 `json:"time"`
+	LogGroupName       string `json:"logGroupName"`
+	LogGroupIdentifier string `json:"logGroupIdentifier"`
 }
 
 type getLogGroupFieldsOutput struct {
@@ -189,7 +191,13 @@ func (h *Handler) handleGetLogGroupFields(ctx context.Context, b []byte) (any, e
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	fields, err := h.Backend.GetLogGroupFields(ctx, input.LogGroupName)
+
+	name := input.LogGroupName
+	if name == "" {
+		name = normalizeLogGroupIdentifier(input.LogGroupIdentifier)
+	}
+
+	fields, err := h.Backend.GetLogGroupFields(ctx, name, input.Time)
 	if err != nil {
 		return nil, err
 	}

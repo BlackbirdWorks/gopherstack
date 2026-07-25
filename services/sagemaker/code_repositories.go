@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -33,6 +34,47 @@ func cloneCodeRepository(r *CodeRepository) *CodeRepository {
 	cp.GitConfig = maps.Clone(r.GitConfig)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeCodeRepository, so the wire
+// timestamp encoding must match the JSON protocol's numeric convention (a
+// real AWS SDK client fails to deserialize a string where it expects a
+// number).
+func (r *CodeRepository) MarshalJSON() ([]byte, error) {
+	type alias CodeRepository
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(r),
+		CreationTime:     epochSeconds(r.CreationTime),
+		LastModifiedTime: epochSeconds(r.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [CodeRepository.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (r *CodeRepository) UnmarshalJSON(data []byte) error {
+	type alias CodeRepository
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(r)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	r.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	r.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateCodeRepository creates a code repository.

@@ -103,6 +103,7 @@ func (b *InMemoryBackend) DeleteVpnConcentrator(id string) (*VpnConcentrator, er
 	vc.State = vpnConcentratorStateDeleted
 	out := cloneVpnConcentrator(vc)
 	b.vpnConcentrators.Delete(id)
+	delete(b.tags, id)
 
 	return out, nil
 }

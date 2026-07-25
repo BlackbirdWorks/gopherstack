@@ -383,11 +383,21 @@ type LoggingOptions struct {
 }
 
 // DatasetContent stores a single content version of an IoT Analytics dataset.
+//
+// ScheduleTime is the time the content generation was scheduled to start (AWS
+// docs: "the time the creation of the dataset contents was scheduled to
+// start", distinct from CreationTime, "the actual time the creation ... was
+// started"). This backend only creates dataset content synchronously via a
+// direct CreateDatasetContent call (there is no background cron-trigger
+// simulation for DatasetTrigger.Schedule), so ScheduleTime is always set
+// equal to CreationTime -- the same behavior AWS exhibits for a manually
+// invoked CreateDatasetContent that wasn't fired by a schedule trigger.
 type DatasetContent struct {
 	VersionID      string  `json:"versionId"`
 	Status         string  `json:"status"`
 	CreationTime   float64 `json:"creationTime"`
 	CompletionTime float64 `json:"completionTime"`
+	ScheduleTime   float64 `json:"scheduleTime"`
 }
 
 // PipelineReprocessing stores state for a single pipeline reprocessing job.
@@ -768,6 +778,16 @@ type datasetContentStatusDTO struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// createDatasetContentRequest is the request body for CreateDatasetContent. AWS docs: "To
+// specify versionId for a dataset content, the dataset must use a DeltaTimer filter" -- this
+// backend accepts an explicit versionId unconditionally (regardless of the dataset's
+// trigger/action configuration) rather than replicating that DeltaTimer-only restriction,
+// since enforcing it would require modeling DeltaTimer-driven dataset content generation
+// this backend does not otherwise simulate.
+type createDatasetContentRequest struct {
+	VersionID string `json:"versionId,omitempty"`
+}
+
 // createDatasetContentResponse is the response for CreateDatasetContent.
 type createDatasetContentResponse struct {
 	VersionID string `json:"versionId"`
@@ -793,6 +813,7 @@ type datasetContentSummary struct {
 	Version        string                   `json:"version"`
 	CreationTime   float64                  `json:"creationTime,omitempty"`
 	CompletionTime float64                  `json:"completionTime,omitempty"`
+	ScheduleTime   float64                  `json:"scheduleTime,omitempty"`
 }
 
 // listDatasetContentsResponse is the response for ListDatasetContents.
@@ -828,8 +849,8 @@ type describeLoggingOptionsResponse struct {
 
 // runPipelineActivityRequest is the request body for RunPipelineActivity.
 type runPipelineActivityRequest struct {
-	PipelineActivity map[string]any `json:"pipelineActivity"`
-	Payloads         [][]byte       `json:"payloads"`
+	PipelineActivity PipelineActivity `json:"pipelineActivity"`
+	Payloads         [][]byte         `json:"payloads"`
 }
 
 // runPipelineActivityResponse is the response for RunPipelineActivity.

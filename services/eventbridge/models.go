@@ -4,10 +4,19 @@ import "time"
 
 // EventBus represents an EventBridge event bus.
 type EventBus struct {
-	CreatedTime time.Time `json:"CreatedTime"`
-	Name        string    `json:"Name"`
-	Arn         string    `json:"Arn"`
-	Description string    `json:"Description,omitempty"`
+	CreatedTime      time.Time `json:"CreatedTime"`
+	LastModifiedTime time.Time `json:"LastModifiedTime,omitzero"`
+	Name             string    `json:"Name"`
+	Arn              string    `json:"Arn"`
+	Description      string    `json:"Description,omitempty"`
+	// Policy is NOT persisted on this struct -- the resource-based policy is
+	// stored separately (InMemoryBackend.busePolicies, keyed by bus) since
+	// EventBusPolicy carries no bus-name field of its own (see store_setup.go's
+	// "What is NOT converted" note). Handlers populate this field at
+	// Describe/List response time by calling GetEventBusPolicy so callers get
+	// the same JSON shape AWS returns (DescribeEventBusOutput.Policy /
+	// types.EventBus.Policy), without a second, driftable source of truth.
+	Policy string `json:"Policy,omitempty"`
 }
 
 // Rule represents an EventBridge rule.
@@ -225,7 +234,16 @@ type PutRuleInput struct {
 	Description        string            `json:"Description,omitempty"`
 	ScheduleExpression string            `json:"ScheduleExpression,omitempty"`
 	RoleArn            string            `json:"RoleArn,omitempty"`
-	ManagedBy          string            `json:"ManagedBy,omitempty"`
+	// ManagedBy is deliberately NOT wire-visible (json:"-"): the real AWS
+	// PutRuleInput has no ManagedBy member at all -- it is a server-populated,
+	// Describe/List-only field (see Rule.ManagedBy / DescribeRuleOutput.ManagedBy).
+	// Exposing it as a settable JSON field let any client forge a rule's
+	// ManagedBy on the public PutRule API, which real AWS never allows. The Go
+	// field itself is kept only as an internal seeding hook for a future
+	// same-process AWS-service integration (e.g. EventBridge Scheduler) that
+	// wants to mark a rule it creates as service-managed; PutRule still rejects
+	// (ManagedRuleException) any attempt to modify a rule that already has one.
+	ManagedBy string `json:"-"`
 }
 
 // FailedEntry describes a target or event that failed to process.
@@ -261,11 +279,22 @@ type Replay struct {
 	EventEndTime    time.Time `json:"EventEndTime,omitzero"`
 	ReplayStartTime time.Time `json:"ReplayStartTime,omitzero"`
 	ReplayEndTime   time.Time `json:"ReplayEndTime,omitzero"`
-	ReplayName      string    `json:"ReplayName"`
-	ReplayArn       string    `json:"ReplayArn"`
-	EventSourceArn  string    `json:"EventSourceArn"`
-	State           string    `json:"State"` // STARTING, RUNNING, CANCELLING, COMPLETED, CANCELLED, FAILED
-	StateReason     string    `json:"StateReason,omitempty"`
+	// Destination is echoed by DescribeReplay (real AWS's DescribeReplayOutput
+	// has a Destination member) but NOT by ListReplays (real AWS's
+	// ListReplaysOutput uses types.Replay, which has no Destination field) --
+	// see handler_replays.go's describeReplayResponse vs replayListResponse.
+	Destination    *ReplayDestination `json:"-"`
+	ReplayName     string             `json:"ReplayName"`
+	ReplayArn      string             `json:"ReplayArn"`
+	EventSourceArn string             `json:"EventSourceArn"`
+	State          string             `json:"State"` // STARTING, RUNNING, CANCELLING, COMPLETED, CANCELLED, FAILED
+	// Description is the free-text description supplied at StartReplay
+	// (StartReplayInput.Description), echoed back by DescribeReplay only --
+	// same Describe-only visibility as Destination, and distinct from
+	// StateReason below (a system-set explanation of the current state, not
+	// the user-supplied description -- these were previously conflated).
+	Description string `json:"-"`
+	StateReason string `json:"StateReason,omitempty"`
 }
 
 // APIDestination represents an EventBridge API destination.
@@ -511,6 +540,11 @@ type UpdateAPIDestinationInput struct {
 // ReplayDestination specifies the destination for a replay.
 type ReplayDestination struct {
 	Arn string `json:"Arn"`
+	// FilterArns restricts replay delivery to only these rule ARNs on the
+	// destination bus. When empty, replayed events are delivered to every
+	// ENABLED rule on the destination bus whose EventPattern matches (AWS's
+	// default "replay to all matching rules" behaviour).
+	FilterArns []string `json:"FilterArns,omitempty"`
 }
 
 // StartReplayInput is the input for StartReplay.
@@ -555,7 +589,7 @@ type EventBusPolicyStatement struct {
 
 // EventBusPolicy is the resource-based policy attached to an event bus.
 type EventBusPolicy struct {
-	Statements map[string]*EventBusPolicyStatement
+	Statements map[string]*EventBusPolicyStatement `json:"Statements"`
 }
 
 // GetEventBusPolicyInput is the input for GetEventBusPolicy.

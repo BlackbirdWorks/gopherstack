@@ -98,10 +98,17 @@ type StorageBackend interface {
 		props map[string]string,
 		tags map[string]string,
 	) (*Connection, error)
+	CreateConnectionWithOptions(
+		name, connType string,
+		props map[string]string,
+		tags map[string]string,
+		opts ConnectionOptions,
+	) (*Connection, error)
 	GetConnection(name string) (*Connection, error)
 	GetConnections() []*Connection
 	DeleteConnection(name string) error
 	UpdateConnection(name string, connType string, props map[string]string) error
+	UpdateConnectionWithOptions(name, connType string, props map[string]string, opts ConnectionOptions) error
 
 	// Batch connection operations.
 	BatchDeleteConnection(names []string) ([]string, []ErrorDetail)
@@ -135,6 +142,7 @@ type StorageBackend interface {
 
 	// Job run operations.
 	StartJobRun(jobName string, arguments map[string]string) (*JobRun, error)
+	StartJobRunWithOptions(jobName string, arguments map[string]string, opts StartJobRunOptions) (*JobRun, error)
 	GetJobRun(jobName, runID string) (*JobRun, error)
 	GetJobRuns(jobName string) ([]*JobRun, error)
 	BatchStopJobRun(jobName string, runIDs []string) []BatchStopJobRunError
@@ -155,9 +163,14 @@ type StorageBackend interface {
 		name, ruleset string,
 		tags map[string]string,
 	) (*DataQualityRuleset, error)
+	CreateDataQualityRulesetWithOptions(
+		name, ruleset string,
+		tags map[string]string,
+		opts DataQualityRulesetOptions,
+	) (*DataQualityRuleset, error)
 	GetDataQualityRuleset(name string) (*DataQualityRuleset, error)
 	DeleteDataQualityRuleset(name string) error
-	UpdateDataQualityRuleset(name, ruleset string) error
+	UpdateDataQualityRuleset(name, ruleset, description string) error
 	ListDataQualityRulesets() []*DataQualityRuleset
 	StartDataQualityRulesetEvaluationRun(rulesetNames []string) (*DataQualityEvaluationRun, error)
 	GetDataQualityRulesetEvaluationRun(runID string) (*DataQualityEvaluationRun, error)
@@ -197,7 +210,7 @@ type StorageBackend interface {
 	DeleteClassifier(name string) error
 
 	// DevEndpoint full CRUD.
-	CreateDevEndpoint(name string) (*DevEndpoint, error)
+	CreateDevEndpoint(name string, input DevEndpointInput, roleArn string, tags map[string]string) (*DevEndpoint, error)
 	GetDevEndpoint(name string) (*DevEndpoint, error)
 	GetAllDevEndpoints() []*DevEndpoint
 	DeleteDevEndpoint(name string) error
@@ -306,7 +319,7 @@ type StorageBackend interface {
 	) error
 
 	// Resource policy operations.
-	PutResourcePolicy(policy, resourceARN, existsCondition, hashCondition string) (string, error)
+	PutResourcePolicy(policy, resourceARN, existsCondition, hashCondition, enableHybrid string) (string, error)
 	GetResourcePolicy(resourceARN string) (string, string, error)
 	DeleteResourcePolicy(resourceARN, policyHash string) error
 	ListResourcePolicies() []*resourcePolicyEntry
@@ -317,6 +330,13 @@ type StorageBackend interface {
 		tables []GlueTable,
 		params MLTransformParameter,
 		tags map[string]string,
+	) (*MLTransform, error)
+	CreateMLTransformWithOptions(
+		name, description, role string,
+		tables []GlueTable,
+		params MLTransformParameter,
+		tags map[string]string,
+		opts MLTransformOptions,
 	) (*MLTransform, error)
 	GetMLTransform(id string) (*MLTransform, error)
 	GetMLTransforms() []*MLTransform
@@ -338,16 +358,16 @@ type StorageBackend interface {
 	DeleteTableVersion(dbName, tableName, versionID string) error
 
 	// DevEndpoint update.
-	UpdateDevEndpoint(name string, args map[string]string) error
+	UpdateDevEndpoint(name string, addArgs map[string]string, deleteArgs []string, opts UpdateDevEndpointOptions) error
 
 	// Data catalog encryption settings.
 	PutDataCatalogEncryptionSettings(catalogID string, settings DataCatalogEncryptionSettings) error
 	GetDataCatalogEncryptionSettings(catalogID string) (*DataCatalogEncryptionSettings, error)
 
 	// Blueprint CRUD (batch 2).
-	CreateBlueprint(name string) error
+	CreateBlueprint(name, blueprintLocation, description string, tags map[string]string) (*Blueprint, error)
 	DeleteBlueprint(name string) error
-	UpdateBlueprint(name string) (*Blueprint, error)
+	UpdateBlueprint(name, blueprintLocation, description string) (*Blueprint, error)
 	ListBlueprints() []string
 
 	// BlueprintRun operations.

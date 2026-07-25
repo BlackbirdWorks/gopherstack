@@ -106,6 +106,13 @@ func TestVpcEndpoints_CreateAndList(t *testing.T) {
 	assert.NotEmpty(t, ep["VpcEndpointId"])
 	assert.Equal(t, "ACTIVE", ep["Status"])
 
+	// VpcOptions on the response is the response-shape VPCDerivedInfo, which
+	// (unlike the request-shape VPCOptions) also carries server-derived
+	// AvailabilityZones/VPCId.
+	vpcOptions := ep["VpcOptions"].(map[string]any)
+	assert.NotEmpty(t, vpcOptions["VPCId"])
+	assert.NotEmpty(t, vpcOptions["AvailabilityZones"])
+
 	// List endpoints — must contain the created one.
 	lr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/vpcEndpoints", nil)
 	defer lr.Body.Close()
@@ -173,6 +180,8 @@ func TestVpcEndpoints_UpdateAndDelete(t *testing.T) {
 	require.NoError(t, json.NewDecoder(del.Body).Decode(&dOut))
 	summary := dOut["VpcEndpointSummary"].(map[string]any)
 	assert.Equal(t, epID, summary["VpcEndpointId"])
+	assert.Equal(t, domARN, summary["DomainArn"])
+	assert.NotEmpty(t, summary["VpcEndpointOwner"])
 
 	// List should now be empty.
 	lr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/vpcEndpoints", nil)
@@ -181,6 +190,54 @@ func TestVpcEndpoints_UpdateAndDelete(t *testing.T) {
 	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
 	eps := lOut["VpcEndpoints"].([]any)
 	assert.Empty(t, eps)
+}
+
+func TestVpcEndpoints_CreateMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "missing_domain_arn",
+			body: map[string]any{"VpcOptions": map[string]any{"SubnetIds": []string{"subnet-1"}}},
+		},
+		{
+			name: "missing_vpc_options",
+			body: map[string]any{"DomainArn": "arn:aws:es:us-east-1:123456789012:domain/x"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/vpcEndpoints", tt.body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		})
+	}
+}
+
+func TestVpcEndpoints_DescribeUnknownIDReturnsEndpointNotFoundError(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	dr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/vpcEndpoints/describe",
+		map[string]any{"VpcEndpointIds": []string{"vpce-nonexistent"}})
+	defer dr.Body.Close()
+	require.Equal(t, http.StatusOK, dr.StatusCode)
+
+	var dOut map[string]any
+	require.NoError(t, json.NewDecoder(dr.Body).Decode(&dOut))
+	errs, ok := dOut["VpcEndpointErrors"].([]any)
+	require.True(t, ok)
+	require.Len(t, errs, 1)
+	assert.Equal(t, "ENDPOINT_NOT_FOUND", errs[0].(map[string]any)["ErrorCode"])
 }
 
 func TestOpenSearchHandler_AuthorizeVpcEndpointAccess(t *testing.T) {

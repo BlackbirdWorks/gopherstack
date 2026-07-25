@@ -238,6 +238,48 @@ func TestQueryErrorResponse(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "AWS.SimpleQueueService.NonExistentQueue")
 }
 
+// TestQueryErrorResponse_LegacyCodes verifies the Query (XML) protocol never
+// leaks the JSON protocol's "com.amazonaws.sqs#"-namespaced __type string
+// into the <Code> element. Before this fix, queryErrorDetails only special-
+// cased ErrQueueNotFound and fell through to the shared JSON-API errorDetails
+// table for every other error, so e.g. PurgeQueueInProgress's Query-protocol
+// <Code> was literally "com.amazonaws.sqs#PurgeQueueInProgress" — a Smithy
+// JSON shape ID that is never valid outside the JSON __type field, even
+// though the correct legacy code ("AWS.SimpleQueueService.
+// PurgeQueueInProgress") was already sitting right there as the sentinel
+// error's own .Error() string in errors.go.
+func TestQueryErrorResponse_LegacyCodes(t *testing.T) {
+	t.Parallel()
+
+	h, b := newHandlerWithBackend(t)
+	qURL := createQueueForTest(t, b, "query-legacy-err")
+
+	// Trigger PurgeQueueInProgress via the backend directly (60s cooldown),
+	// then exercise the same error through the Query protocol handler.
+	require.NoError(t, b.PurgeQueue(&sqs.PurgeQueueInput{QueueURL: qURL}))
+
+	rec := doQueryRequest(t, h, url.Values{
+		"Action":   {"PurgeQueue"},
+		"QueueUrl": {qURL},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "AWS.SimpleQueueService.PurgeQueueInProgress")
+	assert.NotContains(t, rec.Body.String(), "com.amazonaws.sqs#",
+		"Query/XML protocol must never contain a JSON-protocol namespaced error code")
+
+	// QueueDeletedRecently: delete then immediately recreate via Query protocol.
+	require.NoError(t, b.DeleteQueue(&sqs.DeleteQueueInput{QueueURL: qURL}))
+
+	rec = doQueryRequest(t, h, url.Values{
+		"Action":    {"CreateQueue"},
+		"QueueName": {"query-legacy-err"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "AWS.SimpleQueueService.QueueDeletedRecently")
+	assert.NotContains(t, rec.Body.String(), "com.amazonaws.sqs#",
+		"Query/XML protocol must never contain a JSON-protocol namespaced error code")
+}
+
 func TestQueryUnknownActionError(t *testing.T) {
 	t.Parallel()
 

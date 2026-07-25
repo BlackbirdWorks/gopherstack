@@ -15,7 +15,9 @@ func TestBlueprint_CRUD(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create
-	rec := doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": "my-bp"})
+	rec := doGlueRequest(
+		t, h, "CreateBlueprint", map[string]any{"Name": "my-bp", "BlueprintLocation": "s3://bucket/my-bp"},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetBlueprint returns it
@@ -28,7 +30,9 @@ func TestBlueprint_CRUD(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "my-bp")
 
 	// UpdateBlueprint
-	rec = doGlueRequest(t, h, "UpdateBlueprint", map[string]any{"Name": "my-bp"})
+	rec = doGlueRequest(
+		t, h, "UpdateBlueprint", map[string]any{"Name": "my-bp", "BlueprintLocation": "s3://bucket/my-bp"},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// DeleteBlueprint
@@ -42,7 +46,7 @@ func TestBlueprintRun(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create a blueprint first
-	doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": "run-bp"})
+	doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": "run-bp", "BlueprintLocation": "s3://bucket/run-bp"})
 
 	// Start a run
 	rec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": "run-bp"})
@@ -88,7 +92,11 @@ func TestBlueprint_GetNotFound(t *testing.T) {
 
 			h := newTestHandler(t)
 			if tt.create {
-				rec := doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": tt.bpName})
+				body := map[string]any{
+					"Name":              tt.bpName,
+					"BlueprintLocation": "s3://bucket/" + tt.bpName,
+				}
+				rec := doGlueRequest(t, h, "CreateBlueprint", body)
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
@@ -131,11 +139,12 @@ func TestBlueprint_UpdateNotFound(t *testing.T) {
 
 			h := newTestHandler(t)
 			bpName := "upd-bp-" + tt.name
+			body := map[string]any{"Name": bpName, "BlueprintLocation": "s3://bucket/" + bpName}
 			if tt.create {
-				doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": bpName})
+				doGlueRequest(t, h, "CreateBlueprint", body)
 			}
 
-			rec := doGlueRequest(t, h, "UpdateBlueprint", map[string]any{"Name": bpName})
+			rec := doGlueRequest(t, h, "UpdateBlueprint", body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if tt.wantError != "" {
 				assert.Contains(t, rec.Body.String(), tt.wantError)
@@ -175,7 +184,8 @@ func TestBlueprint_DeleteNotFound(t *testing.T) {
 			h := newTestHandler(t)
 			bpName := "del-bp-" + tt.name
 			if tt.create {
-				doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": bpName})
+				createBody := map[string]any{"Name": bpName, "BlueprintLocation": "s3://bucket/" + bpName}
+				doGlueRequest(t, h, "CreateBlueprint", createBody)
 			}
 
 			rec := doGlueRequest(t, h, "DeleteBlueprint", map[string]any{"Name": bpName})
@@ -218,7 +228,8 @@ func TestStartBlueprintRun_NotFound(t *testing.T) {
 			h := newTestHandler(t)
 			bpName := "run-bp-" + tt.name
 			if tt.create {
-				doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": bpName})
+				createBody := map[string]any{"Name": bpName, "BlueprintLocation": "s3://bucket/" + bpName}
+				doGlueRequest(t, h, "CreateBlueprint", createBody)
 			}
 
 			rec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": bpName})
@@ -259,7 +270,8 @@ func TestCreateBlueprint_NameRequired(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": tt.bpName})
+			body := map[string]any{"Name": tt.bpName, "BlueprintLocation": "s3://bucket/" + tt.bpName}
+			rec := doGlueRequest(t, h, "CreateBlueprint", body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if tt.wantError != "" {
 				assert.Contains(t, rec.Body.String(), tt.wantError)
@@ -281,7 +293,7 @@ func TestBlueprint_CRUD_Full(t *testing.T) {
 		{
 			name:        "create",
 			op:          "CreateBlueprint",
-			body:        map[string]any{"Name": "bp1"},
+			body:        map[string]any{"Name": "bp1", "BlueprintLocation": "s3://bucket/bp1"},
 			wantCode:    http.StatusOK,
 			skipPreSeed: true,
 		},
@@ -300,7 +312,7 @@ func TestBlueprint_CRUD_Full(t *testing.T) {
 		{
 			name:     "update",
 			op:       "UpdateBlueprint",
-			body:     map[string]any{"Name": "bp1"},
+			body:     map[string]any{"Name": "bp1", "BlueprintLocation": "s3://bucket/bp1"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -323,7 +335,8 @@ func TestBlueprint_CRUD_Full(t *testing.T) {
 
 			h := newTestHandler(t)
 			if !tt.skipPreSeed {
-				doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": "bp1"})
+				body := map[string]any{"Name": "bp1", "BlueprintLocation": "s3://bucket/bp1"}
+				doGlueRequest(t, h, "CreateBlueprint", body)
 			}
 
 			rec := doGlueRequest(t, h, tt.op, tt.body)
@@ -336,7 +349,7 @@ func TestBlueprint_Run_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": "bp-run"})
+	doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": "bp-run", "BlueprintLocation": "s3://bucket/bp-run"})
 
 	startBpRec1 := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": "bp-run"})
 	require.Equal(t, http.StatusOK, startBpRec1.Code)

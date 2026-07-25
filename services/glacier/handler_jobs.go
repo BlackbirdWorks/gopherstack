@@ -33,9 +33,14 @@ func (h *Handler) handleInitiateJob(c *echo.Context, vaultName string, body []by
 	c.Response().Header().Set("X-Amz-Job-Id", j.JobID)
 	c.Response().Header().Set("Location", location)
 
+	if j.JobOutputPath != "" {
+		c.Response().Header().Set("X-Amz-Job-Output-Path", j.JobOutputPath)
+	}
+
 	return c.JSON(http.StatusAccepted, initiateJobResponse{
-		JobID:    j.JobID,
-		Location: location,
+		JobID:         j.JobID,
+		Location:      location,
+		JobOutputPath: j.JobOutputPath,
 	})
 }
 
@@ -161,25 +166,60 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 
 	c.Response().Header().Set("Accept-Ranges", "bytes")
 
-	if j.Action == jobTypeInventoryRetrieval {
+	switch j.Action {
+	case jobTypeInventoryRetrieval:
 		return h.handleInventoryJobOutput(c, j, vaultName)
+	case jobTypeSelect:
+		return h.handleSelectJobOutput(c, j)
+	default:
+		return h.handleArchiveJobOutput(c, j)
 	}
-
-	return h.handleArchiveJobOutput(c, j)
 }
 
-// handleInventoryJobOutput returns the vault inventory as JSON or CSV.
+// handleInventoryJobOutput returns the vault inventory as JSON or CSV, applying the
+// job's (optional) range-inventory-retrieval StartDate/EndDate/Marker/Limit filters.
 func (h *Handler) handleInventoryJobOutput(c *echo.Context, j *Job, vaultName string) error {
 	archives, listErr := h.Backend.ListArchives(h.AccountID, h.DefaultRegion, vaultName)
 	if listErr != nil {
 		archives = []*Archive{} // degrade gracefully
 	}
 
+	archives = filterArchivesForInventory(j, archives)
+
 	if j.InventoryFormat != "" && j.InventoryFormat != defaultInventoryFormat {
 		return h.writeInventoryCSV(c, j, vaultName, archives)
 	}
 
 	return h.writeInventoryJSON(c, j, vaultName, archives)
+}
+
+// handleSelectJobOutput executes the select job's SQL expression against the
+// retrieved archive and serves the (real, not stubbed -- see select.go's package doc)
+// result. Real AWS never serves select results via GetJobOutput (they go to S3); this
+// is a documented gopherstack-specific delivery path in lieu of cross-service S3
+// write-back.
+func (h *Handler) handleSelectJobOutput(c *echo.Context, j *Job) error {
+	data, hasData := h.Backend.GetArchiveData(j.ArchiveID)
+	if !hasData {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "Archive not found")
+	}
+
+	result, err := executeSelect(data, j.SelectParameters)
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
+	c.Response().Header().Set("Content-Type", "text/csv")
+
+	if len(result) == 0 {
+		c.Response().Header().Set("Content-Range", "bytes 0-0/0")
+	} else {
+		c.Response().
+			Header().
+			Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(result)-1, len(result)))
+	}
+
+	return h.serveWithRange(c, result)
 }
 
 func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, vaultName string, archives []*Archive) error {
@@ -377,7 +417,6 @@ func toDescribeJobResponse(j *Job) describeJobResponse {
 		JobDescription:     j.JobDescription,
 		Action:             j.Action,
 		ArchiveID:          j.ArchiveID,
-		InventoryFormat:    j.InventoryFormat,
 		VaultARN:           j.VaultARN,
 		CreationDate:       j.CreationDate,
 		Completed:          j.Completed,
@@ -386,6 +425,9 @@ func toDescribeJobResponse(j *Job) describeJobResponse {
 		Tier:               j.Tier,
 		SNSTopic:           j.SNSTopic,
 		RetrievalByteRange: j.RetrievalByteRange,
+		JobOutputPath:      j.JobOutputPath,
+		OutputLocation:     j.OutputLocation,
+		SelectParameters:   j.SelectParameters,
 	}
 
 	if j.ArchiveSizeInBytes > 0 {
@@ -408,6 +450,19 @@ func toDescribeJobResponse(j *Job) describeJobResponse {
 
 	if j.Completed {
 		resp.CompletionDate = j.CompletionDate
+	}
+
+	// InventoryRetrievalParameters is only ever non-null for InventoryRetrieval jobs
+	// on the real wire; this replaces the invented top-level "Format" field the
+	// response DTO used to carry (see PARITY.md).
+	if j.Action == jobTypeInventoryRetrieval {
+		resp.InventoryRetrievalParameters = &inventoryRetrievalJobDescriptionResponse{
+			StartDate: j.InventoryRetrievalStartDate,
+			EndDate:   j.InventoryRetrievalEndDate,
+			Format:    j.InventoryFormat,
+			Limit:     j.InventoryRetrievalLimit,
+			Marker:    j.InventoryRetrievalMarker,
+		}
 	}
 
 	return resp

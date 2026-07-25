@@ -42,15 +42,26 @@ func (b *InMemoryBackend) GetAccessPointForObjectLambda(
 	return ap, nil
 }
 
-// DeleteAccessPointForObjectLambda removes an Object Lambda access point.
+// DeleteAccessPointForObjectLambda removes an Object Lambda access point and
+// cascade-cleans its policy, configuration, and generic resource tags so a
+// delete/recreate cycle under the same name never resurfaces stale state.
 func (b *InMemoryBackend) DeleteAccessPointForObjectLambda(accountID, name string) error {
 	b.mu.Lock("DeleteAccessPointForObjectLambda")
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if !b.objectLambdaAccessPoints.Delete(key) {
+
+	ap, ok := b.objectLambdaAccessPoints.Get(key)
+	if !ok {
 		return fmt.Errorf("%w: %s", errObjectLambdaAPNotFound, name)
 	}
+
+	arn := ap.ObjectLambdaAccessPointArn
+
+	b.objectLambdaAccessPoints.Delete(key)
+	delete(b.objectLambdaAPPolicies, key)
+	delete(b.objectLambdaAPConfigs, key)
+	delete(b.resourceTags, arn)
 
 	return nil
 }

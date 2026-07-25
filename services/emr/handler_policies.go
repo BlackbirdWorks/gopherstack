@@ -10,8 +10,13 @@ type getAutoTerminationPolicyInput struct {
 	ClusterID string `json:"ClusterId"`
 }
 
+// getAutoTerminationPolicyOutput mirrors GetAutoTerminationPolicyOutput.
+// AutoTerminationPolicy is a pointer with omitempty: real AWS omits the
+// field entirely (rather than sending a zero-valued object) when no policy
+// is attached, so a real client's output.AutoTerminationPolicy is nil in
+// that case -- sending {"IdleTimeout":0} would make it non-nil instead.
 type getAutoTerminationPolicyOutput struct {
-	AutoTerminationPolicy AutoTerminationPolicy `json:"AutoTerminationPolicy"`
+	AutoTerminationPolicy *AutoTerminationPolicy `json:"AutoTerminationPolicy,omitempty"`
 }
 
 func (h *Handler) handleGetAutoTerminationPolicy(
@@ -23,11 +28,7 @@ func (h *Handler) handleGetAutoTerminationPolicy(
 		return nil, err
 	}
 
-	if policy == nil {
-		return &getAutoTerminationPolicyOutput{AutoTerminationPolicy: AutoTerminationPolicy{}}, nil
-	}
-
-	return &getAutoTerminationPolicyOutput{AutoTerminationPolicy: *policy}, nil
+	return &getAutoTerminationPolicyOutput{AutoTerminationPolicy: policy}, nil
 }
 
 // --- GetManagedScalingPolicy ---
@@ -36,8 +37,11 @@ type getManagedScalingPolicyInput struct {
 	ClusterID string `json:"ClusterId"`
 }
 
+// getManagedScalingPolicyOutput mirrors GetManagedScalingPolicyOutput; see
+// getAutoTerminationPolicyOutput for why ManagedScalingPolicy must be a
+// pointer with omitempty rather than a zero-valued struct.
 type getManagedScalingPolicyOutput struct {
-	ManagedScalingPolicy ManagedScalingPolicy `json:"ManagedScalingPolicy"`
+	ManagedScalingPolicy *ManagedScalingPolicy `json:"ManagedScalingPolicy,omitempty"`
 }
 
 func (h *Handler) handleGetManagedScalingPolicy(
@@ -49,11 +53,7 @@ func (h *Handler) handleGetManagedScalingPolicy(
 		return nil, err
 	}
 
-	if policy == nil {
-		return &getManagedScalingPolicyOutput{ManagedScalingPolicy: ManagedScalingPolicy{}}, nil
-	}
-
-	return &getManagedScalingPolicyOutput{ManagedScalingPolicy: *policy}, nil
+	return &getManagedScalingPolicyOutput{ManagedScalingPolicy: policy}, nil
 }
 
 // --- PutManagedScalingPolicy ---

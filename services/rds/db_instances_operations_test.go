@@ -155,6 +155,54 @@ func TestCreateDBInstance_IdentifierValidation(t *testing.T) {
 	}
 }
 
+// TestCreateDBInstance_EngineValidation verifies that CreateDBInstance
+// rejects an Engine value that isn't one of the values
+// aws-sdk-go-v2's CreateDBInstanceInput documents as valid (real AWS
+// returns InvalidParameterValue for an unsupported engine), while every
+// documented value -- including the less common RDS Custom / Db2 / SQL
+// Server engines, not just the handful this emulator's DescribeDBEngineVersions
+// catalog seeds -- is accepted.
+func TestCreateDBInstance_EngineValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		engine     string
+		wantStatus int
+	}{
+		{name: "valid_postgres", engine: "postgres", wantStatus: http.StatusOK},
+		{name: "valid_mysql", engine: "mysql", wantStatus: http.StatusOK},
+		{name: "valid_mariadb", engine: "mariadb", wantStatus: http.StatusOK},
+		{name: "valid_aurora_mysql", engine: "aurora-mysql", wantStatus: http.StatusOK},
+		{name: "valid_aurora_postgresql", engine: "aurora-postgresql", wantStatus: http.StatusOK},
+		{name: "valid_oracle_ee", engine: "oracle-ee", wantStatus: http.StatusOK},
+		{name: "valid_sqlserver_ee", engine: "sqlserver-ee", wantStatus: http.StatusOK},
+		{name: "valid_db2_se", engine: "db2-se", wantStatus: http.StatusOK},
+		{name: "invalid_made_up_engine", engine: "not-a-real-engine", wantStatus: http.StatusBadRequest},
+		{name: "invalid_engine_class_confusion", engine: "db.t3.micro", wantStatus: http.StatusBadRequest},
+		{name: "invalid_cluster_only_engine_neptune", engine: "neptune", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAccuracyRDSHandler()
+			rec := doAccuracyRDS(t, h, url.Values{
+				"Action":               {"CreateDBInstance"},
+				"Version":              {"2014-10-31"},
+				"DBInstanceIdentifier": {"engine-validation-db"},
+				"Engine":               {tt.engine},
+				"MasterUsername":       {"admin"},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code, "engine=%q body=%s", tt.engine, rec.Body.String())
+			if tt.wantStatus == http.StatusBadRequest {
+				assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+			}
+		})
+	}
+}
+
 // TestCreateDBInstance_AllocatedStorageBound verifies that CreateDBInstance
 // rejects an out-of-range AllocatedStorage (AWS bound: 20–65536 GiB) and
 // accepts in-range values.
@@ -238,6 +286,113 @@ func TestRDS_CreateDBInstance_IdentifierValidation(t *testing.T) {
 			if tt.wantErrorContain != "" {
 				assert.Contains(t, rec.Body.String(), tt.wantErrorContain)
 			}
+		})
+	}
+}
+
+// TestCreateDBInstance_CaseInsensitiveIdentifier asserts that
+// DBInstanceIdentifier is treated as a case-insensitive persistent handle,
+// matching real AWS (which lower-cases identifiers internally): creating
+// "MyCaseDB" then "mycasedb" must collide with DBInstanceAlreadyExistsFault,
+// and every subsequent lookup (Describe, Delete) must find the resource
+// regardless of the casing used, while the wire response keeps echoing the
+// identifier's original, as-created casing.
+func TestCreateDBInstance_CaseInsensitiveIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		name      string
+		setupID   string
+		actionID  string
+		action    string
+		wantErr   bool
+	}{
+		{
+			name:      "create_collides_on_lowercased_duplicate",
+			setupID:   "MyCaseDB",
+			actionID:  "mycasedb",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrInstanceAlreadyExists,
+		},
+		{
+			name:      "create_collides_on_uppercased_duplicate",
+			setupID:   "lowercase-db",
+			actionID:  "LOWERCASE-DB",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrInstanceAlreadyExists,
+		},
+		{
+			name:      "create_collides_on_mixed_case_duplicate",
+			setupID:   "Mixed-Case-DB",
+			actionID:  "MIXED-case-db",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrInstanceAlreadyExists,
+		},
+		{
+			name:     "create_distinct_id_does_not_collide",
+			setupID:  "some-db",
+			actionID: "some-other-db",
+			action:   "create",
+		},
+		{
+			name:     "describe_finds_resource_under_different_case",
+			setupID:  "FindMe-DB",
+			actionID: "findme-db",
+			action:   "describe",
+		},
+		{
+			name:     "delete_removes_resource_under_different_case",
+			setupID:  "DeleteMe-DB",
+			actionID: "deleteme-db",
+			action:   "delete",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			_, err := b.CreateDBInstance(
+				tt.setupID, "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{},
+			)
+			require.NoError(t, err)
+
+			switch tt.action {
+			case "create":
+				_, err = b.CreateDBInstance(
+					tt.actionID, "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{},
+				)
+			case "describe":
+				var insts []rds.DBInstance
+				insts, err = b.DescribeDBInstances(tt.actionID)
+				if err == nil {
+					require.Len(t, insts, 1)
+					// The wire response must keep echoing the ORIGINAL
+					// caller-supplied casing from creation time, not the
+					// (lowercased) lookup key or the differently-cased
+					// identifier this Describe call was invoked with.
+					assert.Equal(t, tt.setupID, insts[0].DBInstanceIdentifier)
+				}
+			case "delete":
+				_, err = b.DeleteDBInstance(tt.actionID)
+				if err == nil {
+					_, describeErr := b.DescribeDBInstances(tt.setupID)
+					require.ErrorIs(t, describeErr, rds.ErrInstanceNotFound)
+				}
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, tt.wantErrIs)
+
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

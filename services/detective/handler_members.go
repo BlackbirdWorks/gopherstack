@@ -257,14 +257,16 @@ func memberDetailsToJSON(members []*MemberDetail) []map[string]any {
 	result := make([]map[string]any, 0, len(members))
 	for _, m := range members {
 		result = append(result, map[string]any{
-			keyAccountID:      m.AccountID,
-			"AdministratorId": m.AdministratorID,
-			"EmailAddress":    m.EmailAddress,
-			keyGraphArn:       m.GraphARN,
-			"InvitedTime":     m.InvitedTime.Format("2006-01-02T15:04:05.000Z"),
-			"MasterId":        m.AdministratorID,
-			keyStatusField:    m.Status,
-			"UpdatedTime":     m.UpdatedTime.Format("2006-01-02T15:04:05.000Z"),
+			keyAccountID:                     m.AccountID,
+			"AdministratorId":                m.AdministratorID,
+			keyDatasourcePackageIngestStates: m.DatasourcePackageIngestStates,
+			"EmailAddress":                   m.EmailAddress,
+			keyGraphArn:                      m.GraphARN,
+			"InvitationType":                 m.InvitationType,
+			"InvitedTime":                    m.InvitedTime.Format("2006-01-02T15:04:05.000Z"),
+			"MasterId":                       m.AdministratorID,
+			keyStatusField:                   m.Status,
+			"UpdatedTime":                    m.UpdatedTime.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 
@@ -276,7 +278,7 @@ func unprocessedToJSON(accounts []UnprocessedAccount) []map[string]any {
 	for _, a := range accounts {
 		result = append(result, map[string]any{
 			keyAccountID: a.AccountID,
-			"Reason":     a.Reason,
+			keyReason:    a.Reason,
 		})
 	}
 

@@ -28,7 +28,6 @@ const (
 	cwDefaultDescribeInsightRulesLimit      = 100
 	cwDefaultDescribeAlarmContributorsLimit = 100
 	cwDefaultListMetricStreamsLimit         = 500
-	cwDefaultDescribeMetricFiltersLimit     = 50
 	cwDefaultListAlarmMuteRulesLimit        = 100
 	cwDefaultListManagedInsightRulesLimit   = 100
 	cwMaxMetricDataPoints                   = 1000 // maximum data points retained per metric
@@ -71,7 +70,6 @@ type InMemoryBackend struct {
 	insightRules     *store.Table[InsightRule]
 	metricStreams    *store.Table[MetricStream]
 	alarmMuteRules   *store.Table[AlarmMuteRule]
-	metricFilters    *store.Table[MetricFilter]
 	registry         *store.Registry
 	snsPublisher     SNSPublisher
 	lambdaInvoker    LambdaInvoker

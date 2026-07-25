@@ -66,6 +66,11 @@ func copyDataLakeSettings(s *DataLakeSettings) *DataLakeSettings {
 		copy(cp.AuthorizedSessionTagValueList, s.AuthorizedSessionTagValueList)
 	}
 
+	if s.ExternalDataFilteringAllowList != nil {
+		cp.ExternalDataFilteringAllowList = make([]DataLakePrincipal, len(s.ExternalDataFilteringAllowList))
+		copy(cp.ExternalDataFilteringAllowList, s.ExternalDataFilteringAllowList)
+	}
+
 	return cp
 }
 

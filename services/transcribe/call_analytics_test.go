@@ -540,3 +540,77 @@ func TestHTTP_CallAnalyticsCategory(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 	assert.Contains(t, listRec.Body.String(), "test-cat")
 }
+
+// TestCallAnalyticsCategory_CreateTimeAndLastUpdateTimeEchoed verifies
+// CategoryProperties includes CreateTime and LastUpdateTime, real fields
+// gopherstack previously dropped from Create/Get/Update/List responses.
+func TestCallAnalyticsCategory_CreateTimeAndLastUpdateTimeEchoed(t *testing.T) {
+	t.Parallel()
+
+	h := newTestTranscribeHandler(t)
+
+	createRec := doTranscribeRequest(t, h, "CreateCallAnalyticsCategory", map[string]any{
+		"CategoryName": "time-fields-cat",
+		"InputType":    "POST_CALL",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+	var createRaw struct {
+		CategoryProperties map[string]json.RawMessage `json:"CategoryProperties"`
+	}
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createRaw))
+
+	for _, field := range []string{"CreateTime", "LastUpdateTime"} {
+		val, ok := createRaw.CategoryProperties[field]
+		require.True(t, ok, "expected field %s in CreateCallAnalyticsCategory response", field)
+
+		var num json.Number
+		require.NoError(t, json.Unmarshal(val, &num), "field %s must be a JSON number (epoch seconds)", field)
+	}
+
+	updateRec := doTranscribeRequest(t, h, "UpdateCallAnalyticsCategory", map[string]any{
+		"CategoryName": "time-fields-cat",
+		"InputType":    "POST_CALL",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updateRaw struct {
+		CategoryProperties map[string]json.RawMessage `json:"CategoryProperties"`
+	}
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateRaw))
+	assert.Contains(t, updateRaw.CategoryProperties, "LastUpdateTime")
+}
+
+// TestListCallAnalyticsJobs_JobNameContainsAndStartTime verifies the JobNameContains
+// filter and that StartTime is present in each summary, matching the real
+// ListCallAnalyticsJobsInput/CallAnalyticsJobSummary fields.
+func TestListCallAnalyticsJobs_JobNameContainsAndStartTime(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	h := transcribe.NewHandler(b)
+
+	for _, name := range []string{"support-call-1", "support-call-2", "sales-call-1"} {
+		rec := doTranscribeRequest(t, h, "StartCallAnalyticsJob", map[string]any{
+			"CallAnalyticsJobName": name,
+			"DataAccessRoleArn":    "arn:aws:iam::123456789012:role/transcribe",
+			"Media":                map[string]any{"MediaFileUri": "s3://bucket/call.mp3"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	list, _ := b.ListCallAnalyticsJobs("", "support", "")
+	require.Len(t, list, 2)
+
+	listRec := doTranscribeRequest(t, h, "ListCallAnalyticsJobs", map[string]any{
+		"JobNameContains": "sales",
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var raw struct {
+		CallAnalyticsJobSummaries []map[string]json.RawMessage `json:"CallAnalyticsJobSummaries"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+	require.Len(t, raw.CallAnalyticsJobSummaries, 1)
+	assert.Contains(t, raw.CallAnalyticsJobSummaries[0], "StartTime")
+}

@@ -32,9 +32,12 @@ func (h *Handler) iamSAMLProviderDispatchTable() map[string]iamActionFn {
 			}, nil
 		},
 		"DeleteSAMLProvider": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.DeleteSAMLProvider(vals.Get("SAMLProviderArn")); err != nil {
+			arn := vals.Get("SAMLProviderArn")
+			if err := h.Backend.DeleteSAMLProvider(arn); err != nil {
 				return nil, err
 			}
+
+			h.deleteTags("saml:" + arn)
 
 			return &DeleteSAMLProviderResponse{
 				Xmlns:            iamXMLNS,
@@ -125,9 +128,12 @@ func (h *Handler) iamOIDCProviderDispatchTable() map[string]iamActionFn {
 			}, nil
 		},
 		"DeleteOpenIDConnectProvider": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.DeleteOpenIDConnectProvider(vals.Get("OpenIDConnectProviderArn")); err != nil {
+			arn := vals.Get("OpenIDConnectProviderArn")
+			if err := h.Backend.DeleteOpenIDConnectProvider(arn); err != nil {
 				return nil, err
 			}
+
+			h.deleteTags("oidc:" + arn)
 
 			return &DeleteOpenIDConnectProviderResponse{
 				Xmlns:            iamXMLNS,

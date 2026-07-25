@@ -8,7 +8,7 @@ type StorageBackend interface {
 	CreatePolicyStore(
 		description string,
 		tags map[string]string,
-		validationMode, deletionProtection string,
+		validationMode, deletionProtection, clientToken string,
 	) (*PolicyStore, error)
 	GetPolicyStore(policyStoreID string) (*PolicyStore, error)
 	ListPolicyStores(nextToken string, maxResults int) ([]PolicyStore, string)
@@ -24,7 +24,8 @@ type StorageBackend interface {
 	) ([]Policy, string, error)
 	UpdatePolicy(policyStoreID, policyID string, params UpdatePolicyParams) (*Policy, error)
 	DeletePolicy(policyStoreID, policyID string) error
-	CreatePolicyTemplate(policyStoreID, description, statement string) (*PolicyTemplate, error)
+	PolicyScope(p *Policy) *PolicyScopeResult
+	CreatePolicyTemplate(policyStoreID, description, statement, clientToken string) (*PolicyTemplate, error)
 	GetPolicyTemplate(policyStoreID, policyTemplateID string) (*PolicyTemplate, error)
 	ListPolicyTemplates(policyStoreID, nextToken string, maxResults int) ([]PolicyTemplate, string, error)
 	UpdatePolicyTemplate(policyStoreID, policyTemplateID, description, statement string) (*PolicyTemplate, error)
@@ -38,7 +39,11 @@ type StorageBackend interface {
 	BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPolicyResult
 	BatchIsAuthorized(policyStoreID string, requests []AuthorizationRequest) ([]AuthDecision, error)
 	BatchIsAuthorizedWithToken(policyStoreID string, requests []AuthorizationRequest) ([]AuthDecision, error)
-	CreateIdentitySource(policyStoreID, principalEntityType string, cfg IdentitySourceConfig) (*IdentitySource, error)
+	CreateIdentitySource(
+		policyStoreID, principalEntityType string,
+		cfg IdentitySourceConfig,
+		clientToken string,
+	) (*IdentitySource, error)
 	GetIdentitySource(policyStoreID, identitySourceID string) (*IdentitySource, error)
 	DeleteIdentitySource(policyStoreID, identitySourceID string) error
 	ListIdentitySources(

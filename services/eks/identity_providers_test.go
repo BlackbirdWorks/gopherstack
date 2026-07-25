@@ -24,6 +24,7 @@ func TestEKS_IdentityProviderConfig_Lifecycle(t *testing.T) {
 		"my-oidc",
 		map[string]string{"issuerUrl": "https://oidc.example.com"},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -176,7 +177,7 @@ func TestOIDC_AssociateAndDescribe(t *testing.T) {
 		"clientId":      "my-client-id",
 		"usernameClaim": "email",
 	}
-	cfg, err := b.AssociateIdentityProviderConfig("oidc-cluster", "oidc", "my-client-id", params, nil)
+	cfg, err := b.AssociateIdentityProviderConfig("oidc-cluster", "oidc", "my-client-id", params, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "oidc", cfg.Type)
 	assert.Equal(t, "my-client-id", cfg.Name)
@@ -193,7 +194,7 @@ func TestOIDC_List(t *testing.T) {
 	mustCreateClusterNoVpc(t, b, "oidc-list-cluster")
 
 	_, _ = b.AssociateIdentityProviderConfig("oidc-list-cluster", "oidc", "client-a",
-		map[string]string{"clientId": "client-a"}, nil)
+		map[string]string{"clientId": "client-a"}, nil, nil)
 
 	configs, err := b.ListIdentityProviderConfigs("oidc-list-cluster")
 	require.NoError(t, err)
@@ -208,7 +209,7 @@ func TestOIDC_Disassociate(t *testing.T) {
 	mustCreateClusterNoVpc(t, b, "oidc-del-cluster")
 
 	_, _ = b.AssociateIdentityProviderConfig("oidc-del-cluster", "oidc", "client-b",
-		map[string]string{"clientId": "client-b"}, nil)
+		map[string]string{"clientId": "client-b"}, nil, nil)
 
 	err := b.DisassociateIdentityProviderConfig("oidc-del-cluster", "client-b")
 	require.NoError(t, err)
@@ -240,6 +241,7 @@ func TestIDPConfigCreatesAsCreating(t *testing.T) {
 			cfg, err := b.AssociateIdentityProviderConfig(
 				"cl", "oidc", "my-idp",
 				map[string]string{"issuerUrl": "https://example.com", "clientId": "client1"},
+				nil,
 				nil,
 			)
 			require.NoError(t, err)
@@ -291,4 +293,64 @@ func TestAssociateIDPUsesConfigName(t *testing.T) {
 			assert.Equal(t, tc.configName, entry["name"], tc.name)
 		})
 	}
+}
+
+// TestDescribeIdentityProviderConfig_WireShape verifies DescribeIdentityProviderConfig
+// nests the full OIDC config under an "oidc" key -- verified against
+// aws-sdk-go-v2/service/eks/types.IdentityProviderConfigResponse, which wraps
+// OidcIdentityProviderConfig rather than returning a flat object.
+func TestDescribeIdentityProviderConfig_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEKSHandler(t)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "idp-shape-cluster"})
+
+	assocRec := doREST(t, h, http.MethodPost, "/clusters/idp-shape-cluster/identity-provider-configs/associate",
+		map[string]any{
+			"oidc": map[string]any{
+				"identityProviderConfigName": "shape-idp",
+				"clientId":                   "shape-client",
+				"issuerUrl":                  "https://issuer.example.com",
+				"groupsPrefix":               "oidc:",
+				"usernamePrefix":             "oidc:",
+				"requiredClaims":             map[string]string{"aud": "shape-client"},
+			},
+			"tags": map[string]string{"env": "test"},
+		})
+	require.Equal(t, http.StatusOK, assocRec.Code)
+
+	rec := doREST(t, h, http.MethodPost, "/clusters/idp-shape-cluster/identity-provider-configs/describe",
+		map[string]any{
+			"identityProviderConfig": map[string]any{"name": "shape-idp", "type": "oidc"},
+		})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+	top, ok := resp["identityProviderConfig"].(map[string]any)
+	require.True(t, ok, "response must have top-level identityProviderConfig")
+
+	// Real shape nests everything under "oidc" -- there is no flat
+	// name/type/status/clusterName at this level.
+	assert.NotContains(t, top, "name")
+	assert.NotContains(t, top, "status")
+
+	oidc, ok := top["oidc"].(map[string]any)
+	require.True(t, ok, "must nest the config under an oidc key")
+
+	assert.Equal(t, "shape-idp", oidc["identityProviderConfigName"])
+	assert.NotEmpty(t, oidc["identityProviderConfigArn"])
+	assert.Equal(t, "idp-shape-cluster", oidc["clusterName"])
+	assert.Equal(t, "shape-client", oidc["clientId"])
+	assert.Equal(t, "https://issuer.example.com", oidc["issuerUrl"])
+	assert.Equal(t, "oidc:", oidc["groupsPrefix"])
+	assert.Equal(t, "oidc:", oidc["usernamePrefix"])
+	assert.NotEmpty(t, oidc["status"])
+
+	requiredClaims, ok := oidc["requiredClaims"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "shape-client", requiredClaims["aud"])
+
+	tags, ok := oidc["tags"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "test", tags["env"])
 }

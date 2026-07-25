@@ -26,11 +26,13 @@ func wirelessGatewayARN(region, accountID, id string) string {
 	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("WirelessGateway/%s", id))
 }
 
-// copyWirelessGateway returns a shallow copy of gw with an independent Tags map.
+// copyWirelessGateway returns a shallow copy of gw with independent Tags and
+// LoRaWAN maps.
 func copyWirelessGateway(gw *WirelessGateway) *WirelessGateway {
 	cp := *gw
 	cp.Tags = make(map[string]string, len(gw.Tags))
 	maps.Copy(cp.Tags, gw.Tags)
+	cp.LoRaWAN = copyAnyMap(gw.LoRaWAN)
 
 	return &cp
 }
@@ -38,9 +40,10 @@ func copyWirelessGateway(gw *WirelessGateway) *WirelessGateway {
 // CreateWirelessGateway creates a new wireless gateway.
 func (b *InMemoryBackend) CreateWirelessGateway(
 	accountID, region, name, description string,
+	loRaWAN map[string]any,
 	tags map[string]string,
 ) (*WirelessGateway, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateWirelessGateway")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
@@ -51,6 +54,7 @@ func (b *InMemoryBackend) CreateWirelessGateway(
 		ARN:              arn,
 		Name:             name,
 		Description:      description,
+		LoRaWAN:          loRaWAN,
 		Tags:             newTagsCopy(tags),
 		CreatedAt:        time.Now(),
 		ConnectionStatus: defaultGatewayConnectionStatus,
@@ -69,7 +73,7 @@ func (b *InMemoryBackend) CreateWirelessGateway(
 
 // GetWirelessGateway returns a wireless gateway by ID.
 func (b *InMemoryBackend) GetWirelessGateway(accountID, region, id string) (*WirelessGateway, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetWirelessGateway")
 	defer b.mu.RUnlock()
 
 	gw, ok := b.gateways.Get(compositeKey(accountID, region, id))
@@ -83,7 +87,7 @@ func (b *InMemoryBackend) GetWirelessGateway(accountID, region, id string) (*Wir
 // ListWirelessGateways returns all wireless gateways for the given account and region,
 // sorted by name for deterministic output.
 func (b *InMemoryBackend) ListWirelessGateways(accountID, region string) []*WirelessGateway {
-	b.mu.RLock()
+	b.mu.RLock("ListWirelessGateways")
 	defer b.mu.RUnlock()
 
 	all := b.gateways.All()
@@ -104,7 +108,7 @@ func (b *InMemoryBackend) ListWirelessGateways(accountID, region string) []*Wire
 
 // DeleteWirelessGateway deletes a wireless gateway.
 func (b *InMemoryBackend) DeleteWirelessGateway(accountID, region, id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteWirelessGateway")
 	defer b.mu.Unlock()
 
 	key := compositeKey(accountID, region, id)
@@ -115,14 +119,24 @@ func (b *InMemoryBackend) DeleteWirelessGateway(accountID, region, id string) er
 	}
 
 	delete(b.resourceTags, gw.ARN)
+	delete(b.wirelessGatewayThings, id)
+	delete(b.wirelessGatewayCerts, id)
+	b.gatewayTasks.Delete(id)
 	b.gateways.Delete(key)
 
 	return nil
 }
 
-// UpdateWirelessGateway updates mutable fields on an existing wireless gateway.
-func (b *InMemoryBackend) UpdateWirelessGateway(accountID, region, id, name, description string) error {
-	b.mu.Lock()
+// UpdateWirelessGateway updates mutable fields on an existing wireless
+// gateway. UpdateWirelessGatewayInput carries JoinEuiFilters/MaxEirp/
+// NetIdFilters as top-level fields (not nested under LoRaWAN, unlike
+// Create), so loRaWANUpdates merges them into the stored LoRaWAN map under
+// their real field names.
+func (b *InMemoryBackend) UpdateWirelessGateway(
+	accountID, region, id, name, description string,
+	loRaWANUpdates map[string]any,
+) error {
+	b.mu.Lock("UpdateWirelessGateway")
 	defer b.mu.Unlock()
 
 	gw, ok := b.gateways.Get(compositeKey(accountID, region, id))
@@ -135,6 +149,7 @@ func (b *InMemoryBackend) UpdateWirelessGateway(accountID, region, id, name, des
 	}
 
 	gw.Description = description
+	gw.LoRaWAN = mergeAnyMap(gw.LoRaWAN, loRaWANUpdates)
 
 	return nil
 }
@@ -144,7 +159,7 @@ func (b *InMemoryBackend) UpdateWirelessGateway(accountID, region, id, name, des
 func (b *InMemoryBackend) AssociateWirelessGatewayWithThing(
 	accountID, region, gatewayID, thingArn string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("AssociateWirelessGatewayWithThing")
 	defer b.mu.Unlock()
 
 	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {
@@ -160,7 +175,7 @@ func (b *InMemoryBackend) AssociateWirelessGatewayWithThing(
 // a wireless gateway, or "" if AssociateWirelessGatewayWithThing was never
 // called (or the association was since cleared).
 func (b *InMemoryBackend) GetWirelessGatewayThingArn(gatewayID string) string {
-	b.mu.RLock()
+	b.mu.RLock("GetWirelessGatewayThingArn")
 	defer b.mu.RUnlock()
 
 	return b.wirelessGatewayThings[gatewayID]
@@ -169,7 +184,7 @@ func (b *InMemoryBackend) GetWirelessGatewayThingArn(gatewayID string) string {
 // AddWirelessGatewayInternal inserts a WirelessGateway directly into the backend, bypassing ID generation.
 // Intended for test setup only.
 func (b *InMemoryBackend) AddWirelessGatewayInternal(accountID, region string, gw *WirelessGateway) {
-	b.mu.Lock()
+	b.mu.Lock("AddWirelessGatewayInternal")
 	defer b.mu.Unlock()
 
 	cp := copyWirelessGateway(gw)
@@ -183,7 +198,7 @@ func (b *InMemoryBackend) AddWirelessGatewayInternal(accountID, region string, g
 func (b *InMemoryBackend) DisassociateWirelessGatewayFromThing(
 	accountID, region, gatewayID string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("DisassociateWirelessGatewayFromThing")
 	defer b.mu.Unlock()
 
 	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {

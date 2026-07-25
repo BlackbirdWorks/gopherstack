@@ -28,6 +28,7 @@ type destinationEntry struct {
 }
 
 type listDestinationsResponse struct {
+	NextToken       string             `json:"NextToken"`
 	DestinationList []destinationEntry `json:"DestinationList"`
 }
 
@@ -75,9 +76,11 @@ func (h *Handler) getDestination(c *echo.Context, name string) error {
 
 func (h *Handler) listDestinations(c *echo.Context) error {
 	dests := h.Backend.ListDestinations(h.AccountID, h.DefaultRegion)
-	entries := make([]destinationEntry, 0, len(dests))
+	pg, next := paginateQuery(c, dests)
 
-	for _, dest := range dests {
+	entries := make([]destinationEntry, 0, len(pg))
+
+	for _, dest := range pg {
 		entries = append(entries, destinationEntry{
 			Arn:            dest.ARN,
 			Name:           dest.Name,
@@ -88,7 +91,7 @@ func (h *Handler) listDestinations(c *echo.Context) error {
 		})
 	}
 
-	return writeJSON(c, http.StatusOK, listDestinationsResponse{DestinationList: entries})
+	return writeJSON(c, http.StatusOK, listDestinationsResponse{DestinationList: entries, NextToken: next})
 }
 
 func (h *Handler) deleteDestination(c *echo.Context, name string) error {

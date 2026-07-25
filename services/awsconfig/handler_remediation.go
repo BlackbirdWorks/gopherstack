@@ -91,16 +91,23 @@ func (h *Handler) handleDescribeRemediationExceptions(
 }
 
 // DescribeRemediationExecutionStatus request/response types and handler.
+type describeRemediationExecutionStatusInput struct {
+	ConfigRuleName string        `json:"ConfigRuleName"`
+	ResourceKeys   []ResourceKey `json:"ResourceKeys,omitempty"`
+}
 type describeRemediationExecutionStatusOutput struct {
-	RemediationExecutionStatuses []any `json:"RemediationExecutionStatuses"`
+	RemediationExecutionStatuses []RemediationExecutionStatusEntry `json:"RemediationExecutionStatuses"`
 }
 
 func (h *Handler) handleDescribeRemediationExecutionStatus(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeRemediationExecutionStatusInput,
 ) (*describeRemediationExecutionStatusOutput, error) {
-	return &describeRemediationExecutionStatusOutput{
-		RemediationExecutionStatuses: h.Backend.DescribeRemediationExecutionStatus(),
-	}, nil
+	statuses, err := h.Backend.DescribeRemediationExecutionStatus(in.ConfigRuleName, in.ResourceKeys)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeRemediationExecutionStatusOutput{RemediationExecutionStatuses: statuses}, nil
 }
 
 // PutRemediationConfigurations request/response types and handler.
@@ -128,10 +135,22 @@ func (h *Handler) handlePutRemediationExceptions(
 }
 
 // StartRemediationExecution request/response types and handler.
+type startRemediationExecutionInput struct {
+	ConfigRuleName string        `json:"ConfigRuleName"`
+	ResourceKeys   []ResourceKey `json:"ResourceKeys"`
+}
+type startRemediationExecutionOutput struct {
+	FailedItems []ResourceKey `json:"FailedItems,omitempty"`
+}
+
 func (h *Handler) handleStartRemediationExecution(
-	_ context.Context, _ *emptyInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.StartRemediationExecution()
+	_ context.Context, in *startRemediationExecutionInput,
+) (*startRemediationExecutionOutput, error) {
+	if err := h.Backend.StartRemediationExecution(in.ConfigRuleName, in.ResourceKeys); err != nil {
+		return nil, err
+	}
+
+	return &startRemediationExecutionOutput{}, nil
 }
 
 // buildRemediationDispatch returns dispatch entries for remediation ops.

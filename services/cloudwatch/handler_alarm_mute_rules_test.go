@@ -106,19 +106,17 @@ func TestCloudWatchHandler_AlarmMuteRule(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "UpdateAlarmMuteRule/success",
+			// Real CloudWatch has no UpdateAlarmMuteRule operation: PutAlarmMuteRule
+			// is create-or-update. Re-PUTting an existing mute name must update it
+			// in place.
+			name: "PutAlarmMuteRule/updates existing",
 			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
 				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{MuteName: "update-mute"})
 			},
-			body:         "Action=UpdateAlarmMuteRule&MuteName=update-mute&Description=updated",
+			body:         "Action=PutAlarmMuteRule&MuteName=update-mute&Description=updated",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"UpdateAlarmMuteRuleResponse"},
-		},
-		{
-			name:     "UpdateAlarmMuteRule/not found",
-			body:     "Action=UpdateAlarmMuteRule&MuteName=missing-mute",
-			wantCode: http.StatusBadRequest,
+			wantContains: []string{"PutAlarmMuteRuleResponse"},
 		},
 		{
 			name: "GetAlarmMuteRule/success",

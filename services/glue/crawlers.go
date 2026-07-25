@@ -67,6 +67,26 @@ func cloneCrawler(c *Crawler) *Crawler {
 	cp.Classifiers = append([]string(nil), c.Classifiers...)
 	cp.Targets = cloneCrawlerTarget(c.Targets)
 
+	if c.SchemaChangePolicy != nil {
+		v := *c.SchemaChangePolicy
+		cp.SchemaChangePolicy = &v
+	}
+
+	if c.RecrawlPolicy != nil {
+		v := *c.RecrawlPolicy
+		cp.RecrawlPolicy = &v
+	}
+
+	if c.LineageConfiguration != nil {
+		v := *c.LineageConfiguration
+		cp.LineageConfiguration = &v
+	}
+
+	if c.LakeFormationConfiguration != nil {
+		v := *c.LakeFormationConfiguration
+		cp.LakeFormationConfiguration = &v
+	}
+
 	return &cp
 }
 
@@ -97,6 +117,40 @@ func cloneCrawlerTarget(t CrawlerTarget) CrawlerTarget {
 			cp.CatalogTargets[i] = ct
 			cp.CatalogTargets[i].Tables = append([]string(nil), ct.Tables...)
 		}
+	}
+
+	if len(t.DynamoDBTargets) > 0 {
+		cp.DynamoDBTargets = append([]DynamoDBTarget(nil), t.DynamoDBTargets...)
+	}
+
+	if len(t.DeltaTargets) > 0 {
+		cp.DeltaTargets = make([]DeltaTarget, len(t.DeltaTargets))
+		for i, dt := range t.DeltaTargets {
+			cp.DeltaTargets[i] = dt
+			cp.DeltaTargets[i].DeltaTables = append([]string(nil), dt.DeltaTables...)
+		}
+	}
+
+	if len(t.HudiTargets) > 0 {
+		cp.HudiTargets = make([]HudiTarget, len(t.HudiTargets))
+		for i, ht := range t.HudiTargets {
+			cp.HudiTargets[i] = ht
+			cp.HudiTargets[i].Paths = append([]string(nil), ht.Paths...)
+			cp.HudiTargets[i].Exclusions = append([]string(nil), ht.Exclusions...)
+		}
+	}
+
+	if len(t.IcebergTargets) > 0 {
+		cp.IcebergTargets = make([]IcebergTarget, len(t.IcebergTargets))
+		for i, it := range t.IcebergTargets {
+			cp.IcebergTargets[i] = it
+			cp.IcebergTargets[i].Paths = append([]string(nil), it.Paths...)
+			cp.IcebergTargets[i].Exclusions = append([]string(nil), it.Exclusions...)
+		}
+	}
+
+	if len(t.MongoDBTargets) > 0 {
+		cp.MongoDBTargets = append([]MongoDBTarget(nil), t.MongoDBTargets...)
 	}
 
 	return cp
@@ -149,19 +203,24 @@ func (b *InMemoryBackend) CreateCrawlerWithOptions(
 
 	now := float64(time.Now().Unix())
 	c := &Crawler{
-		Name:          name,
-		Role:          role,
-		DatabaseName:  dbName,
-		Targets:       targets,
-		State:         stateReady,
-		ARN:           b.crawlerARN(name),
-		Tags:          maps.Clone(tags),
-		Description:   opts.Description,
-		Configuration: opts.Configuration,
-		TablePrefix:   opts.TablePrefix,
-		Classifiers:   append([]string(nil), opts.Classifiers...),
-		CreationTime:  now,
-		LastUpdated:   now,
+		Name:                         name,
+		Role:                         role,
+		DatabaseName:                 dbName,
+		Targets:                      targets,
+		State:                        stateReady,
+		ARN:                          b.crawlerARN(name),
+		Tags:                         maps.Clone(tags),
+		Description:                  opts.Description,
+		Configuration:                opts.Configuration,
+		TablePrefix:                  opts.TablePrefix,
+		Classifiers:                  append([]string(nil), opts.Classifiers...),
+		CreationTime:                 now,
+		LastUpdated:                  now,
+		CrawlerSecurityConfiguration: opts.CrawlerSecurityConfiguration,
+		SchemaChangePolicy:           opts.SchemaChangePolicy,
+		RecrawlPolicy:                opts.RecrawlPolicy,
+		LineageConfiguration:         opts.LineageConfiguration,
+		LakeFormationConfiguration:   opts.LakeFormationConfiguration,
 	}
 	if opts.Schedule != "" {
 		c.Schedule = CrawlerSchedule{ScheduleExpression: opts.Schedule, State: stateScheduled}
@@ -268,6 +327,30 @@ func (b *InMemoryBackend) UpdateCrawlerWithOptions(
 
 	if opts.Schedule != "" {
 		c.Schedule = CrawlerSchedule{ScheduleExpression: opts.Schedule, State: stateScheduled}
+	}
+
+	if opts.CrawlerSecurityConfiguration != "" {
+		c.CrawlerSecurityConfiguration = opts.CrawlerSecurityConfiguration
+	}
+
+	if opts.SchemaChangePolicy != nil {
+		v := *opts.SchemaChangePolicy
+		c.SchemaChangePolicy = &v
+	}
+
+	if opts.RecrawlPolicy != nil {
+		v := *opts.RecrawlPolicy
+		c.RecrawlPolicy = &v
+	}
+
+	if opts.LineageConfiguration != nil {
+		v := *opts.LineageConfiguration
+		c.LineageConfiguration = &v
+	}
+
+	if opts.LakeFormationConfiguration != nil {
+		v := *opts.LakeFormationConfiguration
+		c.LakeFormationConfiguration = &v
 	}
 
 	c.LastUpdated = float64(time.Now().Unix())

@@ -75,28 +75,115 @@ func TestClusterSnapshot_Copy(t *testing.T) {
 	assert.Len(t, snaps, 2)
 }
 
+// TestClusterSnapshot_Duplicate covers the exact-duplicate-identifier case,
+// plus (DBClusterSnapshotIdentifier is a case-insensitive AWS identifier,
+// matching real AWS, which lower-cases identifiers internally) the
+// case-varying duplicate collisions and the corresponding case-insensitive
+// Describe/Delete lookups.
 func TestClusterSnapshot_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
-	_, err := b.CreateDBCluster(
-		"cluster-c",
-		"aurora-postgresql",
-		"admin",
-		"",
-		"",
-		5432,
-		nil,
-		rds.DBClusterOptions{},
-	)
-	require.NoError(t, err)
+	tests := []struct {
+		wantErrIs error
+		name      string
+		setupID   string
+		actionID  string
+		action    string
+		wantErr   bool
+	}{
+		{
+			name:      "exact_duplicate_collides",
+			setupID:   "dup-snap",
+			actionID:  "dup-snap",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrClusterSnapshotAlreadyExists,
+		},
+		{
+			name:      "lowercased_duplicate_collides",
+			setupID:   "MyClusterSnap",
+			actionID:  "myclustersnap",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrClusterSnapshotAlreadyExists,
+		},
+		{
+			name:      "uppercased_duplicate_collides",
+			setupID:   "lower-cluster-snap",
+			actionID:  "LOWER-CLUSTER-SNAP",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrClusterSnapshotAlreadyExists,
+		},
+		{
+			name:     "distinct_id_does_not_collide",
+			setupID:  "some-cluster-snap",
+			actionID: "some-other-cluster-snap",
+			action:   "create",
+		},
+		{
+			name:     "describe_finds_resource_under_different_case",
+			setupID:  "FindMe-ClusterSnap",
+			actionID: "findme-clustersnap",
+			action:   "describe",
+		},
+		{
+			name:     "delete_removes_resource_under_different_case",
+			setupID:  "DeleteMe-ClusterSnap",
+			actionID: "deleteme-clustersnap",
+			action:   "delete",
+		},
+	}
 
-	_, err = b.CreateDBClusterSnapshot("dup-snap", "cluster-c")
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err = b.CreateDBClusterSnapshot("dup-snap", "cluster-c")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, rds.ErrClusterSnapshotAlreadyExists)
+			b := newBatch2Backend()
+			_, err := b.CreateDBCluster(
+				"cluster-c-"+tt.name,
+				"aurora-postgresql",
+				"admin",
+				"",
+				"",
+				5432,
+				nil,
+				rds.DBClusterOptions{},
+			)
+			require.NoError(t, err)
+
+			_, err = b.CreateDBClusterSnapshot(tt.setupID, "cluster-c-"+tt.name)
+			require.NoError(t, err)
+
+			switch tt.action {
+			case "create":
+				_, err = b.CreateDBClusterSnapshot(tt.actionID, "cluster-c-"+tt.name)
+			case "describe":
+				var snaps []rds.DBClusterSnapshot
+				snaps, err = b.DescribeDBClusterSnapshots(tt.actionID, "")
+				if err == nil {
+					require.Len(t, snaps, 1)
+					// The wire response must keep echoing the ORIGINAL
+					// caller-supplied casing from creation time.
+					assert.Equal(t, tt.setupID, snaps[0].DBClusterSnapshotIdentifier)
+				}
+			case "delete":
+				_, err = b.DeleteDBClusterSnapshot(tt.actionID)
+				if err == nil {
+					_, describeErr := b.DescribeDBClusterSnapshots(tt.setupID, "")
+					require.ErrorIs(t, describeErr, rds.ErrClusterSnapshotNotFound)
+				}
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErrIs)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestClusterSnapshot_DeleteNotFound(t *testing.T) {

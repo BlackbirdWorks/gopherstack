@@ -40,9 +40,21 @@ func (h *Handler) routeStubPromptRouterOps(c *echo.Context, path, method string)
 	return false, nil
 }
 
+type promptRouterTargetModelWire struct {
+	ModelArn string `json:"modelArn"`
+}
+
+type routingCriteriaWire struct {
+	ResponseQualityDifference float64 `json:"responseQualityDifference"`
+}
+
 type createPromptRouterInput struct {
-	PromptRouterName string `json:"promptRouterName"`
-	Tags             []Tag  `json:"tags,omitempty"`
+	FallbackModel    *promptRouterTargetModelWire  `json:"fallbackModel"`
+	RoutingCriteria  *routingCriteriaWire          `json:"routingCriteria"`
+	PromptRouterName string                        `json:"promptRouterName"`
+	Description      string                        `json:"description,omitempty"`
+	Models           []promptRouterTargetModelWire `json:"models"`
+	Tags             []Tag                         `json:"tags,omitempty"`
 }
 
 func (h *Handler) handleCreatePromptRouter(c *echo.Context) error {
@@ -56,12 +68,49 @@ func (h *Handler) handleCreatePromptRouter(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	router, opErr := h.Backend.CreatePromptRouter(in.PromptRouterName, in.Tags)
+	var fallbackModelArn string
+	if in.FallbackModel != nil {
+		fallbackModelArn = in.FallbackModel.ModelArn
+	}
+
+	modelArns := make([]string, 0, len(in.Models))
+	for _, m := range in.Models {
+		modelArns = append(modelArns, m.ModelArn)
+	}
+
+	var responseQualityDiff float64
+	if in.RoutingCriteria != nil {
+		responseQualityDiff = in.RoutingCriteria.ResponseQualityDifference
+	}
+
+	router, opErr := h.Backend.CreatePromptRouter(
+		in.PromptRouterName, in.Description, fallbackModelArn, modelArns, responseQualityDiff, in.Tags,
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
 
 	return c.JSON(http.StatusCreated, map[string]any{keyPromptRouterArn: router.PromptRouterArn})
+}
+
+func promptRouterToWire(r *PromptRouter) map[string]any {
+	models := make([]promptRouterTargetModelWire, 0, len(r.ModelArns))
+	for _, modelArn := range r.ModelArns {
+		models = append(models, promptRouterTargetModelWire{ModelArn: modelArn})
+	}
+
+	return map[string]any{
+		keyPromptRouterArn: r.PromptRouterArn,
+		"promptRouterName": r.PromptRouterName,
+		keyStatus:          r.Status,
+		"type":             r.Type,
+		"description":      r.Description,
+		"fallbackModel":    promptRouterTargetModelWire{ModelArn: r.FallbackModelArn},
+		"models":           models,
+		"routingCriteria":  routingCriteriaWire{ResponseQualityDifference: r.RoutingResponseQualityDiff},
+		keyCreatedAt:       r.CreatedAt.Format(time.RFC3339),
+		keyUpdatedAt:       r.UpdatedAt.Format(time.RFC3339),
+	}
 }
 
 func (h *Handler) handleGetPromptRouter(c *echo.Context, routerARN string) error {
@@ -70,30 +119,24 @@ func (h *Handler) handleGetPromptRouter(c *echo.Context, routerARN string) error
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPromptRouterArn: router.PromptRouterArn,
-		"promptRouterName": router.PromptRouterName,
-		keyStatus:          router.Status,
-		keyCreatedAt:       router.CreatedAt.Format(time.RFC3339),
-		keyUpdatedAt:       router.UpdatedAt.Format(time.RFC3339),
-	})
+	return c.JSON(http.StatusOK, promptRouterToWire(router))
 }
 
 func (h *Handler) handleListPromptRouters(c *echo.Context) error {
-	routers := h.Backend.ListPromptRouters()
-	summaries := make([]map[string]any, 0, len(routers))
+	q := c.Request().URL.Query()
+	routers, nextToken := h.Backend.ListPromptRouters(q.Get("type"), q.Get("nextToken"))
 
+	summaries := make([]map[string]any, 0, len(routers))
 	for _, r := range routers {
-		summaries = append(summaries, map[string]any{
-			keyPromptRouterArn: r.PromptRouterArn,
-			"promptRouterName": r.PromptRouterName,
-			keyStatus:          r.Status,
-			keyCreatedAt:       r.CreatedAt.Format(time.RFC3339),
-			keyUpdatedAt:       r.UpdatedAt.Format(time.RFC3339),
-		})
+		summaries = append(summaries, promptRouterToWire(r))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"promptRouters": summaries})
+	resp := map[string]any{"promptRouterSummaries": summaries}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeletePromptRouter(c *echo.Context, routerARN string) error {
@@ -101,5 +144,5 @@ func (h *Handler) handleDeletePromptRouter(c *echo.Context, routerARN string) er
 		return h.writeError(c, err)
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	return c.NoContent(http.StatusOK)
 }

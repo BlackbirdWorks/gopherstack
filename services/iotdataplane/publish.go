@@ -1,10 +1,80 @@
 package iotdataplane
 
 import (
+	"encoding/base64"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 )
+
+// payloadFormatIndicatorUnspecifiedBytes and payloadFormatIndicatorUTF8Data
+// are the only two values of the real SDK's PayloadFormatIndicator enum
+// (aws-sdk-go-v2/service/iotdataplane/types.PayloadFormatIndicator).
+const (
+	payloadFormatIndicatorUnspecifiedBytes = "UNSPECIFIED_BYTES"
+	payloadFormatIndicatorUTF8Data         = "UTF8_DATA"
+)
+
+// validatePayloadFormatIndicator checks that v (the X-Amz-Mqtt5-Payload-Format-Indicator
+// header value) is empty or one of the real SDK's known enum values.
+func validatePayloadFormatIndicator(v string) error {
+	if v == "" || v == payloadFormatIndicatorUnspecifiedBytes || v == payloadFormatIndicatorUTF8Data {
+		return nil
+	}
+
+	return fmt.Errorf("%w: payloadFormatIndicator must be %s or %s",
+		ErrValidation, payloadFormatIndicatorUnspecifiedBytes, payloadFormatIndicatorUTF8Data)
+}
+
+// validateResponseTopic checks that a responseTopic contains no wildcard
+// characters, per AWS docs ("The topic must not contain wildcard characters").
+// An empty responseTopic (not supplied) is always valid.
+func validateResponseTopic(topic string) error {
+	if topic == "" {
+		return nil
+	}
+
+	if strings.Contains(topic, "#") || strings.Contains(topic, "+") {
+		return fmt.Errorf("%w: responseTopic must not contain wildcards (# or +)", ErrValidation)
+	}
+
+	return nil
+}
+
+// parseMessageExpiry parses the messageExpiry query parameter (seconds).
+// An empty string means "not supplied" (0, the SDK zero value meaning the
+// message never expires). A negative or non-integer value is invalid.
+func parseMessageExpiry(raw string) (int64, error) {
+	if raw == "" {
+		return 0, nil
+	}
+
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("%w: messageExpiry must be a non-negative integer", ErrValidation)
+	}
+
+	return v, nil
+}
+
+// decodeUserProperties base64-decodes the X-Amz-Mqtt5-User-Properties header
+// value. AWS requires callers to base64-encode this header ("If you don't use
+// [the SDK] ... you must encode the JSON string to base64 format before adding
+// it to the HTTP header"). Returns nil, nil when header is empty (not supplied).
+func decodeUserProperties(header string) ([]byte, error) {
+	if header == "" {
+		// Absent header is a valid "not supplied" state, distinct from an error.
+		return nil, nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(header)
+	if err != nil {
+		return nil, fmt.Errorf("%w: userProperties header must be valid base64", ErrValidation)
+	}
+
+	return decoded, nil
+}
 
 // validateTopic checks that a topic string conforms to MQTT publishing rules.
 // Wildcards (# or +) are forbidden, empty levels are rejected, and each segment

@@ -54,7 +54,8 @@ func (h *Handler) handleGetRunGroup(c *echo.Context, id string) error {
 
 func (h *Handler) handleListRunGroups(c *echo.Context) error {
 	maxResults, nextToken := paginationQueryParams(c)
-	groups, next, err := h.Backend.ListRunGroups(maxResults, nextToken)
+	filter := &RunGroupFilter{Name: c.QueryParam("name")}
+	groups, next, err := h.Backend.ListRunGroups(filter, maxResults, nextToken)
 
 	if err != nil {
 		return h.mapError(c, err)
@@ -98,23 +99,38 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 		WorkflowID string            `json:"workflowId"`
 		RoleArn    string            `json:"roleArn"`
 		Name       string            `json:"name"`
-		RunBatchID string            `json:"runBatchId"`
+		RunGroupID string            `json:"runGroupId"`
+		// RunBatchID has no real StartRunInput counterpart (see the Run.RunBatchID
+		// doc comment in models.go); accepted here only for gopherstack-internal
+		// batch-association wiring.
+		RunBatchID     string `json:"runBatchId"`
+		NetworkingMode string `json:"networkingMode"`
+		OutputURI      string `json:"outputUri"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	run, err := h.Backend.StartRun(req.WorkflowID, req.RoleArn, req.Name, req.RunBatchID, req.Parameters, req.Tags)
+	run, err := h.Backend.StartRun(
+		req.WorkflowID, req.RoleArn, req.Name, req.RunGroupID, req.RunBatchID,
+		req.NetworkingMode, req.OutputURI, req.Parameters, req.Tags,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
+	// Real StartRunOutput: arn/id/status/tags plus the optional uuid/
+	// configuration/networkingMode/runOutputUri fields (gopherstack-fedo).
 	return c.JSON(http.StatusCreated, map[string]any{
-		"arn":    run.Arn,
-		"id":     run.ID,
-		"status": run.Status,
-		keyTags:  run.Tags,
+		"arn":            run.Arn,
+		"id":             run.ID,
+		"status":         run.Status,
+		"uuid":           run.UUID,
+		"networkingMode": run.NetworkingMode,
+		"runOutputUri":   run.RunOutputURI,
+		"configuration":  run.Configuration,
+		keyTags:          run.Tags,
 	})
 }
 
@@ -145,7 +161,14 @@ func (h *Handler) handleGetRun(c *echo.Context, id string) error {
 
 func (h *Handler) handleListRuns(c *echo.Context) error {
 	maxResults, nextToken := paginationQueryParams(c)
-	runs, next, err := h.Backend.ListRuns(maxResults, nextToken)
+	q := c.Request().URL.Query()
+	filter := &RunFilter{
+		Name:       q.Get("name"),
+		RunGroupID: q.Get("runGroupId"),
+		BatchID:    q.Get("batchId"),
+		Status:     q.Get("status"),
+	}
+	runs, next, err := h.Backend.ListRuns(filter, maxResults, nextToken)
 
 	if err != nil {
 		return h.mapError(c, err)
@@ -165,7 +188,8 @@ func (h *Handler) handleGetRunTask(c *echo.Context, runID, taskID string) error 
 
 func (h *Handler) handleListRunTasks(c *echo.Context, runID string) error {
 	maxResults, nextToken := paginationQueryParams(c)
-	tasks, next, err := h.Backend.ListRunTasks(runID, maxResults, nextToken)
+	filter := &RunTaskFilter{Status: c.QueryParam("status")}
+	tasks, next, err := h.Backend.ListRunTasks(runID, filter, maxResults, nextToken)
 
 	if err != nil {
 		return h.mapError(c, err)
@@ -295,7 +319,13 @@ func (h *Handler) handleGetRunBatch(c *echo.Context, id string) error {
 
 func (h *Handler) handleListRunBatches(c *echo.Context) error {
 	maxResults, nextToken := batchQueryParams(c)
-	batches, next, err := h.Backend.ListRunBatches(maxResults, nextToken)
+	q := c.Request().URL.Query()
+	filter := &RunBatchFilter{
+		Name:       q.Get("name"),
+		RunGroupID: q.Get("runGroupId"),
+		Status:     q.Get("status"),
+	}
+	batches, next, err := h.Backend.ListRunBatches(filter, maxResults, nextToken)
 
 	if err != nil {
 		return h.mapError(c, err)
@@ -326,7 +356,13 @@ func (h *Handler) handleDeleteRunBatch(c *echo.Context) error {
 
 func (h *Handler) handleListRunsInBatch(c *echo.Context, batchID string) error {
 	maxResults, nextToken := batchQueryParams(c)
-	runs, next, err := h.Backend.ListRunsInBatch(batchID, maxResults, nextToken)
+	q := c.Request().URL.Query()
+	filter := &RunsInBatchFilter{
+		RunID:            q.Get("runId"),
+		RunSettingID:     q.Get("runSettingId"),
+		SubmissionStatus: q.Get("submissionStatus"),
+	}
+	runs, next, err := h.Backend.ListRunsInBatch(batchID, filter, maxResults, nextToken)
 
 	if err != nil {
 		return h.mapError(c, err)

@@ -102,6 +102,27 @@ func (b *InMemoryBackend) CreateActivity(ctx context.Context, name string) (*Act
 	return &cp, nil
 }
 
+// SetActivityEncryptionConfiguration sets an activity's server-side
+// encryption configuration. Mirrors SetStateMachineConfigurations'
+// established pattern (state_machines.go) for optional post-create
+// configuration supplied inline on the CreateActivity request.
+func (b *InMemoryBackend) SetActivityEncryptionConfiguration(
+	activityArn string,
+	encryption *EncryptionConfiguration,
+) error {
+	b.mu.Lock("SetActivityEncryptionConfiguration")
+	defer b.mu.Unlock()
+
+	a, ok := b.activities.Get(activityArn)
+	if !ok || a == nil {
+		return fmt.Errorf("%w: %s", ErrActivityDoesNotExist, activityArn)
+	}
+
+	a.EncryptionConfiguration = encryption
+
+	return nil
+}
+
 // DeleteActivity deletes an activity and closes its pending task queue.
 func (b *InMemoryBackend) DeleteActivity(activityArn string) error {
 	b.mu.Lock("DeleteActivity")

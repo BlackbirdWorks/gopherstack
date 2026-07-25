@@ -24,6 +24,7 @@ func TestFindTagsByArn_Dataset(t *testing.T) {
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
 		map[string]string{"k": "v"},
+		nil,
 	)
 	require.NoError(t, err)
 	tags, err := b.FindTagsByArn(context.Background(), ds.Arn)
@@ -78,6 +79,7 @@ func TestFindTagsByArn_Job(t *testing.T) {
 		"",
 		nil,
 		map[string]string{"a": "b"},
+		databrew.JobExtras{},
 	)
 	require.NoError(t, err)
 	tags, err := b.FindTagsByArn(context.Background(), j.Arn)
@@ -138,6 +140,7 @@ func TestUpdateTagsByArn_AddAndRemove_Dataset(t *testing.T) {
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
 		map[string]string{"old": "val"},
+		nil,
 	)
 	require.NoError(t, err)
 	err = b.UpdateTagsByArn(
@@ -188,7 +191,18 @@ func TestUpdateTagsByArn_Project(t *testing.T) {
 func TestUpdateTagsByArn_Job(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	j, err := b.CreateJob(context.Background(), "tag-upd-j", "PROFILE", "ds", "", "", "", nil, nil)
+	j, err := b.CreateJob(
+		context.Background(),
+		"tag-upd-j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	err = b.UpdateTagsByArn(context.Background(), j.Arn, map[string]string{"key": "val"}, nil)
 	require.NoError(t, err)
@@ -253,6 +267,7 @@ func TestHandlerTagResource(t *testing.T) {
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -277,6 +292,7 @@ func TestHandlerListTagsForResource(t *testing.T) {
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
 		map[string]string{"k": "v"},
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -298,6 +314,7 @@ func TestHandlerUntagResource(t *testing.T) {
 		s3Input("b", ""),
 		databrew.DatasetFormatOptions{},
 		map[string]string{"remove-me": "yes"},
+		nil,
 	)
 	require.NoError(t, err)
 

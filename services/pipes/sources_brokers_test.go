@@ -56,6 +56,7 @@ func TestSourceParams_MSK(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-msk-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:kafka:us-west-2:123456789012:cluster/msk/uuid",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -116,6 +117,7 @@ func TestSourceParams_SelfManagedKafka(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-kafka-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "smk://broker1:9092",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -170,6 +172,7 @@ func TestSourceParams_RabbitMQ(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-rmq-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:mq:us-west-2:123456789012:broker:rmq:b-uuid",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -209,6 +212,7 @@ func TestSourceParams_ActiveMQ(t *testing.T) {
 
 			h := auditNewHandler(t)
 			resp := auditCreate(t, h, tt.name+"-amq-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:mq:us-west-2:123456789012:broker:amq:b-uuid",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -268,8 +272,9 @@ func TestSelfManagedKafka_Credentials(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": "arn:aws:kafka:us-east-1:123456789012:cluster/mycluster/topic",
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:kafka:us-east-1:123456789012:cluster/mycluster/topic",
+				"Target":  b2LambdaTarget,
 				"SourceParameters": map[string]any{
 					"SelfManagedKafkaParameters": map[string]any{
 						"TopicName": "my-topic",
@@ -326,8 +331,9 @@ func TestSelfManagedKafka_Vpc(t *testing.T) {
 				vpcConf["SecurityGroup"] = tt.securityGroup
 			}
 			body := map[string]any{
-				"Source": "arn:aws:kafka:us-east-1:123456789012:cluster/mycluster/topic",
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:kafka:us-east-1:123456789012:cluster/mycluster/topic",
+				"Target":  b2LambdaTarget,
 				"SourceParameters": map[string]any{
 					"SelfManagedKafkaParameters": map[string]any{
 						"TopicName": "my-topic",
@@ -366,9 +372,10 @@ func TestSelfManagedKafka_StartingPosition(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
-				Target: b2LambdaTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
+				Target:  b2LambdaTarget,
 				SourceParameters: &pipes.SourceParameters{
 					SelfManagedKafkaParameters: &pipes.SelfManagedKafkaSourceParameters{
 						TopicName:        "my-topic",
@@ -416,8 +423,9 @@ func TestSelfManagedKafka_BootstrapServers(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
+				"Target":  b2LambdaTarget,
 				"SourceParameters": map[string]any{
 					"SelfManagedKafkaParameters": map[string]any{
 						"TopicName":                  "my-topic",
@@ -466,8 +474,9 @@ func TestMSK_Credentials(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
+				"Target":  b2LambdaTarget,
 				"SourceParameters": map[string]any{
 					"ManagedStreamingKafkaParameters": map[string]any{
 						"TopicName": "my-topic",
@@ -519,9 +528,10 @@ func TestMSK_StartingPositionAndConsumerGroup(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
-				Target: b2LambdaTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
+				Target:  b2LambdaTarget,
 				SourceParameters: &pipes.SourceParameters{
 					ManagedStreamingKafkaParameters: &pipes.MSKSourceParameters{
 						TopicName:        "my-topic",
@@ -571,8 +581,9 @@ func TestActiveMQ_Credentials(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": "arn:aws:mq:us-east-1:123456789012:broker:mybroker:b-abc",
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:mq:us-east-1:123456789012:broker:mybroker:b-abc",
+				"Target":  b2LambdaTarget,
 				"SourceParameters": map[string]any{
 					"ActiveMQBrokerParameters": map[string]any{
 						"QueueName": tt.queueName,
@@ -624,8 +635,9 @@ func TestActiveMQ_BatchingParams(t *testing.T) {
 				params["MaximumBatchingWindowInSeconds"] = tt.batchWindowSecs
 			}
 			body := map[string]any{
-				"Source": "arn:aws:mq:us-east-1:123456789012:broker:mybroker:b-abc",
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:mq:us-east-1:123456789012:broker:mybroker:b-abc",
+				"Target":  b2LambdaTarget,
 				"SourceParameters": map[string]any{
 					"ActiveMQBrokerParameters": params,
 				},
@@ -671,8 +683,9 @@ func TestRabbitMQ_Credentials(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": "arn:aws:mq:us-east-1:123456789012:broker:rmqbroker:b-xyz",
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:mq:us-east-1:123456789012:broker:rmqbroker:b-xyz",
+				"Target":  b2LambdaTarget,
 				"SourceParameters": map[string]any{
 					"RabbitMQBrokerParameters": map[string]any{
 						"QueueName":   tt.queueName,
@@ -714,9 +727,10 @@ func TestRabbitMQ_VirtualHost(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: "arn:aws:mq:us-east-1:123456789012:broker:rmq:b-abc",
-				Target: b2LambdaTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  "arn:aws:mq:us-east-1:123456789012:broker:rmq:b-abc",
+				Target:  b2LambdaTarget,
 				SourceParameters: &pipes.SourceParameters{
 					RabbitMQBrokerParameters: &pipes.RabbitMQBrokerSourceParameters{
 						QueueName:   "my.queue",
@@ -821,9 +835,10 @@ func TestFilterCriteria_MultiplePatterns(t *testing.T) {
 			b := b2Backend()
 			pipeName := tt.name + "-pipe"
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   pipeName,
-				Source: b2SQSSource,
-				Target: b2LambdaTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    pipeName,
+				Source:  b2SQSSource,
+				Target:  b2LambdaTarget,
 				SourceParameters: &pipes.SourceParameters{
 					FilterCriteria:     &pipes.FilterCriteria{Filters: filters},
 					SqsQueueParameters: &pipes.SQSSourceParameters{BatchSize: 10},
@@ -876,9 +891,10 @@ func TestClone_SelfManagedKafkaVpcIsolation(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
-				Target: b2LambdaTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
+				Target:  b2LambdaTarget,
 				SourceParameters: &pipes.SourceParameters{
 					SelfManagedKafkaParameters: &pipes.SelfManagedKafkaSourceParameters{
 						TopicName: "topic",
@@ -930,9 +946,10 @@ func TestClone_MSKCredentialsIsolation(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
-				Target: b2LambdaTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
+				Target:  b2LambdaTarget,
 				SourceParameters: &pipes.SourceParameters{
 					ManagedStreamingKafkaParameters: &pipes.MSKSourceParameters{
 						TopicName: "topic",
@@ -974,9 +991,10 @@ func TestClone_ActiveMQCredentialsIsolation(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: "arn:aws:mq:us-east-1:123456789012:broker:b:b-abc",
-				Target: b2LambdaTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  "arn:aws:mq:us-east-1:123456789012:broker:b:b-abc",
+				Target:  b2LambdaTarget,
 				SourceParameters: &pipes.SourceParameters{
 					ActiveMQBrokerParameters: &pipes.ActiveMQBrokerSourceParameters{
 						QueueName: "q",
@@ -1018,9 +1036,10 @@ func TestClone_RabbitMQCredentialsIsolation(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: "arn:aws:mq:us-east-1:123456789012:broker:rmq:b-xyz",
-				Target: b2LambdaTarget,
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  "arn:aws:mq:us-east-1:123456789012:broker:rmq:b-xyz",
+				Target:  b2LambdaTarget,
 				SourceParameters: &pipes.SourceParameters{
 					RabbitMQBrokerParameters: &pipes.RabbitMQBrokerSourceParameters{
 						QueueName: "q",
@@ -1080,8 +1099,9 @@ func TestUpdate_SelfManagedKafkaCredentials(t *testing.T) {
 
 			h := b2Handler(t)
 			b2Create(t, h, tt.name, map[string]any{
-				"Source": "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
+				"Target":  b2LambdaTarget,
 				"SourceParameters": map[string]any{
 					"SelfManagedKafkaParameters": map[string]any{
 						"TopicName": "topic",
@@ -1093,6 +1113,7 @@ func TestUpdate_SelfManagedKafkaCredentials(t *testing.T) {
 			})
 
 			updated := b2Update(t, h, tt.name, map[string]any{
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
 				"SourceParameters": map[string]any{
 					"SelfManagedKafkaParameters": map[string]any{
 						"TopicName": "topic",
@@ -1140,8 +1161,9 @@ func TestKafkaSourceLambdaTargetRoundtrip(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
+				"Target":  b2LambdaTarget,
 				"SourceParameters": map[string]any{
 					"SelfManagedKafkaParameters": map[string]any{
 						"TopicName":        "my-topic",
@@ -1207,8 +1229,9 @@ func TestMSKSourceECSTargetRoundtrip(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
-				"Target": b2ECSTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
+				"Target":  b2ECSTarget,
 				"SourceParameters": map[string]any{
 					"ManagedStreamingKafkaParameters": map[string]any{
 						"TopicName": tt.topicName,

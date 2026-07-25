@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -30,6 +31,45 @@ type ReservedCapacitySummary struct {
 	TotalInstanceCount   int32      `json:"TotalInstanceCount"`
 	DurationHours        int64      `json:"DurationHours,omitempty"`
 	DurationMinutes      int64      `json:"DurationMinutes,omitempty"`
+}
+
+// MarshalJSON emits StartTime/EndTime as AWS awsjson1.1 epoch-seconds
+// numbers rather than Go's default RFC3339 strings — this struct is nested
+// (unconverted) inside TrainingPlan.ReservedCapacitySummaries, which is
+// marshaled directly by handleDescribeTrainingPlan.
+func (r *ReservedCapacitySummary) MarshalJSON() ([]byte, error) {
+	type alias ReservedCapacitySummary
+
+	return json.Marshal(struct {
+		*alias
+		StartTime *float64 `json:"StartTime,omitempty"`
+		EndTime   *float64 `json:"EndTime,omitempty"`
+	}{
+		alias:     (*alias)(r),
+		StartTime: epochSecondsPtr(r.StartTime),
+		EndTime:   epochSecondsPtr(r.EndTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [ReservedCapacitySummary.MarshalJSON],
+// read by persistence.go's snapshot restore path.
+func (r *ReservedCapacitySummary) UnmarshalJSON(data []byte) error {
+	type alias ReservedCapacitySummary
+
+	aux := struct {
+		*alias
+		StartTime *float64 `json:"StartTime,omitempty"`
+		EndTime   *float64 `json:"EndTime,omitempty"`
+	}{alias: (*alias)(r)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	r.StartTime = timeFromEpochSecondsPtr(aux.StartTime)
+	r.EndTime = timeFromEpochSecondsPtr(aux.EndTime)
+
+	return nil
 }
 
 // TrainingPlan represents a SageMaker training plan.
@@ -64,6 +104,48 @@ type TrainingPlanExtension struct {
 	CurrencyCode                    string    `json:"CurrencyCode,omitempty"`
 	PaymentStatus                   string    `json:"PaymentStatus,omitempty"`
 	DurationHours                   int32     `json:"DurationHours"`
+}
+
+// MarshalJSON emits CreationTime/StartTime/EndTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeTrainingPlan.
+func (t *TrainingPlan) MarshalJSON() ([]byte, error) {
+	type alias TrainingPlan
+
+	return json.Marshal(struct {
+		*alias
+		StartTime    *float64 `json:"StartTime,omitempty"`
+		EndTime      *float64 `json:"EndTime,omitempty"`
+		CreationTime float64  `json:"CreationTime"`
+	}{
+		alias:        (*alias)(t),
+		CreationTime: epochSeconds(t.CreationTime),
+		StartTime:    epochSecondsPtr(t.StartTime),
+		EndTime:      epochSecondsPtr(t.EndTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [TrainingPlan.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (t *TrainingPlan) UnmarshalJSON(data []byte) error {
+	type alias TrainingPlan
+
+	aux := struct {
+		*alias
+		StartTime    *float64 `json:"StartTime,omitempty"`
+		EndTime      *float64 `json:"EndTime,omitempty"`
+		CreationTime float64  `json:"CreationTime"`
+	}{alias: (*alias)(t)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	t.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	t.StartTime = timeFromEpochSecondsPtr(aux.StartTime)
+	t.EndTime = timeFromEpochSecondsPtr(aux.EndTime)
+
+	return nil
 }
 
 func cloneTrainingPlan(t *TrainingPlan) *TrainingPlan {

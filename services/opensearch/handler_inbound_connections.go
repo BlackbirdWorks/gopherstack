@@ -25,6 +25,45 @@ func (h *Handler) handleCCRoutes(w http.ResponseWriter, r *http.Request) {
 	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 }
 
+// domainInfoJSON renders a DomainInformation as the wire-shape
+// DomainInformationContainer, nesting it under the AWSDomainInformation key
+// (types.DomainInformationContainer / types.AWSDomainInformation).
+func domainInfoJSON(d DomainInformation) map[string]any {
+	info := map[string]any{"DomainName": d.DomainName}
+	if d.OwnerID != "" {
+		info["OwnerId"] = d.OwnerID
+	}
+
+	if d.Region != "" {
+		info["Region"] = d.Region
+	}
+
+	return map[string]any{"AWSDomainInformation": info}
+}
+
+// connectionStatusJSON renders a status code/message pair as the wire-shape
+// InboundConnectionStatus / OutboundConnectionStatus object.
+func connectionStatusJSON(statusCode, message string) map[string]any {
+	out := map[string]any{jsonKeyStatusCode: statusCode}
+	if message != "" {
+		out["Message"] = message
+	}
+
+	return out
+}
+
+// inboundConnectionJSON renders an InboundConnection as the wire-shape
+// types.InboundConnection object.
+func inboundConnectionJSON(c *InboundConnection) map[string]any {
+	return map[string]any{
+		jsonKeyConnectionID:     c.ConnectionID,
+		"ConnectionMode":        c.ConnectionMode,
+		jsonKeyConnectionStatus: connectionStatusJSON(c.Status, c.StatusMessage),
+		"LocalDomainInfo":       domainInfoJSON(c.LocalDomainInfo),
+		"RemoteDomainInfo":      domainInfoJSON(c.RemoteDomainInfo),
+	}
+}
+
 // handleCCInboundRoutes handles inbound cross-cluster connection sub-routes.
 func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, rest string) {
 	const prefix = "/inboundConnection/"
@@ -33,7 +72,11 @@ func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, 
 	// GET /inboundConnection → DescribeInboundConnections
 	case (rest == "/inboundConnection" || rest == "/inboundConnection/") && r.Method == http.MethodGet:
 		conns := h.Backend.DescribeInboundConnections()
-		h.writeJSON(r, w, map[string]any{"Connections": conns})
+		items := make([]map[string]any, 0, len(conns))
+		for _, c := range conns {
+			items = append(items, inboundConnectionJSON(c))
+		}
+		h.writeJSON(r, w, map[string]any{"Connections": items})
 	// PUT /inboundConnection/{id}/accept → AcceptInboundConnection
 	case strings.HasPrefix(rest, prefix) && strings.HasSuffix(rest, "/accept") &&
 		r.Method == http.MethodPut:
@@ -43,44 +86,33 @@ func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, 
 	case strings.HasPrefix(rest, prefix) && strings.HasSuffix(rest, "/reject") &&
 		r.Method == http.MethodPut:
 		connID := strings.TrimSuffix(strings.TrimPrefix(rest, prefix), "/reject")
-		conn, err := h.Backend.RejectInboundConnection(connID)
-		if err != nil {
-			conn = &InboundConnection{ConnectionID: connID, Status: "REJECTED"}
-		}
-		h.writeJSON(r, w, map[string]any{jsonKeyConnection: map[string]any{
-			jsonKeyConnectionID:     conn.ConnectionID,
-			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: conn.Status},
-		}})
+		h.handleRejectInboundConnection(w, r, connID)
 	// DELETE /inboundConnection/{id} → DeleteInboundConnection
 	case strings.HasPrefix(rest, prefix) && r.Method == http.MethodDelete:
 		connID := strings.TrimPrefix(rest, prefix)
-		conn, err := h.Backend.DeleteInboundConnection(connID)
-		if err != nil {
-			conn = &InboundConnection{ConnectionID: connID, Status: statusDeleted}
-		}
-		h.writeJSON(r, w, map[string]any{jsonKeyConnection: map[string]any{
-			jsonKeyConnectionID:     conn.ConnectionID,
-			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: conn.Status},
-		}})
+		h.handleDeleteInboundConnection(w, r, connID)
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
 }
 
-// acceptInboundConnectionOutput is the JSON response for AcceptInboundConnection.
-type acceptInboundConnectionOutput struct {
-	Connection inboundConnectionJSON `json:"Connection"`
-}
+// writeConnectionNotFoundOrValidation classifies a connection-lookup error
+// and writes the appropriate error response. It returns true if an error was
+// written.
+func (h *Handler) writeConnectionNotFoundOrValidation(r *http.Request, w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
 
-// inboundConnectionJSON is the JSON representation of an inbound connection.
-type inboundConnectionJSON struct {
-	ConnectionID     string                `json:"ConnectionId"`
-	ConnectionStatus inboundConnStatusJSON `json:"ConnectionStatus"`
-}
+	if errors.Is(err, ErrInvalidParameter) {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
 
-// inboundConnStatusJSON is the JSON representation of a connection status.
-type inboundConnStatusJSON struct {
-	StatusCode string `json:"StatusCode"`
+		return true
+	}
+
+	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+	return true
 }
 
 func (h *Handler) handleAcceptInboundConnection(
@@ -89,22 +121,35 @@ func (h *Handler) handleAcceptInboundConnection(
 	connectionID string,
 ) {
 	conn, err := h.Backend.AcceptInboundConnection(connectionID)
-	if err != nil {
-		if errors.Is(err, ErrInvalidParameter) {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
-		} else {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
-
+	if h.writeConnectionNotFoundOrValidation(r, w, err) {
 		return
 	}
 
-	h.writeJSON(r, w, acceptInboundConnectionOutput{
-		Connection: inboundConnectionJSON{
-			ConnectionID: conn.ConnectionID,
-			ConnectionStatus: inboundConnStatusJSON{
-				StatusCode: conn.Status,
-			},
-		},
-	})
+	h.writeJSON(r, w, map[string]any{jsonKeyConnection: inboundConnectionJSON(conn)})
+}
+
+func (h *Handler) handleRejectInboundConnection(
+	w http.ResponseWriter,
+	r *http.Request,
+	connectionID string,
+) {
+	conn, err := h.Backend.RejectInboundConnection(connectionID)
+	if h.writeConnectionNotFoundOrValidation(r, w, err) {
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{jsonKeyConnection: inboundConnectionJSON(conn)})
+}
+
+func (h *Handler) handleDeleteInboundConnection(
+	w http.ResponseWriter,
+	r *http.Request,
+	connectionID string,
+) {
+	conn, err := h.Backend.DeleteInboundConnection(connectionID)
+	if h.writeConnectionNotFoundOrValidation(r, w, err) {
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{jsonKeyConnection: inboundConnectionJSON(conn)})
 }

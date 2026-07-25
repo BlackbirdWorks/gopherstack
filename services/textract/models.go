@@ -61,8 +61,9 @@ type Point struct {
 
 // Geometry contains bounding box and polygon for a block.
 type Geometry struct {
-	BoundingBox *BoundingBox `json:"BoundingBox"`
-	Polygon     []Point      `json:"Polygon"`
+	BoundingBox   *BoundingBox `json:"BoundingBox"`
+	RotationAngle *float64     `json:"RotationAngle,omitempty"`
+	Polygon       []Point      `json:"Polygon"`
 }
 
 // Relationship describes child/value relationships between blocks.
@@ -95,7 +96,6 @@ type Block struct {
 	EntityTypes     []string       `json:"EntityTypes,omitempty"`
 	Relationships   []Relationship `json:"Relationships,omitempty"`
 	Confidence      float64        `json:"Confidence"`
-	ColumnHeader    bool           `json:"ColumnHeader,omitempty"`
 }
 
 // WarningBlock represents a warning returned in async job responses.
@@ -162,12 +162,28 @@ type ExpenseGroupProperty struct {
 	Types []string `json:"Types"`
 }
 
+// ExpenseType holds the classification of an expense field (e.g. "TOTAL",
+// "VENDOR_NAME"). Distinct from ExpenseDetection: the real SDK's ExpenseType
+// has no Geometry member.
+type ExpenseType struct {
+	Text       string  `json:"Text"`
+	Confidence float64 `json:"Confidence"`
+}
+
+// ExpenseCurrency holds the currency code detected for a monetary expense
+// field. Distinct from ExpenseDetection: the real SDK's ExpenseCurrency has
+// Code instead of Text/Geometry.
+type ExpenseCurrency struct {
+	Code       string  `json:"Code"`
+	Confidence float64 `json:"Confidence"`
+}
+
 // ExpenseField represents a single field in an expense document.
 type ExpenseField struct {
-	Type            *ExpenseDetection      `json:"Type,omitempty"`
+	Type            *ExpenseType           `json:"Type,omitempty"`
 	LabelDetection  *ExpenseDetection      `json:"LabelDetection,omitempty"`
 	ValueDetection  *ExpenseDetection      `json:"ValueDetection,omitempty"`
-	Currency        *ExpenseDetection      `json:"Currency,omitempty"`
+	Currency        *ExpenseCurrency       `json:"Currency,omitempty"`
 	GroupProperties []ExpenseGroupProperty `json:"GroupProperties,omitempty"`
 	PageNumber      int                    `json:"PageNumber"`
 }
@@ -226,12 +242,14 @@ type LendingDetection struct {
 	Confidence      float64   `json:"Confidence"`
 }
 
-// LendingField is a single field detected in a lending document.
+// LendingField is a single field detected in a lending document. Type is a
+// bare string (not a LendingDetection) and ValueDetections is a list -- both
+// diverge from the shape of the sibling Expense/AnalyzeID field types, see
+// the real SDK's types.LendingField.
 type LendingField struct {
-	Type           *LendingDetection `json:"Type,omitempty"`
-	ValueDetection *LendingDetection `json:"ValueDetection,omitempty"`
-	KeyDetection   *LendingDetection `json:"KeyDetection,omitempty"`
-	PageNumber     int               `json:"PageNumber"`
+	KeyDetection    *LendingDetection  `json:"KeyDetection,omitempty"`
+	Type            string             `json:"Type,omitempty"`
+	ValueDetections []LendingDetection `json:"ValueDetections,omitempty"`
 }
 
 // SignatureDetection represents a detected signature.
@@ -252,10 +270,18 @@ type Extraction struct {
 	ExpenseDocument *ExpenseDocument `json:"ExpenseDocument,omitempty"`
 }
 
+// Prediction holds a classification value and its confidence. Used for
+// PageClassification.PageType/PageNumber -- distinct from LendingDetection,
+// which carries Geometry/SelectionStatus fields Prediction doesn't have.
+type Prediction struct {
+	Value      string  `json:"Value"`
+	Confidence float64 `json:"Confidence"`
+}
+
 // PageClassification holds the page classification for a lending page.
 type PageClassification struct {
-	PageType   []LendingDetection `json:"PageType"`
-	PageNumber []LendingDetection `json:"PageNumber"`
+	PageType   []Prediction `json:"PageType"`
+	PageNumber []Prediction `json:"PageNumber"`
 }
 
 // LendingResult represents a single lending analysis result page.
@@ -309,11 +335,22 @@ type LendingJob struct {
 	Warnings            []WarningBlock       `json:"warnings,omitempty"`
 }
 
-// EvaluationMetrics holds model evaluation metrics for an adapter version.
-type EvaluationMetrics struct {
+// EvaluationMetric holds F1/Precision/Recall scores for either the baseline
+// Textract model or a specific adapter version, scoped to one FeatureType.
+type EvaluationMetric struct {
 	F1Score   float64 `json:"F1Score"`
 	Precision float64 `json:"Precision"`
 	Recall    float64 `json:"Recall"`
+}
+
+// AdapterVersionEvaluationMetric pairs baseline and adapter-version scores
+// for a single FeatureType. AdapterVersion.EvaluationMetrics is a list of
+// these -- one per FeatureType the adapter version was trained for -- not a
+// single flat metrics struct.
+type AdapterVersionEvaluationMetric struct {
+	Baseline       *EvaluationMetric `json:"Baseline,omitempty"`
+	AdapterVersion *EvaluationMetric `json:"AdapterVersion,omitempty"`
+	FeatureType    string            `json:"FeatureType,omitempty"`
 }
 
 // DatasetConfig holds dataset configuration for an adapter version.
@@ -346,15 +383,15 @@ type Adapter struct {
 
 // AdapterVersion represents a version of a Textract Adapter.
 type AdapterVersion struct {
-	CreationTime      time.Time          `json:"creationTime"`
-	Tags              map[string]string  `json:"tags"`
-	DatasetConfig     *DatasetConfig     `json:"datasetConfig,omitempty"`
-	OutputConfig      *OutputConfig      `json:"outputConfig,omitempty"`
-	EvaluationMetrics *EvaluationMetrics `json:"evaluationMetrics,omitempty"`
-	AdapterVersion    string             `json:"adapterVersion"`
-	AdapterID         string             `json:"adapterId"`
-	Status            string             `json:"status"`
-	StatusMessage     string             `json:"statusMessage"`
+	CreationTime      time.Time                        `json:"creationTime"`
+	Tags              map[string]string                `json:"tags"`
+	DatasetConfig     *DatasetConfig                   `json:"datasetConfig,omitempty"`
+	OutputConfig      *OutputConfig                    `json:"outputConfig,omitempty"`
+	EvaluationMetrics []AdapterVersionEvaluationMetric `json:"evaluationMetrics,omitempty"`
+	AdapterVersion    string                           `json:"adapterVersion"`
+	AdapterID         string                           `json:"adapterId"`
+	Status            string                           `json:"status"`
+	StatusMessage     string                           `json:"statusMessage"`
 	//nolint:revive,staticcheck // KMSKeyId: AWS SDK field name convention
 	KMSKeyId           string   `json:"kmsKeyId,omitempty"`
 	ClientRequestToken string   `json:"clientRequestToken,omitempty"`

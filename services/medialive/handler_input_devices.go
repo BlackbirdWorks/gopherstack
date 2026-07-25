@@ -50,7 +50,12 @@ func toInputDeviceOutput(d *InputDevice) inputDeviceOutput {
 }
 
 func (h *Handler) handleClaimDevice(c *echo.Context, body map[string]any) error {
-	id, _ := body["Id"].(string)
+	// ClaimDeviceInput's real wire field is lowerCamel "id" -- verified
+	// against aws-sdk-go-v2/service/medialive's
+	// awsRestjson1_serializeOpDocumentClaimDeviceInput. A PascalCase "Id"
+	// (the prior key here) is never sent by a real client, so ClaimDevice
+	// silently no-oped on every real caller before this fix.
+	id, _ := body["id"].(string)
 
 	if _, err := h.Backend.ClaimDevice(id); err != nil {
 		return respondErr(c, err)
@@ -115,9 +120,15 @@ func (h *Handler) handleTransferInputDevice(
 	deviceID string,
 	body map[string]any,
 ) error {
-	targetCustomerID, _ := body["TargetCustomerId"].(string)
-	targetRegion, _ := body["TargetRegion"].(string)
-	message, _ := body["TransferMessage"].(string)
+	// TransferInputDeviceInput's real wire fields are lowerCamel
+	// "targetCustomerId"/"targetRegion"/"transferMessage" -- verified
+	// against awsRestjson1_serializeOpDocumentTransferInputDeviceInput. The
+	// prior PascalCase keys here never matched a real client's request
+	// body, so TransferInputDevice silently no-oped on every real caller's
+	// input before this fix.
+	targetCustomerID, _ := body["targetCustomerId"].(string)
+	targetRegion, _ := body["targetRegion"].(string)
+	message, _ := body["transferMessage"].(string)
 
 	if err := h.Backend.TransferInputDevice(deviceID, targetCustomerID, targetRegion, message); err != nil {
 		return respondErr(c, err)

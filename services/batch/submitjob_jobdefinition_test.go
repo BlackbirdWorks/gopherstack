@@ -3,6 +3,7 @@ package batch_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,20 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/batch"
 )
+
+// TestConsumableResourceProperty_QuantityIsInt64 verifies
+// ConsumableResourceProperty.Quantity is int64, matching
+// aws-sdk-go-v2/service/batch/types.ConsumableResourceRequirement.Quantity
+// (a Long) exactly. It was previously float64, which is wrong for the real
+// API even though whole-number values happen to encode identically on the
+// wire (see PARITY.md gaps).
+func TestConsumableResourceProperty_QuantityIsInt64(t *testing.T) {
+	t.Parallel()
+
+	field, ok := reflect.TypeFor[batch.ConsumableResourceProperty]().FieldByName("Quantity")
+	require.True(t, ok)
+	assert.Equal(t, reflect.Int64, field.Type.Kind(), "Quantity must be int64, not float64")
+}
 
 // newHandlerWithQueueForSubmit creates a compute environment and an ENABLED
 // job queue, returning the handler and queue name, for tests that focus on

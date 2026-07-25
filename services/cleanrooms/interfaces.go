@@ -260,8 +260,8 @@ type StorageBackend interface {
 
 	// CollaborationChangeRequest operations.
 	CreateCollaborationChangeRequest(
-		collaborationID, changeRequestType string,
-		details map[string]any,
+		collaborationID string,
+		changes []map[string]any,
 	) (*CollaborationChangeRequest, error)
 	GetCollaborationChangeRequest(
 		collaborationID, changeRequestID string,
@@ -270,7 +270,7 @@ type StorageBackend interface {
 		collaborationID, maxResults, nextToken string,
 	) ([]*CollaborationChangeRequest, string, error)
 	UpdateCollaborationChangeRequest(
-		collaborationID, changeRequestID, status string,
+		collaborationID, changeRequestID, action string,
 	) (*CollaborationChangeRequest, error)
 
 	// Tag operations.

@@ -12,7 +12,7 @@ import (
 // CreateTrust creates a trust relationship.
 func (b *InMemoryBackend) CreateTrust(
 	ctx context.Context,
-	directoryID, remoteDomainName, _, trustDirection, trustType string,
+	directoryID, remoteDomainName, _, trustDirection, trustType, selectiveAuth string,
 ) (string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -21,6 +21,10 @@ func (b *InMemoryBackend) CreateTrust(
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return "", ErrDirectoryNotFound
+	}
+
+	if selectiveAuth == "" {
+		selectiveAuth = string(SelectiveAuthDisabled)
 	}
 
 	id := fmt.Sprintf("t-%s", uuid.NewString()[:10])
@@ -33,7 +37,7 @@ func (b *InMemoryBackend) CreateTrust(
 		TrustDirection:       trustDirection,
 		TrustType:            trustType,
 		TrustState:           "Created",
-		SelectiveAuth:        "Disabled", //nolint:goconst // existing issue.
+		SelectiveAuth:        selectiveAuth,
 		CreatedDateTime:      now,
 		LastUpdatedDateTime:  now,
 		StateLastUpdatedTime: now,

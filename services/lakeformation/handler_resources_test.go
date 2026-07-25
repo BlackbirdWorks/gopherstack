@@ -112,7 +112,10 @@ func TestHandler_ListResources(t *testing.T) {
 			h.DefaultRegion = testRegion
 
 			for _, arn := range tt.setupArns {
-				require.NoError(t, b.RegisterResource(arn, "arn:aws:iam::123:role/R"))
+				require.NoError(
+					t,
+					b.RegisterResource(arn, "arn:aws:iam::123:role/R", lakeformation.RegisterResourceOptions{}),
+				)
 			}
 
 			rec := doLFRequest(t, h, "/ListResources", tt.body)
@@ -201,6 +204,34 @@ func TestUpdateResource_Success(t *testing.T) {
 	})
 
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestUpdateResource_ExtendedFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+	b.AddResourceInternal("arn:aws:s3:::my-bucket", "old-role")
+
+	rec := postJSON(t, h, "/UpdateResource", map[string]any{
+		"ResourceArn":                  "arn:aws:s3:::my-bucket",
+		"RoleArn":                      "arn:aws:iam::000000000000:role/new-role",
+		"ExpectedResourceOwnerAccount": "111111111111",
+		"WithFederation":               true,
+		"HybridAccessEnabled":          true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := postJSON(t, h, "/DescribeResource", map[string]any{"ResourceArn": "arn:aws:s3:::my-bucket"})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out map[string]any
+	require.NoError(t, jsonDecode(rec2.Body, &out))
+	info := out["ResourceInfo"].(map[string]any)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/new-role", info["RoleArn"])
+	assert.Equal(t, "111111111111", info["ExpectedResourceOwnerAccount"])
+	assert.Equal(t, true, info["WithFederation"])
+	assert.Equal(t, true, info["HybridAccessEnabled"])
 }
 
 func TestUpdateResource_NotFound(t *testing.T) {
@@ -303,4 +334,41 @@ func TestRegisterResource_UseServiceLinkedRole(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRegisterResource_ExtendedFieldsRoundTrip verifies that
+// WithFederation/HybridAccessEnabled/ExpectedResourceOwnerAccount/
+// WithPrivilegedAccess actually persist and surface back through
+// DescribeResource, and that VerificationStatus is populated -- these fields
+// previously existed on registerResourceInput/ResourceInfo but were dropped
+// on the floor because the backend's RegisterResource(resourceArn, roleArn
+// string) signature had nowhere to carry them.
+func TestRegisterResource_ExtendedFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	rec := postJSON(t, h, "/RegisterResource", map[string]any{
+		"ResourceArn":                  "arn:aws:s3:::extended-lake",
+		"RoleArn":                      "arn:aws:iam::123456789012:role/R",
+		"ExpectedResourceOwnerAccount": "999999999999",
+		"WithFederation":               true,
+		"HybridAccessEnabled":          true,
+		"WithPrivilegedAccess":         true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := postJSON(t, h, "/DescribeResource", map[string]any{"ResourceArn": "arn:aws:s3:::extended-lake"})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out map[string]any
+	require.NoError(t, jsonDecode(rec2.Body, &out))
+	info := out["ResourceInfo"].(map[string]any)
+
+	assert.Equal(t, "999999999999", info["ExpectedResourceOwnerAccount"])
+	assert.Equal(t, true, info["WithFederation"])
+	assert.Equal(t, true, info["HybridAccessEnabled"])
+	assert.Equal(t, true, info["WithPrivilegedAccess"])
+	assert.NotEmpty(t, info["VerificationStatus"])
 }

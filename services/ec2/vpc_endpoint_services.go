@@ -78,6 +78,7 @@ func (b *InMemoryBackend) DeleteVpcEndpointServiceConfigurations(ids []string) e
 
 	for _, id := range ids {
 		b.vpcEndpointServiceConfigs.Delete(id)
+		delete(b.tags, id)
 	}
 
 	return nil

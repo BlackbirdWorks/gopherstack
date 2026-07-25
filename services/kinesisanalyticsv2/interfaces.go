@@ -11,22 +11,12 @@ type StorageBackend interface {
 	CreateApplication(
 		ctx context.Context, name, runtimeEnv, serviceRole, description, mode string, tags []Tag,
 	) (*Application, error)
-	SeedApplicationConfiguration(
-		ctx context.Context,
-		name string,
-		inputs []InputDescription,
-		outputs []OutputDescription,
-		refDataSources []ReferenceDataSourceDescription,
-		vpcConfigs []VpcConfigurationDescription,
-		cwlOptions []CloudWatchLoggingOptionDesc,
-	) error
+	SeedApplicationConfiguration(ctx context.Context, name string, cfg SeedConfig) error
 	DescribeApplication(ctx context.Context, name string) (*Application, error)
 	ListApplications(ctx context.Context, nextToken string) ([]*Application, string)
-	UpdateApplication(
-		ctx context.Context, name string, currentVersionID int64, serviceRole, description string,
-	) (*Application, string, error)
-	DeleteApplication(ctx context.Context, name string) error
-	StartApplication(ctx context.Context, name string) (string, error)
+	UpdateApplication(ctx context.Context, params UpdateApplicationParams) (*Application, string, error)
+	DeleteApplication(ctx context.Context, name string, createTimestampSeconds *float64) error
+	StartApplication(ctx context.Context, name string, runConfig *RunConfigInput) (string, error)
 	StopApplication(ctx context.Context, name string) (string, error)
 
 	CreateApplicationSnapshot(ctx context.Context, appName, snapshotName string) (*Snapshot, error)
@@ -38,9 +28,14 @@ type StorageBackend interface {
 	UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error
 	ListTagsForResource(ctx context.Context, resourceARN string) ([]Tag, error)
 
+	// AddApplicationCloudWatchLoggingOption/AddApplicationVpcConfiguration/
+	// DeleteApplicationCloudWatchLoggingOption/DeleteApplicationVpcConfiguration
+	// return an OperationID -- real AWS's outputs for these four ops (and only
+	// these four among the Add*/Delete* config family) carry an OperationId
+	// field, verified against aws-sdk-go-v2's api_op_*.go.
 	AddApplicationCloudWatchLoggingOption(
 		ctx context.Context, name string, currentVersionID int64, logStreamARN, roleARN string,
-	) error
+	) (string, error)
 	AddApplicationInput(ctx context.Context, name string, currentVersionID int64, input InputDescription) error
 	AddApplicationInputProcessingConfiguration(
 		ctx context.Context,
@@ -55,11 +50,11 @@ type StorageBackend interface {
 	) error
 	AddApplicationVpcConfiguration(
 		ctx context.Context, name string, currentVersionID int64, vpc VpcConfigurationDescription,
-	) error
+	) (string, error)
 
 	DeleteApplicationCloudWatchLoggingOption(
 		ctx context.Context, name string, currentVersionID int64, loggingOptionID string,
-	) error
+	) (string, error)
 	DeleteApplicationInputProcessingConfiguration(
 		ctx context.Context, name string, currentVersionID int64, inputID string,
 	) error
@@ -69,7 +64,7 @@ type StorageBackend interface {
 	) error
 	DeleteApplicationVpcConfiguration(
 		ctx context.Context, name string, currentVersionID int64, vpcConfigurationID string,
-	) error
+	) (string, error)
 
 	DescribeApplicationOperation(ctx context.Context, name, operationID string) (*ApplicationOperation, error)
 	ListApplicationOperations(ctx context.Context, name, nextToken string) ([]*ApplicationOperation, string, error)

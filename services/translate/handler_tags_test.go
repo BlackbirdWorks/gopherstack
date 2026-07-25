@@ -149,6 +149,41 @@ func TestTagResource_DeletedTerminologyARN(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestTagResource_TooManyTagsRejected verifies that adding tags that would
+// push a resource's total past the 50-tag limit is rejected as
+// TooManyTagsException, and that tags already present on the resource count
+// toward the limit even though TagResource merges rather than replaces.
+func TestTagResource_TooManyTagsRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "ImportTerminology", map[string]any{
+		"Name": "many-tags-target", "MergeStrategy": "OVERWRITE",
+		"TerminologyData": map[string]any{"Format": "CSV"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	termARN := unmarshalJSON(t, rec.Body.Bytes())["TerminologyProperties"].(map[string]any)["Arn"].(string)
+
+	const tooMany = 51
+
+	tags := make([]map[string]any, 0, tooMany)
+	for i := range tooMany {
+		tags = append(tags, map[string]any{"Key": "k" + string(rune('a'+i)), "Value": "v"})
+	}
+
+	rec = doRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": termARN,
+		"Tags":        tags,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "TooManyTagsException", body["__type"])
+}
+
 // TestTagOperations verifies TagResource, UntagResource, and ListTagsForResource.
 func TestTagOperations(t *testing.T) {
 	t.Parallel()

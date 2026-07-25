@@ -14,22 +14,28 @@ import (
 // backendSnapshot itself would make an older snapshot unsafe to decode as the
 // current shape. Restore compares this against the persisted value and
 // discards (registry.ResetAll, not a partial decode) any mismatch -- see
-// Restore below. This is the first version with a version guard: the
+// Restore below. Version 1 was the first version with a version guard (the
 // pre-Phase-3.3 backendSnapshot had no Version field at all, so any snapshot
-// written before this change (including one with no version field, which
-// decodes as 0) is discarded the same way any other incompatible snapshot is.
-const awsconfigSnapshotVersion = 1
+// written before that change, including one with no version field which
+// decodes as 0, was discarded the same way any other incompatible snapshot
+// is). Version 2 adds three tables introduced by the 2026-07 parity pass:
+// conformancePackRules, remediationExecutions, and serviceLinkedRecorders --
+// see this package's persistence audit below.
+const awsconfigSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the AWS Config backend.
 //
 // Tables holds one JSON-encoded array per table registered on b.registry (see
-// store_setup.go's registerAllTables): recorders, channels, aggregationAuths,
-// configRules, aggregators, conformancePacks, orgConfigRules,
-// orgConformancePacks, storedQueries, retentionConfigs, remediationConfigs,
-// resourceEvaluations, resourceConfigs, and ruleResourceEvals. The first eight
-// were already persisted pre-Phase-3.3 (as individual named map fields); the
-// remaining six become persisted for the first time as a natural consequence
-// of the store.Table conversion -- see this package's persistence audit below.
+// store_setup.go's registerAllTables): recorders, serviceLinkedRecorders,
+// channels, aggregationAuths, configRules, aggregators, conformancePacks,
+// conformancePackRules, orgConfigRules, orgConformancePacks, storedQueries,
+// retentionConfigs, remediationConfigs, remediationExecutions,
+// resourceEvaluations, resourceConfigs, and ruleResourceEvals. Most were
+// already persisted pre-Phase-3.3 (as individual named map fields) or became
+// persisted as a natural consequence of the store.Table conversion;
+// conformancePackRules/remediationExecutions/serviceLinkedRecorders are new
+// tables added by the 2026-07 parity pass (see this package's persistence
+// audit below).
 //
 // ruleEvaluations, resourceHistory, resourceTags, remediationExceptions,
 // customRulePolicies, and orgCustomRulePolicies are deliberately NOT included:
@@ -37,7 +43,7 @@ const awsconfigSnapshotVersion = 1
 // field comments on InMemoryBackend in store.go), and none of the six was
 // persisted before Phase 3.3 either -- this preserves that pre-existing gap
 // rather than closing it, per the mechanical-conversion (not parity-fix)
-// scope of this rollout.
+// scope of that rollout.
 type backendSnapshot struct {
 	Tables  map[string]json.RawMessage `json:"tables"`
 	Version int                        `json:"version"`

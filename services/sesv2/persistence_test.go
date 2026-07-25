@@ -116,10 +116,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.TagResource("arn:aws:ses:us-east-1:123:identity/verified@example.com",
 		map[string]string{"k": "v"}))
 
-	_, err = original.CreateMultiRegionEndpoint("mre1")
+	_, err = original.CreateMultiRegionEndpoint("mre1", nil, nil)
 	require.NoError(t, err)
 
-	_, err = original.CreateTenant("tenant1")
+	_, err = original.CreateTenant("tenant1", nil)
 	require.NoError(t, err)
 	require.NoError(t, original.CreateTenantResourceAssociation("tenant1", "arn:aws:ses:us-east-1:123:x"))
 
@@ -209,7 +209,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = fresh.GetTenant("tenant1")
 	require.NoError(t, err)
 
-	resources, _, err := fresh.ListTenantResources("tenant1", 0)
+	resources, _, err := fresh.ListTenantResources("tenant1", nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, resources, 1)
 

@@ -17,7 +17,7 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 	if _, exists := b.clusterEndpoints.Get(endpointID); exists {
 		return nil, fmt.Errorf("%w: cluster endpoint %s already exists", ErrClusterEndpointAlreadyExists, endpointID)
 	}
-	if _, exists := b.clusters.Get(clusterID); !exists {
+	if _, exists := b.clusters.Get(normalizeID(clusterID)); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 	if endpointType == "" {
@@ -56,7 +56,10 @@ func (b *InMemoryBackend) DescribeDBClusterEndpoints(clusterID, endpointID strin
 	}
 	result := make([]DBClusterEndpoint, 0, b.clusterEndpoints.Len())
 	for _, ep := range b.clusterEndpoints.All() {
-		if clusterID != "" && ep.DBClusterIdentifier != clusterID {
+		// DBClusterIdentifier is a case-insensitive AWS identifier (see
+		// normalizeID) even though DBClusterEndpointIdentifier -- this
+		// table's own primary key -- is out of this fix's scope.
+		if clusterID != "" && !idEqual(ep.DBClusterIdentifier, clusterID) {
 			continue
 		}
 		result = append(result, *ep)

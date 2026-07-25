@@ -94,6 +94,9 @@ type hdfsQopConfigOutput struct {
 	RPCProtection          string `json:"RpcProtection,omitempty"`
 }
 
+// describeLocationHdfsOutput intentionally has no Subdirectory field: the
+// real DescribeLocationHdfsOutput doesn't have one (confirmed against
+// aws-sdk-go-v2 v1.59.2).
 type describeLocationHdfsOutput struct {
 	QopConfiguration   *hdfsQopConfigOutput `json:"QopConfiguration,omitempty"`
 	KmsKeyProviderURI  string               `json:"KmsKeyProviderUri,omitempty"`
@@ -102,7 +105,6 @@ type describeLocationHdfsOutput struct {
 	KerberosPrincipal  string               `json:"KerberosPrincipal,omitempty"`
 	AuthenticationType string               `json:"AuthenticationType,omitempty"`
 	SimpleUser         string               `json:"SimpleUser,omitempty"`
-	Subdirectory       string               `json:"Subdirectory,omitempty"`
 	AgentArns          []string             `json:"AgentArns,omitempty"`
 	NameNodes          []hdfsNameNodeOutput `json:"NameNodes,omitempty"`
 	CreationTime       int64                `json:"CreationTime"`
@@ -126,7 +128,6 @@ func (h *Handler) handleDescribeLocationHdfs(
 	out := &describeLocationHdfsOutput{
 		LocationArn:        l.LocationArn,
 		LocationURI:        l.LocationURI,
-		Subdirectory:       l.Subdirectory,
 		AuthenticationType: l.AuthenticationType,
 		SimpleUser:         l.SimpleUser,
 		KerberosPrincipal:  l.KerberosPrincipal,

@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -79,6 +80,44 @@ type ReservedCapacity struct {
 	TotalInstanceCount     int32          `json:"TotalInstanceCount"`
 	AvailableInstanceCount int32          `json:"AvailableInstanceCount,omitempty"`
 	InUseInstanceCount     int32          `json:"InUseInstanceCount,omitempty"`
+}
+
+// MarshalJSON emits StartTime/EndTime as AWS awsjson1.1 epoch-seconds
+// numbers rather than Go's default RFC3339 strings — this struct is
+// marshaled directly by handleDescribeReservedCapacity.
+func (rc *ReservedCapacity) MarshalJSON() ([]byte, error) {
+	type alias ReservedCapacity
+
+	return json.Marshal(struct {
+		*alias
+		StartTime float64 `json:"StartTime"`
+		EndTime   float64 `json:"EndTime"`
+	}{
+		alias:     (*alias)(rc),
+		StartTime: epochSeconds(rc.StartTime),
+		EndTime:   epochSeconds(rc.EndTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [ReservedCapacity.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (rc *ReservedCapacity) UnmarshalJSON(data []byte) error {
+	type alias ReservedCapacity
+
+	aux := struct {
+		*alias
+		StartTime float64 `json:"StartTime"`
+		EndTime   float64 `json:"EndTime"`
+	}{alias: (*alias)(rc)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	rc.StartTime = timeFromEpochSeconds(aux.StartTime)
+	rc.EndTime = timeFromEpochSeconds(aux.EndTime)
+
+	return nil
 }
 
 func cloneReservedCapacity(rc *ReservedCapacity) *ReservedCapacity {

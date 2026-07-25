@@ -164,7 +164,7 @@ func (h *S3Handler) setOperation(ctx context.Context, op string) {
 
 // GetSupportedOperations returns a list of supported S3 operations.
 func (h *S3Handler) GetSupportedOperations() []string {
-	return append(s3CoreOperations(), s3StubOperations()...)
+	return append(s3CoreOperations(), s3ExtendedOperations()...)
 }
 
 // Regions returns all regions with buckets in the backend.

@@ -379,3 +379,69 @@ func TestExpressGatewayService_DeepCopy_Tags(t *testing.T) {
 		})
 	}
 }
+
+// TestExpressGatewayService_TagResource_VisibleOnDescribe proves that a
+// TagResource call on an Express service ARN is reflected on a subsequent
+// DescribeExpressGatewayService(include=[TAGS]) call. Previously
+// svc.Tags (echoed on Create/Describe/Update) and the resourceTags side map
+// (updated by TagResource/UntagResource, read by ListTagsForResource) were
+// two independent, never-synchronized copies: TagResource "succeeded" but
+// was invisible on Describe, and creation-time tags were invisible to
+// ListTagsForResource.
+func TestExpressGatewayService_TagResource_VisibleOnDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createResp := doECSRequest(t, h, "CreateExpressGatewayService", map[string]any{
+		"executionRoleArn":      "arn:aws:iam::000000000000:role/exec-role",
+		"infrastructureRoleArn": "arn:aws:iam::000000000000:role/infra-role",
+		"serviceName":           "tag-sync-svc",
+	})
+	require.Equal(t, http.StatusOK, createResp.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	serviceArn := createOut["service"].(map[string]any)["serviceArn"].(string)
+
+	tagResp := doECSRequest(t, h, "TagResource", map[string]any{
+		"resourceArn": serviceArn,
+		"tags":        []map[string]any{{"key": "team", "value": "platform"}},
+	})
+	require.Equal(t, http.StatusOK, tagResp.Code)
+
+	// ListTagsForResource sees it immediately.
+	listResp := doECSRequest(t, h, "ListTagsForResource", map[string]any{
+		"resourceArn": serviceArn,
+	})
+	require.Equal(t, http.StatusOK, listResp.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	listTags := listOut["tags"].([]any)
+	require.Len(t, listTags, 1)
+	assert.Equal(t, "team", listTags[0].(map[string]any)["key"])
+
+	// DescribeExpressGatewayService with Include=[TAGS] also sees it.
+	descResp := doECSRequest(t, h, "DescribeExpressGatewayService", map[string]any{
+		"serviceArn": serviceArn,
+		"include":    []string{"TAGS"},
+	})
+	require.Equal(t, http.StatusOK, descResp.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	descTags := descOut["service"].(map[string]any)["tags"].([]any)
+	require.Len(t, descTags, 1)
+	assert.Equal(t, "team", descTags[0].(map[string]any)["key"])
+
+	// Without Include=[TAGS], tags are omitted.
+	noTagsResp := doECSRequest(t, h, "DescribeExpressGatewayService", map[string]any{
+		"serviceArn": serviceArn,
+	})
+	require.Equal(t, http.StatusOK, noTagsResp.Code)
+
+	var noTagsOut map[string]any
+	require.NoError(t, json.Unmarshal(noTagsResp.Body.Bytes(), &noTagsOut))
+	assert.Nil(t, noTagsOut["service"].(map[string]any)["tags"])
+}

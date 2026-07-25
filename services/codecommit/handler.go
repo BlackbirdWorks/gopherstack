@@ -383,6 +383,22 @@ var errCodeLookup = []errCodeEntry{
 		code:     http.StatusBadRequest,
 		errType:  "MaximumRepositoryNamesExceededException",
 	},
+	// These six sentinels are declared in errors.go and (except the last two,
+	// which are currently unused pending SameFileContent/submodule-path
+	// detection — see PARITY.md) actively returned by validateBranchName,
+	// CreateCommit, and DeleteFile, but were missing from this table until
+	// this pass: every one of them fell through to the generic 400
+	// ValidationException below instead of its real AWS exception name.
+	{sentinel: ErrBranchNameRequired, code: http.StatusBadRequest, errType: "BranchNameRequiredException"},
+	{sentinel: ErrInvalidBranchName, code: http.StatusBadRequest, errType: "InvalidBranchNameException"},
+	{sentinel: ErrParentCommitIDRequired, code: http.StatusBadRequest, errType: "ParentCommitIdRequiredException"},
+	{sentinel: ErrParentCommitIDOutdated, code: http.StatusBadRequest, errType: "ParentCommitIdOutdatedException"},
+	{sentinel: ErrSameFileContent, code: http.StatusBadRequest, errType: "SameFileContentException"},
+	{
+		sentinel: ErrFilePathConflicts,
+		code:     http.StatusBadRequest,
+		errType:  "FilePathConflictsWithSubmodulePathException",
+	},
 	{sentinel: ErrValidation, code: http.StatusBadRequest, errType: "InvalidParameterException"},
 	{sentinel: errInvalidRequest, code: http.StatusBadRequest, errType: "ValidationException"},
 }

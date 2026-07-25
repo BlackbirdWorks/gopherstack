@@ -95,6 +95,7 @@ const (
 	keyCreatedAt       = "createdAt"
 	keyModifiedAt      = "modifiedAt"
 	keySdiSource       = "sdiSource"
+	keyGroupID         = "groupId"
 	opUnknown          = "Unknown"
 
 	opCreateChannel   = "CreateChannel"

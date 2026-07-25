@@ -37,11 +37,20 @@ type getMailDomainReq struct {
 	DomainName     string `json:"DomainName"`
 }
 
+// dnsRecordResp mirrors aws-sdk-go-v2/service/workmail/types.DnsRecord.
+type dnsRecordResp struct {
+	Hostname string `json:"Hostname,omitempty"`
+	Type     string `json:"Type,omitempty"`
+	Value    string `json:"Value,omitempty"`
+}
+
 type getMailDomainResp struct {
-	DomainName                  string `json:"DomainName,omitempty"`
-	OwnershipVerificationStatus string `json:"OwnershipVerificationStatus,omitempty"`
-	IsDefault                   bool   `json:"IsDefault"`
-	IsTestDomain                bool   `json:"IsTestDomain"`
+	DomainName                  string          `json:"DomainName,omitempty"`
+	OwnershipVerificationStatus string          `json:"OwnershipVerificationStatus,omitempty"`
+	DkimVerificationStatus      string          `json:"DkimVerificationStatus,omitempty"`
+	Records                     []dnsRecordResp `json:"Records,omitempty"`
+	IsDefault                   bool            `json:"IsDefault"`
+	IsTestDomain                bool            `json:"IsTestDomain"`
 }
 
 func (h *Handler) handleGetMailDomain(_ context.Context, req *getMailDomainReq) (*getMailDomainResp, error) {
@@ -50,11 +59,18 @@ func (h *Handler) handleGetMailDomain(_ context.Context, req *getMailDomainReq) 
 		return nil, err
 	}
 
+	records := make([]dnsRecordResp, 0, len(d.Records))
+	for _, r := range d.Records {
+		records = append(records, dnsRecordResp(r))
+	}
+
 	return &getMailDomainResp{
 		DomainName:                  d.DomainName,
 		IsDefault:                   d.IsDefault,
 		IsTestDomain:                d.IsTestDomain,
 		OwnershipVerificationStatus: d.OwnershipVerificationStatus,
+		DkimVerificationStatus:      d.DkimVerificationStatus,
+		Records:                     records,
 	}, nil
 }
 

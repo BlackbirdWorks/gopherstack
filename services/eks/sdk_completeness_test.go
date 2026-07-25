@@ -18,9 +18,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := eks.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := eks.NewHandler(backend)
-	// CancelUpdate: added upstream in aws-sdk-go-v2 eks v1.88.x; not yet
-	// implemented in gopherstack (tracked in gopherstack-nab).
-	sdkcheck.CheckCompleteness(t, &ekssdk.Client{}, h.GetSupportedOperations(), []string{
-		"CancelUpdate",
-	})
+	sdkcheck.CheckCompleteness(t, &ekssdk.Client{}, h.GetSupportedOperations(), nil)
 }

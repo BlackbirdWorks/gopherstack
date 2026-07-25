@@ -98,6 +98,38 @@ func createTestChannel(t *testing.T, h *mediatailor.Handler) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// testScheduleConfig returns a minimal, valid ScheduleConfiguration for
+// CreateProgram: an ABSOLUTE transition starting at startMillis. Every
+// backend/HTTP test that creates a program needs one, since real
+// CreateProgramInput requires ScheduleConfiguration.Transition (both Type
+// and RelativePosition are required smithy members, even though
+// RelativePosition is meaningless for an ABSOLUTE transition).
+func testScheduleConfig(startMillis int64) *mediatailor.ScheduleConfiguration {
+	return &mediatailor.ScheduleConfiguration{
+		Transition: mediatailor.Transition{
+			Type:                     "ABSOLUTE",
+			RelativePosition:         "AFTER_PROGRAM",
+			ScheduledStartTimeMillis: startMillis,
+			DurationMillis:           30000,
+		},
+	}
+}
+
+// testScheduleConfigBody is testScheduleConfig's JSON-body equivalent, for
+// HTTP-level tests that POST to /channel/{ch}/program/{name}.
+func testScheduleConfigBody(startMillis int64) map[string]any {
+	return map[string]any{
+		"ScheduleConfiguration": map[string]any{
+			"Transition": map[string]any{
+				"Type":                     "ABSOLUTE",
+				"RelativePosition":         "AFTER_PROGRAM",
+				"ScheduledStartTimeMillis": float64(startMillis),
+				"DurationMillis":           float64(30000),
+			},
+		},
+	}
+}
+
 func createTestPlaybackConfig(t *testing.T, h *mediatailor.Handler, name string) {
 	t.Helper()
 
@@ -632,11 +664,14 @@ func TestHandler_PaginationQueryParamCasing(t *testing.T) {
 			},
 		})
 
-		for _, name := range []string{"prog-a", "prog-b"} {
-			doRequest(t, h, http.MethodPost, "/channel/sched-ch/program/"+name, map[string]any{
-				"SourceLocationName": "sched-sl",
-				"VodSourceName":      "sched-vs",
-			})
+		startMillis := int64(1_700_000_000_000)
+		for i, name := range []string{"prog-a", "prog-b"} {
+			progBody := testScheduleConfigBody(startMillis + int64(i)*60_000)
+			progBody["SourceLocationName"] = "sched-sl"
+			progBody["VodSourceName"] = "sched-vs"
+
+			progRec := doRequest(t, h, http.MethodPost, "/channel/sched-ch/program/"+name, progBody)
+			require.Equal(t, http.StatusOK, progRec.Code, progRec.Body.String())
 		}
 
 		rec := doRequestWithQuery(t, h, http.MethodGet, "/channel/sched-ch/schedule", "maxResults=1")

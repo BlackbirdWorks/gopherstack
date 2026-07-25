@@ -26,6 +26,7 @@ func TestStartCopyJobCreationDateEpoch(t *testing.T) {
 			h, _ := newHandler(t)
 
 			doRequest(t, h, http.MethodPut, "/backup-vaults/src-vault", `{}`)
+			doRequest(t, h, http.MethodPut, "/backup-vaults/dst-vault", `{}`)
 
 			resp := doRequest(t, h, http.MethodPut, "/backup-jobs", `{
 				"BackupVaultName": "src-vault",
@@ -65,13 +66,59 @@ func TestStartCopyJobCreationDateEpoch(t *testing.T) {
 func TestStartCopyJob(t *testing.T) {
 	t.Parallel()
 	b := backup.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateBackupVault("src-vault", "", "", nil)
+	require.NoError(t, err)
+	dstVault, err := b.CreateBackupVault("dst-vault", "", "", nil)
+	require.NoError(t, err)
 
-	job := b.StartCopyJob("arn:rp", "arn:src-vault", "arn:dst-vault", "arn:role")
+	job, err := b.StartCopyJob("arn:rp", "src-vault", dstVault.BackupVaultArn, "arn:role")
+	require.NoError(t, err)
 	assert.NotEmpty(t, job.CopyJobID)
 	assert.Equal(t, "COMPLETED", job.State)
+	assert.NotEmpty(t, job.DestinationRecoveryPointArn)
+
+	// The copy actually materializes a recovery point in the destination vault.
+	destRPs, err := b.ListRecoveryPointsByBackupVault("dst-vault")
+	require.NoError(t, err)
+	require.Len(t, destRPs, 1)
+	assert.Equal(t, job.DestinationRecoveryPointArn, destRPs[0].RecoveryPointArn)
 
 	summaries := b.ListCopyJobSummaries()
 	assert.NotEmpty(t, summaries)
+}
+
+func TestStartCopyJob_Validation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown source vault is not found", func(t *testing.T) {
+		t.Parallel()
+		b := backup.NewInMemoryBackend("000000000000", "us-east-1")
+		dstVault, err := b.CreateBackupVault("dst-vault", "", "", nil)
+		require.NoError(t, err)
+		_, err = b.StartCopyJob("arn:rp", "ghost-src", dstVault.BackupVaultArn, "arn:role")
+		require.ErrorIs(t, err, backup.ErrNotFound)
+	})
+
+	t.Run("unknown destination vault ARN is not found", func(t *testing.T) {
+		t.Parallel()
+		b := backup.NewInMemoryBackend("000000000000", "us-east-1")
+		_, err := b.CreateBackupVault("src-vault", "", "", nil)
+		require.NoError(t, err)
+		_, err = b.StartCopyJob(
+			"arn:rp",
+			"src-vault",
+			"arn:aws:backup:us-east-1:000000000000:backup-vault:ghost-dst",
+			"arn:role",
+		)
+		require.ErrorIs(t, err, backup.ErrNotFound)
+	})
+
+	t.Run("missing required fields are validation errors", func(t *testing.T) {
+		t.Parallel()
+		b := backup.NewInMemoryBackend("000000000000", "us-east-1")
+		_, err := b.StartCopyJob("", "src", "arn:dst", "arn:role")
+		require.ErrorIs(t, err, backup.ErrValidation)
+	})
 }
 
 // TestStartCopyJobAndDescribeViaHTTP verifies that a copy job started via the
@@ -90,13 +137,18 @@ func TestStartCopyJobAndDescribeViaHTTP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h, be := newHandlerAndBackend()
+			_, err := be.CreateBackupVault("src-vault", "", "", nil)
+			require.NoError(t, err)
+			dstVault, err := be.CreateBackupVault("dst-vault", "", "", nil)
+			require.NoError(t, err)
 
-			job := be.StartCopyJob(
+			job, err := be.StartCopyJob(
 				"arn:aws:backup:us-east-1:123456789012:recovery-point:rp-001",
 				"src-vault",
-				"arn:aws:backup:us-east-1:123456789012:backup-vault:dst-vault",
+				dstVault.BackupVaultArn,
 				"arn:aws:iam::123456789012:role/backup-role",
 			)
+			require.NoError(t, err)
 			require.NotEmpty(t, job.CopyJobID)
 
 			rec := doREST(t, h, http.MethodGet, "/copy-jobs/"+job.CopyJobID, nil)
@@ -107,6 +159,8 @@ func TestStartCopyJobAndDescribeViaHTTP(t *testing.T) {
 			assert.True(t, ok, "response must have CopyJob wrapper key")
 			if ok {
 				assert.Equal(t, job.CopyJobID, copyJobDoc["CopyJobId"])
+				assert.NotEmpty(t, copyJobDoc["DestinationRecoveryPointArn"])
+				assert.Equal(t, "123456789012", copyJobDoc["AccountId"])
 			}
 		})
 	}

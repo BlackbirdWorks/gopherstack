@@ -51,7 +51,7 @@ func sessionToMap(session *Session) map[string]any {
 		keyName:            session.Name,
 		keyState:           session.State,
 		keyStateDetails:    session.StateDetails,
-		"createdBy":        session.CreatedBy,
+		keyCreatedBy:       session.CreatedBy,
 		"executionRoleArn": session.ExecutionRoleArn,
 		keyReleaseLabel:    session.ReleaseLabel,
 		keyCreatedAt:       epochSeconds(session.CreatedAt),

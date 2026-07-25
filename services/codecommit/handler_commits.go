@@ -131,13 +131,11 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 	}
 
 	deleteFiles := make([]string, 0, len(in.DeleteFiles))
-	filesDeleted := make([]any, 0, len(in.DeleteFiles))
 	for _, df := range in.DeleteFiles {
 		deleteFiles = append(deleteFiles, df.FilePath)
-		filesDeleted = append(filesDeleted, map[string]any{keyFilePath: df.FilePath})
 	}
 
-	commit, blobIDs, err := h.Backend.CreateCommit(
+	commit, blobIDsAdded, blobIDsDeleted, err := h.Backend.CreateCommit(
 		in.RepositoryName, in.BranchName,
 		in.AuthorName, in.Email, in.CommitMessage,
 		in.ParentCommitID, putFiles, deleteFiles,
@@ -153,9 +151,20 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 	for _, pf := range in.PutFiles {
 		filesAdded = append(filesAdded, map[string]any{
 			keyFilePath:    pf.FilePath,
-			"blobId":       blobIDs[pf.FilePath],
+			keyBlobID:      blobIDsAdded[pf.FilePath],
 			keyFileMode:    fileModes[pf.FilePath],
 			"absolutePath": pf.FilePath,
+		})
+	}
+
+	// filesDeleted mirrors filesAdded: built from the backend's reported blob
+	// IDs (the blob each deletion removed from the tree) rather than left
+	// empty, matching the fix already applied to the standalone DeleteFile op.
+	filesDeleted := make([]any, 0, len(in.DeleteFiles))
+	for _, df := range in.DeleteFiles {
+		filesDeleted = append(filesDeleted, map[string]any{
+			keyFilePath: df.FilePath,
+			keyBlobID:   blobIDsDeleted[df.FilePath],
 		})
 	}
 
@@ -188,12 +197,17 @@ func (h *Handler) handleGetCommit(body []byte) (any, error) {
 }
 
 func (h *Handler) handleGetDifferences(body []byte) (any, error) {
+	// GetDifferences is the one CodeCommit op whose pagination fields are
+	// capitalized on the wire (MaxResults/NextToken, both request and
+	// response) — verified against aws-sdk-go-v2/service/codecommit's
+	// generated (de)serializers; every other List/Get op in this service uses
+	// lowercase maxResults/nextToken.
 	var req struct {
 		RepositoryName        string `json:"repositoryName"`
 		AfterCommitSpecifier  string `json:"afterCommitSpecifier"`
 		BeforeCommitSpecifier string `json:"beforeCommitSpecifier"`
-		NextToken             string `json:"nextToken"`
-		MaxResults            int    `json:"maxResults"`
+		NextToken             string `json:"NextToken"`
+		MaxResults            int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -202,9 +216,19 @@ func (h *Handler) handleGetDifferences(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	diffs, err := h.Backend.GetDifferences(req.RepositoryName, req.AfterCommitSpecifier, req.BeforeCommitSpecifier)
+	pg, err := h.Backend.GetDifferences(
+		req.RepositoryName, req.AfterCommitSpecifier, req.BeforeCommitSpecifier, req.NextToken, req.MaxResults,
+	)
 	if err != nil {
 		return nil, err
+	}
+	diffs := pg.Data
+
+	if pg.Next != "" {
+		return map[string]any{
+			"differences": diffs,
+			"NextToken":   pg.Next,
+		}, nil
 	}
 
 	return map[string]any{

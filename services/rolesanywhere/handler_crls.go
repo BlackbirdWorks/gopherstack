@@ -22,6 +22,10 @@ func (h *Handler) handleImportCrl(ctx context.Context, body []byte) (any, int, e
 		return nil, 0, ErrValidation
 	}
 
+	if len(req.Tags) > maxResourceTags {
+		return nil, 0, ErrValidation
+	}
+
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled

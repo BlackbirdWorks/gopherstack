@@ -8,6 +8,10 @@ import (
 const (
 	sessionStateActive = "ACTIVE"
 	sessionConnected   = "CONNECTED"
+
+	// defaultStreamingURLValiditySeconds matches real AWS's CreateStreamingURL
+	// default (60 seconds) when the caller omits Validity.
+	defaultStreamingURLValiditySeconds = 60
 )
 
 type storedSession struct {
@@ -94,17 +98,22 @@ func (b *InMemoryBackend) ExpireSession(sessionID string) error {
 	return nil
 }
 
-// CreateStreamingURL creates a session and returns a streaming URL.
-func (b *InMemoryBackend) CreateStreamingURL(stackName, fleetName, userID string) (string, error) {
+// CreateStreamingURL creates a session and returns a streaming URL along with
+// its expiry time. validitySeconds <= 0 falls back to the real AWS default of
+// 60 seconds.
+func (b *InMemoryBackend) CreateStreamingURL(
+	stackName, fleetName, userID string,
+	validitySeconds int64,
+) (string, time.Time, error) {
 	b.mu.Lock("CreateStreamingURL")
 	defer b.mu.Unlock()
 
 	if !b.stacks.Has(stackName) {
-		return "", ErrNotFound
+		return "", time.Time{}, ErrNotFound
 	}
 
 	if !b.fleets.Has(fleetName) {
-		return "", ErrNotFound
+		return "", time.Time{}, ErrNotFound
 	}
 
 	sessionID := b.nextSessionID()
@@ -120,9 +129,16 @@ func (b *InMemoryBackend) CreateStreamingURL(stackName, fleetName, userID string
 	}
 	b.sessions.Put(s)
 
+	validity := validitySeconds
+	if validity <= 0 {
+		validity = defaultStreamingURLValiditySeconds
+	}
+
+	expires := time.Now().UTC().Add(time.Duration(validity) * time.Second)
+
 	url := fmt.Sprintf(
 		"https://appstream2.%s.aws.amazon.com/authenticate?param=%s", b.region, sessionID,
 	)
 
-	return url, nil
+	return url, expires, nil
 }

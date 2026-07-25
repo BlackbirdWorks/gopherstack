@@ -71,7 +71,7 @@ func TestQuickSight_FolderCRUD(t *testing.T) {
 			path:   accountPath("/folders/fld2"),
 			setup: func(h *quicksight.Handler) {
 				doRequest(t, h, http.MethodPost, accountPath("/folders/fld2"), map[string]any{
-					"Name": "F2", "FolderType": "RESTRICTED",
+					"Name": "F2", "FolderType": "RESTRICTED", "SharingModel": "NAMESPACE",
 				})
 			},
 			wantCode: http.StatusOK,
@@ -82,6 +82,27 @@ func TestQuickSight_FolderCRUD(t *testing.T) {
 				assert.Equal(t, "F2", f["Name"])
 				assert.Equal(t, "RESTRICTED", f["FolderType"])
 				assert.Equal(t, "fld2", f["FolderId"])
+				assert.Equal(t, "NAMESPACE", f["SharingModel"])
+			},
+		},
+		{
+			// Real CreateFolderInput documents SharingModel as optional,
+			// defaulting to ACCOUNT when omitted -- see folders.go's
+			// sharingModelAccount const.
+			name:   "CreateFolder omitted SharingModel defaults to ACCOUNT",
+			method: http.MethodGet,
+			path:   accountPath("/folders/fld-default-sharing"),
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath("/folders/fld-default-sharing"), map[string]any{
+					"Name": "x",
+				})
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				f, ok := body["Folder"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "ACCOUNT", f["SharingModel"])
 			},
 		},
 		{

@@ -28,6 +28,7 @@ func TestTags_CreateAndDescribe(t *testing.T) {
 
 			h := auditNewHandler(t)
 			body := map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -80,6 +81,7 @@ func TestTags_UpdateViaTagResource(t *testing.T) {
 
 			h := auditNewHandler(t)
 			created := auditCreate(t, h, tt.name+"-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",

@@ -33,7 +33,9 @@ func (h *Handler) createParallelData(input map[string]any) (map[string]any, erro
 func (h *Handler) getParallelData(input map[string]any) (map[string]any, error) {
 	name, _ := input[keyName].(string)
 	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+		// GetParallelData models InvalidParameterValueException but not
+		// InvalidRequestException (api-2.json).
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
 	pd, err := h.Backend.GetParallelData(name)
@@ -67,15 +69,20 @@ func (h *Handler) updateParallelData(input map[string]any) (map[string]any, erro
 	return map[string]any{
 		keyName:                     pd.Name,
 		keyStatus:                   pd.Status,
-		"LatestUpdateAttemptStatus": "ACTIVE",
-		"LatestUpdateAttemptAt":     awstime.Epoch(pd.LastUpdatedAt),
+		"LatestUpdateAttemptStatus": pd.LatestUpdateAttemptStatus,
+		"LatestUpdateAttemptAt":     awstime.Epoch(pd.LatestUpdateAttemptAt),
 	}, nil
 }
 
 func (h *Handler) deleteParallelData(input map[string]any) (map[string]any, error) {
 	name, _ := input[keyName].(string)
 	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+		// DeleteParallelData models neither InvalidRequestException nor
+		// InvalidParameterValueException (api-2.json) -- ResourceNotFoundException,
+		// ConcurrentModificationException, TooManyRequestsException, and
+		// InternalServerException are its only client/server errors -- so an
+		// empty Name surfaces the same way a well-formed-but-absent one does.
+		return nil, fmt.Errorf("%w: Name is required", ErrNotFound)
 	}
 
 	pd, err := h.Backend.DeleteParallelData(name)
@@ -128,6 +135,11 @@ func parallelDataToMap(pd *ParallelData) map[string]any {
 			"S3Uri":  pd.ParallelDataConfig.S3URI,
 			"Format": pd.ParallelDataConfig.Format,
 		}
+	}
+
+	if pd.LatestUpdateAttemptStatus != "" {
+		m["LatestUpdateAttemptStatus"] = pd.LatestUpdateAttemptStatus
+		m["LatestUpdateAttemptAt"] = awstime.Epoch(pd.LatestUpdateAttemptAt)
 	}
 
 	return m

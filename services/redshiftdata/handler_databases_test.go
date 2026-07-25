@@ -13,7 +13,7 @@ func TestHandler_ListDatabases(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, "ListDatabases", map[string]any{})
+	rec := doRequest(t, h, "ListDatabases", map[string]any{"Database": "dev"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -21,16 +21,34 @@ func TestHandler_ListDatabases(t *testing.T) {
 	assert.NotNil(t, resp["Databases"])
 }
 
+func TestHandler_ListDatabases_MissingDatabase_Returns400(t *testing.T) {
+	t.Parallel()
+
+	rec := doRequest(t, newTestHandler(t), "ListDatabases", map[string]any{})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+}
+
 func TestHandler_ListSchemas(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, "ListSchemas", map[string]any{})
+	rec := doRequest(t, h, "ListSchemas", map[string]any{"Database": "dev"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotNil(t, resp["Schemas"])
+}
+
+func TestHandler_ListSchemas_MissingDatabase_Returns400(t *testing.T) {
+	t.Parallel()
+
+	rec := doRequest(t, newTestHandler(t), "ListSchemas", map[string]any{})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 
 func TestHandler_ListDatabases_ReturnsNonEmpty(t *testing.T) {
@@ -48,10 +66,10 @@ func TestHandler_ListDatabases_ReturnsNonEmpty(t *testing.T) {
 	assert.NotEmpty(t, dbs)
 }
 
-func TestHandler_ListDatabases_AlwaysHasNextTokenField(t *testing.T) {
+func TestHandler_ListDatabases_NextTokenOmittedWhenComplete(t *testing.T) {
 	t.Parallel()
 
-	rec := doRequest(t, newTestHandler(t), "ListDatabases", map[string]any{})
+	rec := doRequest(t, newTestHandler(t), "ListDatabases", map[string]any{"Database": "dev"})
 
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -59,13 +77,13 @@ func TestHandler_ListDatabases_AlwaysHasNextTokenField(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	_, ok := resp["NextToken"]
-	assert.True(t, ok, "NextToken should always be present in ListDatabases response")
+	assert.False(t, ok, "NextToken should be omitted when the demo database list fits on one page")
 }
 
 func TestHandler_ListDatabases_MaxResults1_PaginatesWithToken(t *testing.T) {
 	t.Parallel()
 
-	rec := doRequest(t, newTestHandler(t), "ListDatabases", map[string]any{"MaxResults": 1})
+	rec := doRequest(t, newTestHandler(t), "ListDatabases", map[string]any{"Database": "dev", "MaxResults": 1})
 
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -83,7 +101,7 @@ func TestHandler_ListDatabases_MaxResults1_PaginatesWithToken(t *testing.T) {
 func TestHandler_ListDatabases_MaxResultsTooHigh_Returns400(t *testing.T) {
 	t.Parallel()
 
-	rec := doRequest(t, newTestHandler(t), "ListDatabases", map[string]any{"MaxResults": 1000})
+	rec := doRequest(t, newTestHandler(t), "ListDatabases", map[string]any{"Database": "dev", "MaxResults": 1000})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ValidationException")
@@ -95,7 +113,7 @@ func TestHandler_ListDatabases_NextToken_ResumesFromCursor(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Page 1: get first item and its token.
-	rec1 := doRequest(t, h, "ListDatabases", map[string]any{"MaxResults": 1})
+	rec1 := doRequest(t, h, "ListDatabases", map[string]any{"Database": "dev", "MaxResults": 1})
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var page1 map[string]any
@@ -105,7 +123,7 @@ func TestHandler_ListDatabases_NextToken_ResumesFromCursor(t *testing.T) {
 	require.NotEmpty(t, token)
 
 	// Page 2: use token.
-	rec2 := doRequest(t, h, "ListDatabases", map[string]any{"MaxResults": 1, "NextToken": token})
+	rec2 := doRequest(t, h, "ListDatabases", map[string]any{"Database": "dev", "MaxResults": 1, "NextToken": token})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var page2 map[string]any
@@ -186,7 +204,7 @@ func TestHandler_ListSchemas_SchemaPattern_NoMatch(t *testing.T) {
 func TestHandler_ListSchemas_MaxResultsTooHigh_Returns400(t *testing.T) {
 	t.Parallel()
 
-	rec := doRequest(t, newTestHandler(t), "ListSchemas", map[string]any{"MaxResults": 9999})
+	rec := doRequest(t, newTestHandler(t), "ListSchemas", map[string]any{"Database": "dev", "MaxResults": 9999})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ValidationException")
@@ -273,18 +291,21 @@ func TestListSchemas_ReturnsDemoData(t *testing.T) {
 }
 
 // TestListDatabases_HasNextToken verifies that ListDatabases returns
-// a NextToken field (empty = no more pages).
+// a NextToken field only when a subsequent page exists, matching the real
+// API's optional NextToken (omitted, not empty-string, once all response
+// records have been retrieved).
 func TestListDatabases_HasNextToken(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "ListDatabases", map[string]any{"Database": "dev"})
+	rec := doRequest(t, h, "ListDatabases", map[string]any{"Database": "dev", "MaxResults": 1})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	_, ok := resp["NextToken"]
-	assert.True(t, ok, "NextToken should always be present in ListDatabases response")
+	token, ok := resp["NextToken"]
+	assert.True(t, ok, "NextToken should be present when more pages remain")
+	assert.NotEmpty(t, token)
 }

@@ -20,8 +20,16 @@ const maxTagFilterKeyLength = 128
 // maxTagFilterValueLength is the maximum length of a single TagFilter Value entry.
 const maxTagFilterValueLength = 256
 
-// maxTagFilterValues is the maximum number of Values in a single TagFilter.
-const maxTagFilterValues = 256
+// maxTagFilterValues is the maximum number of Values in a single TagFilter, matching
+// the real API's TagValueList shape (max: 20; see aws-sdk-go's
+// models/apis/resourcegroupstaggingapi/2017-01-26/api-2.json).
+const maxTagFilterValues = 20
+
+// maxResourceARNListForGet is the maximum number of ARNs in GetResources'
+// ResourceARNList, matching the real API's ResourceARNListForGet shape (max: 100) --
+// distinct from the 20-ARN cap used by TagResources/UntagResources'
+// ResourceARNListForTagUntag shape.
+const maxResourceARNListForGet = 100
 
 // minTagsPerPage is the minimum allowed TagsPerPage value for GetResources.
 const minTagsPerPage = 100
@@ -120,6 +128,10 @@ func validateTagFilter(i int, f TagFilter, seenKeys map[string]struct{}) error {
 func validateResourceARNListExclusivity(input *GetResourcesInput) error {
 	if len(input.ResourceARNList) == 0 {
 		return nil
+	}
+
+	if len(input.ResourceARNList) > maxResourceARNListForGet {
+		return fmt.Errorf("%w: ResourceARNList exceeds maximum of %d", ErrValidation, maxResourceARNListForGet)
 	}
 
 	if len(input.ResourceTypeFilters) > 0 {
@@ -296,9 +308,12 @@ func (b *InMemoryBackend) GetResources(ctx context.Context, input *GetResourcesI
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ResourceARN < all[j].ResourceARN })
 
-	page, nextToken := paginateResources(
+	page, nextToken, err := paginateResources(
 		all, input.PaginationToken, resolvePageSize(input.ResourcesPerPage), resolveTagsPerPage(input.TagsPerPage),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &GetResourcesOutput{
 		ResourceTagMappingList: buildTagMappings(page, input.IncludeComplianceDetails),

@@ -339,7 +339,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "delivery_destination_survives",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliveryDestination("my-dest", "arn:aws:s3:::bucket", "JSON", nil)
+				_, err := b.PutDeliveryDestination("my-dest", "arn:aws:s3:::bucket", "JSON", "S3", nil)
 				require.NoError(t, err)
 				err = b.PutDeliveryDestinationPolicy("my-dest", `{"Statement":[]}`)
 				require.NoError(t, err)

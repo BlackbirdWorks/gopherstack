@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // i64 returns a pointer to an int64 literal (weights are *int64).
@@ -724,5 +725,274 @@ func TestTestDNSAnswerMultiValueCap(t *testing.T) {
 	}
 	if len(vals) != maxMultiValueRecords {
 		t.Fatalf("multivalue answer returned %d records, want cap of %d", len(vals), maxMultiValueRecords)
+	}
+}
+
+// TestTestDNSAnswerAliasCycle stress-tests resolveAlias's maxAliasDepth guard
+// against pathological alias chains: a record aliasing itself, and a
+// multi-hop cycle. Real Route 53 rejects alias loops at write time in
+// practice, but this backend's resolveAlias must still terminate rather than
+// stack-overflow if a cycle is ever constructed (e.g. via two separate
+// ChangeResourceRecordSets calls, one per hop, each individually valid).
+func TestTestDNSAnswerAliasCycle(t *testing.T) {
+	t.Parallel()
+
+	t.Run("self_reference", func(t *testing.T) {
+		t.Parallel()
+
+		b, zoneID := newTestZone(t)
+
+		addRecords(t, b, zoneID, ResourceRecordSet{
+			Name: "self.example.com.", Type: "A",
+			AliasTarget: &AliasTarget{HostedZoneID: zoneID, DNSName: "self.example.com"},
+		})
+
+		done := make(chan []string, 1)
+		go func() {
+			vals, err := b.TestDNSAnswer(zoneID, "self.example.com", "A", DNSQueryContext{})
+			if err != nil {
+				t.Errorf("TestDNSAnswer: %v", err)
+			}
+			done <- vals
+		}()
+
+		select {
+		case vals := <-done:
+			if len(vals) != 0 {
+				t.Fatalf("self-referencing alias answer = %v, want empty (depth guard exhausted)", vals)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("TestDNSAnswer did not terminate on a self-referencing alias (infinite recursion)")
+		}
+	})
+
+	t.Run("two_hop_cycle", func(t *testing.T) {
+		t.Parallel()
+
+		b, zoneID := newTestZone(t)
+
+		// a -> b -> a. Each CREATE is individually valid (the target doesn't
+		// need to exist yet), so this cycle is reachable via two ordinary
+		// ChangeResourceRecordSets calls.
+		addRecords(t, b, zoneID, ResourceRecordSet{
+			Name: "a.example.com.", Type: "A",
+			AliasTarget: &AliasTarget{HostedZoneID: zoneID, DNSName: "b.example.com"},
+		})
+		addRecords(t, b, zoneID, ResourceRecordSet{
+			Name: "b.example.com.", Type: "A",
+			AliasTarget: &AliasTarget{HostedZoneID: zoneID, DNSName: "a.example.com"},
+		})
+
+		done := make(chan []string, 1)
+		go func() {
+			vals, err := b.TestDNSAnswer(zoneID, "a.example.com", "A", DNSQueryContext{})
+			if err != nil {
+				t.Errorf("TestDNSAnswer: %v", err)
+			}
+			done <- vals
+		}()
+
+		select {
+		case vals := <-done:
+			if len(vals) != 0 {
+				t.Fatalf("cyclic alias answer = %v, want empty (depth guard exhausted)", vals)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("TestDNSAnswer did not terminate on a two-hop alias cycle (infinite recursion)")
+		}
+	})
+}
+
+// TestSelectGeoProximityBias locks in that a higher Bias makes an otherwise
+// identical candidate win: AWS documents Bias as expanding a resource's
+// effective service area, which selectGeoProximity approximates by scaling
+// the geographic distance by (1 - bias/100) — a higher bias yields a smaller
+// adjusted distance and thus a more competitive candidate.
+func TestSelectGeoProximityBias(t *testing.T) {
+	t.Parallel()
+
+	shrunk := &ResourceRecordSet{
+		SetIdentifier:        "shrunk",
+		GeoProximityLocation: &GeoProximityLocation{AWSRegion: regionAPSoutheast2, Bias: -50},
+		Records:              []ResourceRecord{{Value: "shrunk"}},
+	}
+	expanded := &ResourceRecordSet{
+		SetIdentifier:        "expanded",
+		GeoProximityLocation: &GeoProximityLocation{AWSRegion: regionAPSoutheast2, Bias: 50},
+		Records:              []ResourceRecord{{Value: "expanded"}},
+	}
+
+	got := selectGeoProximity([]*ResourceRecordSet{shrunk, expanded}, DNSQueryContext{ClientRegion: defaultRegion})
+	if got == nil || got.SetIdentifier != "expanded" {
+		t.Fatalf("selectGeoProximity picked %v, want the higher-bias (expanded) candidate", got)
+	}
+}
+
+// TestSelectGeoProximityExactRegionWins confirms an exact client-region
+// match (distance 0) beats a far-away candidate even with an extreme
+// positive bias, mirroring selectLatency's exact-match short-circuit.
+func TestSelectGeoProximityExactRegionWins(t *testing.T) {
+	t.Parallel()
+
+	exact := &ResourceRecordSet{
+		SetIdentifier:        "exact",
+		GeoProximityLocation: &GeoProximityLocation{AWSRegion: defaultRegion},
+		Records:              []ResourceRecord{{Value: "exact"}},
+	}
+	far := &ResourceRecordSet{
+		SetIdentifier:        "far",
+		GeoProximityLocation: &GeoProximityLocation{AWSRegion: regionAPSoutheast2, Bias: 99},
+		Records:              []ResourceRecord{{Value: "far"}},
+	}
+
+	got := selectGeoProximity([]*ResourceRecordSet{far, exact}, DNSQueryContext{ClientRegion: defaultRegion})
+	if got == nil || got.SetIdentifier != "exact" {
+		t.Fatalf("selectGeoProximity picked %v, want the exact-region-match candidate", got)
+	}
+}
+
+// TestTestDNSAnswerGeoProximityEndToEnd exercises the full TestDNSAnswer
+// pipeline for GeoProximityLocation-routed records: before this pass,
+// classifyRouting never recognised GeoProximityLocation (or CidrRoutingConfig)
+// at all, so these record sets silently fell through to routingSimple and
+// TestDNSAnswer answered from whichever candidate sorted first by
+// SetIdentifier instead of running proximity selection.
+func TestTestDNSAnswerGeoProximityEndToEnd(t *testing.T) {
+	t.Parallel()
+
+	b, zoneID := newTestZone(t)
+	addRecords(t, b, zoneID,
+		ResourceRecordSet{
+			Name: "gp.example.com.", Type: "A", TTL: 60,
+			SetIdentifier:        "near",
+			GeoProximityLocation: &GeoProximityLocation{AWSRegion: defaultRegion},
+			Records:              []ResourceRecord{{Value: "10.0.0.1"}},
+		},
+		ResourceRecordSet{
+			Name: "gp.example.com.", Type: "A", TTL: 60,
+			SetIdentifier:        "far",
+			GeoProximityLocation: &GeoProximityLocation{AWSRegion: regionAPSoutheast2},
+			Records:              []ResourceRecord{{Value: "10.0.0.2"}},
+		},
+	)
+
+	vals, err := b.TestDNSAnswer(zoneID, "gp.example.com", "A", DNSQueryContext{ClientRegion: defaultRegion})
+	if err != nil {
+		t.Fatalf("TestDNSAnswer: %v", err)
+	}
+	if len(vals) != 1 || vals[0] != "10.0.0.1" {
+		t.Fatalf("geoproximity answer = %v, want [10.0.0.1] (nearest candidate)", vals)
+	}
+}
+
+// TestSelectCIDRLongestPrefixMatch locks in that selectCIDR picks the most
+// specific (longest-prefix) matching location across candidates, and falls
+// back to the reserved "*" default location when no other location's CIDR
+// blocks contain the resolver IP.
+func TestSelectCIDRLongestPrefixMatch(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend()
+
+	col, err := b.CreateCidrCollection("test-collection", "ref-cidr")
+	if err != nil {
+		t.Fatalf("CreateCidrCollection: %v", err)
+	}
+
+	if _, err = b.ChangeCidrCollection(col.ID, []CidrCollectionChange{
+		{Action: cidrCollectionActionPut, LocationName: "broad", CidrList: []string{"203.0.113.0/24"}},
+		{Action: cidrCollectionActionPut, LocationName: "narrow", CidrList: []string{"203.0.113.128/25"}},
+	}, nil); err != nil {
+		t.Fatalf("ChangeCidrCollection: %v", err)
+	}
+
+	broad := &ResourceRecordSet{
+		SetIdentifier:     "broad",
+		CidrRoutingConfig: &CidrRoutingConfig{CollectionID: col.ID, LocationName: "broad"},
+		Records:           []ResourceRecord{{Value: "broad"}},
+	}
+	narrow := &ResourceRecordSet{
+		SetIdentifier:     "narrow",
+		CidrRoutingConfig: &CidrRoutingConfig{CollectionID: col.ID, LocationName: "narrow"},
+		Records:           []ResourceRecord{{Value: "narrow"}},
+	}
+	fallback := &ResourceRecordSet{
+		SetIdentifier:     "fallback",
+		CidrRoutingConfig: &CidrRoutingConfig{CollectionID: col.ID, LocationName: cidrLocationDefault},
+		Records:           []ResourceRecord{{Value: "fallback"}},
+	}
+
+	candidates := []*ResourceRecordSet{broad, narrow, fallback}
+
+	tests := []struct {
+		name       string
+		resolverIP string
+		want       string
+	}{
+		{name: "matches_both_prefers_longest", resolverIP: "203.0.113.200", want: "narrow"},
+		{name: "matches_only_broad", resolverIP: "203.0.113.50", want: "broad"},
+		{name: "no_match_falls_back_to_default", resolverIP: "8.8.8.8", want: "fallback"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := b.selectCIDR(candidates, DNSQueryContext{ResolverIP: tt.resolverIP})
+			if got == nil || got.SetIdentifier != tt.want {
+				t.Fatalf("selectCIDR(%s) = %v, want SetIdentifier %q", tt.resolverIP, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTestDNSAnswerCIDREndToEnd exercises the full TestDNSAnswer pipeline for
+// CidrRoutingConfig-routed records — see TestTestDNSAnswerGeoProximityEndToEnd
+// for why this previously silently fell through to routingSimple.
+func TestTestDNSAnswerCIDREndToEnd(t *testing.T) {
+	t.Parallel()
+
+	b, zoneID := newTestZone(t)
+
+	col, err := b.CreateCidrCollection("e2e-collection", "ref-cidr-e2e")
+	if err != nil {
+		t.Fatalf("CreateCidrCollection: %v", err)
+	}
+
+	if _, err = b.ChangeCidrCollection(col.ID, []CidrCollectionChange{
+		{Action: cidrCollectionActionPut, LocationName: "office", CidrList: []string{"198.51.100.0/24"}},
+	}, nil); err != nil {
+		t.Fatalf("ChangeCidrCollection: %v", err)
+	}
+
+	addRecords(t, b, zoneID,
+		ResourceRecordSet{
+			Name: "cidr.example.com.", Type: "A", TTL: 60,
+			SetIdentifier:     "office",
+			CidrRoutingConfig: &CidrRoutingConfig{CollectionID: col.ID, LocationName: "office"},
+			Records:           []ResourceRecord{{Value: "10.1.1.1"}},
+		},
+		ResourceRecordSet{
+			Name: "cidr.example.com.", Type: "A", TTL: 60,
+			SetIdentifier:     "default",
+			CidrRoutingConfig: &CidrRoutingConfig{CollectionID: col.ID, LocationName: cidrLocationDefault},
+			Records:           []ResourceRecord{{Value: "10.1.1.2"}},
+		},
+	)
+
+	vals, err := b.TestDNSAnswer(zoneID, "cidr.example.com", "A", DNSQueryContext{ResolverIP: "198.51.100.42"})
+	if err != nil {
+		t.Fatalf("TestDNSAnswer: %v", err)
+	}
+	if len(vals) != 1 || vals[0] != "10.1.1.1" {
+		t.Fatalf("CIDR answer = %v, want [10.1.1.1] (office location match)", vals)
+	}
+
+	vals, err = b.TestDNSAnswer(zoneID, "cidr.example.com", "A", DNSQueryContext{ResolverIP: "203.0.113.9"})
+	if err != nil {
+		t.Fatalf("TestDNSAnswer: %v", err)
+	}
+	if len(vals) != 1 || vals[0] != "10.1.1.2" {
+		t.Fatalf("CIDR answer = %v, want [10.1.1.2] (default fallback)", vals)
 	}
 }

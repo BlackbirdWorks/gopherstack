@@ -76,7 +76,7 @@ func (b *InMemoryBackend) RecordManagementEvent(ev service.CloudTrailEventInput)
 		EventID:            eventID,
 		EventType:          "AwsApiCall",
 		RecipientAccountID: accountID,
-		EventCategory:      "Management",
+		EventCategory:      eventCategoryManagement,
 		ReadOnly:           false,
 		ManagementEvent:    true,
 	}
@@ -104,6 +104,7 @@ func (b *InMemoryBackend) RecordManagementEvent(ev service.CloudTrailEventInput)
 		Username:        username,
 		ReadOnly:        "false",
 		AccessKeyID:     ev.AccessKeyID,
+		EventCategory:   eventCategoryManagement,
 		CloudTrailEvent: cloudTrailEventJSON,
 		Resources:       resources,
 	})

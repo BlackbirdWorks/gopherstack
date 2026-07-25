@@ -221,6 +221,7 @@ func applyCreateBrokerOptions(br *Broker, opts *CreateBrokerOptions) {
 	br.MaintenanceWindowStartTime = opts.MaintenanceWindowStartTime
 	br.LdapServerMetadata = opts.LdapServerMetadata
 	br.Logs = opts.Logs
+	br.DataReplicationMode = opts.DataReplicationMode
 
 	if opts.Logs != nil {
 		br.LogsSummary = &LogsSummary{
@@ -233,6 +234,12 @@ func applyCreateBrokerOptions(br *Broker, opts *CreateBrokerOptions) {
 
 	if opts.Configuration != nil {
 		br.Configurations = &Configurations{Current: opts.Configuration}
+	}
+
+	if opts.DataReplicationPrimaryBrokerArn != "" {
+		br.DataReplicationMetadata = &DataReplicationMetadata{
+			DataReplicationCounterpart: opts.DataReplicationPrimaryBrokerArn,
+		}
 	}
 }
 
@@ -349,7 +356,7 @@ func (b *InMemoryBackend) DescribeBroker(brokerID string) (*Broker, error) {
 	}
 
 	cp := b.copyBroker(br)
-	promoteRebootingToRunning(br)
+	promoteBrokerReboot(br)
 
 	return cp, nil
 }
@@ -371,7 +378,7 @@ func (b *InMemoryBackend) ListBrokers() []*Broker {
 		}
 
 		list = append(list, b.copyBroker(br))
-		promoteRebootingToRunning(br)
+		promoteBrokerReboot(br)
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].BrokerName < list[j].BrokerName })
@@ -397,13 +404,102 @@ func (b *InMemoryBackend) DeleteBroker(brokerID string) (*Broker, error) {
 	return cp, nil
 }
 
-// promoteRebootingToRunning advances any broker stuck in REBOOT_IN_PROGRESS
-// back to RUNNING. Caller must hold a write lock or call from a context where
-// promoting in-place is safe (the result is only observed via a returned copy).
-func promoteRebootingToRunning(br *Broker) {
-	if br != nil && br.BrokerState == BrokerStateRebooting {
-		br.BrokerState = BrokerStateRunning
+// promoteBrokerReboot advances any broker stuck in REBOOT_IN_PROGRESS back to
+// RUNNING, atomically applying every field UpdateBroker staged into a
+// Pending* slot (see applyBrokerCoreFields/applyUpdateBrokerOptions) plus any
+// staged user create/update/delete (see users.go). Real Amazon MQ only takes
+// these changes live on the next reboot -- see DescribeBrokerOutput's
+// pendingEngineVersion/pendingHostInstanceType/pendingSecurityGroups/
+// pendingAuthenticationStrategy/pendingLdapServerMetadata/
+// Configurations.pending/Logs.pending/pendingDataReplicationMode wire fields.
+// Caller must hold a write lock or call from a context where promoting
+// in-place is safe (the result is only observed via a returned copy taken
+// before this runs, e.g. DescribeBroker/ListBrokers).
+func promoteBrokerReboot(br *Broker) {
+	if br == nil || br.BrokerState != BrokerStateRebooting {
+		return
 	}
+
+	promotePendingScalarFields(br)
+	promotePendingLogs(br)
+	promotePendingConfiguration(br)
+	promotePendingDataReplication(br)
+	promoteBrokerUsers(br)
+
+	br.BrokerState = BrokerStateRunning
+}
+
+// promotePendingScalarFields swaps every scalar/simple Pending* field into
+// its live counterpart. Caller must hold a write lock.
+func promotePendingScalarFields(br *Broker) {
+	if br.PendingEngineVersion != "" {
+		br.EngineVersion = br.PendingEngineVersion
+		br.PendingEngineVersion = ""
+	}
+
+	if br.PendingHostInstanceType != "" {
+		br.HostInstanceType = br.PendingHostInstanceType
+		br.PendingHostInstanceType = ""
+	}
+
+	if br.PendingSecurityGroups != nil {
+		br.SecurityGroups = br.PendingSecurityGroups
+		br.PendingSecurityGroups = nil
+	}
+
+	if br.PendingAuthStrategy != "" {
+		br.AuthenticationStrategy = br.PendingAuthStrategy
+		br.PendingAuthStrategy = ""
+	}
+
+	if br.PendingLdapServerMetadata != nil {
+		br.LdapServerMetadata = br.PendingLdapServerMetadata
+		br.PendingLdapServerMetadata = nil
+	}
+}
+
+// promotePendingLogs applies a staged Logs change (LogsSummary.Pending) to
+// the broker's active log settings. Caller must hold a write lock.
+func promotePendingLogs(br *Broker) {
+	if br.LogsSummary == nil || br.LogsSummary.Pending == nil {
+		return
+	}
+
+	pending := br.LogsSummary.Pending
+	br.Logs = pending
+	br.LogsSummary.General = pending.General
+	br.LogsSummary.Audit = pending.Audit
+	br.LogsSummary.Pending = nil
+}
+
+// promotePendingConfiguration swaps a staged Configurations.Pending
+// association into Current, pushing the prior Current onto History (matching
+// how UpdateConfiguration's revision history grows). Caller must hold a
+// write lock.
+func promotePendingConfiguration(br *Broker) {
+	if br.Configurations == nil || br.Configurations.Pending == nil {
+		return
+	}
+
+	if br.Configurations.Current != nil {
+		br.Configurations.History = append(br.Configurations.History, *br.Configurations.Current)
+	}
+
+	br.Configurations.Current = br.Configurations.Pending
+	br.Configurations.Pending = nil
+}
+
+// promotePendingDataReplication applies a staged data-replication-mode
+// change. Caller must hold a write lock.
+func promotePendingDataReplication(br *Broker) {
+	if br.PendingDataReplicationMode == "" {
+		return
+	}
+
+	br.DataReplicationMode = br.PendingDataReplicationMode
+	br.DataReplicationMetadata = br.PendingDataReplicationMeta
+	br.PendingDataReplicationMode = ""
+	br.PendingDataReplicationMeta = nil
 }
 
 // buildBrokerInstances returns the correct number of BrokerInstance entries
@@ -489,7 +585,15 @@ func (b *InMemoryBackend) UpdateBrokerWithOptions(
 	return b.copyBroker(br), nil
 }
 
-// applyBrokerCoreFields applies the non-optional update fields to a broker.
+// applyBrokerCoreFields stages the non-optional update fields on a broker.
+// Real Amazon MQ only takes EngineVersion/HostInstanceType/SecurityGroups
+// live on the next reboot (see DescribeBrokerOutput's pendingEngineVersion/
+// pendingHostInstanceType/pendingSecurityGroups), so these are written to
+// their Pending* counterparts here and swapped in by promoteBrokerReboot.
+// AutoMinorVersionUpgrade has no Pending* counterpart in the SDK and applies
+// immediately, matching UpdateBrokerInput's own doc ("Automatic upgrades
+// occur during the scheduled maintenance window or after a manual broker
+// reboot" -- the flag itself, unlike the version it gates, is not staged).
 func applyBrokerCoreFields(
 	br *Broker,
 	engineVersion, hostInstanceType string,
@@ -497,11 +601,11 @@ func applyBrokerCoreFields(
 	securityGroups []string,
 ) {
 	if engineVersion != "" {
-		br.EngineVersion = engineVersion
+		br.PendingEngineVersion = engineVersion
 	}
 
 	if hostInstanceType != "" {
-		br.HostInstanceType = hostInstanceType
+		br.PendingHostInstanceType = hostInstanceType
 	}
 
 	if autoMinorVersionUpgrade != nil {
@@ -509,32 +613,39 @@ func applyBrokerCoreFields(
 	}
 
 	if securityGroups != nil {
-		br.SecurityGroups = securityGroups
+		br.PendingSecurityGroups = securityGroups
 	}
 }
 
-// applyUpdateBrokerOptions applies optional update fields to a broker.
+// applyUpdateBrokerOptions stages the optional update fields on a broker.
+// AuthenticationStrategy/Logs/LdapServerMetadata/Configuration/
+// DataReplicationMode all have dedicated Pending* (or nested .Pending)
+// counterparts on DescribeBrokerOutput and only take effect after the next
+// reboot (see promoteBrokerReboot). MaintenanceWindowStartTime has no
+// Pending* counterpart in the SDK and applies immediately -- changing when
+// maintenance happens does not itself require a reboot.
 func applyUpdateBrokerOptions(br *Broker, opts *UpdateBrokerOptions) {
 	if opts == nil {
 		return
 	}
 
 	if opts.AuthenticationStrategy != "" {
-		br.AuthenticationStrategy = opts.AuthenticationStrategy
+		br.PendingAuthStrategy = opts.AuthenticationStrategy
 	}
 
 	if opts.Logs != nil {
-		br.Logs = opts.Logs
-		br.LogsSummary = &LogsSummary{
-			General:         opts.Logs.General,
-			Audit:           opts.Logs.Audit,
-			GeneralLogGroup: logGroupName(br.BrokerID, "general"),
-			AuditLogGroup:   logGroupName(br.BrokerID, "audit"),
+		if br.LogsSummary == nil {
+			br.LogsSummary = &LogsSummary{
+				GeneralLogGroup: logGroupName(br.BrokerID, "general"),
+				AuditLogGroup:   logGroupName(br.BrokerID, "audit"),
+			}
 		}
+
+		br.LogsSummary.Pending = opts.Logs
 	}
 
 	if opts.LdapServerMetadata != nil {
-		br.LdapServerMetadata = opts.LdapServerMetadata
+		br.PendingLdapServerMetadata = opts.LdapServerMetadata
 	}
 
 	if opts.MaintenanceWindowStartTime != nil {
@@ -546,11 +657,11 @@ func applyUpdateBrokerOptions(br *Broker, opts *UpdateBrokerOptions) {
 			br.Configurations = &Configurations{}
 		}
 
-		br.Configurations.Current = opts.Configuration
+		br.Configurations.Pending = opts.Configuration
 	}
 
 	if opts.DataReplicationMode != "" {
-		br.DataReplicationMode = opts.DataReplicationMode
+		br.PendingDataReplicationMode = opts.DataReplicationMode
 	}
 }
 

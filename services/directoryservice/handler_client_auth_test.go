@@ -52,3 +52,32 @@ func TestClientAuthentication(t *testing.T) {
 		})
 	}
 }
+
+func TestEnableClientAuthentication_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		reqType string
+		name    string
+	}{
+		{name: "invalid Type returns InvalidParameterException", reqType: "Fingerprint"},
+		{name: "missing Type returns InvalidParameterException", reqType: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+
+			rec := doRequest(t, h, "EnableClientAuthentication", map[string]any{
+				"DirectoryId": dirID,
+				"Type":        tt.reqType,
+			})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "InvalidParameterException", body["__type"])
+		})
+	}
+}

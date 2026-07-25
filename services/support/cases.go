@@ -20,12 +20,38 @@ const (
 	defaultPageSize     = 100
 	minPageSize         = 10
 	maxPageSize         = 100
+
+	// maxOpenCases backs CaseCreationLimitExceeded ("the case creation limit
+	// for the account has been exceeded" / "you have exceeded the number of
+	// cases you can have open" per the real AWS documentation, which
+	// publishes no exact number). It caps concurrently OPEN (non-resolved)
+	// cases, not lifetime case creation -- resolving a case frees a slot,
+	// matching the "cases you can have open" wording.
+	maxOpenCases = 500
 )
+
+// openCaseCountLocked returns the number of cases not currently in the
+// resolved status. The caller must hold b.mu.
+func (b *InMemoryBackend) openCaseCountLocked() int {
+	count := 0
+
+	for _, cs := range b.cases.All() {
+		if cs.Status != caseStatusResolved {
+			count++
+		}
+	}
+
+	return count
+}
 
 // CreateCase creates a new support case.
 func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severityCode, body string) (*Case, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.openCaseCountLocked() >= maxOpenCases {
+		return nil, fmt.Errorf("%w: too many open cases", ErrCaseCreationLimitExceeded)
+	}
 
 	caseID := "case-" + uuid.New().String()[:8]
 	c := &Case{
@@ -153,6 +179,12 @@ func (b *InMemoryBackend) DescribeCreateCaseOptions(_, _, _, language string) *D
 func (b *InMemoryBackend) CreateCaseWithOptions(in CreateCaseOptions) (*Case, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	// Checked before consuming the attachment set: a rejected case creation
+	// must not burn a single-use staged attachment set.
+	if b.openCaseCountLocked() >= maxOpenCases {
+		return nil, fmt.Errorf("%w: too many open cases", ErrCaseCreationLimitExceeded)
+	}
 
 	attachments, err := b.consumeAttachmentSetLocked(in.AttachmentSetID)
 	if err != nil {

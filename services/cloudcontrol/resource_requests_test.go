@@ -384,7 +384,7 @@ func TestHandler_ListResourceRequests(t *testing.T) {
 				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"filter-1"}`, "")
 				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"filter-2"}`, "")
 				// Delete creates a DELETE request; two CREATE requests remain
-				_, _ = h.Backend.DeleteResource("AWS::Logs::LogGroup", "filter-1")
+				_, _ = h.Backend.DeleteResource("AWS::Logs::LogGroup", "filter-1", "")
 			},
 			body: map[string]any{
 				"ResourceRequestStatusFilter": map[string]any{
@@ -424,7 +424,7 @@ func TestHandler_ListResourceRequests(t *testing.T) {
 			name: "filter by both operation and status",
 			setup: func(h *cloudcontrol.Handler) {
 				_, _ = h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"both-1"}`, "")
-				_, _ = h.Backend.DeleteResource("AWS::Logs::LogGroup", "both-1")
+				_, _ = h.Backend.DeleteResource("AWS::Logs::LogGroup", "both-1", "")
 			},
 			body: map[string]any{
 				"ResourceRequestStatusFilter": map[string]any{
@@ -608,7 +608,17 @@ func TestHandler_ListResourceRequests_EnumValidation(t *testing.T) {
 		})
 	}
 }
-func TestHandler_ListResourceRequests_TypeNameFilter(t *testing.T) {
+
+// TestHandler_ListResourceRequests_TypeNameFilterIsIgnored verifies that a
+// "TypeName" key inside ResourceRequestStatusFilter has NO filtering effect.
+// The real SDK's types.ResourceRequestStatusFilter has exactly two members --
+// Operations and OperationStatuses -- confirmed against both
+// aws-sdk-go-v2/service/cloudcontrol/types and botocore's service-2.json; it
+// has no TypeName member at all. A prior gopherstack pass invented one and
+// filtered on it, which is a wire-shape bug: any caller sending TypeName here
+// (matching what the real, TypeName-less shape would silently drop) must see
+// unfiltered results, not narrower ones.
+func TestHandler_ListResourceRequests_TypeNameFilterIsIgnored(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -628,11 +638,7 @@ func TestHandler_ListResourceRequests_TypeNameFilter(t *testing.T) {
 
 	summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
 	require.True(t, ok)
-	assert.Len(t, summaries, 1)
-
-	summary, ok := summaries[0].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "AWS::Logs::LogGroup", summary["TypeName"])
+	assert.Len(t, summaries, 2, "TypeName has no filtering effect on the real API -- both requests must be returned")
 }
 func TestHandler_ListResourceRequests_Pagination(t *testing.T) {
 	t.Parallel()

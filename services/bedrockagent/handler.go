@@ -404,7 +404,7 @@ func (h *Handler) dispatchActionGroups(
 	if rest == "" {
 		switch method {
 		case http.MethodPut:
-			return h.handleCreateAgentActionGroup(ctx, c, agentID, body)
+			return h.handleCreateAgentActionGroup(ctx, c, agentID, agentVersion, body)
 		case http.MethodPost, http.MethodGet:
 			return h.handleListAgentActionGroups(ctx, c, agentID, agentVersion)
 		}

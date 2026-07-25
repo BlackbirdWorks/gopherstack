@@ -10,22 +10,30 @@ import (
 func TestListCopyJobsFiltered(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend(t)
-	mustVault(t, b, "src-vault")
-	mustVault(t, b, "dst-vault")
-	mustVault(t, b, "dst-vault2")
+	srcVault := mustVault(t, b, "src-vault")
+	dstVault := mustVault(t, b, "dst-vault")
+	dstVault2 := mustVault(t, b, "dst-vault2")
 
-	j1 := b.StartCopyJob(
+	// StartCopyJob resolves SourceBackupVaultName by NAME and
+	// DestinationBackupVaultArn by ARN -- matching real AWS's asymmetric
+	// wire shape -- so both must reference vaults that actually exist.
+	j1, err := b.StartCopyJob(
 		"arn:aws:backup:::rp/rp-1",
-		"arn:aws:backup:::vault/src-vault",
-		"arn:aws:backup:::vault/dst-vault",
+		"src-vault",
+		dstVault.BackupVaultArn,
 		"arn:aws:iam::123:role/r",
 	)
-	_ = b.StartCopyJob(
+	if err != nil {
+		t.Fatalf("StartCopyJob: %v", err)
+	}
+	if _, err2 := b.StartCopyJob(
 		"arn:aws:backup:::rp/rp-2",
-		"arn:aws:backup:::vault/src-vault",
-		"arn:aws:backup:::vault/dst-vault2",
+		"src-vault",
+		dstVault2.BackupVaultArn,
 		"arn:aws:iam::123:role/r",
-	)
+	); err2 != nil {
+		t.Fatalf("StartCopyJob: %v", err2)
+	}
 
 	futureTime := time.Now().Add(time.Hour)
 
@@ -43,7 +51,7 @@ func TestListCopyJobsFiltered(t *testing.T) {
 		{
 			name: "filter by destination vault",
 			filter: backup.ListCopyJobsFilter{
-				DestinationBackupVaultArn: "arn:aws:backup:::vault/dst-vault",
+				DestinationBackupVaultArn: dstVault.BackupVaultArn,
 			},
 			wantCount: 1,
 			wantIDs:   []string{j1.CopyJobID},
@@ -51,7 +59,7 @@ func TestListCopyJobsFiltered(t *testing.T) {
 		{
 			name: "filter by source vault",
 			filter: backup.ListCopyJobsFilter{
-				SourceBackupVaultArn: "arn:aws:backup:::vault/src-vault",
+				SourceBackupVaultArn: srcVault.BackupVaultArn,
 			},
 			wantCount: 2,
 		},

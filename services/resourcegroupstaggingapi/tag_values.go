@@ -22,13 +22,15 @@ type GetTagValuesOutput struct {
 }
 
 // GetTagValues returns all unique values for the given tag key.
-// Values are returned in sorted order, with optional cursor-based pagination.
-func (b *InMemoryBackend) GetTagValues(ctx context.Context, input *GetTagValuesInput) *GetTagValuesOutput {
+// Values are returned in sorted order, with optional cursor-based pagination. Returns
+// [ErrPaginationTokenExpired] when PaginationToken does not resolve against the
+// current value set.
+func (b *InMemoryBackend) GetTagValues(ctx context.Context, input *GetTagValuesInput) (*GetTagValuesOutput, error) {
 	b.mu.Lock("GetTagValues")
 	defer b.mu.Unlock()
 
 	if input.Key == nil {
-		return &GetTagValuesOutput{TagValues: []string{}}
+		return &GetTagValuesOutput{TagValues: []string{}}, nil
 	}
 
 	all := b.getResources(ctx, nil, nil)
@@ -43,7 +45,10 @@ func (b *InMemoryBackend) GetTagValues(ctx context.Context, input *GetTagValuesI
 
 	values := collections.SortedKeys(valSet)
 
-	page, nextToken := paginateStrings(values, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
+	page, nextToken, err := paginateStrings(values, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
+	if err != nil {
+		return nil, err
+	}
 
-	return &GetTagValuesOutput{TagValues: page, PaginationToken: nextToken}
+	return &GetTagValuesOutput{TagValues: page, PaginationToken: nextToken}, nil
 }

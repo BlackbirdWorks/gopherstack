@@ -80,6 +80,7 @@ func (h *Handler) handleUnassignVolume(_ context.Context, body []byte) (any, err
 // handleDescribeVolumes handles DescribeVolumes requests.
 func (h *Handler) handleDescribeVolumes(_ context.Context, body []byte) (any, error) {
 	var req struct {
+		StackID     string   `json:"StackId"`
 		InstanceID  string   `json:"InstanceId"`
 		RaidArrayID string   `json:"RaidArrayId"`
 		VolumeIDs   []string `json:"VolumeIds"`
@@ -91,7 +92,7 @@ func (h *Handler) handleDescribeVolumes(_ context.Context, body []byte) (any, er
 		}
 	}
 
-	volumes, err := h.Backend.DescribeVolumes(req.InstanceID, req.RaidArrayID, req.VolumeIDs)
+	volumes, err := h.Backend.DescribeVolumes(req.StackID, req.InstanceID, req.RaidArrayID, req.VolumeIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -118,13 +119,15 @@ func (h *Handler) handleUpdateVolume(_ context.Context, body []byte) (any, error
 	return map[string]any{}, nil
 }
 
+// volumesToJSON deliberately omits StackId: the real types.Volume has no
+// StackId member (see Volume's doc comment in interfaces.go) -- a previous
+// pass invented one and serialized it on the wire.
 func volumesToJSON(vols []*Volume) []map[string]any {
 	result := make([]map[string]any, 0, len(vols))
 	for _, v := range vols {
 		result = append(result, map[string]any{
 			"VolumeId":    v.VolumeID,
 			"Ec2VolumeId": v.Ec2VolumeID,
-			keyStackID:    v.StackID,
 			keyInstanceID: v.InstanceID,
 			keyName:       v.Name,
 			"MountPoint":  v.MountPoint,

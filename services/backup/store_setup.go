@@ -47,7 +47,7 @@ package backup
 // mpaApprovals (map[string]string, vaultName -> mpaApprovalTeamArn) and the
 // remaining raw indexes/settings maps (vaultARNIndex, planARNIndex,
 // planIDIndex, frameworkARNIndex, reportPlanARNIndex, globalSettings,
-// recoveryPointIndexStatus, restoreValidations) are
+// recoveryPointIndexStatus) are
 // deliberately left plain maps: their values are plain strings, not *T, so
 // they do not fit store.Table's keyed-by-identity-value shape (mirroring
 // ses's "policies" map, left raw for the same reason). regionSettings is a
@@ -112,7 +112,7 @@ func reportJobKeyFn(v *ReportJob) string { return v.ReportJobID }
 
 func scanJobKeyFn(v *ScanJob) string { return v.ScanJobID }
 
-func tieringConfigKeyFn(v *TieringConfiguration) string { return v.BackupVaultName }
+func tieringConfigKeyFn(v *TieringConfiguration) string { return v.TieringConfigurationName }
 
 func protectedResourceKeyFn(v *ProtectedResource) string { return v.ResourceArn }
 

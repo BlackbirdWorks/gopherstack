@@ -23,8 +23,9 @@ func TestGetTagValues(t *testing.T) {
 	})
 
 	envKey := "env"
-	out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{Key: &envKey})
+	out, err := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{Key: &envKey})
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"dev", "prod"}, out.TagValues)
 }
@@ -80,11 +81,12 @@ func TestGetTagValues_Pagination(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{
+			out, err := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{
 				Key:             tt.key,
 				PaginationToken: tt.token,
 			})
 
+			require.NoError(t, err)
 			require.NotNil(t, out)
 
 			if len(tt.wantValues) == 0 {
@@ -94,6 +96,28 @@ func TestGetTagValues_Pagination(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGetTagValues_UnmatchedTokenExpired verifies that a PaginationToken that does not
+// correspond to any current value for the given key returns
+// PaginationTokenExpiredException, matching real AWS's documented behavior for an
+// unresolvable pagination token.
+func TestGetTagValues_UnmatchedTokenExpired(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	seedResources(b, []resourcegroupstaggingapi.TaggedResource{
+		{ResourceARN: "arn:1", Tags: map[string]string{"env": "dev"}},
+	})
+
+	key := "env"
+	out, err := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{
+		Key:             &key,
+		PaginationToken: ptr("nonexistent"),
+	})
+
+	require.ErrorIs(t, err, resourcegroupstaggingapi.ErrPaginationTokenExpired)
+	assert.Nil(t, out)
 }
 
 func TestGetTagValues_Sorted(t *testing.T) {
@@ -107,8 +131,9 @@ func TestGetTagValues_Sorted(t *testing.T) {
 		{ResourceARN: "arn:3", Tags: map[string]string{"env": "dev"}},
 	})
 
-	out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{Key: &envKey})
+	out, err := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{Key: &envKey})
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"dev", "prod", "staging"}, out.TagValues)
 }
@@ -125,11 +150,12 @@ func TestGetTagValues_TokenResumption(t *testing.T) {
 
 	tok := "prod"
 	key := "env"
-	out := b.GetTagValues(
+	out, err := b.GetTagValues(
 		context.Background(),
 		&resourcegroupstaggingapi.GetTagValuesInput{Key: &key, PaginationToken: &tok},
 	)
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"staging"}, out.TagValues)
 }
@@ -144,8 +170,9 @@ func TestGetTagValues_Empty(t *testing.T) {
 	b := newBackend(t)
 	key := "env"
 
-	out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{Key: &key})
+	out, err := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{Key: &key})
 
+	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.NotNil(t, out.TagValues)
 	assert.Empty(t, out.TagValues)

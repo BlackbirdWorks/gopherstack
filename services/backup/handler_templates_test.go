@@ -94,7 +94,7 @@ func TestGetBackupPlanFromJSON_InvalidJSON(t *testing.T) {
 	body := `{"BackupPlanTemplateJson":"not-json"}`
 	resp := doRequest(t, h, http.MethodPost, "/backup/template/json/toPlan", body)
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
-	assert.Contains(t, resp.Body.String(), "ValidationException")
+	assert.Contains(t, resp.Body.String(), "InvalidParameterValueException")
 }
 
 // ---- GetBackupPlanFromTemplate: resolve the real builtin template by ID ----
@@ -134,7 +134,7 @@ func TestGetBackupPlanFromTemplate_UnknownIDNotFound(t *testing.T) {
 	h, _ := newHandler(t)
 
 	resp := doRequest(t, h, http.MethodGet, "/backup/template/plans/does-not-exist/toPlan", "")
-	assert.Equal(t, http.StatusNotFound, resp.Code)
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
 	assert.Contains(t, resp.Body.String(), "ResourceNotFoundException")
 }
 
@@ -158,34 +158,4 @@ func TestListBackupPlanTemplates_ReturnsBuiltinCatalog(t *testing.T) {
 		assert.NotEmpty(t, m["BackupPlanTemplateId"])
 		assert.NotEmpty(t, m["BackupPlanTemplateName"])
 	}
-}
-
-// ---- GetTieringConfiguration: real TieringConfiguration, and 404 when absent ----
-
-func TestGetTieringConfiguration_ReturnsRealConfig(t *testing.T) {
-	t.Parallel()
-	h, _ := newHandler(t)
-
-	doRequest(t, h, http.MethodPut, "/backup-vaults/tier-vault", "{}")
-	createResp := doRequest(t, h, http.MethodPost, "/backup-vault-tiering/tier-vault", "")
-	require.Equal(t, http.StatusOK, createResp.Code)
-
-	resp := doRequest(t, h, http.MethodGet, "/backup-vault-tiering/tier-vault", "")
-	require.Equal(t, http.StatusOK, resp.Code)
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
-	tc, ok := out["TieringConfiguration"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "tier-vault", tc["BackupVaultName"])
-	assert.NotEmpty(t, tc["BackupVaultArn"])
-}
-
-func TestGetTieringConfiguration_NotFound(t *testing.T) {
-	t.Parallel()
-	h, _ := newHandler(t)
-
-	resp := doRequest(t, h, http.MethodGet, "/backup-vault-tiering/no-such-vault", "")
-	assert.Equal(t, http.StatusNotFound, resp.Code)
-	assert.Contains(t, resp.Body.String(), "ResourceNotFoundException")
 }

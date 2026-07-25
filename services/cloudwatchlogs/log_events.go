@@ -46,6 +46,82 @@ func validatePutLogEventsBatch(events []InputLogEvent) error {
 			ErrValidation, totalBytes, maxBatchBytes)
 	}
 
+	return validateChronologicalOrder(events)
+}
+
+// validateChronologicalOrder rejects the whole PutLogEvents call when the
+// batch is not in non-decreasing timestamp order, matching the current
+// aws-sdk-go-v2 PutLogEvents doc comment: "A batch of log events in a single
+// request must be in a chronological order. Otherwise, the operation
+// fails." Unlike the too-old/too-new/expired classification in
+// classifyLogEvents (which rejects individual events but still accepts the
+// rest of the batch), an ordering violation fails the entire request before
+// any event is stored. Synthetic test timestamps (before
+// minRealisticTimestampMs) are exempted, matching the same bypass used
+// throughout this file for fixture data authored with arbitrary timestamps.
+func validateChronologicalOrder(events []InputLogEvent) error {
+	for i := 1; i < len(events); i++ {
+		prev, cur := events[i-1].Timestamp, events[i].Timestamp
+		if prev < minRealisticTimestampMs || cur < minRealisticTimestampMs {
+			continue
+		}
+
+		if cur < prev {
+			return fmt.Errorf(
+				"%w: log events in a single PutLogEvents request must be in chronological order",
+				ErrValidation,
+			)
+		}
+	}
+
+	return nil
+}
+
+// putLogEventsMaxSpanMs is the documented maximum timestamp span across the
+// *valid* events (those that survive the too-old/too-new/expired
+// classification) within a single PutLogEvents batch. Per the SDK doc
+// comment: "the time span in a single batch cannot exceed 24 hours.
+// Otherwise, the operation fails".
+const putLogEventsMaxSpanMs = 24 * 60 * 60 * 1000
+
+// validateEventSpan rejects the whole PutLogEvents call when the valid
+// (accepted) events span more than 24 hours from oldest to newest. Like
+// validateChronologicalOrder, this fails the entire request rather than
+// rejecting individual events. Synthetic test timestamps are excluded from
+// the span calculation for the same fixture-friendliness reason.
+func validateEventSpan(events []InputLogEvent) error {
+	var minTS, maxTS int64
+
+	found := false
+
+	for _, e := range events {
+		if e.Timestamp < minRealisticTimestampMs {
+			continue
+		}
+
+		if !found {
+			minTS, maxTS = e.Timestamp, e.Timestamp
+			found = true
+
+			continue
+		}
+
+		if e.Timestamp < minTS {
+			minTS = e.Timestamp
+		}
+
+		if e.Timestamp > maxTS {
+			maxTS = e.Timestamp
+		}
+	}
+
+	if found && maxTS-minTS > putLogEventsMaxSpanMs {
+		return fmt.Errorf(
+			"%w: the time span of valid log events in a single PutLogEvents request cannot exceed 24 hours",
+			ErrValidation,
+		)
+	}
+
 	return nil
 }
 
@@ -200,6 +276,12 @@ func (b *InMemoryBackend) PutLogEvents(
 			futureLimit,
 		)
 
+		if spanErr := validateEventSpan(acceptedEvents); spanErr != nil {
+			lockErr = spanErr
+
+			return
+		}
+
 		b.appendEvents(group, stream, now, acceptedEvents)
 
 		stream.LastIngestionTime = &now
@@ -263,8 +345,12 @@ func (b *InMemoryBackend) scheduleFilterDelivery(
 // appendEvents writes events into the stream, updates stream timestamp metadata,
 // and enforces the per-stream event cap.
 // Must be called while holding the backend write lock.
-// Note: log events may arrive with out-of-order timestamps (AWS allows this),
-// so min/max timestamp tracking must inspect all events.
+// Note: validateChronologicalOrder only rejects a single non-chronological
+// *batch*; separate PutLogEvents calls to the same stream may still arrive
+// with a later call carrying older timestamps than an earlier one (and
+// synthetic sub-minRealisticTimestampMs test timestamps bypass ordering
+// checks entirely), so min/max timestamp tracking must inspect all events
+// rather than assume the stream's events slice is globally sorted.
 func (b *InMemoryBackend) appendEvents(
 	group *LogGroup, stream *LogStream, now int64, events []InputLogEvent,
 ) {

@@ -9,6 +9,7 @@ type createPolicyTemplateInput struct {
 	PolicyStoreID string `json:"policyStoreId"`
 	Description   string `json:"description"`
 	Statement     string `json:"statement"`
+	ClientToken   string `json:"clientToken,omitempty"`
 }
 
 type policyTemplateIDsOutput struct {
@@ -30,7 +31,7 @@ func (h *Handler) handleCreatePolicyTemplate(
 		return nil, fmt.Errorf("%w: statement is required", errInvalidRequest)
 	}
 
-	pt, err := h.Backend.CreatePolicyTemplate(in.PolicyStoreID, in.Description, in.Statement)
+	pt, err := h.Backend.CreatePolicyTemplate(in.PolicyStoreID, in.Description, in.Statement, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}

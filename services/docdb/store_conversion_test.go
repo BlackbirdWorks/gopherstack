@@ -42,7 +42,7 @@ func TestFullStateSnapshotRestore(t *testing.T) {
 	_, err = original.CreateDBClusterSnapshot(ctxEast, sharedName, sharedName, nil)
 	require.NoError(t, err)
 	_, err = original.CreateEventSubscription(
-		ctxEast, sharedName, "arn:aws:sns:us-east-1:000000000000:topic", "", nil, nil,
+		ctxEast, sharedName, "arn:aws:sns:us-east-1:000000000000:topic", "", nil, nil, nil,
 	)
 	require.NoError(t, err)
 	_, err = original.ModifyDBClusterSnapshotAttribute(
@@ -66,7 +66,7 @@ func TestFullStateSnapshotRestore(t *testing.T) {
 	_, err = original.CreateDBClusterSnapshot(ctxWest, sharedName, sharedName, nil)
 	require.NoError(t, err)
 	_, err = original.CreateEventSubscription(
-		ctxWest, sharedName, "arn:aws:sns:us-west-2:000000000000:topic", "", nil, nil,
+		ctxWest, sharedName, "arn:aws:sns:us-west-2:000000000000:topic", "", nil, nil, nil,
 	)
 	require.NoError(t, err)
 	_, err = original.ModifyDBClusterSnapshotAttribute(

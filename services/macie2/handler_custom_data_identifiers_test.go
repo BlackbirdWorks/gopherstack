@@ -194,7 +194,11 @@ func TestMacie2_CustomDataIdentifierWireShape(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name: "GetCustomDataIdentifier on deleted CDI returns 404",
+			// Real AWS soft-deletes custom data identifiers: Delete never
+			// removes them, so Get keeps succeeding (with deleted:true) --
+			// see TestGetCustomDataIdentifierOnDeletedCDI for the body
+			// assertion. Only a genuinely unknown ID 404s.
+			name: "GetCustomDataIdentifier on deleted CDI returns 200",
 			setup: func(h *macie2.Handler) string {
 				rec := doRequest(t, h, http.MethodPost, "/custom-data-identifiers", map[string]any{
 					"name":  "to-delete",
@@ -210,8 +214,14 @@ func TestMacie2_CustomDataIdentifierWireShape(t *testing.T) {
 
 				return id
 			},
+			method:   http.MethodGet,
+			pathFn:   func(id string) string { return "/custom-data-identifiers/" + id },
+			wantCode: http.StatusOK,
+		},
+		{
+			name:      "GetCustomDataIdentifier on unknown ID returns 404",
 			method:    http.MethodGet,
-			pathFn:    func(id string) string { return "/custom-data-identifiers/" + id },
+			pathFn:    func(_ string) string { return "/custom-data-identifiers/nonexistent" },
 			wantCode:  http.StatusNotFound,
 			wantError: "ResourceNotFoundException",
 		},
@@ -240,13 +250,17 @@ func TestMacie2_CustomDataIdentifierWireShape(t *testing.T) {
 	}
 }
 
-func TestCustomDataIdentifierNoDeletedField(t *testing.T) {
+// TestCustomDataIdentifierDeletedField locks in real
+// GetCustomDataIdentifierOutput wire shape: the "deleted" field is always
+// present (false for a live identifier) and flips to true -- without a 404
+// -- once the identifier has been soft-deleted.
+func TestCustomDataIdentifierDeletedField(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/custom-data-identifiers", map[string]any{
-		"name":  "no-deleted-field",
+		"name":  "deleted-field",
 		"regex": `\d+`,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -260,8 +274,74 @@ func TestCustomDataIdentifierNoDeletedField(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-	_, hasDeleted := resp["deleted"]
-	assert.False(t, hasDeleted, "GetCustomDataIdentifier must not include a 'deleted' field in the response")
+	deleted, hasDeleted := resp["deleted"]
+	require.True(t, hasDeleted, "GetCustomDataIdentifier must include a 'deleted' field")
+	assert.Equal(t, false, deleted)
+
+	rec3 := doRequest(t, h, http.MethodDelete, "/custom-data-identifiers/"+id, nil)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	rec4 := doRequest(t, h, http.MethodGet, "/custom-data-identifiers/"+id, nil)
+	require.Equal(t, http.StatusOK, rec4.Code, "Get on a soft-deleted identifier must not 404")
+
+	var afterDelete map[string]any
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &afterDelete))
+	assert.Equal(t, true, afterDelete["deleted"])
+
+	// BatchGetCustomDataIdentifiers must also return the soft-deleted
+	// identifier (with deleted:true) rather than silently excluding it.
+	batchRec := doRequest(t, h, http.MethodPost, "/custom-data-identifiers/get", map[string]any{
+		"ids": []string{id},
+	})
+	require.Equal(t, http.StatusOK, batchRec.Code)
+
+	var batchResp map[string]any
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchResp))
+	items, ok := batchResp["customDataIdentifiers"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, item["deleted"])
+	assert.Empty(t, batchResp["notFoundIdentifierIds"])
+}
+
+// TestCustomDataIdentifierSeverityLevels locks the severityLevels gap fix:
+// CreateCustomDataIdentifier accepts severityLevels and
+// GetCustomDataIdentifier echoes them back (real GetCustomDataIdentifierOutput
+// carries this field; it was previously dropped entirely).
+func TestCustomDataIdentifierSeverityLevels(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/custom-data-identifiers", map[string]any{
+		"name":  "severity-levels",
+		"regex": `\d+`,
+		"severityLevels": []map[string]any{
+			{"severity": "LOW", "occurrencesThreshold": 1},
+			{"severity": "HIGH", "occurrencesThreshold": 100},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	rec2 := doRequest(t, h, http.MethodGet, "/custom-data-identifiers/"+created["customDataIdentifierId"], nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	levels, ok := resp["severityLevels"].([]any)
+	require.True(t, ok)
+	require.Len(t, levels, 2)
+
+	first, ok := levels[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "LOW", first["severity"])
+	assert.InDelta(t, float64(1), first["occurrencesThreshold"], 0.0001)
 }
 
 // 6-10. Empty-state: arrays must be [] not null

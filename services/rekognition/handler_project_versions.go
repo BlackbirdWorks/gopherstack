@@ -22,9 +22,22 @@ func (h *Handler) projectVersionOps() map[string]service.JSONOpFunc {
 // Project Versions
 // =============================================================================
 
+// outputConfigWire mirrors AWS's types.OutputConfig exactly (verified
+// against aws-sdk-go-v2/service/rekognition's awsAwsjson11 serializer/
+// deserializer for CreateProjectVersionInput.OutputConfig /
+// ProjectVersionDescription.OutputConfig).
+type outputConfigWire struct {
+	S3Bucket    string `json:"S3Bucket,omitempty"`
+	S3KeyPrefix string `json:"S3KeyPrefix,omitempty"`
+}
+
 type createProjectVersionReq struct {
-	ProjectArn  string `json:"ProjectArn"`
-	VersionName string `json:"VersionName"`
+	OutputConfig       *outputConfigWire `json:"OutputConfig"`
+	Tags               map[string]string `json:"Tags"`
+	ProjectArn         string            `json:"ProjectArn"`
+	VersionName        string            `json:"VersionName"`
+	KmsKeyID           string            `json:"KmsKeyId"`
+	VersionDescription string            `json:"VersionDescription"`
 }
 
 type createProjectVersionResp struct {
@@ -42,7 +55,17 @@ func (h *Handler) handleCreateProjectVersion(
 		return nil, fmt.Errorf("%w: VersionName is required", ErrValidation)
 	}
 
-	v, err := h.Backend.CreateProjectVersion(req.ProjectArn, req.VersionName)
+	params := CreateProjectVersionParams{
+		KmsKeyID:           req.KmsKeyID,
+		VersionDescription: req.VersionDescription,
+	}
+
+	if req.OutputConfig != nil {
+		params.OutputConfigS3Bucket = req.OutputConfig.S3Bucket
+		params.OutputConfigS3KeyPrefix = req.OutputConfig.S3KeyPrefix
+	}
+
+	v, err := h.Backend.CreateProjectVersion(req.ProjectArn, req.VersionName, params, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -72,18 +95,33 @@ func (h *Handler) handleDeleteProjectVersion(
 	return &deleteProjectVersionResp{Status: "DELETING"}, nil
 }
 
-type describeProjectVersionsReq struct { //nolint:govet // existing issue.
+type describeProjectVersionsReq struct {
 	ProjectArn   string   `json:"ProjectArn"`
-	VersionNames []string `json:"VersionNames"`
 	NextToken    string   `json:"NextToken"`
+	VersionNames []string `json:"VersionNames"`
 	MaxResults   int32    `json:"MaxResults"`
 }
 
 type projectVersionDescription struct {
-	ProjectVersionArn string  `json:"ProjectVersionArn"`
-	Status            string  `json:"Status"`
-	StatusMessage     string  `json:"StatusMessage,omitempty"`
-	CreationTimestamp float64 `json:"CreationTimestamp"`
+	OutputConfig       *outputConfigWire `json:"OutputConfig,omitempty"`
+	ProjectVersionArn  string            `json:"ProjectVersionArn"`
+	Status             string            `json:"Status"`
+	StatusMessage      string            `json:"StatusMessage,omitempty"`
+	KmsKeyID           string            `json:"KmsKeyId,omitempty"`
+	VersionDescription string            `json:"VersionDescription,omitempty"`
+	CreationTimestamp  float64           `json:"CreationTimestamp"`
+}
+
+// projectVersionOutputConfigFromDomain renders v's OutputConfig fields as
+// the wire shape, or nil if CreateProjectVersion was never given one
+// (OutputConfig is optional on the response even though it's a required
+// CreateProjectVersionInput member -- see api_op_DescribeProjectVersions.go).
+func projectVersionOutputConfigFromDomain(v *ProjectVersion) *outputConfigWire {
+	if v.OutputConfigS3Bucket == "" && v.OutputConfigS3KeyPrefix == "" {
+		return nil
+	}
+
+	return &outputConfigWire{S3Bucket: v.OutputConfigS3Bucket, S3KeyPrefix: v.OutputConfigS3KeyPrefix}
 }
 
 type describeProjectVersionsResp struct {
@@ -104,10 +142,13 @@ func (h *Handler) handleDescribeProjectVersions(
 	descriptions := make([]projectVersionDescription, 0, len(versions))
 	for _, v := range versions {
 		descriptions = append(descriptions, projectVersionDescription{
-			ProjectVersionArn: v.ProjectVersionARN,
-			Status:            v.Status,
-			StatusMessage:     v.StatusMessage,
-			CreationTimestamp: epochSeconds(v.CreationTimestamp),
+			ProjectVersionArn:  v.ProjectVersionARN,
+			Status:             v.Status,
+			StatusMessage:      v.StatusMessage,
+			KmsKeyID:           v.KmsKeyID,
+			VersionDescription: v.VersionDescription,
+			CreationTimestamp:  epochSeconds(v.CreationTimestamp),
+			OutputConfig:       projectVersionOutputConfigFromDomain(v),
 		})
 	}
 

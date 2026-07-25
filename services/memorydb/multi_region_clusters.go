@@ -38,6 +38,8 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 		engine = engineRedis
 	}
 
+	tlsEnabled := req.TLSEnabled == nil || *req.TLSEnabled
+
 	mrc := &MultiRegionCluster{
 		MultiRegionClusterName:        fullName,
 		ARN:                           mrARN,
@@ -49,6 +51,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 		Status:                        multiRegionClusterStatusAvailable,
 		Tags:                          tagsFromSlice(req.Tags),
 		CreatedAt:                     time.Now(),
+		TLSEnabled:                    tlsEnabled,
 	}
 
 	b.multiRegionClusters.Put(mrc)
@@ -202,6 +205,33 @@ func (b *InMemoryBackend) DescribeMultiRegionParameters(
 	}
 
 	return maps.Clone(mrpg.Parameters), nil
+}
+
+// RegionalClustersFor returns the per-Region clusters belonging to the named
+// multi-Region cluster, sorted by region then cluster name for determinism.
+// Populates MultiRegionCluster.Clusters (types.RegionalCluster in the real
+// SDK) on the wire response. Safe for concurrent use.
+func (b *InMemoryBackend) RegionalClustersFor(multiRegionClusterName string) []*Cluster {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var result []*Cluster
+	for _, t := range b.clusters {
+		for _, c := range t.All() {
+			if c.MultiRegionClusterName == multiRegionClusterName {
+				result = append(result, cloneCluster(c))
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Region != result[j].Region {
+			return result[i].Region < result[j].Region
+		}
+
+		return result[i].Name < result[j].Name
+	})
+
+	return result
 }
 
 // cloneMultiRegionCluster returns a shallow copy of the multi-region cluster with separate tags.

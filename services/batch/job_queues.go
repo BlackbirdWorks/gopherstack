@@ -11,11 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-const (
-	msPerSecond = 1000.0
-
-	maxJobQueueNameLength = 128
-)
+const maxJobQueueNameLength = 128
 
 // lookupJQByNameOrARN returns a job queue by name or ARN within region.
 // Caller must hold at least a read lock.
@@ -43,6 +39,8 @@ func (b *InMemoryBackend) CreateJobQueue(
 	tags map[string]string,
 	schedulingPolicyArn string,
 	jobStateTimeLimitActions []JobStateTimeLimitAction,
+	jobQueueType string,
+	serviceEnvironmentOrder []ServiceEnvironmentOrder,
 ) (*JobQueue, error) {
 	region := getRegion(ctx, b.region)
 
@@ -60,6 +58,13 @@ func (b *InMemoryBackend) CreateJobQueue(
 		return nil, fmt.Errorf("%w: job queue %s already exists", ErrAlreadyExists, name)
 	}
 
+	if len(ceOrder) > 0 && len(serviceEnvironmentOrder) > 0 {
+		return nil, fmt.Errorf(
+			"%w: a job queue can't have both computeEnvironmentOrder and serviceEnvironmentOrder",
+			ErrValidation,
+		)
+	}
+
 	if err := validateTags(tags); err != nil {
 		return nil, err
 	}
@@ -71,6 +76,9 @@ func (b *InMemoryBackend) CreateJobQueue(
 
 	orderCopy := make([]ComputeEnvironmentOrder, len(ceOrder))
 	copy(orderCopy, ceOrder)
+
+	seOrderCopy := make([]ServiceEnvironmentOrder, len(serviceEnvironmentOrder))
+	copy(seOrderCopy, serviceEnvironmentOrder)
 
 	var actionsCopy []JobStateTimeLimitAction
 	if len(jobStateTimeLimitActions) > 0 {
@@ -86,6 +94,8 @@ func (b *InMemoryBackend) CreateJobQueue(
 		Status:                   statusValid,
 		Priority:                 priority,
 		ComputeEnvironmentOrder:  orderCopy,
+		ServiceEnvironmentOrder:  seOrderCopy,
+		JobQueueType:             jobQueueType,
 		Tags:                     tagsCopy,
 		SchedulingPolicyArn:      schedulingPolicyArn,
 		JobStateTimeLimitActions: actionsCopy,
@@ -105,11 +115,17 @@ func (b *InMemoryBackend) CreateJobQueue(
 	return &cp, nil
 }
 
+// cloneJobQueueWithTags returns a tag-cloned copy of jq.
+func cloneJobQueueWithTags(jq *JobQueue) *JobQueue {
+	cp := *jq
+	cp.Tags = tagsCloneOrEmpty(jq.Tags)
+
+	return &cp
+}
+
 // DescribeJobQueues returns job queues, optionally filtered by names/ARNs.
 // When names are provided, all matching queues are returned without pagination.
 // When names is empty, results are paginated using maxResults and nextToken.
-//
-//nolint:dupl // Boilerplate pagination logic is similar to DescribeComputeEnvironments
 func (b *InMemoryBackend) DescribeJobQueues(
 	ctx context.Context,
 	names []string,
@@ -121,33 +137,15 @@ func (b *InMemoryBackend) DescribeJobQueues(
 	b.mu.RLock("DescribeJobQueues")
 	defer b.mu.RUnlock()
 
-	if len(names) > 0 {
-		list := make([]*JobQueue, 0, len(names))
-
-		for _, nameOrARN := range names {
-			if jq, ok := b.lookupJQByNameOrARN(region, nameOrARN); ok {
-				cp := *jq
-				cp.Tags = tagsCloneOrEmpty(jq.Tags)
-				list = append(list, &cp)
-			}
-		}
-
-		return list, ""
-	}
-
-	sortedKeys := sortedNames(b.jobQueuesByRegion.Get(region), func(jq *JobQueue) string { return jq.JobQueueName })
-
-	keys, next := paginateMapKeys(sortedKeys, nextToken, maxResults)
-	out := make([]*JobQueue, 0, len(keys))
-
-	for _, k := range keys {
-		jq, _ := b.jobQueues.Get(regionKey(region, k))
-		cp := *jq
-		cp.Tags = tagsCloneOrEmpty(cp.Tags)
-		out = append(out, &cp)
-	}
-
-	return out, next
+	return describeResourcesPaginated(
+		names, maxResults, nextToken,
+		func(nameOrARN string) (*JobQueue, bool) { return b.lookupJQByNameOrARN(region, nameOrARN) },
+		func() []string {
+			return sortedNames(b.jobQueuesByRegion.Get(region), func(jq *JobQueue) string { return jq.JobQueueName })
+		},
+		func(key string) (*JobQueue, bool) { return b.jobQueues.Get(regionKey(region, key)) },
+		cloneJobQueueWithTags,
+	)
 }
 
 // UpdateJobQueue updates a job queue's state, priority, CE order, and/or time-limit actions.
@@ -158,6 +156,7 @@ func (b *InMemoryBackend) UpdateJobQueue(
 	state string,
 	ceOrder []ComputeEnvironmentOrder,
 	jobStateTimeLimitActions []JobStateTimeLimitAction,
+	serviceEnvironmentOrder []ServiceEnvironmentOrder,
 ) (*JobQueue, error) {
 	region := getRegion(ctx, b.region)
 
@@ -200,6 +199,12 @@ func (b *InMemoryBackend) UpdateJobQueue(
 		}
 	}
 
+	if serviceEnvironmentOrder != nil {
+		seOrderCopy := make([]ServiceEnvironmentOrder, len(serviceEnvironmentOrder))
+		copy(seOrderCopy, serviceEnvironmentOrder)
+		jq.ServiceEnvironmentOrder = seOrderCopy
+	}
+
 	if jobStateTimeLimitActions != nil {
 		actionsCopy := make([]JobStateTimeLimitAction, len(jobStateTimeLimitActions))
 		copy(actionsCopy, jobStateTimeLimitActions)
@@ -231,7 +236,9 @@ func (b *InMemoryBackend) DeleteJobQueue(ctx context.Context, nameOrARN string) 
 	queueName := jq.JobQueueName
 
 	// The byQueue index's slice mutates under Table.Delete, so clone before looping.
-	queuedJobs := slices.Clone(b.jobsByQueueIdx.Get(regionKey(region, queueName)))
+	// jobsByQueueIdx is keyed by the job's JobQueue field, which stores the
+	// queue's ARN (see the JobQueue field comment on jobs.go's SubmitJob).
+	queuedJobs := slices.Clone(b.jobsByQueueIdx.Get(regionKey(region, jq.JobQueueArn)))
 	for _, j := range queuedJobs {
 		b.jobs.Delete(regionKey(region, j.JobID))
 	}
@@ -260,7 +267,7 @@ func (b *InMemoryBackend) GetJobQueueSnapshot(ctx context.Context, jobQueue stri
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, jobQueue)
 	}
 
-	group := b.jobsByQueueIdx.Get(regionKey(region, jq.JobQueueName))
+	group := b.jobsByQueueIdx.Get(regionKey(region, jq.JobQueueArn))
 	runnableJobs := make([]*Job, 0, len(group))
 
 	for _, j := range group {
@@ -277,19 +284,19 @@ func (b *InMemoryBackend) GetJobQueueSnapshot(ctx context.Context, jobQueue stri
 	}
 
 	foqJobs := make([]FrontOfQueueJob, 0, len(runnableJobs))
-	now := float64(time.Now().UnixMilli()) / msPerSecond
+	now := time.Now().UnixMilli()
 
 	for _, j := range runnableJobs {
 		foqJobs = append(foqJobs, FrontOfQueueJob{
 			JobArn:                 j.JobARN,
-			EarliestTimeAtPosition: float64(j.CreatedAt) / msPerSecond,
+			EarliestTimeAtPosition: j.CreatedAt,
 		})
 	}
 
 	return &JobQueueSnapshot{
 		FrontOfQueue: &FrontOfQueue{
-			Jobs:      foqJobs,
-			Timestamp: now,
+			Jobs:          foqJobs,
+			LastUpdatedAt: now,
 		},
 	}, nil
 }

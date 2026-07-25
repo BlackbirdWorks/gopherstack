@@ -70,6 +70,7 @@ func TestEnrichmentParameters(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-pipe", map[string]any{
+				"RoleArn":              "arn:aws:iam::123456789012:role/r",
 				"Source":               "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":               "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"Enrichment":           tt.enrichmentARN,
@@ -122,6 +123,7 @@ func TestEnrichmentParameters_Update(t *testing.T) {
 
 			b := auditNewBackend()
 			inp := pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         tt.name + "-pipe",
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -135,6 +137,7 @@ func TestEnrichmentParameters_Update(t *testing.T) {
 			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
 
 			updated, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
+				RoleARN:              "arn:aws:iam::123456789012:role/r",
 				EnrichmentParameters: &pipes.EnrichmentParameters{InputTemplate: tt.updatedTemplate},
 			})
 			require.NoError(t, err)
@@ -192,6 +195,7 @@ func TestPipeEnrichmentTracking(t *testing.T) {
 
 			pipeName := "enrich-pipe-" + tt.name
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         pipeName,
 				Source:       "arn:aws:sqs:us-east-1:000000000000:queue",
 				Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",

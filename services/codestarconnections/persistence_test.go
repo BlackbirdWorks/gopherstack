@@ -90,10 +90,12 @@ func seedFullState(t *testing.T, b *codestarconnections.InMemoryBackend) seededS
 	)
 	require.NoError(t, err)
 
-	eastLink, err := b.CreateRepositoryLink(ctxEast, eastConn.ConnectionArn, "east-owner", "east-repo", "kms-arn")
+	eastLink, err := b.CreateRepositoryLink(
+		ctxEast, eastConn.ConnectionArn, "east-owner", "east-repo", "kms-arn", map[string]string{"env": "prod"},
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateRepositoryLink(ctxWest, westConn.ConnectionArn, "west-owner", "west-repo", "")
+	_, err = b.CreateRepositoryLink(ctxWest, westConn.ConnectionArn, "west-owner", "west-repo", "", nil)
 	require.NoError(t, err)
 
 	eastCfg, err := b.CreateSyncConfigurationFull(
@@ -182,6 +184,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	assert.Len(t, restored.ListRepositoryLinks(ctxEast), 1)
 	assert.Len(t, restored.ListRepositoryLinks(ctxWest), 1)
+
+	// repositoryLinksByArn secondary index (used by tags.go to resolve a
+	// repository link by ResourceArn for TagResource/UntagResource/
+	// ListTagsForResource) must be rebuilt on restore too, not just the
+	// primary region|ID key and byRegion index checked above.
+	linkTags, err := restored.ListTagsForResource(ctxEast, eastLink.RepositoryLinkArn)
+	require.NoError(t, err, "repositoryLinksByArn index must be rebuilt so tag lookups work after restore")
+	assert.Equal(t, "prod", linkTags["env"])
 
 	// syncConfigurations.
 	gotCfg, err := restored.GetSyncConfiguration(ctxEast, "east-stack", "CFN_STACK_SYNC")
@@ -273,7 +283,7 @@ func TestInMemoryBackend_SnapshotRestore_TagsAndCounts(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateHost(context.Background(), "persist-host", "GitHub", "https://example.com", nil, nil)
 	require.NoError(t, err)
-	link, err := b.CreateRepositoryLink(context.Background(), "conn-arn", "owner", "persist-repo", "")
+	link, err := b.CreateRepositoryLink(context.Background(), "conn-arn", "owner", "persist-repo", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateSyncConfiguration(
 		context.Background(),

@@ -98,7 +98,8 @@ func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
 	require.NoError(t, err)
 
 	changeReq, err := b.CreateCollaborationChangeRequest(
-		collab.CollaborationIdentifier, "MEMBER_UPDATE", map[string]any{"reason": "test"},
+		collab.CollaborationIdentifier,
+		[]map[string]any{{"specificationType": "MEMBER", "specification": map[string]any{"reason": "test"}}},
 	)
 	require.NoError(t, err)
 
@@ -144,7 +145,7 @@ func assertTopLevelRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, see
 
 	gotMembership, err := fresh.GetMembership(seed.membership.MembershipIdentifier)
 	require.NoError(t, err)
-	assert.Equal(t, seed.collab.CollaborationIdentifier, gotMembership.CollaborationIdentifier)
+	assert.Equal(t, seed.collab.CollaborationIdentifier, gotMembership.CollaborationID)
 
 	gotTable, err := fresh.GetConfiguredTable(seed.table.ConfiguredTableIdentifier)
 	require.NoError(t, err)

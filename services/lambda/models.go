@@ -113,6 +113,7 @@ type LoggingConfig struct {
 
 type FunctionConfiguration struct {
 	CreatedAt                    time.Time               `json:"-"`
+	DurableConfig                *DurableConfig          `json:"DurableConfig,omitempty"`
 	Environment                  *EnvironmentConfig      `json:"Environment,omitempty"`
 	EphemeralStorage             *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
 	LoggingConfig                *LoggingConfig          `json:"LoggingConfig,omitempty"`
@@ -159,8 +160,23 @@ type EnvironmentConfig struct {
 	Variables map[string]string `json:"Variables"`
 }
 
+// DurableConfig holds a function's durable-execution settings: the maximum
+// runtime for an entire durable execution, how long execution history is
+// retained, and an optional customer-managed KMS key ARN used to encrypt
+// durable execution payload data. This emulator does not perform real KMS
+// encryption or history-retention pruning — the config is accepted and
+// echoed back verbatim, matching real AWS wire shape for clients that just
+// need CreateFunction/UpdateFunctionConfiguration/GetFunctionConfiguration to
+// round-trip it.
+type DurableConfig struct {
+	ExecutionTimeout      *int32 `json:"ExecutionTimeout,omitempty"`
+	RetentionPeriodInDays *int32 `json:"RetentionPeriodInDays,omitempty"`
+	KMSKeyArn             string `json:"KMSKeyArn,omitempty"`
+}
+
 // CreateFunctionInput holds the request body for CreateFunction.
 type CreateFunctionInput struct {
+	DurableConfig     *DurableConfig          `json:"DurableConfig,omitempty"`
 	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
 	ImageConfig       *ImageConfig            `json:"ImageConfig,omitempty"`
 	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
@@ -195,27 +211,29 @@ type ImageConfig struct {
 
 // UpdateFunctionCodeInput holds the request body for UpdateFunctionCode.
 type UpdateFunctionCodeInput struct {
-	Architectures []string `json:"Architectures,omitempty"`
 	ImageURI      string   `json:"ImageUri,omitempty"`
 	S3Bucket      string   `json:"S3Bucket,omitempty"`
 	S3Key         string   `json:"S3Key,omitempty"`
+	RevisionID    string   `json:"RevisionId,omitempty"`
+	Architectures []string `json:"Architectures,omitempty"`
 	ZipFile       []byte   `json:"ZipFile,omitempty"`
-	// Publish, when true, publishes a new numbered version after the code update.
-	Publish bool `json:"Publish,omitempty"`
+	Publish       bool     `json:"Publish,omitempty"`
 }
 
 // UpdateFunctionConfigurationInput holds the request body for UpdateFunctionConfiguration.
 type UpdateFunctionConfigurationInput struct {
+	DurableConfig     *DurableConfig          `json:"DurableConfig,omitempty"`
 	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
 	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig     *TracingConfig          `json:"TracingConfig,omitempty"`
 	DeadLetterConfig  *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
 	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
 	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
-	Description       string                  `json:"Description,omitempty"`
 	Runtime           string                  `json:"Runtime,omitempty"`
+	Description       string                  `json:"Description,omitempty"`
 	Handler           string                  `json:"Handler,omitempty"`
 	Role              string                  `json:"Role,omitempty"`
+	RevisionID        string                  `json:"RevisionId,omitempty"`
 	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	Layers            []string                `json:"Layers,omitempty"`
 	MemorySize        int                     `json:"MemorySize,omitempty"`
@@ -282,6 +300,7 @@ type ListFunctionURLConfigsOutput struct {
 
 // FunctionVersion holds an immutable snapshot of a Lambda function configuration at publish time.
 type FunctionVersion struct {
+	DurableConfig     *DurableConfig      `json:"DurableConfig,omitempty"`
 	Environment       *EnvironmentConfig  `json:"Environment,omitempty"`
 	VpcConfig         *VpcConfig          `json:"VpcConfig,omitempty"`
 	TracingConfig     *TracingConfig      `json:"TracingConfig,omitempty"`
@@ -342,6 +361,9 @@ type UpdateAliasInput struct {
 	RoutingConfig   *AliasRoutingConfig `json:"RoutingConfig,omitempty"`
 	Description     string              `json:"Description,omitempty"`
 	FunctionVersion string              `json:"FunctionVersion,omitempty"`
+	// RevisionID, when set, must match the alias's current RevisionId or the
+	// update is rejected with PreconditionFailedException (optimistic concurrency).
+	RevisionID string `json:"RevisionId,omitempty"`
 }
 
 // ListAliasesOutput is the response for ListAliases.
@@ -442,11 +464,15 @@ type LayerVersionPolicy struct {
 }
 
 // AddLayerVersionPermissionInput is the request body for AddLayerVersionPermission.
+// RevisionID is wire-bound as the "RevisionId" query parameter (not part of the
+// JSON body — see the AWS smithy model), so it is populated from the query
+// string by the handler rather than by json.Unmarshal.
 type AddLayerVersionPermissionInput struct {
 	Action         string `json:"Action"`
 	Principal      string `json:"Principal"`
 	StatementID    string `json:"StatementId"`
 	OrganizationID string `json:"OrganizationId,omitempty"`
+	RevisionID     string `json:"-"`
 }
 
 // AddLayerVersionPermissionOutput is the response for AddLayerVersionPermission.
@@ -467,12 +493,19 @@ type DestinationConfig struct {
 }
 
 // FunctionEventInvokeConfig holds the async invocation configuration for a Lambda function.
+//
+// LastModified is wire-bound as epoch-seconds (a JSON number), NOT an ISO8601
+// string — unlike FunctionConfiguration.LastModified, which real AWS DOES
+// serialize as an ISO8601 string. Verified against the SDK deserializer:
+// PutFunctionEventInvokeConfig's LastModified case parses a json.Number,
+// while FunctionConfiguration's parses a JSON string. Use awstime.Epoch when
+// setting this field.
 type FunctionEventInvokeConfig struct {
-	LastModified             time.Time          `json:"LastModified"`
 	DestinationConfig        *DestinationConfig `json:"DestinationConfig,omitempty"`
 	MaximumEventAgeInSeconds *int               `json:"MaximumEventAgeInSeconds,omitempty"`
 	MaximumRetryAttempts     *int               `json:"MaximumRetryAttempts,omitempty"`
 	FunctionArn              string             `json:"FunctionArn"`
+	LastModified             float64            `json:"LastModified"`
 }
 
 // PutFunctionEventInvokeConfigInput is the shared request body for Put/Update FunctionEventInvokeConfig.
@@ -524,27 +557,38 @@ type ListProvisionedConcurrencyConfigsOutput struct {
 // Qualifier records the version/alias this statement is scoped to (empty for the
 // unqualified function-wide policy), matching real AWS per-qualifier policies.
 type FunctionPermission struct {
-	Action           string `json:"Action"`
-	Effect           string `json:"Effect"`
-	FunctionName     string `json:"-"`
-	Qualifier        string `json:"-"`
-	Principal        string `json:"Principal"`
-	SourceAccount    string `json:"SourceAccount,omitempty"`
-	SourceArn        string `json:"SourceArn,omitempty"`
-	EventSourceToken string `json:"EventSourceToken,omitempty"`
-	PrincipalOrgID   string `json:"PrincipalOrgID,omitempty"`
-	StatementID      string `json:"Sid"`
+	InvokedViaFunctionURL *bool  `json:"-"`
+	Action                string `json:"Action"`
+	Effect                string `json:"Effect"`
+	FunctionName          string `json:"-"`
+	Qualifier             string `json:"-"`
+	Principal             string `json:"Principal"`
+	SourceAccount         string `json:"SourceAccount,omitempty"`
+	SourceArn             string `json:"SourceArn,omitempty"`
+	EventSourceToken      string `json:"EventSourceToken,omitempty"`
+	PrincipalOrgID        string `json:"PrincipalOrgID,omitempty"`
+	StatementID           string `json:"Sid"`
+	// FunctionURLAuthType's JSON tag is intentionally "-": it is echoed into
+	// the policy statement's Condition block (see buildPermissionStatementJSON
+	// in permissions.go), not surfaced as a top-level FunctionPermission field.
+	FunctionURLAuthType string `json:"-"`
 }
 
-// AddPermissionInput is the request body for AddPermission.
+// AddPermissionInput is the request body for AddPermission. FunctionURLAuthType
+// and InvokedViaFunctionURL keep the exact wire-cased "FunctionUrlAuthType" /
+// "InvokedViaFunctionUrl" JSON tags (verified against the aws-sdk-go-v2
+// serializer) even though the Go field names use the repo's "URL" convention.
 type AddPermissionInput struct {
-	Action           string `json:"Action"`
-	Principal        string `json:"Principal"`
-	StatementID      string `json:"StatementId"`
-	SourceAccount    string `json:"SourceAccount,omitempty"`
-	SourceArn        string `json:"SourceArn,omitempty"`
-	EventSourceToken string `json:"EventSourceToken,omitempty"`
-	PrincipalOrgID   string `json:"PrincipalOrgID,omitempty"`
+	Action                string `json:"Action"`
+	Principal             string `json:"Principal"`
+	StatementID           string `json:"StatementId"`
+	SourceAccount         string `json:"SourceAccount,omitempty"`
+	SourceArn             string `json:"SourceArn,omitempty"`
+	EventSourceToken      string `json:"EventSourceToken,omitempty"`
+	PrincipalOrgID        string `json:"PrincipalOrgID,omitempty"`
+	FunctionURLAuthType   string `json:"FunctionUrlAuthType,omitempty"`
+	InvokedViaFunctionURL *bool  `json:"InvokedViaFunctionUrl,omitempty"`
+	RevisionID            string `json:"RevisionId,omitempty"`
 }
 
 // AddPermissionOutput is the response for AddPermission.
@@ -633,18 +677,34 @@ type ListFunctionsByCodeSigningConfigOutput struct {
 
 // CapacityProvider holds a Lambda capacity provider configuration.
 type CapacityProvider struct {
-	CapacityProviderArn       string   `json:"CapacityProviderArn"`
-	LastModifiedTime          string   `json:"LastModifiedTime"`
-	Name                      string   `json:"Name"`
-	Status                    string   `json:"Status,omitempty"`
-	AssignedFunctionVersions  []string `json:"-"`
-	TargetOnDemandConcurrency int      `json:"TargetOnDemandConcurrency,omitempty"`
+	TelemetryConfig           *CapacityProviderTelemetryConfig `json:"TelemetryConfig,omitempty"`
+	CapacityProviderArn       string                           `json:"CapacityProviderArn"`
+	LastModifiedTime          string                           `json:"LastModifiedTime"`
+	Name                      string                           `json:"Name"`
+	Status                    string                           `json:"Status,omitempty"`
+	AssignedFunctionVersions  []string                         `json:"-"`
+	TargetOnDemandConcurrency int                              `json:"TargetOnDemandConcurrency,omitempty"`
+}
+
+// CapacityProviderTelemetryConfig holds the telemetry (logging) configuration
+// for a capacity provider. Accept-and-echo only: this emulator does not send
+// real system logs to CloudWatch for capacity-provider-managed instances.
+type CapacityProviderTelemetryConfig struct {
+	LoggingConfig *CapacityProviderLoggingConfig `json:"LoggingConfig,omitempty"`
+}
+
+// CapacityProviderLoggingConfig holds the CloudWatch Logs settings for a
+// capacity provider's system logs.
+type CapacityProviderLoggingConfig struct {
+	LogGroup       string `json:"LogGroup,omitempty"`
+	SystemLogLevel string `json:"SystemLogLevel,omitempty"`
 }
 
 // CreateCapacityProviderInput is the request body for CreateCapacityProvider.
 type CreateCapacityProviderInput struct {
-	Name                      string `json:"Name"`
-	TargetOnDemandConcurrency int    `json:"TargetOnDemandConcurrency,omitempty"`
+	TelemetryConfig           *CapacityProviderTelemetryConfig `json:"TelemetryConfig,omitempty"`
+	Name                      string                           `json:"Name"`
+	TargetOnDemandConcurrency int                              `json:"TargetOnDemandConcurrency,omitempty"`
 }
 
 // CreateCapacityProviderOutput is the response for CreateCapacityProvider.
@@ -654,7 +714,8 @@ type CreateCapacityProviderOutput struct {
 
 // UpdateCapacityProviderInput is the request body for UpdateCapacityProvider.
 type UpdateCapacityProviderInput struct {
-	TargetOnDemandConcurrency int `json:"TargetOnDemandConcurrency,omitempty"`
+	TelemetryConfig           *CapacityProviderTelemetryConfig `json:"TelemetryConfig,omitempty"`
+	TargetOnDemandConcurrency int                              `json:"TargetOnDemandConcurrency,omitempty"`
 }
 
 // UpdateCapacityProviderOutput is the response for UpdateCapacityProvider.
@@ -698,14 +759,6 @@ func buildCodeSigningConfigARN(region, accountID, cscID string) string {
 func buildCapacityProviderARN(region, accountID, name string) string {
 	return arn.Build("lambda", region, accountID, fmt.Sprintf("capacity-provider:%s", name))
 }
-
-// CheckpointDurableExecutionInput is the request body for CheckpointDurableExecution.
-type CheckpointDurableExecutionInput struct {
-	Marker *string `json:"Marker,omitempty"`
-}
-
-// CheckpointDurableExecutionOutput is the response for CheckpointDurableExecution.
-type CheckpointDurableExecutionOutput struct{}
 
 // UpdateFunctionURLConfigInput is the request body for UpdateFunctionUrlConfig.
 type UpdateFunctionURLConfigInput struct {

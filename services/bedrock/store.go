@@ -35,6 +35,7 @@ const (
 	statusInProgress = "InProgress"
 	statusCompleted  = "Completed"
 	statusStopped    = "Stopped"
+	statusAvailable  = "AVAILABLE"
 )
 
 // InMemoryBackend stores Amazon Bedrock state in memory.
@@ -57,23 +58,22 @@ type InMemoryBackend struct {
 	inferenceProfiles           *store.Table[InferenceProfile]                      // profileArn → profile
 	marketplaceEndpoints        *store.Table[MarketplaceModelEndpoint]              // endpointArn → endpoint
 	loggingConfig               *ModelInvocationLoggingConfiguration
-	modelInvocationJobs         *store.Table[ModelInvocationJob]      // jobArn → job
-	promptRouters               *store.Table[PromptRouter]            // routerArn → router
-	enforcedGuardrailConfigs    *store.Table[EnforcedGuardrailConfig] // guardrailID → config
-	arpAnnotations              map[string][]any                      // policyARN → annotations
-	useCaseType                 string
-	useCaseDescription          string
-	guardrailsByName            map[string]string // guardrail name → ID
-	guardrailsByARN             map[string]string // guardrail ARN → ID
-	pmtsByName                  map[string]string // PMT name → ARN
-	arpByName                   map[string]string // policy name → ARN
-	customModelsByName          map[string]string // model name → ARN
-	customModelDeployByName     map[string]string // deployment name → ARN
-	evaluationJobsByName        map[string]string // job name → ARN
-	customizationJobsByName     map[string]string // job name → ARN
-	inferenceProfilesByName     map[string]string // profile name → ARN
-	marketplaceEndpointsByName  map[string]string // endpoint name → ARN
-	promptRoutersByName         map[string]string // router name → ARN
+	modelInvocationJobs         *store.Table[ModelInvocationJob]             // jobArn → job
+	promptRouters               *store.Table[PromptRouter]                   // routerArn → router
+	enforcedGuardrailConfigs    *store.Table[AccountEnforcedGuardrailConfig] // configID → config
+	arpAnnotations              map[string][]any                             // policyARN → annotations
+	useCaseFormData             []byte                                       // raw FormData for PutUseCaseForModelAccess
+	guardrailsByName            map[string]string                            // guardrail name → ID
+	guardrailsByARN             map[string]string                            // guardrail ARN → ID
+	pmtsByName                  map[string]string                            // PMT name → ARN
+	arpByName                   map[string]string                            // policy name → ARN
+	customModelsByName          map[string]string                            // model name → ARN
+	customModelDeployByName     map[string]string                            // deployment name → ARN
+	evaluationJobsByName        map[string]string                            // job name → ARN
+	customizationJobsByName     map[string]string                            // job name → ARN
+	inferenceProfilesByName     map[string]string                            // profile name → ARN
+	marketplaceEndpointsByName  map[string]string                            // endpoint name → ARN
+	promptRoutersByName         map[string]string                            // router name → ARN
 	// Agents
 	agents              *store.Table[Agent]
 	agentsByName        map[string]string                           // agentName → agentID
@@ -85,48 +85,49 @@ type InMemoryBackend struct {
 	dataSources         *store.Table[DataSource]                    // kbID/dsID → ds
 	ingestionJobs       *store.Table[IngestionJob]                  // kbID/dsID/jobID → job
 	// Agents batch-3 additions
-	flows                      *store.Table[Flow]                         // flowID → flow
-	flowsByName                map[string]string                          // flowName → flowID
-	flowAliases                *store.Table[FlowAlias]                    // flowAliasKey(flowID, aliasID) → alias
-	flowVersions               map[string]*store.Table[FlowVersion]       // flowID → version table (lazy)
-	flowVersionCounters        map[string]int                             // flowID → next version number
-	prompts                    *store.Table[Prompt]                       // promptID → prompt
-	promptsByName              map[string]string                          // promptName → promptID
-	promptVersions             map[string]*store.Table[PromptVersion]     // promptID → version table (lazy)
-	promptVersionCounters      map[string]int                             // promptID → next version number
-	agentVersions              map[string]*store.Table[AgentVersion]      // agentID → version table (lazy)
-	agentVersionCounters       map[string]int                             // agentID → next version number
-	agentCollaborators         map[string]*store.Table[AgentCollaborator] // agentID → collaborator table (lazy)
-	kbDocuments                *store.Table[KnowledgeBaseDocument]        // kbDocKey → document
-	agentTags                  map[string]map[string]string               // ARN → tagKey → tagValue
-	agentMemory                map[string][]any                           // agentID/sessionID → memory entries
-	registry                   *store.Registry
-	mu                         *lockmetrics.RWMutex
-	accountID                  string
-	region                     string
-	foundationModels           []*FoundationModelSummary
-	guardrailCounter           int
-	guardrailVersionCounter    int
-	provisionedCounter         int
-	evaluationJobCounter       int
-	arpCounter                 int
-	arpWorkflowCounter         int
-	arpTestCaseCounter         int
-	customModelCounter         int
-	customModelDeployCounter   int
-	customizationJobCounter    int
-	copyJobCounter             int
-	importJobCounter           int
-	inferenceProfileCounter    int
-	marketplaceEndpointCounter int
-	modelInvocationJobCounter  int
-	promptRouterCounter        int
-	agentCounter               int
-	actionGroupCounter         int
-	agentAliasCounter          int
-	kbCounter                  int
-	dataSourceCounter          int
-	ingestionJobCounter        int
+	flows                          *store.Table[Flow]                         // flowID → flow
+	flowsByName                    map[string]string                          // flowName → flowID
+	flowAliases                    *store.Table[FlowAlias]                    // flowAliasKey(flowID, aliasID) → alias
+	flowVersions                   map[string]*store.Table[FlowVersion]       // flowID → version table (lazy)
+	flowVersionCounters            map[string]int                             // flowID → next version number
+	prompts                        *store.Table[Prompt]                       // promptID → prompt
+	promptsByName                  map[string]string                          // promptName → promptID
+	promptVersions                 map[string]*store.Table[PromptVersion]     // promptID → version table (lazy)
+	promptVersionCounters          map[string]int                             // promptID → next version number
+	agentVersions                  map[string]*store.Table[AgentVersion]      // agentID → version table (lazy)
+	agentVersionCounters           map[string]int                             // agentID → next version number
+	agentCollaborators             map[string]*store.Table[AgentCollaborator] // agentID → collaborator table (lazy)
+	kbDocuments                    *store.Table[KnowledgeBaseDocument]        // kbDocKey → document
+	agentTags                      map[string]map[string]string               // ARN → tagKey → tagValue
+	agentMemory                    map[string][]any                           // agentID/sessionID → memory entries
+	registry                       *store.Registry
+	mu                             *lockmetrics.RWMutex
+	accountID                      string
+	region                         string
+	foundationModels               []*FoundationModelSummary
+	guardrailCounter               int
+	guardrailVersionCounter        int
+	provisionedCounter             int
+	evaluationJobCounter           int
+	arpCounter                     int
+	arpWorkflowCounter             int
+	arpTestCaseCounter             int
+	customModelCounter             int
+	customModelDeployCounter       int
+	customizationJobCounter        int
+	copyJobCounter                 int
+	importJobCounter               int
+	inferenceProfileCounter        int
+	marketplaceEndpointCounter     int
+	modelInvocationJobCounter      int
+	promptRouterCounter            int
+	enforcedGuardrailConfigCounter int
+	agentCounter                   int
+	actionGroupCounter             int
+	agentAliasCounter              int
+	kbCounter                      int
+	dataSourceCounter              int
+	ingestionJobCounter            int
 	// Batch-3 counters
 	flowCounter        int
 	flowAliasCounter   int
@@ -251,6 +252,7 @@ func (b *InMemoryBackend) resetCounters() {
 	b.marketplaceEndpointCounter = 0
 	b.modelInvocationJobCounter = 0
 	b.promptRouterCounter = 0
+	b.enforcedGuardrailConfigCounter = 0
 }
 
 // resetAuxState clears miscellaneous non-table backend state that is not part
@@ -260,8 +262,7 @@ func (b *InMemoryBackend) resetAuxState() {
 	b.agentTags = make(map[string]map[string]string)
 	b.agentMemory = make(map[string][]any)
 	b.arpAnnotations = make(map[string][]any)
-	b.useCaseType = ""
-	b.useCaseDescription = ""
+	b.useCaseFormData = nil
 }
 
 func (b *InMemoryBackend) seedFoundationModels() {

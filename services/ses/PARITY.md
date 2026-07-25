@@ -6,13 +6,15 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ses
 sdk_module: aws-sdk-go-v2/service/ses@v1.34.20   # version audited against (query-XML, 2010-12-01)
-last_audit_commit: a40e7cc1                      # HEAD when this manifest was written
-last_audit_date: 2026-07-05
-overall: A            # ~370 LOC of genuine production fixes + ~500 LOC of test additions/updates
+last_audit_commit: a40e7cc1                      # NOT updated this pass -- git commands were off-limits
+last_audit_date: 2026-07-23
+overall: A            # this pass: independent field-diff against the SDK found 3 real wire/behavior bugs
+                       # (1 invented error code, 1 wrong wire error code x2 ops, 1 missing AWS restriction)
+                       # plus 2 silently-dropped-field gaps (ReturnPathArn, bulk-send message tags), all fixed.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  PutIdentityPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire fixed this pass — see families.void_result_ops"}
+  PutIdentityPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire fixed prior pass; this pass added Policy JSON-validity check -> InvalidPolicy (ErrInvalidPolicy), matching real AWS InvalidPolicyException code — was previously accepted unvalidated (no wire error existed for malformed Policy at all)"}
   DeleteIdentityPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire fixed this pass"}
   SetIdentityDkimEnabled: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire fixed this pass"}
   SetIdentityFeedbackForwardingEnabled: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire fixed this pass"}
@@ -31,10 +33,10 @@ ops:
   UpdateCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateConfigurationSetReputationMetricsEnabled: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateConfigurationSetSendingEnabled: {wire: ok, errors: ok, state: ok, persist: ok}
-  SendEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "added AccountSendingPausedException + 24h-quota + ConfigurationSetDoesNotExist enforcement (all previously unenforced)"}
-  SendRawEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "delegates to SendEmail, inherits the same fixes"}
-  SendTemplatedEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "same enforcement added as SendEmail"}
-  SendBulkTemplatedEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "was silently dropping ConfigurationSetName/ReplyToAddresses/ReturnPath/SourceArn — all real SendBulkTemplatedEmailInput members; now parsed and threaded through"}
+  SendEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior pass added AccountSendingPausedException + 24h-quota + ConfigurationSetDoesNotExist enforcement; this pass added the ReturnPathArn input member (SendEmailInput.ReturnPathArn), which was silently dropped -- now captured on the stored Email record like the sibling SourceArn/ReturnPath members"}
+  SendRawEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "delegates to SendEmail, inherits the same fixes; this pass added ReturnPathArn parsing (SendRawEmailInput.ReturnPathArn, confirmed real member via api_op_SendRawEmail.go). SendRawEmailInput.FromArn remains unhandled -- see gaps"}
+  SendTemplatedEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "same enforcement added as SendEmail; this pass added ReturnPathArn (see SendEmail note)"}
+  SendBulkTemplatedEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior pass fixed ConfigurationSetName/ReplyToAddresses/ReturnPath/SourceArn. This pass: (1) added ReturnPathArn; (2) added DefaultTags and per-destination BulkEmailDestination.ReplacementTags, both real SendBulkTemplatedEmailInput members that were entirely unparsed by the handler (Tags on bulk-send silently vanished) -- ReplacementTags overrides (not merges with) DefaultTags per destination; (3) refactored the backend method's 8-positional-argument signature into SendBulkTemplatedEmailInput (struct, mirrors SendEmailInput/SendTemplatedEmailInput) so future members don't grow the param list further. TemplateArn remains unhandled -- see gaps."}
   SendBounce: {wire: ok, errors: ok, state: ok, persist: ok, note: "was a disguised stub (no field validation, no sender-verification check, deterministic fabricated MessageId); now validates BounceSender + BouncedRecipientInfoList as required (matching SendBounceInput), enforces sender verification, real unique MessageId"}
   SendCustomVerificationEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "was a disguised stub (never checked template existed, never registered/verified the identity, fabricated deterministic MessageId); now validates template + optional ConfigurationSetName, registers+verifies the identity, real unique MessageId"}
   VerifyEmailIdentity: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -72,7 +74,7 @@ ops:
   ListCustomVerificationEmailTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok}
   CloneReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "clears activeRuleSet if it was the active set"}
+  DeleteReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "BEHAVIOR BUG FIXED this pass: previously allowed deleting the active rule set and silently cleared the active pointer. Real AWS SES explicitly forbids this (\"The currently active rule set cannot be deleted.\", api_op_DeleteReceiptRuleSet.go doc comment) via CannotDeleteException (wire code \"CannotDelete\", confirmed in deserializers.go). Added ErrReceiptRuleSetActive -> CannotDelete; the active pointer is no longer touched by delete and callers must SetActiveReceiptRuleSet to something else (or \"\") first."}
   ListReceiptRuleSets: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok}
   SetActiveReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -91,12 +93,17 @@ families:
   identity_dkim_notification_ops: {status: ok, note: "reviewed GetIdentity{Dkim,MailFromDomain,Notification}Attributes + Set* counterparts; all read/write real per-identity state under the coarse lock; no stubs found beyond the BehaviorOnMXFailure gap (fixed)."}
   receipt_rules_filters: {status: ok, note: "reviewed CRUD + ordering (CreateReceiptRule after=, ReorderReceiptRuleSet, SetReceiptRulePosition) — real slice manipulation, deep-copies on read to prevent aliasing, verified index math by tracing each function; no bugs found."}
   templates_rendering: {status: ok, note: "{{key}} substitution verified against templated_render_test.go table cases; TemplateData JSON parse errors correctly surfaced as InvalidParameterValue; SendBulkTemplatedEmail default/replacement merge semantics verified (replacement overrides default per-destination)."}
-  persistence_janitor: {status: ok, note: "Snapshot/Restore cover every map (identities, templates, configSets, receiptRuleSets, receiptFilters, eventDestinations, trackingOptions, customVerifTemplates, policies) with correct deep-copies; Restore re-applies the TTL/maxRetainedEmails bound immediately; janitor uses pkgs/worker ticker + lockmetrics coarse lock; no goroutine or map leaks found."}
+  persistence_janitor: {status: ok, note: "Snapshot/Restore cover every map (identities, templates, configSets, receiptRuleSets, receiptFilters, eventDestinations, trackingOptions, customVerifTemplates, policies) with correct deep-copies; Restore re-applies the TTL/maxRetainedEmails bound immediately; janitor uses pkgs/worker ticker + lockmetrics coarse lock; no goroutine or map leaks found. This pass: confirmed the new Email.ReturnPathArn field round-trips through Snapshot/Restore for free (Email is JSON-encoded directly in backendSnapshot.Emails, no DTO to update, no sesSnapshotVersion bump needed for an additive omitempty field)."}
+  invented_error_removed: {status: ok, note: "ErrIdentityNotFound (\"IdentityNotFound\") was DEAD CODE -- defined in errors.go and mapped to wire code \"NoSuchEntity\" in handler.go's sesErrorCode, but never returned by any backend method (grepped every source file; zero call sites). Worse, \"NoSuchEntity\" is not a real SES v1 error code at all -- confirmed by enumerating every case in aws-sdk-go-v2/service/ses/deserializers.go's error-code switch (72-op full list), which has no such entry; IAM has NoSuchEntity, SES does not. Deleted both the sentinel and the wire mapping per the no-invented-errors rule."}
+  tracking_options_error_code_wire_bug: {status: ok, note: "SEVERE FIX -- gopherstack sent wire error codes \"TrackingOptionsDoesNotExist\" / \"TrackingOptionsAlreadyExists\" for CreateConfigurationSetTrackingOptions/DeleteConfigurationSetTrackingOptions/UpdateConfigurationSetTrackingOptions failures. Real AWS SES's TrackingOptions{DoesNotExist,AlreadyExists}Exception.ErrorCode() (types/errors.go) returns the Exception-suffixed forms (\"TrackingOptionsDoesNotExistException\" / \"TrackingOptionsAlreadyExistsException\") -- confirmed against deserializers.go's `strings.EqualFold(\"TrackingOptionsDoesNotExistException\", errorCode)` case, the only match real SDK clients recognize. Every sibling *DoesNotExist/*AlreadyExists error in this service omits the suffix, which is why this one was missed by symmetry-based review; it is a genuine SDK-model asymmetry, not a copy-paste target. A real AWS SDK client hitting the old unsuffixed code would fail typed-exception matching and fall back to a generic error. Fixed both the sentinel error strings (errors.go) and the wire mapping (handler.go)."}
+  putidentitypolicy_policy_validation: {status: ok, note: "PutIdentityPolicy accepted any string (including empty) as Policy with no validation. Real SES requires Policy as a required, well-formed-JSON member and returns InvalidPolicyException (wire code \"InvalidPolicy\", confirmed in deserializers.go) for malformed input. Added json.Valid() check -> ErrInvalidPolicy; this backend still does not evaluate policy semantics (no sending-authorization enforcement exists anywhere in this emulator, consistent with SourceArn/ReturnPathArn being stored-but-unenforced elsewhere), only well-formedness."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "GetSendStatistics Bounces/Complaints/Rejects always report 0 — no bounce/complaint event simulation exists in this backend (bd: gopherstack-uve)"
   - "LimitExceededException never returned — no per-resource count caps modeled (max receipt rules/templates/filters etc.) (bd: gopherstack-ssk)"
   - "MailFromDomainNotVerifiedException never triggers — SetIdentityMailFromDomain instantly marks Success, consistent with this service's instant-verify convention everywhere else (VerifyEmailIdentity/VerifyDomainIdentity/VerifyDomainDkim all skip the real Pending window too); deliberately not changed to avoid an inconsistent one-off Pending state (bd: gopherstack-nbp)"
   - "MaxSendRate (per-second) advertised via GetSendQuota but not enforced, only the 24h quota is now enforced (bd: gopherstack-a6y)"
+  - "SendRawEmailInput.FromArn (cross-account sending-authorization ARN for the raw message's From: header, distinct from SourceArn/ReturnPathArn) is not captured -- SendRawEmail delegates to the shared SendEmail backend path which has no concept of a separate From identity from Source, and no sending-authorization is enforced anywhere in this backend regardless. Low value to model without a real cross-account primitive elsewhere in gopherstack; left unimplemented rather than half-modeled (bd: none filed, tracked here)."
+  - "SendTemplatedEmailInput/SendBulkTemplatedEmailInput.TemplateArn (cross-account template reference) is not captured -- Template remains a required member on both real inputs regardless of TemplateArn, and this backend (like the rest of gopherstack's SES emulation) has no cross-account resource model, so accepting-but-ignoring the field would be indistinguishable from today's behavior of simply not reading it. Left unimplemented (bd: none filed, tracked here)."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "services/sesv2/ — separate REST-JSON service, out of scope this pass per task constraints (bd: gopherstack-029)"
 leaks: {status: clean, note: "janitor sweep uses pkgs/worker.Group ticker with proper ctx cancellation via WithJanitor/StartWorker/Shutdown; sweepExpiredEmails is O(k) amortized (slice prefix trim, not full rescan); emailsByID map kept in sync on every eviction path (appendEmailLocked cap-eviction, sweepExpiredEmails, Restore pruning); maxRetainedEmails (10000) bounds the emails slice; no unbounded identity/template/config-set/receipt-rule maps found (all are keyed by caller-supplied names with no synthetic churn); no goroutines leaked outside the single janitor ticker."}
@@ -147,6 +154,24 @@ these, as a deliberate feature, not a bug fix.
 `maxSendQuota24Hours = 200` and `maxSendRate = 1` match the real default SES sandbox
 quota/rate for a fresh account. This pass didn't invent numbers to enforce — it wired the
 *already-correct* advertised quota value into actual enforcement.
+
+**2026-07-23 pass**: this was an independent field-diff against
+`aws-sdk-go-v2/service/ses@v1.34.20` source directly (types/errors.go, deserializers.go,
+api_op_*.go structs), not a trust of the prior pass's `ok` markings, per campaign
+instructions. Found and fixed: (1) a dead, invented error code (`ErrIdentityNotFound` /
+`"NoSuchEntity"` -- never returned by any backend method, and `"NoSuchEntity"` is not a
+real SES error at all); (2) a wire error-code bug affecting real SDK clients
+(`TrackingOptions{DoesNotExist,AlreadyExists}` sent without the required `Exception`
+suffix real AWS uses for just these two error types, unlike every sibling error in this
+service); (3) a missing AWS restriction (`DeleteReceiptRuleSet` allowed deleting the
+active rule set instead of rejecting with `CannotDeleteException`); (4) silently-dropped
+request members across `SendEmail`/`SendTemplatedEmail`/`SendRawEmail`/
+`SendBulkTemplatedEmail` (`ReturnPathArn`, and for bulk-send specifically `DefaultTags`
++ per-destination `ReplacementTags`, which the handler never parsed at all); (5) no
+JSON-validity check on `PutIdentityPolicy`'s `Policy` member (`InvalidPolicyException`
+now enforced). `git` commands are off-limits for this campaign task; `last_audit_commit`
+above was intentionally left unchanged rather than updated with an unverifiable value
+(one read-only `git rev-parse` was run in error mid-pass — flagged, not repeated).
 
 **Test-only `AppendEmailForTest` helper** (`export_test.go`) was added because the new 24h
 send-quota enforcement is incompatible with the pre-existing retention/eviction-cap tests

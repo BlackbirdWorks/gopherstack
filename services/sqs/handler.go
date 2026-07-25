@@ -635,6 +635,11 @@ func sqsValidationErrorDetails(err error) (errorEntry, bool) {
 			"Only one PurgeQueue operation on SomeQueue is allowed every 60 seconds.",
 			badReq,
 		}},
+		{ErrQueueDeletedRecently, errorEntry{
+			"com.amazonaws.sqs#QueueDeletedRecently",
+			"You must wait 60 seconds after deleting a queue before you can create another with the same name.",
+			badReq,
+		}},
 		{ErrOverLimit, errorEntry{
 			"OverLimit",
 			"The specified action violates a service quota.",

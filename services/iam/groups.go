@@ -2,7 +2,6 @@ package iam
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -36,12 +35,22 @@ func (b *InMemoryBackend) CreateGroup(groupName, path string) (*Group, error) {
 }
 
 // DeleteGroup deletes an IAM group by name.
+//
+// Matching real AWS: "The group must not contain any users or have any
+// attached policies." (DeleteConflictException otherwise) — the caller must
+// RemoveUserFromGroup / DeleteGroupPolicy / DetachGroupPolicy every member
+// and policy first. See
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteGroup.html.
 func (b *InMemoryBackend) DeleteGroup(groupName string) error {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
 	if _, exists := b.groups.Get(groupName); !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	if len(b.groupMembers[groupName]) > 0 {
+		return fmt.Errorf("%w: group %q contains users", ErrDeleteConflict, groupName)
 	}
 
 	if len(b.groupPolicies[groupName]) > 0 {
@@ -55,7 +64,7 @@ func (b *InMemoryBackend) DeleteGroup(groupName string) error {
 	b.groups.Delete(groupName)
 	b.sortedGroupNames = deleteSorted(b.sortedGroupNames, groupName)
 
-	// Clean up group membership tracking.
+	// Clean up group membership tracking (guaranteed empty by the check above).
 	delete(b.groupMembers, groupName)
 
 	return nil
@@ -391,6 +400,10 @@ func (b *InMemoryBackend) migrateGroupData(oldName, newName string) {
 	if policies, found := b.groupPolicies[oldName]; found {
 		b.groupPolicies[newName] = policies
 		delete(b.groupPolicies, oldName)
+		// Keep the reverse policyAttachments index (used by DeletePolicy's
+		// conflict check, ListEntitiesForPolicy, and DetachGroupPolicy) in
+		// sync so it doesn't keep pointing at the pre-rename group name.
+		b.renamePolicyAttachmentsLocked("group", oldName, newName, policies)
 	}
 
 	if members, found := b.groupMembers[oldName]; found {
@@ -404,41 +417,7 @@ func (b *InMemoryBackend) migrateGroupData(oldName, newName string) {
 	}
 }
 
-// TagGroup merges the given key-value pairs into the group's Tags field.
-func (b *InMemoryBackend) TagGroup(groupName string, tags map[string]string) error {
-	b.mu.Lock("TagGroup")
-	defer b.mu.Unlock()
-
-	g, exists := b.groups.Get(groupName)
-	if !exists {
-		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
-	}
-
-	if g.Tags == nil {
-		g.Tags = make(map[string]string, len(tags))
-	}
-
-	maps.Copy(g.Tags, tags)
-	b.groups.Put(g)
-
-	return nil
-}
-
-// UntagGroup removes the given keys from the group's Tags field.
-func (b *InMemoryBackend) UntagGroup(groupName string, keys []string) error {
-	b.mu.Lock("UntagGroup")
-	defer b.mu.Unlock()
-
-	g, exists := b.groups.Get(groupName)
-	if !exists {
-		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
-	}
-
-	for _, k := range keys {
-		delete(g.Tags, k)
-	}
-
-	b.groups.Put(g)
-
-	return nil
-}
+// Note: real IAM has no TagGroup/UntagGroup operations — Group is not a
+// taggable resource type (aws-sdk-go-v2/service/iam/types.Group has no Tags
+// field). Gopherstack previously invented backend TagGroup/UntagGroup methods
+// here; they have been removed along with the corresponding dispatch entries.

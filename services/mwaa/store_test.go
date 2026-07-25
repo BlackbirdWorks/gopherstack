@@ -112,7 +112,7 @@ func TestSnapshot_WithNetworkConfig(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.NetworkConfiguration = &mwaa.NetworkConfig{
-		SubnetIDs:        []string{"subnet-snap1"},
+		SubnetIDs:        []string{"subnet-snap1", "subnet-snap2"},
 		SecurityGroupIDs: []string{"sg-snap1"},
 	}
 
@@ -127,5 +127,5 @@ func TestSnapshot_WithNetworkConfig(t *testing.T) {
 	env, err := b2.GetEnvironment(context.Background(), "snap-nc-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.NetworkConfiguration)
-	assert.Equal(t, []string{"subnet-snap1"}, env.NetworkConfiguration.SubnetIDs)
+	assert.Equal(t, []string{"subnet-snap1", "subnet-snap2"}, env.NetworkConfiguration.SubnetIDs)
 }

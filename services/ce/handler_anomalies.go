@@ -27,7 +27,11 @@ func (h *Handler) handleCreateAnomalyMonitor(
 	in *createAnomalyMonitorInput,
 ) (*createAnomalyMonitorOutput, error) {
 	if in.AnomalyMonitor.MonitorName == "" {
-		return nil, fmt.Errorf("%w: MonitorName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: MonitorName is required", ErrValidation)
+	}
+
+	if in.AnomalyMonitor.MonitorType == "" {
+		return nil, fmt.Errorf("%w: MonitorType is required", ErrValidation)
 	}
 
 	mon, err := h.Backend.CreateAnomalyMonitor(
@@ -54,7 +58,7 @@ func (h *Handler) handleDeleteAnomalyMonitor(
 	in *deleteAnomalyMonitorInput,
 ) (*deleteAnomalyMonitorOutput, error) {
 	if in.MonitorArn == "" {
-		return nil, fmt.Errorf("%w: MonitorArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: MonitorArn is required", ErrValidation)
 	}
 
 	if err := h.Backend.DeleteAnomalyMonitor(in.MonitorArn); err != nil {
@@ -132,12 +136,13 @@ func (h *Handler) handleUpdateAnomalyMonitor(
 	_ context.Context,
 	in *updateAnomalyMonitorInput,
 ) (*updateAnomalyMonitorOutput, error) {
+	// Real AWS only requires MonitorArn here (see
+	// aws-sdk-go-v2/service/costexplorer's UpdateAnomalyMonitorInput: MonitorName is
+	// optional -- "Specify the fields that you want to update. Omitted fields are
+	// unchanged"). Requiring MonitorName too would reject valid requests a real client
+	// can make.
 	if in.MonitorArn == "" {
-		return nil, fmt.Errorf("%w: MonitorArn is required", errInvalidRequest)
-	}
-
-	if in.MonitorName == "" {
-		return nil, fmt.Errorf("%w: MonitorName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: MonitorArn is required", ErrValidation)
 	}
 
 	mon, err := h.Backend.UpdateAnomalyMonitor(in.MonitorArn, in.MonitorName)
@@ -176,7 +181,19 @@ func (h *Handler) handleCreateAnomalySubscription(
 	in *createAnomalySubscriptionInput,
 ) (*createAnomalySubscriptionOutput, error) {
 	if in.AnomalySubscription.SubscriptionName == "" {
-		return nil, fmt.Errorf("%w: SubscriptionName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrValidation)
+	}
+
+	if in.AnomalySubscription.MonitorArnList == nil {
+		return nil, fmt.Errorf("%w: MonitorArnList is required", ErrValidation)
+	}
+
+	if in.AnomalySubscription.Subscribers == nil {
+		return nil, fmt.Errorf("%w: Subscribers is required", ErrValidation)
+	}
+
+	if in.AnomalySubscription.Frequency == "" {
+		return nil, fmt.Errorf("%w: Frequency is required", ErrValidation)
 	}
 
 	subs := make([]Subscriber, 0, len(in.AnomalySubscription.Subscribers))
@@ -210,7 +227,7 @@ func (h *Handler) handleDeleteAnomalySubscription(
 	in *deleteAnomalySubscriptionInput,
 ) (*deleteAnomalySubscriptionOutput, error) {
 	if in.SubscriptionArn == "" {
-		return nil, fmt.Errorf("%w: SubscriptionArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: SubscriptionArn is required", ErrValidation)
 	}
 
 	if err := h.Backend.DeleteAnomalySubscription(in.SubscriptionArn); err != nil {
@@ -293,7 +310,7 @@ func (h *Handler) handleUpdateAnomalySubscription(
 	in *updateAnomalySubscriptionInput,
 ) (*updateAnomalySubscriptionOutput, error) {
 	if in.SubscriptionArn == "" {
-		return nil, fmt.Errorf("%w: SubscriptionArn is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: SubscriptionArn is required", ErrValidation)
 	}
 
 	subs := make([]Subscriber, 0, len(in.Subscribers))
@@ -356,6 +373,10 @@ func (h *Handler) handleGetAnomalies(
 	_ context.Context,
 	in *getAnomaliesInput,
 ) (*getAnomaliesOutput, error) {
+	if in.DateInterval.StartDate == "" {
+		return nil, fmt.Errorf("%w: DateInterval.StartDate is required", ErrValidation)
+	}
+
 	anomalies, nextToken := h.Backend.GetAnomalies(
 		in.MonitorArn, in.Feedback,
 		in.DateInterval.StartDate, in.DateInterval.EndDate,
@@ -401,7 +422,7 @@ func (h *Handler) handleProvideAnomalyFeedback(
 	in *provideAnomalyFeedbackInput,
 ) (*provideAnomalyFeedbackOutput, error) {
 	if in.AnomalyID == "" {
-		return nil, fmt.Errorf("%w: AnomalyId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: AnomalyId is required", ErrValidation)
 	}
 
 	if err := h.Backend.ProvideAnomalyFeedback(in.AnomalyID, in.Feedback); err != nil {

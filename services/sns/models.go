@@ -657,6 +657,12 @@ type InMemoryBackend struct {
 	deliveryWg            sync.WaitGroup
 	closing               atomic.Bool
 	smsSandboxEnabled     bool
+	// subscriptionLimitPerTopic is the effective SubscriptionLimitExceeded
+	// threshold for Subscribe on a single topic. Defaults to
+	// defaultMaxSubscriptionsPerTopic (AWS's real 12,500,000 quota); overridable
+	// via SetSubscriptionLimitPerTopicForTest so tests can exercise the limit
+	// without creating millions of subscriptions.
+	subscriptionLimitPerTopic int
 }
 
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.
@@ -672,7 +678,11 @@ type httpDelivery struct {
 	redrivePolicy        string // JSON RedrivePolicy; non-empty when DLQ is configured
 	deliveryPolicy       string
 	topicEffectivePolicy string
-	rawDelivery          bool
+	// signatureVersion is the resolved ("1" or "2") SignatureVersion for the
+	// owning topic, selecting SHA1withRSA vs SHA256withRSA. Defaults to "1"
+	// (the real AWS default) when left zero-valued.
+	signatureVersion string
+	rawDelivery      bool
 }
 
 // publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.

@@ -311,16 +311,30 @@ func (b *InMemoryBackend) UpdateAppBlockBuilder(name, description, instanceType 
 	return bb.toAppBlockBuilder(), nil
 }
 
-// CreateAppBlockBuilderStreamingURL returns a streaming URL for the builder.
-func (b *InMemoryBackend) CreateAppBlockBuilderStreamingURL(name string) (string, error) {
+// CreateAppBlockBuilderStreamingURL returns a streaming URL for the builder
+// along with its expiry time. validitySeconds <= 0 falls back to the real AWS
+// default of 3600 seconds.
+func (b *InMemoryBackend) CreateAppBlockBuilderStreamingURL(
+	name string,
+	validitySeconds int64,
+) (string, time.Time, error) {
 	b.mu.RLock("CreateAppBlockBuilderStreamingURL")
 	defer b.mu.RUnlock()
 
 	if !b.appBlockBuilders.Has(name) {
-		return "", ErrNotFound
+		return "", time.Time{}, ErrNotFound
 	}
 
-	return fmt.Sprintf("https://appstream2.%s.aws.amazon.com/authenticate?param=builder-%s", b.region, name), nil
+	validity := validitySeconds
+	if validity <= 0 {
+		validity = defaultBuilderStreamingURLValiditySeconds
+	}
+
+	expires := time.Now().UTC().Add(time.Duration(validity) * time.Second)
+
+	url := fmt.Sprintf("https://appstream2.%s.aws.amazon.com/authenticate?param=builder-%s", b.region, name)
+
+	return url, expires, nil
 }
 
 // AssociateAppBlockBuilderAppBlock links a builder to an app block.

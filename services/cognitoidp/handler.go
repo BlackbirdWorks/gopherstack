@@ -333,7 +333,6 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	maps.Copy(table, h.userPoolsOpsA())
 	maps.Copy(table, h.usersOpsA())
 	maps.Copy(table, h.attributesOpsB())
-	maps.Copy(table, h.authOpsB())
 	maps.Copy(table, h.authEventsOps())
 	maps.Copy(table, h.authTokensOpsB())
 	maps.Copy(table, h.brandingOpsA())

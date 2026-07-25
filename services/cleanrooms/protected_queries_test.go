@@ -69,9 +69,8 @@ func TestProtectedQueries_Create(t *testing.T) {
 			assert.Equal(t, "SUBMITTED", pq["status"],
 				"newly started protected query must have status SUBMITTED, not STARTED")
 			assert.Contains(t, pq, "membershipId", "protectedQuery must have 'membershipId' key (AWS canonical)")
-			assert.Contains(t, pq, "membershipIdentifier", "protectedQuery must have legacy 'membershipIdentifier'")
+			assert.NotContains(t, pq, "membershipIdentifier", "protectedQuery must not have invented key")
 			assert.Equal(t, mID, pq["membershipId"])
-			assert.Equal(t, pq["membershipId"], pq["membershipIdentifier"])
 		})
 	}
 }

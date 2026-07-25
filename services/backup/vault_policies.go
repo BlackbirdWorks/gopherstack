@@ -103,7 +103,7 @@ func (b *InMemoryBackend) PutBackupVaultLockConfiguration(
 		if existing.LockDate != nil && time.Now().UTC().After(*existing.LockDate) {
 			return fmt.Errorf(
 				"%w: vault lock configuration is immutable: LockDate %s has passed",
-				ErrValidation,
+				ErrInvalidRequest,
 				existing.LockDate.Format(time.RFC3339),
 			)
 		}

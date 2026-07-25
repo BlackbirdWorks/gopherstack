@@ -9,22 +9,78 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateWebApp creates a Transfer web application.
-func (b *InMemoryBackend) CreateWebApp(tags map[string]string) (*WebApp, error) {
+// CreateWebAppInput holds all fields for CreateWebApp.
+type CreateWebAppInput struct {
+	IdentityCenterConfig *WebAppIdentityCenterConfig
+	VpcConfig            *WebAppVpcConfig
+	Tags                 map[string]string
+	AccessEndpoint       string
+	WebAppEndpointPolicy string
+	WebAppUnits          int32
+}
+
+const defaultWebAppEndpointPolicy = "STANDARD"
+
+// CreateWebApp creates a Transfer web application. IdentityCenterConfig is required
+// by real AWS (CreateWebAppInput.IdentityProviderDetails is a required member, and
+// IdentityCenterConfig is the only identity-provider type web apps support).
+func (b *InMemoryBackend) CreateWebApp(in *CreateWebAppInput) (*WebApp, error) {
+	if in.IdentityCenterConfig == nil ||
+		in.IdentityCenterConfig.InstanceArn == "" ||
+		in.IdentityCenterConfig.Role == "" {
+		return nil, fmt.Errorf(
+			"%w: IdentityProviderDetails.IdentityCenterConfig with InstanceArn and Role is required",
+			ErrValidation,
+		)
+	}
+
 	b.mu.Lock("CreateWebApp")
 	defer b.mu.Unlock()
 
 	webAppID := "webapp-" + uuid.NewString()[:20]
 
-	merged := make(map[string]string, len(tags))
-	maps.Copy(merged, tags)
+	merged := make(map[string]string, len(in.Tags))
+	maps.Copy(merged, in.Tags)
+
+	icc := *in.IdentityCenterConfig
+	icc.ApplicationArn = "arn:aws:sso::" + b.accountID + ":application/apl-" + uuid.NewString()[:16]
+
+	var vpcConfig *WebAppVpcConfig
+	if in.VpcConfig != nil {
+		vc := *in.VpcConfig
+		vc.VpcEndpointID = "vpce-" + uuid.NewString()[:17]
+		vpcConfig = &vc
+	}
+
+	webAppEndpoint := "https://" + webAppID + ".transfer-webapp." + b.region + ".on.aws"
+
+	accessEndpoint := in.AccessEndpoint
+	if accessEndpoint == "" {
+		accessEndpoint = webAppEndpoint
+	}
+
+	webAppEndpointPolicy := in.WebAppEndpointPolicy
+	if webAppEndpointPolicy == "" {
+		webAppEndpointPolicy = defaultWebAppEndpointPolicy
+	}
+
+	webAppUnits := in.WebAppUnits
+	if webAppUnits == 0 {
+		webAppUnits = 1
+	}
 
 	w := &WebApp{
-		WebAppID:  webAppID,
-		CreatedAt: time.Now(),
-		Tags:      merged,
-		AccountID: b.accountID,
-		Region:    b.region,
+		WebAppID:             webAppID,
+		IdentityCenterConfig: &icc,
+		VpcConfig:            vpcConfig,
+		AccessEndpoint:       accessEndpoint,
+		WebAppEndpoint:       webAppEndpoint,
+		WebAppEndpointPolicy: webAppEndpointPolicy,
+		WebAppUnits:          webAppUnits,
+		CreatedAt:            time.Now(),
+		Tags:                 merged,
+		AccountID:            b.accountID,
+		Region:               b.region,
 	}
 	b.webApps.Put(w)
 	b.initTagsStore(webAppARN(b.accountID, b.region, webAppID), merged)
@@ -78,21 +134,50 @@ func (b *InMemoryBackend) ListWebApps() []*WebApp {
 	return out
 }
 
+// UpdateWebAppInput holds all optional fields for UpdateWebApp. Real AWS only allows
+// updating a subset of fields set at creation: AccessEndpoint, the VPC subnet list
+// (not VpcId/SecurityGroupIds -- those are immutable after creation), the IAM
+// Identity Center Role (not InstanceArn), and WebAppUnits.
+type UpdateWebAppInput struct {
+	IdentityCenterRole *string
+	WebAppUnits        *int32
+	WebAppID           string
+	AccessEndpoint     string
+	VpcSubnetIDs       []string
+}
+
 // UpdateWebApp updates mutable fields on a web app.
-func (b *InMemoryBackend) UpdateWebApp(
-	webAppID string,
-	identityProviderDetails *WebAppIdentityProviderDetails,
-) (*WebApp, error) {
+func (b *InMemoryBackend) UpdateWebApp(in *UpdateWebAppInput) (*WebApp, error) {
 	b.mu.Lock("UpdateWebApp")
 	defer b.mu.Unlock()
 
-	w, ok := b.webApps.Get(webAppID)
+	w, ok := b.webApps.Get(in.WebAppID)
 	if !ok {
-		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, in.WebAppID)
 	}
 
-	if identityProviderDetails != nil {
-		w.IdentityProviderDetails = identityProviderDetails
+	if in.AccessEndpoint != "" {
+		w.AccessEndpoint = in.AccessEndpoint
+	}
+
+	if in.VpcSubnetIDs != nil {
+		if w.VpcConfig == nil {
+			w.VpcConfig = &WebAppVpcConfig{VpcEndpointID: "vpce-" + uuid.NewString()[:17]}
+		}
+
+		w.VpcConfig.SubnetIDs = append([]string(nil), in.VpcSubnetIDs...)
+	}
+
+	if in.IdentityCenterRole != nil {
+		if w.IdentityCenterConfig == nil {
+			w.IdentityCenterConfig = &WebAppIdentityCenterConfig{}
+		}
+
+		w.IdentityCenterConfig.Role = *in.IdentityCenterRole
+	}
+
+	if in.WebAppUnits != nil {
+		w.WebAppUnits = *in.WebAppUnits
 	}
 
 	return cloneWebApp(w), nil

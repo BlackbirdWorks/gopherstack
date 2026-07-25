@@ -98,6 +98,7 @@ func (b *InMemoryBackend) DeleteSdiSource(sdiSourceID string) (*SdiSource, error
 	s.State = sdiSourceStateDeleted
 	out := s.toSdiSource()
 	b.sdiSources.Delete(sdiSourceID)
+	delete(b.tags, s.ARN)
 
 	return out, nil
 }

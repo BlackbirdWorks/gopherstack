@@ -2,6 +2,8 @@ package kinesisanalyticsv2
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -151,7 +153,65 @@ func checkAndBumpVersion(app *Application, currentVersionID int64) error {
 		return ErrConcurrentModification
 	}
 
+	bumpVersion(app)
+
+	return nil
+}
+
+// bumpVersion increments app.ApplicationVersionID and updates every
+// version-lineage field real AWS's ApplicationDetail exposes for a
+// version-bumping change: LastUpdateTimestamp,
+// ApplicationVersionCreateTimestamp, and ApplicationVersionUpdatedFrom (the
+// version immediately before this bump). It also clears
+// ApplicationVersionRolledBackFrom/To, since only RollbackApplication (which
+// bumps the version itself rather than calling this helper) sets those, and
+// any subsequent non-rollback change means the current version is no longer
+// "the result of" a prior rollback. Must be called under b.mu.
+func bumpVersion(app *Application) {
+	prev := app.ApplicationVersionID
+	now := time.Now().UTC()
+
 	app.ApplicationVersionID++
+	app.LastUpdateTimestamp = now
+	app.ApplicationVersionCreateTimestamp = now
+	app.ApplicationVersionUpdatedFrom = &prev
+	app.ApplicationVersionRolledBackFrom = nil
+	app.ApplicationVersionRolledBackTo = nil
+}
+
+// conditionalToken deterministically derives the opaque concurrency token
+// real AWS returns as ApplicationDetail.ConditionalToken (an alternative to
+// CurrentApplicationVersionId for UpdateApplication's optimistic-concurrency
+// check -- see UpdateApplicationParams.ConditionalToken). Tying it 1:1 to
+// (ARN, ApplicationVersionId) means it automatically changes on every
+// version bump without needing a separate stored field to keep in sync.
+func conditionalToken(app *Application) string {
+	sum := sha256.Sum256([]byte(app.ApplicationARN + "#" + strconv.FormatInt(app.ApplicationVersionID, 10)))
+
+	return hex.EncodeToString(sum[:16])
+}
+
+// checkAndBumpVersionOrToken validates the current version and/or
+// ConditionalToken and increments the version. A provided conditionalToken
+// takes precedence over currentVersionID when non-empty, matching real AWS's
+// documented preference ("use the ConditionalToken parameter instead of
+// CurrentApplicationVersionId"). A zero/negative currentVersionID and an
+// empty conditionalToken both mean "skip that particular check" -- if
+// neither is supplied, the update proceeds unconditionally (leniency,
+// matching every other Add*/Delete* op's optional CurrentApplicationVersionId
+// convention in this package). Callers must follow a successful call with
+// `defer b.snapshotVersion(region, name, app)`, exactly like
+// checkAndBumpVersion.
+func checkAndBumpVersionOrToken(app *Application, currentVersionID int64, conditionalTok string) error {
+	if conditionalTok != "" && conditionalTok != conditionalToken(app) {
+		return ErrConcurrentModification
+	}
+
+	if conditionalTok == "" {
+		return checkAndBumpVersion(app, currentVersionID)
+	}
+
+	bumpVersion(app)
 
 	return nil
 }

@@ -13,7 +13,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateAgentActionGroup(
-	ctx context.Context, c *echo.Context, agentID string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion string, body []byte,
 ) error {
 	var req struct {
 		ActionGroupExecutor map[string]any `json:"actionGroupExecutor"`
@@ -28,7 +28,7 @@ func (h *Handler) handleCreateAgentActionGroup(
 		return handleErr(c, err)
 	}
 
-	ag, err := h.Backend.CreateAgentActionGroup(ctx, agentID, ActionGroupConfig{
+	ag, err := h.Backend.CreateAgentActionGroup(ctx, agentID, agentVersion, ActionGroupConfig{
 		ActionGroupName:     req.ActionGroupName,
 		Description:         req.Description,
 		ActionGroupState:    req.ActionGroupState,

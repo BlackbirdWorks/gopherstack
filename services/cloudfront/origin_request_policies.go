@@ -101,6 +101,13 @@ func (b *InMemoryBackend) UpdateOriginRequestPolicy(
 		)
 	}
 
+	if p.Managed {
+		return nil, fmt.Errorf(
+			"%w: origin request policy %s is an AWS-managed policy and cannot be updated",
+			ErrIllegalUpdate, id,
+		)
+	}
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
 	}
@@ -144,6 +151,13 @@ func (b *InMemoryBackend) DeleteOriginRequestPolicy(id string) error {
 			"%w: origin request policy %s not found",
 			ErrOriginRequestPolicyNotFound,
 			id,
+		)
+	}
+
+	if p.Managed {
+		return fmt.Errorf(
+			"%w: origin request policy %s is an AWS-managed policy and cannot be deleted",
+			ErrIllegalDelete, id,
 		)
 	}
 

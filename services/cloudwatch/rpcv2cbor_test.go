@@ -273,26 +273,30 @@ func TestCBOR(t *testing.T) {
 			name: "PutMetricStream",
 			op:   "PutMetricStream",
 			body: cbor.Map{
-				"Name":        cbor.String("stream-cbor"),
-				"FirehoseArn": cbor.String("arn:aws:firehose:us-east-1:123456789012:deliverystream/main"),
-				"RoleArn":     cbor.String("arn:aws:iam::123456789012:role/main"),
+				"Name":         cbor.String("stream-cbor"),
+				"FirehoseArn":  cbor.String("arn:aws:firehose:us-east-1:123456789012:deliverystream/main"),
+				"RoleArn":      cbor.String("arn:aws:iam::123456789012:role/main"),
+				"OutputFormat": cbor.String("json"),
 			},
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "UpdateAlarmMuteRule/not found",
+			// Real CloudWatch has no UpdateAlarmMuteRule/UpdateInsightRule/
+			// UpdateMetricStream operations -- confirm they are rejected as
+			// unknown ops (InvalidAction), not silently routed anywhere.
+			name:     "UpdateAlarmMuteRule/not a real op",
 			op:       "UpdateAlarmMuteRule",
 			body:     cbor.Map{"MuteName": cbor.String("missing-mute")},
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "UpdateInsightRule/not found",
+			name:     "UpdateInsightRule/not a real op",
 			op:       "UpdateInsightRule",
 			body:     cbor.Map{"RuleName": cbor.String("missing-rule")},
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "UpdateMetricStream/not found",
+			name:     "UpdateMetricStream/not a real op",
 			op:       "UpdateMetricStream",
 			body:     cbor.Map{"Name": cbor.String("missing-stream")},
 			wantCode: http.StatusBadRequest,
@@ -1074,6 +1078,11 @@ func TestCBOR_GetMetricData_WithDimensions(t *testing.T) {
 	assert.InDelta(t, 5.0, float64(vals[0].(cbor.Float64)), 1e-9)
 }
 
+// TestCBOR_PutMetricStream_WithFilters covers IncludeFilters over rpc-v2-cbor.
+// IncludeFilters and ExcludeFilters are mutually exclusive in real CloudWatch
+// ("You cannot include ExcludeFilters and IncludeFilters in the same
+// operation" -- PutMetricStreamInput doc comment), so only one is set here;
+// TestCBOR_PutMetricStream_WithExcludeFilters covers the other case.
 func TestCBOR_PutMetricStream_WithFilters(t *testing.T) {
 	t.Parallel()
 
@@ -1091,9 +1100,6 @@ func TestCBOR_PutMetricStream_WithFilters(t *testing.T) {
 				"MetricNames": cbor.List{cbor.String("CPUUtilization")},
 			},
 		},
-		"ExcludeFilters": cbor.List{
-			cbor.Map{"Namespace": cbor.String("AWS/Lambda")},
-		},
 	}
 	rec := postCBOR(t, h, "PutMetricStream", body)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1102,6 +1108,30 @@ func TestCBOR_PutMetricStream_WithFilters(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, stream.IncludeFilters, 1)
 	assert.Equal(t, "AWS/EC2", stream.IncludeFilters[0].Namespace)
+}
+
+// TestCBOR_PutMetricStream_WithExcludeFilters covers ExcludeFilters over
+// rpc-v2-cbor as a standalone (non-Include) case.
+func TestCBOR_PutMetricStream_WithExcludeFilters(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	h := cloudwatch.NewHandler(b)
+
+	body := cbor.Map{
+		"Name":         cbor.String("test-stream-excl"),
+		"FirehoseArn":  cbor.String("arn:aws:firehose:us-east-1:123:deliverystream/s"),
+		"RoleArn":      cbor.String("arn:aws:iam::123:role/r"),
+		"OutputFormat": cbor.String("json"),
+		"ExcludeFilters": cbor.List{
+			cbor.Map{"Namespace": cbor.String("AWS/Lambda")},
+		},
+	}
+	rec := postCBOR(t, h, "PutMetricStream", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	stream, err := b.GetMetricStream("test-stream-excl")
+	require.NoError(t, err)
 	require.Len(t, stream.ExcludeFilters, 1)
 	assert.Equal(t, "AWS/Lambda", stream.ExcludeFilters[0].Namespace)
 }

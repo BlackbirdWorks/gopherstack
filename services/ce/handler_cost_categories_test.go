@@ -2,6 +2,7 @@ package ce_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -43,7 +44,9 @@ func TestGetCostCategories_MultiRuleCategory(t *testing.T) {
 	assert.Equal(t, 3, out.TotalSize)
 }
 
-// TestListCostCategoryResourceAssociations verifies stub response shape.
+// TestListCostCategoryResourceAssociations verifies the real CE wire shape
+// (CostCategoryResourceAssociations, not the previously-invented
+// CostCategoryReference/ResourceTagsCount fields).
 func TestListCostCategoryResourceAssociations(t *testing.T) {
 	t.Parallel()
 
@@ -54,10 +57,10 @@ func TestListCostCategoryResourceAssociations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		ResourceTagsCount int `json:"ResourceTagsCount"`
+		CostCategoryResourceAssociations []map[string]any `json:"CostCategoryResourceAssociations"`
 	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, 0, out.ResourceTagsCount)
+	assert.Empty(t, out.CostCategoryResourceAssociations)
 }
 
 // TestDescribeCostCategory_HasProcessingStatus verifies real AWS returns
@@ -611,4 +614,109 @@ func TestHandler_DuplicateCostCategory_WireStatusIs400(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out))
 	assert.Equal(t, "ServiceQuotaExceededException", out.Type)
+}
+
+// TestHandler_CreateCostCategoryDefinition_RequiredFields verifies Name, RuleVersion,
+// and Rules are enforced as required, matching real AWS CE's
+// validateOpCreateCostCategoryDefinitionInput.
+func TestHandler_CreateCostCategoryDefinition_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	full := map[string]any{
+		"Name":        "ReqFieldsCat",
+		"RuleVersion": "CostCategoryExpression.v1",
+		"Rules":       []map[string]any{{"Value": "Prod"}},
+	}
+
+	tests := []struct {
+		mutate         func(body map[string]any)
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name:           "missing_name",
+			mutate:         func(b map[string]any) { delete(b, "Name") },
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "missing_rule_version",
+			mutate:         func(b map[string]any) { delete(b, "RuleVersion") },
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "missing_rules",
+			mutate:         func(b map[string]any) { delete(b, "Rules") },
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "all_present_succeeds",
+			mutate:         func(map[string]any) {},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := make(map[string]any, len(full))
+			maps.Copy(body, full)
+
+			tt.mutate(body)
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateCostCategoryDefinition", body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+// TestHandler_UpdateCostCategoryDefinition_RequiredFields verifies RuleVersion and
+// Rules are enforced as required, matching real AWS CE's
+// validateOpUpdateCostCategoryDefinitionInput.
+func TestHandler_UpdateCostCategoryDefinition_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		update         map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "missing_rule_version",
+			update: map[string]any{
+				"Rules": []map[string]any{{"Value": "Prod"}},
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_rules",
+			update: map[string]any{
+				"RuleVersion": "CostCategoryExpression.v1",
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+				"Name":        "UpdateReqFieldsCat",
+				"RuleVersion": "CostCategoryExpression.v1",
+				"Rules":       []map[string]any{{"Value": "Prod"}},
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut map[string]any
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			tt.update["CostCategoryArn"] = createOut["CostCategoryArn"]
+
+			rec := doRequest(t, h, "UpdateCostCategoryDefinition", tt.update)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
 }

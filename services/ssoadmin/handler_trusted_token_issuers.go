@@ -4,15 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"sort"
 
 	"github.com/labstack/echo/v5"
 )
 
+// trustedTokenIssuerView is the wire shape for types.TrustedTokenIssuerMetadata
+// (the ListTrustedTokenIssuers item type): Name/TrustedTokenIssuerArn/
+// TrustedTokenIssuerType only -- no InstanceArn member (gopherstack previously
+// invented one here).
 type trustedTokenIssuerView struct {
 	TrustedTokenIssuerArn  string `json:"TrustedTokenIssuerArn"`
 	Name                   string `json:"Name"`
-	InstanceArn            string `json:"InstanceArn"`
 	TrustedTokenIssuerType string `json:"TrustedTokenIssuerType,omitempty"`
 }
 
@@ -68,7 +70,7 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		if errors.Is(err, ErrTrustedTokenIssuerAlreadyExists) {
 			return writeError(
 				c,
-				http.StatusConflict,
+				http.StatusBadRequest,
 				"ConflictException",
 				"trusted token issuer already exists: "+req.Name,
 			)
@@ -112,18 +114,16 @@ func (h *Handler) handleDescribeTrustedTokenIssuer(c *echo.Context, body []byte)
 		return handleBackendError(c, err, "trusted token issuer not found")
 	}
 
-	tagList := make([]tagView, 0, len(issuer.Tags))
-	for k, v := range issuer.Tags {
-		tagList = append(tagList, tagView{Key: k, Value: v})
-	}
-	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
-
-	ttiMap := map[string]any{
+	// Real DescribeTrustedTokenIssuerOutput is flat
+	// (Name/TrustedTokenIssuerArn/TrustedTokenIssuerConfiguration/
+	// TrustedTokenIssuerType) -- no nested "TrustedTokenIssuer" wrapper, no
+	// InstanceArn member, and no Tags member (gopherstack previously invented
+	// all three here). Tags are fetched separately via ListTagsForResource,
+	// matching every other taggable ssoadmin resource.
+	resp := map[string]any{
 		"TrustedTokenIssuerArn":  issuer.TrustedTokenIssuerArn,
 		keyName:                  issuer.Name,
-		keyInstanceArn:           issuer.InstanceArn,
 		"TrustedTokenIssuerType": issuer.TrustedTokenIssuerType,
-		keyTags:                  tagList,
 	}
 	if issuer.TrustedTokenIssuerConfiguration != nil {
 		cfgMap := map[string]any{}
@@ -136,39 +136,38 @@ func (h *Handler) handleDescribeTrustedTokenIssuer(c *echo.Context, body []byte)
 				"JwksRetrievalOption":        oidc.JwksRetrievalOption,
 			}
 		}
-		ttiMap["TrustedTokenIssuerConfiguration"] = cfgMap
+		resp["TrustedTokenIssuerConfiguration"] = cfgMap
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"TrustedTokenIssuer": ttiMap,
-	})
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleListTrustedTokenIssuers(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
+		NextToken   string `json:"NextToken"`
+		MaxResults  int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	issuers := h.Backend.ListTrustedTokenIssuers(req.InstanceArn)
-	sort.Slice(
-		issuers,
-		func(i, j int) bool { return issuers[i].TrustedTokenIssuerArn < issuers[j].TrustedTokenIssuerArn },
-	)
 	out := make([]trustedTokenIssuerView, 0, len(issuers))
 	for _, issuer := range issuers {
 		out = append(out, trustedTokenIssuerView{
 			TrustedTokenIssuerArn:  issuer.TrustedTokenIssuerArn,
 			Name:                   issuer.Name,
-			InstanceArn:            issuer.InstanceArn,
 			TrustedTokenIssuerType: issuer.TrustedTokenIssuerType,
 		})
 	}
 
+	page, next := paginateBy(out, req.MaxResults, req.NextToken, func(v trustedTokenIssuerView) string {
+		return v.TrustedTokenIssuerArn
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"TrustedTokenIssuers": out,
-		keyNextToken:          nil,
+		"TrustedTokenIssuers": page,
+		keyNextToken:          next,
 	})
 }
 
@@ -204,22 +203,19 @@ func (h *Handler) handleUpdateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		}
 	}
 
-	issuer, err := h.Backend.UpdateTrustedTokenIssuer(
+	if _, err := h.Backend.UpdateTrustedTokenIssuer(
 		req.TrustedTokenIssuerArn,
 		req.Name,
 		req.TrustedTokenIssuerType,
 		cfg,
-	)
-	if err != nil {
+	); err != nil {
 		return handleBackendError(c, err, "trusted token issuer not found")
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"TrustedTokenIssuer": trustedTokenIssuerView{
-			TrustedTokenIssuerArn:  issuer.TrustedTokenIssuerArn,
-			Name:                   issuer.Name,
-			InstanceArn:            issuer.InstanceArn,
-			TrustedTokenIssuerType: issuer.TrustedTokenIssuerType,
-		},
-	})
+	// Real UpdateTrustedTokenIssuerOutput carries no members at all
+	// (gopherstack previously echoed a full invented "TrustedTokenIssuer"
+	// object here, including an InstanceArn field that doesn't exist on
+	// TrustedTokenIssuerMetadata either); see api_op_UpdateTrustedTokenIssuer.go
+	// in the real SDK.
+	return writeJSON(c, http.StatusOK, map[string]any{})
 }

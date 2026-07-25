@@ -72,6 +72,112 @@ func TestParseTemplate(t *testing.T) {
 	}
 }
 
+// TestParseTemplate_YAMLShortFormIntrinsics locks in a parity fix: ParseTemplate
+// (and parseGenericTemplate) previously called gopkg.in/yaml.v3's Unmarshal
+// directly into typed structs / a bare map[string]any, which silently discards
+// custom YAML tags and decodes only the tagged node's native content -- so
+// `!Ref MyParam` decoded to the bare string "MyParam" instead of the long-form
+// {"Ref": "MyParam"} every resolveValue-style consumer in this package expects,
+// silently downgrading every YAML short-form intrinsic to a dead literal string.
+// yamlToJSON now walks the raw *yaml.Node tree so short-form tags are expanded
+// to their long-form map representation before the JSON round-trip.
+func TestParseTemplate_YAMLShortFormIntrinsics(t *testing.T) {
+	t.Parallel()
+
+	yamlBody := `
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  MyBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketNameParam
+  MyQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-queue"
+Outputs:
+  BucketArnOut:
+    Value: !GetAtt MyBucket.Arn
+  JoinedOut:
+    Value: !Join [",", ["a", "b", "c"]]
+  CondOut:
+    Value: !Condition IsProd
+`
+
+	tmpl, err := cloudformation.ParseTemplate(yamlBody)
+	require.NoError(t, err)
+
+	bucketRes, ok := tmpl.Resources["MyBucket"]
+	require.True(t, ok)
+	assert.Equal(t,
+		map[string]any{"Ref": "BucketNameParam"},
+		bucketRes.Properties["BucketName"],
+		"!Ref must expand to the long-form {\"Ref\": ...} map, not a bare string",
+	)
+
+	queueRes, ok := tmpl.Resources["MyQueue"]
+	require.True(t, ok)
+	assert.Equal(t,
+		map[string]any{"Fn::Sub": "${AWS::StackName}-queue"},
+		queueRes.Properties["QueueName"],
+	)
+
+	bucketArnOut, ok := tmpl.Outputs["BucketArnOut"]
+	require.True(t, ok)
+	assert.Equal(t,
+		map[string]any{"Fn::GetAtt": []any{"MyBucket", "Arn"}},
+		bucketArnOut.Value,
+		"!GetAtt short form's dotted scalar must split into a [logicalId, attribute] long-form list",
+	)
+
+	joinedOut, ok := tmpl.Outputs["JoinedOut"]
+	require.True(t, ok)
+	assert.Equal(t,
+		map[string]any{"Fn::Join": []any{",", []any{"a", "b", "c"}}},
+		joinedOut.Value,
+	)
+
+	condOut, ok := tmpl.Outputs["CondOut"]
+	require.True(t, ok)
+	assert.Equal(t, map[string]any{"Condition": "IsProd"}, condOut.Value)
+}
+
+// TestCreateStack_YAMLShortFormIntrinsics_Resolve verifies YAML short-form
+// intrinsics actually resolve end-to-end through CreateStack/DescribeStacks --
+// not just that ParseTemplate produces the right intermediate shape.
+func TestCreateStack_YAMLShortFormIntrinsics_Resolve(t *testing.T) {
+	t.Parallel()
+
+	yamlBody := `
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  Env:
+    Type: String
+    Default: prod
+Resources:
+  MyBucket:
+    Type: AWS::S3::Bucket
+    Properties: {}
+Outputs:
+  EnvOut:
+    Value: !Ref Env
+  SubOut:
+    Value: !Sub "bucket-in-${Env}"
+`
+
+	b := newBackend()
+	stack, err := b.CreateStack(t.Context(), "yaml-shortform-stack", yamlBody, nil, cloudformation.StackOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
+
+	outputs := make(map[string]string, len(stack.Outputs))
+	for _, o := range stack.Outputs {
+		outputs[o.OutputKey] = o.OutputValue
+	}
+	assert.Equal(t, "prod", outputs["EnvOut"], "!Ref Env must resolve to the parameter's value")
+	assert.Equal(t, "bucket-in-prod", outputs["SubOut"], "!Sub must resolve its ${Env} reference")
+}
+
 func TestResolveParameters(t *testing.T) {
 	t.Parallel()
 

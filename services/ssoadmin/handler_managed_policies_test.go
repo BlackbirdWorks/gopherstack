@@ -85,7 +85,7 @@ func TestAttachCustomerManagedPolicyReferenceToPermissionSet(t *testing.T) {
 			name:            "attach to nonexistent permission set",
 			policyName:      "MyPolicy",
 			policyPath:      "/",
-			wantStatus:      http.StatusNotFound,
+			wantStatus:      http.StatusBadRequest,
 			useInvalidPSArn: true,
 		},
 	}
@@ -149,7 +149,7 @@ func TestDetachManagedPolicyNotFound(t *testing.T) {
 		{
 			name:       "detach_policy_not_attached",
 			policyArn:  "arn:aws:iam::aws:policy/NotAttachedPolicy",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

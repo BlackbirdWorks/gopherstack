@@ -1,25 +1,25 @@
 ---
 service: apprunner
 sdk_module: aws-sdk-go-v2/service/apprunner@v1.40.2
-last_audit_commit: 911ff167
-last_audit_date: 2026-07-13
-overall: A            # systemic error-type wire bug found and fixed across nearly every op
+last_audit_commit: pending (agent instructed not to run git; set at commit time)
+last_audit_date: 2026-07-23
+overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit
 ops:
-  CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "immediate RUNNING (no OPERATION_IN_PROGRESS poll-forever trap); CPU/Memory/ImageURI stored and reflected"}
+  CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "immediate RUNNING (no OPERATION_IN_PROGRESS poll-forever trap); full field set now threaded: InstanceConfiguration (Cpu/Memory/InstanceRoleArn), SourceConfiguration (ImageRepository incl. ImageConfiguration, CodeRepository incl. SourceCodeVersion/CodeConfiguration, AuthenticationConfiguration, AutoDeploymentsEnabled with real default), AutoScalingConfigurationArn (resolved-or-default, HasAssociatedService bookkeeping), NetworkConfiguration (Egress/IngressConfiguration, IpAddressType, real defaults), HealthCheckConfiguration (real defaults), EncryptionConfiguration, ObservabilityConfiguration. Service response now includes the previously-missing required AutoScalingConfigurationSummary and NetworkConfiguration fields"}
   DescribeService: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects update unless status RUNNING, matches InvalidStateException"}
-  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects update unless status RUNNING, matches InvalidStateException; rejects switching between image/code source types (InvalidRequestException, matching the real op's documented restriction); all new CreateService fields are independently patchable (nil/empty = no change)"}
+  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cascade-cleans the service's customDomains map entry and recomputes the old AutoScalingConfiguration's HasAssociatedService (see leaks)"}
   ListServices: {wire: ok, errors: ok, state: ok, persist: ok}
   PauseService: {wire: ok, errors: ok, state: ok, persist: ok}
   ResumeService: {wire: ok, errors: ok, state: ok, persist: ok}
   StartDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "records a real operation; completes immediately (SUCCEEDED) rather than modeling OPERATION_IN_PROGRESS"}
-  ListOperations: {wire: partial, errors: ok, state: ok, persist: ok, note: "OperationSummary missing UpdatedAt field (real API has it); gap only, not wire-breaking since it's optional"}
+  ListOperations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- OperationSummary now includes UpdatedAt (set equal to StartedAt/EndedAt since operations complete immediately in this backend's simplified state machine)"}
   CreateAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAutoScalingConfigurations: {wire: partial, errors: ok, state: ok, persist: ok, note: "summary omits HasAssociatedService (always false; see gaps)"}
+  ListAutoScalingConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- summary now includes real HasAssociatedService, recomputed from live CreateService/UpdateService/DeleteService association state"}
   UpdateDefaultAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListServicesForAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "always returns empty list -- CreateService doesn't thread AutoScalingConfigurationArn, so no association ever exists; see gaps"}
+  ListServicesForAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- now returns real associated service ARNs; CreateService threads AutoScalingConfigurationArn (explicit, name-only-ARN, or the account's always-present seeded default) into a real association tracked on every service"}
   CreateConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   ListConnections: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -43,15 +43,11 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  error_taxonomy: {status: ok, note: "was systemically broken across all 35 ops -- see Notes; fixed"}
+  error_taxonomy: {status: ok, note: "was systemically broken across all 35 ops -- see Notes; fixed 2026-07-13"}
 gaps:
-  - "Service response is missing the required AutoScalingConfigurationSummary and NetworkConfiguration fields (real API always populates both); CreateServiceInput doesn't accept AutoScalingConfigurationArn so no ASG association is ever tracked, and ListServicesForAutoScalingConfiguration / AutoScalingConfigurationSummary.HasAssociatedService are consequently always empty/false. Feature-sized gap, not a disguised no-op (CreateService/DescribeService work correctly for what they do model). File a bd issue for full ASG-association wiring if CreateService's AutoScalingConfigurationArn input becomes a priority."
-  - "OperationSummary is missing the real API's UpdatedAt field (StartedAt/EndedAt/Id/Type/Status/TargetArn all present and correct)."
-  - "ListAutoScalingConfigurations summary omits HasAssociatedService (tied to the same CreateService gap above)."
-  - "CreateVpcIngressConnection doesn't validate that ServiceArn refers to an existing service, allowing a dangling reference. Left as-is because CreateVpcIngressConnection's documented error set has no ResourceNotFoundException -- adding validation would need a new InvalidRequestException-mapped check, not a NotFound one, to stay wire-correct; low traffic op, deferred."
-deferred:
-  - Deep field-by-field audit of HealthCheckConfiguration / EncryptionConfiguration / NetworkConfiguration / CodeRepository sub-shapes (service doesn't implement these request fields at all yet; they're silently accepted-and-ignored on input rather than rejected -- same category as the ASG-association gap above, not a wire-breaking bug).
-leaks: {status: clean, note: "no goroutines/janitors in this backend; existing leak_test.go covers handler/backend lifecycle"}
+  - "CreateVpcIngressConnection doesn't validate that ServiceArn refers to an existing service, allowing a dangling reference. Left as-is because CreateVpcIngressConnection's documented error set has no ResourceNotFoundException -- adding validation would need a new InvalidRequestException-mapped check, not a NotFound one, to stay wire-correct; low traffic op, deferred. Re-verified 2026-07-23: still the correct call, not a bug."
+deferred: []
+leaks: {status: clean, note: "no goroutines/janitors in this backend; existing leak_test.go covers handler/backend lifecycle. 2026-07-23: found and fixed one real leak -- DeleteService left its b.customDomains[serviceArn] entry behind forever (unreachable once the service is gone, since DescribeCustomDomains 404s on a deleted ServiceArn); now cascade-deleted, covered by TestDeleteService_CascadesCustomDomains. New AutoScalingConfiguration HasAssociatedService bookkeeping (CreateService/UpdateService/DeleteService) stays entirely inside the existing b.mu critical sections, no new lock paths or goroutines introduced."}
 ---
 
 ## Notes
@@ -132,3 +128,71 @@ HTTP status codes were already correct throughout (400 for all four client-fault
   `InternalServiceErrorException` typo happened in the first place). No existing tests
   asserted the old (wrong) `__type` strings, so no test updates were needed; full existing
   suite plus `go vet`/`go fix -diff`/`golangci-lint` all green. ~30 LOC changed.
+
+- 2026-07-23: Closed every `gaps`/`deferred` item from the 2026-07-13 audit by field-diffing
+  `CreateServiceInput`/`UpdateServiceInput`/`Service`/`OperationSummary`/
+  `AutoScalingConfigurationSummary` against `aws-sdk-go-v2/service/apprunner@v1.40.2/types`
+  and implementing what was missing for real (no stubs):
+  - **AutoScalingConfigurationArn association** (the root cause of three separate gaps).
+    `CreateService`/`UpdateService` now resolve the ARN (full ARN, name-only ARN, or bare
+    name -- both formats `CreateServiceInput`'s doc comment describes) via
+    `resolveASG`/`resolveOrDefaultASG` (`service_associations.go`), or fall back to the
+    account's default when omitted. `ensureDefaultAutoScalingConfiguration` seeds App
+    Runner's real always-present `DefaultConfiguration` revision 1 (real accounts have this
+    before any `CreateAutoScalingConfiguration` call) at backend construction, `Reset`, and
+    both `Restore` paths. `HasAssociatedService` is now real, recomputed by
+    `recomputeASGAssociation` on every association change (create/update/delete) by scanning
+    live services rather than a hand-tracked counter (simplicity over micro-perf; table sizes
+    are emulator-scale). This closes: `Service.AutoScalingConfigurationSummary` (previously
+    always missing, a documented-required field), `ListAutoScalingConfigurations`'s
+    `HasAssociatedService` (previously hardcoded false), and
+    `ListServicesForAutoScalingConfiguration` (previously always empty).
+  - **`Service.NetworkConfiguration`** (previously entirely missing, also a documented-required
+    field): `CreateService`/`UpdateService` accept `NetworkConfiguration` (Egress/
+    IngressConfiguration, IpAddressType), validate `EgressType: VPC`'s `VpcConnectorArn`
+    against the real `vpcConnectors` table (`InvalidRequestException` if unresolvable --
+    `CreateService`'s error set has no `ResourceNotFoundException`, verified against
+    `awsAwsjson10_deserializeOpErrorCreateService`'s switch), and apply App Runner's
+    documented defaults (`DEFAULT` egress, publicly accessible, `IPV4`) when omitted.
+  - **`OperationSummary.UpdatedAt`**: added to `storedOperation`/`addOperation` (set equal to
+    `StartedAt`/`EndedAt` since operations complete immediately in this backend's simplified
+    state machine, matching the existing `SUCCEEDED`-on-create pattern) and threaded through
+    `ListOperations`'s wire output.
+  - **De-deferred `HealthCheckConfiguration`/`EncryptionConfiguration`/`CodeRepository`
+    sub-shapes** (previously silently accepted-and-ignored, per parity-principles.md's
+    de-stub-hygiene concern about disguised no-ops): `HealthCheckConfiguration` now stores
+    Protocol/Path/Interval/Timeout/HealthyThreshold/UnhealthyThreshold with App Runner's real
+    defaults (`TCP`, `/`, 5s, 2s, 1, 5). `EncryptionConfiguration.KmsKey` round-trips and is
+    only returned when a customer key was actually provided (App Runner omits it for the
+    default managed-key case). `SourceConfiguration.CodeRepository` (RepositoryUrl,
+    SourceCodeVersion, CodeConfiguration/CodeConfigurationValues) and
+    `AuthenticationConfiguration` (AccessRoleArn, ConnectionArn -- validated against the real
+    `connections` table when present) now round-trip field-for-field.
+    `AutoDeploymentsEnabled` applies App Runner's documented default (false for an ECR Public
+    image source, true otherwise) when the caller doesn't specify it.
+    `InstanceConfiguration.InstanceRoleArn` now round-trips (was silently dropped).
+    `ServiceObservabilityConfiguration` (ObservabilityEnabled + ObservabilityConfigurationArn,
+    validated against the real `observabilityConfigs` table) now round-trips.
+  - **`UpdateService`** additionally now rejects switching a service between image and code
+    sources (`InvalidRequestException`), matching the real op's documented restriction ("you
+    must provide the same structure member... that you originally included when you created
+    the service") -- previously unenforced since `CodeRepository` didn't exist at all.
+  - **Leak fix**: `DeleteService` was leaving its `b.customDomains[serviceArn]` entry behind
+    forever after delete (unreachable dead state, since `DescribeCustomDomains` 404s on a
+    deleted `ServiceArn`); now cascade-deleted alongside the existing tags cleanup.
+  - Backend `CreateService`/`UpdateService` signatures changed from long positional-primitive
+    argument lists to `CreateServiceParams`/`UpdateServiceParams` structs (internal to this
+    package -- `StorageBackend` has no external implementers besides `InMemoryBackend`, and no
+    caller outside this package touches backend method signatures directly, only
+    `NewInMemoryBackend`/`NewHandler`/`Provider` -- verified via repo-wide grep before making
+    the change).
+  - No new goroutines/tickers/janitors introduced; all new bookkeeping stays inside the
+    existing `b.mu` critical sections.
+  - Added `service_associations.go` (resolution/validation/normalization helpers) and 15 new
+    test functions across `handler_services_test.go` (13, covering every new behavior above)
+    and `leak_test.go` (the customDomains cascade-delete fix), plus updated pre-existing
+    `ListAutoScalingConfigurations` count assertions and `AutoScalingConfigCount` expectations
+    in `handler_auto_scaling_configurations_test.go`/`persistence_test.go` for the new
+    always-present `DefaultConfiguration` seed. `go build`/`go vet`/`go test -race`/
+    `gofmt -l`/`golangci-lint` all green; zero `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints
+    before or after.

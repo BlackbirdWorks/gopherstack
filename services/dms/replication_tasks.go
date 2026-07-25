@@ -298,6 +298,32 @@ func (b *InMemoryBackend) ModifyReplicationTask(
 	return &cp, nil
 }
 
+// ReloadTables reloads the target tables of a running replication task with
+// source data. Real AWS only permits this while the task is RUNNING,
+// otherwise it throws InvalidResourceStateFault.
+func (b *InMemoryBackend) ReloadTables(ctx context.Context, arnOrID string) (*ReplicationTask, error) {
+	b.mu.Lock("ReloadTables")
+	defer b.mu.Unlock()
+
+	rt := b.findTask(ctx, arnOrID)
+	if rt == nil {
+		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
+	}
+
+	if rt.Status != statusRunning {
+		return nil, fmt.Errorf(
+			"%w: replication task %s must be running to reload tables; current status is %s",
+			ErrInvalidState,
+			arnOrID,
+			rt.Status,
+		)
+	}
+
+	cp := *rt
+
+	return &cp, nil
+}
+
 // MoveReplicationTask moves a replication task to a different instance.
 func (b *InMemoryBackend) MoveReplicationTask(
 	ctx context.Context,

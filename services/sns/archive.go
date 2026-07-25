@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
@@ -50,20 +49,25 @@ func parseReplayFromTimestamp(replayPolicy string) (time.Time, error) {
 // replayMessagesToSubscription delivers archived messages published at or after
 // fromTime to the given subscription. This supports the ReplayPolicy subscription
 // attribute: when set, a subscriber receives historical messages from the topic's
-// archive. Delivery uses the same mechanisms as a normal Publish (HTTP/HTTPS goroutines
-// and the event emitter for SQS/Lambda/Firehose).
+// archive. Real AWS restricts message archiving/replay to FIFO topics with an
+// application-to-application (A2A) subscription protocol — SQS, Lambda, or
+// Firehose (docs.aws.amazon.com/sns/latest/dg/message-archiving-and-replay-topic-owner.html:
+// "Amazon SNS message archiving and replay is only available for
+// application-to-application (A2A) FIFO topics") — so sub.Protocol here is
+// always one of those three; validateReplayPolicyEligibleLocked (subscriptions.go)
+// rejects ReplayPolicy on every other protocol/topic combination before this
+// function can ever be reached. Delivery uses the same mechanisms as a normal
+// Publish: the event emitter for SQS, and the Lambda/Firehose delivery
+// functions for those two protocols.
 func (b *InMemoryBackend) replayMessagesToSubscription(
 	sub Subscription,
 	topicArn string,
 	fromTime time.Time,
 ) {
 	var (
-		toReplay             []*ArchivedMessage
-		emitter              events.EventEmitter[*events.SNSPublishedEvent]
-		client               *http.Client
-		signer               *notificationSigner
-		sqsSender            SQSSender
-		topicEffectivePolicy string
+		toReplay   []*ArchivedMessage
+		emitter    events.EventEmitter[*events.SNSPublishedEvent]
+		sigVersion string
 	)
 
 	func() {
@@ -78,12 +82,9 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 		}
 
 		emitter = b.emitter
-		client = b.httpClient
-		signer = b.signer
-		sqsSender = b.sqsSender
 
 		if topic, ok := b.topics.Get(topicArn); ok {
-			topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+			sigVersion = resolveSignatureVersion(topic.Attributes[attrSignatureVersion])
 		}
 	}()
 
@@ -98,32 +99,12 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 			DeliveryPolicy:     sub.DeliveryPolicy,
 		}
 
-		if sub.Protocol == protocolHTTP || sub.Protocol == protocolHTTPS {
-			d := httpDelivery{
-				endpoint:             sub.Endpoint,
-				body:                 msg.Message,
-				subject:              msg.Subject,
-				messageID:            msg.MessageID,
-				topicARN:             topicArn,
-				subscriptionARN:      sub.SubscriptionArn,
-				rawDelivery:          sub.RawMessageDelivery,
-				redrivePolicy:        sub.RedrivePolicy,
-				deliveryPolicy:       sub.DeliveryPolicy,
-				topicEffectivePolicy: topicEffectivePolicy,
-				sqsSender:            sqsSender,
-				signer:               signer,
-			}
-			deliverHTTPWithMeta(b.svcCtx, d, client, b)
-		}
-
 		// Build one shared event for this replayed message and fan it out through
-		// the same per-protocol delivery functions Publish uses. Previously replay
-		// only reached HTTP/HTTPS (above) and SQS (via the emitter below); a
-		// subscription with a ReplayPolicy on Lambda, Firehose, SMS, or Application
-		// protocol silently received nothing for archived messages.
+		// the same per-protocol delivery functions Publish uses (SQS via the
+		// emitter, Lambda/Firehose via their dedicated delivery functions).
 		replayEv := b.buildPublishedEvent(
 			topicArn, msg.MessageID, msg.Message, msg.Subject, msg.Attributes,
-			[]events.SNSSubscriptionSnapshot{subSnap},
+			[]events.SNSSubscriptionSnapshot{subSnap}, sigVersion,
 		)
 
 		if emitter != nil {
@@ -135,10 +116,6 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 			b.deliverToLambdaSubscriptions(replayEv)
 		case protocolFirehose:
 			b.deliverToFirehoseSubscriptions(replayEv)
-		case protocolSMS:
-			b.deliverToSMSSubscriptions(replayEv)
-		case protocolApplication:
-			b.deliverToApplicationSubscriptions(replayEv)
 		}
 	}
 }

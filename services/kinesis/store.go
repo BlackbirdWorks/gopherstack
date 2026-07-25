@@ -87,14 +87,20 @@ type kinesisThrottleFault struct {
 // string) carry no key of their own to hand a Table keyFn, so they remain
 // plain nested maps guarded the same way as before.
 type InMemoryBackend struct {
-	streams                  *store.Table[Stream]
-	streamsByRegion          *store.Index[Stream]
-	registry                 *store.Registry
-	fisThroughputFaults      map[string]map[string]*kinesisThrottleFault // region → stream name → fault
-	faultsMu                 *lockmetrics.RWMutex
-	resourcePolicies         map[string]map[string]string // region → resource ARN → policy
-	mu                       *lockmetrics.RWMutex
-	OnStreamPurged           func(string)
+	streams             *store.Table[Stream]
+	streamsByRegion     *store.Index[Stream]
+	registry            *store.Registry
+	fisThroughputFaults map[string]map[string]*kinesisThrottleFault // region → stream name → fault
+	faultsMu            *lockmetrics.RWMutex
+	resourcePolicies    map[string]map[string]string // region → resource ARN → policy
+	mu                  *lockmetrics.RWMutex
+	OnStreamPurged      func(string)
+	// kmsValidator optionally validates StartStreamEncryption KeyIds against a
+	// real KMS backend (see stream_encryption.go / WithKMSValidator). Nil means
+	// no cross-service KMS backend is wired: KeyId is still format-checked, but
+	// KMSNotFoundException/KMSDisabledException/KMSInvalidStateException can
+	// never be returned since there is no key state to check against.
+	kmsValidator             KMSKeyValidator
 	accountID                string
 	region                   string
 	onDemandStreamCountLimit int

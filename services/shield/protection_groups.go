@@ -9,9 +9,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// protectionGroupARN builds a Shield protection group ARN.
-func protectionGroupARN(accountID, groupID string) string {
-	return arn.Build("shield", "", accountID, fmt.Sprintf("protection-group/%s", groupID))
+// protectionGroupARN builds a Shield protection group ARN. See protectionARN's doc comment in
+// protections.go for why the partition is derived from region directly here rather than through
+// arn.Build (which only omits the region field for service=="iam").
+func protectionGroupARN(region, accountID, groupID string) string {
+	return fmt.Sprintf(
+		"arn:%s:shield::%s:protection-group/%s", arn.PartitionForRegion(region), accountID, groupID,
+	)
 }
 
 // validAggregations returns the set of valid aggregation values for protection groups.
@@ -133,11 +137,21 @@ func (b *InMemoryBackend) CreateProtectionGroup(
 		return nil, fmt.Errorf("%w: ResourceType is required when Pattern is BY_RESOURCE_TYPE", ErrValidation)
 	}
 
+	if pattern == PatternArbitrary && len(members) > subscriptionMaxMembersPerGroup {
+		return nil, fmt.Errorf(
+			"%w: Type=ArbitraryPatternMembers, Limit=%d", ErrLimitExceeded, subscriptionMaxMembersPerGroup,
+		)
+	}
+
 	if b.protectionGroups.Has(id) {
 		return nil, fmt.Errorf("%w: protection group %q already exists", ErrProtectionGroupAlreadyExists, id)
 	}
 
-	groupArn := protectionGroupARN(b.accountID, id)
+	if b.protectionGroups.Len() >= subscriptionMaxProtectionGroups {
+		return nil, fmt.Errorf("%w: Type=ProtectionGroups, Limit=%d", ErrLimitExceeded, subscriptionMaxProtectionGroups)
+	}
+
+	groupArn := protectionGroupARN(b.region, b.accountID, id)
 
 	pg := &ProtectionGroup{
 		ID:                 id,
@@ -223,6 +237,12 @@ func (b *InMemoryBackend) UpdateProtectionGroup(
 		return fmt.Errorf("%w: Members is required when Pattern is ARBITRARY", ErrValidation)
 	}
 
+	if pattern == PatternArbitrary && len(members) > subscriptionMaxMembersPerGroup {
+		return fmt.Errorf(
+			"%w: Type=ArbitraryPatternMembers, Limit=%d", ErrLimitExceeded, subscriptionMaxMembersPerGroup,
+		)
+	}
+
 	if pattern == PatternByResourceType && resourceType == "" {
 		return fmt.Errorf("%w: ResourceType is required when Pattern is BY_RESOURCE_TYPE", ErrValidation)
 	}
@@ -252,7 +272,7 @@ func (b *InMemoryBackend) AddProtectionGroupInternal(id, aggregation, pattern st
 	b.mu.Lock("AddProtectionGroupInternal")
 	defer b.mu.Unlock()
 
-	groupArn := protectionGroupARN(b.accountID, id)
+	groupArn := protectionGroupARN(b.region, b.accountID, id)
 
 	pg := &ProtectionGroup{
 		ID:                 id,

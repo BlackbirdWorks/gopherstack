@@ -123,6 +123,25 @@ type submitJobCopies struct {
 	dependsOn          []JobDependency
 }
 
+// cloneRetryStrategy deep-copies a RetryStrategy, including its
+// EvaluateOnExit slice, returning nil for nil input. Shared by SubmitJob and
+// RegisterJobDefinition, which both accept a RetryStrategy stored by
+// reference.
+func cloneRetryStrategy(retryStrategy *RetryStrategy) *RetryStrategy {
+	if retryStrategy == nil {
+		return nil
+	}
+
+	rs := *retryStrategy
+	if len(rs.EvaluateOnExit) > 0 {
+		exitRules := make([]EvaluateOnExit, len(rs.EvaluateOnExit))
+		copy(exitRules, rs.EvaluateOnExit)
+		rs.EvaluateOnExit = exitRules
+	}
+
+	return &rs
+}
+
 // cloneSubmitJobInputs deep-copies the optional SubmitJob parameters that are
 // stored by reference (dependsOn, retryStrategy, timeout, arrayProperties,
 // containerOverrides).
@@ -140,16 +159,7 @@ func cloneSubmitJobInputs(
 		copy(out.dependsOn, dependsOn)
 	}
 
-	if retryStrategy != nil {
-		rs := *retryStrategy
-		if len(rs.EvaluateOnExit) > 0 {
-			exitRules := make([]EvaluateOnExit, len(rs.EvaluateOnExit))
-			copy(exitRules, rs.EvaluateOnExit)
-			rs.EvaluateOnExit = exitRules
-		}
-
-		out.retryStrategy = &rs
-	}
+	out.retryStrategy = cloneRetryStrategy(retryStrategy)
 
 	if timeout != nil {
 		tc := *timeout
@@ -223,11 +233,16 @@ func (b *InMemoryBackend) SubmitJob(
 	jobARN := arn.Build("batch", region, b.accountID, "job/"+jobID)
 
 	j := &Job{
-		region:   region,
-		JobID:    jobID,
-		JobARN:   jobARN,
-		JobName:  name,
-		JobQueue: jq.JobQueueName,
+		region:  region,
+		JobID:   jobID,
+		JobARN:  jobARN,
+		JobName: name,
+		// JobDetail.JobQueue is documented as the ARN of the job queue, not
+		// its name; the byQueue index (jobQueueIndexKeyFn) keys off this same
+		// field, so callers that look up the index must resolve to the
+		// queue's ARN too (see listJobIDsForQueue, DeleteJobQueue,
+		// GetJobQueueSnapshot).
+		JobQueue: jq.JobQueueArn,
 		// AWS resolves the jobDefinition parameter (name, name:revision, or
 		// ARN with/without revision) to the definition's ARN; DescribeJobs
 		// always returns the ARN here, never the caller's short reference.
@@ -245,6 +260,11 @@ func (b *InMemoryBackend) SubmitJob(
 		ShareIdentifier:              shareIdentifier,
 		SchedulingPriorityOverride:   schedulingPriorityOverride,
 		PropagateTags:                propagateTags,
+		// PlatformCapabilities is snapshotted from the resolved job
+		// definition at submit time, matching AWS's JobDetail.
+		// PlatformCapabilities semantics (defaults to the definition's own
+		// setting, not re-derived at describe time).
+		PlatformCapabilities: append([]string(nil), jd.PlatformCapabilities...),
 	}
 	b.jobs.Put(j)
 
@@ -268,7 +288,7 @@ func (b *InMemoryBackend) listJobIDsForQueue(region, queue string) ([]string, er
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
 	}
 
-	group := b.jobsByQueueIdx.Get(regionKey(region, jq.JobQueueName))
+	group := b.jobsByQueueIdx.Get(regionKey(region, jq.JobQueueArn))
 	ids := make([]string, len(group))
 	for i, j := range group {
 		ids[i] = j.JobID
@@ -344,10 +364,87 @@ func (b *InMemoryBackend) DescribeJobs(ctx context.Context, jobIDs []string) []*
 
 		cp := *j
 		cp.Tags = tagsCloneOrEmpty(j.Tags)
+		cp.Container = b.buildJobContainerDetail(region, j)
 		out = append(out, &cp)
 	}
 
 	return out
+}
+
+// buildJobContainerDetail derives the describe-side Container view for a job
+// from its resolved job definition's ContainerProperties merged with the
+// job's ContainerOverrides, matching aws-sdk-go-v2/service/batch/types.
+// JobDetail.Container. Returns nil for multi-node jobs (NodeProperties set)
+// or definitions with no ContainerProperties, matching AWS's "for a
+// multiple-container job, this object will be empty" behavior. Caller must
+// hold at least a read lock.
+func (b *InMemoryBackend) buildJobContainerDetail(region string, j *Job) *ContainerDetail {
+	jd, ok := b.jobDefinitions.Get(regionKey(region, j.JobDefinition))
+	if !ok || jd.ContainerProperties == nil || jd.NodeProperties != nil {
+		return nil
+	}
+
+	cp := jd.ContainerProperties
+	cd := &ContainerDetail{
+		LinuxParameters:              cp.LinuxParameters,
+		RepositoryCredentials:        cp.RepositoryCredentials,
+		RuntimePlatform:              cp.RuntimePlatform,
+		EphemeralStorage:             cp.EphemeralStorage,
+		FargatePlatformConfiguration: cp.FargatePlatformConfiguration,
+		NetworkConfiguration:         cp.NetworkConfiguration,
+		LogConfiguration:             cp.LogConfiguration,
+		JobRoleArn:                   cp.JobRoleArn,
+		ExecutionRoleArn:             cp.ExecutionRoleArn,
+		User:                         cp.User,
+		InstanceType:                 cp.InstanceType,
+		Image:                        cp.Image,
+		Command:                      cp.Command,
+		Secrets:                      cp.Secrets,
+		ResourceRequirements:         cp.ResourceRequirements,
+		Ulimits:                      cp.Ulimits,
+		MountPoints:                  cp.MountPoints,
+		Volumes:                      cp.Volumes,
+		Environment:                  cp.Environment,
+		Vcpus:                        cp.Vcpus,
+		Memory:                       cp.Memory,
+		ReadonlyRootFilesystem:       cp.ReadonlyRootFilesystem,
+		Privileged:                   cp.Privileged,
+	}
+
+	applyContainerOverrides(cd, j.ContainerOverrides)
+
+	// Real AWS assigns a log stream name once the container reaches RUNNING.
+	if j.StartedAt != nil {
+		cd.LogStreamName = fmt.Sprintf("%s/default/%s", jd.JobDefinitionName, j.JobID)
+	}
+
+	return cd
+}
+
+// applyContainerOverrides merges SubmitJob's ContainerOverrides onto a
+// ContainerDetail derived from a job definition, matching AWS's override
+// semantics (instanceType/command/environment/resourceRequirements replace
+// the definition's values when set).
+func applyContainerOverrides(cd *ContainerDetail, overrides *ContainerOverrides) {
+	if overrides == nil {
+		return
+	}
+
+	if overrides.InstanceType != "" {
+		cd.InstanceType = overrides.InstanceType
+	}
+
+	if len(overrides.Command) > 0 {
+		cd.Command = overrides.Command
+	}
+
+	if len(overrides.Environment) > 0 {
+		cd.Environment = overrides.Environment
+	}
+
+	if len(overrides.ResourceRequirements) > 0 {
+		cd.ResourceRequirements = overrides.ResourceRequirements
+	}
 }
 
 // TerminateJob marks a job as FAILED with the given reason.
@@ -371,6 +468,7 @@ func (b *InMemoryBackend) TerminateJob(ctx context.Context, idOrARN, reason stri
 	j.Status = jobStatusFailed
 	j.StatusReason = reason
 	j.StoppedAt = &now
+	j.IsTerminated = true
 
 	return nil
 }
@@ -394,6 +492,7 @@ func (b *InMemoryBackend) CancelJob(ctx context.Context, idOrARN, reason string)
 		j.Status = jobStatusFailed
 		j.StatusReason = reason
 		j.StoppedAt = &now
+		j.IsCancelled = true
 
 		return nil
 	default:

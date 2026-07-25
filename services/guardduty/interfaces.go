@@ -26,11 +26,11 @@ type StorageBackend interface {
 	ListFilters(detectorID string) ([]string, error)
 
 	GetFindings(detectorID string, findingIDs []string) ([]*Finding, error)
-	ListFindings(detectorID string) ([]string, error)
+	ListFindings(detectorID string, query FindingsQuery) (ids []string, nextToken string, err error)
 	ArchiveFindings(detectorID string, findingIDs []string) error
 	UnarchiveFindings(detectorID string, findingIDs []string) error
 	CreateSampleFindings(detectorID string, findingTypes []string) error
-	GetFindingsStatistics(detectorID string) (map[string]any, error)
+	GetFindingsStatistics(detectorID string, query FindingStatisticsQuery) (map[string]any, error)
 	UpdateFindingsFeedback(detectorID string, findingIDs []string, feedback string) error
 
 	CreateIPSet(detectorID, name, format, location string, activate bool, tags map[string]string) (*IPSet, error)
@@ -103,7 +103,7 @@ type StorageBackend interface {
 	GetMalwareScan(scanID string) (*MalwareScan, error)
 	GetMalwareScanSettings(detectorID string) (*MalwareScanSettings, error)
 	UpdateMalwareScanSettings(detectorID string, settings *MalwareScanSettings) error
-	GetUsageStatistics(detectorID string) (map[string]any, error)
+	GetUsageStatistics(detectorID string, query UsageQuery) (map[string]any, error)
 	GetRemainingFreeTrialDays(detectorID string) (map[string]any, error)
 	GetCoverageStatistics(detectorID string) (map[string]any, error)
 	ListCoverage(detectorID string) ([]map[string]any, error)
@@ -125,10 +125,11 @@ type StorageBackend interface {
 		detectorID, name, format, location string,
 		activate bool,
 		tags map[string]string,
+		expectedBucketOwner string,
 	) (*ThreatEntitySet, error)
 	GetThreatEntitySet(detectorID, setID string) (*ThreatEntitySet, error)
 	ListThreatEntitySets(detectorID string) ([]string, error)
-	UpdateThreatEntitySet(detectorID, setID, name, location string, activate *bool) error
+	UpdateThreatEntitySet(detectorID, setID, name, location string, activate *bool, expectedBucketOwner string) error
 	DeleteThreatEntitySet(detectorID, setID string) error
 
 	// Trusted entity sets
@@ -136,10 +137,11 @@ type StorageBackend interface {
 		detectorID, name, format, location string,
 		activate bool,
 		tags map[string]string,
+		expectedBucketOwner string,
 	) (*TrustedEntitySet, error)
 	GetTrustedEntitySet(detectorID, setID string) (*TrustedEntitySet, error)
 	ListTrustedEntitySets(detectorID string) ([]string, error)
-	UpdateTrustedEntitySet(detectorID, setID, name, location string, activate *bool) error
+	UpdateTrustedEntitySet(detectorID, setID, name, location string, activate *bool, expectedBucketOwner string) error
 	DeleteTrustedEntitySet(detectorID, setID string) error
 
 	AccountID() string

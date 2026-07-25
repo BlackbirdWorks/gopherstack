@@ -60,8 +60,16 @@ type getOnClusterAppUIPresignedURLInput struct {
 	ClusterID string `json:"ClusterId"`
 }
 
+// getOnClusterAppUIPresignedURLOutput mirrors GetOnClusterAppUIPresignedURLOutput.
+// The real wire field is "PresignedURL" -- this backend previously sent
+// "URL", a field name the real GetOnClusterAppUIPresignedURLOutput type does
+// not define, so a real client's output.PresignedURL would always
+// deserialize as nil (unknown JSON fields are silently ignored). Also
+// carries PresignedURLReady, which real clients poll on; gopherstack
+// provisions synchronously, so it is always true.
 type getOnClusterAppUIPresignedURLOutput struct {
-	URL string `json:"URL,omitempty"`
+	PresignedURL      string `json:"PresignedURL,omitempty"`
+	PresignedURLReady bool   `json:"PresignedURLReady"`
 }
 
 func (h *Handler) handleGetOnClusterAppUIPresignedURL(
@@ -74,7 +82,7 @@ func (h *Handler) handleGetOnClusterAppUIPresignedURL(
 		return nil, err
 	}
 
-	return &getOnClusterAppUIPresignedURLOutput{URL: url}, nil
+	return &getOnClusterAppUIPresignedURLOutput{PresignedURL: url, PresignedURLReady: true}, nil
 }
 
 // --- GetPersistentAppUIPresignedURL ---
@@ -84,7 +92,8 @@ type getPersistentAppUIPresignedURLInput struct {
 }
 
 type getPersistentAppUIPresignedURLOutput struct {
-	PresignedURL string `json:"PresignedURL,omitempty"`
+	PresignedURL      string `json:"PresignedURL,omitempty"`
+	PresignedURLReady bool   `json:"PresignedURLReady"`
 }
 
 func (h *Handler) handleGetPersistentAppUIPresignedURL(
@@ -93,7 +102,7 @@ func (h *Handler) handleGetPersistentAppUIPresignedURL(
 ) (*getPersistentAppUIPresignedURLOutput, error) {
 	url := h.Backend.GetPresignedURL(in.PersistentAppUIId, getRegion(ctx, h.Backend.region))
 
-	return &getPersistentAppUIPresignedURLOutput{PresignedURL: url}, nil
+	return &getPersistentAppUIPresignedURLOutput{PresignedURL: url, PresignedURLReady: true}, nil
 }
 
 // --- GetClusterSessionCredentials ---

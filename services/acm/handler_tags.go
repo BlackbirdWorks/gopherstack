@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -49,10 +50,22 @@ type certTagsEntry struct {
 
 func certTagsKeyFn(v *certTagsEntry) string { return v.ResourceID }
 
+// reservedTagPrefix is the AWS-reserved tag key/value prefix; keys or values
+// beginning with it (case-insensitively) are rejected with
+// InvalidTagException, matching real AWS tagging behavior.
+const reservedTagPrefix = "aws:"
+
 func (h *Handler) setTags(resourceID string, kv map[string]string) error {
 	const maxTagKeyLength = 128
 	const maxTagValueLength = 256
 	for k, v := range kv {
+		if k == "" {
+			return fmt.Errorf("%w: tag key must not be empty", ErrInvalidTag)
+		}
+		if strings.HasPrefix(strings.ToLower(k), reservedTagPrefix) ||
+			strings.HasPrefix(strings.ToLower(v), reservedTagPrefix) {
+			return fmt.Errorf("%w: tag keys/values must not begin with %q", ErrInvalidTag, reservedTagPrefix)
+		}
 		if len(k) > maxTagKeyLength {
 			return fmt.Errorf("%w: tag key exceeds 128 characters", ErrInvalidParameter)
 		}
@@ -76,10 +89,10 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) error {
 			}
 		}
 		if entry.Tags.Len()+newKeys > maxTagsPerCertificate {
-			return fmt.Errorf("%w: maximum of 50 tags allowed", ErrInvalidParameter)
+			return fmt.Errorf("%w: maximum of 50 tags allowed", ErrTooManyTags)
 		}
 	} else if len(kv) > maxTagsPerCertificate {
-		return fmt.Errorf("%w: maximum of 50 tags allowed", ErrInvalidParameter)
+		return fmt.Errorf("%w: maximum of 50 tags allowed", ErrTooManyTags)
 	}
 
 	if !exists {
@@ -130,6 +143,10 @@ func (h *Handler) jsonListTagsForCertificate(ctx context.Context, body []byte) (
 		return nil, ErrInvalidParameter
 	}
 
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
+	}
+
 	if !h.Backend.CertExists(ctx, input.CertificateArn) {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
 	}
@@ -141,6 +158,10 @@ func (h *Handler) jsonAddTagsToCertificate(ctx context.Context, body []byte) (an
 	var input addTagsToCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
 	}
 
 	if !h.Backend.CertExists(ctx, input.CertificateArn) {
@@ -162,6 +183,10 @@ func (h *Handler) jsonRemoveTagsFromCertificate(ctx context.Context, body []byte
 	var input removeTagsFromCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
 	}
 
 	if !h.Backend.CertExists(ctx, input.CertificateArn) {

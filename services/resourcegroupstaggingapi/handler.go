@@ -163,6 +163,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrConcurrentModification):
 		code = http.StatusConflict
 		errType = "ConcurrentModificationException"
+	case errors.Is(err, ErrPaginationTokenExpired):
+		code = http.StatusBadRequest
+		errType = "PaginationTokenExpiredException"
 	case errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		// Malformed request bodies are a protocol-level failure, not a modeled
 		// operation error; the AWS JSON 1.1 protocol reports these as
@@ -187,7 +190,7 @@ func (h *Handler) handleGetResources(ctx context.Context, in *GetResourcesInput)
 }
 
 func (h *Handler) handleGetTagKeys(ctx context.Context, in *GetTagKeysInput) (*GetTagKeysOutput, error) {
-	return h.Backend.GetTagKeys(ctx, in), nil
+	return h.Backend.GetTagKeys(ctx, in)
 }
 
 func (h *Handler) handleGetTagValues(ctx context.Context, in *GetTagValuesInput) (*GetTagValuesOutput, error) {
@@ -195,7 +198,7 @@ func (h *Handler) handleGetTagValues(ctx context.Context, in *GetTagValuesInput)
 		return nil, fmt.Errorf("%w: Key is required for GetTagValues", ErrValidation)
 	}
 
-	return h.Backend.GetTagValues(ctx, in), nil
+	return h.Backend.GetTagValues(ctx, in)
 }
 
 func (h *Handler) handleTagResources(ctx context.Context, in *TagResourcesInput) (*TagResourcesOutput, error) {
@@ -233,7 +236,7 @@ func (h *Handler) handleGetComplianceSummary(
 		}
 	}
 
-	return h.Backend.GetComplianceSummary(ctx, in), nil
+	return h.Backend.GetComplianceSummary(ctx, in)
 }
 
 func (h *Handler) handleListRequiredTags(

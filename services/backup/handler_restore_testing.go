@@ -21,13 +21,13 @@ type createRestoreTestingPlanBody struct {
 func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) error {
 	var in createRestoreTestingPlanBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	if in.RestoreTestingPlan.RestoreTestingPlanName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "RestoreTestingPlanName is required"),
+			errResp("MissingParameterValueException", "RestoreTestingPlanName is required"),
 		)
 	}
 
@@ -40,21 +40,109 @@ func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) e
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	// Real AWS: responseCode 201.
+	return c.JSON(http.StatusCreated, map[string]any{
 		keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
 		keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
 		keyCreationTime:           epochSeconds(rtp.CreationTime),
 	})
 }
 
+type keyValueJSON struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type protectedResourceConditionsJSON struct {
+	StringEquals    []keyValueJSON `json:"StringEquals,omitempty"`
+	StringNotEquals []keyValueJSON `json:"StringNotEquals,omitempty"`
+}
+
+func protectedResourceConditionsFromJSON(in *protectedResourceConditionsJSON) *ProtectedResourceConditions {
+	if in == nil {
+		return nil
+	}
+
+	eq := make([]KeyValue, 0, len(in.StringEquals))
+	for _, kv := range in.StringEquals {
+		eq = append(eq, KeyValue(kv))
+	}
+	neq := make([]KeyValue, 0, len(in.StringNotEquals))
+	for _, kv := range in.StringNotEquals {
+		neq = append(neq, KeyValue(kv))
+	}
+
+	return &ProtectedResourceConditions{StringEquals: eq, StringNotEquals: neq}
+}
+
+func protectedResourceConditionsToJSON(in *ProtectedResourceConditions) map[string]any {
+	out := map[string]any{}
+	if len(in.StringEquals) > 0 {
+		out["StringEquals"] = in.StringEquals
+	}
+	if len(in.StringNotEquals) > 0 {
+		out["StringNotEquals"] = in.StringNotEquals
+	}
+
+	return out
+}
+
+// restoreTestingSelectionDoc is the wire shape shared by
+// RestoreTestingSelectionForCreate/-ForUpdate (both PUT the same JSON body
+// shape; Create additionally requires ProtectedResourceType, which is
+// immutable and absent from -ForUpdate).
 type restoreTestingSelectionDoc struct {
-	RestoreTestingSelectionName string `json:"RestoreTestingSelectionName"`
-	ProtectedResourceType       string `json:"ProtectedResourceType,omitempty"`
+	ProtectedResourceConditions *protectedResourceConditionsJSON `json:"ProtectedResourceConditions,omitempty"`
+	RestoreMetadataOverrides    map[string]string                `json:"RestoreMetadataOverrides,omitempty"`
+	RestoreTestingSelectionName string                           `json:"RestoreTestingSelectionName"`
+	ProtectedResourceType       string                           `json:"ProtectedResourceType,omitempty"`
+	IamRoleArn                  string                           `json:"IamRoleArn,omitempty"`
+	ProtectedResourceArns       []string                         `json:"ProtectedResourceArns,omitempty"`
+	ValidationWindowHours       int64                            `json:"ValidationWindowHours,omitempty"`
+}
+
+func (d restoreTestingSelectionDoc) toInput() RestoreTestingSelectionInput {
+	return RestoreTestingSelectionInput{
+		ProtectedResourceType:       d.ProtectedResourceType,
+		IAMRoleArn:                  d.IamRoleArn,
+		ProtectedResourceArns:       d.ProtectedResourceArns,
+		ProtectedResourceConditions: protectedResourceConditionsFromJSON(d.ProtectedResourceConditions),
+		RestoreMetadataOverrides:    d.RestoreMetadataOverrides,
+		ValidationWindowHours:       d.ValidationWindowHours,
+	}
+}
+
+// restoreTestingSelectionToJSON renders the fields of a
+// RestoreTestingSelection this backend tracks, matching (a subset of) the
+// real types.RestoreTestingSelectionForGet wire shape.
+func restoreTestingSelectionToJSON(sel *RestoreTestingSelection) map[string]any {
+	resp := map[string]any{
+		keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
+		keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
+		"ProtectedResourceType":        sel.ProtectedResourceType,
+		keyCreationTime:                epochSeconds(sel.CreationTime),
+	}
+	setOptionalStr(resp, "IamRoleArn", sel.IAMRoleArn)
+	setOptionalStr(resp, keyRestoreTestingPlanArn, sel.RestoreTestingPlanArn)
+	if len(sel.ProtectedResourceArns) > 0 {
+		resp["ProtectedResourceArns"] = sel.ProtectedResourceArns
+	}
+	if len(sel.RestoreMetadataOverrides) > 0 {
+		resp["RestoreMetadataOverrides"] = sel.RestoreMetadataOverrides
+	}
+	if sel.ValidationWindowHours > 0 {
+		resp["ValidationWindowHours"] = sel.ValidationWindowHours
+	}
+	if sel.ProtectedResourceConditions != nil {
+		resp["ProtectedResourceConditions"] = protectedResourceConditionsToJSON(sel.ProtectedResourceConditions)
+	}
+
+	return resp
 }
 
 type createRestoreTestingSelectionBody struct {
-	RestoreTestingSelection restoreTestingSelectionDoc `json:"RestoreTestingSelection"`
 	CreatorRequestID        string                     `json:"CreatorRequestId,omitempty"`
+	RestoreTestingSelection restoreTestingSelectionDoc `json:"RestoreTestingSelection"`
 }
 
 func (h *Handler) handleCreateRestoreTestingSelection(
@@ -65,32 +153,33 @@ func (h *Handler) handleCreateRestoreTestingSelection(
 	if planName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "RestoreTestingPlanName is required"),
+			errResp("MissingParameterValueException", "RestoreTestingPlanName is required"),
 		)
 	}
 
 	var in createRestoreTestingSelectionBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	if in.RestoreTestingSelection.RestoreTestingSelectionName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "RestoreTestingSelectionName is required"),
+			errResp("MissingParameterValueException", "RestoreTestingSelectionName is required"),
 		)
 	}
 
 	sel, err := h.Backend.CreateRestoreTestingSelection(
 		planName,
 		in.RestoreTestingSelection.RestoreTestingSelectionName,
-		in.RestoreTestingSelection.ProtectedResourceType,
+		in.RestoreTestingSelection.toInput(),
 	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	// Real AWS: responseCode 201.
+	return c.JSON(http.StatusCreated, map[string]any{
 		keyRestoreTestingPlanArn:       sel.RestoreTestingPlanArn,
 		keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
 		keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
@@ -102,7 +191,7 @@ func (h *Handler) handleGetRestoreTestingPlan(c *echo.Context, planName string) 
 	if planName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "RestoreTestingPlanName is required"),
+			errResp("MissingParameterValueException", "RestoreTestingPlanName is required"),
 		)
 	}
 
@@ -160,7 +249,7 @@ func (h *Handler) handleUpdateRestoreTestingPlan(
 	if planName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "RestoreTestingPlanName is required"),
+			errResp("MissingParameterValueException", "RestoreTestingPlanName is required"),
 		)
 	}
 
@@ -169,7 +258,7 @@ func (h *Handler) handleUpdateRestoreTestingPlan(
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
@@ -194,7 +283,7 @@ func (h *Handler) handleDeleteRestoreTestingPlan(c *echo.Context, planName strin
 	if planName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "RestoreTestingPlanName is required"),
+			errResp("MissingParameterValueException", "RestoreTestingPlanName is required"),
 		)
 	}
 
@@ -202,7 +291,8 @@ func (h *Handler) handleDeleteRestoreTestingPlan(c *echo.Context, planName strin
 		return h.handleError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	// Real AWS: responseCode 204.
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleGetRestoreTestingSelection(c *echo.Context, resource string) error {
@@ -210,7 +300,7 @@ func (h *Handler) handleGetRestoreTestingSelection(c *echo.Context, resource str
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 
@@ -220,12 +310,7 @@ func (h *Handler) handleGetRestoreTestingSelection(c *echo.Context, resource str
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"RestoreTestingSelection": map[string]any{
-			keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
-			keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
-			"ProtectedResourceType":        sel.ProtectedResourceType,
-			keyCreationTime:                epochSeconds(sel.CreationTime),
-		},
+		"RestoreTestingSelection": restoreTestingSelectionToJSON(sel),
 	})
 }
 
@@ -233,7 +318,7 @@ func (h *Handler) handleListRestoreTestingSelections(c *echo.Context, planName s
 	if planName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "RestoreTestingPlanName is required"),
+			errResp("MissingParameterValueException", "RestoreTestingPlanName is required"),
 		)
 	}
 
@@ -244,12 +329,7 @@ func (h *Handler) handleListRestoreTestingSelections(c *echo.Context, planName s
 
 	items := make([]map[string]any, 0, len(sels))
 	for _, sel := range sels {
-		items = append(items, map[string]any{
-			keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
-			keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
-			"ProtectedResourceType":        sel.ProtectedResourceType,
-			keyCreationTime:                epochSeconds(sel.CreationTime),
-		})
+		items = append(items, restoreTestingSelectionToJSON(sel))
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -270,7 +350,7 @@ func (h *Handler) handleUpdateRestoreTestingSelection(
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 
@@ -279,7 +359,7 @@ func (h *Handler) handleUpdateRestoreTestingSelection(
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
@@ -287,7 +367,7 @@ func (h *Handler) handleUpdateRestoreTestingSelection(
 	sel, err := h.Backend.UpdateRestoreTestingSelection(
 		planName,
 		selName,
-		in.RestoreTestingSelection.ProtectedResourceType,
+		in.RestoreTestingSelection.toInput(),
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -306,7 +386,7 @@ func (h *Handler) handleDeleteRestoreTestingSelection(c *echo.Context, resource 
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 
@@ -314,7 +394,8 @@ func (h *Handler) handleDeleteRestoreTestingSelection(c *echo.Context, resource 
 		return h.handleError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	// Real AWS: responseCode 204.
+	return c.NoContent(http.StatusNoContent)
 }
 
 // --- Framework read/update/delete handlers ---

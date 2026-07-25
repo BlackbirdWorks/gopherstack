@@ -3,26 +3,40 @@ package sesv2
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
-	"strings"
 
 	"github.com/labstack/echo/v5"
 )
 
-// tenant handlers
+// Tenant handlers.
+//
+// The real SES v2 tenant API is RPC-style: every operation is a POST to a
+// fixed verb path (see parseTenantPath in handler_routes.go) with all
+// identifying fields (TenantName, ResourceArn) carried in the JSON body, not
+// as REST path parameters. Confirmed against
+// aws-sdk-go-v2/service/sesv2 v1.60.1's serializers.go
+// (awsRestjson1_serializeOpGetTenant etc. -- httpbinding.SplitURI paths have
+// no {Placeholder} segments for this family at all).
+
+func decodeSESv2Body(c *echo.Context, v any) error {
+	if err := json.NewDecoder(c.Request().Body).Decode(v); err != nil {
+		return fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	return nil
+}
 
 type createTenantInput struct {
-	TenantName string `json:"TenantName"`
+	TenantName string     `json:"TenantName"`
+	Tags       []tagEntry `json:"Tags"`
 }
 
 func (h *Handler) handleCreateTenant(c *echo.Context) (any, error) {
 	var in createTenantInput
-
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
-		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
 	}
 
-	result, err := h.Backend.CreateTenant(in.TenantName)
+	result, err := h.Backend.CreateTenant(in.TenantName, tagsFromEntries(in.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -30,27 +44,52 @@ func (h *Handler) handleCreateTenant(c *echo.Context) (any, error) {
 	return result, nil
 }
 
-func (h *Handler) handleGetTenant(tenantName string) (any, error) {
-	result, err := h.Backend.GetTenant(tenantName)
+type tenantNameInput struct {
+	TenantName string `json:"TenantName"`
+}
+
+// handleGetTenant serves POST /v2/email/tenants/get.
+func (h *Handler) handleGetTenant(c *echo.Context) (any, error) {
+	var in tenantNameInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
+
+	result, err := h.Backend.GetTenant(in.TenantName)
 	if err != nil {
 		return nil, err
 	}
 
-	return result, nil
+	return map[string]any{"Tenant": result}, nil
 }
 
-func (h *Handler) handleDeleteTenant(tenantName string) (any, error) {
-	if err := h.Backend.DeleteTenant(tenantName); err != nil {
+// handleDeleteTenant serves POST /v2/email/tenants/delete.
+func (h *Handler) handleDeleteTenant(c *echo.Context) (any, error) {
+	var in tenantNameInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeleteTenant(in.TenantName); err != nil {
 		return nil, err
 	}
 
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handleListTenants(c *echo.Context) (any, error) {
-	nextToken := c.QueryParam("NextToken")
+type listTenantsInput struct {
+	NextToken string `json:"NextToken"`
+	PageSize  int32  `json:"PageSize"`
+}
 
-	items, next, err := h.Backend.ListTenants(nextToken, 0)
+// handleListTenants serves POST /v2/email/tenants/list.
+func (h *Handler) handleListTenants(c *echo.Context) (any, error) {
+	var in listTenantsInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
+
+	items, next, err := h.Backend.ListTenants(in.NextToken, int(in.PageSize))
 	if err != nil {
 		return nil, err
 	}
@@ -61,53 +100,53 @@ func (h *Handler) handleListTenants(c *echo.Context) (any, error) {
 	}, nil
 }
 
-type createTenantResourceAssociationInput struct {
+type tenantResourceAssociationInput struct {
+	TenantName  string `json:"TenantName"`
 	ResourceArn string `json:"ResourceArn"`
 }
 
-func (h *Handler) handleCreateTenantResourceAssociation(
-	c *echo.Context,
-	tenantName string,
-) (any, error) {
-	var in createTenantResourceAssociationInput
-
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
-		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+// handleCreateTenantResourceAssociation serves POST /v2/email/tenants/resources.
+func (h *Handler) handleCreateTenantResourceAssociation(c *echo.Context) (any, error) {
+	var in tenantResourceAssociationInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
 	}
 
-	if err := h.Backend.CreateTenantResourceAssociation(tenantName, in.ResourceArn); err != nil {
+	if err := h.Backend.CreateTenantResourceAssociation(in.TenantName, in.ResourceArn); err != nil {
 		return nil, err
 	}
 
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handleDeleteTenantResourceAssociation(
-	c *echo.Context,
-	tenantName string,
-) (any, error) {
-	segments := strings.Split(strings.TrimPrefix(c.Request().URL.Path, sesv2PathPrefix), "/")
-	resourceArn := ""
-
-	if len(segments) >= 4 { //nolint:mnd // URL segment index is self-documenting in context
-		resourceArn = segments[3]
-
-		if decoded, err := url.PathUnescape(resourceArn); err == nil {
-			resourceArn = decoded
-		}
+// handleDeleteTenantResourceAssociation serves POST /v2/email/tenants/resources/delete.
+func (h *Handler) handleDeleteTenantResourceAssociation(c *echo.Context) (any, error) {
+	var in tenantResourceAssociationInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
 	}
 
-	if err := h.Backend.DeleteTenantResourceAssociation(tenantName, resourceArn); err != nil {
+	if err := h.Backend.DeleteTenantResourceAssociation(in.TenantName, in.ResourceArn); err != nil {
 		return nil, err
 	}
 
 	return &emptyDeleteOutput{}, nil
 }
 
+type listResourceTenantsInput struct {
+	ResourceArn string `json:"ResourceArn"`
+	NextToken   string `json:"NextToken"`
+	PageSize    int32  `json:"PageSize"`
+}
+
+// handleListResourceTenants serves POST /v2/email/resources/tenants/list.
 func (h *Handler) handleListResourceTenants(c *echo.Context) (any, error) {
-	nextToken := c.QueryParam("NextToken")
+	var in listResourceTenantsInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
 
-	items, next, err := h.Backend.ListResourceTenants(nextToken, 0)
+	items, next, err := h.Backend.ListResourceTenants(in.ResourceArn, in.NextToken, int(in.PageSize))
 	if err != nil {
 		return nil, err
 	}
@@ -118,19 +157,21 @@ func (h *Handler) handleListResourceTenants(c *echo.Context) (any, error) {
 	}, nil
 }
 
-// handleListTenantResources serves GET .../tenants/{tenantName}/resources.
-//
-// NOTE (not fixed here -- out of scope for this mechanical file split):
-// NextToken is read from the query string but then discarded (`_ = nextToken`)
-// and Backend.ListTenantResources is called without it, since the
-// StorageBackend interface's ListTenantResources(tenantName string, pageSize int)
-// signature has no token parameter at all. This is a real pagination gap.
-func (h *Handler) handleListTenantResources(c *echo.Context, tenantName string) (any, error) {
-	nextToken := c.QueryParam("NextToken")
+type listTenantResourcesInput struct {
+	TenantName string            `json:"TenantName"`
+	Filter     map[string]string `json:"Filter"`
+	NextToken  string            `json:"NextToken"`
+	PageSize   int32             `json:"PageSize"`
+}
 
-	items, next, err := h.Backend.ListTenantResources(tenantName, 0)
-	_ = nextToken
+// handleListTenantResources serves POST /v2/email/tenants/resources/list.
+func (h *Handler) handleListTenantResources(c *echo.Context) (any, error) {
+	var in listTenantResourcesInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
 
+	items, next, err := h.Backend.ListTenantResources(in.TenantName, in.Filter, in.NextToken, int(in.PageSize))
 	if err != nil {
 		return nil, err
 	}

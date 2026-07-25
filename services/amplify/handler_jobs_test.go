@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/amplify"
 )
 
 // TestHandler_JobLifecycle verifies start/list/get/stop/delete job via the HTTP handler.
@@ -97,7 +100,7 @@ func TestHandler_ListJobs_Pagination(t *testing.T) {
 			seedMainBranch(t, b, app.AppID)
 
 			for range 3 {
-				_, err := b.StartJob(app.AppID, "main", "RELEASE", "", "")
+				_, err := b.StartJob(app.AppID, "main", "RELEASE", "", "", "", time.Time{})
 				require.NoError(t, err)
 			}
 
@@ -151,4 +154,67 @@ func TestHandler_StartJob_ResponseShape(t *testing.T) {
 	assert.NotEmpty(t, payload.JobSummary.JobARN)
 	assert.Contains(t, payload.JobSummary.JobARN, "arn:aws:amplify:")
 	assert.Equal(t, "RUNNING", payload.JobSummary.Status)
+}
+
+// TestHandler_GetJob_Steps verifies GetJob's steps list (previously always
+// []any{} -- see PARITY.md) carries one real, non-fabricated step per job:
+// its status/timestamps are derived from the job's own state, and it
+// transitions from RUNNING to SUCCEED (with a real EndTime) once the janitor
+// advances the underlying job, exactly like the job's own summary does.
+func TestHandler_GetJob_Steps(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	app := seedApp(t, b, "StepsApp")
+	seedMainBranch(t, b, app.AppID)
+
+	basePath := "/apps/" + app.AppID + "/branches/main/jobs"
+
+	rec := doRequest(t, h, http.MethodPost, basePath, map[string]any{"jobType": "RELEASE"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var startResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	jobID := startResp["jobSummary"].(map[string]any)["jobId"].(string)
+
+	type step struct {
+		StepName  string  `json:"stepName"`
+		Status    string  `json:"status"`
+		StartTime float64 `json:"startTime"`
+		EndTime   float64 `json:"endTime"`
+	}
+
+	getSteps := func() []step {
+		t.Helper()
+
+		stepsRec := doRequest(t, h, http.MethodGet, basePath+"/"+jobID, nil)
+		require.Equal(t, http.StatusOK, stepsRec.Code)
+
+		var payload struct {
+			Job struct {
+				Steps []step `json:"steps"`
+			} `json:"job"`
+		}
+		require.NoError(t, json.Unmarshal(stepsRec.Body.Bytes(), &payload))
+
+		return payload.Job.Steps
+	}
+
+	running := getSteps()
+	require.Len(t, running, 1)
+	assert.Equal(t, "BUILD", running[0].StepName)
+	assert.Equal(t, "RUNNING", running[0].Status)
+	assert.Positive(t, running[0].StartTime)
+	assert.InDelta(t, running[0].StartTime, running[0].EndTime, 0,
+		"an in-progress step reports its StartTime as a provisional EndTime, not zero")
+
+	// Advance the job to SUCCEED via the janitor, same as real Amplify
+	// eventually finishing the build on its own.
+	j := amplify.NewJanitor(b, time.Second)
+	j.SweepOnce(t.Context())
+
+	done := getSteps()
+	require.Len(t, done, 1)
+	assert.Equal(t, "SUCCEED", done[0].Status)
+	assert.GreaterOrEqual(t, done[0].EndTime, done[0].StartTime)
 }

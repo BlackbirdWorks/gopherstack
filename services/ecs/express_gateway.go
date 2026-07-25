@@ -44,7 +44,7 @@ func (b *InMemoryBackend) UpdateExpressGatewayService(
 	}
 
 	out := *svc
-	out.Tags = copyTags(svc.Tags)
+	out.Tags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 
 	return &out, nil
 }
@@ -92,6 +92,17 @@ func (b *InMemoryBackend) CreateExpressGatewayService(
 
 	b.expressGatewayServices.Put(svc)
 
+	// Mirror tags into the resourceTags side map so TagResource/UntagResource/
+	// ListTagsForResource (and DescribeExpressGatewayService, which reads tags
+	// from this map -- see DescribeExpressGatewayService below) see the same
+	// tags applied at creation. Previously svc.Tags and resourceTags were two
+	// independent, never-synchronized copies: a TagResource call on this ARN
+	// silently never showed up on Describe, and creation-time tags were
+	// invisible to ListTagsForResource.
+	if len(input.Tags) > 0 {
+		b.setResourceTagsLocked(serviceArn, input.Tags)
+	}
+
 	out := *svc
 	out.Tags = copyTags(svc.Tags)
 
@@ -115,6 +126,7 @@ func (b *InMemoryBackend) DeleteExpressGatewayService(
 	}
 
 	b.expressGatewayServices.Delete(serviceArn)
+	b.deleteResourceTagsLocked(serviceArn)
 
 	out := *svc
 
@@ -138,7 +150,9 @@ func (b *InMemoryBackend) DescribeExpressGatewayService(
 	}
 
 	out := *svc
-	out.Tags = copyTags(svc.Tags)
+	// resourceTags (kept in sync by TagResource/UntagResource) is authoritative,
+	// not the creation-time svc.Tags snapshot -- see CreateExpressGatewayService.
+	out.Tags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 
 	return &out, nil
 }

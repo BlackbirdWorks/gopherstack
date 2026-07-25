@@ -3,22 +3,83 @@ package sesv2
 import (
 	"fmt"
 	"maps"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // ---- multi-region endpoints ----
+//
+// Field-diffed against aws-sdk-go-v2/service/sesv2 v1.60.1's
+// CreateMultiRegionEndpointInput/Output, GetMultiRegionEndpointOutput,
+// types.MultiRegionEndpoint, types.Details/RouteDetails/Route, and the
+// Status enum (CREATING/READY/FAILED/DELETING). gopherstack provisions
+// endpoints synchronously, so Status is always READY immediately after
+// create (never CREATING/FAILED) and DELETING immediately after delete
+// (matching "status right after the delete request", the exact wording
+// DeleteMultiRegionEndpointOutput.Status documents).
 
-func (b *InMemoryBackend) CreateMultiRegionEndpoint(endpointName string) (string, error) {
+const (
+	multiRegionEndpointStatusReady    = "READY"
+	multiRegionEndpointStatusDeleting = "DELETING"
+)
+
+// CreateMultiRegionEndpoint creates a multi-region endpoint (global-endpoint)
+// spanning the backend's primary region and the given secondary regions.
+func (b *InMemoryBackend) CreateMultiRegionEndpoint(
+	endpointName string,
+	secondaryRegions []string,
+	tags map[string]string,
+) (map[string]any, error) {
 	b.mu.Lock("CreateMultiRegionEndpoint")
 	defer b.mu.Unlock()
 
-	b.multiRegionEndpoints[endpointName] = map[string]any{
-		"EndpointName": endpointName,
-		keyStatus:      "READY",
+	if _, exists := b.multiRegionEndpoints[endpointName]; exists {
+		return nil, fmt.Errorf("%w: MultiRegionEndpoint %s already exists", ErrAlreadyExists, endpointName)
 	}
 
-	return "READY", nil
+	now := awstime.Epoch(time.Now())
+	regions := append([]string{b.region}, secondaryRegions...)
+
+	ep := map[string]any{
+		keyEndpointID:          "mre-" + uuid.New().String(),
+		"EndpointName":         endpointName,
+		keyStatus:              multiRegionEndpointStatusReady,
+		"Regions":              regions,
+		keyCreatedTimestamp:    now,
+		"LastUpdatedTimestamp": now,
+	}
+
+	if len(tags) > 0 {
+		ep[keyTags] = tagsToEntries(tags)
+	}
+
+	b.multiRegionEndpoints[endpointName] = ep
+
+	out := make(map[string]any, len(ep))
+	maps.Copy(out, ep)
+
+	return out, nil
 }
 
+// multiRegionEndpointRoutes projects the Regions list into the
+// types.Route{Region} shape GetMultiRegionEndpointOutput.Routes expects.
+func multiRegionEndpointRoutes(ep map[string]any) []map[string]any {
+	regions, _ := ep["Regions"].([]string)
+	routes := make([]map[string]any, 0, len(regions))
+
+	for _, r := range regions {
+		routes = append(routes, map[string]any{"Region": r})
+	}
+
+	return routes
+}
+
+// GetMultiRegionEndpoint returns the full endpoint record, matching
+// GetMultiRegionEndpointOutput (CreatedTimestamp/EndpointId/EndpointName/
+// LastUpdatedTimestamp/Routes/Status).
 func (b *InMemoryBackend) GetMultiRegionEndpoint(endpointName string) (map[string]any, error) {
 	b.mu.RLock("GetMultiRegionEndpoint")
 	defer b.mu.RUnlock()
@@ -28,21 +89,45 @@ func (b *InMemoryBackend) GetMultiRegionEndpoint(endpointName string) (map[strin
 		return nil, fmt.Errorf("%w: MultiRegionEndpoint %s not found", ErrNotFound, endpointName)
 	}
 
-	out := make(map[string]any, len(ep))
+	out := make(map[string]any, len(ep)+1)
 	maps.Copy(out, ep)
+	out["Routes"] = multiRegionEndpointRoutes(ep)
+	delete(out, "Regions")
+	delete(out, keyTags)
 
 	return out, nil
 }
 
-func (b *InMemoryBackend) DeleteMultiRegionEndpoint(endpointName string) error {
+// DeleteMultiRegionEndpoint removes an endpoint and returns the status right
+// after the delete request (DELETING), matching DeleteMultiRegionEndpointOutput.
+func (b *InMemoryBackend) DeleteMultiRegionEndpoint(endpointName string) (string, error) {
 	b.mu.Lock("DeleteMultiRegionEndpoint")
 	defer b.mu.Unlock()
 
+	if _, ok := b.multiRegionEndpoints[endpointName]; !ok {
+		return "", fmt.Errorf("%w: MultiRegionEndpoint %s not found", ErrNotFound, endpointName)
+	}
+
 	delete(b.multiRegionEndpoints, endpointName)
 
-	return nil
+	return multiRegionEndpointStatusDeleting, nil
 }
 
+// multiRegionEndpointSummary projects a full endpoint record down to the
+// types.MultiRegionEndpoint shape used by ListMultiRegionEndpoints (no Routes
+// field -- Regions instead).
+func multiRegionEndpointSummary(ep map[string]any) map[string]any {
+	return map[string]any{
+		keyEndpointID:          ep[keyEndpointID],
+		"EndpointName":         ep["EndpointName"],
+		keyStatus:              ep[keyStatus],
+		"Regions":              ep["Regions"],
+		keyCreatedTimestamp:    ep[keyCreatedTimestamp],
+		"LastUpdatedTimestamp": ep["LastUpdatedTimestamp"],
+	}
+}
+
+// ListMultiRegionEndpoints lists all multi-region endpoints, paginated.
 func (b *InMemoryBackend) ListMultiRegionEndpoints(
 	nextToken string,
 	pageSize int,
@@ -51,12 +136,12 @@ func (b *InMemoryBackend) ListMultiRegionEndpoints(
 
 	all := make([]map[string]any, 0, len(b.multiRegionEndpoints))
 	for _, ep := range b.multiRegionEndpoints {
-		cp := make(map[string]any, len(ep))
-		maps.Copy(cp, ep)
-		all = append(all, cp)
+		all = append(all, multiRegionEndpointSummary(ep))
 	}
 
 	b.mu.RUnlock()
+
+	sortMapsByStringKey(all, "EndpointName")
 
 	return paginateMaps(all, nextToken, pageSize, "EndpointName")
 }

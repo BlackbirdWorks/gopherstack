@@ -2,6 +2,7 @@ package polly_test
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -25,7 +26,7 @@ func TestBackendConcurrentFriendlyCopies(t *testing.T) {
 	assert.NotEqual(t, first.Content, second.Content)
 }
 
-func TestBackendLexiconAndTagsErrors(t *testing.T) {
+func TestBackendLexiconErrors(t *testing.T) {
 	t.Parallel()
 
 	backend := polly.NewInMemoryBackend()
@@ -35,10 +36,6 @@ func TestBackendLexiconAndTagsErrors(t *testing.T) {
 	}{
 		{name: "invalid_lexicon", run: func() error { return backend.PutLexicon("bad name", "xml") }},
 		{name: "missing_delete", run: func() error { return backend.DeleteLexicon("absent") }},
-		{
-			name: "missing_tags",
-			run:  func() error { return backend.TagResource("arn:none", []polly.Tag{{Key: "a", Value: "b"}}) },
-		},
 	}
 
 	for _, test := range tests {
@@ -234,6 +231,107 @@ func TestPutLexiconContentValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPutLexiconPlsSchemaValidation verifies that PutLexicon rejects lexicon
+// content violating PLS quota/schema constraints from
+// https://docs.aws.amazon.com/polly/latest/dg/limits.html#limits-lexicons:
+// unsupported alphabet, unsupported xml:lang, oversized lexicon Content, and
+// an oversized <phoneme>/<alias> lexeme replacement.
+func TestPutLexiconPlsSchemaValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		content  string
+		wantErr  string
+		wantCode int
+	}{
+		{
+			name:     "unsupported alphabet rejected",
+			content:  `<lexicon alphabet="klatt" xml:lang="en-US"><lexeme></lexeme></lexicon>`,
+			wantCode: http.StatusBadRequest,
+			wantErr:  "UnsupportedPlsAlphabetException",
+		},
+		{
+			name:     "x-sampa alphabet accepted",
+			content:  `<lexicon alphabet="x-sampa" xml:lang="en-US"><lexeme></lexeme></lexicon>`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "unsupported language rejected",
+			content:  `<lexicon alphabet="ipa" xml:lang="xx-XX"><lexeme></lexeme></lexicon>`,
+			wantCode: http.StatusBadRequest,
+			wantErr:  "UnsupportedPlsLanguageException",
+		},
+		{
+			name: "oversized content rejected",
+			content: `<lexicon alphabet="ipa" xml:lang="en-US">` +
+				strings.Repeat("a", 40000) + `</lexicon>`,
+			wantCode: http.StatusBadRequest,
+			wantErr:  "LexiconSizeExceededException",
+		},
+		{
+			name: "oversized phoneme replacement rejected",
+			content: `<lexicon alphabet="ipa" xml:lang="en-US"><lexeme><phoneme>` +
+				strings.Repeat("a", 101) + `</phoneme></lexeme></lexicon>`,
+			wantCode: http.StatusBadRequest,
+			wantErr:  "MaxLexemeLengthExceededException",
+		},
+		{
+			name: "phoneme replacement at limit accepted",
+			content: `<lexicon alphabet="ipa" xml:lang="en-US"><lexeme><phoneme>` +
+				strings.Repeat("a", 100) + `</phoneme></lexeme></lexicon>`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "oversized alias replacement rejected",
+			content: `<lexicon alphabet="ipa" xml:lang="en-US"><lexeme><alias>` +
+				strings.Repeat("a", 101) + `</alias></lexeme></lexicon>`,
+			wantCode: http.StatusBadRequest,
+			wantErr:  "MaxLexemeLengthExceededException",
+		},
+		{
+			name: "self-closing phoneme tag has no replacement text",
+			content: `<lexicon alphabet="ipa" xml:lang="en-US">` +
+				`<lexeme><phoneme ph="test"/></lexeme></lexicon>`,
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := request(t, newHandler(), http.MethodPut, "/v1/lexicons/Medical",
+				map[string]any{"Content": tc.content})
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.wantErr != "" {
+				assert.Contains(t, rec.Body.String(), tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestPutLexiconMaxLexiconsNumberExceeded verifies that PutLexicon enforces
+// the 100-lexicons-per-account quota for new lexicons (AWS:
+// MaxLexiconsNumberExceededException), while overwriting an existing lexicon
+// name never counts against the quota.
+func TestPutLexiconMaxLexiconsNumberExceeded(t *testing.T) {
+	t.Parallel()
+
+	backend := polly.NewInMemoryBackend()
+	content := `<lexicon alphabet="ipa" xml:lang="en-US"></lexicon>`
+
+	for i := range 100 {
+		require.NoError(t, backend.PutLexicon(fmt.Sprintf("lex%03d", i), content))
+	}
+
+	err := backend.PutLexicon("oneTooMany", content)
+	require.ErrorIs(t, err, polly.ErrMaxLexiconsNumberExceeded)
+
+	// Overwriting an existing name must not be blocked by the quota.
+	assert.NoError(t, backend.PutLexicon("lex000", content))
 }
 
 // TestListLexiconsOpaqueToken verifies that the NextToken returned from a

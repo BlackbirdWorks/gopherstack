@@ -154,6 +154,7 @@ func TestTargetParams_StepFunctions(t *testing.T) {
 
 			h := auditNewHandler(t)
 			resp := auditCreate(t, h, tt.name+"-sfn-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:states:us-west-2:123456789012:stateMachine:sm",
 				"DesiredState": "RUNNING",
@@ -200,6 +201,7 @@ func TestTargetParams_SQS(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-sqs-target-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:src",
 				"Target":       "arn:aws:sqs:us-west-2:123456789012:dst.fifo",
 				"DesiredState": "RUNNING",
@@ -236,6 +238,7 @@ func TestTargetParams_Kinesis(t *testing.T) {
 
 			h := auditNewHandler(t)
 			resp := auditCreate(t, h, tt.name+"-kinesis-target-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:kinesis:us-west-2:123456789012:stream/out",
 				"DesiredState": "RUNNING",
@@ -280,6 +283,7 @@ func TestTargetParams_CloudWatchLogs(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-cwl-target-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:logs:us-west-2:123456789012:log-group:/pipes/out",
 				"DesiredState": "RUNNING",
@@ -333,6 +337,7 @@ func TestTargetParams_EventBridgeEventBus(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-eb-target-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:events:us-west-2:123456789012:event-bus/my-bus",
 				"DesiredState": "RUNNING",
@@ -382,6 +387,7 @@ func TestTargetParams_Redshift(t *testing.T) {
 
 			h := auditNewHandler(t)
 			resp := auditCreate(t, h, tt.name+"-redshift-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:redshift:us-west-2:123456789012:cluster:mycluster",
 				"DesiredState": "RUNNING",
@@ -441,6 +447,7 @@ func TestTargetParams_SageMaker(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-sm-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:sagemaker:us-west-2:123456789012:pipeline/my-pipeline",
 				"DesiredState": "RUNNING",
@@ -481,6 +488,7 @@ func TestInputTemplate_RoundTrip(t *testing.T) {
 
 			h := auditNewHandler(t)
 			body := map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -526,8 +534,9 @@ func TestStepFunctions_InvocationTypes(t *testing.T) {
 				sfnParams["InvocationType"] = tt.invocationType
 			}
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2SFNTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2SFNTarget,
 				"TargetParameters": map[string]any{
 					"StepFunctionStateMachineParameters": sfnParams,
 				},
@@ -599,8 +608,9 @@ func TestEventBridge_Params(t *testing.T) {
 			}
 
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": "arn:aws:events:us-east-1:123456789012:event-bus/mybus",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  "arn:aws:events:us-east-1:123456789012:event-bus/mybus",
 				"TargetParameters": map[string]any{
 					"EventBridgeEventBusParameters": ebParams,
 				},
@@ -689,8 +699,9 @@ func TestRedshift_Params(t *testing.T) {
 			}
 
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": "arn:aws:redshift:us-east-1:123456789012:cluster:mycluster",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  "arn:aws:redshift:us-east-1:123456789012:cluster:mycluster",
 				"TargetParameters": map[string]any{
 					"RedshiftDataParameters": rdParams,
 				},
@@ -765,8 +776,9 @@ func TestSageMaker_Params(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": "arn:aws:sagemaker:us-east-1:123456789012:pipeline/my-pipeline",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  "arn:aws:sagemaker:us-east-1:123456789012:pipeline/my-pipeline",
 				"TargetParameters": map[string]any{
 					"SageMakerPipelineParameters": map[string]any{
 						"PipelineParameterList": tt.paramList,
@@ -931,6 +943,7 @@ func TestTargetParams_Timestream_Update(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
+				RoleARN: "arn:aws:iam::123456789012:role/r",
 				TargetParameters: &pipes.TargetParameters{
 					TimestreamParameters: tt.updateParams,
 				},
@@ -1117,8 +1130,9 @@ func TestTargetParams_HTTP_Roundtrip(t *testing.T) {
 		{
 			name: "headers_survive_roundtrip",
 			body: map[string]any{
-				"Source": b4SQSSource,
-				"Target": "arn:aws:execute-api:eu-west-1:111122223333:api/stage/route",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b4SQSSource,
+				"Target":  "arn:aws:execute-api:eu-west-1:111122223333:api/stage/route",
 				"TargetParameters": map[string]any{
 					"HttpParameters": map[string]any{
 						"HeaderParameters": map[string]any{

@@ -6,13 +6,14 @@ import (
 )
 
 type storedChannel struct {
-	Tags         map[string]string `json:"tags"`
-	ARN          string            `json:"arn"`
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	ChannelClass string            `json:"channelClass"`
-	RoleARN      string            `json:"roleArn"`
-	State        string            `json:"state"`
+	Tags             map[string]string       `json:"tags"`
+	ARN              string                  `json:"arn"`
+	ID               string                  `json:"id"`
+	Name             string                  `json:"name"`
+	ChannelClass     string                  `json:"channelClass"`
+	RoleARN          string                  `json:"roleArn"`
+	State            string                  `json:"state"`
+	AnywhereSettings ChannelAnywhereSettings `json:"anywhereSettings"`
 }
 
 func (c *storedChannel) toChannel() *Channel {
@@ -20,23 +21,25 @@ func (c *storedChannel) toChannel() *Channel {
 	maps.Copy(tags, c.Tags)
 
 	return &Channel{
-		ARN:          c.ARN,
-		ID:           c.ID,
-		Name:         c.Name,
-		ChannelClass: c.ChannelClass,
-		RoleARN:      c.RoleARN,
-		State:        c.State,
-		Tags:         tags,
+		ARN:              c.ARN,
+		ID:               c.ID,
+		Name:             c.Name,
+		ChannelClass:     c.ChannelClass,
+		RoleARN:          c.RoleARN,
+		State:            c.State,
+		Tags:             tags,
+		AnywhereSettings: c.AnywhereSettings,
 	}
 }
 
 func (c *storedChannel) toSummary() *ChannelSummary {
 	return &ChannelSummary{
-		ARN:          c.ARN,
-		ID:           c.ID,
-		Name:         c.Name,
-		ChannelClass: c.ChannelClass,
-		State:        c.State,
+		ARN:              c.ARN,
+		ID:               c.ID,
+		Name:             c.Name,
+		ChannelClass:     c.ChannelClass,
+		State:            c.State,
+		AnywhereSettings: c.AnywhereSettings,
 	}
 }
 
@@ -274,9 +277,15 @@ type storedCluster struct {
 	ClusterType     string                 `json:"clusterType"`
 	InstanceRoleArn string                 `json:"instanceRoleArn"`
 	State           string                 `json:"state"`
+	NetworkSettings ClusterNetworkSettings `json:"networkSettings"`
 }
 
-func (c *storedCluster) toCluster() *Cluster {
+// toCluster converts to the domain Cluster shape. channelIDs is the live
+// set of Channel IDs whose AnywhereSettings.ClusterID matches this cluster
+// (derived, not persisted -- see Channel.AnywhereSettings' doc comment for
+// why gopherstack can now compute this instead of hardcoding an empty
+// list).
+func (c *storedCluster) toCluster(channelIDs []string) *Cluster {
 	tags := make(map[string]string, len(c.Tags))
 	maps.Copy(tags, c.Tags)
 
@@ -288,10 +297,12 @@ func (c *storedCluster) toCluster() *Cluster {
 		ClusterType:     c.ClusterType,
 		InstanceRoleArn: c.InstanceRoleArn,
 		State:           c.State,
+		NetworkSettings: c.NetworkSettings,
+		ChannelIDs:      channelIDs,
 	}
 }
 
-func (c *storedCluster) toSummary() *ClusterSummary {
+func (c *storedCluster) toSummary(channelIDs []string) *ClusterSummary {
 	return &ClusterSummary{
 		ARN:             c.ARN,
 		ID:              c.ID,
@@ -299,6 +310,8 @@ func (c *storedCluster) toSummary() *ClusterSummary {
 		ClusterType:     c.ClusterType,
 		InstanceRoleArn: c.InstanceRoleArn,
 		State:           c.State,
+		NetworkSettings: c.NetworkSettings,
+		ChannelIDs:      channelIDs,
 	}
 }
 
@@ -314,31 +327,36 @@ type storedNode struct {
 	ConnectionState string            `json:"connectionState"`
 }
 
-func (n *storedNode) toNode() *Node {
+// toNode converts to the domain Node shape. cpgIDs is the live set of
+// ChannelPlacementGroup IDs whose Nodes list contains this node's ID
+// (derived, not persisted).
+func (n *storedNode) toNode(cpgIDs []string) *Node {
 	tags := make(map[string]string, len(n.Tags))
 	maps.Copy(tags, n.Tags)
 
 	return &Node{
-		Tags:            tags,
-		ARN:             n.ARN,
-		ID:              n.ID,
-		Name:            n.Name,
-		ClusterID:       n.ClusterID,
-		Role:            n.Role,
-		State:           n.State,
-		ConnectionState: n.ConnectionState,
+		Tags:                   tags,
+		ARN:                    n.ARN,
+		ID:                     n.ID,
+		Name:                   n.Name,
+		ClusterID:              n.ClusterID,
+		Role:                   n.Role,
+		State:                  n.State,
+		ConnectionState:        n.ConnectionState,
+		ChannelPlacementGroups: cpgIDs,
 	}
 }
 
-func (n *storedNode) toSummary() *NodeSummary {
+func (n *storedNode) toSummary(cpgIDs []string) *NodeSummary {
 	return &NodeSummary{
-		ARN:             n.ARN,
-		ID:              n.ID,
-		Name:            n.Name,
-		ClusterID:       n.ClusterID,
-		Role:            n.Role,
-		State:           n.State,
-		ConnectionState: n.ConnectionState,
+		ARN:                    n.ARN,
+		ID:                     n.ID,
+		Name:                   n.Name,
+		ClusterID:              n.ClusterID,
+		Role:                   n.Role,
+		State:                  n.State,
+		ConnectionState:        n.ConnectionState,
+		ChannelPlacementGroups: cpgIDs,
 	}
 }
 
@@ -498,18 +516,19 @@ func (t *storedEventBridgeRuleTemplate) toTemplate() *EventBridgeRuleTemplate {
 type storedReservation struct {
 	Tags                  map[string]string             `json:"tags"`
 	ResourceSpecification OfferingResourceSpecification `json:"resourceSpecification"`
-	Arn                   string                        `json:"arn"`
+	OfferingType          string                        `json:"offeringType"`
+	End                   string                        `json:"end"`
 	ReservationID         string                        `json:"reservationId"`
 	Name                  string                        `json:"name"`
 	OfferingID            string                        `json:"offeringId"`
 	OfferingDescription   string                        `json:"offeringDescription"`
-	OfferingType          string                        `json:"offeringType"`
+	DurationUnits         string                        `json:"durationUnits"`
 	CurrencyCode          string                        `json:"currencyCode"`
 	Start                 string                        `json:"start"`
-	End                   string                        `json:"end"`
+	Arn                   string                        `json:"arn"`
 	Region                string                        `json:"region"`
 	State                 string                        `json:"state"`
-	DurationUnits         string                        `json:"durationUnits"`
+	RenewalSettings       RenewalSettings               `json:"renewalSettings"`
 	FixedPrice            float64                       `json:"fixedPrice"`
 	UsagePrice            float64                       `json:"usagePrice"`
 	Duration              int32                         `json:"duration"`
@@ -522,7 +541,8 @@ func (r *storedReservation) toReservation() *Reservation {
 
 	return &Reservation{
 		Tags: tags, ResourceSpecification: r.ResourceSpecification,
-		Arn: r.Arn, ReservationID: r.ReservationID, Name: r.Name,
+		RenewalSettings: r.RenewalSettings,
+		Arn:             r.Arn, ReservationID: r.ReservationID, Name: r.Name,
 		OfferingID: r.OfferingID, OfferingDescription: r.OfferingDescription,
 		OfferingType: r.OfferingType, CurrencyCode: r.CurrencyCode,
 		Start: r.Start, End: r.End, Region: r.Region, State: r.State,
@@ -602,15 +622,18 @@ type storedChannelPlacementGroup struct {
 	Name      string            `json:"name"`
 	ClusterID string            `json:"clusterId"`
 	State     string            `json:"state"`
-	Channels  []string          `json:"channels"`
 	Nodes     []string          `json:"nodes"`
 }
 
-func (g *storedChannelPlacementGroup) toGroup() *ChannelPlacementGroup {
+// toGroup converts to the domain ChannelPlacementGroup shape. channelIDs is
+// the live set of Channel IDs whose AnywhereSettings.ChannelPlacementGroupID
+// matches this group (derived, not persisted -- the group previously had a
+// "Channels" field that was always initialized to an empty slice and never
+// updated on channel attach; replaced with a live derivation now that
+// Channel.AnywhereSettings tracks the association).
+func (g *storedChannelPlacementGroup) toGroup(channelIDs []string) *ChannelPlacementGroup {
 	tags := make(map[string]string, len(g.Tags))
 	maps.Copy(tags, g.Tags)
-	channels := make([]string, len(g.Channels))
-	copy(channels, g.Channels)
 	nodes := make([]string, len(g.Nodes))
 	copy(nodes, g.Nodes)
 
@@ -621,7 +644,7 @@ func (g *storedChannelPlacementGroup) toGroup() *ChannelPlacementGroup {
 		Name:      g.Name,
 		ClusterID: g.ClusterID,
 		State:     g.State,
-		Channels:  channels,
+		Channels:  channelIDs,
 		Nodes:     nodes,
 	}
 }

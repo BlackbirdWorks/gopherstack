@@ -3,7 +3,6 @@ package sesv2
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -47,8 +46,25 @@ func (h *Handler) handleGetDeliverabilityDashboardOptions() (any, error) {
 	return opts, nil
 }
 
-func (h *Handler) handlePutDeliverabilityDashboardOption() (any, error) {
-	if err := h.Backend.PutDeliverabilityDashboardOption(); err != nil {
+type putDeliverabilityDashboardOptionInput struct {
+	SubscribedDomains []struct {
+		Domain string `json:"Domain"`
+	} `json:"SubscribedDomains"`
+	DashboardEnabled bool `json:"DashboardEnabled"`
+}
+
+func (h *Handler) handlePutDeliverabilityDashboardOption(c *echo.Context) (any, error) {
+	var in putDeliverabilityDashboardOptionInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
+
+	domains := make([]string, 0, len(in.SubscribedDomains))
+	for _, d := range in.SubscribedDomains {
+		domains = append(domains, d.Domain)
+	}
+
+	if err := h.Backend.PutDeliverabilityDashboardOption(in.DashboardEnabled, domains); err != nil {
 		return nil, err
 	}
 
@@ -87,28 +103,16 @@ func (h *Handler) handleListDeliverabilityTestReports(c *echo.Context) (any, err
 }
 
 // handleGetDomainDeliverabilityCampaign serves
-// GET /v2/email/deliverability-dashboard/campaigns/{domain}/{campaignId}.
-// After stripping the /v2/email/ prefix the path yields exactly 4 segments
-// (0: "deliverability-dashboard", 1: "campaigns", 2: domain, 3: campaignId),
-// so the campaign ID lives at segments[3] -- matching every other handler in
-// this file that reads a 4-segment path. (Bug fix: was `>= 5`/`segments[4]`.)
-func (h *Handler) handleGetDomainDeliverabilityCampaign(
-	c *echo.Context,
-	domain string,
-) (any, error) {
-	segments := strings.Split(strings.TrimPrefix(c.Request().URL.Path, sesv2PathPrefix), "/")
-	campaignID := ""
-
-	if len(segments) >= 4 { //nolint:mnd // URL segment index is self-documenting in context
-		campaignID = segments[3]
-	}
-
-	result, err := h.Backend.GetDomainDeliverabilityCampaign(domain, campaignID)
+// GET /v2/email/deliverability-dashboard/campaigns/{CampaignId}. The real
+// SDK op takes only a campaign ID -- no domain -- confirmed against
+// GetDomainDeliverabilityCampaignInput in aws-sdk-go-v2/service/sesv2.
+func (h *Handler) handleGetDomainDeliverabilityCampaign(campaignID string) (any, error) {
+	result, err := h.Backend.GetDomainDeliverabilityCampaign(campaignID)
 	if err != nil {
 		return nil, err
 	}
 
-	return result, nil
+	return map[string]any{"DomainDeliverabilityCampaign": result}, nil
 }
 
 func (h *Handler) handleGetDomainStatisticsReport(c *echo.Context, domain string) (any, error) {
@@ -147,8 +151,19 @@ func (h *Handler) handleListDomainDeliverabilityCampaigns(
 	}, nil
 }
 
-func (h *Handler) handleGetEmailAddressInsights(email string) (any, error) {
-	result, err := h.Backend.GetEmailAddressInsights(email)
+type getEmailAddressInsightsInput struct {
+	EmailAddress string `json:"EmailAddress"`
+}
+
+// handleGetEmailAddressInsights serves POST /v2/email/email-address-insights
+// (EmailAddress travels in the JSON body, not the URL).
+func (h *Handler) handleGetEmailAddressInsights(c *echo.Context) (any, error) {
+	var in getEmailAddressInsightsInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
+
+	result, err := h.Backend.GetEmailAddressInsights(in.EmailAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -156,10 +171,20 @@ func (h *Handler) handleGetEmailAddressInsights(email string) (any, error) {
 	return result, nil
 }
 
-func (h *Handler) handleListRecommendations(c *echo.Context) (any, error) {
-	nextToken := c.QueryParam("NextToken")
+type listRecommendationsInput struct {
+	Filter    map[string]string `json:"Filter"`
+	NextToken string            `json:"NextToken"`
+	PageSize  int32             `json:"PageSize"`
+}
 
-	items, next, err := h.Backend.ListRecommendations(nextToken, 0)
+// handleListRecommendations serves POST /v2/email/vdm/recommendations.
+func (h *Handler) handleListRecommendations(c *echo.Context) (any, error) {
+	var in listRecommendationsInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
+
+	items, next, err := h.Backend.ListRecommendations(in.NextToken, int(in.PageSize))
 	if err != nil {
 		return nil, err
 	}
@@ -181,10 +206,20 @@ func (h *Handler) handleGetReputationEntity(entityID string) (any, error) {
 	return map[string]any{"ReputationEntity": result}, nil
 }
 
-func (h *Handler) handleListReputationEntities(c *echo.Context) (any, error) {
-	nextToken := c.QueryParam("NextToken")
+type listReputationEntitiesInput struct {
+	Filter    map[string]string `json:"Filter"`
+	NextToken string            `json:"NextToken"`
+	PageSize  int32             `json:"PageSize"`
+}
 
-	items, next, err := h.Backend.ListReputationEntities(nextToken, 0)
+// handleListReputationEntities serves POST /v2/email/reputation/entities.
+func (h *Handler) handleListReputationEntities(c *echo.Context) (any, error) {
+	var in listReputationEntitiesInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
+
+	items, next, err := h.Backend.ListReputationEntities(in.NextToken, int(in.PageSize))
 	if err != nil {
 		return nil, err
 	}

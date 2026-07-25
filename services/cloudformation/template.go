@@ -22,6 +22,10 @@ import (
 // ErrEmptyTemplate is returned when a template body is empty.
 var ErrEmptyTemplate = errors.New("template body is empty")
 
+// errUnexpectedYAMLNodeKind is an internal, defensive-only sentinel for
+// normalizeYAMLNodeValue's unreachable default case (see its doc comment).
+var errUnexpectedYAMLNodeKind = errors.New("unexpected YAML node kind")
+
 // ErrParameterValidation is returned when a parameter value fails AllowedValues validation.
 var ErrParameterValidation = errors.New("parameter validation failed")
 
@@ -32,6 +36,15 @@ const splitSep = "\x00"
 const (
 	resTypeStepFunctionsStateMachine = "AWS::StepFunctions::StateMachine"
 	attrNameArn                      = "Arn"
+	fnGetAtt                         = "Fn::GetAtt"
+	// yamlMappingContentStride is the step size when walking a yaml.Node's
+	// Content slice for a MappingNode, which interleaves key/value pairs
+	// (Content[2i] is a pair's key, Content[2i+1] its value).
+	yamlMappingContentStride = 2
+	// getAttShortFormParts is the number of parts !GetAtt's dotted short-form
+	// scalar ("LogicalId.Attribute") splits into for the long-form
+	// Fn::GetAtt: [logicalId, attributeName] two-element list.
+	getAttShortFormParts = 2
 )
 
 // Template represents a parsed CloudFormation template.
@@ -43,6 +56,89 @@ type Template struct {
 	Conditions               map[string]any               `json:"Conditions"               yaml:"Conditions"`
 	AWSTemplateFormatVersion string                       `json:"AWSTemplateFormatVersion" yaml:"AWSTemplateFormatVersion"`
 	Description              string                       `json:"Description"              yaml:"Description"`
+	// Transform is the top-level Transform section (e.g. AWS::Serverless-2016-10-31,
+	// or a macro name/list of macro names). Per real CloudFormation semantics its
+	// wire representation is either a single string or a list of strings; the
+	// custom Unmarshal(JSON|YAML) below normalizes both to a []string.
+	Transform []string `json:"Transform" yaml:"Transform"`
+}
+
+// templatePlain mirrors Template field-for-field but with Transform typed as
+// `any` so the JSON/YAML decoder can accept either a bare string or a list of
+// strings, matching the real CloudFormation template schema. Both
+// Template.UnmarshalJSON and Template.UnmarshalYAML decode into this shape
+// and copy fields across explicitly (rather than embedding it anonymously),
+// mirroring TemplateResource's UnmarshalJSON/UnmarshalYAML above -- gopkg.in/
+// yaml.v3 does not auto-promote fields from an anonymously embedded pointer
+// the way encoding/json does, so an embed-based alias trick silently drops
+// every field on the YAML path.
+type templatePlain struct {
+	Parameters               map[string]TemplateParameter `json:"Parameters"               yaml:"Parameters"`
+	Resources                map[string]TemplateResource  `json:"Resources"                yaml:"Resources"`
+	Outputs                  map[string]TemplateOutput    `json:"Outputs"                  yaml:"Outputs"`
+	Mappings                 map[string]any               `json:"Mappings"                 yaml:"Mappings"`
+	Conditions               map[string]any               `json:"Conditions"               yaml:"Conditions"`
+	Transform                any                          `json:"Transform"                yaml:"Transform"`
+	AWSTemplateFormatVersion string                       `json:"AWSTemplateFormatVersion" yaml:"AWSTemplateFormatVersion"`
+	Description              string                       `json:"Description"              yaml:"Description"`
+}
+
+func (t *Template) fromPlain(p templatePlain) {
+	t.Parameters = p.Parameters
+	t.Resources = p.Resources
+	t.Outputs = p.Outputs
+	t.Mappings = p.Mappings
+	t.Conditions = p.Conditions
+	t.AWSTemplateFormatVersion = p.AWSTemplateFormatVersion
+	t.Description = p.Description
+	t.Transform = parseTransform(p.Transform)
+}
+
+// UnmarshalJSON implements [json.Unmarshaler] for Template so the top-level
+// Transform key can be either a JSON string or a JSON array of strings, per
+// the real CloudFormation template schema.
+func (t *Template) UnmarshalJSON(data []byte) error {
+	var p templatePlain
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+	t.fromPlain(p)
+
+	return nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler for Template, mirroring
+// UnmarshalJSON's string-or-list normalization for the top-level Transform key.
+func (t *Template) UnmarshalYAML(unmarshal func(any) error) error {
+	var p templatePlain
+	if err := unmarshal(&p); err != nil {
+		return err
+	}
+	t.fromPlain(p)
+
+	return nil
+}
+
+// parseTransform normalizes the top-level Transform value (string, []string,
+// or []any of strings) into a []string.
+func parseTransform(v any) []string {
+	switch tv := v.(type) {
+	case string:
+		return []string{tv}
+	case []string:
+		return tv
+	case []any:
+		out := make([]string, 0, len(tv))
+		for _, item := range tv {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+
+		return out
+	default:
+		return nil
+	}
 }
 
 // TemplateParameter represents a CloudFormation template parameter.
@@ -168,21 +264,178 @@ func ParseTemplate(body string) (*Template, error) {
 		body = expanded
 	}
 
-	var tmpl Template
-
-	if strings.HasPrefix(body, "{") {
-		if err := json.Unmarshal([]byte(body), &tmpl); err != nil {
-			return nil, fmt.Errorf("failed to parse JSON template: %w", err)
+	if !strings.HasPrefix(body, "{") {
+		converted, err := yamlToJSON(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse YAML template: %w", err)
 		}
-
-		return &tmpl, nil
+		body = converted
 	}
 
-	if err := yaml.Unmarshal([]byte(body), &tmpl); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML template: %w", err)
+	var tmpl Template
+	if err := json.Unmarshal([]byte(body), &tmpl); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON template: %w", err)
 	}
 
 	return &tmpl, nil
+}
+
+// yamlShortFormTags maps a YAML custom tag (as it appears on a *yaml.Node,
+// e.g. "!Ref") to the long-form key CloudFormation's JSON template schema
+// uses for the same intrinsic function/pseudo-reference.
+//
+//nolint:gochecknoglobals // static lookup table, analogous to errCodeLookup-style tables elsewhere
+var yamlShortFormTags = map[string]string{
+	"!Ref":         "Ref",
+	"!Condition":   "Condition",
+	"!GetAtt":      fnGetAtt,
+	"!Sub":         "Fn::Sub",
+	"!Join":        "Fn::Join",
+	"!Select":      "Fn::Select",
+	"!Split":       "Fn::Split",
+	"!Base64":      "Fn::Base64",
+	"!Cidr":        "Fn::Cidr",
+	"!ImportValue": "Fn::ImportValue",
+	"!GetAZs":      "Fn::GetAZs",
+	"!FindInMap":   "Fn::FindInMap",
+	"!And":         "Fn::And",
+	"!Or":          "Fn::Or",
+	"!Not":         "Fn::Not",
+	"!Equals":      "Fn::Equals",
+	"!If":          "Fn::If",
+	"!Transform":   "Fn::Transform",
+}
+
+// yamlToJSON converts a YAML CloudFormation template body to an equivalent
+// JSON document, expanding every YAML short-form intrinsic tag (!Ref, !Sub,
+// !GetAtt, !Join, ...) into its long-form map representation ({"Ref": ...},
+// {"Fn::Sub": ...}, {"Fn::GetAtt": [...]}, ...) along the way.
+//
+// Previously ParseTemplate called gopkg.in/yaml.v3's Unmarshal directly into
+// typed structs (and parseGenericTemplate into a bare map[string]any); yaml.v3
+// silently discards any custom tag it doesn't recognize and decodes just the
+// tagged node's native content, so `!Ref MyParam` decoded to the bare string
+// "MyParam" instead of the long-form {"Ref": "MyParam"} intrinsic-function
+// call callers everywhere else in this package (template.go's resolve*
+// functions, changeset_diff.go, ...) expect. That silently downgraded every
+// YAML short-form intrinsic to a literal string rather than resolving it or
+// erroring -- this walks the raw *yaml.Node tree first so no tag information
+// is lost before the JSON round-trip.
+func yamlToJSON(body string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		return "", err
+	}
+
+	val, err := normalizeYAMLNode(&doc)
+	if err != nil {
+		return "", err
+	}
+
+	out, err := json.Marshal(val)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialise normalised YAML template: %w", err)
+	}
+
+	return string(out), nil
+}
+
+// normalizeYAMLNode converts a *yaml.Node into a plain Go value (map[string]any
+// / []any / string / float64 / bool / nil), expanding short-form intrinsic tags
+// via yamlShortFormTags into their long-form map representation.
+func normalizeYAMLNode(node *yaml.Node) (any, error) {
+	switch node.Kind {
+	case yaml.DocumentNode:
+		if len(node.Content) == 0 {
+			// A fully empty YAML document has no root node to normalize;
+			// represent it the same way an empty JSON template body ("{}")
+			// would, rather than returning a bare (nil, nil) the caller
+			// can't distinguish from "decode failed silently".
+			return map[string]any{}, nil
+		}
+
+		return normalizeYAMLNode(node.Content[0])
+	case yaml.AliasNode:
+		return normalizeYAMLNode(node.Alias)
+	case yaml.SequenceNode, yaml.MappingNode, yaml.ScalarNode:
+		// Handled below (after the switch): these carry a possible short-form
+		// intrinsic tag, so they share the yamlShortFormTags lookup instead of
+		// being special-cased per-kind here.
+	}
+
+	if fnKey, ok := yamlShortFormTags[node.Tag]; ok {
+		inner, err := normalizeYAMLNodeValue(node)
+		if err != nil {
+			return nil, err
+		}
+
+		return wrapYAMLIntrinsic(fnKey, inner), nil
+	}
+
+	return normalizeYAMLNodeValue(node)
+}
+
+// normalizeYAMLNodeValue decodes node's native content (ignoring any custom
+// tag it may carry -- the caller has already consumed that), recursing into
+// mapping/sequence children via normalizeYAMLNode so nested short-form tags
+// are expanded too.
+func normalizeYAMLNodeValue(node *yaml.Node) (any, error) {
+	switch node.Kind {
+	case yaml.MappingNode:
+		m := make(map[string]any, len(node.Content)/yamlMappingContentStride)
+		for i := 0; i+1 < len(node.Content); i += yamlMappingContentStride {
+			var key string
+			if err := node.Content[i].Decode(&key); err != nil {
+				return nil, err
+			}
+			val, err := normalizeYAMLNode(node.Content[i+1])
+			if err != nil {
+				return nil, err
+			}
+			m[key] = val
+		}
+
+		return m, nil
+	case yaml.SequenceNode:
+		s := make([]any, 0, len(node.Content))
+		for _, c := range node.Content {
+			v, err := normalizeYAMLNode(c)
+			if err != nil {
+				return nil, err
+			}
+			s = append(s, v)
+		}
+
+		return s, nil
+	case yaml.ScalarNode:
+		var v any
+		if err := node.Decode(&v); err != nil {
+			return nil, err
+		}
+
+		return v, nil
+	default:
+		// yaml.Node.Kind is one of the five documented constants; Document/Alias
+		// are handled by the caller (normalizeYAMLNode) before reaching here, so
+		// this branch is defensive-only and should be unreachable in practice.
+		return nil, fmt.Errorf("%w: kind %v", errUnexpectedYAMLNodeKind, node.Kind)
+	}
+}
+
+// wrapYAMLIntrinsic builds the long-form map representation for a short-form
+// intrinsic tag given its already-decoded inner value. Fn::GetAtt gets special
+// handling: its short form is a single dotted scalar ("LogicalId.Attribute"),
+// which the long form represents as a two-element list.
+func wrapYAMLIntrinsic(fnKey string, inner any) any {
+	if fnKey == fnGetAtt {
+		if s, ok := inner.(string); ok {
+			parts := strings.SplitN(s, ".", getAttShortFormParts)
+
+			return map[string]any{fnGetAtt: parts}
+		}
+	}
+
+	return map[string]any{fnKey: inner}
 }
 
 const forEachPrefix = "Fn::ForEach::"
@@ -219,18 +472,21 @@ func expandLanguageExtensions(body string) (string, error) {
 	return string(out), nil
 }
 
-// parseGenericTemplate decodes a JSON or YAML template into a generic map.
+// parseGenericTemplate decodes a JSON or YAML template into a generic map,
+// expanding YAML short-form intrinsic tags via yamlToJSON (see ParseTemplate).
 func parseGenericTemplate(body string) (map[string]any, error) {
-	var doc map[string]any
-	if strings.HasPrefix(strings.TrimSpace(body), "{") {
-		if err := json.Unmarshal([]byte(body), &doc); err != nil {
-			return nil, fmt.Errorf("failed to parse JSON template: %w", err)
+	trimmed := strings.TrimSpace(body)
+	if !strings.HasPrefix(trimmed, "{") {
+		converted, err := yamlToJSON(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse YAML template: %w", err)
 		}
-
-		return doc, nil
+		trimmed = converted
 	}
-	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML template: %w", err)
+
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &doc); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON template: %w", err)
 	}
 
 	return doc, nil
@@ -718,7 +974,7 @@ func resolveCollectionIntrinsic(val map[string]any, ctx resolveCtx) (string, boo
 	}
 
 	// Fn::GetAtt: [LogicalID, AttributeName] (#9)
-	if getAttArgs, isGetAtt := val["Fn::GetAtt"].([]any); isGetAtt && len(getAttArgs) == 2 {
+	if getAttArgs, isGetAtt := val[fnGetAtt].([]any); isGetAtt && len(getAttArgs) == 2 {
 		logicalID, _ := getAttArgs[0].(string)
 		attrName, _ := getAttArgs[1].(string)
 

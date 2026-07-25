@@ -101,7 +101,7 @@ func TestHandler_Purge(t *testing.T) {
 	rec := doRequest(t, h, "DescribeClusters", map[string]any{
 		"ClusterName": "purge-test",
 	})
-	assert.Equal(t, 404, rec.Code)
+	assert.Equal(t, 400, rec.Code)
 }
 
 // TestRefinement1_PurgeIncludesSnapshots verifies Purge removes snapshots.

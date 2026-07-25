@@ -11,9 +11,10 @@ import (
 )
 
 type createWirelessGatewayRequest struct {
-	Name        string    `json:"Name"`
-	Description string    `json:"Description"`
-	Tags        []tags.KV `json:"Tags"`
+	LoRaWAN     map[string]any `json:"LoRaWAN,omitempty"`
+	Name        string         `json:"Name"`
+	Description string         `json:"Description"`
+	Tags        []tags.KV      `json:"Tags"`
 }
 
 type createWirelessGatewayResponse struct {
@@ -22,15 +23,17 @@ type createWirelessGatewayResponse struct {
 }
 
 type wirelessGatewayEntry struct {
-	Arn         string `json:"Arn"`
-	ID          string `json:"Id"`
-	Name        string `json:"Name"`
-	Description string `json:"Description"`
-	ThingArn    string `json:"ThingArn,omitempty"`
-	ThingName   string `json:"ThingName,omitempty"`
+	LoRaWAN     map[string]any `json:"LoRaWAN,omitempty"`
+	Arn         string         `json:"Arn"`
+	ID          string         `json:"Id"`
+	Name        string         `json:"Name"`
+	Description string         `json:"Description"`
+	ThingArn    string         `json:"ThingArn,omitempty"`
+	ThingName   string         `json:"ThingName,omitempty"`
 }
 
 type listWirelessGatewaysResponse struct {
+	NextToken           string                 `json:"NextToken"`
 	WirelessGatewayList []wirelessGatewayEntry `json:"WirelessGatewayList"`
 }
 
@@ -54,7 +57,7 @@ func (h *Handler) createWirelessGateway(c *echo.Context, body []byte) error {
 
 	gw, err := h.Backend.CreateWirelessGateway(
 		h.AccountID, h.DefaultRegion,
-		req.Name, req.Description, tagKVsToMap(req.Tags),
+		req.Name, req.Description, req.LoRaWAN, tagKVsToMap(req.Tags),
 	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
@@ -76,6 +79,7 @@ func (h *Handler) getWirelessGateway(c *echo.Context, id string) error {
 		ID:          gw.ID,
 		Name:        gw.Name,
 		Description: gw.Description,
+		LoRaWAN:     gw.LoRaWAN,
 		ThingArn:    thingArn,
 		ThingName:   thingNameFromArn(thingArn),
 	})
@@ -83,18 +87,21 @@ func (h *Handler) getWirelessGateway(c *echo.Context, id string) error {
 
 func (h *Handler) listWirelessGateways(c *echo.Context) error {
 	gws := h.Backend.ListWirelessGateways(h.AccountID, h.DefaultRegion)
-	entries := make([]wirelessGatewayEntry, 0, len(gws))
+	pg, next := paginateQuery(c, gws)
 
-	for _, gw := range gws {
+	entries := make([]wirelessGatewayEntry, 0, len(pg))
+
+	for _, gw := range pg {
 		entries = append(entries, wirelessGatewayEntry{
 			Arn:         gw.ARN,
 			ID:          gw.ID,
 			Name:        gw.Name,
 			Description: gw.Description,
+			LoRaWAN:     gw.LoRaWAN,
 		})
 	}
 
-	return writeJSON(c, http.StatusOK, listWirelessGatewaysResponse{WirelessGatewayList: entries})
+	return writeJSON(c, http.StatusOK, listWirelessGatewaysResponse{WirelessGatewayList: entries, NextToken: next})
 }
 
 func (h *Handler) deleteWirelessGateway(c *echo.Context, id string) error {
@@ -126,14 +133,32 @@ func (h *Handler) associateWirelessGatewayWithThing(c *echo.Context, gatewayID s
 
 func (h *Handler) updateWirelessGateway(c *echo.Context, id string) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
+		MaxEirp        *float32   `json:"MaxEirp"`
+		Name           string     `json:"Name"`
+		Description    string     `json:"Description"`
+		JoinEuiFilters [][]string `json:"JoinEuiFilters"`
+		NetIDFilters   []string   `json:"NetIdFilters"`
 	}
 
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	if err := h.Backend.UpdateWirelessGateway(h.AccountID, h.DefaultRegion, id, req.Name, req.Description); err != nil {
+	loRaWANUpdates := map[string]any{}
+	if req.JoinEuiFilters != nil {
+		loRaWANUpdates["JoinEuiFilters"] = req.JoinEuiFilters
+	}
+
+	if req.NetIDFilters != nil {
+		loRaWANUpdates["NetIdFilters"] = req.NetIDFilters
+	}
+
+	if req.MaxEirp != nil {
+		loRaWANUpdates["MaxEirp"] = *req.MaxEirp
+	}
+
+	if err := h.Backend.UpdateWirelessGateway(
+		h.AccountID, h.DefaultRegion, id, req.Name, req.Description, loRaWANUpdates,
+	); err != nil {
 		return handleError(c, err)
 	}
 

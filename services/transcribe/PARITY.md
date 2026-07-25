@@ -6,63 +6,67 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transcribe
 sdk_module: aws-sdk-go-v2/service/transcribe@v1.55.0   # version audited against
-last_audit_commit: 0e2e9a93               # HEAD when this manifest was written
-last_audit_date: 2026-07-12
+last_audit_commit: 92c92ff03               # HEAD when this manifest was written
+last_audit_date: 2026-07-24
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  StartTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps + tag sync"}
-  GetTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps; deferred-job polling advances QUEUED->IN_PROGRESS->COMPLETED correctly"}
-  ListTranscriptionJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps"}
-  DeleteTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "now forgets resource tags"}
-  StartCallAnalyticsJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps + tag sync"}
+  StartTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "added LanguageIdSettings threading; removed invented top-level OutputBucketName/OutputKey (not real TranscriptionJob fields -- output location only lives in Transcript.TranscriptFileUri)"}
+  GetTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as Start; deferred-job polling advances QUEUED->IN_PROGRESS->COMPLETED correctly"}
+  ListTranscriptionJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "added JobNameContains filter + missing TranscriptionJobSummary fields (StartTime, IdentifyLanguage, IdentifyMultipleLanguages, IdentifiedLanguageScore, ContentRedaction, ModelSettings, LanguageCodes, ToxicityDetection, OutputLocationType)"}
+  DeleteTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
+  StartCallAnalyticsJob: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCallAnalyticsJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListCallAnalyticsJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps"}
-  DeleteCallAnalyticsJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "now forgets resource tags"}
-  CreateCallAnalyticsCategory: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags input was silently dropped; now threaded through and synced"}
-  GetCallAnalyticsCategory: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateCallAnalyticsCategory: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteCallAnalyticsCategory: {wire: ok, errors: ok, state: ok, persist: ok, note: "now forgets resource tags"}
-  ListCallAnalyticsCategories: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateLanguageModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags input was silently dropped; now threaded through and synced"}
-  DeleteLanguageModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "now forgets resource tags"}
-  DescribeLanguageModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps"}
-  ListLanguageModels: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps"}
-  CreateVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags input was silently dropped; now threaded through and synced"}
-  GetVocabulary: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateVocabulary: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "now forgets resource tags"}
-  ListVocabularies: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateVocabularyFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags input was silently dropped; now threaded through and synced"}
-  GetVocabularyFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateVocabularyFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteVocabularyFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "now forgets resource tags"}
-  ListVocabularyFilters: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateMedicalVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags param was entirely absent from the backend signature; added"}
-  GetMedicalVocabulary: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateMedicalVocabulary: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteMedicalVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "now forgets resource tags"}
-  ListMedicalVocabularies: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartMedicalScribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps + tag sync"}
-  GetMedicalScribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps"}
-  ListMedicalScribeJobs: {wire: partial, errors: ok, state: ok, persist: ok, note: "summary reuses the full get-shape (extra fields Media/Settings/Tags/etc. beyond real MedicalScribeJobSummary); harmless (unknown JSON fields ignored by SDK deserializer), not fixed this pass"}
-  DeleteMedicalScribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "now forgets resource tags"}
-  StartMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps + tag sync"}
-  GetMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed epoch timestamps"}
-  ListMedicalTranscriptionJobs: {wire: partial, errors: ok, state: ok, persist: ok, note: "summary reuses the full get-shape (extra fields beyond real MedicalTranscriptionJobSummary); harmless, not fixed this pass"}
-  DeleteMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "now forgets resource tags"}
+  ListCallAnalyticsJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "added JobNameContains filter + missing StartTime on CallAnalyticsJobSummary"}
+  DeleteCallAnalyticsJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
+  CreateCallAnalyticsCategory: {wire: ok, errors: ok, state: ok, persist: ok, note: "CategoryProperties now includes CreateTime/LastUpdateTime/Tags (were silently dropped)"}
+  GetCallAnalyticsCategory: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CategoryProperties fix"}
+  UpdateCallAnalyticsCategory: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CategoryProperties fix"}
+  DeleteCallAnalyticsCategory: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
+  ListCallAnalyticsCategories: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CategoryProperties fix"}
+  CreateLanguageModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now echoes InputDataConfig (was dropped)"}
+  DeleteLanguageModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
+  DescribeLanguageModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "added FailureReason field to LanguageModel (was missing entirely)"}
+  ListLanguageModels: {wire: ok, errors: ok, state: ok, persist: ok, note: "added NameContains filter"}
+  CreateVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now includes LastModifiedTime + FailureReason (both were missing)"}
+  GetVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now includes FailureReason"}
+  UpdateVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now includes LastModifiedTime"}
+  DeleteVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
+  ListVocabularies: {wire: ok, errors: ok, state: ok, persist: ok, note: "added NameContains filter + top-level Status field (echoes StateEquals, per real ListVocabulariesOutput)"}
+  CreateVocabularyFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now includes LastModifiedTime (was missing)"}
+  GetVocabularyFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now includes DownloadUri + LastModifiedTime (both were missing entirely -- a client could not previously fetch a filter's contents via Get)"}
+  UpdateVocabularyFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now includes LastModifiedTime"}
+  DeleteVocabularyFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
+  ListVocabularyFilters: {wire: ok, errors: ok, state: ok, persist: ok, note: "added NameContains filter + LastModifiedTime on VocabularyFilterInfo (was missing)"}
+  CreateMedicalVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now includes LastModifiedTime + FailureReason"}
+  GetMedicalVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now includes FailureReason"}
+  UpdateMedicalVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "output now includes LastModifiedTime"}
+  DeleteMedicalVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
+  ListMedicalVocabularies: {wire: ok, errors: ok, state: ok, persist: ok, note: "added NameContains filter + top-level Status field"}
+  StartMedicalScribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "removed invented top-level OutputBucketName; added synthesized MedicalScribeOutput (ClinicalDocumentUri/TranscriptFileUri), a real field gopherstack omitted entirely"}
+  GetMedicalScribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as Start"}
+  ListMedicalScribeJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (was partial): summary now trimmed to the real MedicalScribeJobSummary fields (no more Media/Settings/Tags/ChannelDefinitions leaking through) + added JobNameContains filter"}
+  DeleteMedicalScribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
+  StartMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "removed invented top-level OutputBucketName/OutputKey"}
+  GetMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as Start"}
+  ListMedicalTranscriptionJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (was partial): summary now trimmed to the real MedicalTranscriptionJobSummary fields, plus added the previously-missing OutputLocationType/ContentIdentificationType/Specialty/Type/StartTime fields + JobNameContains filter"}
+  DeleteMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "now actually observes tags supplied at resource-creation time, not just tags added later via TagResource"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  vocabulary_get_lastmodified: {status: ok, note: "GetVocabulary/GetMedicalVocabulary already used epoch float64 (Unix()); standardized on pkgs/awstime.Epoch for sub-second precision consistency with the rest of the fix"}
+  vocabulary_get_lastmodified: {status: ok, note: "unchanged this pass"}
+  list_namecontains_filters: {status: ok, note: "NEW this pass: NameContains/JobNameContains was completely unimplemented on all 7 List ops that document it (ListVocabularies, ListMedicalVocabularies, ListVocabularyFilters, ListTranscriptionJobs, ListMedicalTranscriptionJobs, ListMedicalScribeJobs, ListCallAnalyticsJobs, ListLanguageModels); a client filtering by name substring got the unfiltered full list back. Fixed via matchesNameContains (case-insensitive substring, store.go) threaded through every backend List method + StorageBackend interface + handler input struct."}
+  language_id_settings: {status: ok, note: "NEW this pass: LanguageIdSettings (StartTranscriptionJobInput field + TranscriptionJob.LanguageIdSettings response field, used for per-language custom-vocabulary/model selection under IdentifyLanguage/IdentifyMultipleLanguages) was entirely unimplemented -- not in the input struct, not stored, not echoed. Added end-to-end."}
+  invented_output_fields_removed: {status: ok, note: "NEW this pass: TranscriptionJob/MedicalTranscriptionJob/MedicalScribeJob Get+Start responses previously echoed top-level OutputBucketName/OutputKey fields that do not exist on the real TranscriptionJob/MedicalTranscriptionJob/MedicalScribeJob response shapes (confirmed against types.go -- output location is only ever surfaced via the nested Transcript/MedicalScribeOutput URIs). Removed from all three wire-output structs; the backend structs keep the fields internally to compute the synthetic S3 URIs."}
 gaps:
-  - "ListMedicalScribeJobs/ListMedicalTranscriptionJobs summaries include extra fields (Media, Settings, Tags, OutputBucketName, etc.) not present on the real MedicalScribeJobSummary/MedicalTranscriptionJobSummary shapes. Harmless (unknown JSON keys are ignored by the SDK's json-1.1 deserializer) but a wire-shape deviation worth trimming in a future pass. Not fixed this sweep to keep scope on client-breaking bugs."
-  - "Systemic cross-service pattern (NOT transcribe-specific, seen in services/comprehend too): before this fix, Tags supplied at resource-creation time were never synced into the ARN-keyed tag store, so ListTagsForResource never reflected them. Transcribe now fixes this locally; other services likely still have the same gap and were left untouched per this task's scope (services/transcribe/ only) — worth a dedicated cross-service sweep, no bd issue filed for this run's scope."
-deferred:
-  - MedicalScribeJobSummary/MedicalTranscriptionJobSummary field-trimming (see gaps)
-leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore delegate cleanly to InMemoryBackend; Handler.Snapshot/Restore already exposed pre-audit"}
+  - "MaxResults (all List* ops) is accepted on the wire but not honored -- page size is a fixed constant (transcribeDefaultPageSize=100) regardless of the caller's requested MaxResults. AWS documents MaxResults as an upper bound the service may return fewer than, so this is non-conformant but not client-breaking (real SDK clients page via NextToken, not by asserting exact page sizes). Not fixed this pass; tracked as a future follow-up."
+  - "CallAnalyticsJobDetails (skipped-analytics-feature reporting) on CallAnalyticsJobSummary/CallAnalyticsJob is not implemented -- gopherstack's synthetic backend never skips any Call Analytics feature, so this optional field would always be absent/empty in a real scenario too; low priority."
+  - "MedicalScribeContext (StartMedicalScribeJobInput patient-context field) and MedicalScribeContextProvided (response echo of whether it was supplied) are not implemented. Since gopherstack never accepts MedicalScribeContext, MedicalScribeContextProvided would always be false, and awsjson1.1 omits false bool fields on the wire (matching the omitted-field behavior already produced by not implementing it) -- low priority, not client-breaking."
+  - "LanguageIdSettings keys are not cross-validated against LanguageOptions/IdentifyMultipleLanguages the way real AWS does (real API returns a validation error if a LanguageIdSettings key isn't also present in LanguageOptions). gopherstack accepts and echoes any keys supplied. Low priority correctness gap, not a wire-shape bug."
+deferred: []
+leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore delegate cleanly to InMemoryBackend; Handler.Snapshot/Restore already exposed. New backend struct fields (LanguageIdSettings, FailureReason x3, MedicalScribeOutput synthesis) are all pure additive struct fields going through the existing generic store.Table snapshot/restore path (store_setup.go) -- no new tables, no new lock paths, no persistence.go changes needed."}
 ---
 
 ## Notes
@@ -159,6 +163,108 @@ Fixed by:
 Regression tests: `TestBackend_CreationTags_SyncToResourceARN` (table-driven, all 9
 taggable creation ops) and `TestBackend_Delete_ForgetsResourceTags` /
 `TestBackend_CreationWithoutTags_LeavesResourceTagsEmpty` in the new backend_test.go.
+
+### Bug found and fixed #3 (2026-07-24 sweep) — NameContains filters, LanguageIdSettings, invented output fields, thin summary/output shapes
+
+This pass re-field-diffed every op against `aws-sdk-go-v2/service/transcribe@v1.55.0`'s
+generated `api_op_*.go`/`types.go` (not just the previously-audited output timestamp/tag
+issues) and found several real, previously-unnoticed wire-shape gaps:
+
+1. **NameContains/JobNameContains completely unimplemented** on all 7 List ops that
+   document it (`ListVocabularies`, `ListMedicalVocabularies`, `ListVocabularyFilters`,
+   `ListTranscriptionJobs`, `ListMedicalTranscriptionJobs`, `ListMedicalScribeJobs`,
+   `ListCallAnalyticsJobs`, `ListLanguageModels`) — a real client filtering by name
+   substring silently got back the full unfiltered list. Fixed with a shared
+   `matchesNameContains` helper (`store.go`, case-insensitive substring per AWS's "the
+   search is not case sensitive" doc wording) threaded through every backend `List*`
+   method, the `StorageBackend` interface, and every list handler's input struct.
+
+2. **LanguageIdSettings entirely missing** — real `StartTranscriptionJobInput` and the
+   `TranscriptionJob` response both carry a `LanguageIdSettings
+   map[string]LanguageIdSettings` field (per-language custom vocabulary/model/filter
+   selection under `IdentifyLanguage`/`IdentifyMultipleLanguages`), explicitly called
+   out for verification in this pass's task brief. gopherstack had no such field
+   anywhere — not in the input struct, not on the backend `TranscriptionJob`, not
+   echoed. Added end-to-end (`LanguageIDSettings map[string]LanguageIDSettings` on the
+   backend struct, threaded through `StartTranscriptionJob`'s input and
+   `transcriptionJobOutput`).
+
+3. **Invented top-level `OutputBucketName`/`OutputKey` response fields.** The real
+   `TranscriptionJob`, `MedicalTranscriptionJob`, and `MedicalScribeJob` response types
+   (confirmed against `types.go`) have **no** `OutputBucketName`/`OutputKey` fields at
+   all — the output location is only ever surfaced via the nested
+   `Transcript.TranscriptFileUri` (or `MedicalScribeOutput.*Uri`). gopherstack's three
+   `Get*`/`Start*` wire-output structs echoed these back at the top level regardless —
+   a gopherstack-invented field not present in the real SDK, per this task's hard
+   constraint to delete such fields. Removed from all three output structs; the
+   *backend* structs keep the fields (needed internally to compute the synthetic S3
+   URIs), only the wire response was trimmed.
+
+4. **`MedicalScribeJob` responses never included `MedicalScribeOutput`** — real AWS
+   returns `MedicalScribeOutput{ClinicalDocumentUri, TranscriptFileUri}` once a job
+   reaches `COMPLETED` (required fields on that type). gopherstack synthesized a
+   transcript URI for every other job family (`Transcript.TranscriptFileUri`) but never
+   did the equivalent for Medical Scribe jobs, meaning a client polling
+   `GetMedicalScribeJob` on a completed job had no way to locate its output at all.
+   Added `buildMedicalScribeOutputLocations`, synthesizing both URIs the same way
+   `buildTranscriptURI`/`buildMedicalTranscriptURI` already do for the other job kinds.
+
+5. **`ListMedicalScribeJobs`/`ListMedicalTranscriptionJobs` summary wire-shape
+   deviation** (previously flagged `partial` in this manifest, not fixed) — both
+   reused the full `Get*` output shape as their List summary, which is a strict
+   superset of the real `MedicalScribeJobSummary`/`MedicalTranscriptionJobSummary`
+   fields (leaking `Media`, `Settings`, `Tags`, `ChannelDefinitions`, etc.). Fixed by
+   introducing dedicated `medicalScribeJobSummary`/`medicalTranscriptionJobSummary`
+   wire types matching the real summary shapes field-for-field (including the
+   previously-absent `OutputLocationType`/`ContentIdentificationType`/`Specialty`/
+   `Type`/`StartTime` on the medical-transcription summary).
+
+6. **Several thinner-than-real output shapes**, each missing real, documented response
+   fields:
+   - `TranscriptionJobSummary` was missing `StartTime`, `IdentifyLanguage`,
+     `IdentifyMultipleLanguages`, `IdentifiedLanguageScore`, `ContentRedaction`,
+     `ModelSettings`, `LanguageCodes`, `ToxicityDetection`, and `OutputLocationType`
+     (added a `outputLocationType` helper deriving `CUSTOMER_BUCKET`/`SERVICE_BUCKET`
+     from whether `OutputBucketName` was set, matching AWS's documented semantics).
+   - `CallAnalyticsJobSummary` was missing `StartTime`.
+   - `CategoryProperties` (Call Analytics category Create/Get/Update/List) was missing
+     `CreateTime`, `LastUpdateTime`, and `Tags` entirely — real
+     `CreateCallAnalyticsCategoryOutput`/etc. include all three.
+   - `CreateVocabulary`/`CreateMedicalVocabulary` outputs were missing
+     `LastModifiedTime` and `FailureReason`; `UpdateVocabulary`/`UpdateMedicalVocabulary`
+     were missing `LastModifiedTime`; `GetVocabulary`/`GetMedicalVocabulary` were
+     missing `FailureReason`.
+   - `GetVocabularyFilterOutput` was missing **both** `DownloadUri` and
+     `LastModifiedTime` — meaning a real client had no way to fetch a vocabulary
+     filter's contents via `GetVocabularyFilter` at all, since gopherstack simply never
+     returned the URI. `CreateVocabularyFilterOutput`/`UpdateVocabularyFilterOutput`/
+     `VocabularyFilterInfo` (the `ListVocabularyFilters` element type) were all missing
+     `LastModifiedTime`.
+   - `ListVocabularies`/`ListMedicalVocabularies` were missing the top-level `Status`
+     field (echoes the `StateEquals` request filter, per the real
+     `ListVocabulariesOutput`/`ListMedicalVocabulariesOutput` shape).
+   - `CreateLanguageModelOutput` was missing `InputDataConfig`; the `LanguageModel`
+     type itself (and therefore `DescribeLanguageModel`/`ListLanguageModels`) was
+     missing `FailureReason` — added the field to the backend struct and threaded it
+     through (always empty in this synthetic backend, since models never fail, but the
+     field must exist on the wire for real client unmarshaling to match the schema).
+
+Regression tests (one file per family, table-driven, `t.Parallel()`, no shared
+subtest state): `TestListTranscriptionJobs_JobNameContains`,
+`TestTranscriptionJob_LanguageIdSettings_Echoed`,
+`TestTranscriptionJob_OutputBucketNotInResponse`,
+`TestListVocabularies_NameContains`,
+`TestCreateVocabulary_LastModifiedTimeAndFailureReasonEchoed`,
+`TestListVocabularies_EchoesStatusFilter`, `TestListVocabularyFilters_NameContains`,
+`TestVocabularyFilter_LastModifiedTimeAndDownloadUri`,
+`TestListMedicalVocabularies_NameContains`,
+`TestMedicalVocabulary_LastModifiedTimeAndFailureReason`,
+`TestListLanguageModels_NameContains`, `TestCreateLanguageModel_EchoesInputDataConfig`,
+`TestCallAnalyticsCategory_CreateTimeAndLastUpdateTimeEchoed`,
+`TestListCallAnalyticsJobs_JobNameContainsAndStartTime`,
+`TestListMedicalScribeJobs_JobNameContainsAndSummaryShape`,
+`TestMedicalScribeJob_OutputURIsPresentWhenCompleted`,
+`TestListMedicalTranscriptionJobs_JobNameContainsAndSummaryShape`.
 
 ### Looks-wrong-but-correct traps (don't re-flag)
 

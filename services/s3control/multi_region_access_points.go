@@ -43,7 +43,7 @@ func (b *InMemoryBackend) SetMRAPRegions(accountID, name string, regions []strin
 
 	mrap, ok := b.mraps.Get(accountID + ":" + name)
 	if !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: %s", errMRAPNotFound, name)
 	}
 
 	cp := make([]string, len(regions))
@@ -60,7 +60,7 @@ func (b *InMemoryBackend) GetMultiRegionAccessPoint(accountID, name string) (*Mu
 
 	mrap, ok := b.mraps.Get(accountID + ":" + name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: %s", errMRAPNotFound, name)
 	}
 
 	cp := *mrap
@@ -68,15 +68,32 @@ func (b *InMemoryBackend) GetMultiRegionAccessPoint(accountID, name string) (*Mu
 	return &cp, nil
 }
 
-// DeleteMultiRegionAccessPoint removes an MRAP.
+// DeleteMultiRegionAccessPoint removes an MRAP and cascade-cleans its route
+// configuration (policy lives on the MultiRegionAccessPoint value itself via
+// PutMultiRegionAccessPointPolicy, so it goes away with the row).
+//
+// LEAK FIX: this previously only checked b.mraps.Has(key) and returned nil
+// without ever calling b.mraps.Delete(key) -- a deleted MRAP was never
+// actually removed from the backing table. Both the synchronous DELETE
+// /v20180820/mrap/instances/{Name} route and the async POST
+// /v20180820/async-requests/mrap/delete route call this same method, so
+// every DeleteMultiRegionAccessPoint call (sync or async) was a silent
+// no-op: the MRAP stayed retrievable via GetMultiRegionAccessPoint /
+// ListMultiRegionAccessPoints forever, and repeated create/delete cycles
+// under new names accumulated unbounded ghost rows in b.mraps. No existing
+// test caught this because the table-driven "delete_mrap" case only
+// asserted err == nil, never that the resource was actually gone.
 func (b *InMemoryBackend) DeleteMultiRegionAccessPoint(accountID, name string) error {
 	b.mu.Lock("DeleteMultiRegionAccessPoint")
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
 	if !b.mraps.Has(key) {
-		return ErrNotFound
+		return fmt.Errorf("%w: %s", errMRAPNotFound, name)
 	}
+
+	b.mraps.Delete(key)
+	delete(b.mrapRoutes, key)
 
 	return nil
 }

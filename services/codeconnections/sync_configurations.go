@@ -13,7 +13,7 @@ import (
 func (b *InMemoryBackend) CreateSyncConfiguration(
 	ctx context.Context,
 	branch, configFile, repositoryLinkID, resourceName, roleArn, syncType string,
-	publishDeploymentStatus, triggerResourceUpdateOn string,
+	publishDeploymentStatus, triggerResourceUpdateOn, pullRequestComment string,
 ) (*SyncConfiguration, error) {
 	if !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
@@ -56,6 +56,7 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 		RepositoryName:          repoName,
 		PublishDeploymentStatus: publishDeploymentStatus,
 		TriggerResourceUpdateOn: triggerResourceUpdateOn,
+		PullRequestComment:      pullRequestComment,
 		CreatedAt:               time.Now().UTC(),
 		region:                  region,
 	}
@@ -87,6 +88,19 @@ func (b *InMemoryBackend) DeleteSyncConfiguration(
 	}
 
 	b.syncConfigurations.Delete(key)
+
+	// DeleteSyncConfiguration's real error list has no "blocker still
+	// exists"-style error (botocore codeconnections/2023-12-01/
+	// service-2.json), so deletion is unconditional -- but any sync blockers
+	// for this resource+syncType are now unreachable through
+	// GetSyncBlockerSummary (which requires the sync configuration to still
+	// exist) while still occupying b.syncBlockers forever. Without this
+	// cleanup they are also a ghost-data-resurrection bug: recreating a sync
+	// configuration for the same resourceName+syncType would make the OLD,
+	// already-resolved blockers reappear via GetSyncBlockerSummary.
+	for _, blocker := range b.syncBlockersByResource.Get(key) {
+		b.syncBlockers.Delete(blocker.ID)
+	}
 
 	return nil
 }
@@ -148,7 +162,7 @@ func (b *InMemoryBackend) ListSyncConfigurations(
 func (b *InMemoryBackend) UpdateSyncConfiguration(
 	ctx context.Context,
 	resourceName, syncType, branch, configFile, repositoryLinkID, roleArn string,
-	publishDeploymentStatus, triggerResourceUpdateOn string,
+	publishDeploymentStatus, triggerResourceUpdateOn, pullRequestComment string,
 ) (*SyncConfiguration, error) {
 	if syncType != "" && !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
@@ -191,6 +205,10 @@ func (b *InMemoryBackend) UpdateSyncConfiguration(
 
 	if triggerResourceUpdateOn != "" {
 		cfg.TriggerResourceUpdateOn = triggerResourceUpdateOn
+	}
+
+	if pullRequestComment != "" {
+		cfg.PullRequestComment = pullRequestComment
 	}
 
 	cp := *cfg

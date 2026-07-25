@@ -20,19 +20,18 @@ func lcInstanceType(lcs *store.Table[LaunchConfiguration], lcName string) string
 	return "t2.micro"
 }
 
-// CreateAutoScalingGroup creates a new Auto Scaling group.
-//
-//nolint:funlen,cyclop // Too complex to refactor given time constraints
-func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInput) (*AutoScalingGroup, error) {
-	b.mu.Lock("CreateAutoScalingGroup")
-	defer b.mu.Unlock()
-
+// validateCreateAutoScalingGroupInputLocked validates a CreateAutoScalingGroupInput
+// against existing state and returns the resolved DesiredCapacity (defaulting to
+// MinSize when the caller did not specify one). input.HealthCheckType must already
+// be resolved (see healthCheckTypeEC2 default in CreateAutoScalingGroup). Must be
+// called with b.mu held.
+func (b *InMemoryBackend) validateCreateAutoScalingGroupInputLocked(input CreateAutoScalingGroupInput) (int32, error) {
 	if input.AutoScalingGroupName == "" {
-		return nil, fmt.Errorf("%w: AutoScalingGroupName is required", ErrInvalidParameter)
+		return 0, fmt.Errorf("%w: AutoScalingGroupName is required", ErrInvalidParameter)
 	}
 
 	if b.groups.Has(input.AutoScalingGroupName) {
-		return nil, fmt.Errorf("%w: group %q already exists", ErrGroupAlreadyExists, input.AutoScalingGroupName)
+		return 0, fmt.Errorf("%w: group %q already exists", ErrGroupAlreadyExists, input.AutoScalingGroupName)
 	}
 
 	// Validate capacity constraints: MinSize ≤ DesiredCapacity ≤ MaxSize.
@@ -42,27 +41,28 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	}
 
 	if err := validateCapacity(input.MinSize, input.MaxSize, desired); err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	healthCheckType := input.HealthCheckType
-	if healthCheckType == "" {
-		healthCheckType = "EC2"
-	}
-
-	if err := validateHealthCheckType(healthCheckType); err != nil {
-		return nil, err
+	if err := validateHealthCheckType(input.HealthCheckType); err != nil {
+		return 0, err
 	}
 
 	if err := validateTerminationPolicies(input.TerminationPolicies); err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	azs := input.AvailabilityZones
-	if len(azs) == 0 {
-		azs = []string{defaultAvailabilityZone}
+	if err := validateDeletionProtection(input.DeletionProtection); err != nil {
+		return 0, err
 	}
 
+	return desired, nil
+}
+
+// buildInitialLifecycleHooks normalizes the LifecycleHookSpecificationList of a
+// CreateAutoScalingGroup request into hooks ready to register, scoped to
+// groupName. Does not touch backend state.
+func buildInitialLifecycleHooks(input CreateAutoScalingGroupInput) ([]LifecycleHook, error) {
 	normalizedHooks := make([]LifecycleHook, 0, len(input.LifecycleHookSpecificationList))
 
 	for _, hook := range input.LifecycleHookSpecificationList {
@@ -78,7 +78,15 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		normalizedHooks = append(normalizedHooks, hook)
 	}
 
-	group := &AutoScalingGroup{
+	return normalizedHooks, nil
+}
+
+// buildNewAutoScalingGroup constructs the (not-yet-stored) AutoScalingGroup for a
+// CreateAutoScalingGroup request. input.HealthCheckType must already be resolved
+// (see healthCheckTypeEC2 default in CreateAutoScalingGroup). Pure function: no
+// backend state is touched.
+func buildNewAutoScalingGroup(input CreateAutoScalingGroupInput, azs []string, desired int32) *AutoScalingGroup {
+	return &AutoScalingGroup{
 		AutoScalingGroupName: input.AutoScalingGroupName,
 		AutoScalingGroupARN: fmt.Sprintf(
 			"arn:aws:autoscaling:%s:%s:autoScalingGroup:%s:autoScalingGroupName/%s",
@@ -91,11 +99,12 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		PlacementGroup:                   input.PlacementGroup,
 		Context:                          input.Context,
 		DesiredCapacityType:              input.DesiredCapacityType,
+		DeletionProtection:               input.DeletionProtection,
 		MinSize:                          input.MinSize,
 		MaxSize:                          input.MaxSize,
 		DesiredCapacity:                  desired,
 		DefaultCooldown:                  input.DefaultCooldown,
-		HealthCheckType:                  healthCheckType,
+		HealthCheckType:                  input.HealthCheckType,
 		HealthCheckGracePeriod:           input.HealthCheckGracePeriod,
 		MaxInstanceLifetime:              input.MaxInstanceLifetime,
 		DefaultInstanceWarmup:            input.DefaultInstanceWarmup,
@@ -107,8 +116,41 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		TrafficSources:                   input.TrafficSources,
 		Tags:                             input.Tags,
 		TerminationPolicies:              input.TerminationPolicies,
+		AvailabilityZoneDistribution:     input.AvailabilityZoneDistribution,
+		AvailabilityZoneImpairmentPolicy: input.AvailabilityZoneImpairmentPolicy,
+		CapacityReservationSpecification: input.CapacityReservationSpecification,
+		InstanceLifecyclePolicy:          input.InstanceLifecyclePolicy,
+		InstanceMaintenancePolicy:        input.InstanceMaintenancePolicy,
+		SkipZonalShiftValidation:         input.SkipZonalShiftValidation,
 		CreatedTime:                      time.Now(),
 	}
+}
+
+// CreateAutoScalingGroup creates a new Auto Scaling group.
+func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInput) (*AutoScalingGroup, error) {
+	b.mu.Lock("CreateAutoScalingGroup")
+	defer b.mu.Unlock()
+
+	if input.HealthCheckType == "" {
+		input.HealthCheckType = healthCheckTypeEC2
+	}
+
+	desired, err := b.validateCreateAutoScalingGroupInputLocked(input)
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedHooks, err := buildInitialLifecycleHooks(input)
+	if err != nil {
+		return nil, err
+	}
+
+	azs := input.AvailabilityZones
+	if len(azs) == 0 {
+		azs = []string{defaultAvailabilityZone}
+	}
+
+	group := buildNewAutoScalingGroup(input, azs, desired)
 
 	// Use the shared makeInstances helper (real EC2 instances when an
 	// EC2Launcher is wired, fabricated IDs otherwise) so all initial
@@ -165,9 +207,13 @@ func (b *InMemoryBackend) DescribeAutoScalingGroups(names []string) ([]AutoScali
 	})
 }
 
+// healthCheckTypeEC2 is the default HealthCheckType used when a
+// CreateAutoScalingGroup request does not specify one.
+const healthCheckTypeEC2 = "EC2"
+
 // isValidHealthCheckType checks if the type is AWS-supported.
 func isValidHealthCheckType(hct string) bool {
-	return hct == "EC2" || hct == "ELB" || hct == "VPC_LATTICE"
+	return hct == healthCheckTypeEC2 || hct == "ELB" || hct == "VPC_LATTICE"
 }
 
 // isValidTerminationPolicy checks if the termination policy is AWS-supported.
@@ -213,6 +259,29 @@ func validateTerminationPolicies(policies []string) error {
 	return nil
 }
 
+// isValidDeletionProtection reports whether v is a real AWS DeletionProtection
+// enum value ("" is also accepted -- it means "not specified", which Create
+// treats as the "none" default and Update treats as "leave unchanged").
+func isValidDeletionProtection(v string) bool {
+	switch v {
+	case "", "none", "prevent-force-deletion", "prevent-all-deletion":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateDeletionProtection returns an error for an unrecognized
+// DeletionProtection value.
+func validateDeletionProtection(v string) error {
+	if isValidDeletionProtection(v) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: DeletionProtection must be none, prevent-force-deletion, or prevent-all-deletion, got %q",
+		ErrInvalidParameter, v)
+}
+
 // validateCapacity checks that min ≤ desired ≤ max (when max > 0).
 func validateCapacity(minSize, maxSize, desired int32) error {
 	if minSize > desired {
@@ -230,18 +299,9 @@ func validateCapacity(minSize, maxSize, desired int32) error {
 	return nil
 }
 
-// UpdateAutoScalingGroup updates an existing Auto Scaling group.
-//
-//nolint:gocognit,cyclop,funlen // Too complex to refactor given time constraints
-func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInput) (*AutoScalingGroup, error) {
-	b.mu.Lock("UpdateAutoScalingGroup")
-	defer b.mu.Unlock()
-
-	g, ok := b.groups.Get(input.AutoScalingGroupName)
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
-	}
-
+// applyUpdateCapacityLocked resolves and applies the MinSize/MaxSize/DesiredCapacity
+// portion of an UpdateAutoScalingGroup request. Must be called with b.mu held.
+func (b *InMemoryBackend) applyUpdateCapacityLocked(g *AutoScalingGroup, input UpdateAutoScalingGroupInput) error {
 	newMin := g.MinSize
 	newMax := g.MaxSize
 	newDesired := g.DesiredCapacity
@@ -259,7 +319,7 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	}
 
 	if err := validateCapacity(newMin, newMax, newDesired); err != nil {
-		return nil, err
+		return err
 	}
 
 	g.MinSize = newMin
@@ -269,14 +329,12 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 		b.applyDesiredCapacityChange(g, newDesired)
 	}
 
-	if input.DefaultCooldown != nil {
-		g.DefaultCooldown = *input.DefaultCooldown
-	}
+	return nil
+}
 
-	if input.HealthCheckGracePeriod != nil {
-		g.HealthCheckGracePeriod = *input.HealthCheckGracePeriod
-	}
-
+// applyUpdateLaunchSourceFields applies the mutually-exclusive launch-configuration/
+// launch-template/mixed-instances-policy portion of an UpdateAutoScalingGroup request.
+func applyUpdateLaunchSourceFields(g *AutoScalingGroup, input UpdateAutoScalingGroupInput) {
 	if input.LaunchConfigurationName != "" {
 		g.LaunchConfigurationName = input.LaunchConfigurationName
 		g.LaunchTemplate = nil
@@ -290,15 +348,11 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	if input.MixedInstancesPolicy != nil {
 		g.MixedInstancesPolicy = input.MixedInstancesPolicy
 	}
+}
 
-	if input.HealthCheckType != "" {
-		if err := validateHealthCheckType(input.HealthCheckType); err != nil {
-			return nil, err
-		}
-
-		g.HealthCheckType = input.HealthCheckType
-	}
-
+// applyUpdatePlacementFields applies the placement/identity-related string
+// fields of an UpdateAutoScalingGroup request that need no validation.
+func applyUpdatePlacementFields(g *AutoScalingGroup, input UpdateAutoScalingGroupInput) {
 	if len(input.AvailabilityZones) > 0 {
 		g.AvailabilityZones = input.AvailabilityZones
 	}
@@ -318,13 +372,17 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	if input.DesiredCapacityType != "" {
 		g.DesiredCapacityType = input.DesiredCapacityType
 	}
+}
 
-	if len(input.TerminationPolicies) > 0 {
-		if err := validateTerminationPolicies(input.TerminationPolicies); err != nil {
-			return nil, err
-		}
+// applyUpdateTimingFields applies the cooldown/lifetime/warmup/protection
+// fields of an UpdateAutoScalingGroup request.
+func applyUpdateTimingFields(g *AutoScalingGroup, input UpdateAutoScalingGroupInput) {
+	if input.DefaultCooldown != nil {
+		g.DefaultCooldown = *input.DefaultCooldown
+	}
 
-		g.TerminationPolicies = input.TerminationPolicies
+	if input.HealthCheckGracePeriod != nil {
+		g.HealthCheckGracePeriod = *input.HealthCheckGracePeriod
 	}
 
 	if input.MaxInstanceLifetime != nil {
@@ -342,6 +400,103 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	if input.CapacityRebalance != nil {
 		g.CapacityRebalance = *input.CapacityRebalance
 	}
+}
+
+// applyUpdateValidatedFields applies the two UpdateAutoScalingGroup fields that
+// require validation before being written (HealthCheckType, TerminationPolicies).
+func applyUpdateValidatedFields(g *AutoScalingGroup, input UpdateAutoScalingGroupInput) error {
+	if input.HealthCheckType != "" {
+		if err := validateHealthCheckType(input.HealthCheckType); err != nil {
+			return err
+		}
+
+		g.HealthCheckType = input.HealthCheckType
+	}
+
+	if len(input.TerminationPolicies) > 0 {
+		if err := validateTerminationPolicies(input.TerminationPolicies); err != nil {
+			return err
+		}
+
+		g.TerminationPolicies = input.TerminationPolicies
+	}
+
+	return nil
+}
+
+// applyUpdateScalarFields applies every remaining validated, non-pointer-capacity
+// field of an UpdateAutoScalingGroup request (everything except capacity and launch
+// source, which have their own helpers above).
+func applyUpdateScalarFields(g *AutoScalingGroup, input UpdateAutoScalingGroupInput) error {
+	applyUpdatePlacementFields(g, input)
+	applyUpdateTimingFields(g, input)
+
+	return applyUpdateValidatedFields(g, input)
+}
+
+// applyUpdatePolicyFields applies the newer AZ-distribution/capacity-reservation/
+// instance-lifecycle/instance-maintenance/deletion-protection/zonal-shift portion of
+// an UpdateAutoScalingGroup request. Each pointer-struct field is all-or-nothing
+// (matching AWS: these are opaque nested objects, not field-by-field patches).
+func applyUpdatePolicyFields(g *AutoScalingGroup, input UpdateAutoScalingGroupInput) error {
+	if input.AvailabilityZoneDistribution != nil {
+		g.AvailabilityZoneDistribution = input.AvailabilityZoneDistribution
+	}
+
+	if input.AvailabilityZoneImpairmentPolicy != nil {
+		g.AvailabilityZoneImpairmentPolicy = input.AvailabilityZoneImpairmentPolicy
+	}
+
+	if input.CapacityReservationSpecification != nil {
+		g.CapacityReservationSpecification = input.CapacityReservationSpecification
+	}
+
+	if input.InstanceLifecyclePolicy != nil {
+		g.InstanceLifecyclePolicy = input.InstanceLifecyclePolicy
+	}
+
+	if input.InstanceMaintenancePolicy != nil {
+		g.InstanceMaintenancePolicy = input.InstanceMaintenancePolicy
+	}
+
+	if input.DeletionProtection != "" {
+		if err := validateDeletionProtection(input.DeletionProtection); err != nil {
+			return err
+		}
+
+		g.DeletionProtection = input.DeletionProtection
+	}
+
+	if input.SkipZonalShiftValidation != nil {
+		g.SkipZonalShiftValidation = *input.SkipZonalShiftValidation
+	}
+
+	return nil
+}
+
+// UpdateAutoScalingGroup updates an existing Auto Scaling group.
+func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInput) (*AutoScalingGroup, error) {
+	b.mu.Lock("UpdateAutoScalingGroup")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups.Get(input.AutoScalingGroupName)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	if err := b.applyUpdateCapacityLocked(g, input); err != nil {
+		return nil, err
+	}
+
+	applyUpdateLaunchSourceFields(g, input)
+
+	if err := applyUpdateScalarFields(g, input); err != nil {
+		return nil, err
+	}
+
+	if err := applyUpdatePolicyFields(g, input); err != nil {
+		return nil, err
+	}
 
 	cp := *g
 
@@ -357,6 +512,18 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 	g, ok := b.groups.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, name)
+	}
+
+	switch g.DeletionProtection {
+	case "prevent-all-deletion":
+		return fmt.Errorf("%w: group %q has DeletionProtection=prevent-all-deletion", ErrDeletionProtected, name)
+	case "prevent-force-deletion":
+		if forceDelete {
+			return fmt.Errorf(
+				"%w: group %q has DeletionProtection=prevent-force-deletion; ForceDelete is not permitted",
+				ErrDeletionProtected, name,
+			)
+		}
 	}
 
 	if !forceDelete && len(g.Instances) > 0 {

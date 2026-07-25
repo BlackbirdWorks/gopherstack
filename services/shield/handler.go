@@ -31,6 +31,11 @@ const (
 	keyMax          = "Max"
 	keyType         = "Type"
 
+	// codeInvalidParameterException is the wire __type for malformed/invalid request parameters.
+	// Named as a constant since classifyShieldError maps three distinct sentinel errors
+	// (awserr.ErrInvalidParameter, errInvalidRequest, errUnknownAction) to it.
+	codeInvalidParameterException = "InvalidParameterException"
+
 	// nanosPerSecond is used to convert UnixNano to fractional seconds (AWS timestamp format).
 	nanosPerSecond = 1e9
 
@@ -118,7 +123,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DisassociateHealthCheck",
 		"EnableApplicationLayerAutomaticResponse",
 		"EnableProactiveEngagement",
-		"GetAttackVectorDefinitionVersion",
 		"GetSubscriptionState",
 		"ListAttacks",
 		"ListProtectionGroups",
@@ -332,10 +336,6 @@ func (h *Handler) dispatchProtectionGroupAndAttackOps(
 		res, err := h.handleDescribeAttackStatistics()
 
 		return res, true, err
-	case "GetAttackVectorDefinitionVersion":
-		res, err := h.handleGetAttackVectorDefinitionVersion()
-
-		return res, true, err
 	case "EnableApplicationLayerAutomaticResponse":
 		return nil, true, h.handleEnableApplicationLayerAutomaticResponse(body)
 	case "DisableApplicationLayerAutomaticResponse":
@@ -355,42 +355,60 @@ func (h *Handler) dispatchProtectionGroupAndAttackOps(
 	return nil, false, nil
 }
 
-func (h *Handler) handleError(c *echo.Context, err error) error {
+// shieldErrorRule maps a sentinel error (matched via errors.Is) to a wire error code.
+type shieldErrorRule struct {
+	sentinel error
+	code     string
+}
+
+// shieldErrorRules is checked in order -- more specific sentinels MUST precede any generic
+// sentinel they wrap, or the generic rule would shadow them. ErrSubscriptionRequired,
+// ErrProtectionAlreadyExists, ErrSubscriptionAlreadyExists, and ErrProtectionGroupAlreadyExists
+// all wrap awserr.ErrConflict, so ErrSubscriptionRequired (whose real wire code is
+// InvalidOperationException, not ResourceAlreadyExistsException) is listed first.
+func shieldErrorRules() []shieldErrorRule {
+	return []shieldErrorRule{
+		{ErrSubscriptionRequired, "InvalidOperationException"},
+		{ErrLimitExceeded, "LimitsExceededException"},
+		{ErrNoAssociatedRole, "NoAssociatedRoleException"},
+		{errInvalidPaginationToken, "InvalidPaginationTokenException"},
+		{awserr.ErrNotFound, "ResourceNotFoundException"},
+		{awserr.ErrConflict, "ResourceAlreadyExistsException"},
+		{awserr.ErrInvalidParameter, codeInvalidParameterException},
+		{errInvalidRequest, codeInvalidParameterException},
+		{errUnknownAction, codeInvalidParameterException},
+	}
+}
+
+// classifyShieldError maps err to a wire error code and HTTP status, matching the real Shield
+// AWSShield_20160616 error catalog. Malformed request bodies (JSON syntax/type errors) are
+// treated the same as InvalidParameterException since they never reach a specific handler's own
+// validation. Unrecognized errors fall back to InternalErrorException/500.
+func classifyShieldError(err error) (string, int) {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
-	switch {
-	case errors.Is(err, awserr.ErrNotFound):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "ResourceNotFoundException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, awserr.ErrConflict):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "ResourceAlreadyExistsException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, awserr.ErrInvalidParameter),
-		errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "InvalidParameterException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
-	default:
-		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "InternalErrorException",
-			keyMessageField: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusInternalServerError, payload)
+	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+		return codeInvalidParameterException, http.StatusBadRequest
 	}
+
+	for _, rule := range shieldErrorRules() {
+		if errors.Is(err, rule.sentinel) {
+			return rule.code, http.StatusBadRequest
+		}
+	}
+
+	return "InternalErrorException", http.StatusInternalServerError
+}
+
+func (h *Handler) handleError(c *echo.Context, err error) error {
+	code, status := classifyShieldError(err)
+	payload, _ := json.Marshal(map[string]string{
+		keyTypeField:    code,
+		keyMessageField: err.Error(),
+	})
+
+	return c.JSONBlob(status, payload)
 }
 
 // sliceToSet builds a string set from a slice.

@@ -162,16 +162,23 @@ func (b *InMemoryBackend) DeleteRepository(ctx context.Context, domainName, repo
 
 // --- External connection methods ---
 
+// Package format strings recognized by externalConnectionFormat, mirroring
+// aws-sdk-go-v2 types.PackageFormat's relevant enum values.
+const (
+	packageFormatNPM   = "npm"
+	packageFormatMaven = "maven"
+)
+
 // externalConnectionFormat derives the package format from a connection name.
 func externalConnectionFormat(connectionName string) string {
 	switch connectionName {
 	case "public:npmjs":
-		return "npm"
+		return packageFormatNPM
 	case "public:pypi":
 		return "pypi"
 	case "public:maven-central", "public:maven-commonsware", "public:maven-googleandroid",
 		"public:maven-gradleplugins", "public:maven-apacheorg":
-		return "maven"
+		return packageFormatMaven
 	case "public:nuget-org":
 		return "nuget"
 	case "public:crates-io":

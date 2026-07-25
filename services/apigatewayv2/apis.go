@@ -27,6 +27,14 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 		return nil, err
 	}
 
+	// Apply AWS-realistic default IPAddressType ("ipv4") when not provided.
+	ipAddressType := input.IPAddressType
+	if ipAddressType == "" {
+		ipAddressType = ipAddressTypeIPv4
+	} else if err := validateIPAddressType(ipAddressType); err != nil {
+		return nil, err
+	}
+
 	// Apply AWS-realistic default RouteSelectionExpression when not provided.
 	rse := input.RouteSelectionExpression
 	if rse == "" {
@@ -59,6 +67,7 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 		APIEndpoint:               "https://" + id + ".execute-api." + regionFromCtx(ctx) + ".amazonaws.com",
 		CreatedDate:               isoTime{time.Now()},
 		APIKeySelectionExpression: keySelExpr,
+		IPAddressType:             ipAddressType,
 		DisableSchemaValidation:   input.DisableSchemaValidation,
 		DisableExecuteAPIEndpoint: input.DisableExecuteAPIEndpoint,
 	}
@@ -71,7 +80,7 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 	b.apis.Put(&api)
 
 	if input.RouteKey != "" && input.Target != "" {
-		if err := b.quickCreateLocked(id, input.RouteKey, input.Target); err != nil {
+		if err := b.quickCreateLocked(id, input.RouteKey, input.Target, input.CredentialsArn); err != nil {
 			return nil, err
 		}
 	}
@@ -107,9 +116,12 @@ func validateQuickCreateInput(input CreateAPIInput) error {
 // CreateIntegration/CreateRoute/CreateStage. All three are marked
 // apiGatewayManaged, matching AWS (the $default route key and $default stage
 // become immutable; the integration stays updatable but not deletable while
-// the API exists). Callers must already hold b.mu and have inserted apiID
+// the API exists). credentialsArn is CreateApiInput's quick-create-only
+// CredentialsArn, passed through to the auto-provisioned integration
+// unchanged (AWS notes it is "currently not used for HTTP integrations" but
+// is still stored). Callers must already hold b.mu and have inserted apiID
 // into b.apis.
-func (b *InMemoryBackend) quickCreateLocked(apiID, routeKey, target string) error {
+func (b *InMemoryBackend) quickCreateLocked(apiID, routeKey, target, credentialsArn string) error {
 	integrationType := integrationTypeHTTPProxy
 	if isLambdaFunctionARN(target) {
 		integrationType = IntegrationTypeAWSProxy
@@ -119,6 +131,7 @@ func (b *InMemoryBackend) quickCreateLocked(apiID, routeKey, target string) erro
 		IntegrationType:   integrationType,
 		IntegrationURI:    target,
 		IntegrationMethod: httpMethodAny,
+		CredentialsArn:    credentialsArn,
 	})
 	if err != nil {
 		return err
@@ -151,6 +164,17 @@ func (b *InMemoryBackend) quickCreateLocked(apiID, routeKey, target string) erro
 	b.autoDeployLocked(apiID)
 
 	return nil
+}
+
+// validateIPAddressType returns ErrBadRequest if ipAddressType is not one of
+// the modeled enum values (ipv4, dualstack).
+func validateIPAddressType(ipAddressType string) error {
+	switch ipAddressType {
+	case ipAddressTypeIPv4, ipAddressTypeDualstack:
+		return nil
+	default:
+		return fmt.Errorf("%w: ipAddressType must be one of ipv4, dualstack", ErrBadRequest)
+	}
 }
 
 // isLambdaFunctionARN reports whether target looks like a Lambda function
@@ -306,6 +330,14 @@ func (b *InMemoryBackend) UpdateAPI(apiID string, input UpdateAPIInput) (*API, e
 		api.DisableExecuteAPIEndpoint = *input.DisableExecuteAPIEndpoint
 	}
 
+	if input.IPAddressType != "" {
+		if err := validateIPAddressType(input.IPAddressType); err != nil {
+			return nil, err
+		}
+
+		api.IPAddressType = input.IPAddressType
+	}
+
 	if err := b.applyQuickCreateUpdateLocked(apiID, input); err != nil {
 		return nil, err
 	}
@@ -354,6 +386,27 @@ func (b *InMemoryBackend) applyQuickCreateUpdateLocked(apiID string, input Updat
 			integration.IntegrationType = IntegrationTypeAWSProxy
 		}
 	}
+
+	return b.applyQuickCreateCredentialsUpdateLocked(apiID, input.CredentialsArn)
+}
+
+// applyQuickCreateCredentialsUpdateLocked applies UpdateApiInput's
+// CredentialsArn, also "part of quick create": if set, it independently
+// replaces the credentials on the API's existing quick-create integration
+// (found via APIGatewayManaged), matching AWS ("this value replaces the
+// credentials associated with the quick create integration"). Callers must
+// already hold b.mu.
+func (b *InMemoryBackend) applyQuickCreateCredentialsUpdateLocked(apiID, credentialsArn string) error {
+	if credentialsArn == "" {
+		return nil
+	}
+
+	integration := findManagedIntegration(b.integrationsByAPI.Get(apiID))
+	if integration == nil {
+		return fmt.Errorf("%w: API has no quick-create integration to update", ErrBadRequest)
+	}
+
+	integration.CredentialsArn = credentialsArn
 
 	return nil
 }

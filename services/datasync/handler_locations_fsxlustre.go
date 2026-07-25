@@ -44,11 +44,13 @@ type describeLocationFsxLustreInput struct {
 	LocationArn string `json:"LocationArn"`
 }
 
+// describeLocationFsxLustreOutput intentionally has no FsxFilesystemArn or
+// Subdirectory field: the real DescribeLocationFsxLustreOutput has neither --
+// confirmed against aws-sdk-go-v2 v1.59.2: CreationTime, LocationArn,
+// LocationUri, SecurityGroupArns only.
 type describeLocationFsxLustreOutput struct {
 	LocationArn       string   `json:"LocationArn"`
 	LocationURI       string   `json:"LocationUri"`
-	FsxFilesystemArn  string   `json:"FsxFilesystemArn,omitempty"`
-	Subdirectory      string   `json:"Subdirectory,omitempty"`
 	SecurityGroupArns []string `json:"SecurityGroupArns,omitempty"`
 	CreationTime      int64    `json:"CreationTime"`
 }
@@ -69,8 +71,6 @@ func (h *Handler) handleDescribeLocationFsxLustre(
 	return &describeLocationFsxLustreOutput{
 		LocationArn:       l.LocationArn,
 		LocationURI:       l.LocationURI,
-		FsxFilesystemArn:  l.FsxFilesystemArn,
-		Subdirectory:      l.Subdirectory,
 		SecurityGroupArns: l.SecurityGroupArns,
 		CreationTime:      l.CreationTime.Unix(),
 	}, nil

@@ -28,7 +28,7 @@ func TestKafka_CreateTopic(t *testing.T) {
 			body: map[string]any{
 				"topicName":         "my-topic",
 				"replicationFactor": 1,
-				"numPartitions":     3,
+				"partitionCount":    3,
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -130,7 +130,7 @@ func TestKafka_DeleteTopic(t *testing.T) {
 			// Create topic
 			e := echo.New()
 			topicBody, _ := json.Marshal(
-				map[string]any{"topicName": "my-topic", "replicationFactor": 1, "numPartitions": 3},
+				map[string]any{"topicName": "my-topic", "replicationFactor": 1, "partitionCount": 3},
 			)
 			reqCreate := httptest.NewRequest(
 				http.MethodPost,
@@ -169,17 +169,17 @@ func TestTopicsLifecycle(t *testing.T) {
 	clusterArn := createTestClusterOneBroker(t, h, "topic-cluster")
 
 	// CreateTopic
-	topic, err := be.CreateTopic(context.Background(), clusterArn, "my-topic", 1, 3, nil)
+	topic, err := be.CreateTopic(context.Background(), clusterArn, "my-topic", 1, 3, "")
 	require.NoError(t, err)
 	assert.Equal(t, "my-topic", topic.TopicName)
 
-	// DescribeTopic (via DescribeTopicPartitions)
-	tp, err := be.DescribeTopicPartitions(context.Background(), clusterArn, "my-topic")
+	// DescribeTopicPartitions
+	parts, err := be.DescribeTopicPartitions(context.Background(), clusterArn, "my-topic")
 	require.NoError(t, err)
-	assert.Equal(t, "my-topic", tp.TopicName)
+	assert.Len(t, parts, 3)
 
 	// ListTopics
-	topics, err := be.ListTopics(context.Background(), clusterArn)
+	topics, err := be.ListTopics(context.Background(), clusterArn, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, topics)
 
@@ -189,16 +189,16 @@ func TestTopicsLifecycle(t *testing.T) {
 		clusterArn,
 		"my-topic",
 		6,
-		map[string]string{"retention.ms": "86400000"},
+		"cmV0ZW50aW9uLm1zPTg2NDAwMDAw",
 	)
 	require.NoError(t, err)
-	assert.Equal(t, int32(6), updated.NumPartitions)
+	assert.Equal(t, int32(6), updated.PartitionCount)
 
 	// DeleteTopic
 	err = be.DeleteTopic(context.Background(), clusterArn, "my-topic")
 	require.NoError(t, err)
 
-	// DescribeTopic after delete → not found
+	// DescribeTopicPartitions after delete → not found
 	_, err = be.DescribeTopicPartitions(context.Background(), clusterArn, "my-topic")
 	assert.Error(t, err)
 }
@@ -211,7 +211,7 @@ func TestDescribeTopicViaBackend(t *testing.T) {
 	_ = be
 	clusterArn := createTestClusterOneBroker(t, h, "dt-cluster")
 
-	_, err := be2.CreateTopic(context.Background(), clusterArn, "dt-topic", 1, 1, nil)
+	_, err := be2.CreateTopic(context.Background(), clusterArn, "dt-topic", 1, 1, "")
 	require.NoError(t, err)
 
 	// DescribeTopic

@@ -7,10 +7,40 @@ import (
 
 // ---- CreateSnapshotSchedule ----
 
+// xmlClusterAssociatedToSchedule mirrors types.ClusterAssociatedToSchedule. This
+// backend only ever produces the "ACTIVE" state (association is applied
+// synchronously by ModifyClusterSnapshotSchedule; MODIFYING/FAILED do not occur).
+type xmlClusterAssociatedToSchedule struct {
+	ClusterIdentifier        string `xml:"ClusterIdentifier"`
+	ScheduleAssociationState string `xml:"ScheduleAssociationState"`
+}
+
 type xmlSnapshotSchedule struct {
-	ScheduleIdentifier  string   `xml:"ScheduleIdentifier"`
-	Description         string   `xml:"ScheduleDescription,omitempty"`
-	ScheduleDefinitions []string `xml:"ScheduleDefinitions>ScheduleDefinition,omitempty"`
+	ScheduleIdentifier     string                           `xml:"ScheduleIdentifier"`
+	Description            string                           `xml:"ScheduleDescription,omitempty"`
+	ScheduleDefinitions    []string                         `xml:"ScheduleDefinitions>ScheduleDefinition,omitempty"`
+	AssociatedClusters     []xmlClusterAssociatedToSchedule `xml:"AssociatedClusters>member,omitempty"`
+	AssociatedClusterCount int                              `xml:"AssociatedClusterCount"`
+}
+
+// snapshotScheduleToXML converts a backend SnapshotSchedule (with AssociatedClusters
+// already populated by the backend, see cloneSnapshotSchedule) into its wire shape.
+func snapshotScheduleToXML(s *SnapshotSchedule) xmlSnapshotSchedule {
+	assoc := make([]xmlClusterAssociatedToSchedule, 0, len(s.AssociatedClusters))
+	for _, clusterID := range s.AssociatedClusters {
+		assoc = append(assoc, xmlClusterAssociatedToSchedule{
+			ClusterIdentifier:        clusterID,
+			ScheduleAssociationState: dataShareStatusActive,
+		})
+	}
+
+	return xmlSnapshotSchedule{
+		ScheduleIdentifier:     s.ScheduleIdentifier,
+		Description:            s.Description,
+		ScheduleDefinitions:    s.ScheduleDefinitions,
+		AssociatedClusters:     assoc,
+		AssociatedClusterCount: len(s.AssociatedClusters),
+	}
 }
 
 type createSnapshotScheduleResponse struct {
@@ -31,12 +61,8 @@ func (h *Handler) handleCreateSnapshotSchedule(vals url.Values) (any, error) {
 	}
 
 	return &createSnapshotScheduleResponse{
-		Xmlns: redshiftXMLNS,
-		Schedule: xmlSnapshotSchedule{
-			ScheduleIdentifier:  sched.ScheduleIdentifier,
-			Description:         sched.Description,
-			ScheduleDefinitions: sched.ScheduleDefinitions,
-		},
+		Xmlns:    redshiftXMLNS,
+		Schedule: snapshotScheduleToXML(sched),
 	}, nil
 }
 
@@ -80,12 +106,8 @@ func (h *Handler) handleDescribeSnapshotSchedules(vals url.Values) (any, error) 
 
 	members := make([]xmlSnapshotSchedule, 0, len(schedules))
 
-	for _, s := range schedules {
-		members = append(members, xmlSnapshotSchedule{
-			ScheduleIdentifier:  s.ScheduleIdentifier,
-			Description:         s.Description,
-			ScheduleDefinitions: s.ScheduleDefinitions,
-		})
+	for i := range schedules {
+		members = append(members, snapshotScheduleToXML(&schedules[i]))
 	}
 
 	return &describeSnapshotSchedulesResponse{
@@ -112,12 +134,8 @@ func (h *Handler) handleModifySnapshotSchedule(vals url.Values) (any, error) {
 	}
 
 	return &modifySnapshotScheduleResponse{
-		Xmlns: redshiftXMLNS,
-		Schedule: xmlSnapshotSchedule{
-			ScheduleIdentifier:  sched.ScheduleIdentifier,
-			Description:         sched.Description,
-			ScheduleDefinitions: sched.ScheduleDefinitions,
-		},
+		Xmlns:    redshiftXMLNS,
+		Schedule: snapshotScheduleToXML(sched),
 	}, nil
 }
 

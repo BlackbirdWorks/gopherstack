@@ -459,3 +459,45 @@ func TestCreateDescribeDeleteDBClusterEndpoint(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 }
+
+// TestModifyDBClusterEndpoint_StaticAndExcludedMembersPersist locks the core
+// fix: ModifyDBClusterEndpoint used to silently ignore
+// StaticMembers.member.N/ExcludedMembers.member.N even though the real API
+// accepts and applies them -- only EndpointType was ever mutated.
+func TestModifyDBClusterEndpoint_StaticAndExcludedMembersPersist(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createCluster(t, h, "ep-members-cluster")
+	createInstance(t, h, "ep-members-inst-1", "ep-members-cluster")
+	createInstance(t, h, "ep-members-inst-2", "ep-members-cluster")
+	doRequest(t, h, url.Values{
+		"Action":                      {"CreateDBClusterEndpoint"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterEndpointIdentifier": {"ep-members"},
+		"DBClusterIdentifier":         {"ep-members-cluster"},
+		"EndpointType":                {"CUSTOM"},
+	})
+
+	rr := doRequest(t, h, url.Values{
+		"Action":                      {"ModifyDBClusterEndpoint"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterEndpointIdentifier": {"ep-members"},
+		"StaticMembers.member.1":      {"ep-members-inst-1"},
+		"ExcludedMembers.member.1":    {"ep-members-inst-2"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	assert.Contains(t, body, "ep-members-inst-1")
+	assert.Contains(t, body, "ep-members-inst-2")
+
+	rr = doRequest(t, h, url.Values{
+		"Action":                      {"DescribeDBClusterEndpoints"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterEndpointIdentifier": {"ep-members"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	body = rr.Body.String()
+	assert.Contains(t, body, "ep-members-inst-1")
+	assert.Contains(t, body, "ep-members-inst-2")
+}

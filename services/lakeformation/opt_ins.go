@@ -9,7 +9,9 @@ import (
 )
 
 // CreateLakeFormationOptIn adds an opt-in enforcement entry for a principal and resource.
-func (b *InMemoryBackend) CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error {
+func (b *InMemoryBackend) CreateLakeFormationOptIn(
+	principal *DataLakePrincipal, resource *Resource, condition *Condition,
+) error {
 	b.mu.Lock("CreateLakeFormationOptIn")
 	defer b.mu.Unlock()
 
@@ -23,6 +25,7 @@ func (b *InMemoryBackend) CreateLakeFormationOptIn(principal *DataLakePrincipal,
 	b.lakeFormationOptIns = append(b.lakeFormationOptIns, &LFOptIn{
 		Principal:     principal,
 		Resource:      resource,
+		Condition:     condition,
 		LastModified:  now,
 		LastUpdatedBy: "lakeformation.amazonaws.com",
 	})
@@ -31,7 +34,9 @@ func (b *InMemoryBackend) CreateLakeFormationOptIn(principal *DataLakePrincipal,
 }
 
 // DeleteLakeFormationOptIn removes an opt-in enforcement entry for a principal and resource.
-func (b *InMemoryBackend) DeleteLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error {
+func (b *InMemoryBackend) DeleteLakeFormationOptIn(
+	principal *DataLakePrincipal, resource *Resource, _ *Condition,
+) error {
 	if principal == nil {
 		return fmt.Errorf("principal is required: %w", ErrValidation)
 	}
@@ -98,6 +103,11 @@ func (b *InMemoryBackend) ListLakeFormationOptIns(
 
 		if o.Resource != nil {
 			cp.Resource = copyResource(o.Resource)
+		}
+
+		if o.Condition != nil {
+			cond := *o.Condition
+			cp.Condition = &cond
 		}
 
 		all = append(all, cp)

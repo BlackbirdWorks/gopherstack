@@ -3,7 +3,13 @@ package textract
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// getLendingAnalysisDefaultPageSize is used when
+// GetLendingAnalysisInput.MaxResults is unset or non-positive.
+const getLendingAnalysisDefaultPageSize = 1000
 
 // getLendingAnalysisInput is the input for GetLendingAnalysis.
 type getLendingAnalysisInput struct {
@@ -16,6 +22,7 @@ type getLendingAnalysisInput struct {
 type getLendingAnalysisResponse struct {
 	AnalyzeLendingModelVersion string          `json:"AnalyzeLendingModelVersion"`
 	JobStatus                  string          `json:"JobStatus"`
+	NextToken                  string          `json:"NextToken,omitempty"`
 	StatusMessage              string          `json:"StatusMessage,omitempty"`
 	Warnings                   []WarningBlock  `json:"Warnings,omitempty"`
 	Results                    []LendingResult `json:"Results"`
@@ -37,12 +44,15 @@ func (h *Handler) handleGetLendingAnalysis(
 		return nil, err
 	}
 
+	pg := page.New(job.Results, in.NextToken, in.MaxResults, getLendingAnalysisDefaultPageSize)
+
 	resp := &getLendingAnalysisResponse{
 		AnalyzeLendingModelVersion: modelVersion10,
 		JobStatus:                  job.JobStatus,
 		StatusMessage:              job.StatusMessage,
 		Warnings:                   job.Warnings,
-		Results:                    job.Results,
+		Results:                    pg.Data,
+		NextToken:                  pg.Next,
 	}
 	resp.DocumentMetadata.Pages = 1
 

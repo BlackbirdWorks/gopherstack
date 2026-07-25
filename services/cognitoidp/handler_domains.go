@@ -80,14 +80,20 @@ func (h *Handler) handleDescribeUserPoolDomain(
 		return &describeUserPoolDomainOutput{DomainDescription: &userPoolDomainDescription{}}, nil
 	}
 
-	return &describeUserPoolDomainOutput{
-		DomainDescription: &userPoolDomainDescription{
-			Domain:                 d.Domain,
-			UserPoolID:             d.UserPoolID,
-			Status:                 d.Status,
-			CloudFrontDistribution: d.CloudFrontDistribution,
-		},
-	}, nil
+	desc := &userPoolDomainDescription{
+		Domain:                 d.Domain,
+		UserPoolID:             d.UserPoolID,
+		Status:                 d.Status,
+		CloudFrontDistribution: d.CloudFrontDistribution,
+	}
+
+	// AWS only echoes CustomDomainConfig back for a custom domain (one with an ACM
+	// certificate); a managed Cognito-prefix domain has none.
+	if d.CertificateArn != "" {
+		desc.CustomDomainConfig = &customDomainConfigJSON{CertificateArn: d.CertificateArn}
+	}
+
+	return &describeUserPoolDomainOutput{DomainDescription: desc}, nil
 }
 
 func (h *Handler) handleUpdateUserPoolDomain(

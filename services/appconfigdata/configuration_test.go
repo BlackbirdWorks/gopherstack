@@ -38,11 +38,13 @@ func TestHandler_GetLatestConfiguration(t *testing.T) {
 			wantEtag:    true,
 		},
 		{
-			name:          "second_poll_with_no_change_returns_204",
+			// AWS's GetLatestConfiguration has a *fixed* responseCode of 200 -- even when
+			// unchanged, the status is 200 with an empty body, never 204.
+			name:          "second_poll_with_no_change_returns_200_empty_body",
 			hasProfile:    true,
 			content:       `{"featureFlag":true}`,
 			contentType:   "application/json",
-			wantStatus:    http.StatusNoContent,
+			wantStatus:    http.StatusOK,
 			wantNoContent: true,
 		},
 		{
@@ -92,10 +94,11 @@ func TestHandler_GetLatestConfiguration(t *testing.T) {
 				token = rec1.Header().Get("Next-Poll-Configuration-Token")
 				require.NotEmpty(t, token)
 
-				// Second poll — content unchanged → 204.
+				// Second poll — content unchanged → 200 with an empty body (AWS never
+				// returns 204 for this operation).
 				rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
-				assert.Equal(t, http.StatusNoContent, rec2.Code)
-				assert.Empty(t, rec2.Header().Get("ETag"), "ETag must not be set on 204")
+				assert.Equal(t, http.StatusOK, rec2.Code)
+				assert.Empty(t, rec2.Header().Get("ETag"), "ETag must not be set when unchanged")
 				assert.Empty(t, rec2.Body.String())
 
 				return
@@ -112,7 +115,7 @@ func TestHandler_GetLatestConfiguration(t *testing.T) {
 				assert.NotEmpty(t, rec.Header().Get("ETag"))
 			}
 
-			if tt.wantStatus == http.StatusOK || tt.wantStatus == http.StatusNoContent {
+			if tt.wantStatus == http.StatusOK {
 				nextToken := rec.Header().Get("Next-Poll-Configuration-Token")
 				assert.NotEmpty(t, nextToken)
 				assert.NotEqual(t, token, nextToken)
@@ -129,8 +132,9 @@ func TestHandler_GetLatestConfiguration_EmptyToken(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestHandler_NoContentHeaders verifies that a 204 response (no content change) does not
-// include ETag or Content-Type — only the poll-control headers should be present.
+// TestHandler_NoContentHeaders verifies that an unchanged-configuration response (200 with
+// an empty body) does not include ETag or Content-Type — only the poll-control headers
+// should be present.
 func TestHandler_NoContentHeaders(t *testing.T) {
 	t.Parallel()
 
@@ -146,10 +150,11 @@ func TestHandler_NoContentHeaders(t *testing.T) {
 	assert.NotEmpty(t, rec1.Header().Get("Next-Poll-Interval-In-Seconds"))
 	token = rec1.Header().Get("Next-Poll-Configuration-Token")
 
-	// Second poll — content unchanged → 204.
+	// Second poll — content unchanged → 200 with an empty body (AWS's fixed responseCode).
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
-	require.Equal(t, http.StatusNoContent, rec2.Code)
-	assert.Empty(t, rec2.Header().Get("ETag"), "204 must not include ETag")
+	require.Equal(t, http.StatusOK, rec2.Code)
+	assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
+	assert.Empty(t, rec2.Header().Get("ETag"), "unchanged response must not include ETag")
 	// Poll-control headers must still be present.
 	assert.NotEmpty(t, rec2.Header().Get("Next-Poll-Configuration-Token"))
 	assert.NotEmpty(t, rec2.Header().Get("Next-Poll-Interval-In-Seconds"))
@@ -234,10 +239,11 @@ func TestHandler_TokenRotation(t *testing.T) {
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
 	assert.Equal(t, http.StatusOK, rec2.Code, "old token should work during grace period")
 
-	// New token polls unchanged content → 204 No Content.
+	// New token polls unchanged content → 200 with an empty body (AWS never returns 204).
 	// The client already received the current version via T0, so T1's first poll yields empty body.
 	rec3 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+nextToken, nil)
-	assert.Equal(t, http.StatusNoContent, rec3.Code)
+	assert.Equal(t, http.StatusOK, rec3.Code)
+	assert.Empty(t, rec3.Body.String(), "unchanged response must have an empty body")
 
 	// After a configuration update the next token returns new content → 200.
 	require.NoError(t, h.Backend.SetConfiguration("app", "env", "profile", `{"v":2}`, "application/json"))
@@ -269,9 +275,9 @@ func TestHandler_GraceTokenIdempotency(t *testing.T) {
 		"grace replay must return same next token")
 }
 
-// TestHandler_ContentTypeNotSetOn204 is a focused regression test for the protocol violation
-// where NoContent responses previously set Content-Type.
-func TestHandler_ContentTypeNotSetOn204(t *testing.T) {
+// TestHandler_ContentTypeNotSetOnUnchanged is a focused regression test for the protocol
+// violation where empty-body (unchanged-configuration) responses previously set Content-Type.
+func TestHandler_ContentTypeNotSetOnUnchanged(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -283,12 +289,13 @@ func TestHandler_ContentTypeNotSetOn204(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 	next := rec1.Header().Get("Next-Poll-Configuration-Token")
 
-	// Second poll — content unchanged.
+	// Second poll — content unchanged → 200 with an empty body (AWS's fixed responseCode).
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+next, nil)
-	require.Equal(t, http.StatusNoContent, rec2.Code)
-	// Content-Type must NOT be set to "application/json" (or anything data-describing) on 204.
+	require.Equal(t, http.StatusOK, rec2.Code)
+	assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
+	// Content-Type must NOT be set to "application/json" (or anything data-describing) when unchanged.
 	ct := rec2.Header().Get("Content-Type")
-	assert.Empty(t, ct, "Content-Type must not be set on 204 response, got: %q", ct)
+	assert.Empty(t, ct, "Content-Type must not be set on an unchanged (empty-body) response, got: %q", ct)
 }
 
 // TestHandler_TokenExpired_Returns400 verifies that an expired token returns 400 BadRequestException
@@ -398,8 +405,9 @@ func TestHandler_VersionLabelHeaderNameIsVersionLabel(t *testing.T) {
 		"X-Amzn-AppConfig-Version-Label is not in the AWS protocol and must not be set")
 }
 
-// TestHandler_VersionLabel_NotSetOn204 verifies Version-Label is omitted on 204 No Content.
-func TestHandler_VersionLabel_NotSetOn204(t *testing.T) {
+// TestHandler_VersionLabel_UnchangedResponse verifies the response status and body when
+// polling again with no configuration change (200 with an empty body, never 204).
+func TestHandler_VersionLabel_UnchangedResponse(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -412,9 +420,11 @@ func TestHandler_VersionLabel_NotSetOn204(t *testing.T) {
 	require.NotEmpty(t, rec1.Header().Get("Version-Label"))
 	nextToken := rec1.Header().Get("Next-Poll-Configuration-Token")
 
-	// Second poll — unchanged → 204, Version-Label must still be present (we set it always when non-empty).
+	// Second poll — unchanged → 200 with an empty body, Version-Label must still be present
+	// (we set it always when non-empty).
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+nextToken, nil)
-	assert.Equal(t, http.StatusNoContent, rec2.Code)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
 }
 
 // TestHandler_ConfigUpdateDetection verifies that after a configuration update, the next
@@ -433,9 +443,10 @@ func TestHandler_ConfigUpdateDetection(t *testing.T) {
 	t1 := rec1.Header().Get("Next-Poll-Configuration-Token")
 	etag1 := rec1.Header().Get("ETag")
 
-	// Second poll — no change → 204.
+	// Second poll — no change → 200 with an empty body.
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+t1, nil)
-	require.Equal(t, http.StatusNoContent, rec2.Code)
+	require.Equal(t, http.StatusOK, rec2.Code)
+	assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
 	t2 := rec2.Header().Get("Next-Poll-Configuration-Token")
 
 	// Update configuration.
@@ -450,14 +461,16 @@ func TestHandler_ConfigUpdateDetection(t *testing.T) {
 	assert.NotEmpty(t, etag3, "changed content must include ETag")
 	assert.NotEqual(t, etag1, etag3, "ETag must change when content changes")
 
-	// Fourth poll — no change → 204.
+	// Fourth poll — no change → 200 with an empty body.
 	t3 := rec3.Header().Get("Next-Poll-Configuration-Token")
 	rec4 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+t3, nil)
-	assert.Equal(t, http.StatusNoContent, rec4.Code)
+	assert.Equal(t, http.StatusOK, rec4.Code)
+	assert.Empty(t, rec4.Body.String(), "unchanged response must have an empty body")
 }
 
 // TestHandler_JSONSemanticEquivalence verifies that semantically equivalent JSON documents
-// (same keys/values, different whitespace) produce the same hash, yielding 204 on second poll.
+// (same keys/values, different whitespace) produce the same hash, yielding a 200 response
+// with an empty body on the second poll.
 func TestHandler_JSONSemanticEquivalence(t *testing.T) {
 	t.Parallel()
 
@@ -475,8 +488,9 @@ func TestHandler_JSONSemanticEquivalence(t *testing.T) {
 		`{ "a": 1, "b": 2 }`, "application/json"))
 
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+t1, nil)
-	assert.Equal(t, http.StatusNoContent, rec2.Code,
+	require.Equal(t, http.StatusOK, rec2.Code,
 		"semantically equivalent JSON must not trigger change detection")
+	assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
 }
 
 // TestHandler_ContentTypePreserved verifies that non-JSON content types are passed through
@@ -565,7 +579,8 @@ func TestHandler_ContentLengthHeader(t *testing.T) {
 }
 
 // TestHandler_NextPollTokenHeader verifies both Next-Poll-Configuration-Token and
-// Next-Poll-Interval-In-Seconds are always set on successful responses (200 and 204).
+// Next-Poll-Interval-In-Seconds are always set on successful responses, regardless of
+// whether the configuration content changed.
 func TestHandler_NextPollTokenHeader(t *testing.T) {
 	t.Parallel()
 
@@ -573,16 +588,17 @@ func TestHandler_NextPollTokenHeader(t *testing.T) {
 	seedProfile(t, h, "app", "env", "p", `{"v":1}`)
 	token := startSession(t, h, "app", "env", "p")
 
-	// 200 response must carry both poll-control headers.
+	// First poll (content present) must carry both poll-control headers.
 	rec1 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 	assert.NotEmpty(t, rec1.Header().Get("Next-Poll-Configuration-Token"))
 	assert.NotEmpty(t, rec1.Header().Get("Next-Poll-Interval-In-Seconds"))
 	next := rec1.Header().Get("Next-Poll-Configuration-Token")
 
-	// 204 response must also carry both poll-control headers.
+	// Second poll (unchanged, empty body) must also carry both poll-control headers.
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+next, nil)
-	require.Equal(t, http.StatusNoContent, rec2.Code)
+	require.Equal(t, http.StatusOK, rec2.Code)
+	assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
 	assert.NotEmpty(t, rec2.Header().Get("Next-Poll-Configuration-Token"))
 	assert.NotEmpty(t, rec2.Header().Get("Next-Poll-Interval-In-Seconds"))
 }
@@ -669,33 +685,34 @@ func TestHandler_NoPollRateLimitWhenIntervalZero(t *testing.T) {
 
 	// Immediate re-poll must NOT be rejected.
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+nextTok, nil)
-	assert.Equal(t, http.StatusNoContent, rec2.Code,
-		"immediate re-poll with no declared interval must return 204, not rate-limit error")
+	require.Equal(t, http.StatusOK, rec2.Code,
+		"immediate re-poll with no declared interval must return 200 (empty body), not a rate-limit error")
+	assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
 }
 
 // TestHandler_ResponseHeaders verifies that AWS-required response headers are present and
-// absent at the right times for both 200 and 204 responses.
+// absent at the right times, for both a content-bearing response and an unchanged
+// (empty-body) response -- both of which use HTTP 200, per AWS's fixed responseCode.
 func TestHandler_ResponseHeaders(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	tests := []struct {
 		name             string
 		wantETag         bool
 		wantVersionLabel bool
-		wantStatus       int
+		wantEmptyBody    bool
 		isSecondPoll     bool
 	}{
 		{
-			name:             "first_poll_200_headers",
-			wantStatus:       http.StatusOK,
+			name:             "first_poll_content_headers",
 			wantETag:         true,
 			wantVersionLabel: true,
 		},
 		{
-			name:         "second_poll_204_no_etag_no_content_type",
-			wantStatus:   http.StatusNoContent,
-			wantETag:     false,
-			isSecondPoll: true,
+			name:          "second_poll_unchanged_no_etag_no_content_type",
+			wantETag:      false,
+			wantEmptyBody: true,
+			isSecondPoll:  true,
 		},
 	}
 
@@ -714,21 +731,22 @@ func TestHandler_ResponseHeaders(t *testing.T) {
 			}
 
 			rec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+tok, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Equal(t, http.StatusOK, rec.Code, "GetLatestConfiguration always returns 200")
 
 			// Poll-control headers always present on success.
 			assert.NotEmpty(t, rec.Header().Get("Next-Poll-Configuration-Token"))
 			assert.NotEmpty(t, rec.Header().Get("Next-Poll-Interval-In-Seconds"))
 
 			if tt.wantETag {
-				assert.NotEmpty(t, rec.Header().Get("ETag"), "ETag must be set on 200")
+				assert.NotEmpty(t, rec.Header().Get("ETag"), "ETag must be set when content changed")
 			} else {
-				assert.Empty(t, rec.Header().Get("ETag"), "ETag must not be set on 204")
+				assert.Empty(t, rec.Header().Get("ETag"), "ETag must not be set when unchanged")
 			}
 
-			if tt.wantStatus == http.StatusNoContent {
+			if tt.wantEmptyBody {
+				assert.Empty(t, rec.Body.String(), "unchanged response must have an empty body")
 				assert.Empty(t, rec.Header().Get("Content-Type"),
-					"Content-Type must not be set on 204 response")
+					"Content-Type must not be set on an unchanged (empty-body) response")
 			}
 		})
 	}
@@ -740,19 +758,18 @@ func TestHandler_TokenRotationAndGracePeriod(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		replayOld  bool
-		wantStatus int
+		name          string
+		replayOld     bool
+		wantEmptyBody bool
 	}{
 		{
-			name:       "new_token_usable_after_rotation",
-			replayOld:  false,
-			wantStatus: http.StatusNoContent,
+			name:          "new_token_usable_after_rotation",
+			replayOld:     false,
+			wantEmptyBody: true, // unchanged since the first poll already delivered the content
 		},
 		{
-			name:       "old_token_in_grace_period_returns_same_response",
-			replayOld:  true,
-			wantStatus: http.StatusOK,
+			name:      "old_token_in_grace_period_returns_same_response",
+			replayOld: true,
 		},
 	}
 
@@ -778,7 +795,13 @@ func TestHandler_TokenRotationAndGracePeriod(t *testing.T) {
 			}
 
 			rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+useToken, nil)
-			assert.Equal(t, tt.wantStatus, rec2.Code)
+			require.Equal(t, http.StatusOK, rec2.Code, "GetLatestConfiguration always returns 200")
+
+			if tt.wantEmptyBody {
+				assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
+			} else {
+				assert.NotEmpty(t, rec2.Body.String(), "grace replay must return the cached content body")
+			}
 		})
 	}
 }

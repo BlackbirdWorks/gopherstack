@@ -26,6 +26,32 @@ type OIDCLookup interface {
 	OIDCProviderExists(issuerURL string) bool
 }
 
+// AccountSettingsLookup is implemented by services (e.g. IAM) that can report
+// account-level settings STS needs to gate its own operations. It is an
+// OPTIONAL capability, deliberately kept separate from OIDCLookup rather than
+// folded into it (interface segregation: an OIDCLookup implementation that
+// has no notion of account settings should not be forced to implement this
+// too). SetOIDCLookup below opportunistically type-asserts its argument
+// against this interface, so the real IAM backend (which implements both)
+// gets wired into both roles via the single existing cli.go call site
+// (`stsBk.SetOIDCLookup(iamBk)`) -- no new cli.go wiring call is needed for
+// this. When no implementation is wired (accountSettingsLookup is nil,
+// e.g. every unit test that constructs an isolated InMemoryBackend without
+// calling SetOIDCLookup), the gated check defaults to permissive/unset, i.e.
+// the OutboundWebIdentityFederationDisabledException path below is simply
+// never triggered -- matching this backend's general policy of only
+// enforcing a check when the data needed to enforce it correctly has
+// actually been wired in.
+type AccountSettingsLookup interface {
+	// OutboundWebIdentityFederationEnabled returns whether the account has
+	// enabled outbound web identity federation (real AWS IAM's
+	// EnableOutboundWebIdentityFederation/DisableOutboundWebIdentityFederation/
+	// GetOutboundWebIdentityFederationInfo), which GetWebIdentityToken must
+	// gate on: see OutboundWebIdentityFederationDisabledException in
+	// aws-sdk-go-v2/service/sts/types.
+	OutboundWebIdentityFederationEnabled() bool
+}
+
 // RoleMeta carries the role properties that STS needs during AssumeRole.
 type RoleMeta struct {
 	// TrustPolicy is the raw JSON of the role's trust (assume-role) policy document.
@@ -37,12 +63,13 @@ type RoleMeta struct {
 
 // InMemoryBackend is a stateful in-memory STS backend.
 type InMemoryBackend struct {
-	roleLookup RoleLookup
-	oidcLookup OIDCLookup
-	sessions   *store.Table[SessionInfo]
-	registry   *store.Registry
-	mu         *lockmetrics.RWMutex
-	accountID  string
+	roleLookup            RoleLookup
+	oidcLookup            OIDCLookup
+	accountSettingsLookup AccountSettingsLookup
+	sessions              *store.Table[SessionInfo]
+	registry              *store.Registry
+	mu                    *lockmetrics.RWMutex
+	accountID             string
 
 	// Operation call counters — incremented atomically.
 	cntAssumeRoleWithWebIdentity atomic.Int64
@@ -106,11 +133,22 @@ func (b *InMemoryBackend) SetRoleLookup(rl RoleLookup) {
 
 // SetOIDCLookup wires an optional OIDC-lookup implementation (e.g. the IAM backend)
 // so that AssumeRoleWithWebIdentity can validate that the OIDC provider exists.
+//
+// If ol also implements AccountSettingsLookup (the real IAM backend does),
+// it is opportunistically wired in as this backend's account-settings source
+// too, so GetWebIdentityToken can gate on OutboundWebIdentityFederationEnabled
+// -- see AccountSettingsLookup's doc comment for why this piggybacks on the
+// existing SetOIDCLookup call instead of adding a new setter/cli.go wiring
+// call.
 func (b *InMemoryBackend) SetOIDCLookup(ol OIDCLookup) {
 	b.mu.Lock("SetOIDCLookup")
 	defer b.mu.Unlock()
 
 	b.oidcLookup = ol
+
+	if asl, ok := ol.(AccountSettingsLookup); ok {
+		b.accountSettingsLookup = asl
+	}
 }
 
 // AccountID returns the AWS account ID configured for this backend.

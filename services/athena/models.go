@@ -60,11 +60,16 @@ type WorkGroupConfiguration struct {
 }
 
 // WorkGroup represents an Athena workgroup.
+//
+// AWS's real GetWorkGroupOutput.WorkGroup carries no Tags field -- tags for a
+// workgroup are managed exclusively through TagResource/UntagResource/
+// ListTagsForResource and stored in InMemoryBackend.resourceTags, never
+// echoed back on the resource itself. A field here would be a gopherstack-
+// invented addition to the wire shape.
 type WorkGroup struct {
 	Name          string                 `json:"Name"`
 	Description   string                 `json:"Description,omitempty"`
 	State         string                 `json:"State"`
-	Tags          map[string]string      `json:"Tags,omitempty"`
 	Configuration WorkGroupConfiguration `json:"Configuration,omitzero"`
 	CreationTime  float64                `json:"CreationTime,omitempty"`
 }
@@ -89,9 +94,12 @@ type NamedQuery struct {
 }
 
 // DataCatalog represents an Athena data catalog.
+//
+// AWS's real types.DataCatalog carries no Tags field -- tags live only in
+// TagResource/ListTagsForResource's separate store; see WorkGroup's doc
+// comment for the same rule.
 type DataCatalog struct {
 	Parameters     map[string]string `json:"Parameters,omitempty"`
-	Tags           map[string]string `json:"Tags,omitempty"`
 	Name           string            `json:"Name"`
 	Type           string            `json:"Type"`
 	Description    string            `json:"Description,omitempty"`
@@ -213,8 +221,11 @@ type CapacityAllocation struct {
 }
 
 // CapacityReservation represents an Athena capacity reservation.
+//
+// AWS's real types.CapacityReservation carries no Tags field -- tags live
+// only in TagResource/ListTagsForResource's separate store; see WorkGroup's
+// doc comment for the same rule.
 type CapacityReservation struct {
-	Tags                         map[string]string   `json:"Tags,omitempty"`
 	LastAllocation               *CapacityAllocation `json:"LastAllocation,omitempty"`
 	Name                         string              `json:"Name"`
 	Status                       string              `json:"Status"`
@@ -404,8 +415,11 @@ type Executor struct {
 }
 
 // EngineVersionDescriptor describes an available engine version.
+//
+// This mirrors AWS's real types.EngineVersion exactly (EffectiveEngineVersion
+// + SelectedEngineVersion only). A previous "AuthEngineVersion" field here was
+// a gopherstack invention with no counterpart on the real type -- removed.
 type EngineVersionDescriptor struct {
-	AuthEngineVersion      string `json:"AuthEngineVersion,omitempty"`
 	EffectiveEngineVersion string `json:"EffectiveEngineVersion,omitempty"`
 	SelectedEngineVersion  string `json:"SelectedEngineVersion,omitempty"`
 }

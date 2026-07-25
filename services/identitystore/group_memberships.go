@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // ----------------------------------------
@@ -41,12 +42,21 @@ func (b *InMemoryBackend) CreateGroupMembership(
 	}
 
 	membershipID := b.generateID()
+	now := epochTime(time.Now().UTC())
+	callerARN := b.simulatedCallerARN()
+	// There is no UpdateGroupMembership API in real AWS -- a membership's
+	// CreatedAt/CreatedBy and UpdatedAt/UpdatedBy are therefore always equal
+	// for the lifetime of the resource (it can only be created or deleted).
 	membership := &GroupMembership{
 		MembershipID:    membershipID,
 		IdentityStoreID: storeID,
 		GroupID:         groupID,
 		MemberID:        memberID,
 		region:          region,
+		CreatedAt:       now,
+		CreatedBy:       callerARN,
+		UpdatedAt:       now,
+		UpdatedBy:       callerARN,
 	}
 
 	b.memberships.Put(membership)

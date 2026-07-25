@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -72,7 +74,7 @@ func parseInvitationsPath(method string, parts []string) (string, string) {
 	return opUnknown, ""
 }
 
-func (h *Handler) dispatchMemberOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchMemberOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateMember:
 		code, err := h.handleCreateMember(body)
@@ -92,7 +94,7 @@ func (h *Handler) dispatchMemberOps(op, path string, body []byte) (any, int, boo
 		return nil, code, true, err
 
 	case opListMembers:
-		result, code, err := h.handleListMembers()
+		result, code, err := h.handleListMembers(query)
 
 		return result, code, true, err
 
@@ -201,13 +203,32 @@ func (h *Handler) handleDeleteMember(accountID string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListMembers() (any, int, error) {
-	members, err := h.Backend.ListMembers(false)
+// handleListMembers parses onlyAssociated/maxResults/nextToken from the
+// query string. Real ListMembersInput.OnlyAssociated is a *string ("true"/
+// "false"), and defaults to true (only current, i.e. still-associated,
+// members) when absent -- set it to "false" to also see DISASSOCIATED
+// members.
+func (h *Handler) handleListMembers(query string) (any, int, error) {
+	q, _ := url.ParseQuery(query)
+
+	onlyAssociated := true
+	if v := q.Get("onlyAssociated"); v != "" {
+		onlyAssociated = v != "false"
+	}
+
+	limit, _ := strconv.Atoi(q.Get("maxResults"))
+
+	members, nextToken, err := h.Backend.ListMembers(onlyAssociated, limit, q.Get("nextToken"))
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{"members": members}, http.StatusOK, nil
+	resp := map[string]any{"members": members}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleDisassociateMember(accountID string) (int, error) {

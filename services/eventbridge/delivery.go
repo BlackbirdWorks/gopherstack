@@ -183,16 +183,19 @@ func (b *InMemoryBackend) deliverScheduledRule(
 	wg.Wait()
 }
 
-// deliverEvents fan-outs events to matching rule targets.
-// It runs asynchronously and does not block PutEvents.
+// deliverEvents fan-outs events to matching rule targets. It runs
+// asynchronously and does not block PutEvents. filterRuleARNs, when
+// non-empty, restricts delivery to only those rule ARNs -- used by replay
+// (StartReplayInput.Destination.FilterArns); PutEvents always passes nil.
 func (b *InMemoryBackend) deliverEvents(
 	ctx context.Context,
 	region string,
 	entries []EventEntry,
 	targets DeliveryTargets,
 	timeout time.Duration,
+	filterRuleARNs map[string]struct{},
 ) {
-	groups := b.buildDeliveryPlan(region, entries)
+	groups := b.buildDeliveryPlan(region, entries, filterRuleARNs)
 
 	// Deliver outside the lock. Targets within a rule run concurrently; each
 	// gets its own bounded context so a hung downstream service cannot block
@@ -224,7 +227,11 @@ type deliveryGroup struct {
 // and the rules that matched. Snapshotting under the lock lets delivery run
 // without racing concurrent mutations (PutRule/DeleteRule/PutTargets/RemoveTargets).
 // Groups preserve the original rule-by-rule, entry-by-entry ordering.
-func (b *InMemoryBackend) buildDeliveryPlan(region string, entries []EventEntry) []deliveryGroup {
+func (b *InMemoryBackend) buildDeliveryPlan(
+	region string,
+	entries []EventEntry,
+	filterRuleARNs map[string]struct{},
+) []deliveryGroup {
 	b.mu.RLock("buildDeliveryPlan")
 	defer b.mu.RUnlock()
 
@@ -235,39 +242,79 @@ func (b *InMemoryBackend) buildDeliveryPlan(region string, entries []EventEntry)
 	ruleIndex := b.ruleIndex[region]
 	targetsStore := b.targets[region]
 
-	var groups []deliveryGroup
+	// len(entries) is a lower-bound capacity hint, not an exact size: each
+	// entry matches zero or more rules, so the final group count can be
+	// smaller or larger.
+	groups := make([]deliveryGroup, 0, len(entries))
 	for _, entry := range entries {
-		busName := entry.EventBusName
-		if busName == "" {
-			busName = defaultEventBusName
-		}
-
-		busKey := ebBusKey(busName)
-		eventEnvelope := buildEventEnvelope(entry)
-		for _, rule := range indexedRulesForEvent(ruleIndex[busKey], entry.Source, entry.DetailType) {
-			if rule.State != "ENABLED" || rule.EventPattern == "" {
-				continue
-			}
-
-			if !matchCompiledPattern(rule.compiledPattern, eventEnvelope) {
-				continue
-			}
-
-			storedTargets := targetsStore[b.targetKey(busName, rule.Name)]
-			if storedTargets == nil || storedTargets.Len() == 0 {
-				continue
-			}
-
-			// Build the delivery envelope once per matched rule so all targets
-			// for this rule share the same event id, matching AWS behaviour.
-			groups = append(groups, deliveryGroup{
-				envelope: buildDeliveryEnvelope(entry, accountID, region),
-				targets:  snapshotTargets(storedTargets),
-			})
-		}
+		groups = append(
+			groups,
+			b.matchedDeliveryGroupsForEntry(entry, region, accountID, ruleIndex, targetsStore, filterRuleARNs)...,
+		)
 	}
 
 	return groups
+}
+
+// matchedDeliveryGroupsForEntry returns one deliveryGroup per rule on entry's
+// bus that matches for delivery (see ruleMatchesForDelivery) and has at least
+// one stored target. Extracted from buildDeliveryPlan to keep its cognitive
+// complexity down; must be called with b.mu held for reading.
+func (b *InMemoryBackend) matchedDeliveryGroupsForEntry(
+	entry EventEntry,
+	region, accountID string,
+	ruleIndex map[string]map[ruleIndexKey]map[string]*Rule,
+	targetsStore map[string]*store.Table[Target],
+	filterRuleARNs map[string]struct{},
+) []deliveryGroup {
+	busName := entry.EventBusName
+	if busName == "" {
+		busName = defaultEventBusName
+	}
+
+	busKey := ebBusKey(busName)
+	eventEnvelope := buildEventEnvelope(entry)
+
+	var groups []deliveryGroup
+	for _, rule := range indexedRulesForEvent(ruleIndex[busKey], entry.Source, entry.DetailType) {
+		if !ruleMatchesForDelivery(rule, eventEnvelope, filterRuleARNs) {
+			continue
+		}
+
+		storedTargets := targetsStore[b.targetKey(busName, rule.Name)]
+		if storedTargets == nil || storedTargets.Len() == 0 {
+			continue
+		}
+
+		// Build the delivery envelope once per matched rule so all targets
+		// for this rule share the same event id, matching AWS behaviour.
+		groups = append(groups, deliveryGroup{
+			envelope: buildDeliveryEnvelope(entry, accountID, region),
+			targets:  snapshotTargets(storedTargets),
+		})
+	}
+
+	return groups
+}
+
+// ruleMatchesForDelivery reports whether rule should receive entry's event:
+// ENABLED with a non-empty EventPattern, included in filterRuleARNs when
+// that filter is non-empty (replay's FilterArns; PutEvents always passes an
+// empty filter), and the event pattern matches. eventEnvelope is the entry's
+// JSON-encoded event (see buildEventEnvelope), not the per-target delivery
+// envelope built separately below.
+func ruleMatchesForDelivery(rule *Rule, eventEnvelope string, filterRuleARNs map[string]struct{}) bool {
+	if rule.State != "ENABLED" || rule.EventPattern == "" {
+		return false
+	}
+
+	if len(filterRuleARNs) > 0 {
+		if _, ok := filterRuleARNs[rule.Arn]; !ok {
+			return false
+		}
+	}
+
+	return matchCompiledPattern(rule.compiledPattern, eventEnvelope)
 }
 
 // snapshotTargets returns copies of the stored target structs so delivery cannot

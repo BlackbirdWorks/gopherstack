@@ -14,25 +14,28 @@ import (
 func (h *Handler) describeEvents(ctx context.Context, c *echo.Context, form url.Values) error {
 	sourceIdentifier := form.Get("SourceIdentifier")
 	sourceType := form.Get("SourceType")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	var startTime, endTime time.Time
 
 	if s := form.Get("StartTime"); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
+		if t, parseErr := time.Parse(time.RFC3339, s); parseErr == nil {
 			startTime = t
 		}
 	}
 
 	if s := form.Get("EndTime"); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
+		if t, parseErr := time.Parse(time.RFC3339, s); parseErr == nil {
 			endTime = t
 		}
 	}
 
 	duration := 0
 	if s := form.Get("Duration"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil {
+		if n, parseErr := strconv.Atoi(s); parseErr == nil {
 			duration = n
 		}
 	}

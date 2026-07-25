@@ -223,8 +223,8 @@ func (h *Handler) handleListIndicators(c *echo.Context) error {
 	indicatorList := make([]map[string]any, 0, len(indicators))
 	for _, ind := range indicators {
 		indicatorList = append(indicatorList, map[string]any{
-			"IndicatorType": ind.IndicatorType,
-			"Title":         ind.Title,
+			"IndicatorType":   ind.IndicatorType,
+			"IndicatorDetail": indicatorDetailToJSON(ind.Detail),
 		})
 	}
 
@@ -238,4 +238,65 @@ func (h *Handler) handleListIndicators(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// indicatorDetailToJSON encodes the type-specific sub-detail of an
+// IndicatorDetail. Only the single sub-detail matching the Indicator's
+// IndicatorType is ever populated (a union, like the real SDK shape), so
+// exactly one key appears in the result.
+func indicatorDetailToJSON(d IndicatorDetail) map[string]any {
+	result := make(map[string]any, 1)
+
+	switch {
+	case d.FlaggedIPAddress != nil:
+		result["FlaggedIpAddressDetail"] = map[string]any{
+			keyIPAddress: d.FlaggedIPAddress.IPAddress,
+			keyReason:    d.FlaggedIPAddress.Reason,
+		}
+	case d.ImpossibleTravel != nil:
+		result["ImpossibleTravelDetail"] = map[string]any{
+			"StartingIpAddress": d.ImpossibleTravel.StartingIPAddress,
+			"StartingLocation":  d.ImpossibleTravel.StartingLocation,
+			"EndingIpAddress":   d.ImpossibleTravel.EndingIPAddress,
+			"EndingLocation":    d.ImpossibleTravel.EndingLocation,
+			"HourlyTimeDelta":   d.ImpossibleTravel.HourlyTimeDelta,
+		}
+	case d.NewASO != nil:
+		result["NewAsoDetail"] = map[string]any{
+			"Aso":                    d.NewASO.ASO,
+			keyIsNewForEntireAccount: d.NewASO.IsNewForEntireAccount,
+		}
+	case d.NewGeolocation != nil:
+		result["NewGeolocationDetail"] = map[string]any{
+			keyIPAddress:             d.NewGeolocation.IPAddress,
+			"Location":               d.NewGeolocation.Location,
+			keyIsNewForEntireAccount: d.NewGeolocation.IsNewForEntireAccount,
+		}
+	case d.NewUserAgent != nil:
+		result["NewUserAgentDetail"] = map[string]any{
+			"UserAgent":              d.NewUserAgent.UserAgent,
+			keyIsNewForEntireAccount: d.NewUserAgent.IsNewForEntireAccount,
+		}
+	case d.RelatedFinding != nil:
+		result["RelatedFindingDetail"] = map[string]any{
+			"Arn":        d.RelatedFinding.Arn,
+			"Type":       d.RelatedFinding.Type,
+			keyIPAddress: d.RelatedFinding.IPAddress,
+		}
+	case d.RelatedFindingGroup != nil:
+		result["RelatedFindingGroupDetail"] = map[string]any{
+			"Id": d.RelatedFindingGroup.ID,
+		}
+	case d.TTPsObserved != nil:
+		result["TTPsObservedDetail"] = map[string]any{
+			"Tactic":          d.TTPsObserved.Tactic,
+			"Procedure":       d.TTPsObserved.Procedure,
+			"APIName":         d.TTPsObserved.APIName,
+			keyIPAddress:      d.TTPsObserved.IPAddress,
+			"APISuccessCount": d.TTPsObserved.APISuccessCount,
+			"APIFailureCount": d.TTPsObserved.APIFailureCount,
+		}
+	}
+
+	return result
 }

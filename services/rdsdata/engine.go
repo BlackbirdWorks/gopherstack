@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -97,11 +99,13 @@ func (e *sqlEngine) dbFor(ctx context.Context, region, resourceARN string) (*sql
 
 // execute runs a single SQL statement against a resource database, or against
 // an open transaction when transactionID is set, and returns the result set.
+// The result-set shaping (resultSetOptions) is read from ctx -- see
+// resultSetOptionsContextKey in store.go.
 func (e *sqlEngine) execute(
 	ctx context.Context,
 	region, resourceARN, statement, transactionID string,
 	params []SQLParameter,
-) ([][]Field, []ColumnMetadata, int64, error) {
+) ([][]Field, []ColumnMetadata, int64, []Field, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -110,20 +114,20 @@ func (e *sqlEngine) execute(
 	if transactionID != "" {
 		tx, ok := e.txs[transactionID]
 		if !ok {
-			return nil, nil, 0, errNoEngineTx
+			return nil, nil, 0, nil, errNoEngineTx
 		}
 
 		run = tx
 	} else {
 		db, err := e.dbFor(ctx, region, resourceARN)
 		if err != nil {
-			return nil, nil, 0, err
+			return nil, nil, 0, nil, err
 		}
 
 		run = db
 	}
 
-	return runStatement(ctx, run, statement, params)
+	return runStatement(ctx, run, statement, params, getResultSetOptions(ctx))
 }
 
 // beginTx opens an engine-side transaction bound to txID. The caller must have
@@ -195,43 +199,122 @@ func (e *sqlEngine) replay(ctx context.Context, region string, stmts []ExecutedS
 			continue
 		}
 
-		_, _, _, _ = e.execute(ctx, region, st.ResourceARN, st.SQL, "", nil)
+		_, _, _, _, _ = e.execute(ctx, region, st.ResourceARN, st.SQL, "", nil)
 	}
 }
 
 // runStatement dispatches to the query or exec path based on the leading
 // keyword and shapes the driver result into the Data API record model.
+// opts controls how numeric result columns are shaped (real AWS
+// ExecuteStatementInput.ResultSetOptions); it is ignored on the exec path,
+// which never produces a result set.
 func runStatement(
 	ctx context.Context,
 	run querier,
 	statement string,
 	params []SQLParameter,
-) ([][]Field, []ColumnMetadata, int64, error) {
+	opts resultSetOptions,
+) ([][]Field, []ColumnMetadata, int64, []Field, error) {
 	args := namedArgs(params)
 
 	if isQuery(statement) {
 		rows, err := run.QueryContext(ctx, statement, args...)
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("query: %w", err)
+			return nil, nil, 0, nil, fmt.Errorf("query: %w", err)
 		}
 		defer func() { _ = rows.Close() }()
 
-		records, columns, scanErr := scanRows(rows)
+		records, columns, scanErr := scanRows(rows, opts)
 		if scanErr != nil {
-			return nil, nil, 0, scanErr
+			return nil, nil, 0, nil, scanErr
 		}
 
-		return records, columns, 0, nil
+		return records, columns, 0, nil, nil
 	}
 
 	res, err := run.ExecContext(ctx, statement, args...)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("exec: %w", err)
+		return nil, nil, 0, nil, fmt.Errorf("exec: %w", err)
 	}
 
 	updated, _ := res.RowsAffected()
+	generated := generatedFieldsFor(ctx, run, statement, res)
 
-	return [][]Field{}, []ColumnMetadata{}, updated, nil
+	return [][]Field{}, []ColumnMetadata{}, updated, generated, nil
+}
+
+// insertIntoTableRe extracts the target table name from a simple, unquoted
+// "INSERT [OR <resolution>] INTO <table>" statement. Statements that quote or
+// bracket-escape the table identifier don't match; generatedFieldsFor
+// degrades safely to no generated fields in that case rather than risking an
+// injected identifier.
+var insertIntoTableRe = regexp.MustCompile(`(?is)^\s*INSERT\s+(?:OR\s+\w+\s+)?INTO\s+([A-Za-z_][A-Za-z0-9_]*)`)
+
+// generatedFieldsFor returns the GeneratedFields for a just-executed
+// non-query statement. Real AWS populates this with the value assigned to an
+// auto-increment/serial column by an INSERT (and documents that it isn't
+// supported by Aurora PostgreSQL at all -- see UpdateResult in models.go).
+// This mock recognizes the SQLite equivalent: a target table with exactly
+// one INTEGER PRIMARY KEY column, which SQLite documents as a rowid alias
+// (https://sqlite.org/lang_createtable.html#rowid), and surfaces
+// res.LastInsertId() for it. Every other shape -- UPDATE/DELETE/DDL, or an
+// INSERT into a table with no such column -- returns an empty slice.
+func generatedFieldsFor(ctx context.Context, run querier, statement string, res sql.Result) []Field {
+	m := insertIntoTableRe.FindStringSubmatch(statement)
+	if m == nil {
+		return []Field{}
+	}
+
+	if !hasRowIDAliasColumn(ctx, run, m[1]) {
+		return []Field{}
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil || id == 0 {
+		return []Field{}
+	}
+
+	return []Field{{LongValue: &id}}
+}
+
+// hasRowIDAliasColumn reports whether table declares exactly one INTEGER
+// PRIMARY KEY column (a composite primary key, or a primary key of any other
+// declared type, does not create a rowid alias per SQLite's documented
+// rules). table is only ever a regexp-validated bare identifier (see
+// insertIntoTableRe), so it is safe to interpolate directly into the PRAGMA
+// statement -- database/sql has no bind-parameter support for PRAGMA targets.
+func hasRowIDAliasColumn(ctx context.Context, run querier, table string) bool {
+	rows, err := run.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = rows.Close() }()
+
+	pkCount := 0
+	isIntegerPK := false
+
+	for rows.Next() {
+		var cid, notnull, pk int
+
+		var name, ctype string
+
+		var dflt any
+
+		if scanErr := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); scanErr != nil {
+			return false
+		}
+
+		if pk > 0 {
+			pkCount++
+			isIntegerPK = strings.Contains(strings.ToUpper(ctype), "INT")
+		}
+	}
+
+	if rows.Err() != nil {
+		return false
+	}
+
+	return pkCount == 1 && isIntegerPK
 }
 
 // queryLeadKeywords are the statement prefixes that produce a result set.
@@ -376,8 +459,10 @@ func columnMetadataFor(ct *sql.ColumnType) ColumnMetadata {
 	return meta
 }
 
-// scanRows materialises an *sql.Rows cursor into the Data API record model.
-func scanRows(rows *sql.Rows) ([][]Field, []ColumnMetadata, error) {
+// scanRows materialises an *sql.Rows cursor into the Data API record model,
+// applying opts (real AWS ExecuteStatementInput.ResultSetOptions) to shape
+// each column's values -- see shapeField.
+func scanRows(rows *sql.Rows, opts resultSetOptions) ([][]Field, []ColumnMetadata, error) {
 	cols, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, nil, fmt.Errorf("column types: %w", err)
@@ -404,7 +489,7 @@ func scanRows(rows *sql.Rows) ([][]Field, []ColumnMetadata, error) {
 
 		record := make([]Field, len(cols))
 		for i, v := range values {
-			record[i] = fieldFromValue(v)
+			record[i] = shapeField(fieldFromValue(v), columns[i], opts)
 		}
 
 		records = append(records, record)
@@ -415,6 +500,96 @@ func scanRows(rows *sql.Rows) ([][]Field, []ColumnMetadata, error) {
 	}
 
 	return records, columns, nil
+}
+
+// ResultSetOptions enum values (types.LongReturnType / types.DecimalReturnType
+// in the real SDK). Both enums default to their first listed value when the
+// request omits resultSetOptions entirely.
+const (
+	longReturnTypeLong            = "LONG"
+	longReturnTypeString          = "STRING"
+	decimalReturnTypeString       = "STRING"
+	decimalReturnTypeDoubleOrLong = "DOUBLE_OR_LONG"
+)
+
+// shapeField applies resultSetOptions to a scanned Field, per the real
+// ExecuteStatementInput.ResultSetOptions doc comments (types.go):
+//   - LONG columns (JDBC INTEGER affinity): default LONG keeps longValue;
+//     STRING renders the integer as a stringValue.
+//   - DECIMAL columns (JDBC DECIMAL/NUMERIC affinity, i.e. no INT/CHAR/BLOB/
+//     REAL keyword in the declared type): default STRING renders the value
+//     as a stringValue; DOUBLE_OR_LONG parses it back to a longValue (no
+//     fractional part) or doubleValue (fractional part) instead.
+//
+// meta.Type distinguishes the two cases; every other JDBC type (VARCHAR,
+// BLOB, DOUBLE) and every NULL value pass through unchanged -- neither enum
+// applies to them.
+func shapeField(f Field, meta ColumnMetadata, opts resultSetOptions) Field {
+	switch meta.Type {
+	case jdbcTypeInteger:
+		if opts.LongReturnType == longReturnTypeString {
+			return longFieldAsString(f)
+		}
+	case jdbcTypeDecimal:
+		if opts.DecimalReturnType == decimalReturnTypeDoubleOrLong {
+			return decimalFieldAsDoubleOrLong(f)
+		}
+
+		return decimalFieldAsString(f)
+	}
+
+	return f
+}
+
+// longFieldAsString renders a longValue as a stringValue; f passes through
+// unchanged if it isn't a longValue (e.g. it's NULL).
+func longFieldAsString(f Field) Field {
+	if f.LongValue == nil {
+		return f
+	}
+
+	s := strconv.FormatInt(*f.LongValue, 10)
+
+	return Field{StringValue: &s}
+}
+
+// decimalFieldAsString renders a numeric field as a stringValue, matching
+// real AWS's default DecimalReturnType=STRING; f passes through unchanged if
+// it's neither a longValue nor a doubleValue (e.g. it's NULL, or the driver
+// already produced a string for this NUMERIC-affinity column).
+func decimalFieldAsString(f Field) Field {
+	switch {
+	case f.LongValue != nil:
+		s := strconv.FormatInt(*f.LongValue, 10)
+
+		return Field{StringValue: &s}
+	case f.DoubleValue != nil:
+		s := strconv.FormatFloat(*f.DoubleValue, 'f', -1, 64)
+
+		return Field{StringValue: &s}
+	default:
+		return f
+	}
+}
+
+// decimalFieldAsDoubleOrLong converts a stringValue-shaped numeric field back
+// to a longValue (whole number) or doubleValue (has a fractional part), per
+// DecimalReturnType=DOUBLE_OR_LONG. f passes through unchanged if it isn't a
+// stringValue (e.g. the driver already produced a long/double, or it's NULL).
+func decimalFieldAsDoubleOrLong(f Field) Field {
+	if f.StringValue == nil {
+		return f
+	}
+
+	if iv, err := strconv.ParseInt(*f.StringValue, 10, 64); err == nil {
+		return Field{LongValue: &iv}
+	}
+
+	if dv, err := strconv.ParseFloat(*f.StringValue, 64); err == nil {
+		return Field{DoubleValue: &dv}
+	}
+
+	return f
 }
 
 // fieldFromValue maps a scanned driver value into a Data API Field.

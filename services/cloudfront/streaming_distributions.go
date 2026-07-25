@@ -38,8 +38,12 @@ func (b *InMemoryBackend) copyStreamingDistribution(sd *StreamingDistribution) *
 }
 
 // CreateStreamingDistribution creates a new RTMP streaming distribution.
-// If a streaming distribution with the same non-empty CallerReference already exists, it
-// is returned without creating a duplicate (idempotent).
+//
+// Reusing a non-empty CallerReference always fails with
+// StreamingDistributionAlreadyExists -- like CreateDistribution, the real
+// CreateStreamingDistribution API docs state this "regardless of the content
+// of the StreamingDistributionConfig object" (not content-comparison
+// idempotent like OAI/PublicKey/KeyGroup/FLE-profile).
 func (b *InMemoryBackend) CreateStreamingDistribution(
 	cfg StreamingDistributionConfig,
 	rawConfig []byte,
@@ -48,10 +52,11 @@ func (b *InMemoryBackend) CreateStreamingDistribution(
 	defer b.mu.Unlock()
 
 	if cfg.CallerReference != "" {
-		if existingID, ok := b.streamingDistributionCallerRefs[cfg.CallerReference]; ok {
-			existing, _ := b.streamingDistributions.Get(existingID)
-
-			return b.copyStreamingDistribution(existing), nil
+		if _, ok := b.streamingDistributionCallerRefs[cfg.CallerReference]; ok {
+			return nil, fmt.Errorf(
+				"%w: CallerReference %q is associated with another streaming distribution",
+				ErrStreamingDistributionAlreadyExists, cfg.CallerReference,
+			)
 		}
 	}
 

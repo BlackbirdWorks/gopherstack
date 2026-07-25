@@ -495,7 +495,7 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 		pool, triggerKeyPreSignUp, triggerSourcePreSignUpAdminCreateUser, "", username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(attrs),
-			"validationData":       map[string]any{},
+			eventKeyValidationData: map[string]any{},
 			eventKeyClientMetadata: map[string]any{},
 		},
 		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},

@@ -68,8 +68,8 @@ func (h *Handler) handleListClusterSchedulerConfigs(ctx context.Context, body []
 			"ClusterSchedulerConfigName": c.ClusterSchedulerConfigName,
 			keyClusterSchedulerConfigArn: c.ClusterSchedulerConfigArn,
 			keyStatus:                    c.Status,
-			keyCreationTime:              c.CreationTime,
-			keyLastModifiedTime:          c.LastModifiedTime,
+			keyCreationTime:              epochSeconds(c.CreationTime),
+			keyLastModifiedTime:          epochSeconds(c.LastModifiedTime),
 		})
 	}
 
@@ -179,8 +179,8 @@ func (h *Handler) handleListComputeQuotas(ctx context.Context, body []byte) ([]b
 			"ComputeQuotaName":  q.ComputeQuotaName,
 			keyComputeQuotaArn:  q.ComputeQuotaArn,
 			keyStatus:           q.Status,
-			keyCreationTime:     q.CreationTime,
-			keyLastModifiedTime: q.LastModifiedTime,
+			keyCreationTime:     epochSeconds(q.CreationTime),
+			keyLastModifiedTime: epochSeconds(q.LastModifiedTime),
 		})
 	}
 

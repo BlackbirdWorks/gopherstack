@@ -164,26 +164,6 @@ func TestHandler_ListAttacksOpaquePageToken(t *testing.T) {
 	assert.Equal(t, 3, offset)
 }
 
-// TestParity_GetAttackVectorDefinitionVersion verifies a date-stamped version is returned.
-func TestHandler_GetAttackVectorDefinitionVersionNotBareOne(t *testing.T) {
-	t.Parallel()
-
-	h := shield.NewHandler(shield.NewInMemoryBackend("123456789012", "us-east-1"))
-
-	rec := doShieldRequest(t, h, "GetAttackVectorDefinitionVersion", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out struct {
-		AttackVectorDefinitionVersion string `json:"AttackVectorDefinitionVersion"`
-	}
-
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	// Must not be a bare "1".
-	assert.NotEqual(t, "1", out.AttackVectorDefinitionVersion)
-	// Must look like a date-stamped version (e.g. "20221129.1").
-	assert.Greater(t, len(out.AttackVectorDefinitionVersion), 1)
-}
-
 // TestHandler_DescribeAttack tests DescribeAttack.
 func TestHandler_DescribeAttack(t *testing.T) {
 	t.Parallel()
@@ -376,22 +356,6 @@ func TestHandler_ListAttacksPagination(t *testing.T) {
 }
 
 // --- Gap 8: ListProtections InclusionFilters ---
-
-// TestAudit_Gap11_GetAttackVectorDefinitionVersion verifies the operation exists and returns version.
-func TestHandler_GetAttackVectorDefinitionVersionFieldPresent(t *testing.T) {
-	t.Parallel()
-
-	h := shield.NewHandler(shield.NewInMemoryBackend("000000000000", "us-east-1"))
-	rec := doShieldRequest(t, h, "GetAttackVectorDefinitionVersion", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	ver, ok := resp["AttackVectorDefinitionVersion"]
-	assert.True(t, ok, "Response must include AttackVectorDefinitionVersion")
-	assert.NotEmpty(t, ver)
-}
 
 // --- Gap 12: DescribeAttackStatistics per-bucket with AttackVolume ---
 

@@ -28,7 +28,7 @@ func TestEKS_PodIdentityAssociation_Lifecycle(t *testing.T) {
 
 	// Create association via backend
 	assoc, err := h.Backend.CreatePodIdentityAssociation(
-		"pid-cluster", "default", "my-sa", "arn:aws:iam::123:role/sa-role", nil,
+		"pid-cluster", "default", "my-sa", "arn:aws:iam::123:role/sa-role", nil, eks.PodIdentityAssociationInput{},
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, assoc.AssociationID)
@@ -181,7 +181,7 @@ func TestPodIdentity_CreateDescribeUpdate_Delete(t *testing.T) {
 
 	assoc, err := b.CreatePodIdentityAssociation(
 		"pi-lifecycle-cluster", "kube-system", "aws-node",
-		"arn:aws:iam::123:role/pi-role", nil,
+		"arn:aws:iam::123:role/pi-role", nil, eks.PodIdentityAssociationInput{},
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, assoc.AssociationID)
@@ -193,7 +193,8 @@ func TestPodIdentity_CreateDescribeUpdate_Delete(t *testing.T) {
 	assert.Equal(t, assoc.AssociationID, described.AssociationID)
 
 	updated, err := b.UpdatePodIdentityAssociation(
-		"pi-lifecycle-cluster", assoc.AssociationID, "arn:aws:iam::123:role/pi-role-v2",
+		"pi-lifecycle-cluster", assoc.AssociationID,
+		eks.PodIdentityAssociationUpdate{RoleARN: "arn:aws:iam::123:role/pi-role-v2"},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iam::123:role/pi-role-v2", updated.RoleARN)
@@ -212,8 +213,12 @@ func TestPodIdentity_List(t *testing.T) {
 	b := newBackend(t)
 	mustCreateClusterNoVpc(t, b, "pi-list-cluster")
 
-	_, _ = b.CreatePodIdentityAssociation("pi-list-cluster", "ns1", "sa1", "arn:aws:iam::123:role/r1", nil)
-	_, _ = b.CreatePodIdentityAssociation("pi-list-cluster", "ns2", "sa2", "arn:aws:iam::123:role/r2", nil)
+	_, _ = b.CreatePodIdentityAssociation(
+		"pi-list-cluster", "ns1", "sa1", "arn:aws:iam::123:role/r1", nil, eks.PodIdentityAssociationInput{},
+	)
+	_, _ = b.CreatePodIdentityAssociation(
+		"pi-list-cluster", "ns2", "sa2", "arn:aws:iam::123:role/r2", nil, eks.PodIdentityAssociationInput{},
+	)
 
 	assocs, err := b.ListPodIdentityAssociations("pi-list-cluster")
 	require.NoError(t, err)
@@ -246,12 +251,92 @@ func TestPodIdentity_DifferentAssocIDs_SameNamespaceSA(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	a1, err := b.CreatePodIdentityAssociation("c1", "default", "my-sa", "arn:aws:iam::123:role/r1", nil)
+	a1, err := b.CreatePodIdentityAssociation(
+		"c1", "default", "my-sa", "arn:aws:iam::123:role/r1", nil, eks.PodIdentityAssociationInput{},
+	)
 	require.NoError(t, err)
 
-	a2, err := b.CreatePodIdentityAssociation("c1", "default", "my-sa", "arn:aws:iam::123:role/r2", nil)
+	a2, err := b.CreatePodIdentityAssociation(
+		"c1", "default", "my-sa", "arn:aws:iam::123:role/r2", nil, eks.PodIdentityAssociationInput{},
+	)
 	require.NoError(t, err)
 
 	assert.NotEqual(t, a1.AssociationID, a2.AssociationID,
 		"each call must produce a unique associationId")
+}
+
+// TestPodIdentity_ListReturnsSummaryShape verifies that
+// ListPodIdentityAssociations returns the PodIdentityAssociationSummary
+// shape (no roleArn/createdAt/tags), distinct from the full
+// PodIdentityAssociation shape returned by Describe/Create/Update -- verified
+// against aws-sdk-go-v2/service/eks/types.PodIdentityAssociationSummary.
+func TestPodIdentity_ListReturnsSummaryShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEKSHandler(t)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "pi-summary-cluster"})
+
+	createRec := doREST(t, h, http.MethodPost, "/clusters/pi-summary-cluster/pod-identity-associations",
+		map[string]any{
+			"namespace":      "default",
+			"serviceAccount": "my-sa",
+			"roleArn":        "arn:aws:iam::123456789012:role/pod-role",
+		})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	created := parseResp(t, createRec)["association"].(map[string]any)
+	assert.Contains(t, created, "roleArn", "full shape must include roleArn")
+	assert.Contains(t, created, "createdAt", "full shape must include createdAt")
+
+	listRec := doREST(t, h, http.MethodGet, "/clusters/pi-summary-cluster/pod-identity-associations", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	listResp := parseResp(t, listRec)
+	assocs, ok := listResp["associations"].([]any)
+	require.True(t, ok)
+	require.Len(t, assocs, 1)
+
+	summary, ok := assocs[0].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, summary, "roleArn", "summary shape must NOT include roleArn")
+	assert.NotContains(t, summary, "createdAt", "summary shape must NOT include createdAt")
+	assert.NotContains(t, summary, "tags", "summary shape must NOT include tags")
+	assert.Equal(t, created["associationId"], summary["associationId"])
+}
+
+// TestPodIdentity_CreateAndUpdateOptionalFields exercises Policy and
+// DisableSessionTags on Create/Update -- both real
+// CreatePodIdentityAssociationInput and UpdatePodIdentityAssociationInput
+// fields that were previously unmodeled.
+func TestPodIdentity_CreateAndUpdateOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEKSHandler(t)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "pi-opt-cluster"})
+
+	createRec := doREST(t, h, http.MethodPost, "/clusters/pi-opt-cluster/pod-identity-associations",
+		map[string]any{
+			"namespace":          "default",
+			"serviceAccount":     "my-sa",
+			"roleArn":            "arn:aws:iam::123456789012:role/pod-role",
+			"disableSessionTags": true,
+			"policy":             `{"Version":"2012-10-17"}`,
+		})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	created := parseResp(t, createRec)["association"].(map[string]any)
+	assert.Equal(t, true, created["disableSessionTags"])
+	assert.JSONEq(t, `{"Version":"2012-10-17"}`, created["policy"].(string))
+
+	assocID := created["associationId"].(string)
+
+	updateRec := doREST(t, h, http.MethodPost,
+		"/clusters/pi-opt-cluster/pod-identity-associations/"+assocID,
+		map[string]any{"disableSessionTags": false})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	updated := parseResp(t, updateRec)["association"].(map[string]any)
+	assert.Equal(t, false, updated["disableSessionTags"])
+	// Policy was omitted from the update body (nil pointer) -> unchanged.
+	assert.JSONEq(t, `{"Version":"2012-10-17"}`, updated["policy"].(string))
 }

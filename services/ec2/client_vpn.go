@@ -82,6 +82,7 @@ func (b *InMemoryBackend) DeleteClientVpnEndpoint(id string) error {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, id)
 	}
 	b.clientVpnEndpoints.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

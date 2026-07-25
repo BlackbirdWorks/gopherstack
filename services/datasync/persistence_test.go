@@ -37,18 +37,24 @@ func newPersistenceTestBackend(t *testing.T) (*datasync.InMemoryBackend, persist
 	source, err := b.CreateLocationS3(
 		"/source", "arn:aws:s3:::src-bucket", "STANDARD",
 		datasync.S3Config{BucketAccessRoleArn: "arn:aws:iam::000000000000:role/r"},
-		nil,
+		nil, nil,
 	)
 	require.NoError(t, err)
 
 	destination, err := b.CreateLocationS3(
 		"/dest", "arn:aws:s3:::dst-bucket", "STANDARD",
 		datasync.S3Config{BucketAccessRoleArn: "arn:aws:iam::000000000000:role/r"},
-		nil,
+		nil, nil,
 	)
 	require.NoError(t, err)
 
-	task, err := b.CreateTask(source.LocationArn, destination.LocationArn, "task1", "", nil)
+	settings := datasync.TaskSettings{
+		Options:  map[string]any{"LogLevel": "TRANSFER"},
+		Schedule: &datasync.TaskSchedule{ScheduleExpression: "rate(1 hours)", Status: "ENABLED"},
+		Excludes: []datasync.FilterRule{{FilterType: "SIMPLE_PATTERN", Value: "/tmp"}},
+	}
+
+	task, err := b.CreateTask(source.LocationArn, destination.LocationArn, "task1", "", settings, nil)
 	require.NoError(t, err)
 
 	execution, err := b.StartTaskExecution(task.TaskArn)
@@ -98,6 +104,11 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	task, err := fresh.DescribeTask(ids.taskArn)
 	require.NoError(t, err)
 	assert.Equal(t, "task1", task.Name)
+	assert.Equal(t, "TRANSFER", task.Options["LogLevel"])
+	require.NotNil(t, task.Schedule)
+	assert.Equal(t, "rate(1 hours)", task.Schedule.ScheduleExpression)
+	require.Len(t, task.Excludes, 1)
+	assert.Equal(t, "/tmp", task.Excludes[0].Value)
 
 	// executions table.
 	execution, err := fresh.DescribeTaskExecution(ids.executionArn)

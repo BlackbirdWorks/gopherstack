@@ -22,17 +22,42 @@ func (b *InMemoryBackend) resolveProjectARN(region, identifier string) string {
 	return identifier
 }
 
+// cancelMetadataModelRequest marks a tracked request as cancelling and
+// returns a copy of its current state. Callers must hold b.mu.
+//
+// If no request with this identifier was ever started, AWS's Cancel
+// operations still succeed (fire-and-forget cancellation semantics): a
+// minimal envelope echoing the caller's identifiers is returned rather than
+// a ResourceNotFoundFault.
+func (b *InMemoryBackend) cancelMetadataModelRequest(
+	region, projectARN, requestIdentifier string,
+) *MetadataModelRequest {
+	if req, ok := b.metadataModelRequests.Get(metadataModelRequestKey(region, projectARN, requestIdentifier)); ok {
+		req.Status = statusCancelling
+		cp := *req
+
+		return &cp
+	}
+
+	return &MetadataModelRequest{
+		RequestIdentifier:          requestIdentifier,
+		MigrationProjectIdentifier: projectARN,
+		Status:                     statusCancelling,
+		Region:                     region,
+	}
+}
+
 // CancelMetadataModelConversion cancels a pending metadata model conversion task.
 func (b *InMemoryBackend) CancelMetadataModelConversion(
 	ctx context.Context,
 	migrationProjectIdentifier, requestIdentifier string,
-) (string, error) {
+) (*MetadataModelRequest, error) {
 	if migrationProjectIdentifier == "" {
-		return "", fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
 	}
 
 	if requestIdentifier == "" {
-		return "", fmt.Errorf("%w: RequestIdentifier is required", ErrValidation)
+		return nil, fmt.Errorf("%w: RequestIdentifier is required", ErrValidation)
 	}
 
 	b.mu.Lock("CancelMetadataModelConversion")
@@ -41,24 +66,20 @@ func (b *InMemoryBackend) CancelMetadataModelConversion(
 	region := getRegion(ctx, b.region)
 	projectARN := b.resolveProjectARN(region, migrationProjectIdentifier)
 
-	if req, ok := b.metadataModelRequests.Get(metadataModelRequestKey(region, projectARN, requestIdentifier)); ok {
-		req.Status = statusCancelling
-	}
-
-	return requestIdentifier, nil
+	return b.cancelMetadataModelRequest(region, projectARN, requestIdentifier), nil
 }
 
 // CancelMetadataModelCreation cancels a pending metadata model creation task.
 func (b *InMemoryBackend) CancelMetadataModelCreation(
 	ctx context.Context,
 	migrationProjectIdentifier, requestIdentifier string,
-) (string, error) {
+) (*MetadataModelRequest, error) {
 	if migrationProjectIdentifier == "" {
-		return "", fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
 	}
 
 	if requestIdentifier == "" {
-		return "", fmt.Errorf("%w: RequestIdentifier is required", ErrValidation)
+		return nil, fmt.Errorf("%w: RequestIdentifier is required", ErrValidation)
 	}
 
 	b.mu.Lock("CancelMetadataModelCreation")
@@ -67,11 +88,7 @@ func (b *InMemoryBackend) CancelMetadataModelCreation(
 	region := getRegion(ctx, b.region)
 	projectARN := b.resolveProjectARN(region, migrationProjectIdentifier)
 
-	if req, ok := b.metadataModelRequests.Get(metadataModelRequestKey(region, projectARN, requestIdentifier)); ok {
-		req.Status = statusCancelling
-	}
-
-	return requestIdentifier, nil
+	return b.cancelMetadataModelRequest(region, projectARN, requestIdentifier), nil
 }
 
 // StartMetadataModelRequest persists a metadata model operation request and returns its ID.

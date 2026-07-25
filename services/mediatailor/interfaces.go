@@ -11,6 +11,7 @@ type StorageBackend interface {
 	PutPlaybackConfiguration(
 		name, adDecisionServerURL, videoContentSourceURL string,
 		tags map[string]string,
+		extra map[string]any,
 	) (*PlaybackConfiguration, error)
 	GetPlaybackConfiguration(name string) (*PlaybackConfiguration, error)
 	DeletePlaybackConfiguration(name string) error
@@ -21,13 +22,21 @@ type StorageBackend interface {
 
 	// Channel
 	CreateChannel(
-		name, playbackMode string,
+		name, playbackMode, tier string,
 		outputs []OutputItem,
 		fillerSlate *SlateSource,
+		audiences []string,
+		timeShift *TimeShiftConfiguration,
 		tags map[string]string,
 	) (*Channel, error)
 	DescribeChannel(name string) (*Channel, error)
-	UpdateChannel(name string, outputs []OutputItem) (*Channel, error)
+	UpdateChannel(
+		name string,
+		outputs []OutputItem,
+		fillerSlate *SlateSource,
+		audiences []string,
+		timeShift *TimeShiftConfiguration,
+	) (*Channel, error)
 	DeleteChannel(name string) error
 	ListChannels(maxResults int, nextToken string) ([]*ChannelSummary, string, error)
 	StartChannel(name string) error
@@ -78,14 +87,16 @@ type StorageBackend interface {
 
 	// PrefetchSchedule
 	CreatePrefetchSchedule(
-		playbackConfigName, name string,
+		playbackConfigName, name, scheduleType, streamID string,
 		retrieval *PrefetchRetrieval,
 		consumption *PrefetchConsumption,
+		recurringConfig map[string]any,
+		tags map[string]string,
 	) (*PrefetchSchedule, error)
 	GetPrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error)
 	DeletePrefetchSchedule(playbackConfigName, name string) error
 	ListPrefetchSchedules(
-		playbackConfigName string,
+		playbackConfigName, scheduleType, streamID string,
 		maxResults int,
 		nextToken string,
 	) ([]*PrefetchSchedule, string, error)
@@ -93,10 +104,18 @@ type StorageBackend interface {
 	// Program
 	CreateProgram(
 		channelName, programName, sourceLocationName, vodSourceName, liveSourceName string,
+		scheduleConfig *ScheduleConfiguration,
+		adBreaks []AdBreak,
+		audienceMedia []AudienceMedia,
 		tags map[string]string,
 	) (*Program, error)
 	DescribeProgram(channelName, programName string) (*Program, error)
-	UpdateProgram(channelName, programName string) (*Program, error)
+	UpdateProgram(
+		channelName, programName string,
+		scheduleConfig *UpdateProgramScheduleConfiguration,
+		adBreaks []AdBreak,
+		audienceMedia []AudienceMedia,
+	) (*Program, error)
 	DeleteProgram(channelName, programName string) error
 	GetChannelSchedule(
 		channelName string,
@@ -123,7 +142,9 @@ type StorageBackend interface {
 	ConfigureLogsForPlaybackConfiguration(
 		playbackConfigName string,
 		percentEnabled int,
-	) (string, int, error)
+		enabledLoggingStrategies []string,
+		adsInteractionLog, manifestServiceInteractionLog map[string]any,
+	) (*PlaybackConfigurationLogConfiguration, error)
 
 	// Tags
 	ListTagsForResource(resourceARN string) (map[string]string, error)
@@ -141,6 +162,8 @@ type StorageBackend interface {
 // Tags first: reduces GC pointer scan.
 type PlaybackConfiguration struct {
 	Tags                        map[string]string
+	LogConfiguration            *PlaybackConfigurationLogConfiguration
+	Extra                       map[string]any
 	Name                        string
 	AdDecisionServerURL         string
 	VideoContentSourceURL       string
@@ -148,6 +171,15 @@ type PlaybackConfiguration struct {
 	PlaybackEndpointPrefix      string
 	SessionInitializationPrefix string
 	HlsManifestEndpointPrefix   string
+}
+
+// PlaybackConfigurationLogConfiguration is the logging configuration for a
+// playback configuration, set via ConfigureLogsForPlaybackConfiguration.
+type PlaybackConfigurationLogConfiguration struct {
+	AdsInteractionLog             map[string]any
+	ManifestServiceInteractionLog map[string]any
+	EnabledLoggingStrategies      []string
+	PercentEnabled                int
 }
 
 // SlateSource identifies a slate source for channel filler slate.
@@ -159,38 +191,58 @@ type SlateSource struct {
 // PlaybackConfigurationSummary is a playback configuration in a list response.
 type PlaybackConfigurationSummary struct {
 	Tags                     map[string]string
+	LogConfiguration         *PlaybackConfigurationLogConfiguration
+	Extra                    map[string]any
 	Name                     string
 	AdDecisionServerURL      string
 	VideoContentSourceURL    string
 	PlaybackConfigurationARN string
 }
 
+// TimeShiftConfiguration is the time-shifted viewing configuration for a channel.
+type TimeShiftConfiguration struct {
+	MaxTimeDelaySeconds int
+}
+
+// ChannelLogConfiguration is the log configuration for a channel, set via
+// ConfigureLogsForChannel.
+type ChannelLogConfiguration struct {
+	LogTypes []string
+}
+
 // Channel represents a MediaTailor channel.
 // Tags first, strings before slice: reduces GC pointer scan.
 type Channel struct {
-	FillerSlate  *SlateSource
-	CreationTime time.Time
-	LastModified time.Time
-	Tags         map[string]string
-	ARN          string
-	Name         string
-	PlaybackMode string
-	ChannelState string
-	Tier         string
-	Outputs      []OutputItem
+	FillerSlate      *SlateSource
+	TimeShift        *TimeShiftConfiguration
+	CreationTime     time.Time
+	LastModified     time.Time
+	Tags             map[string]string
+	LogConfiguration ChannelLogConfiguration
+	ARN              string
+	Name             string
+	PlaybackMode     string
+	ChannelState     string
+	Tier             string
+	Outputs          []OutputItem
+	Audiences        []string
 }
 
 // ChannelSummary is a channel in a list response.
 type ChannelSummary struct {
-	FillerSlate  *SlateSource
-	CreationTime time.Time
-	LastModified time.Time
-	Tags         map[string]string
-	Name         string
-	ARN          string
-	PlaybackMode string
-	ChannelState string
-	Tier         string
+	FillerSlate      *SlateSource
+	TimeShift        *TimeShiftConfiguration
+	CreationTime     time.Time
+	LastModified     time.Time
+	Tags             map[string]string
+	LogConfiguration ChannelLogConfiguration
+	Name             string
+	ARN              string
+	PlaybackMode     string
+	ChannelState     string
+	Tier             string
+	Outputs          []OutputItem
+	Audiences        []string
 }
 
 // OutputItem represents a channel output configuration.
@@ -301,19 +353,115 @@ type PrefetchConsumption struct {
 
 // PrefetchSchedule represents a MediaTailor prefetch schedule.
 type PrefetchSchedule struct {
-	CreationTime              time.Time
-	Retrieval                 *PrefetchRetrieval
-	Consumption               *PrefetchConsumption
-	ARN                       string
-	Name                      string
-	PlaybackConfigurationName string
-	StreamID                  string
+	CreationTime                   time.Time
+	Retrieval                      *PrefetchRetrieval
+	Consumption                    *PrefetchConsumption
+	RecurringPrefetchConfiguration map[string]any
+	Tags                           map[string]string
+	ARN                            string
+	Name                           string
+	PlaybackConfigurationName      string
+	ScheduleType                   string
+	StreamID                       string
+}
+
+// KeyValuePair is a SCTE35_ENHANCED ad break metadata entry.
+type KeyValuePair struct {
+	Key   string
+	Value string
+}
+
+// SpliceInsertMessage configures the SCTE-35 splice_insert() message for an ad break.
+type SpliceInsertMessage struct {
+	AvailNum        int32
+	AvailsExpected  int32
+	SpliceEventID   int32
+	UniqueProgramID int32
+}
+
+// TimeSignalMessage configures the SCTE-35 time_signal message for an ad
+// break. SegmentationDescriptors is carried as decoded-JSON pass-through:
+// MediaTailor stores this deeply nested SCTE-35 metadata without
+// interpreting it during ad insertion, and gopherstack does not run a real
+// ad-insertion pipeline, so exact round-trip (what a client PUTs is exactly
+// what a client GETs back) is the correct emulation without hand-modeling
+// every nested SCTE-35 field.
+type TimeSignalMessage struct {
+	SegmentationDescriptors []map[string]any
+}
+
+// AdBreak is an ad break configuration attached to a Program or AlternateMedia.
+type AdBreak struct {
+	Slate               *SlateSource
+	SpliceInsertMessage *SpliceInsertMessage
+	TimeSignalMessage   *TimeSignalMessage
+	MessageType         string
+	AdBreakMetadata     []KeyValuePair
+	OffsetMillis        int64
+}
+
+// ClipRange is a VOD source clip range configuration.
+type ClipRange struct {
+	StartOffsetMillis int64
+	EndOffsetMillis   int64
+}
+
+// AlternateMedia is a playlist of media that plays instead of the default
+// media on a particular program, scoped to an Audience.
+type AlternateMedia struct {
+	ClipRange                *ClipRange
+	SourceLocationName       string
+	VodSourceName            string
+	LiveSourceName           string
+	AdBreaks                 []AdBreak
+	ScheduledStartTimeMillis int64
+	DurationMillis           int64
+}
+
+// AudienceMedia pairs an audience with the AlternateMedia MediaTailor plays
+// for it.
+type AudienceMedia struct {
+	Audience       string
+	AlternateMedia []AlternateMedia
+}
+
+// Transition is a program's schedule transition configuration, required by
+// CreateProgram's ScheduleConfiguration.
+type Transition struct {
+	RelativePosition         string
+	Type                     string
+	RelativeProgram          string
+	DurationMillis           int64
+	ScheduledStartTimeMillis int64
+}
+
+// ScheduleConfiguration is a program's schedule configuration, required by
+// CreateProgram.
+type ScheduleConfiguration struct {
+	ClipRange  *ClipRange
+	Transition Transition
+}
+
+// UpdateProgramTransition is a program's schedule transition update, used by
+// UpdateProgram.
+type UpdateProgramTransition struct {
+	DurationMillis           int64
+	ScheduledStartTimeMillis int64
+}
+
+// UpdateProgramScheduleConfiguration is a program's schedule update
+// configuration, required by UpdateProgram (its members are individually
+// optional -- an empty object is a valid "change nothing" update).
+type UpdateProgramScheduleConfiguration struct {
+	ClipRange  *ClipRange
+	Transition *UpdateProgramTransition
 }
 
 // Program represents a MediaTailor program within a channel.
 type Program struct {
 	ScheduledStartTime time.Time
 	CreationTime       time.Time
+	ClipRange          *ClipRange
 	Tags               map[string]string
 	ARN                string
 	ChannelName        string
@@ -321,11 +469,23 @@ type Program struct {
 	SourceLocationName string
 	VodSourceName      string
 	LiveSourceName     string
-	DurationInSeconds  int64
+	AdBreaks           []AdBreak
+	AudienceMedia      []AudienceMedia
+	DurationMillis     int64
+}
+
+// ScheduleAdBreak is the schedule's ad break properties, as returned in a
+// ProgramScheduleEntry.
+type ScheduleAdBreak struct {
+	ApproximateStartTime       time.Time
+	SourceLocationName         string
+	VodSourceName              string
+	ApproximateDurationSeconds int64
 }
 
 // ProgramScheduleEntry is a program as returned in a channel schedule.
 type ProgramScheduleEntry struct {
+	ApproximateStartTime       time.Time
 	ARN                        string
 	ChannelName                string
 	ProgramName                string
@@ -333,6 +493,8 @@ type ProgramScheduleEntry struct {
 	VodSourceName              string
 	LiveSourceName             string
 	ScheduleEntryType          string
+	ScheduleAdBreaks           []ScheduleAdBreak
+	Audiences                  []string
 	ApproximateDurationSeconds int64
 }
 

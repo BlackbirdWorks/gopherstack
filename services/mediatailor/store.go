@@ -17,6 +17,9 @@ const (
 	playbackModeLinear = "LINEAR"
 	playbackModeLoop   = "LOOP"
 
+	tierBasic    = "BASIC"
+	tierStandard = "STANDARD"
+
 	resourceTypePlaybackConfiguration = "playbackConfiguration"
 	resourceTypeChannel               = "channel"
 	resourceTypeSourceLocation        = "sourceLocation"

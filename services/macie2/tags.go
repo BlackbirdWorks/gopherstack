@@ -98,6 +98,8 @@ func (b *InMemoryBackend) isKnownARN(arnStr string) bool {
 		return exists && !cdi.Deleted
 	case "findings-filter":
 		return b.findingsFilters.Has(id)
+	case "classification-job":
+		return b.classificationJobs.Has(id)
 	}
 
 	return false

@@ -529,3 +529,131 @@ func Test_UpdateAPI_QuickCreate_NoExistingQuickCreate(t *testing.T) {
 	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{Target: "https://example.com"})
 	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
 }
+
+// Test_CreateAPI_IPAddressType covers API.IPAddressType, which the real AWS
+// SDK carries on CreateApiInput/UpdateApiInput/Api but was entirely absent
+// from gopherstack's shapes, so a caller-supplied ipAddressType was silently
+// dropped on decode and GetApi always returned "" instead of the AWS
+// default ("ipv4").
+func Test_CreateAPI_IPAddressType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "defaults_to_ipv4", input: "", want: "ipv4"},
+		{name: "explicit_ipv4", input: "ipv4", want: "ipv4"},
+		{name: "explicit_dualstack", input: "dualstack", want: "dualstack"},
+		{name: "rejects_invalid_value", input: "ipv6", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+				Name:          "api",
+				ProtocolType:  "HTTP",
+				IPAddressType: tt.input,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, api.IPAddressType)
+
+			got, err := b.GetAPI(api.APIID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.IPAddressType)
+		})
+	}
+}
+
+// Test_UpdateAPI_IPAddressType covers updating an existing API's
+// IPAddressType, and that an invalid value is rejected rather than silently
+// applied.
+func Test_UpdateAPI_IPAddressType(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "api", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+	require.Equal(t, "ipv4", api.IPAddressType)
+
+	updated, err := b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{IPAddressType: "dualstack"})
+	require.NoError(t, err)
+	assert.Equal(t, "dualstack", updated.IPAddressType)
+
+	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{IPAddressType: "not-a-type"})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+}
+
+// Test_CreateAPI_QuickCreate_CredentialsArn covers CreateApiInput's
+// quick-create-only CredentialsArn, which the real AWS SDK threads through
+// to the auto-provisioned integration but was entirely absent from
+// gopherstack's CreateAPIInput.
+func Test_CreateAPI_QuickCreate_CredentialsArn(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	const roleARN = "arn:aws:iam::123456789012:role/apigw-role"
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name:           "quick-create-api",
+		ProtocolType:   "HTTP",
+		RouteKey:       "GET /",
+		Target:         "https://example.com/backend",
+		CredentialsArn: roleARN,
+	})
+	require.NoError(t, err)
+
+	integrations, err := b.GetIntegrations(api.APIID)
+	require.NoError(t, err)
+	require.Len(t, integrations, 1)
+	assert.Equal(t, roleARN, integrations[0].CredentialsArn)
+}
+
+// Test_UpdateAPI_QuickCreate_CredentialsArn covers UpdateApiInput's
+// quick-create-only CredentialsArn, which independently replaces the
+// managed integration's credentials, and that it is rejected (not silently
+// ignored) when the API has no quick-create integration.
+func Test_UpdateAPI_QuickCreate_CredentialsArn(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name:         "quick-create-api",
+		ProtocolType: "HTTP",
+		RouteKey:     "GET /",
+		Target:       "https://example.com/backend",
+	})
+	require.NoError(t, err)
+
+	const roleARN = "arn:aws:iam::123456789012:role/apigw-role"
+
+	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{CredentialsArn: roleARN})
+	require.NoError(t, err)
+
+	integrations, err := b.GetIntegrations(api.APIID)
+	require.NoError(t, err)
+	require.Len(t, integrations, 1)
+	assert.Equal(t, roleARN, integrations[0].CredentialsArn)
+
+	plainAPI, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "plain", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	_, err = b.UpdateAPI(plainAPI.APIID, apigatewayv2.UpdateAPIInput{CredentialsArn: roleARN})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+}

@@ -85,7 +85,30 @@ func (b *InMemoryBackend) DeleteBucket(
 		return &s3.DeleteBucketOutput{}, nil
 	}
 
-	// Mark bucket as pending — the Janitor will drain its objects and remove it.
+	// Real S3 refuses to delete a bucket that still has content: any object,
+	// object version, or delete marker (409 BucketNotEmpty) — the caller must
+	// empty the bucket first. b.mu is held exclusively for the whole check, so
+	// no concurrent PutObject/CompleteMultipartUpload/etc. that has already
+	// passed its own b.mu lookup can race in a new object between the check
+	// and marking the bucket pending.
+	bucket.mu.RLock("DeleteBucket")
+	hasObjects := len(bucket.Objects) > 0
+	bucket.mu.RUnlock()
+
+	if hasObjects {
+		return nil, ErrBucketNotEmpty
+	}
+
+	// In-progress (incomplete) multipart uploads also block deletion in real
+	// S3, even though they never appear in ListObjects/ListObjectsV2 — a
+	// well-documented gotcha where DeleteBucket fails with BucketNotEmpty
+	// despite the bucket looking empty until the uploads are aborted.
+	if len(b.uploadsByBucket.Get(bucketName)) > 0 {
+		return nil, ErrBucketNotEmpty
+	}
+
+	// Mark bucket as pending — the Janitor will remove it (it is already
+	// empty, so this completes on the next sweep tick without draining).
 	bucket.DeletePending = true
 
 	return &s3.DeleteBucketOutput{}, nil

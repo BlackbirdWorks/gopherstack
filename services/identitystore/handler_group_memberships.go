@@ -78,8 +78,8 @@ func (h *Handler) handleCreateGroupMembership(ctx context.Context, c *echo.Conte
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.GroupID) == "" {
@@ -107,8 +107,8 @@ func (h *Handler) handleDescribeGroupMembership(ctx context.Context, c *echo.Con
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.MembershipID) == "" {
@@ -129,8 +129,8 @@ func (h *Handler) handleListGroupMemberships(ctx context.Context, c *echo.Contex
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.GroupID) == "" {
@@ -156,8 +156,8 @@ func (h *Handler) handleDeleteGroupMembership(ctx context.Context, c *echo.Conte
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.MembershipID) == "" {
@@ -177,8 +177,8 @@ func (h *Handler) handleGetGroupMembershipID(ctx context.Context, c *echo.Contex
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.GroupID) == "" {
@@ -206,8 +206,8 @@ func (h *Handler) handleListGroupMembershipsForMember(ctx context.Context, c *ec
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.MemberID.UserID) == "" {
@@ -233,8 +233,8 @@ func (h *Handler) handleIsMemberInGroups(ctx context.Context, c *echo.Context, b
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.MemberID.UserID) == "" {

@@ -228,12 +228,18 @@ func TestJanitor_SweepRetention(t *testing.T) {
 	// Recent events (should be kept).
 	recent := time.Now().UnixMilli()
 
-	events := []cloudwatchlogs.InputLogEvent{
+	// Real PutLogEvents rejects a batch whose valid-event timestamp span
+	// exceeds 24 hours, so the ~10-day-old and recent events must be
+	// ingested as separate (individually chronological) requests.
+	oldEvents := []cloudwatchlogs.InputLogEvent{
 		{Message: "old-1", Timestamp: old},
 		{Message: "old-2", Timestamp: old + 1},
-		{Message: "recent-1", Timestamp: recent},
 	}
-	_, err = b.PutLogEvents(context.Background(), "g", "s", "", events)
+	_, err = b.PutLogEvents(context.Background(), "g", "s", "", oldEvents)
+	require.NoError(t, err)
+	_, err = b.PutLogEvents(context.Background(), "g", "s", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "recent-1", Timestamp: recent},
+	})
 	require.NoError(t, err)
 
 	// Set retention to 7 days.
@@ -288,8 +294,14 @@ func TestJanitor_SweepUpdatesStreamMetadata(t *testing.T) {
 	// Recent event (within retention window).
 	recent := time.Now().UnixMilli()
 
+	// Real PutLogEvents rejects a batch whose valid-event timestamp span
+	// exceeds 24 hours, so the ~10-day-old and recent events must be
+	// ingested as separate (individually chronological) requests.
 	_, err = b.PutLogEvents(context.Background(), "g", "s", "", []cloudwatchlogs.InputLogEvent{
 		{Message: "old", Timestamp: old},
+	})
+	require.NoError(t, err)
+	_, err = b.PutLogEvents(context.Background(), "g", "s", "", []cloudwatchlogs.InputLogEvent{
 		{Message: "recent", Timestamp: recent},
 	})
 	require.NoError(t, err)

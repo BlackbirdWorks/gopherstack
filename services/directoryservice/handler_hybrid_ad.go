@@ -32,7 +32,7 @@ func (h *Handler) handleCreateHybridAD(c *echo.Context) error {
 	}
 
 	if req.Name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Name is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Name is required"))
 	}
 
 	edition := DirectoryEdition(req.Edition)
@@ -56,7 +56,7 @@ func (h *Handler) handleCreateHybridAD(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyDirectoryID: d.DirectoryID,
-		"RequestId":    requestID, //nolint:goconst // existing issue.
+		keyRequestID:   requestID,
 	})
 }
 
@@ -75,7 +75,7 @@ func (h *Handler) handleUpdateHybridAD(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	requestID, updateErr := h.Backend.UpdateHybridAD(h.contextWithRegion(c), req.DirectoryID)
@@ -83,7 +83,7 @@ func (h *Handler) handleUpdateHybridAD(c *echo.Context) error {
 		return h.mapError(c, updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"RequestId": requestID})
+	return c.JSON(http.StatusOK, map[string]any{keyRequestID: requestID})
 }
 
 func (h *Handler) handleDescribeHybridADUpdate(c *echo.Context) error {
@@ -101,7 +101,7 @@ func (h *Handler) handleDescribeHybridADUpdate(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	updates, descErr := h.Backend.DescribeHybridADUpdate(h.contextWithRegion(c), req.DirectoryID)
@@ -112,7 +112,7 @@ func (h *Handler) handleDescribeHybridADUpdate(c *echo.Context) error {
 	updateList := make([]map[string]any, 0, len(updates))
 	for _, u := range updates {
 		updateList = append(updateList, map[string]any{
-			"RequestId":    u.RequestID,
+			keyRequestID:   u.RequestID,
 			keyDirectoryID: u.DirectoryID,
 			keyStatus:      u.Status,
 		})

@@ -423,6 +423,84 @@ func TestHandler_CreateExtensionAssociation_Validation(t *testing.T) {
 	}
 }
 
+// TestHandler_Extension_VersionQueryParams verifies the real wire-shape fix:
+// GetExtension binds an optional "version_number" query param and
+// DeleteExtension binds an optional "version" query param (see
+// awsRestjson1_serializeOpHttpBindingsGetExtensionInput/
+// ...DeleteExtensionInput), so an UpdateExtension-created new version must
+// be independently addressable and independently deletable rather than the
+// single mutable record this backend used before.
+func TestHandler_Extension_VersionQueryParams(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/extensions",
+		[]byte(`{"Name":"query-ver-ext","Description":"v1"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var v1 appconfig.Extension
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &v1))
+
+	rec = doRequest(t, h, http.MethodPatch, "/extensions/"+v1.ID,
+		[]byte(`{"Description":"v2"}`))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Get version 1 explicitly: must still return the original description.
+	rec = doRequest(t, h, http.MethodGet, "/extensions/"+v1.ID+"?version_number=1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var gotV1 appconfig.Extension
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gotV1))
+	assert.Equal(t, "v1", gotV1.Description)
+	assert.Equal(t, int32(1), gotV1.VersionNumber)
+
+	// Get without a version: must return the highest (v2).
+	rec = doRequest(t, h, http.MethodGet, "/extensions/"+v1.ID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var gotLatest appconfig.Extension
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gotLatest))
+	assert.Equal(t, int32(2), gotLatest.VersionNumber)
+
+	// Delete version 1 explicitly via the "version" query param; version 2
+	// must remain gettable.
+	rec = doRequest(t, h, http.MethodDelete, "/extensions/"+v1.ID+"?version=1", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/extensions/"+v1.ID+"?version_number=1", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/extensions/"+v1.ID+"?version_number=2", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestHandler_DeleteExtension_ConflictWhenAssociated verifies DeleteExtension
+// returns 409 Conflict for a version still referenced by an
+// ExtensionAssociation, matching real AWS's requirement to remove
+// associations before deleting the extension version they use.
+func TestHandler_DeleteExtension_ConflictWhenAssociated(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/extensions", []byte(`{"Name":"conflict-del-ext"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var ext appconfig.Extension
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+
+	assocBody := []byte(
+		`{"ExtensionIdentifier":"` + ext.ID +
+			`","ResourceIdentifier":"arn:aws:appconfig:us-east-1:123456789012:application/app-1"}`,
+	)
+	rec = doRequest(t, h, http.MethodPost, "/extensionassociations", assocBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = doRequest(t, h, http.MethodDelete, "/extensions/"+ext.ID, nil)
+	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
 func TestHandler_ListExtensions_NameFilter(t *testing.T) {
 	t.Parallel()
 

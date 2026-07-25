@@ -1,6 +1,9 @@
 package sesv2
 
-import "net/http"
+import (
+	"net/http"
+	"sync"
+)
 
 // path segment constants used across multiple parse functions.
 const (
@@ -24,6 +27,14 @@ const (
 
 const policyPathMinSegments = 4
 
+// RPC-style path verb segments, shared by the tenant/import-job families
+// (goconst: "list" alone appears 5+ times across those routing helpers).
+const (
+	verbGet    = "get"
+	verbDelete = "delete"
+	verbList   = "list"
+)
+
 // parseMiscPaths handles the newer SES v2 path prefixes.
 func parseMiscPaths(method string, segments []string) (string, string) {
 	if op, id := parseMiscPathsSpecial(method, segments); op != unknownAction {
@@ -32,6 +43,25 @@ func parseMiscPaths(method string, segments []string) (string, string) {
 
 	return parseExtendedPaths(method, segments)
 }
+
+// onceSingleSegmentPostOps lazily initialises the lookup table for top-level
+// path segments where "POST /v2/email/{segment}" (exactly one path segment,
+// no sub-resource) maps directly to a single op -- e.g.
+// "POST /v2/email/templates" -> CreateEmailTemplate,
+// "POST /v2/email/list-export-jobs" -> ListExportJobs (an RPC-style op that
+// happens to share this same single-segment-POST shape). Factored out of
+// parseMiscPathsSpecial as a table to keep that function's cyclomatic
+// complexity down.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table
+var onceSingleSegmentPostOps = sync.OnceValue(func() map[string]string {
+	return map[string]string{
+		"list-export-jobs":                    opListExportJobs,
+		"custom-verification-email-templates": opCreateCustomVerificationEmailTemplate,
+		"dedicated-ip-pools":                  opCreateDedicatedIPPool,
+		"templates":                           opCreateEmailTemplate,
+	}
+})
 
 // parseMiscPathsSpecial handles paths with special POST-create logic before extended dispatch.
 func parseMiscPathsSpecial(method string, segments []string) (string, string) {
@@ -42,19 +72,13 @@ func parseMiscPathsSpecial(method string, segments []string) (string, string) {
 		return parseExportJobsPath(method, segments)
 	case "contact-lists":
 		return parseContactListSpecialPath(method, segments)
-	case "custom-verification-email-templates":
-		if method == http.MethodPost && len(segments) == 1 {
-			return opCreateCustomVerificationEmailTemplate, ""
-		}
-	case "dedicated-ip-pools":
-		if method == http.MethodPost && len(segments) == 1 {
-			return opCreateDedicatedIPPool, ""
-		}
 	case "deliverability-dashboard":
 		return parseDeliverabilityDashboardPath(method, segments)
-	case "templates":
-		if method == http.MethodPost && len(segments) == 1 {
-			return opCreateEmailTemplate, ""
+	}
+
+	if method == http.MethodPost && len(segments) == 1 {
+		if op, ok := onceSingleSegmentPostOps()[segments[0]]; ok {
+			return op, ""
 		}
 	}
 
@@ -183,18 +207,24 @@ func parseExtendedPathsCoreGroup(method string, segments []string) (string, stri
 }
 
 // parseExtendedInsightsPath handles insights and recommendations paths.
+// Real SDK paths (verified against aws-sdk-go-v2/service/sesv2 v1.60.1
+// serializers.go):
+//
+//	POST /v2/email/email-address-insights   -> GetEmailAddressInsights (EmailAddress in body)
+//	GET  /v2/email/insights/{MessageId}     -> GetMessageInsights
+//	POST /v2/email/vdm/recommendations      -> ListRecommendations (Filter/NextToken/PageSize in body)
 func parseExtendedInsightsPath(method string, segments []string) (string, string) {
 	switch segments[0] {
-	case "email-insights":
-		if method == http.MethodGet && len(segments) == 2 {
-			return opGetEmailAddressInsights, segments[1]
+	case "email-address-insights":
+		if method == http.MethodPost && len(segments) == 1 {
+			return opGetEmailAddressInsights, ""
 		}
-	case "messages":
-		if method == http.MethodGet && len(segments) == 2 {
+	case "insights":
+		if method == http.MethodGet && len(segments) == pathDepth2 {
 			return opGetMessageInsights, segments[1]
 		}
-	case "recommendations":
-		if method == http.MethodGet && len(segments) == 1 {
+	case "vdm":
+		if method == http.MethodPost && len(segments) == pathDepth2 && segments[1] == "recommendations" {
 			return opListRecommendations, ""
 		}
 	}
@@ -219,10 +249,8 @@ func parseExtendedPathsExtGroup(method string, segments []string) (string, strin
 		return parseMultiRegionEndpointPath(method, segments)
 	case "tenants":
 		return parseTenantPath(method, segments)
-	case "resource-tenants":
+	case "resources":
 		return parseResourceTenantsPath(method, segments)
-	case "reputation-entities":
-		return parseReputationEntityPath(method, segments)
 	case "reputation":
 		return parseReputationPath(method, segments)
 	}
@@ -239,7 +267,7 @@ func parseReputationPath(method string, segments []string) (string, string) {
 	}
 
 	switch {
-	case len(segments) == pathDepth2 && method == http.MethodGet:
+	case len(segments) == pathDepth2 && method == http.MethodPost:
 		return opListReputationEntities, ""
 	case len(segments) == pathDepth4 && method == http.MethodGet:
 		return opGetReputationEntity, segments[3]
@@ -272,9 +300,11 @@ func parseOutboundCustomVerificationEmailsPath(method string, segments []string)
 	return unknownAction, ""
 }
 
-// parseResourceTenantsPath routes resource-tenants paths.
+// parseResourceTenantsPath routes POST /v2/email/resources/tenants/list ->
+// ListResourceTenants (ResourceArn in the JSON body).
 func parseResourceTenantsPath(method string, segments []string) (string, string) {
-	if method == http.MethodGet && len(segments) == 1 {
+	if method == http.MethodPost && len(segments) == pathDepth3 &&
+		segments[1] == "tenants" && segments[2] == verbList {
 		return opListResourceTenants, ""
 	}
 
@@ -388,7 +418,7 @@ func parseContactListExtPath(method string, segments []string) (string, string) 
 // .../contacts/list (POST, ListContacts) vs .../contacts/{EmailAddress}
 // (GET/DELETE/PUT, Get/Delete/UpdateContact).
 func parseContactItemPath(method string, segments []string) (string, string) {
-	if segments[3] == "list" && method == http.MethodPost {
+	if segments[3] == verbList && method == http.MethodPost {
 		return opListContacts, segments[1]
 	}
 
@@ -469,25 +499,38 @@ func parseDeliverabilityExtPath(method string, segments []string) (string, strin
 	return parseDeliverabilitySubPath(method, segments)
 }
 
-// parseDeliverabilitySubPath routes deliverability report and campaign sub-paths.
+// parseDeliverabilitySubPath routes deliverability report and campaign
+// sub-paths. Real SDK paths (verified against
+// aws-sdk-go-v2/service/sesv2 v1.60.1 serializers.go):
+//
+//	GET /v2/email/deliverability-dashboard/test-reports[/{ReportId}]
+//	GET /v2/email/deliverability-dashboard/statistics-report/{Domain}
+//	GET /v2/email/deliverability-dashboard/campaigns/{CampaignId}
+//	GET /v2/email/deliverability-dashboard/domains/{SubscribedDomain}/campaigns
 func parseDeliverabilitySubPath(method string, segments []string) (string, string) {
 	if len(segments) < pathDepth2 {
 		return unknownAction, ""
 	}
 
 	switch segments[1] {
-	case "reports":
+	case "test-reports":
 		return parseDeliverabilityReportsPath(method, segments)
 	case "blacklist-report":
 		if method == http.MethodGet {
 			return opGetBlacklistReports, ""
 		}
-	case "statistics":
+	case "statistics-report":
 		if method == http.MethodGet && len(segments) == pathDepth3 {
 			return opGetDomainStatisticsReport, segments[2]
 		}
 	case "campaigns":
-		return parseDeliverabilityDomainCampaignsPath(method, segments)
+		if method == http.MethodGet && len(segments) == pathDepth3 {
+			return opGetDomainDeliverabilityCampaign, segments[2]
+		}
+	case "domains":
+		if method == http.MethodGet && len(segments) == pathDepth4 && segments[3] == "campaigns" {
+			return opListDomainDeliverabilityCampaigns, segments[2]
+		}
 	}
 
 	return unknownAction, ""
@@ -504,22 +547,6 @@ func parseDeliverabilityReportsPath(method string, segments []string) (string, s
 		return opListDeliverabilityTestReports, ""
 	case pathDepth3:
 		return opGetDeliverabilityTestReport, segments[2]
-	}
-
-	return unknownAction, ""
-}
-
-// parseDeliverabilityDomainCampaignsPath routes domain deliverability campaign paths.
-func parseDeliverabilityDomainCampaignsPath(method string, segments []string) (string, string) {
-	if method != http.MethodGet {
-		return unknownAction, ""
-	}
-
-	switch len(segments) {
-	case pathDepth3:
-		return opListDomainDeliverabilityCampaigns, segments[2]
-	case pathDepth4:
-		return opGetDomainDeliverabilityCampaign, segments[2]
 	}
 
 	return unknownAction, ""
@@ -542,10 +569,12 @@ func parseTemplateExtPath(method string, segments []string) (string, string) {
 	return unknownAction, ""
 }
 
+// parseExportJobExtPath routes /v2/email/export-jobs paths. Note ListExportJobs
+// is NOT under this top-level segment in the real SDK -- it's the distinct
+// POST /v2/email/list-export-jobs (see parseMiscPathsSpecial's "list-export-jobs"
+// case).
 func parseExportJobExtPath(method string, segments []string) (string, string) {
 	switch {
-	case len(segments) == 1 && method == http.MethodGet:
-		return opListExportJobs, ""
 	case len(segments) == 1 && method == http.MethodPost:
 		return opCreateExportJob, ""
 	case len(segments) == 2 && method == http.MethodGet:
@@ -557,14 +586,16 @@ func parseExportJobExtPath(method string, segments []string) (string, string) {
 	return unknownAction, ""
 }
 
+// parseImportJobPath routes /v2/email/import-jobs paths, including the
+// POST .../import-jobs/list variant of ListImportJobs (filter/pagination in body).
 func parseImportJobPath(method string, segments []string) (string, string) {
 	switch {
-	case len(segments) == 1 && method == http.MethodGet:
-		return opListImportJobs, ""
 	case len(segments) == 1 && method == http.MethodPost:
 		return opCreateImportJob, ""
 	case len(segments) == 2 && method == http.MethodGet:
 		return opGetImportJob, segments[1]
+	case len(segments) == pathDepth2 && method == http.MethodPost && segments[1] == verbList:
+		return opListImportJobs, ""
 	}
 
 	return unknownAction, ""
@@ -585,51 +616,50 @@ func parseMultiRegionEndpointPath(method string, segments []string) (string, str
 	return unknownAction, ""
 }
 
-// parseTenantPath routes tenant paths.
+// parseTenantPath routes the real SDK's RPC-style tenant paths -- every
+// operation is POST to a fixed verb path with TenantName/ResourceArn in the
+// JSON body, not a REST path parameter (confirmed against
+// aws-sdk-go-v2/service/sesv2 v1.60.1 serializers.go; SplitURI has no
+// {Placeholder} segments anywhere in this family):
+//
+//	POST /v2/email/tenants                  -> CreateTenant
+//	POST /v2/email/tenants/get              -> GetTenant
+//	POST /v2/email/tenants/delete           -> DeleteTenant
+//	POST /v2/email/tenants/list             -> ListTenants
+//	POST /v2/email/tenants/resources        -> CreateTenantResourceAssociation
+//	POST /v2/email/tenants/resources/delete -> DeleteTenantResourceAssociation
+//	POST /v2/email/tenants/resources/list   -> ListTenantResources
+//
+// (ListResourceTenants is POST /v2/email/resources/tenants/list -- a
+// different top-level segment entirely -- see parseResourceTenantsPath.)
 func parseTenantPath(method string, segments []string) (string, string) {
-	switch len(segments) {
-	case 1:
-		switch method {
-		case http.MethodGet:
-			return opListTenants, ""
-		case http.MethodPost:
-			return opCreateTenant, ""
-		}
-	case pathDepth2:
-		switch method {
-		case http.MethodGet:
-			return opGetTenant, segments[1]
-		case http.MethodDelete:
-			return opDeleteTenant, segments[1]
-		}
-	case pathDepth3:
-		if segments[2] == segResources {
-			switch method {
-			case http.MethodGet:
-				return opListTenantResources, segments[1]
-			case http.MethodPost:
-				return opCreateTenantResourceAssociation, segments[1]
-			}
-		}
-	case pathDepth4:
-		if segments[2] == segResources && method == http.MethodDelete {
-			return opDeleteTenantResourceAssociation, segments[1]
-		}
+	if method != http.MethodPost {
+		return unknownAction, ""
 	}
 
-	return unknownAction, ""
-}
-
-func parseReputationEntityPath(method string, segments []string) (string, string) {
-	switch {
-	case len(segments) == 1 && method == http.MethodGet:
-		return opListReputationEntities, ""
-	case len(segments) == 2 && method == http.MethodGet:
-		return opGetReputationEntity, segments[1]
-	case len(segments) == pathDepth3 && segments[2] == "customer-managed-status" && method == http.MethodPut:
-		return opUpdateReputationEntityCustomerManagedStatus, segments[1]
-	case len(segments) == pathDepth3 && segments[2] == "policy" && method == http.MethodPut:
-		return opUpdateReputationEntityPolicy, segments[1]
+	switch len(segments) {
+	case 1:
+		return opCreateTenant, ""
+	case pathDepth2:
+		switch segments[1] {
+		case verbGet:
+			return opGetTenant, ""
+		case verbDelete:
+			return opDeleteTenant, ""
+		case verbList:
+			return opListTenants, ""
+		case segResources:
+			return opCreateTenantResourceAssociation, ""
+		}
+	case pathDepth3:
+		if segments[1] == segResources {
+			switch segments[2] {
+			case verbDelete:
+				return opDeleteTenantResourceAssociation, ""
+			case verbList:
+				return opListTenantResources, ""
+			}
+		}
 	}
 
 	return unknownAction, ""

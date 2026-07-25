@@ -56,7 +56,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		TrustedResourceOwners: []string{"123456789012"},
 	})
 
-	require.NoError(t, original.RegisterResource("arn:aws:s3:::bucket1", "arn:aws:iam::123456789012:role/lf-role"))
+	require.NoError(t, original.RegisterResource(
+		"arn:aws:s3:::bucket1", "arn:aws:iam::123456789012:role/lf-role", lakeformation.RegisterResourceOptions{},
+	))
 
 	require.NoError(t, original.CreateLFTag("123456789012", "confidentiality", []string{"public", "private"}))
 
@@ -93,6 +95,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.CreateLakeFormationOptIn(
 		&lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123456789012:user/bob"},
 		&lakeformation.Resource{Database: &lakeformation.DatabaseResource{Name: "db1"}},
+		nil,
 	))
 
 	failures := original.AddLFTagsToResource(
@@ -124,7 +127,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"public", "private"}, tag.TagValues)
 
-	perms, _ := fresh.ListPermissions("", 0, "", nil, "")
+	perms, _ := fresh.ListPermissions(nil, 0, "", nil, "")
 	require.Len(t, perms, 1)
 	assert.Equal(t, "arn:aws:iam::123456789012:user/alice", perms[0].Principal.DataLakePrincipalIdentifier)
 	assert.Equal(t, 1, fresh.PermissionCount())
@@ -281,6 +284,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	err := b.CreateLakeFormationOptIn(
 		&lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/alice"},
 		&lakeformation.Resource{Database: &lakeformation.DatabaseResource{Name: "db1"}},
+		nil,
 	)
 	require.NoError(t, err)
 	_, err = b.CommitTransaction("tx-persist")

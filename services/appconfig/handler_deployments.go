@@ -3,6 +3,7 @@ package appconfig
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 
@@ -104,9 +105,18 @@ func (h *Handler) handleStopDeployment(
 	applicationID, environmentID string,
 	deploymentNumber int32,
 ) error {
-	if err := h.Backend.StopDeployment(applicationID, environmentID, deploymentNumber); err != nil {
+	// Real StopDeploymentInput binds AllowRevert as the "Allow-Revert"
+	// request header, not a body/query field.
+	allowRevert, _ := strconv.ParseBool(c.Request().Header.Get("Allow-Revert"))
+
+	err := h.Backend.StopDeployment(applicationID, environmentID, deploymentNumber, allowRevert)
+	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
 		}
 
 		return c.JSON(

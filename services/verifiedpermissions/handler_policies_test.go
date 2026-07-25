@@ -703,3 +703,178 @@ func TestVPHandler_ListPolicies_PaginationOpaqueTokens(t *testing.T) {
 	_, hasMore := page2["nextToken"]
 	assert.False(t, hasMore, "no nextToken on last page")
 }
+
+// TestVPHandler_CreatePolicy_StaticScopeEcho locks in a wire-shape gap fix:
+// the real SDK's CreatePolicyOutput echoes effect/actions/principal/resource
+// parsed from a STATIC policy's Cedar scope clause (e.g. "forbid(principal
+// == User::"alice", action == Action::"view", resource);"), which gopherstack
+// previously never populated at all for STATIC policies.
+func TestVPHandler_CreatePolicy_StaticScopeEcho(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "CreatePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"definition": map[string]any{
+			"static": map[string]any{
+				"statement": `forbid(principal == User::"alice", action == Action::"view", resource == Document::"doc1");`,
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.Equal(t, "Forbid", resp["effect"])
+
+	principal, _ := resp["principal"].(map[string]any)
+	require.NotNil(t, principal, "principal should be echoed for an == scope clause")
+	assert.Equal(t, "User", principal["entityType"])
+	assert.Equal(t, "alice", principal["entityId"])
+
+	resource, _ := resp["resource"].(map[string]any)
+	require.NotNil(t, resource, "resource should be echoed for an == scope clause")
+	assert.Equal(t, "Document", resource["entityType"])
+	assert.Equal(t, "doc1", resource["entityId"])
+
+	actions, _ := resp["actions"].([]any)
+	require.Len(t, actions, 1)
+	action, _ := actions[0].(map[string]any)
+	assert.Equal(t, "Action", action["actionType"])
+	assert.Equal(t, "view", action["actionId"])
+}
+
+// TestVPHandler_CreatePolicy_UnconstrainedScopeOmitsEchoFields verifies that
+// an unconstrained ("All") scope clause -- permit(principal, action,
+// resource) -- omits principal/resource/actions entirely, matching AWS's
+// documented "isn't included in the response when [it] isn't present in the
+// policy content" behavior, rather than echoing empty/zero-value objects.
+func TestVPHandler_CreatePolicy_UnconstrainedScopeOmitsEchoFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "CreatePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"definition": map[string]any{
+			"static": map[string]any{
+				"statement": `permit(principal, action, resource);`,
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.Equal(t, "Permit", resp["effect"])
+	assert.NotContains(t, resp, "principal")
+	assert.NotContains(t, resp, "resource")
+	assert.NotContains(t, resp, "actions")
+}
+
+// TestVPHandler_GetPolicy_TemplateLinkedScopeEcho verifies a TEMPLATE_LINKED
+// policy's echoed effect/actions come from the referenced template's Cedar
+// statement (with ?principal/?resource substituted), while principal/
+// resource come from the policy's own bound entities -- not from re-parsing
+// the (slot-containing) template scope clause.
+func TestVPHandler_GetPolicy_TemplateLinkedScopeEcho(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	tmplRec := doVPRequest(t, h, "CreatePolicyTemplate", map[string]any{
+		"policyStoreId": storeID,
+		"statement":     `forbid(principal == ?principal, action == Action::"delete", resource == ?resource);`,
+	})
+	require.Equal(t, http.StatusOK, tmplRec.Code)
+	var tmplResp map[string]any
+	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp))
+	templateID := tmplResp["policyTemplateId"].(string)
+
+	rec := doVPRequest(t, h, "CreatePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"definition": map[string]any{
+			"templateLinked": map[string]any{
+				"policyTemplateId": templateID,
+				"principal":        map[string]any{"entityType": "User", "entityId": "bob"},
+				"resource":         map[string]any{"entityType": "Document", "entityId": "doc2"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	policyID := createResp["policyId"].(string)
+
+	assert.Equal(t, "Forbid", createResp["effect"])
+	actions, _ := createResp["actions"].([]any)
+	require.Len(t, actions, 1)
+	action, _ := actions[0].(map[string]any)
+	assert.Equal(t, "delete", action["actionId"])
+
+	getRec := doVPRequest(t, h, "GetPolicy", map[string]any{
+		"policyStoreId": storeID,
+		"policyId":      policyID,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+
+	principal, _ := getResp["principal"].(map[string]any)
+	require.NotNil(t, principal)
+	assert.Equal(t, "bob", principal["entityId"])
+}
+
+// TestVPHandler_ListPolicies_StaticItemOmitsStatement locks in a wire-shape
+// bug fix: the real SDK's StaticPolicyDefinitionItem (used by ListPolicies)
+// carries only a description, NOT the full Cedar statement text -- unlike
+// GetPolicy's StaticPolicyDefinitionDetail, which does include it.
+// gopherstack previously echoed the full statement in ListPolicies items too.
+func TestVPHandler_ListPolicies_StaticItemOmitsStatement(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	createRec := doVPRequest(t, h, "CreatePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"definition": map[string]any{
+			"static": map[string]any{
+				"statement":   `permit(principal, action, resource);`,
+				"description": "my static policy",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	listRec := doVPRequest(t, h, "ListPolicies", map[string]any{"policyStoreId": storeID})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+
+	items, _ := listResp["policies"].([]any)
+	require.Len(t, items, 1)
+	item, _ := items[0].(map[string]any)
+	def, _ := item["definition"].(map[string]any)
+	static, _ := def["static"].(map[string]any)
+	require.NotNil(t, static)
+	assert.Equal(t, "my static policy", static["description"])
+	assert.NotContains(t, static, "statement",
+		"ListPolicies' static definition item must not echo the Cedar statement text")
+
+	// GetPolicy's detail shape, by contrast, DOES include the statement.
+	policyID, _ := item["policyId"].(string)
+	getRec := doVPRequest(t, h, "GetPolicy", map[string]any{"policyStoreId": storeID, "policyId": policyID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	getStatic, _ := getResp["definition"].(map[string]any)["static"].(map[string]any)
+	assert.Equal(t, `permit(principal, action, resource);`, getStatic["statement"])
+}

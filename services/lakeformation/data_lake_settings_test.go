@@ -32,6 +32,14 @@ func TestGetPutDataLakeSettings(t *testing.T) {
 				TrustedResourceOwners: []string{"123456789012"},
 			},
 		},
+		{
+			name: "with_external_data_filtering_allow_list",
+			settings: &lakeformation.DataLakeSettings{
+				ExternalDataFilteringAllowList: []lakeformation.DataLakePrincipal{
+					{DataLakePrincipalIdentifier: "arn:aws:iam::123456789012:user/filterer"},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

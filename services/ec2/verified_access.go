@@ -45,6 +45,7 @@ func (b *InMemoryBackend) DeleteVerifiedAccessEndpoint(id string) error {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
 	}
 	b.verifiedAccessEndpoints.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -130,6 +131,7 @@ func (b *InMemoryBackend) DeleteVerifiedAccessGroup(id string) error {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessGroupNotFound, id)
 	}
 	b.verifiedAccessGroups.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -188,6 +190,7 @@ func (b *InMemoryBackend) DeleteVerifiedAccessInstance(id string) error {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, id)
 	}
 	b.verifiedAccessInstances.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -253,6 +256,7 @@ func (b *InMemoryBackend) DeleteVerifiedAccessTrustProvider(id string) error {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessTrustProviderNF, id)
 	}
 	b.verifiedAccessTrustProviders.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

@@ -12,12 +12,19 @@ import (
 // HyperParameterTuningJob handlers
 // ---------------------------------------------------------------------------
 
+type hpResourceLimitsRequest struct {
+	MaxParallelTrainingJobs int32 `json:"MaxParallelTrainingJobs"`
+	MaxNumberOfTrainingJobs int32 `json:"MaxNumberOfTrainingJobs,omitempty"`
+	MaxRuntimeInSeconds     int32 `json:"MaxRuntimeInSeconds,omitempty"`
+}
+
 type createHPTuningJobRequest struct {
+	Tags                          []tagObject `json:"Tags"`
+	HyperParameterTuningJobName   string      `json:"HyperParameterTuningJobName"`
 	HyperParameterTuningJobConfig struct {
-		Strategy string `json:"Strategy"`
+		Strategy       string                  `json:"Strategy"`
+		ResourceLimits hpResourceLimitsRequest `json:"ResourceLimits"`
 	} `json:"HyperParameterTuningJobConfig"`
-	HyperParameterTuningJobName string      `json:"HyperParameterTuningJobName"`
-	Tags                        []tagObject `json:"Tags"`
 }
 
 func (h *Handler) handleCreateHyperParameterTuningJob(
@@ -34,11 +41,17 @@ func (h *Handler) handleCreateHyperParameterTuningJob(
 	}
 
 	tags := fromTagObjects(req.Tags)
+	limits := HPResourceLimits{
+		MaxParallelTrainingJobs: req.HyperParameterTuningJobConfig.ResourceLimits.MaxParallelTrainingJobs,
+		MaxNumberOfTrainingJobs: req.HyperParameterTuningJobConfig.ResourceLimits.MaxNumberOfTrainingJobs,
+		MaxRuntimeInSeconds:     req.HyperParameterTuningJobConfig.ResourceLimits.MaxRuntimeInSeconds,
+	}
 
 	j, err := h.Backend.CreateHyperParameterTuningJob(
 		ctx,
 		req.HyperParameterTuningJobName,
 		req.HyperParameterTuningJobConfig.Strategy,
+		limits,
 		tags,
 	)
 	if err != nil {
@@ -85,19 +98,27 @@ func (h *Handler) handleDescribeHyperParameterTuningJob(
 		"HyperParameterTuningJobName":   j.HyperParameterTuningJobName,
 		"HyperParameterTuningJobArn":    j.HyperParameterTuningJobArn,
 		"HyperParameterTuningJobStatus": j.HyperParameterTuningJobStatus,
-		"Strategy":                      j.Strategy,
-		keyCreationTime:                 epochSeconds(j.CreationTime),
-		keyLastModifiedTime:             epochSeconds(j.LastModifiedTime),
+		"HyperParameterTuningJobConfig": map[string]any{
+			"Strategy":       j.Strategy,
+			"ResourceLimits": j.ResourceLimits,
+		},
+		"ObjectiveStatusCounters":   j.ObjectiveStatusCounters,
+		"TrainingJobStatusCounters": j.TrainingJobStatusCounters,
+		keyCreationTime:             epochSeconds(j.CreationTime),
+		keyLastModifiedTime:         epochSeconds(j.LastModifiedTime),
 	})
 }
 
 type hpTuningJobSummary struct {
-	HyperParameterTuningJobName   string  `json:"HyperParameterTuningJobName"`
-	HyperParameterTuningJobArn    string  `json:"HyperParameterTuningJobArn"`
-	HyperParameterTuningJobStatus string  `json:"HyperParameterTuningJobStatus"`
-	Strategy                      string  `json:"Strategy,omitempty"`
-	CreationTime                  float64 `json:"CreationTime"`
-	LastModifiedTime              float64 `json:"LastModifiedTime"`
+	HyperParameterTuningJobName   string                      `json:"HyperParameterTuningJobName"`
+	HyperParameterTuningJobArn    string                      `json:"HyperParameterTuningJobArn"`
+	HyperParameterTuningJobStatus string                      `json:"HyperParameterTuningJobStatus"`
+	Strategy                      string                      `json:"Strategy,omitempty"`
+	ObjectiveStatusCounters       HPObjectiveStatusCounters   `json:"ObjectiveStatusCounters"`
+	TrainingJobStatusCounters     HPTrainingJobStatusCounters `json:"TrainingJobStatusCounters"`
+	ResourceLimits                HPResourceLimits            `json:"ResourceLimits"`
+	CreationTime                  float64                     `json:"CreationTime"`
+	LastModifiedTime              float64                     `json:"LastModifiedTime"`
 }
 
 func (h *Handler) handleListHyperParameterTuningJobs(ctx context.Context, body []byte) ([]byte, error) {
@@ -118,6 +139,9 @@ func (h *Handler) handleListHyperParameterTuningJobs(ctx context.Context, body [
 			HyperParameterTuningJobArn:    j.HyperParameterTuningJobArn,
 			HyperParameterTuningJobStatus: j.HyperParameterTuningJobStatus,
 			Strategy:                      j.Strategy,
+			ResourceLimits:                j.ResourceLimits,
+			ObjectiveStatusCounters:       j.ObjectiveStatusCounters,
+			TrainingJobStatusCounters:     j.TrainingJobStatusCounters,
 			CreationTime:                  epochSeconds(j.CreationTime),
 			LastModifiedTime:              epochSeconds(j.LastModifiedTime),
 		})

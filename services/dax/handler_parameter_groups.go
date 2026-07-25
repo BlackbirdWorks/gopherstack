@@ -33,6 +33,7 @@ type deleteParameterGroupRequest struct {
 type describeParametersRequest struct {
 	ParameterGroupName string `json:"ParameterGroupName"`
 	NextToken          string `json:"NextToken"`
+	Source             string `json:"Source"`
 	MaxResults         int    `json:"MaxResults"`
 }
 
@@ -181,7 +182,12 @@ func (h *Handler) handleDescribeParameters(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	params, nextToken, err := h.Backend.DescribeParameters(req.ParameterGroupName, req.MaxResults, req.NextToken)
+	params, nextToken, err := h.Backend.DescribeParameters(
+		req.ParameterGroupName,
+		req.MaxResults,
+		req.NextToken,
+		req.Source,
+	)
 	if err != nil {
 		return nil, err
 	}

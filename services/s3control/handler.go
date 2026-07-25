@@ -71,13 +71,18 @@ func supportedAccessGrantOps() []string {
 
 func supportedAccessPointAndBucketOps() []string {
 	return []string{
-		// Access Points
+		// Access Points. NOTE: aws-sdk-go-v2/service/s3control has no
+		// GetAccessPointPublicAccessBlock / PutAccessPointPublicAccessBlock /
+		// DeleteAccessPointPublicAccessBlock operations -- do not add them
+		// back. PublicAccessBlockConfiguration for an access point travels
+		// inline on CreateAccessPoint/GetAccessPoint instead (see
+		// handler_access_points.go).
 		"CreateAccessPoint", "DeleteAccessPoint", "GetAccessPoint",
 		"GetAccessPointPolicy", "GetAccessPointPolicyStatus",
-		"GetAccessPointPublicAccessBlock", "GetAccessPointScope",
+		"GetAccessPointScope",
 		"ListAccessPoints", "ListAccessPointsForDirectoryBuckets",
-		"PutAccessPointPolicy", "PutAccessPointPublicAccessBlock", "PutAccessPointScope",
-		"DeleteAccessPointPolicy", "DeleteAccessPointPublicAccessBlock", "DeleteAccessPointScope",
+		"PutAccessPointPolicy", "PutAccessPointScope",
+		"DeleteAccessPointPolicy", "DeleteAccessPointScope",
 		// Object Lambda Access Points
 		"CreateAccessPointForObjectLambda", "DeleteAccessPointForObjectLambda",
 		"DeleteAccessPointPolicyForObjectLambda", "GetAccessPointConfigurationForObjectLambda",

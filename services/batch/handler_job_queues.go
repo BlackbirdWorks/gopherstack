@@ -17,7 +17,9 @@ type createJobQueueInput struct {
 	JobQueueName             string                         `json:"jobQueueName"`
 	State                    string                         `json:"state"`
 	SchedulingPolicyArn      string                         `json:"schedulingPolicyArn,omitempty"`
+	JobQueueType             string                         `json:"jobQueueType,omitempty"`
 	ComputeEnvironmentOrder  []ComputeEnvironmentOrder      `json:"computeEnvironmentOrder"`
+	ServiceEnvironmentOrder  []ServiceEnvironmentOrder      `json:"serviceEnvironmentOrder,omitempty"`
 	JobStateTimeLimitActions []jobStateTimeLimitActionInput `json:"jobStateTimeLimitActions,omitempty"`
 	Priority                 int32                          `json:"priority"`
 }
@@ -58,6 +60,8 @@ func (h *Handler) handleCreateJobQueue(
 		in.Tags,
 		in.SchedulingPolicyArn,
 		jobStateTimeLimitActionsFromInput(in.JobStateTimeLimitActions),
+		in.JobQueueType,
+		in.ServiceEnvironmentOrder,
 	)
 	if err != nil {
 		return nil, err
@@ -110,6 +114,7 @@ type updateJobQueueInput struct {
 	State                    string                         `json:"state"`
 	SchedulingPolicyArn      string                         `json:"schedulingPolicyArn,omitempty"`
 	ComputeEnvironmentOrder  []ComputeEnvironmentOrder      `json:"computeEnvironmentOrder,omitempty"`
+	ServiceEnvironmentOrder  []ServiceEnvironmentOrder      `json:"serviceEnvironmentOrder,omitempty"`
 	JobStateTimeLimitActions []jobStateTimeLimitActionInput `json:"jobStateTimeLimitActions,omitempty"`
 }
 
@@ -126,6 +131,7 @@ func (h *Handler) handleUpdateJobQueue(
 		ctx,
 		in.JobQueue, in.Priority, in.State, in.ComputeEnvironmentOrder,
 		jobStateTimeLimitActionsFromInput(in.JobStateTimeLimitActions),
+		in.ServiceEnvironmentOrder,
 	)
 	if err != nil {
 		return nil, err

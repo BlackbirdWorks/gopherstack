@@ -1,6 +1,11 @@
 package ssoadmin
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 // CreateApplicationAssignment assigns a principal to an application.
 func (b *InMemoryBackend) CreateApplicationAssignment(applicationArn, principalID, principalType string) error {
@@ -108,15 +113,26 @@ func (b *InMemoryBackend) PutApplicationAssignmentConfiguration(applicationArn s
 	return nil
 }
 
-// PutApplicationSessionConfiguration sets session configuration on an application.
-func (b *InMemoryBackend) PutApplicationSessionConfiguration(applicationArn, sessionDuration string) error {
+// PutApplicationSessionConfiguration sets the UserBackgroundSessionApplicationStatus
+// (ENABLED or DISABLED) on an application. Matches the real
+// PutApplicationSessionConfigurationInput wire shape -- this is NOT a session
+// duration (there is no such member on the real API; see
+// GetApplicationSessionConfigurationOutput in the real SDK's
+// api_op_GetApplicationSessionConfiguration.go).
+func (b *InMemoryBackend) PutApplicationSessionConfiguration(applicationArn, userBackgroundSessionStatus string) error {
 	b.mu.Lock("PutApplicationSessionConfiguration")
 	defer b.mu.Unlock()
 
 	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
-	b.applicationSessions[applicationArn] = sessionDuration
+	if userBackgroundSessionStatus != "" &&
+		userBackgroundSessionStatus != userBackgroundSessionStatusEnabled &&
+		userBackgroundSessionStatus != userBackgroundSessionStatusDisabled {
+		return fmt.Errorf("%w: UserBackgroundSessionApplicationStatus must be ENABLED or DISABLED",
+			awserr.ErrInvalidParameter)
+	}
+	b.applicationSessions[applicationArn] = userBackgroundSessionStatus
 
 	return nil
 }
@@ -134,7 +150,8 @@ func (b *InMemoryBackend) GetApplicationAssignmentConfiguration(applicationArn s
 	return required, nil
 }
 
-// GetApplicationSessionConfiguration returns the session configuration for an application.
+// GetApplicationSessionConfiguration returns the UserBackgroundSessionApplicationStatus
+// (ENABLED or DISABLED) for an application.
 func (b *InMemoryBackend) GetApplicationSessionConfiguration(applicationArn string) (string, error) {
 	b.mu.RLock("GetApplicationSessionConfiguration")
 	defer b.mu.RUnlock()
@@ -142,9 +159,9 @@ func (b *InMemoryBackend) GetApplicationSessionConfiguration(applicationArn stri
 	if !b.applications.Has(applicationArn) {
 		return "", ErrApplicationNotFound
 	}
-	dur := b.applicationSessions[applicationArn]
+	status := b.applicationSessions[applicationArn]
 
-	return dur, nil
+	return status, nil
 }
 
 // ListApplicationAssignmentsForPrincipal returns all application assignments for a specific principal.

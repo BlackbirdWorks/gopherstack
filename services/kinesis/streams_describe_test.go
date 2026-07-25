@@ -121,7 +121,7 @@ func TestDescribeStream_EncryptionFields(t *testing.T) {
 	rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
 		"StreamName":     "enc-describe-stream",
 		"EncryptionType": "KMS",
-		"KeyId":          "my-key-id",
+		"KeyId":          "alias/my-key-id",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -140,7 +140,7 @@ func TestDescribeStream_EncryptionFields(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "KMS", resp.StreamDescription.EncryptionType)
-	assert.Equal(t, "my-key-id", resp.StreamDescription.KeyID)
+	assert.Equal(t, "alias/my-key-id", resp.StreamDescription.KeyID)
 }
 
 // TestDescribeStreamSummary_EncryptionFields verifies encryption in summary.
@@ -158,7 +158,7 @@ func TestDescribeStreamSummary_EncryptionFields(t *testing.T) {
 	rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
 		"StreamName":     "enc-summary-stream",
 		"EncryptionType": "KMS",
-		"KeyId":          "summary-key-id",
+		"KeyId":          "alias/summary-key-id",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -176,7 +176,7 @@ func TestDescribeStreamSummary_EncryptionFields(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "KMS", resp.StreamDescriptionSummary.EncryptionType)
-	assert.Equal(t, "summary-key-id", resp.StreamDescriptionSummary.KeyID)
+	assert.Equal(t, "alias/summary-key-id", resp.StreamDescriptionSummary.KeyID)
 }
 
 func TestDescribeStreamSummary_OpenShardCountAndConsumerCount(t *testing.T) {

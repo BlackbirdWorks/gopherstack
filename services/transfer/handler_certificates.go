@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 type deleteCertificateInput struct {
@@ -48,12 +49,16 @@ func parseCertDate(body, dateStr string) time.Time {
 }
 
 type importCertificateInput struct {
-	Usage         string              `json:"Usage"`
-	Body          string              `json:"Certificate"`
-	Description   string              `json:"Description,omitempty"`
-	NotBeforeDate string              `json:"NotBeforeDate,omitempty"` // RFC3339
-	NotAfterDate  string              `json:"NotAfterDate,omitempty"`  // RFC3339
-	Tags          []map[string]string `json:"Tags"`
+	Usage            string              `json:"Usage"`
+	Body             string              `json:"Certificate"`
+	CertificateChain string              `json:"CertificateChain,omitempty"`
+	PrivateKey       string              `json:"PrivateKey,omitempty"`
+	Description      string              `json:"Description,omitempty"`
+	NotBeforeDate    string              `json:"NotBeforeDate,omitempty"` // RFC3339
+	NotAfterDate     string              `json:"NotAfterDate,omitempty"`  // RFC3339
+	ActiveDate       string              `json:"ActiveDate,omitempty"`    // RFC3339
+	InactiveDate     string              `json:"InactiveDate,omitempty"`  // RFC3339
+	Tags             []map[string]string `json:"Tags"`
 }
 
 type importCertificateOutput struct {
@@ -86,14 +91,18 @@ func (h *Handler) handleImportCertificate(
 	notBefore := parseCertDate(in.Body, in.NotBeforeDate)
 	notAfter := parseCertDate(in.Body, in.NotAfterDate)
 
-	c, err := h.Backend.ImportCertificate(
-		in.Usage,
-		in.Body,
-		in.Description,
-		notBefore,
-		notAfter,
-		tags,
-	)
+	c, err := h.Backend.ImportCertificateFull(&ImportCertificateInput{
+		Usage:            in.Usage,
+		Body:             in.Body,
+		CertificateChain: in.CertificateChain,
+		PrivateKey:       in.PrivateKey,
+		Description:      in.Description,
+		NotBefore:        notBefore,
+		NotAfter:         notAfter,
+		ActiveDate:       parseCertDate("", in.ActiveDate),
+		InactiveDate:     parseCertDate("", in.InactiveDate),
+		Tags:             tags,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +134,7 @@ func (h *Handler) handleDescribeCertificate(
 	certMap := map[string]any{
 		"CertificateId": c.CertificateID,
 		"Usage":         c.Usage,
+		"Type":          certificateType(c),
 		keyDescription:  c.Description,
 		keyStatus:       c.Status,
 		keyArn:          certificateARN(c.AccountID, c.Region, c.CertificateID),
@@ -134,17 +144,43 @@ func (h *Handler) handleDescribeCertificate(
 		certMap["Certificate"] = c.Body
 	}
 
+	if c.CertificateChain != "" {
+		certMap["CertificateChain"] = c.CertificateChain
+	}
+
+	if c.Serial != "" {
+		certMap["Serial"] = c.Serial
+	}
+
 	if !c.NotBeforeDate.IsZero() {
-		certMap["NotBeforeDate"] = c.NotBeforeDate.Format(time.RFC3339)
+		certMap["NotBeforeDate"] = awstime.Epoch(c.NotBeforeDate)
 	}
 
 	if !c.NotAfterDate.IsZero() {
-		certMap["NotAfterDate"] = c.NotAfterDate.Format(time.RFC3339)
+		certMap["NotAfterDate"] = awstime.Epoch(c.NotAfterDate)
+	}
+
+	if !c.ActiveDate.IsZero() {
+		certMap["ActiveDate"] = awstime.Epoch(c.ActiveDate)
+	}
+
+	if !c.InactiveDate.IsZero() {
+		certMap["InactiveDate"] = awstime.Epoch(c.InactiveDate)
 	}
 
 	return &describeCertificateOutput{
 		Certificate: certMap,
 	}, nil
+}
+
+// certificateType returns the real-AWS CertificateType ("CERTIFICATE" or
+// "CERTIFICATE_WITH_PRIVATE_KEY") for a certificate.
+func certificateType(c *Certificate) string {
+	if c.HasPrivateKey {
+		return "CERTIFICATE_WITH_PRIVATE_KEY"
+	}
+
+	return "CERTIFICATE"
 }
 
 type listCertificatesInput struct {
@@ -166,12 +202,23 @@ func (h *Handler) handleListCertificates(
 	out := make([]map[string]any, len(page))
 
 	for i, c := range page {
-		out[i] = map[string]any{
+		item := map[string]any{
 			"CertificateId": c.CertificateID,
-			"Usage":         c.Usage,
+			"Type":          certificateType(c),
+			keyDescription:  c.Description,
 			keyStatus:       c.Status,
 			keyArn:          certificateARN(c.AccountID, c.Region, c.CertificateID),
 		}
+
+		if !c.ActiveDate.IsZero() {
+			item["ActiveDate"] = awstime.Epoch(c.ActiveDate)
+		}
+
+		if !c.InactiveDate.IsZero() {
+			item["InactiveDate"] = awstime.Epoch(c.InactiveDate)
+		}
+
+		out[i] = item
 	}
 
 	return &listCertificatesOutput{Certificates: out, NextToken: next}, nil
@@ -180,6 +227,8 @@ func (h *Handler) handleListCertificates(
 type updateCertificateInput struct {
 	CertificateID string `json:"CertificateId"`
 	Description   string `json:"Description"`
+	ActiveDate    string `json:"ActiveDate,omitempty"`   // RFC3339
+	InactiveDate  string `json:"InactiveDate,omitempty"` // RFC3339
 }
 
 type updateCertificateOutput struct {
@@ -194,7 +243,12 @@ func (h *Handler) handleUpdateCertificate(
 		return nil, fmt.Errorf("%w: CertificateId is required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.UpdateCertificate(in.CertificateID, in.Description)
+	c, err := h.Backend.UpdateCertificateFull(&UpdateCertificateInput{
+		CertificateID: in.CertificateID,
+		Description:   in.Description,
+		ActiveDate:    parseCertDate("", in.ActiveDate),
+		InactiveDate:  parseCertDate("", in.InactiveDate),
+	})
 	if err != nil {
 		return nil, err
 	}

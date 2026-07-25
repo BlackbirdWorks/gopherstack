@@ -1,6 +1,7 @@
 package opensearch
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -16,6 +17,40 @@ const (
 	pkgStateActive          = "ACTIVE"
 	connectionStatusActive  = "ACTIVE"
 	softwareUpdateCompleted = "COMPLETED"
+)
+
+// Package resource status constants, matching the AWS PackageStatus enum
+// (types.PackageStatusAvailable). Note this is a different enum from
+// DomainPackageStatus (pkgStateActive above is that one's ACTIVE value) --
+// PackageStatus has no ACTIVE value at all, only AVAILABLE.
+const pkgStatusAvailable = "AVAILABLE"
+
+// reservedInstanceStateActive matches the documented (freeform, non-enum in
+// the SDK) ReservedInstance.State value AWS returns for an active
+// reservation: "payment-pending" | "active" | "payment-failed" | "retired",
+// lowercase-hyphenated -- unlike most other status fields in this API, which
+// are UPPER_SNAKE_CASE enums.
+const reservedInstanceStateActive = "active"
+
+// domainPackageStatusDissociating matches DomainPackageStatus's DISSOCIATING
+// value (types.DomainPackageStatusDissociating). There is no terminal
+// "DISSOCIATED" value in the real enum -- once dissociation completes the
+// association record is gone, so the last observable status is the
+// transient DISSOCIATING one, mirroring the DELETING-on-instant-removal
+// pattern used elsewhere in this backend (see statusDeleting).
+const domainPackageStatusDissociating = "DISSOCIATING"
+
+// Cross-cluster connection status codes, matching the AWS
+// InboundConnectionStatusCode / OutboundConnectionStatusCode enums.
+const (
+	connStatusPendingAcceptance = "PENDING_ACCEPTANCE"
+	connStatusRejected          = "REJECTED"
+)
+
+// ConnectionMode values, matching the AWS ConnectionMode enum.
+const (
+	connectionModeDirect      = "DIRECT"
+	connectionModeVPCEndpoint = "VPC_ENDPOINT"
 )
 
 // DomainProcessingStatus enum values, matching the AWS OpenSearch SDK
@@ -81,39 +116,56 @@ const defaultEngineVersion = "OpenSearch_2.11"
 
 const defaultShardsPerNode = 5
 
+// DomainInformation identifies the source or destination domain of a
+// cross-cluster connection. On the wire this nests inside a
+// DomainInformationContainer under the AWSDomainInformation key (see
+// types.AWSDomainInformation / types.DomainInformationContainer).
+type DomainInformation struct {
+	DomainName string `json:"domainName"`
+	OwnerID    string `json:"ownerId,omitempty"`
+	Region     string `json:"region,omitempty"`
+}
+
 // InboundConnection represents an OpenSearch inbound cross-cluster connection.
 type InboundConnection struct {
-	StatusUntil  time.Time `json:"statusUntil,omitzero"`
-	ConnectionID string    `json:"connectionId"`
-	Status       string    `json:"status"`
+	StatusUntil      time.Time         `json:"statusUntil,omitzero"`
+	ConnectionID     string            `json:"connectionId"`
+	ConnectionMode   string            `json:"connectionMode"`
+	Status           string            `json:"status"`
+	StatusMessage    string            `json:"statusMessage,omitempty"`
+	LocalDomainInfo  DomainInformation `json:"localDomainInfo"`
+	RemoteDomainInfo DomainInformation `json:"remoteDomainInfo"`
 }
 
 // DataSource represents a data source attached to an OpenSearch domain.
 type DataSource struct {
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	DataSourceType string `json:"dataSourceType"`
-	// DomainName identifies the owning domain and is used only to key the
-	// pkgs/store composite table (domainName#name); it is never serialized on
-	// the wire, matching how the domain name was already implied by the
-	// outer map key before the pkgs/store conversion.
-	DomainName string `json:"-"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Status         string          `json:"status,omitempty"`
+	DomainName     string          `json:"-"`
+	DataSourceType json.RawMessage `json:"dataSourceType,omitempty"`
 }
 
 // DirectQueryDataSource represents a direct-query data source.
 type DirectQueryDataSource struct {
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	DataSourceType string   `json:"dataSourceType"`
-	DataSourceArn  string   `json:"dataSourceArn"`
-	OpenSearchArns []string `json:"openSearchArns"`
+	// DataSourceType is stored as raw JSON for the same reason as
+	// DataSource.DataSourceType above -- types.DirectQueryDataSourceType is
+	// also a tagged union (CloudWatchLog / SecurityLake members).
+	DataSourceType json.RawMessage `json:"dataSourceType,omitempty"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	DataSourceArn  string          `json:"dataSourceArn"`
+	OpenSearchArns []string        `json:"openSearchArns"`
 }
 
 // DomainPackageDetails holds details about a package associated with a domain.
 type DomainPackageDetails struct {
-	PackageID  string `json:"packageId"`
-	DomainName string `json:"domainName"`
-	State      string `json:"state"`
+	PackageID   string  `json:"packageId"`
+	DomainName  string  `json:"domainName"`
+	State       string  `json:"state"`
+	PackageName string  `json:"packageName,omitempty"`
+	PackageType string  `json:"packageType,omitempty"`
+	LastUpdated float64 `json:"lastUpdated,omitempty"`
 }
 
 // AuthorizedPrincipal represents an authorized principal for VPC endpoint access.
@@ -136,11 +188,13 @@ type ServiceSoftwareOptions struct {
 
 // Application represents an OpenSearch UI application.
 type Application struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	ARN         string          `json:"arn"`
-	AppConfigs  []AppConfig     `json:"appConfigs"`
-	DataSources []AppDataSource `json:"dataSources"`
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	ARN           string          `json:"arn"`
+	AppConfigs    []AppConfig     `json:"appConfigs"`
+	DataSources   []AppDataSource `json:"dataSources"`
+	CreatedAt     float64         `json:"createdAt"`
+	LastUpdatedAt float64         `json:"lastUpdatedAt"`
 }
 
 // AppConfig represents an application configuration key-value pair.
@@ -156,12 +210,16 @@ type AppDataSource struct {
 
 // OutboundConnection represents a cross-cluster outbound connection.
 type OutboundConnection struct {
-	StatusUntil      time.Time      `json:"statusUntil,omitzero"`
-	LocalDomainInfo  map[string]any `json:"LocalDomainInfo"`
-	RemoteDomainInfo map[string]any `json:"RemoteDomainInfo"`
-	ConnectionID     string         `json:"ConnectionId"`
-	ConnectionAlias  string         `json:"ConnectionAlias"`
-	Status           string         `json:"status"`
+	StatusUntil      time.Time         `json:"statusUntil,omitzero"`
+	ConnectionID     string            `json:"connectionId"`
+	ConnectionAlias  string            `json:"connectionAlias"`
+	ConnectionMode   string            `json:"connectionMode"`
+	Status           string            `json:"status"`
+	StatusMessage    string            `json:"statusMessage,omitempty"`
+	SkipUnavailable  string            `json:"skipUnavailable,omitempty"`
+	Endpoint         string            `json:"endpoint,omitempty"`
+	LocalDomainInfo  DomainInformation `json:"localDomainInfo"`
+	RemoteDomainInfo DomainInformation `json:"remoteDomainInfo"`
 }
 
 // VpcEndpoint represents a VPC endpoint for an OpenSearch domain.
@@ -493,12 +551,6 @@ type UpdateDomainConfigInput struct {
 	ClusterConfig               *ClusterConfig
 	AccessPolicies              string
 	EngineVersion               string
-}
-
-// AppSetting is a key-value pair for default application settings.
-type AppSetting struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
 }
 
 // DryRunStatus holds dry-run progress state for a domain.

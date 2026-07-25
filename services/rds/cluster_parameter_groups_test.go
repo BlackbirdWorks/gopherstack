@@ -31,6 +31,99 @@ func TestClusterPG_CRUD(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
 }
 
+// TestClusterPG_CaseInsensitiveIdentifier asserts that
+// DBClusterParameterGroupName is treated as a case-insensitive persistent
+// handle, matching real AWS: creating "MyClusterPG" then "myclusterpg" must
+// collide with DBParameterGroupAlreadyExistsFault, and every subsequent
+// lookup (Describe, Delete) must find the group regardless of casing, while
+// the wire response keeps echoing the identifier's original, as-created
+// casing.
+func TestClusterPG_CaseInsensitiveIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		name      string
+		setupID   string
+		actionID  string
+		action    string
+		wantErr   bool
+	}{
+		{
+			name:      "create_collides_on_lowercased_duplicate",
+			setupID:   "MyClusterPG",
+			actionID:  "myclusterpg",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrParameterGroupAlreadyExists,
+		},
+		{
+			name:      "create_collides_on_uppercased_duplicate",
+			setupID:   "lower-cpg",
+			actionID:  "LOWER-CPG",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrParameterGroupAlreadyExists,
+		},
+		{
+			name:     "create_distinct_id_does_not_collide",
+			setupID:  "some-cpg",
+			actionID: "some-other-cpg",
+			action:   "create",
+		},
+		{
+			name:     "describe_finds_resource_under_different_case",
+			setupID:  "FindMe-CPG",
+			actionID: "findme-cpg",
+			action:   "describe",
+		},
+		{
+			name:     "delete_removes_resource_under_different_case",
+			setupID:  "DeleteMe-CPG",
+			actionID: "deleteme-cpg",
+			action:   "delete",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBatch2Backend()
+			_, err := b.CreateDBClusterParameterGroup(tt.setupID, "aurora-postgresql14", "test")
+			require.NoError(t, err)
+
+			switch tt.action {
+			case "create":
+				_, err = b.CreateDBClusterParameterGroup(tt.actionID, "aurora-postgresql14", "test2")
+			case "describe":
+				var pgs []rds.DBParameterGroup
+				pgs, err = b.DescribeDBClusterParameterGroups(tt.actionID)
+				if err == nil {
+					require.Len(t, pgs, 1)
+					// The wire response must keep echoing the ORIGINAL
+					// caller-supplied casing from creation time.
+					assert.Equal(t, tt.setupID, pgs[0].DBParameterGroupName)
+				}
+			case "delete":
+				err = b.DeleteDBClusterParameterGroup(tt.actionID)
+				if err == nil {
+					_, describeErr := b.DescribeDBClusterParameterGroups(tt.setupID)
+					require.ErrorIs(t, describeErr, rds.ErrParameterGroupNotFound)
+				}
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErrIs)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestClusterPG_ModifyAndDescribe(t *testing.T) {
 	t.Parallel()
 

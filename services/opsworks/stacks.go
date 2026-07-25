@@ -8,11 +8,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateStack creates a new OpsWorks stack.
+// CreateStack creates a new OpsWorks stack. Name, Region,
+// DefaultInstanceProfileArn, and ServiceRoleArn are all "This member is
+// required" on the real CreateStackInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CreateStack.go) -- a
+// well-behaved SDK client validates this locally before ever sending the
+// request, but a raw/non-SDK caller can still reach this handler with one
+// missing, so the backend must reject it too.
 func (b *InMemoryBackend) CreateStack(
 	name, region, defaultInstanceProfileArn, serviceRoleArn string,
 ) (*Stack, error) {
-	if name == "" {
+	if name == "" || region == "" || defaultInstanceProfileArn == "" || serviceRoleArn == "" {
 		return nil, ErrValidation
 	}
 
@@ -32,7 +38,6 @@ func (b *InMemoryBackend) CreateStack(
 		Region:                    region,
 		DefaultInstanceProfileArn: defaultInstanceProfileArn,
 		ServiceRoleArn:            serviceRoleArn,
-		Status:                    "running",
 	}
 	b.stacks.Put(s)
 
@@ -71,7 +76,6 @@ func (b *InMemoryBackend) CloneStack(sourceStackID, name, region string) (*Stack
 		Region:                    cloneRegion,
 		DefaultInstanceProfileArn: src.DefaultInstanceProfileArn,
 		ServiceRoleArn:            src.ServiceRoleArn,
-		Status:                    "running",
 	}
 	b.stacks.Put(s)
 
@@ -250,16 +254,11 @@ func (b *InMemoryBackend) DescribeStackSummary(stackID string) (*StackSummary, e
 
 	counts := &InstancesCount{}
 	for _, i := range b.instancesByStack.Get(stackID) {
-		counts.Total++
 		switch i.Status {
 		case instanceStatusOnline:
 			counts.Online++
 		case instanceStatusStopped:
 			counts.Stopped++
-		case instanceStatusStarting:
-			counts.Starting++
-		case instanceStatusStopping:
-			counts.Stopping++
 		}
 	}
 
@@ -285,14 +284,17 @@ func (b *InMemoryBackend) DescribeStackSummary(stackID string) (*StackSummary, e
 	}, nil
 }
 
-// DescribeStackProvisioningParameters returns provisioning parameters for a stack.
-func (b *InMemoryBackend) DescribeStackProvisioningParameters(stackID string) (map[string]string, string, error) {
+// DescribeStackProvisioningParameters returns provisioning parameters for a
+// stack. The real DescribeStackProvisioningParametersOutput has only
+// AgentInstallerUrl and Parameters members (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_DescribeStackProvisioningParameters.go)
+// -- no StackArn -- so this returns just the params map, not the stack's ARN.
+func (b *InMemoryBackend) DescribeStackProvisioningParameters(stackID string) (map[string]string, error) {
 	b.mu.RLock("DescribeStackProvisioningParameters")
 	defer b.mu.RUnlock()
 
-	s, ok := b.stacks.Get(stackID)
-	if !ok {
-		return nil, "", ErrStackNotFound
+	if !b.stacks.Has(stackID) {
+		return nil, ErrStackNotFound
 	}
 
 	params := map[string]string{
@@ -302,5 +304,5 @@ func (b *InMemoryBackend) DescribeStackProvisioningParameters(stackID string) (m
 		),
 	}
 
-	return params, s.Arn, nil
+	return params, nil
 }

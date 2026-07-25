@@ -173,15 +173,23 @@ func (b *InMemoryBackend) UpdateStorageLensGroup(accountID, name string) (*Stora
 	return &cp, nil
 }
 
-// DeleteStorageLensGroup removes a Storage Lens group.
+// DeleteStorageLensGroup removes a Storage Lens group and cascade-cleans its
+// generic resource tags.
 func (b *InMemoryBackend) DeleteStorageLensGroup(accountID, name string) error {
 	b.mu.Lock("DeleteStorageLensGroup")
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if !b.storageLensGroups.Delete(key) {
+
+	grp, ok := b.storageLensGroups.Get(key)
+	if !ok {
 		return errStorageLensGroupNotFound
 	}
+
+	arn := grp.StorageLensGroupArn
+
+	b.storageLensGroups.Delete(key)
+	delete(b.resourceTags, arn)
 
 	return nil
 }

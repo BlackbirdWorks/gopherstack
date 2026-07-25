@@ -13,6 +13,66 @@ func (b *InMemoryBackend) membershipARN(id string) string {
 	return arn.Build("cleanrooms", b.region, b.accountID, "membership/"+id)
 }
 
+// defaultPaymentConfig returns explicit if the caller supplied one, otherwise
+// computes the real AWS default documented on
+// QueryComputePaymentConfig.IsResponsible: "If the collaboration creator
+// hasn't specified anyone as the member paying for query compute costs, then
+// the member who can query is the default payer." paymentConfiguration is a
+// required field on both Membership and MemberSummary, so this ensures it is
+// never emitted empty.
+func defaultPaymentConfig(abilities []string, explicit map[string]any) map[string]any {
+	if explicit != nil {
+		return explicit
+	}
+
+	return map[string]any{
+		"queryCompute": map[string]any{"isResponsible": contains(abilities, "CAN_QUERY")},
+	}
+}
+
+// createMembershipLocked creates a membership under collab. Callers must
+// hold b.mu (write lock) and have already validated collab is non-nil. Used
+// both by the public CreateMembership entry point and by
+// CreateCollaboration, which -- matching real AWS behavior, where the
+// Collaboration response carries membershipArn/membershipId for the caller's
+// own membership -- automatically creates a membership for the
+// collaboration creator.
+func (b *InMemoryBackend) createMembershipLocked(
+	collab *Collaboration,
+	queryLogStatus string,
+	memberAbilities []string,
+	defaultResultConfiguration map[string]any,
+	paymentConfiguration map[string]any,
+	tags map[string]string,
+) *Membership {
+	id := uuid.NewString()
+	ts := b.now()
+	m := &Membership{
+		MembershipIdentifier:            id,
+		Arn:                             b.membershipARN(id),
+		CollaborationIdentifier:         collab.ID,
+		CollaborationArn:                collab.Arn,
+		CollaborationCreatorAccountID:   collab.CreatorAccountID,
+		CollaborationCreatorDisplayName: collab.CreatorDisplayName,
+		CollaborationName:               collab.Name,
+		Status:                          statusActive,
+		QueryLogStatus:                  queryLogStatus,
+		MemberAbilities:                 memberAbilities,
+		DefaultResultConfiguration:      defaultResultConfiguration,
+		PaymentConfiguration:            defaultPaymentConfig(memberAbilities, paymentConfiguration),
+		CreateTime:                      ts,
+		UpdateTime:                      ts,
+		ID:                              id,
+		CollaborationID:                 collab.ID,
+	}
+	b.memberships.Put(m)
+	if len(tags) > 0 {
+		b.tagsByArn[m.Arn] = maps.Clone(tags)
+	}
+
+	return m
+}
+
 func (b *InMemoryBackend) CreateMembership(
 	collaborationID, queryLogStatus string,
 	memberAbilities []string,
@@ -29,32 +89,10 @@ func (b *InMemoryBackend) CreateMembership(
 	if !ok {
 		return nil, ErrNotFound
 	}
-	id := uuid.NewString()
-	ts := b.now()
-	m := &Membership{
-		MembershipIdentifier:            id,
-		Arn:                             b.membershipARN(id),
-		CollaborationIdentifier:         collaborationID,
-		CollaborationArn:                collab.Arn,
-		CollaborationCreatorAccountID:   collab.CreatorAccountID,
-		CollaborationCreatorDisplayName: collab.CreatorDisplayName,
-		CollaborationName:               collab.Name,
-		Status:                          statusActive,
-		QueryLogStatus:                  queryLogStatus,
-		MemberAbilities:                 memberAbilities,
-		DefaultResultConfiguration:      defaultResultConfiguration,
-		PaymentConfiguration:            paymentConfiguration,
-		CreateTime:                      ts,
-		UpdateTime:                      ts,
-		ID:                              id,
-		CollaborationID:                 collaborationID,
-	}
-	b.memberships.Put(m)
-	if len(tags) > 0 {
-		b.tagsByArn[m.Arn] = maps.Clone(tags)
-	}
 
-	return m, nil
+	return b.createMembershipLocked(
+		collab, queryLogStatus, memberAbilities, defaultResultConfiguration, paymentConfiguration, tags,
+	), nil
 }
 
 func (b *InMemoryBackend) GetMembership(id string) (*Membership, error) {
@@ -88,15 +126,16 @@ func (b *InMemoryBackend) ListMemberships(
 			CollaborationName:               m.CollaborationName,
 			Status:                          m.Status,
 			MemberAbilities:                 m.MemberAbilities,
+			PaymentConfiguration:            m.PaymentConfiguration,
 			CreateTime:                      m.CreateTime,
 			UpdateTime:                      m.UpdateTime,
-			ID:                              m.MembershipIdentifier,
-			CollaborationID:                 m.CollaborationIdentifier,
+			ID:                              m.ID,
+			CollaborationID:                 m.CollaborationID,
 		})
 	}
 	sort.Slice(
 		items,
-		func(i, j int) bool { return items[i].MembershipIdentifier < items[j].MembershipIdentifier },
+		func(i, j int) bool { return items[i].ID < items[j].ID },
 	)
 	page, next := paginate(items, maxResults, nextToken)
 

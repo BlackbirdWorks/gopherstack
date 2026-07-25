@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -461,14 +462,14 @@ func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 		"CreateHsmClientCertificate":       h.handleCreateHsmClientCertificate,
 		"CreateHsmConfiguration":           h.handleCreateHsmConfiguration,
 		"CreateIntegration":                h.handleCreateIntegration,
-		"CreateIdcApplication":             h.handleCreateIdcApplication,
+		"CreateRedshiftIdcApplication":     h.handleCreateIdcApplication,
 		opCreateScheduledAction:            h.handleCreateScheduledAction,
 		"DeleteCustomDomainAssociation":    h.handleDeleteCustomDomainAssociation,
 		"DeleteEndpointAccess":             h.handleDeleteEndpointAccess,
 		"DeleteHsmClientCertificate":       h.handleDeleteHsmClientCertificate,
 		"DeleteHsmConfiguration":           h.handleDeleteHsmConfiguration,
 		"DeleteIntegration":                h.handleDeleteIntegration,
-		"DeleteIdcApplication":             h.handleDeleteIdcApplication,
+		"DeleteRedshiftIdcApplication":     h.handleDeleteIdcApplication,
 		opDeleteScheduledAction:            h.handleDeleteScheduledAction,
 		"DeregisterNamespace":              h.handleDeregisterNamespace,
 		"DescribeClusterDbRevisions":       h.handleDescribeClusterDBRevisions,
@@ -479,7 +480,7 @@ func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 		"DescribeInboundIntegrations":      h.handleDescribeInboundIntegrations,
 		"DescribeIntegrations":             h.handleDescribeIntegrations,
 		"DescribeNodeConfigurationOptions": h.handleDescribeNodeConfigurationOptions,
-		"DescribeIdcApplications":          h.handleDescribeIdcApplications,
+		"DescribeRedshiftIdcApplications":  h.handleDescribeIdcApplications,
 		"DescribeScheduledActions":         h.handleDescribeScheduledActions,
 		"GetIdentityCenterAuthToken":       h.handleGetIdentityCenterAuthToken,
 		"ListRecommendations":              h.handleListRecommendations,
@@ -489,7 +490,7 @@ func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 		"ModifyEndpointAccess":             h.handleModifyEndpointAccess,
 		"ModifyIntegration":                h.handleModifyIntegration,
 		"ModifyLakehouseConfiguration":     h.handleModifyLakehouseConfiguration,
-		"ModifyIdcApplication":             h.handleModifyIdcApplication,
+		"ModifyRedshiftIdcApplication":     h.handleModifyIdcApplication,
 		"ModifyScheduledAction":            h.handleModifyScheduledAction,
 		"RegisterNamespace":                h.handleRegisterNamespace,
 		"RestoreTableFromClusterSnapshot":  h.handleRestoreTableFromClusterSnapshot,
@@ -532,7 +533,7 @@ func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {
 
 	return &createClusterResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -562,7 +563,7 @@ func (h *Handler) handleDeleteCluster(vals url.Values) (any, error) {
 
 	return &deleteClusterResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -584,12 +585,11 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	// Fetch the live tag map once when tag filters are active.
-	// cloneCluster sets Tags=nil so we cannot read tags from the cloned value.
-	var allTags map[string]map[string]string
-	if tagKey != "" || tagValue != "" {
-		allTags = h.Backend.DescribeTags()
-	}
+	// Fetch the live tag map once (not once per cluster -- see toXMLClusterWithTags)
+	// and reuse it both for the optional tag filter and for embedding each
+	// cluster's Tags in its response. cloneCluster sets Tags=nil so we cannot
+	// read tags from the cloned value.
+	allTags := h.Backend.DescribeTags()
 
 	members := make([]xmlCluster, 0, len(clusters))
 
@@ -601,7 +601,7 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 			}
 		}
 
-		members = append(members, toXMLCluster(&cp))
+		members = append(members, toXMLClusterWithTags(&cp, allTags[c.ClusterIdentifier]))
 	}
 
 	return &describeClustersResponse{
@@ -674,8 +674,25 @@ func validateMasterUserPassword(password string) error {
 	return nil
 }
 
-func toXMLCluster(c *Cluster) xmlCluster {
+// toXMLCluster converts a backend Cluster into its wire shape, including the
+// Tags list. Callers of the backend (CreateCluster, DescribeClusters, etc.) always
+// receive Cluster values with Tags=nil (see cloneCluster in store.go -- tags.Tags
+// wraps a live safemap and is deliberately not copied by value), so tags must be
+// looked up separately here via DescribeTags rather than read off c.Tags. This
+// calls DescribeTags (an O(all clusters) scan) once per invocation, which is fine
+// for the single-cluster call sites (Create/Modify/Delete/...) but must NOT be
+// used in a per-cluster loop over DescribeClusters results -- see
+// toXMLClusterWithTags for that path.
+func (h *Handler) toXMLCluster(c *Cluster) xmlCluster {
+	return toXMLClusterWithTags(c, h.Backend.DescribeTags()[c.ClusterIdentifier])
+}
+
+// toXMLClusterWithTags is the tag-map-parameterized core of toXMLCluster, split out
+// so a caller iterating many clusters (handleDescribeClusters) can fetch the full
+// tag map once with a single DescribeTags call instead of once per cluster.
+func toXMLClusterWithTags(c *Cluster, tags map[string]string) xmlCluster {
 	return xmlCluster{
+		Tags:                             tagMapToKVList(tags),
 		ClusterIdentifier:                c.ClusterIdentifier,
 		NodeType:                         c.NodeType,
 		ClusterType:                      c.ClusterType,
@@ -688,6 +705,8 @@ func toXMLCluster(c *Cluster) xmlCluster {
 		NumberOfNodes:                    c.NumberOfNodes,
 		Encrypted:                        c.Encrypted,
 		EnhancedVpcRouting:               c.EnhancedVpcRouting,
+		SnapshotScheduleIdentifier:       c.SnapshotScheduleIdentifier,
+		SnapshotScheduleState:            c.SnapshotScheduleState,
 		AquaConfiguration: xmlAquaConfig{
 			AquaConfigurationStatus: statusDisabled,
 			AquaStatus:              statusDisabled,
@@ -721,64 +740,68 @@ func toXMLCluster(c *Cluster) xmlCluster {
 }
 
 // resolveErrCode returns the AWS error code and HTTP status for an operation error.
+// errCodeSentinels lists every sentinel error this backend can return from an
+// operation. The wire error <Code> is always the sentinel's own Error() text (see
+// errors.go, where each value is verified verbatim against the real SDK's
+// ErrorCode() for the matching fault type) -- there is deliberately no separate
+// duplicated string here, since keeping two copies in sync previously caused the
+// wire code to silently drift from the sentinel (e.g. IdcApplication's fault names
+// went out of sync during an earlier pass).
+//
+//nolint:gochecknoglobals // static sentinel lookup table, analogous to tableRegistrations
+var errCodeSentinels = []error{
+	ErrClusterNotFound,
+	ErrClusterAlreadyExists,
+	ErrInvalidParameter,
+	ErrReservedNodeNotFound,
+	ErrReservedNodeAlreadyExists,
+	ErrReservedNodeOfferingNotFound,
+	ErrPartnerNotFound,
+	ErrDataShareNotFound,
+	ErrSecurityGroupNotFound,
+	ErrSecurityGroupAlreadyExists,
+	ErrSnapshotNotFound,
+	ErrSnapshotAlreadyExists,
+	ErrEndpointAuthNotFound,
+	ErrEndpointAuthAlreadyExists,
+	ErrResizeNotFound,
+	ErrResizeNotCancellable,
+	ErrParameterGroupNotFound,
+	ErrParameterGroupAlreadyExists,
+	ErrSubnetGroupNotFound,
+	ErrSubnetGroupAlreadyExists,
+	ErrEventSubscriptionNotFound,
+	ErrEventSubscriptionAlreadyExists,
+	ErrSnapshotCopyGrantNotFound,
+	ErrSnapshotCopyGrantAlreadyExists,
+	ErrSnapshotScheduleNotFound,
+	ErrSnapshotScheduleAlreadyExists,
+	ErrUsageLimitNotFound,
+	ErrAuthProfileNotFound,
+	ErrAuthProfileAlreadyExists,
+	ErrResourcePolicyNotFound,
+	ErrSnapshotCopyAlreadyEnabled,
+	ErrSnapshotCopyNotEnabled,
+	ErrHsmClientCertNotFound,
+	ErrHsmClientCertAlreadyExists,
+	ErrHsmConfigNotFound,
+	ErrHsmConfigAlreadyExists,
+	ErrScheduledActionNotFound,
+	ErrScheduledActionAlreadyExists,
+	ErrCustomDomainNotFound,
+	ErrCustomDomainAlreadyExists,
+	ErrEndpointAccessNotFound,
+	ErrEndpointAccessAlreadyExists,
+	ErrIntegrationNotFound,
+	ErrIntegrationAlreadyExists,
+	ErrIdcApplicationNotFound,
+	ErrIdcApplicationAlreadyExists,
+}
+
 func resolveErrCode(opErr error) (string, int) {
-	type errEntry struct {
-		sentinel error
-		code     string
-	}
-
-	table := []errEntry{
-		{ErrClusterNotFound, "ClusterNotFound"},
-		{ErrClusterAlreadyExists, "ClusterAlreadyExists"},
-		{ErrInvalidParameter, "InvalidParameterValue"},
-		{ErrReservedNodeNotFound, "ReservedNodeNotFound"},
-		{ErrReservedNodeAlreadyExists, "ReservedNodeAlreadyExists"},
-		{ErrReservedNodeOfferingNotFound, "ReservedNodeOfferingNotFound"},
-		{ErrPartnerNotFound, "PartnerNotFound"},
-		{ErrDataShareNotFound, "DataShareNotFound"},
-		{ErrSecurityGroupNotFound, "ClusterSecurityGroupNotFound"},
-		{ErrSecurityGroupAlreadyExists, "ClusterSecurityGroupAlreadyExists"},
-		{ErrSnapshotNotFound, errClusterSnapshotNotFound},
-		{ErrSnapshotAlreadyExists, "ClusterSnapshotAlreadyExists"},
-		{ErrEndpointAuthNotFound, "EndpointAuthorizationNotFound"},
-		{ErrEndpointAuthAlreadyExists, "EndpointAuthorizationAlreadyExists"},
-		{ErrResizeNotFound, "ResizeNotFound"},
-		{ErrResizeNotCancellable, "InvalidClusterState"},
-		{ErrParameterGroupNotFound, "ClusterParameterGroupNotFound"},
-		{ErrParameterGroupAlreadyExists, "ClusterParameterGroupAlreadyExists"},
-		{ErrSubnetGroupNotFound, "ClusterSubnetGroupNotFound"},
-		{ErrSubnetGroupAlreadyExists, "ClusterSubnetGroupAlreadyExists"},
-		{ErrEventSubscriptionNotFound, "SubscriptionNotFound"},
-		{ErrEventSubscriptionAlreadyExists, "SubscriptionAlreadyExist"},
-		{ErrSnapshotCopyGrantNotFound, "SnapshotCopyGrantNotFound"},
-		{ErrSnapshotCopyGrantAlreadyExists, "SnapshotCopyGrantAlreadyExists"},
-		{ErrSnapshotScheduleNotFound, "SnapshotScheduleNotFound"},
-		{ErrSnapshotScheduleAlreadyExists, "SnapshotScheduleAlreadyExists"},
-		{ErrUsageLimitNotFound, "UsageLimitNotFound"},
-		{ErrAuthProfileNotFound, "AuthenticationProfileNotFound"},
-		{ErrAuthProfileAlreadyExists, "AuthenticationProfileAlreadyExists"},
-		{ErrResourcePolicyNotFound, "ResourcePolicyNotFound"},
-		{ErrSnapshotCopyAlreadyEnabled, "SnapshotCopyAlreadyEnabled"},
-		{ErrSnapshotCopyNotEnabled, "CopyToRegionDisabled"},
-		{ErrHsmClientCertNotFound, "HsmClientCertificateNotFound"},
-		{ErrHsmClientCertAlreadyExists, "HsmClientCertificateAlreadyExists"},
-		{ErrHsmConfigNotFound, "HsmConfigurationNotFound"},
-		{ErrHsmConfigAlreadyExists, "HsmConfigurationAlreadyExists"},
-		{ErrScheduledActionNotFound, "ScheduledActionNotFound"},
-		{ErrScheduledActionAlreadyExists, "ScheduledActionAlreadyExists"},
-		{ErrCustomDomainNotFound, "CustomDomainAssociationNotFoundFault"},
-		{ErrCustomDomainAlreadyExists, "CustomDomainAssociationAlreadyExistsFault"},
-		{ErrEndpointAccessNotFound, "EndpointNotFound"},
-		{ErrEndpointAccessAlreadyExists, "EndpointAlreadyExists"},
-		{ErrIntegrationNotFound, "IntegrationNotFound"},
-		{ErrIntegrationAlreadyExists, "IntegrationAlreadyExists"},
-		{ErrIdcApplicationNotFound, "IdcApplicationNotExistsFault"},
-		{ErrIdcApplicationAlreadyExists, "IdcApplicationAlreadyExistsFault"},
-	}
-
-	for _, entry := range table {
-		if errors.Is(opErr, entry.sentinel) {
-			return entry.code, http.StatusBadRequest
+	for _, sentinel := range errCodeSentinels {
+		if errors.Is(opErr, sentinel) {
+			return sentinel.Error(), http.StatusBadRequest
 		}
 	}
 
@@ -833,8 +856,8 @@ type redshiftErrorResponse struct {
 
 type xmlCluster struct {
 	AquaConfiguration                xmlAquaConfig         `xml:"AquaConfiguration"`
-	AvailabilityZoneRelocationStatus string                `xml:"AvailabilityZoneRelocationStatus"`
-	DBName                           string                `xml:"DBName"`
+	MasterUsername                   string                `xml:"MasterUsername"`
+	PreferredMaintenanceWindow       string                `xml:"PreferredMaintenanceWindow,omitempty"`
 	ClusterType                      string                `xml:"ClusterType,omitempty"`
 	Endpoint                         string                `xml:"Endpoint>Address"`
 	ClusterStatus                    string                `xml:"ClusterStatus"`
@@ -842,12 +865,15 @@ type xmlCluster struct {
 	ClusterAvailabilityStatus        string                `xml:"ClusterAvailabilityStatus"`
 	MultiAZ                          string                `xml:"MultiAZ"`
 	ClusterIdentifier                string                `xml:"ClusterIdentifier"`
-	MasterUsername                   string                `xml:"MasterUsername"`
+	SnapshotScheduleIdentifier       string                `xml:"SnapshotScheduleIdentifier,omitempty"`
+	DBName                           string                `xml:"DBName"`
 	KmsKeyID                         string                `xml:"KmsKeyId,omitempty"`
-	PreferredMaintenanceWindow       string                `xml:"PreferredMaintenanceWindow,omitempty"`
+	AvailabilityZoneRelocationStatus string                `xml:"AvailabilityZoneRelocationStatus"`
+	SnapshotScheduleState            string                `xml:"SnapshotScheduleState,omitempty"`
 	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
 	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
 	IamRoles                         xmlIamRoles           `xml:"IamRoles"`
+	Tags                             []svcTags.KV          `xml:"Tags>Tag,omitempty"`
 	NumberOfNodes                    int                   `xml:"NumberOfNodes,omitempty"`
 	EndpointPort                     int                   `xml:"Endpoint>Port,omitempty"`
 	EnhancedVpcRouting               bool                  `xml:"EnhancedVpcRouting"`

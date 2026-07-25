@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -164,6 +165,11 @@ const (
 
 	minTagPathParts       = 2
 	minDetectorSubIDParts = 4
+
+	// actionGet is the shared "get" sub-action segment used by several
+	// distinct POST-only item routers (parseDetectorDeepPath,
+	// parseFindingsItem, parseMemberItem).
+	actionGet = "get"
 )
 
 // Handler handles GuardDuty HTTP requests.
@@ -443,193 +449,167 @@ func (h *Handler) dispatch(
 //	/detector/{id}/threatintelset/{setId}  → GetThreatIntelSet (GET) / UpdateThreatIntelSet (POST) /
 //	                                          DeleteThreatIntelSet (DELETE)
 //	/tags/{resourceArn}                    → ListTagsForResource (GET) / TagResource (POST) / UntagResource (DELETE)
-func parseRESTPath(method, path string) (string, string) { //nolint:cyclop // existing issue.
+func parseRESTPath(method, path string) (string, string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
 	if len(parts) == 0 {
 		return opUnknown, ""
 	}
 
-	switch parts[0] {
-	case pathDetector:
-		return parseDetectorPath(method, parts)
-	case pathTags:
-		return parseTagPath(method, parts)
-	case pathAdmin:
-		return parseAdminPath(method, parts)
-	case pathInvitation:
-		return parseInvitationPath(method, parts)
-	case pathMalwareProtectionPlan:
-		return parseMalwareProtectionPlanPath(method, parts)
-	case pathMalwareScan:
-		return parseMalwareScanPath(method, parts)
-	case pathObjectMalwareScan:
-		if method == http.MethodPost && len(parts) == 2 && parts[1] == "send" {
-			return opSendObjectMalwareScan, ""
-		}
-	case pathOrganization:
-		if method == http.MethodGet && len(parts) == 2 && parts[1] == "statistics" {
-			return opGetOrganizationStatistics, ""
-		}
+	if fn, ok := topLevelPathParsers()[parts[0]]; ok {
+		return fn(method, parts)
 	}
 
 	return opUnknown, ""
 }
 
-func parseDetectorPath(method string, parts []string) (string, string) { //nolint:gocognit,cyclop // existing issue.
+// pathParser parses the (method, path-segments) remainder of a REST path
+// into (operation, resource).
+type pathParser func(method string, parts []string) (string, string)
+
+// topLevelPathParsers maps the first path segment to the parser responsible
+// for the rest of the path. Built once via sync.OnceValue (apigatewayv2-style
+// route-table pattern) so parseRESTPath itself stays a trivial map lookup
+// instead of a large branching switch.
+//
+//nolint:gochecknoglobals // route table, not mutable state
+var topLevelPathParsers = sync.OnceValue(func() map[string]pathParser {
+	return map[string]pathParser{
+		pathDetector:              parseDetectorPath,
+		pathTags:                  parseTagPath,
+		pathAdmin:                 parseAdminPath,
+		pathInvitation:            parseInvitationPath,
+		pathMalwareProtectionPlan: parseMalwareProtectionPlanPath,
+		pathMalwareScan:           parseMalwareScanPath,
+		pathObjectMalwareScan:     parseObjectMalwareScanPath,
+		pathOrganization:          parseOrganizationStatisticsPath,
+	}
+})
+
+func parseObjectMalwareScanPath(method string, parts []string) (string, string) {
+	if method == http.MethodPost && len(parts) == 2 && parts[1] == "send" {
+		return opSendObjectMalwareScan, ""
+	}
+
+	return opUnknown, ""
+}
+
+func parseOrganizationStatisticsPath(method string, parts []string) (string, string) {
+	if method == http.MethodGet && len(parts) == 2 && parts[1] == "statistics" {
+		return opGetOrganizationStatistics, ""
+	}
+
+	return opUnknown, ""
+}
+
+func parseDetectorRootPath(method string) (string, string) {
+	switch method {
+	case http.MethodPost:
+		return opCreateDetector, ""
+	case http.MethodGet:
+		return opListDetectors, ""
+	}
+
+	return opUnknown, ""
+}
+
+func parseDetectorResourcePath(method, detectorID string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return opGetDetector, detectorID
+	case http.MethodPost:
+		return opUpdateDetector, detectorID
+	case http.MethodDelete:
+		return opDeleteDetector, detectorID
+	}
+
+	return opUnknown, ""
+}
+
+// parseDetectorDeepPath routes the one 5-segment detector path this API has:
+// /detector/{id}/member/detector/{get|update}.
+func parseDetectorDeepPath(method, detectorID, collection, sub, action string) (string, string) {
+	if collection != pathMember || sub != "detector" || method != http.MethodPost {
+		return opUnknown, ""
+	}
+
+	switch action {
+	case actionGet:
+		return opGetMemberDetectors, detectorID
+	case "update":
+		return opUpdateMemberDetectors, detectorID
+	}
+
+	return opUnknown, ""
+}
+
+func parseDetectorPath(method string, parts []string) (string, string) {
 	switch len(parts) {
 	case depthRoot: // /detector
-		switch method {
-		case http.MethodPost:
-			return opCreateDetector, ""
-		case http.MethodGet:
-			return opListDetectors, ""
-		}
-
+		return parseDetectorRootPath(method)
 	case depthResource: // /detector/{id}
-		detectorID := parts[1]
-		switch method {
-		case http.MethodGet:
-			return opGetDetector, detectorID
-		case http.MethodPost:
-			return opUpdateDetector, detectorID
-		case http.MethodDelete:
-			return opDeleteDetector, detectorID
-		}
-
+		return parseDetectorResourcePath(method, parts[1])
 	case depthCollection: // /detector/{id}/{collection}
-		detectorID := parts[1]
-		collection := parts[2]
-		if op, res := parseDetectorCollection(method, detectorID, collection); op != opUnknown {
-			return op, res
-		}
-
+		return parseDetectorCollection(method, parts[1], parts[2])
 	case depthItem: // /detector/{id}/{collection}/{item}
-		detectorID := parts[1]
-		collection := parts[2]
-		item := parts[3]
-		if op, res := parseDetectorItem(method, detectorID, collection, item); op != opUnknown {
-			return op, res
-		}
-
+		return parseDetectorItem(method, parts[1], parts[2], parts[3])
 	case depthDeep: // /detector/{id}/{collection}/{sub}/{action}
-		detectorID := parts[1]
-		collection := parts[2]
-		sub := parts[3]
-		action := parts[4]
-		if collection == pathMember && sub == "detector" {
-			switch action {
-			case "get": //nolint:goconst // existing issue.
-				if method == http.MethodPost {
-					return opGetMemberDetectors, detectorID
-				}
-			case "update":
-				if method == http.MethodPost {
-					return opUpdateMemberDetectors, detectorID
-				}
-			}
-		}
+		return parseDetectorDeepPath(method, parts[1], parts[2], parts[3], parts[4])
 	}
 
 	return opUnknown, ""
 }
 
-func parseDetectorCollection( //nolint:gocognit,gocyclo,cyclop,funlen // existing issue.
-	method, detectorID, collection string,
-) (string, string) {
-	switch collection {
-	case pathFilter:
-		switch method {
-		case http.MethodPost:
-			return opCreateFilter, detectorID
-		case http.MethodGet:
-			return opListFilters, detectorID
-		}
-	case pathFindings:
-		if method == http.MethodPost {
-			return opListFindings, detectorID
-		}
-	case pathIPSet:
-		switch method {
-		case http.MethodPost:
-			return opCreateIPSet, detectorID
-		case http.MethodGet:
-			return opListIPSets, detectorID
-		}
-	case pathThreatIntelSet:
-		switch method {
-		case http.MethodPost:
-			return opCreateThreatIntelSet, detectorID
-		case http.MethodGet:
-			return opListThreatIntelSets, detectorID
-		}
-	case pathMember:
-		switch method {
-		case http.MethodPost:
-			return opCreateMembers, detectorID
-		case http.MethodGet:
-			return opListMembers, detectorID
-		}
-	case pathAdministrator:
-		switch method {
-		case http.MethodPost:
-			return opAcceptAdministratorInvitation, detectorID
-		case http.MethodGet:
-			return opGetAdministratorAccount, detectorID
-		}
-	case pathMaster:
-		switch method {
-		case http.MethodPost:
-			return opAcceptInvitation, detectorID
-		case http.MethodGet:
-			return opGetMasterAccount, detectorID
-		}
-	case pathAdmin:
-		switch method {
-		case http.MethodGet:
-			return opDescribeOrganizationConfiguration, detectorID
-		case http.MethodPost:
-			return opUpdateOrganizationConfiguration, detectorID
-		}
-	case pathPublishingDestination:
-		switch method {
-		case http.MethodPost:
-			return opCreatePublishingDestination, detectorID
-		case http.MethodGet:
-			return opListPublishingDestinations, detectorID
-		}
-	case pathMalwareScans:
-		if method == http.MethodPost {
-			return opDescribeMalwareScans, detectorID
-		}
-	case pathMalwareScanSettings:
-		switch method {
-		case http.MethodGet:
-			return opGetMalwareScanSettings, detectorID
-		case http.MethodPost:
-			return opUpdateMalwareScanSettings, detectorID
-		}
-	case pathThreatEntitySet:
-		switch method {
-		case http.MethodPost:
-			return opCreateThreatEntitySet, detectorID
-		case http.MethodGet:
-			return opListThreatEntitySets, detectorID
-		}
-	case pathTrustedEntitySet:
-		switch method {
-		case http.MethodPost:
-			return opCreateTrustedEntitySet, detectorID
-		case http.MethodGet:
-			return opListTrustedEntitySets, detectorID
-		}
-	case pathCoverage:
-		if method == http.MethodPost {
-			return opListCoverage, detectorID
-		}
+// detectorCollectionRouteKey builds the lookup key for
+// detectorCollectionRoutes: the collection segment and HTTP method
+// unambiguously select an op with no further branching, so the whole
+// parseDetectorCollection switch collapses to one map lookup.
+func detectorCollectionRouteKey(collection, method string) string {
+	return collection + " " + method
+}
+
+// detectorCollectionRoutes maps (collection, method) pairs reachable from
+// /detector/{id}/{collection} to their operation name. Built once via
+// sync.OnceValue (apigatewayv2-style route-table pattern).
+//
+//nolint:gochecknoglobals // route table, not mutable state
+var detectorCollectionRoutes = sync.OnceValue(func() map[string]string {
+	return map[string]string{
+		detectorCollectionRouteKey(pathFilter, http.MethodPost):                opCreateFilter,
+		detectorCollectionRouteKey(pathFilter, http.MethodGet):                 opListFilters,
+		detectorCollectionRouteKey(pathFindings, http.MethodPost):              opListFindings,
+		detectorCollectionRouteKey(pathIPSet, http.MethodPost):                 opCreateIPSet,
+		detectorCollectionRouteKey(pathIPSet, http.MethodGet):                  opListIPSets,
+		detectorCollectionRouteKey(pathThreatIntelSet, http.MethodPost):        opCreateThreatIntelSet,
+		detectorCollectionRouteKey(pathThreatIntelSet, http.MethodGet):         opListThreatIntelSets,
+		detectorCollectionRouteKey(pathMember, http.MethodPost):                opCreateMembers,
+		detectorCollectionRouteKey(pathMember, http.MethodGet):                 opListMembers,
+		detectorCollectionRouteKey(pathAdministrator, http.MethodPost):         opAcceptAdministratorInvitation,
+		detectorCollectionRouteKey(pathAdministrator, http.MethodGet):          opGetAdministratorAccount,
+		detectorCollectionRouteKey(pathMaster, http.MethodPost):                opAcceptInvitation,
+		detectorCollectionRouteKey(pathMaster, http.MethodGet):                 opGetMasterAccount,
+		detectorCollectionRouteKey(pathAdmin, http.MethodGet):                  opDescribeOrganizationConfiguration,
+		detectorCollectionRouteKey(pathAdmin, http.MethodPost):                 opUpdateOrganizationConfiguration,
+		detectorCollectionRouteKey(pathPublishingDestination, http.MethodPost): opCreatePublishingDestination,
+		detectorCollectionRouteKey(pathPublishingDestination, http.MethodGet):  opListPublishingDestinations,
+		detectorCollectionRouteKey(pathMalwareScans, http.MethodPost):          opDescribeMalwareScans,
+		detectorCollectionRouteKey(pathMalwareScanSettings, http.MethodGet):    opGetMalwareScanSettings,
+		detectorCollectionRouteKey(pathMalwareScanSettings, http.MethodPost):   opUpdateMalwareScanSettings,
+		detectorCollectionRouteKey(pathThreatEntitySet, http.MethodPost):       opCreateThreatEntitySet,
+		detectorCollectionRouteKey(pathThreatEntitySet, http.MethodGet):        opListThreatEntitySets,
+		detectorCollectionRouteKey(pathTrustedEntitySet, http.MethodPost):      opCreateTrustedEntitySet,
+		detectorCollectionRouteKey(pathTrustedEntitySet, http.MethodGet):       opListTrustedEntitySets,
+		detectorCollectionRouteKey(pathCoverage, http.MethodPost):              opListCoverage,
+	}
+})
+
+func parseDetectorCollection(method, detectorID, collection string) (string, string) {
+	op, ok := detectorCollectionRoutes()[detectorCollectionRouteKey(collection, method)]
+	if !ok {
+		return opUnknown, ""
 	}
 
-	return opUnknown, ""
+	return op, detectorID
 }
 
 // parseItemCRUD routes the common Get/Post(update)/Delete-by-item pattern
@@ -669,7 +649,7 @@ func parseFindingsItem(method, detectorID, item string) (string, string) {
 	}
 
 	switch item {
-	case "get":
+	case actionGet:
 		return opGetFindings, detectorID
 	case "archive":
 		return opArchiveFindings, detectorID
@@ -694,7 +674,7 @@ func parseMemberItem(method, detectorID, item string) (string, string) {
 	}
 
 	switch item {
-	case "get":
+	case actionGet:
 		return opGetMembers, detectorID
 	case "delete":
 		return opDeleteMembers, detectorID

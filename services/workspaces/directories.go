@@ -99,9 +99,16 @@ func advanceDirCursor(dirs []*WorkspaceDirectory, nextToken string) []*Workspace
 }
 
 // RegisterWorkspaceDirectory registers a directory and stores subnet IDs.
+// Returns ResourceAlreadyExistsException when the directory is already
+// registered, matching real AWS: you cannot re-register an already-registered
+// directory.
 func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, subnetIDs []string) error {
 	b.mu.Lock("RegisterWorkspaceDirectory")
 	defer b.mu.Unlock()
+
+	if ds, ok := b.dirSettings.Get(directoryID); ok && ds.Properties["State"] == stateRegistered {
+		return errDirectoryAlreadyRegistered
+	}
 
 	b.ensureDirSettings(directoryID)
 
@@ -115,12 +122,24 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, subnetI
 	return nil
 }
 
-// DeregisterWorkspaceDirectory deregisters a directory.
+// DeregisterWorkspaceDirectory deregisters a directory. Returns
+// InvalidResourceStateException when any WorkSpaces are still registered to
+// the directory, matching real AWS: "If any WorkSpaces are registered to
+// this directory, you must remove them before you can deregister the
+// directory" -- this backend never auto-cascade-deletes WorkSpaces on
+// deregister, since real AWS doesn't either.
 func (b *InMemoryBackend) DeregisterWorkspaceDirectory(directoryID string) error {
 	b.mu.Lock("DeregisterWorkspaceDirectory")
 	defer b.mu.Unlock()
 
+	for _, w := range b.workspaces.All() {
+		if w.DirectoryID == directoryID {
+			return errDirectoryHasWorkspaces
+		}
+	}
+
 	b.dirSettings.Delete(directoryID)
+	delete(b.directoryIpGroups, directoryID)
 
 	return nil
 }

@@ -6,20 +6,23 @@ import (
 	"sort"
 )
 
-// CreateDataCatalog creates a new data catalog.
+// CreateDataCatalog creates a new data catalog and returns a copy of the
+// created record. The real CreateDataCatalogOutput carries an optional
+// DataCatalog field with the newly created catalog; the handler wires the
+// returned pointer straight into that response field.
 func (b *InMemoryBackend) CreateDataCatalog(
 	name, catalogType, description, connectionType string,
 	params, tags map[string]string,
-) error {
+) (*DataCatalog, error) {
 	switch {
 	case name == "":
-		return fmt.Errorf("%w: Name is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	case catalogType == "":
-		return fmt.Errorf("%w: Type is required", ErrValidation)
+		return nil, fmt.Errorf("%w: Type is required", ErrValidation)
 	}
 
 	if !isValidDataCatalogType(catalogType) {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: Type %q is invalid; must be one of LAMBDA, GLUE, HIVE, FEDERATED",
 			ErrValidation,
 			catalogType,
@@ -30,7 +33,7 @@ func (b *InMemoryBackend) CreateDataCatalog(
 	defer b.mu.Unlock()
 
 	if b.dataCatalogs.Has(name) {
-		return fmt.Errorf("%w: data catalog %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: data catalog %q already exists", ErrAlreadyExists, name)
 	}
 
 	status := "CREATE_COMPLETE"
@@ -38,22 +41,25 @@ func (b *InMemoryBackend) CreateDataCatalog(
 		status = "CREATE_IN_PROGRESS"
 	}
 
-	b.dataCatalogs.Put(&DataCatalog{
+	dc := &DataCatalog{
 		Name:           name,
 		Type:           catalogType,
 		Description:    description,
 		ConnectionType: connectionType,
 		Parameters:     maps.Clone(params),
-		Tags:           maps.Clone(tags),
 		Status:         status,
-	})
+	}
+	b.dataCatalogs.Put(dc)
 
 	arn := b.dataCatalogARN(name)
 	if len(tags) > 0 {
 		b.resourceTags[arn] = copyTags(tags)
 	}
 
-	return nil
+	cp := *dc
+	cp.Parameters = maps.Clone(dc.Parameters)
+
+	return &cp, nil
 }
 
 // GetDataCatalog retrieves a data catalog by name.
@@ -67,7 +73,6 @@ func (b *InMemoryBackend) GetDataCatalog(name string) (*DataCatalog, error) {
 	}
 
 	cp := *dc
-	cp.Tags = maps.Clone(dc.Tags)
 	cp.Parameters = maps.Clone(dc.Parameters)
 
 	return &cp, nil
@@ -102,17 +107,7 @@ func (b *InMemoryBackend) ListDataCatalogs(
 		limit = maxResults
 	}
 
-	start := 0
-	if nextToken != "" {
-		for i, s := range all {
-			if s.CatalogName == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
+	start := paginationStart(len(all), nextToken, func(i int) string { return all[i].CatalogName })
 	all = all[start:]
 
 	outToken := ""
@@ -156,11 +151,14 @@ func (b *InMemoryBackend) UpdateDataCatalog(
 	return nil
 }
 
-// DeleteDataCatalog removes a data catalog by name.
-// The built-in AwsDataCatalog cannot be deleted.
-func (b *InMemoryBackend) DeleteDataCatalog(name string) error {
+// DeleteDataCatalog removes a data catalog by name and returns a copy of the
+// record as it existed immediately before deletion. The real
+// DeleteDataCatalogOutput carries an optional DataCatalog field with the
+// deleted catalog; the handler wires the returned pointer straight into that
+// response field. The built-in AwsDataCatalog cannot be deleted.
+func (b *InMemoryBackend) DeleteDataCatalog(name string) (*DataCatalog, error) {
 	if name == awsDataCatalog {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: cannot delete the built-in data catalog %s",
 			ErrProtected,
 			awsDataCatalog,
@@ -170,12 +168,16 @@ func (b *InMemoryBackend) DeleteDataCatalog(name string) error {
 	b.mu.Lock("DeleteDataCatalog")
 	defer b.mu.Unlock()
 
-	if !b.dataCatalogs.Has(name) {
-		return fmt.Errorf("%w: data catalog %q not found", ErrNotFound, name)
+	dc, ok := b.dataCatalogs.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: data catalog %q not found", ErrNotFound, name)
 	}
+
+	cp := *dc
+	cp.Parameters = maps.Clone(dc.Parameters)
 
 	b.dataCatalogs.Delete(name)
 	delete(b.resourceTags, b.dataCatalogARN(name))
 
-	return nil
+	return &cp, nil
 }

@@ -134,7 +134,10 @@ func TestBackend_MRAP_Operations(t *testing.T) {
 			case "get":
 				mrap, err := b.GetMultiRegionAccessPoint("acct1", mrapName)
 				if tt.wantErr {
-					require.Error(t, err)
+					// AWS error code must be NoSuchMultiRegionAccessPoint,
+					// not the unrelated NoSuchPublicAccessBlockConfiguration
+					// sentinel this used to wrongly share.
+					require.ErrorContains(t, err, "NoSuchMultiRegionAccessPoint")
 				} else {
 					require.NoError(t, err)
 					assert.Equal(t, mrapName, mrap.Name)
@@ -142,9 +145,10 @@ func TestBackend_MRAP_Operations(t *testing.T) {
 			case "delete":
 				err := b.DeleteMultiRegionAccessPoint("acct1", mrapName)
 				if tt.wantErr {
-					require.Error(t, err)
+					require.ErrorContains(t, err, "NoSuchMultiRegionAccessPoint")
 				} else {
 					require.NoError(t, err)
+					assert.Equal(t, 0, s3control.MRAPCount(b), "delete must actually remove the MRAP")
 				}
 			case "list":
 				mraps := b.ListMultiRegionAccessPoints("acct1")
@@ -159,6 +163,62 @@ func TestBackend_MRAP_Operations(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBackend_DeleteMultiRegionAccessPoint_ActuallyRemoves locks in the leak
+// fix: DeleteMultiRegionAccessPoint previously checked b.mraps.Has(key) and
+// returned nil WITHOUT ever calling Delete, so the MRAP stayed retrievable
+// via Get/List forever and every create/delete cycle left an unbounded
+// ghost row. This asserts the resource, its routes, and its error code are
+// all correctly gone after delete -- not just that the call returned nil.
+func TestBackend_DeleteMultiRegionAccessPoint_ActuallyRemoves(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.CreateMultiRegionAccessPoint("acct1", "leaky-mrap", "")
+	require.NoError(t, b.SubmitMultiRegionAccessPointRoutes("acct1", "leaky-mrap", "<Routes/>"))
+	require.Equal(t, 1, s3control.MRAPCount(b))
+
+	require.NoError(t, b.DeleteMultiRegionAccessPoint("acct1", "leaky-mrap"))
+
+	// The MRAP must be gone from the table, not merely "reported deleted".
+	assert.Equal(t, 0, s3control.MRAPCount(b))
+
+	_, err := b.GetMultiRegionAccessPoint("acct1", "leaky-mrap")
+	require.ErrorContains(t, err, "NoSuchMultiRegionAccessPoint")
+
+	assert.Empty(t, b.ListMultiRegionAccessPoints("acct1"))
+
+	// Route configuration must be cascade-cleaned too.
+	routes, err := b.GetMultiRegionAccessPointRoutes("acct1", "leaky-mrap")
+	require.Error(t, err)
+	assert.Empty(t, routes)
+
+	// Deleting again must report NotFound with the correct AWS error code,
+	// not the generic PublicAccessBlock sentinel that was used before.
+	err = b.DeleteMultiRegionAccessPoint("acct1", "leaky-mrap")
+	require.ErrorContains(t, err, "NoSuchMultiRegionAccessPoint")
+}
+
+// TestHandler_DeleteMultiRegionAccessPoint_AsyncRouteActuallyRemoves is the
+// HTTP-level counterpart of the leak-fix test above: it drives the delete
+// through the real async POST route (the one a real aws-sdk-go-v2 client
+// actually uses) and confirms a subsequent Get 404s.
+func TestHandler_DeleteMultiRegionAccessPoint_AsyncRouteActuallyRemoves(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	h.Backend.CreateMultiRegionAccessPoint("acct1", "async-leaky-mrap", "")
+
+	body := "<DeleteMultiRegionAccessPointRequest>" +
+		"<Details><Name>async-leaky-mrap</Name></Details>" +
+		"</DeleteMultiRegionAccessPointRequest>"
+
+	rec := doS3Request(t, h, http.MethodPost, "/v20180820/async-requests/mrap/delete", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	getRec := doS3Request(t, h, http.MethodGet, "/v20180820/mrap/instances/async-leaky-mrap", "")
+	assert.Equal(t, http.StatusNotFound, getRec.Code)
 }
 
 func TestHandler_GetMultiRegionAccessPoint(t *testing.T) {

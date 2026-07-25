@@ -77,8 +77,10 @@ func (b *InMemoryBackend) GetRunGroup(id string) (*RunGroup, error) {
 	return &result, nil
 }
 
-// ListRunGroups lists run groups.
+// ListRunGroups lists run groups, optionally filtered by name (real AWS
+// ListRunGroupsInput takes "name" as a query parameter).
 func (b *InMemoryBackend) ListRunGroups(
+	filter *RunGroupFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*RunGroup, string, error) {
@@ -89,6 +91,10 @@ func (b *InMemoryBackend) ListRunGroups(
 	ids := make([]string, 0, len(all))
 
 	for _, rg := range all {
+		if filter != nil && filter.Name != "" && rg.Name != filter.Name {
+			continue
+		}
+
 		ids = append(ids, rg.ID)
 	}
 
@@ -140,9 +146,11 @@ func (b *InMemoryBackend) UpdateRunGroup(
 // Run
 // ────────────────────────────────────────────────────────────────────────────
 
-// StartRun starts a new workflow run.
+// StartRun starts a new workflow run. networkingMode and runOutputURI are
+// optional (real StartRunInput fields); runGroupID/runBatchID associate the
+// run with a RunGroup/RunBatch for filtering via ListRuns.
 func (b *InMemoryBackend) StartRun(
-	workflowID, roleARN, name, runBatchID string,
+	workflowID, roleARN, name, runGroupID, runBatchID, networkingMode, runOutputURI string,
 	params map[string]any,
 	tags map[string]string,
 ) (*Run, error) {
@@ -152,15 +160,19 @@ func (b *InMemoryBackend) StartRun(
 	id := newID()
 	now := time.Now().UTC()
 	run := &Run{
-		ID:           id,
-		Name:         name,
-		WorkflowID:   workflowID,
-		RoleARN:      roleARN,
-		RunBatchID:   runBatchID,
-		Params:       params,
-		Tags:         copyTags(tags),
-		Status:       statusPending,
-		CreationTime: now,
+		ID:             id,
+		Name:           name,
+		WorkflowID:     workflowID,
+		RoleARN:        roleARN,
+		RunGroupID:     runGroupID,
+		RunBatchID:     runBatchID,
+		NetworkingMode: networkingMode,
+		RunOutputURI:   runOutputURI,
+		UUID:           newID(),
+		Params:         params,
+		Tags:           copyTags(tags),
+		Status:         statusPending,
+		CreationTime:   now,
 	}
 	run.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "run/"+id)
 
@@ -266,8 +278,9 @@ func advanceRunStatus(run *Run) {
 	}
 }
 
-// ListRuns lists runs.
-func (b *InMemoryBackend) ListRuns(maxResults int, nextToken string) ([]*Run, string, error) {
+// ListRuns lists runs, optionally filtered by name/runGroupId/batchId/status
+// (real AWS ListRunsInput query parameters).
+func (b *InMemoryBackend) ListRuns(filter *RunFilter, maxResults int, nextToken string) ([]*Run, string, error) {
 	b.mu.RLock("ListRuns")
 	defer b.mu.RUnlock()
 
@@ -275,12 +288,26 @@ func (b *InMemoryBackend) ListRuns(maxResults int, nextToken string) ([]*Run, st
 	ids := make([]string, 0, len(all))
 
 	for _, r := range all {
-		ids = append(ids, r.ID)
+		if runMatchesFilter(r, filter) {
+			ids = append(ids, r.ID)
+		}
 	}
 
 	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runs.Get)
 
 	return result, outToken, nil
+}
+
+// runMatchesFilter reports whether r satisfies every non-empty field of filter.
+func runMatchesFilter(r *Run, filter *RunFilter) bool {
+	if filter == nil {
+		return true
+	}
+
+	return (filter.Name == "" || r.Name == filter.Name) &&
+		(filter.RunGroupID == "" || r.RunGroupID == filter.RunGroupID) &&
+		(filter.BatchID == "" || r.RunBatchID == filter.BatchID) &&
+		(filter.Status == "" || r.Status == filter.Status)
 }
 
 // GetRunTask retrieves a task within a run, advancing PENDING→RUNNING→
@@ -321,9 +348,13 @@ func (b *InMemoryBackend) GetRunTask(runID, taskID string) (*RunTask, error) {
 	return &result, nil
 }
 
-// ListRunTasks lists tasks within a run.
+// ListRunTasks lists tasks within a run, optionally filtered by status (real
+// AWS ListRunTasksInput "status" query parameter).
+//
+//nolint:dupl // structurally-identical parent-scoped List op (already deduped via listChildFiltered)
 func (b *InMemoryBackend) ListRunTasks(
 	runID string,
+	filter *RunTaskFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*RunTask, string, error) {
@@ -335,15 +366,13 @@ func (b *InMemoryBackend) ListRunTasks(
 	}
 
 	group := b.runTasksByRun.Get(runID)
-	ids := make([]string, 0, len(group))
-
-	for _, t := range group {
-		ids = append(ids, t.TaskID)
-	}
-
-	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*RunTask, bool) {
-		return b.runTasks.Get(parentKey(runID, id))
-	})
+	result, outToken := listChildFiltered(
+		group,
+		func(t *RunTask) string { return t.TaskID },
+		func(t *RunTask) bool { return filter == nil || filter.Status == "" || t.Status == filter.Status },
+		nextToken, maxResults,
+		func(id string) (*RunTask, bool) { return b.runTasks.Get(parentKey(runID, id)) },
+	)
 
 	return result, outToken, nil
 }
@@ -469,7 +498,7 @@ func (b *InMemoryBackend) StartRunBatch(workflowID, roleARN, name string) (*RunB
 		Name:         name,
 		WorkflowID:   workflowID,
 		RoleARN:      roleARN,
-		Status:       statusCompleted,
+		Status:       statusProcessed,
 		CreationTime: time.Now().UTC(),
 	}
 	rb.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "runBatch/"+id)
@@ -491,7 +520,7 @@ func (b *InMemoryBackend) CancelRunBatch(id string) error {
 		return fmt.Errorf("%w: run batch %s not found", ErrNotFound, id)
 	}
 
-	if rb.Status == statusCompleted || rb.Status == statusCancelled || rb.Status == statusFailed {
+	if isRunBatchTerminal(rb.Status) {
 		return fmt.Errorf("%w: run batch %s is already in terminal state %s", ErrValidation, id, rb.Status)
 	}
 
@@ -500,7 +529,27 @@ func (b *InMemoryBackend) CancelRunBatch(id string) error {
 	return nil
 }
 
-// DeleteRunBatch deletes a single run batch.
+// runBatchDeletableStatuses are the real AWS BatchStatus values DeleteBatch
+// requires before it will delete a run batch resource: PROCESSED, FAILED,
+// CANCELLED, or RUNS_DELETED.
+var runBatchDeletableStatuses = map[string]bool{ //nolint:gochecknoglobals // read-only status set
+	statusProcessed:   true,
+	statusFailed:      true,
+	statusCancelled:   true,
+	statusRunsDeleted: true,
+}
+
+// isRunBatchTerminal reports whether status is one of RunBatch's terminal
+// BatchStatus values (PROCESSED/FAILED/CANCELLED/RUNS_DELETED).
+func isRunBatchTerminal(status string) bool {
+	return runBatchDeletableStatuses[status]
+}
+
+// DeleteRunBatch deletes a single run batch resource (real AWS DeleteBatch
+// semantics). Real AWS requires the batch to already be in a terminal state
+// (PROCESSED/FAILED/CANCELLED/RUNS_DELETED) before it will delete the batch
+// metadata; attempting to delete a batch still in progress returns a
+// ConflictException.
 func (b *InMemoryBackend) DeleteRunBatch(id string) error {
 	b.mu.Lock("DeleteRunBatch")
 	defer b.mu.Unlock()
@@ -508,6 +557,14 @@ func (b *InMemoryBackend) DeleteRunBatch(id string) error {
 	rb, ok := b.runBatches.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: run batch %s not found", ErrNotFound, id)
+	}
+
+	if !isRunBatchTerminal(rb.Status) {
+		return fmt.Errorf(
+			"%w: run batch %s must be in a terminal state (PROCESSED, FAILED, CANCELLED, or RUNS_DELETED) "+
+				"to be deleted, current state is %s",
+			ErrInvalidState, id, rb.Status,
+		)
 	}
 
 	delete(b.tags, rb.Arn)
@@ -531,8 +588,14 @@ func (b *InMemoryBackend) GetRunBatch(id string) (*RunBatch, error) {
 	return &result, nil
 }
 
-// ListRunBatches lists run batches.
+// ListRunBatches lists run batches, optionally filtered by name/status (real
+// AWS ListBatchInput query parameters). filter.RunGroupID is accepted for
+// wire compatibility but not applied: real ListBatch filters by the run
+// group of the batch's *contained runs*, and this simplified RunBatch model
+// doesn't track a run-group association on the batch resource itself (see
+// the PARITY.md RunBatch note on the broader BatchRunSettings/RunSummary gap).
 func (b *InMemoryBackend) ListRunBatches(
+	filter *RunBatchFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*RunBatch, string, error) {
@@ -543,6 +606,16 @@ func (b *InMemoryBackend) ListRunBatches(
 	ids := make([]string, 0, len(all))
 
 	for _, rb := range all {
+		if filter != nil {
+			if filter.Name != "" && rb.Name != filter.Name {
+				continue
+			}
+
+			if filter.Status != "" && rb.Status != filter.Status {
+				continue
+			}
+		}
+
 		ids = append(ids, rb.ID)
 	}
 
@@ -560,7 +633,8 @@ func (b *InMemoryBackend) DeleteRunsInBatch(batchID string) error {
 	b.mu.Lock("DeleteRunsInBatch")
 	defer b.mu.Unlock()
 
-	if !b.runBatches.Has(batchID) {
+	rb, ok := b.runBatches.Get(batchID)
+	if !ok {
 		return fmt.Errorf("%w: run batch %s not found", ErrNotFound, batchID)
 	}
 
@@ -577,12 +651,24 @@ func (b *InMemoryBackend) DeleteRunsInBatch(batchID string) error {
 		}
 	}
 
+	// Real AWS transitions the batch through RUNS_DELETING to RUNS_DELETED;
+	// this backend completes synchronously so it goes straight to the
+	// terminal RUNS_DELETED state (same synchronous-completion precedent as
+	// the other job families -- see the PARITY.md note on RunBatch).
+	rb.Status = statusRunsDeleted
+
 	return nil
 }
 
-// ListRunsInBatch lists runs that belong to a run batch.
+// ListRunsInBatch lists runs that belong to a run batch, optionally filtered
+// by runId (real AWS ListRunsInBatchInput "runId" query parameter).
+// filter.RunSettingID/SubmissionStatus are accepted for wire compatibility
+// but not applied: this backend has no concept of a per-run "run setting ID"
+// or async submission-status, since batches complete synchronously (see the
+// PARITY.md RunBatch note).
 func (b *InMemoryBackend) ListRunsInBatch(
 	batchID string,
+	filter *RunsInBatchFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*Run, string, error) {
@@ -596,9 +682,15 @@ func (b *InMemoryBackend) ListRunsInBatch(
 	var ids []string
 
 	for _, r := range b.runs.All() {
-		if r.RunBatchID == batchID {
-			ids = append(ids, r.ID)
+		if r.RunBatchID != batchID {
+			continue
 		}
+
+		if filter != nil && filter.RunID != "" && r.ID != filter.RunID {
+			continue
+		}
+
+		ids = append(ids, r.ID)
 	}
 
 	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runs.Get)

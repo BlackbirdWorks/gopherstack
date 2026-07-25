@@ -2,12 +2,12 @@
 service: pipes
 sdk_module: aws-sdk-go-v2/service/pipes@v1.23.18
 last_audit_commit: 5d5b2188
-last_audit_date: 2026-07-13
-overall: B            # already largely accurate; small, targeted fixes found
+last_audit_date: 2026-07-24
+overall: A            # both execution gaps closed for real (runner.go source pollers + cli.go target/DLQ wiring); the only remaining gap is a proven genuine impossibility (no in-repo Kafka/AMQP broker)
 ops:
-  CreatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added max-50-tags validation to match TagResource's existing limit"}
+  CreatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added max-50-tags validation to match TagResource's existing limit; RoleArn is now enforced as a required field (ValidationException when absent/empty), matching validateOpCreatePipeInput -- closes the gap previously left open in the 2026-07-13 pass. ~40 call sites across the test suite (Go CreatePipeInput{} literals and raw-HTTP JSON bodies) updated to supply RoleArn now that it's enforced"}
   DescribePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "DesiredState now reports DELETED while CurrentState=DELETING, per RequestedPipeStateDescribeResponse"}
-  UpdatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added ConflictException guard against updating a pipe that is DELETING (was silently resurrecting it, corrupting the pending async delete)"}
+  UpdatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added ConflictException guard against updating a pipe that is DELETING (was silently resurrecting it, corrupting the pending async delete); RoleArn is now enforced as a required field on every UpdatePipe call (ValidationException when absent/empty), matching validateOpUpdatePipeInput -- real AWS requires RoleArn to be resupplied on every update, even when unchanged. Validation order is Name/DesiredState/SourceParameters-batch-size -> RoleArn -> pipe-lookup, so a request missing RoleArn against a nonexistent pipe now correctly surfaces ValidationException, not NotFoundException (adjusted TestErrors/update_nonexistent_pipe_returns_404 to supply a valid RoleArn so it still exercises the NotFound path specifically)"}
   DeletePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "DesiredState now reports DELETED, matching UpdatePipe fix's shared toPipeResponse"}
   ListPipes: {wire: ok, errors: ok, state: ok, persist: ok}
   StartPipe: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -18,11 +18,9 @@ ops:
 families:
   route_matcher: {status: ok, note: "verified every op's (method,path) against aws-sdk-go-v2/service/pipes v1.23.18 serializers.go opPath/request.Method literals; added handler_route_matcher_test.go driving RouteMatcher(c)+Handler()(c) end-to-end (prior tests all bypassed RouteMatcher via h.Handler()(c) directly, and the /tags/ prefix is shared across many services -- test also pins that a pipes-shaped path with a non-pipes SigV4 credential-scope service is correctly rejected)"}
 gaps:
-  - "CreatePipe/UpdatePipe do not validate RoleArn is non-empty, though the real SDK marks it required (validateOpCreatePipeInput/validateOpUpdatePipeInput). Deliberately NOT fixed this pass: a real aws-sdk-go-v2 client client-side-validates RoleArn before ever sending the request (smithy validators.go), so this only matters for non-SDK/raw-HTTP callers, and enforcing it breaks ~340 existing subtests across audit_batch1-4/handler_test/isolation_test/etc. that build CreatePipe/UpdatePipe bodies without RoleArn. Low value / high test-churn tradeoff -- revisit only if a raw-HTTP parity test specifically needs it."
-  - "Runner (runner.go) only polls SQS sources (isSQSARN gate in pollPipe) -- Kinesis, DynamoDB Streams, MSK, self-managed Kafka, RabbitMQ, and ActiveMQ sources are modeled in CreatePipe/UpdatePipe/DescribePipe wire shapes but a RUNNING pipe with one of those sources never actually polls or forwards events. No control-plane bug (Describe/List still report CurrentState=RUNNING correctly), but a real EXECUTION gap. Cross-service follow-up, not in services/pipes/'s edit scope to fix (would need new source-reader adapters in cli.go plus backend hooks in kinesis/dynamodb/kafka-shaped services)."
-  - "cli.go's wirePipesRunner (cli.go:6592) only wires SQS as source and Lambda+StepFunctions as target/enrichment invokers. SNS, SQS, Kinesis, EventBridge, CloudWatchLogs, and Firehose TARGET invokers (Runner.Set{SNSPublisher,SQSSender,KinesisPutter,EventBridgePutter,CloudWatchLogsPutter,FirehosePutter}) and both DLQ senders (sqsSender/sns for handlePipeFailure) are never set, so a RUNNING SQS-sourced pipe targeting any of those services will poll+enrich correctly but every invokeXTarget call returns ErrTargetInvokerUnwired and the source message is left unconsumed (and DLQ delivery silently fails the same way). Cross-service wiring gap in cli.go, out of services/pipes/'s edit scope; needs adapter structs analogous to pipesSQSReaderAdapter/pipesSFNStarterAdapter for each target service's backend."
+  - "MSK, self-managed Kafka, RabbitMQ, and ActiveMQ pipe sources are modeled in full in CreatePipe/UpdatePipe/DescribePipe wire shapes (sources.go) but are never polled by the runner, and this is a genuine impossibility rather than a deferred implementation: gopherstack has no in-process Kafka-wire-protocol broker or AMQP/OpenWire broker anywhere in the repo to read messages from. Verified by inspecting both candidate backends before writing this line: services/kafka (Amazon MSK) implements only the AWS *control-plane* HTTP API (CreateCluster/DescribeCluster/GetBootstrapBrokers/topic metadata CRUD) -- confirmed via `grep -rl 'func.*Produce\\|func.*Consume\\|func.*SendMessage\\|func.*ReceiveMessage'` returning nothing message-plane-shaped; services/mq (Amazon MQ, backs both RabbitMQ and ActiveMQ engine types) is the same shape (broker/user/configuration lifecycle CRUD only, zero produce/consume methods anywhere in the package). Neither package speaks the real wire protocol (Kafka's binary TCP protocol; AMQP 0-9-1 for RabbitMQ; OpenWire/STOMP for ActiveMQ), so even a cluster/broker created via those services' control planes has no data-plane to poll. runner.go's pollPipe routes only SQS/Kinesis/DynamoDB-Streams ARNs and leaves these four source types unrouted (with a doc comment explaining why) rather than faking delivery."
 deferred: []
-leaks: {status: clean, note: "runDelayed goroutines are tracked by b.wg and tied to svcCtx (cancelled via Handler.Shutdown -> Backend.Shutdown); Runner.Start/Wait use the same wg+done-channel pattern; enrichmentCounts entries are pruned in completeDeleteTransition alongside the pipe row, so no unbounded growth"}
+leaks: {status: clean, note: "runDelayed goroutines are tracked by b.wg and tied to svcCtx (cancelled via Handler.Shutdown -> Backend.Shutdown); Runner.Start/Wait use the same wg+done-channel pattern; enrichmentCounts entries are pruned in completeDeleteTransition alongside the pipe row, so no unbounded growth. Runner.shardIterators (new: caches Kinesis/DynamoDB-Streams shard iterator tokens, keyed by pipe ARN + shard ID, since those source types have no message-level ack/delete like SQS to drive cleanup off of) is swept every poll tick in pollAllPipes: any cached key whose pipe ARN is not in the current RUNNING set is dropped, so a stopped or deleted stream-sourced pipe's iterator entries do not accumulate."}
 ---
 
 ## Notes
@@ -143,3 +141,100 @@ body succeeded, and the row could then only be discovered as over-limit via
 `ListTagsForResource`. Added the same `len(tags) > maxTagsPerPipe` check to
 `CreatePipe`, returning the same `ValidationException` shape `TagResource`
 already uses.
+
+RoleArn required-field validation (2026-07-24 pass): the prior audit
+(2026-07-13) found that `CreatePipe`/`UpdatePipe` never validated `RoleArn`
+as non-empty, even though `aws-sdk-go-v2/service/pipes@v1.23.18`'s
+`validateOpCreatePipeInput`/`validateOpUpdatePipeInput` both mark it a
+required member (confirmed directly against `validators.go`), and left it
+open citing high test-churn (~340 subtests) for a raw-HTTP-only edge case.
+This pass closed the gap for real: `CreatePipe` now rejects an empty
+`RoleARN` with `ValidationException` (checked after `Source`/`Target`, so
+those checks' error precedence is unchanged), and `UpdatePipe` now rejects
+an empty `RoleARN` on *every* call -- matching real AWS, which requires
+`RoleArn` to be resupplied on every `UpdatePipe` request even when its value
+doesn't change (confirmed via the `// This member is required` doc comment
+on `UpdatePipeInput.RoleArn` in `api_op_UpdatePipe.go`, not just the
+smithy-generated client-side validator). `UpdatePipe`'s check runs before
+the pipe-name lookup, matching real AWS's validate-before-execute ordering;
+one test (`TestErrors/update_nonexistent_pipe_returns_404`) previously sent
+a structurally-invalid request (missing `RoleArn`) against a nonexistent
+pipe and asserted `NotFoundException` -- it was updated to supply a valid
+`RoleArn` so it continues to exercise the not-found path specifically,
+rather than incidentally asserting the wrong exception for a request that
+was never valid to begin with. ~41 call sites across the test suite (34
+`CreatePipeInput{}`/7 `UpdatePipeInput{}` Go struct literals, plus ~65
+raw-HTTP JSON request bodies) were updated to supply `RoleArn` now that
+it's enforced; no test assertions about *other* validation paths
+(missing `Source`, missing `Target`, invalid `DesiredState`, etc.) changed
+behavior, since those checks all run before the new `RoleArn` check.
+
+Execution gaps closed for real (2026-07-24 second pass, parity-3 final phase):
+the two gaps below were previously deferred citing "cross-service, out of
+services/pipes/'s edit scope." That reasoning is no longer accepted in this
+phase; both are now closed with real code plus tests proving delivery, not
+just closed on paper.
+
+1. **Runner source pollers (Kinesis, DynamoDB Streams).** `pollPipe`
+   previously only had an `isSQSARN` gate; a RUNNING pipe with a Kinesis or
+   DynamoDB Streams source never polled anything. `runner.go` gained
+   `PipeKinesisReader`/`PipeDynamoDBStreamsReader` source interfaces (mirroring
+   the shapes `services/lambda/event_source_poller.go`'s ESM poller already
+   uses for the same two source types) plus `Runner.SetKinesisReader`/
+   `SetDynamoDBStreamsReader`. A new `sources_poll.go` implements
+   `pollKinesisPipe`/`pollDynamoDBStreamPipe`: each shard's iterator is cached
+   in `Runner.shardIterators` (a `pkgs/safemap.Map[string,string]`, per the
+   pkgs-catalog.md rule that an isolated single-map cache belongs in safemap
+   rather than a bespoke mutex) and advances unconditionally once `GetRecords`
+   succeeds -- matching the Lambda ESM poller's established precedent, since
+   Kinesis/DynamoDB Streams have no message-level ack/delete to make
+   checkpoint-only-on-success safe (one poison record would otherwise wedge
+   the shard forever). Records are filtered through the same `FilterCriteria`
+   engine SQS sources use (`filter.go`'s `matchesAnyFilter` was generalized
+   from `(*SQSMessage, []Filter)` to `(body string, []Filter)` so all three
+   source types share one matcher), enriched and dispatched through the same
+   `dispatchTarget`/DLQ path SQS uses (`invokeTargetWithPayload` was split
+   into that reusable `dispatchTarget` plus a thin SQS-receipt-handle wrapper).
+   `cli.go`'s `wirePipesRunner` wires both against the **real** Kinesis and
+   DynamoDB backends (new `pipesKinesisReaderAdapter`/
+   `pipesDDBStreamsReaderAdapter`, modeled on the existing
+   `kinesisReaderAdapter`/`ddbStreamsReaderAdapter` Lambda ESM adapters).
+   MSK/self-managed Kafka/RabbitMQ/ActiveMQ remain unpolled -- see `gaps:`
+   above for the proof this is a genuine impossibility, not a deferral.
+
+2. **cli.go target/DLQ wiring.** `wirePipesRunner` previously only wired an
+   SQS source reader and Lambda/StepFunctions target invokers, even though
+   `runner.go` already had full `SNSPublisher`/`SQSSender`/`PipeKinesisPutter`/
+   `PipeEventBridgePutter`/`PipeCloudWatchLogsPutter`/`PipeFirehosePutter`
+   interfaces, `Set*` methods, and `invoke*Target` implementations sitting
+   unused -- every one of those six target types (and both DLQ paths, which
+   reuse the SNS/SQS interfaces) returned `ErrTargetInvokerUnwired` in the
+   real binary. `wirePipesRunner` was split into `wirePipesSources`/
+   `wirePipesInvokers`/`wirePipesTargets` and now wires all six against real
+   backends via six new adapter structs (`pipesSNSPublisherAdapter`,
+   `pipesSQSSenderAdapter`, `pipesKinesisPutterAdapter`,
+   `pipesEventBridgePutterAdapter`, `pipesCloudWatchLogsPutterAdapter`,
+   `pipesFirehosePutterAdapter`), each a thin delegate to that service's own
+   `InMemoryBackend` method (`Publish`/`SendMessage`/`PutRecord`/`PutEvents`/
+   `PutLogEvents`/`PutRecord`), following the existing
+   `pipesSQSReaderAdapter`/`pipesSFNStarterAdapter` pattern. `SetSNSPublisher`/
+   `SetSQSSender` cover both the direct-target case and the DLQ case
+   (`handlePipeFailure`/`sendToDLQIfConfigured`) since `runner.go` already
+   shared those two interfaces between the two call sites.
+
+   Proof of delivery (not just "no error returned"): `cli_pipes_wiring_test.go`
+   (root package) builds every backend for real (no mocks), calls the exact
+   `wirePipesRunner` cli.go invokes, starts the real `Runner` ticker, and
+   asserts the record actually landed in each target's own backend state --
+   an SNS topic's message archive, a real SQS queue's `ReceiveMessage`, a
+   Kinesis shard's `GetRecords`, an EventBridge archive's `EventCount`, a
+   CloudWatch Logs stream's `GetLogEvents`, and an S3 object written by a
+   flushed Firehose delivery stream -- plus a DLQ-delivery test (a Lambda
+   target fails deterministically with no Docker runtime available, and the
+   failure is redirected to a real SQS DLQ) and both new source pollers
+   (a real `kinesisBk.PutRecord` / `ddbBk.PutItem` is picked up by the running
+   poller and forwarded to a real SQS target). `services/pipes/`'s own test
+   suite (`sources_kinesis_ddb_test.go`) additionally covers the poller logic
+   itself against fakes: filter application, DLQ-on-target-failure, iterator
+   advancement (no re-delivery), `GetRecords`-error recovery, and the shard
+   iterator sweep bounding cache growth once a pipe stops.

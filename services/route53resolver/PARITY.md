@@ -2,17 +2,17 @@
 service: route53resolver
 sdk_module: aws-sdk-go-v2/service/route53resolver@v1.42.3
 last_audit_commit: 22d69640
-last_audit_date: 2026-07-12
-overall: A            # genuine wire-breaking bugs found and fixed
+last_audit_date: 2026-07-24
+overall: A            # genuine wire-breaking bugs found and fixed (again, this pass)
 ops:
-  CreateResolverEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetResolverEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListResolverEndpoints: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field (see notes); added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled input+output"}
+  GetResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field; added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled output"}
+  ListResolverEndpoints: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same fix, see CreateResolverEndpoint"}
   DeleteResolverEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades rules + tags + rule associations"}
-  UpdateResolverEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled partial-update input+output"}
   ListResolverEndpointIpAddresses: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssociateResolverEndpointIpAddress: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisassociateResolverEndpointIpAddress: {wire: ok, errors: ok, state: ok, persist: ok}
+  AssociateResolverEndpointIpAddress: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field, see notes"}
+  DisassociateResolverEndpointIpAddress: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field, see notes"}
   CreateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags input field was missing entirely -- silently dropped tags on create; added"}
   GetResolverRule: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResolverRules: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -52,12 +52,12 @@ ops:
   ListFirewallDomains: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFirewallDomains: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now bumps ModificationTime"}
   ImportFirewallDomains: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now bumps ModificationTime"}
-  CreateFirewallRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "no Tags on this op in the real API -- correctly has none"}
-  DeleteFirewallRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateFirewallRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFirewallRules: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateFirewallRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "no Tags on this op in the real API -- correctly has none. BlockOverrideDnsType/BlockOverrideTtl response json tags were wrong-cased (BlockOverrideDNSType/BlockOverrideTTL), same bug class as OwnerID/OwnerId; fixed. Added FirewallDomainListId uniqueness-per-group enforcement so a rule is always addressable by (FirewallRuleGroupId, FirewallDomainListId)."}
+  DeleteFirewallRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CRITICAL: same bug class as DisassociateResolverRule -- request shape was FirewallRuleId (an internal ID gopherstack invented; real types.FirewallRule has NO Id/Arn member at all). Real API requires FirewallRuleGroupId+FirewallDomainListId. Every real SDK client call was rejected with InvalidRequestException before this fix. Backend now looks up the rule by (FirewallRuleGroupID, FirewallDomainListID) pair."}
+  UpdateFirewallRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CRITICAL: same bug as DeleteFirewallRule -- request shape was FirewallRuleId; real API requires FirewallRuleGroupId+FirewallDomainListId (FirewallDomainListId is part of the rule's identity, not a mutable field -- UpdateFirewallRuleParams no longer lets callers retarget it). Also fixed BlockOverrideDnsType/BlockOverrideTtl casing, see CreateFirewallRule."}
+  ListFirewallRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added optional Action/Priority filters (were silently ignored -- verified against api_op_ListFirewallRules.go); fixed BlockOverrideDnsType/BlockOverrideTtl casing, see CreateFirewallRule"}
   GetFirewallConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "OwnerID -> OwnerId json tag (same bug class, see GetFirewallRuleGroup); AWS correctly returns no Arn for this type (verified, kept as-is)"}
-  UpdateFirewallConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateFirewallConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FirewallFailOpenStatus now accepts USE_LOCAL_RESOURCE_SETTING (verified against types/enums.go), not just ENABLED/DISABLED"}
   ListFirewallConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
   GetOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -65,10 +65,10 @@ ops:
   DeleteOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResolverConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "OwnerID -> OwnerId json tag (same bug class); real type also has no Arn field but our extra Arn field is harmless"}
-  UpdateResolverConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateResolverConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "AutodefinedReverseFlag now accepts USE_LOCAL_RESOURCE_SETTING (verified against types/enums.go), not just ENABLE/DISABLE"}
   ListResolverConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResolverDnssecConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "OwnerID -> OwnerId json tag (same bug class)"}
-  UpdateResolverDnssecConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateResolverDnssecConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Validation now accepts USE_LOCAL_RESOURCE_SETTING (verified against types/enums.go), transitioning to UPDATING_TO_USE_LOCAL_RESOURCE_SETTING, mirroring the existing ENABLE/DISABLE -> ENABLING/DISABLING transient-status pattern"}
   ListResolverDnssecConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -79,6 +79,8 @@ families:
 gaps:
   - ListFirewallDomainLists returns the full FirewallDomainList shape instead of the leaner FirewallDomainListMetadata (extra fields present in real response are Status/DomainCount/CreationTime/ModificationTime/StatusMessage, none of which real AWS includes in this specific list response) -- harmless to SDK clients (unknown-field-tolerant decoders), left as-is; would need a second output struct to be byte-exact
   - ResolverConfig/FirewallConfig output structs include an `Arn` field that the real API type does not have for ResolverConfig's case it's harmless-extra (types.ResolverConfig actually has no Arn) -- not removed, zero functional impact
+  - "DNS Firewall Advanced (threat-protection) rule fields -- DnsThreatProtection, FirewallDomainRedirectionAction, FirewallThreatProtectionId -- exist on real types.FirewallRule/CreateFirewallRuleInput/UpdateFirewallRuleInput/DeleteFirewallRuleInput (verified against the v1.42.3 SDK source) but are not modeled here. A DNS Firewall Advanced rule uses a materially different identity/creation flow (FirewallThreatProtectionId instead of FirewallDomainListId+Priority, no domain list at all) that would require a second CreateFirewallRule code path plus new validation, not just extra passthrough fields -- out of scope for this pass. Not invented/wrong, just absent; flagged for a future pass rather than guessed at."
+  - "RuleTypeOption DELEGATE / ResolverEndpointDirection INBOUND_DELEGATION / ResolverRule.DelegationRecord (Route 53 Profile delegation) -- CreateResolverRuleInput does accept a DelegationRecord field and RuleTypeOption/ResolverEndpointDirection both have DELEGATE/INBOUND_DELEGATION values in the real v1.42.3 SDK, but modeling delegation rules correctly requires new validation/state (delegation records, a different endpoint-direction state machine) beyond an inert extra field. Not implemented this pass; flagged rather than half-modeled to avoid a fake DELEGATE mode that silently does nothing."
 deferred:
   - none -- full op surface audited this pass
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/plain maps guarded by the single lockmetrics.RWMutex"}
@@ -150,6 +152,70 @@ used as the template for the fix.
 them -- every Get/Create/Delete/Update/Import response silently returned them empty forever
 (not a "wrong value" bug, a "field literally never existed" bug). Added the fields, set on
 create, bumped on `UpdateFirewallDomains`/`ImportFirewallDomains`.
+
+**Invented `ResolverEndpoint.IpAddresses` response field (2026-07-24 pass, critical-class)**:
+`resolverEndpointOutput` (the wire shape behind `CreateResolverEndpoint`,
+`GetResolverEndpoint`, `ListResolverEndpoints`, `UpdateResolverEndpoint`,
+`AssociateResolverEndpointIpAddress`, `DisassociateResolverEndpointIpAddress`) carried an
+`IpAddresses` list. The real `types.ResolverEndpoint` (verified against
+`aws-sdk-go-v2/service/route53resolver/types/types.go`) has **no such field** -- only
+`IpAddressCount int32`. IP addresses are only obtainable via the separate
+`ListResolverEndpointIpAddresses` call. There was even a dedicated unit test
+(`TestResolverEndpoint_IPv6IPAddress` et al.) asserting the invented field's presence --
+exactly the "unit tests are not parity proof" trap: the tests were written against gopherstack's
+own (wrong) shape, not the real one. Harmless to real SDK clients in practice (unknown-field-
+tolerant decoders ignore extra map keys), but still a fabricated field per the no-invented-shape
+rule -- deleted. Added the two real-but-missing `ResolverEndpoint` fields while here:
+`RniEnhancedMetricsEnabled`/`TargetNameServerMetricsEnabled` (settable on Create/Update,
+verified against `api_op_CreateResolverEndpoint.go`/`api_op_UpdateResolverEndpoint.go`).
+
+**Invented `FirewallRule.Id`/`.Arn` + wrong Delete/Update addressing (2026-07-24 pass,
+CRITICAL, same bug class as the DisassociateResolverRule/DisassociateResolverQueryLogConfig
+writeup above, but missed by the prior pass)**: the real `types.FirewallRule` (verified against
+`types/types.go`) has **no `Id` or `Arn` member at all** -- a firewall rule has no independent
+identity on the wire. It is addressed by the `(FirewallRuleGroupId, FirewallDomainListId)` pair
+it was created with (verified against `api_op_DeleteFirewallRule.go` and
+`api_op_UpdateFirewallRule.go`, neither of which has a `FirewallRuleId` member -- `Delete`
+requires `FirewallRuleGroupId` + optional `FirewallDomainListId`/`FirewallThreatProtectionId`;
+`Update` requires the same pair). gopherstack invented `Id`/`Arn` fields on the response *and*
+required a `FirewallRuleId` on `DeleteFirewallRule`/`UpdateFirewallRule` requests -- a field a
+real SDK client never sends. Every real `DeleteFirewallRule`/`UpdateFirewallRule` call would
+have been rejected with gopherstack's own "field is required" `InvalidRequestException` 100% of
+the time. There was even a dedicated test (`TestCreateFirewallRule_IdAndArnInOutput`) asserting
+the invented fields' presence -- same trap as the ResolverEndpoint bug above. Fixed by:
+removing `Id`/`Arn` from `firewallRuleOutput`; changing `DeleteFirewallRule`/`UpdateFirewallRule`
+to take `FirewallRuleGroupId`+`FirewallDomainListId` and resolving the rule via a new
+`findFirewallRule` composite-key lookup (mirrors the `DisassociateResolverRule` fix pattern);
+enforcing `(FirewallRuleGroupId, FirewallDomainListId)` uniqueness on `CreateFirewallRule` so
+that lookup is always unambiguous; and removing `FirewallDomainListId` from
+`UpdateFirewallRuleParams`'s mutable fields (it's part of the rule's identity, not editable --
+verified `UpdateFirewallRuleInput.FirewallDomainListId` doc: "The ID of the domain list to use
+in the rule" is actually the *selector*, not a retarget, since there's no other way to identify
+which rule to update). The internal `FirewallRule.ID`/`.ARN` fields remain for store-indexing
+purposes only -- they were never wire-visible after this fix and never should be.
+
+**`BlockOverrideDnsType`/`BlockOverrideTtl` wire-key casing bug (2026-07-24 pass, same bug
+class as the OwnerID/OwnerId note above)**: `firewallRuleOutput` used
+`json:"BlockOverrideDNSType"` / `json:"BlockOverrideTTL"`; the real hand-rolled awsjson1.1
+deserializer (verified via `grep -A60 deserializeDocumentFirewallRule deserializers.go`) does
+exact-case `case "BlockOverrideDnsType":` / `case "BlockOverrideTtl":` matching. Real SDK
+clients would have silently never seen these two fields populated on `CreateFirewallRule` /
+`UpdateFirewallRule` / `DeleteFirewallRule` / `ListFirewallRules` responses. Fixed.
+
+**`ListFirewallRules` missing Action/Priority filters**: `ListFirewallRulesInput` has optional
+`Action`/`Priority` filter fields (verified against `api_op_ListFirewallRules.go`); gopherstack
+silently ignored both. Added.
+
+**`USE_LOCAL_RESOURCE_SETTING` enum gap (Route 53 Profiles feature)**: `FirewallFailOpenStatus`,
+`AutodefinedReverseFlag`/`ResolverAutodefinedReverseStatus`, and `Validation`/
+`ResolverDNSSECValidationStatus` all gained a third `USE_LOCAL_RESOURCE_SETTING` value in the
+real SDK (verified against `types/enums.go`) on top of the original ENABLE(D)/DISABLE(D) pair --
+it defers the setting to whatever a Route 53 Profile attached to the VPC specifies.
+`UpdateFirewallConfig`/`UpdateResolverConfig`/`UpdateResolverDnssecConfig` previously rejected
+this value with a validation error. Added support: `FirewallFailOpen`/`AutodefinedReverse`
+pass the literal value straight through (matching their existing no-intermediate-state
+behavior); DNSSEC's `Validation` transitions to `UPDATING_TO_USE_LOCAL_RESOURCE_SETTING`,
+mirroring the pre-existing ENABLE/DISABLE -> ENABLING/DISABLING transient-status pattern.
 
 **Not bugs (verified correct, don't re-flag)**:
 - Every Create* op (`CreateResolverEndpoint`, `CreateResolverRule`, `CreateFirewallRuleGroup`,

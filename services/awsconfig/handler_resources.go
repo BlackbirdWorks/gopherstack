@@ -201,16 +201,39 @@ func (h *Handler) handleListDiscoveredResources(
 }
 
 // ListAggregateDiscoveredResources request/response types and handler.
+type listAggregateDiscoveredResourcesFiltersBody struct {
+	AccountID    string `json:"AccountId,omitempty"`
+	Region       string `json:"Region,omitempty"`
+	ResourceID   string `json:"ResourceId,omitempty"`
+	ResourceName string `json:"ResourceName,omitempty"`
+}
+type listAggregateDiscoveredResourcesInput struct {
+	Filters                     *listAggregateDiscoveredResourcesFiltersBody `json:"Filters,omitempty"`
+	ConfigurationAggregatorName string                                       `json:"ConfigurationAggregatorName"`
+	ResourceType                string                                       `json:"ResourceType"`
+}
 type listAggregateDiscoveredResourcesOutput struct {
-	ResourceIdentifiers []any `json:"ResourceIdentifiers"`
+	ResourceIdentifiers []AggregateResourceIdentifier `json:"ResourceIdentifiers"`
 }
 
 func (h *Handler) handleListAggregateDiscoveredResources(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *listAggregateDiscoveredResourcesInput,
 ) (*listAggregateDiscoveredResourcesOutput, error) {
-	return &listAggregateDiscoveredResourcesOutput{
-		ResourceIdentifiers: h.Backend.ListAggregateDiscoveredResources(),
-	}, nil
+	var accountFilter, regionFilter, resourceIDFilter string
+	if in.Filters != nil {
+		accountFilter = in.Filters.AccountID
+		regionFilter = in.Filters.Region
+		resourceIDFilter = in.Filters.ResourceID
+	}
+
+	identifiers, err := h.Backend.ListAggregateDiscoveredResources(
+		in.ConfigurationAggregatorName, in.ResourceType, accountFilter, regionFilter, resourceIDFilter,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listAggregateDiscoveredResourcesOutput{ResourceIdentifiers: identifiers}, nil
 }
 
 // SelectResourceConfig request/response types and handler.

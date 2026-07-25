@@ -28,3 +28,41 @@ func WorkflowCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// ClassifyPathForTest exposes the unexported classifyPath router entry point
+// to omics_test's white-box route-table regression test.
+func ClassifyPathForTest(method, path string) string {
+	return classifyPath(method, path)
+}
+
+// OpDispatchKeysForTest returns every operation name opDispatch has a
+// handler entry for.
+func OpDispatchKeysForTest() []string {
+	table := opDispatch()
+	keys := make([]string, 0, len(table))
+
+	for k := range table {
+		keys = append(keys, k)
+	}
+
+	return keys
+}
+
+// OpUnknownForTest exposes the unexported opUnknown sentinel.
+func OpUnknownForTest() string { return opUnknown }
+
+// SetRunBatchStatusForTest force-sets a RunBatch's status, bypassing the
+// normal StartRunBatch/CancelRunBatch transitions. This backend completes
+// batches synchronously (no async orchestration to drive them through
+// CREATING/PENDING/SUBMITTING/INPROGRESS), so exercising DeleteBatch's
+// terminal-state precondition against a genuinely non-terminal status
+// requires reaching into backend state directly the way a real, slower AWS
+// backend would organically pass through it.
+func SetRunBatchStatusForTest(b *InMemoryBackend, id, status string) {
+	b.mu.Lock("SetRunBatchStatusForTest")
+	defer b.mu.Unlock()
+
+	if rb, ok := b.runBatches.Get(id); ok {
+		rb.Status = status
+	}
+}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -34,6 +35,36 @@ const (
 
 // attrDisplayName is the normalized attribute path for a group's or user's display name.
 const attrDisplayName = "displayname"
+
+// Normalized (lower-cased) AttributeOperation/Filter attribute path
+// constants, shared by users.go/groups.go's attribute-apply and filter-match
+// switches and validation.go's pattern-validation switch, so the same path
+// string is never duplicated across those three call sites (goconst).
+const (
+	attrNickName            = "nickname"
+	attrTitle               = "title"
+	attrProfileURL          = "profileurl"
+	attrLocale              = "locale"
+	attrPreferredLanguage   = "preferredlanguage"
+	attrTimezone            = "timezone"
+	attrUserType            = "usertype"
+	attrWebsite             = "website"
+	attrBirthdate           = "birthdate"
+	attrUserStatus          = "userstatus"
+	attrDescription         = "description"
+	attrEmails              = "emails"
+	attrAddresses           = "addresses"
+	attrPhoneNumbers        = "phonenumbers"
+	attrPhotos              = "photos"
+	attrRoles               = "roles"
+	attrExternalIDs         = "externalids"
+	attrNameGivenName       = "name.givenname"
+	attrNameFamilyName      = "name.familyname"
+	attrNameMiddleName      = "name.middlename"
+	attrNameFormatted       = "name.formatted"
+	attrNameHonorificPrefix = "name.honorificprefix"
+	attrNameHonorificSuffix = "name.honorificsuffix"
+)
 
 // ----------------------------------------
 // InMemoryBackend
@@ -107,6 +138,15 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // generateID creates a UUID-format unique ID matching the AWS Identity Store format.
 func (b *InMemoryBackend) generateID() string {
 	return uuid.New().String()
+}
+
+// simulatedCallerARN returns a deterministic placeholder ARN for the
+// CreatedBy/UpdatedBy fields real AWS populates with the calling principal's
+// ARN. gopherstack does not model IAM caller identity for Identity Store, so
+// this returns a stable, wire-shape-valid ARN instead of leaving the field
+// empty (mirrors services/bedrock's identical helper).
+func (b *InMemoryBackend) simulatedCallerARN() string {
+	return arn.Build("iam", "", b.accountID, "root")
 }
 
 // splitExternalIDCompound splits a compound ExternalId key (encoded by extractAlternateIdentifier)

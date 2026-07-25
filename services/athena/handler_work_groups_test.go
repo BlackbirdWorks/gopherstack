@@ -245,6 +245,41 @@ func TestHandler_CreateWorkGroup_WithTags(t *testing.T) {
 	}
 }
 
+// TestHandler_GetWorkGroup_NoInventedTagsField locks in that GetWorkGroup's
+// response WorkGroup object never carries a "Tags" key -- AWS's real
+// GetWorkGroupOutput.WorkGroup has no such field; tags set at creation time
+// are visible only through ListTagsForResource. A previous version of this
+// service echoed creation-time tags back on the WorkGroup object itself,
+// which was a gopherstack-invented addition to the wire shape (and, worse,
+// went stale the moment TagResource/UntagResource were called against the
+// same workgroup, since those only ever touched the separate tag store).
+func TestHandler_GetWorkGroup_NoInventedTagsField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateWorkGroup",
+		`{"Name":"tagged-wg2","Tags":[{"Key":"env","Value":"test"}]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "GetWorkGroup", `{"WorkGroup":"tagged-wg2"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	_, hasTags := resp["WorkGroup"]["Tags"]
+	assert.False(t, hasTags, "WorkGroup response must not carry an invented Tags field")
+
+	const wgARN = "arn:aws:athena:us-east-1:000000000000:workgroup/tagged-wg2"
+	rec = doRequest(t, h, "ListTagsForResource", `{"ResourceARN":"`+wgARN+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var tagsResp map[string][]map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.Len(t, tagsResp["Tags"], 1, "the tag set at creation must still be visible via ListTagsForResource")
+	assert.Equal(t, "env", tagsResp["Tags"][0]["Key"])
+}
+
 func TestHandler_CreateWorkGroup_Validation(t *testing.T) {
 	t.Parallel()
 
@@ -575,4 +610,44 @@ func TestListWorkGroups_Pagination(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestListWorkGroups_Pagination_StaleTokenResumesStably verifies that a
+// NextToken whose boundary workgroup was deleted between calls resumes at
+// the next surviving workgroup instead of silently restarting the page from
+// offset 0 (which would re-emit already-consumed results to the caller).
+func TestListWorkGroups_Pagination_StaleTokenResumesStably(t *testing.T) {
+	t.Parallel()
+
+	b := athena.NewInMemoryBackend("", "")
+	h := athena.NewHandler(b)
+
+	// Sorted order with the default "primary": primary, wg1, wg2, wg3, wg4.
+	for _, wg := range []string{"wg1", "wg2", "wg3", "wg4"} {
+		rec := athenaDoPass5(t, h, "CreateWorkGroup", fmt.Sprintf(`{"Name":%q}`, wg))
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := athenaDoPass5(t, h, "ListWorkGroups", `{"MaxResults":2}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	page1 := athenaUnmarshalPass5(t, rec)
+	nextToken, _ := page1["NextToken"].(string)
+	require.Equal(t, "wg2", nextToken, "boundary of the first page must be the 3rd sorted name")
+
+	// Delete the boundary workgroup the stale token points at.
+	rec = athenaDoPass5(t, h, "DeleteWorkGroup", `{"WorkGroup":"wg2"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = athenaDoPass5(t, h, "ListWorkGroups", fmt.Sprintf(`{"MaxResults":2,"NextToken":%q}`, nextToken))
+	require.Equal(t, http.StatusOK, rec.Code)
+	page2 := athenaUnmarshalPass5(t, rec)
+	wgs, _ := page2["WorkGroups"].([]any)
+	require.Len(t, wgs, 2)
+
+	names := make([]string, len(wgs))
+	for i, w := range wgs {
+		names[i] = w.(map[string]any)["Name"].(string)
+	}
+	assert.Equal(t, []string{"wg3", "wg4"}, names,
+		"must resume after the deleted boundary, not restart from offset 0")
 }

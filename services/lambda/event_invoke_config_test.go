@@ -165,6 +165,37 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 	}
 }
 
+// TestFunctionEventInvokeConfig_LastModifiedIsEpochSeconds locks in a
+// wire-shape bug found by field-diffing against the aws-sdk-go-v2 deserializer
+// (deserializers.go's PutFunctionEventInvokeConfig/GetFunctionEventInvokeConfig
+// case for "LastModified" parses a json.Number, not a string): unlike
+// FunctionConfiguration.LastModified (an ISO8601 string),
+// FunctionEventInvokeConfig.LastModified must serialize as a JSON number of
+// seconds since the Unix epoch, or a real aws-sdk-go-v2 client would reject
+// the response with "expected Timestamp to be a JSON Number, got string
+// instead".
+func TestFunctionEventInvokeConfig_LastModifiedIsEpochSeconds(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	createFunctionForTest(t, h, "eic-epoch-fn")
+
+	rec := callInMemoryHandler(t, h, http.MethodPut,
+		"/2015-03-31/functions/eic-epoch-fn/event-invoke-config", `{"MaximumRetryAttempts":1}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+
+	lastModified, ok := raw["LastModified"]
+	require.True(t, ok, "response must include LastModified")
+
+	numeric, isNumber := lastModified.(float64)
+	require.True(t, isNumber, "LastModified must be a JSON number (epoch seconds), got %T: %v",
+		lastModified, lastModified)
+	assert.Greater(t, numeric, float64(0))
+}
+
 // ---- GetFunctionEventInvokeConfig tests ----
 
 func TestGetFunctionEventInvokeConfig(t *testing.T) {

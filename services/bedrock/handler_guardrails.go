@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
 )
 
@@ -308,55 +307,4 @@ func (h *Handler) handleCreateGuardrailVersion(c *echo.Context, id string, body 
 		GuardrailID: gv.GuardrailID,
 		Version:     gv.Version,
 	})
-}
-
-type putEnforcedGuardrailInput struct {
-	GuardrailID      string `json:"guardrailId"`
-	GuardrailVersion string `json:"guardrailVersion"`
-}
-
-func (h *Handler) handleListEnforcedGuardrailsConfiguration(c *echo.Context) error {
-	configs := h.Backend.ListEnforcedGuardrailsConfiguration()
-	items := make([]map[string]any, 0, len(configs))
-
-	for _, cfg := range configs {
-		items = append(items, map[string]any{
-			"guardrailId":      cfg.GuardrailID,
-			"guardrailVersion": cfg.GuardrailVersion,
-		})
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"enforcedGuardrailConfigurations": items})
-}
-
-func (h *Handler) handlePutEnforcedGuardrailConfiguration(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
-	}
-
-	in, parseErr := parseBody[putEnforcedGuardrailInput](body)
-	if parseErr != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
-	}
-
-	h.Backend.PutEnforcedGuardrailConfiguration(in.GuardrailID, in.GuardrailVersion)
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleDeleteEnforcedGuardrailConfiguration(c *echo.Context) error {
-	guardrailID := c.Request().URL.Query().Get("guardrailId")
-	if guardrailID == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			errorResponse("ValidationException", "guardrailId query parameter is required"),
-		)
-	}
-
-	if err := h.Backend.DeleteEnforcedGuardrailConfiguration(guardrailID); err != nil {
-		return h.writeError(c, err)
-	}
-
-	return c.NoContent(http.StatusNoContent)
 }

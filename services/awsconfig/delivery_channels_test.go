@@ -107,7 +107,7 @@ func TestAWSConfigBackend_PutDeliveryChannel_Validation(t *testing.T) {
 			name:     "empty_name_fails",
 			chanName: "",
 			bucket:   "my-bucket",
-			wantErr:  awsconfig.ErrValidation,
+			wantErr:  awsconfig.ErrInvalidDeliveryChannelName,
 		},
 		{
 			name:     "empty_bucket_fails",
@@ -208,4 +208,58 @@ func TestAWSConfigBackend_DeleteDeliveryChannel(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestAWSConfigBackend_DeliverConfigSnapshot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown_channel_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.DeliverConfigSnapshot("nonexistent")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoSuchDeliveryChannel)
+	})
+
+	t.Run("no_recorder_configured_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutDeliveryChannel("chan", "bucket", "", "", nil))
+
+		_, err := b.DeliverConfigSnapshot("chan")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoAvailableConfigurationRecorder)
+	})
+
+	t.Run("no_running_recorder_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutDeliveryChannel("chan", "bucket", "", "", nil))
+		require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::123:role/r", nil))
+
+		_, err := b.DeliverConfigSnapshot("chan")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoRunningConfigurationRecorder)
+	})
+
+	t.Run("running_recorder_returns_snapshot_id", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutDeliveryChannel("chan", "bucket", "", "", nil))
+		require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::123:role/r", nil))
+		require.NoError(t, b.StartConfigurationRecorder("rec"))
+
+		id, err := b.DeliverConfigSnapshot("chan")
+		require.NoError(t, err)
+		assert.NotEmpty(t, id)
+
+		// A second delivery produces a distinct snapshot ID.
+		id2, err := b.DeliverConfigSnapshot("chan")
+		require.NoError(t, err)
+		assert.NotEqual(t, id, id2)
+	})
 }

@@ -1,10 +1,13 @@
 package redshift
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // CreateIntegration creates a new zero-ETL integration.
 func (b *InMemoryBackend) CreateIntegration(
-	integrationName, sourceArn, targetArn, kmsKeyID, description string,
+	integrationName, sourceArn, targetArn, kmsKeyID, description string, tags map[string]string,
 ) (*Integration, error) {
 	if integrationName == "" {
 		return nil, fmt.Errorf("%w: IntegrationName is required", ErrInvalidParameter)
@@ -34,6 +37,8 @@ func (b *InMemoryBackend) CreateIntegration(
 		KmsKeyID:        kmsKeyID,
 		Description:     description,
 		Status:          endpointStatusActive,
+		CreateTime:      time.Now().UTC(),
+		Tags:            tags,
 	}
 	b.integrations.Put(ig)
 
@@ -89,8 +94,12 @@ func (b *InMemoryBackend) DescribeIntegrations(integrationArn string) ([]Integra
 	return result, nil
 }
 
-// ModifyIntegration updates the description of an integration.
-func (b *InMemoryBackend) ModifyIntegration(integrationArn, description string) (*Integration, error) {
+// ModifyIntegration updates the description and/or name of an integration. Real
+// ModifyIntegrationInput (aws-sdk-go-v2/service/redshift@v1.62.3) supports renaming
+// via IntegrationName in addition to Description.
+func (b *InMemoryBackend) ModifyIntegration(
+	integrationArn, description, newIntegrationName string,
+) (*Integration, error) {
 	if integrationArn == "" {
 		return nil, fmt.Errorf("%w: IntegrationArn is required", ErrInvalidParameter)
 	}
@@ -99,12 +108,29 @@ func (b *InMemoryBackend) ModifyIntegration(integrationArn, description string) 
 	defer b.mu.Unlock()
 
 	for _, ig := range b.integrations.All() {
-		if ig.IntegrationArn == integrationArn {
-			ig.Description = description
-			cp := *ig
-
-			return &cp, nil
+		if ig.IntegrationArn != integrationArn {
+			continue
 		}
+
+		if description != "" {
+			ig.Description = description
+		}
+
+		if newIntegrationName != "" && newIntegrationName != ig.IntegrationName {
+			if _, exists := b.integrations.Get(newIntegrationName); exists {
+				return nil, fmt.Errorf(
+					"%w: integration %s already exists", ErrIntegrationAlreadyExists, newIntegrationName,
+				)
+			}
+
+			b.integrations.Delete(ig.IntegrationName)
+			ig.IntegrationName = newIntegrationName
+			b.integrations.Put(ig)
+		}
+
+		cp := *ig
+
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: integration %s not found", ErrIntegrationNotFound, integrationArn)

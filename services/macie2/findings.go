@@ -2,10 +2,24 @@ package macie2
 
 import (
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
 )
+
+// categoryPolicy is the real FindingCategory enum value for a policy
+// finding ("POLICY"), produced by "Policy:"-prefixed finding types.
+const categoryPolicy = "POLICY"
+
+// sampleFindingSchemaVersion is the schema version CreateSampleFindings
+// stamps onto its fabricated findings.
+const sampleFindingSchemaVersion = "1.0"
+
+// sampleObjectSizeBytes is the fabricated size CreateSampleFindings reports
+// for its sample S3 object's classification result.
+const sampleObjectSizeBytes = 1024
 
 // GetFindings retrieves findings by ID.
 func (b *InMemoryBackend) GetFindings(findingIDs []string) ([]*Finding, error) {
@@ -118,7 +132,14 @@ func matchesFindingCriteria(finding *storedFinding, criteria map[string]any) boo
 	return true
 }
 
-// CreateSampleFindings creates sample findings.
+// sampleBucketName is the placeholder S3 bucket CreateSampleFindings
+// attributes its fabricated findings to.
+const sampleBucketName = "DOC-EXAMPLE-BUCKET"
+
+// CreateSampleFindings creates sample findings. Real Macie's sample findings
+// use realistic example resource/classification data rather than empty
+// fields, so this populates the same category-appropriate ResourcesAffected/
+// ClassificationDetails shape a live scan would produce.
 func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 	b.mu.Lock("CreateSampleFindings")
 	defer b.mu.Unlock()
@@ -129,24 +150,54 @@ func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 	}
 
 	now := time.Now().UTC()
+	bucketArn := arn.BuildS3(sampleBucketName)
 
 	for _, ft := range types {
 		id := uuid.New().String()
-		b.findings.Put(&storedFinding{
-			Finding: Finding{
-				AccountID:   b.accountID,
-				Archived:    false,
-				Category:    categorySensitiveData,
-				CreatedAt:   now,
-				Description: "Sample finding of type " + ft,
-				ID:          id,
-				Region:      b.region,
-				Severity:    Severity{Description: "Medium", Score: defaultFindingScore},
-				Title:       "Sample: " + ft,
-				Type:        ft,
-				UpdatedAt:   now,
+		category := categoryClassification
+
+		if strings.HasPrefix(ft, "Policy:") {
+			category = categoryPolicy
+		}
+
+		finding := Finding{
+			AccountID:     b.accountID,
+			Archived:      false,
+			Category:      category,
+			Count:         1,
+			CreatedAt:     now,
+			Description:   "Sample finding of type " + ft,
+			ID:            id,
+			Partition:     "aws",
+			Region:        b.region,
+			Sample:        true,
+			SchemaVersion: sampleFindingSchemaVersion,
+			ResourcesAffected: &ResourcesAffected{
+				S3Bucket: &AffectedS3Bucket{Arn: bucketArn, Name: sampleBucketName},
 			},
-		})
+			Severity:  Severity{Description: "Medium", Score: defaultFindingScore},
+			Title:     "Sample: " + ft,
+			Type:      ft,
+			UpdatedAt: now,
+		}
+
+		if category == categoryClassification {
+			finding.ResourcesAffected.S3Object = &AffectedS3Object{
+				BucketArn: bucketArn,
+				Key:       "sample-object.txt",
+				Path:      sampleBucketName + "/sample-object.txt",
+			}
+			finding.ClassificationDetails = &ClassificationDetails{
+				OriginType: "SENSITIVE_DATA_DISCOVERY_JOB",
+				Result: &ClassificationResult{
+					MimeType:       "text/plain",
+					SizeClassified: sampleObjectSizeBytes,
+					Status:         &ClassificationResultStatus{Code: "COMPLETE"},
+				},
+			}
+		}
+
+		b.findings.Put(&storedFinding{Finding: finding})
 	}
 
 	return nil
@@ -168,9 +219,9 @@ func (b *InMemoryBackend) GetFindingStatistics(groupBy string, _ map[string]any)
 		case "severity.description":
 			key = f.Severity.Description
 		case "resourcesAffected.s3Bucket.name":
-			key = "unknown-bucket"
+			key = bucketNameOf(f.Finding)
 		case "classificationDetails.jobId":
-			key = "unknown-job"
+			key = jobIDOf(f.Finding)
 		default:
 			key = f.Type
 		}
@@ -187,6 +238,22 @@ func (b *InMemoryBackend) GetFindingStatistics(groupBy string, _ map[string]any)
 	sort.Slice(result, func(i, j int) bool { return result[i].GroupKey < result[j].GroupKey })
 
 	return result, nil
+}
+
+func bucketNameOf(f Finding) string {
+	if f.ResourcesAffected != nil && f.ResourcesAffected.S3Bucket != nil && f.ResourcesAffected.S3Bucket.Name != "" {
+		return f.ResourcesAffected.S3Bucket.Name
+	}
+
+	return "unknown-bucket"
+}
+
+func jobIDOf(f Finding) string {
+	if f.ClassificationDetails != nil && f.ClassificationDetails.JobID != "" {
+		return f.ClassificationDetails.JobID
+	}
+
+	return "unknown-job"
 }
 
 // GetFindingsPublicationConfiguration returns the findings publication config.

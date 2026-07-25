@@ -422,7 +422,7 @@ func TestGetSupportedOperationsAllOps(t *testing.T) {
 	}
 }
 
-// TestErrValidationMapping verifies ErrValidation maps to HTTP 400.
+// TestErrValidationMapping verifies ErrInvalidParameter maps to HTTP 400.
 func TestErrValidationMapping(t *testing.T) {
 	t.Parallel()
 

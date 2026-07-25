@@ -76,20 +76,53 @@ type DeploymentStrategy struct {
 	FinalBakeTimeInMinutes      int32     `json:"FinalBakeTimeInMinutes"`
 }
 
+// DeploymentEvent represents a single event in a deployment's history.
+// ActionInvocations is intentionally unmodeled: this backend does not
+// simulate real extension-action execution (Lambda invocation, SSM
+// documents, ...), so a real SDK client's ActionInvocations would always
+// come back empty here regardless -- see AppliedExtensions on Deployment
+// for the same rationale. That matches AWS's own shape (the field is
+// optional) rather than fabricating invocation data.
+type DeploymentEvent struct {
+	OccurredAt  time.Time `json:"OccurredAt,omitzero"`
+	EventType   string    `json:"EventType"`
+	Description string    `json:"Description,omitempty"`
+	TriggeredBy string    `json:"TriggeredBy,omitempty"`
+}
+
+// AppliedExtension identifies an extension association that was in effect
+// for an application, environment, or configuration profile when a
+// deployment started.
+type AppliedExtension struct {
+	Parameters             map[string]string `json:"Parameters,omitempty"`
+	ExtensionAssociationID string            `json:"ExtensionAssociationId,omitempty"`
+	ExtensionID            string            `json:"ExtensionId,omitempty"`
+	VersionNumber          int32             `json:"VersionNumber,omitempty"`
+}
+
 // Deployment represents an AppConfig deployment.
 type Deployment struct {
-	StartedAt              time.Time `json:"StartedAt,omitzero"`
-	CompletedAt            time.Time `json:"CompletedAt,omitzero"`
-	ApplicationID          string    `json:"ApplicationId"`
-	EnvironmentID          string    `json:"EnvironmentId"`
-	ConfigurationProfileID string    `json:"ConfigurationProfileId"`
-	DeploymentStrategyID   string    `json:"DeploymentStrategyId"`
-	ConfigurationVersion   string    `json:"ConfigurationVersion"`
-	State                  string    `json:"State"`
-	TriggeredBy            string    `json:"TriggeredBy,omitempty"`
-	Description            string    `json:"Description,omitempty"`
-	PercentageComplete     float32   `json:"PercentageComplete,omitempty"`
-	DeploymentNumber       int32     `json:"DeploymentNumber"`
+	StartedAt                   time.Time          `json:"StartedAt,omitzero"`
+	CompletedAt                 time.Time          `json:"CompletedAt,omitzero"`
+	ApplicationID               string             `json:"ApplicationId"`
+	EnvironmentID               string             `json:"EnvironmentId"`
+	ConfigurationProfileID      string             `json:"ConfigurationProfileId"`
+	DeploymentStrategyID        string             `json:"DeploymentStrategyId"`
+	ConfigurationVersion        string             `json:"ConfigurationVersion"`
+	State                       string             `json:"State"`
+	TriggeredBy                 string             `json:"TriggeredBy,omitempty"`
+	Description                 string             `json:"Description,omitempty"`
+	ConfigurationName           string             `json:"ConfigurationName,omitempty"`
+	ConfigurationLocationURI    string             `json:"ConfigurationLocationUri,omitempty"`
+	GrowthType                  string             `json:"GrowthType,omitempty"`
+	VersionLabel                string             `json:"VersionLabel,omitempty"`
+	EventLog                    []DeploymentEvent  `json:"EventLog,omitempty"`
+	AppliedExtensions           []AppliedExtension `json:"AppliedExtensions,omitempty"`
+	PercentageComplete          float32            `json:"PercentageComplete,omitempty"`
+	GrowthFactor                float32            `json:"GrowthFactor,omitempty"`
+	DeploymentNumber            int32              `json:"DeploymentNumber"`
+	DeploymentDurationInMinutes int32              `json:"DeploymentDurationInMinutes,omitempty"`
+	FinalBakeTimeInMinutes      int32              `json:"FinalBakeTimeInMinutes,omitempty"`
 }
 
 // ExtensionAction represents a single action in an AppConfig extension.

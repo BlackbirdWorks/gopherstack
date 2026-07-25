@@ -6,10 +6,13 @@ import (
 )
 
 type createWebhookInput struct {
-	ProjectName  string            `json:"projectName"`
-	BranchFilter string            `json:"branchFilter,omitempty"`
-	BuildType    string            `json:"buildType,omitempty"`
-	FilterGroups [][]WebhookFilter `json:"filterGroups,omitempty"`
+	ManualCreation         *bool                   `json:"manualCreation,omitempty"`
+	PullRequestBuildPolicy *PullRequestBuildPolicy `json:"pullRequestBuildPolicy,omitempty"`
+	ScopeConfiguration     *ScopeConfiguration     `json:"scopeConfiguration,omitempty"`
+	ProjectName            string                  `json:"projectName"`
+	BranchFilter           string                  `json:"branchFilter,omitempty"`
+	BuildType              string                  `json:"buildType,omitempty"`
+	FilterGroups           [][]WebhookFilter       `json:"filterGroups,omitempty"`
 }
 
 type createWebhookOutput struct {
@@ -24,7 +27,11 @@ func (h *Handler) handleCreateWebhook(
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.CreateWebhook(in.ProjectName, in.BranchFilter, in.BuildType, in.FilterGroups)
+	w, err := h.Backend.CreateWebhook(in.ProjectName, in.BranchFilter, in.BuildType, in.FilterGroups, WebhookConfig{
+		ManualCreation:         in.ManualCreation,
+		PullRequestBuildPolicy: in.PullRequestBuildPolicy,
+		ScopeConfiguration:     in.ScopeConfiguration,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -51,10 +58,12 @@ func (h *Handler) handleDeleteWebhook(_ context.Context, in *deleteWebhookInput)
 }
 
 type updateWebhookInput struct {
-	ProjectName  string            `json:"projectName"`
-	BranchFilter string            `json:"branchFilter,omitempty"`
-	BuildType    string            `json:"buildType,omitempty"`
-	FilterGroups [][]WebhookFilter `json:"filterGroups,omitempty"`
+	PullRequestBuildPolicy *PullRequestBuildPolicy `json:"pullRequestBuildPolicy,omitempty"`
+	ProjectName            string                  `json:"projectName"`
+	BranchFilter           string                  `json:"branchFilter,omitempty"`
+	BuildType              string                  `json:"buildType,omitempty"`
+	FilterGroups           [][]WebhookFilter       `json:"filterGroups,omitempty"`
+	RotateSecret           bool                    `json:"rotateSecret,omitempty"`
 }
 
 type updateWebhookOutput struct {
@@ -66,7 +75,10 @@ func (h *Handler) handleUpdateWebhook(_ context.Context, in *updateWebhookInput)
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.UpdateWebhook(in.ProjectName, in.BranchFilter, in.BuildType, in.FilterGroups)
+	w, err := h.Backend.UpdateWebhook(in.ProjectName, in.BranchFilter, in.BuildType, in.FilterGroups, WebhookConfig{
+		PullRequestBuildPolicy: in.PullRequestBuildPolicy,
+		RotateSecret:           in.RotateSecret,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -23,6 +23,3 @@ func HarvestJobCount(b *InMemoryBackend) int {
 
 	return b.harvestJobs.Len()
 }
-
-// PackagingConfigCount returns the number of stored packaging configurations.
-func PackagingConfigCount(b *InMemoryBackend) int { return b.packagingConfigurations.Len() }

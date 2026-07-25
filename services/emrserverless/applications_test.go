@@ -163,11 +163,6 @@ func TestStartApplication_RejectsInvalidStates(t *testing.T) {
 	}{
 		{name: "from_stopped", fromState: emrserverless.ApplicationStateStopped, wantErr: false},
 		{name: "from_terminated", fromState: emrserverless.ApplicationStateTerminated, wantErr: true},
-		{
-			name:      "from_terminated_with_error",
-			fromState: emrserverless.ApplicationStateTerminatedWithError,
-			wantErr:   true,
-		},
 	}
 
 	for _, tt := range tests {

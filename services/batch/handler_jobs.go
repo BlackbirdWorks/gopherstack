@@ -95,10 +95,11 @@ type describeJobsInput struct {
 
 // jobDetail mirrors aws-sdk-go-v2/service/batch/types.JobDetail's field names
 // and nesting (see deserializers.go's awsRestjson1_deserializeDocumentJobDetail
-// case list). Notably: "schedulingPriority" not "schedulingPriorityOverride"
-// on the wire, and there is no top-level "containerOverrides" in real output
-// -- overrides are merged into "container" instead, which this emulator does
-// not yet model, so it is intentionally omitted here rather than faked.
+// case list). NodeDetails/EcsProperties/EksProperties (the describe-side
+// variants) are not modeled -- they require simulating ECS/EKS/multi-node
+// execution details, which is out of scope for this emulator (see
+// PARITY.md); Container, IsCancelled, IsTerminated, and PlatformCapabilities
+// are modeled.
 type jobDetail struct {
 	StoppedAt                    *int64                        `json:"stoppedAt,omitempty"`
 	StartedAt                    *int64                        `json:"startedAt,omitempty"`
@@ -106,6 +107,7 @@ type jobDetail struct {
 	Timeout                      *JobTimeout                   `json:"timeout,omitempty"`
 	ArrayProperties              *ArrayProperties              `json:"arrayProperties,omitempty"`
 	ConsumableResourceProperties *ConsumableResourceProperties `json:"consumableResourceProperties,omitempty"`
+	Container                    *ContainerDetail              `json:"container,omitempty"`
 	Tags                         map[string]string             `json:"tags"`
 	Parameters                   map[string]string             `json:"parameters,omitempty"`
 	JobARN                       string                        `json:"jobArn,omitempty"`
@@ -117,9 +119,12 @@ type jobDetail struct {
 	StatusReason                 string                        `json:"statusReason,omitempty"`
 	ShareIdentifier              string                        `json:"shareIdentifier,omitempty"`
 	DependsOn                    []JobDependency               `json:"dependsOn,omitempty"`
+	PlatformCapabilities         []string                      `json:"platformCapabilities,omitempty"`
 	CreatedAt                    int64                         `json:"createdAt"`
 	SchedulingPriorityOverride   int32                         `json:"schedulingPriority,omitempty"`
 	PropagateTags                bool                          `json:"propagateTags,omitempty"`
+	IsCancelled                  bool                          `json:"isCancelled"`
+	IsTerminated                 bool                          `json:"isTerminated"`
 }
 
 type describeJobsOutput struct {
@@ -147,11 +152,15 @@ func (h *Handler) handleDescribeJobs(ctx context.Context, in *describeJobsInput)
 			Timeout:                      j.Timeout,
 			ArrayProperties:              j.ArrayProperties,
 			ConsumableResourceProperties: j.ConsumableResourceProperties,
+			Container:                    j.Container,
 			Parameters:                   j.Parameters,
 			DependsOn:                    j.DependsOn,
 			ShareIdentifier:              j.ShareIdentifier,
+			PlatformCapabilities:         j.PlatformCapabilities,
 			SchedulingPriorityOverride:   j.SchedulingPriorityOverride,
 			PropagateTags:                j.PropagateTags,
+			IsCancelled:                  j.IsCancelled,
+			IsTerminated:                 j.IsTerminated,
 		})
 	}
 

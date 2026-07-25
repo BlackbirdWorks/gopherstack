@@ -26,9 +26,20 @@ var ErrResourcePolicyConditionFailed = awserr.New(
 // policy when resourceARN is empty). existsCondition ("MUST_EXIST"/"NOT_EXIST"/""
 // or "NONE") and hashCondition mirror PutResourcePolicyInput's
 // PolicyExistsCondition/PolicyHashCondition optimistic-concurrency guards.
+// enableHybrid mirrors PutResourcePolicyInput.EnableHybrid ("TRUE"/"FALSE"/"");
+// AWS requires it be "TRUE" only when the account already has cross-account
+// access granted via the Lake Formation console alongside this policy — this
+// backend does not model Lake Formation console grants, so that precondition
+// never applies and any well-formed value is accepted and recorded.
 func (b *InMemoryBackend) PutResourcePolicy(
-	policy, resourceARN, existsCondition, hashCondition string,
+	policy, resourceARN, existsCondition, hashCondition, enableHybrid string,
 ) (string, error) {
+	switch enableHybrid {
+	case "", "TRUE", "FALSE":
+	default:
+		return "", fmt.Errorf("%w: EnableHybrid must be TRUE or FALSE", ErrValidation)
+	}
+
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
@@ -63,10 +74,11 @@ func (b *InMemoryBackend) PutResourcePolicy(
 	}
 
 	b.resourcePolicies[key] = &resourcePolicyEntry{
-		Policy:     policy,
-		Hash:       hash,
-		CreateTime: createTime,
-		UpdateTime: now,
+		Policy:       policy,
+		Hash:         hash,
+		EnableHybrid: enableHybrid,
+		CreateTime:   createTime,
+		UpdateTime:   now,
 	}
 
 	return hash, nil

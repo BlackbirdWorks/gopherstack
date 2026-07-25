@@ -358,3 +358,80 @@ func TestHandler_TagResource_RuleGroup(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+// TestHandler_ListTagsForResource_Pagination verifies ListTagsForResource
+// honors Limit/NextMarker instead of always returning the full tag set,
+// matching the real ListTagsForResourceInput/Output shape (both fields are
+// documented on the real SDK's api_op_ListTagsForResource.go).
+func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	w, err := wafv2.CreateWebACLSimple(h.Backend, "paginated-tags-acl", "REGIONAL", "", "ALLOW", nil)
+	require.NoError(t, err)
+
+	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+
+	tagRec := doWafv2Request(t, h, "TagResource", map[string]any{
+		"ResourceARN": arnStr,
+		"Tags": []map[string]string{
+			{"Key": "a", "Value": "1"},
+			{"Key": "b", "Value": "2"},
+			{"Key": "c", "Value": "3"},
+		},
+	})
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	// First page: Limit 2 returns exactly 2 tags plus a NextMarker.
+	firstRec := doWafv2Request(t, h, "ListTagsForResource", map[string]any{
+		"ResourceARN": arnStr,
+		"Limit":       2,
+	})
+	require.Equal(t, http.StatusOK, firstRec.Code, firstRec.Body.String())
+
+	var first map[string]any
+	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &first))
+
+	firstInfo, ok := first["TagInfoForResource"].(map[string]any)
+	require.True(t, ok)
+	firstList, ok := firstInfo["TagList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, firstList, 2)
+
+	marker, ok := first["NextMarker"].(string)
+	require.True(t, ok, "NextMarker should be present when more tags remain")
+	assert.NotEmpty(t, marker)
+
+	// Second page: the remaining tag, no further NextMarker.
+	secondRec := doWafv2Request(t, h, "ListTagsForResource", map[string]any{
+		"ResourceARN": arnStr,
+		"Limit":       2,
+		"NextMarker":  marker,
+	})
+	require.Equal(t, http.StatusOK, secondRec.Code, secondRec.Body.String())
+
+	var second map[string]any
+	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &second))
+
+	secondInfo, ok := second["TagInfoForResource"].(map[string]any)
+	require.True(t, ok)
+	secondList, ok := secondInfo["TagList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, secondList, 1)
+	_, hasMarker := second["NextMarker"]
+	assert.False(t, hasMarker, "NextMarker should be absent once all tags are returned")
+
+	// No Limit: full tag set in one page, no NextMarker.
+	allRec := doWafv2Request(t, h, "ListTagsForResource", map[string]any{
+		"ResourceARN": arnStr,
+	})
+	require.Equal(t, http.StatusOK, allRec.Code)
+
+	var all map[string]any
+	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &all))
+	allInfo, ok := all["TagInfoForResource"].(map[string]any)
+	require.True(t, ok)
+	allList, ok := allInfo["TagList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, allList, 3)
+}

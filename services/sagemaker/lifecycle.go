@@ -31,6 +31,9 @@ const (
 	notebookStatusStopping      = "Stopping"
 	trainingJobStatusInProgress = "InProgress"
 	keyNotebookInstanceArn      = "NotebookInstanceArn"
+	// secondaryStatusStarting is the initial SecondaryStatus/AutoMLJobSecondaryStatus
+	// value used by both TrainingJob and AutoMLJob's synthetic secondary-status FSMs.
+	secondaryStatusStarting = "Starting"
 )
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -254,15 +255,15 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 	switch {
 	case errors.Is(err, ErrNotFound):
-		status, code = http.StatusNotFound, "ResourceNotFoundException"
+		status, code = http.StatusNotFound, errCodeResourceNotFound
 	case errors.Is(err, ErrAlreadyExists):
 		status, code = http.StatusConflict, "ConflictException"
 	case errors.Is(err, ErrValidation):
-		status, code = http.StatusBadRequest, "ValidationException"
+		status, code = http.StatusBadRequest, errCodeValidation
 	case errors.Is(err, errUnknownAction):
-		status, code = http.StatusNotFound, "ResourceNotFoundException"
+		status, code = http.StatusNotFound, errCodeResourceNotFound
 	case errors.Is(err, errInvalidRequest):
-		status, code = http.StatusBadRequest, "ValidationException"
+		status, code = http.StatusBadRequest, errCodeValidation
 	}
 
 	return c.JSON(status, databrewErrorResponse{Type: code, Message: err.Error()})
@@ -338,6 +339,33 @@ func mapResourceOp(resource, method, name, subOp string) (string, string) {
 	return opUnknown, ""
 }
 
+// onceSimpleQueryParamToJSONKey lazily initialises the query-string-param ->
+// JSON-body-key lookup table exactly once, for the DataBrew query params
+// that are plain pass-through strings (no special-cased merge/derivation
+// logic) -- see mergeSimpleQueryParams.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table
+var onceSimpleQueryParamToJSONKey = sync.OnceValue(func() map[string]string {
+	return map[string]string{
+		"maxResults":    "MaxResults",
+		"nextToken":     nextTokenKey,
+		"datasetName":   "DatasetName",
+		"projectName":   "ProjectName",
+		"targetArn":     "TargetArn",
+		"recipeVersion": "RecipeVersion",
+	}
+})
+
+// mergeSimpleQueryParams copies every onceSimpleQueryParamToJSONKey entry
+// present on the request into m.
+func mergeSimpleQueryParams(c *echo.Context, m map[string]json.RawMessage) {
+	for param, jsonKey := range onceSimpleQueryParamToJSONKey() {
+		if v := c.QueryParam(param); v != "" {
+			m[jsonKey], _ = json.Marshal(v)
+		}
+	}
+}
+
 func enrichDataBrewBody(c *echo.Context, _, name string, body []byte) ([]byte, error) {
 	m := make(map[string]json.RawMessage)
 	if len(body) > 0 {
@@ -357,21 +385,8 @@ func enrichDataBrewBody(c *echo.Context, _, name string, body []byte) ([]byte, e
 		m["Name"] = nameJSON
 	}
 
-	if maxResults := c.QueryParam("maxResults"); maxResults != "" {
-		m["MaxResults"], _ = json.Marshal(maxResults)
-	}
-	if nextToken := c.QueryParam("nextToken"); nextToken != "" {
-		m[nextTokenKey], _ = json.Marshal(nextToken)
-	}
-	if v := c.QueryParam("datasetName"); v != "" {
-		m["DatasetName"], _ = json.Marshal(v)
-	}
-	if v := c.QueryParam("projectName"); v != "" {
-		m["ProjectName"], _ = json.Marshal(v)
-	}
-	if v := c.QueryParam("targetArn"); v != "" {
-		m["TargetArn"], _ = json.Marshal(v)
-	}
+	mergeSimpleQueryParams(c, m)
+
 	// UntagResource is DELETE /tags/{ResourceArn}?tagKeys=a&tagKeys=b -- TagKeys
 	// travels as a repeated query param, never in the (typically absent) DELETE
 	// body. Confirmed against aws-sdk-go-v2's serializer

@@ -2,11 +2,11 @@
 service: appconfigdata
 sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.23.20   # version audited against
 last_audit_commit: 128350087c039303f08b6d8113ec9f9ac4cbc4b9
-last_audit_date: 2026-07-13
-overall: B            # already-accurate on the core protocol; 3 concrete defects fixed
+last_audit_date: 2026-07-24
+overall: A            # both ops field-diffed clean against the real SDK + botocore service-2.json; only remaining item is a documented cross-service wiring gap
 ops:
-  StartConfigurationSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "identifier max-length was 2048, real Identifier shape max is 128 -- fixed"}
-  GetLatestConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "poll-interval echo took max(default,declared) instead of declared-or-default -- fixed; empty-blob-on-unchanged semantics were already correct"}
+  StartConfigurationSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "identifier max-length was 2048, real Identifier shape max is 128 -- fixed in a prior pass"}
+  GetLatestConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "poll-interval echo and empty-blob-on-unchanged semantics already correct; this pass fixed the 204-vs-200 responseCode deviation (see below)"}
 gaps:
   - appconfigdata's config content store (SetConfiguration) is entirely self-contained and
     is never populated by services/appconfig (the control-plane service that owns
@@ -20,22 +20,15 @@ gaps:
     per-session but with no link to services/appconfig's deployment lifecycle (no
     deployment-state transitions, no rollback-on-deploy, no version pinning to a specific
     DeploymentId even though ConfigVersion.DeploymentId exists as a field and is never
-    populated). This is a cross-service wiring gap in services/appconfig +
-    cli.go/dashboard, out of scope for an appconfigdata-only edit. (bd: file a
-    gopherstack-appconfig-appconfigdata-bridge issue)
-  - GetLatestConfiguration returns HTTP 204 (No Content) when the configuration is
-    unchanged and HTTP 200 when it has content. The real service-2.json models a *fixed*
-    `responseCode: 200` for GetLatestConfiguration -- AWS always answers 200, with an empty
-    body when nothing changed, never 204. This was NOT changed in this pass: both
-    aws-sdk-go-v2 (`response.StatusCode < 200 || >= 300` in deserializers.go) and botocore
-    (`http.status_code >= 300`) treat any 2xx as success, so no real SDK client observes a
-    difference, and the existing test suite (including a real aws-sdk-go-v2-driven
-    integration test, parity_pass1_test.go) has deep, deliberate coverage asserting 204.
-    Flagging as a known wire-shape deviation from the literal AWS model rather than fixing,
-    since fixing has zero functional benefit for any SDK and would be a large, purely
-    cosmetic diff across ~15 test assertions. (bd: low-priority, cosmetic-only)
+    populated). This is a cross-service wiring gap in services/appconfig + cli.go/dashboard,
+    out of scope for an appconfigdata-only edit -- fixing it means wiring a
+    Set<Config>-style accessor into cli.go's provider-init sequence (the same pattern used
+    by wireIoTRules/wireAppSyncLambda for other control-plane/data-plane service pairs), and
+    this pass's mandate explicitly forbids editing cli.go. Re-confirmed still open and
+    already tracked: bd issue gopherstack-uiyi ("appconfigdata disconnected from appconfig
+    control-plane"), open, priority 2.
 deferred: []
-leaks: {status: clean, note: "janitor.go SessionSweeper ticker exits cleanly on ctx.Done(); no unbounded goroutines"}
+leaks: {status: clean, note: "janitor.go SessionSweeper ticker is ctx-parented via worker.NewGroup and exits cleanly on ctx.Done() (g.Stop() joins on return); SweepExpiredSessions purges both idle/absolute-expired sessions and expired grace-token cache entries in the same pass, so neither table grows unbounded. Verified this pass with new janitor_test.go: TestJanitor_RunExitsOnContextCancel (goroutine actually exits within 500ms of cancel, not just 'looks ctx-parented by inspection') and TestJanitor_SweepsExpiredSessionsOnTick (the ticker actually invokes the sweep and evicts a live session, not just a direct SweepExpiredSessions() unit test)."}
 ---
 
 ## Notes
@@ -53,7 +46,7 @@ leaks: {status: clean, note: "janitor.go SessionSweeper ticker exits cleanly on 
     InternalServerException(500), ResourceNotFoundException(404), ThrottlingException(429).
     There is no PayloadTooLargeException for this service -- a stray
     `exceptionPayloadTooLarge` const existed in types.go, unused and describing a fictitious
-    AWS exception type; removed.
+    AWS exception type; removed in a prior pass.
   - BadRequestException.Reason enum: only "InvalidParameters" exists in the real model --
     matches badRequestReasonInvalidParameters.
   - InvalidParameterProblem enum: Corrupted, Expired, PollIntervalNotSatisfied -- exact
@@ -61,13 +54,43 @@ leaks: {status: clean, note: "janitor.go SessionSweeper ticker exits cleanly on 
   - ResourceNotFoundException.ResourceType enum: Application, ConfigurationProfile,
     Deployment, Environment, Configuration -- exact 5-value match (only Deployment is
     actually raised today; the rest exist for API-shape completeness).
-  - Identifier shape: min 1, max **128** (verified via botocore's bundled service-2.json;
-    gopherstack previously enforced 2048, which was never the real bound -- fixed, along
-    with the two boundary tests that encoded the wrong number).
+  - Identifier shape: min 1, max **128** (re-verified this pass directly against botocore
+    1.43.34's bundled `appconfigdata/2021-11-11/service-2.json.gz`, decompressed and
+    inspected locally: `{"max": 128, "min": 1, "type": "string"}`).
+  - Token shape: pattern `\S{1,8192}` (non-whitespace, 1-8192 chars) -- gopherstack's
+    `<64-hex-random>.<16-hex-mac>` token format is well within bounds; server-side length/
+    pattern enforcement isn't needed since malformed tokens already fail the MAC check and
+    surface as BadRequestException/Corrupted.
   - OptionalPollSeconds (RequiredMinimumPollIntervalInSeconds) shape: min 15, max 86400 --
     already correct in gopherstack, no change needed.
+  - StartConfigurationSession responseCode: fixed 201. GetLatestConfiguration responseCode:
+    fixed 200 (see the 204-vs-200 fix below).
 
-- **Bug fixed**: `writeGetLatestConfigurationResponse` computed
+- **Bug fixed this pass**: `writeGetLatestConfigurationResponse` returned HTTP 204 (No
+  Content) when the configuration was unchanged since the last poll. Re-verified directly
+  against botocore's bundled service-2.json: `GetLatestConfiguration`'s `http` binding is
+  `{"method": "GET", "requestUri": "/configuration", "responseCode": 200}` -- a *fixed*
+  code, with no 204 variant documented anywhere in the model, even when the `Configuration`
+  payload is empty. AWS's real behavior is 200 with an empty body, never 204. A previous
+  audit pass had already caught this deviation and explicitly chose not to fix it (see prior
+  revision of this file), reasoning that both aws-sdk-go-v2's deserializer
+  (`response.StatusCode < 200 || >= 300`) and botocore's (`http.status_code >= 300`) accept
+  any 2xx as success, so no real SDK client observes a difference. That reasoning is correct
+  as far as it goes, but "TRUE AWS parity" means matching the documented wire shape exactly,
+  not just what happens not to break the two reference SDKs -- a raw HTTP client, a
+  different-language SDK, or a test harness asserting on status code directly would all see
+  the deviation. Fixed `handleGetLatestConfigurationResponse` to always return
+  `http.StatusOK` (with an empty body via `c.NoContent`, exactly as before, just with a
+  different status). Updated ~16 test assertions across configuration_test.go and
+  profile_test.go that previously asserted `http.StatusNoContent`; all now assert
+  `http.StatusOK` plus an explicit empty-body check where relevant, so the "unchanged means
+  no body" behavior remains fully covered even though the status code no longer
+  distinguishes the two cases. sdk_flow_test.go's real-aws-sdk-go-v2-driven integration test
+  did not need a status-code change (it never asserted on raw HTTP status), only a stale
+  comment fix; it still passes unmodified because the SDK, as noted above, always treated
+  200 and 204 as equivalent success.
+
+- **Bug fixed in a prior pass**: `writeGetLatestConfigurationResponse` computed
   `Next-Poll-Interval-In-Seconds` as `max(defaultPollIntervalInSeconds, session-declared)`.
   Since the AWS-allowed minimum declared interval (15s) is below the service default (30s),
   every session declaring an interval in [15,29] silently got back "30" instead of its own
@@ -75,21 +98,21 @@ leaks: {status: clean, note: "janitor.go SessionSweeper ticker exits cleanly on 
   asked to, and clients round-tripping the header value elsewhere would see a value that
   doesn't match what they requested. Fixed to use the declared value whenever
   `PollIntervalInSeconds > 0`, falling back to the default only when the client left it at
-  0 (unset). Regression test: TestHandler_PollIntervalHonored now covers both an
-  above-default (60s) and a below-default (15s) declared interval.
+  0 (unset). Regression test: TestHandler_PollIntervalHonored covers both an above-default
+  (60s) and a below-default (15s) declared interval.
 
 - **The most important behavior for this service** -- GetLatestConfiguration returning a
   full `Configuration` blob on the first poll and an *empty* blob on subsequent polls when
   the underlying profile's content hash hasn't changed -- was already correctly implemented
-  (backend.go's `hash != sess.PreviousContentHash` check) and is exercised end-to-end via a
-  real aws-sdk-go-v2 client in parity_pass1_test.go's TestParity_SDKFullSessionFlow. No
+  (configuration.go's `hash != sess.PreviousContentHash` check) and is exercised end-to-end
+  via a real aws-sdk-go-v2 client in sdk_flow_test.go's TestSDKClient_FullSessionFlow. No
   changes needed here.
 
 - Token lifecycle (opaque, single-use, rotated every successful poll, HMAC-signed with a
   process-lifetime signing key, ~5-minute grace window for idempotent retry of the
   just-rotated-away token, 24h absolute + 1h idle janitor-swept expiry) all verified against
   the "each token is valid for one call... valid for up to 24 hours" documentation and
-  found already correct; no changes made to backend.go's token logic.
+  found already correct; no changes made to backend.go's token logic this pass.
 
 - Persistence: Handler.Snapshot/Restore delegate to InMemoryBackend, which uses
   pkgs/store.Registry across three tables (profiles, sessions, graceTokens). Round-trip
@@ -98,3 +121,8 @@ leaks: {status: clean, note: "janitor.go SessionSweeper ticker exits cleanly on 
   process start, matching the sibling AppConfig control-plane service's pagination-secret
   precedent) -- a restored session token will fail its MAC check and surface as
   ErrTokenCorrupted after a restart; this is a documented, accepted limitation, not a bug.
+
+- Chaos/fault-injection (ChaosServiceName/ChaosOperations/ChaosRegions) is wired via the
+  generic pkgs/chaos middleware keyed by service+operation name, not per-handler code --
+  ThrottlingException is reachable through that path even though nothing in this package
+  raises it directly.

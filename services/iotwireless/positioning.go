@@ -8,7 +8,7 @@ import (
 
 // GetPosition returns the position data for a resource.
 func (b *InMemoryBackend) GetPosition(resourceID string) map[string]any {
-	b.mu.RLock()
+	b.mu.RLock("GetPosition")
 	defer b.mu.RUnlock()
 
 	if pos, ok := b.positions[resourceID]; ok {
@@ -23,7 +23,7 @@ func (b *InMemoryBackend) GetPosition(resourceID string) map[string]any {
 
 // UpdatePosition updates the position data for a resource.
 func (b *InMemoryBackend) UpdatePosition(resourceID string, position map[string]any) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdatePosition")
 	defer b.mu.Unlock()
 
 	pos := make(map[string]any, len(position))
@@ -63,7 +63,7 @@ func annotateSemtechGnssSolver(solvers map[string]any) map[string]any {
 func (b *InMemoryBackend) PutPositionConfiguration(
 	resourceID, resourceType, destination string, solvers map[string]any,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("PutPositionConfiguration")
 	defer b.mu.Unlock()
 
 	b.positionConfigs.Put(&PositionConfigEntry{
@@ -79,7 +79,7 @@ func (b *InMemoryBackend) PutPositionConfiguration(
 // GetPositionConfiguration returns the stored position configuration for a
 // resource, if any.
 func (b *InMemoryBackend) GetPositionConfiguration(resourceID string) (*PositionConfigEntry, bool) {
-	b.mu.RLock()
+	b.mu.RLock("GetPositionConfiguration")
 	defer b.mu.RUnlock()
 
 	e, ok := b.positionConfigs.Get(resourceID)
@@ -95,7 +95,7 @@ func (b *InMemoryBackend) GetPositionConfiguration(resourceID string) (*Position
 // ListPositionConfigurations returns all stored position configurations,
 // optionally filtered by resource type.
 func (b *InMemoryBackend) ListPositionConfigurations(resourceType string) []*PositionConfigEntry {
-	b.mu.RLock()
+	b.mu.RLock("ListPositionConfigurations")
 	defer b.mu.RUnlock()
 
 	all := b.positionConfigs.All()

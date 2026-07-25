@@ -198,6 +198,19 @@ func (h *S3Handler) readSelectRequest(
 		return nil, nil, 0, false
 	}
 
+	// Per the real SDK's HTTP binding (SelectObjectContentInput.SSECustomerAlgorithm/
+	// -Key/-KeyMD5 are header-bound, not part of the request XML body), the
+	// SSE-C key needed to read an SSE-C encrypted source object travels as
+	// the same X-Amz-Server-Side-Encryption-Customer-* headers GetObject
+	// uses — so extract and thread it through exactly like GetObject does.
+	sse, sseErr := extractSSEInfo(r)
+	if sseErr != nil {
+		WriteError(ctx, w, r, sseErr)
+
+		return nil, nil, 0, false
+	}
+	ctx = context.WithValue(ctx, sseKey, sse)
+
 	getOut, getErr := h.Backend.GetObject(ctx, &awss3.GetObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
@@ -209,6 +222,14 @@ func (h *S3Handler) readSelectRequest(
 	}
 
 	defer getOut.Body.Close()
+
+	if validateErr := validateSSECOnRead(
+		r, aws.ToString(getOut.SSECustomerAlgorithm), aws.ToString(getOut.SSECustomerKeyMD5),
+	); validateErr != nil {
+		WriteError(ctx, w, r, validateErr)
+
+		return nil, nil, 0, false
+	}
 
 	objectData, readErr := io.ReadAll(getOut.Body)
 	if readErr != nil {

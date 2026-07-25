@@ -68,6 +68,10 @@ func (b *InMemoryBackend) CreateApplication(
 	}
 	b.applicationPut(app)
 
+	// Real AWS: "Creates an application that has one configuration template
+	// named default and no application versions" -- see defaultConfigTemplateName.
+	b.createDefaultConfigurationTemplate(region, name)
+
 	return cloneApplication(app), nil
 }
 

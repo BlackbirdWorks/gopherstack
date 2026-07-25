@@ -1,8 +1,10 @@
 package iotwireless
 
 import (
+	"cmp"
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 
@@ -86,12 +88,20 @@ func (h *Handler) getPartnerAccount(c *echo.Context, partnerAccountID string) er
 func (h *Handler) listPartnerAccounts(c *echo.Context) error {
 	accounts := h.Backend.ListPartnerAccounts()
 
-	sidewalk := make([]sidewalkAccountInfo, 0, len(accounts))
+	all := make([]sidewalkAccountInfo, 0, len(accounts))
 	for id, arn := range accounts {
-		sidewalk = append(sidewalk, sidewalkAccountInfo{AmazonID: id, Arn: arn})
+		all = append(all, sidewalkAccountInfo{AmazonID: id, Arn: arn})
 	}
 
-	return writeJSON(c, http.StatusOK, listPartnerAccountsResponse{Sidewalk: sidewalk})
+	// Sort for deterministic, pagination-stable ordering -- ListPartnerAccounts
+	// returns a map, whose iteration order Go randomizes on every call.
+	slices.SortFunc(all, func(a, b sidewalkAccountInfo) int {
+		return cmp.Compare(a.AmazonID, b.AmazonID)
+	})
+
+	pg, next := paginateQuery(c, all)
+
+	return writeJSON(c, http.StatusOK, listPartnerAccountsResponse{Sidewalk: pg, NextToken: next})
 }
 
 func (h *Handler) disassociateAwsAccountFromPartnerAccount(

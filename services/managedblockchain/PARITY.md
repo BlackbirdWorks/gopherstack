@@ -2,51 +2,50 @@
 service: managedblockchain
 sdk_module: aws-sdk-go-v2/service/managedblockchain@v1.31.19
 last_audit_commit: efd78e54
-last_audit_date: 2026-07-13
+last_audit_date: 2026-07-24
 overall: A
 ops:
-  CreateNetwork: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetNetwork: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNetworks: {wire: ok, errors: ok, state: ok, persist: ok, note: "no server-side pagination (maxResults/nextToken accepted-but-ignored); see gaps"}
-  CreateMember: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetMember: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListMembers: {wire: ok, errors: ok, state: ok, persist: ok, note: "no server-side pagination; see gaps"}
+  CreateNetwork: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "FrameworkConfiguration.Fabric.Edition, VpcEndpointServiceName, Framework restricted to HYPERLEDGER_FABRIC; see Notes"}
+  GetNetwork: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric + VpcEndpointServiceName"}
+  ListNetworks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented via pkgs/page; see Notes"}
+  CreateMember: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "MemberConfiguration.FrameworkConfiguration.Fabric.AdminUsername/AdminPassword now required and validated, KmsKeyArn accepted; see Notes"}
+  GetMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.AdminUsername/CaEndpoint + KmsKeyArn"}
+  ListMembers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   DeleteMember: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades to member's nodes, matching real AWS"}
   UpdateMember: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateNode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "path + MemberId location were wrong; see Notes"}
-  GetNode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "path + MemberId location were wrong; see Notes"}
-  ListNodes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "path + MemberId location were wrong; see Notes"}
-  DeleteNode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "path + MemberId location were wrong; see Notes"}
-  UpdateNode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "path + MemberId location were wrong; see Notes"}
+  CreateNode: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "NodeConfiguration.StateDB accepted (defaults CouchDB), KmsKeyArn inherited from owning member; see Notes"}
+  GetNode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.PeerEndpoint/PeerEventEndpoint + StateDB + KmsKeyArn"}
+  ListNodes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
+  DeleteNode: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateNode: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateProposal: {wire: ok, errors: ok, state: ok, persist: ok}
   GetProposal: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListProposals: {wire: ok, errors: ok, state: ok, persist: ok, note: "no server-side pagination; see gaps"}
+  ListProposals: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   VoteOnProposal: {wire: ok, errors: ok, state: ok, persist: ok, note: "tallies votes and resolves APPROVED/REJECTED against VotingPolicy; not a disguised no-op"}
-  ListProposalVotes: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListProposalVotes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
+  ListInvitations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   RejectInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAccessors: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAccessors: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  network: {status: ok, note: "CreateNetwork/GetNetwork/ListNetworks verified against serializers.go opPath + field tags"}
-  member: {status: ok, note: "CreateMember/GetMember/ListMembers/DeleteMember/UpdateMember paths and bodies match the real SDK"}
-  node: {status: fixed, note: "entire family had the wrong URI shape; see Notes -- this was a real, high-impact bug, not a wire nit"}
-  proposal: {status: ok, note: "CreateProposal/GetProposal/ListProposals/ListProposalVotes/VoteOnProposal verified; vote tallying and threshold-based APPROVED/REJECTED transition confirmed real (not a stub)"}
-  invitation: {status: ok, note: "ListInvitations/RejectInvitation only -- correctly no CreateInvitation op (real AWS has none either; invitations are created only as a side effect of an approved proposal's Invitations actions, which executeProposalActionsLocked implements)"}
-  accessor: {status: ok, note: "CreateAccessor/GetAccessor/DeleteAccessor/ListAccessors verified"}
+  network: {status: fixed, note: "CreateNetwork/GetNetwork/ListNetworks field-diffed against types.go/api_op_*.go/validators.go; FrameworkAttributes+VpcEndpointServiceName+Framework restriction added, see Notes"}
+  member: {status: fixed, note: "MemberConfiguration.FrameworkConfiguration was entirely unmodeled (a real, required field per validateMemberFabricConfiguration) -- now implemented with real server-side validation + FrameworkAttributes/KmsKeyArn on responses, see Notes"}
+  node: {status: fixed, note: "StateDB/KmsKeyArn/FrameworkAttributes were entirely unmodeled -- now implemented; the prior audit's node-routing-URI fix remains correct and unchanged"}
+  proposal: {status: ok, note: "CreateProposal/GetProposal/ListProposals/ListProposalVotes/VoteOnProposal verified; vote tallying and threshold-based APPROVED/REJECTED transition confirmed real (not a stub); ListProposals/ListProposalVotes now paginate"}
+  invitation: {status: ok, note: "ListInvitations/RejectInvitation only -- correctly no CreateInvitation op (real AWS has none either; invitations are created only as a side effect of an approved proposal's Invitations actions, which executeProposalActionsLocked implements); ListInvitations now paginates"}
+  accessor: {status: ok, note: "CreateAccessor/GetAccessor/DeleteAccessor/ListAccessors verified; ListAccessors now paginates"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against /tags/{ResourceArn} shape and ARN-keyed lookup"}
 gaps:
-  - "List* ops (ListNetworks/ListMembers/ListNodes/ListProposals/ListAccessors/ListInvitations/ListProposalVotes) accept maxResults/nextToken but always return every matching item in one page (NextToken always omitted). Real AWS paginates. Low risk for an emulator (SDK clients that loop on NextToken still terminate correctly since it's never set), but a client asserting a specific page size would see the whole result set. Not filed as a bd issue this pass -- flagging for the next audit to decide whether pkgs/page is worth wiring in."
-  - "Node.FrameworkAttributes (e.g. Fabric's PeerEndpoint/PeerEventEndpoint, Ethereum's Http/WebSocket endpoints) is not modeled -- GetNode/ListNodes responses omit it entirely. Same for Member.FrameworkAttributes' KmsKeyArn-style fields. A client that reads a node's peer endpoint to actually connect to Fabric will get nothing back. Deferred: modeling this accurately requires deciding what a 'connectable' emulated peer endpoint even means for gopherstack, which is a bigger design question than a wire-shape bug fix."
   - "CreateMember ignores req.InvitationId -- every CreateMember call succeeds as if the caller already owns the network (IsOwned: true always), whereas real AWS requires a live invitation for cross-account members. gopherstack has no multi-account model, so this is a reasonable simplification, not flagged as a bug to fix."
   - "No artificial service quotas (max members per network, max nodes per member, max networks per account) are enforced, so ResourceLimitExceededException is never returned. Consistent with this emulator's general no-limits style elsewhere; not treated as a bug."
+  - "Network.FrameworkAttributes.Ethereum and Node.FrameworkAttributes.Ethereum are not modeled: CreateNetwork's real API documents itself as \"Applies only to Hyperledger Fabric\" (new networks can no longer be created on Ethereum), and gopherstack rejects a non-Fabric Framework at CreateNetwork accordingly (ErrUnsupportedNetworkFramework). Real AWS's Ethereum surface is reached only via CreateNode against a pre-existing public network (e.g. NetworkId \"n-ethereum-mainnet\"), which gopherstack does not pre-seed. Deferred: pre-seeding a public Ethereum network is a bigger design question (what does an emulated public network with no owning account even mean?) than a wire-shape fix, and CreateNode's actual routed behavior (member-owned Fabric nodes) is unaffected."
 deferred: []
-leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend.mu is the single coarse lockmetrics.RWMutex guarding every map/store.Table, consistent with pkgs-catalog.md's locking rule"}
+leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend.mu is the single coarse lockmetrics.RWMutex guarding every map/store.Table, consistent with pkgs-catalog.md's locking rule. The new paginate() helper (pagination.go) and buildNetworkFrameworkAttributes/buildMemberFrameworkAttributes/CreateNode's FrameworkAttributes synthesis are all pure functions operating on already-locked state or post-lock snapshots -- no new lock paths introduced."}
 ---
 
 ## Notes
@@ -54,61 +53,86 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBa
 **Framework/protocol**: restjson1. Base path family is `/networks`, plus `/tags/{ResourceArn}`,
 `/accessors[/{AccessorId}]`, `/invitations[/{InvitationId}]`.
 
-**The Node routing bug (this pass's real fix)**: before this audit, gopherstack routed every node
-operation under `/networks/{networkId}/members/{memberId}/nodes[/{nodeId}]` -- i.e. nodes nested
-under their owning member in the URI, mirroring how members nest under networks. This shape does
-**not exist** in the real API. Checked directly against
-`aws-sdk-go-v2/service/managedblockchain@v1.31.19`'s `serializers.go`: every node op's `opPath`
-resolves to `/networks/{NetworkId}/nodes` (CreateNode, ListNodes) or
-`/networks/{NetworkId}/nodes/{NodeId}` (GetNode, DeleteNode, UpdateNode) -- the member is never
-part of the URI. `MemberId` instead travels as a JSON body field on CreateNode
-(`encoder` binds it nowhere -- it's a plain body member) and as the `memberId` query parameter on
-every other node op (`encoder.SetQuery("memberId")` in the real serializer, confirmed for
-GetNode/ListNodes/DeleteNode/UpdateNode).
+**This pass's real fixes** (field-diffed against `aws-sdk-go-v2/service/managedblockchain@v1.31.19`'s
+`types/types.go`, `api_op_*.go`, and `validators.go`):
 
-Impact: this was not a cosmetic wire-shape nit. A real `aws-sdk-go-v2` client calling `CreateNode`
-sends `POST /networks/{id}/nodes`; gopherstack's old `parsePath` only recognized
-`/networks/{id}/members/{id}/nodes`, so that request fell through to `parsePath`'s `"", ""` case
-and every node operation 404'd against a real SDK client (`ResourceNotFoundException: unknown
-operation`). Unit tests didn't catch it because they hand-built requests using the same
-(wrong) path convention the handler itself expected -- a self-consistent but non-real fixture.
+1. **`MemberConfiguration.FrameworkConfiguration` was entirely unmodeled.** The real API's
+   `validateMemberConfiguration` client-side validator requires it on *both* `CreateNetwork`'s
+   nested `MemberConfiguration` and `CreateMember`'s top-level one, and `validateMemberFabricConfiguration`
+   requires `Fabric.AdminUsername`/`Fabric.AdminPassword` whenever `FrameworkConfiguration.Fabric` is
+   supplied. gopherstack previously accepted `CreateMember`/`CreateNetwork` requests missing this
+   field entirely -- a raw HTTP client bypassing SDK-side validation sailed straight through with a
+   member that had no Fabric identity at all. `validateMemberConfigurationRequest` in
+   `handler_networks.go` now mirrors these validators server-side (stricter than the real API in one
+   respect: gopherstack requires `Fabric` specifically, not just a non-nil `FrameworkConfiguration`,
+   since gopherstack only emulates Hyperledger Fabric -- same rationale as `ErrMissingNodeMemberID`).
+   `AdminPassword`'s real documented 8-32 character length constraint is also enforced
+   (`ErrInvalidMemberAdminPassword`). New errors: `ErrMissingMemberFrameworkConfig`,
+   `ErrMissingMemberFabricConfig`, `ErrMissingMemberAdminUsername`, `ErrMissingMemberAdminPassword`,
+   `ErrInvalidMemberAdminPassword`.
 
-Fixed in `handler.go`: `parseNetworksPath` now recognizes a `nodes` segment as a sibling of
-`members`/`proposals` (not nested under `members`); `parseNetworkNodesPath` replaces the deleted
-`parseNodesPath` and resolves `/networks/{id}/nodes[/{nodeId}]` without ever consuming a member
-segment. `parseMembersPath` was also tightened while here: it now requires the path to end exactly
-at `/networks/{id}/members/{id}` (or a trailing slash) rather than accepting any 4+-segment path
-with a nonempty `parts[3]` as a member resource -- previously a stray path like the old (now
-deleted) member-nested node shape would have silently resolved as `UpdateMember`/`GetMember`
-instead of falling through to "unknown operation", which is what a real API gateway would do.
+2. **`Member.FrameworkAttributes` / `Node.FrameworkAttributes` / `Network.FrameworkAttributes` were
+   entirely unmodeled** -- the prior audit pass explicitly deferred this as "a bigger design question."
+   They are now implemented for real: `Member.FrameworkAttributes.Fabric.AdminUsername` (echoed from
+   the request) and `.CaEndpoint` (synthesized, since gopherstack has no real Fabric CA --
+   `memberCaEndpoint` in `members.go`); `Node.FrameworkAttributes.Fabric.PeerEndpoint`/
+   `.PeerEventEndpoint` (synthesized -- `nodePeerEndpoint`/`nodePeerEventEndpoint` in `nodes.go`);
+   `Network.FrameworkAttributes.Fabric.Edition` (echoed from `FrameworkConfiguration.Fabric.Edition`
+   when the caller supplies it -- gopherstack does *not* invent an edition the caller never asked
+   for) and `.OrderingServiceEndpoint` (synthesized -- `fabricOrderingServiceEndpoint` in
+   `networks.go`). Only Fabric is modeled on all three, matching gopherstack's Fabric-only scope --
+   see the Ethereum gap above.
 
-Handler-side: `handleCreateNode` now reads `MemberId` from the decoded JSON body (added to
-`createNodeRequest` in `models.go`) instead of splitting it out of the URI; `handleGetNode`,
-`handleListNodes`, `handleDeleteNode`, `handleUpdateNode` now read `memberId` from
-`c.Request().URL.Query()` instead of a 3-way URI split (the now-dead `splitThreePart` helper was
-deleted). All five ops return `InvalidRequestException` (`ErrMissingNodeMemberID`,
-new in `backend.go`) if `MemberId`/`memberId` is missing -- real AWS documents it as "required for
-Hyperledger Fabric" on every node op, and gopherstack only emulates Hyperledger Fabric networks
-(`defaultFramework = "HYPERLEDGER_FABRIC"`), so it is unconditionally required here.
+3. **`Member.KmsKeyArn` / `Node.KmsKeyArn` were entirely unmodeled.** Real AWS documents the sentinel
+   string `"AWS Owned KMS Key"` as the default when the caller supplies no customer managed key, and
+   documents that a node "inherits this parameter from the member that it belongs to." Both are now
+   implemented: `resolveMemberKmsKeyArn` in `members.go` applies the default/passthrough at
+   `CreateMember`/`CreateNetwork` time, and `CreateNode` in `nodes.go` copies its owning member's
+   current `KmsKeyArn` (looked up under the same lock that already validates the member exists).
 
-A new test, `TestHandler_NodeLifecycle_RealWireShape` in `handler_test.go`, drives the full node
-lifecycle (Create/Get/List/Update/Delete) through both `h.RouteMatcher()` (with a real
-`managedblockchain` `Authorization` header) and `h.Handler()` together via a new `doRoutedRequest`
-helper, using the exact real-wire path/body/query shape -- this is the "goes through the matcher"
-test class called out in `.claude/memories/parity-principles.md`'s route-matcher bug list.
-`TestHandler_ExtractOperationAndResource` also gained cases proving the old member-nested node
-shape now resolves to no operation at all (rather than silently matching something else).
+4. **`NodeConfiguration.StateDB` / `Node.StateDB` were entirely unmodeled.** Real AWS defaults to
+   `CouchDB` for Hyperledger Fabric 1.4+ (gopherstack's only emulated version --
+   `defaultFrameworkVersion`); `resolveStateDB` in `nodes.go` now applies that default or the
+   caller's explicit `LevelDB`/`CouchDB` choice.
+
+5. **`Network.VpcEndpointServiceName` was entirely unmodeled.** Real AWS assigns every `AVAILABLE`
+   network a VPC PrivateLink endpoint service name regardless of framework configuration; now
+   synthesized unconditionally at network-creation time (`networkVPCEndpointServiceName`).
+
+6. **`CreateNetwork` accepted any `Framework` value, including `ETHEREUM`.** The real API's
+   `CreateNetwork` doc comment states "Applies only to Hyperledger Fabric" -- new networks can no
+   longer be created on any other framework. gopherstack now rejects a non-empty, non-
+   `HYPERLEDGER_FABRIC` `Framework` at `CreateNetwork` with `InvalidRequestException`
+   (`ErrUnsupportedNetworkFramework`), while leaving `Framework=ETHEREUM` valid everywhere else it's
+   used (e.g. `Accessor.NetworkType`'s `ETHEREUM_MAINNET`/`ETHEREUM_GOERLI`, unrelated to this enum).
+
+7. **No server-side pagination.** Every `List*` op (`ListNetworks`/`ListMembers`/`ListNodes`/
+   `ListProposals`/`ListProposalVotes`/`ListAccessors`/`ListInvitations`) previously accepted
+   `maxResults`/`nextToken` but always returned every matching item in one page. Now implemented via
+   the shared `paginate()` helper in `pagination.go`, which wraps `pkgs/page.New` (the same
+   convention `services/acmpca` already established) -- confirmed the real query parameter names
+   (`maxResults`/`nextToken`, both lowercase) directly against `serializers.go`'s
+   `SetQuery("maxResults")`/`SetQuery("nextToken")` bindings, identical across all seven ops.
+   `defaultListPageSize` (100) matches `services/acmpca`'s `defaultMaxItems` convention since real
+   AWS does not document a specific default for this service.
+
+**The prior pass's node-routing-URI fix** (nodes live at `/networks/{id}/nodes[/{id}]` with
+`MemberId` carried via JSON body / `memberId` query parameter, never nested under `/members/`)
+remains correct and was re-verified against `serializers.go`'s `opPath` constants during this pass;
+no changes were needed there.
 
 **Timestamps**: `*time.Time` fields marshal via Go's default `encoding/json` (RFC3339Nano), which
 `smithytime.ParseDateTime` (used by every `CreationDate`/`ExpirationDate` field in the real
 deserializer) parses correctly. Confirmed NOT an epoch-vs-ISO8601 bug class hit here -- this
 service's JSON protocol (restjson1) uses ISO8601 date-time timestamps by default, unlike services
-whose JSON members are individually marked epoch-seconds.
+whose JSON members are individually marked epoch-seconds. Re-confirmed this pass for the new
+surfaces added: `FrameworkAttributes`/`KmsKeyArn`/`StateDB`/`VpcEndpointServiceName` are all plain
+strings, so no new timestamp fields were introduced.
 
 **Error codes**: gopherstack's `errorResponse{Message, Code}` round-trips correctly through the
 real SDK's `restjson.GetErrorInfo`, which matches `Code`/`code` and `Message`/`message` names
 case-insensitively via plain `encoding/json` struct tags (confirmed by reading
-`aws/protocol/restjson/decoder_util.go`). All four codes gopherstack emits
+`aws/protocol/restjson/decoder_util.go`). All error codes gopherstack emits
 (`ResourceNotFoundException`, `ResourceAlreadyExistsException`, `InvalidRequestException`,
 `InternalServiceErrorException`) match real exception types in `types/errors.go`.
 

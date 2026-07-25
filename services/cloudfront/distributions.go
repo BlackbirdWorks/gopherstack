@@ -20,8 +20,13 @@ func (b *InMemoryBackend) distributionARN(id string) string {
 }
 
 // CreateDistribution creates a new CloudFront distribution.
-// If a distribution with the same CallerReference already exists, it is returned
-// without creating a duplicate (idempotent).
+//
+// Unlike OAI/PublicKey/KeyGroup/FLE-profile, reusing a CallerReference here is
+// NOT idempotent even when the new config is byte-identical to the original:
+// the real CreateDistribution API docs state that CloudFront returns a
+// DistributionAlreadyExists error whenever CallerReference was already used to
+// create a distribution, "regardless of the content of the DistributionConfig
+// object".
 func (b *InMemoryBackend) CreateDistribution(
 	callerRef, comment string,
 	enabled bool,
@@ -34,11 +39,11 @@ func (b *InMemoryBackend) CreateDistribution(
 		return nil, fmt.Errorf("%w: CallerReference must not be empty", ErrValidation)
 	}
 
-	// Idempotency: return existing distribution for the same CallerReference.
-	if existingID, ok := b.distributionCallerRefs[callerRef]; ok {
-		existing, _ := b.distributions.Get(existingID)
-
-		return b.copyDistribution(existing), nil
+	if _, ok := b.distributionCallerRefs[callerRef]; ok {
+		return nil, fmt.Errorf(
+			"%w: CallerReference %q is associated with another distribution",
+			ErrDistributionAlreadyExists, callerRef,
+		)
 	}
 
 	id := generateID()
@@ -210,6 +215,13 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 		return nil, fmt.Errorf("%w: CallerReference must not be empty", ErrValidation)
 	}
 
+	if _, exists := b.distributionCallerRefs[callerRef]; exists {
+		return nil, fmt.Errorf(
+			"%w: CallerReference %q is associated with another distribution",
+			ErrDistributionAlreadyExists, callerRef,
+		)
+	}
+
 	id := generateID()
 	rawCopy := make([]byte, len(src.RawConfig))
 	copy(rawCopy, src.RawConfig)
@@ -230,6 +242,7 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 
 	b.distributions.Put(d)
 	b.distributionARNs[d.ARN] = id
+	b.distributionCallerRefs[callerRef] = id
 	b.indexDistributionConfig(id, rawCopy)
 
 	return b.copyDistribution(d), nil

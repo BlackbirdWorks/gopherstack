@@ -5,10 +5,34 @@ import (
 )
 
 // CreateOutboundConnection creates a new outbound cross-cluster connection.
+// It starts in PENDING_ACCEPTANCE, matching real AWS behavior where the
+// remote domain owner must accept the connection before it becomes ACTIVE.
+// gopherstack emulates a single account/region, so it also mirrors a pending
+// InboundConnection sharing the same ConnectionId (Local/Remote swapped) so
+// the connection can be discovered and accepted/rejected via the inbound
+// cross-cluster connection APIs, exactly like a real remote domain owner
+// would see it.
 func (b *InMemoryBackend) CreateOutboundConnection(
-	connectionAlias string,
-	localDomainInfo, remoteDomainInfo map[string]any,
+	connectionAlias, connectionMode string,
+	localDomainInfo, remoteDomainInfo DomainInformation,
+	skipUnavailable, endpoint string,
 ) (*OutboundConnection, error) {
+	if connectionAlias == "" {
+		return nil, fmt.Errorf("%w: ConnectionAlias is required", ErrInvalidParameter)
+	}
+
+	if localDomainInfo.DomainName == "" {
+		return nil, fmt.Errorf("%w: LocalDomainInfo.AWSDomainInformation.DomainName is required", ErrInvalidParameter)
+	}
+
+	if remoteDomainInfo.DomainName == "" {
+		return nil, fmt.Errorf("%w: RemoteDomainInfo.AWSDomainInformation.DomainName is required", ErrInvalidParameter)
+	}
+
+	if connectionMode == "" {
+		connectionMode = connectionModeDirect
+	}
+
 	b.mu.Lock("CreateOutboundConnection")
 	defer b.mu.Unlock()
 
@@ -18,11 +42,22 @@ func (b *InMemoryBackend) CreateOutboundConnection(
 	conn := &OutboundConnection{
 		ConnectionID:     id,
 		ConnectionAlias:  connectionAlias,
+		ConnectionMode:   connectionMode,
+		Status:           connStatusPendingAcceptance,
+		SkipUnavailable:  skipUnavailable,
+		Endpoint:         endpoint,
 		LocalDomainInfo:  localDomainInfo,
 		RemoteDomainInfo: remoteDomainInfo,
-		Status:           connectionStatusActive,
 	}
 	b.outboundConnections.Put(conn)
+
+	b.inboundConnections.Put(&InboundConnection{
+		ConnectionID:     id,
+		ConnectionMode:   connectionMode,
+		Status:           connStatusPendingAcceptance,
+		LocalDomainInfo:  remoteDomainInfo,
+		RemoteDomainInfo: localDomainInfo,
+	})
 
 	cp := *conn
 
@@ -51,8 +86,8 @@ func (b *InMemoryBackend) DescribeOutboundConnections() []*OutboundConnection {
 }
 
 // DeleteOutboundConnection removes an outbound connection by ID. With a
-// processing delay configured the connection first enters an observable DELETING
-// window before it is finally removed.
+// processing delay configured the connection first enters an observable
+// DELETING window before it is finally removed.
 func (b *InMemoryBackend) DeleteOutboundConnection(
 	connectionID string,
 ) (*OutboundConnection, error) {

@@ -33,7 +33,7 @@ func TestPersistence_SnapshotRestoreRoundTrip(t *testing.T) {
 				ctx := context.Background()
 				src := TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
 
-				ta, err := b.CreateTrustAnchor(ctx, "anchor-1", src, []TagEntry{{Key: "env", Value: "prod"}}, nil)
+				ta, err := b.CreateTrustAnchor(ctx, "anchor-1", src, []TagEntry{{Key: "env", Value: "prod"}}, nil, nil)
 				require.NoError(t, err)
 				require.NoError(t, b.TagResource(ctx, ta.TrustAnchorArn, []TagEntry{{Key: "team", Value: "platform"}}))
 
@@ -55,18 +55,22 @@ func TestPersistence_SnapshotRestoreRoundTrip(t *testing.T) {
 				ta := list[0]
 				assert.Equal(t, "anchor-1", ta.Name)
 				assert.True(t, ta.Enabled)
-				require.Len(t, ta.Tags, 1)
-				assert.Equal(t, "prod", ta.Tags[0].Value)
 
-				// TagResource writes to a separate resourceARN-keyed map
-				// (b.tags) from the creation-time ta.Tags field -- they are
-				// never merged (see ListTagsForResource in tags.go) -- so
-				// ListTagsForResource only ever reflects TagResource calls.
+				// TrustAnchor carries no Tags field of its own (real AWS
+				// TrustAnchorDetail has none either) -- both the
+				// creation-time tags and the TagResource-added tag live in
+				// the same ARN-keyed tags store and round-trip together via
+				// ListTagsForResource.
 				tags, err := b.ListTagsForResource(ctx, ta.TrustAnchorArn)
 				require.NoError(t, err)
-				require.Len(t, tags, 1)
-				assert.Equal(t, "team", tags[0].Key)
-				assert.Equal(t, "platform", tags[0].Value)
+				require.Len(t, tags, 2)
+
+				found := make(map[string]string, len(tags))
+				for _, tg := range tags {
+					found[tg.Key] = tg.Value
+				}
+				assert.Equal(t, "prod", found["env"])
+				assert.Equal(t, "platform", found["team"])
 
 				settings := b.GetNotificationSettings(ctx, ta.TrustAnchorID)
 				require.Len(t, settings, 1)
@@ -84,6 +88,7 @@ func TestPersistence_SnapshotRestoreRoundTrip(t *testing.T) {
 
 				p, err := b.CreateProfile(
 					ctx, "profile-1", []string{"arn:aws:iam::000000000000:role/Example"}, nil, nil, nil, "", false,
+					nil, nil,
 				)
 				require.NoError(t, err)
 
@@ -238,7 +243,7 @@ func TestPersistence_RestoreVersionMismatch(t *testing.T) {
 			src := TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
 
 			donor := NewInMemoryBackend("000000000000", "us-east-1")
-			_, err := donor.CreateTrustAnchor(ctx, "donor-anchor", src, nil, nil)
+			_, err := donor.CreateTrustAnchor(ctx, "donor-anchor", src, nil, nil, nil)
 			require.NoError(t, err)
 
 			var snapMap map[string]any
@@ -252,7 +257,7 @@ func TestPersistence_RestoreVersionMismatch(t *testing.T) {
 			// can prove the mismatch discards it rather than leaving it
 			// untouched or merging in the donor's trust anchor.
 			target := NewInMemoryBackend("000000000000", "us-east-1")
-			_, err = target.CreateTrustAnchor(ctx, "target-anchor", src, nil, nil)
+			_, err = target.CreateTrustAnchor(ctx, "target-anchor", src, nil, nil, nil)
 			require.NoError(t, err)
 
 			require.NoError(t, target.Restore(ctx, mutatedSnap))
@@ -292,7 +297,7 @@ func TestHandler_SnapshotRestore_Delegates(t *testing.T) {
 	backend := NewInMemoryBackend("000000000000", "us-east-1")
 	h := NewHandler(backend)
 
-	_, err := backend.CreateTrustAnchor(ctx, "handler-anchor", src, nil, nil)
+	_, err := backend.CreateTrustAnchor(ctx, "handler-anchor", src, nil, nil, nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(ctx)

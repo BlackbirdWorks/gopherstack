@@ -206,6 +206,45 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
+	t.Run("DnsIpAddrs and StageLastUpdatedDateTime are present and advance with stage", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+
+		createRec := doRequest(t, h, "CreateDirectory", map[string]any{
+			"Name": "stage.example.com", "Password": "Admin1234!", "Size": "Small",
+		})
+		var createResp map[string]any
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		dirID := createResp["DirectoryId"].(string)
+
+		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		resp := respBody(t, rec)
+		dirs, _ := resp["DirectoryDescriptions"].([]any)
+		require.Len(t, dirs, 1)
+		dir := dirs[0].(map[string]any)
+
+		dnsIPs, ok := dir["DnsIpAddrs"].([]any)
+		require.True(t, ok, "DnsIpAddrs must be present on the wire")
+		assert.NotEmpty(t, dnsIPs)
+		requestedUpdated := dir["StageLastUpdatedDateTime"]
+		assert.NotEmpty(t, requestedUpdated)
+
+		backend := h.Backend.(*directoryservice.InMemoryBackend)
+		require.True(t, directoryservice.WaitForDirectoryActive(backend, dirID, time.Second))
+
+		rec2 := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		resp2 := respBody(t, rec2)
+		dirs2, _ := resp2["DirectoryDescriptions"].([]any)
+		dir2 := dirs2[0].(map[string]any)
+		assert.Equal(t, "Active", dir2["Stage"])
+		activeUpdated := dir2["StageLastUpdatedDateTime"]
+		assert.NotEmpty(t, activeUpdated)
+		assert.NotEqual(
+			t, requestedUpdated, activeUpdated,
+			"StageLastUpdatedDateTime must advance when the stage transitions",
+		)
+	})
+
 	t.Run("empty backend returns empty list", func(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
@@ -349,36 +388,36 @@ func TestCreateDirectory_Validation(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "missing Name returns 400 ClientException",
+			name:     "missing Name returns 400 InvalidParameterException",
 			body:     map[string]any{"Password": "Admin1234!", "Size": "Small"},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
-			name:     "missing Password returns 400 ClientException",
+			name:     "missing Password returns 400 InvalidParameterException",
 			body:     map[string]any{"Name": "corp.example.com", "Size": "Small"},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
-			name: "invalid Size returns 400 ClientException",
+			name: "invalid Size returns 400 InvalidParameterException",
 			body: map[string]any{
 				"Name":     "corp.example.com",
 				"Password": "Admin1234!",
 				"Size":     "Huge",
 			},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
-			name: "empty Size returns 400 ClientException",
+			name: "empty Size returns 400 InvalidParameterException",
 			body: map[string]any{
 				"Name":     "corp.example.com",
 				"Password": "Admin1234!",
 				"Size":     "",
 			},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
 			name: "Size Small succeeds",
@@ -429,13 +468,13 @@ func TestCreateMicrosoftAD_Validation(t *testing.T) {
 			name:     "missing Name returns 400",
 			body:     map[string]any{"Password": "Admin1234!", "Edition": "Enterprise"},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
 			name:     "missing Password returns 400",
 			body:     map[string]any{"Name": "corp.example.com", "Edition": "Enterprise"},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
 			name: "invalid Edition returns 400",
@@ -445,7 +484,7 @@ func TestCreateMicrosoftAD_Validation(t *testing.T) {
 				"Edition":  "Ultra",
 			},
 			wantCode: http.StatusBadRequest,
-			wantType: "ClientException",
+			wantType: "InvalidParameterException",
 		},
 		{
 			name: "Edition Enterprise succeeds",

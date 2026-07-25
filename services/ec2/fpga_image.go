@@ -163,6 +163,7 @@ func (b *InMemoryBackend) DeleteFpgaImage(id string) error {
 		return fmt.Errorf("%w: %s", ErrFpgaImageNotFound, id)
 	}
 	b.fpgaImages.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

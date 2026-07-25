@@ -20,7 +20,7 @@ func seedPolicyStore(
 ) *verifiedpermissions.PolicyStore {
 	t.Helper()
 
-	ps, err := b.CreatePolicyStore(desc, nil, "OFF", "")
+	ps, err := b.CreatePolicyStore(desc, nil, "OFF", "", "")
 	require.NoError(t, err)
 
 	return ps
@@ -44,7 +44,7 @@ func TestBackend_Reset(t *testing.T) {
 			b := newTestBackend()
 
 			for range tt.numStores {
-				_, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				_, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 			}
 
@@ -196,7 +196,7 @@ func TestBackend_ExportHelpers(t *testing.T) {
 		{
 			name: "one policy store with policy and template",
 			setup: func(b *verifiedpermissions.InMemoryBackend) {
-				ps, _ := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, _ := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				_, _ = b.CreatePolicy(
 					ps.PolicyStoreID,
 					verifiedpermissions.CreatePolicyParams{
@@ -204,13 +204,13 @@ func TestBackend_ExportHelpers(t *testing.T) {
 						Statement:  "permit(principal,action,resource);",
 					},
 				)
-				_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);")
+				_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);", "")
 				_, _ = b.CreateIdentitySource(
 					ps.PolicyStoreID,
 					"User",
 					verifiedpermissions.IdentitySourceConfig{
 						UserPoolArn: "arn:aws:cognito-idp:us-east-1:123456789012:userpool/pool",
-					},
+					}, "",
 				)
 				_, _ = b.PutSchema(ps.PolicyStoreID, `{"ns":{}}`)
 			},

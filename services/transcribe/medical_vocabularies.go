@@ -123,16 +123,18 @@ func (b *InMemoryBackend) DeleteMedicalVocabulary(vocabularyName string) error {
 	return nil
 }
 
-// ListMedicalVocabularies returns medical vocabularies with optional state filter and pagination.
+// ListMedicalVocabularies returns medical vocabularies with optional state filter,
+// name substring filter, and pagination.
 func (b *InMemoryBackend) ListMedicalVocabularies(
-	stateFilter, nextToken string,
+	stateFilter, nameContains, nextToken string,
 ) ([]MedicalVocabulary, string) {
 	b.mu.RLock("ListMedicalVocabularies")
 	defer b.mu.RUnlock()
 
 	all := make([]MedicalVocabulary, 0, b.medicalVocabularies.Len())
 	for _, v := range b.medicalVocabularies.All() {
-		if stateFilter == "" || v.VocabularyState == stateFilter {
+		if (stateFilter == "" || v.VocabularyState == stateFilter) &&
+			matchesNameContains(v.VocabularyName, nameContains) {
 			all = append(all, *v)
 		}
 	}

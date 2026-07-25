@@ -61,7 +61,32 @@ func TestWAF_XssMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	sets := listResp["XssMatchSets"].([]any)
 	assert.Len(t, sets, 1)
 
-	// Delete
+	// Delete while non-empty must fail with WAFNonEmptyEntityException.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "DeleteXssMatchSet", map[string]any{
+		"ChangeToken":   token,
+		"XssMatchSetId": id,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "WAFNonEmptyEntityException", errType(t, rec.Body.Bytes()))
+
+	// Remove the tuple, then delete succeeds.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "UpdateXssMatchSet", map[string]any{
+		"ChangeToken":   token,
+		"XssMatchSetId": id,
+		"Updates": []map[string]any{
+			{
+				"Action": "DELETE",
+				"XssMatchTuple": map[string]any{
+					"FieldToMatch":       map[string]any{"Type": "BODY"},
+					"TextTransformation": "HTML_ENTITY_DECODE",
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	token = wafGetToken(t, h)
 	rec = wafDo(t, h, "DeleteXssMatchSet", map[string]any{
 		"ChangeToken":   token,

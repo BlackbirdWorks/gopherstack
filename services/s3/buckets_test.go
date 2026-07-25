@@ -308,11 +308,12 @@ func TestHandler_DeleteBucket_Errors(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			// Async deletion: non-empty buckets are now queued for background deletion.
-			name:       "delete non-empty bucket succeeds and queues async deletion",
+			// Real S3 rejects DeleteBucket on a non-empty bucket with 409
+			// BucketNotEmpty; the caller must delete all objects first.
+			name:       "delete non-empty bucket returns 409 BucketNotEmpty",
 			bucket:     "full-bkt",
 			populate:   true,
-			wantStatus: http.StatusNoContent,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "delete non-existent bucket returns 404",
@@ -525,6 +526,8 @@ func TestHandler_DeleteBucket(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
+			// Real S3 rejects DeleteBucket on a non-empty bucket with 409
+			// BucketNotEmpty; the caller must delete all objects first.
 			name:   "delete non-empty bucket",
 			bucket: "full-bucket",
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
@@ -532,8 +535,7 @@ func TestHandler_DeleteBucket(t *testing.T) {
 				mustCreateBucket(t, b, "full-bucket")
 				mustPutObject(t, b, "full-bucket", "k", []byte("d"))
 			},
-			// Async deletion: non-empty buckets are now queued for background deletion.
-			wantStatus: http.StatusNoContent,
+			wantStatus: http.StatusConflict,
 		},
 	}
 

@@ -229,6 +229,17 @@ func mapSlice[T, U any](in []T, f func(T) U) []U {
 	return out
 }
 
+// boolValue dereferences an optional *bool, defaulting to false when the
+// client omitted the field entirely (e.g. RniEnhancedMetricsEnabled /
+// TargetNameServerMetricsEnabled on CreateResolverEndpoint).
+func boolValue(b *bool) bool {
+	if b == nil {
+		return false
+	}
+
+	return *b
+}
+
 // getSimpleConfig implements the shared Get<X>Config shape used by the
 // bare-resourceID config families (FirewallConfig, ResolverConfig,
 // ResolverDnssecConfig): validate ResourceId, fetch from the backend, and

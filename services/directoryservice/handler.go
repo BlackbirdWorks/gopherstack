@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -45,6 +46,7 @@ const (
 	keyStartTime   = "StartTime"
 	keyStatus      = "Status"
 	keyRegion      = "Region"
+	keyRequestID   = "RequestId"
 
 	keyRemoteDomainName = "RemoteDomainName"
 	keyTopicName        = "TopicName"
@@ -418,7 +420,7 @@ func (h *Handler) handleTwoFieldOp(c *echo.Context, op twoFieldOp) error {
 	if dirID == "" || second == "" {
 		msg := "DirectoryId and " + op.secondKey + " are required"
 
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", msg))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", msg))
 	}
 
 	if opErr := op.invoke(h.contextWithRegion(c), dirID, second); opErr != nil {
@@ -448,6 +450,8 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 	logger.Load(c.Request().Context()).Error("directoryservice error", "error", err)
 
 	switch {
+	case errors.Is(err, ErrInvalidCertificate):
+		return c.JSON(http.StatusBadRequest, errResp("InvalidCertificateException", err.Error()))
 	case errors.Is(err, ErrDirectoryLimitExceeded):
 		return c.JSON(http.StatusBadRequest, errResp("DirectoryLimitExceededException", err.Error()))
 	case errors.Is(err, ErrSnapshotLimitExceeded):
@@ -459,12 +463,24 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, errResp("EntityAlreadyExistsException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 	case errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errResp("ServiceException", err.Error()))
 	}
+}
+
+// validEnum reports whether value is empty or matches one of allowed. It is used
+// to validate free-form request fields that correspond to a constrained AWS enum
+// (e.g. TrustDirection, LDAPSType) before invoking backend logic, matching the
+// InvalidParameterException AWS returns for out-of-range enum values.
+func validEnum(value string, allowed ...string) bool {
+	if value == "" {
+		return true
+	}
+
+	return slices.Contains(allowed, value)
 }
 
 func errResp(code, message string) map[string]string {
@@ -475,19 +491,26 @@ func errResp(code, message string) map[string]string {
 }
 
 func directoryToJSON(d *Directory) map[string]any {
+	dnsIPAddrs := d.DNSIPAddrs
+	if dnsIPAddrs == nil {
+		dnsIPAddrs = []string{}
+	}
+
 	out := map[string]any{
-		keyDirectoryID: d.DirectoryID,
-		"Name":         d.Name, //nolint:goconst // existing issue.
-		"ShortName":    d.ShortName,
-		"Description":  d.Description, //nolint:goconst // existing issue.
-		"Alias":        d.Alias,
-		"AccessUrl":    d.AccessURL,
-		"Type":         string(d.Type), //nolint:goconst // existing issue.
-		"Stage":        string(d.Stage),
-		"Size":         string(d.Size),
-		"Edition":      string(d.Edition),
-		"SsoEnabled":   d.SsoEnabled,
-		keyLaunchTime:  awstime.Epoch(d.LaunchTime),
+		keyDirectoryID:             d.DirectoryID,
+		"Name":                     d.Name, //nolint:goconst // existing issue.
+		"ShortName":                d.ShortName,
+		"Description":              d.Description, //nolint:goconst // existing issue.
+		"Alias":                    d.Alias,
+		"AccessUrl":                d.AccessURL,
+		"Type":                     string(d.Type), //nolint:goconst // existing issue.
+		"Stage":                    string(d.Stage),
+		"Size":                     string(d.Size),
+		"Edition":                  string(d.Edition),
+		"SsoEnabled":               d.SsoEnabled,
+		keyLaunchTime:              awstime.Epoch(d.LaunchTime),
+		"StageLastUpdatedDateTime": awstime.Epoch(d.StageLastUpdatedDateTime),
+		"DnsIpAddrs":               dnsIPAddrs,
 	}
 	if d.VpcSettings != nil {
 		secGroups := d.VpcSettings.SecurityGroupIDs

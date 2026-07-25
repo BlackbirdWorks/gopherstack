@@ -9,11 +9,15 @@ import (
 // maxRetainedMessages is the maximum number of retained messages stored in memory.
 const maxRetainedMessages = 1000
 
-// maxShadowsPerThing is the maximum number of shadows (classic + named) per thing.
-const maxShadowsPerThing = 100
-
 // maxShadowDocumentBytes is the maximum allowed shadow document size in bytes.
 const maxShadowDocumentBytes = 8 * 1024
+
+// maxShadowStateDepth is AWS IoT's documented maximum JSON nesting depth for
+// shadow state documents: "Maximum depth of JSON device state documents: 8
+// levels" (in both the desired and reported sections), per the AWS General
+// Reference "AWS IoT Core endpoints and quotas" page. The section's top-level
+// object itself counts as depth 1.
+const maxShadowStateDepth = 8
 
 // maxTopicLength is the maximum allowed MQTT topic length per AWS IoT rules.
 const maxTopicLength = 256

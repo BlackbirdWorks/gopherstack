@@ -6,7 +6,9 @@ import (
 )
 
 type createActivityInput struct {
-	Name string `json:"name"`
+	EncryptionConfiguration *EncryptionConfiguration `json:"encryptionConfiguration,omitempty"`
+	Name                    string                   `json:"name"`
+	Tags                    []sfnTagEntry            `json:"tags,omitempty"`
 }
 
 type createActivityOutput struct {
@@ -90,6 +92,23 @@ func (h *Handler) handleCreateActivity(ctx context.Context, b []byte) (any, erro
 		return nil, err
 	}
 
+	if input.EncryptionConfiguration != nil {
+		if cfgErr := h.Backend.SetActivityEncryptionConfiguration(
+			a.ActivityArn, input.EncryptionConfiguration,
+		); cfgErr != nil {
+			return nil, cfgErr
+		}
+	}
+
+	// Apply inline tags when provided, matching CreateStateMachine's pattern.
+	if len(input.Tags) > 0 {
+		kv := make(map[string]string, len(input.Tags))
+		for _, t := range input.Tags {
+			kv[t.Key] = t.Value
+		}
+		h.setTags(a.ActivityArn, kv)
+	}
+
 	return &createActivityOutput{ActivityArn: a.ActivityArn, CreationDate: a.CreationDate}, nil
 }
 
@@ -102,6 +121,16 @@ func (h *Handler) handleDeleteActivity(b []byte) (any, error) {
 	if err := h.Backend.DeleteActivity(input.ActivityArn); err != nil {
 		return nil, err
 	}
+
+	// Clean up tags for the deleted activity, matching DeleteStateMachine's
+	// handler (handler_state_machines.go) -- otherwise h.tags accumulates a
+	// permanent tombstone entry per deleted activity ARN.
+	h.tagsMu.Lock("DeleteActivity")
+	if t, ok := h.tags[input.ActivityArn]; ok {
+		t.Close()
+		delete(h.tags, input.ActivityArn)
+	}
+	h.tagsMu.Unlock()
 
 	return &deleteActivityOutput{}, nil
 }

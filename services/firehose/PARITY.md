@@ -5,25 +5,25 @@
 service: firehose
 sdk_module: aws-sdk-go-v2/service/firehose@v1.42.11
 last_audit_commit: 2b2086c9
-last_audit_date: 2026-07-11
-overall: A            # genuine, client-breaking wire-shape fixes found and repaired this pass
+last_audit_date: 2026-07-23
+overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs
 
 ops:
-  CreateDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "response is DeliveryStreamARN only, matches SDK. Input parsing fixed this pass (Redshift CopyCommand/S3Configuration)."}
-  DeleteDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeDeliveryStream: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CRITICAL bug fixed this pass — see Notes."}
+  CreateDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "response is DeliveryStreamARN only, matches SDK. Added Iceberg/Snowflake/legacy-Elasticsearch destination-configuration parsing this pass; added the at-most-one-destination validation that was previously missing (see Notes)."}
+  DeleteDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-cleans all destination pointers, Tags registry, pending-flush watch entry, and Kinesis poller on delete — verified no ghost state survives across the 5 new destination fields added this pass."}
+  DescribeDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "Destinations[] wrapper extended this pass with IcebergDestinationDescription/SnowflakeDestinationDescription/ElasticsearchDestinationDescription entries, exact-case wire keys verified against deserializers.go. Snowflake's write-only PrivateKey/KeyPassphrase are correctly never echoed back (matches real SDK, which has no such fields on the Description type)."}
   ListDeliveryStreams: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutRecord: {wire: ok, errors: ok, state: ok, persist: ok, note: "Encrypted (optional bool) omitted from response; harmless, see gaps."}
-  PutRecordBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "FailedPutCount always 0 — every record that reaches the backend has already passed validation, matching how this emulator models delivery (no partial-batch throttling)."}
+  PutRecord: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: Encrypted (optional bool) now populated from the stream's live SSE status via a new IsStreamEncrypted backend method (kept PutRecord's own signature unchanged — cli.go's snsFirehosePutterAdapter forwards PutRecordBatch's (int, error) return directly and could not be touched)."}
+  PutRecordBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "FailedPutCount always 0 — every record that reaches the backend has already passed validation, matching how this emulator models delivery (no partial-batch throttling). FIXED this pass: Encrypted now populated, same mechanism as PutRecord."}
   ListTagsForDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
   TagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateDestination: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Redshift CopyCommand/S3Configuration nesting fixed this pass (shared redshiftDestinationInput type with CreateDeliveryStream)."}
+  UpdateDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended this pass with IcebergDestinationUpdate/SnowflakeDestinationUpdate/ElasticsearchDestinationUpdate, sharing the existing exactly-one-destination / CurrentDeliveryStreamVersionId optimistic-concurrency enforcement."}
   StartDeliveryStreamEncryption: {wire: ok, errors: ok, state: ok, persist: ok}
   StopDeliveryStreamEncryption: {wire: ok, errors: ok, state: ok, persist: ok}
 
 families:
-  destination_delivery: {status: ok, note: "S3/HTTP/Redshift/OpenSearch/Splunk delivery pipelines verified as real (Lambda transform, dynamic partitioning, S3 backup, error-output routing, retry/backoff) — not disguised no-ops. Redshift delivers via ExecuteStatement INSERT rather than staging through S3 + COPY like real AWS; see gaps."}
+  destination_delivery: {status: ok, note: "All 10 real SDK destination-configuration types now field-diffed and implemented: S3, ExtendedS3, HttpEndpoint, Redshift, Amazonopensearchservice, legacy Elasticsearch (NEW this pass), Splunk, Iceberg (NEW), Snowflake (NEW). S3/HTTP/Redshift/OpenSearch/Elasticsearch/Splunk delivery pipelines verified as real (Lambda transform, dynamic partitioning, S3 backup, error-output routing, retry/backoff) — not disguised no-ops. Elasticsearch reuses the OpenSearch bulk-API delivery path (the two share an identical wire protocol; only the Firehose destination-configuration shape differs). Iceberg/Snowflake land processed records into their required S3Configuration staging bucket via the same writeRecordsToBucket helper S3 delivery uses — genuine state mutation, not a stub — but neither drives a real Iceberg/Glue-catalog commit or Snowflake Snowpipe-Streaming ingest; see gaps (same documented-simplification pattern as the pre-existing Redshift gap). AmazonOpenSearchServerless (a distinct 11th real SDK destination-configuration type, `AmazonOpenSearchServerlessDestinationConfiguration`) remains unimplemented — out of scope for this pass's explicit destination list, not field-diffed, do not mark ok."}
   kinesis_source: {status: ok, note: "KinesisStreamAsSource polling launches a real background poller (launchKinesisPoller) wired to the Kinesis backend; not audited in depth this pass (unchanged since prior work, well covered by kinesis_source_test.go)."}
 
 gaps:
@@ -32,30 +32,127 @@ gaps:
     records to the S3Configuration bucket, then issues a COPY command referencing
     CopyCommand against that staged data). This backend instead executes a synthesized
     INSERT statement directly via the Redshift Data API. Wire shape for CreateDeliveryStream/
-    UpdateDestination/DescribeDeliveryStream is now correct (S3Configuration and CopyCommand
+    UpdateDestination/DescribeDeliveryStream is correct (S3Configuration and CopyCommand
     round-trip accurately), but the actual data-movement mechanics diverge behaviorally.
     Deferred — larger rework than a wire-shape fix, no bd id filed yet.
   - >
-    PutRecord/PutRecordBatch responses omit the optional `Encrypted` boolean field that
-    real AWS returns. Non-breaking (SDK treats it as optional/pointer), noted for
-    completeness only.
+    Iceberg and Snowflake destinations (new this pass) land processed records into their
+    required S3Configuration staging bucket rather than driving a real Apache Iceberg/Glue
+    Data Catalog commit or a real Snowflake Snowpipe Streaming ingest — this backend has no
+    Iceberg-table or Snowflake-account backend to connect to. Wire shape for
+    CreateDeliveryStream/UpdateDestination/DescribeDeliveryStream is fully field-diffed and
+    correct (including CatalogConfiguration, DestinationTableConfigurationList,
+    SchemaEvolutionConfiguration, TableCreationConfiguration for Iceberg, and
+    SecretsManagerConfiguration/SnowflakeRoleConfiguration/SnowflakeVpcConfiguration for
+    Snowflake); only the data-movement mechanics diverge, same documented-simplification
+    pattern as the existing Redshift gap above. Deferred — no bd id filed yet.
   - >
-    CreateDeliveryStream does not validate that at most one destination configuration is
-    supplied per call (UpdateDestination does enforce "exactly one" via
-    applyDestinationUpdate, but Create has no equivalent check). Real AWS rejects a
-    CreateDeliveryStream request naming more than one destination type. Low traffic path;
-    deferred.
+    Legacy Elasticsearch (ElasticsearchDestinationConfiguration, new this pass) and the
+    pre-existing Amazonopensearchservice family both omit VpcConfiguration/
+    VpcConfigurationDescription (private-VPC ENI delivery) and DocumentIdOptions
+    (Firehose-generated vs. OpenSearch-generated document IDs) — both are real, optional
+    SDK fields on those destination types that are not modeled. Newly identified this pass;
+    not a regression (OpenSearch was previously marked ok without this having been
+    field-diffed). Deferred — low-traffic advanced configuration, no bd id filed yet.
+  - >
+    AmazonOpenSearchServerlessDestinationConfiguration (a real, distinct 11th destination
+    type in the SDK, separate from Amazonopensearchservice) is not implemented. Not in this
+    pass's explicit destination scope; newly identified, deferred.
 
 deferred:
   - Redshift real S3-staging + COPY delivery mechanics (see gaps)
-  - CreateDeliveryStream multi-destination input validation (see gaps)
-  - MSK source ingestion path (present via SourceDescription wire shape; poller behavior
-    not re-verified this pass beyond existing kinesis_source_test.go coverage)
+  - Iceberg/Snowflake real catalog-commit / Snowpipe-Streaming ingest mechanics (see gaps)
+  - Elasticsearch/OpenSearch VpcConfiguration and DocumentIdOptions fields (see gaps)
+  - AmazonOpenSearchServerlessDestinationConfiguration destination family (see gaps)
+  - MSK source ingestion path (present via SourceDescription wire shape, CreateDeliveryStream/
+    DescribeDeliveryStream round-trip correctly). Real polling/ingestion is genuinely
+    unimplemented: unlike KinesisStreamAsSource (wired via the KinesisReader interface, set
+    by cli.go's service-wiring step), there is no MSK/Kafka backend wiring — adding one would
+    require a new KafkaReader-style interface plus cli.go changes to wire services/kafka's
+    backend in, and this pass's instructions explicitly forbid editing cli.go. Left exactly as
+    found; not reclassified to ok.
 
-leaks: {status: clean, note: "Kinesis poller cancel funcs tracked per region/name and cancelled on DeleteDeliveryStream; tags.Tags registries closed on Delete/Reset. No new goroutines/maps introduced this pass."}
+leaks: {status: clean, note: "Kinesis poller cancel funcs tracked per region/name and cancelled on DeleteDeliveryStream; tags.Tags registries closed on Delete/Reset. streamCopy (store.go) deep-copies all destination pointer fields including the 3 new ones added this pass (Elasticsearch/Iceberg/Snowflake) — verified this was needed: a shallow struct copy alone would have shared destination-struct pointers between the backend's live state and every DescribeDeliveryStream/AddStreamInternal caller, an isolation bug. No new goroutines introduced this pass; IsStreamEncrypted (new PutRecord/PutRecordBatch Encrypted-field support) takes only a short-lived RLock."}
 ---
 
 ## Notes
+
+### 2026-07-23 pass: added Iceberg/Snowflake/legacy-Elasticsearch destinations, CreateDeliveryStream validation, PutRecord Encrypted field
+
+This pass brought the destination-family surface up to true parity against
+`aws-sdk-go-v2/service/firehose@v1.42.11`. Enumerated the real SDK's destination-
+configuration types directly from `types/types.go` (`grep 'type.*DestinationConfiguration
+struct'`): `AmazonOpenSearchServerless`, `Amazonopensearchservice`, `Elasticsearch`,
+`ExtendedS3`, `HttpEndpoint`, `Iceberg`, `Redshift`, `S3`, `Snowflake`, `Splunk` — 10 total.
+gopherstack previously implemented 6 of these (S3/ExtendedS3, HttpEndpoint, Redshift,
+Amazonopensearchservice, Splunk); **Iceberg, Snowflake, and legacy Elasticsearch were
+entirely missing** — no types, no routing, no delivery. `AmazonOpenSearchServerless` remains
+unimplemented (out of this pass's explicit scope; recorded as a gap, not silently dropped).
+
+- **Iceberg / Snowflake**: full field-diffed wire shapes added for CreateDeliveryStream,
+  UpdateDestination, and DescribeDeliveryStream (`IcebergDestinationConfiguration/-Update/
+  -Description`, `SnowflakeDestinationConfiguration/-Update/-Description`, plus every nested
+  type: `CatalogConfiguration`, `DestinationTableConfiguration`, `PartitionSpec`/
+  `PartitionField`, `SchemaEvolutionConfiguration`, `TableCreationConfiguration`,
+  `SnowflakeBufferingHints`, `SnowflakeRetryOptions`, `SecretsManagerConfiguration`,
+  `SnowflakeRoleConfiguration`, `SnowflakeVpcConfiguration`), verified field-by-field against
+  `serializers.go`/`deserializers.go`. Snowflake's write-only `PrivateKey`/`KeyPassphrase`
+  input fields are correctly *not* stored on the Description type returned by Describe,
+  matching the real SDK (`SnowflakeDestinationDescription` has no such fields — credentials
+  are accepted but never echoed back). Delivery lands processed records into the
+  destination's required `S3Configuration` bucket (real state mutation via the same
+  `writeRecordsToBucket` helper S3 delivery uses) rather than driving an actual Iceberg/Glue
+  commit or Snowflake ingest, which this backend has no connectivity to model — documented as
+  a gap using the same pattern as the pre-existing Redshift INSERT-vs-COPY gap.
+- **Legacy Elasticsearch**: `ElasticsearchDestinationConfiguration/-Update/-Description` is a
+  real, wire-distinct API family from `Amazonopensearchservice` (confirmed via
+  `deserializers.go` case `"ElasticsearchDestinationDescription"` and
+  `serializers.go` keys `"ElasticsearchDestinationConfiguration"`/
+  `"ElasticsearchDestinationUpdate"`) — not a gopherstack invention, and not the same thing as
+  the existing OpenSearch family's doc-comment aside ("OpenSearch (Elasticsearch)"). Added
+  with its own types and wire keys; delivery reuses `deliverToOpenSearch` since Elasticsearch
+  and OpenSearch share an identical `_bulk` NDJSON wire protocol. While implementing this,
+  identified that both Elasticsearch and the pre-existing Amazonopensearchservice family omit
+  `VpcConfiguration`/`DocumentIdOptions` (real, optional SDK fields) — recorded as a new gap
+  rather than silently carried forward, per the "independently field-diff and record what you
+  verify" instruction.
+- **CreateDeliveryStream single-destination validation** (previously an open gap): AWS
+  rejects a `CreateDeliveryStream` request naming more than one destination configuration;
+  gopherstack had no such check. Added `validateSingleDestination`, counting the
+  S3/ExtendedS3 pair as one slot (real AWS treats them as mutually exclusive aliases for the
+  same destination, matching the pre-existing `rawS3 := ExtendedS3 ?? S3` precedence logic).
+- **PutRecord/PutRecordBatch `Encrypted` field** (previously an open gap): both real
+  `PutRecordOutput`/`PutRecordBatchOutput` carry an optional `Encrypted *bool` reflecting the
+  stream's live SSE status. Implemented via a new `InMemoryBackend.IsStreamEncrypted` method
+  called separately by the handler *instead of* changing `PutRecord`/`PutRecordBatch`'s own
+  signatures — `cli.go`'s `snsFirehosePutterAdapter.PutRecordBatch` forwards
+  `a.backend.PutRecordBatch(...)` directly and depends on its existing `(int, error)` return
+  shape; changing that signature would have broken the whole-repo build, and this pass's
+  instructions forbid editing `cli.go`. (First attempt did change the signature and broke
+  `go build ./...`; caught before returning, reverted, redone via the additive-method
+  approach.)
+- **Isolation fix**: `store.go`'s `streamCopy` (used by `DescribeDeliveryStream` and
+  `AddStreamInternal`) did a field-by-field shallow copy that, before this pass, would have
+  left the 3 new destination-pointer fields (Elasticsearch/Iceberg/Snowflake) aliased between
+  the backend's live state and every caller's returned copy — the same class of bug the
+  existing S3/HTTP/Redshift/OpenSearch/Splunk fields were already guarded against. Fixed by
+  adding matching deep-copy blocks for all 3 new fields.
+- **Lint**: adding the 8-field `IcebergDestinationDescription`/`icebergDestinationInput`
+  structs pushed `currentDestinationID`/`hasActiveDestinationLocked`'s per-type branch chains
+  over the cyclop complexity budget (18 and 22 respectively, limit 15). Decomposed rather than
+  suppressed: `currentDestinationID`/`setDestinationID` now share a single
+  `activeDestinationIDField` lookup instead of two parallel switch statements, and
+  `hasActiveDestinationLocked` is split into `hasCoreActiveDestinationLocked` (S3/HTTP/
+  Redshift — needs the lock, checks `b.s3`) and `hasSearchOrLakeActiveDestination`
+  (OpenSearch/Elasticsearch/Splunk/Iceberg/Snowflake — pure function of stream state). Also
+  ran `fieldalignment -fix ./services/firehose/...` to clear 2 govet fieldalignment findings
+  on the new Iceberg structs. No `nolint:cyclop/gocyclo/gocognit/funlen` added anywhere.
+
+Not attempted this pass (see gaps/deferred): Redshift real S3-staging+COPY mechanics (already
+deferred, no change in scope/effort this pass), MSK source real polling (needs a new
+KafkaReader-style interface and `cli.go` wiring, which this pass's instructions forbid
+touching), `AmazonOpenSearchServerlessDestinationConfiguration` (11th real destination type,
+out of this pass's explicit scope).
 
 ### CRITICAL (fixed this pass): DescribeDeliveryStream destination wrapping was entirely wrong shape
 

@@ -18,9 +18,14 @@ type xmlDataShare struct {
 	DataShareArn                     string                    `xml:"DataShareArn"`
 	ProducerArn                      string                    `xml:"ProducerArn,omitempty"`
 	ManagedBy                        string                    `xml:"ManagedBy,omitempty"`
+	DataShareType                    string                    `xml:"DataShareType,omitempty"`
 	DataShareAssociations            []xmlDataShareAssociation `xml:"DataShareAssociations>member,omitempty"`
 	AllowPubliclyAccessibleConsumers bool                      `xml:"AllowPubliclyAccessibleConsumers"`
 }
+
+// dataShareTypeInternal mirrors types.DataShareTypeInternal, the only DataShareType
+// enum value currently defined by the real SDK.
+const dataShareTypeInternal = "INTERNAL"
 
 type associateDataShareConsumerResponse struct {
 	XMLName xml.Name     `xml:"AssociateDataShareConsumerResponse"`
@@ -39,11 +44,17 @@ func dataShareToXML(ds *DataShare) xmlDataShare {
 		})
 	}
 
+	dsType := ds.DataShareType
+	if dsType == "" {
+		dsType = dataShareTypeInternal
+	}
+
 	return xmlDataShare{
 		DataShareArn:                     ds.DataShareArn,
 		ProducerArn:                      ds.ProducerArn,
 		AllowPubliclyAccessibleConsumers: ds.AllowPubliclyAccessibleConsumers,
 		ManagedBy:                        ds.ManagedBy,
+		DataShareType:                    dsType,
 		DataShareAssociations:            assocs,
 	}
 }

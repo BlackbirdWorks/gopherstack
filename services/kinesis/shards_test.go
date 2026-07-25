@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/stretchr/testify/assert"
@@ -802,4 +803,258 @@ func TestListShards_ExclusiveStart_WithMaxResults(t *testing.T) {
 	assert.Equal(t, "shardId-000000000002", out.Shards[0].ShardID)
 	assert.Equal(t, "shardId-000000000003", out.Shards[1].ShardID)
 	assert.NotEmpty(t, out.NextToken)
+}
+
+// TestListShards_ShardFilterType_AfterShardID verifies the real AWS
+// AFTER_SHARD_ID ShardFilter (previously gopherstack invented a nonexistent
+// "AT_SHARD_ID" type with unrelated lineage-matching semantics): it acts as
+// an exclusive-start cursor over ALL shards (open and closed), unlike the
+// default/AT_LATEST filter which only ever considers open shards.
+func TestListShards_ShardFilterType_AfterShardID(t *testing.T) {
+	t.Parallel()
+
+	b := kinesis.NewInMemoryBackend()
+	ctx := context.Background()
+	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: "after-shard-id-stream",
+		ShardCount: 4,
+	}))
+
+	all, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: "after-shard-id-stream"})
+	require.NoError(t, err)
+	require.Len(t, all.Shards, 4)
+
+	out, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+		StreamName:         "after-shard-id-stream",
+		ShardFilterType:    "AFTER_SHARD_ID",
+		ShardFilterShardID: all.Shards[0].ShardID,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Shards, 3, "shards after shard 0")
+	assert.Equal(t, all.Shards[1].ShardID, out.Shards[0].ShardID)
+
+	// Now close a shard via merge and confirm AFTER_SHARD_ID surfaces it too
+	// (includeAll), where the AT_LATEST default would not.
+	require.NoError(t, b.MergeShards(ctx, &kinesis.MergeShardsInput{
+		StreamName:           "after-shard-id-stream",
+		ShardToMerge:         all.Shards[0].ShardID,
+		AdjacentShardToMerge: all.Shards[1].ShardID,
+	}))
+
+	afterAll, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+		StreamName:         "after-shard-id-stream",
+		ShardFilterType:    "AFTER_SHARD_ID",
+		ShardFilterShardID: all.Shards[0].ShardID,
+	})
+	require.NoError(t, err)
+	// shards[1] (closed), shards[2] (open), shards[3] (open), plus the merged shard.
+	assert.Len(t, afterAll.Shards, 4)
+
+	defaultOut, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: "after-shard-id-stream"})
+	require.NoError(t, err)
+	// Default (open-only) excludes the two merge parents, keeping only the
+	// still-open originals plus the new merged shard.
+	assert.Len(t, defaultOut.Shards, 3)
+}
+
+// TestListShards_ShardFilterType_TimestampRequired verifies AT_TIMESTAMP and
+// FROM_TIMESTAMP reject a request with no ShardFilterTimestamp, mirroring
+// GetShardIterator's AT_TIMESTAMP requirement (see shard_iterators_test.go).
+func TestListShards_ShardFilterType_TimestampRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{"AT_TIMESTAMP", "FROM_TIMESTAMP"}
+
+	for _, filterType := range tests {
+		t.Run(filterType, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			streamName := "ts-required-" + filterType
+			doRequest(t, h, "CreateStream", map[string]any{"StreamName": streamName, "ShardCount": 1})
+
+			rec := doRequest(t, h, "ListShards", map[string]any{
+				"StreamName": streamName,
+				"ShardFilter": map[string]any{
+					"Type": filterType,
+					// Timestamp deliberately omitted.
+				},
+			})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errResp struct {
+				Type string `json:"__type"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, "InvalidArgumentException", errResp.Type)
+		})
+	}
+}
+
+// TestListShards_ShardFilterType_AtTimestamp verifies AT_TIMESTAMP returns
+// only shards that were open at the given instant: a shard closed before the
+// query timestamp is excluded, a shard not yet started is excluded, and a
+// shard open across the timestamp (or still open) is included.
+func TestListShards_ShardFilterType_AtTimestamp(t *testing.T) {
+	t.Parallel()
+
+	b := kinesis.NewInMemoryBackend()
+	ctx := context.Background()
+	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: "at-ts-stream",
+		ShardCount: 1,
+	}))
+
+	now := time.Now()
+	oldStart := now.Add(-3 * time.Hour)
+	oldClose := now.Add(-2 * time.Hour)
+
+	// Reshard 1 -> 2: closes shard 0 and opens 2 new shards spanning the full
+	// hash range (indices 1,2) -- UpdateShardCount's target is the absolute
+	// new open shard count, not an increment.
+	_, err := b.UpdateShardCount(ctx, &kinesis.UpdateShardCountInput{
+		StreamName:       "at-ts-stream",
+		TargetShardCount: 2,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.SetShardTimesForTest("at-ts-stream", 0, oldStart, oldClose))
+	newStart := now.Add(-2 * time.Hour)
+	require.NoError(t, b.SetShardTimesForTest("at-ts-stream", 1, newStart, time.Time{}))
+	require.NoError(t, b.SetShardTimesForTest("at-ts-stream", 2, newStart, time.Time{}))
+
+	// While shard 0 was open (before it closed), the new shards didn't exist yet.
+	duringOld := now.Add(-150 * time.Minute) // between oldStart and oldClose
+	out, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+		StreamName:           "at-ts-stream",
+		ShardFilterType:      "AT_TIMESTAMP",
+		ShardFilterTimestamp: &duringOld,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Shards, 1)
+	assert.Equal(t, "shardId-000000000000", out.Shards[0].ShardID)
+
+	// After the reshard, only the new shards are open.
+	afterReshard := now.Add(-90 * time.Minute)
+	out2, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+		StreamName:           "at-ts-stream",
+		ShardFilterType:      "AT_TIMESTAMP",
+		ShardFilterTimestamp: &afterReshard,
+	})
+	require.NoError(t, err)
+	require.Len(t, out2.Shards, 2)
+	assert.Equal(t, "shardId-000000000001", out2.Shards[0].ShardID)
+	assert.Equal(t, "shardId-000000000002", out2.Shards[1].ShardID)
+}
+
+// TestListShards_ShardFilterType_FromTimestamp verifies FROM_TIMESTAMP
+// returns every open shard plus closed shards whose end (ClosedAt) is at or
+// after the query timestamp, excluding closed shards that ended earlier.
+func TestListShards_ShardFilterType_FromTimestamp(t *testing.T) {
+	t.Parallel()
+
+	b := kinesis.NewInMemoryBackend()
+	ctx := context.Background()
+	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: "from-ts-stream",
+		ShardCount: 1,
+	}))
+
+	now := time.Now()
+	oldStart := now.Add(-3 * time.Hour)
+	oldClose := now.Add(-2 * time.Hour)
+
+	// Reshard 1 -> 2: closes shard 0 and opens 2 new shards (indices 1,2).
+	_, err := b.UpdateShardCount(ctx, &kinesis.UpdateShardCountInput{
+		StreamName:       "from-ts-stream",
+		TargetShardCount: 2,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.SetShardTimesForTest("from-ts-stream", 0, oldStart, oldClose))
+	newStart := oldClose
+	require.NoError(t, b.SetShardTimesForTest("from-ts-stream", 1, newStart, time.Time{}))
+	require.NoError(t, b.SetShardTimesForTest("from-ts-stream", 2, newStart, time.Time{}))
+
+	// Querying from before the old shard closed: it qualifies (ClosedAt >= ts),
+	// plus the 2 always-open new shards -- all 3 shards.
+	beforeClose := oldClose.Add(-30 * time.Minute)
+	out, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+		StreamName:           "from-ts-stream",
+		ShardFilterType:      "FROM_TIMESTAMP",
+		ShardFilterTimestamp: &beforeClose,
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.Shards, 3)
+
+	// Querying from well after the old shard closed: only the 2 new open shards.
+	afterClose := now.Add(-30 * time.Minute)
+	out2, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+		StreamName:           "from-ts-stream",
+		ShardFilterType:      "FROM_TIMESTAMP",
+		ShardFilterTimestamp: &afterClose,
+	})
+	require.NoError(t, err)
+	require.Len(t, out2.Shards, 2)
+	assert.Equal(t, "shardId-000000000001", out2.Shards[0].ShardID)
+	assert.Equal(t, "shardId-000000000002", out2.Shards[1].ShardID)
+}
+
+// TestListShards_ShardFilterType_AtTrimHorizon verifies AT_TRIM_HORIZON
+// returns shards open at the retention window's start, and that a freshly
+// created stream (younger than its own retention period) is clamped to
+// return all its shards rather than incorrectly returning none.
+func TestListShards_ShardFilterType_AtTrimHorizon(t *testing.T) {
+	t.Parallel()
+
+	b := kinesis.NewInMemoryBackend()
+	ctx := context.Background()
+	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: "trim-horizon-stream",
+		ShardCount: 2,
+	}))
+
+	// Fresh stream, default 24h retention: trim horizon math alone would
+	// predate the stream's creation, so it must clamp to "all shards".
+	out, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+		StreamName:      "trim-horizon-stream",
+		ShardFilterType: "AT_TRIM_HORIZON",
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.Shards, 2)
+
+	// Shrink retention to 1h and backdate the shards so they fall outside
+	// the (now non-clamped) retention window -- AT_TRIM_HORIZON must exclude them.
+	require.NoError(t, b.SetRetentionPeriodForTest("trim-horizon-stream", 1))
+	longAgo := time.Now().Add(-10 * time.Hour)
+	closedLongAgo := time.Now().Add(-9 * time.Hour)
+	require.NoError(t, b.SetShardTimesForTest("trim-horizon-stream", 0, longAgo, closedLongAgo))
+	require.NoError(t, b.SetShardTimesForTest("trim-horizon-stream", 1, longAgo, closedLongAgo))
+
+	out2, err := b.ListShards(ctx, &kinesis.ListShardsInput{
+		StreamName:      "trim-horizon-stream",
+		ShardFilterType: "AT_TRIM_HORIZON",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out2.Shards, "shards closed long before the retention window must be excluded")
+}
+
+// TestListShards_ShardFilterType_UnrecognizedRejected verifies an
+// unrecognized ShardFilter.Type is rejected rather than silently falling
+// back to some default behavior.
+func TestListShards_ShardFilterType_UnrecognizedRejected(t *testing.T) {
+	t.Parallel()
+
+	b := kinesis.NewInMemoryBackend()
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+		StreamName: "bad-filter-stream",
+		ShardCount: 1,
+	}))
+
+	_, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
+		StreamName:      "bad-filter-stream",
+		ShardFilterType: "NOT_A_REAL_FILTER_TYPE",
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, kinesis.ErrValidation)
 }

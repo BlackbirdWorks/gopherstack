@@ -7,6 +7,7 @@ import "context"
 type createScheduleGroupInput struct {
 	Name        string        `json:"Name"`
 	Description string        `json:"Description"`
+	ClientToken string        `json:"ClientToken,omitempty"`
 	Tags        []resourceTag `json:"Tags"`
 }
 
@@ -18,10 +19,17 @@ func (h *Handler) handleCreateScheduleGroup(
 	ctx context.Context,
 	in *createScheduleGroupInput,
 ) (*createScheduleGroupOutput, error) {
+	tokenKey := clientTokenKey("group", "", in.Name, in.ClientToken)
+	if arn, ok := h.lookupIdempotent(tokenKey); ok {
+		return &createScheduleGroupOutput{ScheduleGroupArn: arn}, nil
+	}
+
 	g, err := h.Backend.CreateScheduleGroup(ctx, in.Name, in.Description, tagsFromWire(in.Tags))
 	if err != nil {
 		return nil, err
 	}
+
+	h.storeIdempotent(tokenKey, g.ARN)
 
 	return &createScheduleGroupOutput{ScheduleGroupArn: g.ARN}, nil
 }
@@ -43,14 +51,15 @@ func (h *Handler) handleDeleteScheduleGroup(
 	return &deleteScheduleGroupOutput{}, nil
 }
 
+// getScheduleGroupOutput mirrors real AWS's GetScheduleGroupOutput, which has no
+// Tags field (schedule group tags are only ever fetched via ListTagsForResource).
 type getScheduleGroupOutput struct {
-	Tags                 map[string]string `json:"Tags,omitempty"`
-	Arn                  string            `json:"Arn"`
-	Description          string            `json:"Description,omitempty"`
-	Name                 string            `json:"Name"`
-	State                string            `json:"State"`
-	CreationDate         float64           `json:"CreationDate"`
-	LastModificationDate float64           `json:"LastModificationDate"`
+	Arn                  string  `json:"Arn"`
+	Description          string  `json:"Description,omitempty"`
+	Name                 string  `json:"Name"`
+	State                string  `json:"State"`
+	CreationDate         float64 `json:"CreationDate"`
+	LastModificationDate float64 `json:"LastModificationDate"`
 }
 
 func (h *Handler) handleGetScheduleGroup(
@@ -62,17 +71,11 @@ func (h *Handler) handleGetScheduleGroup(
 		return nil, err
 	}
 
-	var tagMap map[string]string
-	if g.Tags != nil {
-		tagMap = g.Tags.Clone()
-	}
-
 	return &getScheduleGroupOutput{
 		Arn:                  g.ARN,
 		CreationDate:         float64(g.CreationDate.Unix()),
 		LastModificationDate: float64(g.LastModificationDate.Unix()),
 		Description:          g.Description,
-		Tags:                 tagMap,
 		Name:                 g.Name,
 		State:                g.State,
 	}, nil
@@ -84,13 +87,14 @@ type listScheduleGroupsInput struct {
 	MaxResults string `json:"MaxResults"`
 }
 
+// scheduleGroupSummary mirrors real AWS's ScheduleGroupSummary, which has no Tags
+// field (schedule group tags are only ever fetched via ListTagsForResource).
 type scheduleGroupSummary struct {
-	Tags                 map[string]string `json:"Tags,omitempty"`
-	Arn                  string            `json:"Arn"`
-	Name                 string            `json:"Name"`
-	State                string            `json:"State"`
-	CreationDate         float64           `json:"CreationDate"`
-	LastModificationDate float64           `json:"LastModificationDate"`
+	Arn                  string  `json:"Arn"`
+	Name                 string  `json:"Name"`
+	State                string  `json:"State"`
+	CreationDate         float64 `json:"CreationDate"`
+	LastModificationDate float64 `json:"LastModificationDate"`
 }
 
 type listScheduleGroupsOutput struct {
@@ -107,16 +111,10 @@ func (h *Handler) handleListScheduleGroups(
 	items := make([]scheduleGroupSummary, 0, len(groups))
 
 	for _, g := range groups {
-		var tagMap map[string]string
-		if g.Tags != nil {
-			tagMap = g.Tags.Clone()
-		}
-
 		items = append(items, scheduleGroupSummary{
 			Arn:                  g.ARN,
 			CreationDate:         float64(g.CreationDate.Unix()),
 			LastModificationDate: float64(g.LastModificationDate.Unix()),
-			Tags:                 tagMap,
 			Name:                 g.Name,
 			State:                g.State,
 		})

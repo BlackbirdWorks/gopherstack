@@ -90,7 +90,11 @@ func TestAccessAnalyzerHandler_RouteMatcher(t *testing.T) {
 			wantMatch: true,
 		},
 		{name: "resource_scan", path: "/resource/scan", wantMatch: true},
-		{name: "analyzedResource", path: "/analyzedResource", wantMatch: true},
+		// "/analyzedResource" (no hyphen) is dead legacy routing that was
+		// removed: the real path is "/analyzed-resource"
+		// (pathAnalyzedResourceHyph). It must not be claimed.
+		{name: "analyzedResource_legacy_unclaimed", path: "/analyzedResource", wantMatch: false},
+		{name: "analyzed_resource_hyphenated", path: "/analyzed-resource", wantMatch: true},
 		// GetFinding/ListFindings/UpdateFindings live at the top-level
 		// /finding and /finding/{id} -- NOT nested under /analyzer/{name}/...
 		// (see handleGetFinding's doc comment). These must be routed on a

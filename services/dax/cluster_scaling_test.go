@@ -178,6 +178,9 @@ func TestDecreaseReplicationFactor(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, 1, c.TotalNodes)
 				assert.Len(t, c.Nodes, 1)
+				// NodeIDsToRemove (types.Cluster.NodeIdsToRemove) surfaces the nodes
+				// this decrease is removing while the cluster is transiently "modifying".
+				assert.ElementsMatch(t, []string{"shrink-0001", "shrink-0002"}, c.NodeIDsToRemove)
 			},
 		},
 		{
@@ -196,6 +199,7 @@ func TestDecreaseReplicationFactor(t *testing.T) {
 				t.Helper()
 				assert.Len(t, c.Nodes, 1)
 				assert.Equal(t, "specific-0000", c.Nodes[0].NodeID)
+				assert.ElementsMatch(t, []string{"specific-0001", "specific-0002"}, c.NodeIDsToRemove)
 			},
 		},
 		{
@@ -438,4 +442,34 @@ func TestRebootNodeRecovery(t *testing.T) {
 	require.Len(t, clusters, 1)
 	require.Len(t, clusters[0].Nodes, 1)
 	assert.Equal(t, "available", clusters[0].Nodes[0].NodeStatus)
+}
+
+// ---- DecreaseReplicationFactor: NodeIDsToRemove is transient ----
+
+func TestDecreaseReplicationFactorNodeIDsToRemoveClearsOnRecovery(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+
+	in := validCreateInput("shrink-transient")
+	in.ReplicationFactor = 3
+	_, err := b.CreateCluster(in)
+	require.NoError(t, err)
+
+	out, err := b.DecreaseReplicationFactor(dax.DecreaseReplicationFactorInput{
+		ClusterName:          "shrink-transient",
+		NewReplicationFactor: 1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "modifying", out.Status)
+	assert.NotEmpty(t, out.NodeIDsToRemove, "NodeIDsToRemove should be populated while the decrease is in flight")
+
+	// Wait for the async recovery goroutine (sleeps 1s) to bring the cluster
+	// back to "available" and clear the transient removal list.
+	time.Sleep(2 * time.Second)
+
+	clusters, _, err := b.DescribeClusters([]string{"shrink-transient"}, 0, "")
+	require.NoError(t, err)
+	require.Len(t, clusters, 1)
+	assert.Equal(t, "available", clusters[0].Status)
+	assert.Empty(t, clusters[0].NodeIDsToRemove)
 }

@@ -13,8 +13,15 @@ type StateMachine struct {
 	Status                  string                   `json:"status"`
 	Definition              string                   `json:"definition"`
 	RoleArn                 string                   `json:"roleArn"`
-	CreationDate            float64                  `json:"creationDate"`
-	UpdatedDate             float64                  `json:"updatedDate,omitempty"`
+	// RevisionId is an opaque token that changes every time Definition,
+	// RoleArn, or the tracing/logging/encryption configuration changes --
+	// AWS: "Use the revisionId parameter to compare between versions of a
+	// state machine configuration ... without performing a diff of the
+	// properties". Not set until the first Update (matches AWS returning a
+	// null/absent revisionId on a freshly created, never-updated machine).
+	RevisionID   string  `json:"revisionId,omitempty"`
+	CreationDate float64 `json:"creationDate"`
+	UpdatedDate  float64 `json:"updatedDate,omitempty"`
 }
 
 // EncryptionConfiguration configures KMS encryption for a state machine.
@@ -59,19 +66,29 @@ type CloudWatchLogsLogGroup struct {
 // executionSnapshot DTO adds it back as an ordinary exported field solely for
 // the on-disk snapshot round trip. See persistence.go for details.
 type Execution struct {
-	RedriveDate     *float64        `json:"redriveDate,omitempty"`
-	StopDate        *float64        `json:"stopDate,omitempty"`
-	Status          string          `json:"status"`
-	ExecutionArn    string          `json:"executionArn"`
-	StateMachineArn string          `json:"stateMachineArn"`
-	Name            string          `json:"name"`
-	Input           string          `json:"input,omitempty"`
-	Output          string          `json:"output,omitempty"`
-	Error           string          `json:"error,omitempty"`
-	Cause           string          `json:"cause,omitempty"`
-	history         []*HistoryEvent `json:"-"`
-	StartDate       float64         `json:"startDate"`
-	RedriveCount    int             `json:"redriveCount,omitempty"`
+	RedriveDate     *float64 `json:"redriveDate,omitempty"`
+	StopDate        *float64 `json:"stopDate,omitempty"`
+	Status          string   `json:"status"`
+	ExecutionArn    string   `json:"executionArn"`
+	StateMachineArn string   `json:"stateMachineArn"`
+	// StateMachineVersionArn is set only when this execution was started
+	// with a version-qualified or alias-qualified stateMachineArn (AWS:
+	// "If you start an execution from a StartExecution request without
+	// specifying a state machine version or alias ARN, Step Functions
+	// returns a null value").
+	StateMachineVersionArn string `json:"stateMachineVersionArn,omitempty"`
+	// StateMachineAliasArn is set only when this execution was started with
+	// an alias-qualified stateMachineArn (null for version ARNs and
+	// unqualified ARNs alike).
+	StateMachineAliasArn string          `json:"stateMachineAliasArn,omitempty"`
+	Name                 string          `json:"name"`
+	Input                string          `json:"input,omitempty"`
+	Output               string          `json:"output,omitempty"`
+	Error                string          `json:"error,omitempty"`
+	Cause                string          `json:"cause,omitempty"`
+	history              []*HistoryEvent `json:"-"`
+	StartDate            float64         `json:"startDate"`
+	RedriveCount         int             `json:"redriveCount,omitempty"`
 }
 
 // HistoryEvent represents a single event in execution history.
@@ -119,9 +136,10 @@ type TaskFailedEventDetails struct {
 
 // Activity represents an AWS Step Functions activity resource.
 type Activity struct {
-	Name         string  `json:"name"`
-	ActivityArn  string  `json:"activityArn"`
-	CreationDate float64 `json:"creationDate"`
+	EncryptionConfiguration *EncryptionConfiguration `json:"encryptionConfiguration,omitempty"`
+	Name                    string                   `json:"name"`
+	ActivityArn             string                   `json:"activityArn"`
+	CreationDate            float64                  `json:"creationDate"`
 }
 
 // ActivityTask represents a task polled from an activity queue.

@@ -9,6 +9,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
 
 func TestTags(t *testing.T) {
@@ -100,4 +102,39 @@ func TestTags_StaySyncedWithResource(t *testing.T) {
 	descTags := descResp["tags"].(map[string]any)
 	assert.Equal(t, "video-team", descTags["owner"])
 	assert.Equal(t, "1234", descTags["cost-center"])
+}
+
+// TestTags_LegacyStoreClearedOnDelete locks in a leak fix: resource
+// families not covered by taggableResourceTags' fast path (Cluster,
+// Node, SignalMap, CloudWatchAlarmTemplate(Group),
+// EventBridgeRuleTemplate(Group), Reservation, Network, SdiSource,
+// ChannelPlacementGroup) store their tags in the legacy per-ARN b.tags map.
+// Before this fix, deleting one of these resources never removed its entry
+// from b.tags, so every create+tag+delete cycle left a permanent ghost row
+// for the lifetime of the backend. Exercised here via Cluster.
+func TestTags_LegacyStoreClearedOnDelete(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	backend := h.Backend.(*medialive.InMemoryBackend)
+
+	baseline := medialive.TagStoreCount(backend)
+
+	rec := doRequest(t, h, http.MethodPost, "/prod/clusters", map[string]any{"name": "tag-leak-cluster"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	cluster := decodeBody(t, rec.Body.Bytes())
+	clusterID := cluster["id"].(string)
+	clusterARN := cluster["arn"].(string)
+
+	rec = doRequest(t, h, http.MethodPost, "/prod/tags/"+clusterARN, map[string]any{
+		"tags": map[string]any{"env": "leak-test"},
+	})
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, baseline+1, medialive.TagStoreCount(backend), "tagging the cluster adds one b.tags entry")
+
+	rec = doRequest(t, h, http.MethodDelete, "/prod/clusters/"+clusterID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	assert.Equal(t, baseline, medialive.TagStoreCount(backend),
+		"deleting the cluster must remove its b.tags entry, not leave a ghost row")
 }

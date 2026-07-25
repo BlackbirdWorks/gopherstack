@@ -143,6 +143,10 @@ func TestHandler_TagOperations_AnomalySubscription(t *testing.T) {
 		"AnomalySubscription": map[string]any{
 			"SubscriptionName": "SubToTag",
 			"Frequency":        "DAILY",
+			"MonitorArnList":   []string{},
+			"Subscribers": []map[string]any{
+				{"Address": "test@example.com", "Type": "EMAIL"},
+			},
 		},
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
@@ -286,4 +290,78 @@ func TestHandler_ListTagsForResource_EmptyTags(t *testing.T) {
 	// Must be an empty array, not nil/absent.
 	assert.NotNil(t, out.ResourceTags)
 	assert.Empty(t, out.ResourceTags)
+}
+
+// TestHandler_TagResource_RequiredFields verifies ResourceArn and ResourceTags are
+// enforced as required, matching real AWS CE's validateOpTagResourceInput.
+func TestHandler_TagResource_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "missing_resource_arn",
+			body: map[string]any{
+				"ResourceTags": []map[string]string{{"Key": "Env", "Value": "prod"}},
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_resource_tags",
+			body: map[string]any{
+				"ResourceArn": "arn:aws:ce::000:costcategory/test",
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "TagResource", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+// TestHandler_UntagResource_RequiredFields verifies ResourceArn and ResourceTagKeys
+// are enforced as required, matching real AWS CE's validateOpUntagResourceInput.
+func TestHandler_UntagResource_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name: "missing_resource_arn",
+			body: map[string]any{
+				"ResourceTagKeys": []string{"Env"},
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_resource_tag_keys",
+			body: map[string]any{
+				"ResourceArn": "arn:aws:ce::000:costcategory/test",
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "UntagResource", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
 }

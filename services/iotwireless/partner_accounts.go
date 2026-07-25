@@ -16,7 +16,7 @@ func (b *InMemoryBackend) AssociateAwsAccountWithPartnerAccount(
 	accountID, region, partnerAccountID string,
 	tags map[string]string,
 ) (string, error) {
-	b.mu.Lock()
+	b.mu.Lock("AssociateAwsAccountWithPartnerAccount")
 	defer b.mu.Unlock()
 
 	arn := partnerAccountARN(accountID, region, partnerAccountID)
@@ -28,7 +28,7 @@ func (b *InMemoryBackend) AssociateAwsAccountWithPartnerAccount(
 
 // GetPartnerAccount returns the ARN for a partner account.
 func (b *InMemoryBackend) GetPartnerAccount(partnerAccountID string) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetPartnerAccount")
 	defer b.mu.RUnlock()
 
 	arn, ok := b.partnerAccounts[partnerAccountID]
@@ -41,7 +41,7 @@ func (b *InMemoryBackend) GetPartnerAccount(partnerAccountID string) (string, er
 
 // ListPartnerAccounts returns all partner account ARNs.
 func (b *InMemoryBackend) ListPartnerAccounts() map[string]string {
-	b.mu.RLock()
+	b.mu.RLock("ListPartnerAccounts")
 	defer b.mu.RUnlock()
 
 	result := make(map[string]string, len(b.partnerAccounts))
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) ListPartnerAccounts() map[string]string {
 
 // DisassociateAwsAccountFromPartnerAccount removes a partner account association.
 func (b *InMemoryBackend) DisassociateAwsAccountFromPartnerAccount(partnerAccountID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DisassociateAwsAccountFromPartnerAccount")
 	defer b.mu.Unlock()
 
 	if _, ok := b.partnerAccounts[partnerAccountID]; !ok {

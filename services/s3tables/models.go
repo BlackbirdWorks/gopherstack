@@ -30,34 +30,62 @@ type Namespace struct {
 	Namespace      []string  `json:"namespace"`
 }
 
-// BucketReplicationConfig holds replication configuration for a table bucket.
-type BucketReplicationConfig struct {
-	// TableBucketARN is the store.Table primary-key qualifier for the
-	// bucketReplication table (see store_setup.go). BucketReplicationConfig
-	// carries no identity of its own -- it was previously keyed externally
-	// by the map key alone -- so this field was added to give the live
-	// store.Table a key to derive. It is tagged json:"-" because it is
-	// never part of the S3 Tables wire API (handleGetTableBucketReplication
-	// builds its own response map from Destinations only); persistence.go's
-	// arnDTO wrapper carries the ARN explicitly for Snapshot/Restore since a
-	// plain json.Marshal of this type drops any json:"-" field.
-	TableBucketARN string                   `json:"-"`
-	Destinations   []ReplicationDestination `json:"destinations"`
-}
-
-// ReplicationDestination is a single replication destination.
+// ReplicationDestination is a single replication destination, mirroring
+// types.ReplicationDestination in aws-sdk-go-v2/service/s3tables. The wire
+// field is destinationTableBucketARN -- NOT destinationBucketARN, which was
+// a gopherstack-invented field name never present on the real shape
+// (confirmed via deserializeDocumentReplicationDestination in
+// aws-sdk-go-v2/service/s3tables's deserializers.go).
 type ReplicationDestination struct {
-	DestinationBucketARN string `json:"destinationBucketARN"`
+	DestinationTableBucketARN string `json:"destinationTableBucketARN"`
 }
 
-// TableRecordExpiryConfig holds record expiration configuration for a table.
+// ReplicationRule is a single replication rule (a list of destinations).
+// TableBucketReplicationConfiguration and TableReplicationConfiguration
+// both nest their destinations one level deeper than gopherstack previously
+// modeled -- rules: [{destinations: [...]}], not a flat destinations array
+// -- confirmed via deserializeDocumentTableBucketReplicationRule /
+// deserializeDocumentTableReplicationRule in the real SDK's deserializers.go.
+type ReplicationRule struct {
+	Destinations []ReplicationDestination `json:"destinations"`
+}
+
+// BucketReplicationConfig holds replication configuration for a table
+// bucket, mirroring types.TableBucketReplicationConfiguration (role + rules)
+// plus a VersionToken for optimistic concurrency: PutTableBucketReplication
+// and DeleteTableBucketReplication both accept an optional versionToken
+// query parameter that, when supplied, must match the stored token
+// (GetTableBucketReplicationOutput.VersionToken).
+type BucketReplicationConfig struct {
+	TableBucketARN string            `json:"-"`
+	Role           string            `json:"role"`
+	VersionToken   string            `json:"versionToken"`
+	Rules          []ReplicationRule `json:"rules"`
+}
+
+// TableReplicationConfig holds replication configuration for an individual
+// table, mirroring types.TableReplicationConfiguration (role + rules) plus a
+// VersionToken for optimistic concurrency: PutTableReplication accepts an
+// optional versionToken query parameter and DeleteTableReplication requires
+// one; both must match the stored token when supplied
+// (GetTableReplicationOutput.VersionToken).
+type TableReplicationConfig struct {
+	TableARN     string            `json:"-"`
+	Role         string            `json:"role"`
+	VersionToken string            `json:"versionToken"`
+	Rules        []ReplicationRule `json:"rules"`
+}
+
+// TableRecordExpiryConfig holds record expiration configuration for a
+// table, mirroring types.TableRecordExpirationConfigurationValue (status +
+// settings.days) in aws-sdk-go-v2/service/s3tables. Status is the real
+// smithy enum's lowercase wire value ("enabled"/"disabled" --
+// types.TableRecordExpirationStatus -- NOT "ENABLED"/"DISABLED", which does
+// not match any TableRecordExpirationStatus.Values() entry).
 type TableRecordExpiryConfig struct {
-	Status string `json:"status"`
-	// TableARN is the store.Table primary-key qualifier for the
-	// tableRecordExpiry table (see store_setup.go) -- see
-	// BucketReplicationConfig.TableBucketARN's doc comment for why this
-	// field exists and is tagged json:"-".
+	Status   string `json:"status"`
 	TableARN string `json:"-"`
+	Days     int    `json:"days,omitempty"`
 }
 
 // Table represents an S3 Tables table.

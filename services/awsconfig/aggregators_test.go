@@ -140,6 +140,98 @@ func TestAWSConfigBackend_DescribeAggregationAuthorizations(t *testing.T) {
 	}
 }
 
+func TestAWSConfigBackend_DescribeConfigurationAggregatorSourcesStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown_aggregator_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.DescribeConfigurationAggregatorSourcesStatus("does-not-exist")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoSuchAggregator)
+	})
+
+	t.Run("reports_configured_account_sources", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationAggregator("agg1", []awsconfig.AccountAggregationSource{
+			{AccountIDs: []string{"111111111111", "222222222222"}, AwsRegions: []string{"us-east-1"}},
+		}, nil))
+
+		statuses, err := b.DescribeConfigurationAggregatorSourcesStatus("agg1")
+		require.NoError(t, err)
+		require.Len(t, statuses, 2)
+
+		for _, s := range statuses {
+			assert.Equal(t, "us-east-1", s.AwsRegion)
+			assert.Equal(t, "SUCCEEDED", s.LastUpdateStatus)
+			assert.Equal(t, "ACCOUNT", s.SourceType)
+		}
+	})
+
+	t.Run("reports_organization_source", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationAggregator(
+			"agg1", nil, &awsconfig.OrganizationAggregationSource{RoleArn: "arn:aws:iam::123:role/org"},
+		))
+
+		statuses, err := b.DescribeConfigurationAggregatorSourcesStatus("agg1")
+		require.NoError(t, err)
+		require.Len(t, statuses, 1)
+		assert.Equal(t, "ORGANIZATION", statuses[0].SourceType)
+	})
+}
+
+func TestAWSConfigBackend_PendingAggregationRequests(t *testing.T) {
+	t.Parallel()
+
+	t.Run("authorization_with_no_consuming_aggregator_is_pending", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1"))
+
+		pending := b.DescribePendingAggregationRequests()
+		require.Len(t, pending, 1)
+		assert.Equal(t, "111111111111", pending[0].RequesterAccountID)
+		assert.Equal(t, "us-east-1", pending[0].RequesterAwsRegion)
+	})
+
+	t.Run("authorization_consumed_by_aggregator_is_not_pending", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1"))
+		require.NoError(t, b.PutConfigurationAggregator("agg1", []awsconfig.AccountAggregationSource{
+			{AccountIDs: []string{"111111111111"}, AwsRegions: []string{"us-east-1"}},
+		}, nil))
+
+		assert.Empty(t, b.DescribePendingAggregationRequests())
+	})
+
+	t.Run("delete_removes_the_request", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1"))
+		require.NoError(t, b.DeletePendingAggregationRequest("111111111111", "us-east-1"))
+		assert.Empty(t, b.DescribePendingAggregationRequests())
+	})
+
+	t.Run("delete_validation", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		err := b.DeletePendingAggregationRequest("", "us-east-1")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrValidation)
+	})
+}
+
 func TestAWSConfigBackend_DeleteAggregationAuthorization_Validation(t *testing.T) {
 	t.Parallel()
 

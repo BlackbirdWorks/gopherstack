@@ -153,14 +153,17 @@ func (b *InMemoryBackend) DeleteVocabularyFilter(vocabularyFilterName string) er
 	return nil
 }
 
-// ListVocabularyFilters returns all vocabulary filters with pagination.
-func (b *InMemoryBackend) ListVocabularyFilters(nextToken string) ([]VocabularyFilter, string) {
+// ListVocabularyFilters returns vocabulary filters with optional name substring filter
+// and pagination.
+func (b *InMemoryBackend) ListVocabularyFilters(nameContains, nextToken string) ([]VocabularyFilter, string) {
 	b.mu.RLock("ListVocabularyFilters")
 	defer b.mu.RUnlock()
 
 	all := make([]VocabularyFilter, 0, b.vocabularyFilters.Len())
 	for _, f := range b.vocabularyFilters.All() {
-		all = append(all, *f)
+		if matchesNameContains(f.VocabularyFilterName, nameContains) {
+			all = append(all, *f)
+		}
 	}
 
 	sort.Slice(

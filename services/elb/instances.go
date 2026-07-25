@@ -43,22 +43,11 @@ func (b *InMemoryBackend) RegisterInstancesWithLoadBalancer(
 		existing[inst.InstanceID] = true
 	}
 
-	const maxRegisteredInstances = 1000
-	newCount := 0
-	for _, inst := range instances {
-		if !existing[inst.InstanceID] {
-			newCount++
-		}
-	}
-
-	if len(lb.Instances)+newCount > maxRegisteredInstances {
-		return nil, fmt.Errorf(
-			"%w: classic-registered-instances limit of %d exceeded",
-			ErrValidation,
-			maxRegisteredInstances,
-		)
-	}
-
+	// Real AWS's RegisterInstancesWithLoadBalancer typed-error switch only
+	// recognizes InvalidInstance and LoadBalancerNotFound (see
+	// deserializers.go's awsAwsquery_deserializeOpErrorRegisterInstancesWithLoadBalancer);
+	// there is no typed exception for exceeding the "classic-registered-instances"
+	// account limit shown by DescribeAccountLimits, so it is not enforced here.
 	for _, inst := range instances {
 		if !existing[inst.InstanceID] {
 			lb.Instances = append(lb.Instances, inst)

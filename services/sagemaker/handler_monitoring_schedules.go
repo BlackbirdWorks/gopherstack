@@ -139,8 +139,8 @@ func (h *Handler) handleListMonitoringSchedules(ctx context.Context, body []byte
 			"MonitoringScheduleName":   ms.MonitoringScheduleName,
 			keyMonitoringScheduleArn:   ms.MonitoringScheduleArn,
 			"MonitoringScheduleStatus": ms.MonitoringScheduleStatus,
-			keyCreationTime:            ms.CreationTime,
-			keyLastModifiedTime:        ms.LastModifiedTime,
+			keyCreationTime:            epochSeconds(ms.CreationTime),
+			keyLastModifiedTime:        epochSeconds(ms.LastModifiedTime),
 		})
 	}
 

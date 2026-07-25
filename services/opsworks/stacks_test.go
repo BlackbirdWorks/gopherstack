@@ -68,6 +68,9 @@ func TestStack(t *testing.T) {
 				assert.NotEmpty(t, stack["Name"])
 				assert.NotEmpty(t, stack["CreatedAt"])
 				assert.NotEmpty(t, stack["Arn"])
+				// The real types.Stack has no Status member; a previous
+				// pass invented one and put it on the wire.
+				assert.NotContains(t, stack, "Status")
 			},
 		},
 		{
@@ -171,6 +174,50 @@ func TestStack(t *testing.T) {
 			if tt.check != nil {
 				tt.check(t, rec.Body.Bytes(), setupID)
 			}
+		})
+	}
+}
+
+// TestCreateStackValidation verifies CreateStack rejects requests missing a
+// required member. Name, Region, DefaultInstanceProfileArn, and
+// ServiceRoleArn are all "This member is required" on the real
+// CreateStackInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CreateStack.go).
+func TestCreateStackValidation(t *testing.T) {
+	t.Parallel()
+
+	full := map[string]any{
+		"Name":                      "n",
+		"Region":                    "us-east-1",
+		"DefaultInstanceProfileArn": "arn:aws:iam::000000000000:instance-profile/test",
+		"ServiceRoleArn":            "arn:aws:iam::000000000000:role/test",
+	}
+
+	tests := []struct {
+		name    string
+		missing string
+	}{
+		{name: "missing Name", missing: "Name"},
+		{name: "missing Region", missing: "Region"},
+		{name: "missing DefaultInstanceProfileArn", missing: "DefaultInstanceProfileArn"},
+		{name: "missing ServiceRoleArn", missing: "ServiceRoleArn"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := make(map[string]any, len(full))
+			for k, v := range full {
+				if k != tt.missing {
+					body[k] = v
+				}
+			}
+
+			h := newTestHandler(t)
+			rec := doTarget(t, h, "CreateStack", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ValidationException")
 		})
 	}
 }
@@ -400,7 +447,15 @@ func TestDescribeStackSummary(t *testing.T) {
 				assert.NotEmpty(t, summary["StackId"])
 				assert.NotEmpty(t, summary["Name"])
 				counts := summary["InstancesCount"].(map[string]any)
-				assert.InEpsilon(t, float64(1), counts["Total"], 0.001)
+				// A freshly created instance is "stopped" (see
+				// CreateInstance). InstancesCount's field set mirrors the
+				// real types.InstancesCount exactly -- no "Total" or
+				// "Starting" field exists on the real API.
+				assert.InEpsilon(t, float64(1), counts["Stopped"], 0.001)
+				assert.NotContains(t, counts, "Total")
+				assert.NotContains(t, counts, "Starting")
+				assert.Contains(t, counts, "Assigning")
+				assert.Contains(t, counts, "Unassigning")
 			},
 		},
 		{
@@ -441,6 +496,11 @@ func TestDescribeStackProvisioningParameters(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 				resp := parseJSON(t, rec.Body.Bytes())
 				assert.NotEmpty(t, resp["AgentInstallerUrl"])
+				// The real DescribeStackProvisioningParametersOutput has
+				// only AgentInstallerUrl and Parameters members; a
+				// previous pass invented a StackArn member and put it on
+				// the wire.
+				assert.NotContains(t, resp, "StackArn")
 			},
 		},
 	}

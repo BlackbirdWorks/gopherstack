@@ -241,7 +241,7 @@ func assertTaskSetRestored(t *testing.T, b *InMemoryBackend, f fullStateFixture)
 func assertCapacityProviderRestored(t *testing.T, b *InMemoryBackend) {
 	t.Helper()
 
-	caps, _, err := b.DescribeCapacityProviders([]string{"full-state-cp"})
+	caps, _, err := b.DescribeCapacityProviders([]string{"full-state-cp"}, "")
 	if err != nil || len(caps) != 1 {
 		t.Fatalf("DescribeCapacityProviders: got %d providers, err=%v, want 1 provider", len(caps), err)
 	}

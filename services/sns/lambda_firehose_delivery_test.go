@@ -63,6 +63,18 @@ func (m *mockLambdaInvoker) Last() lambdaInvocation {
 	return m.invocations[len(m.invocations)-1]
 }
 
+// All returns a snapshot of every recorded invocation in call order, for
+// tests that need to assert delivery ordering (e.g. archive replay).
+func (m *mockLambdaInvoker) All() []lambdaInvocation {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	out := make([]lambdaInvocation, len(m.invocations))
+	copy(out, m.invocations)
+
+	return out
+}
+
 type mockFirehosePutter struct {
 	streams map[string][][]byte
 	mu      sync.Mutex

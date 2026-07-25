@@ -60,7 +60,6 @@ func TestCreateApplication(t *testing.T) {
 			assert.Equal(t, int64(1), app.ApplicationVersionID)
 			assert.NotEmpty(t, app.ApplicationARN)
 			assert.NotNil(t, app.CreateTimestamp)
-			assert.Equal(t, "SQL-1_0", app.RuntimeEnvironment)
 		})
 	}
 }

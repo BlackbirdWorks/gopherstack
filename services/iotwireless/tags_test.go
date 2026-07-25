@@ -45,12 +45,7 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 
 			bk := iotwireless.NewInMemoryBackend()
 
-			sp, err := bk.CreateServiceProfile(
-				testAccountID,
-				testRegion,
-				"sp-tag-test",
-				tt.setupTags,
-			)
+			sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp-tag-test", nil, tt.setupTags)
 			require.NoError(t, err)
 
 			if tt.addTags != nil {
@@ -114,12 +109,7 @@ func TestInMemoryBackend_UntagResource_CleansEmptyMap(t *testing.T) {
 
 			bk := iotwireless.NewInMemoryBackend()
 
-			sp, err := bk.CreateServiceProfile(
-				testAccountID,
-				testRegion,
-				"sp-cleanup",
-				tt.setupTags,
-			)
+			sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp-cleanup", nil, tt.setupTags)
 			require.NoError(t, err)
 
 			err = bk.UntagResource(sp.ARN, tt.removeTags)

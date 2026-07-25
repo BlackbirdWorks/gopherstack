@@ -357,27 +357,20 @@ func TestCreateConnectionHostArn(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       map[string]any
 		name       string
 		wantStatus int
+		withHost   bool
 		wantArn    bool
 	}{
 		{
-			name: "with_host_arn",
-			body: map[string]any{
-				"ConnectionName": "ghe-conn",
-				"ProviderType":   "GitHubEnterpriseServer",
-				"HostArn":        "arn:aws:codeconnections:us-east-1:123456789012:host/abc",
-			},
+			name:       "with_host_arn",
+			withHost:   true,
 			wantStatus: http.StatusOK,
 			wantArn:    true,
 		},
 		{
-			name: "without_host_arn",
-			body: map[string]any{
-				"ConnectionName": "gh-conn",
-				"ProviderType":   "GitHub",
-			},
+			name:       "without_host_arn",
+			withHost:   false,
 			wantStatus: http.StatusOK,
 			wantArn:    true,
 		},
@@ -388,7 +381,19 @@ func TestCreateConnectionHostArn(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			rec := doJSON(t, h, "CreateConnection", tt.body)
+
+			body := map[string]any{
+				"ConnectionName": "ghe-conn",
+				"ProviderType":   "GitHubEnterpriseServer",
+			}
+			if tt.withHost {
+				// CreateConnection now validates HostArn against a real,
+				// previously-created host (ResourceNotFoundException for an
+				// unknown one), so the host must exist first.
+				body["HostArn"] = createHost(t, h, "ghe-host", "GitHubEnterpriseServer", "https://ghe.example.com")
+			}
+
+			rec := doJSON(t, h, "CreateConnection", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantArn {
@@ -399,17 +404,21 @@ func TestCreateConnectionHostArn(t *testing.T) {
 	}
 }
 
-// TestGetConnectionHostArnPreserved verifies HostArn is stored and returned.
-func TestGetConnectionHostArnPreserved(t *testing.T) {
+// TestCreateConnectionHostArnNotFound verifies that CreateConnection rejects
+// a HostArn that does not reference an existing host. Real CreateConnection's
+// error list is [LimitExceededException, ResourceNotFoundException,
+// ResourceUnavailableException] (botocore codeconnections/2023-12-01/
+// service-2.json) -- a bad HostArn maps to ResourceNotFoundException, the
+// same real type GetHost/DeleteHost use for a missing host. Previously this
+// was accepted without any validation at all.
+func TestCreateConnectionHostArnNotFound(t *testing.T) {
 	t.Parallel()
 
-	const hostArn = "arn:aws:codeconnections:us-east-1:123456789012:host/myhost"
-
 	tests := []struct {
-		name        string
-		wantHostArn string
+		name    string
+		hostArn string
 	}{
-		{name: "host_arn_preserved", wantHostArn: hostArn},
+		{name: "nonexistent_host", hostArn: "arn:aws:codeconnections:us-east-1:123456789012:host/nonexistent"},
 	}
 
 	for _, tt := range tests {
@@ -417,6 +426,38 @@ func TestGetConnectionHostArnPreserved(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
+			rec := doJSON(t, h, "CreateConnection", map[string]any{
+				"ConnectionName": "ghe-conn-badhost",
+				"ProviderType":   "GitHubEnterpriseServer",
+				"HostArn":        tt.hostArn,
+			})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			resp := parseResp(t, rec)
+			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+		})
+	}
+}
+
+// TestGetConnectionHostArnPreserved verifies HostArn is stored and returned.
+func TestGetConnectionHostArnPreserved(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "host_arn_preserved"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			// CreateConnection now validates HostArn against a real,
+			// previously-created host, so the host must exist first.
+			hostArn := createHost(t, h, "myhost", "GitHubEnterpriseServer", "https://ghe.example.com")
+
 			rec := doJSON(t, h, "CreateConnection", map[string]any{
 				"ConnectionName": "ghe-conn",
 				"ProviderType":   "GitHubEnterpriseServer",
@@ -431,7 +472,7 @@ func TestGetConnectionHostArnPreserved(t *testing.T) {
 			resp := parseResp(t, getRec)
 			conn, ok := resp["Connection"].(map[string]any)
 			require.True(t, ok)
-			assert.Equal(t, tt.wantHostArn, conn["HostArn"])
+			assert.Equal(t, hostArn, conn["HostArn"])
 		})
 	}
 }
@@ -492,8 +533,6 @@ func TestHostArnFilter(t *testing.T) {
 func TestListConnectionsHostArnFilterAfterCreate(t *testing.T) {
 	t.Parallel()
 
-	const hostArn = "arn:aws:codeconnections:us-east-1:123456789012:host/myhost"
-
 	tests := []struct {
 		name        string
 		applyFilter bool
@@ -508,6 +547,10 @@ func TestListConnectionsHostArnFilterAfterCreate(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
+
+			// CreateConnection now validates HostArn against a real,
+			// previously-created host, so the host must exist first.
+			hostArn := createHost(t, h, "myhost", "GitHubEnterpriseServer", "https://ghe.example.com")
 
 			// conn1 with HostArn
 			rec1 := doJSON(t, h, "CreateConnection", map[string]any{
@@ -601,6 +644,20 @@ func TestBackendCreateConnectionHostArn(t *testing.T) {
 			t.Parallel()
 
 			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
+
+			if tt.hostArn != "" {
+				// CreateConnection now validates HostArn against a real,
+				// previously-created host, so the host must exist first.
+				b.AddHostInternal(context.Background(), &codeconnections.Host{
+					HostArn:          tt.hostArn,
+					Name:             "h1",
+					ProviderType:     "GitHubEnterpriseServer",
+					ProviderEndpoint: "https://ghe.example.com",
+					Status:           "AVAILABLE",
+					Tags:             map[string]string{},
+				})
+			}
+
 			conn, err := b.CreateConnection(
 				context.Background(),
 				"conn-"+strconv.Itoa(i),

@@ -1,6 +1,7 @@
 package managedblockchain
 
 import (
+	"fmt"
 	"maps"
 	"sort"
 	"time"
@@ -24,11 +25,48 @@ func networkARN(region, accountID, networkID string) string {
 	return arn.Build("managedblockchain", region, accountID, "networks/"+networkID)
 }
 
+// fabricOrderingServiceEndpoint synthesizes the ordering-service endpoint
+// exposed on Network.FrameworkAttributes.Fabric.OrderingServiceEndpoint.
+// gopherstack has no real Fabric ordering service to connect to; this
+// deterministically derives a plausible endpoint from the network's own
+// identity, matching real AWS's "orderer.<network-id>...:30001" shape.
+func fabricOrderingServiceEndpoint(networkID, region string) string {
+	return fmt.Sprintf("orderer.%s.managedblockchain.%s.amazonaws.com:30001", networkID, region)
+}
+
+// networkVPCEndpointServiceName synthesizes the value exposed on
+// Network.VpcEndpointServiceName. Real AWS assigns every AVAILABLE network a
+// VPC PrivateLink endpoint service name regardless of framework
+// configuration; gopherstack derives a deterministic placeholder from the
+// network's own identity.
+func networkVPCEndpointServiceName(networkID, region string) string {
+	return fmt.Sprintf("com.amazonaws.managedblockchain.%s.%s", region, networkID)
+}
+
+// buildNetworkFrameworkAttributes builds Network.FrameworkAttributes from a
+// CreateNetwork caller's requested Fabric edition. If edition is empty (the
+// caller omitted FrameworkConfiguration entirely, which the real API's
+// client-side validator permits), no Fabric attributes are synthesized --
+// gopherstack does not invent an edition the caller never asked for.
+func buildNetworkFrameworkAttributes(networkID, region, edition string) *NetworkFrameworkAttributesState {
+	if edition == "" {
+		return nil
+	}
+
+	return &NetworkFrameworkAttributesState{
+		Fabric: &NetworkFabricAttributesState{
+			Edition:                 edition,
+			OrderingServiceEndpoint: fabricOrderingServiceEndpoint(networkID, region),
+		},
+	}
+}
+
 // CreateNetwork creates a new Managed Blockchain network and its first member.
 func (b *InMemoryBackend) CreateNetwork(
 	region, accountID, name, description, framework, frameworkVersion, memberName, memberDescription string,
 	tags map[string]string,
 	votingPolicy *VotingPolicy,
+	fabricEdition, memberAdminUsername, memberKmsKeyArn string,
 ) (*Network, *Member, error) {
 	b.mu.Lock("CreateNetwork")
 	defer b.mu.Unlock()
@@ -57,31 +95,35 @@ func (b *InMemoryBackend) CreateNetwork(
 	maps.Copy(t, tags)
 
 	network := &Network{
-		ID:               networkID,
-		Arn:              networkARN(region, accountID, networkID),
-		Name:             name,
-		Description:      description,
-		Framework:        fw,
-		FrameworkVersion: fwv,
-		Status:           networkStatusAvailable,
-		CreationDate:     &now,
-		Tags:             t,
-		VotingPolicy:     cloneVotingPolicy(votingPolicy),
+		ID:                     networkID,
+		Arn:                    networkARN(region, accountID, networkID),
+		Name:                   name,
+		Description:            description,
+		Framework:              fw,
+		FrameworkVersion:       fwv,
+		Status:                 networkStatusAvailable,
+		CreationDate:           &now,
+		Tags:                   t,
+		VotingPolicy:           cloneVotingPolicy(votingPolicy),
+		FrameworkAttributes:    buildNetworkFrameworkAttributes(networkID, region, fabricEdition),
+		VpcEndpointServiceName: networkVPCEndpointServiceName(networkID, region),
 	}
 
 	b.networks.Put(network)
 	b.arnToResource[network.Arn] = network
 
 	member := &Member{
-		ID:           memberID,
-		Arn:          memberARN(region, accountID, memberID),
-		Name:         memberName,
-		Description:  memberDescription,
-		NetworkID:    networkID,
-		Status:       memberStatusAvailable,
-		CreationDate: &now,
-		Tags:         make(map[string]string),
-		IsOwned:      true,
+		ID:                  memberID,
+		Arn:                 memberARN(region, accountID, memberID),
+		Name:                memberName,
+		Description:         memberDescription,
+		NetworkID:           networkID,
+		Status:              memberStatusAvailable,
+		CreationDate:        &now,
+		Tags:                make(map[string]string),
+		IsOwned:             true,
+		KmsKeyArn:           resolveMemberKmsKeyArn(memberKmsKeyArn),
+		FrameworkAttributes: buildMemberFrameworkAttributes(memberID, networkID, region, memberAdminUsername),
 	}
 
 	b.members.Put(member)
@@ -111,8 +153,25 @@ func cloneNetwork(n *Network) *Network {
 	cp := *n
 	cp.Tags = maps.Clone(n.Tags)
 	cp.VotingPolicy = cloneVotingPolicy(n.VotingPolicy)
+	cp.FrameworkAttributes = cloneNetworkFrameworkAttributes(n.FrameworkAttributes)
 
 	return &cp
+}
+
+// cloneNetworkFrameworkAttributes returns a deep copy of a NetworkFrameworkAttributesState.
+func cloneNetworkFrameworkAttributes(fa *NetworkFrameworkAttributesState) *NetworkFrameworkAttributesState {
+	if fa == nil {
+		return nil
+	}
+
+	cp := &NetworkFrameworkAttributesState{}
+
+	if fa.Fabric != nil {
+		fabric := *fa.Fabric
+		cp.Fabric = &fabric
+	}
+
+	return cp
 }
 
 // GetNetwork returns the details of a network by ID.
@@ -167,14 +226,15 @@ func (b *InMemoryBackend) AddNetworkInternal(region, accountID, name string) *Ne
 	networkID := uuid.NewString()
 
 	network := &Network{
-		ID:               networkID,
-		Arn:              networkARN(region, accountID, networkID),
-		Name:             name,
-		Framework:        defaultFramework,
-		FrameworkVersion: defaultFrameworkVersion,
-		Status:           networkStatusAvailable,
-		CreationDate:     &now,
-		Tags:             make(map[string]string),
+		ID:                     networkID,
+		Arn:                    networkARN(region, accountID, networkID),
+		Name:                   name,
+		Framework:              defaultFramework,
+		FrameworkVersion:       defaultFrameworkVersion,
+		Status:                 networkStatusAvailable,
+		CreationDate:           &now,
+		Tags:                   make(map[string]string),
+		VpcEndpointServiceName: networkVPCEndpointServiceName(networkID, region),
 	}
 
 	b.networks.Put(network)

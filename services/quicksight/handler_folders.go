@@ -17,6 +17,7 @@ const (
 	keyPermissions       = "Permissions"
 	keyFolderType        = "FolderType"
 	keyParentFolderArn   = "ParentFolderArn"
+	keySharingModel      = "SharingModel"
 	keyMemberID          = "MemberId"
 	keyMemberType        = "MemberType"
 
@@ -87,6 +88,7 @@ func (h *Handler) handleCreateFolder(c *echo.Context) error {
 		strField(body, keyName),
 		strField(body, keyFolderType),
 		strField(body, keyParentFolderArn),
+		strField(body, keySharingModel),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
 	)
@@ -366,6 +368,7 @@ func (h *Handler) folderToMap(accountID string, f *Folder) map[string]any {
 		keyFolderType:      f.FolderType,
 		keyCreatedTime:     f.CreatedTime.Unix(),
 		keyLastUpdatedTime: f.LastUpdatedTime.Unix(),
+		keySharingModel:    f.SharingModel,
 		"FolderPath":       h.folderPath(accountID, f),
 	}
 
@@ -477,60 +480,75 @@ func folderFiltersFromBody(body map[string]any) []FolderSearchFilter {
 }
 
 // classifyFolderPaths routes /accounts/{id}/folders/... paths.
-func classifyFolderPaths( //nolint:gocognit,cyclop // existing issue.
-	method string,
-	segs []string,
-	n int,
-) (string, string) {
-	accountID := seg(segs, segAccountID)
+func classifyFolderPaths(method string, segs []string, n int) (string, string) {
 	switch n {
 	case nSegsAccountRes:
-		switch method { //nolint:gocritic // existing issue.
-		case http.MethodGet:
-			return opListFolders, accountID
+		if method == http.MethodGet {
+			return opListFolders, seg(segs, segAccountID)
 		}
 	case nSegsAccountResID:
-		id := seg(segs, segResID)
-		switch method {
-		case http.MethodPost:
-			return opCreateFolder, id
-		case http.MethodGet:
-			return opDescribeFolder, id
-		case http.MethodPut:
-			return opUpdateFolder, id
-		case http.MethodDelete:
-			return opDeleteFolder, id
-		}
+		return classifyFolderByID(method, segs)
 	case nSegsSubRes:
-		id := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		switch sub {
-		case pathSegPermissions:
-			switch method {
-			case http.MethodGet:
-				return opDescribeFolderPermissions, id
-			case http.MethodPut:
-				return opUpdateFolderPermissions, id
-			}
-		case pathSegResolvedPerms:
-			if method == http.MethodGet {
-				return opDescribeFolderResolvedPerms, id
-			}
-		case pathSegMembers:
-			if method == http.MethodGet {
-				return opListFolderMembers, id
-			}
-		}
+		return classifyFolderSubRes(method, segs)
 	case nSegsSubSubRes:
-		if seg(segs, segSubRes) == pathSegMembers {
-			id := seg(segs, segResID)
-			switch method {
-			case http.MethodPut:
-				return opCreateFolderMembership, id
-			case http.MethodDelete:
-				return opDeleteFolderMembership, id
-			}
+		return classifyFolderSubSubRes(method, segs)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyFolderByID(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	switch method {
+	case http.MethodPost:
+		return opCreateFolder, id
+	case http.MethodGet:
+		return opDescribeFolder, id
+	case http.MethodPut:
+		return opUpdateFolder, id
+	case http.MethodDelete:
+		return opDeleteFolder, id
+	}
+
+	return opUnknown, ""
+}
+
+func classifyFolderSubRes(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	sub := seg(segs, segSubRes)
+
+	switch sub {
+	case pathSegPermissions:
+		switch method {
+		case http.MethodGet:
+			return opDescribeFolderPermissions, id
+		case http.MethodPut:
+			return opUpdateFolderPermissions, id
 		}
+	case pathSegResolvedPerms:
+		if method == http.MethodGet {
+			return opDescribeFolderResolvedPerms, id
+		}
+	case pathSegMembers:
+		if method == http.MethodGet {
+			return opListFolderMembers, id
+		}
+	}
+
+	return opUnknown, ""
+}
+
+func classifyFolderSubSubRes(method string, segs []string) (string, string) {
+	if seg(segs, segSubRes) != pathSegMembers {
+		return opUnknown, ""
+	}
+
+	id := seg(segs, segResID)
+	switch method {
+	case http.MethodPut:
+		return opCreateFolderMembership, id
+	case http.MethodDelete:
+		return opDeleteFolderMembership, id
 	}
 
 	return opUnknown, ""

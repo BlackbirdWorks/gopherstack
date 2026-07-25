@@ -416,6 +416,69 @@ func TestCreateCloudFormationChangeSet_CapabilitiesAndTags(t *testing.T) {
 	}
 }
 
+// TestCreateCloudFormationChangeSet_TemplateID locks cross-validation of the templateId
+// wire field on CreateCloudFormationChangeSet (aws-sdk-go-v2's
+// CreateCloudFormationChangeSetInput.TemplateId, "The UUID returned by
+// CreateCloudFormationTemplate"): a templateId that was actually returned by a prior
+// CreateCloudFormationTemplate call for the same application is accepted, while an unknown
+// templateId, or one that belongs to a different application, is rejected as a
+// NotFoundException.
+func TestCreateCloudFormationChangeSet_TemplateID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid templateId from a prior CreateCloudFormationTemplate is accepted", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		_, err := h.Backend.CreateApplication("cs-tid-app", "desc", "author", "", "", nil, "", "", "")
+		require.NoError(t, err)
+
+		tmpl, err := h.Backend.CreateCloudFormationTemplate("cs-tid-app", "")
+		require.NoError(t, err)
+
+		rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/cs-tid-app/changesets", map[string]any{
+			"stackName":  "my-stack",
+			"templateId": tmpl.TemplateID,
+		})
+		assert.Equal(t, http.StatusCreated, rec.Code)
+	})
+
+	t.Run("unknown templateId is rejected as not found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		_, err := h.Backend.CreateApplication("cs-tid-unknown-app", "desc", "author", "", "", nil, "", "", "")
+		require.NoError(t, err)
+
+		rec := doServerlessRepoRequest(
+			t, h, http.MethodPost, "/applications/cs-tid-unknown-app/changesets", map[string]any{
+				"stackName":  "my-stack",
+				"templateId": "does-not-exist",
+			})
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+
+	t.Run("templateId belonging to a different application is rejected as not found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		_, err := h.Backend.CreateApplication("cs-tid-owner-app", "desc", "author", "", "", nil, "", "", "")
+		require.NoError(t, err)
+		_, err = h.Backend.CreateApplication("cs-tid-other-app", "desc", "author", "", "", nil, "", "", "")
+		require.NoError(t, err)
+
+		tmpl, err := h.Backend.CreateCloudFormationTemplate("cs-tid-owner-app", "")
+		require.NoError(t, err)
+
+		rec := doServerlessRepoRequest(
+			t, h, http.MethodPost, "/applications/cs-tid-other-app/changesets", map[string]any{
+				"stackName":  "my-stack",
+				"templateId": tmpl.TemplateID,
+			})
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+}
+
 func TestCreateCloudFormationChangeSet_OmitsSemanticVersionWhenEmpty(t *testing.T) {
 	t.Parallel()
 

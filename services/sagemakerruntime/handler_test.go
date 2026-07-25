@@ -25,15 +25,19 @@ func newTestHandler(t *testing.T) *sagemakerruntime.Handler {
 	return sagemakerruntime.NewHandler(sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
+// doRequest issues a request with no body. Every call site in this package
+// only ever needs a nil body (anything requiring a body uses
+// doRequestWithHeaders directly), so body is intentionally not a parameter
+// here -- golangci-lint's unparam flags a parameter with a single observed
+// value across all call sites, which a body-taking signature would trip.
 func doRequest(
 	t *testing.T,
 	h *sagemakerruntime.Handler,
 	method, path string,
-	body any,
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	return doRequestWithHeaders(t, h, method, path, body, nil)
+	return doRequestWithHeaders(t, h, method, path, nil, nil)
 }
 
 func doRequestWithHeaders(
@@ -283,7 +287,7 @@ func TestHandler_ErrorCodes(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, tt.method, tt.path, nil)
+			rec := doRequest(t, h, tt.method, tt.path)
 
 			require.Equal(t, tt.wantStatus, rec.Code)
 
@@ -298,7 +302,7 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/endpoints/my-endpoint/invocations", nil)
+	rec := doRequest(t, h, http.MethodGet, "/endpoints/my-endpoint/invocations")
 
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
@@ -322,7 +326,7 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/endpoints/my-endpoint/unknown-op", nil)
+	rec := doRequest(t, h, http.MethodPost, "/endpoints/my-endpoint/unknown-op")
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

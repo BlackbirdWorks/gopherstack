@@ -44,16 +44,39 @@ type Repository struct {
 type PackageGroup struct {
 	CreatedTime time.Time  `json:"createdTime"`
 	Tags        *tags.Tags `json:"tags,omitempty"`
-	ARN         string     `json:"arn"`
-	DomainName  string     `json:"domainName"`
-	DomainOwner string     `json:"domainOwner"`
-	Pattern     string     `json:"pattern"`
-	Description string     `json:"description,omitempty"`
-	ContactInfo string     `json:"contactInfo,omitempty"`
+	// Restrictions holds the explicitly-set origin-control mode/allowed-repo
+	// list for each restriction type ("PUBLISH", "INTERNAL_UPSTREAM",
+	// "EXTERNAL_UPSTREAM"), set via UpdatePackageGroupOriginConfiguration. A
+	// missing key means "INHERIT" (AWS's default for a newly created,
+	// non-root group) -- see resolveEffectiveRestriction in
+	// package_groups.go for how the effective mode is resolved by walking
+	// the pattern-hierarchy chain (package_group_pattern.go) up to the
+	// nearest non-INHERIT ancestor, defaulting to ALLOW if none is found.
+	Restrictions map[string]*PackageGroupRestriction `json:"restrictions,omitempty"`
+	ARN          string                              `json:"arn"`
+	DomainName   string                              `json:"domainName"`
+	DomainOwner  string                              `json:"domainOwner"`
+	Pattern      string                              `json:"pattern"`
+	Description  string                              `json:"description,omitempty"`
+	ContactInfo  string                              `json:"contactInfo,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey); it
 	// is never part of the wire API, so it carries no json tag and is
 	// round-tripped separately through a DTO in persistence.go.
 	region string
+}
+
+// PackageGroupRestriction is the per-origin-type restriction state of a
+// package group -- mirrors the explicitly-configured half of
+// aws-sdk-go-v2's types.PackageGroupOriginRestriction (Mode) plus the
+// allowed-repository list managed by AddAllowedRepositories/
+// RemoveAllowedRepositories on UpdatePackageGroupOriginConfiguration.
+type PackageGroupRestriction struct {
+	// Mode is one of ALLOW, ALLOW_SPECIFIC_REPOSITORIES, BLOCK, or INHERIT.
+	Mode string `json:"mode"`
+	// AllowedRepositories is only meaningful when Mode is
+	// ALLOW_SPECIFIC_REPOSITORIES, but is tracked regardless (AWS allows
+	// populating it before switching to that mode).
+	AllowedRepositories []string `json:"allowedRepositories,omitempty"`
 }
 
 // Package represents an AWS CodeArtifact package (without versions).

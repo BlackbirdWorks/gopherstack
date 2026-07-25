@@ -60,7 +60,7 @@ func TestDescribeApplicationProviderAccountScopedArn(t *testing.T) {
 		{
 			name:       "unknown provider returns 404",
 			arn:        "arn:aws:sso::aws:applicationProvider/nonexistent",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -201,7 +201,7 @@ func TestCreateApplication(t *testing.T) {
 			name:           "create application with nonexistent instance",
 			appName:        "BadApp",
 			providerArn:    "arn:aws:sso::123456789012:applicationProvider/custom",
-			wantStatus:     http.StatusNotFound,
+			wantStatus:     http.StatusBadRequest,
 			useInvalidInst: true,
 		},
 	}
@@ -251,7 +251,7 @@ func TestCreateApplicationDuplicate(t *testing.T) {
 		"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/custom",
 		"Name":                   "DupApp",
 	})
-	assert.Equal(t, http.StatusConflict, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 func TestDeleteApplication(t *testing.T) {
@@ -270,7 +270,7 @@ func TestDeleteApplication(t *testing.T) {
 		{
 			name:       "delete nonexistent application",
 			createApp:  false,
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -449,8 +449,11 @@ func TestApplicationAdditionalOperations(t *testing.T) {
 						body: map[string]any{"ApplicationArn": appArn, "AssignmentRequired": true},
 					},
 					{
-						op:   "PutApplicationSessionConfiguration",
-						body: map[string]any{"ApplicationArn": appArn, "SessionDuration": "PT2H"},
+						op: "PutApplicationSessionConfiguration",
+						body: map[string]any{
+							"ApplicationArn":                         appArn,
+							"UserBackgroundSessionApplicationStatus": "ENABLED",
+						},
 					},
 					{
 						op:   "PutApplicationAccessScope",
@@ -559,8 +562,17 @@ func TestAddApplicationInternal(t *testing.T) {
 	assert.Equal(t, 1, ssoadmin.ApplicationCount(b))
 }
 
-// TestDescribeApplicationIncludesTags verifies that DescribeApplication includes Tags.
-func TestDescribeApplicationIncludesTags(t *testing.T) {
+// TestDescribeApplicationWireShape locks in the real DescribeApplicationOutput
+// wire shape: flat top-level fields (ApplicationAccount, ApplicationArn,
+// ApplicationProviderArn, CreatedDate, CreatedFrom, Description,
+// IdentityStoreArn, InstanceArn, Name, PortalOptions, Status) with NO nested
+// "Application" wrapper and NO "Tags" member. Tags for an application are
+// fetched separately via ListTagsForResource, exactly like every other
+// taggable ssoadmin resource -- gopherstack previously nested everything
+// (including a fabricated Tags field) under an invented "Application" key
+// that doesn't exist on the real wire; a real aws-sdk-go-v2 client parsing
+// that response would find every DescribeApplicationOutput field nil.
+func TestDescribeApplicationWireShape(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -575,16 +587,53 @@ func TestDescribeApplicationIncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 	createResp := parseResponse(t, createRec)
 	appArn := createResp["ApplicationArn"].(string)
+	require.NotEmpty(t, createResp["IdentityStoreArn"], "CreateApplicationOutput must include IdentityStoreArn")
+	require.Equal(t, instanceArn, createResp["InstanceArn"])
+	assert.NotContains(t, createResp, "Application", `CreateApplicationOutput has no nested "Application" member`)
 
 	rec := doRequest(t, h, "DescribeApplication", map[string]any{"ApplicationArn": appArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 	resp := parseResponse(t, rec)
 
-	app, ok := resp["Application"].(map[string]any)
+	assert.NotContains(t, resp, "Application", `DescribeApplicationOutput has no nested "Application" member`)
+	assert.NotContains(t, resp, "Tags", "DescribeApplicationOutput has no Tags member")
+	assert.Equal(t, appArn, resp["ApplicationArn"])
+	assert.Equal(t, "TaggedApp", resp["Name"])
+	assert.Equal(t, instanceArn, resp["InstanceArn"])
+	assert.NotEmpty(t, resp["ApplicationAccount"])
+	assert.NotEmpty(t, resp["IdentityStoreArn"])
+	assert.Contains(t, resp, "CreatedFrom")
+	assert.Contains(t, resp, "CreatedDate")
+
+	// Tags are only reachable via ListTagsForResource, matching real AWS.
+	tagsRec := doRequest(t, h, "ListTagsForResource", map[string]any{
+		"InstanceArn": instanceArn,
+		"ResourceArn": appArn,
+	})
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+	tagsResp := parseResponse(t, tagsRec)
+	tags, ok := tagsResp["Tags"].([]any)
 	require.True(t, ok)
-	tags, ok := app["Tags"].([]any)
-	require.True(t, ok, "Tags should be present in DescribeApplication response")
 	require.NotEmpty(t, tags)
+}
+
+// TestUpdateApplicationWireShape locks in that UpdateApplicationOutput is void
+// (no members at all) -- gopherstack previously echoed a full invented
+// "Application" object that doesn't exist on the real wire.
+func TestUpdateApplicationWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "app-update-wire-shape-inst")
+	appArn := createApplication(t, h, instanceArn, "UpdateWireShapeApp")
+
+	rec := doRequest(t, h, "UpdateApplication", map[string]any{
+		"ApplicationArn": appArn,
+		"Description":    "updated description",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	assert.Empty(t, resp, "UpdateApplicationOutput has no members")
 }
 
 // TestApplicationProviderDisplayDataStruct verifies DisplayData is a struct.

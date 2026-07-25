@@ -16,7 +16,7 @@ import (
 func TestVerifiedPermissionsDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.VerifiedPermissionsHandler.Backend.CreatePolicyStore("My Test Store", nil, "OFF", "")
+	_, err := stack.VerifiedPermissionsHandler.Backend.CreatePolicyStore("My Test Store", nil, "OFF", "", "")
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
@@ -88,7 +88,7 @@ func TestVerifiedPermissionsDashboard_Empty(t *testing.T) {
 func TestVerifiedPermissionsDashboard_CreatePolicyStore(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.VerifiedPermissionsHandler.Backend.CreatePolicyStore("E2E Test Store", nil, "OFF", "")
+	_, err := stack.VerifiedPermissionsHandler.Backend.CreatePolicyStore("E2E Test Store", nil, "OFF", "", "")
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

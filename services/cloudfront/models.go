@@ -100,6 +100,12 @@ type CachePolicy struct {
 	DefaultTTL int64              `json:"defaultTtl"`
 	MaxTTL     int64              `json:"maxTtl"`
 	MinTTL     int64              `json:"minTtl"`
+	// Managed is true for the AWS-provided policies seeded at backend construction
+	// (e.g. "Managed-CachingOptimized"). Managed policies are read-only: Update/Delete
+	// return IllegalUpdate/IllegalDelete, matching real AWS. Corresponds to the real
+	// SDK's CachePolicySummary.Type ("managed" vs "custom"), which is not a field of
+	// CachePolicy itself but is derived from this flag when building that summary.
+	Managed bool `json:"managed,omitempty"`
 }
 
 // ConnectionFunction represents a CloudFront connection function: a small piece of code that
@@ -246,6 +252,9 @@ type ResponseHeadersPolicy struct {
 	ETag            string              `json:"eTag"`
 	CustomHeaders   []RHPCustomHeader   `json:"customHeaders,omitempty"`
 	RemoveHeaders   []string            `json:"removeHeaders,omitempty"`
+	// Managed is true for the AWS-provided policies seeded at backend construction
+	// (e.g. "Managed-SimpleCORS"). See CachePolicy.Managed for details.
+	Managed bool `json:"managed,omitempty"`
 }
 
 // Function represents a CloudFront Function.
@@ -288,6 +297,9 @@ type OriginRequestPolicy struct {
 	Name               string                 `json:"name"`
 	Comment            string                 `json:"comment,omitempty"`
 	ETag               string                 `json:"eTag"`
+	// Managed is true for the AWS-provided policies seeded at backend construction
+	// (e.g. "Managed-AllViewer"). See CachePolicy.Managed for details.
+	Managed bool `json:"managed,omitempty"`
 }
 
 // FLEQueryArgProfile associates a query argument with a field-level-encryption

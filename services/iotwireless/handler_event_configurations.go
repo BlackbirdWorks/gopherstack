@@ -77,14 +77,16 @@ func (h *Handler) updateEventConfigurationByResourceTypes(c *echo.Context) error
 func (h *Handler) listEventConfigurations(c *echo.Context) error {
 	resourceType := c.QueryParam("resourceType")
 	entries := h.Backend.ListEventConfigurations(resourceType)
+	pg, next := paginateQuery(c, entries)
 
-	items := make([]eventConfigurationItemResponse, 0, len(entries))
-	for _, e := range entries {
+	items := make([]eventConfigurationItemResponse, 0, len(pg))
+	for _, e := range pg {
 		items = append(items, eventConfigurationItemResponseFrom(e))
 	}
 
 	return writeJSON(c, http.StatusOK, listEventConfigurationsResponse{
 		EventConfigurationsList: items,
+		NextToken:               next,
 	})
 }
 

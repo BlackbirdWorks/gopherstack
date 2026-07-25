@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -30,6 +31,17 @@ const (
 	maxTagCount    = 50
 	maxTagKeyLen   = 128
 	maxTagValueLen = 256
+
+	// RegisterInstance custom-attribute quota, per the api_op_RegisterInstance.go
+	// doc comment: "You can add up to 30 custom attributes. For each key-value
+	// pair, the maximum length of the attribute name is 255 characters, and the
+	// maximum length of the attribute value is 1,024 characters. The total size
+	// of all provided attributes (sum of all keys and values) must not exceed
+	// 5,000 characters".
+	maxInstanceAttrCount    = 30
+	maxInstanceAttrKeyLen   = 255
+	maxInstanceAttrValueLen = 1024
+	maxInstanceAttrTotalLen = 5000
 )
 
 const (
@@ -348,44 +360,62 @@ func (h *Handler) dispatchMeta(ctx context.Context, op string, body []byte) ([]b
 	}
 }
 
-func (h *Handler) handleError(c *echo.Context, err error) error {
+// sentinelErrorCodes maps each backend sentinel error to its AWS error code,
+// checked in order via errors.Is. A sync.OnceValue route table, same pattern
+// as apigatewayv2's op dispatch: a fixed, read-only lookup built once, not
+// mutated per-request.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table
+var sentinelErrorCodes = sync.OnceValue(func() []struct {
+	err  error
+	code string
+} {
+	return []struct {
+		err  error
+		code string
+	}{
+		{ErrNamespaceNotFound, "NamespaceNotFound"},
+		{ErrServiceNotFound, "ServiceNotFound"},
+		{ErrInstanceNotFound, "InstanceNotFound"},
+		{ErrOperationNotFound, "OperationNotFound"},
+		{ErrServiceAttributesNotFound, "ServiceAttributesNotFound"},
+		{ErrResourceNotFound, "ResourceNotFoundException"},
+		{ErrCustomHealthNotFound, "CustomHealthNotFound"},
+		{ErrNamespaceAlreadyExists, "NamespaceAlreadyExists"},
+		{ErrServiceAlreadyExists, "ServiceAlreadyExists"},
+		{ErrResourceInUse, "ResourceInUse"},
+		{ErrTooManyTags, "TooManyTagsException"},
+		{ErrInvalidInput, errInvalidInput},
+		{errUnknownAction, errInvalidInput},
+	}
+})
+
+// isMalformedRequest reports whether err represents a request the handler
+// couldn't even parse (bad JSON syntax/shape), which maps to InvalidInput
+// just like errInvalidRequest but isn't itself a sentinel in
+// sentinelErrorCodes.
+func isMalformedRequest(err error) bool {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
-	switch {
-	case errors.Is(err, ErrNamespaceNotFound):
-		return h.errorResponse(c, "NamespaceNotFound", err)
-	case errors.Is(err, ErrServiceNotFound):
-		return h.errorResponse(c, "ServiceNotFound", err)
-	case errors.Is(err, ErrInstanceNotFound):
-		return h.errorResponse(c, "InstanceNotFound", err)
-	case errors.Is(err, ErrOperationNotFound):
-		return h.errorResponse(c, "OperationNotFound", err)
-	case errors.Is(err, ErrServiceAttributesNotFound):
-		return h.errorResponse(c, "ServiceAttributesNotFound", err)
-	case errors.Is(err, ErrResourceNotFound):
-		return h.errorResponse(c, "ResourceNotFoundException", err)
-	case errors.Is(err, ErrCustomHealthNotFound):
-		return h.errorResponse(c, "CustomHealthNotFound", err)
-	case errors.Is(err, ErrNamespaceAlreadyExists):
-		return h.errorResponse(c, "NamespaceAlreadyExists", err)
-	case errors.Is(err, ErrResourceInUse):
-		return h.errorResponse(c, "ResourceInUse", err)
-	case errors.Is(err, ErrTooManyTags):
-		return h.errorResponse(c, "TooManyTagsException", err)
-	case errors.Is(err, ErrInvalidInput):
-		return h.errorResponse(c, errInvalidInput, err)
-	case errors.Is(err, errUnknownAction):
-		return h.errorResponse(c, errInvalidInput, err)
-	case errors.Is(err, errInvalidRequest),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return h.errorResponse(c, errInvalidInput, err)
-	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			keyTypeField:    "InternalServiceError",
-			keyMessageField: err.Error(),
-		})
+	return errors.Is(err, errInvalidRequest) || errors.As(err, &syntaxErr) || errors.As(err, &typeErr)
+}
+
+func (h *Handler) handleError(c *echo.Context, err error) error {
+	for _, entry := range sentinelErrorCodes() {
+		if errors.Is(err, entry.err) {
+			return h.errorResponse(c, entry.code, err)
+		}
 	}
+
+	if isMalformedRequest(err) {
+		return h.errorResponse(c, errInvalidInput, err)
+	}
+
+	return c.JSON(http.StatusInternalServerError, map[string]string{
+		keyTypeField:    "InternalServiceError",
+		keyMessageField: err.Error(),
+	})
 }
 
 func (h *Handler) errorResponse(c *echo.Context, errType string, err error) error {
@@ -420,6 +450,50 @@ func validateTags(tags []tagEntry) error {
 				maxTagValueLen,
 			)
 		}
+	}
+
+	return nil
+}
+
+// validateInstanceAttributes enforces the RegisterInstance custom-attribute
+// quota: at most maxInstanceAttrCount entries, key/value length caps, and a
+// combined key+value size cap. See the maxInstanceAttr* constants for the
+// exact documented numbers.
+func validateInstanceAttributes(attrs map[string]string) error {
+	if len(attrs) > maxInstanceAttrCount {
+		return fmt.Errorf("%w: cannot have more than %d attributes", ErrInvalidInput, maxInstanceAttrCount)
+	}
+
+	total := 0
+
+	for k, v := range attrs {
+		if len(k) > maxInstanceAttrKeyLen {
+			return fmt.Errorf(
+				"%w: attribute key %q exceeds maximum length of %d",
+				ErrInvalidInput,
+				k,
+				maxInstanceAttrKeyLen,
+			)
+		}
+
+		if len(v) > maxInstanceAttrValueLen {
+			return fmt.Errorf(
+				"%w: attribute value for key %q exceeds maximum length of %d",
+				ErrInvalidInput,
+				k,
+				maxInstanceAttrValueLen,
+			)
+		}
+
+		total += len(k) + len(v)
+	}
+
+	if total > maxInstanceAttrTotalLen {
+		return fmt.Errorf(
+			"%w: total attribute size exceeds maximum of %d characters",
+			ErrInvalidInput,
+			maxInstanceAttrTotalLen,
+		)
 	}
 
 	return nil

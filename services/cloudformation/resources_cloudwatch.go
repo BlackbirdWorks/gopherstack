@@ -61,7 +61,7 @@ func (rc *ResourceCreator) createCloudWatchDashboard(
 		body = `{"widgets":[]}`
 	}
 
-	if err := rc.backends.CloudWatch.Backend.PutDashboard(name, body); err != nil {
+	if _, err := rc.backends.CloudWatch.Backend.PutDashboard(name, body); err != nil {
 		return "", fmt.Errorf("create CloudWatch dashboard %s: %w", name, err)
 	}
 

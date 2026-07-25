@@ -32,6 +32,7 @@ func TestDataBrewRegionIsolation(t *testing.T) {
 		DatasetInput{},
 		DatasetFormatOptions{},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastDS.Arn, "us-east-1")
@@ -42,6 +43,7 @@ func TestDataBrewRegionIsolation(t *testing.T) {
 		"JSON",
 		DatasetInput{},
 		DatasetFormatOptions{},
+		nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -88,11 +90,11 @@ func TestDataBrewJobRegionIsolation(t *testing.T) {
 	ctxWest := databrewCtxRegion("us-west-2")
 
 	// Create same-named jobs in both regions.
-	eastJob, err := backend.CreateJob(ctxEast, "shared-job", "RECIPE", "", "", "", "", nil, nil)
+	eastJob, err := backend.CreateJob(ctxEast, "shared-job", "RECIPE", "", "", "", "", nil, nil, JobExtras{})
 	require.NoError(t, err)
 	assert.Contains(t, eastJob.Arn, "us-east-1")
 
-	westJob, err := backend.CreateJob(ctxWest, "shared-job", "PROFILE", "", "", "", "", nil, nil)
+	westJob, err := backend.CreateJob(ctxWest, "shared-job", "PROFILE", "", "", "", "", nil, nil, JobExtras{})
 	require.NoError(t, err)
 	assert.Contains(t, westJob.Arn, "us-west-2")
 
@@ -143,6 +145,7 @@ func TestDataBrewDefaultRegionFallback(t *testing.T) {
 		"CSV",
 		DatasetInput{},
 		DatasetFormatOptions{},
+		nil,
 		nil,
 	)
 	require.NoError(t, err)

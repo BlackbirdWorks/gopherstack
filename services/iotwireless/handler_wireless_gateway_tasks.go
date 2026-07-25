@@ -3,13 +3,13 @@ package iotwireless
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
 
 type createWirelessGatewayTaskResponse struct {
 	WirelessGatewayTaskDefinitionID string `json:"WirelessGatewayTaskDefinitionId"`
-	WirelessGatewayID               string `json:"WirelessGatewayId"`
 	Status                          string `json:"Status"`
 }
 
@@ -27,9 +27,25 @@ type getWirelessGatewayTaskResponse struct {
 }
 
 type getWirelessGatewayTaskDefinitionResponse struct {
-	Arn             string `json:"Arn"`
-	Name            string `json:"Name"`
-	AutoCreateTasks bool   `json:"AutoCreateTasks"`
+	Update          map[string]any `json:"Update,omitempty"`
+	Arn             string         `json:"Arn"`
+	Name            string         `json:"Name"`
+	AutoCreateTasks bool           `json:"AutoCreateTasks"`
+}
+
+// taskDefEntry mirrors real AWS's UpdateWirelessGatewayTaskEntry list-entry
+// shape: Arn, Id, LoRaWAN only. Name/AutoCreateTasks are NOT present on list
+// entries even though they are on Create/Get -- confirmed against
+// types.UpdateWirelessGatewayTaskEntry.
+type taskDefEntry struct {
+	LoRaWAN map[string]any `json:"LoRaWAN,omitempty"`
+	ID      string         `json:"Id"`
+	Arn     string         `json:"Arn"`
+}
+
+type listWirelessGatewayTaskDefinitionsResponse struct {
+	NextToken       string         `json:"NextToken"`
+	TaskDefinitions []taskDefEntry `json:"TaskDefinitions"`
 }
 
 func (h *Handler) createWirelessGatewayTask(c *echo.Context, gatewayID string) error {
@@ -46,7 +62,6 @@ func (h *Handler) createWirelessGatewayTask(c *echo.Context, gatewayID string) e
 	}
 
 	return writeJSON(c, http.StatusCreated, createWirelessGatewayTaskResponse{
-		WirelessGatewayID:               task.WirelessGatewayID,
 		WirelessGatewayTaskDefinitionID: task.TaskDefID,
 		Status:                          task.Status,
 	})
@@ -58,11 +73,16 @@ func (h *Handler) getWirelessGatewayTask(c *echo.Context, gatewayID string) erro
 		return handleError(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, getWirelessGatewayTaskResponse{
+	resp := getWirelessGatewayTaskResponse{
 		WirelessGatewayID:               task.WirelessGatewayID,
 		WirelessGatewayTaskDefinitionID: task.TaskDefID,
 		Status:                          task.Status,
-	})
+	}
+	if !task.CreatedAt.IsZero() {
+		resp.TaskCreatedAt = task.CreatedAt.UTC().Format(time.RFC3339)
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) deleteWirelessGatewayTask(c *echo.Context, gatewayID string) error {
@@ -74,8 +94,9 @@ func (h *Handler) deleteWirelessGatewayTask(c *echo.Context, gatewayID string) e
 
 func (h *Handler) createWirelessGatewayTaskDefinition(c *echo.Context) error {
 	var req struct {
-		Name            string `json:"Name"`
-		AutoCreateTasks bool   `json:"AutoCreateTasks"`
+		Update          map[string]any `json:"Update"`
+		Name            string         `json:"Name"`
+		AutoCreateTasks bool           `json:"AutoCreateTasks"`
 	}
 
 	body := readStubBody(c)
@@ -86,6 +107,7 @@ func (h *Handler) createWirelessGatewayTaskDefinition(c *echo.Context) error {
 		h.DefaultRegion,
 		req.Name,
 		req.AutoCreateTasks,
+		req.Update,
 	)
 	if err != nil {
 		return handleError(c, err)
@@ -106,34 +128,33 @@ func (h *Handler) getWirelessGatewayTaskDefinition(c *echo.Context, id string) e
 	return writeJSON(c, http.StatusOK, getWirelessGatewayTaskDefinitionResponse{
 		Arn:             def.ARN,
 		Name:            def.Name,
+		Update:          def.Update,
 		AutoCreateTasks: def.AutoCreateTasks,
 	})
 }
 
 func (h *Handler) listWirelessGatewayTaskDefinitions(c *echo.Context) error {
 	defs := h.Backend.ListWirelessGatewayTaskDefinitions()
+	page, next := paginateQuery(c, defs)
 
-	type taskDefEntry struct {
-		ID              string `json:"Id"`
-		Arn             string `json:"Arn"`
-		Name            string `json:"Name"`
-		AutoCreateTasks bool   `json:"AutoCreateTasks"`
-	}
+	entries := make([]taskDefEntry, 0, len(page))
 
-	entries := make([]taskDefEntry, 0, len(defs))
+	for _, def := range page {
+		var loRaWAN map[string]any
+		if update, ok := def.Update["LoRaWAN"].(map[string]any); ok {
+			loRaWAN = update
+		}
 
-	for _, def := range defs {
 		entries = append(entries, taskDefEntry{
-			ID:              def.ID,
-			Arn:             def.ARN,
-			Name:            def.Name,
-			AutoCreateTasks: def.AutoCreateTasks,
+			ID:      def.ID,
+			Arn:     def.ARN,
+			LoRaWAN: loRaWAN,
 		})
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"TaskDefinitions": entries,
-		"NextToken":       "",
+	return writeJSON(c, http.StatusOK, listWirelessGatewayTaskDefinitionsResponse{
+		TaskDefinitions: entries,
+		NextToken:       next,
 	})
 }
 

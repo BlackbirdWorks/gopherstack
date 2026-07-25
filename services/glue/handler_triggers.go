@@ -26,13 +26,16 @@ func (h *Handler) handleBatchGetTriggers(
 
 // createTriggerInput holds input for CreateTrigger.
 type createTriggerInput struct {
-	Tags            map[string]string `json:"Tags,omitempty"`
-	Predicate       *TriggerPredicate `json:"Predicate,omitempty"`
-	Schedule        string            `json:"Schedule,omitempty"`
-	Name            string            `json:"Name"`
-	Type            string            `json:"Type,omitempty"`
-	Actions         []TriggerAction   `json:"Actions,omitempty"`
-	StartOnCreation bool              `json:"StartOnCreation,omitempty"`
+	Tags                   map[string]string              `json:"Tags,omitempty"`
+	Predicate              *TriggerPredicate              `json:"Predicate,omitempty"`
+	EventBatchingCondition *TriggerEventBatchingCondition `json:"EventBatchingCondition,omitempty"`
+	Schedule               string                         `json:"Schedule,omitempty"`
+	Name                   string                         `json:"Name"`
+	Type                   string                         `json:"Type,omitempty"`
+	Description            string                         `json:"Description,omitempty"`
+	WorkflowName           string                         `json:"WorkflowName,omitempty"`
+	Actions                []TriggerAction                `json:"Actions,omitempty"`
+	StartOnCreation        bool                           `json:"StartOnCreation,omitempty"`
 }
 
 // createTriggerOutput holds the result for CreateTrigger.
@@ -45,12 +48,15 @@ func (h *Handler) handleCreateTrigger(
 	in *createTriggerInput,
 ) (*createTriggerOutput, error) {
 	t := Trigger{
-		Name:            in.Name,
-		Type:            in.Type,
-		Schedule:        in.Schedule,
-		Actions:         in.Actions,
-		Predicate:       in.Predicate,
-		StartOnCreation: in.StartOnCreation,
+		Name:                   in.Name,
+		Type:                   in.Type,
+		Schedule:               in.Schedule,
+		Actions:                in.Actions,
+		Predicate:              in.Predicate,
+		StartOnCreation:        in.StartOnCreation,
+		Description:            in.Description,
+		WorkflowName:           in.WorkflowName,
+		EventBatchingCondition: in.EventBatchingCondition,
 	}
 
 	created, err := h.Backend.CreateTrigger(t, in.Tags)
@@ -190,9 +196,11 @@ type updateTriggerInput struct {
 
 // triggerUpdate holds the mutable fields for UpdateTrigger.
 type triggerUpdate struct {
-	Predicate *TriggerPredicate `json:"Predicate,omitempty"`
-	Schedule  string            `json:"Schedule,omitempty"`
-	Actions   []TriggerAction   `json:"Actions,omitempty"`
+	Predicate              *TriggerPredicate              `json:"Predicate,omitempty"`
+	EventBatchingCondition *TriggerEventBatchingCondition `json:"EventBatchingCondition,omitempty"`
+	Schedule               string                         `json:"Schedule,omitempty"`
+	Description            string                         `json:"Description,omitempty"`
+	Actions                []TriggerAction                `json:"Actions,omitempty"`
 }
 
 // updateTriggerOutput holds the result for UpdateTrigger.
@@ -205,9 +213,11 @@ func (h *Handler) handleUpdateTrigger(
 	in *updateTriggerInput,
 ) (*updateTriggerOutput, error) {
 	update := Trigger{
-		Schedule:  in.TriggerUpdate.Schedule,
-		Actions:   in.TriggerUpdate.Actions,
-		Predicate: in.TriggerUpdate.Predicate,
+		Schedule:               in.TriggerUpdate.Schedule,
+		Actions:                in.TriggerUpdate.Actions,
+		Predicate:              in.TriggerUpdate.Predicate,
+		Description:            in.TriggerUpdate.Description,
+		EventBatchingCondition: in.TriggerUpdate.EventBatchingCondition,
 	}
 	if err := h.Backend.UpdateTrigger(in.Name, update); err != nil {
 		return nil, err

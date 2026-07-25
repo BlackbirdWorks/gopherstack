@@ -22,15 +22,13 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 	pkgMap := b.datasources[graphARN]
 	keys := collections.SortedKeys(pkgMap)
 
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
+	start, err := decodePageToken(nextToken)
+	if err != nil {
+		return nil, "", err
+	}
 
-				break
-			}
-		}
+	if start > len(keys) {
+		start = len(keys)
 	}
 
 	limit := int(maxResults)
@@ -47,7 +45,7 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 
 	var outToken string
 	if end < len(keys) {
-		outToken = keys[end]
+		outToken = encodePageToken(end)
 	}
 
 	return result, outToken, nil

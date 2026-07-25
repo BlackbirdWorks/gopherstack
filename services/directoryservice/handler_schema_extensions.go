@@ -28,7 +28,7 @@ func (h *Handler) handleStartSchemaExtension(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	id, startErr := h.Backend.StartSchemaExtension(
@@ -64,7 +64,7 @@ func (h *Handler) handleCancelSchemaExtension(c *echo.Context) error {
 	if req.DirectoryID == "" || req.SchemaExtensionID == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ClientException", "DirectoryId and SchemaExtensionId are required"),
+			errResp("InvalidParameterException", "DirectoryId and SchemaExtensionId are required"),
 		)
 	}
 
@@ -95,7 +95,7 @@ func (h *Handler) handleListSchemaExtensions(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	exts, nextToken, listErr := h.Backend.ListSchemaExtensions(

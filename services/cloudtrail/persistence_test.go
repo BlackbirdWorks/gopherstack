@@ -3,6 +3,7 @@ package cloudtrail_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,18 +12,11 @@ import (
 )
 
 // newPersistenceTestBackend creates a backend with one populated entry in
-// every store.Table (and, transitively, every secondary store.Index), so a
-// Snapshot from it exercises the entire persisted table surface of the
-// backend. It deliberately leaves the raw events field ([]Event, the one
-// field left un-converted -- see store_setup.go's file doc comment) empty:
-// Event has a hand-written MarshalJSON (emitting EventTime as a JSON-protocol
-// epoch-seconds number, see backend.go) but no matching UnmarshalJSON, so a
-// snapshot containing any event fails to decode on Restore. That asymmetry
-// predates this Phase 3.3 conversion -- events was already a plain
-// []Event slice round-tripped through encoding/json before and after this
-// change -- so it is out of scope here (mechanical map->store.Table swap
-// only); see TestInMemoryBackend_SnapshotRestore_EventsPreexistingBug below,
-// which documents it as a discovered-but-unfixed issue.
+// every store.Table (and, transitively, every secondary store.Index) plus one
+// recorded event (the raw events field, []Event -- the one field left
+// un-converted, see store_setup.go's file doc comment), so a Snapshot from it
+// exercises the entire persisted table surface of the backend, including
+// Event's MarshalJSON/UnmarshalJSON epoch-seconds round trip.
 func newPersistenceTestBackend(t *testing.T) *cloudtrail.InMemoryBackend {
 	t.Helper()
 
@@ -41,7 +35,7 @@ func newPersistenceTestBackend(t *testing.T) *cloudtrail.InMemoryBackend {
 	require.NoError(t, err)
 
 	// dashboards table + dashboardsByARN + dashboardsByName indexes.
-	dash, err := b.CreateDashboard("dashboard1", "CUSTOM", map[string]string{"k": "v"})
+	dash, err := b.CreateDashboard("dashboard1", "CUSTOM", map[string]string{"k": "v"}, nil, nil, false)
 	require.NoError(t, err)
 
 	// eventDataStores table + edsByARN + edsByName indexes.
@@ -59,8 +53,13 @@ func newPersistenceTestBackend(t *testing.T) *cloudtrail.InMemoryBackend {
 	b.PutResourcePolicy(eds.EventDataStoreARN, `{"Version":"2012-10-17"}`)
 
 	// imports table.
-	_, err = b.StartImport([]string{eds.EventDataStoreARN}, "S3")
+	_, err = b.StartImport([]string{eds.EventDataStoreARN}, &cloudtrail.ImportSource{
+		S3: &cloudtrail.S3ImportSource{S3LocationURI: "s3://my-bucket/logs/"},
+	})
 	require.NoError(t, err)
+
+	// raw events slice.
+	b.RecordEvent(cloudtrail.Event{EventName: "CreateTrail", EventSource: "cloudtrail.amazonaws.com"})
 
 	_ = trail
 	_ = ch
@@ -114,7 +113,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "dashboard1", dash.Name)
 
 	// dashboardsByName uniqueness enforced post-restore (index survived).
-	_, err = fresh.CreateDashboard("dashboard1", "CUSTOM", nil)
+	_, err = fresh.CreateDashboard("dashboard1", "CUSTOM", nil, nil, nil, false)
 	require.ErrorIs(t, err, cloudtrail.ErrAlreadyExists)
 
 	// eventDataStores table + edsByARN index.
@@ -141,40 +140,50 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// imports table.
 	imports := fresh.ListImports()
 	require.Len(t, imports, 1)
-	assert.Equal(t, "S3", imports[0].ImportSource)
+	require.NotNil(t, imports[0].ImportSource)
+	require.NotNil(t, imports[0].ImportSource.S3)
+	assert.Equal(t, "s3://my-bucket/logs/", imports[0].ImportSource.S3.S3LocationURI)
 
-	// events raw slice: empty in this fixture, see newPersistenceTestBackend's
-	// doc comment and TestInMemoryBackend_SnapshotRestore_EventsPreexistingBug.
+	// events raw slice: round-trips through Event's MarshalJSON/UnmarshalJSON
+	// epoch-seconds pair (see models.go).
 	out := fresh.LookupEvents(cloudtrail.LookupEventsInput{})
-	assert.Empty(t, out.Events)
+	require.Len(t, out.Events, 1)
+	assert.Equal(t, "CreateTrail", out.Events[0].EventName)
 
 	// Sanity: account/region carried through too.
 	assert.Equal(t, "us-east-1", fresh.Region())
 }
 
-// TestInMemoryBackend_SnapshotRestore_EventsPreexistingBug documents a
-// pre-existing (not introduced by this Phase 3.3 conversion) round-trip bug
-// in the one raw field left un-converted, events ([]Event): Event.MarshalJSON
-// hand-encodes EventTime as a JSON-protocol epoch-seconds number (see
-// backend.go), but Event has no matching UnmarshalJSON, so encoding/json's
-// default time.Time decoder rejects it. Any snapshot containing at least one
-// event therefore fails Restore entirely today -- this predates the
-// store.Table conversion (events was already a plain []Event slice
-// round-tripped via encoding/json through backendSnapshot both before and
-// after this change) and is out of scope for a mechanical map->store.Table
-// swap. Recorded here so it isn't silently lost; see bd for a follow-up fix.
-func TestInMemoryBackend_SnapshotRestore_EventsPreexistingBug(t *testing.T) {
+// TestInMemoryBackend_SnapshotRestore_EventsRoundTrip verifies that the raw
+// events field ([]Event, the one field left un-converted -- see
+// store_setup.go's file doc comment) survives Snapshot -> Restore, including
+// EventTime (via Event's MarshalJSON/UnmarshalJSON epoch-seconds pair) and
+// the EventCategory added for LookupEvents' EventCategory filter. A prior
+// version of this backend had Event.MarshalJSON with no matching
+// UnmarshalJSON, so any snapshot containing an event failed Restore entirely;
+// this test locks in that the round trip now succeeds and is lossless.
+func TestInMemoryBackend_SnapshotRestore_EventsRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
-	b.RecordEvent(cloudtrail.Event{EventName: "CreateTrail", EventSource: "cloudtrail.amazonaws.com"})
+	eventTime := time.Date(2024, 3, 15, 9, 30, 0, 0, time.UTC)
+	b.RecordEvent(cloudtrail.Event{
+		EventName:   "CreateTrail",
+		EventSource: "cloudtrail.amazonaws.com",
+		EventTime:   eventTime,
+	})
 
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
-	err := fresh.Restore(t.Context(), snap)
-	require.Error(t, err, "documents the pre-existing Event JSON round-trip asymmetry; fix tracked separately")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	out := fresh.LookupEvents(cloudtrail.LookupEventsInput{})
+	require.Len(t, out.Events, 1)
+	assert.Equal(t, "CreateTrail", out.Events[0].EventName)
+	assert.Equal(t, "Management", out.Events[0].EventCategory)
+	assert.True(t, eventTime.Equal(out.Events[0].EventTime), "EventTime must round-trip exactly")
 }
 
 // TestInMemoryBackend_UpdateEventDataStore_RenamePreservesIndex verifies the
@@ -210,24 +219,40 @@ func TestInMemoryBackend_UpdateEventDataStore_RenamePreservesIndex(t *testing.T)
 	assert.Equal(t, "renamed", got.Name)
 }
 
-// TestInMemoryBackend_UpdateDashboard_RenamePreservesIndex mirrors the
-// EventDataStore rename test above for Dashboard.Name (dashboardsByName).
-func TestInMemoryBackend_UpdateDashboard_RenamePreservesIndex(t *testing.T) {
+// TestInMemoryBackend_UpdateDashboard_WidgetsAndScheduleSurviveRestore
+// verifies that UpdateDashboard's real fields (Widgets, RefreshSchedule,
+// TerminationProtectionEnabled -- real UpdateDashboardInput has no Name
+// field, dashboards cannot be renamed; see UpdateDashboard's doc comment in
+// dashboards.go) persist and survive a Snapshot -> Restore round trip,
+// alongside the dashboardsByName index (looked up by the original name,
+// which never changes).
+func TestInMemoryBackend_UpdateDashboard_WidgetsAndScheduleSurviveRestore(t *testing.T) {
 	t.Parallel()
 
 	b := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
 
-	dash, err := b.CreateDashboard("original-name", "CUSTOM", nil)
+	dash, err := b.CreateDashboard("my-dashboard", "CUSTOM", nil, nil, nil, false)
 	require.NoError(t, err)
 
-	_, err = b.UpdateDashboard(dash.DashboardID, "renamed")
+	widgets := []cloudtrail.Widget{
+		{QueryStatement: "SELECT * FROM eds1", ViewProperties: map[string]string{"title": "w1"}},
+	}
+	schedule := &cloudtrail.RefreshSchedule{
+		Status:    "ENABLED",
+		Frequency: &cloudtrail.RefreshScheduleFrequency{Unit: "HOURS", Value: 6},
+	}
+	protect := true
+
+	updated, err := b.UpdateDashboard(dash.DashboardID, widgets, schedule, &protect)
 	require.NoError(t, err)
+	assert.Equal(t, "UPDATED", updated.Status)
+	assert.True(t, updated.TerminationProtectionEnabled)
+	require.Len(t, updated.Widgets, 1)
+	assert.Equal(t, "SELECT * FROM eds1", updated.Widgets[0].QueryStatement)
 
-	_, err = b.CreateDashboard("original-name", "CUSTOM", nil)
-	require.NoError(t, err, "original-name index entry must have been removed on rename")
-
-	_, err = b.CreateDashboard("renamed", "CUSTOM", nil)
-	require.ErrorIs(t, err, cloudtrail.ErrAlreadyExists, "renamed index entry must be present")
+	// dashboardsByName index still resolves by the (unchanged) original name.
+	_, err = b.CreateDashboard("my-dashboard", "CUSTOM", nil, nil, nil, false)
+	require.ErrorIs(t, err, cloudtrail.ErrAlreadyExists)
 
 	snap := b.Snapshot(t.Context())
 	fresh := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
@@ -235,7 +260,11 @@ func TestInMemoryBackend_UpdateDashboard_RenamePreservesIndex(t *testing.T) {
 
 	got, err := fresh.GetDashboard(dash.DashboardID)
 	require.NoError(t, err)
-	assert.Equal(t, "renamed", got.Name)
+	assert.True(t, got.TerminationProtectionEnabled)
+	require.Len(t, got.Widgets, 1)
+	assert.Equal(t, "SELECT * FROM eds1", got.Widgets[0].QueryStatement)
+	require.NotNil(t, got.RefreshSchedule)
+	assert.Equal(t, "ENABLED", got.RefreshSchedule.Status)
 }
 
 // TestInMemoryBackend_SnapshotRestore_EventConfiguration verifies that

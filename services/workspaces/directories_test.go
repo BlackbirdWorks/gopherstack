@@ -136,6 +136,91 @@ func TestDescribeWorkspaceDirectories_AfterDeregister(t *testing.T) {
 	assert.Empty(t, dirs, "deregistered directory must not appear")
 }
 
+// TestRegisterWorkspaceDirectory_DuplicateRejected verifies real AWS
+// behavior: registering an already-registered directory returns
+// ResourceAlreadyExistsException, not a silent 200. Previously this call was
+// unconditionally idempotent.
+func TestRegisterWorkspaceDirectory_DuplicateRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{
+		"DirectoryId": "d-dup",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{
+		"DirectoryId": "d-dup",
+	})
+	require.Equal(t, http.StatusBadRequest, rec2.Code, "body: %s", rec2.Body)
+
+	var errOut map[string]string
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errOut))
+	assert.Equal(t, "ResourceAlreadyExistsException", errOut["__type"])
+}
+
+// TestDeregisterWorkspaceDirectory_BlockedByWorkspaces verifies real AWS
+// behavior: "If any WorkSpaces are registered to this directory, you must
+// remove them before you can deregister the directory" -- deregistration
+// must fail with InvalidResourceStateException rather than silently
+// succeeding (or, worse, cascade-deleting the WorkSpaces). Once the
+// WorkSpace is removed, deregistration succeeds.
+func TestDeregisterWorkspaceDirectory_BlockedByWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{
+		"DirectoryId": "d-busy",
+	})
+
+	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
+		"Workspaces": []map[string]any{
+			{"UserName": "alice", "DirectoryId": "d-busy", "BundleId": "wsb-test"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var wsOut struct {
+		PendingRequests []map[string]string `json:"PendingRequests"`
+	}
+	decodeJSON(t, rec.Body.Bytes(), &wsOut)
+	require.Len(t, wsOut.PendingRequests, 1)
+	wsID := wsOut.PendingRequests[0]["WorkspaceId"]
+
+	rec2 := doTargetRequest(t, h, "DeregisterWorkspaceDirectory", map[string]any{
+		"DirectoryId": "d-busy",
+	})
+	require.Equal(t, http.StatusBadRequest, rec2.Code, "body: %s", rec2.Body)
+
+	var errOut map[string]string
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errOut))
+	assert.Equal(t, "InvalidResourceStateException", errOut["__type"])
+
+	// The directory must still be registered -- deregistration was rejected,
+	// not silently applied.
+	recDesc := doTargetRequest(t, h, "DescribeWorkspaceDirectories", map[string]any{
+		"DirectoryIds": []string{"d-busy"},
+	})
+	var descOut struct {
+		Directories []map[string]any `json:"Directories"`
+	}
+	decodeJSON(t, recDesc.Body.Bytes(), &descOut)
+	require.Len(t, descOut.Directories, 1)
+
+	// Remove the WorkSpace, then deregistration must succeed.
+	recTerm := doTargetRequest(t, h, "TerminateWorkspaces", map[string]any{
+		"TerminateWorkspaceRequests": []map[string]any{{"WorkspaceId": wsID}},
+	})
+	require.Equal(t, http.StatusOK, recTerm.Code, "body: %s", recTerm.Body)
+
+	rec3 := doTargetRequest(t, h, "DeregisterWorkspaceDirectory", map[string]any{
+		"DirectoryId": "d-busy",
+	})
+	assert.Equal(t, http.StatusOK, rec3.Code, "body: %s", rec3.Body)
+}
+
 // TestDirectoryRegistration exercises the register/deregister lifecycle via the handler.
 func TestDirectoryRegistration(t *testing.T) { //nolint:paralleltest // existing issue.
 	tests := []struct {

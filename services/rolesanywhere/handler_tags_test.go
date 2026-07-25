@@ -10,18 +10,47 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rolesanywhere"
 )
 
 // ---- Tag HTTP operations ----
+
+// createTestTrustAnchor creates a trust anchor via the handler's REST surface
+// and returns its ARN. TagResource/ListTagsForResource now validate that the
+// ARN corresponds to an existing resource (real AWS models
+// ResourceNotFoundException for both), so tag-flow tests need a real
+// resourceArn rather than an arbitrary string.
+func createTestTrustAnchor(t *testing.T, h *rolesanywhere.Handler) string {
+	t.Helper()
+
+	rec := doREST(t, h, http.MethodPost, "/trustanchors", map[string]any{
+		"name":   t.Name(),
+		"source": map[string]any{"sourceType": "CERTIFICATE_BUNDLE"},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	ta, ok := resp["trustAnchor"].(map[string]any)
+	require.True(t, ok, "response missing trustAnchor: %s", rec.Body.String())
+
+	arn, ok := ta["trustAnchorArn"].(string)
+	require.True(t, ok, "trustAnchor missing trustAnchorArn: %v", ta)
+
+	return arn
+}
 
 func TestHandler_Tags_HTTP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		wantStatus int
+		name           string
+		wantTagStatus  int
+		wantListStatus int
 	}{
-		{"tag, list, untag resource", http.StatusOK},
+		{"tag, list, untag resource", http.StatusCreated, http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -29,9 +58,10 @@ func TestHandler_Tags_HTTP(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			resARN := "arn:aws:rolesanywhere:us-east-1:000000000000:trust-anchor/tag-test-id"
+			resARN := createTestTrustAnchor(t, h)
 
-			// Tag resource.
+			// Tag resource. Real AWS's TagResource responds 201 Created (per
+			// the service model's http.responseCode), not 200.
 			recTag := doREST(t, h, http.MethodPost, "/TagResource", map[string]any{
 				"resourceArn": resARN,
 				"tags": []map[string]any{
@@ -39,11 +69,11 @@ func TestHandler_Tags_HTTP(t *testing.T) {
 					{"key": "team", "value": "security"},
 				},
 			})
-			assert.Equal(t, tt.wantStatus, recTag.Code)
+			assert.Equal(t, tt.wantTagStatus, recTag.Code)
 
 			// List tags.
 			recList := doREST(t, h, http.MethodGet, "/ListTagsForResource?resourceArn="+resARN, nil)
-			assert.Equal(t, http.StatusOK, recList.Code)
+			assert.Equal(t, tt.wantListStatus, recList.Code)
 
 			var listResp map[string]any
 			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp))
@@ -109,15 +139,19 @@ func TestHandler_TagResource_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestHandler_Tags_EmptyList(t *testing.T) {
+// TestHandler_Tags_UnknownResource proves ListTagsForResource/TagResource
+// return 404 ResourceNotFoundException for an ARN that matches no trust
+// anchor/profile/CRL, matching real AWS -- a prior version of this test
+// asserted the opposite (200 with an empty list), which was itself a stub:
+// the tag store was never checked against a real resource at all.
+func TestHandler_Tags_UnknownResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
 		wantStatus int
-		wantTags   int
 	}{
-		{"list tags for unknown resource returns empty list", http.StatusOK, 0},
+		{"list tags for unknown resource returns 404", http.StatusNotFound},
 	}
 
 	for _, tt := range tests {
@@ -134,10 +168,27 @@ func TestHandler_Tags_EmptyList(t *testing.T) {
 			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			var resp map[string]any
+			var resp map[string]string
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			tags := resp["tags"].([]any)
-			assert.Len(t, tags, tt.wantTags)
+			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 		})
 	}
+}
+
+// TestHandler_Tags_EmptyList proves a real, taggless resource returns an
+// empty (not error) tags list -- distinguishing "resource exists with no
+// tags" from "resource does not exist" (TestHandler_Tags_UnknownResource).
+func TestHandler_Tags_EmptyList(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	resARN := createTestTrustAnchor(t, h)
+
+	rec := doREST(t, h, http.MethodGet, "/ListTagsForResource?resourceArn="+resARN, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	tags := resp["tags"].([]any)
+	assert.Empty(t, tags)
 }

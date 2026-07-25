@@ -25,7 +25,7 @@ func (h *Handler) handleGetCommitmentPurchaseAnalysis(
 	in *getCommitmentPurchaseAnalysisInput,
 ) (*getCommitmentPurchaseAnalysisOutput, error) {
 	if in.AnalysisID == "" {
-		return nil, fmt.Errorf("%w: AnalysisId is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: AnalysisId is required", ErrValidation)
 	}
 
 	a, err := h.Backend.GetCommitmentAnalysis(in.AnalysisID)

@@ -224,7 +224,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateScheduledAction(
-		"rt-scheduledaction", "at(2030-01-01T00:00:00)", "arn:aws:iam::000000000000:role/r", "desc", "",
+		"rt-scheduledaction", "at(2030-01-01T00:00:00)", "arn:aws:iam::000000000000:role/r", "desc", nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -233,14 +233,14 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateEndpointAccess("rt-cluster", "rt-endpointaccess", "vpc-1")
+	_, err = b.CreateEndpointAccess("rt-cluster", "rt-endpointaccess", "", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateIntegration(
 		"rt-integration",
 		"arn:aws:redshift:us-east-1:000000000000:cluster:rt-cluster",
 		"arn:aws:redshift:us-east-1:000000000000:namespace/1",
-		"", "desc",
+		"", "desc", nil,
 	)
 	require.NoError(t, err)
 

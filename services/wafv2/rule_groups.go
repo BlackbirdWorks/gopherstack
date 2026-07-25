@@ -40,12 +40,6 @@ func (b *InMemoryBackend) lookupRuleGroupByID(requestRegion, id string) (*RuleGr
 	return nil, false
 }
 
-// CheckCapacity returns the capacity consumed by the provided rules.
-// Each rule costs wcuPerRule WCUs in this in-memory implementation.
-func (b *InMemoryBackend) CheckCapacity(_ context.Context, _ string, rules []map[string]any) (int64, error) {
-	return int64(len(rules)) * wcuPerRule, nil
-}
-
 // CreateRuleGroup creates a new RuleGroup.
 func (b *InMemoryBackend) CreateRuleGroup(
 	ctx context.Context,

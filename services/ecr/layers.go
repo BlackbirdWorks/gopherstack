@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -44,9 +45,11 @@ func (b *InMemoryBackend) BatchCheckLayerAvailability(
 	return layers, failures, nil
 }
 
-// CompleteLayerUpload finalises the upload of an image layer.
-// If an upload session exists, it computes the SHA256 of accumulated bytes and verifies the digest.
-// If no session exists (direct digest path), the provided digest is trusted as-is.
+// CompleteLayerUpload finalises the upload of an image layer. It requires a
+// live InitiateLayerUpload session (see resolveCompletedLayerLocked for the
+// full set of preconditions AWS enforces) and computes the SHA256 of the
+// accumulated bytes, verifying it against any caller-supplied full-length
+// digest.
 func (b *InMemoryBackend) CompleteLayerUpload(
 	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName, uploadID string,
@@ -89,42 +92,64 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 }
 
 // resolveCompletedLayerLocked determines the final layer digest and size for a
-// CompleteLayerUpload call and retires the upload session (if one exists).
-// Caller must hold the write lock.
+// CompleteLayerUpload call and retires the upload session. Caller must hold
+// the write lock.
+//
+// AWS requires a live InitiateLayerUpload session for the given repository
+// (UploadNotFoundException otherwise), that session to have received at
+// least one UploadLayerPart call (EmptyUploadException otherwise), and every
+// part but the last to be at least 5MiB (LayerPartTooSmallException
+// otherwise). There is deliberately no "direct digest" fallback for an
+// unknown uploadId: that shortcut does not exist in the real API and its
+// removal is what makes the three exceptions above enforceable.
 func (b *InMemoryBackend) resolveCompletedLayerLocked(
 	repositoryName, uploadID string,
 	layerDigests []string,
 ) (string, int64, error) {
-	var digest string
-	var size int64
-
 	upload, ok := b.layerUploads[uploadID]
-
-	switch {
-	case ok && upload.RepositoryName == repositoryName && len(upload.Data) > 0:
-		verified, err := verifiedUploadDigestLocked(upload, layerDigests)
-		if err != nil {
-			return "", 0, err
-		}
-
-		digest = verified
-		size = upload.Size
-		b.retireLayerUploadLocked(repositoryName, uploadID)
-
-	case ok && upload.RepositoryName == repositoryName:
-		if len(layerDigests) > 0 {
-			digest = layerDigests[0]
-		}
-
-		size = upload.Size
-		b.retireLayerUploadLocked(repositoryName, uploadID)
-
-	case len(layerDigests) > 0:
-		// Direct digest path: no prior InitiateLayerUpload.
-		digest = layerDigests[0]
+	if !ok || upload.RepositoryName != repositoryName {
+		return "", 0, fmt.Errorf("%w: upload ID %s not found for repository %s",
+			ErrUploadNotFound, uploadID, repositoryName)
 	}
 
+	if len(upload.Data) == 0 {
+		return "", 0, fmt.Errorf(
+			"%w: the specified layer upload does not contain any layer parts", ErrEmptyUpload,
+		)
+	}
+
+	if err := validatePartSizesLocked(upload); err != nil {
+		return "", 0, err
+	}
+
+	digest, err := verifiedUploadDigestLocked(upload, layerDigests)
+	if err != nil {
+		return "", 0, err
+	}
+
+	size := upload.Size
+	b.retireLayerUploadLocked(repositoryName, uploadID)
+
 	return digest, size, nil
+}
+
+// validatePartSizesLocked enforces AWS's minimum layer-part size: every part
+// except the last must be at least 5MiB. PartSizes records each
+// UploadLayerPart call's blob length in arrival order, so the last element is
+// always exempt (the "last part" cannot be known until CompleteLayerUpload).
+// A single-part upload is therefore never rejected, since its one part is
+// always the last. Caller must hold the write lock.
+func validatePartSizesLocked(upload *layerUploadState) error {
+	for _, size := range upload.PartSizes[:max(0, len(upload.PartSizes)-1)] {
+		if size < minLayerPartSize {
+			return fmt.Errorf(
+				"%w: layer parts must be at least %d bytes in size, except for the last part",
+				ErrLayerPartTooSmall, minLayerPartSize,
+			)
+		}
+	}
+
+	return nil
 }
 
 // verifiedUploadDigestLocked computes the SHA256 of the accumulated upload
@@ -149,6 +174,22 @@ func verifiedUploadDigestLocked(upload *layerUploadState, layerDigests []string)
 	}
 
 	return provided, nil
+}
+
+// recordLayerPullLocked stamps LastRecordedPullTime on every image in
+// repositoryName whose manifest references layerDigest. The backend does not
+// otherwise model a per-image layer list, so this uses a substring match
+// against the raw manifest JSON text: layer digests appear literally in a
+// manifest's "layers[].digest" (and, for the config blob, "config.digest")
+// fields, so this reliably identifies which image(s) a layer pull belongs to
+// without needing full manifest parsing. Caller must hold the write lock.
+func (b *InMemoryBackend) recordLayerPullLocked(repositoryName, layerDigest string) {
+	now := time.Now()
+	for _, img := range b.imagesByRepo.Get(repositoryName) {
+		if strings.Contains(img.ImageManifest, layerDigest) {
+			img.LastRecordedPullTime = now
+		}
+	}
 }
 
 // retireLayerUploadLocked removes an upload session and its per-repository
@@ -190,12 +231,15 @@ func isFullSHA256Digest(s string) bool {
 }
 
 // GetDownloadURLForLayer resolves a local download URL for an uploaded layer.
+// Resolving a layer's download URL is how a client pulls it, so this also
+// stamps lastRecordedPullTime (surfaced via DescribeImages) on every image in
+// the repository whose manifest references layerDigest.
 func (b *InMemoryBackend) GetDownloadURLForLayer(
 	ctx context.Context,
 	repositoryName, layerDigest string,
 ) (string, error) {
-	b.mu.RLock("GetDownloadURLForLayer")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetDownloadURLForLayer")
+	defer b.mu.Unlock()
 
 	if !b.repos.Has(repositoryName) {
 		return "", fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
@@ -204,6 +248,8 @@ func (b *InMemoryBackend) GetDownloadURLForLayer(
 	if _, ok := b.uploadedLayers[repositoryName][layerDigest]; !ok {
 		return "", fmt.Errorf("%w: %s", ErrLayerInaccessible, layerDigest)
 	}
+
+	b.recordLayerPullLocked(repositoryName, layerDigest)
 
 	endpoint := b.endpoint
 	if endpoint == "" {
@@ -279,7 +325,17 @@ func (b *InMemoryBackend) UploadLayerPart(ctx context.Context, //nolint:revive /
 
 	upload, ok := b.layerUploads[uploadID]
 	if !ok || upload.RepositoryName != repositoryName {
-		return nil, fmt.Errorf("%w: upload not found", ErrRepositoryNotFound)
+		// NEW round 3 wire-shape fix, found while re-verifying this exact code
+		// path for CompleteLayerUpload's UploadNotFoundException gap: real AWS
+		// returns UploadNotFoundException (400) here too, not
+		// RepositoryNotFoundException (404) -- confirmed against
+		// UploadLayerPart's documented Errors list, which lists
+		// UploadNotFoundException ("The upload could not be found, or the
+		// specified upload ID is not valid for this repository.") and does not
+		// list RepositoryNotFoundException as reachable once the repository
+		// itself (checked above) is confirmed to exist.
+		return nil, fmt.Errorf("%w: upload ID %s not found for repository %s",
+			ErrUploadNotFound, uploadID, repositoryName)
 	}
 
 	if firstByte >= 0 && firstByte != upload.Size {
@@ -291,6 +347,10 @@ func (b *InMemoryBackend) UploadLayerPart(ctx context.Context, //nolint:revive /
 
 	upload.Data = append(upload.Data, blob...)
 	upload.Size = int64(len(upload.Data))
+	// Record this part's size so CompleteLayerUpload can enforce the 5MiB
+	// minimum-part-size rule (LayerPartTooSmallException) against every part
+	// but the last, once "last" is knowable.
+	upload.PartSizes = append(upload.PartSizes, int64(len(blob)))
 	// Refresh the activity timestamp so an in-progress multi-part upload is not
 	// pruned as abandoned while parts are still arriving.
 	upload.CreatedAt = time.Now()

@@ -25,7 +25,7 @@ func (h *Handler) handleDeleteResourcePolicy(_ context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: PolicyName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteResourcePolicy(in.PolicyName); err != nil {
+	if err := h.Backend.DeleteResourcePolicy(in.PolicyName, in.PolicyRevisionID); err != nil {
 		return nil, err
 	}
 
@@ -33,9 +33,10 @@ func (h *Handler) handleDeleteResourcePolicy(_ context.Context, body []byte) ([]
 }
 
 type resourcePolicyView struct {
-	PolicyName       string `json:"PolicyName"`
-	PolicyDocument   string `json:"PolicyDocument"`
-	PolicyRevisionID string `json:"PolicyRevisionId"`
+	PolicyName       string  `json:"PolicyName"`
+	PolicyDocument   string  `json:"PolicyDocument"`
+	PolicyRevisionID string  `json:"PolicyRevisionId"`
+	LastUpdatedTime  float64 `json:"LastUpdatedTime"`
 }
 
 func toResourcePolicyView(p *ResourcePolicy) resourcePolicyView {
@@ -43,6 +44,7 @@ func toResourcePolicyView(p *ResourcePolicy) resourcePolicyView {
 		PolicyName:       p.PolicyName,
 		PolicyDocument:   p.PolicyDocument,
 		PolicyRevisionID: p.PolicyRevisionID,
+		LastUpdatedTime:  float64(p.LastUpdatedTime.Unix()),
 	}
 }
 

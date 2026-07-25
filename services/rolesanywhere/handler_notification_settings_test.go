@@ -73,6 +73,47 @@ func TestHandler_NotificationSettings_PutReset(t *testing.T) {
 	}
 }
 
+// TestHandler_NotificationSettings_ConfiguredBy proves that
+// PutNotificationSettings stamps each resulting setting with configuredBy,
+// matching real AWS's NotificationSettingDetail.configuredBy ("the principal
+// that configured the notification setting" -- the account ID for
+// customer-configured settings, which is the only kind gopherstack ever
+// produces since it seeds no AWS-default settings).
+func TestHandler_NotificationSettings_ConfiguredBy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	recTA := doREST(t, h, http.MethodPost, "/trustanchors", map[string]any{
+		"name":   "notif-configured-by-anchor",
+		"source": map[string]any{"sourceType": "CERTIFICATE_BUNDLE"},
+	})
+	require.Equal(t, http.StatusCreated, recTA.Code)
+
+	var taResp map[string]any
+	require.NoError(t, json.Unmarshal(recTA.Body.Bytes(), &taResp))
+	ta := taResp["trustAnchor"].(map[string]any)
+	taID := ta["trustAnchorId"].(string)
+
+	recPut := doREST(t, h, http.MethodPatch, "/put-notifications-settings", map[string]any{
+		"trustAnchorId": taID,
+		"notificationSettings": []map[string]any{
+			{"event": "CA_CERTIFICATE_EXPIRY", "enabled": true},
+		},
+	})
+	require.Equal(t, http.StatusOK, recPut.Code)
+
+	var putResp map[string]any
+	require.NoError(t, json.Unmarshal(recPut.Body.Bytes(), &putResp))
+
+	updatedTA := putResp["trustAnchor"].(map[string]any)
+	settings := updatedTA["notificationSettings"].([]any)
+	require.Len(t, settings, 1)
+
+	setting := settings[0].(map[string]any)
+	assert.Equal(t, "000000000000", setting["configuredBy"])
+}
+
 func TestHandler_NotificationSettings_InvalidJSON(t *testing.T) {
 	t.Parallel()
 

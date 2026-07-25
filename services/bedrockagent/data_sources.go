@@ -3,6 +3,7 @@ package bedrockagent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -98,7 +99,8 @@ func (b *InMemoryBackend) UpdateDataSource(
 	return dsCopy(ds), nil
 }
 
-// DeleteDataSource deletes a data source.
+// DeleteDataSource deletes a data source, cascade-cleaning every ingestion
+// job and ingested KB document scoped under it.
 func (b *InMemoryBackend) DeleteDataSource(_ context.Context, kbID, dsID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -108,9 +110,27 @@ func (b *InMemoryBackend) DeleteDataSource(_ context.Context, kbID, dsID string)
 		return fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
+	b.deleteDataSourceChildrenLocked(kbID, dsID)
 	b.dataSources.Delete(key)
 
 	return nil
+}
+
+// deleteDataSourceChildrenLocked removes every ingestion job and KB
+// document scoped under a data source, but leaves the data source row
+// itself untouched (callers delete that separately -- DeleteDataSource
+// deletes it immediately after, DeleteKnowledgeBase's cascade deletes it as
+// part of a larger sweep). b.mu must already be held.
+func (b *InMemoryBackend) deleteDataSourceChildrenLocked(kbID, dsID string) {
+	scope := dsKey(kbID, dsID)
+
+	for _, job := range slices.Clone(b.ingestionJobsByDataSource.Get(scope)) {
+		b.ingestionJobs.Delete(jobKey(job.KnowledgeBaseID, job.DataSourceID, job.IngestionJobID))
+	}
+
+	for _, doc := range slices.Clone(b.kbDocumentsByDataSource.Get(scope)) {
+		b.kbDocuments.Delete(kbDocKey(doc.KnowledgeBaseID, doc.DataSourceID, doc.DocumentID))
+	}
 }
 
 // ListDataSources returns paginated data source summaries.

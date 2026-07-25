@@ -126,7 +126,9 @@ func (h *Handler) handleDescribeEngineDefaultClusterParameters(ctx context.Conte
 
 func (h *Handler) handleResetDBClusterParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
-	pg, err := h.Backend.ResetDBClusterParameterGroup(ctx, name)
+	resetAll := vals.Get("ResetAllParameters") == stringTrue
+	paramNames := parseDBClusterParameterNames(vals)
+	pg, err := h.Backend.ResetDBClusterParameterGroup(ctx, name, resetAll, paramNames)
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +199,7 @@ type xmlDBClusterParameter struct {
 	Description    string `xml:"Description,omitempty"`
 	Source         string `xml:"Source,omitempty"`
 	ApplyType      string `xml:"ApplyType,omitempty"`
+	ApplyMethod    string `xml:"ApplyMethod,omitempty"`
 	DataType       string `xml:"DataType,omitempty"`
 	IsModifiable   bool   `xml:"IsModifiable"`
 }
@@ -243,6 +246,7 @@ func toXMLDBClusterParameter(p *DBClusterParameter) xmlDBClusterParameter {
 		Description:    p.Description,
 		Source:         p.Source,
 		ApplyType:      p.ApplyType,
+		ApplyMethod:    p.ApplyMethod,
 		DataType:       p.DataType,
 		IsModifiable:   p.IsModifiable,
 	}
@@ -266,4 +270,22 @@ func parseDBClusterParameters(vals url.Values) map[string]string {
 	}
 
 	return params
+}
+
+// parseDBClusterParameterNames parses just the ParameterName half of the
+// same Parameters.Parameter.N.* wire shape parseDBClusterParameters reads
+// (ResetDBClusterParameterGroup's per-parameter reset form only needs the
+// name -- a real client resetting specific parameters sends
+// ParameterName+ApplyMethod, not ParameterValue).
+func parseDBClusterParameterNames(vals url.Values) []string {
+	var names []string
+	for i := 1; ; i++ {
+		pName := vals.Get(fmt.Sprintf("Parameters.Parameter.%d.ParameterName", i))
+		if pName == "" {
+			break
+		}
+		names = append(names, pName)
+	}
+
+	return names
 }

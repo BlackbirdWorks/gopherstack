@@ -91,6 +91,51 @@ type DeleteAccountPasswordPolicyResponse struct {
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
+// ---- Outbound Web Identity Federation ----
+
+// EnableOutboundWebIdentityFederationResult contains the account's issuer URL.
+type EnableOutboundWebIdentityFederationResult struct {
+	IssuerIdentifier string `xml:"IssuerIdentifier"`
+}
+
+// EnableOutboundWebIdentityFederationResponse is the XML response for
+// EnableOutboundWebIdentityFederation. The Result field is named just
+// "Result" (rather than repeating the full, very long operation name) purely
+// to keep the struct's source lines under the linter's line-length limit --
+// the `xml:"EnableOutboundWebIdentityFederationResult"` tag, not the Go field
+// name, is what determines the wire element name.
+type EnableOutboundWebIdentityFederationResponse struct {
+	XMLName          xml.Name                                  `xml:"EnableOutboundWebIdentityFederationResponse"`
+	Xmlns            string                                    `xml:"xmlns,attr"`
+	Result           EnableOutboundWebIdentityFederationResult `xml:"EnableOutboundWebIdentityFederationResult"`
+	ResponseMetadata ResponseMetadata                          `xml:"ResponseMetadata"`
+}
+
+// DisableOutboundWebIdentityFederationResponse is the XML response for
+// DisableOutboundWebIdentityFederation.
+type DisableOutboundWebIdentityFederationResponse struct {
+	XMLName          xml.Name         `xml:"DisableOutboundWebIdentityFederationResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// GetOutboundWebIdentityFederationInfoResult contains the account's issuer
+// URL and current enabled/disabled status.
+type GetOutboundWebIdentityFederationInfoResult struct {
+	IssuerIdentifier  string `xml:"IssuerIdentifier"`
+	JwtVendingEnabled bool   `xml:"JwtVendingEnabled"`
+}
+
+// GetOutboundWebIdentityFederationInfoResponse is the XML response for
+// GetOutboundWebIdentityFederationInfo. See EnableOutboundWebIdentityFederationResponse's
+// doc comment for why the Result field is named just "Result".
+type GetOutboundWebIdentityFederationInfoResponse struct {
+	XMLName          xml.Name                                   `xml:"GetOutboundWebIdentityFederationInfoResponse"`
+	Xmlns            string                                     `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata                           `xml:"ResponseMetadata"`
+	Result           GetOutboundWebIdentityFederationInfoResult `xml:"GetOutboundWebIdentityFederationInfoResult"`
+}
+
 // ---- Change Password ----
 
 // ChangePasswordResponse is the XML response for ChangePassword.

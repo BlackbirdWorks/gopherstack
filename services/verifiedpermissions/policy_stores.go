@@ -24,20 +24,38 @@ func clonePolicyStore(ps *PolicyStore) *PolicyStore {
 	return &cp
 }
 
-// CreatePolicyStore creates a new policy store.
+// CreatePolicyStore creates a new policy store. A non-empty clientToken
+// makes the call idempotent for eight hours: a retry with the same token and
+// the same parameters replays the original policy store instead of creating
+// a duplicate, and a retry with the same token but different parameters
+// fails with ErrConflict, matching real AWS's documented ClientToken
+// semantics.
 func (b *InMemoryBackend) CreatePolicyStore(
 	description string,
 	tags map[string]string,
-	validationMode, deletionProtection string,
+	validationMode, deletionProtection, clientToken string,
 ) (*PolicyStore, error) {
 	b.mu.Lock("CreatePolicyStore")
 	defer b.mu.Unlock()
 
+	fingerprint := description + "\x00" + validationMode + "\x00" + deletionProtection + "\x00" + tagsFingerprint(tags)
+
+	existingID, err := b.checkClientToken("CreatePolicyStore", clientToken, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+
+	if existingID != "" {
+		if existing, ok := b.policyStores.Get(existingID); ok {
+			return clonePolicyStore(existing), nil
+		}
+	}
+
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)
 
-	if err := validateTagInput(nil, merged, ErrValidation); err != nil {
-		return nil, err
+	if tagErr := validateTagInput(nil, merged, ErrValidation); tagErr != nil {
+		return nil, tagErr
 	}
 
 	id := uuid.NewString()
@@ -64,6 +82,8 @@ func (b *InMemoryBackend) CreatePolicyStore(
 	if len(merged) > 0 {
 		b.resourceTags[ps.Arn] = maps.Clone(merged)
 	}
+
+	b.recordClientToken("CreatePolicyStore", clientToken, fingerprint, id)
 
 	return clonePolicyStore(ps), nil
 }
@@ -139,27 +159,36 @@ func (b *InMemoryBackend) DeletePolicyStore(policyStoreID string) error {
 		return fmt.Errorf("%w: policy store %s has deletion protection enabled", ErrConflict, policyStoreID)
 	}
 
-	// Remove ARN index entries for all child resources, then delete the
-	// child resources themselves. Index result slices mutate under Delete,
-	// so clone before the delete loop.
+	// Remove ARN index and tag entries for all child resources, then delete
+	// the child resources themselves. Index result slices mutate under
+	// Delete, so clone before the delete loop.
 	for _, p := range slices.Clone(b.policiesByStore.Get(policyStoreID)) {
-		delete(b.arnIndex, policyARN(b.accountID, policyStoreID, p.PolicyID))
+		resourceARN := policyARN(b.accountID, policyStoreID, p.PolicyID)
+		delete(b.arnIndex, resourceARN)
+		delete(b.resourceTags, resourceARN)
 		b.policies.Delete(policyKey(policyStoreID, p.PolicyID))
 	}
 
 	for _, pt := range slices.Clone(b.policyTemplatesByStore.Get(policyStoreID)) {
-		delete(b.arnIndex, policyTemplateARN(b.accountID, policyStoreID, pt.PolicyTemplateID))
+		resourceARN := policyTemplateARN(b.accountID, policyStoreID, pt.PolicyTemplateID)
+		delete(b.arnIndex, resourceARN)
+		delete(b.resourceTags, resourceARN)
 		b.policyTemplates.Delete(policyTemplateKey(policyStoreID, pt.PolicyTemplateID))
 	}
 
 	for _, is := range slices.Clone(b.identitySourcesByStore.Get(policyStoreID)) {
-		delete(b.arnIndex, identitySourceARN(b.accountID, policyStoreID, is.IdentitySourceID))
+		resourceARN := identitySourceARN(b.accountID, policyStoreID, is.IdentitySourceID)
+		delete(b.arnIndex, resourceARN)
+		delete(b.resourceTags, resourceARN)
 		b.identitySources.Delete(identitySourceKey(policyStoreID, is.IdentitySourceID))
 	}
 
 	delete(b.arnIndex, ps.Arn)
+	delete(b.resourceTags, ps.Arn)
 	b.policyStores.Delete(policyStoreID)
 	b.schemas.Delete(policyStoreID)
+	delete(b.policySetCache, policyStoreID)
+	delete(b.policySetDirty, policyStoreID)
 
 	return nil
 }

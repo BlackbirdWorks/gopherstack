@@ -10,7 +10,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		resourceARN, sql, transactionID string,
 		parameters ...SQLParameter,
-	) ([][]Field, []ColumnMetadata, int64, error)
+	) ([][]Field, []ColumnMetadata, int64, []Field, error)
 	BatchExecuteStatement(
 		ctx context.Context,
 		resourceARN, sql, transactionID string,

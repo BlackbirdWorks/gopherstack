@@ -30,9 +30,9 @@ func (b *InMemoryBackend) CreateRuleset(
 	}
 	rs := &Ruleset{
 		Name: name, Arn: b.rulesetARN(region, name), Description: description,
-		TargetArn: targetArn, Rules: append([]Rule(nil), rules...),
+		TargetArn: targetArn, Rules: append([]Rule(nil), rules...), RuleCount: len(rules),
 		Tags: maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
-		LastModifiedDate: float64(time.Now().Unix()),
+		LastModifiedDate: float64(time.Now().Unix()), AccountID: b.accountID,
 	}
 	t.Put(rs)
 
@@ -102,6 +102,7 @@ func (b *InMemoryBackend) UpdateRuleset(
 	}
 	rs.Description = description
 	rs.Rules = rules
+	rs.RuleCount = len(rules)
 	rs.LastModifiedDate = float64(time.Now().Unix())
 
 	return nil

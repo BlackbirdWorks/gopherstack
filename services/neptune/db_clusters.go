@@ -89,6 +89,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 	cluster := b.buildNewCluster(region, id, paramGroupName, port, backupRetention, opts)
 	b.clusterPut(cluster)
+	b.recordEvent(region, id, sourceTypeDBCluster, "DB cluster created", "creation")
 	cp := cloneCluster(cluster)
 
 	return &cp, nil
@@ -331,6 +332,7 @@ func (b *InMemoryBackend) DeleteDBCluster(
 			b.clusterEndpointDelete(region, ep.DBClusterEndpointIdentifier)
 		}
 	}
+	b.recordEvent(region, id, sourceTypeDBCluster, "DB cluster deleted", "deletion")
 
 	return &cp, nil
 }
@@ -451,6 +453,7 @@ func (b *InMemoryBackend) StopDBCluster(ctx context.Context, id string) (*DBClus
 		)
 	}
 	c.Status = clusterStatusStopped
+	b.recordEvent(region, id, sourceTypeDBCluster, "DB cluster stopped", sourceTypeNotification)
 	cp := cloneCluster(c)
 
 	return &cp, nil
@@ -473,6 +476,7 @@ func (b *InMemoryBackend) StartDBCluster(ctx context.Context, id string) (*DBClu
 		)
 	}
 	c.Status = clusterStatusAvailable
+	b.recordEvent(region, id, sourceTypeDBCluster, "DB cluster started", sourceTypeNotification)
 	cp := cloneCluster(c)
 
 	return &cp, nil
@@ -492,6 +496,7 @@ func (b *InMemoryBackend) FailoverDBCluster(
 	if err := promoteClusterMember(c, targetInstanceID); err != nil {
 		return nil, err
 	}
+	b.recordEvent(region, id, sourceTypeDBCluster, "DB cluster failover completed", "failover")
 	cp := cloneCluster(c)
 
 	return &cp, nil

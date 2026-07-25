@@ -35,7 +35,7 @@ func TestReset(t *testing.T) {
 	t.Parallel()
 
 	b := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.PutPlaybackConfiguration("test", "https://ads.com", "https://video.com", nil)
+	_, err := b.PutPlaybackConfiguration("test", "https://ads.com", "https://video.com", nil, nil)
 	require.NoError(t, err)
 	b.Reset()
 	assert.Equal(t, 0, mediatailor.PlaybackConfigurationCount(b))
@@ -45,7 +45,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 	t.Parallel()
 
 	b := mediatailor.NewInMemoryBackend("111111111111", "eu-west-1")
-	_, err := b.PutPlaybackConfiguration("snap-cfg", "https://ads.com", "https://video.com", nil)
+	_, err := b.PutPlaybackConfiguration("snap-cfg", "https://ads.com", "https://video.com", nil, nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())

@@ -12,6 +12,30 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
+// TestListSourceAssociations_WireShape verifies the response uses the real SDK's
+// "sourceAssociations" key (not "associations") and that the (always-empty, since RAM
+// has no API surface that ever creates a source association) list unmarshals cleanly.
+func TestListSourceAssociations_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRAMRequest(t, h, "/listsourceassociations", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		SourceAssociations []struct {
+			SourceID string `json:"sourceId"`
+		} `json:"sourceAssociations"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Empty(t, resp.SourceAssociations)
+	assert.NotContains(
+		t, rec.Body.String(), `"associations"`,
+		"must use the real SDK's sourceAssociations key, not associations",
+	)
+}
+
 func TestResourceRegionScope_InListResources(t *testing.T) {
 	t.Parallel()
 

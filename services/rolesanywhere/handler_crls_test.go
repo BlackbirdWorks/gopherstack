@@ -172,14 +172,20 @@ func TestHandler_CRL_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestHandler_CRL_ConflictOnDuplicate(t *testing.T) {
+// TestHandler_CRL_DuplicateNameAllowed proves that importing two CRLs with
+// the same name succeeds, matching real AWS: ImportCrl only models
+// ValidationException and AccessDeniedException (no ConflictException shape
+// exists anywhere in the service). A prior version of this test asserted a
+// 409 Conflict, which was gopherstack-invented behavior with a fabricated
+// error code never returned by the real service.
+func TestHandler_CRL_DuplicateNameAllowed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
 		wantStatus int
 	}{
-		{"duplicate crl name returns conflict", http.StatusConflict},
+		{"duplicate crl name is accepted", http.StatusCreated},
 	}
 
 	for _, tt := range tests {
@@ -190,10 +196,21 @@ func TestHandler_CRL_ConflictOnDuplicate(t *testing.T) {
 			body := map[string]any{
 				"name":           "dup-crl-http",
 				"trustAnchorArn": "arn:aws:ta",
+				"crlData":        "ZmFrZS1jcmwtZGF0YQ==",
 			}
-			doREST(t, h, http.MethodPost, "/crls", body)
-			rec := doREST(t, h, http.MethodPost, "/crls", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+			rec1 := doREST(t, h, http.MethodPost, "/crls", body)
+			assert.Equal(t, tt.wantStatus, rec1.Code)
+
+			rec2 := doREST(t, h, http.MethodPost, "/crls", body)
+			assert.Equal(t, tt.wantStatus, rec2.Code)
+
+			var resp1, resp2 map[string]any
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+
+			c1 := resp1["crl"].(map[string]any)
+			c2 := resp2["crl"].(map[string]any)
+			assert.NotEqual(t, c1["crlId"], c2["crlId"])
 		})
 	}
 }

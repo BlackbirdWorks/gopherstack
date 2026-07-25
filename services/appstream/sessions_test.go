@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func TestAppStream_Sessions(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:   "CreateStreamingURL creates session and returns URL",
+			name:   "CreateStreamingURL creates session and returns URL and Expires",
 			action: "CreateStreamingURL",
 			setup: func(h *appstream.Handler) {
 				createStack(t, h, "sess-stk")
@@ -41,6 +42,7 @@ func TestAppStream_Sessions(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
 				assert.NotEmpty(t, resp["StreamingURL"])
+				assert.NotEmpty(t, resp["Expires"])
 			},
 		},
 		{
@@ -149,7 +151,8 @@ func TestAppStream_DrainSessionInstance(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 }
 
-// TestAppStream_SessionStreamingURL verifies that CreateStreamingURL returns a URL.
+// TestAppStream_SessionStreamingURL verifies that CreateStreamingURL returns a
+// URL and an Expires timestamp honoring a caller-supplied Validity.
 func TestAppStream_SessionStreamingURL(t *testing.T) {
 	t.Parallel()
 
@@ -164,16 +167,25 @@ func TestAppStream_SessionStreamingURL(t *testing.T) {
 		"StackName": "url-stack",
 	})
 
+	beforeCall := float64(time.Now().UTC().Unix())
+
 	rec := doRequest(t, h, "CreateStreamingURL", map[string]any{
 		"StackName": "url-stack",
 		"FleetName": "url-fleet",
 		"UserId":    "user1",
+		"Validity":  120,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp["StreamingURL"])
+
+	expires, ok := resp["Expires"].(float64)
+	require.True(t, ok, "Expires must be a JSON number (epoch seconds)")
+	// Expires should be ~120s after the call, well short of the 60s default.
+	assert.Greater(t, expires, beforeCall+90)
+	assert.Less(t, expires, beforeCall+150)
 }
 
 // TestAppStream_DescribeSessionsFilterByStack verifies DescribeSessions filters work.

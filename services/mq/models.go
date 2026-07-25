@@ -36,6 +36,16 @@ const (
 	PromoteModeFailover = "FAILOVER"
 	// PromoteModeSwitchover is the switchover promote mode.
 	PromoteModeSwitchover = "SWITCHOVER"
+
+	// ChangeTypeCreate marks a broker user create that is pending a broker
+	// reboot. Mirrors aws-sdk-go-v2/service/mq/types.ChangeTypeCreate.
+	ChangeTypeCreate = "CREATE"
+	// ChangeTypeUpdate marks a broker user update that is pending a broker
+	// reboot. Mirrors aws-sdk-go-v2/service/mq/types.ChangeTypeUpdate.
+	ChangeTypeUpdate = "UPDATE"
+	// ChangeTypeDelete marks a broker user delete that is pending a broker
+	// reboot. Mirrors aws-sdk-go-v2/service/mq/types.ChangeTypeDelete.
+	ChangeTypeDelete = "DELETE"
 )
 
 // BrokerInstance holds endpoint information for a broker instance.
@@ -45,17 +55,37 @@ type BrokerInstance struct {
 }
 
 // User represents an Amazon MQ broker user.
+//
+// Pending holds a not-yet-applied create/update/delete: real Amazon MQ only
+// applies ActiveMQ broker-user changes on the next broker reboot (see
+// aws-sdk-go-v2/service/mq/types.UserPendingChanges). Password intentionally
+// keeps the json:"-" tag even though the rest of User now persists across
+// Snapshot/Restore (see store_setup.go) -- matching the same secrets-out-of-
+// the-persisted-blob precedent already used for
+// LdapServerMetadata.ServiceAccountPassword, a restored user's password is
+// always blank and must be reset via UpdateUser.
 type User struct {
-	Username string   `json:"username"`
-	Password string   `json:"-"`
-	Groups   []string `json:"groups,omitempty"`
-	Console  bool     `json:"consoleAccess"`
+	Pending  *UserPendingChanges `json:"pending,omitempty"`
+	Username string              `json:"username"`
+	Password string              `json:"-"`
+	Groups   []string            `json:"groups,omitempty"`
+	Console  bool                `json:"consoleAccess"`
+}
+
+// UserPendingChanges mirrors aws-sdk-go-v2/service/mq/types.UserPendingChanges:
+// the not-yet-applied create/update/delete staged for a broker user, applied
+// atomically when the broker next reboots.
+type UserPendingChanges struct {
+	Console       *bool    `json:"consoleAccess,omitempty"`
+	PendingChange string   `json:"pendingChange"`
+	Groups        []string `json:"groups,omitempty"`
 }
 
 // UserSummary is a summary of a broker user (returned in lists).
 type UserSummary struct {
-	Username string `json:"username"`
-	Console  bool   `json:"consoleAccess"`
+	Username      string `json:"username"`
+	PendingChange string `json:"pendingChange,omitempty"`
+	Console       bool   `json:"consoleAccess"`
 }
 
 // ConfigurationID holds a reference to a broker configuration.
@@ -74,7 +104,7 @@ type Configurations struct {
 // Broker represents an Amazon MQ broker.
 type Broker struct {
 	EncryptionOptions          *EncryptionOptions       `json:"encryptionOptions,omitempty"`
-	Users                      map[string]*User         `json:"-"`
+	Users                      map[string]*User         `json:"users,omitempty"`
 	Configurations             *Configurations          `json:"configurations,omitempty"`
 	PendingDataReplicationMeta *DataReplicationMetadata `json:"pendingDataReplicationMetadata,omitempty"`
 	PendingLdapServerMetadata  *LdapServerMetadata      `json:"pendingLdapServerMetadata,omitempty"`
@@ -172,10 +202,15 @@ type ConfigurationRevision struct {
 	Revision    int32  `json:"revision"`
 }
 
-// Configuration represents an Amazon MQ configuration.
+// Configuration represents an Amazon MQ configuration. Data and Revisions
+// carry real json tags (rather than "-") so they round-trip through
+// Snapshot/Restore -- see store_setup.go for why store.Table marshals this
+// type directly. Tags keeps "-" deliberately: it is persisted separately via
+// backendSnapshot.Tags and re-linked by reestablishTagPointers so the
+// b.tags[arn]/cfg.Tags shared-pointer invariant survives a restore.
 type Configuration struct {
 	Tags           map[string]string       `json:"-"`
-	Data           map[int32]string        `json:"-"`
+	Data           map[int32]string        `json:"data,omitempty"`
 	LatestRevision *ConfigurationRevision  `json:"latestRevision"`
 	Arn            string                  `json:"arn"`
 	ID             string                  `json:"id"`
@@ -184,7 +219,7 @@ type Configuration struct {
 	EngineType     string                  `json:"engineType"`
 	EngineVersion  string                  `json:"engineVersion"`
 	Created        string                  `json:"created"`
-	Revisions      []ConfigurationRevision `json:"-"`
+	Revisions      []ConfigurationRevision `json:"revisions,omitempty"`
 }
 
 // CreateBrokerOptions carries optional configuration for CreateBrokerWithOptions.
@@ -198,6 +233,16 @@ type CreateBrokerOptions struct {
 	StorageType                string
 	AuthenticationStrategy     string
 	CreatorRequestID           string
+	// DataReplicationMode and DataReplicationPrimaryBrokerArn accept and echo
+	// CreateBrokerInput's CRDR fields (CreateBrokerInput.DataReplicationMode /
+	// DataReplicationPrimaryBrokerArn in aws-sdk-go-v2/service/mq). Full CRDR
+	// simulation (actually pairing brokers, propagating data) is out of
+	// scope -- see PARITY.md's deferred CRDR note -- but the fields must not
+	// be silently dropped: DataReplicationMode is stored verbatim and
+	// DataReplicationPrimaryBrokerArn seeds DataReplicationMetadata so a
+	// client reading DescribeBroker back sees its own request echoed.
+	DataReplicationMode             string
+	DataReplicationPrimaryBrokerArn string
 }
 
 // UpdateBrokerOptions carries optional fields for UpdateBrokerWithOptions.

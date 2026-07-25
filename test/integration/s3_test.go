@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,7 +102,7 @@ func TestIntegration_S3_BucketLifecycle(t *testing.T) {
 			},
 		},
 		{
-			name: "delete non-empty bucket succeeds (async)",
+			name: "delete non-empty bucket fails with BucketNotEmpty",
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
@@ -119,8 +120,26 @@ func TestIntegration_S3_BucketLifecycle(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				// Async delete: non-empty buckets can now be deleted immediately;
-				// objects are drained in the background by the Janitor.
+				// Real S3 rejects DeleteBucket on a non-empty bucket with 409
+				// BucketNotEmpty — there is no async/best-effort deletion. The
+				// caller must empty the bucket (delete all objects/versions)
+				// before DeleteBucket succeeds.
+				_, err = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
+					Bucket: aws.String(bkt),
+				})
+				require.Error(t, err)
+
+				var apiErr smithy.APIError
+				require.ErrorAs(t, err, &apiErr, "expected smithy.APIError, got %T: %v", err, err)
+				assert.Equal(t, "BucketNotEmpty", apiErr.ErrorCode())
+
+				// Emptying the bucket then allows deletion to succeed.
+				_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
+					Bucket: aws.String(bkt),
+					Key:    aws.String("blocker"),
+				})
+				require.NoError(t, err)
+
 				_, err = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
 					Bucket: aws.String(bkt),
 				})

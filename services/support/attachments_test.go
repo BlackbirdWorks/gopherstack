@@ -28,12 +28,14 @@ func TestSupport_AddAttachmentsToSet(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
+			// AttachmentSetIdNotFound has no httpError override in the real
+			// service model, so awsjson1.1's client-fault default (400) applies.
 			name: "unknown existing set id",
 			body: map[string]any{
 				"attachmentSetId": "existing-set-id",
 				"attachments":     []any{map[string]any{"fileName": "new.txt", "data": []byte("data")}},
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -150,10 +152,12 @@ func TestSupport_DescribeAttachment(t *testing.T) {
 			wantFileName: "error.log",
 		},
 		{
+			// AttachmentIdNotFound has no httpError override in the real service
+			// model, so awsjson1.1's client-fault default (400) applies.
 			name:     "not_found",
 			setup:    nil,
 			body:     map[string]any{"attachmentId": "att-missing"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "missing_attachment_id",
@@ -212,7 +216,9 @@ func TestSupport_AttachmentSet_ConsumedIntoCommunication(t *testing.T) {
 	reuse := doSupportRequest(t, h, "AddCommunicationToCase", map[string]any{
 		"caseId": caseID, "communicationBody": "Reuse staged set", "attachmentSetId": setID,
 	})
-	assert.Equal(t, http.StatusNotFound, reuse.Code)
+	// AttachmentSetIdNotFound has no httpError override in the real service
+	// model, so awsjson1.1's client-fault default (400) applies.
+	assert.Equal(t, http.StatusBadRequest, reuse.Code)
 }
 
 // TestSupport_AddAttachmentsToSet_RejectsRequestAtomically verifies that a
@@ -248,6 +254,88 @@ func TestSupport_AddAttachmentsToSet_RejectsRequestAtomically(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code, tt.name)
 		assert.Equal(t, 0, support.AttachmentCount(b), tt.name)
 	}
+}
+
+// TestSupport_AddAttachmentsToSet_SizeLimitWireType verifies an oversized
+// attachment reports the real AWS "AttachmentSetSizeLimitExceeded" exception
+// -- not the generic "ValidationException" -- since AWS documents this exact
+// case ("The limits are three attachments and 5 MB per attachment") as its
+// own modeled exception.
+func TestSupport_AddAttachmentsToSet_SizeLimitWireType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSupportHandler(t)
+	rec := doSupportRequest(t, h, "AddAttachmentsToSet", map[string]any{
+		"attachments": []map[string]any{
+			{"fileName": "large.dat", "data": bytes.Repeat([]byte("x"), 5*1024*1024+1)},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "AttachmentSetSizeLimitExceeded", decodeSupportResponse(t, rec)["__type"])
+}
+
+// TestSupport_AddAttachmentsToSet_TooManyPerSet verifies exceeding the
+// documented 3-attachments-per-set cap reports AttachmentSetSizeLimitExceeded.
+func TestSupport_AddAttachmentsToSet_TooManyPerSet(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSupportHandler(t)
+	rec := doSupportRequest(t, h, "AddAttachmentsToSet", map[string]any{
+		"attachments": []map[string]any{
+			{"fileName": "a.txt", "data": []byte("a")},
+			{"fileName": "b.txt", "data": []byte("b")},
+			{"fileName": "c.txt", "data": []byte("c")},
+			{"fileName": "d.txt", "data": []byte("d")},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "AttachmentSetSizeLimitExceeded", decodeSupportResponse(t, rec)["__type"])
+}
+
+// TestSupport_AddAttachmentsToSet_AttachmentLimitExceeded verifies the
+// AttachmentLimitExceeded rate limit on new-set creation is real and
+// reachable (not a stub): once the sliding window is saturated, the next
+// creation is rejected with the correct wire type; after seeding fewer than
+// the threshold, creation still succeeds.
+func TestSupport_AddAttachmentsToSet_AttachmentLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	t.Run("at_threshold_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		b := support.NewInMemoryBackend()
+		support.SeedAttachmentSetCreationTimes(b, support.MaxAttachmentSetCreationsPerWindow)
+
+		_, _, err := b.AddAttachmentsToSetWithAttachments("", []support.Attachment{
+			{FileName: "f.txt", Data: []byte("x")},
+		})
+		require.ErrorIs(t, err, support.ErrAttachmentLimitExceeded)
+	})
+
+	t.Run("below_threshold_succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		b := support.NewInMemoryBackend()
+		support.SeedAttachmentSetCreationTimes(b, support.MaxAttachmentSetCreationsPerWindow-1)
+
+		_, _, err := b.AddAttachmentsToSetWithAttachments("", []support.Attachment{
+			{FileName: "f.txt", Data: []byte("x")},
+		})
+		require.NoError(t, err)
+	})
+}
+
+// TestSupport_DescribeAttachment_LimitExceeded verifies the
+// DescribeAttachmentLimitExceeded rate limit is real and reachable.
+func TestSupport_DescribeAttachment_LimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	b := support.NewInMemoryBackend()
+	b.AddAttachmentInternal(&support.Attachment{AttachmentID: "att-rl", FileName: "f.txt", Data: []byte("x")})
+	support.SeedDescribeAttachmentCallTimes(b, support.MaxDescribeAttachmentCallsPerWindow)
+
+	_, err := b.DescribeAttachment("att-rl")
+	require.ErrorIs(t, err, support.ErrDescribeAttachmentLimitExceeded)
 }
 
 // TestSupport_AddAttachmentInternal_DeepCopyData verifies data bytes are deep-copied.

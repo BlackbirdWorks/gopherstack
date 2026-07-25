@@ -17,6 +17,7 @@ type createLocationS3Input struct {
 	Subdirectory   string         `json:"Subdirectory"`
 	S3StorageClass string         `json:"S3StorageClass"`
 	Tags           []tagInput     `json:"Tags"`
+	AgentArns      []string       `json:"AgentArns"`
 }
 
 type createLocationS3Output struct {
@@ -38,7 +39,7 @@ func (h *Handler) handleCreateLocationS3(
 	tags := tagsFromInput(in.Tags)
 	cfg := S3Config{BucketAccessRoleArn: in.S3Config.BucketAccessRoleArn}
 
-	l, err := h.Backend.CreateLocationS3(in.Subdirectory, in.S3BucketArn, in.S3StorageClass, cfg, tags)
+	l, err := h.Backend.CreateLocationS3(in.Subdirectory, in.S3BucketArn, in.S3StorageClass, cfg, in.AgentArns, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -54,13 +55,17 @@ type s3ConfigOutput struct {
 	BucketAccessRoleArn string `json:"BucketAccessRoleArn"`
 }
 
+// describeLocationS3Output intentionally has no S3BucketArn or Subdirectory
+// field: the real DescribeLocationS3Output has neither -- the bucket and
+// prefix are folded into LocationUri only (confirmed: aws-sdk-go-v2 v1.59.2
+// DescribeLocationS3Output has AgentArns, CreationTime, LocationArn,
+// LocationUri, S3Config, S3StorageClass -- nothing else).
 type describeLocationS3Output struct {
 	S3Config       *s3ConfigOutput `json:"S3Config,omitempty"`
 	LocationArn    string          `json:"LocationArn"`
 	LocationURI    string          `json:"LocationUri"`
-	S3BucketArn    string          `json:"S3BucketArn"`
-	Subdirectory   string          `json:"Subdirectory,omitempty"`
 	S3StorageClass string          `json:"S3StorageClass,omitempty"`
+	AgentArns      []string        `json:"AgentArns,omitempty"`
 	CreationTime   int64           `json:"CreationTime"`
 }
 
@@ -80,9 +85,8 @@ func (h *Handler) handleDescribeLocationS3(
 	out := &describeLocationS3Output{
 		LocationArn:    l.LocationArn,
 		LocationURI:    l.LocationURI,
-		S3BucketArn:    l.S3BucketArn,
-		Subdirectory:   l.Subdirectory,
 		S3StorageClass: l.S3StorageClass,
+		AgentArns:      l.AgentArns,
 		CreationTime:   l.CreationTime.Unix(),
 	}
 

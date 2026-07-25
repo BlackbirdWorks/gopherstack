@@ -17,14 +17,45 @@ var (
 	ErrHPTuningJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
+// HPResourceLimits mirrors AWS's ResourceLimits: the maximum number of
+// training jobs (total and concurrent) a tuning job may launch.
+type HPResourceLimits struct {
+	MaxParallelTrainingJobs int32 `json:"MaxParallelTrainingJobs"`
+	MaxNumberOfTrainingJobs int32 `json:"MaxNumberOfTrainingJobs,omitempty"`
+	MaxRuntimeInSeconds     int32 `json:"MaxRuntimeInSeconds,omitempty"`
+}
+
+// HPObjectiveStatusCounters mirrors AWS's ObjectiveStatusCounters: counts of
+// child training jobs by objective-metric-evaluation status. This emulator
+// does not launch child training jobs, so these always read zero.
+type HPObjectiveStatusCounters struct {
+	Succeeded int32 `json:"Succeeded"`
+	Pending   int32 `json:"Pending"`
+	Failed    int32 `json:"Failed"`
+}
+
+// HPTrainingJobStatusCounters mirrors AWS's TrainingJobStatusCounters: counts
+// of child training jobs by status. This emulator does not launch child
+// training jobs, so these always read zero.
+type HPTrainingJobStatusCounters struct {
+	Completed         int32 `json:"Completed"`
+	InProgress        int32 `json:"InProgress"`
+	NonRetryableError int32 `json:"NonRetryableError"`
+	RetryableError    int32 `json:"RetryableError"`
+	Stopped           int32 `json:"Stopped"`
+}
+
 type HyperParameterTuningJob struct {
-	CreationTime                  time.Time         `json:"CreationTime"`
-	LastModifiedTime              time.Time         `json:"LastModifiedTime"`
-	Tags                          map[string]string `json:"Tags,omitempty"`
-	HyperParameterTuningJobName   string            `json:"HyperParameterTuningJobName"`
-	HyperParameterTuningJobArn    string            `json:"HyperParameterTuningJobArn"`
-	HyperParameterTuningJobStatus string            `json:"HyperParameterTuningJobStatus"`
-	Strategy                      string            `json:"Strategy,omitempty"`
+	CreationTime                  time.Time                   `json:"CreationTime"`
+	LastModifiedTime              time.Time                   `json:"LastModifiedTime"`
+	Tags                          map[string]string           `json:"Tags,omitempty"`
+	HyperParameterTuningJobName   string                      `json:"HyperParameterTuningJobName"`
+	HyperParameterTuningJobArn    string                      `json:"HyperParameterTuningJobArn"`
+	HyperParameterTuningJobStatus string                      `json:"HyperParameterTuningJobStatus"`
+	Strategy                      string                      `json:"Strategy,omitempty"`
+	ResourceLimits                HPResourceLimits            `json:"ResourceLimits"`
+	ObjectiveStatusCounters       HPObjectiveStatusCounters   `json:"ObjectiveStatusCounters"`
+	TrainingJobStatusCounters     HPTrainingJobStatusCounters `json:"TrainingJobStatusCounters"`
 }
 
 // cloneHPTuningJob returns a deep copy of j.
@@ -43,6 +74,7 @@ func cloneHPTuningJob(j *HyperParameterTuningJob) *HyperParameterTuningJob {
 func (b *InMemoryBackend) CreateHyperParameterTuningJob(
 	ctx context.Context,
 	name, strategy string,
+	limits HPResourceLimits,
 	tags map[string]string,
 ) (*HyperParameterTuningJob, error) {
 	b.mu.Lock("CreateHyperParameterTuningJob")
@@ -65,6 +97,7 @@ func (b *InMemoryBackend) CreateHyperParameterTuningJob(
 		HyperParameterTuningJobArn:    jobARN,
 		HyperParameterTuningJobStatus: trainingJobStatusInProgress,
 		Strategy:                      strategy,
+		ResourceLimits:                limits,
 		CreationTime:                  now,
 		LastModifiedTime:              now,
 		Tags:                          mergeTags(nil, tags),

@@ -31,6 +31,7 @@ const (
 	dimKeyRegion            = "REGION"
 	dimKeyUsageType         = "USAGE_TYPE"
 	dimKeyLinkedAccount     = "LINKED_ACCOUNT"
+	statusProcessing        = "PROCESSING"
 )
 
 // Synthetic data ratio constants used in cost simulation.
@@ -77,19 +78,20 @@ type InMemoryBackend struct {
 	// Reset/Snapshot/Restore collapse to one call each -- every table below
 	// is "clean" (registered directly under its own real, non-json:"-"
 	// identity field, no DTO-registry needed); see store_setup.go.
-	registry             *store.Registry
-	costCategories       *store.Table[CostCategory]
-	anomalyMonitors      *store.Table[AnomalyMonitor]
-	anomalySubscriptions *store.Table[AnomalySubscription]
-	anomalies            *store.Table[Anomaly]
-	mu                   *lockmetrics.RWMutex
-	costAllocationTags   *store.Table[CostAllocationTag]
-	commitmentAnalyses   *store.Table[CommitmentAnalysis]
-	accountID            string
-	region               string
-	costLedger           []CostEntry
-	backfillJobs         []*BackfillJob
-	anomalyTTL           time.Duration
+	registry                *store.Registry
+	costCategories          *store.Table[CostCategory]
+	anomalyMonitors         *store.Table[AnomalyMonitor]
+	anomalySubscriptions    *store.Table[AnomalySubscription]
+	anomalies               *store.Table[Anomaly]
+	mu                      *lockmetrics.RWMutex
+	costAllocationTags      *store.Table[CostAllocationTag]
+	commitmentAnalyses      *store.Table[CommitmentAnalysis]
+	savingsPlansGenerations *store.Table[SavingsPlansGeneration]
+	accountID               string
+	region                  string
+	costLedger              []CostEntry
+	backfillJobs            []*BackfillJob
+	anomalyTTL              time.Duration
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.

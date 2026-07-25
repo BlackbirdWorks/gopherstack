@@ -14,6 +14,7 @@ func TestHandler_PutScheduledAction(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	rec := doRequest(t, h, "PutScheduledAction", map[string]any{
 		"ServiceNamespace":    "ecs",
 		"ResourceId":          "service/default/my-svc",
@@ -33,6 +34,7 @@ func TestHandler_PutScheduledAction_Upsert(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	base := map[string]any{
 		"ServiceNamespace":    "ecs",
 		"ResourceId":          "service/default/my-svc",
@@ -116,6 +118,7 @@ func TestHandler_PutScheduledAction_WithScalableTargetAction(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	minCap := int32(2)
 	maxCap := int32(20)
 	rec := doRequest(t, h, "PutScheduledAction", map[string]any{
@@ -154,6 +157,7 @@ func TestHandler_PutScheduledAction_StartEndTimeTimezone(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	rec := doRequest(t, h, "PutScheduledAction", map[string]any{
 		"ServiceNamespace":    "ecs",
 		"ResourceId":          "service/default/my-svc",
@@ -207,7 +211,7 @@ func TestHandler_DeleteScheduledAction(t *testing.T) {
 		wantCode  int
 	}{
 		{name: "success", preCreate: true, wantCode: http.StatusOK},
-		{name: "not_found", preCreate: false, wantCode: http.StatusNotFound},
+		{name: "not_found", preCreate: false, wantCode: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -216,6 +220,7 @@ func TestHandler_DeleteScheduledAction(t *testing.T) {
 
 			h := newTestHandler(t)
 			if tt.preCreate {
+				seedTarget(t, h, "service/default/my-svc", 1, 10)
 				doRequest(t, h, "PutScheduledAction", map[string]any{
 					"ServiceNamespace":    "ecs",
 					"ResourceId":          "service/default/my-svc",
@@ -292,6 +297,8 @@ func TestHandler_DescribeScheduledActions(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			seedTarget(t, h, "service/default/svc1", 1, 10)
+			seedTargetNS(t, h, "dynamodb", "table/t1", "dynamodb:table:ReadCapacityUnits", 1, 10)
 			doRequest(t, h, "PutScheduledAction", map[string]any{
 				"ServiceNamespace":    "ecs",
 				"ResourceId":          "service/default/svc1",
@@ -349,6 +356,8 @@ func TestHandler_DescribeScheduledActions_RicherFilters(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			seedTarget(t, h, "service/default/svc1", 1, 10)
+			seedTargetNS(t, h, "dynamodb", "table/t1", "dynamodb:table:ReadCapacityUnits", 1, 10)
 			doRequest(t, h, "PutScheduledAction", map[string]any{
 				"ServiceNamespace":    "ecs",
 				"ResourceId":          "service/default/svc1",
@@ -380,6 +389,7 @@ func TestHandler_MaxResults_DescribeScheduledActions(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/my-svc", 1, 10)
 	for i := range 4 {
 		doRequest(t, h, "PutScheduledAction", map[string]any{
 			"ServiceNamespace":    "ecs",

@@ -34,7 +34,7 @@ type StorageBackend interface {
 	TagResource(ctx context.Context, resourceArn string, tags map[string]string) error
 	UntagResource(ctx context.Context, resourceArn string, tagKeys []string) error
 	CreateSnapshot(ctx context.Context, req *createSnapshotRequest) (*Snapshot, error)
-	DescribeSnapshots(ctx context.Context, name, clusterName, snapshotType, source string) ([]*Snapshot, error)
+	DescribeSnapshots(ctx context.Context, name, clusterName, source string) ([]*Snapshot, error)
 	CopySnapshot(ctx context.Context, req *copySnapshotRequest) (*Snapshot, error)
 	DeleteSnapshot(ctx context.Context, name string) (*Snapshot, error)
 	ExportSnapshot(ctx context.Context, req *exportSnapshotRequest) (*Snapshot, error)
@@ -44,6 +44,7 @@ type StorageBackend interface {
 	DeleteMultiRegionCluster(ctx context.Context, name string) (*MultiRegionCluster, error)
 	DescribeMultiRegionClusters(ctx context.Context, name string) ([]*MultiRegionCluster, error)
 	UpdateMultiRegionCluster(ctx context.Context, req *updateMultiRegionClusterRequest) (*MultiRegionCluster, error)
+	RegionalClustersFor(multiRegionClusterName string) []*Cluster
 	DescribeMultiRegionParameterGroups(ctx context.Context, name string) ([]*MultiRegionParameterGroup, error)
 	DescribeParameters(ctx context.Context, parameterGroupName string) (map[string]string, error)
 	ResetParameterGroup(

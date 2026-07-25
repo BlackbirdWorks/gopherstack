@@ -131,6 +131,68 @@ func TestGetResourceSyncStatus(t *testing.T) {
 	}
 }
 
+// TestGetResourceSyncStatus_FullWireShape verifies that GetResourceSyncStatus
+// returns the complete real wire shape: LatestSync.Target/InitialRevision/
+// TargetRevision (previously entirely missing from the response), plus the
+// top-level DesiredState and LatestSuccessfulSync members (previously
+// unpopulated). Real aws-sdk-go-v2/service/codeconnections@v1.10.22
+// types.ResourceSyncAttempt requires Events/InitialRevision/StartedAt/
+// Status/Target/TargetRevision; GetResourceSyncStatusOutput additionally
+// carries optional DesiredState/LatestSuccessfulSync.
+func TestGetResourceSyncStatus_FullWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	connArn := createConn(t, h, "wire-conn", "GitHub")
+	linkID := createRepositoryLink(t, h, connArn, "wire-org", "wire-repo")
+
+	rec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+		"Branch":           "main",
+		"ConfigFile":       "template.yaml",
+		"RepositoryLinkId": linkID,
+		"ResourceName":     "wire-stack",
+		"RoleArn":          "arn:aws:iam::123456789012:role/sync-role",
+		"SyncType":         "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doJSON(t, h, "GetResourceSyncStatus", map[string]any{
+		"ResourceName": "wire-stack",
+		"SyncType":     "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+
+	latest, ok := resp["LatestSync"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "SUCCEEDED", latest["Status"])
+	assert.Equal(t, "wire-stack", latest["Target"])
+	assert.NotEmpty(t, latest["StartedAt"])
+
+	initialRev, ok := latest["InitialRevision"].(map[string]any)
+	require.True(t, ok, "InitialRevision must be present")
+	assert.Equal(t, "main", initialRev["Branch"])
+	assert.Equal(t, "template.yaml", initialRev["Directory"])
+	assert.Equal(t, "wire-org", initialRev["OwnerId"])
+	assert.Equal(t, "wire-repo", initialRev["RepositoryName"])
+	assert.Equal(t, "GitHub", initialRev["ProviderType"])
+	assert.NotEmpty(t, initialRev["Sha"])
+
+	targetRev, ok := latest["TargetRevision"].(map[string]any)
+	require.True(t, ok, "TargetRevision must be present")
+	assert.Equal(t, initialRev, targetRev, "an already-successful sync has matching initial/target revisions")
+
+	desired, ok := resp["DesiredState"].(map[string]any)
+	require.True(t, ok, "DesiredState must be present")
+	assert.Equal(t, initialRev, desired)
+
+	successful, ok := resp["LatestSuccessfulSync"].(map[string]any)
+	require.True(t, ok, "LatestSuccessfulSync must be present once the latest attempt succeeded")
+	assert.Equal(t, "SUCCEEDED", successful["Status"])
+	assert.Equal(t, "wire-stack", successful["Target"])
+}
+
 // TestListRepositorySyncDefinitionsHandler exercises the ListRepositorySyncDefinitions handler.
 func TestListRepositorySyncDefinitionsHandler(t *testing.T) {
 	t.Parallel()
@@ -206,7 +268,7 @@ func TestListRepositorySyncDefinitions_DerivedFromSyncConfig(t *testing.T) {
 
 	_, err = b.CreateSyncConfiguration(
 		ctx, "main", "template.yaml", link.RepositoryLinkID, "my-stack",
-		"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "",
+		"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "", "",
 	)
 	require.NoError(t, err)
 

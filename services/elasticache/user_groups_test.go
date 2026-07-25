@@ -19,7 +19,7 @@ func TestBackend_CreateUserGroup(t *testing.T) {
 	_, err = b.CreateUser(context.Background(), "u-b", "u-b", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	ug, err := b.CreateUserGroup(context.Background(), "group-ab", "Group AB", "redis", []string{"u-a", "u-b"})
+	ug, err := b.CreateUserGroup(context.Background(), "group-ab", "redis", []string{"u-a", "u-b"})
 	require.NoError(t, err)
 	assert.Equal(t, "group-ab", ug.UserGroupID)
 	assert.ElementsMatch(t, []string{"u-a", "u-b"}, ug.UserIDs)
@@ -31,10 +31,10 @@ func TestBackend_CreateUserGroup_AlreadyExists(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
-	_, err := b.CreateUserGroup(context.Background(), "dup-group", "first", "redis", nil)
+	_, err := b.CreateUserGroup(context.Background(), "dup-group", "redis", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateUserGroup(context.Background(), "dup-group", "second", "redis", nil)
+	_, err = b.CreateUserGroup(context.Background(), "dup-group", "redis", nil)
 	require.Error(t, err)
 }
 
@@ -48,7 +48,7 @@ func TestBackend_ModifyUserGroup_AddUsers(t *testing.T) {
 	_, err = b.CreateUser(context.Background(), "gu-2", "gu-2", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	ug, err := b.CreateUserGroup(context.Background(), "mod-grp", "modify test", "redis", []string{"gu-1"})
+	ug, err := b.CreateUserGroup(context.Background(), "mod-grp", "redis", []string{"gu-1"})
 	require.NoError(t, err)
 	assert.Len(t, ug.UserIDs, 1)
 
@@ -68,7 +68,7 @@ func TestBackend_ModifyUserGroup_RemoveUsers(t *testing.T) {
 	_, err = b.CreateUser(context.Background(), "rm-u2", "rm-u2", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	_, err = b.CreateUserGroup(context.Background(), "remove-grp", "remove test", "redis", []string{"rm-u1", "rm-u2"})
+	_, err = b.CreateUserGroup(context.Background(), "remove-grp", "redis", []string{"rm-u1", "rm-u2"})
 	require.NoError(t, err)
 
 	modified, err := b.ModifyUserGroup(context.Background(), "remove-grp", nil, []string{"rm-u1"})
@@ -82,9 +82,9 @@ func TestBackend_DescribeUserGroups_FilterByID(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
-	_, err := b.CreateUserGroup(context.Background(), "grp-x", "group x", "redis", nil)
+	_, err := b.CreateUserGroup(context.Background(), "grp-x", "redis", nil)
 	require.NoError(t, err)
-	_, err = b.CreateUserGroup(context.Background(), "grp-y", "group y", "redis", nil)
+	_, err = b.CreateUserGroup(context.Background(), "grp-y", "redis", nil)
 	require.NoError(t, err)
 
 	p, err := b.DescribeUserGroups(context.Background(), "grp-x", "", 0)
@@ -110,7 +110,6 @@ func TestBackend_CreateUserGroupValidated_UsersExist(t *testing.T) {
 	ug, err := b.CreateUserGroupValidated(
 		context.Background(),
 		"validated-ug",
-		"validated",
 		"redis",
 		[]string{"u-valid-1", "u-valid-2"},
 	)
@@ -124,7 +123,7 @@ func TestBackend_CreateUserGroupValidated_UserNotFound(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
-	_, err := b.CreateUserGroupValidated(context.Background(), "fail-ug", "fail", "redis", []string{"nonexistent-user"})
+	_, err := b.CreateUserGroupValidated(context.Background(), "fail-ug", "redis", []string{"nonexistent-user"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticache.ErrGroupUserNotFound)
 }
@@ -141,7 +140,7 @@ func TestBackend_UserGroup_AssignedReplicationGroupIDs(t *testing.T) {
 	_, err := b.CreateUser(context.Background(), "u1", "user1", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	ug, err := b.CreateUserGroup(context.Background(), "ug1", "group 1", "redis", []string{"u1"})
+	ug, err := b.CreateUserGroup(context.Background(), "ug1", "redis", []string{"u1"})
 	require.NoError(t, err)
 
 	assert.NotNil(t, ug)
@@ -162,7 +161,7 @@ func TestBackend_UserGroupIds_AddRemove(t *testing.T) {
 	_, err := b.CreateUser(context.Background(), "u1", "user1", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	_, err = b.CreateUserGroup(context.Background(), "ug1", "group 1", "redis", []string{"u1"})
+	_, err = b.CreateUserGroup(context.Background(), "ug1", "redis", []string{"u1"})
 	require.NoError(t, err)
 
 	rg, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{

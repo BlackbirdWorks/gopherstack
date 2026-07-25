@@ -61,14 +61,87 @@ func (h *Handler) handleGetPipelineExecution(
 		return nil, err
 	}
 
-	return &getPipelineExecutionOutput{
-		PipelineExecution: map[string]any{
-			"pipelineName":        exec.PipelineName,
-			"pipelineExecutionId": exec.PipelineExecutionID,
-			keyStatus:             exec.Status,
-			"pipelineVersion":     exec.PipelineVersion,
-		},
-	}, nil
+	return &getPipelineExecutionOutput{PipelineExecution: pipelineExecutionDetail(exec)}, nil
+}
+
+// triggerObject builds the ExecutionTrigger wire shape shared by both
+// PipelineExecution (GetPipelineExecution) and PipelineExecutionSummary
+// (ListPipelineExecutions) -- verified identical in both against
+// awsAwsjson11_deserializeDocumentExecutionTrigger in the real SDK's
+// deserializers.go.
+func triggerObject(trigger string) map[string]any {
+	triggerType := trigger
+	if triggerType == "" {
+		triggerType = triggerTypeStartExecution
+	}
+
+	return map[string]any{"triggerType": triggerType, "triggerDetail": ""}
+}
+
+// rollbackMetadataObject builds the PipelineRollbackMetadata wire shape,
+// included only for ROLLBACK-type executions (RollbackStage,
+// pipeline_state.go); real AWS omits it entirely for STANDARD runs.
+func rollbackMetadataObject(targetExecutionID string) map[string]any {
+	return map[string]any{"rollbackTargetPipelineExecutionId": targetExecutionID}
+}
+
+// pipelineExecutionDetail builds the PipelineExecution wire shape used by
+// GetPipelineExecution's envelope. Real AWS's PipelineExecution shape has NO
+// startTime/lastUpdateTime fields at all (verified against
+// awsAwsjson11_deserializeDocumentPipelineExecution, which switches only on
+// artifactRevisions/executionMode/executionType/pipelineExecutionId/
+// pipelineName/pipelineVersion/rollbackMetadata/status/statusSummary/trigger/
+// variables) -- those exist only on the DIFFERENT PipelineExecutionSummary
+// shape used by ListPipelineExecutions, see pipelineExecutionSummary below.
+// An earlier revision of this function incorrectly added them here too.
+func pipelineExecutionDetail(exec *PipelineExecution) map[string]any {
+	out := map[string]any{
+		"pipelineName":        exec.PipelineName,
+		"pipelineExecutionId": exec.PipelineExecutionID,
+		keyStatus:             exec.Status,
+		"pipelineVersion":     exec.PipelineVersion,
+		"executionMode":       exec.ExecutionMode,
+		"executionType":       exec.ExecutionType,
+		"trigger":             triggerObject(exec.Trigger),
+	}
+
+	if exec.RollbackTargetExecutionID != "" {
+		out["rollbackMetadata"] = rollbackMetadataObject(exec.RollbackTargetExecutionID)
+	}
+
+	return out
+}
+
+// pipelineExecutionSummary builds the PipelineExecutionSummary wire shape for
+// ListPipelineExecutions. Real AWS's PipelineExecutionSummary has NO
+// pipelineName/pipelineVersion fields (verified against
+// awsAwsjson11_deserializeDocumentPipelineExecutionSummary, which switches
+// only on executionMode/executionType/lastUpdateTime/pipelineExecutionId/
+// rollbackMetadata/sourceRevisions/startTime/status/statusSummary/
+// stopTrigger/trigger) but DOES have startTime/lastUpdateTime as
+// epoch-seconds numbers, unlike the detail shape above.
+func pipelineExecutionSummary(exec *PipelineExecution) map[string]any {
+	out := map[string]any{
+		keyPipelineExecutionID: exec.PipelineExecutionID,
+		keyStatus:              exec.Status,
+		"executionMode":        exec.ExecutionMode,
+		"executionType":        exec.ExecutionType,
+		"trigger":              triggerObject(exec.Trigger),
+	}
+
+	if !exec.StartTime.IsZero() {
+		out["startTime"] = float64(exec.StartTime.Unix())
+	}
+
+	if !exec.LastUpdateTime.IsZero() {
+		out["lastUpdateTime"] = float64(exec.LastUpdateTime.Unix())
+	}
+
+	if exec.RollbackTargetExecutionID != "" {
+		out["rollbackMetadata"] = rollbackMetadataObject(exec.RollbackTargetExecutionID)
+	}
+
+	return out
 }
 
 type stopPipelineExecutionInput struct {
@@ -121,21 +194,8 @@ func (h *Handler) handleListPipelineExecutions(
 	}
 
 	items := make([]map[string]any, len(execs))
-	for i, e := range execs {
-		triggerType := e.Trigger
-		if triggerType == "" {
-			triggerType = triggerTypeStartExecution
-		}
-
-		items[i] = map[string]any{
-			"pipelineExecutionId": e.PipelineExecutionID,
-			"status":              e.Status,
-			"pipelineVersion":     e.PipelineVersion,
-			"trigger": map[string]any{
-				"triggerType":   triggerType,
-				"triggerDetail": "",
-			},
-		}
+	for i := range execs {
+		items[i] = pipelineExecutionSummary(&execs[i])
 	}
 
 	page, nextToken, err := cpPaginate(

@@ -134,12 +134,15 @@ func TestGetExportJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestListExportJobs tests the ListExportJobs operation.
+// TestListExportJobs tests the ListExportJobs operation, served as
+// POST /v2/email/list-export-jobs (a distinct top-level path from
+// /v2/email/export-jobs, confirmed against aws-sdk-go-v2/service/sesv2
+// v1.60.1 serializers.go).
 func TestListExportJobs(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodGet, "/v2/email/export-jobs", nil)
+	rec := doRequest(t, h, http.MethodPost, "/v2/email/list-export-jobs", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 

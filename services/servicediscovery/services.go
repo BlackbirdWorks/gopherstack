@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -18,25 +19,32 @@ func (b *InMemoryBackend) CreateService(
 	b.mu.Lock("CreateService")
 	defer b.mu.Unlock()
 
+	var ns *Namespace
+
 	if namespaceID != "" {
-		if !b.namespaces.Has(namespaceID) {
+		var ok bool
+
+		ns, ok = b.namespaces.Get(namespaceID)
+		if !ok {
 			return nil, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, namespaceID)
+		}
+
+		if err := b.checkServiceNameAvailable(namespaceID, name, ns.Type); err != nil {
+			return nil, err
 		}
 	}
 
 	// Derive service type when not explicitly set.
 	resolvedType := svcType
-	if resolvedType == "" && namespaceID != "" {
-		if ns, ok := b.namespaces.Get(namespaceID); ok {
-			switch ns.Type {
-			case namespaceTypeHTTP:
-				resolvedType = serviceTypeHTTP
-			case namespaceTypeDNSPrivate, namespaceTypeDNSPublic:
-				if dnsConfig != nil {
-					resolvedType = serviceTypeDNSHTTP
-				} else {
-					resolvedType = serviceTypeDNS
-				}
+	if resolvedType == "" && ns != nil {
+		switch ns.Type {
+		case namespaceTypeHTTP:
+			resolvedType = serviceTypeHTTP
+		case namespaceTypeDNSPrivate, namespaceTypeDNSPublic:
+			if dnsConfig != nil {
+				resolvedType = serviceTypeDNSHTTP
+			} else {
+				resolvedType = serviceTypeDNS
 			}
 		}
 	}
@@ -60,6 +68,37 @@ func (b *InMemoryBackend) CreateService(
 	b.services.Put(svc)
 
 	return copyService(svc), nil
+}
+
+// checkServiceNameAvailable enforces CreateService's documented name-collision
+// rule within a namespace: "For services that are accessible by DNS queries,
+// you can't create multiple services with names that differ only by case
+// (such as EXAMPLE and example) ... However, if you use a namespace that's
+// only accessible by API calls [HTTP], then you can create services that with
+// names that differ only by case." (api_op_CreateService.go doc comment).
+// Caller must hold the write lock.
+func (b *InMemoryBackend) checkServiceNameAvailable(namespaceID, name, nsType string) error {
+	for _, existing := range b.services.All() {
+		if existing.NamespaceID != namespaceID {
+			continue
+		}
+
+		collides := existing.Name == name
+		if nsType != namespaceTypeHTTP {
+			collides = strings.EqualFold(existing.Name, name)
+		}
+
+		if collides {
+			return fmt.Errorf(
+				"%w: service %s already exists in namespace %s",
+				ErrServiceAlreadyExists,
+				name,
+				namespaceID,
+			)
+		}
+	}
+
+	return nil
 }
 
 // DeleteService deletes a service by ID.
@@ -107,7 +146,11 @@ func (b *InMemoryBackend) ListServices(filter ListServicesFilter) []Service {
 	result := make([]Service, 0, len(all))
 
 	for _, svc := range all {
-		if filter.NamespaceID != "" && svc.NamespaceID != filter.NamespaceID {
+		if !filter.NamespaceID.matches(svc.NamespaceID) {
+			continue
+		}
+
+		if !resourceOwnerMatches(filter.ResourceOwner) {
 			continue
 		}
 

@@ -54,6 +54,18 @@ func TestHandlerActions_CreateQueue(t *testing.T) {
 			body:     map[string]any{"QueueName": "invalid name!"},
 			wantCode: http.StatusBadRequest,
 		},
+		{
+			name: "deleted_recently",
+			setup: func(t *testing.T, h *sqs.Handler) {
+				t.Helper()
+				queueURL := doCreateQueue(t, h, "test-queue")
+				rec := doRequest(t, h, "DeleteQueue", map[string]any{"QueueUrl": queueURL})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			body:            map[string]any{"QueueName": "test-queue"},
+			wantCode:        http.StatusBadRequest,
+			wantBodyContain: "QueueDeletedRecently",
+		},
 	}
 
 	for _, tt := range tests {

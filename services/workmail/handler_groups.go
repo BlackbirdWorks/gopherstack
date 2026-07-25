@@ -90,10 +90,19 @@ func (h *Handler) handleDeleteGroup(_ context.Context, req *deleteGroupReq) (*em
 	return &emptyResp{}, nil
 }
 
+// listGroupsFiltersReq mirrors aws-sdk-go-v2/service/workmail/types.
+// ListGroupsFilters, the ListGroupsInput.Filters wire shape.
+type listGroupsFiltersReq struct {
+	NamePrefix         string `json:"NamePrefix"`
+	PrimaryEmailPrefix string `json:"PrimaryEmailPrefix"`
+	State              string `json:"State"`
+}
+
 type listGroupsReq struct {
-	OrganizationID string `json:"OrganizationId"`
-	NextToken      string `json:"NextToken"`
-	MaxResults     int32  `json:"MaxResults"`
+	Filters        *listGroupsFiltersReq `json:"Filters"`
+	OrganizationID string                `json:"OrganizationId"`
+	NextToken      string                `json:"NextToken"`
+	MaxResults     int32                 `json:"MaxResults"`
 }
 
 type groupSummaryResp struct {
@@ -109,7 +118,16 @@ type listGroupsResp struct {
 }
 
 func (h *Handler) handleListGroups(_ context.Context, req *listGroupsReq) (*listGroupsResp, error) {
-	groups, next, err := h.Backend.ListGroups(req.OrganizationID, req.MaxResults, req.NextToken)
+	var filter *GroupFilter
+	if req.Filters != nil {
+		filter = &GroupFilter{
+			NamePrefix:         req.Filters.NamePrefix,
+			PrimaryEmailPrefix: req.Filters.PrimaryEmailPrefix,
+			State:              req.Filters.State,
+		}
+	}
+
+	groups, next, err := h.Backend.ListGroups(req.OrganizationID, filter, req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -183,11 +201,19 @@ func (h *Handler) handleListGroupMembers(_ context.Context, req *listGroupMember
 	return &listGroupMembersResp{Members: mresps, NextToken: next}, nil
 }
 
+// listGroupsForEntityFiltersReq mirrors aws-sdk-go-v2/service/workmail/
+// types.ListGroupsForEntityFilters, the ListGroupsForEntityInput.Filters
+// wire shape (a single dimension: GroupNamePrefix).
+type listGroupsForEntityFiltersReq struct {
+	GroupNamePrefix string `json:"GroupNamePrefix"`
+}
+
 type listGroupsForEntityReq struct {
-	OrganizationID string `json:"OrganizationId"`
-	EntityID       string `json:"EntityId"`
-	NextToken      string `json:"NextToken"`
-	MaxResults     int32  `json:"MaxResults"`
+	Filters        *listGroupsForEntityFiltersReq `json:"Filters"`
+	OrganizationID string                         `json:"OrganizationId"`
+	EntityID       string                         `json:"EntityId"`
+	NextToken      string                         `json:"NextToken"`
+	MaxResults     int32                          `json:"MaxResults"`
 }
 
 // groupIdentifierResp mirrors aws-sdk-go-v2/service/workmail/types.
@@ -208,7 +234,14 @@ func (h *Handler) handleListGroupsForEntity(
 	_ context.Context,
 	req *listGroupsForEntityReq,
 ) (*listGroupsForEntityResp, error) {
-	groups, next, err := h.Backend.ListGroupsForEntity(req.OrganizationID, req.EntityID, req.MaxResults, req.NextToken)
+	var groupNamePrefix string
+	if req.Filters != nil {
+		groupNamePrefix = req.Filters.GroupNamePrefix
+	}
+
+	groups, next, err := h.Backend.ListGroupsForEntity(
+		req.OrganizationID, req.EntityID, groupNamePrefix, req.MaxResults, req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}

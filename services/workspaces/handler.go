@@ -101,6 +101,10 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, err.Error()))
+	case errors.Is(err, awserr.ErrAlreadyExists):
+		return c.JSON(http.StatusBadRequest, errBody(errResourceAlreadyExists, err.Error()))
+	case errors.Is(err, awserr.ErrConflict):
+		return c.JSON(http.StatusBadRequest, errBody(errInvalidResourceState, err.Error()))
 	default:
 		return c.JSON(
 			http.StatusInternalServerError,

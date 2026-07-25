@@ -183,13 +183,13 @@ func (b *InMemoryBackend) GetSegmentVersion(
 		}
 	}
 
-	// Fall back to current segment if version not found in history.
-	s, ok := b.segments.Get(segmentID)
-	if !ok || s.ApplicationID != appID {
-		return nil, ErrAppNotFound
-	}
-
-	return cloneSegment(s), nil
+	// AWS's GetSegmentVersion resource docs list 404 NotFoundException as the
+	// documented response when "the specified resource was not found" -- a
+	// requested version number that isn't in this segment's history is
+	// exactly that case, so it must 404 rather than silently substitute the
+	// current segment (which would return a Version the caller didn't ask
+	// for under the version they did ask for). Mirrors GetCampaignVersion.
+	return nil, ErrAppNotFound
 }
 
 // GetSegmentVersions returns all stored versions of a segment.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -28,12 +29,49 @@ func (h *Handler) handleListCoverage(c *echo.Context) error {
 		return h.mapError(c, listErr)
 	}
 
-	resp := map[string]any{"coveredResources": entries}
+	wire := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		wire = append(wire, coverageEntryToWire(e))
+	}
+
+	resp := map[string]any{"coveredResources": wire}
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// coverageEntryToWire renders a CoverageEntry in its real CoveredResource
+// wire shape. lastScannedAt is a DateTimeTimestamp member (see
+// findingToWire's doc comment for why time.Time must never be marshaled
+// directly for a restjson1 timestamp field).
+func coverageEntryToWire(e *CoverageEntry) map[string]any {
+	entry := map[string]any{
+		keyAccountID:   e.AccountID,
+		"resourceId":   e.ResourceID,
+		"resourceType": e.ResourceType,
+		"scanType":     e.ScanType,
+	}
+
+	if !e.LastScannedAt.IsZero() {
+		entry["lastScannedAt"] = awstime.Epoch(e.LastScannedAt)
+	}
+
+	if e.ScanMode != "" {
+		entry["scanMode"] = e.ScanMode
+	}
+
+	if e.ScanStatus != nil {
+		status := map[string]any{"statusCode": e.ScanStatus.StatusCode}
+		if e.ScanStatus.Reason != "" {
+			status["reason"] = e.ScanStatus.Reason
+		}
+
+		entry["scanStatus"] = status
+	}
+
+	return entry
 }
 
 func (h *Handler) handleListCoverageStatistics(c *echo.Context) error {
@@ -44,6 +82,7 @@ func (h *Handler) handleListCoverageStatistics(c *echo.Context) error {
 
 	var req struct {
 		FilterCriteria map[string]any `json:"filterCriteria"`
+		GroupBy        string         `json:"groupBy"`
 	}
 
 	if len(body) > 0 {
@@ -55,7 +94,7 @@ func (h *Handler) handleListCoverageStatistics(c *echo.Context) error {
 		}
 	}
 
-	stats, statsErr := h.Backend.ListCoverageStatistics(req.FilterCriteria)
+	stats, statsErr := h.Backend.ListCoverageStatistics(req.FilterCriteria, req.GroupBy)
 	if statsErr != nil {
 		return h.mapError(c, statsErr)
 	}

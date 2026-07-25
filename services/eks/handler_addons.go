@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchAddonOps handles addon CRUD and static addon metadata operations.
@@ -171,9 +173,10 @@ func (h *Handler) handleListAddons(c *echo.Context, clusterName string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"addons": names,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(names, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("addons", p))
 }
 
 type updateAddonBody struct {

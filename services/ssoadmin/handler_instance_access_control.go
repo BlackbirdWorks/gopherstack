@@ -38,7 +38,7 @@ func (h *Handler) handleCreateInstanceAccessControlAttributeConfiguration(c *ech
 
 	if err := h.Backend.CreateInstanceAccessControlAttributeConfiguration(req.InstanceArn, attrs); err != nil {
 		if errors.Is(err, ErrACAAlreadyExists) {
-			return writeError(c, http.StatusConflict, "ConflictException",
+			return writeError(c, http.StatusBadRequest, "ConflictException",
 				"instance access control attribute configuration already exists for: "+req.InstanceArn)
 		}
 

@@ -3,6 +3,8 @@ package polly
 import (
 	"encoding/base64"
 	"fmt"
+	"net"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,17 +13,42 @@ import (
 	"github.com/google/uuid"
 )
 
+// snsTopicArnPattern matches a well-formed SNS topic ARN:
+// arn:{partition}:sns:{region}:{12-digit account}:{name}.
+var snsTopicArnPattern = regexp.MustCompile(
+	`^arn:(aws|aws-cn|aws-us-gov|aws-iso|aws-iso-b):sns:[a-z0-9-]+:\d{12}:[A-Za-z0-9_-]{1,256}$`,
+)
+
 // StartSpeechSynthesisTask creates scheduled asynchronous task.
 func (b *InMemoryBackend) StartSpeechSynthesisTask(
 	options SynthesisOptions,
-	outputBucket, roleArn, topicArn string,
+	outputBucket, outputKeyPrefix, topicArn string,
 ) (*SpeechSynthesisTask, error) {
 	if outputBucket == "" {
 		return nil, fmt.Errorf("%w: OutputS3BucketName is required", ErrValidation)
 	}
-	if len(options.Text) > maxTaskTextLen {
+	if !validS3BucketName(outputBucket) {
 		return nil, fmt.Errorf(
-			"%w: text exceeds maximum length of %d characters", ErrTextLengthExceeded, maxTaskTextLen,
+			"%w: OutputS3BucketName %q is not a valid S3 bucket name", ErrInvalidS3Bucket, outputBucket,
+		)
+	}
+	if !validS3KeyPrefix(outputKeyPrefix) {
+		return nil, fmt.Errorf("%w: OutputS3KeyPrefix is not a valid S3 object key", ErrInvalidS3Key)
+	}
+	if !validSnsTopicArn(topicArn) {
+		return nil, fmt.Errorf("%w: SnsTopicArn %q is not a valid SNS topic ARN", ErrInvalidSnsTopicArn, topicArn)
+	}
+
+	// AWS: StartSpeechSynthesisTask accepts up to 100,000 billed characters
+	// (plain text) or 200,000 total characters (SSML, where markup is not
+	// billed) -- see PARITY.md's "SpeechSynthesisTask API operations" quota.
+	limit := maxTaskTextLen
+	if options.TextType == textTypeSSML {
+		limit = maxTaskSSMLLen
+	}
+	if len(options.Text) > limit {
+		return nil, fmt.Errorf(
+			"%w: text exceeds maximum length of %d characters", ErrTextLengthExceeded, limit,
 		)
 	}
 
@@ -32,28 +59,35 @@ func (b *InMemoryBackend) StartSpeechSynthesisTask(
 
 	id := uuid.NewString()
 	task := &SpeechSynthesisTask{
-		CreationTime:       time.Now().UTC(),
-		TaskID:             id,
-		TaskStatus:         taskStatusScheduled,
-		OutputURI:          fmt.Sprintf("s3://%s/%s.%s", outputBucket, id, taskExtension(normal.OutputFormat)),
+		CreationTime: time.Now().UTC(),
+		TaskID:       id,
+		TaskStatus:   taskStatusScheduled,
+		OutputURI: fmt.Sprintf(
+			"s3://%s/%s%s.%s", outputBucket, outputKeyPrefix, id, taskExtension(normal.OutputFormat),
+		),
 		OutputS3BucketName: outputBucket,
-		SNSRoleArn:         roleArn,
+		OutputS3KeyPrefix:  outputKeyPrefix,
 		SNSTopicArn:        topicArn,
 		Options:            normal,
 	}
 
-	func() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		b.tasks.Put(task)
-		b.tags[b.taskARN(id)] = make(map[string]string)
-	}()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.tasks.Put(task)
 
 	return cloneTask(task), nil
 }
 
 // GetSpeechSynthesisTask retrieves task and advances simulated lifecycle.
 func (b *InMemoryBackend) GetSpeechSynthesisTask(taskID string) (*SpeechSynthesisTask, error) {
+	if _, err := uuid.Parse(taskID); err != nil {
+		// AWS distinguishes a syntactically invalid TaskId (InvalidTaskIdException)
+		// from a well-formed one that simply doesn't exist
+		// (SynthesisTaskNotFoundException); task IDs are UUIDs (see the
+		// uuid.NewString() call in StartSpeechSynthesisTask above).
+		return nil, fmt.Errorf("%w: task id %q", ErrInvalidTaskID, taskID)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -65,6 +99,72 @@ func (b *InMemoryBackend) GetSpeechSynthesisTask(taskID string) (*SpeechSynthesi
 	advanceTask(task)
 
 	return cloneTask(task), nil
+}
+
+// validS3BucketName reports whether name follows AWS S3 bucket naming rules:
+// 3-63 chars, lowercase letters/digits/dots/hyphens, must start and end with
+// a letter or digit, no consecutive dots, and not formatted as an IP address.
+func validS3BucketName(name string) bool {
+	const minBucketLen, maxBucketLen = 3, 63
+	if len(name) < minBucketLen || len(name) > maxBucketLen {
+		return false
+	}
+	if net.ParseIP(name) != nil {
+		return false
+	}
+	if !isAlphanumeric(rune(name[0])) || !isAlphanumeric(rune(name[len(name)-1])) {
+		return false
+	}
+
+	prevDot := false
+	for _, ch := range name {
+		switch {
+		case isAlphanumeric(ch):
+			prevDot = false
+		case ch == '.':
+			if prevDot {
+				return false
+			}
+			prevDot = true
+		case ch == '-':
+			prevDot = false
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
+func isAlphanumeric(ch rune) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+}
+
+// validS3KeyPrefix reports whether prefix is safe to use as an S3 object key
+// prefix: empty (the field is optional), or non-empty, at most 1024 bytes,
+// and free of ASCII control characters, which AWS's object key naming
+// guidelines flag as unsafe.
+func validS3KeyPrefix(prefix string) bool {
+	const maxS3KeyLen = 1024
+	if prefix == "" {
+		return true
+	}
+	if len(prefix) > maxS3KeyLen {
+		return false
+	}
+	for _, ch := range prefix {
+		if ch <= 0x1F || ch == 0x7F {
+			return false
+		}
+	}
+
+	return true
+}
+
+// validSnsTopicArn reports whether topicArn is empty (the field is
+// optional) or a well-formed SNS topic ARN.
+func validSnsTopicArn(topicArn string) bool {
+	return topicArn == "" || snsTopicArnPattern.MatchString(topicArn)
 }
 
 // ListSpeechSynthesisTasks lists tasks and advances lifecycle consistently with AWS polling.

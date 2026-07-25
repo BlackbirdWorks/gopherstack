@@ -17,10 +17,29 @@ func (b *InMemoryBackend) dataQualityRulesetARN(name string) string {
 	return arn.Build("glue", b.region, b.accountID, "dataQualityRuleset/"+name)
 }
 
+// DataQualityRulesetOptions carries the optional CreateDataQualityRuleset
+// settings beyond Name/Ruleset/Tags.
+type DataQualityRulesetOptions struct {
+	TargetTable                      *DataQualityTargetTable
+	Description                      string
+	DataQualitySecurityConfiguration string
+}
+
 // CreateDataQualityRuleset creates a new data quality ruleset.
 func (b *InMemoryBackend) CreateDataQualityRuleset(
 	name, ruleset string,
 	tags map[string]string,
+) (*DataQualityRuleset, error) {
+	return b.CreateDataQualityRulesetWithOptions(name, ruleset, tags, DataQualityRulesetOptions{})
+}
+
+// CreateDataQualityRulesetWithOptions is CreateDataQualityRuleset plus the
+// optional creation-time settings CreateDataQualityRulesetInput also
+// supports (Description/DataQualitySecurityConfiguration/TargetTable).
+func (b *InMemoryBackend) CreateDataQualityRulesetWithOptions(
+	name, ruleset string,
+	tags map[string]string,
+	opts DataQualityRulesetOptions,
 ) (*DataQualityRuleset, error) {
 	b.mu.Lock("CreateDataQualityRuleset")
 	defer b.mu.Unlock()
@@ -35,12 +54,15 @@ func (b *InMemoryBackend) CreateDataQualityRuleset(
 
 	now := float64(time.Now().Unix())
 	r := &DataQualityRuleset{
-		Name:           name,
-		Ruleset:        ruleset,
-		Tags:           maps.Clone(tags),
-		ARN:            b.dataQualityRulesetARN(name),
-		CreatedOn:      now,
-		LastModifiedOn: now,
+		Name:                             name,
+		Ruleset:                          ruleset,
+		Tags:                             maps.Clone(tags),
+		ARN:                              b.dataQualityRulesetARN(name),
+		Description:                      opts.Description,
+		DataQualitySecurityConfiguration: opts.DataQualitySecurityConfiguration,
+		TargetTable:                      opts.TargetTable,
+		CreatedOn:                        now,
+		LastModifiedOn:                   now,
 	}
 	b.dataQualityRulesets.Put(r)
 
@@ -77,7 +99,7 @@ func (b *InMemoryBackend) DeleteDataQualityRuleset(name string) error {
 }
 
 // UpdateDataQualityRuleset updates the ruleset expression for a named ruleset.
-func (b *InMemoryBackend) UpdateDataQualityRuleset(name, ruleset string) error {
+func (b *InMemoryBackend) UpdateDataQualityRuleset(name, ruleset, description string) error {
 	b.mu.Lock("UpdateDataQualityRuleset")
 	defer b.mu.Unlock()
 
@@ -85,7 +107,15 @@ func (b *InMemoryBackend) UpdateDataQualityRuleset(name, ruleset string) error {
 	if !ok {
 		return ErrNotFound
 	}
-	r.Ruleset = ruleset
+
+	if ruleset != "" {
+		r.Ruleset = ruleset
+	}
+
+	if description != "" {
+		r.Description = description
+	}
+
 	r.LastModifiedOn = float64(time.Now().Unix())
 
 	return nil
@@ -192,7 +222,7 @@ func (b *InMemoryBackend) StartDataQualityRuleRecommendationRun(s3Path string) (
 		RecommendationRunID: runID,
 		DataSourceS3Path:    s3Path,
 		Status:              stateRunning,
-		StartedOn:           time.Now().UTC(),
+		StartedOn:           float64(time.Now().Unix()),
 	}
 	b.dqRecommendationRuns.Put(run)
 	cp := *run
@@ -243,7 +273,7 @@ func (b *InMemoryBackend) ListDataQualityRuleRecommendationRuns() []*DQRuleRecom
 	}
 
 	sort.Slice(runs, func(i, k int) bool {
-		return runs[i].StartedOn.Before(runs[k].StartedOn)
+		return runs[i].StartedOn < runs[k].StartedOn
 	})
 
 	return runs

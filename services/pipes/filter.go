@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-// matchesAnyFilter returns true if msg passes at least one of the given filters.
+// matchesAnyFilter returns true if body passes at least one of the given filters.
+// body is the raw event record body/data for any pipe source type (SQS message
+// body, Kinesis record data, or a marshalled DynamoDB Streams record) -- the
+// matching engine itself is source-agnostic.
 //
 // Filter.Pattern semantics:
 //   - If Pattern is empty, every message matches (pass-through).
@@ -15,9 +18,9 @@ import (
 //     value matching the corresponding rule array (exact string match only for now).
 //   - Otherwise the pattern is treated as a literal substring and matched against
 //     the raw message body (backward-compatible behaviour).
-func matchesAnyFilter(m *SQSMessage, filters []Filter) bool {
+func matchesAnyFilter(body string, filters []Filter) bool {
 	for _, f := range filters {
-		if matchesSingleFilter(m, f) {
+		if matchesSingleFilter(body, f) {
 			return true
 		}
 	}
@@ -25,18 +28,18 @@ func matchesAnyFilter(m *SQSMessage, filters []Filter) bool {
 	return false
 }
 
-func matchesSingleFilter(m *SQSMessage, f Filter) bool {
+func matchesSingleFilter(body string, f Filter) bool {
 	if f.Pattern == "" {
 		return true
 	}
 
 	trimmed := strings.TrimSpace(f.Pattern)
 	if strings.HasPrefix(trimmed, "{") {
-		return matchesJSONPattern(m.Body, trimmed)
+		return matchesJSONPattern(body, trimmed)
 	}
 
 	// Backward-compatible substring match for non-JSON patterns.
-	return strings.Contains(m.Body, f.Pattern)
+	return strings.Contains(body, f.Pattern)
 }
 
 // matchesJSONPattern tests whether msgBody satisfies the EventBridge-style

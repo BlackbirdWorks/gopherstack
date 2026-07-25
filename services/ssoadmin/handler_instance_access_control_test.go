@@ -87,7 +87,7 @@ func TestCreateInstanceAccessControlAttributeConfiguration(t *testing.T) {
 			attributes: []map[string]any{
 				{"Key": "dept", "Value": map[string]any{"Source": []string{"x"}}},
 			},
-			wantStatus:     http.StatusNotFound,
+			wantStatus:     http.StatusBadRequest,
 			useInvalidInst: true,
 		},
 	}
@@ -307,5 +307,5 @@ func TestCreateACAConflict(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doRequest(t, h, "CreateInstanceAccessControlAttributeConfiguration", payload)
-	assert.Equal(t, http.StatusConflict, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }

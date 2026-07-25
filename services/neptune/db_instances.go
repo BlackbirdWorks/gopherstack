@@ -110,6 +110,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 			})
 		}
 	}
+	b.recordEvent(region, id, sourceTypeDBInstance, "DB instance created", "creation")
 	cp := *inst
 
 	return &cp, nil
@@ -171,6 +172,7 @@ func (b *InMemoryBackend) DeleteDBInstance(ctx context.Context, id string) (*DBI
 			cl.DBClusterMembers = members
 		}
 	}
+	b.recordEvent(region, id, sourceTypeDBInstance, "DB instance deleted", "deletion")
 
 	return &cp, nil
 }

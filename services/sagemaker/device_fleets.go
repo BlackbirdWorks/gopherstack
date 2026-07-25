@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -50,6 +51,44 @@ func cloneDeviceFleet(f *DeviceFleet) *DeviceFleet {
 	cp.Tags = maps.Clone(f.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeDeviceFleet.
+func (f *DeviceFleet) MarshalJSON() ([]byte, error) {
+	type alias DeviceFleet
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(f),
+		CreationTime:     epochSeconds(f.CreationTime),
+		LastModifiedTime: epochSeconds(f.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [DeviceFleet.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (f *DeviceFleet) UnmarshalJSON(data []byte) error {
+	type alias DeviceFleet
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(f)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	f.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	f.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateDeviceFleetOptions holds input fields for CreateDeviceFleet.
@@ -125,7 +164,11 @@ func (b *InMemoryBackend) ListDeviceFleets(ctx context.Context, nextToken string
 }
 
 // UpdateDeviceFleet updates a device fleet's description or role ARN.
-func (b *InMemoryBackend) UpdateDeviceFleet(ctx context.Context, name, description, roleArn string) error {
+func (b *InMemoryBackend) UpdateDeviceFleet(
+	ctx context.Context,
+	name, description, roleArn string,
+	outputConfig *DeviceFleetOutputConfig,
+) error {
 	b.mu.Lock("UpdateDeviceFleet")
 	defer b.mu.Unlock()
 
@@ -142,6 +185,10 @@ func (b *InMemoryBackend) UpdateDeviceFleet(ctx context.Context, name, descripti
 
 	if roleArn != "" {
 		f.RoleArn = roleArn
+	}
+
+	if outputConfig != nil {
+		f.OutputConfig = outputConfig
 	}
 
 	f.LastModifiedTime = time.Now()
@@ -202,6 +249,44 @@ func cloneDevice(d *Device) *Device {
 	cp.Tags = maps.Clone(d.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits RegistrationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeDevice.
+func (d *Device) MarshalJSON() ([]byte, error) {
+	type alias Device
+
+	return json.Marshal(struct {
+		*alias
+		RegistrationTime float64 `json:"RegistrationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(d),
+		RegistrationTime: epochSeconds(d.RegistrationTime),
+		LastModifiedTime: epochSeconds(d.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [Device.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (d *Device) UnmarshalJSON(data []byte) error {
+	type alias Device
+
+	aux := struct {
+		*alias
+		RegistrationTime float64 `json:"RegistrationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(d)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	d.RegistrationTime = timeFromEpochSeconds(aux.RegistrationTime)
+	d.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // RegisterDeviceInput is a single device to register.

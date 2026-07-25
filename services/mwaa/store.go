@@ -42,33 +42,45 @@ const (
 	listEnvDefaultPageSize     = 25
 	listEnvMaxPageSize         = 100
 
-	// Environment status constants.
+	// Environment status constants (AWS: CREATING | CREATE_FAILED | AVAILABLE |
+	// UPDATING | DELETING | DELETED | UNAVAILABLE | UPDATE_FAILED |
+	// ROLLING_BACK | CREATING_SNAPSHOT | PENDING | MAINTENANCE -- confirmed via
+	// aws-sdk-go-v2/service/mwaa/types.EnvironmentStatus's enum values.
+	// gopherstack previously used the fabricated "UPDATE_ROLLING_BACK" (the
+	// real value is "ROLLING_BACK") and an invented "ERROR" status not in the
+	// real enum at all.
 	envStatusAvailable        = "AVAILABLE"
 	envStatusCreating         = "CREATING"
 	envStatusCreatingSnapshot = "CREATING_SNAPSHOT"
 	envStatusDeleting         = "DELETING"
 	envStatusDeleted          = "DELETED"
 	envStatusUpdating         = "UPDATING"
-	envStatusUpdateRollback   = "UPDATE_ROLLING_BACK"
+	envStatusRollingBack      = "ROLLING_BACK"
 	envStatusUpdateFailed     = "UPDATE_FAILED"
 	envStatusPending          = "PENDING"
 	envStatusCreateFailed     = "CREATE_FAILED"
 	envStatusUnavailable      = "UNAVAILABLE"
-	envStatusError            = "ERROR"
 
 	// EndpointManagement constants.
 	endpointManagementService  = "SERVICE"
 	endpointManagementCustomer = "CUSTOMER"
 
-	// WebserverAccessMode constants.
-	accessModePublic  = "PUBLIC_ONLY"
-	accessModePrivate = "PRIVATE_ONLY"
+	// WebserverAccessMode constants (AWS: PUBLIC_ONLY | PRIVATE_ONLY | PUBLIC_AND_PRIVATE
+	// -- confirmed via aws-sdk-go-v2/service/mwaa/types.WebserverAccessMode's enum values).
+	accessModePublic           = "PUBLIC_ONLY"
+	accessModePrivate          = "PRIVATE_ONLY"
+	accessModePublicAndPrivate = "PUBLIC_AND_PRIVATE"
 
 	// Worker limits.
 	maxWorkersAllowed = int32(25)
 
 	// NetworkConfiguration.SecurityGroupIds bounds (AWS: 1-5 entries).
+	minSecurityGroupIDs = 1
 	maxSecurityGroupIDs = 5
+
+	// NetworkConfiguration.SubnetIds is a fixed-size list of exactly 2 entries
+	// (subnets must span exactly 2 Availability Zones).
+	requiredSubnetIDs = 2
 
 	// Tag limit per resource.
 	maxTagsPerResource = 50
@@ -77,9 +89,12 @@ const (
 	minEnvNameLen = 1
 	maxEnvNameLen = 80
 
-	// WorkerReplacementStrategy constants.
-	workerStrategyForced = "FORCED"
-	workerStrategyDrain  = "TERMINATION_WITH_DRAIN"
+	// WorkerReplacementStrategy constants (AWS: FORCED | GRACEFUL -- confirmed
+	// via aws-sdk-go-v2/service/mwaa/types.WorkerReplacementStrategy's enum
+	// values; gopherstack previously fabricated "TERMINATION_WITH_DRAIN",
+	// which is not a real value, while rejecting the real "GRACEFUL").
+	workerStrategyForced   = "FORCED"
+	workerStrategyGraceful = "GRACEFUL"
 )
 
 // generateMWAAToken produces a JWT-shaped token for CLI and web login operations.

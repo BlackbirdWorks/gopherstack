@@ -531,6 +531,28 @@ func TestErrorCodes(t *testing.T) {
 		errResp := decodeError(t, rec.Body.Bytes())
 		assert.Equal(t, "ValidationError", errResp.Error.Code)
 	})
+
+	t.Run(
+		"outbound_federation_disabled_returns_OutboundWebIdentityFederationDisabledException",
+		func(t *testing.T) {
+			t.Parallel()
+
+			h, b, e := accuracyHandler(t)
+			b.SetOIDCLookup(&fakeOIDCAccountSettingsLookup{outboundFederationEnabled: false})
+
+			form := url.Values{
+				"Action":            {"GetWebIdentityToken"},
+				"Version":           {"2011-06-15"},
+				"Audience.member.1": {"https://example.com"},
+				"SigningAlgorithm":  {"RS256"},
+			}
+			rec := accuracyPost(t, h, e, form)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			errResp := decodeError(t, rec.Body.Bytes())
+			assert.Equal(t, "OutboundWebIdentityFederationDisabledException", errResp.Error.Code)
+		},
+	)
 }
 
 // errBackendFailure is returned by errorBackend to trigger the InternalFailure path.

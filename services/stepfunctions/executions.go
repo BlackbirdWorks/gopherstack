@@ -89,12 +89,13 @@ func (b *InMemoryBackend) StartSyncExecution(
 	}
 
 	b.mu.RLock("StartSyncExecution")
-	sm, exists := b.stateMachines.Get(stateMachineArn)
-	if !exists {
+	resolved, resolveErr := b.resolveExecutionTarget(stateMachineArn)
+	if resolveErr != nil {
 		b.mu.RUnlock()
 
-		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, stateMachineArn)
+		return nil, resolveErr
 	}
+	sm := resolved.SM
 
 	if sm.Type != "EXPRESS" {
 		b.mu.RUnlock()
@@ -116,6 +117,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 	ecsIntegration := b.ecsIntegration
 	glueIntegration := b.glueIntegration
 	ebIntegration := b.ebIntegration
+	s3Reader := b.s3Reader
 	b.mu.RUnlock()
 
 	parsedSM, parseErr := asl.Parse(definition)
@@ -127,9 +129,14 @@ func (b *InMemoryBackend) StartSyncExecution(
 		name = fmt.Sprintf("sync-%d", time.Now().UnixNano())
 	}
 
+	// Execution/MapRun ARNs are always keyed off the base (unqualified) state
+	// machine ARN -- AWS never carries a version/alias qualifier into an
+	// execution ARN, even when StartSyncExecution was called with one.
+	baseSMArn := sm.StateMachineArn
+
 	const millisPerSecond = 1000.0
 	startDate := float64(time.Now().UnixMilli()) / millisPerSecond
-	execARN := b.execARN(stateMachineArn, smName, name)
+	execARN := b.execARN(baseSMArn, smName, name)
 
 	// Express Workflows must complete within 5 minutes per AWS spec.
 	const expressSyncTimeout = 5 * time.Minute
@@ -145,17 +152,18 @@ func (b *InMemoryBackend) StartSyncExecution(
 	executor.SetECSIntegration(ecsIntegration)
 	executor.SetGlueIntegration(glueIntegration)
 	executor.SetEventBridgeIntegration(ebIntegration)
+	executor.SetS3Reader(s3Reader)
 	executor.SetActivityInvoker(b)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(
-		&syncMapRunNotifier{backend: b, execARN: execARN, smARN: stateMachineArn},
+		&syncMapRunNotifier{backend: b, execARN: execARN, smARN: baseSMArn},
 	)
 	executor.SetExecutionContext(
 		execARN,
 		name,
 		sm.RoleArn,
 		time.Unix(int64(startDate), 0).UTC().Format(time.RFC3339),
-		stateMachineArn,
+		baseSMArn,
 		sm.Name,
 	)
 
@@ -163,7 +171,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 
 	return finalizeSyncExecutionResult(
 		execARN,
-		stateMachineArn,
+		baseSMArn,
 		name,
 		input,
 		startDate,
@@ -220,14 +228,18 @@ func finalizeSyncExecutionResult(
 	return syncResult
 }
 
-func (b *InMemoryBackend) initializeExecutionRecord(smArn, name, execArn, input, def string, now float64) *Execution {
+func (b *InMemoryBackend) initializeExecutionRecord(
+	smArn, name, execArn, input, def string, now float64, versionArn, aliasArn string,
+) *Execution {
 	exec := &Execution{
-		StartDate:       now,
-		ExecutionArn:    execArn,
-		StateMachineArn: smArn,
-		Name:            name,
-		Status:          statusRunning,
-		Input:           input,
+		StartDate:              now,
+		ExecutionArn:           execArn,
+		StateMachineArn:        smArn,
+		StateMachineVersionArn: versionArn,
+		StateMachineAliasArn:   aliasArn,
+		Name:                   name,
+		Status:                 statusRunning,
+		Input:                  input,
 		history: []*HistoryEvent{
 			{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
 		},
@@ -253,6 +265,7 @@ type startedExecution struct {
 	ecsIntegration  asl.ECSIntegration
 	glueIntegration asl.GlueIntegration
 	ebIntegration   asl.EventBridgeIntegration
+	s3Reader        asl.S3Reader
 	ctx             context.Context
 	activityInvoker asl.ActivityInvoker
 	exec            *Execution
@@ -281,15 +294,21 @@ func (b *InMemoryBackend) startExecutionLocked(
 		b.pruneExecutionsLocked(float64(time.Now().Add(-retention).Unix()))
 	}
 
-	sm, exists := b.stateMachines.Get(stateMachineArn)
-	if !exists {
-		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, stateMachineArn)
+	resolved, resolveErr := b.resolveExecutionTarget(stateMachineArn)
+	if resolveErr != nil {
+		return nil, resolveErr
 	}
+	sm := resolved.SM
 
 	// AWS allows StartExecution (asynchronous execution) on EXPRESS state
 	// machines too -- only StartSyncExecution is restricted to EXPRESS.
 	// See "Asynchronous Express Workflows" in the AWS Step Functions docs.
-	execArn := b.execARN(stateMachineArn, sm.Name, name)
+	//
+	// Execution ARNs are always keyed off the base (unqualified) state
+	// machine ARN, even when stateMachineArn (the caller-supplied argument)
+	// was a version or alias ARN -- see resolveExecutionTarget's doc comment.
+	baseSMArn := sm.StateMachineArn
+	execArn := b.execARN(baseSMArn, sm.Name, name)
 	if b.executions.Has(execArn) {
 		return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
 	}
@@ -305,7 +324,9 @@ func (b *InMemoryBackend) startExecutionLocked(
 
 	const millisPerSecond = 1000.0
 	now := float64(time.Now().UnixMilli()) / millisPerSecond
-	exec := b.initializeExecutionRecord(stateMachineArn, name, execArn, input, definition, now)
+	exec := b.initializeExecutionRecord(
+		baseSMArn, name, execArn, input, definition, now, resolved.VersionArn, resolved.AliasArn,
+	)
 
 	// Register the execution in the SM→executions index and store a cancel fn
 	// so StopExecution and DeleteStateMachine can cancel the goroutine.
@@ -327,6 +348,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 		ecsIntegration:  b.ecsIntegration,
 		glueIntegration: b.glueIntegration,
 		ebIntegration:   b.ebIntegration,
+		s3Reader:        b.s3Reader,
 		ctx:             ctx,
 		activityInvoker: b,
 	}, nil
@@ -366,6 +388,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		started.ecsIntegration,
 		started.glueIntegration,
 		started.ebIntegration,
+		started.s3Reader,
 		started.activityInvoker,
 	)
 
@@ -420,6 +443,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	ecsIntegration asl.ECSIntegration,
 	glueIntegration asl.GlueIntegration,
 	ebIntegration asl.EventBridgeIntegration,
+	s3Reader asl.S3Reader,
 	activityInvoker asl.ActivityInvoker,
 ) {
 	rec := &historyRecorder{backend: b}
@@ -430,6 +454,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetECSIntegration(ecsIntegration)
 	executor.SetGlueIntegration(glueIntegration)
 	executor.SetEventBridgeIntegration(ebIntegration)
+	executor.SetS3Reader(s3Reader)
 	executor.SetActivityInvoker(activityInvoker)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(b)
@@ -628,6 +653,7 @@ type redrivenExecution struct {
 	ecsIntegration  asl.ECSIntegration
 	glueIntegration asl.GlueIntegration
 	ebIntegration   asl.EventBridgeIntegration
+	s3Reader        asl.S3Reader
 	ctx             context.Context
 	activityInvoker asl.ActivityInvoker
 	parsedSM        *asl.StateMachine
@@ -702,6 +728,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 		ecsIntegration:  b.ecsIntegration,
 		glueIntegration: b.glueIntegration,
 		ebIntegration:   b.ebIntegration,
+		s3Reader:        b.s3Reader,
 		ctx:             ctx,
 		activityInvoker: b,
 	}, nil
@@ -746,6 +773,7 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 		redrive.ecsIntegration,
 		redrive.glueIntegration,
 		redrive.ebIntegration,
+		redrive.s3Reader,
 		redrive.activityInvoker,
 	)
 

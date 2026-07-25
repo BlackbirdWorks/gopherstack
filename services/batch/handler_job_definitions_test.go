@@ -214,3 +214,88 @@ func TestDescribeJobDefinitions_EmptyList(t *testing.T) {
 	require.True(t, ok, "jobDefinitions key must be present")
 	assert.Equal(t, "[]", string(raw), "jobDefinitions must be [] not null when empty")
 }
+
+// TestHandler_RegisterJobDefinition_RetryStrategy verifies that
+// RegisterJobDefinition accepts and stores a job-definition-level
+// RetryStrategy, and that it round-trips through DescribeJobDefinitions.
+// Real AWS Batch supports a default RetryStrategy at the job-definition
+// level in addition to the job-level RetryStrategy on SubmitJob.
+func TestHandler_RegisterJobDefinition_RetryStrategy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/registerjobdefinition", map[string]any{
+		"jobDefinitionName": "jd-retry",
+		"type":              "container",
+		"retryStrategy": map[string]any{
+			"attempts": 3,
+			"evaluateOnExit": []map[string]any{
+				{"action": "RETRY", "onExitCode": "1"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/describejobdefinitions", map[string]any{
+		"jobDefinitions": []string{"jd-retry"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	items := out["jobDefinitions"].([]any)
+	require.Len(t, items, 1)
+
+	jd := items[0].(map[string]any)
+	rs, ok := jd["retryStrategy"].(map[string]any)
+	require.True(t, ok, "retryStrategy should be present")
+	assert.InEpsilon(t, float64(3), rs["attempts"].(float64), 0.001)
+
+	exitRules := rs["evaluateOnExit"].([]any)
+	require.Len(t, exitRules, 1)
+	assert.Equal(t, "RETRY", exitRules[0].(map[string]any)["action"])
+}
+
+// TestHandler_RegisterJobDefinition_EksProperties verifies that
+// RegisterJobDefinition wires the eksProperties parameter through to the
+// backend and it round-trips via DescribeJobDefinitions. Previously this
+// parameter was hardcoded to nil in the handler regardless of what the
+// caller sent (see PARITY.md gaps).
+func TestHandler_RegisterJobDefinition_EksProperties(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/registerjobdefinition", map[string]any{
+		"jobDefinitionName": "jd-eks",
+		"type":              "container",
+		"eksProperties": map[string]any{
+			"podProperties": map[string]any{
+				"containers": []map[string]any{
+					{"image": "busybox", "name": "main"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/describejobdefinitions", map[string]any{
+		"jobDefinitions": []string{"jd-eks"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	items := out["jobDefinitions"].([]any)
+	require.Len(t, items, 1)
+
+	jd := items[0].(map[string]any)
+	eksProps, ok := jd["eksProperties"].(map[string]any)
+	require.True(t, ok, "eksProperties should be present, not silently dropped")
+
+	podProps := eksProps["podProperties"].(map[string]any)
+	containers := podProps["containers"].([]any)
+	require.Len(t, containers, 1)
+	assert.Equal(t, "busybox", containers[0].(map[string]any)["image"])
+}

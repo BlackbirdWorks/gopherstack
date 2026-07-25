@@ -74,8 +74,14 @@ func (h *Handler) handleDisassociateDRTRole() error {
 func (h *Handler) handleDescribeDRTAccess() ([]byte, error) {
 	access := h.Backend.DescribeDRTAccess()
 
-	return json.Marshal(map[string]any{
-		"LogBucketList": access.LogBucketList,
-		"RoleArn":       access.RoleArn,
-	})
+	resp := map[string]any{"LogBucketList": access.LogBucketList}
+
+	// DescribeDRTAccessOutput.RoleArn is *string in the real SDK (types.go) -- omit the key
+	// entirely when unset rather than emitting an empty string, matching how the real API leaves
+	// the field absent until AssociateDRTRole has been called.
+	if access.RoleArn != "" {
+		resp["RoleArn"] = access.RoleArn
+	}
+
+	return json.Marshal(resp)
 }

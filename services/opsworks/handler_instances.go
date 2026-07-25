@@ -216,7 +216,7 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 		result = append(result, map[string]any{
 			keyInstanceID:  i.InstanceID,
 			keyStackID:     i.StackID,
-			keyLayerID:     i.LayerID,
+			"LayerIds":     instanceLayerIDs(i.LayerID),
 			keyArn:         i.Arn,
 			"Hostname":     i.Hostname,
 			"InstanceType": i.InstanceType,
@@ -226,4 +226,18 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 	}
 
 	return result
+}
+
+// instanceLayerIDs wraps this backend's single-layer-per-instance model
+// into the list shape the real types.Instance.LayerIds []string wire field
+// expects (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// types.go -- there is no singular "LayerId" member on Instance, only the
+// plural list). A previous pass emitted a bare "LayerId" string, which a
+// real SDK client's Instance.LayerIds would never populate from.
+func instanceLayerIDs(layerID string) []string {
+	if layerID == "" {
+		return []string{}
+	}
+
+	return []string{layerID}
 }

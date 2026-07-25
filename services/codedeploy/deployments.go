@@ -65,6 +65,7 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		Region:                        b.region,
 	}
 	b.deployments.Put(d)
+	b.touchApplicationRevisionForDeployment(appName, dgName, opts.Revision)
 
 	cp := *d
 

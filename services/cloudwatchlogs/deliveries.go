@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -127,13 +128,35 @@ func (b *InMemoryBackend) AddDeliveryInternal(delivery Delivery) {
 	b.deliveries.Put(&d)
 }
 
+// validDeliveryDestinationTypes returns the allowed values for
+// deliveryDestinationType (aws-sdk-go-v2 types.DeliveryDestinationType: S3,
+// CWL, FH, XRAY).
+func validDeliveryDestinationTypes() map[string]struct{} {
+	return map[string]struct{}{
+		"S3":   {},
+		"CWL":  {},
+		"FH":   {},
+		"XRAY": {},
+	}
+}
+
 // PutDeliveryDestination creates or updates a delivery destination.
+// destinationType, when non-empty, must be one of S3/CWL/FH/XRAY.
 func (b *InMemoryBackend) PutDeliveryDestination(
-	name, targetArn, outputFormat string,
+	name, targetArn, outputFormat, destinationType string,
 	tags map[string]string,
 ) (*DeliveryDestination, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if destinationType != "" {
+		if _, ok := validDeliveryDestinationTypes()[destinationType]; !ok {
+			return nil, fmt.Errorf(
+				"%w: invalid deliveryDestinationType %q, must be one of S3, CWL, FH, XRAY",
+				ErrValidation, destinationType,
+			)
+		}
 	}
 
 	b.mu.Lock("PutDeliveryDestination")
@@ -143,6 +166,9 @@ func (b *InMemoryBackend) PutDeliveryDestination(
 	if exists {
 		existing.TargetArn = targetArn
 		existing.OutputFormat = outputFormat
+		if destinationType != "" {
+			existing.DeliveryDestinationType = destinationType
+		}
 		if tags != nil {
 			existing.Tags = tags
 		}
@@ -152,12 +178,13 @@ func (b *InMemoryBackend) PutDeliveryDestination(
 	}
 
 	dest := DeliveryDestination{
-		Name:         name,
-		Arn:          "arn:aws:logs:" + b.region + ":" + b.accountID + ":delivery-destination:" + name,
-		TargetArn:    targetArn,
-		OutputFormat: outputFormat,
-		Tags:         tags,
-		CreatedAt:    time.Now().UTC(),
+		Name:                    name,
+		Arn:                     "arn:aws:logs:" + b.region + ":" + b.accountID + ":delivery-destination:" + name,
+		TargetArn:               targetArn,
+		OutputFormat:            outputFormat,
+		DeliveryDestinationType: destinationType,
+		Tags:                    tags,
+		CreatedAt:               time.Now().UTC(),
 	}
 	stored := dest
 	b.deliveryDestinations.Put(&stored)
@@ -249,7 +276,28 @@ func (b *InMemoryBackend) DeleteDeliveryDestinationPolicy(name string) error {
 	return nil
 }
 
-// PutDeliverySource creates or updates a delivery source.
+// serviceFromARN extracts the service segment (index 2) of a standard
+// 6-colon-field ARN (arn:partition:service:region:account-id:resource).
+// Returns "" for anything that doesn't parse as an ARN with enough fields,
+// rather than erroring: this is best-effort metadata derivation, not
+// input validation.
+func serviceFromARN(resourceArn string) string {
+	const (
+		arnFieldCount = 6
+		serviceField  = 2
+	)
+
+	parts := strings.SplitN(resourceArn, ":", arnFieldCount)
+	if len(parts) < arnFieldCount || parts[0] != "arn" {
+		return ""
+	}
+
+	return parts[serviceField]
+}
+
+// PutDeliverySource creates or updates a delivery source. service is derived
+// from the first resource ARN (see serviceFromARN), matching real AWS, which
+// does not accept it as client input.
 func (b *InMemoryBackend) PutDeliverySource(
 	name, logType string,
 	resourceArns []string,
@@ -259,13 +307,21 @@ func (b *InMemoryBackend) PutDeliverySource(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
+	var service string
+	if len(resourceArns) > 0 {
+		service = serviceFromARN(resourceArns[0])
+	}
+
 	b.mu.Lock("PutDeliverySource")
 	defer b.mu.Unlock()
 
 	existing, exists := b.deliverySources.Get(name)
 	if exists {
 		existing.LogType = logType
-		existing.ResourceArns = resourceArns
+		if len(resourceArns) > 0 {
+			existing.ResourceArns = resourceArns
+			existing.Service = service
+		}
 		if tags != nil {
 			existing.Tags = tags
 		}
@@ -279,6 +335,7 @@ func (b *InMemoryBackend) PutDeliverySource(
 		Arn:          "arn:aws:logs:" + b.region + ":" + b.accountID + ":delivery-source:" + name,
 		LogType:      logType,
 		ResourceArns: resourceArns,
+		Service:      service,
 		Tags:         tags,
 		CreatedAt:    time.Now().UTC(),
 	}

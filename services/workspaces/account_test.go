@@ -21,10 +21,20 @@ func TestDescribeAndModifyAccount(t *testing.T) { //nolint:paralleltest // exist
 		t.Fatalf("expected ENABLED, got %s", descOut["DedicatedTenancySupport"])
 	}
 
-	// Describe account modifications
+	// Describe account modifications: no ModifyAccount calls yet, so the
+	// history must be empty.
 	rec2 := doTargetRequest(t, h, "DescribeAccountModifications", map[string]any{})
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("describe modifications: expected 200, got %d", rec2.Code)
+	}
+
+	var modsOut struct {
+		AccountModifications []map[string]any `json:"AccountModifications"`
+	}
+	decodeJSON(t, rec2.Body.Bytes(), &modsOut)
+
+	if len(modsOut.AccountModifications) != 0 {
+		t.Fatalf("expected no modifications yet, got %d", len(modsOut.AccountModifications))
 	}
 
 	// Modify account
@@ -43,6 +53,37 @@ func TestDescribeAndModifyAccount(t *testing.T) { //nolint:paralleltest // exist
 
 	if descOut2["DedicatedTenancyManagementCidrRange"] != "10.0.0.0/16" {
 		t.Fatalf("expected 10.0.0.0/16, got %s", descOut2["DedicatedTenancyManagementCidrRange"])
+	}
+
+	// ModifyAccount must now be recorded in the modification history.
+	rec4b := doTargetRequest(t, h, "DescribeAccountModifications", map[string]any{})
+	if rec4b.Code != http.StatusOK {
+		t.Fatalf("describe modifications after modify: expected 200, got %d", rec4b.Code)
+	}
+
+	var modsOut2 struct {
+		AccountModifications []map[string]any `json:"AccountModifications"`
+	}
+	decodeJSON(t, rec4b.Body.Bytes(), &modsOut2)
+
+	if len(modsOut2.AccountModifications) != 1 {
+		t.Fatalf("expected 1 modification recorded, got %d", len(modsOut2.AccountModifications))
+	}
+
+	mod := modsOut2.AccountModifications[0]
+	if mod["ModificationState"] != "COMPLETED" {
+		t.Fatalf("expected COMPLETED, got %v", mod["ModificationState"])
+	}
+
+	if mod["DedicatedTenancyManagementCidrRange"] != "10.0.0.0/16" {
+		t.Fatalf(
+			"expected DedicatedTenancyManagementCidrRange=10.0.0.0/16, got %v",
+			mod["DedicatedTenancyManagementCidrRange"],
+		)
+	}
+
+	if _, ok := mod["StartTime"].(float64); !ok {
+		t.Fatalf("expected numeric StartTime, got %v (%T)", mod["StartTime"], mod["StartTime"])
 	}
 
 	// Modify endpoint encryption

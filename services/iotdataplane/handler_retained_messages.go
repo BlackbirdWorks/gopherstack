@@ -23,12 +23,16 @@ func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	// Typed response per AWS RetainedMessage shape; payload is base64 encoded by json.Marshal.
+	// Typed response per AWS GetRetainedMessageOutput shape; payload and
+	// userProperties are base64 encoded by json.Marshal ([]byte -> string).
+	// userProperties serializes as JSON null when nil, matching AWS docs
+	// ("...or null if the retained message doesn't include any user properties").
 	resp := map[string]any{
 		"topic":            msg.Topic,
 		"payload":          msg.Payload,
 		"qos":              msg.Qos,
 		"lastModifiedTime": msg.LastModifiedTime,
+		"userProperties":   msg.UserProperties,
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -62,12 +66,15 @@ func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 
 	page := msgs[startIdx:end]
 
-	// AWS RetainedMessageSummary: {topic, payloadSize, lastModifiedTime} — qos excluded.
+	// AWS RetainedMessageSummary: {topic, payloadSize, qos, lastModifiedTime}
+	// (confirmed against awsRestjson1_deserializeDocumentRetainedMessageSummary
+	// in the SDK's deserializers.go -- qos IS present on the summary shape).
 	summaries := make([]map[string]any, 0, len(page))
 	for _, msg := range page {
 		summaries = append(summaries, map[string]any{
 			"topic":            msg.Topic,
 			"payloadSize":      int64(len(msg.Payload)),
+			"qos":              msg.Qos,
 			"lastModifiedTime": msg.LastModifiedTime,
 		})
 	}

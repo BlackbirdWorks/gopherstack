@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,8 +71,19 @@ func (b *InMemoryBackend) GetPipeline(ctx context.Context, name string) (*Pipeli
 	return copyPipeline(p), nil
 }
 
-// UpdatePipeline replaces the pipeline declaration.
-// If decl.Version is non-zero it must match the current version (optimistic concurrency).
+// UpdatePipeline replaces the pipeline declaration. decl.Version, if set by
+// the caller, is IGNORED: real AWS's PipelineDeclaration.Version field is
+// documented as purely informational/system-managed ("A new pipeline always
+// has a version number of 1. This number is incremented when a pipeline is
+// updated" -- aws-sdk-go-v2/service/codepipeline/types/types.go), with no
+// documented optimistic-concurrency check against it anywhere in
+// UpdatePipeline's contract, and the real UpdatePipeline API/CLI docs
+// describe updating as always incrementing the version by exactly 1
+// regardless of what the caller sent. An earlier revision of this backend
+// rejected a mismatched Version with a fabricated ConflictException
+// (flagged, but left unfixed, in a prior audit pass -- see PARITY.md); that
+// was gopherstack-invented behavior with no basis in the real API and has
+// been removed.
 func (b *InMemoryBackend) UpdatePipeline(ctx context.Context, decl PipelineDeclaration) (*Pipeline, error) {
 	b.mu.Lock("UpdatePipeline")
 	defer b.mu.Unlock()
@@ -79,11 +91,6 @@ func (b *InMemoryBackend) UpdatePipeline(ctx context.Context, decl PipelineDecla
 	p, ok := b.pipelines.Get(regionKey(getRegion(ctx, b.region), decl.Name))
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, decl.Name)
-	}
-
-	if decl.Version != 0 && decl.Version != p.Declaration.Version {
-		return nil, fmt.Errorf("%w: pipeline %q version mismatch: got %d, current %d",
-			ErrConflict, decl.Name, decl.Version, p.Declaration.Version)
 	}
 
 	currentVersion := p.Declaration.Version
@@ -113,6 +120,17 @@ func (b *InMemoryBackend) DeletePipeline(ctx context.Context, name string) error
 	// Cascade: remove disabled stage transitions for this pipeline.
 	for _, st := range slices.Clone(b.stageTransitionsByPipeline.Get(regionKey(region, name))) {
 		b.stageTransitions.Delete(stageTransitionKeyFn(st))
+	}
+
+	// Cascade: remove tracked action revisions (PutActionRevision) for this
+	// pipeline, keyed by "pipelineName/stage/action" within the per-region
+	// map -- otherwise a same-named pipeline recreated later would
+	// resurrect the deleted pipeline's stale CurrentRevision data.
+	revisions := b.actionRevisionsStore(region)
+	for key := range revisions {
+		if pn, _, ok := strings.Cut(key, "/"); ok && pn == name {
+			delete(revisions, key)
+		}
 	}
 
 	return nil
@@ -297,6 +315,17 @@ func copyArtifactRefs(refs []ArtifactRef) []ArtifactRef {
 }
 
 // StartPipelineExecution starts and stores a new execution of a pipeline.
+//
+// gopherstack runs every action synchronously via runPipelineActions
+// (action_engine.go): ordinary actions complete instantly, but an
+// Approval-category action gates the run and leaves the execution
+// InProgress until PutApprovalResult resolves it (see PutApprovalResult in
+// approvals.go). Leaving Status at statusInProgress unconditionally here
+// (the pre-fix behavior) left every execution stuck InProgress forever, even
+// when it contained no approval gate at all: GetPipelineExecution/
+// ListPipelineExecutions would never report a terminal status, so any client
+// polling for completion (as the real, asynchronous AWS service expects
+// callers to do) would spin indefinitely.
 func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineName string) (*PipelineExecution, error) {
 	b.mu.Lock("StartPipelineExecution")
 	defer b.mu.Unlock()
@@ -308,46 +337,24 @@ func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineNa
 		return nil, ErrNotFound
 	}
 
+	now := time.Now().UTC()
 	exec := &PipelineExecution{
 		PipelineName:        pipelineName,
 		PipelineExecutionID: uuid.NewString(),
 		Status:              statusInProgress,
 		PipelineVersion:     p.Declaration.Version,
+		ExecutionMode:       p.Declaration.ExecutionMode,
+		ExecutionType:       executionTypeStandard,
+		Trigger:             triggerTypeStartExecution,
+		StartTime:           now,
+		LastUpdateTime:      now,
 	}
 
 	execs := b.executionsStore(region)
 	execs[pipelineName] = append(execs[pipelineName], exec)
 
-	// Record an action execution for every action in the pipeline so that
-	// ListActionExecutions reflects the work performed by this execution.
-	now := time.Now().UTC()
-
-	actionExecs := b.actionExecutionsStore(region)
-
-	for _, stage := range p.Declaration.Stages {
-		for _, action := range stage.Actions {
-			ae := &ActionExecution{
-				PipelineExecutionID: exec.PipelineExecutionID,
-				ActionExecutionID:   uuid.NewString(),
-				StageName:           stage.Name,
-				ActionName:          action.Name,
-				Status:              statusSucceeded,
-				StartTime:           now,
-				LastUpdateTime:      now,
-			}
-			actionExecs[pipelineName] = append(actionExecs[pipelineName], ae)
-		}
-	}
-
-	// gopherstack runs every action synchronously and instantaneously (the
-	// loop above already marks each action execution Succeeded), so the
-	// pipeline execution itself is done by the time this call returns.
-	// Leaving Status at statusInProgress here left every execution stuck
-	// InProgress forever: GetPipelineExecution/ListPipelineExecutions would
-	// never report a terminal status, so any client polling for completion
-	// (as the real, asynchronous AWS service expects callers to do) would
-	// spin indefinitely.
-	exec.Status = statusSucceeded
+	b.runPipelineActions(region, p, exec)
+	exec.LastUpdateTime = time.Now().UTC()
 
 	cp := *exec
 
@@ -357,12 +364,18 @@ func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineNa
 // StopPipelineExecution stops a pipeline execution. Real AWS transitions
 // through a transient "Stopping" state while in-progress actions finish (or
 // are abandoned, if abandon is true) before reaching the terminal "Stopped"
-// state. gopherstack runs every action synchronously and instantaneously (see
-// StartPipelineExecution), so there is never an in-progress action left to
-// wait for by the time a client can call this -- the execution goes straight
-// to "Stopped" regardless of abandon. Leaving it at "Stopping" left every
-// stopped execution stuck there forever, indistinguishable (to a polling
-// client) from a stop request that never completed.
+// state. gopherstack runs every ordinary action synchronously and
+// instantaneously (see StartPipelineExecution), so there is never an
+// in-progress *ordinary* action left to wait for -- the execution goes
+// straight to "Stopped" regardless of abandon. Leaving it at "Stopping" left
+// every stopped execution stuck there forever, indistinguishable (to a
+// polling client) from a stop request that never completed.
+//
+// An execution can, however, still be genuinely InProgress here if it is
+// gated on a manual approval (see runPipelineActions in action_engine.go):
+// stopping such an execution abandons that pending approval action (marks it
+// Abandoned and clears its token) so a subsequent PutApprovalResult against
+// a stopped execution correctly fails instead of silently resurrecting it.
 func (b *InMemoryBackend) StopPipelineExecution(
 	ctx context.Context,
 	pipelineName, executionID, reason string,
@@ -377,15 +390,32 @@ func (b *InMemoryBackend) StopPipelineExecution(
 		return nil, ErrNotFound
 	}
 
+	// abandon has no independent effect in this synchronous backend: there is
+	// never an in-progress *ordinary* action to wait out (see doc comment),
+	// so both abandon=true and abandon=false immediately abandon any pending
+	// approval gate and reach the terminal Stopped state.
 	_, _ = reason, abandon
 
 	for _, exec := range b.executionsStore(region)[pipelineName] {
-		if exec.PipelineExecutionID == executionID {
-			exec.Status = statusStopped
-			cp := *exec
-
-			return &cp, nil
+		if exec.PipelineExecutionID != executionID {
+			continue
 		}
+
+		now := time.Now().UTC()
+
+		for _, ae := range b.actionExecutionsStore(region)[pipelineName] {
+			if ae.PipelineExecutionID == executionID && ae.Status == statusInProgress {
+				ae.Status = statusActionAbandoned
+				ae.Token = ""
+				ae.LastUpdateTime = now
+			}
+		}
+
+		exec.Status = statusStopped
+		exec.LastUpdateTime = now
+		cp := *exec
+
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: pipeline %q execution %q", ErrExecutionNotFound, pipelineName, executionID)

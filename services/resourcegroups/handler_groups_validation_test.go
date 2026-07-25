@@ -145,7 +145,8 @@ func TestGroupFields(t *testing.T) {
 }
 
 // TestUpdateGroupCriticalityDisplayName covers that UpdateGroup accepts
-// Criticality (1-5) and DisplayName in addition to Description.
+// Criticality (1-10, per the real API's documented "scale of 1 to 10") and
+// DisplayName in addition to Description.
 func TestUpdateGroupCriticalityDisplayName(t *testing.T) {
 	t.Parallel()
 
@@ -181,7 +182,7 @@ func TestUpdateGroupCriticalityDisplayName(t *testing.T) {
 		},
 		{
 			name:     "criticality_too_high",
-			update:   map[string]any{"Group": "upd-group", "Criticality": 6},
+			update:   map[string]any{"Group": "upd-group", "Criticality": 11},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -191,10 +192,16 @@ func TestUpdateGroupCriticalityDisplayName(t *testing.T) {
 			wantInBody: `"Criticality":1`,
 		},
 		{
-			name:       "criticality_boundary_5",
-			update:     map[string]any{"Group": "upd-group", "Criticality": 5},
+			name:       "criticality_boundary_10",
+			update:     map[string]any{"Group": "upd-group", "Criticality": 10},
 			wantCode:   http.StatusOK,
-			wantInBody: `"Criticality":5`,
+			wantInBody: `"Criticality":10`,
+		},
+		{
+			name:       "update_owner",
+			update:     map[string]any{"Group": "upd-group", "Owner": "team-x@example.com"},
+			wantCode:   http.StatusOK,
+			wantInBody: `"Owner":"team-x@example.com"`,
 		},
 	}
 
@@ -268,6 +275,12 @@ func TestListGroupsFilters(t *testing.T) {
 			},
 		},
 	})
+	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{
+		"Name":        "owned-group",
+		"Owner":       "team-x@example.com",
+		"DisplayName": "Owned Group",
+		"Criticality": 5,
+	})
 
 	tests := []struct {
 		name         string
@@ -283,6 +296,7 @@ func TestListGroupsFilters(t *testing.T) {
 				"capacity-pool-group",
 				"query-group",
 				"generic-group",
+				"owned-group",
 			},
 		},
 		{
@@ -317,6 +331,30 @@ func TestListGroupsFilters(t *testing.T) {
 			filters: []map[string]any{
 				{"Name": "configuration-type", "Values": []string{"AWS::NonExistent::Type"}},
 			},
+			wantExcludes: []string{"host-mgmt-group", "capacity-pool-group", "generic-group"},
+		},
+		{
+			name: "filter_by_owner",
+			filters: []map[string]any{
+				{"Name": "owner", "Values": []string{"team-x@example.com"}},
+			},
+			wantContains: []string{"owned-group"},
+			wantExcludes: []string{"host-mgmt-group", "capacity-pool-group", "generic-group"},
+		},
+		{
+			name: "filter_by_display_name",
+			filters: []map[string]any{
+				{"Name": "display-name", "Values": []string{"Owned Group"}},
+			},
+			wantContains: []string{"owned-group"},
+			wantExcludes: []string{"host-mgmt-group", "capacity-pool-group", "generic-group"},
+		},
+		{
+			name: "filter_by_criticality",
+			filters: []map[string]any{
+				{"Name": "criticality", "Values": []string{"5"}},
+			},
+			wantContains: []string{"owned-group"},
 			wantExcludes: []string{"host-mgmt-group", "capacity-pool-group", "generic-group"},
 		},
 	}
@@ -475,6 +513,32 @@ func TestOwnerId(t *testing.T) {
 	assert.Contains(t, group["GroupArn"], "111111111111")
 	assert.NotContains(t, group, "Owner")
 	assert.NotContains(t, group, "OwnerId")
+}
+
+// TestCreateGroupIdentityFields verifies CreateGroup accepts Owner,
+// DisplayName, and Criticality at creation time (all documented members of
+// the real CreateGroupInput) and echoes them back in CreateGroupOutput.Group.
+func TestCreateGroupIdentityFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestResourceGroupsHandler(t)
+
+	rec := doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{
+		"Name":        "identity-handler-group",
+		"Owner":       "team-x@example.com",
+		"DisplayName": "Identity Handler Group",
+		"Criticality": 8,
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	group, ok := out["Group"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, "team-x@example.com", group["Owner"])
+	assert.Equal(t, "Identity Handler Group", group["DisplayName"])
+	assert.InEpsilon(t, float64(8), group["Criticality"], 0)
 }
 
 // TestListGroupsGroupIdentifiersShape verifies exact shape of GroupIdentifiers.

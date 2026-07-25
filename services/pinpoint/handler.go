@@ -69,146 +69,122 @@ func (h *Handler) Reset() {
 func (h *Handler) Name() string { return "Pinpoint" }
 
 // GetSupportedOperations returns the list of supported Pinpoint operations.
-//
-//nolint:funlen // Long list of all supported operations; splitting would reduce clarity.
+// The list is assembled from per-resource-family helper functions (below)
+// purely to keep this function's own line count down for the funlen linter
+// (suppressing it is banned project-wide), and there is no real branching
+// logic to simplify here, only a long literal list of operation names. No
+// package-level state is introduced: each helper returns a fresh local slice.
 func (h *Handler) GetSupportedOperations() []string {
+	var ops []string
+
+	for _, group := range [][]string{
+		supportedOpsAppFamily(), supportedOpsTagFamily(), supportedOpsCampaignFamily(),
+		supportedOpsSegmentFamily(), supportedOpsJourneyFamily(), supportedOpsTemplateFamily(),
+		supportedOpsChannelFamily(), supportedOpsEndpointFamily(), supportedOpsEventStreamFamily(),
+		supportedOpsMessagingFamily(), supportedOpsEventFamily(), supportedOpsPhoneFamily(),
+		supportedOpsJobFamily(), supportedOpsRecommenderFamily(),
+	} {
+		ops = append(ops, group...)
+	}
+
+	return ops
+}
+
+func supportedOpsAppFamily() []string {
 	return []string{
-		// App
-		"CreateApp",
-		"DeleteApp",
-		"GetApp",
-		"GetApplicationSettings",
-		"GetApps",
-		"UpdateApplicationSettings",
-		"GetApplicationDateRangeKpi",
-		// Tags
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
-		// Campaigns
-		"CreateCampaign",
-		"DeleteCampaign",
-		"GetCampaign",
-		"GetCampaigns",
-		"UpdateCampaign",
-		"GetCampaignActivities",
-		"GetCampaignDateRangeKpi",
-		"GetCampaignVersion",
-		"GetCampaignVersions",
-		// Segments
-		"CreateSegment",
-		"DeleteSegment",
-		"GetSegment",
-		"GetSegments",
-		"UpdateSegment",
-		"GetSegmentExportJobs",
-		"GetSegmentImportJobs",
-		"GetSegmentVersion",
-		"GetSegmentVersions",
-		// Journeys
-		"CreateJourney",
-		"DeleteJourney",
-		"GetJourney",
-		"ListJourneys",
-		"UpdateJourney",
-		"UpdateJourneyState",
-		"GetJourneyDateRangeKpi",
-		"GetJourneyExecutionMetrics",
-		"GetJourneyExecutionActivityMetrics",
-		"GetJourneyRuns",
-		"GetJourneyRunExecutionMetrics",
+		"CreateApp", "DeleteApp", "GetApp", "GetApplicationSettings", "GetApps",
+		"UpdateApplicationSettings", "GetApplicationDateRangeKpi",
+	}
+}
+
+func supportedOpsTagFamily() []string {
+	return []string{"ListTagsForResource", "TagResource", "UntagResource"}
+}
+
+func supportedOpsCampaignFamily() []string {
+	return []string{
+		"CreateCampaign", "DeleteCampaign", "GetCampaign", "GetCampaigns", "UpdateCampaign",
+		"GetCampaignActivities", "GetCampaignDateRangeKpi", "GetCampaignVersion", "GetCampaignVersions",
+	}
+}
+
+func supportedOpsSegmentFamily() []string {
+	return []string{
+		"CreateSegment", "DeleteSegment", "GetSegment", "GetSegments", "UpdateSegment",
+		"GetSegmentExportJobs", "GetSegmentImportJobs", "GetSegmentVersion", "GetSegmentVersions",
+	}
+}
+
+func supportedOpsJourneyFamily() []string {
+	return []string{
+		"CreateJourney", "DeleteJourney", "GetJourney", "ListJourneys", "UpdateJourney",
+		"UpdateJourneyState", "GetJourneyDateRangeKpi", "GetJourneyExecutionMetrics",
+		"GetJourneyExecutionActivityMetrics", "GetJourneyRuns", "GetJourneyRunExecutionMetrics",
 		"GetJourneyRunExecutionActivityMetrics",
-		// Templates
-		"CreateEmailTemplate",
-		"GetEmailTemplate",
-		"UpdateEmailTemplate",
-		"DeleteEmailTemplate",
-		"CreateInAppTemplate",
-		"GetInAppTemplate",
-		"UpdateInAppTemplate",
-		"DeleteInAppTemplate",
-		"CreatePushTemplate",
-		"GetPushTemplate",
-		"UpdatePushTemplate",
-		"DeletePushTemplate",
-		"CreateSmsTemplate",
-		"GetSmsTemplate",
-		"UpdateSmsTemplate",
-		"DeleteSmsTemplate",
-		"CreateVoiceTemplate",
-		"GetVoiceTemplate",
-		"UpdateVoiceTemplate",
-		"DeleteVoiceTemplate",
-		"ListTemplates",
-		"ListTemplateVersions",
-		"UpdateTemplateActiveVersion",
-		// Channels
-		"GetAdmChannel",
-		"UpdateAdmChannel",
-		"DeleteAdmChannel",
-		"GetApnsChannel",
-		"UpdateApnsChannel",
-		"DeleteApnsChannel",
-		"GetApnsSandboxChannel",
-		"UpdateApnsSandboxChannel",
-		"DeleteApnsSandboxChannel",
-		"GetApnsVoipChannel",
-		"UpdateApnsVoipChannel",
-		"DeleteApnsVoipChannel",
-		"GetApnsVoipSandboxChannel",
-		"UpdateApnsVoipSandboxChannel",
-		"DeleteApnsVoipSandboxChannel",
-		"GetBaiduChannel",
-		"UpdateBaiduChannel",
-		"DeleteBaiduChannel",
-		"GetEmailChannel",
-		"UpdateEmailChannel",
-		"DeleteEmailChannel",
-		"GetGcmChannel",
-		"UpdateGcmChannel",
-		"DeleteGcmChannel",
-		"GetSmsChannel",
-		"UpdateSmsChannel",
-		"DeleteSmsChannel",
-		"GetVoiceChannel",
-		"UpdateVoiceChannel",
-		"DeleteVoiceChannel",
+	}
+}
+
+func supportedOpsTemplateFamily() []string {
+	return []string{
+		"CreateEmailTemplate", "GetEmailTemplate", "UpdateEmailTemplate", "DeleteEmailTemplate",
+		"CreateInAppTemplate", "GetInAppTemplate", "UpdateInAppTemplate", "DeleteInAppTemplate",
+		"CreatePushTemplate", "GetPushTemplate", "UpdatePushTemplate", "DeletePushTemplate",
+		"CreateSmsTemplate", "GetSmsTemplate", "UpdateSmsTemplate", "DeleteSmsTemplate",
+		"CreateVoiceTemplate", "GetVoiceTemplate", "UpdateVoiceTemplate", "DeleteVoiceTemplate",
+		"ListTemplates", "ListTemplateVersions", "UpdateTemplateActiveVersion",
+	}
+}
+
+func supportedOpsChannelFamily() []string {
+	return []string{
+		"GetAdmChannel", "UpdateAdmChannel", "DeleteAdmChannel",
+		"GetApnsChannel", "UpdateApnsChannel", "DeleteApnsChannel",
+		"GetApnsSandboxChannel", "UpdateApnsSandboxChannel", "DeleteApnsSandboxChannel",
+		"GetApnsVoipChannel", "UpdateApnsVoipChannel", "DeleteApnsVoipChannel",
+		"GetApnsVoipSandboxChannel", "UpdateApnsVoipSandboxChannel", "DeleteApnsVoipSandboxChannel",
+		"GetBaiduChannel", "UpdateBaiduChannel", "DeleteBaiduChannel",
+		"GetEmailChannel", "UpdateEmailChannel", "DeleteEmailChannel",
+		"GetGcmChannel", "UpdateGcmChannel", "DeleteGcmChannel",
+		"GetSmsChannel", "UpdateSmsChannel", "DeleteSmsChannel",
+		"GetVoiceChannel", "UpdateVoiceChannel", "DeleteVoiceChannel",
 		"GetChannels",
-		// Endpoints
-		"GetEndpoint",
-		"UpdateEndpoint",
-		"DeleteEndpoint",
-		"GetUserEndpoints",
-		"DeleteUserEndpoints",
-		"UpdateEndpointsBatch",
-		"RemoveAttributes",
-		// EventStream
-		"GetEventStream",
-		"PutEventStream",
-		"DeleteEventStream",
-		// Messaging
-		"SendMessages",
-		"SendUsersMessages",
-		"SendOTPMessage",
-		"VerifyOTPMessage",
-		// Events
-		"PutEvents",
-		"GetInAppMessages",
-		// Phone
-		"PhoneNumberValidate",
-		// Jobs
-		"CreateExportJob",
-		"GetExportJob",
-		"GetExportJobs",
-		"CreateImportJob",
-		"GetImportJob",
-		"GetImportJobs",
-		// Recommenders
-		"CreateRecommenderConfiguration",
-		"GetRecommenderConfiguration",
-		"GetRecommenderConfigurations",
-		"UpdateRecommenderConfiguration",
-		"DeleteRecommenderConfiguration",
+	}
+}
+
+func supportedOpsEndpointFamily() []string {
+	return []string{
+		"GetEndpoint", "UpdateEndpoint", "DeleteEndpoint", "GetUserEndpoints",
+		"DeleteUserEndpoints", "UpdateEndpointsBatch", "RemoveAttributes",
+	}
+}
+
+func supportedOpsEventStreamFamily() []string {
+	return []string{"GetEventStream", "PutEventStream", "DeleteEventStream"}
+}
+
+func supportedOpsMessagingFamily() []string {
+	return []string{"SendMessages", "SendUsersMessages", "SendOTPMessage", "VerifyOTPMessage"}
+}
+
+func supportedOpsEventFamily() []string {
+	return []string{"PutEvents", "GetInAppMessages"}
+}
+
+func supportedOpsPhoneFamily() []string {
+	return []string{"PhoneNumberValidate"}
+}
+
+func supportedOpsJobFamily() []string {
+	return []string{
+		"CreateExportJob", "GetExportJob", "GetExportJobs",
+		"CreateImportJob", "GetImportJob", "GetImportJobs",
+	}
+}
+
+func supportedOpsRecommenderFamily() []string {
+	return []string{
+		"CreateRecommenderConfiguration", "GetRecommenderConfiguration", "GetRecommenderConfigurations",
+		"UpdateRecommenderConfiguration", "DeleteRecommenderConfiguration",
 	}
 }
 

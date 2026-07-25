@@ -167,6 +167,7 @@ func (b *InMemoryBackend) DeleteRouteServer(id string) (*RouteServer, error) {
 	cp := *rs
 	cp.State = stateDeleting
 	b.routeServers.Delete(id)
+	delete(b.tags, id)
 
 	return &cp, nil
 }
@@ -277,6 +278,7 @@ func (b *InMemoryBackend) DeleteRouteServerEndpoint(id string) (*RouteServerEndp
 	cp := *ep
 	cp.State = stateDeleting
 	b.routeServerEndpoints.Delete(id)
+	delete(b.tags, id)
 
 	return &cp, nil
 }
@@ -365,6 +367,7 @@ func (b *InMemoryBackend) DeleteRouteServerPeer(id string) (*RouteServerPeer, er
 	cp := *p
 	cp.State = stateDeleting
 	b.routeServerPeers.Delete(id)
+	delete(b.tags, id)
 
 	return &cp, nil
 }

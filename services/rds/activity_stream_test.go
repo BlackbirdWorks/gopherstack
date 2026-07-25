@@ -1,0 +1,175 @@
+package rds_test
+
+import (
+	"encoding/xml"
+	"fmt"
+	"net/http"
+	"testing"
+
+	"github.com/blackbirdworks/gopherstack/services/rds"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestActivityStream_Lifecycle exercises the Start/Stop/ModifyActivityStream
+// wire shapes end-to-end against a real DB cluster ARN, verifying:
+//   - Start emits KinesisStreamName/KmsKeyId/Mode/Status/ApplyImmediately.
+//   - Stop emits KinesisStreamName/KmsKeyId/Status and clears cluster state.
+//   - Modify emits PolicyStatus (not the gopherstack-invented "AuditPolicy"
+//     element from a prior version of this response, which doesn't exist on
+//     aws-sdk-go-v2's ModifyActivityStreamOutput) plus KinesisStreamName/Mode.
+//   - Operating against a nonexistent cluster returns DBClusterNotFound, not
+//     InvalidParameterValue (a prior version of Start/Stop/Modify returned
+//     InvalidParameterValue for this case).
+func TestActivityStream_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	postRDSForm(t, h,
+		"Action=CreateDBCluster&Version=2014-10-31"+
+			"&DBClusterIdentifier=as-cluster&Engine=aurora-postgresql"+
+			"&MasterUsername=admin&MasterUserPassword=password123")
+
+	clusterARN := "arn:aws:rds:us-east-1:000000000000:cluster:as-cluster"
+
+	startRec := postRDSForm(t, h, fmt.Sprintf(
+		"Action=StartActivityStream&Version=2014-10-31&ResourceArn=%s&KmsKeyId=my-key&Mode=sync",
+		clusterARN,
+	))
+	require.Equal(t, http.StatusOK, startRec.Code, "body: %s", startRec.Body.String())
+
+	var startResp struct {
+		Result struct {
+			KinesisStreamName string `xml:"KinesisStreamName"`
+			KmsKeyID          string `xml:"KmsKeyId"`
+			Status            string `xml:"Status"`
+			Mode              string `xml:"Mode"`
+			ApplyImmediately  bool   `xml:"ApplyImmediately"`
+		} `xml:"StartActivityStreamResult"`
+	}
+	require.NoError(t, xml.Unmarshal(startRec.Body.Bytes(), &startResp))
+	assert.Equal(t, "my-key", startResp.Result.KmsKeyID)
+	assert.Equal(t, "sync", startResp.Result.Mode)
+	assert.Equal(t, "started", startResp.Result.Status)
+	assert.NotEmpty(t, startResp.Result.KinesisStreamName)
+	assert.True(t, startResp.Result.ApplyImmediately)
+
+	// Starting again while already started is InvalidDBClusterStateFault.
+	dupRec := postRDSForm(t, h, fmt.Sprintf(
+		"Action=StartActivityStream&Version=2014-10-31&ResourceArn=%s&KmsKeyId=my-key&Mode=sync",
+		clusterARN,
+	))
+	assert.Equal(t, http.StatusBadRequest, dupRec.Code)
+	assert.Contains(t, dupRec.Body.String(), "InvalidDBClusterStateFault")
+
+	modRec := postRDSForm(t, h, fmt.Sprintf(
+		"Action=ModifyActivityStream&Version=2014-10-31&ResourceArn=%s&AuditPolicyState=locked",
+		clusterARN,
+	))
+	require.Equal(t, http.StatusOK, modRec.Code, "body: %s", modRec.Body.String())
+
+	var modResp struct {
+		Result struct {
+			KinesisStreamName string `xml:"KinesisStreamName"`
+			KmsKeyID          string `xml:"KmsKeyId"`
+			Mode              string `xml:"Mode"`
+			Status            string `xml:"Status"`
+			PolicyStatus      string `xml:"PolicyStatus"`
+		} `xml:"ModifyActivityStreamResult"`
+	}
+	require.NoError(t, xml.Unmarshal(modRec.Body.Bytes(), &modResp))
+	assert.Equal(t, "locked", modResp.Result.PolicyStatus)
+	assert.Equal(t, "started", modResp.Result.Status)
+	assert.NotEmpty(t, modResp.Result.KinesisStreamName)
+	assert.NotContains(t, modRec.Body.String(), "<AuditPolicy>",
+		"AuditPolicy is not a real ModifyActivityStreamOutput field")
+
+	stopRec := postRDSForm(t, h, fmt.Sprintf(
+		"Action=StopActivityStream&Version=2014-10-31&ResourceArn=%s",
+		clusterARN,
+	))
+	require.Equal(t, http.StatusOK, stopRec.Code, "body: %s", stopRec.Body.String())
+
+	var stopResp struct {
+		Result struct {
+			KinesisStreamName string `xml:"KinesisStreamName"`
+			KmsKeyID          string `xml:"KmsKeyId"`
+			Status            string `xml:"Status"`
+		} `xml:"StopActivityStreamResult"`
+	}
+	require.NoError(t, xml.Unmarshal(stopRec.Body.Bytes(), &stopResp))
+	assert.Equal(t, "stopped", stopResp.Result.Status)
+
+	// Stopping again (not started) is InvalidDBClusterStateFault.
+	dupStopRec := postRDSForm(t, h, fmt.Sprintf(
+		"Action=StopActivityStream&Version=2014-10-31&ResourceArn=%s",
+		clusterARN,
+	))
+	assert.Equal(t, http.StatusBadRequest, dupStopRec.Code)
+	assert.Contains(t, dupStopRec.Body.String(), "InvalidDBClusterStateFault")
+}
+
+// TestActivityStream_ClusterNotFound verifies Start/Stop/ModifyActivityStream
+// return DBClusterNotFound (not InvalidParameterValue) for a nonexistent
+// cluster ARN, matching real RDS's documented errors for these operations.
+func TestActivityStream_ClusterNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{
+			name: "StartActivityStream",
+			query: "Action=StartActivityStream&Version=2014-10-31" +
+				"&ResourceArn=arn:aws:rds:us-east-1:000000000000:cluster:missing&KmsKeyId=k&Mode=sync",
+		},
+		{
+			name: "StopActivityStream",
+			query: "Action=StopActivityStream&Version=2014-10-31" +
+				"&ResourceArn=arn:aws:rds:us-east-1:000000000000:cluster:missing",
+		},
+		{
+			name: "ModifyActivityStream",
+			query: "Action=ModifyActivityStream&Version=2014-10-31" +
+				"&ResourceArn=arn:aws:rds:us-east-1:000000000000:cluster:missing&AuditPolicyState=locked",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRDSHandler()
+			rec := postRDSForm(t, h, tt.query)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "DBClusterNotFound")
+			assert.NotContains(t, rec.Body.String(), "InvalidParameterValue")
+		})
+	}
+}
+
+// TestActivityStream_BackendErrors exercises the backend methods directly
+// for the not-yet-started error paths.
+func TestActivityStream_BackendErrors(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	_, err := b.CreateDBCluster(
+		"as-backend-cluster", "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{},
+	)
+	require.NoError(t, err)
+
+	_, err = b.StopActivityStream("as-backend-cluster")
+	require.ErrorIs(t, err, rds.ErrActivityStreamNotStarted)
+
+	_, err = b.ModifyActivityStream("as-backend-cluster", "locked")
+	require.ErrorIs(t, err, rds.ErrActivityStreamNotStarted)
+
+	_, err = b.StartActivityStream("as-backend-cluster", "key-1", "")
+	require.NoError(t, err)
+
+	cluster, err := b.ModifyActivityStream("as-backend-cluster", "unlocked")
+	require.NoError(t, err)
+	assert.Equal(t, "unlocked", cluster.ActivityStreamAuditPolicy)
+}

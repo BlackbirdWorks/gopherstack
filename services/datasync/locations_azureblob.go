@@ -10,7 +10,7 @@ import (
 // --- AzureBlob ---
 
 func (b *InMemoryBackend) CreateLocationAzureBlob(
-	containerURL, subdirectory, blobType, accessTier string,
+	containerURL, subdirectory, blobType, accessTier, authenticationType string,
 	sasConfig *SasConfiguration,
 	agentArns []string,
 	tags map[string]string,
@@ -29,10 +29,11 @@ func (b *InMemoryBackend) CreateLocationAzureBlob(
 	maps.Copy(locationTags, tags)
 
 	cfg := &storedAzureBlobConfig{
-		ContainerURL: containerURL,
-		BlobType:     blobType,
-		AccessTier:   accessTier,
-		AgentArns:    agentArns,
+		ContainerURL:       containerURL,
+		BlobType:           blobType,
+		AccessTier:         accessTier,
+		AuthenticationType: authenticationType,
+		AgentArns:          agentArns,
 	}
 	if sasConfig != nil {
 		cfg.SasToken = sasConfig.Token
@@ -79,6 +80,7 @@ func (b *InMemoryBackend) DescribeLocationAzureBlob(locationArn string) (*Locati
 		out.ContainerURL = l.AzureBlob.ContainerURL
 		out.BlobType = l.AzureBlob.BlobType
 		out.AccessTier = l.AzureBlob.AccessTier
+		out.AuthenticationType = l.AzureBlob.AuthenticationType
 		out.AgentArns = l.AzureBlob.AgentArns
 
 		if l.AzureBlob.SasToken != "" {
@@ -90,7 +92,7 @@ func (b *InMemoryBackend) DescribeLocationAzureBlob(locationArn string) (*Locati
 }
 
 func (b *InMemoryBackend) UpdateLocationAzureBlob(
-	locationArn, containerURL, subdirectory, blobType, accessTier string,
+	locationArn, containerURL, subdirectory, blobType, accessTier, authenticationType string,
 	sasConfig *SasConfiguration,
 	agentArns []string,
 ) error {
@@ -119,6 +121,10 @@ func (b *InMemoryBackend) UpdateLocationAzureBlob(
 
 	if accessTier != "" {
 		l.AzureBlob.AccessTier = accessTier
+	}
+
+	if authenticationType != "" {
+		l.AzureBlob.AuthenticationType = authenticationType
 	}
 
 	if sasConfig != nil {

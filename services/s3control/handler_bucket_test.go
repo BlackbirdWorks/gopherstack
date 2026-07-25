@@ -102,6 +102,48 @@ func TestOutpostsBucket(t *testing.T) {
 		buckets := b.ListRegionalBuckets("000000000000")
 		require.Len(t, buckets, 2)
 	})
+
+	// "delete bucket cascade cleans state" locks in the ghost-map-row fix:
+	// DeleteBucket previously only removed the bucket row itself, leaving
+	// its lifecycle, policy, tagging, versioning, replication, and generic
+	// resource tags behind forever -- resurfacing on a delete/recreate
+	// cycle under the same name.
+	t.Run("delete bucket cascade cleans state", func(t *testing.T) {
+		t.Parallel()
+		b := s3control.NewInMemoryBackend()
+		bkt := b.CreateBucket("000000000000", "cascade-bucket")
+		require.NoError(t, b.PutBucketPolicy("000000000000", "cascade-bucket", `{"p":1}`))
+		require.NoError(t, b.PutBucketTagging("000000000000", "cascade-bucket", s3control.TagSet{"env": "prod"}))
+		require.NoError(t, b.PutBucketLifecycleConfiguration("000000000000", "cascade-bucket", "<Lifecycle/>"))
+		require.NoError(t, b.PutBucketVersioning("000000000000", "cascade-bucket", "Enabled"))
+		require.NoError(t, b.PutBucketReplication("000000000000", "cascade-bucket", "<Replication/>"))
+		b.TagResource(bkt.BucketArn, map[string]string{"team": "infra"})
+
+		require.NoError(t, b.DeleteBucket("000000000000", "cascade-bucket"))
+
+		b.CreateBucket("000000000000", "cascade-bucket")
+
+		policy, err := b.GetBucketPolicy("000000000000", "cascade-bucket")
+		require.NoError(t, err)
+		assert.Empty(t, policy, "policy must not survive delete")
+
+		tags, err := b.GetBucketTagging("000000000000", "cascade-bucket")
+		require.NoError(t, err)
+		assert.Empty(t, tags, "tagging must not survive delete")
+
+		lc, err := b.GetBucketLifecycleConfiguration("000000000000", "cascade-bucket")
+		require.NoError(t, err)
+		assert.Empty(t, lc, "lifecycle must not survive delete")
+
+		v, err := b.GetBucketVersioning("000000000000", "cascade-bucket")
+		require.NoError(t, err)
+		assert.Equal(t, "Suspended", v, "versioning must reset, not survive delete")
+
+		_, err = b.GetBucketReplication("000000000000", "cascade-bucket")
+		require.Error(t, err, "replication must not survive delete")
+
+		assert.Empty(t, b.ListTagsForResource(bkt.BucketArn), "generic tags must not survive delete")
+	})
 }
 
 func TestHTTP_GetBucket(t *testing.T) {

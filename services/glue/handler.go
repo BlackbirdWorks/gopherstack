@@ -191,6 +191,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusBadRequest, errorResponse("AccessDeniedException", err.Error()))
 	case errors.Is(err, ErrResourcePolicyConditionFailed):
 		return c.JSON(http.StatusBadRequest, errorResponse("ConditionCheckFailureException", err.Error()))
+	case errors.Is(err, ErrConcurrentRunsExceeded):
+		return c.JSON(http.StatusBadRequest, errorResponse("ConcurrentRunsExceededException", err.Error()))
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, errorResponse("EntityNotFoundException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):

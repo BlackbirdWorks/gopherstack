@@ -116,7 +116,7 @@ func TestHandler_TagsOnEndpointAndTask(t *testing.T) {
 				t.Helper()
 				create := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "tagged-ep",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "mysql",
 				})
 				require.Equal(t, http.StatusOK, create.Code)
@@ -152,7 +152,7 @@ func TestHandler_TagsOnEndpointAndTask(t *testing.T) {
 
 				srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "tag-task-src",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "mysql",
 				})
 				require.Equal(t, http.StatusOK, srcRec.Code)
@@ -160,7 +160,7 @@ func TestHandler_TagsOnEndpointAndTask(t *testing.T) {
 
 				dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "tag-task-dst",
-					"EndpointType":       "TARGET",
+					"EndpointType":       "target",
 					"EngineName":         "s3",
 				})
 				require.Equal(t, http.StatusOK, dstRec.Code)

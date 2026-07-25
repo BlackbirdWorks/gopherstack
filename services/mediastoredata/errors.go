@@ -16,10 +16,24 @@ var (
 	ErrNotFound = awserr.New("ObjectNotFoundException", awserr.ErrNotFound)
 
 	// ErrInvalidPath is returned when a path fails validation.
-	ErrInvalidPath = awserr.New("InvalidPathException", awserr.ErrInvalidParameter)
+	//
+	// The wire __type for this is "ValidationException", NOT a fabricated
+	// "InvalidPathException" -- the real mediastoredata SDK error model
+	// (aws-sdk-go-v2/service/mediastoredata/types/errors.go) defines exactly
+	// four exceptions (ContainerNotFoundException, InternalServerError,
+	// ObjectNotFoundException, RequestedRangeNotSatisfiableException) and none
+	// of them cover client-side parameter validation. "ValidationException" is
+	// the AWS-wide/gopherstack-wide convention for this situation (see e.g.
+	// services/mediastore/handler.go, and this handler's own MaxResults bound
+	// check), which is a real error name actually used across AWS APIs, unlike
+	// a wholly invented service-specific exception name.
+	ErrInvalidPath = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 
-	// ErrInvalidStorageClass is returned when an unknown storage class is supplied.
-	ErrInvalidStorageClass = awserr.New("InvalidStorageClassException", awserr.ErrInvalidParameter)
+	// ErrInvalidStorageClass is returned when an unknown storage class is
+	// supplied. See [ErrInvalidPath]'s doc comment for why the wire __type is
+	// "ValidationException" rather than a fabricated
+	// "InvalidStorageClassException".
+	ErrInvalidStorageClass = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // isValidStorageClass reports whether sc is a known MediaStore Data storage

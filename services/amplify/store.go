@@ -61,6 +61,7 @@ type InMemoryBackend struct {
 	backendEnvironments      *store.Table[BackendEnvironment]
 	backendEnvironmentsByApp *store.Index[BackendEnvironment]
 	artifacts                *store.Table[Artifact]
+	artifactsByJob           *store.Index[Artifact]
 	registry                 *store.Registry
 	mu                       *lockmetrics.RWMutex
 	accountID                string

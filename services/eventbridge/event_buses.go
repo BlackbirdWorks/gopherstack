@@ -57,11 +57,13 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, name, description 
 		)
 	}
 
+	now := time.Now()
 	bus := &EventBus{
-		Name:        name,
-		Arn:         b.busARN(region, name),
-		Description: description,
-		CreatedTime: time.Now(),
+		Name:             name,
+		Arn:              b.busARN(region, name),
+		Description:      description,
+		CreatedTime:      now,
+		LastModifiedTime: now,
 	}
 	buses.Put(bus)
 
@@ -171,6 +173,7 @@ func (b *InMemoryBackend) UpdateEventBus(ctx context.Context, input UpdateEventB
 	}
 
 	bus.Description = input.Description
+	bus.LastModifiedTime = time.Now()
 
 	cp := *bus
 

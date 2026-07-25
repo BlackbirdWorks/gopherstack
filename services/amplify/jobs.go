@@ -2,16 +2,37 @@ package amplify
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// StartJob creates and starts a new deployment job for a branch.
+// StartJob creates and starts a new deployment job for a branch. jobID is
+// required when jobType is RETRY (real Amplify's StartJobInput.JobId is
+// required in that case) and identifies the job being retried: if that job
+// exists, its commit metadata is inherited by the new job unless the caller
+// supplies its own. commitTime may be the zero time, in which case the
+// response's commitTime field is omitted (matches an app with no Git commit
+// metadata, e.g. a manually deployed app).
 func (b *InMemoryBackend) StartJob(
-	appID, branchName, jobType, commitID, commitMsg string,
+	appID, branchName, jobType, jobID, commitID, commitMsg string,
+	commitTime time.Time,
 ) (*Job, error) {
+	if !isValidJobType(jobType) && jobType != "" {
+		return nil, fmt.Errorf("%w: invalid jobType %q", ErrValidation, jobType)
+	}
+
+	jt := JobType(jobType)
+	if jt == "" {
+		jt = JobTypeRelease
+	}
+
+	if jt == JobTypeRetry && jobID == "" {
+		return nil, fmt.Errorf("%w: jobId is required when jobType is RETRY", ErrValidation)
+	}
+
 	b.mu.Lock("StartJob")
 	defer b.mu.Unlock()
 
@@ -23,19 +44,21 @@ func (b *InMemoryBackend) StartJob(
 		return nil, fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
 	}
 
-	jobID := randomID()
-	now := time.Now().UTC()
-
-	jt := JobType(jobType)
-	if jt == "" {
-		jt = JobTypeRelease
+	if jt == JobTypeRetry {
+		commitID, commitMsg, commitTime = b.inheritRetryCommitInfo(
+			appID, branchName, jobID, commitID, commitMsg, commitTime,
+		)
 	}
 
+	newJobID := randomID()
+	now := time.Now().UTC()
+
 	job := &Job{
-		JobID:      jobID,
-		JobARN:     b.jobARN(appID, branchName, jobID),
+		JobID:      newJobID,
+		JobARN:     b.jobARN(appID, branchName, newJobID),
 		CommitID:   commitID,
 		CommitMsg:  commitMsg,
+		CommitTime: commitTime,
 		Status:     JobStatusRunning,
 		Type:       jt,
 		StartTime:  now,
@@ -48,6 +71,33 @@ func (b *InMemoryBackend) StartJob(
 	cp := *job
 
 	return &cp, nil
+}
+
+// inheritRetryCommitInfo fills in any commit fields the caller left empty
+// for a RETRY job from the job being retried, when that job still exists.
+// Must be called while holding the write lock.
+func (b *InMemoryBackend) inheritRetryCommitInfo(
+	appID, branchName, priorJobID, commitID, commitMsg string,
+	commitTime time.Time,
+) (string, string, time.Time) {
+	prior, ok := b.jobs.Get(jobKey(appID, branchName, priorJobID))
+	if !ok {
+		return commitID, commitMsg, commitTime
+	}
+
+	if commitID == "" {
+		commitID = prior.CommitID
+	}
+
+	if commitMsg == "" {
+		commitMsg = prior.CommitMsg
+	}
+
+	if commitTime.IsZero() {
+		commitTime = prior.CommitTime
+	}
+
+	return commitID, commitMsg, commitTime
 }
 
 // jobARN builds the ARN for a deployment job. Real Amplify's JobSummary.JobArn
@@ -121,7 +171,9 @@ func (b *InMemoryBackend) ListJobs(
 	return page, token, nil
 }
 
-// DeleteJob deletes a job record.
+// DeleteJob deletes a job record, cascading the deletion to every artifact
+// that job produced (see janitor.go's advanceJobs) so ListArtifacts can
+// never return a row for a job that no longer exists.
 func (b *InMemoryBackend) DeleteJob(appID, branchName, jobID string) (*Job, error) {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
@@ -132,7 +184,13 @@ func (b *InMemoryBackend) DeleteJob(appID, branchName, jobID string) (*Job, erro
 	}
 
 	cp := *job
-	b.jobs.Delete(jobKey(appID, branchName, jobID))
+	key := jobKey(appID, branchName, jobID)
+
+	for _, art := range slices.Clone(b.artifactsByJob.Get(key)) {
+		b.artifacts.Delete(art.ArtifactID)
+	}
+
+	b.jobs.Delete(key)
 
 	return &cp, nil
 }

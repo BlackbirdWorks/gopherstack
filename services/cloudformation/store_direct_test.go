@@ -16,7 +16,7 @@ func TestStackSetDrift(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("drift-ss", "desc", simpleTemplate)
+	_, err := b.CreateStackSet("drift-ss", "desc", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
 	opID, err := b.DetectStackSetDrift("drift-ss")
@@ -28,14 +28,88 @@ func TestStackSetDrift(t *testing.T) {
 	assert.NotEmpty(t, op.Status)
 }
 
+// TestStackSetDrift_UpdatesInstanceDriftStatus locks in a parity fix:
+// DetectStackSetDrift previously only recorded a SUCCEEDED operation without
+// running any actual per-resource drift comparison against stack instances'
+// provisioned child stacks -- a disguised stub (looks real, but every
+// instance's DriftStatus stayed NOT_CHECKED forever, matching real AWS's
+// initial-state value but never reflecting an actual detection run).
+func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := b.CreateStackSet(
+		"drift-instance-ss",
+		"desc",
+		simpleTemplate,
+		cloudformation.StackSetOptions{},
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateStackInstances(
+		t.Context(),
+		"drift-instance-ss",
+		[]string{"111111111111"},
+		[]string{"us-east-1"},
+	)
+	require.NoError(t, err)
+
+	instances, err := b.ListStackInstances("drift-instance-ss", "")
+	require.NoError(t, err)
+	require.Len(t, instances.Data, 1)
+	assert.Equal(
+		t,
+		"NOT_CHECKED",
+		instances.Data[0].DriftStatus,
+		"before any detection, DriftStatus starts NOT_CHECKED",
+	)
+
+	childStackID := instances.Data[0].StackID
+
+	// First detection with no drift: the child stack matches its template as
+	// provisioned, so every instance should report IN_SYNC.
+	_, err = b.DetectStackSetDrift("drift-instance-ss")
+	require.NoError(t, err)
+
+	instances, err = b.ListStackInstances("drift-instance-ss", "")
+	require.NoError(t, err)
+	require.Len(t, instances.Data, 1)
+	assert.Equal(t, "IN_SYNC", instances.Data[0].DriftStatus)
+
+	// Simulate an out-of-band mutation on the child stack's resource, then
+	// re-detect: the instance must now report DRIFTED.
+	require.NoError(
+		t,
+		b.RecordResourceMutation(childStackID, "MyBucket", map[string]any{"Mutated": true}),
+	)
+
+	_, err = b.DetectStackSetDrift("drift-instance-ss")
+	require.NoError(t, err)
+
+	instances, err = b.ListStackInstances("drift-instance-ss", "")
+	require.NoError(t, err)
+	require.Len(t, instances.Data, 1)
+	assert.Equal(t, "DRIFTED", instances.Data[0].DriftStatus)
+}
+
 func TestStackSetOperationList(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("op-list-ss", "desc", simpleTemplate)
+	_, err := b.CreateStackSet(
+		"op-list-ss",
+		"desc",
+		simpleTemplate,
+		cloudformation.StackSetOptions{},
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateStackInstances(t.Context(), "op-list-ss", []string{"111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances(
+		t.Context(),
+		"op-list-ss",
+		[]string{"111"},
+		[]string{"us-east-1"},
+	)
 	require.NoError(t, err)
 
 	p, err := b.ListStackSetOperations("op-list-ss", "")
@@ -47,7 +121,7 @@ func TestStopStackSetOperation(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("stop-ss", "desc", simpleTemplate)
+	_, err := b.CreateStackSet("stop-ss", "desc", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
 	opID, err := b.DetectStackSetDrift("stop-ss")
@@ -356,7 +430,12 @@ func TestImportStacksToStackSet(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("import-ss", "desc", simpleTemplate)
+	_, err := b.CreateStackSet(
+		"import-ss",
+		"desc",
+		simpleTemplate,
+		cloudformation.StackSetOptions{},
+	)
 	require.NoError(t, err)
 
 	err = b.ImportStacksToStackSet(
@@ -372,7 +451,12 @@ func TestListStackSetAutoDeploymentTargets(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("auto-deploy-ss", "desc", simpleTemplate)
+	_, err := b.CreateStackSet(
+		"auto-deploy-ss",
+		"desc",
+		simpleTemplate,
+		cloudformation.StackSetOptions{},
+	)
 	require.NoError(t, err)
 
 	targets, err := b.ListStackSetAutoDeploymentTargets("auto-deploy-ss")
@@ -550,7 +634,15 @@ func TestChangeSet_ExecuteOnNewStack(t *testing.T) {
 	b := newBackend()
 
 	// Create changeset without pre-existing stack.
-	cs, err := b.CreateChangeSet(t.Context(), "brand-new", "my-cs", simpleTemplate, "init", nil)
+	cs, err := b.CreateChangeSet(
+		t.Context(),
+		"brand-new",
+		"my-cs",
+		simpleTemplate,
+		"init",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "brand-new", cs.StackName)
 
@@ -690,7 +782,15 @@ func TestChangeSet_ChangesContainAdd(t *testing.T) {
 		}
 	}`
 
-	cs, err := b.CreateChangeSet(t.Context(), "cs-chg", "my-changes", newTmpl, "add queue", nil)
+	cs, err := b.CreateChangeSet(
+		t.Context(),
+		"cs-chg",
+		"my-changes",
+		newTmpl,
+		"add queue",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, cs.Changes)
 

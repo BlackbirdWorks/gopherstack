@@ -17,6 +17,7 @@ type createSyncConfigurationInput struct {
 	SyncType                string `json:"SyncType"`
 	PublishDeploymentStatus string `json:"PublishDeploymentStatus"`
 	TriggerResourceUpdateOn string `json:"TriggerResourceUpdateOn"`
+	PullRequestComment      string `json:"PullRequestComment"`
 }
 
 type syncConfigurationItem struct {
@@ -31,6 +32,7 @@ type syncConfigurationItem struct {
 	SyncType                string `json:"SyncType"`
 	PublishDeploymentStatus string `json:"PublishDeploymentStatus,omitempty"`
 	TriggerResourceUpdateOn string `json:"TriggerResourceUpdateOn,omitempty"`
+	PullRequestComment      string `json:"PullRequestComment,omitempty"`
 }
 
 type createSyncConfigurationOutput struct {
@@ -75,6 +77,7 @@ func (h *Handler) handleCreateSyncConfiguration(
 		in.SyncType,
 		in.PublishDeploymentStatus,
 		in.TriggerResourceUpdateOn,
+		in.PullRequestComment,
 	)
 	if err != nil {
 		return nil, err
@@ -112,6 +115,7 @@ func syncConfigToItem(cfg *SyncConfiguration) syncConfigurationItem {
 		SyncType:                cfg.SyncType,
 		PublishDeploymentStatus: cfg.PublishDeploymentStatus,
 		TriggerResourceUpdateOn: cfg.TriggerResourceUpdateOn,
+		PullRequestComment:      cfg.PullRequestComment,
 	}
 }
 
@@ -200,6 +204,7 @@ type updateSyncConfigurationInput struct {
 	RoleArn                 string `json:"RoleArn"`
 	PublishDeploymentStatus string `json:"PublishDeploymentStatus"`
 	TriggerResourceUpdateOn string `json:"TriggerResourceUpdateOn"`
+	PullRequestComment      string `json:"PullRequestComment"`
 }
 
 type updateSyncConfigurationOutput struct {
@@ -228,6 +233,7 @@ func (h *Handler) handleUpdateSyncConfiguration(
 		in.RoleArn,
 		in.PublishDeploymentStatus,
 		in.TriggerResourceUpdateOn,
+		in.PullRequestComment,
 	)
 	if err != nil {
 		return nil, err

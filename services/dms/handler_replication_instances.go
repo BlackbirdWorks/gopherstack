@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -150,10 +151,13 @@ type replicationInstanceJSON struct {
 	ReplicationInstancePrivateIPAddresses []string                   `json:"ReplicationInstancePrivateIpAddresses"`
 	ReplicationInstancePublicIPAddresses  []string                   `json:"ReplicationInstancePublicIpAddresses"`
 	VpcSecurityGroups                     []any                      `json:"VpcSecurityGroups"`
-	AllocatedStorage                      int32                      `json:"AllocatedStorage"`
-	MultiAZ                               bool                       `json:"MultiAZ"`
-	AutoMinorVersionUpgrade               bool                       `json:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible                    bool                       `json:"PubliclyAccessible"`
+	// InstanceCreateTime is wire-encoded as epoch seconds (awsjson1.1
+	// unixTimestamp format) -- see pkgs/awstime.Epoch.
+	InstanceCreateTime      float64 `json:"InstanceCreateTime,omitempty"`
+	AllocatedStorage        int32   `json:"AllocatedStorage"`
+	MultiAZ                 bool    `json:"MultiAZ"`
+	AutoMinorVersionUpgrade bool    `json:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible      bool    `json:"PubliclyAccessible"`
 }
 
 func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
@@ -178,6 +182,7 @@ func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
 		ReplicationInstancePrivateIPAddresses: privateIPs,
 		ReplicationInstancePublicIPAddresses:  publicIPs,
 		VpcSecurityGroups:                     []any{},
+		InstanceCreateTime:                    awstime.Epoch(ri.CreationTime),
 		AllocatedStorage:                      ri.AllocatedStorage,
 		MultiAZ:                               ri.MultiAZ,
 		AutoMinorVersionUpgrade:               ri.AutoMinorVersionUpgrade,

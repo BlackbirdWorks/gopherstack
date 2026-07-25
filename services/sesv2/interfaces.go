@@ -115,10 +115,10 @@ type StorageBackend interface {
 		pageSize int,
 	) page.Page[*DeliverabilityTestReport]
 
-	// Deliverability dashboard ops (stubs)
+	// Deliverability dashboard ops
 	GetDeliverabilityDashboardOptions() (map[string]any, error)
-	PutDeliverabilityDashboardOption() error
-	GetDomainDeliverabilityCampaign(domain, campaignID string) (map[string]any, error)
+	PutDeliverabilityDashboardOption(enabled bool, subscribedDomains []string) error
+	GetDomainDeliverabilityCampaign(campaignID string) (map[string]any, error)
 	GetDomainStatisticsReport(domain, startDate, endDate string) (map[string]any, error)
 	ListDomainDeliverabilityCampaigns(
 		startDate, endDate, domain, nextToken string,
@@ -167,21 +167,30 @@ type StorageBackend interface {
 	GetMessageInsights(messageID string) (map[string]any, error)
 	ListRecommendations(nextToken string, pageSize int) ([]map[string]any, string, error)
 
-	// Multi-region endpoint ops (stubs)
-	CreateMultiRegionEndpoint(endpointName string) (string, error)
+	// Multi-region endpoint ops
+	CreateMultiRegionEndpoint(
+		endpointName string,
+		secondaryRegions []string,
+		tags map[string]string,
+	) (map[string]any, error)
 	GetMultiRegionEndpoint(endpointName string) (map[string]any, error)
-	DeleteMultiRegionEndpoint(endpointName string) error
+	DeleteMultiRegionEndpoint(endpointName string) (string, error)
 	ListMultiRegionEndpoints(nextToken string, pageSize int) ([]map[string]any, string, error)
 
-	// Tenant ops (stubs)
-	CreateTenant(tenantName string) (map[string]any, error)
+	// Tenant ops
+	CreateTenant(tenantName string, tags map[string]string) (map[string]any, error)
 	GetTenant(tenantName string) (map[string]any, error)
 	DeleteTenant(tenantName string) error
 	ListTenants(nextToken string, pageSize int) ([]map[string]any, string, error)
 	CreateTenantResourceAssociation(tenantName, resourceArn string) error
 	DeleteTenantResourceAssociation(tenantName, resourceArn string) error
-	ListResourceTenants(resourceArn string, pageSize int) ([]map[string]any, string, error)
-	ListTenantResources(tenantName string, pageSize int) ([]map[string]any, string, error)
+	ListResourceTenants(resourceArn, nextToken string, pageSize int) ([]map[string]any, string, error)
+	ListTenantResources(
+		tenantName string,
+		filter map[string]string,
+		nextToken string,
+		pageSize int,
+	) ([]map[string]any, string, error)
 
 	// Reputation entity ops (stubs)
 	GetReputationEntity(entityID string) (map[string]any, error)

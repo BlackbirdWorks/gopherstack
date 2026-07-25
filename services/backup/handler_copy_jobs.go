@@ -26,21 +26,7 @@ func (h *Handler) handleListCopyJobs(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
-		item := map[string]any{
-			keyCopyJobID:    j.CopyJobID,
-			keyState:        j.State,
-			keyCreationDate: epochSeconds(j.CreationDate),
-		}
-		setOptionalStr(item, "ResourceArn", j.ResourceArn)
-		setOptionalStr(item, "ResourceType", j.ResourceType)
-		setOptionalStr(item, "SourceBackupVaultArn", j.SourceBackupVaultArn)
-		setOptionalStr(item, "DestinationBackupVaultArn", j.DestinationBackupVaultArn)
-		setOptionalStr(item, "IamRoleArn", j.IAMRoleArn)
-		setOptionalStr(item, "AccountId", j.AccountID)
-		if j.CompletionDate != nil {
-			item["CompletionDate"] = epochSeconds(*j.CompletionDate)
-		}
-		items = append(items, item)
+		items = append(items, copyJobToJSON(j))
 	}
 
 	resp := map[string]any{"CopyJobs": items}
@@ -51,11 +37,33 @@ func (h *Handler) handleListCopyJobs(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
+// copyJobToJSON renders the fields of a CopyJob this backend actually
+// tracks, matching (a subset of) the real types.CopyJob wire shape.
+func copyJobToJSON(j *CopyJob) map[string]any {
+	resp := map[string]any{
+		keyCopyJobID:    j.CopyJobID,
+		keyState:        j.State,
+		keyCreationDate: epochSeconds(j.CreationDate),
+		keyAccountID:    j.AccountID,
+	}
+	setOptionalStr(resp, "ResourceArn", j.ResourceArn)
+	setOptionalStr(resp, "ResourceType", j.ResourceType)
+	setOptionalStr(resp, "IamRoleArn", j.IAMRoleArn)
+	setOptionalStr(resp, "SourceBackupVaultArn", j.SourceBackupVaultArn)
+	setOptionalStr(resp, "DestinationBackupVaultArn", j.DestinationBackupVaultArn)
+	setOptionalStr(resp, "DestinationRecoveryPointArn", j.DestinationRecoveryPointArn)
+	if j.CompletionDate != nil {
+		resp["CompletionDate"] = epochSeconds(*j.CompletionDate)
+	}
+
+	return resp
+}
+
 func (h *Handler) handleDescribeCopyJob(c *echo.Context, copyJobID string) error {
 	if copyJobID == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "CopyJobId is required"),
+			errResp("MissingParameterValueException", "CopyJobId is required"),
 		)
 	}
 
@@ -64,23 +72,8 @@ func (h *Handler) handleDescribeCopyJob(c *echo.Context, copyJobID string) error
 		return h.handleError(c, err)
 	}
 
-	resp := map[string]any{
-		keyCopyJobID:    j.CopyJobID,
-		keyState:        j.State,
-		keyCreationDate: epochSeconds(j.CreationDate),
-	}
-	if j.ResourceArn != "" {
-		resp["ResourceArn"] = j.ResourceArn
-	}
-	if j.SourceBackupVaultArn != "" {
-		resp["SourceBackupVaultArn"] = j.SourceBackupVaultArn
-	}
-	if j.DestinationBackupVaultArn != "" {
-		resp["DestinationBackupVaultArn"] = j.DestinationBackupVaultArn
-	}
-
 	return c.JSON(http.StatusOK, map[string]any{
-		"CopyJob": resp,
+		"CopyJob": copyJobToJSON(j),
 	})
 }
 
@@ -98,17 +91,29 @@ func (h *Handler) dispatchCopyJobExtraOps(c *echo.Context, route backupRoute, bo
 			DestinationBackupVaultArn string `json:"DestinationBackupVaultArn"`
 			IamRoleArn                string `json:"IamRoleArn"`
 		}
-		_ = json.Unmarshal(body, &copyJobReq)
-		job := h.Backend.StartCopyJob(
+		if err := json.Unmarshal(body, &copyJobReq); err != nil {
+			return true, c.JSON(
+				http.StatusBadRequest,
+				errResp("InvalidParameterValueException", "invalid request body"),
+			)
+		}
+		job, err := h.Backend.StartCopyJob(
 			copyJobReq.RecoveryPointArn,
 			copyJobReq.SourceBackupVaultName,
 			copyJobReq.DestinationBackupVaultArn,
 			copyJobReq.IamRoleArn,
 		)
+		if err != nil {
+			return true, h.handleError(c, err)
+		}
 
+		// Real StartCopyJobOutput: CopyJobId, CreationDate, IsParent only --
+		// the destination recovery point ARN isn't known until the job
+		// completes, surfaced later via DescribeCopyJob.
 		return true, c.JSON(http.StatusOK, map[string]any{
 			keyCopyJobID:    job.CopyJobID,
 			keyCreationDate: epochSeconds(job.CreationDate),
+			"IsParent":      false,
 		})
 	}
 

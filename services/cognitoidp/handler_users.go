@@ -7,36 +7,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-func (h *Handler) handleAdminCreateUser(_ context.Context, in *adminCreateUserInput) (*adminCreateUserOutput, error) {
-	attrs := attributeListToMap(in.UserAttributes)
-
-	user, err := h.Backend.AdminCreateUserWithPolicy(in.UserPoolID, in.Username, in.TemporaryPassword, attrs)
-	if err != nil {
-		return nil, err
-	}
-
-	return &adminCreateUserOutput{
-		User: adminUserType{
-			Username:       user.Username,
-			UserStatus:     user.Status,
-			UserCreateDate: float64(user.CreatedAt.Unix()),
-			Attributes:     sortedAttributeList(user.Attributes),
-			Enabled:        user.Enabled,
-		},
-	}, nil
-}
-
-func (h *Handler) handleAdminSetUserPassword(
-	_ context.Context,
-	in *adminSetUserPasswordInput,
-) (*adminSetUserPasswordOutput, error) {
-	if err := h.Backend.AdminSetUserPassword(in.UserPoolID, in.Username, in.Password, in.Permanent); err != nil {
-		return nil, err
-	}
-
-	return &adminSetUserPasswordOutput{}, nil
-}
-
 func (h *Handler) handleAdminGetUser(_ context.Context, in *adminGetUserInput) (*adminGetUserOutput, error) {
 	user, err := h.Backend.AdminGetUser(in.UserPoolID, in.Username)
 	if err != nil {
@@ -145,21 +115,6 @@ func (h *Handler) handleListUsers(
 	return &listUsersOutput{Users: summaries, PaginationToken: nextToken}, nil
 }
 
-func (h *Handler) handleGetUser(
-	_ context.Context,
-	in *getUserInput,
-) (*getUserOutput, error) {
-	user, err := h.Backend.GetUser(in.AccessToken)
-	if err != nil {
-		return nil, err
-	}
-
-	return &getUserOutput{
-		Username:       user.Username,
-		UserAttributes: sortedAttributeList(userAttrsWithSub(user)),
-	}, nil
-}
-
 func (h *Handler) handleAdminDisableUser(
 	_ context.Context,
 	in *adminDisableUserInput,
@@ -263,17 +218,17 @@ func (h *Handler) handleGetUserAuthFactors(
 	return &getUserAuthFactorsOutput{Username: user.Username, ConfiguredUserAuthFactors: factors}, nil
 }
 
+// usersOpsA registers the ops in this file that have no accurate twin in
+// usersOpsC/D (AdminCreateUser, AdminSetUserPassword, GetUser all moved there
+// only -- see de-stub-hygiene note in PARITY.md).
 func (h *Handler) usersOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"AdminCreateUser":      service.WrapOp(h.handleAdminCreateUser),
-		"AdminSetUserPassword": service.WrapOp(h.handleAdminSetUserPassword),
-		"AdminGetUser":         service.WrapOp(h.handleAdminGetUser),
-		"AdminDeleteUser":      service.WrapOp(h.handleAdminDeleteUser),
-		"ListUsers":            service.WrapOp(h.handleListUsers),
-		"GetUser":              service.WrapOp(h.handleGetUser),
-		"DeleteUser":           service.WrapOp(h.handleDeleteUser),
-		"AdminDisableUser":     service.WrapOp(h.handleAdminDisableUser),
-		"AdminEnableUser":      service.WrapOp(h.handleAdminEnableUser),
+		"AdminGetUser":     service.WrapOp(h.handleAdminGetUser),
+		"AdminDeleteUser":  service.WrapOp(h.handleAdminDeleteUser),
+		"ListUsers":        service.WrapOp(h.handleListUsers),
+		"DeleteUser":       service.WrapOp(h.handleDeleteUser),
+		"AdminDisableUser": service.WrapOp(h.handleAdminDisableUser),
+		"AdminEnableUser":  service.WrapOp(h.handleAdminEnableUser),
 	}
 }
 

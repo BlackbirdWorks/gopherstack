@@ -123,7 +123,7 @@ func (h *Handler) handleUpdateFindings(c *echo.Context, body map[string]any) err
 }
 
 func (h *Handler) handleGetFindingHistory(c *echo.Context, body map[string]any) error {
-	ident, _ := body["FindingIdentifier"].(map[string]any)
+	ident, _ := body[keyFindingIdentifier].(map[string]any)
 	startTime, _ := body["StartTime"].(string)
 	endTime, _ := body["EndTime"].(string)
 	nextToken, _ := body["NextToken"].(string)
@@ -193,6 +193,11 @@ func (h *Handler) handleGetFindingsV2(c *echo.Context, body map[string]any) erro
 	return c.JSON(http.StatusOK, resp)
 }
 
+// handleBatchUpdateFindingsV2 parses the real BatchUpdateFindingsV2 wire
+// shape: FindingIdentifiers ([]types.OcsfFindingIdentifier), MetadataUids
+// ([]string), and the flat Comment/SeverityId/StatusId fields -- there is no
+// "FindingFieldsUpdate" wrapper key on the real request
+// (aws-sdk-go-v2/service/securityhub/api_op_BatchUpdateFindingsV2.go).
 func (h *Handler) handleBatchUpdateFindingsV2(c *echo.Context, body map[string]any) error {
 	var findingIdentifiers []map[string]any
 
@@ -204,13 +209,31 @@ func (h *Handler) handleBatchUpdateFindingsV2(c *echo.Context, body map[string]a
 		}
 	}
 
-	var updates map[string]any
+	var metadataUids []string
 
-	if u, ok := body["FindingFieldsUpdate"].(map[string]any); ok {
-		updates = u
+	if raw, ok := body["MetadataUids"].([]any); ok {
+		for _, item := range raw {
+			if s, ok := item.(string); ok { //nolint:govet // existing issue.
+				metadataUids = append(metadataUids, s)
+			}
+		}
 	}
 
-	processed, unprocessed := h.Backend.BatchUpdateFindingsV2(findingIdentifiers, updates)
+	updates := make(map[string]any)
+
+	if v, ok := body["Comment"].(string); ok {
+		updates["Comment"] = v
+	}
+
+	if v, ok := body["SeverityId"].(float64); ok {
+		updates["SeverityId"] = v
+	}
+
+	if v, ok := body["StatusId"].(float64); ok {
+		updates["StatusId"] = v
+	}
+
+	processed, unprocessed := h.Backend.BatchUpdateFindingsV2(findingIdentifiers, metadataUids, updates)
 
 	if processed == nil {
 		processed = []map[string]any{}

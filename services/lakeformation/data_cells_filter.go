@@ -8,6 +8,27 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
+// dataCellsFilterVersionBytes is the byte length of the random VersionId
+// gopherstack assigns to a data cells filter on Create/Update, matching the
+// synthetic-ID pattern used for temporary credentials (see credentials.go).
+const dataCellsFilterVersionBytes = 8
+
+// validateDataCellsFilterColumns enforces the real API's documented
+// constraint that a data cells filter must specify exactly one of
+// ColumnNames or ColumnWildcard (see types.DataCellsFilter.ColumnWildcard's
+// doc comment: "You must specify either a ColumnNames list or the
+// ColumnWildCard").
+func validateDataCellsFilterColumns(filter *DataCellsFilter) error {
+	hasNames := len(filter.ColumnNames) > 0
+	hasWildcard := filter.ColumnWildcard != nil
+
+	if hasNames && hasWildcard {
+		return fmt.Errorf("only one of ColumnNames or ColumnWildcard may be specified: %w", ErrValidation)
+	}
+
+	return nil
+}
+
 // AddDataCellsFilterInternal seeds a DataCellsFilter directly for testing.
 func (b *InMemoryBackend) AddDataCellsFilterInternal(filter *DataCellsFilter) {
 	b.mu.Lock("AddDataCellsFilterInternal")
@@ -39,6 +60,10 @@ func (b *InMemoryBackend) CreateDataCellsFilter(filter *DataCellsFilter) error {
 		return fmt.Errorf("Name is required: %w", ErrValidation)
 	}
 
+	if err := validateDataCellsFilterColumns(filter); err != nil {
+		return err
+	}
+
 	b.mu.Lock("CreateDataCellsFilter")
 	defer b.mu.Unlock()
 
@@ -52,6 +77,7 @@ func (b *InMemoryBackend) CreateDataCellsFilter(filter *DataCellsFilter) error {
 	}
 
 	cp := *filter
+	cp.VersionID = randomHex(dataCellsFilterVersionBytes)
 	b.dataCellsFilters.Put(&cp)
 
 	return nil
@@ -155,6 +181,9 @@ func (b *InMemoryBackend) UpdateDataCellsFilter(filter *DataCellsFilter) error {
 	if strings.TrimSpace(filter.Name) == "" {
 		return fmt.Errorf("Name is required: %w", ErrValidation)
 	}
+	if err := validateDataCellsFilterColumns(filter); err != nil {
+		return err
+	}
 	b.mu.Lock("UpdateDataCellsFilter")
 	defer b.mu.Unlock()
 	k := dataCellsFilterKeyStr(filter.TableCatalogID, filter.DatabaseName, filter.TableName, filter.Name)
@@ -162,6 +191,7 @@ func (b *InMemoryBackend) UpdateDataCellsFilter(filter *DataCellsFilter) error {
 		return awserr.New("data cells filter not found: "+filter.Name, awserr.ErrNotFound)
 	}
 	cp := *filter
+	cp.VersionID = randomHex(dataCellsFilterVersionBytes)
 	b.dataCellsFilters.Put(&cp)
 
 	return nil

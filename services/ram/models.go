@@ -120,3 +120,27 @@ type SharePermissionAssociation struct {
 	PermissionARN string
 	Version       int32
 }
+
+// ReplacePermissionAssociationsWork tracks the background task created by a
+// ReplacePermissionAssociations call, retrievable via ListReplacePermissionAssociationsWork.
+// This mock performs the underlying association swap synchronously, so a work
+// item's Status is always terminal (COMPLETED) by the time it is stored --
+// there is no separate async completion step to model.
+type ReplacePermissionAssociationsWork struct {
+	CreationTime          time.Time
+	LastUpdatedTime       time.Time
+	ID                    string
+	FromPermissionARN     string
+	ToPermissionARN       string
+	Status                string
+	StatusMessage         string
+	FromPermissionVersion int32
+	ToPermissionVersion   int32
+}
+
+// cloneReplaceWork returns a deep copy of w.
+func cloneReplaceWork(w *ReplacePermissionAssociationsWork) *ReplacePermissionAssociationsWork {
+	cp := *w
+
+	return &cp
+}

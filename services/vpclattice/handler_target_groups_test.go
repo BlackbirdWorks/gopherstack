@@ -101,6 +101,66 @@ func TestTargetGroup_CRUD(t *testing.T) {
 	assert.Equal(t, 0, vpclattice.TargetGroupCount(h.Backend.(*vpclattice.InMemoryBackend)))
 }
 
+// TestTargetGroupDelete_ConflictWhileReferencedByRule verifies that
+// DeleteTargetGroup is rejected with 409 while a listener rule (including a
+// listener's default action, which becomes its default rule) still
+// forwards to the target group, matching real AWS's DeleteTargetGroup doc
+// comment ("You can't delete a target group if it is used in a listener
+// rule").
+func TestTargetGroupDelete_ConflictWhileReferencedByRule(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	svcRec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-tg-conflict"})
+	require.Equal(t, http.StatusCreated, svcRec.Code)
+	svcID, _ := parseBody(t, svcRec)["id"].(string)
+
+	tgRec := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
+		"name": "tg-in-use",
+		"type": "IP",
+		"config": map[string]any{
+			"protocol":      "HTTP",
+			"port":          80,
+			"vpcIdentifier": "vpc-1",
+		},
+	})
+	require.Equal(t, http.StatusCreated, tgRec.Code)
+	tgID, _ := parseBody(t, tgRec)["id"].(string)
+
+	lRec := doRequest(t, h, http.MethodPost, "/services/"+svcID+"/listeners", map[string]any{
+		"name":     "l1",
+		"protocol": "HTTP",
+		"defaultAction": map[string]any{
+			"forward": map[string]any{
+				"targetGroups": []any{
+					map[string]any{"targetGroupIdentifier": tgID, "weight": 100},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusCreated, lRec.Code)
+
+	rec := doRequest(t, h, http.MethodDelete, "/targetgroups/"+tgID, nil)
+	assert.Equal(t, http.StatusConflict, rec.Code, "delete must be rejected while a rule forwards to the target group")
+
+	rec = doRequest(t, h, http.MethodGet, "/targetgroups/"+tgID, nil)
+	assert.Equal(t, http.StatusOK, rec.Code, "target group must still exist after the rejected delete")
+
+	// Once the listener (and its default rule) is gone, the target group is
+	// no longer in use and can be deleted.
+	listListenersRec := doRequest(t, h, http.MethodGet, "/services/"+svcID+"/listeners", nil)
+	require.Equal(t, http.StatusOK, listListenersRec.Code)
+	listeners, _ := parseBody(t, listListenersRec)["items"].([]any)
+	require.Len(t, listeners, 1)
+	listenerID, _ := listeners[0].(map[string]any)["id"].(string)
+
+	require.Equal(t, http.StatusNoContent,
+		doRequest(t, h, http.MethodDelete, "/services/"+svcID+"/listeners/"+listenerID, nil).Code)
+
+	rec = doRequest(t, h, http.MethodDelete, "/targetgroups/"+tgID, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 // TestTargetGroupSummaryWireShape verifies ListTargetGroups summary entries
 // use "vpcIdentifier" (not "vpcId") and include lastUpdatedAt, matching the
 // real TargetGroupSummary shape. The emulator previously emitted "vpcId",

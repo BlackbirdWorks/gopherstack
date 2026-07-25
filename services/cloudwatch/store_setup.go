@@ -40,10 +40,6 @@ func insightRulesKeyFn(v *InsightRule) string     { return v.Name }
 func metricStreamsKeyFn(v *MetricStream) string   { return v.Name }
 func alarmMuteRulesKeyFn(v *AlarmMuteRule) string { return v.MuteName }
 
-func metricFiltersKeyFn(v *MetricFilter) string {
-	return metricFilterKey(v.FilterName, v.LogGroupName)
-}
-
 // registerAllTables registers every converted resource map on b.registry
 // exactly once. It must be called during construction only (immediately after
 // b.registry is created), never on every Reset() -- store.Register panics on a
@@ -81,8 +77,5 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.alarmMuteRules = store.Register(b.registry, "alarmMuteRules", store.New(alarmMuteRulesKeyFn))
-	},
-	func(b *InMemoryBackend) {
-		b.metricFilters = store.Register(b.registry, "metricFilters", store.New(metricFiltersKeyFn))
 	},
 }

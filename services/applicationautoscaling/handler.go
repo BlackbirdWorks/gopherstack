@@ -148,22 +148,79 @@ func marshalError(errType, message string) []byte {
 	return payload
 }
 
+// resourceNamer is implemented by [resourceNameError]; used via errors.As to
+// recover the AWS "ResourceName" field TooManyTagsException and
+// ResourceNotFoundException carry on the wire.
+type resourceNamer interface {
+	ResourceName() string
+}
+
+// marshalResourceError is like marshalError but also sets the wire
+// "ResourceName" field TooManyTagsException/ResourceNotFoundException carry
+// (confirmed against the SDK's deserializeDocument* functions for both
+// types). Marshaling a struct of only string fields cannot fail; error is
+// intentionally ignored, matching marshalError.
+func marshalResourceError(errType, message, resourceName string) []byte {
+	payload, _ := json.Marshal(struct {
+		Type         string `json:"__type"`
+		Message      string `json:"message"`
+		ResourceName string `json:"ResourceName,omitempty"`
+	}{Type: errType, Message: message, ResourceName: resourceName})
+
+	return payload
+}
+
+// handleError maps a backend error to the AWS JSON-protocol error envelope
+// and the correct HTTP status. Status is chosen per exception type's
+// ErrorFault() classification (client fault -> 400, server fault -> 500) in
+// aws-sdk-go-v2/service/applicationautoscaling/types/errors.go -- NOT by
+// resource semantics, so e.g. ObjectNotFoundException/ResourceNotFoundException
+// are still HTTP 400 even though they signal "not found".
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
+	var rn resourceNamer
+
+	resourceName := ""
+	if errors.As(err, &rn) {
+		resourceName = rn.ResourceName()
+	}
 
 	switch {
+	// Client faults (HTTP 400). ObjectNotFoundException/ResourceNotFoundException
+	// are client faults on real AWS despite being "not found" semantically --
+	// awsjson1.1/json-protocol services do not use HTTP 404 for modeled
+	// exceptions; the real error type is carried entirely in the __type body
+	// field, and every FaultClient exception here resolves to HTTP 400
+	// (verified against ErrorFault() in the vendored SDK's types/errors.go).
 	case errors.Is(err, ErrNotFound):
-		return c.JSONBlob(http.StatusNotFound, marshalError("ObjectNotFoundException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ObjectNotFoundException", err.Error()))
+	case errors.Is(err, ErrResourceNotFound):
+		body := marshalResourceError("ResourceNotFoundException", err.Error(), resourceName)
+
+		return c.JSONBlob(http.StatusBadRequest, body)
+	case errors.Is(err, ErrTooManyTags):
+		body := marshalResourceError("TooManyTagsException", err.Error(), resourceName)
+
+		return c.JSONBlob(http.StatusBadRequest, body)
+	case errors.Is(err, ErrLimitExceeded):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("LimitExceededException", err.Error()))
+	case errors.Is(err, ErrInvalidNextToken):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("InvalidNextTokenException", err.Error()))
+	case errors.Is(err, ErrFailedResourceAccess):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("FailedResourceAccessException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSONBlob(http.StatusConflict, marshalError("ValidationException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
+	// Server faults (HTTP 500).
+	case errors.Is(err, ErrConcurrentUpdate):
+		return c.JSONBlob(http.StatusInternalServerError, marshalError("ConcurrentUpdateException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSONBlob(http.StatusInternalServerError, marshalError("InternalServiceException", err.Error()))
 	}
 }
 

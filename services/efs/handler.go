@@ -591,6 +591,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		c.Response().Header().Set("x-amzn-ErrorType", "ValidationException")
 
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+	case errors.Is(err, ErrInvalidPolicy):
+		c.Response().Header().Set("x-amzn-ErrorType", "InvalidPolicyException")
+
+		return c.JSON(http.StatusBadRequest, errResp("InvalidPolicyException", err.Error()))
 	case errors.Is(err, ErrTooManyRequests):
 		c.Response().Header().Set("x-amzn-ErrorType", "TooManyRequests")
 
@@ -679,7 +683,7 @@ func describeListResponse[T any](
 	}
 
 	marker := c.Request().URL.Query().Get(markerKey)
-	maxItems := queryInt(c, maxKey, defaultMaxItems)
+	maxItems := queryInt(c, maxKey)
 
 	results, nextMarker, err := listFn(h.contextWithRegion(c), fsID, itemID, marker, maxItems)
 	if err != nil {
@@ -701,15 +705,18 @@ func describeListResponse[T any](
 	return c.JSON(http.StatusOK, resp)
 }
 
-// queryInt reads a query parameter as an int, returning defaultVal if absent or invalid.
-func queryInt(c *echo.Context, key string, defaultVal int) int {
+// queryInt reads a query parameter as an int, returning defaultMaxItems if absent or
+// invalid. Every EFS list op pages at the same default size, so the default isn't a
+// caller-supplied parameter (unparam flags a parameter that's always the same value
+// across every call site as dead weight).
+func queryInt(c *echo.Context, key string) int {
 	s := c.Request().URL.Query().Get(key)
 	if s == "" {
-		return defaultVal
+		return defaultMaxItems
 	}
 	v, err := strconv.Atoi(s)
 	if err != nil || v <= 0 {
-		return defaultVal
+		return defaultMaxItems
 	}
 
 	return v

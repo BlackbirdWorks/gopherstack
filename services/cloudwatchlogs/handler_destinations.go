@@ -27,12 +27,7 @@ func (h *Handler) handlePutDestination(
 			return nil, err
 		}
 
-		return map[string]any{"destination": map[string]any{
-			keyDestinationName: dest.DestinationName,
-			keyTargetArn:       dest.TargetArn,
-			keyRoleArn:         dest.RoleArn,
-			keyArn:             dest.Arn,
-		}}, nil
+		return map[string]any{"destination": destinationWireShape(dest)}, nil
 	}
 
 	return map[string]any{"destination": map[string]any{
@@ -41,6 +36,22 @@ func (h *Handler) handlePutDestination(
 		keyRoleArn:         in.RoleArn,
 		keyArn:             "",
 	}}, nil
+}
+
+// destinationWireShape maps a CWLDestination to the full AWS wire shape
+// (aws-sdk-go-v2 types.Destination: accessPolicy, arn, creationTime,
+// destinationName, roleArn, targetArn), including accessPolicy and
+// creationTime, which the hand-rolled response maps in this file previously
+// omitted.
+func destinationWireShape(d *CWLDestination) map[string]any {
+	return map[string]any{
+		keyDestinationName: d.DestinationName,
+		keyTargetArn:       d.TargetArn,
+		keyRoleArn:         d.RoleArn,
+		keyArn:             d.Arn,
+		keyAccessPolicy:    d.AccessPolicy,
+		keyCreationTime:    d.CreatedAt.UnixMilli(),
+	}
 }
 
 type putDestinationPolicyInput struct {
@@ -80,13 +91,8 @@ func (h *Handler) handleDescribeDestinations(
 	if b := cwlBackend(h); b != nil {
 		dests := b.DescribeDestinations(in.DestinationNamePrefix)
 		out := make([]map[string]any, 0, len(dests))
-		for _, d := range dests {
-			out = append(out, map[string]any{
-				keyDestinationName: d.DestinationName,
-				keyTargetArn:       d.TargetArn,
-				keyRoleArn:         d.RoleArn,
-				keyArn:             d.Arn,
-			})
+		for i := range dests {
+			out = append(out, destinationWireShape(&dests[i]))
 		}
 
 		return map[string]any{"destinations": out}, nil

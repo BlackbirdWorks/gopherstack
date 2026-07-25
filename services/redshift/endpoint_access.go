@@ -12,9 +12,15 @@ const (
 	redshiftDefaultPort = 5439
 )
 
-// CreateEndpointAccess creates a new Redshift-managed VPC endpoint.
+// CreateEndpointAccess creates a new Redshift-managed VPC endpoint. Real
+// CreateEndpointAccessInput has no VpcId field -- the endpoint's VPC is derived from
+// SubnetGroupName (confirmed against aws-sdk-go-v2/service/redshift@v1.62.3's
+// CreateEndpointAccessInput). When subnetGroupName names a known
+// ClusterSubnetGroup, VpcID is populated from it; otherwise it is left empty
+// (real AWS would fall back to the cluster's own subnet group, which this backend
+// does not track independently of ClusterSubnetGroup).
 func (b *InMemoryBackend) CreateEndpointAccess(
-	clusterID, endpointName, vpcID string,
+	clusterID, endpointName, subnetGroupName, resourceOwner string, vpcSecurityGroupIDs []string,
 ) (*EndpointAccess, error) {
 	if endpointName == "" {
 		return nil, fmt.Errorf("%w: EndpointName is required", ErrInvalidParameter)
@@ -35,13 +41,23 @@ func (b *InMemoryBackend) CreateEndpointAccess(
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrEndpointAccessAlreadyExists, endpointName)
 	}
 
+	var vpcID string
+	if subnetGroupName != "" {
+		if sg, exists := b.subnetGroups.Get(subnetGroupName); exists {
+			vpcID = sg.VpcID
+		}
+	}
+
 	ep := &EndpointAccess{
-		ClusterIdentifier:  clusterID,
-		EndpointName:       endpointName,
-		EndpointStatus:     endpointStatusActive,
-		EndpointCreateTime: time.Now().UTC().Format(time.RFC3339),
-		Port:               redshiftDefaultPort,
-		VpcID:              vpcID,
+		ClusterIdentifier:   clusterID,
+		EndpointName:        endpointName,
+		EndpointStatus:      endpointStatusActive,
+		EndpointCreateTime:  time.Now().UTC().Format(time.RFC3339),
+		Port:                redshiftDefaultPort,
+		VpcID:               vpcID,
+		SubnetGroupName:     subnetGroupName,
+		ResourceOwner:       resourceOwner,
+		VpcSecurityGroupIDs: append([]string(nil), vpcSecurityGroupIDs...),
 	}
 	b.endpointAccesses.Put(ep)
 
@@ -103,8 +119,12 @@ func (b *InMemoryBackend) DescribeEndpointAccess(
 	return result, nil
 }
 
-// ModifyEndpointAccess updates the VPC security groups for an endpoint.
-func (b *InMemoryBackend) ModifyEndpointAccess(endpointName, vpcID string) (*EndpointAccess, error) {
+// ModifyEndpointAccess updates the VPC security groups for an endpoint. Real
+// ModifyEndpointAccessInput only supports changing VpcSecurityGroupIds (confirmed
+// against aws-sdk-go-v2/service/redshift@v1.62.3) -- there is no VpcId parameter.
+func (b *InMemoryBackend) ModifyEndpointAccess(
+	endpointName string, vpcSecurityGroupIDs []string,
+) (*EndpointAccess, error) {
 	if endpointName == "" {
 		return nil, fmt.Errorf("%w: EndpointName is required", ErrInvalidParameter)
 	}
@@ -117,8 +137,8 @@ func (b *InMemoryBackend) ModifyEndpointAccess(endpointName, vpcID string) (*End
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrEndpointAccessNotFound, endpointName)
 	}
 
-	if vpcID != "" {
-		ep.VpcID = vpcID
+	if vpcSecurityGroupIDs != nil {
+		ep.VpcSecurityGroupIDs = append([]string(nil), vpcSecurityGroupIDs...)
 	}
 
 	cp := *ep

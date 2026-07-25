@@ -534,6 +534,17 @@ func TestCreateStateMachine_WithPublish(t *testing.T) {
 			smARN, _ := createResp["stateMachineArn"].(string)
 			require.NotEmpty(t, smARN)
 
+			// AWS: stateMachineVersionArn is only populated on the
+			// CreateStateMachine response when publish=true ("If you do not
+			// set the publish parameter to true, this field returns null").
+			versionArn, hasVersionArn := createResp["stateMachineVersionArn"]
+			if tt.wantVersion {
+				require.True(t, hasVersionArn, "expected stateMachineVersionArn in response")
+				assert.NotEmpty(t, versionArn)
+			} else {
+				assert.False(t, hasVersionArn, "expected no stateMachineVersionArn when publish=false")
+			}
+
 			// Check versions.
 			versBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN})
 			versRec := sfnPost(ctx, t, h, e, "ListStateMachineVersions", string(versBody))
@@ -571,6 +582,11 @@ func TestUpdateStateMachine_WithPublish(t *testing.T) {
 	rec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	var updateResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	assert.NotEmpty(t, updateResp["revisionId"], "expected a non-empty revisionId after update")
+	assert.NotEmpty(t, updateResp["stateMachineVersionArn"], "expected stateMachineVersionArn when publish=true")
+
 	versBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN})
 	versRec := sfnPost(ctx, t, h, e, "ListStateMachineVersions", string(versBody))
 	require.Equal(t, http.StatusOK, versRec.Code)
@@ -579,6 +595,56 @@ func TestUpdateStateMachine_WithPublish(t *testing.T) {
 	require.NoError(t, json.Unmarshal(versRec.Body.Bytes(), &versResp))
 	versions, _ := versResp["stateMachineVersions"].([]any)
 	assert.Len(t, versions, 1, "expected one version after update with publish=true")
+}
+
+// TestUpdateStateMachine_NoPublish_NoVersionArn verifies that
+// UpdateStateMachine's response omits stateMachineVersionArn when
+// publish=false, but still returns a fresh revisionId on every update.
+func TestUpdateStateMachine_NoPublish_NoVersionArn(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+	smARN := createSM(ctx, t, h, e, "no-pub-update-sm")
+
+	newDef := `{"StartAt":"S","States":{"S":{"Type":"Succeed"}}}`
+	body, err := json.Marshal(map[string]any{
+		"stateMachineArn": smARN,
+		"definition":      newDef,
+	})
+	require.NoError(t, err)
+
+	rec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(body))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var updateResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	assert.NotEmpty(t, updateResp["revisionId"])
+	_, hasVersionArn := updateResp["stateMachineVersionArn"]
+	assert.False(t, hasVersionArn, "expected no stateMachineVersionArn when publish=false")
+}
+
+// TestUpdateStateMachine_VersionDescriptionRequiresPublish verifies AWS's
+// documented ValidationException: versionDescription may only be set when
+// publish=true.
+func TestUpdateStateMachine_VersionDescriptionRequiresPublish(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+	smARN := createSM(ctx, t, h, e, "verdesc-update-sm")
+
+	body, err := json.Marshal(map[string]any{
+		"stateMachineArn":    smARN,
+		"definition":         `{"StartAt":"S","States":{"S":{"Type":"Succeed"}}}`,
+		"versionDescription": "should be rejected",
+		"publish":            false,
+	})
+	require.NoError(t, err)
+
+	rec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(body))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 
 // ─── RedriveExecution with Count ─────────────────────────────────────────────

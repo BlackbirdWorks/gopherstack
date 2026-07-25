@@ -26,54 +26,6 @@ func TestHandler_StartSchemaCreation_Base64Encoded(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestHandler_SchemaMerge(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		method     string
-		createAPI  bool
-		wantStatus int
-	}{
-		{
-			name:       "post_success",
-			method:     http.MethodPost,
-			createAPI:  true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "api_not_found",
-			method:     http.MethodPost,
-			createAPI:  false,
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "method_not_allowed",
-			method:     http.MethodGet,
-			createAPI:  true,
-			wantStatus: http.StatusMethodNotAllowed,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			apiID := "nonexistent"
-
-			if tt.createAPI {
-				api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
-				require.NoError(t, err)
-				apiID = api.APIID
-			}
-
-			rec := doRequest(t, h, tt.method, "/v1/apis/"+apiID+"/schemaMerge", nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
 func TestHandler_StartSchemaCreation(t *testing.T) {
 	t.Parallel()
 

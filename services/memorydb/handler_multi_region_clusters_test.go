@@ -27,7 +27,7 @@ func TestHandler_DescribeMultiRegionParameters(t *testing.T) {
 		{
 			name:       "non-existent parameter group",
 			body:       map[string]any{"ParameterGroupName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -93,7 +93,7 @@ func TestHandler_ListAllowedMultiRegionClusterUpdates_MissingName(t *testing.T) 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestRefinement3_ListAllowedMultiRegionClusterUpdates_NotFound tests 404 for unknown cluster.
+// TestRefinement3_ListAllowedMultiRegionClusterUpdates_NotFound tests 400 for unknown cluster.
 func TestHandler_ListAllowedMultiRegionClusterUpdates_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -101,7 +101,7 @@ func TestHandler_ListAllowedMultiRegionClusterUpdates_NotFound(t *testing.T) {
 	rec := doRequest(t, h, "ListAllowedMultiRegionClusterUpdates", map[string]any{
 		"MultiRegionClusterName": "no-such-mrc",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestRefinement3_ListAllowedMultiRegionClusterUpdates_BadJSON tests with bad JSON.
@@ -150,7 +150,7 @@ func TestHandler_UpdateMultiRegionCluster_MissingName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestRefinement3_UpdateMultiRegionCluster_NotFound tests 404 for unknown cluster.
+// TestRefinement3_UpdateMultiRegionCluster_NotFound tests 400 for unknown cluster.
 func TestHandler_UpdateMultiRegionCluster_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -158,7 +158,7 @@ func TestHandler_UpdateMultiRegionCluster_NotFound(t *testing.T) {
 	rec := doRequest(t, h, "UpdateMultiRegionCluster", map[string]any{
 		"MultiRegionClusterName": "no-such-mrc",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestRefinement3_UpdateMultiRegionCluster_BadJSON tests with bad JSON.
@@ -204,7 +204,7 @@ func TestHandler_CreateMultiRegionCluster(t *testing.T) {
 				"MultiRegionClusterNameSuffix": "dup-mrc",
 				"NodeType":                     "db.r6g.large",
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -247,7 +247,7 @@ func TestHandler_DeleteMultiRegionCluster(t *testing.T) {
 		},
 		{
 			name:       "delete non-existent cluster",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing cluster name",
@@ -322,7 +322,7 @@ func TestHandler_DescribeMultiRegionClusters(t *testing.T) {
 		{
 			name:       "describe not found",
 			body:       map[string]any{"MultiRegionClusterName": "no-such-mrc"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -367,7 +367,7 @@ func TestHandler_DescribeMultiRegionParameterGroups(t *testing.T) {
 		{
 			name:       "describe not found",
 			body:       map[string]any{"ParameterGroupName": "no-such-pg"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -463,6 +463,33 @@ func TestHandler_MultiRegionParameters_DefaultNonEmpty(t *testing.T) {
 	}
 }
 
+// TestHandler_MultiRegionParameters_HaveSourceField verifies each returned
+// parameter carries a "Source" field -- part of the real SDK's
+// types.MultiRegionParameter (a distinct shape from types.Parameter that
+// additionally carries Source: confirmed via types.go), which a prior pass
+// omitted entirely by reusing the plain Parameter wire object for both
+// DescribeParameters and DescribeMultiRegionParameters.
+func TestHandler_MultiRegionParameters_HaveSourceField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DescribeMultiRegionParameters", map[string]any{
+		"ParameterGroupName": "default.memorydb-redis7.multiregion",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	params, _ := resp["Parameters"].([]any)
+	require.NotEmpty(t, params)
+
+	for _, p := range params {
+		pm, _ := p.(map[string]any)
+		assert.NotEmpty(t, pm["Source"], "parameter %q must have a Source field", pm["Name"])
+	}
+}
+
 // -- ACL cluster membership accuracy (finding 16 clusters field) -----------------
 
 // TestHandler_DescribeMultiRegionClusters_NotFound tests MRC not found path.
@@ -475,9 +502,9 @@ func TestHandler_DescribeMultiRegionClusters_NotFound(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "nonexistent MRC returns 404",
+			name:       "nonexistent MRC returns 400",
 			body:       map[string]any{"MultiRegionClusterName": "virv-no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -507,9 +534,9 @@ func TestHandler_DescribeMultiRegionParameters_EdgeCases(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "nonexistent group returns 404",
+			name:       "nonexistent group returns 400",
 			body:       map[string]any{"ParameterGroupName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "valid multi-region parameter group returns 200",
@@ -548,9 +575,9 @@ func TestHandler_DescribeMultiRegionParameterGroups_FilteredAndNotFound(t *testi
 			wantCount:  1,
 		},
 		{
-			name:       "nonexistent group returns 404",
+			name:       "nonexistent group returns 400",
 			body:       map[string]any{"ParameterGroupName": "no-such.multiregion"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantCount:  0,
 		},
 	}

@@ -5,7 +5,13 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// defaultEDSPageSize is the ListEventDataStores page size used when the
+// caller omits MaxResults.
+const defaultEDSPageSize = 1000
 
 // --- CreateEventDataStore ---
 
@@ -129,14 +135,36 @@ func (h *Handler) handleUpdateEventDataStore(c *echo.Context, body []byte) error
 
 // --- ListEventDataStores ---
 
-func (h *Handler) handleListEventDataStores(c *echo.Context, _ []byte) error {
+type listEventDataStoresBody struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+func (h *Handler) handleListEventDataStores(c *echo.Context, body []byte) error {
+	var in listEventDataStoresBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("InvalidParameterCombinationException", "invalid request body"),
+			)
+		}
+	}
+
 	list := h.Backend.ListEventDataStores()
-	items := make([]map[string]any, 0, len(list))
-	for _, eds := range list {
+	p := page.New(list, in.NextToken, in.MaxResults, defaultEDSPageSize)
+
+	items := make([]map[string]any, 0, len(p.Data))
+	for _, eds := range p.Data {
 		items = append(items, edsToMap(eds))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"EventDataStores": items})
+	resp := map[string]any{"EventDataStores": items}
+	if p.Next != "" {
+		resp["NextToken"] = p.Next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // --- RestoreEventDataStore ---
@@ -269,8 +297,12 @@ func edsToMap(eds *EventDataStore) map[string]any {
 		"OrganizationEnabled":          eds.OrganizationEnabled,
 		"TerminationProtectionEnabled": eds.TerminationProtected,
 		"RetentionPeriod":              eds.RetentionPeriod,
-		"CreatedTimestamp":             eds.CreatedTimestamp,
-		"UpdatedTimestamp":             eds.UpdatedTimestamp,
+		// CreatedTimestamp/UpdatedTimestamp are unixTimestamp (epoch-seconds
+		// JSON number) per the awsjson1.1 deserializer, not a raw time.Time
+		// (which encoding/json would render as an RFC3339 string the real SDK
+		// client's ParseEpochSeconds cannot decode).
+		"CreatedTimestamp": float64(eds.CreatedTimestamp.Unix()),
+		"UpdatedTimestamp": float64(eds.UpdatedTimestamp.Unix()),
 	}
 	if eds.BillingMode != "" {
 		m["BillingMode"] = eds.BillingMode

@@ -198,7 +198,108 @@ func TestDescribeCertificate_ReturnsLastModifiedDate(t *testing.T) {
 	assert.NotEmpty(t, desc["lastModifiedDate"])
 }
 
-func TestListCertificates_IncludesLastModifiedDate(t *testing.T) {
+// TestDescribeCertificate_WireShape verifies DescribeCertificate's
+// certificateDescription includes the full real CertificateDescription field
+// set (ownedBy, generationId, certificateMode, customerVersion, validity),
+// field-diffed against aws-sdk-go-v2/service/iot@v1.76.0. These fields were
+// entirely missing before this pass (bd: gopherstack-jy57). It also verifies
+// creationDate/lastModifiedDate are JSON numbers of epoch seconds, not
+// RFC3339 strings (the restjson1 protocol's DateType wire format).
+func TestDescribeCertificate_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newR3Handler()
+	var createOut map[string]string
+	r3JSON(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
+		"certificateSigningRequest": "csr",
+		"setAsActive":               true,
+	}, &createOut)
+	certID := createOut["certificateId"]
+
+	var out map[string]any
+	code := r3JSON(t, h, http.MethodGet, "/certificates/"+certID, nil, &out)
+	require.Equal(t, http.StatusOK, code)
+	desc, ok := out["certificateDescription"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, "123456789012", desc["ownedBy"])
+	assert.Equal(t, "DEFAULT", desc["certificateMode"])
+	assert.NotEmpty(t, desc["generationId"])
+	assert.InDelta(t, float64(1), desc["customerVersion"], 0)
+	assert.NotContains(t, desc, "previousOwnedBy", "never-transferred cert must omit previousOwnedBy")
+	assert.NotContains(t, desc, "transferData", "never-transferred cert must omit transferData")
+
+	validity, ok := desc["validity"].(map[string]any)
+	require.True(t, ok, "expected validity object, got %v", desc["validity"])
+	assert.Greater(t, validity["notAfter"], validity["notBefore"])
+
+	for _, field := range []string{"creationDate", "lastModifiedDate"} {
+		_, isNumber := desc[field].(float64)
+		assert.True(t, isNumber, "%s must be a JSON number (epoch seconds), got %T: %v",
+			field, desc[field], desc[field])
+	}
+}
+
+// TestCertificateTransferLifecycle_WireShape exercises
+// TransferCertificate -> AcceptCertificateTransfer end to end and verifies
+// DescribeCertificate surfaces ownedBy/previousOwnedBy/transferData
+// correctly afterward. Regression test for the bug where
+// AcceptCertificateTransfer never validated the certificate existed or was
+// pending transfer, and never actually updated ownership.
+func TestCertificateTransferLifecycle_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h, b := newR3Handler()
+	cert, err := b.RegisterCertificate(&iot.RegisterCertificateInput{Status: "ACTIVE"})
+	require.NoError(t, err)
+
+	const originalOwner = "123456789012"
+
+	// Accepting before any transfer was initiated fails.
+	rec := doRefRequest(t, h, http.MethodPatch,
+		"/accept-certificate-transfer/"+cert.CertificateID, map[string]any{"setAsActive": true}, nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "accept with no pending transfer must fail: %s", rec.Body.String())
+
+	rec = doRefRequest(t, h, http.MethodPatch,
+		"/certificates/"+cert.CertificateID+"/transfer?targetAwsAccount=999999999999",
+		map[string]any{"transferMessage": "please take this cert"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRefRequest(t, h, http.MethodPatch,
+		"/accept-certificate-transfer/"+cert.CertificateID, map[string]any{"setAsActive": true}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var out map[string]any
+	code := r3JSON(t, h, http.MethodGet, "/certificates/"+cert.CertificateID, nil, &out)
+	require.Equal(t, http.StatusOK, code)
+	desc, ok := out["certificateDescription"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, "999999999999", desc["ownedBy"])
+	assert.Equal(t, originalOwner, desc["previousOwnedBy"])
+	assert.Equal(t, "ACTIVE", desc["status"])
+
+	transferData, ok := desc["transferData"].(map[string]any)
+	require.True(t, ok, "expected transferData object, got %v", desc["transferData"])
+	assert.Equal(t, "please take this cert", transferData["transferMessage"])
+	assert.NotEmpty(t, transferData["acceptDate"])
+
+	// Accepting a second time now fails: the pending transfer was consumed.
+	rec = doRefRequest(t, h, http.MethodPatch,
+		"/accept-certificate-transfer/"+cert.CertificateID, map[string]any{"setAsActive": true}, nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestListCertificates_WireShape verifies ListCertificates returns the real
+// AWS IoT "Certificate" summary shape (certificateArn, certificateId,
+// certificateMode, creationDate, status), field-diffed against
+// aws-sdk-go-v2/service/iot@v1.76.0's awsRestjson1_deserializeDocumentCertificate.
+// Unlike DescribeCertificate's richer CertificateDescription,
+// ListCertificates does NOT include lastModifiedDate -- a previous version
+// of this test incorrectly asserted the opposite. It also verifies
+// creationDate is a JSON number of epoch seconds (not an RFC3339 string),
+// since the restjson1 protocol's DateType wire format requires a number.
+func TestListCertificates_WireShape(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newR3Handler()
@@ -213,7 +314,17 @@ func TestListCertificates_IncludesLastModifiedDate(t *testing.T) {
 	code := r3JSON(t, h, http.MethodGet, "/certificates", nil, &out)
 	require.Equal(t, http.StatusOK, code)
 	require.Len(t, out.Certificates, 1)
-	assert.NotEmpty(t, out.Certificates[0]["lastModifiedDate"])
+
+	cert := out.Certificates[0]
+	assert.NotEmpty(t, cert["certificateId"])
+	assert.NotEmpty(t, cert["certificateArn"])
+	assert.Equal(t, "ACTIVE", cert["status"])
+	assert.Equal(t, "DEFAULT", cert["certificateMode"])
+	assert.NotContains(t, cert, "lastModifiedDate")
+
+	_, isNumber := cert["creationDate"].(float64)
+	assert.True(t, isNumber, "creationDate must be a JSON number (epoch seconds), got %T: %v",
+		cert["creationDate"], cert["creationDate"])
 }
 
 func TestUpdateCertificate_StatusTransitions(t *testing.T) {
@@ -555,7 +666,7 @@ func TestListOutgoingCertificates(t *testing.T) {
 
 	// PENDING_TRANSFER is set via TransferCertificate, matching real AWS
 	// behavior (UpdateCertificate rejects that status directly).
-	require.NoError(t, b.TransferCertificate(cert.CertificateID, "123456789012"))
+	require.NoError(t, b.TransferCertificate(cert.CertificateID, "123456789012", ""))
 
 	rec = doRefRequest(t, h, http.MethodGet, "/certificates-out-going", nil, nil)
 	require.Equal(t, http.StatusOK, rec.Code)

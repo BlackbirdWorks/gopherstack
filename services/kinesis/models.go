@@ -141,6 +141,15 @@ type Stream struct {
 
 // Shard represents a single Kinesis shard within a stream.
 type Shard struct {
+	// StartedAt is when this shard became open (stream creation for the initial
+	// shard set, or reshard time for shards born from SplitShard/MergeShards/
+	// UpdateShardCount/UpdateStreamMode). Used by ListShards' AT_TIMESTAMP/
+	// FROM_TIMESTAMP/AT_TRIM_HORIZON ShardFilter to bound shard lineage by time.
+	StartedAt time.Time `json:"startedAt"`
+	// ClosedAt is when this shard was closed (zero if still open). Populated
+	// alongside Closed by closeShard. omitempty has no effect on a struct
+	// field like time.Time, so it is intentionally omitted here.
+	ClosedAt              time.Time    `json:"closedAt"`
 	ID                    string       `json:"id"`
 	HashKeyRangeStart     string       `json:"hashKeyRangeStart"`
 	HashKeyRangeEnd       string       `json:"hashKeyRangeEnd"`
@@ -149,6 +158,14 @@ type Shard struct {
 	Records               shardRecords `json:"records"`
 	NextSeq               uint64       `json:"nextSeq"`
 	Closed                bool         `json:"closed,omitempty"`
+}
+
+// closeShard marks a shard CLOSED and records the closure time, keeping
+// Closed/ClosedAt in sync everywhere a shard is retired (SplitShard,
+// MergeShards, UpdateShardCount, UpdateStreamMode's mode-transition reshard).
+func closeShard(s *Shard) {
+	s.Closed = true
+	s.ClosedAt = time.Now()
 }
 
 // Record represents a single Kinesis data record.
@@ -292,8 +309,11 @@ type PutRecordsOutput struct {
 }
 
 // GetShardIteratorInput is the input for GetShardIterator.
+// Timestamp is a pointer so a genuinely omitted value (nil) can be
+// distinguished from an explicit epoch-zero timestamp; required (non-nil)
+// when ShardIteratorType is AT_TIMESTAMP.
 type GetShardIteratorInput struct {
-	Timestamp              time.Time
+	Timestamp              *time.Time
 	StreamName             string
 	ShardID                string
 	ShardIteratorType      string
@@ -328,17 +348,14 @@ type GetRecordsOutput struct {
 
 // ListShardsInput is the input for ListShards.
 type ListShardsInput struct {
+	ShardFilterTimestamp  *time.Time
 	StreamName            string
 	NextToken             string
 	ExclusiveStartShardID string
-	// ShardFilter controls which shards are returned.
-	// Supported values: "FROM_TRIM_HORIZON" (all shards including closed),
-	// "AT_LATEST" (open shards only), "AFTER_SHARD_ID", "AT_TIMESTAMP", "FROM_TIMESTAMP".
-	// Empty string defaults to open shards only.
-	ShardFilter        string
-	ShardFilterType    string
-	ShardFilterShardID string
-	MaxResults         int
+	ShardFilter           string
+	ShardFilterType       string
+	ShardFilterShardID    string
+	MaxResults            int
 }
 
 // ListShardsOutput is the output for ListShards.

@@ -106,7 +106,7 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) (
 			case <-svcCtx.Done():
 				return
 			}
-			b.deliverEvents(svcCtx, region, entriesCopy, dtCopy, delivTimeout)
+			b.deliverEvents(svcCtx, region, entriesCopy, dtCopy, delivTimeout, nil)
 		})
 	}
 

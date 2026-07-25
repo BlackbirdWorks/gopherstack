@@ -175,3 +175,91 @@ func TestHandleConfigureLogs(t *testing.T) {
 		})
 	}
 }
+
+// TestConfigureLogsForChannel_PersistsToDescribe verifies ConfigureLogsForChannel's
+// LogTypes are queryable back from DescribeChannel's LogConfiguration, not just
+// echoed by the configure call itself (the gap PARITY.md flagged: the prior
+// implementation validated + echoed but never wrote anywhere queryable).
+func TestConfigureLogsForChannel_PersistsToDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestChannel(t, h)
+
+	rec := doRequest(t, h, http.MethodPut, "/configureLogs/channel", map[string]any{
+		"ChannelName": "ch1",
+		"LogTypes":    []any{"AS_RUN"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/channel/ch1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	logCfg, ok := resp["LogConfiguration"].(map[string]any)
+	require.True(t, ok, "DescribeChannel must include LogConfiguration")
+	logTypes, _ := logCfg["LogTypes"].([]any)
+	require.Len(t, logTypes, 1)
+	assert.Equal(t, "AS_RUN", logTypes[0])
+}
+
+// TestConfigureLogsForPlaybackConfiguration_PersistsToGet verifies
+// ConfigureLogsForPlaybackConfiguration's settings are queryable back from
+// GetPlaybackConfiguration's LogConfiguration.
+func TestConfigureLogsForPlaybackConfiguration_PersistsToGet(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestPlaybackConfig(t, h, "pc1")
+
+	rec := doRequest(t, h, http.MethodPut, "/configureLogs/playbackConfiguration", map[string]any{
+		"PlaybackConfigurationName": "pc1",
+		"PercentEnabled":            float64(75),
+		"EnabledLoggingStrategies":  []any{"VENDED_LOGS"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/playbackConfiguration/pc1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	logCfg, ok := resp["LogConfiguration"].(map[string]any)
+	require.True(t, ok, "GetPlaybackConfiguration must include LogConfiguration")
+	assert.InDelta(t, float64(75), logCfg["PercentEnabled"], 0.0001)
+	strategies, _ := logCfg["EnabledLoggingStrategies"].([]any)
+	require.Len(t, strategies, 1)
+	assert.Equal(t, "VENDED_LOGS", strategies[0])
+}
+
+// TestConfigureLogsForPlaybackConfiguration_SurvivesRePut verifies a
+// logging configuration set via ConfigureLogsForPlaybackConfiguration is not
+// reset by a subsequent PutPlaybackConfiguration on the same name, matching
+// real MediaTailor (logging config is managed by its own operation).
+func TestConfigureLogsForPlaybackConfiguration_SurvivesRePut(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestPlaybackConfig(t, h, "pc1")
+
+	rec := doRequest(t, h, http.MethodPut, "/configureLogs/playbackConfiguration", map[string]any{
+		"PlaybackConfigurationName": "pc1",
+		"PercentEnabled":            float64(40),
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	createTestPlaybackConfig(t, h, "pc1")
+
+	rec = doRequest(t, h, http.MethodGet, "/playbackConfiguration/pc1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	logCfg, ok := resp["LogConfiguration"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, float64(40), logCfg["PercentEnabled"], 0.0001)
+}

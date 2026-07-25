@@ -58,7 +58,7 @@ func TestProtectedResourceLastBackupTimeEpoch(t *testing.T) {
 			if !tc.createJob {
 				// A resource that was never backed up is not "protected" --
 				// AWS returns ResourceNotFoundException, not a fabricated record.
-				assert.Equal(t, http.StatusNotFound, resp.Code)
+				assert.Equal(t, http.StatusBadRequest, resp.Code)
 
 				return
 			}

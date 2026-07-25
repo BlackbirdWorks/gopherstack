@@ -125,6 +125,7 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 		ConfigurationSetName: in.ConfigurationSetName,
 		Tags:                 in.Tags,
 		ReturnPath:           in.ReturnPath,
+		ReturnPathArn:        in.ReturnPathArn,
 		SourceArn:            in.SourceArn,
 		Timestamp:            time.Now(),
 	})
@@ -188,6 +189,7 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 		ConfigurationSetName: in.ConfigurationSetName,
 		Tags:                 in.Tags,
 		ReturnPath:           in.ReturnPath,
+		ReturnPathArn:        in.ReturnPathArn,
 		SourceArn:            in.SourceArn,
 		Timestamp:            time.Now(),
 	})
@@ -273,52 +275,52 @@ func (b *InMemoryBackend) SendBounce(originalMsgID, bounceSender string, recipie
 
 // SendBulkTemplatedEmail sends one email per destination and returns a message
 // ID for each. Each destination is rendered with the request-level
-// defaultTemplateData merged with that destination's ReplacementTemplateData,
+// DefaultTemplateData merged with that destination's ReplacementTemplateData,
 // matching AWS SES SendBulkTemplatedEmail semantics where replacement values
-// override defaults on a per-recipient basis. configurationSetName, replyTo,
-// returnPath and sourceArn mirror the corresponding SendBulkTemplatedEmailInput
-// members and are threaded through to every generated Email record exactly as
-// SendEmail/SendTemplatedEmail do for a single-destination send.
-func (b *InMemoryBackend) SendBulkTemplatedEmail(
-	source, templateName, defaultTemplateData, configurationSetName, returnPath, sourceArn string,
-	replyTo []string,
-	destinations []BulkEmailDestination,
-) ([]string, error) {
-	if strings.TrimSpace(source) == "" {
+// override defaults on a per-recipient basis. ConfigurationSetName, ReplyTo,
+// ReturnPath, ReturnPathArn and SourceArn mirror the corresponding
+// SendBulkTemplatedEmailInput members and are threaded through to every
+// generated Email record exactly as SendEmail/SendTemplatedEmail do for a
+// single-destination send. Message tags follow the same per-destination
+// override pattern as template data: a destination's ReplacementTags, when
+// non-empty, is used in place of (not merged with) the request-level
+// DefaultTags for that destination's stored Email record.
+func (b *InMemoryBackend) SendBulkTemplatedEmail(in SendBulkTemplatedEmailInput) ([]string, error) {
+	if strings.TrimSpace(in.Source) == "" {
 		return nil, fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
-	if strings.TrimSpace(templateName) == "" {
+	if strings.TrimSpace(in.TemplateName) == "" {
 		return nil, fmt.Errorf("%w: Template is required", ErrInvalidParameter)
 	}
 
 	// Validate the template exists before touching any destination so a missing
 	// template fails fast with TemplateDoesNotExist even for an empty batch,
 	// matching real SES which validates the template at request time.
-	if _, err := b.GetTemplate(templateName); err != nil {
+	if _, err := b.GetTemplate(in.TemplateName); err != nil {
 		return nil, err
 	}
 
 	// Validate the configuration set (when supplied) exists up front, matching
 	// the same ConfigurationSetDoesNotExist precondition enforced by SendEmail
 	// and SendTemplatedEmail.
-	if configurationSetName != "" {
+	if in.ConfigurationSetName != "" {
 		b.mu.RLock("SendBulkTemplatedEmail")
-		exists := b.configSets.Has(configurationSetName)
+		exists := b.configSets.Has(in.ConfigurationSetName)
 		b.mu.RUnlock()
 
 		if !exists {
-			return nil, fmt.Errorf("%w: %s", ErrConfigSetNotFound, configurationSetName)
+			return nil, fmt.Errorf("%w: %s", ErrConfigSetNotFound, in.ConfigurationSetName)
 		}
 	}
 
-	msgIDs := make([]string, 0, len(destinations))
+	msgIDs := make([]string, 0, len(in.Destinations))
 
-	for _, d := range destinations {
+	for _, d := range in.Destinations {
 		// Each destination merges its replacement data over the request default.
 		// We pre-render the variables here and pass the merged JSON down so
 		// SendTemplatedEmail performs the substitution against stored parts.
-		merged, err := mergeTemplateData(defaultTemplateData, d.ReplacementTemplateData)
+		merged, err := mergeTemplateData(in.DefaultTemplateData, d.ReplacementTemplateData)
 		if err != nil {
 			return nil, err
 		}
@@ -328,17 +330,24 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(
 			return nil, fmt.Errorf("%w: failed to encode template data", ErrInvalidParameter)
 		}
 
+		tags := in.DefaultTags
+		if len(d.ReplacementTags) > 0 {
+			tags = d.ReplacementTags
+		}
+
 		msgID, err := b.SendTemplatedEmail(SendTemplatedEmailInput{
-			From:                 source,
+			From:                 in.Source,
 			To:                   d.To,
 			Cc:                   d.Cc,
 			Bcc:                  d.Bcc,
-			ReplyTo:              replyTo,
-			TemplateName:         templateName,
+			ReplyTo:              in.ReplyTo,
+			TemplateName:         in.TemplateName,
 			TemplateData:         string(mergedJSON),
-			ConfigurationSetName: configurationSetName,
-			ReturnPath:           returnPath,
-			SourceArn:            sourceArn,
+			ConfigurationSetName: in.ConfigurationSetName,
+			Tags:                 tags,
+			ReturnPath:           in.ReturnPath,
+			ReturnPathArn:        in.ReturnPathArn,
+			SourceArn:            in.SourceArn,
 		})
 		if err != nil {
 			return nil, err

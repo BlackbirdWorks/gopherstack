@@ -31,6 +31,11 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 		Policy:                 input.Policy,
 		APIKeySource:           input.APIKeySource,
 		MinimumCompressionSize: input.MinimumCompressionSize,
+		// APIStatus is AWS-managed and always AVAILABLE: gopherstack creates
+		// RestApis synchronously with no UPDATING/PENDING/FAILED transition.
+		APIStatus:                 statusAvailable,
+		DisableExecuteAPIEndpoint: input.DisableExecuteAPIEndpoint,
+		EndpointAccessMode:        input.EndpointAccessMode,
 	}
 
 	root := &Resource{
@@ -142,8 +147,11 @@ func (b *InMemoryBackend) UpdateRestAPI(restAPIID string, input UpdateRestAPIInp
 		api.Name = input.Name
 	}
 
-	if input.Description != "" {
-		api.Description = input.Description
+	// Description is a *string (see UpdateRestAPIInput's doc comment): a
+	// non-nil pointer means the PATCH touched this field at all, including an
+	// explicit "remove" (which patch.go encodes as a pointer to "").
+	if input.Description != nil {
+		api.Description = *input.Description
 	}
 
 	if input.Policy != "" {
@@ -152,6 +160,14 @@ func (b *InMemoryBackend) UpdateRestAPI(restAPIID string, input UpdateRestAPIInp
 
 	if input.APIKeySource != "" {
 		api.APIKeySource = input.APIKeySource
+	}
+
+	if input.EndpointAccessMode != "" {
+		api.EndpointAccessMode = input.EndpointAccessMode
+	}
+
+	if input.DisableExecuteAPIEndpoint != nil {
+		api.DisableExecuteAPIEndpoint = *input.DisableExecuteAPIEndpoint
 	}
 
 	if input.BinaryMediaTypes != nil {

@@ -67,7 +67,14 @@ func TestAccountSettings_DefaultComputeUnits(t *testing.T) {
 	assert.Equal(t, "COMPUTE_UNITS", resp["QueryPricingModel"])
 }
 
-func TestAccountSettings_LastUpdatedTimeSetOnUpdate(t *testing.T) {
+// TestAccountSettings_NoInventedLastUpdatedTimeField verifies the response
+// never includes a "LastUpdatedTime" field: neither
+// DescribeAccountSettingsOutput nor UpdateAccountSettingsOutput in the real
+// aws-sdk-go-v2/service/timestreamquery API shape defines one. An earlier
+// version of this emulator fabricated one, which -- while harmless to real
+// clients (unknown JSON fields are ignored) -- was wire-shape drift with no
+// equivalent in the real API.
+func TestAccountSettings_NoInventedLastUpdatedTimeField(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -76,7 +83,8 @@ func TestAccountSettings_LastUpdatedTimeSetOnUpdate(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	resp := parseResponse(t, rec)
-	assert.NotNil(t, resp["LastUpdatedTime"], "LastUpdatedTime must be set after update")
+	_, hasLastUpdatedTime := resp["LastUpdatedTime"]
+	assert.False(t, hasLastUpdatedTime, "LastUpdatedTime has no equivalent in the real API shape")
 }
 
 func TestTimestreamQueryHandler_UpdateAccountSettings(t *testing.T) {
@@ -380,4 +388,149 @@ func TestInMemoryBackend_UpdateAccountSettings_QueryComputeRoundTrip(t *testing.
 	described := backend.DescribeAccountSettings(t.Context())
 	require.NotNil(t, described.QueryCompute)
 	assert.Equal(t, "ON_DEMAND", described.QueryCompute.ComputeMode)
+}
+
+// TestUpdateAccountSettings_TCUMultipleOfFourValidation verifies MaxQueryTCU
+// and QueryCompute.ProvisionedCapacity.TargetQueryTCU are rejected unless
+// they fall in [4, 1000] and are a multiple of 4, matching real AWS's
+// documented MaxQueryTCU constraint ("you must set a minimum capacity of 4
+// TCU. You can set the maximum number of TCU in multiples of 4 ... maximum
+// value supported ... is 1000").
+func TestUpdateAccountSettings_TCUMultipleOfFourValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{name: "MaxQueryTCU multiple of 4 is valid", body: map[string]any{"MaxQueryTCU": 8}, wantCode: http.StatusOK},
+		{
+			name:     "MaxQueryTCU not a multiple of 4 is rejected",
+			body:     map[string]any{"MaxQueryTCU": 5},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "MaxQueryTCU below minimum is rejected",
+			body:     map[string]any{"MaxQueryTCU": 0},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "MaxQueryTCU above maximum is rejected",
+			body:     map[string]any{"MaxQueryTCU": 1004},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "ProvisionedCapacity.TargetQueryTCU not a multiple of 4 is rejected",
+			body: map[string]any{
+				"QueryCompute": map[string]any{
+					"ComputeMode":         "PROVISIONED",
+					"ProvisionedCapacity": map[string]any{"TargetQueryTCU": 7},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doRequest(t, h, "UpdateAccountSettings", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				resp := parseResponse(t, rec)
+				assert.Equal(t, "ValidationException", resp["__type"])
+			}
+		})
+	}
+}
+
+// TestUpdateAccountSettings_NotificationConfiguration verifies
+// QueryCompute.ProvisionedCapacity.NotificationConfiguration round-trips on
+// the wire (RoleArn + nested SnsConfiguration.TopicArn), is only present when
+// ComputeMode is PROVISIONED, and requires RoleArn when supplied -- mirroring
+// the real SDK's client-side validateAccountSettingsNotificationConfiguration.
+func TestUpdateAccountSettings_NotificationConfiguration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("round trips RoleArn and SnsConfiguration.TopicArn", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler()
+		rec := doRequest(t, h, "UpdateAccountSettings", map[string]any{
+			"QueryCompute": map[string]any{
+				"ComputeMode": "PROVISIONED",
+				"ProvisionedCapacity": map[string]any{
+					"TargetQueryTCU": 8,
+					"NotificationConfiguration": map[string]any{
+						"RoleArn": "arn:aws:iam::123456789012:role/notify",
+						"SnsConfiguration": map[string]any{
+							"TopicArn": "arn:aws:sns:us-east-1:123456789012:topic",
+						},
+					},
+				},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		resp := parseResponse(t, rec)
+		qc := resp["QueryCompute"].(map[string]any)
+		pc := qc["ProvisionedCapacity"].(map[string]any)
+		nc, ok := pc["NotificationConfiguration"].(map[string]any)
+		require.True(t, ok, "NotificationConfiguration must be present")
+		assert.Equal(t, "arn:aws:iam::123456789012:role/notify", nc["RoleArn"])
+
+		sns := nc["SnsConfiguration"].(map[string]any)
+		assert.Equal(t, "arn:aws:sns:us-east-1:123456789012:topic", sns["TopicArn"])
+
+		// Persists across Describe.
+		rec = doRequest(t, h, "DescribeAccountSettings", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp = parseResponse(t, rec)
+		qc = resp["QueryCompute"].(map[string]any)
+		pc = qc["ProvisionedCapacity"].(map[string]any)
+		nc, ok = pc["NotificationConfiguration"].(map[string]any)
+		require.True(t, ok, "NotificationConfiguration must persist across Describe")
+		assert.Equal(t, "arn:aws:iam::123456789012:role/notify", nc["RoleArn"])
+	})
+
+	t.Run("missing RoleArn is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler()
+		rec := doRequest(t, h, "UpdateAccountSettings", map[string]any{
+			"QueryCompute": map[string]any{
+				"ComputeMode": "PROVISIONED",
+				"ProvisionedCapacity": map[string]any{
+					"TargetQueryTCU": 8,
+					"NotificationConfiguration": map[string]any{
+						"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123456789012:topic"},
+					},
+				},
+			},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("missing SnsConfiguration.TopicArn is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler()
+		rec := doRequest(t, h, "UpdateAccountSettings", map[string]any{
+			"QueryCompute": map[string]any{
+				"ComputeMode": "PROVISIONED",
+				"ProvisionedCapacity": map[string]any{
+					"TargetQueryTCU": 8,
+					"NotificationConfiguration": map[string]any{
+						"RoleArn":          "arn:aws:iam::123456789012:role/notify",
+						"SnsConfiguration": map[string]any{"TopicArn": ""},
+					},
+				},
+			},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
 }

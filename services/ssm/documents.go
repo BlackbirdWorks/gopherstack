@@ -193,6 +193,43 @@ func resolveDocumentVersionSelector(doc Document, requested string) string {
 	}
 }
 
+// evictOldestDocumentVersions trims vers (oldest-first, insertion order) down
+// to at most maxCap entries, evicting the oldest first — except the version
+// currently pinned as the document's DefaultVersion, which is never evicted.
+//
+// Without this guard, a long-lived document (1000+ UpdateDocument calls after
+// UpdateDocumentDefaultVersion pinned an old version) could silently evict
+// the very version $DEFAULT points at: GetDocument/DescribeDocument would
+// then return ErrInvalidDocumentVersion for an explicit or omitted $DEFAULT
+// selector instead of resolving it, orphaning the pointer. Fixes bd
+// gopherstack-1hg. Mirrors PutParameter's labeled-parameter-version eviction
+// guard (parameters.go) — same "never silently destroy a version a caller
+// has pinned a reference to" principle, applied to documents. When the
+// protected version happens to be among the oldest, the store may retain one
+// extra entry beyond maxCap; that is the accepted tradeoff for never
+// orphaning $DEFAULT.
+func evictOldestDocumentVersions(vers []DocumentVersion, defaultVersion string, maxCap int) []DocumentVersion {
+	if len(vers) <= maxCap {
+		return vers
+	}
+
+	excess := len(vers) - maxCap
+	kept := make([]DocumentVersion, 0, len(vers))
+	evicted := 0
+
+	for _, v := range vers {
+		if evicted < excess && v.DocumentVersion != defaultVersion {
+			evicted++
+
+			continue
+		}
+
+		kept = append(kept, v)
+	}
+
+	return kept
+}
+
 // GetDocument retrieves a document's content.
 func (b *InMemoryBackend) GetDocument(
 	ctx context.Context,
@@ -412,8 +449,9 @@ func (b *InMemoryBackend) UpdateDocument(
 	})
 
 	if len(versionStore[input.Name]) > maxDocumentVersionCap {
-		vers := versionStore[input.Name]
-		versionStore[input.Name] = vers[len(vers)-maxDocumentVersionCap:]
+		versionStore[input.Name] = evictOldestDocumentVersions(
+			versionStore[input.Name], doc.DefaultVersion, maxDocumentVersionCap,
+		)
 	}
 
 	return &UpdateDocumentOutput{DocumentDescription: doc.asDocumentDescription()}, nil

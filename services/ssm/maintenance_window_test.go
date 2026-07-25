@@ -336,6 +336,46 @@ func TestBackendOps_RegisterTaskWithMaintenanceWindow(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.WindowTaskID)
 }
+
+// TestRegisterTaskWithMaintenanceWindow_TargetsRoundTrip locks in the fix for
+// a real gap: RegisterTaskWithMaintenanceWindowInput.Targets (confirmed
+// against aws-sdk-go-v2/service/ssm@v1.71.0's api_op_RegisterTaskWithMaintenanceWindow.go
+// -- "the targets (either managed nodes or maintenance window targets)")
+// was previously accepted by the wire shape but silently discarded, so a
+// registered task could never record which nodes/window-targets it applies
+// to. Also covers UpdateMaintenanceWindowTask persisting a Targets change.
+func TestRegisterTaskWithMaintenanceWindow_TargetsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	ctx := context.TODO()
+	wid := createTestWindow(t, b)
+
+	registered, err := b.RegisterTaskWithMaintenanceWindow(ctx, &ssm.RegisterTaskWithMaintenanceWindowInput{
+		WindowID: wid,
+		TaskArn:  "AWS-RunShellScript",
+		TaskType: "RUN_COMMAND",
+		Targets:  []ssm.WindowTarget{{Key: "WindowTargetIds", Values: []string{"wt-abc"}}},
+	})
+	require.NoError(t, err)
+
+	described, err := b.DescribeMaintenanceWindowTasks(ctx, &ssm.DescribeMaintenanceWindowTasksInput{WindowID: wid})
+	require.NoError(t, err)
+	require.Len(t, described.Tasks, 1)
+	require.Len(t, described.Tasks[0].Targets, 1)
+	assert.Equal(t, "WindowTargetIds", described.Tasks[0].Targets[0].Key)
+	assert.Equal(t, []string{"wt-abc"}, described.Tasks[0].Targets[0].Values)
+
+	updated, err := b.UpdateMaintenanceWindowTask(ctx, &ssm.UpdateMaintenanceWindowTaskInput{
+		WindowID:     wid,
+		WindowTaskID: registered.WindowTaskID,
+		Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-xyz"}}},
+	})
+	require.NoError(t, err)
+	require.Len(t, updated.Targets, 1)
+	assert.Equal(t, "InstanceIds", updated.Targets[0].Key)
+}
+
 func TestBackendOps_DeregisterTargetFromMaintenanceWindow(t *testing.T) {
 	t.Parallel()
 

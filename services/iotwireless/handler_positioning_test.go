@@ -43,8 +43,14 @@ func TestHandler_Position(t *testing.T) {
 	pos, ok = getResp["Position"].([]any)
 	require.True(t, ok)
 	assert.Equal(t, []any{47.6, -122.3, 100.0}, pos)
-	assert.InDelta(t, 0.0, getResp["Accuracy"], 0.0001,
-		"Accuracy 0.0 signals position data is available, per AWS docs")
+
+	// Accuracy is an object ({HorizontalAccuracy, VerticalAccuracy}), not a
+	// bare scalar -- confirmed against types.Accuracy. Both sub-fields 0.0
+	// signal position data is available, per AWS docs.
+	accuracy, ok := getResp["Accuracy"].(map[string]any)
+	require.True(t, ok, "Accuracy must be an object, not a scalar")
+	assert.InDelta(t, 0.0, accuracy["HorizontalAccuracy"], 0.0001)
+	assert.InDelta(t, 0.0, accuracy["VerticalAccuracy"], 0.0001)
 
 	// Get position configuration (never set): correct empty shape.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/position-configurations/resource-123", "")

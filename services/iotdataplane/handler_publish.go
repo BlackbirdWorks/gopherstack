@@ -58,6 +58,68 @@ func parseRetainFlag(retainStr string) bool {
 	return v == "true" || v == "1"
 }
 
+// MQTT5 Publish header names, per the real SDK's serializer
+// (awsRestjson1_serializeOpHttpBindingsPublishInput in
+// aws-sdk-go-v2/service/iotdataplane/serializers.go). contentType,
+// messageExpiry, responseTopic, and qos/retain are query params instead --
+// see parseMQTT5PublishParams.
+const (
+	headerMQTTCorrelationData        = "X-Amz-Mqtt5-Correlation-Data"
+	headerMQTTPayloadFormatIndicator = "X-Amz-Mqtt5-Payload-Format-Indicator"
+	headerMQTTUserProperties         = "X-Amz-Mqtt5-User-Properties"
+)
+
+// mqtt5PublishParams holds the PublishInput fields beyond topic/qos/payload/retain.
+// All are optional. Of these, only UserProperties currently has an AWS-visible
+// effect in gopherstack: it's persisted onto the retained message (mirrors
+// GetRetainedMessageOutput.UserProperties) when retain=true. The others aren't
+// forwarded to live MQTT subscribers -- see the Publish/broker-wiring gap noted
+// in PARITY.md; there is no other AWS-modeled response surface that echoes them.
+type mqtt5PublishParams struct {
+	ContentType            string
+	CorrelationData        string
+	PayloadFormatIndicator string
+	ResponseTopic          string
+	UserProperties         []byte
+	MessageExpiry          int64
+}
+
+// parseMQTT5PublishParams parses and validates the optional MQTT5 Publish
+// fields from the request's query string and headers.
+func parseMQTT5PublishParams(c *echo.Context) (mqtt5PublishParams, error) {
+	q := c.Request().URL.Query()
+	reqHeader := c.Request().Header
+
+	messageExpiry, err := parseMessageExpiry(q.Get("messageExpiry"))
+	if err != nil {
+		return mqtt5PublishParams{}, err
+	}
+
+	responseTopic := q.Get("responseTopic")
+	if topicErr := validateResponseTopic(responseTopic); topicErr != nil {
+		return mqtt5PublishParams{}, topicErr
+	}
+
+	payloadFormatIndicator := reqHeader.Get(headerMQTTPayloadFormatIndicator)
+	if pfiErr := validatePayloadFormatIndicator(payloadFormatIndicator); pfiErr != nil {
+		return mqtt5PublishParams{}, pfiErr
+	}
+
+	userProperties, err := decodeUserProperties(reqHeader.Get(headerMQTTUserProperties))
+	if err != nil {
+		return mqtt5PublishParams{}, err
+	}
+
+	return mqtt5PublishParams{
+		ContentType:            q.Get("contentType"),
+		CorrelationData:        reqHeader.Get(headerMQTTCorrelationData),
+		MessageExpiry:          messageExpiry,
+		PayloadFormatIndicator: payloadFormatIndicator,
+		ResponseTopic:          responseTopic,
+		UserProperties:         userProperties,
+	}, nil
+}
+
 // handlePublish processes POST /topics/{topic} requests.
 func (h *Handler) handlePublish(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
@@ -78,6 +140,11 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 	qos, qosErr := parsePublishQoS(c.Request().URL.Query().Get("qos"))
 	if qosErr != nil {
 		return h.handleError(c, qosErr)
+	}
+
+	mqtt5, mqtt5Err := parseMQTT5PublishParams(c)
+	if mqtt5Err != nil {
+		return h.handleError(c, mqtt5Err)
 	}
 
 	retain := parseRetainFlag(c.Request().URL.Query().Get("retain"))
@@ -102,15 +169,19 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		}
 	}
 
-	return h.handleRetain(c, topic, payload, qos, retain)
+	return h.handleRetain(c, topic, payload, qos, retain, mqtt5.UserProperties)
 }
 
 // handleRetain stores a retained message when ?retain=true/1 is set.
-func (h *Handler) handleRetain(c *echo.Context, topic string, payload []byte, qos int32, retain bool) error {
+// userProperties is the decoded MQTT5 user properties blob from the Publish
+// request (see mqtt5PublishParams), persisted alongside the retained message.
+func (h *Handler) handleRetain(
+	c *echo.Context, topic string, payload []byte, qos int32, retain bool, userProperties []byte,
+) error {
 	log := logger.Load(c.Request().Context())
 
 	if retain {
-		if storeErr := h.Backend.StoreRetainedMessage(topic, payload, qos); storeErr != nil {
+		if storeErr := h.Backend.StoreRetainedMessage(topic, payload, qos, userProperties); storeErr != nil {
 			if errors.Is(storeErr, ErrValidation) {
 				return h.handleError(c, storeErr)
 			}

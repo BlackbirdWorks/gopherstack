@@ -38,18 +38,40 @@ func staticReservedInstanceOfferings() []*ReservedInstanceOffering {
 	}
 }
 
-// DescribeReservedInstanceOfferings returns available reserved instance offerings.
-func (b *InMemoryBackend) DescribeReservedInstanceOfferings() []*ReservedInstanceOffering {
-	return staticReservedInstanceOfferings()
+// DescribeReservedInstanceOfferings returns available reserved instance
+// offerings, optionally filtered to a single offering ID (the "offeringId"
+// query parameter on the real DescribeReservedInstanceOfferings operation).
+func (b *InMemoryBackend) DescribeReservedInstanceOfferings(offeringID string) []*ReservedInstanceOffering {
+	all := staticReservedInstanceOfferings()
+	if offeringID == "" {
+		return all
+	}
+
+	out := make([]*ReservedInstanceOffering, 0, 1)
+
+	for _, o := range all {
+		if o.ReservedInstanceOfferingID == offeringID {
+			out = append(out, o)
+		}
+	}
+
+	return out
 }
 
-// DescribeReservedInstances returns all purchased reserved instances.
-func (b *InMemoryBackend) DescribeReservedInstances() []*ReservedInstance {
+// DescribeReservedInstances returns purchased reserved instances, optionally
+// filtered to a single reservation ID (the "reservationId" query parameter on
+// the real DescribeReservedInstances operation).
+func (b *InMemoryBackend) DescribeReservedInstances(reservationID string) []*ReservedInstance {
 	b.mu.RLock("DescribeReservedInstances")
 	defer b.mu.RUnlock()
 
 	out := make([]*ReservedInstance, 0, b.reservedInstances.Len())
+
 	for _, ri := range b.reservedInstances.All() {
+		if reservationID != "" && ri.ReservedInstanceID != reservationID {
+			continue
+		}
+
 		cp := *ri
 		out = append(out, &cp)
 	}
@@ -97,7 +119,7 @@ func (b *InMemoryBackend) PurchaseReservedInstanceOffering(
 		InstanceCount:              count,
 		CurrencyCode:               offering.CurrencyCode,
 		PaymentOption:              offering.PaymentOption,
-		State:                      pkgStateActive,
+		State:                      reservedInstanceStateActive,
 		StartTime:                  float64(time.Now().Unix()),
 	}
 	b.reservedInstances.Put(ri)

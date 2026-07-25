@@ -25,13 +25,13 @@ func (h *Handler) handleCreateBackupSelection(c *echo.Context, planID string, bo
 	if planID == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupPlanId is required"),
+			errResp("MissingParameterValueException", "BackupPlanId is required"),
 		)
 	}
 
 	var in createBackupSelectionBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	sel, err := h.Backend.CreateBackupSelection(
@@ -59,7 +59,7 @@ func (h *Handler) handleGetBackupSelection(c *echo.Context, resource string) err
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 
@@ -105,7 +105,7 @@ func (h *Handler) handleListBackupSelections(c *echo.Context, planID string) err
 	if planID == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupPlanId is required"),
+			errResp("MissingParameterValueException", "BackupPlanId is required"),
 		)
 	}
 
@@ -136,7 +136,7 @@ func (h *Handler) handleDeleteBackupSelection(c *echo.Context, resource string) 
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 

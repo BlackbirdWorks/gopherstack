@@ -111,7 +111,12 @@ func (b *InMemoryBackend) UpdateTargetGroup(
 	return tg.toTargetGroup(), nil
 }
 
-// DeleteTargetGroup deletes a target group.
+// DeleteTargetGroup deletes a target group. Real AWS rejects the delete with
+// ConflictException while the target group is still referenced by a
+// listener rule (or, per the doc comment, while creation is still in
+// progress -- not applicable here, since this backend's Create paths are
+// synchronous) -- see the DeleteTargetGroup doc comment in
+// aws-sdk-go-v2/service/vpclattice's api_op_DeleteTargetGroup.go.
 func (b *InMemoryBackend) DeleteTargetGroup(tgID string) error {
 	b.mu.Lock("DeleteTargetGroup")
 	defer b.mu.Unlock()
@@ -122,11 +127,37 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgID string) error {
 	}
 
 	tg, _ := b.targetGroups.Get(id)
+
+	if b.targetGroupInUse(id, tg.ARN) {
+		return ErrDependencyConflict
+	}
+
 	b.targetGroups.Delete(id)
 	delete(b.targets, id)
 	delete(b.tags, tg.ARN)
 
 	return nil
+}
+
+// targetGroupInUse reports whether any listener rule forwards to the given
+// target group (matched by ID or ARN, since clients may specify either as
+// targetGroupIdentifier). Listener default actions are covered too, since
+// CreateListener materializes a listener's default action as its default
+// rule -- see createDefaultRule.
+func (b *InMemoryBackend) targetGroupInUse(id, arn string) bool {
+	for _, r := range b.rules.All() {
+		if r.Action == nil {
+			continue
+		}
+
+		for _, wtg := range r.Action.ForwardTargetGroups {
+			if wtg.TargetGroupID == id || wtg.TargetGroupID == arn {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // ListTargetGroups lists target groups with optional filters.

@@ -34,6 +34,10 @@ const (
 	instanceHealthStatusHealthy   = "HEALTHY"
 	instanceHealthStatusUnhealthy = "UNHEALTHY"
 
+	// instanceAttrInitHealthStatus is the well-known RegisterInstance attribute
+	// key documented for seeding a custom health check's initial status.
+	instanceAttrInitHealthStatus = "AWS_INIT_HEALTH_STATUS"
+
 	healthStatusFilterAll              = "ALL"
 	healthStatusFilterHealthyOrElseAll = "HEALTHY_OR_ELSE_ALL"
 

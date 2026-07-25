@@ -105,6 +105,7 @@ func TestIntegration_Pipes_UpdatePipe(t *testing.T) {
 	})
 
 	resp := pipesRequest(t, http.MethodPut, "/v1/pipes/update-pipe-integ", map[string]any{
+		"RoleArn":     "arn:aws:iam::000000000000:role/r",
 		"Target":      "arn:aws:lambda:us-east-1:000000000000:function:new-fn",
 		"Description": "updated",
 	})

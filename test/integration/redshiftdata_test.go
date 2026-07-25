@@ -167,7 +167,10 @@ func TestIntegration_RedshiftData_ListDatabases(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	resp := redshiftDataRequest(t, "ListDatabases", map[string]any{})
+	resp := redshiftDataRequest(t, "ListDatabases", map[string]any{
+		"ClusterIdentifier": "integ-cluster",
+		"Database":          "dev",
+	})
 	body := redshiftDataReadBody(t, resp)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
@@ -178,7 +181,10 @@ func TestIntegration_RedshiftData_ListSchemas(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	resp := redshiftDataRequest(t, "ListSchemas", map[string]any{})
+	resp := redshiftDataRequest(t, "ListSchemas", map[string]any{
+		"ClusterIdentifier": "integ-cluster",
+		"Database":          "dev",
+	})
 	body := redshiftDataReadBody(t, resp)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
@@ -189,7 +195,10 @@ func TestIntegration_RedshiftData_ListTables(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	resp := redshiftDataRequest(t, "ListTables", map[string]any{})
+	resp := redshiftDataRequest(t, "ListTables", map[string]any{
+		"ClusterIdentifier": "integ-cluster",
+		"Database":          "dev",
+	})
 	body := redshiftDataReadBody(t, resp)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)

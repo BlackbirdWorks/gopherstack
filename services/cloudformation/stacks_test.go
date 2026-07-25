@@ -408,7 +408,7 @@ func TestBackend_DeleteStack_CleansInternalMaps(t *testing.T) {
 					cloudformation.StackOptions{},
 				)
 				require.NoError(t, err)
-				_, err = b.CreateChangeSet(t.Context(), "clean-cs-stack", "cs1", simpleTemplate, "", nil)
+				_, err = b.CreateChangeSet(t.Context(), "clean-cs-stack", "cs1", simpleTemplate, "", nil, nil)
 				require.NoError(t, err)
 
 				return stack.StackID

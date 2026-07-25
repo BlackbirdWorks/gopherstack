@@ -270,6 +270,15 @@ type FoundationModelAgreement struct {
 	ModelID string `json:"modelId"`
 }
 
+// FoundationModelAgreementOffer represents a single agreement offer for a
+// foundation model, as returned by ListFoundationModelAgreementOffers. Mirrors
+// (a lean subset of) types.Offer/types.TermDetails in aws-sdk-go-v2/service/bedrock.
+type FoundationModelAgreementOffer struct {
+	OfferToken   string
+	OfferID      string
+	LegalTermURL string
+}
+
 // GuardrailVersion represents a numbered, immutable snapshot of a guardrail taken at the
 // time CreateGuardrailVersion was called. AWS freezes the guardrail's full configuration
 // into each numbered version, so GetGuardrail(id, version) must be able to serve this
@@ -301,14 +310,17 @@ type ModelCopyJob struct {
 
 // ModelImportJob represents a model import job.
 type ModelImportJob struct {
-	CreationTime     time.Time  `json:"creationTime"`
-	LastModifiedTime time.Time  `json:"lastModifiedTime"`
-	EndTime          *time.Time `json:"endTime,omitempty"`
-	JobArn           string     `json:"jobArn"`
-	JobName          string     `json:"jobName"`
-	ImportedModelArn string     `json:"importedModelArn"`
-	Status           string     `json:"status"`
-	Tags             []Tag      `json:"tags,omitempty"`
+	CreationTime      time.Time  `json:"creationTime"`
+	LastModifiedTime  time.Time  `json:"lastModifiedTime"`
+	EndTime           *time.Time `json:"endTime,omitempty"`
+	JobArn            string     `json:"jobArn"`
+	JobName           string     `json:"jobName"`
+	ImportedModelArn  string     `json:"importedModelArn"`
+	ImportedModelName string     `json:"importedModelName"`
+	RoleArn           string     `json:"roleArn"`
+	ModelDataSourceS3 string     `json:"modelDataSourceS3,omitempty"`
+	Status            string     `json:"status"`
+	Tags              []Tag      `json:"tags,omitempty"`
 }
 
 // ModelCustomizationJob represents a model customization job.
@@ -340,13 +352,24 @@ type InferenceProfile struct {
 
 // MarketplaceModelEndpoint represents a marketplace model endpoint.
 type MarketplaceModelEndpoint struct {
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-	EndpointArn   string    `json:"endpointArn"`
-	EndpointName  string    `json:"endpointName"`
-	ModelSourceID string    `json:"modelSourceIdentifier"`
-	Status        string    `json:"status"`
-	Tags          []Tag     `json:"tags,omitempty"`
+	CreatedAt      time.Time                `json:"createdAt"`
+	UpdatedAt      time.Time                `json:"updatedAt"`
+	EndpointConfig *SageMakerEndpointConfig `json:"endpointConfig,omitempty"`
+	EndpointArn    string                   `json:"endpointArn"`
+	EndpointName   string                   `json:"endpointName"`
+	ModelSourceID  string                   `json:"modelSourceIdentifier"`
+	Status         string                   `json:"status"`
+	Tags           []Tag                    `json:"tags,omitempty"`
+}
+
+// SageMakerEndpointConfig mirrors types.SageMakerEndpoint in aws-sdk-go-v2/service/bedrock
+// (the sole real member of the EndpointConfig union today). Real AWS wire shape:
+// {"sageMaker": {"executionRole":,"initialInstanceCount":,"instanceType":,"kmsEncryptionKey":}}.
+type SageMakerEndpointConfig struct {
+	ExecutionRole        string `json:"executionRole"`
+	InstanceType         string `json:"instanceType"`
+	KmsEncryptionKey     string `json:"kmsEncryptionKey,omitempty"`
+	InitialInstanceCount int32  `json:"initialInstanceCount"`
 }
 
 // ModelInvocationLoggingConfiguration represents the logging configuration.
@@ -407,18 +430,38 @@ type CreateModelInvocationJobInput struct {
 
 // PromptRouter represents a prompt router resource.
 type PromptRouter struct {
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
-	PromptRouterArn  string    `json:"promptRouterArn"`
-	PromptRouterName string    `json:"promptRouterName"`
-	Status           string    `json:"status"`
-	Tags             []Tag     `json:"tags,omitempty"`
+	CreatedAt                  time.Time `json:"createdAt"`
+	UpdatedAt                  time.Time `json:"updatedAt"`
+	PromptRouterArn            string    `json:"promptRouterArn"`
+	PromptRouterName           string    `json:"promptRouterName"`
+	Status                     string    `json:"status"`
+	Type                       string    `json:"type"`
+	Description                string    `json:"description,omitempty"`
+	FallbackModelArn           string    `json:"fallbackModelArn"`
+	ModelArns                  []string  `json:"modelArns"`
+	Tags                       []Tag     `json:"tags,omitempty"`
+	RoutingResponseQualityDiff float64   `json:"routingResponseQualityDiff"`
 }
 
-// EnforcedGuardrailConfig represents an enforced guardrail configuration entry.
-type EnforcedGuardrailConfig struct {
-	GuardrailID      string `json:"guardrailId"`
-	GuardrailVersion string `json:"guardrailVersion"`
+// AccountEnforcedGuardrailConfig represents an account-level enforced guardrail
+// configuration (real AWS ops: PutEnforcedGuardrailConfiguration /
+// ListEnforcedGuardrailsConfiguration / DeleteEnforcedGuardrailConfiguration).
+// ConfigID-keyed and wraps a GuardrailIdentifier+GuardrailVersion reference plus
+// an InputTags honor/ignore flag and an optional model-scoped enforcement list,
+// matching types.AccountEnforcedGuardrailOutputConfiguration in aws-sdk-go-v2.
+type AccountEnforcedGuardrailConfig struct {
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+	ConfigID         string    `json:"configId"`
+	GuardrailID      string    `json:"guardrailId"`
+	GuardrailArn     string    `json:"guardrailArn"`
+	GuardrailVersion string    `json:"guardrailVersion"`
+	InputTags        string    `json:"inputTags"`
+	Owner            string    `json:"owner"`
+	CreatedBy        string    `json:"createdBy"`
+	UpdatedBy        string    `json:"updatedBy"`
+	IncludedModels   []string  `json:"includedModels,omitempty"`
+	ExcludedModels   []string  `json:"excludedModels,omitempty"`
 }
 
 // ListModelInvocationJobsInput holds filter/pagination params for ListModelInvocationJobs.
@@ -430,6 +473,17 @@ type ListModelInvocationJobsInput struct {
 	SortBy           string // CreationTime (default)
 	SortOrder        string // Ascending (default) | Descending
 	NextToken        string
+}
+
+// ListEvaluationJobsInput holds filter/pagination params for ListEvaluationJobs.
+type ListEvaluationJobsInput struct {
+	StatusEquals       string
+	NameContains       string
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	SortBy             string // CreationTime (default)
+	SortOrder          string // Ascending (default) | Descending
+	NextToken          string
 }
 
 // Agent represents an Amazon Bedrock Agent.

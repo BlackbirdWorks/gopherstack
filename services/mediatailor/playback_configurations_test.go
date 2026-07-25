@@ -20,10 +20,10 @@ func TestPutPlaybackConfiguration_OnlyNameRequired(t *testing.T) {
 
 	b := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
 
-	cfg, err := b.PutPlaybackConfiguration("cfg", "", "", nil)
+	cfg, err := b.PutPlaybackConfiguration("cfg", "", "", nil, nil)
 	require.NoError(t, err, "AdDecisionServerUrl and VideoContentSourceUrl must both be optional")
 	assert.Equal(t, "cfg", cfg.Name)
 
-	_, err = b.PutPlaybackConfiguration("", "", "", nil)
+	_, err = b.PutPlaybackConfiguration("", "", "", nil, nil)
 	assert.Error(t, err, "Name must still be required")
 }

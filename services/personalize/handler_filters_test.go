@@ -12,11 +12,12 @@ func TestPersonalize_Filter_FieldRetention(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "my-filter-dg")
 
 	filterExpr := "INCLUDE ItemID WHERE Items.CATEGORY IN ($CATEGORIES)"
 	rec := personalizeDo(t, h, "CreateFilter", map[string]any{
 		"name":             "my-filter",
-		"datasetGroupArn":  "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1",
+		"datasetGroupArn":  dgArn,
 		"filterExpression": filterExpr,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

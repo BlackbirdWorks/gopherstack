@@ -84,8 +84,15 @@ func (b *InMemoryBackend) DescribeReportPlan(name string) (*ReportPlan, error) {
 	return &cp, nil
 }
 
-// UpdateReportPlan updates a report plan's description.
-func (b *InMemoryBackend) UpdateReportPlan(name, description string) (*ReportPlan, error) {
+// UpdateReportPlan updates a report plan's description and, when non-nil,
+// its ReportDeliveryChannel/ReportSetting (both optional on the real
+// UpdateReportPlanInput -- an omitted field leaves the existing value
+// unchanged, matching UpdateFramework's FrameworkControls semantics).
+func (b *InMemoryBackend) UpdateReportPlan(
+	name, description string,
+	deliveryChannel *ReportDeliveryChannel,
+	setting *ReportSetting,
+) (*ReportPlan, error) {
 	b.mu.Lock("UpdateReportPlan")
 	defer b.mu.Unlock()
 
@@ -95,6 +102,12 @@ func (b *InMemoryBackend) UpdateReportPlan(name, description string) (*ReportPla
 	}
 
 	rp.ReportPlanDescription = description
+	if deliveryChannel != nil {
+		rp.ReportDeliveryChannel = deliveryChannel
+	}
+	if setting != nil {
+		rp.ReportSetting = setting
+	}
 	cp := *rp
 
 	return &cp, nil

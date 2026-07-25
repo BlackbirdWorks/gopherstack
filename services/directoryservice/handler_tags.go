@@ -28,7 +28,7 @@ func (h *Handler) handleAddTagsToResource(c *echo.Context) error {
 	}
 
 	if req.ResourceID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "ResourceId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "ResourceId is required"))
 	}
 
 	tags := reqTagsToTags(req.Tags)
@@ -56,7 +56,7 @@ func (h *Handler) handleRemoveTagsFromResource(c *echo.Context) error {
 	}
 
 	if req.ResourceID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "ResourceId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "ResourceId is required"))
 	}
 
 	untagErr := h.Backend.RemoveTagsFromResource(h.contextWithRegion(c), req.ResourceID, req.TagKeys)
@@ -84,7 +84,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	}
 
 	if req.ResourceID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "ResourceId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "ResourceId is required"))
 	}
 
 	tags, nextToken, listErr := h.Backend.ListTagsForResource(

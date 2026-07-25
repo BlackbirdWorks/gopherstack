@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // batchDeleteImageInput is the request body for BatchDeleteImage.
@@ -40,6 +42,32 @@ func (h *Handler) handleBatchDeleteImage(
 	return &batchDeleteImageOutput{ImageIDs: deleted, Failures: failures}, nil
 }
 
+// imageView is the JSON representation of an image returned by PutImage and
+// BatchGetImage. The real AWS ecr.types.Image shape (per
+// awsAwsjson11_deserializeDocumentImage) has exactly five fields — imageId,
+// imageManifest, imageManifestMediaType, registryId, repositoryName — and
+// notably does NOT include imageDigest, imagePushedAt, imageStatus,
+// storageClass, or imageSizeInBytes at the top level (those only appear on the
+// distinct ImageDetail shape returned by DescribeImages). The digest is
+// available to callers via the nested imageId.imageDigest field.
+type imageView struct {
+	ImageID                ImageIdentifier `json:"imageId"`
+	ImageManifest          string          `json:"imageManifest,omitempty"`
+	ImageManifestMediaType string          `json:"imageManifestMediaType,omitempty"`
+	RegistryID             string          `json:"registryId,omitempty"`
+	RepositoryName         string          `json:"repositoryName,omitempty"`
+}
+
+func toImageView(img Image) imageView {
+	return imageView{
+		ImageID:                img.ImageID,
+		ImageManifest:          img.ImageManifest,
+		ImageManifestMediaType: img.ImageManifestMediaType,
+		RegistryID:             img.RegistryID,
+		RepositoryName:         img.RepositoryName,
+	}
+}
+
 // batchGetImageInput is the request body for BatchGetImage.
 type batchGetImageInput struct {
 	RepositoryName string            `json:"repositoryName"`
@@ -48,7 +76,7 @@ type batchGetImageInput struct {
 }
 
 type batchGetImageOutput struct {
-	Images   []Image        `json:"images"`
+	Images   []imageView    `json:"images"`
 	Failures []ImageFailure `json:"failures"`
 }
 
@@ -61,15 +89,16 @@ func (h *Handler) handleBatchGetImage(
 		return nil, err
 	}
 
-	if imgs == nil {
-		imgs = []Image{}
+	views := make([]imageView, 0, len(imgs))
+	for _, img := range imgs {
+		views = append(views, toImageView(img))
 	}
 
 	if failures == nil {
 		failures = []ImageFailure{}
 	}
 
-	return &batchGetImageOutput{Images: imgs, Failures: failures}, nil
+	return &batchGetImageOutput{Images: views, Failures: failures}, nil
 }
 
 type describeImagesFilter struct {
@@ -84,20 +113,86 @@ type describeImagesInput struct {
 	MaxResults     int                   `json:"maxResults,omitempty"`
 }
 
+// imageScanFindingsSummaryView is the JSON representation of ImageDetail's
+// imageScanFindingsSummary field (real AWS type: ImageScanFindingsSummary).
+type imageScanFindingsSummaryView struct {
+	FindingSeverityCounts        map[string]int32 `json:"findingSeverityCounts,omitempty"`
+	ImageScanCompletedAt         float64          `json:"imageScanCompletedAt,omitempty"`
+	VulnerabilitySourceUpdatedAt float64          `json:"vulnerabilitySourceUpdatedAt,omitempty"`
+}
+
+// imageScanStatusView is the JSON representation of ImageDetail's
+// imageScanStatus field (real AWS type: ImageScanStatus).
+type imageScanStatusView struct {
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status,omitempty"`
+}
+
 type imageDetailView struct {
-	ImageDigest            string   `json:"imageDigest,omitempty"`
-	ImageManifestMediaType string   `json:"imageManifestMediaType,omitempty"`
-	ImageStatus            string   `json:"imageStatus,omitempty"`
-	RegistryID             string   `json:"registryId,omitempty"`
-	RepositoryName         string   `json:"repositoryName,omitempty"`
-	ImageTags              []string `json:"imageTags,omitempty"`
-	ImagePushedAt          float64  `json:"imagePushedAt,omitempty"`
-	ImageSizeInBytes       int64    `json:"imageSizeInBytes,omitempty"`
+	ImageScanFindingsSummary *imageScanFindingsSummaryView `json:"imageScanFindingsSummary,omitempty"`
+	ImageScanStatus          *imageScanStatusView          `json:"imageScanStatus,omitempty"`
+	ArtifactMediaType        string                        `json:"artifactMediaType,omitempty"`
+	ImageStatus              string                        `json:"imageStatus,omitempty"`
+	RegistryID               string                        `json:"registryId,omitempty"`
+	RepositoryName           string                        `json:"repositoryName,omitempty"`
+	SubjectManifestDigest    string                        `json:"subjectManifestDigest,omitempty"`
+	ImageManifestMediaType   string                        `json:"imageManifestMediaType,omitempty"`
+	ImageDigest              string                        `json:"imageDigest,omitempty"`
+	ImageTags                []string                      `json:"imageTags,omitempty"`
+	ImagePushedAt            float64                       `json:"imagePushedAt,omitempty"`
+	LastActivatedAt          float64                       `json:"lastActivatedAt,omitempty"`
+	LastArchivedAt           float64                       `json:"lastArchivedAt,omitempty"`
+	LastRecordedPullTime     float64                       `json:"lastRecordedPullTime,omitempty"`
+	ImageSizeInBytes         int64                         `json:"imageSizeInBytes,omitempty"`
 }
 
 type describeImagesOutput struct {
 	NextToken    string            `json:"nextToken,omitempty"`
 	ImageDetails []imageDetailView `json:"imageDetails"`
+}
+
+// epochOrZero converts t to a Unix epoch-seconds float64, or 0 for a zero
+// time.Time (which imageDetailView's omitempty tags then drop from the wire,
+// matching AWS's optional-field semantics for images that were never
+// archived/activated/pulled).
+func epochOrZero(t time.Time) float64 {
+	if t.IsZero() {
+		return 0
+	}
+
+	return float64(t.Unix())
+}
+
+// manifestArtifactFields is used to pull artifactMediaType/subjectManifestDigest
+// out of a pushed image's raw manifest JSON: OCI 1.1 artifact manifests carry
+// a top-level "artifactType" string and an optional "subject" descriptor
+// (used for referrer relationships) whose "digest" is the subject manifest
+// digest. Manifests that don't use either field (e.g. plain Docker v2
+// manifests) simply decode to zero values, which toImageDetailView omits.
+type manifestArtifactFields struct {
+	Subject *struct {
+		Digest string `json:"digest,omitempty"`
+	} `json:"subject,omitempty"`
+	ArtifactType string `json:"artifactType,omitempty"`
+}
+
+// parseManifestArtifactFields best-effort parses manifest for artifactType/
+// subject.digest. A malformed or non-JSON manifest simply yields empty
+// strings rather than an error, since DescribeImages must not fail images
+// whose manifest predates strict validation.
+func parseManifestArtifactFields(manifest string) (string, string) {
+	var parsed manifestArtifactFields
+
+	if err := json.Unmarshal([]byte(manifest), &parsed); err != nil {
+		return "", ""
+	}
+
+	subjectDigest := ""
+	if parsed.Subject != nil {
+		subjectDigest = parsed.Subject.Digest
+	}
+
+	return parsed.ArtifactType, subjectDigest
 }
 
 func toImageDetailView(img Image) imageDetailView {
@@ -110,21 +205,40 @@ func toImageDetailView(img Image) imageDetailView {
 		tags = []string{}
 	}
 
-	var pushedAt float64
-	if !img.ImagePushedAt.IsZero() {
-		pushedAt = float64(img.ImagePushedAt.Unix())
-	}
+	artifactMediaType, subjectDigest := parseManifestArtifactFields(img.ImageManifest)
 
-	return imageDetailView{
+	view := imageDetailView{
 		ImageDigest:            img.ImageDigest,
 		ImageTags:              tags,
-		ImagePushedAt:          pushedAt,
+		ImagePushedAt:          epochOrZero(img.ImagePushedAt),
+		LastActivatedAt:        epochOrZero(img.LastActivatedAt),
+		LastArchivedAt:         epochOrZero(img.LastArchivedAt),
+		LastRecordedPullTime:   epochOrZero(img.LastRecordedPullTime),
 		ImageSizeInBytes:       img.ImageSizeInBytes,
 		ImageManifestMediaType: img.ImageManifestMediaType,
+		ArtifactMediaType:      artifactMediaType,
+		SubjectManifestDigest:  subjectDigest,
 		ImageStatus:            img.ImageStatus,
 		RegistryID:             img.RegistryID,
 		RepositoryName:         img.RepositoryName,
 	}
+
+	if img.ScanFindingsSummary != nil {
+		view.ImageScanFindingsSummary = &imageScanFindingsSummaryView{
+			FindingSeverityCounts:        img.ScanFindingsSummary.FindingSeverityCounts,
+			ImageScanCompletedAt:         img.ScanFindingsSummary.ImageScanCompletedAt,
+			VulnerabilitySourceUpdatedAt: img.ScanFindingsSummary.VulnerabilitySourceUpdatedAt,
+		}
+	}
+
+	if img.ScanStatus != nil {
+		view.ImageScanStatus = &imageScanStatusView{
+			Status:      img.ScanStatus.Status,
+			Description: img.ScanStatus.Description,
+		}
+	}
+
+	return view
 }
 
 func (h *Handler) handleDescribeImages(
@@ -257,7 +371,7 @@ type putImageInput struct {
 }
 
 type putImageOutput struct {
-	Image *Image `json:"image"`
+	Image *imageView `json:"image"`
 }
 
 func (h *Handler) handlePutImage(ctx context.Context, in *putImageInput) (*putImageOutput, error) {
@@ -292,7 +406,9 @@ func (h *Handler) handlePutImage(ctx context.Context, in *putImageInput) (*putIm
 		return nil, err
 	}
 
-	return &putImageOutput{Image: img}, nil
+	view := toImageView(*img)
+
+	return &putImageOutput{Image: &view}, nil
 }
 
 type putImageTagMutabilityInput struct {

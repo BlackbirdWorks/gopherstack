@@ -14,11 +14,14 @@ type StorageBackend interface {
 		sql, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
 		withEvent bool, resultFormat string,
 		parameters []SQLParameter,
+		sessionID string,
 	) (*Statement, error)
 	BatchExecuteStatement(
 		ctx context.Context,
 		sqls []string, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
 		withEvent bool, resultFormat string,
+		parameters []SQLParameter,
+		sessionID string,
 	) (*Statement, error)
 
 	// Statement inspection

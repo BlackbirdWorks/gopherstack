@@ -13,11 +13,13 @@ import (
 // Group request/response types
 // ----------------------------------------
 
+// createGroupRequest has no ExternalIds field -- the real CreateGroupRequest
+// smithy shape does not accept one (only IdentityStoreId, DisplayName,
+// Description). See the doc comment on CreateGroupRequest in groups.go.
 type createGroupRequest struct {
-	IdentityStoreID string       `json:"IdentityStoreId"`
-	DisplayName     string       `json:"DisplayName"`
-	Description     string       `json:"Description"`
-	ExternalIDs     []ExternalID `json:"ExternalIds"`
+	IdentityStoreID string `json:"IdentityStoreId"`
+	DisplayName     string `json:"DisplayName"`
+	Description     string `json:"Description"`
 }
 
 type createGroupResponse struct {
@@ -58,8 +60,8 @@ func (h *Handler) handleCreateGroup(ctx context.Context, c *echo.Context, body [
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	// DisplayName is NOT required by the real CreateGroup API (only
@@ -69,7 +71,6 @@ func (h *Handler) handleCreateGroup(ctx context.Context, c *echo.Context, body [
 	group, err := h.Backend.CreateGroup(ctx, req.IdentityStoreID, &CreateGroupRequest{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
-		ExternalIDs: req.ExternalIDs,
 	})
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -87,8 +88,8 @@ func (h *Handler) handleDescribeGroup(ctx context.Context, c *echo.Context, body
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.GroupID) == "" {
@@ -110,11 +111,15 @@ func (h *Handler) handleListGroups(ctx context.Context, c *echo.Context, body []
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if err := validateMaxResults(req.MaxResults); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
+	if err := validateFilters(req.Filters); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
@@ -134,12 +139,16 @@ func (h *Handler) handleUpdateGroup(ctx context.Context, c *echo.Context, body [
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.GroupID) == "" {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
+	}
+
+	if err := validateOperations(req.Operations); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
 	if err := h.Backend.UpdateGroup(ctx, req.IdentityStoreID, req.GroupID, req.Operations); err != nil {
@@ -155,8 +164,8 @@ func (h *Handler) handleDeleteGroup(ctx context.Context, c *echo.Context, body [
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.GroupID) == "" {

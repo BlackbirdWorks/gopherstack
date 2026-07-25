@@ -13,6 +13,103 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestCreateDBSnapshot_CaseInsensitiveIdentifier asserts that
+// DBSnapshotIdentifier is treated as a case-insensitive persistent handle,
+// matching real AWS: creating "MySnap" then "mysnap" must collide with
+// DBSnapshotAlreadyExistsFault, and every subsequent lookup (Describe,
+// Delete) must find the snapshot regardless of casing, while the wire
+// response keeps echoing the identifier's original, as-created casing.
+func TestCreateDBSnapshot_CaseInsensitiveIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		name      string
+		setupID   string
+		actionID  string
+		action    string
+		wantErr   bool
+	}{
+		{
+			name:      "create_collides_on_lowercased_duplicate",
+			setupID:   "MySnap",
+			actionID:  "mysnap",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrSnapshotAlreadyExists,
+		},
+		{
+			name:      "create_collides_on_uppercased_duplicate",
+			setupID:   "lower-snap",
+			actionID:  "LOWER-SNAP",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrSnapshotAlreadyExists,
+		},
+		{
+			name:     "create_distinct_id_does_not_collide",
+			setupID:  "some-snap",
+			actionID: "some-other-snap",
+			action:   "create",
+		},
+		{
+			name:     "describe_finds_resource_under_different_case",
+			setupID:  "FindMe-Snap",
+			actionID: "findme-snap",
+			action:   "describe",
+		},
+		{
+			name:     "delete_removes_resource_under_different_case",
+			setupID:  "DeleteMe-Snap",
+			actionID: "deleteme-snap",
+			action:   "delete",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			_, err := b.CreateDBInstance(
+				"snap-case-src", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{},
+			)
+			require.NoError(t, err)
+
+			_, err = b.CreateDBSnapshot(tt.setupID, "snap-case-src")
+			require.NoError(t, err)
+
+			switch tt.action {
+			case "create":
+				_, err = b.CreateDBSnapshot(tt.actionID, "snap-case-src")
+			case "describe":
+				var snaps []rds.DBSnapshot
+				snaps, err = b.DescribeDBSnapshots(tt.actionID, "")
+				if err == nil {
+					require.Len(t, snaps, 1)
+					// The wire response must keep echoing the ORIGINAL
+					// caller-supplied casing from creation time.
+					assert.Equal(t, tt.setupID, snaps[0].DBSnapshotIdentifier)
+				}
+			case "delete":
+				_, err = b.DeleteDBSnapshot(tt.actionID)
+				if err == nil {
+					_, describeErr := b.DescribeDBSnapshots(tt.setupID, "")
+					require.ErrorIs(t, describeErr, rds.ErrSnapshotNotFound)
+				}
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, tt.wantErrIs)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestCopyTagsToSnapshotPersisted verifies CopyTagsToSnapshot is stored.
 func TestCopyTagsToSnapshotPersisted(t *testing.T) {
 	t.Parallel()

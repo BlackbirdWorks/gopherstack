@@ -130,6 +130,26 @@ func (h *S3Handler) putBucketPolicy(
 
 		return
 	}
+
+	// Real S3 rejects a policy body that isn't valid JSON with 400
+	// MalformedPolicy before ever persisting it.
+	if !json.Valid(body) {
+		WriteError(ctx, w, r, ErrMalformedPolicy)
+
+		return
+	}
+
+	// Beyond JSON syntax, real S3 validates the IAM policy document shape
+	// (Version, Statement, Effect, Principal, Action, Resource) and rejects
+	// semantically invalid policies with 400 MalformedPolicy before
+	// persisting — see validateBucketPolicyDocument for the grammar this
+	// checks against.
+	if shapeErr := validateBucketPolicyDocument(body); shapeErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, *shapeErr, http.StatusBadRequest)
+
+		return
+	}
+
 	if pabErr := h.enforceBucketPolicyAgainstPAB(ctx, bucket, string(body)); pabErr != nil {
 		WriteError(ctx, w, r, pabErr)
 

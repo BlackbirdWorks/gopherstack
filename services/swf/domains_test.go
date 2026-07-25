@@ -164,6 +164,54 @@ func TestDeprecateDomain_AlreadyDeprecated(t *testing.T) {
 	assert.ErrorIs(t, err, swf.ErrDeprecated)
 }
 
+// TestDeprecateDomain_CascadesToRegisteredTypes verifies the real AWS
+// documented behavior ("Deprecating a domain also deprecates all activity
+// and workflow types registered in the domain") -- every REGISTERED
+// workflow/activity type in the domain must flip to DEPRECATED, while an
+// already-open execution using one of those types keeps running untouched
+// ("Executions that were started before the domain was deprecated continue
+// to run").
+func TestDeprecateDomain_CascadesToRegisteredTypes(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf-type", "1.0", "", swf.WorkflowTypeDefaults{}))
+	require.NoError(t, b.RegisterActivityType("dom", "act-type", "1.0", "", swf.ActivityTypeDefaults{}))
+	// A type already deprecated before the domain-level deprecate must not
+	// error or otherwise change state.
+	require.NoError(t, b.RegisterWorkflowType("dom", "already-deprecated", "1.0", "", swf.WorkflowTypeDefaults{}))
+	require.NoError(t, b.DeprecateWorkflowType("dom", "already-deprecated", "1.0"))
+
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain:              "dom",
+		WorkflowID:          "wf-1",
+		WorkflowTypeName:    "wf-type",
+		WorkflowTypeVersion: "1.0",
+		TaskList:            "tasks",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeprecateDomain("dom"))
+
+	wt, err := b.DescribeWorkflowType("dom", "wf-type", "1.0")
+	require.NoError(t, err)
+	assert.Equal(t, "DEPRECATED", wt.Status)
+
+	at, err := b.DescribeActivityType("dom", "act-type", "1.0")
+	require.NoError(t, err)
+	assert.Equal(t, "DEPRECATED", at.Status)
+
+	alreadyDeprecated, err := b.DescribeWorkflowType("dom", "already-deprecated", "1.0")
+	require.NoError(t, err)
+	assert.Equal(t, "DEPRECATED", alreadyDeprecated.Status)
+
+	// The already-running execution must be untouched by the cascade.
+	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", exec.Status)
+}
+
 func TestListDomains(t *testing.T) {
 	t.Parallel()
 

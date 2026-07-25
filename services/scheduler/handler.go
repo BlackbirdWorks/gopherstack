@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -111,6 +112,10 @@ type Handler struct {
 	ops     map[string]service.JSONOpFunc
 	runner  *Runner
 	cancel  context.CancelFunc
+	// idempotency caches successful CreateSchedule/CreateScheduleGroup ARNs by
+	// ClientToken so a lost-response retry replays the original result instead of
+	// failing with ConflictException on the now-existing name. See idempotency.go.
+	idempotency *safemap.Map[string, idempotentResult]
 }
 
 // Runner returns the internal runner for cross-service wiring.
@@ -121,8 +126,9 @@ func (h *Handler) Runner() *Runner {
 // NewHandler creates a new Scheduler handler.
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{
-		Backend: backend,
-		runner:  NewRunner(backend),
+		Backend:     backend,
+		runner:      NewRunner(backend),
+		idempotency: safemap.New[string, idempotentResult]("scheduler.idempotency"),
 	}
 	h.ops = h.buildOps()
 

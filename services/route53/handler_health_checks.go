@@ -401,7 +401,118 @@ func (h *Handler) deleteHealthCheck(c *echo.Context, path string) error {
 	return writeXML(c, http.StatusOK, xmlDeleteHealthCheckResponse{Xmlns: route53Namespace})
 }
 
-//nolint:gocognit,cyclop,funlen // health check update applies many optional fields conditionally
+// mergeHealthCheckUpdateStrings merges the request's non-empty string fields
+// into cfg. A field left empty on the wire means "leave unchanged" — Route 53
+// UpdateHealthCheck has no separate "clear this field" signal for these.
+func mergeHealthCheckUpdateStrings(cfg HealthCheckConfig, req xmlUpdateHealthCheckRequest) HealthCheckConfig {
+	if req.IPAddress != "" {
+		cfg.IPAddress = req.IPAddress
+	}
+
+	if req.FullyQualifiedDomainName != "" {
+		cfg.FullyQualifiedDomainName = req.FullyQualifiedDomainName
+	}
+
+	if req.ResourcePath != "" {
+		cfg.ResourcePath = req.ResourcePath
+	}
+
+	if req.SearchString != "" {
+		cfg.SearchString = req.SearchString
+	}
+
+	if req.InsufficientDataHealthStatus != "" {
+		cfg.InsufficientDataHealthStatus = req.InsufficientDataHealthStatus
+	}
+
+	if req.RoutingControlArn != "" {
+		cfg.RoutingControlArn = req.RoutingControlArn
+	}
+
+	return cfg
+}
+
+// mergeHealthCheckUpdateNumeric merges the request's non-zero numeric fields
+// into cfg, matching the same "zero means unchanged" wire convention as
+// mergeHealthCheckUpdateStrings.
+func mergeHealthCheckUpdateNumeric(cfg HealthCheckConfig, req xmlUpdateHealthCheckRequest) HealthCheckConfig {
+	if req.Port != 0 {
+		cfg.Port = req.Port
+	}
+
+	if req.RequestInterval != 0 {
+		cfg.RequestInterval = req.RequestInterval
+	}
+
+	if req.FailureThreshold != 0 {
+		cfg.FailureThreshold = req.FailureThreshold
+	}
+
+	if req.HealthThreshold != 0 {
+		cfg.HealthThreshold = req.HealthThreshold
+	}
+
+	return cfg
+}
+
+// mergeHealthCheckUpdateFlags merges the request's boolean fields into cfg.
+// Inverted is a pointer (false is a meaningful explicit value, distinct from
+// "omitted"); the others are plain bools that can only ever turn a flag on
+// through this merge, matching real AWS's UpdateHealthCheck wire semantics
+// for these fields.
+func mergeHealthCheckUpdateFlags(cfg HealthCheckConfig, req xmlUpdateHealthCheckRequest) HealthCheckConfig {
+	if req.Inverted != nil {
+		cfg.Inverted = *req.Inverted
+	}
+
+	if req.EnableSNI {
+		cfg.EnableSNI = true
+	}
+
+	if req.MeasureLatency {
+		cfg.MeasureLatency = true
+	}
+
+	if req.Disabled {
+		cfg.Disabled = true
+	}
+
+	return cfg
+}
+
+// mergeHealthCheckUpdateCollections merges the request's list/struct fields
+// into cfg.
+func mergeHealthCheckUpdateCollections(cfg HealthCheckConfig, req xmlUpdateHealthCheckRequest) HealthCheckConfig {
+	if len(req.Regions) > 0 {
+		cfg.Regions = req.Regions
+	}
+
+	if len(req.ChildHealthChecks) > 0 {
+		cfg.ChildHealthChecks = req.ChildHealthChecks
+	}
+
+	if req.AlarmIdentifier != nil {
+		cfg.AlarmIdentifier = &AlarmIdentifier{
+			Name:   req.AlarmIdentifier.Name,
+			Region: req.AlarmIdentifier.Region,
+		}
+	}
+
+	return cfg
+}
+
+// mergeHealthCheckUpdate merges every non-zero field UpdateHealthCheck's
+// request carries into the health check's existing config, leaving fields
+// the request omitted untouched.
+func mergeHealthCheckUpdate(cfg HealthCheckConfig, req xmlUpdateHealthCheckRequest) HealthCheckConfig {
+	cfg = mergeHealthCheckUpdateStrings(cfg, req)
+	cfg = mergeHealthCheckUpdateNumeric(cfg, req)
+	cfg = mergeHealthCheckUpdateFlags(cfg, req)
+	cfg = mergeHealthCheckUpdateCollections(cfg, req)
+
+	return cfg
+}
+
 func (h *Handler) updateHealthCheck(c *echo.Context, path string) error {
 	ctx := c.Request().Context()
 	id := extractHealthCheckID(path)
@@ -426,78 +537,7 @@ func (h *Handler) updateHealthCheck(c *echo.Context, path string) error {
 		return handleBackendError(c, err)
 	}
 
-	// Merge non-zero fields from the request into the existing config.
-	cfg := existing.Config
-	if req.IPAddress != "" {
-		cfg.IPAddress = req.IPAddress
-	}
-
-	if req.FullyQualifiedDomainName != "" {
-		cfg.FullyQualifiedDomainName = req.FullyQualifiedDomainName
-	}
-
-	if req.ResourcePath != "" {
-		cfg.ResourcePath = req.ResourcePath
-	}
-
-	if req.Port != 0 {
-		cfg.Port = req.Port
-	}
-
-	if req.RequestInterval != 0 {
-		cfg.RequestInterval = req.RequestInterval
-	}
-
-	if req.FailureThreshold != 0 {
-		cfg.FailureThreshold = req.FailureThreshold
-	}
-
-	if req.HealthThreshold != 0 {
-		cfg.HealthThreshold = req.HealthThreshold
-	}
-
-	if req.Inverted != nil {
-		cfg.Inverted = *req.Inverted
-	}
-
-	if req.SearchString != "" {
-		cfg.SearchString = req.SearchString
-	}
-
-	if req.InsufficientDataHealthStatus != "" {
-		cfg.InsufficientDataHealthStatus = req.InsufficientDataHealthStatus
-	}
-
-	if req.RoutingControlArn != "" {
-		cfg.RoutingControlArn = req.RoutingControlArn
-	}
-
-	if req.EnableSNI {
-		cfg.EnableSNI = true
-	}
-
-	if req.MeasureLatency {
-		cfg.MeasureLatency = true
-	}
-
-	if req.Disabled {
-		cfg.Disabled = true
-	}
-
-	if len(req.Regions) > 0 {
-		cfg.Regions = req.Regions
-	}
-
-	if len(req.ChildHealthChecks) > 0 {
-		cfg.ChildHealthChecks = req.ChildHealthChecks
-	}
-
-	if req.AlarmIdentifier != nil {
-		cfg.AlarmIdentifier = &AlarmIdentifier{
-			Name:   req.AlarmIdentifier.Name,
-			Region: req.AlarmIdentifier.Region,
-		}
-	}
+	cfg := mergeHealthCheckUpdate(existing.Config, req)
 
 	hc, err := h.Backend.UpdateHealthCheck(id, cfg, req.HealthCheckVersion)
 	if err != nil {

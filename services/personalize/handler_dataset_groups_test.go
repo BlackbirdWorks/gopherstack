@@ -65,4 +65,23 @@ func TestPersonalize_DatasetGroup_AlreadyExists(t *testing.T) {
 	assert.Equal(t, "ResourceAlreadyExistsException", m["__type"])
 }
 
+// TestPersonalize_DatasetGroup_InvalidDomain locks that CreateDatasetGroup
+// rejects a domain outside the real types.Domain enum
+// (ECOMMERCE/VIDEO_ON_DEMAND). An empty/omitted domain remains valid (it
+// creates a Custom, rather than Domain, dataset group).
+func TestPersonalize_DatasetGroup_InvalidDomain(t *testing.T) {
+	t.Parallel()
+
+	h := personalizeHandler(t)
+
+	rec := personalizeDo(t, h, "CreateDatasetGroup", map[string]any{
+		"name":   "bad-domain-group",
+		"domain": "NOT_A_REAL_DOMAIN",
+	})
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	m := personalizeUnmarshal(t, rec)
+	assert.Equal(t, "InvalidInputException", m["__type"])
+}
+
 // --- Dataset ---

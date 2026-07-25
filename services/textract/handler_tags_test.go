@@ -76,7 +76,11 @@ func TestHandler_UntagResource_HappyPath(t *testing.T) {
 	assert.Equal(t, "ml", tags["team"])
 }
 
-// TestHandler_TagResource_NotFound returns 400 for unknown resource.
+// TestHandler_TagResource_NotFound returns 400 ResourceNotFoundException for
+// an unknown resource. Real AWS's deserializeOpErrorTagResource switch
+// declares ResourceNotFoundException (not InvalidParameterException) for
+// this case -- verified against aws-sdk-go-v2/service/textract
+// deserializers.go, and the same holds for UntagResource/ListTagsForResource.
 func TestHandler_TagResource_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -87,6 +91,48 @@ func TestHandler_TagResource_NotFound(t *testing.T) {
 	})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
+}
+
+// TestHandler_UntagResourceAndListTagsForResource_NotFound verifies the same
+// ResourceNotFoundException error code applies to UntagResource and
+// ListTagsForResource for an unknown resource ARN.
+func TestHandler_UntagResourceAndListTagsForResource_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "UntagResource",
+			action: "UntagResource",
+			body:   map[string]any{"ResourceARN": "nonexistent-arn", "TagKeys": []string{"k"}},
+		},
+		{
+			name:   "ListTagsForResource",
+			action: "ListTagsForResource",
+			body:   map[string]any{"ResourceARN": "nonexistent-arn"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTextractRequest(t, h, tt.action, tt.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errResp map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
+		})
+	}
 }
 
 // TestHandler_TagResource_ByARNRoundTrip verifies TagResource + ListTagsForResource

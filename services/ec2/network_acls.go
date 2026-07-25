@@ -63,6 +63,7 @@ func (b *InMemoryBackend) DeleteNetworkACL(id string) error {
 		return fmt.Errorf("%w: cannot delete default network ACL", ErrInvalidParameter)
 	}
 	b.networkACLs.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

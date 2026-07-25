@@ -6,12 +6,14 @@ import (
 )
 
 // ExecuteStatement executes a SQL statement and returns its result set. Named
-// parameters (e.g. ":id") are bound when supplied.
+// parameters (e.g. ":id") are bound when supplied. The returned generated
+// fields are non-empty only for an INSERT into a table with a single INTEGER
+// PRIMARY KEY column -- see generatedFieldsFor in engine.go.
 func (b *InMemoryBackend) ExecuteStatement(
 	ctx context.Context,
 	resourceARN, sql, transactionID string,
 	parameters ...SQLParameter,
-) ([][]Field, []ColumnMetadata, int64, error) {
+) ([][]Field, []ColumnMetadata, int64, []Field, error) {
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
 
@@ -19,7 +21,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 
 	if transactionID != "" {
 		if !b.transactionsStore(region).Has(transactionID) {
-			return nil, nil, 0, fmt.Errorf(
+			return nil, nil, 0, nil, fmt.Errorf(
 				"%w: transaction %s not found",
 				ErrTransactionNotFound,
 				transactionID,
@@ -33,12 +35,17 @@ func (b *InMemoryBackend) ExecuteStatement(
 	// returned for well-formed statements; anything the engine rejects (for
 	// example DML against a table the caller never created) degrades to the
 	// historical empty-success envelope rather than surfacing an error.
-	records, columns, updated, err := b.engine.execute(ctx, region, resourceARN, sql, transactionID, parameters)
+	records, columns, updated, generated, err := b.engine.execute(
+		ctx, region, resourceARN, sql, transactionID, parameters)
 	if err != nil {
-		return [][]Field{}, []ColumnMetadata{}, 0, nil
+		return [][]Field{}, []ColumnMetadata{}, 0, []Field{}, nil
 	}
 
-	return records, columns, updated, nil
+	if generated == nil {
+		generated = []Field{}
+	}
+
+	return records, columns, updated, generated, nil
 }
 
 // BatchExecuteStatement executes a batch of SQL statements and returns results for each.
@@ -68,7 +75,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		// A parameterless batch still executes the statement once so DDL such
 		// as CREATE TABLE takes effect; the engine error is ignored to keep the
 		// historical lenient behaviour.
-		_, _, _, _ = b.engine.execute(ctx, region, resourceARN, sql, transactionID, nil)
+		_, _, _, _, _ = b.engine.execute(ctx, region, resourceARN, sql, transactionID, nil)
 
 		return []UpdateResult{}, nil
 	}
@@ -76,10 +83,15 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	results := make([]UpdateResult, len(parameterSets))
 
 	for i, params := range parameterSets {
-		// Run each parameter set so inserts/updates actually land in the engine;
-		// generatedFields stays empty, matching the current response model.
-		_, _, _, _ = b.engine.execute(ctx, region, resourceARN, sql, transactionID, params)
-		results[i] = UpdateResult{GeneratedFields: []Field{}}
+		// Run each parameter set so inserts/updates actually land in the
+		// engine; generatedFields carries the same rowid-alias detection as
+		// ExecuteStatement (see generatedFieldsFor in engine.go).
+		_, _, _, generated, _ := b.engine.execute(ctx, region, resourceARN, sql, transactionID, params)
+		if generated == nil {
+			generated = []Field{}
+		}
+
+		results[i] = UpdateResult{GeneratedFields: generated}
 	}
 
 	return results, nil

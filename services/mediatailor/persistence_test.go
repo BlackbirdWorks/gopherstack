@@ -35,11 +35,11 @@ func newPersistenceTestBackend(t *testing.T) (*mediatailor.InMemoryBackend, pers
 
 	cfg, err := b.PutPlaybackConfiguration(
 		"pc1", "https://ads.example.com", "https://video.example.com",
-		map[string]string{"env": "test"},
+		map[string]string{"env": "test"}, nil,
 	)
 	require.NoError(t, err)
 
-	ch, err := b.CreateChannel("ch1", "LOOP", nil, nil, nil)
+	ch, err := b.CreateChannel("ch1", "LOOP", "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	sl, err := b.CreateSourceLocation("sl1", "https://origin.example.com", nil)
@@ -51,10 +51,10 @@ func newPersistenceTestBackend(t *testing.T) (*mediatailor.InMemoryBackend, pers
 	ls, err := b.CreateLiveSource("sl1", "ls1", nil, nil)
 	require.NoError(t, err)
 
-	ps, err := b.CreatePrefetchSchedule("pc1", "sched1", nil, nil)
+	ps, err := b.CreatePrefetchSchedule("pc1", "sched1", "", "", nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	prog, err := b.CreateProgram("ch1", "prog1", "sl1", "vs1", "", nil)
+	prog, err := b.CreateProgram("ch1", "prog1", "sl1", "vs1", "", testScheduleConfig(1_700_000_000_000), nil, nil, nil)
 	require.NoError(t, err)
 
 	fn, err := b.PutFunction("fn1", "AD_DECISION_SERVER_URL", "test function", nil)
@@ -132,7 +132,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ids.prefetchScheduleID, ps.Name)
 
-	psList, _, err := fresh.ListPrefetchSchedules(ids.playbackConfigName, 0, "")
+	psList, _, err := fresh.ListPrefetchSchedules(ids.playbackConfigName, "", "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, psList, 1)
 
@@ -258,16 +258,18 @@ func TestSnapshotRestore_LiveSourcesPrefetchSchedulesPrograms(t *testing.T) {
 	_, err = b1.CreateLiveSource("sl1", "ls1", nil, nil)
 	require.NoError(t, err)
 
-	_, err = b1.PutPlaybackConfiguration("pc1", "https://ads.com", "https://video.com", nil)
+	_, err = b1.PutPlaybackConfiguration("pc1", "https://ads.com", "https://video.com", nil, nil)
 	require.NoError(t, err)
 
-	_, err = b1.CreatePrefetchSchedule("pc1", "sched1", nil, nil)
+	_, err = b1.CreatePrefetchSchedule("pc1", "sched1", "", "", nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b1.CreateChannel("ch1", "LOOP", nil, nil, nil)
+	_, err = b1.CreateChannel("ch1", "LOOP", "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b1.CreateProgram("ch1", "prog1", "sl1", "", "ls1", nil)
+	_, err = b1.CreateProgram(
+		"ch1", "prog1", "sl1", "", "ls1", testScheduleConfig(1_700_000_000_000), nil, nil, nil,
+	)
 	require.NoError(t, err)
 
 	snap := b1.Snapshot(t.Context())

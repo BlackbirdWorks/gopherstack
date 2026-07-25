@@ -550,7 +550,13 @@ func TestNetworkConfig_CreateWithSubnetsAndSecGroups(t *testing.T) {
 	assert.Equal(t, []string{"sg-ccc333"}, env.NetworkConfiguration.SecurityGroupIDs)
 }
 
-func TestNetworkConfig_CreateWithoutNetworkConfigAllowed(t *testing.T) {
+// TestNetworkConfig_CreateWithoutNetworkConfigRejected verifies that omitting
+// NetworkConfiguration on CreateEnvironment is rejected. AWS's
+// CreateEnvironmentInput.NetworkConfiguration member is documented as required
+// (docs.aws.amazon.com/mwaa/latest/API/API_CreateEnvironment.html) and
+// aws-sdk-go-v2's generated client-side validator (validateOpCreateEnvironmentInput)
+// refuses to even send a request that omits it.
+func TestNetworkConfig_CreateWithoutNetworkConfigRejected(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
@@ -558,7 +564,8 @@ func TestNetworkConfig_CreateWithoutNetworkConfigAllowed(t *testing.T) {
 	req.NetworkConfiguration = nil
 
 	_, err := b.CreateEnvironment(context.Background(), "nc-nil-env", req)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NetworkConfiguration")
 }
 
 func TestNetworkConfig_UpdateValidNetworkConfig(t *testing.T) {

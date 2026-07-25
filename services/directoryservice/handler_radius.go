@@ -36,7 +36,7 @@ func (h *Handler) handleEnableRadius(c *echo.Context) error { //nolint:dupl // e
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	settings := RadiusSettingsInput{
@@ -72,7 +72,7 @@ func (h *Handler) handleDisableRadius(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if disableErr := h.Backend.DisableRadius(h.contextWithRegion(c), req.DirectoryID); disableErr != nil {
@@ -95,7 +95,7 @@ func (h *Handler) handleUpdateRadius(c *echo.Context) error { //nolint:dupl // e
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	settings := RadiusSettingsInput{

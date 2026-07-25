@@ -29,14 +29,22 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(
 
 	group := b.policiesByName.Get(key)
 	if len(group) == 0 {
+		// GetPredictiveScalingForecast's modeled error set is
+		// {InternalServiceException, ValidationException} only --
+		// ObjectNotFoundException is NOT modeled for this op (confirmed
+		// against awsAwsjson11_deserializeOpErrorGetPredictiveScalingForecast
+		// in the vendored SDK), unlike every other op keyed by policy/target
+		// identity. A real client's typed-error matching on
+		// ObjectNotFoundException would never fire here, so an unknown
+		// policy is reported as ValidationException instead.
 		return nil, nil, time.Time{}, fmt.Errorf(
 			"%w: scaling policy %s not found for %s/%s/%s",
-			ErrNotFound, policyName, serviceNamespace, resourceID, scalableDimension,
+			ErrValidation, policyName, serviceNamespace, resourceID, scalableDimension,
 		)
 	}
 
 	p := group[0]
-	if p.PolicyType != "PredictiveScaling" {
+	if p.PolicyType != policyTypePredictiveScaling {
 		return nil, nil, time.Time{}, fmt.Errorf(
 			"%w: GetPredictiveScalingForecast is only supported for PredictiveScaling policies; policy %s has type %s",
 			ErrValidation, policyName, p.PolicyType,

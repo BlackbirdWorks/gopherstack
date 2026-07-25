@@ -69,6 +69,25 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data
 	return nil
 }
 
+// IsStreamEncrypted reports whether server-side encryption is currently enabled on the
+// named delivery stream. Used to populate the optional Encrypted field on PutRecord/
+// PutRecordBatch responses without changing those methods' established signatures (an
+// external adapter in cli.go forwards to InMemoryBackend.PutRecordBatch directly and
+// depends on its existing (int, error) return shape).
+func (b *InMemoryBackend) IsStreamEncrypted(ctx context.Context, streamName string) bool {
+	b.mu.RLock("IsStreamEncrypted")
+	defer b.mu.RUnlock()
+
+	region := getRegionFromContext(ctx, b)
+
+	s, ok := b.streams.Get(regionKey(region, streamName))
+	if !ok {
+		return false
+	}
+
+	return s.Encryption != nil && s.Encryption.Status == "ENABLED"
+}
+
 // updateFlushWatchLocked keeps the interval-flush watch set in sync after buffering
 // records: a size-based flush (snap != nil) clears the entry, while remaining buffered
 // records for an active destination mark the stream as pending. Must be called with the

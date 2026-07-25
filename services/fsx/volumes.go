@@ -147,15 +147,70 @@ func (b *InMemoryBackend) DeleteVolume(volumeID string) error {
 	b.mu.Lock("DeleteVolume")
 	defer b.mu.Unlock()
 
+	if !b.volumes.Has(volumeID) {
+		return ErrVolumeNotFound
+	}
+
+	b.deleteVolumeLocked(volumeID)
+
+	return nil
+}
+
+// deleteVolumeLocked removes a volume and cascades to its snapshots, so no
+// ghost Snapshot rows (pointing at a now-nonexistent VolumeId) survive the
+// volume's deletion. Caller must already hold b.mu and have verified the
+// volume exists.
+func (b *InMemoryBackend) deleteVolumeLocked(volumeID string) {
 	v, ok := b.volumes.Get(volumeID)
 	if !ok {
-		return ErrVolumeNotFound
+		return
+	}
+
+	var snapshotIDs []string
+
+	b.snapshots.Range(func(s *storedSnapshot) bool {
+		if s.VolumeID == volumeID {
+			snapshotIDs = append(snapshotIDs, s.SnapshotID)
+		}
+
+		return true
+	})
+
+	for _, id := range snapshotIDs {
+		if snap, found := b.snapshots.Get(id); found {
+			delete(b.tags, snap.ResourceARN)
+		}
+
+		b.snapshots.Delete(id)
 	}
 
 	b.volumes.Delete(volumeID)
 	delete(b.tags, v.ResourceARN)
+}
 
-	return nil
+// createOpenZFSRootVolumeLocked creates the backing root volume that real
+// AWS auto-creates for every FSx for OpenZFS file system, and returns its
+// VolumeId. Caller must already hold b.mu.
+func (b *InMemoryBackend) createOpenZFSRootVolumeLocked(fs *storedFileSystem) string {
+	id := "fsvol-" + uuid.New().String()[:16]
+	arn := b.volumeARN(id)
+	tags := make(map[string]string)
+
+	v := &storedVolume{
+		CreationTime: fs.CreationTime,
+		Tags:         tags,
+		VolumeID:     id,
+		VolumeType:   fileSystemTypeOpenZFS,
+		FileSystemID: fs.FileSystemID,
+		Name:         openZFSRootVolumeName,
+		Lifecycle:    lifecycleAvailable,
+		ResourceARN:  arn,
+	}
+
+	b.volumes.Put(v)
+	b.tags[arn] = tags
+
+	return id
 }
 
 // DescribeVolumes returns volumes, optionally filtered by ID.

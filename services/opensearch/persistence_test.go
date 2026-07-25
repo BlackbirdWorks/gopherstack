@@ -1,6 +1,7 @@
 package opensearch_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -177,7 +178,7 @@ func TestPersistence_ReservedInstancesRoundTrip(t *testing.T) {
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
-	instances := fresh.DescribeReservedInstances()
+	instances := fresh.DescribeReservedInstances("")
 	require.NotEmpty(t, instances)
 	found := false
 	for _, inst := range instances {
@@ -199,8 +200,11 @@ func TestPersistence_OutboundConnectionsRoundTrip(t *testing.T) {
 
 	conn, err := b.CreateOutboundConnection(
 		"test-alias",
-		map[string]any{"DomainName": "local-domain"},
-		map[string]any{"DomainName": "remote-domain"},
+		"",
+		opensearch.DomainInformation{DomainName: "local-domain"},
+		opensearch.DomainInformation{DomainName: "remote-domain"},
+		"",
+		"",
 	)
 	require.NoError(t, err)
 	connID := conn.ConnectionID
@@ -238,8 +242,7 @@ func TestPersistence_ScheduledActionsRoundTrip(t *testing.T) {
 		ScheduledBy: "CUSTOMER",
 		Status:      "PENDING_UPDATE",
 	}
-	_, err := b.UpdateScheduledAction("sa-persist", action)
-	require.NoError(t, err)
+	opensearch.AddScheduledActionInternal(b, "sa-persist", action)
 
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
@@ -286,9 +289,14 @@ func TestPersistence_CountersRoundTrip(t *testing.T) {
 
 	// Create items to bump counters.
 	b.AddDomainInternal("counter-dom", "")
-	_, err := b.CreateOutboundConnection("alias1", nil, nil)
+	_, err := b.CreateOutboundConnection(
+		"alias1", "",
+		opensearch.DomainInformation{DomainName: "local-dom"},
+		opensearch.DomainInformation{DomainName: "remote-dom"},
+		"", "",
+	)
 	require.NoError(t, err)
-	_, err = b.CreateVpcEndpoint("arn:test", nil)
+	_, err = b.CreateVpcEndpoint("arn:test", map[string]any{"SubnetIds": []string{"subnet-1"}})
 	require.NoError(t, err)
 	_, err = b.CreatePackage("pkg-counter", "TXT-DICTIONARY", "", nil, nil)
 	require.NoError(t, err)
@@ -300,11 +308,16 @@ func TestPersistence_CountersRoundTrip(t *testing.T) {
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Creating new items after restore should not reuse old IDs.
-	conn2, err := fresh.CreateOutboundConnection("alias2", nil, nil)
+	conn2, err := fresh.CreateOutboundConnection(
+		"alias2", "",
+		opensearch.DomainInformation{DomainName: "local-dom"},
+		opensearch.DomainInformation{DomainName: "remote-dom"},
+		"", "",
+	)
 	require.NoError(t, err)
 	assert.NotEqual(t, "co-1", conn2.ConnectionID, "counter should be restored, new ID should not collide")
 
-	ep2, err := fresh.CreateVpcEndpoint("arn:test2", nil)
+	ep2, err := fresh.CreateVpcEndpoint("arn:test2", map[string]any{"SubnetIds": []string{"subnet-2"}})
 	require.NoError(t, err)
 	assert.NotEqual(t, "vpce-1", ep2.VpcEndpointID, "VPC endpoint counter should be restored")
 }
@@ -343,10 +356,10 @@ func TestOpenSearchHandler_Persistence_AdditionalResources(t *testing.T) {
 
 	opensearch.SeedInboundConnection(b, "conn-abc")
 
-	_, err = b.AddDataSource("snap-domain", "my-ds", "desc", "S3GLUE")
+	_, err = b.AddDataSource("snap-domain", "my-ds", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
-	_, err = b.AddDirectQueryDataSource("my-dq", "desc", "CloudWatchLogs", []string{})
+	_, err = b.AddDirectQueryDataSource("my-dq", "desc", json.RawMessage(`{"CloudWatchLog":{}}`), []string{})
 	require.NoError(t, err)
 
 	b.AddPackageInternal("pkg-001", "test-pkg", "TXT-DICTIONARY")
@@ -495,7 +508,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// "Dirty" DTO tables: domainDataSources, domainIndexes, dryRuns, autoTunes.
-	_, err = original.AddDataSource(domain.Name, "ds-1", "a data source", "S3")
+	_, err = original.AddDataSource(domain.Name, "ds-1", "a data source", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
 	_, err = original.CreateIndex(domain.Name, "idx-1", nil, nil, nil)
@@ -507,15 +520,25 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.SetAutoTune(domain.Name, "ENABLED", nil))
 
 	// "Clean" pkgs/store tables not otherwise covered by other persistence tests.
-	_, err = original.AddDirectQueryDataSource("dq-1", "a direct query source", "spark", nil)
+	_, err = original.AddDirectQueryDataSource(
+		"dq-1",
+		"a direct query source",
+		json.RawMessage(`{"CloudWatchLog":{}}`),
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = original.CreateOutboundConnection("peer-alias", nil, nil)
+	_, err = original.CreateOutboundConnection(
+		"peer-alias", "",
+		opensearch.DomainInformation{DomainName: "local-dom"},
+		opensearch.DomainInformation{DomainName: "remote-dom"},
+		"", "",
+	)
 	require.NoError(t, err)
 
 	opensearch.SeedInboundConnection(original, "conn-in-1")
 
-	_, err = original.CreateVpcEndpoint(domain.ARN, nil)
+	_, err = original.CreateVpcEndpoint(domain.ARN, map[string]any{"SubnetIds": []string{"subnet-1"}})
 	require.NoError(t, err)
 
 	app, err := original.CreateApplication("full-app", nil, nil)
@@ -546,8 +569,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.AuthorizeVpcEndpointAccess(domain.Name, "123456789012", "")
 	require.NoError(t, err)
 
-	_, err = original.UpdateScheduledAction(domain.Name, &opensearch.ScheduledAction{ID: "sa-1"})
-	require.NoError(t, err)
+	opensearch.AddScheduledActionInternal(original, domain.Name, &opensearch.ScheduledAction{ID: "sa-1"})
 
 	_, err = original.AssociatePackage(pkg.PackageID, domain.Name)
 	require.NoError(t, err)
@@ -557,9 +579,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	require.NoError(t, original.UpgradeDomain(domain.Name, "OpenSearch_2.15"))
 
-	require.NoError(t, original.PutDefaultApplicationSettings("OBSERVABILITY_ANALYTICS", []opensearch.AppSetting{
-		{Key: "k", Value: "v"},
-	}))
+	_, err = original.PutDefaultApplicationSetting("arn:aws:es:us-east-1:123456789012:application/app-1", true)
+	require.NoError(t, err)
 
 	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
@@ -594,8 +615,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	outbound := fresh.DescribeOutboundConnections()
 	assert.Len(t, outbound, 1)
 
+	// 2 inbound connections: one mirrored automatically from the outbound
+	// connection created above (peer-alias), one seeded directly (conn-in-1).
 	inbound := fresh.DescribeInboundConnections()
-	assert.Len(t, inbound, 1)
+	assert.Len(t, inbound, 2)
 
 	endpoints := fresh.ListVpcEndpoints()
 	assert.Len(t, endpoints, 1)
@@ -609,7 +632,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, pkgs, 1)
 	assert.Equal(t, pkg.PackageName, pkgs[0].PackageName)
 
-	reserved := fresh.DescribeReservedInstances()
+	reserved := fresh.DescribeReservedInstances("")
 	assert.Len(t, reserved, 1)
 
 	collections := fresh.BatchGetServerlessCollections(nil, nil)
@@ -637,10 +660,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, history, 1)
 
-	settings, err := fresh.GetDefaultApplicationSettings("OBSERVABILITY_ANALYTICS")
-	require.NoError(t, err)
-	require.Len(t, settings, 1)
-	assert.Equal(t, "v", settings[0].Value)
+	assert.Equal(t, "arn:aws:es:us-east-1:123456789012:application/app-1",
+		fresh.GetDefaultApplicationSetting())
 }
 
 func TestOpenSearchHandler_Routing(t *testing.T) {

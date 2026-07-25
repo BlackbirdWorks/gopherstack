@@ -13,12 +13,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
+// TestResolverEndpoint_IPv6IPAddress verifies IP addresses supplied to
+// CreateResolverEndpoint are stored and retrievable. Per the real SDK's
+// types.ResolverEndpoint (verified against aws-sdk-go-v2/service/
+// route53resolver/types/types.go), the CreateResolverEndpoint *response* does
+// NOT carry an IpAddresses list -- that field does not exist on the type, only
+// IpAddressCount does. IPs are only readable via the separate
+// ListResolverEndpointIpAddresses call, which this test now uses instead of
+// (incorrectly) reading them back off the Create response.
 func TestResolverEndpoint_IPv6IPAddress(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		body     map[string]any
-		checkFn  func(t *testing.T, ep map[string]any)
+		checkFn  func(t *testing.T, ips []any)
 		name     string
 		wantCode int
 	}{
@@ -32,9 +40,8 @@ func TestResolverEndpoint_IPv6IPAddress(t *testing.T) {
 				},
 			},
 			wantCode: http.StatusOK,
-			checkFn: func(t *testing.T, ep map[string]any) {
+			checkFn: func(t *testing.T, ips []any) {
 				t.Helper()
-				ips, _ := ep["IpAddresses"].([]any)
 				require.NotEmpty(t, ips)
 				ip := ips[0].(map[string]any)
 				assert.Equal(t, "10.0.0.1", ip["Ip"])
@@ -51,9 +58,8 @@ func TestResolverEndpoint_IPv6IPAddress(t *testing.T) {
 				},
 			},
 			wantCode: http.StatusOK,
-			checkFn: func(t *testing.T, ep map[string]any) {
+			checkFn: func(t *testing.T, ips []any) {
 				t.Helper()
-				ips, _ := ep["IpAddresses"].([]any)
 				require.NotEmpty(t, ips)
 				ip := ips[0].(map[string]any)
 				assert.Equal(t, "2001:db8::1", ip["Ipv6"])
@@ -73,7 +79,18 @@ func TestResolverEndpoint_IPv6IPAddress(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				ep := resp["ResolverEndpoint"].(map[string]any)
-				tt.checkFn(t, ep)
+				_, hasIPs := ep["IpAddresses"]
+				assert.False(t, hasIPs, "ResolverEndpoint response must not carry an IpAddresses field")
+				epID := ep["Id"].(string)
+
+				listRec := doRequest(t, h, "ListResolverEndpointIpAddresses", map[string]any{
+					"ResolverEndpointId": epID,
+				})
+				require.Equal(t, http.StatusOK, listRec.Code)
+				var listResp map[string]any
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				ips, _ := listResp["IpAddresses"].([]any)
+				tt.checkFn(t, ips)
 			}
 		})
 	}
@@ -334,14 +351,79 @@ func TestUpdateResolverEndpoint_Extended(t *testing.T) {
 	}
 }
 
+// TestResolverEndpoint_MetricsFlags verifies RniEnhancedMetricsEnabled and
+// TargetNameServerMetricsEnabled -- settable on both CreateResolverEndpoint
+// and UpdateResolverEndpoint per the real SDK's CreateResolverEndpointInput /
+// UpdateResolverEndpointInput (verified against
+// aws-sdk-go-v2/service/route53resolver/api_op_CreateResolverEndpoint.go and
+// api_op_UpdateResolverEndpoint.go) -- round-trip through Create, default to
+// false when omitted, and partial-update correctly on UpdateResolverEndpoint.
+func TestResolverEndpoint_MetricsFlags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Defaults to false when omitted on Create.
+	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "metrics-ep",
+		"Direction": "OUTBOUND",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	createResp := decodeJSON(t, createRec)
+	ep := createResp["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, false, ep["RniEnhancedMetricsEnabled"])
+	assert.Equal(t, false, ep["TargetNameServerMetricsEnabled"])
+	epID := ep["Id"].(string)
+
+	// Explicit true on Create.
+	createRec2 := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":                           "metrics-ep-2",
+		"Direction":                      "OUTBOUND",
+		"RniEnhancedMetricsEnabled":      true,
+		"TargetNameServerMetricsEnabled": true,
+	})
+	require.Equal(t, http.StatusOK, createRec2.Code)
+	createResp2 := decodeJSON(t, createRec2)
+	ep2 := createResp2["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, true, ep2["RniEnhancedMetricsEnabled"])
+	assert.Equal(t, true, ep2["TargetNameServerMetricsEnabled"])
+
+	// Partial update: only flip RniEnhancedMetricsEnabled, leave the other alone.
+	updRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId":        epID,
+		"RniEnhancedMetricsEnabled": true,
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+	updResp := decodeJSON(t, updRec)
+	updEP := updResp["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, true, updEP["RniEnhancedMetricsEnabled"])
+	assert.Equal(t, false, updEP["TargetNameServerMetricsEnabled"])
+
+	// Update the other flag too.
+	updRec2 := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId":             epID,
+		"TargetNameServerMetricsEnabled": true,
+	})
+	require.Equal(t, http.StatusOK, updRec2.Code)
+	updResp2 := decodeJSON(t, updRec2)
+	updEP2 := updResp2["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, true, updEP2["RniEnhancedMetricsEnabled"], "prior update must not be clobbered")
+	assert.Equal(t, true, updEP2["TargetNameServerMetricsEnabled"])
+}
+
 // --- Issue 7: AssociateResolverEndpointIpAddress with IPv6 ---
 
+// TestAssociateResolverEndpointIpAddress_IPv6 verifies the associated IP is
+// stored and retrievable via ListResolverEndpointIpAddresses. The
+// AssociateResolverEndpointIpAddress response wraps a types.ResolverEndpoint,
+// same shape as CreateResolverEndpoint's -- it has no IpAddresses field
+// either (see TestResolverEndpoint_IPv6IPAddress doc comment).
 func TestAssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		ipBody   map[string]any
-		checkFn  func(t *testing.T, ep map[string]any)
+		checkFn  func(t *testing.T, ips []any)
 		name     string
 		wantCode int
 	}{
@@ -352,9 +434,8 @@ func TestAssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 				"Ip":       "10.0.1.5",
 			},
 			wantCode: http.StatusOK,
-			checkFn: func(t *testing.T, ep map[string]any) {
+			checkFn: func(t *testing.T, ips []any) {
 				t.Helper()
-				ips := ep["IpAddresses"].([]any)
 				found := false
 				for _, raw := range ips {
 					ip := raw.(map[string]any)
@@ -372,9 +453,8 @@ func TestAssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 				"Ipv6":     "2001:db8::42",
 			},
 			wantCode: http.StatusOK,
-			checkFn: func(t *testing.T, ep map[string]any) {
+			checkFn: func(t *testing.T, ips []any) {
 				t.Helper()
-				ips := ep["IpAddresses"].([]any)
 				found := false
 				for _, raw := range ips {
 					ip := raw.(map[string]any)
@@ -412,7 +492,17 @@ func TestAssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &resp))
 				ep := resp["ResolverEndpoint"].(map[string]any)
-				tt.checkFn(t, ep)
+				_, hasIPs := ep["IpAddresses"]
+				assert.False(t, hasIPs, "ResolverEndpoint response must not carry an IpAddresses field")
+
+				listRec := doRequest(t, h, "ListResolverEndpointIpAddresses", map[string]any{
+					"ResolverEndpointId": epID,
+				})
+				require.Equal(t, http.StatusOK, listRec.Code)
+				var listResp map[string]any
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				ips, _ := listResp["IpAddresses"].([]any)
+				tt.checkFn(t, ips)
 			}
 		})
 	}
@@ -452,6 +542,8 @@ func TestBackend_CreateEndpointTypeEnum(t *testing.T) {
 				"",
 				"",
 				"",
+				false,
+				false,
 			)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -480,6 +572,8 @@ func TestBackend_EndpointTimestampsRoundTrip(t *testing.T) {
 		"",
 		"",
 		"req-ts-1",
+		false,
+		false,
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, ep.CreationTime)
@@ -853,7 +947,16 @@ func TestAssociateResolverEndpointIPAddress_Success(t *testing.T) {
 	var assocResp map[string]any
 	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
 	updatedEP := assocResp["ResolverEndpoint"].(map[string]any)
-	ips, ok := updatedEP["IpAddresses"].([]any)
+	_, hasIPs := updatedEP["IpAddresses"]
+	assert.False(t, hasIPs, "ResolverEndpoint response must not carry an IpAddresses field")
+
+	listRec := doRequest(t, h, "ListResolverEndpointIpAddresses", map[string]any{
+		"ResolverEndpointId": epID,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	ips, ok := listResp["IpAddresses"].([]any)
 	require.True(t, ok)
 	assert.Len(t, ips, 1)
 }
@@ -1065,7 +1168,16 @@ func TestAssociateResolverEndpointIpAddress(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				ep, ok := resp["ResolverEndpoint"].(map[string]any)
 				require.True(t, ok)
-				ips := ep["IpAddresses"].([]any)
+				_, hasIPs := ep["IpAddresses"]
+				assert.False(t, hasIPs, "ResolverEndpoint response must not carry an IpAddresses field")
+
+				listRec := doRequest(t, h, "ListResolverEndpointIpAddresses", map[string]any{
+					"ResolverEndpointId": endpointID,
+				})
+				require.Equal(t, http.StatusOK, listRec.Code)
+				var listResp map[string]any
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				ips, _ := listResp["IpAddresses"].([]any)
 				assert.Len(t, ips, tt.wantIPCount)
 			}
 		})

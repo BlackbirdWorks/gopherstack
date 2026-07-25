@@ -175,6 +175,7 @@ func (b *InMemoryBackend) DeleteEgressOnlyInternetGateway(id string) error {
 		return fmt.Errorf("%w: %s", ErrEgressOnlyIGWNotFound, id)
 	}
 	b.egressOnlyIGWs.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -449,6 +450,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayRouteTable(id string) error {
 		return fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, id)
 	}
 	b.tgwRouteTables.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

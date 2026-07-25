@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -377,9 +378,15 @@ type describeConnectionStatusOutput struct {
 	WorkspacesConnectionStatus []connStatusResp `json:"WorkspacesConnectionStatus"`
 }
 
+// connStatusResp mirrors the real WorkspaceConnectionStatus shape;
+// ConnectionStateCheckTimestamp/LastKnownUserConnectionTimestamp are
+// wire-format epoch-seconds numbers. Both timestamp fields were previously
+// missing entirely from this response.
 type connStatusResp struct {
-	WorkspaceID     string `json:"WorkspaceId"`
-	ConnectionState string `json:"ConnectionState"`
+	WorkspaceID                      string  `json:"WorkspaceId"`
+	ConnectionState                  string  `json:"ConnectionState"`
+	ConnectionStateCheckTimestamp    float64 `json:"ConnectionStateCheckTimestamp,omitempty"`
+	LastKnownUserConnectionTimestamp float64 `json:"LastKnownUserConnectionTimestamp,omitempty"`
 }
 
 func (h *Handler) handleDescribeWorkspacesConnectionStatus(
@@ -392,10 +399,14 @@ func (h *Handler) handleDescribeWorkspacesConnectionStatus(
 
 	items := make([]connStatusResp, 0, len(statuses))
 	for _, s := range statuses {
-		items = append(
-			items,
-			connStatusResp{WorkspaceID: s.WorkspaceID, ConnectionState: s.ConnectionState},
-		)
+		items = append(items, connStatusResp{
+			WorkspaceID:                   s.WorkspaceID,
+			ConnectionState:               s.ConnectionState,
+			ConnectionStateCheckTimestamp: awstime.Epoch(s.ConnectionStateCheckTimestamp),
+			LastKnownUserConnectionTimestamp: awstime.Epoch(
+				s.LastKnownUserConnectionTimestamp,
+			),
+		})
 	}
 
 	return &describeConnectionStatusOutput{WorkspacesConnectionStatus: items}, nil
@@ -587,10 +598,16 @@ func (h *Handler) handleRestoreWorkspace(
 	return &emptyOutput{}, h.Backend.RestoreWorkspace(req.WorkspaceId)
 }
 
+// standbyWorkspaceSpec is the JSON shape of one StandbyWorkspace request item,
+// field-diffed against the real SDK type: DirectoryId + PrimaryWorkspaceId are
+// required; DataReplication/Tags/VolumeEncryptionKey are optional. Note this
+// shape has no UserName/BundleId, unlike createWorkspaceSpec.
 type standbyWorkspaceSpec struct {
-	PrimaryWorkspaceId  string `json:"PrimaryWorkspaceId"` //nolint:revive,staticcheck // existing issue.
-	DirectoryId         string `json:"DirectoryId"`        //nolint:revive,staticcheck // existing issue.
-	VolumeEncryptionKey string `json:"VolumeEncryptionKey"`
+	DirectoryId         string    `json:"DirectoryId"`        //nolint:revive,staticcheck // existing issue.
+	PrimaryWorkspaceId  string    `json:"PrimaryWorkspaceId"` //nolint:revive,staticcheck // existing issue.
+	DataReplication     string    `json:"DataReplication"`
+	VolumeEncryptionKey string    `json:"VolumeEncryptionKey"`
+	Tags                []tagItem `json:"Tags"`
 }
 
 type createStandbyWorkspacesInput struct {
@@ -598,35 +615,127 @@ type createStandbyWorkspacesInput struct {
 	StandbyWorkspaces []standbyWorkspaceSpec `json:"StandbyWorkspaces"`
 }
 
+// standbyWorkspaceRequestResp echoes a StandbyWorkspace request that failed to
+// create, matching the real StandbyWorkspace shape.
+type standbyWorkspaceRequestResp struct {
+	DirectoryId         string    `json:"DirectoryId,omitempty"`        //nolint:revive,staticcheck // existing issue.
+	PrimaryWorkspaceId  string    `json:"PrimaryWorkspaceId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	DataReplication     string    `json:"DataReplication,omitempty"`
+	VolumeEncryptionKey string    `json:"VolumeEncryptionKey,omitempty"`
+	Tags                []tagItem `json:"Tags,omitempty"`
+}
+
+// failedStandbyItem is the JSON representation of a
+// FailedCreateStandbyWorkspacesRequest.
+type failedStandbyItem struct {
+	StandbyWorkspaceRequest *standbyWorkspaceRequestResp `json:"StandbyWorkspaceRequest,omitempty"`
+	ErrorCode               string                       `json:"ErrorCode,omitempty"`
+	ErrorMessage            string                       `json:"ErrorMessage,omitempty"`
+}
+
+// pendingStandbyItem is the JSON representation of a
+// PendingCreateStandbyWorkspacesRequest -- field-diffed against the real SDK
+// type: DirectoryId, State, UserName, WorkspaceId. Note this shape has no
+// BundleId field, unlike pendingWorkspace.
+type pendingStandbyItem struct {
+	DirectoryId string `json:"DirectoryId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	State       string `json:"State,omitempty"`
+	UserName    string `json:"UserName,omitempty"`
+	WorkspaceId string `json:"WorkspaceId,omitempty"` //nolint:revive,staticcheck // existing issue.
+}
+
 type createStandbyWorkspacesOutput struct {
-	FailedStandbyRequests  []any               `json:"FailedStandbyRequests"`
-	PendingStandbyRequests []map[string]string `json:"PendingStandbyRequests"`
+	FailedStandbyRequests  []failedStandbyItem  `json:"FailedStandbyRequests"`
+	PendingStandbyRequests []pendingStandbyItem `json:"PendingStandbyRequests"`
+}
+
+func specToStandbyWorkspaceRequestResp(spec standbyWorkspaceSpec) *standbyWorkspaceRequestResp {
+	tags := make([]tagItem, len(spec.Tags))
+	copy(tags, spec.Tags)
+
+	return &standbyWorkspaceRequestResp{
+		DirectoryId:         spec.DirectoryId,
+		PrimaryWorkspaceId:  spec.PrimaryWorkspaceId,
+		DataReplication:     spec.DataReplication,
+		VolumeEncryptionKey: spec.VolumeEncryptionKey,
+		Tags:                tags,
+	}
+}
+
+// validateCreateStandbyWorkspacesInput enforces whole-request shape
+// validation (empty list, missing required fields) -- the same
+// smithy-`required`-field category of failure that validateCreateWorkspacesInput
+// enforces for CreateWorkspaces, distinct from the per-item runtime failures
+// (e.g. an unregistered DirectoryId) reported via FailedStandbyRequests.
+func validateCreateStandbyWorkspacesInput(req *createStandbyWorkspacesInput) error {
+	if req.PrimaryRegion == "" {
+		return awserr.New("PrimaryRegion is required", awserr.ErrInvalidParameter)
+	}
+
+	if len(req.StandbyWorkspaces) == 0 {
+		return awserr.New("StandbyWorkspaces list must not be empty", awserr.ErrInvalidParameter)
+	}
+
+	for i, s := range req.StandbyWorkspaces {
+		switch {
+		case s.DirectoryId == "":
+			return awserr.Newf(
+				"standbyWorkspaces[%d]: DirectoryId is required", awserr.ErrInvalidParameter, i)
+		case s.PrimaryWorkspaceId == "":
+			return awserr.Newf(
+				"standbyWorkspaces[%d]: PrimaryWorkspaceId is required", awserr.ErrInvalidParameter, i)
+		}
+	}
+
+	return nil
+}
+
+func specToStandbyCreationSpec(spec standbyWorkspaceSpec) StandbyWorkspaceSpec {
+	return StandbyWorkspaceSpec{
+		DirectoryID:         spec.DirectoryId,
+		PrimaryWorkspaceID:  spec.PrimaryWorkspaceId,
+		DataReplication:     spec.DataReplication,
+		VolumeEncryptionKey: spec.VolumeEncryptionKey,
+		Tags:                tagsToMap(spec.Tags),
+	}
 }
 
 func (h *Handler) handleCreateStandbyWorkspaces(
-	_ context.Context, req *createStandbyWorkspacesInput,
+	ctx context.Context, req *createStandbyWorkspacesInput,
 ) (*createStandbyWorkspacesOutput, error) {
-	specs := make([]map[string]string, 0, len(req.StandbyWorkspaces))
-	for _, s := range req.StandbyWorkspaces {
-		specs = append(specs, map[string]string{
-			"DirectoryId": s.DirectoryId,
-			"UserName":    "",
-			"BundleId":    "",
-		})
-	}
-
-	failed, pending, err := h.Backend.CreateStandbyWorkspaces(req.PrimaryRegion, specs)
-	if err != nil {
+	if err := validateCreateStandbyWorkspacesInput(req); err != nil {
 		return nil, err
 	}
 
-	failedOut := make([]any, 0, len(failed))
-	for _, f := range failed {
-		failedOut = append(failedOut, f)
+	pending := make([]pendingStandbyItem, 0, len(req.StandbyWorkspaces))
+	failed := make([]failedStandbyItem, 0)
+
+	// Per AWS, CreateStandbyWorkspaces is a partial-failure batch operation
+	// (like CreateWorkspaces): a runtime failure for one StandbyWorkspace
+	// request (e.g. an unregistered DirectoryId) must not abort the rest of
+	// the batch.
+	for _, s := range req.StandbyWorkspaces {
+		ws, err := h.Backend.CreateStandbyWorkspace(ctx, specToStandbyCreationSpec(s))
+		if err != nil {
+			code, message := classifyCreateError(err)
+			failed = append(failed, failedStandbyItem{
+				StandbyWorkspaceRequest: specToStandbyWorkspaceRequestResp(s),
+				ErrorCode:               code,
+				ErrorMessage:            message,
+			})
+
+			continue
+		}
+
+		pending = append(pending, pendingStandbyItem{
+			DirectoryId: ws.DirectoryID,
+			State:       ws.State,
+			WorkspaceId: ws.WorkspaceID,
+		})
 	}
 
 	return &createStandbyWorkspacesOutput{
-		FailedStandbyRequests:  failedOut,
+		FailedStandbyRequests:  failed,
 		PendingStandbyRequests: pending,
 	}, nil
 }

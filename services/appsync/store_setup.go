@@ -88,6 +88,8 @@ func channelNamespaceAPIIndexKeyFn(v *ChannelNamespace) string {
 
 func sourceAssocsKeyFn(v *SourceAPIAssociation) string { return v.AssociationID }
 
+func introspectionsKeyFn(v *DataSourceIntrospection) string { return v.IntrospectionID }
+
 // registerAllTables registers every converted resource collection on
 // b.registry exactly once. It must be called during construction only
 // (immediately after b.registry is created), never on every Reset() --
@@ -146,5 +148,8 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.sourceAssocs = store.Register(b.registry, "sourceAssocs", store.New(sourceAssocsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.introspections = store.Register(b.registry, "introspections", store.New(introspectionsKeyFn))
 	},
 }

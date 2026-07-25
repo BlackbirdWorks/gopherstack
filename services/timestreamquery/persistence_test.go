@@ -192,6 +192,44 @@ func TestInMemoryBackend_SnapshotRestore_QueryCompute(t *testing.T) {
 	assert.Equal(t, int32(16), *settings.QueryCompute.ProvisionedCapacity.ActiveQueryTCU)
 }
 
+// TestInMemoryBackend_SnapshotRestore_QueryComputeNotificationConfiguration
+// verifies that QueryCompute.ProvisionedCapacity.NotificationConfiguration
+// (RoleArn + nested SnsConfiguration.TopicArn) survives a Snapshot/Restore
+// round trip. Without persisting it explicitly, a PROVISIONED account with a
+// configured capacity-change notification would silently lose it on restore.
+func TestInMemoryBackend_SnapshotRestore_QueryComputeNotificationConfiguration(t *testing.T) {
+	t.Parallel()
+
+	original := NewInMemoryBackend("123456789012", "us-east-1")
+	tcu := int32(12)
+
+	_, err := original.UpdateAccountSettings(t.Context(), "", nil, &QueryComputeUpdate{
+		ComputeMode:    "PROVISIONED",
+		TargetQueryTCU: &tcu,
+		NotificationConfiguration: &AccountSettingsNotificationConfiguration{
+			RoleArn:          "arn:aws:iam::123456789012:role/notify",
+			SnsConfiguration: &SnsConfiguration{TopicArn: "arn:aws:sns:us-east-1:123456789012:topic"},
+		},
+	})
+	require.NoError(t, err)
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	settings := fresh.DescribeAccountSettings(t.Context())
+	require.NotNil(t, settings.QueryCompute)
+	require.NotNil(t, settings.QueryCompute.ProvisionedCapacity)
+
+	nc := settings.QueryCompute.ProvisionedCapacity.NotificationConfiguration
+	require.NotNil(t, nc, "NotificationConfiguration must survive Snapshot/Restore")
+	assert.Equal(t, "arn:aws:iam::123456789012:role/notify", nc.RoleArn)
+	require.NotNil(t, nc.SnsConfiguration)
+	assert.Equal(t, "arn:aws:sns:us-east-1:123456789012:topic", nc.SnsConfiguration.TopicArn)
+}
+
 // TestPersistence_HandlerSnapshotDelegates verifies that Handler.Snapshot
 // delegates to the underlying InMemoryBackend and that the resulting snapshot
 // round-trips a scheduled query (including its tags) via a fresh backend's

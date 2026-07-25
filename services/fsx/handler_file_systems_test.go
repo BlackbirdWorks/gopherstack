@@ -166,10 +166,9 @@ func TestCreateFileSystem_FileSystemTypeValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
-				"FileSystemType":  tt.fsType,
-				"StorageCapacity": tt.capacity,
-			})
+			body := fileSystemCreateBody(tt.fsType)
+			body["StorageCapacity"] = tt.capacity
+			rec := doFSxRequest(t, h, "CreateFileSystem", body)
 
 			assert.Equal(t, tt.wantCode, rec.Code, "FileSystemType=%q", tt.fsType)
 		})
@@ -231,10 +230,9 @@ func TestCreateFileSystem_StorageCapacityMinimum(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
-				"FileSystemType":  tt.fsType,
-				"StorageCapacity": tt.capacity,
-			})
+			body := fileSystemCreateBody(tt.fsType)
+			body["StorageCapacity"] = tt.capacity
+			rec := doFSxRequest(t, h, "CreateFileSystem", body)
 
 			assert.Equal(t, tt.wantCode, rec.Code,
 				"FileSystemType=%q StorageCapacity=%d", tt.fsType, tt.capacity)

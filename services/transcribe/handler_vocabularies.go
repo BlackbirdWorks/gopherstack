@@ -17,9 +17,11 @@ type createVocabularyInput struct {
 }
 
 type createVocabularyOutput struct {
-	VocabularyName  string `json:"VocabularyName"`
-	LanguageCode    string `json:"LanguageCode"`
-	VocabularyState string `json:"VocabularyState"`
+	LastModifiedTime *float64 `json:"LastModifiedTime,omitempty"`
+	VocabularyName   string   `json:"VocabularyName"`
+	LanguageCode     string   `json:"LanguageCode"`
+	VocabularyState  string   `json:"VocabularyState"`
+	FailureReason    string   `json:"FailureReason,omitempty"`
 }
 
 func (h *Handler) handleCreateVocabulary(
@@ -37,11 +39,19 @@ func (h *Handler) handleCreateVocabulary(
 		return nil, err
 	}
 
-	return &createVocabularyOutput{
+	out := &createVocabularyOutput{
 		VocabularyName:  v.VocabularyName,
 		LanguageCode:    v.LanguageCode,
 		VocabularyState: v.VocabularyState,
-	}, nil
+		FailureReason:   v.FailureReason,
+	}
+
+	if !v.LastModifiedTime.IsZero() {
+		t := awstime.Epoch(v.LastModifiedTime)
+		out.LastModifiedTime = &t
+	}
+
+	return out, nil
 }
 
 // --- GetVocabulary ---
@@ -56,6 +66,7 @@ type getVocabularyOutput struct {
 	LanguageCode     string   `json:"LanguageCode"`
 	VocabularyState  string   `json:"VocabularyState"`
 	DownloadURI      string   `json:"DownloadUri,omitempty"`
+	FailureReason    string   `json:"FailureReason,omitempty"`
 }
 
 func (h *Handler) handleGetVocabulary(
@@ -72,6 +83,7 @@ func (h *Handler) handleGetVocabulary(
 		LanguageCode:    v.LanguageCode,
 		VocabularyState: v.VocabularyState,
 		DownloadURI:     v.VocabularyFileURI,
+		FailureReason:   v.FailureReason,
 	}
 
 	if !v.LastModifiedTime.IsZero() {
@@ -92,9 +104,10 @@ type updateVocabularyInput struct {
 }
 
 type updateVocabularyOutput struct {
-	VocabularyName  string `json:"VocabularyName"`
-	LanguageCode    string `json:"LanguageCode"`
-	VocabularyState string `json:"VocabularyState"`
+	LastModifiedTime *float64 `json:"LastModifiedTime,omitempty"`
+	VocabularyName   string   `json:"VocabularyName"`
+	LanguageCode     string   `json:"LanguageCode"`
+	VocabularyState  string   `json:"VocabularyState"`
 }
 
 func (h *Handler) handleUpdateVocabulary(
@@ -111,11 +124,18 @@ func (h *Handler) handleUpdateVocabulary(
 		return nil, err
 	}
 
-	return &updateVocabularyOutput{
+	out := &updateVocabularyOutput{
 		VocabularyName:  v.VocabularyName,
 		LanguageCode:    v.LanguageCode,
 		VocabularyState: v.VocabularyState,
-	}, nil
+	}
+
+	if !v.LastModifiedTime.IsZero() {
+		t := awstime.Epoch(v.LastModifiedTime)
+		out.LastModifiedTime = &t
+	}
+
+	return out, nil
 }
 
 // --- DeleteVocabulary ---
@@ -138,8 +158,9 @@ func (h *Handler) handleDeleteVocabulary(
 // --- ListVocabularies ---
 
 type listVocabulariesInput struct {
-	StateEquals string `json:"StateEquals"`
-	NextToken   string `json:"NextToken"`
+	StateEquals  string `json:"StateEquals"`
+	NameContains string `json:"NameContains"`
+	NextToken    string `json:"NextToken"`
 }
 
 type vocabularySummary struct {
@@ -149,6 +170,7 @@ type vocabularySummary struct {
 }
 
 type listVocabulariesOutput struct {
+	Status       string              `json:"Status,omitempty"`
 	NextToken    string              `json:"NextToken,omitempty"`
 	Vocabularies []vocabularySummary `json:"Vocabularies"`
 }
@@ -157,7 +179,7 @@ func (h *Handler) handleListVocabularies(
 	_ context.Context,
 	in *listVocabulariesInput,
 ) (*listVocabulariesOutput, error) {
-	vocabs, nextToken := h.Backend.ListVocabularies(in.StateEquals, in.NextToken)
+	vocabs, nextToken := h.Backend.ListVocabularies(in.StateEquals, in.NameContains, in.NextToken)
 
 	result := make([]vocabularySummary, 0, len(vocabs))
 	for _, v := range vocabs {
@@ -171,5 +193,6 @@ func (h *Handler) handleListVocabularies(
 	return &listVocabulariesOutput{
 		Vocabularies: result,
 		NextToken:    nextToken,
+		Status:       in.StateEquals,
 	}, nil
 }

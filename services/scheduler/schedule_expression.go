@@ -21,7 +21,29 @@ var (
 	ErrUnknownRateUnit = errors.New("unknown rate unit")
 	// ErrInvalidCronExpression is returned for malformed cron() expressions.
 	ErrInvalidCronExpression = errors.New("invalid cron expression")
+	// ErrInvalidAtExpression is returned for malformed at() expressions.
+	ErrInvalidAtExpression = errors.New("invalid at expression")
 )
+
+// atExpressionLayout is the datetime layout AWS EventBridge Scheduler requires inside
+// an at() one-time expression: at(yyyy-mm-ddThh:mm:ss).
+const atExpressionLayout = "2006-01-02T15:04:05"
+
+// parseAtExpression parses an AWS EventBridge Scheduler at() one-time expression in
+// the given IANA location, returning the absolute instant it designates. AWS
+// evaluates the wall-clock time in ScheduleExpressionTimezone (loc), defaulting to
+// UTC when unset -- callers should pass time.UTC for an empty timezone.
+func parseAtExpression(expr string, loc *time.Location) (time.Time, error) {
+	inner := strings.TrimSuffix(strings.TrimPrefix(expr, "at("), ")")
+	inner = strings.TrimSpace(inner)
+
+	t, err := time.ParseInLocation(atExpressionLayout, inner, loc)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: %q", ErrInvalidAtExpression, expr)
+	}
+
+	return t, nil
+}
 
 // validateScheduleExpression checks that the ScheduleExpression has a valid prefix and format.
 // AWS Scheduler accepts: rate(value unit), cron(fields), at(datetime).

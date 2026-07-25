@@ -1,6 +1,10 @@
 package apprunner
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
+import (
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 const (
 	// invalidRequestType, resourceNotFoundType, invalidStateType, and
@@ -32,4 +36,10 @@ var (
 	ErrInvalidParameter = awserr.New(invalidRequestType, awserr.ErrInvalidParameter)
 	// ErrInvalidState is returned when a service is in an invalid state for the operation.
 	ErrInvalidState = awserr.New(invalidStateType, awserr.ErrConflict)
+
+	// errNoDefaultASG indicates the backend invariant that a default auto
+	// scaling configuration always exists (see
+	// ensureDefaultAutoScalingConfiguration) was somehow violated. It should
+	// never surface in practice.
+	errNoDefaultASG = fmt.Errorf("%w: no default auto scaling configuration available", ErrInvalidParameter)
 )

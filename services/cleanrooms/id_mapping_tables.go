@@ -27,11 +27,12 @@ func toIDMappingTableSummary(t *IDMappingTable) *IDMappingTableSummary {
 		MembershipArn:            t.MembershipArn,
 		MembershipIdentifier:     t.MembershipIdentifier,
 		Name:                     t.Name,
+		InputReferenceConfig:     t.InputReferenceConfig,
 		CreateTime:               t.CreateTime,
 		UpdateTime:               t.UpdateTime,
-		ID:                       t.IDMappingTableIdentifier,
-		MembershipID:             t.MembershipIdentifier,
-		CollaborationID:          t.CollaborationIdentifier,
+		ID:                       t.ID,
+		MembershipID:             t.MembershipID,
+		CollaborationID:          t.CollaborationID,
 	}
 }
 
@@ -52,7 +53,7 @@ func (b *InMemoryBackend) CreateIDMappingTable(
 	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
+	collab, _ := b.collaborations.Get(mem.CollaborationID)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -61,7 +62,7 @@ func (b *InMemoryBackend) CreateIDMappingTable(
 		IDMappingTableIdentifier: id,
 		Arn:                      b.idMappingTableARN(membershipID, id),
 		CollaborationArn:         collabArn,
-		CollaborationIdentifier:  mem.CollaborationIdentifier,
+		CollaborationIdentifier:  mem.CollaborationID,
 		MembershipArn:            mem.Arn,
 		MembershipIdentifier:     membershipID,
 		Name:                     name,
@@ -73,7 +74,7 @@ func (b *InMemoryBackend) CreateIDMappingTable(
 		Tags:                     tags,
 		ID:                       id,
 		MembershipID:             membershipID,
-		CollaborationID:          mem.CollaborationIdentifier,
+		CollaborationID:          mem.CollaborationID,
 	}
 	b.idMappingTables.Put(t)
 	if len(tags) > 0 {
@@ -107,7 +108,7 @@ func (b *InMemoryBackend) ListIDMappingTables(
 		nil,
 		toIDMappingTableSummary,
 		func(a, c *IDMappingTableSummary) bool {
-			return a.IDMappingTableIdentifier < c.IDMappingTableIdentifier
+			return a.ID < c.ID
 		},
 		maxResults, nextToken,
 	)

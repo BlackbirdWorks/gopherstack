@@ -2,7 +2,9 @@ package translate_test
 
 import (
 	"encoding/base64"
+	"maps"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -280,16 +282,6 @@ func TestTranslateTextIncludesAppliedTerminologies(t *testing.T) {
 			wantTermCount: 0,
 		},
 		{
-			name: "unknown_terminology_name_omitted_from_applied",
-			body: map[string]any{
-				"Text":               "Hello world",
-				"SourceLanguageCode": "en",
-				"TargetLanguageCode": "es",
-				"TerminologyNames":   []string{"nonexistent-term"},
-			},
-			wantTermCount: 0,
-		},
-		{
 			name: "existing_terminology_appears_in_applied",
 			body: map[string]any{
 				"Text":               "Hello world",
@@ -367,6 +359,199 @@ func TestTranslateDocumentIncludesAppliedTerminologies(t *testing.T) {
 	item, ok := applied[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "doc-parity-term", item["Name"])
+}
+
+// TestTranslateText_UnknownTerminologyRejected verifies that referencing a
+// TerminologyNames entry that does not exist returns ResourceNotFoundException
+// rather than silently omitting it from AppliedTerminologies. Real AWS models
+// ResourceNotFoundException for TranslateText, and TerminologyNames is the
+// only named-resource reference the operation makes: "Use the
+// ListTerminologies operation to get the available terminology lists" in the
+// real API reference implies the name is validated, not ignored.
+func TestTranslateText_UnknownTerminologyRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "TranslateText", map[string]any{
+		"Text":               "Hello world",
+		"SourceLanguageCode": "en",
+		"TargetLanguageCode": "es",
+		"TerminologyNames":   []string{"nonexistent-term"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	m := unmarshalJSON(t, rec.Body.Bytes())
+	assert.Equal(t, "ResourceNotFoundException", m["__type"])
+}
+
+// TestTranslateDocument_UnknownTerminologyRejected is TranslateDocument's
+// analog of TestTranslateText_UnknownTerminologyRejected above.
+func TestTranslateDocument_UnknownTerminologyRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "TranslateDocument", map[string]any{
+		"Document":           map[string]any{"Content": b64("Hello"), "ContentType": "text/plain"},
+		"SourceLanguageCode": "en",
+		"TargetLanguageCode": "es",
+		"TerminologyNames":   []string{"nonexistent-term"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	m := unmarshalJSON(t, rec.Body.Bytes())
+	assert.Equal(t, "ResourceNotFoundException", m["__type"])
+}
+
+// TestTranslateText_TextSizeLimitExceeded verifies that Text longer than the
+// 10,000-byte synchronous translation quota is rejected as
+// TextSizeLimitExceededException.
+func TestTranslateText_TextSizeLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "TranslateText", map[string]any{
+		"Text":               strings.Repeat("a", 10001),
+		"SourceLanguageCode": "en",
+		"TargetLanguageCode": "es",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	m := unmarshalJSON(t, rec.Body.Bytes())
+	assert.Equal(t, "TextSizeLimitExceededException", m["__type"])
+}
+
+// TestTranslateDocument_LimitExceeded verifies that Document.Content larger
+// than the 100,000-byte document size quota is rejected as
+// LimitExceededException (TranslateDocument models LimitExceededException,
+// not TextSizeLimitExceededException, for this case).
+func TestTranslateDocument_LimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "TranslateDocument", map[string]any{
+		"Document": map[string]any{
+			"Content":     b64(strings.Repeat("a", 102401)),
+			"ContentType": "text/plain",
+		},
+		"SourceLanguageCode": "en",
+		"TargetLanguageCode": "es",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	m := unmarshalJSON(t, rec.Body.Bytes())
+	assert.Equal(t, "LimitExceededException", m["__type"])
+}
+
+// TestTranslateDocument_MissingContentTypeRejected verifies that omitting
+// Document.ContentType (a required member of Document) is rejected.
+func TestTranslateDocument_MissingContentTypeRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "TranslateDocument", map[string]any{
+		"Document":           map[string]any{"Content": b64("Hello")},
+		"SourceLanguageCode": "en",
+		"TargetLanguageCode": "es",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	m := unmarshalJSON(t, rec.Body.Bytes())
+	assert.Equal(t, "InvalidRequestException", m["__type"])
+}
+
+// TestTranslateText_UnsupportedLanguagePairRejected verifies that an
+// unrecognized source or target language code is rejected as
+// UnsupportedLanguagePairException, and that "auto" is always accepted.
+func TestTranslateText_UnsupportedLanguagePairRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "unknown_source_language",
+			body:     map[string]any{"SourceLanguageCode": "xx", "TargetLanguageCode": "es"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "unknown_target_language",
+			body:     map[string]any{"SourceLanguageCode": "en", "TargetLanguageCode": "xx"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "auto_source_accepted",
+			body:     map[string]any{"SourceLanguageCode": "auto", "TargetLanguageCode": "es"},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			body := map[string]any{"Text": "Hello"}
+			maps.Copy(body, tt.body)
+
+			rec := doRequest(t, h, "TranslateText", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusBadRequest {
+				m := unmarshalJSON(t, rec.Body.Bytes())
+				assert.Equal(t, "UnsupportedLanguagePairException", m["__type"])
+			}
+		})
+	}
+}
+
+// TestTranslateText_SettingsEnumValidation verifies that Settings.Formality/
+// Profanity/Brevity are rejected when they don't match their modeled enums.
+func TestTranslateText_SettingsEnumValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		settings map[string]any
+		name     string
+		wantCode int
+	}{
+		{name: "formal_accepted", settings: map[string]any{"Formality": "FORMAL"}, wantCode: http.StatusOK},
+		{name: "informal_accepted", settings: map[string]any{"Formality": "INFORMAL"}, wantCode: http.StatusOK},
+		{
+			name:     "bad_formality_rejected",
+			settings: map[string]any{"Formality": "CASUAL"},
+			wantCode: http.StatusBadRequest,
+		},
+		{name: "mask_accepted", settings: map[string]any{"Profanity": "MASK"}, wantCode: http.StatusOK},
+		{
+			name:     "bad_profanity_rejected",
+			settings: map[string]any{"Profanity": "HIDE"},
+			wantCode: http.StatusBadRequest,
+		},
+		{name: "on_accepted", settings: map[string]any{"Brevity": "ON"}, wantCode: http.StatusOK},
+		{name: "bad_brevity_rejected", settings: map[string]any{"Brevity": "OFF"}, wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "TranslateText", map[string]any{
+				"Text":               "Hello",
+				"SourceLanguageCode": "en",
+				"TargetLanguageCode": "es",
+				"Settings":           tt.settings,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
 // TestTranslateText_AppliedSettings verifies that TranslateText echoes

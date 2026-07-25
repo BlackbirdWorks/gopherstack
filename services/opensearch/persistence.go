@@ -22,7 +22,7 @@ import (
 // partially decode) any mismatch -- see Restore below. Mirrors the
 // services/sqs pilot (commit 0f09d77c) and services/apigateway (commit
 // 6da0334e).
-const opensearchSnapshotVersion = 2
+const opensearchSnapshotVersion = 3
 
 // dryRunSnapshot, autoTuneSnapshot, dataSourceSnapshot, and
 // domainIndexSnapshot are DTOs used ONLY for Snapshot/Restore. Each mirrors
@@ -93,10 +93,11 @@ func fromAutoTuneSnapshot(v *autoTuneSnapshot) *AutoTuneConfig {
 }
 
 type dataSourceSnapshot struct {
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	DataSourceType string `json:"dataSourceType"`
-	DomainName     string `json:"domainName"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Status         string          `json:"status,omitempty"`
+	DomainName     string          `json:"domainName"`
+	DataSourceType json.RawMessage `json:"dataSourceType,omitempty"`
 }
 
 func dataSourceSnapshotKey(v *dataSourceSnapshot) string { return dataSourceKey(v.DomainName, v.Name) }
@@ -106,6 +107,7 @@ func toDataSourceSnapshot(v *DataSource) *dataSourceSnapshot {
 		Name:           v.Name,
 		Description:    v.Description,
 		DataSourceType: v.DataSourceType,
+		Status:         v.Status,
 		DomainName:     v.DomainName,
 	}
 }
@@ -115,6 +117,7 @@ func fromDataSourceSnapshot(v *dataSourceSnapshot) *DataSource {
 		Name:           v.Name,
 		Description:    v.Description,
 		DataSourceType: v.DataSourceType,
+		Status:         v.Status,
 		DomainName:     v.DomainName,
 	}
 }
@@ -196,24 +199,24 @@ var dirtyTableNames = struct {
 // mechanical conversion -- see the per-map persistence audit in the Phase 3.3
 // conversion notes.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage       `json:"tables"`
-	VpcAuthorizations   map[string][]AuthorizedPrincipal `json:"vpcAuthorizations"`
-	ScheduledActions    map[string][]*ScheduledAction    `json:"scheduledActions"`
-	PackageAssociations map[string]map[string]bool       `json:"packageAssociations"`
-	DomainMaintenances  map[string][]*DomainMaintenance  `json:"domainMaintenances"`
-	UpgradeHistory      map[string][]*UpgradeHistory     `json:"upgradeHistory"`
-	DefaultAppSettings  map[string][]AppSetting          `json:"defaultAppSettings"`
-	AccountID           string                           `json:"accountID"`
-	Region              string                           `json:"region"`
-	AppIDCounter        int                              `json:"appIDCounter"`
-	ConnCounter         int                              `json:"connCounter"`
-	VpcEndpointCounter  int                              `json:"vpcEndpointCounter"`
-	PackageCounter      int                              `json:"packageCounter"`
-	MaintenanceCounter  int                              `json:"maintenanceCounter"`
-	ReservedCounter     int                              `json:"reservedCounter"`
-	SlCollCounter       int                              `json:"slCollCounter"`
-	SlSecConfigCounter  int                              `json:"slSecConfigCounter"`
-	Version             int                              `json:"version"`
+	Tables                map[string]json.RawMessage       `json:"tables"`
+	VpcAuthorizations     map[string][]AuthorizedPrincipal `json:"vpcAuthorizations"`
+	ScheduledActions      map[string][]*ScheduledAction    `json:"scheduledActions"`
+	PackageAssociations   map[string]map[string]bool       `json:"packageAssociations"`
+	DomainMaintenances    map[string][]*DomainMaintenance  `json:"domainMaintenances"`
+	UpgradeHistory        map[string][]*UpgradeHistory     `json:"upgradeHistory"`
+	AccountID             string                           `json:"accountID"`
+	Region                string                           `json:"region"`
+	DefaultApplicationArn string                           `json:"defaultApplicationArn"`
+	AppIDCounter          int                              `json:"appIDCounter"`
+	ConnCounter           int                              `json:"connCounter"`
+	VpcEndpointCounter    int                              `json:"vpcEndpointCounter"`
+	PackageCounter        int                              `json:"packageCounter"`
+	MaintenanceCounter    int                              `json:"maintenanceCounter"`
+	ReservedCounter       int                              `json:"reservedCounter"`
+	SlCollCounter         int                              `json:"slCollCounter"`
+	SlSecConfigCounter    int                              `json:"slSecConfigCounter"`
+	Version               int                              `json:"version"`
 }
 
 // newDirtyDTORegistry builds the ephemeral DTO [store.Registry] shared by
@@ -280,24 +283,24 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	maps.Copy(tables, dirtyTables)
 
 	snap := backendSnapshot{
-		Version:             opensearchSnapshotVersion,
-		Tables:              tables,
-		VpcAuthorizations:   b.vpcAuthorizations,
-		ScheduledActions:    b.scheduledActions,
-		PackageAssociations: b.packageAssociations,
-		DomainMaintenances:  b.domainMaintenances,
-		UpgradeHistory:      b.upgradeHistory,
-		DefaultAppSettings:  b.defaultAppSettings,
-		AccountID:           b.accountID,
-		Region:              b.region,
-		AppIDCounter:        b.appIDCounter,
-		ConnCounter:         b.connCounter,
-		VpcEndpointCounter:  b.vpcEndpointCounter,
-		PackageCounter:      b.packageCounter,
-		MaintenanceCounter:  b.maintenanceCounter,
-		ReservedCounter:     b.reservedCounter,
-		SlCollCounter:       b.slCollCounter,
-		SlSecConfigCounter:  b.slSecConfigCounter,
+		Version:               opensearchSnapshotVersion,
+		Tables:                tables,
+		VpcAuthorizations:     b.vpcAuthorizations,
+		ScheduledActions:      b.scheduledActions,
+		PackageAssociations:   b.packageAssociations,
+		DomainMaintenances:    b.domainMaintenances,
+		UpgradeHistory:        b.upgradeHistory,
+		AccountID:             b.accountID,
+		Region:                b.region,
+		DefaultApplicationArn: b.defaultApplicationArn,
+		AppIDCounter:          b.appIDCounter,
+		ConnCounter:           b.connCounter,
+		VpcEndpointCounter:    b.vpcEndpointCounter,
+		PackageCounter:        b.packageCounter,
+		MaintenanceCounter:    b.maintenanceCounter,
+		ReservedCounter:       b.reservedCounter,
+		SlCollCounter:         b.slCollCounter,
+		SlSecConfigCounter:    b.slSecConfigCounter,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "opensearch", snap)
@@ -342,7 +345,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.domainMaintenances = make(map[string][]*DomainMaintenance)
 		b.upgradeHistory = make(map[string][]*UpgradeHistory)
 		b.domainPackages = make(map[string]map[string]bool)
-		b.defaultAppSettings = make(map[string][]AppSetting)
+		b.defaultApplicationArn = ""
 
 		return nil
 	}
@@ -450,11 +453,7 @@ func restoreRawMaps(b *InMemoryBackend, snap *backendSnapshot) {
 	// doc comment: the pre-existing backend never persisted or restored this
 	// reverse index either, and that asymmetry is preserved byte-for-byte.
 
-	if snap.DefaultAppSettings != nil {
-		b.defaultAppSettings = snap.DefaultAppSettings
-	} else {
-		b.defaultAppSettings = make(map[string][]AppSetting)
-	}
+	b.defaultApplicationArn = snap.DefaultApplicationArn
 }
 
 // fixNilDomainTags ensures that every restored domain has a valid Tags

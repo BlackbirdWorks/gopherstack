@@ -3,6 +3,9 @@ package textract
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // createAdapterInput is the input for CreateAdapter.
@@ -61,9 +64,9 @@ type getAdapterResponse struct {
 	AdapterID    string            `json:"AdapterId"`
 	AdapterName  string            `json:"AdapterName"`
 	AutoUpdate   string            `json:"AutoUpdate"`
-	CreationTime string            `json:"CreationTime"`
 	Description  string            `json:"Description"`
 	FeatureTypes []string          `json:"FeatureTypes"`
+	CreationTime float64           `json:"CreationTime"`
 }
 
 func (h *Handler) handleGetAdapter(
@@ -83,7 +86,7 @@ func (h *Handler) handleGetAdapter(
 		AdapterID:    adapter.AdapterID,
 		AdapterName:  adapter.AdapterName,
 		AutoUpdate:   adapter.AutoUpdate,
-		CreationTime: adapter.CreationTime.Format("2006-01-02T15:04:05Z"),
+		CreationTime: awstime.Epoch(adapter.CreationTime),
 		Description:  adapter.Description,
 		FeatureTypes: adapter.FeatureTypes,
 		Tags:         adapter.Tags,
@@ -97,15 +100,16 @@ type updateAdapterInput struct {
 	Description string `json:"Description"`
 }
 
-// updateAdapterResponse is the response for UpdateAdapter.
+// updateAdapterResponse is the response for UpdateAdapter. Real AWS's
+// UpdateAdapterOutput has no Tags member (unlike GetAdapterOutput) --
+// gopherstack previously invented one.
 type updateAdapterResponse struct {
-	Tags         map[string]string `json:"Tags"`
-	AdapterID    string            `json:"AdapterId"`
-	AdapterName  string            `json:"AdapterName"`
-	AutoUpdate   string            `json:"AutoUpdate"`
-	CreationTime string            `json:"CreationTime"`
-	Description  string            `json:"Description"`
-	FeatureTypes []string          `json:"FeatureTypes"`
+	AdapterID    string   `json:"AdapterId"`
+	AdapterName  string   `json:"AdapterName"`
+	AutoUpdate   string   `json:"AutoUpdate"`
+	Description  string   `json:"Description"`
+	FeatureTypes []string `json:"FeatureTypes"`
+	CreationTime float64  `json:"CreationTime"`
 }
 
 func (h *Handler) handleUpdateAdapter(
@@ -125,45 +129,72 @@ func (h *Handler) handleUpdateAdapter(
 		AdapterID:    adapter.AdapterID,
 		AdapterName:  adapter.AdapterName,
 		AutoUpdate:   adapter.AutoUpdate,
-		CreationTime: adapter.CreationTime.Format("2006-01-02T15:04:05Z"),
+		CreationTime: awstime.Epoch(adapter.CreationTime),
 		Description:  adapter.Description,
 		FeatureTypes: adapter.FeatureTypes,
-		Tags:         adapter.Tags,
 	}, nil
 }
 
-// listAdaptersInput is the input for ListAdapters.
-type listAdaptersInput struct{}
+// listAdaptersDefaultPageSize is used when ListAdaptersInput.MaxResults is
+// unset or non-positive.
+const listAdaptersDefaultPageSize = 1000
+
+// listAdaptersInput is the input for ListAdapters. AfterCreationTime /
+// BeforeCreationTime are epoch-seconds (JSON numbers), matching the
+// awsjson1.1 unixTimestamp wire format -- see pkgs/awstime's package doc.
+type listAdaptersInput struct {
+	NextToken          string  `json:"NextToken"`
+	AfterCreationTime  float64 `json:"AfterCreationTime"`
+	BeforeCreationTime float64 `json:"BeforeCreationTime"`
+	MaxResults         int     `json:"MaxResults"`
+}
 
 // listAdaptersResponse is the response for ListAdapters.
 type listAdaptersResponse struct {
-	Adapters []adapterSummary `json:"Adapters"`
+	NextToken string           `json:"NextToken,omitempty"`
+	Adapters  []adapterSummary `json:"Adapters"`
 }
 
 type adapterSummary struct {
 	AdapterID    string   `json:"AdapterId"`
 	AdapterName  string   `json:"AdapterName"`
-	CreationTime string   `json:"CreationTime"`
 	FeatureTypes []string `json:"FeatureTypes"`
+	CreationTime float64  `json:"CreationTime"`
 }
 
 func (h *Handler) handleListAdapters(
 	ctx context.Context,
-	_ *listAdaptersInput,
+	in *listAdaptersInput,
 ) (*listAdaptersResponse, error) {
 	adapters := h.Backend.ListAdapters(ctx)
-	summaries := make([]adapterSummary, 0, len(adapters))
+
+	filtered := make([]Adapter, 0, len(adapters))
 
 	for _, a := range adapters {
+		if in.AfterCreationTime > 0 && awstime.Epoch(a.CreationTime) <= in.AfterCreationTime {
+			continue
+		}
+
+		if in.BeforeCreationTime > 0 && awstime.Epoch(a.CreationTime) >= in.BeforeCreationTime {
+			continue
+		}
+
+		filtered = append(filtered, a)
+	}
+
+	pg := page.New(filtered, in.NextToken, in.MaxResults, listAdaptersDefaultPageSize)
+
+	summaries := make([]adapterSummary, 0, len(pg.Data))
+	for _, a := range pg.Data {
 		summaries = append(summaries, adapterSummary{
 			AdapterID:    a.AdapterID,
 			AdapterName:  a.AdapterName,
-			CreationTime: a.CreationTime.Format("2006-01-02T15:04:05Z"),
+			CreationTime: awstime.Epoch(a.CreationTime),
 			FeatureTypes: a.FeatureTypes,
 		})
 	}
 
-	return &listAdaptersResponse{Adapters: summaries}, nil
+	return &listAdaptersResponse{Adapters: summaries, NextToken: pg.Next}, nil
 }
 
 // deleteAdapterInput is the input for DeleteAdapter.

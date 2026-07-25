@@ -93,7 +93,7 @@ func TestHandler_GetRepositoryLink(t *testing.T) {
 				link, err := h.Backend.CreateRepositoryLink(
 					context.Background(),
 					"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
-					"my-owner", "my-repo", "",
+					"my-owner", "my-repo", "", nil,
 				)
 				if err != nil {
 					return ""
@@ -160,7 +160,7 @@ func TestHandler_DeleteRepositoryLink(t *testing.T) {
 				link, err := h.Backend.CreateRepositoryLink(
 					context.Background(),
 					"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
-					"owner", "repo", "",
+					"owner", "repo", "", nil,
 				)
 				if err != nil {
 					return ""
@@ -213,12 +213,12 @@ func TestHandler_ListRepositoryLinks(t *testing.T) {
 	_, _ = h.Backend.CreateRepositoryLink(
 		context.Background(),
 		"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
-		"owner1", "repo1", "",
+		"owner1", "repo1", "", nil,
 	)
 	_, _ = h.Backend.CreateRepositoryLink(
 		context.Background(),
 		"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
-		"owner2", "repo2", "",
+		"owner2", "repo2", "", nil,
 	)
 
 	rec := doRequest(t, h, "ListRepositoryLinks", map[string]any{})

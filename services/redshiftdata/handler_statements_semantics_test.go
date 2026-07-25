@@ -364,13 +364,176 @@ func TestParameters_AcceptedAndStored(t *testing.T) {
 			rec := doRequest(t, h, "ExecuteStatement", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.wantStatus == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotEmpty(t, resp["Id"], "Id should be returned")
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.NotEmpty(t, resp["Id"], "Id should be returned")
+
+			// DescribeStatementOutput.QueryParameters must round-trip whatever
+			// Parameters was sent to ExecuteStatement (SqlParametersList in the
+			// real API); previously this field was dropped entirely by the
+			// response builder, so a client that submitted parameterized SQL
+			// could never see its own parameters echoed back.
+			descRec := doRequest(t, h, "DescribeStatement", map[string]any{"Id": resp["Id"]})
+			require.Equal(t, http.StatusOK, descRec.Code)
+
+			var descResp map[string]any
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+
+			if len(tt.params) == 0 {
+				assert.Nil(t, descResp["QueryParameters"],
+					"QueryParameters should be absent when no Parameters were sent")
+
+				return
+			}
+
+			gotParams, listOK := descResp["QueryParameters"].([]any)
+			require.True(t, listOK, "QueryParameters should be a list")
+			require.Len(t, gotParams, len(tt.params))
+
+			for i, want := range tt.params {
+				got, itemOK := gotParams[i].(map[string]any)
+				require.True(t, itemOK)
+				assert.Equal(t, want["name"], got["name"])
+				assert.Equal(t, want["value"], got["value"])
 			}
 		})
 	}
+}
+
+// TestBatchExecuteStatement_ParametersAcceptedAndStored verifies that
+// BatchExecuteStatement's Parameters field (shared across all SQL statements in
+// the batch per the real BatchExecuteStatementInput) is stored and echoed back
+// via DescribeStatement.QueryParameters. Previously the handler didn't unmarshal
+// Parameters from the request body at all, so batch queries silently dropped
+// every parameter a client sent.
+func TestBatchExecuteStatement_ParametersAcceptedAndStored(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "BatchExecuteStatement", map[string]any{
+		"Sqls":     []string{"SELECT * FROM orders WHERE user_id = :user_id", "SELECT 2"},
+		"Database": "testdb",
+		"Parameters": []map[string]any{
+			{"name": "user_id", "value": "123"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+
+	descRec := doRequest(t, h, "DescribeStatement", map[string]any{"Id": createResp["Id"]})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+
+	gotParams, ok := descResp["QueryParameters"].([]any)
+	require.True(t, ok, "QueryParameters should be a list")
+	require.Len(t, gotParams, 1)
+
+	got, ok := gotParams[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "user_id", got["name"])
+	assert.Equal(t, "123", got["value"])
+}
+
+// TestSessionID_EchoedByExecuteStatement verifies that a caller-supplied
+// SessionId on ExecuteStatement is echoed back on the ExecuteStatementOutput
+// and persisted so DescribeStatement/ListStatements report it too (StatementData.SessionId
+// / DescribeStatementOutput.SessionId in the real API). When no SessionId is
+// supplied, the field must be omitted from every response, not sent as "".
+func TestSessionID_EchoedByExecuteStatement(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with_session_id", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+
+		rec := doRequest(t, h, "ExecuteStatement", map[string]any{
+			"Sql":       "SELECT 1",
+			"Database":  "testdb",
+			"SessionId": "sess-abc123",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var execResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &execResp))
+		assert.Equal(t, "sess-abc123", execResp["SessionId"])
+
+		descRec := doRequest(t, h, "DescribeStatement", map[string]any{"Id": execResp["Id"]})
+		require.Equal(t, http.StatusOK, descRec.Code)
+
+		var descResp map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		assert.Equal(t, "sess-abc123", descResp["SessionId"])
+
+		listRec := doRequest(t, h, "ListStatements", map[string]any{"Status": "ALL"})
+		require.Equal(t, http.StatusOK, listRec.Code)
+
+		var listResp map[string]any
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+
+		stmts, ok := listResp["Statements"].([]any)
+		require.True(t, ok)
+		require.Len(t, stmts, 1)
+		assert.Equal(t, "sess-abc123", stmts[0].(map[string]any)["SessionId"])
+	})
+
+	t.Run("without_session_id", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+
+		rec := doRequest(t, h, "ExecuteStatement", map[string]any{
+			"Sql":      "SELECT 1",
+			"Database": "testdb",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var execResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &execResp))
+		assert.Nil(t, execResp["SessionId"], "SessionId should be omitted, not empty-string, when not supplied")
+
+		descRec := doRequest(t, h, "DescribeStatement", map[string]any{"Id": execResp["Id"]})
+		require.Equal(t, http.StatusOK, descRec.Code)
+
+		var descResp map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		assert.Nil(t, descResp["SessionId"])
+	})
+}
+
+// TestSessionID_EchoedByBatchExecuteStatement mirrors
+// TestSessionID_EchoedByExecuteStatement for the batch entry point.
+func TestSessionID_EchoedByBatchExecuteStatement(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "BatchExecuteStatement", map[string]any{
+		"Sqls":      []string{"SELECT 1", "SELECT 2"},
+		"Database":  "testdb",
+		"SessionId": "sess-batch-1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var execResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &execResp))
+	assert.Equal(t, "sess-batch-1", execResp["SessionId"])
+
+	descRec := doRequest(t, h, "DescribeStatement", map[string]any{"Id": execResp["Id"]})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	assert.Equal(t, "sess-batch-1", descResp["SessionId"])
 }
 
 // TestExecuteStatement_CaseInsensitiveSQL verifies that SQL keyword

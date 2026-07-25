@@ -9,14 +9,23 @@ import (
 )
 
 type requestCertificateInput struct {
-	Options                 *certificateOptionsInput `json:"Options,omitempty"`
-	DomainName              string                   `json:"DomainName"`
-	ValidationMethod        string                   `json:"ValidationMethod"`
-	CertificateAuthorityArn string                   `json:"CertificateAuthorityArn"`
-	IdempotencyToken        string                   `json:"IdempotencyToken"`
-	KeyAlgorithm            string                   `json:"KeyAlgorithm"`
-	SubjectAlternativeNames []string                 `json:"SubjectAlternativeNames"`
-	Tags                    []map[string]string      `json:"Tags"`
+	Options                 *certificateOptionsInput           `json:"Options,omitempty"`
+	DomainName              string                             `json:"DomainName"`
+	ValidationMethod        string                             `json:"ValidationMethod"`
+	CertificateAuthorityArn string                             `json:"CertificateAuthorityArn"`
+	IdempotencyToken        string                             `json:"IdempotencyToken"`
+	KeyAlgorithm            string                             `json:"KeyAlgorithm"`
+	SubjectAlternativeNames []string                           `json:"SubjectAlternativeNames"`
+	Tags                    []map[string]string                `json:"Tags"`
+	DomainValidationOptions []domainValidationOptionInputEntry `json:"DomainValidationOptions"`
+}
+
+// domainValidationOptionInputEntry is the wire shape of one
+// RequestCertificate DomainValidationOptions input entry, letting the caller
+// pick which domain ACM should send EMAIL validation messages to.
+type domainValidationOptionInputEntry struct {
+	DomainName       string `json:"DomainName"`
+	ValidationDomain string `json:"ValidationDomain"`
 }
 
 type requestCertificateOutput struct {
@@ -41,7 +50,10 @@ type resourceRecord struct {
 // renewalSummaryDetail is the wire format for the RenewalSummary field in DescribeCertificate.
 type renewalSummaryDetail struct {
 	RenewalStatus           string                   `json:"RenewalStatus"`
+	RenewalStatusReason     string                   `json:"RenewalStatusReason,omitempty"`
 	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions,omitempty"`
+	// UpdatedAt is required (always present) on the real AWS wire.
+	UpdatedAt int64 `json:"UpdatedAt"`
 }
 
 type certificateDetail struct {
@@ -89,24 +101,40 @@ type extKeyUsageDetail struct {
 
 type certificateOptions struct {
 	CertificateTransparencyLoggingPreference string `json:"CertificateTransparencyLoggingPreference,omitempty"`
+	Export                                   string `json:"Export,omitempty"`
 }
 
 type describeCertificateOutput struct {
 	Certificate certificateDetail `json:"Certificate"`
 }
 
+// certificateSummary is the CertificateSummary shape returned by
+// ListCertificates. Unlike certificateDetail (DescribeCertificate), real
+// AWS's CertificateSummary.KeyUsages/ExtendedKeyUsages are plain string
+// arrays (types.KeyUsageName/types.ExtendedKeyUsageName), NOT arrays of
+// {"Name": "..."} objects -- that wrapped-object shape only exists on
+// CertificateDetail.KeyUsages ([]types.KeyUsage). Using keyUsageDetail here
+// previously broke every real SDK client's ListCertificates deserializer.
 type certificateSummary struct {
-	IssuedAt                        *int64   `json:"IssuedAt,omitempty"`
-	ImportedAt                      *int64   `json:"ImportedAt,omitempty"`
-	NotBefore                       *int64   `json:"NotBefore,omitempty"`
-	NotAfter                        *int64   `json:"NotAfter,omitempty"`
-	CertificateArn                  string   `json:"CertificateArn"`
-	DomainName                      string   `json:"DomainName"`
-	Status                          string   `json:"Status,omitempty"`
-	KeyAlgorithm                    string   `json:"KeyAlgorithm,omitempty"`
-	RenewalEligibility              string   `json:"RenewalEligibility,omitempty"`
-	Type                            string   `json:"Type,omitempty"`
-	SubjectAlternativeNameSummaries []string `json:"SubjectAlternativeNameSummaries,omitempty"`
+	CreatedAt                            *int64   `json:"CreatedAt,omitempty"`
+	IssuedAt                             *int64   `json:"IssuedAt,omitempty"`
+	ImportedAt                           *int64   `json:"ImportedAt,omitempty"`
+	NotBefore                            *int64   `json:"NotBefore,omitempty"`
+	NotAfter                             *int64   `json:"NotAfter,omitempty"`
+	RevokedAt                            *int64   `json:"RevokedAt,omitempty"`
+	Exported                             *bool    `json:"Exported,omitempty"`
+	InUse                                *bool    `json:"InUse,omitempty"`
+	HasAdditionalSubjectAlternativeNames *bool    `json:"HasAdditionalSubjectAlternativeNames,omitempty"`
+	CertificateArn                       string   `json:"CertificateArn"`
+	DomainName                           string   `json:"DomainName"`
+	Status                               string   `json:"Status,omitempty"`
+	KeyAlgorithm                         string   `json:"KeyAlgorithm,omitempty"`
+	RenewalEligibility                   string   `json:"RenewalEligibility,omitempty"`
+	Type                                 string   `json:"Type,omitempty"`
+	ExportOption                         string   `json:"ExportOption,omitempty"`
+	SubjectAlternativeNameSummaries      []string `json:"SubjectAlternativeNameSummaries,omitempty"`
+	KeyUsages                            []string `json:"KeyUsages,omitempty"`
+	ExtendedKeyUsages                    []string `json:"ExtendedKeyUsages,omitempty"`
 }
 
 // listCertificatesIncludes mirrors the AWS Filters shape for ListCertificates.
@@ -194,6 +222,11 @@ type revokeCertificateOutput struct{}
 
 type certificateOptionsInput struct {
 	CertificateTransparencyLoggingPreference string `json:"CertificateTransparencyLoggingPreference"`
+	// Export is only meaningful on RequestCertificate; AWS ignores it on
+	// UpdateCertificateOptions since Export is immutable after creation
+	// ("You cannot update the value of Export after the certificate is
+	// created.").
+	Export string `json:"Export"`
 }
 
 type updateCertificateOptionsInput struct {
@@ -210,11 +243,22 @@ func (h *Handler) jsonRequestCertificate(ctx context.Context, body []byte) (any,
 	}
 	certType := ""
 	if input.CertificateAuthorityArn != "" {
-		certType = "PRIVATE"
+		certType = certTypePrivate
 	}
-	opts := ""
+	opts, exportPref := "", ""
 	if input.Options != nil {
 		opts = input.Options.CertificateTransparencyLoggingPreference
+		exportPref = input.Options.Export
+	}
+
+	// Validate DomainValidationOptions before creating anything -- an
+	// InvalidDomainValidationOptionsException must not leave a certificate
+	// behind.
+	allDomains := append([]string{input.DomainName}, input.SubjectAlternativeNames...)
+
+	overrides, dvoErr := validateDomainValidationOptions(allDomains, toOverrideEntries(input.DomainValidationOptions))
+	if dvoErr != nil {
+		return nil, dvoErr
 	}
 
 	cert, err := h.Backend.RequestCertificate(
@@ -230,6 +274,14 @@ func (h *Handler) jsonRequestCertificate(ctx context.Context, body []byte) (any,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if applyErr := h.Backend.ApplyDomainValidationOverrides(ctx, cert.ARN, overrides); applyErr != nil {
+		return nil, applyErr
+	}
+
+	if setErr := h.Backend.SetExportPreference(ctx, cert.ARN, exportPref); setErr != nil {
+		return nil, setErr
 	}
 
 	// If tags were provided, apply them immediately after creating the certificate.
@@ -249,10 +301,29 @@ func (h *Handler) jsonRequestCertificate(ctx context.Context, body []byte) (any,
 	return &requestCertificateOutput{CertificateArn: cert.ARN}, nil
 }
 
+// toOverrideEntries adapts the wire-shape DomainValidationOptions input to
+// the internal domainValidationOptionOverride type used by
+// validateDomainValidationOptions.
+func toOverrideEntries(in []domainValidationOptionInputEntry) []domainValidationOptionOverride {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]domainValidationOptionOverride, 0, len(in))
+	for _, e := range in {
+		out = append(out, domainValidationOptionOverride(e))
+	}
+
+	return out
+}
+
 func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any, error) {
 	var input describeCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
 	}
 	cert, err := h.Backend.DescribeCertificate(ctx, input.CertificateArn)
 	if err != nil {
@@ -340,7 +411,9 @@ func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any
 
 		detail.RenewalSummary = &renewalSummaryDetail{
 			RenewalStatus:           cert.RenewalSummary.RenewalStatus,
+			RenewalStatusReason:     cert.RenewalSummary.RenewalStatusReason,
 			DomainValidationOptions: rsDVOs,
+			UpdatedAt:               cert.RenewalSummary.UpdatedAt.Unix(),
 		}
 	}
 
@@ -374,38 +447,67 @@ func (h *Handler) jsonListCertificates(ctx context.Context, body []byte) (any, e
 	summaries := make([]certificateSummary, 0, len(p.Data))
 
 	for _, c := range p.Data {
-		summary := certificateSummary{
-			CertificateArn:                  c.ARN,
-			DomainName:                      c.DomainName,
-			Status:                          c.Status,
-			KeyAlgorithm:                    c.KeyAlgorithm,
-			RenewalEligibility:              c.RenewalEligibility,
-			Type:                            c.Type,
-			IssuedAt:                        certTimeUnix(c.IssuedAt),
-			ImportedAt:                      certTimeUnix(c.ImportedAt),
-			SubjectAlternativeNameSummaries: c.SubjectAlternativeNames,
-		}
-
-		if !c.NotBefore.IsZero() {
-			ts := c.NotBefore.Unix()
-			summary.NotBefore = &ts
-		}
-
-		if !c.NotAfter.IsZero() {
-			ts := c.NotAfter.Unix()
-			summary.NotAfter = &ts
-		}
-
-		summaries = append(summaries, summary)
+		summaries = append(summaries, buildCertificateSummary(&c))
 	}
 
 	return &listCertificatesOutput{CertificateSummaryList: summaries, NextToken: p.Next}, nil
+}
+
+// buildCertificateSummary projects a backend Certificate into the wire-shape
+// CertificateSummary returned by ListCertificates.
+func buildCertificateSummary(c *Certificate) certificateSummary {
+	inUse := len(c.InUseBy) > 0
+	// Real ACM caps SubjectAlternativeNameSummaries at the first 100 names
+	// and sets this true when more exist; gopherstack never stores more than
+	// the account's domain-per-certificate quota (well under 100), so this
+	// is always false here -- correct given our data, not a stubbed field.
+	hasMoreSANs := false
+
+	summary := certificateSummary{
+		CertificateArn:                       c.ARN,
+		DomainName:                           c.DomainName,
+		Status:                               c.Status,
+		KeyAlgorithm:                         c.KeyAlgorithm,
+		RenewalEligibility:                   c.RenewalEligibility,
+		Type:                                 c.Type,
+		ExportOption:                         c.ExportPref,
+		CreatedAt:                            certTimeUnix(&c.CreatedAt),
+		IssuedAt:                             certTimeUnix(c.IssuedAt),
+		ImportedAt:                           certTimeUnix(c.ImportedAt),
+		RevokedAt:                            certTimeUnix(c.RevokedAt),
+		SubjectAlternativeNameSummaries:      c.SubjectAlternativeNames,
+		InUse:                                &inUse,
+		HasAdditionalSubjectAlternativeNames: &hasMoreSANs,
+	}
+
+	if c.Type == certTypePrivate {
+		exported := c.Exported
+		summary.Exported = &exported
+	}
+
+	summary.KeyUsages = append(summary.KeyUsages, c.KeyUsage...)
+	summary.ExtendedKeyUsages = append(summary.ExtendedKeyUsages, c.ExtendedKeyUsage...)
+
+	if !c.NotBefore.IsZero() {
+		ts := c.NotBefore.Unix()
+		summary.NotBefore = &ts
+	}
+
+	if !c.NotAfter.IsZero() {
+		ts := c.NotAfter.Unix()
+		summary.NotAfter = &ts
+	}
+
+	return summary
 }
 
 func (h *Handler) jsonDeleteCertificate(ctx context.Context, body []byte) (any, error) {
 	var input deleteCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
 	}
 	if err := h.Backend.DeleteCertificate(ctx, input.CertificateArn); err != nil {
 		return nil, err
@@ -419,6 +521,9 @@ func (h *Handler) jsonImportCertificate(ctx context.Context, body []byte) (any, 
 	var input importCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
 	}
 	cert, err := h.Backend.ImportCertificate(
 		ctx,
@@ -439,6 +544,9 @@ func (h *Handler) jsonRenewCertificate(ctx context.Context, body []byte) (any, e
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
+	}
 	if err := h.Backend.RenewCertificate(ctx, input.CertificateArn); err != nil {
 		return nil, err
 	}
@@ -450,6 +558,10 @@ func (h *Handler) jsonExportCertificate(ctx context.Context, body []byte) (any, 
 	var input exportCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
 	}
 
 	if input.Passphrase == "" {
@@ -482,6 +594,9 @@ func (h *Handler) jsonGetCertificate(ctx context.Context, body []byte) (any, err
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
+	}
 	certBody, certChain, err := h.Backend.GetCertificate(ctx, input.CertificateArn)
 	if err != nil {
 		return nil, err
@@ -499,6 +614,10 @@ func (h *Handler) jsonResendValidationEmail(ctx context.Context, body []byte) (a
 		return nil, ErrInvalidParameter
 	}
 
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
+	}
+
 	err := h.Backend.ResendValidationEmail(ctx, input.CertificateArn, input.Domain, input.ValidationDomain)
 	if err != nil {
 		return nil, err
@@ -511,6 +630,10 @@ func (h *Handler) jsonRevokeCertificate(ctx context.Context, body []byte) (any, 
 	var input revokeCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.RevokeCertificate(ctx, input.CertificateArn, input.RevocationReason); err != nil {
@@ -526,6 +649,10 @@ func (h *Handler) jsonUpdateCertificateOptions(ctx context.Context, body []byte)
 		return nil, ErrInvalidParameter
 	}
 
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.UpdateCertificateOptions(
 		ctx,
 		input.CertificateArn,
@@ -539,12 +666,13 @@ func (h *Handler) jsonUpdateCertificateOptions(ctx context.Context, body []byte)
 
 // describeCertOptions builds the Options response field if the cert has a transparency preference set.
 func describeCertOptions(cert *Certificate) *certificateOptions {
-	if cert.CertificateTransparencyLoggingPref == "" {
+	if cert.CertificateTransparencyLoggingPref == "" && cert.ExportPref == "" {
 		return nil
 	}
 
 	return &certificateOptions{
 		CertificateTransparencyLoggingPreference: cert.CertificateTransparencyLoggingPref,
+		Export:                                   cert.ExportPref,
 	}
 }
 

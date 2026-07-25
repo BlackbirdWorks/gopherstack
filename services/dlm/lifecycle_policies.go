@@ -131,8 +131,13 @@ func (b *InMemoryBackend) GetLifecyclePolicy(policyID string) (*Policy, error) {
 }
 
 // UpdateLifecyclePolicy updates mutable fields of an existing policy.
+//
+// description and executionRoleARN follow presence semantics, not
+// truthiness: nil means the field was omitted from the request (leave
+// unchanged), a non-nil pointer to "" means the caller explicitly cleared
+// it. See the StorageBackend.UpdateLifecyclePolicy doc comment for why.
 func (b *InMemoryBackend) UpdateLifecyclePolicy(
-	policyID, description, executionRoleARN, state string,
+	policyID string, description, executionRoleARN *string, state string,
 	policyDetails map[string]any,
 ) error {
 	b.mu.Lock("UpdateLifecyclePolicy")
@@ -143,12 +148,12 @@ func (b *InMemoryBackend) UpdateLifecyclePolicy(
 		return ErrPolicyNotFound
 	}
 
-	if description != "" {
-		p.Description = description
+	if description != nil {
+		p.Description = *description
 	}
 
-	if executionRoleARN != "" {
-		p.ExecutionRoleARN = executionRoleARN
+	if executionRoleARN != nil {
+		p.ExecutionRoleARN = *executionRoleARN
 	}
 
 	if state != "" {

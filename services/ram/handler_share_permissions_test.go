@@ -147,9 +147,99 @@ func TestReplacePermissionAssociations(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			assert.NotEmpty(t, resp.ReplacePermissionAssociationsWork.ID)
-			assert.Equal(t, "IN_PROGRESS", resp.ReplacePermissionAssociationsWork.Status)
+			// This mock performs the association swap synchronously (no async worker),
+			// so the work item is already COMPLETED by the time the call returns.
+			assert.Equal(t, "COMPLETED", resp.ReplacePermissionAssociationsWork.Status)
 		})
 	}
+}
+
+// TestListReplacePermissionAssociationsWork verifies that work items created by
+// ReplacePermissionAssociations are retrievable, and that the id/status filters work.
+func TestListReplacePermissionAssociationsWork(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	fromP, err := h.Backend.CreatePermission("lrpaw-from", "ec2:Subnet", `{"v":"1"}`, nil)
+	require.NoError(t, err)
+	toP, err := h.Backend.CreatePermission("lrpaw-to", "ec2:Subnet", `{"v":"2"}`, nil)
+	require.NoError(t, err)
+
+	rs, err := h.Backend.CreateResourceShare("lrpaw-share", false, nil, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Backend.AssociateResourceSharePermission(rs.ARN, fromP.ARN, false, nil))
+
+	rec := doRAMRequest(t, h, "/replacepermissionassociations", map[string]any{
+		"fromPermissionArn": fromP.ARN,
+		"toPermissionArn":   toP.ARN,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp struct {
+		ReplacePermissionAssociationsWork struct {
+			ID string `json:"id"`
+		} `json:"replacePermissionAssociationsWork"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	workID := createResp.ReplacePermissionAssociationsWork.ID
+	require.NotEmpty(t, workID)
+
+	type listResp struct {
+		ReplacePermissionAssociationsWorks []struct {
+			ID                    string `json:"id"`
+			FromPermissionArn     string `json:"fromPermissionArn"`
+			FromPermissionVersion string `json:"fromPermissionVersion"`
+			ToPermissionArn       string `json:"toPermissionArn"`
+			ToPermissionVersion   string `json:"toPermissionVersion"`
+			Status                string `json:"status"`
+		} `json:"replacePermissionAssociationsWorks"`
+	}
+
+	t.Run("unfiltered lists the work item", func(t *testing.T) {
+		t.Parallel()
+
+		listRec := doRAMRequest(t, h, "/listreplacepermissionassociationswork", map[string]any{})
+		require.Equal(t, http.StatusOK, listRec.Code)
+
+		var resp listResp
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+		require.Len(t, resp.ReplacePermissionAssociationsWorks, 1)
+
+		w := resp.ReplacePermissionAssociationsWorks[0]
+		assert.Equal(t, workID, w.ID)
+		assert.Equal(t, fromP.ARN, w.FromPermissionArn)
+		assert.Equal(t, toP.ARN, w.ToPermissionArn)
+		assert.Equal(t, "1", w.FromPermissionVersion)
+		assert.Equal(t, "1", w.ToPermissionVersion)
+		assert.Equal(t, "COMPLETED", w.Status)
+	})
+
+	t.Run("filtered by workIds", func(t *testing.T) {
+		t.Parallel()
+
+		listRec := doRAMRequest(t, h, "/listreplacepermissionassociationswork", map[string]any{
+			"workIds": []string{"nonexistent-work-id"},
+		})
+		require.Equal(t, http.StatusOK, listRec.Code)
+
+		var resp listResp
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+		assert.Empty(t, resp.ReplacePermissionAssociationsWorks)
+	})
+
+	t.Run("filtered by status", func(t *testing.T) {
+		t.Parallel()
+
+		listRec := doRAMRequest(t, h, "/listreplacepermissionassociationswork", map[string]any{
+			"status": "FAILED",
+		})
+		require.Equal(t, http.StatusOK, listRec.Code)
+
+		var resp listResp
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+		assert.Empty(t, resp.ReplacePermissionAssociationsWorks)
+	})
 }
 
 func TestHandler_AssociateResourceSharePermission(t *testing.T) {
@@ -285,6 +375,68 @@ func TestHandler_DisassociateResourceSharePermission(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+// TestDisassociateResourceSharePermission_BlockedWhileResourceOfTypeAttached verifies
+// AWS's documented rule: you can remove a managed permission from a resource share only
+// if there are currently no resources of the relevant resource type currently attached
+// to the resource share.
+func TestDisassociateResourceSharePermission_BlockedWhileResourceOfTypeAttached(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rs, err := h.Backend.CreateResourceShare("blocked-disassoc-share", false, nil, nil, nil)
+	require.NoError(t, err)
+
+	p, err := h.Backend.CreatePermission("blocked-disassoc-perm", "ec2:Subnet", `{}`, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Backend.AssociateResourceSharePermission(rs.ARN, p.ARN, false, nil))
+
+	// No resources of that type attached yet: disassociation must succeed.
+	rec := doRAMRequest(t, h, "/disassociateresourcesharepermission", map[string]any{
+		"resourceShareArn": rs.ARN,
+		"permissionArn":    p.ARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Re-associate, then attach a resource of the covered type.
+	require.NoError(t, h.Backend.AssociateResourceSharePermission(rs.ARN, p.ARN, false, nil))
+	_, err = h.Backend.AssociateResourceShare(
+		rs.ARN, nil, []string{"arn:aws:ec2:us-east-1:000000000000:subnet/sub-1"},
+	)
+	require.NoError(t, err)
+
+	// Now disassociation must be refused.
+	rec = doRAMRequest(t, h, "/disassociateresourcesharepermission", map[string]any{
+		"resourceShareArn": rs.ARN,
+		"permissionArn":    p.ARN,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "OperationNotPermittedException", errResp["__type"])
+
+	// The permission must still be associated -- the disassociation was refused, not
+	// silently dropped.
+	listRec := doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
+		"resourceShareArn": rs.ARN,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), p.ARN)
+
+	// After removing the resource, disassociation succeeds again.
+	_, err = h.Backend.DisassociateResourceShare(
+		rs.ARN, nil, []string{"arn:aws:ec2:us-east-1:000000000000:subnet/sub-1"},
+	)
+	require.NoError(t, err)
+
+	rec = doRAMRequest(t, h, "/disassociateresourcesharepermission", map[string]any{
+		"resourceShareArn": rs.ARN,
+		"permissionArn":    p.ARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // TestRAMPagination_ListResourceSharePermissions covers pagination of permissions on a share.

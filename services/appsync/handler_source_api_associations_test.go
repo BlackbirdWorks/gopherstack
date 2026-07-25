@@ -249,3 +249,93 @@ func TestHandler_ListSourceApiAssociations_Empty(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
 	assert.Empty(t, resp["sourceApiAssociationSummaries"])
 }
+
+// TestHandler_StartSchemaMerge locks the real AWS SDK endpoint
+// POST /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations/{associationId}/merge
+// -- both the route itself (keyed by BOTH mergedApiIdentifier and associationId, unlike
+// the removed /v1/apis/{apiId}/schemaMerge invented endpoint) and the response wire
+// shape ({"sourceApiAssociationStatus": "..."}).
+func TestHandler_StartSchemaMerge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		method      string
+		wantStatus  int
+		createAssoc bool
+	}{
+		{
+			name:        "post_success",
+			method:      http.MethodPost,
+			createAssoc: true,
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "association_not_found",
+			method:      http.MethodPost,
+			createAssoc: false,
+			wantStatus:  http.StatusNotFound,
+		},
+		{
+			name:        "method_not_allowed",
+			method:      http.MethodGet,
+			createAssoc: true,
+			wantStatus:  http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			mergedAPIID := "nonexistent-merged"
+			assocID := "nonexistent-assoc"
+
+			if tt.createAssoc {
+				merged, err := b.CreateGraphqlAPI(
+					"MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil,
+				)
+				require.NoError(t, err)
+				source, err := b.CreateGraphqlAPI("SourceAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+				require.NoError(t, err)
+
+				assoc, assocErr := b.AssociateSourceGraphqlAPI(merged.APIID, source.APIID, "initial", "")
+				require.NoError(t, assocErr)
+
+				mergedAPIID = merged.APIID
+				assocID = assoc.AssociationID
+			}
+
+			path := fmt.Sprintf(
+				"/v1/mergedApis/%s/sourceApiAssociations/%s/merge", mergedAPIID, assocID,
+			)
+			rec := doRequest(t, h, tt.method, path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			assert.Equal(t, appsync.SourceAPIAssociationStatusMergeSuccess, resp["sourceApiAssociationStatus"])
+		})
+	}
+}
+
+// TestHandler_LegacySchemaMergeEndpointRemoved locks that the invented
+// /v1/apis/{apiId}/schemaMerge endpoint (removed for not matching the real SDK path,
+// request shape, or response shape) is no longer routed to StartSchemaMerge -- POST
+// now falls through to UpdateGraphqlApi's dispatch (segment 3 "schemaMerge" is not a
+// recognized subresource, so the request 404s).
+func TestHandler_LegacySchemaMergeEndpointRemoved(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	api, err := b.CreateGraphqlAPI("MergedAPI", appsync.AuthTypeAPIKey, false, "MERGED", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/schemaMerge", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}

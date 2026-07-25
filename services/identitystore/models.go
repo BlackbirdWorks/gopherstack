@@ -1,8 +1,44 @@
 package identitystore
 
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+)
+
 // ----------------------------------------
 // Domain models
 // ----------------------------------------
+
+// epochTime wraps time.Time so User/Group/GroupMembership's CreatedAt/UpdatedAt
+// fields marshal to the AWS JSON-protocol epoch-seconds wire format (a JSON
+// number of seconds since the Unix epoch -- see pkgs/awstime) instead of Go's
+// default RFC3339 string encoding of time.Time. A defined type over
+// time.Time does not inherit time.Time's own (Un)MarshalJSON methods, so
+// both are implemented explicitly here; UnmarshalJSON exists so this same
+// wire encoding round-trips correctly through Snapshot/Restore persistence,
+// which reuses these struct field JSON tags (see persistence.go).
+type epochTime time.Time
+
+// MarshalJSON renders t as AWS JSON-protocol epoch seconds.
+func (t epochTime) MarshalJSON() ([]byte, error) {
+	return json.Marshal(awstime.Epoch(time.Time(t)))
+}
+
+// UnmarshalJSON parses AWS JSON-protocol epoch seconds back into t.
+func (t *epochTime) UnmarshalJSON(data []byte) error {
+	var seconds float64
+	if err := json.Unmarshal(data, &seconds); err != nil {
+		return err
+	}
+
+	whole := int64(seconds)
+	frac := seconds - float64(whole)
+	*t = epochTime(time.Unix(whole, int64(frac*float64(time.Second))).UTC())
+
+	return nil
+}
 
 // Name holds a user's name components.
 type Name struct {
@@ -82,10 +118,14 @@ type User struct {
 	UserStatus      string `json:"UserStatus,omitempty"`
 	Birthdate       string `json:"Birthdate,omitempty"`
 	IdentityStoreID string `json:"IdentityStoreId"`
+	CreatedBy       string `json:"CreatedBy,omitempty"`
+	UpdatedBy       string `json:"UpdatedBy,omitempty"`
 	// region is hidden from JSON (unexported): it is used only to derive the
 	// store.Table composite primary key and index keys below, mirroring
 	// services/emr's Cluster.region. See store_setup.go and persistence.go.
 	region       string
+	CreatedAt    epochTime     `json:"CreatedAt"`
+	UpdatedAt    epochTime     `json:"UpdatedAt"`
 	Addresses    []Address     `json:"Addresses,omitempty"`
 	PhoneNumbers []PhoneNumber `json:"PhoneNumbers,omitempty"`
 	Photos       []Photo       `json:"Photos,omitempty"`
@@ -101,8 +141,12 @@ type Group struct {
 	IdentityStoreID string `json:"IdentityStoreId"`
 	DisplayName     string `json:"DisplayName,omitempty"`
 	Description     string `json:"Description,omitempty"`
+	CreatedBy       string `json:"CreatedBy,omitempty"`
+	UpdatedBy       string `json:"UpdatedBy,omitempty"`
 	// region is hidden from JSON (unexported); see User.region.
 	region      string
+	CreatedAt   epochTime    `json:"CreatedAt"`
+	UpdatedAt   epochTime    `json:"UpdatedAt"`
 	ExternalIDs []ExternalID `json:"ExternalIds,omitempty"`
 }
 
@@ -113,12 +157,15 @@ type MemberID struct {
 
 // GroupMembership represents a group membership record.
 type GroupMembership struct {
-	MembershipID    string   `json:"MembershipId"`
-	IdentityStoreID string   `json:"IdentityStoreId"`
-	GroupID         string   `json:"GroupId"`
-	MemberID        MemberID `json:"MemberId"`
-	// region is hidden from JSON (unexported); see User.region.
-	region string
+	CreatedAt       epochTime `json:"CreatedAt"`
+	UpdatedAt       epochTime `json:"UpdatedAt"`
+	MembershipID    string    `json:"MembershipId"`
+	IdentityStoreID string    `json:"IdentityStoreId"`
+	GroupID         string    `json:"GroupId"`
+	CreatedBy       string    `json:"CreatedBy,omitempty"`
+	UpdatedBy       string    `json:"UpdatedBy,omitempty"`
+	MemberID        MemberID  `json:"MemberId"`
+	region          string
 }
 
 // GroupMembershipExistence is the result item for IsMemberInGroups.

@@ -3,6 +3,7 @@ package ssm_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,39 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
+
+// fakeParameterPolicyNotifier is an in-memory ssm.ParameterPolicyNotifier
+// double that records every call, standing in for the real EventBridge
+// adapter (services/eventbridge's ssm_integration.go) so tests can assert on
+// exactly what SSM would have published without any cross-service wiring.
+type fakeParameterPolicyNotifier struct {
+	calls []fakePolicyNotifyCall
+	mu    sync.Mutex
+}
+
+type fakePolicyNotifyCall struct {
+	parameterName string
+	policyType    string
+}
+
+func (f *fakeParameterPolicyNotifier) NotifyParameterPolicyAction(
+	_ context.Context,
+	parameterName, policyType string,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls = append(f.calls, fakePolicyNotifyCall{parameterName: parameterName, policyType: policyType})
+
+	return nil
+}
+
+func (f *fakeParameterPolicyNotifier) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.calls)
+}
 
 // TestInMemoryBackend_HistoryCap verifies that PutParameter caps history to
 // MaxHistoryCap entries, evicting the oldest entries on overflow.
@@ -363,6 +397,202 @@ func TestSSMJanitor_DefaultInterval(t *testing.T) {
 			h.WithJanitor(tt.interval)
 
 			assert.Equal(t, tt.want, h.GetJanitorInterval())
+		})
+	}
+}
+
+// TestSSMJanitor_ParameterPolicyNotifications proves the previously-entirely-
+// unevaluated NoChangeNotification/ExpirationNotification parameter policies
+// (PARITY.md gap, bd tracked as part of the parameter-store family) now
+// really do drive a ParameterPolicyNotifier call once a policy becomes due,
+// with correct dedupe/reset/cascade-cleanup semantics -- not just that the
+// Policies string round-trips.
+//
+// "Due" is engineered without waiting real wall-clock hours/days by using a
+// zero "After"/"Before" amount (fires the instant LastModifiedDate --
+// respectively a just-in-the-future Expiration timestamp -- is in the past),
+// matching real AWS's own periodic best-effort scan semantics, not a fixed
+// polling delay this test would otherwise have to sleep through.
+func TestSSMJanitor_ParameterPolicyNotifications(t *testing.T) {
+	t.Parallel()
+
+	putAdvanced := func(t *testing.T, b *ssm.InMemoryBackend, name, policies string, overwrite bool) {
+		t.Helper()
+
+		_, err := b.PutParameter(context.Background(), &ssm.PutParameterInput{
+			Name:      name,
+			Type:      "String",
+			Value:     "v",
+			Tier:      "Advanced",
+			Policies:  policies,
+			Overwrite: overwrite,
+		})
+		require.NoError(t, err)
+	}
+
+	noChangeDuePolicy := `[{"Type":"NoChangeNotification","Version":"1.0","Attributes":{"After":"0","Unit":"Hours"}}]`
+	noChangeNotDuePolicy := `[{"Type":"NoChangeNotification","Version":"1.0","Attributes":{"After":"9999","Unit":"Days"}}]`
+	expirationNotificationDue := func() string {
+		expiresAt := time.Now().Add(2 * time.Second).UTC().Format(time.RFC3339)
+
+		return `[{"Type":"Expiration","Version":"1.0","Attributes":{"Timestamp":"` + expiresAt + `"}},` +
+			`{"Type":"ExpirationNotification","Version":"1.0","Attributes":{"Before":"1","Unit":"Hours"}}]`
+	}
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "no_change_notification_fires_when_due",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := ssm.NewInMemoryBackend()
+				notifier := &fakeParameterPolicyNotifier{}
+				b.SetParameterPolicyNotifier(notifier)
+
+				putAdvanced(t, b, "/app/no-change", noChangeDuePolicy, false)
+
+				j := ssm.NewJanitor(b, time.Minute)
+				j.SweepOnce(t.Context())
+
+				require.Equal(t, 1, notifier.callCount())
+				assert.Equal(t, "/app/no-change", notifier.calls[0].parameterName)
+				assert.Equal(t, "NoChangeNotification", notifier.calls[0].policyType)
+			},
+		},
+		{
+			name: "expiration_notification_fires_when_due",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := ssm.NewInMemoryBackend()
+				notifier := &fakeParameterPolicyNotifier{}
+				b.SetParameterPolicyNotifier(notifier)
+
+				putAdvanced(t, b, "/app/expiring", expirationNotificationDue(), false)
+
+				j := ssm.NewJanitor(b, time.Minute)
+				j.SweepOnce(t.Context())
+
+				require.Equal(t, 1, notifier.callCount())
+				assert.Equal(t, "/app/expiring", notifier.calls[0].parameterName)
+				assert.Equal(t, "ExpirationNotification", notifier.calls[0].policyType)
+
+				// The parameter must still exist -- it isn't due to actually
+				// expire (and be deleted by the separate Expiration sweep)
+				// for a while yet, only the advance-notice threshold fired.
+				_, err := b.GetParameter(context.Background(), &ssm.GetParameterInput{Name: "/app/expiring"})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "not_yet_due_never_fires",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := ssm.NewInMemoryBackend()
+				notifier := &fakeParameterPolicyNotifier{}
+				b.SetParameterPolicyNotifier(notifier)
+
+				putAdvanced(t, b, "/app/far-future", noChangeNotDuePolicy, false)
+
+				j := ssm.NewJanitor(b, time.Minute)
+				j.SweepOnce(t.Context())
+
+				assert.Equal(t, 0, notifier.callCount())
+			},
+		},
+		{
+			name: "no_notifier_configured_is_a_safe_noop",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := ssm.NewInMemoryBackend()
+				// Deliberately never call SetParameterPolicyNotifier.
+				putAdvanced(t, b, "/app/unconfigured", noChangeDuePolicy, false)
+
+				j := ssm.NewJanitor(b, time.Minute)
+				require.NotPanics(t, func() { j.SweepOnce(t.Context()) })
+			},
+		},
+		{
+			name: "dedup_does_not_refire_on_second_sweep",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := ssm.NewInMemoryBackend()
+				notifier := &fakeParameterPolicyNotifier{}
+				b.SetParameterPolicyNotifier(notifier)
+
+				putAdvanced(t, b, "/app/dedup", noChangeDuePolicy, false)
+
+				j := ssm.NewJanitor(b, time.Minute)
+				j.SweepOnce(t.Context())
+				j.SweepOnce(t.Context())
+				j.SweepOnce(t.Context())
+
+				assert.Equal(t, 1, notifier.callCount(),
+					"a policy instance must notify at most once until the parameter is re-written")
+			},
+		},
+		{
+			name: "put_parameter_resets_dedupe_state",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := ssm.NewInMemoryBackend()
+				notifier := &fakeParameterPolicyNotifier{}
+				b.SetParameterPolicyNotifier(notifier)
+
+				putAdvanced(t, b, "/app/rewrite", noChangeDuePolicy, false)
+
+				j := ssm.NewJanitor(b, time.Minute)
+				j.SweepOnce(t.Context())
+				require.Equal(t, 1, notifier.callCount())
+
+				// Real AWS: "If you change or edit a parameter, the system
+				// resets the notification time period." A fresh write must
+				// make the (still-due, After=0) policy eligible again.
+				putAdvanced(t, b, "/app/rewrite", noChangeDuePolicy, true)
+				j.SweepOnce(t.Context())
+
+				assert.Equal(t, 2, notifier.callCount())
+			},
+		},
+		{
+			name: "delete_then_recreate_leaves_no_ghost_dedupe_state",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := ssm.NewInMemoryBackend()
+				notifier := &fakeParameterPolicyNotifier{}
+				b.SetParameterPolicyNotifier(notifier)
+
+				putAdvanced(t, b, "/app/recreate", noChangeDuePolicy, false)
+
+				j := ssm.NewJanitor(b, time.Minute)
+				j.SweepOnce(t.Context())
+				require.Equal(t, 1, notifier.callCount())
+
+				_, err := b.DeleteParameter(context.Background(), &ssm.DeleteParameterInput{Name: "/app/recreate"})
+				require.NoError(t, err)
+
+				putAdvanced(t, b, "/app/recreate", noChangeDuePolicy, false)
+				j.SweepOnce(t.Context())
+
+				assert.Equal(t, 2, notifier.callCount(),
+					"deleting and recreating a parameter must not leave stale notified-state behind")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(t)
 		})
 	}
 }

@@ -30,6 +30,7 @@ type createWorkflowInput struct {
 	DefaultRunProperties map[string]string `json:"DefaultRunProperties,omitempty"`
 	Name                 string            `json:"Name"`
 	Description          string            `json:"Description,omitempty"`
+	MaxConcurrentRuns    int               `json:"MaxConcurrentRuns,omitempty"`
 }
 
 // createWorkflowOutput holds the result for CreateWorkflow.
@@ -45,6 +46,7 @@ func (h *Handler) handleCreateWorkflow(
 		Name:                 in.Name,
 		Description:          in.Description,
 		DefaultRunProperties: in.DefaultRunProperties,
+		MaxConcurrentRuns:    in.MaxConcurrentRuns,
 	}
 
 	created, err := h.Backend.CreateWorkflow(w, in.Tags)
@@ -266,6 +268,7 @@ type updateWorkflowInput struct {
 	DefaultRunProperties map[string]string `json:"DefaultRunProperties,omitempty"`
 	Name                 string            `json:"Name"`
 	Description          string            `json:"Description,omitempty"`
+	MaxConcurrentRuns    int               `json:"MaxConcurrentRuns,omitempty"`
 }
 
 // updateWorkflowOutput holds the result for UpdateWorkflow.
@@ -280,6 +283,7 @@ func (h *Handler) handleUpdateWorkflow(
 	update := Workflow{
 		Description:          in.Description,
 		DefaultRunProperties: in.DefaultRunProperties,
+		MaxConcurrentRuns:    in.MaxConcurrentRuns,
 	}
 	if err := h.Backend.UpdateWorkflow(in.Name, update); err != nil {
 		return nil, err

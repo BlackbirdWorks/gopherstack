@@ -43,7 +43,6 @@ type QueryResult struct {
 
 // AccountSettings holds the account-level settings for Timestream Query.
 type AccountSettings struct {
-	LastUpdatedTime   *time.Time
 	MaxQueryTCU       *int32
 	QueryCompute      *QueryCompute
 	QueryPricingModel string
@@ -144,8 +143,26 @@ type QueryInsightsResponse struct {
 // used transiently while parsing an UpdateAccountSettings request body (see
 // QueryComputeUpdate).
 type ProvisionedCapacity struct {
-	ActiveQueryTCU *int32      `json:"ActiveQueryTCU,omitempty"`
-	LastUpdate     *LastUpdate `json:"LastUpdate,omitempty"`
+	ActiveQueryTCU            *int32                                    `json:"ActiveQueryTCU,omitempty"`
+	LastUpdate                *LastUpdate                               `json:"LastUpdate,omitempty"`
+	NotificationConfiguration *AccountSettingsNotificationConfiguration `json:"NotificationConfiguration,omitempty"`
+}
+
+// AccountSettingsNotificationConfiguration mirrors
+// types.AccountSettingsNotificationConfiguration: settings for notifications
+// sent whenever the provisioned-capacity settings are modified. Distinct from
+// the scheduled-query NotificationConfiguration (see scheduledQueryToView),
+// which shares the same nested SnsConfiguration shape but is used for a
+// different resource.
+type AccountSettingsNotificationConfiguration struct {
+	SnsConfiguration *SnsConfiguration `json:"SnsConfiguration,omitempty"`
+	RoleArn          string            `json:"RoleArn,omitempty"`
+}
+
+// SnsConfiguration holds the SNS topic ARN for account-settings
+// (provisioned-capacity) change notifications (types.SnsConfiguration).
+type SnsConfiguration struct {
+	TopicArn string `json:"TopicArn,omitempty"`
 }
 
 // LastUpdate reports the status of the most recent account-settings update
@@ -167,10 +184,12 @@ type QueryCompute struct {
 // QueryComputeUpdate is the parsed request-side shape for
 // UpdateAccountSettingsInput.QueryCompute (types.QueryComputeRequest on the
 // wire): the requested ComputeMode plus, when PROVISIONED, the requested
-// TargetQueryTCU.
+// TargetQueryTCU and optional NotificationConfiguration
+// (types.ProvisionedCapacityRequest.NotificationConfiguration).
 type QueryComputeUpdate struct {
-	TargetQueryTCU *int32
-	ComputeMode    string
+	TargetQueryTCU            *int32
+	NotificationConfiguration *AccountSettingsNotificationConfiguration
+	ComputeMode               string
 }
 
 // ExecutionStats holds statistics from a scheduled query execution.

@@ -21,6 +21,7 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	resolverEndpointType string,
 	protocols []string,
 	outpostArn, preferredInstanceType, creatorRequestID string,
+	rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled bool,
 ) (*ResolverEndpoint, error) {
 	b.mu.Lock("CreateResolverEndpoint")
 	defer b.mu.Unlock()
@@ -80,24 +81,26 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 
 	now := currentTime()
 	ep := &ResolverEndpoint{
-		ID:                    id,
-		ARN:                   epARN,
-		Name:                  name,
-		Direction:             direction,
-		Status:                statusOperational,
-		VpcID:                 vpcID,
-		HostVPCID:             vpcID,
-		IPAddresses:           ipsCopy,
-		SecurityGroupIDs:      sgCopy,
-		ResolverEndpointType:  resolverEndpointType,
-		AccountID:             b.accountID,
-		Region:                region,
-		Protocols:             protocolsCopy,
-		OutpostArn:            outpostArn,
-		PreferredInstanceType: preferredInstanceType,
-		CreatorRequestID:      creatorRequestID,
-		CreationTime:          now,
-		ModificationTime:      now,
+		ID:                             id,
+		ARN:                            epARN,
+		Name:                           name,
+		Direction:                      direction,
+		Status:                         statusOperational,
+		VpcID:                          vpcID,
+		HostVPCID:                      vpcID,
+		IPAddresses:                    ipsCopy,
+		SecurityGroupIDs:               sgCopy,
+		ResolverEndpointType:           resolverEndpointType,
+		AccountID:                      b.accountID,
+		Region:                         region,
+		Protocols:                      protocolsCopy,
+		OutpostArn:                     outpostArn,
+		PreferredInstanceType:          preferredInstanceType,
+		CreatorRequestID:               creatorRequestID,
+		CreationTime:                   now,
+		ModificationTime:               now,
+		RniEnhancedMetricsEnabled:      rniEnhancedMetricsEnabled,
+		TargetNameServerMetricsEnabled: targetNameServerMetricsEnabled,
 	}
 	b.endpoints.Put(ep)
 
@@ -265,6 +268,7 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 	ctx context.Context,
 	id, name, resolverEndpointType string,
 	protocols []string,
+	rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled *bool,
 ) (*ResolverEndpoint, error) {
 	b.mu.Lock("UpdateResolverEndpoint")
 	defer b.mu.Unlock()
@@ -292,6 +296,12 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 		protocolsCopy := make([]string, len(protocols))
 		copy(protocolsCopy, protocols)
 		ep.Protocols = protocolsCopy
+	}
+	if rniEnhancedMetricsEnabled != nil {
+		ep.RniEnhancedMetricsEnabled = *rniEnhancedMetricsEnabled
+	}
+	if targetNameServerMetricsEnabled != nil {
+		ep.TargetNameServerMetricsEnabled = *targetNameServerMetricsEnabled
 	}
 	ep.ModificationTime = currentTime()
 

@@ -1,8 +1,6 @@
 package guardduty
 
 import (
-	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -32,25 +30,62 @@ func (b *InMemoryBackend) GetFindings(detectorID string, findingIDs []string) ([
 	return results, nil
 }
 
-// ListFindings returns finding IDs for a detector.
-func (b *InMemoryBackend) ListFindings(detectorID string) ([]string, error) {
+// FindingsQuery holds the optional filter/sort/pagination parameters for
+// ListFindings, mirroring types.ListFindingsInput's FindingCriteria,
+// SortCriteria, MaxResults, and NextToken fields.
+type FindingsQuery struct {
+	Criteria   map[string]Condition
+	SortAttr   string
+	SortOrder  string
+	NextToken  string
+	MaxResults int32
+}
+
+const (
+	// defaultFindingsPageSize and maxFindingsPageSize match the real
+	// ListFindingsInput.MaxResults doc ("The default value is 50. The
+	// maximum value is 50.").
+	defaultFindingsPageSize = 50
+	maxFindingsPageSize     = 50
+)
+
+// ListFindings returns finding IDs for a detector, filtered by
+// q.Criteria, sorted per q.SortAttr/q.SortOrder (defaulting to ID
+// ascending), and paginated per q.MaxResults/q.NextToken.
+func (b *InMemoryBackend) ListFindings(detectorID string, q FindingsQuery) ([]string, string, error) {
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
 	if !b.detectors.Has(detectorID) {
-		return nil, ErrDetectorNotFound
+		return nil, "", ErrDetectorNotFound
 	}
 
-	items := b.findingsByDetector.Get(detectorID)
-	ids := make([]string, len(items))
+	all := b.findingsByDetector.Get(detectorID)
 
-	for i, f := range items {
+	matched := make([]*Finding, 0, len(all))
+
+	for _, f := range all {
+		if matchesFindingCriteria(f, q.Criteria) {
+			matched = append(matched, f)
+		}
+	}
+
+	sortFindings(matched, q.SortAttr, q.SortOrder)
+
+	offset, err := decodeToken(q.NextToken)
+	if err != nil {
+		return nil, "", ErrValidation
+	}
+
+	size := resolvePageSize(int(q.MaxResults), defaultFindingsPageSize, maxFindingsPageSize)
+	page, nextToken := paginate(matched, offset, size)
+
+	ids := make([]string, len(page))
+	for i, f := range page {
 		ids[i] = f.ID
 	}
 
-	slices.Sort(ids)
-
-	return ids, nil
+	return ids, nextToken, nil
 }
 
 // ArchiveFindings marks findings as archived.
@@ -143,8 +178,24 @@ func (b *InMemoryBackend) CreateSampleFindings(detectorID string, findingTypes [
 	return nil
 }
 
-// GetFindingsStatistics returns finding statistics for a detector.
-func (b *InMemoryBackend) GetFindingsStatistics(detectorID string) (map[string]any, error) {
+// FindingStatisticsQuery holds the optional filter/group-by parameters for
+// GetFindingsStatistics, mirroring types.GetFindingsStatisticsInput's
+// FindingCriteria, GroupBy, and OrderBy fields.
+type FindingStatisticsQuery struct {
+	Criteria   map[string]Condition
+	GroupBy    string
+	OrderBy    string
+	MaxResults int32
+}
+
+// GetFindingsStatistics returns finding statistics for a detector. When
+// q.GroupBy is unset it returns the deprecated countBySeverity aggregate
+// (FindingStatistics.CountBySeverity); when set to one of
+// ACCOUNT/DATE/FINDING_TYPE/RESOURCE/SEVERITY it returns the corresponding
+// groupedByX list instead, matching real GuardDuty's documented behavior
+// ("This parameter is deprecated. Please set GroupBy to 'SEVERITY' to
+// return GroupedBySeverity instead.").
+func (b *InMemoryBackend) GetFindingsStatistics(detectorID string, q FindingStatisticsQuery) (map[string]any, error) {
 	b.mu.RLock("GetFindingsStatistics")
 	defer b.mu.RUnlock()
 
@@ -152,17 +203,16 @@ func (b *InMemoryBackend) GetFindingsStatistics(detectorID string) (map[string]a
 		return nil, ErrDetectorNotFound
 	}
 
-	countBySeverity := map[string]int{}
+	var matched []*Finding
 
 	for _, f := range b.findingsByDetector.Get(detectorID) {
-		key := fmt.Sprintf("%.1f", f.Severity)
-		countBySeverity[key]++
+		if matchesFindingCriteria(f, q.Criteria) {
+			matched = append(matched, f)
+		}
 	}
 
 	return map[string]any{
-		"findingStatistics": map[string]any{
-			"countBySeverity": countBySeverity,
-		},
+		"findingStatistics": findingStatisticsFor(matched, q.GroupBy, q.OrderBy, q.MaxResults),
 	}, nil
 }
 

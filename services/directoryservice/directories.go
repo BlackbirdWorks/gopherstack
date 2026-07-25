@@ -2,6 +2,7 @@ package directoryservice
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"sort"
 	"time"
@@ -13,6 +14,14 @@ const directoryLifecycleDelay = 50 * time.Millisecond
 // restoreLifecycleDelay is the delay before a restoring directory returns to Active.
 const restoreLifecycleDelay = 100 * time.Millisecond
 
+// setStage transitions d to stage and stamps StageLastUpdatedDateTime, matching
+// AWS's DirectoryDescription.StageLastUpdatedDateTime contract ("The date and
+// time that the stage was last updated"). Caller must hold b.mu.
+func setStage(d *storedDirectory, stage DirectoryStage) {
+	d.Stage = string(stage)
+	d.StageLastUpdatedDateTime = time.Now().UTC()
+}
+
 // transitionDirectoryToActive runs the Requested → Creating → Active lifecycle.
 // Must be called as a goroutine after the directory has been stored.
 func (b *InMemoryBackend) transitionDirectoryToActive(region, dirID string) {
@@ -20,7 +29,7 @@ func (b *InMemoryBackend) transitionDirectoryToActive(region, dirID string) {
 
 	b.mu.Lock("transitionDirectoryToActive:creating")
 	if d, ok := b.directoryGet(region, dirID); ok && d.Stage == string(DirectoryStageRequested) {
-		d.Stage = string(DirectoryStageCreating)
+		setStage(d, DirectoryStageCreating)
 	}
 	b.mu.Unlock()
 
@@ -28,9 +37,22 @@ func (b *InMemoryBackend) transitionDirectoryToActive(region, dirID string) {
 
 	b.mu.Lock("transitionDirectoryToActive:active")
 	if d, ok := b.directoryGet(region, dirID); ok && d.Stage == string(DirectoryStageCreating) {
-		d.Stage = string(DirectoryStageActive)
+		setStage(d, DirectoryStageActive)
 	}
 	b.mu.Unlock()
+}
+
+// synthesizeDNSIPAddrs deterministically derives two plausible private DNS
+// server IPs for a newly created directory from its ID, mirroring the shape
+// of AWS's real DnsIpAddrs (the IP addresses of the directory's domain
+// controllers) without depending on unavailable real network state.
+func synthesizeDNSIPAddrs(directoryID string) []string {
+	sum := sha256.Sum256([]byte(directoryID))
+
+	return []string{
+		fmt.Sprintf("10.0.%d.%d", sum[0], sum[1]),
+		fmt.Sprintf("10.0.%d.%d", sum[2], sum[3]),
+	}
 }
 
 func (b *InMemoryBackend) newStoredDirectory(
@@ -43,21 +65,24 @@ func (b *InMemoryBackend) newStoredDirectory(
 ) *storedDirectory {
 	id := b.newDirectoryID()
 	alias := b.defaultAlias(id)
+	now := time.Now().UTC()
 
 	d := &storedDirectory{
-		region:      region,
-		LaunchTime:  time.Now().UTC(),
-		DirectoryID: id,
-		Name:        name,
-		ShortName:   shortName,
-		Description: description,
-		Alias:       alias,
-		AccessURL:   b.defaultAccessURL(alias),
-		DirType:     string(dirType),
-		Stage:       string(DirectoryStageRequested),
-		Size:        string(size),
-		Edition:     string(edition),
-		Tags:        tagsToMap(tags),
+		region:                   region,
+		LaunchTime:               now,
+		StageLastUpdatedDateTime: now,
+		DirectoryID:              id,
+		Name:                     name,
+		ShortName:                shortName,
+		Description:              description,
+		Alias:                    alias,
+		AccessURL:                b.defaultAccessURL(alias),
+		DirType:                  string(dirType),
+		Stage:                    string(DirectoryStageRequested),
+		Size:                     string(size),
+		Edition:                  string(edition),
+		Tags:                     tagsToMap(tags),
+		DNSIPAddrs:               synthesizeDNSIPAddrs(id),
 	}
 	if vpcSettings != nil {
 		d.VpcSettings = &storedVpcSettings{

@@ -34,7 +34,9 @@ func (h *Handler) handleCreateMultiRegionCluster(ctx context.Context, c *echo.Co
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, createMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
+	obj := toMultiRegionClusterObject(mrc, h.Backend.RegionalClustersFor(mrc.MultiRegionClusterName))
+
+	return c.JSON(http.StatusOK, createMultiRegionClusterResponse{MultiRegionCluster: obj})
 }
 
 func (h *Handler) handleDeleteMultiRegionCluster(ctx context.Context, c *echo.Context, body []byte) error {
@@ -58,7 +60,12 @@ func (h *Handler) handleDeleteMultiRegionCluster(ctx context.Context, c *echo.Co
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, deleteMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
+	// The multi-Region cluster itself is gone, but any regional clusters that
+	// still reference it (deletion order isn't enforced by this mock) should
+	// still be reflected on the deletion response, matching a real client's view.
+	obj := toMultiRegionClusterObject(mrc, h.Backend.RegionalClustersFor(mrc.MultiRegionClusterName))
+
+	return c.JSON(http.StatusOK, deleteMultiRegionClusterResponse{MultiRegionCluster: obj})
 }
 
 func (h *Handler) handleDescribeMultiRegionClusters(ctx context.Context, c *echo.Context, body []byte) error {
@@ -73,10 +80,17 @@ func (h *Handler) handleDescribeMultiRegionClusters(ctx context.Context, c *echo
 		return h.writeBackendError(c, err)
 	}
 
+	showClusters := req.ShowClusterDetails != nil && *req.ShowClusterDetails
+
 	objs := make([]multiRegionClusterObject, 0, len(mrcs))
 
 	for _, mrc := range mrcs {
-		objs = append(objs, toMultiRegionClusterObject(mrc))
+		var clusters []*Cluster
+		if showClusters {
+			clusters = h.Backend.RegionalClustersFor(mrc.MultiRegionClusterName)
+		}
+
+		objs = append(objs, toMultiRegionClusterObject(mrc, clusters))
 	}
 
 	return c.JSON(http.StatusOK, describeMultiRegionClustersResponse{MultiRegionClusters: objs})
@@ -160,7 +174,9 @@ func (h *Handler) handleUpdateMultiRegionCluster(ctx context.Context, c *echo.Co
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, updateMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
+	obj := toMultiRegionClusterObject(mrc, h.Backend.RegionalClustersFor(mrc.MultiRegionClusterName))
+
+	return c.JSON(http.StatusOK, updateMultiRegionClusterResponse{MultiRegionCluster: obj})
 }
 
 func (h *Handler) handleDescribeMultiRegionParameters(ctx context.Context, c *echo.Context, body []byte) error {
@@ -179,13 +195,14 @@ func (h *Handler) handleDescribeMultiRegionParameters(ctx context.Context, c *ec
 		return h.writeBackendError(c, err)
 	}
 
-	objs := make([]parameterObject, 0, len(params))
+	objs := make([]multiRegionParameterObject, 0, len(params))
 
 	for k, v := range params {
-		objs = append(objs, parameterObject{
+		objs = append(objs, multiRegionParameterObject{
 			Name:     k,
 			Value:    v,
 			DataType: "string",
+			Source:   "system",
 		})
 	}
 
@@ -197,8 +214,11 @@ func (h *Handler) handleDescribeMultiRegionParameters(ctx context.Context, c *ec
 // -- helpers ---------------------------------------------------------------------
 
 // toMultiRegionClusterObject converts a MultiRegionCluster to its JSON representation.
-func toMultiRegionClusterObject(mrc *MultiRegionCluster) multiRegionClusterObject {
-	return multiRegionClusterObject{
+// clusters, when non-nil, populates the Clusters field (the real SDK's
+// MultiRegionCluster.Clusters []RegionalCluster) with the per-Region clusters
+// that reference this multi-Region cluster.
+func toMultiRegionClusterObject(mrc *MultiRegionCluster, clusters []*Cluster) multiRegionClusterObject {
+	obj := multiRegionClusterObject{
 		MultiRegionClusterName:        mrc.MultiRegionClusterName,
 		ARN:                           mrc.ARN,
 		Description:                   mrc.Description,
@@ -207,5 +227,20 @@ func toMultiRegionClusterObject(mrc *MultiRegionCluster) multiRegionClusterObjec
 		EngineVersion:                 mrc.EngineVersion,
 		MultiRegionParameterGroupName: mrc.MultiRegionParameterGroupName,
 		Status:                        mrc.Status,
+		TLSEnabled:                    mrc.TLSEnabled,
 	}
+
+	if len(clusters) > 0 {
+		obj.Clusters = make([]regionalClusterObject, 0, len(clusters))
+		for _, c := range clusters {
+			obj.Clusters = append(obj.Clusters, regionalClusterObject{
+				ARN:         c.ARN,
+				ClusterName: c.Name,
+				Region:      c.Region,
+				Status:      c.Status,
+			})
+		}
+	}
+
+	return obj
 }

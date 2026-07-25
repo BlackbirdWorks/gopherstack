@@ -290,6 +290,72 @@ func TestHandler_UpdateLifecyclePolicy_PolicyDetails(t *testing.T) {
 	}
 }
 
+// TestHandler_UpdateLifecyclePolicy_ExplicitEmptyVsOmitted verifies PATCH
+// distinguishes an explicit empty-string Description/ExecutionRoleArn
+// (clears the field) from an omitted key (leaves it unchanged) -- the real
+// UpdateLifecyclePolicyInput carries both as *string, so the two are
+// distinct request bodies on the wire, not synonyms.
+func TestHandler_UpdateLifecyclePolicy_ExplicitEmptyVsOmitted(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		patchBody   map[string]any
+		name        string
+		wantDesc    string
+		wantRoleArn string
+	}{
+		{
+			name:        "omitted Description/ExecutionRoleArn leaves both unchanged",
+			patchBody:   map[string]any{"State": "DISABLED"},
+			wantDesc:    "original",
+			wantRoleArn: "arn:aws:iam::000000000000:role/original",
+		},
+		{
+			name:        "explicit empty Description clears it",
+			patchBody:   map[string]any{"Description": ""},
+			wantDesc:    "",
+			wantRoleArn: "arn:aws:iam::000000000000:role/original",
+		},
+		{
+			name:        "explicit empty ExecutionRoleArn clears it",
+			patchBody:   map[string]any{"ExecutionRoleArn": ""},
+			wantDesc:    "original",
+			wantRoleArn: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doRequest(t, h, http.MethodPost, "/policies", map[string]any{
+				"Description":      "original",
+				"ExecutionRoleArn": "arn:aws:iam::000000000000:role/original",
+				"State":            "ENABLED",
+			})
+			require.Equal(t, http.StatusCreated, createRec.Code)
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			policyID := createResp["PolicyId"].(string)
+
+			patchRec := doRequest(t, h, http.MethodPatch, fmt.Sprintf("/policies/%s", policyID), tc.patchBody)
+			require.Equal(t, http.StatusOK, patchRec.Code)
+
+			getRec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var getResp map[string]any
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			policy := getResp["Policy"].(map[string]any)
+			assert.Equal(t, tc.wantDesc, policy["Description"])
+			assert.Equal(t, tc.wantRoleArn, policy["ExecutionRoleArn"])
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // CreateLifecyclePolicy: required-field validation over HTTP
 // ---------------------------------------------------------------------------

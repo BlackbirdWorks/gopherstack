@@ -7,8 +7,11 @@
 service: appstream
 sdk_module: aws-sdk-go-v2/service/appstream@v1.60.3
 last_audit_commit: a7d6e20e
-last_audit_date: 2026-07-12
-overall: A            # genuine fixes found this pass (error codes, ARN-identifier resolution)
+last_audit_date: 2026-07-24
+overall: A            # genuine fixes found this pass (invented ExportImageTask shape, invented
+                       # StartImageBuilder field, missing Expires on streaming URLs, missing
+                       # Entitlement.LastModifiedTime, missing DirectoryConfig credential/cert
+                       # fields, epoch-timestamp consistency, DescribeAppLicenseUsage field name)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -44,31 +47,45 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartImageBuilder: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real StartImageBuilderOutput carries ONLY ImageBuilder -- a prior version invented a top-level StreamingURL field that no real SDK client would ever receive; removed it (and dropped the now-unused url return value from the backend method, which returns error only now)"}
+  CreateStreamingURL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real CreateStreamingURLOutput carries Expires (epoch seconds) alongside StreamingURL, and CreateStreamingURLInput accepts an optional Validity (default 60s) -- both were missing; backend now accepts validitySeconds and returns the computed expiry"}
+  CreateImageBuilderStreamingURL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Expires/Validity gap as CreateStreamingURL; real default is 3600s"}
+  CreateAppBlockBuilderStreamingURL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Expires/Validity gap as CreateStreamingURL; real default is 3600s"}
+  CreateExportImageTask: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "MAJOR: prior implementation invented an entirely non-existent request/response shape -- an S3Destination{S3Bucket,S3Key} request and an {ExportImageTaskId} response. Real CreateExportImageTaskInput exports a WorkSpaces Applications image to an EC2 AMI (no S3 involved at all): required ImageName+AmiName+IamRoleArn, optional AmiDescription+TagSpecifications; real output is the full ExportImageTask object (not a bare ID). Backend/domain type and handler rewritten to match; DeleteImage->ExportImageTask leak risk N/A since export tasks are independent of source image lifetime (matches real semantics: exporting doesn't pin the source image)"}
+  GetExportImageTask: {wire: fixed, errors: ok, state: ok, persist: ok, note: "request field is TaskId, not the invented ExportImageTaskId; response field is TaskId (not ExportImageTaskId), ImageArn (not ImageName), CreatedDate (not CreatedTime), AmiName/AmiDescription/AmiId newly added"}
+  ListExportImageTasks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real ListExportImageTasksInput has no ImageNames filter at all (that was invented) -- it takes generic Filters (opaque Name/Values, semantics undocumented, not evaluated by this emulator) plus MaxResults/NextToken pagination (default page size 50), which the prior version also lacked entirely. Rewritten using pkgs/page for real cursor pagination"}
+  DescribeAppLicenseUsage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response field is AppLicenseUsages (plural) -- was emitting singular AppLicenseUsage, which a real SDK client would never populate its slice from"}
 families:
   AppBlock: {status: ok, note: "CRUD verified; Describe now ARN-resolved (see ops above)"}
+  AppBlockBuilder: {status: ok, note: "CRUD + Start/Stop verified; StreamingURL now carries real Expires/Validity (see ops above)"}
   Application: {status: ok, note: "CRUD verified; Describe + Fleet-association ops now ARN-resolved (see ops above)"}
-  Entitlement: {status: ok, note: "CreateEntitlement/DeleteEntitlement/DescribeEntitlements/UpdateEntitlement/AssociateApplicationToEntitlement/ListEntitledApplications audited -- keyed correctly by (Name+StackName) composite; ApplicationIdentifier stored opaquely with no cross-reference lookup, so no ARN-vs-Name failure mode exists there"}
-  DirectoryConfig: {status: ok, note: "CRUD verified against real DirectoryConfig shape; Name-keyed, matches wire"}
+  Entitlement: {status: fixed, note: "CreateEntitlement/DeleteEntitlement/DescribeEntitlements/UpdateEntitlement/AssociateApplicationToEntitlement/ListEntitledApplications audited -- keyed correctly by (Name+StackName) composite; ApplicationIdentifier stored opaquely with no cross-reference lookup, so no ARN-vs-Name failure mode exists there. FIXED: backend computed LastModifiedTime on every Create/Update but entitlementToResponse never emitted it -- real Entitlement has both CreatedTime and LastModifiedTime members; now both are on the wire"}
+  DirectoryConfig: {status: fixed, note: "CRUD verified against real DirectoryConfig shape; Name-keyed, matches wire. FIXED: Create/UpdateDirectoryConfigInput both carry ServiceAccountCredentials (AccountName+AccountPassword) and CertificateBasedAuthProperties (CertificateAuthorityArn+Status) -- both were accepted by neither the request-decode struct nor the backend, so a real client's directory-join credentials were silently discarded and never returned on Describe. Now parsed, stored, and echoed back (real DirectoryConfig response shape does include AccountPassword verbatim, confirmed via botocore service-2.json -- not redacted like some other AWS services do for secrets)"}
   Image: {status: ok, note: "CopyImage/CreateImportedImage/CreateUpdatedImage/DeleteImage verified Name-keyed (matches real Delete/Copy inputs); Describe now Name-or-Arn resolved"}
-  ImageBuilder: {status: ok, note: "CRUD + Start/Stop verified; Stop now idempotent (see ops above)"}
+  ImageBuilder: {status: fixed, note: "CRUD + Start/Stop verified; Stop now idempotent (see ops above). FIXED: StartImageBuilder response invented a StreamingURL field (see StartImageBuilder op above); StreamingURL creation now carries real Expires/Validity"}
   ImagePermissions: {status: ok, note: "Update/Delete/DescribeImagePermissions verified against real SharedImagePermissions shape"}
-  Session: {status: ok, note: "DescribeSessions/DrainSessionInstance/ExpireSession/CreateStreamingURL verified against real Session shape and DescribeSessionsInput/CreateStreamingURLInput fields"}
+  Session: {status: fixed, note: "DescribeSessions/DrainSessionInstance/ExpireSession/CreateStreamingURL verified against real Session shape and DescribeSessionsInput/CreateStreamingURLInput fields. FIXED: CreateStreamingURL now honors Validity and returns Expires (see ops above)"}
   Theme: {status: ok, note: "CRUD verified against real Theme shape"}
   User: {status: ok, note: "CRUD + Enable/Disable verified; ARN partition bug fixed (see CreateUser above)"}
   UserStackAssociation: {status: ok, note: "BatchAssociate/BatchDisassociate/Describe verified; correctly Name-keyed per real UserStackAssociation shape"}
   UsageReportSubscription: {status: ok, note: "single scalar record, verified against real shape"}
-  ExportImageTask: {status: ok, note: "Create/Get/List verified against real shape"}
+  ExportImageTask: {status: fixed, note: "MAJOR rewrite this pass -- prior 'ok' verdict was wrong; the entire request/response shape was gopherstack-invented (S3-based export instead of real AMI export). See CreateExportImageTask/GetExportImageTask/ListExportImageTasks ops above for the full diff. Any real aws-sdk-go-v2 client hitting the old handler would have gotten a response with none of the fields it expects populated"}
 gaps: []                # no unfixed divergences found; all confirmed bugs were fixed this pass
-deferred:
-  - CreatedTime/StartTime wire encoding uses .Unix() (whole-second epoch int) instead of
-    pkgs/awstime.Epoch() (fractional-second epoch float). Both are valid JSON numbers the
-    real awsjson1.1 deserializer accepts, and the codebase is internally consistent (13
-    call sites), so this was left as a style note rather than "fixed" -- revisit only if
-    sub-second CreatedTime ordering becomes a test requirement.
-  - DescribeAppLicenseUsage is a deliberate always-empty stub (no license-usage backend
-    state exists to report on); acceptable since it returns a real (empty) shape rather
-    than a fabricated one, but flagged for anyone adding real license-usage tracking.
-leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/plain maps behind the single lockmetrics.RWMutex, reset via Handler.Reset -> Backend.Reset -> registry.ResetAll + resetRawMaps"}
+deferred: []              # both prior deferred items resolved this pass (see below)
+resolved_this_pass:
+  - CreatedTime/StartTime/CreatedDate wire encoding switched from time.Time.Unix() (whole-
+    second epoch int) to pkgs/awstime.Epoch() (fractional-second epoch float) at all 16 call
+    sites across handler.go/handler_appblock.go/handler_application.go/handler_image.go/
+    handler_user.go. Both encodings were already wire-valid (real deserializer accepts any
+    JSON number via smithytime.ParseEpochSeconds), so this was a style/consistency fix, not a
+    bug fix -- closing out the prior audit's "revisit only if sub-second ordering matters"
+    deferred note by just doing it, since pkgs/awstime.Epoch existed for exactly this.
+  - DescribeAppLicenseUsage's always-empty response is intentional and correct (this backend
+    tracks no license-usage state to report on, and real AWS returns empty for an account
+    with none either) -- reclassified from "deferred stub flag" to a documented real behavior
+    (see the doc comment on InMemoryBackend.DescribeAppLicenseUsage in applications.go) once
+    its wire field name (AppLicenseUsages, not AppLicenseUsage) was also fixed.
+leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/plain maps behind the single lockmetrics.RWMutex, reset via Handler.Reset -> Backend.Reset -> registry.ResetAll + resetRawMaps. ExportImageTask rewrite kept the same TaskID-keyed store.Table registration (no new leak surface); ListExportImageTasks pagination reads a Snapshot-style copy of all tasks under RLock and sorts/pages it outside any lock extension, so no lock is held across the sort"}
 ---
 
 ## Notes
@@ -131,3 +148,55 @@ doesn't -- the backend never looks it up against `b.applications` at all; it's s
 returned as an opaque string keyed only by the entitlement's own composite key. This is
 correct as-is (real AWS doesn't strictly define this identifier's format either), so don't
 "fix" it into another find-by-ARN-or-Name resolver without a concrete wire-shape reason.
+
+## 2026-07-24 audit notes
+
+**Bug class found this pass: gopherstack-invented request/response shapes, not just
+mis-keyed lookups.** The prior two audit passes both found *identifier* bugs (wrong error
+code, ARN vs Name) where the op's own shape was otherwise correct. This pass found the more
+severe case: `CreateExportImageTask`/`GetExportImageTask`/`ListExportImageTasks` had a
+**wholesale invented shape** with zero fields in common with the real
+`CreateExportImageTaskInput`/`ExportImageTask`/`ListExportImageTasksInput` types (verified
+against both the vendored `aws-sdk-go-v2/service/appstream/api_op_*.go` files and
+botocore's `service-2.json` -- `pip show botocore` ->
+`botocore/data/appstream/2016-12-01/service-2.json.gz`). The invented shape modeled
+"export an image's metadata to an S3 JSON file"; the real operation is "export an image to
+an EC2 AMI" -- a completely different feature with no S3 involvement. Any real
+aws-sdk-go-v2 client calling these three ops against the old handler would unmarshal a
+response into a `types.ExportImageTask{}` with every field left at its zero value (no
+`TaskId`, no `ImageArn`, no `AmiName`) because none of the JSON keys the old handler wrote
+(`ExportImageTaskId`, `ImageName`, `S3Bucket`, `S3Key`, `Status`, `CreatedTime`) match any
+real member name. `StartImageBuilder`'s response had a narrower version of the same bug
+class: a fabricated top-level `StreamingURL` field bolted onto to an otherwise-correct
+`ImageBuilder` response, verified absent from the real `StartImageBuilderOutput` (which
+carries only `ImageBuilder`) via the same two sources. **Lesson: op-scoped error-code
+verification (2026-07-12's bug class) is necessary but not sufficient -- also diff the
+full field set of every request/response struct against the real SDK type, not just the
+error switch.**
+
+**Bug class found this pass: request fields accepted by the SDK type but never wired into
+the decode struct, so real client data was silently discarded.** `Entitlement` computes and
+stores `LastModifiedAt` internally (used correctly by `UpdateEntitlement`) but
+`entitlementToResponse` never emitted it, even though real `Entitlement` has a
+`LastModifiedTime` member. `CreateDirectoryConfigInput`/`UpdateDirectoryConfigInput` both
+carry `ServiceAccountCredentials` and `CertificateBasedAuthProperties` per the real model
+(verified via botocore), but the request-decode structs had no fields for them at all, so
+`json.Unmarshal` silently dropped any real client's directory-join credentials on the
+floor. Both are now decoded, persisted on `storedDirectoryConfig`, and echoed back on
+Describe (confirmed via botocore that real `DescribeDirectoryConfigs` does return
+`AccountPassword` verbatim -- unlike some AWS services, AppStream does not redact it).
+**Lesson: a field being present in Go's zero-value form in a response is not proof it was
+considered -- check whether the *request* decode struct even has a slot for every
+documented input member, especially optional ones easy to skip when only skimming the
+happy-path fields.**
+
+**Bug class found this pass: real per-op optional response fields silently omitted.**
+`CreateStreamingURL`/`CreateImageBuilderStreamingURL`/`CreateAppBlockBuilderStreamingURL`
+all real-world return `Expires` (an epoch timestamp) alongside `StreamingURL`, computed
+from an optional `Validity` request parameter (default 60s for the user-facing one, 3600s
+for the two builder ones -- verified via doc comments in the vendored SDK's
+`api_op_Create*StreamingURL.go` files). None of the three accepted `Validity` or returned
+`Expires` before this pass. This is exactly the "streaming URL expiry" surface the audit
+brief called out to verify explicitly -- a real client relying on `Expires` to know when to
+refresh a session's streaming URL would have silently gotten a URL with no stated
+expiration.

@@ -53,12 +53,16 @@ func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Regi
 // from an incompatible (older or newer) build of this backend as though it
 // were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage     `json:"tables"`
-	ClusterRoles map[string]map[string][]string `json:"clusterRoles"`
-	Tags         map[string]map[string][]Tag    `json:"tags"`
-	AccountID    string                         `json:"accountID"`
-	Region       string                         `json:"region"`
-	Version      int                            `json:"version"`
+	Tables                    map[string]json.RawMessage                     `json:"tables"`
+	ClusterRoles              map[string]map[string][]string                 `json:"clusterRoles"`
+	Tags                      map[string]map[string][]Tag                    `json:"tags"`
+	ParameterOverrides        map[string]map[string]ParameterValue           `json:"parameterOverrides"`
+	ClusterParameterOverrides map[string]map[string]ParameterValue           `json:"clusterParameterOverrides"`
+	PendingMaintenanceActions map[string]map[string]PendingMaintenanceAction `json:"pendingMaintenanceActions"`
+	EventsLog                 map[string][]Event                             `json:"eventsLog"`
+	AccountID                 string                                         `json:"accountID"`
+	Region                    string                                         `json:"region"`
+	Version                   int                                            `json:"version"`
 }
 
 // buildPersistenceDTORegistry constructs the ephemeral DTO registry used by
@@ -161,12 +165,16 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:      neptuneSnapshotVersion,
-		Tables:       tables,
-		ClusterRoles: b.clusterRoles,
-		Tags:         b.tags,
-		AccountID:    b.accountID,
-		Region:       b.region,
+		Version:                   neptuneSnapshotVersion,
+		Tables:                    tables,
+		ClusterRoles:              b.clusterRoles,
+		Tags:                      b.tags,
+		ParameterOverrides:        b.parameterOverrides,
+		ClusterParameterOverrides: b.clusterParameterOverrides,
+		PendingMaintenanceActions: b.pendingMaintenanceActions,
+		EventsLog:                 b.eventsLog,
+		AccountID:                 b.accountID,
+		Region:                    b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "neptune", snap)
@@ -198,6 +206,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.clusterRoles = make(map[string]map[string][]string)
 		b.tags = make(map[string]map[string][]Tag)
+		b.parameterOverrides = make(map[string]map[string]ParameterValue)
+		b.clusterParameterOverrides = make(map[string]map[string]ParameterValue)
+		b.pendingMaintenanceActions = make(map[string]map[string]PendingMaintenanceAction)
+		b.eventsLog = make(map[string][]Event)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 
@@ -217,6 +229,26 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.Tags = make(map[string]map[string][]Tag)
 	}
 	b.tags = snap.Tags
+
+	if snap.ParameterOverrides == nil {
+		snap.ParameterOverrides = make(map[string]map[string]ParameterValue)
+	}
+	b.parameterOverrides = snap.ParameterOverrides
+
+	if snap.ClusterParameterOverrides == nil {
+		snap.ClusterParameterOverrides = make(map[string]map[string]ParameterValue)
+	}
+	b.clusterParameterOverrides = snap.ClusterParameterOverrides
+
+	if snap.PendingMaintenanceActions == nil {
+		snap.PendingMaintenanceActions = make(map[string]map[string]PendingMaintenanceAction)
+	}
+	b.pendingMaintenanceActions = snap.PendingMaintenanceActions
+
+	if snap.EventsLog == nil {
+		snap.EventsLog = make(map[string][]Event)
+	}
+	b.eventsLog = snap.EventsLog
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region

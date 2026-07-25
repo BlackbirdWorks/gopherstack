@@ -61,15 +61,15 @@ type jsonDeregisterStreamConsumerReq struct {
 }
 
 type jsonStartingPosition struct {
-	Type           string  `json:"Type"`
-	SequenceNumber string  `json:"SequenceNumber,omitempty"`
-	Timestamp      float64 `json:"Timestamp,omitempty"`
+	Timestamp      *float64 `json:"Timestamp,omitempty"`
+	Type           string   `json:"Type"`
+	SequenceNumber string   `json:"SequenceNumber,omitempty"`
 }
 
 type jsonSubscribeToShardReq struct {
+	StartingPosition jsonStartingPosition `json:"StartingPosition"`
 	ConsumerARN      string               `json:"ConsumerARN"`
 	ShardID          string               `json:"ShardId"`
-	StartingPosition jsonStartingPosition `json:"StartingPosition"`
 }
 
 type jsonSubscribeToShardEvent struct {
@@ -283,8 +283,8 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 		SequenceNumber: req.StartingPosition.SequenceNumber,
 	}
 
-	if req.StartingPosition.Timestamp != 0 {
-		ts := time.UnixMilli(int64(req.StartingPosition.Timestamp * millisPerSecond))
+	if req.StartingPosition.Timestamp != nil {
+		ts := time.UnixMilli(int64(*req.StartingPosition.Timestamp * millisPerSecond))
 		sp.Timestamp = &ts
 	}
 

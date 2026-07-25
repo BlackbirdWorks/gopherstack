@@ -4,6 +4,7 @@ func toSchemaSummary(s *Schema) *SchemaSummary {
 	return &SchemaSummary{
 		CollaborationArn:        s.CollaborationArn,
 		CollaborationIdentifier: s.CollaborationIdentifier,
+		CollaborationID:         s.CollaborationID,
 		CreatorAccountID:        s.CreatorAccountID,
 		Name:                    s.Name,
 		Type:                    s.Type,

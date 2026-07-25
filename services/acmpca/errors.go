@@ -20,6 +20,8 @@ var (
 	ErrPolicyNotFound = errors.New("ResourceNotFoundException")
 	// ErrAuditReportNotFound is returned when a CA audit report is not found.
 	ErrAuditReportNotFound = errors.New("ResourceNotFoundException")
+	// ErrTooManyTags is returned when tagging a CA would exceed the 50-tag limit.
+	ErrTooManyTags = errors.New("TooManyTagsException")
 
 	errCAPrivKeyNil    = errors.New("CA private key is nil")
 	errDecodeCSRPEM    = errors.New("failed to decode CSR PEM")

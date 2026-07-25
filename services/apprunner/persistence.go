@@ -97,6 +97,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.obsByName = make(map[string][]*storedObservabilityConfiguration)
 		b.customDomains = make(map[string][]*storedCustomDomain)
 		b.tags = make(map[string]map[string]string)
+		b.ensureDefaultAutoScalingConfiguration()
 
 		return nil
 	}
@@ -128,6 +129,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.Tags = make(map[string]map[string]string)
 	}
 	b.tags = snap.Tags
+
+	// Guarantee the default-ASG invariant even when restoring a snapshot
+	// taken before this backend seeded one (additive field/table change --
+	// see ensureDefaultAutoScalingConfiguration's doc comment).
+	b.ensureDefaultAutoScalingConfiguration()
 
 	return nil
 }

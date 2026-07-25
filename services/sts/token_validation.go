@@ -36,6 +36,22 @@ const (
 	jwtClaimNbf = "nbf"
 )
 
+// JWT custom-claim names used to carry AWS-specific identity attributes.
+// aws-sdk-go-v2's AssumeRoleWithWebIdentityInput has no Tags or SourceIdentity
+// request member (unlike AssumeRole) — AWS documents that both are instead
+// read out of custom claims added to the WebIdentityToken by the identity
+// provider (see AssumeRoleWithWebIdentityOutput.SourceIdentity's doc comment:
+// "You do this by adding a claim to the JSON web token"). jwtClaimTags mirrors
+// the "https://aws.amazon.com/tags" claim this same package already embeds
+// when issuing tokens via GetWebIdentityToken; jwtClaimSourceIdentity follows
+// the same aws.amazon.com custom-claim convention since AWS does not publish a
+// single fixed claim name for the general OIDC case (the mapping is
+// IdP-configurable).
+const (
+	jwtClaimTags           = "https://aws.amazon.com/tags"
+	jwtClaimSourceIdentity = "https://aws.amazon.com/source_identity"
+)
+
 // base64Pad2 indicates two '=' padding characters are needed.
 const base64Pad2 = 2
 

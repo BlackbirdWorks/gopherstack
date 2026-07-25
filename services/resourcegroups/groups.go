@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -21,14 +22,23 @@ const (
 
 const configParamAllowedResourceTypes = "allowed-resource-types"
 
-// listGroupsFilterNamePrefix is the filter name for filtering groups by name prefix.
-const listGroupsFilterNamePrefix = "name-prefix"
-
-// ListGroupsFilterName constants for ListGroups Filters field.
+// ListGroupsFilterName constants for ListGroups Filters field. These are the
+// exact five values of the real types.GroupFilterName enum -- there is no
+// "name-prefix" filter in the real API (a prior gopherstack-only invention
+// has been removed; see PARITY.md).
 const (
 	listGroupsFilterConfigurationType = "configuration-type"
 	listGroupsFilterResourceType      = "resource-type"
+	listGroupsFilterOwner             = "owner"
+	listGroupsFilterDisplayName       = "display-name"
+	listGroupsFilterCriticality       = "criticality"
 )
+
+// groupCriticalityMaxValue matches the real CreateGroup/UpdateGroup API docs:
+// "a scale of 1 to 10, with a rank of 1 being the most critical, and a rank
+// of 10 being least critical." 0 means "not provided" and is left unset
+// (CreateGroup) or unchanged (UpdateGroup).
+const groupCriticalityMaxValue = 10
 
 // groupNameRe matches valid Resource Groups group names (AWS rule).
 var groupNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.−\-]+$`)
@@ -99,6 +109,20 @@ func validateDescription(desc string) error {
 			"%w: Description must be at most %d characters",
 			ErrValidation,
 			groupDescMaxLen,
+		)
+	}
+
+	return nil
+}
+
+// validateCriticality validates the optional Criticality field shared by
+// CreateGroup and UpdateGroup. 0 means "not provided".
+func validateCriticality(criticality int) error {
+	if criticality != 0 && (criticality < 1 || criticality > groupCriticalityMaxValue) {
+		return fmt.Errorf(
+			"%w: Criticality must be between 1 and %d",
+			ErrValidation,
+			groupCriticalityMaxValue,
 		)
 	}
 
@@ -177,22 +201,56 @@ func validateConfiguration(items []GroupConfigurationItem) error {
 	return nil
 }
 
+// CreateGroupOption customizes optional CreateGroup fields (Owner,
+// DisplayName, Criticality) that the real CreateGroupInput supports
+// alongside the required Name/Description/ResourceQuery/Tags/Configuration
+// parameters. Modeled as functional options (rather than widening
+// CreateGroup's positional parameter list) to avoid breaking every existing
+// call site for what are, on the wire, optional fields.
+type CreateGroupOption func(*Group)
+
+// WithOwner sets the Owner field at group-creation time.
+func WithOwner(owner string) CreateGroupOption {
+	return func(g *Group) { g.Owner = owner }
+}
+
+// WithDisplayName sets the DisplayName field at group-creation time.
+func WithDisplayName(displayName string) CreateGroupOption {
+	return func(g *Group) { g.DisplayName = displayName }
+}
+
+// WithCriticality sets the Criticality field at group-creation time.
+func WithCriticality(criticality int) CreateGroupOption {
+	return func(g *Group) { g.Criticality = criticality }
+}
+
 // CreateGroup creates a new resource group.
 // The Tags field in the returned Group points to a fresh Tags copy; it is
 // safe to read but callers should not pass it back to mutation methods.
 // configuration is optional; when non-nil it is stored atomically with the group.
+// opts sets the optional Owner/DisplayName/Criticality fields (all unset by default).
 func (b *InMemoryBackend) CreateGroup(
 	ctx context.Context,
 	name, description string,
 	resourceQuery *ResourceQuery,
 	inputTags *tags.Tags,
 	configuration []GroupConfigurationItem,
+	opts ...CreateGroupOption,
 ) (*Group, error) {
 	if err := validateGroupName(name); err != nil {
 		return nil, err
 	}
 
 	if err := validateDescription(description); err != nil {
+		return nil, err
+	}
+
+	identity := &Group{}
+	for _, opt := range opts {
+		opt(identity)
+	}
+
+	if err := validateCriticality(identity.Criticality); err != nil {
 		return nil, err
 	}
 
@@ -249,6 +307,9 @@ func (b *InMemoryBackend) CreateGroup(
 		Description:   description,
 		Tags:          backendTags,
 		ResourceQuery: resourceQuery,
+		Owner:         identity.Owner,
+		DisplayName:   identity.DisplayName,
+		Criticality:   identity.Criticality,
 	}
 	b.groups.Put(g)
 
@@ -279,20 +340,20 @@ func (b *InMemoryBackend) GetGroup(ctx context.Context, nameOrARN string) (*Grou
 	return &cp, nil
 }
 
-// UpdateGroup updates the description, display name, and criticality of a resource group.
-// Pass an empty displayName to leave it unchanged. Pass criticality=0 to leave it unchanged.
-// Criticality must be 1-5 if non-zero.
+// UpdateGroup updates the description, display name, owner, and criticality
+// of a resource group. Pass an empty displayName/owner to leave it unchanged.
+// Pass criticality=0 to leave it unchanged. Criticality must be 1-10 if non-zero.
 func (b *InMemoryBackend) UpdateGroup(
 	ctx context.Context,
-	nameOrARN, description, displayName string,
+	nameOrARN, description, displayName, owner string,
 	criticality int,
 ) (*Group, error) {
 	if err := validateDescription(description); err != nil {
 		return nil, err
 	}
 
-	if criticality != 0 && (criticality < 1 || criticality > 5) {
-		return nil, fmt.Errorf("%w: Criticality must be between 1 and 5", ErrValidation)
+	if err := validateCriticality(criticality); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("UpdateGroup")
@@ -314,6 +375,10 @@ func (b *InMemoryBackend) UpdateGroup(
 
 	if criticality != 0 {
 		g.Criticality = criticality
+	}
+
+	if owner != "" {
+		g.Owner = owner
 	}
 
 	cp := *g
@@ -397,7 +462,8 @@ func (b *InMemoryBackend) DeleteGroup(ctx context.Context, nameOrARN string) (*G
 }
 
 // ListGroups returns resource groups sorted by name, optionally filtered and paginated.
-// Supported filter names: "configuration-type", "resource-type", "name-prefix".
+// Supported filter names: "configuration-type", "resource-type", "owner",
+// "display-name", "criticality" (the exact types.GroupFilterName enum).
 // An empty filters slice returns all groups (up to maxResults).
 // Returns the page of groups and a continuation token (empty when no more results).
 func (b *InMemoryBackend) ListGroups(
@@ -414,7 +480,7 @@ func (b *InMemoryBackend) ListGroups(
 	out := make([]Group, 0, len(regionGroups))
 
 	for _, g := range regionGroups {
-		if !b.groupMatchesFilters(region, g.Name, filters) {
+		if !b.groupMatchesFilters(region, g, filters) {
 			continue
 		}
 
@@ -432,14 +498,14 @@ func (b *InMemoryBackend) ListGroups(
 
 // groupMatchesFilters returns true when a group satisfies all provided filter criteria.
 // Must be called under an active read lock.
-func (b *InMemoryBackend) groupMatchesFilters(region, name string, filters []ListGroupsFilter) bool {
+func (b *InMemoryBackend) groupMatchesFilters(region string, g *Group, filters []ListGroupsFilter) bool {
 	if len(filters) == 0 {
 		return true
 	}
 
 	var configs []GroupConfigurationItem
 	if b.groupConfigurations[region] != nil {
-		configs = b.groupConfigurations[region][name]
+		configs = b.groupConfigurations[region][g.Name]
 	}
 
 	for _, f := range filters {
@@ -452,8 +518,16 @@ func (b *InMemoryBackend) groupMatchesFilters(region, name string, filters []Lis
 			if !configMatchesResourceTypeFilter(configs, f.Values) {
 				return false
 			}
-		case listGroupsFilterNamePrefix:
-			if !nameMatchesPrefixFilter(name, f.Values) {
+		case listGroupsFilterOwner:
+			if !slices.Contains(f.Values, g.Owner) {
+				return false
+			}
+		case listGroupsFilterDisplayName:
+			if !slices.Contains(f.Values, g.DisplayName) {
+				return false
+			}
+		case listGroupsFilterCriticality:
+			if !slices.Contains(f.Values, strconv.Itoa(g.Criticality)) {
 				return false
 			}
 		}
@@ -466,17 +540,6 @@ func (b *InMemoryBackend) groupMatchesFilters(region, name string, filters []Lis
 func configMatchesTypeFilter(configs []GroupConfigurationItem, values []string) bool {
 	for _, item := range configs {
 		if slices.Contains(values, item.Type) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// nameMatchesPrefixFilter returns true if name starts with any of the given prefix values.
-func nameMatchesPrefixFilter(name string, values []string) bool {
-	for _, prefix := range values {
-		if strings.HasPrefix(name, prefix) {
 			return true
 		}
 	}

@@ -23,6 +23,7 @@ func TestElasticsearchHandler_CreatePackage(t *testing.T) {
 		packageName  string
 		packageType  string
 		wantContains []string
+		omitSource   bool
 		wantCode     int
 	}{
 		{
@@ -44,8 +45,9 @@ func TestElasticsearchHandler_CreatePackage(t *testing.T) {
 			setup: func(t *testing.T, h *elasticsearch.Handler) {
 				t.Helper()
 				r := doRequest(t, h, http.MethodPost, "/2015-01-01/packages", map[string]any{
-					"PackageName": "dup-pkg",
-					"PackageType": "TXT-DICTIONARY",
+					"PackageName":   "dup-pkg",
+					"PackageType":   "TXT-DICTIONARY",
+					"PackageSource": map[string]any{"S3BucketName": "b", "S3Key": "k"},
 				})
 				r.Body.Close()
 			},
@@ -54,6 +56,13 @@ func TestElasticsearchHandler_CreatePackage(t *testing.T) {
 		{
 			name:     "invalid_json",
 			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:        "missing_package_source",
+			packageName: "no-source-pkg",
+			packageType: "TXT-DICTIONARY",
+			omitSource:  true,
+			wantCode:    http.StatusBadRequest,
 		},
 	}
 
@@ -84,6 +93,10 @@ func TestElasticsearchHandler_CreatePackage(t *testing.T) {
 
 			if tt.packageType != "" {
 				body["PackageType"] = tt.packageType
+			}
+
+			if !tt.omitSource {
+				body["PackageSource"] = map[string]any{"S3BucketName": "test-bucket", "S3Key": "test-key"}
 			}
 
 			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/packages", body)
@@ -343,7 +356,10 @@ func TestElasticsearchHandler_PackageTypeValidation(t *testing.T) {
 		wantStatus  int
 	}{
 		{name: "txt-dictionary", packageType: "TXT-DICTIONARY", wantStatus: http.StatusOK},
-		{name: "zip-plugin", packageType: "ZIP-PLUGIN", wantStatus: http.StatusOK},
+		// ZIP-PLUGIN is a valid OpenSearch Service package type but NOT valid
+		// for the legacy elasticsearchservice API this backend emulates --
+		// types.PackageType's only enum value is TXT-DICTIONARY.
+		{name: "zip-plugin", packageType: "ZIP-PLUGIN", wantStatus: http.StatusBadRequest},
 		{name: "invalid-type", packageType: "INVALID-TYPE", wantStatus: http.StatusBadRequest},
 		{name: "empty-type", packageType: "", wantStatus: http.StatusBadRequest},
 	}
@@ -357,6 +373,7 @@ func TestElasticsearchHandler_PackageTypeValidation(t *testing.T) {
 				"PackageName":        "pkg-" + tt.name,
 				"PackageType":        tt.packageType,
 				"PackageDescription": "test package",
+				"PackageSource":      map[string]any{"S3BucketName": "b", "S3Key": "k"},
 			})
 			defer resp.Body.Close()
 			assert.Equal(t, tt.wantStatus, resp.StatusCode)
@@ -370,12 +387,29 @@ func TestElasticsearchHandler_PackageTypeBackend(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+	src := elasticsearch.PackageSource{S3BucketName: "b", S3Key: "k"}
 
-	_, err := b.CreatePackage(context.Background(), "my-pkg", "UNKNOWN", "desc")
+	_, err := b.CreatePackage(context.Background(), "my-pkg", "UNKNOWN", "desc", src)
 	require.ErrorIs(t, err, elasticsearch.ErrValidation)
 
-	_, err = b.CreatePackage(context.Background(), "my-pkg2", "TXT-DICTIONARY", "desc")
+	_, err = b.CreatePackage(context.Background(), "my-pkg2", "TXT-DICTIONARY", "desc", src)
 	require.NoError(t, err)
+}
+
+// TestElasticsearchHandler_PackageSourceRequired verifies a missing
+// PackageSource (S3BucketName/S3Key) returns ErrValidation, matching real
+// AWS's required CreatePackageInput.PackageSource member.
+func TestElasticsearchHandler_PackageSourceRequired(t *testing.T) {
+	t.Parallel()
+
+	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	_, err := b.CreatePackage(context.Background(), "my-pkg", "TXT-DICTIONARY", "desc", elasticsearch.PackageSource{})
+	require.ErrorIs(t, err, elasticsearch.ErrValidation)
+
+	_, err = b.CreatePackage(context.Background(), "my-pkg2", "TXT-DICTIONARY", "desc",
+		elasticsearch.PackageSource{S3BucketName: "bucket"})
+	require.ErrorIs(t, err, elasticsearch.ErrValidation)
 }
 
 // TestElasticsearchHandler_PackageValidation verifies empty package name
@@ -384,7 +418,9 @@ func TestElasticsearchHandler_PackageValidation(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreatePackage(context.Background(), "", "TXT-DICTIONARY", "")
+	_, err := b.CreatePackage(context.Background(), "", "TXT-DICTIONARY", "", elasticsearch.PackageSource{
+		S3BucketName: "b", S3Key: "k",
+	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }

@@ -2,7 +2,6 @@ package secretsmanager
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -199,6 +198,33 @@ func (b *InMemoryBackend) abortRotationLocked(secret *Secret, versionID string) 
 	delete(secret.Versions, versionID)
 }
 
+// BeginRotationTestProbe creates a transient AWSPENDING version for a rotation
+// test probe. Real AWS Secrets Manager runs this when RotateSecret is called
+// with RotateImmediately=false: it validates the rotation configuration by
+// invoking only the Lambda's testSecret step against a temporary AWSPENDING
+// version, then removes that version without promoting it to AWSCURRENT.
+// Callers MUST follow up with AbortRotation (success or failure) to remove
+// the transient version.
+func (b *InMemoryBackend) BeginRotationTestProbe(ctx context.Context, secretID string) (string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("BeginRotationTestProbe")
+	defer b.mu.Unlock()
+
+	id := resolveSecretID(secretID)
+
+	secret, ok := b.secretGet(region, id)
+	if !ok {
+		return "", ErrSecretNotFound
+	}
+
+	if secret.DeletedDate != nil {
+		return "", ErrSecretDeleted
+	}
+
+	return b.rotateSecretLocked(ctx, secret, "")
+}
+
 // FinishRotation promotes the AWSPENDING version to AWSCURRENT. Called by the
 // handler after all Lambda rotation steps succeed.
 func (b *InMemoryBackend) FinishRotation(ctx context.Context, secretID, versionID string) error {
@@ -245,11 +271,10 @@ func (b *InMemoryBackend) runLambdaRotationSteps(ctx context.Context, lambdaARN,
 	fnName := extractFunctionNameFromARN(lambdaARN)
 
 	for _, step := range rotationSteps {
-		event, _ := json.Marshal(map[string]string{
-			"SecretId":           secretID,
-			"ClientRequestToken": token,
-			"Step":               step,
-		})
+		event, marshalErr := buildRotationStepEvent(secretID, token, step)
+		if marshalErr != nil {
+			return fmt.Errorf("rotation event marshal: %w", marshalErr)
+		}
 
 		if _, _, err := b.lambdaInvoker.InvokeFunction(ctx, fnName, "RequestResponse", event); err != nil {
 			return fmt.Errorf("rotation Lambda step %q failed: %w", step, err)

@@ -145,6 +145,26 @@ func identitySourceToOutput(is *IdentitySource) *identitySourceOutput {
 	}
 }
 
+// identitySourceIDsOutput mirrors the real SDK's CreateIdentitySourceOutput /
+// UpdateIdentitySourceOutput shapes: unlike GetIdentitySource/
+// ListIdentitySources' identitySourceOutput, neither echoes
+// principalEntityType or configuration.
+type identitySourceIDsOutput struct {
+	IdentitySourceID string `json:"identitySourceId"`
+	PolicyStoreID    string `json:"policyStoreId"`
+	CreatedDate      string `json:"createdDate"`
+	LastUpdatedDate  string `json:"lastUpdatedDate"`
+}
+
+func identitySourceToIDsOutput(is *IdentitySource) *identitySourceIDsOutput {
+	return &identitySourceIDsOutput{
+		IdentitySourceID: is.IdentitySourceID,
+		PolicyStoreID:    is.PolicyStoreID,
+		CreatedDate:      is.CreatedDate.UTC().Format(timeFormat),
+		LastUpdatedDate:  is.LastUpdated.UTC().Format(timeFormat),
+	}
+}
+
 //nolint:nestif // identity source config union type
 func configJSONToBackend(cfg identitySourceConfigJSON) IdentitySourceConfig {
 	var out IdentitySourceConfig
@@ -186,7 +206,7 @@ func configJSONToBackend(cfg identitySourceConfigJSON) IdentitySourceConfig {
 func (h *Handler) handleCreateIdentitySource(
 	_ context.Context,
 	in *createIdentitySourceInput,
-) (*identitySourceOutput, error) {
+) (*identitySourceIDsOutput, error) {
 	if in.PolicyStoreID == "" {
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
@@ -208,12 +228,12 @@ func (h *Handler) handleCreateIdentitySource(
 
 	cfg := configJSONToBackend(in.Configuration)
 
-	is, err := h.Backend.CreateIdentitySource(in.PolicyStoreID, in.PrincipalEntityType, cfg)
+	is, err := h.Backend.CreateIdentitySource(in.PolicyStoreID, in.PrincipalEntityType, cfg, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
 
-	return identitySourceToOutput(is), nil
+	return identitySourceToIDsOutput(is), nil
 }
 
 type identitySourceIDInput struct {
@@ -312,18 +332,10 @@ type updateIdentitySourceInput struct {
 	PrincipalEntityType string                   `json:"principalEntityType,omitempty"`
 }
 
-type updateIdentitySourceOutput struct {
-	IdentitySourceID    string `json:"identitySourceId"`
-	PolicyStoreID       string `json:"policyStoreId"`
-	PrincipalEntityType string `json:"principalEntityType"`
-	CreatedDate         string `json:"createdDate"`
-	LastUpdatedDate     string `json:"lastUpdatedDate"`
-}
-
 func (h *Handler) handleUpdateIdentitySource(
 	_ context.Context,
 	in *updateIdentitySourceInput,
-) (*updateIdentitySourceOutput, error) {
+) (*identitySourceIDsOutput, error) {
 	if in.PolicyStoreID == "" {
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
@@ -362,11 +374,5 @@ func (h *Handler) handleUpdateIdentitySource(
 		return nil, err
 	}
 
-	return &updateIdentitySourceOutput{
-		IdentitySourceID:    is.IdentitySourceID,
-		PolicyStoreID:       is.PolicyStoreID,
-		PrincipalEntityType: is.PrincipalEntityType,
-		CreatedDate:         is.CreatedDate.UTC().Format(timeFormat),
-		LastUpdatedDate:     is.LastUpdated.UTC().Format(timeFormat),
-	}, nil
+	return identitySourceToIDsOutput(is), nil
 }

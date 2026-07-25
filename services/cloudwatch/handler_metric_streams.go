@@ -2,6 +2,7 @@ package cloudwatch
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -47,6 +48,10 @@ func (h *Handler) putMetricStreamFromForm(form url.Values, c *echo.Context) erro
 		IncludeFilters: parseMetricStreamFiltersFromForm(form, "IncludeFilters."),
 		ExcludeFilters: parseMetricStreamFiltersFromForm(form, "ExcludeFilters."),
 	}); err != nil {
+		if errors.Is(err, ErrValidation) {
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
+
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -60,28 +65,6 @@ func (h *Handler) handlePutMetricStream(form url.Values, c *echo.Context) error 
 
 	type response struct {
 		XMLName   xml.Name `xml:"PutMetricStreamResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-	}
-
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
-}
-
-func (h *Handler) handleUpdateMetricStream(form url.Values, c *echo.Context) error {
-	name := form.Get("Name")
-	if name == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
-	}
-	if _, err := h.Backend.GetMetricStream(name); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
-	}
-
-	if err := h.putMetricStreamFromForm(form, c); err != nil {
-		return err
-	}
-
-	type response struct {
-		XMLName   xml.Name `xml:"UpdateMetricStreamResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}

@@ -8,10 +8,43 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/batch"
 )
+
+// createTestServiceJobQueue creates a MANAGED compute environment and an
+// ENABLED job queue backed by it, returning the queue name. Real AWS Batch
+// requires SubmitServiceJob's jobQueue to reference an existing queue (of
+// type SAGEMAKER_TRAINING for real service jobs; this emulator doesn't
+// enforce that cross-field constraint).
+func createTestServiceJobQueue(t *testing.T, h *batch.Handler, suffix string) string {
+	t.Helper()
+
+	ceName := "sj-ce-" + suffix
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": ceName,
+		"type":                   "MANAGED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	qName := "sj-queue-" + suffix
+	rec = post(t, h, "/v1/createjobqueue", map[string]any{
+		"jobQueueName": qName,
+		"priority":     1,
+		"computeEnvironmentOrder": []map[string]any{
+			{"order": 1, "computeEnvironment": ceName},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	return qName
+}
 
 func TestHandler_SubmitServiceJob(t *testing.T) {
 	t.Parallel()
+
+	h := newTestHandler(t)
+	qName := createTestServiceJobQueue(t, h, "submit")
 
 	tests := []struct {
 		input       map[string]any
@@ -20,14 +53,32 @@ func TestHandler_SubmitServiceJob(t *testing.T) {
 		wantStatus  int
 	}{
 		{
-			name:        "valid_submit",
-			input:       map[string]any{"serviceJobName": "my-sj", "serviceEnvironment": "se-1"},
+			name: "valid_submit",
+			input: map[string]any{
+				"jobName":               "my-sj",
+				"jobQueue":              qName,
+				"serviceJobType":        "SAGEMAKER_TRAINING",
+				"serviceRequestPayload": `{"foo":"bar"}`,
+			},
 			wantStatus:  http.StatusOK,
 			wantJobName: "my-sj",
 		},
 		{
-			name:       "missing_name",
-			input:      map[string]any{"serviceEnvironment": "se-1"},
+			name: "missing_name",
+			input: map[string]any{
+				"jobQueue":              qName,
+				"serviceJobType":        "SAGEMAKER_TRAINING",
+				"serviceRequestPayload": `{"foo":"bar"}`,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing_queue",
+			input: map[string]any{
+				"jobName":               "no-queue-sj",
+				"serviceJobType":        "SAGEMAKER_TRAINING",
+				"serviceRequestPayload": `{"foo":"bar"}`,
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -36,15 +87,15 @@ func TestHandler_SubmitServiceJob(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
 			rec := post(t, h, "/v1/submitservicejob", tt.input)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantJobName != "" {
 				var out map[string]any
 				mustUnmarshal(t, rec, &out)
-				assert.Equal(t, tt.wantJobName, out["serviceJobName"])
-				assert.NotEmpty(t, out["serviceJobArn"])
+				assert.Equal(t, tt.wantJobName, out["jobName"])
+				assert.NotEmpty(t, out["jobArn"])
+				assert.NotEmpty(t, out["jobId"])
 			}
 		})
 	}
@@ -71,26 +122,29 @@ func TestHandler_DescribeServiceJob(t *testing.T) {
 
 			var jobID string
 			if tt.wantFound {
+				qName := createTestServiceJobQueue(t, h, "describe")
 				rec := post(t, h, "/v1/submitservicejob", map[string]any{
-					"serviceJobName":     tt.jobName,
-					"serviceEnvironment": "se-test",
+					"jobName":               tt.jobName,
+					"jobQueue":              qName,
+					"serviceJobType":        "SAGEMAKER_TRAINING",
+					"serviceRequestPayload": `{"foo":"bar"}`,
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
 				mustUnmarshal(t, rec, &out)
-				arnStr := out["serviceJobArn"].(string)
-				parts := strings.Split(arnStr, "/")
-				jobID = parts[len(parts)-1]
+				jobID = out["jobId"].(string)
 			}
 
-			rec2 := post(t, h, "/v1/describeservicejob", map[string]any{"serviceJob": jobID})
+			rec2 := post(t, h, "/v1/describeservicejob", map[string]any{"jobId": jobID})
 			assert.Equal(t, tt.wantStatus, rec2.Code)
 
 			if tt.wantFound {
 				var desc map[string]any
 				mustUnmarshal(t, rec2, &desc)
-				assert.Equal(t, tt.jobName, desc["serviceJobName"])
+				assert.Equal(t, tt.jobName, desc["jobName"])
+				assert.NotEmpty(t, desc["jobQueue"])
+				assert.Equal(t, "SAGEMAKER_TRAINING", desc["serviceJobType"])
 			}
 		})
 	}
@@ -99,50 +153,44 @@ func TestHandler_DescribeServiceJob(t *testing.T) {
 func TestHandler_ListServiceJobs(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		serviceEnv string
-		submitEnvs []string
-		wantCount  int
-	}{
-		{
-			name:       "list_all",
-			submitEnvs: []string{"env-a", "env-b"},
-			wantCount:  2,
-		},
-		{
-			name:       "filter_by_env",
-			serviceEnv: "env-a",
-			submitEnvs: []string{"env-a", "env-b"},
-			wantCount:  1,
-		},
-	}
+	h := newTestHandler(t)
+	qA := createTestServiceJobQueue(t, h, "list-a")
+	qB := createTestServiceJobQueue(t, h, "list-b")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			for i, env := range tt.submitEnvs {
-				rec := post(t, h, "/v1/submitservicejob", map[string]any{
-					"serviceJobName":     fmt.Sprintf("sj-%d", i),
-					"serviceEnvironment": env,
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := post(t, h, "/v1/listservicejobs", map[string]any{
-				"serviceEnvironment": tt.serviceEnv,
-			})
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var out map[string]any
-			mustUnmarshal(t, rec, &out)
-			items := out["serviceJobs"].([]any)
-			assert.Len(t, items, tt.wantCount)
+	for i, q := range []string{qA, qB} {
+		rec := post(t, h, "/v1/submitservicejob", map[string]any{
+			"jobName":               fmt.Sprintf("sj-%d", i),
+			"jobQueue":              q,
+			"serviceJobType":        "SAGEMAKER_TRAINING",
+			"serviceRequestPayload": `{"foo":"bar"}`,
 		})
+		require.Equal(t, http.StatusOK, rec.Code)
 	}
+
+	// Real AWS Batch's ListServiceJobs defaults to only RUNNING jobs when no
+	// jobStatus is given; newly-submitted jobs are SUBMITTED, so an explicit
+	// status filter is required to see them here.
+	rec := post(t, h, "/v1/listservicejobs", map[string]any{
+		"jobQueue":  qA,
+		"jobStatus": "SUBMITTED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	items := out["jobSummaryList"].([]any)
+	assert.Len(t, items, 1)
+
+	// Filtering by a status with no matches returns an empty (not null) list.
+	recEmpty := post(t, h, "/v1/listservicejobs", map[string]any{
+		"jobQueue":  qA,
+		"jobStatus": "RUNNING",
+	})
+	require.Equal(t, http.StatusOK, recEmpty.Code)
+
+	var outEmpty map[string]any
+	mustUnmarshal(t, recEmpty, &outEmpty)
+	assert.Empty(t, outEmpty["jobSummaryList"])
 }
 
 func TestHandler_TerminateServiceJob(t *testing.T) {
@@ -180,24 +228,50 @@ func TestHandler_TerminateServiceJob(t *testing.T) {
 			jobID := tt.jobID
 
 			if tt.submitFirst {
+				qName := createTestServiceJobQueue(t, h, "terminate")
 				rec := post(t, h, "/v1/submitservicejob", map[string]any{
-					"serviceJobName":     "sj-term",
-					"serviceEnvironment": "se-test",
+					"jobName":               "sj-term",
+					"jobQueue":              qName,
+					"serviceJobType":        "SAGEMAKER_TRAINING",
+					"serviceRequestPayload": `{"foo":"bar"}`,
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
 				mustUnmarshal(t, rec, &out)
-				arnStr := out["serviceJobArn"].(string)
-				parts := strings.Split(arnStr, "/")
-				jobID = parts[len(parts)-1]
+				jobID = out["jobId"].(string)
 			}
 
 			rec := post(t, h, "/v1/terminateservicejob", map[string]any{
-				"serviceJob": jobID,
-				"reason":     "test termination",
+				"jobId":  jobID,
+				"reason": "test termination",
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+// TestHandler_SubmitServiceJob_ARNLikeJobID exercises the ARN suffix a real
+// SDK client would parse from jobArn (defensive against a jobArn wire-shape
+// regression -- see TestHandler_DescribeServiceJob for the primary
+// round-trip coverage).
+func TestHandler_SubmitServiceJob_ARNLikeJobID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	qName := createTestServiceJobQueue(t, h, "arn-like")
+
+	rec := post(t, h, "/v1/submitservicejob", map[string]any{
+		"jobName":               "arn-check",
+		"jobQueue":              qName,
+		"serviceJobType":        "SAGEMAKER_TRAINING",
+		"serviceRequestPayload": `{"foo":"bar"}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	arnStr := out["jobArn"].(string)
+	parts := strings.Split(arnStr, "/")
+	assert.Equal(t, out["jobId"], parts[len(parts)-1])
 }

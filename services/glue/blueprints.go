@@ -2,11 +2,20 @@ package glue
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// cloneBlueprint returns a deep copy of a Blueprint.
+func cloneBlueprint(bp *Blueprint) *Blueprint {
+	cp := *bp
+	cp.Tags = maps.Clone(bp.Tags)
+
+	return &cp
+}
 
 // BatchGetBlueprints retrieves multiple blueprints by name.
 func (b *InMemoryBackend) BatchGetBlueprints(names []string) ([]*Blueprint, []string) {
@@ -24,8 +33,7 @@ func (b *InMemoryBackend) BatchGetBlueprints(names []string) ([]*Blueprint, []st
 			continue
 		}
 
-		cp := *bp
-		found = append(found, &cp)
+		found = append(found, cloneBlueprint(bp))
 	}
 
 	return found, missing
@@ -36,28 +44,43 @@ func (b *InMemoryBackend) AddBlueprintInternal(bp *Blueprint) {
 	b.mu.Lock("AddBlueprintInternal")
 	defer b.mu.Unlock()
 
-	cp := *bp
-	b.blueprints.Put(&cp)
+	b.blueprints.Put(cloneBlueprint(bp))
 }
 
 var ErrBlueprintRunNotFound = fmt.Errorf("blueprint run not found: %w", ErrNotFound)
 
-// CreateBlueprint stores a new blueprint.
-func (b *InMemoryBackend) CreateBlueprint(name string) error {
-	if name == "" {
-		return fmt.Errorf("%w: blueprint Name is required", ErrValidation)
+// CreateBlueprint stores a new blueprint. blueprintLocation mirrors
+// CreateBlueprintInput's required BlueprintLocation (the S3 path where the
+// blueprint is published).
+func (b *InMemoryBackend) CreateBlueprint(
+	name, blueprintLocation, description string,
+	tags map[string]string,
+) (*Blueprint, error) {
+	if name == "" || blueprintLocation == "" {
+		return nil, fmt.Errorf("%w: Name and BlueprintLocation are required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateBlueprint")
 	defer b.mu.Unlock()
 
 	if b.blueprints.Has(name) {
-		return fmt.Errorf("blueprint %q already exists: %w", name, ErrAlreadyExists)
+		return nil, fmt.Errorf("blueprint %q already exists: %w", name, ErrAlreadyExists)
 	}
 
-	b.blueprints.Put(&Blueprint{Name: name, Status: "ACTIVE"})
+	now := float64(time.Now().Unix())
+	bp := &Blueprint{
+		Name:                     name,
+		Status:                   "ACTIVE",
+		BlueprintLocation:        blueprintLocation,
+		BlueprintServiceLocation: "s3://glue-blueprints-" + b.accountID + "/" + name,
+		Description:              description,
+		Tags:                     maps.Clone(tags),
+		CreatedOn:                now,
+		LastModifiedOn:           now,
+	}
+	b.blueprints.Put(bp)
 
-	return nil
+	return cloneBlueprint(bp), nil
 }
 
 // DeleteBlueprint removes a blueprint.
@@ -74,8 +97,13 @@ func (b *InMemoryBackend) DeleteBlueprint(name string) error {
 	return nil
 }
 
-// UpdateBlueprint updates an existing blueprint.
-func (b *InMemoryBackend) UpdateBlueprint(name string) (*Blueprint, error) {
+// UpdateBlueprint updates an existing blueprint's BlueprintLocation and
+// Description, mirroring UpdateBlueprintInput.
+func (b *InMemoryBackend) UpdateBlueprint(name, blueprintLocation, description string) (*Blueprint, error) {
+	if blueprintLocation == "" {
+		return nil, fmt.Errorf("%w: BlueprintLocation is required", ErrValidation)
+	}
+
 	b.mu.Lock("UpdateBlueprint")
 	defer b.mu.Unlock()
 
@@ -84,9 +112,11 @@ func (b *InMemoryBackend) UpdateBlueprint(name string) (*Blueprint, error) {
 		return nil, fmt.Errorf("blueprint %q not found: %w", name, ErrNotFound)
 	}
 
-	cp := *bp
+	bp.BlueprintLocation = blueprintLocation
+	bp.Description = description
+	bp.LastModifiedOn = float64(time.Now().Unix())
 
-	return &cp, nil
+	return cloneBlueprint(bp), nil
 }
 
 // ListBlueprints returns all blueprint names.
@@ -118,7 +148,7 @@ func (b *InMemoryBackend) StartBlueprintRun(blueprintName string) (*BlueprintRun
 		RunID:         runID,
 		WorkflowName:  "workflow-" + runID,
 		State:         stateRunning,
-		StartedOn:     time.Now().UTC(),
+		StartedOn:     float64(time.Now().Unix()),
 	}
 	b.blueprintRuns.Put(run)
 
@@ -156,7 +186,7 @@ func (b *InMemoryBackend) GetBlueprintRuns(blueprintName string) []*BlueprintRun
 	}
 
 	sort.Slice(runs, func(i, k int) bool {
-		return runs[i].StartedOn.Before(runs[k].StartedOn)
+		return runs[i].StartedOn < runs[k].StartedOn
 	})
 
 	return runs

@@ -41,12 +41,19 @@ const appconfigSnapshotVersion = 1
 //   - VersionCounters/DeploymentCounters: values are int32, not *T, and
 //     must survive a restart to avoid reusing a version/deployment number
 //     that a since-deleted resource already held.
+//   - DeployedConfigs: values are plain strings, not *T; must survive a
+//     restart so GetConfiguration/CurrentDeployedConfiguration keep
+//     serving the right content (see its doc comment on InMemoryBackend).
 //   - AccountSettings: a single struct, not a map at all.
+//
+// deploymentTimers is deliberately NOT part of this snapshot -- see its doc
+// comment on InMemoryBackend.
 type backendSnapshot struct {
 	Tables             map[string]json.RawMessage   `json:"tables"`
 	TagsByArn          map[string]map[string]string `json:"tagsByArn"`
 	VersionCounters    map[string]map[string]int32  `json:"versionCounters"`
 	DeploymentCounters map[string]map[string]int32  `json:"deploymentCounters"`
+	DeployedConfigs    map[string]string            `json:"deployedConfigs"`
 	AccountSettings    AccountSettings              `json:"accountSettings"`
 	AccountID          string                       `json:"accountID"`
 	Region             string                       `json:"region"`
@@ -72,6 +79,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		TagsByArn:          b.tags,
 		VersionCounters:    b.versionCounters,
 		DeploymentCounters: b.deploymentCounters,
+		DeployedConfigs:    b.deployedConfigs,
 		AccountSettings:    b.accountSettings,
 		AccountID:          b.accountID,
 		Region:             b.region,
@@ -106,6 +114,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.tags = make(map[string]map[string]string)
 		b.versionCounters = make(map[string]map[string]int32)
 		b.deploymentCounters = make(map[string]map[string]int32)
+		b.deployedConfigs = make(map[string]string)
 		b.accountSettings = AccountSettings{}
 		b.accountID = snap.AccountID
 		b.region = snap.Region
@@ -135,9 +144,20 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.deploymentCounters = snap.DeploymentCounters
 
+	if snap.DeployedConfigs == nil {
+		snap.DeployedConfigs = make(map[string]string)
+	}
+
+	b.deployedConfigs = snap.DeployedConfigs
+
 	b.accountSettings = snap.AccountSettings
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// deploymentTimers is not persisted; complete any deployment restored
+	// mid-flight rather than leaving it stuck with no timer to drive it.
+	// See finalizeStaleDeploymentsLocked's doc comment.
+	b.finalizeStaleDeploymentsLocked()
 
 	return nil
 }

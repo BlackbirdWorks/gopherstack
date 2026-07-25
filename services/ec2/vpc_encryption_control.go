@@ -209,6 +209,7 @@ func (b *InMemoryBackend) DeleteVpcEncryptionControl(id string) (*VpcEncryptionC
 	vec.State = vpcEncryptionControlStateDeleted
 	out := cloneVpcEncryptionControl(vec)
 	b.vpcEncryptionControls.Delete(id)
+	delete(b.tags, id)
 
 	return out, nil
 }

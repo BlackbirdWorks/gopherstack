@@ -35,6 +35,8 @@ func permissionKeyFn(v *Permission) string { return v.ARN }
 
 func invitationKeyFn(v *ResourceShareInvitation) string { return v.InvitationARN }
 
+func replaceWorkKeyFn(v *ReplacePermissionAssociationsWork) string { return v.ID }
+
 // registerAllTables constructs and registers every store.Table-backed
 // resource field exactly once, at construction time. It must be called
 // during construction only, never on every Reset(): store.Register panics on
@@ -44,4 +46,5 @@ func registerAllTables(b *InMemoryBackend) {
 	b.resourceShares = store.Register(b.registry, "resourceShares", store.New(resourceShareKeyFn))
 	b.permissions = store.Register(b.registry, "permissions", store.New(permissionKeyFn))
 	b.invitations = store.Register(b.registry, "invitations", store.New(invitationKeyFn))
+	b.replaceWorks = store.Register(b.registry, "replaceWorks", store.New(replaceWorkKeyFn))
 }

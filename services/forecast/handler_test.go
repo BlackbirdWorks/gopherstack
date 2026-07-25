@@ -64,6 +64,108 @@ func unmarshalResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]
 	return response
 }
 
+// --- FK-chain builders ---
+//
+// CreateForecast/CreateMonitor/CreateDatasetImportJob/etc. now validate that
+// their ARN-reference fields (PredictorArn, DatasetArn, ...) resolve to a
+// real resource (ResourceNotFoundException otherwise, matching real Amazon
+// Forecast). These helpers build the minimal prerequisite chain so tests can
+// ask for "a real PredictorArn" etc. without repeating the CreatePredictor
+// boilerplate at every call site.
+
+// createPredictor creates a Predictor on h and returns its ARN.
+func createPredictor(t *testing.T, h *forecast.Handler) string {
+	t.Helper()
+
+	code, created := request(t, h, "CreatePredictor", map[string]any{
+		"PredictorName": "fk-predictor", "ForecastHorizon": 10,
+	})
+	require.Equal(t, http.StatusOK, code)
+	arn, ok := created["PredictorArn"].(string)
+	require.True(t, ok)
+
+	return arn
+}
+
+// createDataset creates a Dataset on h and returns its ARN.
+func createDataset(t *testing.T, h *forecast.Handler) string {
+	t.Helper()
+
+	code, created := request(t, h, "CreateDataset", map[string]any{
+		"DatasetName": "fk-dataset", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
+		"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
+	})
+	require.Equal(t, http.StatusOK, code)
+	arn, ok := created["DatasetArn"].(string)
+	require.True(t, ok)
+
+	return arn
+}
+
+// createForecast creates a Predictor and a Forecast referencing it on h, and
+// returns the Forecast's ARN.
+func createForecast(t *testing.T, h *forecast.Handler) string {
+	t.Helper()
+
+	predictorARN := createPredictor(t, h)
+	code, created := request(t, h, "CreateForecast", map[string]any{
+		"ForecastName": "fk-forecast", "PredictorArn": predictorARN,
+	})
+	require.Equal(t, http.StatusOK, code)
+	arn, ok := created["ForecastArn"].(string)
+	require.True(t, ok)
+
+	return arn
+}
+
+// createExplainability creates a Predictor and an Explainability resource
+// referencing it on h, and returns the Explainability's ARN.
+func createExplainability(t *testing.T, h *forecast.Handler) string {
+	t.Helper()
+
+	predictorARN := createPredictor(t, h)
+	code, created := request(t, h, "CreateExplainability", map[string]any{
+		"ExplainabilityName": "fk-explainability", "ResourceArn": predictorARN,
+	})
+	require.Equal(t, http.StatusOK, code)
+	arn, ok := created["ExplainabilityArn"].(string)
+	require.True(t, ok)
+
+	return arn
+}
+
+// createWhatIfAnalysis creates the Predictor->Forecast->WhatIfAnalysis chain
+// on h, and returns the WhatIfAnalysis's ARN.
+func createWhatIfAnalysis(t *testing.T, h *forecast.Handler) string {
+	t.Helper()
+
+	forecastARN := createForecast(t, h)
+	code, created := request(t, h, "CreateWhatIfAnalysis", map[string]any{
+		"WhatIfAnalysisName": "fk-what-if-analysis", "ForecastArn": forecastARN,
+	})
+	require.Equal(t, http.StatusOK, code)
+	arn, ok := created["WhatIfAnalysisArn"].(string)
+	require.True(t, ok)
+
+	return arn
+}
+
+// createWhatIfForecast creates the Predictor->Forecast->WhatIfAnalysis->
+// WhatIfForecast chain on h, and returns the WhatIfForecast's ARN.
+func createWhatIfForecast(t *testing.T, h *forecast.Handler) string {
+	t.Helper()
+
+	analysisARN := createWhatIfAnalysis(t, h)
+	code, created := request(t, h, "CreateWhatIfForecast", map[string]any{
+		"WhatIfForecastName": "fk-what-if-forecast", "WhatIfAnalysisArn": analysisARN,
+	})
+	require.Equal(t, http.StatusOK, code)
+	arn, ok := created["WhatIfForecastArn"].(string)
+	require.True(t, ok)
+
+	return arn
+}
+
 // --- routing and metadata ---
 
 func TestHandler_MetadataAndRouting(t *testing.T) {
@@ -195,7 +297,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		createBody map[string]any
+		createBody func(t *testing.T, h *forecast.Handler) map[string]any
 		name       string
 		create     string
 		describe   string
@@ -209,89 +311,144 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			name: "dataset_group", create: "CreateDatasetGroup", describe: "DescribeDatasetGroup",
 			list: "ListDatasetGroups", delete: "DeleteDatasetGroup", arnField: "DatasetGroupArn",
 			status: "Status", listField: "DatasetGroups",
-			createBody: map[string]any{"DatasetGroupName": "sales-group", "Domain": "RETAIL"},
+			createBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{"DatasetGroupName": "sales-group", "Domain": "RETAIL"}
+			},
 		},
 		{
 			name: "dataset", create: "CreateDataset", describe: "DescribeDataset",
 			list: "ListDatasets", delete: "DeleteDataset", arnField: "DatasetArn",
 			status: "Status", listField: "Datasets",
-			createBody: map[string]any{
-				"DatasetName": "sales", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
-				"DataFrequency": "D",
+			createBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{
+					"DatasetName": "sales", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
+					"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
+				}
 			},
 		},
 		{
 			name: "dataset_import_job", create: "CreateDatasetImportJob", describe: "DescribeDatasetImportJob",
 			list: "ListDatasetImportJobs", delete: "DeleteDatasetImportJob", arnField: "DatasetImportJobArn",
 			status: "Status", listField: "DatasetImportJobs",
-			createBody: map[string]any{
-				"DatasetImportJobName": "import", "DatasetArn": "arn:aws:forecast:us-east-1:000000000000:dataset/sales",
-				"DataSource": map[string]any{"S3Config": map[string]any{"Path": "s3://bucket/train.csv"}},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"DatasetImportJobName": "import", "DatasetArn": createDataset(t, h),
+					"DataSource": map[string]any{"S3Config": map[string]any{"Path": "s3://bucket/train.csv"}},
+				}
 			},
 		},
 		{
 			name: "predictor", create: "CreatePredictor", describe: "DescribePredictor",
 			list: "ListPredictors", delete: "DeletePredictor", arnField: "PredictorArn",
 			status: "Status", listField: "Predictors",
-			createBody: map[string]any{"PredictorName": "daily", "ForecastHorizon": 14, "PerformAutoML": true},
+			createBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{"PredictorName": "daily", "ForecastHorizon": 14, "PerformAutoML": true}
+			},
 		},
 		{
 			name: "predictor_backtest_export", create: "CreatePredictorBacktestExportJob",
 			describe: "DescribePredictorBacktestExportJob", list: "ListPredictorBacktestExportJobs",
 			delete: "DeletePredictorBacktestExportJob", arnField: "PredictorBacktestExportJobArn",
 			status: "Status", listField: "PredictorBacktestExportJobs",
-			createBody: map[string]any{"PredictorBacktestExportJobName": "backtest", "PredictorArn": "predictor"},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"PredictorBacktestExportJobName": "backtest", "PredictorArn": createPredictor(t, h),
+				}
+			},
 		},
 		{
 			name: "forecast", create: "CreateForecast", describe: "DescribeForecast",
 			list: "ListForecasts", delete: "DeleteForecast", arnField: "ForecastArn",
 			status: "Status", listField: "Forecasts",
-			createBody: map[string]any{"ForecastName": "supply", "PredictorArn": "predictor"},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"ForecastName": "supply", "PredictorArn": createPredictor(t, h)}
+			},
 		},
 		{
 			name: "forecast_export", create: "CreateForecastExportJob", describe: "DescribeForecastExportJob",
 			list: "ListForecastExportJobs", delete: "DeleteForecastExportJob", arnField: "ForecastExportJobArn",
 			status: "Status", listField: "ForecastExportJobs",
-			createBody: map[string]any{"ForecastExportJobName": "forecast-export", "ForecastArn": "forecast"},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"ForecastExportJobName": "forecast-export", "ForecastArn": createForecast(t, h)}
+			},
 		},
 		{
 			name: "explainability_export", create: "CreateExplainabilityExport",
 			describe: "DescribeExplainabilityExport", list: "ListExplainabilityExports",
 			delete: "DeleteExplainabilityExport", arnField: "ExplainabilityExportArn",
 			status: "Status", listField: "ExplainabilityExports",
-			createBody: map[string]any{"ExplainabilityExportName": "explain-export", "ExplainabilityArn": "explain"},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"ExplainabilityExportName": "explain-export", "ExplainabilityArn": createExplainability(t, h),
+				}
+			},
 		},
 		{
 			name: "explainability", create: "CreateExplainability",
 			describe: "DescribeExplainability", list: "ListExplainabilities",
 			delete: "DeleteExplainability", arnField: "ExplainabilityArn",
 			status: "Status", listField: "Explainabilities",
-			createBody: map[string]any{"ExplainabilityName": "forecast-explain", "ResourceArn": "predictor"},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"ExplainabilityName": "forecast-explain", "ResourceArn": createPredictor(t, h)}
+			},
 		},
 		{
 			name: "what_if_analysis", create: "CreateWhatIfAnalysis", describe: "DescribeWhatIfAnalysis",
 			list: "ListWhatIfAnalyses", delete: "DeleteWhatIfAnalysis", arnField: "WhatIfAnalysisArn",
 			status: "Status", listField: "WhatIfAnalyses",
-			createBody: map[string]any{"WhatIfAnalysisName": "promo-analysis", "ForecastArn": "forecast"},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"WhatIfAnalysisName": "promo-analysis", "ForecastArn": createForecast(t, h)}
+			},
 		},
 		{
 			name: "what_if_forecast", create: "CreateWhatIfForecast", describe: "DescribeWhatIfForecast",
 			list: "ListWhatIfForecasts", delete: "DeleteWhatIfForecast", arnField: "WhatIfForecastArn",
 			status: "Status", listField: "WhatIfForecasts",
-			createBody: map[string]any{"WhatIfForecastName": "promo-forecast", "WhatIfAnalysisArn": "analysis"},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"WhatIfForecastName": "promo-forecast", "WhatIfAnalysisArn": createWhatIfAnalysis(t, h),
+				}
+			},
 		},
 		{
 			name: "what_if_forecast_export", create: "CreateWhatIfForecastExport",
 			describe: "DescribeWhatIfForecastExport", list: "ListWhatIfForecastExports",
 			delete: "DeleteWhatIfForecastExport", arnField: "WhatIfForecastExportArn",
 			status: "Status", listField: "WhatIfForecastExports",
-			createBody: map[string]any{"WhatIfForecastExportName": "promo-export", "WhatIfAnalysisArn": "analysis"},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"WhatIfForecastExportName": "promo-export",
+					"WhatIfForecastArns":       []any{createWhatIfForecast(t, h)},
+				}
+			},
 		},
 		{
 			name: "monitor", create: "CreateMonitor", describe: "DescribeMonitor",
 			list: "ListMonitors", delete: "DeleteMonitor", arnField: "MonitorArn",
 			status: "Status", listField: "Monitors",
-			createBody: map[string]any{"MonitorName": "quality-monitor", "ResourceArn": "predictor"},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"MonitorName": "quality-monitor", "ResourceArn": createPredictor(t, h)}
+			},
 		},
 	}
 
@@ -300,7 +457,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
-			code, created := request(t, h, tt.create, tt.createBody)
+			code, created := request(t, h, tt.create, tt.createBody(t, h))
 			require.Equal(t, http.StatusOK, code)
 			resourceARN, ok := created[tt.arnField].(string)
 			require.True(t, ok)
@@ -344,6 +501,7 @@ func TestHandler_ConfigurationRetentionAndUpdates(t *testing.T) {
 	}}
 	_, createdDataset := request(t, h, "CreateDataset", map[string]any{
 		"DatasetName": "schema-dataset", "Schema": schema, "DataFrequency": "D",
+		"Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
 	})
 	_, dataset := request(t, h, "DescribeDataset", map[string]any{"DatasetArn": createdDataset["DatasetArn"]})
 	assert.Equal(t, schema, dataset["Schema"])
@@ -362,7 +520,9 @@ func TestHandler_ConfigurationRetentionAndUpdates(t *testing.T) {
 	assert.Equal(t, true, predictor["PerformHPO"])
 	assert.Equal(t, config["HyperParameterTuningJobConfig"], predictor["HyperParameterTuningJobConfig"])
 
-	_, createdGroup := request(t, h, "CreateDatasetGroup", map[string]any{"DatasetGroupName": "group"})
+	_, createdGroup := request(t, h, "CreateDatasetGroup", map[string]any{
+		"DatasetGroupName": "group", "Domain": "RETAIL",
+	})
 	_, updated := request(t, h, "UpdateDatasetGroup", map[string]any{
 		"DatasetGroupArn": createdGroup["DatasetGroupArn"], "DatasetArns": []any{"dataset-a", "dataset-b"},
 	})

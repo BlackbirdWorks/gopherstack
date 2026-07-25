@@ -240,7 +240,8 @@ func TestHandler_ReservedNodes_PurchaseAndDescribe(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				rn, _ := resp["ReservedNode"].(map[string]any)
 				assert.NotNil(t, rn)
-				assert.NotEmpty(t, rn["ReservedNodeId"])
+				assert.NotEmpty(t, rn["ReservationId"])
+				assert.Equal(t, tt.offeringID, rn["ReservedNodesOfferingId"])
 			}
 		})
 	}
@@ -274,7 +275,7 @@ func TestHandler_ReservedNodes_DescribeAfterPurchase(t *testing.T) {
 
 	// Describe with filter.
 	descRec := doRequest(t, h, "DescribeReservedNodes", map[string]any{
-		"ReservedNodeId": "my-reservation-123",
+		"ReservationId": "my-reservation-123",
 	})
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -284,7 +285,8 @@ func TestHandler_ReservedNodes_DescribeAfterPurchase(t *testing.T) {
 	assert.Len(t, nodes, 1)
 
 	node, _ := nodes[0].(map[string]any)
-	assert.Equal(t, "my-reservation-123", node["ReservedNodeId"])
+	assert.Equal(t, "my-reservation-123", node["ReservationId"])
+	assert.Equal(t, "aaa00000-1111-2222-3333-444444444444", node["ReservedNodesOfferingId"])
 	assert.Equal(t, "active", node["State"])
 }
 

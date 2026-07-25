@@ -3,12 +3,18 @@ package kafka
 import (
 	"context"
 	"slices"
+	"time"
 )
 
 // CreateVpcConnection creates a new VPC connection to an MSK cluster.
+// clientSubnets/securityGroups are required fields on the real
+// CreateVpcConnectionInput (see aws-sdk-go-v2/service/kafka's
+// api_op_CreateVpcConnection.go); they are stored and echoed back by
+// DescribeVpcConnection.
 func (b *InMemoryBackend) CreateVpcConnection(
 	ctx context.Context,
 	targetClusterArn, vpcID, authentication string,
+	clientSubnets, securityGroups []string,
 	tags map[string]string,
 ) (*VpcConnection, error) {
 	region := regionFromARN(targetClusterArn, getRegion(ctx, b.region))
@@ -27,6 +33,9 @@ func (b *InMemoryBackend) CreateVpcConnection(
 		VpcID:            vpcID,
 		Authentication:   authentication,
 		State:            VpcConnectionStateAvailable,
+		CreationTime:     time.Now().UTC().Format(time.RFC3339),
+		SubnetIDs:        append([]string(nil), clientSubnets...),
+		SecurityGroupIDs: append([]string(nil), securityGroups...),
 		Tags:             nonNilTagsCopy(tags),
 	}
 	b.vpcConnections.Put(conn)
@@ -117,6 +126,7 @@ func (b *InMemoryBackend) AddVpcConnectionInternal(clusterArn, vpcID string) *Vp
 		TargetClusterArn: clusterArn,
 		VpcID:            vpcID,
 		State:            VpcConnectionStateAvailable,
+		CreationTime:     time.Now().UTC().Format(time.RFC3339),
 		Tags:             make(map[string]string),
 	}
 	b.vpcConnections.Put(conn)
@@ -132,6 +142,9 @@ func cloneVpcConnection(v *VpcConnection) *VpcConnection {
 		VpcID:            v.VpcID,
 		Authentication:   v.Authentication,
 		State:            v.State,
+		CreationTime:     v.CreationTime,
+		SubnetIDs:        append([]string(nil), v.SubnetIDs...),
+		SecurityGroupIDs: append([]string(nil), v.SecurityGroupIDs...),
 		Tags:             nonNilTagsCopy(v.Tags),
 	}
 }

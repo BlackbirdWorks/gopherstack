@@ -28,6 +28,20 @@ func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existi
 	wsID := wsOut.PendingRequests[0]["WorkspaceId"]
 	appID := "app-12345"
 
+	// DescribeImageAssociations/DescribeBundleAssociations now validate that
+	// ImageId/BundleId reference real resources (previously a stub that
+	// ignored the input entirely), so exercise them against a real image and
+	// a real Amazon-owned bundle rather than made-up IDs.
+	imgRec := doTargetRequest(t, h, "CreateWorkspaceImage", map[string]any{
+		"Name":        "img-for-assoc-test",
+		"Description": "test",
+		"WorkspaceId": wsID,
+	})
+	var imgOut struct {
+		ImageID string `json:"ImageId"`
+	}
+	decodeJSON(t, imgRec.Body.Bytes(), &imgOut)
+
 	tests := []struct {
 		fn   func(t *testing.T)
 		name string
@@ -97,10 +111,11 @@ func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existi
 			fn: func(t *testing.T) {
 				t.Helper()
 				r := doTargetRequest(t, h, "DescribeImageAssociations", map[string]any{
-					"ImageId": "wsi-test",
+					"ImageId":                 imgOut.ImageID,
+					"AssociatedResourceTypes": []string{"APPLICATION"},
 				})
 				if r.Code != http.StatusOK {
-					t.Fatalf("expected 200, got %d", r.Code)
+					t.Fatalf("expected 200, got %d: %s", r.Code, r.Body)
 				}
 			},
 		},
@@ -109,10 +124,11 @@ func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existi
 			fn: func(t *testing.T) {
 				t.Helper()
 				r := doTargetRequest(t, h, "DescribeBundleAssociations", map[string]any{
-					"BundleId": "wsb-test",
+					"BundleId":                "wsb-bh8rsxt14",
+					"AssociatedResourceTypes": []string{"APPLICATION"},
 				})
 				if r.Code != http.StatusOK {
-					t.Fatalf("expected 200, got %d", r.Code)
+					t.Fatalf("expected 200, got %d: %s", r.Code, r.Body)
 				}
 			},
 		},
@@ -136,4 +152,94 @@ func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existi
 			tc.fn(t)
 		})
 	}
+}
+
+// TestDescribeImageAssociations_Validation and
+// TestDescribeBundleAssociations_Validation verify the required-field and
+// existence validation these ops previously skipped entirely (a stub that
+// ignored ImageId/BundleId and always returned an empty 200).
+func TestDescribeImageAssociations_Validation(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandlerWithBackend(t)
+
+	t.Run("unknown ImageId is not found", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "DescribeImageAssociations", map[string]any{
+			"ImageId":                 "wsi-does-not-exist",
+			"AssociatedResourceTypes": []string{"APPLICATION"},
+		})
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("missing AssociatedResourceTypes is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		imgRec := doTargetRequest(t, h, "CopyWorkspaceImage", map[string]any{
+			"Name":          "img-for-validation",
+			"SourceImageId": "wsi-src",
+			"SourceRegion":  "us-east-1",
+		})
+		var imgOut map[string]string
+		decodeJSON(t, imgRec.Body.Bytes(), &imgOut)
+
+		rec := doTargetRequest(t, h, "DescribeImageAssociations", map[string]any{
+			"ImageId": imgOut["ImageId"],
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body)
+		}
+	})
+}
+
+func TestDescribeBundleAssociations_Validation(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandlerWithBackend(t)
+
+	t.Run("unknown BundleId is not found", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "DescribeBundleAssociations", map[string]any{
+			"BundleId":                "wsb-does-not-exist",
+			"AssociatedResourceTypes": []string{"APPLICATION"},
+		})
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("missing AssociatedResourceTypes is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "DescribeBundleAssociations", map[string]any{
+			"BundleId": "wsb-bh8rsxt14",
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("Amazon-owned bundle is a valid target", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "DescribeBundleAssociations", map[string]any{
+			"BundleId":                "wsb-bh8rsxt14",
+			"AssociatedResourceTypes": []string{"APPLICATION"},
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body)
+		}
+
+		var out struct {
+			Associations []any `json:"Associations"`
+		}
+		decodeJSON(t, rec.Body.Bytes(), &out)
+		if out.Associations == nil {
+			t.Fatal("expected non-nil (possibly empty) Associations array")
+		}
+	})
 }

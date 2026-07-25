@@ -91,15 +91,41 @@ func (b *InMemoryBackend) DeleteStorageVirtualMachine(svmID string) error {
 	b.mu.Lock("DeleteStorageVirtualMachine")
 	defer b.mu.Unlock()
 
+	if !b.storageVirtualMachines.Has(svmID) {
+		return ErrStorageVirtualMachineNotFound
+	}
+
+	b.deleteStorageVirtualMachineLocked(svmID)
+
+	return nil
+}
+
+// deleteStorageVirtualMachineLocked removes an SVM and cascades to every
+// volume hosted on it (which in turn cascades to that volume's snapshots),
+// so no ghost Volume/Snapshot rows survive the SVM's deletion. Caller must
+// already hold b.mu and have verified the SVM exists.
+func (b *InMemoryBackend) deleteStorageVirtualMachineLocked(svmID string) {
 	svm, ok := b.storageVirtualMachines.Get(svmID)
 	if !ok {
-		return ErrStorageVirtualMachineNotFound
+		return
+	}
+
+	var volumeIDs []string
+
+	b.volumes.Range(func(v *storedVolume) bool {
+		if v.StorageVirtualMachineID == svmID {
+			volumeIDs = append(volumeIDs, v.VolumeID)
+		}
+
+		return true
+	})
+
+	for _, id := range volumeIDs {
+		b.deleteVolumeLocked(id)
 	}
 
 	b.storageVirtualMachines.Delete(svmID)
 	delete(b.tags, svm.ResourceARN)
-
-	return nil
 }
 
 // DescribeStorageVirtualMachines returns SVMs, optionally filtered by ID.

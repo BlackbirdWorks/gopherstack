@@ -53,7 +53,7 @@ func TestChangeSet_TypeAndExecutionStatus(t *testing.T) {
 				tc.setup(b)
 			}
 			cs, err := b.CreateChangeSet(t.Context(), tc.stackName, tc.changeSetName,
-				simpleTemplate, "test", nil)
+				simpleTemplate, "test", nil, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantChangeSetType, cs.ChangeSetType)
 			assert.Equal(t, tc.wantExecStatus, cs.ExecutionStatus)
@@ -70,7 +70,7 @@ func TestChangeSet_ExecutionStatus_AfterExecute(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateChangeSet(t.Context(), "exec-status-stack", "my-cs",
-		modifiedTemplate, "test", nil)
+		modifiedTemplate, "test", nil, nil)
 	require.NoError(t, err)
 
 	// After execute, the changeset is removed (EXECUTE_COMPLETE).
@@ -80,6 +80,61 @@ func TestChangeSet_ExecutionStatus_AfterExecute(t *testing.T) {
 	// Changeset no longer exists — verify.
 	_, err = b.DescribeChangeSet("exec-status-stack", "my-cs")
 	require.ErrorIs(t, err, cloudformation.ErrChangeSetNotFound)
+}
+
+// TestChangeSet_Capabilities_ThreadedToExecute locks in a parity fix: CreateChangeSet
+// previously silently discarded its Capabilities parameter entirely (it wasn't even
+// accepted), so ExecuteChangeSet always called UpdateStack/CreateStack with an empty
+// StackOptions -- meaning any change set touching IAM resources could never actually
+// be executed, regardless of what capabilities the caller declared at CreateChangeSet
+// time. Capabilities are now stored on the ChangeSet and threaded through Execute.
+func TestChangeSet_Capabilities_ThreadedToExecute(t *testing.T) {
+	t.Parallel()
+
+	iamTemplate := `{
+		"AWSTemplateFormatVersion":"2010-09-09",
+		"Resources":{
+			"Role":{"Type":"AWS::IAM::Role","Properties":{"AssumeRolePolicyDocument":{}}}
+		}
+	}`
+
+	tests := []struct {
+		name         string
+		capabilities []string
+		wantErr      bool
+	}{
+		{
+			name:         "with_CAPABILITY_IAM_execute_succeeds",
+			capabilities: []string{"CAPABILITY_IAM"},
+			wantErr:      false,
+		},
+		{
+			name:         "without_capabilities_execute_fails",
+			capabilities: nil,
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+
+			cs, err := b.CreateChangeSet(
+				t.Context(), "cs-cap-stack", "cs-cap", iamTemplate, "test", nil, tt.capabilities,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tt.capabilities, cs.Capabilities)
+
+			err = b.ExecuteChangeSet(t.Context(), "cs-cap-stack", "cs-cap")
+			if tt.wantErr {
+				require.ErrorIs(t, err, cloudformation.ErrInsufficientCapabilities)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestChangeSet_ExecutionStatus_HTTP(t *testing.T) {

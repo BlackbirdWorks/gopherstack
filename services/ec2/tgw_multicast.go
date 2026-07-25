@@ -186,6 +186,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayMulticastDomain(id string) error {
 		return fmt.Errorf("%w: %s", ErrTGWMulticastDomainNotFound, id)
 	}
 	b.tgwMulticastDomains.Delete(id)
+	delete(b.tags, id)
 
 	for _, assoc := range b.tgwMulticastDomainAssociations.All() {
 		key := tgwMulticastDomainAssociationsKeyFn(assoc)
@@ -588,6 +589,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayMeteringPolicy(id string) error {
 		return fmt.Errorf("%w: %s", ErrTGWMeteringPolicyNotFound, id)
 	}
 	b.tgwMeteringPolicies.Delete(id)
+	delete(b.tags, id)
 
 	for _, entry := range b.tgwMeteringPolicyEntries.All() {
 		key := tgwMeteringPolicyEntriesKeyFn(entry)

@@ -6,29 +6,28 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: iotdataplane
 sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.32.20
-last_audit_commit: 57398ee1
-last_audit_date: 2026-07-13
+last_audit_commit: b88208cbf
+last_audit_date: 2026-07-24
 overall: A            # genuine fixes found and verified against SDK source + AWS docs
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   GetThingShadow: {wire: ok, errors: ok, state: ok, persist: ok, note: "404 on deleted (tombstoned) shadow now correctly excluded"}
-  UpdateThingShadow: {wire: ok, errors: ok, state: ok, persist: ok, note: "ConflictException (was VersionConflictException); RequestEntityTooLargeException (was InvalidRequestException/plain-413) for >8KB doc; version continues across delete+recreate"}
+  UpdateThingShadow: {wire: ok, errors: ok, state: ok, persist: ok, note: "ConflictException (was VersionConflictException); RequestEntityTooLargeException (was InvalidRequestException/plain-413) for >8KB doc; version continues across delete+recreate; state.desired/state.reported now enforce AWS's documented 8-level JSON nesting depth cap; invented maxShadowsPerThing=100 cap REMOVED (no such AWS quota exists -- see notes)"}
   DeleteThingShadow: {wire: ok, errors: ok, state: ok, persist: ok, note: "response now omits state (empty response state document, AWS-doc-confirmed); soft-delete tombstone preserves version continuity"}
   ListNamedShadowsForThing: {wire: ok, errors: ok, state: ok, persist: ok, note: "excludes tombstoned (deleted) named shadows"}
-  Publish: {wire: ok, errors: ok, state: ok, persist: n/a, note: "delivers via MQTTPublisher broker interface; ErrNoBroker path logs+drops (documented follow-up, not a stub -- see gaps)"}
-  DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL AWS op restored to its real wire path DELETE /connections/{clientId} (was regressed to /_admin/-only in a prior 'AWS-accuracy' pass); admin alias kept for test convenience"}
-  GetRetainedMessage: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListRetainedMessages: {wire: ok, errors: ok, state: ok, persist: ok}
+  Publish: {wire: ok, errors: ok, state: ok, persist: n/a, note: "now parses+validates the full PublishInput wire surface (contentType/messageExpiry/responseTopic as query params; correlationData/payloadFormatIndicator/userProperties as X-Amz-Mqtt5-* headers, per serializers.go); userProperties persists onto the retained message (see GetRetainedMessage); delivers via MQTTPublisher broker interface; ErrNoBroker path logs+drops, and none of contentType/correlationData/messageExpiry/payloadFormatIndicator/responseTopic reach the broker (documented follow-up, not a stub -- see gaps)"}
+  DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL AWS op restored to its real wire path DELETE /connections/{clientId} (was regressed to /_admin/-only in a prior 'AWS-accuracy' pass); admin alias kept for test convenience; now returns ResourceNotFoundException (was an unconditional no-op) when clientId has no tracked connection -- real AWS models this error for DeleteConnection"}
+  GetRetainedMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "response now includes userProperties (base64, null when unset) -- was missing entirely; confirmed against GetRetainedMessageOutput"}
+  ListRetainedMessages: {wire: ok, errors: ok, state: ok, persist: ok, note: "summary now includes qos -- a prior audit incorrectly asserted RetainedMessageSummary excludes qos; the real deserializer (awsRestjson1_deserializeDocumentRetainedMessageSummary) proves it's present"}
 families:
   admin-only-extensions: {status: ok, note: "RegisterConnection/ListConnections/ListThingsWithShadows have NO real AWS iotdataplane equivalent (confirmed against the SDK's op file listing); correctly confined to gopherstack-only paths (/_admin/connections, /api/things/shadow/ListThingsWithShadows) so they cannot shadow real AWS traffic"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "Publish with no MQTT broker wired logs a warning and silently drops the message (ErrNoBroker path in backend.go Publish()). This is intentional degradation, not a disguised no-op -- when a broker IS wired (see cli.go startup, out of scope for this service-only pass) the message is delivered for real, retain/qos forwarded. No further work identified without broker wiring changes, which live outside services/iotdataplane/."
-  - "UnsupportedDocumentEncodingException (real AWS error, modeled for GetThingShadow/DeleteThingShadow/UpdateThingShadow) is never returned -- no Content-Encoding-based validation exists. Left unimplemented: no clear trigger condition was verified against real AWS behavior, and speculative validation risks a wrong-shape fix. Candidate for a future audit pass with real-AWS verification first."
-  - "maxShadowsPerThing=100 (backend.go) is a soft self-imposed cap, not verified against an authoritative AWS quota number -- left unchanged this pass (low confidence either way, non-blocking)."
+  - "Publish with no MQTT broker wired logs a warning and silently drops the message (ErrNoBroker path in backend.go Publish()). This is intentional degradation, not a disguised no-op -- when a broker IS wired (see cli.go startup, out of scope for this service-only pass) the message is delivered for real, retain/qos forwarded. Additionally, the MQTTPublisher interface (services/iotdataplane/interfaces.go) only carries topic/payload/retain/qos -- contentType/correlationData/messageExpiry/payloadFormatIndicator/responseTopic are parsed and validated at the HTTP layer but never reach live MQTT subscribers, since forwarding them would require extending MQTTPublisher and its only real implementation (services/iot/broker.go, backed by mochi-mqtt), which is outside this service's own scope. No AWS-modeled response surface within iotdataplane echoes these fields back (GetRetainedMessageOutput only carries userProperties, which IS wired through), so this has no other observable wire-parity impact. No further work identified without cross-service broker changes."
+  - "UnsupportedDocumentEncodingException (real AWS error, modeled for GetThingShadow/DeleteThingShadow/UpdateThingShadow) is never returned -- no Content-Encoding-based validation exists. Left unimplemented: re-verified this pass via targeted web search (AWS API reference, boto3 docs) and still found no documented trigger condition (e.g. which Content-Encoding values are rejected, or whether it's Accept-Encoding-driven). Speculative validation risks a wrong-shape fix. Candidate for a future audit pass with real-AWS verification first (e.g. a live AWS account probe)."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Chaos fault-injection paths (ChaosServiceName/ChaosOperations) -- not part of AWS wire surface, no parity concern."
-leaks: {status: clean, note: "no goroutines/timers introduced; tombstone rows are bounded by the same lifecycle as live shadow rows (same store.Table, same Reset/Snapshot/Restore path)"}
+leaks: {status: clean, note: "no goroutines/timers introduced; tombstone rows are bounded by the same lifecycle as live shadow rows (same store.Table, same Reset/Snapshot/Restore path); removing the maxShadowsPerThing cap does not introduce unbounded growth risk beyond what already existed (shadows were never capped process-wide, only per-thing, and the per-thing cap had no eviction/GC of its own -- it only returned an error)"}
 ---
 
 ## Notes
@@ -90,6 +89,18 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
   classic shadow uses `shadowName == ""`. `#` cannot appear in either
   component given their validation regexes, so no collision risk.
 
+- **Path-style named shadow route is NOT real AWS wire**: `handler.go` also
+  accepts `/things/{thingName}/shadow/name/{shadowName}` in addition to the
+  real `/things/{thingName}/shadow?name=...` query-param form. Confirmed via
+  `httpbinding.SplitURI` call sites in `serializers.go` that the real SDK only
+  ever generates the `?name=` form for Get/Update/DeleteThingShadow -- the
+  path-style route has no equivalent in `aws-sdk-go-v2/service/iotdataplane`.
+  This is pure test-convenience leniency (a superset of accepted request
+  shapes, same op names, same responses): it never causes a real SDK client's
+  traffic to be misrouted or misinterpreted, since a real client only ever
+  sends the `?name=` form. Left in place (heavily used by existing tests), but
+  noted here so a future audit doesn't mistake it for a modeled AWS op.
+
 - **Shadow doc size limit**: `maxShadowDocumentBytes` = 8KB, matches
   `maxShadowBodyBytes` at the HTTP layer (`handler.go`'s `MaxBytesReader`), so
   in practice the HTTP-layer cutoff fires first and the backend's own check is
@@ -108,3 +119,78 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
   `"MethodNotAllowedException"` (used across every 405 response in this
   handler). No test depended on the old literal text (only status codes were
   asserted), so this was a safe, systemic wire-accuracy fix.
+
+- **`maxShadowsPerThing=100` cap REMOVED**: the prior pass flagged this as
+  low-confidence and left it in place. This pass re-verified against the
+  authoritative AWS General Reference "AWS IoT Core endpoints and quotas"
+  page: it documents shadow document size (8KB), shadow name length (64
+  bytes), in-flight-unacknowledged-messages-per-thing (10), and
+  requests-per-second-per-shadow (20) -- but **no limit at all on the number
+  of named shadows per thing**. Community reports (AWS re:Post) describe
+  200-10,000+ named shadows on a single thing without hitting any API-level
+  cap. gopherstack's self-imposed 100-shadow cap was therefore a
+  gopherstack-invented behavior that would reject `UpdateThingShadow` calls a
+  real AWS account would accept -- the wrong direction for parity (stricter
+  than AWS, not more lenient). Removed the check, the now-dead
+  `liveShadowCount` helper, and the `MaxShadowsPerThing` test export; replaced
+  the cap-boundary tests in shadows_test.go with
+  `Test_ManyNamedShadowsPerThing_*` tests proving no artificial limit exists.
+
+- **Shadow state JSON nesting depth cap ADDED**: the same AWS quotas page
+  documents "Maximum depth of JSON device state documents: 8 levels (in both
+  desired and reported sections)" -- this was previously unenforced entirely.
+  Added `maxShadowStateDepth = 8` and `validateShadowStateDepth` (shadows.go),
+  applied to `state.desired`/`state.reported` in `applyShadowStateSection`,
+  returning `InvalidRequestException` when exceeded. The section's top-level
+  object itself counts as depth 1 (i.e. `{"a":1}` is depth 1, `{"a":{"b":1}}`
+  is depth 2). See `Test_ShadowStateDepth_*` in shadows_validation_test.go.
+
+- **`ListRetainedMessages` summary was missing `qos`**: a prior audit pass
+  asserted (incorrectly) that AWS's `RetainedMessageSummary` excludes `qos`
+  and added tests locking that in. Directly reading
+  `awsRestjson1_deserializeDocumentRetainedMessageSummary` in the real SDK's
+  `deserializers.go` shows `qos` IS a recognized field on that shape. Fixed
+  `handleListRetainedMessages` to include it and rewrote the tests that had
+  asserted its absence (`Test_ListRetainedMessages_SummaryIncludesQos`).
+
+- **`GetRetainedMessage` was missing `userProperties`**: `GetRetainedMessageOutput`
+  in the real SDK carries a `UserProperties []byte` field (base64-encoded MQTT5
+  user properties JSON array, or absent/null when unset) that gopherstack's
+  response never included. Added `RetainedMessage.UserProperties` (types.go),
+  threaded it through `StoreRetainedMessage`'s new `userProperties []byte`
+  parameter, and included it in the `GetRetainedMessage` JSON response.
+
+- **`Publish` was missing its entire MQTT5-property wire surface**: real
+  `PublishInput` (per `awsRestjson1_serializeOpHttpBindingsPublishInput` in
+  `serializers.go`) carries `contentType`/`messageExpiry`/`responseTopic` as
+  query params and `correlationData`/`payloadFormatIndicator`/`userProperties`
+  as `X-Amz-Mqtt5-*` headers (the last base64-encoded). None of these were
+  even read from the request before this pass -- a real SDK client setting
+  any of them got silently ignored with no validation. Added
+  `parseMQTT5PublishParams` (handler_publish.go) plus validators in publish.go
+  (`validatePayloadFormatIndicator`, `validateResponseTopic`,
+  `parseMessageExpiry`, `decodeUserProperties`) so malformed values now
+  produce the correct `InvalidRequestException`. Of these fields, only
+  `userProperties` has an AWS-visible effect reachable within this service
+  (persisted onto the retained message, see above) -- the rest are
+  accepted/validated but not forwarded anywhere further; see gaps for why.
+
+- **`DeleteConnection` never returned `ResourceNotFoundException`**: real AWS
+  models this error for `DeleteConnection` (confirmed via
+  `awsRestjson1_deserializeOpErrorDeleteConnection`'s case list in
+  `deserializers.go`), but gopherstack's implementation unconditionally
+  succeeded even for a `clientId` with no tracked connection ("idempotent
+  delete"). Since gopherstack's only concept of "connected" is the
+  `connections` table (populated via the gopherstack-only `RegisterConnection`
+  admin extension -- see admin-only-extensions family), a real AWS SDK client
+  that never calls the admin endpoint will always get 404 from
+  `DeleteConnection`, which is the intended test-convenience contract: use
+  `/_admin/connections/{clientId}` (POST) to simulate a connected client
+  first. Added `ErrConnectionNotFound` (errors.go) wired to
+  `ResourceNotFoundException` in `handleError`. `cleanSession`/
+  `preventWillMessage` (the two other real `DeleteConnectionInput` query
+  params) are still not parsed -- there is no live per-client session state
+  modeled in this service to react to them, and `DeleteConnectionOutput` has
+  no fields that would surface a difference either way, so this is left as an
+  accepted no-op akin to the Publish/broker gap, not tracked as a separate
+  gap entry since it has zero observable wire impact.

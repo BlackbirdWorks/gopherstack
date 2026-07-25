@@ -23,6 +23,18 @@ func (b *InMemoryBackend) CreateJobTemplate(
 	settings map[string]any,
 	tags map[string]string,
 ) (*JobTemplate, error) {
+	return b.CreateJobTemplateFull(name, description, category, queue, priority, settings, tags, "", "", nil)
+}
+
+// CreateJobTemplateFull creates a new MediaConvert job template with all optional fields.
+func (b *InMemoryBackend) CreateJobTemplateFull(
+	name, description, category, queue string,
+	priority int,
+	settings map[string]any,
+	tags map[string]string,
+	accelerationMode, statusUpdateInterval string,
+	hopDestinations []HopDestination,
+) (*JobTemplate, error) {
 	b.mu.Lock("CreateJobTemplate")
 	defer b.mu.Unlock()
 
@@ -38,19 +50,37 @@ func (b *InMemoryBackend) CreateJobTemplate(
 		return nil, fmt.Errorf("%w: priority must be between %d and %d", ErrValidation, priorityMin, priorityMax)
 	}
 
+	var accelSettings *AccelerationSettings
+	if accelerationMode != "" {
+		accelSettings = &AccelerationSettings{Mode: accelerationMode}
+	}
+
+	if statusUpdateInterval == "" {
+		statusUpdateInterval = defaultStatusUpdateInterval
+	}
+
+	var hopDests []HopDestination
+	if len(hopDestinations) > 0 {
+		hopDests = make([]HopDestination, len(hopDestinations))
+		copy(hopDests, hopDestinations)
+	}
+
 	now := epochSeconds(time.Now())
 	jt := &JobTemplate{
-		Arn:         arn.Build("mediaconvert", b.region, b.accountID, "jobTemplates/"+name),
-		Name:        name,
-		Description: description,
-		Category:    category,
-		Queue:       queue,
-		Priority:    priority,
-		Settings:    deepCloneMap(settings),
-		Tags:        nonNilTagsCopy(tags),
-		Type:        presetCustom,
-		CreatedAt:   now,
-		LastUpdated: now,
+		Arn:                  arn.Build("mediaconvert", b.region, b.accountID, "jobTemplates/"+name),
+		Name:                 name,
+		Description:          description,
+		Category:             category,
+		Queue:                queue,
+		Priority:             priority,
+		Settings:             deepCloneMap(settings),
+		Tags:                 nonNilTagsCopy(tags),
+		Type:                 presetCustom,
+		CreatedAt:            now,
+		LastUpdated:          now,
+		AccelerationSettings: accelSettings,
+		StatusUpdateInterval: statusUpdateInterval,
+		HopDestinations:      hopDests,
 	}
 	b.jobTemplates.Put(jt)
 
@@ -95,6 +125,25 @@ func (b *InMemoryBackend) UpdateJobTemplate(
 	priority *int,
 	settings map[string]any,
 ) (*JobTemplate, error) {
+	return b.UpdateJobTemplateFull(name, description, category, queue, priority, settings, nil, "", nil)
+}
+
+// UpdateJobTemplateFull updates a job template including the newer
+// AccelerationSettings/HopDestinations/StatusUpdateInterval fields that the
+// real UpdateJobTemplateInput wire shape accepts. accelerationSettings is a
+// pointer so callers can distinguish "not specified" (nil, field left
+// unchanged) from "explicitly cleared" -- but since MediaConvert has no way
+// to clear it back to unset via the API either, nil always means "leave
+// unchanged" here. statusUpdateInterval == "" and hopDestinations == nil are
+// likewise treated as "not specified".
+func (b *InMemoryBackend) UpdateJobTemplateFull(
+	name, description, category, queue string,
+	priority *int,
+	settings map[string]any,
+	accelerationSettings *AccelerationSettings,
+	statusUpdateInterval string,
+	hopDestinations []HopDestination,
+) (*JobTemplate, error) {
 	b.mu.Lock("UpdateJobTemplate")
 	defer b.mu.Unlock()
 
@@ -127,6 +176,21 @@ func (b *InMemoryBackend) UpdateJobTemplate(
 		jt.Settings = deepCloneMap(settings)
 	}
 
+	if accelerationSettings != nil {
+		as := *accelerationSettings
+		jt.AccelerationSettings = &as
+	}
+
+	if statusUpdateInterval != "" {
+		jt.StatusUpdateInterval = statusUpdateInterval
+	}
+
+	if hopDestinations != nil {
+		dests := make([]HopDestination, len(hopDestinations))
+		copy(dests, hopDestinations)
+		jt.HopDestinations = dests
+	}
+
 	jt.LastUpdated = epochSeconds(time.Now())
 
 	return cloneJobTemplate(jt), nil
@@ -151,6 +215,15 @@ func cloneJobTemplate(jt *JobTemplate) *JobTemplate {
 	cp := *jt
 	cp.Settings = deepCloneMap(jt.Settings)
 	cp.Tags = nonNilTagsCopy(jt.Tags)
+
+	if jt.AccelerationSettings != nil {
+		as := *jt.AccelerationSettings
+		cp.AccelerationSettings = &as
+	}
+
+	if len(jt.HopDestinations) > 0 {
+		cp.HopDestinations = append([]HopDestination(nil), jt.HopDestinations...)
+	}
 
 	return &cp
 }

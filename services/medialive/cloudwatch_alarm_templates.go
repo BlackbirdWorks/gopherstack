@@ -65,22 +65,42 @@ func (b *InMemoryBackend) GetCloudWatchAlarmTemplateGroup(
 	return g.toGroup(), nil
 }
 
-// ListCloudWatchAlarmTemplateGroups returns all CW alarm template groups.
+// ListCloudWatchAlarmTemplateGroups returns all CW alarm template groups,
+// each annotated with its live templateCount (see
+// CloudWatchAlarmTemplateGroupSummary's doc comment).
 func (b *InMemoryBackend) ListCloudWatchAlarmTemplateGroups(
 	maxResults int,
 	nextToken string,
-) ([]*CloudWatchAlarmTemplateGroup, string, error) {
+) ([]*CloudWatchAlarmTemplateGroupSummary, string, error) {
 	b.mu.RLock("ListCloudWatchAlarmTemplateGroups")
 	defer b.mu.RUnlock()
 	all := b.cwAlarmTemplateGroups.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
-	result := make([]*CloudWatchAlarmTemplateGroup, 0, len(pg.Data))
+	result := make([]*CloudWatchAlarmTemplateGroupSummary, 0, len(pg.Data))
 	for _, g := range pg.Data {
-		result = append(result, g.toGroup())
+		result = append(result, &CloudWatchAlarmTemplateGroupSummary{
+			CloudWatchAlarmTemplateGroup: *g.toGroup(),
+			TemplateCount:                b.countCWAlarmTemplatesForGroup(g.ID),
+		})
 	}
 
 	return result, pg.Next, nil
+}
+
+// countCWAlarmTemplatesForGroup returns the number of CloudWatch alarm
+// templates belonging to groupID. Caller must already hold b.mu (Lock or
+// RLock).
+func (b *InMemoryBackend) countCWAlarmTemplatesForGroup(groupID string) int32 {
+	var n int32
+
+	for _, t := range b.cwAlarmTemplates.All() {
+		if t.GroupID == groupID {
+			n++
+		}
+	}
+
+	return n
 }
 
 // UpdateCloudWatchAlarmTemplateGroup updates a CW alarm template group.
@@ -121,6 +141,7 @@ func (b *InMemoryBackend) DeleteCloudWatchAlarmTemplateGroup(identifier string) 
 		)
 	}
 	b.cwAlarmTemplateGroups.Delete(g.ID)
+	delete(b.tags, g.Arn)
 
 	return nil
 }
@@ -331,6 +352,7 @@ func (b *InMemoryBackend) DeleteCloudWatchAlarmTemplate(identifier string) error
 		return fmt.Errorf("%w: cloudwatch alarm template %s not found", ErrNotFound, identifier)
 	}
 	b.cwAlarmTemplates.Delete(t.ID)
+	delete(b.tags, t.Arn)
 
 	return nil
 }

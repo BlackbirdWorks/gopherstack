@@ -207,8 +207,11 @@ func TestGetScheduleGroup_TimestampsAreEpochSeconds(t *testing.T) {
 	assert.Greater(t, cd, float64(0))
 }
 
-// TestGetScheduleGroup_IncludesTags verifies GetScheduleGroup includes Tags.
-func TestGetScheduleGroup_IncludesTags(t *testing.T) {
+// TestGetScheduleGroup_OmitsTags verifies GetScheduleGroup does NOT include a Tags
+// field: real AWS's GetScheduleGroupOutput has no such field -- tags for a
+// schedule group are only ever fetched via ListTagsForResource, which this test
+// also exercises to confirm the tags themselves were stored correctly.
+func TestGetScheduleGroup_OmitsTags(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -222,11 +225,21 @@ func TestGetScheduleGroup_IncludesTags(t *testing.T) {
 	rec2 := doSchedulerRequest(t, h, "GetScheduleGroup", map[string]any{"Name": "grp-with-tags"})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var out struct {
-		Tags map[string]string `json:"Tags"`
-	}
+	var out map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
-	assert.Equal(t, "test", out.Tags["env"])
+	_, hasTags := out["Tags"]
+	assert.False(t, hasTags, "GetScheduleGroup must not include a Tags field (not in real GetScheduleGroupOutput)")
+
+	var groupARN string
+	require.NoError(t, json.Unmarshal(out["Arn"], &groupARN))
+
+	listRec := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": groupARN})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	tagsMap := wireTagsToMap(t, listResp["Tags"])
+	assert.Equal(t, "test", tagsMap["env"])
 }
 
 func TestGetScheduleGroup_NotFound(t *testing.T) {
@@ -431,8 +444,10 @@ func TestListScheduleGroups_TimestampsAreEpochSeconds(t *testing.T) {
 	assert.Greater(t, cd, float64(0))
 }
 
-// TestListScheduleGroups_IncludesTags verifies ListScheduleGroups includes Tags.
-func TestListScheduleGroups_IncludesTags(t *testing.T) {
+// TestListScheduleGroups_OmitsTags verifies ListScheduleGroups items do NOT
+// include a Tags field: real AWS's ScheduleGroupSummary has no such field --
+// group tags are only ever fetched via ListTagsForResource.
+func TestListScheduleGroups_OmitsTags(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -447,16 +462,18 @@ func TestListScheduleGroups_IncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out struct {
-		ScheduleGroups []struct {
-			Tags map[string]string `json:"Tags"`
-			Name string            `json:"Name"`
-		} `json:"ScheduleGroups"`
+		ScheduleGroups []map[string]json.RawMessage `json:"ScheduleGroups"`
 	}
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
 
 	for _, g := range out.ScheduleGroups {
-		if g.Name == "list-grp-tags" {
-			assert.Equal(t, "y", g.Tags["x"])
+		var name string
+		require.NoError(t, json.Unmarshal(g["Name"], &name))
+
+		if name == "list-grp-tags" {
+			_, hasTags := g["Tags"]
+			assert.False(t, hasTags,
+				"ListScheduleGroups item must not include a Tags field (not in real ScheduleGroupSummary)")
 
 			return
 		}

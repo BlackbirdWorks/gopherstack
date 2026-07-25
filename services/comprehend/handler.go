@@ -49,10 +49,29 @@ type resourceSpec struct {
 	listField    string
 }
 
+// jobSpec describes one async job family's wire shape. The *Properties
+// shapes are NOT uniform across job families in the real API -- e.g.
+// DocumentClassificationJobProperties has DocumentClassifierArn+FlywheelArn
+// but no LanguageCode, while EntitiesDetectionJobProperties has
+// EntityRecognizerArn+FlywheelArn+LanguageCode, and
+// PiiEntitiesDetectionJobProperties has Mode+RedactionConfig but no
+// VolumeKmsKeyId/VpcConfig at all. These booleans were field-diffed against
+// each family's real Properties struct in aws-sdk-go-v2/service/comprehend/types
+// (see jobMap in handler_jobs.go) so each Describe/List response only ever
+// carries fields the real shape actually has.
 type jobSpec struct {
-	jobType     string
-	objectField string
-	listField   string
+	jobType                  string
+	objectField              string
+	listField                string
+	hasLanguageCode          bool
+	hasDocumentClassifierArn bool
+	hasEntityRecognizerArn   bool
+	hasFlywheelArn           bool
+	hasVolumeKmsKeyID        bool
+	hasVpcConfig             bool
+	hasTargetEventTypes      bool
+	hasPiiMode               bool
+	hasNumberOfTopics        bool
 }
 
 // Handler serves Amazon Comprehend JSON operations.
@@ -179,6 +198,18 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, status = "ResourceInUseException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation):
 		code, status = "InvalidRequestException", http.StatusBadRequest
+	case errors.Is(err, ErrJobNotFound):
+		code, status = "JobNotFoundException", http.StatusBadRequest
+	case errors.Is(err, ErrTooManyTags):
+		code, status = "TooManyTagsException", http.StatusBadRequest
+	case errors.Is(err, ErrBatchSizeLimitExceeded):
+		code, status = "BatchSizeLimitExceededException", http.StatusBadRequest
+	case errors.Is(err, ErrTextSizeLimitExceeded):
+		code, status = "TextSizeLimitExceededException", http.StatusBadRequest
+	case errors.Is(err, ErrUnsupportedLanguage):
+		code, status = "UnsupportedLanguageException", http.StatusBadRequest
+	case errors.Is(err, ErrKmsKeyValidation):
+		code, status = "KmsKeyValidationException", http.StatusBadRequest
 	}
 
 	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: err.Error()})
@@ -200,12 +231,12 @@ func (h *Handler) buildOperations() map[string]operation {
 		"DetectSyntax":                h.detectSyntax,
 		"DetectDominantLanguage":      h.detectDominantLanguage,
 		"DetectToxicContent":          h.detectToxicContent,
-		"BatchDetectSentiment":        h.batch(h.detectSentiment),
-		"BatchDetectEntities":         h.batch(h.detectEntities),
-		"BatchDetectKeyPhrases":       h.batch(h.detectKeyPhrases),
-		"BatchDetectPiiEntities":      h.batch(h.detectPIIEntities),
-		"BatchDetectSyntax":           h.batch(h.detectSyntax),
-		"BatchDetectDominantLanguage": h.batch(h.detectDominantLanguage),
+		"BatchDetectSentiment":        h.batch(h.detectSentiment, generalLanguageCodes),
+		"BatchDetectEntities":         h.batch(h.detectEntities, generalLanguageCodes),
+		"BatchDetectKeyPhrases":       h.batch(h.detectKeyPhrases, generalLanguageCodes),
+		"BatchDetectPiiEntities":      h.batch(h.detectPIIEntities, generalLanguageCodes),
+		"BatchDetectSyntax":           h.batch(h.detectSyntax, syntaxLanguageCodes),
+		"BatchDetectDominantLanguage": h.batch(h.detectDominantLanguage, nil),
 		"TagResource":                 h.tagResource,
 		"UntagResource":               h.untagResource,
 		"ListTagsForResource":         h.listTags,
@@ -230,7 +261,7 @@ func (h *Handler) buildOperations() map[string]operation {
 	ops["DescribeFlywheelIteration"] = h.getIteration
 	ops["ListFlywheelIterationHistory"] = h.listIterations
 
-	ops["BatchDetectTargetedSentiment"] = h.batch(h.detectTargetedSentiment)
+	ops["BatchDetectTargetedSentiment"] = h.batch(h.detectTargetedSentiment, englishOnlyLanguageCodes)
 	ops["ClassifyDocument"] = h.classifyDocument
 	ops["ContainsPiiEntities"] = h.containsPIIEntities
 	ops["DeleteResourcePolicy"] = h.deleteResourcePolicy

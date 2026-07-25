@@ -196,30 +196,119 @@ func TestRespondDecisionTaskCompleted_CancelWorkflow(t *testing.T) {
 	}
 }
 
+// TestRespondDecisionTaskCompleted_ContinueAsNew verifies ContinueAsNewWorkflowExecution
+// performs a real state transition (new RunID, RUNNING again, fresh decision
+// task enqueued) instead of leaving the execution permanently dead-ended in
+// CONTINUED_AS_NEW with no decision task ever following -- see the historical
+// PARITY.md gap this closes.
 func TestRespondDecisionTaskCompleted_ContinueAsNew(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
 	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
-	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+	started, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
 		Domain:     "dom",
 		WorkflowID: "wf-1",
 		TaskList:   "default",
 	})
 	require.NoError(t, err)
+	oldRunID := started.RunID
 
-	b.EnqueueDecisionTaskInternal("dom", "default", "wf-1", "run-1")
 	token := pollDecisionTask(t, b, "dom", "default")
 
 	decisions := []swf.Decision{{
 		DecisionType: "ContinueAsNewWorkflowExecution",
+		ContinueAsNewWorkflowExecutionAttrs: &swf.ContinueAsNewWorkflowExecutionDecisionAttrs{
+			Input: `{"round":2}`,
+			// No registered WorkflowType exists here to source a default
+			// task list from, so the decision must carry one explicitly --
+			// matches real AWS, which faults with DEFAULT_TASK_LIST_UNDEFINED
+			// otherwise.
+			TaskList: "default",
+		},
 	}}
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
 	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
 	require.NoError(t, err)
-	assert.Equal(t, "CONTINUED_AS_NEW", exec.Status)
-	assert.Equal(t, "CONTINUED_AS_NEW", exec.CloseStatus)
+	assert.Equal(t, "RUNNING", exec.Status)
+	assert.Empty(t, exec.CloseStatus)
+	assert.Zero(t, exec.CloseTimestamp)
+	assert.NotEqual(t, oldRunID, exec.RunID, "continue-as-new must assign a fresh RunID")
+	assert.Equal(t, `{"round":2}`, exec.Input)
+
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	var continuedEvent, startedAgainEvent *swf.HistoryEvent
+	for i := range events {
+		switch events[i].EventType {
+		case "WorkflowExecutionContinuedAsNew":
+			continuedEvent = &events[i]
+		case "WorkflowExecutionStarted":
+			startedAgainEvent = &events[i] // last one wins: the continuation's start
+		}
+	}
+	require.NotNil(t, continuedEvent, "expected WorkflowExecutionContinuedAsNew in history")
+	continuedAttrs, ok := continuedEvent.Attributes["workflowExecutionContinuedAsNewEventAttributes"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, exec.RunID, continuedAttrs["newExecutionRunId"])
+
+	require.NotNil(t, startedAgainEvent, "expected a fresh WorkflowExecutionStarted for the continuation")
+	startedAttrs, ok := startedAgainEvent.Attributes["workflowExecutionStartedEventAttributes"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, oldRunID, startedAttrs["continuedExecutionRunId"])
+
+	// A fresh decision task must have been enqueued so the decider can make
+	// progress on the new run -- this is the core bug being fixed (the old
+	// behavior left the workflow stuck OPEN forever with no way to resume).
+	task := b.PollForDecisionTask("dom", "default", 0, "")
+	require.NotNil(t, task, "expected a decision task for the continued run")
+	assert.Equal(t, exec.RunID, task.RunID)
+}
+
+// TestRespondDecisionTaskCompleted_ContinueAsNew_UnknownWorkflowType verifies
+// that when the (possibly re-versioned) workflow type can't be resolved, the
+// execution stays open/RUNNING (real AWS never closes the run on a rejected
+// decision) and records ContinueAsNewWorkflowExecutionFailed instead.
+func TestRespondDecisionTaskCompleted_ContinueAsNew_UnknownWorkflowType(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "greeter", "1.0", "", swf.WorkflowTypeDefaults{}))
+	started, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain:              "dom",
+		WorkflowID:          "wf-1",
+		TaskList:            "default",
+		WorkflowTypeName:    "greeter",
+		WorkflowTypeVersion: "1.0",
+	})
+	require.NoError(t, err)
+
+	token := pollDecisionTask(t, b, "dom", "default")
+	decisions := []swf.Decision{{
+		DecisionType: "ContinueAsNewWorkflowExecution",
+		ContinueAsNewWorkflowExecutionAttrs: &swf.ContinueAsNewWorkflowExecutionDecisionAttrs{
+			WorkflowTypeVersion: "does-not-exist",
+		},
+	}}
+	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
+
+	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", exec.Status, "a rejected continue-as-new must leave the execution open")
+	assert.Equal(t, started.RunID, exec.RunID, "the run must not change on a rejected continuation")
+
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	var failedEvent *swf.HistoryEvent
+	for i := range events {
+		if events[i].EventType == "ContinueAsNewWorkflowExecutionFailed" {
+			failedEvent = &events[i]
+		}
+	}
+	require.NotNil(t, failedEvent, "expected ContinueAsNewWorkflowExecutionFailed in history")
+	attrs, ok := failedEvent.Attributes["continueAsNewWorkflowExecutionFailedEventAttributes"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "WORKFLOW_TYPE_DOES_NOT_EXIST", attrs["cause"])
 }
 
 func TestRespondDecisionTaskCompleted_ScheduleActivityTask(t *testing.T) {
@@ -659,43 +748,58 @@ func TestRespondDecisionTaskCompleted_TaskTimerMarkerAttrsPropagate(t *testing.T
 	t.Parallel()
 
 	tests := []struct {
-		decision      map[string]any
 		wantAttrs     map[string]any
 		name          string
 		wantEventType string
 		attrKey       string
+		decisions     []map[string]any
 	}{
 		{
 			name: "RequestCancelActivityTask",
-			decision: map[string]any{
+			decisions: []map[string]any{{
 				"decisionType": "RequestCancelActivityTask",
 				"requestCancelActivityTaskDecisionAttributes": map[string]any{
 					"activityId": "act-42",
 				},
-			},
+			}},
 			wantEventType: "ActivityTaskCancelRequested",
 			attrKey:       "activityTaskCancelRequestedEventAttributes",
 			wantAttrs:     map[string]any{"activityId": "act-42"},
 		},
 		{
 			name: "StartTimer",
-			decision: map[string]any{
+			decisions: []map[string]any{{
 				"decisionType": "StartTimer",
 				"startTimerDecisionAttributes": map[string]any{
 					"timerId":            "timer-1",
 					"startToFireTimeout": "60",
 				},
-			},
+			}},
 			wantEventType: "TimerStarted",
 			attrKey:       "timerStartedEventAttributes",
 			wantAttrs:     map[string]any{"timerId": "timer-1", "startToFireTimeout": "60"},
 		},
 		{
+			// CancelTimer only succeeds against a timer that's actually
+			// open (real AWS rejects an unknown timerId with
+			// CancelTimerFailed/TIMER_ID_UNKNOWN -- see
+			// TestRespondDecisionTaskCompleted_CancelTimer_UnknownID),
+			// so this batch starts timer-1 first in the same decision
+			// task before canceling it.
 			name: "CancelTimer",
-			decision: map[string]any{
-				"decisionType": "CancelTimer",
-				"cancelTimerDecisionAttributes": map[string]any{
-					"timerId": "timer-1",
+			decisions: []map[string]any{
+				{
+					"decisionType": "StartTimer",
+					"startTimerDecisionAttributes": map[string]any{
+						"timerId":            "timer-1",
+						"startToFireTimeout": "60",
+					},
+				},
+				{
+					"decisionType": "CancelTimer",
+					"cancelTimerDecisionAttributes": map[string]any{
+						"timerId": "timer-1",
+					},
 				},
 			},
 			wantEventType: "TimerCanceled",
@@ -704,13 +808,13 @@ func TestRespondDecisionTaskCompleted_TaskTimerMarkerAttrsPropagate(t *testing.T
 		},
 		{
 			name: "RecordMarker",
-			decision: map[string]any{
+			decisions: []map[string]any{{
 				"decisionType": "RecordMarker",
 				"recordMarkerDecisionAttributes": map[string]any{
 					"markerName": "checkpoint",
 					"details":    "step-3",
 				},
-			},
+			}},
 			wantEventType: "MarkerRecorded",
 			attrKey:       "markerRecordedEventAttributes",
 			wantAttrs:     map[string]any{"markerName": "checkpoint", "details": "step-3"},
@@ -734,7 +838,7 @@ func TestRespondDecisionTaskCompleted_TaskTimerMarkerAttrsPropagate(t *testing.T
 			h := swf.NewHandler(b)
 			rec := doSWFRequest(t, h, "RespondDecisionTaskCompleted", map[string]any{
 				"taskToken": token,
-				"decisions": []map[string]any{tt.decision},
+				"decisions": tt.decisions,
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 

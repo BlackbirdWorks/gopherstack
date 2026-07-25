@@ -25,7 +25,7 @@ func TestHandler_GetRepositorySyncStatus(t *testing.T) {
 				link, err := h.Backend.CreateRepositoryLink(
 					context.Background(),
 					"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
-					"owner", "repo", "",
+					"owner", "repo", "", nil,
 				)
 				if err != nil {
 					return ""
@@ -264,6 +264,39 @@ func TestGetResourceSyncStatus_AutoSeeded(t *testing.T) {
 	resp := parseResp(t, getRec)
 	latest := resp["LatestSync"].(map[string]any)
 	assert.Equal(t, "SUCCEEDED", latest["Status"])
+}
+
+// TestGetResourceSyncStatus_IncludesTarget verifies LatestSync.Target is
+// populated with the resource name. Target is a required real member of
+// types.ResourceSyncAttempt (confirmed against aws-sdk-go-v2's
+// awsAwsjson10_deserializeDocumentResourceSyncAttempt) that a previous
+// implementation omitted entirely.
+func TestGetResourceSyncStatus_IncludesTarget(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	connArn := createCSCConn(t, h, "target-conn", "GitHub")
+	linkID := createCSCRepositoryLink(t, h, connArn, "target-repo")
+
+	rec := doRequest(t, h, "CreateSyncConfiguration", map[string]any{
+		"Branch":           "main",
+		"ConfigFile":       "cfg.yaml",
+		"RepositoryLinkId": linkID,
+		"ResourceName":     "target-stack",
+		"RoleArn":          "arn:aws:iam::000000000000:role/r",
+		"SyncType":         "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	getRec := doRequest(t, h, "GetResourceSyncStatus", map[string]any{
+		"ResourceName": "target-stack",
+		"SyncType":     "CFN_STACK_SYNC",
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	resp := parseResp(t, getRec)
+	latest := resp["LatestSync"].(map[string]any)
+	assert.Equal(t, "target-stack", latest["Target"])
 }
 
 func TestGetRepositorySyncStatus_WithEvents(t *testing.T) {

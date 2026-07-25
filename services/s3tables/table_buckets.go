@@ -11,11 +11,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// PutTableBucketReplication sets replication config for a table bucket.
+// PutTableBucketReplication sets the replication configuration for a table
+// bucket. When expectedVersionToken is non-empty it must match the bucket's
+// currently stored VersionToken (optimistic concurrency, mirroring
+// PutTableBucketReplicationInput's optional versionToken query parameter);
+// a mismatch, or a token supplied when no configuration yet exists, returns
+// ErrTableVersionConflict. Returns the stored config (with a freshly minted
+// VersionToken) so the caller can build the {status, versionToken} response
+// PutTableBucketReplicationOutput requires.
 func (b *InMemoryBackend) PutTableBucketReplication(
-	bucketARN string,
-	cfg *BucketReplicationConfig,
-) error {
+	bucketARN, role string,
+	rules []ReplicationRule,
+	expectedVersionToken string,
+) (*BucketReplicationConfig, error) {
 	b.muBuckets.RLock("PutTableBucketReplication")
 	defer b.muBuckets.RUnlock()
 
@@ -23,13 +31,27 @@ func (b *InMemoryBackend) PutTableBucketReplication(
 	defer b.muState.Unlock()
 
 	if !b.tableBuckets.Has(bucketARN) {
-		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
+		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
 
-	cfg.TableBucketARN = bucketARN
+	existing, hasExisting := b.bucketReplication.Get(bucketARN)
+	if expectedVersionToken != "" && (!hasExisting || existing.VersionToken != expectedVersionToken) {
+		return nil, fmt.Errorf(
+			"%w: stale version token for table bucket replication %q",
+			ErrTableVersionConflict,
+			bucketARN,
+		)
+	}
+
+	cfg := &BucketReplicationConfig{
+		TableBucketARN: bucketARN,
+		Role:           role,
+		Rules:          rules,
+		VersionToken:   uuid.NewString(),
+	}
 	b.bucketReplication.Put(cfg)
 
-	return nil
+	return cfg, nil
 }
 
 // GetTableBucketReplication returns the replication config for a table bucket.
@@ -58,8 +80,11 @@ func (b *InMemoryBackend) GetTableBucketReplication(
 	return cfg, nil
 }
 
-// DeleteTableBucketReplication removes the replication config for a table bucket.
-func (b *InMemoryBackend) DeleteTableBucketReplication(bucketARN string) error {
+// DeleteTableBucketReplication removes the replication config for a table
+// bucket. When expectedVersionToken is non-empty it must match the stored
+// VersionToken (mirroring DeleteTableBucketReplicationInput's optional
+// versionToken query parameter); a mismatch returns ErrTableVersionConflict.
+func (b *InMemoryBackend) DeleteTableBucketReplication(bucketARN, expectedVersionToken string) error {
 	b.muBuckets.RLock("DeleteTableBucketReplication")
 	defer b.muBuckets.RUnlock()
 
@@ -68,6 +93,23 @@ func (b *InMemoryBackend) DeleteTableBucketReplication(bucketARN string) error {
 
 	if !b.tableBuckets.Has(bucketARN) {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
+	}
+
+	existing, hasExisting := b.bucketReplication.Get(bucketARN)
+	if !hasExisting {
+		return fmt.Errorf(
+			"%w: no replication configuration for table bucket %q",
+			ErrTableBucketNotFound,
+			bucketARN,
+		)
+	}
+
+	if expectedVersionToken != "" && existing.VersionToken != expectedVersionToken {
+		return fmt.Errorf(
+			"%w: stale version token for table bucket replication %q",
+			ErrTableVersionConflict,
+			bucketARN,
+		)
 	}
 
 	b.bucketReplication.Delete(bucketARN)
@@ -161,8 +203,7 @@ func (b *InMemoryBackend) DeleteTableBucket(bucketARN string) error {
 	// this slice is a view into.
 	for _, t := range slices.Clone(b.tablesByBucket.Get(bucketARN)) {
 		b.tables.Delete(t.ARN)
-		delete(b.tableReplication, t.ARN)
-		delete(b.tableReplicationConfigs, t.ARN)
+		b.tableReplication.Delete(t.ARN)
 		b.tableRecordExpiry.Delete(t.ARN)
 		delete(b.tags, t.ARN)
 	}

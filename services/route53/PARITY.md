@@ -2,14 +2,24 @@
 service: route53
 sdk_module: aws-sdk-go-v2/service/route53@v1.62.3
 last_audit_commit: ee7d2bae
-last_audit_date: 2026-07-12
-overall: A          # this pass: closed 3 of the 4 tracked gaps from the prior audit
-                    # (~600 LOC genuine fixes + tests) — HealthCheckVersion/CollectionVersion
-                    # optimistic concurrency, CidrCollectionInUse non-empty guard, and full
-                    # reusable-delegation-set <-> hosted-zone linkage. No local code drift
-                    # since the prior audit commit (ce30166a), so this pass targeted only the
-                    # `partial` rows the prior ledger flagged; all other `ok` rows trusted
-                    # unchanged per the re-audit protocol.
+last_audit_date: 2026-07-23
+overall: A          # this pass: closed BOTH tracked gaps (AssociateVPCWithHostedZone
+                    # duplicate-VPC idempotency, CreateReusableDelegationSet HostedZoneId
+                    # mode) and 3 of the 4 deferred items — CreateKeySigningKey InvalidKMSArn
+                    # validation, alias-cycle depth-guard stress tests, and a genuine
+                    # routing-policy bug found while re-deriving TestDNSAnswer's selection
+                    # algorithm: GeoProximityLocation- and CidrRoutingConfig-routed record
+                    # sets were never recognised by classifyRouting at all and silently fell
+                    # through to plain first-by-SetIdentifier answers. Implemented real
+                    # selectGeoProximity (bias-scaled great-circle distance) and selectCIDR
+                    # (longest-prefix-match against CIDR collection locations, "*" default
+                    # fallback) routing. Also removed all 6 banned cyclop/gocognit/funlen
+                    # nolints in the service by decomposition (map-dispatch table for
+                    # selectAnswer's routing-kind switch, extracted validate*/merge*/apply*
+                    # helpers preserving exact error/precedence order). Ran the SDK-driven
+                    # route53/route53resolver integration test suite against the real
+                    # aws-sdk-go-v2 client (Dockerized binary) — all 45 tests pass, closing
+                    # the prior pass's "unit tests only" gap.
 ops:
   CreateHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CallerReference reuse with different Name/Comment/PrivateZone now returns HostedZoneAlreadyExists (409) instead of silently returning the wrong zone; fixed this pass: DelegationSetId was parsed off the wire and then silently dropped — every zone got the same hardcoded default name servers regardless of what was requested. Now accepts a reusable delegation set (bare or /delegationset/-prefixed ID), validates it exists (NoSuchDelegationSet), and both the CreateHostedZone/GetHostedZone DelegationSet response element and the zone's auto-seeded NS/SOA records use the linked set's real name servers"}
   DeleteHostedZone: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -33,14 +43,14 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer silently returns empty tags for a nonexistent hosted zone/health check — now validates existence and returns NoSuchHostedZone/NoSuchHealthCheck (404)"}
   ListTagsForResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2 bugs: (1) HTTP route was unreachable (handler checked a bare /2013-04-01/tags path that can never match; real AWS URI is POST /2013-04-01/tags/{ResourceType}), (2) same missing-existence-check bug as ListTagsForResource"}
   ChangeTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: the handler discarded ChangeTagsForResource's error return (setTags/removeTags used `_ = ...`), so tagging a nonexistent resource silently 200'd instead of 404ing; also fixed: resource tags (b.tags) were never wired into Snapshot/Restore and were lost across a backend restore"}
-  CreateKeySigningKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: duplicate name in a zone now returns KeySigningKeyAlreadyExists (409) instead of generic InvalidInput"}
+  CreateKeySigningKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: duplicate name in a zone now returns KeySigningKeyAlreadyExists (409) instead of generic InvalidInput; fixed this pass: KeyManagementServiceArn was never validated — any string (including empty) was accepted. Now checked against a KMS customer-managed-key ARN pattern (arn:{aws|aws-cn|aws-us-gov}:kms:<region>:<12-digit-account>:key/<id>) and rejected with InvalidKMSArn (400, confirmed against the CreateKeySigningKey API reference's Errors section) when malformed"}
   ActivateKeySigningKey: {wire: ok, errors: ok, state: ok, persist: ok}
   DeactivateKeySigningKey: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteKeySigningKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: deleting an ACTIVE KSK returned a fabricated 'KeySigningKeyNotInactive' code that doesn't exist in the AWS API; now returns the real InvalidKeySigningKeyStatus (400)"}
   EnableHostedZoneDNSSEC: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableHostedZoneDNSSEC: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDNSSEC: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssociateVPCWithHostedZone: {wire: ok, errors: partial, state: ok, persist: ok, note: "duplicate-VPC error code unverified against real AWS, see gaps"}
+  AssociateVPCWithHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: re-associating a VPC already associated with the same zone now returns success (idempotent no-op) instead of a fabricated InvalidInput error. AWS's documented error list has no duplicate-association error, and the one association-conflict error it does document (ConflictingDomainExists) is explicitly scoped to a *different* hosted zone with the same name, ruling it out for this case — confirmed against the AssociateVPCWithHostedZone API reference's Errors section"}
   DisassociateVPCFromHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: VPC not associated now returns VPCAssociationNotFound (404) instead of generic InvalidInput; LastVPCAssociation guard already correct"}
   ListVPCAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
   ListHostedZonesByVPC: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -58,12 +68,12 @@ ops:
   GetQueryLoggingConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteQueryLoggingConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   ListQueryLoggingConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix (prior pass): NoSuchDelegationSet 404 -> 400. The hostedZoneID param remains intentionally unused — real AWS's CreateReusableDelegationSet(HostedZoneId=...) mode creates a new reusable set that reuses an *existing* hosted zone's current name servers, a distinct (and rare) code path from the always-used CallerReference-only mode; not implemented this pass, see gaps. Linkage direction (CreateHostedZone -> reusable delegation set) fixed this pass, see CreateHostedZone/DeleteReusableDelegationSet/CountZonesByReusableDelegationSet"}
+  CreateReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix (prior pass): NoSuchDelegationSet 404 -> 400. Fixed this pass: the HostedZoneId param (real AWS's 'mark an existing hosted zone's delegation set as reusable' mode, confirmed against the CreateReusableDelegationSet API reference) was parsed off the wire and silently discarded. Now validates the zone exists (HostedZoneNotFound, 400 — a distinct wire code from NoSuchHostedZone, confirmed against the same reference), rejects private zones (a reusable delegation set can't be associated with a private hosted zone, per the operation's own doc text), rejects a zone whose delegation set was already extracted this way (DelegationSetAlreadyReusable, 400), and returns a new reusable set carrying the zone's real name servers (tracked via a backend-internal, non-wire HostedZone.DelegationSetSourceUsed bookkeeping field, confirmed to survive Snapshot/Restore). Also fixed a second, previously-untracked bug found while auditing this op: reusing a CallerReference across two CreateReusableDelegationSet calls silently created two unrelated delegation sets instead of erroring — now returns DelegationSetAlreadyCreated (400, confirmed against the same API reference), matching real AWS's non-idempotent CallerReference-reuse behavior for this specific operation (unlike CreateHostedZone/CreateHealthCheck's idempotent-retry semantics)"}
   GetReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: now returns DelegationSetInUse (400) if any hosted zone is still linked to the set, instead of deleting it out from under live zones"}
   ListReusableDelegationSets: {wire: ok, errors: ok, state: ok, persist: ok}
   CountZonesByReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: previously always returned 0 (hosted zones were never linked to delegation sets at all); now counts real linked zones"}
-  TestDNSAnswer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not re-derived line-by-line against AWS routing-policy selection docs this pass, see deferred"}
+  TestDNSAnswer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: classifyRouting never recognised GeoProximityLocation or CidrRoutingConfig at all (only Weight/Region/GeoLocation/Failover/MultiValueAnswer), so geoproximity- and CIDR-routed record sets silently fell through to routingSimple and TestDNSAnswer answered from whichever candidate sorted first by SetIdentifier instead of running real proximity/CIDR selection — a genuine wrong-answer bug, not just an unverified-but-correct algorithm. Implemented selectGeoProximity (great-circle distance from awsRegionCoords/parsed lat-lon, scaled by (1 - Bias/100) per AWS's documented bias direction — exact geometry is AWS-undocumented, so this is a faithful approximation, not a re-derivation of a public spec) and selectCIDR (longest-prefix-match against the CIDR collection's location blocks, reserved \"*\" location as the catch-all default, matching AWS's documented CIDR-routing specificity rule). Weighted/latency/failover/geolocation/multivalue selection re-read against AWS's routing-policy documentation this pass and found already correct; not fully re-derived against non-public AWS source, see deferred"}
   CreateTrafficPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix: TrafficPolicyAlreadyExists 400 -> 409"}
   CreateTrafficPolicyVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTrafficPolicyInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: allowed unlimited duplicate instances for the same (hostedZoneID, name); now returns TrafficPolicyInstanceAlreadyExists (409)"}
@@ -80,18 +90,13 @@ ops:
   ListTrafficPolicyInstancesByPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   record_types: {status: ok, note: "A/AAAA/CNAME/MX/TXT/SPF/NS/SOA/PTR/SRV/CAA/DS/NAPTR value-format validators verified against RFC-shaped regexes; HTTPS/SVCB/SSHFP/TLSA intentionally accept any value (no AWS-documented format constraint enforced by the real service either)"}
-  routing_policies: {status: ok, note: "Weighted(SetIdentifier+Weight 0-255)/Latency(Region)/Failover(PRIMARY|SECONDARY)/Geolocation/Multivalue/Geoproximity(exactly one of AWSRegion|Coordinates|LocalZoneGroup, Bias -99..99, lat/lon range-checked)/CIDR routing all validated for mutual exclusion and SetIdentifier requirement per AWS rules; selection algorithm (selectAnswer) not re-derived line-by-line this pass, see deferred"}
+  routing_policies: {status: ok, note: "Weighted(SetIdentifier+Weight 0-255)/Latency(Region)/Failover(PRIMARY|SECONDARY)/Geolocation/Multivalue/Geoproximity(exactly one of AWSRegion|Coordinates|LocalZoneGroup, Bias -99..99, lat/lon range-checked)/CIDR routing all validated for mutual exclusion and SetIdentifier requirement per AWS rules at ChangeResourceRecordSets time. fixed this pass: TestDNSAnswer's selection algorithm (classifyRouting/selectAnswer) never actually ran geoproximity or CIDR selection at all despite validating those fields — see TestDNSAnswer note in ops table. Weighted/latency/geo/failover/multivalue selection re-checked against AWS's public routing-policy docs and found correct (all-zero weights split equally, exact-region-match short-circuits latency, PRIMARY-healthy-else-SECONDARY failover, most-specific geolocation match, up-to-8-record multivalue cap)"}
   dnssec: {status: ok, note: "EnableHostedZoneDNSSEC requires >=1 ACTIVE KSK (KeySigningKeyWithActiveStatusNotFound), KSK lifecycle (create/activate/deactivate/delete) state machine verified"}
   errCodeLookup: {status: ok, note: "every route53 sentinel error's wire code + HTTP status cross-checked this pass against aws-sdk-go-v2/service/route53@v1.62.3 types/errors.go and the botocore api-2.json httpStatusCode field — see fixes in ops table above"}
-gaps:
-  - AssociateVPCWithHostedZone returns generic InvalidInput for a duplicate VPC association; could not confirm the real AWS behavior (error vs. idempotent no-op) with high confidence this pass either — the real ConflictingDomainExists error shape's documented cause ("the VPC is already associated with *another* hosted zone with the same name") rules it out as the error for this exact same-VPC-same-zone case, which is weak evidence AWS may treat re-association as an idempotent no-op rather than an error, but not strong enough to change behavior without a live-AWS check (bd: gopherstack-8l0.5)
-  - CreateReusableDelegationSet's HostedZoneId param (mark an *existing* hosted zone's current delegation set as reusable) is still unimplemented/ignored — only the CallerReference-only "brand new reusable set" mode works. This pass implemented the CreateHostedZone -> reusable-delegation-set linkage in the other direction (DelegationSetId on CreateHostedZone), which was the bigger gap (bd: gopherstack-8l0.3)
+gaps: []  # both tracked gaps (gopherstack-8l0.5, gopherstack-8l0.3) closed this pass, see ops table
 deferred:
-  - TestDNSAnswer / selectAnswer / collectRoutingCandidates / resolveAlias / multiValueAnswer: routing-policy answer-selection algorithms not re-derived line-by-line against AWS docs this pass (bd: gopherstack-8l0.4)
-  - SDK-driven integration tests (test/integration/*_parity_test.go) not run for route53 this pass — this pass's fixes are proven by unit/handler tests only, which parity-principles.md notes is not full parity proof (bd: gopherstack-8l0.4)
-  - CreateKeySigningKey does not validate kmsArn as a well-formed KMS ARN (InvalidKMSArn never returned)
-  - Alias target cycle/depth handling (rrsValues/resolveAlias `depth` param) not stress-tested against pathological alias chains this pass
-leaks: {status: clean, note: "no goroutines, tickers, or background timers anywhere in services/route53 (grep for 'go func|time.After|time.Sleep|Ticker' returns nothing) — all ops are synchronous request/response; Reset()/DeleteHostedZone/DeleteHealthCheck correctly cascade-delete tags/KSKs/VPC-assocs/query-logging-configs so no orphaned map entries accumulate under normal use. b.tags itself was NOT wired into Snapshot/Restore before this pass (fixed) — that was a persistence gap, not a leak, since Reset() already covered it."}
+  - selectWeighted/selectLatency/selectGeo/selectFailover/multiValueAnswer were re-checked against AWS's *public* routing-policy documentation this pass (see routing_policies family note) and found correct, but not re-derived against AWS's non-public source — Route 53's exact selection algorithm (esp. latency-routing tie-breaks and geoproximity's precise bias geometry) is not fully published, so "matches documented behavior" is the strongest verification achievable without live-AWS access
+leaks: {status: clean, note: "no goroutines, tickers, or background timers anywhere in services/route53 (grep for 'go func|time.After|time.Sleep|Ticker' returns nothing) — all ops are synchronous request/response; Reset()/DeleteHostedZone/DeleteHealthCheck correctly cascade-delete tags/KSKs/VPC-assocs/query-logging-configs so no orphaned map entries accumulate under normal use. b.tags itself was NOT wired into Snapshot/Restore before a prior pass (fixed then) — that was a persistence gap, not a leak, since Reset() already covered it. This pass's new HostedZone.DelegationSetSourceUsed field is backend-internal (not a new map/table) and rides along with the existing zoneDataSnapshot embedding of HostedZone, confirmed to survive Snapshot/Restore by TestSnapshotRestore_DelegationSetSourceUsed — no new lock paths, no new leak surface."}
 ---
 
 ## Notes
@@ -216,16 +221,149 @@ helper), uses the linked set's real name servers for both the
 and `DeleteReusableDelegationSet`/`CountZonesByReusableDelegationSet` now
 walk live zones instead of a permanently-empty relationship.
 
-Not fixed: `CreateReusableDelegationSet`'s `HostedZoneId` param (the
-opposite-direction "mark an existing zone's current delegation set as
-reusable" mode) — confirmed via botocore this is a real, distinct
-`CreateReusableDelegationSet` request mode, but out of scope for this pass
-given it requires a different code path (extracting an *existing* zone's
-current name servers into a new reusable set, rather than assigning an
-existing reusable set's name servers to a *new* zone). Tracked as a
-follow-up gap. `AssociateVPCWithHostedZone`'s duplicate-VPC error code
-remains unverified — this pass found that `ConflictingDomainExists`'s
-documented cause is specifically about *another* hosted zone sharing the
-same name, not a same-VPC-same-zone re-association, which is suggestive
-(AWS may treat this as an idempotent no-op) but not conclusive enough to
-change behavior without a live-AWS check.
+Not fixed in that pass: `CreateReusableDelegationSet`'s `HostedZoneId` param
+and `AssociateVPCWithHostedZone`'s duplicate-VPC error code — both closed in
+the 2026-07-23 pass below.
+
+## 2026-07-23 pass (this pass)
+
+Closed both tracked gaps from the prior audit and 3 of its 4 deferred items.
+Also found and fixed a genuine wrong-answer bug in `TestDNSAnswer` while
+re-deriving the routing-policy selection algorithms (the deferred item this
+ledger flagged for the next audit), and removed all 6 of the service's
+`//nolint:cyclop|gocognit|funlen` suppressions by decomposition per the
+campaign's banned-nolint sweep.
+
+**`AssociateVPCWithHostedZone`'s duplicate-VPC re-association** — fetched
+the live AWS API reference (`API_AssociateVPCWithHostedZone.html`) and
+confirmed its documented error list (`ConflictingDomainExists`,
+`InvalidInput`, `InvalidVPCId`, `LimitsExceeded`, `NoSuchHostedZone`,
+`NotAuthorizedException`, `PriorRequestNotComplete`,
+`PublicZoneVPCAssociation`) has no error for "VPC already associated with
+*this* zone", and `ConflictingDomainExists`'s documented cause is
+specifically "the VPC is already associated with *another* hosted zone that
+has the same name" — ruling it out for this case. Changed the backend to
+treat re-association as an idempotent no-op (matches the general community
+understanding reflected in Terraform's Route53 VPC-association resource
+design). `TestDuplicateVPC` rewritten to assert success + a stable VPC count
+of 1 instead of the previously-asserted (and now-understood-to-be-wrong)
+`InvalidInput` error.
+
+**`CreateReusableDelegationSet`'s `HostedZoneId` param** — fetched the live
+AWS API reference and confirmed this is real AWS's "mark an existing hosted
+zone's delegation set as reusable" mode, with its own error list
+(`DelegationSetAlreadyCreated`, `DelegationSetAlreadyReusable`,
+`DelegationSetNotAvailable`, `HostedZoneNotFound` [not `NoSuchHostedZone` —
+a distinct wire code specific to this operation, confirmed against
+`aws-sdk-go-v2/service/route53@v1.62.3` `types/errors.go`'s
+`HostedZoneNotFound` type], `InvalidArgument`, `InvalidInput`,
+`LimitsExceeded`). Implemented: zone-existence check (`HostedZoneNotFound`,
+400), private-zone rejection (per the operation's own doc text: "You can't
+associate a reusable delegation set with a private hosted zone"),
+double-extraction rejection (`DelegationSetAlreadyReusable`, 400, tracked via
+a new backend-internal `HostedZone.DelegationSetSourceUsed` bool — not part
+of the wire `HostedZone` shape, confirmed to survive Snapshot/Restore), and
+real name-server inheritance from the source zone. While implementing this,
+found and fixed a second, previously-untracked bug in the *same* function:
+`CreateReusableDelegationSet` never checked for `CallerReference` reuse at
+all, silently creating unlimited duplicate delegation sets for the same
+reference — now returns `DelegationSetAlreadyCreated` (400), matching real
+AWS's error-on-reuse semantics for this specific operation (unlike
+`CreateHostedZone`/`CreateHealthCheck`'s idempotent-retry-on-identical-input
+semantics, which a much earlier pass had already gotten right for those two
+ops — `CreateReusableDelegationSet` is documented as genuinely different:
+"you must use a unique CallerReference string every time").
+
+**`TestDNSAnswer` routing-policy re-derivation — the deferred item, and what
+it actually found.** Re-reading `classifyRouting` against the full list of
+routing-policy fields `ResourceRecordSet` carries (checked against
+`validateRoutingPolicy`'s own mutual-exclusion list, which already covered
+all seven policy fields) surfaced that `classifyRouting` only recognised
+five of them — `Weight`, `Region`, `GeoLocation`, `Failover`,
+`MultiValueAnswer` — never `GeoProximityLocation` or `CidrRoutingConfig`.
+Record sets using either fell through to `routingSimple`, meaning
+`TestDNSAnswer` answered from whichever candidate sorted first by
+`SetIdentifier` instead of running any proximity or CIDR matching at all —
+a silent wrong-answer bug on every geoproximity- or CIDR-routed zone, not
+merely an "unverified but probably fine" algorithm. This is exactly the
+"real-looking op that's actually a disguised stub" pattern from
+parity-principles.md: `ChangeResourceRecordSets` validated these fields
+correctly (so grepping for `GeoProximityLocation`/`CidrRoutingConfig`
+handling would have shown seemingly-complete code), but the read path never
+consulted them. Fixed by adding `routingGeoProximity`/`routingCIDR` kinds and
+two new selectors: `selectGeoProximity` (great-circle distance from
+`awsRegionCoords` or parsed `Coordinates` lat/lon, scaled by
+`1 - Bias/100` — AWS documents Bias's *direction* [higher bias expands a
+resource's effective service area] but not its exact geometry, so this is a
+faithful approximation of the documented behavior, not a re-derivation of a
+public spec) and `selectCIDR` (longest-prefix-match against the referenced
+CIDR collection's location blocks, with the reserved `"*"` location as the
+default fallback — this *is* a fully documented AWS rule, unlike
+geoproximity's bias geometry). The other five routing kinds
+(weighted/latency/geo/failover/multivalue) were re-checked against AWS's
+public routing-policy documentation and found already correct.
+
+**Alias cycle/depth handling** — added `TestTestDNSAnswerAliasCycle`
+covering both a self-referencing alias (`a` -> `a`) and a two-hop cycle
+(`a` -> `b` -> `a`), each run with a goroutine + 5s timeout so a regression
+that broke `maxAliasDepth`'s guard would fail the test instead of hanging
+the suite. Both terminate correctly with an empty answer, confirming
+`resolveAlias`'s existing `depth >= maxAliasDepth` guard already handles
+pathological chains — no code change needed here, just proof.
+
+**`CreateKeySigningKey` `InvalidKMSArn`** — added `reKMSArn`, a regex
+matching a well-formed KMS customer-managed-key ARN across the
+standard/China/GovCloud partitions
+(`arn:{aws|aws-cn|aws-us-gov}:kms:<region>:<12-digit-account>:key/<id>`),
+checked after the zone-existence lookup (so `create_ksk_zone_not_found`-style
+requests still 404 before ever reaching ARN validation, matching this
+service's existing required-field-then-existence-then-format validation
+order). Every existing test's placeholder ARNs (`"arn:kms:test"` and
+similar clearly-non-ARN strings) were updated to well-formed fake ARNs.
+
+**Banned-nolint sweep** — removed all 6 `//nolint:cyclop|gocognit|funlen` in
+the service:
+- `cidr_collections.go`'s `ChangeCidrCollection` (`gocognit`): extracted
+  `applyCidrCollectionPut`/`applyCidrCollectionDeleteIfExists`/`applyCidrCollectionChange`.
+- `handler_health_checks.go`'s `updateHealthCheck` (`gocognit,cyclop,funlen`):
+  extracted `mergeHealthCheckUpdate{Strings,Numeric,Flags,Collections}`.
+- `handler_record_sets.go`'s `changeResourceRecordSets` (`funlen`):
+  extracted `toBackendResourceRecordSet`/`toBackendChange`.
+- `record_sets.go`'s `validateRoutingPolicy` (`cyclop`): extracted
+  `countRoutingPolicies`/`validateRoutingPolicyCardinality`/`validateRoutingPolicyFields`.
+- `record_sets.go`'s `validateChange` (`gocognit,cyclop`): extracted
+  `validateChangeType`/`validateChangeTTL`/`validateChangeCNAME`/`validateChangeRecordValues`/`validateChangeActionState`.
+- `record_sets.go`'s `ListResourceRecordSets` (`gocognit,cyclop`): extracted
+  `sortRecordSets`/`seekRecordSetStart`/`paginateRecordSets`.
+
+Decomposing `selectAnswer` to add the two new routing kinds pushed it over
+`cyclop`'s limit on its own; replaced the routing-kind `switch` with a
+`map[routingKind]singleAnswerSelector` dispatch table built once via
+`sync.OnceValue` (the established `apigatewayv2`-style pattern this campaign
+uses elsewhere), keeping `routingMultiValue`/`routingSimple` — which don't
+fit the "one selector function" shape — as explicit early returns.
+`selectCIDR`'s own longest-prefix-match loop separately tripped `gocognit`
+once written; split into `cidrBlockLongestPrefix` (single-location scan) and
+`cidrCandidateMatch` (per-candidate resolution) to flatten the nesting.
+
+**SDK-driven integration-test run** — `make build-linux` (whole-repo
+monolith binary; every service links into one binary, so this isn't
+route53-specific and is genuinely slow in a resource-constrained sandbox —
+two earlier attempts in this pass hit multi-minute wall-clock stalls before
+finally completing) followed by `go test ./test/integration/... -run
+Route53` against the resulting Dockerized binary. All 45 route53 and
+route53resolver integration tests passed, including
+`TestIntegration_Route53_ChangeResourceRecordSets`,
+`TestIntegration_Route53_WeightedRouting`,
+`TestIntegration_Route53_FailoverRouting`,
+`TestIntegration_Route53_TestDNSAnswerWeighted`,
+`TestIntegration_Route53_HealthCheck_Lifecycle`,
+`TestIntegration_Route53_DeactivateDeleteKSK`,
+`TestIntegration_Route53_EnableDisableDNSSEC`, and
+`TestIntegration_Route53_ResourceRecordSetsChangedWaiter` — proving this
+pass's fixes against a real `aws-sdk-go-v2` client round-trip, not just unit
+tests, per parity-principles.md's "unit tests are not parity proof"
+guidance. No dedicated `route53_parity_test.go` exists yet (the existing
+coverage is spread across `route53_test.go`/`route53_audit_test.go`/
+`route53_new_ops_test.go`/`route53_waiter_test.go`); creating one consolidated
+file is a housekeeping task for a future pass, not a correctness gap.

@@ -87,6 +87,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		ClusterCreateTime:                cl.ClusterCreateTime,
 	}
 	b.clusterSnapshotPut(snap)
+	b.recordEvent(region, snapshotID, sourceTypeDBClusterSnapshot, "DB cluster snapshot created", "backup")
 	cp := cloneClusterSnapshot(snap)
 
 	return &cp, nil

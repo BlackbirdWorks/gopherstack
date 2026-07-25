@@ -64,7 +64,32 @@ func TestWAF_SqlInjectionMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	sets := listResp["SqlInjectionMatchSets"].([]any)
 	assert.Len(t, sets, 1)
 
-	// Delete
+	// Delete while non-empty must fail with WAFNonEmptyEntityException.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "DeleteSqlInjectionMatchSet", map[string]any{
+		"ChangeToken":            token,
+		"SqlInjectionMatchSetId": id,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "WAFNonEmptyEntityException", errType(t, rec.Body.Bytes()))
+
+	// Remove the tuple, then delete succeeds.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "UpdateSqlInjectionMatchSet", map[string]any{
+		"ChangeToken":            token,
+		"SqlInjectionMatchSetId": id,
+		"Updates": []map[string]any{
+			{
+				"Action": "DELETE",
+				"SqlInjectionMatchTuple": map[string]any{
+					"FieldToMatch":       map[string]any{"Type": "QUERY_STRING"},
+					"TextTransformation": "URL_DECODE",
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	token = wafGetToken(t, h)
 	rec = wafDo(t, h, "DeleteSqlInjectionMatchSet", map[string]any{
 		"ChangeToken":            token,

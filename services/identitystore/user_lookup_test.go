@@ -22,6 +22,11 @@ func TestUserExternalIDAndEmailLookup(t *testing.T) {
 		name string
 	}{
 		{
+			// ExternalIds is not settable via CreateUser -- the real
+			// CreateUserRequest smithy shape has no ExternalIds member (see
+			// the doc comment on createUserRequest in handler_users.go) --
+			// so this seeds it via UpdateUser's AttributeOperations instead,
+			// the only real-AWS-shaped way to set it.
 			name: "create_user_with_external_ids",
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
@@ -29,13 +34,24 @@ func TestUserExternalIDAndEmailLookup(t *testing.T) {
 				rec := doRequest(t, h, "CreateUser", map[string]any{
 					"IdentityStoreId": testStoreID,
 					"UserName":        "ext.user",
-					"ExternalIds": []map[string]any{
-						{"Issuer": "okta", "Id": "okta-abc-123"},
-					},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				userID := parseResponse(t, rec)["UserId"].(string)
+
+				updRec := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+					"Operations": []map[string]any{
+						{
+							"AttributePath": "externalIds",
+							"AttributeValue": []map[string]any{
+								{"Issuer": "okta", "Id": "okta-abc-123"},
+							},
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, updRec.Code)
 
 				descRec := doRequest(t, h, "DescribeUser", map[string]any{
 					"IdentityStoreId": testStoreID,
@@ -59,13 +75,24 @@ func TestUserExternalIDAndEmailLookup(t *testing.T) {
 				createRec := doRequest(t, h, "CreateUser", map[string]any{
 					"IdentityStoreId": testStoreID,
 					"UserName":        "extlookup.user",
-					"ExternalIds": []map[string]any{
-						{"Issuer": "idp", "Id": "idp-xyz-789"},
-					},
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				wantID := parseResponse(t, createRec)["UserId"].(string)
+
+				updRec := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          wantID,
+					"Operations": []map[string]any{
+						{
+							"AttributePath": "externalIds",
+							"AttributeValue": []map[string]any{
+								{"Issuer": "idp", "Id": "idp-xyz-789"},
+							},
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, updRec.Code)
 
 				rec := doRequest(t, h, "GetUserId", map[string]any{
 					"IdentityStoreId": testStoreID,
@@ -181,25 +208,50 @@ func TestGetUserIDExternalIDIssuerIsolation(t *testing.T) {
 
 	h := newTestHandler()
 
+	// ExternalIds is not settable via CreateUser (see the doc comment on
+	// createUserRequest in handler_users.go), so both users are seeded via a
+	// follow-up UpdateUser AttributeOperations call instead.
 	createRec1 := doRequest(t, h, "CreateUser", map[string]any{
 		"IdentityStoreId": testStoreID,
 		"UserName":        "user-issuer-a",
-		"ExternalIds": []map[string]string{
-			{"Issuer": "https://idp-a.example.com", "Id": "shared-user-ext"},
-		},
 	})
 	require.Equal(t, http.StatusOK, createRec1.Code)
 	userA := parseResponse(t, createRec1)["UserId"].(string)
 
+	updRec1 := doRequest(t, h, "UpdateUser", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"UserId":          userA,
+		"Operations": []map[string]any{
+			{
+				"AttributePath": "externalIds",
+				"AttributeValue": []map[string]any{
+					{"Issuer": "https://idp-a.example.com", "Id": "shared-user-ext"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updRec1.Code)
+
 	createRec2 := doRequest(t, h, "CreateUser", map[string]any{
 		"IdentityStoreId": testStoreID,
 		"UserName":        "user-issuer-b",
-		"ExternalIds": []map[string]string{
-			{"Issuer": "https://idp-b.example.com", "Id": "shared-user-ext"},
-		},
 	})
 	require.Equal(t, http.StatusOK, createRec2.Code)
 	userB := parseResponse(t, createRec2)["UserId"].(string)
+
+	updRec2 := doRequest(t, h, "UpdateUser", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"UserId":          userB,
+		"Operations": []map[string]any{
+			{
+				"AttributePath": "externalIds",
+				"AttributeValue": []map[string]any{
+					{"Issuer": "https://idp-b.example.com", "Id": "shared-user-ext"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updRec2.Code)
 
 	recA := doRequest(t, h, "GetUserId", map[string]any{
 		"IdentityStoreId": testStoreID,
@@ -288,6 +340,53 @@ func TestListUsersFilters(t *testing.T) {
 				users, ok := parseResponse(t, rec)["Users"].([]any)
 				require.True(t, ok)
 				require.Len(t, users, 1)
+			},
+		},
+		{
+			// Regression test: matchUserSingleValueFilter's switch default
+			// previously returned true for an unrecognized AttributePath.
+			// "birthdate" is a syntactically valid AttributePath (passes
+			// validateFilters) that matchUserSingleValueFilter's switch does
+			// NOT have a case for, so before the fix this filter would have
+			// matched every user in the store instead of none. See users.go's
+			// matchUserSingleValueFilter doc comment.
+			name: "list_users_filter_unrecognized_path_matches_nothing",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				for _, name := range []string{"unrec.alice", "unrec.bob"} {
+					rec := doRequest(t, h, "CreateUser", map[string]any{
+						"IdentityStoreId": testStoreID,
+						"UserName":        name,
+					})
+					require.Equal(t, http.StatusOK, rec.Code)
+				}
+
+				rec := doRequest(t, h, "ListUsers", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"Filters": []map[string]any{
+						{"AttributePath": "birthdate", "AttributeValue": "1990-01-01"},
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				users, ok := parseResponse(t, rec)["Users"].([]any)
+				require.True(t, ok)
+				assert.Empty(t, users)
+			},
+		},
+		{
+			name: "list_users_filter_malformed_attribute_path_is_validation_error",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "ListUsers", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"Filters": []map[string]any{
+						{"AttributePath": "not valid!", "AttributeValue": "x"},
+					},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

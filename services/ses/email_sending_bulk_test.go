@@ -220,7 +220,11 @@ func TestSendBulkTemplatedEmail_PerDestinationData(t *testing.T) {
 		{To: []string{"b@example.com"}, Cc: []string{"cc@example.com"}},
 	}
 
-	ids, err := b.SendBulkTemplatedEmail("s@example.com", "t", "", "", "", "", nil, dests)
+	ids, err := b.SendBulkTemplatedEmail(ses.SendBulkTemplatedEmailInput{
+		Source:       "s@example.com",
+		TemplateName: "t",
+		Destinations: dests,
+	})
 	require.NoError(t, err)
 	assert.Len(t, ids, 2)
 
@@ -335,7 +339,11 @@ func TestSendBulkTemplatedEmail_PerDestination_Backend(t *testing.T) {
 		{To: []string{"b@example.com"}, Cc: []string{"cc@example.com"}},
 	}
 
-	msgIDs, err := b.SendBulkTemplatedEmail("sender@example.com", "t", "", "", "", "", nil, destinations)
+	msgIDs, err := b.SendBulkTemplatedEmail(ses.SendBulkTemplatedEmailInput{
+		Source:       "sender@example.com",
+		TemplateName: "t",
+		Destinations: destinations,
+	})
 	require.NoError(t, err)
 	assert.Len(t, msgIDs, 2)
 
@@ -568,7 +576,12 @@ func TestSendBulkTemplatedEmail_UnknownConfigurationSet_Rejected(t *testing.T) {
 
 	dests := []ses.BulkEmailDestination{{To: []string{"a@example.com"}}}
 
-	_, err := b.SendBulkTemplatedEmail("s@example.com", "t", "", "does-not-exist", "", "", nil, dests)
+	_, err := b.SendBulkTemplatedEmail(ses.SendBulkTemplatedEmailInput{
+		Source:               "s@example.com",
+		TemplateName:         "t",
+		ConfigurationSetName: "does-not-exist",
+		Destinations:         dests,
+	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ses.ErrConfigSetNotFound)
 }
@@ -583,10 +596,17 @@ func TestSendBulkTemplatedEmail_PlumbsMetadataThrough(t *testing.T) {
 
 	dests := []ses.BulkEmailDestination{{To: []string{"a@example.com"}}}
 
-	ids, err := b.SendBulkTemplatedEmail(
-		"s@example.com", "t", "", "cs1", "return@example.com", "arn:aws:ses:us-east-1:123:identity/s@example.com",
-		[]string{"reply@example.com"}, dests,
-	)
+	ids, err := b.SendBulkTemplatedEmail(ses.SendBulkTemplatedEmailInput{
+		Source:               "s@example.com",
+		TemplateName:         "t",
+		ConfigurationSetName: "cs1",
+		ReturnPath:           "return@example.com",
+		ReturnPathArn:        "arn:aws:ses:us-east-1:123:identity/return@example.com",
+		SourceArn:            "arn:aws:ses:us-east-1:123:identity/s@example.com",
+		ReplyTo:              []string{"reply@example.com"},
+		DefaultTags:          []ses.Tag{{Name: "campaign", Value: "spring"}},
+		Destinations:         dests,
+	})
 	require.NoError(t, err)
 	require.Len(t, ids, 1)
 
@@ -594,8 +614,77 @@ func TestSendBulkTemplatedEmail_PlumbsMetadataThrough(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "cs1", email.ConfigurationSetName)
 	assert.Equal(t, "return@example.com", email.ReturnPath)
+	assert.Equal(t, "arn:aws:ses:us-east-1:123:identity/return@example.com", email.ReturnPathArn)
 	assert.Equal(t, "arn:aws:ses:us-east-1:123:identity/s@example.com", email.SourceArn)
 	assert.Equal(t, []string{"reply@example.com"}, email.ReplyTo)
+	assert.Equal(t, []ses.Tag{{Name: "campaign", Value: "spring"}}, email.Tags)
+}
+
+// TestSendBulkTemplatedEmail_ReplacementTagsOverrideDefault verifies that a
+// destination's ReplacementTags, when present, is used in place of the
+// request-level DefaultTags for that destination's stored Email record,
+// matching SendBulkTemplatedEmailInput.BulkEmailDestination.ReplacementTags.
+func TestSendBulkTemplatedEmail_ReplacementTagsOverrideDefault(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("s@example.com"))
+	require.NoError(t, b.CreateTemplate(ses.EmailTemplate{TemplateName: "t", SubjectPart: "s", TextPart: "b"}))
+
+	dests := []ses.BulkEmailDestination{
+		{To: []string{"a@example.com"}}, // no override: inherits DefaultTags
+		{To: []string{"b@example.com"}, ReplacementTags: []ses.Tag{{Name: "campaign", Value: "override"}}},
+	}
+
+	ids, err := b.SendBulkTemplatedEmail(ses.SendBulkTemplatedEmailInput{
+		Source:       "s@example.com",
+		TemplateName: "t",
+		DefaultTags:  []ses.Tag{{Name: "campaign", Value: "default"}},
+		Destinations: dests,
+	})
+	require.NoError(t, err)
+	require.Len(t, ids, 2)
+
+	email0, err := b.GetEmailByID(ids[0])
+	require.NoError(t, err)
+	assert.Equal(t, []ses.Tag{{Name: "campaign", Value: "default"}}, email0.Tags)
+
+	email1, err := b.GetEmailByID(ids[1])
+	require.NoError(t, err)
+	assert.Equal(t, []ses.Tag{{Name: "campaign", Value: "override"}}, email1.Tags)
+}
+
+// TestHandler_SendBulkTemplatedEmail_ReturnPathArnAndTags_WireParsing verifies
+// the handler parses ReturnPathArn, DefaultTags, and per-destination
+// ReplacementTags from the query-protocol form and threads them through to
+// the stored Email record.
+func TestHandler_SendBulkTemplatedEmail_ReturnPathArnAndTags_WireParsing(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	require.NoError(t, h.Backend.VerifyEmailIdentity("s@example.com"))
+	require.NoError(t, h.Backend.CreateTemplate(ses.EmailTemplate{
+		TemplateName: "t", SubjectPart: "s", TextPart: "body",
+	}))
+
+	rec := postForm(t, h, url.Values{
+		"Action":                     {"SendBulkTemplatedEmail"},
+		"Version":                    {"2010-12-01"},
+		"Source":                     {"s@example.com"},
+		"Template":                   {"t"},
+		"ReturnPathArn":              {"arn:aws:ses:us-east-1:123:identity/return@example.com"},
+		"DefaultTags.member.1.Name":  {"campaign"},
+		"DefaultTags.member.1.Value": {"spring"},
+		"Destinations.member.1.Destination.ToAddresses.member.1": {"a@example.com"},
+		"Destinations.member.1.ReplacementTags.member.1.Name":    {"campaign"},
+		"Destinations.member.1.ReplacementTags.member.1.Value":   {"override"},
+	}.Encode())
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	emails := h.Backend.(*ses.InMemoryBackend).ListEmails()
+	require.Len(t, emails, 1)
+	assert.Equal(t, "arn:aws:ses:us-east-1:123:identity/return@example.com", emails[0].ReturnPathArn)
+	assert.Equal(t, []ses.Tag{{Name: "campaign", Value: "override"}}, emails[0].Tags)
 }
 
 // TestSendTemplatedEmail_VariableSubstitution verifies that SendTemplatedEmail
@@ -727,16 +816,12 @@ func TestSendBulkTemplatedEmail_DefaultAndReplacementData(t *testing.T) {
 		{To: []string{"b@example.com"}, ReplacementTemplateData: `{"name":"Bob","greeting":"Hey"}`},
 	}
 
-	ids, err := b.SendBulkTemplatedEmail(
-		"sender@example.com",
-		"tmpl",
-		`{"greeting":"Hello","company":"Acme"}`,
-		"",
-		"",
-		"",
-		nil,
-		dests,
-	)
+	ids, err := b.SendBulkTemplatedEmail(ses.SendBulkTemplatedEmailInput{
+		Source:              "sender@example.com",
+		TemplateName:        "tmpl",
+		DefaultTemplateData: `{"greeting":"Hello","company":"Acme"}`,
+		Destinations:        dests,
+	})
 	require.NoError(t, err)
 	require.Len(t, ids, 2)
 
@@ -765,7 +850,11 @@ func TestSendBulkTemplatedEmail_MissingTemplate(t *testing.T) {
 		{To: []string{"a@example.com"}},
 	}
 
-	_, err := b.SendBulkTemplatedEmail("sender@example.com", "nope", "", "", "", "", nil, dests)
+	_, err := b.SendBulkTemplatedEmail(ses.SendBulkTemplatedEmailInput{
+		Source:       "sender@example.com",
+		TemplateName: "nope",
+		Destinations: dests,
+	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ses.ErrTemplateNotFound, "want TemplateDoesNotExist, got %v", err)
 }
@@ -785,7 +874,11 @@ func TestSendBulkTemplatedEmail_InvalidReplacementData(t *testing.T) {
 		{To: []string{"a@example.com"}, ReplacementTemplateData: `{bad`},
 	}
 
-	_, err := b.SendBulkTemplatedEmail("sender@example.com", "tmpl", "", "", "", "", nil, dests)
+	_, err := b.SendBulkTemplatedEmail(ses.SendBulkTemplatedEmailInput{
+		Source:       "sender@example.com",
+		TemplateName: "tmpl",
+		Destinations: dests,
+	})
 	require.ErrorIs(t, err, ses.ErrInvalidParameter, "got %v", err)
 	assert.Contains(t, err.Error(), "TemplateData", "got %v", err)
 }

@@ -13,6 +13,7 @@ import (
 type createApplicationVersionRequest struct {
 	SourceCodeURL        string `json:"sourceCodeUrl"`
 	SourceCodeArchiveURL string `json:"sourceCodeArchiveUrl"`
+	TemplateBody         string `json:"templateBody"`
 	TemplateURL          string `json:"templateUrl"`
 }
 
@@ -35,10 +36,27 @@ func (h *Handler) handleCreateApplicationVersion(ctx context.Context, req *http.
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
 	}
 
+	// Real AWS SAR accepts only one of templateBody and templateUrl; specifying both is a
+	// BadRequestException. When only templateBody is given, AWS uploads its content to S3 and
+	// returns that generated location as templateUrl; gopherstack emulates that S3 upload with
+	// a deterministic synthesized URL so downstream state (and the required-field check below)
+	// behaves exactly as if templateUrl had been supplied directly.
+	if createReq.TemplateBody != "" {
+		if createReq.TemplateURL != "" {
+			return nil, fmt.Errorf("%w: only one of templateBody and templateUrl may be specified", ErrValidation)
+		}
+
+		createReq.TemplateURL = synthesizeTemplateURL(appName, semanticVersion)
+	}
+
 	v, backendErr := h.Backend.CreateApplicationVersionWithOptions(
 		appName,
 		semanticVersion,
-		CreateApplicationVersionOptions(createReq),
+		CreateApplicationVersionOptions{
+			SourceCodeURL:        createReq.SourceCodeURL,
+			SourceCodeArchiveURL: createReq.SourceCodeArchiveURL,
+			TemplateURL:          createReq.TemplateURL,
+		},
 	)
 	if backendErr != nil {
 		return nil, backendErr
@@ -103,12 +121,17 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 	summaries := make([]map[string]any, 0, len(page))
 
 	for _, v := range page {
+		// NOTE: the real AWS SAR VersionSummary shape (see
+		// aws-sdk-go-v2/service/serverlessapplicationrepository/types.VersionSummary) has
+		// exactly four fields: applicationId, creationTime, semanticVersion, sourceCodeUrl.
+		// It deliberately does NOT include resourcesSupported (that field only exists on the
+		// full Version shape returned by GetApplication/CreateApplication/
+		// CreateApplicationVersion) -- do not add it back here.
 		summaries = append(summaries, map[string]any{
-			keyApplicationID:     v.ApplicationID,
-			keySemanticVersion:   v.SemanticVersion,
-			"sourceCodeUrl":      v.SourceCodeURL,
-			keyCreationTime:      isoTimestamp(v.CreationTime),
-			"resourcesSupported": v.ResourcesSupported,
+			keyApplicationID:   v.ApplicationID,
+			keySemanticVersion: v.SemanticVersion,
+			"sourceCodeUrl":    v.SourceCodeURL,
+			keyCreationTime:    isoTimestamp(v.CreationTime),
 		})
 	}
 

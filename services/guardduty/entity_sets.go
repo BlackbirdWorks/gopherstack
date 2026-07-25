@@ -16,6 +16,7 @@ func (b *InMemoryBackend) CreateThreatEntitySet(
 	detectorID, name, format, location string,
 	activate bool,
 	tags map[string]string,
+	expectedBucketOwner string,
 ) (*ThreatEntitySet, error) {
 	b.mu.Lock("CreateThreatEntitySet")
 	defer b.mu.Unlock()
@@ -38,15 +39,16 @@ func (b *InMemoryBackend) CreateThreatEntitySet(
 
 	now := time.Now().UTC()
 	s := &ThreatEntitySet{
-		ThreatEntitySetID: id,
-		DetectorID:        detectorID,
-		Name:              name,
-		Format:            format,
-		Location:          location,
-		Status:            status,
-		Tags:              tags,
-		CreatedAt:         now,
-		UpdatedAt:         now,
+		ThreatEntitySetID:   id,
+		DetectorID:          detectorID,
+		Name:                name,
+		Format:              format,
+		Location:            location,
+		Status:              status,
+		Tags:                tags,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		ExpectedBucketOwner: expectedBucketOwner,
 	}
 	b.threatEntitySets.Put(s)
 
@@ -101,6 +103,7 @@ func (b *InMemoryBackend) ListThreatEntitySets(detectorID string) ([]string, err
 func (b *InMemoryBackend) UpdateThreatEntitySet(
 	detectorID, setID, name, location string,
 	activate *bool,
+	expectedBucketOwner string,
 ) error {
 	b.mu.Lock("UpdateThreatEntitySet")
 	defer b.mu.Unlock()
@@ -120,6 +123,10 @@ func (b *InMemoryBackend) UpdateThreatEntitySet(
 
 	if location != "" {
 		s.Location = location
+	}
+
+	if expectedBucketOwner != "" {
+		s.ExpectedBucketOwner = expectedBucketOwner
 	}
 
 	if activate != nil {
@@ -160,6 +167,7 @@ func (b *InMemoryBackend) CreateTrustedEntitySet(
 	detectorID, name, format, location string,
 	activate bool,
 	tags map[string]string,
+	expectedBucketOwner string,
 ) (*TrustedEntitySet, error) {
 	b.mu.Lock("CreateTrustedEntitySet")
 	defer b.mu.Unlock()
@@ -182,15 +190,16 @@ func (b *InMemoryBackend) CreateTrustedEntitySet(
 
 	now := time.Now().UTC()
 	s := &TrustedEntitySet{
-		TrustedEntitySetID: id,
-		DetectorID:         detectorID,
-		Name:               name,
-		Format:             format,
-		Location:           location,
-		Status:             status,
-		Tags:               tags,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		TrustedEntitySetID:  id,
+		DetectorID:          detectorID,
+		Name:                name,
+		Format:              format,
+		Location:            location,
+		Status:              status,
+		Tags:                tags,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		ExpectedBucketOwner: expectedBucketOwner,
 	}
 	b.trustedEntitySets.Put(s)
 
@@ -245,6 +254,7 @@ func (b *InMemoryBackend) ListTrustedEntitySets(detectorID string) ([]string, er
 func (b *InMemoryBackend) UpdateTrustedEntitySet(
 	detectorID, setID, name, location string,
 	activate *bool,
+	expectedBucketOwner string,
 ) error {
 	b.mu.Lock("UpdateTrustedEntitySet")
 	defer b.mu.Unlock()
@@ -264,6 +274,10 @@ func (b *InMemoryBackend) UpdateTrustedEntitySet(
 
 	if location != "" {
 		s.Location = location
+	}
+
+	if expectedBucketOwner != "" {
+		s.ExpectedBucketOwner = expectedBucketOwner
 	}
 
 	if activate != nil {

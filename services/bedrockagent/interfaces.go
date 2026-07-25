@@ -33,7 +33,7 @@ type StorageBackend interface {
 
 	// Agent action group operations.
 	CreateAgentActionGroup(
-		ctx context.Context, agentID string, cfg ActionGroupConfig,
+		ctx context.Context, agentID, agentVersion string, cfg ActionGroupConfig,
 	) (*AgentActionGroup, error)
 	GetAgentActionGroup(
 		ctx context.Context, agentID, agentVersion, actionGroupID string,

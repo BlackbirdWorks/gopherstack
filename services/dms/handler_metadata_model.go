@@ -6,8 +6,27 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/google/uuid"
 )
+
+// schemaConversionRequestJSON mirrors types.SchemaConversionRequest -- the
+// wire shape used both by the Describe* list operations ("Requests" field)
+// and by the Cancel* operations ("Request" field). Error/ExportSqlDetails/
+// Progress are optional pointer fields on the real struct that gopherstack
+// does not model; omitting them matches a request that never encountered an
+// error or produced export details.
+type schemaConversionRequestJSON struct {
+	RequestIdentifier   string `json:"RequestIdentifier,omitempty"`
+	MigrationProjectArn string `json:"MigrationProjectArn,omitempty"`
+	Status              string `json:"Status,omitempty"`
+}
+
+func reqToSchemaConversionJSON(req *MetadataModelRequest) schemaConversionRequestJSON {
+	return schemaConversionRequestJSON{
+		RequestIdentifier:   req.RequestIdentifier,
+		MigrationProjectArn: req.MigrationProjectIdentifier,
+		Status:              req.Status,
+	}
+}
 
 // listMetadataModelRequests retrieves metadata model requests of a given type and paginates them.
 func listMetadataModelRequests(
@@ -16,20 +35,15 @@ func listMetadataModelRequests(
 	projectID, reqType string,
 	marker *string,
 	maxRecords *int32,
-) ([]map[string]any, *string, error) {
+) ([]schemaConversionRequestJSON, *string, error) {
 	list, err := h.Backend.ListMetadataModelRequests(ctx, projectID, reqType)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	all := make([]map[string]any, 0, len(list))
+	all := make([]schemaConversionRequestJSON, 0, len(list))
 	for _, req := range list {
-		all = append(all, map[string]any{
-			"RequestIdentifier":          req.RequestIdentifier,
-			"MigrationProjectIdentifier": req.MigrationProjectIdentifier,
-			"Status":                     req.Status,
-			"SelectionRules":             req.SelectionRules,
-		})
+		all = append(all, reqToSchemaConversionJSON(req))
 	}
 
 	data, nextMarker := dmsPaginate(all, marker, maxRecords)
@@ -43,13 +57,13 @@ type cancelMetadataModelConversionInput struct {
 }
 
 type cancelMetadataModelConversionOutput struct {
-	RequestIdentifier string `json:"RequestIdentifier"`
+	Request schemaConversionRequestJSON `json:"Request"`
 }
 
 func (h *Handler) handleCancelMetadataModelConversion(
 	ctx context.Context, in *cancelMetadataModelConversionInput,
 ) (*cancelMetadataModelConversionOutput, error) {
-	reqID, err := h.Backend.CancelMetadataModelConversion(
+	req, err := h.Backend.CancelMetadataModelConversion(
 		ctx,
 		ptrconv.String(in.MigrationProjectIdentifier),
 		ptrconv.String(in.RequestIdentifier),
@@ -58,7 +72,7 @@ func (h *Handler) handleCancelMetadataModelConversion(
 		return nil, err
 	}
 
-	return &cancelMetadataModelConversionOutput{RequestIdentifier: reqID}, nil
+	return &cancelMetadataModelConversionOutput{Request: reqToSchemaConversionJSON(req)}, nil
 }
 
 type cancelMetadataModelCreationInput struct {
@@ -67,13 +81,13 @@ type cancelMetadataModelCreationInput struct {
 }
 
 type cancelMetadataModelCreationOutput struct {
-	RequestIdentifier string `json:"RequestIdentifier"`
+	Request schemaConversionRequestJSON `json:"Request"`
 }
 
 func (h *Handler) handleCancelMetadataModelCreation(
 	ctx context.Context, in *cancelMetadataModelCreationInput,
 ) (*cancelMetadataModelCreationOutput, error) {
-	reqID, err := h.Backend.CancelMetadataModelCreation(
+	req, err := h.Backend.CancelMetadataModelCreation(
 		ctx,
 		ptrconv.String(in.MigrationProjectIdentifier),
 		ptrconv.String(in.RequestIdentifier),
@@ -82,7 +96,7 @@ func (h *Handler) handleCancelMetadataModelCreation(
 		return nil, err
 	}
 
-	return &cancelMetadataModelCreationOutput{RequestIdentifier: reqID}, nil
+	return &cancelMetadataModelCreationOutput{Request: reqToSchemaConversionJSON(req)}, nil
 }
 
 type describeConversionConfigurationInput struct {
@@ -110,37 +124,94 @@ type describeExtensionPackAssociationsInput struct {
 }
 
 type describeExtensionPackAssociationsOutput struct {
-	Marker   *string          `json:"Marker,omitempty"`
-	Requests []map[string]any `json:"Requests"`
+	Marker   *string                       `json:"Marker,omitempty"`
+	Requests []schemaConversionRequestJSON `json:"Requests"`
 }
 
 func (h *Handler) handleDescribeExtensionPackAssociations(
-	_ context.Context, _ *describeExtensionPackAssociationsInput,
+	ctx context.Context, in *describeExtensionPackAssociationsInput,
 ) (*describeExtensionPackAssociationsOutput, error) {
-	return &describeExtensionPackAssociationsOutput{Requests: []map[string]any{}}, nil
-}
-
-type describeMetadataModelInput struct {
-	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
-	SelectionRules             *string `json:"SelectionRules"`
-}
-
-type describeMetadataModelOutput struct{}
-
-func (h *Handler) handleDescribeMetadataModel(
-	ctx context.Context, in *describeMetadataModelInput,
-) (*describeMetadataModelOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
 	if projectID == "" {
 		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
 	}
 
-	// Validate project exists via a read of its request store; returns empty list if none started.
-	if _, err := h.Backend.ListMetadataModelRequests(ctx, projectID, "assessment"); err != nil {
+	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "extension-pack", in.Marker, in.MaxRecords)
+	if err != nil {
 		return nil, err
 	}
 
-	return &describeMetadataModelOutput{}, nil
+	return &describeExtensionPackAssociationsOutput{Requests: reqs, Marker: marker}, nil
+}
+
+// isValidOrigin validates the Origin enum (types.OriginTypeValue): SOURCE or
+// TARGET (uppercase, unlike the lowercase EndpointType enum).
+func isValidOrigin(s string) bool {
+	return s == "SOURCE" || s == "TARGET"
+}
+
+// metadataModelReferenceJSON mirrors types.MetadataModelReference, used both
+// for DescribeMetadataModelChildren's list and DescribeMetadataModelOutput's
+// TargetMetadataModels.
+type metadataModelReferenceJSON struct {
+	MetadataModelName string `json:"MetadataModelName,omitempty"`
+	SelectionRules    string `json:"SelectionRules,omitempty"`
+}
+
+type describeMetadataModelInput struct {
+	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
+	Origin                     *string `json:"Origin"`
+	SelectionRules             *string `json:"SelectionRules"`
+}
+
+type describeMetadataModelOutput struct {
+	Definition           string                       `json:"Definition,omitempty"`
+	MetadataModelName    string                       `json:"MetadataModelName,omitempty"`
+	MetadataModelType    string                       `json:"MetadataModelType,omitempty"`
+	TargetMetadataModels []metadataModelReferenceJSON `json:"TargetMetadataModels"`
+}
+
+// validateMetadataModelLookup checks the three fields required by every
+// DMS Schema Conversion "read a metadata model" operation
+// (MigrationProjectIdentifier, Origin, SelectionRules).
+func validateMetadataModelLookup(projectID, origin, selectionRules string) error {
+	if projectID == "" {
+		return fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	if origin == "" {
+		return fmt.Errorf("%w: Origin is required", ErrValidation)
+	}
+
+	if !isValidOrigin(origin) {
+		return fmt.Errorf("%w: invalid Origin %q; valid: SOURCE, TARGET", ErrValidation, origin)
+	}
+
+	if selectionRules == "" {
+		return fmt.Errorf("%w: SelectionRules is required", ErrValidation)
+	}
+
+	return nil
+}
+
+func (h *Handler) handleDescribeMetadataModel(
+	_ context.Context, in *describeMetadataModelInput,
+) (*describeMetadataModelOutput, error) {
+	err := validateMetadataModelLookup(
+		ptrconv.String(in.MigrationProjectIdentifier),
+		ptrconv.String(in.Origin),
+		ptrconv.String(in.SelectionRules),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// No schema-conversion engine models real converted metadata in this
+	// emulation; Definition/MetadataModelName/MetadataModelType are
+	// legitimately absent per the SDK doc ("might not be populated for some
+	// metadata models"), and TargetMetadataModels is empty since nothing has
+	// ever been converted to a target tree.
+	return &describeMetadataModelOutput{TargetMetadataModels: []metadataModelReferenceJSON{}}, nil
 }
 
 type describeMetadataModelAssessmentsInput struct {
@@ -150,14 +221,18 @@ type describeMetadataModelAssessmentsInput struct {
 }
 
 type describeMetadataModelAssessmentsOutput struct {
-	Marker   *string          `json:"Marker,omitempty"`
-	Requests []map[string]any `json:"Requests"`
+	Marker   *string                       `json:"Marker,omitempty"`
+	Requests []schemaConversionRequestJSON `json:"Requests"`
 }
 
 func (h *Handler) handleDescribeMetadataModelAssessments(
 	ctx context.Context, in *describeMetadataModelAssessmentsInput,
 ) (*describeMetadataModelAssessmentsOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
 	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "assessment", in.Marker, in.MaxRecords)
 	if err != nil {
 		return nil, err
@@ -168,25 +243,33 @@ func (h *Handler) handleDescribeMetadataModelAssessments(
 
 type describeMetadataModelChildrenInput struct {
 	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
+	Origin                     *string `json:"Origin"`
+	SelectionRules             *string `json:"SelectionRules"`
 	Marker                     *string `json:"Marker"`
 	MaxRecords                 *int32  `json:"MaxRecords"`
 }
 
 type describeMetadataModelChildrenOutput struct {
-	Marker *string          `json:"Marker,omitempty"`
-	Items  []map[string]any `json:"Items"`
+	Marker                *string                      `json:"Marker,omitempty"`
+	MetadataModelChildren []metadataModelReferenceJSON `json:"MetadataModelChildren"`
 }
 
 func (h *Handler) handleDescribeMetadataModelChildren(
-	ctx context.Context, in *describeMetadataModelChildrenInput,
+	_ context.Context, in *describeMetadataModelChildrenInput,
 ) (*describeMetadataModelChildrenOutput, error) {
-	projectID := ptrconv.String(in.MigrationProjectIdentifier)
-	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "children", in.Marker, in.MaxRecords)
+	err := validateMetadataModelLookup(
+		ptrconv.String(in.MigrationProjectIdentifier),
+		ptrconv.String(in.Origin),
+		ptrconv.String(in.SelectionRules),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &describeMetadataModelChildrenOutput{Items: reqs, Marker: marker}, nil
+	// No schema-conversion engine has ever produced child metadata models in
+	// this emulation; an empty list is the correct response for a project
+	// whose selected object has no children.
+	return &describeMetadataModelChildrenOutput{MetadataModelChildren: []metadataModelReferenceJSON{}}, nil
 }
 
 type describeMetadataModelConversionsInput struct {
@@ -196,14 +279,18 @@ type describeMetadataModelConversionsInput struct {
 }
 
 type describeMetadataModelConversionsOutput struct {
-	Marker   *string          `json:"Marker,omitempty"`
-	Requests []map[string]any `json:"Requests"`
+	Marker   *string                       `json:"Marker,omitempty"`
+	Requests []schemaConversionRequestJSON `json:"Requests"`
 }
 
 func (h *Handler) handleDescribeMetadataModelConversions(
 	ctx context.Context, in *describeMetadataModelConversionsInput,
 ) (*describeMetadataModelConversionsOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
 	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "conversion", in.Marker, in.MaxRecords)
 	if err != nil {
 		return nil, err
@@ -219,14 +306,18 @@ type describeMetadataModelCreationsInput struct {
 }
 
 type describeMetadataModelCreationsOutput struct {
-	Marker   *string          `json:"Marker,omitempty"`
-	Requests []map[string]any `json:"Requests"`
+	Marker   *string                       `json:"Marker,omitempty"`
+	Requests []schemaConversionRequestJSON `json:"Requests"`
 }
 
 func (h *Handler) handleDescribeMetadataModelCreations(
 	ctx context.Context, in *describeMetadataModelCreationsInput,
 ) (*describeMetadataModelCreationsOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
 	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "creation", in.Marker, in.MaxRecords)
 	if err != nil {
 		return nil, err
@@ -242,14 +333,18 @@ type describeMetadataModelExportsAsScriptInput struct {
 }
 
 type describeMetadataModelExportsAsScriptOutput struct {
-	Marker   *string          `json:"Marker,omitempty"`
-	Requests []map[string]any `json:"Requests"`
+	Marker   *string                       `json:"Marker,omitempty"`
+	Requests []schemaConversionRequestJSON `json:"Requests"`
 }
 
 func (h *Handler) handleDescribeMetadataModelExportsAsScript(
 	ctx context.Context, in *describeMetadataModelExportsAsScriptInput,
 ) (*describeMetadataModelExportsAsScriptOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
 	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "export-as-script", in.Marker, in.MaxRecords)
 	if err != nil {
 		return nil, err
@@ -265,14 +360,18 @@ type describeMetadataModelExportsToTargetInput struct {
 }
 
 type describeMetadataModelExportsToTargetOutput struct {
-	Marker   *string          `json:"Marker,omitempty"`
-	Requests []map[string]any `json:"Requests"`
+	Marker   *string                       `json:"Marker,omitempty"`
+	Requests []schemaConversionRequestJSON `json:"Requests"`
 }
 
 func (h *Handler) handleDescribeMetadataModelExportsToTarget(
 	ctx context.Context, in *describeMetadataModelExportsToTargetInput,
 ) (*describeMetadataModelExportsToTargetOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
 	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "export-to-target", in.Marker, in.MaxRecords)
 	if err != nil {
 		return nil, err
@@ -288,14 +387,18 @@ type describeMetadataModelImportsInput struct {
 }
 
 type describeMetadataModelImportsOutput struct {
-	Marker   *string          `json:"Marker,omitempty"`
-	Requests []map[string]any `json:"Requests"`
+	Marker   *string                       `json:"Marker,omitempty"`
+	Requests []schemaConversionRequestJSON `json:"Requests"`
 }
 
 func (h *Handler) handleDescribeMetadataModelImports(
 	ctx context.Context, in *describeMetadataModelImportsInput,
 ) (*describeMetadataModelImportsOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
 	reqs, marker, err := listMetadataModelRequests(ctx, h, projectID, "import", in.Marker, in.MaxRecords)
 	if err != nil {
 		return nil, err
@@ -311,38 +414,61 @@ type exportMetadataModelAssessmentInput struct {
 	AssessmentReportTypes      []string `json:"AssessmentReportTypes"`
 }
 
-type s3ObjectKeyJSON struct {
-	S3ObjectKey string `json:"S3ObjectKey"`
+// exportResultEntryJSON mirrors types.ExportMetadataModelAssessmentResultEntry.
+type exportResultEntryJSON struct {
+	ObjectURL   string `json:"ObjectURL,omitempty"`
+	S3ObjectKey string `json:"S3ObjectKey,omitempty"`
 }
 
 type exportMetadataModelAssessmentOutput struct {
-	PdfReport s3ObjectKeyJSON `json:"PdfReport"`
-	CsvReport s3ObjectKeyJSON `json:"CsvReport"`
+	PdfReport exportResultEntryJSON `json:"PdfReport"`
+	CsvReport exportResultEntryJSON `json:"CsvReport"`
 }
 
 func (h *Handler) handleExportMetadataModelAssessment(
-	_ context.Context, _ *exportMetadataModelAssessmentInput,
+	_ context.Context, in *exportMetadataModelAssessmentInput,
 ) (*exportMetadataModelAssessmentOutput, error) {
-	return &exportMetadataModelAssessmentOutput{
-		PdfReport: s3ObjectKeyJSON{S3ObjectKey: ""},
-		CsvReport: s3ObjectKeyJSON{S3ObjectKey: ""},
-	}, nil
+	if ptrconv.String(in.MigrationProjectIdentifier) == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	if ptrconv.String(in.SelectionRules) == "" {
+		return nil, fmt.Errorf("%w: SelectionRules is required", ErrValidation)
+	}
+
+	// No schema-conversion engine or S3 integration exists in this emulation
+	// to produce a real exported report; ObjectURL/S3ObjectKey are
+	// legitimately absent (both are optional pointer fields on the real
+	// struct) rather than fabricated.
+	return &exportMetadataModelAssessmentOutput{}, nil
 }
 
 type getTargetSelectionRulesInput struct {
-	Marker     *string `json:"Marker"`
-	MaxRecords *int32  `json:"MaxRecords"`
+	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
+	SelectionRules             *string `json:"SelectionRules"`
 }
 
 type getTargetSelectionRulesOutput struct {
-	Marker *string          `json:"Marker,omitempty"`
-	Rules  []map[string]any `json:"Rules"`
+	TargetSelectionRules string `json:"TargetSelectionRules"`
 }
 
 func (h *Handler) handleGetTargetSelectionRules(
-	_ context.Context, _ *getTargetSelectionRulesInput,
+	_ context.Context, in *getTargetSelectionRulesInput,
 ) (*getTargetSelectionRulesOutput, error) {
-	return &getTargetSelectionRulesOutput{Rules: []map[string]any{}}, nil
+	if ptrconv.String(in.MigrationProjectIdentifier) == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	selectionRules := ptrconv.String(in.SelectionRules)
+	if selectionRules == "" {
+		return nil, fmt.Errorf("%w: SelectionRules is required", ErrValidation)
+	}
+
+	// No schema-conversion engine exists to compute the real target
+	// counterpart selection rules; echo the source rules unchanged as a
+	// best-effort identity mapping, preserving the documented single-string
+	// wire shape (TargetSelectionRules is a scalar, not a list).
+	return &getTargetSelectionRulesOutput{TargetSelectionRules: selectionRules}, nil
 }
 
 type modifyConversionConfigurationInput struct {
@@ -373,9 +499,19 @@ type startExtensionPackAssociationOutput struct {
 }
 
 func (h *Handler) handleStartExtensionPackAssociation(
-	_ context.Context, _ *startExtensionPackAssociationInput,
+	ctx context.Context, in *startExtensionPackAssociationInput,
 ) (*startExtensionPackAssociationOutput, error) {
-	return &startExtensionPackAssociationOutput{RequestIdentifier: uuid.NewString()}, nil
+	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "extension-pack", "")
+	if err != nil {
+		return nil, err
+	}
+
+	return &startExtensionPackAssociationOutput{RequestIdentifier: reqID}, nil
 }
 
 type startMetadataModelAssessmentInput struct {
@@ -391,7 +527,16 @@ func (h *Handler) handleStartMetadataModelAssessment(
 	ctx context.Context, in *startMetadataModelAssessmentInput,
 ) (*startMetadataModelAssessmentOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
-	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "assessment", ptrconv.String(in.SelectionRules))
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	selectionRules := ptrconv.String(in.SelectionRules)
+	if selectionRules == "" {
+		return nil, fmt.Errorf("%w: SelectionRules is required", ErrValidation)
+	}
+
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "assessment", selectionRules)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +557,16 @@ func (h *Handler) handleStartMetadataModelConversion(
 	ctx context.Context, in *startMetadataModelConversionInput,
 ) (*startMetadataModelConversionOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
-	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "conversion", ptrconv.String(in.SelectionRules))
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	selectionRules := ptrconv.String(in.SelectionRules)
+	if selectionRules == "" {
+		return nil, fmt.Errorf("%w: SelectionRules is required", ErrValidation)
+	}
+
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "conversion", selectionRules)
 	if err != nil {
 		return nil, err
 	}
@@ -422,6 +576,7 @@ func (h *Handler) handleStartMetadataModelConversion(
 
 type startMetadataModelCreationInput struct {
 	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
+	MetadataModelName          *string `json:"MetadataModelName"`
 	SelectionRules             *string `json:"SelectionRules"`
 }
 
@@ -433,7 +588,20 @@ func (h *Handler) handleStartMetadataModelCreation(
 	ctx context.Context, in *startMetadataModelCreationInput,
 ) (*startMetadataModelCreationOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
-	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "creation", ptrconv.String(in.SelectionRules))
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	if ptrconv.String(in.MetadataModelName) == "" {
+		return nil, fmt.Errorf("%w: MetadataModelName is required", ErrValidation)
+	}
+
+	selectionRules := ptrconv.String(in.SelectionRules)
+	if selectionRules == "" {
+		return nil, fmt.Errorf("%w: SelectionRules is required", ErrValidation)
+	}
+
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "creation", selectionRules)
 	if err != nil {
 		return nil, err
 	}
@@ -443,9 +611,9 @@ func (h *Handler) handleStartMetadataModelCreation(
 
 type startMetadataModelExportAsScriptInput struct {
 	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
+	Origin                     *string `json:"Origin"`
 	SelectionRules             *string `json:"SelectionRules"`
 	FileName                   *string `json:"FileName"`
-	Origin                     *string `json:"Origin"`
 }
 
 type startMetadataModelExportAsScriptOutput struct {
@@ -456,9 +624,14 @@ func (h *Handler) handleStartMetadataModelExportAsScript(
 	ctx context.Context, in *startMetadataModelExportAsScriptInput,
 ) (*startMetadataModelExportAsScriptOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
-	reqID, err := h.Backend.StartMetadataModelRequest(
-		ctx, projectID, "export-as-script", ptrconv.String(in.SelectionRules),
-	)
+	selectionRules := ptrconv.String(in.SelectionRules)
+
+	err := validateMetadataModelLookup(projectID, ptrconv.String(in.Origin), selectionRules)
+	if err != nil {
+		return nil, err
+	}
+
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "export-as-script", selectionRules)
 	if err != nil {
 		return nil, err
 	}
@@ -480,8 +653,17 @@ func (h *Handler) handleStartMetadataModelExportToTarget(
 	ctx context.Context, in *startMetadataModelExportToTargetInput,
 ) (*startMetadataModelExportToTargetOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
+	if projectID == "" {
+		return nil, fmt.Errorf("%w: MigrationProjectIdentifier is required", ErrValidation)
+	}
+
+	selectionRules := ptrconv.String(in.SelectionRules)
+	if selectionRules == "" {
+		return nil, fmt.Errorf("%w: SelectionRules is required", ErrValidation)
+	}
+
 	reqID, err := h.Backend.StartMetadataModelRequest(
-		ctx, projectID, "export-to-target", ptrconv.String(in.SelectionRules),
+		ctx, projectID, "export-to-target", selectionRules,
 	)
 	if err != nil {
 		return nil, err
@@ -492,8 +674,8 @@ func (h *Handler) handleStartMetadataModelExportToTarget(
 
 type startMetadataModelImportInput struct {
 	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
-	SelectionRules             *string `json:"SelectionRules"`
 	Origin                     *string `json:"Origin"`
+	SelectionRules             *string `json:"SelectionRules"`
 	Refresh                    *bool   `json:"Refresh"`
 }
 
@@ -505,7 +687,14 @@ func (h *Handler) handleStartMetadataModelImport(
 	ctx context.Context, in *startMetadataModelImportInput,
 ) (*startMetadataModelImportOutput, error) {
 	projectID := ptrconv.String(in.MigrationProjectIdentifier)
-	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "import", ptrconv.String(in.SelectionRules))
+	selectionRules := ptrconv.String(in.SelectionRules)
+
+	err := validateMetadataModelLookup(projectID, ptrconv.String(in.Origin), selectionRules)
+	if err != nil {
+		return nil, err
+	}
+
+	reqID, err := h.Backend.StartMetadataModelRequest(ctx, projectID, "import", selectionRules)
 	if err != nil {
 		return nil, err
 	}

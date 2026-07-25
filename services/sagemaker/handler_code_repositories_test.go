@@ -38,6 +38,14 @@ func TestHandler_DescribeCodeRepository(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "repo-1", resp["CodeRepositoryName"])
+
+	// The awsjson1.1 protocol encodes timestamps as epoch-seconds numbers, not
+	// RFC3339 strings — assert the wire type directly rather than trusting Go's
+	// default time.Time JSON marshaling (which would silently emit a string).
+	_, isNumber := resp["CreationTime"].(float64)
+	assert.True(t, isNumber, "CreationTime must be a JSON number (epoch seconds), got %T", resp["CreationTime"])
+	_, isNumber = resp["LastModifiedTime"].(float64)
+	assert.True(t, isNumber, "LastModifiedTime must be a JSON number (epoch seconds), got %T", resp["LastModifiedTime"])
 }
 
 func TestHandler_UpdateCodeRepository(t *testing.T) {

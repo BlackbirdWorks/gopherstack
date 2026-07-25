@@ -54,6 +54,11 @@ func (b *InMemoryBackend) StartJobRun(
 		mode = "BATCH"
 	}
 
+	executionTimeoutMinutes := opt.ExecutionTimeoutMinutes
+	if executionTimeoutMinutes <= 0 {
+		executionTimeoutMinutes = DefaultJobRunExecutionTimeoutMinutes
+	}
+
 	jobRunID := newID()
 	now := time.Now().UTC()
 
@@ -61,19 +66,26 @@ func (b *InMemoryBackend) StartJobRun(
 	maps.Copy(tagsCopy, tags)
 
 	jr := &JobRun{
-		ApplicationID:          applicationID,
-		JobRunID:               jobRunID,
-		Arn:                    b.jobRunARN(applicationID, jobRunID),
-		Name:                   name,
-		State:                  JobRunStateSubmitted,
-		ExecutionRoleArn:       executionRoleArn,
-		Mode:                   mode,
-		ReleaseLabel:           app.ReleaseLabel,
-		JobDriver:              cloneJSONValue(opt.JobDriver),
-		ConfigurationOverrides: cloneJSONValue(opt.ConfigurationOverrides),
-		CreatedAt:              now,
-		UpdatedAt:              now,
-		Tags:                   tagsCopy,
+		ApplicationID:    applicationID,
+		JobRunID:         jobRunID,
+		Arn:              b.jobRunARN(applicationID, jobRunID),
+		Name:             name,
+		State:            JobRunStateSubmitted,
+		ExecutionRoleArn: executionRoleArn,
+		// CreatedBy is not tracked by this backend's IAM model; the
+		// execution role ARN is used as a best-effort substitute for the
+		// required response field (see JobRun.CreatedBy).
+		CreatedBy:               executionRoleArn,
+		Mode:                    mode,
+		ReleaseLabel:            app.ReleaseLabel,
+		JobDriver:               cloneJSONValue(opt.JobDriver),
+		ConfigurationOverrides:  cloneJSONValue(opt.ConfigurationOverrides),
+		ExecutionIamPolicy:      cloneJSONValue(opt.ExecutionIamPolicy),
+		RetryPolicy:             cloneJSONValue(opt.RetryPolicy),
+		ExecutionTimeoutMinutes: executionTimeoutMinutes,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+		Tags:                    tagsCopy,
 	}
 
 	b.jobRuns.Put(jr)
@@ -231,6 +243,8 @@ func cloneJobRun(jr *JobRun) *JobRun {
 	maps.Copy(cp.Tags, jr.Tags)
 	cp.JobDriver = cloneJSONValue(jr.JobDriver)
 	cp.ConfigurationOverrides = cloneJSONValue(jr.ConfigurationOverrides)
+	cp.ExecutionIamPolicy = cloneJSONValue(jr.ExecutionIamPolicy)
+	cp.RetryPolicy = cloneJSONValue(jr.RetryPolicy)
 
 	return &cp
 }

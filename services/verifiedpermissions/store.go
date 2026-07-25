@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	cedar "github.com/cedar-policy/cedar-go"
@@ -63,9 +64,93 @@ type InMemoryBackend struct {
 	// Invalidated by CreatePolicy/UpdatePolicy/DeletePolicy.
 	policySetCache map[string]*cedar.PolicySet
 	policySetDirty map[string]bool
-	mu             *lockmetrics.RWMutex
-	accountID      string
-	region         string
+	// clientTokens records ClientToken idempotency state for the four Create*
+	// operations that accept one (CreatePolicyStore/CreatePolicy/
+	// CreatePolicyTemplate/CreateIdentitySource), keyed by "<op>:<token>". Like
+	// policySetCache/policySetDirty, this is an ephemeral cache -- not
+	// persisted by Snapshot/Restore -- matching real AWS's own eight-hour
+	// (not permanent) idempotency window.
+	clientTokens map[string]idempotencyEntry
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
+}
+
+// idempotencyWindow is how long real Verified Permissions recognizes a
+// ClientToken for (see e.g. CreatePolicyStoreInput.ClientToken's docs:
+// "Verified Permissions recognizes a ClientToken for eight hours").
+const idempotencyWindow = 8 * time.Hour
+
+// idempotencyEntry records a prior Create* call keyed by (op, ClientToken).
+// fingerprint is a deterministic encoding of the create parameters;
+// resourceID is the ID of the resource that call actually created.
+type idempotencyEntry struct {
+	createdAt   time.Time
+	fingerprint string
+	resourceID  string
+}
+
+// checkClientToken resolves a Create op's (op, token) pair against any
+// stored idempotency record. An empty token, or no active record, returns
+// ("", nil): the caller should create a new resource and call
+// recordClientToken. A record with a matching fingerprint returns the prior
+// call's resourceID so the caller can replay it instead of creating a
+// duplicate. A record with a different fingerprint is a real retried-token-
+// different-parameters conflict, wired as ConflictException. Caller must
+// hold the write lock.
+func (b *InMemoryBackend) checkClientToken(op, token, fingerprint string) (string, error) {
+	if token == "" {
+		return "", nil
+	}
+
+	entry, ok := b.clientTokens[op+":"+token]
+	if !ok || time.Since(entry.createdAt) >= idempotencyWindow {
+		return "", nil
+	}
+
+	if entry.fingerprint != fingerprint {
+		return "", fmt.Errorf(
+			"%w: client token %q was already used with different parameters", ErrConflict, token,
+		)
+	}
+
+	return entry.resourceID, nil
+}
+
+// recordClientToken stores a new idempotency record for (op, token). No-op
+// when token is empty. Caller must hold the write lock.
+func (b *InMemoryBackend) recordClientToken(op, token, fingerprint, resourceID string) {
+	if token == "" {
+		return
+	}
+
+	b.clientTokens[op+":"+token] = idempotencyEntry{
+		fingerprint: fingerprint,
+		resourceID:  resourceID,
+		createdAt:   time.Now(),
+	}
+}
+
+// tagsFingerprint deterministically encodes a tag map for use in a Create
+// op's idempotency fingerprint (see checkClientToken).
+func tagsFingerprint(tags map[string]string) string {
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	var sb strings.Builder
+
+	for _, k := range keys {
+		sb.WriteString(k)
+		sb.WriteByte('=')
+		sb.WriteString(tags[k])
+		sb.WriteByte(';')
+	}
+
+	return sb.String()
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -76,6 +161,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		resourceTags:   make(map[string]map[string]string),
 		policySetCache: make(map[string]*cedar.PolicySet),
 		policySetDirty: make(map[string]bool),
+		clientTokens:   make(map[string]idempotencyEntry),
 		accountID:      accountID,
 		region:         region,
 		mu:             lockmetrics.New("verifiedpermissions"),
@@ -103,6 +189,7 @@ func (b *InMemoryBackend) Reset() {
 	b.resourceTags = make(map[string]map[string]string)
 	b.policySetCache = make(map[string]*cedar.PolicySet)
 	b.policySetDirty = make(map[string]bool)
+	b.clientTokens = make(map[string]idempotencyEntry)
 }
 
 // listByPolicyStore clones every entry in a policy-store-scoped store.Index

@@ -25,8 +25,6 @@ type medicalTranscriptionJobOutput struct {
 	Specialty                        string                        `json:"Specialty,omitempty"`
 	Type                             string                        `json:"Type,omitempty"`
 	MediaFormat                      string                        `json:"MediaFormat,omitempty"`
-	OutputBucketName                 string                        `json:"OutputBucketName,omitempty"`
-	OutputKey                        string                        `json:"OutputKey,omitempty"`
 	MedicalContentIdentificationType string                        `json:"MedicalContentIdentificationType,omitempty"`
 	FailureReason                    string                        `json:"FailureReason,omitempty"`
 	Tags                             []transcribeTag               `json:"Tags,omitempty"`
@@ -54,8 +52,6 @@ func buildMedicalTranscriptionJobOutput(job *MedicalTranscriptionJob) *medicalTr
 		Specialty:                        job.Specialty,
 		Type:                             job.Type,
 		MediaFormat:                      job.MediaFormat,
-		OutputBucketName:                 job.OutputBucketName,
-		OutputKey:                        job.OutputKey,
 		MedicalContentIdentificationType: job.MedicalContentIdentificationType,
 		FailureReason:                    job.FailureReason,
 		MediaSampleRateHertz:             job.MediaSampleRateHertz,
@@ -152,24 +148,68 @@ func (h *Handler) handleStartMedicalTranscriptionJob(
 // --- ListMedicalTranscriptionJobs ---
 
 type listMedicalTranscriptionJobsInput struct {
-	Status    string `json:"Status"`
-	NextToken string `json:"NextToken"`
+	Status          string `json:"Status"`
+	JobNameContains string `json:"JobNameContains"`
+	NextToken       string `json:"NextToken"`
+}
+
+// medicalTranscriptionJobSummary mirrors the real MedicalTranscriptionJobSummary
+// shape, a strict subset of the full MedicalTranscriptionJob fields.
+type medicalTranscriptionJobSummary struct {
+	CompletionTime              *float64 `json:"CompletionTime,omitempty"`
+	CreationTime                *float64 `json:"CreationTime,omitempty"`
+	StartTime                   *float64 `json:"StartTime,omitempty"`
+	MedicalTranscriptionJobName string   `json:"MedicalTranscriptionJobName"`
+	TranscriptionJobStatus      string   `json:"TranscriptionJobStatus"`
+	LanguageCode                string   `json:"LanguageCode,omitempty"`
+	FailureReason               string   `json:"FailureReason,omitempty"`
+	OutputLocationType          string   `json:"OutputLocationType,omitempty"`
+	Specialty                   string   `json:"Specialty,omitempty"`
+	Type                        string   `json:"Type,omitempty"`
+	ContentIdentificationType   string   `json:"ContentIdentificationType,omitempty"`
+}
+
+func buildMedicalTranscriptionJobSummary(job *MedicalTranscriptionJob) medicalTranscriptionJobSummary {
+	s := medicalTranscriptionJobSummary{
+		MedicalTranscriptionJobName: job.MedicalTranscriptionJobName,
+		TranscriptionJobStatus:      job.TranscriptionJobStatus,
+		LanguageCode:                job.LanguageCode,
+		FailureReason:               job.FailureReason,
+		OutputLocationType:          outputLocationType(job.OutputBucketName),
+		Specialty:                   job.Specialty,
+		Type:                        job.Type,
+		ContentIdentificationType:   job.MedicalContentIdentificationType,
+	}
+	if !job.CreationTime.IsZero() {
+		t := awstime.Epoch(job.CreationTime)
+		s.CreationTime = &t
+	}
+	if !job.StartTime.IsZero() {
+		t := awstime.Epoch(job.StartTime)
+		s.StartTime = &t
+	}
+	if !job.CompletionTime.IsZero() {
+		t := awstime.Epoch(job.CompletionTime)
+		s.CompletionTime = &t
+	}
+
+	return s
 }
 
 type listMedicalTranscriptionJobsOutput struct {
-	NextToken                        string                          `json:"NextToken,omitempty"`
-	MedicalTranscriptionJobSummaries []medicalTranscriptionJobOutput `json:"MedicalTranscriptionJobSummaries"`
+	NextToken                        string                           `json:"NextToken,omitempty"`
+	MedicalTranscriptionJobSummaries []medicalTranscriptionJobSummary `json:"MedicalTranscriptionJobSummaries"`
 }
 
 func (h *Handler) handleListMedicalTranscriptionJobs(
 	_ context.Context,
 	in *listMedicalTranscriptionJobsInput,
 ) (*listMedicalTranscriptionJobsOutput, error) {
-	jobs, nextToken := h.Backend.ListMedicalTranscriptionJobs(in.Status, in.NextToken)
+	jobs, nextToken := h.Backend.ListMedicalTranscriptionJobs(in.Status, in.JobNameContains, in.NextToken)
 
-	summaries := make([]medicalTranscriptionJobOutput, 0, len(jobs))
+	summaries := make([]medicalTranscriptionJobSummary, 0, len(jobs))
 	for i := range jobs {
-		summaries = append(summaries, *buildMedicalTranscriptionJobOutput(&jobs[i]))
+		summaries = append(summaries, buildMedicalTranscriptionJobSummary(&jobs[i]))
 	}
 
 	return &listMedicalTranscriptionJobsOutput{

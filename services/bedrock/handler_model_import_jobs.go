@@ -8,10 +8,23 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// modelDataSourceWire is the wire shape of the real ModelDataSource union,
+// whose sole member today is "s3DataSource" (types.ModelDataSourceMemberS3DataSource).
+type modelDataSourceWire struct {
+	S3DataSource *s3DataSourceWire `json:"s3DataSource,omitempty"`
+}
+
+type s3DataSourceWire struct {
+	S3Uri string `json:"s3Uri"`
+}
+
 // createModelImportJobInput is the parsed request body for CreateModelImportJob.
 type createModelImportJobInput struct {
-	JobName string `json:"jobName"`
-	Tags    []Tag  `json:"tags,omitempty"`
+	ModelDataSource   *modelDataSourceWire `json:"modelDataSource"`
+	JobName           string               `json:"jobName"`
+	ImportedModelName string               `json:"importedModelName"`
+	RoleArn           string               `json:"roleArn"`
+	Tags              []Tag                `json:"jobTags,omitempty"`
 }
 
 func (h *Handler) handleCreateModelImportJob(c *echo.Context) error {
@@ -31,7 +44,12 @@ func (h *Handler) handleCreateModelImportJob(c *echo.Context) error {
 		)
 	}
 
-	job, opErr := h.Backend.CreateModelImportJob(in.JobName, in.Tags)
+	var s3Uri string
+	if in.ModelDataSource != nil && in.ModelDataSource.S3DataSource != nil {
+		s3Uri = in.ModelDataSource.S3DataSource.S3Uri
+	}
+
+	job, opErr := h.Backend.CreateModelImportJob(in.JobName, in.ImportedModelName, in.RoleArn, s3Uri, in.Tags)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -64,9 +82,15 @@ func modelImportJobToOutput(j *ModelImportJob) map[string]any {
 		keyJobArn:           j.JobArn,
 		keyJobName:          j.JobName,
 		"importedModelArn":  j.ImportedModelArn,
+		"importedModelName": j.ImportedModelName,
+		"roleArn":           j.RoleArn,
 		keyStatus:           j.Status,
 		keyCreationTime:     j.CreationTime.Format(time.RFC3339),
 		keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
+	}
+
+	if j.ModelDataSourceS3 != "" {
+		out["modelDataSource"] = modelDataSourceWire{S3DataSource: &s3DataSourceWire{S3Uri: j.ModelDataSourceS3}}
 	}
 
 	if j.EndTime != nil {
@@ -80,34 +104,67 @@ func modelImportJobToOutput(j *ModelImportJob) map[string]any {
 	return out
 }
 
+// importedModelToWire builds the real GetImportedModelOutput / ImportedModelSummary
+// shape: modelArn, modelName, jobArn, jobName, creationTime, and (when known)
+// modelDataSource. gopherstack previously invented a "status" field (not
+// present on either real shape -- ImportedModel has no lifecycle status of its
+// own, only the ModelImportJob that produced it does) and used "createdAt"
+// instead of the real "creationTime" key.
+func importedModelToWire(j *ModelImportJob) map[string]any {
+	out := map[string]any{
+		keyModelArn:     j.ImportedModelArn,
+		"modelName":     j.ImportedModelName,
+		"jobArn":        j.JobArn,
+		"jobName":       j.JobName,
+		keyCreationTime: j.CreationTime.Format(time.RFC3339),
+	}
+
+	if j.ModelDataSourceS3 != "" {
+		out["modelDataSource"] = modelDataSourceWire{S3DataSource: &s3DataSourceWire{S3Uri: j.ModelDataSourceS3}}
+	}
+
+	return out
+}
+
 func (h *Handler) handleGetImportedModel(c *echo.Context, modelARN string) error {
 	job, err := h.Backend.GetImportedModel(modelARN)
 	if err != nil {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyModelArn:  job.ImportedModelArn,
-		keyJobName:   job.JobName,
-		keyStatus:    job.Status,
-		keyCreatedAt: job.CreationTime.Format(time.RFC3339),
-	})
+	return c.JSON(http.StatusOK, importedModelToWire(job))
 }
 
 func (h *Handler) handleListImportedModels(c *echo.Context) error {
-	models := h.Backend.ListImportedModels()
-	summaries := make([]map[string]any, 0, len(models))
+	q := c.Request().URL.Query()
 
-	for _, m := range models {
-		summaries = append(summaries, map[string]any{
-			keyModelArn:  m.ImportedModelArn,
-			keyJobName:   m.JobName,
-			keyStatus:    m.Status,
-			keyCreatedAt: m.CreationTime.Format(time.RFC3339),
-		})
+	var creationTimeAfter, creationTimeBefore *time.Time
+	if v := q.Get("creationTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			creationTimeAfter = &t
+		}
+	}
+	if v := q.Get("creationTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			creationTimeBefore = &t
+		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"modelSummaries": summaries})
+	models, nextToken := h.Backend.ListImportedModels(
+		q.Get("nameContains"), creationTimeAfter, creationTimeBefore, q.Get("nextToken"),
+	)
+
+	summaries := make([]map[string]any, 0, len(models))
+	for _, m := range models {
+		summaries = append(summaries, importedModelToWire(m))
+	}
+
+	resp := map[string]any{"modelSummaries": summaries}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteImportedModel(c *echo.Context, modelARN string) error {
@@ -115,5 +172,5 @@ func (h *Handler) handleDeleteImportedModel(c *echo.Context, modelARN string) er
 		return h.writeError(c, err)
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	return c.NoContent(http.StatusOK)
 }

@@ -3,6 +3,7 @@ package workspaces
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -61,20 +62,23 @@ type createWorkspaceImageInput struct {
 	Tags        []tagItem `json:"Tags"`
 }
 
+// workspaceImageResp's Created field is a wire-format epoch-seconds number
+// (awsjson1.1 unixTimestamp), not an ISO8601 string -- field-diffed against
+// the real WorkspaceImage.Created (*time.Time); see awstime.Epoch.
 type workspaceImageResp struct {
-	ImageId     string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
-	Name        string `json:"Name"`
-	Description string `json:"Description"`
-	State       string `json:"State"`
-	Created     string `json:"Created,omitempty"`
+	ImageId     string  `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
+	Name        string  `json:"Name"`
+	Description string  `json:"Description"`
+	State       string  `json:"State"`
+	Created     float64 `json:"Created,omitempty"`
 }
 
 type createWorkspaceImageOutput struct {
-	ImageId     string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
-	Name        string `json:"Name"`
-	Description string `json:"Description"`
-	State       string `json:"State"`
-	Created     string `json:"Created,omitempty"`
+	ImageId     string  `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
+	Name        string  `json:"Name"`
+	Description string  `json:"Description"`
+	State       string  `json:"State"`
+	Created     float64 `json:"Created,omitempty"`
 }
 
 func (h *Handler) handleCreateWorkspaceImage(
@@ -95,7 +99,7 @@ func (h *Handler) handleCreateWorkspaceImage(
 		Name:        img.Name,
 		Description: img.Description,
 		State:       img.State,
-		Created:     img.Created.Format("2006-01-02T15:04:05Z"),
+		Created:     awstime.Epoch(img.Created),
 	}, nil
 }
 
@@ -207,7 +211,7 @@ func (h *Handler) handleDescribeWorkspaceImages(
 			Name:        img.Name,
 			Description: img.Description,
 			State:       img.State,
-			Created:     img.Created.Format("2006-01-02T15:04:05Z"),
+			Created:     awstime.Epoch(img.Created),
 		})
 	}
 
@@ -273,9 +277,9 @@ type describeCustomWorkspaceImageImportInput struct {
 }
 
 type describeCustomWorkspaceImageImportOutput struct {
-	ImageId string `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
-	State   string `json:"State"`
-	Created string `json:"Created,omitempty"`
+	ImageId string  `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
+	State   string  `json:"State"`
+	Created float64 `json:"Created,omitempty"`
 }
 
 func (h *Handler) handleDescribeCustomWorkspaceImageImport(
@@ -289,7 +293,7 @@ func (h *Handler) handleDescribeCustomWorkspaceImageImport(
 	return &describeCustomWorkspaceImageImportOutput{
 		ImageId: img.ImageID,
 		State:   img.State,
-		Created: img.Created.Format("2006-01-02T15:04:05Z"),
+		Created: awstime.Epoch(img.Created),
 	}, nil
 }
 
@@ -298,12 +302,66 @@ type describeImageAssociationsInput struct {
 	AssociatedResourceTypes []string `json:"AssociatedResourceTypes"`
 }
 
+// associationStateReasonResp mirrors the real AssociationStateReason shape,
+// shared (structurally) by image and bundle associations.
+type associationStateReasonResp struct {
+	ErrorCode    string `json:"ErrorCode,omitempty"`
+	ErrorMessage string `json:"ErrorMessage,omitempty"`
+}
+
+// imageResourceAssociationResp mirrors the real ImageResourceAssociation
+// shape; Created/LastUpdatedTime are wire-format epoch-seconds numbers. The
+// pointer field is grouped separately below so gofmt's column alignment
+// doesn't widen every other field to match its longer type name.
+type imageResourceAssociationResp struct {
+	StateReason *associationStateReasonResp `json:"StateReason,omitempty"`
+
+	AssociatedResourceId   string  `json:"AssociatedResourceId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	AssociatedResourceType string  `json:"AssociatedResourceType,omitempty"`
+	ImageId                string  `json:"ImageId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	State                  string  `json:"State,omitempty"`
+	Created                float64 `json:"Created,omitempty"`
+	LastUpdatedTime        float64 `json:"LastUpdatedTime,omitempty"`
+}
+
 type describeImageAssociationsOutput struct {
-	Associations []any `json:"Associations"`
+	Associations []imageResourceAssociationResp `json:"Associations"`
+}
+
+func imageAssociationToResp(a ImageResourceAssociation) imageResourceAssociationResp {
+	resp := imageResourceAssociationResp{
+		AssociatedResourceId:   a.AssociatedResourceID,
+		AssociatedResourceType: a.AssociatedResourceType,
+		ImageId:                a.ImageID,
+		State:                  a.State,
+		Created:                awstime.Epoch(a.Created),
+		LastUpdatedTime:        awstime.Epoch(a.LastUpdatedTime),
+	}
+
+	if a.StateReasonErrorCode != "" || a.StateReasonErrorMessage != "" {
+		resp.StateReason = &associationStateReasonResp{
+			ErrorCode:    a.StateReasonErrorCode,
+			ErrorMessage: a.StateReasonErrorMessage,
+		}
+	}
+
+	return resp
 }
 
 func (h *Handler) handleDescribeImageAssociations(
-	_ context.Context, _ *describeImageAssociationsInput,
+	_ context.Context, req *describeImageAssociationsInput,
 ) (*describeImageAssociationsOutput, error) {
-	return &describeImageAssociationsOutput{Associations: []any{}}, nil
+	associations, err := h.Backend.DescribeImageAssociations(
+		req.ImageId, req.AssociatedResourceTypes,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]imageResourceAssociationResp, 0, len(associations))
+	for _, a := range associations {
+		items = append(items, imageAssociationToResp(a))
+	}
+
+	return &describeImageAssociationsOutput{Associations: items}, nil
 }

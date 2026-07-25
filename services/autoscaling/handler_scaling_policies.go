@@ -62,51 +62,101 @@ func (h *Handler) handleExecutePolicy(vals url.Values) (any, error) {
 	}, nil
 }
 
-//nolint:gocognit,cyclop,funlen // parses many optional scaling policy fields
-func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
-	scalingAdjustment, err := parseIntVal(vals.Get("ScalingAdjustment"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid ScalingAdjustment", ErrInvalidParameter)
+// scalingPolicyIntFieldValues bundles every plain (top-level) optional int32
+// field of a PutScalingPolicy request.
+type scalingPolicyIntFieldValues struct {
+	scalingAdjustment      int32
+	minAdjustmentStep      int32
+	cooldown               int32
+	minAdjustmentMagnitude int32
+}
+
+// scalingPolicyIntFields parses every plain (top-level) optional int32 field of
+// a PutScalingPolicy request.
+func scalingPolicyIntFields(vals url.Values) (scalingPolicyIntFieldValues, error) {
+	var v scalingPolicyIntFieldValues
+
+	fields := []struct {
+		dest  *int32
+		param string
+	}{
+		{param: "ScalingAdjustment", dest: &v.scalingAdjustment},
+		{param: "MinAdjustmentStep", dest: &v.minAdjustmentStep},
+		{param: "Cooldown", dest: &v.cooldown},
+		{param: "MinAdjustmentMagnitude", dest: &v.minAdjustmentMagnitude},
 	}
 
-	minAdjustmentStep, err := parseIntVal(vals.Get("MinAdjustmentStep"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid MinAdjustmentStep", ErrInvalidParameter)
+	for _, f := range fields {
+		n, parseErr := parseIntVal(vals.Get(f.param))
+		if parseErr != nil {
+			return v, fmt.Errorf("%w: invalid %s", ErrInvalidParameter, f.param)
+		}
+
+		*f.dest = n
 	}
 
-	cooldown, err := parseIntVal(vals.Get("Cooldown"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid Cooldown", ErrInvalidParameter)
-	}
+	return v, nil
+}
+
+// targetTrackingFields holds the parsed TargetTrackingConfiguration.* portion
+// of a PutScalingPolicy request.
+type targetTrackingFields struct {
+	metricType      string
+	targetValue     float64
+	estimatedWarmup int32
+	disableScaleIn  bool
+}
+
+// parseTargetTrackingFields parses the TargetTrackingConfiguration.* form values.
+func parseTargetTrackingFields(vals url.Values) (targetTrackingFields, error) {
+	var f targetTrackingFields
 
 	estimatedWarmup, err := parseIntVal(vals.Get("TargetTrackingConfiguration.EstimatedInstanceWarmup"))
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid EstimatedInstanceWarmup", ErrInvalidParameter)
+		return f, fmt.Errorf("%w: invalid EstimatedInstanceWarmup", ErrInvalidParameter)
 	}
 
-	// Parse TargetTrackingConfiguration fields
-	var targetValue float64
+	f.estimatedWarmup = estimatedWarmup
+
 	if v := vals.Get("TargetTrackingConfiguration.TargetValue"); v != "" {
 		tv, parseErr := strconv.ParseFloat(v, 64)
 		if parseErr != nil {
-			return nil, fmt.Errorf("%w: invalid TargetTrackingConfiguration.TargetValue", ErrInvalidParameter)
+			return f, fmt.Errorf("%w: invalid TargetTrackingConfiguration.TargetValue", ErrInvalidParameter)
 		}
 
-		targetValue = tv
+		f.targetValue = tv
 	}
 
-	metricType := vals.Get("TargetTrackingConfiguration.PredefinedMetricSpecification.PredefinedMetricType")
-	disableScaleIn := vals.Get("TargetTrackingConfiguration.DisableScaleIn") == formValueTrue
+	f.metricType = vals.Get("TargetTrackingConfiguration.PredefinedMetricSpecification.PredefinedMetricType")
+	f.disableScaleIn = vals.Get("TargetTrackingConfiguration.DisableScaleIn") == formValueTrue
 
-	minAdjustmentMagnitude, err := parseIntVal(vals.Get("MinAdjustmentMagnitude"))
+	return f, nil
+}
+
+// parseStepAdjustmentBound parses a single optional float bound
+// (MetricIntervalLowerBound/UpperBound) of a StepAdjustments.member.N entry.
+func parseStepAdjustmentBound(vals url.Values, key string) (*float64, error) {
+	v := vals.Get(key)
+	if v == "" {
+		return nil, nil //nolint:nilnil // absent bound is a meaningful "unbounded" state, not an error
+	}
+
+	f, err := strconv.ParseFloat(v, 64)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid MinAdjustmentMagnitude", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: invalid %s", ErrInvalidParameter, key)
 	}
 
-	// Parse StepAdjustments.member.N.{ScalingAdjustment,MetricIntervalLowerBound,MetricIntervalUpperBound}
+	return &f, nil
+}
+
+// parseStepAdjustments parses StepAdjustments.member.N.{ScalingAdjustment,
+// MetricIntervalLowerBound,MetricIntervalUpperBound} form values.
+func parseStepAdjustments(vals url.Values) ([]StepAdjustment, error) {
 	var stepAdjustments []StepAdjustment
+
 	for i := 1; ; i++ {
 		prefix := fmt.Sprintf("StepAdjustments.member.%d.", i)
+
 		saStr := vals.Get(prefix + "ScalingAdjustment")
 		if saStr == "" {
 			break
@@ -118,25 +168,41 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		}
 
 		adj := StepAdjustment{ScalingAdjustment: sa}
-		if v := vals.Get(prefix + "MetricIntervalLowerBound"); v != "" {
-			f, floatErr := strconv.ParseFloat(v, 64)
-			if floatErr != nil {
-				return nil, fmt.Errorf("%w: invalid MetricIntervalLowerBound", ErrInvalidParameter)
-			}
 
-			adj.MetricIntervalLowerBound = &f
+		lower, err := parseStepAdjustmentBound(vals, prefix+"MetricIntervalLowerBound")
+		if err != nil {
+			return nil, err
 		}
 
-		if v := vals.Get(prefix + "MetricIntervalUpperBound"); v != "" {
-			f, floatErr := strconv.ParseFloat(v, 64)
-			if floatErr != nil {
-				return nil, fmt.Errorf("%w: invalid MetricIntervalUpperBound", ErrInvalidParameter)
-			}
+		adj.MetricIntervalLowerBound = lower
 
-			adj.MetricIntervalUpperBound = &f
+		upper, err := parseStepAdjustmentBound(vals, prefix+"MetricIntervalUpperBound")
+		if err != nil {
+			return nil, err
 		}
+
+		adj.MetricIntervalUpperBound = upper
 
 		stepAdjustments = append(stepAdjustments, adj)
+	}
+
+	return stepAdjustments, nil
+}
+
+func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
+	intFields, err := scalingPolicyIntFields(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	ttc, err := parseTargetTrackingFields(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	stepAdjustments, err := parseStepAdjustments(vals)
+	if err != nil {
+		return nil, err
 	}
 
 	input := ScalingPolicyInput{
@@ -145,15 +211,15 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		PolicyType:             vals.Get("PolicyType"),
 		AdjustmentType:         vals.Get("AdjustmentType"),
 		MetricAggregationType:  vals.Get("MetricAggregationType"),
-		ScalingAdjustment:      scalingAdjustment,
-		MinAdjustmentStep:      minAdjustmentStep,
-		MinAdjustmentMagnitude: minAdjustmentMagnitude,
+		ScalingAdjustment:      intFields.scalingAdjustment,
+		MinAdjustmentStep:      intFields.minAdjustmentStep,
+		MinAdjustmentMagnitude: intFields.minAdjustmentMagnitude,
 		StepAdjustments:        stepAdjustments,
-		Cooldown:               cooldown,
-		TargetValue:            targetValue,
-		MetricType:             metricType,
-		DisableScaleIn:         disableScaleIn,
-		EstimatedWarmup:        estimatedWarmup,
+		Cooldown:               intFields.cooldown,
+		TargetValue:            ttc.targetValue,
+		MetricType:             ttc.metricType,
+		DisableScaleIn:         ttc.disableScaleIn,
+		EstimatedWarmup:        ttc.estimatedWarmup,
 	}
 
 	policy, putErr := h.Backend.PutScalingPolicy(input)

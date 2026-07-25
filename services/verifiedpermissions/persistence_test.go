@@ -27,7 +27,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := verifiedpermissions.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreatePolicyStore("seed", nil, verifiedpermissions.ValidationModeOff, "")
+	_, err := b.CreatePolicyStore("seed", nil, verifiedpermissions.ValidationModeOff, "", "")
 	require.NoError(t, err)
 
 	// A syntactically valid but version-mismatched snapshot.
@@ -47,7 +47,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	t.Parallel()
 
 	b := verifiedpermissions.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreatePolicyStore("seed", nil, verifiedpermissions.ValidationModeOff, "")
+	_, err := b.CreatePolicyStore("seed", nil, verifiedpermissions.ValidationModeOff, "", "")
 	require.NoError(t, err)
 
 	// The pre-refactor shape: flat/nested maps keyed by resource type, no
@@ -73,7 +73,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	ps, err := original.CreatePolicyStore(
 		"a store", map[string]string{"env": "test"},
-		verifiedpermissions.ValidationModeOff, verifiedpermissions.DeletionProtectionDisabled,
+		verifiedpermissions.ValidationModeOff, verifiedpermissions.DeletionProtectionDisabled, "",
 	)
 	require.NoError(t, err)
 
@@ -84,14 +84,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	tmpl, err := original.CreatePolicyTemplate(
-		ps.PolicyStoreID, "a template", `permit(principal == ?principal, action, resource);`,
+		ps.PolicyStoreID, "a template", `permit(principal == ?principal, action, resource);`, "",
 	)
 	require.NoError(t, err)
 
 	src, err := original.CreateIdentitySource(ps.PolicyStoreID, "User", verifiedpermissions.IdentitySourceConfig{
 		UserPoolArn: "arn:aws:cognito-idp:us-west-2:111122223333:userpool/us-west-2_abc123",
 		ClientIDs:   []string{"client-1"},
-	})
+	}, "")
 	require.NoError(t, err)
 
 	namespaces, err := original.PutSchema(ps.PolicyStoreID, `{"MyNamespace":{}}`)
@@ -106,7 +106,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// Scalars: accountID/region surface indirectly through a freshly created
 	// resource (there is no direct accessor).
-	newPS, err := fresh.CreatePolicyStore("new store", nil, verifiedpermissions.ValidationModeOff, "")
+	newPS, err := fresh.CreatePolicyStore("new store", nil, verifiedpermissions.ValidationModeOff, "", "")
 	require.NoError(t, err)
 	assert.Contains(t, newPS.Arn, "111122223333")
 
@@ -164,7 +164,7 @@ func TestInMemoryBackend_SnapshotRestore_ResourceTags(t *testing.T) {
 	original := verifiedpermissions.NewInMemoryBackend("123456789012", "us-east-1")
 	ctx := t.Context()
 
-	ps, err := original.CreatePolicyStore("a store", nil, verifiedpermissions.ValidationModeOff, "")
+	ps, err := original.CreatePolicyStore("a store", nil, verifiedpermissions.ValidationModeOff, "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, original.TagResource(ps.Arn, map[string]string{"k1": "v1"}))
@@ -210,14 +210,14 @@ func TestBackend_PersistenceRoundTrip(t *testing.T) {
 		ps.PolicyStoreID,
 		verifiedpermissions.CreatePolicyParams{PolicyType: "STATIC", Statement: "permit(principal,action,resource);"},
 	)
-	_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);")
+	_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);", "")
 	_, _ = b.PutSchema(ps.PolicyStoreID, `{"ns":{}}`)
 	_, _ = b.CreateIdentitySource(
 		ps.PolicyStoreID,
 		"User",
 		verifiedpermissions.IdentitySourceConfig{
 			UserPoolArn: "arn:aws:cognito-idp:us-east-1:123456789012:userpool/pool",
-		},
+		}, "",
 	)
 
 	data := b.Snapshot(t.Context())
@@ -253,7 +253,7 @@ func TestBackend_Snapshot_Restore(t *testing.T) {
 			var storeIDs []string
 
 			for range tt.numStores {
-				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "test"}, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "test"}, "OFF", "", "")
 				require.NoError(t, err)
 
 				_, err = b.CreatePolicy(
@@ -266,7 +266,7 @@ func TestBackend_Snapshot_Restore(t *testing.T) {
 				require.NoError(t, err)
 
 				_, err = b.CreatePolicyTemplate(
-					ps.PolicyStoreID, "tpl", "permit(principal == ?principal, action, resource);",
+					ps.PolicyStoreID, "tpl", "permit(principal == ?principal, action, resource);", "",
 				)
 				require.NoError(t, err)
 

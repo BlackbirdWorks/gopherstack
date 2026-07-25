@@ -109,7 +109,10 @@ func (h *Handler) describeSnapshots(ctx context.Context, c *echo.Context, form u
 	clusterID := form.Get("CacheClusterId")
 	replicationGroupID := form.Get("ReplicationGroupId")
 	snapshotSource := form.Get("SnapshotSource")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	p, err := h.Backend.DescribeSnapshots(
 		ctx, snapshotName, clusterID, replicationGroupID, snapshotSource, marker, maxRecords,

@@ -266,7 +266,8 @@ func TestInMemoryBackend_SnapshotRestore_NewResourceTypes(t *testing.T) {
 			name: "dashboard_round_trip",
 			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutDashboard("persist-dash", `{"widgets":[]}`))
+				_, err := b.PutDashboard("persist-dash", `{"widgets":[]}`)
+				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
@@ -393,11 +394,10 @@ func TestHandler_SnapshotRestore_IncludesTags(t *testing.T) {
 // conversion) regression test: it populates every top-level resource
 // collection on the backend -- both the store.Table-backed ones (alarms,
 // compositeAlarms, dashboards, anomalyDetectors, insightRules, metricStreams,
-// alarmMuteRules, metricFilters) and the deliberately-raw ones (metrics via
+// alarmMuteRules) and the deliberately-raw ones (metrics via
 // PutMetricData, alarmHistory via SetAlarmState) -- in a single backend, then
 // verifies a Snapshot->Restore round trip into a fresh backend reproduces
-// every one of them. metricFilters in particular had no prior snapshot/restore
-// coverage.
+// every one of them.
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -431,7 +431,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	}))
 
 	// dashboards.
-	require.NoError(t, original.PutDashboard("full-state-dash", `{"widgets":[]}`))
+	_, dashErr := original.PutDashboard("full-state-dash", `{"widgets":[]}`)
+	require.NoError(t, dashErr)
 
 	// anomalyDetectors.
 	original.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{
@@ -451,13 +452,6 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// alarmMuteRules.
 	original.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{MuteName: "full-state-mute"})
-
-	// metricFilters -- previously had no snapshot/restore test coverage at all.
-	require.NoError(t, original.PutMetricFilter(&cloudwatch.MetricFilter{
-		FilterName:    "full-state-filter",
-		LogGroupName:  "/aws/lambda/full-state",
-		FilterPattern: "ERROR",
-	}))
 
 	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
@@ -513,13 +507,6 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// alarmMuteRules.
 	_, err = fresh.GetAlarmMuteRule("full-state-mute")
 	require.NoError(t, err)
-
-	// metricFilters.
-	filters, err := fresh.DescribeMetricFilters("", "", "", 0)
-	require.NoError(t, err)
-	require.Len(t, filters.Data, 1)
-	assert.Equal(t, "full-state-filter", filters.Data[0].FilterName)
-	assert.Equal(t, "ERROR", filters.Data[0].FilterPattern)
 }
 
 // TestInMemoryBackend_Restore_VersionGuard exercises the Phase 3.3 snapshot

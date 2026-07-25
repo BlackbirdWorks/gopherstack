@@ -17,7 +17,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		reportPlanARNIndex:       make(map[string]string),
 		globalSettings:           make(map[string]string),
 		recoveryPointIndexStatus: make(map[string]string),
-		restoreValidations:       make(map[string]string),
 		accountID:                accountID,
 		region:                   region,
 		mu:                       lockmetrics.New("backup"),
@@ -91,7 +90,6 @@ func (b *InMemoryBackend) Reset() {
 	b.globalSettings = make(map[string]string)
 	b.regionSettings = nil
 	b.recoveryPointIndexStatus = make(map[string]string)
-	b.restoreValidations = make(map[string]string)
 }
 
 // --- Recovery Point methods ---

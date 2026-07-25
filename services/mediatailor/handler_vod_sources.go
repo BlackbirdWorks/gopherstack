@@ -65,12 +65,14 @@ func (h *Handler) handleListVodSources(c *echo.Context, sourceLocationName strin
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		out = append(out, map[string]any{
+		item := map[string]any{
 			keyVodSourceName:      s.VodSourceName,
 			keySourceLocationName: s.SourceLocationName,
 			keyArn:                s.ARN,
 			keyTags:               nilToEmpty(s.Tags),
-		})
+		}
+		addTimestamps(item, s.CreationTime, s.LastModified)
+		out = append(out, item)
 	}
 
 	resp := map[string]any{keyItems: out}
@@ -91,11 +93,14 @@ func toVodSourceOutput(vs *VodSource) map[string]any {
 		})
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		keyVodSourceName:            vs.VodSourceName,
 		keySourceLocationName:       vs.SourceLocationName,
 		keyArn:                      vs.ARN,
 		"HttpPackageConfigurations": cfgs,
 		keyTags:                     nilToEmpty(vs.Tags),
 	}
+	addTimestamps(out, vs.CreationTime, vs.LastModified)
+
+	return out
 }

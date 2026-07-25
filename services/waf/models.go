@@ -341,9 +341,27 @@ type Tag struct {
 	Value string `json:"Value"`
 }
 
+// HTTPHeader is a single header of a sampled HTTP request.
+type HTTPHeader struct {
+	Name  string `json:"Name,omitempty"`
+	Value string `json:"Value,omitempty"`
+}
+
+// HTTPRequest describes one of the web requests returned by GetSampledRequests.
+type HTTPRequest struct {
+	ClientIP    string       `json:"ClientIP,omitempty"`
+	Country     string       `json:"Country,omitempty"`
+	HTTPVersion string       `json:"HTTPVersion,omitempty"`
+	Method      string       `json:"Method,omitempty"`
+	URI         string       `json:"URI,omitempty"`
+	Headers     []HTTPHeader `json:"Headers,omitempty"`
+}
+
 // SampledHTTPRequest is a sampled HTTP request.
 type SampledHTTPRequest struct {
-	RuleId string `json:"RuleWithinRuleGroup,omitempty"` //nolint:revive,staticcheck // AWS SDK field name
-	Action string `json:"Action,omitempty"`
-	Weight int64  `json:"Weight"`
+	Request   *HTTPRequest `json:"Request,omitempty"`
+	RuleId    string       `json:"RuleWithinRuleGroup,omitempty"` //nolint:revive,staticcheck // AWS SDK field name
+	Action    string       `json:"Action,omitempty"`
+	Weight    int64        `json:"Weight"`
+	Timestamp float64      `json:"Timestamp,omitempty"`
 }

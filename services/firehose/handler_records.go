@@ -16,7 +16,8 @@ type handlePutRecordInput struct {
 }
 
 type putRecordOutput struct {
-	RecordID string `json:"RecordId"`
+	RecordID  string `json:"RecordId"`
+	Encrypted bool   `json:"Encrypted,omitempty"`
 }
 
 func (h *Handler) handlePutRecord(ctx context.Context, in *handlePutRecordInput) (*putRecordOutput, error) {
@@ -29,7 +30,9 @@ func (h *Handler) handlePutRecord(ctx context.Context, in *handlePutRecordInput)
 		return nil, putErr
 	}
 
-	return &putRecordOutput{RecordID: newRecordID(ctx)}, nil
+	encrypted := h.Backend.IsStreamEncrypted(ctx, in.DeliveryStreamName)
+
+	return &putRecordOutput{RecordID: newRecordID(ctx), Encrypted: encrypted}, nil
 }
 
 type handlePutRecordBatchInput struct {
@@ -48,6 +51,7 @@ type putRecordBatchEntry struct {
 type putRecordBatchOutput struct {
 	RequestResponses []putRecordBatchEntry `json:"RequestResponses"`
 	FailedPutCount   int                   `json:"FailedPutCount"`
+	Encrypted        bool                  `json:"Encrypted,omitempty"`
 }
 
 func (h *Handler) handlePutRecordBatch(
@@ -77,5 +81,6 @@ func (h *Handler) handlePutRecordBatch(
 	return &putRecordBatchOutput{
 		FailedPutCount:   failedCount,
 		RequestResponses: responses,
+		Encrypted:        h.Backend.IsStreamEncrypted(ctx, in.DeliveryStreamName),
 	}, nil
 }

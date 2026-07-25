@@ -342,7 +342,7 @@ func TestJob(t *testing.T) {
 	h := newIoTHandlerBatch1(t)
 
 	// CreateJob
-	out := iotOK(t, h, http.MethodPost, "/jobs/my-job", map[string]any{
+	out := iotOK(t, h, http.MethodPut, "/jobs/my-job", map[string]any{
 		"targets":         []string{"arn:aws:iot:us-east-1:000000000000:thing/my-thing"},
 		"document":        `{"version":"1.0"}`,
 		"targetSelection": "SNAPSHOT",
@@ -371,7 +371,7 @@ func TestJob(t *testing.T) {
 	})
 
 	// GetJobDocument
-	out4 := iotOK(t, h, http.MethodGet, "/jobs/my-job/document", nil)
+	out4 := iotOK(t, h, http.MethodGet, "/jobs/my-job/job-document", nil)
 	if out4["document"] != `{"version":"1.0"}` {
 		t.Errorf("document mismatch: %v", out4["document"])
 	}

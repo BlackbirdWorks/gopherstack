@@ -16,7 +16,10 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 
 	group := b.targetsByARN.Get(resourceARN)
 	if len(group) == 0 {
-		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+		return withResourceName(
+			fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceARN),
+			resourceARN,
+		)
 	}
 
 	t := group[0]
@@ -25,7 +28,11 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 		t.Tags = make(map[string]string)
 	}
 
-	return mergeTags(t.Tags, kv)
+	if err := mergeTags(t.Tags, kv, ErrTooManyTags); err != nil {
+		return withResourceName(err, resourceARN)
+	}
+
+	return nil
 }
 
 // ListTagsForResource returns tags for a scalable target identified by its ARN.
@@ -39,7 +46,10 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 	group := b.targetsByARN.Get(resourceARN)
 	if len(group) == 0 {
-		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+		return nil, withResourceName(
+			fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceARN),
+			resourceARN,
+		)
 	}
 
 	t := group[0]
@@ -60,7 +70,10 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	group := b.targetsByARN.Get(resourceARN)
 	if len(group) == 0 {
-		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+		return withResourceName(
+			fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceARN),
+			resourceARN,
+		)
 	}
 
 	t := group[0]

@@ -24,12 +24,12 @@ func TestHandler_CreateIdcApplication(t *testing.T) {
 	}{
 		{
 			name: "success",
-			body: "Action=CreateIdcApplication&" +
-				"Version=2012-12-01&IdcApplicationName=my-app" +
+			body: "Action=CreateRedshiftIdcApplication&" +
+				"Version=2012-12-01&RedshiftIdcApplicationName=my-app" +
 				"&IdcInstanceArn=arn:aws:sso:::instance/abc" +
 				"&IamRoleArn=arn:aws:iam::123:role/MyRole",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"CreateIdcApplicationResponse", "my-app"},
+			wantContains: []string{"CreateRedshiftIdcApplicationResponse", "my-app"},
 		},
 		{
 			name: "duplicate",
@@ -38,19 +38,19 @@ func TestHandler_CreateIdcApplication(t *testing.T) {
 				postRedshiftForm(
 					t,
 					h,
-					"Action=CreateIdcApplication&"+
-						"Version=2012-12-01&IdcApplicationName=dup-app&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
+					"Action=CreateRedshiftIdcApplication&"+
+						"Version=2012-12-01&RedshiftIdcApplicationName=dup-app&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
 				)
 			},
-			body: "Action=CreateIdcApplication&" +
-				"Version=2012-12-01&IdcApplicationName=dup-app&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
+			body: "Action=CreateRedshiftIdcApplication&" +
+				"Version=2012-12-01&RedshiftIdcApplicationName=dup-app&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"IdcApplicationAlreadyExistsFault"},
+			wantContains: []string{"RedshiftIdcApplicationAlreadyExists"},
 		},
 		{
 			name: "missing_name",
-			body: "Action=CreateIdcApplication&" +
-				"Version=2012-12-01&IdcApplicationName=&IdcInstanceArn=arn:idc",
+			body: "Action=CreateRedshiftIdcApplication&" +
+				"Version=2012-12-01&RedshiftIdcApplicationName=&IdcInstanceArn=arn:idc",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
@@ -94,27 +94,27 @@ func TestHandler_DeleteIdcApplication(t *testing.T) {
 				postRedshiftForm(
 					t,
 					h,
-					"Action=CreateIdcApplication&"+
-						"Version=2012-12-01&IdcApplicationName=del-app&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
+					"Action=CreateRedshiftIdcApplication&"+
+						"Version=2012-12-01&RedshiftIdcApplicationName=del-app&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
 				)
 			},
-			body: "Action=DeleteIdcApplication&" +
+			body: "Action=DeleteRedshiftIdcApplication&" +
 				"Version=2012-12-01" +
-				"&IdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/del-app",
+				"&RedshiftIdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/del-app",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DeleteIdcApplicationResponse"},
+			wantContains: []string{"DeleteRedshiftIdcApplicationResponse"},
 		},
 		{
 			name: "not_found",
-			body: "Action=DeleteIdcApplication&" +
+			body: "Action=DeleteRedshiftIdcApplication&" +
 				"Version=2012-12-01" +
-				"&IdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/missing",
+				"&RedshiftIdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/missing",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"IdcApplicationNotExistsFault"},
+			wantContains: []string{"RedshiftIdcApplicationNotExists"},
 		},
 		{
 			name:         "missing_arn",
-			body:         "Action=DeleteIdcApplication&Version=2012-12-01&IdcApplicationArn=",
+			body:         "Action=DeleteRedshiftIdcApplication&Version=2012-12-01&RedshiftIdcApplicationArn=",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
@@ -158,25 +158,25 @@ func TestHandler_DescribeIdcApplications(t *testing.T) {
 				postRedshiftForm(
 					t,
 					h,
-					"Action=CreateIdcApplication&"+
-						"Version=2012-12-01&IdcApplicationName=app-a&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
+					"Action=CreateRedshiftIdcApplication&"+
+						"Version=2012-12-01&RedshiftIdcApplicationName=app-a&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
 				)
 				postRedshiftForm(
 					t,
 					h,
-					"Action=CreateIdcApplication&"+
-						"Version=2012-12-01&IdcApplicationName=app-b&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
+					"Action=CreateRedshiftIdcApplication&"+
+						"Version=2012-12-01&RedshiftIdcApplicationName=app-b&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
 				)
 			},
-			body:         "Action=DescribeIdcApplications&Version=2012-12-01",
+			body:         "Action=DescribeRedshiftIdcApplications&Version=2012-12-01",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DescribeIdcApplicationsResponse", "app-a", "app-b"},
+			wantContains: []string{"DescribeRedshiftIdcApplicationsResponse", "app-a", "app-b"},
 		},
 		{
 			name:         "empty",
-			body:         "Action=DescribeIdcApplications&Version=2012-12-01",
+			body:         "Action=DescribeRedshiftIdcApplications&Version=2012-12-01",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DescribeIdcApplicationsResponse"},
+			wantContains: []string{"DescribeRedshiftIdcApplicationsResponse"},
 		},
 	}
 
@@ -218,23 +218,23 @@ func TestHandler_ModifyIdcApplication(t *testing.T) {
 				postRedshiftForm(
 					t,
 					h,
-					"Action=CreateIdcApplication&"+
-						"Version=2012-12-01&IdcApplicationName=mod-app&IdcInstanceArn=arn:idc"+
+					"Action=CreateRedshiftIdcApplication&"+
+						"Version=2012-12-01&RedshiftIdcApplicationName=mod-app&IdcInstanceArn=arn:idc"+
 						"&IdcDisplayName=OldName&IamRoleArn=arn:old-role",
 				)
 			},
-			body: "Action=ModifyIdcApplication&" +
+			body: "Action=ModifyRedshiftIdcApplication&" +
 				"Version=2012-12-01" +
-				"&IdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/mod-app" +
+				"&RedshiftIdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/mod-app" +
 				"&IdcDisplayName=NewName&IamRoleArn=arn:new-role",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"ModifyIdcApplicationResponse", "mod-app"},
+			wantContains: []string{"ModifyRedshiftIdcApplicationResponse", "mod-app"},
 		},
 		{
 			name:         "not_found",
-			body:         "Action=ModifyIdcApplication&Version=2012-12-01&IdcApplicationArn=arn:missing",
+			body:         "Action=ModifyRedshiftIdcApplication&Version=2012-12-01&RedshiftIdcApplicationArn=arn:missing",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"IdcApplicationNotExistsFault"},
+			wantContains: []string{"RedshiftIdcApplicationNotExists"},
 		},
 	}
 
@@ -270,8 +270,8 @@ func TestBackend_IdcApplication_Count(t *testing.T) {
 	postRedshiftForm(
 		t,
 		h,
-		"Action=CreateIdcApplication&"+
-			"Version=2012-12-01&IdcApplicationName=app1&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
+		"Action=CreateRedshiftIdcApplication&"+
+			"Version=2012-12-01&RedshiftIdcApplicationName=app1&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
 	)
 
 	assert.Equal(t, 1, redshift.IdcApplicationCount(b))
@@ -279,8 +279,8 @@ func TestBackend_IdcApplication_Count(t *testing.T) {
 	postRedshiftForm(
 		t,
 		h,
-		"Action=DeleteIdcApplication&"+
-			"Version=2012-12-01&IdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/app1",
+		"Action=DeleteRedshiftIdcApplication&"+
+			"Version=2012-12-01&RedshiftIdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/app1",
 	)
 
 	assert.Equal(t, 0, redshift.IdcApplicationCount(b))
@@ -297,8 +297,8 @@ func TestHandler_IdcApplication_Lifecycle(t *testing.T) {
 	rec := postRedshiftForm(
 		t,
 		h,
-		"Action=CreateIdcApplication&"+
-			"Version=2012-12-01&IdcApplicationName=lc-app"+
+		"Action=CreateRedshiftIdcApplication&"+
+			"Version=2012-12-01&RedshiftIdcApplicationName=lc-app"+
 			"&IdcInstanceArn=arn:aws:sso:::instance/abc&IdcDisplayName=LifecycleApp"+
 			"&IamRoleArn=arn:aws:iam::123:role/MyRole",
 	)
@@ -307,7 +307,7 @@ func TestHandler_IdcApplication_Lifecycle(t *testing.T) {
 
 	// Describe — should appear
 	rec = postRedshiftForm(t, h,
-		"Action=DescribeIdcApplications&Version=2012-12-01")
+		"Action=DescribeRedshiftIdcApplications&Version=2012-12-01")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "lc-app")
 
@@ -315,9 +315,9 @@ func TestHandler_IdcApplication_Lifecycle(t *testing.T) {
 	rec = postRedshiftForm(
 		t,
 		h,
-		"Action=ModifyIdcApplication&"+
+		"Action=ModifyRedshiftIdcApplication&"+
 			"Version=2012-12-01"+
-			"&IdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/lc-app"+
+			"&RedshiftIdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/lc-app"+
 			"&IdcDisplayName=UpdatedApp",
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -326,8 +326,8 @@ func TestHandler_IdcApplication_Lifecycle(t *testing.T) {
 	rec = postRedshiftForm(
 		t,
 		h,
-		"Action=DeleteIdcApplication&"+
-			"Version=2012-12-01&IdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/lc-app",
+		"Action=DeleteRedshiftIdcApplication&"+
+			"Version=2012-12-01&RedshiftIdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/lc-app",
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -335,11 +335,11 @@ func TestHandler_IdcApplication_Lifecycle(t *testing.T) {
 	rec = postRedshiftForm(
 		t,
 		h,
-		"Action=DescribeIdcApplications&"+
-			"Version=2012-12-01&IdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/lc-app",
+		"Action=DescribeRedshiftIdcApplications&"+
+			"Version=2012-12-01&RedshiftIdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/lc-app",
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "IdcApplicationNotExistsFault")
+	assert.Contains(t, rec.Body.String(), "RedshiftIdcApplicationNotExists")
 }
 
 // ---- GetIdentityCenterAuthToken ----

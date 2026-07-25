@@ -608,6 +608,164 @@ func TestCreateResourceShare_WithPrincipalsAndResources(t *testing.T) {
 	}
 }
 
+// TestCreateResourceShare_AutoAssociatesDefaultPermission verifies that AWS's documented
+// auto-attach behavior is honored: if you don't specify permissionArns, the resource
+// share is automatically associated with the default RAM-managed permission for each
+// resource type included in the resource share.
+func TestCreateResourceShare_AutoAssociatesDefaultPermission(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		permissionArns []string
+		wantAutoAttach bool
+	}{
+		{
+			name:           "no permissionArns auto-attaches the default",
+			permissionArns: nil,
+			wantAutoAttach: true,
+		},
+		{
+			name:           "explicit permissionArns skip auto-attach",
+			permissionArns: []string{"arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet"},
+			wantAutoAttach: false, // still attached, but via the explicit path -- count is 1 either way
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := map[string]any{
+				"name":         "auto-perm-" + strings.ReplaceAll(tt.name, " ", "-"),
+				"resourceArns": []string{"arn:aws:ec2:us-east-1:123456789012:subnet/sub-1"},
+			}
+			if len(tt.permissionArns) > 0 {
+				body["permissionArns"] = tt.permissionArns
+			}
+
+			rec := doRAMRequest(t, h, "/createresourceshare", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var shareResp struct {
+				ResourceShare struct {
+					ResourceShareArn string `json:"resourceShareArn"`
+				} `json:"resourceShare"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shareResp))
+
+			listRec := doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
+				"resourceShareArn": shareResp.ResourceShare.ResourceShareArn,
+			})
+			require.Equal(t, http.StatusOK, listRec.Code)
+
+			var listResp struct {
+				Permissions []struct {
+					Arn string `json:"arn"`
+				} `json:"permissions"`
+			}
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.Len(t, listResp.Permissions, 1)
+			assert.Equal(t, "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet", listResp.Permissions[0].Arn)
+		})
+	}
+}
+
+// TestCreateResourceShare_NoAutoAttachWithoutResources verifies that a share created with
+// no resourceArns and no permissionArns gets no permissions auto-attached (nothing to
+// attach a default for).
+func TestCreateResourceShare_NoAutoAttachWithoutResources(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRAMRequest(t, h, "/createresourceshare", map[string]any{"name": "no-resources-share"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var shareResp struct {
+		ResourceShare struct {
+			ResourceShareArn string `json:"resourceShareArn"`
+		} `json:"resourceShare"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shareResp))
+
+	listRec := doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
+		"resourceShareArn": shareResp.ResourceShare.ResourceShareArn,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), `"permissions":[]`)
+}
+
+// TestGetResourceShares_PermissionArnFilter verifies the permissionArn/permissionVersion
+// request filters (present on the real GetResourceSharesInput, previously unimplemented).
+func TestGetResourceShares_PermissionArnFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	withPerm, err := h.Backend.CreateResourceShare("with-perm-share", false, nil, nil, nil)
+	require.NoError(t, err)
+	_, err = h.Backend.CreateResourceShare("without-perm-share", false, nil, nil, nil)
+	require.NoError(t, err)
+
+	perm, err := h.Backend.CreatePermission("filter-perm", "ec2:Subnet", `{}`, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Backend.AssociateResourceSharePermission(withPerm.ARN, perm.ARN, false, nil))
+
+	rec := doRAMRequest(t, h, "/getresourceshares", map[string]any{
+		"resourceOwner": "SELF",
+		"permissionArn": perm.ARN,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		ResourceShares []struct {
+			Name string `json:"name"`
+		} `json:"resourceShares"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.ResourceShares, 1)
+	assert.Equal(t, "with-perm-share", resp.ResourceShares[0].Name)
+}
+
+// TestGetResourceShares_TagFilters verifies the tagFilters request filter (present on the
+// real GetResourceSharesInput, previously unimplemented).
+func TestGetResourceShares_TagFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreateResourceShare(
+		"tagged-share", false, map[string]string{"env": "prod"}, nil, nil,
+	)
+	require.NoError(t, err)
+	_, err = h.Backend.CreateResourceShare(
+		"other-tagged-share", false, map[string]string{"env": "dev"}, nil, nil,
+	)
+	require.NoError(t, err)
+	_, err = h.Backend.CreateResourceShare("untagged-share", false, nil, nil, nil)
+	require.NoError(t, err)
+
+	rec := doRAMRequest(t, h, "/getresourceshares", map[string]any{
+		"resourceOwner": "SELF",
+		"tagFilters": []map[string]any{
+			{"tagKey": "env", "tagValues": []string{"prod"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		ResourceShares []struct {
+			Name string `json:"name"`
+		} `json:"resourceShares"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.ResourceShares, 1)
+	assert.Equal(t, "tagged-share", resp.ResourceShares[0].Name)
+}
+
 func TestGetResourceShares_NameFilter(t *testing.T) {
 	t.Parallel()
 

@@ -100,9 +100,18 @@ func (h *Handler) handleGetVariantImportJob(c *echo.Context, jobID string) error
 }
 
 func (h *Handler) handleListVariantImportJobs(c *echo.Context) error {
+	var req struct {
+		Filter *ImportJobFilter `json:"filter"`
+		IDs    []string         `json:"ids"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
-	jobs, next, err := h.Backend.ListVariantImportJobs(maxResults, nextToken)
+	jobs, next, err := h.Backend.ListVariantImportJobs(req.Filter, req.IDs, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}

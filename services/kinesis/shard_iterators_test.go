@@ -160,7 +160,7 @@ func TestGetShardIterator_AllTypes(t *testing.T) {
 			StreamName:        "iter-types",
 			ShardID:           shardID,
 			ShardIteratorType: "AT_TIMESTAMP",
-			Timestamp:         timestamps[3],
+			Timestamp:         &timestamps[3],
 		})
 		require.NoError(t, err)
 
@@ -286,4 +286,67 @@ func TestGetShardIteratorAtTimestamp(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
 	assert.Len(t, getResp.Records, 1)
 	assert.Equal(t, []byte("hello"), getResp.Records[0].Data)
+}
+
+// TestGetShardIterator_AtTimestampRequiresTimestamp verifies AT_TIMESTAMP
+// rejects a genuinely omitted Timestamp field with InvalidArgumentException
+// instead of silently treating it as position 0 (epoch/TRIM_HORIZON). An
+// explicit Timestamp of 0 (present on the wire) is still accepted -- see
+// TestGetShardIteratorAtTimestamp.
+func TestGetShardIterator_AtTimestampRequiresTimestamp(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "ts-required-stream", "ShardCount": 1})
+
+	rec := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "ts-required-stream"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp struct {
+		StreamDescription struct {
+			Shards []struct {
+				ShardID string `json:"ShardId"`
+			} `json:"Shards"`
+		} `json:"StreamDescription"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	shardID := descResp.StreamDescription.Shards[0].ShardID
+
+	rec = doRequest(t, h, "GetShardIterator", map[string]any{
+		"StreamName":        "ts-required-stream",
+		"ShardId":           shardID,
+		"ShardIteratorType": "AT_TIMESTAMP",
+		// Timestamp deliberately omitted.
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp struct {
+		Type string `json:"__type"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "InvalidArgumentException", errResp.Type)
+}
+
+// TestGetShardIterator_AtTimestampNilRejectedAtBackend is the backend-level
+// counterpart of TestGetShardIterator_AtTimestampRequiresTimestamp, verifying
+// a nil GetShardIteratorInput.Timestamp is rejected directly (not just when
+// routed through the JSON-omission path).
+func TestGetShardIterator_AtTimestampNilRejectedAtBackend(t *testing.T) {
+	t.Parallel()
+
+	b := newParityBackend(t)
+	createParityStream(t, b, "ts-nil-stream", 1)
+
+	shardsOut, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "ts-nil-stream"})
+	require.NoError(t, err)
+	require.NotEmpty(t, shardsOut.Shards)
+
+	_, err = b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
+		StreamName:        "ts-nil-stream",
+		ShardID:           shardsOut.Shards[0].ShardID,
+		ShardIteratorType: "AT_TIMESTAMP",
+		Timestamp:         nil,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, kinesis.ErrInvalidArgument)
 }

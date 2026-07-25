@@ -312,13 +312,13 @@ func TestAWSConfigBackend_PutConfigurationRecorder_Validation(t *testing.T) {
 			name:    "empty_name_fails",
 			recName: "",
 			roleARN: "arn:aws:iam::000000000000:role/r",
-			wantErr: awsconfig.ErrValidation,
+			wantErr: awsconfig.ErrInvalidConfigurationRecorderName,
 		},
 		{
 			name:    "empty_roleARN_fails",
 			recName: "default",
 			roleARN: "",
-			wantErr: awsconfig.ErrValidation,
+			wantErr: awsconfig.ErrInvalidRole,
 		},
 		{
 			name:    "update_preserves_status",
@@ -456,4 +456,88 @@ func TestAWSConfigBackend_DeleteConfigurationRecorder(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestAWSConfigBackend_ServiceLinkedConfigurationRecorder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty_service_principal_fails", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, _, err := b.PutServiceLinkedConfigurationRecorder("")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrValidation)
+	})
+
+	t.Run("create_is_active_and_appears_in_describe", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		name, arn, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		require.NoError(t, err)
+		assert.Equal(t, "AWSConfigurationRecorderForGuardduty", name)
+		assert.Contains(t, arn, "config-recorder/"+name)
+
+		statuses := b.DescribeConfigurationRecorderStatus([]string{name})
+		require.Len(t, statuses, 1)
+		assert.True(t, statuses[0].Recording)
+	})
+
+	t.Run("put_is_idempotent_per_principal", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		name1, arn1, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		require.NoError(t, err)
+		name2, arn2, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		require.NoError(t, err)
+
+		assert.Equal(t, name1, name2)
+		assert.Equal(t, arn1, arn2)
+		assert.Len(t, b.DescribeConfigurationRecorders(nil), 1)
+	})
+
+	t.Run("delete_unknown_principal_errors_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, _, err := b.DeleteServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNotFound)
+	})
+
+	t.Run("delete_removes_recorder", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		name, _, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		require.NoError(t, err)
+
+		delName, delArn, err := b.DeleteServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		require.NoError(t, err)
+		assert.Equal(t, name, delName)
+		assert.NotEmpty(t, delArn)
+		assert.Empty(t, b.DescribeConfigurationRecorders(nil))
+	})
+
+	t.Run("survives_snapshot_restore", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		name, _, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		require.NoError(t, err)
+
+		snap := b.Snapshot(t.Context())
+		require.NotNil(t, snap)
+
+		fresh := awsconfig.NewInMemoryBackend()
+		require.NoError(t, fresh.Restore(t.Context(), snap))
+
+		// The servicePrincipal -> recorder-name link must have survived the
+		// round trip, not just the ConfigurationRecorder row itself.
+		delName, _, err := fresh.DeleteServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		require.NoError(t, err)
+		assert.Equal(t, name, delName)
+	})
 }

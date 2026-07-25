@@ -72,7 +72,7 @@ func (h *Handler) handleDescribeFileSystems(c *echo.Context, fileSystemID string
 
 	creationToken := c.Request().URL.Query().Get("CreationToken")
 	marker := c.Request().URL.Query().Get("Marker")
-	maxItems := queryInt(c, "MaxItems", defaultMaxItems)
+	maxItems := queryInt(c, "MaxItems")
 
 	fsList, nextMarker, err := h.Backend.DescribeFileSystems(
 		h.contextWithRegion(c), fileSystemID, creationToken, marker, maxItems,

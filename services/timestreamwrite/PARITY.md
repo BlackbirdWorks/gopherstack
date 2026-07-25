@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: timestreamwrite
 sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.35.19
-last_audit_commit: df8c6377
-last_audit_date: 2026-07-13
-overall: A            # real fixes found this pass (see below); prior sweeps already got most of the surface right
+last_audit_commit: ca3b796e
+last_audit_date: 2026-07-23
+overall: A            # independently re-verified this pass; no new fixes needed, prior sweep already got the surface right
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -42,6 +42,23 @@ gaps:
   - "CreateBatchLoadTask does not validate ReportConfiguration as required, and ClientToken is accepted but not used for idempotent dedup (bd: file if desired)"
   - "DescribeEndpoints Address is hardcoded \"localhost\" instead of echoing the request Host (sibling timestreamquery does echo it); verified inert for normal custom-endpoint usage, but would matter for tooling that inspects the raw response instead of relying on SDK routing (bd: file if desired, low priority)"
 deferred: []
+reaudit_2026-07-23: >
+  Independent field-diff re-audit against the checked-out aws-sdk-go-v2/service/timestreamwrite@v1.35.19
+  module (types/types.go, types/errors.go, deserializers.go, api_op_*.go). Confirmed still accurate:
+  epoch-seconds timestamp wire fields (databaseView/tableView/batchLoadTaskDescriptionView all use
+  manually-converted float64, never json.Marshal of a raw time.Time -- no epoch bug present);
+  RejectedRecord{Reason,ExistingVersion,RecordIndex} matches types.RejectedRecord byte-for-byte;
+  error-code/HTTP-400 mapping in handler.go's handleError matches the awsJson1.0 no-per-exception-status
+  convention; UpdateDatabaseInput.KmsKeyId and CreateBatchLoadTaskInput.ReportConfiguration are indeed
+  `// This member is required` in the generated SDK source (re-confirmed via grep this pass), so the two
+  corresponding gaps below are genuinely unreachable via a compliant SDK client, not unverified claims.
+  Cascade cleanup (DeleteDatabase/DeleteTable close per-table lockmetrics.RWMutex before dropping the
+  records map, delete tags by ARN) and Snapshot/Restore round-trip re-read line by line -- no leak found,
+  no ghost rows after delete. sdk_completeness_test.go's notImplemented list is empty, confirming no
+  deferred resource family remains. No banned cyclop/gocyclo/gocognit/funlen nolints present. No
+  gopherstack-invented ops/fields found. go build/vet/test -race/gofmt/golangci-lint all clean. No code
+  changes made this pass -- see gaps below for the only known open items, each already unreachable via a
+  compliant client or hedged for compatibility with an intentional existing test.
 ---
 
 ## Notes

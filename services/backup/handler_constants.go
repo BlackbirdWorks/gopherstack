@@ -13,6 +13,7 @@ const (
 	keyBackupJobID     = "BackupJobId"
 	keyCreationTime    = "CreationTime"
 	keyVaultType       = "VaultType"
+	keyAccountID       = "AccountId"
 )
 
 const (
@@ -170,7 +171,7 @@ const (
 	pathReportJobs                 = "/audit/report-jobs"
 	pathScanJobs                   = "/scan/jobs"
 	pathScanJobStart               = "/scan/job"
-	pathTieringConf                = "/backup-vault-tiering"
+	pathTieringConf                = "/tiering-configurations"
 	pathIndexedRecovery            = "/indexes/recovery-point"
 	pathRestoreTestingInferredMeta = "/restore-testing/inferred-metadata"
 

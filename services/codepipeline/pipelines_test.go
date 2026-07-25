@@ -410,31 +410,28 @@ func TestInMemoryBackend_UpdatePipeline_IncrementsVersion(t *testing.T) {
 	assert.Equal(t, 2, updated.Declaration.Version)
 }
 
-func TestHandler_UpdatePipeline_VersionConflict(t *testing.T) {
+// TestHandler_UpdatePipeline_VersionIsIgnored locks in that UpdatePipeline
+// never validates the incoming pipeline.version against the pipeline's
+// current version, for ANY value (including one that could never legitimately
+// match) -- real AWS's PipelineDeclaration.Version field is documented as
+// purely informational/system-managed ("A new pipeline always has a version
+// number of 1. This number is incremented when a pipeline is updated"), with
+// no documented optimistic-concurrency contract. A prior revision of this
+// backend fabricated a ConflictException for a version mismatch (a
+// gopherstack-invented behavior flagged, but left unfixed, in an earlier
+// audit pass); that check has been removed. UpdatePipeline instead always
+// succeeds and always increments the version by exactly 1, regardless of
+// what the caller sent.
+func TestHandler_UpdatePipeline_VersionIsIgnored(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		wantType   string
-		version    int
-		wantStatus int
+		name    string
+		version int
 	}{
-		{
-			name:       "version 0 (omitted) always succeeds",
-			version:    0,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "matching version succeeds",
-			version:    1,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "wrong version returns ConflictException",
-			version:    99,
-			wantStatus: http.StatusBadRequest,
-			wantType:   "ConflictException",
-		},
+		{name: "version 0 (omitted)", version: 0},
+		{name: "version matching current", version: 1},
+		{name: "version that could never match", version: 99},
 	}
 
 	for _, tt := range tests {
@@ -442,20 +439,25 @@ func TestHandler_UpdatePipeline_VersionConflict(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("ver-conflict"), nil)
+			_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("ver-ignored"), nil)
 			require.NoError(t, err)
 
-			p := samplePipeline("ver-conflict")
+			p := samplePipeline("ver-ignored")
 			p.Version = tt.version
 
 			rec := doRequest(t, h, "UpdatePipeline", map[string]any{"pipeline": p})
-			assert.Equal(t, tt.wantStatus, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
 
-			if tt.wantType != "" {
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				assert.Equal(t, tt.wantType, out["__type"])
-			}
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			pipeline, _ := out["pipeline"].(map[string]any)
+			assert.InDelta(
+				t,
+				2,
+				pipeline["version"],
+				0,
+				"version always becomes current+1, regardless of the input version",
+			)
 		})
 	}
 }
@@ -647,6 +649,52 @@ func TestDeletePipeline_CascadeStageTransitions(t *testing.T) {
 	// Transition should also be gone.
 	assert.Equal(t, 0, h.Backend.StageTransitionCount())
 	assert.Equal(t, 0, h.Backend.PipelineCount())
+}
+
+// TestDeletePipeline_CascadeActionRevisions verifies PutActionRevision's
+// tracked revision (surfaced via GetPipelineState's actionStates[].
+// currentRevision) does not leak into a same-named pipeline recreated after
+// a delete -- the same class of stale-data bug fixed for actionExecutions in
+// a prior audit pass (see TestInMemoryBackend_DeletePipeline_ClearsActionExecutions),
+// now also covering the actionRevisions store this pass added.
+func TestDeletePipeline_CascadeActionRevisions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	decl := samplePipeline("cascade-rev-pl")
+
+	_, err := h.Backend.CreatePipeline(context.Background(), decl, nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, "PutActionRevision", map[string]any{
+		"pipelineName": "cascade-rev-pl", "stageName": "Source", "actionName": "SourceAction",
+		"actionRevision": map[string]any{"revisionId": "r1", "revisionChangeId": "c1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.NoError(t, h.Backend.DeletePipeline(context.Background(), "cascade-rev-pl"))
+
+	// Recreate a pipeline with the same name; its tracked revision must
+	// start clean, not inherit the deleted pipeline's.
+	_, err = h.Backend.CreatePipeline(context.Background(), decl, nil)
+	require.NoError(t, err)
+
+	stateRec := doRequest(t, h, "GetPipelineState", map[string]any{"name": "cascade-rev-pl"})
+	require.Equal(t, http.StatusOK, stateRec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(stateRec.Body.Bytes(), &out))
+	stageStates, _ := out["stageStates"].([]any)
+	require.Len(t, stageStates, 1)
+	stage, _ := stageStates[0].(map[string]any)
+	actionStates, _ := stage["actionStates"].([]any)
+	require.Len(t, actionStates, 1)
+	action, _ := actionStates[0].(map[string]any)
+	assert.Nil(
+		t,
+		action["currentRevision"],
+		"recreated pipeline must not inherit the deleted pipeline's action revision",
+	)
 }
 
 func TestHandler_ListPipelines(t *testing.T) {

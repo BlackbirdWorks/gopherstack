@@ -1,7 +1,6 @@
 package directoryservice
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -12,12 +11,42 @@ import (
 )
 
 func (h *Handler) handleAddRegion(c *echo.Context) error {
-	return h.handleTwoFieldOp(c, twoFieldOp{
-		secondKey: "RegionName",
-		invoke: func(ctx context.Context, dirID, second string) error {
-			return h.Backend.AddRegion(ctx, dirID, second)
-		},
-	})
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
+	}
+
+	var req struct {
+		VPCSettings *struct {
+			VpcID     string   `json:"VpcId"`
+			SubnetIDs []string `json:"SubnetIds"`
+		} `json:"VPCSettings"`
+		DirectoryID string `json:"DirectoryId"`
+		RegionName  string `json:"RegionName"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
+	}
+
+	if req.DirectoryID == "" || req.RegionName == "" || req.VPCSettings == nil {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "DirectoryId, RegionName and VPCSettings are required"),
+		)
+	}
+
+	vpcSettings := &DirectoryVpcSettings{
+		VpcID:     req.VPCSettings.VpcID,
+		SubnetIDs: req.VPCSettings.SubnetIDs,
+	}
+
+	addErr := h.Backend.AddRegion(h.contextWithRegion(c), req.DirectoryID, req.RegionName, vpcSettings)
+	if addErr != nil {
+		return h.mapError(c, addErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
 }
 
 func (h *Handler) handleRemoveRegion(c *echo.Context) error {
@@ -35,7 +64,7 @@ func (h *Handler) handleRemoveRegion(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if removeErr := h.Backend.RemoveRegion(h.contextWithRegion(c), req.DirectoryID); removeErr != nil {
@@ -64,7 +93,7 @@ func (h *Handler) handleDescribeRegions(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	regions, nextToken, descErr := h.Backend.DescribeRegions(
@@ -79,13 +108,22 @@ func (h *Handler) handleDescribeRegions(c *echo.Context) error {
 
 	regionList := make([]map[string]any, 0, len(regions))
 	for _, r := range regions {
-		regionList = append(regionList, map[string]any{
-			keyDirectoryID: r.DirectoryID,
-			"RegionName":   r.RegionName,
-			"RegionType":   r.RegionType,
-			keyStatus:      r.Status,
-			keyLaunchTime:  awstime.Epoch(r.LaunchTime),
-		})
+		entry := map[string]any{
+			keyDirectoryID:                     r.DirectoryID,
+			"RegionName":                       r.RegionName,
+			"RegionType":                       r.RegionType,
+			keyStatus:                          r.Status,
+			keyLaunchTime:                      awstime.Epoch(r.LaunchTime),
+			"StatusLastUpdatedDateTime":        awstime.Epoch(r.StatusLastUpdatedDateTime),
+			"DesiredNumberOfDomainControllers": r.DesiredNumberOfDomainCtrls,
+		}
+		if r.VpcSettings != nil {
+			entry["VpcSettings"] = map[string]any{
+				"VpcId":     r.VpcSettings.VpcID,
+				"SubnetIds": r.VpcSettings.SubnetIDs,
+			}
+		}
+		regionList = append(regionList, entry)
 	}
 
 	resp := map[string]any{"RegionsDescription": regionList}

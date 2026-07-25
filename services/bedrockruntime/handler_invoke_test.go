@@ -2,6 +2,7 @@ package bedrockruntime_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -547,4 +548,194 @@ func TestInvokeModel_NoTokenCountHeaders_Jurassic(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Empty(t, rec.Header().Get("X-Amzn-Bedrock-Input-Token-Count"),
 		"Jurassic/AI21 models must NOT set token count headers")
+}
+
+// --- Event stream chunk payload wire shape ---
+//
+// The real aws-sdk-go-v2 client deserializes a "chunk" event's payload as
+// types.PayloadPart / types.BidirectionalOutputPayloadPart: a JSON document
+// with a single "bytes" member holding base64-encoded bytes (see
+// awsRestjson1_deserializeDocumentPayloadPart in the real SDK's
+// deserializers.go). Sending the raw model-response JSON as the payload
+// itself -- instead of wrapping it in {"bytes": "<base64>"}  -- silently
+// leaves the client's PayloadPart.Bytes field empty.
+
+func TestInvokeModelWithResponseStream_ChunkPayloadIsBase64WrappedBytes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/invoke-with-response-stream",
+		map[string]any{"prompt": "Hello"})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	frames := parseEventStreamFrames(rec.Body.Bytes())
+	require.Len(t, frames, 1)
+
+	rawBytes, ok := frames[0]["bytes"].(string)
+	require.True(t, ok, "chunk event payload must be a JSON document with a top-level 'bytes' member")
+
+	decoded, err := base64.StdEncoding.DecodeString(rawBytes)
+	require.NoError(t, err)
+
+	var modelResp map[string]any
+	require.NoError(t, json.Unmarshal(decoded, &modelResp))
+	assert.Equal(t, "end_turn", modelResp["stop_reason"])
+	assert.Equal(t, "This is a mock response from Gopherstack.", modelResp["completion"])
+}
+
+func TestBidirectionalStream_ChunkPayloadIsBase64WrappedBytes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/invoke-with-bidirectional-stream",
+		map[string]any{"prompt": "Hello"})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	frames := parseEventStreamFrames(rec.Body.Bytes())
+	require.Len(t, frames, 1)
+
+	rawBytes, ok := frames[0]["bytes"].(string)
+	require.True(t, ok, "chunk event payload must be a JSON document with a top-level 'bytes' member")
+
+	_, err := base64.StdEncoding.DecodeString(rawBytes)
+	require.NoError(t, err)
+}
+
+// --- InvokeModel guardrail header validation ---
+//
+// Real InvokeModel/InvokeModelWithResponseStream throw a ValidationException
+// when guardrailIdentifier is supplied without guardrailVersion (see
+// InvokeModelInput.GuardrailIdentifier's doc comment in the real SDK's
+// api_op_InvokeModel.go).
+
+func TestInvokeModel_GuardrailIdentifierWithoutVersion_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/model/anthropic.claude-v2/invoke", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Amzn-Bedrock-Guardrailidentifier", "my-guardrail")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "ValidationException", out["__type"])
+}
+
+func TestInvokeModel_GuardrailIdentifierWithVersion_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/model/anthropic.claude-v2/invoke", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Amzn-Bedrock-Guardrailidentifier", "my-guardrail")
+	req.Header.Set("X-Amzn-Bedrock-Guardrailversion", "DRAFT")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestInvokeModelWithResponseStream_GuardrailIdentifierWithoutVersion_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+
+	e := echo.New()
+	req := httptest.NewRequest(
+		http.MethodPost, "/model/anthropic.claude-v2/invoke-with-response-stream", bytes.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Amzn-Bedrock-Guardrailidentifier", "my-guardrail")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// --- PerformanceConfigLatency echo ---
+
+func TestInvokeModel_PerformanceConfigLatency_EchoedInResponse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/model/anthropic.claude-v2/invoke", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Amzn-Bedrock-Performanceconfig-Latency", "optimized")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "optimized", rec.Header().Get("X-Amzn-Bedrock-Performanceconfig-Latency"))
+}
+
+func TestInvokeModel_PerformanceConfigLatency_OmittedWhenNotRequested(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/invoke",
+		map[string]any{"prompt": "Hello"})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, rec.Header().Get("X-Amzn-Bedrock-Performanceconfig-Latency"))
+}
+
+func TestInvokeModelWithResponseStream_PerformanceConfigLatency_EchoedInResponse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+
+	e := echo.New()
+	req := httptest.NewRequest(
+		http.MethodPost, "/model/anthropic.claude-v2/invoke-with-response-stream", bytes.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Amzn-Bedrock-Performanceconfig-Latency", "optimized")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "optimized", rec.Header().Get("X-Amzn-Bedrock-Performanceconfig-Latency"))
+}
+
+func TestInvokeModelWithResponseStream_BedrockContentTypeHeader(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/invoke-with-response-stream",
+		map[string]any{"prompt": "Hello"})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("X-Amzn-Bedrock-Content-Type"))
 }

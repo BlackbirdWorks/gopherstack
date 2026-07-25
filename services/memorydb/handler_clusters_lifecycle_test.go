@@ -282,7 +282,7 @@ func TestHandler_ClusterWithSnapshotRestore(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "create cluster from existing snapshot", wantStatus: http.StatusOK},
-		{name: "create cluster from nonexistent snapshot returns 404", wantStatus: http.StatusNotFound},
+		{name: "create cluster from nonexistent snapshot returns 400", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -374,13 +374,13 @@ func TestHandler_CreateCluster_ValidationEdgeCases(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "invalid ACL reference returns 404",
+			name: "invalid ACL reference returns 400",
 			body: map[string]any{
 				"ClusterName": "bad-acl-cl",
 				"NodeType":    "db.r6g.large",
 				"ACLName":     "nonexistent-acl",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "invalid maintenance window format",
@@ -466,7 +466,7 @@ func TestHandler_CreateCluster_SubnetGroupRef(t *testing.T) {
 		name       string
 		wantStatus int
 	}{
-		{name: "invalid subnet group reference returns 404", wantStatus: http.StatusNotFound},
+		{name: "invalid subnet group reference returns 400", wantStatus: http.StatusBadRequest},
 		{name: "valid subnet group reference succeeds", wantStatus: http.StatusOK},
 	}
 
@@ -508,7 +508,7 @@ func TestHandler_CreateCluster_ParameterGroupRef(t *testing.T) {
 		name       string
 		wantStatus int
 	}{
-		{name: "invalid parameter group reference returns 404", wantStatus: http.StatusNotFound},
+		{name: "invalid parameter group reference returns 400", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -924,7 +924,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 				"NodeType":    "db.r6g.large",
 				"ACLName":     "open-access",
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing cluster name rejected",
@@ -991,13 +991,13 @@ func TestHandler_ClusterCRUD(t *testing.T) {
 			name:       "describe single cluster not found",
 			op:         "DescribeClusters",
 			body:       map[string]any{"ClusterName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "delete cluster not found",
 			op:         "DeleteCluster",
 			body:       map[string]any{"ClusterName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "delete cluster missing name",
@@ -1009,7 +1009,7 @@ func TestHandler_ClusterCRUD(t *testing.T) {
 			name:       "update cluster not found",
 			op:         "UpdateCluster",
 			body:       map[string]any{"ClusterName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1091,7 +1091,7 @@ func TestHandler_CreateCluster_RestoreFromSnapshot_NotFound(t *testing.T) {
 		"ACLName":      "open-access",
 		"SnapshotName": "no-such-snap",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // -- CopySnapshot TargetBucket (Gap 18) ----------------------------------------

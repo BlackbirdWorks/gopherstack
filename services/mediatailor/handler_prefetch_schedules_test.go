@@ -216,3 +216,87 @@ func TestCreatePrefetchSchedule_RetrievalAndConsumption(t *testing.T) {
 	assert.InEpsilon(t, consumptionSame, consumption["StartTime"], 0.001)
 	assert.InEpsilon(t, consumptionEnd, consumption["EndTime"], 0.001)
 }
+
+// TestListPrefetchSchedules_FiltersByScheduleTypeAndStreamID verifies
+// ListPrefetchSchedules honors its ScheduleType/StreamId request filters
+// (deferred item: routing + pagination were fixed in a prior pass, but the
+// filters themselves were never implemented).
+func TestListPrefetchSchedules_FiltersByScheduleTypeAndStreamID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestPlaybackConfig(t, h, "pc1")
+
+	doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1/single-a", map[string]any{
+		"ScheduleType": "SINGLE",
+		"StreamId":     "stream-1",
+	})
+	doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1/single-b", map[string]any{
+		"ScheduleType": "SINGLE",
+		"StreamId":     "stream-2",
+	})
+	doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1/recurring-a", map[string]any{
+		"ScheduleType": "RECURRING",
+		"StreamId":     "stream-1",
+	})
+
+	rec := doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1", map[string]any{
+		"ScheduleType": "SINGLE",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	items, _ := resp["Items"].([]any)
+	assert.Len(t, items, 2, "ScheduleType=SINGLE must exclude the RECURRING schedule")
+
+	rec = doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1", map[string]any{
+		"StreamId": "stream-1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	items, _ = resp["Items"].([]any)
+	assert.Len(t, items, 2, "StreamId=stream-1 must match single-a and recurring-a only")
+}
+
+// TestPrefetchSchedule_TagsAndScheduleTypeRoundTrip verifies CreatePrefetchSchedule
+// accepts and returns Tags and ScheduleType (ScheduleType/StreamId were entirely
+// unmodeled before this pass; Tags support did not exist on PrefetchSchedule at
+// all).
+func TestPrefetchSchedule_TagsAndScheduleTypeRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestPlaybackConfig(t, h, "pc1")
+
+	rec := doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1/sched1", map[string]any{
+		"ScheduleType": "RECURRING",
+		"StreamId":     "stream-9",
+		"tags":         map[string]any{"env": "prod"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "RECURRING", resp["ScheduleType"])
+	assert.Equal(t, "stream-9", resp["StreamId"])
+	tags, _ := resp["tags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
+	assert.NotNil(t, resp["CreationTime"])
+}
+
+// TestCreatePrefetchSchedule_InvalidScheduleType verifies an unrecognized
+// ScheduleType is rejected as BadRequestException, matching the real enum's
+// only two members (SINGLE, RECURRING).
+func TestCreatePrefetchSchedule_InvalidScheduleType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestPlaybackConfig(t, h, "pc1")
+
+	rec := doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1/sched1", map[string]any{
+		"ScheduleType": "BOGUS",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

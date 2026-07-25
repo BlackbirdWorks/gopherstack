@@ -197,39 +197,96 @@ func (h *Handler) handleGetReportGroupTrend(
 	return &getReportGroupTrendOutput{Stats: stats}, nil
 }
 
-type listReportGroupsInput struct{}
+type listReportGroupsInput struct {
+	NextToken  string `json:"nextToken"`
+	SortBy     string `json:"sortBy"`
+	SortOrder  string `json:"sortOrder"`
+	MaxResults int32  `json:"maxResults"`
+}
 
 type listReportGroupsOutput struct {
+	NextToken    string   `json:"nextToken,omitempty"`
 	ReportGroups []string `json:"reportGroups"`
 }
 
-func (h *Handler) handleListReportGroups(_ context.Context, _ *listReportGroupsInput) (*listReportGroupsOutput, error) {
-	return &listReportGroupsOutput{ReportGroups: h.Backend.ListReportGroups()}, nil
+func (h *Handler) handleListReportGroups(
+	_ context.Context,
+	in *listReportGroupsInput,
+) (*listReportGroupsOutput, error) {
+	arns := h.Backend.ListReportGroupsSortedBy(in.SortBy)
+
+	pg, err := paginateIDs(arns, in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listReportGroupsOutput{ReportGroups: pg.Data, NextToken: pg.Next}, nil
 }
 
-type listReportsInput struct{}
+// reportFilter mirrors the wire shape of the real SDK's ReportFilter (a
+// single optional status field).
+type reportFilter struct {
+	Status string `json:"status"`
+}
+
+type listReportsInput struct {
+	Filter     *reportFilter `json:"filter"`
+	NextToken  string        `json:"nextToken"`
+	SortOrder  string        `json:"sortOrder"`
+	MaxResults int32         `json:"maxResults"`
+}
 
 type listReportsOutput struct {
-	Reports []string `json:"reports"`
+	NextToken string   `json:"nextToken,omitempty"`
+	Reports   []string `json:"reports"`
 }
 
-func (h *Handler) handleListReports(_ context.Context, _ *listReportsInput) (*listReportsOutput, error) {
-	return &listReportsOutput{Reports: h.Backend.ListReports()}, nil
+func (h *Handler) handleListReports(_ context.Context, in *listReportsInput) (*listReportsOutput, error) {
+	var status string
+	if in.Filter != nil {
+		status = in.Filter.Status
+	}
+
+	arns := h.Backend.ListReports(status)
+
+	pg, err := paginateIDs(arns, in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listReportsOutput{Reports: pg.Data, NextToken: pg.Next}, nil
 }
 
 type listReportsForReportGroupInput struct {
-	ReportGroupArn string `json:"reportGroupArn"`
+	Filter         *reportFilter `json:"filter"`
+	ReportGroupArn string        `json:"reportGroupArn"`
+	NextToken      string        `json:"nextToken"`
+	SortOrder      string        `json:"sortOrder"`
+	MaxResults     int32         `json:"maxResults"`
 }
 
 type listReportsForReportGroupOutput struct {
-	Reports []string `json:"reports"`
+	NextToken string   `json:"nextToken,omitempty"`
+	Reports   []string `json:"reports"`
 }
 
 func (h *Handler) handleListReportsForReportGroup(
 	_ context.Context,
 	in *listReportsForReportGroupInput,
 ) (*listReportsForReportGroupOutput, error) {
-	return &listReportsForReportGroupOutput{Reports: h.Backend.ListReportsForReportGroup(in.ReportGroupArn)}, nil
+	var status string
+	if in.Filter != nil {
+		status = in.Filter.Status
+	}
+
+	arns := h.Backend.ListReportsForReportGroup(in.ReportGroupArn, status)
+
+	pg, err := paginateIDs(arns, in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listReportsForReportGroupOutput{Reports: pg.Data, NextToken: pg.Next}, nil
 }
 
 type listSharedReportGroupsInput struct{}

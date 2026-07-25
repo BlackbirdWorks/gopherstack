@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -31,6 +32,40 @@ func cloneHumanTaskUI(h *HumanTaskUI) *HumanTaskUI {
 	cp.Tags = maps.Clone(h.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime as an AWS awsjson1.1 epoch-seconds number
+// rather than Go's default RFC3339 string — this struct is marshaled
+// directly by handleDescribeHumanTaskUI.
+func (h *HumanTaskUI) MarshalJSON() ([]byte, error) {
+	type alias HumanTaskUI
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{
+		alias:        (*alias)(h),
+		CreationTime: epochSeconds(h.CreationTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [HumanTaskUI.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (h *HumanTaskUI) UnmarshalJSON(data []byte) error {
+	type alias HumanTaskUI
+
+	aux := struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{alias: (*alias)(h)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	h.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+
+	return nil
 }
 
 // CreateHumanTaskUI creates a human task UI.

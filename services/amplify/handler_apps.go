@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // JSON response keys used by the app handlers.
@@ -40,6 +41,82 @@ func (h *Handler) handleAppID(ctx context.Context, c *echo.Context, appID string
 	}
 }
 
+// createAppRequest is the wire shape of a CreateApp request body, mirroring
+// aws-sdk-go-v2/service/amplify's CreateAppInput field-for-field (minus
+// AccessToken/OauthToken, which are write-only secrets real Amplify uses to
+// authorize against a Git provider and never stores -- gopherstack has no
+// external Git provider to authorize against, so they are accepted but
+// intentionally discarded, same as it does today for every other AWS
+// service stub's credential-shaped fields).
+type createAppRequest struct {
+	Tags                       map[string]string         `json:"tags"`
+	EnvironmentVariables       map[string]string         `json:"environmentVariables"`
+	AutoBranchCreationConfig   *AutoBranchCreationConfig `json:"autoBranchCreationConfig"`
+	CacheConfig                *CacheConfig              `json:"cacheConfig"`
+	EnableBranchAutoBuild      *bool                     `json:"enableBranchAutoBuild"`
+	BasicAuthCredentials       string                    `json:"basicAuthCredentials"`
+	Repository                 string                    `json:"repository"`
+	Platform                   string                    `json:"platform"`
+	Description                string                    `json:"description"`
+	BuildSpec                  string                    `json:"buildSpec"`
+	CustomHeaders              string                    `json:"customHeaders"`
+	IAMServiceRoleArn          string                    `json:"iamServiceRoleArn"`
+	Name                       string                    `json:"name"`
+	AutoBranchCreationPatterns []string                  `json:"autoBranchCreationPatterns"`
+	CustomRules                []CustomRule              `json:"customRules"`
+	EnableBasicAuth            bool                      `json:"enableBasicAuth"`
+	EnableAutoBranchCreation   bool                      `json:"enableAutoBranchCreation"`
+	EnableBranchAutoDeletion   bool                      `json:"enableBranchAutoDeletion"`
+}
+
+// toAppOptions converts the wire request into the AppOptions the backend
+// expects. isCreate selects create-vs-update pointer/default semantics for
+// the plain (non-pointer) boolean fields -- see AppOptions's doc comment.
+func (r createAppRequest) toAppOptions(isCreate bool) AppOptions {
+	opts := AppOptions{
+		EnvironmentVariables:       r.EnvironmentVariables,
+		AutoBranchCreationConfig:   r.AutoBranchCreationConfig,
+		CacheConfig:                r.CacheConfig,
+		AutoBranchCreationPatterns: r.AutoBranchCreationPatterns,
+		CustomRules:                r.CustomRules,
+		EnableBranchAutoBuild:      r.EnableBranchAutoBuild,
+		BasicAuthCredentials:       ptrconv.NilIfEmpty(r.BasicAuthCredentials),
+		BuildSpec:                  ptrconv.NilIfEmpty(r.BuildSpec),
+		CustomHeaders:              ptrconv.NilIfEmpty(r.CustomHeaders),
+		IAMServiceRoleArn:          ptrconv.NilIfEmpty(r.IAMServiceRoleArn),
+	}
+
+	// Plain bool JSON fields can't distinguish "false" from "absent", so
+	// CreateApp (which wants "absent -> real Amplify's default") always
+	// applies the request value, while UpdateApp (which wants "absent ->
+	// leave unchanged") only forwards it when true -- a caller that wants to
+	// explicitly flip one of these back to false on update must currently
+	// still send true (same limitation the pre-existing plain-bool
+	// enableAutoBuild field already has on UpdateBranch); this is
+	// conservative (never silently clobbers an existing true with an absent
+	// false) rather than silently wrong.
+	if isCreate {
+		opts.EnableBasicAuth = &r.EnableBasicAuth
+		opts.EnableAutoBranchCreation = &r.EnableAutoBranchCreation
+		opts.EnableBranchAutoDeletion = &r.EnableBranchAutoDeletion
+	} else {
+		opts.EnableBasicAuth = boolPtrIfTrue(r.EnableBasicAuth)
+		opts.EnableAutoBranchCreation = boolPtrIfTrue(r.EnableAutoBranchCreation)
+		opts.EnableBranchAutoDeletion = boolPtrIfTrue(r.EnableBranchAutoDeletion)
+	}
+
+	return opts
+}
+
+// boolPtrIfTrue returns a pointer to true when v is true, else nil.
+func boolPtrIfTrue(v bool) *bool {
+	if v {
+		return &v
+	}
+
+	return nil
+}
+
 // createApp handles POST /apps.
 func (h *Handler) createApp(ctx context.Context, c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
@@ -47,13 +124,7 @@ func (h *Handler) createApp(ctx context.Context, c *echo.Context) error {
 		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
-	var input struct {
-		Tags        map[string]string `json:"tags"`
-		Name        string            `json:"name"`
-		Description string            `json:"description"`
-		Repository  string            `json:"repository"`
-		Platform    string            `json:"platform"`
-	}
+	var input createAppRequest
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
@@ -63,7 +134,10 @@ func (h *Handler) createApp(ctx context.Context, c *echo.Context) error {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "name is required")
 	}
 
-	app, createErr := h.Backend.CreateApp(input.Name, input.Description, input.Repository, input.Platform, input.Tags)
+	app, createErr := h.Backend.CreateApp(
+		input.Name, input.Description, input.Repository, input.Platform, input.Tags,
+		input.toAppOptions(true),
+	)
 	if createErr != nil {
 		return h.handleBackendError(ctx, c, "CreateApp", createErr)
 	}
@@ -122,18 +196,16 @@ func (h *Handler) updateApp(ctx context.Context, c *echo.Context, appID string) 
 		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
-	var input struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Repository  string `json:"repository"`
-		Platform    string `json:"platform"`
-	}
+	var input createAppRequest
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	app, updateErr := h.Backend.UpdateApp(appID, input.Name, input.Description, input.Repository, input.Platform)
+	app, updateErr := h.Backend.UpdateApp(
+		appID, input.Name, input.Description, input.Repository, input.Platform,
+		input.toAppOptions(false),
+	)
 	if updateErr != nil {
 		return h.handleBackendError(ctx, c, "UpdateApp", updateErr)
 	}
@@ -167,19 +239,61 @@ func parseAppIDOperation(method string) string {
 	}
 }
 
+// productionBranchView is the JSON representation of a ProductionBranch with
+// LastDeployTime as a Unix epoch float64 value.
+type productionBranchView struct {
+	BranchName     string  `json:"branchName,omitempty"`
+	Status         string  `json:"status,omitempty"`
+	ThumbnailURL   string  `json:"thumbnailUrl,omitempty"`
+	LastDeployTime float64 `json:"lastDeployTime,omitempty"`
+}
+
+func toProductionBranchView(pb *ProductionBranch) *productionBranchView {
+	if pb == nil {
+		return nil
+	}
+
+	v := &productionBranchView{
+		BranchName:   pb.BranchName,
+		Status:       pb.Status,
+		ThumbnailURL: pb.ThumbnailURL,
+	}
+
+	if !pb.LastDeployTime.IsZero() {
+		v.LastDeployTime = float64(pb.LastDeployTime.Unix())
+	}
+
+	return v
+}
+
 // appView is the JSON representation of an App with timestamps as Unix epoch
 // float64 values, as required by the AWS SDK v2 deserialiser.
 type appView struct {
-	Tags          map[string]string `json:"tags,omitempty"`
-	AppID         string            `json:"appId"`
-	ARN           string            `json:"appArn"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description,omitempty"`
-	Repository    string            `json:"repository,omitempty"`
-	DefaultDomain string            `json:"defaultDomain,omitempty"`
-	Platform      Platform          `json:"platform"`
-	CreateTime    float64           `json:"createTime"`
-	UpdateTime    float64           `json:"updateTime"`
+	Tags                       map[string]string         `json:"tags,omitempty"`
+	EnvironmentVariables       map[string]string         `json:"environmentVariables,omitempty"`
+	AutoBranchCreationConfig   *AutoBranchCreationConfig `json:"autoBranchCreationConfig,omitempty"`
+	CacheConfig                *CacheConfig              `json:"cacheConfig,omitempty"`
+	ProductionBranch           *productionBranchView     `json:"productionBranch,omitempty"`
+	BuildSpec                  string                    `json:"buildSpec,omitempty"`
+	IAMServiceRoleArn          string                    `json:"iamServiceRoleArn,omitempty"`
+	Name                       string                    `json:"name"`
+	Description                string                    `json:"description,omitempty"`
+	Repository                 string                    `json:"repository,omitempty"`
+	DefaultDomain              string                    `json:"defaultDomain,omitempty"`
+	BasicAuthCredentials       string                    `json:"basicAuthCredentials,omitempty"`
+	AppID                      string                    `json:"appId"`
+	CustomHeaders              string                    `json:"customHeaders,omitempty"`
+	ARN                        string                    `json:"appArn"`
+	RepositoryCloneMethod      string                    `json:"repositoryCloneMethod,omitempty"`
+	Platform                   Platform                  `json:"platform"`
+	CustomRules                []CustomRule              `json:"customRules,omitempty"`
+	AutoBranchCreationPatterns []string                  `json:"autoBranchCreationPatterns,omitempty"`
+	CreateTime                 float64                   `json:"createTime"`
+	UpdateTime                 float64                   `json:"updateTime"`
+	EnableBranchAutoBuild      bool                      `json:"enableBranchAutoBuild"`
+	EnableBasicAuth            bool                      `json:"enableBasicAuth"`
+	EnableAutoBranchCreation   bool                      `json:"enableAutoBranchCreation,omitempty"`
+	EnableBranchAutoDeletion   bool                      `json:"enableBranchAutoDeletion,omitempty"`
 }
 
 func toAppView(a *App) appView {
@@ -189,16 +303,31 @@ func toAppView(a *App) appView {
 	}
 
 	return appView{
-		Tags:          tagMap,
-		CreateTime:    float64(a.CreateTime.Unix()),
-		UpdateTime:    float64(a.UpdateTime.Unix()),
-		AppID:         a.AppID,
-		ARN:           a.ARN,
-		Name:          a.Name,
-		Description:   a.Description,
-		Repository:    a.Repository,
-		DefaultDomain: a.DefaultDomain,
-		Platform:      a.Platform,
+		Tags:                       tagMap,
+		EnvironmentVariables:       a.EnvironmentVariables,
+		AutoBranchCreationConfig:   a.AutoBranchCreationConfig,
+		CacheConfig:                a.CacheConfig,
+		ProductionBranch:           toProductionBranchView(a.ProductionBranch),
+		CreateTime:                 float64(a.CreateTime.Unix()),
+		UpdateTime:                 float64(a.UpdateTime.Unix()),
+		AppID:                      a.AppID,
+		ARN:                        a.ARN,
+		Name:                       a.Name,
+		Description:                a.Description,
+		Repository:                 a.Repository,
+		DefaultDomain:              a.DefaultDomain,
+		BasicAuthCredentials:       a.BasicAuthCredentials,
+		BuildSpec:                  a.BuildSpec,
+		CustomHeaders:              a.CustomHeaders,
+		IAMServiceRoleArn:          a.IAMServiceRoleArn,
+		RepositoryCloneMethod:      a.RepositoryCloneMethod,
+		AutoBranchCreationPatterns: a.AutoBranchCreationPatterns,
+		CustomRules:                a.CustomRules,
+		Platform:                   a.Platform,
+		EnableBranchAutoBuild:      a.EnableBranchAutoBuild,
+		EnableBasicAuth:            a.EnableBasicAuth,
+		EnableAutoBranchCreation:   a.EnableAutoBranchCreation,
+		EnableBranchAutoDeletion:   a.EnableBranchAutoDeletion,
 	}
 }
 

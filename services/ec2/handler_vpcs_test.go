@@ -14,7 +14,10 @@ import (
 func TestCreateDefaultVpc(t *testing.T) { //nolint:paralleltest // existing issue.
 	t.Run("creates default vpc", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-		// Remove existing default VPC first (initDefaults creates one)
+		// Remove existing default VPC first (initDefaults creates one). Real AWS
+		// requires dependents removed before the VPC itself, so drop the default
+		// subnet first.
+		b.DeleteSubnet("subnet-default")
 		b.DeleteVpc("vpc-default")
 		vpc, err := b.CreateDefaultVpc()
 		require.NoError(t, err)
@@ -62,6 +65,7 @@ func TestHTTP_CreateDefaultVpc(t *testing.T) { //nolint:paralleltest // existing
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := ec2.NewHandler(b)
 
+	_ = b.DeleteSubnet("subnet-default")
 	_ = b.DeleteVpc("vpc-default")
 
 	_, err := ec2.ExportDispatch(h, url.Values{

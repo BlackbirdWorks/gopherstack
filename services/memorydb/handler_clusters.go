@@ -51,27 +51,11 @@ func (h *Handler) handleDescribeClusters(ctx context.Context, c *echo.Context, b
 		return h.writeBackendError(c, err)
 	}
 
-	// Apply cursor-based pagination when listing all clusters.
-	start := 0
-
-	if req.NextToken != "" {
-		for i, cl := range clusters {
-			if cl.Name == req.NextToken {
-				start = i + 1
-
-				break
-			}
-		}
-	}
-
-	clusters = clusters[start:]
-
-	var nextToken string
-
-	if req.MaxResults != nil && int(*req.MaxResults) < len(clusters) {
-		nextToken = clusters[*req.MaxResults].Name
-		clusters = clusters[:*req.MaxResults]
-	}
+	// Cursor-based pagination, consistent with every other list op in this
+	// file (paginateItems in handler.go).
+	clusters, nextToken := paginateItems(
+		clusters, req.NextToken, req.MaxResults, func(cl *Cluster) string { return cl.Name },
+	)
 
 	showShards := req.ShowShardDetails != nil && *req.ShowShardDetails
 
@@ -246,36 +230,34 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 	}
 
 	return clusterObject{
-		Name:                          c.Name,
-		ARN:                           c.ARN,
-		Description:                   c.Description,
-		Status:                        c.Status,
-		NodeType:                      c.NodeType,
-		EngineVersion:                 c.EngineVersion,
-		EnginePatchVersion:            enginePatchVersionFor(c.Engine, c.EngineVersion),
-		Engine:                        c.Engine,
-		DataTiering:                   c.DataTiering,
-		NetworkType:                   c.NetworkType,
-		IPDiscovery:                   c.IPDiscovery,
-		AutoMinorVersionUpgrade:       c.AutoMinorVersionUpgrade,
-		ACLName:                       c.ACLName,
-		SubnetGroupName:               c.SubnetGroupName,
-		ParameterGroupName:            c.ParameterGroupName,
-		ParameterGroupStatus:          pgStatus,
-		MultiRegionClusterName:        c.MultiRegionClusterName,
-		MultiRegionParameterGroupName: c.MultiRegionParameterGroupName,
-		KmsKeyID:                      c.KmsKeyID,
-		SnsTopicArn:                   c.SnsTopicArn,
-		SnsTopicStatus:                c.SnsTopicStatus,
-		MaintenanceWindow:             c.MaintenanceWindow,
-		SnapshotWindow:                c.SnapshotWindow,
-		NumberOfShards:                c.NumShards,
-		TLSEnabled:                    c.TLSEnabled,
-		SnapshotRetentionLimit:        c.SnapshotRetentionLimit,
-		Shards:                        shards,
-		AvailabilityMode:              c.AvailabilityMode,
-		NumberOfReplicasPerShard:      c.NumReplicasPerShard,
-		SecurityGroups:                sgs,
+		Name:                    c.Name,
+		ARN:                     c.ARN,
+		Description:             c.Description,
+		Status:                  c.Status,
+		NodeType:                c.NodeType,
+		EngineVersion:           c.EngineVersion,
+		EnginePatchVersion:      enginePatchVersionFor(c.Engine, c.EngineVersion),
+		Engine:                  c.Engine,
+		DataTiering:             c.DataTiering,
+		NetworkType:             c.NetworkType,
+		IPDiscovery:             c.IPDiscovery,
+		AutoMinorVersionUpgrade: c.AutoMinorVersionUpgrade,
+		ACLName:                 c.ACLName,
+		SubnetGroupName:         c.SubnetGroupName,
+		ParameterGroupName:      c.ParameterGroupName,
+		ParameterGroupStatus:    pgStatus,
+		MultiRegionClusterName:  c.MultiRegionClusterName,
+		KmsKeyID:                c.KmsKeyID,
+		SnsTopicArn:             c.SnsTopicArn,
+		SnsTopicStatus:          c.SnsTopicStatus,
+		MaintenanceWindow:       c.MaintenanceWindow,
+		SnapshotWindow:          c.SnapshotWindow,
+		NumberOfShards:          c.NumShards,
+		TLSEnabled:              c.TLSEnabled,
+		SnapshotRetentionLimit:  c.SnapshotRetentionLimit,
+		Shards:                  shards,
+		AvailabilityMode:        c.AvailabilityMode,
+		SecurityGroups:          sgs,
 		ClusterEndpoint: &endpointObject{
 			Address: c.Name + ".memorydb." + region + ".amazonaws.com",
 			Port:    c.Port,

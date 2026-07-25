@@ -21,6 +21,9 @@ func (b *InMemoryBackend) CreateFilter(
 	if b.filters.Has(name) {
 		return nil, fmt.Errorf("%w: filter %q already exists", ErrAlreadyExists, name)
 	}
+	if b.findDatasetGroup(datasetGroupArn) == nil {
+		return nil, fmt.Errorf("%w: dataset group %q not found", ErrNotFound, datasetGroupArn)
+	}
 
 	now := time.Now().UTC()
 	f := &Filter{

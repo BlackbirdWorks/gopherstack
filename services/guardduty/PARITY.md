@@ -7,22 +7,30 @@
 service: guardduty
 sdk_module: aws-sdk-go-v2/service/guardduty@v1.78.2
 last_audit_commit: 7f3594fa
-last_audit_date: 2026-07-12
-overall: A            # genuine fixes found: 1 route bug, 3 wire-shape bugs, 1 state-sync bug class
+last_audit_date: 2026-07-23
+overall: A            # this pass: 1 real state bug (StartMalwareScan never set DetectorID), 4 wire-shape
+                       # fixes (GetMalwareScan, GetOrganizationStatistics, GetUsageStatistics, entity-set
+                       # ExpectedBucketOwner), 2 gap closures (ListFindings criteria/sort/pagination,
+                       # GetFindingsStatistics GroupBy), 1 schema-validation gap closure (malware
+                       # protection plan Actions/ProtectedResource), all 4 banned nolints removed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  UpdateMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — was routed on POST, real SDK sends PATCH (the one GuardDuty op that isn't POST/GET/DELETE); was unroutable by a real client despite green unit tests that called h.Handler() directly, bypassing RouteMatcher/method dispatch"}
-  DescribePublishingDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — wire key was publishingFailureStartedAt (invented), real key is publishingFailureStartTimestamp; tags were never returned despite CreatePublishingDestination now accepting them"}
-  CreatePublishingDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — did not accept/store tags at all; real CreatePublishingDestinationInput.Tags is honored now"}
-  GetThreatEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — createdAt/updatedAt were omitted entirely; real output has them as epoch-seconds numbers (unlike GetDetectorOutput's ISO8601 strings)"}
-  GetTrustedEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — same createdAt/updatedAt gap as GetThreatEntitySet"}
-  CreateThreatEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — creation-time tags were stored on the resource's own Tags field but never written to the generic ARN-keyed tag map, so ListTagsForResource returned {} right after creation"}
-  CreateTrustedEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — same as CreateThreatEntitySet"}
-  GetMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — createdAt was a bare time.Time (RFC3339 string on the wire); real GetMalwareProtectionPlanOutput.CreatedAt is epoch seconds"}
-  GetMalwareScan: {wire: partial, errors: ok, state: ok, persist: ok, note: "PARTIALLY FIXED — was emitting fields from the wrong Scan shape entirely (accountId/resourceDetails/findings/scanStartTime/scanEndTime, none of which exist on the real GetMalwareScanOutput); renamed the two timestamp fields to the real scanStartedAt/scanCompletedAt (epoch seconds) and dropped the three nonexistent fields. Still missing real optional fields this backend has no state for: adminDetectorId, resourceArn, resourceType, scanCategory, scanConfiguration, scanResultDetails, scanStatusReason, scannedResources(+count), skippedResourcesCount, failedResourcesCount — see gaps"}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — now propagates into the owning resource's own Tags field (see families.tags below), not just the generic map"}
-  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — same propagation as TagResource"}
+  UpdateMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — was routed on POST, real SDK sends PATCH (the one GuardDuty op that isn't POST/GET/DELETE); was unroutable by a real client despite green unit tests that called h.Handler() directly, bypassing RouteMatcher/method dispatch"}
+  DescribePublishingDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — wire key was publishingFailureStartedAt (invented), real key is publishingFailureStartTimestamp; tags were never returned despite CreatePublishingDestination now accepting them"}
+  CreatePublishingDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — did not accept/store tags at all; real CreatePublishingDestinationInput.Tags is honored now"}
+  GetThreatEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — also now returns expectedBucketOwner when set at Create/Update time (was accepted nowhere on the real Create/UpdateThreatEntitySetInput shapes despite this backend having a field for it); real ErrorDetails is correctly always-absent since this backend never sets status ERROR"}
+  GetTrustedEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — same expectedBucketOwner gap as GetThreatEntitySet"}
+  CreateThreatEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — now accepts+stores expectedBucketOwner (real CreateThreatEntitySetInput.ExpectedBucketOwner)"}
+  CreateTrustedEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — same as CreateThreatEntitySet"}
+  UpdateThreatEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — now accepts expectedBucketOwner"}
+  UpdateTrustedEntitySet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — same as UpdateThreatEntitySet"}
+  GetMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — createdAt was a bare time.Time (RFC3339 string on the wire); real GetMalwareProtectionPlanOutput.CreatedAt is epoch seconds"}
+  GetMalwareScan: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was partial) — now emits adminDetectorId/resourceArn/resourceType/scanCategory/scannedResourcesCount/skippedResourcesCount/failedResourcesCount (all present, real defaults for a RUNNING scan this backend can't fully simulate: 0 counts); scanStatusReason/scanCompletedAt correctly omitted while RUNNING (only present once a scan actually completes/fails, which this backend's scans never transition to). Still absent: scanConfiguration, scanResultDetails, scannedResources[] detail list — no state exists to populate these meaningfully (see gaps)"}
+  StartMalwareScan: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — real bug: never set MalwareScan.DetectorID, so DescribeMalwareScans (which filters scan.DetectorID == detectorID) silently always returned []. StartMalwareScanInput carries no detectorId (GuardDuty resolves the caller's own detector server-side), so this backend now resolves it the same way CreateDetector enforces \"one detector per Region\": attaches the scan to whichever single detector exists for the account, if any. resourceType is now inferred from the resource ARN's service/resource segments (EC2_INSTANCE/EBS_SNAPSHOT/EBS_VOLUME/EC2_AMI/S3_BUCKET)"}
+  DescribeMalwareScans: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — was unreachable in practice due to the StartMalwareScan DetectorID bug above; now returns scans started against the queried detector, locked by TestMalwareScanning/describe_malware_scans_includes_started_scan"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — now propagates into the owning resource's own Tags field (see families.tags below), not just the generic map"}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — same propagation as TagResource"}
   CreateDetector: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDetector: {wire: ok, errors: ok, state: ok, persist: ok, note: "createdAt/updatedAt are ISO8601 strings on this op specifically (GetDetectorOutput.CreatedAt/UpdatedAt are *string, not epoch) — do not \"fix\" this to epoch, it is already correct and differs deliberately from ThreatEntitySet/TrustedEntitySet/MalwareProtectionPlan"}
   UpdateDetector: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -34,11 +42,11 @@ ops:
   DeleteFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFilters: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "Finding.CreatedAt/UpdatedAt correctly plain strings (Finding is a \"string\" shape member on the real API, not a timestamp shape)"}
-  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "no FindingCriteria/SortCriteria filtering — see gaps"}
+  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was gap) — findingCriteria is now evaluated (Equals/NotEquals/GreaterThan(OrEqual)/LessThan(OrEqual)/Matches/NotMatches + deprecated Eq/Neq/Gt/Gte/Lt/Lte aliases, resolved against dot-path attributes like service.archived via finding_criteria.go); sortCriteria.attributeName/orderBy honored (defaults: id ASC, matching prior behavior when unset); maxResults/nextToken now paginate for real (default/max page size 50, matching the real doc). See finding_criteria_test.go"}
   ArchiveFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "real mutation: sets Service.Archived + UpdatedAt, verified by reading GetFindings after"}
   UnarchiveFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateSampleFindings: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetFindingsStatistics: {wire: partial, errors: ok, state: ok, persist: ok, note: "only emits the deprecated findingStatistics.countBySeverity; real API also supports groupedByAccount/groupedByDate/groupedByFindingType/groupedByResource/groupedBySeverity via the GroupBy request param — not implemented, see gaps"}
+  GetFindingsStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was partial) — groupBy=ACCOUNT/DATE/FINDING_TYPE/RESOURCE/SEVERITY now each return the correct real groupedByX list (finding_statistics.go), selected exclusively (matching \"if a groupBy was provided\" semantics — the deprecated countBySeverity is omitted whenever groupBy is set, and vice versa); findingCriteria now filters which findings are aggregated; maxResults honored (default 25, matching the real doc). groupByResource's resourceId is always \"\" — this backend has no per-resource-type identifier field (instanceId/functionName/etc), only resourceType, which is a real, documented limitation not a bug"}
   UpdateFindingsFeedback: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateIPSet: {wire: ok, errors: ok, state: ok, persist: ok}
   GetIPSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "real GetIPSetOutput has no createdAt/updatedAt — correctly omitted"}
@@ -61,67 +69,223 @@ ops:
   DisassociateMembers: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok}
   ListMalwareProtectionPlans: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateMalwareProtectionPlan_state: {wire: ok, errors: ok, state: ok, persist: ok, note: "backend mutation logic itself was already correct — only the route (see above) and createdAt wire format were bugs"}
+  CreateMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — protectedResource.s3Bucket.bucketName is now required and validated (BadRequestException if absent/empty), matching CreateMalwareProtectionPlanInput.ProtectedResource being a required member and \"Presently, S3Bucket is the only supported protected resource\"; actions.tagging.status is now validated against the real MalwareProtectionPlanTaggingActionStatus enum (ENABLED/DISABLED) instead of being passed through unchecked. See malware_protection_plan_schema.go + malware_protection_plan_schema_test.go"}
+  UpdateMalwareProtectionPlan_state: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — actions.tagging.status now validated the same way as Create (UpdateMalwareProtectionPlanInput.Actions is the same types.MalwareProtectionPlanActions shape). protectedResource is NOT bucketName-validated on Update — real UpdateProtectedResource/UpdateS3BucketResource carries no bucketName member at all (a plan's bucket can't be renamed), only objectPrefixes"}
+  GetOrganizationStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was deferred/gap) — real GetOrganizationStatisticsOutput wraps everything under organizationDetails (types.OrganizationDetails), which itself carries updatedAt (epoch seconds) alongside organizationStatistics — both were missing entirely; now present. activeAccountsCount/totalAccountsCount/memberAccountsCount/enabledAccountsCount are now computed from the real members table (not orgAdminAccounts, a distinct concept — delegated administrators, not member accounts). countByFeature remains always [] — this backend tracks no per-feature enrollment counts across member accounts (see gaps)"}
+  GetUsageStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, was deferred/gap) — real UsageStatistics is sumByAccount/sumByDataSource/sumByFeature/sumByResource/topAccountsByFeature/topResources, each entry a Total{amount,unit} object; the old response had a bare ad hoc field set (no Total wrapper, no sumByFeature/topAccountsByFeature, a placeholder \"topResources\" that didn't match the real shape). usageStatisticType is now honored — only the requested field is populated, the rest omitted, per the real doc (\"the objects representing other types will be null\"). sumByFeature/sumByDataSource/topAccountsByFeature now reflect the detector's actually-ENABLED features. Every Total.amount is a deterministic \"0.00\" placeholder — this backend has no real cost-metering model, which is an honest limitation (correct shape, no fabricated numbers), not a bug"}
+  GetRemainingFreeTrialDays: {wire: partial, errors: ok, state: ok, persist: ok, note: "not touched this pass — accounts[].features/dataSources are always empty placeholders (no free-trial state tracked); freeTrialDaysRemaining is a hardcoded 30. Shape (accounts[]/unprocessedAccounts[]) is correct, values are not real. See deferred"}
+  GetCoverageStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — real GetCoverageStatisticsOutput.CoverageStatistics.countByCoverageStatus/countByResourceType are both maps; this backend tracks no EKS/ECS/EC2 runtime-monitoring coverage resources at all, so both are always {} — that is the CORRECT response for an account with nothing to cover, not a gap. See deferred for the underlying no-coverage-state limitation"}
+  ListCoverage: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — real ListCoverageOutput.Resources is a required []CoverageResource; always [] is correct when no coverage resources are tracked (same reasoning as GetCoverageStatistics), not a fabricated gap. See deferred"}
 families:
   detector: {status: ok, note: "CRUD + list audited op-by-op above; one-detector-per-account conflict semantics match AWS doc (\"You can have only one detector per Region\")"}
   filter: {status: ok, note: "CRUD + list audited op-by-op above"}
   ipset: {status: ok, note: "CRUD + list audited op-by-op above"}
   threatintelset: {status: ok, note: "CRUD + list audited op-by-op above"}
-  findings: {status: ok, note: "Get/List/Archive/Unarchive/CreateSample/UpdateFeedback audited; GetFindingsStatistics and ListFindings filtering are partial, see gaps"}
+  findings: {status: ok, note: "FIXED this pass: ListFindings now filters/sorts/paginates for real; GetFindingsStatistics now supports GroupBy. Get/Archive/Unarchive/CreateSample/UpdateFeedback unchanged, still ok"}
   members_invitations: {status: ok, note: "member lifecycle + invitation flows audited; admin/master account relationship handlers (AcceptAdministratorInvitation/AcceptInvitation/GetAdministratorAccount/GetMasterAccount/Disassociate*) read/write real state via the adminAccounts table"}
-  publishingDestination: {status: ok, note: "FIXED wire key + added tags support this pass (see ops above)"}
-  tags: {status: ok, note: "FIXED this pass: TagResource/UntagResource now sync into the owning resource's own frozen Tags field (Detector/Filter/IPSet/ThreatIntelSet/ThreatEntitySet/TrustedEntitySet/MalwareProtectionPlan/PublishingDestination) via syncResourceTagsFromARN in backend.go, so Get*/Describe* no longer show stale tags after a Tag/UntagResource call. Also fixed CreateThreatEntitySet/CreateTrustedEntitySet not writing the generic ARN-keyed tag map at all."}
-  threat_trusted_entity_sets: {status: ok, note: "CRUD audited; createdAt/updatedAt + generic-tag-map write were both fixed this pass (see ops above)"}
-  malware_scan_settings: {status: partial, note: "GetMalwareScanSettings/UpdateMalwareScanSettings wire-verified ok; GetMalwareScan itself only partially fixed (see ops above and gaps)"}
-  organization: {status: deferred, note: "EnableOrganizationAdminAccount/DisableOrganizationAdminAccount/ListOrganizationAdminAccounts/DescribeOrganizationConfiguration/UpdateOrganizationConfiguration/GetOrganizationStatistics routed correctly and mutate real state, but response shapes (esp. GetOrganizationStatistics' fabricated countByFeature: []) were not deep-audited against types.OrganizationStatistics this pass"}
-  coverage_usage_freetrial: {status: deferred, note: "GetCoverageStatistics/ListCoverage/GetUsageStatistics/GetRemainingFreeTrialDays route and error-handle correctly but return synthetic/empty payloads (e.g. ListCoverage always []); not deep-audited against real CoverageResource/UsageStatistics shapes this pass — likely low-traffic ops"}
-  malware_protection_plan_actions: {status: deferred, note: "Actions/ProtectedResource are passed through as opaque map[string]any without validating against types.MalwareProtectionPlanActions/CreateProtectedResource — not schema-checked this pass"}
+  publishingDestination: {status: ok, note: "FIXED wire key + added tags support (prior pass). The 'ExpectedBucketOwner-style extras' gap this family used to carry in this manifest was a MISDIAGNOSIS by a prior audit pass -- confirmed this pass by reading DescribePublishingDestinationOutput/CreatePublishingDestinationInput/DestinationProperties directly: none of them have an ExpectedBucketOwner (or ErrorDetails) member on the real API at all. That field only exists on ThreatEntitySet/TrustedEntitySet (see that family below), which DID have a real gap, now fixed. Removed the bogus gap entry rather than inventing a nonexistent field on PublishingDestination"}
+  tags: {status: ok, note: "FIXED (prior pass): TagResource/UntagResource now sync into the owning resource's own frozen Tags field (Detector/Filter/IPSet/ThreatIntelSet/ThreatEntitySet/TrustedEntitySet/MalwareProtectionPlan/PublishingDestination) via syncResourceTagsFromARN in backend.go, so Get*/Describe* no longer show stale tags after a Tag/UntagResource call. Also fixed CreateThreatEntitySet/CreateTrustedEntitySet not writing the generic ARN-keyed tag map at all."}
+  threat_trusted_entity_sets: {status: ok, note: "FIXED this pass: expectedBucketOwner is now accepted on Create/Update and returned by Get (real CreateThreatEntitySetInput.ExpectedBucketOwner / GetThreatEntitySetOutput.ExpectedBucketOwner were previously untracked despite this family being marked ok in a prior pass -- a real field-diff miss, corrected here). errorDetails intentionally NOT added -- it is only ever present when status is ERROR, which this backend's entity sets never transition to, so omitting it is correct, not a gap"}
+  malware_scan_settings: {status: ok, note: "GetMalwareScanSettings/UpdateMalwareScanSettings wire-verified ok (prior pass). GetMalwareScan is now FULLY fixed this pass (see ops above, was partial) -- family upgraded from partial to ok"}
+  organization: {status: ok, note: "FIXED this pass (was deferred): GetOrganizationStatistics now wraps its response in organizationDetails with a real updatedAt and member-derived account counts (see ops above). EnableOrganizationAdminAccount/DisableOrganizationAdminAccount/ListOrganizationAdminAccounts/DescribeOrganizationConfiguration/UpdateOrganizationConfiguration were already field-diffed ok. Remaining limitation: countByFeature is always [] -- no per-feature member enrollment tracking exists in this backend (see gaps), left as a documented gap rather than fabricated"}
+  coverage_usage_freetrial: {status: partial, note: "FIXED this pass: GetUsageStatistics now emits the real UsageStatistics shape (Total objects, sumByFeature, topAccountsByFeature, usageStatisticType selection). GetCoverageStatistics/ListCoverage were re-verified this pass and are ALREADY wire-correct for an account with no tracked coverage resources (empty maps/arrays are the real response in that case, not synthetic placeholders -- see ops above). GetRemainingFreeTrialDays untouched: shape is correct, per-account feature/dataSource/freeTrialDaysRemaining values remain hardcoded placeholders (no free-trial state model exists) -- this is the one real remaining gap in this family, see gaps/deferred"}
+  malware_protection_plan_actions: {status: ok, note: "FIXED this pass (was deferred): Actions.tagging.status is now validated against the real MalwareProtectionPlanTaggingActionStatus enum on both Create and Update; ProtectedResource.s3Bucket.bucketName is now required on Create (matching CreateProtectedResource being a required input member and S3Bucket being \"the only supported protected resource\"), and correctly NOT required on Update (UpdateProtectedResource's S3Bucket has no bucketName member at all -- ObjectPrefixes only). See malware_protection_plan_schema.go"}
 gaps:
-  - "GetMalwareScan (services/guardduty/handler_appendixa.go:handleGetMalwareScan) still doesn't emit adminDetectorId/resourceArn/resourceType/scanCategory/scanConfiguration/scanResultDetails/scanStatusReason/scannedResources(+count)/skippedResourcesCount/failedResourcesCount — the real op has a materially richer response than DescribeMalwareScans/ListMalwareScans' Scan shape, and this backend only tracks the older Scan-shape fields. All missing fields are optional on the real output so a real client won't error, just gets nil/absent fields."
-  - "GetFindingsStatistics (services/guardduty/backend.go:GetFindingsStatistics) only implements the deprecated countBySeverity; groupedByAccount/groupedByDate/groupedByFindingType/groupedByResource/groupedBySeverity (selected via the request's GroupBy param) are not implemented."
-  - "ListFindings/ListDetectors/ListFilters/ListIPSets/ListThreatIntelSets/etc. ignore FindingCriteria/SortCriteria/MaxResults and never emit a NextToken — every list op returns its full result set in one page. NextToken is an optional response field so this is non-fatal to real clients, but large result sets won't paginate."
-  - "PublishingDestination lacks ExpectedBucketOwner-style extras present on some other Create*/Get* outputs (e.g. GetThreatEntitySetOutput.ErrorDetails/ExpectedBucketOwner) -- not tracked anywhere in this backend, so always absent."
+  - "GetMalwareScan still doesn't emit scanConfiguration/scanResultDetails/scannedResources[] (the per-resource detail list, not just its count) -- this backend has no state model for individual scanned files/objects/volumes within a scan, so these three remain absent. All three are optional on the real output so a real client won't error, just gets nil/absent fields. scanStatusReason/scanCompletedAt are correctly absent for a RUNNING scan (this backend's scans never transition to SKIPPED/COMPLETED/FAILED, so those states -- and the fields real AWS would populate for them -- are unreachable)."
+  - "GetOrganizationStatistics.organizationDetails.organizationStatistics.countByFeature is always [] -- this backend has no per-feature member-account enrollment tracking (which member accounts have S3_DATA_EVENTS vs EKS_AUDIT_LOGS etc. enabled), only OrgConfig.Features at the requesting-account level. Real types.OrganizationFeatureStatistics needs a name+enabledAccountsCount(+additionalConfiguration) per feature across the whole org, which would require a materially larger state model."
+  - "GetRemainingFreeTrialDays' per-account accounts[].features/dataSources are always empty and freeTrialDaysRemaining is a hardcoded 30 -- no free-trial state (enrollment date, feature-level trial windows) is tracked anywhere in this backend. Shape is correct; values are placeholders."
+  - "DescribeMalwareScans/ListMalwareScans/ListDetectors/ListFilters/ListIPSets/ListThreatIntelSets/ListMembers/ListInvitations/ListOrganizationAdminAccounts/ListPublishingDestinations/ListMalwareProtectionPlans/ListCoverage all still ignore FilterCriteria/SortCriteria/MaxResults and never emit a NextToken -- every one of these returns its full result set in one page. FIXED for ListFindings only this pass (see ops above); the rest are unchanged. NextToken is an optional response field on all of these so this remains non-fatal to a real client, just unpaginated."
 deferred:
-  - organization family (response-shape deep audit)
-  - coverage/usage/freeTrial family (response-shape deep audit)
-  - malware protection plan Actions/ProtectedResource schema validation
-leaks: {status: clean, note: "no goroutines, timers, or background janitors in this service; all state lives in InMemoryBackend's store.Table fields guarded by the single lockmetrics.RWMutex, reset via Reset()/Restore()"}
+  - "GetOrganizationStatistics.countByFeature per-feature org-wide enrollment tracking (would need a new state model, not just a wire-shape fix)"
+  - "GetRemainingFreeTrialDays real free-trial state (enrollment timestamps, feature-level trial windows)"
+  - "Pagination (MaxResults/NextToken) + FilterCriteria/SortCriteria for every List op other than ListFindings"
+leaks: {status: clean, note: "no goroutines, timers, or background janitors introduced this pass or present previously; all state lives in InMemoryBackend's store.Table fields guarded by the single lockmetrics.RWMutex, reset via Reset()/Restore(). New finding_criteria.go/finding_statistics.go/usage.go/pagination.go code is pure computation over existing locked state, no new locking or background work."}
 ---
 
 ## Notes
 
 Protocol: restjson1 (REST paths like `/detector`, `/detector/{id}/filter/{name}`).
 
-### Route-matcher findings (this pass)
+### This pass's audit method
 
-- **UpdateMalwareProtectionPlan is the one GuardDuty op that serializes with
-  HTTP PATCH, not POST** (`aws-sdk-go-v2/service/guardduty` serializers.go:
-  `awsRestjson1_serializeOpUpdateMalwareProtectionPlan` sets
-  `request.Method = "PATCH"`). `parseMalwareProtectionPlanPath` in
-  `handler_appendixa.go` was matching `http.MethodPost` for the update case,
-  so a real SDK client's PATCH request fell through to `opUnknown` → 404.
-  Every existing test exercised this via `auditDo`, which calls
-  `h.Handler()(c)` directly and bypasses both `RouteMatcher` and any
-  method-aware echo routing, so the bug was invisible to 100% green unit
-  tests. Fixed by matching `http.MethodPatch`; added
-  `handler_route_matcher_test.go` which drives `RouteMatcher()` +
-  `ExtractOperation()` directly (still not a full echo-router integration
-  test, but it exercises the actual method-dispatch logic a router would
-  rely on) with an explicit regression case asserting POST to that path
-  resolves to `Unknown`.
-- **`RouteMatcher`'s `/tags/{arn}` prefix check was hardcoded to
-  `"arn:aws:guardduty:"`**, which silently rejects well-formed GuardDuty
-  ARNs from any non-standard partition (GovCloud `arn:aws-us-gov:guardduty:`,
-  China `arn:aws-cn:guardduty:`, ISO `arn:aws-iso*:guardduty:` —
-  `pkgs/arn.PartitionForRegion` already produces these). Fixed to check for
-  the `:guardduty:` service segment regardless of partition
-  (`isGuardDutyTagsPath` in `handler.go`).
+Read every op's real request/response Go types directly from
+`$(go env GOPATH)/pkg/mod/github.com/aws/aws-sdk-go-v2/service/guardduty@v1.78.2`
+(both `api_op_*.go` for the Input/Output structs and `deserializers.go` for
+the actual wire keys/types each field maps to -- doc comments alone are not
+authoritative for JSON key casing or numeric-vs-string wire encoding).
 
-### Wire-shape findings (this pass)
+### Banned-nolint decomposition (this pass)
 
-GuardDuty timestamps are NOT uniform across ops — this is a real, deliberate
-AWS inconsistency, not a bug to "fix" toward one format:
+All four `cyclop`/`gocyclo`/`gocognit`/`funlen` suppressions in this service
+were removed by decomposing into route tables, not by disabling the checks
+differently:
+
+- `parseRESTPath` (`handler.go`): was a `switch` over the first path segment
+  calling into per-family parsers; replaced with `topLevelPathParsers`, a
+  `map[string]pathParser` built once via `sync.OnceValue`
+  (apigatewayv2-style route-table pattern), so the function is now a single
+  map lookup.
+- `parseDetectorPath` (`handler.go`): was one large function with a
+  `switch len(parts)` containing nested `switch method` blocks per depth,
+  including an inline 5-segment `/member/detector/{action}` case. Split into
+  `parseDetectorRootPath`/`parseDetectorResourcePath`/`parseDetectorDeepPath`,
+  each handling exactly one depth; `parseDetectorPath` itself is now a flat
+  `switch len(parts)` dispatching to them.
+- `parseDetectorCollection` (`handler.go`): was a ~90-line `switch
+  collection { case ...: switch method {...} }` covering every
+  `/detector/{id}/{collection}` route. Replaced with
+  `detectorCollectionRoutes`, a `map[string]string` keyed by
+  `"{collection} {method}"` (via `detectorCollectionRouteKey`), built once
+  via `sync.OnceValue`. `parseDetectorCollection` is now a single map lookup
+  plus the detectorID passthrough.
+- `dispatchMalwareOps` (`handler_malware_protection.go`): was a ~90-line
+  flat `switch op { case ...: ... }` covering every malware/coverage/usage
+  op. Replaced with `malwareOpsTable`, a
+  `map[string]func(*Handler, detectorID, path string, body []byte) (any, int, error)`
+  built once via `sync.OnceValue`; `dispatchMalwareOps` is now a lookup plus
+  one function call.
+
+`gochecknoglobals` is suppressed on each of these three `sync.OnceValue`
+route tables (matches the established `apigatewayv2` pattern in this repo --
+they're immutable lookup tables computed once, not mutable global state).
+`handler_route_matcher_test.go`'s `TestRouteMatcher_MethodSensitivity` was
+extended with one case per `detectorCollectionRoutes` entry plus a negative
+case (unregistered method on a real collection), locking the route table
+directly through the public `Handler.RouteMatcher()`/`ExtractOperation()`
+API (not by testing the unexported map).
+
+### ListFindings / GetFindingsStatistics: FindingCriteria, SortCriteria, GroupBy, pagination (this pass)
+
+Both ops previously ignored their request bodies almost entirely --
+`ListFindings` returned every finding ID for the detector, ID-sorted,
+unpaginated; `GetFindingsStatistics` only ever computed the deprecated
+`countBySeverity`. `finding_criteria.go` adds a real `Condition`/
+`FindingCriteria`/`SortCriteria` matcher: it flattens a `*Finding` to a
+`map[string]any` via its existing JSON tags (so `service.archived`,
+`resource.resourceType`, etc. resolve as real dot-paths against the same
+document shape a real client would receive), then evaluates
+`equals`/`notEquals`/`greaterThan(OrEqual)`/`lessThan(OrEqual)`/`matches`/
+`notMatches` plus the deprecated `eq`/`neq`/`gt`/`gte`/`lt`/`lte` aliases
+against it. Numeric comparisons against RFC3339 timestamp string fields
+(`createdAt`/`updatedAt`) convert to epoch milliseconds first, matching how
+GuardDuty documents numeric conditions against timestamp attributes.
+`finding_statistics.go` adds real `groupedByAccount`/`groupedByDate`/
+`groupedByFindingType`/`groupedByResource`/`groupedBySeverity` aggregation,
+each honoring `orderBy` (ASC/DESC, default DESC per the real doc) and
+`maxResults` (default 25). `pagination.go` adds a small
+`decodeToken`/`encodeToken`/`paginate`/`resolvePageSize` helper set (mirrors
+`services/sns`'s existing pagination helper, reimplemented locally since
+it's unexported there) used by `ListFindings`'s `maxResults`/`nextToken`
+(default/max page size 50, matching `ListFindingsInput.MaxResults`'s
+documented "default value is 50. The maximum value is 50.").
+
+### StartMalwareScan never set DetectorID (this pass, real bug)
+
+`MalwareScan.DetectorID` was never assigned anywhere -- `StartMalwareScan`
+built the struct without it. `DescribeMalwareScans` filters
+`scan.DetectorID == detectorID`, so **every** `DescribeMalwareScans` call
+silently returned `[]`, no matter how many scans had actually been started,
+for as long as this backend has existed. The existing
+`TestMalwareScanning/describe_malware_scans` test never caught this because
+it only asserted `resp["scans"]` was non-nil (true even for `[]`) and never
+started a scan first. `StartMalwareScanInput` genuinely carries no
+`detectorId` (GuardDuty resolves the caller's own detector server-side), so
+the fix mirrors `CreateDetector`'s "one detector per Region" enforcement:
+`StartMalwareScan` now looks up whichever single detector exists for the
+account and attaches the scan to it (or leaves `DetectorID`/`AdminDetectorId`
+unset if none exists, matching `GetMalwareScanOutput`'s doc: "If the
+customer is not a GuardDuty customer, this field will not be present.").
+New regression test:
+`TestMalwareScanning/describe_malware_scans_includes_started_scan`.
+
+### GetOrganizationStatistics wire shape (this pass, was deferred)
+
+The real `GetOrganizationStatisticsOutput` is `{organizationDetails:
+{organizationStatistics: {...}, updatedAt: <epoch>}}` -- both the
+`organizationDetails` wrapper's own `updatedAt` field and
+`activeAccountsCount` were entirely missing from the previous response
+(which additionally sourced `memberAccountsCount` from `orgAdminAccounts`,
+the *delegated-administrator* table, not the *member-account* table --
+those are different AWS concepts). Fixed to source `totalAccountsCount`/
+`activeAccountsCount`/`memberAccountsCount`/`enabledAccountsCount` from the
+real `members` table.
+
+### GetUsageStatistics wire shape (this pass, was deferred)
+
+The real `UsageStatistics` shape is `sumByAccount`/`sumByDataSource`/
+`sumByFeature`/`sumByResource`/`topAccountsByFeature`/`topResources`, where
+every leaf value is a `Total{amount: *string, unit: *string}` object -- the
+previous response had no `Total` wrapper at all (bare arrays with ad hoc
+fields), was missing `sumByFeature`/`topAccountsByFeature` outright, and had
+an invented `"topResources"` placeholder that didn't match any of the above.
+Fixed to emit the real field set with `Total` objects throughout, and to
+honor `usageStatisticType` by nulling out every field except the one
+requested (matching the real doc: "If a UsageStatisticType was provided,
+the objects representing other types will be null."). This backend has no
+real usage-cost metering model, so every `Total.amount` is a deterministic
+`"0.00"` -- an honest placeholder for a genuinely unmodeled concept, not a
+wire-shape bug.
+
+### Malware protection plan Actions/ProtectedResource schema validation (this pass, was deferred)
+
+`protectedResource`/`actions` were accepted as fully opaque
+`map[string]any` and stored verbatim with zero validation.
+`malware_protection_plan_schema.go` adds typed shapes matching
+`types.CreateProtectedResource`/`types.CreateS3BucketResource`/
+`types.UpdateProtectedResource`/`types.UpdateS3BucketResource`/
+`types.MalwareProtectionPlanActions`/`types.MalwareProtectionPlanTaggingAction`
+and validates: (1) Create requires `protectedResource.s3Bucket.bucketName`
+(matching `ProtectedResource` being a required `CreateMalwareProtectionPlanInput`
+member, and "Presently, S3Bucket is the only supported protected resource"
+-- a plan with no addressable bucket is meaningless); (2) both Create and
+Update validate `actions.tagging.status` against the real
+`MalwareProtectionPlanTaggingActionStatus` enum (`ENABLED`/`DISABLED`)
+rather than accepting any string. Update deliberately does NOT
+bucketName-validate `protectedResource` -- the real
+`UpdateProtectedResource`/`UpdateS3BucketResource` shapes carry no
+`bucketName` member at all (only `objectPrefixes`); a plan's bucket can't be
+renamed after creation. The backend still stores `protectedResource`/
+`actions` as `map[string]any` (unchanged interface signature) -- only the
+handler-level validation is new, via a cheap JSON round-trip through the
+typed shapes (not a hot path: runs once per Create/UpdateMalwareProtectionPlan
+call).
+
+### ThreatEntitySet/TrustedEntitySet ExpectedBucketOwner (this pass, real field-diff miss corrected)
+
+A prior pass marked the `threat_trusted_entity_sets` family `ok` after
+fixing `createdAt`/`updatedAt` and the tag-map write bug, but didn't
+field-diff `CreateThreatEntitySetInput`/`CreateTrustedEntitySetInput`/
+`UpdateThreatEntitySetInput`/`UpdateTrustedEntitySetInput`/
+`GetThreatEntitySetOutput`/`GetTrustedEntitySetOutput` against the SDK
+source directly -- all six really do have an `ExpectedBucketOwner` member
+(the account ID that owns the S3 bucket referenced by `location`), which
+this backend accepted nowhere and never returned. Fixed: `Create*EntitySet`
+now takes and stores it, `Update*EntitySet` now accepts and overwrites it,
+`Get*EntitySet` now returns it when set (correctly omitted when never
+supplied, matching the real optional `*string`). `ErrorDetails` (also on
+both Get outputs) was deliberately NOT added -- it's only ever present when
+`status` is `ERROR`, a state this backend's entity sets never transition
+to, so omitting it is correct behavior, not a gap.
+
+### PublishingDestination "ExpectedBucketOwner-style extras" gap: misdiagnosis, removed (this pass)
+
+A prior pass's `gaps` list claimed "PublishingDestination lacks
+ExpectedBucketOwner-style extras present on some other Create*/Get*
+outputs (e.g. GetThreatEntitySetOutput.ErrorDetails/ExpectedBucketOwner)".
+Reading `api_op_DescribePublishingDestination.go`,
+`api_op_CreatePublishingDestination.go`, and `types.DestinationProperties`
+directly this pass confirms: **no such fields exist on the real
+PublishingDestination API surface at all.** `DescribePublishingDestinationOutput`'s
+full member set (`DestinationId`, `DestinationProperties`, `DestinationType`,
+`PublishingFailureStartTimestamp`, `Status`, `Tags`) was already completely
+covered before this pass. Per this campaign's rule against inventing fields
+not in the real SDK, the stale gap entry was removed rather than "fixed" by
+adding a field PublishingDestination was never supposed to have.
+
+### Wire-shape reference table (accumulated across passes)
+
+GuardDuty timestamps are NOT uniform across ops -- this is a real,
+deliberate AWS inconsistency, not a bug to "fix" toward one format:
 
 | Shape | Wire format | Verified via |
 |---|---|---|
@@ -133,64 +297,54 @@ AWS inconsistency, not a bug to "fix" toward one format:
 | `GetMalwareProtectionPlanOutput.CreatedAt` | epoch-seconds number | same |
 | `GetMalwareScanOutput.ScanStartedAt/ScanCompletedAt` | epoch-seconds number | same |
 | `DescribePublishingDestinationOutput.PublishingFailureStartTimestamp` | epoch-milliseconds `*int64` | deserializers.go: `json.Number` → `Int64()` |
+| `GetOrganizationStatisticsOutput.organizationDetails.updatedAt` | epoch-seconds number | same pattern, confirmed this pass |
+| `*Statistics[].lastGeneratedAt` / `DateStatistics.Date` (GetFindingsStatistics groupBy) | epoch-seconds number | same pattern, confirmed this pass |
 
 Use `pkgs/awstime.Epoch` for every epoch-seconds field; do not
 `.Format(...)` or let `json.Marshal` fall through to Go's default
-`time.Time` encoding for those fields — that produces an ISO8601 string a
+`time.Time` encoding for those fields -- that produces an ISO8601 string a
 real SDK deserializer rejects with "expected Timestamp to be a JSON Number,
 got string instead".
 
 `GetMalwareScanOutput` (the individual-scan `GET /malware-scan/{id}` op) is
 a **completely different, much richer shape** from the `Scan` type
-`DescribeMalwareScans`/`ListMalwareScans` return — they happen to share only
+`DescribeMalwareScans`/`ListMalwareScans` return -- they happen to share only
 `scanId`/`detectorId`/`scanStatus`/`scanType` field *names* (and even then
-the enum *types* differ, though the wire is the same string either way). The
-previous handler was built against the wrong shape (`Scan`, not
-`GetMalwareScanOutput`), emitting `accountId`/`resourceDetails`/`findings`
-(none of which exist on the real output) and naming the timestamps
-`scanStartTime`/`scanEndTime` instead of `scanStartedAt`/`scanCompletedAt`.
-Fixed the four wrong/renamed fields; the richer optional fields this backend
-has no state for remain a documented gap above rather than being faked out.
+the enum *types* differ, though the wire is the same string either way).
 
-### Tag state-sync bug (this pass)
+### Tag state-sync bug (prior pass, unchanged this pass)
 
 Every taggable resource (Detector, Filter, IPSet, ThreatIntelSet,
 ThreatEntitySet, TrustedEntitySet, MalwareProtectionPlan,
 PublishingDestination) stores a **frozen copy** of its tags on its own
 struct, set once at creation and returned by that resource's own
-`Get`/`Describe` handler — matching the real `GetDetectorOutput.Tags` etc.
+`Get`/`Describe` handler -- matching the real `GetDetectorOutput.Tags` etc.
 shapes, which embed tags directly rather than requiring a second
-`ListTagsForResource` call. `TagResource`/`UntagResource`, however, only
-ever mutated `InMemoryBackend.tags` (the ARN-keyed generic map backing
-`ListTagsForResource`) and never touched that frozen field, so calling
-`TagResource` then immediately calling `GetDetector` returned the *old*
-tags while `ListTagsForResource` returned the *new* ones — a real,
-observable divergence from AWS behavior (real AWS keeps both views
-consistent). Fixed via `syncResourceTagsFromARN` in `backend.go`, which
-parses the resource ARN back to its owning table+key and refreshes that
-resource's `Tags` field after every `TagResource`/`UntagResource` call.
-
-The inverse gap also existed for the two entity-set families:
-`CreateThreatEntitySet`/`CreateTrustedEntitySet` set the creation-time tags
-on the resource's own field but never wrote them into the generic
-`b.tags[ARN]` map at all (every *other* taggable resource's Create* method
-did), so `ListTagsForResource` on a freshly-created entity set returned `{}`
-even though `GetThreatEntitySet` showed the tags. Fixed by adding the
-missing `b.tags[...]` write (using new `threatEntitySetARN`/
-`trustedEntitySetARN`/`publishingDestinationARN` helpers in `backend.go`,
-matching the existing `filterARN`/`ipSetARN`/`threatIntelSetARN` pattern).
+`ListTagsForResource` call. `TagResource`/`UntagResource` sync into that
+frozen field via `syncResourceTagsFromARN` in `backend.go`.
 
 ### Looks-wrong-but-correct traps
 
 - `GetFilterOutput`/`GetIPSetOutput`/`GetThreatIntelSetOutput` genuinely have
-  **no** `createdAt`/`updatedAt` members on the real wire — the handlers
+  **no** `createdAt`/`updatedAt` members on the real wire -- the handlers
   correctly omit them. Do not "fix" this by adding timestamps; it would be
   a new divergence, not a repair.
 - `CreateDetector` returning `ConflictException` on a second call is
   consistent with the real API's documented "you can have only one detector
   per Region" constraint (`aws-sdk-go-v2/service/guardduty`
-  `api_op_CreateDetector.go` doc comment) — not a bug.
+  `api_op_CreateDetector.go` doc comment) -- not a bug.
 - `errBody`'s `message` field intentionally equals `__type` (both are the
   sentinel's error-code string, e.g. `"ResourceNotFoundException"`) rather
-  than a human-readable sentence — this matches the existing repo-wide
+  than a human-readable sentence -- this matches the existing repo-wide
   `awserr` convention, not a bug specific to this service.
+- `GetCoverageStatistics`/`ListCoverage` returning all-empty
+  maps/arrays is CORRECT for an account with no tracked EKS/ECS/EC2
+  runtime-monitoring coverage resources -- do not "fix" this by fabricating
+  synthetic coverage data; that would be a new, worse divergence. The real
+  gap (documented above) is that this backend has no coverage-resource
+  state model at all, so the response can never show real data even when a
+  hypothetical resource exists -- a materially larger feature, not a
+  wire-shape bug.
+- `groupByResource`'s `resourceId` is always `""` -- this is a genuine,
+  documented backend limitation (no per-resource-type identifier is
+  tracked), not an oversight to silently "fix" by fabricating IDs.

@@ -108,6 +108,51 @@ func TestScan_Enhanced_FindingDetail(t *testing.T) {
 	assert.Equal(t, "scan", f.Resources[0].Details.AwsEcrContainerImage.RepositoryName)
 }
 
+// TestScan_ImageScanCompletedAt_Populated locks the ImageScanCompletedAt field:
+// real AWS names it imageScanCompletedAt (not completedAt) and encodes it as
+// epoch seconds. VulnerabilitySourceUpdatedAt is only meaningful for ENHANCED
+// scans (Inspector vulnerability-database freshness) and must be zero for BASIC.
+func TestScan_ImageScanCompletedAt_Populated(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		scanType    string
+		wantVulnSrc bool
+	}{
+		{name: "basic scan omits vulnerabilitySourceUpdatedAt", scanType: "BASIC", wantVulnSrc: false},
+		{name: "enhanced scan sets vulnerabilitySourceUpdatedAt", scanType: "ENHANCED", wantVulnSrc: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			b.CreateRepoInternal("scan-completed-at")
+			b.AddImageInternal("scan-completed-at", makeImage(scanDigest, "v1"))
+			setScanType(t, b, tt.scanType)
+
+			_, err := b.StartImageScan(context.Background(), "scan-completed-at",
+				ecr.ImageIdentifier{ImageDigest: scanDigest})
+			require.NoError(t, err)
+
+			res, _, err := b.DescribeImageScanFindings(context.Background(), "scan-completed-at",
+				ecr.ImageIdentifier{ImageDigest: scanDigest}, 0, "")
+			require.NoError(t, err)
+
+			assert.Positive(t, res.ImageScanCompletedAt, "imageScanCompletedAt must be a positive epoch value")
+			if tt.wantVulnSrc {
+				assert.Positive(t, res.VulnerabilitySourceUpdatedAt,
+					"ENHANCED scans must populate vulnerabilitySourceUpdatedAt")
+			} else {
+				assert.Zero(t, res.VulnerabilitySourceUpdatedAt,
+					"BASIC scans must not populate vulnerabilitySourceUpdatedAt")
+			}
+		})
+	}
+}
+
 func TestScan_Deterministic_SameDigestSameFindings(t *testing.T) {
 	t.Parallel()
 

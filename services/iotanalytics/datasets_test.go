@@ -83,7 +83,7 @@ func TestInMemoryBackend_DatasetContentCap(t *testing.T) {
 	// Fill to exactly the cap.
 	var firstVersionID string
 	for i := range maxContents {
-		c, cerr := b.CreateDatasetContent("capped_ds")
+		c, cerr := b.CreateDatasetContent("capped_ds", "")
 		require.NoError(t, cerr)
 		if i == 0 {
 			firstVersionID = c.VersionID
@@ -95,7 +95,7 @@ func TestInMemoryBackend_DatasetContentCap(t *testing.T) {
 	assert.Len(t, contents, maxContents, "should have exactly cap versions before exceeding")
 
 	// Add one more — oldest should be evicted.
-	newest, err := b.CreateDatasetContent("capped_ds")
+	newest, err := b.CreateDatasetContent("capped_ds", "")
 	require.NoError(t, err)
 
 	contents, err = b.ListDatasetContents("capped_ds")

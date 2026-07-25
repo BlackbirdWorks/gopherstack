@@ -244,6 +244,14 @@ func parseCFOriginAccessControlPath(method, suffix string) (string, string) {
 }
 
 // parseCFOriginRequestPolicyPath routes origin request policy paths.
+//
+// UpdateOriginRequestPolicy's real request syntax is
+// "PUT /2020-05-31/origin-request-policy/{Id}" -- the bare-ID path, with no
+// "/config" suffix (verified against the API reference; matches the
+// UpdateCachePolicy/UpdateResponseHeadersPolicy pattern used elsewhere in this
+// file). PUT was previously only routed when the path ended in "/config", which
+// no real SDK client ever sends: every UpdateOriginRequestPolicy call would 404
+// with "unknown operation" against this emulator.
 func parseCFOriginRequestPolicyPath(method, suffix string) (string, string) {
 	const prefix = "origin-request-policy/"
 	const root = "origin-request-policy"
@@ -255,17 +263,16 @@ func parseCFOriginRequestPolicyPath(method, suffix string) (string, string) {
 		return opListOriginRequestPolicies, ""
 	case strings.HasPrefix(suffix, prefix) && strings.HasSuffix(suffix, "/config"):
 		id := strings.TrimSuffix(strings.TrimPrefix(suffix, prefix), "/config")
-		switch method {
-		case http.MethodGet:
+		if method == http.MethodGet {
 			return opGetOriginRequestPolicyConfig, id
-		case http.MethodPut:
-			return opUpdateOriginRequestPolicy, id
 		}
 	case strings.HasPrefix(suffix, prefix) && !strings.Contains(strings.TrimPrefix(suffix, prefix), "/"):
 		id := strings.TrimPrefix(suffix, prefix)
 		switch method {
 		case http.MethodGet:
 			return opGetOriginRequestPolicy, id
+		case http.MethodPut:
+			return opUpdateOriginRequestPolicy, id
 		case http.MethodDelete:
 			return opDeleteOriginRequestPolicy, id
 		}

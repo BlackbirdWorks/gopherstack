@@ -39,7 +39,6 @@ func TestDescribeSecret_AllMetadataFields(t *testing.T) {
 	assert.Equal(t, "full-desc", desc.Name)
 	assert.Equal(t, "my description", desc.Description)
 	assert.Equal(t, "alias/my-key", desc.KmsKeyID)
-	assert.Equal(t, "123456789012", desc.OwnerAccountID)
 	assert.Equal(t, "us-west-2", desc.PrimaryRegion)
 	assert.NotNil(t, desc.CreatedDate)
 	assert.NotNil(t, desc.LastChangedDate)
@@ -180,10 +179,10 @@ func TestDescribeSecret_NextRotationDateFromCron(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// OwnerAccountId / PrimaryRegion
+// PrimaryRegion
 // ---------------------------------------------------------------------------
 
-func TestDescribeSecret_OwnerAccountIDAndPrimaryRegion(t *testing.T) {
+func TestDescribeSecret_PrimaryRegion(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackendWithConfig("000000000001", "eu-west-2")
@@ -193,7 +192,6 @@ func TestDescribeSecret_OwnerAccountIDAndPrimaryRegion(t *testing.T) {
 
 	out, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "owned"})
 	require.NoError(t, err)
-	assert.Equal(t, "000000000001", out.OwnerAccountID)
 	assert.Equal(t, "eu-west-2", out.PrimaryRegion)
 }
 

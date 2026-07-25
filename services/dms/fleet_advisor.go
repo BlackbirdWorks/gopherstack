@@ -46,7 +46,7 @@ func (b *InMemoryBackend) CreateFleetAdvisorCollector(
 
 	// Seed two discovered databases per collector to emulate Fleet Advisor discovery.
 	for _, seed := range []struct{ name, engine, ip string }{
-		{collectorName + "-mysql-db", "mysql", "10.0.1.10"},
+		{collectorName + "-mysql-db", engineNameMySQL, "10.0.1.10"},
 		{collectorName + "-pg-db", "postgresql", "10.0.1.11"},
 	} {
 		dbID := uuid.NewString()

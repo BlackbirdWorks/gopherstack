@@ -367,7 +367,10 @@ func TestRBAC_ListPolicies(t *testing.T) {
 	assert.NotEmpty(t, policies, "ListAccessPolicies must return built-in policies")
 
 	for _, p := range policies {
-		assert.NotEmpty(t, p["policyArn"], "each policy must have a policyArn")
+		// Real wire key is "arn", not "policyArn" -- verified against
+		// aws-sdk-go-v2/service/eks/types.AccessPolicy (distinct from
+		// AssociatedAccessPolicy's "policyArn" key used elsewhere).
+		assert.NotEmpty(t, p["arn"], "each policy must have an arn")
 		assert.NotEmpty(t, p["name"], "each policy must have a name")
 	}
 }
@@ -509,4 +512,34 @@ func TestAccessEntry_KubernetesGroups_AlwaysPresent(t *testing.T) {
 	entry := parseResp(t, rec)["accessEntry"].(map[string]any)
 	_, ok := entry["kubernetesGroups"]
 	assert.True(t, ok, "kubernetesGroups must always be present in access entry response")
+}
+
+// TestAccessEntry_ModifiedAt verifies the "modifiedAt" field -- present on
+// the real aws-sdk-go-v2/service/eks/types.AccessEntry but previously absent
+// from gopherstack's model -- is populated on both create and update.
+func TestAccessEntry_ModifiedAt(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEKSHandler(t)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ae-modified-cluster"})
+
+	principalARN := "arn:aws:iam::123456789012:role/r1"
+	createRec := doREST(t, h, http.MethodPost, "/clusters/ae-modified-cluster/access-entries", map[string]any{
+		"principalArn": principalARN,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	created := parseResp(t, createRec)["accessEntry"].(map[string]any)
+	createdModifiedAt, ok := created["modifiedAt"].(float64)
+	require.True(t, ok, "modifiedAt must be present after create")
+	assert.Positive(t, createdModifiedAt)
+
+	updateRec := doREST(t, h, http.MethodPost, "/clusters/ae-modified-cluster/access-entries/"+principalARN,
+		map[string]any{"username": "new-username"})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	updated := parseResp(t, updateRec)["accessEntry"].(map[string]any)
+	updatedModifiedAt, ok := updated["modifiedAt"].(float64)
+	require.True(t, ok, "modifiedAt must be present after update")
+	assert.GreaterOrEqual(t, updatedModifiedAt, createdModifiedAt)
 }

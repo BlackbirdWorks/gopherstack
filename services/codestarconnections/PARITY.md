@@ -6,50 +6,51 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codestarconnections
 sdk_module: aws-sdk-go-v2/service/codestarconnections@v1.35.15   # version audited against
-last_audit_commit: 3f6a5e93                       # HEAD when this manifest was written
-last_audit_date: 2026-07-13
-overall: A            # genuine wire/error-shape fixes found across most-used ops
+last_audit_commit: e862cdc2                       # HEAD when this manifest was written
+last_audit_date: 2026-07-24
+overall: A            # zero-gap field-diff pass against botocore's authoritative per-op error lists
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "restored Tags field in response (CreateConnectionOutput.Tags is real, distinct from Connection type which has no Tags) — a prior sweep had incorrectly removed it by conflating the two shapes"}
+  CreateConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags field in response verified correct (CreateConnectionOutput.Tags is real). NEW this pass: HostArn is now validated against a real, previously-created host -- unknown HostArn returns ResourceNotFoundException (real error list is [LimitExceededException, ResourceNotFoundException, ResourceUnavailableException], confirmed via botocore's codestar-connections/2019-12-01/service-2.json operations[].errors; ResourceNotFoundException chosen to match the identical fix already made in the codeconnections sibling service, both citing GetHost/DeleteHost's reuse of ResourceNotFoundException for missing hosts). Tag-count-exceeded now maps to LimitExceededException (was InvalidInputException, which is not in this op's real error list at all)."}
   GetConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   ListConnections: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateHost: {wire: ok, errors: ok, state: ok, persist: ok, note: "restored Tags field in response, same rationale as CreateConnection"}
-  GetHost: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateHost: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags field in response verified correct. Host name length validation fixed: was reusing ConnectionName's 32-char max (validateConnectionName) for host names too; real HostName shape (botocore) has its own 64-char max, and a separate character-class restriction that never existed in the real API (pattern is `.*`, effectively unrestricted) was also removed -- see validateHostName in errors.go. Tag-count-exceeded now maps to LimitExceededException (CreateHost's real, complete error list is [LimitExceededException] only -- it never had InvalidInputException as a possible error)."}
+  GetHost: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: response no longer includes an invented StatusMessage field. Confirmed via aws-sdk-go-v2's generated GetHostOutput struct and its deserializer (awsAwsjson10_deserializeOpDocumentGetHostOutput) that the real GetHost response is exactly Name/ProviderEndpoint/ProviderType/Status/VpcConfiguration -- StatusMessage is a genuine real-API asymmetry (present on types.Host, used by ListHosts, but NOT on GetHostOutput specifically), not a gopherstack omission. listHostView (ListHosts' per-item shape) still includes it correctly."}
   ListHosts: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteHost: {wire: ok, errors: ok, state: ok, persist: ok, note: "in-use error type changed from fabricated ResourceInUseException (does not exist in the real service) to ConflictException (real type, best documented fit; DeleteHost itself documents no specific typed error for this case)"}
+  DeleteHost: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: in-use error type was ConflictException (itself a real type, but the wrong one for this op); DeleteHost's real, complete error list (botocore) is exactly [ResourceNotFoundException, ResourceUnavailableException] -- ConflictException belongs to UpdateHost's error list instead. Now returns ResourceUnavailableException, matching the identical fix already made in the codeconnections sibling service."}
   UpdateHost: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateRepositoryLink: {wire: ok, errors: ok, state: ok, persist: ok, note: "duplicate-link error type fixed: was InvalidInputException, real op registers a dedicated ResourceAlreadyExistsException"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass: now also resolves repository link ARNs (see CreateRepositoryLink note), not just connection/host ARNs."}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tag-count-exceeded now maps to LimitExceededException (was InvalidInputException; TagResource's real, complete error list is [ResourceNotFoundException, LimitExceededException] -- it never had InvalidInputException as a possible error). Also now resolves repository link ARNs."}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "Also now resolves repository link ARNs."}
+  CreateRepositoryLink: {wire: ok, errors: ok, state: ok, persist: ok, note: "duplicate-link error type (ResourceAlreadyExistsException) verified correct. NEW this pass: real CreateRepositoryLinkInput has a `Tags []types.Tag` member (confirmed against aws-sdk-go-v2's generated api_op_CreateRepositoryLink.go) that gopherstack previously dropped entirely -- repository links are now taggable via TagResource/UntagResource/ListTagsForResource by RepositoryLinkArn, same as connections/hosts. RepositoryLinkInfo (the Get/List/Create/Update response shape) correctly still has no Tags member of its own -- tags are only visible via ListTagsForResource, never echoed back in-line."}
   GetRepositoryLink: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteRepositoryLink: {wire: ok, errors: ok, state: ok, persist: ok, note: "in-use error type fixed: was fabricated ResourceInUseException, real op documents SyncConfigurationStillExistsException for this exact dependency check"}
+  DeleteRepositoryLink: {wire: ok, errors: ok, state: ok, persist: ok, note: "in-use error type (SyncConfigurationStillExistsException) verified correct."}
   ListRepositoryLinks: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateSyncConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "duplicate-config error type fixed: was InvalidInputException, real op registers ResourceAlreadyExistsException"}
+  CreateSyncConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "duplicate-config error type (ResourceAlreadyExistsException) verified correct."}
   GetSyncConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteSyncConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSyncConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSyncConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetRepositorySyncStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "StartedAt/Events[].Time fixed from RFC3339 strings to epoch-seconds JSON numbers (awstime.Epoch) — this is the awsjson1.0 protocol's unixTimestamp wire format, confirmed via aws-sdk-go-v2's ParseEpochSeconds(json.Number) deserializer"}
-  GetResourceSyncStatus: {wire: partial, errors: ok, state: ok, persist: ok, note: "same StartedAt/Time epoch-seconds fix applied; DesiredState/LatestSuccessfulSync fields (real optional output members requiring simulated git-repo Revision state) are not populated — see gaps"}
-  GetSyncBlockerSummary: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreatedAt/ResolvedAt fixed from RFC3339 strings to epoch-seconds JSON numbers"}
-  UpdateSyncBlocker: {wire: ok, errors: ok, state: ok, persist: ok, note: "MAJOR wire-shape bug fixed: response used to send a fabricated 'SyncBlockerSummary' (list) key; real CreateSyncBlockerOutput/UpdateSyncBlockerOutput wire key is 'SyncBlocker' (singular object) — confirmed via aws-sdk-go-v2 deserializer, which never even looks at a SyncBlockerSummary key for this op. Also fixed: unknown/wrong-region blocker IDs used to silently return 200 with an empty list; real op documents SyncBlockerDoesNotExistException and does not resolve unknown IDs gracefully. CreatedAt/ResolvedAt also switched to epoch-seconds."}
-  ListRepositorySyncDefinitions: {wire: ok, errors: ok, state: ok, persist: ok, note: "was a disguised no-op (struct literally doc-commented 'is a stub definition', body always returned []RepositorySyncDefinition{} regardless of existing sync configs). Now derives real definitions from the repository link's SyncConfigurations (Branch/ConfigFile-as-Directory/ResourceName-as-Target+Parent, matching AWS docs' 'for CFN_STACK_SYNC the parent and target resource are the same')."}
+  GetRepositorySyncStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "epoch-seconds StartedAt/Events[].Time verified correct."}
+  GetResourceSyncStatus: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this pass: LatestSync.Target (a required real member of types.ResourceSyncAttempt, confirmed against aws-sdk-go-v2's awsAwsjson10_deserializeDocumentResourceSyncAttempt) is now populated with the request's ResourceName -- it was previously omitted entirely. DesiredState/LatestSuccessfulSync (top-level optional output members) and InitialRevision/TargetRevision (types.Revision fields nested in LatestSync/LatestSuccessfulSync) remain unpopulated -- see gaps."}
+  GetSyncBlockerSummary: {wire: ok, errors: ok, state: ok, persist: ok, note: "epoch-seconds CreatedAt/ResolvedAt verified correct."}
+  UpdateSyncBlocker: {wire: ok, errors: ok, state: ok, persist: ok, note: "'SyncBlocker' (singular) response key verified correct. NEW this pass: ResourceName/SyncType/ResolvedReason are now enforced as required input (all four members -- Id, ResolvedReason, ResourceName, SyncType -- are 'This member is required' per aws-sdk-go-v2's generated api_op_UpdateSyncBlocker.go); previously only Id was validated."}
+  ListRepositorySyncDefinitions: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateRepositoryLink: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  RouteMatcher: {status: ok, note: "X-Amz-Target prefix 'CodeStar_connections_20191201.' and Content-Type 'application/x-amz-json-1.0' both verified byte-for-byte against aws-sdk-go-v2's serializers.go SetHeader calls for every op — no bug (task brief's suggested 'com.amazonaws.codestar.connections.' long-prefix form does not exist in the real SDK)."}
-  ConnectionStatus: {status: ok, note: "CreateConnection sets AVAILABLE immediately (not AWS's real PENDING-until-console-handshake). Verified this is the correct emulated behavior, not a bug: LocalStack's own CodeConnections docs example shows ConnectionStatus:AVAILABLE immediately after CreateConnection, and there is no API in this service that could ever transition a connection out of PENDING (unlike ACM's PENDING_VALIDATION, which has an autoValidate timer) — leaving it PENDING would make connections permanently unusable in the emulator. Do not 'fix' this to PENDING."}
-  HostStatus: {status: ok, note: "CreateHost sets PENDING and stays there (no auto-transition, unlike ConnectionStatus) — matches existing test TestAudit2_Host_StatusAvailableOnCreate and is consistent with AWS's real HOST behavior (host setup genuinely requires console/agent installation); left unchanged."}
+  RouteMatcher: {status: ok, note: "X-Amz-Target prefix 'CodeStar_connections_20191201.' and Content-Type 'application/x-amz-json-1.0' both verified byte-for-byte against aws-sdk-go-v2's serializers.go SetHeader calls for every op."}
+  ConnectionStatus: {status: ok, note: "CreateConnection sets AVAILABLE immediately (not AWS's real PENDING-until-console-handshake); this is the correct emulated behavior for a service with no state-transition API -- do not 'fix' this to PENDING."}
+  HostStatus: {status: ok, note: "CreateHost sets PENDING and stays there (no auto-transition); consistent with AWS's real HOST behavior (host setup genuinely requires console/agent installation)."}
+  ErrorTaxonomy: {status: ok, note: "Every error sentinel field-diffed this pass against botocore's codestar-connections/2019-12-01/service-2.json operations[].errors (the authoritative per-op error list, cross-checked against aws-sdk-go-v2/service/codestarconnections/types/errors.go's exhaustive 17-type catalog). Two invented-type bugs fixed: ErrValidation was 'ValidationException' (does not exist in this service's real error catalog at all) -> now InvalidInputException; DeleteHost's dependency-check error was 'ConflictException' (a real type, but not in DeleteHost's real error list -- it belongs to UpdateHost's) -> now ResourceUnavailableException. Both fixes mirror decisions already made and evidence-documented in the codeconnections sibling service's own error-taxonomy audit. New ErrTagLimitExceeded sentinel (LimitExceededException) replaces the previous ErrValidation/InvalidInputException mapping for 'too many tags' on CreateConnection/CreateHost/TagResource, none of which document InvalidInputException as a possible error for that case."}
+  Tagging: {status: ok, note: "Connections, hosts, AND repository links are all real taggable resources (CreateRepositoryLinkInput has a genuine Tags member -- see CreateRepositoryLink note above). Sync configurations are NOT taggable (CreateSyncConfigurationInput has no Tags member at all in the real SDK) -- verified, not touched."}
 gaps:
-  - GetResourceSyncStatus does not populate optional DesiredState/LatestSuccessfulSync (types.Revision) fields — would require simulating actual git repo content/SHAs, out of scope for this pass (bd: file follow-up)
-  - CreateConnection with a HostArn referencing a nonexistent host is accepted without validation (real CreateConnection documents ResourceUnavailableException for a bad host ARN); left unfixed this pass because an existing test (TestAudit2_Connection_HostArnIncludedWhenSet) intentionally exercises an arbitrary un-created HostArn and the real trigger condition (existence vs. malformed-ARN-format) could not be confirmed without live AWS access (bd: file follow-up)
-  - CreateConnection/CreateHost duplicate-name rejection (ErrAlreadyExists, InvalidInputException) has no direct confirmation in the real per-op error lists (which show only LimitExceededException/ResourceNotFoundException/ResourceUnavailableException for CreateConnection and only LimitExceededException for CreateHost) — left as-is since the Connection type doc explicitly states "Connection names must be unique in an Amazon Web Services account", and InvalidInputException is the most plausible untyped/common-error bucket; not changed for lack of stronger evidence
+  - GetResourceSyncStatus does not populate optional DesiredState/LatestSuccessfulSync (types.Revision-bearing) fields -- would require simulating actual git repo content/commit SHAs (types.Revision.Sha is a required member with no real backing state in this emulator); fabricating a placeholder SHA would violate parity-principles.md's no-fabricated-data rule, so this remains genuinely out of scope rather than a stub (bd: file follow-up if a git-content simulation layer is ever built for another service)
+  - SyncBlocker.Contexts ([]types.SyncBlockerContext) is never populated -- real AWS creates sync blockers (with contexts describing what went wrong) automatically as a side effect of internal Git-sync/CloudFormation validation; gopherstack's only blocker-creation path is the CreateSyncBlocker test/internal helper (not a routed customer-facing op), which has no realistic source of context data to attach. Contexts is an optional member, so omitting it is wire-correct (not a shape bug), just an unreachable-without-simulation feature
 deferred:
   - PullRequestComment field (CreateSyncConfiguration/UpdateSyncConfiguration/SyncConfiguration) — present in current AWS API docs but NOT in the pinned aws-sdk-go-v2@v1.35.15 SDK's types/serializers/deserializers; correctly omitted to match the SDK version actually vendored by this repo
-leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/Index behind lockmetrics.RWMutex, snapshotted via persistence.go"}
+leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/Index behind lockmetrics.RWMutex, snapshotted via persistence.go. NEW this pass: repositoryLinksByArn secondary index added (store.Table auto-maintains it through Put/Delete/Restore, same as every other index in this service) to let tags.go resolve repository link ARNs without a ghost/duplicate row risk -- DeleteRepositoryLink still removes the whole RepositoryLink (including its embedded Tags map) in one Delete call, so no separate tag store exists to leak."}
 ---
 
 ## Notes
@@ -61,56 +62,117 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   in the real wire protocol for this service; do not "fix" the route matcher
   to add one.
 
-- **Epoch-seconds timestamps** (bug class from parity-principles.md #2):
-  every timestamp in this service's sync/blocker surface (GetRepositorySyncStatus
-  StartedAt, sync event Time, GetResourceSyncStatus StartedAt, GetSyncBlockerSummary/
-  UpdateSyncBlocker CreatedAt/ResolvedAt) was wire-serialized as an RFC3339
-  string. The real awsjson1.0 protocol requires epoch-seconds JSON numbers
-  (`smithytime.ParseEpochSeconds(json.Number)` in the SDK deserializer — it
-  explicitly rejects strings with "expected Timestamp to be a JSON Number, got
-  string instead"). Fixed via `pkgs/awstime.Epoch`. A previous audit had even
-  added a test (`TestAudit2_GetRepositorySyncStatus_StartedAtFormat`) that
-  *asserted* the wrong RFC3339 behavior — rewritten to assert a JSON number.
+- **Epoch-seconds timestamps** (bug class from parity-principles.md #2): every
+  timestamp in this service's sync/blocker surface was already fixed to
+  epoch-seconds JSON numbers (via `pkgs/awstime.Epoch`) in a prior audit and
+  was re-verified, not re-fixed, this pass.
 
-- **UpdateSyncBlocker wire shape** was the most significant bug found this
-  pass: the response body key was `SyncBlockerSummary` (a list wrapper)
-  instead of the real `SyncBlocker` (a single object — the one blocker that
-  was just updated). A real aws-sdk-go-v2 client's `out.SyncBlocker` would
-  always have decoded as `nil` against gopherstack's old response, silently
-  breaking any caller reading the resolved blocker back from the API
-  response (GetSyncBlockerSummary was unaffected — its shape was already
-  correct).
+- **Error-taxonomy field-diff (this pass's main finding)**: this audit had
+  direct access to botocore's `codestar-connections/2019-12-01/service-2.json`
+  (the authoritative source for real per-op documented error lists), not just
+  the Go SDK's exhaustive-but-undifferentiated type catalog. Two invented-type
+  bugs were found and fixed by cross-referencing every mutating op's
+  `operations[].errors` array:
+  - `ErrValidation` was mapped to a fabricated `"ValidationException"` type
+    that does not exist anywhere in this service's real 17-type error catalog
+    (`AccessDeniedException`/`ConcurrentModificationException`/
+    `ConditionalCheckFailedException`/`ConflictException`/
+    `InternalServerException`/`InvalidInputException`/`LimitExceededException`/
+    `ResourceAlreadyExistsException`/`ResourceNotFoundException`/
+    `ResourceUnavailableException`/`RetryLatestCommitFailedException`/
+    `SyncBlockerDoesNotExistException`/`SyncConfigurationStillExistsException`/
+    `ThrottlingException`/`UnsupportedOperationException`/
+    `UnsupportedProviderTypeException`/`UpdateOutOfSyncException`). Every
+    mutating op's real error list uses `InvalidInputException` for malformed
+    input instead; `ErrValidation` now maps there.
+  - `DeleteHost`'s "host has active connections" error was `ConflictException`
+    — itself a real type in the catalog, but not a possible error for
+    `DeleteHost` specifically: botocore's `DeleteHost.errors` is exactly
+    `[ResourceNotFoundException, ResourceUnavailableException]`.
+    `ConflictException` belongs to `UpdateHost`'s error list instead. Now
+    `ResourceUnavailableException`.
+  - Both fixes exactly mirror decisions already made (with the same
+    botocore-backed evidence) in the `codeconnections` sibling service's own
+    error-taxonomy audit, confirming this is a shared bug class introduced by
+    the same historical sweep across both CodeStar/CodeConnections services.
+  - `LimitExceededException` was also found to be systematically
+    under-used: `CreateConnection`/`CreateHost`/`TagResource` all document it
+    as their (sole, for `CreateHost`) real error for "too many tags", but
+    gopherstack mapped that case to `ErrValidation`/`InvalidInputException`
+    instead. A new `ErrTagLimitExceeded` sentinel now carries the correct
+    type across all three call sites (`validateTags`'s count check and
+    `TagResource`'s post-merge count check).
 
-- **Error-type fidelity**: `ResourceInUseException`, previously used for both
-  "host has active connections" (DeleteHost) and "repository link has active
-  sync configs" (DeleteRepositoryLink), does not exist anywhere in
-  codestarconnections' real error catalog (verified against
-  `aws-sdk-go-v2/service/codestarconnections/types/errors.go`'s exhaustive
-  type list). Split into two real, evidence-backed types:
-  `SyncConfigurationStillExistsException` for the repository-link case
-  (explicitly documented for DeleteRepositoryLink) and `ConflictException`
-  for the host case (no dedicated documented type exists for DeleteHost's
-  dependency check, so the closest real, generic type was used instead of a
-  fabricated name). Similarly, `CreateRepositoryLink`/`CreateSyncConfiguration`
-  duplicate-resource errors were `InvalidInputException`; the real per-op
-  error deserializers register a dedicated `ResourceAlreadyExistsException`
-  for both, so a new `ErrResourceAlreadyExists` sentinel now carries that
-  distinct type (kept separate from the connection/host-name `ErrAlreadyExists`
-  sentinel, whose ops document no such dedicated type).
+- **CreateConnection HostArn existence validation** (previously an open gap):
+  `CreateConnection`'s real error list is `[LimitExceededException,
+  ResourceNotFoundException, ResourceUnavailableException]` — a `HostArn`
+  referencing a host that does not exist now returns
+  `ResourceNotFoundException`, the same real type `GetHost`/`DeleteHost` use
+  for a missing host. This exactly mirrors the fix already made in the
+  `codeconnections` sibling service (see its `connections.go` comment), which
+  resolved the same ambiguity this service's previous audit had left open
+  citing lack of live-AWS confirmation.
 
-- **CreateConnection/CreateHost `Tags` field**: restored after determining a
-  prior sweep (commit b1146508, "fix... tag response shape") had removed it
-  by incorrectly generalizing from `GetConnection`/`GetHost`'s `Connection`/
-  `Host` types (which genuinely have no `Tags` field in the real SDK) to
-  `CreateConnectionOutput`/`CreateHostOutput` (which are distinct generated
-  structs that DO have their own `Tags []types.Tag` field, confirmed via the
-  compiled SDK's own deserializer code, not just docs). This is the one case
-  this pass reversed a previous audit's explicit decision — see the updated
-  test comments in `handler_audit2_test.go` for the full reasoning trail so a
-  future audit does not flip it back without re-checking the SDK source.
+- **HostName length/pattern bugs**: `CreateHost` was reusing
+  `ConnectionName`'s 32-character max (via a shared `validateConnectionName`
+  helper) for host names too. botocore's `HostName` shape has its own,
+  different 64-character max — a valid 33-64 character host name was
+  previously rejected. Additionally, both `ConnectionName` (pattern
+  `[\s\S]*`) and `HostName` (pattern `.*`) are, per botocore, unrestricted in
+  character class (any string up to the length limit); a previous
+  implementation invented a `[a-zA-Z0-9_.\-]+` regex that rejected valid
+  names containing spaces or other punctuation. Both bugs fixed via a new
+  `validateHostName` (64-char max) alongside `validateConnectionName`
+  (32-char max), neither doing character-class filtering anymore.
 
-- **`ListRepositorySyncDefinitions`** was a disguised no-op: the struct comment
-  literally said "is a stub definition" and the handler always returned an
-  empty array regardless of state, ignoring `syncType` entirely (`_ =
-  syncType`). Now derives real definitions from the repository link's
-  `SyncConfiguration`s.
+- **GetHost's missing `StatusMessage`**: aws-sdk-go-v2's generated
+  `GetHostOutput` struct and its deserializer
+  (`awsAwsjson10_deserializeOpDocumentGetHostOutput`) confirm the real
+  `GetHost` response is exactly `Name`/`ProviderEndpoint`/`ProviderType`/
+  `Status`/`VpcConfiguration` — no `StatusMessage`, even though the sibling
+  `types.Host` (used by `ListHosts`) does have that field. This is a genuine
+  real-API asymmetry, not a gopherstack gap; a previous implementation had
+  added `StatusMessage` to `GetHost`'s response by incorrectly generalizing
+  from `types.Host`. Removed from `getHostView`; `listHostView` (`ListHosts`'
+  per-item shape) is unaffected and still correctly includes it.
+
+- **`CreateRepositoryLink` `Tags` field**: aws-sdk-go-v2's generated
+  `CreateRepositoryLinkInput` struct has a real `Tags []types.Tag` member
+  that gopherstack previously dropped entirely — repository links could not
+  be tagged at creation, and were not resolvable at all by
+  `TagResource`/`UntagResource`/`ListTagsForResource` (only connections and
+  hosts were). Fixed: `RepositoryLink` gained a `Tags map[string]string`
+  field (persisted automatically, since it's a plain exported field on a
+  type whose `Snapshot`/`Restore` DTO already carries the whole struct — see
+  `persistence.go`'s `regionalDTO[RepositoryLink]`), a new
+  `repositoryLinksByArn` secondary index lets `tags.go` resolve a repository
+  link by its `RepositoryLinkArn` (mirroring how connections/hosts are
+  resolved by their own ARN), and `CreateRepositoryLink`'s handler now
+  accepts and forwards a `Tags` array. `RepositoryLinkInfo` (the
+  Get/List/Create/Update response shape) correctly still has no `Tags`
+  member of its own — verified against the real SDK — so created tags are
+  only visible via a follow-up `ListTagsForResource` call, never echoed
+  in-line the way `CreateConnectionOutput`/`CreateHostOutput` do.
+
+- **`GetResourceSyncStatus` missing `Target`**: `types.ResourceSyncAttempt`'s
+  `Target` member is required (always populated by real AWS) per its
+  deserializer (`awsAwsjson10_deserializeDocumentResourceSyncAttempt`) and
+  is simply the resource name being synchronized — always known here since
+  it equals the request's `ResourceName`. Previously omitted entirely; now
+  populated. `DesiredState`/`LatestSuccessfulSync`/`InitialRevision`/
+  `TargetRevision` remain unpopulated (see gaps) since they require a
+  simulated Git commit SHA this emulator has no real backing state for.
+
+- **`UpdateSyncBlocker` required-field validation**: all four
+  `UpdateSyncBlockerInput` members (`Id`, `ResolvedReason`, `ResourceName`,
+  `SyncType`) are "This member is required" per the real SDK, but only `Id`
+  was previously validated. `ResourceName`/`SyncType`/`ResolvedReason` are
+  now also enforced.
+
+- **`ListRepositorySyncDefinitions`** (fixed in a prior audit, unchanged
+  this pass): derives real definitions from the repository link's
+  `SyncConfiguration`s rather than being a disguised no-op.
+
+- **`UpdateSyncBlocker` wire shape** (fixed in a prior audit, unchanged this
+  pass): response key is the real singular `SyncBlocker`, not a fabricated
+  `SyncBlockerSummary` list.

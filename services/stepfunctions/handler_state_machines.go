@@ -15,6 +15,7 @@ type createStateMachineInput struct {
 	Definition              string                   `json:"definition"`
 	RoleArn                 string                   `json:"roleArn"`
 	Type                    string                   `json:"type"`
+	VersionDescription      string                   `json:"versionDescription,omitempty"`
 	Tags                    []sfnTagEntry            `json:"tags,omitempty"`
 	Publish                 bool                     `json:"publish,omitempty"`
 }
@@ -30,6 +31,7 @@ type updateStateMachineInput struct {
 	StateMachineArn         string                   `json:"stateMachineArn"`
 	Definition              string                   `json:"definition"`
 	RoleArn                 string                   `json:"roleArn"`
+	VersionDescription      string                   `json:"versionDescription,omitempty"`
 	Publish                 bool                     `json:"publish,omitempty"`
 }
 
@@ -43,8 +45,11 @@ type describeStateMachineInput struct {
 }
 
 type createStateMachineOutput struct {
-	StateMachineArn string  `json:"stateMachineArn"`
-	CreationDate    float64 `json:"creationDate"`
+	StateMachineArn string `json:"stateMachineArn"`
+	// StateMachineVersionArn is set only when Publish=true ("If you do not
+	// set the publish parameter to true, this field returns null value").
+	StateMachineVersionArn string  `json:"stateMachineVersionArn,omitempty"`
+	CreationDate           float64 `json:"creationDate"`
 }
 
 type deleteStateMachineOutput struct{}
@@ -55,7 +60,9 @@ type listStateMachinesOutput struct {
 }
 
 type updateStateMachineOutput struct {
-	UpdateDate float64 `json:"updateDate"`
+	RevisionID             string  `json:"revisionId,omitempty"`
+	StateMachineVersionArn string  `json:"stateMachineVersionArn,omitempty"`
+	UpdateDate             float64 `json:"updateDate"`
 }
 
 // createStateMachineAction handles CreateStateMachine and applies tracing/logging/encryption
@@ -64,6 +71,14 @@ func (h *Handler) createStateMachineAction(ctx context.Context, b []byte) (any, 
 	var input createStateMachineInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
+	}
+
+	// AWS: "You can only set the description if the publish parameter is
+	// set to true. Otherwise ... this API action throws ValidationException."
+	if input.VersionDescription != "" && !input.Publish {
+		return nil, fmt.Errorf(
+			"%w: versionDescription requires publish to be true", ErrValidation,
+		)
 	}
 
 	sm, err := h.Backend.CreateStateMachine(
@@ -95,15 +110,23 @@ func (h *Handler) createStateMachineAction(ctx context.Context, b []byte) (any, 
 		h.setTags(sm.StateMachineArn, kv)
 	}
 
-	// When publish=true, immediately publish a version of the new state machine.
-	if input.Publish {
-		_, _ = h.Backend.PublishStateMachineVersion(sm.StateMachineArn, "", "")
-	}
-
-	return &createStateMachineOutput{
+	out := &createStateMachineOutput{
 		StateMachineArn: sm.StateMachineArn,
 		CreationDate:    sm.CreationDate,
-	}, nil
+	}
+
+	// When publish=true, immediately publish a version of the new state
+	// machine and echo its ARN back (AWS: null unless publish=true).
+	if input.Publish {
+		v, pubErr := h.Backend.PublishStateMachineVersion(sm.StateMachineArn, input.VersionDescription, "")
+		if pubErr != nil {
+			return nil, pubErr
+		}
+
+		out.StateMachineVersionArn = v.StateMachineVersionArn
+	}
+
+	return out, nil
 }
 
 // updateStateMachineAction handles UpdateStateMachine and applies tracing/logging/encryption
@@ -118,7 +141,13 @@ func (h *Handler) updateStateMachineAction(b []byte) (any, error) {
 		return nil, fmt.Errorf("%w: stateMachineArn must not be empty", ErrValidation)
 	}
 
-	updateDate, err := h.Backend.UpdateStateMachine(
+	if input.VersionDescription != "" && !input.Publish {
+		return nil, fmt.Errorf(
+			"%w: versionDescription requires publish to be true", ErrValidation,
+		)
+	}
+
+	updateDate, revisionID, err := h.Backend.UpdateStateMachine(
 		input.StateMachineArn,
 		input.Definition,
 		input.RoleArn,
@@ -139,12 +168,22 @@ func (h *Handler) updateStateMachineAction(b []byte) (any, error) {
 		}
 	}
 
-	// When publish=true, immediately publish a version of the updated state machine.
+	out := &updateStateMachineOutput{UpdateDate: updateDate, RevisionID: revisionID}
+
+	// When publish=true, immediately publish a version of the updated state
+	// machine and echo its ARN back.
 	if input.Publish {
-		_, _ = h.Backend.PublishStateMachineVersion(input.StateMachineArn, "", "")
+		v, pubErr := h.Backend.PublishStateMachineVersion(
+			input.StateMachineArn, input.VersionDescription, revisionID,
+		)
+		if pubErr != nil {
+			return nil, pubErr
+		}
+
+		out.StateMachineVersionArn = v.StateMachineVersionArn
 	}
 
-	return &updateStateMachineOutput{UpdateDate: updateDate}, nil
+	return out, nil
 }
 
 func (h *Handler) stateMachineActions() map[string]actionFn {

@@ -48,42 +48,6 @@ func (h *Handler) handleJWKS(c *echo.Context) error {
 	return c.JSONBlob(http.StatusOK, data)
 }
 
-func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutput, error) {
-	attrs := attributeListToMap(in.UserAttributes)
-
-	user, err := h.Backend.SignUp(in.ClientID, in.Username, in.Password, attrs)
-	if err != nil {
-		return nil, err
-	}
-
-	out := &signUpOutput{
-		UserSub:       user.Sub,
-		UserConfirmed: user.Status == UserStatusConfirmed,
-	}
-
-	// Include the confirmation code in the response to facilitate integration testing.
-	// In production Cognito the code is delivered via email/SMS; the mock returns it
-	// directly so test harnesses don't need an out-of-band code delivery mechanism.
-	if user.ConfirmCode != "" {
-		out.CodeDeliveryDetails = map[string]string{
-			keyDeliveryMedium:   medEmail,
-			keyDestination:      mockDestination,
-			keyAttributeName:    attrEmail,
-			keyConfirmationCode: user.ConfirmCode,
-		}
-	}
-
-	return out, nil
-}
-
-func (h *Handler) handleConfirmSignUp(_ context.Context, in *confirmSignUpInput) (*confirmSignUpOutput, error) {
-	if err := h.Backend.ConfirmSignUp(in.ClientID, in.Username, in.ConfirmationCode); err != nil {
-		return nil, err
-	}
-
-	return &confirmSignUpOutput{}, nil
-}
-
 // authResultFromTokenResult converts a TokenResult to an authResult.
 func authResultFromTokenResult(tokens *TokenResult) *authResult {
 	return &authResult{
@@ -100,78 +64,21 @@ func authOutputFromResult(result *AuthResult) *authOutput {
 	if result.MFASession != "" {
 		name := result.ChallengeName
 
+		params := result.ChallengeParameters
+		if params == nil {
+			params = map[string]string{}
+		}
+
 		return &authOutput{
 			ChallengeName:       &name,
 			Session:             &result.MFASession,
-			ChallengeParameters: map[string]string{},
+			ChallengeParameters: params,
 		}
 	}
 
 	return &authOutput{
 		AuthenticationResult: authResultFromTokenResult(result.Tokens),
 	}
-}
-
-func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOutput, error) {
-	if in.AuthFlow == authFlowRefreshTokenAuth || in.AuthFlow == authFlowRefreshToken {
-		refreshToken := in.AuthParameters[authFlowRefreshToken]
-		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
-		if err != nil {
-			return nil, err
-		}
-
-		return &authOutput{
-			AuthenticationResult: &authResult{
-				// AWS does not rotate the refresh token on every refresh by default;
-				// we return the new token to keep the mock consistent with rotation.
-				AccessToken:  tokens.AccessToken,
-				IDToken:      tokens.IDToken,
-				RefreshToken: tokens.RefreshToken,
-				TokenType:    authTypeBearer,
-				ExpiresIn:    tokens.ExpiresIn,
-			},
-		}, nil
-	}
-
-	username := in.AuthParameters["USERNAME"]
-	password := in.AuthParameters["PASSWORD"]
-
-	result, err := h.Backend.InitiateAuth(in.ClientID, in.AuthFlow, username, password)
-	if err != nil {
-		return nil, err
-	}
-
-	return authOutputFromResult(result), nil
-}
-
-func (h *Handler) handleAdminInitiateAuth(_ context.Context, in *authInput) (*authOutput, error) {
-	if in.AuthFlow == authFlowRefreshTokenAuth || in.AuthFlow == authFlowRefreshToken {
-		refreshToken := in.AuthParameters[authFlowRefreshToken]
-		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
-		if err != nil {
-			return nil, err
-		}
-
-		return &authOutput{
-			AuthenticationResult: &authResult{
-				AccessToken:  tokens.AccessToken,
-				IDToken:      tokens.IDToken,
-				RefreshToken: tokens.RefreshToken,
-				TokenType:    authTypeBearer,
-				ExpiresIn:    tokens.ExpiresIn,
-			},
-		}, nil
-	}
-
-	username := in.AuthParameters["USERNAME"]
-	password := in.AuthParameters["PASSWORD"]
-
-	result, err := h.Backend.AdminInitiateAuth(in.UserPoolID, in.ClientID, in.AuthFlow, username, password)
-	if err != nil {
-		return nil, err
-	}
-
-	return authOutputFromResult(result), nil
 }
 
 func (h *Handler) handleAdminConfirmSignUp(
@@ -185,36 +92,6 @@ func (h *Handler) handleAdminConfirmSignUp(
 	return &adminConfirmSignUpOutput{}, nil
 }
 
-func (h *Handler) handleForgotPassword(
-	_ context.Context,
-	in *forgotPasswordInput,
-) (*forgotPasswordOutput, error) {
-	code, err := h.Backend.ForgotPassword(in.ClientID, in.Username)
-	if err != nil {
-		return nil, err
-	}
-
-	return &forgotPasswordOutput{
-		CodeDeliveryDetails: map[string]string{
-			keyDestination:      "mock@example.com",
-			keyDeliveryMedium:   medEmail,
-			keyAttributeName:    attrEmail,
-			keyConfirmationCode: code,
-		},
-	}, nil
-}
-
-func (h *Handler) handleConfirmForgotPassword(
-	_ context.Context,
-	in *confirmForgotPasswordInput,
-) (*confirmForgotPasswordOutput, error) {
-	if err := h.Backend.ConfirmForgotPassword(in.ClientID, in.Username, in.ConfirmationCode, in.Password); err != nil {
-		return nil, err
-	}
-
-	return &confirmForgotPasswordOutput{}, nil
-}
-
 func (h *Handler) handleChangePassword(
 	_ context.Context,
 	in *changePasswordInput,
@@ -224,25 +101,6 @@ func (h *Handler) handleChangePassword(
 	}
 
 	return &changePasswordOutput{}, nil
-}
-
-func (h *Handler) handleResendConfirmationCode(
-	_ context.Context,
-	in *resendConfirmationCodeInput,
-) (*resendConfirmationCodeOutput, error) {
-	code, err := h.Backend.ResendConfirmationCode(in.ClientID, in.Username)
-	if err != nil {
-		return nil, err
-	}
-
-	return &resendConfirmationCodeOutput{
-		CodeDeliveryDetails: map[string]string{
-			keyDeliveryMedium:   medEmail,
-			keyDestination:      mockDestination,
-			keyAttributeName:    attrEmail,
-			keyConfirmationCode: code,
-		},
-	}, nil
 }
 
 func (h *Handler) handleAdminResetUserPassword(
@@ -322,8 +180,43 @@ func (h *Handler) handleRespondToAuthChallengeAccurate(
 			AuthenticationResult: authResultFromTokenResult(tokens),
 		}, nil
 
+	case challengeCustomChallenge:
+		answer := in.ChallengeResponses["ANSWER"]
+
+		result, err := h.Backend.RespondToCustomAuthChallenge(in.ClientID, in.Session, answer)
+		if err != nil {
+			return nil, err
+		}
+
+		return respondToAuthChallengeOutputFromResult(result), nil
+
 	default:
 		return &respondToAuthChallengeAccurateOutput{}, nil
+	}
+}
+
+// respondToAuthChallengeOutputFromResult converts an AuthResult from a CUSTOM_AUTH
+// round into a respondToAuthChallengeAccurateOutput: either completed tokens, or
+// another pending challenge (same MFASession/ChallengeName/ChallengeParameters shape
+// authOutputFromResult uses for InitiateAuth, since CUSTOM_AUTH is the only flow whose
+// RespondToAuthChallenge can itself return a further challenge rather than always
+// terminating in tokens or an error).
+func respondToAuthChallengeOutputFromResult(result *AuthResult) *respondToAuthChallengeAccurateOutput {
+	if result.MFASession != "" {
+		params := result.ChallengeParameters
+		if params == nil {
+			params = map[string]string{}
+		}
+
+		return &respondToAuthChallengeAccurateOutput{
+			ChallengeName:       result.ChallengeName,
+			Session:             result.MFASession,
+			ChallengeParameters: params,
+		}
+	}
+
+	return &respondToAuthChallengeAccurateOutput{
+		AuthenticationResult: authResultFromTokenResult(result.Tokens),
 	}
 }
 
@@ -373,6 +266,31 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 
 		return &adminRespondToAuthChallengeOutput{
 			AuthenticationResult: authResultFromTokenResult(tokens),
+		}, nil
+
+	case challengeCustomChallenge:
+		answer := in.ChallengeResponses["ANSWER"]
+
+		result, err := h.Backend.RespondToCustomAuthChallenge(in.ClientID, in.Session, answer)
+		if err != nil {
+			return nil, err
+		}
+
+		if result.MFASession != "" {
+			params := result.ChallengeParameters
+			if params == nil {
+				params = map[string]string{}
+			}
+
+			return &adminRespondToAuthChallengeOutput{
+				ChallengeName:       result.ChallengeName,
+				Session:             result.MFASession,
+				ChallengeParameters: params,
+			}, nil
+		}
+
+		return &adminRespondToAuthChallengeOutput{
+			AuthenticationResult: authResultFromTokenResult(result.Tokens),
 		}, nil
 
 	default:
@@ -605,50 +523,16 @@ func (h *Handler) handleResendConfirmationCodeAccurate(
 	return &resendConfirmationCodeAccurateOutput{CodeDeliveryDetails: details}, nil
 }
 
-func (h *Handler) handleRespondToAuthChallenge(
-	_ context.Context,
-	in *respondToAuthChallengeInput,
-) (*respondToAuthChallengeOutput, error) {
-	if in.ChallengeName != "SOFTWARE_TOKEN_MFA" {
-		return &respondToAuthChallengeOutput{}, nil
-	}
-
-	totpCode := in.ChallengeResponses["SOFTWARE_TOKEN_MFA_CODE"]
-
-	tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, totpCode)
-	if err != nil {
-		return nil, err
-	}
-
-	return &respondToAuthChallengeOutput{
-		AuthenticationResult: &authResult{
-			AccessToken:  tokens.AccessToken,
-			IDToken:      tokens.IDToken,
-			RefreshToken: tokens.RefreshToken,
-			TokenType:    authTypeBearer,
-			ExpiresIn:    tokens.ExpiresIn,
-		},
-	}, nil
-}
-
+// authOpsA registers the ops in this file that have no SecretHash-validating
+// "*Accurate" twin in authOpsC (SignUp, ConfirmSignUp, InitiateAuth,
+// AdminInitiateAuth, ForgotPassword, ConfirmForgotPassword,
+// ResendConfirmationCode, and RespondToAuthChallenge all moved to authOpsC
+// only -- see de-stub-hygiene note in PARITY.md).
 func (h *Handler) authOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"SignUp":                 service.WrapOp(h.handleSignUp),
-		"ConfirmSignUp":          service.WrapOp(h.handleConfirmSignUp),
-		"InitiateAuth":           service.WrapOp(h.handleInitiateAuth),
-		"AdminInitiateAuth":      service.WrapOp(h.handleAdminInitiateAuth),
 		"AdminConfirmSignUp":     service.WrapOp(h.handleAdminConfirmSignUp),
 		"AdminResetUserPassword": service.WrapOp(h.handleAdminResetUserPassword),
-		"ForgotPassword":         service.WrapOp(h.handleForgotPassword),
-		"ConfirmForgotPassword":  service.WrapOp(h.handleConfirmForgotPassword),
 		"ChangePassword":         service.WrapOp(h.handleChangePassword),
-		"ResendConfirmationCode": service.WrapOp(h.handleResendConfirmationCode),
-	}
-}
-
-func (h *Handler) authOpsB() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"RespondToAuthChallenge": service.WrapOp(h.handleRespondToAuthChallenge),
 	}
 }
 

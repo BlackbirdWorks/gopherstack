@@ -37,14 +37,42 @@ type ShardIteratorEntry struct {
 // It is goroutine-safe.
 type ShardIteratorStore struct {
 	entries map[string]*ShardIteratorEntry
-	mu      sync.Mutex
+	// now is the store's clock seam: all TTL/expiry math reads the current
+	// time through this func instead of calling time.Now() directly, so
+	// tests can simulate the 15-minute ExpiredIteratorException TTL without
+	// a real sleep. Defaults to time.Now; override with SetClock.
+	now func() time.Time
+	mu  sync.Mutex
 }
 
-// NewShardIteratorStore creates an empty ShardIteratorStore.
+// NewShardIteratorStore creates an empty ShardIteratorStore using the real
+// wall clock (time.Now). Use SetClock on the returned store to inject a
+// fake clock for expiry testing.
 func NewShardIteratorStore() *ShardIteratorStore {
 	return &ShardIteratorStore{
 		entries: make(map[string]*ShardIteratorEntry),
+		now:     time.Now,
 	}
+}
+
+// SetClock overrides the store's clock. Intended for tests that need to
+// simulate shard-iterator expiry (the 15-minute TTL) without sleeping:
+// advance the injected clock past ExpiresAt and the next Get-based lookup
+// (via Now/IsExpired) observes the entry as expired.
+func (s *ShardIteratorStore) SetClock(clock func() time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.now = clock
+}
+
+// Now returns the current time according to the store's clock (real time by
+// default, or the injected test clock after SetClock).
+func (s *ShardIteratorStore) Now() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.now()
 }
 
 // Put stores a new iterator entry for an open shard and returns the opaque token.
@@ -60,11 +88,13 @@ func (s *ShardIteratorStore) PutWithEnd(tableName string, startSeq, endSeq int64
 		return "", err
 	}
 
-	now := time.Now()
-
 	func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+
+		// Read the clock under the lock: SetClock mutates s.now concurrently
+		// from tests, so this must not race with that write.
+		now := s.now()
 
 		// Opportunistically drop expired tokens once the store grows large so it
 		// stays bounded between scheduled Sweep() calls. The threshold keeps the
@@ -105,10 +135,10 @@ func (s *ShardIteratorStore) Delete(token string) {
 
 // Sweep removes expired entries from the store.
 func (s *ShardIteratorStore) Sweep() {
-	now := time.Now()
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	now := s.now()
 
 	for token, entry := range s.entries {
 		if now.After(entry.ExpiresAt) {

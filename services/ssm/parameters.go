@@ -411,6 +411,11 @@ func (b *InMemoryBackend) PutParameter(
 
 	params.Put(&param)
 
+	// A write always resets LastModifiedDate and wholesale-replaces Policies,
+	// invalidating any previously-recorded policy-notification dedupe state
+	// for this parameter (see clearParameterPolicyNotificationStateLocked).
+	b.clearParameterPolicyNotificationStateLocked(region, input.Name)
+
 	// Store in history (store encrypted value for SecureString)
 	paramHistory := ParameterHistory{
 		Name:             input.Name,
@@ -556,6 +561,7 @@ func (b *InMemoryBackend) DeleteParameter(
 
 	params.Delete(input.Name)
 	delete(b.historyStore(region), input.Name)
+	b.clearParameterPolicyNotificationStateLocked(region, input.Name)
 
 	tags := b.tagsStore(region)
 	if t, ok := tags[input.Name]; ok {
@@ -591,6 +597,7 @@ func (b *InMemoryBackend) DeleteParameters(
 		if params.Has(name) {
 			params.Delete(name)
 			delete(history, name)
+			b.clearParameterPolicyNotificationStateLocked(region, name)
 			if t, ok := tags[name]; ok {
 				t.Close()
 				delete(tags, name)

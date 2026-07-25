@@ -534,69 +534,89 @@ func versionNumberParam(c *echo.Context) int64 {
 }
 
 // classifyTemplatePaths routes /accounts/{id}/templates/... paths.
-func classifyTemplatePaths( //nolint:gocognit,cyclop // existing issue.
-	method string,
-	segs []string,
-	n int,
-) (string, string) {
-	accountID := seg(segs, segAccountID)
+func classifyTemplatePaths(method string, segs []string, n int) (string, string) {
 	switch n {
 	case nSegsAccountRes:
 		if method == http.MethodGet {
-			return opListTemplates, accountID
+			return opListTemplates, seg(segs, segAccountID)
 		}
 	case nSegsAccountResID:
-		id := seg(segs, segResID)
-		switch method {
-		case http.MethodPost:
-			return opCreateTemplate, id
-		case http.MethodGet:
-			return opDescribeTemplate, id
-		case http.MethodPut:
-			return opUpdateTemplate, id
-		case http.MethodDelete:
-			return opDeleteTemplate, id
-		}
+		return classifyTemplateByID(method, segs)
 	case nSegsSubRes:
-		id := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		switch sub {
-		case pathSegDefinition:
-			if method == http.MethodGet {
-				return opDescribeTemplateDefinition, id
-			}
-		case pathSegPermissions:
-			switch method {
-			case http.MethodGet:
-				return opDescribeTemplatePerms, id
-			case http.MethodPut:
-				return opUpdateTemplatePerms, id
-			}
-		case pathSegAliases:
-			if method == http.MethodGet {
-				return opListTemplateAliases, id
-			}
-		case pathSegVersions:
-			if method == http.MethodGet {
-				return opListTemplateVersions, id
-			}
-		}
+		return classifyTemplateSubRes(method, segs)
 	case nSegsSubResID:
-		id := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		alias := seg(segs, segSubResID)
-		if sub == pathSegAliases {
-			switch method {
-			case http.MethodPost:
-				return opCreateTemplateAlias, alias
-			case http.MethodGet:
-				return opDescribeTemplateAlias, alias
-			case http.MethodPut:
-				return opUpdateTemplateAlias, alias
-			case http.MethodDelete:
-				return opDeleteTemplateAlias, id
-			}
+		return classifyTemplateAlias(method, segs)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyTemplateByID(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	switch method {
+	case http.MethodPost:
+		return opCreateTemplate, id
+	case http.MethodGet:
+		return opDescribeTemplate, id
+	case http.MethodPut:
+		return opUpdateTemplate, id
+	case http.MethodDelete:
+		return opDeleteTemplate, id
+	}
+
+	return opUnknown, ""
+}
+
+func classifyTemplateSubRes(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	sub := seg(segs, segSubRes)
+
+	switch sub {
+	case pathSegDefinition:
+		if method == http.MethodGet {
+			return opDescribeTemplateDefinition, id
 		}
+	case pathSegPermissions:
+		switch method {
+		case http.MethodGet:
+			return opDescribeTemplatePerms, id
+		case http.MethodPut:
+			return opUpdateTemplatePerms, id
+		}
+	case pathSegAliases:
+		if method == http.MethodGet {
+			return opListTemplateAliases, id
+		}
+	case pathSegVersions:
+		if method == http.MethodGet {
+			return opListTemplateVersions, id
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyTemplateAlias routes /accounts/{id}/templates/{id}/aliases/{alias}.
+// Every method but DELETE identifies the resource by the alias name itself;
+// DeleteTemplateAlias's op-extraction historically used the template id
+// instead -- preserved verbatim here.
+func classifyTemplateAlias(method string, segs []string) (string, string) {
+	if seg(segs, segSubRes) != pathSegAliases {
+		return opUnknown, ""
+	}
+
+	id := seg(segs, segResID)
+	alias := seg(segs, segSubResID)
+
+	switch method {
+	case http.MethodPost:
+		return opCreateTemplateAlias, alias
+	case http.MethodGet:
+		return opDescribeTemplateAlias, alias
+	case http.MethodPut:
+		return opUpdateTemplateAlias, alias
+	case http.MethodDelete:
+		return opDeleteTemplateAlias, id
 	}
 
 	return opUnknown, ""

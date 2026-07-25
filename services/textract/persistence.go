@@ -19,7 +19,15 @@ import (
 // snapshot format had no version field at all, so an old snapshot decodes
 // with Version == 0, which is guaranteed to mismatch textractSnapshotVersion
 // and is discarded the same way any other incompatible snapshot is.
-const textractSnapshotVersion = 1
+//
+// Bumped 1 -> 2: AdapterVersion.EvaluationMetrics changed from a single
+// struct to a []AdapterVersionEvaluationMetric list, LendingField's
+// Type/ValueDetection fields changed shape (Type string, ValueDetections
+// list), and PageClassification's PageType/PageNumber switched from
+// []LendingDetection to []Prediction -- all field-diff fixes against the
+// real SDK's wire shapes. A v1 snapshot decoded against these v2 DTOs would
+// silently corrupt or drop data instead of erroring.
+const textractSnapshotVersion = 2
 
 // jobSnapshot, expenseJobSnapshot, lendingJobSnapshot, adapterSnapshot, and
 // adapterVersionSnapshot are DTOs used only for Snapshot/Restore of the five

@@ -146,14 +146,16 @@ func (b *InMemoryBackend) DeleteVocabulary(vocabularyName string) error {
 	return nil
 }
 
-// ListVocabularies returns custom vocabularies with optional state filter and pagination.
-func (b *InMemoryBackend) ListVocabularies(stateFilter, nextToken string) ([]Vocabulary, string) {
+// ListVocabularies returns custom vocabularies with optional state filter, name
+// substring filter, and pagination.
+func (b *InMemoryBackend) ListVocabularies(stateFilter, nameContains, nextToken string) ([]Vocabulary, string) {
 	b.mu.RLock("ListVocabularies")
 	defer b.mu.RUnlock()
 
 	all := make([]Vocabulary, 0, b.vocabularies.Len())
 	for _, v := range b.vocabularies.All() {
-		if stateFilter == "" || v.VocabularyState == stateFilter {
+		stateMatches := stateFilter == "" || v.VocabularyState == stateFilter
+		if stateMatches && matchesNameContains(v.VocabularyName, nameContains) {
 			all = append(all, *v)
 		}
 	}

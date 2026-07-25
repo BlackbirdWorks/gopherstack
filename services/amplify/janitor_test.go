@@ -38,7 +38,7 @@ func TestJanitor_AdvanceJobs(t *testing.T) {
 			makeJob: func(t *testing.T, b *amplify.InMemoryBackend, appID, branchName string) string {
 				t.Helper()
 
-				job, err := b.StartJob(appID, branchName, "RELEASE", "abc123", "msg")
+				job, err := b.StartJob(appID, branchName, "RELEASE", "", "abc123", "msg", time.Time{})
 				require.NoError(t, err)
 
 				return job.JobID
@@ -51,7 +51,7 @@ func TestJanitor_AdvanceJobs(t *testing.T) {
 			makeJob: func(t *testing.T, b *amplify.InMemoryBackend, appID, branchName string) string {
 				t.Helper()
 
-				job, err := b.StartJob(appID, branchName, "RELEASE", "abc123", "msg")
+				job, err := b.StartJob(appID, branchName, "RELEASE", "", "abc123", "msg", time.Time{})
 				require.NoError(t, err)
 
 				_, err = b.StopJob(appID, branchName, job.JobID)
@@ -141,7 +141,7 @@ func TestJanitor_Run_StopsOnContextCancel(t *testing.T) {
 	branch, err := b.CreateBranch(app.AppID, "main", "", "", false, nil)
 	require.NoError(t, err)
 
-	job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "")
+	job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
 	require.NoError(t, err)
 
 	const tickInterval = 10 * time.Millisecond

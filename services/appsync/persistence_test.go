@@ -35,6 +35,16 @@ func Test_InMemoryBackend_SnapshotRestore(t *testing.T) {
 	// (present on GraphqlAPI and DataSource) survives Snapshot/Restore.
 	require.NoError(t, b.TagResource(ids.apiID, map[string]string{"env": "test"}))
 
+	// DataSourceIntrospection: not scoped to any API (see models.go's doc comment
+	// on the type), so it isn't covered by populateRegistryFixture. Proves the
+	// "introspections" table added to store_setup.go round-trips too.
+	introspection, err := b.StartDataSourceIntrospection(&appsync.RDSDataAPIConfig{
+		DatabaseName: "mydb",
+		ResourceARN:  "arn:aws:rds:us-east-1:000000000000:cluster:mycluster",
+		SecretARN:    "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret",
+	})
+	require.NoError(t, err)
+
 	data := b.Snapshot(ctx)
 	require.NotNil(t, data)
 
@@ -74,6 +84,10 @@ func Test_InMemoryBackend_SnapshotRestore(t *testing.T) {
 	gotTags, err := restored.ListTagsForResource(ids.apiID)
 	require.NoError(t, err)
 	assert.Equal(t, "test", gotTags["env"])
+
+	gotIntrospection, err := restored.GetDataSourceIntrospection(introspection.IntrospectionID)
+	require.NoError(t, err)
+	assert.Equal(t, appsync.DataSourceIntrospectionStatusSuccess, gotIntrospection.IntrospectionStatus)
 }
 
 // Test_InMemoryBackend_Restore_IncompatibleVersion verifies that a snapshot

@@ -634,8 +634,11 @@ func TestBackend_SetActiveReceiptRuleSet(t *testing.T) {
 	}
 }
 
-// TestBackend_DeleteReceiptRuleSet_ClearsActive tests that deleting the active rule set clears it.
-func TestBackend_DeleteReceiptRuleSet_ClearsActive(t *testing.T) {
+// TestBackend_DeleteReceiptRuleSet_ActiveSetRejected tests that deleting the
+// currently active rule set is rejected with ErrReceiptRuleSetActive, matching
+// real AWS SES ("The currently active rule set cannot be deleted."), and that
+// clearing the active pointer first allows the delete to succeed.
+func TestBackend_DeleteReceiptRuleSet_ActiveSetRejected(t *testing.T) {
 	t.Parallel()
 
 	b := ses.NewInMemoryBackend()
@@ -643,6 +646,11 @@ func TestBackend_DeleteReceiptRuleSet_ClearsActive(t *testing.T) {
 	require.NoError(t, b.SetActiveReceiptRuleSet("rs1"))
 	assert.Equal(t, "rs1", b.ActiveRuleSet())
 
+	err := b.DeleteReceiptRuleSet("rs1")
+	require.ErrorIs(t, err, ses.ErrReceiptRuleSetActive)
+	assert.Equal(t, "rs1", b.ActiveRuleSet(), "active pointer must survive a rejected delete")
+
+	require.NoError(t, b.SetActiveReceiptRuleSet(""))
 	require.NoError(t, b.DeleteReceiptRuleSet("rs1"))
 	assert.Empty(t, b.ActiveRuleSet())
 }

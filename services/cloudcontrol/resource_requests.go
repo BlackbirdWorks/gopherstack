@@ -79,8 +79,12 @@ func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressE
 }
 
 // ResourceRequestFilter holds optional filter criteria for ListResourceRequests.
+// This mirrors the real SDK's types.ResourceRequestStatusFilter exactly:
+// Operations and OperationStatuses only. There is no TypeName member on the
+// real filter shape (confirmed against aws-sdk-go-v2/service/cloudcontrol/types
+// and botocore's service-2.json) -- ListResourceRequests has no wire-level way
+// to filter by resource type.
 type ResourceRequestFilter struct {
-	TypeName          string
 	Operations        []string
 	OperationStatuses []string
 }
@@ -118,10 +122,6 @@ func eventMatchesFilter(event *ProgressEvent, filter *ResourceRequestFilter) boo
 	}
 
 	if len(filter.OperationStatuses) > 0 && !slices.Contains(filter.OperationStatuses, event.OperationStatus) {
-		return false
-	}
-
-	if filter.TypeName != "" && event.TypeName != filter.TypeName {
 		return false
 	}
 

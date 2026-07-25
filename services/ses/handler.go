@@ -578,10 +578,10 @@ func sesErrorCode(opErr error) (string, int) {
 	status := http.StatusBadRequest
 
 	switch {
-	case errors.Is(opErr, ErrIdentityNotFound):
-		return "NoSuchEntity", status
 	case errors.Is(opErr, ErrInvalidParameter):
 		return "InvalidParameterValue", status
+	case errors.Is(opErr, ErrInvalidPolicy):
+		return "InvalidPolicy", status
 	case errors.Is(opErr, ErrMessageRejected):
 		return "MessageRejected", status
 	case errors.Is(opErr, ErrTemplateNotFound):
@@ -607,6 +607,8 @@ func sesNewOpsErrorCode(opErr error, status int) (string, int) {
 		return "RuleSetDoesNotExist", status
 	case errors.Is(opErr, ErrReceiptRuleSetExists):
 		return errCodeAlreadyExists, status
+	case errors.Is(opErr, ErrReceiptRuleSetActive):
+		return "CannotDelete", status
 	case errors.Is(opErr, ErrReceiptRuleNotFound):
 		return "RuleDoesNotExist", status
 	case errors.Is(opErr, ErrReceiptRuleExists):
@@ -620,9 +622,9 @@ func sesNewOpsErrorCode(opErr error, status int) (string, int) {
 	case errors.Is(opErr, ErrEventDestinationExists):
 		return "EventDestinationAlreadyExists", status
 	case errors.Is(opErr, ErrTrackingOptionsNotFound):
-		return "TrackingOptionsDoesNotExist", status
+		return "TrackingOptionsDoesNotExistException", status
 	case errors.Is(opErr, ErrTrackingOptionsExists):
-		return "TrackingOptionsAlreadyExists", status
+		return "TrackingOptionsAlreadyExistsException", status
 	case errors.Is(opErr, ErrCustomVerifTemplateNotFound):
 		return "CustomVerificationEmailTemplateDoesNotExist", status
 	case errors.Is(opErr, ErrCustomVerifTemplateExists):

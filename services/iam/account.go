@@ -11,6 +11,77 @@ import (
 	"github.com/google/uuid"
 )
 
+// ---- Outbound Web Identity Federation ----
+//
+// Real AWS's EnableOutboundWebIdentityFederation/
+// DisableOutboundWebIdentityFederation/GetOutboundWebIdentityFederationInfo
+// (aws-sdk-go-v2/service/iam@v1.55.0's api_op_*.go) gate whether IAM
+// principals in the account may call STS's GetWebIdentityToken -- see
+// services/sts/web_identity.go's OutboundWebIdentityFederationEnabled check,
+// wired via the optional-capability type assertion in
+// services/sts/store.go's SetOIDCLookup (no cli.go changes needed: cli.go
+// already passes the full IAM backend to STS via SetOIDCLookup for OIDC
+// provider lookups, and that same object now also satisfies STS's
+// AccountSettingsLookup interface).
+
+// outboundFederationIssuerURL deterministically derives the "unique issuer
+// URL" GetOutboundWebIdentityFederationInfo/EnableOutboundWebIdentityFederation
+// return for accountID. Real AWS does not publish the algorithm it uses to
+// generate this URL, so this is a synthetic-but-plausible placeholder (URL to
+// a fixed host that would host to the documented
+// /.well-known/openid-configuration and /.well-known/jwks.json discovery
+// endpoints per the real Output field's doc comment) rather than a claimed
+// match to AWS's real value -- computed on demand from accountID instead of
+// stored, so there is nothing extra to persist/restore.
+func outboundFederationIssuerURL(accountID string) string {
+	return "https://oidc-federation.gopherstack.local/" + accountID
+}
+
+// EnableOutboundWebIdentityFederation turns on outbound web identity
+// federation for this account (see the "Outbound Web Identity Federation"
+// section above) and returns the account's issuer URL.
+func (b *InMemoryBackend) EnableOutboundWebIdentityFederation() string {
+	b.mu.Lock("EnableOutboundWebIdentityFederation")
+	defer b.mu.Unlock()
+
+	b.outboundFederationEnabled = true
+
+	return outboundFederationIssuerURL(b.accountID)
+}
+
+// DisableOutboundWebIdentityFederation turns off outbound web identity
+// federation for this account. Per the real API's doc comment, this does not
+// retroactively invalidate JWTs already issued by GetWebIdentityToken -- this
+// emulator does not track issued-JWT identity after the fact either way, so
+// there is nothing additional to revoke.
+func (b *InMemoryBackend) DisableOutboundWebIdentityFederation() {
+	b.mu.Lock("DisableOutboundWebIdentityFederation")
+	defer b.mu.Unlock()
+
+	b.outboundFederationEnabled = false
+}
+
+// GetOutboundWebIdentityFederationInfo returns the account's issuer URL and
+// current enabled/disabled status.
+func (b *InMemoryBackend) GetOutboundWebIdentityFederationInfo() (string, bool) {
+	b.mu.RLock("GetOutboundWebIdentityFederationInfo")
+	defer b.mu.RUnlock()
+
+	return outboundFederationIssuerURL(b.accountID), b.outboundFederationEnabled
+}
+
+// OutboundWebIdentityFederationEnabled reports whether outbound web identity
+// federation is currently enabled for this account. This satisfies
+// services/sts's AccountSettingsLookup optional-capability interface (see the
+// package doc comment above), letting STS's GetWebIdentityToken gate on this
+// setting without any sts<->iam interface living in cli.go.
+func (b *InMemoryBackend) OutboundWebIdentityFederationEnabled() bool {
+	b.mu.RLock("OutboundWebIdentityFederationEnabled")
+	defer b.mu.RUnlock()
+
+	return b.outboundFederationEnabled
+}
+
 // GenerateOrganizationsAccessReport creates a new org access report job and returns its ID.
 func (b *InMemoryBackend) GenerateOrganizationsAccessReport(_ string) string {
 	jobID := "orgjob-" + newID("")

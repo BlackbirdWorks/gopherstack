@@ -20,8 +20,10 @@ type GetTagKeysOutput struct {
 }
 
 // GetTagKeys returns all unique tag keys across all registered resource providers.
-// Keys are returned in sorted order, with optional cursor-based pagination.
-func (b *InMemoryBackend) GetTagKeys(ctx context.Context, input *GetTagKeysInput) *GetTagKeysOutput {
+// Keys are returned in sorted order, with optional cursor-based pagination. Returns
+// [ErrPaginationTokenExpired] when PaginationToken does not resolve against the
+// current key set.
+func (b *InMemoryBackend) GetTagKeys(ctx context.Context, input *GetTagKeysInput) (*GetTagKeysOutput, error) {
 	b.mu.Lock("GetTagKeys")
 	defer b.mu.Unlock()
 
@@ -36,7 +38,10 @@ func (b *InMemoryBackend) GetTagKeys(ctx context.Context, input *GetTagKeysInput
 
 	keys := collections.SortedKeys(keySet)
 
-	page, nextToken := paginateStrings(keys, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
+	page, nextToken, err := paginateStrings(keys, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
+	if err != nil {
+		return nil, err
+	}
 
-	return &GetTagKeysOutput{TagKeys: page, PaginationToken: nextToken}
+	return &GetTagKeysOutput{TagKeys: page, PaginationToken: nextToken}, nil
 }

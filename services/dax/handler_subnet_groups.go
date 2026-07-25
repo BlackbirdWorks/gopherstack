@@ -28,10 +28,11 @@ type deleteSubnetGroupRequest struct {
 }
 
 type subnetGroupResponse struct {
-	SubnetGroupName string       `json:"SubnetGroupName"`
-	Description     string       `json:"Description,omitempty"`
-	VpcID           string       `json:"VpcId,omitempty"`
-	Subnets         []subnetItem `json:"Subnets,omitempty"`
+	SubnetGroupName       string       `json:"SubnetGroupName"`
+	Description           string       `json:"Description,omitempty"`
+	VpcID                 string       `json:"VpcId,omitempty"`
+	Subnets               []subnetItem `json:"Subnets,omitempty"`
+	SupportedNetworkTypes []string     `json:"SupportedNetworkTypes,omitempty"`
 }
 
 type subnetItem struct {
@@ -53,10 +54,11 @@ func toSubnetGroupResponse(sg *SubnetGroup) subnetGroupResponse {
 	}
 
 	return subnetGroupResponse{
-		SubnetGroupName: sg.SubnetGroupName,
-		Description:     sg.Description,
-		VpcID:           sg.VpcID,
-		Subnets:         items,
+		SubnetGroupName:       sg.SubnetGroupName,
+		Description:           sg.Description,
+		VpcID:                 sg.VpcID,
+		Subnets:               items,
+		SupportedNetworkTypes: sg.SupportedNetworkTypes,
 	}
 }
 

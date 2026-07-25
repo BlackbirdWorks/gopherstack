@@ -140,6 +140,33 @@ func TestInMemoryBackend_PermissionValidation(t *testing.T) {
 			},
 		},
 		{
+			name: "create permission rejects non-acm principal",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
+				t.Helper()
+
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Principal CA"},
+					},
+				)
+				require.NoError(t, err)
+
+				// Per aws-sdk-go-v2's CreatePermissionInput.Principal doc comment,
+				// "acm.amazonaws.com" is the only valid principal -- gopherstack
+				// previously accepted any string here.
+				_, err = b.CreatePermission(
+					context.Background(),
+					ca.ARN,
+					"not-a-real-service.amazonaws.com",
+					testAccountID,
+					[]string{"IssueCertificate"},
+				)
+				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
+			},
+		},
+		{
 			name: "list permissions requires existing ca",
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()

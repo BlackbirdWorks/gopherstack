@@ -573,6 +573,52 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
+// TestPersistenceRoundTrip_NewState locks in that the three state additions
+// made this pass -- the real events log (events_log.go), the real
+// pending-maintenance-action queue (pending_maintenance.go), and
+// GlobalCluster.GlobalClusterMembers -- all survive a Snapshot/Restore
+// cycle, not just the pre-existing store.Table-backed resources.
+func TestPersistenceRoundTrip_NewState(t *testing.T) {
+	t.Parallel()
+
+	b1 := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b1.CreateDBCluster(
+		context.Background(), "persist-cluster", "docdb", "", "admin", "", "", "", "",
+		0, false, false, 1, "", "", nil, nil, nil,
+	)
+	require.NoError(t, err)
+	b1.AddPendingMaintenanceActionInternal(
+		"arn:aws:rds:us-east-1:000000000000:cluster:persist-cluster", "system-update", "seeded for persistence test",
+	)
+	_, err = b1.CreateGlobalCluster(context.Background(), "persist-gc", "persist-cluster", "", "")
+	require.NoError(t, err)
+
+	data := b1.Snapshot(t.Context())
+	require.NotEmpty(t, data)
+
+	b2 := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	// Events log: the cluster-create event recorded during CreateDBCluster
+	// must survive the round trip.
+	events := b2.DescribeEvents(context.Background(), docdb.EventsFilter{SourceIdentifier: "persist-cluster"})
+	require.NotEmpty(t, events, "events log must survive Snapshot/Restore")
+	assert.Equal(t, "persist-cluster", events[0].SourceIdentifier)
+
+	// Pending maintenance queue: the seeded action must survive.
+	actions := b2.DescribePendingMaintenanceActions(context.Background(), "")
+	require.Len(t, actions, 1, "pending maintenance queue must survive Snapshot/Restore")
+	require.Len(t, actions[0].Actions, 1)
+	assert.Equal(t, "system-update", actions[0].Actions[0].Action)
+
+	// GlobalCluster membership: the source cluster attached as a writer
+	// member on create must survive.
+	gcs := b2.DescribeGlobalClusters(context.Background(), "persist-gc")
+	require.Len(t, gcs, 1)
+	require.Len(t, gcs[0].GlobalClusterMembers, 1, "GlobalClusterMembers must survive Snapshot/Restore")
+	assert.True(t, gcs[0].GlobalClusterMembers[0].IsWriter)
+}
+
 func TestMultipleResetCycle(t *testing.T) {
 	t.Parallel()
 

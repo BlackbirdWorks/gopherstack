@@ -8,10 +8,70 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// protectionARN builds a Shield protection ARN.
-// Shield ARNs are global (no region component).
-func protectionARN(accountID, protectionID string) string {
-	return arn.Build("shield", "", accountID, fmt.Sprintf("protection/%s", protectionID))
+// protectionARN builds a Shield protection ARN. Shield ARNs are global (no region component in
+// the resource path, like IAM), but the partition must still reflect the account's actual AWS
+// partition -- aws / aws-us-gov / aws-cn / aws-iso / aws-iso-b -- derived from region. This is
+// built directly here (rather than via arn.Build, whose only region-omitting special case is
+// service=="iam") so GovCloud/China/ISO region backends produce wire-correct
+// "arn:aws-us-gov:shield::..." ARNs instead of always defaulting to the "aws" partition.
+func protectionARN(region, accountID, protectionID string) string {
+	return fmt.Sprintf("arn:%s:shield::%s:protection/%s", arn.PartitionForRegion(region), accountID, protectionID)
+}
+
+// protectionResourceTypes lists every Shield-protectable resource type, used for the
+// subscriptionMaxProtectionsPerType quota check in CreateProtection.
+func protectionResourceTypes() []string {
+	return []string{
+		ResourceTypeCloudFrontDistribution,
+		ResourceTypeRoute53HostedZone,
+		ResourceTypeApplicationLoadBalancer,
+		ResourceTypeClassicLoadBalancer,
+		ResourceTypeElasticIPAllocation,
+		ResourceTypeGlobalAccelerator,
+	}
+}
+
+// protectionResourceType returns the Shield resource type resourceARN belongs to, or "" if it
+// doesn't match any known Shield-protectable type.
+func protectionResourceType(resourceARN string) string {
+	for _, rt := range protectionResourceTypes() {
+		if resourceARNMatchesType(resourceARN, rt) {
+			return rt
+		}
+	}
+
+	return ""
+}
+
+// checkProtectionQuotas enforces the Shield Advanced subscriptionMaxProtections and
+// subscriptionMaxProtectionsPerType quotas that CreateProtection itself reports via
+// DescribeSubscription (see handler_subscription.go's subscriptionLimits). Must be called with
+// b.mu held.
+func (b *InMemoryBackend) checkProtectionQuotas(resourceARN string) error {
+	if b.protections.Len() >= subscriptionMaxProtections {
+		return fmt.Errorf("%w: Type=Protections, Limit=%d", ErrLimitExceeded, subscriptionMaxProtections)
+	}
+
+	rt := protectionResourceType(resourceARN)
+	if rt == "" {
+		return nil
+	}
+
+	var count int
+
+	b.protections.Range(func(p *Protection) bool {
+		if resourceARNMatchesType(p.ResourceARN, rt) {
+			count++
+		}
+
+		return true
+	})
+
+	if count >= subscriptionMaxProtectionsPerType {
+		return fmt.Errorf("%w: Type=%s, Limit=%d", ErrLimitExceeded, rt, subscriptionMaxProtectionsPerType)
+	}
+
+	return nil
 }
 
 // CreateProtection creates a new Shield protection for the given resource ARN.
@@ -36,7 +96,11 @@ func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[st
 		return nil, fmt.Errorf("%w: protection for resource %s already exists", ErrProtectionAlreadyExists, resourceARN)
 	}
 
-	pArn := protectionARN(b.accountID, id)
+	if err := b.checkProtectionQuotas(resourceARN); err != nil {
+		return nil, err
+	}
+
+	pArn := protectionARN(b.region, b.accountID, id)
 
 	p := &Protection{
 		ID:            id,
@@ -72,14 +136,22 @@ func (b *InMemoryBackend) DescribeProtection(protectionID, resourceARN string) (
 	return nil, fmt.Errorf("%w: no protection for resource %q", ErrProtectionNotFound, resourceARN)
 }
 
-// DeleteProtection deletes a protection by ID.
+// DeleteProtection deletes a protection by ID. ApplicationLayerAutomaticResponseConfiguration is
+// a field of the real AWS Protection object (see types.Protection), so gopherstack's separate
+// alarConfigs table -- keyed by the protection's ResourceARN -- must be cascade-cleaned here to
+// avoid an orphaned row that a future protection for the same resource ARN would incorrectly
+// inherit.
 func (b *InMemoryBackend) DeleteProtection(protectionID string) error {
 	b.mu.Lock("DeleteProtection")
 	defer b.mu.Unlock()
 
-	if !b.protections.Delete(protectionID) {
+	p, ok := b.protections.Get(protectionID)
+	if !ok {
 		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, protectionID)
 	}
+
+	b.protections.Delete(protectionID)
+	b.alarConfigs.Delete(p.ResourceARN)
 
 	return nil
 }
@@ -123,7 +195,7 @@ func (b *InMemoryBackend) AddProtectionInternal(name, resourceARN string) *Prote
 	b.mu.Lock("AddProtectionInternal")
 	defer b.mu.Unlock()
 
-	pArn := protectionARN(b.accountID, id)
+	pArn := protectionARN(b.region, b.accountID, id)
 
 	p := &Protection{
 		ID:            id,

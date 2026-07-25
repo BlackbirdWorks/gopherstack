@@ -605,7 +605,10 @@ func TestGetSupportedOperations_IncludesProviderAndProfileOps(t *testing.T) {
 
 // TestRemoveClientIDFromOpenIDConnectProvider covers RemoveClientIDFromOpenIDConnectProvider.
 
-func TestDeleteUser_CleansLoginProfile(t *testing.T) {
+// Real AWS DeleteUser rejects the request with DeleteConflictException while
+// a login profile (password) exists — the caller must call DeleteLoginProfile
+// first. See https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html.
+func TestDeleteUser_FailsWhenLoginProfileExists(t *testing.T) {
 	t.Parallel()
 
 	b := iam.NewInMemoryBackend()
@@ -615,6 +618,12 @@ func TestDeleteUser_CleansLoginProfile(t *testing.T) {
 	_, err = b.CreateLoginProfile("lp-user", "S3cur3P@ss!", false)
 	require.NoError(t, err)
 
+	err = b.DeleteUser("lp-user")
+	require.Error(t, err)
+	require.ErrorIs(t, err, iam.ErrDeleteConflict)
+
+	// DeleteLoginProfile first, per the documented AWS workflow, then delete succeeds.
+	require.NoError(t, b.DeleteLoginProfile("lp-user"))
 	require.NoError(t, b.DeleteUser("lp-user"))
 
 	_, err = b.GetLoginProfile("lp-user")

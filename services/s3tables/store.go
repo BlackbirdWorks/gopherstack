@@ -20,6 +20,23 @@ const (
 	metadataJSONGzipSuffix                        = ".metadata.json.gz"
 	defaultSSEAlgorithm                           = "AES256"
 
+	// recordExpirationStatusDisabled is the types.TableRecordExpirationStatus
+	// wire value ("disabled") used both as GetTableRecordExpirationConfiguration's
+	// default when no configuration has been set, and to normalize whatever
+	// case a PutTableRecordExpirationConfiguration caller supplies.
+	recordExpirationStatusDisabled = "disabled"
+
+	// maintenanceJobStatusNotYetRun and recordExpirationJobStatusNotYetRun
+	// are the types.JobStatus / types.TableRecordExpirationJobStatus wire
+	// values this backend reports for every configured maintenance/record
+	// expiration setting: this in-memory backend runs no actual background
+	// jobs, so nothing has ever run. Note the two enums use different
+	// casing on the wire ("Not_Yet_Run" vs "NotYetRun" -- confirmed via
+	// aws-sdk-go-v2/service/s3tables/types's enums.go).
+	maintenanceJobStatusNotYetRun      = "Not_Yet_Run"
+	recordExpirationJobStatusNotYetRun = "NotYetRun"
+	recordExpirationJobStatusDisabled  = "Disabled"
+
 	// Default page sizes for List operations, applied when the caller does
 	// not specify (or specifies a non-positive) maxBuckets/maxNamespaces/
 	// maxTables -- real S3 Tables likewise caps unlimited requests to a
@@ -44,26 +61,25 @@ type InMemoryBackend struct {
 	tablesByComposite *store.Index[Table] // secondary: bucketARN::ns::name -> table (replaces the old tableIndex map)
 	tablesByBucket    *store.Index[Table] // secondary: tableBucketARN -> tables
 
-	// bucketReplication and tableRecordExpiry are off-registry: their value
-	// types hide their primary-key field (json:"-"), so registry.SnapshotAll
-	// would silently drop it -- persistence.go builds a separate ephemeral
-	// DTO registry for them instead (see that file's doc comment).
+	// bucketReplication, tableReplication, and tableRecordExpiry are
+	// off-registry: their value types hide their primary-key field
+	// (json:"-"), so registry.SnapshotAll would silently drop it --
+	// persistence.go builds a separate ephemeral DTO registry for them
+	// instead (see that file's doc comment).
 	bucketReplication *store.Table[BucketReplicationConfig] // keyed by bucket ARN
+	tableReplication  *store.Table[TableReplicationConfig]  // keyed by table ARN
 	tableRecordExpiry *store.Table[TableRecordExpiryConfig] // keyed by table ARN
 
-	// tableReplication (a bare bool with no identity of its own), tags (a
-	// non-*T value map), and tableReplicationConfigs (a non-*T value map)
-	// do not fit store.Table's keyed-*T shape, so they remain plain maps --
-	// see persistence.go for how they round-trip alongside the tables above.
-	tableReplication        map[string]bool              // keyed by table ARN
-	tags                    map[string]map[string]string // keyed by ARN
-	tableReplicationConfigs map[string]map[string]any    // keyed by table ARN
+	// tags (a non-*T value map) does not fit store.Table's keyed-*T shape,
+	// so it remains a plain map -- see persistence.go for how it round-trips
+	// alongside the tables above.
+	tags map[string]map[string]string // keyed by ARN
 
 	// Lock ordering: muBuckets → muNamespaces → muTables → muState
 	muBuckets    *lockmetrics.RWMutex // covers tableBuckets
 	muNamespaces *lockmetrics.RWMutex // covers namespaces
 	muTables     *lockmetrics.RWMutex // covers tables + tablesByComposite + tablesByBucket
-	muState      *lockmetrics.RWMutex // covers replication, expiry, tags, tableReplicationConfigs
+	muState      *lockmetrics.RWMutex // covers replication, expiry, tags
 	accountID    string
 	region       string
 }
@@ -71,16 +87,14 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory S3 Tables backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:                store.NewRegistry(),
-		tableReplication:        make(map[string]bool),
-		tags:                    make(map[string]map[string]string),
-		tableReplicationConfigs: make(map[string]map[string]any),
-		accountID:               accountID,
-		region:                  region,
-		muBuckets:               lockmetrics.New("s3tables.buckets"),
-		muNamespaces:            lockmetrics.New("s3tables.namespaces"),
-		muTables:                lockmetrics.New("s3tables.tables"),
-		muState:                 lockmetrics.New("s3tables.state"),
+		registry:     store.NewRegistry(),
+		tags:         make(map[string]map[string]string),
+		accountID:    accountID,
+		region:       region,
+		muBuckets:    lockmetrics.New("s3tables.buckets"),
+		muNamespaces: lockmetrics.New("s3tables.namespaces"),
+		muTables:     lockmetrics.New("s3tables.tables"),
+		muState:      lockmetrics.New("s3tables.state"),
 	}
 
 	registerAllTables(b)
@@ -123,11 +137,10 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.bucketReplication.Reset()
+	b.tableReplication.Reset()
 	b.tableRecordExpiry.Reset()
 
-	b.tableReplication = make(map[string]bool)
 	b.tags = make(map[string]map[string]string)
-	b.tableReplicationConfigs = make(map[string]map[string]any)
 }
 
 func namespaceKey(tableBucketARN, namespace string) string {

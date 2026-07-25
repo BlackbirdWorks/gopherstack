@@ -8,8 +8,9 @@ import (
 // --- SchedulingPolicy handlers ---
 
 type createSchedulingPolicyInput struct {
-	Tags map[string]string `json:"tags"`
-	Name string            `json:"name"`
+	Tags            map[string]string `json:"tags"`
+	FairsharePolicy *FairsharePolicy  `json:"fairsharePolicy,omitempty"`
+	Name            string            `json:"name"`
 }
 
 type createSchedulingPolicyOutput struct {
@@ -25,7 +26,7 @@ func (h *Handler) handleCreateSchedulingPolicy(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	sp, err := h.Backend.CreateSchedulingPolicy(ctx, in.Name, in.Tags, nil)
+	sp, err := h.Backend.CreateSchedulingPolicy(ctx, in.Name, in.Tags, in.FairsharePolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -76,23 +77,66 @@ func (h *Handler) handleDescribeSchedulingPolicies(
 
 // --- ListSchedulingPolicies handler ---
 
+// schedulingPolicyListing mirrors aws-sdk-go-v2/service/batch/types.
+// SchedulingPolicyListingDetail: ListSchedulingPolicies returns only the ARN
+// per entry (callers use DescribeSchedulingPolicies for full details), unlike
+// DescribeSchedulingPolicies which returns the full SchedulingPolicyDetail
+// (name/fairsharePolicy/tags too).
+type schedulingPolicyListing struct {
+	Arn string `json:"arn"`
+}
+
+type listSchedulingPoliciesInput struct {
+	MaxResults *int32  `json:"maxResults,omitempty"`
+	NextToken  *string `json:"nextToken,omitempty"`
+}
+
 type listSchedulingPoliciesOutput struct {
-	SchedulingPolicies []*SchedulingPolicy `json:"schedulingPolicies"`
+	NextToken          *string                   `json:"nextToken,omitempty"`
+	SchedulingPolicies []schedulingPolicyListing `json:"schedulingPolicies"`
 }
 
 func (h *Handler) handleListSchedulingPolicies(
 	ctx context.Context,
-	_ *struct{},
+	in *listSchedulingPoliciesInput,
 ) (*listSchedulingPoliciesOutput, error) {
-	list := h.Backend.ListSchedulingPolicies(ctx)
+	all := h.Backend.ListSchedulingPolicies(ctx)
 
-	return &listSchedulingPoliciesOutput{SchedulingPolicies: list}, nil
+	arns := make([]string, len(all))
+	for i, sp := range all {
+		arns[i] = sp.Arn
+	}
+
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
+
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	pageArns, outToken := paginateMapKeys(arns, nextToken, maxResults)
+
+	listings := make([]schedulingPolicyListing, len(pageArns))
+	for i, a := range pageArns {
+		listings[i] = schedulingPolicyListing{Arn: a}
+	}
+
+	out := &listSchedulingPoliciesOutput{SchedulingPolicies: listings}
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 // --- UpdateSchedulingPolicy handler ---
 
 type updateSchedulingPolicyInput struct {
-	Arn string `json:"arn"`
+	FairsharePolicy *FairsharePolicy `json:"fairsharePolicy,omitempty"`
+	Arn             string           `json:"arn"`
 }
 
 func (h *Handler) handleUpdateSchedulingPolicy(
@@ -103,7 +147,7 @@ func (h *Handler) handleUpdateSchedulingPolicy(
 		return nil, fmt.Errorf("%w: arn is required", ErrValidation)
 	}
 
-	if err := h.Backend.UpdateSchedulingPolicy(ctx, in.Arn, nil); err != nil {
+	if err := h.Backend.UpdateSchedulingPolicy(ctx, in.Arn, in.FairsharePolicy); err != nil {
 		return nil, err
 	}
 

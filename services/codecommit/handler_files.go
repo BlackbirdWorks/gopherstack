@@ -96,7 +96,7 @@ func (h *Handler) handleGetFolder(body []byte) (any, error) {
 		files = append(files, map[string]any{
 			"absolutePath": f.FilePath,
 			"relativePath": f.FilePath,
-			"blobId":       f.BlobID,
+			keyBlobID:      f.BlobID,
 			keyFileMode:    fileMode,
 		})
 	}
@@ -164,6 +164,8 @@ func (h *Handler) handleListFileCommitHistory(body []byte) (any, error) {
 	var req struct {
 		RepositoryName string `json:"repositoryName"`
 		FilePath       string `json:"filePath"`
+		NextToken      string `json:"nextToken"`
+		MaxResults     int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -172,17 +174,31 @@ func (h *Handler) handleListFileCommitHistory(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	commits, err := h.Backend.ListFileCommitHistory(req.RepositoryName, req.FilePath)
+	pg, err := h.Backend.ListFileCommitHistory(req.RepositoryName, req.FilePath, req.NextToken, req.MaxResults)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]map[string]any, 0, len(commits))
-	for _, c := range commits {
-		items = append(items, commitToMap(c))
+	// revisionDag entries are AWS's FileVersion shape (blobId/commit/path/
+	// revisionChildren) — a prior version of this handler returned raw
+	// Commit objects here, which is the wrong wire shape entirely (a real
+	// SDK client deserializing this field expects FileVersion, not Commit).
+	items := make([]map[string]any, 0, len(pg.Data))
+	for _, v := range pg.Data {
+		items = append(items, map[string]any{
+			keyBlobID:          v.BlobID,
+			"path":             v.FilePath,
+			"commit":           commitToMap(v.Commit),
+			"revisionChildren": v.RevisionChildren,
+		})
 	}
 
-	return map[string]any{
+	resp := map[string]any{
 		"revisionDag": items,
-	}, nil
+	}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return resp, nil
 }

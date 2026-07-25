@@ -27,8 +27,14 @@ func (h *Handler) handleRegisterCertificate(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+	if req.DirectoryID == "" || req.CertificateData == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "DirectoryId and CertificateData are required"),
+		)
+	}
+	if !validEnum(req.Type, "ClientLDAPS", "ClientCertAuth") {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid Type"))
 	}
 
 	certType := req.Type
@@ -77,7 +83,7 @@ func (h *Handler) handleListCertificates(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	certs, nextToken, listErr := h.Backend.ListCertificates(
@@ -125,7 +131,10 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" || req.CertificateID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and CertificateId are required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "DirectoryId and CertificateId are required"),
+		)
 	}
 
 	cert, descErr := h.Backend.DescribeCertificate(h.contextWithRegion(c), req.DirectoryID, req.CertificateID)
@@ -162,7 +171,7 @@ func (h *Handler) handleEnableCAEnrollmentPolicy(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if enableErr := h.Backend.EnableCAEnrollmentPolicy(h.contextWithRegion(c), req.DirectoryID); enableErr != nil {
@@ -187,7 +196,7 @@ func (h *Handler) handleDisableCAEnrollmentPolicy(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if disableErr := h.Backend.DisableCAEnrollmentPolicy(h.contextWithRegion(c), req.DirectoryID); disableErr != nil {
@@ -212,7 +221,7 @@ func (h *Handler) handleDescribeCAEnrollmentPolicy(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	policy, descErr := h.Backend.DescribeCAEnrollmentPolicy(h.contextWithRegion(c), req.DirectoryID)

@@ -2,8 +2,8 @@ package ec2
 
 import (
 	"fmt"
+	"slices"
 	"sort"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -318,51 +318,59 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 	return s, nil
 }
 
-// DeleteSubnet removes a subnet by ID, cascade-deleting any instances, NAT
-// gateways, and network interfaces in that subnet along with their tags.
+// subnetDependencyViolationLocked returns a DependencyViolation error naming
+// the first dependent resource found for subnetID, or nil if the subnet has
+// no dependents blocking deletion. Mirrors real AWS: network interfaces
+// (including the primary ENI of every non-terminated instance — instances
+// must be terminated first), NAT gateways, and VPC endpoints using the subnet
+// all block deletion. Must be called with b.mu held.
+func (b *InMemoryBackend) subnetDependencyViolationLocked(subnetID string) error {
+	for _, eni := range b.networkInterfaces.All() {
+		if eni.SubnetID == subnetID {
+			return fmt.Errorf(
+				"%w: the subnet %s has dependencies (network interface %s) and cannot be deleted",
+				ErrDependencyViolation, subnetID, networkInterfacesKeyFn(eni),
+			)
+		}
+	}
+
+	for _, ngw := range b.natGateways.All() {
+		if ngw.SubnetID == subnetID {
+			return fmt.Errorf(
+				"%w: the subnet %s has dependencies (NAT gateway %s) and cannot be deleted",
+				ErrDependencyViolation, subnetID, natGatewaysKeyFn(ngw),
+			)
+		}
+	}
+
+	for _, ep := range b.vpcEndpoints.All() {
+		if slices.Contains(ep.SubnetIDs, subnetID) {
+			return fmt.Errorf(
+				"%w: the subnet %s has dependencies (VPC endpoint %s) and cannot be deleted",
+				ErrDependencyViolation, subnetID, ep.ID,
+			)
+		}
+	}
+
+	return nil
+}
+
+// DeleteSubnet removes a subnet by ID. Matching real AWS, this fails with
+// DependencyViolation if the subnet still has dependent resources (network
+// interfaces, NAT gateways, VPC endpoints) — it does NOT cascade-delete them.
 func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	b.mu.Lock("DeleteSubnet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.subnets.Get(id); !ok {
+	subnet, ok := b.subnets.Get(id)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrSubnetNotFound, id)
 	}
 
-	// Cascade: terminate instances in this subnet.
-	for _, inst := range b.instances.All() {
-		instID := instancesKeyFn(inst)
-		if inst.SubnetID == id {
-			inst.State = StateTerminated
-			inst.TerminatedAt = time.Now()
-			delete(b.tags, instID)
-			b.detachVolumesAndEIPsLocked(instID)
-		}
+	if err := b.subnetDependencyViolationLocked(id); err != nil {
+		return err
 	}
 
-	// Cascade: delete NAT gateways in this subnet.
-	for _, ngw := range b.natGateways.All() {
-		ngwID := natGatewaysKeyFn(ngw)
-		if ngw.SubnetID == id {
-			b.recycleIPLocked(ngw.PrivateIP)
-			b.deindexNatGatewayLocked(ngw)
-			b.natGateways.Delete(ngwID)
-			delete(b.tags, ngwID)
-		}
-	}
-
-	// Cascade: remove network interfaces in this subnet.
-	for _, eni := range b.networkInterfaces.All() {
-		eniID := networkInterfacesKeyFn(eni)
-		if eni.SubnetID == id {
-			b.recycleENIIPsLocked(eni)
-			b.deindexENILocked(eniID, eni)
-			b.deindexENIByVPCLocked(eniID, eni)
-			b.networkInterfaces.Delete(eniID)
-			delete(b.tags, eniID)
-		}
-	}
-
-	subnet, _ := b.subnets.Get(id)
 	b.deindexSubnetLocked(id, subnet.VPCID)
 	b.subnets.Delete(id)
 	delete(b.tags, id)

@@ -32,6 +32,7 @@ func (h *Handler) handleCreateNode(c *echo.Context, networkID string, body []byt
 		req.MemberID,
 		req.NodeConfiguration.InstanceType,
 		req.NodeConfiguration.AvailabilityZone,
+		req.NodeConfiguration.StateDB,
 		req.Tags,
 	)
 	if err != nil {
@@ -85,12 +86,14 @@ func (h *Handler) handleListNodes(c *echo.Context, networkID string) error {
 		return h.writeBackendError(c, err)
 	}
 
-	summaries := make([]nodeSummaryObject, 0, len(nodes))
-	for _, n := range nodes {
+	pageItems, nextToken := paginate(nodes, q)
+
+	summaries := make([]nodeSummaryObject, 0, len(pageItems))
+	for _, n := range pageItems {
 		summaries = append(summaries, toNodeSummaryObject(n))
 	}
 
-	return c.JSON(http.StatusOK, listNodesResponse{Nodes: summaries})
+	return c.JSON(http.StatusOK, listNodesResponse{Nodes: summaries, NextToken: nextToken})
 }
 
 // handleDeleteNode handles DELETE /networks/{networkId}/nodes/{nodeId}. The
@@ -188,10 +191,34 @@ func toNodeObject(n *Node) nodeObject {
 		Status:           n.Status,
 		CreationDate:     n.CreationDate,
 		Tags:             n.Tags,
+		StateDB:          n.StateDB,
+		KmsKeyArn:        n.KmsKeyArn,
 	}
 
 	if n.LogPublishingConfiguration != nil {
 		obj.LogPublishingConfiguration = toNodeLogConfigRespObj(n.LogPublishingConfiguration)
+	}
+
+	if n.FrameworkAttributes != nil {
+		obj.FrameworkAttributes = toNodeFrameworkAttributesRespObj(n.FrameworkAttributes)
+	}
+
+	return obj
+}
+
+// toNodeFrameworkAttributesRespObj converts a NodeFrameworkAttributesState to its response JSON.
+func toNodeFrameworkAttributesRespObj(fa *NodeFrameworkAttributesState) *nodeFrameworkAttributesRespObj {
+	if fa == nil {
+		return nil
+	}
+
+	obj := &nodeFrameworkAttributesRespObj{}
+
+	if fa.Fabric != nil {
+		obj.Fabric = &nodeFabricAttributesRespObj{
+			PeerEndpoint:      fa.Fabric.PeerEndpoint,
+			PeerEventEndpoint: fa.Fabric.PeerEventEndpoint,
+		}
 	}
 
 	return obj

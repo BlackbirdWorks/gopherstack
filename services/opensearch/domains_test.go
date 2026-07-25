@@ -1,6 +1,7 @@
 package opensearch_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -38,7 +39,7 @@ func TestDeleteDomain_Cascade(t *testing.T) {
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddDomainInternal("my-domain", "")
 
-	_, err := b.AddDataSource("my-domain", "ds1", "desc", "S3GLUE")
+	_, err := b.AddDataSource("my-domain", "ds1", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
 	b.AddPackageInternal("pkg-001", "test-pkg", "TXT-DICTIONARY")

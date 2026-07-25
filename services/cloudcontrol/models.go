@@ -43,13 +43,30 @@ type Resource struct {
 
 // ProgressEvent represents the status of a CloudControl resource operation.
 type ProgressEvent struct {
-	EventTime       unixEpochTime `json:"EventTime"`
-	TypeName        string        `json:"TypeName"`
-	Identifier      string        `json:"Identifier,omitempty"`
-	RequestToken    string        `json:"RequestToken"`
-	Operation       string        `json:"Operation"`
-	OperationStatus string        `json:"OperationStatus"`
-	StatusMessage   string        `json:"StatusMessage,omitempty"`
+	// EventTime and RetryAfter are epoch-seconds numbers on the wire, per the
+	// real SDK's awsAwsjson10_deserializeDocumentProgressEvent (ParseEpochSeconds),
+	// not ISO8601 strings. RetryAfter uses a pointer wrapper since it is unset
+	// (real field is *time.Time, omitted) whenever the backend has no retry
+	// guidance to give -- which today is always, since no op leaves an event
+	// in a non-terminal state.
+	EventTime       unixEpochTime  `json:"EventTime"`
+	RetryAfter      *unixEpochTime `json:"RetryAfter,omitempty"`
+	TypeName        string         `json:"TypeName"`
+	Identifier      string         `json:"Identifier,omitempty"`
+	RequestToken    string         `json:"RequestToken"`
+	Operation       string         `json:"Operation"`
+	OperationStatus string         `json:"OperationStatus"`
+	StatusMessage   string         `json:"StatusMessage,omitempty"`
+	// ErrorCode is the HandlerErrorCode explaining a FAILED request. Real
+	// AWS only populates this when OperationStatus is FAILED; this backend
+	// currently never leaves a request in FAILED (see PARITY.md), so the
+	// field is always empty today but is modeled for wire-shape parity and
+	// so a future FAILED path has somewhere real to write.
+	ErrorCode string `json:"ErrorCode,omitempty"`
+	// HooksRequestToken is the token for the Hooks invocation associated
+	// with this request. This backend has no Hooks concept, so it is always
+	// empty -- modeled for wire-shape parity only.
+	HooksRequestToken string `json:"HooksRequestToken,omitempty"`
 	// ResourceModel is a JSON string containing the resource model -- each
 	// resource property and its current value -- per the real ProgressEvent
 	// shape. Populated on SUCCESS so callers can read the resource straight

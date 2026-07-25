@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
 
 var (
@@ -122,30 +123,83 @@ type PipeFirehosePutter interface {
 	PutRecord(ctx context.Context, deliveryStreamARN string, data []byte) error
 }
 
+// KinesisRecord is a single record read from a Kinesis stream for a pipe source.
+type KinesisRecord struct {
+	ArrivalTime    time.Time
+	PartitionKey   string
+	SequenceNumber string
+	Data           []byte
+}
+
+// PipeKinesisReader reads records from a Kinesis stream for a pipe source.
+type PipeKinesisReader interface {
+	// GetShardIDs returns the shard IDs for the given stream.
+	GetShardIDs(streamName string) ([]string, error)
+	// GetShardIterator returns an iterator token for a shard.
+	GetShardIterator(streamName, shardID, iteratorType, startingSeqNum string) (string, error)
+	// GetRecords reads up to limit records from the given iterator, returning
+	// records and the next iterator token.
+	GetRecords(iteratorToken string, limit int) ([]KinesisRecord, string, error)
+}
+
+// DynamoDBStreamRecord is a single record read from a DynamoDB stream for a pipe source.
+type DynamoDBStreamRecord struct {
+	NewImage                    map[string]any
+	OldImage                    map[string]any
+	Keys                        map[string]any
+	EventID                     string
+	EventName                   string // INSERT, MODIFY, or REMOVE
+	SequenceNumber              string
+	StreamViewType              string
+	ApproximateCreationDateTime float64 // Unix epoch seconds
+	SizeBytes                   int64
+}
+
+// PipeDynamoDBStreamsReader reads records from a DynamoDB stream for a pipe source.
+type PipeDynamoDBStreamsReader interface {
+	// DescribeStreamShards returns the ordered list of shard IDs for the stream.
+	// streamARN is the full DynamoDB stream ARN.
+	DescribeStreamShards(streamARN string) ([]string, error)
+	// GetStreamShardIterator returns an iterator for a specific shard of the stream.
+	GetStreamShardIterator(streamARN, shardID, iteratorType string) (string, error)
+	// GetStreamRecords reads up to limit records from the given iterator.
+	GetStreamRecords(iteratorToken string, limit int) ([]DynamoDBStreamRecord, string, error)
+}
+
 // Runner polls pipe sources and forwards records to pipe targets for RUNNING pipes.
 type Runner struct {
-	sqsReader SQSReader
-	lambda    PipeLambdaInvoker
-	sfn       PipeStepFunctionsStarter
-	sns       SNSPublisher
-	sqsSender SQSSender
-	kinesis   PipeKinesisPutter
-	eventBus  PipeEventBridgePutter
-	cwLogs    PipeCloudWatchLogsPutter
-	firehose  PipeFirehosePutter
-	backend   *InMemoryBackend
-	sem       chan struct{}
-	done      chan struct{}
-	doneMu    sync.RWMutex
-	wg        sync.WaitGroup
-	started   bool
+	sqsReader        SQSReader
+	lambda           PipeLambdaInvoker
+	sfn              PipeStepFunctionsStarter
+	sns              SNSPublisher
+	sqsSender        SQSSender
+	kinesis          PipeKinesisPutter
+	eventBus         PipeEventBridgePutter
+	cwLogs           PipeCloudWatchLogsPutter
+	firehose         PipeFirehosePutter
+	kinesisReader    PipeKinesisReader
+	ddbStreamsReader PipeDynamoDBStreamsReader
+	backend          *InMemoryBackend
+	sem              chan struct{}
+	done             chan struct{}
+	// shardIterators caches the in-flight shard iterator token per (pipe ARN,
+	// shard ID) for stream-shaped sources (Kinesis, DynamoDB Streams), which
+	// have no message-level ack/delete like SQS and must instead track
+	// position via an iterator that advances on every successful GetRecords.
+	// It is a genuinely isolated single-map cache, so pkgs/safemap is used
+	// instead of a bespoke mutex (see pkgs-catalog.md locking rule).
+	shardIterators *safemap.Map[string, string]
+	doneMu         sync.RWMutex
+	wg             sync.WaitGroup
+	started        bool
 }
 
 func NewRunner(backend *InMemoryBackend) *Runner {
 	return &Runner{
-		backend: backend,
-		sem:     make(chan struct{}, maxPipeWorkers),
-		done:    make(chan struct{}),
+		backend:        backend,
+		sem:            make(chan struct{}, maxPipeWorkers),
+		done:           make(chan struct{}),
+		shardIterators: safemap.New[string, string]("pipes.runner.shardIterators"),
 	}
 }
 
@@ -158,6 +212,10 @@ func (r *Runner) SetKinesisPutter(k PipeKinesisPutter)               { r.kinesis
 func (r *Runner) SetEventBridgePutter(e PipeEventBridgePutter)       { r.eventBus = e }
 func (r *Runner) SetCloudWatchLogsPutter(c PipeCloudWatchLogsPutter) { r.cwLogs = c }
 func (r *Runner) SetFirehosePutter(f PipeFirehosePutter)             { r.firehose = f }
+func (r *Runner) SetKinesisReader(k PipeKinesisReader)               { r.kinesisReader = k }
+func (r *Runner) SetDynamoDBStreamsReader(d PipeDynamoDBStreamsReader) {
+	r.ddbStreamsReader = d
+}
 
 func (r *Runner) Start(ctx context.Context) {
 	var done chan struct{}
@@ -221,6 +279,12 @@ func (r *Runner) run(ctx context.Context) {
 func (r *Runner) pollAllPipes(ctx context.Context) {
 	pipes := r.backend.allRunningPipes()
 
+	runningARNs := make(map[string]struct{}, len(pipes))
+	for _, p := range pipes {
+		runningARNs[p.ARN] = struct{}{}
+	}
+	r.sweepStaleShardIterators(runningARNs)
+
 	for _, p := range pipes {
 		select {
 		case r.sem <- struct{}{}:
@@ -237,13 +301,34 @@ func (r *Runner) pollAllPipes(ctx context.Context) {
 }
 
 func (r *Runner) pollPipe(ctx context.Context, p *Pipe) {
-	if isSQSARN(p.Source) {
+	switch {
+	case isSQSARN(p.Source):
 		r.pollSQSPipe(ctx, p)
+	case isKinesisARN(p.Source):
+		r.pollKinesisPipe(ctx, p)
+	case isDynamoDBStreamARN(p.Source):
+		r.pollDynamoDBStreamPipe(ctx, p)
 	}
+	// MSK, self-managed Kafka, RabbitMQ, and ActiveMQ sources are modeled in
+	// the wire shapes (sources.go) but are not polled here: gopherstack has no
+	// in-process Kafka-wire-protocol or AMQP/OpenWire broker to read from for
+	// any of those source types (services/kafka and services/mq are AWS
+	// control-plane emulators only -- cluster/broker/topic *metadata* CRUD,
+	// with no message produce/consume data-plane at all). See PARITY.md.
 }
 
 func isSQSARN(resourceARN string) bool {
 	return strings.HasPrefix(resourceARN, "arn:aws:sqs:")
+}
+
+func isKinesisARN(resourceARN string) bool {
+	return strings.HasPrefix(resourceARN, "arn:aws:kinesis:")
+}
+
+// isDynamoDBStreamARN reports whether resourceARN identifies a DynamoDB stream
+// (as opposed to a plain table ARN, which has no "/stream/" segment).
+func isDynamoDBStreamARN(resourceARN string) bool {
+	return strings.HasPrefix(resourceARN, "arn:aws:dynamodb:") && strings.Contains(resourceARN, "/stream/")
 }
 
 func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
@@ -416,12 +501,21 @@ func (r *Runner) applyFilters(p *Pipe, msgs []*SQSMessage) []*SQSMessage {
 	var out []*SQSMessage
 
 	for _, m := range msgs {
-		if matchesAnyFilter(m, p.SourceParameters.FilterCriteria.Filters) {
+		if matchesAnyFilter(m.Body, p.SourceParameters.FilterCriteria.Filters) {
 			out = append(out, m)
 		}
 	}
 
 	return out
+}
+
+// filterCriteriaFilters returns the pipe's configured filters, or nil if none.
+func filterCriteriaFilters(p *Pipe) []Filter {
+	if p.SourceParameters == nil || p.SourceParameters.FilterCriteria == nil {
+		return nil
+	}
+
+	return p.SourceParameters.FilterCriteria.Filters
 }
 
 // invokeTargetWithPayload dispatches the pre-marshalled payload to the pipe's target.
@@ -434,26 +528,37 @@ func (r *Runner) invokeTargetWithPayload(
 		receiptHandles[i] = m.ReceiptHandle
 	}
 
-	switch {
-	case strings.HasPrefix(p.Target, "arn:aws:lambda:"):
-		return receiptHandles, r.invokeLambdaTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:states:"):
-		return receiptHandles, r.invokeSFNTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:sns:"):
-		return receiptHandles, r.invokeSNSTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:sqs:"):
-		return receiptHandles, r.invokeSQSTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:kinesis:"):
-		return receiptHandles, r.invokeKinesisTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:events:"):
-		return receiptHandles, r.invokeEventBridgeTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:logs:"):
-		return receiptHandles, r.invokeCloudWatchLogsTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:firehose:"):
-		return receiptHandles, r.invokeFirehoseTarget(ctx, p, payload)
+	if err := r.dispatchTarget(ctx, p, payload); err != nil {
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("%w %q for pipe %q", ErrUnsupportedPipeTarget, p.Target, p.Name)
+	return receiptHandles, nil
+}
+
+// dispatchTarget routes the pre-marshalled payload to the pipe's target based on
+// the target ARN's service. It is source-agnostic: SQS-, Kinesis-, and
+// DynamoDB-Streams-sourced pipes all funnel through this one switch.
+func (r *Runner) dispatchTarget(ctx context.Context, p *Pipe, payload []byte) error {
+	switch {
+	case strings.HasPrefix(p.Target, "arn:aws:lambda:"):
+		return r.invokeLambdaTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:states:"):
+		return r.invokeSFNTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:sns:"):
+		return r.invokeSNSTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:sqs:"):
+		return r.invokeSQSTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:kinesis:"):
+		return r.invokeKinesisTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:events:"):
+		return r.invokeEventBridgeTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:logs:"):
+		return r.invokeCloudWatchLogsTarget(ctx, p, payload)
+	case strings.HasPrefix(p.Target, "arn:aws:firehose:"):
+		return r.invokeFirehoseTarget(ctx, p, payload)
+	}
+
+	return fmt.Errorf("%w %q for pipe %q", ErrUnsupportedPipeTarget, p.Target, p.Name)
 }
 
 type sqsPipeEvent struct {

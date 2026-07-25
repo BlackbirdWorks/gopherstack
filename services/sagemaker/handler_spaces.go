@@ -103,8 +103,8 @@ func (h *Handler) handleListSpaces(ctx context.Context, body []byte) ([]byte, er
 			"SpaceArn":          s.SpaceArn,
 			keyDomainID:         s.DomainID,
 			"SpaceStatus":       s.SpaceStatus,
-			keyCreationTime:     s.CreationTime,
-			keyLastModifiedTime: s.LastModifiedTime,
+			keyCreationTime:     epochSeconds(s.CreationTime),
+			keyLastModifiedTime: epochSeconds(s.LastModifiedTime),
 		})
 	}
 

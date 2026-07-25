@@ -13,7 +13,7 @@ func TestHandler_ListTables(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, "ListTables", map[string]any{})
+	rec := doRequest(t, h, "ListTables", map[string]any{"Database": "dev"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -21,16 +21,34 @@ func TestHandler_ListTables(t *testing.T) {
 	assert.NotNil(t, resp["Tables"])
 }
 
+func TestHandler_ListTables_MissingDatabase_Returns400(t *testing.T) {
+	t.Parallel()
+
+	rec := doRequest(t, newTestHandler(t), "ListTables", map[string]any{})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+}
+
 func TestHandler_DescribeTable(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, "DescribeTable", map[string]any{})
+	rec := doRequest(t, h, "DescribeTable", map[string]any{"Database": "dev"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotNil(t, resp["ColumnList"])
+}
+
+func TestHandler_DescribeTable_MissingDatabase_Returns400(t *testing.T) {
+	t.Parallel()
+
+	rec := doRequest(t, newTestHandler(t), "DescribeTable", map[string]any{})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 
 func TestHandler_ListTables_ReturnsNonEmpty(t *testing.T) {
@@ -46,43 +64,6 @@ func TestHandler_ListTables_ReturnsNonEmpty(t *testing.T) {
 	tables, ok := resp["Tables"].([]any)
 	require.True(t, ok)
 	assert.NotEmpty(t, tables)
-}
-
-func TestHandler_ListTables_TableType_FiltersCorrectly(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		tableType string
-		wantEmpty bool
-	}{
-		{name: "TABLE", tableType: "TABLE", wantEmpty: false},
-		{name: "VIEW", tableType: "VIEW", wantEmpty: false},
-		{name: "unknown_type", tableType: "SEQUENCE", wantEmpty: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doRequest(t, newTestHandler(t), "ListTables", map[string]any{
-				"Database":  "dev",
-				"TableType": tt.tableType,
-			})
-
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			tables, _ := resp["Tables"].([]any)
-			if tt.wantEmpty {
-				assert.Empty(t, tables, "TableType=%q should return no tables", tt.tableType)
-			} else {
-				assert.NotEmpty(t, tables, "TableType=%q should return tables", tt.tableType)
-			}
-		})
-	}
 }
 
 func TestHandler_ListTables_SchemaPattern_WildcardMatchesAll(t *testing.T) {
@@ -146,7 +127,7 @@ func TestHandler_ListTables_TablePattern_PrefixMatch(t *testing.T) {
 func TestHandler_ListTables_MaxResultsTooHigh_Returns400(t *testing.T) {
 	t.Parallel()
 
-	rec := doRequest(t, newTestHandler(t), "ListTables", map[string]any{"MaxResults": 9999})
+	rec := doRequest(t, newTestHandler(t), "ListTables", map[string]any{"Database": "dev", "MaxResults": 9999})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ValidationException")
@@ -155,7 +136,7 @@ func TestHandler_ListTables_MaxResultsTooHigh_Returns400(t *testing.T) {
 func TestHandler_ListTables_MaxResults1_Paginates(t *testing.T) {
 	t.Parallel()
 
-	rec := doRequest(t, newTestHandler(t), "ListTables", map[string]any{"MaxResults": 1})
+	rec := doRequest(t, newTestHandler(t), "ListTables", map[string]any{"Database": "dev", "MaxResults": 1})
 
 	require.Equal(t, http.StatusOK, rec.Code)
 

@@ -1,27 +1,27 @@
 ---
 service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.45.21
-last_audit_commit: f615e2f8
-last_audit_date: 2026-07-11
+last_audit_commit: PENDING (uncommitted at end of this sweep -- main thread fills in on commit)
+last_audit_date: 2026-07-23
 overall: A
 ops:
-  CreateEventBus: {wire: ok, errors: ok, state: ok, persist: ok, note: "name length/prefix validation, 200-per-account custom-bus limit enforced across regions"}
+  CreateEventBus: {wire: ok, errors: ok, state: ok, persist: ok, note: "name length/prefix validation, 200-per-account custom-bus limit enforced across regions. FIXED this sweep: CreateEventBusOutput was missing Description (real AWS echoes it); LastModifiedTime now set at creation (was zero-valued, only set by UpdateEventBus)."}
   DeleteEventBus: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades rule/target/index cleanup; default bus protected"}
-  ListEventBuses: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeEventBus: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateEventBus: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "EventPattern/ScheduleExpression mutual exclusivity + at-least-one enforced; 300-per-bus rule limit; ScheduleExpression validated via parseScheduleExpression (see schedule.go fix below)"}
-  DeleteRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "ManagedBy not enforced -- see gaps (gopherstack-ba7)"}
+  ListEventBuses: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep -- see DescribeEventBus (same eventBusResponse DTO backs both)."}
+  DescribeEventBus: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep, two bugs: (1) handler returned the raw *EventBus struct via json.Marshal, so CreatedTime serialized as an RFC3339 string -- real AWS's DescribeEventBusOutput.CreationTime is an awsjson1.1 epoch-seconds number; a real SDK client's deserializer would reject the RFC3339 form. (2) EventBus had no Policy field at all, so a policy set via PutPermission/PutEventBusPolicy was invisible on Describe/List despite the prior sweep's own note claiming 'DescribeEventBus.Policy is the real wire path for reading a bus policy' -- that claim was aspirational, not verified; the field didn't exist. Added eventBusResponse handler DTO (epoch-seconds CreationTime/LastModifiedTime, Policy resolved from the backend's policy store at response time) used by both DescribeEventBus and ListEventBuses. KmsKeyIdentifier/DeadLetterConfig/LogConfig (also real DescribeEventBusOutput/CreateEventBusInput/UpdateEventBusInput members) NOT added -- see items_still_open."}
+  UpdateEventBus: {wire: ok, errors: ok, state: ok, persist: ok, note: "now sets LastModifiedTime on every update (previously never touched after creation, so it was permanently equal to CreatedTime even after a real edit)."}
+  PutRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "EventPattern/ScheduleExpression mutual exclusivity + at-least-one enforced; 300-per-bus rule limit; ScheduleExpression validated via parseScheduleExpression. FIXED this sweep: PutRuleInput.ManagedBy had a JSON tag (json:\"ManagedBy,omitempty\"), so any client sending `\"ManagedBy\":\"...\"` in a PutRule request body could forge a rule as AWS-service-managed -- real AWS's PutRuleInput has no such wire member at all (server-populated, Describe/List-only). Changed the tag to json:\"-\" (wire-unreachable now, proven by TestPutRule_ManagedByNotWireSettable) while keeping the Go field as an internal same-process seeding hook (TestPutRule_ManagedByPreserved). Also added the ManagedRuleException enforcement the prior sweep flagged as a known gap (gopherstack-ba7): PutRule on an already-managed rule now returns ManagedRuleException instead of silently overwriting it."}
+  DeleteRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: ManagedBy now enforced -- returns ManagedRuleException for a service-managed rule instead of deleting it. Was gopherstack-ba7."}
   ListRules: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  EnableRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "ManagedBy not enforced -- see gaps (gopherstack-ba7)"}
-  DisableRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "ManagedBy not enforced -- see gaps (gopherstack-ba7)"}
-  PutTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: Target was missing 8 of the SDK's target-type-specific parameter structs (AppSyncParameters, EcsParameters, HttpParameters, KinesisParameters, RedshiftDataParameters, RunCommandParameters, SageMakerPipelineParameters, SqsParameters), so any client setting them lost the data silently (json.Unmarshal drops unknown fields). Added all 8 plus their nested types, with required-field validation (EcsParameters.TaskDefinitionArn, KinesisParameters.PartitionKeyPath, RedshiftDataParameters.Database, RunCommandParameters.RunCommandTargets[].Key/Values) mirroring aws-sdk-go-v2's client-side validators, and RetryPolicy bound validation (MaximumRetryAttempts 0-185, MaximumEventAgeInSeconds 60-86400) which the client SDK does not validate locally either. 5-targets-per-rule limit enforced (was already ok)."}
-  RemoveTargets: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTargetsByRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "now round-trips all target-type-specific parameters (see PutTargets)"}
+  EnableRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: ManagedBy now enforced (ManagedRuleException). Was gopherstack-ba7."}
+  DisableRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: ManagedBy now enforced (ManagedRuleException). Was gopherstack-ba7."}
+  PutTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "Target models all target-type-specific parameter structs (see prior-sweep note below), required-field validation, RetryPolicy bounds, 5-targets-per-rule limit. FIXED this sweep: ManagedBy now enforced (ManagedRuleException) -- was gopherstack-ba7, and was previously not even checked since PutTargets only did a busRules.Has() existence check, never fetched the Rule to inspect it."}
+  RemoveTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: ManagedBy now enforced (ManagedRuleException) -- was gopherstack-ba7."}
+  ListTargetsByRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "round-trips all target-type-specific parameters (see PutTargets)"}
   ListRuleNamesByTarget: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: added the 1-10 entries-per-request limit (AWS: PutEventsRequestEntryList min 1/max 10 -- was previously unbounded, a test even fed 1100 entries in a single call) and per-entry required-field validation for Source/DetailType/Detail (AWS: an entry missing any of the three fails individually with InvalidArgument; if NONE of the entries in the batch have all three, AWS fails the whole request). Signature changed additively from `[]EventResultEntry` to `([]EventResultEntry, error)` to carry the new whole-request failures -- see Notes for the signature-safety check performed."}
-  PutPartnerEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "delegates to PutEvents; inherits the same fix"}
+  PutEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-10 entries-per-request limit and per-entry required-field validation for Source/DetailType/Detail (prior sweep). FIXED this sweep, severe: PutEventsRequestEntry.Time is an awsjson1.1 epoch-seconds JSON number on the real wire (confirmed against aws-sdk-go-v2/service/eventbridge's serializers.go: `ok.Double(smithytime.FormatEpochSeconds(*v.Time))`), but EventEntry.Time was a plain `*time.Time` with no custom unmarshal -- Go's default time.Time.UnmarshalJSON only accepts a quoted RFC3339 string, so ANY real AWS SDK client sending an explicit Time on a PutEvents entry would have gotten a JSON unmarshal error and the whole request would fail. This was on the REQUEST side, unlike the recurred response-side epoch-seconds bug class -- easy to miss because no existing test ever set the Time field over the wire (only via internal Go struct literals, which bypass json.Unmarshal entirely and never hit the bug). Added EventEntry.UnmarshalJSON (wire_time.go) parsing epoch-seconds numbers into time.Time; EventEntry is never marshaled back out to a client (confirmed via repo-wide grep) so this is unmarshal-only, no response-shape risk. Proven by TestEventEntry_UnmarshalJSON_TimeIsEpochSeconds (includes a case asserting an RFC3339 string is now correctly REJECTED, not silently misparsed)."}
+  PutPartnerEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "delegates to PutEvents; inherits the same fixes"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -30,54 +30,182 @@ ops:
   DescribeEventSource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListEventSources: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelReplay: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeReplay: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListReplays: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartReplay: {wire: ok, errors: ok, state: ok, persist: ok, note: "not re-audited op-by-op this sweep beyond a spot check; prior sweeps (c48d08ab) added real replay-worker delivery"}
+  DescribeReplay: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep, three bugs, field-diffed against DescribeReplayOutput: (1) handler returned the raw *Replay struct via json.Marshal -- EventStartTime/EventEndTime/ReplayStartTime/ReplayEndTime serialized as RFC3339 strings instead of the real awsjson1.1 epoch-seconds numbers. (2) Replay had no Destination field, so DescribeReplayOutput.Destination (a real member) was never echoed -- StartReplayInput.Destination was silently discarded after use. (3) Replay conflated the user-supplied Description (StartReplayInput.Description, a real DescribeReplayOutput.Description member) with the system-set StateReason into a single field -- Description was never echoed at all and StateReason carried the wrong content. Added replayListResponse/describeReplayResponse handler DTOs (describeReplayResponse embeds replayListResponse plus the Describe-only Destination/Description, matching real AWS where types.Replay used by ListReplaysOutput has neither). Also FIXED: StartReplayInput.EventStartTime/EventEndTime were plain time.Time with no custom unmarshal -- same request-side epoch-seconds bug class as PutEvents.Time (aws-sdk-go-v2 serializers.go confirms `smithytime.FormatEpochSeconds` for both fields); added StartReplayInput.UnmarshalJSON (wire_time.go)."}
+  ListReplays: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep -- see DescribeReplay (replayListResponse DTO, correctly omits Destination/Description to match real AWS's types.Replay)."}
+  StartReplay: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep, real gap: ReplayDestination had no FilterArns field at all (real AWS: 'A list of ARNs for rules to replay events to'), so StartReplay always fanned a replay out to every rule on the destination bus whose pattern matched, even when the caller asked to restrict delivery to specific rules -- an over-delivery correctness bug, not just quiet data loss. Added ReplayDestination.FilterArns, threaded through startReplayLocked/scheduleReplayWorker/deliverEvents/buildDeliveryPlan (new filterRuleARNs parameter, nil for PutEvents' normal live-delivery path which is never filtered) to buildDeliveryPlan's per-rule match check. Also see DescribeReplay for the request-side epoch-seconds fix and the Destination/Description echo fix. Proven by TestStartReplay_FilterArnsRestrictsDelivery (two rules match the same pattern; FilterArns names one; asserts only that rule's target receives the replayed event while the live PutEvents delivery -- not subject to FilterArns -- still reaches both)."}
   CreateApiDestination: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteApiDestination: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeApiDestination: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeApiDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against DescribeApiDestinationOutput this sweep: ApiDestinationArn/ApiDestinationState/ConnectionArn/CreationTime/Description/HttpMethod/InvocationEndpoint/InvocationRateLimitPerSecond/LastModifiedTime/Name all present and already epoch-seconds via handler_api_destinations.go's timeToEpochSeconds DTOs. No fix needed."}
   ListApiDestinations: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateApiDestination: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateArchive: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-checked only; not re-audited op-by-op this sweep"}
+  UpdateApiDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against UpdateApiDestinationOutput this sweep -- ApiDestinationArn/ApiDestinationState/CreationTime/LastModifiedTime all present. No fix needed."}
+  CreateArchive: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against CreateArchiveOutput/DescribeArchiveOutput/Archive this sweep -- ArchiveName/ArchiveArn/CreationTime/Description/EventPattern/EventSourceArn/State/StateReason/EventCount/RetentionDays/SizeBytes all present, already epoch-seconds via handler_archives.go's archiveResponse DTO. KmsKeyIdentifier (a real DescribeArchiveOutput member, archive encryption) NOT modeled -- see items_still_open."}
   DeleteArchive: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeArchive: {wire: ok, errors: ok, state: ok, persist: ok}
   ListArchives: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateArchive: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-checked only (auth masking, API_KEY/BASIC/OAUTH); not re-audited op-by-op this sweep"}
+  CreateConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against DescribeConnectionOutput/Connection/ConnectionAuthResponseParameters this sweep -- ConnectionArn/AuthorizationType/ConnectionState/CreationTime/LastAuthorizedTime/LastModifiedTime/Name/StateReason/SecretArn all present and epoch-seconds via handler_connections.go's DTOs; auth masking (API_KEY/BASIC/OAUTH) correctly omits ApiKeyValue/Password/ClientSecret entirely, matching real AWS's response types which have no such fields at all (only ApiKeyName/Username/ClientID). KmsKeyIdentifier and InvocationConnectivityParameters (real members, for private-API/PrivateLink connections) NOT modeled -- see items_still_open."}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   ListConnections: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DeauthorizeConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-checked only; not re-audited op-by-op this sweep"}
+  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against DescribeEndpointOutput/Endpoint this sweep -- all fields present (Arn/CreationTime/Description/EndpointId/EndpointUrl/EventBuses/LastModifiedTime/Name/ReplicationConfig/RoleArn/RoutingConfig/State/StateReason). No missing fields; see DescribeEndpoint for the epoch-seconds fix."}
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListEndpoints: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: handler returned the raw *Endpoint struct via json.Marshal, so CreationTime/LastModifiedTime serialized as RFC3339 strings instead of the real awsjson1.1 epoch-seconds numbers -- same bug class as DescribeEventBus/DescribeReplay. Added endpointResponse handler DTO."}
+  ListEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep -- see DescribeEndpoint (same endpointResponse DTO, field set matches real AWS's types.Endpoint used by ListEndpointsOutput exactly)."}
   UpdateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePartnerEventSource: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePartnerEventSource: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribePartnerEventSource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPartnerEventSources: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPartnerEventSourceAccounts: {wire: ok, errors: ok, state: ok, persist: ok}
-  TestEventPattern: {wire: ok, errors: ok, state: ok, persist: n/a, note: "delegates to the same compilePattern/matchCompiledPattern engine proved correct this sweep -- see families.event_pattern_matching"}
-  PutPermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-checked only; not re-audited op-by-op this sweep"}
-  RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetEventBusPolicy: {wire: partial, errors: ok, state: ok, persist: ok, note: "not a real EventBridge SDK op (no GetEventBusPolicy/PutEventBusPolicy in aws-sdk-go-v2/service/eventbridge's 53 ops); an internal-only helper reachable via the handler's policyActions() dispatch table but absent from GetSupportedOperations, so no real SDK client can invoke it. Harmless (DescribeEventBus.Policy is the real wire path for reading a bus policy) but not itself a modeled AWS op -- left as-is, not a gap worth fixing."}
-  PutEventBusPolicy: {wire: partial, errors: ok, state: ok, persist: ok, note: "same as GetEventBusPolicy -- not a real SDK op"}
+  TestEventPattern: {wire: ok, errors: ok, state: ok, persist: n/a, note: "delegates to the same compilePattern/matchCompiledPattern engine proved correct in prior sweeps -- see families.event_pattern_matching"}
+  PutPermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: busePolicies (the map PutPermission/RemovePermission/PutEventBusPolicy write to) was entirely excluded from backendSnapshot -- persistence.go's own doc comment said so, and PARITY.md had nonetheless marked this op 'persist: ok', which was independently field-verified false this sweep (a policy set via PutPermission did not survive Snapshot/Restore). Added backendSnapshot.BusPolicies (plain map[string]map[string]*EventBusPolicy, round-trips via encoding/json without needing a func(*V) string key extractor the way the genuinely unkeyable archivedEvents/schemaVersions/codeBindings maps do) and wired it into Snapshot/Restore. Also added the missing `json:\"Statements\"` tag on EventBusPolicy.Statements (musttag caught this once the type became reachable from json.Marshal). Proven by an addition to TestInMemoryBackend_FullStateSnapshotRestore."}
+  RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep -- see PutPermission (same busePolicies persistence fix)."}
+  GetEventBusPolicy: {wire: partial, errors: ok, state: ok, persist: ok, note: "not a real EventBridge SDK op (no GetEventBusPolicy/PutEventBusPolicy in aws-sdk-go-v2/service/eventbridge's 57 ops); an internal-only helper reachable via the handler's policyActions() dispatch table but absent from GetSupportedOperations, so no real SDK client can invoke it. The real wire path for reading a bus policy, DescribeEventBus.Policy, is now actually wired (see DescribeEventBus above -- it was NOT before this sweep despite a prior note claiming otherwise). Left as-is, not a gap worth fixing."}
+  PutEventBusPolicy: {wire: partial, errors: ok, state: ok, persist: ok, note: "same as GetEventBusPolicy -- not a real SDK op. Its writes now persist (see PutPermission)."}
 families:
-  event_pattern_matching: {status: ok, note: "Read pattern.go (559 LOC) in full and cross-checked every documented AWS content-filter operator against matchSpecialMatcher/matchStringMatcher: exact-match arrays, prefix (incl. nested equals-ignore-case form), suffix (incl. nested equals-ignore-case form), exists (true/false, including explicit JSON null counting as present), numeric (paired-operator ranges, all four comparators), anything-but (scalar/list/object forms incl. nested prefix/suffix/wildcard/equals-ignore-case/numeric, each of which may itself be a list), cidr, wildcard (iterative two-pointer glob, no recursion/ReDoS), equals-ignore-case, nested objects (recursive matchObject), $or (top-level and nested), and array-valued event fields (any-element-matches semantics). All correct and already covered by pattern_test.go (519 LOC) + pattern_validation_test.go (129 LOC). No fix needed -- proof only."}
-  schema_registry_and_pipes: {status: ok, note: "CreateRegistry..GetCodeBindingSource and CreatePipe..UpdatePipe are separate control planes in real AWS (schemas/pipes SDK modules, not events); not re-audited op-by-op this sweep, no evidence of regressions while reading adjacent PutTargets/PutEvents code."}
-gaps:
-  - "Rule.ManagedBy is modeled and echoed on Describe/List, and PutRuleInput even lets a caller set it directly (real AWS's PutRule request has no ManagedBy member at all -- it's a server-populated Describe/List-only field), but NO op (PutRule update, DeleteRule, EnableRule, DisableRule, PutTargets, RemoveTargets) checks it before mutating. Real AWS returns ManagedRuleException for all six when the target rule is AWS-service-managed. Not fixed this sweep: no composition-root code anywhere in this repo ever marks an eventbridge rule as managed, so the missing enforcement is currently unreachable/inert in practice, and building it out (new sentinel error + handleError case + internal seeding helper + a real trigger) is a bigger, more speculative change than the codebase's demonstrated usage patterns justify right now. (bd: gopherstack-ba7)"
-  - "EventBridge rule-target delivery for non-core targets (Step Functions/ECS/Kinesis/CloudWatch Logs/API destinations) is fully implemented in delivery.go's deliverToTarget dispatch, but wireEventBridgeDelivery in cli.go (composition root, out of services/eventbridge/ and explicitly off-limits this sweep) only populates DeliveryTargets.Lambda/SQS/SNS. Rules with those other target types match correctly but never fire in the running app. Already tracked, not re-fixed. (bd: gopherstack-xoe)"
+  event_pattern_matching: {status: ok, note: "Not re-read this sweep (pattern.go unchanged since the prior sweep's commit -- trusted per the re-audit protocol). Prior sweep's proof: read pattern.go (559 LOC) in full and cross-checked every documented AWS content-filter operator against matchSpecialMatcher/matchStringMatcher: exact-match arrays, prefix/suffix (incl. nested equals-ignore-case form), exists (incl. explicit JSON null counting as present), numeric (paired-operator ranges, all four comparators), anything-but (scalar/list/object forms incl. nested prefix/suffix/wildcard/equals-ignore-case/numeric), cidr, wildcard (iterative two-pointer glob, no recursion/ReDoS), equals-ignore-case, nested objects, $or (top-level and nested), and array-valued event fields (any-element-matches semantics). Covered by pattern_test.go (519 LOC) + pattern_validation_test.go (129 LOC)."}
+  schema_registry_and_pipes: {status: ok, note: "CreateRegistry..GetCodeBindingSource and CreatePipe..UpdatePipe are separate control planes in real AWS (schemas/pipes SDK modules, not events); not audited this sweep (out of the events/eventbridge parity scope), no evidence of regressions while editing adjacent PutEvents/persistence.go code."}
+  archives_replays_connections_api_destinations_endpoints: {status: ok, note: "Previously 'deferred, spot-checked only'. Field-diffed this sweep against aws-sdk-go-v2/service/eventbridge's api_op_*.go Input/Output structs and types.go for Archive, Connection (+ ConnectionAuthResponseParameters/CreateConnectionAuthRequestParameters/UpdateConnectionAuthRequestParameters), ApiDestination, Endpoint (+ RoutingConfig/FailoverConfig/Primary/Secondary/EndpointEventBus), Replay, and ReplayDestination. Found and fixed real bugs: DescribeEndpoint/ListEndpoints and DescribeReplay/ListReplays response-side epoch-seconds bug, Replay missing Destination/Description, ReplayDestination missing FilterArns (an over-delivery correctness bug, not just a missing echo field), StartReplayInput request-side epoch-seconds bug. Connections and API destinations were already correct field-for-field (auth masking, all CRUD output shapes) except the KMS/private-API-connectivity extras noted per-op above and in items_still_open."}
+gaps: []
 deferred:
-  - "Archives (CreateArchive/UpdateArchive/DeleteArchive/DescribeArchive/ListArchives), replays (StartReplay/CancelReplay/DescribeReplay/ListReplays), connections (Create/Update/Delete/Describe/List/DeauthorizeConnection), API destinations (Create/Update/Delete/Describe/List), and global endpoints (Create/Update/Delete/Describe/List) -- spot-checked while reading adjacent code (all looked real: proper validation, real state, ARNs via arn-style helpers, persistence-backed), but not re-audited op-by-op line-by-line this pass. No evidence of regressions found."
   - "Schema registry (CreateRegistry..GetCodeBindingSource, 17 ops) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; not audited this pass."
-  - "PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only."
-leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery goroutine (b.wg.Go) acquires a workerSem slot or aborts on svcCtx.Done() before delivering, so Close()/Shutdown() cannot leave in-flight goroutines past defaultShutdownTimeout; deliverToTargetBounded applies a per-attempt context.WithTimeout and always cancels it. Scheduler (scheduler.go) and ArchiveJanitor (janitor.go) were not independently re-verified this pass (no changes made in either file), but existing leak_test.go/isolation_test.go continue to pass, including TestEventLog_CappedAtMax and TestEventLog_RetainsMostRecentEvents which now exercise the new 10-entry PutEvents batch cap via a batching loop (previously a single 1100-entry call, which the new limit would reject outright -- test updated, see Notes)."}
+  - "PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix."
+leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery goroutine (b.wg.Go) acquires a workerSem slot or aborts on svcCtx.Done() before delivering, so Close()/Shutdown() cannot leave in-flight goroutines past defaultShutdownTimeout; deliverToTargetBounded applies a per-attempt context.WithTimeout and always cancels it. The new StartReplay FilterArns plumbing (replayDeliveryPlan struct, matchedDeliveryGroupsForEntry) is a same-lock-discipline refactor of the existing buildDeliveryPlan/deliverEvents path, not a new goroutine or lock -- scheduleReplayWorker still acquires workerSem-or-aborts-on-ctx.Done() exactly as before. Scheduler (scheduler.go) and ArchiveJanitor (janitor.go) were not touched this sweep; existing leak_test.go/isolation_test.go continue to pass."}
 ---
 
 ## Notes
+
+### Deep sweep (parity-3, 2026-07-23) -- field-diffed the "deferred" families, found and fixed 8 real bugs
+
+Per the parity-3 campaign brief, actually field-diffed every family the 2026-07-11 sweep
+had left as "deferred, spot-checked only" (archives, replays, connections, API
+destinations, endpoints) against `aws-sdk-go-v2/service/eventbridge@v1.45.21`'s
+`api_op_*.go` Input/Output structs and `types.go`, rather than trusting the prior
+spot-check. Also re-examined the `gopherstack-ba7` ManagedBy gap the prior sweep had
+explicitly declined to fix. Found 8 real bugs, all fixed:
+
+1. **`PutRuleInput.ManagedBy` was a gopherstack-invented wire-facing field.** Real AWS's
+   `PutRuleInput` has no `ManagedBy` member at all (server-populated, `Describe`/`List`-only
+   -- confirmed against `aws-sdk-go-v2/service/eventbridge/api_op_PutRule.go`). gopherstack's
+   `PutRuleInput.ManagedBy` had `json:"ManagedBy,omitempty"` and `handler_rules.go`'s
+   `PutRule` unmarshals the raw request body directly into `PutRuleInput`, so any client --
+   real or malicious -- sending `"ManagedBy":"scheduler.amazonaws.com"` could mark its own
+   rule as AWS-service-managed. Changed the tag to `json:"-"` (kept the Go field as an
+   internal same-process seeding hook, since a future in-process AWS-service integration,
+   e.g. EventBridge Scheduler, legitimately needs a way to create a managed rule). Proven by
+   `TestPutRule_ManagedByNotWireSettable` (wire path rejects it) and the retained/renamed
+   `TestPutRule_ManagedByPreserved` (internal Go-level path still works).
+
+2. **`ManagedRuleException` enforcement (`gopherstack-ba7`) implemented for real.** The prior
+   sweep found `Rule.ManagedBy` was modeled but never checked before `PutRule`
+   (update)/`DeleteRule`/`EnableRule`/`DisableRule`/`PutTargets`/`RemoveTargets` mutated a
+   rule, and declined to fix it as "unreachable/inert in practice." Added `ErrManagedRule`
+   (maps to `ManagedRuleException`, HTTP 400) and a `checkManagedRule` guard in all six
+   ops -- `PutTargets`/`RemoveTargets` previously didn't even fetch the `Rule` to check it
+   (only a `busRules.Has()` existence check), so they needed an added lookup, not just a
+   guard call. Proven by `TestManagedRuleException_RejectsRuleLevelMutations` (4 subtests)
+   and `TestManagedRuleException_RejectsTargetMutations` (2 subtests).
+
+3. **`DescribeEventBus`/`ListEventBuses` response-side epoch-seconds bug.** Both handlers
+   returned the raw `*EventBus`/`[]EventBus` via `json.Marshal` with no DTO conversion, so
+   `CreatedTime` serialized as an RFC3339 string. Real AWS's `DescribeEventBusOutput`/
+   `types.EventBus` (confirmed via `aws-sdk-go-v2/service/eventbridge`'s `deserializers.go`:
+   `smithytime.ParseEpochSeconds`) expects an awsjson1.1 epoch-seconds JSON number -- a real
+   SDK client's deserializer rejects the RFC3339 form outright. This is the same bug class
+   already fixed for archives/connections/API destinations/pipes in earlier sweeps
+   (`handler_archives.go` etc. already used a `timeToEpochSeconds` DTO pattern) but had been
+   missed for event buses, endpoints, and replays. Added `eventBusResponse` DTO.
+
+4. **`EventBus` had no `Policy` field.** `PutPermission`/`PutEventBusPolicy` write a policy
+   to a separate internal store (`busePolicies`), but `EventBus` never had a `Policy` field
+   to surface it, so `DescribeEventBus`/`ListEventBuses` never echoed it -- despite the
+   prior sweep's own note claiming *"DescribeEventBus.Policy is the real wire path for
+   reading a bus policy"* (true of real AWS, but not actually implemented here). Added
+   `EventBus.Policy` (computed at response time from the policy store, not stored
+   redundantly on the struct) via the same `eventBusResponse` DTO. Proven by
+   `TestHandler_DescribeEventBus_EchoesPolicy`.
+
+5. **`DescribeEndpoint`/`ListEndpoints` and `DescribeReplay`/`ListReplays` response-side
+   epoch-seconds bug.** Same bug class as #3 -- both handler pairs returned raw
+   `*Endpoint`/`*Replay` structs. Added `endpointResponse` and
+   `replayListResponse`/`describeReplayResponse` DTOs.
+
+6. **`Replay` had no `Destination` or `Description` field**, so `DescribeReplayOutput`'s real
+   `Destination` and `Description` members (confirmed field-diffed against
+   `api_op_DescribeReplay.go`) were silently discarded after `StartReplay` used them, never
+   echoed back. `StateReason` had also been overloaded to carry the user's
+   `StartReplayInput.Description` text instead of a real system-set state reason. Added both
+   fields to `Replay` (JSON-tagged `"-"`, only exposed via `describeReplayResponse`, since
+   real AWS's `types.Replay` used by `ListReplaysOutput` has neither -- `replayListResponse`
+   correctly omits them). Proven by `TestDescribeReplay_EchoesDestinationAndDescription`.
+
+7. **`ReplayDestination` had no `FilterArns` field -- a real over-delivery correctness bug,
+   not just a missing echo field.** Real AWS's `ReplayDestination.FilterArns` ("A list of
+   ARNs for rules to replay events to") lets a caller restrict replay delivery to specific
+   rules; without it modeled at all, `StartReplay` always fanned a replay out to *every* rule
+   on the destination bus whose pattern matched, even when the caller asked to restrict it.
+   Added `ReplayDestination.FilterArns` and threaded a `filterRuleARNs` set through
+   `startReplayLocked` -> `scheduleReplayWorker` -> `deliverEvents` -> `buildDeliveryPlan`
+   (PutEvents' live-delivery call site passes `nil`, i.e. unfiltered, matching AWS: live
+   delivery is never subject to a replay's `FilterArns`). Proven end-to-end by
+   `TestStartReplay_FilterArnsRestrictsDelivery` (two rules match one archived event's
+   pattern; `FilterArns` names one; only that rule's target receives the replayed copy).
+
+8. **`PutEvents`/`PutPartnerEvents` (`EventEntry.Time`) and `StartReplay`
+   (`StartReplayInput.EventStartTime`/`EventEndTime`) request-side epoch-seconds bug --
+   the same bug class as #3/#5 but on the *request* side, and more severe.** Confirmed
+   against `aws-sdk-go-v2/service/eventbridge`'s `serializers.go`
+   (`awsAwsjson11_serializeDocumentPutEventsRequestEntry` /
+   `awsAwsjson11_serializeOpDocumentStartReplayInput`): a real AWS SDK client serializes
+   these as epoch-seconds JSON numbers, not RFC3339 strings. gopherstack's `EventEntry.Time`
+   and `StartReplayInput.EventStartTime`/`EventEndTime` were plain `time.Time`/`*time.Time`
+   fields with no custom `UnmarshalJSON`, so Go's default `time.Time.UnmarshalJSON` (which
+   only accepts a quoted RFC3339 string) would reject any real client's request outright.
+   This is the request-side mirror of the response-side epoch-seconds bug class the parity
+   principles doc already calls out, but on the *decode* path instead of *encode* -- easy to
+   miss because every existing test that set these fields did so via internal Go struct
+   literals (bypassing `json.Unmarshal` entirely) rather than over the wire; the one test
+   that DID exercise the wire path (`handler_replays_test.go`'s `StartReplay` tests) was
+   itself sending RFC3339 strings and "passing" only because nothing checked the *format*,
+   just that a `time.Time` came out the other end matching *some* value it had put in via a
+   *different* unmarshal path than a real client would ever use. Added `EventEntry`.
+   `UnmarshalJSON` and `StartReplayInput.UnmarshalJSON` (new file `wire_time.go`) using a
+   shared `parseEpochSecondsPtr` helper. `EventEntry` is never marshaled back out to a
+   client (confirmed via repo-wide grep -- it's request/internal-only), so this is
+   unmarshal-only with no response-shape risk. Updated the two pre-existing
+   `handler_replays_test.go` tests that sent RFC3339 strings to send epoch-seconds instead
+   (matching real client behavior); added `wire_time_test.go` proving both the epoch-seconds
+   parse AND that an RFC3339 string is now correctly *rejected* rather than silently
+   misparsed.
+
+Also fixed, lower severity: **`busePolicies` (event bus resource policies) was silently
+excluded from `backendSnapshot`** -- `persistence.go`'s own doc comment said so, yet
+`PutPermission`/`RemovePermission` were marked `persist: ok` in PARITY.md. Independently
+field-verified this was false (a policy did not survive `Snapshot`/`Restore`) and fixed by
+adding `backendSnapshot.BusPolicies` (a plain `map[string]map[string]*EventBusPolicy`,
+which -- unlike the genuinely unkeyable `archivedEvents`/`schemaVersions`/`codeBindings`
+maps -- round-trips fine through `encoding/json` with no `func(*V) string` key extractor
+needed). Also added the missing `json:"Statements"` tag on `EventBusPolicy.Statements`
+(`musttag` caught this once the type became reachable from `json.Marshal` via the new
+snapshot field). Proven by an addition to `TestInMemoryBackend_FullStateSnapshotRestore`.
+
+Two `gocognit` complexity findings surfaced by decomposing/adding code this sweep were
+fixed by extraction, not suppression (no nolint, per the no-stub/no-suppress convention):
+`buildDeliveryPlan`'s inner double-loop was split out into
+`matchedDeliveryGroupsForEntry`/`ruleMatchesForDelivery`, and `eventBusActions`'s four
+inline closures were promoted to named `Handler` methods
+(`handleCreateEventBus`/`handleDeleteEventBus`/`handleListEventBuses`/
+`handleDescribeEventBus`).
+
+Not fixed / explicitly deferred this sweep (see items_still_open in the return receipt):
+`EventBus`/`Archive`/`Connection`'s `KmsKeyIdentifier` (encryption-at-rest), `EventBus`'s
+`DeadLetterConfig`/`LogConfig`, and `Connection`'s `InvocationConnectivityParameters` (
+private-API/PrivateLink connectivity) -- all real fields on the corresponding SDK
+Input/Output types, none currently modeled. These are more speculative, larger features
+(would need real encryption/DLQ/private-connectivity semantics, not just an echoed field)
+than the codebase's demonstrated usage patterns justify building out blind in this pass.
 
 ### Re-audit sweep (parity-4, 2026-07-11) -- no drift, no bugs found
 
@@ -216,11 +344,36 @@ matching statement/policy exists (matches AWS's idempotent-remove semantics). Al
   `cronTokenValue` -- don't reintroduce a direct comparison.
 - `GetEventBusPolicy`/`PutEventBusPolicy` (handler.go's `policyActions()`)
   are **not real EventBridge SDK operations** (absent from
-  `aws-sdk-go-v2/service/eventbridge`'s 53-op surface; the real wire path for
-  reading a bus policy is `DescribeEventBus.Policy`). They're also absent
-  from `GetSupportedOperations()`/`ChaosOperations()`, so no real AWS SDK
-  client can reach them. Harmless, but don't mistake their presence in the
-  dispatch table for a modeled AWS op when doing SDK-completeness sweeps.
+  `aws-sdk-go-v2/service/eventbridge`'s 57-op surface; the real wire path for
+  reading a bus policy is `DescribeEventBus.Policy`, which -- as of this
+  sweep -- is now actually wired). They're also absent from
+  `GetSupportedOperations()`/`ChaosOperations()`, so no real AWS SDK client
+  can reach them. Harmless, but don't mistake their presence in the dispatch
+  table for a modeled AWS op when doing SDK-completeness sweeps.
+- **"Deferred, spot-checked only" is not the same as field-diffed, and a
+  prior sweep's own PARITY.md notes are not proof either** -- the 2026-07-11
+  sweep's note claiming "DescribeEventBus.Policy is the real wire path for
+  reading a bus policy" described real AWS's behavior correctly but was
+  *wrong about gopherstack*: the `Policy` field didn't exist on `EventBus` at
+  all, so that "real wire path" was actually dead. A parity note asserting
+  what AWS does is not evidence the emulator does it too -- always verify the
+  claim against the actual field/struct, not just the prose.
+- **The response-side epoch-seconds bug class (raw `time.Time` struct
+  returned via `json.Marshal` with no DTO, serializing as an RFC3339 string
+  instead of the real awsjson1.1 epoch-seconds number) has a REQUEST-side
+  mirror that's easy to miss**: a plain `time.Time`/`*time.Time` struct field
+  on a request-input type has the opposite problem -- Go's default
+  `time.Time.UnmarshalJSON` only accepts a quoted RFC3339 string, so it
+  REJECTS the epoch-seconds JSON number a real AWS SDK client actually sends
+  (confirmed via `aws-sdk-go-v2/service/eventbridge`'s `serializers.go`:
+  `smithytime.FormatEpochSeconds` on `PutEventsRequestEntry.Time` and
+  `StartReplayInput.EventStartTime`/`EventEndTime`). Existing tests will not
+  catch this if they set the field via an internal Go struct literal
+  (bypasses `json.Unmarshal` entirely) or via a wire-format test that itself
+  sends an RFC3339 string instead of a number -- both looked like passing
+  coverage here despite the bug. When field-diffing a request-input type with
+  a `time.Time` member, check the SDK's `serializers.go` for that field, not
+  just `deserializers.go` (which only tells you the response-side format).
 - `fieldalignment -fix` (govet, enabled via `enable: [fieldalignment]` in
   `.golangci.yml`) reorders **struct field declarations** but does **not**
   update positional (unkeyed) struct literals elsewhere that depend on the

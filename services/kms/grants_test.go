@@ -708,3 +708,197 @@ func TestConcurrent_CreateGrant_And_ListGrants(t *testing.T) {
 		require.NoError(t, err)
 	}
 }
+
+// TestCreateGrant_GrantTokens_AcceptedAsNoOp verifies that CreateGrantInput.GrantTokens
+// (aws-sdk-go-v2/service/kms@v1.54.0 api_op_CreateGrant.go: authorizes the CreateGrant
+// call itself via an existing, not-yet-eventually-consistent grant) is accepted on the
+// wire without error. There is no IAM/authorization layer anywhere in this mock, so the
+// field cannot have any behavioral effect -- same documented scope boundary as
+// CreateKeyInput/ReplicateKeyInput's BypassPolicyLockoutSafetyCheck -- but a caller
+// supplying it must not be rejected or have the field silently cause a wire error.
+func TestCreateGrant_GrantTokens_AcceptedAsNoOp(t *testing.T) {
+	t.Parallel()
+	b := newBackend(t)
+	keyID := mustCreateSymKey(t, b)
+
+	_, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
+		KeyID:            keyID,
+		GranteePrincipal: "arn:aws:iam::123456789012:role/TestRole",
+		Operations:       []string{"Decrypt"},
+		GrantTokens:      []string{"some-unrelated-grant-token"},
+	})
+	require.NoError(t, err)
+}
+
+// TestGrantConstraint_SourceArn_RoundTrips verifies that GrantConstraints.SourceArn
+// (aws-sdk-go-v2/service/kms@v1.54.0 types.GrantConstraints.SourceArn) survives a
+// CreateGrant -> ListGrants -> ListRetirableGrants round trip. This mock has no
+// cross-service request-context plumbing to carry a "made on behalf of" resource
+// ARN through crypto calls, so the constraint is intentionally NOT enforced (see
+// its doc comment in models.go) -- this test only proves the wire field itself is
+// no longer silently dropped.
+func TestGrantConstraint_SourceArn_RoundTrips(t *testing.T) {
+	t.Parallel()
+	b := newBackend(t)
+	keyID := mustCreateSymKey(t, b)
+
+	const sourceArn = "arn:aws:cloudtrail:us-east-1:123456789012:trail/my-trail"
+
+	gOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
+		KeyID:            keyID,
+		GranteePrincipal: "arn:aws:iam::123456789012:role/TestRole",
+		Operations:       []string{"Decrypt"},
+		Constraints:      &kms.GrantConstraints{SourceArn: sourceArn},
+	})
+	require.NoError(t, err)
+
+	listOut, err := b.ListGrants(context.Background(), &kms.ListGrantsInput{KeyID: keyID, GrantID: gOut.GrantID})
+	require.NoError(t, err)
+	require.Len(t, listOut.Grants, 1)
+	require.NotNil(t, listOut.Grants[0].Constraints)
+	assert.Equal(t, sourceArn, listOut.Grants[0].Constraints.SourceArn)
+}
+
+// TestCreateGrant_IssuingAccount_Populated verifies that a created grant reports
+// the backend's account ID as IssuingAccount (aws-sdk-go-v2/service/kms@v1.54.0
+// types.GrantListEntry.IssuingAccount), matching real AWS's "account under which
+// the grant was issued" semantics.
+func TestCreateGrant_IssuingAccount_Populated(t *testing.T) {
+	t.Parallel()
+	b := newBackend(t)
+	keyID := mustCreateSymKey(t, b)
+
+	gOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
+		KeyID:            keyID,
+		GranteePrincipal: "arn:aws:iam::123456789012:role/TestRole",
+		Operations:       []string{"Decrypt"},
+	})
+	require.NoError(t, err)
+
+	listOut, err := b.ListGrants(context.Background(), &kms.ListGrantsInput{KeyID: keyID, GrantID: gOut.GrantID})
+	require.NoError(t, err)
+	require.Len(t, listOut.Grants, 1)
+	assert.Equal(t, kms.MockAccountID, listOut.Grants[0].IssuingAccount)
+}
+
+// TestCreateGrant_ServicePrincipals covers the real CreateGrantInput's
+// GranteeServicePrincipal/RetiringServicePrincipal fields and the validation
+// rules documented on them in aws-sdk-go-v2/service/kms@v1.54.0's
+// api_op_CreateGrant.go: exactly one of GranteePrincipal/GranteeServicePrincipal
+// is required; RetiringPrincipal and RetiringServicePrincipal are mutually
+// exclusive; and GranteeServicePrincipal additionally requires a SourceArn
+// constraint plus a retiring principal of either kind.
+func TestCreateGrant_ServicePrincipals(t *testing.T) {
+	t.Parallel()
+
+	const (
+		granteeSvc  = "cloudtrail.amazonaws.com"
+		retiringSvc = "cloudtrail.amazonaws.com"
+		sourceArn   = "arn:aws:cloudtrail:us-east-1:123456789012:trail/my-trail"
+	)
+
+	tests := []struct {
+		input   func(keyID string) *kms.CreateGrantInput
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "both grantee fields set is rejected",
+			input: func(keyID string) *kms.CreateGrantInput {
+				return &kms.CreateGrantInput{
+					KeyID:                   keyID,
+					GranteePrincipal:        "arn:aws:iam::123456789012:role/TestRole",
+					GranteeServicePrincipal: granteeSvc,
+					Operations:              []string{"Decrypt"},
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "neither grantee field set is rejected",
+			input: func(keyID string) *kms.CreateGrantInput {
+				return &kms.CreateGrantInput{KeyID: keyID, Operations: []string{"Decrypt"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "both retiring fields set is rejected",
+			input: func(keyID string) *kms.CreateGrantInput {
+				return &kms.CreateGrantInput{
+					KeyID:                    keyID,
+					GranteePrincipal:         "arn:aws:iam::123456789012:role/TestRole",
+					RetiringPrincipal:        "arn:aws:iam::123456789012:role/Retiree",
+					RetiringServicePrincipal: retiringSvc,
+					Operations:               []string{"Decrypt"},
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "service grantee without SourceArn is rejected",
+			input: func(keyID string) *kms.CreateGrantInput {
+				return &kms.CreateGrantInput{
+					KeyID:                    keyID,
+					GranteeServicePrincipal:  granteeSvc,
+					RetiringServicePrincipal: retiringSvc,
+					Operations:               []string{"Decrypt"},
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "service grantee without any retiring principal is rejected",
+			input: func(keyID string) *kms.CreateGrantInput {
+				return &kms.CreateGrantInput{
+					KeyID:                   keyID,
+					GranteeServicePrincipal: granteeSvc,
+					Constraints:             &kms.GrantConstraints{SourceArn: sourceArn},
+					Operations:              []string{"Decrypt"},
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "well-formed service grantee is accepted",
+			input: func(keyID string) *kms.CreateGrantInput {
+				return &kms.CreateGrantInput{
+					KeyID:                    keyID,
+					GranteeServicePrincipal:  granteeSvc,
+					RetiringServicePrincipal: retiringSvc,
+					Constraints:              &kms.GrantConstraints{SourceArn: sourceArn},
+					Operations:               []string{"Decrypt"},
+				}
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend(t)
+			keyID := mustCreateSymKey(t, b)
+
+			gOut, err := b.CreateGrant(context.Background(), tc.input(keyID))
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, kms.ErrValidation)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			listOut, err := b.ListGrants(
+				context.Background(),
+				&kms.ListGrantsInput{KeyID: keyID, GrantID: gOut.GrantID},
+			)
+			require.NoError(t, err)
+			require.Len(t, listOut.Grants, 1)
+			assert.Equal(t, granteeSvc, listOut.Grants[0].GranteeServicePrincipal)
+			assert.Equal(t, retiringSvc, listOut.Grants[0].RetiringServicePrincipal)
+			assert.Empty(t, listOut.Grants[0].GranteePrincipal)
+			assert.Empty(t, listOut.Grants[0].RetiringPrincipal)
+		})
+	}
+}

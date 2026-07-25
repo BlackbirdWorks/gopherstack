@@ -89,3 +89,39 @@ func TestAWSConfigHandler_DeleteOrganizationConformancePack(t *testing.T) {
 		})
 	}
 }
+
+func TestAWSConfigHandler_GetOrganizationConfigRuleDetailedStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	require.NoError(t, h.Backend.PutOrganizationConfigRule("org-rule"))
+
+	rec := doAWSConfigRequest(t, h, "GetOrganizationConfigRuleDetailedStatus", map[string]any{
+		"OrganizationConfigRuleName": "org-rule",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "CREATE_SUCCESSFUL")
+
+	notFound := doAWSConfigRequest(t, h, "GetOrganizationConfigRuleDetailedStatus", map[string]any{
+		"OrganizationConfigRuleName": "does-not-exist",
+	})
+	assert.Equal(t, http.StatusNotFound, notFound.Code)
+}
+
+func TestAWSConfigHandler_GetOrganizationConformancePackDetailedStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	require.NoError(t, h.Backend.PutOrganizationConformancePack("org-pack"))
+
+	rec := doAWSConfigRequest(t, h, "GetOrganizationConformancePackDetailedStatus", map[string]any{
+		"OrganizationConformancePackName": "org-pack",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "CREATE_SUCCESSFUL")
+
+	notFound := doAWSConfigRequest(t, h, "GetOrganizationConformancePackDetailedStatus", map[string]any{
+		"OrganizationConformancePackName": "does-not-exist",
+	})
+	assert.Equal(t, http.StatusNotFound, notFound.Code)
+}

@@ -58,6 +58,73 @@ func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
+// TestEBRuleTemplateGroup_ListTemplateCount mirrors
+// TestCWAlarmTemplateGroup_ListTemplateCount for EventBridge rule template
+// groups: Get/Create/Update must omit "templateCount" (not a real field on
+// those shapes), List must include the live count.
+func TestEBRuleTemplateGroup_ListTemplateCount(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/prod/eventbridge-rule-template-groups",
+		map[string]any{"name": "eb-group-count"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	created := decodeBody(t, rec.Body.Bytes())
+	groupID := created["id"].(string)
+	_, hasCount := created["templateCount"]
+	assert.False(t, hasCount, "real Create/Get/UpdateEventBridgeRuleTemplateGroupOutput has no templateCount field")
+
+	rec = doRequest(t, h, http.MethodPost, "/prod/eventbridge-rule-templates", map[string]any{
+		"name": "eb-tmpl-count-1", "groupIdentifier": groupID, "eventType": "MEDIALIVE_CHANNEL_ALERT",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/eventbridge-rule-template-groups", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	items := decodeBody(t, rec.Body.Bytes())["eventBridgeRuleTemplateGroups"].([]any)
+	require.Len(t, items, 1)
+
+	group := items[0].(map[string]any)
+	assert.InDelta(t, float64(1), group["templateCount"], 0)
+}
+
+// TestEBRuleTemplate_ListEventTargetCount locks in a fix for a gap where
+// ListEventBridgeRuleTemplates reused the Get/Create/Update shape's full
+// "eventTargets" array. The real ListEventBridgeRuleTemplatesOutput's
+// per-item Summary shape has "eventTargetCount" (an integer) instead
+// (verified against aws-sdk-go-v2/service/medialive's
+// EventBridgeRuleTemplateSummary type) -- Get/Create/Update must still
+// return the full array.
+func TestEBRuleTemplate_ListEventTargetCount(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/prod/eventbridge-rule-templates", map[string]any{
+		"name": "eb-tmpl-targets", "eventType": "MEDIALIVE_CHANNEL_ALERT",
+		"eventTargets": []map[string]any{
+			{"arn": "arn:aws:sns:us-east-1:000000000000:topic-a"},
+			{"arn": "arn:aws:sns:us-east-1:000000000000:topic-b"},
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	created := decodeBody(t, rec.Body.Bytes())
+	assert.Len(t, created["eventTargets"].([]any), 2, "Create/Get/Update must return the full eventTargets array")
+	_, hasCount := created["eventTargetCount"]
+	assert.False(t, hasCount, "real Create/Get/UpdateEventBridgeRuleTemplateOutput has no eventTargetCount field")
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/eventbridge-rule-templates", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	items := decodeBody(t, rec.Body.Bytes())["eventBridgeRuleTemplates"].([]any)
+	require.Len(t, items, 1)
+
+	item := items[0].(map[string]any)
+	assert.InDelta(t, float64(2), item["eventTargetCount"], 0)
+	_, hasTargets := item["eventTargets"]
+	assert.False(t, hasTargets, "List's Summary shape has eventTargetCount, not the full eventTargets array")
+}
+
 func TestEBRuleTemplate_CRUD(t *testing.T) {
 	t.Parallel()
 

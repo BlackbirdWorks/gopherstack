@@ -12,6 +12,10 @@ import (
 
 type publishVersionInput struct {
 	Description string `json:"Description"`
+	// RevisionID, when set, must match the function's ($LATEST) current RevisionId
+	// or the publish is rejected with PreconditionFailedException (optimistic
+	// concurrency) — the function config must not have changed since it was read.
+	RevisionID string `json:"RevisionId"`
 }
 
 // isValidAliasName reports whether s is a valid Lambda alias name
@@ -76,11 +80,17 @@ func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 		}
 	}
 
-	ver, publishErr := lambdaBk.PublishVersion(name, input.Description)
+	ver, publishErr := lambdaBk.PublishVersionWithRevision(name, input.Description, input.RevisionID)
 	if publishErr != nil {
 		if errors.Is(publishErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Function not found: "+name)
+		}
+
+		if errors.Is(publishErr, ErrPreconditionFailed) {
+			return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailedException",
+				"The RevisionId provided does not match the latest RevisionId. Fetch the latest version "+
+					"and try again.")
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", publishErr.Error())
@@ -219,6 +229,12 @@ func (h *Handler) handleUpdateAlias(c *echo.Context, name, aliasName string) err
 		if errors.Is(updateErr, ErrAliasNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Alias not found: "+aliasName)
+		}
+
+		if errors.Is(updateErr, ErrPreconditionFailed) {
+			return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailedException",
+				"The RevisionId provided does not match the latest RevisionId. Fetch the latest version "+
+					"and try again.")
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())

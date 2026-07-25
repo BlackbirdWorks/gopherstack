@@ -1,9 +1,5 @@
 package ssm
 
-import (
-	"time"
-)
-
 // DescribeEffectiveInstanceAssociationsInput is the request for DescribeEffectiveInstanceAssociations.
 type DescribeEffectiveInstanceAssociationsInput struct {
 	InstanceID string `json:"InstanceId"`
@@ -59,12 +55,12 @@ type DescribeInstancePatchStatesForPatchGroupOutput struct {
 
 // PatchComplianceData holds the patch compliance data for a single patch.
 type PatchComplianceData struct {
-	Classification string     `json:"Classification"`
-	InstalledTime  *time.Time `json:"InstalledTime,omitempty"`
-	KBId           string     `json:"KBId,omitempty"`
-	Severity       string     `json:"Severity"`
-	State          string     `json:"State"`
-	Title          string     `json:"Title"`
+	Classification string  `json:"Classification"`
+	KBId           string  `json:"KBId,omitempty"`
+	Severity       string  `json:"Severity"`
+	State          string  `json:"State"`
+	Title          string  `json:"Title"`
+	InstalledTime  float64 `json:"InstalledTime,omitempty"`
 }
 
 // DescribeInstancePatchesInput is the request for DescribeInstancePatches.
@@ -134,10 +130,10 @@ type ListNodesSummaryOutput struct{}
 
 // NodeInfo represents an SSM managed node (instance).
 type NodeInfo struct {
-	RegistrationDate time.Time `json:"RegistrationDate"`
-	InstanceID       string    `json:"InstanceId"`
-	PlatformType     string    `json:"PlatformType"`
-	AgentVersion     string    `json:"AgentVersion"`
+	InstanceID       string  `json:"InstanceId"`
+	PlatformType     string  `json:"PlatformType"`
+	AgentVersion     string  `json:"AgentVersion"`
+	RegistrationDate float64 `json:"RegistrationDate"`
 }
 
 // ListNodesOutputFull has nodes list.
@@ -174,10 +170,10 @@ type DescribeInstanceAssociationsStatusOutputFull struct {
 
 // InstanceAssociationStatusInfo has status of an association on an instance.
 type InstanceAssociationStatusInfo struct {
-	ExecutionDate time.Time `json:"ExecutionDate"`
-	AssociationID string    `json:"AssociationId"`
-	Name          string    `json:"Name"`
-	Status        string    `json:"Status"`
+	AssociationID string  `json:"AssociationId"`
+	Name          string  `json:"Name"`
+	Status        string  `json:"Status"`
+	ExecutionDate float64 `json:"ExecutionDate"`
 }
 
 // DescribeInstanceInformationOutputFull extends the empty stub.
@@ -188,11 +184,11 @@ type DescribeInstanceInformationOutputFull struct {
 
 // InstanceInformation represents info about a managed instance.
 type InstanceInformation struct {
-	RegistrationDate time.Time `json:"RegistrationDate"`
-	InstanceID       string    `json:"InstanceId"`
-	PingStatus       string    `json:"PingStatus"`
-	AgentVersion     string    `json:"AgentVersion"`
-	PlatformType     string    `json:"PlatformType"`
+	InstanceID       string  `json:"InstanceId"`
+	PingStatus       string  `json:"PingStatus"`
+	AgentVersion     string  `json:"AgentVersion"`
+	PlatformType     string  `json:"PlatformType"`
+	RegistrationDate float64 `json:"RegistrationDate"`
 }
 
 // DescribeInstancePatchStatesOutputFull extends the empty stub.
@@ -203,12 +199,12 @@ type DescribeInstancePatchStatesOutputFull struct {
 
 // InstancePatchState represents patch compliance state for an instance.
 type InstancePatchState struct {
-	OperationStartTime time.Time `json:"OperationStartTime"`
-	InstanceID         string    `json:"InstanceId"`
-	PatchGroup         string    `json:"PatchGroup"`
-	BaselineID         string    `json:"BaselineId"`
-	Operation          string    `json:"Operation"`
-	FailedCount        int       `json:"FailedCount"`
-	InstalledCount     int       `json:"InstalledCount"`
-	MissingCount       int       `json:"MissingCount"`
+	InstanceID         string  `json:"InstanceId"`
+	PatchGroup         string  `json:"PatchGroup"`
+	BaselineID         string  `json:"BaselineId"`
+	Operation          string  `json:"Operation"`
+	OperationStartTime float64 `json:"OperationStartTime"`
+	FailedCount        int     `json:"FailedCount"`
+	InstalledCount     int     `json:"InstalledCount"`
+	MissingCount       int     `json:"MissingCount"`
 }

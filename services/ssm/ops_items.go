@@ -65,6 +65,14 @@ func (b *InMemoryBackend) CreateOpsItem(
 		OperationalData:  input.OperationalData,
 		CreatedTime:      now,
 		LastModifiedTime: now,
+		Priority:         input.Priority,
+		AccountID:        input.AccountID,
+		ActualStartTime:  input.ActualStartTime,
+		ActualEndTime:    input.ActualEndTime,
+		Notifications:    append([]OpsItemNotification(nil), input.Notifications...),
+		PlannedStartTime: input.PlannedStartTime,
+		PlannedEndTime:   input.PlannedEndTime,
+		RelatedOpsItems:  append([]RelatedOpsItemRef(nil), input.RelatedOpsItems...),
 	}
 
 	b.opsItemsStore(region).Put(&item)
@@ -256,6 +264,7 @@ func (b *InMemoryBackend) DescribeOpsItems(
 			Status:      item.Status,
 			Source:      item.Source,
 			CreatedTime: item.CreatedTime,
+			Priority:    item.Priority,
 		})
 	}
 
@@ -322,23 +331,9 @@ func (b *InMemoryBackend) GetOpsMetadata(
 	return &GetOpsMetadataOutput{OpsMetadata: *meta}, nil
 }
 
-// UpdateOpsItem updates an OpsItem including OperationalData.
-func (b *InMemoryBackend) UpdateOpsItem(
-	ctx context.Context,
-	input *UpdateOpsItemInput,
-) (*UpdateOpsItemOutput, error) {
-	region := getRegion(ctx)
-	b.mu.Lock("UpdateOpsItem")
-	defer b.mu.Unlock()
-
-	items := b.opsItemsStore(region)
-	itemPtr, exists := items.Get(input.OpsItemID)
-	if !exists {
-		return nil, ErrOpsItemNotFound
-	}
-
-	item := *itemPtr
-
+// applyOpsItemCoreUpdates applies UpdateOpsItemInput's original (pre-Change-
+// Manager-fields) settable properties to item in place.
+func applyOpsItemCoreUpdates(item *OpsItem, input *UpdateOpsItemInput) {
 	if input.Title != "" {
 		item.Title = input.Title
 	}
@@ -359,6 +354,10 @@ func (b *InMemoryBackend) UpdateOpsItem(
 		item.Category = input.Category
 	}
 
+	if input.Priority != nil {
+		item.Priority = *input.Priority
+	}
+
 	if len(input.OperationalData) > 0 {
 		if item.OperationalData == nil {
 			item.OperationalData = make(map[string]OpsItemDataValue)
@@ -366,6 +365,62 @@ func (b *InMemoryBackend) UpdateOpsItem(
 
 		maps.Copy(item.OperationalData, input.OperationalData)
 	}
+}
+
+// applyOpsItemChangeManagerUpdates applies the Change-Manager-oriented fields
+// added alongside CreateOpsItemInput (AccountId/ActualStartTime/
+// ActualEndTime/Notifications/PlannedStartTime/PlannedEndTime/
+// RelatedOpsItems) to item in place. Split out of UpdateOpsItem to keep its
+// cyclomatic complexity under the package limit.
+func applyOpsItemChangeManagerUpdates(item *OpsItem, input *UpdateOpsItemInput) {
+	if input.AccountID != "" {
+		item.AccountID = input.AccountID
+	}
+
+	if input.ActualStartTime != nil {
+		item.ActualStartTime = input.ActualStartTime
+	}
+
+	if input.ActualEndTime != nil {
+		item.ActualEndTime = input.ActualEndTime
+	}
+
+	if input.Notifications != nil {
+		item.Notifications = append([]OpsItemNotification(nil), input.Notifications...)
+	}
+
+	if input.PlannedStartTime != nil {
+		item.PlannedStartTime = input.PlannedStartTime
+	}
+
+	if input.PlannedEndTime != nil {
+		item.PlannedEndTime = input.PlannedEndTime
+	}
+
+	if input.RelatedOpsItems != nil {
+		item.RelatedOpsItems = append([]RelatedOpsItemRef(nil), input.RelatedOpsItems...)
+	}
+}
+
+// UpdateOpsItem updates an OpsItem including OperationalData.
+func (b *InMemoryBackend) UpdateOpsItem(
+	ctx context.Context,
+	input *UpdateOpsItemInput,
+) (*UpdateOpsItemOutput, error) {
+	region := getRegion(ctx)
+	b.mu.Lock("UpdateOpsItem")
+	defer b.mu.Unlock()
+
+	items := b.opsItemsStore(region)
+	itemPtr, exists := items.Get(input.OpsItemID)
+	if !exists {
+		return nil, ErrOpsItemNotFound
+	}
+
+	item := *itemPtr
+
+	applyOpsItemCoreUpdates(&item, input)
+	applyOpsItemChangeManagerUpdates(&item, input)
 
 	item.LastModifiedTime = UnixTimeFloat(timeNow())
 	items.Put(&item)

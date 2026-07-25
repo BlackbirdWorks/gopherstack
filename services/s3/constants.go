@@ -27,4 +27,5 @@ const (
 	errInvalidRequest         = "InvalidRequest"
 	errSignatureMismatch      = "SignatureDoesNotMatch"
 	actionGetObjectLower      = "s3:getobject"
+	errMalformedPolicy        = "MalformedPolicy"
 )

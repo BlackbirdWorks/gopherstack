@@ -3,25 +3,23 @@ package comprehend
 import "time"
 
 const (
-	statusSubmitted                  = "SUBMITTED"
-	statusInProgress                 = "IN_PROGRESS"
-	statusCompleted                  = "COMPLETED"
-	statusFailed                     = "FAILED"
-	statusStopRequested              = "STOP_REQUESTED"
-	statusStopped                    = "STOPPED"
-	statusTrained                    = "TRAINED"
-	statusReady                      = "READY"
-	statusActive                     = "ACTIVE"
-	defaultLanguageCode              = "en"
-	defaultScore                     = 0.99
-	failedMarker                     = "[fail]"
-	resourceTypeEndpoint             = "endpoint"
-	resourceTypeFlywheel             = "flywheel"
-	resourceTypeDataset              = "dataset"
-	resourceTypeDocClassifier        = "document-classifier"
-	resourceTypeDocClassifierVersion = "document-classifier-version"
-	resourceTypeEntityRecognizer     = "entity-recognizer"
-	resourceTypeEntityRecognizerVer  = "entity-recognizer-version"
+	statusSubmitted              = "SUBMITTED"
+	statusInProgress             = "IN_PROGRESS"
+	statusCompleted              = "COMPLETED"
+	statusFailed                 = "FAILED"
+	statusStopRequested          = "STOP_REQUESTED"
+	statusStopped                = "STOPPED"
+	statusTrained                = "TRAINED"
+	statusReady                  = "READY"
+	statusActive                 = "ACTIVE"
+	defaultLanguageCode          = "en"
+	defaultScore                 = 0.99
+	failedMarker                 = "[fail]"
+	resourceTypeEndpoint         = "endpoint"
+	resourceTypeFlywheel         = "flywheel"
+	resourceTypeDataset          = "dataset"
+	resourceTypeDocClassifier    = "document-classifier"
+	resourceTypeEntityRecognizer = "entity-recognizer"
 )
 
 // Tag is a Comprehend resource tag.
@@ -34,18 +32,19 @@ type Tag struct {
 type Job struct {
 	SubmitTime            time.Time
 	EndTime               time.Time
-	JobID                 string
-	JobArn                string
-	JobName               string
-	JobType               string
-	JobStatus             string
-	LanguageCode          string
-	FailureReason         string
-	InputDataConfig       map[string]any
+	Configuration         map[string]any
 	OutputDataConfig      map[string]any
-	DataAccessRoleArn     string
+	InputDataConfig       map[string]any
+	FailureReason         string
 	DocumentClassifierArn string
+	LanguageCode          string
+	JobType               string
+	JobName               string
+	JobArn                string
+	DataAccessRoleArn     string
+	JobStatus             string
 	EntityRecognizerArn   string
+	JobID                 string
 	TargetEventTypes      []string
 	polls                 int
 	stopRequested         bool
@@ -54,19 +53,26 @@ type Job struct {
 
 // Resource stores a Comprehend trainable or hosted resource.
 type Resource struct {
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Name          string
-	Arn           string
-	Type          string
-	Status        string
-	VersionName   string
-	ModelArn      string
-	FlywheelArn   string
-	EndpointArn   string
-	DatasetArn    string
-	Configuration map[string]any
-	FailureReason string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	// TrainingStartTime/TrainingEndTime back DocumentClassifierProperties/
+	// EntityRecognizerProperties' TrainingStartTime/TrainingEndTime fields
+	// (distinct from SubmitTime/EndTime: real AWS bills the interval between
+	// these two separately from the submit-to-completion interval). Left
+	// zero for resource types that don't train (endpoint/flywheel/dataset).
+	TrainingStartTime time.Time
+	TrainingEndTime   time.Time
+	Name              string
+	Arn               string
+	Type              string
+	Status            string
+	VersionName       string
+	ModelArn          string
+	FlywheelArn       string
+	EndpointArn       string
+	DatasetArn        string
+	Configuration     map[string]any
+	FailureReason     string
 }
 
 // FlywheelIteration represents one model training iteration.

@@ -22,14 +22,25 @@ const (
 	maxSemanticVersionLength = 255
 )
 
-// ParameterDefinition represents a CloudFormation parameter definition for an application version.
+// ParameterDefinition represents a CloudFormation parameter definition for an application
+// version. Matches aws-sdk-go-v2/service/serverlessapplicationrepository/types.ParameterDefinition
+// field-for-field; gopherstack never derives non-empty parameter definitions from a template
+// (that requires parsing the AWS SAM template body, which is out of scope), so this shape is
+// exercised only via the always-empty slice CreateApplicationVersion/GetApplication return, but
+// is kept fully field-accurate for callers seeding state directly.
 type ParameterDefinition struct {
 	DefaultValue          string   `json:"defaultValue,omitempty"`
 	Description           string   `json:"description,omitempty"`
 	Name                  string   `json:"name"`
 	Type                  string   `json:"type,omitempty"`
+	AllowedPattern        string   `json:"allowedPattern,omitempty"`
+	ConstraintDescription string   `json:"constraintDescription,omitempty"`
 	ReferencedByResources []string `json:"referencedByResources"`
 	AllowedValues         []string `json:"allowedValues,omitempty"`
+	MaxLength             int      `json:"maxLength,omitempty"`
+	MaxValue              int      `json:"maxValue,omitempty"`
+	MinLength             int      `json:"minLength,omitempty"`
+	MinValue              int      `json:"minValue,omitempty"`
 	NoEcho                bool     `json:"noEcho,omitempty"`
 }
 
@@ -132,6 +143,10 @@ type CreateApplicationVersionOptions struct {
 
 // CreateCloudFormationChangeSetOptions contains optional deployment metadata.
 type CreateCloudFormationChangeSetOptions struct {
+	// TemplateID, if non-empty, is the UUID returned by a prior CreateCloudFormationTemplate
+	// call for the same application. When set, it is cross-validated against that application's
+	// recorded templates.
+	TemplateID   string
 	Capabilities []string
 	Tags         []Tag
 }
@@ -172,6 +187,30 @@ func cloneParameterDefinitions(defs []ParameterDefinition) []ParameterDefinition
 	}
 
 	return out
+}
+
+// synthesizeTemplateURL returns a deterministic S3-style template URL used whenever a
+// version's packaged template is derived rather than caller-supplied verbatim -- e.g. only a
+// sourceCodeUrl/sourceCodeArchiveUrl was given, or a raw templateBody was given instead of a
+// templateUrl. Real AWS SAR uploads the processed/uploaded template to an S3 object and
+// returns its URL in templateUrl; gopherstack emulates that with a deterministic path scoped
+// by application name and semantic version.
+func synthesizeTemplateURL(appName, semanticVersion string) string {
+	return fmt.Sprintf("https://s3.amazonaws.com/serverlessrepo-templates/%s/%s.template", appName, semanticVersion)
+}
+
+// synthesizeLicenseURL returns a deterministic S3-style URL used when a caller supplies raw
+// license content (licenseBody) instead of a licenseUrl, mirroring the emulation convention
+// used by synthesizeTemplateURL.
+func synthesizeLicenseURL(appName string) string {
+	return fmt.Sprintf("https://s3.amazonaws.com/serverlessrepo-licenses/%s/LICENSE.txt", appName)
+}
+
+// synthesizeReadmeURL returns a deterministic S3-style URL used when a caller supplies raw
+// readme content (readmeBody) instead of a readmeUrl, mirroring the emulation convention used
+// by synthesizeTemplateURL.
+func synthesizeReadmeURL(appName string) string {
+	return fmt.Sprintf("https://s3.amazonaws.com/serverlessrepo-readmes/%s/README.md", appName)
 }
 
 // isValidSemanticVersion returns true if v looks like a semver string (major.minor.patch prefix)

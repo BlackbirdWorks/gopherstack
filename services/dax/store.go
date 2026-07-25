@@ -79,10 +79,11 @@ func (b *InMemoryBackend) seedDefaults() {
 	})
 
 	b.subnetGroups.Put(&SubnetGroup{
-		SubnetGroupName: DefaultSubnetGroupName,
-		Description:     "Default subnet group",
-		VpcID:           "vpc-default",
-		Subnets:         []SubnetEntry{{SubnetID: "subnet-default", AvailabilityZone: b.Region + "a"}},
+		SubnetGroupName:       DefaultSubnetGroupName,
+		Description:           "Default subnet group",
+		VpcID:                 "vpc-default",
+		Subnets:               []SubnetEntry{{SubnetID: "subnet-default", AvailabilityZone: b.Region + "a"}},
+		SupportedNetworkTypes: []string{NetworkTypeIPv4},
 	})
 }
 

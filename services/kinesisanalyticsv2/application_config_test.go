@@ -22,7 +22,7 @@ func TestBackend_AddApplicationCloudWatchLoggingOption_ConcurrentModification(t 
 	require.NoError(t, err)
 
 	// version check: wrong version should fail
-	err = b.AddApplicationCloudWatchLoggingOption(ctx, "ver-app", 99,
+	_, err = b.AddApplicationCloudWatchLoggingOption(ctx, "ver-app", 99,
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
 	require.ErrorIs(t, err, kinesisanalyticsv2.ErrConcurrentModification)
 }

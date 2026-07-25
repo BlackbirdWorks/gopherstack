@@ -101,7 +101,26 @@ func TestRegexPatternSetLifecycle(t *testing.T) {
 			sets := listResp["RegexPatternSets"].([]any)
 			assert.Len(t, sets, 1)
 
-			// Delete set
+			// Delete set while non-empty must fail with WAFNonEmptyEntityException.
+			token = wafGetToken(t, h)
+			rec = wafDo(t, h, "DeleteRegexPatternSet", map[string]any{
+				"ChangeToken":       token,
+				"RegexPatternSetId": setID,
+			})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Equal(t, "WAFNonEmptyEntityException", errType(t, rec.Body.Bytes()))
+
+			// Remove the remaining pattern, then delete succeeds.
+			token = wafGetToken(t, h)
+			rec = wafDo(t, h, "UpdateRegexPatternSet", map[string]any{
+				"ChangeToken":       token,
+				"RegexPatternSetId": setID,
+				"Updates": []map[string]any{
+					{"Action": "DELETE", "RegexPatternString": "(?i)union"},
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
 			token = wafGetToken(t, h)
 			rec = wafDo(t, h, "DeleteRegexPatternSet", map[string]any{
 				"ChangeToken":       token,

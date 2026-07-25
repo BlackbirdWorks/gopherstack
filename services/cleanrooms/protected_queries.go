@@ -92,7 +92,7 @@ func (b *InMemoryBackend) ListProtectedQueries(
 			MembershipArn:        q.MembershipArn,
 			Status:               q.Status,
 			CreateTime:           q.CreateTime,
-			MembershipID:         q.MembershipIdentifier,
+			MembershipID:         q.MembershipID,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -125,7 +125,7 @@ func (b *InMemoryBackend) UpdateProtectedQuery(
 // is terminal (no further transitions permitted).
 func isTerminalProtectedQueryStatus(status string) bool {
 	switch status {
-	case "SUCCESS", "FAILED", "CANCELLED", "TIMED_OUT":
+	case "SUCCESS", "FAILED", statusCancelled, "TIMED_OUT":
 		return true
 	default:
 		return false

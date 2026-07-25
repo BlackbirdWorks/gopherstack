@@ -199,5 +199,6 @@ func (b *InMemoryBackend) DeleteQueuedReservedInstances(ids []string) {
 
 	for _, id := range ids {
 		b.reservedInstances.Delete(id)
+		delete(b.tags, id)
 	}
 }

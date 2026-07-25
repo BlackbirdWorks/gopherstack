@@ -10,7 +10,6 @@ type User struct {
 	Tags         map[string]string `json:"tags"`
 	ARN          string            `json:"arn"`
 	Name         string            `json:"name"`
-	Engine       string            `json:"engine"`
 	AccessString string            `json:"accessString"`
 	Status       string            `json:"status"`
 	AuthType     string            `json:"authType"`
@@ -52,13 +51,17 @@ type authenticationObject struct {
 	PasswordCount int32  `json:"PasswordCount,omitempty"`
 }
 
+// userObject is the wire shape of the real SDK's types.User, field-diffed
+// against deserializers.go's awsAwsjson11_deserializeDocumentUser (the
+// authoritative list of 7 recognized keys: AccessString, ACLNames, ARN,
+// Authentication, MinimumEngineVersion, Name, Status). A prior pass added a
+// fabricated "Engine" field; removed.
 type userObject struct {
 	Authentication       *authenticationObject `json:"Authentication,omitempty"`
 	ARN                  string                `json:"ARN,omitempty"`
 	Name                 string                `json:"Name,omitempty"`
 	AccessString         string                `json:"AccessString,omitempty"`
 	Status               string                `json:"Status,omitempty"`
-	Engine               string                `json:"Engine,omitempty"`
 	MinimumEngineVersion string                `json:"MinimumEngineVersion,omitempty"`
 	ACLNames             []string              `json:"ACLNames"`
 }

@@ -274,7 +274,9 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 	return b.copyKeyGroup(kg), nil
 }
 
-// DeleteKeyGroup deletes a Key Group by ID.
+// DeleteKeyGroup deletes a Key Group by ID. It returns ErrKeyGroupInUse when
+// the key group is still referenced by a distribution's cache behavior
+// TrustedKeyGroups.
 func (b *InMemoryBackend) DeleteKeyGroup(id string) error {
 	b.mu.Lock("DeleteKeyGroup")
 	defer b.mu.Unlock()
@@ -282,6 +284,10 @@ func (b *InMemoryBackend) DeleteKeyGroup(id string) error {
 	kg, ok := b.keyGroups.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: key group %s not found", ErrKeyGroupNotFound, id)
+	}
+
+	if b.tokenReferencedByAnyDistribution(id) {
+		return fmt.Errorf("%w: key group %s is in use by a distribution", ErrKeyGroupInUse, id)
 	}
 
 	delete(b.keyGroupByName, kg.Name)

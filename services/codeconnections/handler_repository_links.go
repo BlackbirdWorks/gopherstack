@@ -15,6 +15,12 @@ type createRepositoryLinkInput struct {
 	Tags             []tag  `json:"Tags"`
 }
 
+// repositoryLinkItem is the wire shape of RepositoryLinkInfo
+// (aws-sdk-go-v2/service/codeconnections@v1.10.22 types.RepositoryLinkInfo).
+// It deliberately has NO Tags field: the real RepositoryLinkInfo struct has
+// no Tags member at all -- tags for a repository link are only ever returned
+// via ListTagsForResource. A previous audit pass added a Tags field here
+// that does not exist on the real wire type; removed.
 type repositoryLinkItem struct {
 	ConnectionArn     string `json:"ConnectionArn"`
 	EncryptionKeyArn  string `json:"EncryptionKeyArn,omitempty"`
@@ -23,7 +29,6 @@ type repositoryLinkItem struct {
 	RepositoryLinkArn string `json:"RepositoryLinkArn"`
 	RepositoryLinkID  string `json:"RepositoryLinkId"`
 	RepositoryName    string `json:"RepositoryName"`
-	Tags              []tag  `json:"Tags,omitempty"`
 }
 
 type createRepositoryLinkOutput struct {
@@ -109,7 +114,6 @@ func repositoryLinkToItem(link *RepositoryLink) repositoryLinkItem {
 		RepositoryLinkID:  link.RepositoryLinkID,
 		RepositoryName:    link.RepositoryName,
 		EncryptionKeyArn:  link.EncryptionKeyArn,
-		Tags:              tagsToSortedArray(link.Tags),
 	}
 }
 

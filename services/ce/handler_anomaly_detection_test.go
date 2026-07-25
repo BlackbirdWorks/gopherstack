@@ -35,7 +35,8 @@ func TestAnomalyFeedback_PreviousFeedbackOverwritten(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	getRec := doRequest(t, h, "GetAnomalies", map[string]any{
-		"Feedback": "NO",
+		"Feedback":     "NO",
+		"DateInterval": map[string]string{"StartDate": "2024-01-01"},
 	})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
@@ -107,7 +108,8 @@ func TestProvideAnomalyFeedback_PersistsAndValidates(t *testing.T) {
 
 			// Verify persisted
 			getRec := doRequest(t, h, "GetAnomalies", map[string]any{
-				"Feedback": tt.wantFeedback,
+				"Feedback":     tt.wantFeedback,
+				"DateInterval": map[string]string{"StartDate": "2024-01-01"},
 			})
 			require.Equal(t, http.StatusOK, getRec.Code)
 
@@ -160,7 +162,9 @@ func TestGetAnomalies_ScoreAndImpactAreObjects(t *testing.T) {
 		},
 	})
 
-	rec := doRequest(t, h, "GetAnomalies", map[string]any{})
+	rec := doRequest(t, h, "GetAnomalies", map[string]any{
+		"DateInterval": map[string]string{"StartDate": "2024-01-01"},
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
@@ -239,7 +243,8 @@ func TestGetAnomalies_Pagination(t *testing.T) {
 	}
 
 	rec1 := doRequest(t, h, "GetAnomalies", map[string]any{
-		"MaxResults": 2,
+		"MaxResults":   2,
+		"DateInterval": map[string]string{"StartDate": "2024-01-01"},
 	})
 	require.Equal(t, http.StatusOK, rec1.Code)
 
@@ -260,14 +265,17 @@ func TestHandler_GetAnomalies(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name:           "returns_empty_with_no_anomalies",
-			body:           map[string]any{},
+			name: "returns_empty_with_no_anomalies",
+			body: map[string]any{
+				"DateInterval": map[string]string{"StartDate": "2024-01-01"},
+			},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name: "filter_by_monitor_arn",
 			body: map[string]any{
-				"MonitorArn": "arn:aws:ce::000000000000:anomalymonitor/test",
+				"MonitorArn":   "arn:aws:ce::000000000000:anomalymonitor/test",
+				"DateInterval": map[string]string{"StartDate": "2024-01-01"},
 			},
 			wantStatusCode: http.StatusOK,
 		},
@@ -319,7 +327,9 @@ func TestHandler_GetAnomalies_Filters(t *testing.T) {
 
 				return ""
 			},
-			body:           map[string]any{},
+			body: map[string]any{
+				"DateInterval": map[string]string{"StartDate": "2024-01-01"},
+			},
 			wantLen:        2,
 			wantStatusCode: http.StatusOK,
 		},
@@ -332,7 +342,9 @@ func TestHandler_GetAnomalies_Filters(t *testing.T) {
 
 				return "m3"
 			},
-			body:           map[string]any{},
+			body: map[string]any{
+				"DateInterval": map[string]string{"StartDate": "2024-01-01"},
+			},
 			wantLen:        1,
 			wantStatusCode: http.StatusOK,
 		},
@@ -345,7 +357,10 @@ func TestHandler_GetAnomalies_Filters(t *testing.T) {
 
 				return ""
 			},
-			body:           map[string]any{"Feedback": "YES"},
+			body: map[string]any{
+				"Feedback":     "YES",
+				"DateInterval": map[string]string{"StartDate": "2024-01-01"},
+			},
 			wantLen:        1,
 			wantStatusCode: http.StatusOK,
 		},
@@ -392,7 +407,9 @@ func TestHandler_SnapshotRestoreWithAnomalies(t *testing.T) {
 	fresh := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
-	rec := doRequest(t, fresh, "GetAnomalies", map[string]any{})
+	rec := doRequest(t, fresh, "GetAnomalies", map[string]any{
+		"DateInterval": map[string]string{"StartDate": "2024-01-01"},
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
@@ -401,4 +418,46 @@ func TestHandler_SnapshotRestoreWithAnomalies(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	assert.Len(t, out.Anomalies, 1)
 	assert.Equal(t, "snap-anomaly-1", out.Anomalies[0]["AnomalyId"])
+}
+
+// TestHandler_GetAnomalies_RequiredStartDate verifies DateInterval.StartDate is enforced
+// as required, matching real AWS CE's validateAnomalyDateInterval.
+func TestHandler_GetAnomalies_RequiredStartDate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body           map[string]any
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name:           "missing_date_interval",
+			body:           map[string]any{},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_start_date",
+			body: map[string]any{
+				"DateInterval": map[string]string{"EndDate": "2024-02-01"},
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "start_date_present_succeeds",
+			body: map[string]any{
+				"DateInterval": map[string]string{"StartDate": "2024-01-01"},
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetAnomalies", tt.body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
 }

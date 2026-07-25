@@ -107,15 +107,15 @@ func TestKafkaTopicAndPolicyRegionIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Topic created on the east cluster (region resolved from the cluster ARN).
-	_, err = backend.CreateTopic(ctxEast, eastCluster.ClusterArn, "orders", 3, 6, nil)
+	_, err = backend.CreateTopic(ctxEast, eastCluster.ClusterArn, "orders", 3, 6, "")
 	require.NoError(t, err)
 
-	eastTopics, err := backend.ListTopics(ctxEast, eastCluster.ClusterArn)
+	eastTopics, err := backend.ListTopics(ctxEast, eastCluster.ClusterArn, "")
 	require.NoError(t, err)
 	assert.Len(t, eastTopics, 1)
 
 	// The west cluster (same name) has no topics.
-	westTopics, err := backend.ListTopics(ctxWest, westCluster.ClusterArn)
+	westTopics, err := backend.ListTopics(ctxWest, westCluster.ClusterArn, "")
 	require.NoError(t, err)
 	assert.Empty(t, westTopics)
 

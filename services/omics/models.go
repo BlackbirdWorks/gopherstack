@@ -40,6 +40,11 @@ type ReferenceFilter struct {
 	Name string
 }
 
+// ReferenceImportJobFilter is filter criteria for listing reference import jobs.
+type ReferenceImportJobFilter struct {
+	Status string
+}
+
 // ReferenceImportJob represents a reference import job.
 type ReferenceImportJob struct {
 	CreationTime     time.Time                  `json:"creationTime"`
@@ -91,10 +96,14 @@ type ReadSetMetadata struct {
 	Description     string            `json:"description"`
 	StatusMessage   string            `json:"statusMessage,omitempty"`
 	Status          string            `json:"status"`
-	SequenceType    string            `json:"sequenceType"`
-	SubjectID       string            `json:"subjectId"`
-	SampleID        string            `json:"sampleId"`
-	ReferenceARN    string            `json:"referenceArn"`
+	// FileType is the real GetReadSetMetadataOutput/ReadSetListItem wire key
+	// ("fileType") -- confirmed against the SDK deserializer. It was
+	// previously (incorrectly) serialized as "sequenceType", a key that
+	// doesn't exist anywhere in the real API surface.
+	FileType     string `json:"fileType"`
+	SubjectID    string `json:"subjectId"`
+	SampleID     string `json:"sampleId"`
+	ReferenceARN string `json:"referenceArn"`
 }
 
 // ReadSetFilter is filter criteria for listing read sets.
@@ -167,14 +176,26 @@ type ReadSetImportJob struct {
 }
 
 // MultipartReadSetUpload represents an in-progress multipart read set upload.
+//
+// Field names/JSON keys were field-diffed against
+// CreateMultipartReadSetUploadInput/Output and MultipartReadSetUploadListItem:
+// the real wire key for the upload's file type is "sourceFileType" (this
+// struct previously used the invented key "sequenceType", which appears
+// nowhere in the real API), SampleID/SubjectID are real required fields that
+// were previously missing entirely, and there is no real "status" field on
+// this resource at all (removed).
 type MultipartReadSetUpload struct {
 	CreationTime    time.Time         `json:"creationTime"`
 	Tags            map[string]string `json:"tags"`
 	UploadID        string            `json:"uploadId"`
 	SequenceStoreID string            `json:"sequenceStoreId"`
-	Name            string            `json:"name"`
-	SequenceType    string            `json:"sequenceType"`
-	Status          string            `json:"status"`
+	Name            string            `json:"name,omitempty"`
+	SourceFileType  string            `json:"sourceFileType"`
+	SampleID        string            `json:"sampleId"`
+	SubjectID       string            `json:"subjectId"`
+	GeneratedFrom   string            `json:"generatedFrom,omitempty"`
+	ReferenceARN    string            `json:"referenceArn,omitempty"`
+	Description     string            `json:"description,omitempty"`
 }
 
 // ReadSetUploadPart represents a single part of a multipart read set upload.
@@ -184,6 +205,11 @@ type ReadSetUploadPart struct {
 	Source          string    `json:"source"`
 	PartNumber      int       `json:"partNumber"`
 	PartSize        int64     `json:"partSize"`
+}
+
+// RunGroupFilter is filter criteria for listing run groups.
+type RunGroupFilter struct {
+	Name string
 }
 
 // RunGroup represents an HealthOmics run group.
@@ -199,21 +225,51 @@ type RunGroup struct {
 	MaxGPUs      int               `json:"maxGpus"`
 }
 
+// RunFilter is filter criteria for listing runs.
+type RunFilter struct {
+	Name       string
+	RunGroupID string
+	BatchID    string
+	Status     string
+}
+
 // Run represents an HealthOmics workflow run.
 type Run struct {
-	StartTime    *time.Time        `json:"startTime,omitempty"`
-	StopTime     *time.Time        `json:"stopTime,omitempty"`
-	CreationTime time.Time         `json:"creationTime"`
-	Tags         map[string]string `json:"tags"`
-	Params       map[string]any    `json:"parameters"`
-	Arn          string            `json:"arn"`
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	WorkflowID   string            `json:"workflowId"`
-	RoleARN      string            `json:"roleArn"`
-	RunBatchID   string            `json:"runBatchId,omitempty"`
-	Status       string            `json:"status"`
-	pollCount    int               // tracks PENDING→RUNNING→COMPLETED progression; not serialized
+	StartTime     *time.Time            `json:"startTime,omitempty"`
+	StopTime      *time.Time            `json:"stopTime,omitempty"`
+	CreationTime  time.Time             `json:"creationTime"`
+	Configuration *ConfigurationDetails `json:"configuration,omitempty"`
+	Tags          map[string]string     `json:"tags"`
+	Params        map[string]any        `json:"parameters"`
+	Arn           string                `json:"arn"`
+	ID            string                `json:"id"`
+	Name          string                `json:"name"`
+	WorkflowID    string                `json:"workflowId"`
+	RoleARN       string                `json:"roleArn"`
+	RunGroupID    string                `json:"runGroupId,omitempty"`
+	// RunBatchID is serialized as "batchId" (real GetRunOutput/RunListItem
+	// wire key -- confirmed against the SDK deserializer; there is no real
+	// StartRunInput field to set this, it's populated internally by
+	// DeleteRunsInBatch/ListRunsInBatch's caller association).
+	RunBatchID     string `json:"batchId,omitempty"`
+	NetworkingMode string `json:"networkingMode,omitempty"`
+	RunOutputURI   string `json:"runOutputUri,omitempty"`
+	UUID           string `json:"uuid,omitempty"`
+	Status         string `json:"status"`
+	pollCount      int    // tracks PENDING→RUNNING→COMPLETED progression; not serialized
+}
+
+// ConfigurationDetails describes the configuration used for a workflow run
+// (real AWS ConfigurationDetails: arn/name/uuid of the Configuration used).
+type ConfigurationDetails struct {
+	Arn  string `json:"arn,omitempty"`
+	Name string `json:"name,omitempty"`
+	UUID string `json:"uuid,omitempty"`
+}
+
+// RunTaskFilter is filter criteria for listing run tasks.
+type RunTaskFilter struct {
+	Status string
 }
 
 // RunTask represents a task within a workflow run.
@@ -230,6 +286,12 @@ type RunTask struct {
 	pollCount    int        // tracks PENDING→RUNNING→COMPLETED progression; not serialized
 }
 
+// WorkflowFilter is filter criteria for listing workflows.
+type WorkflowFilter struct {
+	Name string
+	Type string
+}
+
 // Workflow represents an HealthOmics workflow.
 type Workflow struct {
 	CreationTime time.Time         `json:"creationTime"`
@@ -240,8 +302,14 @@ type Workflow struct {
 	Description  string            `json:"description"`
 	Engine       string            `json:"engine"`
 	Type         string            `json:"type,omitempty"`
+	UUID         string            `json:"uuid,omitempty"`
 	Status       string            `json:"status"`
 	pollCount    int               // tracks CREATING→ACTIVE progression; not serialized
+}
+
+// WorkflowVersionFilter is filter criteria for listing workflow versions.
+type WorkflowVersionFilter struct {
+	Type string
 }
 
 // WorkflowVersion represents a version of a workflow.
@@ -298,6 +366,13 @@ type VersionDeleteError struct {
 // AnnotationImportItem is a source item for an annotation import job.
 type AnnotationImportItem struct {
 	Source string `json:"source"`
+}
+
+// ImportJobFilter is filter criteria shared by ListAnnotationImportJobs and
+// ListVariantImportJobs (status + owning store name).
+type ImportJobFilter struct {
+	Status    string
+	StoreName string
 }
 
 // AnnotationImportJob represents an annotation import job.
@@ -376,6 +451,21 @@ type RunBatch struct {
 	Status       string            `json:"status"`
 }
 
+// RunBatchFilter is filter criteria for listing run batches (ListBatch).
+type RunBatchFilter struct {
+	Name       string
+	RunGroupID string
+	Status     string
+}
+
+// RunsInBatchFilter is filter criteria for listing the runs within a batch
+// (ListRunsInBatch).
+type RunsInBatchFilter struct {
+	RunID            string
+	RunSettingID     string
+	SubmissionStatus string
+}
+
 // Configuration represents an HealthOmics configuration.
 type Configuration struct {
 	CreationTime time.Time `json:"creationTime"`
@@ -385,7 +475,15 @@ type Configuration struct {
 }
 
 // S3AccessPolicy holds an S3 access policy for HealthOmics.
+// S3AccessPolicy holds an S3 access policy for HealthOmics. Policy is
+// serialized as "s3AccessPolicy" -- the real GetS3AccessPolicyOutput wire key
+// (confirmed against the SDK deserializer); this struct previously used the
+// key "policy", which real SDK clients never populate, so GetS3AccessPolicy
+// responses were silently missing their policy document on the wire.
 type S3AccessPolicy struct {
-	S3AccessPointARN string `json:"s3AccessPointArn"`
-	Policy           string `json:"policy"`
+	UpdateTime       *time.Time `json:"updateTime,omitempty"`
+	S3AccessPointARN string     `json:"s3AccessPointArn"`
+	Policy           string     `json:"s3AccessPolicy"`
+	StoreID          string     `json:"storeId,omitempty"`
+	StoreType        string     `json:"storeType,omitempty"`
 }

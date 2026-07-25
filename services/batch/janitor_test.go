@@ -117,6 +117,7 @@ func TestBatchJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 		nil,
 		nil,
 		false,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -183,7 +184,7 @@ func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
 
 			b := batch.NewInMemoryBackend("000000000000", "us-east-1")
 
-			queue, err := b.CreateJobQueue(context.Background(), "test-queue", 1, "ENABLED", nil, nil, "", nil)
+			queue, err := b.CreateJobQueue(context.Background(), "test-queue", 1, "ENABLED", nil, nil, "", nil, "", nil)
 			require.NoError(t, err)
 
 			_, err = b.RegisterJobDefinition(
@@ -201,6 +202,7 @@ func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
 				nil,
 				nil,
 				false,
+				nil,
 			)
 			require.NoError(t, err)
 

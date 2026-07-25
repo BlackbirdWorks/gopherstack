@@ -83,7 +83,9 @@ func (b *InMemoryBackend) UpdateByteMatchSet(id, changeToken string, updates []B
 	return nil
 }
 
-// DeleteByteMatchSet deletes a ByteMatchSet.
+// DeleteByteMatchSet deletes a ByteMatchSet. Real AWS rejects deletion
+// while it is still used by a Rule (WAFReferencedItemException) or still
+// contains any ByteMatchTuples (WAFNonEmptyEntityException).
 func (b *InMemoryBackend) DeleteByteMatchSet(id, changeToken string) error {
 	b.mu.Lock("DeleteByteMatchSet")
 	defer b.mu.Unlock()
@@ -92,12 +94,17 @@ func (b *InMemoryBackend) DeleteByteMatchSet(id, changeToken string) error {
 		return err
 	}
 
-	if !b.byteMatchSets.Has(id) {
+	bms, ok := b.byteMatchSets.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.matchSetReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(bms.ByteMatchTuples) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.byteMatchSets.Delete(id)
@@ -195,7 +202,9 @@ func (b *InMemoryBackend) UpdateSizeConstraintSet(
 	return nil
 }
 
-// DeleteSizeConstraintSet deletes a SizeConstraintSet.
+// DeleteSizeConstraintSet deletes a SizeConstraintSet. Real AWS rejects
+// deletion while it is still used by a Rule (WAFReferencedItemException) or
+// still contains any SizeConstraints (WAFNonEmptyEntityException).
 func (b *InMemoryBackend) DeleteSizeConstraintSet(id, changeToken string) error {
 	b.mu.Lock("DeleteSizeConstraintSet")
 	defer b.mu.Unlock()
@@ -204,12 +213,17 @@ func (b *InMemoryBackend) DeleteSizeConstraintSet(id, changeToken string) error 
 		return err
 	}
 
-	if !b.sizeConstraintSets.Has(id) {
+	scs, ok := b.sizeConstraintSets.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.matchSetReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(scs.SizeConstraints) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.sizeConstraintSets.Delete(id)
@@ -320,7 +334,10 @@ func (b *InMemoryBackend) UpdateSqlInjectionMatchSet(
 	return nil
 }
 
-// DeleteSqlInjectionMatchSet deletes a SqlInjectionMatchSet.
+// DeleteSqlInjectionMatchSet deletes a SqlInjectionMatchSet. Real AWS
+// rejects deletion while it is still used by a Rule
+// (WAFReferencedItemException) or still contains any
+// SqlInjectionMatchTuples (WAFNonEmptyEntityException).
 //
 //nolint:revive,staticcheck // AWS SDK naming
 func (b *InMemoryBackend) DeleteSqlInjectionMatchSet(id, changeToken string) error {
@@ -331,12 +348,17 @@ func (b *InMemoryBackend) DeleteSqlInjectionMatchSet(id, changeToken string) err
 		return err
 	}
 
-	if !b.sqlInjectionMatchSets.Has(id) {
+	sims, ok := b.sqlInjectionMatchSets.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.matchSetReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(sims.SqlInjectionMatchTuples) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.sqlInjectionMatchSets.Delete(id)
@@ -441,7 +463,9 @@ func (b *InMemoryBackend) UpdateXssMatchSet(id, changeToken string, updates []Xs
 	return nil
 }
 
-// DeleteXssMatchSet deletes an XssMatchSet.
+// DeleteXssMatchSet deletes an XssMatchSet. Real AWS rejects deletion
+// while it is still used by a Rule (WAFReferencedItemException) or still
+// contains any XssMatchTuples (WAFNonEmptyEntityException).
 //
 //nolint:revive,staticcheck // AWS SDK naming
 func (b *InMemoryBackend) DeleteXssMatchSet(id, changeToken string) error {
@@ -452,12 +476,17 @@ func (b *InMemoryBackend) DeleteXssMatchSet(id, changeToken string) error {
 		return err
 	}
 
-	if !b.xssMatchSets.Has(id) {
+	xms, ok := b.xssMatchSets.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.matchSetReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(xms.XssMatchTuples) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.xssMatchSets.Delete(id)
@@ -553,7 +582,9 @@ func (b *InMemoryBackend) UpdateGeoMatchSet(id, changeToken string, updates []Ge
 	return nil
 }
 
-// DeleteGeoMatchSet deletes a GeoMatchSet.
+// DeleteGeoMatchSet deletes a GeoMatchSet. Real AWS rejects deletion while
+// it is still used by a Rule (WAFReferencedItemException) or still
+// contains any GeoMatchConstraints (WAFNonEmptyEntityException).
 func (b *InMemoryBackend) DeleteGeoMatchSet(id, changeToken string) error {
 	b.mu.Lock("DeleteGeoMatchSet")
 	defer b.mu.Unlock()
@@ -562,12 +593,17 @@ func (b *InMemoryBackend) DeleteGeoMatchSet(id, changeToken string) error {
 		return err
 	}
 
-	if !b.geoMatchSets.Has(id) {
+	gms, ok := b.geoMatchSets.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.matchSetReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(gms.GeoMatchConstraints) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.geoMatchSets.Delete(id)
@@ -661,7 +697,12 @@ func (b *InMemoryBackend) UpdateRegexPatternSet(id, changeToken string, updates 
 	return nil
 }
 
-// DeleteRegexPatternSet deletes a RegexPatternSet.
+// DeleteRegexPatternSet deletes a RegexPatternSet. Real AWS rejects
+// deletion while it is still used by a RegexMatchSet
+// (WAFReferencedItemException) or is not itself empty
+// (WAFNonEmptyEntityException) -- you can't delete a RegexPatternSet if
+// it's still used in any RegexMatchSet or if the RegexPatternSet is not
+// empty.
 func (b *InMemoryBackend) DeleteRegexPatternSet(id, changeToken string) error {
 	b.mu.Lock("DeleteRegexPatternSet")
 	defer b.mu.Unlock()
@@ -670,12 +711,17 @@ func (b *InMemoryBackend) DeleteRegexPatternSet(id, changeToken string) error {
 		return err
 	}
 
-	if !b.regexPatternSets.Has(id) {
+	rps, ok := b.regexPatternSets.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.regexPatternSetReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(rps.RegexPatternStrings) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.regexPatternSets.Delete(id)
@@ -769,7 +815,9 @@ func (b *InMemoryBackend) UpdateRegexMatchSet(id, changeToken string, updates []
 	return nil
 }
 
-// DeleteRegexMatchSet deletes a RegexMatchSet.
+// DeleteRegexMatchSet deletes a RegexMatchSet. Real AWS rejects deletion
+// while it is still used by a Rule (WAFReferencedItemException) or still
+// contains any RegexMatchTuples (WAFNonEmptyEntityException).
 func (b *InMemoryBackend) DeleteRegexMatchSet(id, changeToken string) error {
 	b.mu.Lock("DeleteRegexMatchSet")
 	defer b.mu.Unlock()
@@ -778,12 +826,17 @@ func (b *InMemoryBackend) DeleteRegexMatchSet(id, changeToken string) error {
 		return err
 	}
 
-	if !b.regexMatchSets.Has(id) {
+	rms, ok := b.regexMatchSets.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.matchSetReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(rms.RegexMatchTuples) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.regexMatchSets.Delete(id)

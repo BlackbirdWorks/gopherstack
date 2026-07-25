@@ -66,7 +66,15 @@ func (h *Handler) handleFailoverGlobalCluster(ctx context.Context, vals url.Valu
 
 func (h *Handler) handleModifyGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
-	gc, err := h.Backend.ModifyGlobalCluster(ctx, globalClusterID)
+	rawDP := vals.Get("DeletionProtection")
+	opts := GlobalClusterModifyOptions{
+		NewGlobalClusterIdentifier: vals.Get("NewGlobalClusterIdentifier"),
+		EngineVersion:              vals.Get("EngineVersion"),
+		DeletionProtection:         rawDP == formTrue,
+		DeletionProtectionSet:      rawDP != "",
+		AllowMajorVersionUpgrade:   vals.Get("AllowMajorVersionUpgrade") == formTrue,
+	}
+	gc, err := h.Backend.ModifyGlobalCluster(ctx, globalClusterID, opts)
 	if err != nil {
 		return nil, err
 	}

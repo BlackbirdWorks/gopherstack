@@ -133,12 +133,28 @@ func (b *InMemoryBackend) GetAccessGrantsInstance(accountID string) (*AccessGran
 	return inst, nil
 }
 
-// DeleteAccessGrantsInstance removes the Access Grants instance.
+// DeleteAccessGrantsInstance removes the Access Grants instance and
+// cascade-cleans its resource policy and generic resource tags. Per the real
+// API's documented behavior, this does NOT cascade-delete AccessGrants or
+// AccessGrantsLocations -- AWS requires those to be deleted individually
+// first (DeleteAccessGrantsInstance's doc comment: "You must first delete
+// the access grants and locations before S3 Access Grants can delete the
+// instance").
 func (b *InMemoryBackend) DeleteAccessGrantsInstance(accountID string) error {
 	b.mu.Lock("DeleteAccessGrantsInstance")
 	defer b.mu.Unlock()
 
+	// arn is "" if no instance exists; deleting resourceTags[""] is a
+	// harmless no-op, so no separate not-found branch is needed here --
+	// DeleteAccessGrantsInstance is idempotent in the real API too.
+	var arn string
+	if inst, ok := b.accessGrantsInstances.Get(accountID); ok {
+		arn = inst.AccessGrantsInstanceArn
+	}
+
 	b.accessGrantsInstances.Delete(accountID)
+	delete(b.accessGrantsInstancePolicies, accountID)
+	delete(b.resourceTags, arn)
 
 	return nil
 }
@@ -211,15 +227,23 @@ func (b *InMemoryBackend) GetAccessGrant(accountID, grantID string) (*AccessGran
 	return grant, nil
 }
 
-// DeleteAccessGrant removes an access grant.
+// DeleteAccessGrant removes an access grant and cascade-cleans its generic
+// resource tags.
 func (b *InMemoryBackend) DeleteAccessGrant(accountID, grantID string) error {
 	b.mu.Lock("DeleteAccessGrant")
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + grantID
-	if !b.accessGrants.Delete(key) {
+
+	grant, ok := b.accessGrants.Get(key)
+	if !ok {
 		return awserr.New("NoSuchAccessGrant", awserr.ErrNotFound)
 	}
+
+	arn := grant.AccessGrantArn
+
+	b.accessGrants.Delete(key)
+	delete(b.resourceTags, arn)
 
 	return nil
 }
@@ -266,15 +290,23 @@ func (b *InMemoryBackend) GetAccessGrantsLocation(
 	return loc, nil
 }
 
-// DeleteAccessGrantsLocation removes an access grants location.
+// DeleteAccessGrantsLocation removes an access grants location and
+// cascade-cleans its generic resource tags.
 func (b *InMemoryBackend) DeleteAccessGrantsLocation(accountID, locationID string) error {
 	b.mu.Lock("DeleteAccessGrantsLocation")
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + locationID
-	if !b.accessGrantsLocations.Delete(key) {
+
+	loc, ok := b.accessGrantsLocations.Get(key)
+	if !ok {
 		return awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
 	}
+
+	arn := loc.AccessGrantsLocationArn
+
+	b.accessGrantsLocations.Delete(key)
+	delete(b.resourceTags, arn)
 
 	return nil
 }

@@ -62,6 +62,15 @@ func (h *Handler) handleAssociateResourceShare(_ context.Context, body []byte) (
 		return nil, err
 	}
 
+	if len(req.ResourceArns) > 0 {
+		// AssociateResourceShare has no permissionArns parameter in the real API: AWS
+		// always auto-associates the default managed permission for any resource type
+		// newly introduced to the share that isn't covered by an existing permission yet.
+		if autoErr := h.Backend.AutoAssociateDefaultPermissions(req.ResourceShareArn); autoErr != nil {
+			return nil, autoErr
+		}
+	}
+
 	objs := make([]associationObject, 0, len(associations))
 
 	for _, a := range associations {
@@ -131,6 +140,10 @@ func (h *Handler) handleGetResourceShareAssociations(
 	var req getResourceShareAssociationsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.AssociationType == "" {
+		return nil, fmt.Errorf("%w: associationType is required", errInvalidRequest)
 	}
 
 	associations := h.Backend.GetResourceShareAssociations(

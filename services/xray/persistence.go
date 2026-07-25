@@ -36,20 +36,21 @@ const xraySnapshotVersion = 1
 //     must always start empty after a restore (matching pre-conversion
 //     behaviour), so it is simply Reset rather than round-tripped.
 type backendSnapshot struct {
-	LastRuleModification time.Time                   `json:"lastRuleModification"`
-	RetrievedTraces      map[string][]*Trace         `json:"retrievedTraces,omitempty"`
-	InsightEvents        map[string][]*InsightEvent  `json:"insightEvents"`
-	EncryptionConfig     *EncryptionConfig           `json:"encryptionConfig,omitempty"`
-	TraceSegmentDest     string                      `json:"traceSegmentDest,omitempty"`
-	Groups               []*Group                    `json:"groups"`
-	SamplingRules        []*SamplingRule             `json:"samplingRules"`
-	Traces               []*Trace                    `json:"traces"`
-	Insights             []*Insight                  `json:"insights"`
-	ResourcePolicies     []*ResourcePolicy           `json:"resourcePolicies"`
-	TraceRetrievals      []*TraceRetrieval           `json:"traceRetrievals"`
-	SamplingStats        []*SamplingStatisticSummary `json:"samplingStats,omitempty"`
-	IndexingRules        []*IndexingRule             `json:"indexingRules,omitempty"`
-	Version              int                         `json:"version"`
+	LastRuleModification time.Time                    `json:"lastRuleModification"`
+	RetrievedTraces      map[string][]*Trace          `json:"retrievedTraces,omitempty"`
+	InsightEvents        map[string][]*InsightEvent   `json:"insightEvents"`
+	ResourceTags         map[string]map[string]string `json:"resourceTags,omitempty"`
+	EncryptionConfig     *EncryptionConfig            `json:"encryptionConfig,omitempty"`
+	TraceSegmentDest     string                       `json:"traceSegmentDest,omitempty"`
+	Groups               []*Group                     `json:"groups"`
+	SamplingRules        []*SamplingRule              `json:"samplingRules"`
+	Traces               []*Trace                     `json:"traces"`
+	Insights             []*Insight                   `json:"insights"`
+	ResourcePolicies     []*ResourcePolicy            `json:"resourcePolicies"`
+	TraceRetrievals      []*TraceRetrieval            `json:"traceRetrievals"`
+	SamplingStats        []*SamplingStatisticSummary  `json:"samplingStats,omitempty"`
+	IndexingRules        []*IndexingRule              `json:"indexingRules,omitempty"`
+	Version              int                          `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -81,6 +82,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SamplingStats:        b.samplingStats.Snapshot(),
 		LastRuleModification: b.lastRuleModification,
 		TraceSegmentDest:     b.traceSegmentDest,
+		ResourceTags:         b.resourceTags,
 	}
 
 	data, err := json.Marshal(snap)
@@ -103,6 +105,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.RetrievedTraces == nil {
 		snap.RetrievedTraces = make(map[string][]*Trace)
+	}
+
+	if snap.ResourceTags == nil {
+		snap.ResourceTags = make(map[string]map[string]string)
 	}
 }
 
@@ -149,6 +155,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.retrievedTraces = snap.RetrievedTraces
 	b.lastRuleModification = snap.LastRuleModification
 	b.traceSegmentDest = snap.TraceSegmentDest
+	b.resourceTags = snap.ResourceTags
 
 	if snap.EncryptionConfig != nil {
 		b.encryptionConfig = snap.EncryptionConfig

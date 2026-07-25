@@ -25,7 +25,10 @@ func (h *Handler) handleBatchGetBlueprints(
 
 // createBlueprintInput holds input for CreateBlueprint.
 type createBlueprintInput struct {
-	Name string `json:"Name"`
+	Tags              map[string]string `json:"Tags,omitempty"`
+	Name              string            `json:"Name"`
+	BlueprintLocation string            `json:"BlueprintLocation"`
+	Description       string            `json:"Description,omitempty"`
 }
 
 // createBlueprintOutput holds the result for CreateBlueprint.
@@ -37,7 +40,7 @@ func (h *Handler) handleCreateBlueprint(
 	_ context.Context,
 	in *createBlueprintInput,
 ) (*createBlueprintOutput, error) {
-	if err := h.Backend.CreateBlueprint(in.Name); err != nil {
+	if _, err := h.Backend.CreateBlueprint(in.Name, in.BlueprintLocation, in.Description, in.Tags); err != nil {
 		return nil, err
 	}
 
@@ -176,7 +179,9 @@ func (h *Handler) handleStartBlueprintRun(
 
 // updateBlueprintInput holds input for UpdateBlueprint.
 type updateBlueprintInput struct {
-	Name string `json:"Name"`
+	Name              string `json:"Name"`
+	BlueprintLocation string `json:"BlueprintLocation"`
+	Description       string `json:"Description,omitempty"`
 }
 
 // updateBlueprintOutput holds the result for UpdateBlueprint.
@@ -188,7 +193,7 @@ func (h *Handler) handleUpdateBlueprint(
 	_ context.Context,
 	in *updateBlueprintInput,
 ) (*updateBlueprintOutput, error) {
-	if _, err := h.Backend.UpdateBlueprint(in.Name); err != nil {
+	if _, err := h.Backend.UpdateBlueprint(in.Name, in.BlueprintLocation, in.Description); err != nil {
 		return nil, err
 	}
 

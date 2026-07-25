@@ -5,13 +5,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 func TestCreateStackInstances_ProvisionsChildStacks(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("prov-ss", "desc", simpleTemplate)
+	_, err := b.CreateStackSet("prov-ss", "desc", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
 	before := len(b.ListAll())
@@ -45,7 +47,7 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("teardown-ss", "desc", simpleTemplate)
+	_, err := b.CreateStackSet("teardown-ss", "desc", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
 	_, err = b.CreateStackInstances(t.Context(), "teardown-ss", []string{"111111111111"}, []string{"us-east-1"})

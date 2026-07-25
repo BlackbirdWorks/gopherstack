@@ -40,8 +40,11 @@ type StorageBackend interface {
 	DescribeTrustStores(arns []string, names []string) ([]TrustStore, error)
 	DeleteTrustStore(trustStoreArn string) error
 	ModifyTrustStore(trustStoreArn, name string) (*TrustStore, error)
-	AddTrustStoreRevocations(trustStoreArn string, revocations []TrustStoreRevocation) error
-	RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []string) error
+	AddTrustStoreRevocations(
+		trustStoreArn string,
+		contents []RevocationContentInput,
+	) ([]TrustStoreRevocation, error)
+	RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []int64) error
 	DescribeTrustStoreRevocations(trustStoreArn string) ([]TrustStoreRevocation, error)
 	DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error)
 	DeleteSharedTrustStoreAssociation(trustStoreArn, resourceArn string) error

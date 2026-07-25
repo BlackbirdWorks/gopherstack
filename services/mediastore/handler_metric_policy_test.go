@@ -2,6 +2,7 @@ package mediastore_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -120,6 +121,92 @@ func TestHandler_PutMetricPolicy_Validation(t *testing.T) {
 			},
 			wantStatus: http.StatusOK,
 		},
+		{
+			// ObjectGroup max length is 900 chars (MediaStore API model
+			// ObjectGroup shape `max` trait); the real SDK's client-side
+			// validator never checks this, so it must be enforced server-side.
+			name: "object_group_too_long",
+			policy: map[string]any{
+				"ContainerLevelMetrics": "ENABLED",
+				"MetricPolicyRules": []any{
+					map[string]any{
+						"ObjectGroup":     strings.Repeat("a", maxObjectGroupLenForTest+1),
+						"ObjectGroupName": "valid",
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "object_group_exactly_max_length_allowed",
+			policy: map[string]any{
+				"ContainerLevelMetrics": "ENABLED",
+				"MetricPolicyRules": []any{
+					map[string]any{
+						"ObjectGroup":     strings.Repeat("a", maxObjectGroupLenForTest),
+						"ObjectGroupName": "valid",
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			// ObjectGroup's allowed character set excludes spaces.
+			name: "object_group_invalid_characters",
+			policy: map[string]any{
+				"ContainerLevelMetrics": "ENABLED",
+				"MetricPolicyRules": []any{
+					map[string]any{
+						"ObjectGroup":     "has a space",
+						"ObjectGroupName": "valid",
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// ObjectGroupName max length is 30 chars (ObjectGroupName shape
+			// `max` trait).
+			name: "object_group_name_too_long",
+			policy: map[string]any{
+				"ContainerLevelMetrics": "ENABLED",
+				"MetricPolicyRules": []any{
+					map[string]any{
+						"ObjectGroup":     "valid",
+						"ObjectGroupName": strings.Repeat("a", maxObjectGroupNameLenForTest+1),
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "object_group_name_exactly_max_length_allowed",
+			policy: map[string]any{
+				"ContainerLevelMetrics": "ENABLED",
+				"MetricPolicyRules": []any{
+					map[string]any{
+						"ObjectGroup":     "valid",
+						"ObjectGroupName": strings.Repeat("a", maxObjectGroupNameLenForTest),
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			// ObjectGroupName's allowed character set is [a-zA-Z0-9_] only --
+			// no hyphens, unlike ObjectGroup.
+			name: "object_group_name_invalid_characters",
+			policy: map[string]any{
+				"ContainerLevelMetrics": "ENABLED",
+				"MetricPolicyRules": []any{
+					map[string]any{
+						"ObjectGroup":     "valid",
+						"ObjectGroupName": "has-a-hyphen",
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -137,3 +224,14 @@ func TestHandler_PutMetricPolicy_Validation(t *testing.T) {
 		})
 	}
 }
+
+// maxObjectGroupLenForTest and maxObjectGroupNameLenForTest mirror the
+// unexported maxObjectGroupLen/maxObjectGroupNameLen constants in
+// store.go (900/30 chars, per the MediaStore API model). This test file is
+// package mediastore_test (black-box), so it cannot reference the
+// unexported constants directly; duplicating the literal values here (with
+// the same model-file citation) is preferred over adding a test-only export.
+const (
+	maxObjectGroupLenForTest     = 900
+	maxObjectGroupNameLenForTest = 30
+)

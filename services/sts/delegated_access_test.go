@@ -215,52 +215,28 @@ func TestHandler_GetDelegatedAccessToken(t *testing.T) {
 	}
 }
 
-// TestDelegatedTokenDuration verifies GetDelegatedAccessToken accepts DurationSeconds.
+// TestDelegatedTokenDuration verifies GetDelegatedAccessToken issues credentials
+// with a fixed lifetime, since GetDelegatedAccessTokenInput (unlike AssumeRole,
+// GetSessionToken, etc.) carries no DurationSeconds member in the real AWS API —
+// the caller cannot influence the credential lifetime for this operation.
 func TestDelegatedTokenDuration(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		duration int32
-		wantErr  bool
-	}{
-		{
-			name:     "default_duration",
-			duration: 0,
-			wantErr:  false,
-		},
-		{
-			name:     "custom_duration",
-			duration: 1800,
-			wantErr:  false,
-		},
-		{
-			name:     "too_short",
-			duration: 100,
-			wantErr:  true,
-		},
-	}
+	b := sts.NewInMemoryBackend()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	before := time.Now().UTC()
 
-			b := sts.NewInMemoryBackend()
-			resp, err := b.GetDelegatedAccessToken(&sts.GetDelegatedAccessTokenInput{
-				TradeInToken:    "test-token",
-				DurationSeconds: tt.duration,
-			})
+	resp, err := b.GetDelegatedAccessToken(&sts.GetDelegatedAccessTokenInput{
+		TradeInToken: "test-token",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
 
-			if tt.wantErr {
-				require.Error(t, err)
+	expiration, err := time.Parse(time.RFC3339, resp.GetDelegatedAccessTokenResult.Credentials.Expiration)
+	require.NoError(t, err)
 
-				return
-			}
-
-			require.NoError(t, err)
-			assert.NotEmpty(t, resp.GetDelegatedAccessTokenResult.Credentials.AccessKeyID)
-		})
-	}
+	gotDuration := expiration.Sub(before)
+	assert.InDelta(t, sts.DefaultDurationSeconds, gotDuration.Seconds(), 5)
 }
 
 // TestGetDelegatedAccessTokenResultBeforeMetadata verifies the XML result element precedes ResponseMetadata.

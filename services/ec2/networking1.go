@@ -141,6 +141,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayVpcAttachment(id string) error {
 		return fmt.Errorf("%w: %s", ErrTGWAttachmentNotFound, id)
 	}
 	b.tgwVpcAttachments.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -254,6 +255,7 @@ func (b *InMemoryBackend) DeleteFlowLogs(ids []string) error {
 
 	for _, id := range ids {
 		b.flowLogs.Delete(id)
+		delete(b.tags, id)
 	}
 
 	return nil
@@ -349,6 +351,7 @@ func (b *InMemoryBackend) DeleteDhcpOptions(id string) error {
 		return fmt.Errorf("%w: %s", ErrDhcpOptionsNotFound, id)
 	}
 	b.dhcpOptionSets.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

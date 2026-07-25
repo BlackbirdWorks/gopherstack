@@ -582,7 +582,6 @@ func (b *InMemoryBackend) DescribeSecret(
 		VersionIDsToStages: versionIDsToStages,
 		RotationEnabled:    secret.RotationEnabled,
 		ReplicationStatus:  b.replicationConfigsStoreRO(region)[name],
-		OwnerAccountID:     b.accountID,
 		PrimaryRegion:      region,
 	}
 

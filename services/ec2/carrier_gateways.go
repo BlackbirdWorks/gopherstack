@@ -38,6 +38,7 @@ func (b *InMemoryBackend) DeleteCarrierGateway(id string) error {
 		return fmt.Errorf("%w: %s", ErrCarrierGatewayNotFound, id)
 	}
 	b.carrierGateways.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

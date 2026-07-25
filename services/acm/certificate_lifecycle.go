@@ -42,6 +42,7 @@ func (b *InMemoryBackend) autoValidateRenewal(region, certARN string) {
 	}
 
 	c.RenewalSummary.RenewalStatus = validationStatusSuccess
+	c.RenewalSummary.UpdatedAt = time.Now().UTC()
 	for i := range c.RenewalSummary.DomainValidationOptions {
 		c.RenewalSummary.DomainValidationOptions[i].ValidationStatus = validationStatusSuccess
 	}

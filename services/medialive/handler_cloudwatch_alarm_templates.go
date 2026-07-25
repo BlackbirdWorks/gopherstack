@@ -13,10 +13,8 @@ import (
 // UpdateCloudWatchAlarmTemplateGroupOutput. The real API's own
 // Get/Create/Update responses do NOT include "templateCount" -- only the
 // List response's CloudWatchAlarmTemplateGroupSummary shape does (verified
-// against the SDK deserializer); gopherstack doesn't track the
-// group-to-template relationship needed to compute it, so ListCW
-// AlarmTemplateGroups continues to reuse this same shape (missing
-// templateCount -- tracked as a residual gap in PARITY.md).
+// against the SDK deserializer) -- see
+// toCWAlarmTemplateGroupSummaryOutput for List's shape.
 func toCWAlarmTemplateGroupOutput(g *CloudWatchAlarmTemplateGroup) map[string]any {
 	tags := g.Tags
 	if tags == nil {
@@ -28,6 +26,17 @@ func toCWAlarmTemplateGroupOutput(g *CloudWatchAlarmTemplateGroup) map[string]an
 		keyCreatedAt: formatISO8601(g.CreatedAt), keyModifiedAt: formatISO8601(g.ModifiedAt),
 		keyTags: tags,
 	}
+}
+
+// toCWAlarmTemplateGroupSummaryOutput mirrors
+// ListCloudWatchAlarmTemplateGroupsOutput's per-item Summary shape, which
+// adds "templateCount" on top of every field toCWAlarmTemplateGroupOutput
+// already emits.
+func toCWAlarmTemplateGroupSummaryOutput(g *CloudWatchAlarmTemplateGroupSummary) map[string]any {
+	out := toCWAlarmTemplateGroupOutput(&g.CloudWatchAlarmTemplateGroup)
+	out["templateCount"] = g.TemplateCount
+
+	return out
 }
 
 func (h *Handler) handleCreateCWAlarmTemplateGroup(c *echo.Context, body map[string]any) error {
@@ -58,7 +67,7 @@ func (h *Handler) handleListCWAlarmTemplateGroups(c *echo.Context) error {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, g := range items {
-		out = append(out, toCWAlarmTemplateGroupOutput(g))
+		out = append(out, toCWAlarmTemplateGroupSummaryOutput(g))
 	}
 	resp := map[string]any{"cloudWatchAlarmTemplateGroups": out}
 	if nextToken != "" {
@@ -107,7 +116,7 @@ func toCWAlarmTemplateOutput(t *CloudWatchAlarmTemplate) map[string]any {
 
 	return map[string]any{
 		keyArn: t.Arn, keyID: t.ID, keyName: t.Name, keyDescription: t.Description,
-		"groupId":    t.GroupID,
+		keyGroupID:   t.GroupID,
 		"metricName": t.MetricName,
 		"statistic":  t.Statistic, "comparisonOperator": t.ComparisonOperator,
 		"targetResourceType": t.TargetResourceType, "treatMissingData": t.TreatMissingData,

@@ -1,8 +1,8 @@
 service: bedrock
 sdk_module: aws-sdk-go-v2/service/bedrock@v1.56.0
 last_audit_commit: 01dbe288
-last_audit_date: 2026-07-12
-overall: A            # genuine fixes found, several critical (see gaps for what's left)
+last_audit_date: 2026-07-23
+overall: A            # every named gap fixed for real; ARP sub-resource path model is a documented, still-open exception
 
 # Per-op status. wire=response/request shape vs SDK; errors=code+HTTP status;
 # state=real mutate/read; persist=in backendSnapshot.
@@ -15,6 +15,10 @@ ops:
   CreateGuardrailVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — GuardrailVersion now snapshots name/messaging/policies/arn at creation time (was only {guardrailId, version, description}), so numbered versions are actually immutable and independently retrievable via GetGuardrail(id, version)."}
   ListFoundationModels: {wire: ok, errors: ok, state: ok, persist: n/a, note: "seeded static catalog; shape verified against types.FoundationModelSummary"}
   GetFoundationModel: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetFoundationModelAvailability: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed — response only included agreementAvailability; authorizationStatus, entitlementAvailability, modelId, and regionAvailability are ALL required GetFoundationModelAvailabilityOutput fields and were silently zero-valued for any real client that inspects them. Now returns all five."}
+  CreateFoundationModelAgreement: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFoundationModelAgreementOffers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed — this is a per-model OFFER CATALOG lookup keyed by a required modelId PATH parameter (real path: GET /list-foundation-model-agreement-offers/{modelId}), NOT a list of agreements the account has already created. gopherstack previously served it from the invented path \"/foundation-model-agreement-offers\" (no modelId) and returned {modelId} entries for every CreateFoundationModelAgreement call — a completely different resource, missing the required offerToken/termDetails fields. Now returns one deterministic, wire-shape-valid offer (offerToken/offerId/termDetails) per requested modelId."}
+  DeleteFoundationModelAgreement: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed as DELETE /delete-foundation-model-agreement/{modelId} (path-param, wrong method); real SDK sends POST /delete-foundation-model-agreement with modelId in the JSON body. Also removed a fabricated no-op-on-empty-id 204 short-circuit; missing modelId is now a ValidationException."}
   CreateProvisionedModelThroughput: {wire: ok, errors: ok, state: ok, persist: ok}
   GetProvisionedModelThroughput: {wire: ok, errors: ok, state: ok, persist: ok}
   ListProvisionedModelThroughputs: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -25,16 +29,16 @@ ops:
   DeleteModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   GetEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListEvaluationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "no pagination (returns full unbounded list, no nextToken/maxResults) — see gaps"}
+  ListEvaluationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — took zero params and always returned the full unbounded table in one page, ignoring nextToken entirely (unlike every sibling List op). Now supports nextToken/statusEquals/nameContains/creationTimeAfter/creationTimeBefore query filters via a real ListEvaluationJobsInput, mirroring ListModelInvocationJobs' filter pattern. applicationTypeEquals/sortBy/sortOrder still unhandled — see gaps."}
   BatchDeleteEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   StopEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed as DELETE /evaluation-jobs/{id} (plural); real SDK sends POST /evaluation-job/{id}/stop (SINGULAR, different HTTP verb). Completely unreachable by real clients before this fix — a route-matcher-class bug."}
   CreateModelCustomizationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   GetModelCustomizationJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListModelCustomizationJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListModelCustomizationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "nextToken pagination only; nameContains/statusEquals/creationTime-range/sortBy/sortOrder filters not implemented — see gaps"}
   StopModelCustomizationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCustomModel: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCustomModel: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListCustomModels: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListCustomModels: {wire: ok, errors: ok, state: ok, persist: ok, note: "nextToken pagination only; nameContains/modelStatus/baseModelArnEquals/foundationModelArnEquals/isOwned/creationTime-range/sortBy/sortOrder filters not implemented — see gaps"}
   DeleteCustomModel: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — List/Get/Update/Delete were routed under a fabricated \"/custom-model-deployments\" path; real SDK uses the SAME base path as Create (\"/model-customization/custom-model-deployments\") for all five ops. Completely unreachable by real clients before this fix."}
@@ -43,48 +47,59 @@ ops:
   DeleteCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same path fix as GetCustomModelDeployment"}
   CreateInferenceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   GetInferenceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListInferenceProfiles: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListInferenceProfiles: {wire: ok, errors: ok, state: ok, persist: ok, note: "nextToken pagination only; real AWS's sole extra filter (typeEquals: SYSTEM_DEFINED|APPLICATION) not implemented — see gaps"}
   DeleteInferenceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateModelCopyJob: {wire: ok, errors: ok, state: ok, persist: ok}
   GetModelCopyJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListModelCopyJobs: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateModelImportJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateModelImportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — accepted only {jobName,tags}, silently dropping importedModelName, roleArn, and modelDataSource, all three \"This member is required\" on the real CreateModelImportJobInput. GetModelImportJob/ListModelImportJobs responses were therefore always missing importedModelName/roleArn/modelDataSource too. Now parses and stores all three; response includes them."}
   GetModelImportJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListModelImportJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetImportedModel: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed — response invented a \"status\" field with no basis in the real GetImportedModelOutput shape (ImportedModel has no lifecycle status of its own), and used \"createdAt\" instead of the real \"creationTime\" key, while omitting the required modelArn/modelName/jobArn/jobName fields entirely. Now matches the real shape (modelArn, modelName, jobArn, jobName, creationTime, modelDataSource); the invented status field is deleted."}
+  ListImportedModels: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same field-shape fix as GetImportedModel (per-item). Also fixed: previously took zero params and returned every imported model unfiltered/unpaginated; now supports nameContains + creationTimeAfter/Before + nextToken."}
+  DeleteImportedModel: {wire: ok, errors: ok, state: ok, persist: n/a, note: "status code fixed 204 -> 200 for consistency with DeleteImportedModelOutput's empty (non-204-specified) real shape, matching this service's other verified-ok Delete ops."}
   CreateModelInvocationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed under the PLURAL \"/model-invocation-jobs\" path; real SDK uses the SINGULAR \"/model-invocation-job\" for Create/Get/Stop (List alone is plural). Completely unreachable by real clients before this fix."}
   GetModelInvocationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same singular-path fix as Create"}
   ListModelInvocationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — handler called Backend.ListModelInvocationJobs(nil), silently discarding every query param (statusEquals/nameContains/sortBy/sortOrder/nextToken/submitTimeAfter/submitTimeBefore) even though the backend already implements the full filter/sort/paginate logic. Classic disguised no-op: real-looking op, dead capability. Now parses and wires all of them."}
   StopModelInvocationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was DELETE on the plural list path; real SDK sends POST /model-invocation-job/{id}/stop (singular + /stop suffix, same pattern as StopEvaluationJob)."}
-  CreateMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListMarketplaceModelEndpoints: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateMarketplaceModelEndpoint: {wire: partial, errors: ok, state: partial, persist: ok, note: "route fixed — was PUT (real SDK sends PATCH, unreachable before); Handler() PATCH-body-read gap also fixed. Still doesn't parse/apply the request body's endpointConfig fields (pre-existing gap, out of this pass's scope) — see gaps."}
+  CreateMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — EndpointConfig (SageMaker execution role/instance type/instance count/KMS key) is a required CreateMarketplaceModelEndpointInput field and was previously not parsed/stored at all, so every Get/List response was missing the required endpointConfig field. Now parsed, stored, and round-tripped."}
+  GetMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig — see CreateMarketplaceModelEndpoint"}
+  ListMarketplaceModelEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig per item; nextToken pagination only, real AWS's sole extra filter (modelSourceEquals) not implemented — see gaps"}
+  UpdateMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — request body's required EndpointConfig field was accepted but never parsed/applied (the op only bumped updatedAt, a disguised no-op). Now parses {\"endpointConfig\":{\"sageMaker\":{...}}} and applies it to the stored endpoint; omitting endpointConfig on PATCH now correctly preserves the existing config rather than erroring."}
   DeleteMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   DeregisterMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed as POST /.../deregistration (a path AWS doesn't have); real SDK sends DELETE on the SAME /.../registration path Register uses (method-only disambiguation). Completely unreachable by real clients before this fix."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetUseCaseForModelAccess: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — full redesign. Real GetUseCaseForModelAccessOutput.FormData is a required raw []byte payload wire-encoded as {\"formData\":\"<base64>\"}; gopherstack previously served a fabricated {useCaseType,useCaseDescription} JSON object from the typo'd path \"/usecase-for-model-access\". Now GET /use-case-for-model-access returns base64(storedBytes)."}
+  PutUseCaseForModelAccess: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — same redesign as Get, PLUS method: real SDK sends POST, gopherstack previously used PUT. Was 100% unreachable by real clients (wrong path AND method AND body shape) before this fix."}
+  ListEnforcedGuardrailsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — full redesign. Real AWS models this as a ConfigId-keyed catalog of AccountEnforcedGuardrailOutputConfiguration entries (guardrailIdentifier/guardrailVersion/inputTags HONOR|IGNORE/modelEnforcement/owner/createdBy/updatedBy) at GET /enforcedGuardrailsConfiguration with nextToken pagination; gopherstack previously modeled it as bare guardrailId+guardrailVersion pairs at the invented kebab-case path \"/enforced-guardrail-configuration\" with no pagination. New backend validates guardrailIdentifier resolves to a real guardrail."}
+  PutEnforcedGuardrailConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — same redesign as List. Real PUT body is {configId?, guardrailInferenceConfig:{guardrailIdentifier,guardrailVersion,inputTags,modelEnforcement?}}; omitting configId creates a new config, supplying an existing one updates in place. inputTags is validated to HONOR|IGNORE."}
+  DeleteEnforcedGuardrailConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — real AWS takes ConfigId as a PATH parameter (DELETE /enforcedGuardrailsConfiguration/{configId}); gopherstack previously took guardrailId as a QUERY parameter on the invented path. 100% unreachable by real clients before this fix (in addition to modeling the wrong resource)."}
 
 families:
-  AutomatedReasoningPolicy: {status: ok, note: "not in this pass's priority list; spot-checked path tree (build-workflows/test-cases/versions/annotations) against serializers.go, shapes look consistent. Not exhaustively re-verified — deferred for a future pass."}
-  PromptRouter: {status: ok, note: "deferred — spot check only, not a named priority family this pass"}
-  ImportedModel: {status: ok, note: "deferred — spot check only"}
-  UseCaseForModelAccess: {status: gap, note: "path typo (\"/usecase-for-model-access\" vs real \"/use-case-for-model-access\") AND method (PUT vs real POST) AND body shape (real PutUseCaseForModelAccessInput is a raw FormData []byte payload, not JSON {useCaseType,useCaseDescription}). Deep semantic mismatch beyond a route fix; deliberately NOT touched this pass — flagging as a gap rather than a partial/misleading fix. Currently 100% unreachable by real SDK clients (harmless: also non-functional before)."}
-  EnforcedGuardrailConfiguration: {status: gap, note: "path typo (\"/enforced-guardrail-configuration\" vs real \"/enforcedGuardrailsConfiguration\") AND the whole resource model differs: real API is ConfigId-keyed with a GuardrailInferenceConfig object; this implementation models it as guardrailId+guardrailVersion pairs. Deep semantic mismatch beyond a route fix; deliberately NOT touched this pass. Currently 100% unreachable by real SDK clients (harmless: also non-functional before)."}
+  AutomatedReasoningPolicy: {status: partial, note: "high-value route-reachability bugs fixed this pass: UpdateAutomatedReasoningPolicy, UpdateAutomatedReasoningPolicyTestCase, and UpdateAutomatedReasoningPolicyAnnotations were all routed on PUT; real SDK sends PATCH for all three, so all three were 100% unreachable by real clients before this fix (same bug class as UpdateProvisionedModelThroughput/UpdateMarketplaceModelEndpoint, fixed in earlier passes). NOT fixed this pass, and NOT reclassified to ok — see gaps: the build-workflow-scoped sub-resource path model (annotations, next-scenario, test-results, ExportAutomatedReasoningPolicyVersion) has deeper invented-path issues than a route fix can address; UpdateAutomatedReasoningPolicyTestCase's handler doesn't parse its request body at all (disguised no-op even now that it's reachable)."}
+  PromptRouter: {status: ok, note: "fixed — field-diffed for real this pass (previously only spot-checked). CreatePromptRouterInput's required FallbackModel/Models/RoutingCriteria fields (and optional Description) were silently dropped entirely, so every Get/List response was missing them (all required on GetPromptRouterOutput/PromptRouterSummary) and Type was never set. ListPromptRouters returned the wrong top-level key (\"promptRouters\" vs real \"promptRouterSummaries\"), had no pagination, and ignored the real typeEquals filter. DeletePromptRouter used 204 instead of this service's established 200-for-empty-Delete convention. All fixed."}
+  ImportedModel: {status: ok, note: "fixed — field-diffed for real this pass (previously only spot-checked). See GetImportedModel/ListImportedModels/DeleteImportedModel/CreateModelImportJob ops entries above for the specific wire-shape and filter/pagination fixes."}
+  UseCaseForModelAccess: {status: ok, note: "fixed — full redesign this pass, see GetUseCaseForModelAccess/PutUseCaseForModelAccess ops entries."}
+  EnforcedGuardrailConfiguration: {status: ok, note: "fixed — full redesign this pass, see List/Put/DeleteEnforcedGuardrailConfiguration ops entries."}
+  FoundationModelAgreement: {status: ok, note: "fixed — field-diffed for real this pass (previously only spot-checked, and the note itself was wrong: ListFoundationModelAgreementOffers is NOT a resource-shape question, it's a completely different operation than gopherstack implemented). See ListFoundationModelAgreementOffers/DeleteFoundationModelAgreement ops entries."}
+  FoundationModelAvailability: {status: ok, note: "fixed — field-diffed for real this pass. See GetFoundationModelAvailability ops entry."}
 
 gaps:
-  - "UseCaseForModelAccess (Get/Put): wrong path, wrong method, and wrong body shape (real op takes raw bytes, not JSON). Needs a small redesign, not a route fix. (bd: file follow-up)"
-  - "EnforcedGuardrailConfiguration (List/Put/Delete): wrong path and a completely different resource model than real AWS (ConfigId-keyed vs this impl's guardrailId+version pairs); DeleteEnforcedGuardrailConfiguration real shape takes a path-param configId, this impl takes a query-param guardrailId. Needs a small redesign, not a route fix. (bd: file follow-up)"
-  - "UpdateMarketplaceModelEndpoint: request body (endpointConfig) is accepted but never parsed/applied — the op only bumps updatedAt. Pre-existing, not touched this pass beyond the route/method fix. (bd: file follow-up)"
-  - "ListEvaluationJobs has no pagination (nextToken/maxResults) even though every sibling List op (CustomModels, ModelCustomizationJobs, etc.) supports nextToken via paginateBedrockSlice. Functionally returns MORE data than real AWS would in one page, not less — low risk, but worth aligning. (bd: file follow-up)"
-  - "Most List ops (CustomModels, ModelCustomizationJobs, InferenceProfiles, MarketplaceModelEndpoints, Guardrails' non-identifier filters) only support nextToken pagination, not nameContains/statusEquals-style filters. Same shape as AWS's minimum viable page-through, but filter params are silently ignored rather than honored. ListModelInvocationJobs was the one exception fixed this pass because its backend already had full filter support sitting unused."
-  - "ARP (AutomatedReasoningPolicy) family was spot-checked, not line-by-line re-verified against serializers.go this pass — scope was the 12 named priority families. Deferred to next audit."
+  - "AutomatedReasoningPolicy sub-resource path model: GetAutomatedReasoningPolicyAnnotations/UpdateAutomatedReasoningPolicyAnnotations, GetAutomatedReasoningPolicyNextScenario, GetAutomatedReasoningPolicyTestResult/ListAutomatedReasoningPolicyTestResults, and ExportAutomatedReasoningPolicyVersion are all build-workflow-scoped in real AWS (e.g. real annotations path is /automated-reasoning-policies/{policyArn}/build-workflows/{buildWorkflowId}/annotations) but gopherstack models them as policy-scoped only (no buildWorkflowId in the path/state at all — arpAnnotations is keyed solely by policyARN). isARPTestCaseRunPath (\"/test-cases/{id}/run\") and the policy-scoped \"/test-cases/{id}/result\"/\"/test-cases/results\" paths appear to be invented outright; real AWS has no per-test-case run endpoint (StartAutomatedReasoningPolicyTestWorkflow is build-workflow-scoped: POST .../build-workflows/{id}/test-workflows) and the real result paths are .../build-workflows/{id}/test-cases/{testCaseId}/test-results and .../build-workflows/{id}/test-results. ExportAutomatedReasoningPolicyVersion's real path takes ONLY {policyArn} (which may itself be a versioned ARN) at /automated-reasoning-policies/{policyArn}/export; gopherstack requires a separate /versions/{version}/export path shape that doesn't exist in the real API. This is a resource-model redesign (re-plumbing build-workflow-scoped storage for annotations/test-results), not a route fix — deliberately NOT attempted this pass; the 3 PUT->PATCH method-reachability bugs were fixed (see families.AutomatedReasoningPolicy) but the path-model issues remain. (bd: file follow-up)"
+  - "UpdateAutomatedReasoningPolicyTestCase: now reachable (PATCH fixed), but handleUpdateARPTestCase never reads/parses the request body — it's a disguised no-op that only echoes testCaseId/policyArn back. Needs real UpdateAutomatedReasoningPolicyTestCaseInput field support (expression/inputText/expectedAggregatedFindingsResult per the real SDK). (bd: file follow-up)"
+  - "ListCustomModels and ListModelCustomizationJobs: nextToken pagination only; real AWS supports nameContains/statusEquals-or-modelStatus/creationTime-range/sortBy/sortOrder filters on both (plus baseModelArnEquals/foundationModelArnEquals/isOwned on ListCustomModels specifically), all silently ignored. Same shape as AWS's minimum viable page-through, low risk, but worth aligning. (bd: file follow-up)"
+  - "ListInferenceProfiles: missing the real typeEquals (SYSTEM_DEFINED|APPLICATION) filter. ListMarketplaceModelEndpoints: missing the real modelSourceEquals filter. Both low-risk (nextToken pagination already correct). (bd: file follow-up)"
+  - "ListEvaluationJobs: applicationTypeEquals filter and sortBy/sortOrder not implemented (statusEquals/nameContains/creationTimeAfter/creationTimeBefore/nextToken now are, see ops entry). (bd: file follow-up)"
+  - "RegisterMarketplaceModelEndpoint: real RegisterMarketplaceModelEndpointInput requires both endpointIdentifier and modelSourceIdentifier in the body; gopherstack's handler takes only the path-param ID and never reads/validates a request body. Not touched this pass — spotted while field-diffing the surrounding marketplace-endpoint family but out of this pass's named scope. (bd: file follow-up)"
 
-deferred:
-  - AutomatedReasoningPolicy (full wire re-verification)
-  - PromptRouter
-  - ImportedModel
-  - FoundationModelAgreement / FoundationModelAvailability (routing looks consistent, response shapes not deeply verified)
+deferred: []
+# Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,
+# PromptRouter, ImportedModel, FoundationModelAgreement / FoundationModelAvailability) was
+# field-diffed for real this pass. AutomatedReasoningPolicy is downgraded from a blanket
+# "spot-checked, ok" to "partial" (see families) rather than reclassified to ok, since its
+# sub-resource path model has real, documented gaps above -- not silently marked done.
 
-leaks: {status: clean, note: "janitor.go's single ticker (PMT/CustomizationJob/CopyImportJob status advancers) unchanged. New GuardrailVersion snapshot fields add no new goroutines, timers, or maps — reuse the existing guardrailVersions store.Table. DeleteGuardrail's whole-guardrail path now also purges matching guardrailVersions rows (previously orphaned every numbered version on delete — a real, now-fixed state leak)."}
+leaks: {status: clean, note: "no new goroutines, tickers, or unregistered maps introduced this pass. enforcedGuardrailConfigs remains a single store.Table (now ConfigID-keyed instead of guardrailID-keyed) with no cascade-cleanup requirement (real AWS does not cascade-delete AccountEnforcedGuardrailConfig rows when the referenced guardrail is deleted, so gopherstack doesn't either). All new/changed backend methods (PutEnforcedGuardrailConfiguration, PutUseCaseForModelAccess, CreatePromptRouter, ListImportedModels, CreateModelImportJob, UpdateMarketplaceModelEndpoint, ListFoundationModelAgreementOffers, DeleteFoundationModelAgreement) acquire b.mu.Lock/RLock and release via defer on every path, including early-return validation-error paths. janitor.go's single ticker is unchanged."}

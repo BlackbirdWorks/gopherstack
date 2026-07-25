@@ -1,6 +1,7 @@
 package glue
 
 import (
+	"fmt"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -12,6 +13,30 @@ import (
 // (StartTrigger) immediately runs its actions rather than switching to a
 // long-lived "active" monitoring state like SCHEDULED/CONDITIONAL/EVENT triggers do.
 const triggerTypeOnDemand = "ON_DEMAND"
+
+// maxCrawlerActionsPerTrigger is AWS's documented soft limit (about-triggers.html):
+// you can create up to 2 crawler actions per trigger, but you can create any
+// number of job actions per trigger.
+const maxCrawlerActionsPerTrigger = 2
+
+// validateTriggerActions enforces the max-2-crawler-actions-per-trigger limit.
+func validateTriggerActions(actions []TriggerAction) error {
+	crawlerActions := 0
+	for _, a := range actions {
+		if a.CrawlerName != "" {
+			crawlerActions++
+		}
+	}
+
+	if crawlerActions > maxCrawlerActionsPerTrigger {
+		return fmt.Errorf(
+			"%w: a trigger may specify at most %d crawler actions",
+			ErrValidation, maxCrawlerActionsPerTrigger,
+		)
+	}
+
+	return nil
+}
 
 // cloneTrigger returns a shallow copy of a Trigger with cloned maps/slices.
 func cloneTrigger(t *Trigger) *Trigger {
@@ -35,6 +60,11 @@ func cloneTrigger(t *Trigger) *Trigger {
 		cp.Predicate = &pred
 	}
 
+	if t.EventBatchingCondition != nil {
+		ebc := *t.EventBatchingCondition
+		cp.EventBatchingCondition = &ebc
+	}
+
 	return &cp
 }
 
@@ -50,6 +80,10 @@ func (b *InMemoryBackend) CreateTrigger(t Trigger, tags map[string]string) (*Tri
 
 	if t.Name == "" {
 		return nil, ErrValidation
+	}
+
+	if err := validateTriggerActions(t.Actions); err != nil {
+		return nil, err
 	}
 
 	if b.triggers.Has(t.Name) {
@@ -131,6 +165,10 @@ func (b *InMemoryBackend) UpdateTrigger(name string, update Trigger) error {
 	b.mu.Lock("UpdateTrigger")
 	defer b.mu.Unlock()
 
+	if err := validateTriggerActions(update.Actions); err != nil {
+		return err
+	}
+
 	t, ok := b.triggers.Get(name)
 	if !ok {
 		return ErrNotFound
@@ -139,6 +177,12 @@ func (b *InMemoryBackend) UpdateTrigger(name string, update Trigger) error {
 	t.Schedule = update.Schedule
 	t.Actions = update.Actions
 	t.Predicate = update.Predicate
+	t.Description = update.Description
+
+	if update.EventBatchingCondition != nil {
+		ebc := *update.EventBatchingCondition
+		t.EventBatchingCondition = &ebc
+	}
 
 	return nil
 }

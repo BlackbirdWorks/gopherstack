@@ -522,6 +522,46 @@ func TestSubscribeToShard_ReturnsRecords(t *testing.T) {
 	assert.Equal(t, []byte("hello"), subOut.Event.Records[0].Data)
 }
 
+// TestSubscribeToShard_AtTimestampRequiresTimestamp verifies AT_TIMESTAMP
+// rejects a nil StartingPosition.Timestamp with InvalidArgumentException
+// instead of silently treating it as position 0, mirroring GetShardIterator
+// (see TestGetShardIterator_AtTimestampRequiresTimestamp).
+func TestSubscribeToShard_AtTimestampRequiresTimestamp(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	require.NoError(
+		t,
+		bk.CreateStream(
+			context.Background(),
+			&kinesis.CreateStreamInput{StreamName: "subscribe-ts-stream", ShardCount: 1},
+		),
+	)
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/subscribe-ts-stream"
+
+	regOut, err := bk.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
+		StreamARN:    streamARN,
+		ConsumerName: "reader",
+	})
+	require.NoError(t, err)
+
+	shardOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "subscribe-ts-stream"})
+	require.NoError(t, err)
+	require.Len(t, shardOut.Shards, 1)
+
+	_, err = bk.SubscribeToShard(context.Background(), &kinesis.SubscribeToShardInput{
+		ConsumerARN: regOut.Consumer.ConsumerARN,
+		ShardID:     shardOut.Shards[0].ShardID,
+		StartingPosition: kinesis.StartingPosition{
+			Type:      "AT_TIMESTAMP",
+			Timestamp: nil,
+		},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, kinesis.ErrInvalidArgument)
+}
+
 func TestDeregisterStreamConsumer_ByIdentifier(t *testing.T) {
 	t.Parallel()
 

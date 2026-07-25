@@ -9,13 +9,23 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// accuracyResponse mirrors types.Accuracy: a struct of two float fields, not
+// a bare scalar. Confirmed against GetPositionOutput.Accuracy's real type;
+// this was previously modeled as a bare *float64, which would fail to
+// deserialize in a real client (GetPositionOutput.Accuracy is
+// *types.Accuracy{HorizontalAccuracy, VerticalAccuracy}).
+type accuracyResponse struct {
+	HorizontalAccuracy *float32 `json:"HorizontalAccuracy,omitempty"`
+	VerticalAccuracy   *float32 `json:"VerticalAccuracy,omitempty"`
+}
+
 type getPositionResponse struct {
-	Accuracy       *float64  `json:"Accuracy,omitempty"`
-	SolverType     string    `json:"SolverType,omitempty"`
-	SolverVersion  string    `json:"SolverVersion,omitempty"`
-	SolverProvider string    `json:"SolverProvider,omitempty"`
-	Timestamp      string    `json:"Timestamp,omitempty"`
-	Position       []float64 `json:"Position"`
+	Accuracy       *accuracyResponse `json:"Accuracy,omitempty"`
+	SolverType     string            `json:"SolverType,omitempty"`
+	SolverVersion  string            `json:"SolverVersion,omitempty"`
+	SolverProvider string            `json:"SolverProvider,omitempty"`
+	Timestamp      string            `json:"Timestamp,omitempty"`
+	Position       []float64         `json:"Position"`
 }
 
 type getPositionConfigurationResponse struct {
@@ -79,14 +89,14 @@ func (h *Handler) getPosition(c *echo.Context, id string) error {
 		return writeJSON(c, http.StatusOK, getPositionResponse{Position: []float64{}})
 	}
 
-	// A value of 0.0 indicates that position data is available (see
-	// GetPositionOutput.Accuracy doc); this is a manual override so no solver
-	// metadata is reported.
-	accuracy := 0.0
+	// A value of 0.0 for both sub-fields indicates that position data is
+	// available (see GetPositionOutput.Accuracy doc); this is a manual
+	// override so no solver metadata is reported.
+	var zero float32
 
 	return writeJSON(c, http.StatusOK, getPositionResponse{
 		Position: coords,
-		Accuracy: &accuracy,
+		Accuracy: &accuracyResponse{HorizontalAccuracy: &zero, VerticalAccuracy: &zero},
 	})
 }
 
@@ -133,13 +143,15 @@ func (h *Handler) putPositionConfiguration(c *echo.Context, id string) error {
 func (h *Handler) listPositionConfigurations(c *echo.Context) error {
 	resourceType := c.QueryParam("resourceType")
 	entries := h.Backend.ListPositionConfigurations(resourceType)
+	pg, next := paginateQuery(c, entries)
 
-	items := make([]positionConfigurationItemResponse, 0, len(entries))
-	for _, e := range entries {
+	items := make([]positionConfigurationItemResponse, 0, len(pg))
+	for _, e := range pg {
 		items = append(items, positionConfigurationItemResponseFrom(e))
 	}
 
 	return writeJSON(c, http.StatusOK, listPositionConfigurationsResponse{
+		NextToken:                 next,
 		PositionConfigurationList: items,
 	})
 }

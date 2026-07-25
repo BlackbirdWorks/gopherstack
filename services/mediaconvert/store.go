@@ -52,6 +52,10 @@ const (
 	maxTokens = 10_000
 	// jobEngineVersionUsed is the fixed engine version reported on all jobs.
 	jobEngineVersionUsed = "2017-08-29"
+	// defaultStatusUpdateInterval is the StatusUpdateInterval applied to jobs
+	// and job templates when the caller doesn't specify one, matching the
+	// real MediaConvert API's documented default.
+	defaultStatusUpdateInterval = "SECONDS_60"
 )
 
 // epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value,

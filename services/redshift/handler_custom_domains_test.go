@@ -51,7 +51,7 @@ func TestHandler_CreateCustomDomainAssociation(t *testing.T) {
 			body: "Action=CreateCustomDomainAssociation&" +
 				"Version=2012-12-01&ClusterIdentifier=cluster1&CustomDomainName=dup.example.com",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"CustomDomainAssociationAlreadyExistsFault"},
+			wantContains: []string{"CustomCnameAssociationFault"},
 		},
 		{
 			name: "cluster_not_found",

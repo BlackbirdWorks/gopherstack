@@ -54,10 +54,11 @@ type describeUserPoolDomainInput struct {
 }
 
 type userPoolDomainDescription struct {
-	Domain                 string `json:"Domain,omitempty"`
-	UserPoolID             string `json:"UserPoolId,omitempty"`
-	Status                 string `json:"Status,omitempty"`
-	CloudFrontDistribution string `json:"CloudFrontDistribution,omitempty"`
+	CustomDomainConfig     *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
+	Domain                 string                  `json:"Domain,omitempty"`
+	UserPoolID             string                  `json:"UserPoolId,omitempty"`
+	Status                 string                  `json:"Status,omitempty"`
+	CloudFrontDistribution string                  `json:"CloudFrontDistribution,omitempty"`
 }
 
 type describeUserPoolDomainOutput struct {

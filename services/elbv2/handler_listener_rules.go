@@ -235,6 +235,8 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 			// HostHeaderConfig, but still accepted on the wire).
 			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.Values.member", prefix, i))
 		}
+
+		cond.RegexValues = parseRegexValues(vals, prefix, i, "HostHeaderConfig")
 	case "path-pattern":
 		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.PathPatternConfig.Values.member", prefix, i))
 		if len(cond.Values) == 0 {
@@ -242,6 +244,8 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 			// PathPatternConfig, but still accepted on the wire).
 			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.Values.member", prefix, i))
 		}
+
+		cond.RegexValues = parseRegexValues(vals, prefix, i, "PathPatternConfig")
 	case "http-request-method":
 		methods := parseMembers(vals, fmt.Sprintf("%s.%d.HttpRequestMethodConfig.Values.member", prefix, i))
 		for _, m := range methods {
@@ -259,6 +263,7 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 	case "http-header":
 		cond.HTTPHeaderName = vals.Get(fmt.Sprintf("%s.%d.HttpHeaderConfig.HttpHeaderName", prefix, i))
 		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpHeaderConfig.Values.member", prefix, i))
+		cond.RegexValues = parseRegexValues(vals, prefix, i, "HttpHeaderConfig")
 	case "query-string":
 		cond.QueryStringPairs = parseQueryStringPairs(vals, prefix, i)
 	}
@@ -266,6 +271,20 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 	*result = append(*result, cond)
 
 	return true, nil
+}
+
+// parseRegexValues extracts the RegexValues for the Nth condition, checking the
+// modern nested *Config.RegexValues form first and falling back to the top-level
+// Conditions.member.N.RegexValues.member.M form (types.RuleCondition.RegexValues is
+// a sibling of the per-field *Config structs on the real wire; both are valid).
+// Valid only for host-header, path-pattern, and http-header conditions.
+func parseRegexValues(vals url.Values, prefix string, i int, configName string) []string {
+	regexValues := parseMembers(vals, fmt.Sprintf("%s.%d.%s.RegexValues.member", prefix, i, configName))
+	if len(regexValues) == 0 {
+		regexValues = parseMembers(vals, fmt.Sprintf("%s.%d.RegexValues.member", prefix, i))
+	}
+
+	return regexValues
 }
 
 // parseQueryStringPairs extracts query-string key/value pairs for the Nth condition.
@@ -296,14 +315,36 @@ func parseQueryStringPairAt(vals url.Values, prefix string, condIdx, pairIdx int
 	return true
 }
 
-// toStringValuesConfig converts a slice of strings into an xmlConditionValuesConfig pointer.
-func toStringValuesConfig(values []string) *xmlConditionValuesConfig {
+// toXMLStringList converts a slice of strings into an xmlStringList value.
+func toXMLStringList(values []string) xmlStringList {
 	members := make([]xmlStringValue, 0, len(values))
 	for _, v := range values {
 		members = append(members, xmlStringValue{Value: v})
 	}
 
-	return &xmlConditionValuesConfig{Values: xmlStringList{Members: members}}
+	return xmlStringList{Members: members}
+}
+
+// toXMLStringListPtr converts a slice of strings into a *xmlStringList, nil when
+// empty so it is omitted from the response (matching the AlpnPolicy/Certificates
+// convention elsewhere in this package).
+func toXMLStringListPtr(values []string) *xmlStringList {
+	if len(values) == 0 {
+		return nil
+	}
+
+	list := toXMLStringList(values)
+
+	return &list
+}
+
+// toStringValuesConfig converts a condition's Values/RegexValues into an
+// xmlConditionValuesConfig pointer.
+func toStringValuesConfig(values, regexValues []string) *xmlConditionValuesConfig {
+	return &xmlConditionValuesConfig{
+		Values:      toXMLStringList(values),
+		RegexValues: toXMLStringListPtr(regexValues),
+	}
 }
 
 // buildXMLCondition converts a single backend Condition into its XML representation.
@@ -312,17 +353,18 @@ func buildXMLCondition(c Condition) xmlCondition {
 
 	switch c.Field {
 	case "host-header":
-		xc.HostHeaderConfig = toStringValuesConfig(c.Values)
+		xc.HostHeaderConfig = toStringValuesConfig(c.Values, c.RegexValues)
 	case "path-pattern":
-		xc.PathPatternConfig = toStringValuesConfig(c.Values)
+		xc.PathPatternConfig = toStringValuesConfig(c.Values, c.RegexValues)
 	case "http-request-method":
-		xc.HTTPRequestMethodConfig = toStringValuesConfig(c.Values)
+		xc.HTTPRequestMethodConfig = toStringValuesConfig(c.Values, nil)
 	case "source-ip":
-		xc.SourceIPConfig = toStringValuesConfig(c.Values)
+		xc.SourceIPConfig = toStringValuesConfig(c.Values, nil)
 	case "http-header":
 		xc.HTTPHeaderConfig = &xmlHTTPHeaderConfig{
 			HTTPHeaderName: c.HTTPHeaderName,
-			Values:         toStringValuesConfig(c.Values).Values,
+			Values:         toXMLStringList(c.Values),
+			RegexValues:    toXMLStringListPtr(c.RegexValues),
 		}
 	case "query-string":
 		pairs := make([]xmlQueryStringKeyValue, 0, len(c.QueryStringPairs))
@@ -356,12 +398,14 @@ func toXMLRule(r *Rule) xmlRule {
 }
 
 type xmlConditionValuesConfig struct {
-	Values xmlStringList `xml:"Values"`
+	RegexValues *xmlStringList `xml:"RegexValues,omitempty"`
+	Values      xmlStringList  `xml:"Values"`
 }
 
 type xmlHTTPHeaderConfig struct {
-	HTTPHeaderName string        `xml:"HttpHeaderName"`
-	Values         xmlStringList `xml:"Values"`
+	RegexValues    *xmlStringList `xml:"RegexValues,omitempty"`
+	HTTPHeaderName string         `xml:"HttpHeaderName"`
+	Values         xmlStringList  `xml:"Values"`
 }
 
 type xmlQueryStringKeyValue struct {

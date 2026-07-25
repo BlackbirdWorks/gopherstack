@@ -4,7 +4,6 @@ import (
 	"context"
 	"sort"
 	"strconv"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -35,7 +34,7 @@ func (b *InMemoryBackend) ListNodes(
 			InstanceID:       act.ActivationID,
 			PlatformType:     platformTypeLinux,
 			AgentVersion:     defaultAgentVersionSSM,
-			RegistrationDate: time.Unix(int64(act.CreatedDate), 0).UTC(),
+			RegistrationDate: act.CreatedDate,
 		})
 	}
 
@@ -115,7 +114,7 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 				AssociationID: assoc.AssociationID,
 				Name:          assoc.Name,
 				Status:        status,
-				ExecutionDate: time.Unix(int64(assoc.LastUpdateAssociationDate), 0).UTC(),
+				ExecutionDate: assoc.LastUpdateAssociationDate,
 			})
 		}
 	}
@@ -146,7 +145,7 @@ func (b *InMemoryBackend) DescribeInstanceInformation(
 			PingStatus:       "Online",
 			AgentVersion:     defaultAgentVersionSSM,
 			PlatformType:     platformTypeLinux,
-			RegistrationDate: time.Unix(int64(act.CreatedDate), 0).UTC(),
+			RegistrationDate: act.CreatedDate,
 		})
 	}
 

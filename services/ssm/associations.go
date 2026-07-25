@@ -74,15 +74,26 @@ func (b *InMemoryBackend) CreateAssociation(
 	now := UnixTimeFloat(time.Now())
 
 	assoc := Association{
-		AssociationID:             assocID,
-		AssociationName:           input.AssociationName,
-		DocumentVersion:           input.DocumentVersion,
-		InstanceID:                input.InstanceID,
-		Name:                      input.Name,
-		Parameters:                copyAssocParameters(input.Parameters),
-		Targets:                   copyAssocTargets(input.Targets),
-		Overview:                  &AssociationOverview{Status: assocStatusSuccess},
-		LastUpdateAssociationDate: now,
+		AssociationID:                 assocID,
+		AssociationName:               input.AssociationName,
+		DocumentVersion:               input.DocumentVersion,
+		InstanceID:                    input.InstanceID,
+		Name:                          input.Name,
+		Parameters:                    copyAssocParameters(input.Parameters),
+		Targets:                       copyAssocTargets(input.Targets),
+		Overview:                      &AssociationOverview{Status: assocStatusSuccess},
+		LastUpdateAssociationDate:     now,
+		ApplyOnlyAtCronInterval:       input.ApplyOnlyAtCronInterval,
+		AssociationDispatchAssumeRole: input.AssociationDispatchAssumeRole,
+		AutomationTargetParameterName: input.AutomationTargetParameterName,
+		CalendarNames:                 append([]string(nil), input.CalendarNames...),
+		ComplianceSeverity:            input.ComplianceSeverity,
+		Duration:                      input.Duration,
+		MaxConcurrency:                input.MaxConcurrency,
+		MaxErrors:                     input.MaxErrors,
+		OutputLocation:                copyAssocOutputLocation(input.OutputLocation),
+		ScheduleExpression:            input.ScheduleExpression,
+		SyncCompliance:                input.SyncCompliance,
 	}
 
 	b.associationsStore(region).Put(&assoc)
@@ -122,15 +133,26 @@ func (b *InMemoryBackend) CreateAssociationBatch(
 
 		assocID := uuid.NewString()
 		assoc := Association{
-			AssociationID:             assocID,
-			AssociationName:           entry.AssociationName,
-			DocumentVersion:           entry.DocumentVersion,
-			InstanceID:                entry.InstanceID,
-			Name:                      entry.Name,
-			Parameters:                copyAssocParameters(entry.Parameters),
-			Targets:                   copyAssocTargets(entry.Targets),
-			Overview:                  &AssociationOverview{Status: assocStatusSuccess},
-			LastUpdateAssociationDate: now,
+			AssociationID:                 assocID,
+			AssociationName:               entry.AssociationName,
+			DocumentVersion:               entry.DocumentVersion,
+			InstanceID:                    entry.InstanceID,
+			Name:                          entry.Name,
+			Parameters:                    copyAssocParameters(entry.Parameters),
+			Targets:                       copyAssocTargets(entry.Targets),
+			Overview:                      &AssociationOverview{Status: assocStatusSuccess},
+			LastUpdateAssociationDate:     now,
+			ApplyOnlyAtCronInterval:       entry.ApplyOnlyAtCronInterval,
+			AssociationDispatchAssumeRole: entry.AssociationDispatchAssumeRole,
+			AutomationTargetParameterName: entry.AutomationTargetParameterName,
+			CalendarNames:                 append([]string(nil), entry.CalendarNames...),
+			ComplianceSeverity:            entry.ComplianceSeverity,
+			Duration:                      entry.Duration,
+			MaxConcurrency:                entry.MaxConcurrency,
+			MaxErrors:                     entry.MaxErrors,
+			OutputLocation:                copyAssocOutputLocation(entry.OutputLocation),
+			ScheduleExpression:            entry.ScheduleExpression,
+			SyncCompliance:                entry.SyncCompliance,
 		}
 
 		assocs.Put(&assoc)
@@ -274,7 +296,7 @@ func (b *InMemoryBackend) recordAssociationExecutionLocked(
 		AssociationID: assoc.AssociationID,
 		ExecutionID:   execID,
 		Status:        status,
-		ExecutionDate: time.Now().UTC(),
+		ExecutionDate: UnixTimeFloat(time.Now()),
 	}
 
 	if b.associationExecutions[region] == nil {
@@ -452,6 +474,79 @@ func (b *InMemoryBackend) ListAssociations(
 	return &ListAssociationsOutput{Associations: list}, nil
 }
 
+// applyAssociationCoreUpdates applies UpdateAssociationInput's original
+// (pre-extended-fields) settable properties to assoc in place.
+func applyAssociationCoreUpdates(assoc *Association, input *UpdateAssociationInput) {
+	if input.AssociationName != "" {
+		assoc.AssociationName = input.AssociationName
+	}
+
+	if input.DocumentVersion != "" {
+		assoc.DocumentVersion = input.DocumentVersion
+	}
+
+	if input.Parameters != nil {
+		assoc.Parameters = copyAssocParameters(input.Parameters)
+	}
+
+	if input.Targets != nil {
+		assoc.Targets = copyAssocTargets(input.Targets)
+	}
+}
+
+// applyAssociationExtendedUpdates applies the State Manager fields added
+// alongside CreateAssociationInput (ApplyOnlyAtCronInterval/
+// AssociationDispatchAssumeRole/AutomationTargetParameterName/CalendarNames/
+// ComplianceSeverity/Duration/MaxConcurrency/MaxErrors/OutputLocation/
+// ScheduleExpression/SyncCompliance) to assoc in place. Split out of
+// UpdateAssociation to keep its cyclomatic complexity under the package
+// limit.
+func applyAssociationExtendedUpdates(assoc *Association, input *UpdateAssociationInput) {
+	if input.ApplyOnlyAtCronInterval {
+		assoc.ApplyOnlyAtCronInterval = input.ApplyOnlyAtCronInterval
+	}
+
+	if input.AssociationDispatchAssumeRole != "" {
+		assoc.AssociationDispatchAssumeRole = input.AssociationDispatchAssumeRole
+	}
+
+	if input.AutomationTargetParameterName != "" {
+		assoc.AutomationTargetParameterName = input.AutomationTargetParameterName
+	}
+
+	if input.CalendarNames != nil {
+		assoc.CalendarNames = append([]string(nil), input.CalendarNames...)
+	}
+
+	if input.ComplianceSeverity != "" {
+		assoc.ComplianceSeverity = input.ComplianceSeverity
+	}
+
+	if input.Duration != nil {
+		assoc.Duration = input.Duration
+	}
+
+	if input.MaxConcurrency != "" {
+		assoc.MaxConcurrency = input.MaxConcurrency
+	}
+
+	if input.MaxErrors != "" {
+		assoc.MaxErrors = input.MaxErrors
+	}
+
+	if input.OutputLocation != nil {
+		assoc.OutputLocation = copyAssocOutputLocation(input.OutputLocation)
+	}
+
+	if input.ScheduleExpression != "" {
+		assoc.ScheduleExpression = input.ScheduleExpression
+	}
+
+	if input.SyncCompliance != "" {
+		assoc.SyncCompliance = input.SyncCompliance
+	}
+}
+
 // UpdateAssociation updates an existing association.
 func (b *InMemoryBackend) UpdateAssociation(
 	ctx context.Context,
@@ -469,21 +564,8 @@ func (b *InMemoryBackend) UpdateAssociation(
 
 	assoc := *assocPtr
 
-	if input.AssociationName != "" {
-		assoc.AssociationName = input.AssociationName
-	}
-
-	if input.DocumentVersion != "" {
-		assoc.DocumentVersion = input.DocumentVersion
-	}
-
-	if input.Parameters != nil {
-		assoc.Parameters = copyAssocParameters(input.Parameters)
-	}
-
-	if input.Targets != nil {
-		assoc.Targets = copyAssocTargets(input.Targets)
-	}
+	applyAssociationCoreUpdates(&assoc, input)
+	applyAssociationExtendedUpdates(&assoc, input)
 
 	assoc.LastUpdateAssociationDate = UnixTimeFloat(timeNow())
 	associations.Put(&assoc)

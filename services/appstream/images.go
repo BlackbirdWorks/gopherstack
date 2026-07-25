@@ -3,10 +3,12 @@ package appstream
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -16,7 +18,19 @@ const (
 	imageBuilderStateStopped = "STOPPED"
 	imageBuilderStateRunning = "RUNNING"
 
-	exportStatusComplete = "COMPLETE"
+	// exportImageTaskStateCompleted is the real AWS ExportImageTaskState enum
+	// value for a finished export (EXPORTING/COMPLETED/FAILED/TIMED_OUT); this
+	// in-memory backend completes export tasks synchronously.
+	exportImageTaskStateCompleted = "COMPLETED"
+
+	// defaultListExportImageTasksLimit matches real AWS's documented default
+	// page size (50) when the caller omits MaxResults.
+	defaultListExportImageTasksLimit = 50
+
+	// defaultBuilderStreamingURLValiditySeconds matches real AWS's default for
+	// CreateImageBuilderStreamingURL/CreateAppBlockBuilderStreamingURL (3600
+	// seconds) when the caller omits Validity.
+	defaultBuilderStreamingURLValiditySeconds = 3600
 )
 
 type storedImage struct {
@@ -91,22 +105,30 @@ func (ib *storedImageBuilder) toImageBuilder() *ImageBuilder {
 }
 
 type storedExportImageTask struct {
-	CreatedAt time.Time `json:"createdAt"`
-	TaskID    string    `json:"taskId"`
-	ImageName string    `json:"imageName"`
-	S3Bucket  string    `json:"s3Bucket"`
-	S3Key     string    `json:"s3Key"`
-	Status    string    `json:"status"`
+	CreatedDate       time.Time         `json:"createdDate"`
+	TagSpecifications map[string]string `json:"tagSpecifications"`
+	TaskID            string            `json:"taskId"`
+	ImageArn          string            `json:"imageArn"`
+	AmiName           string            `json:"amiName"`
+	AmiDescription    string            `json:"amiDescription"`
+	AmiID             string            `json:"amiId"`
+	IamRoleArn        string            `json:"iamRoleArn"`
+	State             string            `json:"state"`
 }
 
 func (t *storedExportImageTask) toExportImageTask() *ExportImageTask {
+	tags := make(map[string]string)
+	maps.Copy(tags, t.TagSpecifications)
+
 	return &ExportImageTask{
-		CreatedAt: t.CreatedAt,
-		TaskID:    t.TaskID,
-		ImageName: t.ImageName,
-		S3Bucket:  t.S3Bucket,
-		S3Key:     t.S3Key,
-		Status:    t.Status,
+		CreatedDate:       t.CreatedDate,
+		TagSpecifications: tags,
+		TaskID:            t.TaskID,
+		ImageArn:          t.ImageArn,
+		AmiName:           t.AmiName,
+		AmiDescription:    t.AmiDescription,
+		AmiID:             t.AmiID,
+		State:             t.State,
 	}
 }
 
@@ -445,29 +467,27 @@ func (b *InMemoryBackend) DescribeImageBuilders(names []string) ([]*ImageBuilder
 	return result, nil
 }
 
-// StartImageBuilder transitions an image builder to RUNNING and returns a streaming URL.
+// StartImageBuilder transitions an image builder to RUNNING. Real AWS's
+// StartImageBuilderOutput carries only the ImageBuilder shape -- no streaming
+// URL; callers must fetch one separately via CreateImageBuilderStreamingURL.
 func (b *InMemoryBackend) StartImageBuilder(
 	name, appstreamAgentVersion string, //nolint:revive // existing issue.
-) (string, error) {
+) error {
 	b.mu.Lock("StartImageBuilder")
 	defer b.mu.Unlock()
 
 	ib, ok := b.imageBuilders.Get(name)
 	if !ok {
-		return "", ErrNotFound
+		return ErrNotFound
 	}
 
 	if ib.State == imageBuilderStateRunning {
-		return "", ErrFleetNotStopped
+		return ErrFleetNotStopped
 	}
 
 	ib.State = imageBuilderStateRunning
 
-	url := fmt.Sprintf(
-		"https://appstream2.%s.aws.amazon.com/authenticate?param=imagebuilder-%s", b.region, name,
-	)
-
-	return url, nil
+	return nil
 }
 
 // StopImageBuilder transitions an image builder to STOPPED. Idempotent:
@@ -488,18 +508,32 @@ func (b *InMemoryBackend) StopImageBuilder(name string) (*ImageBuilder, error) {
 	return ib.toImageBuilder(), nil
 }
 
-// CreateImageBuilderStreamingURL returns a streaming URL for an image builder.
-func (b *InMemoryBackend) CreateImageBuilderStreamingURL(name string) (string, error) {
+// CreateImageBuilderStreamingURL returns a streaming URL for an image builder
+// along with its expiry time. validitySeconds <= 0 falls back to the real AWS
+// default of 3600 seconds.
+func (b *InMemoryBackend) CreateImageBuilderStreamingURL(
+	name string,
+	validitySeconds int64,
+) (string, time.Time, error) {
 	b.mu.RLock("CreateImageBuilderStreamingURL")
 	defer b.mu.RUnlock()
 
 	if !b.imageBuilders.Has(name) {
-		return "", ErrNotFound
+		return "", time.Time{}, ErrNotFound
 	}
 
-	return fmt.Sprintf(
+	validity := validitySeconds
+	if validity <= 0 {
+		validity = defaultBuilderStreamingURLValiditySeconds
+	}
+
+	expires := time.Now().UTC().Add(time.Duration(validity) * time.Second)
+
+	url := fmt.Sprintf(
 		"https://appstream2.%s.aws.amazon.com/authenticate?param=imagebuilder-url-%s", b.region, name,
-	), nil
+	)
+
+	return url, expires, nil
 }
 
 // AssociateSoftwareToImageBuilder adds software packages to an image builder.
@@ -580,23 +614,39 @@ func (b *InMemoryBackend) nextExportTaskID() string {
 	return fmt.Sprintf("export-task-%05d", b.exportTaskSeq)
 }
 
-// CreateExportImageTask creates an image export task.
-func (b *InMemoryBackend) CreateExportImageTask(imageName, s3Bucket, s3Prefix string) (*ExportImageTask, error) {
+// CreateExportImageTask creates a task exporting imageName to an EC2 AMI.
+// Real AWS's CreateExportImageTaskInput requires ImageName, AmiName, and
+// IamRoleArn (no S3 destination -- this is an AMI export, not an S3 export);
+// TagSpecifications and AmiDescription are optional. This in-memory backend
+// completes the export synchronously, minting a deterministic AMI ID.
+func (b *InMemoryBackend) CreateExportImageTask(
+	imageName, amiName, amiDescription, iamRoleArn string,
+	tagSpecifications map[string]string,
+) (*ExportImageTask, error) {
 	b.mu.Lock("CreateExportImageTask")
 	defer b.mu.Unlock()
 
-	if !b.images.Has(imageName) {
+	img, ok := b.images.Get(imageName)
+	if !ok {
 		return nil, ErrNotFound
 	}
 
 	taskID := b.nextExportTaskID()
+	amiID := fmt.Sprintf("ami-%017d", b.exportTaskSeq)
+
+	tags := make(map[string]string)
+	maps.Copy(tags, tagSpecifications)
+
 	task := &storedExportImageTask{
-		CreatedAt: time.Now().UTC(),
-		TaskID:    taskID,
-		ImageName: imageName,
-		S3Bucket:  s3Bucket,
-		S3Key:     s3Prefix + imageName + ".json",
-		Status:    exportStatusComplete,
+		CreatedDate:       time.Now().UTC(),
+		TagSpecifications: tags,
+		TaskID:            taskID,
+		ImageArn:          img.Arn,
+		AmiName:           amiName,
+		AmiDescription:    amiDescription,
+		AmiID:             amiID,
+		IamRoleArn:        iamRoleArn,
+		State:             exportImageTaskStateCompleted,
 	}
 	b.exportTasks.Put(task)
 
@@ -616,25 +666,23 @@ func (b *InMemoryBackend) GetExportImageTask(taskID string) (*ExportImageTask, e
 	return task.toExportImageTask(), nil
 }
 
-// ListExportImageTasks returns export tasks, optionally filtered by image name.
-func (b *InMemoryBackend) ListExportImageTasks(imageNames []string) ([]*ExportImageTask, error) {
+// ListExportImageTasks returns a page of export tasks ordered by TaskID.
+// Real AWS also accepts a generic Filters parameter (opaque Name/Values
+// pairs whose matching semantics are not part of the published service
+// model); this emulator does not evaluate it, only MaxResults/NextToken
+// pagination.
+func (b *InMemoryBackend) ListExportImageTasks(maxResults int32, nextToken string) ([]*ExportImageTask, string, error) {
 	b.mu.RLock("ListExportImageTasks")
 	defer b.mu.RUnlock()
 
-	nameSet := make(map[string]bool, len(imageNames))
-	for _, n := range imageNames {
-		nameSet[n] = true
-	}
-
-	var result []*ExportImageTask
-
+	all := make([]*ExportImageTask, 0, b.exportTasks.Len())
 	for _, task := range b.exportTasks.All() {
-		if len(nameSet) > 0 && !nameSet[task.ImageName] {
-			continue
-		}
-
-		result = append(result, task.toExportImageTask())
+		all = append(all, task.toExportImageTask())
 	}
 
-	return result, nil
+	sort.Slice(all, func(i, j int) bool { return all[i].TaskID < all[j].TaskID })
+
+	p := page.New(all, nextToken, int(maxResults), defaultListExportImageTasksLimit)
+
+	return p.Data, p.Next, nil
 }

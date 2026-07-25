@@ -5,80 +5,70 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/opensearch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestScheduledActions_ListWithDomainFilter(t *testing.T) {
+func TestScheduledActions_ListForDomain(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		domain     string
-		queryParam string
-		wantLen    int
-	}{
-		{
-			name:       "filter_returns_domain_actions",
-			domain:     "sched-domain",
-			queryParam: "sched-domain",
-			wantLen:    1,
-		},
-		{
-			name:       "filter_different_domain_returns_empty",
-			domain:     "sched-domain",
-			queryParam: "other-domain",
-			wantLen:    0,
-		},
-	}
+	b, h := newTestHandlerAndBackend()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	opensearch.AddScheduledActionInternal(b, "sched-domain", &opensearch.ScheduledAction{
+		ID:            "action-1",
+		Type:          "JVM_HEAP_SIZE_TUNING",
+		Severity:      "MEDIUM",
+		ScheduledBy:   "SYSTEM",
+		Status:        "PENDING_UPDATE",
+		ScheduledTime: 1_800_000_000,
+	})
 
-			h := newTestHandler()
+	// List scoped to the domain that has the action.
+	resp := doRequest(t, h, http.MethodGet,
+		"/2021-01-01/opensearch/domain/sched-domain/scheduledActions", nil)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-			// Schedule an action for the domain.
-			sr := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/scheduledActions/update",
-				map[string]any{
-					"DomainName": tt.domain,
-					"ScheduledAction": map[string]any{
-						"Id":            "action-1",
-						"Type":          "JVM_HEAP_SIZE_TUNING",
-						"ScheduledTime": "2026-07-01T00:00:00Z",
-						"ScheduleAt":    "TIMESTAMP",
-					},
-				})
-			sr.Body.Close()
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	actions, ok := out["ScheduledActions"].([]any)
+	require.True(t, ok)
+	require.Len(t, actions, 1)
+	assert.Equal(t, "action-1", actions[0].(map[string]any)["Id"])
 
-			resp := doRequest(t, h, http.MethodGet,
-				"/2021-01-01/opensearch/scheduledActions?DomainName="+tt.queryParam, nil)
-			defer resp.Body.Close()
-			require.Equal(t, http.StatusOK, resp.StatusCode)
+	// A different domain has no scheduled actions.
+	otherResp := doRequest(t, h, http.MethodGet,
+		"/2021-01-01/opensearch/domain/other-domain/scheduledActions", nil)
+	defer otherResp.Body.Close()
+	require.Equal(t, http.StatusOK, otherResp.StatusCode)
 
-			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-			actions, ok := out["ScheduledActions"].([]any)
-			require.True(t, ok)
-			assert.Len(t, actions, tt.wantLen)
-		})
-	}
+	var otherOut map[string]any
+	require.NoError(t, json.NewDecoder(otherResp.Body).Decode(&otherOut))
+	assert.Empty(t, otherOut["ScheduledActions"])
 }
 
-func TestScheduledActions_UpdateReturnsAction(t *testing.T) {
+func TestScheduledActions_UpdateReschedulesExistingAction(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	b, h := newTestHandlerAndBackend()
 
-	resp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/scheduledActions/update",
+	opensearch.AddScheduledActionInternal(b, "upd-sched-domain", &opensearch.ScheduledAction{
+		ID:            "action-upd",
+		Type:          "SERVICE_SOFTWARE_UPDATE",
+		Severity:      "HIGH",
+		ScheduledBy:   "SYSTEM",
+		Status:        "PENDING_UPDATE",
+		ScheduledTime: 1_700_000_000,
+	})
+
+	resp := doRequest(t, h, http.MethodPut,
+		"/2021-01-01/opensearch/domain/upd-sched-domain/scheduledAction/update",
 		map[string]any{
-			"DomainName": "upd-sched-domain",
-			"ScheduledAction": map[string]any{
-				"Id":            "action-upd",
-				"Type":          "SERVICE_SOFTWARE_UPDATE",
-				"ScheduledTime": "2026-08-01T00:00:00Z",
-				"ScheduleAt":    "TIMESTAMP",
-			},
+			"ActionID":         "action-upd",
+			"ActionType":       "SERVICE_SOFTWARE_UPDATE",
+			"ScheduleAt":       "TIMESTAMP",
+			"DesiredStartTime": 1_900_000_000,
 		})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -88,4 +78,47 @@ func TestScheduledActions_UpdateReturnsAction(t *testing.T) {
 	action, ok := out["ScheduledAction"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "action-upd", action["Id"])
+	assert.InDelta(t, 1_900_000_000, action["ScheduledTime"], 0)
+	assert.Equal(t, "CUSTOMER", action["ScheduledBy"])
+}
+
+func TestScheduledActions_UpdateUnknownActionReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	resp := doRequest(t, h, http.MethodPut,
+		"/2021-01-01/opensearch/domain/no-such-action-domain/scheduledAction/update",
+		map[string]any{
+			"ActionID":   "nonexistent",
+			"ActionType": "SERVICE_SOFTWARE_UPDATE",
+			"ScheduleAt": "NOW",
+		})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestScheduledActions_UpdateMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{name: "missing_action_id", body: map[string]any{"ActionType": "SERVICE_SOFTWARE_UPDATE", "ScheduleAt": "NOW"}},
+		{name: "missing_action_type", body: map[string]any{"ActionID": "a1", "ScheduleAt": "NOW"}},
+		{name: "missing_schedule_at", body: map[string]any{"ActionID": "a1", "ActionType": "SERVICE_SOFTWARE_UPDATE"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			resp := doRequest(t, h, http.MethodPut,
+				"/2021-01-01/opensearch/domain/some-domain/scheduledAction/update", tt.body)
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		})
+	}
 }

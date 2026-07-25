@@ -174,7 +174,7 @@ func (h *Handler) handleRunPipelineActivity(c *echo.Context, body []byte) error 
 		)
 	}
 
-	payloads, err := h.Backend.RunPipelineActivity(req.Payloads)
+	payloads, err := h.Backend.RunPipelineActivity(req.PipelineActivity, req.Payloads)
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "InternalFailureException", err.Error())
 	}

@@ -344,3 +344,52 @@ func TestHTTP_ListLanguageModels(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "lm-list")
 }
+
+// TestListLanguageModels_NameContains verifies the NameContains filter
+// (case-insensitive substring match), per the real ListLanguageModelsInput field.
+func TestListLanguageModels_NameContains(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	h := transcribe.NewHandler(b)
+
+	for _, name := range []string{"clinical-notes-model", "clinical-summary-model", "sports-model"} {
+		rec := doTranscribeRequest(t, h, "CreateLanguageModel", map[string]any{
+			"ModelName":     name,
+			"BaseModelName": "WideBand",
+			"LanguageCode":  "en-US",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	list, _ := b.ListLanguageModels("", "clinical", "")
+	require.Len(t, list, 2)
+
+	list, _ = b.ListLanguageModels("", "SPORTS", "")
+	require.Len(t, list, 1, "NameContains must be case-insensitive")
+	assert.Equal(t, "sports-model", list[0].ModelName)
+}
+
+// TestCreateLanguageModel_EchoesInputDataConfig verifies CreateLanguageModelOutput
+// echoes back InputDataConfig, a real field gopherstack previously dropped.
+func TestCreateLanguageModel_EchoesInputDataConfig(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerWithBackend(t)
+	rec := doTranscribeRequest(t, h, "CreateLanguageModel", map[string]any{
+		"ModelName":     "echo-config-model",
+		"BaseModelName": "WideBand",
+		"LanguageCode":  "en-US",
+		"InputDataConfig": map[string]any{
+			"S3Uri":             "s3://my-bucket/training/",
+			"DataAccessRoleArn": "arn:aws:iam::123456789012:role/TranscribeRole",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	cfg, ok := raw["InputDataConfig"].(map[string]any)
+	require.True(t, ok, "CreateLanguageModelOutput must echo InputDataConfig")
+	assert.Equal(t, "s3://my-bucket/training/", cfg["S3Uri"])
+}

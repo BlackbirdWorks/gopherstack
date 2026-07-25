@@ -35,5 +35,8 @@ var errStorageLensGroupNotFound = awserr.New("NoSuchStorageLensGroup", awserr.Er
 // errAccessPointNotFound is returned when an access point is not found.
 var errAccessPointNotFound = awserr.New("NoSuchAccessPoint", awserr.ErrNotFound)
 
+// errAccessPointPolicyNotFound is returned when an access point exists but has no policy attached.
+var errAccessPointPolicyNotFound = awserr.New("NoSuchAccessPointPolicy", awserr.ErrNotFound)
+
 // errAPPABNotFound is returned when no per-AP public access block configuration exists.
 var errAPPABNotFound = awserr.New("NoSuchPublicAccessBlockConfiguration", awserr.ErrNotFound)

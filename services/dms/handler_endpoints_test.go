@@ -38,6 +38,68 @@ func TestModifyEndpoint(t *testing.T) {
 		"EndpointArn": "arn:nonexistent",
 	})
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
+
+	// EndpointType/EngineName are modifiable, and are validated the same way
+	// CreateEndpoint validates them.
+	rec3 := doDMS(t, h, "ModifyEndpoint", map[string]any{
+		"EndpointArn":  epArn,
+		"EndpointType": "target",
+		"EngineName":   "postgres",
+	})
+	require.Equal(t, http.StatusOK, rec3.Code)
+	modified := parseJSON(t, rec3)["Endpoint"].(map[string]any)
+	assert.Equal(t, "target", modified["EndpointType"])
+	assert.Equal(t, "postgres", modified["EngineName"])
+
+	rec4 := doDMS(t, h, "ModifyEndpoint", map[string]any{
+		"EndpointArn":  epArn,
+		"EndpointType": "SOURCE",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec4.Code)
+}
+
+// TestEndpointType_EnumValidation locks gap #3 from PARITY.md: CreateEndpoint
+// previously accepted any string for EndpointType/EngineName. Real AWS models
+// EndpointType as a lowercase enum ("source"/"target") and EngineName as a
+// documented valid-values list.
+func TestEndpointType_EnumValidation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		endpointType string
+		engineName   string
+		wantCode     int
+	}{
+		{name: "valid source/mysql", endpointType: "source", engineName: "mysql", wantCode: http.StatusOK},
+		{name: "valid target/s3", endpointType: "target", engineName: "s3", wantCode: http.StatusOK},
+		{
+			name: "uppercase EndpointType rejected", endpointType: "SOURCE", engineName: "mysql",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "unknown EndpointType rejected", endpointType: "bogus", engineName: "mysql",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "unknown EngineName rejected", endpointType: "source", engineName: "bogus-engine",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+				"EndpointIdentifier": "enum-test-ep",
+				"EndpointType":       tc.endpointType,
+				"EngineName":         tc.engineName,
+			})
+			assert.Equal(t, tc.wantCode, rec.Code)
+		})
+	}
 }
 
 func TestDeleteEndpoint_RejectsIfInUse(t *testing.T) {
@@ -170,7 +232,7 @@ func TestDeleteEndpointInUse(t *testing.T) {
 	tgtResp := parseJSON(t, doDMS(t, h, "CreateEndpoint", map[string]any{
 		"EndpointIdentifier": "tgt",
 		"EndpointType":       "target",
-		"EngineName":         "aurora-mysql",
+		"EngineName":         "aurora",
 	}))
 	tgtARN := tgtResp["Endpoint"].(map[string]any)["EndpointArn"].(string)
 
@@ -205,7 +267,7 @@ func TestHandler_EndpointCRUD(t *testing.T) {
 				t.Helper()
 				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "src-ep",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "mysql",
 					"ServerName":         "db.example.com",
 					"Port":               3306,
@@ -217,7 +279,7 @@ func TestHandler_EndpointCRUD(t *testing.T) {
 				ep, ok := resp["Endpoint"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "src-ep", ep["EndpointIdentifier"])
-				assert.Equal(t, "SOURCE", ep["EndpointType"])
+				assert.Equal(t, "source", ep["EndpointType"])
 				assert.Equal(t, "mysql", ep["EngineName"])
 				assert.Equal(t, "active", ep["Status"])
 				assert.NotEmpty(t, ep["EndpointArn"])
@@ -229,12 +291,12 @@ func TestHandler_EndpointCRUD(t *testing.T) {
 				t.Helper()
 				doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "dup-ep",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "mysql",
 				})
 				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "dup-ep",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "mysql",
 				})
 				assert.Equal(t, http.StatusConflict, rec.Code)
@@ -246,7 +308,7 @@ func TestHandler_EndpointCRUD(t *testing.T) {
 				t.Helper()
 				doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "ep-a",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "postgres",
 				})
 				rec := doDMS(t, h, "DescribeEndpoints", map[string]any{})
@@ -263,7 +325,7 @@ func TestHandler_EndpointCRUD(t *testing.T) {
 				t.Helper()
 				create := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "del-ep",
-					"EndpointType":       "TARGET",
+					"EndpointType":       "target",
 					"EngineName":         "s3",
 				})
 				require.Equal(t, http.StatusOK, create.Code)
@@ -296,7 +358,7 @@ func TestHandler_EndpointCRUD(t *testing.T) {
 			run: func(t *testing.T, h *dms.Handler) {
 				t.Helper()
 				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
-					"EndpointType": "SOURCE",
+					"EndpointType": "source",
 					"EngineName":   "mysql",
 				})
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -308,7 +370,7 @@ func TestHandler_EndpointCRUD(t *testing.T) {
 				t.Helper()
 				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "ep-no-engine",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 				})
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
@@ -319,7 +381,7 @@ func TestHandler_EndpointCRUD(t *testing.T) {
 				t.Helper()
 				create := doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "arn-ep",
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "mysql",
 				})
 				require.Equal(t, http.StatusOK, create.Code)
@@ -356,12 +418,12 @@ func TestHandler_DescribeEndpointsByFilter(t *testing.T) {
 	h := newTestDMSHandler()
 	doDMS(t, h, "CreateEndpoint", map[string]any{
 		"EndpointIdentifier": "ep-filter-1",
-		"EndpointType":       "SOURCE",
+		"EndpointType":       "source",
 		"EngineName":         "mysql",
 	})
 	doDMS(t, h, "CreateEndpoint", map[string]any{
 		"EndpointIdentifier": "ep-filter-2",
-		"EndpointType":       "TARGET",
+		"EndpointType":       "target",
 		"EngineName":         "s3",
 	})
 
@@ -413,7 +475,7 @@ func TestDescribeEndpointsPagination(t *testing.T) {
 			for i := range tt.count {
 				doDMS(t, h, "CreateEndpoint", map[string]any{
 					"EndpointIdentifier": "ep-" + strconv.Itoa(i),
-					"EndpointType":       "SOURCE",
+					"EndpointType":       "source",
 					"EngineName":         "mysql",
 				})
 			}
@@ -441,7 +503,7 @@ func TestDescribeEndpointsContinuation(t *testing.T) {
 	for i := range 3 {
 		doDMS(t, h, "CreateEndpoint", map[string]any{
 			"EndpointIdentifier": "ep-" + strconv.Itoa(i),
-			"EndpointType":       "SOURCE",
+			"EndpointType":       "source",
 			"EngineName":         "mysql",
 		})
 	}

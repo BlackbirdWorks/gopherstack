@@ -56,13 +56,15 @@ type Policy struct {
 }
 
 // Group represents an IAM group resource.
+// Group represents an IAM group. Note: real IAM does not support tagging
+// Groups (aws-sdk-go-v2/service/iam/types.Group has no Tags field), so this
+// model intentionally has no Tags field either.
 type Group struct {
-	Tags       map[string]string `json:"Tags,omitempty"`
-	CreateDate time.Time         `json:"CreateDate"`
-	GroupName  string            `json:"GroupName,omitempty"`
-	GroupID    string            `json:"GroupId,omitempty"`
-	Arn        string            `json:"Arn,omitempty"`
-	Path       string            `json:"Path,omitempty"`
+	CreateDate time.Time `json:"CreateDate"`
+	GroupName  string    `json:"GroupName,omitempty"`
+	GroupID    string    `json:"GroupId,omitempty"`
+	Arn        string    `json:"Arn,omitempty"`
+	Path       string    `json:"Path,omitempty"`
 }
 
 // AccessKey represents an IAM access key for a user.
@@ -366,13 +368,14 @@ type DetachRolePolicyResponse struct {
 }
 
 // GroupXML is the XML representation of an IAM Group.
+// GroupXML is the wire shape for a Group. Note: real IAM's Group type has no
+// Tags field (Groups are not a taggable resource type), so none is present here.
 type GroupXML struct {
-	Path       string   `xml:"Path"`
-	GroupName  string   `xml:"GroupName"`
-	GroupID    string   `xml:"GroupId"`
-	Arn        string   `xml:"Arn"`
-	CreateDate string   `xml:"CreateDate"`
-	Tags       []TagXML `xml:"Tags>member,omitempty"`
+	Path       string `xml:"Path"`
+	GroupName  string `xml:"GroupName"`
+	GroupID    string `xml:"GroupId"`
+	Arn        string `xml:"Arn"`
+	CreateDate string `xml:"CreateDate"`
 }
 
 // CreateGroupResponse is the XML response for CreateGroup.

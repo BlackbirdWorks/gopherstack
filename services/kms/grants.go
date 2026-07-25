@@ -24,13 +24,64 @@ func isValidGrantOperation(op string) bool {
 	return false
 }
 
+// validateGrantPrincipals enforces CreateGrant's principal-selection rules,
+// matching the real aws-sdk-go-v2/service/kms@v1.54.0 CreateGrantInput doc
+// comments: exactly one of GranteePrincipal/GranteeServicePrincipal must be
+// set; RetiringPrincipal and RetiringServicePrincipal are mutually exclusive;
+// and specifying a GranteeServicePrincipal additionally requires a SourceArn
+// grant constraint plus a retiring principal of either kind. No AWS-service
+// simulation exists in this mock (no IAM/authorization layer at all), so
+// these fields are validated and round-tripped for wire parity only -- see
+// their doc comments on Grant/CreateGrantInput in models.go.
+func validateGrantPrincipals(input *CreateGrantInput) error {
+	granteeSet := strings.TrimSpace(input.GranteePrincipal) != ""
+	granteeServiceSet := strings.TrimSpace(input.GranteeServicePrincipal) != ""
+
+	if granteeSet == granteeServiceSet {
+		return fmt.Errorf(
+			"%w: exactly one of GranteePrincipal or GranteeServicePrincipal must be specified",
+			ErrValidation,
+		)
+	}
+
+	retiringSet := strings.TrimSpace(input.RetiringPrincipal) != ""
+	retiringServiceSet := strings.TrimSpace(input.RetiringServicePrincipal) != ""
+
+	if retiringSet && retiringServiceSet {
+		return fmt.Errorf(
+			"%w: specify either RetiringPrincipal or RetiringServicePrincipal, not both",
+			ErrValidation,
+		)
+	}
+
+	if !granteeServiceSet {
+		return nil
+	}
+
+	if input.Constraints == nil || input.Constraints.SourceArn == "" {
+		return fmt.Errorf(
+			"%w: GranteeServicePrincipal requires a SourceArn grant constraint",
+			ErrValidation,
+		)
+	}
+
+	if !retiringSet && !retiringServiceSet {
+		return fmt.Errorf(
+			"%w: GranteeServicePrincipal requires RetiringPrincipal or RetiringServicePrincipal",
+			ErrValidation,
+		)
+	}
+
+	return nil
+}
+
 // CreateGrant creates a new grant on the specified key.
 func (b *InMemoryBackend) CreateGrant(
 	ctx context.Context,
 	input *CreateGrantInput,
 ) (*CreateGrantOutput, error) {
-	if strings.TrimSpace(input.GranteePrincipal) == "" {
-		return nil, fmt.Errorf("%w: GranteePrincipal must not be empty", ErrValidation)
+	if err := validateGrantPrincipals(input); err != nil {
+		return nil, err
 	}
 
 	if len(input.Operations) == 0 {
@@ -87,16 +138,19 @@ func (b *InMemoryBackend) CreateGrant(
 	grantID := uuid.New().String()
 	grantToken := uuid.New().String()
 	grant := &Grant{
-		GrantID:           grantID,
-		KeyID:             keyID,
-		GranteePrincipal:  input.GranteePrincipal,
-		RetiringPrincipal: input.RetiringPrincipal,
-		Operations:        input.Operations,
-		Name:              input.Name,
-		GrantToken:        grantToken,
-		TokenIssuedAt:     now,
-		Constraints:       input.Constraints,
-		CreationDate:      UnixTimeFloat(now),
+		GrantID:                  grantID,
+		KeyID:                    keyID,
+		GranteePrincipal:         input.GranteePrincipal,
+		GranteeServicePrincipal:  input.GranteeServicePrincipal,
+		RetiringPrincipal:        input.RetiringPrincipal,
+		RetiringServicePrincipal: input.RetiringServicePrincipal,
+		Operations:               input.Operations,
+		Name:                     input.Name,
+		GrantToken:               grantToken,
+		TokenIssuedAt:            now,
+		Constraints:              input.Constraints,
+		CreationDate:             UnixTimeFloat(now),
+		IssuingAccount:           b.accountID,
 	}
 	// A single Put keeps the byToken and byKey indexes consistent automatically.
 	grantsForKey.table.Put(grant)

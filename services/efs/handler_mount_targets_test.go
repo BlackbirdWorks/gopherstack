@@ -767,8 +767,8 @@ func TestDescribeMountTargets_Pagination_HTTP(t *testing.T) {
 
 	var pg2 mtPage
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &pg2))
-	// 5 items, pageSize=3: marker=items[3], page2 starts after skip → items[4] only.
-	assert.Len(t, pg2.MountTargets, 1)
+	// 5 items, pageSize=3: page1=[0,1,2] marker=items[3], page2 resumes AT items[3] => [3,4].
+	assert.Len(t, pg2.MountTargets, 2)
 	assert.Empty(t, pg2.NextMarker)
 
 	seen := make(map[string]bool)
@@ -779,6 +779,10 @@ func TestDescribeMountTargets_Pagination_HTTP(t *testing.T) {
 	for _, mt := range pg2.MountTargets {
 		assert.False(t, seen[mt.MountTargetID], "mount target %s appears in both pages", mt.MountTargetID)
 	}
+
+	assert.Len(t, seen, 3, "sanity: page1 recorded 3 distinct ids before the union check")
+	total2 := len(pg1.MountTargets) + len(pg2.MountTargets)
+	assert.Equal(t, total, total2, "pagination must not lose or duplicate items across pages")
 }
 
 // TestDeleteMountTarget_CleansSubnetIndex verifies DeleteMountTarget removes the

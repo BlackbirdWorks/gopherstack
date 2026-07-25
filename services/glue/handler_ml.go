@@ -24,12 +24,20 @@ func (h *Handler) handleCancelMLTaskRun(
 
 // createMLTransformInput holds input for CreateMLTransform.
 type createMLTransformInput struct {
-	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
-	Tags              map[string]string    `json:"Tags,omitempty"`
-	Name              string               `json:"Name"`
-	Description       string               `json:"Description,omitempty"`
-	Role              string               `json:"Role,omitempty"`
-	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
+	Parameters          MLTransformParameter `json:"Parameters,omitzero"`
+	Tags                map[string]string    `json:"Tags,omitempty"`
+	TransformEncryption *TransformEncryption `json:"TransformEncryption,omitempty"`
+	Name                string               `json:"Name"`
+	Description         string               `json:"Description,omitempty"`
+	Role                string               `json:"Role,omitempty"`
+	GlueVersion         string               `json:"GlueVersion,omitempty"`
+	WorkerType          string               `json:"WorkerType,omitempty"`
+	InputRecordTables   []GlueTable          `json:"InputRecordTables,omitempty"`
+	Schema              []SchemaColumnEntry  `json:"Schema,omitempty"`
+	MaxCapacity         float64              `json:"MaxCapacity,omitempty"`
+	NumberOfWorkers     int32                `json:"NumberOfWorkers,omitempty"`
+	MaxRetries          int                  `json:"MaxRetries,omitempty"`
+	Timeout             int                  `json:"Timeout,omitempty"`
 }
 
 // createMLTransformOutput holds the result for CreateMLTransform.
@@ -41,13 +49,23 @@ func (h *Handler) handleCreateMLTransform(
 	_ context.Context,
 	in *createMLTransformInput,
 ) (*createMLTransformOutput, error) {
-	m, err := h.Backend.CreateMLTransform(
+	m, err := h.Backend.CreateMLTransformWithOptions(
 		in.Name,
 		in.Description,
 		in.Role,
 		in.InputRecordTables,
 		in.Parameters,
 		in.Tags,
+		MLTransformOptions{
+			GlueVersion:         in.GlueVersion,
+			WorkerType:          in.WorkerType,
+			NumberOfWorkers:     in.NumberOfWorkers,
+			MaxCapacity:         in.MaxCapacity,
+			MaxRetries:          in.MaxRetries,
+			Timeout:             in.Timeout,
+			Schema:              in.Schema,
+			TransformEncryption: in.TransformEncryption,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -313,12 +331,19 @@ func (h *Handler) handleStartMLLabelingSetGenerationTaskRun(
 
 // updateMLTransformInput holds input for UpdateMLTransform.
 type updateMLTransformInput struct {
-	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
-	TransformID       string               `json:"TransformId"`
-	Description       string               `json:"Description,omitempty"`
-	Role              string               `json:"Role,omitempty"`
-	Name              string               `json:"Name,omitempty"`
-	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
+	Parameters          MLTransformParameter `json:"Parameters,omitzero"`
+	TransformEncryption *TransformEncryption `json:"TransformEncryption,omitempty"`
+	TransformID         string               `json:"TransformId"`
+	Description         string               `json:"Description,omitempty"`
+	Role                string               `json:"Role,omitempty"`
+	Name                string               `json:"Name,omitempty"`
+	GlueVersion         string               `json:"GlueVersion,omitempty"`
+	WorkerType          string               `json:"WorkerType,omitempty"`
+	InputRecordTables   []GlueTable          `json:"InputRecordTables,omitempty"`
+	MaxCapacity         float64              `json:"MaxCapacity,omitempty"`
+	NumberOfWorkers     int32                `json:"NumberOfWorkers,omitempty"`
+	MaxRetries          int                  `json:"MaxRetries,omitempty"`
+	Timeout             int                  `json:"Timeout,omitempty"`
 }
 
 // updateMLTransformOutput holds the result for UpdateMLTransform.
@@ -331,11 +356,18 @@ func (h *Handler) handleUpdateMLTransform(
 	in *updateMLTransformInput,
 ) (*updateMLTransformOutput, error) {
 	update := MLTransform{
-		Name:              in.Name,
-		Description:       in.Description,
-		Role:              in.Role,
-		InputRecordTables: in.InputRecordTables,
-		Parameters:        in.Parameters,
+		Name:                in.Name,
+		Description:         in.Description,
+		Role:                in.Role,
+		InputRecordTables:   in.InputRecordTables,
+		Parameters:          in.Parameters,
+		GlueVersion:         in.GlueVersion,
+		WorkerType:          in.WorkerType,
+		NumberOfWorkers:     in.NumberOfWorkers,
+		MaxCapacity:         in.MaxCapacity,
+		MaxRetries:          in.MaxRetries,
+		Timeout:             in.Timeout,
+		TransformEncryption: in.TransformEncryption,
 	}
 	if err := h.Backend.UpdateMLTransform(in.TransformID, update); err != nil {
 		return nil, err

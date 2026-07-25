@@ -81,9 +81,9 @@ type InMemoryBackend struct {
 	files       *store.Table[File]
 	filesByRepo *store.Index[File]
 
-	// fileHistory maps repoName -> filePath -> []commitID (ordered, oldest
-	// first); plain persisted map (slice value, no identity).
-	fileHistory map[string]map[string][]string
+	// fileHistory maps repoName -> filePath -> []FileHistoryEntry (ordered,
+	// oldest first); plain persisted map (slice value, no identity).
+	fileHistory map[string]map[string][]FileHistoryEntry
 	// triggers maps repoName -> triggers; plain persisted map (slice value).
 	triggers      map[string][]RepositoryTrigger
 	mu            *lockmetrics.RWMutex
@@ -103,7 +103,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		prOverriders:      make(map[string]string),
 		prEvents:          make(map[string][]PullRequestEvent),
 		commentReactions:  make(map[string][]Reaction),
-		fileHistory:       make(map[string]map[string][]string),
+		fileHistory:       make(map[string]map[string][]FileHistoryEntry),
 		triggers:          make(map[string][]RepositoryTrigger),
 		accountID:         accountID,
 		region:            region,
@@ -136,7 +136,7 @@ func (b *InMemoryBackend) Reset() {
 	b.prOverriders = make(map[string]string)
 	b.prEvents = make(map[string][]PullRequestEvent)
 	b.commentReactions = make(map[string][]Reaction)
-	b.fileHistory = make(map[string]map[string][]string)
+	b.fileHistory = make(map[string]map[string][]FileHistoryEntry)
 	b.triggers = make(map[string][]RepositoryTrigger)
 	b.nextPRCounter = 0
 }

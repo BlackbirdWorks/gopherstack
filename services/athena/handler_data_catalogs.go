@@ -2,6 +2,11 @@ package athena
 
 import "encoding/json"
 
+// dataCatalogRespKey is the JSON response key CreateDataCatalog,
+// GetDataCatalog, and DeleteDataCatalog all wrap their DataCatalog payload
+// in.
+const dataCatalogRespKey = "DataCatalog"
+
 type createDataCatalogInput struct {
 	Parameters     map[string]string `json:"Parameters"`
 	Name           string            `json:"Name"`
@@ -40,7 +45,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.CreateDataCatalog(
+			dc, err := h.Backend.CreateDataCatalog(
 				input.Name,
 				input.Type,
 				input.Description,
@@ -48,6 +53,11 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 				input.Parameters,
 				tagsFromSlice(input.Tags),
 			)
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{dataCatalogRespKey: dc}, nil
 		},
 		"GetDataCatalog": func(b []byte) (any, error) {
 			var input getDataCatalogInput
@@ -60,7 +70,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"DataCatalog": dc}, nil
+			return map[string]any{dataCatalogRespKey: dc}, nil
 		},
 		"ListDataCatalogs": func(b []byte) (any, error) {
 			var input listDataCatalogsInput
@@ -96,7 +106,12 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.DeleteDataCatalog(input.Name)
+			dc, err := h.Backend.DeleteDataCatalog(input.Name)
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{dataCatalogRespKey: dc}, nil
 		},
 	}
 }

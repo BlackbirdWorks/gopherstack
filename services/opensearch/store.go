@@ -42,12 +42,12 @@ type InMemoryBackend struct {
 	slAccessPolicies          *store.Table[ServerlessAccessPolicy]
 	slSecurityConfigs         *store.Table[ServerlessSecurityConfig]
 	slEncryptionPolicies      *store.Table[ServerlessEncryptionPolicy]
-	defaultAppSettings        map[string][]AppSetting
 	registry                  *store.Registry
 	mu                        *lockmetrics.RWMutex
 	now                       func() time.Time
 	accountID                 string
 	region                    string
+	defaultApplicationArn     string
 	processingDelay           time.Duration
 	appIDCounter              int
 	connCounter               int
@@ -69,7 +69,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		scheduledActions:    make(map[string][]*ScheduledAction),
 		domainMaintenances:  make(map[string][]*DomainMaintenance),
 		upgradeHistory:      make(map[string][]*UpgradeHistory),
-		defaultAppSettings:  make(map[string][]AppSetting),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("opensearch"),
@@ -113,7 +112,7 @@ func (b *InMemoryBackend) Reset() {
 	b.scheduledActions = make(map[string][]*ScheduledAction)
 	b.domainMaintenances = make(map[string][]*DomainMaintenance)
 	b.upgradeHistory = make(map[string][]*UpgradeHistory)
-	b.defaultAppSettings = make(map[string][]AppSetting)
+	b.defaultApplicationArn = ""
 
 	b.appIDCounter = 0
 	b.connCounter = 0

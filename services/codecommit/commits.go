@@ -5,44 +5,63 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/google/uuid"
 )
 
+// recordFileHistory appends an entry to repoName/filePath's ordered
+// (oldest-first) history, initializing the per-repo map on first use. Caller
+// must hold the write lock.
+func (b *InMemoryBackend) recordFileHistory(repoName, filePath, commitID, blobID string) {
+	if b.fileHistory[repoName] == nil {
+		b.fileHistory[repoName] = make(map[string][]FileHistoryEntry)
+	}
+	b.fileHistory[repoName][filePath] = append(
+		b.fileHistory[repoName][filePath], FileHistoryEntry{CommitID: commitID, BlobID: blobID},
+	)
+}
+
 // applyFileChanges applies put and delete file entries to the repository file store.
-// It returns the blob ID assigned to each put file, keyed by filePath, so
+// It returns the blob ID assigned to each put file (blobIDsAdded) and the blob
+// ID removed by each delete (blobIDsDeleted), both keyed by filePath, so
 // callers can report AWS-accurate blobId values (CreateCommitOutput.filesAdded
-// requires one per entry). Caller must hold the write lock.
+// and .filesDeleted both carry a blobId per entry). Every put/delete is also
+// recorded in fileHistory so ListFileCommitHistory reflects it. Caller must
+// hold the write lock.
 func (b *InMemoryBackend) applyFileChanges(
 	repoName, commitID string, putFiles []PutFileEntry, deleteFiles []string,
-) map[string]string {
-	blobIDs := make(map[string]string, len(putFiles))
-	if len(putFiles) > 0 {
-		if b.fileHistory[repoName] == nil {
-			b.fileHistory[repoName] = make(map[string][]string)
+) (map[string]string, map[string]string) {
+	blobIDsAdded := make(map[string]string, len(putFiles))
+	blobIDsDeleted := make(map[string]string, len(deleteFiles))
+
+	for _, pf := range putFiles {
+		fileMode := pf.FileMode
+		if fileMode == "" {
+			fileMode = fileModeDefault
 		}
-		for _, pf := range putFiles {
-			fileMode := pf.FileMode
-			if fileMode == "" {
-				fileMode = fileModeDefault
-			}
-			blobID := uuid.NewString()
-			b.files.Put(&File{
-				FilePath:        pf.FilePath,
-				CommitSpecifier: commitID,
-				BlobID:          blobID,
-				FileMode:        fileMode,
-				FileContent:     pf.FileContent,
-				RepoName:        repoName,
-			})
-			b.fileHistory[repoName][pf.FilePath] = append(b.fileHistory[repoName][pf.FilePath], commitID)
-			blobIDs[pf.FilePath] = blobID
-		}
+		blobID := uuid.NewString()
+		b.files.Put(&File{
+			FilePath:        pf.FilePath,
+			CommitSpecifier: commitID,
+			BlobID:          blobID,
+			FileMode:        fileMode,
+			FileContent:     pf.FileContent,
+			RepoName:        repoName,
+		})
+		b.recordFileHistory(repoName, pf.FilePath, commitID, blobID)
+		blobIDsAdded[pf.FilePath] = blobID
 	}
 	for _, fp := range deleteFiles {
+		var removedBlobID string
+		if existing, ok := b.files.Get(fileKey(repoName, fp)); ok {
+			removedBlobID = existing.BlobID
+		}
 		b.files.Delete(fileKey(repoName, fp))
+		b.recordFileHistory(repoName, fp, commitID, removedBlobID)
+		blobIDsDeleted[fp] = removedBlobID
 	}
 
-	return blobIDs
+	return blobIDsAdded, blobIDsDeleted
 }
 
 // CreateCommit creates a new commit in a repository, tracking parent commits from the
@@ -54,12 +73,12 @@ func (b *InMemoryBackend) applyFileChanges(
 func (b *InMemoryBackend) CreateCommit(
 	repositoryName, branchName, authorName, authorEmail, message, parentCommitID string,
 	putFiles []PutFileEntry, deleteFiles []string,
-) (*Commit, map[string]string, error) {
+) (*Commit, map[string]string, map[string]string, error) {
 	b.mu.Lock("CreateCommit")
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return nil, nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return nil, nil, nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
 	// Determine current branch tip (if any).
@@ -74,7 +93,7 @@ func (b *InMemoryBackend) CreateCommit(
 	// when the provided value does not match the current branch tip.
 	// parentCommitId is optional; omitting it is allowed (no race detection in that case).
 	if parentCommitID != "" && currentTip != "" && parentCommitID != currentTip {
-		return nil, nil, fmt.Errorf(
+		return nil, nil, nil, fmt.Errorf(
 			"%w: parentCommitId %s does not match current branch tip %s",
 			ErrParentCommitIDOutdated, parentCommitID, currentTip,
 		)
@@ -106,7 +125,7 @@ func (b *InMemoryBackend) CreateCommit(
 	b.commits.Put(commit)
 
 	// Apply putFiles and deleteFiles to the file store.
-	blobIDs := b.applyFileChanges(repositoryName, commitID, putFiles, deleteFiles)
+	blobIDsAdded, blobIDsDeleted := b.applyFileChanges(repositoryName, commitID, putFiles, deleteFiles)
 
 	// Update the branch tip to the new commit.
 	if branchName != "" {
@@ -123,7 +142,7 @@ func (b *InMemoryBackend) CreateCommit(
 		copy(cp.Parents, parents)
 	}
 
-	return &cp, blobIDs, nil
+	return &cp, blobIDsAdded, blobIDsDeleted, nil
 }
 
 // BatchGetCommits retrieves multiple commits by ID from a repository.
@@ -186,18 +205,30 @@ func (b *InMemoryBackend) GetCommit(repositoryName, commitID string) (*Commit, e
 
 // GetDifferences returns file differences between beforeCommitSpecifier and afterCommitSpecifier.
 // When beforeCommitSpecifier is empty, returns all files in afterCommitSpecifier as ADDed.
-func (b *InMemoryBackend) GetDifferences(repoName, afterCommitSpecifier, _ string) ([]FileDifference, error) {
+// getDifferencesDefaultMaxResults is applied when the caller does not supply
+// a positive maxResults (mirrors the emulator-wide convention of a generous
+// default page size; AWS does not publish an exact default for this op).
+const getDifferencesDefaultMaxResults = 100
+
+// GetDifferences returns a page of file differences between
+// beforeCommitSpecifier and afterCommitSpecifier. When beforeCommitSpecifier
+// is empty, returns all files in afterCommitSpecifier as ADDed. nextToken and
+// maxResults implement AWS's cursor-based pagination for this op.
+func (b *InMemoryBackend) GetDifferences(
+	repoName, afterCommitSpecifier, _ /* beforeCommitSpecifier */, nextToken string, maxResults int,
+) (page.Page[FileDifference], error) {
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[FileDifference]{}, fmt.Errorf("%w: invalid NextToken", ErrValidation)
+	}
+
 	b.mu.RLock("GetDifferences")
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return page.Page[FileDifference]{}, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
 	repoFiles := b.filesByRepo.Get(repoName)
-	if len(repoFiles) == 0 {
-		return []FileDifference{}, nil
-	}
 
 	// Simplified diff: collect files associated with afterCommitSpecifier.
 	// When before is empty, treat all files as ADDed.
@@ -228,5 +259,5 @@ func (b *InMemoryBackend) GetDifferences(repoName, afterCommitSpecifier, _ strin
 		return pathI < pathJ
 	})
 
-	return diffs, nil
+	return page.New(diffs, nextToken, maxResults, getDifferencesDefaultMaxResults), nil
 }

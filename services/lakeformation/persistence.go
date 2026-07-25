@@ -177,6 +177,11 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 			cp.Resource = copyResource(o.Resource)
 		}
 
+		if o.Condition != nil {
+			cond := *o.Condition
+			cp.Condition = &cond
+		}
+
 		optIns[i] = cp
 	}
 

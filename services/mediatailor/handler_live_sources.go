@@ -65,12 +65,14 @@ func (h *Handler) handleListLiveSources(c *echo.Context, sourceLocationName stri
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		out = append(out, map[string]any{
+		item := map[string]any{
 			keyLiveSourceName:     s.LiveSourceName,
 			keySourceLocationName: s.SourceLocationName,
 			keyArn:                s.ARN,
 			keyTags:               nilToEmpty(s.Tags),
-		})
+		}
+		addTimestamps(item, s.CreationTime, s.LastModified)
+		out = append(out, item)
 	}
 
 	resp := map[string]any{keyItems: out}
@@ -91,11 +93,14 @@ func toLiveSourceOutput(ls *LiveSource) map[string]any {
 		})
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		keyLiveSourceName:           ls.LiveSourceName,
 		keySourceLocationName:       ls.SourceLocationName,
 		keyArn:                      ls.ARN,
 		"HttpPackageConfigurations": cfgs,
 		keyTags:                     nilToEmpty(ls.Tags),
 	}
+	addTimestamps(out, ls.CreationTime, ls.LastModified)
+
+	return out
 }

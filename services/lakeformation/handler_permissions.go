@@ -14,25 +14,12 @@ func (h *Handler) handleGrantPermissions(_ context.Context, c *echo.Context, bod
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
-	// Validate PermissionsWithGrantOption is a subset of Permissions.
-	if len(in.PermissionsWithGrantOption) > 0 {
-		permSet := make(map[string]bool, len(in.Permissions))
-		for _, p := range in.Permissions {
-			permSet[p] = true
-		}
-		for _, g := range in.PermissionsWithGrantOption {
-			if !permSet[g] {
-				return h.writeError(c, http.StatusBadRequest, "InvalidInputException",
-					"PermissionsWithGrantOption must be a subset of Permissions")
-			}
-		}
-	}
-
 	entry := &PermissionEntry{
 		Principal:                  in.Principal,
 		Resource:                   in.Resource,
 		Permissions:                in.Permissions,
 		PermissionsWithGrantOption: in.PermissionsWithGrantOption,
+		Condition:                  in.Condition,
 	}
 
 	if err := h.Backend.GrantPermissions(entry); err != nil {
@@ -53,6 +40,7 @@ func (h *Handler) handleRevokePermissions(_ context.Context, c *echo.Context, bo
 		Resource:                   in.Resource,
 		Permissions:                in.Permissions,
 		PermissionsWithGrantOption: in.PermissionsWithGrantOption,
+		Condition:                  in.Condition,
 	}
 
 	if err := h.Backend.RevokePermissions(entry); err != nil {
@@ -71,7 +59,7 @@ func (h *Handler) handleListPermissions(_ context.Context, c *echo.Context, body
 	}
 
 	entries, nextToken := h.Backend.ListPermissions(
-		in.ResourceArn,
+		in.Resource,
 		in.MaxResults,
 		in.NextToken,
 		in.Principal,
@@ -79,7 +67,7 @@ func (h *Handler) handleListPermissions(_ context.Context, c *echo.Context, body
 	)
 
 	return c.JSON(http.StatusOK, listPermissionsOutput{
-		PrincipalResourcePermissions: entries,
+		PrincipalResourcePermissions: toPermissionEntryWireList(entries),
 		NextToken:                    nextToken,
 	})
 }
@@ -87,6 +75,10 @@ func (h *Handler) handleListPermissions(_ context.Context, c *echo.Context, body
 func (h *Handler) handleBatchGrantPermissions(_ context.Context, c *echo.Context, body []byte) error {
 	var in batchGrantPermissionsInput
 	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if err := validateBatchPermissionsEntries(in.Entries); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -106,6 +98,10 @@ func (h *Handler) handleBatchGrantPermissions(_ context.Context, c *echo.Context
 func (h *Handler) handleBatchRevokePermissions(_ context.Context, c *echo.Context, body []byte) error {
 	var in batchRevokePermissionsInput
 	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	if err := validateBatchPermissionsEntries(in.Entries); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -132,7 +128,7 @@ func (h *Handler) handleGetEffectivePermissionsForPath(_ context.Context, c *ech
 	entries, nextToken := h.Backend.GetEffectivePermissionsForPath(in.ResourceArn, in.MaxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, getEffectivePermissionsForPathOutput{
-		PrincipalResourcePermissions: entries,
+		PrincipalResourcePermissions: toPermissionEntryWireList(entries),
 		NextToken:                    nextToken,
 	})
 }

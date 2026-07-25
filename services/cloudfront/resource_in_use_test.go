@@ -8,12 +8,22 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// Test_ResourceInUse_BlocksDelete proves that CachePolicy, OriginRequestPolicy, and
-// ResponseHeadersPolicy deletes are rejected with AWS's resource-specific *InUse error
-// while a distribution's stored config still references the resource, and that the
-// delete succeeds once the reference is gone. Before this fix, none of these Delete
-// operations checked for in-use references at all: a policy could be deleted out from
-// under a live distribution, which real CloudFront forbids.
+// Test_ResourceInUse_BlocksDelete proves that CachePolicy, OriginRequestPolicy,
+// ResponseHeadersPolicy, OAI, OriginAccessControl, and KeyGroup deletes are rejected
+// with AWS's resource-specific *InUse error while a distribution's stored config
+// still references the resource, and that the delete succeeds once the reference is
+// gone. Before this fix, none of these Delete operations checked for in-use
+// references at all: a resource could be deleted out from under a live distribution,
+// which real CloudFront forbids.
+//
+// The embedded reference value differs per resource to match its real wire shape:
+// CachePolicyId/OriginRequestPolicyId/ResponseHeadersPolicyId/KeyGroup are bare IDs,
+// but S3OriginConfig.OriginAccessIdentity uses the literal path
+// "origin-access-identity/cloudfront/{id}" (see oaiReferencePath), and
+// OriginAccessControlId is a bare ID too. The distribution's search index tokenizes
+// the whole raw config, so embedding the reference value in any tag (not necessarily
+// the real DistributionConfig field name/nesting) is sufficient to prove the InUse
+// guard triggers on the correct token.
 func Test_ResourceInUse_BlocksDelete(t *testing.T) {
 	t.Parallel()
 
@@ -21,6 +31,7 @@ func Test_ResourceInUse_BlocksDelete(t *testing.T) {
 
 	cases := []struct {
 		deletePathFor      func(resourceID string) string
+		refValue           func(resourceID string) string
 		createResourcePath string
 		createResourceBody string
 		configField        string
@@ -49,6 +60,35 @@ func Test_ResourceInUse_BlocksDelete(t *testing.T) {
 			deletePathFor:      func(id string) string { return prefix + "response-headers-policy/" + id },
 			wantInUseCode:      "ResponseHeadersPolicyInUse",
 		},
+		{
+			createResourcePath: prefix + "origin-access-identity/cloudfront",
+			createResourceBody: `<CloudFrontOriginAccessIdentityConfig>` +
+				`<CallerReference>cr-iu-oai</CallerReference><Comment>iu-oai</Comment>` +
+				`</CloudFrontOriginAccessIdentityConfig>`,
+			configField: "OriginAccessIdentity",
+			refValue:    func(id string) string { return "origin-access-identity/cloudfront/" + id },
+			deletePathFor: func(id string) string {
+				return prefix + "origin-access-identity/cloudfront/" + id
+			},
+			wantInUseCode: "CloudFrontOriginAccessIdentityInUse",
+		},
+		{
+			createResourcePath: prefix + "origin-access-control",
+			createResourceBody: `<OriginAccessControlConfig><Name>iu-oac</Name>` +
+				`<OriginAccessControlOriginType>s3</OriginAccessControlOriginType>` +
+				`<SigningBehavior>always</SigningBehavior><SigningProtocol>sigv4</SigningProtocol>` +
+				`</OriginAccessControlConfig>`,
+			configField:   "OriginAccessControlId",
+			deletePathFor: func(id string) string { return prefix + "origin-access-control/" + id },
+			wantInUseCode: "OriginAccessControlInUse",
+		},
+		{
+			createResourcePath: prefix + "key-group",
+			createResourceBody: `<KeyGroupConfig><Name>iu-kg</Name></KeyGroupConfig>`,
+			configField:        "KeyGroup",
+			deletePathFor:      func(id string) string { return prefix + "key-group/" + id },
+			wantInUseCode:      "ResourceInUse",
+		},
 	}
 
 	for _, tc := range cases {
@@ -71,10 +111,15 @@ func Test_ResourceInUse_BlocksDelete(t *testing.T) {
 				t.Fatalf("expected non-empty ETag from create")
 			}
 
+			refValue := resourceID
+			if tc.refValue != nil {
+				refValue = tc.refValue(resourceID)
+			}
+
 			distBody := `<DistributionConfig>` +
 				`<CallerReference>cr-iu-` + tc.wantInUseCode + `</CallerReference>` +
 				`<Enabled>true</Enabled>` +
-				`<` + tc.configField + `>` + resourceID + `</` + tc.configField + `>` +
+				`<` + tc.configField + `>` + refValue + `</` + tc.configField + `>` +
 				`</DistributionConfig>`
 			distResp := cfOK(t, h, http.MethodPost, prefix+"distribution", distBody)
 			distID := extractXMLID(t, distResp)

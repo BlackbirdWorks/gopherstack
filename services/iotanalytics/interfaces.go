@@ -79,7 +79,7 @@ type StorageBackend interface {
 	StartPipelineReprocessing(pipelineName string, startTime, endTime *float64) (string, error)
 	CancelPipelineReprocessing(pipelineName, reprocessingID string) error
 
-	CreateDatasetContent(datasetName string) (*DatasetContent, error)
+	CreateDatasetContent(datasetName, versionID string) (*DatasetContent, error)
 	GetDatasetContent(datasetName, versionID string) (*DatasetContent, error)
 	ListDatasetContents(datasetName string) ([]*DatasetContent, error)
 	DeleteDatasetContent(datasetName, versionID string) error
@@ -87,7 +87,7 @@ type StorageBackend interface {
 	DescribeLoggingOptions() (*LoggingOptions, error)
 	PutLoggingOptions(options *LoggingOptions) error
 
-	RunPipelineActivity(payloads [][]byte) ([][]byte, error)
+	RunPipelineActivity(activity PipelineActivity, payloads [][]byte) ([][]byte, error)
 
 	Reset()
 }

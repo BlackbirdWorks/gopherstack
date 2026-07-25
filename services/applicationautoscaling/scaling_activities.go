@@ -16,11 +16,24 @@ type DescribeScalingActivitiesFilter struct {
 	NextToken string
 	// MaxResults, when > 0, limits the number of returned items. Capped at maxDescribeResults.
 	MaxResults int32
+	// IncludeNotScaledActivities is accepted for wire completeness; see the
+	// doc comment on [InMemoryBackend.DescribeScalingActivities].
+	IncludeNotScaledActivities bool
 }
 
 // DescribeScalingActivities returns recorded scaling activities filtered by the
 // optional fields in f, most recent first, with pagination.
-func (b *InMemoryBackend) DescribeScalingActivities(f DescribeScalingActivitiesFilter) ([]*ScalingActivity, string) {
+// Returns ErrInvalidNextToken if f.NextToken fails to decode.
+//
+// f.IncludeNotScaledActivities is accepted for wire completeness but has no
+// observable effect: gopherstack has no metric-evaluation loop capable of
+// producing a "not scaled" activity (every recorded activity is a real
+// capacity-changing event), so there is never anything for the flag to
+// include or exclude -- this is a verified-vacuous gap, not an unimplemented
+// filter (see PARITY.md).
+func (b *InMemoryBackend) DescribeScalingActivities(
+	f DescribeScalingActivitiesFilter,
+) ([]*ScalingActivity, string, error) {
 	b.mu.RLock("DescribeScalingActivities")
 	defer b.mu.RUnlock()
 

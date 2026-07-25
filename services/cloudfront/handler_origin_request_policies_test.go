@@ -192,11 +192,14 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				p, err := h.Backend.CreateOriginRequestPolicy("orig-orp", "")
 				require.NoError(t, err)
 
-				return "/2020-05-31/origin-request-policy/" + p.ID + "/config"
+				// UpdateOriginRequestPolicy's real request syntax is
+				// "PUT /2020-05-31/origin-request-policy/{Id}" -- bare ID, no
+				// "/config" suffix (see parseCFOriginRequestPolicyPath's doc comment).
+				return "/2020-05-31/origin-request-policy/" + p.ID
 			},
 			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
 				t.Helper()
-				id := strings.TrimPrefix(strings.TrimSuffix(path, "/config"), "/2020-05-31/origin-request-policy/")
+				id := strings.TrimPrefix(path, "/2020-05-31/origin-request-policy/")
 				p, err := h.Backend.GetOriginRequestPolicy(id)
 				require.NoError(t, err)
 
@@ -258,5 +261,60 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				tt.check(t, rec, path)
 			}
 		})
+	}
+}
+
+// TestOriginRequestPolicyWhitelistItems_WireRoundTrip proves that whitelisted
+// header/cookie/query-string names survive a full Create -> Get -> GetConfig ->
+// List round trip. Before this fix, every read response (orpResponseXML) emitted a
+// bare <Quantity> with no <Headers>/<Cookies>/<QueryStrings> wrapper or <Items>
+// list at all, so a real SDK client could never discover which names a policy
+// actually whitelists.
+func TestOriginRequestPolicyWhitelistItems_WireRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	body := []byte(`<OriginRequestPolicyConfig><Name>wire-orp</Name>` +
+		`<HeadersConfig><HeaderBehavior>whitelist</HeaderBehavior>` +
+		`<Headers><Items><Name>X-Custom-Header</Name></Items><Quantity>1</Quantity></Headers>` +
+		`</HeadersConfig>` +
+		`<CookiesConfig><CookieBehavior>whitelist</CookieBehavior>` +
+		`<Cookies><Items><Name>session-id</Name></Items><Quantity>1</Quantity></Cookies>` +
+		`</CookiesConfig>` +
+		`<QueryStringsConfig><QueryStringBehavior>whitelist</QueryStringBehavior>` +
+		`<QueryStrings><Items><Name>utm_source</Name></Items><Quantity>1</Quantity></QueryStrings>` +
+		`</QueryStringsConfig>` +
+		`</OriginRequestPolicyConfig>`)
+
+	createRec := doXML(t, h, http.MethodPost, "/2020-05-31/origin-request-policy", body)
+	require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
+
+	policies := h.Backend.ListOriginRequestPolicies()
+	var created *cloudfront.OriginRequestPolicy
+	for _, p := range policies {
+		if p.Name == "wire-orp" {
+			created = p
+		}
+	}
+	require.NotNil(t, created)
+	require.NotNil(t, created.HeadersConfig)
+	require.NotNil(t, created.CookiesConfig)
+	require.NotNil(t, created.QueryStringsConfig)
+	assert.Equal(t, []string{"X-Custom-Header"}, created.HeadersConfig.Headers)
+	assert.Equal(t, []string{"session-id"}, created.CookiesConfig.Cookies)
+	assert.Equal(t, []string{"utm_source"}, created.QueryStringsConfig.QueryStrings)
+
+	for _, path := range []string{
+		"/2020-05-31/origin-request-policy/" + created.ID,
+		"/2020-05-31/origin-request-policy/" + created.ID + "/config",
+		"/2020-05-31/origin-request-policy",
+	} {
+		rec := doXML(t, h, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, rec.Code, path)
+		body := rec.Body.String()
+		assert.Contains(t, body, "<Name>X-Custom-Header</Name>", "path %s", path)
+		assert.Contains(t, body, "<Name>session-id</Name>", "path %s", path)
+		assert.Contains(t, body, "<Name>utm_source</Name>", "path %s", path)
 	}
 }

@@ -28,13 +28,13 @@ func TestRoute53ResolverRegionIsolation(t *testing.T) {
 
 	// 1. Create a resolver endpoint with the SAME name in both regions.
 	eastEP, err := b.CreateResolverEndpoint(
-		ctxEast, "shared-ep", "INBOUND", "vpc-east", nil, nil, "IPV4", nil, "", "", "",
+		ctxEast, "shared-ep", "INBOUND", "vpc-east", nil, nil, "IPV4", nil, "", "", "", false, false,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastEP.ARN, "us-east-1")
 
 	westEP, err := b.CreateResolverEndpoint(
-		ctxWest, "shared-ep", "OUTBOUND", "vpc-west", nil, nil, "IPV4", nil, "", "", "",
+		ctxWest, "shared-ep", "OUTBOUND", "vpc-west", nil, nil, "IPV4", nil, "", "", "", false, false,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, westEP.ARN, "us-west-2")
@@ -137,7 +137,7 @@ func TestRoute53ResolverDefaultRegionFallback(t *testing.T) {
 
 	// No region in context → default region store.
 	ep, err := b.CreateResolverEndpoint(
-		context.Background(), "def-ep", "INBOUND", "vpc-def", nil, nil, "IPV4", nil, "", "", "",
+		context.Background(), "def-ep", "INBOUND", "vpc-def", nil, nil, "IPV4", nil, "", "", "", false, false,
 	)
 	require.NoError(t, err)
 

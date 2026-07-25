@@ -7,6 +7,7 @@ const (
 	errStaleData        = "WAFStaleDataException"
 	errInvalidParameter = "WAFInvalidParameterException"
 	errReferencedItem   = "WAFReferencedItemException"
+	errNonEmptyEntity   = "WAFNonEmptyEntityException"
 )
 
 var (
@@ -18,4 +19,8 @@ var (
 	ErrInvalidParameter = awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	// ErrReferencedItem is returned when a resource is still referenced.
 	ErrReferencedItem = awserr.New(errReferencedItem, awserr.ErrConflict)
+	// ErrNonEmptyEntity is returned when a resource still contains child
+	// entities (e.g. a WebACL that still has Rules, a Rule that still has
+	// Predicates, a ByteMatchSet that still has ByteMatchTuples).
+	ErrNonEmptyEntity = awserr.New(errNonEmptyEntity, awserr.ErrConflict)
 )

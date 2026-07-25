@@ -70,13 +70,13 @@ func TestHandler_DescribeParameters_OK(t *testing.T) {
 	assert.NotNil(t, out["Parameters"])
 }
 
-// TestRefinement3_DescribeParameters_NotFound tests DescribeParameters returns 404 for unknown group.
+// TestRefinement3_DescribeParameters_NotFound tests DescribeParameters returns 400 for unknown group.
 func TestHandler_DescribeParameters_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "DescribeParameters", map[string]any{"ParameterGroupName": "no-such-pg"})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestRefinement3_DescribeParameters_BadJSON tests DescribeParameters with bad JSON.
@@ -105,13 +105,13 @@ func TestHandler_ResetParameterGroup_OK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestRefinement3_ResetParameterGroup_NotFound tests ResetParameterGroup returns 404 for unknown group.
+// TestRefinement3_ResetParameterGroup_NotFound tests ResetParameterGroup returns 400 for unknown group.
 func TestHandler_ResetParameterGroup_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "ResetParameterGroup", map[string]any{"ParameterGroupName": "no-such-pg"})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestRefinement3_ResetParameterGroup_BadJSON tests ResetParameterGroup with bad JSON.
@@ -165,7 +165,7 @@ func TestHandler_ParameterGroup_CRUD(t *testing.T) {
 			name:       "describe parameter group not found",
 			op:         "DescribeParameterGroups",
 			body:       map[string]any{"ParameterGroupName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "delete parameter group",
@@ -189,7 +189,7 @@ func TestHandler_ParameterGroup_CRUD(t *testing.T) {
 			name:       "delete parameter group not found",
 			op:         "DeleteParameterGroup",
 			body:       map[string]any{"ParameterGroupName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "update parameter group",
@@ -218,7 +218,7 @@ func TestHandler_ParameterGroup_CRUD(t *testing.T) {
 			name:       "update parameter group not found",
 			op:         "UpdateParameterGroup",
 			body:       map[string]any{"ParameterGroupName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -448,6 +448,13 @@ func TestHandler_ResetParameterGroup_SpecificNames(t *testing.T) {
 
 // -- Finding 22: Events generated ------------------------------------------------
 
+// TestHandler_DescribeParameters_Metadata verifies each returned Parameter
+// carries the metadata fields that are actually part of the real SDK's
+// types.Parameter (confirmed via deserializers.go's
+// awsAwsjson11_deserializeDocumentParameter: AllowedValues, DataType,
+// Description, MinimumEngineVersion, Name, Value -- no "ChangeType" or
+// "Source", which a prior pass fabricated and this test used to assert on;
+// TestHandler_DescribeParameters_NoFabricatedFields below locks their absence).
 func TestHandler_DescribeParameters_Metadata(t *testing.T) {
 	t.Parallel()
 
@@ -456,8 +463,6 @@ func TestHandler_DescribeParameters_Metadata(t *testing.T) {
 		wantField string
 		wantValue string
 	}{
-		{"has ChangeType=immediate", "ChangeType", "immediate"},
-		{"has Source=system", "Source", "system"},
 		{"has MinimumEngineVersion=6.2", "MinimumEngineVersion", "6.2"},
 		{"has DataType=string", "DataType", "string"},
 	}
@@ -478,6 +483,26 @@ func TestHandler_DescribeParameters_Metadata(t *testing.T) {
 					"parameter %q should have %s=%q", pm["Name"], tt.wantField, tt.wantValue)
 			}
 		})
+	}
+}
+
+// TestHandler_DescribeParameters_NoFabricatedFields verifies "ChangeType" and
+// "Source" -- not part of the real SDK's types.Parameter -- no longer appear
+// on any returned parameter.
+func TestHandler_DescribeParameters_NoFabricatedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	params := doDescribeParameters(t, h, "default.memorydb-redis7")
+	require.NotEmpty(t, params)
+
+	for _, p := range params {
+		pm, _ := p.(map[string]any)
+		_, hasChangeType := pm["ChangeType"]
+		_, hasSource := pm["Source"]
+		assert.False(t, hasChangeType, "ChangeType must not appear on parameter %q", pm["Name"])
+		assert.False(t, hasSource, "Source must not appear on parameter %q", pm["Name"])
 	}
 }
 
@@ -594,9 +619,9 @@ func TestHandler_DescribeParameters_Empty(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "nonexistent parameter group returns 404",
+			name:       "nonexistent parameter group returns 400",
 			body:       map[string]any{"ParameterGroupName": "no-such-pg"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "valid parameter group returns 200",
@@ -670,11 +695,11 @@ func TestHandler_ResetParameterGroup_Variants(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name: "reset nonexistent group returns 404",
+			name: "reset nonexistent group returns 400",
 			body: map[string]any{
 				"ParameterGroupName": "no-such-pg",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -684,7 +709,7 @@ func TestHandler_ResetParameterGroup_Variants(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.name != "reset nonexistent group returns 404" {
+			if tt.name != "reset nonexistent group returns 400" {
 				doRequest(t, h, "CreateParameterGroup", map[string]any{
 					"ParameterGroupName": "my-pg",
 					"Family":             "memorydb_redis7",

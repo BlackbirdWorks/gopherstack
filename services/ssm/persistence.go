@@ -57,6 +57,7 @@ type backendSnapshot struct {
 	InventoryDeletions         map[string][]InventoryDeletion                     `json:"inventory_deletions"`
 	InstancePatches            map[string]map[string][]PatchComplianceData        `json:"instance_patches"`
 	AvailablePatches           map[string][]Patch                                 `json:"available_patches"`
+	NotifiedParameterPolicies  map[string]map[string]map[string]struct{}          `json:"notified_parameter_policies"`
 	Version                    int                                                `json:"version"`
 }
 
@@ -149,6 +150,10 @@ func initSnapshotPatchOpsFields(snap *backendSnapshot) {
 	if snap.AvailablePatches == nil {
 		snap.AvailablePatches = make(map[string][]Patch)
 	}
+
+	if snap.NotifiedParameterPolicies == nil {
+		snap.NotifiedParameterPolicies = make(map[string]map[string]map[string]struct{})
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -189,6 +194,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		InventoryDeletions:         b.inventoryDeletions,
 		InstancePatches:            b.instancePatches,
 		AvailablePatches:           b.availablePatches,
+		NotifiedParameterPolicies:  b.notifiedParameterPolicies,
 	}
 
 	data, err := json.Marshal(snap)
@@ -296,6 +302,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.inventoryDeletions = snap.InventoryDeletions
 	b.instancePatches = snap.InstancePatches
 	b.availablePatches = snap.AvailablePatches
+	b.notifiedParameterPolicies = snap.NotifiedParameterPolicies
 
 	// Re-seed built-in documents if they are absent from the snapshot
 	// (e.g. snapshots taken before document support was added).

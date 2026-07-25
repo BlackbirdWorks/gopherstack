@@ -789,7 +789,14 @@ func TestImmutableRepo_RejectRetag(t *testing.T) {
 		"IMMUTABLE repo must reject retagging an existing tag to a different digest")
 }
 
-func TestImmutableRepo_SameManifestSameTag_Idempotent(t *testing.T) {
+// TestImmutableRepo_SameManifestSameTag_ImageAlreadyExists locks the
+// PutImage ImageAlreadyExistsException gap: re-pushing an unchanged
+// manifest+tag pair ("no changes to the manifest or image tag after the last
+// push", per the real API doc, confirmed against the moto ECR emulator's
+// put_image logic) is rejected, independent of repository tag mutability.
+// This test previously asserted the opposite (success) as a documented gap;
+// see images.go's PutImage ImageAlreadyExistsException comment.
+func TestImmutableRepo_SameManifestSameTag_ImageAlreadyExists(t *testing.T) {
 	t.Parallel()
 
 	h := newAccuracyHandler()
@@ -801,14 +808,16 @@ func TestImmutableRepo_SameManifestSameTag_Idempotent(t *testing.T) {
 	manifest := `{"schemaVersion":2,"idempotent":true}`
 	mustPutImage(t, h, "immutable-idempotent", "stable", manifest)
 
-	// Same manifest + same tag = same digest → should succeed (idempotent).
 	rec := doAccuracy(t, h, "PutImage", map[string]any{
 		"repositoryName": "immutable-idempotent",
 		"imageManifest":  manifest,
 		"imageTag":       "stable",
 	})
-	assert.Equal(t, http.StatusOK, rec.Code,
-		"IMMUTABLE repo must allow re-push of same manifest with same tag")
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"re-pushing an unchanged manifest+tag must be rejected as a no-op push")
+
+	out := parseAccuracy(t, rec)
+	assert.Equal(t, "ImageAlreadyExistsException", out["__type"])
 }
 
 func TestImmutableRepo_NewTag_Allowed(t *testing.T) {
@@ -908,6 +917,211 @@ func TestDescribeImages_ImagePushedAt_NotZero(t *testing.T) {
 	assert.Greater(t, pushedAt, float64(0), "imagePushedAt must be non-zero after PutImage")
 }
 
+// TestDescribeImages_ArtifactMediaType_FromManifest locks that ImageDetail's
+// artifactMediaType is derived from the pushed manifest's top-level
+// "artifactType" field (OCI 1.1 artifact manifests). A manifest without that
+// field (e.g. a plain Docker v2 manifest) must simply omit the field.
+func TestDescribeImages_ArtifactMediaType_FromManifest(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "artifact-repo")
+	mustPutImage(t, h, "artifact-repo", "v1",
+		`{"schemaVersion":2,"artifactType":"application/vnd.example.artifact+type"}`)
+	mustPutImage(t, h, "artifact-repo", "plain", `{"schemaVersion":2}`)
+
+	rec := doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "artifact-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	details, _ := out["imageDetails"].([]any)
+	require.Len(t, details, 2)
+
+	byTag := make(map[string]map[string]any)
+	for _, d := range details {
+		detail := d.(map[string]any)
+		tags, _ := detail["imageTags"].([]any)
+		require.Len(t, tags, 1)
+		byTag[tags[0].(string)] = detail
+	}
+
+	assert.Equal(t, "application/vnd.example.artifact+type", byTag["v1"]["artifactMediaType"])
+	assert.NotContains(t, byTag["plain"], "artifactMediaType",
+		"a manifest with no artifactType must omit artifactMediaType")
+}
+
+// TestDescribeImages_SubjectManifestDigest_FromManifest locks that
+// ImageDetail's subjectManifestDigest is derived from the pushed manifest's
+// OCI "subject.digest" field (used for referrer relationships).
+func TestDescribeImages_SubjectManifestDigest_FromManifest(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "subject-repo")
+	mustPutImage(t, h, "subject-repo", "referrer",
+		`{"schemaVersion":2,"subject":{"digest":"sha256:`+strings.Repeat("a", 64)+`","mediaType":"x"}}`)
+
+	rec := doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "subject-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	details, _ := out["imageDetails"].([]any)
+	require.Len(t, details, 1)
+	detail := details[0].(map[string]any)
+
+	assert.Equal(t, "sha256:"+strings.Repeat("a", 64), detail["subjectManifestDigest"])
+}
+
+// TestDescribeImages_ScanFields_PopulatedAfterScan locks that ImageDetail's
+// imageScanFindingsSummary/imageScanStatus are derived from the
+// imageScanFindings store once StartImageScan has run, and are absent
+// (rather than zero-valued objects) for an image that was never scanned.
+func TestDescribeImages_ScanFields_PopulatedAfterScan(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "scan-fields-repo")
+	scannedDigest := mustPutImage(t, h, "scan-fields-repo", "scanned", `{"schemaVersion":2,"a":1}`)
+	mustPutImage(t, h, "scan-fields-repo", "unscanned", `{"schemaVersion":2,"a":2}`)
+
+	scanRec := doAccuracy(t, h, "StartImageScan", map[string]any{
+		"repositoryName": "scan-fields-repo",
+		"imageId":        map[string]any{"imageDigest": scannedDigest},
+	})
+	require.Equal(t, http.StatusOK, scanRec.Code)
+
+	rec := doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "scan-fields-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	details, _ := out["imageDetails"].([]any)
+	require.Len(t, details, 2)
+
+	byDigest := make(map[string]map[string]any)
+	for _, d := range details {
+		detail := d.(map[string]any)
+		byDigest[detail["imageDigest"].(string)] = detail
+	}
+
+	scanned := byDigest[scannedDigest]
+	require.NotNil(t, scanned)
+	status, ok := scanned["imageScanStatus"].(map[string]any)
+	require.True(t, ok, "imageScanStatus must be present for a scanned image")
+	assert.Equal(t, "COMPLETE", status["status"])
+	summary, ok := scanned["imageScanFindingsSummary"].(map[string]any)
+	require.True(t, ok, "imageScanFindingsSummary must be present for a scanned image")
+	completedAt, ok := summary["imageScanCompletedAt"].(float64)
+	require.True(t, ok, "imageScanCompletedAt must be a number")
+	assert.Positive(t, completedAt)
+
+	for _, detail := range byDigest {
+		if detail["imageDigest"] == scannedDigest {
+			continue
+		}
+
+		assert.NotContains(t, detail, "imageScanStatus", "an unscanned image must omit imageScanStatus")
+		assert.NotContains(t, detail, "imageScanFindingsSummary",
+			"an unscanned image must omit imageScanFindingsSummary")
+	}
+}
+
+// TestDescribeImages_LastRecordedPullTime_ViaBatchGetImage locks that
+// BatchGetImage stamps lastRecordedPullTime, surfaced via DescribeImages.
+func TestDescribeImages_LastRecordedPullTime_ViaBatchGetImage(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "pull-time-repo")
+	digest := mustPutImage(t, h, "pull-time-repo", "v1", `{"schemaVersion":2}`)
+
+	beforeRec := doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "pull-time-repo"})
+	require.Equal(t, http.StatusOK, beforeRec.Code)
+	beforeDetail := parseAccuracy(t, beforeRec)["imageDetails"].([]any)[0].(map[string]any)
+	assert.NotContains(t, beforeDetail, "lastRecordedPullTime",
+		"an image that was never pulled must omit lastRecordedPullTime")
+
+	getRec := doAccuracy(t, h, "BatchGetImage", map[string]any{
+		"repositoryName": "pull-time-repo",
+		"imageIds":       []map[string]any{{"imageDigest": digest}},
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	afterRec := doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "pull-time-repo"})
+	require.Equal(t, http.StatusOK, afterRec.Code)
+	afterDetail := parseAccuracy(t, afterRec)["imageDetails"].([]any)[0].(map[string]any)
+	pullTime, ok := afterDetail["lastRecordedPullTime"].(float64)
+	require.True(t, ok, "lastRecordedPullTime must be a number after BatchGetImage")
+	assert.Positive(t, pullTime)
+}
+
+// TestDescribeImages_LastRecordedPullTime_ViaGetDownloadUrlForLayer locks
+// that resolving a layer's download URL stamps lastRecordedPullTime on every
+// image whose manifest references that layer digest.
+func TestDescribeImages_LastRecordedPullTime_ViaGetDownloadUrlForLayer(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "pull-time-layer-repo")
+
+	layerDigest := mustUploadLayerHTTP(t, h, "pull-time-layer-repo", []byte("layer-bytes"))
+	manifest := `{"schemaVersion":2,"layers":[{"digest":"` + layerDigest + `"}]}`
+	mustPutImage(t, h, "pull-time-layer-repo", "v1", manifest)
+
+	dlRec := doAccuracy(t, h, "GetDownloadUrlForLayer", map[string]any{
+		"repositoryName": "pull-time-layer-repo",
+		"layerDigest":    layerDigest,
+	})
+	require.Equal(t, http.StatusOK, dlRec.Code)
+
+	rec := doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "pull-time-layer-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	detail := parseAccuracy(t, rec)["imageDetails"].([]any)[0].(map[string]any)
+	pullTime, ok := detail["lastRecordedPullTime"].(float64)
+	require.True(t, ok, "lastRecordedPullTime must be a number after GetDownloadUrlForLayer")
+	assert.Positive(t, pullTime)
+}
+
+// TestDescribeImages_LastArchivedAt_LastActivatedAt_ViaUpdateImageStorageClass
+// locks that UpdateImageStorageClass stamps lastArchivedAt/lastActivatedAt,
+// surfaced via DescribeImages.
+func TestDescribeImages_LastArchivedAt_LastActivatedAt_ViaUpdateImageStorageClass(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "storage-class-time-repo")
+	digest := mustPutImage(t, h, "storage-class-time-repo", "v1", `{"schemaVersion":2}`)
+
+	archiveRec := doAccuracy(t, h, "UpdateImageStorageClass", map[string]any{
+		"repositoryName":     "storage-class-time-repo",
+		"imageId":            map[string]any{"imageDigest": digest},
+		"targetStorageClass": "ARCHIVE",
+	})
+	require.Equal(t, http.StatusOK, archiveRec.Code)
+
+	rec := doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "storage-class-time-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	detail := parseAccuracy(t, rec)["imageDetails"].([]any)[0].(map[string]any)
+	archivedAt, ok := detail["lastArchivedAt"].(float64)
+	require.True(t, ok, "lastArchivedAt must be a number after archiving")
+	assert.Positive(t, archivedAt)
+	assert.NotContains(t, detail, "lastActivatedAt",
+		"an image that was only ever archived must omit lastActivatedAt")
+
+	activateRec := doAccuracy(t, h, "UpdateImageStorageClass", map[string]any{
+		"repositoryName":     "storage-class-time-repo",
+		"imageId":            map[string]any{"imageDigest": digest},
+		"targetStorageClass": "STANDARD",
+	})
+	require.Equal(t, http.StatusOK, activateRec.Code)
+
+	rec2 := doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "storage-class-time-repo"})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	detail2 := parseAccuracy(t, rec2)["imageDetails"].([]any)[0].(map[string]any)
+	activatedAt, ok := detail2["lastActivatedAt"].(float64)
+	require.True(t, ok, "lastActivatedAt must be a number after re-activating")
+	assert.Positive(t, activatedAt)
+}
+
 func TestPutImage_IMMUTABLE_SameTag_DifferentDigest_Rejected(t *testing.T) {
 	t.Parallel()
 
@@ -965,33 +1179,37 @@ func TestPutImage_IMMUTABLE_NewTag_Succeeds(t *testing.T) {
 		"pushing a new tag in an IMMUTABLE repo must succeed")
 }
 
-func TestPutImage_IMMUTABLE_SameTagSameDigest_Idempotent(t *testing.T) {
+// TestPutImage_MUTABLE_SameTagSameDigest_ImageAlreadyExists locks that
+// ImageAlreadyExistsException fires on a MUTABLE repository too: it is a
+// distinct check from the IMMUTABLE-only ImageTagAlreadyExistsException
+// retag guard (see PutImage in images.go), so a repo's tag mutability
+// setting must not affect whether re-pushing an unchanged manifest+tag is
+// rejected.
+func TestPutImage_MUTABLE_SameTagSameDigest_ImageAlreadyExists(t *testing.T) {
 	t.Parallel()
 
 	h := newAccuracyHandler()
-	doAccuracy(t, h, "CreateRepository", map[string]any{
-		"repositoryName":     "immutable-idem",
-		"imageTagMutability": "IMMUTABLE",
-	})
+	mustCreateRepo(t, h, "mutable-idem")
 
 	manifest := `{"schemaVersion":2,"idempotent":true}`
 
-	// First push.
 	rec1 := doAccuracy(t, h, "PutImage", map[string]any{
-		"repositoryName": "immutable-idem",
+		"repositoryName": "mutable-idem",
 		"imageManifest":  manifest,
 		"imageTag":       "prod",
 	})
 	require.Equal(t, http.StatusOK, rec1.Code)
 
-	// Exact same push must be idempotent (same tag, same manifest → same digest).
 	rec2 := doAccuracy(t, h, "PutImage", map[string]any{
-		"repositoryName": "immutable-idem",
+		"repositoryName": "mutable-idem",
 		"imageManifest":  manifest,
 		"imageTag":       "prod",
 	})
-	assert.Equal(t, http.StatusOK, rec2.Code,
-		"pushing identical content to an IMMUTABLE repo must be idempotent")
+	assert.Equal(t, http.StatusBadRequest, rec2.Code,
+		"re-pushing identical content to a MUTABLE repo must also be rejected as a no-op push")
+
+	out := parseAccuracy(t, rec2)
+	assert.Equal(t, "ImageAlreadyExistsException", out["__type"])
 }
 
 func TestPutImage_MUTABLE_Retag_Succeeds(t *testing.T) {
@@ -1345,5 +1563,71 @@ func TestListImages_OpaqueNextToken(t *testing.T) {
 				"both pages together must cover all images",
 			)
 		})
+	}
+}
+
+// TestPutImage_ImageView_OmitsInventedFields locks the PutImage "image" wire
+// shape against the real AWS ecr.types.Image, which has exactly five fields —
+// imageId, imageManifest, imageManifestMediaType, registryId, repositoryName
+// (per awsAwsjson11_deserializeDocumentImage). gopherstack's internal Image
+// domain struct additionally carries imageDigest, imagePushedAt, imageStatus,
+// storageClass, and imageSizeInBytes for its own bookkeeping (used by the
+// separate DescribeImages ImageDetail shape); those must never leak onto the
+// PutImage/BatchGetImage "image" object.
+func TestPutImage_ImageView_OmitsInventedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "image-view-repo")
+
+	rec := doAccuracy(t, h, "PutImage", map[string]any{
+		"repositoryName": "image-view-repo",
+		"imageManifest":  `{"schemaVersion":2}`,
+		"imageTag":       "v1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	img, ok := out["image"].(map[string]any)
+	require.True(t, ok)
+
+	for _, invented := range []string{"imageDigest", "imagePushedAt", "imageStatus", "storageClass", "imageSizeInBytes"} {
+		_, present := img[invented]
+		assert.False(t, present, "PutImage image object must not carry invented field %q", invented)
+	}
+
+	imageID, ok := img["imageId"].(map[string]any)
+	require.True(t, ok, "image.imageId must be present")
+	assert.NotEmpty(t, imageID["imageDigest"], "the digest belongs under imageId.imageDigest")
+	assert.Equal(t, "v1", imageID["imageTag"])
+}
+
+// TestBatchGetImage_ImageView_OmitsInventedFields is the BatchGetImage
+// counterpart of TestPutImage_ImageView_OmitsInventedFields: BatchGetImageOutput.Images
+// is also []types.Image, the same thin shape as PutImage's response.
+func TestBatchGetImage_ImageView_OmitsInventedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "bgi-view-repo")
+	digest := mustPutImage(t, h, "bgi-view-repo", "v1", `{"schemaVersion":2}`)
+
+	rec := doAccuracy(t, h, "BatchGetImage", map[string]any{
+		"repositoryName": "bgi-view-repo",
+		"imageIds":       []map[string]any{{"imageDigest": digest}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	images, ok := out["images"].([]any)
+	require.True(t, ok)
+	require.Len(t, images, 1)
+
+	img, ok := images[0].(map[string]any)
+	require.True(t, ok)
+
+	for _, invented := range []string{"imageDigest", "imagePushedAt", "imageStatus", "storageClass", "imageSizeInBytes"} {
+		_, present := img[invented]
+		assert.False(t, present, "BatchGetImage image object must not carry invented field %q", invented)
 	}
 }

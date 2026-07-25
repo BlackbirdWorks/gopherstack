@@ -5,8 +5,11 @@ import (
 	"sort"
 )
 
-// vpcLinkStatusAvailable is the status for an available VPC Link.
-const vpcLinkStatusAvailable = "AVAILABLE"
+// statusAvailable is the shared "AVAILABLE" status literal reused across
+// several unrelated AWS enums that all happen to use this same spelling for
+// their steady state (VpcLinkStatus, DomainNameStatus, ApiStatus,
+// CacheClusterStatus).
+const statusAvailable = "AVAILABLE"
 
 // CreateVpcLink creates a new VPC link.
 func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, error) {
@@ -20,7 +23,7 @@ func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, err
 		ID:          id,
 		Name:        input.Name,
 		Description: input.Description,
-		Status:      vpcLinkStatusAvailable,
+		Status:      statusAvailable,
 		TargetARNs:  input.TargetARNs,
 		Tags:        input.Tags,
 	}

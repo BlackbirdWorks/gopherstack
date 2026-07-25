@@ -299,6 +299,34 @@ func TestCreateTags_MultipleTags(t *testing.T) {
 	assert.Equal(t, "v3", tags["mt-cluster"]["k3"])
 }
 
+// TestClusterResponse_EmbedsTagsInline locks in that Cluster-returning responses
+// (CreateCluster, DescribeClusters, ...) embed the cluster's tags directly as a
+// <Tags><Tag><Key>/<Value></Tag></Tags> list, matching the real
+// aws-sdk-go-v2/service/redshift Cluster.Tags []types.Tag field -- confirmed against
+// awsAwsquery_deserializeDocumentCluster's "Tags" case in deserializers.go. Before
+// this test, cluster responses never serialized tags at all; a real client reading
+// DescribeClustersOutput.Clusters[i].Tags always saw an empty list even when tags
+// were set via CreateTags.
+func TestClusterResponse_EmbedsTagsInline(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	h := redshift.NewHandler(b)
+
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=tag-inline-cluster")
+	postRedshiftForm(t, h, "Action=CreateTags&Version=2012-12-01"+
+		"&ResourceName=tag-inline-cluster"+
+		"&Tags.Tag.1.Key=env&Tags.Tag.1.Value=prod")
+
+	rec := postRedshiftForm(t, h, "Action=DescribeClusters&Version=2012-12-01&ClusterIdentifier=tag-inline-cluster")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "<Tags>")
+	assert.Contains(t, body, "<Key>env</Key>")
+	assert.Contains(t, body, "<Value>prod</Value>")
+}
+
 // ----- DescribeTags/CreateTags/DeleteTags via top-level handler dispatch -----
 
 func TestRedshiftHandler_DescribeTags(t *testing.T) {

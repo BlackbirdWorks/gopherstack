@@ -26,7 +26,12 @@ func (b *InMemoryBackend) CancelDomainConfigChange(
 
 	if d.LastChangeID != "" {
 		cancelledChangeIDs = append(cancelledChangeIDs, d.LastChangeID)
-		d.LastChangeID = ""
+
+		// DryRun reports what WOULD be cancelled without actually cancelling
+		// it -- mirrors the UpdateDomainConfig DryRun fix (see PARITY.md).
+		if !dryRun {
+			d.LastChangeID = ""
+		}
 	}
 
 	return cancelledChangeIDs, dryRun, nil
@@ -157,31 +162,35 @@ func (b *InMemoryBackend) PreviewDomainConfig(
 	return &cp, nil
 }
 
-// GetDefaultApplicationSettings returns stored settings for the given applicationType.
-func (b *InMemoryBackend) GetDefaultApplicationSettings(
-	applicationType string,
-) ([]AppSetting, error) {
-	b.mu.RLock("GetDefaultApplicationSettings")
+// GetDefaultApplicationSetting returns the account's default OpenSearch
+// application ARN, or "" if none is set (types.GetDefaultApplicationSettingOutput).
+func (b *InMemoryBackend) GetDefaultApplicationSetting() string {
+	b.mu.RLock("GetDefaultApplicationSetting")
 	defer b.mu.RUnlock()
 
-	settings := b.defaultAppSettings[applicationType]
-	out := make([]AppSetting, len(settings))
-	copy(out, settings)
-
-	return out, nil
+	return b.defaultApplicationArn
 }
 
-// PutDefaultApplicationSettings stores settings for the given applicationType.
-func (b *InMemoryBackend) PutDefaultApplicationSettings(
-	applicationType string,
-	settings []AppSetting,
-) error {
-	b.mu.Lock("PutDefaultApplicationSettings")
+// PutDefaultApplicationSetting sets or clears the account's default OpenSearch
+// application ARN (types.PutDefaultApplicationSettingInput: ApplicationArn is
+// the ARN to set, SetAsDefault true sets it as default, false clears it) and
+// returns the resulting default ARN.
+func (b *InMemoryBackend) PutDefaultApplicationSetting(
+	applicationArn string,
+	setAsDefault bool,
+) (string, error) {
+	if applicationArn == "" {
+		return "", fmt.Errorf("%w: ApplicationArn is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("PutDefaultApplicationSetting")
 	defer b.mu.Unlock()
 
-	stored := make([]AppSetting, len(settings))
-	copy(stored, settings)
-	b.defaultAppSettings[applicationType] = stored
+	if setAsDefault {
+		b.defaultApplicationArn = applicationArn
+	} else {
+		b.defaultApplicationArn = ""
+	}
 
-	return nil
+	return b.defaultApplicationArn, nil
 }

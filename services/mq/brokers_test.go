@@ -526,9 +526,21 @@ func TestUpdateBroker_UpdatesReflectedInDescribe(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// engineVersion only takes effect on the next reboot (see
+	// DescribeBrokerOutput.pendingEngineVersion); the pre-update value stays
+	// live in the meantime.
 	descOut := describeTestBroker(t, h, brokerID)
-	assert.Equal(t, "5.18.3", descOut["engineVersion"],
-		"updated engineVersion must appear in DescribeBroker")
+	assert.NotEqual(t, "5.18.3", descOut["engineVersion"], "engineVersion must not apply before reboot")
+	assert.Equal(t, "5.18.3", descOut["pendingEngineVersion"],
+		"updated engineVersion must appear as pendingEngineVersion before reboot")
+
+	rebootRec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/reboot", nil)
+	require.Equal(t, http.StatusOK, rebootRec.Code)
+	describeTestBroker(t, h, brokerID) // first Describe after reboot observes REBOOT_IN_PROGRESS and promotes.
+
+	settled := describeTestBroker(t, h, brokerID)
+	assert.Equal(t, "5.18.3", settled["engineVersion"],
+		"updated engineVersion must appear in DescribeBroker after the broker reboots")
 }
 
 func TestPromote(t *testing.T) {

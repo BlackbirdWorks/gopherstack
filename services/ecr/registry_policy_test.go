@@ -240,3 +240,33 @@ func TestDescribeRegistry_ReturnsRegistryID(t *testing.T) {
 	assert.Equal(t, "123456789012", out["registryId"],
 		"DescribeRegistry must return the configured account ID as registryId")
 }
+
+// TestRegistryPolicy_OmitsInventedStatusField locks the Put/Get/DeleteRegistryPolicy
+// wire shape against the real AWS SetRegistryPolicyOutput/GetRegistryPolicyOutput/
+// DeleteRegistryPolicyOutput, which carry only policyText and registryId — no
+// "status" field. gopherstack previously fabricated a status string
+// ("DELETED"/"ACTIVE"/"SetComplete") that has no counterpart in the real API.
+func TestRegistryPolicy_OmitsInventedStatusField(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	policy := `{"Version":"2012-10-17","Statement":[]}`
+
+	putRec := doAccuracy(t, h, "PutRegistryPolicy", map[string]any{"policyText": policy})
+	require.Equal(t, http.StatusOK, putRec.Code)
+	putOut := parseAccuracy(t, putRec)
+	_, present := putOut["status"]
+	assert.False(t, present, "PutRegistryPolicy must not carry an invented status field")
+
+	getRec := doAccuracy(t, h, "GetRegistryPolicy", map[string]any{})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	getOut := parseAccuracy(t, getRec)
+	_, present = getOut["status"]
+	assert.False(t, present, "GetRegistryPolicy must not carry an invented status field")
+
+	deleteRec := doAccuracy(t, h, "DeleteRegistryPolicy", map[string]any{})
+	require.Equal(t, http.StatusOK, deleteRec.Code)
+	deleteOut := parseAccuracy(t, deleteRec)
+	_, present = deleteOut["status"]
+	assert.False(t, present, "DeleteRegistryPolicy must not carry an invented status field")
+}

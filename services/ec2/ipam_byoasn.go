@@ -172,6 +172,7 @@ func (b *InMemoryBackend) DeleteIpamExternalResourceVerificationToken(
 		return nil, fmt.Errorf("%w: %s", ErrIpamVerificationTokenNotFound, id)
 	}
 	b.ipamVerificationTokens.Delete(id)
+	delete(b.tags, id)
 
 	cp := *token
 	cp.State = ipamStateDeleteComplete

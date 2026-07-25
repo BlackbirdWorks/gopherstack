@@ -12,6 +12,7 @@ type StorageBackend interface {
 		source TrustAnchorSource,
 		tags []TagEntry,
 		enabled *bool,
+		notificationSettings []NotificationSetting,
 	) (*TrustAnchor, error)
 	GetTrustAnchor(ctx context.Context, id string) (*TrustAnchor, error)
 	ListTrustAnchors(ctx context.Context, pageToken string, maxResults int) ([]*TrustAnchor, string, error)
@@ -30,6 +31,8 @@ type StorageBackend interface {
 		managedPolicyArns []string,
 		sessionPolicy string,
 		requireInstanceProperties bool,
+		enabled *bool,
+		acceptRoleSessionName *bool,
 	) (*Profile, error)
 	GetProfile(ctx context.Context, id string) (*Profile, error)
 	ListProfiles(ctx context.Context, pageToken string, maxResults int) ([]*Profile, string, error)
@@ -42,6 +45,7 @@ type StorageBackend interface {
 		managedPolicyArns []string,
 		sessionPolicy string,
 		requireInstanceProperties *bool,
+		acceptRoleSessionName *bool,
 	) (*Profile, error)
 	EnableProfile(ctx context.Context, id string) (*Profile, error)
 	DisableProfile(ctx context.Context, id string) (*Profile, error)

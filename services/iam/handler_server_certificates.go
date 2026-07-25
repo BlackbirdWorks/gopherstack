@@ -69,9 +69,12 @@ func (h *Handler) iamServerCertReadDispatch() map[string]iamActionFn {
 func (h *Handler) iamServerCertWriteDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"DeleteServerCertificate": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.DeleteServerCertificate(vals.Get("ServerCertificateName")); err != nil {
+			name := vals.Get("ServerCertificateName")
+			if err := h.Backend.DeleteServerCertificate(name); err != nil {
 				return nil, err
 			}
+
+			h.deleteTags("cert:" + name)
 
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "DeleteServerCertificateResponse"},
@@ -80,12 +83,19 @@ func (h *Handler) iamServerCertWriteDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"UpdateServerCertificate": func(vals url.Values, reqID string) (any, error) {
+			oldName := vals.Get("ServerCertificateName")
+			newName := vals.Get("NewServerCertificateName")
+
 			if err := h.Backend.UpdateServerCertificate(
-				vals.Get("ServerCertificateName"),
-				vals.Get("NewServerCertificateName"),
+				oldName,
+				newName,
 				vals.Get("NewPath"),
 			); err != nil {
 				return nil, err
+			}
+
+			if newName != "" && newName != oldName {
+				h.renameTags("cert:"+oldName, "cert:"+newName)
 			}
 
 			return &iamSimpleTagResponse{

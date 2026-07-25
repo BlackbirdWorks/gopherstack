@@ -129,12 +129,13 @@ func (h *Handler) handleCreateRecipe(ctx context.Context, body []byte) ([]byte, 
 
 func (h *Handler) handleDescribeRecipe(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Name string `json:"Name"`
+		Name          string `json:"Name"`
+		RecipeVersion string `json:"RecipeVersion"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	r, err := h.Backend.DescribeRecipe(ctx, req.Name)
+	r, err := h.Backend.DescribeRecipe(ctx, req.Name, req.RecipeVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -144,13 +145,14 @@ func (h *Handler) handleDescribeRecipe(ctx context.Context, body []byte) ([]byte
 
 func (h *Handler) handleListRecipes(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MaxResults string `json:"MaxResults"`
-		NextToken  string `json:"NextToken"`
+		MaxResults    string `json:"MaxResults"`
+		NextToken     string `json:"NextToken"`
+		RecipeVersion string `json:"RecipeVersion"`
 	}
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	recipes, next := h.Backend.ListRecipes(ctx, maxResults, req.NextToken)
+	recipes, next := h.Backend.ListRecipes(ctx, maxResults, req.NextToken, req.RecipeVersion)
 
 	return json.Marshal(map[string]any{"Recipes": recipes, nextTokenKey: next})
 }
@@ -208,14 +210,12 @@ func (h *Handler) handleBatchDeleteRecipeVersion(ctx context.Context, body []byt
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if _, err := h.Backend.DescribeRecipe(ctx, req.Name); err != nil {
+	errs, err := h.Backend.BatchDeleteRecipeVersion(ctx, req.Name, req.RecipeVersions)
+	if err != nil {
 		return nil, err
 	}
-	// We only emulate a single version "1.0", so any batch deletion for emulation
-	// will either do nothing or delete the recipe itself if it was the only version.
-	// For simplicity, return success with no per-version errors.
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]any{keyName: req.Name, "Errors": errs})
 }
 
 func (h *Handler) handleDeleteRecipeVersion(ctx context.Context, body []byte) ([]byte, error) {
@@ -226,7 +226,7 @@ func (h *Handler) handleDeleteRecipeVersion(ctx context.Context, body []byte) ([
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if _, err := h.Backend.DescribeRecipe(ctx, req.Name); err != nil {
+	if err := h.Backend.DeleteRecipeVersion(ctx, req.Name, req.RecipeVersion); err != nil {
 		return nil, err
 	}
 
@@ -235,15 +235,19 @@ func (h *Handler) handleDeleteRecipeVersion(ctx context.Context, body []byte) ([
 
 func (h *Handler) handleListRecipeVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Name string `json:"Name"`
+		Name       string `json:"Name"`
+		MaxResults string `json:"MaxResults"`
+		NextToken  string `json:"NextToken"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	r, err := h.Backend.DescribeRecipe(ctx, req.Name)
+	maxResults, _ := strconv.Atoi(req.MaxResults)
+
+	recipes, next, err := h.Backend.ListRecipeVersions(ctx, req.Name, maxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Recipes": []Recipe{*r}})
+	return json.Marshal(map[string]any{"Recipes": recipes, nextTokenKey: next})
 }

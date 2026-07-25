@@ -112,6 +112,42 @@ func TestCWAlarmTemplateGroup_GetUpdateListDelete(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestCWAlarmTemplateGroup_ListTemplateCount locks in a fix for a gap where
+// ListCloudWatchAlarmTemplateGroups always reused the Get/Create/Update
+// shape, which has NO "templateCount" field on the real API (verified
+// against the SDK deserializer) -- but the real ListCloudWatchAlarmTemplate
+// GroupsOutput's per-item Summary shape DOES have one. Get/Create/Update
+// must still omit it; only List computes and includes the live count.
+func TestCWAlarmTemplateGroup_ListTemplateCount(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/prod/cloudwatch-alarm-template-groups",
+		map[string]any{"name": "cw-group-count"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	created := decodeBody(t, rec.Body.Bytes())
+	groupID := created["id"].(string)
+	_, hasCount := created["templateCount"]
+	assert.False(t, hasCount, "real Create/Get/UpdateCloudWatchAlarmTemplateGroupOutput has no templateCount field")
+
+	for i := range 2 {
+		rec = doRequest(t, h, http.MethodPost, "/prod/cloudwatch-alarm-templates", map[string]any{
+			"name": "cw-tmpl-count-" + string(rune('a'+i)), "groupIdentifier": groupID,
+			"metricName": "InputLossSeconds",
+		})
+		require.Equal(t, http.StatusCreated, rec.Code)
+	}
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/cloudwatch-alarm-template-groups", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	items := decodeBody(t, rec.Body.Bytes())["cloudWatchAlarmTemplateGroups"].([]any)
+	require.Len(t, items, 1)
+
+	group := items[0].(map[string]any)
+	assert.InDelta(t, float64(2), group["templateCount"], 0)
+}
+
 func TestCWAlarmTemplate_CRUD(t *testing.T) {
 	t.Parallel()
 

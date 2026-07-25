@@ -431,49 +431,38 @@ func Test_DeleteThingShadow_ReturnsPayload(t *testing.T) {
 	assert.Contains(t, resp, "version")
 	assert.Contains(t, resp, "timestamp")
 }
-func Test_MaxShadowsPerThing_CapEnforced(t *testing.T) {
+
+// manyNamedShadowsCount is a generous shadow count used to prove gopherstack
+// imposes no artificial per-thing shadow limit -- AWS's documented quotas page
+// ("AWS IoT Core endpoints and quotas") lists no maximum number of named
+// shadows per thing at all, and real-world reports of 200+ (even 10,000+) named
+// shadows on a single thing are common. An earlier gopherstack revision
+// self-imposed a 100-shadow-per-thing cap that had no basis in real AWS
+// behavior and was removed; see PARITY.md.
+const manyNamedShadowsCount = 150
+
+func Test_ManyNamedShadowsPerThing_NoArtificialCap(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
 
-	// Fill to cap.
-	for i := range iotdataplane.MaxShadowsPerThing {
+	for i := range manyNamedShadowsCount {
 		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("shadow-%d", i), []byte(`{"state":{"desired":{"x":1}}}`))
-		require.NoError(t, err)
+		require.NoError(t, err, "shadow %d must be created -- AWS has no documented per-thing shadow limit", i)
 	}
 
-	assert.Equal(t, iotdataplane.MaxShadowsPerThing, iotdataplane.ShadowCount(b))
-
-	// One more new shadow for the same thing must fail.
-	_, err := b.UpdateThingShadow("thing1", "overflow-shadow", []byte(`{"state":{"desired":{"x":1}}}`))
-	require.ErrorIs(t, err, iotdataplane.ErrValidation)
+	assert.Equal(t, manyNamedShadowsCount, iotdataplane.ShadowCount(b))
 }
-func Test_MaxShadowsPerThing_UpdateExistingNotCapped(t *testing.T) {
+func Test_ManyNamedShadowsPerThing_UpdateExistingAlwaysSucceeds(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
 	b.AddShadowInternal("thing1", "existing", []byte(`{"state":{}}`))
 
-	// Updating existing shadow must succeed regardless of cap.
-	for range iotdataplane.MaxShadowsPerThing + 10 {
+	for range manyNamedShadowsCount {
 		_, err := b.UpdateThingShadow("thing1", "existing", []byte(`{"state":{"desired":{"k":"v"}}}`))
 		require.NoError(t, err)
 	}
-}
-func Test_MaxShadowsPerThing_CapPerThing(t *testing.T) {
-	t.Parallel()
-
-	b := iotdataplane.NewInMemoryBackend()
-
-	// Fill thing1 to cap.
-	for i := range iotdataplane.MaxShadowsPerThing {
-		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("s-%d", i), []byte(`{"state":{"desired":{"x":1}}}`))
-		require.NoError(t, err)
-	}
-
-	// thing2 must still accept new shadows.
-	_, err := b.UpdateThingShadow("thing2", "new-shadow", []byte(`{"state":{"desired":{"x":1}}}`))
-	require.NoError(t, err)
 }
 func Test_ShadowPath_Precision(t *testing.T) {
 	t.Parallel()
@@ -675,33 +664,8 @@ func Test_NamedShadow_IndependentVersions(t *testing.T) {
 	assert.InDelta(t, float64(3), alpha["version"], 0, "alpha must be at version 3")
 	assert.InDelta(t, float64(1), beta["version"], 0, "beta must be at version 1")
 }
-func Test_ShadowCap_CapEnforcedWithValidDocs(t *testing.T) {
-	t.Parallel()
 
-	b := iotdataplane.NewInMemoryBackend()
-
-	for i := range iotdataplane.MaxShadowsPerThing {
-		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("shadow-%d", i), []byte(`{"state":{"desired":{"i":1}}}`))
-		require.NoError(t, err, "shadow %d must be created", i)
-	}
-
-	// One more new shadow must fail.
-	_, err := b.UpdateThingShadow("thing1", "overflow", []byte(`{"state":{"desired":{"i":1}}}`))
-	require.ErrorIs(t, err, iotdataplane.ErrValidation)
-}
-func Test_ShadowCap_UpdateExistingAlwaysSucceeds(t *testing.T) {
-	t.Parallel()
-
-	b := iotdataplane.NewInMemoryBackend()
-
-	for i := range iotdataplane.MaxShadowsPerThing {
-		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("shadow-%d", i), []byte(`{"state":{"desired":{"i":1}}}`))
-		require.NoError(t, err)
-	}
-
-	// Updating existing shadow (index 0) must succeed even at cap.
-	for range 5 {
-		_, err := b.UpdateThingShadow("thing1", "shadow-0", []byte(`{"state":{"desired":{"x":2}}}`))
-		require.NoError(t, err, "update of existing shadow must always succeed")
-	}
-}
+// Note: coverage for "no artificial per-thing shadow cap" and "updating an
+// existing shadow always succeeds" lives in Test_ManyNamedShadowsPerThing_*
+// above -- duplicate cap-boundary tests were removed here along with the
+// invented maxShadowsPerThing limit itself (see PARITY.md).

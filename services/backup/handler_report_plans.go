@@ -9,12 +9,75 @@ import (
 
 type reportDeliveryChannelJSON struct {
 	S3BucketName string   `json:"S3BucketName"`
+	S3KeyPrefix  string   `json:"S3KeyPrefix,omitempty"`
 	Formats      []string `json:"Formats,omitempty"`
 }
 
 type reportSettingJSON struct {
-	ReportTemplate string   `json:"ReportTemplate"`
-	FrameworkArns  []string `json:"FrameworkArns,omitempty"`
+	ReportTemplate     string   `json:"ReportTemplate"`
+	FrameworkArns      []string `json:"FrameworkArns,omitempty"`
+	Accounts           []string `json:"Accounts,omitempty"`
+	OrganizationUnits  []string `json:"OrganizationUnits,omitempty"`
+	Regions            []string `json:"Regions,omitempty"`
+	NumberOfFrameworks int32    `json:"NumberOfFrameworks,omitempty"`
+}
+
+func reportDeliveryChannelFromJSON(in *reportDeliveryChannelJSON) *ReportDeliveryChannel {
+	if in == nil {
+		return nil
+	}
+
+	return &ReportDeliveryChannel{
+		S3BucketName: in.S3BucketName,
+		S3KeyPrefix:  in.S3KeyPrefix,
+		Formats:      in.Formats,
+	}
+}
+
+func reportDeliveryChannelToJSON(in *ReportDeliveryChannel) map[string]any {
+	out := map[string]any{"S3BucketName": in.S3BucketName}
+	setOptionalStr(out, "S3KeyPrefix", in.S3KeyPrefix)
+	if len(in.Formats) > 0 {
+		out["Formats"] = in.Formats
+	}
+
+	return out
+}
+
+func reportSettingFromJSON(in *reportSettingJSON) *ReportSetting {
+	if in == nil {
+		return nil
+	}
+
+	return &ReportSetting{
+		ReportTemplate:     in.ReportTemplate,
+		FrameworkArns:      in.FrameworkArns,
+		Accounts:           in.Accounts,
+		OrganizationUnits:  in.OrganizationUnits,
+		Regions:            in.Regions,
+		NumberOfFrameworks: in.NumberOfFrameworks,
+	}
+}
+
+func reportSettingToJSON(in *ReportSetting) map[string]any {
+	out := map[string]any{"ReportTemplate": in.ReportTemplate}
+	if len(in.FrameworkArns) > 0 {
+		out["FrameworkArns"] = in.FrameworkArns
+	}
+	if len(in.Accounts) > 0 {
+		out["Accounts"] = in.Accounts
+	}
+	if len(in.OrganizationUnits) > 0 {
+		out["OrganizationUnits"] = in.OrganizationUnits
+	}
+	if len(in.Regions) > 0 {
+		out["Regions"] = in.Regions
+	}
+	if in.NumberOfFrameworks > 0 {
+		out["NumberOfFrameworks"] = in.NumberOfFrameworks
+	}
+
+	return out
 }
 
 type createReportPlanBody struct {
@@ -28,35 +91,21 @@ type createReportPlanBody struct {
 func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {
 	var in createReportPlanBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	if in.ReportPlanName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "ReportPlanName is required"),
+			errResp("MissingParameterValueException", "ReportPlanName is required"),
 		)
 	}
 
-	var deliveryChannel *ReportDeliveryChannel
-	if in.ReportDeliveryChannel != nil {
-		deliveryChannel = &ReportDeliveryChannel{
-			S3BucketName: in.ReportDeliveryChannel.S3BucketName,
-			Formats:      in.ReportDeliveryChannel.Formats,
-		}
-	}
-	var reportSetting *ReportSetting
-	if in.ReportSetting != nil {
-		reportSetting = &ReportSetting{
-			ReportTemplate: in.ReportSetting.ReportTemplate,
-			FrameworkArns:  in.ReportSetting.FrameworkArns,
-		}
-	}
 	rp, err := h.Backend.CreateReportPlan(
 		in.ReportPlanName,
 		in.ReportPlanDescription,
-		deliveryChannel,
-		reportSetting,
+		reportDeliveryChannelFromJSON(in.ReportDeliveryChannel),
+		reportSettingFromJSON(in.ReportSetting),
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -91,7 +140,7 @@ func (h *Handler) handleDescribeReportPlan(c *echo.Context, name string) error {
 	if name == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "ReportPlanName is required"),
+			errResp("MissingParameterValueException", "ReportPlanName is required"),
 		)
 	}
 
@@ -107,33 +156,27 @@ func (h *Handler) handleDescribeReportPlan(c *echo.Context, name string) error {
 		keyCreationTime:         epochSeconds(rp.CreationTime),
 	}
 	if rp.ReportDeliveryChannel != nil {
-		ch := map[string]any{"S3BucketName": rp.ReportDeliveryChannel.S3BucketName}
-		if len(rp.ReportDeliveryChannel.Formats) > 0 {
-			ch["Formats"] = rp.ReportDeliveryChannel.Formats
-		}
-		rpDoc["ReportDeliveryChannel"] = ch
+		rpDoc["ReportDeliveryChannel"] = reportDeliveryChannelToJSON(rp.ReportDeliveryChannel)
 	}
 	if rp.ReportSetting != nil {
-		rs := map[string]any{"ReportTemplate": rp.ReportSetting.ReportTemplate}
-		if len(rp.ReportSetting.FrameworkArns) > 0 {
-			rs["FrameworkArns"] = rp.ReportSetting.FrameworkArns
-		}
-		rpDoc["ReportSetting"] = rs
+		rpDoc["ReportSetting"] = reportSettingToJSON(rp.ReportSetting)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"ReportPlan": rpDoc})
 }
 
 type updateReportPlanBody struct {
-	ReportPlanDescription string `json:"ReportPlanDescription,omitempty"`
-	IdempotencyToken      string `json:"IdempotencyToken,omitempty"`
+	ReportDeliveryChannel *reportDeliveryChannelJSON `json:"ReportDeliveryChannel,omitempty"`
+	ReportSetting         *reportSettingJSON         `json:"ReportSetting,omitempty"`
+	ReportPlanDescription string                     `json:"ReportPlanDescription,omitempty"`
+	IdempotencyToken      string                     `json:"IdempotencyToken,omitempty"`
 }
 
 func (h *Handler) handleUpdateReportPlan(c *echo.Context, name string, body []byte) error {
 	if name == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "ReportPlanName is required"),
+			errResp("MissingParameterValueException", "ReportPlanName is required"),
 		)
 	}
 
@@ -142,12 +185,17 @@ func (h *Handler) handleUpdateReportPlan(c *echo.Context, name string, body []by
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
 
-	rp, err := h.Backend.UpdateReportPlan(name, in.ReportPlanDescription)
+	rp, err := h.Backend.UpdateReportPlan(
+		name,
+		in.ReportPlanDescription,
+		reportDeliveryChannelFromJSON(in.ReportDeliveryChannel),
+		reportSettingFromJSON(in.ReportSetting),
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -162,7 +210,7 @@ func (h *Handler) handleDeleteReportPlan(c *echo.Context, name string) error {
 	if name == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "ReportPlanName is required"),
+			errResp("MissingParameterValueException", "ReportPlanName is required"),
 		)
 	}
 
@@ -184,7 +232,7 @@ func (h *Handler) dispatchReportJobOps(
 		job, err := h.Backend.DescribeReportJob(route.resource)
 		if err != nil {
 			return true, c.JSON(
-				http.StatusNotFound,
+				http.StatusBadRequest,
 				errResp("ResourceNotFoundException", err.Error()),
 			)
 		}
@@ -211,7 +259,7 @@ func (h *Handler) dispatchReportJobOps(
 		job, err := h.Backend.DescribeScanJob(route.resource)
 		if err != nil {
 			return true, c.JSON(
-				http.StatusNotFound,
+				http.StatusBadRequest,
 				errResp("ResourceNotFoundException", err.Error()),
 			)
 		}
@@ -248,7 +296,8 @@ func (h *Handler) dispatchReportJobOps(
 
 		job := h.Backend.StartScanJob(vaultArn)
 
-		return true, c.JSON(http.StatusOK, map[string]any{
+		// Real AWS: responseCode 201.
+		return true, c.JSON(http.StatusCreated, map[string]any{
 			keyScanJobID:    job.ScanJobID,
 			keyCreationDate: epochSeconds(job.CreationTime),
 		})

@@ -384,3 +384,148 @@ func TestVPHandler_CreatePolicyStore_DescriptionBound(t *testing.T) {
 		})
 	}
 }
+
+// TestVPHandler_CreatePolicyStore_WireShape locks in a wire-shape bug fix:
+// the real SDK's CreatePolicyStoreOutput has no validationSettings field at
+// all (only arn/createdDate/lastUpdatedDate/policyStoreId) -- gopherstack
+// previously echoed the input validationSettings back, a field the real
+// client-side deserializer never expects here.
+func TestVPHandler_CreatePolicyStore_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{
+		"validationSettings": map[string]any{"mode": "OFF"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.NotContains(t, resp, "validationSettings")
+	assert.NotEmpty(t, resp["policyStoreId"])
+	assert.NotEmpty(t, resp["arn"])
+	assert.NotEmpty(t, resp["createdDate"])
+	assert.NotEmpty(t, resp["lastUpdatedDate"])
+}
+
+// TestVPHandler_GetPolicyStore_CedarVersion verifies GetPolicyStore always
+// populates the optional cedarVersion field (Amazon Verified Permissions'
+// Cedar v4 FAQ) -- gopherstack's cedar-go evaluation engine implements
+// Cedar 4, so every policy store reports CEDAR_4.
+func TestVPHandler_GetPolicyStore_CedarVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "GetPolicyStore", map[string]any{"policyStoreId": storeID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "CEDAR_4", resp["cedarVersion"])
+}
+
+// TestVPHandler_ListPolicyStores_WireShape locks in a wire-shape bug fix:
+// the real SDK's PolicyStoreItem (ListPolicyStores) is a leaner shape than
+// GetPolicyStoreOutput -- no validationSettings or deletionProtection --
+// gopherstack previously echoed both, fields the real item type doesn't
+// declare at all.
+func TestVPHandler_ListPolicyStores_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "ListPolicyStores", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	items, _ := resp["policyStores"].([]any)
+	require.NotEmpty(t, items)
+	item, _ := items[0].(map[string]any)
+	assert.NotContains(t, item, "validationSettings")
+	assert.NotContains(t, item, "deletionProtection")
+	assert.NotContains(t, item, "cedarVersion")
+}
+
+// TestVPHandler_UpdatePolicyStore_WireShape locks in a wire-shape bug fix:
+// the real SDK's UpdatePolicyStoreOutput requires createdDate (the store
+// already existed) and, like CreatePolicyStoreOutput, has no
+// validationSettings field -- gopherstack previously omitted createdDate
+// (a required field) and echoed validationSettings (an invented one).
+func TestVPHandler_UpdatePolicyStore_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "UpdatePolicyStore", map[string]any{
+		"policyStoreId": storeID,
+		"description":   "updated",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.NotContains(t, resp, "validationSettings")
+	assert.NotEmpty(t, resp["createdDate"], "createdDate is a required UpdatePolicyStoreOutput field")
+	assert.NotEmpty(t, resp["lastUpdatedDate"])
+	assert.Equal(t, storeID, resp["policyStoreId"])
+}
+
+// TestVPHandler_CreatePolicyStore_ClientTokenIdempotency verifies
+// CreatePolicyStore's ClientToken idempotency semantics documented on
+// CreatePolicyStoreInput.ClientToken: a retry with the same token and the
+// same parameters replays the original policy store (no duplicate created);
+// a retry with the same token but different parameters fails with
+// ConflictException.
+func TestVPHandler_CreatePolicyStore_ClientTokenIdempotency(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+
+	body := func(description string) map[string]any {
+		return map[string]any{
+			"validationSettings": map[string]any{"mode": "OFF"},
+			"description":        description,
+			"clientToken":        "fixed-token",
+		}
+	}
+
+	rec1 := doVPRequest(t, h, "CreatePolicyStore", body("first"))
+	require.Equal(t, http.StatusOK, rec1.Code)
+	var resp1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+
+	// Same token, same parameters: replays the original policy store.
+	rec2 := doVPRequest(t, h, "CreatePolicyStore", body("first"))
+	require.Equal(t, http.StatusOK, rec2.Code)
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	assert.Equal(t, resp1["policyStoreId"], resp2["policyStoreId"])
+	assert.Equal(t, resp1["createdDate"], resp2["createdDate"])
+
+	// Same token, different parameters: ConflictException.
+	rec3 := doVPRequest(t, h, "CreatePolicyStore", body("different"))
+	assert.Equal(t, http.StatusBadRequest, rec3.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errResp))
+	assert.Equal(t, "ConflictException", errResp["__type"])
+
+	// A different token creates a genuinely new policy store.
+	rec4 := doVPRequest(t, h, "CreatePolicyStore", map[string]any{
+		"validationSettings": map[string]any{"mode": "OFF"},
+		"description":        "first",
+		"clientToken":        "another-token",
+	})
+	require.Equal(t, http.StatusOK, rec4.Code)
+	var resp4 map[string]any
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4))
+	assert.NotEqual(t, resp1["policyStoreId"], resp4["policyStoreId"])
+}

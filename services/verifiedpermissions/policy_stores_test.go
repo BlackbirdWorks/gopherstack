@@ -45,7 +45,7 @@ func TestBackend_PolicyStore(t *testing.T) {
 				return
 			}
 
-			ps, err := b.CreatePolicyStore(tt.description, nil, "OFF", "")
+			ps, err := b.CreatePolicyStore(tt.description, nil, "OFF", "", "")
 			require.NoError(t, err)
 			assert.NotEmpty(t, ps.PolicyStoreID)
 			assert.Equal(t, tt.description, ps.Description)
@@ -83,7 +83,7 @@ func TestBackend_ListPolicyStores(t *testing.T) {
 			b := newTestBackend()
 
 			for range tt.numStores {
-				_, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				_, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 			}
 
@@ -108,7 +108,7 @@ func TestBackend_UpdatePolicyStore(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("original", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("original", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID
@@ -162,7 +162,7 @@ func TestBackend_DeletePolicyStore(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID
@@ -228,7 +228,7 @@ func TestBackend_CreatePolicyStore_WithTags(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			ps, err := b.CreatePolicyStore("desc", tt.tags, "OFF", "")
+			ps, err := b.CreatePolicyStore("desc", tt.tags, "OFF", "", "")
 			require.NoError(t, err)
 			assert.NotEmpty(t, ps.PolicyStoreID)
 			assert.NotEmpty(t, ps.Arn)

@@ -111,6 +111,22 @@ type openSearchDestinationInput struct {
 	RoleARN                  string                    `json:"RoleARN"`
 }
 
+// elasticsearchDestinationInput holds the legacy Elasticsearch destination configuration.
+type elasticsearchDestinationInput struct {
+	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration"`
+	BufferingHints           *BufferingHints           `json:"BufferingHints"`
+	RetryOptions             *RetryOptions             `json:"RetryOptions"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
+	S3Configuration          *s3DestinationInput       `json:"S3Configuration"`
+	DomainARN                string                    `json:"DomainARN"`
+	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
+	IndexName                string                    `json:"IndexName"`
+	TypeName                 string                    `json:"TypeName"`
+	IndexRotationPeriod      string                    `json:"IndexRotationPeriod"`
+	S3BackupMode             string                    `json:"S3BackupMode"`
+	RoleARN                  string                    `json:"RoleARN"`
+}
+
 // splunkDestinationInput holds the Splunk HEC destination configuration.
 type splunkDestinationInput struct {
 	ProcessingConfiguration           *ProcessingConfiguration  `json:"ProcessingConfiguration"`
@@ -131,18 +147,61 @@ type aosDeliveryField struct {
 	AmazonOpenSearchServiceDestinationConfiguration *openSearchDestinationInput `json:"AmazonOpenSearchServiceDestinationConfiguration"` //nolint:lll // AWS field name
 }
 
+// icebergDestinationInput holds the Apache Iceberg Tables destination configuration.
+type icebergDestinationInput struct {
+	BufferingHints                    *BufferingHints                 `json:"BufferingHints"`
+	CatalogConfiguration              *CatalogConfiguration           `json:"CatalogConfiguration"`
+	CloudWatchLoggingOptions          *CloudWatchLoggingOptions       `json:"CloudWatchLoggingOptions"`
+	ProcessingConfiguration           *ProcessingConfiguration        `json:"ProcessingConfiguration"`
+	RetryOptions                      *RetryOptions                   `json:"RetryOptions"`
+	S3Configuration                   *s3DestinationInput             `json:"S3Configuration"`
+	SchemaEvolutionConfiguration      *SchemaEvolutionConfiguration   `json:"SchemaEvolutionConfiguration"`
+	TableCreationConfiguration        *TableCreationConfiguration     `json:"TableCreationConfiguration"`
+	RoleARN                           string                          `json:"RoleARN"`
+	S3BackupMode                      string                          `json:"S3BackupMode"`
+	DestinationTableConfigurationList []DestinationTableConfiguration `json:"DestinationTableConfigurationList"`
+	AppendOnly                        bool                            `json:"AppendOnly"`
+}
+
+// snowflakeDestinationInput holds the Snowflake destination configuration.
+type snowflakeDestinationInput struct {
+	BufferingHints              *SnowflakeBufferingHints     `json:"BufferingHints"`
+	CloudWatchLoggingOptions    *CloudWatchLoggingOptions    `json:"CloudWatchLoggingOptions"`
+	ProcessingConfiguration     *ProcessingConfiguration     `json:"ProcessingConfiguration"`
+	RetryOptions                *SnowflakeRetryOptions       `json:"RetryOptions"`
+	S3Configuration             *s3DestinationInput          `json:"S3Configuration"`
+	SecretsManagerConfiguration *SecretsManagerConfiguration `json:"SecretsManagerConfiguration"`
+	SnowflakeRoleConfiguration  *SnowflakeRoleConfiguration  `json:"SnowflakeRoleConfiguration"`
+	SnowflakeVpcConfiguration   *SnowflakeVpcConfiguration   `json:"SnowflakeVpcConfiguration"`
+	AccountURL                  string                       `json:"AccountUrl"`
+	ContentColumnName           string                       `json:"ContentColumnName"`
+	DataLoadingOption           string                       `json:"DataLoadingOption"`
+	Database                    string                       `json:"Database"`
+	KeyPassphrase               string                       `json:"KeyPassphrase"`
+	MetaDataColumnName          string                       `json:"MetaDataColumnName"`
+	PrivateKey                  string                       `json:"PrivateKey"`
+	RoleARN                     string                       `json:"RoleARN"`
+	S3BackupMode                string                       `json:"S3BackupMode"`
+	Schema                      string                       `json:"Schema"`
+	Table                       string                       `json:"Table"`
+	User                        string                       `json:"User"`
+}
+
 type createDeliveryStreamInput struct {
 	aosDeliveryField
-	S3DestinationConfiguration           *s3DestinationInput           `json:"S3DestinationConfiguration"`
-	ExtendedS3DestinationConfiguration   *s3DestinationInput           `json:"ExtendedS3DestinationConfiguration"`
-	HTTPEndpointDestinationConfiguration *httpEndpointDestinationInput `json:"HTTPEndpointDestinationConfiguration"`
-	KinesisStreamSourceConfiguration     *kinesisStreamSrcInput        `json:"KinesisStreamSourceConfiguration"`
-	MSKSourceConfiguration               *mskSourceConfigurationInput  `json:"MSKSourceConfiguration"`
-	RedshiftDestinationConfiguration     *redshiftDestinationInput     `json:"RedshiftDestinationConfiguration"`
-	SplunkDestinationConfiguration       *splunkDestinationInput       `json:"SplunkDestinationConfiguration"`
-	DeliveryStreamName                   string                        `json:"DeliveryStreamName"`
-	DeliveryStreamType                   string                        `json:"DeliveryStreamType"`
-	Tags                                 []svcTags.KV                  `json:"Tags"`
+	S3DestinationConfiguration            *s3DestinationInput            `json:"S3DestinationConfiguration"`
+	ExtendedS3DestinationConfiguration    *s3DestinationInput            `json:"ExtendedS3DestinationConfiguration"`
+	HTTPEndpointDestinationConfiguration  *httpEndpointDestinationInput  `json:"HTTPEndpointDestinationConfiguration"`
+	KinesisStreamSourceConfiguration      *kinesisStreamSrcInput         `json:"KinesisStreamSourceConfiguration"`
+	MSKSourceConfiguration                *mskSourceConfigurationInput   `json:"MSKSourceConfiguration"`
+	RedshiftDestinationConfiguration      *redshiftDestinationInput      `json:"RedshiftDestinationConfiguration"`
+	ElasticsearchDestinationConfiguration *elasticsearchDestinationInput `json:"ElasticsearchDestinationConfiguration"` //nolint:lll // AWS field name
+	SplunkDestinationConfiguration        *splunkDestinationInput        `json:"SplunkDestinationConfiguration"`
+	IcebergDestinationConfiguration       *icebergDestinationInput       `json:"IcebergDestinationConfiguration"`
+	SnowflakeDestinationConfiguration     *snowflakeDestinationInput     `json:"SnowflakeDestinationConfiguration"`
+	DeliveryStreamName                    string                         `json:"DeliveryStreamName"`
+	DeliveryStreamType                    string                         `json:"DeliveryStreamType"`
+	Tags                                  []svcTags.KV                   `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
@@ -265,6 +324,43 @@ func buildOpenSearchDestination(os *openSearchDestinationInput) *OpenSearchDesti
 	return dest
 }
 
+// buildElasticsearchDestination converts elasticsearchDestinationInput to the backend type.
+// This is the legacy Elasticsearch destination shape, wire-distinct from the newer
+// AmazonopensearchserviceDestinationConfiguration family (see ElasticsearchDestinationDescription).
+func buildElasticsearchDestination(es *elasticsearchDestinationInput) *ElasticsearchDestinationDescription {
+	if es == nil {
+		return nil
+	}
+
+	dest := &ElasticsearchDestinationDescription{
+		DomainARN:                es.DomainARN,
+		ClusterEndpoint:          es.ClusterEndpoint,
+		IndexName:                es.IndexName,
+		TypeName:                 es.TypeName,
+		IndexRotationPeriod:      es.IndexRotationPeriod,
+		S3BackupMode:             es.S3BackupMode,
+		RoleARN:                  es.RoleARN,
+		ProcessingConfiguration:  es.ProcessingConfiguration,
+		BufferingHints:           es.BufferingHints,
+		RetryOptions:             es.RetryOptions,
+		CloudWatchLoggingOptions: es.CloudWatchLoggingOptions,
+	}
+
+	// AWS models S3Configuration as the required backup destination for legacy
+	// Elasticsearch (distinct from the optional-backup pattern used elsewhere).
+	if es.S3Configuration != nil {
+		dest.S3BackupDescription = &S3BackupDescription{
+			BucketARN:         es.S3Configuration.BucketARN,
+			RoleARN:           es.S3Configuration.RoleARN,
+			Prefix:            es.S3Configuration.Prefix,
+			CompressionFormat: es.S3Configuration.CompressionFormat,
+			BufferingHints:    es.S3Configuration.BufferingHints,
+		}
+	}
+
+	return dest
+}
+
 // buildSplunkDestination converts splunkDestinationInput to the backend type.
 func buildSplunkDestination(sp *splunkDestinationInput) *SplunkDestinationDescription {
 	if sp == nil {
@@ -287,6 +383,56 @@ func buildSplunkDestination(sp *splunkDestinationInput) *SplunkDestinationDescri
 	}
 
 	return dest
+}
+
+// buildIcebergDestination converts icebergDestinationInput to the backend type.
+func buildIcebergDestination(ic *icebergDestinationInput) *IcebergDestinationDescription {
+	if ic == nil {
+		return nil
+	}
+
+	return &IcebergDestinationDescription{
+		BufferingHints:                    ic.BufferingHints,
+		CatalogConfiguration:              ic.CatalogConfiguration,
+		CloudWatchLoggingOptions:          ic.CloudWatchLoggingOptions,
+		ProcessingConfiguration:           ic.ProcessingConfiguration,
+		RetryOptions:                      ic.RetryOptions,
+		S3Destination:                     buildS3DestinationDescription(ic.S3Configuration),
+		SchemaEvolutionConfiguration:      ic.SchemaEvolutionConfiguration,
+		TableCreationConfiguration:        ic.TableCreationConfiguration,
+		DestinationTableConfigurationList: ic.DestinationTableConfigurationList,
+		RoleARN:                           ic.RoleARN,
+		S3BackupMode:                      ic.S3BackupMode,
+		AppendOnly:                        ic.AppendOnly,
+	}
+}
+
+// buildSnowflakeDestination converts snowflakeDestinationInput to the backend type.
+func buildSnowflakeDestination(sf *snowflakeDestinationInput) *SnowflakeDestinationDescription {
+	if sf == nil {
+		return nil
+	}
+
+	return &SnowflakeDestinationDescription{
+		BufferingHints:              sf.BufferingHints,
+		CloudWatchLoggingOptions:    sf.CloudWatchLoggingOptions,
+		ProcessingConfiguration:     sf.ProcessingConfiguration,
+		RetryOptions:                sf.RetryOptions,
+		S3Destination:               buildS3DestinationDescription(sf.S3Configuration),
+		SecretsManagerConfiguration: sf.SecretsManagerConfiguration,
+		SnowflakeRoleConfiguration:  sf.SnowflakeRoleConfiguration,
+		SnowflakeVpcConfiguration:   sf.SnowflakeVpcConfiguration,
+		AccountURL:                  sf.AccountURL,
+		ContentColumnName:           sf.ContentColumnName,
+		DataLoadingOption:           sf.DataLoadingOption,
+		Database:                    sf.Database,
+		MetaDataColumnName:          sf.MetaDataColumnName,
+		RoleARN:                     sf.RoleARN,
+		S3BackupMode:                sf.S3BackupMode,
+		Schema:                      sf.Schema,
+		Table:                       sf.Table,
+		User:                        sf.User,
+	}
 }
 
 // buildS3BackupDescription converts an s3BackupInput to the backend type.
@@ -332,6 +478,45 @@ func buildSourceDescription(
 	return nil
 }
 
+// validateSingleDestination rejects a CreateDeliveryStream request that names more than
+// one destination configuration. Real AWS accepts exactly one destination type per call
+// (S3DestinationConfiguration and ExtendedS3DestinationConfiguration are mutually exclusive
+// aliases for the same "S3 family" slot and are counted together).
+func validateSingleDestination(in *createDeliveryStreamInput) error {
+	provided := 0
+	if in.S3DestinationConfiguration != nil || in.ExtendedS3DestinationConfiguration != nil {
+		provided++
+	}
+	if in.HTTPEndpointDestinationConfiguration != nil {
+		provided++
+	}
+	if in.RedshiftDestinationConfiguration != nil {
+		provided++
+	}
+	if in.AmazonOpenSearchServiceDestinationConfiguration != nil {
+		provided++
+	}
+	if in.ElasticsearchDestinationConfiguration != nil {
+		provided++
+	}
+	if in.SplunkDestinationConfiguration != nil {
+		provided++
+	}
+	if in.IcebergDestinationConfiguration != nil {
+		provided++
+	}
+	if in.SnowflakeDestinationConfiguration != nil {
+		provided++
+	}
+
+	if provided > 1 {
+		return fmt.Errorf("%w: at most one destination configuration may be specified, got %d",
+			ErrValidation, provided)
+	}
+
+	return nil
+}
+
 func (h *Handler) handleCreateDeliveryStream(
 	ctx context.Context,
 	in *createDeliveryStreamInput,
@@ -352,15 +537,24 @@ func (h *Handler) handleCreateDeliveryStream(
 		}
 	}
 
+	if err := validateSingleDestination(in); err != nil {
+		return nil, err
+	}
+
 	s, err := h.Backend.CreateDeliveryStream(ctx, CreateDeliveryStreamInput{
-		Name:                    in.DeliveryStreamName,
-		DeliveryStreamType:      in.DeliveryStreamType,
-		S3Destination:           buildS3DestinationDescription(rawS3),
-		HTTPEndpointDestination: buildHTTPEndpointDestination(in.HTTPEndpointDestinationConfiguration),
-		RedshiftDestination:     buildRedshiftDestination(in.RedshiftDestinationConfiguration),
-		OpenSearchDestination:   buildOpenSearchDestination(in.AmazonOpenSearchServiceDestinationConfiguration),
-		SplunkDestination:       buildSplunkDestination(in.SplunkDestinationConfiguration),
-		Source:                  buildSourceDescription(in.KinesisStreamSourceConfiguration, in.MSKSourceConfiguration),
+		Name:                     in.DeliveryStreamName,
+		DeliveryStreamType:       in.DeliveryStreamType,
+		S3Destination:            buildS3DestinationDescription(rawS3),
+		HTTPEndpointDestination:  buildHTTPEndpointDestination(in.HTTPEndpointDestinationConfiguration),
+		RedshiftDestination:      buildRedshiftDestination(in.RedshiftDestinationConfiguration),
+		OpenSearchDestination:    buildOpenSearchDestination(in.AmazonOpenSearchServiceDestinationConfiguration),
+		ElasticsearchDestination: buildElasticsearchDestination(in.ElasticsearchDestinationConfiguration),
+		SplunkDestination:        buildSplunkDestination(in.SplunkDestinationConfiguration),
+		IcebergDestination:       buildIcebergDestination(in.IcebergDestinationConfiguration),
+		SnowflakeDestination:     buildSnowflakeDestination(in.SnowflakeDestinationConfiguration),
+		Source: buildSourceDescription(
+			in.KinesisStreamSourceConfiguration, in.MSKSourceConfiguration,
+		),
 	})
 	if err != nil {
 		return nil, err
@@ -396,12 +590,15 @@ func (h *Handler) handleDeleteDeliveryStream(
 // DescribeDeliveryStream responses nest every destination type under a single
 // "Destinations" list on the wire rather than exposing separate per-type lists.
 type destinationDescriptionOutput struct {
-	ExtendedS3DestinationDescription              *S3DestinationDescription           `json:"ExtendedS3DestinationDescription,omitempty"`              //nolint:lll // AWS field name
-	HTTPEndpointDestinationDescription            *HTTPEndpointDestinationDescription `json:"HttpEndpointDestinationDescription,omitempty"`            //nolint:lll // AWS field name (note "Http" casing)
-	RedshiftDestinationDescription                *RedshiftDestinationDescription     `json:"RedshiftDestinationDescription,omitempty"`                //nolint:lll // AWS field name
-	AmazonopensearchserviceDestinationDescription *OpenSearchDestinationDescription   `json:"AmazonopensearchserviceDestinationDescription,omitempty"` //nolint:lll // AWS field name (exact casing)
-	SplunkDestinationDescription                  *SplunkDestinationDescription       `json:"SplunkDestinationDescription,omitempty"`                  //nolint:lll // AWS field name
-	DestinationID                                 string                              `json:"DestinationId"`
+	ExtendedS3DestinationDescription              *S3DestinationDescription            `json:"ExtendedS3DestinationDescription,omitempty"`              //nolint:lll // AWS field name
+	HTTPEndpointDestinationDescription            *HTTPEndpointDestinationDescription  `json:"HttpEndpointDestinationDescription,omitempty"`            //nolint:lll // AWS field name (note "Http" casing)
+	RedshiftDestinationDescription                *RedshiftDestinationDescription      `json:"RedshiftDestinationDescription,omitempty"`                //nolint:lll // AWS field name
+	AmazonopensearchserviceDestinationDescription *OpenSearchDestinationDescription    `json:"AmazonopensearchserviceDestinationDescription,omitempty"` //nolint:lll // AWS field name (exact casing)
+	ElasticsearchDestinationDescription           *ElasticsearchDestinationDescription `json:"ElasticsearchDestinationDescription,omitempty"`           //nolint:lll // AWS field name
+	SplunkDestinationDescription                  *SplunkDestinationDescription        `json:"SplunkDestinationDescription,omitempty"`                  //nolint:lll // AWS field name
+	IcebergDestinationDescription                 *IcebergDestinationDescription       `json:"IcebergDestinationDescription,omitempty"`                 //nolint:lll // AWS field name
+	SnowflakeDestinationDescription               *SnowflakeDestinationDescription     `json:"SnowflakeDestinationDescription,omitempty"`               //nolint:lll // AWS field name
+	DestinationID                                 string                               `json:"DestinationId"`
 }
 
 type deliveryStreamDescriptionFields struct {
@@ -517,11 +714,35 @@ func buildDestinationDescriptions(s *DeliveryStream) []destinationDescriptionOut
 		})
 	}
 
+	if s.ElasticsearchDestination != nil {
+		d := *s.ElasticsearchDestination
+		destinations = append(destinations, destinationDescriptionOutput{
+			DestinationID:                       destinationIDOrDefault(d.DestinationID),
+			ElasticsearchDestinationDescription: &d,
+		})
+	}
+
 	if s.SplunkDestination != nil {
 		d := *s.SplunkDestination
 		destinations = append(destinations, destinationDescriptionOutput{
 			DestinationID:                destinationIDOrDefault(d.DestinationID),
 			SplunkDestinationDescription: &d,
+		})
+	}
+
+	if s.IcebergDestination != nil {
+		d := *s.IcebergDestination
+		destinations = append(destinations, destinationDescriptionOutput{
+			DestinationID:                 destinationIDOrDefault(d.DestinationID),
+			IcebergDestinationDescription: &d,
+		})
+	}
+
+	if s.SnowflakeDestination != nil {
+		d := *s.SnowflakeDestination
+		destinations = append(destinations, destinationDescriptionOutput{
+			DestinationID:                   destinationIDOrDefault(d.DestinationID),
+			SnowflakeDestinationDescription: &d,
 		})
 	}
 

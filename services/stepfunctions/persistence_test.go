@@ -161,7 +161,13 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	act, err := original.CreateActivity(ctx, "full-state-activity")
 	require.NoError(t, err)
 
-	exec, err := original.StartExecution(sm.StateMachineArn, "full-state-exec", `{"k":"v"}`)
+	v, err := original.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")
+	require.NoError(t, err)
+
+	// Started via the version-qualified ARN so StateMachineVersionArn is
+	// non-empty on the Execution record, exercising the persistence DTO
+	// field added alongside qualified-ARN execution resolution.
+	exec, err := original.StartExecution(v.StateMachineVersionArn, "full-state-exec", `{"k":"v"}`)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -197,6 +203,8 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, exec.ExecutionArn, restoredExec.ExecutionArn)
 	assert.Equal(t, sm.StateMachineArn, restoredExec.StateMachineArn)
+	assert.Equal(t, v.StateMachineVersionArn, restoredExec.StateMachineVersionArn,
+		"StateMachineVersionArn must survive the snapshot/restore round trip")
 	assert.JSONEq(t, `{"k":"v"}`, restoredExec.Input)
 
 	gotHistory, _, err := fresh.GetExecutionHistory(exec.ExecutionArn, "", 0, false)

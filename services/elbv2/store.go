@@ -33,6 +33,12 @@ type InMemoryBackend struct {
 	accountID           string
 	region              string
 	ruleCounter         int // monotonically increasing counter for rule ARN generation
+	// revocationIDCounter mints RevocationId values for AddTrustStoreRevocations.
+	// Real AWS assigns RevocationId (int64) itself when it parses an uploaded
+	// revocation file -- callers never supply one -- so this emulator hands out a
+	// monotonically increasing int64 per trust store revocation, matching the wire
+	// type (types.TrustStoreRevocation.RevocationId *int64).
+	revocationIDCounter int64
 }
 
 // NewInMemoryBackend creates a new in-memory ELBv2 backend.

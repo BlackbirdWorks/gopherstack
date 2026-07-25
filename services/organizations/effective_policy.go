@@ -103,7 +103,7 @@ func (b *InMemoryBackend) mergePolicyChain(policyType string, chain []effectiveP
 	}
 
 	switch policyType {
-	case "TAG_POLICY", "BACKUP_POLICY", "AISERVICES_OPT_OUT_POLICY":
+	case policyTypeTag, policyTypeBackup, policyTypeAIOptOut:
 		return b.mergeTagStyleChain(chain)
 	}
 

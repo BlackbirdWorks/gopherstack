@@ -10,6 +10,13 @@ import (
 )
 
 // startAsyncInvokeInput is the parsed request body for StartAsyncInvoke.
+// Note: the real StartAsyncInvokeInput.ModelInput member (an opaque,
+// model-specific smithy document) is intentionally not modeled here --
+// gopherstack cannot interpret arbitrary model input schemas, and the real
+// AWS SDK client itself enforces ModelInput's presence before ever sending
+// the request (client-side required-member validation), so a raw HTTP
+// request that omits it is not a realistic scenario an SDK-driven caller can
+// produce.
 type startAsyncInvokeInput struct {
 	Tags             map[string]string `json:"tags"`
 	OutputDataConfig struct {
@@ -57,7 +64,7 @@ func (h *Handler) handleStartAsyncInvoke(c *echo.Context, body []byte) error {
 		keyInvocationArn: inv.InvocationArn,
 	}
 
-	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("Content-Type", contentTypeJSON)
 
 	return c.JSON(http.StatusAccepted, resp)
 }
@@ -79,7 +86,7 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 
 	resp := buildAsyncInvokeResponse(inv)
 
-	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("Content-Type", contentTypeJSON)
 
 	return c.JSON(http.StatusOK, resp)
 }
@@ -100,7 +107,7 @@ func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
 		"asyncInvokeSummaries": summaries,
 	}
 
-	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("Content-Type", contentTypeJSON)
 
 	return c.JSON(http.StatusOK, resp)
 }

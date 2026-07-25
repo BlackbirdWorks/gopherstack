@@ -121,7 +121,7 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 						{ColumnName: "id", StatisticsData: glue.ColumnStatisticsData{Type: "LONG"}},
 					},
 				))
-				_, err = b.PutResourcePolicy("policy", "", "", "")
+				_, err = b.PutResourcePolicy("policy", "", "", "", "")
 				require.NoError(t, err)
 			},
 			check: func(t *testing.T, b *glue.InMemoryBackend) {
@@ -167,8 +167,9 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 			name: "batch2_resource_families",
 			seed: func(t *testing.T, b *glue.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.CreateBlueprint("blueprint"))
-				_, err := b.StartBlueprintRun("blueprint")
+				_, err := b.CreateBlueprint("blueprint", "s3://bucket/blueprint", "", nil)
+				require.NoError(t, err)
+				_, err = b.StartBlueprintRun("blueprint")
 				require.NoError(t, err)
 				_, err = b.CreateUsageProfile("usage", "", nil)
 				require.NoError(t, err)

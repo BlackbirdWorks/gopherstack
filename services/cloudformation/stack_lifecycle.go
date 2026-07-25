@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -257,12 +258,46 @@ func requireIAMCapability(templateBody string, capabilities []string) error {
 	return ErrInsufficientCapabilities
 }
 
+// requireAutoExpandCapability checks whether the template declares a top-level
+// Transform (macro/SAM expansion) and the caller declared CAPABILITY_AUTO_EXPAND.
+// Per AWS docs, CAPABILITY_AUTO_EXPAND is required for any stack whose template
+// uses a Transform, since macro expansion can silently add or modify resources
+// that were not visible in the submitted template. It returns
+// ErrInsufficientCapabilities if the capability is absent. A template that fails
+// to parse is not this function's concern -- the caller's own ParseTemplate call
+// surfaces that error through its normal path.
+func requireAutoExpandCapability(templateBody string, capabilities []string) error {
+	if templateBody == "" {
+		return nil
+	}
+	tmpl, err := ParseTemplate(templateBody)
+	if err != nil {
+		// Deliberately swallowed: a malformed template is the caller's own
+		// ParseTemplate call's problem to surface (createStackFromTemplate /
+		// applyTemplateToStack), not this capability pre-flight check's.
+		return nil //nolint:nilerr // malformed-template errors are surfaced by the caller's own parse, not here
+	}
+	if len(tmpl.Transform) == 0 {
+		return nil
+	}
+	if slices.Contains(capabilities, "CAPABILITY_AUTO_EXPAND") {
+		return nil
+	}
+
+	return ErrInsufficientCapabilities
+}
+
 // validateStackOptions validates the options for CreateStack and UpdateStack.
-// It checks RoleARN format and IAM capability requirements.
+// It checks RoleARN format, IAM capability requirements, and (for templates
+// with a top-level Transform) the CAPABILITY_AUTO_EXPAND requirement.
 func validateStackOptions(templateBody string, opts StackOptions) error {
 	if err := ValidateRoleARN(opts.RoleARN); err != nil {
 		return err
 	}
 
-	return requireIAMCapability(templateBody, opts.Capabilities)
+	if err := requireIAMCapability(templateBody, opts.Capabilities); err != nil {
+		return err
+	}
+
+	return requireAutoExpandCapability(templateBody, opts.Capabilities)
 }

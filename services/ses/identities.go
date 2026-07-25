@@ -1,6 +1,7 @@
 package ses
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"strings"
@@ -108,6 +109,11 @@ func (b *InMemoryBackend) isVerifiedLocked(from string) bool {
 }
 
 // PutIdentityPolicy stores a sending authorization policy for an identity.
+// Real AWS SES validates that Policy is a well-formed JSON IAM-style policy
+// document and rejects malformed input with InvalidPolicyException; this
+// backend does not evaluate policy semantics (no sending-authorization
+// enforcement exists anywhere in this emulator), but it does reject
+// non-JSON input the same way, matching the wire error code.
 func (b *InMemoryBackend) PutIdentityPolicy(identity, policyName, policy string) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
@@ -115,6 +121,14 @@ func (b *InMemoryBackend) PutIdentityPolicy(identity, policyName, policy string)
 
 	if strings.TrimSpace(policyName) == "" {
 		return fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
+	}
+
+	if strings.TrimSpace(policy) == "" {
+		return fmt.Errorf("%w: Policy is required", ErrInvalidParameter)
+	}
+
+	if !json.Valid([]byte(policy)) {
+		return fmt.Errorf("%w: Policy must be a valid JSON policy document", ErrInvalidPolicy)
 	}
 
 	b.mu.Lock("PutIdentityPolicy")

@@ -129,14 +129,20 @@ func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]by
 	// an Outputs list (see backend.Job.Outputs / DescribeJob), so it's
 	// converted to a one-element Output slice for storage.
 	var req struct {
-		Tags           map[string]string `json:"Tags"`
-		OutputLocation *S3Location       `json:"OutputLocation"`
-		Name           string            `json:"Name"`
-		DatasetName    string            `json:"DatasetName"`
-		RoleArn        string            `json:"RoleArn"`
-		MaxCapacity    int               `json:"MaxCapacity"`
-		MaxRetries     int               `json:"MaxRetries"`
-		Timeout        int               `json:"Timeout"`
+		Tags                     map[string]string `json:"Tags"`
+		OutputLocation           *S3Location       `json:"OutputLocation"`
+		Configuration            map[string]any    `json:"Configuration"`
+		JobSample                map[string]any    `json:"JobSample"`
+		DatasetName              string            `json:"DatasetName"`
+		Name                     string            `json:"Name"`
+		RoleArn                  string            `json:"RoleArn"`
+		EncryptionKeyArn         string            `json:"EncryptionKeyArn"`
+		EncryptionMode           string            `json:"EncryptionMode"`
+		LogSubscription          string            `json:"LogSubscription"`
+		ValidationConfigurations []map[string]any  `json:"ValidationConfigurations"`
+		MaxCapacity              int               `json:"MaxCapacity"`
+		MaxRetries               int               `json:"MaxRetries"`
+		Timeout                  int               `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -151,6 +157,17 @@ func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]by
 		req.RoleArn,
 		outputLocationToOutputs(req.OutputLocation),
 		req.Tags,
+		JobExtras{
+			ProfileConfiguration:     req.Configuration,
+			JobSample:                req.JobSample,
+			ValidationConfigurations: req.ValidationConfigurations,
+			EncryptionMode:           req.EncryptionMode,
+			EncryptionKeyArn:         req.EncryptionKeyArn,
+			LogSubscription:          req.LogSubscription,
+			MaxCapacity:              req.MaxCapacity,
+			MaxRetries:               req.MaxRetries,
+			Timeout:                  req.Timeout,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -172,16 +189,21 @@ func outputLocationToOutputs(loc *S3Location) []Output {
 
 func (h *Handler) handleCreateRecipeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags            map[string]string `json:"Tags"`
-		RecipeReference *RecipeRef        `json:"RecipeReference"`
-		Name            string            `json:"Name"`
-		DatasetName     string            `json:"DatasetName"`
-		ProjectName     string            `json:"ProjectName"`
-		RoleArn         string            `json:"RoleArn"`
-		Outputs         []Output          `json:"Outputs"`
-		MaxCapacity     int               `json:"MaxCapacity"`
-		MaxRetries      int               `json:"MaxRetries"`
-		Timeout         int               `json:"Timeout"`
+		Tags               map[string]string `json:"Tags"`
+		RecipeReference    *RecipeRef        `json:"RecipeReference"`
+		DataCatalogOutputs []map[string]any  `json:"DataCatalogOutputs"`
+		DatabaseOutputs    []map[string]any  `json:"DatabaseOutputs"`
+		Name               string            `json:"Name"`
+		DatasetName        string            `json:"DatasetName"`
+		ProjectName        string            `json:"ProjectName"`
+		RoleArn            string            `json:"RoleArn"`
+		EncryptionKeyArn   string            `json:"EncryptionKeyArn"`
+		EncryptionMode     string            `json:"EncryptionMode"`
+		LogSubscription    string            `json:"LogSubscription"`
+		Outputs            []Output          `json:"Outputs"`
+		MaxCapacity        int               `json:"MaxCapacity"`
+		MaxRetries         int               `json:"MaxRetries"`
+		Timeout            int               `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -200,6 +222,16 @@ func (h *Handler) handleCreateRecipeJob(ctx context.Context, body []byte) ([]byt
 		req.RoleArn,
 		req.Outputs,
 		req.Tags,
+		JobExtras{
+			EncryptionMode:     req.EncryptionMode,
+			EncryptionKeyArn:   req.EncryptionKeyArn,
+			LogSubscription:    req.LogSubscription,
+			DataCatalogOutputs: req.DataCatalogOutputs,
+			DatabaseOutputs:    req.DatabaseOutputs,
+			MaxCapacity:        req.MaxCapacity,
+			MaxRetries:         req.MaxRetries,
+			Timeout:            req.Timeout,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -243,12 +275,18 @@ func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, erro
 // "Outputs" -- see the outputLocationToOutputs doc comment.
 func (h *Handler) handleUpdateProfileJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		OutputLocation *S3Location `json:"OutputLocation"`
-		Name           string      `json:"Name"`
-		RoleArn        string      `json:"RoleArn"`
-		MaxCapacity    int         `json:"MaxCapacity"`
-		MaxRetries     int         `json:"MaxRetries"`
-		Timeout        int         `json:"Timeout"`
+		OutputLocation           *S3Location      `json:"OutputLocation"`
+		Configuration            map[string]any   `json:"Configuration"`
+		JobSample                map[string]any   `json:"JobSample"`
+		Name                     string           `json:"Name"`
+		RoleArn                  string           `json:"RoleArn"`
+		EncryptionKeyArn         string           `json:"EncryptionKeyArn"`
+		EncryptionMode           string           `json:"EncryptionMode"`
+		LogSubscription          string           `json:"LogSubscription"`
+		ValidationConfigurations []map[string]any `json:"ValidationConfigurations"`
+		MaxCapacity              int              `json:"MaxCapacity"`
+		MaxRetries               int              `json:"MaxRetries"`
+		Timeout                  int              `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -256,6 +294,14 @@ func (h *Handler) handleUpdateProfileJob(ctx context.Context, body []byte) ([]by
 	if err := h.Backend.UpdateJob(
 		ctx, req.Name, req.RoleArn, outputLocationToOutputs(req.OutputLocation),
 		req.MaxCapacity, req.MaxRetries, req.Timeout,
+		JobExtras{
+			ProfileConfiguration:     req.Configuration,
+			JobSample:                req.JobSample,
+			ValidationConfigurations: req.ValidationConfigurations,
+			EncryptionMode:           req.EncryptionMode,
+			EncryptionKeyArn:         req.EncryptionKeyArn,
+			LogSubscription:          req.LogSubscription,
+		},
 	); err != nil {
 		return nil, err
 	}
@@ -267,18 +313,30 @@ func (h *Handler) handleUpdateProfileJob(ctx context.Context, body []byte) ([]by
 // job's output destinations is "Outputs" (a list), matching CreateRecipeJob.
 func (h *Handler) handleUpdateRecipeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Name        string   `json:"Name"`
-		RoleArn     string   `json:"RoleArn"`
-		Outputs     []Output `json:"Outputs"`
-		MaxCapacity int      `json:"MaxCapacity"`
-		MaxRetries  int      `json:"MaxRetries"`
-		Timeout     int      `json:"Timeout"`
+		Name               string           `json:"Name"`
+		RoleArn            string           `json:"RoleArn"`
+		EncryptionKeyArn   string           `json:"EncryptionKeyArn"`
+		EncryptionMode     string           `json:"EncryptionMode"`
+		LogSubscription    string           `json:"LogSubscription"`
+		Outputs            []Output         `json:"Outputs"`
+		DataCatalogOutputs []map[string]any `json:"DataCatalogOutputs"`
+		DatabaseOutputs    []map[string]any `json:"DatabaseOutputs"`
+		MaxCapacity        int              `json:"MaxCapacity"`
+		MaxRetries         int              `json:"MaxRetries"`
+		Timeout            int              `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.UpdateJob(
 		ctx, req.Name, req.RoleArn, req.Outputs, req.MaxCapacity, req.MaxRetries, req.Timeout,
+		JobExtras{
+			EncryptionMode:     req.EncryptionMode,
+			EncryptionKeyArn:   req.EncryptionKeyArn,
+			LogSubscription:    req.LogSubscription,
+			DataCatalogOutputs: req.DataCatalogOutputs,
+			DatabaseOutputs:    req.DatabaseOutputs,
+		},
 	); err != nil {
 		return nil, err
 	}

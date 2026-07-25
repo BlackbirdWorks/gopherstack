@@ -38,6 +38,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 					"",
 					"",
 					"",
+					false,
+					false,
 				)
 				if err != nil {
 					return ""
@@ -110,7 +112,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	ep, err := original.CreateResolverEndpoint(
 		ctx, "full-state-ep", "INBOUND", "vpc-1",
 		[]route53resolver.IPAddress{{SubnetID: "subnet-1", IP: "10.0.0.1"}},
-		[]string{"sg-1"}, "IPV4", nil, "", "", "req-1",
+		[]string{"sg-1"}, "IPV4", nil, "", "", "req-1", false, false,
 	)
 	require.NoError(t, err)
 

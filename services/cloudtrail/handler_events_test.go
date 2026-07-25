@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 func TestCloudTrailLookupEvents(t *testing.T) {
@@ -153,6 +155,33 @@ func TestLookupEvents(t *testing.T) {
 			assert.NotNil(t, events)
 		})
 	}
+}
+
+// TestLookupEvents_EventCategoryWire verifies the EventCategory wire field
+// round-trips through the handler into LookupEventsInput and is honored:
+// requesting "insight" on a backend that only ever records Management events
+// returns an empty list even though a matching event exists.
+func TestLookupEvents_EventCategoryWire(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+	h.Backend.RecordManagementEvent(service.CloudTrailEventInput{
+		EventName: "CreateBucket", EventSource: "s3.amazonaws.com",
+	})
+
+	rec := doCloudTrailOp(t, h, "LookupEvents", map[string]any{"EventCategory": "insight"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	resp := parseCloudTrailResp(t, rec)
+	events, ok := resp["Events"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, events, "EventCategory=insight must exclude Management events")
+
+	rec = doCloudTrailOp(t, h, "LookupEvents", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	resp = parseCloudTrailResp(t, rec)
+	events, ok = resp["Events"].([]any)
+	require.True(t, ok)
+	assert.Len(t, events, 1, "omitting EventCategory must default to Management events")
 }
 
 // TestCloudTrailLookupEventsFilters covers LookupEvents with various attributes.

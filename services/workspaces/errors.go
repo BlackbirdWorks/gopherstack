@@ -7,6 +7,8 @@ import (
 const (
 	errResourceNotFound       = "ResourceNotFoundException"
 	errInvalidParameterValues = "InvalidParameterValuesException"
+	errResourceAlreadyExists  = "ResourceAlreadyExistsException"
+	errInvalidResourceState   = "InvalidResourceStateException"
 )
 
 var (
@@ -14,6 +16,15 @@ var (
 	ErrWorkspaceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrInvalidParameter is returned on invalid input.
 	ErrInvalidParameter = awserr.New(errInvalidParameterValues, awserr.ErrInvalidParameter)
+
+	// errDirectoryAlreadyRegistered is returned by RegisterWorkspaceDirectory
+	// when the directory is already registered.
+	errDirectoryAlreadyRegistered = awserr.New(errResourceAlreadyExists, awserr.ErrAlreadyExists)
+	// errDirectoryHasWorkspaces is returned by DeregisterWorkspaceDirectory
+	// when WorkSpaces are still registered to the directory. Real AWS: any
+	// WorkSpaces registered to the directory must be removed first, before
+	// the directory itself can be deregistered.
+	errDirectoryHasWorkspaces = awserr.New(errInvalidResourceState, awserr.ErrConflict)
 )
 
 var (

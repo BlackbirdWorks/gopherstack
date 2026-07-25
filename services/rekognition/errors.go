@@ -7,10 +7,11 @@ import (
 )
 
 const (
-	errResourceNotFound  = "ResourceNotFoundException"
-	errConflictException = "ConflictException"
-	errResourceInUse     = "ResourceInUseException"
-	errValidation        = "ValidationException"
+	errResourceNotFound      = "ResourceNotFoundException"
+	errConflictException     = "ConflictException"
+	errResourceInUse         = "ResourceInUseException"
+	errValidation            = "ValidationException"
+	errResourceAlreadyExists = "ResourceAlreadyExistsException"
 )
 
 var (
@@ -58,6 +59,13 @@ var (
 	ErrProjectVersionAlreadyExists = awserr.New(errResourceInUse, ErrNameInUse)
 	// ErrDatasetNotFound is returned when a dataset does not exist.
 	ErrDatasetNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrDatasetAlreadyExists is returned when CreateDataset is called for a
+	// project that already has a dataset of the requested DatasetType.
+	// Maps to ResourceAlreadyExistsException, same exception type as
+	// CreateCollection (verified against aws-sdk-go-v2/service/rekognition's
+	// CreateDataset error deserializer switch -- see ErrNameInUse's doc
+	// comment for why this varies per Create* op).
+	ErrDatasetAlreadyExists = awserr.New(errResourceAlreadyExists, awserr.ErrAlreadyExists)
 	// ErrUserNotFound is returned when a user does not exist.
 	ErrUserNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrUserAlreadyExists is returned when a UserId is already registered

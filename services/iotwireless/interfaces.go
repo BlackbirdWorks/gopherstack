@@ -7,19 +7,28 @@ type StorageBackend interface {
 	Reset()
 
 	CreateWirelessDevice(
-		accountID, region, name, devType, destinationName, description string,
+		accountID, region, name, devType, destinationName, description, positioning string,
+		loRaWAN, sidewalk map[string]any,
 		tags map[string]string,
 	) (*WirelessDevice, error)
 	GetWirelessDevice(accountID, region, id string) (*WirelessDevice, error)
 	ListWirelessDevices(accountID, region string) []*WirelessDevice
 	DeleteWirelessDevice(accountID, region, id string) error
 
-	CreateWirelessGateway(accountID, region, name, description string, tags map[string]string) (*WirelessGateway, error)
+	CreateWirelessGateway(
+		accountID, region, name, description string,
+		loRaWAN map[string]any,
+		tags map[string]string,
+	) (*WirelessGateway, error)
 	GetWirelessGateway(accountID, region, id string) (*WirelessGateway, error)
 	ListWirelessGateways(accountID, region string) []*WirelessGateway
 	DeleteWirelessGateway(accountID, region, id string) error
 
-	CreateServiceProfile(accountID, region, name string, tags map[string]string) (*ServiceProfile, error)
+	CreateServiceProfile(
+		accountID, region, name string,
+		loRaWAN map[string]any,
+		tags map[string]string,
+	) (*ServiceProfile, error)
 	GetServiceProfile(accountID, region, id string) (*ServiceProfile, error)
 	ListServiceProfiles(accountID, region string) []*ServiceProfile
 	DeleteServiceProfile(accountID, region, id string) error
@@ -32,13 +41,19 @@ type StorageBackend interface {
 	ListDestinations(accountID, region string) []*Destination
 	DeleteDestination(accountID, region, name string) error
 
-	CreateDeviceProfile(accountID, region, name string, tags map[string]string) (*DeviceProfile, error)
+	CreateDeviceProfile(
+		accountID, region, name string,
+		loRaWAN, sidewalk map[string]any,
+		tags map[string]string,
+	) (*DeviceProfile, error)
 	GetDeviceProfile(accountID, region, id string) (*DeviceProfile, error)
 	ListDeviceProfiles(accountID, region string) []*DeviceProfile
 	DeleteDeviceProfile(accountID, region, id string) error
 
 	CreateFuotaTask(
-		accountID, region, name, description, firmwareUpdateImage, firmwareUpdateRole string,
+		accountID, region, name, description, firmwareUpdateImage, firmwareUpdateRole, descriptor string,
+		fragmentIntervalMS, fragmentSizeBytes, redundancyPercent int32,
+		loRaWAN map[string]any,
 		tags map[string]string,
 	) (*FuotaTask, error)
 	GetFuotaTask(accountID, region, id string) (*FuotaTask, error)
@@ -46,11 +61,15 @@ type StorageBackend interface {
 	DeleteFuotaTask(accountID, region, id string) error
 	UpdateFuotaTask(accountID, region, id, name, description string) error
 
-	UpdateWirelessGateway(accountID, region, id, name, description string) error
+	UpdateWirelessGateway(accountID, region, id, name, description string, loRaWANUpdates map[string]any) error
 
 	UpdateDestination(accountID, region, name, expression, expressionType, roleArn, description string) error
 
-	CreateMulticastGroup(accountID, region, name, description string, tags map[string]string) (*MulticastGroup, error)
+	CreateMulticastGroup(
+		accountID, region, name, description string,
+		loRaWAN map[string]any,
+		tags map[string]string,
+	) (*MulticastGroup, error)
 	GetMulticastGroup(accountID, region, id string) (*MulticastGroup, error)
 	ListMulticastGroups(accountID, region string) []*MulticastGroup
 	DeleteMulticastGroup(accountID, region, id string) error
@@ -58,7 +77,8 @@ type StorageBackend interface {
 
 	CreateNetworkAnalyzerConfig(
 		accountID, region, name, description string,
-		wirelessDevices, wirelessGateways []string,
+		wirelessDevices, wirelessGateways, multicastGroups []string,
+		traceContent map[string]any,
 		tags map[string]string,
 	) (*NetworkAnalyzerConfig, error)
 	GetNetworkAnalyzerConfig(accountID, region, name string) (*NetworkAnalyzerConfig, error)
@@ -67,6 +87,7 @@ type StorageBackend interface {
 	UpdateNetworkAnalyzerConfig(
 		accountID, region, name, description string,
 		wirelessDevices, wirelessGateways []string,
+		traceContent map[string]any,
 	) error
 
 	AssociateAwsAccountWithPartnerAccount(
@@ -80,6 +101,10 @@ type StorageBackend interface {
 	AssociateWirelessGatewayWithCertificate(accountID, region, gatewayID, iotCertificateID string) (string, error)
 	AssociateWirelessGatewayWithThing(accountID, region, gatewayID, thingArn string) error
 	CancelMulticastGroupSession(multicastGroupID string) error
+	ListMulticastGroupDeviceIDs(multicastGroupID string) []string
+	ListFuotaTaskDeviceIDs(fuotaTaskID string) []string
+	StartBulkAssociateWirelessDeviceWithMulticastGroup(accountID, region, multicastGroupID string) error
+	StartBulkDisassociateWirelessDeviceFromMulticastGroup(multicastGroupID string) error
 
 	// GetWirelessDeviceThingArn returns the ARN of the IoT Thing associated
 	// with a wireless device via AssociateWirelessDeviceWithThing, or "" if
@@ -94,10 +119,10 @@ type StorageBackend interface {
 
 	// Extended operations implemented across the various <family>.go files.
 	StartFuotaTask(accountID, region, id string) error
-	DisassociateWirelessDeviceFromFuotaTask(fuotaTaskID string) error
+	DisassociateWirelessDeviceFromFuotaTask(fuotaTaskID, wirelessDeviceID string) error
 	ListMulticastGroupsByFuotaTask(accountID, region, fuotaTaskID string) []*MulticastGroup
-	DisassociateMulticastGroupFromFuotaTask(fuotaTaskID string) error
-	DisassociateWirelessDeviceFromMulticastGroup(multicastGroupID string) error
+	DisassociateMulticastGroupFromFuotaTask(fuotaTaskID, multicastGroupID string) error
+	DisassociateWirelessDeviceFromMulticastGroup(multicastGroupID, wirelessDeviceID string) error
 	StartMulticastGroupSession(multicastGroupID string) error
 	GetMulticastGroupSession(multicastGroupID string) (time.Time, error)
 
@@ -105,15 +130,18 @@ type StorageBackend interface {
 	DisassociateWirelessGatewayFromThing(accountID, region, gatewayID string) error
 	GetWirelessGatewayCertificate(accountID, region, gatewayID string) (string, error)
 
-	UpdateWirelessDevice(accountID, region, id, name, description, destinationName string) error
+	UpdateWirelessDevice(
+		accountID, region, id, name, description, destinationName, positioning string,
+		loRaWAN, sidewalk map[string]any,
+	) error
 	DisassociateWirelessDeviceFromThing(accountID, region, wirelessDeviceID string) error
 
 	GetPartnerAccount(partnerAccountID string) (string, error)
 	ListPartnerAccounts() map[string]string
 	DisassociateAwsAccountFromPartnerAccount(partnerAccountID string) error
 
-	GetLogLevelsByResourceTypes() string
-	UpdateLogLevelsByResourceTypes(defaultLogLevel string) error
+	GetLogLevelsByResourceTypes() LogLevelsConfig
+	UpdateLogLevelsByResourceTypes(cfg LogLevelsConfig) error
 	ResetAllResourceLogLevels() error
 	GetResourceLogLevel(resourceID string) string
 	PutResourceLogLevel(resourceID, logLevel string) error
@@ -125,6 +153,7 @@ type StorageBackend interface {
 	CreateWirelessGatewayTaskDefinition(
 		accountID, region, name string,
 		autoCreateTasks bool,
+		update map[string]any,
 	) (*GatewayTaskDefinition, error)
 	GetWirelessGatewayTaskDefinition(id string) (*GatewayTaskDefinition, error)
 	ListWirelessGatewayTaskDefinitions() []*GatewayTaskDefinition

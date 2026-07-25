@@ -6,38 +6,37 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: waf
 sdk_module: aws-sdk-go-v2/service/waf@v1.30.24   # WAF Classic (legacy WAF/WAF Regional), distinct from wafv2
-last_audit_commit: d9aee9cb
-last_audit_date: 2026-07-13
-overall: A            # ~700 LOC of genuine fixes: ChangeToken workflow + ReferencedItem enforcement were no-ops
+last_audit_commit: 53d400747
+last_audit_date: 2026-07-24
+overall: A            # this pass closed the WAFNonEmptyEntityException gap identified in the prior audit
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   GetChangeToken: {wire: ok, errors: ok, state: ok, persist: ok}
   GetChangeTokenStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: unknown token returns INSYNC per real AWS behavior (pre-existing, verified not re-broken)}
-  GetSampledRequests: {wire: ok, errors: ok, state: partial, persist: n/a, note: "fixed TimeWindow.StartTime/EndTime wire shape (was string, real protocol is epoch-seconds number); sample data itself is a stub (empty) since gopherstack does not proxy/inspect real HTTP traffic through WAF rules -- same class of limitation as CloudWatch metric stubs elsewhere"}
+  GetSampledRequests: {wire: ok, errors: ok, state: partial, persist: n/a, note: "TimeWindow.StartTime/EndTime epoch-seconds shape verified ok (fixed in a prior pass); this pass added the previously-missing SampledHTTPRequest.Request (HTTPRequest/HTTPHeader) and .Timestamp fields for wire-shape completeness -- sample data itself remains a stub (always empty) since gopherstack does not proxy/inspect real HTTP traffic through WAF rules, same class of limitation as CloudWatch metric stubs elsewhere, so the new fields never actually serialize non-zero values yet"}
   GetRateBasedRuleManagedKeys: {wire: ok, errors: ok, state: partial, persist: n/a, note: "always returns empty list -- same traffic-inspection limitation as GetSampledRequests, not fixable without real request proxying"}
 families:
-  WebACL: {status: ok, note: "fixed CreateWebACL: added missing ChangeToken parameter (interface didn't even accept one) + validation on Create/Update/Delete. UpdateWebACL correctly applies INSERT/DELETE ActivatedRule updates and sorts by Priority."}
-  Rule: {status: ok, note: "fixed Create/Update/Delete to validate ChangeToken; DeleteRule now returns WAFReferencedItemException if still activated in a WebACL or RuleGroup (previously deleted unconditionally, silently orphaning ActivatedRule references)"}
-  RateBasedRule: {status: ok, note: "same ChangeToken + ReferencedItem fixes as Rule (a RateBasedRule's RuleId can be activated in a WebACL with Type=RATE_BASED)"}
-  IPSet: {status: ok, note: "ChangeToken validation added; DeleteIPSet now returns WAFReferencedItemException if referenced by a Rule/RateBasedRule Predicate.DataId"}
-  ByteMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete (same pattern as IPSet)"}
-  SizeConstraintSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete"}
-  SqlInjectionMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete"}
-  XssMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete"}
-  GeoMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete"}
-  RegexPatternSet: {status: ok, note: "ChangeToken validation; DeleteRegexPatternSet now returns WAFReferencedItemException if referenced by a RegexMatchSet tuple's RegexPatternSetId"}
-  RegexMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete (a RegexMatchSet is itself a match set referenceable from a Rule Predicate)"}
-  RuleGroup: {status: ok, note: "ChangeToken validation; DeleteRuleGroup now returns WAFReferencedItemException if activated in a WebACL with Type=GROUP"}
+  WebACL: {status: ok, note: "fixed CreateWebACL: added missing ChangeToken parameter (interface didn't even accept one) + validation on Create/Update/Delete. UpdateWebACL correctly applies INSERT/DELETE ActivatedRule updates and sorts by Priority. This pass: DeleteWebACL now returns WAFNonEmptyEntityException while Rules is non-empty."}
+  Rule: {status: ok, note: "fixed Create/Update/Delete to validate ChangeToken; DeleteRule now returns WAFReferencedItemException if still activated in a WebACL or RuleGroup (previously deleted unconditionally, silently orphaning ActivatedRule references). This pass: DeleteRule now also returns WAFNonEmptyEntityException while Predicates is non-empty."}
+  RateBasedRule: {status: ok, note: "same ChangeToken + ReferencedItem fixes as Rule (a RateBasedRule's RuleId can be activated in a WebACL with Type=RATE_BASED). This pass: DeleteRateBasedRule now also returns WAFNonEmptyEntityException while MatchPredicates is non-empty."}
+  IPSet: {status: ok, note: "ChangeToken validation added; DeleteIPSet now returns WAFReferencedItemException if referenced by a Rule/RateBasedRule Predicate.DataId. This pass: DeleteIPSet now also returns WAFNonEmptyEntityException while IPSetDescriptors is non-empty."}
+  ByteMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete (same pattern as IPSet). This pass: DeleteByteMatchSet now also returns WAFNonEmptyEntityException while ByteMatchTuples is non-empty."}
+  SizeConstraintSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete. This pass: DeleteSizeConstraintSet now also returns WAFNonEmptyEntityException while SizeConstraints is non-empty."}
+  SqlInjectionMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete. This pass: DeleteSqlInjectionMatchSet now also returns WAFNonEmptyEntityException while SqlInjectionMatchTuples is non-empty."}
+  XssMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete. This pass: DeleteXssMatchSet now also returns WAFNonEmptyEntityException while XssMatchTuples is non-empty."}
+  GeoMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete. This pass: DeleteGeoMatchSet now also returns WAFNonEmptyEntityException while GeoMatchConstraints is non-empty."}
+  RegexPatternSet: {status: ok, note: "ChangeToken validation; DeleteRegexPatternSet now returns WAFReferencedItemException if referenced by a RegexMatchSet tuple's RegexPatternSetId. This pass: DeleteRegexPatternSet now also returns WAFNonEmptyEntityException while RegexPatternStrings is non-empty."}
+  RegexMatchSet: {status: ok, note: "ChangeToken validation + ReferencedItem check on delete (a RegexMatchSet is itself a match set referenceable from a Rule Predicate). This pass: DeleteRegexMatchSet now also returns WAFNonEmptyEntityException while RegexMatchTuples is non-empty."}
+  RuleGroup: {status: ok, note: "ChangeToken validation; DeleteRuleGroup now returns WAFReferencedItemException if activated in a WebACL with Type=GROUP. This pass: DeleteRuleGroup now also returns WAFNonEmptyEntityException while it still has activated rules."}
   Tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against real shapes -- no ChangeToken involved in real AWS, correctly not required here"}
   Logging: {status: ok, note: "PutLoggingConfiguration/GetLoggingConfiguration/DeleteLoggingConfiguration/ListLoggingConfigurations -- no ChangeToken in real AWS, correctly not required"}
   PermissionPolicy: {status: ok, note: "no ChangeToken in real AWS, correctly not required"}
   Migration: {status: ok, note: "CreateWebACLMigrationStack returns a deterministic S3 URL shape; genuinely can't produce a real migration template without wafv2 state, documented as a stub-shape return, not a disguised no-op"}
 gaps:
-  - WAFNonEmptyEntityException not modeled (DeleteWebACL/DeleteRule/DeleteByteMatchSet/etc. with real AWS reject deletion of an object that still contains children -- e.g. a WebACL that still has Rules, a Rule that still has Predicates, a ByteMatchSet that still has ByteMatchTuples). Only the separate WAFReferencedItemException (deleting an object still referenced BY another object) was fixed this pass; the "still contains children" check is a distinct, real gap left for a follow-up (bd: file on session close).
   - GetSampledRequests/GetRateBasedRuleManagedKeys return empty data (traffic-inspection stub) since gopherstack does not proxy real HTTP requests through WAF rule evaluation -- architectural limitation, not a quick fix.
 deferred: []
-leaks: {status: clean, note: "no goroutines/timers/background workers in this service; InMemoryBackend is plain locked maps + store.Table, no leak surface"}
+leaks: {status: clean, note: "no goroutines/timers/background workers in this service; InMemoryBackend is plain locked maps + store.Table, no leak surface. New non-empty checks only read already-locked in-memory slices/maps under the existing coarse b.mu -- no new lock paths, no new persisted state."}
 ---
 
 ## Notes
@@ -125,6 +124,48 @@ leaks: {status: clean, note: "no goroutines/timers/background workers in this se
   without checking whether that changes the stored representation in a way that breaks the
   round-trip (it currently doesn't, precisely because nothing on the gopherstack side ever
   interprets the bytes).
+
+- **WAFNonEmptyEntityException was not modeled at all before this pass** (tracked as an
+  explicit gap in the 2026-07-13 audit). Real AWS WAF Classic rejects deleting a container
+  object while it still holds child entities, distinct from `WAFReferencedItemException`
+  (which rejects deleting an object still referenced *by* something else): "You can't
+  delete a WebACL if it still contains any Rules," "You can't delete a Rule if ... it
+  still includes any predicates," and the equivalent doc comment on every other
+  `Delete*` operation in `aws-sdk-go-v2/service/waf/api_op_Delete*.go` (confirmed by
+  reading all twelve). Before this pass every `Delete*` method deleted unconditionally
+  once the reference check passed, even with a non-empty child slice/map still attached —
+  a `DeleteWebACL` on a WebACL with `Rules` still populated, or a `DeleteRule` on a Rule
+  with `Predicates` still populated, both silently succeeded. Fixed by changing every
+  `Delete*` method from `!b.<table>.Has(id)` to `<table>.Get(id)` (needed the value
+  anyway to check its length) and adding `if len(<child slice/map>) > 0 { return
+  ErrNonEmptyEntity }` after the existing `ErrReferencedItem` check, for all twelve
+  families: WebACL (`Rules`), Rule/RateBasedRule (`Predicates`/`MatchPredicates`),
+  RuleGroup (`ruleGroupRules[id]`), IPSet (`IPSetDescriptors`), ByteMatchSet
+  (`ByteMatchTuples`), SizeConstraintSet (`SizeConstraints`), SqlInjectionMatchSet
+  (`SqlInjectionMatchTuples`), XssMatchSet (`XssMatchTuples`), GeoMatchSet
+  (`GeoMatchConstraints`), RegexMatchSet (`RegexMatchTuples`), and RegexPatternSet
+  (`RegexPatternStrings`). New `ErrNonEmptyEntity` sentinel added to `errors.go`
+  (`WAFNonEmptyEntityException`, HTTP 400, same `awserr.ErrConflict` class as
+  `ErrReferencedItem`) and wired into `Handler.handleError`. Six pre-existing lifecycle
+  tests (`byte_match_sets_test.go`, `size_constraint_sets_test.go`,
+  `sql_injection_match_sets_test.go`, `xss_match_sets_test.go`, `geo_match_sets_test.go`,
+  `regex_pattern_sets_test.go`) deleted a populated set directly and needed updating to
+  first remove the tuple/pattern (matching real AWS) before the delete now correctly
+  succeeds; every other existing lifecycle test already removed children before deleting
+  (no change needed), which is itself evidence the bug had gone unexercised. New dedicated
+  coverage in `non_empty_entity_test.go` (one test per family, all twelve) asserts both the
+  blocked-while-non-empty case and the succeeds-after-removal case, following the same
+  create → populate → blocked-delete → depopulate → delete pattern as the existing
+  `referenced_item_test.go`.
+
+- **SampledHTTPRequest wire-shape completeness**: the model was missing the `Request`
+  (`HTTPRequest`) and `Timestamp` fields present on the real
+  `types.SampledHTTPRequest` (`Request` is even marked "This member is required" in the
+  SDK doc comment). Added `HTTPRequest`/`HTTPHeader` types and the two missing fields to
+  `models.go`. Does not change any test-observable behavior today because
+  `GetSampledRequests` always returns an empty `SampledRequests` list (the pre-existing,
+  documented traffic-inspection stub) — this is forward-looking wire-shape correctness for
+  if/when real sample data is ever populated, not a currently-reachable bug fix.
 
 - **GetChangeTokenStatus's "unknown token → INSYNC" behavior** (comment + dedicated test
   `TestParity_ChangeTokenStatus_UnknownReturnsINSYNC`) predates this audit and was not

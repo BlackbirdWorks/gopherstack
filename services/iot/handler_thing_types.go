@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 func resolveThingTypeOps(path, method string) string {
@@ -105,20 +107,11 @@ func (h *Handler) handleDescribeThingType(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	var deprecationDate any
-	if tt.Deprecated && !tt.DeprecationDate.IsZero() {
-		deprecationDate = tt.DeprecationDate
-	}
-
 	return c.JSON(http.StatusOK, map[string]any{
-		keyThingTypeName: tt.ThingTypeName,
-		keyThingTypeArn:  tt.ThingTypeARN,
-		"thingTypeId":    tt.ThingTypeID,
-		"thingTypeMetadata": map[string]any{
-			"deprecated":      tt.Deprecated,
-			keyCreationDate:   tt.CreatedAt,
-			"deprecationDate": deprecationDate,
-		},
+		keyThingTypeName:    tt.ThingTypeName,
+		keyThingTypeArn:     tt.ThingTypeARN,
+		"thingTypeId":       tt.ThingTypeID,
+		"thingTypeMetadata": thingTypeMetadataFields(tt),
 		"thingTypeProperties": map[string]any{
 			"thingTypeDescription": tt.Description,
 			"searchableAttributes": tt.SearchableAttributes,
@@ -126,24 +119,33 @@ func (h *Handler) handleDescribeThingType(c *echo.Context) error {
 	})
 }
 
+// thingTypeMetadataFields builds the ThingTypeMetadata wire object
+// (deprecated/creationDate/deprecationDate), converting timestamps to epoch
+// seconds as the restjson1 DateType wire format requires (json.Marshal'ing a
+// raw time.Time renders an RFC3339 string instead, which the real SDK
+// deserializer rejects).
+func thingTypeMetadataFields(tt *ThingType) map[string]any {
+	var deprecationDate any
+	if tt.Deprecated && !tt.DeprecationDate.IsZero() {
+		deprecationDate = awstime.Epoch(tt.DeprecationDate)
+	}
+
+	return map[string]any{
+		"deprecated":      tt.Deprecated,
+		keyCreationDate:   awstime.Epoch(tt.CreatedAt),
+		"deprecationDate": deprecationDate,
+	}
+}
+
 func (h *Handler) handleListThingTypes(c *echo.Context) error {
 	types := h.Backend.ListThingTypes()
 	out := make([]map[string]any, 0, len(types))
 
 	for _, tt := range types {
-		var deprecationDate any
-		if tt.Deprecated && !tt.DeprecationDate.IsZero() {
-			deprecationDate = tt.DeprecationDate
-		}
-
 		out = append(out, map[string]any{
-			keyThingTypeName: tt.ThingTypeName,
-			keyThingTypeArn:  tt.ThingTypeARN,
-			"thingTypeMetadata": map[string]any{
-				"deprecated":      tt.Deprecated,
-				keyCreationDate:   tt.CreatedAt,
-				"deprecationDate": deprecationDate,
-			},
+			keyThingTypeName:    tt.ThingTypeName,
+			keyThingTypeArn:     tt.ThingTypeARN,
+			"thingTypeMetadata": thingTypeMetadataFields(tt),
 		})
 	}
 

@@ -175,7 +175,8 @@ func TestInMemoryBackend_ListCertificateAuthorities(t *testing.T) {
 				require.NoError(t, err, "creating CA %d", i)
 			}
 
-			p := b.ListCertificateAuthorities(context.Background(), "", 0)
+			p, err := b.ListCertificateAuthorities(context.Background(), "", 0, "")
+			require.NoError(t, err)
 			assert.Len(t, p.Data, tt.wantCount)
 		})
 	}

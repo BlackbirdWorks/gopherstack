@@ -6,12 +6,20 @@ import (
 	"time"
 )
 
-// RegisterInstance registers an instance to a service.
+// RegisterInstance registers an instance to a service. If the service has a
+// HealthCheckCustomConfig and attrs contains AWS_INIT_HEALTH_STATUS (HEALTHY
+// or UNHEALTHY), that value seeds the instance's initial custom health
+// status -- matching real Cloud Map: "If the service configuration includes
+// HealthCheckCustomConfig, you can optionally use AWS_INIT_HEALTH_STATUS to
+// specify the initial status of the custom health check ... If you don't
+// specify a value ..., the initial status is HEALTHY."
+// (api_op_RegisterInstance.go doc comment).
 func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs map[string]string) (string, error) {
 	b.mu.Lock("RegisterInstance")
 	defer b.mu.Unlock()
 
-	if !b.services.Has(serviceID) {
+	svc, ok := b.services.Get(serviceID)
+	if !ok {
 		return "", fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
@@ -21,6 +29,16 @@ func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs m
 		Attributes: copyAttrs(attrs),
 	}
 	b.instances.Put(inst)
+
+	key := instanceKey(serviceID, instanceID)
+	if svc.HealthCheckCustomConfig != nil {
+		switch attrs[instanceAttrInitHealthStatus] {
+		case instanceHealthStatusHealthy:
+			b.instanceHealthStatuses[key] = instanceHealthStatusHealthy
+		case instanceHealthStatusUnhealthy:
+			b.instanceHealthStatuses[key] = instanceHealthStatusUnhealthy
+		}
+	}
 
 	b.instanceRevision++
 

@@ -164,6 +164,94 @@ func TestUpdateStreamMode_InvalidMode(t *testing.T) {
 	}
 }
 
+// TestUpdateStreamMode_OnDemandTransitionReshardsUpToFloor verifies AWS's
+// documented PROVISIONED -> ON_DEMAND auto-scale behavior: a stream under the
+// default on-demand shard floor (4, matching a freshly created ON_DEMAND
+// stream) is resharded up to it, with the old shards retained CLOSED for
+// lineage. A stream already at or above the floor is left untouched.
+func TestUpdateStreamMode_OnDemandTransitionReshardsUpToFloor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		startShards   int
+		wantOpenAfter int
+	}{
+		{name: "below_floor_1_shard", startShards: 1, wantOpenAfter: 4},
+		{name: "below_floor_2_shards", startShards: 2, wantOpenAfter: 4},
+		{name: "at_floor_4_shards", startShards: 4, wantOpenAfter: 4},
+		{name: "above_floor_6_shards", startShards: 6, wantOpenAfter: 6},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newParityBackend(t)
+			ctx := context.Background()
+			streamName := "reshard-" + tt.name
+
+			createParityStream(t, b, streamName, tt.startShards)
+
+			descBefore, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: streamName})
+			require.NoError(t, err)
+			require.Len(t, descBefore.Shards, tt.startShards, "sanity: initial open shard count")
+
+			require.NoError(t, b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
+				StreamARN: descBefore.StreamARN,
+				StreamModeDetails: kinesis.StreamModeDetails{
+					StreamMode: "ON_DEMAND",
+				},
+			}))
+
+			// ListShards' default (no ShardFilter) only returns open shards, so
+			// its length is exactly the new open shard count.
+			openAfter, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: streamName})
+			require.NoError(t, err)
+			assert.Len(t, openAfter.Shards, tt.wantOpenAfter)
+
+			if tt.startShards < tt.wantOpenAfter {
+				// Old shards must still be visible, CLOSED, for lineage.
+				listOut, listErr := b.ListShards(ctx, &kinesis.ListShardsInput{
+					StreamName:  streamName,
+					ShardFilter: "FROM_TRIM_HORIZON",
+				})
+				require.NoError(t, listErr)
+				assert.Len(t, listOut.Shards, tt.startShards+tt.wantOpenAfter,
+					"old closed shards plus new open shards")
+			}
+		})
+	}
+}
+
+// TestUpdateStreamMode_OnDemandToProvisionedKeepsShardCount verifies the
+// reverse transition (ON_DEMAND -> PROVISIONED) never reshards: AWS keeps the
+// stream's current auto-scaled shard count as the new provisioned baseline.
+func TestUpdateStreamMode_OnDemandToProvisionedKeepsShardCount(t *testing.T) {
+	t.Parallel()
+
+	b := newParityBackend(t)
+	ctx := context.Background()
+
+	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: "ondemand-to-prov",
+		StreamMode: "ON_DEMAND",
+	}))
+
+	descBefore, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "ondemand-to-prov"})
+	require.NoError(t, err)
+	openBefore := len(descBefore.Shards)
+
+	require.NoError(t, b.UpdateStreamMode(ctx, &kinesis.UpdateStreamModeInput{
+		StreamARN:         descBefore.StreamARN,
+		StreamModeDetails: kinesis.StreamModeDetails{StreamMode: "PROVISIONED"},
+	}))
+
+	descAfter, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: "ondemand-to-prov"})
+	require.NoError(t, err)
+	assert.Len(t, descAfter.Shards, openBefore, "shard count must be unchanged by ON_DEMAND -> PROVISIONED")
+}
+
 func TestUpdateStreamMode_NotFound(t *testing.T) {
 	t.Parallel()
 

@@ -13,9 +13,7 @@ import (
 
 // Test_SnapshotRestore_FullState exercises a Snapshot->Restore round trip
 // across both store.Table-backed resource families the Phase 3.3 conversion
-// touched (lexicons, tasks) and the one plain map left un-converted (tags,
-// keyed by task ARN -- its values are map[string]string, not *T, so there is
-// nothing for store.Table to key on; see store_setup.go and persistence.go).
+// touched (lexicons, tasks).
 func Test_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -28,12 +26,9 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 
 	task, err := original.StartSpeechSynthesisTask(
 		polly.SynthesisOptions{Text: "hello world", VoiceID: "Joanna"},
-		"my-bucket", "role-arn", "topic-arn",
+		"my-bucket", "audio/", "arn:aws:sns:us-west-2:111122223333:notifications",
 	)
 	require.NoError(t, err)
-	taskARN := original.TaskARN(task.TaskID)
-
-	require.NoError(t, original.TagResource(taskARN, []polly.Tag{{Key: "env", Value: "prod"}}))
 
 	// Advance the task once (scheduled -> inProgress) before snapshotting, so
 	// the round trip is proven to carry a non-default TaskStatus, not just
@@ -63,20 +58,14 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, task.TaskID, restoredTask.TaskID)
 	assert.Equal(t, "completed", restoredTask.TaskStatus)
 	assert.Equal(t, "my-bucket", restoredTask.OutputS3BucketName)
-	assert.Equal(t, "role-arn", restoredTask.SNSRoleArn)
-	assert.Equal(t, "topic-arn", restoredTask.SNSTopicArn)
-
-	tags, err := fresh.ListTagsForResource(taskARN)
-	require.NoError(t, err)
-	require.Len(t, tags, 1)
-	assert.Equal(t, polly.Tag{Key: "env", Value: "prod"}, tags[0])
+	assert.Equal(t, "audio/", restoredTask.OutputS3KeyPrefix)
+	assert.Equal(t, "arn:aws:sns:us-west-2:111122223333:notifications", restoredTask.SNSTopicArn)
 }
 
 // Test_RestoreVersionMismatch verifies that a snapshot whose version doesn't
 // match the current backend -- including a version-less snapshot, which
 // decodes with Version == 0 -- is discarded cleanly rather than partially
-// decoded: every table and the raw tags map reset to empty, and Restore
-// itself returns no error.
+// decoded: every table resets to empty, and Restore itself returns no error.
 func Test_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
@@ -98,7 +87,6 @@ func Test_RestoreVersionMismatch(t *testing.T) {
 				polly.SynthesisOptions{Text: "hi", VoiceID: "Joanna"}, "bucket", "", "",
 			)
 			require.NoError(t, err)
-			taskARN := b.TaskARN(task.TaskID)
 
 			require.NoError(t, b.Restore(t.Context(), []byte(test.data)))
 
@@ -110,9 +98,6 @@ func Test_RestoreVersionMismatch(t *testing.T) {
 
 			_, err = b.GetSpeechSynthesisTask(task.TaskID)
 			require.ErrorIs(t, err, polly.ErrTaskNotFound)
-
-			_, err = b.ListTagsForResource(taskARN)
-			require.ErrorIs(t, err, polly.ErrResourceNotFound)
 		})
 	}
 }

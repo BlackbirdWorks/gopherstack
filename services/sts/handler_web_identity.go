@@ -6,7 +6,11 @@ import (
 	"strconv"
 )
 
-// dispatchAssumeRoleWithWebIdentity handles the AssumeRoleWithWebIdentity action.
+// dispatchAssumeRoleWithWebIdentity handles the AssumeRoleWithWebIdentity
+// action. SourceIdentity and session tags are NOT real top-level request
+// parameters for this operation (see AssumeRoleWithWebIdentityInput) — AWS
+// derives them from custom claims in the WebIdentityToken itself, so they are
+// intentionally not parsed from the request form here.
 func (h *Handler) dispatchAssumeRoleWithWebIdentity(
 	r *http.Request,
 ) (*AssumeRoleWithWebIdentityResponse, error) {
@@ -16,8 +20,6 @@ func (h *Handler) dispatchAssumeRoleWithWebIdentity(
 		WebIdentityToken: r.FormValue("WebIdentityToken"),
 		ProviderID:       r.FormValue("ProviderId"),
 		Policy:           r.FormValue("Policy"),
-		SourceIdentity:   r.FormValue("SourceIdentity"),
-		Tags:             parseSessionTags(r),
 	}
 
 	durationStr := r.FormValue("DurationSeconds")
@@ -70,6 +72,14 @@ func (h *Handler) dispatchGetWebIdentityToken(
 		}
 
 		input.DurationSeconds = int32(d)
+	}
+
+	// Resolve the caller's own STS session (if any) so the backend can enforce
+	// that the issued JWT does not outlive the calling session (AWS
+	// SessionDurationEscalationException).
+	if callerKey := extractAccessKeyFromAuth(r); callerKey != "" {
+		secToken := r.Header.Get("X-Amz-Security-Token")
+		input.CallerSession = h.Backend.LookupSession(callerKey, secToken)
 	}
 
 	return h.Backend.GetWebIdentityToken(input)

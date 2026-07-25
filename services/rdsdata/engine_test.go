@@ -26,14 +26,14 @@ func TestEngine_CreateInsertSelectRoundTrip(t *testing.T) {
 	b := newEngineBackend()
 	ctx := context.Background()
 
-	_, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE users (id INTEGER, name TEXT)", "")
+	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE users (id INTEGER, name TEXT)", "")
 	require.NoError(t, err)
 
-	_, _, updated, err := b.ExecuteStatement(ctx, engineARN, "INSERT INTO users (id, name) VALUES (1, 'ada')", "")
+	_, _, updated, _, err := b.ExecuteStatement(ctx, engineARN, "INSERT INTO users (id, name) VALUES (1, 'ada')", "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), updated)
 
-	records, columns, _, err := b.ExecuteStatement(
+	records, columns, _, _, err := b.ExecuteStatement(
 		ctx, engineARN, "SELECT id, name FROM users ORDER BY id", "")
 	require.NoError(t, err)
 
@@ -53,7 +53,7 @@ func TestEngine_SelectLiteral(t *testing.T) {
 
 	b := newEngineBackend()
 
-	records, _, _, err := b.ExecuteStatement(context.Background(), engineARN, "SELECT 42", "")
+	records, _, _, _, err := b.ExecuteStatement(context.Background(), engineARN, "SELECT 42", "")
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	require.NotNil(t, records[0][0].LongValue)
@@ -67,7 +67,7 @@ func TestEngine_LenientFallbackOnError(t *testing.T) {
 
 	b := newEngineBackend()
 
-	records, columns, updated, err := b.ExecuteStatement(
+	records, columns, updated, _, err := b.ExecuteStatement(
 		context.Background(), engineARN, "INSERT INTO missing_table VALUES (1)", "")
 	require.NoError(t, err)
 	assert.Empty(t, records)
@@ -83,12 +83,12 @@ func TestEngine_ResourceIsolation(t *testing.T) {
 	ctx := context.Background()
 	const otherARN = "arn:aws:rds:us-east-1:000000000000:cluster:other"
 
-	_, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE only_here (id INTEGER)", "")
+	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE only_here (id INTEGER)", "")
 	require.NoError(t, err)
 
 	// The table does not exist on a different resource, so the read falls back
 	// to the empty envelope rather than returning rows.
-	records, _, _, err := b.ExecuteStatement(ctx, otherARN, "SELECT * FROM only_here", "")
+	records, _, _, _, err := b.ExecuteStatement(ctx, otherARN, "SELECT * FROM only_here", "")
 	require.NoError(t, err)
 	assert.Empty(t, records)
 }
@@ -101,19 +101,19 @@ func TestEngine_TransactionCommit(t *testing.T) {
 	b := newEngineBackend()
 	ctx := context.Background()
 
-	_, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE acct (n INTEGER)", "")
+	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE acct (n INTEGER)", "")
 	require.NoError(t, err)
 
 	txID, err := b.BeginTransaction(ctx, engineARN)
 	require.NoError(t, err)
 
-	_, _, _, err = b.ExecuteStatement(ctx, engineARN, "INSERT INTO acct (n) VALUES (7)", txID)
+	_, _, _, _, err = b.ExecuteStatement(ctx, engineARN, "INSERT INTO acct (n) VALUES (7)", txID)
 	require.NoError(t, err)
 
 	_, err = b.CommitTransaction(ctx, txID)
 	require.NoError(t, err)
 
-	records, _, _, err := b.ExecuteStatement(ctx, engineARN, "SELECT n FROM acct", "")
+	records, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "SELECT n FROM acct", "")
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	assert.Equal(t, int64(7), *records[0][0].LongValue)
@@ -126,19 +126,19 @@ func TestEngine_TransactionRollback(t *testing.T) {
 	b := newEngineBackend()
 	ctx := context.Background()
 
-	_, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE roll (n INTEGER)", "")
+	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE roll (n INTEGER)", "")
 	require.NoError(t, err)
 
 	txID, err := b.BeginTransaction(ctx, engineARN)
 	require.NoError(t, err)
 
-	_, _, _, err = b.ExecuteStatement(ctx, engineARN, "INSERT INTO roll (n) VALUES (9)", txID)
+	_, _, _, _, err = b.ExecuteStatement(ctx, engineARN, "INSERT INTO roll (n) VALUES (9)", txID)
 	require.NoError(t, err)
 
 	_, err = b.RollbackTransaction(ctx, txID)
 	require.NoError(t, err)
 
-	records, _, _, err := b.ExecuteStatement(ctx, engineARN, "SELECT n FROM roll", "")
+	records, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "SELECT n FROM roll", "")
 	require.NoError(t, err)
 	assert.Empty(t, records)
 }
@@ -151,11 +151,11 @@ func TestEngine_ExecuteStatementWithNamedParameters(t *testing.T) {
 	b := newEngineBackend()
 	ctx := context.Background()
 
-	_, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE people (id INTEGER, name TEXT)", "")
+	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE people (id INTEGER, name TEXT)", "")
 	require.NoError(t, err)
 
 	strVal := "grace"
-	_, _, updated, err := b.ExecuteStatement(
+	_, _, updated, _, err := b.ExecuteStatement(
 		ctx, engineARN, "INSERT INTO people (id, name) VALUES (:id, :name)", "",
 		rdsdata.SQLParameter{Name: "id", Value: rdsdata.Field{LongValue: int64Ptr(10)}},
 		rdsdata.SQLParameter{Name: "name", Value: rdsdata.Field{StringValue: &strVal}},
@@ -163,7 +163,7 @@ func TestEngine_ExecuteStatementWithNamedParameters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), updated)
 
-	records, _, _, err := b.ExecuteStatement(
+	records, _, _, _, err := b.ExecuteStatement(
 		ctx, engineARN, "SELECT name FROM people WHERE id = :id", "",
 		rdsdata.SQLParameter{Name: "id", Value: rdsdata.Field{LongValue: int64Ptr(10)}},
 	)
@@ -181,7 +181,7 @@ func TestEngine_BatchExecuteInsertsRows(t *testing.T) {
 	b := newEngineBackend()
 	ctx := context.Background()
 
-	_, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE nums (id INTEGER)", "")
+	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE nums (id INTEGER)", "")
 	require.NoError(t, err)
 
 	paramSets := [][]rdsdata.SQLParameter{
@@ -194,7 +194,7 @@ func TestEngine_BatchExecuteInsertsRows(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, results, 3)
 
-	records, _, _, err := b.ExecuteStatement(ctx, engineARN, "SELECT COUNT(*) FROM nums", "")
+	records, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "SELECT COUNT(*) FROM nums", "")
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	assert.Equal(t, int64(3), *records[0][0].LongValue)
@@ -208,9 +208,9 @@ func TestEngine_SnapshotRestoreReplaysState(t *testing.T) {
 	b := newEngineBackend()
 	ctx := context.Background()
 
-	_, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE keep (id INTEGER)", "")
+	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE keep (id INTEGER)", "")
 	require.NoError(t, err)
-	_, _, _, err = b.ExecuteStatement(ctx, engineARN, "INSERT INTO keep (id) VALUES (5)", "")
+	_, _, _, _, err = b.ExecuteStatement(ctx, engineARN, "INSERT INTO keep (id) VALUES (5)", "")
 	require.NoError(t, err)
 
 	snap := b.Snapshot(ctx)
@@ -219,7 +219,7 @@ func TestEngine_SnapshotRestoreReplaysState(t *testing.T) {
 	restored := newEngineBackend()
 	require.NoError(t, restored.Restore(ctx, snap))
 
-	records, _, _, err := restored.ExecuteStatement(ctx, engineARN, "SELECT id FROM keep", "")
+	records, _, _, _, err := restored.ExecuteStatement(ctx, engineARN, "SELECT id FROM keep", "")
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	assert.Equal(t, int64(5), *records[0][0].LongValue)
@@ -232,14 +232,14 @@ func TestEngine_ResetClearsTables(t *testing.T) {
 	b := newEngineBackend()
 	ctx := context.Background()
 
-	_, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE gone (id INTEGER)", "")
+	_, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "CREATE TABLE gone (id INTEGER)", "")
 	require.NoError(t, err)
-	_, _, _, err = b.ExecuteStatement(ctx, engineARN, "INSERT INTO gone (id) VALUES (1)", "")
+	_, _, _, _, err = b.ExecuteStatement(ctx, engineARN, "INSERT INTO gone (id) VALUES (1)", "")
 	require.NoError(t, err)
 
 	b.Reset()
 
-	records, _, _, err := b.ExecuteStatement(ctx, engineARN, "SELECT id FROM gone", "")
+	records, _, _, _, err := b.ExecuteStatement(ctx, engineARN, "SELECT id FROM gone", "")
 	require.NoError(t, err)
 	assert.Empty(t, records)
 }
@@ -272,10 +272,10 @@ func TestEngine_ColumnMetadata_TypeAffinity(t *testing.T) {
 			ctx := context.Background()
 			arn := "arn:aws:rds:us-east-1:000000000000:cluster:coltype-" + tt.name
 
-			_, _, _, err := b.ExecuteStatement(ctx, arn, "CREATE TABLE t ("+tt.name+")", "")
+			_, _, _, _, err := b.ExecuteStatement(ctx, arn, "CREATE TABLE t ("+tt.name+")", "")
 			require.NoError(t, err)
 
-			_, columns, _, err := b.ExecuteStatement(ctx, arn, "SELECT * FROM t", "")
+			_, columns, _, _, err := b.ExecuteStatement(ctx, arn, "SELECT * FROM t", "")
 			require.NoError(t, err)
 			require.Len(t, columns, 1)
 
@@ -303,4 +303,127 @@ func TestEngine_ExecuteSQLUpdatesCount(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, int64(1), results[0].NumberOfRecordsUpdated)
+}
+
+// TestEngine_GeneratedFields_RowIDAlias verifies that an INSERT into a table
+// with a single INTEGER PRIMARY KEY column (SQLite's rowid alias) surfaces
+// the assigned id as GeneratedFields, matching real AWS's auto-increment
+// behavior for a DML request.
+func TestEngine_GeneratedFields_RowIDAlias(t *testing.T) {
+	t.Parallel()
+
+	b := newEngineBackend()
+	ctx := context.Background()
+	arn := "arn:aws:rds:us-east-1:000000000000:cluster:genfields-rowid"
+
+	_, _, _, _, err := b.ExecuteStatement(ctx, arn, "CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT)", "")
+	require.NoError(t, err)
+
+	_, _, _, generated, err := b.ExecuteStatement(ctx, arn, "INSERT INTO widgets (name) VALUES ('a')", "")
+	require.NoError(t, err)
+	require.Len(t, generated, 1)
+	require.NotNil(t, generated[0].LongValue)
+	assert.Equal(t, int64(1), *generated[0].LongValue)
+
+	// A second insert gets the next rowid.
+	_, _, _, generated2, err := b.ExecuteStatement(ctx, arn, "INSERT INTO widgets (name) VALUES ('b')", "")
+	require.NoError(t, err)
+	require.Len(t, generated2, 1)
+	assert.Equal(t, int64(2), *generated2[0].LongValue)
+}
+
+// TestEngine_GeneratedFields_Empty verifies GeneratedFields stays an empty
+// (non-nil) slice for statement shapes real AWS never populates it for:
+// no primary key, a composite primary key, and non-INSERT DML.
+func TestEngine_GeneratedFields_Empty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		create  string
+		exec    string
+		wantLen int
+	}{
+		{
+			name:   "no_primary_key",
+			create: "CREATE TABLE plain (n INTEGER)",
+			exec:   "INSERT INTO plain (n) VALUES (1)",
+		},
+		{
+			name:   "composite_primary_key",
+			create: "CREATE TABLE composite (a INTEGER, b INTEGER, PRIMARY KEY (a, b))",
+			exec:   "INSERT INTO composite (a, b) VALUES (1, 2)",
+		},
+		{
+			name:   "text_primary_key",
+			create: "CREATE TABLE textpk (id TEXT PRIMARY KEY)",
+			exec:   "INSERT INTO textpk (id) VALUES ('x')",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newEngineBackend()
+			ctx := context.Background()
+			arn := "arn:aws:rds:us-east-1:000000000000:cluster:genfields-empty-" + tt.name
+
+			_, _, _, _, err := b.ExecuteStatement(ctx, arn, tt.create, "")
+			require.NoError(t, err)
+
+			_, _, _, generated, err := b.ExecuteStatement(ctx, arn, tt.exec, "")
+			require.NoError(t, err)
+			assert.Empty(t, generated)
+			assert.NotNil(t, generated)
+		})
+	}
+}
+
+// TestEngine_GeneratedFields_UpdateStaysEmpty verifies that a non-INSERT DML
+// statement (UPDATE) never populates GeneratedFields, even against a table
+// with a rowid-alias column.
+func TestEngine_GeneratedFields_UpdateStaysEmpty(t *testing.T) {
+	t.Parallel()
+
+	b := newEngineBackend()
+	ctx := context.Background()
+	arn := "arn:aws:rds:us-east-1:000000000000:cluster:genfields-update"
+
+	_, _, _, _, err := b.ExecuteStatement(ctx, arn, "CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT)", "")
+	require.NoError(t, err)
+	_, _, _, _, err = b.ExecuteStatement(ctx, arn, "INSERT INTO widgets (name) VALUES ('a')", "")
+	require.NoError(t, err)
+
+	_, _, _, generated, err := b.ExecuteStatement(ctx, arn, "UPDATE widgets SET name = 'b' WHERE id = 1", "")
+	require.NoError(t, err)
+	assert.Empty(t, generated)
+}
+
+// TestEngine_BatchExecuteStatement_GeneratedFields verifies that
+// BatchExecuteStatement surfaces one GeneratedFields entry per parameter set,
+// matching the ExecuteStatement rowid-alias detection.
+func TestEngine_BatchExecuteStatement_GeneratedFields(t *testing.T) {
+	t.Parallel()
+
+	b := newEngineBackend()
+	ctx := context.Background()
+	arn := "arn:aws:rds:us-east-1:000000000000:cluster:genfields-batch"
+
+	_, _, _, _, err := b.ExecuteStatement(ctx, arn, "CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT)", "")
+	require.NoError(t, err)
+
+	paramSets := [][]rdsdata.SQLParameter{
+		{{Name: "name", Value: rdsdata.Field{StringValue: new("a")}}},
+		{{Name: "name", Value: rdsdata.Field{StringValue: new("b")}}},
+	}
+
+	results, err := b.BatchExecuteStatement(ctx, arn, "INSERT INTO widgets (name) VALUES (:name)", "", paramSets)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	require.Len(t, results[0].GeneratedFields, 1)
+	assert.Equal(t, int64(1), *results[0].GeneratedFields[0].LongValue)
+	require.Len(t, results[1].GeneratedFields, 1)
+	assert.Equal(t, int64(2), *results[1].GeneratedFields[0].LongValue)
 }

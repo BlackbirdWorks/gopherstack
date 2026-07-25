@@ -28,7 +28,7 @@ func (b *InMemoryBackend) CreateDestination(
 	accountID, region, name, expression, expressionType, roleArn, description string,
 	tags map[string]string,
 ) (*Destination, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDestination")
 	defer b.mu.Unlock()
 
 	arn := destinationARN(region, accountID, name)
@@ -54,7 +54,7 @@ func (b *InMemoryBackend) CreateDestination(
 
 // GetDestination returns a destination by name.
 func (b *InMemoryBackend) GetDestination(accountID, region, name string) (*Destination, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetDestination")
 	defer b.mu.RUnlock()
 
 	dest, ok := b.destinations.Get(compositeKey(accountID, region, name))
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) GetDestination(accountID, region, name string) (*Desti
 // ListDestinations returns all destinations for the given account and region,
 // sorted by name for deterministic output.
 func (b *InMemoryBackend) ListDestinations(accountID, region string) []*Destination {
-	b.mu.RLock()
+	b.mu.RLock("ListDestinations")
 	defer b.mu.RUnlock()
 
 	all := b.destinations.All()
@@ -90,7 +90,7 @@ func (b *InMemoryBackend) ListDestinations(accountID, region string) []*Destinat
 
 // DeleteDestination deletes a destination by name.
 func (b *InMemoryBackend) DeleteDestination(accountID, region, name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDestination")
 	defer b.mu.Unlock()
 
 	key := compositeKey(accountID, region, name)
@@ -110,7 +110,7 @@ func (b *InMemoryBackend) DeleteDestination(accountID, region, name string) erro
 func (b *InMemoryBackend) UpdateDestination(
 	accountID, region, name, expression, expressionType, roleArn, description string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateDestination")
 	defer b.mu.Unlock()
 
 	dest, ok := b.destinations.Get(compositeKey(accountID, region, name))
@@ -138,7 +138,7 @@ func (b *InMemoryBackend) UpdateDestination(
 // AddDestinationInternal inserts a Destination directly into the backend, bypassing ID generation.
 // Intended for test setup only.
 func (b *InMemoryBackend) AddDestinationInternal(accountID, region string, dest *Destination) {
-	b.mu.Lock()
+	b.mu.Lock("AddDestinationInternal")
 	defer b.mu.Unlock()
 
 	cp := copyDestination(dest)

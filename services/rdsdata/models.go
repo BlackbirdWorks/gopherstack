@@ -1,13 +1,34 @@
 package rdsdata
 
 // Field represents a single field value in an RDS Data API record.
+//
+// ArrayValue is modeled for wire completeness (it is a real member of the
+// SDK's Field union -- types.FieldMemberArrayValue) even though this mock
+// can never populate it in a result: real AWS documents "Array parameters
+// are not supported" for ExecuteStatementInput.Parameters (see
+// validateNoArrayParameters in handler.go, which rejects it on the way in),
+// and the pure-Go SQLite driver backing the mock engine never produces an
+// array-typed result column. See PARITY.md.
 type Field struct {
-	IsNull       *bool    `json:"isNull,omitempty"`
-	BooleanValue *bool    `json:"booleanValue,omitempty"`
-	LongValue    *int64   `json:"longValue,omitempty"`
-	DoubleValue  *float64 `json:"doubleValue,omitempty"`
-	StringValue  *string  `json:"stringValue,omitempty"`
-	BlobValue    []byte   `json:"blobValue,omitempty"`
+	IsNull       *bool       `json:"isNull,omitempty"`
+	BooleanValue *bool       `json:"booleanValue,omitempty"`
+	LongValue    *int64      `json:"longValue,omitempty"`
+	DoubleValue  *float64    `json:"doubleValue,omitempty"`
+	StringValue  *string     `json:"stringValue,omitempty"`
+	ArrayValue   *ArrayValue `json:"arrayValue,omitempty"`
+	BlobValue    []byte      `json:"blobValue,omitempty"`
+}
+
+// ArrayValue represents an array of values, mirroring the real API's
+// ArrayValue union (types.ArrayValue in aws-sdk-go-v2/service/rdsdata).
+// Exactly one member is meaningfully populated at a time, matching the
+// real union's shape.
+type ArrayValue struct {
+	ArrayValues   []ArrayValue `json:"arrayValues,omitempty"`
+	BooleanValues []bool       `json:"booleanValues,omitempty"`
+	DoubleValues  []float64    `json:"doubleValues,omitempty"`
+	LongValues    []int64      `json:"longValues,omitempty"`
+	StringValues  []string     `json:"stringValues,omitempty"`
 }
 
 // ColumnMetadata describes a single column returned by a SQL statement.
@@ -57,6 +78,12 @@ type SQLParameter struct {
 }
 
 // UpdateResult represents the result of a single update in a batch.
+//
+// GeneratedFields is populated with the rowid-alias INTEGER PRIMARY KEY
+// value assigned by an INSERT, when the target table declares exactly one
+// such column (see generatedFieldsFor in engine.go). It is left empty for
+// every other statement shape, matching real AWS ("generatedFields ...
+// isn't supported by Aurora PostgreSQL").
 type UpdateResult struct {
 	GeneratedFields []Field `json:"generatedFields"`
 }

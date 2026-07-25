@@ -162,3 +162,71 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateMultipartReadSetUpload_WireShape verifies CreateMultipartReadSetUpload's
+// request/response use the real wire field names (field-diffed against
+// CreateMultipartReadSetUploadInput/Output): "sourceFileType" not the
+// previously-invented "sequenceType", and the required sampleId/subjectId
+// fields round-trip. There is no real "status" field on this resource.
+func TestCreateMultipartReadSetUpload_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	storeRec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "store-1"})
+	require.Equal(t, http.StatusCreated, storeRec.Code)
+
+	var store map[string]any
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	storeID := store["id"].(string)
+
+	rec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/upload", map[string]any{
+		"name":           "upload-1",
+		"sourceFileType": "FASTQ",
+		"sampleId":       "sample-1",
+		"subjectId":      "subject-1",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "FASTQ", resp["sourceFileType"])
+	assert.Equal(t, "sample-1", resp["sampleId"])
+	assert.Equal(t, "subject-1", resp["subjectId"])
+	assert.Nil(t, resp["sequenceType"], "sequenceType is not a real wire key")
+	assert.Nil(t, resp["status"], "there is no real status field on this resource")
+}
+
+// TestReadSetMetadata_FileTypeField verifies a completed read set's metadata
+// serializes its file type under the real GetReadSetMetadataOutput wire key
+// "fileType" (confirmed against the SDK deserializer), not the previously
+// invented key "sequenceType".
+func TestReadSetMetadata_FileTypeField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	storeRec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "store-1"})
+	require.Equal(t, http.StatusCreated, storeRec.Code)
+
+	var store map[string]any
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	storeID := store["id"].(string)
+
+	jobRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/importjob", map[string]any{
+		"roleArn": "arn:aws:iam::000000000000:role/role",
+		"sources": []map[string]any{{"sourceFileType": "BAM", "name": "read-1"}},
+	})
+	require.Equal(t, http.StatusCreated, jobRec.Code)
+
+	listRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/readsets", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	readSets, ok := listResp["readSets"].([]any)
+	require.True(t, ok)
+	require.Len(t, readSets, 1)
+
+	rs := readSets[0].(map[string]any)
+	assert.Equal(t, "BAM", rs["fileType"])
+	assert.Nil(t, rs["sequenceType"], "sequenceType is not a real wire key")
+}

@@ -40,9 +40,9 @@ func TestWireStepFunctionsServiceIntegrations_ECSGlueEventBridge(t *testing.T) {
 	ebBk := ebbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 	ebH := ebbackend.NewHandler(ebBk)
 
-	// This is the exact call cli.go's initializeServices makes (sqs/sns/ddb omitted: not
-	// under test here).
-	wireStepFunctionsServiceIntegrations(sfnH, nil, nil, nil, ecsH, glueH, ebH)
+	// This is the exact call cli.go's initializeServices makes (sqs/sns/ddb/s3 omitted:
+	// not under test here).
+	wireStepFunctionsServiceIntegrations(sfnH, nil, nil, nil, ecsH, glueH, ebH, nil)
 
 	ctx := context.Background()
 

@@ -60,6 +60,27 @@ func TestInMemoryBackend_UntagResourceByShieldARN(t *testing.T) {
 	assert.Empty(t, tags)
 }
 
+// TestInMemoryBackend_TagResourceByShieldARNGovCloudPartition verifies TagResource resolves a
+// Shield protection ARN whose partition is derived from the backend's region (arn:aws-us-gov:
+// shield::...) rather than the hardcoded "arn:aws:shield::" prefix -- GovCloud/China/ISO region
+// backends must be able to resolve their own protection ARNs back to a Protection.
+func TestInMemoryBackend_TagResourceByShieldARNGovCloudPartition(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-gov-west-1")
+	require.NoError(t, b.CreateSubscription())
+	p := b.AddProtectionInternal("prot", "arn:aws-us-gov:ec2:us-gov-west-1::eip-allocation/eipalloc-1")
+
+	require.Contains(t, p.ProtectionArn, "arn:aws-us-gov:shield::")
+
+	err := b.TagResource(p.ProtectionArn, map[string]string{"key": "val"})
+	require.NoError(t, err)
+
+	tags, err := b.ListTagsForResource(p.ProtectionArn)
+	require.NoError(t, err)
+	assert.Equal(t, "val", tags["key"])
+}
+
 // --- Gap 2: DescribeSubscription includes ProactiveEngagementStatus, Limits, SubscriptionLimits ---
 
 // TestAudit_Gap20_TagResourceRequiresSubscription verifies subscription gate.

@@ -222,8 +222,15 @@ func (b *InMemoryBackend) AddDatasetInternal(name string) *Dataset {
 	return d
 }
 
-// CreateDatasetContent creates a new content version for a dataset.
-func (b *InMemoryBackend) CreateDatasetContent(datasetName string) (*DatasetContent, error) {
+// CreateDatasetContent creates a new content version for a dataset. If versionID is
+// non-empty, it is used as the new version's VersionID instead of generating a random one
+// (AWS docs: "The version ID of the dataset content. To specify versionId for a dataset
+// content, the dataset must use a DeltaTimer filter" -- this backend accepts an explicit
+// versionId unconditionally rather than requiring a DeltaTimer trigger, since enforcing that
+// restriction would require simulating DeltaTimer-driven content generation this backend
+// does not otherwise model). A duplicate explicit versionID is rejected with
+// ErrAlreadyExists rather than silently overwriting an existing content version.
+func (b *InMemoryBackend) CreateDatasetContent(datasetName, versionID string) (*DatasetContent, error) {
 	b.mu.Lock("CreateDatasetContent")
 	defer b.mu.Unlock()
 
@@ -231,15 +238,27 @@ func (b *InMemoryBackend) CreateDatasetContent(datasetName string) (*DatasetCont
 		return nil, ErrDatasetNotFound
 	}
 
+	contents := b.datasetContents[datasetName]
+
+	if versionID != "" {
+		for _, c := range contents {
+			if c.VersionID == versionID {
+				return nil, ErrAlreadyExists
+			}
+		}
+	} else {
+		versionID = uuid.NewString()
+	}
+
 	now := epochSeconds(time.Now())
 	content := &DatasetContent{
-		VersionID:      uuid.NewString(),
+		VersionID:      versionID,
 		Status:         statusSucceeded,
 		CreationTime:   now,
 		CompletionTime: now,
+		ScheduleTime:   now,
 	}
 
-	contents := b.datasetContents[datasetName]
 	if len(contents) >= maxDatasetContents {
 		contents = contents[1:]
 	}

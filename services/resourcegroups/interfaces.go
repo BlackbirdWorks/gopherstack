@@ -16,9 +16,14 @@ type StorageBackend interface {
 		resourceQuery *ResourceQuery,
 		inputTags *tags.Tags,
 		configuration []GroupConfigurationItem,
+		opts ...CreateGroupOption,
 	) (*Group, error)
 	GetGroup(ctx context.Context, nameOrARN string) (*Group, error)
-	UpdateGroup(ctx context.Context, nameOrARN, description, displayName string, criticality int) (*Group, error)
+	UpdateGroup(
+		ctx context.Context,
+		nameOrARN, description, displayName, owner string,
+		criticality int,
+	) (*Group, error)
 	UpdateGroupQuery(ctx context.Context, nameOrARN string, query *ResourceQuery) (*Group, error)
 	DeleteGroup(ctx context.Context, nameOrARN string) (*Group, error)
 	// ListGroups returns groups sorted by name with optional filtering and pagination.

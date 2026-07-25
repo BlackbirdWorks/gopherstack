@@ -13,6 +13,7 @@ import (
 // CreateCluster creates a new Cluster.
 func (b *InMemoryBackend) CreateCluster(
 	name, clusterType, instanceRoleArn string,
+	networkSettings ClusterNetworkSettings,
 	tags map[string]string,
 ) (*Cluster, error) {
 	if name == "" {
@@ -33,6 +34,7 @@ func (b *InMemoryBackend) CreateCluster(
 		State:           clusterStateActive,
 		Tags:            copyTags(tags),
 		Nodes:           make(map[string]*storedNode),
+		NetworkSettings: networkSettings,
 	}
 
 	b.mu.Lock("CreateCluster")
@@ -40,7 +42,7 @@ func (b *InMemoryBackend) CreateCluster(
 
 	b.clusters.Put(c)
 
-	return c.toCluster(), nil
+	return c.toCluster(b.channelIDsForCluster(id)), nil
 }
 
 // DescribeCluster returns a Cluster by ID.
@@ -53,11 +55,18 @@ func (b *InMemoryBackend) DescribeCluster(clusterID string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
-	return c.toCluster(), nil
+	return c.toCluster(b.channelIDsForCluster(clusterID)), nil
 }
 
-// UpdateCluster updates a Cluster's mutable fields.
-func (b *InMemoryBackend) UpdateCluster(clusterID, name string) (*Cluster, error) {
+// UpdateCluster updates a Cluster's mutable fields. A zero-value
+// networkSettings leaves the stored NetworkSettings untouched (mirrors
+// UpdateClusterInput's "include this parameter only if you want to change
+// it" semantics for NetworkSettings).
+func (b *InMemoryBackend) UpdateCluster(
+	clusterID, name string,
+	networkSettings ClusterNetworkSettings,
+	hasNetworkSettings bool,
+) (*Cluster, error) {
 	b.mu.Lock("UpdateCluster")
 	defer b.mu.Unlock()
 
@@ -70,7 +79,11 @@ func (b *InMemoryBackend) UpdateCluster(clusterID, name string) (*Cluster, error
 		c.Name = name
 	}
 
-	return c.toCluster(), nil
+	if hasNetworkSettings {
+		c.NetworkSettings = networkSettings
+	}
+
+	return c.toCluster(b.channelIDsForCluster(clusterID)), nil
 }
 
 // DeleteCluster deletes a Cluster.
@@ -84,9 +97,50 @@ func (b *InMemoryBackend) DeleteCluster(clusterID string) (*Cluster, error) {
 	}
 
 	c.State = clusterStateDeleted
+	channelIDs := b.channelIDsForCluster(clusterID)
 	b.clusters.Delete(clusterID)
+	delete(b.tags, c.ARN)
+	b.cascadeDeleteChannelPlacementGroups(clusterID)
 
-	return c.toCluster(), nil
+	return c.toCluster(channelIDs), nil
+}
+
+// cascadeDeleteChannelPlacementGroups removes every ChannelPlacementGroup
+// belonging to clusterID (and its tags), so deleting a Cluster doesn't leave
+// orphaned ChannelPlacementGroup rows -- and their b.tags entries -- pointing
+// at a Cluster ID that no longer exists. Unlike Nodes (embedded directly in
+// storedCluster.Nodes, so they're removed automatically), ChannelPlacementGroups
+// live in their own top-level table keyed by "clusterID/groupID", so nothing
+// removes them when the parent Cluster row goes away without this. Caller
+// must already hold b.mu (Lock).
+func (b *InMemoryBackend) cascadeDeleteChannelPlacementGroups(clusterID string) {
+	for _, g := range b.channelPlacementGroups.All() {
+		if g.ClusterID != clusterID {
+			continue
+		}
+
+		b.channelPlacementGroups.Delete(cpgKey(g.ClusterID, g.ID))
+		delete(b.tags, g.ARN)
+	}
+}
+
+// channelIDsForCluster returns the sorted set of Channel IDs whose
+// AnywhereSettings.ClusterID matches clusterID. Caller must already hold
+// b.mu (Lock or RLock) -- see the real DescribeClusterOutput's "channelIds"
+// field (types.DescribeClusterSummary), a live association gopherstack
+// derives from Channel.AnywhereSettings rather than persisting redundantly.
+func (b *InMemoryBackend) channelIDsForCluster(clusterID string) []string {
+	ids := []string{}
+
+	for _, ch := range b.channels.All() {
+		if ch.AnywhereSettings.ClusterID == clusterID {
+			ids = append(ids, ch.ID)
+		}
+	}
+
+	sort.Strings(ids)
+
+	return ids
 }
 
 // ListClusters returns a paginated list of Clusters.
@@ -105,7 +159,7 @@ func (b *InMemoryBackend) ListClusters(
 
 	summaries := make([]*ClusterSummary, 0, len(pg.Data))
 	for _, c := range pg.Data {
-		summaries = append(summaries, c.toSummary())
+		summaries = append(summaries, c.toSummary(b.channelIDsForCluster(c.ID)))
 	}
 
 	return summaries, pg.Next, nil

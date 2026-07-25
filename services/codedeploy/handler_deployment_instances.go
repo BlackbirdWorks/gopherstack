@@ -3,7 +3,113 @@ package codedeploy
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
+
+// instanceSummaryEntry is the (deprecated but still-served) wire format for
+// GetDeploymentInstance/BatchGetDeploymentInstances.
+type instanceSummaryEntry struct {
+	DeploymentID  string  `json:"deploymentId,omitempty"`
+	InstanceID    string  `json:"instanceId,omitempty"`
+	InstanceType  string  `json:"instanceType,omitempty"`
+	Status        string  `json:"status,omitempty"`
+	LastUpdatedAt float64 `json:"lastUpdatedAt,omitempty"`
+}
+
+// instanceTargetEntry, ecsTargetEntry, and lambdaTargetEntry are the wire
+// formats for the three DeploymentTarget union members this backend can
+// resolve (there is no CloudFormationTarget concept here, since this backend
+// has no CloudFormation blue/green integration).
+type instanceTargetEntry struct {
+	DeploymentID  string  `json:"deploymentId,omitempty"`
+	TargetID      string  `json:"targetId,omitempty"`
+	TargetArn     string  `json:"targetArn,omitempty"`
+	Status        string  `json:"status,omitempty"`
+	InstanceLabel string  `json:"instanceLabel,omitempty"`
+	LastUpdatedAt float64 `json:"lastUpdatedAt,omitempty"`
+}
+
+type ecsTargetEntry struct {
+	DeploymentID  string  `json:"deploymentId,omitempty"`
+	TargetID      string  `json:"targetId,omitempty"`
+	TargetArn     string  `json:"targetArn,omitempty"`
+	Status        string  `json:"status,omitempty"`
+	LastUpdatedAt float64 `json:"lastUpdatedAt,omitempty"`
+}
+
+type lambdaTargetEntry struct {
+	DeploymentID  string  `json:"deploymentId,omitempty"`
+	TargetID      string  `json:"targetId,omitempty"`
+	TargetArn     string  `json:"targetArn,omitempty"`
+	Status        string  `json:"status,omitempty"`
+	LastUpdatedAt float64 `json:"lastUpdatedAt,omitempty"`
+}
+
+// deploymentTargetEntry is the wire format for the DeploymentTarget union:
+// exactly one of InstanceTarget/EcsTarget/LambdaTarget is populated, selected
+// by DeploymentTargetType.
+type deploymentTargetEntry struct {
+	InstanceTarget       *instanceTargetEntry `json:"instanceTarget,omitempty"`
+	EcsTarget            *ecsTargetEntry      `json:"ecsTarget,omitempty"`
+	LambdaTarget         *lambdaTargetEntry   `json:"lambdaTarget,omitempty"`
+	DeploymentTargetType string               `json:"deploymentTargetType,omitempty"`
+}
+
+// instanceSummaryFromRecord converts a computed DeploymentTargetRecord to the
+// legacy InstanceSummary wire format used by GetDeploymentInstance and
+// BatchGetDeploymentInstances.
+func instanceSummaryFromRecord(t *DeploymentTargetRecord) instanceSummaryEntry {
+	return instanceSummaryEntry{
+		DeploymentID:  t.DeploymentID,
+		InstanceID:    t.TargetID,
+		InstanceType:  t.InstanceLabel,
+		Status:        t.Status,
+		LastUpdatedAt: awstime.Epoch(t.LastUpdatedAt),
+	}
+}
+
+// targetEntryFromRecord converts a computed DeploymentTargetRecord to its
+// DeploymentTarget union wire representation, selecting the member and
+// deploymentTargetType enum value that match t.TargetType.
+func targetEntryFromRecord(t *DeploymentTargetRecord) deploymentTargetEntry {
+	switch t.TargetType {
+	case "ecsTarget":
+		return deploymentTargetEntry{
+			DeploymentTargetType: "ECSTarget",
+			EcsTarget: &ecsTargetEntry{
+				DeploymentID:  t.DeploymentID,
+				TargetID:      t.TargetID,
+				TargetArn:     t.TargetArn,
+				Status:        t.Status,
+				LastUpdatedAt: awstime.Epoch(t.LastUpdatedAt),
+			},
+		}
+	case "lambdaTarget":
+		return deploymentTargetEntry{
+			DeploymentTargetType: "LambdaTarget",
+			LambdaTarget: &lambdaTargetEntry{
+				DeploymentID:  t.DeploymentID,
+				TargetID:      t.TargetID,
+				TargetArn:     t.TargetArn,
+				Status:        t.Status,
+				LastUpdatedAt: awstime.Epoch(t.LastUpdatedAt),
+			},
+		}
+	default: // instanceTarget
+		return deploymentTargetEntry{
+			DeploymentTargetType: "InstanceTarget",
+			InstanceTarget: &instanceTargetEntry{
+				DeploymentID:  t.DeploymentID,
+				TargetID:      t.TargetID,
+				TargetArn:     t.TargetArn,
+				Status:        t.Status,
+				InstanceLabel: t.InstanceLabel,
+				LastUpdatedAt: awstime.Epoch(t.LastUpdatedAt),
+			},
+		}
+	}
+}
 
 type batchGetDeploymentInstancesInput struct {
 	DeploymentID string   `json:"deploymentId"`
@@ -11,8 +117,8 @@ type batchGetDeploymentInstancesInput struct {
 }
 
 type batchGetDeploymentInstancesOutput struct {
-	ErrorMessage     string                `json:"errorMessage,omitempty"`
-	InstancesSummary []InstanceSummaryItem `json:"instancesSummary"`
+	ErrorMessage     string                 `json:"errorMessage,omitempty"`
+	InstancesSummary []instanceSummaryEntry `json:"instancesSummary"`
 }
 
 func (h *Handler) handleBatchGetDeploymentInstances(
@@ -28,9 +134,12 @@ func (h *Handler) handleBatchGetDeploymentInstances(
 		return nil, err
 	}
 
-	return &batchGetDeploymentInstancesOutput{
-		InstancesSummary: items,
-	}, nil
+	summaries := make([]instanceSummaryEntry, 0, len(items))
+	for _, item := range items {
+		summaries = append(summaries, instanceSummaryFromRecord(item))
+	}
+
+	return &batchGetDeploymentInstancesOutput{InstancesSummary: summaries}, nil
 }
 
 type batchGetDeploymentTargetsInput struct {
@@ -39,7 +148,7 @@ type batchGetDeploymentTargetsInput struct {
 }
 
 type batchGetDeploymentTargetsOutput struct {
-	DeploymentTargets []DeploymentTargetItem `json:"deploymentTargets"`
+	DeploymentTargets []deploymentTargetEntry `json:"deploymentTargets"`
 }
 
 func (h *Handler) handleBatchGetDeploymentTargets(
@@ -55,9 +164,9 @@ func (h *Handler) handleBatchGetDeploymentTargets(
 		return nil, err
 	}
 
-	targets := make([]DeploymentTargetItem, 0, len(items))
+	targets := make([]deploymentTargetEntry, 0, len(items))
 	for _, item := range items {
-		targets = append(targets, *item)
+		targets = append(targets, targetEntryFromRecord(item))
 	}
 
 	return &batchGetDeploymentTargetsOutput{DeploymentTargets: targets}, nil
@@ -69,7 +178,7 @@ type getDeploymentInstanceInput struct {
 }
 
 type getDeploymentInstanceOutput struct {
-	InstanceSummary InstanceSummaryItem `json:"instanceSummary"`
+	InstanceSummary instanceSummaryEntry `json:"instanceSummary"`
 }
 
 func (h *Handler) handleGetDeploymentInstance(
@@ -80,17 +189,12 @@ func (h *Handler) handleGetDeploymentInstance(
 		return nil, fmt.Errorf("%w: deploymentId and instanceId are required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+	t, err := h.Backend.GetDeploymentInstance(in.DeploymentID, in.InstanceID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &getDeploymentInstanceOutput{
-		InstanceSummary: InstanceSummaryItem{
-			DeploymentID: in.DeploymentID,
-			InstanceID:   in.InstanceID,
-			Status:       statusSucceeded,
-		},
-	}, nil
+	return &getDeploymentInstanceOutput{InstanceSummary: instanceSummaryFromRecord(t)}, nil
 }
 
 type getDeploymentTargetInput struct {
@@ -99,7 +203,7 @@ type getDeploymentTargetInput struct {
 }
 
 type getDeploymentTargetOutput struct {
-	DeploymentTarget DeploymentTargetItem `json:"deploymentTarget"`
+	DeploymentTarget deploymentTargetEntry `json:"deploymentTarget"`
 }
 
 func (h *Handler) handleGetDeploymentTarget(
@@ -110,18 +214,12 @@ func (h *Handler) handleGetDeploymentTarget(
 		return nil, fmt.Errorf("%w: deploymentId and targetId are required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+	t, err := h.Backend.GetDeploymentTarget(in.DeploymentID, in.TargetID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &getDeploymentTargetOutput{
-		DeploymentTarget: DeploymentTargetItem{
-			DeploymentID: in.DeploymentID,
-			TargetID:     in.TargetID,
-			Status:       statusSucceeded,
-			TargetType:   "instanceTarget",
-		},
-	}, nil
+	return &getDeploymentTargetOutput{DeploymentTarget: targetEntryFromRecord(t)}, nil
 }
 
 type listDeploymentInstancesInput struct {
@@ -140,11 +238,12 @@ func (h *Handler) handleListDeploymentInstances(
 		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+	ids, err := h.Backend.ListDeploymentInstances(in.DeploymentID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &listDeploymentInstancesOutput{InstancesList: []string{}}, nil
+	return &listDeploymentInstancesOutput{InstancesList: ids}, nil
 }
 
 type listDeploymentTargetsInput struct {
@@ -163,9 +262,10 @@ func (h *Handler) handleListDeploymentTargets(
 		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+	ids, err := h.Backend.ListDeploymentTargets(in.DeploymentID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &listDeploymentTargetsOutput{TargetIDs: []string{}}, nil
+	return &listDeploymentTargetsOutput{TargetIDs: ids}, nil
 }

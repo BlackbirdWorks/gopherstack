@@ -29,9 +29,9 @@ func toPrivacyBudgetTemplateSummary(t *PrivacyBudgetTemplate) *PrivacyBudgetTemp
 		PrivacyBudgetType:               t.PrivacyBudgetType,
 		CreateTime:                      t.CreateTime,
 		UpdateTime:                      t.UpdateTime,
-		ID:                              t.PrivacyBudgetTemplateIdentifier,
-		MembershipID:                    t.MembershipIdentifier,
-		CollaborationID:                 t.CollaborationIdentifier,
+		ID:                              t.ID,
+		MembershipID:                    t.MembershipID,
+		CollaborationID:                 t.CollaborationID,
 	}
 }
 
@@ -48,7 +48,7 @@ func (b *InMemoryBackend) CreatePrivacyBudgetTemplate(
 	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
+	collab, _ := b.collaborations.Get(mem.CollaborationID)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -57,7 +57,7 @@ func (b *InMemoryBackend) CreatePrivacyBudgetTemplate(
 		PrivacyBudgetTemplateIdentifier: id,
 		Arn:                             b.privacyBudgetTemplateARN(membershipID, id),
 		CollaborationArn:                collabArn,
-		CollaborationIdentifier:         mem.CollaborationIdentifier,
+		CollaborationIdentifier:         mem.CollaborationID,
 		MembershipArn:                   mem.Arn,
 		MembershipIdentifier:            membershipID,
 		PrivacyBudgetType:               privacyBudgetType,
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) CreatePrivacyBudgetTemplate(
 		Tags:                            tags,
 		ID:                              id,
 		MembershipID:                    membershipID,
-		CollaborationID:                 mem.CollaborationIdentifier,
+		CollaborationID:                 mem.CollaborationID,
 	}
 	b.privacyBudgetTemplates.Put(tmpl)
 	if len(tags) > 0 {
@@ -106,7 +106,7 @@ func (b *InMemoryBackend) ListPrivacyBudgetTemplates(
 		},
 		toPrivacyBudgetTemplateSummary,
 		func(a, c *PrivacyBudgetTemplateSummary) bool {
-			return a.PrivacyBudgetTemplateIdentifier < c.PrivacyBudgetTemplateIdentifier
+			return a.ID < c.ID
 		},
 		maxResults, nextToken,
 	)
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) GetCollaborationPrivacyBudgetTemplate(
 	defer b.mu.RUnlock()
 	var found *PrivacyBudgetTemplate
 	b.privacyBudgetTemplates.Range(func(t *PrivacyBudgetTemplate) bool {
-		if t.CollaborationIdentifier == collaborationID && t.PrivacyBudgetTemplateIdentifier == templateID {
+		if t.CollaborationID == collaborationID && t.ID == templateID {
 			found = t
 
 			return false
@@ -205,10 +205,10 @@ func (b *InMemoryBackend) ListCollaborationPrivacyBudgetTemplates(
 	}
 	page, next := listNestedItems(
 		b.privacyBudgetTemplates.All(),
-		func(t *PrivacyBudgetTemplate) bool { return t.CollaborationIdentifier == collaborationID },
+		func(t *PrivacyBudgetTemplate) bool { return t.CollaborationID == collaborationID },
 		toPrivacyBudgetTemplateSummary,
 		func(a, c *PrivacyBudgetTemplateSummary) bool {
-			return a.PrivacyBudgetTemplateIdentifier < c.PrivacyBudgetTemplateIdentifier
+			return a.ID < c.ID
 		},
 		maxResults, nextToken,
 	)

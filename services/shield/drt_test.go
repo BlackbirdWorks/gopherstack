@@ -1,6 +1,7 @@
 package shield_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,6 +40,7 @@ func TestBackend_AssociateDRTLogBucket(t *testing.T) {
 
 			b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, b.CreateSubscription())
+			require.NoError(t, b.AssociateDRTRole("arn:aws:iam::000000000000:role/DRTRole"))
 
 			for _, bucket := range tt.buckets {
 				err := b.AssociateDRTLogBucket(bucket)
@@ -56,6 +58,45 @@ func TestBackend_AssociateDRTLogBucket(t *testing.T) {
 			assert.Len(t, access.LogBucketList, len(tt.buckets))
 		})
 	}
+}
+
+// TestBackend_AssociateDRTLogBucketRequiresRole verifies AssociateDRTLogBucket fails with
+// NoAssociatedRoleException semantics when no DRT role has been associated yet, matching real
+// AWS behavior (the SRT must be authorized via AssociateDRTRole before it can access log
+// buckets).
+func TestBackend_AssociateDRTLogBucketRequiresRole(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b.CreateSubscription())
+
+	err := b.AssociateDRTLogBucket("my-bucket")
+	require.ErrorIs(t, err, shield.ErrNoAssociatedRole)
+
+	access := b.DescribeDRTAccess()
+	assert.Empty(t, access.LogBucketList)
+}
+
+// TestBackend_AssociateDRTLogBucketMaxBuckets verifies the 10-bucket cap returns
+// LimitsExceededException semantics once exceeded.
+func TestBackend_AssociateDRTLogBucketMaxBuckets(t *testing.T) {
+	t.Parallel()
+
+	const maxBuckets = 10
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b.CreateSubscription())
+	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::000000000000:role/DRTRole"))
+
+	for i := range maxBuckets {
+		require.NoError(t, b.AssociateDRTLogBucket(fmt.Sprintf("bucket-%d", i)))
+	}
+
+	err := b.AssociateDRTLogBucket("one-too-many")
+	require.ErrorIs(t, err, shield.ErrLimitExceeded)
+
+	access := b.DescribeDRTAccess()
+	assert.Len(t, access.LogBucketList, maxBuckets)
 }
 
 // TestBackend_AssociateDRTRole tests backend DRT role association.
@@ -135,6 +176,7 @@ func TestInMemoryBackend_DisassociateDRTLogBucket(t *testing.T) {
 			name: "success",
 			setup: func(b *shield.InMemoryBackend) {
 				require.NoError(t, b.CreateSubscription())
+				require.NoError(t, b.AssociateDRTRole("arn:aws:iam::000000000000:role/DRTRole"))
 				require.NoError(t, b.AssociateDRTLogBucket("my-bucket"))
 			},
 			bucket: "my-bucket",

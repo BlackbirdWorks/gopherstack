@@ -94,8 +94,20 @@ type API struct {
 	APIEndpoint               string             `json:"apiEndpoint,omitempty"`
 	Version                   string             `json:"version,omitempty"`
 	APIKeySelectionExpression string             `json:"apiKeySelectionExpression,omitempty"`
-	DisableSchemaValidation   bool               `json:"disableSchemaValidation,omitempty"`
-	DisableExecuteAPIEndpoint bool               `json:"disableExecuteApiEndpoint,omitempty"`
+	// IPAddressType is the IP address types that can invoke the API: "ipv4"
+	// (default) or "dualstack".
+	IPAddressType string `json:"ipAddressType,omitempty"`
+	// ImportInfo carries validation feedback from an ImportApi/ReimportApi
+	// call about OpenAPI properties ignored during import. Always empty for
+	// an API created via CreateApi (not applicable) or via a well-formed
+	// import (no properties ignored).
+	ImportInfo []string `json:"importInfo,omitempty"`
+	// Warnings carries warning messages reported when FailOnWarnings is set
+	// during an ImportApi/ReimportApi call. Always empty for an API created
+	// via CreateApi, or a well-formed import.
+	Warnings                  []string `json:"warnings,omitempty"`
+	DisableSchemaValidation   bool     `json:"disableSchemaValidation,omitempty"`
+	DisableExecuteAPIEndpoint bool     `json:"disableExecuteApiEndpoint,omitempty"`
 }
 
 // Stage represents a deployment stage for an HTTP API.
@@ -158,7 +170,12 @@ type Integration struct {
 	ConnectionID                string                `json:"connectionId,omitempty"`
 	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
 	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
-	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
+	// CredentialsArn specifies the credentials required for the integration,
+	// if any: an IAM role ARN, or "arn:aws:iam::*:user/*" to pass the
+	// caller's identity through. Empty (unset) uses resource-based
+	// permissions on supported AWS services.
+	CredentialsArn  string `json:"credentialsArn,omitempty"`
+	TimeoutInMillis int32  `json:"timeoutInMillis,omitempty"`
 	// APIGatewayManaged is true for the integration auto-provisioned by
 	// CreateApi's quick-create shortcut (routeKey+target). Unlike managed
 	// routes/stages, a managed integration can still be updated -- just not
@@ -205,8 +222,14 @@ type CreateAPIInput struct {
 	// (HTTP APIs only): when both are set, the backend auto-provisions a
 	// $default route, an integration targeting Target, and an auto-deployed
 	// $default stage, all marked apiGatewayManaged.
-	RouteKey                  string `json:"routeKey,omitempty"`
-	Target                    string `json:"target,omitempty"`
+	RouteKey string `json:"routeKey,omitempty"`
+	Target   string `json:"target,omitempty"`
+	// CredentialsArn is part of quick create: the credentials (IAM role ARN)
+	// for the auto-provisioned integration, if any.
+	CredentialsArn string `json:"credentialsArn,omitempty"`
+	// IPAddressType is the IP address types that can invoke the API: "ipv4"
+	// (default) or "dualstack".
+	IPAddressType             string `json:"ipAddressType,omitempty"`
 	DisableSchemaValidation   bool   `json:"disableSchemaValidation,omitempty"`
 	DisableExecuteAPIEndpoint bool   `json:"disableExecuteApiEndpoint,omitempty"`
 }
@@ -228,6 +251,13 @@ type UpdateAPIInput struct {
 	// the API to already have a quick-create route/integration).
 	RouteKey string `json:"routeKey,omitempty"`
 	Target   string `json:"target,omitempty"`
+	// CredentialsArn is part of quick create: if set, it replaces the
+	// credentials associated with the quick-create integration (requires the
+	// API to already have a quick-create integration).
+	CredentialsArn string `json:"credentialsArn,omitempty"`
+	// IPAddressType is the IP address types that can invoke the API: "ipv4"
+	// or "dualstack".
+	IPAddressType string `json:"ipAddressType,omitempty"`
 }
 
 // CreateStageInput is the input for CreateStage.
@@ -298,6 +328,7 @@ type CreateIntegrationInput struct {
 	ConnectionID                string                `json:"connectionId,omitempty"`
 	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
 	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
+	CredentialsArn              string                `json:"credentialsArn,omitempty"`
 	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
 }
 
@@ -316,6 +347,7 @@ type UpdateIntegrationInput struct {
 	ConnectionID                string                `json:"connectionId,omitempty"`
 	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
 	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
+	CredentialsArn              string                `json:"credentialsArn,omitempty"`
 	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
 }
 
@@ -367,6 +399,7 @@ type UpdateDeploymentInput struct {
 type UpdateDomainNameInput struct {
 	MutualTLSAuthentication  *MutualTLSAuthentication  `json:"mutualTlsAuthentication,omitempty"`
 	Tags                     map[string]string         `json:"tags,omitempty"`
+	RoutingMode              string                    `json:"routingMode,omitempty"`
 	DomainNameConfigurations []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
 }
 
@@ -478,12 +511,19 @@ type DomainNameConfiguration struct {
 
 // DomainName represents a custom domain name for API Gateway v2.
 type DomainName struct {
-	MutualTLSAuthentication       *MutualTLSAuthentication  `json:"mutualTlsAuthentication,omitempty"`
-	Tags                          map[string]string         `json:"tags,omitempty"`
-	DomainNameValue               string                    `json:"domainName"`
-	DomainNameArn                 string                    `json:"domainNameArn,omitempty"`
-	APIMappingSelectionExpression string                    `json:"apiMappingSelectionExpression,omitempty"`
-	DomainNameConfigurations      []DomainNameConfiguration `json:"domainNameConfigurations"`
+	MutualTLSAuthentication       *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
+	Tags                          map[string]string        `json:"tags,omitempty"`
+	DomainNameValue               string                   `json:"domainName"`
+	DomainNameArn                 string                   `json:"domainNameArn,omitempty"`
+	APIMappingSelectionExpression string                   `json:"apiMappingSelectionExpression,omitempty"`
+	// RoutingMode is the routing mode: API_MAPPING_ONLY (default),
+	// ROUTING_RULE_ONLY, or ROUTING_RULE_THEN_API_MAPPING. The
+	// ROUTING_RULE_* modes only take effect together with RoutingRule
+	// resources on this domain name, which are out of scope for this
+	// emulator (see gopherstack-e81); the field itself is still stored and
+	// round-tripped for wire completeness.
+	RoutingMode              string                    `json:"routingMode,omitempty"`
+	DomainNameConfigurations []DomainNameConfiguration `json:"domainNameConfigurations"`
 }
 
 // CreateDomainNameInput is the input for CreateDomainName.
@@ -491,6 +531,7 @@ type CreateDomainNameInput struct {
 	MutualTLSAuthentication  *MutualTLSAuthentication  `json:"mutualTlsAuthentication,omitempty"`
 	Tags                     map[string]string         `json:"tags,omitempty"`
 	DomainNameValue          string                    `json:"domainName"`
+	RoutingMode              string                    `json:"routingMode,omitempty"`
 	DomainNameConfigurations []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
 }
 

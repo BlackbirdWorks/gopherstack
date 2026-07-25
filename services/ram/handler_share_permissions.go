@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 )
 
 type listResourceSharePermissionsRequest struct {
@@ -124,11 +125,36 @@ type replacePermissionAssociationsRequest struct {
 	ToPermissionArn       string `json:"toPermissionArn"`
 }
 
+// replacePermissionAssociationsWork is the JSON representation of a
+// ReplacePermissionAssociationsWork item. fromPermissionVersion/toPermissionVersion are
+// strings on the wire (matching the real SDK's ReplacePermissionAssociationsWork type,
+// which models them as *string even though they are numeric version identifiers).
 type replacePermissionAssociationsWork struct {
-	ID                string `json:"id"`
-	FromPermissionArn string `json:"fromPermissionArn"`
-	ToPermissionArn   string `json:"toPermissionArn"`
-	Status            string `json:"status"`
+	ID                    string  `json:"id"`
+	FromPermissionArn     string  `json:"fromPermissionArn"`
+	FromPermissionVersion string  `json:"fromPermissionVersion"`
+	ToPermissionArn       string  `json:"toPermissionArn"`
+	ToPermissionVersion   string  `json:"toPermissionVersion"`
+	Status                string  `json:"status"`
+	StatusMessage         string  `json:"statusMessage,omitempty"`
+	CreationTime          float64 `json:"creationTime"`
+	LastUpdatedTime       float64 `json:"lastUpdatedTime"`
+}
+
+func toReplacePermissionAssociationsWorkObject(
+	w *ReplacePermissionAssociationsWork,
+) replacePermissionAssociationsWork {
+	return replacePermissionAssociationsWork{
+		ID:                    w.ID,
+		FromPermissionArn:     w.FromPermissionARN,
+		FromPermissionVersion: strconv.Itoa(int(w.FromPermissionVersion)),
+		ToPermissionArn:       w.ToPermissionARN,
+		ToPermissionVersion:   strconv.Itoa(int(w.ToPermissionVersion)),
+		Status:                w.Status,
+		StatusMessage:         w.StatusMessage,
+		CreationTime:          epochSeconds(w.CreationTime),
+		LastUpdatedTime:       epochSeconds(w.LastUpdatedTime),
+	}
 }
 
 type replacePermissionAssociationsResponse struct {
@@ -152,21 +178,17 @@ func (h *Handler) handleReplacePermissionAssociations(
 		return nil, fmt.Errorf("%w: toPermissionArn is required", errInvalidRequest)
 	}
 
-	workID, err := h.Backend.ReplacePermissionAssociations(
+	work, err := h.Backend.ReplacePermissionAssociations(
 		req.FromPermissionArn,
 		req.ToPermissionArn,
+		req.FromPermissionVersion,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(replacePermissionAssociationsResponse{
-		ReplacePermissionAssociationsWork: replacePermissionAssociationsWork{
-			ID:                workID,
-			FromPermissionArn: req.FromPermissionArn,
-			ToPermissionArn:   req.ToPermissionArn,
-			Status:            "IN_PROGRESS",
-		},
+		ReplacePermissionAssociationsWork: toReplacePermissionAssociationsWorkObject(work),
 	})
 }
 
@@ -213,17 +235,44 @@ func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byt
 	return json.Marshal(listPermissionAssociationsResponse{NextToken: nextToken, Permissions: page})
 }
 
+// listReplacePermissionAssociationsWorkResponse's list field is plural
+// (replacePermissionAssociationsWorks) on the wire -- distinct from the singular
+// replacePermissionAssociationsWork field on ReplacePermissionAssociations's own response.
 type listReplacePermissionAssociationsWorkResponse struct {
-	NextToken                         string                              `json:"nextToken,omitempty"`
-	ReplacePermissionAssociationsWork []replacePermissionAssociationsWork `json:"replacePermissionAssociationsWork"`
+	NextToken                          string                              `json:"nextToken,omitempty"`
+	ReplacePermissionAssociationsWorks []replacePermissionAssociationsWork `json:"replacePermissionAssociationsWorks"`
+}
+
+type listReplacePermissionAssociationsWorkRequest struct {
+	MaxResults *int32   `json:"maxResults,omitempty"`
+	Status     string   `json:"status"`
+	NextToken  string   `json:"nextToken"`
+	WorkIDs    []string `json:"workIds"`
 }
 
 func (h *Handler) handleListReplacePermissionAssociationsWork(
 	_ context.Context,
-	_ []byte,
+	body []byte,
 ) ([]byte, error) {
-	// Mock returns empty list; work items are ephemeral in this implementation.
+	var req listReplacePermissionAssociationsWorkRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	works := h.Backend.ListReplacePermissionAssociationsWork(req.WorkIDs, req.Status)
+	objs := make([]replacePermissionAssociationsWork, 0, len(works))
+
+	for _, w := range works {
+		objs = append(objs, toReplacePermissionAssociationsWorkObject(w))
+	}
+
+	page, nextToken, err := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
 	return json.Marshal(listReplacePermissionAssociationsWorkResponse{
-		ReplacePermissionAssociationsWork: []replacePermissionAssociationsWork{},
+		NextToken:                          nextToken,
+		ReplacePermissionAssociationsWorks: page,
 	})
 }

@@ -273,10 +273,55 @@ func TestCreateAssociation_Success(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		check      func(t *testing.T, out ssm.Association)
 		name       string
+		body       string
 		wantStatus int
 	}{
-		{name: "associates_existing_document", wantStatus: http.StatusOK},
+		{
+			name:       "associates_existing_document",
+			body:       `{"Name":"MyDoc","InstanceId":"i-abc123"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			// Locks in the previously-missing CreateAssociationInput fields
+			// (bd gopherstack-ouvq), confirmed present in aws-sdk-go-v2
+			// v1.71.0's api_op_CreateAssociation.go.
+			name: "round_trips_extended_fields",
+			body: `{
+				"Name": "MyDoc",
+				"InstanceId": "i-abc123",
+				"ApplyOnlyAtCronInterval": true,
+				"AssociationDispatchAssumeRole": "arn:aws:iam::123456789012:role/dispatch",
+				"AutomationTargetParameterName": "InstanceId",
+				"CalendarNames": ["cal-1"],
+				"ComplianceSeverity": "HIGH",
+				"Duration": 4,
+				"MaxConcurrency": "50%",
+				"MaxErrors": "1",
+				"OutputLocation": {"S3Location": {"OutputS3BucketName": "assoc-bucket", "OutputS3KeyPrefix": "out"}},
+				"ScheduleExpression": "rate(30 minutes)",
+				"SyncCompliance": "AUTO"
+			}`,
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, out ssm.Association) {
+				t.Helper()
+				assert.True(t, out.ApplyOnlyAtCronInterval)
+				assert.Equal(t, "arn:aws:iam::123456789012:role/dispatch", out.AssociationDispatchAssumeRole)
+				assert.Equal(t, "InstanceId", out.AutomationTargetParameterName)
+				assert.Equal(t, []string{"cal-1"}, out.CalendarNames)
+				assert.Equal(t, "HIGH", out.ComplianceSeverity)
+				require.NotNil(t, out.Duration)
+				assert.EqualValues(t, 4, *out.Duration)
+				assert.Equal(t, "50%", out.MaxConcurrency)
+				assert.Equal(t, "1", out.MaxErrors)
+				require.NotNil(t, out.OutputLocation)
+				require.NotNil(t, out.OutputLocation.S3Location)
+				assert.Equal(t, "assoc-bucket", out.OutputLocation.S3Location.OutputS3BucketName)
+				assert.Equal(t, "rate(30 minutes)", out.ScheduleExpression)
+				assert.Equal(t, "AUTO", out.SyncCompliance)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -292,7 +337,7 @@ func TestCreateAssociation_Success(t *testing.T) {
 				`{"Name":"MyDoc","Content":"{\"schemaVersion\":\"2.2\"}","DocumentType":"Command"}`,
 			)
 
-			rec := doRequest(t, h, "CreateAssociation", `{"Name":"MyDoc","InstanceId":"i-abc123"}`)
+			rec := doRequest(t, h, "CreateAssociation", tt.body)
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp ssm.CreateAssociationOutput
@@ -300,6 +345,10 @@ func TestCreateAssociation_Success(t *testing.T) {
 			assert.NotEmpty(t, resp.AssociationDescription.AssociationID)
 			assert.Equal(t, "MyDoc", resp.AssociationDescription.Name)
 			assert.Equal(t, 1, backend.AssociationCount())
+
+			if tt.check != nil {
+				tt.check(t, resp.AssociationDescription)
+			}
 		})
 	}
 }
@@ -490,7 +539,10 @@ func TestDeleteAssociation_NotFound(t *testing.T) {
 func TestUpdateAssociation(t *testing.T) {
 	t.Parallel()
 
+	durationHours := int32(6)
+
 	tests := []struct {
+		check   func(t *testing.T, out ssm.Association)
 		name    string
 		update  ssm.UpdateAssociationInput
 		wantErr bool
@@ -519,6 +571,52 @@ func TestUpdateAssociation(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			// Locks in that UpdateAssociationInput carries the same
+			// previously-missing fields as CreateAssociationInput
+			// (ApplyOnlyAtCronInterval/ComplianceSeverity/MaxConcurrency/
+			// MaxErrors/OutputLocation/ScheduleExpression/SyncCompliance/
+			// CalendarNames/AssociationDispatchAssumeRole/
+			// AutomationTargetParameterName/Duration), confirmed present on
+			// both api_op_CreateAssociation.go and api_op_UpdateAssociation.go.
+			name: "update_extended_fields",
+			update: ssm.UpdateAssociationInput{
+				ApplyOnlyAtCronInterval:       true,
+				AssociationDispatchAssumeRole: "arn:aws:iam::123456789012:role/dispatch",
+				AutomationTargetParameterName: "InstanceId",
+				CalendarNames:                 []string{"cal-1", "cal-2"},
+				ComplianceSeverity:            "CRITICAL",
+				Duration:                      &durationHours,
+				MaxConcurrency:                "10%",
+				MaxErrors:                     "5%",
+				OutputLocation: &ssm.InstanceAssociationOutputLocation{
+					S3Location: &ssm.S3OutputLocation{
+						OutputS3BucketName: "my-bucket",
+						OutputS3KeyPrefix:  "assoc-output",
+					},
+				},
+				ScheduleExpression: "cron(0 2 ? * SUN *)",
+				SyncCompliance:     "MANUAL",
+			},
+			wantErr: false,
+			check: func(t *testing.T, out ssm.Association) {
+				t.Helper()
+				assert.True(t, out.ApplyOnlyAtCronInterval)
+				assert.Equal(t, "arn:aws:iam::123456789012:role/dispatch", out.AssociationDispatchAssumeRole)
+				assert.Equal(t, "InstanceId", out.AutomationTargetParameterName)
+				assert.Equal(t, []string{"cal-1", "cal-2"}, out.CalendarNames)
+				assert.Equal(t, "CRITICAL", out.ComplianceSeverity)
+				require.NotNil(t, out.Duration)
+				assert.EqualValues(t, 6, *out.Duration)
+				assert.Equal(t, "10%", out.MaxConcurrency)
+				assert.Equal(t, "5%", out.MaxErrors)
+				require.NotNil(t, out.OutputLocation)
+				require.NotNil(t, out.OutputLocation.S3Location)
+				assert.Equal(t, "my-bucket", out.OutputLocation.S3Location.OutputS3BucketName)
+				assert.Equal(t, "cron(0 2 ? * SUN *)", out.ScheduleExpression)
+				assert.Equal(t, "MANUAL", out.SyncCompliance)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -536,12 +634,16 @@ func TestUpdateAssociation(t *testing.T) {
 				tt.update.AssociationID = out.AssociationDescription.AssociationID
 			}
 
-			_, err := b.UpdateAssociation(context.TODO(), &tt.update)
+			updated, err := b.UpdateAssociation(context.TODO(), &tt.update)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, ssm.ErrAssociationNotFound)
 			} else {
 				require.NoError(t, err)
+
+				if tt.check != nil {
+					tt.check(t, updated.AssociationDescription)
+				}
 			}
 		})
 	}

@@ -19,6 +19,9 @@ func TestHandler_DeviceFleetLifecycle(t *testing.T) {
 		"DeviceFleetName": "my-fleet",
 		"RoleArn":         "arn:aws:iam::000000000000:role/TestRole",
 		"Description":     "test fleet",
+		"OutputConfig": map[string]any{
+			"S3OutputLocation": "s3://my-bucket/output",
+		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -38,6 +41,12 @@ func TestHandler_DeviceFleetLifecycle(t *testing.T) {
 	assert.Equal(t, "test fleet", descResp["Description"])
 	assert.Contains(t, descResp["DeviceFleetArn"], "my-fleet")
 
+	// OutputConfig is a required member of DescribeDeviceFleetOutput in the
+	// real API — it must always be present, never omitted.
+	outCfg, ok := descResp["OutputConfig"].(map[string]any)
+	require.True(t, ok, "OutputConfig must be present in DescribeDeviceFleet response")
+	assert.Equal(t, "s3://my-bucket/output", outCfg["S3OutputLocation"])
+
 	// List
 	rec = doSageMakerRequest(t, h, "ListDeviceFleets", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -51,6 +60,9 @@ func TestHandler_DeviceFleetLifecycle(t *testing.T) {
 	rec = doSageMakerRequest(t, h, "UpdateDeviceFleet", map[string]any{
 		"DeviceFleetName": "my-fleet",
 		"Description":     "updated description",
+		"OutputConfig": map[string]any{
+			"S3OutputLocation": "s3://my-bucket/new-output",
+		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -59,6 +71,9 @@ func TestHandler_DeviceFleetLifecycle(t *testing.T) {
 	})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	assert.Equal(t, "updated description", descResp["Description"])
+	outCfg, ok = descResp["OutputConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "s3://my-bucket/new-output", outCfg["S3OutputLocation"])
 
 	// Delete
 	rec = doSageMakerRequest(t, h, "DeleteDeviceFleet", map[string]any{
@@ -89,7 +104,10 @@ func TestHandler_DeviceFleet_Duplicate(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	body := map[string]any{"DeviceFleetName": "dup-fleet"}
+	body := map[string]any{
+		"DeviceFleetName": "dup-fleet",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	}
 	doSageMakerRequest(t, h, "CreateDeviceFleet", body)
 
 	rec := doSageMakerRequest(t, h, "CreateDeviceFleet", body)
@@ -106,7 +124,10 @@ func TestHandler_DeviceLifecycle(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create fleet first
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "fleet-a"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "fleet-a",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 
 	// Register devices
 	rec := doSageMakerRequest(t, h, "RegisterDevices", map[string]any{
@@ -160,8 +181,14 @@ func TestHandler_ListDevices_NoFleetFilter(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "fleet-a"})
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "fleet-b"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "fleet-a",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "fleet-b",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 	doSageMakerRequest(t, h, "RegisterDevices", map[string]any{
 		"DeviceFleetName": "fleet-a",
 		"Devices":         []any{map[string]any{"DeviceName": "dev-a"}},
@@ -186,7 +213,10 @@ func TestHandler_DescribeDevice_NotFound(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{"DeviceFleetName": "fleet-a"})
+	doSageMakerRequest(t, h, "CreateDeviceFleet", map[string]any{
+		"DeviceFleetName": "fleet-a",
+		"OutputConfig":    map[string]any{"S3OutputLocation": "s3://my-bucket/output"},
+	})
 
 	rec := doSageMakerRequest(t, h, "DescribeDevice", map[string]any{
 		"DeviceFleetName": "fleet-a",

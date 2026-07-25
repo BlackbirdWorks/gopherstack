@@ -57,10 +57,12 @@ func (h *Handler) handleModifyActivityStream(vals url.Values) (any, error) {
 	}
 
 	return modifyActivityStreamResponse{
-		Xmlns:       rdsXMLNS,
-		KMSKeyID:    cluster.ActivityStreamKMSKeyID,
-		Status:      cluster.ActivityStreamStatus,
-		AuditPolicy: cluster.ActivityStreamAuditPolicy,
+		Xmlns:             rdsXMLNS,
+		KinesisStreamName: cluster.ActivityStreamKinesisStreamName,
+		KMSKeyID:          cluster.ActivityStreamKMSKeyID,
+		Mode:              cluster.ActivityStreamMode,
+		Status:            cluster.ActivityStreamStatus,
+		PolicyStatus:      cluster.ActivityStreamAuditPolicy,
 	}, nil
 }
 
@@ -93,10 +95,18 @@ type stopActivityStreamResponse struct {
 	Status            string   `xml:"StopActivityStreamResult>Status,omitempty"`
 }
 
+// modifyActivityStreamResponse mirrors aws-sdk-go-v2's ModifyActivityStreamOutput,
+// which has no "AuditPolicy" member — the real wire field for the audit
+// policy's lock state is "PolicyStatus" (types.ActivityStreamPolicyStatus).
+// A prior version of this response invented an "AuditPolicy" element that
+// does not exist on the real SDK's output and omitted the real
+// KinesisStreamName/Mode members.
 type modifyActivityStreamResponse struct {
-	XMLName     xml.Name `xml:"ModifyActivityStreamResponse"`
-	Xmlns       string   `xml:"xmlns,attr"`
-	KMSKeyID    string   `xml:"ModifyActivityStreamResult>KmsKeyId,omitempty"`
-	Status      string   `xml:"ModifyActivityStreamResult>Status,omitempty"`
-	AuditPolicy string   `xml:"ModifyActivityStreamResult>AuditPolicy,omitempty"`
+	XMLName           xml.Name `xml:"ModifyActivityStreamResponse"`
+	Xmlns             string   `xml:"xmlns,attr"`
+	KinesisStreamName string   `xml:"ModifyActivityStreamResult>KinesisStreamName,omitempty"`
+	KMSKeyID          string   `xml:"ModifyActivityStreamResult>KmsKeyId,omitempty"`
+	Mode              string   `xml:"ModifyActivityStreamResult>Mode,omitempty"`
+	Status            string   `xml:"ModifyActivityStreamResult>Status,omitempty"`
+	PolicyStatus      string   `xml:"ModifyActivityStreamResult>PolicyStatus,omitempty"`
 }

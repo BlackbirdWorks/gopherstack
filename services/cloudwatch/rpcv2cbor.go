@@ -127,16 +127,10 @@ func (h *Handler) dispatchResourceManagementCBOR(op string, input cbor.Map, c *e
 	switch op {
 	case opPutAlarmMuteRule:
 		return h.cborPutAlarmMuteRule(input, c)
-	case opUpdateAlarmMuteRule:
-		return h.cborUpdateAlarmMuteRule(input, c)
 	case opPutInsightRule:
 		return h.cborPutInsightRule(input, c)
-	case opUpdateInsightRule:
-		return h.cborUpdateInsightRule(input, c)
 	case opPutMetricStream:
 		return h.cborPutMetricStream(input, c)
-	case opUpdateMetricStream:
-		return h.cborUpdateMetricStream(input, c)
 	case opGetAlarmMuteRule:
 		return h.cborGetAlarmMuteRule(input, c)
 	case opDeleteAlarmMuteRule:
@@ -178,7 +172,7 @@ func (h *Handler) dispatchExtendedCBOR(op string, input cbor.Map, c *echo.Contex
 		return err
 	}
 
-	return h.dispatchInsightMetricFilterCBOR(op, input, c)
+	return h.dispatchInsightRuleCBOR(op, input, c)
 }
 
 // dispatchAnomalyMetricStreamCBOR routes anomaly detector and metric stream CBOR operations.
@@ -207,8 +201,8 @@ func (h *Handler) dispatchAnomalyMetricStreamCBOR(
 	return false, nil
 }
 
-// dispatchInsightMetricFilterCBOR routes insight rule and metric filter CBOR operations.
-func (h *Handler) dispatchInsightMetricFilterCBOR(
+// dispatchInsightRuleCBOR routes insight rule CBOR operations.
+func (h *Handler) dispatchInsightRuleCBOR(
 	op string,
 	input cbor.Map,
 	c *echo.Context,
@@ -224,14 +218,6 @@ func (h *Handler) dispatchInsightMetricFilterCBOR(
 		return h.cborEnableInsightRules(input, c)
 	case opGetInsightRuleReport:
 		return h.cborGetInsightRuleReport(input, c)
-	case opPutMetricFilter:
-		return h.cborPutMetricFilter(input, c)
-	case opDescribeMetricFilters:
-		return h.cborDescribeMetricFilters(input, c)
-	case opDeleteMetricFilter:
-		return h.cborDeleteMetricFilter(input, c)
-	case opTestMetricFilter:
-		return h.cborTestMetricFilter(input, c)
 	case opGetMetricWidgetImage:
 		return h.cborGetMetricWidgetImage(input, c)
 	case opListAlarmMuteRules:

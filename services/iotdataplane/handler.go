@@ -288,7 +288,9 @@ func parseShadowPath(path string) (string, string) {
 // handleError maps backend errors to appropriate HTTP status codes.
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
-	case errors.Is(err, ErrShadowNotFound), errors.Is(err, ErrRetainedMessageNotFound):
+	case errors.Is(err, ErrShadowNotFound),
+		errors.Is(err, ErrRetainedMessageNotFound),
+		errors.Is(err, ErrConnectionNotFound):
 		return c.JSON(http.StatusNotFound, map[string]string{
 			keyError:   "ResourceNotFoundException",
 			keyMessage: err.Error(),

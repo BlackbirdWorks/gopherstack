@@ -47,6 +47,7 @@ func (b *InMemoryBackend) CreateAccessEntry(
 		t.Merge(kv)
 	}
 
+	now := time.Now().UTC()
 	entry := &AccessEntry{
 		PrincipalARN:     principalARN,
 		ClusterName:      clusterName,
@@ -54,7 +55,8 @@ func (b *InMemoryBackend) CreateAccessEntry(
 		Type:             entryType,
 		Username:         username,
 		KubernetesGroups: cloneStrings(kubernetesGroups),
-		CreatedAt:        time.Now().UTC(),
+		CreatedAt:        now,
+		ModifiedAt:       now,
 		Tags:             t,
 	}
 	b.accessEntries.Put(entry)
@@ -168,24 +170,30 @@ func (b *InMemoryBackend) UpdateAccessEntry(
 		entry.KubernetesGroups = cloneStrings(upd.KubernetesGroups)
 	}
 
+	entry.ModifiedAt = time.Now().UTC()
+
 	cp := *entry
 
 	return &cp, nil
 }
 
-// ListAccessPolicies returns a static list of AWS-managed EKS access policies.
+// ListAccessPolicies returns a static list of AWS-managed EKS access
+// policies. Wire keys are "arn"/"name" -- verified against
+// aws-sdk-go-v2/service/eks/deserializers.go's
+// awsRestjson1_deserializeDocumentAccessPolicy, which is distinct from the
+// "policyArn" key used by AssociatedAccessPolicy elsewhere in this API.
 func (b *InMemoryBackend) ListAccessPolicies() []map[string]string {
 	return []map[string]string{
 		{
-			keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
-			keyName:      "AmazonEKSClusterAdminPolicy",
+			keyArn:  "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
+			keyName: "AmazonEKSClusterAdminPolicy",
 		},
-		{keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy", keyName: "AmazonEKSAdminPolicy"},
-		{keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy", keyName: "AmazonEKSEditPolicy"},
-		{keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy", keyName: "AmazonEKSViewPolicy"},
+		{keyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy", keyName: "AmazonEKSAdminPolicy"},
+		{keyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy", keyName: "AmazonEKSEditPolicy"},
+		{keyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy", keyName: "AmazonEKSViewPolicy"},
 		{
-			keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy",
-			keyName:      "AmazonEKSAdminViewPolicy",
+			keyArn:  "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy",
+			keyName: "AmazonEKSAdminViewPolicy",
 		},
 	}
 }

@@ -7,52 +7,51 @@
 service: detective
 sdk_module: aws-sdk-go-v2/service/detective@v1.39.1   # version audited against
 last_audit_commit: 40f059288a40c1d9b7956624bb288861e2e0651d
-last_audit_date: 2026-07-13
+last_audit_date: 2026-07-23
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateGraph: {wire: ok, errors: ok, state: ok, persist: ok, note: idempotent-per-account matches AWS docs}
-  DeleteGraph: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - now cleans investigations/datasources/orgConfigs, not just members/tags"}
+  DeleteGraph: {wire: ok, errors: ok, state: ok, persist: ok, note: "cleans investigations/datasources/orgConfigs, not just members/tags"}
   ListGraphs: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateMembers: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - already-invited accounts now go to UnprocessedAccounts per AWS docs, not silently re-returned as processed"}
+  CreateMembers: {wire: ok, errors: ok, state: ok, persist: ok, note: "already-invited accounts go to UnprocessedAccounts per AWS docs; MemberDetail now includes InvitationType and DatasourcePackageIngestStates (see notes)"}
   DeleteMembers: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetMembers: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListMembers: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetMembers: {wire: ok, errors: ok, state: ok, persist: ok, note: "MemberDetail now includes InvitationType and DatasourcePackageIngestStates"}
+  ListMembers: {wire: ok, errors: ok, state: ok, persist: ok, note: "MemberDetail now includes InvitationType and DatasourcePackageIngestStates; NextToken already opaque base64"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   AcceptInvitation: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /invitation matches SDK method"}
   RejectInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListInvitations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - NextToken is now an opaque base64 offset (encodePageToken/decodePageToken) instead of the raw next GraphArn; MemberDetail now includes InvitationType and DatasourcePackageIngestStates"}
   DisassociateMembership: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetGraphMemberDatasources: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetMembershipDatasources: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatasourcePackages: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDatasourcePackages: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - NextToken is now an opaque base64 offset instead of the raw next package-name key"}
   UpdateDatasourcePackages: {wire: ok, errors: ok, state: ok, persist: ok, note: "always transitions to STARTED, no real ingest pipeline to fail - acceptable simplification"}
   StartMonitoringMember: {wire: ok, errors: ok, state: partial, persist: ok, note: "precondition status ACCEPTED_BUT_DISABLED is never reached elsewhere in the backend (AcceptInvitation goes straight to ENABLED), so this op can never succeed on a member reached only through normal API flow; see gaps"}
   GetInvestigation: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListIndicators: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListInvestigations: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartInvestigation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - EntityType is not a real input field (StartInvestigationInput has no EntityType member); now derived server-side from EntityArn's role/ or user/ resource segment. ScopeStartTime/ScopeEndTime are required per SDK and are now validated as such."}
+  ListIndicators: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - real aws-sdk-go-v2 types.Indicator has IndicatorType + IndicatorDetail (a union of 8 type-specific sub-structs: FlaggedIpAddressDetail, ImpossibleTravelDetail, NewAsoDetail, NewGeolocationDetail, NewUserAgentDetail, RelatedFindingDetail, RelatedFindingGroupDetail, TTPsObservedDetail) and has NO Title member at all. This emulator previously returned a gopherstack-invented free-text Title field instead of IndicatorDetail -- deleted and replaced with the real union shape (interfaces.go IndicatorDetail + 8 sub-detail structs, handler_investigations.go indicatorDetailToJSON). Also added the two previously-missing IndicatorType values (NEW_ASO, NEW_USER_AGENT) to builtInIndicators so all 8 real enum values are producible and filterable."}
+  ListInvestigations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - NextToken is now an opaque base64 offset instead of the raw next InvestigationId"}
+  StartInvestigation: {wire: ok, errors: ok, state: ok, persist: ok, note: "EntityType is not a real input field (StartInvestigationInput has no EntityType member); derived server-side from EntityArn's role/ or user/ resource segment. ScopeStartTime/ScopeEndTime are required per SDK and validated as such."}
   UpdateInvestigationState: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeOrganizationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisableOrganizationAdminAccount: {wire: ok, errors: ok, state: partial, persist: ok, note: "AWS docs: 'Deletes the organization behavior graph.' Current impl only clears orgAdmins, does not delete the graph - see gaps"}
-  EnableOrganizationAdminAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - now auto-creates a behavior graph when the account has none, per AWS docs"}
-  ListOrganizationAdminAccounts: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisableOrganizationAdminAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - AWS docs: 'Deletes the organization behavior graph.' Now deletes the graph(s) referenced by the current org admin(s) via the deleteGraphLocked helper shared with DeleteGraph (cascading members/investigations/tags/datasources/orgConfigs cleanup), then clears orgAdmins. Within this emulator's one-graph-per-account model, EnableOrganizationAdminAccount always designates the account's sole graph as the org graph, so deleting it on Disable is the faithful behavior."}
+  EnableOrganizationAdminAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "auto-creates a behavior graph when the account has none, per AWS docs. Fixed this pass - now enforces AWS's singular Detective-administrator-account-per-organization/Region model (ListOrganizationAdminAccounts and the Administrator SDK type both describe it in the singular): a second Enable call replaces the existing orgAdmins entry instead of appending a duplicate, which previously let repeated Enable calls accumulate multiple conflicting Administrators in ListOrganizationAdminAccounts output."}
+  ListOrganizationAdminAccounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - NextToken is now an opaque base64 offset instead of the raw next AccountId (now effectively unreachable in practice since EnableOrganizationAdminAccount enforces at most one admin, but kept consistent with the other list ops)"}
   UpdateOrganizationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
 # Families audited as a group (when per-op is impractical):
 families:
-  route_matcher: {status: ok, note: "every REST path + HTTP method verified byte-for-byte against aws-sdk-go-v2 serializers.go opPath/request.Method for all 29 ops; matches exactly. New handler_test.go exercises h.RouteMatcher()(c) and h.ExtractOperation(c) directly (not just h.Handler()) to prove the matcher itself, not just the dispatch switch, since unit tests calling h.Handler()(c) bypass RouteMatcher."}
+  route_matcher: {status: ok, note: "every REST path + HTTP method verified byte-for-byte against aws-sdk-go-v2 serializers.go opPath/request.Method for all 29 ops; matches exactly. handler_test.go exercises h.RouteMatcher()(c) and h.ExtractOperation(c) directly (not just h.Handler()) to prove the matcher itself, not just the dispatch switch, since unit tests calling h.Handler()(c) bypass RouteMatcher."}
   wire_timestamps: {status: ok, note: "smithytime.ParseDateTime/FormatDateTime confirms restjson1 Detective uses ISO8601 datetime strings (NOT epoch numbers) for CreatedTime/InvitedTime/UpdatedTime/DelegationTime/ScopeStartTime/ScopeEndTime; handler.go's \"2006-01-02T15:04:05.000Z\" format is a valid (always-3-decimal) RFC3339 the real client parses fine, vs. SDK's \"2006-01-02T15:04:05.999Z\" (trailing-zero-trimmed) output format - both are valid ISO8601, no bug"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "StartMonitoringMember's precondition (member status ACCEPTED_BUT_DISABLED) is unreachable through normal API flow: AcceptInvitation transitions INVITED straight to ENABLED, mirroring the AWS happy path, but real Detective can also land a member in ACCEPTED_BUT_DISABLED (data-volume-too-high / volume-unknown edge cases per MemberDisabledReason) which this emulator does not model. Deferred: modeling those admission-control edge cases is a larger feature, not a wire/state bug."
-  - "DisableOrganizationAdminAccount does not delete the organization behavior graph (AWS docs: 'Deletes the organization behavior graph.'). Not fixed this pass: this emulator's one-graph-per-account model does not distinguish an org behavior graph from a personal one, so forcibly deleting b.graphs on Disable risks destroying state a test/flow expects to persist independently, without a clear real-world precedent to validate against in this simplified model."
-  - "MemberDetail response omits several AWS-optional/deprecated fields never populated: DisabledReason, VolumeUsageInBytes (deprecated), VolumeUsageUpdatedTime (deprecated), PercentOfGraphUtilization (deprecated), PercentOfGraphUtilizationUpdatedTime (deprecated), InvitationType, VolumeUsageByDatasourcePackage, DatasourcePackageIngestStates. All are optional/analytics fields real clients treat as absent-safe; not stubs since the op itself is real, just an unpopulated optional field. Low priority."
-  - "List pagination tokens are not uniformly opaque: ListGraphs/ListMembers/ListIndicators use base64(offset) via encodePageToken, but ListInvitations/ListInvestigations/ListOrganizationAdminAccounts/ListDatasourcePackages use the raw next item's ID/ARN as the token. Both are wire-legal (AWS never guarantees token structure to callers) but the latter leaks internal identifiers. Stylistic/hygiene, not a wire-shape bug."
+  - "StartMonitoringMember's precondition (member status ACCEPTED_BUT_DISABLED) is unreachable through normal API flow: AcceptInvitation transitions INVITED straight to ENABLED, mirroring the AWS happy path, but real Detective can also land a member in ACCEPTED_BUT_DISABLED (data-volume-too-high / volume-unknown edge cases per MemberDisabledReason) which this emulator does not model. Not fixed this pass: real AWS determines this state via internal GuardDuty volume telemetry with no documented client-controllable trigger, so modeling a way to reach it would mean inventing a control surface that does not exist in the real API rather than emulating one -- a larger, speculative feature, not a wire/state bug fix."
+  - "MemberDetail still omits DisabledReason, VolumeUsageInBytes (deprecated), VolumeUsageUpdatedTime (deprecated), PercentOfGraphUtilization (deprecated), PercentOfGraphUtilizationUpdatedTime (deprecated), and VolumeUsageByDatasourcePackage. InvitationType and DatasourcePackageIngestStates were fixed this pass (see CreateMembers/GetMembers/ListMembers/ListInvitations notes). The remaining fields are volume/analytics telemetry this emulator does not model (no real data-ingest pipeline), and DisabledReason has no valid state to populate since ACCEPTED_BUT_DISABLED is unreachable (see the StartMonitoringMember gap above) -- all are optional fields real clients already treat as absent-safe, so omitting them is wire-legal, just incomplete. Low priority."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Detective Organizations edge cases beyond the base Enable/Disable/List/Describe/Update surface (delegated-admin-account transfer, cross-region graph semantics) — out of scope for a single-region single-account emulator."
-leaks: {status: clean, note: "DeleteGraph fixed to also purge investigations/datasources/orgConfigs for the deleted graph ARN (previously only cleaned members/tags), closing an unbounded-growth leak across repeated CreateGraph/DeleteGraph cycles. Verified via TestDeleteGraph_CleansUpDependentState asserting the deleted ARN is absent from a post-delete Snapshot()."}
+  - "UpdateOrganizationConfiguration's AutoEnable flag has no side effect: real AWS auto-enables Detective for new Organizations member accounts as they join the org. This emulator has no Organizations-service integration to source account-join events from, so AutoEnable is stored and returned correctly (DescribeOrganizationConfiguration) but never drives member auto-creation. Out of scope for a single-account emulator with no cross-service org simulation."
+leaks: {status: clean, note: "DeleteGraph purges investigations/datasources/orgConfigs for the deleted graph ARN (not just members/tags). DisableOrganizationAdminAccount now reuses the same deleteGraphLocked cascade (see EnableOrganizationAdminAccount/DisableOrganizationAdminAccount notes above), so org-graph deletion via Disable is leak-free too. Verified via TestDeleteGraph_CleansUpDependentState and TestDisableOrganizationAdminAccount_DeletesGraph, both asserting the deleted ARN is absent from a post-delete Snapshot()/ListGraphs()."}
 ---
 
 ## Notes
@@ -66,33 +65,63 @@ matches exactly, including the PUT-vs-POST split on `/invitation`
 (AcceptInvitation=PUT, RejectInvitation lives at a different path
 `/invitation/removal`=POST) and the GET/POST/DELETE split on `/tags/{ResourceArn}`.
 
+Real bugs fixed in prior passes (see `ops:` above for detail): CreateMembers
+UnprocessedAccounts reporting on re-invite; StartInvestigation trusting a
+client-supplied (non-existent) `EntityType` field instead of deriving it from
+`EntityArn`, plus missing `ScopeStartTime`/`ScopeEndTime` required-field
+validation; EnableOrganizationAdminAccount never auto-creating a graph;
+DeleteGraph leaking datasource/orgConfig/investigation state.
+
 Real bugs fixed this pass (see `ops:` above for detail):
 
-1. **CreateMembers silently "succeeded" on re-invite of an existing member**
-   instead of reporting it via `UnprocessedAccounts`, contradicting the documented
-   contract: "The accounts that CreateMembers was unable to process. This list
-   includes accounts that were already invited..." (`backend.go` `CreateMembers`).
-2. **StartInvestigation trusted a client-supplied `EntityType`** field that does not
-   exist on the real `StartInvestigationInput` wire shape at all — Detective derives
-   entity type server-side from whether the `EntityArn` resource segment is
-   `role/...` or `user/...`. Real SDK clients never send `EntityType`, so every
-   investigation created via a real client had `EntityType: ""` in `GetInvestigation`/
-   `ListInvestigations` output. Fixed by adding `deriveEntityType(entityARN)` and
-   removing the input-trust path (`backend.go`, `interfaces.go`, `handler.go`).
-   Also added the missing required-field validation for `ScopeStartTime`/
-   `ScopeEndTime` (both "This member is required" on the real input shape); previously
-   an absent value silently parsed as `time.Time{}` instead of `ValidationException`.
-3. **EnableOrganizationAdminAccount never created a behavior graph** when the
-   designated account had none, leaving `GraphArn: ""` on the `OrgAdmin` record
-   forever, contradicting AWS docs: "If the account does not have Detective enabled,
-   then enables Detective for that account and creates a new behavior graph."
-   Fixed via a shared `createGraphLocked` helper used by both `CreateGraph` and
-   `EnableOrganizationAdminAccount`.
-4. **DeleteGraph leaked datasource/orgConfig/investigation state** keyed by the
-   deleted graph's ARN (only members and tags were cleaned up). Not externally
-   observable as wrong behavior (a fresh `CreateGraph` always mints a new ARN,
-   and the deleted ARN correctly 404s), but an unbounded per-cycle memory leak.
-   Fixed by extending the cleanup list.
+1. **`ListIndicators`/`Indicator` had a fabricated `Title` field with no
+   basis in the real SDK.** `aws-sdk-go-v2/service/detective/types.Indicator`
+   has exactly two members: `IndicatorType` and `IndicatorDetail` (a
+   union-like struct with one of 8 type-specific sub-details populated:
+   `FlaggedIpAddressDetail`, `ImpossibleTravelDetail`, `NewAsoDetail`,
+   `NewGeolocationDetail`, `NewUserAgentDetail`, `RelatedFindingDetail`,
+   `RelatedFindingGroupDetail`, `TTPsObservedDetail`) — there is no `Title`
+   member anywhere in the shape. A real client parsing this emulator's
+   `Title` string would silently drop it (deserializer ignores unknown
+   keys) and get an empty `IndicatorDetail` on every indicator. Fixed by
+   deleting the invented `Title` field and adding the real `IndicatorDetail`
+   union (`interfaces.go`), wiring `builtInIndicators` (`investigations.go`)
+   to populate the correct sub-detail per `IndicatorType`, and adding a
+   `indicatorDetailToJSON` encoder (`handler_investigations.go`) with the
+   exact wire field names byte-diffed against `deserializers.go`. Also added
+   the two previously-missing `IndicatorType` enum values (`NEW_ASO`,
+   `NEW_USER_AGENT`) so all 8 real values are producible/filterable.
+2. **`MemberDetail` was missing `InvitationType` and
+   `DatasourcePackageIngestStates`**, two real (non-deprecated)
+   `MemberDetail` wire members. `InvitationType` is always `"INVITATION"` in
+   this emulator (every member reaches a graph through the CreateMembers
+   invite flow — there is no Organizations-auto-enable path to produce
+   `"ORGANIZATION"`). `DatasourcePackageIngestStates` mirrors the graph-wide
+   datasource ingest map, matching the simplification already used by
+   `BatchGetGraphMemberDatasources`. Fixed in `models.go`
+   (`toMemberDetail`), `interfaces.go`, `members.go`, and
+   `handler_members.go`.
+3. **`EnableOrganizationAdminAccount` accumulated duplicate `orgAdmins`
+   entries** on repeated calls instead of replacing the existing
+   designation, contradicting AWS's singular
+   Detective-administrator-account-per-organization/Region model
+   (`ListOrganizationAdminAccounts`/`Administrator` are both documented in
+   the singular). Fixed in `administrator.go` to replace in place.
+4. **`DisableOrganizationAdminAccount` did not delete the organization
+   behavior graph**, contradicting AWS docs: "Removes the Detective
+   administrator account in the current Region. Deletes the organization
+   behavior graph." Fixed by extracting a `deleteGraphLocked` cascade helper
+   (shared with `DeleteGraph`) in `graphs.go` and calling it for each
+   admin's `GraphArn` before clearing `orgAdmins` in `administrator.go`.
+5. **List pagination tokens were not uniformly opaque**: `ListInvitations`,
+   `ListInvestigations`, `ListOrganizationAdminAccounts`, and
+   `ListDatasourcePackages` returned the raw next item's identifier
+   (GraphArn/InvestigationId/AccountId/package name) as `NextToken` instead
+   of the opaque `base64(offset)` token every other Detective list op
+   (`ListGraphs`/`ListMembers`/`ListIndicators`) already used. Wire-legal
+   either way (AWS never guarantees token structure), but leaked internal
+   identifiers to callers. Normalized all four to `encodePageToken`/
+   `decodePageToken`.
 
 "Looks-wrong-but-correct" traps for the next auditor:
 
@@ -108,3 +137,17 @@ Real bugs fixed this pass (see `ops:` above for detail):
   exception type string (`"ResourceNotFoundException"`), so the JSON response
   body's `message` field duplicates `__type`. Inelegant but not a wire-shape
   violation — AWS SDKs do not assert exact message text.
+- `ListOrganizationAdminAccounts` pagination (`decodePageToken`/`encodePageToken`)
+  is now effectively unreachable through the public API: since
+  `EnableOrganizationAdminAccount` enforces at most one `orgAdmins` entry,
+  `admins` never exceeds length 1, so `NextToken` can never be produced. Kept
+  the opaque-token code path anyway for internal consistency with the other
+  three list ops it was fixed alongside (`ListInvitations`,
+  `ListInvestigations`, `ListDatasourcePackages`) — do not read the lack of a
+  reachable pagination test for this one op as an oversight.
+- `ErrAlreadyHasGraph` (`errors.go`) is dead/unused: `CreateGraph` is
+  intentionally idempotent per AWS docs ("If the same account calls
+  CreateGraph with the same administrator account, it always returns the
+  same behavior graph ARN"), so nothing ever returns this error. Left as-is
+  — it maps to a real `ConflictException` (not an invented error code), it's
+  exported API surface, and removing it is out of scope for this pass.

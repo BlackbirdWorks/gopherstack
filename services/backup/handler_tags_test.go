@@ -56,7 +56,7 @@ func TestBackupTagging(t *testing.T) {
 						"Tags": map[string]string{"k": "v"},
 					},
 				)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -130,7 +130,7 @@ func TestUntagResource(t *testing.T) {
 				rec := doREST(t, h, http.MethodPost, missingARN, map[string]any{
 					"TagKeyList": []string{"k"},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

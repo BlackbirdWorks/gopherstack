@@ -67,12 +67,17 @@ func ValidateSamplingRule(rule SamplingRule) error {
 }
 
 // CreateSamplingRule creates a new sampling rule.
+// Returns ErrRuleLimitExceeded if the account already has maxSamplingRules rules.
 func (b *InMemoryBackend) CreateSamplingRule(rule SamplingRule) (*SamplingRule, error) {
 	b.mu.Lock("CreateSamplingRule")
 	defer b.mu.Unlock()
 
 	if b.samplingRules.Has(rule.RuleName) {
 		return nil, fmt.Errorf("%w: sampling rule %s already exists", ErrSamplingRuleAlreadyExists, rule.RuleName)
+	}
+
+	if b.samplingRules.Len() >= maxSamplingRules {
+		return nil, fmt.Errorf("%w: maximum of %d sampling rules per account", ErrRuleLimitExceeded, maxSamplingRules)
 	}
 
 	rule.RuleARN = b.samplingRuleARN(rule.RuleName)
@@ -153,17 +158,45 @@ func (b *InMemoryBackend) UpdateSamplingRule(ruleName string, updates SamplingRu
 	return cloneRule(r), nil
 }
 
+// resolveSamplingRule finds a sampling rule by name (if given), falling back to ARN.
+// Must be called with b.mu held (read or write lock).
+func (b *InMemoryBackend) resolveSamplingRule(ruleName, ruleARN string) (*SamplingRule, error) {
+	if ruleName != "" {
+		if r, ok := b.samplingRules.Get(ruleName); ok {
+			return r, nil
+		}
+	} else if ruleARN != "" {
+		if list := b.samplingRulesByARN.Get(ruleARN); len(list) > 0 {
+			return list[0], nil
+		}
+	}
+
+	key := ruleName
+	if key == "" {
+		key = ruleARN
+	}
+
+	return nil, fmt.Errorf("%w: sampling rule %s not found", ErrSamplingRuleNotFound, key)
+}
+
 // UpdateSamplingRuleWithPointers applies pointer-semantic updates so zero values apply.
+// The rule is identified by ruleName if non-empty, otherwise by ruleARN (matching the
+// real SamplingRuleUpdate shape, which allows specifying either but not both).
 func (b *InMemoryBackend) UpdateSamplingRuleWithPointers(
-	ruleName string,
+	ruleName, ruleARN string,
 	updates SamplingRuleUpdate,
 ) (*SamplingRule, error) {
 	b.mu.Lock("UpdateSamplingRuleWithPointers")
 	defer b.mu.Unlock()
 
-	r, ok := b.samplingRules.Get(ruleName)
-	if !ok {
-		return nil, fmt.Errorf("%w: sampling rule %s not found", ErrSamplingRuleNotFound, ruleName)
+	r, err := b.resolveSamplingRule(ruleName, ruleARN)
+	if err != nil {
+		return nil, err
+	}
+
+	if updates.SamplingRateBoost != nil {
+		boost := *updates.SamplingRateBoost
+		r.SamplingRateBoost = &boost
 	}
 
 	if updates.FixedRate != nil {
@@ -208,10 +241,19 @@ func (b *InMemoryBackend) UpdateSamplingRuleWithPointers(
 	return cloneRule(r), nil
 }
 
-// DeleteSamplingRule removes the sampling rule with the given name and returns it.
-// The built-in "Default" rule cannot be deleted; attempting to do so returns ErrDefaultRuleUndeletable.
-func (b *InMemoryBackend) DeleteSamplingRule(ruleName string) (*SamplingRule, error) {
-	if ruleName == defaultSamplingRuleName {
+// DeleteSamplingRule removes the sampling rule identified by ruleName (if non-empty,
+// else ruleARN) and returns it. The built-in "Default" rule cannot be deleted, whether
+// identified by name or ARN; attempting to do so returns ErrDefaultRuleUndeletable.
+func (b *InMemoryBackend) DeleteSamplingRule(ruleName, ruleARN string) (*SamplingRule, error) {
+	b.mu.Lock("DeleteSamplingRule")
+	defer b.mu.Unlock()
+
+	r, err := b.resolveSamplingRule(ruleName, ruleARN)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.RuleName == defaultSamplingRuleName {
 		return nil, fmt.Errorf(
 			"%w: the %s sampling rule cannot be deleted",
 			ErrDefaultRuleUndeletable,
@@ -219,16 +261,8 @@ func (b *InMemoryBackend) DeleteSamplingRule(ruleName string) (*SamplingRule, er
 		)
 	}
 
-	b.mu.Lock("DeleteSamplingRule")
-	defer b.mu.Unlock()
-
-	r, ok := b.samplingRules.Get(ruleName)
-	if !ok {
-		return nil, fmt.Errorf("%w: sampling rule %s not found", ErrSamplingRuleNotFound, ruleName)
-	}
-
 	deleted := cloneRule(r)
-	b.samplingRules.Delete(ruleName)
+	b.samplingRules.Delete(r.RuleName)
 	b.lastRuleModification = time.Now()
 
 	return deleted, nil
@@ -237,6 +271,12 @@ func (b *InMemoryBackend) DeleteSamplingRule(ruleName string) (*SamplingRule, er
 const (
 	// maxServiceNameLen is the maximum length of a sampling rule ServiceName.
 	maxServiceNameLen = 64
+)
+
+const (
+	// maxSamplingRules is the maximum number of sampling rules per account
+	// (AWS default service quota for X-Ray sampling rules).
+	maxSamplingRules = 2000
 )
 
 const (

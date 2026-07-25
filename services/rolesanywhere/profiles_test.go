@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rolesanywhere"
 )
 
 // ---- Profile CRUD ----
@@ -16,7 +18,7 @@ func TestCreateProfile_Success(t *testing.T) {
 	b := newBackend(t)
 	roleArns := []string{"arn:aws:iam::123456789012:role/MyRole"}
 
-	p, err := b.CreateProfile(context.Background(), "my-profile", roleArns, nil, nil, nil, "", false)
+	p, err := b.CreateProfile(context.Background(), "my-profile", roleArns, nil, nil, nil, "", false, nil, nil)
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, p.ProfileID)
@@ -27,15 +29,23 @@ func TestCreateProfile_Success(t *testing.T) {
 	assert.Contains(t, p.ProfileArn, "profile")
 }
 
-func TestCreateProfile_DuplicateNameRejected(t *testing.T) {
+// TestCreateProfile_DuplicateNameAllowed proves creating two profiles with
+// the same name succeeds -- real AWS Roles Anywhere has no uniqueness
+// constraint on profile names (CreateProfile only models
+// ValidationException/AccessDeniedException; there is no ConflictException
+// shape anywhere in the service), so the two resources are distinguished
+// only by their generated IDs/ARNs.
+func TestCreateProfile_DuplicateNameAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.CreateProfile(context.Background(), "dup-profile", nil, nil, nil, nil, "", false)
+	first, err := b.CreateProfile(context.Background(), "dup-profile", nil, nil, nil, nil, "", false, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateProfile(context.Background(), "dup-profile", nil, nil, nil, nil, "", false)
-	require.Error(t, err)
+	second, err := b.CreateProfile(context.Background(), "dup-profile", nil, nil, nil, nil, "", false, nil, nil)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, first.ProfileID, second.ProfileID)
 }
 
 func TestCreateProfile_EmptyName(t *testing.T) {
@@ -55,7 +65,7 @@ func TestCreateProfile_EmptyName(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.CreateProfile(context.Background(), tt.profileName, nil, nil, nil, nil, "", false)
+			_, err := b.CreateProfile(context.Background(), tt.profileName, nil, nil, nil, nil, "", false, nil, nil)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -71,7 +81,7 @@ func TestCreateProfile_DurationSeconds(t *testing.T) {
 	b := newBackend(t)
 	dur := int32(3600)
 
-	p, err := b.CreateProfile(context.Background(), "dur-profile", nil, nil, &dur, nil, "", false)
+	p, err := b.CreateProfile(context.Background(), "dur-profile", nil, nil, &dur, nil, "", false, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, p.DurationSeconds)
 	assert.Equal(t, int32(3600), *p.DurationSeconds)
@@ -89,8 +99,8 @@ func TestListProfiles_ReturnsAll(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, _ = b.CreateProfile(context.Background(), "profile-1", nil, nil, nil, nil, "", false)
-	_, _ = b.CreateProfile(context.Background(), "profile-2", nil, nil, nil, nil, "", false)
+	_, _ = b.CreateProfile(context.Background(), "profile-1", nil, nil, nil, nil, "", false, nil, nil)
+	_, _ = b.CreateProfile(context.Background(), "profile-2", nil, nil, nil, nil, "", false, nil, nil)
 
 	all, next, err := b.ListProfiles(context.Background(), "", 0)
 	require.NoError(t, err)
@@ -102,7 +112,7 @@ func TestDeleteProfile_RemovesEntry(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	p, err := b.CreateProfile(context.Background(), "del-profile", nil, nil, nil, nil, "", false)
+	p, err := b.CreateProfile(context.Background(), "del-profile", nil, nil, nil, nil, "", false, nil, nil)
 	require.NoError(t, err)
 
 	deleted, err := b.DeleteProfile(context.Background(), p.ProfileID)
@@ -111,6 +121,34 @@ func TestDeleteProfile_RemovesEntry(t *testing.T) {
 
 	_, err = b.GetProfile(context.Background(), p.ProfileID)
 	require.Error(t, err)
+}
+
+// TestDeleteProfile_CascadesAttributeMappingsAndTags proves that deleting a
+// profile removes its attribute mappings and tags too (both live in
+// separate ID/ARN-keyed maps, not on the Profile struct itself), so no ghost
+// rows survive the profile they belonged to and a recreated profile (which
+// gets a fresh generated ID/ARN) never inherits stale data.
+func TestDeleteProfile_CascadesAttributeMappingsAndTags(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	p, err := b.CreateProfile(context.Background(), "cascade-profile", nil, nil, nil, nil, "", false, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.PutAttributeMapping(context.Background(), p.ProfileID, "x509Subject", nil)
+	require.NoError(t, err)
+	require.NoError(t, b.TagResource(context.Background(), p.ProfileArn,
+		[]rolesanywhere.TagEntry{{Key: "env", Value: "prod"}}))
+
+	_, err = b.DeleteProfile(context.Background(), p.ProfileID)
+	require.NoError(t, err)
+
+	mappings := b.GetAttributeMappings(context.Background(), p.ProfileID)
+	assert.Empty(t, mappings, "attribute mappings must not survive profile deletion")
+
+	tags, err := b.ListTagsForResource(context.Background(), p.ProfileArn)
+	require.Error(t, err, "ListTagsForResource must report ResourceNotFoundException for the deleted profile's ARN")
+	assert.Empty(t, tags)
 }
 
 func TestUpdateProfile_ChangesRoleArns(t *testing.T) {
@@ -126,10 +164,12 @@ func TestUpdateProfile_ChangesRoleArns(t *testing.T) {
 		nil,
 		"",
 		false,
+		nil,
+		nil,
 	)
 
 	newRoles := []string{"arn:aws:iam::123:role/NewRole"}
-	updated, err := b.UpdateProfile(context.Background(), p.ProfileID, "", newRoles, nil, nil, "", nil)
+	updated, err := b.UpdateProfile(context.Background(), p.ProfileID, "", newRoles, nil, nil, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, newRoles, updated.RoleArns)
 }
@@ -170,6 +210,8 @@ func TestUpdateProfile_AllFields(t *testing.T) {
 				nil,
 				"",
 				false,
+				nil,
+				nil,
 			)
 
 			updated, err := b.UpdateProfile(context.Background(),
@@ -180,6 +222,7 @@ func TestUpdateProfile_AllFields(t *testing.T) {
 				tt.managedPolicyArns,
 				tt.sessionPolicy,
 				tt.requireIP,
+				nil,
 			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.newName, updated.Name)
@@ -197,7 +240,7 @@ func TestEnableDisableProfile(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	p, _ := b.CreateProfile(context.Background(), "toggle-profile", nil, nil, nil, nil, "", false)
+	p, _ := b.CreateProfile(context.Background(), "toggle-profile", nil, nil, nil, nil, "", false, nil, nil)
 	assert.True(t, p.Enabled)
 
 	disabled, err := b.DisableProfile(context.Background(), p.ProfileID)

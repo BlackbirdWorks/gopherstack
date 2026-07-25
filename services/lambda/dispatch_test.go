@@ -120,6 +120,30 @@ func TestRouteMatcher_AdditionalPaths(t *testing.T) {
 			body:       `{}`,
 			wantStatus: http.StatusOK,
 		},
+		{
+			// A distinct ARN from "durable_executions_checkpoint" above: this
+			// table shares one handler/backend across parallel subtests, so
+			// reusing "test-arn" here would make the result depend on
+			// subtest execution order.
+			name:       "durable_executions_stop",
+			method:     http.MethodPost,
+			path:       "/2025-12-01/durable-executions/test-arn-stop-only/stop",
+			body:       `{}`,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "durable_executions_list_by_function",
+			method:     http.MethodGet,
+			path:       "/2025-12-01/functions/some-func/durable-executions",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "durable_execution_callback_unknown",
+			method:     http.MethodPost,
+			path:       "/2025-12-01/durable-execution-callbacks/cb-none/succeed",
+			body:       "payload",
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {

@@ -22,8 +22,10 @@ const lambdaTestPassword = "Pass1234!"
 // Static errors a fakeInvoker.respond can return, per err113 (no dynamic
 // errors.New at the call site).
 var (
-	errPreSignUpBlocked     = errors.New("account blocked by PreSignUp policy")
-	errPostConfirmationDown = errors.New("downstream welcome-email service unavailable")
+	errPreSignUpBlocked          = errors.New("account blocked by PreSignUp policy")
+	errPostConfirmationDown      = errors.New("downstream welcome-email service unavailable")
+	errPreAuthenticationBlocked  = errors.New("sign-in blocked by PreAuthentication policy")
+	errPostAuthenticationBlocked = errors.New("downstream risk-scoring service unavailable")
 )
 
 // fakeInvocation records one call to fakeInvoker.InvokeTrigger.
@@ -373,6 +375,141 @@ func Test_PreTokenGenerationTrigger(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 2, inv.callCount())
 		assert.Equal(t, "TokenGeneration_RefreshTokens", inv.lastCall().event["triggerSource"])
+	})
+}
+
+func Test_PreAuthenticationTrigger(t *testing.T) {
+	t.Parallel()
+
+	t.Run("fires before credentials are validated with userAttributes/validationData", func(t *testing.T) {
+		t.Parallel()
+
+		inv := &fakeInvoker{}
+		b, _, client := newLambdaTestPool(t, "PreAuthentication", inv)
+
+		user, err := b.SignUpWithValidation(client.ClientID, "mia", lambdaTestPassword, map[string]string{
+			"email": "mia@x.com",
+		})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "mia", user.ConfirmCode))
+
+		_, err = b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "mia", lambdaTestPassword)
+		require.NoError(t, err)
+
+		require.Equal(t, 1, inv.callCount())
+		call := inv.lastCall()
+		assert.Equal(t, "PreAuthentication_Authentication", call.event["triggerSource"])
+
+		request, ok := call.event["request"].(map[string]any)
+		require.True(t, ok)
+		assert.Contains(t, request, "userAttributes")
+		assert.Contains(t, request, "validationData")
+		assert.NotContains(t, request, "password", "PreAuthentication must never receive the plaintext password")
+	})
+
+	t.Run("trigger error rejects the sign-in before the password is even checked", func(t *testing.T) {
+		t.Parallel()
+
+		inv := &fakeInvoker{
+			respond: func(_ string, _ map[string]any) (map[string]any, error) {
+				return nil, errPreAuthenticationBlocked
+			},
+		}
+		b, _, client := newLambdaTestPool(t, "PreAuthentication", inv)
+
+		user, err := b.SignUpWithValidation(client.ClientID, "nina", lambdaTestPassword, map[string]string{
+			"email": "nina@x.com",
+		})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "nina", user.ConfirmCode))
+
+		// Even a wrong password is rejected via UserLambdaValidationException, not
+		// NotAuthorizedException, proving PreAuthentication runs first.
+		_, err = b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "nina", "definitely-wrong-password")
+		require.ErrorIs(t, err, cognitoidp.ErrUserLambdaValidation)
+	})
+
+	t.Run("fires on AdminInitiateAuth too", func(t *testing.T) {
+		t.Parallel()
+
+		inv := &fakeInvoker{}
+		b, pool, client := newLambdaTestPool(t, "PreAuthentication", inv)
+
+		user, err := b.SignUpWithValidation(client.ClientID, "oscar", lambdaTestPassword, map[string]string{
+			"email": "oscar@x.com",
+		})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "oscar", user.ConfirmCode))
+
+		_, err = b.AdminInitiateAuth(pool.ID, client.ClientID, "ADMIN_USER_PASSWORD_AUTH", "oscar", lambdaTestPassword)
+		require.NoError(t, err)
+		require.Equal(t, 1, inv.callCount())
+	})
+}
+
+func Test_PostAuthenticationTrigger(t *testing.T) {
+	t.Parallel()
+
+	t.Run("fires after a successful sign-in immediately before tokens are returned", func(t *testing.T) {
+		t.Parallel()
+
+		inv := &fakeInvoker{}
+		b, _, client := newLambdaTestPool(t, "PostAuthentication", inv)
+
+		user, err := b.SignUpWithValidation(client.ClientID, "paul", lambdaTestPassword, map[string]string{
+			"email": "paul@x.com",
+		})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "paul", user.ConfirmCode))
+
+		result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "paul", lambdaTestPassword)
+		require.NoError(t, err)
+		require.NotNil(t, result.Tokens, "tokens must still be issued when the trigger succeeds")
+
+		require.Equal(t, 1, inv.callCount())
+		assert.Equal(t, "PostAuthentication_Authentication", inv.lastCall().event["triggerSource"])
+	})
+
+	t.Run("trigger error fails the authentication and withholds tokens", func(t *testing.T) {
+		t.Parallel()
+
+		inv := &fakeInvoker{
+			respond: func(_ string, _ map[string]any) (map[string]any, error) {
+				return nil, errPostAuthenticationBlocked
+			},
+		}
+		b, _, client := newLambdaTestPool(t, "PostAuthentication", inv)
+
+		user, err := b.SignUpWithValidation(client.ClientID, "quinn", lambdaTestPassword, map[string]string{
+			"email": "quinn@x.com",
+		})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "quinn", user.ConfirmCode))
+
+		result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "quinn", lambdaTestPassword)
+		require.ErrorIs(t, err, cognitoidp.ErrUserLambdaValidation)
+		assert.Nil(t, result)
+	})
+
+	t.Run("does not re-fire on REFRESH_TOKEN_AUTH", func(t *testing.T) {
+		t.Parallel()
+
+		inv := &fakeInvoker{}
+		b, _, client := newLambdaTestPool(t, "PostAuthentication", inv)
+
+		user, err := b.SignUpWithValidation(client.ClientID, "ruth", lambdaTestPassword, map[string]string{
+			"email": "ruth@x.com",
+		})
+		require.NoError(t, err)
+		require.NoError(t, b.ConfirmSignUp(client.ClientID, "ruth", user.ConfirmCode))
+
+		result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "ruth", lambdaTestPassword)
+		require.NoError(t, err)
+		require.Equal(t, 1, inv.callCount(), "initial password auth should fire once")
+
+		_, err = b.InitiateAuthRefreshToken(client.ClientID, result.Tokens.RefreshToken)
+		require.NoError(t, err)
+		assert.Equal(t, 1, inv.callCount(), "PostAuthentication must not re-fire on token refresh")
 	})
 }
 

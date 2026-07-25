@@ -117,10 +117,9 @@ func slNetworkPolicyKeyFn(v *ServerlessNetworkPolicy) string {
 // The following fields are deliberately plain maps, not store.Table at all:
 //   - vpcAuthorizations (domainName -> []AuthorizedPrincipal),
 //     scheduledActions (domainName -> []*ScheduledAction), domainMaintenances
-//     (domainName -> []*DomainMaintenance), upgradeHistory
-//     ("upgrade:"+domainName -> []*UpgradeHistory), and defaultAppSettings
-//     (applicationType -> []AppSetting) are all slice-valued maps: the
-//     resource collection for a given key is the *whole ordered slice*
+//     (domainName -> []*DomainMaintenance), and upgradeHistory
+//     ("upgrade:"+domainName -> []*UpgradeHistory) are all slice-valued maps:
+//     the resource collection for a given key is the *whole ordered slice*
 //     (append-and-trim-to-cap, or replace-wholesale), not a keyed set of
 //     individually addressable *T values, so they don't fit store.Table's
 //     keyed-by-identity shape.

@@ -17,6 +17,20 @@ const (
 	exportStatusFailed    = "FAILED"
 )
 
+// importStatus* mirror the real aws-sdk-go-v2 types.ImportStatus enum exactly
+// (IN_PROGRESS/CANCELLED/COMPLETED/FAILED). Earlier code used the shared
+// "ACTIVE" completenessStatusActive constant (correct for Integration, whose
+// status enum really does include ACTIVE) as an import task's initial
+// status, which is not a member of ImportStatus at all -- a real SDK client
+// would see importStatus: "ACTIVE" and fail to parse it into any known enum
+// value.
+const (
+	importStatusInProgress = "IN_PROGRESS"
+	importStatusCancelled  = "CANCELLED"
+	importStatusCompleted  = "COMPLETED" // not yet emitted: no simulated import execution transitions to this state.
+	importStatusFailed     = "FAILED"    // not yet emitted: no simulated import execution transitions to this state.
+)
+
 // CancelExportTask cancels a pending or running export task.
 // Returns an error if the task is already in a terminal state.
 func (b *InMemoryBackend) CancelExportTask(taskID string) error {
@@ -58,13 +72,13 @@ func (b *InMemoryBackend) CancelImportTask(importID string) (*ImportTask, error)
 		return nil, fmt.Errorf("%w: import task %s not found", ErrImportTaskNotFound, importID)
 	}
 
-	// AWS only allows cancellation of ACTIVE tasks.
-	if task.Status != completenessStatusActive {
+	// AWS only allows cancellation of IN_PROGRESS tasks.
+	if task.Status != importStatusInProgress {
 		return nil, fmt.Errorf("%w: import task %s is in state %s and cannot be cancelled",
 			ErrValidation, importID, task.Status)
 	}
 
-	task.Status = "CANCELLED"
+	task.Status = importStatusCancelled
 	task.LastUpdatedTime = time.Now().UnixMilli()
 
 	cp := *task
@@ -178,7 +192,7 @@ func (b *InMemoryBackend) CreateImportTask(
 		ImportSourceArn:      importSourceArn,
 		ImportRoleArn:        importRoleArn,
 		ImportDestinationArn: destARN,
-		Status:               completenessStatusActive,
+		Status:               importStatusInProgress,
 		CreationTime:         now,
 		LastUpdatedTime:      now,
 	}

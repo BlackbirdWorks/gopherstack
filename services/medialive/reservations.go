@@ -44,6 +44,7 @@ func (b *InMemoryBackend) DescribeOffering(offeringID string) (*Offering, error)
 func (b *InMemoryBackend) PurchaseOffering(
 	offeringID, name string,
 	count int32,
+	renewalSettings RenewalSettings,
 	tags map[string]string,
 ) (*Reservation, error) {
 	b.mu.Lock("PurchaseOffering")
@@ -67,6 +68,7 @@ func (b *InMemoryBackend) PurchaseOffering(
 	r := &storedReservation{
 		Tags:                  copyTags(tags),
 		ResourceSpecification: off.ResourceSpecification,
+		RenewalSettings:       renewalSettings,
 		Arn:                   b.reservationARN(id),
 		ReservationID:         id,
 		Name:                  name,
@@ -130,12 +132,18 @@ func (b *InMemoryBackend) DeleteReservation(reservationID string) (*Reservation,
 	r.State = "CANCELED"
 	out := r.toReservation()
 	b.reservations.Delete(reservationID)
+	delete(b.tags, r.Arn)
 
 	return out, nil
 }
 
-// UpdateReservation updates a reservation's name.
-func (b *InMemoryBackend) UpdateReservation(reservationID, name string) (*Reservation, error) {
+// UpdateReservation updates a reservation's name and, optionally, its
+// renewal settings.
+func (b *InMemoryBackend) UpdateReservation(
+	reservationID, name string,
+	renewalSettings RenewalSettings,
+	hasRenewalSettings bool,
+) (*Reservation, error) {
 	b.mu.Lock("UpdateReservation")
 	defer b.mu.Unlock()
 	r, ok := b.reservations.Get(reservationID)
@@ -144,6 +152,9 @@ func (b *InMemoryBackend) UpdateReservation(reservationID, name string) (*Reserv
 	}
 	if name != "" {
 		r.Name = name
+	}
+	if hasRenewalSettings {
+		r.RenewalSettings = renewalSettings
 	}
 
 	return r.toReservation(), nil

@@ -16,13 +16,16 @@ import (
 // type, or backendSnapshot itself would make an older snapshot unsafe to
 // decode as the current shape. Restore compares this against the persisted
 // value and discards (registry.ResetAll plus each dirty table's own Reset,
-// not a partial decode) any mismatch -- see Restore below. This is the
-// first version: the pre-Phase-3.3 snapshot carried no version field at all
-// (nor a "tables" envelope -- it persisted the four region-nested maps
-// directly under their own top-level keys), so it also fails this check and
-// is discarded rather than misread, which is the safe behaviour across any
-// snapshot-format change.
-const rolesanywhereSnapshotVersion = 1
+// not a partial decode) any mismatch -- see Restore below. Version 1 was the
+// first version (the pre-Phase-3.3 snapshot carried no version field at all,
+// so it also failed this check and was discarded rather than misread).
+// Version 2 removed TrustAnchor.Tags/Profile.Tags (a prior version wrongly
+// persisted creation-time tags on the resource DTO itself, disconnected
+// from the InMemoryBackend.tags ARN-keyed store that TagResource/
+// UntagResource actually mutate); an old v1 snapshot's creation-time tags
+// would silently vanish on restore (never having lived in the tags store),
+// so v1 snapshots are discarded here too rather than partially decoded.
+const rolesanywhereSnapshotVersion = 2
 
 // regionalDTO wraps a region-nested resource whose only hidden field is
 // region (TrustAnchor/Profile/Crl/Subject) for JSON round-tripping through

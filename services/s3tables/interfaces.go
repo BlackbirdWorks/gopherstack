@@ -27,13 +27,22 @@ type StorageBackend interface {
 	DeleteTableBucketEncryption(bucketARN string) error
 
 	// BucketReplication operations
-	PutTableBucketReplication(bucketARN string, cfg *BucketReplicationConfig) error
+	PutTableBucketReplication(
+		bucketARN, role string,
+		rules []ReplicationRule,
+		expectedVersionToken string,
+	) (*BucketReplicationConfig, error)
 	GetTableBucketReplication(bucketARN string) (*BucketReplicationConfig, error)
-	DeleteTableBucketReplication(bucketARN string) error
+	DeleteTableBucketReplication(bucketARN, expectedVersionToken string) error
 
 	// TableReplication operations
-	PutTableReplication(tableArn string) error
-	DeleteTableReplication(tableArn string) error
+	PutTableReplication(
+		tableArn, role string,
+		rules []ReplicationRule,
+		expectedVersionToken string,
+	) (*TableReplicationConfig, error)
+	GetTableReplicationConfig(tableArn string) (*TableReplicationConfig, error)
+	DeleteTableReplication(tableArn, versionToken string) error
 
 	// TableRecordExpiry operations
 	PutTableRecordExpirationConfiguration(tableArn string, cfg *TableRecordExpiryConfig) error

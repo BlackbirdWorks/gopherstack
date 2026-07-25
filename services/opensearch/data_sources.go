@@ -1,14 +1,20 @@
 package opensearch
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+// dataSourceStatusActive matches the AWS DataSourceStatus enum's ACTIVE
+// value, the status a newly-added data source starts in.
+const dataSourceStatusActive = "ACTIVE"
+
 // AddDataSource adds a data source to a domain.
 func (b *InMemoryBackend) AddDataSource(
-	domainName, name, description, dataSourceType string,
+	domainName, name, description string,
+	dataSourceType json.RawMessage,
 ) (string, error) {
 	if domainName == "" {
 		return "", fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
@@ -38,6 +44,7 @@ func (b *InMemoryBackend) AddDataSource(
 		Name:           name,
 		Description:    description,
 		DataSourceType: dataSourceType,
+		Status:         dataSourceStatusActive,
 		DomainName:     domainName,
 	})
 
@@ -46,7 +53,8 @@ func (b *InMemoryBackend) AddDataSource(
 
 // AddDirectQueryDataSource adds a direct-query data source.
 func (b *InMemoryBackend) AddDirectQueryDataSource(
-	name, description, dataSourceType string,
+	name, description string,
+	dataSourceType json.RawMessage,
 	openSearchArns []string,
 ) (string, error) {
 	if name == "" {
@@ -112,8 +120,14 @@ func (b *InMemoryBackend) ListDataSources(domainName string) ([]*DataSource, err
 	return out, nil
 }
 
-// UpdateDataSource updates the description of a data source.
-func (b *InMemoryBackend) UpdateDataSource(domainName, name, description string) error {
+// UpdateDataSource updates a data source's description, type, and/or status.
+// Real AWS requires DataSourceType on every update call; Description and
+// Status are optional and left unchanged when omitted.
+func (b *InMemoryBackend) UpdateDataSource(
+	domainName, name, description string,
+	dataSourceType json.RawMessage,
+	status string,
+) error {
 	b.mu.Lock("UpdateDataSource")
 	defer b.mu.Unlock()
 
@@ -128,6 +142,14 @@ func (b *InMemoryBackend) UpdateDataSource(domainName, name, description string)
 	}
 
 	ds.Description = description
+
+	if len(dataSourceType) > 0 {
+		ds.DataSourceType = dataSourceType
+	}
+
+	if status != "" {
+		ds.Status = status
+	}
 
 	return nil
 }
@@ -175,9 +197,12 @@ func (b *InMemoryBackend) GetDirectQueryDataSource(name string) (*DirectQueryDat
 	return &cp, nil
 }
 
-// UpdateDirectQueryDataSource updates a direct-query data source.
+// UpdateDirectQueryDataSource updates a direct-query data source's
+// description, type, and OpenSearch ARNs. Real AWS requires DataSourceType
+// and OpenSearchArns on every update call.
 func (b *InMemoryBackend) UpdateDirectQueryDataSource(
 	name, description string,
+	dataSourceType json.RawMessage,
 	openSearchArns []string,
 ) (*DirectQueryDataSource, error) {
 	b.mu.Lock("UpdateDirectQueryDataSource")
@@ -194,6 +219,11 @@ func (b *InMemoryBackend) UpdateDirectQueryDataSource(
 
 	ds.Description = description
 	ds.OpenSearchArns = openSearchArns
+
+	if len(dataSourceType) > 0 {
+		ds.DataSourceType = dataSourceType
+	}
+
 	cp := *ds
 
 	return &cp, nil

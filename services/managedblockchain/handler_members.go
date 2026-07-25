@@ -18,9 +18,11 @@ func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []b
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
-	if req.MemberConfiguration.Name == "" {
-		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingMemberName.Error())
+	if errResp := validateMemberConfigurationRequest(req.MemberConfiguration); errResp != nil {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", errResp.Error())
 	}
+
+	adminUsername := req.MemberConfiguration.FrameworkConfiguration.Fabric.AdminUsername
 
 	member, err := h.Backend.CreateMember(
 		h.DefaultRegion,
@@ -28,6 +30,8 @@ func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []b
 		networkID,
 		req.MemberConfiguration.Name,
 		req.MemberConfiguration.Description,
+		adminUsername,
+		req.MemberConfiguration.KmsKeyArn,
 		req.Tags,
 	)
 	if err != nil {
@@ -74,13 +78,15 @@ func (h *Handler) handleListMembers(c *echo.Context, networkID string) error {
 		return h.writeBackendError(c, err)
 	}
 
-	summaries := make([]memberSummaryObject, 0, len(members))
+	pageItems, nextToken := paginate(members, q)
 
-	for _, m := range members {
+	summaries := make([]memberSummaryObject, 0, len(pageItems))
+
+	for _, m := range pageItems {
 		summaries = append(summaries, toMemberSummaryObject(m))
 	}
 
-	return c.JSON(http.StatusOK, listMembersResponse{Members: summaries})
+	return c.JSON(http.StatusOK, listMembersResponse{Members: summaries, NextToken: nextToken})
 }
 
 func (h *Handler) handleDeleteMember(c *echo.Context, resource string) error {
@@ -154,10 +160,33 @@ func toMemberObject(m *Member) memberObject {
 		CreationDate: m.CreationDate,
 		Tags:         m.Tags,
 		IsOwned:      m.IsOwned,
+		KmsKeyArn:    m.KmsKeyArn,
 	}
 
 	if m.LogPublishingConfiguration != nil {
 		obj.LogPublishingConfiguration = toMemberLogConfigRespObj(m.LogPublishingConfiguration)
+	}
+
+	if m.FrameworkAttributes != nil {
+		obj.FrameworkAttributes = toMemberFrameworkAttributesRespObj(m.FrameworkAttributes)
+	}
+
+	return obj
+}
+
+// toMemberFrameworkAttributesRespObj converts a MemberFrameworkAttributesState to its response JSON.
+func toMemberFrameworkAttributesRespObj(fa *MemberFrameworkAttributesState) *memberFrameworkAttributesRespObj {
+	if fa == nil {
+		return nil
+	}
+
+	obj := &memberFrameworkAttributesRespObj{}
+
+	if fa.Fabric != nil {
+		obj.Fabric = &memberFabricAttributesRespObj{
+			AdminUsername: fa.Fabric.AdminUsername,
+			CaEndpoint:    fa.Fabric.CaEndpoint,
+		}
 	}
 
 	return obj

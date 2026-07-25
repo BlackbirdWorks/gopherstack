@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"time"
 )
 
 // AddSourceIdentifierToSubscription adds a source identifier to an event subscription.
@@ -33,11 +34,16 @@ func (b *InMemoryBackend) AddSourceIdentifierToSubscription(
 	return copyEventSubscription(sub), nil
 }
 
-// CreateEventSubscription creates an event subscription.
+// CreateEventSubscription creates an event subscription. enabled mirrors
+// CreateEventSubscriptionInput.Enabled (a real request field this backend
+// previously dropped on the floor -- never parsed by the handler, never
+// stored, never echoed back); when the caller doesn't specify it, AWS
+// activates new subscriptions by default, so a nil enabled defaults to true.
 func (b *InMemoryBackend) CreateEventSubscription(
 	ctx context.Context,
 	name, snsTopicARN, sourceType string,
 	eventCategories, sourceIDs []string,
+	enabled *bool,
 ) (*EventSubscription, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
@@ -52,14 +58,22 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	copy(cats, eventCategories)
 	ids := make([]string, len(sourceIDs))
 	copy(ids, sourceIDs)
+	isEnabled := true
+	if enabled != nil {
+		isEnabled = *enabled
+	}
 	sub := &EventSubscription{
-		region:           region,
-		SubscriptionName: name,
-		SnsTopicARN:      snsTopicARN,
-		Status:           "active",
-		SourceType:       sourceType,
-		EventCategories:  cats,
-		SourceIDs:        ids,
+		region:                   region,
+		SubscriptionName:         name,
+		SnsTopicARN:              snsTopicARN,
+		Status:                   "active",
+		SourceType:               sourceType,
+		EventCategories:          cats,
+		SourceIDs:                ids,
+		Enabled:                  isEnabled,
+		EventSubscriptionArn:     b.eventSubscriptionARN(region, name),
+		CustomerAwsID:            b.accountID,
+		SubscriptionCreationTime: time.Now().UTC().Format(time.RFC3339),
 	}
 	b.eventSubscriptionPut(sub)
 
@@ -106,11 +120,16 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(ctx context.Context, name s
 	return result
 }
 
-// ModifyEventSubscription modifies an event subscription.
+// ModifyEventSubscription modifies an event subscription. enabled mirrors
+// ModifyEventSubscriptionInput.Enabled -- nil means the caller didn't
+// specify it (leave the existing value alone), matching this backend's
+// existing convention for other optional-bool fields (see e.g.
+// ModifyDBCluster's deletionProtection *bool).
 func (b *InMemoryBackend) ModifyEventSubscription(
 	ctx context.Context,
 	name, snsTopicARN, sourceType string,
 	eventCategories []string,
+	enabled *bool,
 ) (*EventSubscription, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
@@ -132,6 +151,9 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 		cats := make([]string, len(eventCategories))
 		copy(cats, eventCategories)
 		sub.EventCategories = cats
+	}
+	if enabled != nil {
+		sub.Enabled = *enabled
 	}
 
 	return copyEventSubscription(sub), nil

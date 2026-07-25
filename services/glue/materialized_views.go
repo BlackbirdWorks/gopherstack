@@ -23,7 +23,7 @@ func (b *InMemoryBackend) StartMaterializedViewRefreshTaskRun(
 		TableName:    tableName,
 		TaskRunID:    taskID,
 		Status:       stateRunning,
-		StartedOn:    time.Now().UTC(),
+		StartedOn:    float64(time.Now().Unix()),
 	}
 	b.materializedViewRuns.Put(run)
 	cp := *run
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) ListMaterializedViewRefreshTaskRuns() []*MaterializedV
 	}
 
 	sort.Slice(runs, func(i, k int) bool {
-		return runs[i].StartedOn.Before(runs[k].StartedOn)
+		return runs[i].StartedOn < runs[k].StartedOn
 	})
 
 	return runs

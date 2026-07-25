@@ -1,6 +1,7 @@
 package opensearch_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -65,10 +66,10 @@ func TestExportCounts(t *testing.T) {
 
 	opensearch.SeedInboundConnection(b, "conn-1")
 
-	_, err := b.AddDataSource("d1", "ds-1", "desc", "S3GLUE")
+	_, err := b.AddDataSource("d1", "ds-1", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
-	_, err = b.AddDirectQueryDataSource("dq-1", "desc", "CloudWatchLogs", nil)
+	_, err = b.AddDirectQueryDataSource("dq-1", "desc", json.RawMessage(`{"CloudWatchLog":{}}`), nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateApplication("app-1", nil, nil)

@@ -207,6 +207,9 @@ func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, f
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
+		if errors.Is(err, ErrReplicationGroupNotAvailable) {
+			return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
+		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -437,7 +440,10 @@ type replicationGroupsListXML struct {
 
 func (h *Handler) describeReplicationGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("ReplicationGroupId")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	p, err := h.Backend.DescribeReplicationGroups(ctx, id, marker, maxRecords)
 	if err != nil {
@@ -548,6 +554,8 @@ func mapReplicationGroupModifyErr(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 	case errors.Is(err, ErrTransitEncryptionModeInvalid):
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
+	case errors.Is(err, ErrReplicationGroupNotAvailable):
+		return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
 	default:
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -561,6 +569,9 @@ func (h *Handler) testFailoverReplicationGroup(ctx context.Context, c *echo.Cont
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+		}
+		if errors.Is(err, ErrReplicationGroupNotAvailable) {
+			return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -661,11 +672,7 @@ func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, for
 
 	rg, err := h.Backend.IncreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapReplicationGroupModifyErr(c, err)
 	}
 
 	type result struct {
@@ -686,11 +693,7 @@ func (h *Handler) decreaseReplicaCount(ctx context.Context, c *echo.Context, for
 
 	rg, err := h.Backend.DecreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapReplicationGroupModifyErr(c, err)
 	}
 
 	type result struct {
@@ -721,6 +724,10 @@ func (h *Handler) modifyReplicationGroupShardConfiguration(
 
 		if errors.Is(err, ErrClusterModeRequired) {
 			return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
+		}
+
+		if errors.Is(err, ErrReplicationGroupNotAvailable) {
+			return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

@@ -45,8 +45,10 @@ func newSDKClient(t *testing.T, h *appconfigdata.Handler) *appconfigdatasdk.Clie
 }
 
 // TestSDKClient_FullSessionFlow exercises the complete AppConfigData retrieval flow via
-// the real AWS SDK v2 client: StartConfigurationSession → GetLatestConfiguration (200) →
-// GetLatestConfiguration (204 unchanged) → update config → GetLatestConfiguration (200).
+// the real AWS SDK v2 client: StartConfigurationSession → GetLatestConfiguration (200,
+// content) → GetLatestConfiguration (200, unchanged/empty body) → update config →
+// GetLatestConfiguration (200, new content). AWS's service model fixes the responseCode
+// for GetLatestConfiguration at 200 -- it never returns 204, even when unchanged.
 func TestSDKClient_FullSessionFlow(t *testing.T) {
 	t.Parallel()
 

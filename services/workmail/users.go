@@ -3,15 +3,14 @@ package workmail
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
 // --- Users ---
 
 // CreateUser creates a new WorkMail user.
-func (b *InMemoryBackend) CreateUser(
-	orgID, name, displayName, password, role string,
-) (*User, error) {
+func (b *InMemoryBackend) CreateUser(orgID, name string, params CreateUserParams) (*User, error) {
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
@@ -23,11 +22,11 @@ func (b *InMemoryBackend) CreateUser(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	validRoles := map[string]bool{roleUser: true, roleResource: true, roleSystemUser: true}
-	if role != "" && !validRoles[role] {
+	if params.Role != "" && !validRoles[params.Role] {
 		return nil, fmt.Errorf(
 			"%w: invalid Role %q, must be USER, RESOURCE, or SYSTEM_USER",
 			ErrValidation,
-			role,
+			params.Role,
 		)
 	}
 
@@ -39,17 +38,21 @@ func (b *InMemoryBackend) CreateUser(
 
 	userID := newID()
 	now := time.Now().UTC()
-	_ = password // stored in real AWS but not needed for simulation
+	_ = params.Password // stored in real AWS but not needed for simulation
 
 	u := &User{
-		CreatedAt:   now,
-		UserID:      userID,
-		Name:        name,
-		DisplayName: displayName,
-		Role:        role,
-		State:       stateDisabled,
-		ARN:         b.entityARN(orgID, "user", userID),
-		orgID:       orgID,
+		CreatedAt:                   now,
+		UserID:                      userID,
+		Name:                        name,
+		DisplayName:                 params.DisplayName,
+		FirstName:                   params.FirstName,
+		LastName:                    params.LastName,
+		Role:                        params.Role,
+		State:                       stateDisabled,
+		ARN:                         b.entityARN(orgID, "user", userID),
+		IdentityProviderUserID:      params.IdentityProviderUserID,
+		HiddenFromGlobalAddressList: params.HiddenFromGlobalAddressList,
+		orgID:                       orgID,
 	}
 
 	b.users.Put(u)
@@ -87,10 +90,10 @@ func (b *InMemoryBackend) findUser(orgID, entityID string) *User {
 	return nil
 }
 
-// UpdateUser updates display name and name fields.
-func (b *InMemoryBackend) UpdateUser(
-	orgID, entityID, displayName, firstName, lastName string,
-) error {
+// UpdateUser updates a user's profile fields. Empty strings and a nil
+// HiddenFromGlobalAddressList leave the corresponding field unchanged,
+// matching UpdateUserInput's optional-field semantics (see UpdateUserParams).
+func (b *InMemoryBackend) UpdateUser(orgID, entityID string, params UpdateUserParams) error {
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
@@ -102,17 +105,77 @@ func (b *InMemoryBackend) UpdateUser(
 		return fmt.Errorf("%w: user %q not found", ErrNotFound, entityID)
 	}
 
-	if displayName != "" {
-		u.DisplayName = displayName
-	}
-	if firstName != "" {
-		u.FirstName = firstName
-	}
-	if lastName != "" {
-		u.LastName = lastName
-	}
+	applyUpdateUserParams(u, params)
 
 	return nil
+}
+
+// applyUpdateUserParams copies every non-empty field from params onto u.
+// Split into applyUpdateUserCoreFields/applyUpdateUserProfileFields to stay
+// under the per-function cyclomatic-complexity budget.
+func applyUpdateUserParams(u *User, params UpdateUserParams) {
+	applyUpdateUserCoreFields(u, params)
+	applyUpdateUserProfileFields(u, params)
+}
+
+// applyUpdateUserCoreFields copies the identity/role-adjacent fields
+// (DisplayName, FirstName, LastName, IdentityProviderUserID, Role,
+// HiddenFromGlobalAddressList).
+func applyUpdateUserCoreFields(u *User, params UpdateUserParams) {
+	if params.DisplayName != "" {
+		u.DisplayName = params.DisplayName
+	}
+	if params.FirstName != "" {
+		u.FirstName = params.FirstName
+	}
+	if params.LastName != "" {
+		u.LastName = params.LastName
+	}
+	if params.IdentityProviderUserID != "" {
+		u.IdentityProviderUserID = params.IdentityProviderUserID
+	}
+	if params.Role != "" {
+		u.Role = params.Role
+	}
+	if params.HiddenFromGlobalAddressList != nil {
+		u.HiddenFromGlobalAddressList = *params.HiddenFromGlobalAddressList
+	}
+}
+
+// applyUpdateUserProfileFields copies the plain profile-metadata fields
+// (City, Company, Country, Department, Initials, JobTitle, Office, Street,
+// Telephone, ZipCode).
+func applyUpdateUserProfileFields(u *User, params UpdateUserParams) {
+	if params.City != "" {
+		u.City = params.City
+	}
+	if params.Company != "" {
+		u.Company = params.Company
+	}
+	if params.Country != "" {
+		u.Country = params.Country
+	}
+	if params.Department != "" {
+		u.Department = params.Department
+	}
+	if params.Initials != "" {
+		u.Initials = params.Initials
+	}
+	if params.JobTitle != "" {
+		u.JobTitle = params.JobTitle
+	}
+	if params.Office != "" {
+		u.Office = params.Office
+	}
+	if params.Street != "" {
+		u.Street = params.Street
+	}
+	if params.Telephone != "" {
+		u.Telephone = params.Telephone
+	}
+	if params.ZipCode != "" {
+		u.ZipCode = params.ZipCode
+	}
 }
 
 // DeleteUser removes a user.
@@ -139,15 +202,21 @@ func (b *InMemoryBackend) DeleteUser(orgID, entityID string) error {
 	actualID := u.UserID
 	if u.Email != "" {
 		delete(b.usersByEmail[orgID], u.Email)
+		b.globalAliases.Delete(u.Email)
 	}
+	delete(b.mailboxQuotas[orgID], actualID)
+	b.cascadeCleanEntity(orgID, actualID, u.ARN)
 	b.users.Delete(orgKey(orgID, actualID))
 
 	return nil
 }
 
-// ListUsers returns a paginated list of users.
+// ListUsers returns a paginated list of users, optionally narrowed by
+// filter (see UserFilter -- mirrors ListUsersInput.Filters; a nil filter
+// matches every user, matching the real API's "no Filters" behavior).
 func (b *InMemoryBackend) ListUsers(
 	orgID string,
+	filter *UserFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*UserSummary, string, error) {
@@ -160,6 +229,9 @@ func (b *InMemoryBackend) ListUsers(
 
 	users := make([]*UserSummary, 0)
 	for _, u := range b.usersByOrg.Get(orgID) {
+		if !userMatchesFilter(u, filter) {
+			continue
+		}
 		users = append(users, &UserSummary{
 			UserID:      u.UserID,
 			Name:        u.Name,
@@ -174,6 +246,32 @@ func (b *InMemoryBackend) ListUsers(
 	items, next := paginate(users, maxResults, nextToken)
 
 	return items, next, nil
+}
+
+// userMatchesFilter reports whether u satisfies every non-empty dimension
+// of filter. A nil filter (or one with every field zero) matches everything.
+func userMatchesFilter(u *User, filter *UserFilter) bool {
+	if filter == nil {
+		return true
+	}
+	if filter.DisplayNamePrefix != "" && !strings.HasPrefix(u.DisplayName, filter.DisplayNamePrefix) {
+		return false
+	}
+	if filter.PrimaryEmailPrefix != "" && !strings.HasPrefix(u.Email, filter.PrimaryEmailPrefix) {
+		return false
+	}
+	if filter.State != "" && u.State != filter.State {
+		return false
+	}
+	if filter.UsernamePrefix != "" && !strings.HasPrefix(u.Name, filter.UsernamePrefix) {
+		return false
+	}
+	if filter.IdentityProviderUserIDPrefix != "" &&
+		!strings.HasPrefix(u.IdentityProviderUserID, filter.IdentityProviderUserIDPrefix) {
+		return false
+	}
+
+	return true
 }
 
 // RegisterToWorkMail assigns an email address to a user/group/resource.
@@ -199,6 +297,7 @@ func (b *InMemoryBackend) RegisterToWorkMail(orgID, entityID, email string) erro
 		u.Email = email
 		u.State = stateEnabled
 		u.EnabledDate = now
+		u.MailboxProvisionedDate = now
 		b.usersByEmail[orgID][email] = u.UserID
 		b.globalAliases.Put(&trackedAlias{Alias: email, OrgID: orgID, EntityID: u.UserID})
 
@@ -255,6 +354,7 @@ func (b *InMemoryBackend) DeregisterFromWorkMail(orgID, entityID string) error {
 		u.Email = ""
 		u.State = stateDisabled
 		u.DisabledDate = now
+		u.MailboxDeprovisionedDate = now
 
 		return nil
 	}

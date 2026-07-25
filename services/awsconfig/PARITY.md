@@ -2,102 +2,104 @@
 service: awsconfig
 sdk_module: aws-sdk-go-v2/service/configservice@v1.61.2
 last_audit_commit: 0a5200a4
-last_audit_date: 2026-07-12
-overall: A            # genuine fixes found: wire-shape error-type bugs + several disguised no-ops
+last_audit_date: 2026-07-24
+overall: A            # this pass: closed all ~18 e0f1 stubs with genuine derived-state
+                       # implementations, closed s7u1 (unknown-rule-name error), partially
+                       # closed eboy (recorder name/role + delivery channel name Invalid*Exception)
 ops:
   # --- ConfigurationRecorder family ---
-  PutConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeConfigurationRecorders: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now populates the arn field (was missing entirely)"}
+  PutConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: empty/blank name now InvalidConfigurationRecorderNameException, empty roleARN now InvalidRoleException (were both generic ValidationException) -- see gopherstack-eboy"}
+  DescribeConfigurationRecorders: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeConfigurationRecorderStatus: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NoAvailableDeliveryChannelException was mis-mapped to ValidationException"}
+  StartConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok}
   StopConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: not-found wire type was 'NoSuchConfigurationRecorder', real SDK is 'NoSuchConfigurationRecorderException'"}
+  DeleteConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-cleans any ServiceLinkedRecorderLink pointing at the deleted recorder"}
   ListConfigurationRecorders: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssociateResourceTypes: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was a disguised no-op (discarded ResourceTypes, fabricated a synthetic recorder for unknown ARNs instead of erroring). Now mutates RecordingGroup.ResourceTypes and errors NoSuchConfigurationRecorderException for unknown recorders"}
-  DisassociateResourceTypes: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was a pure no-op stub; now removes types from RecordingGroup.ResourceTypes"}
-  PutServiceLinkedConfigurationRecorder: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  DeleteServiceLinkedConfigurationRecorder: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  AssociateResourceTypes: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisassociateResourceTypes: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutServiceLinkedConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was a no-op stub; now creates a real ACTIVE recorder named AWSConfigurationRecorderFor<Service> (best-effort deterministic casing -- AWS's exact per-service capitalization isn't publicly enumerable), idempotent per ServicePrincipal via a new ServiceLinkedRecorderLink table"}
+  DeleteServiceLinkedConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was a no-op stub; now looks up and deletes the linked recorder, NoSuchConfigurationRecorderException when unknown"}
 
   # --- DeliveryChannel family ---
-  PutDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: empty/blank name now InvalidDeliveryChannelNameException (was generic ValidationException) -- see gopherstack-eboy"}
   DescribeDeliveryChannels: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDeliveryChannelStatus: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeliverConfigSnapshot: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  DeliverConfigSnapshot: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was a no-op stub; now validates the named channel exists (NoSuchDeliveryChannelException), a recorder is configured (NoAvailableConfigurationRecorderException) and running (NoRunningConfigurationRecorderException), and returns a generated ConfigSnapshotId"}
 
   # --- ConfigRule + compliance family ---
   PutConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeConfigRules: {wire: ok, errors: partial, state: ok, persist: ok, note: "unknown names in filter silently dropped instead of NoSuchConfigRuleException -- see gopherstack-s7u1"}
+  DescribeConfigRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-s7u1): unknown name in a non-empty ConfigRuleNames filter now errors NoSuchConfigRuleException instead of silently omitting it; backend signature changed to return an error (~14 call sites across this package updated)"}
   DeleteConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetComplianceDetailsByConfigRule: {wire: ok, errors: partial, state: ok, persist: ok, note: "unknown rule silently returns empty instead of NoSuchConfigRuleException -- see gopherstack-s7u1"}
+  GetComplianceDetailsByConfigRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-s7u1): unknown ConfigRuleName now errors NoSuchConfigRuleException instead of silently returning empty"}
   GetComplianceDetailsByResource: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeComplianceByConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeComplianceByResource: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  DescribeComplianceByResource: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now rolls per-(rule,resource) evaluations (b.ruleResourceEvals) up per resource, with ComplianceContributorCount and ResourceType/ResourceId/ComplianceTypes filters"}
   GetComplianceSummaryByConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
   GetComplianceSummaryByResourceType: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeConfigRuleEvaluationStatus: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartConfigRulesEvaluation: {wire: ok, errors: ok, state: ok, persist: ok, note: "real evaluation engine (evaluation.go) -- not a disguised no-op"}
+  StartConfigRulesEvaluation: {wire: ok, errors: ok, state: ok, persist: ok}
   PutEvaluations: {wire: ok, errors: ok, state: ok, persist: ok}
   PutExternalEvaluation: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteEvaluationResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was a pure no-op stub; now validates the rule exists (NoSuchConfigRuleException) and clears rollup + per-resource evaluations"}
+  DeleteEvaluationResults: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCustomRulePolicy: {wire: ok, errors: ok, state: ok, persist: n/a}
   StartResourceEvaluation: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResourceEvaluationSummary: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResourceEvaluations: {wire: ok, errors: ok, state: ok, persist: ok}
 
   # --- ConformancePack family ---
-  PutConformancePack: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutConformancePack: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended (gopherstack-e0f1): now accepts TemplateBody and, when it's a JSON CloudFormation-shaped template with AWS::Config::ConfigRule resources, deploys those as real config rules linked to the pack (see conformance_pack_template.go) -- matching real AWS Config, where a conformance pack literally creates managed config rules. YAML/TemplateS3Uri/TemplateSSMDocumentDetails templates deploy zero rules (no fetcher/YAML parser modeled) rather than erroring -- an honest gap, documented in code"}
   DescribeConformancePacks: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteConformancePack: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteConformancePack: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended: cascade-deletes every config rule the pack deployed (and their evaluations), matching AWS"}
   DescribeConformancePackStatus: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeConformancePackCompliance: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  GetConformancePackComplianceDetails: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  GetConformancePackComplianceSummary: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  ListConformancePackComplianceScores: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  DescribeConformancePackCompliance: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns each deployed rule's rolled-up compliance from b.ruleEvaluations, with NoSuchConformancePackException/NoSuchConfigRuleInConformancePackException validation and ComplianceType/ConfigRuleNames filters"}
+  GetConformancePackComplianceDetails: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns real per-resource evaluation results for the pack's deployed rules (DetailedEvaluationResult is wire-shape identical to ConformancePackEvaluationResult)"}
+  GetConformancePackComplianceSummary: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now rolls each named pack's deployed rules up into COMPLIANT/NON_COMPLIANT/INSUFFICIENT_DATA per AWS's documented rollup rule, NoSuchConformancePackException for unknown names"}
+  ListConformancePackComplianceScores: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now computes a real percentage compliance score per pack from its rule-resource evaluations, INSUFFICIENT_DATA when none recorded"}
 
   # --- AggregationAuthorization / ConfigurationAggregator family ---
   PutAggregationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAggregationAuthorizations: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteAggregationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was returning a fabricated NoSuchAggregationAuthorizationException (not a real AWS error for this op); now idempotent, matching AWS"}
+  DeleteAggregationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
   PutConfigurationAggregator: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeConfigurationAggregators: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteConfigurationAggregator: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeConfigurationAggregatorSourcesStatus: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  DescribeConfigurationAggregatorSourcesStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives one status entry per configured AccountAggregationSources/OrganizationAggregationSource account+region, reporting SUCCEEDED (no per-source sync failures modeled), NoSuchConfigurationAggregatorException validation"}
   DescribeAggregateComplianceByConfigRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAggregateComplianceByConformancePacks: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  GetAggregateComplianceDetailsByConfigRule: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  GetAggregateConfigRuleComplianceSummary: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  GetAggregateConformancePackComplianceSummary: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  DescribeAggregateComplianceByConformancePacks: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns every local conformance pack's rule counts, tagged with the requested account/region, once the aggregator is validated to exist"}
+  GetAggregateComplianceDetailsByConfigRule: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now reuses local per-resource evaluations (mirroring the already-established DescribeAggregateComplianceByConfigRules pattern), echoing the requested accountId/awsRegion, aggregator existence validated"}
+  GetAggregateConfigRuleComplianceSummary: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives a single-group compliant/non-compliant rollup keyed by the local account ID or region (GroupByKey), aggregator existence validated"}
+  GetAggregateConformancePackComplianceSummary: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives compliant/non-compliant conformance-pack counts for the local account/region group, aggregator existence validated"}
   GetAggregateDiscoveredResourceCounts: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchGetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was a disguised no-op (every identifier always unprocessed even though resourceConfigs had real matches); now resolves against local resourceConfigs table"}
+  BatchGetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   SelectAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAggregateDiscoveredResources: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  DescribePendingAggregationRequests: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  DeletePendingAggregationRequest: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  ListAggregateDiscoveredResources: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns local discovered resources of the requested type tagged with the local account/region as source, account/region/resourceId filters applied, aggregator existence validated"}
+  DescribePendingAggregationRequests: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives pending requests from AggregationAuthorizations this account granted that no local ConfigurationAggregator has yet incorporated into its AccountAggregationSources -- the only genuinely-derivable cross-account state a single-account emulator has"}
+  DeletePendingAggregationRequest: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was a no-op stub; now deletes the underlying AggregationAuthorization, idempotent per its declared error model (no not-found exception)"}
 
   # --- RemediationConfiguration family ---
   PutRemediationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRemediationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteRemediationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteRemediationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended: cascade-deletes any recorded remediation executions for the rule too (new remediationExecutions table introduced this pass)"}
   PutRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
   DeleteRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  StartRemediationExecution: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
-  DescribeRemediationExecutionStatus: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  StartRemediationExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was a no-op stub; now validates a remediation configuration exists for the rule (NoSuchRemediationConfigurationException) and records a SUCCEEDED execution per resource key (no real SSM Automation runner modeled), readable back via DescribeRemediationExecutionStatus"}
+  DescribeRemediationExecutionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns recorded executions for the rule, optionally filtered by resource key, NoSuchRemediationConfigurationException validation"}
 
   # --- OrganizationConfigRule / OrganizationConformancePack family ---
   PutOrganizationConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeOrganizationConfigRules: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteOrganizationConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeOrganizationConfigRuleStatuses: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetOrganizationConfigRuleDetailedStatus: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  GetOrganizationConfigRuleDetailedStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns a single CREATE_SUCCESSFUL MemberAccountStatus for the local account (the only member this single-account emulator can model), NoSuchOrganizationConfigRuleException validation, optional AccountId filter"}
   GetOrganizationCustomRulePolicy: {wire: ok, errors: ok, state: ok, persist: n/a}
   PutOrganizationConformancePack: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeOrganizationConformancePacks: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteOrganizationConformancePack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: wire error type was 'OrganizationConformancePackNotFoundException' (does not exist in the real SDK); correct type is 'NoSuchOrganizationConformancePackException'"}
+  DeleteOrganizationConformancePack: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeOrganizationConformancePackStatuses: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetOrganizationConformancePackDetailedStatus: {wire: partial, errors: partial, state: gap, persist: n/a, note: "intentional minimal stub -- see gopherstack-e0f1"}
+  GetOrganizationConformancePackDetailedStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; mirrors GetOrganizationConfigRuleDetailedStatus's single-local-account model, NoSuchOrganizationConformancePackException validation"}
 
   # --- RetentionConfiguration family ---
   PutRetentionConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -112,10 +114,10 @@ ops:
 
   # --- ResourceConfig (Get/List/BatchGet/Select) family ---
   PutResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was a pure no-op stub, never removed the resource from resourceConfigs despite the table holding real PutResourceConfig data"}
+  DeleteResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResourceConfigHistory: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDiscoveredResources: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchGetResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was a disguised no-op (every key always unprocessed even though resourceConfigs had real matches); now resolves against resourceConfigs table"}
+  BatchGetResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   SelectResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDiscoveredResourceCounts: {wire: ok, errors: ok, state: ok, persist: n/a}
 
@@ -125,19 +127,22 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
 
 gaps:
-  - ~18 cross-account/organization aggregation compliance+status ops are intentional
-    minimal stubs (empty lists/summaries) because this emulator has no real
-    multi-account model to source data from (bd: gopherstack-e0f1)
-  - DescribeConfigRules / GetComplianceDetailsByConfigRule silently drop unknown rule
-    names instead of erroring NoSuchConfigRuleException like real AWS
-    (bd: gopherstack-s7u1)
-  - ErrValidation is mapped to a single generic ValidationException wire type for every
-    Put* op instead of AWS's per-op Invalid*Exception taxonomy (InvalidRoleException,
-    InvalidRecordingGroupException, InvalidS3KeyPrefixException, etc.)
-    (bd: gopherstack-eboy)
+  - ErrValidation is still mapped to a single generic ValidationException wire type for
+    most Put* validation paths. This pass added the three most load-bearing per-op
+    Invalid*Exception types (InvalidConfigurationRecorderNameException,
+    InvalidRoleException on PutConfigurationRecorder; InvalidDeliveryChannelNameException
+    on PutDeliveryChannel). Still generic: InvalidRecordingGroupException,
+    InvalidS3KeyPrefixException, InvalidS3KmsKeyArnException, InvalidSNSTopicARNException,
+    and the full per-op taxonomy for every other Put* op (bd: gopherstack-eboy, updated
+    this pass with a comment noting partial completion -- not closed)
+  - PutConformancePack's TemplateBody parser only understands JSON conformance-pack
+    templates; YAML templates (which real AWS Config also documents supporting) and
+    TemplateS3Uri/TemplateSSMDocumentDetails template sources deploy zero rules rather
+    than being fetched/parsed (no YAML parser or S3/SSM-document fetcher modeled in this
+    emulator). Honest limitation, documented in conformance_pack_template.go.
 deferred:
   - Per-field/per-op AWS validation ordering and exact message text (not audited this pass)
-leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse lockmetrics.RWMutex, no leak surface found"}
+leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse lockmetrics.RWMutex; every new Lock/RLock this pass is defer-released; DeleteConfigurationRecorder cascade-cleans ServiceLinkedRecorderLink rows, DeleteConformancePack cascade-cleans its deployed config rules + evaluations, DeleteRemediationConfiguration cascade-cleans its recorded executions -- no ghost rows found"}
 ---
 
 ## Notes
@@ -146,7 +151,7 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   StarlingDoveService.<Op>`. Verified the `StarlingDoveService` target prefix and every
   routed op name against `aws-sdk-go-v2/service/configservice@v1.61.2`'s
   `serializers.go`/`deserializers.go` -- all 97 real SDK ops are wired into the dispatch
-  table (`buildDispatchTable` + `buildExtendedDispatchTable`), none missing.
+  table, none missing.
 
 - `ConfigurationRecorder`/`DeliveryChannel` use **camelCase** wire field names (`name`,
   `roleARN`, `recordingGroup`, `arn`, `s3BucketName`, ...) -- this is genuinely how AWS
@@ -155,37 +160,55 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   PascalCase in a future pass -- it would break real-SDK-client compatibility.
 
 - Persistence: `Handler.Snapshot`/`Restore` delegate to `InMemoryBackend`, which uses a
-  versioned `backendSnapshot{Tables, Version}` wrapping `store.Registry.SnapshotAll()`
-  over 14 registered tables. Six scalar/slice-valued maps (`ruleEvaluations`,
-  `resourceHistory`, `resourceTags`, `remediationExceptions`, `customRulePolicies`,
-  `orgCustomRulePolicies`) have no `store.Table` identity and are NOT persisted -- this
-  is a pre-existing gap (not introduced or fixed this pass), see `persistence.go`'s doc
-  comment.
+  versioned `backendSnapshot{Tables, Version}` wrapping `store.Registry.SnapshotAll()`.
+  This pass bumped `awsconfigSnapshotVersion` 1 -> 2 and added three new registered
+  tables: `conformancePackRules` (which config rules each conformance pack deployed),
+  `remediationExecutions` (StartRemediationExecution history), and
+  `serviceLinkedRecorders` (servicePrincipal -> recorder-name links -- kept as its own
+  table rather than a field on `ConfigurationRecorder` specifically so it isn't lost by
+  round-tripping through `json:"-"`, since `ConfigurationRecorder` is serialized verbatim
+  as the real AWS wire response and store.Table's Snapshot/Restore marshal that same
+  struct/tags). Six scalar/slice-valued maps (`ruleEvaluations`, `resourceHistory`,
+  `resourceTags`, `remediationExceptions`, `customRulePolicies`, `orgCustomRulePolicies`)
+  still have no `store.Table` identity and are NOT persisted -- this is a pre-existing gap
+  (not introduced or fixed this pass), see `persistence.go`'s doc comment.
 
-- Bug-class findings this pass (see `.claude/memories/parity-principles.md` bug classes):
-  - **Wrong wire error-type strings**: `ErrNotFound`'s wire type was
-    `"NoSuchConfigurationRecorder"`; every real config-recorder-not-found error is
-    `"NoSuchConfigurationRecorderException"` (confirmed across
-    DeleteConfigurationRecorder/StartConfigurationRecorder/StopConfigurationRecorder/
-    AssociateResourceTypes/DisassociateResourceTypes deserializers). Any real SDK client
-    doing `errors.As(&types.NoSuchConfigurationRecorderException{})` would have silently
-    fallen through to a generic `smithy.GenericAPIError` instead.
-  - **Wrong wire error-type strings (2)**: `ErrNoSuchOrganizationConformancePack`'s wire
-    type was `"OrganizationConformancePackNotFoundException"`, which does not exist
-    anywhere in the real SDK's error taxonomy; the real type is
-    `"NoSuchOrganizationConformancePackException"`.
-  - **Error-family collision**: `ErrNoDeliveryChannel` (StartConfigurationRecorder with no
-    delivery channel) shared a switch case with `ErrValidation` and was emitted as
-    `"ValidationException"`; the real wire type is `"NoAvailableDeliveryChannelException"`.
-  - **Fabricated error that doesn't exist in AWS**: `DeleteAggregationAuthorization`
-    invented a `NoSuchAggregationAuthorizationException` 404 for a missing authorization.
-    The real op's declared error model (per the generated deserializer) has no not-found
-    exception at all -- delete is idempotent in AWS. Now idempotent here too.
-  - **Disguised no-ops (real backend state existed but was ignored)**: `AssociateResourceTypes`
-    discarded its `ResourceTypes` argument and fabricated a synthetic recorder for any
-    unknown ARN instead of erroring; `BatchGetResourceConfig`/`BatchGetAggregateResourceConfig`
-    always reported every key/identifier unprocessed even though `resourceConfigs`
-    (populated by `PutResourceConfig`) had real matching data; `DeleteResourceConfig` and
-    `DisassociateResourceTypes` were pure `return nil` no-ops despite real backend state
-    to mutate; `DeleteEvaluationResults` was a pure no-op despite `ruleEvaluations`/
-    `ruleResourceEvals` holding real per-rule evaluation state to clear.
+- 2026-07-24 pass bug-class findings (see `.claude/memories/parity-principles.md` bug
+  classes) -- this pass closed all remaining items from the prior audit's `gaps` list
+  (`gopherstack-e0f1`, `gopherstack-s7u1`) plus a partial `gopherstack-eboy` fix:
+  - **Silently-dropped not-found instead of erroring**: `DescribeConfigRules` and
+    `GetComplianceDetailsByConfigRule` used to omit/empty-return for an unknown
+    `ConfigRuleName` instead of `NoSuchConfigRuleException`; `DescribeConfigRules`'
+    backend signature changed from `([]ConfigRule)` to `([]ConfigRule, error)` (~14
+    call sites across this package's tests updated accordingly).
+  - **~18 disguised-as-honest empty stubs that were actually derivable**: the prior
+    audit (`gopherstack-e0f1`) reasoned these ~18 ops "can't model cross-account state."
+    That's true for genuinely cross-account data, but most of these ops' *local* half was
+    fully derivable from existing backend state that was simply being ignored:
+    conformance-pack rule compliance from `ruleResourceEvals` (once conformance packs
+    track which rules they deployed -- a new `conformancePackRules` link table, populated
+    by parsing `PutConformancePack`'s `TemplateBody` for `AWS::Config::ConfigRule`
+    resources), aggregator source status from the aggregator's own already-stored
+    `AccountAggregationSources`/`OrganizationAggregationSource`, aggregate compliance/
+    resource-listing ops from local rule-evaluation/resource-config state (mirroring the
+    already-"ok" `DescribeAggregateComplianceByConfigRules`/`GetAggregateResourceConfig`
+    pattern), pending-aggregation-requests from `AggregationAuthorizations` not yet
+    consumed by a local aggregator, remediation execution from `remediationConfigs` (new
+    `remediationExecutions` table), and organization detailed-status from treating the
+    local account as the org's sole member. Only genuinely un-derivable data (other
+    accounts' real resource/compliance state) remains out of scope, and none of these ops
+    fabricate it -- they validate real preconditions (aggregator/pack/rule/remediation
+    existence) and return real local data.
+  - **New cascade-delete surfaces**: two new stateful features this pass introduced
+    matching real AWS deletion semantics: `DeleteConformancePack` now cascade-deletes the
+    config rules the pack deployed (+ their evaluations), and `DeleteRemediationConfiguration`
+    now cascade-deletes recorded remediation executions for the rule -- both to avoid
+    introducing new ghost-row classes alongside the new stateful tables.
+
+- Prior-pass bug-class findings (retained for history; see git blame for the fixes):
+  wrong wire error-type strings on `ErrNotFound`/`ErrNoSuchOrganizationConformancePack`,
+  an error-family collision on `ErrNoDeliveryChannel`, a fabricated
+  `NoSuchAggregationAuthorizationException` that doesn't exist in the real SDK, and
+  several disguised no-ops (`AssociateResourceTypes`, `BatchGetResourceConfig`,
+  `BatchGetAggregateResourceConfig`, `DeleteResourceConfig`, `DisassociateResourceTypes`,
+  `DeleteEvaluationResults`) that discarded real backend state instead of acting on it.

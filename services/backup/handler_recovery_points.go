@@ -23,7 +23,7 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -88,7 +88,7 @@ func (h *Handler) handleDescribeRecoveryPoint(c *echo.Context, resource string) 
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 
@@ -146,7 +146,7 @@ func (h *Handler) handleGetRecoveryPointRestoreMetadata(c *echo.Context, resourc
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 
@@ -173,7 +173,7 @@ func (h *Handler) handleDeleteRecoveryPoint(c *echo.Context, resource string) er
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 
@@ -189,7 +189,7 @@ func (h *Handler) handleDisassociateRecoveryPoint(c *echo.Context, resource stri
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 
@@ -208,7 +208,7 @@ func (h *Handler) handleDisassociateRecoveryPointFromParent(
 	if !ok {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "invalid resource path"),
+			errResp("InvalidParameterValueException", "invalid resource path"),
 		)
 	}
 
@@ -216,7 +216,8 @@ func (h *Handler) handleDisassociateRecoveryPointFromParent(
 		return h.handleError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	// Real AWS: responseCode 204.
+	return c.NoContent(http.StatusNoContent)
 }
 
 // --- Vault compliance handlers ---
@@ -229,7 +230,14 @@ func (h *Handler) dispatchRecoveryPointQueryOps(c *echo.Context, route backupRou
 		rps := h.Backend.ListRecoveryPointsByLegalHold(route.resource)
 		items := make([]map[string]any, 0, len(rps))
 		for _, rp := range rps {
-			items = append(items, map[string]any{keyRecoveryPointArn: rp.RecoveryPointArn})
+			// Real AWS wire shape is RecoveryPointMember: BackupVaultName,
+			// RecoveryPointArn, ResourceArn, ResourceType (no Status field).
+			items = append(items, map[string]any{
+				keyBackupVaultName:  rp.BackupVaultName,
+				keyRecoveryPointArn: rp.RecoveryPointArn,
+				keyResourceArn:      rp.ResourceArn,
+				keyResourceType:     rp.ResourceType,
+			})
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{keyRecoveryPoints: items})
@@ -285,7 +293,7 @@ func (h *Handler) dispatchRecoveryPointIndexOps(
 func (h *Handler) handleGetRecoveryPointIndexDetails(c *echo.Context, resource string) error {
 	vaultName, rpArn, ok := splitVaultRP(resource)
 	if !ok {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid resource path"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid resource path"))
 	}
 
 	status, err := h.Backend.GetRecoveryPointIndexDetails(vaultName, rpArn)
@@ -304,7 +312,7 @@ func (h *Handler) handleUpdateRecoveryPointIndexSettings(
 ) error {
 	vaultName, rpArn, ok := splitVaultRP(resource)
 	if !ok {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid resource path"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid resource path"))
 	}
 
 	var reqBody struct {
@@ -327,7 +335,7 @@ func (h *Handler) handleUpdateRecoveryPointLifecycle(
 ) error {
 	vaultName, rpArn, ok := splitVaultRP(resource)
 	if !ok {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid resource path"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid resource path"))
 	}
 
 	var reqBody struct {

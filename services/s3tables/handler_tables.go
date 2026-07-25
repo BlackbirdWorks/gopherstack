@@ -31,9 +31,23 @@ func (h *Handler) handleGetTableMaintenanceJobStatus(
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table maintenance job status", keyName, name)
 
+	// GetTableMaintenanceJobStatusOutput.Status is a map keyed by
+	// maintenance type (types.TableMaintenanceJobStatusValue per entry,
+	// confirmed via deserializeDocumentTableMaintenanceJobStatusValue in
+	// aws-sdk-go-v2/service/s3tables's deserializers.go), one entry per
+	// maintenance type actually configured on the table via
+	// PutTableMaintenanceConfiguration. This in-memory backend runs no
+	// background maintenance jobs, so every configured type is reported
+	// with the "Not_Yet_Run" JobStatus enum value (types.JobStatusNotYetRun)
+	// rather than a fabricated Successful/Failed outcome.
+	jobStatus := make(map[string]any, len(table.MaintenanceConfiguration))
+	for maintenanceType := range table.MaintenanceConfiguration {
+		jobStatus[maintenanceType] = map[string]any{keyStatusField: maintenanceJobStatusNotYetRun}
+	}
+
 	return json.Marshal(map[string]any{
 		keyTableARN:    table.ARN,
-		keyStatusField: map[string]any{},
+		keyStatusField: jobStatus,
 	})
 }
 

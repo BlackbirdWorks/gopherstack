@@ -350,3 +350,33 @@ func TestBackend_DescribeResize(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_ResizeCluster_ObservableViaDescribeResize locks in that a resize
+// triggered through the real ResizeCluster API op is observable afterward via
+// DescribeResize. Before this fix, ResizeCluster mutated the cluster's node
+// type/count synchronously but never recorded anything in activeResizes, so
+// DescribeResize always reported ResizeNotFound immediately after a resize --
+// the only way to populate activeResizes was the AddActiveResizeInternal
+// test-seed helper, which no real client traffic ever calls.
+func TestHandler_ResizeCluster_ObservableViaDescribeResize(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=resize-cluster")
+
+	rec := postRedshiftForm(t, h, "Action=ResizeCluster&Version=2012-12-01"+
+		"&ClusterIdentifier=resize-cluster&NodeType=ra3.4xlarge&NumberOfNodes=4")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = postRedshiftForm(t, h, "Action=DescribeResize&Version=2012-12-01&ClusterIdentifier=resize-cluster")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	body := rec.Body.String()
+	assert.Contains(t, body, "<TargetNodeType>ra3.4xlarge</TargetNodeType>")
+	assert.Contains(t, body, "<TargetNumberOfNodes>4</TargetNumberOfNodes>")
+	assert.Contains(t, body, "<Status>SUCCEEDED</Status>")
+
+	// The resize is already complete, so it should not be cancellable.
+	rec = postRedshiftForm(t, h, "Action=CancelResize&Version=2012-12-01&ClusterIdentifier=resize-cluster")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidClusterState")
+}

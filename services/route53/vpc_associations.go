@@ -7,6 +7,14 @@ import (
 
 // AssociateVPCWithHostedZone associates a VPC with a private hosted zone.
 // Returns ErrPublicZoneVPCAssociation when called on a public zone.
+//
+// Re-associating a VPC that is already associated with this same zone is a
+// no-op success, not an error: AWS's documented AssociateVPCWithHostedZone
+// error list has no "duplicate association" error, and its one
+// association-conflict error (ConflictingDomainExists) is explicitly scoped
+// to "the VPC is already associated with *another* hosted zone that has the
+// same name" — which rules it out for the same-VPC-same-zone case handled
+// here.
 func (b *InMemoryBackend) AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion string) error {
 	if vpcID == "" {
 		return fmt.Errorf("%w: VPCId is required", ErrInvalidInput)
@@ -30,12 +38,7 @@ func (b *InMemoryBackend) AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion st
 
 	for _, existing := range b.vpcAssociations[zoneID] {
 		if existing.VPCID == vpcID {
-			return fmt.Errorf(
-				"%w: VPC %s already associated with hosted zone %s",
-				ErrInvalidInput,
-				vpcID,
-				zoneID,
-			)
+			return nil
 		}
 	}
 

@@ -52,7 +52,7 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 		RegionalHostedZoneID:     "Z2FDTNDATAQYW2",
 		DistributionDomainName:   distributionDomain,
 		DistributionHostedZoneID: "Z2FDTNDATAQYW2",
-		DomainNameStatus:         "AVAILABLE",
+		DomainNameStatus:         statusAvailable,
 		Tags:                     backendTags,
 		CreatedDate:              &now,
 	}

@@ -1,6 +1,7 @@
 package detective_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -261,7 +262,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:parallelte
 					ind, isMap := raw.(map[string]any)
 					require.True(t, isMap)
 					assert.NotEmpty(t, ind["IndicatorType"])
-					assert.NotEmpty(t, ind["Title"])
+					assert.NotEmpty(t, ind["IndicatorDetail"])
 				}
 			},
 		},
@@ -342,7 +343,7 @@ func TestListIndicatorsPopulated(t *testing.T) {
 				ind, isMap := raw.(map[string]any)
 				require.True(t, isMap)
 				assert.NotEmpty(t, ind["IndicatorType"])
-				assert.NotEmpty(t, ind["Title"])
+				assert.NotEmpty(t, ind["IndicatorDetail"])
 			}
 		})
 	}
@@ -389,6 +390,106 @@ func TestListIndicatorsTypeFilter(t *testing.T) {
 		ind, isMap := raw.(map[string]any)
 		require.True(t, isMap)
 		assert.Equal(t, "TTP_OBSERVED", ind["IndicatorType"], "all returned indicators must match the requested type")
+	}
+}
+
+// TestListInvestigationsOpaqueToken verifies ListInvestigations' NextToken is
+// an opaque base64 offset, not the raw next InvestigationId.
+func TestListInvestigationsOpaqueToken(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var gResp map[string]any
+	parseJSON(t, rec.Body.Bytes(), &gResp)
+	graphARN := gResp["GraphArn"].(string)
+
+	for _, entity := range []string{"alice", "bob"} {
+		rec2 := doRequest(t, h, http.MethodPost, "/investigations/startInvestigation", map[string]any{
+			"GraphArn":       graphARN,
+			"EntityArn":      "arn:aws:iam::123456789012:user/" + entity,
+			"ScopeStartTime": "2024-01-01T00:00:00Z",
+			"ScopeEndTime":   "2024-01-31T00:00:00Z",
+		})
+		require.Equal(t, http.StatusOK, rec2.Code)
+	}
+
+	rec3 := doRequest(t, h, http.MethodPost, "/investigations/listInvestigations", map[string]any{
+		"GraphArn":   graphARN,
+		"MaxResults": 1,
+	})
+	require.Equal(t, http.StatusOK, rec3.Code)
+	var resp map[string]any
+	parseJSON(t, rec3.Body.Bytes(), &resp)
+
+	tok, hasTok := resp["NextToken"].(string)
+	require.True(t, hasTok, "NextToken must be present when more results exist")
+
+	_, err := base64.StdEncoding.DecodeString(tok)
+	require.NoError(t, err, "NextToken must be opaque base64, not a raw InvestigationId")
+
+	rec4 := doRequest(t, h, http.MethodPost, "/investigations/listInvestigations", map[string]any{
+		"GraphArn":   graphARN,
+		"MaxResults": 200,
+		"NextToken":  tok,
+	})
+	require.Equal(t, http.StatusOK, rec4.Code)
+	var resp2 map[string]any
+	parseJSON(t, rec4.Body.Bytes(), &resp2)
+	_, hasTok2 := resp2["NextToken"]
+	assert.False(t, hasTok2, "NextToken must be absent on the last page")
+}
+
+// TestListIndicators_DetailShape verifies each Indicator's IndicatorDetail
+// carries the type-specific sub-detail matching the real (union-like)
+// aws-sdk-go-v2 IndicatorDetail shape, not a free-text "Title" -- the real
+// SDK's Indicator type has no Title member at all.
+func TestListIndicators_DetailShape(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var gResp map[string]any
+	parseJSON(t, rec.Body.Bytes(), &gResp)
+	graphARN := gResp["GraphArn"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/investigations/startInvestigation", map[string]any{
+		"GraphArn":       graphARN,
+		"EntityArn":      "arn:aws:iam::123456789012:user/testuser",
+		"ScopeStartTime": "2024-01-01T00:00:00Z",
+		"ScopeEndTime":   "2024-01-31T00:00:00Z",
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	var invResp map[string]any
+	parseJSON(t, rec2.Body.Bytes(), &invResp)
+	invID := invResp["InvestigationId"].(string)
+
+	rec3 := doRequest(t, h, http.MethodPost, "/investigations/listIndicators", map[string]any{
+		"GraphArn":        graphARN,
+		"InvestigationId": invID,
+		"IndicatorType":   "TTP_OBSERVED",
+	})
+	require.Equal(t, http.StatusOK, rec3.Code)
+	var resp map[string]any
+	parseJSON(t, rec3.Body.Bytes(), &resp)
+
+	indicators, ok := resp["Indicators"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, indicators)
+
+	for _, raw := range indicators {
+		ind := raw.(map[string]any)
+		assert.Equal(t, "TTP_OBSERVED", ind["IndicatorType"])
+		assert.NotContains(t, ind, "Title", "the real Indicator SDK type has no Title member")
+
+		detail, isDetailMap := ind["IndicatorDetail"].(map[string]any)
+		require.True(t, isDetailMap, "IndicatorDetail must be an object")
+		ttp, isTTPMap := detail["TTPsObservedDetail"].(map[string]any)
+		require.True(t, isTTPMap, "TTP_OBSERVED indicators must carry a TTPsObservedDetail")
+		assert.NotEmpty(t, ttp["Tactic"])
+		assert.NotEmpty(t, ttp["Procedure"])
 	}
 }
 

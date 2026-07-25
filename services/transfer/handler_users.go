@@ -3,7 +3,8 @@ package transfer
 import (
 	"context"
 	"fmt"
-	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 type posixProfileInput struct {
@@ -98,10 +99,10 @@ type describeUserInput struct {
 }
 
 type sshKeyView struct {
-	DateImported     string `json:"DateImported"`
-	SSHPublicKeyID   string `json:"SshPublicKeyId"`
-	SSHPublicKeyBody string `json:"SshPublicKeyBody"`
-	KeyType          string `json:"KeyType,omitempty"`
+	SSHPublicKeyID   string  `json:"SshPublicKeyId"`
+	SSHPublicKeyBody string  `json:"SshPublicKeyBody"`
+	KeyType          string  `json:"KeyType,omitempty"`
+	DateImported     float64 `json:"DateImported"`
 }
 
 type posixProfileView struct {
@@ -158,7 +159,7 @@ func (h *Handler) handleDescribeUser(
 		keyViews[i] = sshKeyView{
 			SSHPublicKeyID:   k.SSHPublicKeyID,
 			SSHPublicKeyBody: k.SSHPublicKeyBody,
-			DateImported:     k.DateImported.Format(time.RFC3339),
+			DateImported:     awstime.Epoch(k.DateImported),
 			KeyType:          k.KeyType,
 		}
 	}

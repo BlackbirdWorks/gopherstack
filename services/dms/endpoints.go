@@ -173,11 +173,11 @@ func (b *InMemoryBackend) RefreshSchemas(ctx context.Context, endpointARN string
 // defaultSchemasForEngine returns a realistic default schema list for a given engine.
 func defaultSchemasForEngine(engine string) []string {
 	switch engine {
-	case "postgres", "aurora-postgresql":
+	case engineNamePostgres, engineNameAuroraPostgreSQL:
 		return []string{"public", "information_schema", "pg_catalog"}
-	case "oracle":
+	case engineNameOracle:
 		return []string{"SYS", "SYSTEM", "HR", "OE"}
-	case "sqlserver":
+	case engineNameSQLServer:
 		return []string{"dbo", "sys", "INFORMATION_SCHEMA"}
 	default:
 		return []string{"main", "information_schema"}
@@ -208,7 +208,7 @@ func (b *InMemoryBackend) AddEndpointInternal(identifier, endpointType, engineNa
 // ModifyEndpoint updates endpoint settings.
 func (b *InMemoryBackend) ModifyEndpoint(
 	ctx context.Context,
-	arnOrID, serverName, databaseName, username string,
+	arnOrID, endpointType, engineName, serverName, databaseName, username string,
 	port int32,
 ) (*Endpoint, error) {
 	b.mu.Lock("ModifyEndpoint")
@@ -217,6 +217,14 @@ func (b *InMemoryBackend) ModifyEndpoint(
 	ep := b.findEndpoint(ctx, arnOrID)
 	if ep == nil {
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, arnOrID)
+	}
+
+	if endpointType != "" {
+		ep.EndpointType = endpointType
+	}
+
+	if engineName != "" {
+		ep.EngineName = engineName
 	}
 
 	if serverName != "" {

@@ -524,8 +524,11 @@ func TestHandler_DescribeCacheClusters_Pagination(t *testing.T) {
 
 	client := newTestStack(t)
 
-	// Create 5 clusters.
-	for i := range 5 {
+	// Create 25 clusters -- AWS rejects MaxRecords below 20, so the smallest
+	// valid page size (20) needs more than 20 records to prove a second page.
+	const total = 25
+
+	for i := range total {
 		_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 			CacheClusterId: aws.String(fmt.Sprintf("paginate-cluster-%d", i)),
 			Engine:         aws.String("redis"),
@@ -533,21 +536,52 @@ func TestHandler_DescribeCacheClusters_Pagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Page 1: max 3.
+	// Page 1: max 20 (AWS's modeled minimum).
 	page1, err := client.DescribeCacheClusters(t.Context(), &elasticachesdk.DescribeCacheClustersInput{
-		MaxRecords: aws.Int32(3),
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, page1.CacheClusters, 3)
+	assert.Len(t, page1.CacheClusters, 20)
 	assert.NotEmpty(t, aws.ToString(page1.Marker))
 
 	// Page 2: rest.
 	page2, err := client.DescribeCacheClusters(t.Context(), &elasticachesdk.DescribeCacheClustersInput{
-		MaxRecords: aws.Int32(3),
+		MaxRecords: aws.Int32(20),
 		Marker:     page1.Marker,
 	})
 	require.NoError(t, err)
-	assert.Len(t, page2.CacheClusters, 2)
+	assert.Len(t, page2.CacheClusters, total-20)
+}
+
+// TestHandler_DescribeCacheClusters_MaxRecordsOutOfRange locks AWS's modeled
+// MaxRecords bounds ([20,100] -- InvalidParameterValueException otherwise)
+// for every paginated Describe*/List* operation, verified against the
+// aws-sdk-go-v2 client's typed error and HTTP status.
+func TestHandler_DescribeCacheClusters_MaxRecordsOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxRecords int32
+	}{
+		{name: "below_min", maxRecords: 19},
+		{name: "above_max", maxRecords: 101},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			_, err := client.DescribeCacheClusters(t.Context(), &elasticachesdk.DescribeCacheClustersInput{
+				MaxRecords: aws.Int32(tt.maxRecords),
+			})
+			require.Error(t, err)
+			requireFault[elasticachetypes.InvalidParameterValueException](t, err)
+			requireHTTPStatus(t, err, http.StatusBadRequest)
+		})
+	}
 }
 
 // ----------------------------------------

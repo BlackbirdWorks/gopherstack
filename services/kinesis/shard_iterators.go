@@ -79,7 +79,13 @@ func (b *InMemoryBackend) GetShardIterator(
 			input.ShardIteratorType == iteratorTypeAfterSequenceNumber,
 		)
 	case iteratorTypeAtTimestamp:
-		position = findTimestampPosition(&shard.Records, input.Timestamp)
+		// Timestamp is required for AT_TIMESTAMP; a genuinely omitted value
+		// (nil, distinguished at the JSON layer from an explicit epoch-zero
+		// timestamp) is rejected rather than silently treated as position 0.
+		if input.Timestamp == nil {
+			return nil, ErrInvalidArgument
+		}
+		position = findTimestampPosition(&shard.Records, *input.Timestamp)
 	default:
 		return nil, ErrInvalidArgument
 	}

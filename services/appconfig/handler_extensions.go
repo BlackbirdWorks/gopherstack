@@ -45,7 +45,11 @@ func (h *Handler) handleCreateExtension(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetExtension(c *echo.Context, extensionID string) error {
-	ext, err := h.Backend.GetExtension(extensionID)
+	// Real GetExtensionInput binds VersionNumber as the "version_number"
+	// query param.
+	versionNumber := parseAppConfigQueryVersion(c, "version_number")
+
+	ext, err := h.Backend.GetExtension(extensionID, versionNumber)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -62,15 +66,8 @@ func (h *Handler) handleGetExtension(c *echo.Context, extensionID string) error 
 
 func (h *Handler) handleListExtensions(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
-	q := c.Request().URL.Query()
-	nameFilter := q.Get("name")
-	var versionNumber int32
-	if s := q.Get("extension_version_number"); s != "" {
-		if n, err := strconv.ParseInt(s, 10, 32); err == nil && n > 0 && n <= math.MaxInt32 {
-			versionNumber = int32(n)
-		}
-	}
-	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter, versionNumber)
+	nameFilter := c.Request().URL.Query().Get("name")
+	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter)
 
 	resp := map[string]any{keyItems: exts}
 	if outToken != "" {
@@ -78,6 +75,23 @@ func (h *Handler) handleListExtensions(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// parseAppConfigQueryVersion parses an optional positive int32 version
+// number from the named query param, returning 0 (unspecified) if absent
+// or invalid.
+func parseAppConfigQueryVersion(c *echo.Context, name string) int32 {
+	s := c.Request().URL.Query().Get(name)
+	if s == "" {
+		return 0
+	}
+
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil || n <= 0 || n > math.MaxInt32 {
+		return 0
+	}
+
+	return int32(n)
 }
 
 func (h *Handler) handleUpdateExtension(c *echo.Context, extensionID string) error {
@@ -109,9 +123,17 @@ func (h *Handler) handleUpdateExtension(c *echo.Context, extensionID string) err
 }
 
 func (h *Handler) handleDeleteExtension(c *echo.Context, extensionID string) error {
-	if err := h.Backend.DeleteExtension(extensionID); err != nil {
+	// Real DeleteExtensionInput binds VersionNumber as the "version" query
+	// param.
+	versionNumber := parseAppConfigQueryVersion(c, "version")
+
+	if err := h.Backend.DeleteExtension(extensionID, versionNumber); err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
 		}
 
 		return c.JSON(

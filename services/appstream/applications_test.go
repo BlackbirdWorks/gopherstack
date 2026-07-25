@@ -91,10 +91,20 @@ func TestAppStream_Applications(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "DescribeAppLicenseUsage returns empty",
+			// Real DescribeAppLicenseUsageOutput carries AppLicenseUsages
+			// (plural) -- lock the wire field name, not just the status code.
+			name:     "DescribeAppLicenseUsage returns empty AppLicenseUsages",
 			action:   "DescribeAppLicenseUsage",
 			body:     map[string]any{},
 			wantCode: http.StatusOK,
+			check: func(t *testing.T, respBody []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &resp))
+				usages, ok := resp["AppLicenseUsages"]
+				require.True(t, ok, "response must carry AppLicenseUsages")
+				assert.Empty(t, usages)
+			},
 		},
 		{
 			name:   "AssociateApplicationFleet creates link",

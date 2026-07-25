@@ -115,6 +115,22 @@ func (b *InMemoryBackend) removeDomainLocked(name string) {
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(d.Endpoint)
 	}
+
+	// Cascade-clean cross-cluster connections owned by this domain: inbound
+	// connections where this domain is the destination (LocalDomainInfo), and
+	// outbound connections where this domain is the source (LocalDomainInfo).
+	// Table.All returns a fresh slice, so deleting while ranging is safe.
+	for _, c := range b.inboundConnections.All() {
+		if c.LocalDomainInfo.DomainName == name {
+			b.inboundConnections.Delete(c.ConnectionID)
+		}
+	}
+
+	for _, c := range b.outboundConnections.All() {
+		if c.LocalDomainInfo.DomainName == name {
+			b.outboundConnections.Delete(c.ConnectionID)
+		}
+	}
 }
 
 // purgeExpiredDomainsLocked finalises any domains whose deleting window has

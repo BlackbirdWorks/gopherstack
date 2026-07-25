@@ -8,6 +8,24 @@ import (
 	"strings"
 )
 
+// checkManagedRule returns ManagedRuleException if rule is owned by an AWS
+// service (Rule.ManagedBy non-empty). Real AWS rejects PutRule (on an existing
+// managed rule), DeleteRule, EnableRule, DisableRule, PutTargets and
+// RemoveTargets against service-managed rules (e.g. rules EventBridge
+// Scheduler creates on a caller's behalf) with this error.
+func checkManagedRule(rule *Rule) error {
+	if rule.ManagedBy != "" {
+		return fmt.Errorf(
+			"%w: rule %s is managed by %s and cannot be modified directly",
+			ErrManagedRule,
+			rule.Name,
+			rule.ManagedBy,
+		)
+	}
+
+	return nil
+}
+
 // validatePutRuleInput validates the rule input fields before any locking.
 func validatePutRuleInput(input PutRuleInput) error {
 	if input.Name == "" {
@@ -89,8 +107,10 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 
 	ruleTable := b.ruleTableFor(region, busKey)
 
+	existing, exists := ruleTable.Get(input.Name)
+
 	// Enforce per-bus rule limit only for new rules (not updates).
-	if !ruleTable.Has(input.Name) {
+	if !exists {
 		if ruleTable.Len() >= maxRulesPerBus {
 			return nil, fmt.Errorf(
 				"%w: event bus %s has reached the maximum of %d rules",
@@ -99,6 +119,8 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 				maxRulesPerBus,
 			)
 		}
+	} else if err := checkManagedRule(existing); err != nil {
+		return nil, err
 	}
 
 	rule := &Rule{
@@ -114,7 +136,7 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		compiledPattern:    compiled,
 	}
 
-	if existing, exists := ruleTable.Get(input.Name); exists {
+	if exists {
 		b.removeRuleFromIndex(region, busKey, existing)
 	}
 	ruleTable.Put(rule)
@@ -143,6 +165,10 @@ func (b *InMemoryBackend) DeleteRule(ctx context.Context, name, eventBusName str
 	rule, ruleExists := busRules.Get(name)
 	if !ruleExists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
+	}
+
+	if err := checkManagedRule(rule); err != nil {
+		return err
 	}
 
 	b.removeRuleFromIndex(region, busKey, rule)
@@ -246,6 +272,10 @@ func (b *InMemoryBackend) setRuleState(ctx context.Context, name, eventBusName, 
 	rule, exists := busRules.Get(name)
 	if !exists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
+	}
+
+	if err := checkManagedRule(rule); err != nil {
+		return err
 	}
 
 	rule.State = state

@@ -65,6 +65,24 @@ func TestDescribeMountTargets_Pagination(t *testing.T) {
 
 			if tt.wantNext {
 				assert.NotEmpty(t, nextMarker)
+
+				// Confirm the second page carries every remaining item (no items
+				// lost at the page boundary) and none of the first page's items.
+				list2, _, err2 := b.DescribeMountTargets(
+					context.Background(), fs.FileSystemID, "", nextMarker, tt.maxItems,
+				)
+				require.NoError(t, err2)
+				assert.Len(t, list2, tt.numMTs-tt.wantFirst)
+
+				seen := make(map[string]bool, tt.numMTs)
+				for _, mt := range list {
+					seen[mt.MountTargetID] = true
+				}
+				for _, mt := range list2 {
+					assert.False(t, seen[mt.MountTargetID], "mount target %s duplicated across pages", mt.MountTargetID)
+					seen[mt.MountTargetID] = true
+				}
+				assert.Len(t, seen, tt.numMTs, "union of both pages must equal every created mount target")
 			} else {
 				assert.Empty(t, nextMarker)
 			}

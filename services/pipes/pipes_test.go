@@ -38,6 +38,7 @@ func TestPagination_Limit(t *testing.T) {
 			b := auditNewBackend()
 			for i := range tt.numPipes {
 				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+					RoleARN:      "arn:aws:iam::123456789012:role/r",
 					Name:         "pipe-" + string(rune('a'+i)) + "-" + tt.name,
 					Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 					Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -70,6 +71,7 @@ func TestPagination_NextToken(t *testing.T) {
 	b := auditNewBackend()
 	for i := range 5 {
 		_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+			RoleARN:      "arn:aws:iam::123456789012:role/r",
 			Name:         "pag-pipe-" + string(rune('a'+i)),
 			Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 			Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -130,6 +132,7 @@ func TestPagination_FilterByCurrentState(t *testing.T) {
 
 			b := auditNewBackend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         "filter-state-pipe-" + tt.name,
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -171,6 +174,7 @@ func TestListPipes_SourceTargetPrefix(t *testing.T) {
 			}
 			for i, target := range targets {
 				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+					RoleARN:      "arn:aws:iam::123456789012:role/r",
 					Name:         "prefix-pipe-" + string(rune('a'+i)) + "-" + tt.name,
 					Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 					Target:       target,

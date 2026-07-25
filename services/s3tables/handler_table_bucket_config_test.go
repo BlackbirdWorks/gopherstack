@@ -241,7 +241,15 @@ func TestHandler_ListTableBucketsIncludesType(t *testing.T) {
 // Gap 2b: GetNamespace / ListNamespaces include tableBucketArn
 // ======================================================================
 
-func TestHandler_GetTableBucketReplicationWrapsDestinations(t *testing.T) {
+// TestHandler_GetTableBucketReplication_WireShape locks in the real
+// GetTableBucketReplicationOutput shape: {configuration: {role, rules:
+// [{destinations: [{destinationTableBucketARN}]}]}, versionToken}, NOT the
+// gopherstack-invented {tableBucketARN, replicationConfiguration:
+// {destinations}} shape this test previously asserted as correct (verified
+// against deserializeOpDocumentGetTableBucketReplicationOutput /
+// deserializeDocumentTableBucketReplicationConfiguration in
+// aws-sdk-go-v2/service/s3tables's deserializers.go).
+func TestHandler_GetTableBucketReplication_WireShape(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -250,11 +258,15 @@ func TestHandler_GetTableBucketReplicationWrapsDestinations(t *testing.T) {
 	q := url.Values{}
 	q.Set("tableBucketARN", bucketARN)
 
+	destARN := "arn:aws:s3tables:us-east-1:000000000000:bucket/dest"
+
 	// Seed directly via backend for reliability.
 	s3tables.AddBucketReplicationInternal(h.Backend, bucketARN, &s3tables.BucketReplicationConfig{
-		Destinations: []s3tables.ReplicationDestination{
-			{DestinationBucketARN: "arn:aws:s3tables:us-east-1:000000000000:bucket/dest"},
+		Role: "arn:aws:iam::000000000000:role/repl",
+		Rules: []s3tables.ReplicationRule{
+			{Destinations: []s3tables.ReplicationDestination{{DestinationTableBucketARN: destARN}}},
 		},
+		VersionToken: "seed-token",
 	})
 
 	getRec := doS3TablesRequest(t, h, http.MethodGet, "/table-bucket-replication?"+q.Encode(), nil)
@@ -263,25 +275,95 @@ func TestHandler_GetTableBucketReplicationWrapsDestinations(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
 
-	// Real AWS nests destinations inside replicationConfiguration.
 	_, hasTopLevelDests := out["destinations"]
-	replCfg, hasReplCfg := out["replicationConfiguration"].(map[string]any)
+	_, hasFabricatedWrapper := out["replicationConfiguration"]
+	assert.False(t, hasTopLevelDests, "destinations must not appear at the top level")
+	assert.False(
+		t,
+		hasFabricatedWrapper,
+		"replicationConfiguration is not a real GetTableBucketReplicationOutput field -- the real field is configuration",
+	)
 
-	assert.False(t, hasTopLevelDests,
-		"destinations must NOT appear at the top level — should be nested in replicationConfiguration")
-	assert.True(t, hasReplCfg,
-		"response must include replicationConfiguration wrapper object")
+	assert.Equal(t, "seed-token", out["versionToken"],
+		"GetTableBucketReplicationOutput.versionToken is a required response member")
 
-	if hasReplCfg {
-		dests, ok := replCfg["destinations"].([]any)
-		assert.True(t, ok, "replicationConfiguration must include destinations array")
-		assert.Len(t, dests, 1)
-	}
+	cfg, ok := out["configuration"].(map[string]any)
+	require.True(t, ok, "response must include the real configuration field")
+	assert.Equal(t, "arn:aws:iam::000000000000:role/repl", cfg["role"])
+
+	rules, ok := cfg["rules"].([]any)
+	require.True(t, ok)
+	require.Len(t, rules, 1)
+
+	rule, ok := rules[0].(map[string]any)
+	require.True(t, ok)
+
+	dests, ok := rule["destinations"].([]any)
+	require.True(t, ok, "each rule nests its own destinations array")
+	require.Len(t, dests, 1)
+
+	dest, ok := dests[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, destARN, dest["destinationTableBucketARN"],
+		"the wire field is destinationTableBucketARN, not destinationBucketARN")
 }
 
-// ======================================================================
-// Gap 4: PutTableReplication returns 204 No Content (no body)
-// ======================================================================
+func TestHandler_PutTableBucketReplication(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	bucketARN := createBucketHelper(t, h, "put-bucket-repl-bucket")
+
+	q := url.Values{}
+	q.Set("tableBucketARN", bucketARN)
+
+	rec := doS3TablesRequest(t, h, http.MethodPut, "/table-bucket-replication?"+q.Encode(), map[string]any{
+		"configuration": map[string]any{
+			"role": "arn:aws:iam::000000000000:role/repl",
+			"rules": []any{
+				map[string]any{
+					"destinations": []any{
+						map[string]any{
+							"destinationTableBucketARN": "arn:aws:s3tables:us-east-1:000000000000:bucket/dest",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	require.Equal(
+		t,
+		http.StatusOK,
+		rec.Code,
+		"PutTableBucketReplicationOutput requires status and versionToken, so the response must be a 200, not 204",
+	)
+
+	result := parseResponse(t, rec)
+	assert.Equal(t, "COMPLETED", result["status"])
+	assert.NotEmpty(t, result["versionToken"])
+}
+
+func TestHandler_PutTableBucketReplication_StaleVersionTokenConflict(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	bucketARN := createBucketHelper(t, h, "put-bucket-repl-conflict-bucket")
+
+	s3tables.AddBucketReplicationInternal(h.Backend, bucketARN, &s3tables.BucketReplicationConfig{
+		Role:         "arn:aws:iam::000000000000:role/repl",
+		VersionToken: "real-token",
+	})
+
+	q := url.Values{}
+	q.Set("tableBucketARN", bucketARN)
+	q.Set("versionToken", "stale-token")
+
+	rec := doS3TablesRequest(t, h, http.MethodPut, "/table-bucket-replication?"+q.Encode(), map[string]any{
+		"configuration": map[string]any{"role": "arn:aws:iam::000000000000:role/repl2"},
+	})
+	assert.Equal(t, http.StatusConflict, rec.Code)
+}
 
 func TestHandler_DeleteTableBucketEncryption(t *testing.T) {
 	t.Parallel()
@@ -492,9 +574,13 @@ func TestHandler_GetTableBucketReplication(t *testing.T) {
 
 				if tt.hasReplication {
 					s3tables.AddBucketReplicationInternal(h.Backend, bucketARN, &s3tables.BucketReplicationConfig{
-						Destinations: []s3tables.ReplicationDestination{
-							{DestinationBucketARN: "arn:aws:s3tables:us-east-1:000000000000:bucket/dest"},
+						Role: "arn:aws:iam::000000000000:role/repl",
+						Rules: []s3tables.ReplicationRule{
+							{Destinations: []s3tables.ReplicationDestination{
+								{DestinationTableBucketARN: "arn:aws:s3tables:us-east-1:000000000000:bucket/dest"},
+							}},
 						},
+						VersionToken: "seed-token",
 					})
 				}
 
@@ -505,12 +591,12 @@ func TestHandler_GetTableBucketReplication(t *testing.T) {
 
 				if tt.wantCode == http.StatusOK {
 					result := parseResponse(t, rec)
-					assert.Equal(t, bucketARN, result["tableBucketARN"])
-					replCfg, ok := result["replicationConfiguration"].(map[string]any)
+					assert.Equal(t, "seed-token", result["versionToken"])
+					cfg, ok := result["configuration"].(map[string]any)
 					require.True(t, ok)
-					dests, ok := replCfg["destinations"].([]any)
+					rules, ok := cfg["rules"].([]any)
 					require.True(t, ok)
-					assert.Len(t, dests, 1)
+					assert.Len(t, rules, 1)
 				}
 			} else {
 				rec := doS3TablesRequest(t, h, http.MethodGet, "/table-bucket-replication", nil)

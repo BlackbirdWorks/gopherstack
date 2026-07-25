@@ -118,6 +118,74 @@ func TestStartJobRun_NoJobDriverOmitsField(t *testing.T) {
 	assert.Nil(t, jr.ConfigurationOverrides)
 }
 
+// --- StartJobRun CreatedBy / ExecutionTimeoutMinutes ---
+
+// TestStartJobRun_CreatedByAndTimeoutDefaults verifies StartJobRun populates
+// CreatedBy (required on the real JobRun response shape; this backend uses
+// the execution role ARN as a best-effort substitute) and defaults
+// ExecutionTimeoutMinutes to 720 (matching the real API's documented
+// behavior when no timeout is supplied) rather than leaving them zero.
+func TestStartJobRun_CreatedByAndTimeoutDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		executionTimeout     int64
+		wantExecutionTimeout int64
+	}{
+		{name: "unset_defaults_to_720", executionTimeout: 0, wantExecutionTimeout: 720},
+		{name: "explicit_value_preserved", executionTimeout: 45, wantExecutionTimeout: 45},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+			app, err := b.CreateApplication("timeout-app", "SPARK", "emr-6.6.0", "", nil)
+			require.NoError(t, err)
+
+			jr, err := b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/creator", "run", "", nil,
+				emrserverless.StartJobRunOptions{ExecutionTimeoutMinutes: tt.executionTimeout})
+			require.NoError(t, err)
+
+			assert.Equal(t, "arn:aws:iam::000000000000:role/creator", jr.CreatedBy)
+			assert.Equal(t, tt.wantExecutionTimeout, jr.ExecutionTimeoutMinutes)
+
+			got, err := b.GetJobRun(app.ApplicationID, jr.JobRunID)
+			require.NoError(t, err)
+			assert.Equal(t, "arn:aws:iam::000000000000:role/creator", got.CreatedBy)
+			assert.Equal(t, tt.wantExecutionTimeout, got.ExecutionTimeoutMinutes)
+		})
+	}
+}
+
+// TestStartJobRun_ExecutionIamPolicyAndRetryPolicyPassthrough verifies
+// ExecutionIamPolicy and RetryPolicy (real StartJobRunInput fields) are
+// stored and echoed back by GetJobRun, with independent clone semantics
+// matching JobDriver/ConfigurationOverrides.
+func TestStartJobRun_ExecutionIamPolicyAndRetryPolicyPassthrough(t *testing.T) {
+	t.Parallel()
+
+	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	app, err := b.CreateApplication("policy-retry-app", "SPARK", "emr-6.6.0", "", nil)
+	require.NoError(t, err)
+
+	execPolicy := map[string]any{"policy": "some-policy-json"}
+	retryPolicy := map[string]any{"maxAttempts": float64(5)}
+
+	jr, err := b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "policy-run", "", nil,
+		emrserverless.StartJobRunOptions{ExecutionIamPolicy: execPolicy, RetryPolicy: retryPolicy})
+	require.NoError(t, err)
+	assert.Equal(t, execPolicy, jr.ExecutionIamPolicy)
+	assert.Equal(t, retryPolicy, jr.RetryPolicy)
+
+	got, err := b.GetJobRun(app.ApplicationID, jr.JobRunID)
+	require.NoError(t, err)
+	assert.Equal(t, execPolicy, got.ExecutionIamPolicy)
+	assert.Equal(t, retryPolicy, got.RetryPolicy)
+}
+
 // --- JobRun ops when no runs exist for an application ---
 
 // TestJobRunOps_NoRunsForApp verifies GetJobRun, GetDashboardForJobRun, and

@@ -138,32 +138,26 @@ func (h *Handler) handleGetResponseHeadersPolicyConfig(c *echo.Context, id strin
 	c.Response().Header().Set("ETag", p.ETag)
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ResponseHeadersPolicyConfig xmlns="%s">`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</ResponseHeadersPolicyConfig>`,
-		cfNS, p.Name, p.Comment)
+		`<ResponseHeadersPolicyConfig xmlns="%s">%s</ResponseHeadersPolicyConfig>`,
+		cfNS, rhpConfigXMLBlock(p))
 
 	return xmlResp(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleListResponseHeadersPolicies(c *echo.Context) error {
 	policies := h.Backend.ListResponseHeadersPolicies()
+	policies = filterByManagedType(
+		c.QueryParam("Type"), func(p *ResponseHeadersPolicy) bool { return p.Managed }, policies,
+	)
 
 	var sb strings.Builder
 
 	for _, p := range policies {
 		fmt.Fprintf(&sb,
-			`<ResponseHeadersPolicySummary>`+
-				`<ResponseHeadersPolicy>`+
-				`<Id>%s</Id>`+
-				`<ResponseHeadersPolicyConfig>`+
-				`<Name>%s</Name>`+
-				`<Comment>%s</Comment>`+
-				`</ResponseHeadersPolicyConfig>`+
-				`</ResponseHeadersPolicy>`+
-				`</ResponseHeadersPolicySummary>`,
-			p.ID, p.Name, p.Comment)
+			`<ResponseHeadersPolicySummary><Type>%s</Type><ResponseHeadersPolicy><Id>%s</Id>`+
+				`<ResponseHeadersPolicyConfig>%s</ResponseHeadersPolicyConfig>`+
+				`</ResponseHeadersPolicy></ResponseHeadersPolicySummary>`,
+			policyTypeString(p.Managed), p.ID, rhpConfigXMLBlock(p))
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -252,40 +246,88 @@ func (h *Handler) handleDeleteResponseHeadersPolicy(c *echo.Context, id string) 
 	return c.NoContent(http.StatusNoContent)
 }
 
-func rhpResponseXML(p *ResponseHeadersPolicy) string {
+// xmlPluralItems renders <Items><leaf>x</leaf>...</Items><Quantity>n</Quantity>
+// for the CORS list shapes, each of which uses its own leaf element name
+// (Origin/Header/Method) rather than the policy-config Name convention.
+func xmlPluralItems(leaf string, items []string) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, `<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ResponseHeadersPolicy xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<ResponseHeadersPolicyConfig>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`,
-		cfNS, p.ID, p.Name, p.Comment)
+
+	for _, it := range items {
+		fmt.Fprintf(&sb, "<%s>%s</%s>", leaf, it, leaf)
+	}
+
+	return fmt.Sprintf("<Items>%s</Items><Quantity>%d</Quantity>", sb.String(), len(items))
+}
+
+// rhpConfigXMLBlock builds the <ResponseHeadersPolicyConfig>...</...> body shared
+// by the full ResponseHeadersPolicy response, the config-only response, and each
+// ResponseHeadersPolicySummary in a ListResponseHeadersPolicies response.
+//
+// The CorsConfig list fields (AccessControlAllowOrigins/Headers/Methods,
+// AccessControlExposeHeaders) and SecurityHeadersConfig's ContentSecurityPolicy /
+// ContentTypeOptions were previously omitted from every read response even though
+// rhpConfigXML parses all of them from requests -- see rhpConfigXML's field tags,
+// which already used the correct wire paths on the request side.
+func rhpConfigXMLBlock(p *ResponseHeadersPolicy) string {
+	var sb strings.Builder
+
+	fmt.Fprintf(&sb, `<Name>%s</Name><Comment>%s</Comment>`, p.Name, p.Comment)
+
 	if c := p.CorsConfig; c != nil {
 		fmt.Fprintf(&sb,
 			`<CorsConfig>`+
 				`<AccessControlAllowCredentials>%v</AccessControlAllowCredentials>`+
+				`<AccessControlAllowHeaders>%s</AccessControlAllowHeaders>`+
+				`<AccessControlAllowMethods>%s</AccessControlAllowMethods>`+
+				`<AccessControlAllowOrigins>%s</AccessControlAllowOrigins>`+
+				`<AccessControlExposeHeaders>%s</AccessControlExposeHeaders>`+
 				`<AccessControlMaxAgeSec>%d</AccessControlMaxAgeSec>`+
 				`<OriginOverride>%v</OriginOverride>`+
 				`</CorsConfig>`,
-			c.AccessControlAllowCredentials, c.AccessControlMaxAgeSec, c.OriginOverride)
+			c.AccessControlAllowCredentials,
+			xmlPluralItems("Header", c.AccessControlAllowHeaders),
+			xmlPluralItems("Method", c.AccessControlAllowMethods),
+			xmlPluralItems("Origin", c.AccessControlAllowOrigins),
+			xmlPluralItems("Header", c.AccessControlExposeHeaders),
+			c.AccessControlMaxAgeSec, c.OriginOverride)
 	}
+
 	if s := p.SecurityHeaders; s != nil {
+		// Only ContentTypeOptions.Override is tracked on RHPSecurityHeaders (matching
+		// what rhpConfigXML parses from requests -- see its doc comment). The other
+		// four sub-elements' Override flags aren't modeled; emitting false for them
+		// is not a placeholder guess, it matches the real "Override: No" default that
+		// every AWS-managed security-headers policy uses for these same headers (see
+		// managedSecurityHeaders in managed_policies.go).
+		var cspXML string
+		if s.ContentSecurityPolicy != "" {
+			cspXML = fmt.Sprintf(
+				`<ContentSecurityPolicy><ContentSecurityPolicy>%s</ContentSecurityPolicy>`+
+					`<Override>false</Override></ContentSecurityPolicy>`,
+				s.ContentSecurityPolicy)
+		}
+
 		fmt.Fprintf(&sb,
 			`<SecurityHeadersConfig>`+
+				`<ContentTypeOptions><Override>%v</Override></ContentTypeOptions>`+
+				`%s`+
 				`<StrictTransportSecurity>`+
 				`<AccessControlMaxAgeSec>%d</AccessControlMaxAgeSec>`+
 				`<IncludeSubdomains>%v</IncludeSubdomains>`+
 				`<Preload>%v</Preload>`+
+				`<Override>false</Override>`+
 				`</StrictTransportSecurity>`+
-				`<FrameOptions><FrameOption>%s</FrameOption></FrameOptions>`+
-				`<ReferrerPolicy><ReferrerPolicy>%s</ReferrerPolicy></ReferrerPolicy>`+
+				`<FrameOptions><FrameOption>%s</FrameOption><Override>false</Override></FrameOptions>`+
+				`<ReferrerPolicy><ReferrerPolicy>%s</ReferrerPolicy><Override>false</Override></ReferrerPolicy>`+
 				`</SecurityHeadersConfig>`,
+			s.ContentTypeOptionsOverride, cspXML,
 			s.StrictTransportSecuritySeconds, s.IncludeSubdomains, s.Preload,
 			s.FrameOptionsValue, s.ReferrerPolicy)
 	}
+
 	if len(p.CustomHeaders) > 0 {
 		sb.WriteString(`<CustomHeadersConfig><Items>`)
+
 		for _, h := range p.CustomHeaders {
 			fmt.Fprintf(&sb,
 				`<ResponseHeadersPolicyCustomHeader>`+
@@ -295,10 +337,13 @@ func rhpResponseXML(p *ResponseHeadersPolicy) string {
 					`</ResponseHeadersPolicyCustomHeader>`,
 				h.Header, h.Value, h.Override)
 		}
+
 		fmt.Fprintf(&sb, `</Items><Quantity>%d</Quantity></CustomHeadersConfig>`, len(p.CustomHeaders))
 	}
+
 	if len(p.RemoveHeaders) > 0 {
 		sb.WriteString(`<RemoveHeadersConfig><Items>`)
+
 		for _, h := range p.RemoveHeaders {
 			fmt.Fprintf(
 				&sb,
@@ -306,11 +351,20 @@ func rhpResponseXML(p *ResponseHeadersPolicy) string {
 				h,
 			)
 		}
+
 		fmt.Fprintf(&sb, `</Items><Quantity>%d</Quantity></RemoveHeadersConfig>`, len(p.RemoveHeaders))
 	}
-	sb.WriteString(`</ResponseHeadersPolicyConfig></ResponseHeadersPolicy>`)
 
 	return sb.String()
+}
+
+func rhpResponseXML(p *ResponseHeadersPolicy) string {
+	return fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<ResponseHeadersPolicy xmlns="%s"><Id>%s</Id>`+
+			`<ResponseHeadersPolicyConfig>%s</ResponseHeadersPolicyConfig></ResponseHeadersPolicy>`,
+		cfNS, p.ID, rhpConfigXMLBlock(p),
+	)
 }
 
 // --- CloudFront Function handlers ---

@@ -54,8 +54,14 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 // pre-Phase-3.3 snapshot format had no version field at all, so an old
 // snapshot decodes with Version == 0, which is guaranteed to mismatch
 // iotwirelessSnapshotVersion and is discarded the same way any other
-// incompatible snapshot is.
-const iotwirelessSnapshotVersion = 1
+// incompatible snapshot is. Bumped 1 -> 2 when FuotaTaskMulticast/
+// FuotaTaskDevices/MulticastGroupDevices changed from single-slot
+// map[string]string to set-valued map[string]map[string]bool (see the doc
+// comment on InMemoryBackend.fuotaTaskMulticast in store.go); a version-1
+// snapshot's values for those fields are JSON strings, not objects, and
+// would fail to unmarshal into the new type without this bump forcing a
+// clean discard-and-reset instead.
+const iotwirelessSnapshotVersion = 2
 
 // deviceRecord serialises a WirelessDevice together with the account/region
 // its store.Table keyFn needs but the value type itself excludes from JSON
@@ -228,15 +234,15 @@ type backendSnapshot struct {
 	Tables                     map[string]json.RawMessage   `json:"tables"`
 	ResourceTags               map[string]map[string]string `json:"resourceTags,omitempty"`
 	PartnerAccounts            map[string]string            `json:"partnerAccounts,omitempty"`
-	FuotaTaskMulticast         map[string]string            `json:"fuotaTaskMulticast,omitempty"`
-	FuotaTaskDevices           map[string]string            `json:"fuotaTaskDevices,omitempty"`
-	MulticastGroupDevices      map[string]string            `json:"multicastGroupDevices,omitempty"`
+	FuotaTaskMulticast         map[string]map[string]bool   `json:"fuotaTaskMulticast,omitempty"`
+	FuotaTaskDevices           map[string]map[string]bool   `json:"fuotaTaskDevices,omitempty"`
+	MulticastGroupDevices      map[string]map[string]bool   `json:"multicastGroupDevices,omitempty"`
 	MulticastGroupSessions     map[string]bool              `json:"multicastGroupSessions,omitempty"`
 	MulticastGroupSessionStart map[string]time.Time         `json:"multicastGroupSessionStart,omitempty"`
 	WirelessDeviceThings       map[string]string            `json:"wirelessDeviceThings,omitempty"`
 	WirelessGatewayCerts       map[string]string            `json:"wirelessGatewayCerts,omitempty"`
 	WirelessGatewayThings      map[string]string            `json:"wirelessGatewayThings,omitempty"`
-	LogLevels                  map[string]string            `json:"logLevels,omitempty"`
+	LogLevelsConfig            *LogLevelsConfig             `json:"logLevelsConfig,omitempty"`
 	ResourceLogLevels          map[string]string            `json:"resourceLogLevels,omitempty"`
 	Positions                  map[string]map[string]any    `json:"positions,omitempty"`
 	QueuedMessages             map[string][]QueuedMessage   `json:"queuedMessages,omitempty"`
@@ -248,7 +254,7 @@ type backendSnapshot struct {
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock()
+	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	tables, err := b.registry.SnapshotAll()
@@ -272,15 +278,15 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tables:                     tables,
 		ResourceTags:               copyTagsMap(b.resourceTags),
 		PartnerAccounts:            copyStringMap(b.partnerAccounts),
-		FuotaTaskMulticast:         copyStringMap(b.fuotaTaskMulticast),
-		FuotaTaskDevices:           copyStringMap(b.fuotaTaskDevices),
-		MulticastGroupDevices:      copyStringMap(b.multicastGroupDevices),
+		FuotaTaskMulticast:         copySetMap(b.fuotaTaskMulticast),
+		FuotaTaskDevices:           copySetMap(b.fuotaTaskDevices),
+		MulticastGroupDevices:      copySetMap(b.multicastGroupDevices),
 		MulticastGroupSessions:     copyBoolMap(b.multicastGroupSessions),
 		MulticastGroupSessionStart: copyTimeMap(b.multicastGroupSessionStart),
 		WirelessDeviceThings:       copyStringMap(b.wirelessDeviceThings),
 		WirelessGatewayCerts:       copyStringMap(b.wirelessGatewayCerts),
 		WirelessGatewayThings:      copyStringMap(b.wirelessGatewayThings),
-		LogLevels:                  copyStringMap(b.logLevels),
+		LogLevelsConfig:            b.logLevelsConfig,
 		ResourceLogLevels:          copyStringMap(b.resourceLogLevels),
 		Positions:                  copyPositionsMap(b.positions),
 		QueuedMessages:             copyQueuedMessagesMap(b.queuedMessages),
@@ -359,6 +365,18 @@ func copyBoolMap(m map[string]bool) map[string]bool {
 	return cp
 }
 
+// copySetMap deep-copies a map of ID sets (fuotaTaskMulticast,
+// fuotaTaskDevices, multicastGroupDevices), so Snapshot's output never
+// aliases the backend's live sets.
+func copySetMap(m map[string]map[string]bool) map[string]map[string]bool {
+	cp := make(map[string]map[string]bool, len(m))
+	for k, set := range m {
+		cp[k] = copyBoolMap(set)
+	}
+
+	return cp
+}
+
 func copyTimeMap(m map[string]time.Time) map[string]time.Time {
 	cp := make(map[string]time.Time, len(m))
 	maps.Copy(cp, m)
@@ -408,7 +426,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	if snap.Version != iotwirelessSnapshotVersion {
@@ -588,15 +606,15 @@ func (b *InMemoryBackend) restoreRemainingDirtyTablesLocked(
 func (b *InMemoryBackend) resetRawMapsLocked() {
 	b.resourceTags = make(map[string]map[string]string)
 	b.partnerAccounts = make(map[string]string)
-	b.fuotaTaskMulticast = make(map[string]string)
-	b.fuotaTaskDevices = make(map[string]string)
-	b.multicastGroupDevices = make(map[string]string)
+	b.fuotaTaskMulticast = make(map[string]map[string]bool)
+	b.fuotaTaskDevices = make(map[string]map[string]bool)
+	b.multicastGroupDevices = make(map[string]map[string]bool)
 	b.multicastGroupSessions = make(map[string]bool)
 	b.multicastGroupSessionStart = make(map[string]time.Time)
 	b.wirelessDeviceThings = make(map[string]string)
 	b.wirelessGatewayCerts = make(map[string]string)
 	b.wirelessGatewayThings = make(map[string]string)
-	b.logLevels = make(map[string]string)
+	b.logLevelsConfig = nil
 	b.resourceLogLevels = make(map[string]string)
 	b.positions = make(map[string]map[string]any)
 	b.queuedMessages = make(map[string][]QueuedMessage)
@@ -615,14 +633,9 @@ func (b *InMemoryBackend) restoreRawMapsLocked(snap *backendSnapshot) {
 	b.partnerAccounts = make(map[string]string, len(snap.PartnerAccounts))
 	maps.Copy(b.partnerAccounts, snap.PartnerAccounts)
 
-	b.fuotaTaskMulticast = make(map[string]string, len(snap.FuotaTaskMulticast))
-	maps.Copy(b.fuotaTaskMulticast, snap.FuotaTaskMulticast)
-
-	b.fuotaTaskDevices = make(map[string]string, len(snap.FuotaTaskDevices))
-	maps.Copy(b.fuotaTaskDevices, snap.FuotaTaskDevices)
-
-	b.multicastGroupDevices = make(map[string]string, len(snap.MulticastGroupDevices))
-	maps.Copy(b.multicastGroupDevices, snap.MulticastGroupDevices)
+	b.fuotaTaskMulticast = copySetMap(snap.FuotaTaskMulticast)
+	b.fuotaTaskDevices = copySetMap(snap.FuotaTaskDevices)
+	b.multicastGroupDevices = copySetMap(snap.MulticastGroupDevices)
 
 	b.multicastGroupSessions = make(map[string]bool, len(snap.MulticastGroupSessions))
 	maps.Copy(b.multicastGroupSessions, snap.MulticastGroupSessions)
@@ -639,8 +652,7 @@ func (b *InMemoryBackend) restoreRawMapsLocked(snap *backendSnapshot) {
 	b.wirelessGatewayThings = make(map[string]string, len(snap.WirelessGatewayThings))
 	maps.Copy(b.wirelessGatewayThings, snap.WirelessGatewayThings)
 
-	b.logLevels = make(map[string]string, len(snap.LogLevels))
-	maps.Copy(b.logLevels, snap.LogLevels)
+	b.logLevelsConfig = snap.LogLevelsConfig
 
 	b.resourceLogLevels = make(map[string]string, len(snap.ResourceLogLevels))
 	maps.Copy(b.resourceLogLevels, snap.ResourceLogLevels)

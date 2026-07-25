@@ -22,7 +22,12 @@ var errBackendNotInMemory = errors.New("elbv2: backend is not *InMemoryBackend")
 // attempts to partially decode) any mismatch -- see Restore below. This
 // mirrors the services/ec2 (commit 12e611a4) and services/sqs (commit
 // 0f09d77c) pilots.
-const elbv2SnapshotVersion = 1
+//
+// Bumped 1 -> 2: TrustStoreRevocation.RevocationID changed from string to int64
+// (real AWS wire type, see models.go doc comment) -- a v1 snapshot's trustStores
+// table can hold string-shaped RevocationIds (e.g. "s3-<uuid>") that would fail to
+// unmarshal into the new int64 field.
+const elbv2SnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the ELBv2 backend.
 //
@@ -40,6 +45,7 @@ type backendSnapshot struct {
 	Region              string                          `json:"region"`
 	Version             int                             `json:"version"`
 	RuleCounter         int                             `json:"ruleCounter"`
+	RevocationIDCounter int64                           `json:"revocationIdCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -66,6 +72,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		TargetReadyAt:       b.targetReadyAt,
 		TargetDrainingUntil: b.targetDrainingUntil,
 		RuleCounter:         b.ruleCounter,
+		RevocationIDCounter: b.revocationIDCounter,
 		AccountID:           b.accountID,
 		Region:              b.region,
 	}
@@ -125,6 +132,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.targetReadyAt = snap.TargetReadyAt
 	b.targetDrainingUntil = snap.TargetDrainingUntil
 	b.ruleCounter = snap.RuleCounter
+	b.revocationIDCounter = snap.RevocationIDCounter
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

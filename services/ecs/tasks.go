@@ -90,6 +90,12 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 
 		b.ensureClusterLocked(clusterName)
 
+		if err := b.validateCapacityProviderStrategyLocked(input.CapacityProviderStrategy); err != nil {
+			ferr = err
+
+			return
+		}
+
 		td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
 		if err != nil {
 			ferr = err
@@ -298,6 +304,16 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 			taskRoleArn = input.Overrides.TaskRoleArn
 		}
 
+		// CapacityProviderName reflects the capacity provider actually selected for
+		// this task. AWS distributes tasks across the strategy's providers by
+		// weight/base; this backend does not model that distribution and always
+		// selects the first entry (documented simplification -- see the
+		// CapacityProviderName doc comment on the Task struct in models.go).
+		var capacityProviderName string
+		if len(input.CapacityProviderStrategy) > 0 {
+			capacityProviderName = input.CapacityProviderStrategy[0].CapacityProvider
+		}
+
 		task := &Task{
 			TaskArn:              taskArn,
 			ClusterArn:           clusterArn,
@@ -317,6 +333,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 			NetworkConfiguration: input.NetworkConfiguration,
 			EnableExecuteCommand: input.EnableExecuteCommand,
 			TaskRoleArn:          taskRoleArn,
+			CapacityProviderName: capacityProviderName,
 		}
 
 		if launchType == launchTypeFargate {

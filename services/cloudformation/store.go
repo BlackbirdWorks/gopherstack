@@ -35,6 +35,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		stackName, changeSetName, templateBody, description string,
 		params []Parameter,
+		capabilities []string,
 	) (*ChangeSet, error)
 	DescribeChangeSet(stackName, changeSetName string) (*ChangeSet, error)
 	ExecuteChangeSet(ctx context.Context, stackName, changeSetName string) error
@@ -58,10 +59,11 @@ type StorageBackend interface {
 	CancelUpdateStack(ctx context.Context, nameOrID string) error
 	DescribeAccountLimits() []AccountLimit
 	// Stack Sets
-	CreateStackSet(name, description, templateBody string) (*StackSet, error)
-	UpdateStackSet(name, description, templateBody string) (*StackSet, error)
+	CreateStackSet(name, description, templateBody string, opts StackSetOptions) (*StackSet, error)
+	UpdateStackSet(name, description, templateBody string, opts StackSetOptions) (*StackSet, error)
 	DeleteStackSet(name string) error
 	DescribeStackSet(name string) (*StackSet, error)
+	StackSetRegions(name string) []string
 	ListStackSets(nextToken string) (page.Page[StackSetSummary], error)
 	CreateStackInstances(
 		ctx context.Context,

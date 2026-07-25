@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/forecast"
 )
 
 // TestStatusTransitions_PendingActiveDelete verifies the generic
@@ -16,9 +18,10 @@ func TestStatusTransitions_PendingActiveDelete(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
+	predictorARN := createPredictor(t, h)
 
 	code, created := request(t, h, "CreateForecast", map[string]any{
-		"ForecastName": "status-forecast", "PredictorArn": "predictor",
+		"ForecastName": "status-forecast", "PredictorArn": predictorARN,
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn := created["ForecastArn"].(string)
@@ -50,42 +53,57 @@ func TestARNFormat_AcrossResourceKinds(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body     map[string]any
+		body     func(t *testing.T, h *forecast.Handler) map[string]any
 		name     string
 		action   string
 		arnField string
 	}{
 		{
-			name:     "dataset_group_arn",
-			action:   "CreateDatasetGroup",
-			body:     map[string]any{"DatasetGroupName": "arn-group", "Domain": "RETAIL"},
+			name:   "dataset_group_arn",
+			action: "CreateDatasetGroup",
+			body: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{"DatasetGroupName": "arn-group", "Domain": "RETAIL"}
+			},
 			arnField: "DatasetGroupArn",
 		},
 		{
 			name:   "dataset_arn",
 			action: "CreateDataset",
-			body: map[string]any{
-				"DatasetName": "arn-dataset", "Domain": "RETAIL",
-				"DatasetType": "TARGET_TIME_SERIES", "DataFrequency": "D",
+			body: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{
+					"DatasetName": "arn-dataset", "Domain": "RETAIL",
+					"DatasetType": "TARGET_TIME_SERIES", "DataFrequency": "D",
+					"Schema": map[string]any{"Attributes": []any{}},
+				}
 			},
 			arnField: "DatasetArn",
 		},
 		{
-			name:     "predictor_arn",
-			action:   "CreatePredictor",
-			body:     map[string]any{"PredictorName": "arn-predictor", "ForecastHorizon": 10},
+			name:   "predictor_arn",
+			action: "CreatePredictor",
+			body: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{"PredictorName": "arn-predictor", "ForecastHorizon": 10}
+			},
 			arnField: "PredictorArn",
 		},
 		{
-			name:     "forecast_arn",
-			action:   "CreateForecast",
-			body:     map[string]any{"ForecastName": "arn-forecast", "PredictorArn": "predictor"},
+			name:   "forecast_arn",
+			action: "CreateForecast",
+			body: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"ForecastName": "arn-forecast", "PredictorArn": createPredictor(t, h)}
+			},
 			arnField: "ForecastArn",
 		},
 		{
-			name:     "monitor_arn",
-			action:   "CreateMonitor",
-			body:     map[string]any{"MonitorName": "arn-monitor", "ResourceArn": "predictor"},
+			name:   "monitor_arn",
+			action: "CreateMonitor",
+			body: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"MonitorName": "arn-monitor", "ResourceArn": createPredictor(t, h)}
+			},
 			arnField: "MonitorArn",
 		},
 	}
@@ -95,7 +113,7 @@ func TestARNFormat_AcrossResourceKinds(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
-			code, m := request(t, h, tt.action, tt.body)
+			code, m := request(t, h, tt.action, tt.body(t, h))
 			require.Equal(t, http.StatusOK, code)
 
 			arn, ok := m[tt.arnField].(string)
@@ -212,9 +230,10 @@ func TestDeleteResourceTree_RemovesTarget(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
+	predictorARN := createPredictor(t, h)
 
 	code, created := request(t, h, "CreateForecast", map[string]any{
-		"ForecastName": "tree-forecast", "PredictorArn": "predictor",
+		"ForecastName": "tree-forecast", "PredictorArn": predictorARN,
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn := created["ForecastArn"].(string)
@@ -240,9 +259,9 @@ func TestDelete_ResourceRemovedFromMap(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		createBody func(t *testing.T, h *forecast.Handler) map[string]any
 		name       string
 		create     string
-		createBody map[string]any
 		arnField   string
 		describe   string
 		deleteOp   string
@@ -250,20 +269,25 @@ func TestDelete_ResourceRemovedFromMap(t *testing.T) {
 		listField  string
 	}{
 		{
-			name:       "dataset_group",
-			create:     "CreateDatasetGroup",
-			createBody: map[string]any{"DatasetGroupName": "del-dg", "Domain": "RETAIL"},
-			arnField:   "DatasetGroupArn",
-			describe:   "DescribeDatasetGroup",
-			deleteOp:   "DeleteDatasetGroup",
-			list:       "ListDatasetGroups",
-			listField:  "DatasetGroups",
+			name:   "dataset_group",
+			create: "CreateDatasetGroup",
+			createBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{"DatasetGroupName": "del-dg", "Domain": "RETAIL"}
+			},
+			arnField:  "DatasetGroupArn",
+			describe:  "DescribeDatasetGroup",
+			deleteOp:  "DeleteDatasetGroup",
+			list:      "ListDatasetGroups",
+			listField: "DatasetGroups",
 		},
 		{
 			name:   "dataset",
 			create: "CreateDataset",
-			createBody: map[string]any{
-				"DatasetName": "del-ds", "DatasetType": "TARGET_TIME_SERIES", "Domain": "RETAIL",
+			createBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{
+					"DatasetName": "del-ds", "DatasetType": "TARGET_TIME_SERIES", "Domain": "RETAIL",
+					"Schema": map[string]any{"Attributes": []any{}},
+				}
 			},
 			arnField:  "DatasetArn",
 			describe:  "DescribeDataset",
@@ -274,8 +298,8 @@ func TestDelete_ResourceRemovedFromMap(t *testing.T) {
 		{
 			name:   "predictor",
 			create: "CreatePredictor",
-			createBody: map[string]any{
-				"PredictorName": "del-pred", "ForecastHorizon": 5,
+			createBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{"PredictorName": "del-pred", "ForecastHorizon": 5}
 			},
 			arnField:  "PredictorArn",
 			describe:  "DescribePredictor",
@@ -286,8 +310,10 @@ func TestDelete_ResourceRemovedFromMap(t *testing.T) {
 		{
 			name:   "forecast",
 			create: "CreateForecast",
-			createBody: map[string]any{
-				"ForecastName": "del-fc", "PredictorArn": "pred",
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"ForecastName": "del-fc", "PredictorArn": createPredictor(t, h)}
 			},
 			arnField:  "ForecastArn",
 			describe:  "DescribeForecast",
@@ -302,7 +328,7 @@ func TestDelete_ResourceRemovedFromMap(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
-			code, created := request(t, h, tt.create, tt.createBody)
+			code, created := request(t, h, tt.create, tt.createBody(t, h))
 			require.Equal(t, http.StatusOK, code)
 
 			resARN, ok := created[tt.arnField].(string)
@@ -339,6 +365,10 @@ func TestDelete_IdempotencyFails(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn := created["DatasetGroupArn"].(string)
+
+	// Advance past CREATE_PENDING: Delete* now requires a deletable status
+	// (ACTIVE/CREATE_FAILED/...), matching real Amazon Forecast.
+	request(t, h, "DescribeDatasetGroup", map[string]any{"DatasetGroupArn": arn})
 
 	code, _ = request(t, h, "DeleteDatasetGroup", map[string]any{"DatasetGroupArn": arn})
 	require.Equal(t, http.StatusOK, code)
@@ -452,6 +482,7 @@ func TestARNIndex_RebuildAfterReset(t *testing.T) {
 		"DatasetGroupName": "pre-reset-dg", "Domain": "RETAIL",
 	})
 	arn1 := c1["DatasetGroupArn"].(string)
+	request(t, h, "DescribeDatasetGroup", map[string]any{"DatasetGroupArn": arn1}) // advance past CREATE_PENDING
 	request(t, h, "DeleteDatasetGroup", map[string]any{"DatasetGroupArn": arn1})
 
 	// Reset backend.

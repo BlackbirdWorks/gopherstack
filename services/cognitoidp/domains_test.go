@@ -147,6 +147,9 @@ func TestUserPoolDomain_Custom_WithCertArn(t *testing.T) {
 
 	var descOut struct {
 		DomainDescription *struct {
+			CustomDomainConfig *struct {
+				CertificateArn string `json:"CertificateArn,omitempty"`
+			} `json:"CustomDomainConfig,omitempty"`
 			Domain                 string `json:"Domain,omitempty"`
 			UserPoolID             string `json:"UserPoolId,omitempty"`
 			Status                 string `json:"Status,omitempty"`
@@ -157,6 +160,43 @@ func TestUserPoolDomain_Custom_WithCertArn(t *testing.T) {
 	require.NotNil(t, descOut.DomainDescription)
 	assert.Equal(t, "auth.mycompany.com", descOut.DomainDescription.Domain)
 	assert.Equal(t, "ACTIVE", descOut.DomainDescription.Status)
+
+	// AWS echoes CustomDomainConfig.CertificateArn back for a custom domain -- e.g. the
+	// Terraform AWS provider reads this to detect drift on the configured certificate.
+	require.NotNil(t, descOut.DomainDescription.CustomDomainConfig, "custom domain must echo CustomDomainConfig")
+	assert.Equal(t, certArn, descOut.DomainDescription.CustomDomainConfig.CertificateArn)
+}
+
+// TestUserPoolDomain_Managed_NoCustomDomainConfig proves a managed (non-custom, no ACM
+// certificate) domain's DescribeUserPoolDomain omits CustomDomainConfig entirely,
+// matching AWS -- only domains with a certificate get one.
+func TestUserPoolDomain_Managed_NoCustomDomainConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, _ := setupHandlerPoolAndClient(t, h, "domain-managed-no-cdc-pool")
+
+	rec := doCognitoRequest(t, h, "CreateUserPoolDomain", map[string]any{
+		"UserPoolId": poolID,
+		"Domain":     "myapp-managed-no-cdc",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doCognitoRequest(t, h, "DescribeUserPoolDomain", map[string]any{
+		"Domain": "myapp-managed-no-cdc",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descOut struct {
+		DomainDescription *struct {
+			CustomDomainConfig *struct {
+				CertificateArn string `json:"CertificateArn,omitempty"`
+			} `json:"CustomDomainConfig,omitempty"`
+		} `json:"DomainDescription"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
+	require.NotNil(t, descOut.DomainDescription)
+	assert.Nil(t, descOut.DomainDescription.CustomDomainConfig)
 }
 
 func TestUserPoolDomain_Update_WithCertArn(t *testing.T) {

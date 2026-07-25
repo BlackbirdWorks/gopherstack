@@ -6,133 +6,156 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: mediatailor
 sdk_module: aws-sdk-go-v2/service/mediatailor@v1.59.2   # version audited against
-last_audit_commit: 024e43bf                              # HEAD when this manifest was written
-last_audit_date: 2026-07-13
-overall: A            # ~6 genuine wire/routing/validation bugs found and fixed, proven op-by-op
+last_audit_commit: a874b0df                              # HEAD when this manifest was written
+last_audit_date: 2026-07-23
+overall: A            # all 4 prior gaps + 3 prior deferred items closed for real this pass; 3 new completeness bugs found+fixed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  PutPlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - over-strict validation required AdDecisionServerUrl+VideoContentSourceUrl; real model only requires Name"}
+  PutPlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - only Name required; this pass adds pass-through storage for AdConditioningConfiguration/AdDecisionServerConfiguration/AvailSuppression/Bumper/CdnConfiguration/ConfigurationAliases/DashConfiguration/FunctionMapping/InsertionMode/LivePreRollConfiguration/ManifestProcessingRules/PersonalizationThresholdSeconds/SlateAdUrl/TranscodeProfileName (decoded-JSON round-trip, not hand-modeled Go structs - see Notes #6) and a real LogConfiguration reflecting ConfigureLogsForPlaybackConfiguration"}
   GetPlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeletePlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent per real API"}
+  DeletePlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent per real API; now cascades to delete every attached prefetch schedule (fixed ghost-row leak, see Notes #7)"}
   ListPlaybackConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "query params PascalCase MaxResults/NextToken - correct"}
-  CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - CreationTime/LastModifiedTime were RFC3339 strings, must be epoch-seconds numbers"}
+  CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - epoch timestamps; this pass adds Tier (was hardcoded BASIC), Audiences, TimeShiftConfiguration, LogConfiguration, and fixes a tags-silently-dropped bug (see Notes #7)"}
   DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateChannel: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly rejects delete while RUNNING"}
-  ListChannels: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - query params are lowercase maxResults/nextToken, handler only checked PascalCase"}
+  UpdateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - real UpdateChannelInput also accepts FillerSlate/Audiences/TimeShiftConfiguration; gopherstack only accepted Outputs"}
+  DeleteChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly rejects delete while RUNNING; now cascades to delete every scheduled program and the channel policy (fixed ghost-row leak, see Notes #7)"}
+  ListChannels: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - lowercase maxResults/nextToken"}
   StartChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "real state transition to RUNNING, idempotent"}
   StopChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "real state transition to STOPPED, idempotent"}
-  CreateSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - CreationTime/LastModifiedTime were dead fields (declared, never populated/serialized); fixed - tags silently dropped, see Notes #7"}
   DescribeSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "LastModifiedTime now advances on update"}
   DeleteSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly rejects delete with attached vod/live sources"}
-  ListSourceLocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - lowercase maxResults/nextToken query params"}
-  CreateVodSource: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListSourceLocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - lowercase maxResults/nextToken"}
+  CreateVodSource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - CreationTime/LastModifiedTime dead fields populated; fixed - tags silently dropped, see Notes #7"}
   DescribeVodSource: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateVodSource: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateVodSource: {wire: ok, errors: ok, state: ok, persist: ok, note: "LastModifiedTime now advances on update"}
   DeleteVodSource: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListVodSources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - lowercase maxResults/nextToken query params"}
-  CreateLiveSource: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListVodSources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - lowercase maxResults/nextToken"}
+  CreateLiveSource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - CreationTime/LastModifiedTime dead fields populated (LiveSource never had the tags-drop bug - Tags were already returned directly from the stored struct)"}
   DescribeLiveSource: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateLiveSource: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateLiveSource: {wire: ok, errors: ok, state: ok, persist: ok, note: "LastModifiedTime now advances on update"}
   DeleteLiveSource: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListLiveSources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - lowercase maxResults/nextToken query params"}
-  CreatePrefetchSchedule: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - Retrieval/Consumption StartTime/EndTime were RFC3339 strings, must be epoch-seconds"}
+  ListLiveSources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - lowercase maxResults/nextToken"}
+  CreatePrefetchSchedule: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - epoch timestamps; this pass adds ScheduleType (validated SINGLE/RECURRING), StreamId, RecurringPrefetchConfiguration (pass-through), and Tags (was entirely unmodeled - PrefetchSchedule had no Tags field at all)"}
   GetPrefetchSchedule: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePrefetchSchedule: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPrefetchSchedules: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - real op is POST with MaxResults/NextToken in JSON body, not GET with query params; handler required GET so a real SDK client's request never routed"}
-  CreateProgram: {wire: partial, errors: ok, state: ok, persist: ok, note: "AdBreaks/AudienceMedia/ClipRange/ScheduledStartTime/DurationMillis not modeled - see gaps"}
-  DescribeProgram: {wire: partial, errors: ok, state: ok, persist: ok, note: "same missing optional fields as CreateProgram"}
-  UpdateProgram: {wire: gap, errors: ok, state: partial, persist: ok, note: "real op requires ScheduleConfiguration/AdBreaks and mutates them; gopherstack's UpdateProgram takes no body and is a no-op read - see gaps"}
+  ListPrefetchSchedules: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - POST+body routing; this pass implements the ScheduleType/StreamId request filters (were routed/parsed but silently ignored)"}
+  CreateProgram: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - ScheduleConfiguration.Transition now required and drives real ScheduledStartTime/DurationMillis computation (ABSOLUTE wall-clock or RELATIVE-to-sibling-program positioning, mirroring real channel scheduling); AdBreaks/AudienceMedia/ClipRange/CreationTime now modeled and returned"}
+  DescribeProgram: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - same previously-missing optional fields as CreateProgram, now present"}
+  UpdateProgram: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - was a no-op read (took no body); now requires ScheduleConfiguration (its Transition/ClipRange sub-fields are individually optional per the real model) and applies AdBreaks/AudienceMedia/schedule updates for real"}
   DeleteProgram: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetChannelSchedule: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - backend ignored maxResults/nextToken entirely (disguised pagination no-op), and handler only checked PascalCase query params; real op is lowercase"}
+  GetChannelSchedule: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - real pagination; this pass corrects the response shape to match the real ScheduleEntry type (ApproximateStartTime/ApproximateDurationSeconds/ScheduleEntryType/Audiences/SourceLocationName, not Program's own AdBreaks/ClipRange/etc which ScheduleEntry does not have - PARITY.md's prior gap note conflated the two types, see Notes #8). ScheduleAdBreaks intentionally left empty - see items_still_open"}
   PutChannelPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetChannelPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteChannelPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutFunction: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFunction: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFunction: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFunctions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - backend ignored maxResults/nextToken entirely (disguised pagination no-op) and handler hardcoded 0/\"\""}
+  ListFunctions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - real pagination"}
   ListAlerts: {wire: ok, errors: ok, state: ok, persist: n/a, note: "returns empty Items - alerts aren't modeled/generated anywhere in the backend, matches a fresh account with no alerts"}
-  ConfigureLogsForChannel: {wire: ok, errors: ok, state: partial, persist: n/a, note: "validates channel exists and echoes LogTypes but doesn't persist them anywhere queryable - low-impact, no real AWS op reads this back"}
-  ConfigureLogsForPlaybackConfiguration: {wire: ok, errors: ok, state: partial, persist: n/a, note: "same as ConfigureLogsForChannel"}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - Tags wire key must be lowercase 'tags'"}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - same tags-key casing bug"}
+  ConfigureLogsForChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - LogTypes now persisted on the channel and returned from Create/Describe/ListChannels' required LogConfiguration member (was validate-and-echo only, not queryable)"}
+  ConfigureLogsForPlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - now accepts+persists EnabledLoggingStrategies/AdsInteractionLog/ManifestServiceInteractionLog (previously only PercentEnabled was modeled) and is queryable from Get/List/PutPlaybackConfiguration's LogConfiguration; survives a re-Put of the same configuration, matching real MediaTailor"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - lowercase 'tags' wire key"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - same tags-key casing bug"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent, tagKeys query param confirmed correct"}
 families:
-  routing: {status: ok, note: "all 47 routed ops' HTTP method+path verified against aws-sdk-go-v2 serializers.go and botocore service-2.json; only ListPrefetchSchedules was wrong (GET->POST, fixed)"}
-gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "UpdateProgram doesn't implement AdBreaks/ScheduleConfiguration mutation (real op requires ScheduleConfiguration and updates ad breaks; gopherstack's Program type has no AdBreaks/ClipRange/AudienceMedia fields at all). Modeling this properly requires adding AdBreak/ScheduleConfiguration/ClipRange/AudienceMedia types to interfaces.go and wiring them through Create/UpdateProgram - a materially larger feature than this pass's budget covered. (needs bd issue)"
-  - "CreateProgram/DescribeProgram/UpdateProgram/ProgramScheduleEntry omit optional response fields the real API returns: AdBreaks, AudienceMedia, ClipRange, ScheduledStartTime, DurationMillis, CreationTime. Missing optional fields don't break real SDK clients (zero-value on the Go struct), so this is lower severity than the wire-shape bugs fixed this pass, but is a completeness gap. (needs bd issue)"
-  - "SourceLocation/VodSource/LiveSource/PrefetchSchedule Go structs in interfaces.go declare CreationTime/LastModified fields that the backend never populates and the handler never serializes into responses (dead fields). Real DescribeSourceLocation/DescribeVodSource/etc. responses include these. Same completeness-gap severity as the Program fields above. (needs bd issue)"
-  - "ConfigureLogsForChannel/ConfigureLogsForPlaybackConfiguration validate + echo their inputs but don't persist log-delivery config anywhere queryable (no real op reads it back, so this is low-impact, but flagged for completeness)."
-deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - "CreateChannel/UpdateChannel Audiences and TimeShiftConfiguration fields (real API supports them; not modeled in gopherstack at all)"
-  - "PutPlaybackConfiguration's many optional sub-configs (AdConditioningConfiguration, AvailSuppression, Bumper, CdnConfiguration, DashConfiguration, ManifestProcessingRules, etc.) - only Name/AdDecisionServerUrl/VideoContentSourceUrl/Tags are modeled"
-  - "ListPrefetchSchedules ScheduleType/StreamId request filters (routing + pagination fixed this pass; filtering by type/stream not implemented)"
-leaks: {status: clean, note: "no goroutines, timers, or janitors in this service; all state lives in store.Table/Index + plain maps guarded by one lockmetrics.RWMutex"}
+  routing: {status: ok, note: "all 47 routed ops' HTTP method+path unchanged this pass and still verified against aws-sdk-go-v2 serializers.go/botocore service-2.json from the prior audit"}
+gaps: []          # every gap from the prior manifest is now fixed for real (field-diffed against the SDK, not reclassified on say-so) - see ops[*].note above for what changed
+deferred: []      # every deferred item from the prior manifest is now implemented this pass - see ops[*].note above
+items_still_open:
+  - "SourceLocation AccessConfiguration, DefaultSegmentDeliveryConfiguration, and SegmentDeliveryConfigurations (real DescribeSourceLocation/CreateSourceLocation fields) are not modeled at all - newly found by field-diffing this pass, not in the prior manifest's gaps/deferred. Not fixed this pass due to time budget; same pass-through-JSON treatment as PutPlaybackConfiguration's extras (see Notes #6) would close it. (needs bd issue)"
+  - "ProgramScheduleEntry.ScheduleAdBreaks is always empty. Real MediaTailor populates it from SCTE-35 avails MediaTailor detects by scanning the underlying VOD/live source manifests during ingestion - a manifest-parsing capability gopherstack has nowhere in this service (or elsewhere in the fleet, as far as this pass could tell). Left empty rather than fabricated from the client-configured AdBreaks (which is a materially different, unrelated concept - AdBreaks is where a client tells MediaTailor to splice ads; ScheduleAdBreaks is what MediaTailor detected already exists in the source content). Matches a real VOD source with no scanned avails yet. (needs bd issue if manifest-avail-detection is ever prioritized)"
+  - "PrefetchSchedule/Program/LiveSource/Function tags are stored on the resource's own struct at creation time and returned directly, NOT synced with the ARN-keyed b.tags map that the generic TagResource/UntagResource/ListTagsForResource ops read and write. A TagResource call against one of these ARNs after creation will not be reflected by a subsequent Describe/Get of that resource. This is a pre-existing architectural split in this backend (Channel/SourceLocation/VodSource/PlaybackConfiguration use the b.tags-map-is-authoritative pattern; PrefetchSchedule/Program/LiveSource/Function use the struct-field-is-authoritative pattern) that predates this pass - flagging it here since PrefetchSchedule's Tags field is new this pass and inherited the latter pattern for consistency with its siblings (Program/LiveSource/Function), not because it was independently verified correct. Unifying the two patterns fleet-service-wide is a larger refactor than this pass's budget covers. (needs bd issue)"
+leaks: {status: clean, note: "no goroutines, timers, or janitors in this service; all state lives in store.Table/Index + plain maps guarded by one lockmetrics.RWMutex. This pass additionally fixed two ghost-row leaks: DeleteChannel now cascade-deletes every program scheduled on it (via programsByChannel index) and its channel policy; DeletePlaybackConfiguration now cascade-deletes every attached prefetch schedule (via prefetchSchedulesByConfig index). Neither cascade existed before this pass - a channel/playback-config could be deleted and recreated with the same name while its old programs/prefetch-schedules silently lingered in their tables, invisible via any real op path but still occupying memory and corrupting Snapshot/Restore fidelity."}
 ---
 
 ## Notes
 
-MediaTailor is restjson1. Two systemic, high-impact wire bugs dominated this
-pass and are worth remembering explicitly for the next auditor:
+MediaTailor is restjson1. This pass closed every gap and deferred item from
+the prior manifest (2026-07-13, commit 024e43bf) for real — field-diffed
+against `aws-sdk-go-v2/service/mediatailor@v1.59.2`'s generated types,
+serializers, and deserializers, not reclassified on inspection alone — and
+found three additional completeness bugs by field-diffing surface the prior
+pass hadn't touched. Numbering continues from the prior manifest's notes.
 
-1. **Tags JSON key is lowercase `"tags"`, not `"Tags"`, on every single
-   operation** (PutPlaybackConfiguration, Create/Describe/List for Channel,
-   SourceLocation, VodSource, LiveSource, Program, Function, plus
-   TagResource/ListTagsForResource). Every other field in the entire service
-   is PascalCase — `tags` is the one deliberate exception in the real smithy
-   model (`locationName: "tags"`), confirmed independently against both
-   aws-sdk-go-v2's generated (de)serializers and botocore's
-   `service-2.json` (`"required": [...]`/`"locationName"` entries). This is
-   NOT a general MediaTailor convention to extrapolate elsewhere in
-   gopherstack — it's specific to this service's model.
+6. **PutPlaybackConfiguration's optional sub-configs are stored as
+   decoded-JSON pass-through, not hand-modeled Go structs.** The real
+   `PlaybackConfiguration` type has ~14 optional nested config blocks
+   (`AdConditioningConfiguration`, `AdDecisionServerConfiguration`,
+   `AvailSuppression`, `Bumper`, `CdnConfiguration`, `ConfigurationAliases`,
+   `DashConfiguration`, `FunctionMapping`, `InsertionMode`,
+   `LivePreRollConfiguration`, `ManifestProcessingRules`,
+   `PersonalizationThresholdSeconds`, `SlateAdUrl`, `TranscodeProfileName`),
+   several of which (e.g. `DashConfiguration`, `ManifestProcessingRules`) are
+   themselves multiple levels deep. None of these are consumed by any
+   compute path gopherstack implements (this service emulates the CRUD
+   control plane, not the actual ad-decision-server/manifest-personalization
+   data plane), so the wire-correctness bar that matters is round-trip
+   fidelity: what a client PUTs is exactly what a client GETs back, with
+   exact key names/nesting preserved because the client's own JSON is
+   echoed verbatim. `extractExtraConfig`/`mergeExtraConfig` in
+   `handler_helpers.go`/`handler_playback_configurations.go` implement this.
+   The same treatment applies to `PrefetchSchedule.RecurringPrefetchConfiguration`
+   (itself containing `RecurringConsumption`/`RecurringRetrieval`, each with
+   several more nested fields) and to `AdBreak.TimeSignalMessage.SegmentationDescriptors`
+   (deeply nested SCTE-35 metadata MediaTailor stores without interpreting).
+   Fields that ARE genuinely shallow and/or drive real backend behavior —
+   `Channel.Audiences`/`TimeShiftConfiguration`, `AdBreak`/`ClipRange`/
+   `AudienceMedia`/`AlternateMedia`, `PrefetchSchedule.ScheduleType`/`StreamId`,
+   the two `ConfigureLogsFor*` logging configs — are hand-modeled as real Go
+   types with validation and (for schedule-affecting fields) real backend
+   logic, not pass-through.
 
-2. **CreationTime/LastModifiedTime (Channel) and Retrieval/Consumption
-   StartTime/EndTime (PrefetchSchedule) are `unixTimestamp` shapes** — JSON
-   numbers of seconds since epoch — not RFC3339 strings. A real SDK client's
-   deserializer hard-errors ("expected __timestampUnix to be a JSON Number,
-   got string instead") on the old RFC3339-string output, so this wasn't a
-   silent-data bug like the tags key, it broke the call outright. Use
-   `pkgs/awstime.Epoch` on the response side; parse the incoming JSON number
-   directly from the `map[string]any` body (no `json.Number` intermediary
-   needed since the request body decoder targets `any`).
+7. **Three resource types silently dropped tags passed at creation.**
+   `CreateChannel`, `CreateSourceLocation`, and `CreateVodSource` each stored
+   the caller's `Tags` on their own struct but their `Describe*`/`List*`
+   counterparts unconditionally overwrite the response `Tags` from a
+   separate ARN-keyed `b.tags` map that only `PutPlaybackConfiguration`
+   actually wrote to. A client that created a tagged Channel/SourceLocation/
+   VodSource and then called Describe/List on it got back empty tags every
+   time — a real, currently-shipping data-loss bug for every caller who
+   tags a resource at creation instead of via a separate `TagResource` call
+   afterward. Fixed by writing `b.tags[arn] = copyTags(tags)` in all three
+   `Create*` methods, mirroring the pattern `PutPlaybackConfiguration`
+   already used. Caught by field-diffing tag flow end-to-end (create → b.tags
+   write → describe → b.tags read), not by any existing test — none of the
+   prior CRUD tests happened to create a tagged resource and then assert its
+   tags survived a Describe.
 
-3. **Query-string param casing is genuinely inconsistent within this one
-   service** — not a service-wide convention either way. ListChannels,
-   ListSourceLocations, ListVodSources, ListLiveSources, and
-   GetChannelSchedule bind MaxResults/NextToken lowercase
-   (`maxResults`/`nextToken`); ListPlaybackConfigurations and ListFunctions
-   bind them PascalCase (`MaxResults`/`NextToken`). `extractPaginationParams`
-   now checks both casings as a fallback rather than duplicating the helper
-   per op family. ListPrefetchSchedules is the outlier again: it's the only
-   List op that's POST with MaxResults/NextToken/ScheduleType/StreamId
-   carried in the JSON body instead of the query string at all (verified via
-   aws-sdk-go-v2's `awsRestjson1_serializeOpDocumentListPrefetchSchedulesInput`).
+8. **The prior manifest's Program-family gap note conflated two different
+   real SDK types.** It said `ProgramScheduleEntry` was missing `AdBreaks`,
+   `AudienceMedia`, `ClipRange`, `ScheduledStartTime`, `DurationMillis`, and
+   `CreationTime` — but those are `Program`'s fields (confirmed via
+   `CreateProgramOutput`/`DescribeProgramOutput`). The real type actually
+   returned by `GetChannelSchedule` is `ScheduleEntry`, which has none of
+   those fields; instead it has `ApproximateStartTime`,
+   `ApproximateDurationSeconds`, `Audiences`, `ScheduleAdBreaks`,
+   `ScheduleEntryType`, and `SourceLocationName` (required) —
+   `ProgramScheduleEntry` in `interfaces.go` is gopherstack's name for this
+   shape. Fixed both: `Program`'s response fields now match
+   `CreateProgramOutput`/`DescribeProgramOutput`/`UpdateProgramOutput`, and
+   `GetChannelSchedule`'s response fields now match `ScheduleEntry`. Lesson
+   for future passes: verify the exact SDK type name a field-diff claim is
+   about, not just that "the real API has this field somewhere" — two
+   sibling types can look similar enough to conflate under time pressure.
 
-4. **A prior "parity pass 1" fix (`TestParity_PutPlaybackConfiguration_
-   RequiredFields`, Gap 1) was itself wrong** — it added a requirement that
-   PutPlaybackConfiguration must include AdDecisionServerUrl and
-   VideoContentSourceUrl, rejecting requests with a fabricated
-   BadRequestException. The real model's only required member is `Name`
-   (independently confirmed via aws-sdk-go-v2's `validators.go` and
-   botocore's `service-2.json` `"required": ["Name"]`). Lesson for future
-   passes: a previous pass's test asserting a behavior is not itself proof
-   that behavior is correct — verify against the SDK model directly, even
-   for things that look already "fixed."
+9. **`CreateProgram`/`UpdateProgram` now compute real schedule positions.**
+   `ScheduleConfiguration.Transition` (required on `CreateProgramInput`) can
+   be `ABSOLUTE` (an explicit wall-clock `ScheduledStartTimeMillis`) or
+   `RELATIVE` (positioned immediately `BEFORE_PROGRAM`/`AFTER_PROGRAM` a
+   named sibling `RelativeProgram` already on the same channel's schedule).
+   `resolveProgramSchedule`/`resolveRelativeSchedule` in `programs.go`
+   implement both, computing `AFTER_PROGRAM` as
+   `sibling.ScheduledStartTime + sibling.DurationMillis` and
+   `BEFORE_PROGRAM` as `sibling.ScheduledStartTime - thisDurationMillis` —
+   this is genuine scheduling logic (a channel schedule is a real ordered
+   sequence of programs), not a stub that only validates and forwards the
+   client's own numbers. An unknown `RelativeProgram` is rejected as
+   `BadRequestException` rather than silently accepted.
 
-5. **Disguised pagination no-ops**: `ListFunctions` and `GetChannelSchedule`
-   both accepted `maxResults`/`nextToken` parameters in their backend method
-   signatures but silently discarded them (`_ int, _ string`), always
-   returning every item with an empty NextToken. `ListFunctions`'s handler
-   additionally hardcoded `0, ""` instead of reading the query string at
-   all. Both now use the same `page.New` pattern as every other List op in
-   this backend.
-
-None of the fixes in this pass required schema/state additions beyond what
-`interfaces.go` already declared — every wire-format fix corrected how an
-already-tracked value is read from the request or written to the response.
-The one exception is `ListPrefetchSchedules`'s POST/body routing, which is a
-request-shape correction, not a new capability.
+None of this pass's fixes required touching `handler.go`'s routing tables —
+every operation's HTTP method/path was already correct from the prior pass;
+this pass is entirely about request/response body shape completeness and
+the two cascade-delete leak fixes noted above.

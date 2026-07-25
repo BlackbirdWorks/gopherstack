@@ -56,6 +56,21 @@ func cloneMutualTLSAuthentication(cfg *MutualTLSAuthentication) *MutualTLSAuthen
 	return &cp
 }
 
+// validateRoutingMode returns ErrBadRequest if routingMode is not one of the
+// modeled enum values (API_MAPPING_ONLY, ROUTING_RULE_ONLY,
+// ROUTING_RULE_THEN_API_MAPPING).
+func validateRoutingMode(routingMode string) error {
+	switch routingMode {
+	case routingModeAPIMappingOnly, routingModeRoutingRuleOnly, routingModeRoutingRuleThenAPIMapping:
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: routingMode must be one of API_MAPPING_ONLY, ROUTING_RULE_ONLY, ROUTING_RULE_THEN_API_MAPPING",
+			ErrBadRequest,
+		)
+	}
+}
+
 // CreateDomainName creates a new custom domain name.
 func (b *InMemoryBackend) CreateDomainName(
 	ctx context.Context,
@@ -63,6 +78,15 @@ func (b *InMemoryBackend) CreateDomainName(
 ) (*DomainName, error) {
 	if input.DomainNameValue == "" {
 		return nil, fmt.Errorf("%w: domainName is required", ErrBadRequest)
+	}
+
+	// Apply AWS-realistic default RoutingMode ("API_MAPPING_ONLY") when not
+	// provided.
+	routingMode := input.RoutingMode
+	if routingMode == "" {
+		routingMode = routingModeAPIMappingOnly
+	} else if err := validateRoutingMode(routingMode); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateDomainName")
@@ -83,6 +107,7 @@ func (b *InMemoryBackend) CreateDomainName(
 	dn := &DomainName{
 		DomainNameValue:          input.DomainNameValue,
 		DomainNameArn:            domainNameArn,
+		RoutingMode:              routingMode,
 		Tags:                     copyTags(input.Tags),
 		DomainNameConfigurations: domainNameConfigs,
 		MutualTLSAuthentication:  cloneMutualTLSAuthentication(input.MutualTLSAuthentication),
@@ -284,6 +309,14 @@ func (b *InMemoryBackend) UpdateDomainName(domainName string, input UpdateDomain
 
 	if input.MutualTLSAuthentication != nil {
 		dn.MutualTLSAuthentication = cloneMutualTLSAuthentication(input.MutualTLSAuthentication)
+	}
+
+	if input.RoutingMode != "" {
+		if err := validateRoutingMode(input.RoutingMode); err != nil {
+			return nil, err
+		}
+
+		dn.RoutingMode = input.RoutingMode
 	}
 
 	cp := *dn

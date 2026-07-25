@@ -802,22 +802,28 @@ func TestDeleteFileSystem_BlockedByDependencies(t *testing.T) {
 }
 
 // TestDescribeFileSystems_PaginationMarker verifies DescribeFileSystems Marker/NextMarker
-// pagination over the HTTP surface, including rejection of an unknown marker.
+// pagination over the HTTP surface: walking every page via NextMarker must return the
+// full, non-overlapping set of created file systems (10, page size 3 => pages of
+// 3,3,3,1), and an unknown marker is rejected.
+//
+// Regression guard for a real bug: paginate() in store.go used to resume pagination
+// at items[idx+1:] (skip the item matching the marker) even though the marker itself
+// was computed as the ID of the first NOT-yet-returned item (items[maxItems]) --
+// meaning every page boundary silently dropped exactly one item. A client listing N
+// file systems page by page would only ever observe N-(numPages-1) of them. This test
+// previously encoded that data loss as the *expected* behavior (a 3-page walk landing
+// on 8 total items, not 10); it now asserts the lossless invariant instead.
 func TestDescribeFileSystems_PaginationMarker(t *testing.T) {
 	t.Parallel()
 
 	h := newTestEFSHandler()
 
-	// paginate semantics: marker = first item of next page, skipped on resume.
-	// 10 items, pageSize=3: page1=[0..2] marker=items[3],
-	// page2=[4..6] marker=items[7], page3=[8..9] no marker.
 	const total = 10
+	wantIDs := make(map[string]bool, total)
 	for i := range total {
-		createFS(t, h, fmt.Sprintf("parity-page-token-%02d", i))
+		id := createFS(t, h, fmt.Sprintf("parity-page-token-%02d", i))
+		wantIDs[id] = true
 	}
-
-	rec1 := doREST(t, h, http.MethodGet, "/2015-02-01/file-systems?MaxItems=3", nil)
-	require.Equal(t, http.StatusOK, rec1.Code)
 
 	type fsPage struct {
 		NextMarker  string `json:"NextMarker"`
@@ -826,28 +832,37 @@ func TestDescribeFileSystems_PaginationMarker(t *testing.T) {
 		} `json:"FileSystems"`
 	}
 
-	var page1 fsPage
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
-	require.Len(t, page1.FileSystems, 3)
-	require.NotEmpty(t, page1.NextMarker)
+	gotIDs := make(map[string]bool, total)
+	marker := ""
+	pageSizes := []int{}
 
-	rec2 := doREST(t, h, http.MethodGet,
-		"/2015-02-01/file-systems?MaxItems=3&Marker="+page1.NextMarker, nil)
-	require.Equal(t, http.StatusOK, rec2.Code)
+	for range total + 1 { // hard cap: at most total+1 page fetches before failing the test.
+		path := "/2015-02-01/file-systems?MaxItems=3"
+		if marker != "" {
+			path += "&Marker=" + marker
+		}
 
-	var page2 fsPage
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
-	require.Len(t, page2.FileSystems, 3)
-	require.NotEmpty(t, page2.NextMarker)
+		rec := doREST(t, h, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
 
-	rec3 := doREST(t, h, http.MethodGet,
-		"/2015-02-01/file-systems?MaxItems=3&Marker="+page2.NextMarker, nil)
-	require.Equal(t, http.StatusOK, rec3.Code)
+		var page fsPage
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page))
+		require.NotEmpty(t, page.FileSystems, "page must not be empty while a marker is being followed")
 
-	var page3 fsPage
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &page3))
-	require.Len(t, page3.FileSystems, 2, "last page has items[8..9]")
-	assert.Empty(t, page3.NextMarker, "no more pages after last item")
+		pageSizes = append(pageSizes, len(page.FileSystems))
+		for _, fs := range page.FileSystems {
+			assert.False(t, gotIDs[fs.FileSystemID], "file system %s returned twice across pages", fs.FileSystemID)
+			gotIDs[fs.FileSystemID] = true
+		}
+
+		if page.NextMarker == "" {
+			break
+		}
+		marker = page.NextMarker
+	}
+
+	assert.Equal(t, wantIDs, gotIDs, "paginating through every page must return exactly the created set, no gaps")
+	assert.Equal(t, []int{3, 3, 3, 1}, pageSizes, "10 items at page size 3 must page as 3,3,3,1")
 
 	badRec := doREST(t, h, http.MethodGet,
 		"/2015-02-01/file-systems?Marker=nonexistent-marker-id", nil)

@@ -162,6 +162,24 @@ func doRoutedRequest(
 	return rec
 }
 
+// testMemberConfiguration returns a MemberConfiguration request body with the
+// FrameworkConfiguration.Fabric.AdminUsername/AdminPassword the real API's
+// client-side validator (and gopherstack's own server-side mirror of it,
+// see validateMemberConfigurationRequest in handler_networks.go) requires.
+// Shared across the managedblockchain_test package's family test files so
+// every CreateNetwork/CreateMember request body stays wire-shape valid.
+func testMemberConfiguration(name string) map[string]any {
+	return map[string]any{
+		"Name": name,
+		"FrameworkConfiguration": map[string]any{
+			"Fabric": map[string]any{
+				"AdminUsername": "admin",
+				"AdminPassword": "Passw0rd!",
+			},
+		},
+	}
+}
+
 // createTestNetwork creates a network with one member and returns their IDs.
 // Shared across the managedblockchain_test package's family test files.
 func createTestNetwork(t *testing.T, h *managedblockchain.Handler) (string, string) {
@@ -169,7 +187,7 @@ func createTestNetwork(t *testing.T, h *managedblockchain.Handler) (string, stri
 
 	rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "test-net",
-		"MemberConfiguration": map[string]any{"Name": "member-1"},
+		"MemberConfiguration": testMemberConfiguration("member-1"),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

@@ -841,6 +841,56 @@ func TestPutIdentityPolicy_MissingPolicyName_Error(t *testing.T) {
 	assert.Error(t, b.PutIdentityPolicy("a@example.com", "", `{}`))
 }
 
+// TestPutIdentityPolicy_InvalidJSON_Error verifies malformed and empty Policy
+// documents are rejected with InvalidPolicy (ErrInvalidPolicy), matching real
+// AWS SES's InvalidPolicyException. This backend does not evaluate policy
+// semantics, but it does require the document be well-formed JSON, matching
+// the wire error code a real SDK client would see for a malformed policy.
+func TestPutIdentityPolicy_InvalidJSON_Error(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		policy  string
+	}{
+		{name: "empty_policy", policy: "", wantErr: ses.ErrInvalidParameter},
+		{name: "whitespace_only_policy", policy: "   ", wantErr: ses.ErrInvalidParameter},
+		{name: "malformed_json", policy: `{not valid`, wantErr: ses.ErrInvalidPolicy},
+		{name: "unterminated_json", policy: `{"unterminated": `, wantErr: ses.ErrInvalidPolicy},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ses.NewInMemoryBackend()
+			err := b.PutIdentityPolicy("a@example.com", "p1", tt.policy)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+// TestHandler_PutIdentityPolicy_InvalidPolicy_WireError verifies the handler
+// surfaces InvalidPolicy on the wire (not a generic InternalFailure/500) for a
+// malformed Policy document.
+func TestHandler_PutIdentityPolicy_InvalidPolicy_WireError(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h, url.Values{
+		"Action":     {"PutIdentityPolicy"},
+		"Version":    {"2010-12-01"},
+		"Identity":   {"a@example.com"},
+		"PolicyName": {"p1"},
+		"Policy":     {`{"unterminated": `},
+	}.Encode())
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidPolicy")
+}
+
 func TestVerifyEmailIdentity_AlreadyExists_Idempotent(t *testing.T) {
 	t.Parallel()
 

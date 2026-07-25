@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- User handlers ---
@@ -301,6 +302,7 @@ type createStreamingURLInput struct {
 	StackName string `json:"StackName"`
 	FleetName string `json:"FleetName"`
 	UserId    string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
+	Validity  int64  `json:"Validity"`
 }
 
 func (h *Handler) opCreateStreamingURL(_ context.Context, body []byte) (any, error) {
@@ -309,12 +311,15 @@ func (h *Handler) opCreateStreamingURL(_ context.Context, body []byte) (any, err
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	url, err := h.Backend.CreateStreamingURL(req.StackName, req.FleetName, req.UserId)
+	url, expires, err := h.Backend.CreateStreamingURL(req.StackName, req.FleetName, req.UserId, req.Validity)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{"StreamingURL": url}, nil //nolint:goconst // existing issue.
+	return map[string]any{
+		keyStreamingURL: url,
+		keyExpires:      awstime.Epoch(expires),
+	}, nil
 }
 
 // --- UsageReport handlers ---
@@ -441,7 +446,7 @@ func userToResponse(u *User) map[string]any {
 		"AuthenticationType": u.AuthenticationType,
 		"Status":             u.Status,
 		"Enabled":            u.Enabled,
-		"CreatedTime":        u.CreatedTime.Unix(), //nolint:goconst // existing issue.
+		"CreatedTime":        awstime.Epoch(u.CreatedTime), //nolint:goconst // existing issue.
 	}
 }
 
@@ -454,7 +459,7 @@ func sessionToResponse(s *Session) map[string]any {
 		"State":              s.State, //nolint:goconst // existing issue.
 		"ConnectionState":    s.ConnectionState,
 		"AuthenticationType": s.AuthenticationType,
-		"StartTime":          s.StartTime.Unix(),
+		"StartTime":          awstime.Epoch(s.StartTime),
 	}
 }
 
@@ -462,6 +467,6 @@ func themeToResponse(th *Theme) map[string]any {
 	return map[string]any{
 		"StackName":   th.StackName,
 		"State":       th.State,
-		"CreatedTime": th.CreatedTime.Unix(),
+		"CreatedTime": awstime.Epoch(th.CreatedTime),
 	}
 }

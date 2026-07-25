@@ -442,7 +442,7 @@ func TestVPHandler_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, _ = b.CreatePolicyStore("store", nil, "OFF", "")
+	_, _ = b.CreatePolicyStore("store", nil, "OFF", "", "")
 
 	require.Equal(t, 1, verifiedpermissions.PolicyStoreCount(b))
 

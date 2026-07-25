@@ -22,15 +22,19 @@ type listRetrievedTracesInput struct {
 }
 
 // buildTraceView converts a raw Trace into the map shape returned by ListRetrievedTraces.
+// The real RetrievedTrace shape's list-of-documents field is called "Spans" (types.Span,
+// {Document, Id}), not "Segments" -- a real SDK client's deserializer only recognizes the
+// "Spans" key (see awsRestjson1_deserializeDocumentRetrievedTrace), so sending "Segments"
+// silently produces an empty Spans slice for every retrieved trace.
 func buildTraceView(t *Trace) map[string]any {
-	segs := make([]any, 0, len(t.Segments))
+	spans := make([]any, 0, len(t.Segments))
 
 	var minStart, maxEnd float64
 
 	for _, rawSeg := range t.Segments {
 		var doc segmentDoc
 		if err := json.Unmarshal([]byte(rawSeg), &doc); err == nil {
-			segs = append(segs, map[string]any{
+			spans = append(spans, map[string]any{
 				"Document": rawSeg,
 				"Id":       doc.ID,
 			})
@@ -53,7 +57,7 @@ func buildTraceView(t *Trace) map[string]any {
 	return map[string]any{
 		"Id":       t.TraceID,
 		"Duration": duration,
-		"Segments": segs,
+		"Spans":    spans,
 	}
 }
 
@@ -69,7 +73,10 @@ func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: RetrievalToken is required", errInvalidRequest)
 	}
 
-	status, traces := h.Backend.ListRetrievedTraces(in.RetrievalToken)
+	status, traces, err := h.Backend.ListRetrievedTraces(in.RetrievalToken)
+	if err != nil {
+		return nil, err
+	}
 
 	traceViews := make([]map[string]any, 0, len(traces))
 	for _, t := range traces {
@@ -80,6 +87,9 @@ func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]b
 	resp := map[string]any{
 		"RetrievalStatus": status,
 		"Traces":          pg.Data,
+		// TraceFormat is always XRAY: gopherstack only ever stores raw X-Ray segment
+		// JSON (never OpenTelemetry-format spans), so it can never legitimately be OTEL.
+		"TraceFormat": "XRAY",
 	}
 	if pg.Next != "" {
 		resp[keyNextToken] = pg.Next
@@ -133,7 +143,9 @@ func (h *Handler) handleCancelTraceRetrieval(_ context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: RetrievalToken is required", errInvalidRequest)
 	}
 
-	h.Backend.CancelTraceRetrieval(in.RetrievalToken)
+	if err := h.Backend.CancelTraceRetrieval(in.RetrievalToken); err != nil {
+		return nil, err
+	}
 
 	return json.Marshal(map[string]any{})
 }
@@ -155,7 +167,10 @@ func (h *Handler) handleGetRetrievedTracesGraph(_ context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: RetrievalToken is required", errInvalidRequest)
 	}
 
-	status, _ := h.Backend.GetRetrievedTracesGraph(in.RetrievalToken)
+	status, _, err := h.Backend.GetRetrievedTracesGraph(in.RetrievalToken)
+	if err != nil {
+		return nil, err
+	}
 
 	return json.Marshal(map[string]any{
 		"RetrievalStatus": status,

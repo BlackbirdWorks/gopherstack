@@ -15,15 +15,52 @@ import (
 // exact-case keys "arn"/"id"/"name"/... -- a PascalCase key like "Arn" is
 // silently ignored by the real SDK client's decoder, leaving every field at
 // its zero value).
+// anywhereSettingsOutput mirrors types.DescribeAnywhereSettings's wire shape
+// (lowerCamel "clusterId"/"channelPlacementGroupId").
+type anywhereSettingsOutput struct {
+	ClusterID               string `json:"clusterId,omitempty"`
+	ChannelPlacementGroupID string `json:"channelPlacementGroupId,omitempty"`
+}
+
+func toAnywhereSettingsOutput(s ChannelAnywhereSettings) *anywhereSettingsOutput {
+	if !s.hasAnywhereSettings() {
+		return nil
+	}
+
+	return &anywhereSettingsOutput{
+		ClusterID:               s.ClusterID,
+		ChannelPlacementGroupID: s.ChannelPlacementGroupID,
+	}
+}
+
+// extractAnywhereSettings parses the "anywhereSettings" request-body object
+// shared by CreateChannelInput/UpdateChannelInput (lowerCamel "clusterId"/
+// "channelPlacementGroupId" -- verified against
+// awsRestjson1_serializeOpDocumentCreateChannelInput). The second return
+// reports whether the key was present, so UpdateChannel can distinguish
+// "omitted" (leave unchanged) from an explicit object.
+func extractAnywhereSettings(body map[string]any) (ChannelAnywhereSettings, bool) {
+	raw, ok := body["anywhereSettings"].(map[string]any)
+	if !ok {
+		return ChannelAnywhereSettings{}, false
+	}
+
+	clusterID, _ := raw["clusterId"].(string)
+	cpgID, _ := raw["channelPlacementGroupId"].(string)
+
+	return ChannelAnywhereSettings{ClusterID: clusterID, ChannelPlacementGroupID: cpgID}, true
+}
+
 type channelOutput struct {
-	Tags                  map[string]string `json:"tags"`
-	Arn                   string            `json:"arn"`
-	ID                    string            `json:"id"`
-	Name                  string            `json:"name"`
-	ChannelClass          string            `json:"channelClass"`
-	RoleArn               string            `json:"roleArn"`
-	State                 string            `json:"state"`
-	PipelinesRunningCount int32             `json:"pipelinesRunningCount"`
+	Tags                  map[string]string       `json:"tags"`
+	AnywhereSettings      *anywhereSettingsOutput `json:"anywhereSettings,omitempty"`
+	Arn                   string                  `json:"arn"`
+	ID                    string                  `json:"id"`
+	Name                  string                  `json:"name"`
+	ChannelClass          string                  `json:"channelClass"`
+	RoleArn               string                  `json:"roleArn"`
+	State                 string                  `json:"state"`
+	PipelinesRunningCount int32                   `json:"pipelinesRunningCount"`
 }
 
 // pipelinesRunningCount derives the number of currently healthy pipelines
@@ -58,6 +95,7 @@ func toChannelOutput(ch *Channel) channelOutput {
 		RoleArn:               ch.RoleARN,
 		State:                 ch.State,
 		PipelinesRunningCount: pipelinesRunningCount(ch.State, ch.ChannelClass),
+		AnywhereSettings:      toAnywhereSettingsOutput(ch.AnywhereSettings),
 	}
 }
 
@@ -65,9 +103,10 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body map[string]any) erro
 	name, _ := body["name"].(string)
 	channelClass, _ := body["channelClass"].(string)
 	roleArn, _ := body["roleArn"].(string)
+	anywhereSettings, _ := extractAnywhereSettings(body)
 	tags := extractTags(body)
 
-	ch, err := h.Backend.CreateChannel(name, channelClass, roleArn, tags)
+	ch, err := h.Backend.CreateChannel(name, channelClass, roleArn, anywhereSettings, tags)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -91,8 +130,9 @@ func (h *Handler) handleUpdateChannel(
 ) error {
 	name, _ := body["name"].(string)
 	roleArn, _ := body["roleArn"].(string)
+	anywhereSettings, hasAnywhereSettings := extractAnywhereSettings(body)
 
-	ch, err := h.Backend.UpdateChannel(channelID, name, roleArn)
+	ch, err := h.Backend.UpdateChannel(channelID, name, roleArn, anywhereSettings, hasAnywhereSettings)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -117,14 +157,19 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		out = append(out, map[string]any{
+		item := map[string]any{
 			keyArn:                  s.ARN,
 			keyID:                   s.ID,
 			keyName:                 s.Name,
 			"channelClass":          s.ChannelClass,
 			keyState:                s.State,
 			"pipelinesRunningCount": pipelinesRunningCount(s.State, s.ChannelClass),
-		})
+		}
+		if as := toAnywhereSettingsOutput(s.AnywhereSettings); as != nil {
+			item["anywhereSettings"] = as
+		}
+
+		out = append(out, item)
 	}
 
 	resp := map[string]any{"channels": out}

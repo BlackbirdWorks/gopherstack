@@ -94,6 +94,7 @@ func (b *InMemoryBackend) DeleteSignalMap(identifier string) error {
 		return fmt.Errorf("%w: signal map %s not found", ErrNotFound, identifier)
 	}
 	b.signalMaps.Delete(sm.ID)
+	delete(b.tags, sm.Arn)
 
 	return nil
 }

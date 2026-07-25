@@ -446,11 +446,37 @@ func (b *InMemoryBackend) ExitStandby(groupName string, instanceIDs []string) ([
 	return activities, nil
 }
 
+// withinHealthCheckGracePeriod reports whether inst is still inside g's
+// HealthCheckGracePeriod as of now, i.e. an Unhealthy mark on it should be
+// silently ignored when the caller asked to respect the grace period.
+func withinHealthCheckGracePeriod(g *AutoScalingGroup, inst *Instance, now time.Time) bool {
+	if g.HealthCheckGracePeriod <= 0 || inst.LaunchTime.IsZero() {
+		return false
+	}
+
+	grace := time.Duration(g.HealthCheckGracePeriod) * time.Second
+
+	return now.Sub(inst.LaunchTime) < grace
+}
+
+// findInstanceLocked returns the group and in-place instance pointer for
+// instanceID across every group, or nil, nil if not found. Must be called
+// with b.mu held.
+func (b *InMemoryBackend) findInstanceLocked(instanceID string) (*AutoScalingGroup, *Instance) {
+	for _, g := range b.groups.All() {
+		for i := range g.Instances {
+			if g.Instances[i].InstanceID == instanceID {
+				return g, &g.Instances[i]
+			}
+		}
+	}
+
+	return nil, nil
+}
+
 // SetInstanceHealth sets the health status of an instance across all ASGs.
 // When shouldRespectGracePeriod is true and the instance launched within the group's
 // HealthCheckGracePeriod, the unhealthy mark is silently ignored (AWS behavior).
-//
-//nolint:gocognit
 func (b *InMemoryBackend) SetInstanceHealth(
 	instanceID string,
 	healthStatus string,
@@ -464,29 +490,18 @@ func (b *InMemoryBackend) SetInstanceHealth(
 			ErrInvalidParameter, healthStatus)
 	}
 
-	for _, g := range b.groups.All() {
-		for i := range g.Instances {
-			if g.Instances[i].InstanceID != instanceID {
-				continue
-			}
-
-			if shouldRespectGracePeriod && healthStatus == "Unhealthy" && g.HealthCheckGracePeriod > 0 {
-				launchTime := g.Instances[i].LaunchTime
-				if !launchTime.IsZero() {
-					grace := time.Duration(g.HealthCheckGracePeriod) * time.Second
-					if time.Since(launchTime) < grace {
-						return nil
-					}
-				}
-			}
-
-			g.Instances[i].HealthStatus = healthStatus
-
-			return nil
-		}
+	g, inst := b.findInstanceLocked(instanceID)
+	if inst == nil {
+		return fmt.Errorf("%w: instance %q not found in any auto scaling group", ErrInstanceNotFound, instanceID)
 	}
 
-	return fmt.Errorf("%w: instance %q not found in any auto scaling group", ErrInstanceNotFound, instanceID)
+	if shouldRespectGracePeriod && healthStatus == "Unhealthy" && withinHealthCheckGracePeriod(g, inst, time.Now()) {
+		return nil
+	}
+
+	inst.HealthStatus = healthStatus
+
+	return nil
 }
 
 // SetInstanceProtection sets the protected-from-scale-in flag on instances.

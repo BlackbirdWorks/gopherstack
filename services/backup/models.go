@@ -59,23 +59,44 @@ type AdvancedBackupSetting struct {
 	ResourceType  string            `json:"resourceType"`
 }
 
+// ControlInputParameter is a single name/value pair configuring a framework
+// control (e.g. ParameterName "requiredRetentionDays", ParameterValue "35").
+type ControlInputParameter struct {
+	ParameterName  string `json:"parameterName"`
+	ParameterValue string `json:"parameterValue"`
+}
+
+// ControlScope defines what a framework control evaluates: specific
+// resource IDs, resource types, and/or a single tag key/value pair.
+type ControlScope struct {
+	Tags                    map[string]string `json:"tags,omitempty"`
+	ComplianceResourceIDs   []string          `json:"complianceResourceIds,omitempty"`
+	ComplianceResourceTypes []string          `json:"complianceResourceTypes,omitempty"`
+}
+
 // FrameworkControl represents a compliance control within an audit framework.
 type FrameworkControl struct {
-	ControlInputParameters map[string]string `json:"controlInputParameters,omitempty"`
-	ControlScope           map[string]any    `json:"controlScope,omitempty"`
-	ControlName            string            `json:"controlName"`
+	ControlScope           *ControlScope           `json:"controlScope,omitempty"`
+	ControlName            string                  `json:"controlName"`
+	ControlInputParameters []ControlInputParameter `json:"controlInputParameters,omitempty"`
 }
 
 // ReportDeliveryChannel specifies the S3 destination and format for report output.
 type ReportDeliveryChannel struct {
 	S3BucketName string   `json:"s3BucketName"`
+	S3KeyPrefix  string   `json:"s3KeyPrefix,omitempty"`
 	Formats      []string `json:"formats,omitempty"`
 }
 
-// ReportSetting specifies the template and frameworks driving a report plan.
+// ReportSetting specifies the template, frameworks, and account/OU/Region
+// scope driving a report plan.
 type ReportSetting struct {
-	ReportTemplate string   `json:"reportTemplate"`
-	FrameworkArns  []string `json:"frameworkArns,omitempty"`
+	ReportTemplate     string   `json:"reportTemplate"`
+	FrameworkArns      []string `json:"frameworkArns,omitempty"`
+	Accounts           []string `json:"accounts,omitempty"`
+	OrganizationUnits  []string `json:"organizationUnits,omitempty"`
+	Regions            []string `json:"regions,omitempty"`
+	NumberOfFrameworks int32    `json:"numberOfFrameworks,omitempty"`
 }
 
 // Vault represents an AWS Backup vault.
@@ -182,12 +203,30 @@ type Framework struct {
 
 // LegalHold represents an AWS Backup legal hold.
 type LegalHold struct {
-	CreationDate time.Time `json:"creationDate"`
-	Title        string    `json:"title"`
-	Description  string    `json:"description"`
-	LegalHoldID  string    `json:"legalHoldId"`
-	LegalHoldArn string    `json:"legalHoldArn"`
-	Status       string    `json:"status"`
+	CreationDate           time.Time               `json:"creationDate"`
+	RecoveryPointSelection *RecoveryPointSelection `json:"recoveryPointSelection,omitempty"`
+	Title                  string                  `json:"title"`
+	Description            string                  `json:"description"`
+	LegalHoldID            string                  `json:"legalHoldId"`
+	LegalHoldArn           string                  `json:"legalHoldArn"`
+	Status                 string                  `json:"status"`
+}
+
+// DateRange is an inclusive Unix-time window ([FromDate, ToDate]) used to
+// filter recovery points by CreationDate.
+type DateRange struct {
+	FromDate *time.Time `json:"fromDate,omitempty"`
+	ToDate   *time.Time `json:"toDate,omitempty"`
+}
+
+// RecoveryPointSelection specifies which recovery points a legal hold
+// applies to: by containing vault, by resource ARN, and/or by creation-date
+// window. A CreateLegalHold call with no selection (or an empty one) covers
+// every recovery point -- there is no additional constraint to apply.
+type RecoveryPointSelection struct {
+	DateRange           *DateRange `json:"dateRange,omitempty"`
+	ResourceIdentifiers []string   `json:"resourceIdentifiers,omitempty"`
+	VaultNames          []string   `json:"vaultNames,omitempty"`
 }
 
 // ReportPlan represents an AWS Backup report plan.
@@ -207,7 +246,14 @@ type RestoreAccessVault struct {
 	RestoreAccessBackupVaultName string    `json:"restoreAccessBackupVaultName"`
 	RestoreAccessBackupVaultArn  string    `json:"restoreAccessBackupVaultArn"`
 	SourceBackupVaultArn         string    `json:"sourceBackupVaultArn"`
-	VaultState                   string    `json:"vaultState"`
+	// SourceBackupVaultName is not on the AWS wire shape; it is resolved from
+	// SourceBackupVaultArn at creation time so ListRestoreAccessBackupVaults /
+	// RevokeRestoreAccessBackupVault -- which AWS addresses by source vault
+	// NAME, not ARN (see their real nested paths under
+	// /logically-air-gapped-backup-vaults/{BackupVaultName}/...) -- can filter
+	// without re-parsing the ARN on every call.
+	SourceBackupVaultName string `json:"sourceBackupVaultName"`
+	VaultState            string `json:"vaultState"`
 }
 
 // RestoreTestingPlan represents an AWS Backup restore testing plan.
@@ -221,11 +267,47 @@ type RestoreTestingPlan struct {
 
 // RestoreTestingSelection represents a selection within a restore testing plan.
 type RestoreTestingSelection struct {
-	CreationTime                time.Time `json:"creationTime"`
-	RestoreTestingPlanName      string    `json:"restoreTestingPlanName"`
-	RestoreTestingSelectionName string    `json:"restoreTestingSelectionName"`
-	RestoreTestingPlanArn       string    `json:"restoreTestingPlanArn"`
-	ProtectedResourceType       string    `json:"protectedResourceType,omitempty"`
+	CreationTime                time.Time                    `json:"creationTime"`
+	ProtectedResourceConditions *ProtectedResourceConditions `json:"protectedResourceConditions,omitempty"`
+	RestoreMetadataOverrides    map[string]string            `json:"restoreMetadataOverrides,omitempty"`
+	RestoreTestingPlanName      string                       `json:"restoreTestingPlanName"`
+	RestoreTestingSelectionName string                       `json:"restoreTestingSelectionName"`
+	RestoreTestingPlanArn       string                       `json:"restoreTestingPlanArn"`
+	ProtectedResourceType       string                       `json:"protectedResourceType,omitempty"`
+	// IAMRoleArn is required by real AWS (StartRestoreJob's IamRoleArn for
+	// scheduled restore tests uses this role) but was entirely absent from
+	// this backend's model until this pass.
+	IAMRoleArn            string   `json:"iamRoleArn,omitempty"`
+	ProtectedResourceArns []string `json:"protectedResourceArns,omitempty"`
+	ValidationWindowHours int64    `json:"validationWindowHours,omitempty"`
+}
+
+// KeyValue is a single tag key/value pair used by ProtectedResourceConditions.
+type KeyValue struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ProtectedResourceConditions filters a restore testing selection's
+// wildcard ProtectedResourceArns (["*"]) down to resources matching (or not
+// matching) specific tag key/value pairs.
+type ProtectedResourceConditions struct {
+	StringEquals    []KeyValue `json:"stringEquals,omitempty"`
+	StringNotEquals []KeyValue `json:"stringNotEquals,omitempty"`
+}
+
+// RestoreTestingSelectionInput holds the fields accepted by
+// CreateRestoreTestingSelection/UpdateRestoreTestingSelection beyond the
+// plan/selection name -- mirrors AWS's RestoreTestingSelectionForCreate /
+// RestoreTestingSelectionForUpdate closely enough that both ops can share
+// one Go-side type.
+type RestoreTestingSelectionInput struct {
+	ProtectedResourceConditions *ProtectedResourceConditions
+	RestoreMetadataOverrides    map[string]string
+	ProtectedResourceType       string
+	IAMRoleArn                  string
+	ProtectedResourceArns       []string
+	ValidationWindowHours       int64
 }
 
 // RecoveryPoint represents an AWS Backup recovery point.
@@ -252,17 +334,18 @@ type RecoveryPoint struct {
 
 // CopyJob represents an AWS Backup copy job.
 type CopyJob struct {
-	CreationDate              time.Time  `json:"creationDate"`
-	CompletionDate            *time.Time `json:"completionDate,omitempty"`
-	CopyJobID                 string     `json:"copyJobId"`
-	SourceBackupVaultArn      string     `json:"sourceBackupVaultArn,omitempty"`
-	DestinationBackupVaultArn string     `json:"destinationBackupVaultArn,omitempty"`
-	ResourceArn               string     `json:"resourceArn,omitempty"`
-	ResourceType              string     `json:"resourceType,omitempty"`
-	IAMRoleArn                string     `json:"iamRoleArn,omitempty"`
-	State                     string     `json:"state"`
-	AccountID                 string     `json:"accountId"`
-	Region                    string     `json:"region"`
+	CreationDate                time.Time  `json:"creationDate"`
+	CompletionDate              *time.Time `json:"completionDate,omitempty"`
+	CopyJobID                   string     `json:"copyJobId"`
+	SourceBackupVaultArn        string     `json:"sourceBackupVaultArn,omitempty"`
+	DestinationBackupVaultArn   string     `json:"destinationBackupVaultArn,omitempty"`
+	DestinationRecoveryPointArn string     `json:"destinationRecoveryPointArn,omitempty"`
+	ResourceArn                 string     `json:"resourceArn,omitempty"`
+	ResourceType                string     `json:"resourceType,omitempty"`
+	IAMRoleArn                  string     `json:"iamRoleArn,omitempty"`
+	State                       string     `json:"state"`
+	AccountID                   string     `json:"accountId"`
+	Region                      string     `json:"region"`
 }
 
 // VaultAccessPolicy holds an access policy document for a backup vault.
@@ -346,7 +429,6 @@ type InMemoryBackend struct {
 	protectedResources       *store.Table[ProtectedResource]
 	globalSettings           map[string]string
 	recoveryPointIndexStatus map[string]string // vaultName:rpArn → index status
-	restoreValidations       map[string]string // restoreJobID → validation status
 	globalSettingsLastUpdate time.Time
 	accountID                string
 	region                   string
@@ -354,19 +436,28 @@ type InMemoryBackend struct {
 
 // RestoreJob represents an AWS Backup restore job.
 type RestoreJob struct {
-	CompletionDate    *time.Time        `json:"completionDate,omitempty"`
-	Metadata          map[string]string `json:"metadata,omitempty"`
-	StartTime         time.Time         `json:"startTime"`
-	RestoreJobID      string            `json:"restoreJobId"`
-	RecoveryPointArn  string            `json:"recoveryPointArn"`
-	IAMRoleArn        string            `json:"iamRoleArn"`
-	ResourceArn       string            `json:"resourceArn,omitempty"`
-	ResourceType      string            `json:"resourceType,omitempty"`
-	BackupVaultName   string            `json:"backupVaultName,omitempty"`
-	Status            string            `json:"status"`
-	StatusMessage     string            `json:"statusMessage,omitempty"`
-	PercentDone       string            `json:"percentDone,omitempty"`
-	BackupSizeInBytes int64             `json:"backupSizeInBytes,omitempty"`
+	CompletionDate   *time.Time        `json:"completionDate,omitempty"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
+	StartTime        time.Time         `json:"startTime"`
+	RestoreJobID     string            `json:"restoreJobId"`
+	RecoveryPointArn string            `json:"recoveryPointArn"`
+	IAMRoleArn       string            `json:"iamRoleArn"`
+	ResourceArn      string            `json:"resourceArn,omitempty"`
+	ResourceType     string            `json:"resourceType,omitempty"`
+	BackupVaultName  string            `json:"backupVaultName,omitempty"`
+	BackupVaultArn   string            `json:"backupVaultArn,omitempty"`
+	AccountID        string            `json:"accountId,omitempty"`
+	// CreatedResourceArn is the ARN of the resource StartRestoreJob created
+	// once the restore completes -- real AWS would provision an actual new
+	// resource of ResourceType; this emulator synthesizes a plausible ARN
+	// instead (see restore_jobs.go's StartRestoreJob).
+	CreatedResourceArn      string `json:"createdResourceArn,omitempty"`
+	Status                  string `json:"status"`
+	StatusMessage           string `json:"statusMessage,omitempty"`
+	PercentDone             string `json:"percentDone,omitempty"`
+	ValidationStatus        string `json:"validationStatus,omitempty"`
+	ValidationStatusMessage string `json:"validationStatusMessage,omitempty"`
+	BackupSizeInBytes       int64  `json:"backupSizeInBytes,omitempty"`
 }
 
 // ReportJob represents an AWS Backup report job.
@@ -387,10 +478,29 @@ type ScanJob struct {
 	Status         string     `json:"status"`
 }
 
-// TieringConfiguration holds tiering settings for a backup vault.
+// ResourceSelection specifies which resources within a vault a tiering
+// configuration applies to, and the age threshold (in days) after which
+// matching objects transition to the low-cost warm storage tier.
+type ResourceSelection struct {
+	ResourceType              string   `json:"resourceType"`
+	Resources                 []string `json:"resources"`
+	TieringDownSettingsInDays int64    `json:"tieringDownSettingsInDays"`
+}
+
+// TieringConfiguration holds a tiering configuration.
+//
+// Keyed by TieringConfigurationName (matching AWS -- CreateTieringConfigurationInput's
+// TieringConfigurationInputForCreate nests BackupVaultName + ResourceSelection
+// under a top-level TieringConfigurationName, and Get/List/Delete/Update all
+// address configurations by that name, never by vault name).
 type TieringConfiguration struct {
-	BackupVaultArn  string `json:"backupVaultArn"`
-	BackupVaultName string `json:"backupVaultName"`
+	CreationTime             time.Time           `json:"creationTime"`
+	LastUpdatedTime          *time.Time          `json:"lastUpdatedTime,omitempty"`
+	TieringConfigurationName string              `json:"tieringConfigurationName"`
+	TieringConfigurationArn  string              `json:"tieringConfigurationArn"`
+	BackupVaultName          string              `json:"backupVaultName"`
+	CreatorRequestID         string              `json:"creatorRequestId,omitempty"`
+	ResourceSelection        []ResourceSelection `json:"resourceSelection"`
 }
 
 // ProtectedResource represents a resource protected by AWS Backup.

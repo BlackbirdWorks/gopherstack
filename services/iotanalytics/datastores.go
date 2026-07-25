@@ -126,6 +126,10 @@ func (b *InMemoryBackend) CreateDatastore(
 		return nil, err
 	}
 
+	if err := validateDatastorePartitions(partitions); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateDatastore")
 	defer b.mu.Unlock()
 
@@ -177,6 +181,10 @@ func (b *InMemoryBackend) UpdateDatastore(
 	partitions *DatastorePartitions,
 ) error {
 	if err := validateRetentionPeriod(retention); err != nil {
+		return err
+	}
+
+	if err := validateDatastorePartitions(partitions); err != nil {
 		return err
 	}
 

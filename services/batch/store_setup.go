@@ -51,7 +51,7 @@ func serviceEnvironmentKeyFn(v *ServiceEnvironment) string {
 }
 func serviceEnvironmentRegionIndexKeyFn(v *ServiceEnvironment) string { return v.region }
 
-func serviceJobKeyFn(v *ServiceJob) string            { return regionKey(v.region, v.ServiceJobID) }
+func serviceJobKeyFn(v *ServiceJob) string            { return regionKey(v.region, v.JobID) }
 func serviceJobRegionIndexKeyFn(v *ServiceJob) string { return v.region }
 
 // registerAllTables registers every converted resource collection on

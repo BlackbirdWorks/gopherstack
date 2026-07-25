@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchAccessEntryOps handles access entry CRUD and access-policy association operations.
@@ -102,6 +104,11 @@ func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute 
 }
 
 func accessEntryToJSON(entry *AccessEntry) map[string]any {
+	modifiedAt := entry.ModifiedAt
+	if modifiedAt.IsZero() {
+		modifiedAt = entry.CreatedAt
+	}
+
 	m := map[string]any{
 		keyClusterName:    entry.ClusterName,
 		keyPrincipalArn:   entry.PrincipalARN,
@@ -109,6 +116,7 @@ func accessEntryToJSON(entry *AccessEntry) map[string]any {
 		keyType:           entry.Type,
 		keyUsername:       entry.Username,
 		keyCreatedAt:      entry.CreatedAt.Unix(),
+		keyModifiedAt:     modifiedAt.Unix(),
 	}
 
 	if len(entry.KubernetesGroups) > 0 {
@@ -186,9 +194,10 @@ func (h *Handler) handleListAccessEntries(c *echo.Context, clusterName string) e
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"accessEntries": arns,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(arns, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("accessEntries", p))
 }
 
 type updateAccessEntryBody struct {
@@ -248,9 +257,10 @@ func (h *Handler) handleAssociateAccessPolicy(c *echo.Context, clusterName, prin
 func (h *Handler) handleListAccessPolicies(c *echo.Context) error {
 	policies := h.Backend.ListAccessPolicies()
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"accessPolicies": policies,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(policies, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("accessPolicies", p))
 }
 
 func (h *Handler) handleListAssociatedAccessPolicies(c *echo.Context, clusterName, principalARN string) error {
@@ -268,11 +278,14 @@ func (h *Handler) handleListAssociatedAccessPolicies(c *echo.Context, clusterNam
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyClusterName:             clusterName,
-		keyPrincipalArn:            principalARN,
-		"associatedAccessPolicies": result,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	pg := page.New(result, nextToken, maxResults, eksDefaultPageSize)
+
+	resp := eksPageResponse("associatedAccessPolicies", pg)
+	resp[keyClusterName] = clusterName
+	resp[keyPrincipalArn] = principalARN
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDisassociateAccessPolicy(c *echo.Context, clusterName, principalARN, policyARN string) error {

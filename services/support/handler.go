@@ -16,10 +16,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	keyMessageField = "message"
-)
-
 const supportTargetPrefix = "AWSSupport_20130415."
 
 var errUnknownAction = errors.New("unknown action")
@@ -226,19 +222,66 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+// handleError writes an AWS JSON-1.1 error envelope: the "__type" field is
+// what a real SDK client's error deserializer keys off (via
+// resolveProtocolErrorType in aws-sdk-go-v2/service/support/deserializers.go)
+// -- a bare "message" field with no "__type" is invisible to the SDK, which
+// falls back to a generic "UnknownError" and can never produce the typed
+// exception (e.g. *types.CaseIdNotFound) a caller's errors.As expects.
+//
+// Support is a JSON-RPC-style (awsjson1.1) protocol: per the service model
+// (service-2.json) none of its exception shapes carry an httpStatusCode
+// override, so every client-fault exception -- including the
+// "*NotFound"-named ones -- uses the protocol default of HTTP 400, not 404.
+// Only the fault:true shape (InternalServerError) defaults to 500.
+func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, err error) error {
+	errType, statusCode := resolveErrorType(err)
+
+	if statusCode == http.StatusInternalServerError {
+		logger.Load(ctx).ErrorContext(ctx, "Support internal error", "error", err, "action", action)
+	}
+
+	payload, marshalErr := json.Marshal(service.JSONErrorResponse{
+		Type:    errType,
+		Message: err.Error(),
+	})
+	if marshalErr != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+
+	return c.JSONBlob(statusCode, payload)
+}
+
+// resolveErrorType maps a backend error to the wire "__type" exception name
+// and HTTP status a real AWS Support (awsjson1.1) response would carry.
+func resolveErrorType(err error) (string, int) {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAttachmentNotFound), errors.Is(err, ErrAttachmentSetNotFound):
-		return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
-	case errors.Is(err, ErrValidation), errors.Is(err, ErrAttachmentSetExpired),
-		errors.Is(err, errUnknownAction),
+	case errors.Is(err, ErrNotFound):
+		return "CaseIdNotFound", http.StatusBadRequest
+	case errors.Is(err, ErrAttachmentNotFound):
+		return "AttachmentIdNotFound", http.StatusBadRequest
+	case errors.Is(err, ErrAttachmentSetNotFound):
+		return "AttachmentSetIdNotFound", http.StatusBadRequest
+	case errors.Is(err, ErrAttachmentSetExpired):
+		return "AttachmentSetExpired", http.StatusBadRequest
+	case errors.Is(err, ErrAttachmentSetSizeLimitExceeded):
+		return "AttachmentSetSizeLimitExceeded", http.StatusBadRequest
+	case errors.Is(err, ErrAttachmentLimitExceeded):
+		return "AttachmentLimitExceeded", http.StatusBadRequest
+	case errors.Is(err, ErrCaseCreationLimitExceeded):
+		return "CaseCreationLimitExceeded", http.StatusBadRequest
+	case errors.Is(err, ErrDescribeAttachmentLimitExceeded):
+		return "DescribeAttachmentLimitExceeded", http.StatusBadRequest
+	case errors.Is(err, ErrValidation), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		return "ValidationException", http.StatusBadRequest
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return "InternalServerError", http.StatusInternalServerError
 	}
 }
 

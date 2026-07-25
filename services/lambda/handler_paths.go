@@ -1,6 +1,9 @@
 package lambda
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
@@ -63,8 +66,56 @@ const lambdaCodeSigningPathPrefix = "/2020-04-22/code-signing-configs"
 // lambdaCapacityPathPrefix is the path prefix for Lambda capacity provider endpoints.
 const lambdaCapacityPathPrefix = "/2025-11-30/capacity-providers"
 
-// lambdaDurableExecPathPrefix is the path prefix for Lambda durable execution endpoints.
+// lambdaDurableExecPathPrefix is the path prefix for GetDurableExecution,
+// GetDurableExecutionHistory, GetDurableExecutionState,
+// CheckpointDurableExecution, and StopDurableExecution.
 const lambdaDurableExecPathPrefix = "/2025-12-01/durable-executions"
+
+// lambdaDurableExecCallbacksPathPrefix is the path prefix for
+// SendDurableExecutionCallback{Success,Failure,Heartbeat} — a *different*
+// resource type (CallbackId, not DurableExecutionArn) than the rest of the
+// durable-execution family; verified against
+// api_op_SendDurableExecutionCallback{Success,Failure,Heartbeat}.go's real
+// opPath "/2025-12-01/durable-execution-callbacks/{CallbackId}/...".
+const lambdaDurableExecCallbacksPathPrefix = "/2025-12-01/durable-execution-callbacks"
+
+// lambdaDurableExecByFunctionPathPrefix + lambdaDurableExecByFunctionPathSuffix
+// bracket the ListDurableExecutionsByFunction path, verified against
+// api_op_ListDurableExecutionsByFunction.go's real opPath
+// "/2025-12-01/functions/{FunctionName}/durable-executions" — NOT nested
+// under lambdaDurableExecPathPrefix.
+const (
+	lambdaDurableExecByFunctionPathPrefix = "/2025-12-01/functions"
+	lambdaDurableExecByFunctionPathSuffix = "/durable-executions"
+)
+
+// isDurableExecByFunctionPath reports whether path is a
+// ListDurableExecutionsByFunction request.
+func isDurableExecByFunctionPath(path string) bool {
+	return strings.HasPrefix(path, lambdaDurableExecByFunctionPathPrefix) &&
+		strings.HasSuffix(path, lambdaDurableExecByFunctionPathSuffix)
+}
+
+// extractFunctionNameFromDurableExecPath extracts {FunctionName} from
+// "/2025-12-01/functions/{FunctionName}/durable-executions".
+func extractFunctionNameFromDurableExecPath(path string) string {
+	rest := strings.TrimPrefix(path, lambdaDurableExecByFunctionPathPrefix+"/")
+	rest = strings.TrimSuffix(rest, lambdaDurableExecByFunctionPathSuffix)
+
+	decoded, err := url.PathUnescape(rest)
+	if err != nil {
+		return rest
+	}
+
+	return decoded
+}
+
+// isDurableExecRootPath reports whether path is the bare durable-executions
+// collection root (no DurableExecutionArn segment) — not a real operation;
+// GetDurableExecution requires the ARN as a required URI member.
+func isDurableExecRootPath(path string) bool {
+	return path == lambdaDurableExecPathPrefix || path == lambdaDurableExecPathPrefix+"/"
+}
 
 // lambdaAccountSettingsPath is the exact path for the GetAccountSettings endpoint.
 const lambdaAccountSettingsPath = "/2016-08-19/account-settings"
@@ -166,6 +217,8 @@ var lambdaPathPrefixes = []string{
 	lambdaCodeSigningPathPrefix,
 	lambdaCapacityPathPrefix,
 	lambdaDurableExecPathPrefix,
+	lambdaDurableExecCallbacksPathPrefix,
+	lambdaDurableExecByFunctionPathPrefix,
 }
 
 // isLambdaPath returns true when the given path belongs to the Lambda service.

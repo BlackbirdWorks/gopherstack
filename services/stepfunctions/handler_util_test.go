@@ -37,6 +37,15 @@ func TestHandler_ValidateStateMachineDefinition(t *testing.T) {
 			wantResult: "FAIL",
 			wantDiags:  true,
 		},
+		{
+			name: "invalid JitterStrategy returns FAIL result with diagnostics",
+			definition: `{"StartAt":"T","States":{"T":{"Type":"Task",
+"Resource":"arn:aws:lambda:us-east-1:123:function:f",
+"Retry":[{"ErrorEquals":["States.ALL"],"JitterStrategy":"RANDOM"}],"End":true}}}`,
+			wantCode:   http.StatusOK,
+			wantResult: "FAIL",
+			wantDiags:  true,
+		},
 	}
 
 	for _, tt := range tests {

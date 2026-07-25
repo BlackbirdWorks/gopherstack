@@ -13,8 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBatch3_AddDataSource_DataSourceTypeJSON verifies that a structured
-// DataSourceType sent as a JSON object is stored as JSON (not a Go map dump).
+// TestAddDataSource_DataSourceTypeJSON verifies that a structured
+// DataSourceType sent as a JSON object round-trips as a real nested JSON
+// object on GetDataSource (types.DataSourceType is a tagged union on the
+// wire, e.g. {"S3GlueDataCatalog":{...}} -- not a plain enum string, and
+// GetDataSourceOutput's fields are top-level, not wrapped in a "DataSource"
+// envelope).
 func TestAddDataSource_DataSourceTypeJSON(t *testing.T) {
 	t.Parallel()
 
@@ -36,34 +40,25 @@ func TestAddDataSource_DataSourceTypeJSON(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Retrieve and verify that the DataSourceType is valid JSON, not a Go map dump.
 	getResp := doRequest(t, h, http.MethodGet,
 		"/2021-01-01/opensearch/domain/ds-json-domain/dataSource/my-ds", nil)
 	defer getResp.Body.Close()
 	require.Equal(t, http.StatusOK, getResp.StatusCode)
 
-	var out map[string]any
-	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&out))
+	var ds map[string]any
+	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&ds))
 
-	ds, ok := out["DataSource"].(map[string]any)
-	require.True(t, ok, "expected DataSource key in response")
+	// No "DataSource" envelope: fields are top-level.
+	assert.Equal(t, "my-ds", ds["Name"])
 
-	rawType, hasType := ds["dataSourceType"]
-	require.True(t, hasType, "DataSourceType must be present")
-
-	rawStr, ok := rawType.(string)
-	require.True(t, ok, "DataSourceType must be a string in storage")
-
-	// Must be parseable JSON, not a Go map representation.
-	var parsed map[string]any
-	require.NoError(t, json.Unmarshal([]byte(rawStr), &parsed),
-		"DataSourceType must be stored as JSON, got: %s", rawStr)
-
-	assert.Contains(t, parsed, "S3GlueDataCatalog")
+	dsType, ok := ds["DataSourceType"].(map[string]any)
+	require.True(t, ok, "DataSourceType must be a nested JSON object, not a string")
+	assert.Contains(t, dsType, "S3GlueDataCatalog")
 }
 
-// TestBatch3_AddDirectQueryDataSource_DataSourceTypeJSON verifies that
-// DataSourceType is stored as JSON for direct query data sources.
+// TestAddDirectQueryDataSource_DataSourceTypeJSON verifies that
+// DataSourceType round-trips as a real nested JSON object for direct-query
+// data sources too.
 func TestAddDirectQueryDataSource_DataSourceTypeJSON(t *testing.T) {
 	t.Parallel()
 
@@ -83,7 +78,6 @@ func TestAddDirectQueryDataSource_DataSourceTypeJSON(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Get and verify.
 	getResp := doRequest(t, h, http.MethodGet,
 		"/2021-01-01/opensearch/directQueryDataSource/dq-ds", nil)
 	defer getResp.Body.Close()
@@ -91,25 +85,18 @@ func TestAddDirectQueryDataSource_DataSourceTypeJSON(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&out))
+	assert.Equal(t, "dq-ds", out["DataSourceName"])
 
-	rawType, hasType := out["dataSourceType"]
-	require.True(t, hasType, "dataSourceType must be present in response")
-
-	rawStr, ok := rawType.(string)
-	require.True(t, ok, "dataSourceType must be a string in storage")
-
-	var parsed map[string]any
-	require.NoError(t, json.Unmarshal([]byte(rawStr), &parsed),
-		"dataSourceType must be stored as JSON, got: %s", rawStr)
-
-	assert.Contains(t, parsed, "CloudWatchLog")
+	dsType, ok := out["DataSourceType"].(map[string]any)
+	require.True(t, ok, "DataSourceType must be a nested JSON object, not a string")
+	assert.Contains(t, dsType, "CloudWatchLog")
 }
 
 func TestAddDataSource_DomainNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.AddDataSource("nonexistent", "ds1", "desc", "S3GLUE")
+	_, err := b.AddDataSource("nonexistent", "ds1", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, opensearch.ErrDomainNotFound)
 }
@@ -118,10 +105,10 @@ func TestAddDirectQueryDataSource_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.AddDirectQueryDataSource("ds-1", "desc", "CloudWatchLogs", nil)
+	_, err := b.AddDirectQueryDataSource("ds-1", "desc", json.RawMessage(`{"CloudWatchLog":{}}`), nil)
 	require.NoError(t, err)
 
-	_, err = b.AddDirectQueryDataSource("ds-1", "desc2", "S3", nil)
+	_, err = b.AddDirectQueryDataSource("ds-1", "desc2", json.RawMessage(`{"SecurityLake":{}}`), nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, opensearch.ErrDataSourceAlreadyExists)
 }
@@ -130,7 +117,7 @@ func TestDirectQueryDataSource_ARN(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	dsARN, err := b.AddDirectQueryDataSource("my-dq", "desc", "CloudWatchLogs", nil)
+	dsARN, err := b.AddDirectQueryDataSource("my-dq", "desc", json.RawMessage(`{"CloudWatchLog":{}}`), nil)
 	require.NoError(t, err)
 	assert.Contains(t, dsARN, "directQueryDataSource/my-dq")
 	assert.Contains(t, dsARN, testAccountID)
@@ -150,7 +137,7 @@ func TestHTTPAddDataSource(t *testing.T) {
 		map[string]any{
 			"Name":           "my-ds",
 			"Description":    "test",
-			"DataSourceType": map[string]string{"S3GlueDataCatalog": ""},
+			"DataSourceType": map[string]any{"S3GlueDataCatalog": map[string]any{}},
 		})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -162,31 +149,27 @@ func TestDataSources_Lifecycle(t *testing.T) {
 	tests := []struct {
 		name           string
 		getSourceName  string
-		addSources     []map[string]string
+		addSources     []string
 		wantListCount  int
 		wantGetSuccess bool
 	}{
 		{
 			name:           "single_source_listed",
-			addSources:     []map[string]string{{"name": "ds1", "type": "S3GLUE", "desc": "test"}},
+			addSources:     []string{"ds1"},
 			wantListCount:  1,
 			getSourceName:  "ds1",
 			wantGetSuccess: true,
 		},
 		{
-			name: "multiple_sources_listed",
-			addSources: []map[string]string{
-				{"name": "ds1", "type": "S3GLUE", "desc": ""},
-				{"name": "ds2", "type": "CloudWatchLogs", "desc": ""},
-				{"name": "ds3", "type": "SecurityLake", "desc": ""},
-			},
+			name:           "multiple_sources_listed",
+			addSources:     []string{"ds1", "ds2", "ds3"},
 			wantListCount:  3,
 			getSourceName:  "ds2",
 			wantGetSuccess: true,
 		},
 		{
 			name:           "empty_domain_no_sources",
-			addSources:     []map[string]string{},
+			addSources:     []string{},
 			wantListCount:  0,
 			getSourceName:  "missing",
 			wantGetSuccess: false,
@@ -200,8 +183,8 @@ func TestDataSources_Lifecycle(t *testing.T) {
 			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 			b.AddDomainInternal("ds-domain", "")
 
-			for _, src := range tt.addSources {
-				_, err := b.AddDataSource("ds-domain", src["name"], src["desc"], src["type"])
+			for _, name := range tt.addSources {
+				_, err := b.AddDataSource("ds-domain", name, "", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
 				require.NoError(t, err)
 			}
 
@@ -239,7 +222,7 @@ func TestDirectQuery_DeleteAndList(t *testing.T) {
 	ar := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/directQueryDataSource",
 		map[string]any{
 			"DataSourceName": "dq-to-delete",
-			"DataSourceType": map[string]any{"CloudWatchLogs": map[string]any{}},
+			"DataSourceType": map[string]any{"CloudWatchLog": map[string]any{}},
 			"Description":    "test",
 		})
 	ar.Body.Close()
@@ -253,7 +236,8 @@ func TestDirectQuery_DeleteAndList(t *testing.T) {
 	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
 	sources, ok := lOut["DirectQueryDataSources"].([]any)
 	require.True(t, ok)
-	assert.Len(t, sources, 1)
+	require.Len(t, sources, 1)
+	assert.Equal(t, "dq-to-delete", sources[0].(map[string]any)["DataSourceName"])
 
 	// Delete it.
 	del := doRequest(t, h, http.MethodDelete,
@@ -279,17 +263,18 @@ func TestDirectQuery_UpdateReturnsARN(t *testing.T) {
 	ar := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/directQueryDataSource",
 		map[string]any{
 			"DataSourceName": "dq-upd",
-			"DataSourceType": map[string]any{"CloudWatchLogs": map[string]any{}},
+			"DataSourceType": map[string]any{"CloudWatchLog": map[string]any{}},
 			"Description":    "before",
+			"OpenSearchArns": []string{"arn:aws:es:us-east-1:123456789012:domain/x"},
 		})
 	ar.Body.Close()
 
-	// Update.
+	// Update (DataSourceType and OpenSearchArns are required on update too).
 	ur := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/directQueryDataSource/dq-upd",
 		map[string]any{
-			"DataSourceName": "dq-upd",
-			"DataSourceType": map[string]any{"CloudWatchLogs": map[string]any{}},
+			"DataSourceType": map[string]any{"CloudWatchLog": map[string]any{}},
 			"Description":    "after",
+			"OpenSearchArns": []string{"arn:aws:es:us-east-1:123456789012:domain/x"},
 		})
 	defer ur.Body.Close()
 	require.Equal(t, http.StatusOK, ur.StatusCode)
@@ -309,7 +294,11 @@ func TestDataSources_ListAndGet(t *testing.T) {
 	for _, name := range []string{"ds-alpha", "ds-beta"} {
 		ar := doRequest(t, h, http.MethodPost,
 			"/2021-01-01/opensearch/domain/ds-list-domain/dataSource",
-			map[string]any{"Name": name, "DataSourceType": "S3GLUE", "Description": name})
+			map[string]any{
+				"Name":           name,
+				"DataSourceType": map[string]any{"S3GlueDataCatalog": map[string]any{}},
+				"Description":    name,
+			})
 		ar.Body.Close()
 	}
 
@@ -325,17 +314,16 @@ func TestDataSources_ListAndGet(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, sources, 2)
 
-	// Get specific source.
+	// Get specific source. No "DataSource" envelope: fields are top-level.
 	gr := doRequest(t, h, http.MethodGet,
 		"/2021-01-01/opensearch/domain/ds-list-domain/dataSource/ds-alpha", nil)
 	defer gr.Body.Close()
 	require.Equal(t, http.StatusOK, gr.StatusCode)
 
-	var gOut map[string]any
-	require.NoError(t, json.NewDecoder(gr.Body).Decode(&gOut))
-	ds, ok := gOut["DataSource"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "ds-alpha", ds["name"])
+	var ds map[string]any
+	require.NoError(t, json.NewDecoder(gr.Body).Decode(&ds))
+	assert.Equal(t, "ds-alpha", ds["Name"])
+	assert.Equal(t, "ACTIVE", ds["Status"])
 }
 
 func TestDataSources_UpdateAndDelete(t *testing.T) {
@@ -346,19 +334,36 @@ func TestDataSources_UpdateAndDelete(t *testing.T) {
 
 	ar := doRequest(t, h, http.MethodPost,
 		"/2021-01-01/opensearch/domain/ds-ud-domain/dataSource",
-		map[string]any{"Name": "ds-target", "DataSourceType": "S3GLUE", "Description": "before"})
+		map[string]any{
+			"Name":           "ds-target",
+			"DataSourceType": map[string]any{"S3GlueDataCatalog": map[string]any{}},
+			"Description":    "before",
+		})
 	ar.Body.Close()
 
-	// Update returns success message.
-	ur := doRequest(t, h, http.MethodPost,
-		"/2021-01-01/opensearch/domain/ds-ud-domain/updateDataSource",
-		map[string]any{"Name": "ds-target", "Description": "after"})
+	// UpdateDataSource is a PUT to the same /dataSource/{Name} path GET uses,
+	// not a POST to an invented /updateDataSource sub-path. DataSourceType is
+	// required on every update call, matching real AWS.
+	ur := doRequest(t, h, http.MethodPut,
+		"/2021-01-01/opensearch/domain/ds-ud-domain/dataSource/ds-target",
+		map[string]any{
+			"DataSourceType": map[string]any{"S3GlueDataCatalog": map[string]any{}},
+			"Description":    "after",
+		})
 	defer ur.Body.Close()
 	require.Equal(t, http.StatusOK, ur.StatusCode)
 
 	var uOut map[string]any
 	require.NoError(t, json.NewDecoder(ur.Body).Decode(&uOut))
-	assert.Equal(t, "DataSource updated", uOut["Message"])
+	assert.Contains(t, uOut["Message"], "updated")
+
+	// Get reflects the updated description.
+	gr := doRequest(t, h, http.MethodGet,
+		"/2021-01-01/opensearch/domain/ds-ud-domain/dataSource/ds-target", nil)
+	defer gr.Body.Close()
+	var gOut map[string]any
+	require.NoError(t, json.NewDecoder(gr.Body).Decode(&gOut))
+	assert.Equal(t, "after", gOut["Description"])
 
 	// Delete.
 	del := doRequest(t, h, http.MethodDelete,
@@ -378,6 +383,19 @@ func TestDataSources_UpdateAndDelete(t *testing.T) {
 	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
 	remaining := lOut["DataSources"].([]any)
 	assert.Empty(t, remaining)
+}
+
+func TestDataSources_UpdateUnknownReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	createTestDomain(t, h, "ds-unknown-domain")
+
+	resp := doRequest(t, h, http.MethodPut,
+		"/2021-01-01/opensearch/domain/ds-unknown-domain/dataSource/nonexistent",
+		map[string]any{"DataSourceType": map[string]any{"S3GlueDataCatalog": map[string]any{}}})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 func TestOpenSearchHandler_AddDataSource(t *testing.T) {
@@ -559,6 +577,6 @@ func TestOpenSearchBackend_AddDataSource_MissingName(t *testing.T) {
 	_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "my-domain"})
 	require.NoError(t, err)
 
-	_, err = b.AddDataSource("my-domain", "", "desc", "S3GLUE")
+	_, err = b.AddDataSource("my-domain", "", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
 	require.Error(t, err)
 }

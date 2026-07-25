@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 const ownerAmazon = "Amazon"
@@ -206,4 +208,46 @@ func (b *InMemoryBackend) UpdateWorkspaceBundle(bundleID, imageID string) error 
 	bun.ImageID = imageID
 
 	return nil
+}
+
+// bundleExistsLocked reports whether bundleID names either an Amazon-owned
+// bundle or an account-owned custom bundle. Callers must hold b.mu.
+func (b *InMemoryBackend) bundleExistsLocked(bundleID string) bool {
+	if b.customBundles.Has(bundleID) {
+		return true
+	}
+
+	for _, bun := range amazonBundleList() {
+		if bun.BundleID == bundleID {
+			return true
+		}
+	}
+
+	return false
+}
+
+// DescribeBundleAssociations returns application associations for a bundle.
+// See DescribeImageAssociations in images.go: real AWS exposes no public API
+// to create a bundle<->application association, so a freshly emulated account
+// always has an empty list. This still performs the real required-field and
+// existence validation a live call would enforce.
+func (b *InMemoryBackend) DescribeBundleAssociations(
+	bundleID string, resourceTypes []string,
+) ([]BundleResourceAssociation, error) {
+	b.mu.RLock("DescribeBundleAssociations")
+	defer b.mu.RUnlock()
+
+	if bundleID == "" {
+		return nil, awserr.New("BundleId is required", awserr.ErrInvalidParameter)
+	}
+
+	if !b.bundleExistsLocked(bundleID) {
+		return nil, errBundleNotFound
+	}
+
+	if err := validateAssociatedResourceTypes(resourceTypes); err != nil {
+		return nil, err
+	}
+
+	return []BundleResourceAssociation{}, nil
 }

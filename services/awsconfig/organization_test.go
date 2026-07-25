@@ -3,6 +3,7 @@ package awsconfig_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -126,6 +127,69 @@ func TestDescribeOrganizationConformancePackStatuses(t *testing.T) {
 	if statuses[0].Status != "CREATE_SUCCESSFUL" {
 		t.Fatalf("expected CREATE_SUCCESSFUL, got %q", statuses[0].Status)
 	}
+}
+
+func TestAWSConfigBackend_GetOrganizationConfigRuleDetailedStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown_rule_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.GetOrganizationConfigRuleDetailedStatus("does-not-exist", "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoSuchOrganizationConfigRule)
+	})
+
+	t.Run("returns_local_account_as_sole_member", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutOrganizationConfigRule("org-rule"))
+
+		statuses, err := b.GetOrganizationConfigRuleDetailedStatus("org-rule", "")
+		require.NoError(t, err)
+		require.Len(t, statuses, 1)
+		assert.Equal(t, "org-rule", statuses[0].ConfigRuleName)
+		assert.Equal(t, "CREATE_SUCCESSFUL", statuses[0].MemberAccountRuleStatus)
+	})
+
+	t.Run("account_filter_excludes_non_matching_account", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutOrganizationConfigRule("org-rule"))
+
+		statuses, err := b.GetOrganizationConfigRuleDetailedStatus("org-rule", "999999999999")
+		require.NoError(t, err)
+		assert.Empty(t, statuses)
+	})
+}
+
+func TestAWSConfigBackend_GetOrganizationConformancePackDetailedStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown_pack_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.GetOrganizationConformancePackDetailedStatus("does-not-exist", "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoSuchOrganizationConformancePack)
+	})
+
+	t.Run("returns_local_account_as_sole_member", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutOrganizationConformancePack("org-pack"))
+
+		statuses, err := b.GetOrganizationConformancePackDetailedStatus("org-pack", "")
+		require.NoError(t, err)
+		require.Len(t, statuses, 1)
+		assert.Equal(t, "org-pack", statuses[0].ConformancePackName)
+		assert.Equal(t, "CREATE_SUCCESSFUL", statuses[0].Status)
+	})
 }
 
 func TestGetOrganizationCustomRulePolicy_DefaultEmpty(t *testing.T) {

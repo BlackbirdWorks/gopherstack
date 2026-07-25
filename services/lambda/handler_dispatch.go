@@ -558,8 +558,8 @@ func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (b
 		return true, h.handleCodeSigningRoute(c, path, method)
 	case strings.HasPrefix(path, lambdaCapacityPathPrefix):
 		return true, h.handleCapacityProviderRoute(c, path, method)
-	case strings.HasPrefix(path, lambdaDurableExecPathPrefix):
-		return true, h.handleDurableExecRoute(c, path, method)
+	case isDurableExecPath(path):
+		return true, h.dispatchDurableExecRoutes(c, path, method)
 	case strings.HasPrefix(path, lambda2021PathPrefix):
 		return true, h.handleFunctionURLRoute2021(c, path, method)
 	case strings.HasPrefix(path, lambda2021RuntimeMgmtPathPrefix):

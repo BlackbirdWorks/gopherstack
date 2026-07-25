@@ -47,6 +47,10 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 	if len(tags) > 0 {
 		b.tagsStore(region)[snapArn] = tagsFromMap(tags)
 	}
+	b.recordEvent(
+		region, snapshotID, sourceTypeDBClusterSnapshot, snapArn,
+		"DB cluster snapshot created", eventCatBackup, eventCatCreate,
+	)
 	cp := *snap
 	cp.Tags = copyTags(snap.Tags)
 
@@ -103,8 +107,13 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(ctx context.Context, snapshotI
 	}
 	cp := *snap
 	cp.Tags = copyTags(snap.Tags)
+	snapArn := b.clusterSnapshotARN(region, snapshotID)
 	b.clusterSnapshotDelete(region, snapshotID)
-	delete(b.tagsStore(region), b.clusterSnapshotARN(region, snapshotID))
+	delete(b.tagsStore(region), snapArn)
+	b.recordEvent(
+		region, snapshotID, sourceTypeDBClusterSnapshot, snapArn,
+		"DB cluster snapshot deleted", eventCatBackup, eventCatDelete,
+	)
 
 	return &cp, nil
 }
@@ -145,6 +154,11 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		StorageEncrypted:            src.StorageEncrypted,
 		SnapshotType:                src.SnapshotType,
 		PercentProgress:             src.PercentProgress,
+		// SnapshotCreateTime is stamped fresh at copy time, not copied from
+		// src: real AWS's CopyDBClusterSnapshot creates a genuinely new
+		// snapshot resource with its own creation timestamp, distinct from
+		// the source's.
+		SnapshotCreateTime: time.Now().UTC().Format(time.RFC3339),
 	}
 	b.clusterSnapshotPut(snap)
 	cp := *snap

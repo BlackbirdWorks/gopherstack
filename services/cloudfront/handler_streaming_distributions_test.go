@@ -239,10 +239,13 @@ func TestInMemoryBackend_StreamingDistribution(t *testing.T) {
 				assert.NotEmpty(t, sd.ETag)
 				assert.NotEmpty(t, sd.LastModifiedTime)
 
-				// Idempotent create: same CallerReference returns the same distribution.
-				dup, err := b.CreateStreamingDistribution(cfg, nil)
-				require.NoError(t, err)
-				assert.Equal(t, sd.ID, dup.ID)
+				// CallerReference reuse always conflicts (real
+				// CreateStreamingDistribution API docs: "regardless of the content of
+				// the StreamingDistributionConfig object"), unlike OAI/PublicKey/
+				// KeyGroup/FLE-profile's content-comparison idempotency.
+				_, err = b.CreateStreamingDistribution(cfg, nil)
+				require.Error(t, err)
+				require.ErrorIs(t, err, cloudfront.ErrStreamingDistributionAlreadyExists)
 				before := len(b.ListStreamingDistributions())
 
 				// Get.
@@ -362,12 +365,13 @@ func TestStreamingDistributionSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "video", tags["team"])
 
-	// Idempotent create against the restored backend should return the same distribution.
-	dup, err := b2.CreateStreamingDistribution(cloudfront.StreamingDistributionConfig{
+	// The restored streamingDistributionCallerRefs index should still reject a
+	// reused CallerReference after restore.
+	_, err = b2.CreateStreamingDistribution(cloudfront.StreamingDistributionConfig{
 		CallerReference: "cr-snap",
 	}, nil)
-	require.NoError(t, err)
-	assert.Equal(t, sd.ID, dup.ID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, cloudfront.ErrStreamingDistributionAlreadyExists)
 
 	// Deleting requires the restored distribution to still enforce the not-disabled guard.
 	err = b2.DeleteStreamingDistribution(sd.ID)

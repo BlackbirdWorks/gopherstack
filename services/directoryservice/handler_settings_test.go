@@ -129,3 +129,32 @@ func TestDirectoryDataAccess(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateDirectorySetup_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		updateType string
+		name       string
+	}{
+		{name: "invalid UpdateType returns InvalidParameterException", updateType: "FIRMWARE"},
+		{name: "missing UpdateType returns InvalidParameterException", updateType: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+
+			rec := doRequest(t, h, "UpdateDirectorySetup", map[string]any{
+				"DirectoryId": dirID,
+				"UpdateType":  tt.updateType,
+			})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "InvalidParameterException", body["__type"])
+		})
+	}
+}

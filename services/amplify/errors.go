@@ -7,4 +7,8 @@ var (
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("BadRequestException", awserr.ErrAlreadyExists)
+	// ErrValidation is returned when a request parameter fails validation
+	// (e.g. an unrecognized Platform/Stage/JobType enum value). Real Amplify
+	// rejects these with a 400 BadRequestException.
+	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )

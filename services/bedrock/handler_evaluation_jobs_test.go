@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -697,6 +698,75 @@ func TestHandler_ListEvaluationJobs(t *testing.T) {
 	var out2 map[string]any
 	mustUnmarshal(t, rec2, &out2)
 	assert.Len(t, out2["jobSummaries"], 2)
+}
+
+// TestAccuracy_EvaluationJob_ListPagination locks in the parity fix for
+// ListEvaluationJobs: it previously ignored nextToken entirely and always
+// returned the full unbounded table in one page.
+func TestAccuracy_EvaluationJob_ListPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create more than one page of evaluation jobs (bedrockDefaultPageSize=100).
+	const pageSize = 100
+	for i := range pageSize + 5 {
+		doRequest(t, h, http.MethodPost, "/evaluation-jobs",
+			map[string]any{"jobName": "job-" + strconv.Itoa(i)})
+	}
+
+	rec := doRequest(t, h, http.MethodGet, "/evaluation-jobs", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	firstPage := out["jobSummaries"].([]any)
+	assert.Len(t, firstPage, pageSize)
+	nextToken, ok := out["nextToken"].(string)
+	require.True(t, ok, "expected a nextToken since more jobs exist than one page")
+	require.NotEmpty(t, nextToken)
+
+	rec2 := doRequest(t, h, http.MethodGet, "/evaluation-jobs?nextToken="+url.QueryEscape(nextToken), nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	mustUnmarshal(t, rec2, &out2)
+	secondPage := out2["jobSummaries"].([]any)
+	assert.Len(t, secondPage, 5)
+	assert.Empty(t, out2["nextToken"])
+}
+
+// TestAccuracy_EvaluationJob_ListFilters locks in nameContains and
+// statusEquals filtering on ListEvaluationJobs, which the handler previously
+// discarded even though real AWS supports both as query-string filters.
+func TestAccuracy_EvaluationJob_ListFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{"jobName": "alpha-job"})
+	doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{"jobName": "beta-job"})
+
+	rec := doRequest(t, h, http.MethodGet, "/evaluation-jobs?nameContains=alpha", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	jobs := out["jobSummaries"].([]any)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, "alpha-job", jobs[0].(map[string]any)["jobName"])
+
+	recStatus := doRequest(t, h, http.MethodGet, "/evaluation-jobs?statusEquals=InProgress", nil)
+	require.Equal(t, http.StatusOK, recStatus.Code)
+
+	var outStatus map[string]any
+	mustUnmarshal(t, recStatus, &outStatus)
+	assert.Len(t, outStatus["jobSummaries"], 2)
+
+	recNoMatch := doRequest(t, h, http.MethodGet, "/evaluation-jobs?statusEquals=Stopped", nil)
+	var outNoMatch map[string]any
+	mustUnmarshal(t, recNoMatch, &outNoMatch)
+	assert.Empty(t, outNoMatch["jobSummaries"])
 }
 
 func TestHandler_StopEvaluationJob(t *testing.T) {

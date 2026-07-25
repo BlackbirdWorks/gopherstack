@@ -69,7 +69,9 @@ func TestAccuracy_AdvanceCopyImportJobStatuses(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	importJob, err := b.CreateModelImportJob("test-import", nil)
+	importJob, err := b.CreateModelImportJob(
+		"test-import", "test-import-model", "arn:aws:iam::000000000000:role/import-role", "", nil,
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, "InProgress", copyJob.Status)

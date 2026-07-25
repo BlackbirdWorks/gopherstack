@@ -45,16 +45,27 @@ const eventbridgeSnapshotVersion = 1
 // (surprising, pre-existing) behavior byte-for-byte rather than silently
 // starting to persist state that never round-tripped through Restore before.
 //
-// archivedEvents, busePolicies, schemaVersions, and codeBindings are, for the
-// same reason, left out of backendSnapshot exactly as they were before this
-// conversion -- see store_setup.go's package doc for why each doesn't fit
-// Table's func(*V) string keying requirement in the first place.
+// archivedEvents, schemaVersions, and codeBindings are, for the same reason,
+// left out of backendSnapshot exactly as they were before this conversion --
+// see store_setup.go's package doc for why each doesn't fit Table's
+// func(*V) string keying requirement in the first place.
+//
+// busePolicies (event bus resource policies set via PutPermission/
+// RemovePermission/PutEventBusPolicy) does fit that description too -- it is
+// NOT store.Table-backed -- but unlike the ones above it IS included below via
+// its own field: PARITY.md previously (incorrectly) marked those ops
+// "persist: ok" while this map was silently dropped on every Restore. Plain
+// map[string]map[string]*EventBusPolicy round-trips fine through
+// encoding/json without needing a func(*V) string key extractor, so there is
+// no reason to leave bus policies unpersisted the way the genuinely
+// unkeyable maps above are.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	EventLog  []EventLogEntry            `json:"eventLog"`
-	Version   int                        `json:"version"`
+	Tables      map[string]json.RawMessage            `json:"tables"`
+	BusPolicies map[string]map[string]*EventBusPolicy `json:"busPolicies,omitempty"`
+	AccountID   string                                `json:"accountID"`
+	Region      string                                `json:"region"`
+	EventLog    []EventLogEntry                       `json:"eventLog"`
+	Version     int                                   `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -75,11 +86,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:   eventbridgeSnapshotVersion,
-		Tables:    tables,
-		EventLog:  b.eventLog,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Version:     eventbridgeSnapshotVersion,
+		Tables:      tables,
+		BusPolicies: b.busePolicies,
+		EventLog:    b.eventLog,
+		AccountID:   b.accountID,
+		Region:      b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -148,14 +160,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
 		b.targetsByARN = make(map[string]map[string]map[string]struct{})
 		b.patternCache = sync.Map{}
+		b.busePolicies = make(map[string]map[string]*EventBusPolicy)
 
 		// Match NewInMemoryBackendWithContext's construction-time state: a
 		// fresh backend is never truly empty of buses, so "starting empty"
 		// here means starting exactly as fresh as a new backend would.
+		now := time.Now()
 		b.busesTable(b.region).Put(&EventBus{
-			Name:        defaultEventBusName,
-			Arn:         b.busARN(b.region, defaultEventBusName),
-			CreatedTime: time.Now(),
+			Name:             defaultEventBusName,
+			Arn:              b.busARN(b.region, defaultEventBusName),
+			CreatedTime:      now,
+			LastModifiedTime: now,
 		})
 
 		return nil
@@ -177,6 +192,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
 	b.targetsByARN = make(map[string]map[string]map[string]struct{})
 	b.patternCache = sync.Map{}
+	if snap.BusPolicies != nil {
+		b.busePolicies = snap.BusPolicies
+	} else {
+		b.busePolicies = make(map[string]map[string]*EventBusPolicy)
+	}
 
 	if err := b.rebuildRuleIndexesLocked(); err != nil {
 		return err

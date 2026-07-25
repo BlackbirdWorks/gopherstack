@@ -3,9 +3,9 @@ package transfer
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // hostKeyARN builds the ARN for a Transfer host key.
@@ -98,7 +98,7 @@ func (h *Handler) handleDescribeHostKey(
 		"HostKeyId":    hk.HostKeyID,
 		keyDescription: hk.Description,
 		keyStepType:    hk.Type,
-		"DateImported": hk.CreatedAt.Format(time.RFC3339),
+		"DateImported": awstime.Epoch(hk.CreatedAt),
 		keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
 		keyTags:        tagsToList(hk.Tags),
 	}
@@ -146,7 +146,7 @@ func (h *Handler) handleListHostKeys(
 			"HostKeyId":    hk.HostKeyID,
 			keyDescription: hk.Description,
 			keyStepType:    hk.Type,
-			"DateImported": hk.CreatedAt.Format(time.RFC3339),
+			"DateImported": awstime.Epoch(hk.CreatedAt),
 			keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
 		}
 		if hk.Fingerprint != "" {

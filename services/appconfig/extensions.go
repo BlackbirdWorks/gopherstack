@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-// CreateExtension creates a new AppConfig extension.
+// CreateExtension creates a new AppConfig extension at version 1.
 func (b *InMemoryBackend) CreateExtension(
 	name, description string,
 	actions map[string][]ExtensionAction,
@@ -18,7 +18,7 @@ func (b *InMemoryBackend) CreateExtension(
 		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
 	}
 
-	// Enforce name uniqueness.
+	// Enforce name uniqueness across every version of every extension.
 	if len(b.extensionsByName.Get(name)) > 0 {
 		return nil, fmt.Errorf(
 			"%w: extension with name %s already exists",
@@ -43,27 +43,65 @@ func (b *InMemoryBackend) CreateExtension(
 	return &cp, nil
 }
 
-// resolveExtension finds an extension by ID or name.
-func (b *InMemoryBackend) resolveExtension(identifier string) *Extension {
-	if ext, ok := b.extensions.Get(identifier); ok {
-		return ext
+// resolveExtensionID resolves an identifier (ID or name) to the extension ID
+// it names, without regard to which version(s) currently exist. Must be
+// called under lock.
+func (b *InMemoryBackend) resolveExtensionID(identifier string) (string, bool) {
+	if len(b.extensionsByID.Get(identifier)) > 0 {
+		return identifier, true
 	}
 
 	if matches := b.extensionsByName.Get(identifier); len(matches) > 0 {
-		return matches[0]
+		return matches[0].ID, true
 	}
 
-	return nil
+	return "", false
 }
 
-// GetExtension retrieves an extension by identifier (ID or name).
-func (b *InMemoryBackend) GetExtension(extensionIdentifier string) (*Extension, error) {
+// latestExtensionVersion returns the highest-VersionNumber row currently
+// stored for extension id. Must be called under lock; id must already be
+// known to exist (e.g. via resolveExtensionID) or this returns nil.
+func (b *InMemoryBackend) latestExtensionVersion(id string) *Extension {
+	versions := b.extensionsByID.Get(id)
+
+	var latest *Extension
+	for _, v := range versions {
+		if latest == nil || v.VersionNumber > latest.VersionNumber {
+			latest = v
+		}
+	}
+
+	return latest
+}
+
+// GetExtension retrieves an extension by identifier (ID or name). A
+// versionNumber of 0 means "not specified" -- matching real AWS AppConfig,
+// this returns the highest (most recently created) version.
+func (b *InMemoryBackend) GetExtension(
+	extensionIdentifier string,
+	versionNumber int32,
+) (*Extension, error) {
 	b.mu.RLock("GetExtension")
 	defer b.mu.RUnlock()
 
-	ext := b.resolveExtension(extensionIdentifier)
-	if ext == nil {
+	id, ok := b.resolveExtensionID(extensionIdentifier)
+	if !ok {
 		return nil, fmt.Errorf("%w: extension %s", ErrExtensionNotFound, extensionIdentifier)
+	}
+
+	var ext *Extension
+	if versionNumber > 0 {
+		ext, ok = b.extensions.Get(extensionVersionKey(id, versionNumber))
+		if !ok {
+			return nil, fmt.Errorf(
+				"%w: extension %s version %d",
+				ErrExtensionNotFound,
+				extensionIdentifier,
+				versionNumber,
+			)
+		}
+	} else {
+		ext = b.latestExtensionVersion(id)
 	}
 
 	cp := *ext
@@ -71,28 +109,33 @@ func (b *InMemoryBackend) GetExtension(extensionIdentifier string) (*Extension, 
 	return &cp, nil
 }
 
-// ListExtensions returns paginated extensions, optionally filtered by name and/or version number.
+// ListExtensions returns paginated extensions, optionally filtered by name.
+// Real ListExtensionsInput has no version filter (extensions are versioned
+// resources, but ListExtensions summarizes one row per extension at its
+// current/highest version -- there is no ListExtensionVersions API), so one
+// row is returned per distinct extension ID, at its latest version.
 func (b *InMemoryBackend) ListExtensions(
 	nextToken string,
 	maxResults int,
 	nameFilter string,
-	versionNumber int32,
 ) ([]Extension, string) {
 	b.mu.RLock("ListExtensions")
 	defer b.mu.RUnlock()
 
-	all := b.extensions.All()
-	out := make([]Extension, 0, len(all))
+	latestByID := make(map[string]*Extension)
 
-	for _, ext := range all {
+	for _, ext := range b.extensions.All() {
 		if nameFilter != "" && ext.Name != nameFilter {
 			continue
 		}
 
-		if versionNumber > 0 && ext.VersionNumber != versionNumber {
-			continue
+		if cur, ok := latestByID[ext.ID]; !ok || ext.VersionNumber > cur.VersionNumber {
+			latestByID[ext.ID] = ext
 		}
+	}
 
+	out := make([]Extension, 0, len(latestByID))
+	for _, ext := range latestByID {
 		out = append(out, *ext)
 	}
 
@@ -104,8 +147,11 @@ func (b *InMemoryBackend) ListExtensions(
 }
 
 // UpdateExtension updates an extension's description, actions, and
-// parameters. A nil description means the request omitted that field, and
-// AWS AppConfig leaves an omitted field unchanged rather than clearing it.
+// parameters by creating a NEW version from the current highest version --
+// matching real AWS AppConfig, where every UpdateExtension call produces a
+// new, independently addressable extension version rather than mutating one
+// in place. A nil description means the request omitted that field, and AWS
+// AppConfig leaves an omitted field unchanged rather than clearing it.
 func (b *InMemoryBackend) UpdateExtension(
 	extensionIdentifier string,
 	description *string,
@@ -115,12 +161,14 @@ func (b *InMemoryBackend) UpdateExtension(
 	b.mu.Lock("UpdateExtension")
 	defer b.mu.Unlock()
 
-	ext := b.resolveExtension(extensionIdentifier)
-	if ext == nil {
+	id, ok := b.resolveExtensionID(extensionIdentifier)
+	if !ok {
 		return nil, fmt.Errorf("%w: extension %s", ErrExtensionNotFound, extensionIdentifier)
 	}
 
-	updated := *ext
+	latest := b.latestExtensionVersion(id)
+
+	updated := *latest
 	if description != nil {
 		updated.Description = *description
 	}
@@ -133,25 +181,61 @@ func (b *InMemoryBackend) UpdateExtension(
 		updated.Parameters = parameters
 	}
 
-	updated.VersionNumber++
+	updated.VersionNumber = latest.VersionNumber + 1
 	b.extensions.Put(&updated)
 	cp := updated
 
 	return &cp, nil
 }
 
-// DeleteExtension deletes an extension by identifier (ID or name).
-func (b *InMemoryBackend) DeleteExtension(extensionIdentifier string) error {
+// DeleteExtension deletes an extension version by identifier (ID or name).
+// A versionNumber of 0 means "not specified" -- matching real AWS
+// AppConfig, this deletes the highest (most recently created) version only,
+// not every version. Deleting the last remaining version removes the
+// extension entirely, including its tags. Returns ErrConflict (matching
+// real AWS's ConflictException) if any ExtensionAssociation still
+// references the version being deleted.
+func (b *InMemoryBackend) DeleteExtension(extensionIdentifier string, versionNumber int32) error {
 	b.mu.Lock("DeleteExtension")
 	defer b.mu.Unlock()
 
-	ext := b.resolveExtension(extensionIdentifier)
-	if ext == nil {
+	id, ok := b.resolveExtensionID(extensionIdentifier)
+	if !ok {
 		return fmt.Errorf("%w: extension %s", ErrExtensionNotFound, extensionIdentifier)
 	}
 
-	b.extensions.Delete(ext.ID)
-	delete(b.tags, ext.Arn)
+	var target *Extension
+	if versionNumber > 0 {
+		target, ok = b.extensions.Get(extensionVersionKey(id, versionNumber))
+		if !ok {
+			return fmt.Errorf(
+				"%w: extension %s version %d",
+				ErrExtensionNotFound,
+				extensionIdentifier,
+				versionNumber,
+			)
+		}
+	} else {
+		target = b.latestExtensionVersion(id)
+	}
+
+	for _, assoc := range b.extensionAssociations.All() {
+		if assoc.ExtensionArn == target.Arn && assoc.ExtensionVersionNumber == target.VersionNumber {
+			return fmt.Errorf(
+				"%w: extension %s version %d is still associated by %s",
+				ErrConflict,
+				extensionIdentifier,
+				target.VersionNumber,
+				assoc.ID,
+			)
+		}
+	}
+
+	b.extensions.Delete(extensionVersionKey(id, target.VersionNumber))
+
+	if len(b.extensionsByID.Get(id)) == 0 {
+		delete(b.tags, target.Arn)
+	}
 
 	return nil
 }
@@ -173,15 +257,27 @@ func (b *InMemoryBackend) CreateExtensionAssociation(
 		return nil, fmt.Errorf("%w: ResourceIdentifier is required", ErrBadRequest)
 	}
 
-	ext := b.resolveExtension(extensionIdentifier)
-	if ext == nil {
+	extID, ok := b.resolveExtensionID(extensionIdentifier)
+	if !ok {
 		return nil, fmt.Errorf("%w: extension %s", ErrExtensionNotFound, extensionIdentifier)
 	}
 
-	versionNum := ext.VersionNumber
+	var ext *Extension
 	if extensionVersionNumber != nil {
-		versionNum = *extensionVersionNumber
+		ext, ok = b.extensions.Get(extensionVersionKey(extID, *extensionVersionNumber))
+		if !ok {
+			return nil, fmt.Errorf(
+				"%w: extension %s version %d",
+				ErrExtensionNotFound,
+				extensionIdentifier,
+				*extensionVersionNumber,
+			)
+		}
+	} else {
+		ext = b.latestExtensionVersion(extID)
 	}
+
+	versionNum := ext.VersionNumber
 
 	id := newResourceID()
 	assoc := &ExtensionAssociation{
@@ -248,6 +344,21 @@ func (b *InMemoryBackend) ListExtensionAssociations(
 	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
+}
+
+// deleteExtensionAssociationsForResourceLocked removes every
+// ExtensionAssociation whose ResourceArn is resourceArn, and its tags, so
+// deleting an application/environment/configuration profile leaves no
+// ghost association rows referencing it. Must be called under lock.
+func (b *InMemoryBackend) deleteExtensionAssociationsForResourceLocked(resourceArn string) {
+	for _, assoc := range b.extensionAssociations.All() {
+		if assoc.ResourceArn != resourceArn {
+			continue
+		}
+
+		b.extensionAssociations.Delete(assoc.ID)
+		delete(b.tags, assoc.Arn)
+	}
 }
 
 // DeleteExtensionAssociation deletes an extension association by ID.

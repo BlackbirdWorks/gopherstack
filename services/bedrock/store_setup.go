@@ -68,18 +68,18 @@ func arpVersionsKeyFn(v *AutomatedReasoningPolicyVersion) string {
 	return base + ":" + v.Version
 }
 
-func customModelsKeyFn(v *CustomModel) string                           { return v.ModelArn }
-func customModelDeploymentsKeyFn(v *CustomModelDeployment) string       { return v.CustomModelDeploymentArn }
-func foundationModelAgreementsKeyFn(v *FoundationModelAgreement) string { return v.ModelID }
-func modelCustomizationJobsKeyFn(v *ModelCustomizationJob) string       { return v.JobArn }
-func modelCopyJobsKeyFn(v *ModelCopyJob) string                         { return v.JobArn }
-func modelImportJobsKeyFn(v *ModelImportJob) string                     { return v.JobArn }
-func inferenceProfilesKeyFn(v *InferenceProfile) string                 { return v.InferenceProfileArn }
-func marketplaceEndpointsKeyFn(v *MarketplaceModelEndpoint) string      { return v.EndpointArn }
-func modelInvocationJobsKeyFn(v *ModelInvocationJob) string             { return v.JobArn }
-func promptRoutersKeyFn(v *PromptRouter) string                         { return v.PromptRouterArn }
-func enforcedGuardrailConfigsKeyFn(v *EnforcedGuardrailConfig) string   { return v.GuardrailID }
-func agentsKeyFn(v *Agent) string                                       { return v.AgentID }
+func customModelsKeyFn(v *CustomModel) string                                { return v.ModelArn }
+func customModelDeploymentsKeyFn(v *CustomModelDeployment) string            { return v.CustomModelDeploymentArn }
+func foundationModelAgreementsKeyFn(v *FoundationModelAgreement) string      { return v.ModelID }
+func modelCustomizationJobsKeyFn(v *ModelCustomizationJob) string            { return v.JobArn }
+func modelCopyJobsKeyFn(v *ModelCopyJob) string                              { return v.JobArn }
+func modelImportJobsKeyFn(v *ModelImportJob) string                          { return v.JobArn }
+func inferenceProfilesKeyFn(v *InferenceProfile) string                      { return v.InferenceProfileArn }
+func marketplaceEndpointsKeyFn(v *MarketplaceModelEndpoint) string           { return v.EndpointArn }
+func modelInvocationJobsKeyFn(v *ModelInvocationJob) string                  { return v.JobArn }
+func promptRoutersKeyFn(v *PromptRouter) string                              { return v.PromptRouterArn }
+func enforcedGuardrailConfigsKeyFn(v *AccountEnforcedGuardrailConfig) string { return v.ConfigID }
+func agentsKeyFn(v *Agent) string                                            { return v.AgentID }
 
 func agentActionGroupsKeyFn(v *AgentActionGroup) string {
 	return agentActionGroupKey(v.AgentID, v.ActionGroupID)

@@ -90,7 +90,7 @@ func (b *InMemoryBackend) RegisterThing(input *RegisterThingInput) (*RegisterThi
 		})
 	}
 
-	cert := b.newCertificate(fakePEM, certStatusActive)
+	cert := b.newCertificate(fakePEM, certStatusActive, certModeDefault)
 	b.certificates.Put(cert)
 	b.thingPrincipals[thingName] = append(b.thingPrincipals[thingName], cert.ARN)
 

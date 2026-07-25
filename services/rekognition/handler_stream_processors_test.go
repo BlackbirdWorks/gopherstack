@@ -378,3 +378,196 @@ func TestCreateStreamProcessor_InvalidInitialTags_Rejected(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CreateStreamProcessor persists and echoes Input/Output/Settings/
+// RegionsOfInterest/NotificationChannel/KmsKeyId/DataSharingPreference back
+// through DescribeStreamProcessor. These were previously accepted by the
+// request but silently dropped (see PARITY.md gaps) -- this locks the fix.
+// ---------------------------------------------------------------------------
+
+func TestCreateStreamProcessor_FullFieldsRoundTripThroughDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createBody := map[string]any{
+		"Name":     "full-proc",
+		"RoleArn":  "arn:aws:iam::000000000000:role/reko",
+		"KmsKeyId": "arn:aws:kms:us-east-1:000000000000:key/abc",
+		"Input": map[string]any{
+			"KinesisVideoStream": map[string]any{"Arn": "arn:aws:kinesisvideo:us-east-1:000000000000:stream/in/1"},
+		},
+		"Output": map[string]any{
+			"KinesisDataStream": map[string]any{"Arn": "arn:aws:kinesis:us-east-1:000000000000:stream/out"},
+		},
+		"Settings": map[string]any{
+			"FaceSearch": map[string]any{
+				"CollectionId":       "coll1",
+				"FaceMatchThreshold": 90.0,
+			},
+		},
+		"NotificationChannel": map[string]any{
+			"SNSTopicArn": "arn:aws:sns:us-east-1:000000000000:topic",
+		},
+		"DataSharingPreference": map[string]any{"OptIn": true},
+		"RegionsOfInterest": []map[string]any{
+			{"BoundingBox": map[string]any{"Height": 0.5, "Left": 0.1, "Top": 0.1, "Width": 0.5}},
+		},
+	}
+
+	rec := doRequest(t, h, "CreateStreamProcessor", createBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DescribeStreamProcessor", map[string]any{"Name": "full-proc"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/abc", resp["KmsKeyId"])
+
+	input, _ := resp["Input"].(map[string]any)
+	require.NotNil(t, input)
+	kvs, _ := input["KinesisVideoStream"].(map[string]any)
+	require.NotNil(t, kvs)
+	assert.Equal(t, "arn:aws:kinesisvideo:us-east-1:000000000000:stream/in/1", kvs["Arn"])
+
+	output, _ := resp["Output"].(map[string]any)
+	require.NotNil(t, output)
+	kds, _ := output["KinesisDataStream"].(map[string]any)
+	require.NotNil(t, kds)
+	assert.Equal(t, "arn:aws:kinesis:us-east-1:000000000000:stream/out", kds["Arn"])
+
+	settings, _ := resp["Settings"].(map[string]any)
+	require.NotNil(t, settings)
+	faceSearch, _ := settings["FaceSearch"].(map[string]any)
+	require.NotNil(t, faceSearch)
+	assert.Equal(t, "coll1", faceSearch["CollectionId"])
+	assert.InDelta(t, 90.0, faceSearch["FaceMatchThreshold"], 0.001)
+
+	notif, _ := resp["NotificationChannel"].(map[string]any)
+	require.NotNil(t, notif)
+	assert.Equal(t, "arn:aws:sns:us-east-1:000000000000:topic", notif["SNSTopicArn"])
+
+	dsp, _ := resp["DataSharingPreference"].(map[string]any)
+	require.NotNil(t, dsp)
+	assert.Equal(t, true, dsp["OptIn"])
+
+	rois, _ := resp["RegionsOfInterest"].([]any)
+	require.Len(t, rois, 1)
+	roi, _ := rois[0].(map[string]any)
+	bbox, _ := roi["BoundingBox"].(map[string]any)
+	require.NotNil(t, bbox)
+	assert.InDelta(t, 0.5, bbox["Height"], 0.001)
+}
+
+// ---------------------------------------------------------------------------
+// UpdateStreamProcessor actually applies SettingsForUpdate/
+// RegionsOfInterestForUpdate/DataSharingPreferenceForUpdate/
+// ParametersToDelete. Previously UpdateStreamProcessor was a pure
+// existence-check no-op (see PARITY.md gaps) -- this locks the fix.
+// ---------------------------------------------------------------------------
+
+func TestUpdateStreamProcessor_AppliesFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateStreamProcessor", map[string]any{
+		"Name": "upd-full-proc",
+		"Settings": map[string]any{
+			"ConnectedHome": map[string]any{"Labels": []string{"PERSON"}, "MinConfidence": 50.0},
+		},
+		"RegionsOfInterest": []map[string]any{
+			{"BoundingBox": map[string]any{"Height": 0.1, "Left": 0.1, "Top": 0.1, "Width": 0.1}},
+		},
+	})
+
+	describe := func() map[string]any {
+		rec := doRequest(t, h, "DescribeStreamProcessor", map[string]any{"Name": "upd-full-proc"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+		return resp
+	}
+
+	// Sanity: initial state has the region of interest set above.
+	initial := describe()
+	assert.Len(t, initial["RegionsOfInterest"], 1)
+
+	// Update Labels/MinConfidence and DataSharingPreference.
+	rec := doRequest(t, h, "UpdateStreamProcessor", map[string]any{
+		"Name": "upd-full-proc",
+		"SettingsForUpdate": map[string]any{
+			"ConnectedHomeForUpdate": map[string]any{"Labels": []string{"PET", "PACKAGE"}, "MinConfidence": 80.0},
+		},
+		"DataSharingPreferenceForUpdate": map[string]any{"OptIn": true},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	updated := describe()
+	settings, _ := updated["Settings"].(map[string]any)
+	require.NotNil(t, settings)
+	connectedHome, _ := settings["ConnectedHome"].(map[string]any)
+	require.NotNil(t, connectedHome)
+	labels, _ := connectedHome["Labels"].([]any)
+	assert.ElementsMatch(t, []any{"PET", "PACKAGE"}, labels)
+	assert.InDelta(t, 80.0, connectedHome["MinConfidence"], 0.001)
+
+	dsp, _ := updated["DataSharingPreference"].(map[string]any)
+	require.NotNil(t, dsp)
+	assert.Equal(t, true, dsp["OptIn"])
+
+	// Delete RegionsOfInterest and ConnectedHomeMinConfidence via ParametersToDelete.
+	rec = doRequest(t, h, "UpdateStreamProcessor", map[string]any{
+		"Name":               "upd-full-proc",
+		"ParametersToDelete": []string{"RegionsOfInterest", "ConnectedHomeMinConfidence"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	final := describe()
+	assert.Empty(t, final["RegionsOfInterest"])
+	settings, _ = final["Settings"].(map[string]any)
+	require.NotNil(t, settings)
+	connectedHome, _ = settings["ConnectedHome"].(map[string]any)
+	require.NotNil(t, connectedHome)
+	_, hasMinConfidence := connectedHome["MinConfidence"]
+	assert.False(t, hasMinConfidence, "MinConfidence should be cleared")
+}
+
+// ---------------------------------------------------------------------------
+// UpdateStreamProcessor RegionsOfInterestForUpdate replaces the stored list
+// wholesale (not merge/append).
+// ---------------------------------------------------------------------------
+
+func TestUpdateStreamProcessor_RegionsOfInterestForUpdate_Replaces(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateStreamProcessor", map[string]any{
+		"Name": "roi-proc",
+		"RegionsOfInterest": []map[string]any{
+			{"BoundingBox": map[string]any{"Height": 0.1, "Left": 0.1, "Top": 0.1, "Width": 0.1}},
+		},
+	})
+
+	rec := doRequest(t, h, "UpdateStreamProcessor", map[string]any{
+		"Name": "roi-proc",
+		"RegionsOfInterestForUpdate": []map[string]any{
+			{"BoundingBox": map[string]any{"Height": 0.2, "Left": 0.2, "Top": 0.2, "Width": 0.2}},
+			{"BoundingBox": map[string]any{"Height": 0.3, "Left": 0.3, "Top": 0.3, "Width": 0.3}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DescribeStreamProcessor", map[string]any{"Name": "roi-proc"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	rois, _ := resp["RegionsOfInterest"].([]any)
+	assert.Len(t, rois, 2)
+}

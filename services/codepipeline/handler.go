@@ -310,6 +310,11 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		{ErrInvalidStructure, "InvalidStructureException"},
 		{ErrExecutionNotFound, "PipelineExecutionNotFoundException"},
 		{ErrVersionNotFound, "PipelineVersionNotFoundException"},
+		{ErrActionNotFound, "ActionNotFoundException"},
+		{ErrInvalidApprovalToken, "InvalidApprovalTokenException"},
+		{ErrApprovalAlreadyCompleted, "ApprovalAlreadyCompletedException"},
+		{ErrStageNotRetryable, "StageNotRetryableException"},
+		{ErrUnableToRollbackStage, "UnableToRollbackStageException"},
 		{errUnknownAction, "InvalidActionException"},
 		{errInvalidRequest, "ValidationException"},
 	}

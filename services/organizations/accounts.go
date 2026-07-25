@@ -89,6 +89,10 @@ func (b *InMemoryBackend) CreateAccount(
 		return nil, ErrOrgNotFound
 	}
 
+	if err := validateNewTags(nil, tags); err != nil {
+		return nil, err
+	}
+
 	status := b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, "", tags)
 	if status == nil {
 		return nil, ErrInvalidInput
@@ -272,6 +276,10 @@ func (b *InMemoryBackend) CreateGovCloudAccount(
 
 	if b.org == nil {
 		return nil, ErrOrgNotFound
+	}
+
+	if err := validateNewTags(nil, tags); err != nil {
+		return nil, err
 	}
 
 	// Pre-calculate the GovCloud account ID using the next counter value.

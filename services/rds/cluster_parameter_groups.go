@@ -12,7 +12,7 @@ func (b *InMemoryBackend) CreateDBClusterParameterGroup(name, family, descriptio
 	}
 	b.mu.Lock("CreateDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.clusterParameterGroups.Get(name); exists {
+	if _, exists := b.clusterParameterGroups.Get(normalizeID(name)); exists {
 		return nil, fmt.Errorf("%w: cluster parameter group %s already exists", ErrParameterGroupAlreadyExists, name)
 	}
 	pg := &DBParameterGroup{
@@ -33,7 +33,7 @@ func (b *InMemoryBackend) DescribeDBClusterParameterGroups(name string) ([]DBPar
 	b.mu.RLock("DescribeDBClusterParameterGroups")
 	defer b.mu.RUnlock()
 	if name != "" {
-		pg, exists := b.clusterParameterGroups.Get(name)
+		pg, exists := b.clusterParameterGroups.Get(normalizeID(name))
 		if !exists {
 			return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, name)
 		}
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 	b.mu.Lock("CopyDBClusterParameterGroup")
 	defer b.mu.Unlock()
 
-	src, exists := b.clusterParameterGroups.Get(sourceGroupName)
+	src, exists := b.clusterParameterGroups.Get(normalizeID(sourceGroupName))
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: cluster parameter group %s not found",
@@ -87,7 +87,7 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 		)
 	}
 
-	if _, alreadyExists := b.clusterParameterGroups.Get(targetGroupName); alreadyExists {
+	if _, alreadyExists := b.clusterParameterGroups.Get(normalizeID(targetGroupName)); alreadyExists {
 		return nil, fmt.Errorf(
 			"%w: cluster parameter group %s already exists",
 			ErrParameterGroupAlreadyExists,
@@ -110,11 +110,14 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
 	}
 	b.mu.Lock("DeleteDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.clusterParameterGroups.Get(name); !exists {
+	pg, exists := b.clusterParameterGroups.Get(normalizeID(name))
+	if !exists {
 		return fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
-	b.clusterParameterGroups.Delete(name)
-	arn := "arn:aws:rds:" + b.region + ":" + b.accountID + ":cluster-pg:" + name
+	b.clusterParameterGroups.Delete(normalizeID(name))
+	// Use pg.DBParameterGroupName (the stored, creation-time casing) rather
+	// than the raw name argument -- see normalizeID.
+	arn := "arn:aws:rds:" + b.region + ":" + b.accountID + ":cluster-pg:" + pg.DBParameterGroupName
 	delete(b.tags, arn)
 
 	return nil
@@ -124,7 +127,7 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
 func (b *InMemoryBackend) ModifyDBClusterParameterGroup(name string, params []DBParameter) (string, error) {
 	b.mu.Lock("ModifyDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	pg, exists := b.clusterParameterGroups.Get(name)
+	pg, exists := b.clusterParameterGroups.Get(normalizeID(name))
 	if !exists {
 		return "", fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
@@ -142,7 +145,7 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(name string, params []DB
 func (b *InMemoryBackend) DescribeDBClusterParameters(groupName string) ([]DBParameter, error) {
 	b.mu.RLock("DescribeDBClusterParameters")
 	defer b.mu.RUnlock()
-	pg, exists := b.clusterParameterGroups.Get(groupName)
+	pg, exists := b.clusterParameterGroups.Get(normalizeID(groupName))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, groupName)
 	}
@@ -172,7 +175,7 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 ) (string, error) {
 	b.mu.Lock("ResetDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	pg, exists := b.clusterParameterGroups.Get(groupName)
+	pg, exists := b.clusterParameterGroups.Get(normalizeID(groupName))
 	if !exists {
 		return "", fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, groupName)
 	}

@@ -10,6 +10,59 @@ import (
 	"time"
 )
 
+// policyAttrValue returns the value of the named attribute from a policy's
+// PolicyAttributeDescriptions, or "" if not present.
+func policyAttrValue(p *LoadBalancerPolicy, attrName string) string {
+	for _, a := range p.PolicyAttributeDescriptions {
+		if a.AttributeName == attrName {
+			return a.AttributeValue
+		}
+	}
+
+	return ""
+}
+
+// toXMLPolicies converts a load balancer's policies into the SDK's Policies
+// shape: stickiness policies (App/LB cookie) are reported in their own typed
+// lists, and every other policy (SSL negotiation, proxy protocol, public key,
+// backend-server-auth) is reported by name only in OtherPolicies -- matching
+// types.Policies in the real SDK.
+func toXMLPolicies(policies []LoadBalancerPolicy) xmlPolicies {
+	appCookie := make([]xmlAppCookieStickinessPolicy, 0, len(policies))
+	lbCookie := make([]xmlLBCookieStickinessPolicy, 0, len(policies))
+	other := make([]xmlStringValue, 0, len(policies))
+
+	for i := range policies {
+		p := &policies[i]
+
+		switch p.PolicyTypeName {
+		case policyTypeAppCookie:
+			appCookie = append(appCookie, xmlAppCookieStickinessPolicy{
+				PolicyName: p.PolicyName,
+				CookieName: policyAttrValue(p, "CookieName"),
+			})
+		case policyTypeLBCookie:
+			var expiration int64
+			if v := policyAttrValue(p, "CookieExpirationPeriod"); v != "" {
+				expiration, _ = strconv.ParseInt(v, 10, 64)
+			}
+
+			lbCookie = append(lbCookie, xmlLBCookieStickinessPolicy{
+				PolicyName:             p.PolicyName,
+				CookieExpirationPeriod: expiration,
+			})
+		default:
+			other = append(other, xmlStringValue{Value: p.PolicyName})
+		}
+	}
+
+	return xmlPolicies{
+		AppCookieStickinessPolicies: xmlAppCookieStickinessPolicyList{Members: appCookie},
+		LBCookieStickinessPolicies:  xmlLBCookieStickinessPolicyList{Members: lbCookie},
+		OtherPolicies:               xmlStringValueList{Members: other},
+	}
+}
+
 func (h *Handler) handleCreateLoadBalancer(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
@@ -116,7 +169,17 @@ func (h *Handler) handleDescribeLoadBalancers(ctx context.Context, vals url.Valu
 
 	members := make([]xmlLoadBalancerDescription, 0, len(lbs))
 	for i := range lbs {
-		members = append(members, toXMLLoadBalancer(&lbs[i]))
+		// DescribeLoadBalancers reports each LB's Policies (stickiness +
+		// other policies created against it), matching the real SDK's
+		// LoadBalancerDescription.Policies field. LoadBalancerNotFound
+		// cannot happen here: lbs[i] was just read from the same backend
+		// under lock in DescribeLoadBalancers above.
+		policies, polErr := h.Backend.DescribeLoadBalancerPolicies(ctx, lbs[i].LoadBalancerName, nil)
+		if polErr != nil {
+			return nil, polErr
+		}
+
+		members = append(members, toXMLLoadBalancer(&lbs[i], policies))
 	}
 
 	return &describeLoadBalancersResponse{
@@ -191,7 +254,9 @@ func computeSourceSecurityGroup(lb *LoadBalancer) xmlSourceSecurityGroup {
 }
 
 // toXMLLoadBalancer converts a LoadBalancer to its XML representation.
-func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
+// policies are the load balancer's policies (from DescribeLoadBalancerPolicies),
+// used to populate the Policies field.
+func toXMLLoadBalancer(lb *LoadBalancer, policies []LoadBalancerPolicy) xmlLoadBalancerDescription {
 	azs := make([]xmlStringValue, 0, len(lb.AvailabilityZones))
 	for _, az := range lb.AvailabilityZones {
 		azs = append(azs, xmlStringValue{Value: az})
@@ -262,6 +327,7 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 		BackendServerDescriptions: xmlBackendServerDescriptionList{Members: bsds},
 		Instances:                 xmlInstanceList{Members: instances},
 		HealthCheck:               hc,
+		Policies:                  toXMLPolicies(policies),
 	}
 }
 
@@ -309,9 +375,37 @@ type xmlLoadBalancerDescription struct {
 	Subnets                   xmlStringValueList              `xml:"Subnets"`
 	SourceSecurityGroup       xmlSourceSecurityGroup          `xml:"SourceSecurityGroup"`
 	ListenerDescriptions      xmlListenerDescriptionList      `xml:"ListenerDescriptions"`
+	Policies                  xmlPolicies                     `xml:"Policies"`
 	BackendServerDescriptions xmlBackendServerDescriptionList `xml:"BackendServerDescriptions"`
 	Instances                 xmlInstanceList                 `xml:"Instances"`
 	HealthCheck               xmlHealthCheck                  `xml:"HealthCheck"`
+}
+
+// xmlAppCookieStickinessPolicy is the wire shape of types.AppCookieStickinessPolicy.
+type xmlAppCookieStickinessPolicy struct {
+	PolicyName string `xml:"PolicyName"`
+	CookieName string `xml:"CookieName"`
+}
+
+type xmlAppCookieStickinessPolicyList struct {
+	Members []xmlAppCookieStickinessPolicy `xml:"member"`
+}
+
+// xmlLBCookieStickinessPolicy is the wire shape of types.LBCookieStickinessPolicy.
+type xmlLBCookieStickinessPolicy struct {
+	PolicyName             string `xml:"PolicyName"`
+	CookieExpirationPeriod int64  `xml:"CookieExpirationPeriod,omitempty"`
+}
+
+type xmlLBCookieStickinessPolicyList struct {
+	Members []xmlLBCookieStickinessPolicy `xml:"member"`
+}
+
+// xmlPolicies is the wire shape of types.Policies.
+type xmlPolicies struct {
+	AppCookieStickinessPolicies xmlAppCookieStickinessPolicyList `xml:"AppCookieStickinessPolicies"`
+	LBCookieStickinessPolicies  xmlLBCookieStickinessPolicyList  `xml:"LBCookieStickinessPolicies"`
+	OtherPolicies               xmlStringValueList               `xml:"OtherPolicies"`
 }
 
 type xmlLoadBalancerList struct {

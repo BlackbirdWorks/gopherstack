@@ -12,8 +12,26 @@ func cloneConnection(c *Connection) *Connection {
 	cp := *c
 	cp.ConnectionProperties = maps.Clone(c.ConnectionProperties)
 	cp.Tags = maps.Clone(c.Tags)
+	cp.MatchCriteria = append([]string(nil), c.MatchCriteria...)
+
+	if c.PhysicalConnectionRequirements != nil {
+		pcr := *c.PhysicalConnectionRequirements
+		pcr.SecurityGroupIDList = append([]string(nil), c.PhysicalConnectionRequirements.SecurityGroupIDList...)
+		cp.PhysicalConnectionRequirements = &pcr
+	}
 
 	return &cp
+}
+
+// ConnectionOptions carries the optional ConnectionInput fields beyond
+// Name/ConnectionType/ConnectionProperties that CreateConnection/
+// UpdateConnection predate: Description, MatchCriteria, and
+// PhysicalConnectionRequirements (VPC/subnet/security-group settings, used
+// e.g. by NETWORK-type connections in place of ConnectionProperties).
+type ConnectionOptions struct {
+	PhysicalConnectionRequirements *PhysicalConnectionRequirements
+	Description                    string
+	MatchCriteria                  []string
 }
 
 // BatchDeleteConnection deletes multiple connections.
@@ -58,6 +76,15 @@ func (b *InMemoryBackend) connectionARN(name string) string {
 func (b *InMemoryBackend) CreateConnection(
 	name, connType string, props map[string]string, tags map[string]string,
 ) (*Connection, error) {
+	return b.CreateConnectionWithOptions(name, connType, props, tags, ConnectionOptions{})
+}
+
+// CreateConnectionWithOptions is CreateConnection plus the optional
+// creation-time settings ConnectionInput also supports (Description/
+// MatchCriteria/PhysicalConnectionRequirements).
+func (b *InMemoryBackend) CreateConnectionWithOptions(
+	name, connType string, props map[string]string, tags map[string]string, opts ConnectionOptions,
+) (*Connection, error) {
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
@@ -71,13 +98,16 @@ func (b *InMemoryBackend) CreateConnection(
 
 	now := float64(time.Now().Unix())
 	c := &Connection{
-		Name:                 name,
-		ConnectionType:       connType,
-		ConnectionProperties: maps.Clone(props),
-		Tags:                 maps.Clone(tags),
-		ARN:                  b.connectionARN(name),
-		CreationTime:         now,
-		LastUpdatedTime:      now,
+		Name:                           name,
+		ConnectionType:                 connType,
+		ConnectionProperties:           maps.Clone(props),
+		Tags:                           maps.Clone(tags),
+		ARN:                            b.connectionARN(name),
+		CreationTime:                   now,
+		LastUpdatedTime:                now,
+		Description:                    opts.Description,
+		MatchCriteria:                  append([]string(nil), opts.MatchCriteria...),
+		PhysicalConnectionRequirements: opts.PhysicalConnectionRequirements,
 	}
 	b.connections.Put(c)
 
@@ -127,6 +157,15 @@ func (b *InMemoryBackend) DeleteConnection(name string) error {
 
 // UpdateConnection updates an existing connection's type and properties.
 func (b *InMemoryBackend) UpdateConnection(name string, connType string, props map[string]string) error {
+	return b.UpdateConnectionWithOptions(name, connType, props, ConnectionOptions{})
+}
+
+// UpdateConnectionWithOptions is UpdateConnection plus the optional settings
+// ConnectionInput also supports (Description/MatchCriteria/
+// PhysicalConnectionRequirements).
+func (b *InMemoryBackend) UpdateConnectionWithOptions(
+	name, connType string, props map[string]string, opts ConnectionOptions,
+) error {
 	b.mu.Lock("UpdateConnection")
 	defer b.mu.Unlock()
 
@@ -137,6 +176,9 @@ func (b *InMemoryBackend) UpdateConnection(name string, connType string, props m
 
 	c.ConnectionType = connType
 	c.ConnectionProperties = maps.Clone(props)
+	c.Description = opts.Description
+	c.MatchCriteria = append([]string(nil), opts.MatchCriteria...)
+	c.PhysicalConnectionRequirements = opts.PhysicalConnectionRequirements
 	c.LastUpdatedTime = float64(time.Now().Unix())
 
 	return nil

@@ -42,15 +42,30 @@ func (b *InMemoryBackend) GetBucket(accountID, bucketName string) (*OutpostsBuck
 	return bucket, nil
 }
 
-// DeleteBucket removes an Outposts bucket.
+// DeleteBucket removes an Outposts bucket and cascade-cleans every piece of
+// state keyed off it (lifecycle, policy, tagging, versioning, replication,
+// generic resource tags) so a delete/recreate cycle under the same name
+// never resurfaces stale state from the deleted bucket.
 func (b *InMemoryBackend) DeleteBucket(accountID, bucketName string) error {
 	b.mu.Lock("DeleteBucket")
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if !b.outpostsBuckets.Delete(key) {
+
+	bkt, ok := b.outpostsBuckets.Get(key)
+	if !ok {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
+
+	arn := bkt.BucketArn
+
+	b.outpostsBuckets.Delete(key)
+	delete(b.bucketLifecycle, key)
+	delete(b.bucketPolicies, key)
+	delete(b.bucketTagging, key)
+	delete(b.bucketVersioning, key)
+	delete(b.bucketReplication, key)
+	delete(b.resourceTags, arn)
 
 	return nil
 }

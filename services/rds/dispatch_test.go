@@ -789,11 +789,11 @@ func TestExtendedOperations_DoNotError(t *testing.T) {
 	h := newRDSHandler()
 	h.Backend.CreateDBInstance(
 		"db-test",
-		"db.t3.micro",
 		"mysql",
+		"db.t3.micro",
+		"",
 		"admin",
-		"password",
-		"subnet-1",
+		"",
 		20,
 		rds.DBInstanceOptions{PerformanceInsightsEnabled: true},
 	)

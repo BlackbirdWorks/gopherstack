@@ -262,3 +262,82 @@ func TestDescribeGroup_HiddenFromGlobalAddressList(t *testing.T) {
 		})
 	}
 }
+
+// TestListGroups_Filters locks the ListGroupsInput.Filters wire behavior
+// (NamePrefix/PrimaryEmailPrefix/State): previously accepted on the wire but
+// silently ignored, so a real client's prefix/state search would have
+// gotten back the full unfiltered page.
+func TestListGroups_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	orgID := createTestOrg(t, h, "listgroups-filter-org")
+
+	createTestGroup(t, h, orgID, "eng-team")
+	distID := createTestGroup(t, h, orgID, "eng-distro")
+	require.Equal(t, http.StatusOK, doOp(t, h, "RegisterToWorkMail", fmt.Sprintf(
+		`{"OrganizationId":%q,"EntityId":%q,"Email":"eng-distro@filter.example"}`, orgID, distID,
+	)).Code)
+	createTestGroup(t, h, orgID, "sales-team")
+
+	tests := []struct {
+		filters   string
+		name      string
+		wantNames []string
+	}{
+		{name: "name_prefix", filters: `{"NamePrefix":"eng-"}`, wantNames: []string{"eng-distro", "eng-team"}},
+		{name: "email_prefix", filters: `{"PrimaryEmailPrefix":"eng-distro@"}`, wantNames: []string{"eng-distro"}},
+		{name: "state_enabled", filters: `{"State":"ENABLED"}`, wantNames: []string{"eng-distro"}},
+		{
+			name: "state_disabled", filters: `{"State":"DISABLED"}`,
+			wantNames: []string{"eng-team", "sales-team"},
+		},
+		{name: "no_match", filters: `{"NamePrefix":"nope-"}`, wantNames: nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doOp(t, h, "ListGroups", fmt.Sprintf(`{"OrganizationId":%q,"Filters":%s}`, orgID, tc.filters))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			m := decodeJSON(t, rec)
+			groups, _ := m["Groups"].([]any)
+			gotNames := make([]string, 0, len(groups))
+			for _, g := range groups {
+				gotNames = append(gotNames, g.(map[string]any)["Name"].(string))
+			}
+			assert.ElementsMatch(t, tc.wantNames, gotNames)
+		})
+	}
+}
+
+// TestListGroupsForEntity_GroupNamePrefixFilter locks
+// ListGroupsForEntityInput.Filters.GroupNamePrefix, the operation's single
+// filter dimension (previously accepted on the wire but ignored).
+func TestListGroupsForEntity_GroupNamePrefixFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	orgID := createTestOrg(t, h, "lge-filter-org")
+	userID := createTestUser(t, h, orgID, "lgefiltuser", "LGE Filter User")
+
+	engID := createTestGroup(t, h, orgID, "eng-all")
+	salesID := createTestGroup(t, h, orgID, "sales-all")
+	for _, gid := range []string{engID, salesID} {
+		require.Equal(t, http.StatusOK, doOp(t, h, "AssociateMemberToGroup", fmt.Sprintf(
+			`{"OrganizationId":%q,"GroupId":%q,"MemberId":%q}`, orgID, gid, userID,
+		)).Code)
+	}
+
+	rec := doOp(t, h, "ListGroupsForEntity", fmt.Sprintf(
+		`{"OrganizationId":%q,"EntityId":%q,"Filters":{"GroupNamePrefix":"eng-"}}`, orgID, userID,
+	))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	m := decodeJSON(t, rec)
+	groups, _ := m["Groups"].([]any)
+	require.Len(t, groups, 1)
+	assert.Equal(t, "eng-all", groups[0].(map[string]any)["GroupName"])
+}

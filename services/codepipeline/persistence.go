@@ -15,11 +15,20 @@ import (
 // would make an older snapshot unsafe to decode as the current shape (e.g. a
 // field's meaning or type changes). Restore compares this against the
 // persisted value and discards (rather than attempts to partially decode) any
-// mismatch -- see Restore below. This is the first version: earlier
-// (pre-Phase-3.3) snapshots carried no version field at all, so they also
-// fail this check and are discarded rather than misread, which is the safe
-// behaviour across any snapshot-format change.
-const codepipelineSnapshotVersion = 1
+// mismatch -- see Restore below.
+//
+// Version 1 was the first version (earlier, pre-Phase-3.3 snapshots carried
+// no version field at all, so they also fail this check and are discarded
+// rather than misread). Version 2 added ActionExecutions and ActionRevisions:
+// action executions are no longer purely derived state safely rebuildable by
+// StartPipelineExecution once StartPipelineExecution/PutApprovalResult/
+// RetryStageExecution/RollbackStage can leave one genuinely InProgress,
+// gating on manual approval (see action_engine.go) -- an approval's token
+// lives only on its ActionExecution record, so failing to persist it left a
+// paused execution permanently unresumable across any snapshot/restore
+// cycle. ActionRevisions (PutActionRevision) is similarly real, mutable
+// state with no other source of truth.
+const codepipelineSnapshotVersion = 2
 
 // regionalDTO wraps a region-nested resource value for JSON round-tripping
 // through store.Registry. Table[V].Snapshot's plain json.Marshal(V) cannot
@@ -49,25 +58,44 @@ type executionEntry struct {
 	Executions   []*PipelineExecution `json:"executions"`
 }
 
+// actionExecutionEntry is the JSON-serialisable list of action executions
+// per pipeline, flattened the same way as executionEntry (actionExecutions
+// is likewise a plain region-nested map, not a store.Table).
+type actionExecutionEntry struct {
+	Region       string             `json:"region"`
+	PipelineName string             `json:"pipelineName"`
+	Actions      []*ActionExecution `json:"actions"`
+}
+
+// actionRevisionEntry is the JSON-serialisable form of one
+// actionRevisionsStore entry (region-nested map[key]*ActionRevisionRecord,
+// keyed by actionRevisionKey).
+type actionRevisionEntry struct {
+	Region string               `json:"region"`
+	Key    string               `json:"key"`
+	Value  ActionRevisionRecord `json:"value"`
+}
+
 // backendSnapshot is the top-level on-disk shape for the CodePipeline
 // backend.
 //
 // Tables holds one JSON-encoded array per registered DTO table, produced by
 // [store.Registry.SnapshotAll] -- pipelines, customActionTypes, jobs,
 // webhooks, and stageTransitions, each wrapped in a regionalDTO to carry its
-// region field through. Executions is still a region-nested plain map (see
-// store_setup.go for why it was not converted to store.Table) and is
-// persisted directly via the executionEntry flattening above.
-// actionExecutions is derived state (rebuilt on StartPipelineExecution) and
-// is deliberately not persisted, matching pre-Phase-3.3 behaviour. Version
-// guards against decoding a snapshot from an incompatible (older or newer)
-// build of this backend as though it were the current shape; see Restore.
+// region field through. Executions, ActionExecutions, and ActionRevisions are
+// all plain region-nested maps (see store_setup.go for why they were not
+// converted to store.Table) and are persisted directly via the flattening
+// types above. Version guards against decoding a snapshot from an
+// incompatible (older or newer) build of this backend as though it were the
+// current shape; see Restore.
 type backendSnapshot struct {
-	Tables     map[string]json.RawMessage `json:"tables"`
-	AccountID  string                     `json:"accountID"`
-	Region     string                     `json:"region"`
-	Executions []executionEntry           `json:"executions"`
-	Version    int                        `json:"version"`
+	Tables           map[string]json.RawMessage `json:"tables"`
+	AccountID        string                     `json:"accountID"`
+	Region           string                     `json:"region"`
+	Executions       []executionEntry           `json:"executions"`
+	ActionExecutions []actionExecutionEntry     `json:"actionExecutions"`
+	ActionRevisions  []actionRevisionEntry      `json:"actionRevisions"`
+	Version          int                        `json:"version"`
 }
 
 // customActionTypeKey.String returns a unique string for use as the DTO id
@@ -141,28 +169,69 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
-	execs := make([]executionEntry, 0)
+	snap := backendSnapshot{
+		Version:          codepipelineSnapshotVersion,
+		Tables:           tables,
+		Executions:       flattenExecutions(b.executions),
+		ActionExecutions: flattenActionExecutions(b.actionExecutions),
+		ActionRevisions:  flattenActionRevisions(b.actionRevisions),
+		AccountID:        b.accountID,
+		Region:           b.region,
+	}
 
-	for region, inner := range b.executions {
+	// Marshal can only fail for unsupported types (e.g. channels/functions) which are not present here.
+	return persistence.MarshalSnapshot(ctx, "codepipeline", &snap)
+}
+
+// flattenExecutions converts the region-nested executions map into the flat
+// executionEntry list backendSnapshot persists, factored out of Snapshot to
+// keep its cognitive complexity down. Empty per-pipeline lists are skipped.
+func flattenExecutions(executions map[string]map[string][]*PipelineExecution) []executionEntry {
+	out := make([]executionEntry, 0)
+
+	for region, inner := range executions {
 		for pName, list := range inner {
 			if len(list) == 0 {
 				continue
 			}
 
-			execs = append(execs, executionEntry{Region: region, PipelineName: pName, Executions: list})
+			out = append(out, executionEntry{Region: region, PipelineName: pName, Executions: list})
 		}
 	}
 
-	snap := backendSnapshot{
-		Version:    codepipelineSnapshotVersion,
-		Tables:     tables,
-		Executions: execs,
-		AccountID:  b.accountID,
-		Region:     b.region,
+	return out
+}
+
+// flattenActionExecutions is flattenExecutions' counterpart for the
+// region-nested actionExecutions map.
+func flattenActionExecutions(actionExecutions map[string]map[string][]*ActionExecution) []actionExecutionEntry {
+	out := make([]actionExecutionEntry, 0)
+
+	for region, inner := range actionExecutions {
+		for pName, list := range inner {
+			if len(list) == 0 {
+				continue
+			}
+
+			out = append(out, actionExecutionEntry{Region: region, PipelineName: pName, Actions: list})
+		}
 	}
 
-	// Marshal can only fail for unsupported types (e.g. channels/functions) which are not present here.
-	return persistence.MarshalSnapshot(ctx, "codepipeline", &snap)
+	return out
+}
+
+// flattenActionRevisions is flattenExecutions' counterpart for the
+// region-nested actionRevisions map.
+func flattenActionRevisions(actionRevisions map[string]map[string]*ActionRevisionRecord) []actionRevisionEntry {
+	out := make([]actionRevisionEntry, 0)
+
+	for region, inner := range actionRevisions {
+		for key, rec := range inner {
+			out = append(out, actionRevisionEntry{Region: region, Key: key, Value: *rec})
+		}
+	}
+
+	return out
 }
 
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
@@ -190,6 +259,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.executions = make(map[string]map[string][]*PipelineExecution)
 		b.actionExecutions = make(map[string]map[string][]*ActionExecution)
+		b.actionRevisions = make(map[string]map[string]*ActionRevisionRecord)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 
@@ -212,9 +282,30 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.executions = executions
 
-	// actionExecutions are derived state (rebuilt on StartPipelineExecution) and
-	// are not persisted; ensure the map is initialised after a restore.
-	b.actionExecutions = make(map[string]map[string][]*ActionExecution)
+	actionExecutions := make(map[string]map[string][]*ActionExecution)
+
+	for _, entry := range snap.ActionExecutions {
+		if actionExecutions[entry.Region] == nil {
+			actionExecutions[entry.Region] = make(map[string][]*ActionExecution)
+		}
+
+		actionExecutions[entry.Region][entry.PipelineName] = entry.Actions
+	}
+
+	b.actionExecutions = actionExecutions
+
+	actionRevisions := make(map[string]map[string]*ActionRevisionRecord)
+
+	for _, entry := range snap.ActionRevisions {
+		if actionRevisions[entry.Region] == nil {
+			actionRevisions[entry.Region] = make(map[string]*ActionRevisionRecord)
+		}
+
+		rec := entry.Value
+		actionRevisions[entry.Region][entry.Key] = &rec
+	}
+
+	b.actionRevisions = actionRevisions
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region

@@ -94,7 +94,32 @@ func TestWAF_GeoMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	sets := listResp["GeoMatchSets"].([]any)
 	assert.Len(t, sets, 1)
 
-	// Delete
+	// Delete while non-empty must fail with WAFNonEmptyEntityException.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "DeleteGeoMatchSet", map[string]any{
+		"ChangeToken":   token,
+		"GeoMatchSetId": id,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "WAFNonEmptyEntityException", errType(t, rec.Body.Bytes()))
+
+	// Remove the remaining constraint, then delete succeeds.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "UpdateGeoMatchSet", map[string]any{
+		"ChangeToken":   token,
+		"GeoMatchSetId": id,
+		"Updates": []map[string]any{
+			{
+				"Action": "DELETE",
+				"GeoMatchConstraint": map[string]any{
+					"Type":  "Country",
+					"Value": "RU",
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	token = wafGetToken(t, h)
 	rec = wafDo(t, h, "DeleteGeoMatchSet", map[string]any{
 		"ChangeToken":   token,

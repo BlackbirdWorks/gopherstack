@@ -131,9 +131,6 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "BatchGetBuilds")
 	assert.Contains(t, ops, "StopBuild")
 	assert.Contains(t, ops, "ListBuildsForProject")
-	assert.Contains(t, ops, "ListTagsForResource")
-	assert.Contains(t, ops, "TagResource")
-	assert.Contains(t, ops, "UntagResource")
 	assert.Contains(t, ops, "BatchGetBuildBatches")
 	assert.Contains(t, ops, "BatchGetCommandExecutions")
 	assert.Contains(t, ops, "BatchGetFleets")
@@ -142,6 +139,15 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "CreateFleet")
 	assert.Contains(t, ops, "CreateReportGroup")
 	assert.Contains(t, ops, "CreateWebhook")
+
+	// Real AWS CodeBuild has no generic TagResource/UntagResource/
+	// ListTagsForResource operations (confirmed against
+	// aws-sdk-go-v2/service/codebuild's Client method set) -- tags are only
+	// settable inline via the `tags` field on Create*/Update* calls. Assert
+	// their absence so a future change doesn't silently reintroduce them.
+	assert.NotContains(t, ops, "TagResource")
+	assert.NotContains(t, ops, "UntagResource")
+	assert.NotContains(t, ops, "ListTagsForResource")
 }
 
 func TestHandler_RouteMatcher(t *testing.T) {
@@ -205,7 +211,7 @@ func TestHandler_ChaosOperations(t *testing.T) {
 	}{
 		{
 			name:    "returns all supported operations",
-			wantLen: 62,
+			wantLen: 59,
 			wantOps: []string{
 				"CreateProject",
 				"BatchGetProjects",
@@ -418,7 +424,9 @@ func TestBackend_Reset(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateFleet("reset-fleet", 1, "BUILD_GENERAL1_SMALL", "LINUX_CONTAINER", nil)
+	_, err = b.CreateFleet("reset-fleet", 1, codebuild.CreateFleetOptions{
+		ComputeType: "BUILD_GENERAL1_SMALL", EnvironmentType: "LINUX_CONTAINER",
+	})
 	require.NoError(t, err)
 
 	_, err = b.CreateReportGroup("reset-rg", "TEST", codebuild.ReportExportConfig{}, nil)

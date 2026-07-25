@@ -340,3 +340,43 @@ func TestModifyUserGroup(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_UserGroup_ReplicationGroupsWireShape locks the UserGroup
+// response's ReplicationGroups field (types.UserGroup.ReplicationGroups) --
+// the reverse of a ReplicationGroup's UserGroupIds -- which a prior pass
+// left entirely unwired even though a placeholder model field existed.
+// Field-diffed against aws-sdk-go-v2's deserializer for the UserGroup
+// document (element name "ReplicationGroups", unlabeled <member> list).
+func TestHandler_UserGroup_ReplicationGroupsWireShape(t *testing.T) {
+	t.Parallel()
+
+	client := newTestStack(t)
+
+	_, err := client.CreateUserGroup(t.Context(), &elasticachesdk.CreateUserGroupInput{
+		UserGroupId: aws.String("rg-linked-group"),
+		Engine:      aws.String("redis"),
+	})
+	require.NoError(t, err)
+
+	// Freshly created, not yet attached to any replication group.
+	created, err := client.DescribeUserGroups(t.Context(), &elasticachesdk.DescribeUserGroupsInput{
+		UserGroupId: aws.String("rg-linked-group"),
+	})
+	require.NoError(t, err)
+	require.Len(t, created.UserGroups, 1)
+	assert.Empty(t, created.UserGroups[0].ReplicationGroups)
+
+	_, err = client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+		ReplicationGroupId:          aws.String("rg-links-to-group"),
+		ReplicationGroupDescription: aws.String("d"),
+		UserGroupIds:                []string{"rg-linked-group"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeUserGroups(t.Context(), &elasticachesdk.DescribeUserGroupsInput{
+		UserGroupId: aws.String("rg-linked-group"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.UserGroups, 1)
+	assert.Equal(t, []string{"rg-links-to-group"}, out.UserGroups[0].ReplicationGroups)
+}

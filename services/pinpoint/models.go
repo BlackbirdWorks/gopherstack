@@ -65,10 +65,15 @@ type Campaign struct {
 }
 
 // EmailTemplate represents a Pinpoint email template.
+//
+// DefaultSubstitutions is a JSON-encoded string on the wire (confirmed
+// against aws-sdk-go-v2/service/pinpoint's deserializers.go, which decodes
+// it via a plain string type-assertion), NOT a nested JSON object -- the
+// same is true for PushTemplate, SmsTemplate, and VoiceTemplate.
 type EmailTemplate struct {
 	ARN                  string            `json:"Arn,omitempty"`
 	CreationDate         string            `json:"CreationDate,omitempty"`
-	DefaultSubstitutions map[string]any    `json:"DefaultSubstitutions,omitempty"`
+	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
 	HTMLPart             string            `json:"HtmlPart,omitempty"`
 	LastModifiedDate     string            `json:"LastModifiedDate,omitempty"`
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
@@ -76,6 +81,7 @@ type EmailTemplate struct {
 	Tags                 map[string]string `json:"tags,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 	TemplateName         string            `json:"TemplateName"`
+	TemplateType         string            `json:"TemplateType"`
 	TextPart             string            `json:"TextPart,omitempty"`
 	Version              string            `json:"Version,omitempty"`
 }
@@ -107,12 +113,14 @@ type ImportJob struct {
 // InAppTemplate represents a Pinpoint in-app template.
 type InAppTemplate struct {
 	Tags                map[string]string `json:"tags,omitempty"`
+	CustomConfig        map[string]string `json:"CustomConfig,omitempty"`
 	ARN                 string            `json:"Arn,omitempty"`
 	CreationDate        string            `json:"CreationDate,omitempty"`
 	LastModifiedDate    string            `json:"LastModifiedDate,omitempty"`
 	Layout              string            `json:"Layout,omitempty"`
 	TemplateDescription string            `json:"TemplateDescription,omitempty"`
 	TemplateName        string            `json:"TemplateName"`
+	TemplateType        string            `json:"TemplateType"`
 	Version             string            `json:"Version,omitempty"`
 	Content             []map[string]any  `json:"Content,omitempty"`
 }
@@ -142,19 +150,34 @@ type Journey struct {
 }
 
 // PushTemplate represents a Pinpoint push notification template.
+//
+// ADM/APNS/Baidu/Default/GCM are stored as generic maps (matching the
+// project's existing convention for nested platform-override objects, e.g.
+// Campaign.MessageConfiguration) rather than fully typed
+// AndroidPushNotificationTemplate/APNSPushNotificationTemplate/
+// DefaultPushNotificationTemplate structs -- gopherstack does not validate
+// their sub-fields, it only round-trips them.
+//
+// There is no top-level Body/Title on the real PushNotificationTemplateRequest/
+// PushNotificationTemplateResponse types (aws-sdk-go-v2/service/pinpoint/types) --
+// those fields live inside ADM/APNS/Baidu/Default/GCM. A prior pass had
+// invented top-level Body/Title fields that don't exist on the wire; removed.
 type PushTemplate struct {
-	APNS                map[string]any    `json:"APNS,omitempty"`
-	Default             map[string]any    `json:"Default,omitempty"`
-	GCM                 map[string]any    `json:"GCM,omitempty"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	ARN                 string            `json:"Arn,omitempty"`
-	Body                string            `json:"Body,omitempty"`
-	CreationDate        string            `json:"CreationDate,omitempty"`
-	LastModifiedDate    string            `json:"LastModifiedDate,omitempty"`
-	TemplateDescription string            `json:"TemplateDescription,omitempty"`
-	TemplateName        string            `json:"TemplateName"`
-	Title               string            `json:"Title,omitempty"`
-	Version             string            `json:"Version,omitempty"`
+	ADM                  map[string]any    `json:"ADM,omitempty"`
+	APNS                 map[string]any    `json:"APNS,omitempty"`
+	Baidu                map[string]any    `json:"Baidu,omitempty"`
+	Default              map[string]any    `json:"Default,omitempty"`
+	GCM                  map[string]any    `json:"GCM,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	ARN                  string            `json:"Arn,omitempty"`
+	CreationDate         string            `json:"CreationDate,omitempty"`
+	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
+	LastModifiedDate     string            `json:"LastModifiedDate,omitempty"`
+	RecommenderID        string            `json:"RecommenderId,omitempty"`
+	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	TemplateName         string            `json:"TemplateName"`
+	TemplateType         string            `json:"TemplateType"`
+	Version              string            `json:"Version,omitempty"`
 }
 
 // RecommenderConfiguration represents a Pinpoint recommender configuration.
@@ -188,16 +211,24 @@ type Segment struct {
 }
 
 // SmsTemplate represents a Pinpoint SMS template.
+//
+// There is no SenderId field on the real SMSTemplateRequest/SMSTemplateResponse
+// types (aws-sdk-go-v2/service/pinpoint/types) -- confirmed against both the
+// serializer (awsRestjson1_serializeDocumentSMSTemplateRequest) and
+// deserializer. SenderId is an SMS *channel* setting (SMSChannelRequest), not
+// a template field. A prior pass had invented it on the template; removed.
 type SmsTemplate struct {
-	ARN                 string            `json:"Arn,omitempty"`
-	Body                string            `json:"Body,omitempty"`
-	CreationDate        string            `json:"CreationDate,omitempty"`
-	LastModifiedDate    string            `json:"LastModifiedDate,omitempty"`
-	SenderID            string            `json:"SenderId,omitempty"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	TemplateDescription string            `json:"TemplateDescription,omitempty"`
-	TemplateName        string            `json:"TemplateName"`
-	Version             string            `json:"Version,omitempty"`
+	ARN                  string            `json:"Arn,omitempty"`
+	Body                 string            `json:"Body,omitempty"`
+	CreationDate         string            `json:"CreationDate,omitempty"`
+	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
+	LastModifiedDate     string            `json:"LastModifiedDate,omitempty"`
+	RecommenderID        string            `json:"RecommenderId,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	TemplateName         string            `json:"TemplateName"`
+	TemplateType         string            `json:"TemplateType"`
+	Version              string            `json:"Version,omitempty"`
 }
 
 // nowRFC3339 returns the current UTC time formatted as RFC 3339.

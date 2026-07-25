@@ -35,6 +35,15 @@ const errCodeInvalidParameter = "InvalidParameterException"
 // code is errCodeInvalidParameter.
 var ErrValidation = errors.New(errCodeInvalidParameter)
 
+// ErrPaginationTokenExpired is returned when a GetResources/GetTagKeys/GetTagValues
+// PaginationToken does not correspond to any item in the current result set. Real AWS
+// pagination tokens are valid for a maximum of 15 minutes (see
+// aws-sdk-go-v2/service/resourcegroupstaggingapi/types/errors.go); this in-memory
+// backend has no encoded timestamp to check, so any token that fails to resolve --
+// malformed, stale, or referencing a since-removed resource -- is treated as expired,
+// matching real AWS's documented behavior for an unresolvable token.
+var ErrPaginationTokenExpired = errors.New("PaginationTokenExpiredException")
+
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
 

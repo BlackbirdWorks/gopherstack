@@ -87,6 +87,16 @@ func (b *Broker) Start(ctx context.Context) error {
 	return nil
 }
 
+// Run implements worker.Runner, adapting Start's blocking-with-error shape to
+// the fire-and-forget Runner contract used by worker.SingleRun so
+// Handler.Shutdown can deterministically drain the broker goroutine.
+func (b *Broker) Run(ctx context.Context) {
+	log := logger.Load(ctx)
+	if err := b.Start(ctx); err != nil {
+		log.ErrorContext(ctx, "IoT MQTT broker stopped", "error", err)
+	}
+}
+
 // Publish delivers a message directly to the broker (used by the IoT Data Plane).
 func (b *Broker) Publish(topic string, payload []byte, retain bool, qos byte) error {
 	s := b.server.Load()

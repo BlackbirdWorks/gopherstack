@@ -118,6 +118,10 @@ func (j *Janitor) advanceJobs(ctx context.Context) {
 		if job, ok := j.Backend.jobs.Get(key); ok && !isTerminalJobStatus(job.Status) {
 			job.Status = JobStatusSucceed
 			job.EndTime = now
+			// Real Amplify jobs produce build output on success; without
+			// this, ListArtifacts/GetArtifactUrl would have nothing to ever
+			// return (see artifacts.go's newBuildArtifact doc comment).
+			j.Backend.artifacts.Put(newBuildArtifact(job))
 		}
 	}
 

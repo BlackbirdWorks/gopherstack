@@ -91,7 +91,7 @@ func (h *Handler) handleListModelPackages(ctx context.Context, body []byte) ([]b
 			"ModelPackageName":   mp.ModelPackageName,
 			"ModelPackageArn":    mp.ModelPackageArn,
 			"ModelPackageStatus": mp.ModelPackageStatus,
-			keyCreationTime:      mp.CreationTime,
+			keyCreationTime:      epochSeconds(mp.CreationTime),
 		})
 	}
 
@@ -184,7 +184,7 @@ func (h *Handler) handleListModelPackageGroups(ctx context.Context, body []byte)
 			"ModelPackageGroupName":   g.ModelPackageGroupName,
 			"ModelPackageGroupArn":    g.ModelPackageGroupArn,
 			"ModelPackageGroupStatus": g.ModelPackageGroupStatus,
-			keyCreationTime:           g.CreationTime,
+			keyCreationTime:           epochSeconds(g.CreationTime),
 		})
 	}
 

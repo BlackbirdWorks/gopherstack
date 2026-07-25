@@ -57,7 +57,7 @@ func (h *Handler) handleGetAnalyzedResource(query string) (any, int, error) {
 		return nil, 0, err
 	}
 
-	return map[string]any{"resource": analyzedResourceToJSON(ar)}, http.StatusOK, nil
+	return map[string]any{"resource": analyzedResourceToJSON(ar, h.Backend.AccountID())}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListAnalyzedResources(body []byte) (any, int, error) {
@@ -77,12 +77,16 @@ func (h *Handler) handleListAnalyzedResources(body []byte) (any, int, error) {
 		return nil, 0, err
 	}
 
+	accountID := h.Backend.AccountID()
 	list := make([]any, 0, len(resources))
 
 	for _, ar := range resources {
+		// AnalyzedResourceSummary: resourceArn/resourceOwnerAccount/
+		// resourceType are all required members.
 		list = append(list, map[string]any{
-			"resourceArn":   ar.ResourceArn,
-			keyResourceType: ar.ResourceType,
+			"resourceArn":        ar.ResourceArn,
+			keyResourceType:      ar.ResourceType,
+			keyResourceOwnerAcct: accountID,
 		})
 	}
 
@@ -114,14 +118,21 @@ func (h *Handler) handleStartResourceScan(body []byte) (int, error) {
 
 // ---- JSON serialization ----
 
-func analyzedResourceToJSON(ar *AnalyzedResource) map[string]any {
+// analyzedResourceToJSON builds the types.AnalyzedResource wire shape used
+// by GetAnalyzedResource. resourceOwnerAccount is a required member (see
+// AnalyzedResourceSummary's, used by ListAnalyzedResources); InMemoryBackend
+// does not track it per-resource, so it defaults to the backend's own
+// account, the same convention findingToJSON uses for Finding's
+// resourceOwnerAccount.
+func analyzedResourceToJSON(ar *AnalyzedResource, accountID string) map[string]any {
 	return map[string]any{
-		"resourceArn":   ar.ResourceArn,
-		keyResourceType: ar.ResourceType,
-		keyAnalyzerArn:  ar.AnalyzerArn,
-		"isPublic":      ar.IsPublic,
-		keyCreatedAt:    ar.CreatedAt.Format(time.RFC3339),
-		keyUpdatedAt:    ar.UpdatedAt.Format(time.RFC3339),
-		keyAnalyzedAt:   ar.AnalyzedAt.Format(time.RFC3339),
+		"resourceArn":        ar.ResourceArn,
+		keyResourceType:      ar.ResourceType,
+		keyAnalyzerArn:       ar.AnalyzerArn,
+		keyResourceOwnerAcct: accountID,
+		"isPublic":           ar.IsPublic,
+		keyCreatedAt:         ar.CreatedAt.Format(time.RFC3339),
+		keyUpdatedAt:         ar.UpdatedAt.Format(time.RFC3339),
+		keyAnalyzedAt:        ar.AnalyzedAt.Format(time.RFC3339),
 	}
 }

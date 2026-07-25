@@ -8,15 +8,24 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// CreateModelImportJob creates a new model import job.
-//
-//nolint:dupl // Identical structure to CreateModelCopyJob; different types.
+// CreateModelImportJob creates a new model import job. importedModelName,
+// roleArn, and modelDataSourceS3Uri mirror the real CreateModelImportJobInput's
+// required ImportedModelName/RoleArn/ModelDataSource fields -- gopherstack
+// previously accepted only jobName+tags, silently dropping all three.
 func (b *InMemoryBackend) CreateModelImportJob(
-	jobName string,
+	jobName, importedModelName, roleArn, modelDataSourceS3Uri string,
 	tags []Tag,
 ) (*ModelImportJob, error) {
 	if jobName == "" {
 		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
+	}
+
+	if importedModelName == "" {
+		return nil, fmt.Errorf("%w: importedModelName is required", ErrValidation)
+	}
+
+	if roleArn == "" {
+		return nil, fmt.Errorf("%w: roleArn is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateModelImportJob")
@@ -29,13 +38,16 @@ func (b *InMemoryBackend) CreateModelImportJob(
 	now := time.Now().UTC()
 
 	job := &ModelImportJob{
-		JobArn:           jobARN,
-		JobName:          jobName,
-		ImportedModelArn: importedModelARN,
-		Status:           statusInProgress,
-		CreationTime:     now,
-		LastModifiedTime: now,
-		Tags:             copyTags(tags),
+		JobArn:            jobARN,
+		JobName:           jobName,
+		ImportedModelArn:  importedModelARN,
+		ImportedModelName: importedModelName,
+		RoleArn:           roleArn,
+		ModelDataSourceS3: modelDataSourceS3Uri,
+		Status:            statusInProgress,
+		CreationTime:      now,
+		LastModifiedTime:  now,
+		Tags:              copyTags(tags),
 	}
 	b.modelImportJobs.Put(job)
 
@@ -99,25 +111,43 @@ func (b *InMemoryBackend) GetImportedModel(modelARN string) (*ModelImportJob, er
 	return nil, fmt.Errorf("%w: imported model %s not found", ErrNotFound, modelARN)
 }
 
-// ListImportedModels returns the import jobs that have completed and have an imported model ARN.
-func (b *InMemoryBackend) ListImportedModels() []*ModelImportJob {
+// ListImportedModels returns imported models (import jobs with an imported
+// model ARN), optionally filtered by nameContains (matched against
+// ImportedModelName) and creation-time range, sorted and paginated.
+func (b *InMemoryBackend) ListImportedModels(
+	nameContains string,
+	creationTimeAfter, creationTimeBefore *time.Time,
+	nextToken string,
+) ([]*ModelImportJob, string) {
 	b.mu.RLock("ListImportedModels")
 	defer b.mu.RUnlock()
 
-	var models []*ModelImportJob
+	models := make([]*ModelImportJob, 0, b.modelImportJobs.Len())
+
 	for _, j := range b.modelImportJobs.All() {
-		if j.ImportedModelArn != "" {
-			cp := *j
-			cp.Tags = copyTags(j.Tags)
-			models = append(models, &cp)
+		if j.ImportedModelArn == "" {
+			continue
 		}
+		if nameContains != "" && !containsIgnoreCase(j.ImportedModelName, nameContains) {
+			continue
+		}
+		if creationTimeAfter != nil && !j.CreationTime.After(*creationTimeAfter) {
+			continue
+		}
+		if creationTimeBefore != nil && !j.CreationTime.Before(*creationTimeBefore) {
+			continue
+		}
+
+		cp := *j
+		cp.Tags = copyTags(j.Tags)
+		models = append(models, &cp)
 	}
 
 	sort.Slice(models, func(i, k int) bool {
 		return models[i].CreationTime.Before(models[k].CreationTime)
 	})
 
-	return models
+	return paginateBedrockSlice(models, nextToken)
 }
 
 // DeleteImportedModel removes the import job whose importedModelArn matches.

@@ -1,6 +1,7 @@
 package applicationautoscaling
 
 import (
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"sort"
@@ -88,8 +89,13 @@ func actionNameKey(serviceNamespace, resourceID, scalableDimension, scheduledAct
 
 // mergeTags merges src into dst enforcing the per-resource tag limit.
 // dst must be non-nil; callers are responsible for initialising it before the call.
-// Returns an error if the merge would exceed the limit.
-func mergeTags(dst map[string]string, src map[string]string) error {
+// overLimitErr is the sentinel to wrap when the merge would exceed the limit:
+// callers must pass the AWS exception type modeled for their operation --
+// TagResource models TooManyTagsException (ErrTooManyTags), while
+// RegisterScalableTarget's modeled error set has no TooManyTagsException at
+// all and uses LimitExceededException (ErrLimitExceeded) instead (confirmed
+// against each op's deserializeOpError* switch in the vendored SDK).
+func mergeTags(dst map[string]string, src map[string]string, overLimitErr error) error {
 	if len(src) == 0 {
 		return nil
 	}
@@ -105,7 +111,7 @@ func mergeTags(dst map[string]string, src map[string]string) error {
 	if len(dst)+netNew > maxTagsPerResource {
 		return fmt.Errorf(
 			"%w: tag count would exceed maximum allowed (%d)",
-			ErrValidation,
+			overLimitErr,
 			maxTagsPerResource,
 		)
 	}
@@ -115,22 +121,56 @@ func mergeTags(dst map[string]string, src map[string]string) error {
 	return nil
 }
 
+// encodePageToken opaquely encodes a sort-key cursor. Real AWS NextToken
+// values are opaque (never a raw resource identifier); base64-encoding here
+// also gives paginate a cheap, genuine way to detect a malformed NextToken
+// and return InvalidNextTokenException, matching every Describe* op's
+// modeled error set (confirmed against each op's deserializeOpError* switch
+// in the vendored SDK -- all four Describe ops here model
+// InvalidNextTokenException).
+func encodePageToken(key string) string {
+	return base64.StdEncoding.EncodeToString([]byte(key))
+}
+
+// decodePageToken reverses [encodePageToken]. An empty token decodes to "",
+// which paginate treats as "start of list". A non-empty token that fails to
+// base64-decode is reported via ok=false so the caller can surface
+// InvalidNextTokenException instead of silently treating it as valid.
+func decodePageToken(token string) (string, bool) {
+	if token == "" {
+		return "", true
+	}
+
+	b, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return "", false
+	}
+
+	return string(b), true
+}
+
 // paginate sorts list by keyFn, applies the opaque nextToken cursor, and returns
 // at most maxResults items plus the token for the following page (empty when the
-// page is the last). The token is the sort key of the first item of the next
-// page, which is a stable cursor as long as keyFn is unique and ordering is
-// deterministic. This is what lets Application Auto Scaling Describe* ops report
-// a real NextToken rather than always-empty.
-func paginate[T any](list []T, maxResults int32, nextToken string, keyFn func(T) string) ([]T, string) {
+// page is the last). The cursor is the base64-encoded sort key of the first item
+// of the next page (see [encodePageToken]), which is a stable cursor as long as
+// keyFn is unique and ordering is deterministic. This is what lets Application
+// Auto Scaling Describe* ops report a real NextToken rather than always-empty.
+// Returns ErrInvalidNextToken if nextToken is non-empty and fails to decode.
+func paginate[T any](list []T, maxResults int32, nextToken string, keyFn func(T) string) ([]T, string, error) {
 	sort.Slice(list, func(i, j int) bool {
 		return keyFn(list[i]) < keyFn(list[j])
 	})
 
+	cursor, ok := decodePageToken(nextToken)
+	if !ok {
+		return nil, "", fmt.Errorf("%w: NextToken is invalid", ErrInvalidNextToken)
+	}
+
 	start := 0
 
-	if nextToken != "" {
+	if cursor != "" {
 		for i := range list {
-			if keyFn(list[i]) >= nextToken {
+			if keyFn(list[i]) >= cursor {
 				start = i
 
 				break
@@ -151,10 +191,10 @@ func paginate[T any](list []T, maxResults int32, nextToken string, keyFn func(T)
 
 	next := ""
 	if end < len(list) {
-		next = keyFn(list[end])
+		next = encodePageToken(keyFn(list[end]))
 	}
 
-	return page, next
+	return page, next, nil
 }
 
 // Reset clears all backend state, resetting to an empty store.

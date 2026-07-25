@@ -554,55 +554,260 @@ func TestGetPipelineState_PipelineVersion(t *testing.T) {
 
 // TestParity_GetJobDetails_DataPopulated verifies data.actionTypeId is populated.
 
-func TestHandler_RetryRollbackOverride(t *testing.T) {
+// TestHandler_RetryStageExecution_RequiresFailedAction locks in real AWS's
+// precondition for RetryStageExecution: a stage is only retryable once one
+// of its actions has actually failed. Before this fix, RetryStageExecution
+// fabricated a 200/InProgress response for ANY existing pipeline+execution
+// regardless of stage state, so this pass could never distinguish "stage
+// legitimately failed" from "stage never ran" -- StageNotRetryableException
+// is the real AWS error for the latter (verified against
+// aws-sdk-go-v2/service/codepipeline/types/errors.go).
+func TestHandler_RetryStageExecution_RequiresFailedAction(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	doRequest(t, h, "CreatePipeline", map[string]any{
-		"pipeline": samplePipeline("retry-pipeline"),
-	})
+	doRequest(t, h, "CreatePipeline", map[string]any{"pipeline": samplePipeline("retry-pipeline")})
 	startRec := doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "retry-pipeline"})
-	startResp := decodeBody(t, startRec.Body.Bytes())
-	execID, _ := startResp["pipelineExecutionId"].(string)
+	execID, _ := decodeBody(t, startRec.Body.Bytes())["pipelineExecutionId"].(string)
+	require.NotEmpty(t, execID)
 
-	// Retry stage execution
-	rec := doRequest(t, h, "RetryStageExecution", map[string]any{
-		"pipelineName":        "retry-pipeline",
-		"stageName":           "Source",
-		"pipelineExecutionId": execID,
-		"retryMode":           "FAILED_ACTIONS",
+	tests := []struct {
+		input      map[string]any
+		name       string
+		wantType   string
+		httpStatus int
+	}{
+		{
+			name: "no failed action is not retryable",
+			input: map[string]any{
+				"pipelineName": "retry-pipeline", "stageName": "Source",
+				"pipelineExecutionId": execID, "retryMode": "FAILED_ACTIONS",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantType:   "StageNotRetryableException",
+		},
+		{
+			name: "unknown stage",
+			input: map[string]any{
+				"pipelineName": "retry-pipeline", "stageName": "NoSuchStage",
+				"pipelineExecutionId": execID, "retryMode": "FAILED_ACTIONS",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantType:   "StageNotFoundException",
+		},
+		{
+			name: "unknown execution",
+			input: map[string]any{
+				"pipelineName": "retry-pipeline", "stageName": "Source",
+				"pipelineExecutionId": "no-such-execution", "retryMode": "FAILED_ACTIONS",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantType:   "PipelineExecutionNotFoundException",
+		},
+		{
+			name: "invalid retryMode",
+			input: map[string]any{
+				"pipelineName": "retry-pipeline", "stageName": "Source", "pipelineExecutionId": execID,
+			},
+			httpStatus: http.StatusBadRequest,
+			wantType:   "ValidationException",
+		},
+		{
+			name:       "missing pipelineName",
+			input:      map[string]any{},
+			httpStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, "RetryStageExecution", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+
+			if tt.wantType != "" {
+				assert.Equal(t, tt.wantType, decodeBody(t, rec.Body.Bytes())["__type"])
+			}
+		})
+	}
+}
+
+// TestHandler_RetryStageExecution_ResumesAfterRejectedApproval exercises the
+// full real path to a genuinely retryable stage: an Approval action gates
+// StartPipelineExecution, PutApprovalResult Rejects it (failing the stage),
+// and RetryStageExecution then succeeds, resuming the SAME execution through
+// to a terminal Succeeded status.
+func TestHandler_RetryStageExecution_ResumesAfterRejectedApproval(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreatePipeline", map[string]any{"pipeline": approvalPipeline("retry-approval-pipeline")})
+	startRec := doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "retry-approval-pipeline"})
+	execID, _ := decodeBody(t, startRec.Body.Bytes())["pipelineExecutionId"].(string)
+	require.NotEmpty(t, execID)
+
+	stateRec := doRequest(t, h, "GetPipelineState", map[string]any{"name": "retry-approval-pipeline"})
+	token := approvalToken(t, decodeBody(t, stateRec.Body.Bytes()), "Approve", "ApprovalAction")
+	require.NotEmpty(t, token)
+
+	rejectRec := doRequest(t, h, "PutApprovalResult", map[string]any{
+		"pipelineName": "retry-approval-pipeline", "stageName": "Approve", "actionName": "ApprovalAction",
+		"token":  token,
+		"result": map[string]any{"status": "Rejected", "summary": "not ready"},
 	})
-	assert.Equal(t, 200, rec.Code)
+	require.Equal(t, http.StatusOK, rejectRec.Code)
 
-	// Missing name
-	rec = doRequest(t, h, "RetryStageExecution", map[string]any{})
-	assert.Equal(t, 400, rec.Code)
-
-	// Rollback stage
-	rec = doRequest(t, h, "RollbackStage", map[string]any{
-		"pipelineName":              "retry-pipeline",
-		"stageName":                 "Source",
-		"targetPipelineExecutionId": execID,
+	failedRec := doRequest(t, h, "GetPipelineExecution", map[string]any{
+		"pipelineName": "retry-approval-pipeline", "pipelineExecutionId": execID,
 	})
-	assert.Equal(t, 200, rec.Code)
+	failedOut := decodeBody(t, failedRec.Body.Bytes())
+	pe, _ := failedOut["pipelineExecution"].(map[string]any)
+	require.Equal(t, "Failed", pe["status"], "rejected approval must fail the pipeline execution")
 
-	// Missing name
-	rec = doRequest(t, h, "RollbackStage", map[string]any{})
-	assert.Equal(t, 400, rec.Code)
-
-	// Override stage condition
-	rec = doRequest(t, h, "OverrideStageCondition", map[string]any{
-		"pipelineName":        "retry-pipeline",
-		"stageName":           "Source",
-		"pipelineExecutionId": execID,
-		"conditionType":       "BEFORE_ENTRY",
+	retryRec := doRequest(t, h, "RetryStageExecution", map[string]any{
+		"pipelineName": "retry-approval-pipeline", "stageName": "Approve",
+		"pipelineExecutionId": execID, "retryMode": "FAILED_ACTIONS",
 	})
-	assert.Equal(t, 200, rec.Code)
+	require.Equal(t, http.StatusOK, retryRec.Code)
 
-	// Missing name
-	rec = doRequest(t, h, "OverrideStageCondition", map[string]any{})
-	assert.Equal(t, 400, rec.Code)
+	retryOut := decodeBody(t, retryRec.Body.Bytes())
+	assert.Equal(t, execID, retryOut["pipelineExecutionId"], "retry resumes the SAME execution, not a new one")
+
+	succeededRec := doRequest(t, h, "GetPipelineExecution", map[string]any{
+		"pipelineName": "retry-approval-pipeline", "pipelineExecutionId": execID,
+	})
+	succeededOut := decodeBody(t, succeededRec.Body.Bytes())
+	pe, _ = succeededOut["pipelineExecution"].(map[string]any)
+	assert.Equal(t, "Succeeded", pe["status"], "retry must resume through Deploy to a terminal status")
+}
+
+// TestHandler_RollbackStage covers RollbackStage's real precondition (the
+// target execution must have actually succeeded through the given stage --
+// UnableToRollbackStageException otherwise) and its successful path, which
+// creates and persists a new ROLLBACK-type PipelineExecution rather than
+// fabricating an unpersisted response.
+func TestHandler_RollbackStage(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreatePipeline", map[string]any{"pipeline": samplePipeline("rollback-pipeline")})
+	startRec := doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "rollback-pipeline"})
+	execID, _ := decodeBody(t, startRec.Body.Bytes())["pipelineExecutionId"].(string)
+	require.NotEmpty(t, execID)
+
+	t.Run("missing pipelineName", func(t *testing.T) {
+		t.Parallel()
+		rec := doRequest(t, h, "RollbackStage", map[string]any{})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("unknown target execution is not rollback-able", func(t *testing.T) {
+		t.Parallel()
+		rec := doRequest(t, h, "RollbackStage", map[string]any{
+			"pipelineName":              "rollback-pipeline",
+			"stageName":                 "Source",
+			"targetPipelineExecutionId": "no-such-execution",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, "UnableToRollbackStageException", decodeBody(t, rec.Body.Bytes())["__type"])
+	})
+
+	t.Run("succeeded target rolls back and persists a new execution", func(t *testing.T) {
+		t.Parallel()
+		rec := doRequest(t, h, "RollbackStage", map[string]any{
+			"pipelineName": "rollback-pipeline", "stageName": "Source", "targetPipelineExecutionId": execID,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		out := decodeBody(t, rec.Body.Bytes())
+		newExecID, _ := out["pipelineExecutionId"].(string)
+		require.NotEmpty(t, newExecID)
+		require.NotEqual(t, execID, newExecID, "rollback creates a NEW execution, distinct from the target")
+
+		getRec := doRequest(t, h, "GetPipelineExecution", map[string]any{
+			"pipelineName": "rollback-pipeline", "pipelineExecutionId": newExecID,
+		})
+		require.Equal(t, http.StatusOK, getRec.Code, "the rollback execution must actually be persisted")
+
+		getOut := decodeBody(t, getRec.Body.Bytes())
+		pe, _ := getOut["pipelineExecution"].(map[string]any)
+		assert.Equal(t, "Succeeded", pe["status"])
+		assert.Equal(t, "ROLLBACK", pe["executionType"])
+
+		meta, _ := pe["rollbackMetadata"].(map[string]any)
+		assert.Equal(t, execID, meta["rollbackTargetPipelineExecutionId"])
+	})
+}
+
+// TestHandler_OverrideStageCondition covers the validated-but-not-mutating
+// path documented in pipeline_state.go's OverrideStageCondition: this
+// backend has no condition-rule engine, so success just means the pipeline,
+// stage, and execution referenced by the request were all confirmed real.
+func TestHandler_OverrideStageCondition(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreatePipeline", map[string]any{"pipeline": samplePipeline("override-pipeline")})
+	startRec := doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "override-pipeline"})
+	execID, _ := decodeBody(t, startRec.Body.Bytes())["pipelineExecutionId"].(string)
+	require.NotEmpty(t, execID)
+
+	tests := []struct {
+		input      map[string]any
+		name       string
+		wantType   string
+		httpStatus int
+	}{
+		{
+			name: "success",
+			input: map[string]any{
+				"pipelineName": "override-pipeline", "stageName": "Source",
+				"pipelineExecutionId": execID, "conditionType": "BEFORE_ENTRY",
+			},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name: "unknown execution",
+			input: map[string]any{
+				"pipelineName": "override-pipeline", "stageName": "Source",
+				"pipelineExecutionId": "no-such-execution", "conditionType": "BEFORE_ENTRY",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantType:   "PipelineExecutionNotFoundException",
+		},
+		{
+			name: "invalid conditionType",
+			input: map[string]any{
+				"pipelineName": "override-pipeline", "stageName": "Source",
+				"pipelineExecutionId": execID, "conditionType": "NOT_A_TYPE",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantType:   "ValidationException",
+		},
+		{
+			name:       "missing pipelineName",
+			input:      map[string]any{},
+			httpStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, "OverrideStageCondition", tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+
+			if tt.wantType != "" {
+				assert.Equal(t, tt.wantType, decodeBody(t, rec.Body.Bytes())["__type"])
+			}
+		})
+	}
 }
 
 // ---- Webhook tests ----
