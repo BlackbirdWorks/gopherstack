@@ -89,6 +89,18 @@ leaks: {status: clean, note: "isolation_test.go / leak_test.go already cover tim
     field's documented scope) and `ExportOption`. This closes the gap row
     from the prior pass ("CertificateSummary omits optional AWS fields
     ... entirely"). `ManagedBy` remains out of scope (see gaps).
+    Follow-up fix: `CertificateSummary.KeyUsages`/`ExtendedKeyUsages` were
+    initially projected using the *same* `[]{"Name": "..."}` object-wrapped
+    shape as `CertificateDetail.KeyUsages` ([]types.KeyUsage) -- but real
+    AWS's `CertificateSummary.KeyUsages`/`ExtendedKeyUsages` (the shapes
+    `ListCertificates` actually returns) are plain string arrays
+    (`[]types.KeyUsageName`/`[]types.ExtendedKeyUsageName`), an asymmetry
+    between `CertificateDetail` and `CertificateSummary` in the real API, not
+    a gopherstack invention to normalize away. The object-wrapped shape broke
+    every real SDK client's `ListCertificates` deserializer ("expected
+    KeyUsageName to be of type string, got map[string]interface{} instead"),
+    caught by `TestTerraform_ACM`. Fixed: `certificateSummary.KeyUsages`/
+    `ExtendedKeyUsages` are now `[]string`.
   - `CertificateOptions.Export` (both the `RequestCertificate` input and the
     `DescribeCertificate`/nested `Options` output) added end-to-end: stored
     on the certificate via a new `SetExportPreference` backend call (mirrors

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
+	"net/url"
 )
 
 // ---- Tag handlers ----
@@ -55,14 +55,20 @@ func (h *Handler) handleUntagResource(ctx context.Context, body []byte) (any, in
 }
 
 func (h *Handler) handleListTagsForResource(ctx context.Context, query string) (any, int, error) {
-	var resourceARN string
-
-	for part := range strings.SplitSeq(query, "&") {
-		if after, ok := strings.CutPrefix(part, "resourceArn="); ok {
-			resourceARN = after
-		}
+	// ListTagsForResource is a real-AWS query-string-bound GET request (see
+	// rolesanywhere's ListTagsForResourceInput.ResourceArn httpQuery binding),
+	// and query is the raw, still percent-encoded URL.RawQuery. Every real SDK
+	// client percent-encodes ':' and '/' in the ARN when placing it in a query
+	// value, so this MUST go through url.ParseQuery (which percent-decodes)
+	// rather than a raw substring split -- splitting without decoding left
+	// resourceARN holding the percent-encoded string, which never matches any
+	// stored ARN and made every ListTagsForResource call 404.
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return nil, 0, ErrValidation
 	}
 
+	resourceARN := values.Get("resourceArn")
 	if resourceARN == "" {
 		return nil, 0, ErrValidation
 	}

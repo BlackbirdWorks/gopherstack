@@ -14,7 +14,7 @@ ops:
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "inline ApplicationConfiguration/CloudWatchLoggingOptions were previously silently discarded (fixed pre-existing pass); ApplicationCodeConfiguration/FlinkApplicationConfiguration/EnvironmentProperties/ApplicationSnapshotConfiguration/ApplicationSystemRollbackConfiguration/ApplicationEncryptionConfiguration were accepted-but-not-modeled (this pass's gap) -- now seeded via SeedApplicationConfiguration's extended SeedConfig, still without bumping past version 1. ZeppelinApplicationConfiguration (Studio-notebook-only) remains accepted-but-ignored, see gaps."}
   DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "applicationDetailOutput previously omitted LastUpdateTimestamp/ConditionalToken/ApplicationVersionCreateTimestamp/ApplicationVersionRolledBackFrom/To/ApplicationVersionUpdatedFrom/ApplicationMaintenanceConfigurationDescription (all now populated); its VpcConfigurationDescriptions was WRONGLY placed at the top level of ApplicationDetail (real AWS has no such field -- it only exists nested inside ApplicationConfigurationDescription) -- this gopherstack-invented field placement is fixed (moved into appConfigDesc, matching real ApplicationConfigurationDescription.VpcConfigurationDescriptions)."}
   UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "ApplicationConfigurationUpdate (code/Flink/env-properties/snapshot/rollback/encryption/SQL-input-output-refdata/VPC sub-updates), CloudWatchLoggingOptionUpdates, RunConfigurationUpdate, RuntimeEnvironmentUpdate, and ConditionalToken were all accepted-but-ignored; all now implemented (applications.go/application_update_apply.go/handler_application_update.go). ConditionalToken is a deterministic sha256-derived function of (ApplicationARN, ApplicationVersionId) -- see conditionalToken/checkAndBumpVersionOrToken in store.go -- so it needs no extra persisted field and automatically rotates on every version bump. Sub-resource IDs referenced by CloudWatchLoggingOptionUpdates/SqlApplicationConfigurationUpdate/VpcConfigurationUpdates are validated to exist BEFORE the version is bumped (validateUpdateReferences), matching the Add*/Delete* config ops' existing 'find before bumping' convention -- a request naming an unknown ID leaves ApplicationVersionId untouched."}
-  DeleteApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateTimestamp request field is now validated against the application's actual CreateTimestamp (epoch-seconds float64 comparison with 1e-6 tolerance); a mismatch returns InvalidArgumentException instead of silently deleting. DeleteApplication remains synchronous (see gaps, unchanged from prior audit)."}
+  DeleteApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateTimestamp request field is now validated against the application's actual CreateTimestamp (epoch-seconds float64 comparison with 1e-3/1ms tolerance, matching smithy-go's millisecond-precision unixTimestamp wire truncation); a mismatch returns InvalidArgumentException instead of silently deleting. DeleteApplication remains synchronous (see gaps, unchanged from prior audit)."}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: ok}
   StartApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "RunConfiguration request field (ApplicationRestoreConfiguration/FlinkRunConfiguration) was never parsed at all -- now applied and echoed back via DescribeApplication's ApplicationConfigurationDescription.RunConfigurationDescription. SqlRunConfigurations remains accepted-but-ignored (see gaps: no per-input starting-position state modeled anywhere, same root cause as DiscoverInputSchema's synthetic limitation)."}
   StopApplication: {wire: partial, errors: ok, state: ok, persist: ok, note: "Force request field (skip the pre-stop snapshot) is not modeled: this backend never auto-snapshots on stop regardless of Force, and real AWS's auto-snapshot naming/visibility convention isn't documented publicly, so fabricating one was avoided as a gopherstack-invented-behavior risk -- see gaps."}
@@ -140,8 +140,16 @@ endpoint). RouteMatcher/ExtractOperation unchanged this pass.
    never validated** -- real AWS uses it as a check that the caller has a
    fresh `DescribeApplication` view before deleting. Fixed: compares the
    request's epoch-seconds value against `awstime.Epoch(app.CreatedAt)`
-   (1e-6 tolerance for float round-trip) and returns
-   `InvalidArgumentException` on mismatch instead of deleting.
+   and returns `InvalidArgumentException` on mismatch instead of deleting.
+   Tolerance is 1e-3 (1ms), not 1e-6: smithy-go's wire encoding for
+   `unixTimestamp` (`time.FormatEpochSeconds`/`ParseEpochSeconds`) truncates
+   to millisecond precision, while `app.CreatedAt` -- and the `CreateTimestamp`
+   a real client reads back from a prior `CreateApplication`/`DescribeApplication`
+   response -- carries full nanosecond precision. A real SDK client can only
+   ever round-trip `CreateTimestamp` truncated to the millisecond, so a 1e-6
+   tolerance rejected every legitimate delete (caught by
+   `TestIntegration_KinesisAnalyticsV2_*`); regression test added at
+   `TestBackend_DeleteApplication_CreateTimestamp/millisecond-truncated_timestamp_deletes`.
 
 7. **`persistedApplication.MaintenanceWindowStartTime` was declared but never
    assigned or restored** -- a pre-existing field that predates this pass;

@@ -3,6 +3,7 @@ package kinesisanalyticsv2_test
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -444,6 +445,29 @@ func TestBackend_DeleteApplication_CreateTimestamp(t *testing.T) {
 		require.NoError(t, b.DeleteApplication(ctx, "ts-match-app", &createSeconds))
 
 		_, err = b.DescribeApplication(ctx, "ts-match-app")
+		require.ErrorIs(t, err, kinesisanalyticsv2.ErrNotFound)
+	})
+
+	t.Run("millisecond-truncated timestamp deletes", func(t *testing.T) {
+		t.Parallel()
+
+		// Real AWS SDK clients round-trip CreateTimestamp through the
+		// unixTimestamp wire format, which smithy-go truncates to millisecond
+		// precision (smithy-go time.FormatEpochSeconds/ParseEpochSeconds).
+		// The backend stores/echoes CreatedAt at full nanosecond precision, so
+		// a genuine client can never send back the exact float the backend
+		// would recompute -- it can only send the millisecond-floored value.
+		// This must still be accepted.
+		b := newTestBackend(t)
+		_, err := b.CreateApplication(ctx, "ts-ms-truncated-app", "FLINK-1_18", "", "", "", nil)
+		require.NoError(t, err)
+
+		createSeconds := appCreateEpochSeconds(t, b, "ts-ms-truncated-app")
+		truncated := math.Floor(createSeconds*1000) / 1000
+
+		require.NoError(t, b.DeleteApplication(ctx, "ts-ms-truncated-app", &truncated))
+
+		_, err = b.DescribeApplication(ctx, "ts-ms-truncated-app")
 		require.ErrorIs(t, err, kinesisanalyticsv2.ErrNotFound)
 	})
 

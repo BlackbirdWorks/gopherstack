@@ -108,26 +108,33 @@ type describeCertificateOutput struct {
 	Certificate certificateDetail `json:"Certificate"`
 }
 
+// certificateSummary is the CertificateSummary shape returned by
+// ListCertificates. Unlike certificateDetail (DescribeCertificate), real
+// AWS's CertificateSummary.KeyUsages/ExtendedKeyUsages are plain string
+// arrays (types.KeyUsageName/types.ExtendedKeyUsageName), NOT arrays of
+// {"Name": "..."} objects -- that wrapped-object shape only exists on
+// CertificateDetail.KeyUsages ([]types.KeyUsage). Using keyUsageDetail here
+// previously broke every real SDK client's ListCertificates deserializer.
 type certificateSummary struct {
-	CreatedAt                            *int64              `json:"CreatedAt,omitempty"`
-	IssuedAt                             *int64              `json:"IssuedAt,omitempty"`
-	ImportedAt                           *int64              `json:"ImportedAt,omitempty"`
-	NotBefore                            *int64              `json:"NotBefore,omitempty"`
-	NotAfter                             *int64              `json:"NotAfter,omitempty"`
-	RevokedAt                            *int64              `json:"RevokedAt,omitempty"`
-	Exported                             *bool               `json:"Exported,omitempty"`
-	InUse                                *bool               `json:"InUse,omitempty"`
-	HasAdditionalSubjectAlternativeNames *bool               `json:"HasAdditionalSubjectAlternativeNames,omitempty"`
-	CertificateArn                       string              `json:"CertificateArn"`
-	DomainName                           string              `json:"DomainName"`
-	Status                               string              `json:"Status,omitempty"`
-	KeyAlgorithm                         string              `json:"KeyAlgorithm,omitempty"`
-	RenewalEligibility                   string              `json:"RenewalEligibility,omitempty"`
-	Type                                 string              `json:"Type,omitempty"`
-	ExportOption                         string              `json:"ExportOption,omitempty"`
-	SubjectAlternativeNameSummaries      []string            `json:"SubjectAlternativeNameSummaries,omitempty"`
-	KeyUsages                            []keyUsageDetail    `json:"KeyUsages,omitempty"`
-	ExtendedKeyUsages                    []extKeyUsageDetail `json:"ExtendedKeyUsages,omitempty"`
+	CreatedAt                            *int64   `json:"CreatedAt,omitempty"`
+	IssuedAt                             *int64   `json:"IssuedAt,omitempty"`
+	ImportedAt                           *int64   `json:"ImportedAt,omitempty"`
+	NotBefore                            *int64   `json:"NotBefore,omitempty"`
+	NotAfter                             *int64   `json:"NotAfter,omitempty"`
+	RevokedAt                            *int64   `json:"RevokedAt,omitempty"`
+	Exported                             *bool    `json:"Exported,omitempty"`
+	InUse                                *bool    `json:"InUse,omitempty"`
+	HasAdditionalSubjectAlternativeNames *bool    `json:"HasAdditionalSubjectAlternativeNames,omitempty"`
+	CertificateArn                       string   `json:"CertificateArn"`
+	DomainName                           string   `json:"DomainName"`
+	Status                               string   `json:"Status,omitempty"`
+	KeyAlgorithm                         string   `json:"KeyAlgorithm,omitempty"`
+	RenewalEligibility                   string   `json:"RenewalEligibility,omitempty"`
+	Type                                 string   `json:"Type,omitempty"`
+	ExportOption                         string   `json:"ExportOption,omitempty"`
+	SubjectAlternativeNameSummaries      []string `json:"SubjectAlternativeNameSummaries,omitempty"`
+	KeyUsages                            []string `json:"KeyUsages,omitempty"`
+	ExtendedKeyUsages                    []string `json:"ExtendedKeyUsages,omitempty"`
 }
 
 // listCertificatesIncludes mirrors the AWS Filters shape for ListCertificates.
@@ -478,13 +485,8 @@ func buildCertificateSummary(c *Certificate) certificateSummary {
 		summary.Exported = &exported
 	}
 
-	for _, ku := range c.KeyUsage {
-		summary.KeyUsages = append(summary.KeyUsages, keyUsageDetail{Name: ku})
-	}
-
-	for _, eku := range c.ExtendedKeyUsage {
-		summary.ExtendedKeyUsages = append(summary.ExtendedKeyUsages, extKeyUsageDetail{Name: eku})
-	}
+	summary.KeyUsages = append(summary.KeyUsages, c.KeyUsage...)
+	summary.ExtendedKeyUsages = append(summary.ExtendedKeyUsages, c.ExtendedKeyUsage...)
 
 	if !c.NotBefore.IsZero() {
 		ts := c.NotBefore.Unix()

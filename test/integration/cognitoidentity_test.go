@@ -11,8 +11,14 @@ import (
 
 // TestIntegration_CognitoIdentity_PoolLifecycle exercises the full Cognito Identity Pool lifecycle:
 // CreateIdentityPool → DescribeIdentityPool → ListIdentityPools → UpdateIdentityPool →
-// GetId → GetCredentialsForIdentity → GetOpenIdToken → SetIdentityPoolRoles →
-// GetIdentityPoolRoles → DeleteIdentityPool.
+// SetIdentityPoolRoles → GetIdentityPoolRoles → GetId → GetCredentialsForIdentity →
+// GetOpenIdToken → DeleteIdentityPool.
+//
+// SetIdentityPoolRoles must run before GetCredentialsForIdentity: real AWS returns
+// InvalidIdentityPoolConfigurationException from GetCredentialsForIdentity when the pool
+// has no authenticated/unauthenticated IAM role configured (see the doc comment on
+// cognitoidentity/types.InvalidIdentityPoolConfigurationException), since that call assumes
+// the pool's IAM role via STS.
 func TestIntegration_CognitoIdentity_PoolLifecycle(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
@@ -66,6 +72,28 @@ func TestIntegration_CognitoIdentity_PoolLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, updateOut.AllowUnauthenticatedIdentities)
 
+	// SetIdentityPoolRoles (must precede GetCredentialsForIdentity below: real AWS
+	// requires a configured role before it will hand out credentials).
+	authRoleARN := "arn:aws:iam::000000000000:role/CognitoAuthRole"
+	unauthRoleARN := "arn:aws:iam::000000000000:role/CognitoUnauthRole"
+
+	_, err = client.SetIdentityPoolRoles(ctx, &cognitoidentitysdk.SetIdentityPoolRolesInput{
+		IdentityPoolId: aws.String(poolID),
+		Roles: map[string]string{
+			"authenticated":   authRoleARN,
+			"unauthenticated": unauthRoleARN,
+		},
+	})
+	require.NoError(t, err)
+
+	// GetIdentityPoolRoles
+	rolesOut, err := client.GetIdentityPoolRoles(ctx, &cognitoidentitysdk.GetIdentityPoolRolesInput{
+		IdentityPoolId: aws.String(poolID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, authRoleARN, rolesOut.Roles["authenticated"])
+	assert.Equal(t, unauthRoleARN, rolesOut.Roles["unauthenticated"])
+
 	// GetId (unauthenticated; pool allows unauth)
 	getIDOut, err := client.GetId(ctx, &cognitoidentitysdk.GetIdInput{
 		AccountId:      aws.String("000000000000"),
@@ -95,27 +123,6 @@ func TestIntegration_CognitoIdentity_PoolLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, identityID, *tokenOut.IdentityId)
 	assert.NotEmpty(t, *tokenOut.Token)
-
-	// SetIdentityPoolRoles
-	authRoleARN := "arn:aws:iam::000000000000:role/CognitoAuthRole"
-	unauthRoleARN := "arn:aws:iam::000000000000:role/CognitoUnauthRole"
-
-	_, err = client.SetIdentityPoolRoles(ctx, &cognitoidentitysdk.SetIdentityPoolRolesInput{
-		IdentityPoolId: aws.String(poolID),
-		Roles: map[string]string{
-			"authenticated":   authRoleARN,
-			"unauthenticated": unauthRoleARN,
-		},
-	})
-	require.NoError(t, err)
-
-	// GetIdentityPoolRoles
-	rolesOut, err := client.GetIdentityPoolRoles(ctx, &cognitoidentitysdk.GetIdentityPoolRolesInput{
-		IdentityPoolId: aws.String(poolID),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, authRoleARN, rolesOut.Roles["authenticated"])
-	assert.Equal(t, unauthRoleARN, rolesOut.Roles["unauthenticated"])
 
 	// DeleteIdentityPool
 	_, err = client.DeleteIdentityPool(ctx, &cognitoidentitysdk.DeleteIdentityPoolInput{

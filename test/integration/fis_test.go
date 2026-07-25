@@ -282,7 +282,12 @@ func TestIntegration_FIS_ExperimentLifecycle(t *testing.T) {
 
 	fisBody(t, stopResp, &stopResult)
 
-	// Wait for the experiment to reach a terminal state.
+	// Wait for the experiment to reach a terminal state. Real AWS FIS reports
+	// "cancelled" -- not "stopped" -- when StopExperiment lands before the
+	// experiment reaches "running" (i.e. while still "pending"/"initiating");
+	// "stopped" is reserved for interrupting an experiment that had already
+	// started running. Because this DELETE is issued immediately after start,
+	// it can legitimately race either outcome, so both are accepted here.
 	require.Eventually(t, func() bool {
 		getResp := fisRequest(t, http.MethodGet, "/experiments/"+expID, nil)
 		if getResp.StatusCode != http.StatusOK {
@@ -307,7 +312,7 @@ func TestIntegration_FIS_ExperimentLifecycle(t *testing.T) {
 
 		s := getResult.Experiment.Status.Status
 
-		return s == "stopped" || s == "completed"
+		return s == "stopped" || s == "completed" || s == "cancelled"
 	}, 10*time.Second, 200*time.Millisecond)
 }
 

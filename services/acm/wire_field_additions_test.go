@@ -41,7 +41,15 @@ func TestACMHandler_ListCertificates_SummaryHasCreatedAtAndInUse(t *testing.T) {
 
 // TestACMHandler_ListCertificates_SummaryKeyUsages verifies that
 // CertificateSummary.KeyUsages/ExtendedKeyUsages project the same key-usage
-// data DescribeCertificate exposes, not just DescribeCertificate.
+// data DescribeCertificate exposes, not just DescribeCertificate. Unlike
+// CertificateDetail.KeyUsages ([]types.KeyUsage, a slice of {"Name": "..."}
+// objects), real AWS's CertificateSummary.KeyUsages/ExtendedKeyUsages
+// (returned by ListCertificates) are plain string arrays
+// ([]types.KeyUsageName/[]types.ExtendedKeyUsageName) -- see
+// aws-sdk-go-v2/service/acm/types.CertificateSummary. Every real SDK
+// client's ListCertificates deserializer rejects the object-wrapped shape
+// with "expected KeyUsageName to be of type string, got map[string]interface{}
+// instead", caught by TestTerraform_ACM.
 func TestACMHandler_ListCertificates_SummaryKeyUsages(t *testing.T) {
 	t.Parallel()
 
@@ -53,14 +61,10 @@ func TestACMHandler_ListCertificates_SummaryKeyUsages(t *testing.T) {
 	listRec := postACMJSON(t, h, "ListCertificates", `{}`)
 	require.Equal(t, http.StatusOK, listRec.Code)
 
-	type usageEntry struct {
-		Name string `json:"Name"`
-	}
-
 	var out struct {
 		CertificateSummaryList []struct {
-			KeyUsages         []usageEntry `json:"KeyUsages"`
-			ExtendedKeyUsages []usageEntry `json:"ExtendedKeyUsages"`
+			KeyUsages         []string `json:"KeyUsages"`
+			ExtendedKeyUsages []string `json:"ExtendedKeyUsages"`
 		} `json:"CertificateSummaryList"`
 	}
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
@@ -68,9 +72,9 @@ func TestACMHandler_ListCertificates_SummaryKeyUsages(t *testing.T) {
 
 	summary := out.CertificateSummaryList[0]
 	require.NotEmpty(t, summary.KeyUsages)
-	assert.Equal(t, "DIGITAL_SIGNATURE", summary.KeyUsages[0].Name)
+	assert.Equal(t, "DIGITAL_SIGNATURE", summary.KeyUsages[0])
 	require.NotEmpty(t, summary.ExtendedKeyUsages)
-	assert.Equal(t, "TLS_WEB_SERVER_AUTHENTICATION", summary.ExtendedKeyUsages[0].Name)
+	assert.Equal(t, "TLS_WEB_SERVER_AUTHENTICATION", summary.ExtendedKeyUsages[0])
 }
 
 // TestACMHandler_RenewCertificate_RenewalSummaryHasUpdatedAt locks in the fix

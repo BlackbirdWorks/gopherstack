@@ -157,6 +157,26 @@ frontmatter above):
     ID/ARN. All three Delete paths now `delete()` their dependent map entries under the same
     lock as the primary delete.
 
+13. **`ListTagsForResource` never percent-decoded the `resourceArn` query
+    parameter (`handler_tags.go`).** `ListTagsForResourceInput.ResourceArn` is an
+    `httpQuery`-bound member (confirmed via `awsRestjson1_serializeOpHttpBindingsListTagsForResourceInput`
+    in `aws-sdk-go-v2/service/rolesanywhere/serializers.go`, which calls
+    `encoder.SetQuery("resourceArn").String(...)`), so every real SDK client sends it
+    percent-encoded (`:` -> `%3A`, `/` -> `%2F`) in `URL.RawQuery`. The handler parsed the
+    raw query string with a manual `strings.SplitSeq`/`CutPrefix` scan and used the
+    still-percent-encoded substring directly as the lookup key, which never matched any
+    stored (plain, unencoded) ARN -- every `ListTagsForResource` call 404'd with
+    `ResourceNotFoundException` regardless of whether the resource existed, caught by
+    `TestTerraform_RolesAnywhere` (the AWS Terraform provider's post-create tags refresh
+    calls `ListTagsForResource` immediately after `CreateTrustAnchor`). Fixed: now goes
+    through `net/url.ParseQuery`, which percent-decodes. `TagResource`/`UntagResource` take
+    `resourceArn` from the JSON body, not the query string, so they were unaffected; the
+    other manual query scans in this service (`nextToken`/`maxResults` in `handler.go`,
+    `certificateField`/`specifiers` in `handler_attribute_mappings.go`) carry the same
+    decode gap but were out of scope for this fix -- none of their real values are ever
+    percent-encoded by a real SDK client (opaque pagination tokens/counts/enum names, no
+    `:` or `/`), so the gap is latent, not test-visible.
+
 **Traps for the next auditor (looks-wrong-but-correct):**
 
 - Timestamps use `time.RFC3339` (via `Format(time.RFC3339)`), not the SDK's exact

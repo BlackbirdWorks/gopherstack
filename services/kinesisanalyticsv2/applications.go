@@ -272,7 +272,15 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 	}
 
 	if createTimestampSeconds != nil {
-		const epsilon = 1e-6
+		// AWS JSON-protocol unixTimestamp values carry at most millisecond
+		// precision on the wire (smithy-go's FormatEpochSeconds/ParseEpochSeconds
+		// truncate to milliseconds), while app.CreatedAt -- and the CreateTimestamp
+		// echoed to the client in a prior DescribeApplication/CreateApplication
+		// response -- retains full nanosecond precision. A real SDK client can
+		// therefore only ever round-trip CreateTimestamp truncated to the
+		// millisecond, so the tolerance here must be at least 1ms or every
+		// legitimate DeleteApplication call would be rejected.
+		const epsilon = 1e-3
 		if diff := *createTimestampSeconds - awstime.Epoch(app.CreatedAt); diff > epsilon || diff < -epsilon {
 			return ErrValidation
 		}
