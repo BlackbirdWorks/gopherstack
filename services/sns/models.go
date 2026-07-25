@@ -678,7 +678,11 @@ type httpDelivery struct {
 	redrivePolicy        string // JSON RedrivePolicy; non-empty when DLQ is configured
 	deliveryPolicy       string
 	topicEffectivePolicy string
-	rawDelivery          bool
+	// signatureVersion is the resolved ("1" or "2") SignatureVersion for the
+	// owning topic, selecting SHA1withRSA vs SHA256withRSA. Defaults to "1"
+	// (the real AWS default) when left zero-valued.
+	signatureVersion string
+	rawDelivery      bool
 }
 
 // publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.

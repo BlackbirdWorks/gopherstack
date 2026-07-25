@@ -156,13 +156,14 @@ func buildHTTPDeliveryPayload(d httpDelivery) string {
 			"https://sns.%s.amazonaws.com/SimpleNotificationService.pem",
 			topicRegion,
 		)
+		sigVersion := resolveSignatureVersion(d.signatureVersion)
 		signature := "MOCK-SIGNATURE"
 		if d.signer != nil {
 			certURL = d.signer.certURL()
 			canonical := canonicalNotificationString(
 				d.messageID, d.topicARN, d.subject, d.body, timestamp,
 			)
-			signature = d.signer.sign(canonical)
+			signature = d.signer.signWithVersion(canonical, sigVersion)
 		}
 
 		env := snsHTTPNotification{
@@ -171,7 +172,7 @@ func buildHTTPDeliveryPayload(d httpDelivery) string {
 			TopicArn:         d.topicARN,
 			Message:          d.body,
 			Timestamp:        timestamp,
-			SignatureVersion: "2",
+			SignatureVersion: sigVersion,
 			Signature:        signature,
 			SigningCertURL:   certURL,
 			UnsubscribeURL: "https://sns." + topicRegion +

@@ -3,6 +3,7 @@ package sns_test
 import (
 	"crypto"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -80,7 +81,9 @@ func parseNotificationEnvelope(t *testing.T, body string) snsNotificationEnvelop
 }
 
 // TestIssue4_NotificationSignatureNotMock verifies that HTTP notifications
-// contain a non-mock Signature field.
+// contain a non-mock Signature field, signed with the AWS default
+// SignatureVersion=1 (SHA1withRSA) since this topic never sets the
+// SignatureVersion attribute.
 func TestNotificationSignatureNotMock(t *testing.T) {
 	t.Parallel()
 
@@ -107,15 +110,69 @@ func TestNotificationSignatureNotMock(t *testing.T) {
 		env := parseNotificationEnvelope(t, raw)
 		assert.NotEqual(t, "MOCK-SIGNATURE", env.Signature, "Signature must not be the placeholder")
 		assert.NotEmpty(t, env.Signature, "Signature must be non-empty")
-		assert.Equal(t, "2", env.SignatureVersion)
+		assert.Equal(t, "1", env.SignatureVersion, "AWS default SignatureVersion is 1 when unset")
 	case <-time.After(2 * time.Second):
 		t.Fatal("HTTP delivery did not arrive")
 	}
 }
 
-// TestIssue4_SignatureIsValidRSASHA256 verifies that the Signature field in an
-// HTTP notification can be verified using the backend's signing certificate.
-func TestSignatureIsValidRSASHA256(t *testing.T) {
+// TestSignatureVersion1UsesSHA1Signing verifies that a topic which never sets
+// the SignatureVersion attribute (the AWS default, "1") signs notifications
+// with SHA1withRSA, and that the Signature field verifies against the
+// backend's signing certificate using SHA1. Confirmed against
+// docs.aws.amazon.com/sns/latest/api/API_SetTopicAttributes.html ("By default,
+// SignatureVersion is set to 1") and sns-verify-signature-of-message.html
+// ("SignatureVersion1 – Uses an SHA1 hash of the message").
+func TestSignatureVersion1UsesSHA1Signing(t *testing.T) {
+	t.Parallel()
+
+	received := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("sig-v1-topic", nil)
+	require.NoError(t, err)
+
+	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+	require.NoError(t, err)
+
+	_, err = b.Publish(tp.TopicArn, "verify-me-v1", "", "", nil)
+	require.NoError(t, err)
+
+	var raw string
+	select {
+	case raw = <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("HTTP delivery did not arrive")
+	}
+
+	env := parseNotificationEnvelope(t, raw)
+	require.Equal(t, "1", env.SignatureVersion)
+
+	rsaPub := parseSigningCertPublicKey(t, b)
+
+	canonical := sns.CanonicalNotificationStringForTest(
+		env.MessageID, env.TopicArn, env.Subject, env.Message, env.Timestamp,
+	)
+
+	sigBytes, err := base64.StdEncoding.DecodeString(env.Signature)
+	require.NoError(t, err, "Signature must be valid base64")
+
+	h := sha1.Sum([]byte(canonical))
+	err = rsa.VerifyPKCS1v15(rsaPub, crypto.SHA1, h[:], sigBytes)
+	assert.NoError(t, err, "SignatureVersion=1 notification signature must verify with SHA1")
+}
+
+// TestSignatureVersion2UsesSHA256Signing verifies that a topic explicitly set
+// to SignatureVersion=2 signs notifications with SHA256withRSA, and that the
+// Signature field verifies against the backend's signing certificate using
+// SHA256.
+func TestSignatureVersion2UsesSHA256Signing(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
@@ -128,6 +185,9 @@ func TestSignatureIsValidRSASHA256(t *testing.T) {
 
 	b := newA1679Backend(t)
 	tp, err := b.CreateTopic("sig-verify-topic", nil)
+	require.NoError(t, err)
+
+	err = b.SetTopicAttributes(tp.TopicArn, "SignatureVersion", "2")
 	require.NoError(t, err)
 
 	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
@@ -144,8 +204,28 @@ func TestSignatureIsValidRSASHA256(t *testing.T) {
 	}
 
 	env := parseNotificationEnvelope(t, raw)
+	require.Equal(t, "2", env.SignatureVersion)
 
-	// Parse the backend's signing certificate.
+	rsaPub := parseSigningCertPublicKey(t, b)
+
+	// Rebuild the canonical string and verify.
+	canonical := sns.CanonicalNotificationStringForTest(
+		env.MessageID, env.TopicArn, env.Subject, env.Message, env.Timestamp,
+	)
+
+	sigBytes, err := base64.StdEncoding.DecodeString(env.Signature)
+	require.NoError(t, err, "Signature must be valid base64")
+
+	h := sha256.Sum256([]byte(canonical))
+	err = rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, h[:], sigBytes)
+	assert.NoError(t, err, "SignatureVersion=2 notification signature must verify with SHA256")
+}
+
+// parseSigningCertPublicKey parses the backend's signing certificate PEM and
+// returns its RSA public key, for tests that verify a notification Signature.
+func parseSigningCertPublicKey(t *testing.T, b *sns.InMemoryBackend) *rsa.PublicKey {
+	t.Helper()
+
 	certPEM := b.SigningCertPEM()
 	require.NotEmpty(t, certPEM)
 
@@ -158,17 +238,7 @@ func TestSignatureIsValidRSASHA256(t *testing.T) {
 	rsaPub, ok := cert.PublicKey.(*rsa.PublicKey)
 	require.True(t, ok, "signing cert must contain an RSA public key")
 
-	// Rebuild the canonical string and verify.
-	canonical := sns.CanonicalNotificationStringForTest(
-		env.MessageID, env.TopicArn, env.Subject, env.Message, env.Timestamp,
-	)
-
-	sigBytes, err := base64.StdEncoding.DecodeString(env.Signature)
-	require.NoError(t, err, "Signature must be valid base64")
-
-	h := sha256.Sum256([]byte(canonical))
-	err = rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, h[:], sigBytes)
-	assert.NoError(t, err, "notification signature must verify with the signing cert")
+	return rsaPub
 }
 
 // TestIssue4_SubjectIncludedInSignature verifies that the Subject field is
@@ -203,19 +273,17 @@ func TestSubjectIncludedInSignature(t *testing.T) {
 
 	env := parseNotificationEnvelope(t, raw)
 	assert.Equal(t, "MySubject", env.Subject)
+	require.Equal(t, "1", env.SignatureVersion, "AWS default SignatureVersion is 1 when unset")
 
-	certPEM := b.SigningCertPEM()
-	block, _ := pem.Decode(certPEM)
-	cert, _ := x509.ParseCertificate(block.Bytes)
-	rsaPub := cert.PublicKey.(*rsa.PublicKey)
+	rsaPub := parseSigningCertPublicKey(t, b)
 
 	canonical := sns.CanonicalNotificationStringForTest(
 		env.MessageID, env.TopicArn, env.Subject, env.Message, env.Timestamp,
 	)
 
 	sigBytes, _ := base64.StdEncoding.DecodeString(env.Signature)
-	h := sha256.Sum256([]byte(canonical))
-	assert.NoError(t, rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, h[:], sigBytes))
+	h := sha1.Sum([]byte(canonical))
+	assert.NoError(t, rsa.VerifyPKCS1v15(rsaPub, crypto.SHA1, h[:], sigBytes))
 }
 
 // TestIssue4_CertServedAtPEMEndpoint verifies the Handler serves the signing
@@ -391,7 +459,7 @@ func TestNotificationEnvelopeFields(t *testing.T) {
 		assert.NotEmpty(t, env.TopicArn)
 		assert.NotEmpty(t, env.Message)
 		assert.NotEmpty(t, env.Timestamp)
-		assert.Equal(t, "2", env.SignatureVersion)
+		assert.Equal(t, "1", env.SignatureVersion, "AWS default SignatureVersion is 1 when unset")
 		assert.NotEmpty(t, env.Signature)
 		assert.NotEmpty(t, env.SigningCertURL)
 		assert.NotEmpty(t, env.UnsubscribeURL)

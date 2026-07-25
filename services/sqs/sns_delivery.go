@@ -205,6 +205,16 @@ func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
 		sig = uuid.NewString()
 	}
 
+	// SignatureVersion must reflect whichever hash (SHA1 for "1", SHA256 for "2")
+	// actually produced Signature above; the SNS backend resolves and stamps this
+	// per-topic (default "1", the real AWS default) via events.SNSPublishedEvent.
+	// Fall back to "1" only for the defensive case of an event that predates this
+	// field (e.g. constructed by a future caller that forgets to set it).
+	sigVersion := ev.SignatureVersion
+	if sigVersion == "" {
+		sigVersion = "1"
+	}
+
 	env := snsEnvelope{
 		Type:             "Notification",
 		MessageID:        ev.MessageID,
@@ -212,7 +222,7 @@ func buildSNSEnvelope(ev *events.SNSPublishedEvent, _ string) string {
 		Subject:          ev.Subject,
 		Message:          ev.Message,
 		Timestamp:        ts,
-		SignatureVersion: "1",
+		SignatureVersion: sigVersion,
 		Signature:        sig,
 		SigningCertURL:   ev.SigningCertURL,
 		UnsubscribeURL:   "https://sns.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + ev.TopicARN,

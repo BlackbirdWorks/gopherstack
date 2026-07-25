@@ -91,7 +91,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	original := sns.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 
-	topic, err := original.CreateTopic("full-state-topic", map[string]string{
+	topic, err := original.CreateTopic("full-state-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionSeconds":60}`,
 	})
 	require.NoError(t, err)

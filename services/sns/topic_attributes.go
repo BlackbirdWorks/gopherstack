@@ -141,28 +141,8 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 		)
 	}
 
-	// ContentBasedDeduplication is only valid on FIFO topics.
-	if attrName == "ContentBasedDeduplication" &&
-		topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
-		return fmt.Errorf(
-			"%w: Invalid parameter: ContentBasedDeduplication is only applicable to FIFO topics",
-			ErrInvalidParameter,
-		)
-	}
-
-	// FifoThroughputScope is only valid on FIFO topics.
-	if attrName == "FifoThroughputScope" && topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
-		return fmt.Errorf(
-			"%w: Invalid parameter: FifoThroughputScope is only applicable to FIFO topics",
-			ErrInvalidParameter,
-		)
-	}
-
-	// Validate KmsMasterKeyId format (alias name, alias ARN, key ID, or key ARN).
-	if attrName == "KmsMasterKeyId" && attrValue != "" {
-		if err := validateKmsMasterKeyID(attrValue); err != nil {
-			return err
-		}
+	if err := validateTopicAttributeValue(topic, attrName, attrValue); err != nil {
+		return err
 	}
 
 	// When clearing EffectiveDeliveryPolicy derived from DeliveryPolicy, reset it.
@@ -175,6 +155,56 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 	}
 
 	topic.Attributes[attrName] = attrValue
+
+	return nil
+}
+
+// validateTopicAttributeValue validates attrValue against the FIFO-only and
+// format constraints for attrName (ContentBasedDeduplication/FifoThroughputScope/
+// ArchivePolicy require a FIFO topic; SignatureVersion only accepts "1"/"2";
+// KmsMasterKeyId must be a plausible key reference). Extracted from
+// SetTopicAttributes to keep it under the cyclomatic complexity budget.
+func validateTopicAttributeValue(topic *Topic, attrName, attrValue string) error {
+	isFifo := topic.Attributes["FifoTopic"] == fifoTopicAttrValue
+
+	switch attrName {
+	case "ContentBasedDeduplication":
+		if !isFifo {
+			return fmt.Errorf(
+				"%w: Invalid parameter: ContentBasedDeduplication is only applicable to FIFO topics",
+				ErrInvalidParameter,
+			)
+		}
+	case "FifoThroughputScope":
+		if !isFifo {
+			return fmt.Errorf(
+				"%w: Invalid parameter: FifoThroughputScope is only applicable to FIFO topics",
+				ErrInvalidParameter,
+			)
+		}
+	case attrArchivePolicy:
+		// Message archiving/replay is only valid on FIFO topics. See the
+		// matching CreateTopicInRegion check (topics.go) for the AWS doc citation.
+		if attrValue != "" && !isFifo {
+			return fmt.Errorf(
+				"%w: Invalid parameter: ArchivePolicy is only applicable to FIFO topics",
+				ErrInvalidParameter,
+			)
+		}
+	case attrSignatureVersion:
+		// Only "1" (SHA1withRSA, the AWS default) or "2" (SHA256withRSA) are
+		// accepted. See docs.aws.amazon.com/sns/latest/api/API_SetTopicAttributes.html.
+		if attrValue != "" && attrValue != signatureVersion1 && attrValue != signatureVersion2 {
+			return fmt.Errorf(
+				"%w: Invalid parameter: SignatureVersion must be \"1\" or \"2\", got %q",
+				ErrInvalidParameter, attrValue,
+			)
+		}
+	case "KmsMasterKeyId":
+		if attrValue != "" {
+			return validateKmsMasterKeyID(attrValue)
+		}
+	}
 
 	return nil
 }

@@ -61,6 +61,14 @@ const (
 	attrReplayPolicy        = "ReplayPolicy"
 	attrSubscriptionRoleArn = "SubscriptionRoleArn"
 	attrFilterPolicyScope   = "FilterPolicyScope"
+	attrArchivePolicy       = "ArchivePolicy"
+	attrSignatureVersion    = "SignatureVersion"
+
+	// signatureVersion1/2 are the AWS SNS SignatureVersion topic/subscription
+	// attribute values: "1" signs with SHA1withRSA (the AWS default when the
+	// attribute is unset) and "2" signs with SHA256withRSA.
+	signatureVersion1 = "1"
+	signatureVersion2 = "2"
 
 	// platformARNResourceParts is the expected number of slash-delimited parts
 	// in a platform application ARN resource component: "app/{Platform}/{AppName}".

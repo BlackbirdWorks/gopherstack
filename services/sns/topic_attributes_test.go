@@ -568,7 +568,7 @@ func TestSNS_GetTopicAttributesComputed(t *testing.T) {
 	assert.NotEmpty(t, attrs["Owner"])
 
 	// Add an http subscription (PendingConfirmation=true) and an sqs subscription (confirmed).
-	_, err = b.Subscribe(topic.TopicArn, "http", "https://example.com", "")
+	_, err = b.Subscribe(topic.TopicArn, "http", "http://example.com", "")
 	require.NoError(t, err)
 	_, err = b.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:123:queue", "")
 	require.NoError(t, err)

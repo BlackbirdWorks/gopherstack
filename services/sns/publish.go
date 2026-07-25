@@ -47,9 +47,10 @@ func (b *InMemoryBackend) collectPublishTargets(
 	// (rather than per-subscription) since store.Table.Get returns (v, ok)
 	// and cannot be inlined into the httpDelivery literal below the way the
 	// old raw map index could.
-	var topicEffectivePolicy string
+	var topicEffectivePolicy, sigVersion string
 	if topic, ok := b.topics.Get(topicArn); ok {
 		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+		sigVersion = resolveSignatureVersion(topic.Attributes[attrSignatureVersion])
 	}
 
 	for _, sub := range b.subscriptionsByTopic.Get(topicArn) {
@@ -82,6 +83,7 @@ func (b *InMemoryBackend) collectPublishTargets(
 				redrivePolicy:        sub.RedrivePolicy,
 				deliveryPolicy:       sub.DeliveryPolicy,
 				topicEffectivePolicy: topicEffectivePolicy,
+				signatureVersion:     sigVersion,
 				sqsSender:            b.sqsSender,
 			})
 		}
@@ -239,10 +241,14 @@ func (b *InMemoryBackend) dispatchHTTPDeliveries(deliveries []httpDelivery, clie
 // that signature across all destinations. Previously each delivery function
 // received its own bare event with empty Timestamp/Signature/SigningCertURL
 // fields, and the Lambda envelope fabricated a random-UUID "signature" instead.
+// sigVersion is the topic's resolved SignatureVersion ("1" or "2", see
+// resolveSignatureVersion); an empty value resolves to the AWS default
+// ("1"/SHA1withRSA).
 func (b *InMemoryBackend) buildPublishedEvent(
 	topicArn, messageID, message, subject string,
 	attrs map[string]MessageAttribute,
 	subs []events.SNSSubscriptionSnapshot,
+	sigVersion string,
 ) *events.SNSPublishedEvent {
 	attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(attrs))
 	for k, v := range attrs {
@@ -252,21 +258,24 @@ func (b *InMemoryBackend) buildPublishedEvent(
 		}
 	}
 
+	sigVersion = resolveSignatureVersion(sigVersion)
+
 	ts := time.Now().UTC().Format(time.RFC3339)
 	canonical := canonicalNotificationString(messageID, topicArn, subject, message, ts)
-	sig := b.signer.sign(canonical)
+	sig := b.signer.signWithVersion(canonical, sigVersion)
 	certURL := b.signer.certURL()
 
 	return &events.SNSPublishedEvent{
-		TopicARN:       topicArn,
-		MessageID:      messageID,
-		Message:        message,
-		Subject:        subject,
-		Subscriptions:  subs,
-		Attributes:     attrSnaps,
-		Timestamp:      ts,
-		Signature:      sig,
-		SigningCertURL: certURL,
+		TopicARN:         topicArn,
+		MessageID:        messageID,
+		Message:          message,
+		Subject:          subject,
+		Subscriptions:    subs,
+		Attributes:       attrSnaps,
+		Timestamp:        ts,
+		Signature:        sig,
+		SignatureVersion: sigVersion,
+		SigningCertURL:   certURL,
 	}
 }
 
@@ -295,6 +304,7 @@ func (b *InMemoryBackend) Publish(
 
 	var (
 		archivePolicy string
+		sigVersion    string
 		messageID     string
 		targets       publishTargets
 		client        *http.Client
@@ -313,7 +323,8 @@ func (b *InMemoryBackend) Publish(
 		}
 
 		// Capture whether this topic archives messages (ArchivePolicy present).
-		archivePolicy = topic.Attributes["ArchivePolicy"]
+		archivePolicy = topic.Attributes[attrArchivePolicy]
+		sigVersion = resolveSignatureVersion(topic.Attributes[attrSignatureVersion])
 
 		messageID = uuid.New().String()
 
@@ -355,7 +366,7 @@ func (b *InMemoryBackend) Publish(
 
 	// Build the shared event once so every channel below carries the same
 	// verifiable Timestamp/Signature/SigningCertURL (see buildPublishedEvent).
-	ev := b.buildPublishedEvent(topicArn, messageID, message, subject, attrs, targets.subs)
+	ev := b.buildPublishedEvent(topicArn, messageID, message, subject, attrs, targets.subs, sigVersion)
 
 	b.emitPublishedEvent(ev)
 	b.deliverToLambdaSubscriptions(ev)

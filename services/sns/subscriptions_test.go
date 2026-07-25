@@ -35,7 +35,7 @@ func TestInMemoryBackend_Subscribe(t *testing.T) {
 			name:     "topic not found",
 			topicArn: "arn:aws:sns:us-east-1:000000000000:missing",
 			protocol: "sqs",
-			endpoint: "x",
+			endpoint: "arn:aws:sqs:us-east-1:000000000000:missing-q",
 			wantErr:  sns.ErrTopicNotFound,
 		},
 	}
@@ -73,7 +73,7 @@ func TestInMemoryBackend_Unsubscribe(t *testing.T) {
 			name: "success",
 			setup: func(b *sns.InMemoryBackend) string {
 				tp, _ := b.CreateTopic("unsub-topic", nil)
-				sub, _ := b.Subscribe(tp.TopicArn, "sqs", "x", "")
+				sub, _ := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:unsub-q", "")
 
 				return sub.SubscriptionArn
 			},
@@ -121,7 +121,7 @@ func TestInMemoryBackend_ListSubscriptions(t *testing.T) {
 			name: "with items",
 			setup: func(b *sns.InMemoryBackend) {
 				tp, _ := b.CreateTopic("ls-topic", nil)
-				b.Subscribe(tp.TopicArn, "sqs", "x", "")
+				b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:ls-q", "")
 				b.Subscribe(tp.TopicArn, "https", "https://example.com", "")
 			},
 			wantCount: 2,
@@ -158,8 +158,8 @@ func TestInMemoryBackend_ListSubscriptionsByTopic(t *testing.T) {
 			setup: func(b *sns.InMemoryBackend) {
 				tp1, _ := b.CreateTopic("lstt-1", nil)
 				tp2, _ := b.CreateTopic("lstt-2", nil)
-				b.Subscribe(tp1.TopicArn, "sqs", "x", "")
-				b.Subscribe(tp2.TopicArn, "sqs", "y", "")
+				b.Subscribe(tp1.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:lstt-q1", "")
+				b.Subscribe(tp2.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:lstt-q2", "")
 			},
 			topicArn:  "arn:aws:sns:us-east-1:000000000000:lstt-1",
 			wantCount: 1,
@@ -375,7 +375,7 @@ func TestSNSHandler_Unsubscribe(t *testing.T) {
 		t.Parallel()
 		h, b := newTestHandler(t)
 		arn := mustCreateTopic(t, b, "unsub-topic")
-		subArn := mustSubscribe(t, b, arn, "sqs", "q")
+		subArn := mustSubscribe(t, b, arn, "sqs", "arn:aws:sqs:us-east-1:000000000000:unsub-h-q")
 		rec := snsPost(t, h, url.Values{
 			"Action":          {"Unsubscribe"},
 			"Version":         {"2010-03-31"},
@@ -444,7 +444,7 @@ func TestSNSHandler_ListSubscriptions(t *testing.T) {
 			name: "with items",
 			setup: func(b *sns.InMemoryBackend) {
 				tp, _ := b.CreateTopic("ls-topic", nil)
-				b.Subscribe(tp.TopicArn, "sqs", "q", "")
+				b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:ls-h-q", "")
 			},
 			form: url.Values{
 				"Action":  {"ListSubscriptions"},
@@ -495,7 +495,7 @@ func TestSNSHandler_ListSubscriptionsByTopic(t *testing.T) {
 			name: "success",
 			setup: func(b *sns.InMemoryBackend) {
 				tp, _ := b.CreateTopic("lstt", nil)
-				b.Subscribe(tp.TopicArn, "sqs", "q", "")
+				b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:lstt-h-q", "")
 			},
 			form: url.Values{
 				"Action":   {"ListSubscriptionsByTopic"},
@@ -841,7 +841,7 @@ func TestSNS_ReturnSubscriptionArn(t *testing.T) {
 				"Version":               {"2010-03-31"},
 				"TopicArn":              {topicArn},
 				"Protocol":              {tt.protocol},
-				"Endpoint":              {"https://example.com/endpoint"},
+				"Endpoint":              {"http://example.com/endpoint"},
 				"ReturnSubscriptionArn": {tt.returnSubArn},
 			}
 			if tt.protocol == "sqs" {

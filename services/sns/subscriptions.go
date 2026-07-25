@@ -2,6 +2,7 @@ package sns
 
 import (
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,24 +13,78 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// validateSubscribeEndpoint checks that the endpoint is valid for the given protocol.
+// validateSubscribeEndpoint checks that the endpoint is well-formed for the
+// given protocol, matching the per-protocol Endpoint constraints the real AWS
+// SNS Subscribe API enforces. A malformed endpoint returns InvalidParameter
+// (AWS: "Invalid parameter: Endpoint"), matching every other protocol check
+// here (SMS/email already validated this way).
 func validateSubscribeEndpoint(protocol, endpoint string) error {
-	if protocol == "sms" && !isValidE164(endpoint) {
-		return fmt.Errorf(
-			"%w: Endpoint must be in E.164 format for SMS protocol",
-			ErrInvalidParameter,
-		)
-	}
-
-	if (protocol == protocolEmail || protocol == protocolEmailJSON) && !isValidEmail(endpoint) {
-		return fmt.Errorf(
-			"%w: Invalid parameter: Endpoint must be a valid email address for %s protocol",
-			ErrInvalidParameter,
-			protocol,
-		)
+	switch protocol {
+	case protocolSMS:
+		if !isValidE164(endpoint) {
+			return invalidEndpointError(protocol, "must be in E.164 format")
+		}
+	case protocolEmail, protocolEmailJSON:
+		if !isValidEmail(endpoint) {
+			return invalidEndpointError(protocol, "must be a valid email address")
+		}
+	case protocolSQS:
+		if !arnHasServiceAndResourcePrefix(endpoint, protocolSQS, "") {
+			return invalidEndpointError(protocol, "must be a valid SQS queue ARN")
+		}
+	case protocolLambda:
+		if !arnHasServiceAndResourcePrefix(endpoint, protocolLambda, "function:") {
+			return invalidEndpointError(protocol, "must be a valid Lambda function ARN")
+		}
+	case protocolFirehose:
+		if !arnHasServiceAndResourcePrefix(endpoint, protocolFirehose, "deliverystream/") {
+			return invalidEndpointError(protocol, "must be a valid Firehose delivery stream ARN")
+		}
+	case protocolApplication:
+		if !arnHasServiceAndResourcePrefix(endpoint, "sns", "endpoint/") {
+			return invalidEndpointError(protocol, "must be a valid platform endpoint ARN")
+		}
+	case protocolHTTP, protocolHTTPS:
+		if !isValidHTTPEndpoint(endpoint, protocol) {
+			return invalidEndpointError(protocol, "must be a URL beginning with "+protocol+"://")
+		}
 	}
 
 	return nil
+}
+
+// invalidEndpointError builds the InvalidParameter error returned when a
+// Subscribe endpoint does not comply with the given protocol's constraints.
+func invalidEndpointError(protocol, reason string) error {
+	return fmt.Errorf(
+		"%w: Invalid parameter: Endpoint %s for %s protocol",
+		ErrInvalidParameter, reason, protocol,
+	)
+}
+
+// arnHasServiceAndResourcePrefix reports whether v is a well-formed AWS ARN
+// (arn:{partition}:{service}:{region}:{account}:{resource}) for the given
+// service, with the resource component starting with resourcePrefix (checked
+// only when resourcePrefix is non-empty).
+func arnHasServiceAndResourcePrefix(v, service, resourcePrefix string) bool {
+	const arnPartsWithResource = 6
+
+	parts := strings.SplitN(v, ":", arnPartsWithResource)
+	if len(parts) < arnPartsWithResource || parts[0] != "arn" || parts[2] != service {
+		return false
+	}
+
+	return resourcePrefix == "" || strings.HasPrefix(parts[5], resourcePrefix)
+}
+
+// isValidHTTPEndpoint reports whether endpoint is a syntactically valid URL
+// with a non-empty host and a scheme matching protocol ("http" or "https") —
+// AWS rejects an "http" protocol Subscribe whose Endpoint is an https:// URL,
+// and vice versa.
+func isValidHTTPEndpoint(endpoint, protocol string) bool {
+	u, err := url.Parse(endpoint)
+
+	return err == nil && u.Host != "" && u.Scheme == protocol
 }
 
 // Subscribe creates a new subscription for the given topic, protocol, and endpoint.
@@ -337,12 +392,48 @@ func (b *InMemoryBackend) setSubscriptionAttributesLocked(
 		}
 	}
 
+	if attrName == attrReplayPolicy && attrValue != "" {
+		if err := b.validateReplayPolicyEligibleLocked(sub); err != nil {
+			return Subscription{}, "", err
+		}
+	}
+
 	if err := applySubscriptionAttr(sub, attrName, attrValue, parsedPolicy); err != nil {
 		return Subscription{}, "", err
 	}
 
 	// Capture a snapshot for replay (after the attribute is applied so RawMessageDelivery etc. are current).
 	return *sub, sub.TopicArn, nil
+}
+
+// validateReplayPolicyEligibleLocked enforces that ReplayPolicy may only be
+// set on a subscription whose topic is FIFO and whose protocol is one of the
+// application-to-application (A2A) protocols SNS message archiving/replay
+// supports: sqs, lambda, or firehose. Confirmed against
+// docs.aws.amazon.com/sns/latest/dg/message-archiving-and-replay-topic-owner.html
+// ("Amazon SNS message archiving and replay is only available for
+// application-to-application (A2A) FIFO topics") — standard topics have no
+// archive/replay mechanism at all, and A2P protocols (http/https/email/
+// email-json/sms/application) are never eligible even on a FIFO topic.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) validateReplayPolicyEligibleLocked(sub *Subscription) error {
+	if sub.Protocol != protocolSQS && sub.Protocol != protocolLambda && sub.Protocol != protocolFirehose {
+		return fmt.Errorf(
+			"%w: Invalid parameter: ReplayPolicy is only supported for sqs, lambda, "+
+				"and firehose subscriptions, got protocol %s",
+			ErrInvalidParameter, sub.Protocol,
+		)
+	}
+
+	topic, exists := b.topics.Get(sub.TopicArn)
+	if !exists || topic.Attributes["FifoTopic"] != fifoTopicAttrValue {
+		return fmt.Errorf(
+			"%w: Invalid parameter: ReplayPolicy is only supported on FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	return nil
 }
 
 // applySubscriptionAttr mutates sub with the given attribute value.

@@ -90,23 +90,8 @@ func (b *InMemoryBackend) CreateTopicInRegion(
 		attrs["Policy"] = defaultPolicyJSON
 	}
 
-	// Validate FifoTopic attribute consistency with topic name.
-	// AWS rejects CreateTopic when FifoTopic=true but name doesn't end in ".fifo".
-	if attrs["FifoTopic"] == fifoTopicAttrValue && !strings.HasSuffix(name, fifoTopicSuffix) {
-		return nil, fmt.Errorf(
-			"%w: Topic name must end with '.fifo' for FIFO topics",
-			ErrInvalidParameter,
-		)
-	}
-
-	// ContentBasedDeduplication is only valid on FIFO topics.
-	if attrs["ContentBasedDeduplication"] != "" &&
-		attrs["FifoTopic"] != fifoTopicAttrValue &&
-		!strings.HasSuffix(name, fifoTopicSuffix) {
-		return nil, fmt.Errorf(
-			"%w: ContentBasedDeduplication is only applicable to FIFO topics",
-			ErrInvalidParameter,
-		)
+	if err := validateCreateTopicAttrs(name, attrs); err != nil {
+		return nil, err
 	}
 
 	// FIFO topics: auto-set FifoTopic=true and ContentBasedDeduplication if not already set.
@@ -114,13 +99,6 @@ func (b *InMemoryBackend) CreateTopicInRegion(
 		attrs["FifoTopic"] = fifoTopicAttrValue
 		if attrs["ContentBasedDeduplication"] == "" {
 			attrs["ContentBasedDeduplication"] = boolFalseStr
-		}
-	}
-
-	// Validate KmsMasterKeyId format if present (alias name, alias ARN, key ID, or key ARN).
-	if v := attrs["KmsMasterKeyId"]; v != "" {
-		if err := validateKmsMasterKeyID(v); err != nil {
-			return nil, err
 		}
 	}
 
@@ -132,6 +110,52 @@ func (b *InMemoryBackend) CreateTopicInRegion(
 	b.topics.Put(topic)
 
 	return topic, nil
+}
+
+// validateCreateTopicAttrs validates the FIFO-related and KMS attribute
+// constraints for a CreateTopic(InRegion) call. Extracted from
+// CreateTopicInRegion to keep it under the cyclomatic complexity budget.
+func validateCreateTopicAttrs(name string, attrs map[string]string) error {
+	isFifoName := strings.HasSuffix(name, fifoTopicSuffix)
+
+	// Validate FifoTopic attribute consistency with topic name.
+	// AWS rejects CreateTopic when FifoTopic=true but name doesn't end in ".fifo".
+	if attrs["FifoTopic"] == fifoTopicAttrValue && !isFifoName {
+		return fmt.Errorf(
+			"%w: Topic name must end with '.fifo' for FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	// ContentBasedDeduplication is only valid on FIFO topics.
+	if attrs["ContentBasedDeduplication"] != "" && attrs["FifoTopic"] != fifoTopicAttrValue && !isFifoName {
+		return fmt.Errorf(
+			"%w: ContentBasedDeduplication is only applicable to FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	// ArchivePolicy (message archiving/replay) is only valid on FIFO topics.
+	// Confirmed against docs.aws.amazon.com/sns/latest/dg/message-archiving-and-replay-topic-owner.html:
+	// "Amazon SNS message archiving and replay is only available for
+	// application-to-application (A2A) FIFO topics." Standard topics have no
+	// ArchivePolicy/ReplayPolicy mechanism at all (they use a separate,
+	// unrelated Firehose-based archiving feature this backend does not model).
+	if attrs[attrArchivePolicy] != "" && !isFifoName {
+		return fmt.Errorf(
+			"%w: ArchivePolicy is only applicable to FIFO topics",
+			ErrInvalidParameter,
+		)
+	}
+
+	// Validate KmsMasterKeyId format if present (alias name, alias ARN, key ID, or key ARN).
+	if v := attrs["KmsMasterKeyId"]; v != "" {
+		if err := validateKmsMasterKeyID(v); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // DeleteTopic removes a topic by ARN.

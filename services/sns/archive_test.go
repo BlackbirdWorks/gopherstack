@@ -3,9 +3,6 @@ package sns_test
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -20,7 +17,7 @@ func TestArchivePolicyStoresMessages(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("archive-topic", map[string]string{
+	tp, err := b.CreateTopic("archive-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
 	require.NoError(t, err)
@@ -58,7 +55,7 @@ func TestArchivePolicyPreservesAttributes(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("archive-attrs-topic", map[string]string{
+	tp, err := b.CreateTopic("archive-attrs-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":7}`,
 	})
 	require.NoError(t, err)
@@ -86,7 +83,7 @@ func TestArchiveCapEvictsOldestMessages(t *testing.T) {
 	// Use a small number for this test rather than the real cap.
 	// We can verify the eviction logic by publishing cap+1 messages.
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("cap-archive-topic", map[string]string{
+	tp, err := b.CreateTopic("cap-archive-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":365}`,
 	})
 	require.NoError(t, err)
@@ -113,7 +110,7 @@ func TestReplayPolicyInvalidJSONRejected(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("rp-invalid-topic", map[string]string{
+	tp, err := b.CreateTopic("rp-invalid-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
 	require.NoError(t, err)
@@ -131,7 +128,7 @@ func TestReplayPolicyMissingTimestampRejected(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("rp-missing-ts-topic", map[string]string{
+	tp, err := b.CreateTopic("rp-missing-ts-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
 	require.NoError(t, err)
@@ -149,7 +146,7 @@ func TestReplayPolicyInvalidTimestampRejected(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("rp-bad-ts-topic", map[string]string{
+	tp, err := b.CreateTopic("rp-bad-ts-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
 	require.NoError(t, err)
@@ -167,7 +164,7 @@ func TestReplayPolicyValidAccepted(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("rp-valid-topic", map[string]string{
+	tp, err := b.CreateTopic("rp-valid-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
 	require.NoError(t, err)
@@ -184,21 +181,20 @@ func TestReplayPolicyValidAccepted(t *testing.T) {
 	assert.Contains(t, attrs["ReplayPolicy"], "replayFromTimestamp")
 }
 
-// TestReplayPolicyTriggersHTTPReplay verifies that when ReplayPolicy is
-// set on an HTTP subscription, archived messages are replayed to that endpoint.
-func TestReplayPolicyTriggersHTTPReplay(t *testing.T) {
+// TestReplayPolicyTriggersLambdaReplay verifies that when ReplayPolicy is set
+// on a Lambda subscription, archived messages are replayed to that function in
+// original publish order. Real AWS restricts message archiving/replay to FIFO
+// topics with an application-to-application (A2A) subscription protocol — SQS,
+// Lambda, or Firehose — so this (and not HTTP, which archive/replay never
+// reaches on real AWS) is the correct channel for exercising ordered replay.
+func TestReplayPolicyTriggersLambdaReplay(t *testing.T) {
 	t.Parallel()
 
-	replayed := make(chan string, 10)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		replayed <- string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("replay-http-topic", map[string]string{
+	lambda := &mockLambdaInvoker{}
+	b.SetLambdaBackend(lambda)
+
+	tp, err := b.CreateTopic("replay-lambda-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
 	require.NoError(t, err)
@@ -211,7 +207,9 @@ func TestReplayPolicyTriggersHTTPReplay(t *testing.T) {
 	}
 
 	// Subscribe AFTER the messages were published.
-	sub, err := b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+	sub, err := b.Subscribe(
+		tp.TopicArn, "lambda", "arn:aws:lambda:us-east-1:000000000000:function:replay-fn", "",
+	)
 	require.NoError(t, err)
 
 	// Set ReplayPolicy to replay from before the archived messages.
@@ -221,22 +219,18 @@ func TestReplayPolicyTriggersHTTPReplay(t *testing.T) {
 	require.NoError(t, err)
 
 	// Expect all 3 archived messages to be replayed.
-	received := make([]string, 0, 3)
-	deadline := time.After(3 * time.Second)
+	require.Eventually(t, func() bool { return lambda.Count() == 3 },
+		3*time.Second, 10*time.Millisecond, "not all archived messages were replayed")
 
-	for len(received) < 3 {
-		select {
-		case raw := <-replayed:
-			env := parseNotificationEnvelope(t, raw)
-			received = append(received, env.Message)
-		case <-deadline:
-			t.Fatalf("only %d/3 archived messages were replayed", len(received))
-		}
-	}
-
-	// Verify all archived messages were replayed.
-	for i, msg := range received {
-		assert.Equal(t, fmt.Sprintf("archived-%d", i), msg)
+	// Verify all archived messages were replayed, in original publish order.
+	for i, invocation := range lambda.All() {
+		var envelope map[string]any
+		require.NoError(t, json.Unmarshal(invocation.Payload, &envelope))
+		records, _ := envelope["Records"].([]any)
+		require.Len(t, records, 1)
+		record, _ := records[0].(map[string]any)
+		snsData, _ := record["Sns"].(map[string]any)
+		assert.Equal(t, fmt.Sprintf("archived-%d", i), snsData["Message"])
 	}
 }
 
@@ -245,16 +239,11 @@ func TestReplayPolicyTriggersHTTPReplay(t *testing.T) {
 func TestReplayPolicyFutureTimestampReplaysNothing(t *testing.T) {
 	t.Parallel()
 
-	received := make(chan string, 5)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		received <- string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("replay-future-topic", map[string]string{
+	lambda := &mockLambdaInvoker{}
+	b.SetLambdaBackend(lambda)
+
+	tp, err := b.CreateTopic("replay-future-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
 	require.NoError(t, err)
@@ -262,7 +251,9 @@ func TestReplayPolicyFutureTimestampReplaysNothing(t *testing.T) {
 	_, err = b.Publish(tp.TopicArn, "past-message", "", "", nil)
 	require.NoError(t, err)
 
-	sub, err := b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+	sub, err := b.Subscribe(
+		tp.TopicArn, "lambda", "arn:aws:lambda:us-east-1:000000000000:function:future-fn", "",
+	)
 	require.NoError(t, err)
 
 	// ReplayFromTimestamp is in the future → no messages match.
@@ -271,22 +262,23 @@ func TestReplayPolicyFutureTimestampReplaysNothing(t *testing.T) {
 		fmt.Sprintf(`{"replayFromTimestamp":"%s"}`, futureTS))
 	require.NoError(t, err)
 
-	// Wait briefly; no message should arrive.
-	select {
-	case <-received:
-		t.Fatal("no message should be replayed with a future replayFromTimestamp")
-	case <-time.After(400 * time.Millisecond):
-		// Expected: nothing replayed.
-	}
+	// Wait briefly; no invocation should arrive.
+	time.Sleep(400 * time.Millisecond)
+	assert.Equal(t, 0, lambda.Count(), "no message should be replayed with a future replayFromTimestamp")
 }
 
-// Test_ReplayPolicyDeliversToAllSubscriptionProtocols verifies that a
-// subscription's ReplayPolicy fans archived messages out through the same
-// per-protocol delivery path a live Publish uses. Before this fix, replay only
-// ever reached HTTP/HTTPS (a direct call in replayMessagesToSubscription) and
-// SQS (via the publish emitter); a subscription with a ReplayPolicy on the
-// Lambda, Firehose, SMS, or Application protocol silently replayed nothing.
-func TestReplayPolicyDeliversToAllSubscriptionProtocols(t *testing.T) {
+// TestReplayPolicyDeliversToA2AProtocols verifies that a subscription's
+// ReplayPolicy fans archived messages out through the same per-protocol
+// delivery path a live Publish uses, for every protocol real AWS actually
+// supports for archive/replay: SQS, Lambda, and Firehose — the
+// application-to-application (A2A) protocols (docs.aws.amazon.com/sns/latest/dg/
+// message-archiving-and-replay-topic-owner.html). SQS is covered elsewhere via
+// the publish emitter path; this table covers Lambda and Firehose. Before an
+// earlier fix, replay only ever reached HTTP/HTTPS and SQS; a subscription
+// with a ReplayPolicy on Lambda or Firehose silently replayed nothing. SMS,
+// Application, and HTTP/HTTPS are NOT A2A protocols and are now rejected at
+// SetSubscriptionAttributes time — see TestReplayPolicyRejectedForIneligibleProtocolOrTopic.
+func TestReplayPolicyDeliversToA2AProtocols(t *testing.T) {
 	t.Parallel()
 
 	const archivedMessage = "archived-message"
@@ -353,67 +345,6 @@ func TestReplayPolicyDeliversToAllSubscriptionProtocols(t *testing.T) {
 				}
 			},
 		},
-		{
-			name:  "sms",
-			proto: "sms",
-			setup: func(t *testing.T, b *sns.InMemoryBackend) caseResult {
-				t.Helper()
-
-				return caseResult{
-					endpoint: "+15005550006",
-					verify: func(t *testing.T) {
-						t.Helper()
-
-						var got []sns.SMSDelivery
-						require.Eventually(t, func() bool {
-							if d := b.DrainSMSDeliveries(); len(d) > 0 {
-								got = d
-
-								return true
-							}
-
-							return false
-						}, 2*time.Second, 10*time.Millisecond, "SMS delivery was never recorded")
-
-						require.Len(t, got, 1)
-						assert.Equal(t, archivedMessage, got[0].Message)
-					},
-				}
-			},
-		},
-		{
-			name:  "application",
-			proto: "application",
-			setup: func(t *testing.T, b *sns.InMemoryBackend) caseResult {
-				t.Helper()
-
-				app, err := b.CreatePlatformApplication("replay-app", "GCM", nil)
-				require.NoError(t, err)
-				ep, err := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "replay-token", nil)
-				require.NoError(t, err)
-
-				return caseResult{
-					endpoint: ep.EndpointArn,
-					verify: func(t *testing.T) {
-						t.Helper()
-
-						var got []sns.ApplicationDelivery
-						require.Eventually(t, func() bool {
-							if d := b.DrainApplicationDeliveries(); len(d) > 0 {
-								got = d
-
-								return true
-							}
-
-							return false
-						}, 2*time.Second, 10*time.Millisecond, "application delivery was never recorded")
-
-						require.Len(t, got, 1)
-						assert.Equal(t, archivedMessage, got[0].Message)
-					},
-				}
-			},
-		},
 	}
 
 	for _, tc := range cases {
@@ -422,7 +353,7 @@ func TestReplayPolicyDeliversToAllSubscriptionProtocols(t *testing.T) {
 
 			// Each subtest builds its own isolated backend, topic, and subscription.
 			b := newTestBackend(t)
-			tp, err := b.CreateTopic("replay-fanout-"+tc.name, map[string]string{
+			tp, err := b.CreateTopic("replay-fanout-"+tc.name+".fifo", map[string]string{
 				"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 			})
 			require.NoError(t, err)
@@ -447,12 +378,75 @@ func TestReplayPolicyDeliversToAllSubscriptionProtocols(t *testing.T) {
 	}
 }
 
+// TestReplayPolicyRejectedForIneligibleProtocolOrTopic verifies that
+// SetSubscriptionAttributes rejects ReplayPolicy for every combination real
+// AWS does not support: SMS/Application/HTTP/HTTPS subscription protocols
+// (not application-to-application), and an otherwise-eligible sqs protocol
+// subscription on a standard (non-FIFO) topic. Confirmed against
+// docs.aws.amazon.com/sns/latest/dg/message-archiving-and-replay-topic-owner.html
+// ("Amazon SNS message archiving and replay is only available for
+// application-to-application (A2A) FIFO topics").
+func TestReplayPolicyRejectedForIneligibleProtocolOrTopic(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		protocol string
+		endpoint string
+		fifo     bool
+	}{
+		{name: "sms_on_fifo_topic", protocol: "sms", endpoint: "+15005550006", fifo: true},
+		{
+			name: "http_on_fifo_topic", protocol: "http",
+			endpoint: "http://example.com/replay", fifo: true,
+		},
+		{
+			name: "https_on_fifo_topic", protocol: "https",
+			endpoint: "https://example.com/replay", fifo: true,
+		},
+		{
+			name: "sqs_on_standard_topic", protocol: "sqs",
+			endpoint: "arn:aws:sqs:us-east-1:000000000000:std-replay-q", fifo: false,
+		},
+		{
+			name: "lambda_on_standard_topic", protocol: "lambda",
+			endpoint: "arn:aws:lambda:us-east-1:000000000000:function:std-replay-fn", fifo: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+
+			topicName := "rp-ineligible-" + tc.name
+			var attrs map[string]string
+
+			if tc.fifo {
+				topicName += ".fifo"
+				attrs = map[string]string{"ArchivePolicy": `{"MessageRetentionPeriod":30}`}
+			}
+
+			tp, err := b.CreateTopic(topicName, attrs)
+			require.NoError(t, err)
+
+			sub, err := b.Subscribe(tp.TopicArn, tc.protocol, tc.endpoint, "")
+			require.NoError(t, err)
+
+			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "ReplayPolicy",
+				`{"replayFromTimestamp":"2024-01-01T00:00:00Z"}`)
+			require.ErrorIs(t, err, sns.ErrInvalidParameter)
+		})
+	}
+}
+
 // TestArchiveClearedOnReset verifies that Reset() clears the message archive.
 func TestArchiveClearedOnReset(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	tp, err := b.CreateTopic("archive-reset-topic", map[string]string{
+	tp, err := b.CreateTopic("archive-reset-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
 	require.NoError(t, err)
@@ -465,7 +459,7 @@ func TestArchiveClearedOnReset(t *testing.T) {
 	b.Reset()
 
 	// After reset the topic is gone; creating a new one with archive.
-	tp2, err := b.CreateTopic("archive-reset-topic2", map[string]string{
+	tp2, err := b.CreateTopic("archive-reset-topic2.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":7}`,
 	})
 	require.NoError(t, err)
@@ -479,7 +473,7 @@ func TestArchivePolicyAccepted(t *testing.T) {
 	t.Parallel()
 
 	b := newA1679Backend(t)
-	tp, err := b.CreateTopic("archive-topic", nil)
+	tp, err := b.CreateTopic("archive-topic.fifo", nil)
 	require.NoError(t, err)
 
 	policy := `{"MessageRetentionPeriod":30}`
@@ -497,8 +491,39 @@ func TestArchivePolicyOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := newA1679Backend(t)
-	_, err := b.CreateTopic("archive-create-topic", map[string]string{
+	_, err := b.CreateTopic("archive-create-topic.fifo", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":7}`,
 	})
 	require.NoError(t, err)
+}
+
+// TestArchivePolicyRejectedOnStandardTopic verifies that ArchivePolicy is
+// rejected (InvalidParameter) both at CreateTopic time and via
+// SetTopicAttributes when the topic is not a FIFO topic. Confirmed against
+// docs.aws.amazon.com/sns/latest/dg/message-archiving-and-replay-topic-owner.html
+// ("Amazon SNS message archiving and replay is only available for
+// application-to-application (A2A) FIFO topics").
+func TestArchivePolicyRejectedOnStandardTopic(t *testing.T) {
+	t.Parallel()
+
+	t.Run("on_create", func(t *testing.T) {
+		t.Parallel()
+
+		b := newA1679Backend(t)
+		_, err := b.CreateTopic("std-archive-create-topic", map[string]string{
+			"ArchivePolicy": `{"MessageRetentionPeriod":7}`,
+		})
+		require.ErrorIs(t, err, sns.ErrInvalidParameter)
+	})
+
+	t.Run("via_set_topic_attributes", func(t *testing.T) {
+		t.Parallel()
+
+		b := newA1679Backend(t)
+		tp, err := b.CreateTopic("std-archive-set-topic", nil)
+		require.NoError(t, err)
+
+		err = b.SetTopicAttributes(tp.TopicArn, "ArchivePolicy", `{"MessageRetentionPeriod":30}`)
+		require.ErrorIs(t, err, sns.ErrInvalidParameter)
+	})
 }
