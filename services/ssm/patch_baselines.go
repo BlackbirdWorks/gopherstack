@@ -316,7 +316,7 @@ func (b *InMemoryBackend) UpdatePatchBaseline(
 		bl.Sources = input.Sources
 	}
 
-	if input.ApprovedPatchesEnableNonSecurity {
+	if input.ApprovedPatchesEnableNonSecurity != nil {
 		bl.ApprovedPatchesEnableNonSecurity = input.ApprovedPatchesEnableNonSecurity
 	}
 

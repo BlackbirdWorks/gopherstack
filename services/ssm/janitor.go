@@ -42,14 +42,21 @@ func (j *Janitor) Run(ctx context.Context) {
 	g.Ticker("CommandSweeper", j.Interval, j.TaskTimeout, j.sweepExpiredCommands)
 	g.Ticker("ParameterExpirer", j.Interval, j.TaskTimeout, j.sweepExpiredParameters)
 	g.Ticker("SessionSweeper", j.Interval, j.TaskTimeout, j.sweepTerminatedSessions)
+	g.Ticker("ParameterPolicyNotifier", j.Interval, j.TaskTimeout, j.sweepParameterPolicyNotifications)
 
 	<-ctx.Done()
 	g.Stop()
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.
+//
+// sweepParameterPolicyNotifications runs before sweepExpiredParameters so an
+// ExpirationNotification due in the same tick a parameter's Expiration
+// policy also becomes due still gets reported before the parameter (and its
+// policy-notification dedupe state) is deleted.
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepExpiredCommands(ctx)
+	j.sweepParameterPolicyNotifications(ctx)
 	j.sweepExpiredParameters(ctx)
 	j.sweepTerminatedSessions(ctx)
 }
@@ -176,6 +183,7 @@ func (j *Janitor) sweepExpiredParameters(ctx context.Context) {
 		b.parameters[e.region].Delete(e.name)
 		delete(b.history[e.region], e.name)
 		delete(b.parameterLabels[e.region], e.name)
+		b.clearParameterPolicyNotificationStateLocked(e.region, e.name)
 	}
 
 	b.mu.Unlock()
@@ -220,4 +228,49 @@ func parameterExpiresAt(policiesJSON string) (time.Time, bool) {
 	}
 
 	return time.Time{}, false
+}
+
+// sweepParameterPolicyNotifications evaluates every parameter's
+// ExpirationNotification/NoChangeNotification policies and reports any that
+// have newly become due via the injected ParameterPolicyNotifier (see
+// parameter_policy_notifications.go). A nil notifier (not yet configured)
+// makes this a cheap no-op -- nothing is evaluated or marked notified, so
+// once a real notifier is injected later, currently-due policies are still
+// reported rather than lost.
+func (j *Janitor) sweepParameterPolicyNotifications(ctx context.Context) {
+	b := j.Backend
+	now := time.Now().UTC()
+
+	b.mu.Lock("SSMJanitorParamPolicyNotify")
+
+	notifier := b.parameterPolicyNotifier
+	if notifier == nil {
+		b.mu.Unlock()
+
+		return
+	}
+
+	due := b.collectDueParameterPolicyNotificationsLocked(now)
+
+	b.mu.Unlock()
+
+	count := 0
+
+	for _, d := range due {
+		if err := notifier.NotifyParameterPolicyAction(ctx, d.parameterName, d.policyType); err != nil {
+			logger.Load(ctx).WarnContext(ctx, "SSM janitor: parameter policy notification failed",
+				"parameter", d.parameterName, "policyType", d.policyType, "region", d.region, "error", err)
+
+			continue
+		}
+
+		count++
+	}
+
+	telemetry.RecordWorkerItems("ssm", "ParameterPolicyNotifier", count)
+	telemetry.RecordWorkerTask("ssm", "ParameterPolicyNotifier", "success")
+
+	if count > 0 {
+		logger.Load(ctx).InfoContext(ctx, "SSM janitor: parameter policy notifications sent", "count", count)
+	}
 }

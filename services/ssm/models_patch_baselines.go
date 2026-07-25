@@ -103,18 +103,18 @@ type RegisterPatchBaselineForPatchGroupOutput struct {
 
 // UpdatePatchBaselineInput is the request payload for UpdatePatchBaseline.
 type UpdatePatchBaselineInput struct {
+	ApprovalRules                            *PatchRuleGroup   `json:"ApprovalRules,omitempty"`
+	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
+	ApprovedPatchesEnableNonSecurity         *bool             `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
 	BaselineID                               string            `json:"BaselineId"`
 	Name                                     string            `json:"Name,omitempty"`
 	Description                              string            `json:"Description,omitempty"`
 	ApprovedPatchesComplianceLevel           string            `json:"ApprovedPatchesComplianceLevel,omitempty"`
 	AvailableSecurityUpdatesComplianceStatus string            `json:"AvailableSecurityUpdatesComplianceStatus,omitempty"`
 	RejectedPatchesAction                    string            `json:"RejectedPatchesAction,omitempty"`
-	ApprovalRules                            *PatchRuleGroup   `json:"ApprovalRules,omitempty"`
-	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
 	ApprovedPatches                          []string          `json:"ApprovedPatches,omitempty"`
 	RejectedPatches                          []string          `json:"RejectedPatches,omitempty"`
 	Sources                                  []PatchSource     `json:"Sources,omitempty"`
-	ApprovedPatchesEnableNonSecurity         bool              `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
 }
 
 // UpdatePatchBaselineOutput is the response payload for UpdatePatchBaseline.
@@ -152,38 +152,38 @@ type PatchSource struct {
 
 // PatchBaseline represents an SSM patch baseline.
 type PatchBaseline struct {
-	BaselineID                               string            `json:"BaselineId"`
-	Name                                     string            `json:"Name"`
-	Description                              string            `json:"Description,omitempty"`
-	OperatingSystem                          string            `json:"OperatingSystem,omitempty"`
+	ApprovalRules                            *PatchRuleGroup   `json:"ApprovalRules,omitempty"`
+	ApprovedPatchesEnableNonSecurity         *bool             `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
+	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
+	RejectedPatchesAction                    string            `json:"RejectedPatchesAction,omitempty"`
 	ApprovedPatchesComplianceLevel           string            `json:"ApprovedPatchesComplianceLevel,omitempty"`
 	AvailableSecurityUpdatesComplianceStatus string            `json:"AvailableSecurityUpdatesComplianceStatus,omitempty"`
-	RejectedPatchesAction                    string            `json:"RejectedPatchesAction,omitempty"`
-	ApprovalRules                            *PatchRuleGroup   `json:"ApprovalRules,omitempty"`
-	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
+	BaselineID                               string            `json:"BaselineId"`
+	OperatingSystem                          string            `json:"OperatingSystem,omitempty"`
+	Description                              string            `json:"Description,omitempty"`
+	Name                                     string            `json:"Name"`
 	ApprovedPatches                          []string          `json:"ApprovedPatches,omitempty"`
 	RejectedPatches                          []string          `json:"RejectedPatches,omitempty"`
 	Sources                                  []PatchSource     `json:"Sources,omitempty"`
-	ApprovedPatchesEnableNonSecurity         bool              `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
 	CreatedDate                              float64           `json:"CreatedDate"`
 	ModifiedDate                             float64           `json:"ModifiedDate"`
 }
 
 // CreatePatchBaselineInput is the request payload for CreatePatchBaseline.
 type CreatePatchBaselineInput struct {
-	Name                                     string            `json:"Name"`
-	Description                              string            `json:"Description,omitempty"`
-	OperatingSystem                          string            `json:"OperatingSystem,omitempty"`
+	ApprovalRules                            *PatchRuleGroup   `json:"ApprovalRules,omitempty"`
+	ApprovedPatchesEnableNonSecurity         *bool             `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
+	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
 	ApprovedPatchesComplianceLevel           string            `json:"ApprovedPatchesComplianceLevel,omitempty"`
 	AvailableSecurityUpdatesComplianceStatus string            `json:"AvailableSecurityUpdatesComplianceStatus,omitempty"`
 	RejectedPatchesAction                    string            `json:"RejectedPatchesAction,omitempty"`
-	ApprovalRules                            *PatchRuleGroup   `json:"ApprovalRules,omitempty"`
-	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
+	Name                                     string            `json:"Name"`
+	OperatingSystem                          string            `json:"OperatingSystem,omitempty"`
+	Description                              string            `json:"Description,omitempty"`
 	ApprovedPatches                          []string          `json:"ApprovedPatches,omitempty"`
 	RejectedPatches                          []string          `json:"RejectedPatches,omitempty"`
 	Sources                                  []PatchSource     `json:"Sources,omitempty"`
 	Tags                                     []Tag             `json:"Tags,omitempty"`
-	ApprovedPatchesEnableNonSecurity         bool              `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
 }
 
 // CreatePatchBaselineOutput is the response payload for CreatePatchBaseline.

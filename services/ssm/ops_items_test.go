@@ -403,6 +403,97 @@ func TestOpsItem_PriorityRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 5, got.OpsItem.Priority)
 }
+
+// TestOpsItem_ChangeManagerFieldsRoundTrip locks in the previously-missing
+// CreateOpsItemInput/UpdateOpsItemInput fields (bd gopherstack-iq4m):
+// AccountId/ActualStartTime/ActualEndTime/Notifications/PlannedStartTime/
+// PlannedEndTime/RelatedOpsItems, confirmed present in aws-sdk-go-v2
+// v1.71.0's api_op_CreateOpsItem.go/api_op_UpdateOpsItem.go.
+func TestOpsItem_ChangeManagerFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	plannedStart := float64(1700000000)
+	plannedEnd := float64(1700003600)
+	actualStart := float64(1700000100)
+	actualEnd := float64(1700003700)
+
+	cases := []struct {
+		update *ssm.UpdateOpsItemInput
+		check  func(t *testing.T, item ssm.OpsItem)
+		name   string
+		create ssm.CreateOpsItemInput
+	}{
+		{
+			name: "create_populates_change_manager_fields",
+			create: ssm.CreateOpsItemInput{
+				Title:            "change request",
+				Source:           "test",
+				OpsItemType:      "/aws/changerequest",
+				AccountID:        "123456789012",
+				PlannedStartTime: &plannedStart,
+				PlannedEndTime:   &plannedEnd,
+				Notifications:    []ssm.OpsItemNotification{{Arn: "arn:aws:sns:us-east-1:123456789012:topic"}},
+				RelatedOpsItems:  []ssm.RelatedOpsItemRef{{OpsItemID: "oi-other"}},
+			},
+			check: func(t *testing.T, item ssm.OpsItem) {
+				t.Helper()
+				assert.Equal(t, "123456789012", item.AccountID)
+				require.NotNil(t, item.PlannedStartTime)
+				assert.InDelta(t, plannedStart, *item.PlannedStartTime, 0)
+				require.NotNil(t, item.PlannedEndTime)
+				assert.InDelta(t, plannedEnd, *item.PlannedEndTime, 0)
+				require.Len(t, item.Notifications, 1)
+				assert.Equal(t, "arn:aws:sns:us-east-1:123456789012:topic", item.Notifications[0].Arn)
+				require.Len(t, item.RelatedOpsItems, 1)
+				assert.Equal(t, "oi-other", item.RelatedOpsItems[0].OpsItemID)
+			},
+		},
+		{
+			name: "update_sets_actual_times_and_related_items",
+			create: ssm.CreateOpsItemInput{
+				Title:       "change request 2",
+				Source:      "test",
+				OpsItemType: "/aws/changerequest",
+			},
+			update: &ssm.UpdateOpsItemInput{
+				ActualStartTime: &actualStart,
+				ActualEndTime:   &actualEnd,
+				RelatedOpsItems: []ssm.RelatedOpsItemRef{{OpsItemID: "oi-related-1"}, {OpsItemID: "oi-related-2"}},
+			},
+			check: func(t *testing.T, item ssm.OpsItem) {
+				t.Helper()
+				require.NotNil(t, item.ActualStartTime)
+				assert.InDelta(t, actualStart, *item.ActualStartTime, 0)
+				require.NotNil(t, item.ActualEndTime)
+				assert.InDelta(t, actualEnd, *item.ActualEndTime, 0)
+				require.Len(t, item.RelatedOpsItems, 2)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			ctx := context.Background()
+
+			created, err := b.CreateOpsItem(ctx, &tc.create)
+			require.NoError(t, err)
+
+			if tc.update != nil {
+				tc.update.OpsItemID = created.OpsItemID
+				_, err = b.UpdateOpsItem(ctx, tc.update)
+				require.NoError(t, err)
+			}
+
+			got, err := b.GetOpsItem(ctx, &ssm.GetOpsItemInput{OpsItemID: created.OpsItemID})
+			require.NoError(t, err)
+			tc.check(t, got.OpsItem)
+		})
+	}
+}
+
 func TestBackendOps_DisassociateOpsItemRelatedItem(t *testing.T) {
 	t.Parallel()
 

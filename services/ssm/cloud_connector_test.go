@@ -440,3 +440,74 @@ func Test_CloudConnector_SnapshotRestore(t *testing.T) {
 	require.Len(t, tagsOut.TagList, 1)
 	assert.Equal(t, "env", tagsOut.TagList[0].Key)
 }
+
+// Test_CloudConnector_MaxResultsBounds locks in ListCloudConnectors/
+// ValidateCloudConnector's now-confirmed real MaxResults bounds ("Valid
+// Range: Minimum value of 0. Maximum value of 10" and "...Maximum value of
+// 75" respectively, confirmed 2026-07-24 via
+// API_ListCloudConnectors.html/API_ValidateCloudConnector.html -- this
+// AWS-hosted page was not discoverable at the time of the prior audit pass,
+// which is why the bound was previously recorded as an unconfirmed guess).
+// A caller-supplied value outside [0, bound] must be rejected with
+// ValidationException rather than silently accepted or silently clamped.
+func Test_CloudConnector_MaxResultsBounds(t *testing.T) {
+	t.Parallel()
+
+	newConnector := func(t *testing.T, b *ssm.InMemoryBackend) string {
+		t.Helper()
+
+		created, err := b.CreateCloudConnector(context.Background(), &ssm.CreateCloudConnectorInput{
+			ConfigConnectorArn: "arn:aws:config::123456789012:config-connector/cc1",
+			Configuration:      azureConfig("tenant-1"),
+			DisplayName:        "bounds-test",
+			RoleArn:            "arn:aws:iam::123456789012:role/r",
+		})
+		require.NoError(t, err)
+
+		return created.CloudConnectorID
+	}
+
+	tests := []struct {
+		name       string
+		op         string
+		maxResults int64
+		wantErr    bool
+	}{
+		{name: "list_at_documented_max_succeeds", op: "List", maxResults: 10, wantErr: false},
+		{name: "list_above_documented_max_fails", op: "List", maxResults: 11, wantErr: true},
+		{name: "list_explicit_zero_is_valid_per_documented_minimum", op: "List", maxResults: 0, wantErr: false},
+		{name: "validate_at_documented_max_succeeds", op: "Validate", maxResults: 75, wantErr: false},
+		{name: "validate_above_documented_max_fails", op: "Validate", maxResults: 76, wantErr: true},
+		{name: "validate_explicit_zero_is_valid_per_documented_minimum", op: "Validate", maxResults: 0, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ssm.NewInMemoryBackend()
+			mr := tt.maxResults
+
+			var err error
+
+			switch tt.op {
+			case "List":
+				newConnector(t, b)
+				_, err = b.ListCloudConnectors(context.Background(), &ssm.ListCloudConnectorsInput{MaxResults: &mr})
+			case "Validate":
+				id := newConnector(t, b)
+				_, err = b.ValidateCloudConnector(context.Background(), &ssm.ValidateCloudConnectorInput{
+					CloudConnectorID: id,
+					MaxResults:       &mr,
+				})
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, ssm.ErrValidationException)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

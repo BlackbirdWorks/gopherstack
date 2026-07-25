@@ -379,7 +379,8 @@ func TestPatchBaseline_ApprovalRulesGlobalFiltersSourcesRoundTrip(t *testing.T) 
 
 	assert.Equal(t, "BLOCK", out.RejectedPatchesAction)
 	assert.Equal(t, "NON_COMPLIANT", out.AvailableSecurityUpdatesComplianceStatus)
-	assert.True(t, out.ApprovedPatchesEnableNonSecurity)
+	require.NotNil(t, out.ApprovedPatchesEnableNonSecurity)
+	assert.True(t, *out.ApprovedPatchesEnableNonSecurity)
 	require.NotNil(t, out.ApprovalRules)
 	require.Len(t, out.ApprovalRules.PatchRules, 1)
 	assert.Equal(t, "CRITICAL", out.ApprovalRules.PatchRules[0].ComplianceLevel)
@@ -390,6 +391,73 @@ func TestPatchBaseline_ApprovalRulesGlobalFiltersSourcesRoundTrip(t *testing.T) 
 	assert.Equal(t, "CLASSIFICATION", out.GlobalFilters.PatchFilters[0].Key)
 	require.Len(t, out.Sources, 1)
 	assert.Equal(t, "custom-repo", out.Sources[0].Name)
+}
+
+// TestUpdatePatchBaseline_ApprovedPatchesEnableNonSecurityPointerSemantics locks
+// in that ApprovedPatchesEnableNonSecurity is a *bool (matching
+// aws-sdk-go-v2/service/ssm@v1.71.0's CreatePatchBaselineInput/
+// UpdatePatchBaselineInput/PatchBaseline, confirmed via `go doc`), not a plain
+// bool -- a plain bool can't distinguish an explicit `false` from "field
+// omitted" on UpdatePatchBaselineInput, so Update could previously only ever
+// turn the flag on, never back off.
+func TestUpdatePatchBaseline_ApprovedPatchesEnableNonSecurityPointerSemantics(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		initial *bool
+		update  *bool
+		want    *bool
+		name    string
+	}{
+		{
+			name:    "omitted update leaves existing true unchanged",
+			initial: new(true),
+			update:  nil,
+			want:    new(true),
+		},
+		{
+			name:    "explicit false flips existing true off",
+			initial: new(true),
+			update:  new(false),
+			want:    new(false),
+		},
+		{
+			name:    "explicit true flips existing false on",
+			initial: new(false),
+			update:  new(true),
+			want:    new(true),
+		},
+		{
+			name:    "omitted update leaves existing false unchanged",
+			initial: new(false),
+			update:  nil,
+			want:    new(false),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+
+			created, err := b.CreatePatchBaseline(context.Background(), &ssm.CreatePatchBaselineInput{
+				Name:                             "pb-" + tc.name,
+				OperatingSystem:                  "AMAZON_LINUX_2",
+				ApprovedPatchesEnableNonSecurity: tc.initial,
+			})
+			require.NoError(t, err)
+
+			updated, err := b.UpdatePatchBaseline(context.Background(), &ssm.UpdatePatchBaselineInput{
+				BaselineID:                       created.BaselineID,
+				ApprovedPatchesEnableNonSecurity: tc.update,
+			})
+			require.NoError(t, err)
+
+			require.NotNil(t, updated.ApprovedPatchesEnableNonSecurity)
+			assert.Equal(t, *tc.want, *updated.ApprovedPatchesEnableNonSecurity)
+		})
+	}
 }
 
 // TestGetPatchBaseline_PatchGroupsReflectsRegistrations locks in

@@ -8,9 +8,18 @@ import (
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/ssm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// Compile-time proof that InMemoryBackend satisfies the services/ssm
+// package's ParameterPolicyNotifier interface (see ssm_integration.go) --
+// this is the adapter cli.go injects via
+// ssmBackend.SetParameterPolicyNotifier(ebBackend) to wire real
+// EventBridge publishing for SSM's NoChangeNotification/
+// ExpirationNotification parameter policies.
+var _ ssm.ParameterPolicyNotifier = (*eventbridge.InMemoryBackend)(nil)
 
 func TestPutEvents_BatchSizeLimit(t *testing.T) {
 	t.Parallel()
@@ -265,6 +274,66 @@ func TestPutEvents_FailedEntryCount(t *testing.T) {
 				}
 			}
 			assert.Equal(t, tt.wantFailedCount, realFailed)
+		})
+	}
+}
+
+// TestNotifyParameterPolicyAction verifies the ssm.ParameterPolicyNotifier
+// adapter (ssm_integration.go) translates a policy-action notification into
+// a real PutEvents call using AWS's documented wire shape (source "aws.ssm",
+// detail-type "Parameter Store Policy Action", detail
+// {"parameter-name":..., "policy-type":...}) rather than silently dropping
+// it or using an invented shape. An archive on the default bus with an
+// EventPattern matching those exact source/detail-type values is used as an
+// independent observer: if the archive's EventCount increments, the event
+// really was published with that wire shape (not just "PutEvents returned no
+// error").
+func TestNotifyParameterPolicyAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		parameterName  string
+		policyType     string
+		archivePattern string
+	}{
+		{
+			name:          "no_change_notification_matches_pattern",
+			parameterName: "/app/prod/id",
+			policyType:    "NoChangeNotification",
+			archivePattern: `{"source":["aws.ssm"],"detail-type":["Parameter Store Policy Action"],` +
+				`"detail":{"policy-type":["NoChangeNotification"]}}`,
+		},
+		{
+			name:          "expiration_notification_matches_pattern",
+			parameterName: "/app/prod/secret",
+			policyType:    "ExpirationNotification",
+			archivePattern: `{"source":["aws.ssm"],"detail-type":["Parameter Store Policy Action"],` +
+				`"detail":{"policy-type":["ExpirationNotification"]}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			ctx := context.Background()
+
+			_, err := b.CreateArchive(ctx, eventbridge.CreateArchiveInput{
+				ArchiveName:    "capture-" + tt.name,
+				EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
+				EventPattern:   tt.archivePattern,
+			})
+			require.NoError(t, err)
+
+			err = b.NotifyParameterPolicyAction(ctx, tt.parameterName, tt.policyType)
+			require.NoError(t, err)
+
+			archive, err := b.DescribeArchive(ctx, "capture-"+tt.name)
+			require.NoError(t, err)
+			assert.EqualValues(t, 1, archive.EventCount,
+				"the published event must match the exact source/detail-type/policy-type wire shape")
 		})
 	}
 }

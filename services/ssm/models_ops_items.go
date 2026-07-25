@@ -86,14 +86,25 @@ type ListOpsMetadataOutput struct{}
 
 // UpdateOpsItemInput is the request payload for UpdateOpsItem.
 type UpdateOpsItemInput struct {
-	OperationalData map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
-	Priority        *int32                      `json:"Priority,omitempty"`
-	OpsItemID       string                      `json:"OpsItemId"`
-	Title           string                      `json:"Title,omitempty"`
-	Description     string                      `json:"Description,omitempty"`
-	Status          string                      `json:"Status,omitempty"`
-	Severity        string                      `json:"Severity,omitempty"`
-	Category        string                      `json:"Category,omitempty"`
+	OperationalData  map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
+	Priority         *int32                      `json:"Priority,omitempty"`
+	OpsItemID        string                      `json:"OpsItemId"`
+	Title            string                      `json:"Title,omitempty"`
+	Description      string                      `json:"Description,omitempty"`
+	Status           string                      `json:"Status,omitempty"`
+	Severity         string                      `json:"Severity,omitempty"`
+	Category         string                      `json:"Category,omitempty"`
+	AccountID        string                      `json:"AccountId,omitempty"`
+	ActualStartTime  *float64                    `json:"ActualStartTime,omitempty"`
+	ActualEndTime    *float64                    `json:"ActualEndTime,omitempty"`
+	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
+	PlannedStartTime *float64                    `json:"PlannedStartTime,omitempty"`
+	PlannedEndTime   *float64                    `json:"PlannedEndTime,omitempty"`
+	RelatedOpsItems  []RelatedOpsItemRef         `json:"RelatedOpsItems,omitempty"`
+	// OperationalDataToDelete removes keys from OperationalData. Confirmed
+	// present in aws-sdk-go-v2 v1.71.0's api_op_UpdateOpsItem.go but out of
+	// scope for this pass (tracked separately, not part of bd gopherstack-iq4m's
+	// field list).
 }
 
 // UpdateOpsMetadataInput is the request payload for UpdateOpsMetadata.
@@ -113,20 +124,40 @@ type OpsItemDataValue struct {
 	Value string `json:"Value,omitempty"`
 }
 
+// OpsItemNotification is an SNS topic ARN notified when an OpsItem is edited
+// or changed.
+type OpsItemNotification struct {
+	Arn string `json:"Arn,omitempty"`
+}
+
+// RelatedOpsItemRef references another OpsItem that shares something in
+// common with the current one (e.g. similar error messages, impacted
+// resources, or statuses).
+type RelatedOpsItemRef struct {
+	OpsItemID string `json:"OpsItemId"`
+}
+
 // OpsItem represents an SSM OpsItem.
 type OpsItem struct {
 	OperationalData  map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
-	OpsItemID        string                      `json:"OpsItemId"`
-	OpsItemArn       string                      `json:"OpsItemArn,omitempty"`
-	OpsItemType      string                      `json:"OpsItemType,omitempty"`
-	Title            string                      `json:"Title"`
+	PlannedEndTime   *float64                    `json:"PlannedEndTime,omitempty"`
+	PlannedStartTime *float64                    `json:"PlannedStartTime,omitempty"`
+	ActualEndTime    *float64                    `json:"ActualEndTime,omitempty"`
+	ActualStartTime  *float64                    `json:"ActualStartTime,omitempty"`
 	Source           string                      `json:"Source"`
-	Description      string                      `json:"Description,omitempty"`
+	OpsItemType      string                      `json:"OpsItemType,omitempty"`
 	Status           string                      `json:"Status"`
 	Severity         string                      `json:"Severity,omitempty"`
 	Category         string                      `json:"Category,omitempty"`
-	CreatedTime      float64                     `json:"CreatedTime"`
+	OpsItemID        string                      `json:"OpsItemId"`
+	OpsItemArn       string                      `json:"OpsItemArn,omitempty"`
+	Description      string                      `json:"Description,omitempty"`
+	AccountID        string                      `json:"AccountId,omitempty"`
+	Title            string                      `json:"Title"`
+	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
+	RelatedOpsItems  []RelatedOpsItemRef         `json:"RelatedOpsItems,omitempty"`
 	LastModifiedTime float64                     `json:"LastModifiedTime"`
+	CreatedTime      float64                     `json:"CreatedTime"`
 	Priority         int32                       `json:"Priority,omitempty"`
 }
 
@@ -140,15 +171,22 @@ type OpsItemRelatedItem struct {
 
 // CreateOpsItemInput is the request payload for CreateOpsItem.
 type CreateOpsItemInput struct {
-	Title           string                      `json:"Title"`
-	Source          string                      `json:"Source"`
-	Description     string                      `json:"Description,omitempty"`
-	OpsItemType     string                      `json:"OpsItemType,omitempty"`
-	Severity        string                      `json:"Severity,omitempty"`
-	Category        string                      `json:"Category,omitempty"`
-	OperationalData map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
-	Tags            []Tag                       `json:"Tags,omitempty"`
-	Priority        int32                       `json:"Priority,omitempty"`
+	OperationalData  map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
+	PlannedEndTime   *float64                    `json:"PlannedEndTime,omitempty"`
+	PlannedStartTime *float64                    `json:"PlannedStartTime,omitempty"`
+	ActualStartTime  *float64                    `json:"ActualStartTime,omitempty"`
+	ActualEndTime    *float64                    `json:"ActualEndTime,omitempty"`
+	Title            string                      `json:"Title"`
+	Source           string                      `json:"Source"`
+	Description      string                      `json:"Description,omitempty"`
+	OpsItemType      string                      `json:"OpsItemType,omitempty"`
+	Severity         string                      `json:"Severity,omitempty"`
+	Category         string                      `json:"Category,omitempty"`
+	AccountID        string                      `json:"AccountId,omitempty"`
+	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
+	Tags             []Tag                       `json:"Tags,omitempty"`
+	RelatedOpsItems  []RelatedOpsItemRef         `json:"RelatedOpsItems,omitempty"`
+	Priority         int32                       `json:"Priority,omitempty"`
 }
 
 // CreateOpsItemOutput is the response payload for CreateOpsItem.

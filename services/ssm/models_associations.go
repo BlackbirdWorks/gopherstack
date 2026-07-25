@@ -65,11 +65,22 @@ type StartAssociationsOnceInput struct {
 
 // UpdateAssociationInput is the request payload.
 type UpdateAssociationInput struct {
-	AssociationID   string              `json:"AssociationId"`
-	AssociationName string              `json:"AssociationName,omitempty"`
-	DocumentVersion string              `json:"DocumentVersion,omitempty"`
-	Parameters      map[string][]string `json:"Parameters,omitempty"`
-	Targets         []AssociationTarget `json:"Targets,omitempty"`
+	Parameters                    map[string][]string                `json:"Parameters,omitempty"`
+	Duration                      *int32                             `json:"Duration,omitempty"`
+	OutputLocation                *InstanceAssociationOutputLocation `json:"OutputLocation,omitempty"`
+	AssociationDispatchAssumeRole string                             `json:"AssociationDispatchAssumeRole,omitempty"`
+	AssociationID                 string                             `json:"AssociationId"`
+	SyncCompliance                string                             `json:"SyncCompliance,omitempty"`
+	DocumentVersion               string                             `json:"DocumentVersion,omitempty"`
+	AutomationTargetParameterName string                             `json:"AutomationTargetParameterName,omitempty"`
+	ScheduleExpression            string                             `json:"ScheduleExpression,omitempty"`
+	ComplianceSeverity            string                             `json:"ComplianceSeverity,omitempty"`
+	AssociationName               string                             `json:"AssociationName,omitempty"`
+	MaxConcurrency                string                             `json:"MaxConcurrency,omitempty"`
+	MaxErrors                     string                             `json:"MaxErrors,omitempty"`
+	Targets                       []AssociationTarget                `json:"Targets,omitempty"`
+	CalendarNames                 []string                           `json:"CalendarNames,omitempty"`
+	ApplyOnlyAtCronInterval       bool                               `json:"ApplyOnlyAtCronInterval,omitempty"`
 }
 
 // UpdateAssociationOutput is the response payload.
@@ -95,17 +106,58 @@ type AssociationTarget struct {
 	Values []string `json:"Values"`
 }
 
+// S3OutputLocation identifies the S3 bucket/prefix/region an association's
+// execution results are stored to.
+type S3OutputLocation struct {
+	OutputS3BucketName string `json:"OutputS3BucketName,omitempty"`
+	OutputS3KeyPrefix  string `json:"OutputS3KeyPrefix,omitempty"`
+	OutputS3Region     string `json:"OutputS3Region,omitempty"`
+}
+
+// InstanceAssociationOutputLocation is an S3 bucket where an association's
+// execution results are stored (CreateAssociationInput.OutputLocation /
+// AssociationDescription.OutputLocation).
+type InstanceAssociationOutputLocation struct {
+	S3Location *S3OutputLocation `json:"S3Location,omitempty"`
+}
+
+// copyAssocOutputLocation deep copies an OutputLocation for an association.
+func copyAssocOutputLocation(src *InstanceAssociationOutputLocation) *InstanceAssociationOutputLocation {
+	if src == nil {
+		return nil
+	}
+
+	dst := &InstanceAssociationOutputLocation{}
+	if src.S3Location != nil {
+		s3loc := *src.S3Location
+		dst.S3Location = &s3loc
+	}
+
+	return dst
+}
+
 // Association represents an SSM association between a document and targets.
 type Association struct {
-	AssociationID             string               `json:"AssociationId"`
-	AssociationName           string               `json:"AssociationName,omitempty"`
-	DocumentVersion           string               `json:"DocumentVersion,omitempty"`
-	InstanceID                string               `json:"InstanceId,omitempty"`
-	Name                      string               `json:"Name"`
-	Overview                  *AssociationOverview `json:"Overview,omitempty"`
-	Parameters                map[string][]string  `json:"Parameters,omitempty"`
-	Targets                   []AssociationTarget  `json:"Targets,omitempty"`
-	LastUpdateAssociationDate float64              `json:"LastUpdateAssociationDate"`
+	Overview                      *AssociationOverview               `json:"Overview,omitempty"`
+	OutputLocation                *InstanceAssociationOutputLocation `json:"OutputLocation,omitempty"`
+	Duration                      *int32                             `json:"Duration,omitempty"`
+	Parameters                    map[string][]string                `json:"Parameters,omitempty"`
+	AssociationDispatchAssumeRole string                             `json:"AssociationDispatchAssumeRole,omitempty"`
+	DocumentVersion               string                             `json:"DocumentVersion,omitempty"`
+	InstanceID                    string                             `json:"InstanceId,omitempty"`
+	SyncCompliance                string                             `json:"SyncCompliance,omitempty"`
+	ScheduleExpression            string                             `json:"ScheduleExpression,omitempty"`
+	AssociationName               string                             `json:"AssociationName,omitempty"`
+	AssociationID                 string                             `json:"AssociationId"`
+	AutomationTargetParameterName string                             `json:"AutomationTargetParameterName,omitempty"`
+	MaxErrors                     string                             `json:"MaxErrors,omitempty"`
+	ComplianceSeverity            string                             `json:"ComplianceSeverity,omitempty"`
+	Name                          string                             `json:"Name"`
+	MaxConcurrency                string                             `json:"MaxConcurrency,omitempty"`
+	CalendarNames                 []string                           `json:"CalendarNames,omitempty"`
+	Targets                       []AssociationTarget                `json:"Targets,omitempty"`
+	LastUpdateAssociationDate     float64                            `json:"LastUpdateAssociationDate"`
+	ApplyOnlyAtCronInterval       bool                               `json:"ApplyOnlyAtCronInterval,omitempty"`
 }
 
 // AssociationOverview is a summary of an association.
@@ -115,12 +167,23 @@ type AssociationOverview struct {
 
 // CreateAssociationInput is the request payload for CreateAssociation.
 type CreateAssociationInput struct {
-	Name            string              `json:"Name"`
-	AssociationName string              `json:"AssociationName,omitempty"`
-	DocumentVersion string              `json:"DocumentVersion,omitempty"`
-	InstanceID      string              `json:"InstanceId,omitempty"`
-	Parameters      map[string][]string `json:"Parameters,omitempty"`
-	Targets         []AssociationTarget `json:"Targets,omitempty"`
+	Parameters                    map[string][]string                `json:"Parameters,omitempty"`
+	OutputLocation                *InstanceAssociationOutputLocation `json:"OutputLocation,omitempty"`
+	Duration                      *int32                             `json:"Duration,omitempty"`
+	AutomationTargetParameterName string                             `json:"AutomationTargetParameterName,omitempty"`
+	ComplianceSeverity            string                             `json:"ComplianceSeverity,omitempty"`
+	SyncCompliance                string                             `json:"SyncCompliance,omitempty"`
+	ScheduleExpression            string                             `json:"ScheduleExpression,omitempty"`
+	AssociationDispatchAssumeRole string                             `json:"AssociationDispatchAssumeRole,omitempty"`
+	Name                          string                             `json:"Name"`
+	AssociationName               string                             `json:"AssociationName,omitempty"`
+	InstanceID                    string                             `json:"InstanceId,omitempty"`
+	DocumentVersion               string                             `json:"DocumentVersion,omitempty"`
+	MaxConcurrency                string                             `json:"MaxConcurrency,omitempty"`
+	MaxErrors                     string                             `json:"MaxErrors,omitempty"`
+	CalendarNames                 []string                           `json:"CalendarNames,omitempty"`
+	Targets                       []AssociationTarget                `json:"Targets,omitempty"`
+	ApplyOnlyAtCronInterval       bool                               `json:"ApplyOnlyAtCronInterval,omitempty"`
 }
 
 // CreateAssociationOutput is the response payload for CreateAssociation.
@@ -130,12 +193,23 @@ type CreateAssociationOutput struct {
 
 // CreateAssociationBatchRequestEntry is a single entry in a batch create association request.
 type CreateAssociationBatchRequestEntry struct {
-	Name            string              `json:"Name"`
-	AssociationName string              `json:"AssociationName,omitempty"`
-	DocumentVersion string              `json:"DocumentVersion,omitempty"`
-	InstanceID      string              `json:"InstanceId,omitempty"`
-	Parameters      map[string][]string `json:"Parameters,omitempty"`
-	Targets         []AssociationTarget `json:"Targets,omitempty"`
+	Parameters                    map[string][]string                `json:"Parameters,omitempty"`
+	OutputLocation                *InstanceAssociationOutputLocation `json:"OutputLocation,omitempty"`
+	Duration                      *int32                             `json:"Duration,omitempty"`
+	AutomationTargetParameterName string                             `json:"AutomationTargetParameterName,omitempty"`
+	ComplianceSeverity            string                             `json:"ComplianceSeverity,omitempty"`
+	SyncCompliance                string                             `json:"SyncCompliance,omitempty"`
+	ScheduleExpression            string                             `json:"ScheduleExpression,omitempty"`
+	AssociationDispatchAssumeRole string                             `json:"AssociationDispatchAssumeRole,omitempty"`
+	Name                          string                             `json:"Name"`
+	AssociationName               string                             `json:"AssociationName,omitempty"`
+	InstanceID                    string                             `json:"InstanceId,omitempty"`
+	DocumentVersion               string                             `json:"DocumentVersion,omitempty"`
+	MaxConcurrency                string                             `json:"MaxConcurrency,omitempty"`
+	MaxErrors                     string                             `json:"MaxErrors,omitempty"`
+	CalendarNames                 []string                           `json:"CalendarNames,omitempty"`
+	Targets                       []AssociationTarget                `json:"Targets,omitempty"`
+	ApplyOnlyAtCronInterval       bool                               `json:"ApplyOnlyAtCronInterval,omitempty"`
 }
 
 // FailedCreateAssociation represents a failed association entry in a batch.

@@ -47,9 +47,9 @@ type KMSEncryptor interface {
 type InMemoryBackend struct {
 	kms                        KMSEncryptor
 	gcm                        cipher.AEAD
-	patchBaselines             map[string]*store.Table[PatchBaseline]
-	activations                map[string]*store.Table[Activation]
-	cloudConnectors            map[string]*store.Table[CloudConnector]
+	parameterPolicyNotifier    ParameterPolicyNotifier
+	registry                   *store.Registry
+	parameters                 map[string]*store.Table[Parameter]
 	maintenanceWindows         map[string]*store.Table[MaintenanceWindow]
 	maintenanceWindowTargets   map[string]*store.Table[MaintenanceWindowTarget]
 	maintenanceWindowTasks     map[string]*store.Table[MaintenanceWindowTask]
@@ -63,16 +63,16 @@ type InMemoryBackend struct {
 	commands                   map[string]*store.Table[Command]
 	commandInvocations         map[string]map[string][]CommandInvocation
 	history                    map[string]map[string][]ParameterHistory
-	parameters                 map[string]*store.Table[Parameter]
+	resourceDataSyncs          map[string]*store.Table[ResourceDataSync]
 	documents                  map[string]*store.Table[Document]
 	opsItems                   map[string]*store.Table[OpsItem]
 	opsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem
 	opsMetadata                map[string]*store.Table[OpsMetadata]
 	compliance                 map[string]map[string][]ComplianceItem
-	registry                   *store.Registry
+	activations                map[string]*store.Table[Activation]
+	cloudConnectors            map[string]*store.Table[CloudConnector]
 	inventory                  map[string]map[string][]InventoryItem
-	resourceDataSyncs          map[string]*store.Table[ResourceDataSync]
-	parameterLabels            map[string]map[string]map[int64][]string
+	associationExecutions      map[string]map[string][]AssociationExecution
 	automationExecutions       map[string]*store.Table[AutomationExecution]
 	serviceSettings            map[string]*store.Table[ServiceSetting]
 	resourcePolicies           map[string]map[string][]*ResourcePolicy
@@ -86,11 +86,13 @@ type InMemoryBackend struct {
 	miscResourceTags           map[string]map[string]map[string]string
 	resourceIDToOpsMetadataArn map[string]map[string]string
 	opsItemEvents              map[string][]OpsItemEventSummary
-	associationExecutions      map[string]map[string][]AssociationExecution
+	parameterLabels            map[string]map[string]map[int64][]string
 	associationExecTargets     map[string]map[string][]AssociationExecutionTarget
-	commandExpirySecs          float64
-	commandExecDelaySecs       float64
+	patchBaselines             map[string]*store.Table[PatchBaseline]
+	notifiedParameterPolicies  map[string]map[string]map[string]struct{}
 	automationExecDelaySecs    float64
+	commandExecDelaySecs       float64
+	commandExpirySecs          float64
 	tableMu                    sync.Mutex
 }
 
@@ -140,6 +142,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		associationExecutions:      make(map[string]map[string][]AssociationExecution),
 		associationExecTargets:     make(map[string]map[string][]AssociationExecutionTarget),
 		inventoryDeletions:         make(map[string][]InventoryDeletion),
+		notifiedParameterPolicies:  make(map[string]map[string]map[string]struct{}),
 	}
 
 	b.registerDefaultDocuments(defaultRegion)
@@ -291,6 +294,7 @@ func (b *InMemoryBackend) Reset() {
 	b.associationExecutions = make(map[string]map[string][]AssociationExecution)
 	b.associationExecTargets = make(map[string]map[string][]AssociationExecutionTarget)
 	b.inventoryDeletions = make(map[string][]InventoryDeletion)
+	b.notifiedParameterPolicies = make(map[string]map[string]map[string]struct{})
 	b.opsItemEvents = nil
 
 	// instancePatchStates/instanceProperties are deliberately NOT reallocated

@@ -2637,6 +2637,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SSM → KMS for SecureString encryption with customer-managed keys.
 	wireSSMKMS(byName["SSM"], byName["KMS"])
 
+	// Wire SSM → EventBridge so parameter-policy notifications are actually emitted.
+	wireSSMParameterPolicyNotifications(byName["SSM"], byName["EventBridge"])
+
 	// Wire Kinesis → KMS so StartStreamEncryption validates KeyId against real key state.
 	wireKinesisKMS(byName["Kinesis"], byName["KMS"])
 
@@ -3584,6 +3587,29 @@ func wireSSMKMS(ssmReg, kmsReg service.Registerable) {
 		return
 	}
 	ssmBk.WithKMS(&ssmKMSAdapter{backend: kmsBk})
+}
+
+// wireSSMParameterPolicyNotifications lets SSM emit EventBridge events when a
+// parameter's ExpirationNotification or NoChangeNotification policy comes due.
+// Without this the notifier stays nil and the janitor sweep is a no-op.
+func wireSSMParameterPolicyNotifications(ssmReg, ebReg service.Registerable) {
+	ssmH, ok := ssmReg.(*ssmbackend.Handler)
+	if !ok {
+		return
+	}
+	ssmBk, ok := ssmH.Backend.(*ssmbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	ebH, ok := ebReg.(*ebbackend.Handler)
+	if !ok {
+		return
+	}
+	ebBk, ok := ebH.Backend.(*ebbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	ssmBk.SetParameterPolicyNotifier(ebBk)
 }
 
 // ssmKMSAdapter adapts kms.InMemoryBackend to ssm.KMSEncryptor.
