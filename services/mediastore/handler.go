@@ -646,8 +646,11 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrInvalidContainerName),
 		errors.Is(err, ErrInvalidPolicy),
 		errors.Is(err, ErrCorsRuleInvalid),
+		errors.Is(err, ErrTooManyCorsRules),
 		errors.Is(err, ErrInvalidMetricPolicy),
 		errors.Is(err, ErrTooManyMetricRules),
+		errors.Is(err, ErrObjectGroupInvalid),
+		errors.Is(err, ErrObjectGroupNameInvalid),
 		errors.Is(err, ErrEmptyTagKey):
 
 		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())

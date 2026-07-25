@@ -3,6 +3,7 @@ package mediastore
 import (
 	"context"
 	"maps"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -14,12 +15,31 @@ import (
 const (
 	// containerStatusActive is the status for a ready container.
 	containerStatusActive = "ACTIVE"
+	// containerStatusCreating is the transient status a container holds
+	// between CreateContainer and the end of its (simulated) activation
+	// delay -- see InMemoryBackend.activationDelay / SetActivationDelay.
+	containerStatusCreating = "CREATING"
+	// containerStatusDeleting is the transient status a container holds
+	// between DeleteContainer and the end of its (simulated) deletion
+	// delay, after which it is actually removed from the store.
+	containerStatusDeleting = "DELETING"
 	// defaultEndpointFormat is the format for the container endpoint.
 	defaultEndpointFormat = "https://%s.data.mediastore.%s.amazonaws.com"
 	// maxContainerNameLen is the maximum allowed length of a container name.
 	maxContainerNameLen = 255
 	// maxMetricPolicyRules is the maximum number of metric policy rules.
 	maxMetricPolicyRules = 5
+	// maxObjectGroupLen is the maximum length of MetricPolicyRule.ObjectGroup,
+	// per the ObjectGroup shape's `max: 900` trait in the MediaStore botocore
+	// model (models/apis/mediastore/2017-09-01/api-2.json).
+	maxObjectGroupLen = 900
+	// maxObjectGroupNameLen is the maximum length of
+	// MetricPolicyRule.ObjectGroupName, per the ObjectGroupName shape's
+	// `max: 30` trait in the same model.
+	maxObjectGroupNameLen = 30
+	// maxCorsPolicyRules is the maximum number of rules in a CORS policy, per
+	// the CorsPolicy list shape's `max: 100` trait in the same model.
+	maxCorsPolicyRules = 100
 	// defaultListLimit is the default page size for ListContainers.
 	defaultListLimit = 100
 )
@@ -59,24 +79,160 @@ type StorageBackend interface {
 	ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error)
 }
 
+// containerTransition describes a scheduled lifecycle-status change for a
+// single container. Transitions are stored out-of-band from the Container
+// struct (in InMemoryBackend.containerTransitions) so they never leak into
+// cloned/persisted Container values, matching the pattern used by
+// services/redshift's clusterTransition.
+type containerTransition struct {
+	// effectiveAt is the wall-clock time at or after which the transition
+	// applies.
+	effectiveAt time.Time
+	// status is the target status to set once the transition fires. Ignored
+	// when remove is true.
+	status string
+	// remove indicates the container should be deleted (not restatused) when
+	// the transition fires -- used to model asynchronous DeleteContainer.
+	remove bool
+}
+
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 //
 // State is partitioned by region: containers[region] gives the store.Table of
 // containers stored within that region (see store_setup.go for why this is a
 // per-region map rather than a single flat table).
 type InMemoryBackend struct {
-	containers       map[string]*store.Table[Container]
-	mu               *lockmetrics.RWMutex
-	paginationSecret string
+	containers           map[string]*store.Table[Container]
+	containerTransitions map[string]*containerTransition
+	mu                   *lockmetrics.RWMutex
+	paginationSecret     string
+	// activationDelay controls how long CreateContainer/DeleteContainer stay
+	// in the transient CREATING/DELETING status before completing, simulating
+	// real AWS's asynchronous container lifecycle. It defaults to zero
+	// (transitions apply synchronously), matching this repo's house
+	// convention for lightweight, fast-provisioning resources -- see
+	// services/efs's fsActivationDelay and services/redshift's
+	// clusterActivationDelay -- of keeping async-lifecycle simulation an
+	// explicit opt-in via SetActivationDelay rather than default-on, since
+	// default-on would slow down every caller that creates a container.
+	activationDelay time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory MediaStore backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		containers:       make(map[string]*store.Table[Container]),
-		paginationSecret: uuid.NewString(),
-		mu:               lockmetrics.New("mediastore"),
+		containers:           make(map[string]*store.Table[Container]),
+		containerTransitions: make(map[string]*containerTransition),
+		paginationSecret:     uuid.NewString(),
+		mu:                   lockmetrics.New("mediastore"),
 	}
+}
+
+// SetActivationDelay configures the transient CREATING/DELETING window
+// simulated by CreateContainer/DeleteContainer (see InMemoryBackend.
+// activationDelay). A zero delay (the default) makes container-lifecycle
+// transitions synchronous, matching this backend's previous always-instant
+// behavior; a positive delay makes them genuinely observable, matching real
+// AWS, so DescribeContainer/ListContainers polling loops (SDK waiters) see
+// the transient state until the delay elapses.
+func (b *InMemoryBackend) SetActivationDelay(d time.Duration) {
+	b.mu.Lock("SetActivationDelay")
+	defer b.mu.Unlock()
+	b.activationDelay = d
+}
+
+// containerTransitionKey builds the per-region transition map key for a
+// container. Containers are unique only within a region (see
+// store_setup.go), so the key must include region to avoid collisions
+// between same-named containers in different regions.
+func containerTransitionKey(region, name string) string { return region + "|" + name }
+
+// scheduleContainerTransitionLocked records a pending lifecycle transition
+// for a container. Callers MUST hold b.mu for writing. A later transition
+// for the same container overwrites any earlier pending one (e.g. a delete
+// supersedes a pending creating->active transition), matching AWS's
+// last-write-wins lifecycle.
+func (b *InMemoryBackend) scheduleContainerTransitionLocked(region, name string, tr *containerTransition) {
+	b.containerTransitions[containerTransitionKey(region, name)] = tr
+}
+
+// advanceContainerStates applies every container transition whose effective
+// time has passed. It first scans under a read lock and only upgrades to a
+// write lock when there is work to do, keeping the common (no-delay-
+// configured) case cheap. It is safe for concurrent use and is called at the
+// top of every read/mutate path that returns container Status
+// (DescribeContainer, ListContainers, CreateContainer, DeleteContainer) so
+// SDK waiters always observe the true state -- there is no background
+// goroutine driving this (see the leaks note in PARITY.md), only lazy
+// advancement on access.
+func (b *InMemoryBackend) advanceContainerStates(now time.Time) {
+	b.mu.RLock("advanceContainerStates.scan")
+
+	due := false
+
+	for _, tr := range b.containerTransitions {
+		if !now.Before(tr.effectiveAt) {
+			due = true
+
+			break
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if !due {
+		return
+	}
+
+	b.mu.Lock("advanceContainerStates.apply")
+	defer b.mu.Unlock()
+
+	b.applyDueContainerTransitionsLocked(now)
+}
+
+// applyDueContainerTransitionsLocked mutates container state for all
+// transitions that are due. Callers MUST hold b.mu for writing. Re-checking
+// effectiveAt under the write lock makes the operation idempotent when
+// multiple callers race to advance the same due transition.
+func (b *InMemoryBackend) applyDueContainerTransitionsLocked(now time.Time) {
+	for key, tr := range b.containerTransitions {
+		if now.Before(tr.effectiveAt) {
+			continue
+		}
+
+		region, name, ok := splitContainerTransitionKey(key)
+		if !ok {
+			delete(b.containerTransitions, key)
+
+			continue
+		}
+
+		tbl := b.containerRegion(region)
+		if tbl != nil {
+			if c, exists := tbl.Get(name); exists {
+				if tr.remove {
+					tbl.Delete(name)
+				} else {
+					c.Status = tr.status
+				}
+			}
+		}
+
+		delete(b.containerTransitions, key)
+	}
+}
+
+// splitContainerTransitionKey reverses containerTransitionKey. Region names
+// never contain '|', so the first separator unambiguously divides region
+// from container name.
+func splitContainerTransitionKey(key string) (string, string, bool) {
+	for i := range key {
+		if key[i] == '|' {
+			return key[:i], key[i+1:], true
+		}
+	}
+
+	return "", "", false
 }
 
 // regionFromContext resolves the AWS region for the current request from ctx,

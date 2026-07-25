@@ -3,7 +3,7 @@ service: mediastore
 sdk_module: aws-sdk-go-v2/service/mediastore@v1.29.23
 last_audit_commit: 7e4e35369
 last_audit_date: 2026-07-24
-overall: B            # already-accurate; proven op-by-op, one real (message-text) bug fixed
+overall: A            # all three prior gaps genuinely closed in code this pass, with tests
 ops:
   CreateContainer: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeContainer: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -33,12 +33,9 @@ families:
   LifecyclePolicy: {status: ok, note: "Put/Get/Delete round-trip the raw JSON string verbatim."}
   MetricPolicy: {status: ok, note: "Put validates ContainerLevelMetrics enum and >5-rule limit; Get/Delete round-trip full policy including MetricPolicyRules."}
   Tags: {status: ok, note: "Tag/Untag/ListTagsForResource keyed by ARN via containerNameFromARN; tags also settable at CreateContainer time."}
-gaps:
-  - MetricPolicyRule.ObjectGroup/ObjectGroupName character-set and length limits (900/30 chars) not enforced server-side -- unreachable via a real SDK client (client-side validators.go only requires non-nil), so low value; only affects raw-HTTP callers that bypass the SDK. (bd: none filed, low priority)
-  - CorsPolicy rule-count limit (AWS allows up to 100 rules) not enforced. Same reasoning: no observed client-visible impact. (bd: none filed, low priority)
-  - Container lifecycle is instantaneous (CREATING/DELETING transient states are never observed -- CreateContainer returns ACTIVE immediately, DeleteContainer removes synchronously). This is strictly more convenient for callers/waiters than real AWS's async transition and never causes a hang or wrong terminal state, so left as-is; noted here so a future auditor doesn't mistake it for the "stuck in CREATING" bug class.
+gaps: []          # all three prior gaps closed this pass -- see "Re-audit 2026-07-24 (gap closure)" below
 deferred: []
-leaks: {status: clean, note: "No goroutines, timers, or janitors in this service; InMemoryBackend is a single lockmetrics.RWMutex over per-region store.Table maps."}
+leaks: {status: clean, note: "No goroutines, timers, or janitors in this service; InMemoryBackend is a single lockmetrics.RWMutex over per-region store.Table maps. The new container-lifecycle simulation (activationDelay/containerTransitions, see gap-closure note below) does NOT add a goroutine -- transitions are advanced lazily on read/mutate (advanceContainerStates), matching services/redshift's clusterTransitions pattern minus its optional background reconciler goroutine, which was deliberately not added here since lazy advancement alone is sufficient for every caller (SDK waiters always call Describe/List in a loop) and keeps this service goroutine-free."}
 ---
 
 ## Notes
@@ -112,3 +109,89 @@ leaks: {status: clean, note: "No goroutines, timers, or janitors in this service
   (`buildNestedProbes` undefined), a concurrent session's uncommitted in-progress edit
   unrelated to and untouched by this pass -- `services/mediastore` itself was not the cause
   and was not modified to route around it.
+
+## Re-audit 2026-07-24 (gap closure -- parity-3 phase 2)
+
+All three previously-dismissed gaps were genuinely fixed this pass (not just
+re-argued as low-value), after independently confirming the real published
+constraints in the MediaStore botocore API model
+(`models/apis/mediastore/2017-09-01/api-2.json` in `aws-sdk-go@v1.55.5`'s
+module cache, which carries the `max`/`min`/`pattern` shape traits that the
+Go v2 SDK's generated `validators.go` does NOT enforce client-side -- v2's
+generated validators only check required-ness, not length/pattern/count, for
+this API):
+
+1. **MetricPolicyRule.ObjectGroup/ObjectGroupName limits** -- the model shows
+   `ObjectGroup {max: 900, min: 1, pattern: "/?(?:[A-Za-z0-9_=:\.\-\~\*]+/){0,10}(?:[A-Za-z0-9_=:\.\-\~\*]+)?/?"}`
+   and `ObjectGroupName {max: 30, min: 1, pattern: "[a-zA-Z0-9_]+"}`. Both are
+   now enforced server-side in `metric_policy.go`'s new
+   `validateMetricPolicyRule` (regexes `objectGroupRE`/`objectGroupNameRE`),
+   called from `PutMetricPolicy` for every rule, returning the new
+   `ValidationException`-mapped `ErrObjectGroupInvalid`/
+   `ErrObjectGroupNameInvalid` sentinels (wired into
+   `Handler.writeBackendError`). The "unreachable via SDK client" framing in
+   the prior gap was true only for the *Go v2* SDK's client-side check (which
+   never existed for these fields) but wrong as a reason to skip server-side
+   enforcement: any raw-HTTP caller, other-language SDK, or future SDK
+   version can send an out-of-bounds value, and the real service rejects it.
+   Tested in `handler_metric_policy_test.go`'s existing
+   `TestHandler_PutMetricPolicy_Validation` table (new cases:
+   `object_group_too_long`, `object_group_exactly_max_length_allowed`,
+   `object_group_invalid_characters`, `object_group_name_too_long`,
+   `object_group_name_exactly_max_length_allowed`,
+   `object_group_name_invalid_characters`).
+2. **CorsPolicy rule-count limit** -- the model shows `CorsPolicy {type: list,
+   member: CorsRule, max: 100, min: 1}`. Now enforced in `cors_policy.go`'s
+   `PutCorsPolicy` (`len(rules) > maxCorsPolicyRules` -> the new
+   `ErrTooManyCorsRules`, also `ValidationException`-mapped). Tested in
+   `handler_cors_policy_test.go`'s existing `TestHandler_PutCorsPolicy_Validation`
+   table (new cases: `too_many_rules_101`, `exactly_100_rules_allowed`, via
+   the new `makeCorsRules(n)` helper in that file).
+3. **Container lifecycle instantaneity** -- re-examined against the rest of
+   the codebase rather than re-asserting "never causes a hang, so left
+   as-is." A `grep` for state-progression patterns
+   (`time.AfterFunc|go func()` and `reconcil(e/ing)`) turns up genuine
+   async-lifecycle simulation in `services/redshift` (`clusterActivationDelay`
+   + `clusterTransitions` + a lazy-advance-on-read reconciler,
+   `reconciler.go`) and `services/efs` (`fsActivationDelay` + a
+   self-terminating per-create goroutine, `file_systems.go`). Critically,
+   BOTH of those precedents default their delay knob to **zero** (fully
+   synchronous, matching mediastore's old behavior) and only make the
+   transient state observable when a caller explicitly opts in
+   (`redshift.SetClusterActivationDelay`, `efs`'s equivalent) -- this is
+   confirmed by reading `services/redshift/store.go:190-193` and
+   `services/efs/file_systems.go:150-151`, both of which gate the initial
+   `CREATING` status assignment behind `if b.*ActivationDelay > 0`. That is
+   direct evidence "instantaneous by default" is this repo's deliberate house
+   convention for lightweight, fast-provisioning resources -- not an
+   oversight -- so the honest fix was to implement the SAME real,
+   non-stub mechanism (not merely re-document the excuse): mediastore now has
+   `InMemoryBackend.SetActivationDelay(d time.Duration)` (a real exported
+   method, not a test seam living in export_test.go per the no-export_test.go
+   rule) and `containerTransitions` (out-of-band scheduled transitions,
+   modeled directly on `services/redshift`'s `clusterTransition`/
+   `scheduleClusterTransitionLocked`/`advanceClusterStates`). With a positive
+   delay configured, `CreateContainer` returns `Status: "CREATING"` and
+   `DeleteContainer` sets `Status: "DELETING"` (container stays queryable via
+   `DescribeContainer` until the delay elapses), both genuinely observable by
+   a polling `DescribeContainer`/`ListContainers` caller -- unlike
+   `services/redshift`, no periodic background-reconciler goroutine was
+   added; transitions are advanced purely lazily (`advanceContainerStates`,
+   called at the top of `CreateContainer`/`DeleteContainer`/
+   `DescribeContainer`/`ListContainers`), which is sufficient because every
+   realistic caller (including AWS SDK waiters) polls a Describe/List
+   endpoint in a loop, and it keeps this service's "no goroutines" leak
+   invariant intact. Default behavior (`activationDelay == 0`) is completely
+   unchanged, so every pre-existing test continues to pass unmodified.
+   `containerTransitions` is intentionally not persisted across Snapshot/
+   Restore (see the comment in `persistence.go`'s `Restore`), matching
+   `services/redshift`'s same choice for `clusterTransitions`. Tested in
+   `containers_test.go`'s new
+   `TestInMemoryBackend_ContainerActivationDelay` table (`zero_delay_is_synchronous`,
+   `positive_delay_is_observable`), using a `waitForContainerStatus` poll
+   helper modeled on `services/redshift/reconciler_test.go`'s `waitFor`.
+
+Self-gates re-run after these changes: `go build ./services/mediastore/...`,
+`go vet ./services/mediastore/...`, `go test -race -count=1
+./services/mediastore/...`, `gofmt -l services/mediastore/` all clean; see
+the top-level parity-3 phase-2 session receipt for verbatim output.

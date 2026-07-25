@@ -6,14 +6,14 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dynamodbstreams
 sdk_module: aws-sdk-go-v2/service/dynamodbstreams@v1.35.0   # version audited against
-last_audit_commit: 95ab0584                                  # HEAD when this manifest was written
+last_audit_commit: 8ba0d8ad2                                  # HEAD when this manifest was written
 last_audit_date: 2026-07-24
-overall: B            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op
+overall: A            # gaps closed upstream in services/dynamodb by 8ba0d8ad2; verified in this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   ListStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "delegates to ddbbackend.StreamsBackend; region-scoped, ExclusiveStartStreamArn/Limit pagination verified"}
-  DescribeStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "ShardFilter input field accepted but unused by backend (cross-service gap, see gaps below)"}
+  DescribeStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "ShardFilter CHILD_SHARDS now applied by the backend (services/dynamodb/streams_ops.go:184 calls parseShardFilter(input.ShardFilter) and filters shards to the parent's children); fixed in 8ba0d8ad2, verified in this pass"}
   GetShardIterator: {wire: ok, errors: ok, state: ok, persist: ok, note: "iterators are opaque server-side tokens (ddbbackend.iteratorStore); genuinely ephemeral per real AWS 15-min TTL, correctly NOT persisted (see leaks/persist note)"}
   GetRecords: {wire: ok, errors: ok, state: ok, persist: ok, note: "NextShardIterator always present unless shard closed+drained; verified against real records written by dynamodb PutItem/UpdateItem/DeleteItem via GetRecentEvents-backed ring buffer"}
 # Families audited as a group (when per-op is impractical):
@@ -22,11 +22,8 @@ families:
   errors: {status: ok, note: "errCodeLookup surface matches SDK-modeled exceptions per op (DescribeStream: ResourceNotFoundException/InternalServerError; GetShardIterator: +TrimmedDataAccessException; GetRecords: +ExpiredIteratorException/LimitExceededException/TrimmedDataAccessException; ListStreams: ResourceNotFoundException/InternalServerError). handleError() correctly rewrites com.amazonaws.dynamodb.v20120810# -> com.amazonaws.dynamodbstreams.v20120810# namespace and maps InternalServerError to HTTP 500, all else to 400."}
   route_matcher: {status: ok, note: "X-Amz-Target prefix 'DynamoDBStreams_20120810.' verified against serializers.go (all 4 ops); Content-Type 'application/x-amz-json-1.0' (awsjson1.0, not 1.1) verified; no collision with DynamoDB_20120810. prefix used by the main dynamodb service"}
   persistence: {status: ok, note: "Handler intentionally has no Snapshot/Restore -- stream state (StreamARN/StreamsEnabled/StreamViewType/StreamCreatedAt/StreamRecords ring buffer) lives entirely in the shared *ddbbackend.InMemoryDB object (services/dynamodb), which already persists it under the 'DynamoDB' key. Guarded by persistence_test.go:TestHandler_OwnsNoState. Shard iterators are correctly NOT persisted (ephemeral, matches real AWS 15-min iterator TTL)."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "DescribeStreamInput.ShardFilter (CHILD_SHARDS filtering) is accepted on the wire but ignored by the backend (services/dynamodb/streams_ops.go DescribeStream never reads input.ShardFilter) -- cross-service, backend lives in services/dynamodb, not editable from this service (bd: file follow-up)"
-  - "services/dynamodb/streams_wire.go duplicates the wire-marshaling helpers in this package's handler.go (toWireDescribeStreamOutput, wireStreamDescription, wireGetRecordsOutput, wireStreamRecord, fromStreamItem, fromStreamAttributeValue) nearly verbatim, used by services/dynamodb/handler.go's own internal stream-passthrough endpoints -- cross-service duplication/reuse opportunity, not editable from this service (bd: file follow-up)"
-deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - none (all 4 routed ops fully audited this pass)
+gaps: []                  # both prior gaps closed by 8ba0d8ad2, verified in this pass -- see Re-audit 2026-07-24 note below
+deferred: []               # all 4 routed ops fully audited this pass
 leaks: {status: clean, note: "Handler owns zero maps/goroutines; all state lives in the shared dynamodb backend which manages its own ring buffer eviction (streamTrimSeq) and iterator TTL expiry (iteratorStore)"}
 ---
 
@@ -111,21 +108,50 @@ proves its own wire-translation layer independently:
   pagination coverage (forces a shard split via 1001 `PutItem`s, same technique already
   used by `TestHandler_DescribeStream_ShardGenealogy`).
 
-**Known test-coverage limitation (not a wire/state bug, left open):**
-`ExpiredIteratorException` (`services/dynamodb/streams_ops.go`'s `resolveIterator`,
-backed by `ShardIteratorStore`'s real 15-minute TTL in
-`services/dynamodb/streams_shard_iterator.go`) is implemented correctly by inspection —
-`Get()` compares `time.Now()` against `entry.ExpiresAt` and deletes+returns
-`ExpiredIteratorException` past that point — but is **not exercised by any test** in
-either package, because `shardIteratorTTL` is an unexported `const` with no clock-
-injection seam, and no test may sleep 15 real minutes. Adding a seam (an exported/
-overridable duration, or an injectable clock) would require a non-trivial change to
-`services/dynamodb/streams_shard_iterator.go`, which is out of this task's scope ("do
-NOT edit services/dynamodb unless a tiny read-accessor is genuinely required" — this
-would be a mutator/testability seam, not a read-accessor, so it was deliberately not
-made). Flagging as a follow-up: a bd issue should track adding a clock seam to
-`ShardIteratorStore` so both packages can add a real `TestExpiredIteratorException`.
-Separately, `GetRecords`' modeled `LimitExceededException` is never produced by this
+**Previously-flagged test-coverage limitation, now resolved:** the note above used to
+say `ExpiredIteratorException` was untestable because `ShardIteratorStore` had no clock-
+injection seam. Commit `8ba0d8ad2` added `ShardIteratorStore.SetClock`/`Now()`
+(`services/dynamodb/streams_shard_iterator.go:58-70`) and a corresponding end-to-end
+test, `services/dynamodb/streams_shard_iterator_test.go:381`
+`TestStreams_GetRecords_ExpiredIteratorException`, which backdates the injected clock
+past `shardIteratorTTL` and asserts the real `com.amazonaws.dynamodb.v20120810#ExpiredIteratorException`
+type is returned. No further action needed here.
+
+`GetRecords`' modeled `LimitExceededException` is never produced by this
 backend (there is no artificial per-subscriber rate-limiting anywhere in this
 emulator, consistent with how throttling-style exceptions are treated elsewhere in the
 codebase); this is intentional, not a gap.
+
+## Re-audit 2026-07-24 (gap closure verification)
+
+Re-verified both previously-listed gaps against the current code after commit
+`8ba0d8ad2` ("fix(dynamodb): ShardFilter CHILD_SHARDS, iterator clock seam,
+streams_wire dedup, transact EAN/EAV validation"):
+
+1. **ShardFilter CHILD_SHARDS** — `services/dynamodb/streams_ops.go:184` now calls
+   `parseShardFilter(input.ShardFilter)` inside `DescribeStream`, which validates
+   `Type == CHILD_SHARDS` (rejecting anything else with `ValidationException`),
+   requires `ShardId` to be present, and threads the parent shard ID through to the
+   shard-listing logic (`streams_ops.go:755-808`) so only that parent's child shards
+   are returned, with placeholder-shard synthesis correctly distinguished from a
+   legitimately empty filtered result. This is a real fix, not a no-op — confirmed by
+   `services/dynamodb/streams_ops_test.go` (added in the same commit) covering the
+   filter. Gap closed.
+2. **streams_wire.go duplication** — `services/dynamodbstreams/handler.go` was
+   `grep`-checked for `func ` definitions: it now contains only handler plumbing
+   (`NewHandler`, `Name`, `GetSupportedOperations`, `RouteMatcher`,
+   `MatchPriority`, `ExtractOperation`, `ExtractResource`, `ChaosServiceName`,
+   `ChaosOperations`, `ChaosRegions`, `Handler`, `dispatch`, `dispatchStreamsOp`,
+   `dispatchGetRecords`, `handleError`, `dispatchDescribeStream`) — zero
+   `toWire*`/`wireStream*`/`fromStream*` marshaling helpers remain. `dispatchGetRecords`
+   and `dispatchDescribeStream` call `ddbbackend.ToWireGetRecordsOutput` and
+   `ddbbackend.ToWireDescribeStreamOutput` directly from
+   `services/dynamodb/streams_wire.go` (exported functions `ToWireDescribeStreamOutput`,
+   `ToWireGetRecordsOutput`, `ToWireStreamRecordData`, `FromStreamItem`,
+   `FromStreamAttributeValue`). There is a single, shared, non-duplicated
+   implementation. Gap closed.
+
+Both gaps were genuine when filed and are genuinely fixed now by prior commit
+`8ba0d8ad2` (not by this pass — this pass only verified and updated the manifest).
+`overall` raised from `B` to `A`: no gaps remain in this package or in the
+cross-service surface it depends on.

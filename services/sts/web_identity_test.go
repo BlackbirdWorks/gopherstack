@@ -758,10 +758,29 @@ func TestGetWebIdentityToken_Success(t *testing.T) {
 	}
 }
 
+// fakeOIDCAccountSettingsLookup implements both sts.OIDCLookup and
+// sts.AccountSettingsLookup, so passing it to SetOIDCLookup exercises the
+// optional-capability type-assertion in SetOIDCLookup that opportunistically
+// wires an AccountSettingsLookup (see store.go's doc comment on
+// AccountSettingsLookup for why this piggybacks on SetOIDCLookup instead of
+// a separate setter) -- mirroring how the real IAM backend implements both
+// interfaces and is wired into STS via the single existing cli.go
+// `stsBk.SetOIDCLookup(iamBk)` call.
+type fakeOIDCAccountSettingsLookup struct {
+	outboundFederationEnabled bool
+}
+
+func (f *fakeOIDCAccountSettingsLookup) OIDCProviderExists(string) bool { return true }
+
+func (f *fakeOIDCAccountSettingsLookup) OutboundWebIdentityFederationEnabled() bool {
+	return f.outboundFederationEnabled
+}
+
 func TestGetWebIdentityToken_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup   func(*sts.InMemoryBackend)
 		wantErr error
 		input   *sts.GetWebIdentityTokenInput
 		name    string
@@ -798,6 +817,40 @@ func TestGetWebIdentityToken_ValidationErrors(t *testing.T) {
 			},
 			wantErr: sts.ErrInvalidDuration,
 		},
+		{
+			// No AccountSettingsLookup wired (the default for every other
+			// case above, via a bare sts.NewInMemoryBackend()) must remain
+			// permissive -- this case makes that default explicit instead of
+			// only relying on it implicitly.
+			name: "federation_unwired_is_permissive",
+			input: &sts.GetWebIdentityTokenInput{
+				Audience:         []string{"https://example.com"},
+				SigningAlgorithm: "RS256",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "outbound_federation_disabled",
+			setup: func(b *sts.InMemoryBackend) {
+				b.SetOIDCLookup(&fakeOIDCAccountSettingsLookup{outboundFederationEnabled: false})
+			},
+			input: &sts.GetWebIdentityTokenInput{
+				Audience:         []string{"https://example.com"},
+				SigningAlgorithm: "RS256",
+			},
+			wantErr: sts.ErrOutboundWebIdentityFederationDisabled,
+		},
+		{
+			name: "outbound_federation_enabled",
+			setup: func(b *sts.InMemoryBackend) {
+				b.SetOIDCLookup(&fakeOIDCAccountSettingsLookup{outboundFederationEnabled: true})
+			},
+			input: &sts.GetWebIdentityTokenInput{
+				Audience:         []string{"https://example.com"},
+				SigningAlgorithm: "RS256",
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -805,7 +858,17 @@ func TestGetWebIdentityToken_ValidationErrors(t *testing.T) {
 			t.Parallel()
 
 			b := sts.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
 			_, err := b.GetWebIdentityToken(tt.input)
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+
+				return
+			}
+
 			require.ErrorIs(t, err, tt.wantErr)
 		})
 	}

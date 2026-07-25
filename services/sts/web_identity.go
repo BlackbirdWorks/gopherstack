@@ -133,6 +133,30 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 	return b.buildWebIdentityResponse(input, sourceIdentity, tags, creds, duration), nil
 }
 
+// checkOutboundWebIdentityFederationEnabled gates GetWebIdentityToken on the
+// account's outbound-web-identity-federation setting (real AWS's
+// OutboundWebIdentityFederationDisabledException, thrown when IAM's
+// EnableOutboundWebIdentityFederation has not been called for the account --
+// see services/iam/account.go). When no AccountSettingsLookup is configured
+// (e.g. in isolated unit tests that never call SetOIDCLookup), the check is
+// skipped (permissive mock behaviour), matching validateOIDCProvider's same
+// "skip when unwired" convention below.
+func (b *InMemoryBackend) checkOutboundWebIdentityFederationEnabled() error {
+	b.mu.RLock("checkOutboundWebIdentityFederationEnabled")
+	asl := b.accountSettingsLookup
+	b.mu.RUnlock()
+
+	if asl == nil {
+		return nil
+	}
+
+	if !asl.OutboundWebIdentityFederationEnabled() {
+		return ErrOutboundWebIdentityFederationDisabled
+	}
+
+	return nil
+}
+
 // validateOIDCProvider checks that the issuer from the token (or providerID override)
 // corresponds to an existing OIDC provider in the IAM backend.
 // When no OIDCLookup is configured the check is skipped (permissive mock behaviour).
@@ -272,41 +296,47 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 	}
 }
 
-// GetWebIdentityToken returns a signed JWT representing the caller's AWS identity.
-// In this mock, the token is an unsigned JWT containing the caller's account and audience.
-func (b *InMemoryBackend) GetWebIdentityToken(
-	input *GetWebIdentityTokenInput,
-) (*GetWebIdentityTokenResponse, error) {
-	b.cntGetWebIdentityToken.Add(1)
-
+// validateGetWebIdentityTokenInput checks the Audience/Tags/SigningAlgorithm
+// constraints for GetWebIdentityToken. Split out of GetWebIdentityToken
+// purely to keep that function's cyclomatic complexity under the linter's
+// threshold.
+func validateGetWebIdentityTokenInput(input *GetWebIdentityTokenInput) error {
 	if len(input.Audience) == 0 {
-		return nil, ErrMissingAudience
+		return ErrMissingAudience
 	}
 
 	if len(input.Audience) > MaxAudienceCount {
-		return nil, fmt.Errorf("%w: got %d", ErrTooManyAudiences, len(input.Audience))
+		return fmt.Errorf("%w: got %d", ErrTooManyAudiences, len(input.Audience))
 	}
 
 	if len(input.Tags) > MaxTagCount {
-		return nil, fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
+		return fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
 	}
 
 	if err := validateTagConstraints(input.Tags); err != nil {
-		return nil, err
+		return err
 	}
 
 	if input.SigningAlgorithm == "" {
-		return nil, ErrMissingSigningAlgorithm
+		return ErrMissingSigningAlgorithm
 	}
 
 	if !isValidWebIdentitySigningAlgorithm(input.SigningAlgorithm) {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"%w: unsupported signing algorithm %q",
 			ErrValidation,
 			input.SigningAlgorithm,
 		)
 	}
 
+	return nil
+}
+
+// resolveWebIdentityTokenDuration applies GetWebIdentityToken's
+// DurationSeconds default and range validation. Split out of
+// GetWebIdentityToken purely to keep that function's cyclomatic complexity
+// under the linter's threshold.
+func resolveWebIdentityTokenDuration(input *GetWebIdentityTokenInput) (int32, error) {
 	duration := input.DurationSeconds
 	if duration == 0 {
 		duration = DefaultWebIdentityTokenDurationSeconds
@@ -314,12 +344,35 @@ func (b *InMemoryBackend) GetWebIdentityToken(
 
 	if duration < MinWebIdentityTokenDurationSeconds ||
 		duration > MaxWebIdentityTokenDurationSeconds {
-		return nil, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"%w: DurationSeconds must be between %d and %d for GetWebIdentityToken",
 			ErrInvalidDuration,
 			MinWebIdentityTokenDurationSeconds,
 			MaxWebIdentityTokenDurationSeconds,
 		)
+	}
+
+	return duration, nil
+}
+
+// GetWebIdentityToken returns a signed JWT representing the caller's AWS identity.
+// In this mock, the token is an unsigned JWT containing the caller's account and audience.
+func (b *InMemoryBackend) GetWebIdentityToken(
+	input *GetWebIdentityTokenInput,
+) (*GetWebIdentityTokenResponse, error) {
+	b.cntGetWebIdentityToken.Add(1)
+
+	if err := b.checkOutboundWebIdentityFederationEnabled(); err != nil {
+		return nil, err
+	}
+
+	if err := validateGetWebIdentityTokenInput(input); err != nil {
+		return nil, err
+	}
+
+	duration, err := resolveWebIdentityTokenDuration(input)
+	if err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()

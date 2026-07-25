@@ -234,8 +234,22 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 }
 
 // mapErrorToCode maps a known STS error to its AWS error code and HTTP status.
-// Returns ("", 0) when the error is not a known client error.
+// Returns ("", 0) when the error is not a known client error. Split into two
+// helpers (mapValidationErrorToCode / mapNamedExceptionToCode) purely to keep
+// cyclomatic complexity under the linter's threshold — the two groups have no
+// other semantic relationship, so either helper being extended independently
+// is fine.
 func mapErrorToCode(reqErr error) (string, int) {
+	if code, status, ok := mapValidationErrorToCode(reqErr); ok {
+		return code, status
+	}
+
+	return mapNamedExceptionToCode(reqErr)
+}
+
+// mapValidationErrorToCode handles the generic "missing parameter" / "invalid
+// parameter value" / "validation error" error families. See mapErrorToCode.
+func mapValidationErrorToCode(reqErr error) (string, int, bool) {
 	switch {
 	case errors.Is(reqErr, ErrMissingRoleArn), errors.Is(reqErr, ErrMissingSessionName),
 		errors.Is(reqErr, ErrMissingFederationTokenName), errors.Is(reqErr, ErrMissingWebIdentityToken),
@@ -243,12 +257,12 @@ func mapErrorToCode(reqErr error) (string, int) {
 		errors.Is(reqErr, ErrMissingTargetPrincipal), errors.Is(reqErr, ErrMissingTaskPolicyArn),
 		errors.Is(reqErr, ErrMissingTradeInToken), errors.Is(reqErr, ErrMissingAudience),
 		errors.Is(reqErr, ErrMissingSigningAlgorithm), errors.Is(reqErr, ErrMFACodeRequired):
-		return "MissingParameter", http.StatusBadRequest
+		return "MissingParameter", http.StatusBadRequest, true
 	case errors.Is(reqErr, ErrMissingEncodedMessage):
-		return "InvalidParameter", http.StatusBadRequest
+		return "InvalidParameter", http.StatusBadRequest, true
 	case errors.Is(reqErr, ErrInvalidRoleArn), errors.Is(reqErr, ErrInvalidSourceIdentity),
 		errors.Is(reqErr, ErrInvalidPrincipalArn), errors.Is(reqErr, ErrValidation):
-		return invalidParamValue, http.StatusBadRequest
+		return invalidParamValue, http.StatusBadRequest, true
 	case errors.Is(reqErr, ErrInvalidDuration), errors.Is(reqErr, ErrInvalidSessionName),
 		errors.Is(reqErr, ErrInvalidFederationName), errors.Is(reqErr, ErrTooManyTags),
 		errors.Is(reqErr, ErrTooManyAudiences), errors.Is(reqErr, ErrEmptyAccessKeyID),
@@ -257,7 +271,17 @@ func mapErrorToCode(reqErr error) (string, int) {
 		errors.Is(reqErr, ErrTooManyPolicyArns), errors.Is(reqErr, ErrInvalidPolicyArn),
 		errors.Is(reqErr, ErrInvalidProvidedContext), errors.Is(reqErr, ErrInvalidTargetPrincipal),
 		errors.Is(reqErr, ErrTokenCodeWithoutSerial):
-		return validationError, http.StatusBadRequest
+		return validationError, http.StatusBadRequest, true
+	}
+
+	return "", 0, false
+}
+
+// mapNamedExceptionToCode handles errors that map to a specific named AWS
+// exception type rather than one of the generic validation buckets above.
+// See mapErrorToCode.
+func mapNamedExceptionToCode(reqErr error) (string, int) {
+	switch {
 	case errors.Is(reqErr, ErrMalformedPolicyDocument):
 		return "MalformedPolicyDocument", http.StatusBadRequest
 	case errors.Is(reqErr, ErrPackedPolicyTooLarge):
@@ -268,6 +292,8 @@ func mapErrorToCode(reqErr error) (string, int) {
 		return "ExpiredTradeInTokenException", http.StatusBadRequest
 	case errors.Is(reqErr, ErrSessionDurationEscalation):
 		return "SessionDurationEscalationException", http.StatusBadRequest
+	case errors.Is(reqErr, ErrOutboundWebIdentityFederationDisabled):
+		return "OutboundWebIdentityFederationDisabledException", http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidIdentityToken), errors.Is(reqErr, ErrInvalidSAMLAssertion):
 		return "InvalidIdentityToken", http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidAuthorizationMessage):

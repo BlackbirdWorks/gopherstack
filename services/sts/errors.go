@@ -158,4 +158,15 @@ var (
 	ErrSessionDurationEscalation = errors.New(
 		"requested token duration would extend the session beyond its original expiration time",
 	)
+
+	// ErrOutboundWebIdentityFederationDisabled is returned by GetWebIdentityToken
+	// when the account has not enabled outbound web identity federation (AWS
+	// OutboundWebIdentityFederationDisabledException: "The outbound web identity
+	// federation feature is not enabled for this account. To use this feature,
+	// you must first enable it through the Amazon Web Services Management
+	// Console or API." -- see IAM's EnableOutboundWebIdentityFederation /
+	// DisableOutboundWebIdentityFederation).
+	ErrOutboundWebIdentityFederationDisabled = errors.New(
+		"the outbound web identity federation feature is not enabled for this account",
+	)
 )

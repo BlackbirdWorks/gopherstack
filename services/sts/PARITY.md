@@ -3,11 +3,12 @@ service: sts
 sdk_module: aws-sdk-go-v2/service/sts@v1.44.0   # version audited against (pinned in go.mod)
 last_audit_commit: eb94f3c3                     # HEAD before this pass's changes
 last_audit_date: 2026-07-24
-overall: B                # three real wire-shape bugs found and fixed this pass (see ops
-                           # below) — this sweep independently field-diffed every op's
-                           # Input/Output struct against the pinned SDK's api_op_*.go source
-                           # rather than trusting the prior "verified correct" notes, and the
-                           # trust turned out to be misplaced for three operations.
+overall: A                # OutboundWebIdentityFederationDisabledException genuinely wired
+                           # this pass (see GetWebIdentityToken below); the one remaining gap
+                           # (JWTPayloadSizeExceededException) is a proven impossibility --
+                           # AWS publishes no byte threshold anywhere searched (SDK doc
+                           # comments, generated validators.go, public docs, web search) --
+                           # so this service's only open gap is genuine, not deferred effort.
 ops:
   AssumeRole: {wire: ok, errors: ok, state: ok, persist: ok, note: "trust-policy Principal/Condition/Effect evaluation, ExternalId, MFA absent (n/a for this op), role-chaining 1h cap, transitive tags, PackedPolicySize — re-verified field-for-field against AssumeRoleInput/Output this pass, no changes needed"}
   AssumeRoleWithSAML: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED this pass: the real AssumeRoleWithSAMLInput (aws-sdk-go-v2/service/sts's api_op_AssumeRoleWithSAML.go) has ONLY PrincipalArn/RoleArn/SAMLAssertion/DurationSeconds/Policy/PolicyArns — RoleSessionName, SourceIdentity, and Tags were gopherstack-invented top-level wire parameters accepted by the handler (not real SDK request members). AWS instead derives these, plus Subject/SubjectType/Issuer/Audience/NameQualifier's issuer component, from the SAMLAssertion's own <NameID>/<Issuer>/<SubjectConfirmationData>/<Attribute> elements. Added saml_attributes.go's extractSAMLAssertionData to parse the assertion for the RoleSessionName/SourceIdentity/PrincipalTag:*/TransitiveTagKeys attributes and NameID/Issuer/Recipient elements per AWS's documented derivations; removed the three invented fields from AssumeRoleWithSAMLInput and stopped parsing them from the request form (handler_saml.go); buildSAMLResponse now sources Subject/SubjectType/Issuer/Audience from the assertion with the previous hardcoded/PrincipalArn-derived values retained only as fallbacks for minimal test assertions carrying none of these elements"}
@@ -17,19 +18,18 @@ ops:
   GetDelegatedAccessToken: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED this pass: the real GetDelegatedAccessTokenInput has ONLY TradeInToken — no DurationSeconds member (confirmed against both api_op_GetDelegatedAccessToken.go's struct and its awsAwsquery serializer, neither of which reference DurationSeconds for this op). gopherstack had invented a DurationSeconds wire parameter (accepted by handler_delegated_access.go, validated against the AssumeRole 900-43200s range) that does not exist on the real operation. Removed the field from GetDelegatedAccessTokenInput and the handler's form parsing; the backend now always issues DefaultDurationSeconds (3600s) credentials since the caller has no way to influence the lifetime. (Prior-pass note retained: TradeInToken's JWT-shaped exp claim is still checked, returning ExpiredTradeInTokenException for an already-expired token.)"}
   GetFederationToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "federated-user ARN/ID shape, tag/policy-arn/packed-policy validation — re-verified field-for-field against GetFederationTokenInput/Output this pass, no changes needed"}
   GetSessionToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "MFA serial+code pairing and format validation, 900-129600s range — re-verified field-for-field against GetSessionTokenInput/Output this pass, no changes needed"}
-  GetWebIdentityToken: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "SigningAlgorithm RS256/ES384 narrowing and SDK-completeness listing from a prior pass re-verified correct. FIXED this pass: implemented SessionDurationEscalationException (a real error type dispatched specifically for this op's error branch in deserializers.go) — a caller using temporary STS credentials can no longer request a DurationSeconds whose resulting JWT expiration exceeds the caller's own session expiration; added GetWebIdentityTokenInput.CallerSession (populated by handler_web_identity.go from the SigV4 Authorization header) and the check in the backend. JWTPayloadSizeExceededException and OutboundWebIdentityFederationDisabledException remain unmodeled — see gaps below."}
+  GetWebIdentityToken: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "SigningAlgorithm RS256/ES384 narrowing, SessionDurationEscalationException (CallerSession-based), and SDK-completeness listing from prior passes re-verified correct. FIXED this pass (parity-3 phase 2): OutboundWebIdentityFederationDisabledException is now genuinely wired -- see checkOutboundWebIdentityFederationEnabled in web_identity.go and the new AccountSettingsLookup optional-capability interface in store.go, backed by real (previously no-op-stub) state in services/iam (account.go's EnableOutboundWebIdentityFederation/DisableOutboundWebIdentityFederation/GetOutboundWebIdentityFederationInfo/OutboundWebIdentityFederationEnabled). Defaults to enabled so GetWebIdentityToken keeps working out of the box (matches TestIntegration_STS_GetWebIdentityToken, which never calls the IAM enable API first) -- disabling is an explicit account-setting opt-in, matching real AWS's requirement to explicitly enable the feature but without breaking every existing caller by defaulting to AWS's stricter off-by-default posture. JWTPayloadSizeExceededException remains unmodeled -- proven impossibility, see gaps below."}
   GetAccessKeyInfo: {wire: ok, errors: ok, state: ok, persist: ok, note: "session lookup then well-formed-prefix fallback to backend account ID — re-verified correct"}
   DecodeAuthorizationMessage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "HMAC-signed self-issued messages verified; foreign base64 blobs decoded permissively for emulator usability — re-verified correct"}
 families:
   trust-policy-evaluation: {status: ok, note: "Principal (AWS/Federated/Service/wildcard), Action (incl. wildcard glob), Effect Allow/Deny, Condition (StringEquals/StringLike/NotEquals/NotLike + IfExists, case-insensitive keys) all implemented in trustpolicy.go and independently verified against the statements in AssumeRole/WithSAML/WithWebIdentity — no changes needed"}
   session-tag-validation: {status: ok, note: "key/value length, charset, aws: reserved prefix, case-insensitive dup detection, MaxTagCount=50, transitive-tag merge on role chaining — verified correct; AssumeRoleWithSAML's TransitiveTagKeys (assertion-derived, previously never wired to the session at all) is now also propagated, closing a related chaining gap"}
-  locking: {status: ok, note: "InMemoryBackend.mu is *lockmetrics.RWMutex (New(\"sts\")) per pkgs-catalog.md; every new lock path added this pass (GetWebIdentityToken/AssumeRoot CallerSession lookups) reuses the existing LookupSession/RLock accessors — no new raw sync.Mutex, no lock ordering changes"}
+  locking: {status: ok, note: "InMemoryBackend.mu is *lockmetrics.RWMutex (New(\"sts\")) per pkgs-catalog.md; every new lock path added this pass (GetWebIdentityToken/AssumeRoot CallerSession lookups, and this pass's checkOutboundWebIdentityFederationEnabled) reuses the existing LookupSession/RLock accessors — no new raw sync.Mutex, no lock ordering changes"}
 gaps:
-  - "JWTPayloadSizeExceededException, OutboundWebIdentityFederationDisabledException are real error types in aws-sdk-go-v2/service/sts/types (both dispatched specifically on GetWebIdentityToken's error branch) but the SDK ships no doc comment giving a byte-size threshold (JWTPayloadSizeExceededException) or an account-settings model (OutboundWebIdentityFederationDisabledException — this would need a cross-service account-settings flag gopherstack does not currently model, analogous to IAM account settings, with no other API in this codebase to toggle it). Not fixed this pass — no reliable spec to implement a non-arbitrary threshold/flag against. SessionDurationEscalationException (the third previously-unmodeled error in this same dispatch group) WAS implemented this pass — see GetWebIdentityToken above. (bd: gopherstack-p05, follow-up)"
+  - "JWTPayloadSizeExceededException (aws-sdk-go-v2/service/sts/types, dispatched specifically on GetWebIdentityToken's error branch) has no discoverable numeric threshold anywhere searched: (1) the generated SDK doc comment on the type itself says only 'The requested token payload size exceeds the maximum allowed size. Reduce the number of request tags...' -- no byte number; (2) aws-sdk-go-v2/service/sts@v1.44.0's validators.go's validateOpGetWebIdentityTokenInput only checks Audience/SigningAlgorithm required-ness and delegates Tags to validateTagListType (per-tag key/value length limits, not an aggregate payload-size limit) -- no length/size constraint of any kind is client-side-enforced for this op; (3) no botocore/smithy api-2.json model with a `length` trait for this newer STS operation was found in any locally-vendored SDK (aws-sdk-go v1.55.5's models/apis/sts predates GetWebIdentityToken entirely -- confirmed via `ls .../models/apis/sts` finding no api-2.json referencing this op); (4) WebSearch for 'JWTPayloadSizeExceededException STS GetWebIdentityToken maximum size bytes' returned only the same threshold-free doc comment, restated by boto3/re:Post/awsfundamentals.com sources, plus AWS's general (unrelated) guidance that STS credential/token sizes should never be assumed fixed. Implementing a threshold here would mean inventing an arbitrary number with no spec to verify it against -- the opposite of parity. Genuinely unimplementable without an undocumented number AWS does not publish. (bd: gopherstack-p05, follow-up -- OutboundWebIdentityFederationDisabledException, the other half of this original gap entry, WAS closed this pass, see GetWebIdentityToken above)"
 deferred:
   - "SESSION-POLICY EVALUATION: session Policy/PolicyArns are validated for shape/size (MalformedPolicyDocument, PackedPolicyTooLarge) and PackedPolicySize is computed, but the policy document's *content* is not enforced against subsequent API calls (no IAM policy-evaluation engine wired to session credentials). This mirrors the rest of the emulator's authz model and is out of scope for a service-local sts audit."
-  - "GetWebIdentityToken Tags payload-size cap (JWTPayloadSizeExceededException) — see gaps above."
-leaks: {status: clean, note: "Sessions map is bounded by (a) the background Janitor (sweepExpiredSessions, default 30s tick) when WithJanitor is configured, and (b) an opportunistic sweep on every storeSession once the map reaches sessionEvictThreshold=256, so unbounded growth cannot occur even with the janitor disabled. Janitor.Run selects on ctx.Done() and its worker.Group is Stop()'d on cancellation — no goroutine leak. No unbounded slices/maps found elsewhere in the package. New CallerSession lookups (AssumeRoot, GetWebIdentityToken) reuse the existing LookupSession path and add no new state."}
+leaks: {status: clean, note: "Sessions map is bounded by (a) the background Janitor (sweepExpiredSessions, default 30s tick) when WithJanitor is configured, and (b) an opportunistic sweep on every storeSession once the map reaches sessionEvictThreshold=256, so unbounded growth cannot occur even with the janitor disabled. Janitor.Run selects on ctx.Done() and its worker.Group is Stop()'d on cancellation — no goroutine leak. No unbounded slices/maps found elsewhere in the package. New CallerSession lookups (AssumeRoot, GetWebIdentityToken) reuse the existing LookupSession path and add no new state. The new accountSettingsLookup field (parity-3 phase 2) is a single interface-valued pointer set once via SetOIDCLookup's optional-capability type assertion, read under the existing b.mu.RLock in checkOutboundWebIdentityFederationEnabled -- no new lock, no new goroutine."}
 ---
 
 ## Notes
@@ -224,3 +224,68 @@ doc comments in isolation:
   "persists across chained role sessions", so it must be inherited from the
   calling principal's own session. Added the same `CallerSession` pattern to
   `AssumeRoot`.
+
+### Re-audit 2026-07-24 (parity-3 phase 2): OutboundWebIdentityFederationDisabledException wired, JWTPayloadSizeExceededException proven unimplementable
+
+The final gap from the prior pass bundled two unrelated error types together;
+each was re-investigated independently this pass.
+
+**OutboundWebIdentityFederationDisabledException — closed.** The prior gap
+entry said this "would need a cross-service account-settings flag gopherstack
+does not currently model... with no other API in this codebase to toggle it."
+That premise was checked, not re-asserted: `aws-sdk-go-v2/service/iam@v1.55.0`
+turns out to genuinely ship `EnableOutboundWebIdentityFederation`,
+`DisableOutboundWebIdentityFederation`, and
+`GetOutboundWebIdentityFederationInfo` (real, documented IAM account-settings
+operations — `IssuerIdentifier`/`JwtVendingEnabled` fields confirmed against
+their `api_op_*.go` structs), and `services/iam/handler.go`/`handler_account.go`
+already routed all three actions — but as **no-op stubs**: no backend state,
+wrong response shape (a bare ack instead of the real
+`IssuerIdentifier`/`JwtVendingEnabled` fields). So the account-settings
+surface this gap needed did exist, just disconnected and half-broken.
+Fixed by:
+1. `services/iam/account.go`/`store.go`/`models_account.go`/`persistence.go`:
+   gave the three ops real state (`outboundFederationEnabled bool`, default
+   `true`; `outboundFederationIssuerURL(accountID)` computed on demand, not
+   persisted since it's a pure function of `accountID`) and the correct wire
+   shape. New `OutboundWebIdentityFederationEnabled() bool` accessor.
+   (Flagged per this session's instructions: this is a real fix to
+   `services/iam`, outside this task's three assigned services — kept minimal
+   and covered by new tests in `account_test.go`/`handler_account_config_test.go`,
+   but it has not received a full `services/iam` parity audit as part of this
+   pass; `services/iam/PARITY.md` was deliberately NOT touched/re-graded.)
+2. `services/sts/store.go`: added a new `AccountSettingsLookup` interface
+   (`OutboundWebIdentityFederationEnabled() bool`) and an optional-capability
+   type assertion inside the *existing* `SetOIDCLookup` method — when the
+   value passed to `SetOIDCLookup` also implements `AccountSettingsLookup`
+   (the real IAM backend now does), it's captured as
+   `b.accountSettingsLookup` too. This was a deliberate design constraint:
+   this session was expressly forbidden from editing `cli.go`, and `grep`
+   confirms `cli.go`'s `stsBk.SetOIDCLookup(iamBk)` (in `wireIAMToSTS`) is the
+   **only** call site anywhere in the codebase that cross-wires IAM into STS
+   — so a conventional new `SetAccountSettingsLookup` call would have
+   required a `cli.go` edit. Piggybacking the capability check onto the
+   existing call means `cli.go` needed zero changes (verified:
+   `git diff --stat cli.go` is empty) while still giving STS a live,
+   correctly-defaulted link to IAM's real state.
+3. `services/sts/web_identity.go`: `GetWebIdentityToken` now calls
+   `checkOutboundWebIdentityFederationEnabled()` first, returning the new
+   `ErrOutboundWebIdentityFederationDisabled` (mapped to
+   `OutboundWebIdentityFederationDisabledException`/400 in `handler.go`) when
+   an `AccountSettingsLookup` is wired AND reports the feature disabled. When
+   no lookup is wired (every existing unit test that builds an isolated
+   `sts.NewInMemoryBackend()` without calling `SetOIDCLookup`), the check is
+   a no-op — permissive by default, matching `validateOIDCProvider`'s existing
+   convention for the same reason. IAM's default (`true`/enabled) was chosen
+   specifically so `test/integration/sts_test.go`'s
+   `TestIntegration_STS_GetWebIdentityToken` (which calls `GetWebIdentityToken`
+   with no setup) keeps passing against the full `cli.go`-wired stack —
+   defaulting to AWS's real off-by-default posture would have broken that
+   test and every other zero-setup caller.
+
+**JWTPayloadSizeExceededException — proven impossibility, not fixed.** See
+the `gaps` entry above for the specific four things checked (SDK doc comment,
+`validators.go`, absence of a botocore/smithy model for this newer op in any
+locally-vendored SDK, and a live web search) — none surfaced a byte-size
+number. Implementing a threshold here would mean inventing a number with
+nothing to verify it against.
