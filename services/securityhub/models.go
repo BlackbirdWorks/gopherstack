@@ -145,9 +145,18 @@ type AutomationRule struct {
 
 // HubV2 represents the Security Hub V2 configuration.
 type HubV2 struct {
-	HubV2Arn  string `json:"HubV2Arn"`
-	CreatedAt string `json:"CreatedAt"`
-	UpdatedAt string `json:"UpdatedAt"`
+	Features  map[string]*HubV2Feature `json:"Features"`
+	HubV2Arn  string                   `json:"HubV2Arn"`
+	CreatedAt string                   `json:"CreatedAt"`
+	UpdatedAt string                   `json:"UpdatedAt"`
+}
+
+// HubV2Feature represents one opt-in Security Hub V2 feature's enablement
+// status (see EnableSecurityHubFeatureV2/DisableSecurityHubFeatureV2),
+// mirroring the real SDK's types.FeatureDetail{FeatureStatus, UpdatedAt}.
+type HubV2Feature struct {
+	FeatureStatus string `json:"FeatureStatus"`
+	UpdatedAt     string `json:"UpdatedAt"`
 }
 
 // AggregatorV2 represents a Security Hub V2 cross-region aggregator.
@@ -186,6 +195,33 @@ type ConnectorV2 struct {
 	CreatedAt       string            `json:"CreatedAt"`
 	UpdatedAt       string            `json:"UpdatedAt"`
 	ConnectorStatus string            `json:"ConnectorStatus"`
+}
+
+// CspmConnector represents a Security Hub CSPM connector to a third-party
+// cloud provider (currently Azure only, per the real API's
+// CspmProviderConfiguration/CspmProviderDetail unions -- see connectors.go).
+// Provider holds the raw tagged-union wire value (e.g.
+// {"Azure": {AWSConfigConnectorArn, AzureRegions, ScopeConfiguration}})
+// exactly as sent/returned on the wire, so Get/List responses can echo it
+// back without re-deriving the union shape.
+type CspmConnector struct {
+	Provider         map[string]any    `json:"Provider"`
+	Tags             map[string]string `json:"Tags"`
+	ConnectorId      string            `json:"ConnectorId"` //nolint:revive,staticcheck // existing issue.
+	ConnectorArn     string            `json:"ConnectorArn"`
+	Name             string            `json:"Name"`
+	Description      string            `json:"Description"`
+	CreatedAt        string            `json:"CreatedAt"`
+	LastUpdatedAt    string            `json:"LastUpdatedAt"`
+	CreatedBy        string            `json:"CreatedBy"`
+	EnablementStatus string            `json:"EnablementStatus"`
+	// ConnectorStatus/HealthMessage/HealthCheckedAt make up the connector's
+	// health check (types.CspmHealthCheck) -- kept as flat fields here rather
+	// than a nested struct since nothing else needs to address them as a unit.
+	ConnectorStatus string `json:"ConnectorStatus"`
+	HealthMessage   string `json:"HealthMessage"`
+	HealthCheckedAt string `json:"HealthCheckedAt"`
+	ProviderName    string `json:"ProviderName"`
 }
 
 // TicketV2 represents a Security Hub V2 ticket configuration.

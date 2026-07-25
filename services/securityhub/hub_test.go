@@ -254,6 +254,161 @@ func TestHandler_DisableSecurityHubV2(t *testing.T) {
 	}
 }
 
+// TestHubV2Features covers EnableSecurityHubFeatureV2/
+// DisableSecurityHubFeatureV2 (/hubv2/feature/{FeatureName}) and their
+// effect on DescribeSecurityHubV2's Features map. Per the real API's
+// documented behavior ("The service must be enabled before you can enable a
+// feature"), these require SecurityHub V2 to already be enabled -- there is
+// no independent feature-enablement state.
+func TestHubV2Features(t *testing.T) {
+	t.Parallel()
+
+	type step struct {
+		body   any
+		check  func(t *testing.T, code int, resp map[string]any)
+		name   string
+		method string
+		path   string
+	}
+
+	tests := []struct {
+		name  string
+		steps []step
+	}{
+		{
+			name: "EnableDisableSecurityHubFeatureV2",
+			steps: []step{
+				{
+					name:   "enable feature before hub v2 enabled returns 400",
+					method: http.MethodPost,
+					path:   "/hubv2/feature/NETWORK_SCANNING",
+					check: func(t *testing.T, code int, _ map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusBadRequest, code)
+					},
+				},
+				{
+					name:   "enable hub v2",
+					method: http.MethodPost,
+					path:   "/hubv2",
+					body:   map[string]any{},
+					check: func(t *testing.T, code int, _ map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+					},
+				},
+				{
+					name:   "describe hub v2 before any feature enabled has empty Features",
+					method: http.MethodGet,
+					path:   "/hubv2",
+					check: func(t *testing.T, code int, resp map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+						assert.NotEmpty(t, resp["SubscribedAt"])
+						features, _ := resp["Features"].(map[string]any)
+						assert.Empty(t, features)
+					},
+				},
+				{
+					name:   "enable feature",
+					method: http.MethodPost,
+					path:   "/hubv2/feature/NETWORK_SCANNING",
+					check: func(t *testing.T, code int, _ map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+					},
+				},
+				{
+					name:   "describe hub v2 reports feature enabled",
+					method: http.MethodGet,
+					path:   "/hubv2",
+					check: func(t *testing.T, code int, resp map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+						features, _ := resp["Features"].(map[string]any)
+						require.Contains(t, features, "NETWORK_SCANNING")
+						f, _ := features["NETWORK_SCANNING"].(map[string]any)
+						assert.Equal(t, "ENABLED", f["FeatureStatus"])
+						assert.NotEmpty(t, f["UpdatedAt"])
+					},
+				},
+				{
+					name:   "enable feature again is idempotent",
+					method: http.MethodPost,
+					path:   "/hubv2/feature/NETWORK_SCANNING",
+					check: func(t *testing.T, code int, _ map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+					},
+				},
+				{
+					name:   "disable feature",
+					method: http.MethodDelete,
+					path:   "/hubv2/feature/NETWORK_SCANNING",
+					check: func(t *testing.T, code int, _ map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+					},
+				},
+				{
+					name:   "describe hub v2 reports feature disabled",
+					method: http.MethodGet,
+					path:   "/hubv2",
+					check: func(t *testing.T, code int, resp map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+						features, _ := resp["Features"].(map[string]any)
+						f, _ := features["NETWORK_SCANNING"].(map[string]any)
+						assert.Equal(t, "DISABLED", f["FeatureStatus"])
+					},
+				},
+				{
+					name:   "disable feature again is idempotent",
+					method: http.MethodDelete,
+					path:   "/hubv2/feature/NETWORK_SCANNING",
+					check: func(t *testing.T, code int, _ map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+					},
+				},
+				{
+					name:   "disable hub v2",
+					method: http.MethodDelete,
+					path:   "/hubv2",
+					check: func(t *testing.T, code int, _ map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+					},
+				},
+				{
+					name:   "enable feature after hub v2 disabled returns 400",
+					method: http.MethodPost,
+					path:   "/hubv2/feature/NETWORK_SCANNING",
+					check: func(t *testing.T, code int, _ map[string]any) {
+						t.Helper()
+						assert.Equal(t, http.StatusBadRequest, code)
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+
+			for _, s := range tc.steps {
+				rec := doRequest(t, h, s.method, s.path, s.body)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				s.check(t, rec.Code, resp)
+			}
+		})
+	}
+}
+
 func TestHandler_HubV2_EnableWithTags(t *testing.T) {
 	t.Parallel()
 

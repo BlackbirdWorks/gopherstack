@@ -61,6 +61,8 @@ func ticketV2KeyFn(v *TicketV2) string { return v.TicketConfigurationArn }
 
 func connectorV2KeyFn(v *ConnectorV2) string { return v.ConnectorId }
 
+func cspmConnectorKeyFn(v *CspmConnector) string { return v.ConnectorId }
+
 func standardsSubscriptionKeyFn(v *StandardsSubscription) string { return v.StandardsSubscriptionArn }
 
 func aggregatorV2KeyFn(v *AggregatorV2) string { return v.AggregatorV2Arn }
@@ -108,6 +110,7 @@ func registerAllTables(b *InMemoryBackend) {
 	)
 	b.ticketsV2 = store.Register(b.registry, "ticketsV2", store.New(ticketV2KeyFn))
 	b.connectorsV2 = store.Register(b.registry, "connectorsV2", store.New(connectorV2KeyFn))
+	b.cspmConnectors = store.Register(b.registry, "cspmConnectors", store.New(cspmConnectorKeyFn))
 	b.standardsSubscriptions = store.Register(
 		b.registry,
 		"standardsSubscriptions",

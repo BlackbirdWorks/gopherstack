@@ -25,6 +25,7 @@ const (
 	pathAdministrator        = "/administrator"
 	pathMaster               = "/master"
 	pathConnectorsV2         = "/connectorsv2"
+	pathConnectors           = "/connectors"
 
 	keyMessage                = "Message"
 	keyInsightArn             = "InsightArn"
@@ -39,6 +40,13 @@ const (
 	keyStandardsSubscriptions = "StandardsSubscriptions"
 	keyUnprocessedAutoRules   = "UnprocessedAutomationRules"
 	keyMaxResults             = "MaxResults"
+	keyCreatedBy              = "CreatedBy"
+	keyConnectorID            = "ConnectorId"
+	keyConnectorArn           = "ConnectorArn"
+	keyConnectorStatus        = "ConnectorStatus"
+	keyEnablementStatus       = "EnablementStatus"
+
+	msgNameRequired = "Name is required"
 
 	msgHubNotEnabled   = "SecurityHub is not enabled"
 	msgInsightNotFound = "Insight not found"
@@ -147,6 +155,18 @@ const (
 	opEnableSecurityHubV2   = "EnableSecurityHubV2"
 	opDisableSecurityHubV2  = "DisableSecurityHubV2"
 	opDescribeSecurityHubV2 = "DescribeSecurityHubV2"
+
+	// Hub V2 opt-in features.
+	opEnableSecurityHubFeatureV2  = "EnableSecurityHubFeatureV2"
+	opDisableSecurityHubFeatureV2 = "DisableSecurityHubFeatureV2"
+
+	// CSPM Connectors (third-party cloud provider connectors -- distinct
+	// from the "Connectors V2" ticketing-system family below).
+	opCreateConnector = "CreateConnector"
+	opGetConnector    = "GetConnector"
+	opUpdateConnector = "UpdateConnector"
+	opDeleteConnector = "DeleteConnector"
+	opListConnectors  = "ListConnectors"
 
 	// Aggregator V2.
 	opCreateAggregatorV2 = "CreateAggregatorV2"
@@ -304,6 +324,14 @@ var supportedOperations = []string{ //nolint:gochecknoglobals // read-only looku
 	opEnableSecurityHubV2,
 	opDisableSecurityHubV2,
 	opDescribeSecurityHubV2,
+	opEnableSecurityHubFeatureV2,
+	opDisableSecurityHubFeatureV2,
+	// CSPM Connectors
+	opCreateConnector,
+	opGetConnector,
+	opUpdateConnector,
+	opDeleteConnector,
+	opListConnectors,
 	// Aggregator V2
 	opCreateAggregatorV2,
 	opGetAggregatorV2,
@@ -378,6 +406,7 @@ var securityHubOnlyPathPrefixes = []string{ //nolint:gochecknoglobals // read-on
 	"/aggregatorv2",
 	"/automationrulesv2",
 	pathConnectorsV2,
+	pathConnectors,
 	"/ticketsv2",
 	"/findingsv2",
 	"/findingsTrendsv2",
@@ -488,7 +517,7 @@ func decodeJSONBody(c *echo.Context) (map[string]any, error) {
 // in order for the first table containing op.
 func (h *Handler) opHandlerGroups(c *echo.Context, resource string, body map[string]any) []map[string]func() error {
 	return []map[string]func() error{
-		h.hubOpHandlers(c, body),
+		h.hubOpHandlers(c, resource, body),
 		h.findingsOpHandlers(c, body),
 		h.insightsOpHandlers(c, resource, body),
 		h.standardsOpHandlers(c, resource, body),
@@ -504,6 +533,7 @@ func (h *Handler) opHandlerGroups(c *echo.Context, resource string, body map[str
 		h.configPolicyOpHandlers(c, resource, body),
 		h.aggregatorsV2OpHandlers(c, resource, body),
 		h.connectorsV2OpHandlers(c, resource, body),
+		h.connectorsOpHandlers(c, resource, body),
 		h.resourcesV2OpHandlers(c, body),
 	}
 }
@@ -605,6 +635,7 @@ var pathClassifiers = []pathClassifier{ //nolint:gochecknoglobals // ordered dis
 	{hasPathPrefix("/configurationPolicy"), classifyConfigPolicyPath},
 	{hasPathPrefix("/aggregatorv2"), classifyAggregatorV2Path},
 	{hasPathPrefix(pathConnectorsV2), classifyConnectorsV2Path},
+	{hasPathPrefix(pathConnectors), classifyConnectorsPath},
 	{hasPathPrefix("/ticketsv2"), classifyTicketsV2Path},
 	{hasPathPrefix("/recommendedPolicyV2"), classifyRecommendedPolicyV2Path},
 	{hasPathPrefix("/tags/"), classifyTagsPath},

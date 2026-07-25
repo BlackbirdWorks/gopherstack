@@ -164,7 +164,7 @@ func (h *Handler) handleListConfigurationPolicies(c *echo.Context) error {
 		out = append(out, map[string]any{
 			"Arn":         p.Arn,
 			"Id":          p.Id,
-			"Name":        p.Name,        //nolint:goconst // existing issue.
+			"Name":        p.Name,
 			"Description": p.Description, //nolint:goconst // existing issue.
 			"UpdatedAt":   p.UpdatedAt,   //nolint:goconst // existing issue.
 		})
@@ -350,7 +350,7 @@ func configPolicyToResponse(p *ConfigurationPolicy) map[string]any {
 		"Id":                  p.Id,
 		"Name":                p.Name,
 		"Description":         p.Description,
-		"CreatedAt":           p.CreatedAt, //nolint:goconst // existing issue.
+		"CreatedAt":           p.CreatedAt,
 		"UpdatedAt":           p.UpdatedAt,
 		"ConfigurationPolicy": p.ConfigurationPolicy,
 	}
