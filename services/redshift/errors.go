@@ -60,4 +60,12 @@ var (
 	ErrIntegrationAlreadyExists       = errors.New("IntegrationAlreadyExistsFault")
 	ErrIdcApplicationNotFound         = errors.New("RedshiftIdcApplicationNotExists")
 	ErrIdcApplicationAlreadyExists    = errors.New("RedshiftIdcApplicationAlreadyExists")
+	// Qev2IdcApplication fault codes verified against
+	// aws-sdk-go-v2/service/redshift@v1.65.0/types/errors.go
+	// Qev2IdcApplicationNotExistsFault.ErrorCode() and
+	// Qev2IdcApplicationAlreadyExistsFault.ErrorCode() -- these are a distinct
+	// fault family from RedshiftIdcApplication's above (no shared "Redshift"
+	// prefix), matching Qev2IdcApplication being a distinct resource.
+	ErrQev2IdcApplicationNotFound      = errors.New("Qev2IdcApplicationNotExists")
+	ErrQev2IdcApplicationAlreadyExists = errors.New("Qev2IdcApplicationAlreadyExists")
 )

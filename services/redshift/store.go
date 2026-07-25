@@ -32,6 +32,7 @@ const (
 	defaultDBName                = "dev"
 	defaultMasterUsername        = "admin"
 	defaultPort                  = 5439
+	qev2IdcOnboardStatusComplete = "COMPLETED"
 )
 
 // InMemoryBackend is the in-memory store for Redshift clusters.
@@ -70,6 +71,7 @@ type InMemoryBackend struct {
 	slScheduledActions  *store.Table[ServerlessScheduledAction]
 	integrations        *store.Table[Integration]
 	idcApplications     *store.Table[IdcApplication]
+	qev2IdcApplications *store.Table[Qev2IdcApplication]
 	slNamespaces        *store.Table[Namespace]
 	slWorkgroups        *store.Table[Workgroup]
 	slSnapshots         *store.Table[ServerlessSnapshot]

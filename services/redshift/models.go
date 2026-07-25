@@ -294,6 +294,29 @@ type IdcApplication struct {
 	IamRoleArn         string `json:"iamRoleArn"`
 }
 
+// Qev2IdcApplication represents an Amazon Redshift Query Editor (QEV2) IAM
+// Identity Center application. This is a DISTINCT resource from
+// IdcApplication (RedshiftIdcApplication) above, not a sub-resource of it:
+// RedshiftIdcApplication backs cluster-level federated authentication into
+// IAM Identity Center and carries an IamRoleArn used to invoke the IDC
+// Identity Center API, while Qev2IdcApplication is the separate IdC-managed
+// application that powers the standalone Query Editor V2 web console and has
+// no IamRoleArn or cluster reference at all (confirmed field-by-field against
+// aws-sdk-go-v2/service/redshift@v1.65.0/types.Qev2IdcApplication, which
+// declares no IamRoleArn field, and against CreateQev2IdcApplicationInput /
+// ModifyQev2IdcApplicationInput, neither of which accepts one). The two
+// families share only the IdC-instance/display-name/onboard-status shape and
+// are otherwise independently keyed and stored.
+type Qev2IdcApplication struct {
+	Tags                     map[string]string `json:"tags,omitempty"`
+	Qev2IdcApplicationArn    string            `json:"qev2IdcApplicationArn"`
+	Qev2IdcApplicationName   string            `json:"qev2IdcApplicationName"`
+	IdcInstanceArn           string            `json:"idcInstanceArn"`
+	IdcDisplayName           string            `json:"idcDisplayName"`
+	IdcManagedApplicationArn string            `json:"idcManagedApplicationArn"`
+	IdcOnboardStatus         string            `json:"idcOnboardStatus"`
+}
+
 // SnapshotCopyConfig holds the cross-region snapshot copy configuration for a cluster.
 type SnapshotCopyConfig struct {
 	DestinationRegion     string `json:"destinationRegion"`

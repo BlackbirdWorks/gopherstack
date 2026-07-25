@@ -77,6 +77,8 @@ func integrationsKeyFn(v *Integration) string { return v.IntegrationName }
 
 func idcApplicationsKeyFn(v *IdcApplication) string { return v.IdcApplicationName }
 
+func qev2IdcApplicationsKeyFn(v *Qev2IdcApplication) string { return v.Qev2IdcApplicationName }
+
 func slNamespacesKeyFn(v *Namespace) string { return v.NamespaceName }
 
 func slWorkgroupsKeyFn(v *Workgroup) string { return v.WorkgroupName }
@@ -173,6 +175,11 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.idcApplications = store.Register(b.registry, "idcApplications", store.New(idcApplicationsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.qev2IdcApplications = store.Register(
+			b.registry, "qev2IdcApplications", store.New(qev2IdcApplicationsKeyFn),
+		)
 	},
 	func(b *InMemoryBackend) {
 		b.slNamespaces = store.Register(b.registry, "slNamespaces", store.New(slNamespacesKeyFn))
