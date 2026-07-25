@@ -320,6 +320,24 @@ func TestAWSConfigHandler_ExtractResource_NewOps(t *testing.T) {
 			body:         `{"ConfigurationRecorderName":"my-recorder"}`,
 			wantResource: "my-recorder",
 		},
+		{
+			name:         "GetConnector",
+			operation:    "GetConnector",
+			body:         `{"Arn":"arn:aws:config:us-east-1:000:connector/my-connector"}`,
+			wantResource: "arn:aws:config:us-east-1:000:connector/my-connector",
+		},
+		{
+			name:         "DeleteConnector",
+			operation:    "DeleteConnector",
+			body:         `{"Arn":"arn:aws:config:us-east-1:000:connector/my-connector"}`,
+			wantResource: "arn:aws:config:us-east-1:000:connector/my-connector",
+		},
+		{
+			name:         "PutThirdPartyServiceLinkedConfigurationRecorder",
+			operation:    "PutThirdPartyServiceLinkedConfigurationRecorder",
+			body:         `{"ServicePrincipal":"thirdparty.amazonaws.com"}`,
+			wantResource: "thirdparty.amazonaws.com",
+		},
 	}
 
 	for _, tt := range tests {

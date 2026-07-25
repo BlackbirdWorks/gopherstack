@@ -8,12 +8,22 @@ type RecordingGroup struct {
 }
 
 // ConfigurationRecorder represents an AWS Config configuration recorder.
+//
+// ConnectorArn, ScopeConfiguration, and ServicePrincipal are only populated
+// for a third-party service-linked recorder created via
+// PutThirdPartyServiceLinkedConfigurationRecorder (verified against
+// aws-sdk-go-v2/service/configservice's serializeDocumentConfigurationRecorder,
+// which emits connectorArn/scopeConfiguration/servicePrincipal alongside the
+// long-standing arn/name/recordingGroup/roleARN fields).
 type ConfigurationRecorder struct {
-	RecordingGroup *RecordingGroup `json:"recordingGroup,omitempty"`
-	Arn            string          `json:"arn,omitempty"`
-	Name           string          `json:"name"`
-	RoleARN        string          `json:"roleARN"`
-	Status         string          `json:"status,omitempty"` // PENDING or ACTIVE
+	RecordingGroup     *RecordingGroup     `json:"recordingGroup,omitempty"`
+	ScopeConfiguration *ScopeConfiguration `json:"scopeConfiguration,omitempty"`
+	Arn                string              `json:"arn,omitempty"`
+	ConnectorArn       string              `json:"connectorArn,omitempty"`
+	Name               string              `json:"name"`
+	RoleARN            string              `json:"roleARN"`
+	ServicePrincipal   string              `json:"servicePrincipal,omitempty"`
+	Status             string              `json:"status,omitempty"` // PENDING or ACTIVE
 }
 
 // ServiceLinkedRecorderLink tracks which AWS service principal owns a
@@ -467,4 +477,66 @@ type AggregateConformancePackComplianceSummary struct {
 type PendingAggregationRequest struct {
 	RequesterAccountID string `json:"RequesterAccountId,omitempty"`
 	RequesterAwsRegion string `json:"RequesterAwsRegion,omitempty"`
+}
+
+// ScopeConfiguration specifies which resources a third-party service-linked
+// configuration recorder records from the connected third-party cloud
+// service provider (verified against aws-sdk-go-v2/service/configservice's
+// PutThirdPartyServiceLinkedConfigurationRecorder serializer, which emits
+// allRegions/includedRegions/scopeType/scopeValues; allRegions has no
+// omitempty since the real serializer always writes it, even false).
+type ScopeConfiguration struct {
+	ScopeType       string   `json:"scopeType,omitempty"`
+	IncludedRegions []string `json:"includedRegions,omitempty"`
+	ScopeValues     []string `json:"scopeValues,omitempty"`
+	AllRegions      bool     `json:"allRegions"`
+}
+
+// AzureConnectorConfiguration is the Azure-specific half of
+// ConnectorConfiguration -- the only third-party cloud provider AWS Config
+// currently documents (types.Provider's sole enum value is "AZURE").
+type AzureConnectorConfiguration struct {
+	ClientIdentifier string `json:"clientIdentifier"`
+	TenantIdentifier string `json:"tenantIdentifier"`
+}
+
+// ConnectorConfiguration is the provider-specific configuration for a
+// connector between AWS Config and a third-party cloud service provider.
+// Real AWS Config requires exactly one provider to be set; Azure is the only
+// one it currently supports.
+type ConnectorConfiguration struct {
+	Azure *AzureConnectorConfiguration `json:"azure,omitempty"`
+}
+
+// Connector represents a connection between AWS Config and a third-party
+// cloud service provider, created by PutConnector (verified against
+// aws-sdk-go-v2/service/configservice's GetConnector deserializer).
+// CreatedTime is epoch seconds, matching this package's established
+// convention for AWS Config's Date-shaped fields (see e.g.
+// ResourceConfigItem.ConfigurationItemCaptureTime).
+type Connector struct {
+	ConnectorConfiguration *ConnectorConfiguration `json:"connectorConfiguration,omitempty"`
+	Arn                    string                  `json:"arn"`
+	Name                   string                  `json:"name"`
+	CreatedTime            float64                 `json:"createdTime,omitempty"`
+}
+
+// ConnectorSummary is the lightweight summary returned by ListConnectors
+// (verified against aws-sdk-go-v2/service/configservice's ListConnectors
+// deserializer, which flattens the provider and Azure tenantIdentifier up
+// from the connector's ConnectorConfiguration onto the summary itself).
+type ConnectorSummary struct {
+	Arn              string  `json:"arn"`
+	Name             string  `json:"name"`
+	Provider         string  `json:"provider"`
+	TenantIdentifier string  `json:"tenantIdentifier"`
+	CreatedTime      float64 `json:"createdTime,omitempty"`
+}
+
+// ConnectorFilter filters ListConnectors results (verified against
+// aws-sdk-go-v2/service/configservice's ConnectorFilter type; "provider" is
+// currently the only defined FilterName, with FilterValues like "AZURE").
+type ConnectorFilter struct {
+	FilterName   string   `json:"filterName,omitempty"`
+	FilterValues []string `json:"filterValues,omitempty"`
 }

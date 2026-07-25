@@ -1,5 +1,24 @@
 package awsconfig
 
+// setResourceTagsLocked assigns tags to arn, overwriting any previous tags
+// for that resource. Unlike TagResource, it does not take b.mu itself --
+// callers that need to set tags while already holding the write lock (e.g.
+// PutConnector/PutThirdPartyServiceLinkedConfigurationRecorder, whose real
+// AWS semantics are "tags are added at creation and cannot be updated with
+// this operation", so there is never existing tag state to merge) call this
+// instead of re-entering TagResource's own lock. A nil/empty tags is a no-op
+// so creating a resource with no Tags doesn't leave a spurious empty slice
+// in b.resourceTags.
+func (b *InMemoryBackend) setResourceTagsLocked(arn string, tags []Tag) {
+	if len(tags) == 0 {
+		return
+	}
+
+	cp := make([]Tag, len(tags))
+	copy(cp, tags)
+	b.resourceTags[arn] = cp
+}
+
 // TagResource adds tags to the resource identified by arn.
 func (b *InMemoryBackend) TagResource(arn string, tags []Tag) error {
 	b.mu.Lock("TagResource")

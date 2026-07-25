@@ -9,17 +9,18 @@ import (
 
 // Operation name constants for configuration recorder ops.
 const (
-	opAssociateResourceTypes                   = "AssociateResourceTypes"
-	opDeleteConfigurationRecorder              = "DeleteConfigurationRecorder"
-	opDeleteServiceLinkedConfigurationRecorder = "DeleteServiceLinkedConfigurationRecorder"
-	opDescribeConfigurationRecorderStatus      = "DescribeConfigurationRecorderStatus"
-	opDescribeConfigurationRecorders           = "DescribeConfigurationRecorders"
-	opDisassociateResourceTypes                = "DisassociateResourceTypes"
-	opListConfigurationRecorders               = "ListConfigurationRecorders"
-	opPutConfigurationRecorder                 = "PutConfigurationRecorder"
-	opPutServiceLinkedConfigurationRecorder    = "PutServiceLinkedConfigurationRecorder"
-	opStartConfigurationRecorder               = "StartConfigurationRecorder"
-	opStopConfigurationRecorder                = "StopConfigurationRecorder"
+	opAssociateResourceTypes                          = "AssociateResourceTypes"
+	opDeleteConfigurationRecorder                     = "DeleteConfigurationRecorder"
+	opDeleteServiceLinkedConfigurationRecorder        = "DeleteServiceLinkedConfigurationRecorder"
+	opDescribeConfigurationRecorderStatus             = "DescribeConfigurationRecorderStatus"
+	opDescribeConfigurationRecorders                  = "DescribeConfigurationRecorders"
+	opDisassociateResourceTypes                       = "DisassociateResourceTypes"
+	opListConfigurationRecorders                      = "ListConfigurationRecorders"
+	opPutConfigurationRecorder                        = "PutConfigurationRecorder"
+	opPutServiceLinkedConfigurationRecorder           = "PutServiceLinkedConfigurationRecorder"
+	opPutThirdPartyServiceLinkedConfigurationRecorder = "PutThirdPartyServiceLinkedConfigurationRecorder"
+	opStartConfigurationRecorder                      = "StartConfigurationRecorder"
+	opStopConfigurationRecorder                       = "StopConfigurationRecorder"
 )
 
 // configurationRecorderSupportedOps returns the operation names this family handles.
@@ -35,6 +36,7 @@ func configurationRecorderSupportedOps() []string {
 		opDisassociateResourceTypes,
 		opDeleteServiceLinkedConfigurationRecorder,
 		opPutServiceLinkedConfigurationRecorder,
+		opPutThirdPartyServiceLinkedConfigurationRecorder,
 		opListConfigurationRecorders,
 	}
 }
@@ -257,6 +259,57 @@ func (h *Handler) handlePutServiceLinkedConfigurationRecorder(
 	return &putServiceLinkedConfigurationRecorderOutput{Arn: arn, Name: name}, nil
 }
 
+// scopeConfigurationBody mirrors ScopeConfiguration on the wire.
+type scopeConfigurationBody struct {
+	ScopeType       string   `json:"scopeType,omitempty"`
+	IncludedRegions []string `json:"includedRegions,omitempty"`
+	ScopeValues     []string `json:"scopeValues,omitempty"`
+	AllRegions      bool     `json:"allRegions"`
+}
+
+// toModel converts the wire body to the backend's ScopeConfiguration. A nil
+// receiver (an absent "ScopeConfiguration" in the request) returns nil,
+// letting PutThirdPartyServiceLinkedConfigurationRecorder's own
+// required-field validation report it.
+func (s *scopeConfigurationBody) toModel() *ScopeConfiguration {
+	if s == nil {
+		return nil
+	}
+
+	return &ScopeConfiguration{
+		AllRegions:      s.AllRegions,
+		IncludedRegions: s.IncludedRegions,
+		ScopeType:       s.ScopeType,
+		ScopeValues:     s.ScopeValues,
+	}
+}
+
+// PutThirdPartyServiceLinkedConfigurationRecorder request/response types and handler.
+type putThirdPartyServiceLinkedConfigurationRecorderInput struct {
+	ConnectorArn       string                  `json:"ConnectorArn"`
+	ServicePrincipal   string                  `json:"ServicePrincipal"`
+	ScopeConfiguration *scopeConfigurationBody `json:"ScopeConfiguration"`
+	Tags               []Tag                   `json:"Tags,omitempty"`
+}
+
+type putThirdPartyServiceLinkedConfigurationRecorderOutput struct {
+	Arn  string `json:"Arn"`
+	Name string `json:"Name"`
+}
+
+func (h *Handler) handlePutThirdPartyServiceLinkedConfigurationRecorder(
+	_ context.Context, in *putThirdPartyServiceLinkedConfigurationRecorderInput,
+) (*putThirdPartyServiceLinkedConfigurationRecorderOutput, error) {
+	name, arn, err := h.Backend.PutThirdPartyServiceLinkedConfigurationRecorder(
+		in.ServicePrincipal, in.ConnectorArn, in.ScopeConfiguration.toModel(), in.Tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putThirdPartyServiceLinkedConfigurationRecorderOutput{Arn: arn, Name: name}, nil
+}
+
 // ListConfigurationRecorders request/response types and handler.
 type listConfigurationRecordersOutput struct {
 	ConfigurationRecorderSummaries []ConfigurationRecorderSummary `json:"ConfigurationRecorderSummaries"`
@@ -286,6 +339,9 @@ func (h *Handler) buildConfigurationRecorderDispatch() map[string]service.JSONOp
 		),
 		opPutServiceLinkedConfigurationRecorder: service.WrapOp(
 			h.handlePutServiceLinkedConfigurationRecorder,
+		),
+		opPutThirdPartyServiceLinkedConfigurationRecorder: service.WrapOp(
+			h.handlePutThirdPartyServiceLinkedConfigurationRecorder,
 		),
 		opListConfigurationRecorders: service.WrapOp(h.handleListConfigurationRecorders),
 	}

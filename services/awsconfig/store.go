@@ -24,12 +24,23 @@ const (
 type InMemoryBackend struct {
 	registry  *store.Registry
 	recorders *store.Table[ConfigurationRecorder]
+	// recordersByServicePrincipal indexes recorders by ServicePrincipal, used
+	// by PutThirdPartyServiceLinkedConfigurationRecorder to find the existing
+	// third-party service-linked recorder (if any) owned by a given service
+	// principal. Customer-managed recorders and AWS-native service-linked
+	// recorders (created via PutServiceLinkedConfigurationRecorder, which
+	// tracks its own link via serviceLinkedRecorders below instead) group
+	// under the empty-string key and are never looked up through this index.
+	recordersByServicePrincipal *store.Index[ConfigurationRecorder]
 	// serviceLinkedRecorders tracks servicePrincipal -> recorder-name links for
 	// service-linked recorders (see ServiceLinkedRecorderLink's doc comment).
 	serviceLinkedRecorders *store.Table[ServiceLinkedRecorderLink]
 	channels               *store.Table[DeliveryChannel]
-	aggregationAuths       *store.Table[AggregationAuthorization]
-	configRules            *store.Table[ConfigRule]
+	// connectors holds connections between AWS Config and third-party cloud
+	// service providers (PutConnector/GetConnector/ListConnectors/DeleteConnector).
+	connectors       *store.Table[Connector]
+	aggregationAuths *store.Table[AggregationAuthorization]
+	configRules      *store.Table[ConfigRule]
 	// ruleEvaluations is a scalar-valued map (rule name → rolled-up compliance
 	// type) -- no *T for store.Table to key on -- so it stays a plain map.
 	ruleEvaluations map[string]string

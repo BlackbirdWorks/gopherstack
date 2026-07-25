@@ -40,7 +40,14 @@ import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func recorderKeyFn(v *ConfigurationRecorder) string { return v.Name }
 
+// recorderServicePrincipalIndexKeyFn builds the "byServicePrincipal" secondary
+// index key for the recorders table (see InMemoryBackend.recordersByServicePrincipal's
+// doc comment in store.go).
+func recorderServicePrincipalIndexKeyFn(v *ConfigurationRecorder) string { return v.ServicePrincipal }
+
 func serviceLinkedRecorderKeyFn(v *ServiceLinkedRecorderLink) string { return v.ServicePrincipal }
+
+func connectorKeyFn(v *Connector) string { return v.Arn }
 
 func channelKeyFn(v *DeliveryChannel) string { return v.Name }
 
@@ -152,6 +159,9 @@ func registerAllTables(b *InMemoryBackend) {
 var tableRegistrations = []func(*InMemoryBackend){
 	func(b *InMemoryBackend) {
 		b.recorders = store.Register(b.registry, "recorders", store.New(recorderKeyFn))
+		b.recordersByServicePrincipal = b.recorders.AddIndex(
+			"byServicePrincipal", recorderServicePrincipalIndexKeyFn,
+		)
 	},
 	func(b *InMemoryBackend) {
 		b.serviceLinkedRecorders = store.Register(
@@ -160,6 +170,9 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.channels = store.Register(b.registry, "channels", store.New(channelKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.connectors = store.Register(b.registry, "connectors", store.New(connectorKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.aggregationAuths = store.Register(b.registry, "aggregationAuths", store.New(aggregationAuthKeyFn))

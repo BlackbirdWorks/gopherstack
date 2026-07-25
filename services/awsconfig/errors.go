@@ -74,4 +74,14 @@ var (
 	// PutDeliveryChannel deserializer, which declares
 	// InvalidDeliveryChannelNameException).
 	ErrInvalidDeliveryChannelName = awserr.New("InvalidDeliveryChannelNameException", awserr.ErrInvalidParameter)
+	// ErrConflict is returned when a connector or third-party service-linked
+	// recorder request conflicts with existing state: PutConnector with a
+	// ConnectorConfiguration matching an already-existing connector, or
+	// PutThirdPartyServiceLinkedConfigurationRecorder for a ServicePrincipal
+	// that already owns a service-linked recorder tied to a different
+	// connector (verified against the AWS Config API reference's PutConnector/
+	// PutThirdPartyServiceLinkedConfigurationRecorder error lists, which
+	// declare ConflictException at HTTP status 400 -- not 409, unlike this
+	// package's other conflict-shaped errors).
+	ErrConflict = awserr.New("ConflictException", awserr.ErrConflict)
 )
