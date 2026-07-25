@@ -36,12 +36,12 @@ type cedarPolicyJSON struct {
 	Resource  cedarScopeJSON `json:"resource"`
 }
 
-// policyScope holds the scope-derived fields the real SDK echoes at the top
-// level of policy responses: effect, actions, principal, resource. A nil
-// *policyScope means the statement could not be resolved or parsed (e.g. a
-// dangling template reference); callers should omit these fields, same as
+// PolicyScopeResult holds the scope-derived fields the real SDK echoes at the
+// top level of policy responses: effect, actions, principal, resource. A nil
+// *PolicyScopeResult means the statement could not be resolved or parsed (e.g.
+// a dangling template reference); callers should omit these fields, same as
 // AWS omits them "when [the value] isn't present in the policy content".
-type policyScope struct {
+type PolicyScopeResult struct {
 	Principal *entityIdentifier
 	Resource  *entityIdentifier
 	Effect    string
@@ -89,7 +89,7 @@ func cedarEntityLiteral(entityType, entityID string) string {
 // policy statement and extracts its effect/principal/action/resource scope.
 // Returns nil if the statement is empty, fails to parse, or contains no
 // policies.
-func parseCedarScope(statement string) *policyScope {
+func parseCedarScope(statement string) *PolicyScopeResult {
 	if statement == "" {
 		return nil
 	}
@@ -109,7 +109,7 @@ func parseCedarScope(statement string) *policyScope {
 		return nil
 	}
 
-	scope := &policyScope{Effect: cedarEffectToWire(pj.Effect)}
+	scope := &PolicyScopeResult{Effect: cedarEffectToWire(pj.Effect)}
 	scope.Principal = scopeSingleEntity(pj.Principal)
 	scope.Resource = scopeSingleEntity(pj.Resource)
 	scope.Actions = scopeActions(pj.Action)
@@ -180,7 +180,7 @@ func scopeActions(s cedarScopeJSON) []actionIdentifierJSON {
 // referenced policy template's statement (with ?principal/?resource
 // substituted) for TEMPLATE_LINKED policies. Returns nil if the statement
 // can't be resolved (e.g. a dangling template reference) or parsed.
-func (b *InMemoryBackend) PolicyScope(p *Policy) *policyScope {
+func (b *InMemoryBackend) PolicyScope(p *Policy) *PolicyScopeResult {
 	b.mu.RLock("PolicyScope")
 	statement := b.resolveStatementLocked(p)
 	b.mu.RUnlock()

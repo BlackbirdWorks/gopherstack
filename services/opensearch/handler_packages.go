@@ -351,8 +351,8 @@ type domainPackageDetailsJSON struct {
 	LastUpdated         float64 `json:"LastUpdated,omitempty"`
 }
 
-// toDomainPackageDetailsJSON renders a DomainPackageDetails as the wire-shape
-// types.DomainPackageDetails object.
+// Converts a DomainPackageDetails into the wire-shape types.DomainPackageDetails
+// object.
 func toDomainPackageDetailsJSON(d *DomainPackageDetails) domainPackageDetailsJSON {
 	return domainPackageDetailsJSON{
 		PackageID:           d.PackageID,

@@ -19,6 +19,25 @@ func TestDeleteAgentCascades(t *testing.T) {
 	ctx := context.Background()
 	b := bedrockagent.NewTestBackend("us-east-1", "123456789012")
 
+	agent, alias := setupCascadeAgentFixture(ctx, t, b)
+	assertCascadeAgentFixtureBeforeDelete(ctx, t, b, agent, alias)
+
+	if delErr := b.DeleteAgent(ctx, agent.AgentID); delErr != nil {
+		t.Fatalf("delete agent: %v", delErr)
+	}
+
+	assertCascadeAgentFixtureAfterDelete(ctx, t, b, agent, alias)
+}
+
+// setupCascadeAgentFixture creates an agent with one of each child resource
+// that DeleteAgent must cascade-clean: an action group, an alias (with its
+// own tag), a collaborator, and a knowledge-base association. Returns the
+// agent and alias so callers can assert on their cascade-deletion.
+func setupCascadeAgentFixture(
+	ctx context.Context, t *testing.T, b *bedrockagent.InMemoryBackend,
+) (*bedrockagent.Agent, *bedrockagent.AgentAlias) {
+	t.Helper()
+
 	agent, err := b.CreateAgent(ctx, bedrockagent.AgentConfig{
 		AgentName:       "cascade-agent",
 		FoundationModel: "anthropic.claude-v2",
@@ -29,10 +48,9 @@ func TestDeleteAgentCascades(t *testing.T) {
 		t.Fatalf("create agent: %v", err)
 	}
 
-	_, agErr := b.CreateAgentActionGroup(ctx, agent.AgentID, "DRAFT", bedrockagent.ActionGroupConfig{
+	if _, agErr := b.CreateAgentActionGroup(ctx, agent.AgentID, "DRAFT", bedrockagent.ActionGroupConfig{
 		ActionGroupName: "cascade-ag",
-	})
-	if agErr != nil {
+	}); agErr != nil {
 		t.Fatalf("create action group: %v", agErr)
 	}
 
@@ -44,14 +62,13 @@ func TestDeleteAgentCascades(t *testing.T) {
 		t.Fatalf("create alias: %v", err)
 	}
 
-	_, collabErr := b.AssociateAgentCollaborator(ctx, agent.AgentID, "DRAFT", bedrockagent.CollaboratorConfig{
+	if _, collabErr := b.AssociateAgentCollaborator(ctx, agent.AgentID, "DRAFT", bedrockagent.CollaboratorConfig{
 		CollaboratorName:         "cascade-collab",
 		CollaborationInstruction: "help",
 		AgentDescriptor: map[string]any{
 			"aliasArn": "arn:aws:bedrock:us-east-1:123456789012:agent-alias/OTHER12345/ALIASOTHER",
 		},
-	})
-	if collabErr != nil {
+	}); collabErr != nil {
 		t.Fatalf("associate collaborator: %v", collabErr)
 	}
 
@@ -63,14 +80,25 @@ func TestDeleteAgentCascades(t *testing.T) {
 		t.Fatalf("create kb: %v", err)
 	}
 
-	_, assocErr := b.AssociateAgentKnowledgeBase(
+	if _, assocErr := b.AssociateAgentKnowledgeBase(
 		ctx, agent.AgentID, "DRAFT", kb.KnowledgeBaseID, "test", "ENABLED",
-	)
-	if assocErr != nil {
+	); assocErr != nil {
 		t.Fatalf("associate kb: %v", assocErr)
 	}
 
-	// Sanity: every child row and both tag entries exist before delete.
+	return agent, alias
+}
+
+// assertCascadeAgentFixtureBeforeDelete is a sanity check that every child
+// row and both tag entries set up by setupCascadeAgentFixture exist prior to
+// DeleteAgent, so the post-delete assertions prove real cleanup rather than
+// an accidentally-empty starting state.
+func assertCascadeAgentFixtureBeforeDelete(
+	ctx context.Context, t *testing.T, b *bedrockagent.InMemoryBackend,
+	agent *bedrockagent.Agent, alias *bedrockagent.AgentAlias,
+) {
+	t.Helper()
+
 	agsBefore, _, _ := b.ListAgentActionGroups(ctx, agent.AgentID, "DRAFT", 10, "")
 	if len(agsBefore) != 1 {
 		t.Fatalf("precondition: expected 1 action group, got %d", len(agsBefore))
@@ -80,10 +108,15 @@ func TestDeleteAgentCascades(t *testing.T) {
 	if aliasTagsBefore["alias-tag"] != "yes" {
 		t.Fatalf("precondition: expected alias tag to be set, got %v", aliasTagsBefore)
 	}
+}
 
-	if delErr := b.DeleteAgent(ctx, agent.AgentID); delErr != nil {
-		t.Fatalf("delete agent: %v", delErr)
-	}
+// assertCascadeAgentFixtureAfterDelete verifies that DeleteAgent removed
+// every child row and tag entry set up by setupCascadeAgentFixture.
+func assertCascadeAgentFixtureAfterDelete(
+	ctx context.Context, t *testing.T, b *bedrockagent.InMemoryBackend,
+	agent *bedrockagent.Agent, alias *bedrockagent.AgentAlias,
+) {
+	t.Helper()
 
 	agsAfter, _, _ := b.ListAgentActionGroups(ctx, agent.AgentID, "DRAFT", 10, "")
 	if len(agsAfter) != 0 {

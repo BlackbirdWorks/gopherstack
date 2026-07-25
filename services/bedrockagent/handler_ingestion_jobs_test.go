@@ -106,115 +106,143 @@ func TestIngestionJobStatistics(t *testing.T) {
 
 	t.Run("no documents yields zeroed non-nil statistics", func(t *testing.T) {
 		t.Parallel()
-
-		f := newIngestionFixture(t)
-		job := f.startJob(t)
-
-		stats, ok := job["statistics"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected statistics object in response, got %#v", job["statistics"])
-		}
-
-		if got := stats["numberOfDocumentsScanned"]; got != float64(0) {
-			t.Errorf("numberOfDocumentsScanned = %v, want 0", got)
-		}
-
-		if got := stats["numberOfNewDocumentsIndexed"]; got != float64(0) {
-			t.Errorf("numberOfNewDocumentsIndexed = %v, want 0", got)
-		}
+		checkIngestionStatsZeroedWithNoDocuments(t)
 	})
 
 	t.Run("statistics reflect real pushed document count", func(t *testing.T) {
 		t.Parallel()
-
-		f := newIngestionFixture(t)
-		f.ingestDocs(t, "doc-1", "doc-2", "doc-3")
-
-		job := f.startJob(t)
-
-		stats, ok := job["statistics"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected statistics object in response, got %#v", job["statistics"])
-		}
-
-		if got := stats["numberOfDocumentsScanned"]; got != float64(3) {
-			t.Errorf("numberOfDocumentsScanned = %v, want 3", got)
-		}
-
-		if got := stats["numberOfNewDocumentsIndexed"]; got != float64(3) {
-			t.Errorf("numberOfNewDocumentsIndexed = %v, want 3", got)
-		}
-
-		if got := stats["numberOfDocumentsDeleted"]; got != float64(0) {
-			t.Errorf("numberOfDocumentsDeleted = %v, want 0", got)
-		}
+		checkIngestionStatsReflectPushedCount(t)
 	})
 
 	t.Run("GetIngestionJob returns the same persisted statistics", func(t *testing.T) {
 		t.Parallel()
-
-		f := newIngestionFixture(t)
-		f.ingestDocs(t, "doc-a")
-
-		job := f.startJob(t)
-		jobID, _ := job["ingestionJobId"].(string)
-
-		rec := doRequest(t, f.h, f.e, http.MethodGet,
-			"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/ingestionjobs/"+jobID, nil)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("get ingestion job: %d %s", rec.Code, rec.Body.String())
-		}
-
-		var resp map[string]map[string]any
-
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-
-		stats, ok := resp["ingestionJob"]["statistics"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected statistics object, got %#v", resp["ingestionJob"]["statistics"])
-		}
-
-		if got := stats["numberOfDocumentsScanned"]; got != float64(1) {
-			t.Errorf("numberOfDocumentsScanned = %v, want 1", got)
-		}
+		checkGetIngestionJobReturnsPersistedStats(t)
 	})
 
 	t.Run("ListIngestionJobs summaries include statistics", func(t *testing.T) {
 		t.Parallel()
-
-		f := newIngestionFixture(t)
-		f.ingestDocs(t, "doc-x", "doc-y")
-		f.startJob(t)
-
-		rec := doRequest(t, f.h, f.e, http.MethodGet,
-			"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/ingestionjobs", nil)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("list ingestion jobs: %d %s", rec.Code, rec.Body.String())
-		}
-
-		var resp struct {
-			IngestionJobSummaries []map[string]any `json:"ingestionJobSummaries"`
-		}
-
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-
-		if len(resp.IngestionJobSummaries) != 1 {
-			t.Fatalf("expected 1 summary, got %d", len(resp.IngestionJobSummaries))
-		}
-
-		stats, ok := resp.IngestionJobSummaries[0]["statistics"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected statistics object, got %#v", resp.IngestionJobSummaries[0]["statistics"])
-		}
-
-		if got := stats["numberOfDocumentsScanned"]; got != float64(2) {
-			t.Errorf("numberOfDocumentsScanned = %v, want 2", got)
-		}
+		checkListIngestionJobsSummariesIncludeStats(t)
 	})
+}
+
+// checkIngestionStatsZeroedWithNoDocuments verifies StartIngestionJob reports
+// a zeroed (not omitted) statistics object when no documents were pushed.
+func checkIngestionStatsZeroedWithNoDocuments(t *testing.T) {
+	t.Helper()
+
+	f := newIngestionFixture(t)
+	job := f.startJob(t)
+
+	stats, ok := job["statistics"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected statistics object in response, got %#v", job["statistics"])
+	}
+
+	if got := stats["numberOfDocumentsScanned"]; got != float64(0) {
+		t.Errorf("numberOfDocumentsScanned = %v, want 0", got)
+	}
+
+	if got := stats["numberOfNewDocumentsIndexed"]; got != float64(0) {
+		t.Errorf("numberOfNewDocumentsIndexed = %v, want 0", got)
+	}
+}
+
+// checkIngestionStatsReflectPushedCount verifies StartIngestionJob reports
+// the actual count of documents pushed via IngestKnowledgeBaseDocuments.
+func checkIngestionStatsReflectPushedCount(t *testing.T) {
+	t.Helper()
+
+	f := newIngestionFixture(t)
+	f.ingestDocs(t, "doc-1", "doc-2", "doc-3")
+
+	job := f.startJob(t)
+
+	stats, ok := job["statistics"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected statistics object in response, got %#v", job["statistics"])
+	}
+
+	if got := stats["numberOfDocumentsScanned"]; got != float64(3) {
+		t.Errorf("numberOfDocumentsScanned = %v, want 3", got)
+	}
+
+	if got := stats["numberOfNewDocumentsIndexed"]; got != float64(3) {
+		t.Errorf("numberOfNewDocumentsIndexed = %v, want 3", got)
+	}
+
+	if got := stats["numberOfDocumentsDeleted"]; got != float64(0) {
+		t.Errorf("numberOfDocumentsDeleted = %v, want 0", got)
+	}
+}
+
+// checkGetIngestionJobReturnsPersistedStats verifies GetIngestionJob echoes
+// back the same statistics that were computed and persisted by StartIngestionJob.
+func checkGetIngestionJobReturnsPersistedStats(t *testing.T) {
+	t.Helper()
+
+	f := newIngestionFixture(t)
+	f.ingestDocs(t, "doc-a")
+
+	job := f.startJob(t)
+	jobID, _ := job["ingestionJobId"].(string)
+
+	rec := doRequest(t, f.h, f.e, http.MethodGet,
+		"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/ingestionjobs/"+jobID, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get ingestion job: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]map[string]any
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	stats, ok := resp["ingestionJob"]["statistics"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected statistics object, got %#v", resp["ingestionJob"]["statistics"])
+	}
+
+	if got := stats["numberOfDocumentsScanned"]; got != float64(1) {
+		t.Errorf("numberOfDocumentsScanned = %v, want 1", got)
+	}
+}
+
+// checkListIngestionJobsSummariesIncludeStats verifies ListIngestionJobs
+// summaries carry the same statistics as the underlying job.
+func checkListIngestionJobsSummariesIncludeStats(t *testing.T) {
+	t.Helper()
+
+	f := newIngestionFixture(t)
+	f.ingestDocs(t, "doc-x", "doc-y")
+	f.startJob(t)
+
+	rec := doRequest(t, f.h, f.e, http.MethodGet,
+		"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/ingestionjobs", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list ingestion jobs: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		IngestionJobSummaries []map[string]any `json:"ingestionJobSummaries"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(resp.IngestionJobSummaries) != 1 {
+		t.Fatalf("expected 1 summary, got %d", len(resp.IngestionJobSummaries))
+	}
+
+	stats, ok := resp.IngestionJobSummaries[0]["statistics"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected statistics object, got %#v", resp.IngestionJobSummaries[0]["statistics"])
+	}
+
+	if got := stats["numberOfDocumentsScanned"]; got != float64(2) {
+		t.Errorf("numberOfDocumentsScanned = %v, want 2", got)
+	}
 }
 
 // TestStopIngestionJob locks in the real StopIngestionJob status transition.
