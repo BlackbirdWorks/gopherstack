@@ -17,6 +17,12 @@ var glueOpBindings = []struct {
 	name string
 }{
 	{
+		name: "AssociateGlossaryTerms",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleAssociateGlossaryTerms)
+		},
+	},
+	{
 		name: "BatchCreatePartition",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleBatchCreatePartition)
@@ -74,6 +80,12 @@ var glueOpBindings = []struct {
 		name: "BatchGetDevEndpoints",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleBatchGetDevEndpoints)
+		},
+	},
+	{
+		name: "BatchGetIterableForms",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleBatchGetIterableForms)
 		},
 	},
 	{name: "BatchGetJobs", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleBatchGetJobs) }},
@@ -200,6 +212,18 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "CreateGlossary",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleCreateGlossary)
+		},
+	},
+	{
+		name: "CreateGlossaryTerm",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleCreateGlossaryTerm)
+		},
+	},
+	{
 		name: "CreateGlueIdentityCenterConfiguration",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleCreateGlueIdentityCenterConfiguration)
@@ -284,6 +308,24 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "DeleteAsset",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleDeleteAsset)
+		},
+	},
+	{
+		name: "DeleteAssetType",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleDeleteAssetType)
+		},
+	},
+	{
+		name: "DeleteAttachment",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleDeleteAttachment)
+		},
+	},
+	{
 		name: "DeleteBlueprint",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleDeleteBlueprint)
@@ -349,6 +391,24 @@ var glueOpBindings = []struct {
 		name: "DeleteDevEndpoint",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleDeleteDevEndpoint)
+		},
+	},
+	{
+		name: "DeleteFormType",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleDeleteFormType)
+		},
+	},
+	{
+		name: "DeleteGlossary",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleDeleteGlossary)
+		},
+	},
+	{
+		name: "DeleteGlossaryTerm",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleDeleteGlossaryTerm)
 		},
 	},
 	{
@@ -476,6 +536,24 @@ var glueOpBindings = []struct {
 			return service.WrapOp(h.handleDescribeIntegrations)
 		},
 	},
+	{
+		name: "DisassociateGlossaryTerms",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleDisassociateGlossaryTerms)
+		},
+	},
+	{
+		name: "GetAsset",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetAsset)
+		},
+	},
+	{
+		name: "GetAssetType",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetAssetType)
+		},
+	},
 	{name: "GetBlueprint", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleGetBlueprint) }},
 	{
 		name: "GetBlueprintRun",
@@ -556,6 +634,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "GetDashboardUrl",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetDashboardURL)
+		},
+	},
+	{
 		name: "GetDataCatalogEncryptionSettings",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleGetDataCatalogEncryptionSettings)
@@ -621,6 +705,24 @@ var glueOpBindings = []struct {
 		name: "GetEntityRecords",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleGetEntityRecords)
+		},
+	},
+	{
+		name: "GetFormType",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetFormType)
+		},
+	},
+	{
+		name: "GetGlossary",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetGlossary)
+		},
+	},
+	{
+		name: "GetGlossaryTerm",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetGlossaryTerm)
 		},
 	},
 	{
@@ -726,6 +828,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{name: "GetSession", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleGetSession) }},
+	{
+		name: "GetSessionEndpoint",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetSessionEndpoint)
+		},
+	},
 	{name: "GetStatement", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleGetStatement) }},
 	{name: "GetTable", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleGetTable) }},
 	{
@@ -812,6 +920,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "ListAssetTypes",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleListAssetTypes)
+		},
+	},
+	{
 		name: "ListBlueprints",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleListBlueprints)
@@ -881,9 +995,33 @@ var glueOpBindings = []struct {
 	},
 	{name: "ListEntities", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleListEntities) }},
 	{
+		name: "ListFormTypes",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleListFormTypes)
+		},
+	},
+	{
+		name: "ListGlossaries",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleListGlossaries)
+		},
+	},
+	{
+		name: "ListGlossaryTerms",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleListGlossaryTerms)
+		},
+	},
+	{
 		name: "ListIntegrationResourceProperties",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleListIntegrationResourceProperties)
+		},
+	},
+	{
+		name: "ListIterableForms",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleListIterableForms)
 		},
 	},
 	{name: "ListJobs", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleListJobs) }},
@@ -940,6 +1078,24 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "PutAsset",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handlePutAsset)
+		},
+	},
+	{
+		name: "PutAssetType",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handlePutAssetType)
+		},
+	},
+	{
+		name: "PutAttachment",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handlePutAttachment)
+		},
+	},
+	{
 		name: "PutDataCatalogEncryptionSettings",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handlePutDataCatalogEncryptionSettings)
@@ -949,6 +1105,12 @@ var glueOpBindings = []struct {
 		name: "PutDataQualityProfileAnnotation",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handlePutDataQualityProfileAnnotation)
+		},
+	},
+	{
+		name: "PutFormType",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handlePutFormType)
 		},
 	},
 	{
@@ -1006,6 +1168,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{name: "RunStatement", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleRunStatement) }},
+	{
+		name: "SearchAssets",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleSearchAssets)
+		},
+	},
 	{name: "SearchTables", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleSearchTables) }},
 	{
 		name: "StartBlueprintRun",
@@ -1124,6 +1292,12 @@ var glueOpBindings = []struct {
 	},
 	{name: "UntagResource", bind: func(h *Handler) service.JSONOpFunc { return service.WrapOp(h.handleUntagResource) }},
 	{
+		name: "UpdateAsset",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleUpdateAsset)
+		},
+	},
+	{
 		name: "UpdateBlueprint",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleUpdateBlueprint)
@@ -1183,6 +1357,18 @@ var glueOpBindings = []struct {
 		name: "UpdateDevEndpoint",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleUpdateDevEndpoint)
+		},
+	},
+	{
+		name: "UpdateGlossary",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleUpdateGlossary)
+		},
+	},
+	{
+		name: "UpdateGlossaryTerm",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleUpdateGlossaryTerm)
 		},
 	},
 	{

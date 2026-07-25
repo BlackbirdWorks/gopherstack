@@ -113,6 +113,16 @@ func dqStatisticAnnotationKeyFn(v *StatisticAnnotation) string {
 
 func customConnectionTypeKeyFn(v *ConnectionTypeInfo) string { return v.ConnectionType }
 
+func glossaryKeyFn(v *Glossary) string { return v.ID }
+
+func glossaryTermKeyFn(v *GlossaryTerm) string { return v.ID }
+
+func assetTypeKeyFn(v *AssetType) string { return v.ID }
+
+func assetKeyFn(v *Asset) string { return v.ID }
+
+func formTypeKeyFn(v *FormType) string { return v.ID }
+
 // registerAllTables registers every converted resource map on b.registry
 // exactly once. It must be called during construction only (immediately
 // after b.registry is created), never on every Reset() -- store.Register
@@ -141,6 +151,10 @@ func customConnectionTypeKeyFn(v *ConnectionTypeInfo) string { return v.Connecti
 //   - jobRunReadyAt / jobRunDoneAt / crawlerReadyAt: ephemeral lifecycle-timer
 //     bookkeeping (ready/done rather than resource state), not persisted, and
 //     not map[string]*T.
+//   - iterableFormItems: a nested per-asset, per-iterable-form-name collection
+//     (map[string]map[string]map[string]*iterableFormItemRecord), not the
+//     map[string]*T shape store.Table replaces -- see the field's doc comment
+//     on InMemoryBackend in store.go.
 func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)
@@ -297,5 +311,20 @@ var tableRegistrations = []func(*InMemoryBackend){
 			"customConnectionTypes",
 			store.New(customConnectionTypeKeyFn),
 		)
+	},
+	func(b *InMemoryBackend) {
+		b.glossaries = store.Register(b.registry, "glossaries", store.New(glossaryKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.glossaryTerms = store.Register(b.registry, "glossaryTerms", store.New(glossaryTermKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.assetTypes = store.Register(b.registry, "assetTypes", store.New(assetTypeKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.assets = store.Register(b.registry, "assets", store.New(assetKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.formTypes = store.Register(b.registry, "formTypes", store.New(formTypeKeyFn))
 	},
 }

@@ -17,6 +17,16 @@ var ErrNotFound = awserr.New("EntityNotFoundException", awserr.ErrNotFound)
 // ErrAlreadyExists is returned when a resource already exists.
 var ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrAlreadyExists)
 
+// ErrConflict is returned when an operation is rejected because of the
+// current state of a related resource, mirroring AWS's ConflictException.
+// Confirmed as the documented error (not EntityNotFoundException or
+// InvalidInputException) for DeleteGlossary ("a glossary cannot be deleted if
+// it still contains glossary terms") and DeleteFormType ("a form type cannot
+// be deleted if it is still referenced by an asset type") in
+// aws-sdk-go-v2/service/glue/deserializers.go's
+// awsAwsjson11_deserializeOpErrorDeleteGlossary/DeleteFormType error switches.
+var ErrConflict = awserr.New("ConflictException", awserr.ErrConflict)
+
 // ErrConcurrentRunsExceeded is returned by StartJobRun/StartWorkflowRun when
 // the job/workflow's MaxConcurrentRuns limit is already reached, mirroring
 // AWS's ConcurrentRunsExceededException (confirmed in
@@ -167,6 +177,24 @@ type InMemoryBackend struct {
 	// connection-type registry (custom types registered via RegisterConnectionType).
 	customConnectionTypes *store.Table[ConnectionTypeInfo]
 
+	// Data Catalog business-glossary / asset-catalog resources (see
+	// glossaries.go, assets.go, forms.go).
+	glossaries    *store.Table[Glossary]
+	glossaryTerms *store.Table[GlossaryTerm]
+	assetTypes    *store.Table[AssetType]
+	assets        *store.Table[Asset]
+	formTypes     *store.Table[FormType]
+	// iterableFormItems holds items within an asset's iterable forms (e.g. a
+	// table asset's "columns"), keyed assetID -> iterableFormName -> itemID.
+	// Real Glue has no operation that explicitly creates these -- the only
+	// documented write path is PutAttachment targeting an item via
+	// ItemIdentifier+IterableFormName (see PutAttachment in assets.go) -- so
+	// this cannot be a store.Table (its key is not a pure function of a
+	// single value's own fields; it is a nested per-asset, per-form
+	// collection), matching the rationale documented in store_setup.go for
+	// the other raw-map fields above.
+	iterableFormItems iterableFormItemsMap
+
 	// reconcileStop signals the managed reconciler goroutine to exit. See the
 	// non-pointer reconciler bookkeeping fields at the end of the struct.
 	reconcileStop chan struct{}
@@ -201,6 +229,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		catalogImports:            make(map[string]*CatalogImportStatus),
 		schemaVersionMetadata:     make(map[string]map[string]string),
 		crawlHistory:              make(map[string][]*CrawlHistoryEntry),
+		iterableFormItems:         make(iterableFormItemsMap),
 		registry:                  store.NewRegistry(),
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
@@ -243,6 +272,7 @@ func (b *InMemoryBackend) Reset() {
 // called with b.mu held.
 func (b *InMemoryBackend) resetStubFixState() {
 	b.crawlHistory = make(map[string][]*CrawlHistoryEntry)
+	b.iterableFormItems = make(iterableFormItemsMap)
 }
 
 // resetLifecycleStateLocked clears identity-center config and pending

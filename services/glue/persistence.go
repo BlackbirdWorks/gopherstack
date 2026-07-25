@@ -42,6 +42,7 @@ type backendSnapshot struct {
 	SessionStatements         map[string][]*Statement                   `json:"sessionStatements"`
 	CrawlHistory              map[string][]*CrawlHistoryEntry           `json:"crawlHistory"`
 	SchemaVersionMetadata     map[string]map[string]string              `json:"schemaVersionMetadata"`
+	IterableFormItems         iterableFormItemsMap                      `json:"iterableFormItems"`
 	GlueIdentityCenterConfig  *IdentityCenterConfig                     `json:"glueIdentityCenterConfig,omitempty"`
 	Version                   int                                       `json:"version"`
 }
@@ -78,6 +79,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		CrawlHistory:              b.crawlHistory,
 		SchemaVersionMetadata:     b.schemaVersionMetadata,
 		GlueIdentityCenterConfig:  b.glueIdentityCenterConfig,
+		IterableFormItems:         b.iterableFormItems,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "glue", snap)
@@ -168,6 +170,9 @@ func initSnapshotListDefaults(snap *backendSnapshot) {
 	if snap.SchemaVersionMetadata == nil {
 		snap.SchemaVersionMetadata = make(map[string]map[string]string)
 	}
+	if snap.IterableFormItems == nil {
+		snap.IterableFormItems = make(iterableFormItemsMap)
+	}
 }
 
 // restoreFromSnapshot copies the raw (non-store.Table) snapshot data into the
@@ -187,6 +192,7 @@ func (b *InMemoryBackend) restoreFromSnapshot(snap backendSnapshot) {
 	b.crawlHistory = snap.CrawlHistory
 	b.schemaVersionMetadata = snap.SchemaVersionMetadata
 	b.glueIdentityCenterConfig = snap.GlueIdentityCenterConfig
+	b.iterableFormItems = snap.IterableFormItems
 }
 
 // Snapshot implements Snapshottable by delegating to the backend when it
