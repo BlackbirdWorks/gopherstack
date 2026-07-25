@@ -3,6 +3,7 @@ package cognitoidp_test
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -458,4 +459,134 @@ func TestExportCountHelpers(t *testing.T) {
 		"TemporaryPassword": "TempPass123!",
 	})
 	assert.Equal(t, 1, h.Backend.UserCount())
+}
+
+// provisionedLimitResp is the shared GetProvisionedLimit/UpdateProvisionedLimit
+// wire response shape used by TestHandler_ProvisionedLimits.
+type provisionedLimitResp struct {
+	Limit struct {
+		LimitDefinition struct {
+			Attributes map[string]string `json:"Attributes,omitempty"`
+			LimitClass string            `json:"LimitClass,omitempty"`
+		} `json:"LimitDefinition"`
+		FreeLimitValue        int32 `json:"FreeLimitValue"`
+		ProvisionedLimitValue int32 `json:"ProvisionedLimitValue"`
+	} `json:"Limit"`
+}
+
+// apiCategoryLimitDef builds a LimitDefinition wire payload for the given
+// LimitClass/Category, keeping TestHandler_ProvisionedLimits's table under
+// the line-length limit.
+func apiCategoryLimitDef(limitClass, category string) map[string]any {
+	return map[string]any{"LimitClass": limitClass, "Attributes": map[string]any{"Category": category}}
+}
+
+// TestHandler_ProvisionedLimits covers GetProvisionedLimit/UpdateProvisionedLimit,
+// which are account-level (not per-user-pool) -- see provisioned_limits.go for
+// the AWS-documented default values this asserts against.
+func TestHandler_ProvisionedLimits(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		limitDef map[string]any
+		extra    map[string]any
+		name     string
+		op       string
+		wantCode int
+	}{
+		{
+			name:     "get_default_matches_documented_value",
+			op:       "GetProvisionedLimit",
+			limitDef: apiCategoryLimitDef("API_CATEGORY", "UserAuthentication"),
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "update_adjustable_category",
+			op:       "UpdateProvisionedLimit",
+			limitDef: apiCategoryLimitDef("API_CATEGORY", "UserAuthentication"),
+			extra:    map[string]any{"RequestedLimitValue": 300},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "update_non_adjustable_category_rejected",
+			op:       "UpdateProvisionedLimit",
+			limitDef: apiCategoryLimitDef("API_CATEGORY", "UserPoolRead"),
+			extra:    map[string]any{"RequestedLimitValue": 100},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "unknown_category_rejected",
+			op:       "GetProvisionedLimit",
+			limitDef: apiCategoryLimitDef("API_CATEGORY", "NotARealCategory"),
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "wrong_limit_class_rejected",
+			op:       "GetProvisionedLimit",
+			limitDef: apiCategoryLimitDef("NOT_A_CLASS", "UserAuthentication"),
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "exceeds_account_max_rejected",
+			op:       "UpdateProvisionedLimit",
+			limitDef: apiCategoryLimitDef("API_CATEGORY", "UserAuthentication"),
+			extra:    map[string]any{"RequestedLimitValue": 100000},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := map[string]any{"LimitDefinition": tt.limitDef}
+			maps.Copy(body, tt.extra)
+
+			rec := doCognitoRequest(t, h, tt.op, body)
+			require.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			var resp provisionedLimitResp
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, "API_CATEGORY", resp.Limit.LimitDefinition.LimitClass)
+			assert.EqualValues(t, 120, resp.Limit.FreeLimitValue)
+
+			switch tt.name {
+			case "get_default_matches_documented_value":
+				assert.EqualValues(t, 120, resp.Limit.ProvisionedLimitValue)
+			case "update_adjustable_category":
+				assert.EqualValues(t, 300, resp.Limit.ProvisionedLimitValue)
+			}
+		})
+	}
+}
+
+// TestHandler_ProvisionedLimits_RoundTrip verifies UpdateProvisionedLimit's
+// new value is durably reflected by a subsequent GetProvisionedLimit call on
+// the same handler instance (account-level state, not request-scoped).
+func TestHandler_ProvisionedLimits_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	limitDef := apiCategoryLimitDef("API_CATEGORY", "UserCreation")
+
+	updateRec := doCognitoRequest(t, h, "UpdateProvisionedLimit", map[string]any{
+		"LimitDefinition":     limitDef,
+		"RequestedLimitValue": 200,
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
+
+	getRec := doCognitoRequest(t, h, "GetProvisionedLimit", map[string]any{"LimitDefinition": limitDef})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp provisionedLimitResp
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	assert.EqualValues(t, 200, resp.Limit.ProvisionedLimitValue)
+	assert.EqualValues(t, 50, resp.Limit.FreeLimitValue)
 }

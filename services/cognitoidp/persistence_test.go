@@ -93,6 +93,16 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				// refreshTokens/refreshTokensByClient/refreshTokensByUser maps.
 				_, err = b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "alice", "Permanent123!")
 				require.NoError(t, err)
+
+				// Exercises the userPoolReplicas store.Table (parity-4).
+				_, err = b.CreateUserPoolReplica(pool.ID, "us-west-2", nil)
+				require.NoError(t, err)
+
+				// Exercises the raw provisionedLimits map (parity-4).
+				_, err = b.UpdateProvisionedLimit(
+					"API_CATEGORY", map[string]string{"Category": "UserAuthentication"}, 250,
+				)
+				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cognitoidp.InMemoryBackend) {
 				t.Helper()
@@ -155,6 +165,17 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				assert.Equal(t, "test", b.ListTagsForResource(poolARN)["env"])
 
 				assert.Positive(t, b.RefreshTokenCount(), "refresh token must survive restore")
+
+				replicas, err := b.ListUserPoolReplicas(poolID)
+				require.NoError(t, err)
+				require.Len(t, replicas, 1, "userPoolReplicas table must survive restore")
+				assert.Equal(t, "us-west-2", replicas[0].RegionName)
+
+				limit, err := b.GetProvisionedLimit(
+					"API_CATEGORY", map[string]string{"Category": "UserAuthentication"},
+				)
+				require.NoError(t, err)
+				assert.EqualValues(t, 250, limit.ProvisionedLimitValue, "provisionedLimits map must survive restore")
 			},
 		},
 	}

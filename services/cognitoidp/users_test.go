@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	"github.com/stretchr/testify/assert"
@@ -296,6 +297,113 @@ func TestInMemoryBackend_AdminGetUser(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, username, user.Username)
+		})
+	}
+}
+
+// TestInMemoryBackend_AdminGetUserAuthFactors covers the AdminGetUserAuthFactors
+// backend method, verifying every returned factor is derived from real,
+// independently-set user state (password hash, legacy SMS MFAOptions,
+// verified TOTP secret, registered WebAuthn credential) rather than fabricated.
+func TestInMemoryBackend_AdminGetUserAuthFactors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget   error
+		setup       func(t *testing.T, b *cognitoidp.InMemoryBackend) (poolID, username string)
+		name        string
+		wantFactors []string
+		wantErr     bool
+	}{
+		{
+			name: "password_only",
+			setup: func(t *testing.T, b *cognitoidp.InMemoryBackend) (string, string) {
+				t.Helper()
+
+				pool, err := b.CreateUserPool("factors-pool-1")
+				require.NoError(t, err)
+				client, err := b.CreateUserPoolClient(pool.ID, "factors-client-1")
+				require.NoError(t, err)
+
+				_ = signUpConfirmAndLogin(t, b, client.ClientID, "factors-user-1")
+
+				return pool.ID, "factors-user-1"
+			},
+			wantFactors: []string{"PASSWORD"},
+		},
+		{
+			name: "sms_totp_and_webauthn_all_derived_from_real_state",
+			setup: func(t *testing.T, b *cognitoidp.InMemoryBackend) (string, string) {
+				t.Helper()
+
+				pool, err := b.CreateUserPool("factors-pool-2")
+				require.NoError(t, err)
+				client, err := b.CreateUserPoolClient(pool.ID, "factors-client-2")
+				require.NoError(t, err)
+
+				tokens := signUpConfirmAndLogin(t, b, client.ClientID, "factors-user-2")
+
+				require.NoError(t, b.AdminSetUserSettings(pool.ID, "factors-user-2", []cognitoidp.MFAOptionType{
+					{DeliveryMedium: "SMS", AttributeName: "phone_number"},
+				}))
+
+				secret, err := b.AssociateSoftwareToken(tokens.AccessToken)
+				require.NoError(t, err)
+				code, err := cognitoidp.GenerateTOTPCode(secret, time.Now())
+				require.NoError(t, err)
+				require.NoError(t, b.VerifySoftwareToken(tokens.AccessToken, code))
+
+				_, err = b.CompleteWebAuthnRegistration(tokens.AccessToken, "admin-factor-cred", "")
+				require.NoError(t, err)
+
+				return pool.ID, "factors-user-2"
+			},
+			wantFactors: []string{"PASSWORD", "SMS_OTP", "SOFTWARE_TOKEN", "WEB_AUTHN"},
+		},
+		{
+			name: "user_not_found",
+			setup: func(t *testing.T, b *cognitoidp.InMemoryBackend) (string, string) {
+				t.Helper()
+
+				pool, err := b.CreateUserPool("factors-pool-3")
+				require.NoError(t, err)
+
+				return pool.ID, "ghost"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserNotFound,
+		},
+		{
+			name: "pool_not_found",
+			setup: func(t *testing.T, _ *cognitoidp.InMemoryBackend) (string, string) {
+				t.Helper()
+
+				return "us-east-1_nonexistent", "someone"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserPoolNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolID, username := tt.setup(t, b)
+
+			user, factors, err := b.AdminGetUserAuthFactors(poolID, username)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, username, user.Username)
+			assert.ElementsMatch(t, tt.wantFactors, factors)
 		})
 	}
 }

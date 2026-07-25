@@ -40,6 +40,9 @@ func userImportJobKey(poolID, jobID string) string { return poolID + ":" + jobID
 // managedLoginBrandingKey builds the composite primary key for the managedLoginBrandings table.
 func managedLoginBrandingKey(poolID, brandingID string) string { return poolID + ":" + brandingID }
 
+// replicaKey builds the composite primary key for the userPoolReplicas table.
+func replicaKey(poolID, regionName string) string { return poolID + ":" + regionName }
+
 func poolsKeyFn(v *UserPool) string       { return v.ID }
 func poolsNameIndexFn(v *UserPool) string { return v.Name }
 
@@ -80,6 +83,11 @@ func uiCustomizationsKeyFn(v *UICustomization) string { return uiKey(v.UserPoolI
 func typedRiskConfigurationsKeyFn(v *TypedRiskConfiguration) string {
 	return v.UserPoolID + ":" + v.ClientID
 }
+
+func userPoolReplicasKeyFn(v *UserPoolReplica) string {
+	return replicaKey(v.UserPoolID, v.RegionName)
+}
+func userPoolReplicasPoolIndexFn(v *UserPoolReplica) string { return v.UserPoolID }
 
 // poolNameExists reports whether a pool with the given (globally unique) Name
 // already exists, via the poolsByName secondary index. Caller must hold at
@@ -134,6 +142,10 @@ func (b *InMemoryBackend) userBySub(poolID, sub string) (*User, bool) {
 //   - groupMembers: map[string]map[string]map[string]struct{} is a pure
 //     membership set (poolID -> groupName -> set of usernames), not a
 //     collection of *T resource structs.
+//   - provisionedLimits: map[string]int32 (API_CATEGORY Category -> current
+//     provisioned RPS) is account+Region-level, not owned by any single user
+//     pool, and its value (a bare int32) carries no identity field at all --
+//     see provisioned_limits.go.
 func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)
@@ -198,5 +210,9 @@ var tableRegistrations = []func(*InMemoryBackend){
 			"typedRiskConfigurations",
 			store.New(typedRiskConfigurationsKeyFn),
 		)
+	},
+	func(b *InMemoryBackend) {
+		b.userPoolReplicas = store.Register(b.registry, "userPoolReplicas", store.New(userPoolReplicasKeyFn))
+		b.userPoolReplicasByPool = b.userPoolReplicas.AddIndex("byPool", userPoolReplicasPoolIndexFn)
 	},
 }

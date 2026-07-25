@@ -83,6 +83,15 @@ var (
 	// malformed payload (missing/invalid "response" object) rather than a genuine
 	// business-logic error -- mirrors AWS Cognito's UnexpectedLambdaException.
 	ErrUnexpectedLambda = awserr.New("UnexpectedLambdaException", awserr.ErrInvalidParameter)
+
+	// ErrReplicaNotFound is returned when a user pool has no secondary replica
+	// in the requested Region (UpdateUserPoolReplica/DeleteUserPoolReplica).
+	ErrReplicaNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+
+	// ErrServiceQuotaExceeded is returned when a requested provisioned-limit
+	// value falls outside what the account is allowed to provision
+	// (UpdateProvisionedLimit) -- mirrors AWS Cognito's ServiceQuotaExceededException.
+	ErrServiceQuotaExceeded = awserr.New("ServiceQuotaExceededException", awserr.ErrConflict)
 )
 
 // ErrJWTKeyNotFound is returned when a JWT key ID is not found for a known issuer.

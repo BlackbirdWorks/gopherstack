@@ -146,3 +146,19 @@ type getUserAuthFactorsOutput struct {
 	Username                  string   `json:"Username,omitempty"`
 	ConfiguredUserAuthFactors []string `json:"ConfiguredUserAuthFactors,omitempty"`
 }
+
+type adminGetUserAuthFactorsInput struct {
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
+}
+
+// adminGetUserAuthFactorsOutput mirrors the AWS SDK's
+// AdminGetUserAuthFactorsOutput (Username, ConfiguredUserAuthFactors,
+// PreferredMfaSetting, UserMFASettingList -- field-diffed against
+// aws-sdk-go-v2/service/cognitoidentityprovider.AdminGetUserAuthFactorsOutput).
+type adminGetUserAuthFactorsOutput struct {
+	Username                  string   `json:"Username,omitempty"`
+	ConfiguredUserAuthFactors []string `json:"ConfiguredUserAuthFactors,omitempty"`
+	PreferredMfaSetting       string   `json:"PreferredMfaSetting,omitempty"`
+	UserMFASettingList        []string `json:"UserMFASettingList,omitempty"`
+}

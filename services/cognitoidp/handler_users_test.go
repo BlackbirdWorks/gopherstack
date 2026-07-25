@@ -408,6 +408,86 @@ func TestGetUserAuthFactors_InvalidAccessToken(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestHandler_AdminGetUserAuthFactors covers the HTTP handler for
+// AdminGetUserAuthFactors, asserting the wire shape (Username,
+// ConfiguredUserAuthFactors, PreferredMfaSetting, UserMFASettingList) and that
+// the returned factors reflect real, independently-set user state.
+func TestHandler_AdminGetUserAuthFactors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(h *cognitoidp.Handler) (poolID, username string)
+		name     string
+		wantCode int
+	}{
+		{
+			name: "password_and_sms",
+			setup: func(h *cognitoidp.Handler) (string, string) {
+				poolID, clientID := setupHandlerPoolAndClient(t, h, "admin-factors-pool")
+				signUpAndConfirmViaHandler(t, h, clientID, "admin-factors-user")
+
+				rec := doCognitoRequest(t, h, "AdminSetUserSettings", map[string]any{
+					"UserPoolId": poolID,
+					"Username":   "admin-factors-user",
+					"MFAOptions": []map[string]any{
+						{"DeliveryMedium": "SMS", "AttributeName": "phone_number"},
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				return poolID, "admin-factors-user"
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "user_not_found",
+			setup: func(h *cognitoidp.Handler) (string, string) {
+				poolID, _ := setupHandlerPoolAndClient(t, h, "admin-factors-missing-pool")
+
+				return poolID, "ghost"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "pool_not_found",
+			setup: func(_ *cognitoidp.Handler) (string, string) {
+				return "us-east-1_nonexistent", "someone"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolID, username := tt.setup(h)
+
+			rec := doCognitoRequest(t, h, "AdminGetUserAuthFactors", map[string]any{
+				"UserPoolId": poolID,
+				"Username":   username,
+			})
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			var resp struct {
+				Username                  string   `json:"Username,omitempty"`
+				ConfiguredUserAuthFactors []string `json:"ConfiguredUserAuthFactors,omitempty"`
+				PreferredMfaSetting       string   `json:"PreferredMfaSetting,omitempty"`
+				UserMFASettingList        []string `json:"UserMFASettingList,omitempty"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, username, resp.Username)
+			assert.Contains(t, resp.ConfiguredUserAuthFactors, "PASSWORD")
+			assert.Contains(t, resp.ConfiguredUserAuthFactors, "SMS_OTP")
+		})
+	}
+}
+
 // TestHandler_DeleteUser covers the HTTP handler for DeleteUser.
 func TestHandler_DeleteUser(t *testing.T) {
 	t.Parallel()

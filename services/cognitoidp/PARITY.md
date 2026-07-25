@@ -1,9 +1,9 @@
 ---
 service: cognitoidp
-sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@1.59.1
+sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@1.67.0
 last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
-last_audit_date: 2026-07-23
-overall: A                # CUSTOM_AUTH state machine implemented for real (was: rejected with InvalidUserPoolConfigurationException); UserMigration/PreAuthentication/PostAuthentication Lambda triggers now fire (closes remainder of gopherstack-8fw); PreventUserExistenceErrors masking extended to ConfirmSignUp/ConfirmForgotPassword (closes remainder of gopherstack-aib); DescribeUserPoolDomain now echoes CustomDomainConfig; ~15-op handler.go dead-code shadowing fully deleted (4 files); 0 golangci-lint issues, 0 banned nolints, race-clean
+last_audit_date: 2026-07-25
+overall: A                # parity-4: 7 new SDK ops (CreateUserPoolReplica/ListUserPoolReplicas/UpdateUserPoolReplica/DeleteUserPoolReplica/AdminGetUserAuthFactors/GetProvisionedLimit/UpdateProvisionedLimit) implemented for real against a bumped SDK, closing TestSDKCompleteness -- all field-diffed against the installed SDK's types/serializers/deserializers, all backed by real state (no notImplemented additions). Two explicit, documented modeling assumptions (replica's initial Status; provisioned limits' account-level-max ceiling) -- see families.user_pool_replicas/provisioned_limits below. Everything from the 2026-07-23 pass (CUSTOM_AUTH state machine, UserMigration/PreAuthentication/PostAuthentication triggers, PreventUserExistenceErrors on ConfirmSignUp/ConfirmForgotPassword, DescribeUserPoolDomain CustomDomainConfig, dead-code deletion) carries forward unchanged, not re-walked this pass. 0 golangci-lint issues, 0 banned nolints, race-clean
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 ops:
   InitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH/USER_SRP_AUTH(simplified)/CUSTOM_AUTH/REFRESH_TOKEN_AUTH all real; PreventUserExistenceErrors masking (prior pass, gopherstack-2sp); PreTokenGeneration trigger fires on token issuance (prior pass, gopherstack-8fw); PreAuthentication/PostAuthentication/UserMigration triggers now fire (this pass, closes remainder of gopherstack-8fw); CUSTOM_AUTH now a real Lambda-driven state machine, was previously rejected outright with InvalidUserPoolConfigurationException (this pass, see custom_auth.go)"}
@@ -58,7 +58,7 @@ ops:
   GetSigningCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "deterministic self-signed X.509 wrapping the pool's real RSA key"}
   GetUserPoolMfaConfig/SetUserPoolMfaConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   jwks_well_known: {wire: ok, errors: ok, state: ok, persist: ok, note: "RS256, real RSA-2048 per pool, JWKS + GetSigningCertificate both derive from the same key"}
-families:
+  AdminGetUserAuthFactors: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4, new SDK op. Field-diffed AdminGetUserAuthFactorsOutput against the SDK: Username/ConfiguredUserAuthFactors/PreferredMfaSetting/UserMFASettingList all present. Factors are derived from real user state, not fabricated: PASSWORD from user.PasswordHash != \"\"; SMS_OTP from UserMFASettingList containing SMS_MFA or any legacy MFAOptions[].DeliveryMedium == SMS; SOFTWARE_TOKEN from user.TOTPVerified or SOFTWARE_TOKEN_MFA in UserMFASettingList; WEB_AUTHN from a non-empty webauthnCredentials entry for the user. Shares its PASSWORD/SMS_OTP/WEB_AUTHN derivation with the existing GetUserAuthFactors via a new commonAuthFactorSetLocked helper (users.go) -- GetUserAuthFactors' own behavior/output is unchanged, only the shared plumbing was extracted. Adds SOFTWARE_TOKEN, a factor GetUserAuthFactors does not currently derive (tracked as items_still_open for that op, not fixed this pass to avoid touching a previously-graded, tested op outside this pass's scope)."}
   user_import_jobs: {status: ok, note: "CreateUserImportJob/StartUserImportJob/StopUserImportJob/DescribeUserImportJob/ListUserImportJobs/GetCSVHeader — audited at family level, unchanged since prior sweep; NOT re-walked op-by-op this pass"}
   devices: {status: ok, note: "ConfirmDevice/ForgetDevice/AdminForgetDevice/GetDevice/AdminGetDevice/ListDevices/AdminListDevices/UpdateDeviceStatus/AdminUpdateDeviceStatus — family level, unchanged since prior sweep; NOT re-walked op-by-op this pass"}
   webauthn: {status: ok, note: "StartWebAuthnRegistration/CompleteWebAuthnRegistration/ListWebAuthnCredentials/DeleteWebAuthnCredential — family level, unchanged since prior sweep; NOT re-walked op-by-op this pass"}
@@ -69,6 +69,8 @@ families:
   log_delivery: {status: ok, note: "GetLogDeliveryConfiguration/SetLogDeliveryConfiguration — family level; NOT re-walked op-by-op this pass"}
   identity_providers: {status: ok, note: "spot-checked IdentityProviderType this pass: AttributeMapping/CreationDate/LastModifiedDate/IdpIdentifiers/ProviderDetails/ProviderName/ProviderType/UserPoolId all present with correct field names and epoch-seconds timestamps; not a full op-by-op field-by-field walk of every op (CreateIdentityProvider/UpdateIdentityProvider/GetIdentityProviderByIdentifier/etc individually)"}
   resource_servers: {status: ok, note: "spot-checked ResourceServerType this pass: Identifier/Name/Scopes/UserPoolId all present, no timestamp fields to check; not a full op-by-op walk"}
+  user_pool_replicas: {status: ok, note: "parity-4, new family (multi-Region replication / MRR): CreateUserPoolReplica/ListUserPoolReplicas/UpdateUserPoolReplica/DeleteUserPoolReplica. UserPoolReplicaType field-diffed against the SDK (RegionName/Role/Status/UserPoolArn); the X-Amz-Target names and CreateUserPoolReplicaOutput/DeleteUserPoolReplicaOutput/UpdateUserPoolReplicaOutput/ListUserPoolReplicasOutput field names (all singular 'UserPoolReplica' except the List op's plural 'UserPoolReplicas') were confirmed against deserializers.go, not assumed from the (looser) dev-guide prose, which shows a JSON example using a 'Replica' key that does NOT match the real wire field -- a live trap for a future auditor who trusts the docs example over the SDK. CreateUserPoolReplica validates the pool exists (ResourceNotFoundException) and rejects a replica Region equal to the primary pool's own Region (InvalidParameterException) -- both real, documented AWS behaviors. It also enforces the real documented constraint 'You can have at most one secondary replica in an additional Region per user directory' by rejecting a second CreateUserPoolReplica call for the same pool regardless of region (InvalidParameterException) -- this is NOT an invented restriction, it is quoted verbatim from the Cognito multi-Region-replication developer guide. New replicas start Status=INACTIVE per that same guide ('New secondary user pools start in the INACTIVE state'); note the guide's own JSON example elsewhere shows an initial 'PENDING_CREATE' status that is not even a member of the SDK's ReplicaStatusType enum (CREATING/ACTIVE/INACTIVE/DELETING) -- INACTIVE was chosen as the only real, both-documented-and-enum-valid option; this is a explicit, documented assumption, not a fabrication, but flagged for the next auditor to re-verify against a live pool if ever possible. DeleteUserPoolReplica returns the replica with Status transitioned to DELETING (mirroring AWS's documented async deletion) before removing it. UserPoolTags on Create are stored under the replica's own ARN via the existing resourceTags/ListTagsForResource mechanism (real state, not dropped). Persisted via a new userPoolReplicas store.Table (composite poolID:region key, byPool index), round-tripped through Snapshot/Restore, covered by TestInMemoryBackend_SnapshotRestore's full_state_round_trip case."}
+  provisioned_limits: {status: ok, note: "parity-4, new family: GetProvisionedLimit/UpdateProvisionedLimit. Confirmed ACCOUNT-LEVEL (not per-user-pool) by fetching the live Cognito quotas developer guide this pass: 'Provisioned limits are account-level resources. They apply to the aggregate rate of all requests from all user pools in one AWS Region in your AWS account' -- this backend models exactly one account+Region so GetProvisionedLimit/UpdateProvisionedLimit take no UserPoolId and do no pool-existence check, which is correct, not an oversight. LimitDefinitionType/LimitType field-diffed against the SDK (LimitClass/Attributes, FreeLimitValue/ProvisionedLimitValue/LimitDefinition). The 18 API_CATEGORY default (free) RPS values in provisioned_limits.go's category table (UserAuthentication=120, UserCreation=50, UserFederation=25, UserAccountRecovery=30, UserRead=120, UserUpdate=25, UserToken=120, UserResourceRead=50, UserResourceUpdate=25, UserList=30, UserPoolRead=15, UserPoolUpdate=15, UserPoolResourceRead=20, UserPoolResourceUpdate=15, UserPoolClientRead=15, UserPoolClientUpdate=15, ClientAuthentication=150, LimitManagement=1) and their Adjustable:Yes/No flags are the real, live-fetched values from 'Amazon Cognito user pools API operation categories and request rate quotas' -- not invented. UpdateProvisionedLimit rejects non-adjustable categories (InvalidParameterException, matching 'Only adjustable quota categories support provisioning') and rejects a negative RequestedLimitValue. One explicit, documented assumption: AWS's real two-tier model has a Service-Quotas-granted 'account-level max limit' above the provisioned limit, but that ceiling is account-specific (granted by AWS Support) with no universal published number -- this backend models an adjustable category's account-level max as 10x its documented default RPS (accountMaxMultiplier in provisioned_limits.go) and enforces it with ServiceQuotaExceededException, the real exception name AWS uses for this condition. Persisted via a new flat provisionedLimits map[string]int32 (Category -> current value), round-tripped through Snapshot/Restore."}
 gaps:
   - "USER_SRP_AUTH does not implement real SRP-6a: InitiateAuth requires AuthParameters[PASSWORD] directly (server-side bcrypt check), then returns a PASSWORD_VERIFIER challenge that RespondToAuthChallenge completes without any zero-knowledge proof exchange. A real SRP client never sends PASSWORD and cannot authenticate here. Investigated in depth in a prior pass; not fixed because a byte-perfect implementation of Cognito's SRP variant (3072-bit N, HKDF-SHA256 with the \"Caldera Derived Key\" info string, HMAC-SHA256 M1 proof) could not be verified against a real client/reference vectors in that session, and a subtly-wrong crypto implementation would be worse than the current honestly-documented simplification. Unchanged this pass -- CUSTOM_AUTH (fixed this pass) is a fully separate, unrelated flow and does nothing to close this gap. (bd: gopherstack-p8i)"
 deferred:
@@ -78,7 +80,51 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
 
 ## Notes
 
-### What this pass fixed (2026-07-23)
+### What this pass fixed (2026-07-25, parity-4)
+
+The Go SDK module was bumped (`aws-sdk-go-v2/service/cognitoidentityprovider`
+1.59.1 -> 1.67.0), which shipped 7 new operations `TestSDKCompleteness` did not
+yet know about: `CreateUserPoolReplica`, `ListUserPoolReplicas`,
+`UpdateUserPoolReplica`, `DeleteUserPoolReplica` (multi-Region replication),
+`AdminGetUserAuthFactors`, `GetProvisionedLimit`, `UpdateProvisionedLimit`. All
+7 are implemented for real (routing, backend state, request parsing, response
+wire shape, error codes, Snapshot/Restore) -- none were added to
+`notImplemented`. See `families.user_pool_replicas`, `families.provisioned_limits`,
+and `ops.AdminGetUserAuthFactors` above for the full field-diff and derivation
+detail; summary:
+
+1. **User pool replicas** (`user_pool_replicas.go`, `models_user_pool_replicas.go`,
+   `handler_user_pool_replicas.go`): a new `userPoolReplicas` `store.Table`
+   (composite `poolID:region` key, `byPool` index) backs multi-Region
+   replication. `CreateUserPoolReplica` enforces two real, documented AWS
+   constraints: the replica Region must differ from the primary pool's own
+   Region, and a user pool may have at most one secondary replica ("at most
+   one secondary replica in an additional Region per user directory"). New
+   replicas start `INACTIVE`, matching the developer guide's prose (the same
+   guide's JSON example elsewhere shows a `PENDING_CREATE` status that isn't
+   even a valid `ReplicaStatusType` enum member -- a documentation
+   inconsistency resolved in favor of the real SDK enum).
+
+2. **`AdminGetUserAuthFactors`** (`users.go`, `models_users.go`,
+   `handler_users.go`): derives `ConfiguredUserAuthFactors` entirely from
+   existing user/MFA state -- `PasswordHash`, `UserMFASettingList`,
+   `MFAOptions[].DeliveryMedium`, `TOTPVerified`, and the `webauthnCredentials`
+   map -- never a fixed/fabricated list. Shares its PASSWORD/SMS_OTP/WEB_AUTHN
+   logic with the pre-existing `GetUserAuthFactors` via an extracted
+   `commonAuthFactorSetLocked` helper; `GetUserAuthFactors`'s own behavior is
+   unchanged.
+
+3. **Provisioned limits** (`provisioned_limits.go`, `models_provisioned_limits.go`,
+   `handler_provisioned_limits.go`): confirmed account-level (not per-user-pool)
+   against the live Cognito quotas guide, so these two ops take no
+   `UserPoolId`. The 18 API_CATEGORY default RPS values and their
+   adjustable/not-adjustable flags are the real, live-fetched AWS defaults, not
+   invented. The one place this pass had to invent a number
+   (`accountMaxMultiplier`, since AWS's real per-account Service-Quotas max is
+   granted individually and unpublished) is called out explicitly in both the
+   code comment and `families.provisioned_limits` above.
+
+### What the 2026-07-23 pass fixed
 
 1. **CUSTOM_AUTH did not exist as a flow at all (highest-severity finding this pass).**
    `InitiateAuth`/`AdminInitiateAuth` with `AuthFlow: "CUSTOM_AUTH"` unconditionally
@@ -201,6 +247,15 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
 
 ### Traps for the next auditor
 
+- **The Cognito multi-Region-replication *developer guide*'s JSON examples do not match
+  the real wire shape.** Its `CreateUserPoolReplica`/`UpdateUserPoolReplica` examples show
+  the response wrapped under a `"Replica"` key and an initial `"Status": "PENDING_CREATE"`.
+  Neither is real: `deserializers.go` confirms the actual field is singular
+  `"UserPoolReplica"` (plural `"UserPoolReplicas"` only on `ListUserPoolReplicas`), and
+  `PENDING_CREATE` is not a member of `types.ReplicaStatusType` at all (the real enum is
+  `CREATING`/`ACTIVE`/`INACTIVE`/`DELETING`). This implementation trusts the generated
+  SDK code over the prose/examples wherever they disagree — do the same if you revisit this
+  family, and don't "fix" the wire shape back to match the docs.
 - **USER_SRP_AUTH is not a stub in the "returns fake data" sense** — it does real bcrypt
   password verification and issues real signed JWTs. It's a *simplified* SRP: the server
   never receives an SRP_A value and never proves anything in zero-knowledge; it just
