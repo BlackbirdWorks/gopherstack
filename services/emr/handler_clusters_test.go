@@ -711,3 +711,396 @@ func TestValidateReleaseLabel(t *testing.T) {
 		})
 	}
 }
+
+// newSessionForTest creates a cluster and starts a session on it, returning
+// both IDs. Called fresh from within each subtest closure below -- never
+// shared across subtests.
+func newSessionForTest(t *testing.T, h *emr.Handler, clusterName string) (string, string) {
+	t.Helper()
+
+	rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": clusterName})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var cluster struct {
+		JobFlowID string `json:"JobFlowId"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cluster))
+
+	startRec := doEMRRequest(t, h, "StartSession", map[string]any{"ClusterId": cluster.JobFlowID})
+	require.Equal(t, http.StatusOK, startRec.Code, startRec.Body.String())
+
+	var session struct {
+		ID string `json:"Id"`
+	}
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &session))
+
+	return cluster.JobFlowID, session.ID
+}
+
+// TestEMR_StartSession verifies StartSession validates the target cluster
+// exists and is in a state that can host a session (real StartSession's
+// doc: "The cluster must be in the RUNNING or WAITING state") -- a
+// TERMINATED cluster must not accept a new session.
+func TestEMR_StartSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *emr.Handler) string
+		name     string
+		wantCode int
+	}{
+		{
+			name: "starts session on a WAITING cluster",
+			setup: func(t *testing.T, h *emr.Handler) string {
+				t.Helper()
+
+				rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "session-cluster"})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out struct {
+					JobFlowID string `json:"JobFlowId"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+				return out.JobFlowID
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "cluster not found",
+			setup: func(_ *testing.T, _ *emr.Handler) string {
+				return "j-NOTEXIST"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "terminated cluster rejects new session",
+			setup: func(t *testing.T, h *emr.Handler) string {
+				t.Helper()
+
+				rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "terminated-session-cluster"})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out struct {
+					JobFlowID string `json:"JobFlowId"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+				termRec := doEMRRequest(t, h, "TerminateJobFlows", map[string]any{
+					"JobFlowIds": []string{out.JobFlowID},
+				})
+				require.Equal(t, http.StatusOK, termRec.Code)
+
+				return out.JobFlowID
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			clusterID := tt.setup(t, h)
+
+			rec := doEMRRequest(t, h, "StartSession", map[string]any{"ClusterId": clusterID})
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			var out struct {
+				ID        string `json:"Id"`
+				ClusterID string `json:"ClusterId"`
+				ARN       string `json:"Arn"`
+				State     string `json:"State"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.NotEmpty(t, out.ID)
+			assert.Equal(t, clusterID, out.ClusterID)
+			assert.Equal(t, emr.SessionStateSubmitted, out.State)
+			assert.Contains(t, out.ARN, "elasticmapreduce")
+			assert.Contains(t, out.ARN, clusterID)
+		})
+	}
+}
+
+// TestEMR_GetSession verifies GetSession is scoped by both cluster ID and
+// session ID, matching real GetSessionInput's two required members.
+func TestEMR_GetSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		useBadCluster bool
+		useBadSession bool
+		wantCode      int
+	}{
+		{name: "found", wantCode: http.StatusOK},
+		{name: "cluster not found", useBadCluster: true, wantCode: http.StatusBadRequest},
+		{name: "session not found", useBadSession: true, wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			clusterID, sessionID := newSessionForTest(t, h, "get-session-cluster")
+
+			if tt.useBadCluster {
+				clusterID = "j-NOTEXIST"
+			}
+
+			if tt.useBadSession {
+				sessionID = "sess-NOTEXIST"
+			}
+
+			rec := doEMRRequest(t, h, "GetSession", map[string]any{
+				"ClusterId": clusterID, "SessionId": sessionID,
+			})
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			var out struct {
+				Session struct {
+					ID        string `json:"Id"`
+					ClusterID string `json:"ClusterId"`
+					State     string `json:"State"`
+				} `json:"Session"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Equal(t, sessionID, out.Session.ID)
+			assert.Equal(t, clusterID, out.Session.ClusterID)
+			assert.Equal(t, emr.SessionStateSubmitted, out.Session.State)
+		})
+	}
+}
+
+// TestEMR_ListSessions verifies ListSessions returns sessions scoped to a
+// cluster and honors the SessionStates filter.
+func TestEMR_ListSessions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		stateFilter []string
+		numSessions int
+		wantCount   int
+	}{
+		{name: "empty list", numSessions: 0, wantCount: 0},
+		{name: "lists started sessions", numSessions: 2, wantCount: 2},
+		{
+			name:        "filters out sessions not in requested state",
+			numSessions: 2,
+			stateFilter: []string{emr.SessionStateTerminated},
+			wantCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "list-sessions-cluster"})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var cluster struct {
+				JobFlowID string `json:"JobFlowId"`
+			}
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cluster))
+
+			for range tt.numSessions {
+				startRec := doEMRRequest(t, h, "StartSession", map[string]any{"ClusterId": cluster.JobFlowID})
+				require.Equal(t, http.StatusOK, startRec.Code)
+			}
+
+			body := map[string]any{"ClusterId": cluster.JobFlowID}
+			if tt.stateFilter != nil {
+				body["SessionStates"] = tt.stateFilter
+			}
+
+			rec := doEMRRequest(t, h, "ListSessions", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				Sessions []struct {
+					ID string `json:"Id"`
+				} `json:"Sessions"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.Sessions, tt.wantCount)
+		})
+	}
+}
+
+// TestEMR_TerminateSession verifies TerminateSession transitions a session
+// to TERMINATED and is idempotent on an already-terminated session.
+func TestEMR_TerminateSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		useBadSession  bool
+		terminateFirst bool
+		wantCode       int
+	}{
+		{name: "terminates active session", wantCode: http.StatusOK},
+		{name: "session not found", useBadSession: true, wantCode: http.StatusBadRequest},
+		{name: "idempotent on already-terminated session", terminateFirst: true, wantCode: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			clusterID, sessionID := newSessionForTest(t, h, "terminate-session-cluster")
+
+			if tt.terminateFirst {
+				firstRec := doEMRRequest(t, h, "TerminateSession", map[string]any{
+					"ClusterId": clusterID, "SessionId": sessionID,
+				})
+				require.Equal(t, http.StatusOK, firstRec.Code)
+			}
+
+			targetSessionID := sessionID
+			if tt.useBadSession {
+				targetSessionID = "sess-NOTEXIST"
+			}
+
+			rec := doEMRRequest(t, h, "TerminateSession", map[string]any{
+				"ClusterId": clusterID, "SessionId": targetSessionID,
+			})
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			var out struct {
+				ClusterID string `json:"ClusterId"`
+				SessionID string `json:"SessionId"`
+				State     string `json:"State"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Equal(t, clusterID, out.ClusterID)
+			assert.Equal(t, sessionID, out.SessionID)
+			assert.Equal(t, emr.SessionStateTerminated, out.State)
+		})
+	}
+}
+
+// TestEMR_GetSessionEndpoint verifies GetSessionEndpoint returns a
+// synthesized Spark Connect endpoint URL, auth token, and VPC-peering
+// credentials, gated on both cluster and session existing.
+func TestEMR_GetSessionEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		useBadCluster bool
+		useBadSession bool
+		wantCode      int
+	}{
+		{name: "found", wantCode: http.StatusOK},
+		{name: "cluster not found", useBadCluster: true, wantCode: http.StatusBadRequest},
+		{name: "session not found", useBadSession: true, wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			clusterID, sessionID := newSessionForTest(t, h, "endpoint-session-cluster")
+
+			if tt.useBadCluster {
+				clusterID = "j-NOTEXIST"
+			}
+
+			if tt.useBadSession {
+				sessionID = "sess-NOTEXIST"
+			}
+
+			rec := doEMRRequest(t, h, "GetSessionEndpoint", map[string]any{
+				"ClusterId": clusterID, "SessionId": sessionID,
+			})
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			var out struct {
+				Credentials map[string]any `json:"Credentials"`
+				Endpoint    string         `json:"Endpoint"`
+				AuthToken   string         `json:"AuthToken"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.NotEmpty(t, out.Endpoint)
+			assert.NotEmpty(t, out.AuthToken)
+			assert.Contains(t, out.Credentials, "UsernamePassword")
+		})
+	}
+}
+
+// TestEMR_TerminateJobFlows_CascadesToSessions verifies terminating a
+// cluster also terminates every session running on it -- a Spark Connect
+// session cannot outlive its underlying cluster, and a session that
+// survived cluster termination as an orphan (never reachable again once the
+// janitor sweeps the cluster row) would be exactly the ghost-row bug class
+// this campaign flags.
+func TestEMR_TerminateJobFlows_CascadesToSessions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		preTerminateSession bool
+	}{
+		{name: "active session is terminated along with its cluster", preTerminateSession: false},
+		{name: "already-terminated session stays terminated", preTerminateSession: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			clusterID, sessionID := newSessionForTest(t, h, "cascade-cluster")
+
+			if tt.preTerminateSession {
+				preRec := doEMRRequest(t, h, "TerminateSession", map[string]any{
+					"ClusterId": clusterID, "SessionId": sessionID,
+				})
+				require.Equal(t, http.StatusOK, preRec.Code)
+			}
+
+			termRec := doEMRRequest(t, h, "TerminateJobFlows", map[string]any{
+				"JobFlowIds": []string{clusterID},
+			})
+			require.Equal(t, http.StatusOK, termRec.Code)
+
+			getRec := doEMRRequest(t, h, "GetSession", map[string]any{
+				"ClusterId": clusterID, "SessionId": sessionID,
+			})
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var out struct {
+				Session struct {
+					State string `json:"State"`
+				} `json:"Session"`
+			}
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+			assert.Equal(t, emr.SessionStateTerminated, out.Session.State,
+				"session must be terminated when its cluster is terminated")
+		})
+	}
+}

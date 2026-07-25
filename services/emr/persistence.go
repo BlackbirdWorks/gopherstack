@@ -42,6 +42,11 @@ type clusterDTO struct {
 	InstanceFleets        []InstanceFleet         `json:"instanceFleets,omitempty"`
 	Steps                 []Step                  `json:"steps,omitempty"`
 	BootstrapActions      []BootstrapActionConfig `json:"bootstrapActions,omitempty"`
+	// Sessions carries Cluster's unexported sessions field (the interactive
+	// Spark Connect sessions started on this cluster, see models.go) through
+	// the same plain-json.Marshal(Cluster)-can't-see-unexported-fields
+	// mechanism as InstanceGroups/InstanceFleets/Steps above.
+	Sessions []Session `json:"sessions,omitempty"`
 }
 
 func clusterDTOKeyFn(d *clusterDTO) string { return regionKey(d.Region, d.ID) }
@@ -159,6 +164,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			InstanceFleets:        slices.Clone(v.instanceFleets),
 			Steps:                 slices.Clone(v.steps),
 			BootstrapActions:      cloneBootstrapActions(v.bootstrapActions),
+			Sessions:              slices.Clone(v.sessions),
 		})
 	}
 
@@ -366,6 +372,7 @@ func unwrapClusterDTOs(dtos *store.Table[clusterDTO]) []*Cluster {
 		c.instanceFleets = d.InstanceFleets
 		c.steps = d.Steps
 		c.bootstrapActions = d.BootstrapActions
+		c.sessions = d.Sessions
 		items = append(items, c)
 	}
 

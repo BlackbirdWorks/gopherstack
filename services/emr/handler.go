@@ -132,6 +132,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"StopNotebookExecution",
 		"UpdateStudio",
 		"UpdateStudioSessionMapping",
+		"StartSession",
+		"GetSession",
+		"ListSessions",
+		"TerminateSession",
+		"GetSessionEndpoint",
 	}
 }
 
@@ -283,6 +288,11 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"StopNotebookExecution":             service.WrapOp(h.handleStopNotebookExecution),
 		"UpdateStudio":                      service.WrapOp(h.handleUpdateStudio),
 		"UpdateStudioSessionMapping":        service.WrapOp(h.handleUpdateStudioSessionMapping),
+		"StartSession":                      service.WrapOp(h.handleStartSession),
+		"GetSession":                        service.WrapOp(h.handleGetSession),
+		"ListSessions":                      service.WrapOp(h.handleListSessions),
+		"TerminateSession":                  service.WrapOp(h.handleTerminateSession),
+		"GetSessionEndpoint":                service.WrapOp(h.handleGetSessionEndpoint),
 	}
 }
 

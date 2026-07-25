@@ -358,6 +358,13 @@ func (c Cluster) clone() Cluster {
 		copy(cp.steps, c.steps)
 	}
 
+	if c.sessions != nil {
+		cp.sessions = make([]Session, len(c.sessions))
+		for i, s := range c.sessions {
+			cp.sessions[i] = s.clone()
+		}
+	}
+
 	cp.bootstrapActions = cloneBootstrapActions(c.bootstrapActions)
 
 	if c.managedScalingPolicy != nil {
@@ -540,6 +547,10 @@ func terminateSingle(cluster *Cluster, id string) error {
 	}
 	cluster.Status.Timeline[timelineKeyEnd] = awstime.Epoch(now)
 	cluster.TerminatedAt = now
+
+	// A Spark Connect session cannot outlive the cluster it runs on -- see
+	// terminateClusterSessions (sessions.go) for the full cascade rationale.
+	terminateClusterSessions(cluster, now)
 
 	return nil
 }

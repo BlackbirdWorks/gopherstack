@@ -119,6 +119,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	ne, err := original.StartNotebookExecution(t.Context(), "editor-1", "exec-1", "{}", "engine-1", nil)
 	require.NoError(t, err)
 
+	session, err := original.StartSession(t.Context(), emr.StartSessionParams{ClusterID: cluster.ID, Name: "sess-1"})
+	require.NoError(t, err)
+
 	require.NoError(t, original.PutBlockPublicAccessConfiguration(t.Context(), emr.BlockPublicAccessConfiguration{
 		BlockPublicSecurityGroupRules: true,
 	}))
@@ -152,6 +155,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	steps, _ := fresh.ListSteps(t.Context(), cluster.ID, nil, nil, "")
 	require.Len(t, steps, 1)
 	assert.Equal(t, "step-1", steps[0].Name)
+
+	// sessions -- carried through clusterDTO.Sessions (models.go's sessions
+	// field on Cluster is unexported, same mechanism as steps/instanceGroups/
+	// instanceFleets above).
+	gotSession, err := fresh.GetSession(t.Context(), cluster.ID, session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "sess-1", gotSession.Name)
+	assert.Equal(t, emr.SessionStateSubmitted, gotSession.State)
 
 	msp, err := fresh.GetManagedScalingPolicy(t.Context(), cluster.ID)
 	require.NoError(t, err)

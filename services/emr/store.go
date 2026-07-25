@@ -143,3 +143,10 @@ func (b *InMemoryBackend) nextNotebookExecID() string {
 
 	return fmt.Sprintf("ex-%013d", n)
 }
+
+// nextSessionID generates a unique interactive session ID.
+func (b *InMemoryBackend) nextSessionID() string {
+	n := b.counter.Add(1)
+
+	return fmt.Sprintf("sess-%013d", n)
+}
