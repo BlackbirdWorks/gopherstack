@@ -273,6 +273,41 @@ type StorageBackend interface {
 		collaborationID, changeRequestID, action string,
 	) (*CollaborationChangeRequest, error)
 
+	// IntermediateTable operations.
+	CreateIntermediateTable(
+		membershipID, name, description, kmsKeyArn string,
+		populationAnalysisConfiguration map[string]any,
+		retentionInDays int32,
+		tags map[string]string,
+	) (*IntermediateTable, error)
+	GetIntermediateTable(membershipID, tableID string) (*IntermediateTable, error)
+	ListIntermediateTables(
+		membershipID, maxResults, nextToken string,
+	) ([]*IntermediateTableSummary, string, error)
+	UpdateIntermediateTable(membershipID, tableID, description, kmsKeyArn string) (*IntermediateTable, error)
+	DeleteIntermediateTable(membershipID, tableID string) error
+	ListIntermediateTableVersions(
+		membershipID, tableID, maxResults, nextToken string,
+	) ([]*IntermediateTableVersionSummary, string, error)
+	PopulateIntermediateTable(
+		membershipID, tableID, payerAccountID string,
+		computeConfiguration map[string]any,
+		parameters map[string]string,
+	) (*PopulateIntermediateTableOutput, error)
+	DisallowIntermediateTable(membershipID, name string, includeDescendants bool) error
+
+	// IntermediateTableAnalysisRule operations.
+	CreateIntermediateTableAnalysisRule(
+		membershipID, tableID, ruleType string,
+		policy map[string]any,
+	) (*IntermediateTableAnalysisRule, error)
+	GetIntermediateTableAnalysisRule(membershipID, tableID, ruleType string) (*IntermediateTableAnalysisRule, error)
+	UpdateIntermediateTableAnalysisRule(
+		membershipID, tableID, ruleType string,
+		policy map[string]any,
+	) (*IntermediateTableAnalysisRule, error)
+	DeleteIntermediateTableAnalysisRule(membershipID, tableID, ruleType string) error
+
 	// Tag operations.
 	ListTagsForResource(resourceArn string) (map[string]string, error)
 	TagResource(resourceArn string, tags map[string]string) error

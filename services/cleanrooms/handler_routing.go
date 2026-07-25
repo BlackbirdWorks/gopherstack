@@ -300,6 +300,29 @@ func classifyMembership(method, membershipID, sub string, segs []string) (string
 		return classifyMemIDMappingTables(method, membershipID, segs)
 	case subIDNamespaceAssocs:
 		return classifyMemIDNamespaceAssocs(method, membershipID, segs)
+	case subIntermediateTables:
+		return classifyMemIntermediateTables(method, membershipID, segs)
+	case subPrivacyBudgetTmpls:
+		return classifyMemPrivacyBudgetTmpls(method, membershipID, segs)
+	case subProtectedJobs:
+		return classifyMemProtectedJobs(method, membershipID, segs)
+	case subProtectedQueries:
+		return classifyMemProtectedQueries(method, membershipID, segs)
+	}
+
+	return classifyMembershipSingleOp(method, membershipID, sub)
+}
+
+// classifyMembershipSingleOp handles the membership sub-resources that are a
+// single endpoint with no nested ID segment (disallowIntermediateTable,
+// previewprivacyimpact, privacybudgets), factored out of classifyMembership
+// to keep its cyclomatic complexity down.
+func classifyMembershipSingleOp(method, membershipID, sub string) (string, string) {
+	switch sub {
+	case subDisallowIT:
+		if method == http.MethodPost {
+			return opDisallowIntermediateTable, membershipID
+		}
 	case "previewprivacyimpact":
 		if method == http.MethodPost {
 			return opPreviewPrivacyImpact, membershipID
@@ -308,12 +331,6 @@ func classifyMembership(method, membershipID, sub string, segs []string) (string
 		if method == http.MethodGet {
 			return opListPrivacyBudgets, membershipID
 		}
-	case subPrivacyBudgetTmpls:
-		return classifyMemPrivacyBudgetTmpls(method, membershipID, segs)
-	case subProtectedJobs:
-		return classifyMemProtectedJobs(method, membershipID, segs)
-	case subProtectedQueries:
-		return classifyMemProtectedQueries(method, membershipID, segs)
 	}
 
 	return opUnknown, ""
@@ -455,6 +472,69 @@ func classifyMemIDNamespaceAssocs(method, membershipID string, segs []string) (s
 			return opDeleteIDNamespaceAssociation, membershipID
 		case http.MethodPatch:
 			return opUpdateIDNamespaceAssociation, membershipID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+func classifyMemIntermediateTables(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opCreateIntermediateTable, membershipID
+		case http.MethodGet:
+			return opListIntermediateTables, membershipID
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetIntermediateTable, membershipID
+		case http.MethodDelete:
+			return opDeleteIntermediateTable, membershipID
+		case http.MethodPatch:
+			return opUpdateIntermediateTable, membershipID
+		}
+	}
+	if len(segs) >= segsWithSubSub {
+		return classifyMemIntermediateTableSub(method, membershipID, segs)
+	}
+
+	return opUnknown, ""
+}
+
+// classifyMemIntermediateTableSub handles
+// /memberships/{id}/intermediateTables/{tableId}/{versions|populate|analysisRule}[/...].
+func classifyMemIntermediateTableSub(method, membershipID string, segs []string) (string, string) {
+	switch segs[4] {
+	case "versions":
+		if len(segs) == segsWithSubSub && method == http.MethodGet {
+			return opListIntermediateTableVersions, membershipID
+		}
+	case "populate":
+		if len(segs) == segsWithSubSub && method == http.MethodPost {
+			return opPopulateIntermediateTable, membershipID
+		}
+	case subAnalysisRule:
+		return classifyMemITAnalysisRule(method, membershipID, segs)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyMemITAnalysisRule(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSubSub && method == http.MethodPost {
+		return opCreateIntermediateTableAnalysisRule, membershipID
+	}
+	if len(segs) == segsWithSubSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetIntermediateTableAnalysisRule, membershipID
+		case http.MethodDelete:
+			return opDeleteIntermediateTableAnalysisRule, membershipID
+		case http.MethodPatch:
+			return opUpdateIntermediateTableAnalysisRule, membershipID
 		}
 	}
 
@@ -631,6 +711,11 @@ func injectMembershipParams(segs []string, setStr func(string, string)) {
 			setStr("idMappingTableIdentifier", segs[3])
 		case subIDNamespaceAssocs:
 			setStr("idNamespaceAssociationIdentifier", segs[3])
+		case subIntermediateTables:
+			setStr("intermediateTableIdentifier", segs[3])
+			if len(segs) == segsWithSubSubID && segs[4] == subAnalysisRule {
+				setStr("analysisRuleType", segs[5])
+			}
 		case subPrivacyBudgetTmpls:
 			setStr("privacyBudgetTemplateIdentifier", segs[3])
 		case subProtectedJobs:

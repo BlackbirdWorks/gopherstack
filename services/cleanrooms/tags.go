@@ -50,6 +50,10 @@ func (b *InMemoryBackend) resourceARNExists(resourceArn string) bool {
 		return true
 	}
 	b.camaAssociations.Range(func(v *ConfiguredAudienceModelAssociation) bool { return stop(v.Arn == resourceArn) })
+	if found {
+		return true
+	}
+	b.intermediateTables.Range(func(v *IntermediateTable) bool { return stop(v.Arn == resourceArn) })
 
 	return found
 }

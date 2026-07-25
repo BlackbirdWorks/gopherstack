@@ -74,6 +74,15 @@ type InMemoryBackend struct {
 	protectedJobs             *store.Table[ProtectedJob]
 	protectedJobsByMembership *store.Index[ProtectedJob]
 
+	intermediateTables             *store.Table[IntermediateTable]
+	intermediateTablesByMembership *store.Index[IntermediateTable]
+
+	intermediateTableVersions        *store.Table[IntermediateTableVersionSummary]
+	intermediateTableVersionsByTable *store.Index[IntermediateTableVersionSummary]
+
+	itAnalysisRules        *store.Table[IntermediateTableAnalysisRule]
+	itAnalysisRulesByTable *store.Index[IntermediateTableAnalysisRule]
+
 	tagsByArn map[string]map[string]string
 
 	nowFn func() float64
@@ -140,6 +149,10 @@ func ctaAnalysisRuleKey(assocID, ruleType string) string { return assocID + "|" 
 func schemaAnalysisRuleKey(collaborationID, name, ruleType string) string {
 	return collaborationKey(collaborationID, name) + "|" + ruleType
 }
+
+func itAnalysisRuleKey(tableID, ruleType string) string { return tableID + "|" + ruleType }
+
+func itVersionKey(tableID, versionID string) string { return tableID + "|" + versionID }
 
 // listItems ranges over a slice of items (typically the result of a
 // store.Index.Get lookup), optionally skipping items where include returns

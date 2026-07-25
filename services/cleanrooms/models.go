@@ -16,6 +16,30 @@ const (
 	// changeRequestActionCancel is the ChangeRequestAction value shared by
 	// both PENDING and APPROVED transitions in changeRequestNextStatus.
 	changeRequestActionCancel = "CANCEL"
+
+	// IntermediateTableStatus values (types.IntermediateTableStatus).
+	// BASE_TABLE_REMOVED and RETENTION_PERIOD_EXPIRED are real enum values
+	// this backend never assigns (they require, respectively, tracking base
+	// table lifecycle across other members' configured tables and a
+	// time-based expiry sweep -- neither is modeled, see PARITY.md).
+	itStatusCreated                  = "CREATED"
+	itStatusPopulateStarted          = "POPULATE_STARTED"
+	itStatusPopulateSuccess          = "POPULATE_SUCCESS"
+	itStatusPopulateFailed           = "POPULATE_FAILED"
+	itStatusDisallowedByDataProvider = "DISALLOWED_BY_DATA_PROVIDER"
+
+	// IntermediateTableVersionStatus values (types.IntermediateTableVersionStatus).
+	itVersionStatusPopulateStarted = "POPULATE_STARTED"
+	itVersionStatusPopulateSuccess = "POPULATE_SUCCESS"
+	itVersionStatusPopulateFailed  = "POPULATE_FAILED"
+
+	// analysisTypeQuery is the sole real value of
+	// types.PopulateIntermediateTableAnalysisType.
+	analysisTypeQuery = "QUERY"
+
+	// secondsPerDay converts IntermediateTable.RetentionInDays into an
+	// epoch-seconds expirationTime offset.
+	secondsPerDay = 86400
 )
 
 type MemberSpec struct {
@@ -637,4 +661,130 @@ type CollaborationChangeRequest struct {
 	CreateTime              float64          `json:"createTime,omitempty"`
 	UpdateTime              float64          `json:"updateTime,omitempty"`
 	IsAutoApproved          bool             `json:"isAutoApproved"`
+}
+
+// IntermediateTable is the wire shape for CreateIntermediateTable/
+// GetIntermediateTable/UpdateIntermediateTable (Summary is its List shape).
+// Verified against aws-sdk-go-v2/service/cleanrooms@v1.48.0's
+// awsRestjson1_deserializeDocumentIntermediateTable: real keys are
+// analysisRuleTypes, arn, childResources, collaborationArn, collaborationId,
+// createTime, description, id, intermediateTableVersion, kmsKeyArn,
+// membershipArn, membershipId, name, populationAnalysisConfiguration,
+// retentionInDays, schema, status, statusReason, tableDependencies,
+// updateTime. No "*Identifier" forms -- those are request-parameter-only
+// names, matching every other resource in this service.
+//
+// childResources, schema, and tableDependencies are real optional fields
+// this backend does not model and are deliberately omitted from this struct
+// (never fabricated with fake values, see PARITY.md): schema requires
+// actually executing the stored populationAnalysisConfiguration query to
+// learn real column types, which this emulator cannot do; childResources/
+// tableDependencies require a full base-table-dependency graph across other
+// members' configured tables that this backend does not build.
+type IntermediateTable struct {
+	PopulationAnalysisConfiguration map[string]any    `json:"populationAnalysisConfiguration,omitempty"`
+	IntermediateTableVersion        map[string]any    `json:"intermediateTableVersion,omitempty"`
+	Tags                            map[string]string `json:"-"`
+	CollaborationArn                string            `json:"collaborationArn"`
+	MembershipArn                   string            `json:"membershipArn"`
+	Arn                             string            `json:"arn"`
+	CollaborationID                 string            `json:"collaborationId"`
+	MembershipID                    string            `json:"membershipId"`
+	ID                              string            `json:"id"`
+	Name                            string            `json:"name"`
+	Description                     string            `json:"description,omitempty"`
+	KmsKeyArn                       string            `json:"kmsKeyArn,omitempty"`
+	Status                          string            `json:"status"`
+	StatusReason                    string            `json:"statusReason,omitempty"`
+	AnalysisRuleTypes               []string          `json:"analysisRuleTypes,omitempty"`
+	RetentionInDays                 int32             `json:"retentionInDays,omitempty"`
+	CreateTime                      float64           `json:"createTime,omitempty"`
+	UpdateTime                      float64           `json:"updateTime,omitempty"`
+}
+
+// IntermediateTableSummary is the wire shape for ListIntermediateTables
+// items. Verified against
+// awsRestjson1_deserializeDocumentIntermediateTableSummary: real keys are
+// analysisRuleTypes, arn, collaborationArn, collaborationId, createTime,
+// description, id, membershipArn, membershipId, name, retentionInDays,
+// status, updateTime -- a strict subset of IntermediateTable (no
+// childResources, intermediateTableVersion, kmsKeyArn,
+// populationAnalysisConfiguration, schema, statusReason,
+// tableDependencies).
+type IntermediateTableSummary struct {
+	CollaborationArn  string   `json:"collaborationArn"`
+	MembershipArn     string   `json:"membershipArn"`
+	Arn               string   `json:"arn"`
+	CollaborationID   string   `json:"collaborationId"`
+	MembershipID      string   `json:"membershipId"`
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Description       string   `json:"description,omitempty"`
+	Status            string   `json:"status"`
+	AnalysisRuleTypes []string `json:"analysisRuleTypes,omitempty"`
+	RetentionInDays   int32    `json:"retentionInDays,omitempty"`
+	CreateTime        float64  `json:"createTime,omitempty"`
+	UpdateTime        float64  `json:"updateTime,omitempty"`
+}
+
+// IntermediateTableAnalysisRule verified against
+// awsRestjson1_deserializeDocumentIntermediateTableAnalysisRule: real keys
+// are analysisRulePolicy, analysisRuleType, createTime, intermediateTableArn,
+// intermediateTableIdentifier, updateTime. Note that the real output key
+// really is "intermediateTableIdentifier" (NOT "intermediateTableId") --
+// confirmed directly against the deserializer, the same kind of intentional
+// asymmetry already documented on
+// ConfiguredTableAssociationAnalysisRule.MembershipIdentifier. Unlike
+// ConfiguredTableAnalysisRule, IntermediateTableAnalysisRule is NOT the same
+// SDK union: types.IntermediateTableAnalysisRulePolicy
+// (isIntermediateTableAnalysisRulePolicy) is a distinct Go interface from
+// types.AnalysisRulePolicy (isAnalysisRulePolicy) used by
+// ConfiguredTableAnalysisRule, even though their content shape happens to be
+// structurally identical ({"v1": {"custom": {...}}}). This backend models
+// both the same way regardless (a generic map[string]any pass-through, this
+// service's established convention for every policy/union field), so no
+// code is literally shared -- only the pass-through *strategy* is reused.
+type IntermediateTableAnalysisRule struct {
+	AnalysisRulePolicy          map[string]any `json:"analysisRulePolicy,omitempty"`
+	IntermediateTableArn        string         `json:"intermediateTableArn"`
+	IntermediateTableIdentifier string         `json:"intermediateTableIdentifier"`
+	AnalysisRuleType            string         `json:"analysisRuleType"`
+	CreateTime                  float64        `json:"createTime,omitempty"`
+	UpdateTime                  float64        `json:"updateTime,omitempty"`
+}
+
+// IntermediateTableVersionSummary is the wire shape for
+// ListIntermediateTableVersions items. Verified against
+// awsRestjson1_deserializeDocumentIntermediateTableVersionSummary: real keys
+// are analysisId, analysisType, createTime, expirationTime, kmsKeyArn,
+// status, tableId, versionId. MembershipID is Go-only bookkeeping (json:"-")
+// used to look up the underlying ProtectedQuery this version's population
+// run created (see PopulateIntermediateTable/advanceIntermediateTablesLocked
+// in intermediate_tables.go) -- there is no membershipId key on this real
+// type. Parameters is also Go-only bookkeeping: the real "parameters" key
+// belongs to the nested types.IntermediateTableActiveVersion (surfaced as
+// IntermediateTable.IntermediateTableVersion once population succeeds), not
+// to this Summary type, so it is carried here only to round-trip through to
+// that map when advanceIntermediateTablesLocked resolves the version.
+type IntermediateTableVersionSummary struct {
+	Parameters     map[string]string `json:"-"`
+	MembershipID   string            `json:"-"`
+	AnalysisID     string            `json:"analysisId"`
+	AnalysisType   string            `json:"analysisType"`
+	Status         string            `json:"status"`
+	TableID        string            `json:"tableId"`
+	VersionID      string            `json:"versionId"`
+	KmsKeyArn      string            `json:"kmsKeyArn,omitempty"`
+	CreateTime     float64           `json:"createTime,omitempty"`
+	ExpirationTime float64           `json:"expirationTime,omitempty"`
+}
+
+// PopulateIntermediateTableOutput is the (unwrapped -- no envelope key,
+// confirmed against awsRestjson1_deserializeOpDocumentPopulateIntermediateTableOutput)
+// response shape for PopulateIntermediateTable: real keys are analysisId,
+// analysisType, versionId.
+type PopulateIntermediateTableOutput struct {
+	AnalysisID   string `json:"analysisId"`
+	AnalysisType string `json:"analysisType"`
+	VersionID    string `json:"versionId"`
 }

@@ -538,6 +538,80 @@ func TestRouteMatcher_MethodSensitivity(t *testing.T) {
 			wantOp: "PopulateIdMappingTable",
 		},
 
+		// ---- Membership: IntermediateTable (+ nested analysis rule, versions, populate) ----
+		{
+			name:   "CreateIntermediateTable",
+			method: http.MethodPost,
+			path:   "/memberships/m1/intermediateTables",
+			wantOp: "CreateIntermediateTable",
+		},
+		{
+			name:   "ListIntermediateTables",
+			method: http.MethodGet,
+			path:   "/memberships/m1/intermediateTables",
+			wantOp: "ListIntermediateTables",
+		},
+		{
+			name:   "GetIntermediateTable",
+			method: http.MethodGet,
+			path:   "/memberships/m1/intermediateTables/t1",
+			wantOp: "GetIntermediateTable",
+		},
+		{
+			name:   "DeleteIntermediateTable",
+			method: http.MethodDelete,
+			path:   "/memberships/m1/intermediateTables/t1",
+			wantOp: "DeleteIntermediateTable",
+		},
+		{
+			name:   "UpdateIntermediateTable",
+			method: http.MethodPatch,
+			path:   "/memberships/m1/intermediateTables/t1",
+			wantOp: "UpdateIntermediateTable",
+		},
+		{
+			name:   "ListIntermediateTableVersions",
+			method: http.MethodGet,
+			path:   "/memberships/m1/intermediateTables/t1/versions",
+			wantOp: "ListIntermediateTableVersions",
+		},
+		{
+			name:   "PopulateIntermediateTable",
+			method: http.MethodPost,
+			path:   "/memberships/m1/intermediateTables/t1/populate",
+			wantOp: "PopulateIntermediateTable",
+		},
+		{
+			name:   "DisallowIntermediateTable",
+			method: http.MethodPost,
+			path:   "/memberships/m1/disallowIntermediateTable",
+			wantOp: "DisallowIntermediateTable",
+		},
+		{
+			name:   "CreateIntermediateTableAnalysisRule",
+			method: http.MethodPost,
+			path:   "/memberships/m1/intermediateTables/t1/analysisRule",
+			wantOp: "CreateIntermediateTableAnalysisRule",
+		},
+		{
+			name:   "GetIntermediateTableAnalysisRule",
+			method: http.MethodGet,
+			path:   "/memberships/m1/intermediateTables/t1/analysisRule/CUSTOM",
+			wantOp: "GetIntermediateTableAnalysisRule",
+		},
+		{
+			name:   "DeleteIntermediateTableAnalysisRule",
+			method: http.MethodDelete,
+			path:   "/memberships/m1/intermediateTables/t1/analysisRule/CUSTOM",
+			wantOp: "DeleteIntermediateTableAnalysisRule",
+		},
+		{
+			name:   "UpdateIntermediateTableAnalysisRule",
+			method: http.MethodPatch,
+			path:   "/memberships/m1/intermediateTables/t1/analysisRule/CUSTOM",
+			wantOp: "UpdateIntermediateTableAnalysisRule",
+		},
+
 		// ---- Membership: IdNamespaceAssociation ----
 		{
 			name:   "CreateIdNamespaceAssociation",

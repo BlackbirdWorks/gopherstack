@@ -1,9 +1,9 @@
 ---
 service: cleanrooms
-sdk_module: aws-sdk-go-v2/service/cleanrooms@v1.45.6   # version audited against
+sdk_module: aws-sdk-go-v2/service/cleanrooms@v1.48.0   # version audited against (bumped from v1.45.6 this pass)
 last_audit_commit: HEAD   # this pass
-last_audit_date: 2026-07-24
-overall: A            # systemic invented-field cleanup + several real state-machine/wire-shape bugs fixed
+last_audit_date: 2026-07-25
+overall: A            # systemic invented-field cleanup + several real state-machine/wire-shape bugs fixed (prior pass); IntermediateTable family implemented for real at the same quality bar (this pass)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:
@@ -21,6 +21,7 @@ families:
   IDNamespaceAssociation: {status: ok, note: "FIXED this pass -- *Identifier output fields deleted from the wire; Summary was missing the real inputReferenceProperties field, added"}
   ConfiguredAudienceModelAssociation: {status: ok, note: "FIXED this pass -- *Identifier output fields deleted from the wire"}
   CollaborationChangeRequest: {status: ok, note: "FIXED this pass -- see bug 5: the entire shape was wrong (type+details input/output that don't exist in the real API; real API uses changes[]/action). Rebuilt against CreateCollaborationChangeRequestInput/UpdateCollaborationChangeRequestInput/types.CollaborationChangeRequest with a real PENDING->APPROVED/DENIED/CANCELLED->COMMITTED/CANCELLED state machine"}
+  IntermediateTable/IntermediateTableAnalysisRule: {status: ok, note: "NEW this pass (parity-4 campaign, SDK bumped v1.45.6->v1.48.0, 12 new ops). Field-diffed against v1.48.0's awsRestjson1_deserializeDocumentIntermediateTable(Summary/ActiveVersion)/IntermediateTableAnalysisRule/IntermediateTableVersionSummary. Membership-owned (routed under /memberships/{id}/intermediateTables, matching AnalysisTemplate/ConfiguredTableAssociation/ProtectedQuery -- CollaborationArn/CollaborationID are derived from the membership at create time, same pattern as those families). IntermediateTableAnalysisRule uses a distinct SDK union (types.IntermediateTableAnalysisRulePolicy, isIntermediateTableAnalysisRulePolicy) from ConfiguredTableAnalysisRule's types.AnalysisRulePolicy (isAnalysisRulePolicy) -- confirmed via the UnknownUnionMember interface-method list in types.go -- so nothing was reused at the Go-type level; both are modeled with this service's established generic map[string]any policy pass-through, so the *strategy* is reused, not code. IntermediateTableAnalysisRule's real output key genuinely is intermediateTableIdentifier (not intermediateTableId), confirmed directly against the deserializer -- a real, documented exception, not a re-introduction of the *Identifier invented-field bug class fixed last pass (locked in by TestIntermediateTables_WireShape). DeleteIntermediateTable cascades to its analysis rule and versions (real ctAnalysisRules-style cascade, locked in by TestHTTP_DeleteIntermediateTable_CascadesAnalysisRule and assertMembershipNestedRestored). PopulateIntermediateTable starts a real ProtectedQuery via a new startProtectedQueryLocked helper shared with StartProtectedQuery (mirroring the createMembershipLocked split) and records a POPULATE_STARTED version; advanceIntermediateTablesLocked resolves both the version and the table to POPULATE_SUCCESS/POPULATE_FAILED once that ProtectedQuery reaches a terminal status, reusing the exact 'advance on next read' pattern StartProtectedQuery already established -- no row count or Schema is ever fabricated (this backend has no SQL engine), locked in by TestHTTP_PopulateIntermediateTable_AdvancesToSuccess. DisallowIntermediateTable does a real name-based lookup (ResourceNotFoundException for an unknown name) and moves the matched table(s) to DISALLOWED_BY_DATA_PROVIDER, which PopulateIntermediateTable then honestly rejects with ConflictException (TestHTTP_PopulateIntermediateTable_AfterDisallow) -- IncludeDescendants cascading is accepted but is a documented no-op (see gaps)."}
   Tags: {status: ok, note: "CRUD + ARN validation (fixed prior pass) re-verified; no change this pass"}
   RouteMatcher/classifyPath: {status: ok, note: "no change this pass; prior pass's GetCollaborationAnalysisTemplate routing fix re-verified via handler_route_matcher_test.go"}
 gaps:
@@ -29,6 +30,7 @@ gaps:
   - "Collaboration.Members is kept on the wire (json:\"members\") even though it is not a real field on the real Collaboration/CreateCollaborationOutput/GetCollaborationOutput/UpdateCollaborationOutput shape (confirmed against awsRestjson1_deserializeDocumentCollaboration -- members only come from ListMembers). This is a deliberate exception, not an oversight: Members is the only backing store for ListMembers/DeleteMember and has no separate persisted representation the way tagsByArn has for Tags, so a json:\"-\" tag would silently lose every collaboration's member list across a service restart (store.Table's Snapshot/Restore round-trips through this same struct tag). Real AWS SDK/Terraform clients tolerate the extra key (every deserializer in this service ends its field switch with a default case that discards unrecognized keys), so this trades a harmless wire non-canonicality for correct state persistence. Properly removing it requires moving Members to its own store.Table (like tagsByArn), which is deferred."
   - "CollaborationChangeRequest's `changes` field is stored/returned as a generic []map[string]any pass-through (matching the convention used elsewhere for Policy/TableReference/etc unions) rather than a strongly-typed Change{Specification,SpecificationType,Types} union, and committing a change request does not actually apply the change to the parent collaboration's state (e.g. a MEMBER change's effects are not reflected on Collaboration/Membership). The state machine (PENDING/APPROVED/DENIED/CANCELLED/COMMITTED) is real; the semantic effect of a committed change is not modeled. Deferred."
   - "Collaboration's optional analyticsEngine/dataEncryptionMetadata/allowedResultRegions/autoApprovedChangeTypes/isMetricsEnabled/jobLogStatus fields, Membership's isMetricsEnabled/jobLogStatus/defaultJobResultConfiguration/mlMemberAbilities, ProtectedQuery/Job's differentialPrivacy/receiverConfigurations/queryComputePayerAccountId/jobComputePayerAccountId, AnalysisTemplate's errorMessageConfiguration/sourceMetadata/syntheticDataParameters/validations/isSyntheticData, and ConfiguredTable(Summary)'s selectedAnalysisMethods are real optional SDK fields not modeled by this backend (never populated). None are invented -- they are simply omitted (correct per the JSON protocol: an absent optional field is valid), not stubbed with fake values. Deferred as lower-value completeness work."
+  - "IntermediateTable's schema/childResources/tableDependencies (all real, optional fields) are never populated, matching the same 'omit, don't fabricate' convention as the gap above: schema requires actually executing the stored populationAnalysisConfiguration query to learn real column types (this backend has no SQL engine); childResources/tableDependencies require a full base-table-dependency graph across other members' configured tables, which this backend does not build. UpdateIntermediateTable's real 'columns' input (retype existing schema columns) is not modeled for the same reason -- there is no real column data to retype. DisallowIntermediateTable's includeDescendants=true cascade is accepted on the wire but is a documented no-op for the same underlying reason (no dependency graph to cascade through) -- the direct-name-match status transition it performs is real, only the cascade is deferred."
 deferred:
   - "Schema creation/projection from ConfiguredTable+ConfiguredTableAssociation state (pre-existing gap noted in persistence_test.go; not touched this pass, out of scope)"
   - "SchemaAnalysisRule's real wire shape (types.AnalysisRule, a deeper union) is not modeled precisely; unreachable in practice since schemas are never created (see Schema/SchemaAnalysisRule family note)"
@@ -174,3 +176,79 @@ both" was itself wrong and is corrected here with direct deserializer evidence).
   `paymentConfiguration` in the member spec. Same default now applied to
   `Membership.PaymentConfiguration` (also real, required, previously could be emitted
   entirely empty).
+
+## 2026-07-25 pass (parity-4 campaign): IntermediateTable family
+
+The Go SDK module was bumped `v1.45.6` -> `v1.48.0`, which shipped 12 new operations this
+service's `TestSDKCompleteness` had no coverage for at all: `CreateIntermediateTable`,
+`GetIntermediateTable`, `UpdateIntermediateTable`, `DeleteIntermediateTable`,
+`ListIntermediateTables`, `ListIntermediateTableVersions`, `PopulateIntermediateTable`,
+`DisallowIntermediateTable`, `CreateIntermediateTableAnalysisRule`,
+`GetIntermediateTableAnalysisRule`, `UpdateIntermediateTableAnalysisRule`,
+`DeleteIntermediateTableAnalysisRule`. All 12 are implemented for real this pass (new files
+`intermediate_tables.go`/`handler_intermediate_tables.go`, new `models.go` types, new routing
+in `handler_routing.go`, new `store.go`/`store_setup.go` tables) -- none were added to the
+`notImplemented` list.
+
+Every wire shape (`IntermediateTable`, `IntermediateTableSummary`,
+`IntermediateTableAnalysisRule`, `IntermediateTableVersionSummary`,
+`PopulateIntermediateTableOutput`) was field-diffed directly against
+`aws-sdk-go-v2/service/cleanrooms@v1.48.0/deserializers.go`'s
+`awsRestjson1_deserializeDocumentIntermediateTable*` field switches (the same method the prior
+pass used, not against this backend's own handlers), following the "verify every output field
+against the real SDK type" rule from `.claude/memories/parity-principles.md` to avoid
+re-introducing the systemic invented-`*Identifier`-field bug class the prior pass fixed. No
+invented output field was added; see the `IntermediateTable/IntermediateTableAnalysisRule`
+family note above for the one real, confirmed exception
+(`IntermediateTableAnalysisRule.intermediateTableIdentifier`, not an invented field).
+
+Two design questions the task called out explicitly, resolved by reading the generated SDK
+directly rather than assuming:
+
+1. **Does `IntermediateTableAnalysisRule` share `ConfiguredTableAnalysisRule`'s rule-policy
+   union?** No. `types.IntermediateTableAnalysisRulePolicy` (`isIntermediateTableAnalysisRulePolicy`)
+   and `types.AnalysisRulePolicy` (`isAnalysisRulePolicy`) are separate Go interfaces --
+   confirmed by grepping `types.go`'s `UnknownUnionMember` method list, which implements both
+   interfaces separately. Their *content* shape is structurally similar
+   (`{"v1": {"custom": {...}}}`), but no Go type is shared. Both are modeled with this
+   service's existing generic `map[string]any` policy pass-through convention (matching
+   `ConfiguredTableAnalysisRule.Policy`, `ConfiguredTableAssociationAnalysisRule.Policy`,
+   etc) -- the pass-through *strategy* is reused, not a shared type or shared code path.
+2. **Membership or collaboration owned?** Membership. `CreateIntermediateTable`'s real path is
+   `/memberships/{membershipIdentifier}/intermediateTables` (confirmed against
+   `serializers.go`'s `httpbinding.SplitURI` call for every one of the 12 ops -- all keyed
+   under `memberships/{membershipIdentifier}`, never `collaborations/{id}`), matching the
+   existing `AnalysisTemplate`/`ConfiguredTableAssociation`/`ProtectedQuery` pattern: created
+   under a specific membership, with `CollaborationArn`/`CollaborationID` derived from that
+   membership at create time (not independently settable).
+
+`PopulateIntermediateTable`'s doc comment says the returned `analysisId` should be usable "with
+GetProtectedQuery to track the population progress" -- taken literally: it now starts a real
+`ProtectedQuery` via a new `startProtectedQueryLocked` helper (factored out of
+`StartProtectedQuery`, mirroring the existing `createMembershipLocked` split between
+`CreateMembership`/`CreateCollaboration`), so `analysisId` is a genuine, `GetProtectedQuery`-able
+resource, not a fabricated UUID. A new `IntermediateTableVersionSummary` row is recorded
+`POPULATE_STARTED`, and `advanceIntermediateTablesLocked` (called from every
+`IntermediateTable`/version read path) resolves both the version and the table to
+`POPULATE_SUCCESS`/`POPULATE_FAILED` once that `ProtectedQuery` reaches a terminal status --
+reusing the exact "advance on next read" pattern `advanceProtectedQueriesLocked` already
+established, since this backend has no background worker (`Handler.StartWorker` is a no-op).
+Per the task's explicit instruction, no row count or `Schema` is ever fabricated: this emulator
+has no SQL engine to actually execute the stored query, so `IntermediateTable.Schema` is never
+populated (real, optional field, simply omitted -- see gaps) even after a version reaches
+`POPULATE_SUCCESS`. `DisallowIntermediateTable` does a real name-based lookup against the
+membership's tables (`ResourceNotFoundException` for an unknown name) and moves matched tables
+to `DISALLOWED_BY_DATA_PROVIDER`, which `PopulateIntermediateTable` then honestly rejects with
+`ConflictException` -- real state movement, not a no-op, though the `includeDescendants` cascade
+itself is a documented no-op (see gaps: no base-table-dependency graph exists to cascade
+through). `DeleteIntermediateTable` cascades to its analysis rule and versions (same
+`ctAnalysisRulesByTable`-style index-then-delete pattern `DeleteConfiguredTable` already uses).
+
+Locked in by `TestHTTP_IntermediateTables_Lifecycle`, `TestHTTP_UpdateIntermediateTable`,
+`TestHTTP_UpdateIntermediateTableAnalysisRule`,
+`TestHTTP_PopulateIntermediateTable_AdvancesToSuccess`, `TestHTTP_DisallowIntermediateTable`,
+`TestHTTP_PopulateIntermediateTable_AfterDisallow`, `TestIntermediateTables_WireShape`,
+`TestHTTP_DeleteIntermediateTable_CascadesAnalysisRule` (`id_mapping_tables_test.go`), new
+routing cases in `TestRouteMatcher_MethodSensitivity` (`handler_route_matcher_test.go`), and
+extended `seedFullState`/`assertMembershipNestedRestored`/`assertTagsRestored` coverage in
+`persistence_test.go`.
