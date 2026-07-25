@@ -101,6 +101,11 @@ type InMemoryBackend struct {
 	trustedEntitySets           *store.Table[TrustedEntitySet]
 	trustedEntitySetsByDetector *store.Index[TrustedEntitySet]
 
+	// investigations is a detector-nested table with the same DetectorID
+	// json:"-" treatment as filters/ipSets/threatIntelSets above.
+	investigations           *store.Table[Investigation]
+	investigationsByDetector *store.Index[Investigation]
+
 	// malwareScans and malwareProtectionPlans are flat maps whose value
 	// types carry a real identity field (ScanID, MalwareProtectionPlanID),
 	// so both are "clean" tables registered directly.
@@ -203,6 +208,7 @@ func (b *InMemoryBackend) Reset() {
 	b.publishingDestinations.Reset()
 	b.threatEntitySets.Reset()
 	b.trustedEntitySets.Reset()
+	b.investigations.Reset()
 	b.orgConfigs.Reset()
 	b.adminAccounts.Reset()
 	b.malwareScanSettings.Reset()

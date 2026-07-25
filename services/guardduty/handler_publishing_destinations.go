@@ -80,7 +80,7 @@ func (h *Handler) handleDescribePublishingDestination(detectorID, destID string)
 	return map[string]any{
 		"destinationId":   dest.DestinationID,
 		"destinationType": dest.DestinationType,
-		"status":          dest.Status,
+		keyStatus:         dest.Status,
 		// Real GuardDuty wire key is "publishingFailureStartTimestamp" (epoch
 		// milliseconds), not "publishingFailureStartedAt" -- see
 		// aws-sdk-go-v2/service/guardduty deserializers.go's
@@ -104,7 +104,7 @@ func (h *Handler) handleListPublishingDestinations(detectorID string) (any, int,
 		out = append(out, map[string]any{
 			"destinationId":   d.DestinationID,
 			"destinationType": d.DestinationType,
-			"status":          d.Status,
+			keyStatus:         d.Status,
 		})
 	}
 

@@ -5,14 +5,18 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: guardduty
-sdk_module: aws-sdk-go-v2/service/guardduty@v1.78.2
-last_audit_commit: 7f3594fa
-last_audit_date: 2026-07-23
-overall: A            # this pass: 1 real state bug (StartMalwareScan never set DetectorID), 4 wire-shape
-                       # fixes (GetMalwareScan, GetOrganizationStatistics, GetUsageStatistics, entity-set
-                       # ExpectedBucketOwner), 2 gap closures (ListFindings criteria/sort/pagination,
-                       # GetFindingsStatistics GroupBy), 1 schema-validation gap closure (malware
-                       # protection plan Actions/ProtectedResource), all 4 banned nolints removed
+sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.0
+last_audit_commit: 2cff93209
+last_audit_date: 2026-07-25
+overall: A-           # this pass (parity-4, SDK bump 1.78.2 -> 1.85.0): implemented the one new op family
+                       # the bump revealed -- investigations (CreateInvestigation/GetInvestigation/
+                       # ListInvestigations, GuardDuty Extended Threat Detection). Wire shapes, detector
+                       # validation, AI_ANALYST feature gating, and cascade delete are all real and
+                       # field-diffed against the installed SDK. Downgraded from A to A- because this
+                       # backend has no threat-analysis engine, so RiskLevel/Confidence/Summary/Title/
+                       # related-findings are permanently absent rather than ever real (an honest,
+                       # structural limitation, not a wire bug -- see the investigations family note and
+                       # gaps below). Everything audited in prior passes (see history below) is unchanged.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -76,6 +80,9 @@ ops:
   GetRemainingFreeTrialDays: {wire: partial, errors: ok, state: ok, persist: ok, note: "not touched this pass — accounts[].features/dataSources are always empty placeholders (no free-trial state tracked); freeTrialDaysRemaining is a hardcoded 30. Shape (accounts[]/unprocessedAccounts[]) is correct, values are not real. See deferred"}
   GetCoverageStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — real GetCoverageStatisticsOutput.CoverageStatistics.countByCoverageStatus/countByResourceType are both maps; this backend tracks no EKS/ECS/EC2 runtime-monitoring coverage resources at all, so both are always {} — that is the CORRECT response for an account with nothing to cover, not a gap. See deferred for the underlying no-coverage-state limitation"}
   ListCoverage: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — real ListCoverageOutput.Resources is a required []CoverageResource; always [] is correct when no coverage resources are tracked (same reasoning as GetCoverageStatistics), not a fabricated gap. See deferred"}
+  CreateInvestigation: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW (this pass, SDK bump revealed) — POST /detector/{DetectorId}/investigation, field-diffed against api_op_CreateInvestigation.go + serializers.go's awsRestjson1_serializeOpHttpBindingsCreateInvestigationInput/awsRestjson1_serializeOpDocumentCreateInvestigationInput. Validates DetectorId against the real detector table (ResourceNotFoundException, matching every other detector-scoped op) and the real 'AI_ANALYST feature must be enabled on your detector' precondition against Detector.Features (BadRequestException if absent/DISABLED) rather than accepting any detector. triggerPrompt required, matching the real required input member. Response is {investigationId}, matching CreateInvestigationOutput's one member (ResultMetadata aside)"}
+  GetInvestigation: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW (this pass) — GET /detector/{DetectorId}/investigation/{InvestigationId}, field-diffed against deserializers.go's awsRestjson1_deserializeDocumentInvestigation. Returns {investigation:{investigationId,status,triggerPrompt,triggeredBy,startTime}}; cloud/confidence/endTime/error/metadata/risk/riskLevel/summary are real *optional* members that only ever populate once analysis runs/completes/fails on the real API -- this backend has no analysis engine so they are correctly omitted always, never fabricated. status is always RUNNING (see investigations family note)"}
+  ListInvestigations: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW (this pass) — POST /detector/{DetectorId}/investigation/list, field-diffed against deserializers.go's awsRestjson1_deserializeDocumentInvestigationSummary + serializers.go's awsRestjson1_serializeOpDocumentListInvestigationsInput. sortCriteria.attributeName/orderBy accepted (START_TIME/END_TIME/STATUS/RISK_LEVEL/CONFIDENCE x ASC/DESC); only START_TIME can ever produce a real ordering since every investigation here has identical status/riskLevel/confidence (see investigations family note) -- the others are accepted, not rejected, matching a real client that requests them. maxResults/nextToken paginate for real (default/max page size 50, mirroring ListFindings's documented default since ListInvestigationsInput.MaxResults doesn't document an explicit max either). title is never populated on any summary -- see investigations family note"}
 families:
   detector: {status: ok, note: "CRUD + list audited op-by-op above; one-detector-per-account conflict semantics match AWS doc (\"You can have only one detector per Region\")"}
   filter: {status: ok, note: "CRUD + list audited op-by-op above"}
@@ -90,21 +97,100 @@ families:
   organization: {status: ok, note: "FIXED this pass (was deferred): GetOrganizationStatistics now wraps its response in organizationDetails with a real updatedAt and member-derived account counts (see ops above). EnableOrganizationAdminAccount/DisableOrganizationAdminAccount/ListOrganizationAdminAccounts/DescribeOrganizationConfiguration/UpdateOrganizationConfiguration were already field-diffed ok. Remaining limitation: countByFeature is always [] -- no per-feature member enrollment tracking exists in this backend (see gaps), left as a documented gap rather than fabricated"}
   coverage_usage_freetrial: {status: partial, note: "FIXED this pass: GetUsageStatistics now emits the real UsageStatistics shape (Total objects, sumByFeature, topAccountsByFeature, usageStatisticType selection). GetCoverageStatistics/ListCoverage were re-verified this pass and are ALREADY wire-correct for an account with no tracked coverage resources (empty maps/arrays are the real response in that case, not synthetic placeholders -- see ops above). GetRemainingFreeTrialDays untouched: shape is correct, per-account feature/dataSource/freeTrialDaysRemaining values remain hardcoded placeholders (no free-trial state model exists) -- this is the one real remaining gap in this family, see gaps/deferred"}
   malware_protection_plan_actions: {status: ok, note: "FIXED this pass (was deferred): Actions.tagging.status is now validated against the real MalwareProtectionPlanTaggingActionStatus enum on both Create and Update; ProtectedResource.s3Bucket.bucketName is now required on Create (matching CreateProtectedResource being a required input member and S3Bucket being \"the only supported protected resource\"), and correctly NOT required on Update (UpdateProtectedResource's S3Bucket has no bucketName member at all -- ObjectPrefixes only). See malware_protection_plan_schema.go"}
+  investigations: {status: partial, note: "NEW family (this pass, GuardDuty Extended Threat Detection): CreateInvestigation/GetInvestigation/ListInvestigations are all real -- detector-scoped state, real detector+AI_ANALYST validation, cascade-deleted with their detector (DeleteDetectorCleansUpSubResources), Snapshot/Restore round-trips (detectorDTO[Investigation], the same pattern as filters/ipSets/publishingDestinations). status: partial (not ok) because this backend has NO threat-analysis engine: every investigation is permanently RUNNING and cloud/confidence/endTime/error/metadata/risk/riskLevel/summary/title never populate -- not a wire bug, an honest structural limitation (see the sibling wafv2 service's same treatment of honestly-empty analytics). See TestWireShape_Investigation_NoFabricatedAnalysis, which asserts none of these are ever present on the wire."}
 gaps:
   - "GetMalwareScan still doesn't emit scanConfiguration/scanResultDetails/scannedResources[] (the per-resource detail list, not just its count) -- this backend has no state model for individual scanned files/objects/volumes within a scan, so these three remain absent. All three are optional on the real output so a real client won't error, just gets nil/absent fields. scanStatusReason/scanCompletedAt are correctly absent for a RUNNING scan (this backend's scans never transition to SKIPPED/COMPLETED/FAILED, so those states -- and the fields real AWS would populate for them -- are unreachable)."
   - "GetOrganizationStatistics.organizationDetails.organizationStatistics.countByFeature is always [] -- this backend has no per-feature member-account enrollment tracking (which member accounts have S3_DATA_EVENTS vs EKS_AUDIT_LOGS etc. enabled), only OrgConfig.Features at the requesting-account level. Real types.OrganizationFeatureStatistics needs a name+enabledAccountsCount(+additionalConfiguration) per feature across the whole org, which would require a materially larger state model."
   - "GetRemainingFreeTrialDays' per-account accounts[].features/dataSources are always empty and freeTrialDaysRemaining is a hardcoded 30 -- no free-trial state (enrollment date, feature-level trial windows) is tracked anywhere in this backend. Shape is correct; values are placeholders."
   - "DescribeMalwareScans/ListMalwareScans/ListDetectors/ListFilters/ListIPSets/ListThreatIntelSets/ListMembers/ListInvitations/ListOrganizationAdminAccounts/ListPublishingDestinations/ListMalwareProtectionPlans/ListCoverage all still ignore FilterCriteria/SortCriteria/MaxResults and never emit a NextToken -- every one of these returns its full result set in one page. FIXED for ListFindings only this pass (see ops above); the rest are unchanged. NextToken is an optional response field on all of these so this remains non-fatal to a real client, just unpaginated."
+  - "Investigation.status is always RUNNING; endTime/error never populate because no investigation this backend creates ever transitions to COMPLETED or FAILED -- those transitions require account-level finding correlation and Bedrock-backed analysis this emulator does not implement. This mirrors MalwareScan's identical, pre-existing RUNNING-forever limitation (see GetMalwareScan's gap above) rather than being a new bug class. Confidence/Risk/RiskLevel/Summary/Cloud/Metadata (Investigation) and Confidence/RiskLevel/Title (InvestigationSummary) are real optional members that only the (unimplemented) analysis engine would ever populate on AWS itself; they are correctly and permanently absent here, never fabricated. See TestWireShape_Investigation_NoFabricatedAnalysis."
 deferred:
   - "GetOrganizationStatistics.countByFeature per-feature org-wide enrollment tracking (would need a new state model, not just a wire-shape fix)"
   - "GetRemainingFreeTrialDays real free-trial state (enrollment timestamps, feature-level trial windows)"
-  - "Pagination (MaxResults/NextToken) + FilterCriteria/SortCriteria for every List op other than ListFindings"
-leaks: {status: clean, note: "no goroutines, timers, or background janitors introduced this pass or present previously; all state lives in InMemoryBackend's store.Table fields guarded by the single lockmetrics.RWMutex, reset via Reset()/Restore(). New finding_criteria.go/finding_statistics.go/usage.go/pagination.go code is pure computation over existing locked state, no new locking or background work."}
+  - "Pagination (MaxResults/NextToken) + FilterCriteria/SortCriteria for every List op other than ListFindings and now ListInvestigations"
+  - "A real threat-analysis engine for investigations (finding correlation, Bedrock-backed risk/confidence scoring, natural-language summary) -- would require a materially larger feature (this emulator has no equivalent of any AI-scored analysis anywhere else in the service either), not a wire-shape fix"
+leaks: {status: clean, note: "no goroutines, timers, or background janitors introduced this pass or present previously; all state lives in InMemoryBackend's store.Table fields guarded by the single lockmetrics.RWMutex, reset via Reset()/Restore(). New finding_criteria.go/finding_statistics.go/usage.go/pagination.go code is pure computation over existing locked state, no new locking or background work. investigations.go/handler_investigations.go (this pass) follow the same pattern: the investigations store.Table is guarded by the same lockmetrics.RWMutex, no new locks or goroutines."}
 ---
 
 ## Notes
 
 Protocol: restjson1 (REST paths like `/detector`, `/detector/{id}/filter/{name}`).
+
+### parity-4 pass (SDK bump 1.78.2 -> 1.85.0): investigations family
+
+The SDK bump added three new operations this backend had neither implemented
+nor acknowledged: `CreateInvestigation`, `GetInvestigation`,
+`ListInvestigations` -- GuardDuty Extended Threat Detection investigations.
+All three were implemented for real (not stubbed into a `notImplemented`
+list): routing added to `handler.go`'s existing route tables
+(`detectorCollectionRoutes` for `CreateInvestigation`;
+`parseInvestigationItem`, mirroring the existing `parseFindingsItem`/
+`parseMemberItem` item-action pattern, for `GetInvestigation`/
+`ListInvestigations`), backend state in `investigations.go`, wire
+construction in `handler_investigations.go`, and persistence via a tenth
+`detectorDTO`-wrapped "dirty" table (`investigations`), following the exact
+pattern `filters`/`ipSets`/`publishingDestinations` already established in
+`store.go`/`store_setup.go`/`persistence.go`.
+
+Every path/verb was read directly from the installed
+`aws-sdk-go-v2/service/guardduty@v1.85.0`'s `serializers.go`
+(`awsRestjson1_serializeOpCreateInvestigation` /
+`awsRestjson1_serializeOpGetInvestigation` /
+`awsRestjson1_serializeOpListInvestigations`), not inferred from operation
+names:
+
+- `POST /detector/{DetectorId}/investigation` — `CreateInvestigation`
+- `GET /detector/{DetectorId}/investigation/{InvestigationId}` — `GetInvestigation`
+- `POST /detector/{DetectorId}/investigation/list` — `ListInvestigations`
+
+Two real preconditions on `CreateInvestigation` are enforced, not skipped:
+`DetectorId` must name a detector this backend actually has (checked against
+`b.detectors`, the same table `GetDetector`/`UpdateDetector`/`DeleteDetector`
+already use — `ErrDetectorNotFound`, the same `ResourceNotFoundException`
+every other detector-scoped op returns for an unknown ID), and the real "To
+use this operation, the AI_ANALYST feature must be enabled on your
+detector." precondition is checked against `Detector.Features`, the same
+slice `Create`/`UpdateDetector` already accept and persist (`BadRequestException`
+if `AI_ANALYST` is absent or `DISABLED`).
+
+**Cascade delete**: `DeleteDetector` now also deletes every investigation
+belonging to the detector (`detectors.go`), the same treatment every other
+detector-nested table already gets. Investigations are unambiguously
+detector-scoped on the real API (every op requires `DetectorId` in the URL,
+same as filters/ipSets/members), so leaving them behind would be exactly the
+ghost-row bug class recently fixed in `services/emr` and
+`services/verifiedpermissions`. Locked by the extended
+`TestDeleteDetectorCleansUpSubResources` and
+`TestInMemoryBackend_SnapshotRestore_FullState` (which additionally proves
+the cascade still works correctly against a *restored* backend, i.e. the
+rebuilt `investigationsByDetector` index is not left stale by `Restore`).
+
+**No fabricated analysis (the important constraint)**: this backend has no
+threat-analysis engine — no Bedrock model, no finding correlation, no
+account-level analysis. Every investigation it creates is therefore modeled
+honestly as permanently `RUNNING` (the real enum is
+`RUNNING`/`COMPLETED`/`FAILED`; this backend never drives a transition to
+`COMPLETED` or `FAILED` because reaching either requires analysis this
+emulator cannot perform — the same reasoning `MalwareScan` already uses for
+staying `RUNNING` forever, see that op's note above). `Cloud`, `Confidence`,
+`Error`, `Metadata`, `Risk`, `RiskLevel`, `EndTime`, and `Summary`
+(`types.Investigation`) and `Confidence`, `RiskLevel`, `Title`
+(`types.InvestigationSummary`) are all real *optional* members AWS only
+populates once analysis actually runs or completes/fails; since that never
+happens here they are permanently omitted from the wire response, never
+fabricated with an invented severity score, threat indicator, related
+finding, or anomaly count. `TestWireShape_Investigation_NoFabricatedAnalysis`
+asserts every one of these keys is absent from both `GetInvestigation` and
+`ListInvestigations` responses. This is the same honest-empty-analytics
+treatment `services/wafv2` uses elsewhere in this campaign.
+
+`ListInvestigations`' `sortCriteria` accepts all five real
+`InvestigationSortField` values (`START_TIME`/`END_TIME`/`STATUS`/
+`RISK_LEVEL`/`CONFIDENCE`) rather than rejecting the four this backend can't
+meaningfully differentiate on (every investigation has identical
+`status`/`riskLevel`/`confidence` for the reason above) — they degrade to
+the same `START_TIME`-based order rather than erroring, matching how a real
+client requesting them would behave, not a validation gap.
 
 ### This pass's audit method
 

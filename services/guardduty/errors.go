@@ -37,4 +37,6 @@ var (
 	ErrThreatEntitySetAlreadyExists  = awserr.New(errConflictException, awserr.ErrConflict)
 	ErrTrustedEntitySetNotFound      = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	ErrTrustedEntitySetAlreadyExists = awserr.New(errConflictException, awserr.ErrConflict)
+	// ErrInvestigationNotFound is returned when an investigation does not exist.
+	ErrInvestigationNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )

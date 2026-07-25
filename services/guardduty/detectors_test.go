@@ -317,8 +317,10 @@ func TestDeleteDetectorCleansUpSubResources(t *testing.T) {
 
 	b := guardduty.NewInMemoryBackend("111111111111", "us-east-1")
 
-	// Create a detector.
-	det, err := b.CreateDetector(true, "ALL", nil, nil)
+	// Create a detector with AI_ANALYST enabled (required by CreateInvestigation).
+	det, err := b.CreateDetector(true, "ALL", nil, []guardduty.DetectorFeature{
+		{Name: "AI_ANALYST", Status: "ENABLED"},
+	})
 	require.NoError(t, err)
 	detID := det.DetectorID
 
@@ -334,10 +336,20 @@ func TestDeleteDetectorCleansUpSubResources(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
+	// Seed an investigation -- GuardDuty investigations are detector-scoped
+	// (every op requires DetectorId) the same way filters/ipSets/members are,
+	// so DeleteDetector must cascade to them too (the same ghost-row bug
+	// class recently fixed in emr and verifiedpermissions).
+	inv, err := b.CreateInvestigation(detID, "Investigate finding in this account")
+	require.NoError(t, err)
+
 	// Verify sub-resources exist before deletion.
 	assert.Equal(t, 1, guardduty.MemberCount(b, detID), "member should exist before delete")
 	assert.Equal(t, 1, guardduty.PublishingDestinationCount(b, detID),
 		"publishing destination should exist before delete")
+	before, _, listErr := b.ListInvestigations(detID, guardduty.InvestigationsQuery{})
+	require.NoError(t, listErr)
+	assert.Len(t, before, 1, "investigation should exist before delete")
 
 	// Delete the detector.
 	require.NoError(t, b.DeleteDetector(detID))
@@ -352,4 +364,9 @@ func TestDeleteDetectorCleansUpSubResources(t *testing.T) {
 		"publishing destinations must be removed when detector is deleted")
 	assert.Equal(t, 0, guardduty.ThreatEntitySetCount(b, detID),
 		"threat entity sets must be removed when detector is deleted")
+	// The investigation row itself must be gone, not merely unreachable
+	// because its detector vanished: assert against the persisted snapshot,
+	// which serializes the raw table.
+	assert.NotContains(t, string(b.Snapshot(t.Context())), inv.InvestigationID,
+		"investigations must be removed when detector is deleted")
 }

@@ -24,11 +24,12 @@ const (
 	pathThreatIntelSet = "threatintelset"
 	pathTags           = "tags"
 
-	keyName      = "name"
-	keyStatus    = "status"
-	keyTags      = "tags"
-	keyCreatedAt = "createdAt"
-	keyUpdatedAt = "updatedAt"
+	keyName            = "name"
+	keyStatus          = "status"
+	keyTags            = "tags"
+	keyCreatedAt       = "createdAt"
+	keyUpdatedAt       = "updatedAt"
+	keyInvestigationID = "investigationId"
 
 	opCreateDetector         = "CreateDetector"
 	opGetDetector            = "GetDetector"
@@ -133,6 +134,11 @@ const (
 	opUpdateTrustedEntitySet = "UpdateTrustedEntitySet"
 	opDeleteTrustedEntitySet = "DeleteTrustedEntitySet"
 
+	// Appendix A ops — investigations (GuardDuty Extended Threat Detection).
+	opCreateInvestigation = "CreateInvestigation"
+	opGetInvestigation    = "GetInvestigation"
+	opListInvestigations  = "ListInvestigations"
+
 	// URL depth constants for path parsing.
 	depthRoot       = 1 // /detector
 	depthResource   = 2 // /detector/{id}
@@ -156,6 +162,8 @@ const (
 	pathObjectMalwareScan     = "object-malware-scan"
 	pathThreatEntitySet       = "threatentityset"
 	pathTrustedEntitySet      = "trustedentityset"
+	pathInvestigation         = "investigation"
+	actionList                = "list"
 	pathCoverage              = "coverage"
 	pathFreeTrial             = "freeTrial"
 	pathUsage                 = "usage"
@@ -224,6 +232,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateMalwareProtectionPlan,
 		opCreateMembers,
 		opCreatePublishingDestination,
+		opCreateInvestigation,
 		opCreateThreatEntitySet,
 		opCreateTrustedEntitySet,
 		opDeclineInvitations,
@@ -243,6 +252,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opEnableOrganizationAdminAccount,
 		opGetAdministratorAccount,
 		opGetCoverageStatistics,
+		opGetInvestigation,
 		opGetInvitationsCount,
 		opGetMalwareProtectionPlan,
 		opGetMalwareScan,
@@ -256,6 +266,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetTrustedEntitySet,
 		opInviteMembers,
 		opListCoverage,
+		opListInvestigations,
 		opListInvitations,
 		opListMalwareProtectionPlans,
 		opListMalwareScans,
@@ -398,6 +409,10 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
+	if result, code, ok, err := h.dispatchInvestigationOps(op, path, body); ok {
+		return result, code, err
+	}
+
 	return h.dispatchTagOps(op, path, query, body)
 }
 
@@ -421,6 +436,9 @@ func (h *Handler) dispatch(
 //	/detector/{id}/threatintelset          → CreateThreatIntelSet (POST) / ListThreatIntelSets (GET)
 //	/detector/{id}/threatintelset/{setId}  → GetThreatIntelSet (GET) / UpdateThreatIntelSet (POST) /
 //	                                          DeleteThreatIntelSet (DELETE)
+//	/detector/{id}/investigation           → CreateInvestigation (POST)
+//	/detector/{id}/investigation/{invId}   → GetInvestigation (GET)
+//	/detector/{id}/investigation/list      → ListInvestigations (POST)
 //	/tags/{resourceArn}                    → ListTagsForResource (GET) / TagResource (POST) / UntagResource (DELETE)
 func parseRESTPath(method, path string) (string, string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
@@ -573,6 +591,7 @@ var detectorCollectionRoutes = sync.OnceValue(func() map[string]string {
 		detectorCollectionRouteKey(pathTrustedEntitySet, http.MethodPost):      opCreateTrustedEntitySet,
 		detectorCollectionRouteKey(pathTrustedEntitySet, http.MethodGet):       opListTrustedEntitySets,
 		detectorCollectionRouteKey(pathCoverage, http.MethodPost):              opListCoverage,
+		detectorCollectionRouteKey(pathInvestigation, http.MethodPost):         opCreateInvestigation,
 	}
 })
 
@@ -664,8 +683,29 @@ func parseMemberItem(method, detectorID, item string) (string, string) {
 	return opUnknown, ""
 }
 
+// parseInvestigationItem routes the two item-addressed investigation paths:
+// GET /detector/{id}/investigation/{investigationId} (GetInvestigation) and
+// POST /detector/{id}/investigation/list (ListInvestigations -- the one
+// "item" segment here is the literal string "list", not a real
+// investigation ID, matching the real serializer's
+// "/detector/{DetectorId}/investigation/list" path).
+func parseInvestigationItem(method, detectorID, item string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return opGetInvestigation, detectorID + "/" + item
+	case http.MethodPost:
+		if item == actionList {
+			return opListInvestigations, detectorID
+		}
+	}
+
+	return opUnknown, ""
+}
+
 func parseDetectorItem(method, detectorID, collection, item string) (string, string) {
 	switch collection {
+	case pathInvestigation:
+		return parseInvestigationItem(method, detectorID, item)
 	case pathFilter:
 		return parseItemCRUD(method, detectorID+"/"+item, opGetFilter, opUpdateFilter, opDeleteFilter)
 	case pathFindings:

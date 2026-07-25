@@ -60,6 +60,7 @@ func TestRouteMatcher_RecognizesServicePaths(t *testing.T) {
 	}{
 		{name: "detector root", method: http.MethodPost, path: "/detector", want: true},
 		{name: "detector nested", method: http.MethodGet, path: "/detector/d1/filter/f1", want: true},
+		{name: "detector investigation", method: http.MethodPost, path: "/detector/d1/investigation", want: true},
 		{name: "malware-protection-plan", method: http.MethodPost, path: "/malware-protection-plan", want: true},
 		{name: "malware-scan", method: http.MethodPost, path: "/malware-scan/start", want: true},
 		{name: "admin", method: http.MethodGet, path: "/admin", want: true},
@@ -230,6 +231,18 @@ func TestRouteMatcher_MethodSensitivity(t *testing.T) {
 			path: "/detector/d1/trustedentityset", wantOp: "ListTrustedEntitySets",
 		},
 		{name: "ListCoverage", method: http.MethodPost, path: "/detector/d1/coverage", wantOp: "ListCoverage"},
+		{
+			name: "CreateInvestigation", method: http.MethodPost,
+			path: "/detector/d1/investigation", wantOp: "CreateInvestigation",
+		},
+		{
+			name: "GetInvestigation", method: http.MethodGet,
+			path: "/detector/d1/investigation/inv1", wantOp: "GetInvestigation",
+		},
+		{
+			name: "ListInvestigations", method: http.MethodPost,
+			path: "/detector/d1/investigation/list", wantOp: "ListInvestigations",
+		},
 		// Unregistered (collection, method) combinations must not resolve to
 		// any operation -- e.g. DELETE is not a valid verb for the /member
 		// collection root (only item-addressed member ops are DELETE-able
