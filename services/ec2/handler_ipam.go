@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"encoding/xml"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -378,6 +379,52 @@ func (h *Handler) handleReleaseIpamPoolAllocation(vals url.Values, reqID string)
 	}
 
 	return &releaseIpamPoolAllocationResponse{RequestID: reqID, Return: true}, nil
+}
+
+type describeIpamPoolAllocationsResponse struct {
+	XMLName               xml.Name `xml:"DescribeIpamPoolAllocationsResponse"`
+	Xmlns                 string   `xml:"xmlns,attr"`
+	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
+	IpamPoolAllocationSet struct {
+		Items []ipamPoolAllocationItem `xml:"item"`
+	} `xml:"ipamPoolAllocationSet"`
+}
+
+func (h *Handler) handleDescribeIpamPoolAllocations(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "IpamPoolAllocationId")
+
+	allocs := h.Backend.DescribeIpamPoolAllocations(ids)
+
+	resp := &describeIpamPoolAllocationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	for _, alloc := range allocs {
+		resp.IpamPoolAllocationSet.Items = append(resp.IpamPoolAllocationSet.Items, toIpamPoolAllocationItem(alloc))
+	}
+
+	return resp, nil
+}
+
+type modifyIpamPoolAllocationResponse struct {
+	XMLName            xml.Name               `xml:"ModifyIpamPoolAllocationResponse"`
+	Xmlns              string                 `xml:"xmlns,attr"`
+	RequestID          string                 `xml:"requestId"`
+	IpamPoolAllocation ipamPoolAllocationItem `xml:"ipamPoolAllocation"`
+}
+
+func (h *Handler) handleModifyIpamPoolAllocation(vals url.Values, reqID string) (any, error) {
+	alloc, err := h.Backend.ModifyIpamPoolAllocation(
+		vals.Get("IpamPoolAllocationId"),
+		vals.Get("Description"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyIpamPoolAllocationResponse{
+		Xmlns:              ec2XMLNS,
+		RequestID:          reqID,
+		IpamPoolAllocation: toIpamPoolAllocationItem(alloc),
+	}, nil
 }
 
 func (h *Handler) handleDescribeIpamResourceDiscoveries(vals url.Values, reqID string) (any, error) {

@@ -164,6 +164,76 @@ func (b *InMemoryBackend) DescribeCapacityManagerDataExports(
 	return result
 }
 
+// GetCapacityManagerMonitoredTagKeys returns the tag keys currently
+// monitored by Capacity Manager, sorted by tag key for deterministic output.
+func (b *InMemoryBackend) GetCapacityManagerMonitoredTagKeys() []*CapacityManagerMonitoredTagKey {
+	b.mu.RLock("GetCapacityManagerMonitoredTagKeys")
+	defer b.mu.RUnlock()
+
+	out := make([]*CapacityManagerMonitoredTagKey, 0, len(b.capacityManagerState.MonitoredTagKeys))
+	for _, k := range b.capacityManagerState.MonitoredTagKeys {
+		cp := *k
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].TagKey < out[j].TagKey })
+
+	return out
+}
+
+// UpdateCapacityManagerMonitoredTagKeys activates and/or deactivates the
+// given tag keys for Capacity Manager monitoring, returning every tag key
+// touched by this call (activated then deactivated, matching request order).
+// Activation is synchronous in this mock (state goes straight to "activated"
+// rather than a transient "activating"); likewise deactivation goes straight
+// to the terminal "suspended" state.
+func (b *InMemoryBackend) UpdateCapacityManagerMonitoredTagKeys(
+	activateTagKeys, deactivateTagKeys []string,
+) ([]*CapacityManagerMonitoredTagKey, error) {
+	if len(activateTagKeys) == 0 && len(deactivateTagKeys) == 0 {
+		return nil, fmt.Errorf(
+			"%w: at least one of ActivateTagKey/DeactivateTagKey is required",
+			ErrInvalidParameter,
+		)
+	}
+
+	b.mu.Lock("UpdateCapacityManagerMonitoredTagKeys")
+	defer b.mu.Unlock()
+
+	if b.capacityManagerState.MonitoredTagKeys == nil {
+		b.capacityManagerState.MonitoredTagKeys = make(map[string]*CapacityManagerMonitoredTagKey)
+	}
+
+	var touched []*CapacityManagerMonitoredTagKey
+
+	for _, key := range activateTagKeys {
+		k, ok := b.capacityManagerState.MonitoredTagKeys[key]
+		if !ok {
+			k = &CapacityManagerMonitoredTagKey{TagKey: key}
+			b.capacityManagerState.MonitoredTagKeys[key] = k
+		}
+		k.Status = capacityManagerTagKeyStatusActivated
+		k.StatusMessage = ""
+
+		cp := *k
+		touched = append(touched, &cp)
+	}
+
+	for _, key := range deactivateTagKeys {
+		k, ok := b.capacityManagerState.MonitoredTagKeys[key]
+		if !ok {
+			k = &CapacityManagerMonitoredTagKey{TagKey: key}
+			b.capacityManagerState.MonitoredTagKeys[key] = k
+		}
+		k.Status = capacityManagerTagKeyStatusSuspended
+
+		cp := *k
+		touched = append(touched, &cp)
+	}
+
+	return touched, nil
+}
+
 // DeleteCapacityManagerDataExport removes a Capacity Manager data export
 // configuration, returning its ID.
 func (b *InMemoryBackend) DeleteCapacityManagerDataExport(id string) (string, error) {

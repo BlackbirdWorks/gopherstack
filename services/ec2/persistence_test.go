@@ -973,3 +973,99 @@ func TestPersistenceWithExtendedResources(t *testing.T) {
 	enis := b2.DescribeNetworkInterfaces(nil)
 	assert.NotEmpty(t, enis)
 }
+
+// TestPersistence_Parity4Fields verifies that the state added for the
+// parity-4 SDK-bump pass survives a Snapshot/Restore round trip: table-backed
+// resources (TGW Client VPN attachments, Capacity Reservation cancellation
+// quotes, and the new VpcEndpoint.PayerResponsibilities field) via the
+// generic registry, and the plain-field/singleton state (image watermarks,
+// account-level VPC Encryption Control, Capacity Manager monitored tag keys,
+// managed resource visibility) via the explicit backendSnapshot wiring.
+func TestPersistence_Parity4Fields(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	// TGW Client VPN attachment (created implicitly via CreateClientVpnEndpoint).
+	tgw, err := b.CreateTransitGateway("persist-tgw")
+	require.NoError(t, err)
+	_, err = b.CreateClientVpnEndpointWithOptions(
+		"10.0.0.0/22", "persist-cvpn", nil,
+		ec2.ClientVpnEndpointOptions{TransitGatewayID: tgw.ID},
+	)
+	require.NoError(t, err)
+
+	// Image watermark.
+	watermarkKey, err := b.AttachImageWatermark("ami-0c55b159cbfafe1f0", "goldenImage")
+	require.NoError(t, err)
+
+	// Account-level VPC Encryption Control.
+	_, err = b.ModifyAccountVpcEncryptionControl(
+		"attempt-enforce", ec2.VpcEncryptionControlExclusionModify{Lambda: "enable"},
+	)
+	require.NoError(t, err)
+
+	// Capacity Manager monitored tag keys.
+	_, err = b.UpdateCapacityManagerMonitoredTagKeys([]string{"team"}, nil)
+	require.NoError(t, err)
+
+	// Managed resource visibility.
+	_, err = b.ModifyManagedResourceVisibility("visible")
+	require.NoError(t, err)
+
+	// Capacity Reservation cancellation quote.
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 2)
+	require.NoError(t, err)
+	quote, err := b.CreateCapacityReservationCancellationQuote(cr.CapacityReservationID, nil)
+	require.NoError(t, err)
+
+	// VPC endpoint payer responsibility.
+	vpc, err := b.CreateVpc("10.9.0.0/16")
+	require.NoError(t, err)
+	ep, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Gateway", nil)
+	require.NoError(t, err)
+	_, err = b.ModifyVpcEndpointPayerResponsibility(ep.ID, "vpc-endpoint-account", "vpc-endpoint-charges")
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := newTestBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	atts := b2.DescribeTransitGatewayAttachments(nil)
+	require.Len(t, atts, 1)
+	assert.Equal(t, "client-vpn", atts[0].ResourceType)
+	assert.Equal(t, "pending-acceptance", atts[0].State)
+
+	watermarkedKey, watermarkErr := b2.AttachImageWatermark("ami-0c55b159cbfafe1f0", "goldenImage")
+	require.NoError(t, watermarkErr)
+	assert.Equal(t, watermarkKey, watermarkedKey, "re-attaching after restore must be idempotent on the restored key")
+
+	vec := b2.DescribeAccountVpcEncryptionControl()
+	assert.Equal(t, "attempt-enforce", vec.Mode)
+	assert.Equal(t, "enabled", vec.Exclusions.Lambda.State)
+
+	tagKeys := b2.GetCapacityManagerMonitoredTagKeys()
+	require.Len(t, tagKeys, 1)
+	assert.Equal(t, "team", tagKeys[0].TagKey)
+	assert.Equal(t, "activated", tagKeys[0].Status)
+
+	assert.Equal(t, "visible", b2.GetManagedResourceVisibility())
+
+	quotes := b2.DescribeCapacityReservationCancellationQuotes([]string{quote.CapacityReservationCancellationQuoteID})
+	require.Len(t, quotes, 1)
+	assert.Equal(t, cr.CapacityReservationID, quotes[0].CapacityReservationID)
+
+	eps := b2.DescribeVpcEndpointAssociations([]string{ep.ID})
+	require.Len(t, eps, 1)
+
+	// The PayerResponsibilities entry must have survived restore as part of
+	// the VpcEndpoint's standard table-registered JSON round trip: an
+	// idempotent same-scope call must upsert (stay at 1 entry) rather than
+	// append, which only holds if the prior entry's Scope was restored.
+	entries, err := b2.ModifyVpcEndpointPayerResponsibility(ep.ID, "vpc-endpoint-account", "vpc-endpoint-charges")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "vpc-endpoint-account", entries[0].PayerResponsibilityType)
+}

@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"net/http"
 	"net/url"
 	"testing"
 
@@ -73,4 +74,88 @@ func TestVpcEncryptionControl_HTTP_Lifecycle(t *testing.T) { //nolint:parallelte
 		"VpcId":  []string{vpcID},
 	})
 	require.Error(t, err)
+}
+
+// TestAccountVpcEncryptionControl verifies DescribeAccountVpcEncryptionControl
+// and ModifyAccountVpcEncryptionControl (parity-4): the account-level
+// singleton starts "unmanaged" and Modify mutates real, persisted state
+// (mode + per-traffic-type exclusions), distinct from the per-VPC
+// VpcEncryptionControl configuration exercised above.
+func TestAccountVpcEncryptionControl(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		vals     url.Values
+		wantBody []string
+		wantCode int
+	}{
+		{
+			name:     "describe_default_is_unmanaged",
+			vals:     url.Values{"Action": {"DescribeAccountVpcEncryptionControl"}},
+			wantCode: http.StatusOK,
+			wantBody: []string{
+				"DescribeAccountVpcEncryptionControlResponse",
+				"<mode>unmanaged</mode>",
+				"<state>default-state</state>",
+				"<managedBy>account</managedBy>",
+			},
+		},
+		{
+			name: "modify_sets_mode_and_exclusion",
+			vals: url.Values{
+				"Action":          {"ModifyAccountVpcEncryptionControl"},
+				"Mode":            {"attempt-monitor"},
+				"InternetGateway": {"enable"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{
+				"ModifyAccountVpcEncryptionControlResponse",
+				"<mode>attempt-monitor</mode>",
+				"<internetGateway><state>enabled</state></internetGateway>",
+			},
+		},
+		{
+			name: "modify_invalid_mode_fails",
+			vals: url.Values{
+				"Action": {"ModifyAccountVpcEncryptionControl"},
+				"Mode":   {"bogus-mode"},
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidParameterValue"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			rec := postForm(t, h, tt.vals.Encode())
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+// TestAccountVpcEncryptionControl_ModifyPersistsAcrossDescribes verifies a
+// Modify call's exclusion state is visible on a subsequent Describe (real
+// mutated state, not an echoed-back-but-discarded value).
+func TestAccountVpcEncryptionControl_ModifyPersistsAcrossDescribes(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	modifyRec := postForm(t, h,
+		"Action=ModifyAccountVpcEncryptionControl&Version=2016-11-15&Mode=attempt-enforce&Lambda=enable")
+	require.Equal(t, http.StatusOK, modifyRec.Code)
+
+	describeRec := postForm(t, h, "Action=DescribeAccountVpcEncryptionControl&Version=2016-11-15")
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	body := describeRec.Body.String()
+	assert.Contains(t, body, "<mode>attempt-enforce</mode>")
+	assert.Contains(t, body, "<lambda><state>enabled</state></lambda>")
 }

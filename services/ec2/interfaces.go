@@ -948,6 +948,13 @@ type Backend interface {
 	// GetIpamPoolAllocations returns allocations for an IPAM pool, optionally filtered to one ID.
 	GetIpamPoolAllocations(poolID, allocationID string) ([]*IpamPoolAllocation, error)
 
+	// DescribeIpamPoolAllocations returns IPAM pool allocations across all
+	// pools, optionally filtered to the given allocation IDs.
+	DescribeIpamPoolAllocations(allocationIDs []string) []*IpamPoolAllocation
+
+	// ModifyIpamPoolAllocation updates the description of an IPAM pool allocation.
+	ModifyIpamPoolAllocation(allocationID, description string) (*IpamPoolAllocation, error)
+
 	// ReleaseIpamPoolAllocation releases an IPAM pool allocation.
 	ReleaseIpamPoolAllocation(poolID, allocationID string) error
 
@@ -1223,6 +1230,13 @@ type Backend interface {
 	DescribeVpcEndpointServicePermissions(serviceID string) []string
 	ModifyVpcEndpointServicePermissions(serviceID string, add, remove []string) error
 	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string) error
+
+	// ModifyVpcEndpointPayerResponsibility sets who is billed for a VPC
+	// endpoint's usage within the given charge scope.
+	ModifyVpcEndpointPayerResponsibility(
+		endpointID, payerResponsibilityType, scope string,
+	) ([]PayerResponsibilityEntry, error)
+
 	EnableEbsEncryptionByDefault()
 	DisableEbsEncryptionByDefault()
 	GetEbsEncryptionByDefault() bool
@@ -1365,6 +1379,26 @@ type Backend interface {
 	ExportClientVpnClientConfiguration(endpointID string) (string, error)
 	ExportClientVpnClientCertificateRevocationList(endpointID string) (string, error)
 	ImportClientVpnClientCertificateRevocationList(endpointID, crl string) error
+
+	// ---- parity-4: Transit Gateway Client VPN Attachments ----
+
+	// AcceptTransitGatewayClientVpnAttachment accepts a pending Transit
+	// Gateway Client VPN attachment.
+	AcceptTransitGatewayClientVpnAttachment(
+		attachmentID string,
+	) (*TransitGatewayClientVpnAttachment, error)
+
+	// RejectTransitGatewayClientVpnAttachment rejects a pending Transit
+	// Gateway Client VPN attachment.
+	RejectTransitGatewayClientVpnAttachment(
+		attachmentID string,
+	) (*TransitGatewayClientVpnAttachment, error)
+
+	// DeleteTransitGatewayClientVpnAttachment removes a Transit Gateway
+	// Client VPN attachment.
+	DeleteTransitGatewayClientVpnAttachment(
+		attachmentID string,
+	) (*TransitGatewayClientVpnAttachment, error)
 
 	// ---- batch4: TGW Peering ----
 	CreateTransitGatewayPeeringAttachment(
@@ -1689,6 +1723,17 @@ type Backend interface {
 		filters map[string][]string,
 	) []*CapacityReservationBillingRequest
 
+	// CreateCapacityReservationCancellationQuote generates a cancellation
+	// quote for the given Capacity Reservation.
+	CreateCapacityReservationCancellationQuote(
+		capacityReservationID string,
+		tags map[string]string,
+	) (*CapacityReservationCancellationQuote, error)
+
+	// DescribeCapacityReservationCancellationQuotes returns cancellation
+	// quotes, optionally filtered by ID.
+	DescribeCapacityReservationCancellationQuotes(ids []string) []*CapacityReservationCancellationQuote
+
 	EnableCapacityManager(organizationsAccess bool) (string, bool)
 	DisableCapacityManager() (string, bool)
 	UpdateCapacityManagerOrganizationsAccess(organizationsAccess bool) (string, bool)
@@ -1701,6 +1746,17 @@ type Backend interface {
 	) (*CapacityManagerDataExport, error)
 	DescribeCapacityManagerDataExports(ids []string) []*CapacityManagerDataExport
 	DeleteCapacityManagerDataExport(id string) (string, error)
+
+	// GetCapacityManagerMonitoredTagKeys returns the tag keys currently
+	// monitored by Capacity Manager.
+	GetCapacityManagerMonitoredTagKeys() []*CapacityManagerMonitoredTagKey
+
+	// UpdateCapacityManagerMonitoredTagKeys activates and/or deactivates tag
+	// keys monitored by Capacity Manager, returning every tag key touched by
+	// the request.
+	UpdateCapacityManagerMonitoredTagKeys(
+		activateTagKeys, deactivateTagKeys []string,
+	) ([]*CapacityManagerMonitoredTagKey, error)
 
 	// ---- Scheduled Instances ----
 
@@ -1753,6 +1809,16 @@ type Backend interface {
 	// ---- Product codes ----
 
 	ConfirmProductInstance(instanceID, productCode string) (bool, error)
+
+	// ---- Image Watermarks ----
+
+	// AttachImageWatermark attaches a named watermark to an AMI, returning the
+	// generated accountId:watermarkName WatermarkKey.
+	AttachImageWatermark(imageID, watermarkName string) (string, error)
+
+	// DetachImageWatermark removes a previously attached watermark from an
+	// AMI by its accountId:watermarkName WatermarkKey.
+	DetachImageWatermark(imageID, watermarkKey string) error
 
 	// ---- Bundle tasks ----
 
@@ -1871,6 +1937,16 @@ type Backend interface {
 	) (*VpcEncryptionControl, error)
 	GetVpcResourcesBlockingEncryptionEnforcement(vpcID string) ([]*VpcEncryptionNonCompliantResource, error)
 
+	// DescribeAccountVpcEncryptionControl returns the account-level VPC
+	// Encryption Control configuration singleton.
+	DescribeAccountVpcEncryptionControl() *AccountVpcEncryptionControl
+
+	// ModifyAccountVpcEncryptionControl updates the account-level VPC
+	// Encryption Control mode and/or per-traffic-type exclusions.
+	ModifyAccountVpcEncryptionControl(
+		mode string, exclusions VpcEncryptionControlExclusionModify,
+	) (*AccountVpcEncryptionControl, error)
+
 	// ---- VPN Concentrator + tunnel extras ----
 
 	CreateVpnConcentrator(vpnType, transitGatewayID string, tags map[string]string) (*VpnConcentrator, error)
@@ -1959,4 +2035,14 @@ type Backend interface {
 	SendDiagnosticInterrupt(instanceID string) error
 	EnableReachabilityAnalyzerOrganizationSharing() bool
 	DescribeElasticGpus(ids []string) []*ElasticGpuStub
+
+	// ---- parity-4: Managed Resource Visibility ----
+
+	// GetManagedResourceVisibility returns the account's current default
+	// visibility setting for AWS-managed resources.
+	GetManagedResourceVisibility() string
+
+	// ModifyManagedResourceVisibility updates the account's default
+	// visibility setting for AWS-managed resources.
+	ModifyManagedResourceVisibility(defaultVisibility string) (string, error)
 }

@@ -65,9 +65,12 @@ type backendSnapshot struct {
 	EnclaveCertIamRoles            map[string][]*EnclaveCertIamRoleAssociation `json:"enclaveCertIamRoles,omitempty"`
 	AvailabilityZoneGroupOptIns    map[string]string                           `json:"azGroupOptIns,omitempty"`
 	SQLHaHistory                   map[string][]*RegisteredSQLHaInstance       `json:"sqlHaHistory,omitempty"`
+	ImageWatermarks                map[string][]string                         `json:"imageWatermarks,omitempty"`
+	AccountVpcEncryptionControl    *AccountVpcEncryptionControl                `json:"acctVpcEncCtrl,omitempty"`
 	IpamOrgAdminAccountID          string                                      `json:"ipamOrgAdminAcct,omitempty"`
 	Region                         string                                      `json:"region,omitempty"`
 	AccountID                      string                                      `json:"accountID,omitempty"`
+	ManagedResourceVisibility      string                                      `json:"mgdResourceVisibility,omitempty"`
 	FreePrivateIPs                 []string                                    `json:"freePrivateIPs"`
 	Version                        int                                         `json:"version"`
 	NextPrivateIPIndex             int                                         `json:"nextPrivateIPIndex"`
@@ -151,6 +154,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SQLHaHistory:                   b.sqlHaHistory,
 		TgwRTPropagations:              b.tgwRTPropagations,
 		ReachabilityAnalyzerOrgSharing: b.reachabilityAnalyzerOrgSharing,
+
+		ImageWatermarks:             b.imageWatermarks,
+		AccountVpcEncryptionControl: b.accountVpcEncryptionControl,
+		ManagedResourceVisibility:   b.managedResourceDefaultVisibility,
 	}
 
 	data, err := json.Marshal(snap)
@@ -209,6 +216,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.restoreCapacityFamilyFields(&snap)
 	b.restoreNewFamilyFields(&snap)
 	b.restoreParityFinalFields(&snap)
+	b.restoreParity4Fields(&snap)
 
 	return nil
 }
@@ -268,6 +276,34 @@ func (b *InMemoryBackend) restoreParityFinalFields(snap *backendSnapshot) {
 	}
 
 	b.reachabilityAnalyzerOrgSharing = snap.ReachabilityAnalyzerOrgSharing
+}
+
+// restoreParity4Fields copies the image watermark / account-level VPC
+// Encryption Control / managed resource visibility state added for the
+// parity-4 SDK-bump pass from snap into b. Must be called with b.mu held for
+// writing.
+func (b *InMemoryBackend) restoreParity4Fields(snap *backendSnapshot) {
+	if snap.ImageWatermarks != nil {
+		b.imageWatermarks = snap.ImageWatermarks
+	} else {
+		b.imageWatermarks = make(map[string][]string)
+	}
+
+	if snap.AccountVpcEncryptionControl != nil {
+		b.accountVpcEncryptionControl = snap.AccountVpcEncryptionControl
+	} else {
+		b.accountVpcEncryptionControl = &AccountVpcEncryptionControl{
+			Mode:      accountVpcEncryptionControlModeUnmanaged,
+			State:     accountVpcEncryptionControlStateDefault,
+			ManagedBy: accountVpcEncryptionControlManagedByAccount,
+		}
+	}
+
+	if snap.ManagedResourceVisibility != "" {
+		b.managedResourceDefaultVisibility = snap.ManagedResourceVisibility
+	} else {
+		b.managedResourceDefaultVisibility = managedResourceVisibilityHidden
+	}
 }
 
 // restoreNewFamilyFields copies the Mac modification task / Secondary

@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
+	"time"
 )
 
 // ---- Handler registration ----
@@ -13,6 +14,8 @@ func registerVpcEncryptionControlOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeVpcEncryptionControls"] = h.handleDescribeVpcEncryptionControls
 	ops["ModifyVpcEncryptionControl"] = h.handleModifyVpcEncryptionControl
 	ops["GetVpcResourcesBlockingEncryptionEnforcement"] = h.handleGetVpcResourcesBlockingEncryptionEnforcement
+	ops["DescribeAccountVpcEncryptionControl"] = h.handleDescribeAccountVpcEncryptionControl
+	ops["ModifyAccountVpcEncryptionControl"] = h.handleModifyAccountVpcEncryptionControl
 }
 
 func vpcEncryptionControlSupportedOperations() []string {
@@ -22,6 +25,8 @@ func vpcEncryptionControlSupportedOperations() []string {
 		"DescribeVpcEncryptionControls",
 		"ModifyVpcEncryptionControl",
 		"GetVpcResourcesBlockingEncryptionEnforcement",
+		"DescribeAccountVpcEncryptionControl",
+		"ModifyAccountVpcEncryptionControl",
 	}
 }
 
@@ -220,4 +225,87 @@ func (h *Handler) handleGetVpcResourcesBlockingEncryptionEnforcement(vals url.Va
 	}
 
 	return resp, nil
+}
+
+// ---- Account-level VPC Encryption Control (parity-4) ----
+
+type accountVpcEncryptionControlItem struct {
+	Mode                string                             `xml:"mode,omitempty"`
+	State               string                             `xml:"state,omitempty"`
+	ManagedBy           string                             `xml:"managedBy,omitempty"`
+	LastUpdateTimestamp string                             `xml:"lastUpdateTimestamp,omitempty"`
+	Exclusions          vpcEncryptionControlExclusionsItem `xml:"exclusions"`
+}
+
+func accountVpcEncryptionControlToItem(vec *AccountVpcEncryptionControl) accountVpcEncryptionControlItem {
+	e := vec.Exclusions
+	item := accountVpcEncryptionControlItem{
+		Mode:      vec.Mode,
+		State:     vec.State,
+		ManagedBy: vec.ManagedBy,
+		Exclusions: vpcEncryptionControlExclusionsItem{
+			EgressOnlyInternetGateway: vpcEncryptionControlExclusionToItem(e.EgressOnlyInternetGateway),
+			ElasticFileSystem:         vpcEncryptionControlExclusionToItem(e.ElasticFileSystem),
+			InternetGateway:           vpcEncryptionControlExclusionToItem(e.InternetGateway),
+			Lambda:                    vpcEncryptionControlExclusionToItem(e.Lambda),
+			NatGateway:                vpcEncryptionControlExclusionToItem(e.NatGateway),
+			VirtualPrivateGateway:     vpcEncryptionControlExclusionToItem(e.VirtualPrivateGateway),
+			VpcLattice:                vpcEncryptionControlExclusionToItem(e.VpcLattice),
+			VpcPeering:                vpcEncryptionControlExclusionToItem(e.VpcPeering),
+		},
+	}
+
+	if !vec.LastUpdateTimestamp.IsZero() {
+		item.LastUpdateTimestamp = vec.LastUpdateTimestamp.Format(time.RFC3339)
+	}
+
+	return item
+}
+
+type describeAccountVpcEncryptionControlResponse struct {
+	XMLName                     xml.Name                        `xml:"DescribeAccountVpcEncryptionControlResponse"`
+	Xmlns                       string                          `xml:"xmlns,attr"`
+	RequestID                   string                          `xml:"requestId"`
+	AccountVpcEncryptionControl accountVpcEncryptionControlItem `xml:"accountVpcEncryptionControl"`
+}
+
+func (h *Handler) handleDescribeAccountVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
+	vec := h.Backend.DescribeAccountVpcEncryptionControl()
+
+	return &describeAccountVpcEncryptionControlResponse{
+		Xmlns:                       ec2XMLNS,
+		RequestID:                   reqID,
+		AccountVpcEncryptionControl: accountVpcEncryptionControlToItem(vec),
+	}, nil
+}
+
+type modifyAccountVpcEncryptionControlResponse struct {
+	XMLName                     xml.Name                        `xml:"ModifyAccountVpcEncryptionControlResponse"`
+	Xmlns                       string                          `xml:"xmlns,attr"`
+	RequestID                   string                          `xml:"requestId"`
+	AccountVpcEncryptionControl accountVpcEncryptionControlItem `xml:"accountVpcEncryptionControl"`
+}
+
+func (h *Handler) handleModifyAccountVpcEncryptionControl(vals url.Values, reqID string) (any, error) {
+	exclusions := VpcEncryptionControlExclusionModify{
+		EgressOnlyInternetGateway: vals.Get("EgressOnlyInternetGateway"),
+		ElasticFileSystem:         vals.Get("ElasticFileSystem"),
+		InternetGateway:           vals.Get("InternetGateway"),
+		Lambda:                    vals.Get("Lambda"),
+		NatGateway:                vals.Get("NatGateway"),
+		VirtualPrivateGateway:     vals.Get("VirtualPrivateGateway"),
+		VpcLattice:                vals.Get("VpcLattice"),
+		VpcPeering:                vals.Get("VpcPeering"),
+	}
+
+	vec, err := h.Backend.ModifyAccountVpcEncryptionControl(vals.Get("Mode"), exclusions)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyAccountVpcEncryptionControlResponse{
+		Xmlns:                       ec2XMLNS,
+		RequestID:                   reqID,
+		AccountVpcEncryptionControl: accountVpcEncryptionControlToItem(vec),
+	}, nil
 }

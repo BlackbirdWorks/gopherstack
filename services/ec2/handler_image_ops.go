@@ -28,6 +28,9 @@ func registerImageOpsHandlers(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeImageUsageReportEntries"] = h.handleDescribeImageUsageReportEntries
 
 	ops["ConfirmProductInstance"] = h.handleConfirmProductInstance
+
+	ops["AttachImageWatermark"] = h.handleAttachImageWatermark
+	ops["DetachImageWatermark"] = h.handleDetachImageWatermark
 }
 
 // imageOpsSupportedOperations lists the operation names registered by
@@ -45,6 +48,8 @@ func imageOpsSupportedOperations() []string {
 		"DeleteImageUsageReport",
 		"DescribeImageUsageReportEntries",
 		"ConfirmProductInstance",
+		"AttachImageWatermark",
+		"DetachImageWatermark",
 	}
 }
 
@@ -410,4 +415,41 @@ func (h *Handler) handleConfirmProductInstance(vals url.Values, reqID string) (a
 	}
 
 	return resp, nil
+}
+
+// ---- Handlers: Image Watermarks ----
+
+type attachImageWatermarkResponse struct {
+	XMLName      xml.Name `xml:"AttachImageWatermarkResponse"`
+	Xmlns        string   `xml:"xmlns,attr"`
+	RequestID    string   `xml:"requestId"`
+	WatermarkKey string   `xml:"watermarkKey"`
+}
+
+func (h *Handler) handleAttachImageWatermark(vals url.Values, reqID string) (any, error) {
+	key, err := h.Backend.AttachImageWatermark(vals.Get("ImageId"), vals.Get("WatermarkName"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &attachImageWatermarkResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		WatermarkKey: key,
+	}, nil
+}
+
+type detachImageWatermarkResponse struct {
+	XMLName   xml.Name `xml:"DetachImageWatermarkResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleDetachImageWatermark(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.DetachImageWatermark(vals.Get("ImageId"), vals.Get("WatermarkKey")); err != nil {
+		return nil, err
+	}
+
+	return &detachImageWatermarkResponse{Xmlns: ec2XMLNS, RequestID: reqID, Return: true}, nil
 }

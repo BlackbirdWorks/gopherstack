@@ -148,6 +148,10 @@ func (b *InMemoryBackend) tgwAttachmentResourceLocked(attachmentID string) (stri
 		return att.TransportTransitGatewayAttachmentID, "connect"
 	}
 
+	if att, ok := b.tgwClientVpnAttachments.Get(attachmentID); ok {
+		return att.ClientVpnEndpointID, tgwResourceTypeClientVpn
+	}
+
 	return "", ""
 }
 
@@ -279,6 +283,20 @@ func (b *InMemoryBackend) DescribeTransitGatewayAttachments(ids []string) []*Tra
 			TransitGatewayID:           att.TransitGatewayID,
 			ResourceID:                 att.TransportTransitGatewayAttachmentID,
 			ResourceType:               "connect",
+			State:                      att.State,
+		})
+	}
+
+	for _, att := range b.tgwClientVpnAttachments.All() {
+		if len(filter) > 0 && !filter[att.TransitGatewayAttachmentID] {
+			continue
+		}
+
+		out = append(out, &TransitGatewayAttachmentSummary{
+			TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
+			TransitGatewayID:           att.TransitGatewayID,
+			ResourceID:                 att.ClientVpnEndpointID,
+			ResourceType:               tgwResourceTypeClientVpn,
 			State:                      att.State,
 		})
 	}

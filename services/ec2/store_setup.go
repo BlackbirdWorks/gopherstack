@@ -34,6 +34,9 @@ func capacityReservationBillingRequestsKeyFn(v *CapacityReservationBillingReques
 func capacityReservationFleetsKeyFn(v *CapacityReservationFleet) string {
 	return v.CapacityReservationFleetID
 }
+func capacityReservationCancellationQuotesKeyFn(v *CapacityReservationCancellationQuote) string {
+	return v.CapacityReservationCancellationQuoteID
+}
 func capacityReservationsKeyFn(v *CapacityReservation) string             { return v.CapacityReservationID }
 func carrierGatewaysKeyFn(v *CarrierGateway) string                       { return v.CarrierGatewayID }
 func classicLinkInstancesKeyFn(v *ClassicLinkInstance) string             { return v.InstanceID }
@@ -169,14 +172,17 @@ func securityGroupsKeyFn(v *SecurityGroup) string           { return v.ID }
 func serviceLinkVirtualInterfacesKeyFn(v *ServiceLinkVirtualInterface) string {
 	return v.ServiceLinkVirtualInterfaceID
 }
-func snapshotImportTasksKeyFn(v *SnapshotImportTask) string           { return v.ImportTaskID }
-func snapshotLocksKeyFn(v *SnapshotLock) string                       { return v.SnapshotID }
-func snapshotsKeyFn(v *Snapshot) string                               { return v.SnapshotID }
-func spotFleetsKeyFn(v *SpotFleetRequest) string                      { return v.SpotFleetRequestID }
-func spotRequestsKeyFn(v *SpotInstanceRequest) string                 { return v.ID }
-func sqlHaRegistrationsKeyFn(v *RegisteredSQLHaInstance) string       { return v.InstanceID }
-func storeImageTasksKeyFn(v *StoreImageTask) string                   { return v.AmiID }
-func subnetsKeyFn(v *Subnet) string                                   { return v.ID }
+func snapshotImportTasksKeyFn(v *SnapshotImportTask) string     { return v.ImportTaskID }
+func snapshotLocksKeyFn(v *SnapshotLock) string                 { return v.SnapshotID }
+func snapshotsKeyFn(v *Snapshot) string                         { return v.SnapshotID }
+func spotFleetsKeyFn(v *SpotFleetRequest) string                { return v.SpotFleetRequestID }
+func spotRequestsKeyFn(v *SpotInstanceRequest) string           { return v.ID }
+func sqlHaRegistrationsKeyFn(v *RegisteredSQLHaInstance) string { return v.InstanceID }
+func storeImageTasksKeyFn(v *StoreImageTask) string             { return v.AmiID }
+func subnetsKeyFn(v *Subnet) string                             { return v.ID }
+func tgwClientVpnAttachmentsKeyFn(v *TransitGatewayClientVpnAttachment) string {
+	return v.TransitGatewayAttachmentID
+}
 func tgwConnectPeersKeyFn(v *TransitGatewayConnectPeer) string        { return v.TransitGatewayConnectPeerID }
 func tgwConnectsKeyFn(v *TransitGatewayConnect) string                { return v.TransitGatewayAttachmentID }
 func tgwMeteringPoliciesKeyFn(v *TransitGatewayMeteringPolicy) string { return v.ID }
@@ -333,6 +339,13 @@ var tableRegistrations = []func(*InMemoryBackend){
 			b.registry,
 			"capacityManagerDataExports",
 			store.New(capacityManagerDataExportsKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.capacityReservationCancellationQuotes = store.Register(
+			b.registry,
+			"capacityReservationCancellationQuotes",
+			store.New(capacityReservationCancellationQuotesKeyFn),
 		)
 	},
 	func(b *InMemoryBackend) {
@@ -761,6 +774,13 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.subnets = store.Register(b.registry, "subnets", store.New(subnetsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.tgwClientVpnAttachments = store.Register(
+			b.registry,
+			"tgwClientVpnAttachments",
+			store.New(tgwClientVpnAttachmentsKeyFn),
+		)
 	},
 	func(b *InMemoryBackend) {
 		b.tgwConnectPeers = store.Register(b.registry, "tgwConnectPeers", store.New(tgwConnectPeersKeyFn))

@@ -3,6 +3,7 @@ package ec2_test
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -439,4 +440,91 @@ func indexOf(s, substr string) int {
 	}
 
 	return -1
+}
+
+// TestHandler_IpamPoolAllocations_DescribeAndModify verifies
+// DescribeIpamPoolAllocations (a cross-pool describe by allocation ID, unlike
+// GetIpamPoolAllocations which requires a single IpamPoolId) and
+// ModifyIpamPoolAllocation (parity-4).
+func TestHandler_IpamPoolAllocations_DescribeAndModify(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *ec2.Handler) url.Values
+		name     string
+		wantBody []string
+		wantCode int
+	}{
+		{
+			name: "modify_unknown_allocation_not_found",
+			setup: func(*testing.T, *ec2.Handler) url.Values {
+				return url.Values{
+					"Action":               {"ModifyIpamPoolAllocation"},
+					"IpamPoolAllocationId": {"ipam-alloc-missing"},
+					"Description":          {"anything"},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidIpamPoolAllocationId.NotFound"},
+		},
+		{
+			name: "describe_across_pools_by_allocation_id",
+			setup: func(t *testing.T, h *ec2.Handler) url.Values {
+				t.Helper()
+
+				ipam, err := h.Backend.CreateIpam()
+				require.NoError(t, err)
+				pool, err := h.Backend.CreateIpamPool(ipam.IpamID, "ipv4", "us-east-1", "10.0.0.0/8")
+				require.NoError(t, err)
+				alloc, err := h.Backend.AllocateIpamPoolCidr(pool.IpamPoolID, "10.1.0.0/24", 0)
+				require.NoError(t, err)
+
+				return url.Values{
+					"Action":                 {"DescribeIpamPoolAllocations"},
+					"IpamPoolAllocationId.1": {alloc.IpamPoolAllocationID},
+				}
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{"DescribeIpamPoolAllocationsResponse", "10.1.0.0/24"},
+		},
+		{
+			name: "modify_updates_description",
+			setup: func(t *testing.T, h *ec2.Handler) url.Values {
+				t.Helper()
+
+				ipam, err := h.Backend.CreateIpam()
+				require.NoError(t, err)
+				pool, err := h.Backend.CreateIpamPool(ipam.IpamID, "ipv4", "us-east-1", "10.0.0.0/8")
+				require.NoError(t, err)
+				alloc, err := h.Backend.AllocateIpamPoolCidr(pool.IpamPoolID, "10.2.0.0/24", 0)
+				require.NoError(t, err)
+
+				return url.Values{
+					"Action":               {"ModifyIpamPoolAllocation"},
+					"IpamPoolAllocationId": {alloc.IpamPoolAllocationID},
+					"Description":          {"prod workload"},
+				}
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{
+				"ModifyIpamPoolAllocationResponse",
+				"<description>prod workload</description>",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			vals := tt.setup(t, h)
+
+			rec := postForm(t, h, vals.Encode())
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
 }

@@ -111,3 +111,75 @@ func TestHTTP_DescribeIdFormat(t *testing.T) { //nolint:paralleltest // existing
 	})
 	require.NoError(t, err)
 }
+
+// TestManagedResourceVisibility verifies GetManagedResourceVisibility and
+// ModifyManagedResourceVisibility (parity-4): the account default starts
+// "hidden" (the real AWS default) and Modify mutates real, persisted state.
+func TestManagedResourceVisibility(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		vals     url.Values
+		wantBody string
+		wantErr  bool
+	}{
+		{
+			name:     "get_default_is_hidden",
+			vals:     url.Values{"Action": {"GetManagedResourceVisibility"}},
+			wantBody: "<defaultVisibility>hidden</defaultVisibility>",
+		},
+		{
+			name: "modify_to_visible",
+			vals: url.Values{
+				"Action":            {"ModifyManagedResourceVisibility"},
+				"DefaultVisibility": {"visible"},
+			},
+			wantBody: "<defaultVisibility>visible</defaultVisibility>",
+		},
+		{
+			name: "modify_invalid_value_fails",
+			vals: url.Values{
+				"Action":            {"ModifyManagedResourceVisibility"},
+				"DefaultVisibility": {"bogus"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			resp, err := dispatchHandler(h, tt.vals)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Contains(t, resp, tt.wantBody)
+		})
+	}
+}
+
+// TestManagedResourceVisibility_ModifyPersistsAcrossGets verifies a Modify
+// call's value is visible on a subsequent Get (real mutated account state).
+func TestManagedResourceVisibility_ModifyPersistsAcrossGets(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	_, err := dispatchHandler(h, url.Values{
+		"Action":            {"ModifyManagedResourceVisibility"},
+		"DefaultVisibility": {"visible"},
+	})
+	require.NoError(t, err)
+
+	resp, err := dispatchHandler(h, url.Values{"Action": {"GetManagedResourceVisibility"}})
+	require.NoError(t, err)
+	assert.Contains(t, resp, "<defaultVisibility>visible</defaultVisibility>")
+}

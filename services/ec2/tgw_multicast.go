@@ -26,6 +26,9 @@ const (
 	tgwMcastAssocStateDisassociated = "disassociated"
 	tgwResourceTypeVPC              = "vpc"
 	tgwMcastOptionDisable           = "disable"
+	// tgwResourceTypeClientVpn is the DescribeTransitGatewayAttachments
+	// resourceType for an attachment backing a Client VPN endpoint (parity-4).
+	tgwResourceTypeClientVpn = "client-vpn"
 )
 
 // ---- models ----

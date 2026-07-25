@@ -66,6 +66,8 @@ func registerAdvancedNetworkingOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetIpamPoolCidrs"] = h.handleGetIpamPoolCidrs
 	ops["GetIpamPoolAllocations"] = h.handleGetIpamPoolAllocations
 	ops["ReleaseIpamPoolAllocation"] = h.handleReleaseIpamPoolAllocation
+	ops["DescribeIpamPoolAllocations"] = h.handleDescribeIpamPoolAllocations
+	ops["ModifyIpamPoolAllocation"] = h.handleModifyIpamPoolAllocation
 	ops["DescribeIpamResourceDiscoveries"] = h.handleDescribeIpamResourceDiscoveries
 	ops["DescribeIpamResourceDiscoveryAssociations"] = h.handleDescribeIpamResourceDiscoveryAssociations
 	ops["GetIpamAddressHistory"] = h.handleGetIpamAddressHistory
@@ -117,6 +119,8 @@ func advancedNetworkingSupportedOperations() []string {
 		"GetIpamPoolCidrs",
 		"GetIpamPoolAllocations",
 		"ReleaseIpamPoolAllocation",
+		"DescribeIpamPoolAllocations",
+		"ModifyIpamPoolAllocation",
 		"DescribeIpamResourceDiscoveries",
 		"DescribeIpamResourceDiscoveryAssociations",
 		"GetIpamAddressHistory",
@@ -695,6 +699,7 @@ type ipamPoolAllocationItem struct {
 	ResourceType         string `xml:"resourceType,omitempty"`
 	ResourceID           string `xml:"resourceId,omitempty"`
 	ResourceOwner        string `xml:"resourceOwner,omitempty"`
+	ResourceRegion       string `xml:"resourceRegion,omitempty"`
 }
 
 func toIpamPoolAllocationItem(a *IpamPoolAllocation) ipamPoolAllocationItem {
@@ -705,6 +710,7 @@ func toIpamPoolAllocationItem(a *IpamPoolAllocation) ipamPoolAllocationItem {
 		ResourceType:         a.ResourceType,
 		ResourceID:           a.ResourceID,
 		ResourceOwner:        a.ResourceOwner,
+		ResourceRegion:       a.ResourceRegion,
 	}
 }
 

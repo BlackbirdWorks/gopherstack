@@ -48,6 +48,12 @@ func registerCapacityFamilyOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["UpdateInterruptibleCapacityReservationAllocation"] = h.handleUpdateInterruptibleCapacityReservationAllocation
 	ops["GetCapacityReservationUsage"] = h.handleGetCapacityReservationUsage
 	ops["DescribeCapacityReservationTopology"] = h.handleDescribeCapacityReservationTopology
+
+	ops["CreateCapacityReservationCancellationQuote"] = h.handleCreateCapacityReservationCancellationQuote
+	ops["DescribeCapacityReservationCancellationQuotes"] = h.handleDescribeCapacityReservationCancellationQuotes
+
+	ops["GetCapacityManagerMonitoredTagKeys"] = h.handleGetCapacityManagerMonitoredTagKeys
+	ops["UpdateCapacityManagerMonitoredTagKeys"] = h.handleUpdateCapacityManagerMonitoredTagKeys
 }
 
 // capacityFamilySupportedOperations lists the operation names registered by
@@ -64,6 +70,10 @@ func capacityFamilySupportedOperations() []string {
 		"UpdateInterruptibleCapacityReservationAllocation",
 		"GetCapacityReservationUsage",
 		"DescribeCapacityReservationTopology",
+		"CreateCapacityReservationCancellationQuote",
+		"DescribeCapacityReservationCancellationQuotes",
+		"GetCapacityManagerMonitoredTagKeys",
+		"UpdateCapacityManagerMonitoredTagKeys",
 	}
 }
 

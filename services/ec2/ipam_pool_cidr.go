@@ -186,6 +186,7 @@ func (b *InMemoryBackend) AllocateIpamPoolCidr(
 		ResourceType:         o.ResourceType,
 		ResourceID:           o.ResourceID,
 		ResourceOwner:        o.ResourceOwner,
+		ResourceRegion:       b.Region,
 	}
 	if alloc.ResourceType == "" {
 		alloc.ResourceType = "custom"
@@ -256,6 +257,59 @@ func (b *InMemoryBackend) ReleaseIpamPoolAllocation(poolID, allocationID string)
 	b.ipamPoolAllocations.Delete(allocationID)
 
 	return nil
+}
+
+// DescribeIpamPoolAllocations returns IPAM pool allocations across ALL pools,
+// optionally filtered to the given allocation IDs. Unlike GetIpamPoolAllocations
+// (which requires a single IpamPoolId), this is a cross-pool describe — the
+// real AWS DescribeIpamPoolAllocationsInput has no IpamPoolId member, only
+// IpamPoolAllocationIds (field-diffed against aws-sdk-go-v2's
+// DescribeIpamPoolAllocationsInput).
+func (b *InMemoryBackend) DescribeIpamPoolAllocations(allocationIDs []string) []*IpamPoolAllocation {
+	b.mu.RLock("DescribeIpamPoolAllocations")
+	defer b.mu.RUnlock()
+
+	idSet := toIDSet(allocationIDs)
+
+	out := make([]*IpamPoolAllocation, 0, b.ipamPoolAllocations.Len())
+
+	for _, alloc := range b.ipamPoolAllocations.All() {
+		if len(idSet) > 0 && !idSet[alloc.IpamPoolAllocationID] {
+			continue
+		}
+
+		cp := *alloc
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].IpamPoolAllocationID < out[j].IpamPoolAllocationID
+	})
+
+	return out
+}
+
+// ModifyIpamPoolAllocation updates the description of an IPAM pool allocation.
+// Matches the real ModifyIpamPoolAllocationInput shape, which (like
+// DescribeIpamPoolAllocations) has no IpamPoolId member — only
+// IpamPoolAllocationId and Description.
+func (b *InMemoryBackend) ModifyIpamPoolAllocation(allocationID, description string) (*IpamPoolAllocation, error) {
+	if allocationID == "" {
+		return nil, fmt.Errorf("%w: IpamPoolAllocationId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ModifyIpamPoolAllocation")
+	defer b.mu.Unlock()
+
+	alloc, ok := b.ipamPoolAllocations.Get(allocationID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrIpamAllocationNotFound, allocationID)
+	}
+
+	alloc.Description = description
+	cp := *alloc
+
+	return &cp, nil
 }
 
 // ---- IPAM Resource Discoveries ----

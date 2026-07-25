@@ -49,6 +49,12 @@ const (
 	// Capacity Block offering's start date is set, mirroring AWS's practice of
 	// only offering capacity starting some time after the request.
 	capacityBlockOfferingLeadTime = 24 * time.Hour
+
+	capacityReservationCancellationQuoteStateActive  = "active"
+	capacityReservationCancellationQuoteStateExpired = "expired"
+
+	capacityManagerTagKeyStatusActivated = "activated"
+	capacityManagerTagKeyStatusSuspended = "suspended"
 )
 
 // ---- models ----
@@ -166,8 +172,33 @@ type CapacityManagerDataExport struct {
 // CapacityManagerState tracks the account-level enable/disable state of
 // Capacity Manager.
 type CapacityManagerState struct {
-	Status              string `json:"status,omitempty"`
-	OrganizationsAccess bool   `json:"organizationsAccess,omitempty"`
+	MonitoredTagKeys    map[string]*CapacityManagerMonitoredTagKey `json:"monitoredTagKeys,omitempty"`
+	Status              string                                     `json:"status,omitempty"`
+	OrganizationsAccess bool                                       `json:"organizationsAccess,omitempty"`
+}
+
+// CapacityManagerMonitoredTagKey describes a tag key Capacity Manager
+// includes as a dimension in capacity metric data, set via
+// UpdateCapacityManagerMonitoredTagKeys.
+type CapacityManagerMonitoredTagKey struct {
+	TagKey                  string `json:"tagKey,omitempty"`
+	Status                  string `json:"status,omitempty"`
+	StatusMessage           string `json:"statusMessage,omitempty"`
+	CapacityManagerProvided bool   `json:"capacityManagerProvided,omitempty"`
+}
+
+// CapacityReservationCancellationQuote represents a quote for cancelling a
+// future-dated Capacity Reservation during its commitment duration, created
+// via CreateCapacityReservationCancellationQuote.
+type CapacityReservationCancellationQuote struct {
+	CreateTime                             time.Time         `json:"createTime"`
+	ExpirationTime                         time.Time         `json:"expirationTime"`
+	Tags                                   map[string]string `json:"tags,omitempty"`
+	CapacityReservationCancellationQuoteID string            `json:"capacityReservationCancellationQuoteId,omitempty"`
+	CapacityReservationID                  string            `json:"capacityReservationId,omitempty"`
+	QuoteState                             string            `json:"quoteState,omitempty"`
+	CurrentReservationState                string            `json:"currentReservationState,omitempty"`
+	CurrentInstanceCount                   int32             `json:"currentInstanceCount,omitempty"`
 }
 
 // CapacityReservationFleetCancellation reports the state transition of a

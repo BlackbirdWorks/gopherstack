@@ -522,3 +522,164 @@ func TestAllOpsReturn200HTTP(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_CapacityReservationCancellationQuote verifies
+// CreateCapacityReservationCancellationQuote and
+// DescribeCapacityReservationCancellationQuotes routing, error codes, and
+// wire shapes (parity-4). The quote reflects real Capacity Reservation
+// state (instance count) rather than fabricated data.
+func TestHandler_CapacityReservationCancellationQuote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *ec2.Handler) url.Values
+		name     string
+		wantBody []string
+		wantCode int
+	}{
+		{
+			name: "create_unknown_reservation_not_found",
+			setup: func(*testing.T, *ec2.Handler) url.Values {
+				return url.Values{
+					"Action":                {"CreateCapacityReservationCancellationQuote"},
+					"CapacityReservationId": {"cr-missing"},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidCapacityReservationId.NotFound"},
+		},
+		{
+			name: "create_reflects_real_reservation_state",
+			setup: func(t *testing.T, h *ec2.Handler) url.Values {
+				t.Helper()
+
+				cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 4)
+				require.NoError(t, err)
+
+				return url.Values{
+					"Action":                {"CreateCapacityReservationCancellationQuote"},
+					"CapacityReservationId": {cr.CapacityReservationID},
+				}
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{
+				"CreateCapacityReservationCancellationQuoteResponse",
+				"<capacityReservationCancellationQuoteId>crcq-",
+				"<quoteState>active</quoteState>",
+				"<instanceCount>4</instanceCount>",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			vals := tt.setup(t, h)
+
+			rec := postForm(t, h, vals.Encode())
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+// TestHandler_CapacityReservationCancellationQuote_DescribeRoundTrip verifies
+// a created quote is visible via DescribeCapacityReservationCancellationQuotes.
+func TestHandler_CapacityReservationCancellationQuote_DescribeRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	cr, err := h.Backend.CreateCapacityReservation("t3.micro", "us-east-1a", 1)
+	require.NoError(t, err)
+
+	quote, err := h.Backend.CreateCapacityReservationCancellationQuote(cr.CapacityReservationID, nil)
+	require.NoError(t, err)
+
+	rec := postForm(t, h, "Action=DescribeCapacityReservationCancellationQuotes&Version=2016-11-15")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), quote.CapacityReservationCancellationQuoteID)
+}
+
+// TestHandler_CapacityManagerMonitoredTagKeys verifies
+// GetCapacityManagerMonitoredTagKeys and UpdateCapacityManagerMonitoredTagKeys
+// mutate real per-account tag-key state (parity-4).
+func TestHandler_CapacityManagerMonitoredTagKeys(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals     url.Values
+		name     string
+		wantBody []string
+		wantCode int
+	}{
+		{
+			name: "update_requires_at_least_one_key",
+			vals: url.Values{
+				"Action": {"UpdateCapacityManagerMonitoredTagKeys"},
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "activate_two_keys",
+			vals: url.Values{
+				"Action":           {"UpdateCapacityManagerMonitoredTagKeys"},
+				"ActivateTagKey.1": {"team"},
+				"ActivateTagKey.2": {"env"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{
+				"UpdateCapacityManagerMonitoredTagKeysResponse",
+				"<tagKey>team</tagKey>",
+				"<status>activated</status>",
+				"<tagKey>env</tagKey>",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			rec := postForm(t, h, tt.vals.Encode())
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+// TestHandler_CapacityManagerMonitoredTagKeys_GetReflectsUpdates verifies
+// GetCapacityManagerMonitoredTagKeys reflects a prior activate/deactivate,
+// including the suspended terminal state.
+func TestHandler_CapacityManagerMonitoredTagKeys_GetReflectsUpdates(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	activateRec := postForm(t, h,
+		"Action=UpdateCapacityManagerMonitoredTagKeys&Version=2016-11-15&ActivateTagKey.1=cost-center")
+	require.Equal(t, http.StatusOK, activateRec.Code)
+
+	getRec := postForm(t, h, "Action=GetCapacityManagerMonitoredTagKeys&Version=2016-11-15")
+	require.Equal(t, http.StatusOK, getRec.Code)
+	assert.Contains(t, getRec.Body.String(), "<tagKey>cost-center</tagKey>")
+	assert.Contains(t, getRec.Body.String(), "<status>activated</status>")
+
+	deactivateRec := postForm(t, h,
+		"Action=UpdateCapacityManagerMonitoredTagKeys&Version=2016-11-15&DeactivateTagKey.1=cost-center")
+	require.Equal(t, http.StatusOK, deactivateRec.Code)
+	assert.Contains(t, deactivateRec.Body.String(), "<status>suspended</status>")
+
+	getRec2 := postForm(t, h, "Action=GetCapacityManagerMonitoredTagKeys&Version=2016-11-15")
+	require.Equal(t, http.StatusOK, getRec2.Code)
+	assert.Contains(t, getRec2.Body.String(), "<status>suspended</status>")
+}
