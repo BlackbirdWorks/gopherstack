@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sesv2sdk "github.com/aws/aws-sdk-go-v2/service/sesv2"
+	sesv2types "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -142,6 +145,76 @@ func TestSendBulkEmail(t *testing.T) {
 		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestSendBulkEmailSDKRoundTrip drives SendBulkEmail through the real
+// aws-sdk-go-v2 sesv2 client, verifying the bulkEmailEntry typed request DTO
+// (send_email.go) decodes multi-recipient BulkEmailEntries correctly and
+// bulkEmailEntryResultOutput (wire_output.go) round-trips through the
+// genuine SDK deserializer -- catching the class of dropped-field bug a
+// hand-decoded map[string]any assertion would miss.
+func TestSendBulkEmailSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		entries []sesv2types.BulkEmailEntry
+	}{
+		{
+			name: "single_entry_single_recipient",
+			entries: []sesv2types.BulkEmailEntry{
+				{Destination: &sesv2types.Destination{ToAddresses: []string{"to1@example.com"}}},
+			},
+		},
+		{
+			name: "multiple_entries_multiple_recipients",
+			entries: []sesv2types.BulkEmailEntry{
+				{Destination: &sesv2types.Destination{
+					ToAddresses: []string{"to1@example.com", "to2@example.com"},
+				}},
+				{Destination: &sesv2types.Destination{
+					ToAddresses:  []string{"to3@example.com"},
+					CcAddresses:  []string{"cc1@example.com"},
+					BccAddresses: []string{"bcc1@example.com"},
+				}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			client := newSESv2SDKClient(t, h)
+
+			_, err := client.CreateEmailIdentity(t.Context(), &sesv2sdk.CreateEmailIdentityInput{
+				EmailIdentity: aws.String("bulk-sdk@example.com"),
+			})
+			require.NoError(t, err)
+
+			out, err := client.SendBulkEmail(t.Context(), &sesv2sdk.SendBulkEmailInput{
+				FromEmailAddress: aws.String("bulk-sdk@example.com"),
+				DefaultContent: &sesv2types.BulkEmailContent{
+					Template: &sesv2types.Template{
+						TemplateData: aws.String(`{}`),
+						TemplateContent: &sesv2types.EmailTemplateContent{
+							Subject: aws.String("Hi"),
+							Text:    aws.String("body"),
+						},
+					},
+				},
+				BulkEmailEntries: tt.entries,
+			})
+			require.NoError(t, err)
+			require.Len(t, out.BulkEmailEntryResults, len(tt.entries))
+
+			for _, r := range out.BulkEmailEntryResults {
+				assert.NotEmpty(t, aws.ToString(r.MessageId))
+				assert.Equal(t, sesv2types.BulkEmailStatusSuccess, r.Status)
+			}
+		})
+	}
 }
 
 // TestSendEmail tests the SendEmail operation via HTTP.

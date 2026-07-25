@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sesv2sdk "github.com/aws/aws-sdk-go-v2/service/sesv2"
+	sesv2types "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -309,4 +313,231 @@ func TestGetDomainStatisticsReportFields(t *testing.T) {
 	assert.Equal(t, "example.com", result["Domain"])
 	assert.Contains(t, result, "OverallVolume")
 	assert.Contains(t, result, "DailyVolumes")
+}
+
+// TestGetDomainStatisticsReportDailyVolumesSDKRoundTrip verifies
+// GetDomainStatisticsReport emits one DailyVolumes entry per day in the
+// requested [StartDate, EndDate] range (the shape real SES v2 documents),
+// via the real aws-sdk-go-v2 client so the RFC3339 StartDate/EndDate query
+// parameters are encoded the way a genuine client encodes them.
+func TestGetDomainStatisticsReportDailyVolumesSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		startBack time.Duration
+		wantDays  int
+	}{
+		{name: "single_day", startBack: 0, wantDays: 1},
+		{name: "three_day_range", startBack: 48 * time.Hour, wantDays: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			client := newSESv2SDKClient(t, h)
+
+			end := time.Now().UTC()
+			start := end.Add(-tt.startBack)
+
+			out, err := client.GetDomainStatisticsReport(t.Context(), &sesv2sdk.GetDomainStatisticsReportInput{
+				Domain:    aws.String("example.com"),
+				StartDate: aws.Time(start),
+				EndDate:   aws.Time(end),
+			})
+			require.NoError(t, err)
+			assert.Len(t, out.DailyVolumes, tt.wantDays)
+			require.NotNil(t, out.OverallVolume)
+		})
+	}
+}
+
+// TestDomainDeliverabilityCampaignSDKRoundTrip verifies that
+// GetDomainDeliverabilityCampaign/ListDomainDeliverabilityCampaigns derive
+// real CampaignId/FromAddress/Subject/timestamps from gopherstack's own
+// SendEmail history (rather than always-empty placeholders), driven through
+// the real aws-sdk-go-v2 client end to end: CreateEmailIdentity -> SendEmail
+// -> ListDomainDeliverabilityCampaigns -> GetDomainDeliverabilityCampaign.
+func TestDomainDeliverabilityCampaignSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	client := newSESv2SDKClient(t, h)
+
+	_, err := client.CreateEmailIdentity(t.Context(), &sesv2sdk.CreateEmailIdentityInput{
+		EmailIdentity: aws.String("camp@example.com"),
+	})
+	require.NoError(t, err)
+
+	sendOut, err := client.SendEmail(t.Context(), &sesv2sdk.SendEmailInput{
+		FromEmailAddress: aws.String("camp@example.com"),
+		Destination:      &sesv2types.Destination{ToAddresses: []string{"rcpt@example.com"}},
+		Content: &sesv2types.EmailContent{
+			Simple: &sesv2types.Message{
+				Subject: &sesv2types.Content{Data: aws.String("Campaign Subject")},
+				Body:    &sesv2types.Body{Text: &sesv2types.Content{Data: aws.String("hi")}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(sendOut.MessageId))
+
+	listOut, err := client.ListDomainDeliverabilityCampaigns(
+		t.Context(),
+		&sesv2sdk.ListDomainDeliverabilityCampaignsInput{
+			SubscribedDomain: aws.String("example.com"),
+			StartDate:        aws.Time(time.Now().Add(-24 * time.Hour)),
+			EndDate:          aws.Time(time.Now().Add(24 * time.Hour)),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, listOut.DomainDeliverabilityCampaigns, 1)
+
+	campaign := listOut.DomainDeliverabilityCampaigns[0]
+	assert.Equal(t, "camp@example.com", aws.ToString(campaign.FromAddress))
+	assert.Equal(t, "Campaign Subject", aws.ToString(campaign.Subject))
+	require.NotEmpty(t, aws.ToString(campaign.CampaignId))
+	assert.NotNil(t, campaign.FirstSeenDateTime)
+	assert.NotNil(t, campaign.LastSeenDateTime)
+
+	getOut, err := client.GetDomainDeliverabilityCampaign(t.Context(), &sesv2sdk.GetDomainDeliverabilityCampaignInput{
+		CampaignId: campaign.CampaignId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.DomainDeliverabilityCampaign)
+	assert.Equal(t, "camp@example.com", aws.ToString(getOut.DomainDeliverabilityCampaign.FromAddress))
+	assert.Equal(t, "Campaign Subject", aws.ToString(getOut.DomainDeliverabilityCampaign.Subject))
+}
+
+// TestReputationEntitySDKRoundTrip verifies the reputationEntityOutput
+// typed-DTO conversion (wire_output.go) -- notably that CustomerManagedStatus
+// decodes as a nested StatusRecord{Status: ...}, not a bare string -- via the
+// real aws-sdk-go-v2 client's deserializer.
+func TestReputationEntitySDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	client := newSESv2SDKClient(t, h)
+
+	_, err := client.UpdateReputationEntityCustomerManagedStatus(
+		t.Context(),
+		&sesv2sdk.UpdateReputationEntityCustomerManagedStatusInput{
+			ReputationEntityReference: aws.String("entity-1"),
+			ReputationEntityType:      sesv2types.ReputationEntityTypeResource,
+			SendingStatus:             sesv2types.SendingStatusDisabled,
+		},
+	)
+	require.NoError(t, err)
+
+	getOut, err := client.GetReputationEntity(t.Context(), &sesv2sdk.GetReputationEntityInput{
+		ReputationEntityReference: aws.String("entity-1"),
+		ReputationEntityType:      sesv2types.ReputationEntityTypeResource,
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, getOut.ReputationEntity)
+	assert.Equal(t, "entity-1", aws.ToString(getOut.ReputationEntity.ReputationEntityReference))
+	require.NotNil(t, getOut.ReputationEntity.CustomerManagedStatus)
+	assert.Equal(t, sesv2types.SendingStatusDisabled, getOut.ReputationEntity.CustomerManagedStatus.Status)
+	assert.Equal(t, sesv2types.SendingStatusDisabled, getOut.ReputationEntity.SendingStatusAggregate)
+}
+
+// TestListRecommendationsSDKRoundTrip verifies ListRecommendations derives
+// real DKIM/SPF/COMPLAINT recommendations from gopherstack's actual
+// configuration state (rather than always returning an empty list), via the
+// real aws-sdk-go-v2 client end to end for each derivation gopherstack
+// supports.
+func TestListRecommendationsSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, client *sesv2sdk.Client)
+		wantType sesv2types.RecommendationType
+		name     string
+	}{
+		{
+			name:     "dkim_signing_disabled",
+			wantType: sesv2types.RecommendationTypeDkim,
+			setup: func(t *testing.T, client *sesv2sdk.Client) {
+				t.Helper()
+
+				_, err := client.CreateEmailIdentity(t.Context(), &sesv2sdk.CreateEmailIdentityInput{
+					EmailIdentity: aws.String("nodkim@example.com"),
+				})
+				require.NoError(t, err)
+
+				_, err = client.PutEmailIdentityDkimAttributes(
+					t.Context(),
+					&sesv2sdk.PutEmailIdentityDkimAttributesInput{
+						EmailIdentity:  aws.String("nodkim@example.com"),
+						SigningEnabled: false,
+					},
+				)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:     "mail_from_pending",
+			wantType: sesv2types.RecommendationTypeSpf,
+			setup: func(t *testing.T, client *sesv2sdk.Client) {
+				t.Helper()
+
+				_, err := client.CreateEmailIdentity(t.Context(), &sesv2sdk.CreateEmailIdentityInput{
+					EmailIdentity: aws.String("mailfrom.example.com"),
+				})
+				require.NoError(t, err)
+
+				_, err = client.PutEmailIdentityMailFromAttributes(
+					t.Context(),
+					&sesv2sdk.PutEmailIdentityMailFromAttributesInput{
+						EmailIdentity:  aws.String("mailfrom.example.com"),
+						MailFromDomain: aws.String("bounce.mailfrom.example.com"),
+					},
+				)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:     "reputation_entity_disabled",
+			wantType: sesv2types.RecommendationTypeComplaint,
+			setup: func(t *testing.T, client *sesv2sdk.Client) {
+				t.Helper()
+
+				_, err := client.UpdateReputationEntityCustomerManagedStatus(
+					t.Context(),
+					&sesv2sdk.UpdateReputationEntityCustomerManagedStatusInput{
+						ReputationEntityReference: aws.String("bad-entity"),
+						ReputationEntityType:      sesv2types.ReputationEntityTypeResource,
+						SendingStatus:             sesv2types.SendingStatusDisabled,
+					},
+				)
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			client := newSESv2SDKClient(t, h)
+
+			tt.setup(t, client)
+
+			out, err := client.ListRecommendations(t.Context(), &sesv2sdk.ListRecommendationsInput{
+				Filter: map[string]string{"TYPE": string(tt.wantType)},
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Recommendations, 1)
+
+			rec := out.Recommendations[0]
+			assert.Equal(t, tt.wantType, rec.Type)
+			assert.Equal(t, sesv2types.RecommendationStatusOpen, rec.Status)
+			assert.NotEmpty(t, aws.ToString(rec.ResourceArn))
+			assert.NotNil(t, rec.CreatedTimestamp)
+		})
+	}
 }

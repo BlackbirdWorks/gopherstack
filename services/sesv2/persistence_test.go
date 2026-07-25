@@ -174,7 +174,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	entity, err := fresh.GetReputationEntity("cs1")
 	require.NoError(t, err)
-	assert.Equal(t, "ENABLED", entity["CustomerManagedStatus"].(map[string]any)["Status"])
+	require.NotNil(t, entity.CustomerManagedStatus)
+	assert.Equal(t, "ENABLED", entity.CustomerManagedStatus.Status)
 
 	report, err := fresh.GetDeliverabilityTestReport(dtReport.ReportID)
 	require.NoError(t, err)

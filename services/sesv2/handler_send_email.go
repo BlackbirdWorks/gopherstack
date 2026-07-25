@@ -90,7 +90,7 @@ func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
 
 type sendBulkEmailInput struct {
 	FromEmailAddress string           `json:"FromEmailAddress"`
-	BulkEmailEntries []map[string]any `json:"BulkEmailEntries"`
+	BulkEmailEntries []bulkEmailEntry `json:"BulkEmailEntries"`
 }
 
 func (h *Handler) handleSendBulkEmail(c *echo.Context) (any, error) {

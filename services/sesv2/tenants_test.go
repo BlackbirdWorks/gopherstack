@@ -4,9 +4,74 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sesv2sdk "github.com/aws/aws-sdk-go-v2/service/sesv2"
+	sesv2types "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestTenantSDKRoundTrip drives CreateTenant/GetTenant/ListTenants through
+// the real aws-sdk-go-v2 sesv2 client (not hand-decoded JSON maps), so the
+// tenantOutput/tenantInfoOutput typed-DTO conversion (wire_output.go) is
+// verified by the genuine SDK deserializer rather than a backend-struct
+// assertion -- the class of test that has repeatedly hidden dropped-field
+// bugs elsewhere in this codebase's parity work.
+func TestTenantSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check func(t *testing.T, tenant *sesv2types.Tenant, list []sesv2types.TenantInfo)
+		name  string
+	}{
+		{
+			name: "get_tenant_full_fields",
+			check: func(t *testing.T, tenant *sesv2types.Tenant, _ []sesv2types.TenantInfo) {
+				t.Helper()
+				require.NotNil(t, tenant)
+				assert.Equal(t, "sdk-tenant", aws.ToString(tenant.TenantName))
+				assert.NotEmpty(t, aws.ToString(tenant.TenantId))
+				assert.NotEmpty(t, aws.ToString(tenant.TenantArn))
+				assert.Equal(t, sesv2types.SendingStatusEnabled, tenant.SendingStatus)
+				assert.NotNil(t, tenant.CreatedTimestamp)
+			},
+		},
+		{
+			name: "list_tenants_info_shape",
+			check: func(t *testing.T, _ *sesv2types.Tenant, list []sesv2types.TenantInfo) {
+				t.Helper()
+				require.Len(t, list, 1)
+				assert.Equal(t, "sdk-tenant", aws.ToString(list[0].TenantName))
+				assert.NotEmpty(t, aws.ToString(list[0].TenantId))
+				assert.NotEmpty(t, aws.ToString(list[0].TenantArn))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			client := newSESv2SDKClient(t, h)
+
+			_, err := client.CreateTenant(t.Context(), &sesv2sdk.CreateTenantInput{
+				TenantName: aws.String("sdk-tenant"),
+			})
+			require.NoError(t, err)
+
+			getOut, err := client.GetTenant(t.Context(), &sesv2sdk.GetTenantInput{
+				TenantName: aws.String("sdk-tenant"),
+			})
+			require.NoError(t, err)
+
+			listOut, err := client.ListTenants(t.Context(), &sesv2sdk.ListTenantsInput{})
+			require.NoError(t, err)
+
+			tt.check(t, getOut.Tenant, listOut.Tenants)
+		})
+	}
+}
 
 // TestTenantLifecycle tests the full Create/Get/List/Delete tenant lifecycle
 // via HTTP, using the real SDK's RPC-style tenant paths (every op is POST to

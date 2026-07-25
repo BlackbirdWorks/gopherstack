@@ -184,7 +184,7 @@ func (h *Handler) handleListRecommendations(c *echo.Context) (any, error) {
 		return nil, err
 	}
 
-	items, next, err := h.Backend.ListRecommendations(in.NextToken, int(in.PageSize))
+	items, next, err := h.Backend.ListRecommendations(in.Filter, in.NextToken, int(in.PageSize))
 	if err != nil {
 		return nil, err
 	}

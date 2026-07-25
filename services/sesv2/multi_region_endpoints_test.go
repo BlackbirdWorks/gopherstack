@@ -4,9 +4,108 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sesv2sdk "github.com/aws/aws-sdk-go-v2/service/sesv2"
+	sesv2types "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestMultiRegionEndpointSDKRoundTrip drives Create/Get/List
+// MultiRegionEndpoint through the real aws-sdk-go-v2 sesv2 client, verifying
+// the createMultiRegionEndpointOutput/multiRegionEndpointOutput/
+// multiRegionEndpointSummaryOutput typed-DTO conversions (wire_output.go)
+// against the genuine SDK deserializer rather than a decoded-map assertion.
+func TestMultiRegionEndpointSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check func(
+			t *testing.T,
+			create *sesv2sdk.CreateMultiRegionEndpointOutput,
+			get *sesv2sdk.GetMultiRegionEndpointOutput,
+			list []sesv2types.MultiRegionEndpoint,
+		)
+		name string
+	}{
+		{
+			name: "create_output_shape",
+			check: func(
+				t *testing.T,
+				create *sesv2sdk.CreateMultiRegionEndpointOutput,
+				_ *sesv2sdk.GetMultiRegionEndpointOutput,
+				_ []sesv2types.MultiRegionEndpoint,
+			) {
+				t.Helper()
+				assert.NotEmpty(t, aws.ToString(create.EndpointId))
+				assert.Equal(t, sesv2types.StatusReady, create.Status)
+			},
+		},
+		{
+			name: "get_output_routes",
+			check: func(
+				t *testing.T,
+				_ *sesv2sdk.CreateMultiRegionEndpointOutput,
+				get *sesv2sdk.GetMultiRegionEndpointOutput,
+				_ []sesv2types.MultiRegionEndpoint,
+			) {
+				t.Helper()
+				assert.Equal(t, "sdk-mre", aws.ToString(get.EndpointName))
+				assert.Equal(t, sesv2types.StatusReady, get.Status)
+				assert.NotNil(t, get.CreatedTimestamp)
+				assert.NotNil(t, get.LastUpdatedTimestamp)
+
+				regions := make([]string, 0, len(get.Routes))
+				for _, r := range get.Routes {
+					regions = append(regions, aws.ToString(r.Region))
+				}
+
+				assert.Contains(t, regions, "us-west-2")
+			},
+		},
+		{
+			name: "list_output_regions_not_routes",
+			check: func(
+				t *testing.T,
+				_ *sesv2sdk.CreateMultiRegionEndpointOutput,
+				_ *sesv2sdk.GetMultiRegionEndpointOutput,
+				list []sesv2types.MultiRegionEndpoint,
+			) {
+				t.Helper()
+				require.Len(t, list, 1)
+				assert.Equal(t, "sdk-mre", aws.ToString(list[0].EndpointName))
+				assert.Contains(t, list[0].Regions, "us-west-2")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			client := newSESv2SDKClient(t, h)
+
+			createOut, err := client.CreateMultiRegionEndpoint(t.Context(), &sesv2sdk.CreateMultiRegionEndpointInput{
+				EndpointName: aws.String("sdk-mre"),
+				Details: &sesv2types.Details{
+					RoutesDetails: []sesv2types.RouteDetails{{Region: aws.String("us-west-2")}},
+				},
+			})
+			require.NoError(t, err)
+
+			getOut, err := client.GetMultiRegionEndpoint(t.Context(), &sesv2sdk.GetMultiRegionEndpointInput{
+				EndpointName: aws.String("sdk-mre"),
+			})
+			require.NoError(t, err)
+
+			listOut, err := client.ListMultiRegionEndpoints(t.Context(), &sesv2sdk.ListMultiRegionEndpointsInput{})
+			require.NoError(t, err)
+
+			tt.check(t, createOut, getOut, listOut.MultiRegionEndpoints)
+		})
+	}
+}
 
 // TestCreateAndGetMultiRegionEndpoint tests CreateMultiRegionEndpoint followed
 // by GetMultiRegionEndpoint, and field-checks the response against

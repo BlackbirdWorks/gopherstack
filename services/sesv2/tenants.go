@@ -2,7 +2,6 @@ package sesv2
 
 import (
 	"fmt"
-	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -29,7 +28,8 @@ const (
 	keyResourceType        = "ResourceType"
 	keyTags                = "Tags"
 
-	sendingStatusEnabled = "ENABLED"
+	sendingStatusEnabled  = "ENABLED"
+	sendingStatusDisabled = "DISABLED"
 )
 
 // ---- tenants ----
@@ -58,7 +58,7 @@ func resourceTypeFromARN(resourceArn string) string {
 
 // CreateTenant creates a new tenant. Returns AlreadyExistsException-shaped
 // error if the tenant already exists (matches real SES v2 behavior).
-func (b *InMemoryBackend) CreateTenant(tenantName string, tags map[string]string) (map[string]any, error) {
+func (b *InMemoryBackend) CreateTenant(tenantName string, tags map[string]string) (*tenantOutput, error) {
 	b.mu.Lock("CreateTenant")
 	defer b.mu.Unlock()
 
@@ -80,15 +80,12 @@ func (b *InMemoryBackend) CreateTenant(tenantName string, tags map[string]string
 
 	b.tenants[tenantName] = t
 
-	out := make(map[string]any, len(t))
-	maps.Copy(out, t)
-
-	return out, nil
+	return toTenantOutput(t), nil
 }
 
 // GetTenant returns the full tenant record (TenantName/TenantId/TenantArn/
 // SendingStatus/CreatedTimestamp/Tags), matching types.Tenant.
-func (b *InMemoryBackend) GetTenant(tenantName string) (map[string]any, error) {
+func (b *InMemoryBackend) GetTenant(tenantName string) (*tenantOutput, error) {
 	b.mu.RLock("GetTenant")
 	defer b.mu.RUnlock()
 
@@ -97,10 +94,7 @@ func (b *InMemoryBackend) GetTenant(tenantName string) (map[string]any, error) {
 		return nil, fmt.Errorf("%w: Tenant %s not found", ErrNotFound, tenantName)
 	}
 
-	out := make(map[string]any, len(t))
-	maps.Copy(out, t)
-
-	return out, nil
+	return toTenantOutput(t), nil
 }
 
 // DeleteTenant removes a tenant and cascades cleanup of its resource
@@ -140,7 +134,7 @@ func tenantInfo(t map[string]any) map[string]any {
 }
 
 // ListTenants lists all tenants associated with the account, paginated.
-func (b *InMemoryBackend) ListTenants(nextToken string, pageSize int) ([]map[string]any, string, error) {
+func (b *InMemoryBackend) ListTenants(nextToken string, pageSize int) ([]tenantInfoOutput, string, error) {
 	b.mu.RLock("ListTenants")
 
 	all := make([]map[string]any, 0, len(b.tenants))
@@ -152,7 +146,17 @@ func (b *InMemoryBackend) ListTenants(nextToken string, pageSize int) ([]map[str
 
 	sortMapsByStringKey(all, keyTenantName)
 
-	return paginateMaps(all, nextToken, pageSize, keyTenantName)
+	page, next, err := paginateMaps(all, nextToken, pageSize, keyTenantName)
+	if err != nil {
+		return nil, "", err
+	}
+
+	out := make([]tenantInfoOutput, 0, len(page))
+	for _, t := range page {
+		out = append(out, toTenantInfoOutput(t))
+	}
+
+	return out, next, nil
 }
 
 // CreateTenantResourceAssociation associates a resource with a tenant.
@@ -190,12 +194,12 @@ func (b *InMemoryBackend) DeleteTenantResourceAssociation(tenantName, resourceAr
 func (b *InMemoryBackend) ListResourceTenants(
 	resourceArn, nextToken string,
 	pageSize int,
-) ([]map[string]any, string, error) {
+) ([]resourceTenantOutput, string, error) {
 	b.mu.RLock("ListResourceTenants")
 
 	names := b.resourceTenants[resourceArn]
 
-	out := make([]map[string]any, 0, len(names))
+	all := make([]map[string]any, 0, len(names))
 
 	for _, n := range names {
 		item := map[string]any{
@@ -209,14 +213,24 @@ func (b *InMemoryBackend) ListResourceTenants(
 			}
 		}
 
-		out = append(out, item)
+		all = append(all, item)
 	}
 
 	b.mu.RUnlock()
 
-	sortMapsByStringKey(out, keyTenantName)
+	sortMapsByStringKey(all, keyTenantName)
 
-	return paginateMaps(out, nextToken, pageSize, keyTenantName)
+	page, next, err := paginateMaps(all, nextToken, pageSize, keyTenantName)
+	if err != nil {
+		return nil, "", err
+	}
+
+	out := make([]resourceTenantOutput, 0, len(page))
+	for _, t := range page {
+		out = append(out, toResourceTenantOutput(t))
+	}
+
+	return out, next, nil
 }
 
 // ListTenantResources lists the resources associated with a tenant, matching
@@ -227,14 +241,14 @@ func (b *InMemoryBackend) ListTenantResources(
 	filter map[string]string,
 	nextToken string,
 	pageSize int,
-) ([]map[string]any, string, error) {
+) ([]tenantResourceOutput, string, error) {
 	b.mu.RLock("ListTenantResources")
 	arns := b.tenantResources[tenantName]
 	b.mu.RUnlock()
 
 	wantType := filter["RESOURCE_TYPE"]
 
-	out := make([]map[string]any, 0, len(arns))
+	all := make([]map[string]any, 0, len(arns))
 
 	for _, a := range arns {
 		rt := resourceTypeFromARN(a)
@@ -247,12 +261,22 @@ func (b *InMemoryBackend) ListTenantResources(
 			item[keyResourceType] = rt
 		}
 
-		out = append(out, item)
+		all = append(all, item)
 	}
 
-	sortMapsByStringKey(out, keyResourceArn)
+	sortMapsByStringKey(all, keyResourceArn)
 
-	return paginateMaps(out, nextToken, pageSize, keyResourceArn)
+	page, next, err := paginateMaps(all, nextToken, pageSize, keyResourceArn)
+	if err != nil {
+		return nil, "", err
+	}
+
+	out := make([]tenantResourceOutput, 0, len(page))
+	for _, t := range page {
+		out = append(out, toTenantResourceOutput(t))
+	}
+
+	return out, next, nil
 }
 
 // sortMapsByStringKey sorts a slice of response maps by a string-valued key

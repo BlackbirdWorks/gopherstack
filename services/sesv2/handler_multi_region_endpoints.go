@@ -36,10 +36,7 @@ func (h *Handler) handleCreateMultiRegionEndpoint(c *echo.Context) (any, error) 
 		return nil, err
 	}
 
-	return map[string]any{
-		keyEndpointID: result[keyEndpointID],
-		keyStatus:     result[keyStatus],
-	}, nil
+	return result, nil
 }
 
 func (h *Handler) handleGetMultiRegionEndpoint(name string) (any, error) {
