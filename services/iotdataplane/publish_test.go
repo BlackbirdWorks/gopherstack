@@ -29,15 +29,21 @@ func TestHandler_PublishEmptyTopic(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// mockMQTTPublisher implements MQTTPublisher for testing.
+// mockMQTTPublisher implements MQTTPublisher for testing. retain/qos are
+// captured (not just topic/payload) so tests can assert on them too -- e.g.
+// SendDirectMessage's confirmation-to-QoS mapping.
 type mockMQTTPublisher struct {
 	topic   string
 	payload []byte
+	qos     byte
+	retain  bool
 }
 
-func (m *mockMQTTPublisher) Publish(topic string, payload []byte, _ bool, _ byte) error {
+func (m *mockMQTTPublisher) Publish(topic string, payload []byte, retain bool, qos byte) error {
 	m.topic = topic
 	m.payload = payload
+	m.retain = retain
+	m.qos = qos
 
 	return nil
 }

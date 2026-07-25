@@ -5,10 +5,10 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: iotdataplane
-sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.32.20
-last_audit_commit: b88208cbf
-last_audit_date: 2026-07-24
-overall: A            # genuine fixes found and verified against SDK source + AWS docs
+sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.35.0   # bumped from v1.32.20; +3 new ops (device connection/messaging introspection)
+last_audit_commit: 058bf0373   # HEAD when this manifest was written (parity-4 branch, pre-commit of this pass)
+last_audit_date: 2026-07-25
+overall: A-           # downgraded from A: 2 new ops are honest but functionally thin (see gaps) -- nothing fabricated, but ListSubscriptions is unconditionally empty and SendDirectMessage doesn't truly target a single client
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -20,11 +20,17 @@ ops:
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL AWS op restored to its real wire path DELETE /connections/{clientId} (was regressed to /_admin/-only in a prior 'AWS-accuracy' pass); admin alias kept for test convenience; now returns ResourceNotFoundException (was an unconditional no-op) when clientId has no tracked connection -- real AWS models this error for DeleteConnection"}
   GetRetainedMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "response now includes userProperties (base64, null when unset) -- was missing entirely; confirmed against GetRetainedMessageOutput"}
   ListRetainedMessages: {wire: ok, errors: ok, state: ok, persist: ok, note: "summary now includes qos -- a prior audit incorrectly asserted RetainedMessageSummary excludes qos; the real deserializer (awsRestjson1_deserializeDocumentRetainedMessageSummary) proves it's present"}
+  GetConnection: {wire: ok, errors: ok, state: partial, persist: ok, note: "NEW op (GET /connections/{clientId}, real path field-diffed against serializers.go/deserializers.go). Reuses the same connections table DeleteConnection already tracks (gopherstack-only RegisterConnection admin extension) -- an untracked clientId is ResourceNotFoundException (matches the real op's modeled error), a tracked one returns connected:true/clientId/connectedSince genuinely. cleanSession/disconnectReason/disconnectedSince/keepAliveDuration/sessionExpiry/sourcePort/targetIp/targetPort/thingName/vpcEndpointId have no real backing data in this emulator and are omitted from the response (not fabricated as zero values) -- see gaps"}
+  ListSubscriptions: {wire: ok, errors: ok, state: gap, persist: n/a, note: "NEW op (GET /connections/{clientId}/subscriptions). Errors/not-found semantics reuse the connections table (consistent with GetConnection/DeleteConnection). subscriptions is unconditionally empty: gopherstack tracks no per-client MQTT subscription state anywhere reachable from this package -- see gaps for why the real data (which does exist in the mochi-mqtt broker) couldn't be wired up this pass"}
+  SendDirectMessage: {wire: ok, errors: ok, state: partial, persist: n/a, note: "NEW op (POST /connections/{clientId}/messages, field-diffed against serializers.go's awsRestjson1_serializeOpHttpBindingsSendDirectMessageInput). Validates clientId/topic exactly like GetConnection/Publish and returns ResourceNotFoundException for an untracked clientId (413 RequestEntityTooLargeException on oversized payload -- unlike Publish, this IS modeled for SendDirectMessage, confirmed via its error case list). Delivers via the same broker-backed path as Publish rather than true per-client-targeted delivery -- see gaps"}
 families:
   admin-only-extensions: {status: ok, note: "RegisterConnection/ListConnections/ListThingsWithShadows have NO real AWS iotdataplane equivalent (confirmed against the SDK's op file listing); correctly confined to gopherstack-only paths (/_admin/connections, /api/things/shadow/ListThingsWithShadows) so they cannot shadow real AWS traffic"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "Publish with no MQTT broker wired logs a warning and silently drops the message (ErrNoBroker path in backend.go Publish()). This is intentional degradation, not a disguised no-op -- when a broker IS wired (see cli.go startup, out of scope for this service-only pass) the message is delivered for real, retain/qos forwarded. Additionally, the MQTTPublisher interface (services/iotdataplane/interfaces.go) only carries topic/payload/retain/qos -- contentType/correlationData/messageExpiry/payloadFormatIndicator/responseTopic are parsed and validated at the HTTP layer but never reach live MQTT subscribers, since forwarding them would require extending MQTTPublisher and its only real implementation (services/iot/broker.go, backed by mochi-mqtt), which is outside this service's own scope. No AWS-modeled response surface within iotdataplane echoes these fields back (GetRetainedMessageOutput only carries userProperties, which IS wired through), so this has no other observable wire-parity impact. No further work identified without cross-service broker changes."
   - "UnsupportedDocumentEncodingException (real AWS error, modeled for GetThingShadow/DeleteThingShadow/UpdateThingShadow) is never returned -- no Content-Encoding-based validation exists. Left unimplemented: re-verified this pass via targeted web search (AWS API reference, boto3 docs) and still found no documented trigger condition (e.g. which Content-Encoding values are rejected, or whether it's Accept-Encoding-driven). Speculative validation risks a wrong-shape fix. Candidate for a future audit pass with real-AWS verification first (e.g. a live AWS account probe)."
+  - "ListSubscriptions always returns an empty subscriptions array, even for a tracked/connected client. Real per-client subscription state DOES exist elsewhere in the repo -- the mochi-mqtt broker (services/iot/broker.go, github.com/mochi-mqtt/server/v2) tracks each client's live subscriptions in cl.State.Subscriptions -- but it is not reachable from this package: the MQTTPublisher interface (interfaces.go) this backend depends on only exposes topic-broadcast Publish(), and extending it to expose subscription queries would require changing services/iot/broker.go (out of scope for this pass; that directory was explicitly off-limits). Returning an honestly empty list for a genuinely-tracked client was chosen over fabricating topic filters. Candidate follow-up: add a ListSubscriptions(clientID) method to MQTTPublisher backed by Broker.server.Load().Clients.Get(clientID).State.Subscriptions, then have InMemoryBackend.ListSubscriptions call through it when a broker is wired."
+  - "SendDirectMessage delivers by broadcasting on the target topic through the same broker-backed path as Publish, not by sending directly to the named client the way real AWS does. Real SendDirectMessage explicitly does not require the receiving client to be subscribed to the topic (\"the receiving client does not need to subscribe to the topic\"); gopherstack's only broker primitive (MQTTPublisher.Publish, backed by mochi-mqtt's s.Publish) has no per-client-addressed send, so a client that isn't subscribed to the given topic will NOT observe a SendDirectMessage the way it would against real AWS. This is a deliberate, documented choice (wiring into the real delivery path so at least topic-subscribers observe it, rather than writing to a dead-end store no caller could ever observe) -- see InMemoryBackend.SendDirectMessage's doc comment. Fixing this for real would need mochi-mqtt's client-targeted write path (s.Clients.Get(clientID) + a raw PUBLISH write), which lives in services/iot/broker.go, out of scope here. confirmation/timeout (real AWS: wait for a QoS-1 PUBACK, HTTP 504 on timeout) select QoS 0-vs-1 on the outgoing publish but never actually block or time out, since MQTTPublisher.Publish is synchronous/fire-and-forget with no ack channel."
+  - "GetConnection omits cleanSession/disconnectReason/disconnectedSince/keepAliveDuration/sessionExpiry/sourcePort/targetIp/targetPort/thingName/vpcEndpointId from its response for every client, tracked or not -- gopherstack's connections table (populated only by the gopherstack-only RegisterConnection admin extension) never had this data to begin with (no real MQTT CONNECT packet is parsed anywhere in this service). Omitted (not zero-valued) so a real SDK client decodes these exactly as if the server had never observed them, which is wire-compatible even though it under-reports what a live AWS endpoint would return."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Chaos fault-injection paths (ChaosServiceName/ChaosOperations) -- not part of AWS wire surface, no parity concern."
 leaks: {status: clean, note: "no goroutines/timers introduced; tombstone rows are bounded by the same lifecycle as live shadow rows (same store.Table, same Reset/Snapshot/Restore path); removing the maxShadowsPerThing cap does not introduce unbounded growth risk beyond what already existed (shadows were never capped process-wide, only per-thing, and the per-thing cap had no eviction/GC of its own -- it only returned an error)"}
@@ -194,3 +200,62 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
   no fields that would surface a difference either way, so this is left as an
   accepted no-op akin to the Publish/broker gap, not tracked as a separate
   gap entry since it has zero observable wire impact.
+
+- **New family this pass: device connection/messaging introspection**
+  (`GetConnection`, `ListSubscriptions`, `SendDirectMessage` -- SDK bumped to
+  `v1.35.0`, `+3` ops). All three are real, published AWS iotdataplane
+  operations rooted at `/connections/{clientId}` (confirmed via
+  `api_op_{GetConnection,ListSubscriptions,SendDirectMessage}.go` and their
+  serializers). Routing required generalizing the old
+  `isDeleteConnectionPath`/`extractConnectionClientID` DELETE-only helpers
+  (`handler.go`) into `splitConnectionsWirePath`/`connectionsWireOperation`,
+  which classify any `/connections/{clientId}[/subscriptions|/messages]`
+  method+path combination into the right op (or `""` for the one
+  non-AWS combination that must keep 404ing: bare `POST
+  /connections/{clientId}`, which is `RegisterConnection`'s territory and
+  only exists at `/_admin/connections/{clientId}`).
+
+- **Real-state survey (why the grade moved to A-, not why it stayed A):**
+  this service already had one piece of genuine, if gopherstack-only,
+  connection state -- the `connections` table, populated exclusively via the
+  `RegisterConnection` admin extension (see `admin-only-extensions`) and
+  already used by `DeleteConnection` for its 404 semantics. `GetConnection`
+  reuses this table honestly: a registered client's `connected`/`clientId`/
+  `connectedSince` are real, tracked values, not fabricated, and an
+  unregistered client correctly 404s. But this repo's *other* candidate
+  source of real state -- `services/iot`'s `mochi-mqtt`-backed broker, which
+  genuinely tracks live subscriptions per client
+  (`cl.State.Subscriptions` in `github.com/mochi-mqtt/server/v2`) -- is not
+  reachable from `iotdataplane` without extending the `MQTTPublisher`
+  interface boundary and its only implementation, `services/iot/broker.go`,
+  which this pass was explicitly barred from touching (a concurrent agent's
+  scope). That is a real, structural limitation, not a shortcut: it's why
+  `ListSubscriptions` is unconditionally empty and why `SendDirectMessage`
+  broadcasts on-topic instead of truly addressing one client. Both are
+  documented in `gaps` with the exact follow-up (a `ListSubscriptions`/
+  client-targeted-write method on `MQTTPublisher`, backed by
+  `Broker.server.Load().Clients.Get(clientID)`) for whenever `services/iot`
+  is back in scope.
+
+- **`GetConnection`/`ListSubscriptions`/`SendDirectMessage` share
+  `ErrConnectionNotFound`** (`errors.go`) with `DeleteConnection` rather than
+  inventing per-op not-found errors: all four ops are modeled with
+  `ResourceNotFoundException` in their real error case lists
+  (`deserializers.go`), and gopherstack's one and only concept of "is this
+  clientId connected" is the same `connections` table for all of them --
+  reusing the sentinel keeps that consistent instead of accidentally
+  diverging.
+
+- **`SendDirectMessage`'s `RequestEntityTooLargeException` is real, unlike
+  `Publish`'s**: confirmed via `awsRestjson1_deserializeOpErrorSendDirectMessage`'s
+  case list (`GatewayTimeoutException`, `RequestEntityTooLargeException`,
+  `UnauthorizedException` are modeled here but *not* on `Publish`'s case
+  list -- see the existing "Real error codes per op" note above). Reused
+  the existing `ErrRequestTooLarge` sentinel (413) for an oversized message
+  body, capped at the same `maxPublishBodyBytes` (128KB) as `Publish`, since
+  AWS IoT Core doesn't document a different MQTT/HTTP payload limit specific
+  to `SendDirectMessage`. `GatewayTimeoutException`/`UnauthorizedException`
+  are left unimplemented: the former needs real PUBACK-wait semantics this
+  emulator's fire-and-forget broker interface can't provide (see gaps), and
+  the latter has no IAM/permission model in this service to ever trigger it
+  -- both are genuine impossibilities given current scope, not oversights.

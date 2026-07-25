@@ -21,6 +21,9 @@ type StorageBackend interface {
 	RegisterConnection(clientID, sourceIP string) error
 	DeleteConnection(clientID string) error
 	ListConnections() []*Connection
+	GetConnection(clientID string) (*Connection, error)
+	ListSubscriptions(clientID string) error
+	SendDirectMessage(clientID, topic string, payload []byte, qos int32) error
 	StoreRetainedMessage(topic string, payload []byte, qos int32, userProperties []byte) error
 	GetRetainedMessage(topic string) (*RetainedMessage, error)
 	ListRetainedMessages() ([]*RetainedMessage, error)
