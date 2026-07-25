@@ -10,6 +10,8 @@ import (
 	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
 // TestLakeFormationDashboard verifies the Lake Formation dashboard UI renders resource data.
@@ -19,6 +21,7 @@ func TestLakeFormationDashboard(t *testing.T) {
 	err := stack.LakeFormationHandler.Backend.RegisterResource(
 		"arn:aws:s3:::e2e-test-bucket",
 		"arn:aws:iam::000000000000:role/e2e-test-role",
+		lakeformation.RegisterResourceOptions{},
 	)
 	require.NoError(t, err)
 
