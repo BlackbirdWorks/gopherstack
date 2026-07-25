@@ -470,13 +470,13 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Batch](services/batch/README.md) | A | 39 | 2 gaps |
 | [EC2](services/ec2/README.md) | A | — | 9 families; 6 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 46 | 3 gaps; 3 deferred |
-| [Lambda](services/lambda/README.md) | A- | — | 7 families; 1 gap |
+| [Lambda](services/lambda/README.md) | A | — | 7 families |
 
 ### Containers
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [ECR](services/ecr/README.md) | B+ | 58 | 7 gaps; 2 deferred |
+| [ECR](services/ecr/README.md) | A | 58 | 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 8 gaps; 3 deferred |
 | [EKS](services/eks/README.md) | A | 65 | 3 gaps; 1 deferred |
 
@@ -488,7 +488,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | 3 gaps |
 | [EFS](services/efs/README.md) | A | 31 | 2 gaps; 2 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 5 gaps |
-| [S3](services/s3/README.md) | B+ | 5 | 4 gaps |
+| [S3](services/s3/README.md) | A | 7 | 4 gaps |
 | [S3 Control](services/s3control/README.md) | A | 45 | 4 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | clean |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 2 gaps |
@@ -500,13 +500,13 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DAX](services/dax/README.md) | A | 22 | 1 deferred |
 | [DocumentDB](services/docdb/README.md) | A | 55 | 1 deferred |
 | [DynamoDB](services/dynamodb/README.md) | A | — | 7 families; 2 deferred |
-| [DynamoDB Streams](services/dynamodbstreams/README.md) | B | 4 | 2 gaps; 1 deferred |
-| [ElastiCache](services/elasticache/README.md) | A- | 75 | 2 deferred |
+| [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
+| [ElastiCache](services/elasticache/README.md) | A | 75 | 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 46 | 3 gaps; 3 deferred |
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A- | 48 | 5 gaps; 1 deferred |
+| [RDS](services/rds/README.md) | A | 48 | clean |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 2 gaps |
 | [Redshift](services/redshift/README.md) | A | 5 | clean |
 | [Redshift Data](services/redshiftdata/README.md) | A | 11 | 7 gaps; 1 deferred |
@@ -537,12 +537,12 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amazon MQ](services/mq/README.md) | A | 24 | 4 gaps; 1 deferred |
 | [AppSync](services/appsync/README.md) | A | 75 | 3 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 59 | 2 deferred |
-| [EventBridge Pipes](services/pipes/README.md) | B | 10 | 2 gaps |
+| [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | clean |
 | [Pinpoint](services/pinpoint/README.md) | A | 35 | 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 6 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 110 | clean |
-| [SNS](services/sns/README.md) | B | 27 | 3 gaps; 2 deferred |
+| [SNS](services/sns/README.md) | A | 27 | 2 deferred |
 | [SQS](services/sqs/README.md) | A | 18 | 2 gaps; 3 deferred |
 | [SWF](services/swf/README.md) | A | 39 | 4 gaps; 1 deferred |
 | [Step Functions](services/stepfunctions/README.md) | A | 28 | 6 gaps |
@@ -598,8 +598,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 2 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 55 | 4 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
-| [Identity Store](services/identitystore/README.md) | A- | 19 | 5 gaps; 1 deferred |
-| [STS](services/sts/README.md) | B | 11 | 1 gap; 2 deferred |
+| [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
+| [STS](services/sts/README.md) | A | 11 | 1 gap; 1 deferred |
 
 ### Management & Governance
 
@@ -622,7 +622,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Resource Access Manager](services/ram/README.md) | A | 37 | 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 2 gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 3 gaps; 2 deferred |
-| [Systems Manager](services/ssm/README.md) | A- | 73 | 7 gaps |
+| [Systems Manager](services/ssm/README.md) | A | 74 | 3 gaps |
 
 ### Developer Tools
 
@@ -630,7 +630,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | clean |
 | [CodeArtifact](services/codeartifact/README.md) | A | 48 | 6 gaps; 3 deferred |
-| [CodeBuild](services/codebuild/README.md) | A- | 59 | 1 deferred |
+| [CodeBuild](services/codebuild/README.md) | A | 59 | 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 3 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 1 gap |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 2 gaps; 2 deferred |
@@ -664,7 +664,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [MediaConvert](services/mediaconvert/README.md) | A | 34 | 1 gap; 1 deferred |
 | [MediaLive](services/medialive/README.md) | A | — | 3 gaps |
 | [MediaPackage](services/mediapackage/README.md) | A | 19 | 1 gap; 1 deferred |
-| [MediaStore](services/mediastore/README.md) | B | 21 | 3 gaps |
+| [MediaStore](services/mediastore/README.md) | A | 21 | clean |
 | [MediaStore Data](services/mediastoredata/README.md) | A | 5 | 3 gaps; 1 deferred |
 | [MediaTailor](services/mediatailor/README.md) | A | 48 | clean |
 
@@ -673,7 +673,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 3 gaps |
-| [IoT Core](services/iot/README.md) | B+ | 45 | 4 deferred |
+| [IoT Core](services/iot/README.md) | A | 74 | clean |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 8 | 2 gaps; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 12 | 2 gaps |
 
