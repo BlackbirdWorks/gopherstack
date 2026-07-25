@@ -139,6 +139,7 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 	}
 
 	b.deleteDeployedConfigsLocked(func(appID, _, _ string) bool { return appID == applicationID })
+	b.deleteExperimentDefinitionsForAppLocked(applicationID)
 
 	b.applications.Delete(applicationID)
 	delete(b.versionCounters, applicationID)

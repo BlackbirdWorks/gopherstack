@@ -27,6 +27,7 @@ const (
 	opCreateConfigurationProfile       = "CreateConfigurationProfile"
 	opCreateDeploymentStrategy         = "CreateDeploymentStrategy"
 	opCreateEnvironment                = "CreateEnvironment"
+	opCreateExperimentDefinition       = "CreateExperimentDefinition"
 	opCreateExtension                  = "CreateExtension"
 	opCreateExtensionAssociation       = "CreateExtensionAssociation"
 	opCreateHostedConfigurationVersion = "CreateHostedConfigurationVersion"
@@ -34,6 +35,7 @@ const (
 	opDeleteConfigurationProfile       = "DeleteConfigurationProfile"
 	opDeleteDeploymentStrategy         = "DeleteDeploymentStrategy"
 	opDeleteEnvironment                = "DeleteEnvironment"
+	opDeleteExperimentDefinition       = "DeleteExperimentDefinition"
 	opDeleteExtension                  = "DeleteExtension"
 	opDeleteExtensionAssociation       = "DeleteExtensionAssociation"
 	opDeleteHostedConfigurationVersion = "DeleteHostedConfigurationVersion"
@@ -44,6 +46,8 @@ const (
 	opGetDeployment                    = "GetDeployment"
 	opGetDeploymentStrategy            = "GetDeploymentStrategy"
 	opGetEnvironment                   = "GetEnvironment"
+	opGetExperimentDefinition          = "GetExperimentDefinition"
+	opGetExperimentRun                 = "GetExperimentRun"
 	opGetExtension                     = "GetExtension"
 	opGetExtensionAssociation          = "GetExtensionAssociation"
 	opGetHostedConfigurationVersion    = "GetHostedConfigurationVersion"
@@ -52,12 +56,17 @@ const (
 	opListDeploymentStrategies         = "ListDeploymentStrategies"
 	opListDeployments                  = "ListDeployments"
 	opListEnvironments                 = "ListEnvironments"
+	opListExperimentDefinitions        = "ListExperimentDefinitions"
+	opListExperimentRunEvents          = "ListExperimentRunEvents"
+	opListExperimentRuns               = "ListExperimentRuns"
 	opListExtensionAssociations        = "ListExtensionAssociations"
 	opListExtensions                   = "ListExtensions"
 	opListHostedConfigurationVersions  = "ListHostedConfigurationVersions"
 	opListTagsForResource              = "ListTagsForResource"
 	opStartDeployment                  = "StartDeployment"
+	opStartExperimentRun               = "StartExperimentRun"
 	opStopDeployment                   = "StopDeployment"
+	opStopExperimentRun                = "StopExperimentRun"
 	opTagResource                      = "TagResource"
 	opUntagResource                    = "UntagResource"
 	opUpdateAccountSettings            = "UpdateAccountSettings"
@@ -65,6 +74,8 @@ const (
 	opUpdateConfigurationProfile       = "UpdateConfigurationProfile"
 	opUpdateDeploymentStrategy         = "UpdateDeploymentStrategy"
 	opUpdateEnvironment                = "UpdateEnvironment"
+	opUpdateExperimentDefinition       = "UpdateExperimentDefinition"
+	opUpdateExperimentRun              = "UpdateExperimentRun"
 	opUpdateExtension                  = "UpdateExtension"
 	opUpdateExtensionAssociation       = "UpdateExtensionAssociation"
 	opValidateConfiguration            = "ValidateConfiguration"
@@ -74,11 +85,12 @@ const (
 	appConfigMatchPriority = 86
 
 	// pathParts* constants define the expected segment counts for route matching.
-	pathPartsBase      = 2 // /resource/{id}
-	pathPartsSubLevel  = 3 // /applications/{id}/subresource
-	pathPartsSubItem   = 4 // /applications/{id}/subresource/{subId}
-	pathPartsDeepLevel = 5 // /applications/{id}/subresource/{subId}/nested
-	pathPartsDeepItem  = 6 // /applications/{id}/subresource/{subId}/nested/{nestedId}
+	pathPartsBase       = 2 // /resource/{id}
+	pathPartsSubLevel   = 3 // /applications/{id}/subresource
+	pathPartsSubItem    = 4 // /applications/{id}/subresource/{subId}
+	pathPartsDeepLevel  = 5 // /applications/{id}/subresource/{subId}/nested
+	pathPartsDeepItem   = 6 // /applications/{id}/subresource/{subId}/nested/{nestedId}
+	pathPartsDeeperItem = 7 // /applications/{id}/subresource/{subId}/nested/{nestedId}/action
 
 	// maxHostedConfigurationVersionBytes caps the request-body size accepted by
 	// CreateHostedConfigurationVersion. AWS AppConfig allows hosted configuration
@@ -147,6 +159,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateAccountSettings,
 		opGetConfiguration,
 		opValidateConfiguration,
+		opCreateExperimentDefinition,
+		opGetExperimentDefinition,
+		opListExperimentDefinitions,
+		opUpdateExperimentDefinition,
+		opDeleteExperimentDefinition,
+		opStartExperimentRun,
+		opGetExperimentRun,
+		opListExperimentRuns,
+		opUpdateExperimentRun,
+		opStopExperimentRun,
+		opListExperimentRunEvents,
 	}
 }
 
@@ -173,6 +196,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/deployementstrategies") ||
 			strings.HasPrefix(path, "/extensions") ||
 			strings.HasPrefix(path, "/extensionassociations") ||
+			// ListExperimentDefinitions alone is account-wide (not nested
+			// under /applications/{id}) -- every other experiment
+			// definition/run route IS under /applications and is already
+			// covered by the prefix above.
+			strings.HasPrefix(path, "/experimentdefinitions") ||
 			path == "/settings" ||
 			strings.HasPrefix(path, "/tags/arn:aws:appconfig:")
 	}
@@ -208,9 +236,11 @@ type appConfigRoute struct {
 	extensionID            string
 	extensionAssociationID string
 	configurationID        string
+	experimentDefinitionID string
 	operation              string
 	versionNumber          int32
 	deploymentNum          int32
+	experimentRunNumber    int32
 }
 
 // parseAppConfigPath parses an HTTP method and URL path into an appConfigRoute,
@@ -235,6 +265,15 @@ func parseAppConfigPath(method, path string) appConfigRoute {
 		return parseExtensionRoute(method, parts)
 	case "extensionassociations":
 		return parseExtensionAssociationRoute(method, parts)
+	case "experimentdefinitions":
+		// The account-wide ListExperimentDefinitions route
+		// ("/experimentdefinitions", no application prefix) -- every other
+		// experiment definition/run route is nested under
+		// "/applications/{id}/experimentdefinitions" and is handled by
+		// parseApplicationRoute -> parseExperimentDefinitionRoute instead.
+		if len(parts) == 1 && method == http.MethodGet {
+			return appConfigRoute{operation: opListExperimentDefinitions}
+		}
 	case "settings":
 		if len(parts) == 1 {
 			switch method {
@@ -379,6 +418,8 @@ func parseApplicationRoute(method string, parts []string) appConfigRoute {
 		return parseEnvironmentRoute(method, appID, parts)
 	case "configurationprofiles":
 		return parseConfigProfileRoute(method, appID, parts)
+	case "experimentdefinitions":
+		return parseExperimentDefinitionRoute(method, appID, parts)
 	}
 
 	return appConfigRoute{applicationID: appID, operation: opUnknown}
@@ -627,6 +668,126 @@ func parseHostedVersionRoute(method, appID, profileID string, parts []string) ap
 	}
 }
 
+// parseExperimentDefinitionRoute parses routes under
+// /applications/{appId}/experimentdefinitions. Unlike every sibling
+// sub-resource in this file there is no GET at the collection level here:
+// real ListExperimentDefinitions is account-wide ("/experimentdefinitions",
+// no application prefix -- see the top-level "experimentdefinitions" case
+// in parseAppConfigPath), so only POST (create) is valid at len(parts)==3.
+func parseExperimentDefinitionRoute(method, appID string, parts []string) appConfigRoute {
+	if len(parts) == pathPartsSubLevel {
+		if method == http.MethodPost {
+			return appConfigRoute{applicationID: appID, operation: opCreateExperimentDefinition}
+		}
+
+		return appConfigRoute{applicationID: appID, operation: opUnknown}
+	}
+
+	defID := parts[3]
+
+	if len(parts) == pathPartsSubItem {
+		return parseExperimentDefinitionIDRoute(method, appID, defID)
+	}
+
+	if len(parts) >= pathPartsDeepLevel && parts[4] == "experimentruns" {
+		return parseExperimentRunRoute(method, appID, defID, parts)
+	}
+
+	return appConfigRoute{applicationID: appID, experimentDefinitionID: defID, operation: opUnknown}
+}
+
+func parseExperimentDefinitionIDRoute(method, appID, defID string) appConfigRoute {
+	base := appConfigRoute{applicationID: appID, experimentDefinitionID: defID}
+
+	switch method {
+	case http.MethodGet:
+		base.operation = opGetExperimentDefinition
+	case http.MethodPatch:
+		base.operation = opUpdateExperimentDefinition
+	case http.MethodDelete:
+		base.operation = opDeleteExperimentDefinition
+	default:
+		base.operation = opUnknown
+	}
+
+	return base
+}
+
+// parseExperimentRunRoute parses routes under
+// /applications/{appId}/experimentdefinitions/{defId}/experimentruns.
+func parseExperimentRunRoute(method, appID, defID string, parts []string) appConfigRoute {
+	base := appConfigRoute{applicationID: appID, experimentDefinitionID: defID}
+
+	if len(parts) == pathPartsDeepLevel {
+		return parseExperimentRunListRoute(method, base)
+	}
+
+	runNum, err := strconv.ParseInt(parts[5], 10, 32)
+	if err != nil {
+		base.operation = opUnknown
+
+		return base
+	}
+
+	base.experimentRunNumber = int32(runNum)
+
+	switch {
+	case len(parts) == pathPartsDeepItem:
+		return parseExperimentRunIDRoute(method, base)
+	case len(parts) == pathPartsDeeperItem:
+		return parseExperimentRunActionRoute(method, parts[6], base)
+	default:
+		base.operation = opUnknown
+
+		return base
+	}
+}
+
+// parseExperimentRunListRoute parses
+// .../experimentruns (no run number): POST starts a new run, GET lists them.
+func parseExperimentRunListRoute(method string, base appConfigRoute) appConfigRoute {
+	switch method {
+	case http.MethodPost:
+		base.operation = opStartExperimentRun
+	case http.MethodGet:
+		base.operation = opListExperimentRuns
+	default:
+		base.operation = opUnknown
+	}
+
+	return base
+}
+
+// parseExperimentRunIDRoute parses .../experimentruns/{run} (GET only --
+// stop/update are separate action-suffixed paths, see
+// parseExperimentRunActionRoute).
+func parseExperimentRunIDRoute(method string, base appConfigRoute) appConfigRoute {
+	if method == http.MethodGet {
+		base.operation = opGetExperimentRun
+	} else {
+		base.operation = opUnknown
+	}
+
+	return base
+}
+
+// parseExperimentRunActionRoute parses
+// .../experimentruns/{run}/{stop|update|events}.
+func parseExperimentRunActionRoute(method, action string, base appConfigRoute) appConfigRoute {
+	switch {
+	case method == http.MethodPatch && action == "stop":
+		base.operation = opStopExperimentRun
+	case method == http.MethodPatch && action == "update":
+		base.operation = opUpdateExperimentRun
+	case method == http.MethodGet && action == "events":
+		base.operation = opListExperimentRunEvents
+	default:
+		base.operation = opUnknown
+	}
+
+	return base
+}
+
 // appConfigDispatchFn is the function signature for AppConfig dispatch handlers.
 type appConfigDispatchFn func(*Handler, *echo.Context, appConfigRoute) error
 
@@ -768,6 +929,39 @@ var appConfigDispatch = map[string]appConfigDispatchFn{
 	},
 	opValidateConfiguration: func(h *Handler, c *echo.Context, r appConfigRoute) error {
 		return h.handleValidateConfiguration(c, r.applicationID, r.profileID)
+	},
+	opCreateExperimentDefinition: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleCreateExperimentDefinition(c, r.applicationID)
+	},
+	opGetExperimentDefinition: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetExperimentDefinition(c, r.applicationID, r.experimentDefinitionID)
+	},
+	opListExperimentDefinitions: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleListExperimentDefinitions(c)
+	},
+	opUpdateExperimentDefinition: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleUpdateExperimentDefinition(c, r.applicationID, r.experimentDefinitionID)
+	},
+	opDeleteExperimentDefinition: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleDeleteExperimentDefinition(c, r.applicationID, r.experimentDefinitionID)
+	},
+	opStartExperimentRun: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleStartExperimentRun(c, r.applicationID, r.experimentDefinitionID)
+	},
+	opGetExperimentRun: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetExperimentRun(c, r.applicationID, r.experimentDefinitionID, r.experimentRunNumber)
+	},
+	opListExperimentRuns: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleListExperimentRuns(c, r.applicationID, r.experimentDefinitionID)
+	},
+	opUpdateExperimentRun: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleUpdateExperimentRun(c, r.applicationID, r.experimentDefinitionID, r.experimentRunNumber)
+	},
+	opStopExperimentRun: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleStopExperimentRun(c, r.applicationID, r.experimentDefinitionID, r.experimentRunNumber)
+	},
+	opListExperimentRunEvents: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleListExperimentRunEvents(c, r.applicationID, r.experimentDefinitionID, r.experimentRunNumber)
 	},
 }
 

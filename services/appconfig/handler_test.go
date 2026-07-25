@@ -83,6 +83,17 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 		"UpdateExtensionAssociation",
 		"UpdateAccountSettings",
 		"ValidateConfiguration",
+		"CreateExperimentDefinition",
+		"GetExperimentDefinition",
+		"ListExperimentDefinitions",
+		"UpdateExperimentDefinition",
+		"DeleteExperimentDefinition",
+		"StartExperimentRun",
+		"GetExperimentRun",
+		"ListExperimentRuns",
+		"UpdateExperimentRun",
+		"StopExperimentRun",
+		"ListExperimentRunEvents",
 	}
 
 	for _, op := range want {
@@ -125,6 +136,12 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		{name: "extensionassociations prefix", path: "/extensionassociations", want: true},
 		{name: "extensionassociations with id", path: "/extensionassociations/assoc-1", want: true},
 		{name: "settings", path: "/settings", want: true},
+		{name: "experimentdefinitions prefix (account-wide list)", path: "/experimentdefinitions", want: true},
+		{
+			name: "application-scoped experimentdefinitions",
+			path: "/applications/app-1/experimentdefinitions/def-1/experimentruns/1/stop",
+			want: true,
+		},
 		{name: "not matched", path: "/restapis/something", want: false},
 		{name: "dashboard", path: "/dashboard/appconfig", want: false},
 	}
@@ -221,6 +238,72 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/applications/app-1/configurationprofiles/profile-1/validators",
 			want:   "ValidateConfiguration",
+		},
+		{
+			name:   "create experiment definition",
+			method: http.MethodPost,
+			path:   "/applications/app-1/experimentdefinitions",
+			want:   "CreateExperimentDefinition",
+		},
+		{
+			name:   "get experiment definition",
+			method: http.MethodGet,
+			path:   "/applications/app-1/experimentdefinitions/def-1",
+			want:   "GetExperimentDefinition",
+		},
+		{
+			name:   "update experiment definition",
+			method: http.MethodPatch,
+			path:   "/applications/app-1/experimentdefinitions/def-1",
+			want:   "UpdateExperimentDefinition",
+		},
+		{
+			name:   "delete experiment definition",
+			method: http.MethodDelete,
+			path:   "/applications/app-1/experimentdefinitions/def-1",
+			want:   "DeleteExperimentDefinition",
+		},
+		{
+			name:   "list experiment definitions (account-wide)",
+			method: http.MethodGet,
+			path:   "/experimentdefinitions",
+			want:   "ListExperimentDefinitions",
+		},
+		{
+			name:   "start experiment run",
+			method: http.MethodPost,
+			path:   "/applications/app-1/experimentdefinitions/def-1/experimentruns",
+			want:   "StartExperimentRun",
+		},
+		{
+			name:   "list experiment runs",
+			method: http.MethodGet,
+			path:   "/applications/app-1/experimentdefinitions/def-1/experimentruns",
+			want:   "ListExperimentRuns",
+		},
+		{
+			name:   "get experiment run",
+			method: http.MethodGet,
+			path:   "/applications/app-1/experimentdefinitions/def-1/experimentruns/1",
+			want:   "GetExperimentRun",
+		},
+		{
+			name:   "update experiment run",
+			method: http.MethodPatch,
+			path:   "/applications/app-1/experimentdefinitions/def-1/experimentruns/1/update",
+			want:   "UpdateExperimentRun",
+		},
+		{
+			name:   "stop experiment run",
+			method: http.MethodPatch,
+			path:   "/applications/app-1/experimentdefinitions/def-1/experimentruns/1/stop",
+			want:   "StopExperimentRun",
+		},
+		{
+			name:   "list experiment run events",
+			method: http.MethodGet,
+			path:   "/applications/app-1/experimentdefinitions/def-1/experimentruns/1/events",
+			want:   "ListExperimentRunEvents",
 		},
 	}
 

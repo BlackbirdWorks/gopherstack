@@ -29,4 +29,8 @@ var (
 	ErrConflict = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	// ErrPayloadTooLarge is returned when a hosted configuration version exceeds the maximum size.
 	ErrPayloadTooLarge = awserr.New("PayloadTooLargeException", awserr.ErrInvalidParameter)
+	// ErrExperimentDefinitionNotFound is returned when the requested experiment definition does not exist.
+	ErrExperimentDefinitionNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrExperimentRunNotFound is returned when the requested experiment run does not exist.
+	ErrExperimentRunNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )

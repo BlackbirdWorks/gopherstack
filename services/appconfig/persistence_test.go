@@ -72,6 +72,13 @@ type seedState struct {
 	deployment *appconfig.Deployment
 	ext        *appconfig.Extension
 	assoc      *appconfig.ExtensionAssociation
+	// expProfile is a second, feature-flag-typed ConfigurationProfile (the
+	// seeded profile above is AWS.Freeform, which CreateExperimentDefinition
+	// rejects) -- see experiment_definitions.go's featureFlagsProfileType
+	// check.
+	expProfile *appconfig.ConfigurationProfile
+	expDef     *appconfig.ExperimentDefinition
+	expRun     *appconfig.ExperimentRun
 }
 
 // seedFullState populates one instance of every store.Table-backed resource
@@ -124,6 +131,23 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	_, err = b.UpdateAccountSettings(&appconfig.DeletionProtectionSettings{Enabled: &enabled})
 	require.NoError(t, err)
 
+	expProfile, err := b.CreateConfigurationProfile(
+		app.ID, "flag-profile-1", "a feature flag profile", "hosted", "AWS.AppConfig.FeatureFlags", "", nil,
+	)
+	require.NoError(t, err)
+
+	expDef, err := b.CreateExperimentDefinition(
+		app.ID, "exp-def-1", env.ID, expProfile.ID, "flag1", "true", "everyone", "", "",
+		&appconfig.Treatment{FlagValue: &appconfig.FlagValue{Enabled: false}, Weight: 50},
+		[]appconfig.Treatment{{FlagValue: &appconfig.FlagValue{Enabled: true}, Weight: 50}},
+		nil,
+	)
+	require.NoError(t, err)
+
+	exposure := float32(10)
+	expRun, err := b.StartExperimentRun(app.ID, expDef.ID, "a run", &exposure, nil, nil)
+	require.NoError(t, err)
+
 	return seedState{
 		app:        app,
 		env:        env,
@@ -134,6 +158,9 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 		deployment: deployment,
 		ext:        ext,
 		assoc:      assoc,
+		expProfile: expProfile,
+		expDef:     expDef,
+		expRun:     expRun,
 	}
 }
 
@@ -161,6 +188,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assertHostedConfigVersionsRestored(t, fresh, seed)
 	assertDeploymentFamilyRestored(t, fresh, seed)
 	assertExtensionFamilyRestored(t, fresh, seed)
+	assertExperimentFamilyRestored(t, fresh, seed)
 	assertRawStateRestored(t, fresh, seed)
 	// Run last: deletes the seeded application, so nothing else may depend
 	// on app/env/profile/hcv/deployment state after this point.
@@ -199,7 +227,7 @@ func assertApplicationFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBack
 
 	profileItems, _, err := fresh.ListConfigurationProfiles(seed.app.ID, "", 0)
 	require.NoError(t, err)
-	assert.Len(t, profileItems, 1)
+	assert.Len(t, profileItems, 2, "seedFullState creates the freeform profile plus a feature-flag profile")
 }
 
 // assertApplicationCascadeDeleteRestored checks that DeleteApplication's
@@ -220,6 +248,8 @@ func assertApplicationCascadeDeleteRestored(t *testing.T, fresh *appconfig.InMem
 	require.Error(t, err)
 	_, err = fresh.GetDeployment(seed.app.ID, seed.env.ID, seed.deployment.DeploymentNumber)
 	require.Error(t, err)
+	_, err = fresh.GetExperimentDefinition(seed.app.ID, seed.expDef.ID)
+	require.Error(t, err, "DeleteApplication must cascade-delete experiment definitions too")
 }
 
 // assertHostedConfigVersionsRestored checks the composite-keyed
@@ -300,6 +330,49 @@ func assertExtensionFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacken
 
 	assocItems, _ := fresh.ListExtensionAssociations("", "", "", 0)
 	assert.Len(t, assocItems, 1)
+}
+
+// assertExperimentFamilyRestored checks the experiment definition and run
+// families, including that experimentDefinitionsByAppName was rebuilt (a
+// second Create with the same name is rejected), experimentRunCounters
+// survived (a run started post-restore does not collide with the seeded
+// run number), and the run's recorded event history (a plain map, not
+// store.Table-backed) round-tripped.
+func assertExperimentFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBackend, seed seedState) {
+	t.Helper()
+
+	gotDef, err := fresh.GetExperimentDefinition(seed.app.ID, seed.expDef.ID)
+	require.NoError(t, err)
+	assert.Equal(t, seed.expDef.Name, gotDef.Name)
+	assert.Equal(t, "ACTIVE", gotDef.Status, "the seeded run is still RUNNING, so the definition is ACTIVE")
+
+	_, err = fresh.CreateExperimentDefinition(
+		seed.app.ID, seed.expDef.Name, seed.env.ID, seed.expProfile.ID, "flag1", "true", "", "", "",
+		&appconfig.Treatment{FlagValue: &appconfig.FlagValue{Enabled: false}, Weight: 100},
+		[]appconfig.Treatment{{FlagValue: &appconfig.FlagValue{Enabled: true}, Weight: 100}},
+		nil,
+	)
+	require.Error(t, err, "byAppName index must have been rebuilt")
+
+	gotRun, err := fresh.GetExperimentRun(seed.app.ID, seed.expDef.ID, seed.expRun.Run)
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", gotRun.Status)
+
+	events, _, err := fresh.ListExperimentRunEvents(seed.app.ID, seed.expDef.ID, seed.expRun.Run, "", 0)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "RUN_STARTED", events[0].EventType)
+
+	// experimentRunCounters survived: since the seeded run is still
+	// RUNNING, starting a second run is rejected (StartExperimentRun
+	// allows only one RUNNING run per definition) -- stop it first, then
+	// verify the next run number is 2, not a reset-to-1 collision.
+	_, err = fresh.StopExperimentRun(seed.app.ID, seed.expDef.ID, seed.expRun.Run, nil)
+	require.NoError(t, err)
+
+	newRun, err := fresh.StartExperimentRun(seed.app.ID, seed.expDef.ID, "second run", nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, seed.expRun.Run+1, newRun.Run)
 }
 
 // assertRawStateRestored checks the plain tags map (populated via
