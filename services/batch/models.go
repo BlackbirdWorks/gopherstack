@@ -571,6 +571,53 @@ type SchedulingPolicy struct {
 	Name   string `json:"name"`
 }
 
+// QuotaShareCapacityLimit specifies the quantity and type of compute capacity
+// allocated to a quota share. See
+// aws-sdk-go-v2/service/batch/types.QuotaShareCapacityLimit -- both fields
+// are required on the real API.
+type QuotaShareCapacityLimit struct {
+	CapacityUnit string `json:"capacityUnit,omitempty"`
+	MaxCapacity  int32  `json:"maxCapacity,omitempty"`
+}
+
+// QuotaSharePreemptionConfiguration specifies the preemption behavior for
+// jobs in a quota share. See
+// aws-sdk-go-v2/service/batch/types.QuotaSharePreemptionConfiguration.
+type QuotaSharePreemptionConfiguration struct {
+	InSharePreemption string `json:"inSharePreemption,omitempty"`
+}
+
+// QuotaShareResourceSharingConfiguration specifies whether a quota share
+// reserves, lends, or both lends and borrows idle compute capacity. See
+// aws-sdk-go-v2/service/batch/types.QuotaShareResourceSharingConfiguration.
+type QuotaShareResourceSharingConfiguration struct {
+	Strategy    string `json:"strategy,omitempty"`
+	BorrowLimit int32  `json:"borrowLimit,omitempty"`
+}
+
+// QuotaShare represents a Batch quota share: a virtual queue with a
+// configured compute capacity, resource sharing strategy, and borrow limits,
+// associated with an existing JobQueue (see CreateQuotaShareInput's
+// required jobQueue field in aws-sdk-go-v2/service/batch). This is a
+// distinct top-level resource family from SchedulingPolicy/FairsharePolicy/
+// ShareIdentifier -- CreateQuotaShareInput has no schedulingPolicyArn or
+// shareIdentifier field at all, and QuotaShareDetail's ARN shape
+// (job-queue/{queueName}/quota-share/{quotaShareName}, confirmed against the
+// AWS API reference's CreateQuotaShare example) nests under the job queue's
+// own ARN rather than referencing a SchedulingPolicy resource.
+type QuotaShare struct {
+	Tags                         map[string]string                       `json:"tags"`
+	PreemptionConfiguration      *QuotaSharePreemptionConfiguration      `json:"preemptionConfiguration,omitempty"`
+	ResourceSharingConfiguration *QuotaShareResourceSharingConfiguration `json:"resourceSharingConfiguration,omitempty"`
+	region                       string
+	QuotaShareArn                string                    `json:"quotaShareArn"`
+	QuotaShareName               string                    `json:"quotaShareName"`
+	JobQueueArn                  string                    `json:"jobQueueArn,omitempty"`
+	State                        string                    `json:"state,omitempty"`
+	Status                       string                    `json:"status,omitempty"`
+	CapacityLimits               []QuotaShareCapacityLimit `json:"capacityLimits,omitempty"`
+}
+
 // CapacityLimit specifies the maximum capacity available for a service environment.
 type CapacityLimit struct {
 	CapacityUnit string `json:"capacityUnit,omitempty"`

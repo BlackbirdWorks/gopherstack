@@ -72,6 +72,7 @@ type persistenceDTOTables struct {
 	schedulingPolicies  *store.Table[regionalDTO[SchedulingPolicy]]
 	serviceEnvironments *store.Table[regionalDTO[ServiceEnvironment]]
 	serviceJobs         *store.Table[regionalDTO[ServiceJob]]
+	quotaShares         *store.Table[regionalDTO[QuotaShare]]
 }
 
 // buildPersistenceDTORegistry constructs the ephemeral DTO registry used by
@@ -101,6 +102,7 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 			dtoReg, "serviceEnvironments", store.New(regionalDTOKeyFn[ServiceEnvironment]),
 		),
 		serviceJobs: store.Register(dtoReg, "serviceJobs", store.New(regionalDTOKeyFn[ServiceJob])),
+		quotaShares: store.Register(dtoReg, "quotaShares", store.New(regionalDTOKeyFn[QuotaShare])),
 	}
 }
 
@@ -148,6 +150,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	for _, v := range b.serviceJobs.Snapshot() {
 		dtos.serviceJobs.Put(&regionalDTO[ServiceJob]{Region: v.region, ID: v.JobID, Value: v})
+	}
+
+	for _, v := range b.quotaShares.Snapshot() {
+		dtos.quotaShares.Put(&regionalDTO[QuotaShare]{Region: v.region, ID: v.QuotaShareArn, Value: v})
 	}
 
 	tables, err := dtos.registry.SnapshotAll()
@@ -286,6 +292,7 @@ func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessag
 		dtos.serviceEnvironments, func(v *ServiceEnvironment, r string) { v.region = r },
 	))
 	b.serviceJobs.Restore(unwrapRegionalDTOs(dtos.serviceJobs, func(v *ServiceJob, r string) { v.region = r }))
+	b.quotaShares.Restore(unwrapRegionalDTOs(dtos.quotaShares, func(v *QuotaShare, r string) { v.region = r }))
 
 	return nil
 }

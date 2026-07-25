@@ -105,6 +105,12 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"UpdateServiceJob",
+		"CreateQuotaShare",
+		"DescribeQuotaShare",
+		"UpdateQuotaShare",
+		"DeleteQuotaShare",
+		"ListQuotaShares",
 	} {
 		assert.Contains(t, ops, op)
 	}
@@ -349,6 +355,46 @@ func TestBatch_RequiredFieldValidation(t *testing.T) {
 		{
 			name: "DeleteServiceEnvironment_missing_resource",
 			path: "/v1/deleteserviceenvironment",
+			body: map[string]any{},
+		},
+		{
+			name: "UpdateServiceJob_missing_jobId",
+			path: "/v1/updateservicejob",
+			body: map[string]any{"schedulingPriority": 5},
+		},
+		{
+			name: "UpdateServiceJob_missing_schedulingPriority",
+			path: "/v1/updateservicejob",
+			body: map[string]any{"jobId": "some-id"},
+		},
+		{
+			name: "CreateQuotaShare_missing_name",
+			path: "/v1/createquotashare",
+			body: map[string]any{"jobQueue": "some-queue"},
+		},
+		{
+			name: "CreateQuotaShare_missing_jobQueue",
+			path: "/v1/createquotashare",
+			body: map[string]any{"quotaShareName": "qs-1"},
+		},
+		{
+			name: "DescribeQuotaShare_missing_arn",
+			path: "/v1/describequotashare",
+			body: map[string]any{},
+		},
+		{
+			name: "UpdateQuotaShare_missing_arn",
+			path: "/v1/updatequotashare",
+			body: map[string]any{},
+		},
+		{
+			name: "DeleteQuotaShare_missing_arn",
+			path: "/v1/deletequotashare",
+			body: map[string]any{},
+		},
+		{
+			name: "ListQuotaShares_missing_jobQueue",
+			path: "/v1/listquotashares",
 			body: map[string]any{},
 		},
 	}

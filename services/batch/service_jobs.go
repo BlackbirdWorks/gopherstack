@@ -11,7 +11,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-const maxServiceJobNameLength = 128
+const (
+	maxServiceJobNameLength = 128
+
+	// maxServiceJobSchedulingPriority is the documented upper bound for
+	// UpdateServiceJobInput.SchedulingPriority: minimum supported value 0,
+	// maximum supported value 9999.
+	maxServiceJobSchedulingPriority = 9999
+)
 
 // cloneServiceJobRetryStrategy deep-copies a ServiceJobRetryStrategy,
 // including its EvaluateOnExit slice, returning nil for nil input.
@@ -173,6 +180,54 @@ func (b *InMemoryBackend) ListServiceJobs(ctx context.Context, jobQueue, jobStat
 	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt > list[j].CreatedAt })
 
 	return list, nil
+}
+
+// UpdateServiceJob updates the scheduling priority of an existing service
+// job. Real AWS Batch's UpdateServiceJobInput has exactly two fields --
+// jobId and schedulingPriority, both required -- and no others (see
+// aws-sdk-go-v2/service/batch's UpdateServiceJobInput/UpdateServiceJob doc
+// comment: "Updates the priority of a specified service job"); there is no
+// way to change jobQueue, retryStrategy, tags, or any other field of a
+// submitted service job via this or any other operation. Matching the
+// terminal-state guard CancelJob already applies to regular jobs (see
+// jobs.go), a service job that has already reached a terminal status
+// (SUCCEEDED or FAILED) rejects the update: scheduling priority only
+// affects a job's position within a quota-share/fair-share queue while it
+// is still competing for capacity, which no longer applies once the job has
+// finished.
+func (b *InMemoryBackend) UpdateServiceJob(
+	ctx context.Context,
+	jobID string,
+	schedulingPriority int32,
+) (*ServiceJob, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("UpdateServiceJob")
+	defer b.mu.Unlock()
+
+	sj, ok := b.serviceJobs.Get(regionKey(region, jobID))
+	if !ok {
+		return nil, fmt.Errorf("%w: service job %s not found", ErrNotFound, jobID)
+	}
+
+	if sj.Status == jobStatusSucceeded || sj.Status == jobStatusFailed {
+		return nil, fmt.Errorf(
+			"%w: service job %s is already in terminal state %s", ErrValidation, jobID, sj.Status,
+		)
+	}
+
+	if schedulingPriority < 0 || schedulingPriority > maxServiceJobSchedulingPriority {
+		return nil, fmt.Errorf(
+			"%w: schedulingPriority must be between 0 and %d", ErrValidation, maxServiceJobSchedulingPriority,
+		)
+	}
+
+	sj.SchedulingPriority = schedulingPriority
+
+	cp := *sj
+	cp.Tags = tagsCloneOrEmpty(sj.Tags)
+
+	return &cp, nil
 }
 
 // TerminateServiceJob marks a service job as FAILED.

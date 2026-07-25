@@ -118,6 +118,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListServiceJobs",
 		"SubmitServiceJob",
 		"TerminateServiceJob",
+		"UpdateServiceJob",
+		"CreateQuotaShare",
+		"DescribeQuotaShare",
+		"UpdateQuotaShare",
+		"DeleteQuotaShare",
+		"ListQuotaShares",
 	}
 }
 
@@ -322,6 +328,12 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"/v1/listservicejobs":              service.WrapOp(h.handleListServiceJobs),
 		"/v1/submitservicejob":             service.WrapOp(h.handleSubmitServiceJob),
 		"/v1/terminateservicejob":          service.WrapOp(h.handleTerminateServiceJob),
+		"/v1/updateservicejob":             service.WrapOp(h.handleUpdateServiceJob),
+		"/v1/createquotashare":             service.WrapOp(h.handleCreateQuotaShare),
+		"/v1/describequotashare":           service.WrapOp(h.handleDescribeQuotaShare),
+		"/v1/updatequotashare":             service.WrapOp(h.handleUpdateQuotaShare),
+		"/v1/deletequotashare":             service.WrapOp(h.handleDeleteQuotaShare),
+		"/v1/listquotashares":              service.WrapOp(h.handleListQuotaShares),
 	}
 }
 
@@ -415,6 +427,12 @@ func pathToOperation(path string) string {
 		"/v1/listservicejobs":              "ListServiceJobs",
 		"/v1/submitservicejob":             "SubmitServiceJob",
 		"/v1/terminateservicejob":          "TerminateServiceJob",
+		"/v1/updateservicejob":             "UpdateServiceJob",
+		"/v1/createquotashare":             "CreateQuotaShare",
+		"/v1/describequotashare":           "DescribeQuotaShare",
+		"/v1/updatequotashare":             "UpdateQuotaShare",
+		"/v1/deletequotashare":             "DeleteQuotaShare",
+		"/v1/listquotashares":              "ListQuotaShares",
 	}
 
 	if op, ok := ops[path]; ok {

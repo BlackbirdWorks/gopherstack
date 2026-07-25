@@ -1,9 +1,9 @@
 ---
 service: batch
-sdk_module: aws-sdk-go-v2/service/batch@v1.61.1
-last_audit_commit: 75414f5905a5d43a5b1ccecd707f2b5e81d8d3d4
-last_audit_date: 2026-07-23
-overall: A            # closed all 4 gaps + all 4 deferred families; fixed a wire-shape bug in an "ok" op (JobQueue ARN) and deleted an invented ServiceJob field
+sdk_module: aws-sdk-go-v2/service/batch@v1.68.0
+last_audit_commit: aad420594dea89bf7e3b745492889fee00ca2eb6
+last_audit_date: 2026-07-25
+overall: A            # SDK bump (v1.61.1 -> v1.68.0) added 6 new ops (QuotaShare CRUD+List, UpdateServiceJob); all 6 implemented for real this pass, no regressions in previously-audited ops
 ops:
   RegisterJobDefinition: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed timeout + consumableResourceProperties nesting (prior pass); this pass wired retryStrategy and eksProperties through the handler (both were previously hardcoded nil/absent)"}
   DescribeJobDefinitions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed name:revision exact-match bug; bare-name still returns all revisions (matches AWS); retryStrategy now surfaced"}
@@ -44,7 +44,14 @@ ops:
   ListServiceJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "see families.ServiceJob; now filters by jobQueue (was serviceEnvironment) and defaults to RUNNING-only when jobStatus is unspecified, matching documented AWS behavior"}
   TerminateServiceJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "input key fixed from \"serviceJob\" to \"jobId\", matching TerminateServiceJobInput exactly"}
   GetJobQueueSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: response used an invented \"timestamp\" field (seconds, float64) instead of the real \"lastUpdatedAt\" (epoch-milliseconds, int64), and each job's earliestTimeAtPosition was likewise wrongly seconds-float instead of epoch-milliseconds-int64. A real SDK client parsing this response got wrong timestamps in both places (silently, since floats decode into *int64 fields as zero, not an error). Field-diffed against types.FrontOfQueueDetail/FrontOfQueueJobSummary; QueueUtilization (optional) is not modeled -- this emulator doesn't track per-share-identifier fair-share utilization stats."}
-families: {}
+  UpdateServiceJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (SDK bump). Mutates the REAL existing ServiceJob record created by SubmitServiceJob (b.serviceJobs table, keyed by jobId) -- not a fresh/parallel store. Only schedulingPriority is applied, matching UpdateServiceJobInput exactly (jobId + schedulingPriority, both required, no other fields exist on the real input). Rejects with ClientException when the job is already SUCCEEDED or FAILED (terminal), mirroring CancelJob's existing terminal-state guard on regular jobs; also bounds-checks schedulingPriority to the documented 0-9999 range. Covered by TestHandler_UpdateServiceJob (new table test in handler_service_jobs_test.go), including a describeservicejob round-trip proving the mutation lands on the same record."}
+  CreateQuotaShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (SDK bump), part of the QuotaShare family -- see families.QuotaShare below."}
+  DescribeQuotaShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (SDK bump); see families.QuotaShare."}
+  UpdateQuotaShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (SDK bump); see families.QuotaShare."}
+  DeleteQuotaShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (SDK bump); see families.QuotaShare."}
+  ListQuotaShares: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (SDK bump); see families.QuotaShare. Response item shape is types.QuotaShareDetail, which (unlike DescribeQuotaShareOutput) has NO tags field -- confirmed against deserializers.go's awsRestjson1_deserializeDocumentQuotaShareDetail case list."}
+families:
+  QuotaShare: "NEW family (SDK bump, v1.61.1 -> v1.68.0): full CRUD+List implemented for real this pass, field-diffed against aws-sdk-go-v2/service/batch@v1.68.0's CreateQuotaShareInput/Output, DescribeQuotaShareInput/Output, UpdateQuotaShareInput/Output, DeleteQuotaShareInput/Output, ListQuotaSharesInput/Output, and types.QuotaShareDetail/QuotaShareCapacityLimit/QuotaSharePreemptionConfiguration/QuotaShareResourceSharingConfiguration (types + serializers.go + deserializers.go + validators.go). QuotaShare is a DISTINCT top-level resource from SchedulingPolicy/FairsharePolicy/ShareIdentifier -- CreateQuotaShareInput has no schedulingPolicyArn or shareIdentifier field at all; it references an existing JobQueue directly via a required jobQueue name-or-ARN parameter (validated against b.lookupJQByNameOrARN, the same helper SubmitServiceJob uses -- an unknown queue is rejected with ClientException/NotFound, not silently accepted). ARN shape confirmed against the AWS API reference's CreateQuotaShare worked example: job-queue/{queueName}/quota-share/{quotaShareName} (nested under the job queue's own ARN, not a bare quota-share/{name} or a SchedulingPolicy-style scheduling-policy/{name}). Real AWS Batch additionally requires the referenced job queue to be in the VALID state before association; this emulator's job queues are always created VALID and never transition away from it (see statusValid in store.go), so that check, while implemented for correctness, is not currently reachable through this backend's own state machine. Enum fields (state, preemptionConfiguration.inSharePreemption, resourceSharingConfiguration.strategy) are validated against their real documented values (ENABLED/DISABLED; ENABLED/DISABLED; RESERVE/LEND/LEND_AND_BORROW) rather than accepted as arbitrary strings. DescribeQuotaShare vs ListQuotaShares: both are POST /v1/... body-based ops (no path templating -- confirmed against serializers.go's SplitURI calls), but their response envelopes differ -- DescribeQuotaShareOutput is a single QuotaShareDetail-shaped object PLUS a tags map; ListQuotaSharesOutput wraps a []types.QuotaShareDetail under \"quotaShares\" (plus nextToken) and QuotaShareDetail itself has no tags field at all. New store.Table (quotaShares, byRegion index) wired into Snapshot/Restore exactly like the seven pre-existing tables (see persistence.go); no snapshot version bump was needed since RestoreAll already resets any registered table absent from older snapshot data to empty (additive-only change, not a shape/meaning change to existing data)."
 gaps:
   - "DescribeJobs (JobDetail) still does not model attempts/nodeDetails/ecsProperties/eksProperties(describe-side) -- these require simulating multi-node/ECS/EKS job execution details (per-attempt job execution, multi-node coordination, ECS/EKS placement), genuinely out of scope for an in-memory emulator this pass. Left un-implemented rather than faked (bd: file follow-up)"
   - "ContainerDetail (job-level, EKS-nested EksContainer/EksPodProperties) is missing a few leaf fields real AWS has (imagePullPolicy, imagePullSecrets on EKS container/pod types) -- spot-checked against the real serializer, not exhaustively field-by-field; low priority since these are pass-through config fields with no state-machine implications (bd: file follow-up, low priority)"
@@ -150,3 +157,38 @@ citations; summary:
   given looks like a bug (a freshly-submitted SUBMITTED job won't show up)
   but is real, documented AWS Batch behavior: "If you don't specify a
   status, only RUNNING jobs are returned."
+
+### SDK bump pass (2026-07-25): 6 new operations
+
+The installed `aws-sdk-go-v2/service/batch` module was bumped from v1.61.1 to
+v1.68.0, adding 6 operations this backend had neither implemented nor
+acknowledged: `CreateQuotaShare`, `DescribeQuotaShare`, `UpdateQuotaShare`,
+`DeleteQuotaShare`, `ListQuotaShares` (the new QuotaShare resource family) and
+`UpdateServiceJob`. All 6 are implemented for real (routing, backend state,
+request parsing, wire-accurate responses, error codes, and
+Snapshot/Restore persistence) -- see the `ops`/`families` entries above for
+full field-diff citations. No existing (pre-bump) operation was re-audited or
+modified this pass beyond what was needed to add `UpdateServiceJob` (which
+mutates `ServiceJob`, an existing model) -- `SubmitServiceJob`,
+`DescribeServiceJob`, `ListServiceJobs`, and `TerminateServiceJob` are
+unchanged from the prior pass's audit.
+
+Key correctness point verified for `UpdateServiceJob`: it mutates the same
+`ServiceJob` record `SubmitServiceJob` created (looked up by `jobId` in
+`b.serviceJobs`), not a new parallel record -- proven in
+`TestHandler_UpdateServiceJob`'s `update_existing` case via a
+`describeservicejob` round-trip after the update. A job already in a
+terminal status (`SUCCEEDED`/`FAILED`) rejects the update with
+`ClientException`, matching the terminal-state guard `CancelJob` already
+applies to regular jobs.
+
+`QuotaShare` was checked against the possibility of being a disguised
+extension of the existing `SchedulingPolicy`/`FairsharePolicy`/
+`ShareIdentifier` model (this service already has fair-share scheduling) and
+found to be a genuinely distinct, unrelated resource family: its create
+input has no `schedulingPolicyArn` field, and its ARN nests under the
+referenced `JobQueue`'s own ARN (`job-queue/{queue}/quota-share/{name}`)
+rather than under a scheduling-policy resource. It does, however, reference
+a real `JobQueue` (required `jobQueue` parameter, validated against
+`b.lookupJQByNameOrARN` -- the same lookup `SubmitServiceJob` uses -- so an
+unknown queue name is rejected rather than silently accepted).

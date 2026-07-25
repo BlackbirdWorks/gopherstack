@@ -599,3 +599,271 @@ func TestDescribeJobQueues_EmptyList(t *testing.T) {
 	require.True(t, ok, "jobQueues key must be present")
 	assert.Equal(t, "[]", string(raw), "jobQueues must be [] not null when empty")
 }
+
+// quotaShareCreateInput builds a valid CreateQuotaShare request body
+// referencing jobQueue, so each subtest below can vary a single field.
+func quotaShareCreateInput(name, jobQueue string) map[string]any {
+	return map[string]any{
+		"quotaShareName": name,
+		"jobQueue":       jobQueue,
+		"capacityLimits": []map[string]any{
+			{"capacityUnit": "ml.m5.large", "maxCapacity": 10},
+		},
+		"preemptionConfiguration": map[string]any{"inSharePreemption": "ENABLED"},
+		"resourceSharingConfiguration": map[string]any{
+			"strategy":    "LEND_AND_BORROW",
+			"borrowLimit": 200,
+		},
+	}
+}
+
+// TestHandler_QuotaShare_Create covers CreateQuotaShare's real-API
+// validation: it must reference an existing job queue (jobQueue is a
+// required field on CreateQuotaShareInput, and real AWS Batch requires the
+// queue to already exist), duplicate names on the same queue are rejected,
+// and the enum fields (state/inSharePreemption/strategy) are validated
+// against their real documented values.
+func TestHandler_QuotaShare_Create(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mutate     func(body map[string]any)
+		name       string
+		wantStatus int
+		duplicate  bool
+	}{
+		{name: "valid_create", wantStatus: http.StatusOK},
+		{
+			name:       "unknown_job_queue",
+			wantStatus: http.StatusBadRequest,
+			mutate:     func(body map[string]any) { body["jobQueue"] = "does-not-exist" },
+		},
+		{
+			name:       "invalid_state",
+			wantStatus: http.StatusBadRequest,
+			mutate:     func(body map[string]any) { body["state"] = "BOGUS" },
+		},
+		{
+			name:       "invalid_preemption",
+			wantStatus: http.StatusBadRequest,
+			mutate: func(body map[string]any) {
+				body["preemptionConfiguration"] = map[string]any{"inSharePreemption": "BOGUS"}
+			},
+		},
+		{
+			name:       "invalid_strategy",
+			wantStatus: http.StatusBadRequest,
+			mutate: func(body map[string]any) {
+				body["resourceSharingConfiguration"] = map[string]any{"strategy": "BOGUS"}
+			},
+		},
+		{
+			name:       "duplicate_name",
+			wantStatus: http.StatusBadRequest,
+			duplicate:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			qName := createTestServiceJobQueue(t, h, "qs-create-"+tt.name)
+
+			body := quotaShareCreateInput("qs-1", qName)
+			if tt.mutate != nil {
+				tt.mutate(body)
+			}
+
+			if tt.duplicate {
+				rec := post(t, h, "/v1/createquotashare", body)
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := post(t, h, "/v1/createquotashare", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.Equal(t, "qs-1", out["quotaShareName"])
+				assert.Contains(t, out["quotaShareArn"], "quota-share/qs-1")
+				assert.Contains(t, out["quotaShareArn"], qName)
+			}
+		})
+	}
+}
+
+// TestHandler_QuotaShare_Lifecycle exercises DescribeQuotaShare,
+// UpdateQuotaShare, DeleteQuotaShare, and ListQuotaShares against a quota
+// share created fresh per subtest, proving each op reads/mutates the same
+// real record (not a fresh/parallel one) and that ListQuotaShares' item
+// shape (quotaShareDetail) omits tags while DescribeQuotaShare's includes
+// them.
+func TestHandler_QuotaShare_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	t.Run("describe_round_trip", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		qName := createTestServiceJobQueue(t, h, "qs-describe")
+
+		body := quotaShareCreateInput("qs-describe", qName)
+		body["tags"] = map[string]string{"team": "ml"}
+		rec := post(t, h, "/v1/createquotashare", body)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var created map[string]any
+		mustUnmarshal(t, rec, &created)
+		arnStr := created["quotaShareArn"].(string)
+
+		recD := post(t, h, "/v1/describequotashare", map[string]any{"quotaShareArn": arnStr})
+		require.Equal(t, http.StatusOK, recD.Code)
+
+		var desc map[string]any
+		mustUnmarshal(t, recD, &desc)
+		assert.Equal(t, "qs-describe", desc["quotaShareName"])
+		assert.Equal(t, "ENABLED", desc["state"])
+		assert.Equal(t, "VALID", desc["status"])
+		assert.Contains(t, desc["jobQueueArn"], qName)
+		assertTagsPresent(t, recD.Body.Bytes())
+		tags := desc["tags"].(map[string]any)
+		assert.Equal(t, "ml", tags["team"])
+	})
+
+	t.Run("describe_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := post(t, h, "/v1/describequotashare", map[string]any{
+			"quotaShareArn": "arn:aws:batch:us-east-1:000000000000:job-queue/x/quota-share/y",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("update_mutates_existing_record", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		qName := createTestServiceJobQueue(t, h, "qs-update")
+
+		rec := post(t, h, "/v1/createquotashare", quotaShareCreateInput("qs-update", qName))
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var created map[string]any
+		mustUnmarshal(t, rec, &created)
+		arnStr := created["quotaShareArn"].(string)
+
+		recU := post(t, h, "/v1/updatequotashare", map[string]any{
+			"quotaShareArn": arnStr,
+			"state":         "DISABLED",
+			"capacityLimits": []map[string]any{
+				{"capacityUnit": "ml.m5.xlarge", "maxCapacity": 20},
+			},
+		})
+		require.Equal(t, http.StatusOK, recU.Code)
+
+		var updated map[string]any
+		mustUnmarshal(t, recU, &updated)
+		assert.Equal(t, "qs-update", updated["quotaShareName"])
+		assert.Equal(t, arnStr, updated["quotaShareArn"])
+
+		// The same record now reflects the update, proving UpdateQuotaShare
+		// mutated it in place rather than writing to a fresh/parallel store.
+		recD := post(t, h, "/v1/describequotashare", map[string]any{"quotaShareArn": arnStr})
+		require.Equal(t, http.StatusOK, recD.Code)
+
+		var desc map[string]any
+		mustUnmarshal(t, recD, &desc)
+		assert.Equal(t, "DISABLED", desc["state"])
+		limits := desc["capacityLimits"].([]any)
+		require.Len(t, limits, 1)
+		assert.Equal(t, "ml.m5.xlarge", limits[0].(map[string]any)["capacityUnit"])
+	})
+
+	t.Run("update_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := post(t, h, "/v1/updatequotashare", map[string]any{
+			"quotaShareArn": "arn:aws:batch:us-east-1:000000000000:job-queue/x/quota-share/y",
+			"state":         "DISABLED",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("delete_then_describe_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		qName := createTestServiceJobQueue(t, h, "qs-delete")
+
+		rec := post(t, h, "/v1/createquotashare", quotaShareCreateInput("qs-delete", qName))
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var created map[string]any
+		mustUnmarshal(t, rec, &created)
+		arnStr := created["quotaShareArn"].(string)
+
+		recDel := post(t, h, "/v1/deletequotashare", map[string]any{"quotaShareArn": arnStr})
+		assert.Equal(t, http.StatusOK, recDel.Code)
+
+		recD := post(t, h, "/v1/describequotashare", map[string]any{"quotaShareArn": arnStr})
+		assert.Equal(t, http.StatusBadRequest, recD.Code)
+	})
+
+	t.Run("delete_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := post(t, h, "/v1/deletequotashare", map[string]any{
+			"quotaShareArn": "arn:aws:batch:us-east-1:000000000000:job-queue/x/quota-share/y",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("list_scoped_to_job_queue", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		qA := createTestServiceJobQueue(t, h, "qs-list-a")
+		qB := createTestServiceJobQueue(t, h, "qs-list-b")
+
+		for _, name := range []string{"qs-list-1", "qs-list-2"} {
+			rec := post(t, h, "/v1/createquotashare", quotaShareCreateInput(name, qA))
+			require.Equal(t, http.StatusOK, rec.Code)
+		}
+
+		recList := post(t, h, "/v1/listquotashares", map[string]any{"jobQueue": qA})
+		require.Equal(t, http.StatusOK, recList.Code)
+
+		var out map[string]any
+		mustUnmarshal(t, recList, &out)
+		items := out["quotaShares"].([]any)
+		require.Len(t, items, 2)
+
+		// ListQuotaShares' item shape (quotaShareDetail) has no tags field at
+		// all, unlike DescribeQuotaShare's output.
+		first := items[0].(map[string]any)
+		_, hasTags := first["tags"]
+		assert.False(t, hasTags, "quotaShareDetail must not carry a tags field")
+
+		// A different job queue with no quota shares returns an empty list.
+		recEmpty := post(t, h, "/v1/listquotashares", map[string]any{"jobQueue": qB})
+		require.Equal(t, http.StatusOK, recEmpty.Code)
+
+		var outEmpty map[string]any
+		mustUnmarshal(t, recEmpty, &outEmpty)
+		assert.Empty(t, outEmpty["quotaShares"])
+	})
+
+	t.Run("list_unknown_job_queue", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := post(t, h, "/v1/listquotashares", map[string]any{"jobQueue": "does-not-exist"})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
