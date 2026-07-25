@@ -169,8 +169,9 @@ type StorageBackend interface {
 	CreateSecurityProfile(input *CreateSecurityProfileInput) (*SecurityProfile, error)
 	DescribeSecurityProfile(name string) (*SecurityProfile, error)
 	ListSecurityProfiles() []*SecurityProfile
-	UpdateSecurityProfile(name, description string) (*SecurityProfile, error)
+	UpdateSecurityProfile(input *UpdateSecurityProfileInput) (*SecurityProfile, error)
 	DeleteSecurityProfile(name string) error
+	SecurityProfileARN(name string) string
 
 	// Batch 2: CACertificate operations.
 	RegisterCACertificate(pem, status string) (*CACertificate, error)
@@ -395,12 +396,15 @@ type StorageBackend interface {
 
 	// Device Defender: violations.
 	ListActiveViolations(
-		thingName, securityProfileName, verificationState string, listSuppressedAlerts *bool,
+		thingName, securityProfileName, verificationState string,
+		listSuppressedAlerts *bool,
+		behaviorCriteriaType string,
 	) []*ActiveViolation
 	ListViolationEvents(
 		thingName, securityProfileName, verificationState string,
 		startTime, endTime float64,
 		listSuppressedAlerts *bool,
+		behaviorCriteriaType string,
 	) []*ViolationEvent
 	PutVerificationStateOnViolation(violationID, verificationState, description string) error
 	SeedActiveViolation(input *SeedActiveViolationInput) (*ActiveViolation, error)

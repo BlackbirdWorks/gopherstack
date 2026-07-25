@@ -148,6 +148,15 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		{"/packages/pkg/versions/v1/sbom", "package_sbom", true},
 		{"/jobs/job-1/targets", "job_targets", true},
 		{"/security-profiles/sp1/targets", "security_profile_targets", true},
+		// ListSecurityProfiles (GET, no trailing slash) and
+		// ListSecurityProfilesForTarget were both entirely absent from
+		// this route matcher despite resolveSecurityProfileOps already
+		// dispatching both paths correctly -- the same unreachable-op bug
+		// class as job_targets'/mitigationactions' own RouteMatcher gaps
+		// fixed in prior passes. Fixed this pass; see PARITY.md
+		// security_profiles family.
+		{"/security-profiles", "list_security_profiles", true},
+		{"/security-profiles-for-target", "list_security_profiles_for_target", true},
 		{"/audit/mitigationactions/tasks/task-1/cancel", "audit_mitigation_cancel", true},
 		{"/audit/tasks/task-2/cancel", "audit_task_cancel", true},
 		{"/s3/bucket", "other_service", false},

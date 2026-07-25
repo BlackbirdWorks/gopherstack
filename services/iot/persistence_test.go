@@ -240,6 +240,25 @@ func seedAuditAndSecurity(t *testing.T, b *iot.InMemoryBackend) {
 
 	_, err = b.CreateSecurityProfile(&iot.CreateSecurityProfileInput{
 		SecurityProfileName: "gap-security-profile",
+		Behaviors: []iot.SecurityProfileBehavior{{
+			Name:   "gap-behavior",
+			Metric: "aws:num-connections",
+			Criteria: &iot.SecurityProfileBehaviorCriteria{
+				ComparisonOperator: "greater-than",
+				DurationSeconds:    300,
+			},
+		}},
+		AlertTargets: map[string]iot.SecurityProfileAlertTarget{
+			"SNS": {
+				AlertTargetArn: "arn:aws:sns:us-east-1:123456789012:gap-topic",
+				RoleArn:        "arn:aws:iam::123456789012:role/gap-alert-role",
+			},
+		},
+		AdditionalMetricsToRetainV2: []iot.SecurityProfileMetricToRetain{{Metric: "aws:num-messages-sent"}},
+		MetricsExportConfig: &iot.SecurityProfileMetricsExportConfig{
+			MqttTopic: "$aws/things/gap-thing/metrics",
+			RoleArn:   "arn:aws:iam::123456789012:role/gap-export-role",
+		},
 	})
 	require.NoError(t, err)
 
@@ -553,6 +572,22 @@ func persistenceGapChecks(seeded gapSeededIDs) []persistenceGapCheck {
 			got, err := b.DescribeSecurityProfile("gap-security-profile")
 			require.NoError(t, err)
 			assert.Equal(t, "gap-security-profile", got.SecurityProfileName)
+
+			// Behaviors/AlertTargets/AdditionalMetricsToRetainV2/
+			// MetricsExportConfig were previously entirely unmodeled on
+			// SecurityProfile (silently dropped by CreateSecurityProfile);
+			// assert they round-trip through Snapshot/Restore now that
+			// they're real persisted fields.
+			require.Len(t, got.Behaviors, 1)
+			assert.Equal(t, "gap-behavior", got.Behaviors[0].Name)
+			require.NotNil(t, got.Behaviors[0].Criteria)
+			assert.Equal(t, "greater-than", got.Behaviors[0].Criteria.ComparisonOperator)
+			require.Contains(t, got.AlertTargets, "SNS")
+			assert.Equal(t, "arn:aws:sns:us-east-1:123456789012:gap-topic", got.AlertTargets["SNS"].AlertTargetArn)
+			require.Len(t, got.AdditionalMetricsToRetainV2, 1)
+			assert.Equal(t, "aws:num-messages-sent", got.AdditionalMetricsToRetainV2[0].Metric)
+			require.NotNil(t, got.MetricsExportConfig)
+			assert.Equal(t, "$aws/things/gap-thing/metrics", got.MetricsExportConfig.MqttTopic)
 		}},
 		{name: "caCertificates", check: func(t *testing.T, b *iot.InMemoryBackend) {
 			t.Helper()
@@ -635,7 +670,7 @@ func persistenceGapChecks(seeded gapSeededIDs) []persistenceGapCheck {
 		{name: "activeViolations", check: func(t *testing.T, b *iot.InMemoryBackend) {
 			t.Helper()
 
-			violations := b.ListActiveViolations("gap-thing", "", "", nil)
+			violations := b.ListActiveViolations("gap-thing", "", "", nil, "")
 			require.Len(t, violations, 1)
 			assert.Equal(t, "gap-violation", violations[0].ViolationID)
 		}},

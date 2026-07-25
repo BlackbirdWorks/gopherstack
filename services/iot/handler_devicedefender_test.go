@@ -383,6 +383,126 @@ func TestListActiveViolationsAndViolationEvents_SuppressedAlertsFilter(t *testin
 	}
 }
 
+// TestListActiveViolationsAndViolationEvents_BehaviorCriteriaTypeFilter is a
+// table-driven test, asserted through a real generated AWS SDK v2 IoT
+// client, covering ListActiveViolations/ListViolationEvents'
+// behaviorCriteriaType filter. This was previously unimplementable: real
+// AWS resolves a violation's behaviorCriteriaType from the STATIC/
+// STATISTICAL/MACHINE_LEARNING shape of the security-profile Behavior's
+// criteria (types.BehaviorCriteriaType), but CreateSecurityProfile didn't
+// persist Behaviors at all (see security_profiles.go's SecurityProfile doc
+// comment and PARITY.md's security_profiles family). Behaviors are now
+// real, persisted state, so the filter is resolved live against each
+// violation's owning security profile via
+// securityProfileBehaviorCriteriaTypeLocked.
+func TestListActiveViolationsAndViolationEvents_BehaviorCriteriaTypeFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		filter           iottypes.BehaviorCriteriaType
+		name             string
+		wantViolationIDs []string
+	}{
+		{
+			name:             "unset_returns_all",
+			filter:           "",
+			wantViolationIDs: []string{"viol-static", "viol-statistical", "viol-ml"},
+		},
+		{
+			name:             "static",
+			filter:           iottypes.BehaviorCriteriaTypeStatic,
+			wantViolationIDs: []string{"viol-static"},
+		},
+		{
+			name:             "statistical",
+			filter:           iottypes.BehaviorCriteriaTypeStatistical,
+			wantViolationIDs: []string{"viol-statistical"},
+		},
+		{
+			name:             "machine_learning",
+			filter:           iottypes.BehaviorCriteriaTypeMachineLearning,
+			wantViolationIDs: []string{"viol-ml"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, b := newIoTSDKClient(t)
+			ctx := t.Context()
+
+			_, err := b.CreateSecurityProfile(&iot.CreateSecurityProfileInput{
+				SecurityProfileName: "profile-x",
+				Behaviors: []iot.SecurityProfileBehavior{
+					{
+						Name:   "static-behavior",
+						Metric: "aws:num-connections",
+						Criteria: &iot.SecurityProfileBehaviorCriteria{
+							ComparisonOperator: "greater-than",
+						},
+					},
+					{
+						Name:   "statistical-behavior",
+						Metric: "aws:message-byte-size",
+						Criteria: &iot.SecurityProfileBehaviorCriteria{
+							StatisticalThreshold: &iot.SecurityProfileStatisticalThreshold{Statistic: "p90"},
+						},
+					},
+					{
+						Name:   "ml-behavior",
+						Metric: "aws:num-messages-sent",
+						Criteria: &iot.SecurityProfileBehaviorCriteria{
+							MlDetectionConfig: &iot.SecurityProfileMLDetectionConfig{ConfidenceLevel: "MEDIUM"},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = b.SeedActiveViolation(&iot.SeedActiveViolationInput{
+				ViolationID: "viol-static", ThingName: "thing-x", SecurityProfileName: "profile-x",
+				Behavior: &iot.ViolationBehavior{Name: "static-behavior", Metric: "aws:num-connections"},
+			})
+			require.NoError(t, err)
+			_, err = b.SeedActiveViolation(&iot.SeedActiveViolationInput{
+				ViolationID: "viol-statistical", ThingName: "thing-x", SecurityProfileName: "profile-x",
+				Behavior: &iot.ViolationBehavior{Name: "statistical-behavior", Metric: "aws:message-byte-size"},
+			})
+			require.NoError(t, err)
+			_, err = b.SeedActiveViolation(&iot.SeedActiveViolationInput{
+				ViolationID: "viol-ml", ThingName: "thing-x", SecurityProfileName: "profile-x",
+				Behavior: &iot.ViolationBehavior{Name: "ml-behavior", Metric: "aws:num-messages-sent"},
+			})
+			require.NoError(t, err)
+
+			activeOut, err := client.ListActiveViolations(ctx, &iotsdk.ListActiveViolationsInput{
+				BehaviorCriteriaType: tt.filter,
+			})
+			require.NoError(t, err)
+
+			gotActiveIDs := make([]string, 0, len(activeOut.ActiveViolations))
+			for _, v := range activeOut.ActiveViolations {
+				gotActiveIDs = append(gotActiveIDs, *v.ViolationId)
+			}
+			assert.ElementsMatch(t, tt.wantViolationIDs, gotActiveIDs)
+
+			eventsOut, err := client.ListViolationEvents(ctx, &iotsdk.ListViolationEventsInput{
+				StartTime:            aws.Time(time.Unix(0, 0)),
+				EndTime:              aws.Time(time.Now().Add(time.Hour)),
+				BehaviorCriteriaType: tt.filter,
+			})
+			require.NoError(t, err)
+
+			gotEventIDs := make([]string, 0, len(eventsOut.ViolationEvents))
+			for _, e := range eventsOut.ViolationEvents {
+				gotEventIDs = append(gotEventIDs, *e.ViolationId)
+			}
+			assert.ElementsMatch(t, tt.wantViolationIDs, gotEventIDs)
+		})
+	}
+}
+
 // TestDeviceDefender_AuditFindingRelatedResources covers
 // ListRelatedResourcesForAuditFinding.
 func TestDeviceDefender_AuditFindingRelatedResources(t *testing.T) {

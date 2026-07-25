@@ -363,12 +363,14 @@ func (h *Handler) handleListActiveViolations(c *echo.Context) error {
 	securityProfileName := c.QueryParam("securityProfileName")
 	verificationState := c.QueryParam("verificationState")
 	listSuppressedAlerts := parseIoTBoolQueryParam(c, "listSuppressedAlerts")
+	behaviorCriteriaType := c.QueryParam("behaviorCriteriaType")
 
 	violations := h.Backend.ListActiveViolations(
 		thingName,
 		securityProfileName,
 		verificationState,
 		listSuppressedAlerts,
+		behaviorCriteriaType,
 	)
 
 	pageSize, start := parseIoTPagination(c)
@@ -389,9 +391,11 @@ func (h *Handler) handleListViolationEvents(c *echo.Context) error {
 	startTime := parseIoTEpochQueryParam(c, "startTime")
 	endTime := parseIoTEpochQueryParam(c, "endTime")
 	listSuppressedAlerts := parseIoTBoolQueryParam(c, "listSuppressedAlerts")
+	behaviorCriteriaType := c.QueryParam("behaviorCriteriaType")
 
 	events := h.Backend.ListViolationEvents(
-		thingName, securityProfileName, verificationState, startTime, endTime, listSuppressedAlerts,
+		thingName, securityProfileName, verificationState, startTime, endTime,
+		listSuppressedAlerts, behaviorCriteriaType,
 	)
 
 	pageSize, start := parseIoTPagination(c)

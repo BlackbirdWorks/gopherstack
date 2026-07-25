@@ -3,7 +3,59 @@ service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.76.0
 last_audit_commit: 2a94081753c196de1bbad6b25b8f9b9a90dce321
 last_audit_date: 2026-07-25
-overall: A-           # 2026-07-25 pass #3 (this pass): closed both of the two remaining
+overall: A            # 2026-07-25 pass #4 (this pass): closed the ONE remaining partial
+                       # family, security_profiles, the sole reason pass #3 stayed at A-.
+                       # CreateSecurityProfile silently dropped Behaviors/AlertTargets/
+                       # AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/
+                       # MetricsExportConfig entirely (types.CreateSecurityProfileInput,
+                       # v1.76.0) -- SecurityProfile never persisted any of them. All five
+                       # are now modeled (extending, not duplicating,
+                       # ValidateSecurityProfileBehaviors' existing SecurityProfileBehavior/
+                       # SecurityProfileBehaviorCriteria shapes per this pass's brief) and
+                       # wired end-to-end: request parsing, backend storage, response wire
+                       # shape (field-diffed against DescribeSecurityProfileOutput/
+                       # UpdateSecurityProfileOutput), and persistence (SecurityProfile
+                       # round-trips through the existing store.Table[SecurityProfile]
+                       # registry unchanged -- no persistence.go wiring gap, since that
+                       # layer already marshals the full struct). UpdateSecurityProfile was
+                       # rebuilt from a single description-only field into the real
+                       # UpdateSecurityProfileInput shape, including ExpectedVersion's
+                       # optimistic-lock semantics and every DeleteX-flag-vs-field mutual-
+                       # exclusion rule (previously entirely unmodeled). Closing this also
+                       # unblocked ListActiveViolations/ListViolationEvents'
+                       # behaviorCriteriaType filter (device_defender family), now
+                       # implemented by resolving each violation's owning security
+                       # profile's stored Behaviors live. security_profiles is now `ok`; see
+                       # its families: entry and the new Scope-of-this-pass note below for
+                       # detail. job_and_jobtemplate and device_defender were already closed
+                       # by pass #3, below (kept verbatim for history).
+                       #
+                       # This pass also did the explicitly-required routing sweep ("check
+                       # routing while you're there") for every security-profile op, driven
+                       # through a real generated AWS SDK v2 client against the actual
+                       # service.Router path rather than h.Handler() directly -- three prior
+                       # passes each found real routing bugs this way for other op families,
+                       # and this family had never been checked this way before. It found two
+                       # MORE previously-undiscovered bugs specific to security_profiles: (1) a
+                       # RouteMatcher-whitelist gap identical in kind to ListJobs'/the
+                       # job-template/mitigationaction families' own prior-pass gaps --
+                       # ListSecurityProfiles (plain "/security-profiles", no trailing slash)
+                       # and ListSecurityProfilesForTarget ("/security-profiles-for-target")
+                       # were both entirely unreachable by a real client despite op dispatch
+                       # itself being correct; (2) three wire-shape key-name bugs on
+                       # ListSecurityProfiles/ListTargetsForSecurityProfile/
+                       # ListSecurityProfilesForTarget's list-entry shapes (invented/full keys
+                       # in place of the real, shortened SecurityProfileIdentifier/
+                       # SecurityProfileTarget/SecurityProfileTargetMapping keys). Also found
+                       # and fixed DetachSecurityProfile's missing existence validation
+                       # (AttachSecurityProfile's sibling gopherstack-ep0r fix was never
+                       # mirrored onto Detach) and a DeleteSecurityProfile ghost-row leak
+                       # (target attachments were never cascade-cleaned). See the
+                       # security_profiles families: entry's "ROUTING VERIFIED" paragraph and
+                       # the new per-op ops: entries above for full detail.
+                       #
+                       # --- pass #3 (2026-07-25, superseded by pass #4 above for overall:)
+                       # closed both of the two remaining
                        # partial families (job_and_jobtemplate, device_defender), each now
                        # `ok`. Found and fixed a severe, previously-undiscovered bug class:
                        # CreateJob/CreateJobTemplate were routed on POST when real AWS uses
@@ -73,6 +125,12 @@ ops:
   AttachPrincipalPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "same duplicate-entry bug as AttachPolicy; fixed"}
   AttachThingPrincipal: {wire: ok, errors: ok, state: ok, persist: ok, note: "same duplicate-entry bug; fixed"}
   AttachSecurityProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "same duplicate-entry bug; fixed. Also now returns ResourceNotFoundException for an unknown security profile name instead of silently succeeding (gopherstack-ep0r)"}
+  DetachSecurityProfile: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "(pass #4) silently no-op'd for an unknown security profile name instead of returning ResourceNotFoundException -- the same gap AttachSecurityProfile had before gopherstack-ep0r, just never mirrored onto Detach; fixed. Also confirmed reachable through RouteMatcher (already whitelisted via the /security-profiles/ prefix) and now, upon its sibling DeleteSecurityProfile firing, has no ghost-row risk -- see security_profiles family note for the DeleteSecurityProfile cascade-cleanup fix."}
+  ListSecurityProfiles: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #4) two real bugs: (1) RouteMatcher whitelist never matched plain \"/security-profiles\" (no trailing slash) -- op dispatch was already correct, but no real client request ever reached it; fixed. (2) securityProfileIdentifiers entries used the full \"securityProfileName\"/\"securityProfileArn\" keys instead of the real, shortened \"name\"/\"arn\" (types.SecurityProfileIdentifier, confirmed against awsRestjson1_deserializeDocumentSecurityProfileIdentifier) -- fixed. Also now paginates via maxResults/nextToken (previously unpaginated)."}
+  ListSecurityProfilesForTarget: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #4) same RouteMatcher-whitelist gap as ListSecurityProfiles for \"/security-profiles-for-target\"; fixed. Also, securityProfileTargetMappings entries were missing both the identifier's \"arn\" and the entire sibling \"target\" object real types.SecurityProfileTargetMapping has (confirmed against awsRestjson1_deserializeDocumentSecurityProfileTargetMapping); fixed. Also now paginates."}
+  ListTargetsForSecurityProfile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #4) securityProfileTargets entries used an invented \"securityProfileTargetArn\" key instead of the real \"arn\" (types.SecurityProfileTarget, confirmed against awsRestjson1_deserializeDocumentSecurityProfileTarget); fixed. Already reachable (RouteMatcher whitelists /security-profiles/ as a prefix). Also now paginates."}
+  DeleteSecurityProfile: {wire: ok, errors: ok, state: fixed, persist: ok, note: "(pass #4) never cleaned up the deleted profile's securityProfileTargets attachment-map entry, leaving a ghost row a same-named profile re-created later would incorrectly inherit; fixed via cascade-delete."}
+  ValidateSecurityProfileBehaviors: {wire: ok, errors: ok, state: ok, persist: n/a, note: "(pass #4) re-verified reachable (POST /security-profile-behaviors/validate, already RouteMatcher-whitelisted via pathValidateSecurityProfileBehaviors) and its standalone validation-only semantics unchanged; its SecurityProfileBehavior/SecurityProfileBehaviorCriteria shapes were extended (not duplicated) to also serve as the real persisted Behaviors shape -- see security_profiles family note."}
   DetachPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAttachedPolicies: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -123,7 +181,7 @@ ops:
   ListDetectMitigationActionsTasks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) previously built a hand-picked 4-field summary ({taskId,taskStatus,taskStartTime,taskEndTime}); real AWS's ListDetectMitigationActionsTasksOutput.Tasks is []types.DetectMitigationActionsTaskSummary -- the EXACT SAME rich type DescribeDetectMitigationActionsTask returns (confirmed against v1.76.0), not a narrower list-only summary (unlike the audit-mitigation side, where ListAuditMitigationActionsTasks genuinely does use a narrower AuditMitigationActionsTaskMetadata type). A real client's deserializer silently dropped target/actionsDefinition/taskStatistics/onlyActiveViolationsIncluded/suppressedAlertsIncluded/violationEventOccurrenceRange from every list entry. Fixed by sharing the same wire-shape builder (detectMitigationTaskSummaryWire) with Describe."}
   ListDetectMitigationActionsExecutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) DetectMitigationActionExecution's execution-time fields were wire-keyed \"executionStartTime\"/\"executionEndTime\"; real AWS's are \"executionStartDate\"/\"executionEndDate\" (confirmed against awsRestjson1_deserializeDocumentDetectMitigationActionExecution) -- a real client's deserializer would never have found either key and left both permanently unset. Fixed (fields renamed ExecutionStartDate/ExecutionEndDate to match)."}
   ListAuditMitigationActionsTasks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) emitted an invented \"endTime\" key; real types.AuditMitigationActionsTaskMetadata is {taskId, taskStatus, startTime} only (confirmed against v1.76.0). Harmless to a real client (unknown fields are ignored by deserializers), but removed for wire-shape accuracy."}
-  ListActiveViolations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) ActiveViolation was missing lastViolationTime and violationEventAdditionalInfo entirely (confirmed against types.ActiveViolation -- real AWS distinguishes \"when the violation started\" from \"when the most recent violation occurred\", the latter updating on every subsequent detection of the same ongoing violation); both now modeled. Also implemented the listSuppressedAlerts filter (previously unimplemented) by adding an internal-only (json:\"-\", real ActiveViolation has no wire field for this) Suppressed flag, directly seedable, mirroring AuditFinding.IsSuppressed's identical simplification elsewhere in this service. STILL NOT implemented: the behaviorCriteriaType filter -- see families: security_profiles below for exactly why."}
+  ListActiveViolations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) ActiveViolation was missing lastViolationTime and violationEventAdditionalInfo entirely (confirmed against types.ActiveViolation -- real AWS distinguishes \"when the violation started\" from \"when the most recent violation occurred\", the latter updating on every subsequent detection of the same ongoing violation); both now modeled. Also implemented the listSuppressedAlerts filter (previously unimplemented) by adding an internal-only (json:\"-\", real ActiveViolation has no wire field for this) Suppressed flag, directly seedable, mirroring AuditFinding.IsSuppressed's identical simplification elsewhere in this service. (pass #4) behaviorCriteriaType filter now also implemented, resolved live against the owning security profile's now-persisted Behaviors -- see security_profiles below."}
   ListViolationEvents: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same violationEventAdditionalInfo + listSuppressedAlerts fixes as ListActiveViolations, for the sibling ViolationEvent type"}
   DescribeJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "documentSource was nested inside \"job\" instead of being a top-level DescribeJobOutput field (verified against v1.76.0); the nested Job object also leaked invented document/documentSource/tags fields that don't exist on real types.Job -- fixed (documentSource promoted to top level, invented fields tagged json:\"-\"). (pass #3) now also returns jobExecutionsRetryConfig/presignedUrlConfig/schedulingConfig/destinationPackageVersions, and a computed jobProcessDetails rollup (numberOf{Queued,InProgress,Succeeded,Failed,Rejected,Canceled,Removed}Things + processingTargets) derived live from the backend's real per-target JobExecution rows rather than a separately-maintained (and driftable) counter."}
   DescribeJobTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "JobTemplate leaked an invented \"tags\" field not present in real DescribeJobTemplateOutput; tagged json:\"-\". (pass #3) now also returns jobExecutionsRetryConfig/presignedUrlConfig/destinationPackageVersions/maintenanceWindows, field-diffed separately from Job's own advanced fields (see CreateJobTemplate note on the maintenanceWindows nesting difference)."}
@@ -142,32 +200,28 @@ families:
   certificate: {status: ok, note: "Full CRUD (Create/Register/RegisterWithoutCA/Describe/List/Update/Delete) plus the transfer lifecycle (Transfer/Accept/Reject/Cancel) field-diffed and fixed this pass -- see DescribeCertificate/ListCertificates/AcceptCertificateTransfer/etc. ops above and gopherstack-jy57 (now closed)"}
   certificate_provider: {status: ok, note: "Create/Describe/List/Update/Delete field-diffed against v1.76.0; only bug was the epoch-timestamp encoding on Describe (fixed). Full field set otherwise already correct"}
   job_and_jobtemplate: {status: ok, note: "(pass #3) CLOSED. Field-diffed exhaustively against v1.76.0. Foundational fan-out gap implemented: CreateJob/AssociateTargetsWithJob now fan a real QUEUED JobExecution out to every resolved target thing (thing ARN direct, or thing-group ARN expanded to direct members -- matching ListThingsInThingGroup's own non-recursive semantics), cascade-cleaned on DeleteThing/DeleteJob. Job's and JobTemplate's advanced fields (jobExecutionsRetryConfig, presignedUrlConfig, schedulingConfig incl. maintenanceWindows for Job / top-level maintenanceWindows for JobTemplate, destinationPackageVersions, computed jobProcessDetails) implemented end to end: request parsing, backend state, response wire shape, persistence. Found and fixed a severe, previously-undiscovered routing bug class: CreateJob and CreateJobTemplate were both routed on POST when real AWS uses PUT (awsRestjson1_serializeOpCreateJob/CreateJobTemplate), and GetJobDocument was routed at /jobs/{jobId}/document instead of the real /jobs/{jobId}/job-document -- all three completely unreachable by any real SDK client. Also found the RouteMatcher whitelist (checked before op dispatch in a real deployment) never matched plain \"/jobs\" (ListJobs) or the entire \"/job-templates\" path family -- both silently 404'd. AssociateTargetsWithJob was missing the real \"description\" output field and never merged newly-associated targets into the job's own Targets list. All fixed. See ops: above for each op's specifics."}
-  device_defender: {status: ok, note: "(pass #3) CLOSED for everything within this family's own scope. StartAuditMitigationActionsTask's target resolution fixed (combined auditTaskId+auditCheckToReasonCodeFilter AND semantics, real reason-code-list matching instead of check-name-only). ML-Detect surface (StartDetectMitigationActionsTask and siblings) field-diffed: DetectMitigationActionsTaskSummary's actionsDefinition wire shape fixed (was an invented \"actions\" field), ListDetectMitigationActionsTasks now returns the same rich summary type Describe does (was a hand-picked 4-field subset), DetectMitigationActionExecution's executionStartDate/executionEndDate field names fixed (were wire-keyed wrong), violationEventOccurrenceRange added. Violations surface (ListActiveViolations/ListViolationEvents) field-diffed: lastViolationTime/violationEventAdditionalInfo added, listSuppressedAlerts filter implemented. ListAuditFindings.resourceIdentifier filtering implemented (previously the family's most-cited unimplementable gap) by modeling a real, fully-typed ResourceIdentifier struct instead of a freeform map. Also found the entire \"/mitigationactions/\" path family (CreateMitigationAction and siblings) was absent from the RouteMatcher whitelist -- completely unreachable in a real deployment despite correct op-dispatch routing. STILL NOT implemented: ListActiveViolations/ListViolationEvents' behaviorCriteriaType filter -- this is blocked by a real gap in a DIFFERENT family (security_profiles, see below), not by anything unresolved within device_defender itself: there is no behavior-criteria-type data anywhere in this backend to filter on, because CreateSecurityProfile never persists Behaviors at all."}
-  security_profiles: {status: partial, note: "NEWLY DISCOVERED this pass (not previously tracked as its own family) while investigating device_defender's listSuppressedAlerts/behaviorCriteriaType filters. CreateSecurityProfile's real input (types.CreateSecurityProfileInput) has Behaviors/AlertTargets/AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/MetricsExportConfig -- this backend's SecurityProfile struct stores NONE of them; the request fields are silently accepted and dropped (the same severe 'dropped request field' bug class flagged elsewhere in this campaign, e.g. elasticache). UpdateSecurityProfile/DescribeSecurityProfile presumably have the same gap (not exhaustively re-verified this pass; ValidateSecurityProfileBehaviors already models a rich SecurityProfileBehavior{Name,Metric,Criteria} shape for its own standalone validation-only endpoint, but that shape is never connected to an actual stored SecurityProfile). This is what blocks device_defender's behaviorCriteriaType filter (no behavior-criteria-type data to filter on) and represents a real, substantial, previously-unaudited gap in its own right. Explicitly OUT OF SCOPE for job_and_jobtemplate/device_defender this pass -- flagged here rather than silently ignored so overall: A is not claimed prematurely. See gaps: below."}
+  device_defender: {status: ok, note: "(pass #3) CLOSED for everything within this family's own scope. StartAuditMitigationActionsTask's target resolution fixed (combined auditTaskId+auditCheckToReasonCodeFilter AND semantics, real reason-code-list matching instead of check-name-only). ML-Detect surface (StartDetectMitigationActionsTask and siblings) field-diffed: DetectMitigationActionsTaskSummary's actionsDefinition wire shape fixed (was an invented \"actions\" field), ListDetectMitigationActionsTasks now returns the same rich summary type Describe does (was a hand-picked 4-field subset), DetectMitigationActionExecution's executionStartDate/executionEndDate field names fixed (were wire-keyed wrong), violationEventOccurrenceRange added. Violations surface (ListActiveViolations/ListViolationEvents) field-diffed: lastViolationTime/violationEventAdditionalInfo added, listSuppressedAlerts filter implemented. ListAuditFindings.resourceIdentifier filtering implemented (previously the family's most-cited unimplementable gap) by modeling a real, fully-typed ResourceIdentifier struct instead of a freeform map. Also found the entire \"/mitigationactions/\" path family (CreateMitigationAction and siblings) was absent from the RouteMatcher whitelist -- completely unreachable in a real deployment despite correct op-dispatch routing. (pass #4) ListActiveViolations/ListViolationEvents' behaviorCriteriaType filter is now also implemented, once security_profiles (see below) closed the Behaviors-persistence gap that previously blocked it."}
+  security_profiles: {status: ok, note: "(pass #4) CLOSED. CreateSecurityProfile's real input (types.CreateSecurityProfileInput) has Behaviors/AlertTargets/AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/MetricsExportConfig -- this backend's SecurityProfile struct stored NONE of them; the request fields were silently accepted and dropped (the same severe 'dropped request field' bug class flagged elsewhere in this campaign, e.g. elasticache). All five are now modeled on SecurityProfile and wired end-to-end. Extended (rather than duplicated) ValidateSecurityProfileBehaviors' existing SecurityProfileBehavior/SecurityProfileBehaviorCriteria shapes to also be the real persisted Behaviors shape: SecurityProfileBehavior gained MetricDimension/ExportMetric/SuppressAlerts, SecurityProfileBehaviorCriteria gained Value/StatisticalThreshold/MlDetectionConfig (field-diffed against types.Behavior/types.BehaviorCriteria). New types SecurityProfileAlertTarget/SecurityProfileMetricToRetain/SecurityProfileMetricsExportConfig/SecurityProfileMetricDimension/SecurityProfileMetricValue/SecurityProfileStatisticalThreshold/SecurityProfileMLDetectionConfig mirror types.AlertTarget/MetricToRetain/MetricsExportConfig/MetricDimension/MetricValue/StatisticalThreshold/MachineLearningDetectionConfig. DescribeSecurityProfile/UpdateSecurityProfile field-diffed against DescribeSecurityProfileOutput/UpdateSecurityProfileOutput and confirmed to have had the identical gap (UpdateSecurityProfile previously accepted only securityProfileDescription); both rebuilt to return the full real field set, epoch-encoded creationDate/lastModifiedDate. UpdateSecurityProfile now also implements ExpectedVersion's optimistic-lock semantics (-> ErrVersionConflict/VersionConflictException on mismatch, confirmed against awsRestjson1_serializeOpHttpBindingsUpdateSecurityProfileInput -- expectedVersion is a QUERY parameter, not a body field) and every DeleteX-flag-vs-field mutual exclusion rule (deleteBehaviors/deleteAlertTargets/deleteAdditionalMetricsToRetain/deleteMetricsExportConfig, each rejecting InvalidRequestException-mapped ErrValidation when the corresponding field is also supplied in the same call, matching real AWS's documented semantics). Also found and fixed a real 'invented field' leak while field-diffing: SecurityProfile's pre-existing Tags field was surfaced on Describe/Update responses, but real DescribeSecurityProfileOutput/UpdateSecurityProfileOutput have NO \"tags\" field at all (tags are only ever retrievable via the separate ListTagsForResource op) -- fixed via json:\"-\" (same pattern as Job/JobTemplate's previously-fixed leaked \"tags\"). Persistence required no persistence.go changes: SecurityProfile already round-trips via the generic store.Table[SecurityProfile] registry (store.go/store_setup.go), which marshals the full struct -- confirmed by a new persistence regression case seeding a profile with all five previously-dropped fields. Closing this also unblocked device_defender's ListActiveViolations/ListViolationEvents behaviorCriteriaType filter (STATIC/STATISTICAL/MACHINE_LEARNING, types.BehaviorCriteriaType), now implemented via securityProfileBehaviorCriteriaTypeLocked, which resolves a violation's owning security profile's now-real stored Behaviors live -- see device_defender's own families: entry, updated below. ROUTING VERIFIED: with the Behaviors gap closed, every security-profile op (CreateSecurityProfile, UpdateSecurityProfile, DescribeSecurityProfile, ListSecurityProfiles, ListSecurityProfilesForTarget, AttachSecurityProfile, DetachSecurityProfile, ListTargetsForSecurityProfile, ValidateSecurityProfileBehaviors) was driven through a real generated AWS SDK v2 IoT client against the actual service.Router path (newIoTSDKClient/TestSecurityProfile_RoutingWireShapesAndBehaviorCriteriaType_SDKRoundTrip, handler_security_profiles_test.go; also TestHandler_RouteMatcher's list_security_profiles/list_security_profiles_for_target cases), not just h.Handler() directly -- the same class of gate three prior passes each found real bugs in for other op families. This turned up two more, previously-undiscovered bugs in this family specifically: (1) ListSecurityProfiles (GET /security-profiles, no trailing slash) and ListSecurityProfilesForTarget (GET /security-profiles-for-target) were BOTH entirely absent from the RouteMatcher whitelist (matchCoreIoTPathSecondary, handler_routing.go) -- op dispatch itself (resolveSecurityProfileOps) already handled both paths correctly, but a real client's request never reached op dispatch at all in a real deployment; fixed. (2) three wire-shape key-name bugs, confirmed against v1.76.0's awsRestjson1_deserializeDocumentSecurityProfileIdentifier/SecurityProfileTarget/SecurityProfileTargetMapping: ListSecurityProfiles' securityProfileIdentifiers used the full \"securityProfileName\"/\"securityProfileArn\" keys instead of the real, SHORTENED \"name\"/\"arn\" SecurityProfileIdentifier keys; ListTargetsForSecurityProfile's securityProfileTargets used an invented \"securityProfileTargetArn\" key instead of the real \"arn\"; ListSecurityProfilesForTarget's securityProfileTargetMappings nested only {securityProfileIdentifier:{name}} with no arn and no sibling \"target\" object at all, instead of the real {securityProfileIdentifier:{name,arn}, target:{arn}} -- a real client's deserializer would have left the affected fields permanently nil/empty under all three. All three fixed; all three List ops also gained maxResults/nextToken pagination (previously always returned every item in one page, unlike sibling List ops elsewhere in this service). Two smaller bugs found in the same pass: DetachSecurityProfile silently no-op'd for an unknown security profile name instead of returning ResourceNotFoundException (AttachSecurityProfile already had this validation, from gopherstack-ep0r, but it was never mirrored onto Detach); and DeleteSecurityProfile never cleaned up the deleted profile's entry in the securityProfileTargets attachment map, leaving a ghost row that a same-named profile re-created later would incorrectly inherit -- both fixed (TestSecurityProfile_DetachNotFoundAndDeleteCascade)."}
   fleet_indexing: {status: ok, note: "Field-diffed against v1.76.0 this pass (previously entirely untouched). Two real, previously-unflagged wire-shape bugs found and fixed: (1) SearchIndex's ThingGroupDocument sent a single \"parentGroupName\" string (direct parent only) instead of the real \"parentGroupNames\" LIST field (the full ancestor chain) -- confirmed against awsRestjson1_deserializeDocumentThingGroupDocument, a real client's deserializer would never find the key it looks for under the old shape and silently leave the field empty; also added the missing \"thingGroupDescription\" field. (2) DescribeThingGroup's thingGroupMetadata was completely missing \"rootToParentThingGroups\" (root-first ancestor name+ARN list) -- confirmed against awsRestjson1_deserializeDocumentThingGroupMetadata; not implemented at all previously. Both fixed via a new thingGroupAncestors backend helper (indexing.go) that reconstructs the full chain by walking gopherstack's per-group direct-ParentGroupName links, since the domain model only stores one level per group. (3) GetStatistics' Statistics response was missing \"sumOfSquares\" entirely (types.Statistics has it; confirmed against awsRestjson1_deserializeDocumentStatistics) -- fixed by computing it in computeStatistics alongside the existing sum/variance accumulation. GetCardinality/GetPercentiles/GetBucketsAggregation/DescribeIndex/ListIndices output shapes also field-diffed against their real GetCardinalityOutput/GetPercentilesOutput/GetBucketsAggregationOutput/types.PercentPair/types.Bucket counterparts -- no further gaps found on this pass's sample."}
   billing_group: {status: ok, note: "AddThingToBillingGroup/RemoveThingFromBillingGroup/ListThingsInBillingGroup verified real state mutation via thingBillingGroups map; DescribeThing now surfaces it (see CreateThing/DescribeThing above)"}
   persistence: {status: ok, note: "backendSnapshot/Restore in persistence.go covers all backend maps observed during this audit (policyTargets, thingPrincipals, thingBillingGroups, thingThingGroups, securityProfileTargets, resourceTags, certificateTransfers, etc.); Handler.Snapshot/Restore already delegate correctly -- no gaps found. Certificate struct's new transfer-lifecycle fields (OwnedBy/PreviousOwnedBy/GenerationID/CertificateMode/CustomerVersion/Validity*/Transfer*) round-trip correctly since persistence marshals the full struct, not the handler-layer wire shape."}
-gaps:
-  - security_profiles (NOT job_and_jobtemplate or device_defender): CreateSecurityProfile
-    silently drops Behaviors/AlertTargets/AdditionalMetricsToRetain(V2)/MetricsExportConfig --
-    none are persisted by SecurityProfile at all. Discovered as a side effect of this pass's
-    device_defender work (it is what blocks ListActiveViolations/ListViolationEvents'
-    behaviorCriteriaType filter -- there is no behavior-criteria-type data anywhere in this
-    backend to filter on), but it is a distinct, substantial, previously-unaudited gap in its
-    own family, not a job_and_jobtemplate/device_defender sub-item, and genuinely out of scope
-    for this pass to fix (full Behavior/AlertTarget/MetricsExportConfig modeling + CRUD wiring
-    is its own project). See the new `security_profiles` families: entry above. This is the
-    ONLY reason overall stays A- rather than A -- job_and_jobtemplate and device_defender
-    themselves are both fully closed (see families: above).
-deferred:
-  - security_profiles (Behaviors/AlertTargets/AdditionalMetricsToRetain(V2)/
-    MetricsExportConfig not persisted by CreateSecurityProfile at all -- see gaps: above and
-    the security_profiles families: entry for detail). Recommend filing a new tracking issue
-    for this the way gopherstack-srzb tracked job_and_jobtemplate/device_defender, since it is
-    a different family discovered mid-pass, not a continuation of either.
-  - gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) can be
-    CLOSED as of this pass: both families it tracked are now `ok` (see families: above). Only
-    the newly-discovered security_profiles item remains, tracked separately per the note above.
+gaps: []
+  # All families closed as of pass #4 (2026-07-25). security_profiles -- the sole reason
+  # pass #3 stayed at A- -- is now `ok` (see its families: entry above): CreateSecurityProfile/
+  # UpdateSecurityProfile persist the full real field set, ListActiveViolations/
+  # ListViolationEvents' behaviorCriteriaType filter is implemented, and every
+  # security-profile op (CreateSecurityProfile, UpdateSecurityProfile, DescribeSecurityProfile,
+  # ListSecurityProfiles, ListSecurityProfilesForTarget, AttachSecurityProfile,
+  # DetachSecurityProfile, ListTargetsForSecurityProfile, ValidateSecurityProfileBehaviors) was
+  # re-verified reachable end to end through the real RouteMatcher, not just callable on the
+  # handler -- see the security_profiles families: entry's "routing verified" paragraph for the
+  # two additional, previously-undiscovered bugs that check turned up (a RouteMatcher-whitelist
+  # gap for ListSecurityProfiles/ListSecurityProfilesForTarget, and three wire-shape key-name
+  # bugs on the same two ops plus ListTargetsForSecurityProfile).
+deferred: []
+  # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
+  # the security_profiles item that superseded it as pass #3's sole open item are both closed
+  # as of this pass. No known deferred work remains for this service.
 leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the embedded MQTT broker in a bare `go func(){ broker.Start(ctx) }()` with no way to wait for it to exit -- Handler didn't implement service.Shutdowner at all, so the broker goroutine had no deterministic drain path on service shutdown (relied entirely on the caller's ctx being cancelled elsewhere, with no join/wait). This is the same 'ctx-parented but not Shutdown-drained' bug class fixed elsewhere via pkgs/worker.SingleRun (see services/autoscaling, services/scheduler for the established pattern). FIXED: added a worker.SingleRun-backed brokerRun field, Broker.Run(ctx) adapter method, and a Handler.Shutdown(ctx) that calls brokerRun.Stop(ctx) and blocks until the broker goroutine actually exits (or ctx is done). Handler now implements both service.BackgroundWorker and service.Shutdowner. Regression test: TestHandlerShutdownDrainsBrokerGoroutine (broker_test.go) starts a real broker and asserts Shutdown returns within 2s of the goroutine actually stopping, not just cancelling and returning immediately."}
 ---
 
@@ -452,3 +506,56 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
      reason `overall:` stays `A-` rather than `A` despite both of this pass's two
      assigned families (`job_and_jobtemplate`, `device_defender`) now being genuinely
      `ok`.
+
+- **Scope of this pass (2026-07-25 pass #4)**: closed `security_profiles`, the sole
+  family pass #3 left partial, bringing `overall:` to `A`. Two parts:
+
+  1. **Behaviors/AlertTargets/AdditionalMetricsToRetain(V2)/MetricsExportConfig
+     persistence**, field-diffed against `types.CreateSecurityProfileInput`/
+     `UpdateSecurityProfileInput`/`DescribeSecurityProfileOutput`/
+     `UpdateSecurityProfileOutput` (v1.76.0). All five request fields, previously
+     silently dropped, are now modeled on `SecurityProfile` and wired end to end:
+     request parsing, backend storage, response wire shape, and persistence (no
+     `persistence.go` changes needed — `SecurityProfile` already round-trips via the
+     generic `store.Table[SecurityProfile]` registry, which marshals the full struct).
+     `UpdateSecurityProfile` was rebuilt from a single description-only field into the
+     real `UpdateSecurityProfileInput` shape, including `ExpectedVersion`'s
+     optimistic-lock semantics (`expectedVersion` is a query parameter, not a body
+     field — confirmed against `awsRestjson1_serializeOpHttpBindingsUpdateSecurityProfileInput`)
+     and every `DeleteX`-flag-vs-field mutual-exclusion rule. Also fixed an invented-field
+     leak found in the same diff: `SecurityProfile.Tags` was surfaced on
+     Describe/Update responses, but real `DescribeSecurityProfileOutput`/
+     `UpdateSecurityProfileOutput` have no `"tags"` field at all (tags are only
+     retrievable via the separate `ListTagsForResource` op) — fixed via `json:"-"`.
+     Closing this unblocked `ListActiveViolations`/`ListViolationEvents`'
+     `behaviorCriteriaType` filter (`device_defender` family), now resolved live
+     against each violation's owning security profile's real stored `Behaviors`.
+
+  2. **The routing sweep the task brief explicitly required** ("check routing while
+     you are there — three prior passes each found ops unreachable by a real
+     client"). Every security-profile op was driven through a real generated AWS SDK
+     v2 IoT client against the actual `service.Router` path (`newIoTSDKClient`,
+     already established by pass #3 for exactly this purpose), not just
+     `h.Handler()` directly. This family had never been checked this way before, and
+     it found two more real, previously-undiscovered bugs of the exact same classes
+     prior passes found elsewhere in this service: a `RouteMatcher`-whitelist gap
+     (`ListSecurityProfiles`' plain `"/security-profiles"`, no trailing slash — same
+     shape as `ListJobs`' own prior-pass gap — and `ListSecurityProfilesForTarget`'s
+     `"/security-profiles-for-target"` were both entirely absent from
+     `matchCoreIoTPathSecondary`, `handler_routing.go`, despite `resolveSecurityProfileOps`
+     already dispatching both correctly), and three wire-shape key-name bugs
+     (`ListSecurityProfiles`/`ListTargetsForSecurityProfile`/
+     `ListSecurityProfilesForTarget`'s list-entry shapes used invented or
+     full-length keys in place of the real, shortened `SecurityProfileIdentifier`/
+     `SecurityProfileTarget`/`SecurityProfileTargetMapping` keys — confirmed against
+     `awsRestjson1_deserializeDocumentSecurityProfileIdentifier`/`SecurityProfileTarget`/
+     `SecurityProfileTargetMapping`). All fixed, along with two smaller bugs found in
+     the same sweep: `DetachSecurityProfile` never mirrored `AttachSecurityProfile`'s
+     existing `gopherstack-ep0r` existence-validation fix, and `DeleteSecurityProfile`
+     never cascade-cleaned its target-attachment map entry (a ghost row a same-named
+     profile re-created later would incorrectly inherit). See the `security_profiles`
+     `families:` entry's "ROUTING VERIFIED" paragraph and the new per-op `ops:`
+     entries above for full detail, and `TestSecurityProfile_RoutingWireShapesAndBehaviorCriteriaType_SDKRoundTrip`/
+     `TestSecurityProfile_DetachNotFoundAndDeleteCascade`
+     (`handler_security_profiles_test.go`) plus two new `TestHandler_RouteMatcher`
+     cases (`handler_routing_test.go`) for the regression coverage.

@@ -49,6 +49,20 @@ func matchCoreIoTPathPrimary(path string) bool {
 func matchCoreIoTPathSecondary(path string) bool {
 	return matchJobAndTemplatePath(path) ||
 		strings.HasPrefix(path, "/security-profiles/") ||
+		// ListSecurityProfiles (GET /security-profiles, no trailing slash)
+		// and ListSecurityProfilesForTarget (GET
+		// /security-profiles-for-target) were both entirely absent from
+		// this route matcher -- op dispatch (resolveSecurityProfileOps)
+		// already handled both paths correctly, but a real client's
+		// request never reached op dispatch at all, because RouteMatcher
+		// is an earlier, separate gate. Same previously-undiscovered
+		// unreachable-op bug class as ListJobs's plain "/jobs" and the
+		// "/job-templates"/"/mitigationactions/" families documented
+		// below; only caught by round-tripping through a real generated
+		// SDK client via the actual service.Router path (see
+		// TestSecurityProfile_RoutingReachability). Fixed this pass.
+		path == "/security-profiles" ||
+		path == "/security-profiles-for-target" ||
 		strings.HasPrefix(path, "/audit/") ||
 		// /mitigationactions/actions[/{actionName}] (CreateMitigationAction/
 		// DescribeMitigationAction/UpdateMitigationAction/

@@ -796,39 +796,109 @@ func (b *InMemoryBackend) SeedActiveViolation(input *SeedActiveViolationInput) (
 	return cloneActiveViolation(v), nil
 }
 
-// ListActiveViolations returns currently active violations, optionally filtered
-// by thing name, security profile name, and/or verification state.
+// violationFilter bundles ListActiveViolations/ListViolationEvents' shared
+// filter parameters (thing/security-profile/verification-state/suppression/
+// behaviorCriteriaType) so each op's per-item matching logic can be split
+// into small predicate methods instead of one long function body -- keeps
+// both ops' cyclomatic/cognitive complexity low without a suppression
+// directive for the banned cyclop/gocognit/gocyclo/funlen lint family.
+type violationFilter struct {
+	listSuppressedAlerts *bool
+	thingName            string
+	securityProfileName  string
+	verificationState    string
+	behaviorCriteriaType string
+}
+
+// matchesCommon reports whether an item's thing/security-profile/
+// verification-state/suppression fields satisfy f (empty/nil filter fields
+// are unfiltered/match-all).
+func (f violationFilter) matchesCommon(thingName, securityProfileName, verificationState string, suppressed bool) bool {
+	if f.thingName != "" && thingName != f.thingName {
+		return false
+	}
+	if f.securityProfileName != "" && securityProfileName != f.securityProfileName {
+		return false
+	}
+	if f.verificationState != "" && verificationState != f.verificationState {
+		return false
+	}
+	if f.listSuppressedAlerts != nil && suppressed != *f.listSuppressedAlerts {
+		return false
+	}
+
+	return true
+}
+
+// matchesBehaviorCriteriaType reports whether the violation behavior
+// (identified by its owning security profile name and the ViolationBehavior
+// recorded on the violation/event) resolves to f.behaviorCriteriaType. An
+// empty filter value means unfiltered. Must be called with b.mu already
+// held, matching securityProfileBehaviorCriteriaTypeLocked's own contract.
+func (b *InMemoryBackend) matchesBehaviorCriteriaType(
+	f violationFilter,
+	securityProfileName string,
+	beh *ViolationBehavior,
+) bool {
+	if f.behaviorCriteriaType == "" {
+		return true
+	}
+
+	return b.securityProfileBehaviorCriteriaTypeLocked(securityProfileName, beh) == f.behaviorCriteriaType
+}
+
+// matchesWindow reports whether t falls within [startTime, endTime] (epoch
+// seconds; zero on either bound means unbounded on that side).
+func matchesWindow(t, startTime, endTime float64) bool {
+	if startTime > 0 && t < startTime {
+		return false
+	}
+	if endTime > 0 && t > endTime {
+		return false
+	}
+
+	return true
+}
+
 // ListActiveViolations returns currently active violations, optionally
-// filtered by thing name, security profile name, verification state, and/or
-// suppression state. listSuppressedAlerts mirrors
-// ListAuditFindingsFilter.ListSuppressedFindings' tri-state semantics
-// (confirmed against the analogous, unambiguous ListAuditFindingsInput doc:
-// nil means both suppressed and unsuppressed are returned, true/false
-// narrows to one or the other) -- real ListActiveViolationsInput's own doc
-// for listSuppressedAlerts is less explicit ("A list of all suppressed
-// alerts"), but this is the only self-consistent tri-state reading and
-// matches the sibling audit-findings filter's behavior in this same
-// service.
+// filtered by thing name, security profile name, verification state,
+// suppression state, and/or behaviorCriteriaType. listSuppressedAlerts
+// mirrors ListAuditFindingsFilter.ListSuppressedFindings' tri-state
+// semantics (confirmed against the analogous, unambiguous
+// ListAuditFindingsInput doc: nil means both suppressed and unsuppressed
+// are returned, true/false narrows to one or the other) -- real
+// ListActiveViolationsInput's own doc for listSuppressedAlerts is less
+// explicit ("A list of all suppressed alerts"), but this is the only
+// self-consistent tri-state reading and matches the sibling audit-findings
+// filter's behavior in this same service. behaviorCriteriaType (empty
+// string means unfiltered) is resolved per violation via
+// securityProfileBehaviorCriteriaTypeLocked against the owning security
+// profile's now-persisted Behaviors (see security_profiles.go) -- this was
+// the previously-unimplementable filter blocked by security_profiles'
+// former Behaviors gap; a violation whose behavior can no longer be
+// resolved on its security profile never matches a non-empty filter value.
 func (b *InMemoryBackend) ListActiveViolations(
-	thingName, securityProfileName, verificationState string, listSuppressedAlerts *bool,
+	thingName, securityProfileName, verificationState string, listSuppressedAlerts *bool, behaviorCriteriaType string,
 ) []*ActiveViolation {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
+	f := violationFilter{
+		thingName:            thingName,
+		securityProfileName:  securityProfileName,
+		verificationState:    verificationState,
+		listSuppressedAlerts: listSuppressedAlerts,
+		behaviorCriteriaType: behaviorCriteriaType,
+	}
 
 	items := b.activeViolations.Snapshot()
 	out := make([]*ActiveViolation, 0, len(items))
 
 	for _, v := range items {
-		if thingName != "" && v.ThingName != thingName {
+		if !f.matchesCommon(v.ThingName, v.SecurityProfileName, v.VerificationState, v.Suppressed) {
 			continue
 		}
-		if securityProfileName != "" && v.SecurityProfileName != securityProfileName {
-			continue
-		}
-		if verificationState != "" && v.VerificationState != verificationState {
-			continue
-		}
-		if listSuppressedAlerts != nil && v.Suppressed != *listSuppressedAlerts {
+		if !b.matchesBehaviorCriteriaType(f, v.SecurityProfileName, v.Behavior) {
 			continue
 		}
 		out = append(out, cloneActiveViolation(v))
@@ -839,36 +909,37 @@ func (b *InMemoryBackend) ListActiveViolations(
 
 // ListViolationEvents returns recorded violation events, optionally filtered
 // by thing name, security profile name, verification state, suppression
-// state, and/or an [startTime, endTime] window (epoch seconds; zero means
-// unbounded). listSuppressedAlerts has the same tri-state semantics as
-// ListActiveViolations' (see its doc comment).
+// state, behaviorCriteriaType, and/or an [startTime, endTime] window (epoch
+// seconds; zero means unbounded). listSuppressedAlerts and
+// behaviorCriteriaType have the same semantics as ListActiveViolations'
+// (see its doc comment).
 func (b *InMemoryBackend) ListViolationEvents(
 	thingName, securityProfileName, verificationState string,
 	startTime, endTime float64,
 	listSuppressedAlerts *bool,
+	behaviorCriteriaType string,
 ) []*ViolationEvent {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	f := violationFilter{
+		thingName:            thingName,
+		securityProfileName:  securityProfileName,
+		verificationState:    verificationState,
+		listSuppressedAlerts: listSuppressedAlerts,
+		behaviorCriteriaType: behaviorCriteriaType,
+	}
+
 	out := make([]*ViolationEvent, 0, len(b.violationEvents))
 
 	for _, e := range b.violationEvents {
-		if thingName != "" && e.ThingName != thingName {
+		if !f.matchesCommon(e.ThingName, e.SecurityProfileName, e.VerificationState, e.Suppressed) {
 			continue
 		}
-		if securityProfileName != "" && e.SecurityProfileName != securityProfileName {
+		if !matchesWindow(e.ViolationEventTime, startTime, endTime) {
 			continue
 		}
-		if verificationState != "" && e.VerificationState != verificationState {
-			continue
-		}
-		if startTime > 0 && e.ViolationEventTime < startTime {
-			continue
-		}
-		if endTime > 0 && e.ViolationEventTime > endTime {
-			continue
-		}
-		if listSuppressedAlerts != nil && e.Suppressed != *listSuppressedAlerts {
+		if !b.matchesBehaviorCriteriaType(f, e.SecurityProfileName, e.Behavior) {
 			continue
 		}
 		out = append(out, cloneViolationEvent(e))

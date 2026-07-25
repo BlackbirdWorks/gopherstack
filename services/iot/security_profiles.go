@@ -2,6 +2,7 @@ package iot
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -27,10 +28,18 @@ func (b *InMemoryBackend) AttachSecurityProfile(input *AttachSecurityProfileInpu
 	return nil
 }
 
-// DetachSecurityProfile removes a target ARN from a security profile.
+// DetachSecurityProfile removes a target ARN from a security profile. Real
+// AWS IoT returns ResourceNotFoundException for an unknown security profile
+// name -- the same gap AttachSecurityProfile had before it was fixed
+// (gopherstack-ep0r); DetachSecurityProfile silently no-op'd for any name
+// previously.
 func (b *InMemoryBackend) DetachSecurityProfile(profileName, targetARN string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if !b.securityProfiles.Has(profileName) {
+		return fmt.Errorf("security profile %q not found: %w", profileName, ErrResourceNotFound)
+	}
 
 	targets := b.securityProfileTargets[profileName]
 	filtered := make([]string, 0, len(targets))
@@ -73,31 +82,224 @@ func (b *InMemoryBackend) ListSecurityProfilesForTarget(targetARN string) []stri
 }
 
 // SecurityProfile represents an IoT security profile.
+//
+// Field-diffed against types.CreateSecurityProfileInput/
+// DescribeSecurityProfileOutput/UpdateSecurityProfileOutput in v1.76.0:
+// Behaviors/AlertTargets/AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/
+// MetricsExportConfig were entirely unmodeled -- CreateSecurityProfile silently
+// dropped every one of them (the "dropped request field" bug class flagged
+// elsewhere in this campaign). All five are now modeled and persisted.
+//
+// Tags is internal-storage-only (json:"-"): real DescribeSecurityProfileOutput
+// and UpdateSecurityProfileOutput have NO "tags" field at all (confirmed
+// against v1.76.0's awsRestjson1_deserializeOpDocumentDescribeSecurityProfileOutput/
+// UpdateSecurityProfileOutput -- tags attached at creation time are only ever
+// retrievable via the separate ListTagsForResource op), so surfacing it here
+// would be the same "invented field" bug class already fixed for Job/
+// JobTemplate's leaked "tags" field elsewhere in this service. Kept on the
+// struct (rather than dropped) purely for internal storage.
 type SecurityProfile struct {
-	Tags                       map[string]string `json:"tags,omitempty"`
-	SecurityProfileName        string            `json:"securityProfileName"`
-	SecurityProfileARN         string            `json:"securityProfileArn"`
-	SecurityProfileDescription string            `json:"securityProfileDescription,omitempty"`
-	Version                    int64             `json:"version"`
-	CreationDate               float64           `json:"creationDate,omitempty"`
-	LastModifiedDate           float64           `json:"lastModifiedDate,omitempty"`
+	Tags                        map[string]string                     `json:"-"`
+	AlertTargets                map[string]SecurityProfileAlertTarget `json:"alertTargets,omitempty"`
+	MetricsExportConfig         *SecurityProfileMetricsExportConfig   `json:"metricsExportConfig,omitempty"`
+	SecurityProfileName         string                                `json:"securityProfileName"`
+	SecurityProfileARN          string                                `json:"securityProfileArn"`
+	SecurityProfileDescription  string                                `json:"securityProfileDescription,omitempty"`
+	Behaviors                   []SecurityProfileBehavior             `json:"behaviors,omitempty"`
+	AdditionalMetricsToRetain   []string                              `json:"additionalMetricsToRetain,omitempty"`
+	AdditionalMetricsToRetainV2 []SecurityProfileMetricToRetain       `json:"additionalMetricsToRetainV2,omitempty"`
+	Version                     int64                                 `json:"version"`
+	CreationDate                float64                               `json:"creationDate,omitempty"`
+	LastModifiedDate            float64                               `json:"lastModifiedDate,omitempty"`
+}
+
+// SecurityProfileMetricDimension narrows a behavior's (or additional
+// retained metric's) evaluation to a named dimension
+// (types.MetricDimension).
+type SecurityProfileMetricDimension struct {
+	DimensionName string `json:"dimensionName,omitempty"`
+	Operator      string `json:"operator,omitempty"`
+}
+
+// SecurityProfileMetricValue is the value side of a STATIC behavior
+// criteria comparison (types.MetricValue).
+type SecurityProfileMetricValue struct {
+	Count   *int64    `json:"count,omitempty"`
+	Number  *float64  `json:"number,omitempty"`
+	Cidrs   []string  `json:"cidrs,omitempty"`
+	Numbers []float64 `json:"numbers,omitempty"`
+	Ports   []int32   `json:"ports,omitempty"`
+	Strings []string  `json:"strings,omitempty"`
+}
+
+// SecurityProfileStatisticalThreshold selects the percentile statistic a
+// STATISTICAL behavior criteria is evaluated against
+// (types.StatisticalThreshold).
+type SecurityProfileStatisticalThreshold struct {
+	Statistic string `json:"statistic,omitempty"`
+}
+
+// SecurityProfileMLDetectionConfig configures a MACHINE_LEARNING behavior
+// criteria's confidence level (types.MachineLearningDetectionConfig).
+type SecurityProfileMLDetectionConfig struct {
+	ConfidenceLevel string `json:"confidenceLevel,omitempty"`
+}
+
+// SecurityProfileAlertTarget is an alert destination for behavior
+// violations (types.AlertTarget). Real AlertTargets is a
+// map[string]AlertTarget keyed by AlertTargetType (e.g. "SNS"); the map
+// itself is modeled as SecurityProfile.AlertTargets/
+// CreateSecurityProfileInput.AlertTargets.
+type SecurityProfileAlertTarget struct {
+	AlertTargetArn string `json:"alertTargetArn"`
+	RoleArn        string `json:"roleArn"`
+}
+
+// SecurityProfileMetricToRetain is an additional metric retained beyond
+// those already used by the profile's own behaviors
+// (types.MetricToRetain).
+type SecurityProfileMetricToRetain struct {
+	MetricDimension *SecurityProfileMetricDimension `json:"metricDimension,omitempty"`
+	ExportMetric    *bool                           `json:"exportMetric,omitempty"`
+	Metric          string                          `json:"metric"`
+}
+
+// SecurityProfileMetricsExportConfig configures MQTT export of behavior
+// evaluation metrics (types.MetricsExportConfig).
+type SecurityProfileMetricsExportConfig struct {
+	MqttTopic string `json:"mqttTopic"`
+	RoleArn   string `json:"roleArn"`
 }
 
 func cloneSecurityProfile(sp *SecurityProfile) *SecurityProfile {
 	cp := *sp
+	if sp.Tags != nil {
+		cp.Tags = maps.Clone(sp.Tags)
+	}
+	if sp.AlertTargets != nil {
+		cp.AlertTargets = maps.Clone(sp.AlertTargets)
+	}
+	cp.Behaviors = cloneSecurityProfileBehaviors(sp.Behaviors)
+	cp.AdditionalMetricsToRetain = slices.Clone(sp.AdditionalMetricsToRetain)
+	cp.AdditionalMetricsToRetainV2 = cloneSecurityProfileMetricsToRetain(sp.AdditionalMetricsToRetainV2)
+	if sp.MetricsExportConfig != nil {
+		mec := *sp.MetricsExportConfig
+		cp.MetricsExportConfig = &mec
+	}
 
 	return &cp
+}
+
+// cloneSecurityProfileMetricDimension deep-copies an optional
+// SecurityProfileMetricDimension pointer.
+func cloneSecurityProfileMetricDimension(md *SecurityProfileMetricDimension) *SecurityProfileMetricDimension {
+	if md == nil {
+		return nil
+	}
+	cp := *md
+
+	return &cp
+}
+
+// cloneSecurityProfileBehaviors deep-copies a Behavior list, including each
+// behavior's Criteria (and the Criteria's own Value/StatisticalThreshold/
+// MlDetectionConfig pointers) so that mutating a cloned SecurityProfile
+// never aliases the stored one's nested pointers/slices.
+func cloneSecurityProfileBehaviors(behaviors []SecurityProfileBehavior) []SecurityProfileBehavior {
+	if behaviors == nil {
+		return nil
+	}
+	out := make([]SecurityProfileBehavior, len(behaviors))
+	for i, beh := range behaviors {
+		out[i] = beh
+		out[i].MetricDimension = cloneSecurityProfileMetricDimension(beh.MetricDimension)
+		out[i].Criteria = cloneSecurityProfileBehaviorCriteria(beh.Criteria)
+		if beh.ExportMetric != nil {
+			v := *beh.ExportMetric
+			out[i].ExportMetric = &v
+		}
+		if beh.SuppressAlerts != nil {
+			v := *beh.SuppressAlerts
+			out[i].SuppressAlerts = &v
+		}
+	}
+
+	return out
+}
+
+func cloneSecurityProfileBehaviorCriteria(c *SecurityProfileBehaviorCriteria) *SecurityProfileBehaviorCriteria {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	if c.Value != nil {
+		v := *c.Value
+		v.Cidrs = slices.Clone(c.Value.Cidrs)
+		v.Numbers = slices.Clone(c.Value.Numbers)
+		v.Ports = slices.Clone(c.Value.Ports)
+		v.Strings = slices.Clone(c.Value.Strings)
+		cp.Value = &v
+	}
+	if c.StatisticalThreshold != nil {
+		st := *c.StatisticalThreshold
+		cp.StatisticalThreshold = &st
+	}
+	if c.MlDetectionConfig != nil {
+		ml := *c.MlDetectionConfig
+		cp.MlDetectionConfig = &ml
+	}
+
+	return &cp
+}
+
+// cloneSecurityProfileMetricsToRetain deep-copies an
+// AdditionalMetricsToRetainV2 list.
+func cloneSecurityProfileMetricsToRetain(items []SecurityProfileMetricToRetain) []SecurityProfileMetricToRetain {
+	if items == nil {
+		return nil
+	}
+	out := make([]SecurityProfileMetricToRetain, len(items))
+	for i, m := range items {
+		out[i] = m
+		out[i].MetricDimension = cloneSecurityProfileMetricDimension(m.MetricDimension)
+		if m.ExportMetric != nil {
+			v := *m.ExportMetric
+			out[i].ExportMetric = &v
+		}
+	}
+
+	return out
 }
 
 func (b *InMemoryBackend) securityProfileARN(name string) string {
 	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("securityprofile/%s", name))
 }
 
+// SecurityProfileARN returns the ARN a security profile of the given name
+// would have. Used by ListSecurityProfilesForTarget's handler to populate
+// the real SecurityProfileIdentifier.arn field (previously entirely
+// missing from that op's response -- see handler_security_profiles.go).
+// Pure string formatting; no lock needed.
+func (b *InMemoryBackend) SecurityProfileARN(name string) string {
+	return b.securityProfileARN(name)
+}
+
 // CreateSecurityProfileInput holds input for CreateSecurityProfile.
+//
+// Field-diffed against types.CreateSecurityProfileInput (v1.76.0): Behaviors/
+// AlertTargets/AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/
+// MetricsExportConfig are now modeled and wired through to the stored
+// SecurityProfile (previously silently dropped -- see SecurityProfile's own
+// doc comment).
 type CreateSecurityProfileInput struct {
-	Tags                       map[string]string `json:"tags,omitempty"`
-	SecurityProfileName        string            `json:"securityProfileName"`
-	SecurityProfileDescription string            `json:"securityProfileDescription,omitempty"`
+	Tags                        map[string]string                     `json:"tags,omitempty"`
+	AlertTargets                map[string]SecurityProfileAlertTarget `json:"alertTargets,omitempty"`
+	MetricsExportConfig         *SecurityProfileMetricsExportConfig   `json:"metricsExportConfig,omitempty"`
+	SecurityProfileName         string                                `json:"securityProfileName"`
+	SecurityProfileDescription  string                                `json:"securityProfileDescription,omitempty"`
+	Behaviors                   []SecurityProfileBehavior             `json:"behaviors,omitempty"`
+	AdditionalMetricsToRetain   []string                              `json:"additionalMetricsToRetain,omitempty"`
+	AdditionalMetricsToRetainV2 []SecurityProfileMetricToRetain       `json:"additionalMetricsToRetainV2,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateSecurityProfile(
@@ -115,13 +317,18 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 	}
 	now := float64(time.Now().Unix())
 	sp := &SecurityProfile{
-		SecurityProfileName:        input.SecurityProfileName,
-		SecurityProfileARN:         b.securityProfileARN(input.SecurityProfileName),
-		SecurityProfileDescription: input.SecurityProfileDescription,
-		Tags:                       input.Tags,
-		Version:                    1,
-		CreationDate:               now,
-		LastModifiedDate:           now,
+		SecurityProfileName:         input.SecurityProfileName,
+		SecurityProfileARN:          b.securityProfileARN(input.SecurityProfileName),
+		SecurityProfileDescription:  input.SecurityProfileDescription,
+		Tags:                        input.Tags,
+		Behaviors:                   input.Behaviors,
+		AlertTargets:                input.AlertTargets,
+		AdditionalMetricsToRetain:   input.AdditionalMetricsToRetain,
+		AdditionalMetricsToRetainV2: input.AdditionalMetricsToRetainV2,
+		MetricsExportConfig:         input.MetricsExportConfig,
+		Version:                     1,
+		CreationDate:                now,
+		LastModifiedDate:            now,
 	}
 	b.securityProfiles.Put(sp)
 
@@ -152,25 +359,168 @@ func (b *InMemoryBackend) ListSecurityProfiles() []*SecurityProfile {
 	return out
 }
 
+// UpdateSecurityProfileInput holds input for UpdateSecurityProfile.
+//
+// Field-diffed against types.UpdateSecurityProfileInput (v1.76.0): previously
+// only SecurityProfileDescription was accepted (Behaviors/AlertTargets/
+// AdditionalMetricsToRetain(V2)/MetricsExportConfig/ExpectedVersion/Delete*
+// flags were entirely unmodeled, the same "dropped request field" gap as
+// CreateSecurityProfile's). Each DeleteX flag clears the corresponding
+// field; real AWS documents that supplying BOTH a DeleteX flag and a
+// non-nil value for that same field in one call is invalid ("If any X are
+// defined in the current invocation, an exception occurs"), enforced in
+// applySecurityProfileUpdate.
+type UpdateSecurityProfileInput struct {
+	AlertTargets                    map[string]SecurityProfileAlertTarget
+	MetricsExportConfig             *SecurityProfileMetricsExportConfig
+	ExpectedVersion                 *int64
+	SecurityProfileDescription      *string
+	SecurityProfileName             string
+	Behaviors                       []SecurityProfileBehavior
+	AdditionalMetricsToRetain       []string
+	AdditionalMetricsToRetainV2     []SecurityProfileMetricToRetain
+	DeleteAdditionalMetricsToRetain bool
+	DeleteAlertTargets              bool
+	DeleteBehaviors                 bool
+	DeleteMetricsExportConfig       bool
+}
+
+// UpdateSecurityProfile updates a security profile's mutable fields.
+// ExpectedVersion, when set, must match the profile's current version or
+// ErrVersionConflict (-> VersionConflictException) is returned, matching
+// real AWS's optimistic-locking semantics.
 func (b *InMemoryBackend) UpdateSecurityProfile(
-	name, description string,
+	input *UpdateSecurityProfileInput,
 ) (*SecurityProfile, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	sp, ok := b.securityProfiles.Get(name)
+	sp, ok := b.securityProfiles.Get(input.SecurityProfileName)
 	if !ok {
-		return nil, fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
+		return nil, fmt.Errorf("security profile %q not found: %w", input.SecurityProfileName, ErrResourceNotFound)
 	}
-	if description != "" {
-		sp.SecurityProfileDescription = description
+
+	if input.ExpectedVersion != nil && *input.ExpectedVersion != sp.Version {
+		return nil, fmt.Errorf(
+			"expected version %d does not match current version %d: %w",
+			*input.ExpectedVersion, sp.Version, ErrVersionConflict,
+		)
 	}
+
+	if err := applySecurityProfileUpdate(sp, input); err != nil {
+		return nil, err
+	}
+
 	sp.Version++
 	sp.LastModifiedDate = float64(time.Now().Unix())
 
 	return cloneSecurityProfile(sp), nil
 }
 
+// applySecurityProfileUpdate mutates sp in place per input, enforcing the
+// DeleteX-vs-field mutual exclusion documented on UpdateSecurityProfileInput.
+// Split out of UpdateSecurityProfile to keep both functions' cyclomatic
+// complexity low.
+func applySecurityProfileUpdate(sp *SecurityProfile, input *UpdateSecurityProfileInput) error {
+	if err := applyBehaviorsUpdate(sp, input); err != nil {
+		return err
+	}
+	if err := applyAlertTargetsUpdate(sp, input); err != nil {
+		return err
+	}
+	if err := applyMetricsToRetainUpdate(sp, input); err != nil {
+		return err
+	}
+	if err := applyMetricsExportConfigUpdate(sp, input); err != nil {
+		return err
+	}
+	if input.SecurityProfileDescription != nil {
+		sp.SecurityProfileDescription = *input.SecurityProfileDescription
+	}
+
+	return nil
+}
+
+func applyBehaviorsUpdate(sp *SecurityProfile, input *UpdateSecurityProfileInput) error {
+	if input.DeleteBehaviors {
+		if input.Behaviors != nil {
+			return fmt.Errorf("cannot set behaviors and deleteBehaviors together: %w", ErrValidation)
+		}
+		sp.Behaviors = nil
+
+		return nil
+	}
+	if input.Behaviors != nil {
+		sp.Behaviors = input.Behaviors
+	}
+
+	return nil
+}
+
+func applyAlertTargetsUpdate(sp *SecurityProfile, input *UpdateSecurityProfileInput) error {
+	if input.DeleteAlertTargets {
+		if input.AlertTargets != nil {
+			return fmt.Errorf("cannot set alertTargets and deleteAlertTargets together: %w", ErrValidation)
+		}
+		sp.AlertTargets = nil
+
+		return nil
+	}
+	if input.AlertTargets != nil {
+		sp.AlertTargets = input.AlertTargets
+	}
+
+	return nil
+}
+
+func applyMetricsToRetainUpdate(sp *SecurityProfile, input *UpdateSecurityProfileInput) error {
+	if input.DeleteAdditionalMetricsToRetain {
+		if input.AdditionalMetricsToRetain != nil || input.AdditionalMetricsToRetainV2 != nil {
+			return fmt.Errorf(
+				"cannot set additionalMetricsToRetain(V2) and deleteAdditionalMetricsToRetain together: %w",
+				ErrValidation,
+			)
+		}
+		sp.AdditionalMetricsToRetain = nil
+		sp.AdditionalMetricsToRetainV2 = nil
+
+		return nil
+	}
+	if input.AdditionalMetricsToRetain != nil {
+		sp.AdditionalMetricsToRetain = input.AdditionalMetricsToRetain
+	}
+	if input.AdditionalMetricsToRetainV2 != nil {
+		sp.AdditionalMetricsToRetainV2 = input.AdditionalMetricsToRetainV2
+	}
+
+	return nil
+}
+
+func applyMetricsExportConfigUpdate(sp *SecurityProfile, input *UpdateSecurityProfileInput) error {
+	if input.DeleteMetricsExportConfig {
+		if input.MetricsExportConfig != nil {
+			return fmt.Errorf(
+				"cannot set metricsExportConfig and deleteMetricsExportConfig together: %w", ErrValidation,
+			)
+		}
+		sp.MetricsExportConfig = nil
+
+		return nil
+	}
+	if input.MetricsExportConfig != nil {
+		sp.MetricsExportConfig = input.MetricsExportConfig
+	}
+
+	return nil
+}
+
+// DeleteSecurityProfile removes a security profile. Also cascade-deletes its
+// target attachments (b.securityProfileTargets) -- previously left behind
+// as a ghost row keyed by the now-deleted profile's name (AttachSecurityProfile
+// would then succeed again for that name via re-Create and immediately see
+// stale prior attachments; ListTargetsForSecurityProfile/
+// ListSecurityProfilesForTarget could leak attachment data for a profile
+// that DescribeSecurityProfile reports as ResourceNotFoundException).
 func (b *InMemoryBackend) DeleteSecurityProfile(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -179,23 +529,92 @@ func (b *InMemoryBackend) DeleteSecurityProfile(name string) error {
 		return fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
 	}
 	b.securityProfiles.Delete(name)
+	delete(b.securityProfileTargets, name)
 
 	return nil
 }
 
-// SecurityProfileBehavior describes one behavior to validate.
+// SecurityProfileBehavior describes one behavior, used both for
+// ValidateSecurityProfileBehaviors' standalone validation and, now, as the
+// actual persisted shape of SecurityProfile.Behaviors (types.Behavior).
+// ExportMetric/MetricDimension/SuppressAlerts were added when Behaviors was
+// wired up to real Create/UpdateSecurityProfile storage -- previously this
+// type only existed for the validation-only endpoint and was never field-
+// diffed against the full real shape.
 type SecurityProfileBehavior struct {
-	Criteria *SecurityProfileBehaviorCriteria `json:"criteria,omitempty"`
-	Name     string                           `json:"name"`
-	Metric   string                           `json:"metric,omitempty"`
+	Criteria        *SecurityProfileBehaviorCriteria `json:"criteria,omitempty"`
+	MetricDimension *SecurityProfileMetricDimension  `json:"metricDimension,omitempty"`
+	ExportMetric    *bool                            `json:"exportMetric,omitempty"`
+	SuppressAlerts  *bool                            `json:"suppressAlerts,omitempty"`
+	Name            string                           `json:"name"`
+	Metric          string                           `json:"metric,omitempty"`
 }
 
-// SecurityProfileBehaviorCriteria is the criteria portion of a behavior.
+// SecurityProfileBehaviorCriteria is the criteria portion of a behavior
+// (types.BehaviorCriteria). Value/StatisticalThreshold/MlDetectionConfig
+// were added alongside SecurityProfileBehavior's own field-diff, above --
+// which of the three is set determines the behavior's
+// types.BehaviorCriteriaType (STATIC/STATISTICAL/MACHINE_LEARNING
+// respectively), see behaviorCriteriaTypeOf.
 type SecurityProfileBehaviorCriteria struct {
-	ComparisonOperator           string `json:"comparisonOperator,omitempty"`
-	DurationSeconds              int32  `json:"durationSeconds,omitempty"`
-	ConsecutiveDatapointsToAlarm int32  `json:"consecutiveDatapointsToAlarm,omitempty"`
-	ConsecutiveDatapointsToClear int32  `json:"consecutiveDatapointsToClear,omitempty"`
+	Value                        *SecurityProfileMetricValue          `json:"value,omitempty"`
+	StatisticalThreshold         *SecurityProfileStatisticalThreshold `json:"statisticalThreshold,omitempty"`
+	MlDetectionConfig            *SecurityProfileMLDetectionConfig    `json:"mlDetectionConfig,omitempty"`
+	ComparisonOperator           string                               `json:"comparisonOperator,omitempty"`
+	DurationSeconds              int32                                `json:"durationSeconds,omitempty"`
+	ConsecutiveDatapointsToAlarm int32                                `json:"consecutiveDatapointsToAlarm,omitempty"`
+	ConsecutiveDatapointsToClear int32                                `json:"consecutiveDatapointsToClear,omitempty"`
+}
+
+// behaviorCriteriaTypeOf derives the real AWS types.BehaviorCriteriaType
+// ("STATIC"/"STATISTICAL"/"MACHINE_LEARNING") for a behavior criteria. Real
+// AWS's three criteria shapes are mutually exclusive by construction: a
+// criteria uses EITHER a static value comparison (comparisonOperator +
+// value), OR a percentile statisticalThreshold, OR an ML
+// mlDetectionConfig -- confirmed against types.BehaviorCriteria and
+// types.BehaviorCriteriaType's three enum values (enums.go). A nil criteria
+// has no criteria type (""); nil MlDetectionConfig/StatisticalThreshold
+// with a non-nil criteria defaults to STATIC, the criteria type that needs
+// no companion sub-message to be well-formed.
+func behaviorCriteriaTypeOf(c *SecurityProfileBehaviorCriteria) string {
+	switch {
+	case c == nil:
+		return ""
+	case c.MlDetectionConfig != nil:
+		return "MACHINE_LEARNING"
+	case c.StatisticalThreshold != nil:
+		return "STATISTICAL"
+	default:
+		return "STATIC"
+	}
+}
+
+// securityProfileBehaviorCriteriaTypeLocked resolves the criteria type
+// (see behaviorCriteriaTypeOf) of the named behavior on the named security
+// profile, as stored via Create/UpdateSecurityProfile. Returns "" if the
+// profile or the named behavior on it cannot be found -- this is what ties
+// ListActiveViolations/ListViolationEvents' behaviorCriteriaType filter to
+// real persisted behavior data instead of guessing. Must be called with
+// b.mu already held by the caller (read or write), matching this package's
+// other *Locked helpers (e.g. jobs.go's fanOutJobExecutionsLocked).
+func (b *InMemoryBackend) securityProfileBehaviorCriteriaTypeLocked(
+	securityProfileName string,
+	beh *ViolationBehavior,
+) string {
+	if beh == nil || beh.Name == "" {
+		return ""
+	}
+	sp, ok := b.securityProfiles.Get(securityProfileName)
+	if !ok {
+		return ""
+	}
+	for _, sb := range sp.Behaviors {
+		if sb.Name == beh.Name {
+			return behaviorCriteriaTypeOf(sb.Criteria)
+		}
+	}
+
+	return ""
 }
 
 // isValidComparisonOperator reports whether op is one of the AWS IoT Device
