@@ -29,8 +29,43 @@ func (h *Handler) handleApplicationRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	trimmed := strings.TrimPrefix(rest, "/")
+
+	// Sub-routes under /application/{id}/... -- data source attachments
+	// (handler_data_source_attachments.go) and capabilities
+	// (handler_capabilities.go).
+	if appID, subPath, ok := strings.Cut(trimmed, "/"); ok {
+		h.handleApplicationSubRoutes(w, r, appID, subPath)
+
+		return
+	}
+
 	// Per-app-ID routes.
 	h.handleApplicationIDRoutes(w, r, rest)
+}
+
+// handleApplicationSubRoutes dispatches every /application/{id}/{subPath}
+// route to its owning family.
+func (h *Handler) handleApplicationSubRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+	appID, subPath string,
+) {
+	switch subPath {
+	case subPathAttachDataSource, subPathDetachDataSource,
+		subPathDescribeDataSourceAttachment, subPathListDataSourceAttachments:
+		h.handleDataSourceAttachmentRoutes(w, r, appID, subPath)
+
+		return
+	}
+
+	if capPath, ok := strings.CutPrefix(subPath, "capability/"); ok {
+		h.handleCapabilityRoutes(w, r, appID, capPath)
+
+		return
+	}
+
+	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 }
 
 // handleApplicationRootRoutes handles /application and /application/ requests.

@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -131,7 +132,12 @@ func (b *InMemoryBackend) UpdateApplication(
 	return &cp, nil
 }
 
-// DeleteApplication removes an application by ID.
+// DeleteApplication removes an application by ID, cascading the removal of
+// every resource scoped to it: data source attachments, capabilities, and
+// migration jobs (all three families added by AttachDataSource/
+// RegisterCapability/StartMigration and friends), matching the
+// cascade-cleanup precedent DeleteDomain already established for
+// domain-scoped resources.
 func (b *InMemoryBackend) DeleteApplication(id string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
@@ -141,6 +147,23 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 	}
 
 	b.applications.Delete(id)
+
+	// Index.Get results are cloned before deleting from the underlying
+	// table, matching removeDomainLocked's pattern (a concurrent Delete
+	// could otherwise invalidate the index-owned slice mid-range).
+	for _, att := range slices.Clone(b.dataSourceAttachmentsByApp.Get(id)) {
+		b.dataSourceAttachments.Delete(dataSourceAttachmentKey(att.ApplicationID, att.DataSourceArn))
+	}
+
+	for _, cp := range b.capabilities.All() {
+		if cp.ApplicationID == id {
+			b.capabilities.Delete(capabilityKey(cp.ApplicationID, cp.CapabilityName))
+		}
+	}
+
+	for _, m := range slices.Clone(b.migrationsByApp.Get(id)) {
+		b.migrations.Delete(m.MigrationID)
+	}
 
 	return nil
 }

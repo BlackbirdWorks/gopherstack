@@ -14,50 +14,57 @@ import (
 // see store_setup.go's registerAllTables doc for the full clean/dirty split
 // and the reasoning behind the handful of fields left as plain maps.
 type InMemoryBackend struct {
-	dnsRegistrar              DNSRegistrar
-	dryRuns                   *store.Table[DryRunStatus]
-	reservedInstances         *store.Table[ReservedInstance]
-	inboundConnections        *store.Table[InboundConnection]
-	outboundConnections       *store.Table[OutboundConnection]
-	domainDataSources         *store.Table[DataSource]
-	domainDataSourcesByDomain *store.Index[DataSource]
-	directQueryDataSources    *store.Table[DirectQueryDataSource]
-	domains                   *store.Table[Domain]
-	domainsByARN              *store.Index[Domain]
-	vpcAuthorizations         map[string][]AuthorizedPrincipal
-	vpcEndpoints              *store.Table[VpcEndpoint]
-	applications              *store.Table[Application]
-	applicationsByName        *store.Index[Application]
-	packages                  *store.Table[Package]
-	scheduledActions          map[string][]*ScheduledAction
-	packageAssociations       map[string]map[string]bool
-	domainMaintenances        map[string][]*DomainMaintenance
-	domainIndexes             *store.Table[DomainIndex]
-	domainIndexesByDomain     *store.Index[DomainIndex]
-	upgradeHistory            map[string][]*UpgradeHistory
-	domainPackages            map[string]map[string]bool
-	autoTunes                 *store.Table[AutoTuneConfig]
-	slNetworkPolicies         *store.Table[ServerlessNetworkPolicy]
-	slCollections             *store.Table[ServerlessCollection]
-	slAccessPolicies          *store.Table[ServerlessAccessPolicy]
-	slSecurityConfigs         *store.Table[ServerlessSecurityConfig]
-	slEncryptionPolicies      *store.Table[ServerlessEncryptionPolicy]
-	registry                  *store.Registry
-	mu                        *lockmetrics.RWMutex
-	now                       func() time.Time
-	accountID                 string
-	region                    string
-	defaultApplicationArn     string
-	processingDelay           time.Duration
-	appIDCounter              int
-	connCounter               int
-	vpcEndpointCounter        int
-	packageCounter            int
-	maintenanceCounter        int
-	reservedCounter           int
-	slCollCounter             int
-	slSecConfigCounter        int
-	docCounter                int
+	dnsRegistrar               DNSRegistrar
+	dryRuns                    *store.Table[DryRunStatus]
+	reservedInstances          *store.Table[ReservedInstance]
+	inboundConnections         *store.Table[InboundConnection]
+	outboundConnections        *store.Table[OutboundConnection]
+	domainDataSources          *store.Table[DataSource]
+	domainDataSourcesByDomain  *store.Index[DataSource]
+	directQueryDataSources     *store.Table[DirectQueryDataSource]
+	domains                    *store.Table[Domain]
+	domainsByARN               *store.Index[Domain]
+	vpcAuthorizations          map[string][]AuthorizedPrincipal
+	vpcEndpoints               *store.Table[VpcEndpoint]
+	applications               *store.Table[Application]
+	applicationsByName         *store.Index[Application]
+	packages                   *store.Table[Package]
+	scheduledActions           map[string][]*ScheduledAction
+	packageAssociations        map[string]map[string]bool
+	domainMaintenances         map[string][]*DomainMaintenance
+	domainIndexes              *store.Table[DomainIndex]
+	domainIndexesByDomain      *store.Index[DomainIndex]
+	upgradeHistory             map[string][]*UpgradeHistory
+	domainPackages             map[string]map[string]bool
+	autoTunes                  *store.Table[AutoTuneConfig]
+	slNetworkPolicies          *store.Table[ServerlessNetworkPolicy]
+	slCollections              *store.Table[ServerlessCollection]
+	slAccessPolicies           *store.Table[ServerlessAccessPolicy]
+	slSecurityConfigs          *store.Table[ServerlessSecurityConfig]
+	slEncryptionPolicies       *store.Table[ServerlessEncryptionPolicy]
+	dataSourceAttachments      *store.Table[DataSourceAttachment]
+	dataSourceAttachmentsByApp *store.Index[DataSourceAttachment]
+	capabilities               *store.Table[Capability]
+	migrations                 *store.Table[Migration]
+	migrationsByApp            *store.Index[Migration]
+	registry                   *store.Registry
+	mu                         *lockmetrics.RWMutex
+	now                        func() time.Time
+	accountID                  string
+	region                     string
+	defaultApplicationArn      string
+	processingDelay            time.Duration
+	appIDCounter               int
+	connCounter                int
+	vpcEndpointCounter         int
+	packageCounter             int
+	maintenanceCounter         int
+	reservedCounter            int
+	slCollCounter              int
+	slSecConfigCounter         int
+	docCounter                 int
+	dsAttachCounter            int
+	migrationCounter           int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -123,6 +130,8 @@ func (b *InMemoryBackend) Reset() {
 	b.slCollCounter = 0
 	b.slSecConfigCounter = 0
 	b.docCounter = 0
+	b.dsAttachCounter = 0
+	b.migrationCounter = 0
 }
 
 // Region returns the AWS region this backend is configured for.

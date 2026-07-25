@@ -317,3 +317,217 @@ func TestConnectionAndVpcDeleteWindows(t *testing.T) {
 		assert.Empty(t, b.ListVpcEndpoints())
 	})
 }
+
+// TestCapabilityRegisterWindow asserts capabilities transition
+// CREATING -> ACTIVE rather than reporting active instantly, mirroring
+// TestServerlessCollectionCreatingWindow's pattern.
+func TestCapabilityRegisterWindow(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creating_then_active", func(t *testing.T) {
+		t.Parallel()
+
+		b := newLifecycleBackend(t)
+
+		start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		b.SetClock(func() time.Time { return start })
+
+		app, err := b.CreateApplication("cap-lc-app", nil, nil)
+		require.NoError(t, err)
+
+		capability, err := b.RegisterCapability(app.ID, "ai-capability")
+		require.NoError(t, err)
+		assert.Equal(t, "creating", capability.Status)
+
+		got, err := b.GetCapability(app.ID, "ai-capability")
+		require.NoError(t, err)
+		assert.Equal(t, "creating", got.Status)
+
+		// Advance the clock past the registration window.
+		b.SetClock(func() time.Time { return start.Add(2 * time.Hour) })
+		got, err = b.GetCapability(app.ID, "ai-capability")
+		require.NoError(t, err)
+		assert.Equal(t, "active", got.Status)
+	})
+
+	t.Run("fast_path_active_immediately", func(t *testing.T) {
+		t.Parallel()
+
+		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+		app, err := b.CreateApplication("cap-fast-app", nil, nil)
+		require.NoError(t, err)
+
+		capability, err := b.RegisterCapability(app.ID, "ai-capability")
+		require.NoError(t, err)
+		assert.Equal(t, "active", capability.Status)
+	})
+}
+
+// TestMigrationLifecycleWindow asserts migrations transition
+// PENDING -> IN_PROGRESS -> SUCCEEDED against the backend's clock, and that
+// with no configured delay they settle straight to SUCCEEDED (matching every
+// other transient-window resource's "historical fast behaviour").
+func TestMigrationLifecycleWindow(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pending_then_in_progress_then_succeeded", func(t *testing.T) {
+		t.Parallel()
+
+		b := newLifecycleBackend(t)
+
+		start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		b.SetClock(func() time.Time { return start })
+
+		app, err := b.CreateApplication("mig-lc-app", nil, nil)
+		require.NoError(t, err)
+		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "mig-lc-domain"})
+		require.NoError(t, err)
+		opensearch.ExpireDomainProcessing(b, domain.Name)
+
+		m, err := b.StartMigration(app.ID, domain.ARN)
+		require.NoError(t, err)
+		assert.Equal(t, "PENDING", m.Status)
+
+		b.SetClock(func() time.Time { return start.Add(90 * time.Minute) })
+		got, err := b.GetMigration(m.MigrationID)
+		require.NoError(t, err)
+		assert.Equal(t, "IN_PROGRESS", got.Status)
+
+		b.SetClock(func() time.Time { return start.Add(3 * time.Hour) })
+		got, err = b.GetMigration(m.MigrationID)
+		require.NoError(t, err)
+		assert.Equal(t, "SUCCEEDED", got.Status)
+		// No saved-object store backs this emulator -- counts stay honestly 0.
+		assert.Equal(t, 0, got.ExportedCount)
+		assert.Equal(t, 0, got.ImportedCount)
+	})
+
+	t.Run("fast_path_succeeded_immediately", func(t *testing.T) {
+		t.Parallel()
+
+		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+		app, err := b.CreateApplication("mig-fast-app", nil, nil)
+		require.NoError(t, err)
+		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "mig-fast-domain"})
+		require.NoError(t, err)
+
+		m, err := b.StartMigration(app.ID, domain.ARN)
+		require.NoError(t, err)
+		assert.Equal(t, "SUCCEEDED", m.Status)
+	})
+}
+
+// TestDataSourceAttachmentPendingWindow asserts an attachment to a
+// still-processing domain is observably PENDING, settles to ATTACHED once
+// the domain finishes processing, and settles to FAILED if the referenced
+// resource never becomes active within the documented 24-hour window.
+func TestDataSourceAttachmentPendingWindow(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pending_then_attached", func(t *testing.T) {
+		t.Parallel()
+
+		b := newLifecycleBackend(t)
+		app, err := b.CreateApplication("att-lc-app", nil, nil)
+		require.NoError(t, err)
+		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "att-lc-domain"})
+		require.NoError(t, err)
+
+		att, err := b.AttachDataSource(app.ID, domain.ARN)
+		require.NoError(t, err)
+		assert.Equal(t, "PENDING", att.Status)
+
+		opensearch.ExpireDomainProcessing(b, domain.Name)
+		got, err := b.DescribeDataSourceAttachment(app.ID, domain.ARN)
+		require.NoError(t, err)
+		assert.Equal(t, "ATTACHED", got.Status)
+	})
+
+	t.Run("pending_then_failed_after_24h", func(t *testing.T) {
+		t.Parallel()
+
+		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+		b.SetProcessingDelay(100 * time.Hour)
+
+		start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		b.SetClock(func() time.Time { return start })
+
+		app, err := b.CreateApplication("att-fail-app", nil, nil)
+		require.NoError(t, err)
+		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "att-fail-domain"})
+		require.NoError(t, err)
+
+		att, err := b.AttachDataSource(app.ID, domain.ARN)
+		require.NoError(t, err)
+		assert.Equal(t, "PENDING", att.Status)
+
+		// The domain is still within its (very long) processing window, so 25h
+		// later it has still not become active -- past the documented 24h
+		// attachment fail window.
+		b.SetClock(func() time.Time { return start.Add(25 * time.Hour) })
+		got, err := b.DescribeDataSourceAttachment(app.ID, domain.ARN)
+		require.NoError(t, err)
+		assert.Equal(t, "FAILED", got.Status)
+	})
+}
+
+// TestRollbackServiceSoftwareUpdate_RealState asserts
+// RollbackServiceSoftwareUpdate operates on the same ServiceSoftware state
+// StartServiceSoftwareUpdate/CancelServiceSoftwareUpdate track, rather than a
+// separate invented history.
+func TestRollbackServiceSoftwareUpdate_RealState(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rollback_pending_update", func(t *testing.T) {
+		t.Parallel()
+
+		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+		_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "rb"})
+		require.NoError(t, err)
+
+		_, err = b.StartServiceSoftwareUpdate("rb", "")
+		require.NoError(t, err)
+		assert.Equal(t, "PENDING_UPDATE", opensearch.DomainServiceSoftwareStatus(b, "rb"))
+
+		rolled, err := b.RollbackServiceSoftwareUpdate("rb")
+		require.NoError(t, err)
+		assert.True(t, rolled.RollbackAvailable)
+		assert.Equal(t, "ELIGIBLE", opensearch.DomainServiceSoftwareStatus(b, "rb"))
+	})
+
+	t.Run("no_update_ever_performed", func(t *testing.T) {
+		t.Parallel()
+
+		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+		_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "rb-none"})
+		require.NoError(t, err)
+
+		rolled, err := b.RollbackServiceSoftwareUpdate("rb-none")
+		require.NoError(t, err)
+		assert.False(t, rolled.RollbackAvailable)
+	})
+
+	t.Run("no_pending_update_to_roll_back", func(t *testing.T) {
+		t.Parallel()
+
+		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+		_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "rb-eligible"})
+		require.NoError(t, err)
+		_, err = b.StartServiceSoftwareUpdate("rb-eligible", "")
+		require.NoError(t, err)
+		_, err = b.CancelServiceSoftwareUpdate("rb-eligible")
+		require.NoError(t, err)
+
+		rolled, err := b.RollbackServiceSoftwareUpdate("rb-eligible")
+		require.NoError(t, err)
+		assert.False(t, rolled.RollbackAvailable)
+	})
+
+	t.Run("domain_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+		_, err := b.RollbackServiceSoftwareUpdate("no-such")
+		require.ErrorIs(t, err, opensearch.ErrDomainNotFound)
+	})
+}

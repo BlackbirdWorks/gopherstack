@@ -936,3 +936,196 @@ func TestOpenSearchHandler_CancelServiceSoftwareUpdate(t *testing.T) {
 		})
 	}
 }
+
+// TestOpenSearchHandler_RollbackServiceSoftwareUpdate covers the wire shape
+// and error mapping for RollbackServiceSoftwareUpdate, including that it
+// operates on the same ServiceSoftware state Start/CancelServiceSoftwareUpdate
+// track (see domains.go).
+func TestOpenSearchHandler_RollbackServiceSoftwareUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *opensearch.Handler)
+		name         string
+		domainName   string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:       "rollback_pending_update",
+			domainName: "rb-domain",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "rb-domain"})
+				r.Body.Close()
+				_, err := h.Backend.StartServiceSoftwareUpdate("rb-domain", "")
+				require.NoError(t, err)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"RollbackServiceSoftwareOptions", `"RollbackAvailable":true`},
+		},
+		{
+			name:       "no_update_performed",
+			domainName: "rb-none",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "rb-none"})
+				r.Body.Close()
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{`"RollbackAvailable":false`},
+		},
+		{
+			name:       "domain_not_found",
+			domainName: "rb-nonexistent",
+			// This newer op documents ResourceNotFoundException at HTTP 409,
+			// unlike the classic domain-family 404 convention (see
+			// writeAttachmentError's doc for the AWS reference citation).
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:       "invalid_json",
+			domainName: "",
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			if tt.name == "invalid_json" {
+				req := httptest.NewRequest(
+					http.MethodPost,
+					"/2021-01-01/opensearch/serviceSoftwareUpdate/rollback",
+					strings.NewReader("bad-json"),
+				)
+				req.Header.Set("Content-Type", "application/json")
+				rw := httptest.NewRecorder()
+				h.ServeHTTP(rw, req)
+				resp := rw.Result()
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+				return
+			}
+
+			body := map[string]any{"DomainName": tt.domainName}
+			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/serviceSoftwareUpdate/rollback", body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if len(tt.wantContains) > 0 {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				for _, s := range tt.wantContains {
+					assert.Contains(t, string(bodyBytes), s)
+				}
+			}
+		})
+	}
+}
+
+// TestInsights_HTTPHandler covers ListInsights/DescribeInsightDetails/
+// InsightFeedback: entity validation against real domain state, and that
+// results are always honestly empty/not-found rather than fabricated (this
+// emulator has no analytics engine -- see insights.go).
+func TestInsights_HTTPHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *opensearch.Handler)
+		body     map[string]any
+		name     string
+		path     string
+		wantCode int
+	}{
+		{
+			name: "list_insights_known_domain_returns_empty",
+			path: "/2021-01-01/opensearch/insights",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				createTestDomain(t, h, "insights-domain")
+			},
+			body:     map[string]any{"Entity": map[string]any{"Type": "DomainName", "Value": "insights-domain"}},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "list_insights_unknown_domain_returns_409",
+			path:     "/2021-01-01/opensearch/insights",
+			body:     map[string]any{"Entity": map[string]any{"Type": "DomainName", "Value": "no-such-domain"}},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "list_insights_account_entity_returns_empty",
+			path:     "/2021-01-01/opensearch/insights",
+			body:     map[string]any{"Entity": map[string]any{"Type": "Account", "Value": "123456789012"}},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "list_insights_invalid_entity_type_returns_400",
+			path:     "/2021-01-01/opensearch/insights",
+			body:     map[string]any{"Entity": map[string]any{"Type": "Bogus", "Value": "x"}},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "describe_insight_details_always_not_found",
+			path: "/2021-01-01/opensearch/insight-details",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				createTestDomain(t, h, "insights-domain-2")
+			},
+			body: map[string]any{
+				"Entity":    map[string]any{"Type": "DomainName", "Value": "insights-domain-2"},
+				"InsightId": "insight-1",
+			},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name: "insight_feedback_always_not_found",
+			path: "/2021-01-01/opensearch/insight-feedback",
+			setup: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+				createTestDomain(t, h, "insights-domain-3")
+			},
+			body: map[string]any{
+				"Entity":    map[string]any{"Type": "DomainName", "Value": "insights-domain-3"},
+				"InsightId": "insight-1",
+				"Thumbs":    "Up",
+			},
+			wantCode: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			resp := doRequest(t, h, http.MethodPost, tt.path, tt.body)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+
+			if tt.wantCode == http.StatusOK && tt.path == "/2021-01-01/opensearch/insights" {
+				var out map[string]any
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+				insights, ok := out["Insights"].([]any)
+				require.True(t, ok)
+				assert.Empty(t, insights)
+			}
+		})
+	}
+}

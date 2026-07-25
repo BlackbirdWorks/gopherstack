@@ -31,6 +31,10 @@ const (
 	openSearchUpgradePath            = "/2021-01-01/opensearch/upgradeDomain"
 	openSearchInstanceTypeLimitsPath = "/2021-01-01/opensearch/instanceTypeLimits"
 	openSearchServerlessPath         = "/2021-11-01/opensearch/serverless"
+	openSearchInsightsPath           = "/2021-01-01/opensearch/insights"
+	openSearchInsightDetailsPath     = "/2021-01-01/opensearch/insight-details"
+	openSearchInsightFeedbackPath    = "/2021-01-01/opensearch/insight-feedback"
+	openSearchAppMigrationsPath      = "/2021-01-01/opensearch/app-migrations"
 	openSearchServiceName            = "OpenSearch"
 	// pkgPathParts is the number of path segments after the associate prefix (PackageID/DomainName).
 	pkgPathParts = 2
@@ -98,6 +102,10 @@ var openSearchPathPrefixes = []string{
 	openSearchUpgradePath,
 	openSearchInstanceTypeLimitsPath,
 	openSearchServerlessPath,
+	openSearchInsightsPath,
+	openSearchInsightDetailsPath,
+	openSearchInsightFeedbackPath,
+	openSearchAppMigrationsPath,
 }
 
 // isOpenSearchPath returns true when the given path belongs to the OpenSearch service.
@@ -193,6 +201,14 @@ func (h *Handler) dispatchNonDomainExtRoutes(w http.ResponseWriter, r *http.Requ
 		h.handleUpgradeDomainRoutes(w, r)
 	case strings.HasPrefix(path, openSearchServerlessPath):
 		h.handleServerlessRoutes(w, r)
+	case path == openSearchInsightsPath:
+		h.handleListInsights(w, r)
+	case path == openSearchInsightDetailsPath:
+		h.handleDescribeInsightDetails(w, r)
+	case path == openSearchInsightFeedbackPath:
+		h.handleInsightFeedback(w, r)
+	case strings.HasPrefix(path, openSearchAppMigrationsPath):
+		h.handleAppMigrationsRoutes(w, r)
 	default:
 		return false
 	}
