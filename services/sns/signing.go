@@ -91,6 +91,7 @@ func (s *notificationSigner) sign(canonical string) string {
 // per AWS SNS SignatureVersion=1 (the AWS default when a topic/subscription does
 // not explicitly set SignatureVersion=2) and returns it base64-encoded.
 func (s *notificationSigner) signSHA1(canonical string) string {
+	// codeql[go/insecure-password-hashing] False positive: digital signature, not password hashing.
 	//nolint:gosec // G401: AWS SNS SignatureVersion=1 spec requires SHA-1, not a password hash.
 	h := sha1.Sum([]byte(canonical))
 	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA1, h[:])
