@@ -319,7 +319,7 @@ func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, 68, route53resolver.HandlerOpsLen(h))
+	assert.Equal(t, 72, route53resolver.HandlerOpsLen(h))
 }
 
 func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
