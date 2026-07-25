@@ -161,12 +161,12 @@ func buildDomainValidationOptions(
 
 		switch validationMethod {
 		case validationMethodDNS:
-			nameToken, err := randHex(validationTokenLen)
+			nameToken, err := randHex()
 			if err != nil {
 				return nil, err
 			}
 
-			valueToken, err := randHex(validationTokenLen)
+			valueToken, err := randHex()
 			if err != nil {
 				return nil, err
 			}
@@ -198,8 +198,13 @@ func buildDomainValidationOptions(
 	return opts, nil
 }
 
-// randHex returns a random lowercase hex string of length n characters.
-func randHex(n int) (string, error) {
+// randHex returns a random lowercase hex string of length validationTokenLen
+// characters. Every call site (certificate DNS validation tokens here and
+// ACME domain-validation prevalidation tokens in acme_domain_validations.go)
+// wants the same length, so it is a constant rather than a parameter.
+func randHex() (string, error) {
+	const n = validationTokenLen
+
 	b := make([]byte, (n+randByteDivisor-1)/randByteDivisor)
 	if _, err := cryptorand.Read(b); err != nil {
 		return "", fmt.Errorf("crypto/rand read failed: %w", err)

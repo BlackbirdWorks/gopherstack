@@ -64,9 +64,17 @@ type backendSnapshot struct {
 	IdempotencyMap     map[string]map[string]certIdempotencyEntry    `json:"idempotencyMap,omitempty"`
 	AccountIdempotency map[string]map[string]accountIdempotencyEntry `json:"accountIdempotency,omitempty"`
 	AccountConfig      map[string]AccountConfig                      `json:"accountConfig"`
-	AccountID          string                                        `json:"accountID"`
-	Region             string                                        `json:"region"`
-	Version            int                                           `json:"version"`
+	// EndpointIdempotency/EABIdempotency/DomainValidationIdempotency persist
+	// the ACME resource family's Create* idempotency-token maps (see
+	// store.go); the tables they point into (acmeEndpoints,
+	// acmeExternalAccountBindings, acmeDomainValidations, acmeAccounts) are
+	// registered on b.registry and already round-trip via Tables above.
+	EndpointIdempotency         map[string]map[string]acmeIdempotencyEntry `json:"endpointIdempotency,omitempty"`
+	EABIdempotency              map[string]map[string]acmeIdempotencyEntry `json:"eabIdempotency,omitempty"`
+	DomainValidationIdempotency map[string]map[string]acmeIdempotencyEntry `json:"domainValidationIdempotency,omitempty"`
+	AccountID                   string                                     `json:"accountID"`
+	Region                      string                                     `json:"region"`
+	Version                     int                                        `json:"version"`
 }
 
 type handlerSnapshot struct {
@@ -103,13 +111,16 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	maps.Copy(tables, dtoTables)
 
 	snap := backendSnapshot{
-		Version:            acmSnapshotVersion,
-		Tables:             tables,
-		IdempotencyMap:     b.idempotencyMap,
-		AccountIdempotency: b.accountIdempotency,
-		AccountConfig:      b.accountConfig,
-		AccountID:          b.accountID,
-		Region:             b.region,
+		Version:                     acmSnapshotVersion,
+		Tables:                      tables,
+		IdempotencyMap:              b.idempotencyMap,
+		AccountIdempotency:          b.accountIdempotency,
+		AccountConfig:               b.accountConfig,
+		EndpointIdempotency:         b.endpointIdempotency,
+		EABIdempotency:              b.eabIdempotency,
+		DomainValidationIdempotency: b.domainValidationIdempotency,
+		AccountID:                   b.accountID,
+		Region:                      b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "acm", snap)
@@ -138,14 +149,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"acm: discarding incompatible snapshot version, starting empty",
 			"gotVersion", snap.Version, "wantVersion", acmSnapshotVersion)
 
-		b.registry.ResetAll()
-		b.certs.Reset()
-		b.idempotencyMap = make(map[string]map[string]certIdempotencyEntry)
-		b.accountIdempotency = make(map[string]map[string]accountIdempotencyEntry)
-		b.accountConfig = make(map[string]AccountConfig)
-		b.timers = make(map[string]map[string]*time.Timer)
-		b.accountID = snap.AccountID
-		b.region = snap.Region
+		b.resetToEmpty(snap.AccountID, snap.Region)
 
 		return nil
 	}
@@ -158,23 +162,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	if snap.IdempotencyMap == nil {
-		snap.IdempotencyMap = make(map[string]map[string]certIdempotencyEntry)
-	}
-
-	if snap.AccountIdempotency == nil {
-		snap.AccountIdempotency = make(map[string]map[string]accountIdempotencyEntry)
-	}
-
-	if snap.AccountConfig == nil {
-		snap.AccountConfig = make(map[string]AccountConfig)
-	}
-
-	b.idempotencyMap = snap.IdempotencyMap
-	b.accountIdempotency = snap.AccountIdempotency
-	b.accountConfig = snap.AccountConfig
-	b.accountID = snap.AccountID
-	b.region = snap.Region
+	b.applyRestoredMaps(&snap)
 	b.timers = make(map[string]map[string]*time.Timer)
 
 	// Restart timers for pending validations.
@@ -197,6 +185,62 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return nil
+}
+
+// resetToEmpty discards all backend state and starts fresh with the given
+// identity, used by Restore when the snapshot version is incompatible.
+// Callers must hold b.mu.Lock.
+func (b *InMemoryBackend) resetToEmpty(accountID, region string) {
+	b.registry.ResetAll()
+	b.certs.Reset()
+	b.idempotencyMap = make(map[string]map[string]certIdempotencyEntry)
+	b.accountIdempotency = make(map[string]map[string]accountIdempotencyEntry)
+	b.accountConfig = make(map[string]AccountConfig)
+	b.endpointIdempotency = make(map[string]map[string]acmeIdempotencyEntry)
+	b.eabIdempotency = make(map[string]map[string]acmeIdempotencyEntry)
+	b.domainValidationIdempotency = make(map[string]map[string]acmeIdempotencyEntry)
+	b.timers = make(map[string]map[string]*time.Timer)
+	b.accountID = accountID
+	b.region = region
+}
+
+// applyRestoredMaps defaults any nil map on snap (absent from an older
+// snapshot) to empty and assigns every non-table field onto b, factored out
+// of Restore to keep its own statement count down. Callers must hold
+// b.mu.Lock.
+func (b *InMemoryBackend) applyRestoredMaps(snap *backendSnapshot) {
+	if snap.IdempotencyMap == nil {
+		snap.IdempotencyMap = make(map[string]map[string]certIdempotencyEntry)
+	}
+
+	if snap.AccountIdempotency == nil {
+		snap.AccountIdempotency = make(map[string]map[string]accountIdempotencyEntry)
+	}
+
+	if snap.AccountConfig == nil {
+		snap.AccountConfig = make(map[string]AccountConfig)
+	}
+
+	if snap.EndpointIdempotency == nil {
+		snap.EndpointIdempotency = make(map[string]map[string]acmeIdempotencyEntry)
+	}
+
+	if snap.EABIdempotency == nil {
+		snap.EABIdempotency = make(map[string]map[string]acmeIdempotencyEntry)
+	}
+
+	if snap.DomainValidationIdempotency == nil {
+		snap.DomainValidationIdempotency = make(map[string]map[string]acmeIdempotencyEntry)
+	}
+
+	b.idempotencyMap = snap.IdempotencyMap
+	b.accountIdempotency = snap.AccountIdempotency
+	b.accountConfig = snap.AccountConfig
+	b.endpointIdempotency = snap.EndpointIdempotency
+	b.eabIdempotency = snap.EABIdempotency
+	b.domainValidationIdempotency = snap.DomainValidationIdempotency
+	b.accountID = snap.AccountID
+	b.region = snap.Region
 }
 
 // restoreCerts rebuilds the "dirty" certs store.Table from snap's DTO table,

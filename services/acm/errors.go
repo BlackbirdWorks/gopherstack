@@ -31,6 +31,13 @@ var (
 	// same as or a superdomain of its DomainName.
 	ErrInvalidDomainValidationOptions = errors.New("InvalidDomainValidationOptionsException")
 	errInvalidPEM                     = errors.New("failed to decode PEM block")
+	// ErrAcmeResourceNotFound is returned when an ACME endpoint, external
+	// account binding, ACME account, or domain validation referenced by ARN
+	// (or, for accounts, by AccountUrl) does not exist. It maps to the same
+	// ResourceNotFoundException code as ErrCertNotFound but is kept as a
+	// distinct identity so acme_*.go call sites read clearly and do not imply
+	// a certificate was involved.
+	ErrAcmeResourceNotFound = errors.New("ResourceNotFoundException")
 )
 
 var errWeakKey = errors.New("RSA_1024 is not supported due to weak security")

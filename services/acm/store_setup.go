@@ -40,4 +40,23 @@ func certRegionIndexKeyFn(v *Certificate) string { return v.region }
 func registerAllTables(b *InMemoryBackend) {
 	b.certs = store.New(certTableKeyFn)
 	b.certsByRegion = b.certs.AddIndex("byRegion", certRegionIndexKeyFn)
+
+	// The ACME resource family (see store.go's field doc) carries no hidden
+	// fields the way Certificate's region does -- Region is a plain exported
+	// field on each struct -- so these register directly on b.registry
+	// instead of needing certs' "dirty table" DTO indirection (persistence.go).
+	b.endpoints = store.Register(b.registry, "acmeEndpoints", store.New(acmeEndpointKeyFn))
+	b.endpointsByRegion = b.endpoints.AddIndex("byRegion", acmeEndpointRegionIndexFn)
+
+	b.eabs = store.Register(b.registry, "acmeExternalAccountBindings", store.New(acmeEABKeyFn))
+	b.eabs.AddIndex("byRegion", acmeEABRegionIndexFn)
+	b.eabsByEndpoint = b.eabs.AddIndex("byEndpoint", acmeEABEndpointIndexFn)
+
+	b.domainValidations = store.Register(b.registry, "acmeDomainValidations", store.New(acmeDomainValidationKeyFn))
+	b.domainValidations.AddIndex("byRegion", acmeDomainValidationRegionIndexFn)
+	b.domainValidationsByEndpoint = b.domainValidations.AddIndex("byEndpoint", acmeDomainValidationEndpointIndexFn)
+
+	b.acmeAccounts = store.Register(b.registry, "acmeAccounts", store.New(acmeAccountKeyFn))
+	b.acmeAccounts.AddIndex("byRegion", acmeAccountRegionIndexFn)
+	b.acmeAccountsByEndpoint = b.acmeAccounts.AddIndex("byEndpoint", acmeAccountEndpointIndexFn)
 }

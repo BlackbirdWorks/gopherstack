@@ -100,6 +100,29 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ResendValidationEmail",
 		"RevokeCertificate",
 		"UpdateCertificateOptions",
+		"SearchCertificates",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
+		"CreateAcmeEndpoint",
+		"DeleteAcmeEndpoint",
+		"DescribeAcmeEndpoint",
+		"ListAcmeEndpoints",
+		"UpdateAcmeEndpoint",
+		"CreateAcmeExternalAccountBinding",
+		"DeleteAcmeExternalAccountBinding",
+		"DescribeAcmeExternalAccountBinding",
+		"ListAcmeExternalAccountBindings",
+		"GetAcmeExternalAccountBindingCredentials",
+		"RevokeAcmeExternalAccountBinding",
+		"DescribeAcmeAccount",
+		"ListAcmeAccounts",
+		"RevokeAcmeAccount",
+		"CreateAcmeDomainValidation",
+		"DeleteAcmeDomainValidation",
+		"DescribeAcmeDomainValidation",
+		"ListAcmeDomainValidations",
+		"UpdateAcmeDomainValidation",
 	}
 }
 
@@ -138,7 +161,20 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return strings.TrimPrefix(target, acmTargetPrefix)
 }
 
-// ExtractResource returns the certificate ARN from the JSON body.
+// acmResourceArnFields lists every JSON body field, in priority order, that
+// ExtractResource checks for a resource ARN -- CertificateArn first to match
+// this method's pre-existing behavior exactly, followed by the ARN field
+// each new ACME/generic-tagging operation uses.
+//
+//nolint:gochecknoglobals // read-only field-name list initialized once at startup
+var acmResourceArnFields = []string{
+	"CertificateArn", "ResourceArn", "AcmeEndpointArn",
+	"AcmeExternalAccountBindingArn", "AcmeDomainValidationArn",
+}
+
+// ExtractResource returns the resource ARN from the JSON body -- the
+// certificate ARN for certificate ops, or the equivalent ARN field for the
+// ACME endpoint/EAB/domain-validation/generic-tagging operations.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -148,12 +184,20 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	if unmarshalErr := json.Unmarshal(body, &m); unmarshalErr != nil {
 		return ""
 	}
-	var arn string
-	if raw, ok := m["CertificateArn"]; ok {
-		_ = json.Unmarshal(raw, &arn)
+
+	for _, field := range acmResourceArnFields {
+		raw, ok := m[field]
+		if !ok {
+			continue
+		}
+
+		var arn string
+		if unmarshalErr := json.Unmarshal(raw, &arn); unmarshalErr == nil && arn != "" {
+			return arn
+		}
 	}
 
-	return arn
+	return ""
 }
 
 // Handler returns the Echo handler function.
@@ -217,6 +261,33 @@ var acmDispatchTable = map[string]func(*Handler, context.Context, []byte) (any, 
 	"ResendValidationEmail":     (*Handler).jsonResendValidationEmail,
 	"RevokeCertificate":         (*Handler).jsonRevokeCertificate,
 	"UpdateCertificateOptions":  (*Handler).jsonUpdateCertificateOptions,
+	"SearchCertificates":        (*Handler).jsonSearchCertificates,
+	"ListTagsForResource":       (*Handler).jsonListTagsForResource,
+	"TagResource":               (*Handler).jsonTagResource,
+	"UntagResource":             (*Handler).jsonUntagResource,
+
+	"CreateAcmeEndpoint":   (*Handler).jsonCreateAcmeEndpoint,
+	"DeleteAcmeEndpoint":   (*Handler).jsonDeleteAcmeEndpoint,
+	"DescribeAcmeEndpoint": (*Handler).jsonDescribeAcmeEndpoint,
+	"ListAcmeEndpoints":    (*Handler).jsonListAcmeEndpoints,
+	"UpdateAcmeEndpoint":   (*Handler).jsonUpdateAcmeEndpoint,
+
+	"CreateAcmeExternalAccountBinding":         (*Handler).jsonCreateAcmeExternalAccountBinding,
+	"DeleteAcmeExternalAccountBinding":         (*Handler).jsonDeleteAcmeExternalAccountBinding,
+	"DescribeAcmeExternalAccountBinding":       (*Handler).jsonDescribeAcmeExternalAccountBinding,
+	"ListAcmeExternalAccountBindings":          (*Handler).jsonListAcmeExternalAccountBindings,
+	"GetAcmeExternalAccountBindingCredentials": (*Handler).jsonGetAcmeExternalAccountBindingCredentials,
+	"RevokeAcmeExternalAccountBinding":         (*Handler).jsonRevokeAcmeExternalAccountBinding,
+
+	"DescribeAcmeAccount": (*Handler).jsonDescribeAcmeAccount,
+	"ListAcmeAccounts":    (*Handler).jsonListAcmeAccounts,
+	"RevokeAcmeAccount":   (*Handler).jsonRevokeAcmeAccount,
+
+	"CreateAcmeDomainValidation":   (*Handler).jsonCreateAcmeDomainValidation,
+	"DeleteAcmeDomainValidation":   (*Handler).jsonDeleteAcmeDomainValidation,
+	"DescribeAcmeDomainValidation": (*Handler).jsonDescribeAcmeDomainValidation,
+	"ListAcmeDomainValidations":    (*Handler).jsonListAcmeDomainValidations,
+	"UpdateAcmeDomainValidation":   (*Handler).jsonUpdateAcmeDomainValidation,
 }
 
 // dispatchJSON routes a JSON-protocol ACM action to the appropriate handler.
@@ -228,43 +299,45 @@ func (h *Handler) dispatchJSON(ctx context.Context, action string, body []byte) 
 	return nil, errUnknownACMAction
 }
 
+// acmErrorCodeTable maps every known sentinel error to its ACM error code.
+// Order matters only in that the first matching entry wins (none of these
+// sentinels currently wrap one another, so today's order is arbitrary, but a
+// table keeps handleOpError's cyclomatic complexity at a flat lookup instead
+// of growing a switch statement's complexity every time a new op adds an
+// error family, which is what pushed handleOpError over cyclop's threshold
+// when the ACME resource families were added).
+//
+//nolint:gochecknoglobals // read-only lookup table initialized once at startup
+var acmErrorCodeTable = []struct {
+	err  error
+	code string
+}{
+	{ErrCertNotFound, "ResourceNotFoundException"},
+	{ErrAcmeResourceNotFound, "ResourceNotFoundException"},
+	{ErrInvalidParameter, "ValidationException"},
+	{ErrNotEligible, "RequestInProgressException"},
+	{ErrRequestInProgress, "RequestInProgressException"},
+	{ErrInvalidState, "InvalidStateException"},
+	{ErrResourceInUse, "ResourceInUseException"},
+	{ErrAlreadyRevoked, "InvalidStateException"},
+	{ErrConflict, "ConflictException"},
+	{ErrInvalidArn, "InvalidArnException"},
+	{ErrLimitExceeded, "LimitExceededException"},
+	{ErrTooManyTags, "TooManyTagsException"},
+	{ErrInvalidTag, "InvalidTagException"},
+	{ErrInvalidDomainValidationOptions, "InvalidDomainValidationOptionsException"},
+}
+
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
-	statusCode := http.StatusBadRequest
-	var code string
-	switch {
-	case errors.Is(opErr, ErrCertNotFound):
-		code = "ResourceNotFoundException"
-	case errors.Is(opErr, ErrInvalidParameter):
-		code = "ValidationException"
-	case errors.Is(opErr, ErrNotEligible):
-		code = "RequestInProgressException"
-	case errors.Is(opErr, ErrRequestInProgress):
-		code = "RequestInProgressException"
-	case errors.Is(opErr, ErrInvalidState):
-		code = "InvalidStateException"
-	case errors.Is(opErr, ErrResourceInUse):
-		code = "ResourceInUseException"
-	case errors.Is(opErr, ErrAlreadyRevoked):
-		code = "InvalidStateException"
-	case errors.Is(opErr, ErrConflict):
-		code = "ConflictException"
-	case errors.Is(opErr, ErrInvalidArn):
-		code = "InvalidArnException"
-	case errors.Is(opErr, ErrLimitExceeded):
-		code = "LimitExceededException"
-	case errors.Is(opErr, ErrTooManyTags):
-		code = "TooManyTagsException"
-	case errors.Is(opErr, ErrInvalidTag):
-		code = "InvalidTagException"
-	case errors.Is(opErr, ErrInvalidDomainValidationOptions):
-		code = "InvalidDomainValidationOptionsException"
-	default:
-		code = "InternalFailure"
-		statusCode = http.StatusInternalServerError
-		logger.Load(c.Request().Context()).Error("ACM internal error", "error", opErr, "action", action)
+	for _, entry := range acmErrorCodeTable {
+		if errors.Is(opErr, entry.err) {
+			return h.writeJSONError(c, http.StatusBadRequest, entry.code, opErr.Error())
+		}
 	}
 
-	return h.writeJSONError(c, statusCode, code, opErr.Error())
+	logger.Load(c.Request().Context()).Error("ACM internal error", "error", opErr, "action", action)
+
+	return h.writeJSONError(c, http.StatusInternalServerError, "InternalFailure", opErr.Error())
 }
 
 func (h *Handler) writeJSONError(c *echo.Context, statusCode int, code, message string) error {

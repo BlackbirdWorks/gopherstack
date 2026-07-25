@@ -3,11 +3,168 @@ package acm_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	acmsdk "github.com/aws/aws-sdk-go-v2/service/acm"
+	"github.com/aws/aws-sdk-go-v2/service/acm/types"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/acm"
 )
+
+const wireTestRegion = "us-east-1"
+
+// newTestACMClient stands up the real aws-sdk-go-v2 ACM client against an
+// httptest server running this package's Handler, wired through the same
+// pkgs/service registry/router used in production. Round-tripping through
+// the genuine SDK serializer/deserializer -- rather than decoding the raw
+// JSON body with ad-hoc structs, as most other tests in this package do --
+// is what actually proves a response is wire-compatible, matching the
+// pattern services/codedeploy's handler_sdk_roundtrip_test.go uses.
+func newTestACMClient(t *testing.T, h *acm.Handler) *acmsdk.Client {
+	t.Helper()
+
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(h))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
+		awscfg.WithRegion(wireTestRegion),
+		awscfg.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err)
+
+	return acmsdk.NewFromConfig(cfg, func(o *acmsdk.Options) {
+		o.BaseEndpoint = aws.String(srv.URL)
+	})
+}
+
+// Test_SDKRoundTrip_AcmeEndpoint_CreateDescribe proves CreateAcmeEndpoint/
+// DescribeAcmeEndpoint's CertificateAuthority union
+// ({"PublicCertificateAuthority":{"AllowedKeyAlgorithms":[...]}}) and
+// epoch-seconds CreatedAt/UpdatedAt decode correctly through the real SDK
+// deserializer -- a hand-rolled union wrapper key or a UnixMilli-scaled
+// timestamp would fail this round trip even though raw-JSON assertions in
+// handler_test.go's TestACMHandler_AcmeEndpoints would not catch it.
+func Test_SDKRoundTrip_AcmeEndpoint_CreateDescribe(t *testing.T) {
+	t.Parallel()
+
+	backend := acm.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := acm.NewHandler(backend)
+	client := newTestACMClient(t, h)
+
+	created, err := client.CreateAcmeEndpoint(t.Context(), &acmsdk.CreateAcmeEndpointInput{
+		AuthorizationBehavior: types.AcmeAuthorizationBehaviorPreApproved,
+		CertificateAuthority: &types.CertificateAuthorityMemberPublicCertificateAuthority{
+			Value: types.PublicCertificateAuthority{
+				AllowedKeyAlgorithms: []types.PublicKeyAlgorithm{types.PublicKeyAlgorithmRsa2048},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.AcmeEndpointArn)
+	assert.Contains(t, *created.AcmeEndpointArn, "acme-endpoint/")
+
+	described, err := client.DescribeAcmeEndpoint(t.Context(), &acmsdk.DescribeAcmeEndpointInput{
+		AcmeEndpointArn: created.AcmeEndpointArn,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, described.AcmeEndpoint)
+	assert.Equal(t, types.AcmeEndpointStatusActive, described.AcmeEndpoint.Status)
+	assert.Equal(t, types.AcmeAuthorizationBehaviorPreApproved, described.AcmeEndpoint.AuthorizationBehavior)
+	require.NotNil(t, described.AcmeEndpoint.CreatedAt)
+	assert.NotZero(t, *described.AcmeEndpoint.CreatedAt)
+
+	ca, ok := described.AcmeEndpoint.CertificateAuthority.(*types.CertificateAuthorityMemberPublicCertificateAuthority)
+	require.True(t, ok, "CertificateAuthority must round-trip as PublicCertificateAuthority")
+	assert.Equal(t, []types.PublicKeyAlgorithm{types.PublicKeyAlgorithmRsa2048}, ca.Value.AllowedKeyAlgorithms)
+}
+
+// Test_SDKRoundTrip_TagResource_AcmeEndpoint proves the generic TagResource/
+// ListTagsForResource pair round-trips through the real SDK client for a
+// non-certificate resource ARN.
+func Test_SDKRoundTrip_TagResource_AcmeEndpoint(t *testing.T) {
+	t.Parallel()
+
+	backend := acm.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := acm.NewHandler(backend)
+	client := newTestACMClient(t, h)
+
+	created, err := client.CreateAcmeEndpoint(t.Context(), &acmsdk.CreateAcmeEndpointInput{
+		AuthorizationBehavior: types.AcmeAuthorizationBehaviorPreApproved,
+		CertificateAuthority: &types.CertificateAuthorityMemberPublicCertificateAuthority{
+			Value: types.PublicCertificateAuthority{},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.TagResource(t.Context(), &acmsdk.TagResourceInput{
+		ResourceArn: created.AcmeEndpointArn,
+		Tags:        []types.Tag{{Key: aws.String("team"), Value: aws.String("platform")}},
+	})
+	require.NoError(t, err)
+
+	tags, err := client.ListTagsForResource(t.Context(), &acmsdk.ListTagsForResourceInput{
+		ResourceArn: created.AcmeEndpointArn,
+	})
+	require.NoError(t, err)
+	require.Len(t, tags.Tags, 1)
+	assert.Equal(t, "team", *tags.Tags[0].Key)
+	assert.Equal(t, "platform", *tags.Tags[0].Value)
+}
+
+// Test_SDKRoundTrip_SearchCertificates proves the recursive
+// CertificateFilterStatement union and CertificateSearchResult response
+// (CertificateMetadata.AcmCertificateMetadata, X509Attributes) decode
+// correctly through the real SDK deserializer.
+func Test_SDKRoundTrip_SearchCertificates(t *testing.T) {
+	t.Parallel()
+
+	backend := acm.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := acm.NewHandler(backend)
+	client := newTestACMClient(t, h)
+
+	_, err := client.RequestCertificate(t.Context(), &acmsdk.RequestCertificateInput{
+		DomainName: aws.String("sdk-search.example.com"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.SearchCertificates(t.Context(), &acmsdk.SearchCertificatesInput{
+		FilterStatement: &types.CertificateFilterStatementMemberFilter{
+			Value: &types.CertificateFilterMemberAcmCertificateMetadataFilter{
+				Value: &types.AcmCertificateMetadataFilterMemberStatus{
+					Value: types.CertificateStatusIssued,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Results, 1)
+
+	result := out.Results[0]
+	require.NotNil(t, result.CertificateArn)
+	assert.Contains(t, *result.CertificateArn, "certificate/")
+
+	meta, ok := result.CertificateMetadata.(*types.CertificateMetadataMemberAcmCertificateMetadata)
+	require.True(t, ok)
+	assert.Equal(t, types.CertificateStatusIssued, meta.Value.Status)
+	require.NotNil(t, result.X509Attributes)
+	assert.NotZero(t, result.X509Attributes.NotAfter)
+}
 
 // TestACMHandler_ListCertificates_SummaryHasCreatedAtAndInUse locks in the
 // fix for CertificateSummary previously omitting CreatedAt entirely (a field
