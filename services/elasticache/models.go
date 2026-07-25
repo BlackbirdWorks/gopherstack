@@ -207,7 +207,7 @@ type StorageBackend interface {
 	CreateServerlessCache(ctx context.Context, name, description, engine string) (*ServerlessCache, error)
 	CreateServerlessCacheSnapshot(
 		ctx context.Context,
-		snapshotName, serverlessCacheName string,
+		snapshotName, serverlessCacheName, kmsKeyID string,
 	) (*ServerlessCacheSnapshot, error)
 	CopyServerlessCacheSnapshot(
 		ctx context.Context,
@@ -600,6 +600,30 @@ type ServerlessCacheEndpoint struct {
 	Port    int    `json:"port"`
 }
 
+// DataStorageLimit models the data-storage half of a serverless cache's usage
+// limits (aws-sdk-go-v2/service/elasticache/types.DataStorage). Unit is
+// always "GB" on real AWS (the only value DataStorageUnit currently has).
+type DataStorageLimit struct {
+	Unit    string `json:"unit,omitempty"`
+	Maximum int32  `json:"maximum,omitempty"`
+	Minimum int32  `json:"minimum,omitempty"`
+}
+
+// ECPUPerSecondLimit models the ElastiCache-Processing-Unit half of a
+// serverless cache's usage limits (aws-sdk-go-v2/service/elasticache/types.
+// ECPUPerSecond).
+type ECPUPerSecondLimit struct {
+	Maximum int32 `json:"maximum,omitempty"`
+	Minimum int32 `json:"minimum,omitempty"`
+}
+
+// CacheUsageLimits models a serverless cache's data/ECPU usage limits
+// (aws-sdk-go-v2/service/elasticache/types.CacheUsageLimits).
+type CacheUsageLimits struct {
+	DataStorage   *DataStorageLimit   `json:"dataStorage,omitempty"`
+	ECPUPerSecond *ECPUPerSecondLimit `json:"ecpuPerSecond,omitempty"`
+}
+
 // ServerlessCache represents an ElastiCache serverless cache.
 type ServerlessCache struct {
 	CreatedAt              time.Time                `json:"createdAt"`
@@ -607,6 +631,7 @@ type ServerlessCache struct {
 	Tags                   *tags.Tags               `json:"tags,omitempty"`
 	Endpoint               *ServerlessCacheEndpoint `json:"endpoint,omitempty"`
 	ReaderEndpoint         *ServerlessCacheEndpoint `json:"readerEndpoint,omitempty"`
+	CacheUsageLimits       *CacheUsageLimits        `json:"cacheUsageLimits,omitempty"`
 	Name                   string                   `json:"name"`
 	Description            string                   `json:"description"`
 	Status                 string                   `json:"status"`
@@ -623,15 +648,40 @@ type ServerlessCache struct {
 	SnapshotRetentionLimit int32                    `json:"snapshotRetentionLimit,omitempty"`
 }
 
+// ServerlessCacheConfigSnapshot mirrors a serverless cache's configuration as
+// it existed at the moment a snapshot was taken (aws-sdk-go-v2/service/
+// elasticache/types.ServerlessCacheConfiguration).
+type ServerlessCacheConfigSnapshot struct {
+	ServerlessCacheName string `json:"serverlessCacheName,omitempty"`
+	Engine              string `json:"engine,omitempty"`
+	MajorEngineVersion  string `json:"majorEngineVersion,omitempty"`
+}
+
 // ServerlessCacheSnapshot represents a snapshot of a serverless cache.
+//
+// ExpiryTime is deliberately left zero for every snapshot this emulator
+// creates: real AWS only sets it for automatically-created snapshots (expiry
+// driven by the source cache's SnapshotRetentionLimit), never for manual or
+// copied ones -- and CreateServerlessCacheSnapshot/CopyServerlessCacheSnapshot
+// only ever produce "manual"-type snapshots here (see SnapshotType), matching
+// the already-documented deferred gap that this emulator has no background
+// automated-snapshot scheduler. BytesUsedForCache is always "0": serverless
+// caches in this emulator have no real backing data-plane engine (unlike
+// Cluster, which uses an embedded miniredis instance) to compute an accurate
+// byte count from, so "0" is the literal, non-fabricated true size of the
+// (empty) data this emulator actually holds for it.
 type ServerlessCacheSnapshot struct {
-	CreatedAt           time.Time  `json:"createdAt"`
-	Tags                *tags.Tags `json:"tags,omitempty"`
-	Name                string     `json:"name"`
-	Status              string     `json:"status"`
-	ARN                 string     `json:"arn"`
-	ServerlessCacheName string     `json:"serverlessCacheName"`
-	SnapshotType        string     `json:"snapshotType"` // "manual" or "automated"
+	CreatedAt                    time.Time                      `json:"createdAt"`
+	ExpiryTime                   time.Time                      `json:"expiryTime,omitzero"`
+	Tags                         *tags.Tags                     `json:"tags,omitempty"`
+	ServerlessCacheConfiguration *ServerlessCacheConfigSnapshot `json:"serverlessCacheConfiguration,omitempty"`
+	Name                         string                         `json:"name"`
+	Status                       string                         `json:"status"`
+	ARN                          string                         `json:"arn"`
+	ServerlessCacheName          string                         `json:"serverlessCacheName"`
+	SnapshotType                 string                         `json:"snapshotType"` // "manual" or "automated"
+	KmsKeyID                     string                         `json:"kmsKeyId,omitempty"`
+	BytesUsedForCache            string                         `json:"bytesUsedForCache,omitempty"`
 }
 
 // User represents an ElastiCache user.
@@ -751,6 +801,7 @@ type UpdateAction struct {
 // ServerlessCreateOpts carries all fields for serverless cache creation.
 type ServerlessCreateOpts struct {
 	Tags                   map[string]string
+	CacheUsageLimits       *CacheUsageLimits
 	Name                   string
 	Description            string
 	Engine                 string
@@ -767,6 +818,7 @@ type ServerlessCreateOpts struct {
 // ServerlessModifyOpts carries all fields for serverless cache modification.
 type ServerlessModifyOpts struct {
 	SnapshotRetentionLimit *int32
+	CacheUsageLimits       *CacheUsageLimits
 	Description            string
 	UserGroupID            string
 	DailySnapshotTime      string

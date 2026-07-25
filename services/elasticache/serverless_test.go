@@ -102,7 +102,7 @@ func TestBackend_CreateServerlessCacheSnapshot(t *testing.T) {
 	_, err := b.CreateServerlessCache(context.Background(), "snap-sc", "cache for snapshot", "redis")
 	require.NoError(t, err)
 
-	snap, err := b.CreateServerlessCacheSnapshot(context.Background(), "sc-snap-1", "snap-sc")
+	snap, err := b.CreateServerlessCacheSnapshot(context.Background(), "sc-snap-1", "snap-sc", "")
 	require.NoError(t, err)
 	assert.Equal(t, "sc-snap-1", snap.Name)
 	assert.Equal(t, "snap-sc", snap.ServerlessCacheName)
@@ -117,7 +117,7 @@ func TestBackend_CopyServerlessCacheSnapshot(t *testing.T) {
 
 	_, err := b.CreateServerlessCache(context.Background(), "copy-sc-snap-cache", "cache", "redis")
 	require.NoError(t, err)
-	_, err = b.CreateServerlessCacheSnapshot(context.Background(), "copy-sc-src", "copy-sc-snap-cache")
+	_, err = b.CreateServerlessCacheSnapshot(context.Background(), "copy-sc-src", "copy-sc-snap-cache", "")
 	require.NoError(t, err)
 
 	copied, err := b.CopyServerlessCacheSnapshot(context.Background(), "copy-sc-src", "copy-sc-dst")
@@ -132,7 +132,7 @@ func TestBackend_ExportServerlessCacheSnapshot(t *testing.T) {
 
 	_, err := b.CreateServerlessCache(context.Background(), "export-sc", "cache for export", "redis")
 	require.NoError(t, err)
-	_, err = b.CreateServerlessCacheSnapshot(context.Background(), "export-sc-snap", "export-sc")
+	_, err = b.CreateServerlessCacheSnapshot(context.Background(), "export-sc-snap", "export-sc", "")
 	require.NoError(t, err)
 
 	snap, err := b.ExportServerlessCacheSnapshot(context.Background(), "export-sc-snap", "my-s3-bucket")
@@ -147,7 +147,7 @@ func TestBackend_DeleteServerlessCacheSnapshot(t *testing.T) {
 
 	_, err := b.CreateServerlessCache(context.Background(), "del-sc-snap-cache", "cache", "redis")
 	require.NoError(t, err)
-	_, err = b.CreateServerlessCacheSnapshot(context.Background(), "del-sc-snap", "del-sc-snap-cache")
+	_, err = b.CreateServerlessCacheSnapshot(context.Background(), "del-sc-snap", "del-sc-snap-cache", "")
 	require.NoError(t, err)
 
 	snap, err := b.DeleteServerlessCacheSnapshot(context.Background(), "del-sc-snap")

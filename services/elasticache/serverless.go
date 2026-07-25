@@ -71,9 +71,16 @@ func (b *InMemoryBackend) CreateServerlessCache(
 // ----------------------------------------
 
 // CreateServerlessCacheSnapshot creates a manual snapshot of a serverless cache.
+//
+// ExpiryTime is deliberately left unset: real AWS only populates it for
+// automatically-created snapshots, never manual ones (see the doc comment on
+// [ServerlessCacheSnapshot]), and every snapshot this method creates is
+// "manual". ServerlessCacheConfiguration is populated from the source
+// cache's current Engine/MajorEngineVersion/Name -- a genuine, non-fabricated
+// value since the source data already exists on the backend.
 func (b *InMemoryBackend) CreateServerlessCacheSnapshot(
 	ctx context.Context,
-	snapshotName, serverlessCacheName string,
+	snapshotName, serverlessCacheName, kmsKeyID string,
 ) (*ServerlessCacheSnapshot, error) {
 	b.mu.Lock("CreateServerlessCacheSnapshot")
 	defer b.mu.Unlock()
@@ -84,8 +91,13 @@ func (b *InMemoryBackend) CreateServerlessCacheSnapshot(
 		return nil, ErrServerlessCacheSnapshotExists
 	}
 
-	if _, ok := b.serverlessCachesStore(region).Get(serverlessCacheName); !ok {
+	sc, ok := b.serverlessCachesStore(region).Get(serverlessCacheName)
+	if !ok {
 		return nil, ErrServerlessCacheNotFound
+	}
+
+	if kmsKeyID == "" {
+		kmsKeyID = sc.KmsKeyID
 	}
 
 	snap := &ServerlessCacheSnapshot{
@@ -95,7 +107,14 @@ func (b *InMemoryBackend) CreateServerlessCacheSnapshot(
 		ServerlessCacheName: serverlessCacheName,
 		SnapshotType:        snapshotSourceManual,
 		CreatedAt:           time.Now(),
-		Tags:                tags.New("elasticache.serverlesssnap." + snapshotName + ".tags"),
+		KmsKeyID:            kmsKeyID,
+		BytesUsedForCache:   "0",
+		ServerlessCacheConfiguration: &ServerlessCacheConfigSnapshot{
+			ServerlessCacheName: sc.Name,
+			Engine:              sc.Engine,
+			MajorEngineVersion:  sc.MajorEngineVersion,
+		},
+		Tags: tags.New("elasticache.serverlesssnap." + snapshotName + ".tags"),
 	}
 	snapStore.Put(snap)
 
@@ -209,6 +228,7 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(
 		Tags:                   tags.New("elasticache.serverless." + opts.Name + ".tags"),
 		Endpoint:               ep,
 		ReaderEndpoint:         readerEp,
+		CacheUsageLimits:       opts.CacheUsageLimits,
 	}
 
 	if len(opts.Tags) > 0 {
@@ -276,6 +296,10 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(
 
 	if opts.SnapshotRetentionLimit != nil {
 		sc.SnapshotRetentionLimit = *opts.SnapshotRetentionLimit
+	}
+
+	if opts.CacheUsageLimits != nil {
+		sc.CacheUsageLimits = opts.CacheUsageLimits
 	}
 
 	if len(opts.SecurityGroupIDs) > 0 {

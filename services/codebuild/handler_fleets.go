@@ -6,14 +6,18 @@ import (
 )
 
 type createFleetInput struct {
-	Tags             map[string]string `json:"tags"`
-	Name             string            `json:"name"`
-	ComputeType      string            `json:"computeType"`
-	EnvironmentType  string            `json:"environmentType"`
-	OverflowBehavior string            `json:"overflowBehavior"`
-	ImageID          string            `json:"imageId"`
-	FleetServiceRole string            `json:"fleetServiceRole"`
-	BaseCapacity     int32             `json:"baseCapacity"`
+	Tags                 map[string]string     `json:"tags"`
+	ComputeConfiguration *ComputeConfiguration `json:"computeConfiguration"`
+	ProxyConfiguration   *ProxyConfiguration   `json:"proxyConfiguration"`
+	VpcConfig            *VpcConfig            `json:"vpcConfig"`
+	ScalingConfiguration *ScalingConfiguration `json:"scalingConfiguration"`
+	Name                 string                `json:"name"`
+	ComputeType          string                `json:"computeType"`
+	EnvironmentType      string                `json:"environmentType"`
+	OverflowBehavior     string                `json:"overflowBehavior"`
+	ImageID              string                `json:"imageId"`
+	FleetServiceRole     string                `json:"fleetServiceRole"`
+	BaseCapacity         int32                 `json:"baseCapacity"`
 }
 
 type createFleetOutput struct {
@@ -29,12 +33,16 @@ func (h *Handler) handleCreateFleet(
 	}
 
 	f, err := h.Backend.CreateFleet(in.Name, in.BaseCapacity, CreateFleetOptions{
-		ComputeType:      in.ComputeType,
-		EnvironmentType:  in.EnvironmentType,
-		OverflowBehavior: in.OverflowBehavior,
-		ImageID:          in.ImageID,
-		FleetServiceRole: in.FleetServiceRole,
-		Tags:             in.Tags,
+		ComputeType:          in.ComputeType,
+		EnvironmentType:      in.EnvironmentType,
+		OverflowBehavior:     in.OverflowBehavior,
+		ImageID:              in.ImageID,
+		FleetServiceRole:     in.FleetServiceRole,
+		ComputeConfiguration: in.ComputeConfiguration,
+		ProxyConfiguration:   in.ProxyConfiguration,
+		VpcConfig:            in.VpcConfig,
+		ScalingConfiguration: in.ScalingConfiguration,
+		Tags:                 in.Tags,
 	})
 	if err != nil {
 		return nil, err
@@ -106,13 +114,17 @@ func (h *Handler) handleListFleets(_ context.Context, in *listFleetsInput) (*lis
 }
 
 type updateFleetInput struct {
-	Arn              string `json:"arn"`
-	ComputeType      string `json:"computeType"`
-	EnvironmentType  string `json:"environmentType"`
-	OverflowBehavior string `json:"overflowBehavior"`
-	ImageID          string `json:"imageId"`
-	FleetServiceRole string `json:"fleetServiceRole"`
-	BaseCapacity     int32  `json:"baseCapacity"`
+	ComputeConfiguration *ComputeConfiguration `json:"computeConfiguration"`
+	ProxyConfiguration   *ProxyConfiguration   `json:"proxyConfiguration"`
+	VpcConfig            *VpcConfig            `json:"vpcConfig"`
+	ScalingConfiguration *ScalingConfiguration `json:"scalingConfiguration"`
+	Arn                  string                `json:"arn"`
+	ComputeType          string                `json:"computeType"`
+	EnvironmentType      string                `json:"environmentType"`
+	OverflowBehavior     string                `json:"overflowBehavior"`
+	ImageID              string                `json:"imageId"`
+	FleetServiceRole     string                `json:"fleetServiceRole"`
+	BaseCapacity         int32                 `json:"baseCapacity"`
 }
 
 type updateFleetOutput struct {
@@ -125,11 +137,15 @@ func (h *Handler) handleUpdateFleet(_ context.Context, in *updateFleetInput) (*u
 	}
 
 	f, err := h.Backend.UpdateFleet(in.Arn, in.BaseCapacity, UpdateFleetOptions{
-		ComputeType:      in.ComputeType,
-		EnvironmentType:  in.EnvironmentType,
-		OverflowBehavior: in.OverflowBehavior,
-		ImageID:          in.ImageID,
-		FleetServiceRole: in.FleetServiceRole,
+		ComputeType:          in.ComputeType,
+		EnvironmentType:      in.EnvironmentType,
+		OverflowBehavior:     in.OverflowBehavior,
+		ImageID:              in.ImageID,
+		FleetServiceRole:     in.FleetServiceRole,
+		ComputeConfiguration: in.ComputeConfiguration,
+		ProxyConfiguration:   in.ProxyConfiguration,
+		VpcConfig:            in.VpcConfig,
+		ScalingConfiguration: in.ScalingConfiguration,
 	})
 	if err != nil {
 		return nil, err

@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 45 (45 ok) |
+| Operations audited | 52 (52 ok) |
 | Feature families | 17 (15 ok, 2 partial) |
 | Known gaps | none |
 | Deferred items | 3 |
@@ -15,9 +15,9 @@
 
 ### Deferred
 
-- job_and_jobtemplate (JobExecution + advanced Job fields: retry config, presigned URL config, process details, scheduling config, maintenance windows -- partial this pass, core CRUD + the filed gap fixed)
-- device_defender (audit/mitigation/detect task families beyond the two Cancel ops fixed this pass; AuditFinding's optional isSuppressed/reasonForNonComplianceCode/taskStartTime fields spot-checked as missing but not fixed this pass -- large sub-surface)
-- see gopherstack-srzb for the consolidated deferred-family tracking issue (updated this pass with current status; fleet_indexing removed from it, now closed)
+- job_and_jobtemplate (Job's advanced optional fields: jobExecutionsRetryConfig read-path, presignedUrlConfig, jobProcessDetails rollup counts, schedulingConfig, maintenanceWindows, destinationPackageVersions; plus the more foundational fact that this emulator never fans a QUEUED JobExecution out per target at CreateJob time -- 2026-07-25 pass #2 closed JobExecution's own wire shape, routing, and CancelJobExecution/DeleteJobExecution's force/expectedVersion/statusDetails semantics, but these larger items remain)
+- device_defender (audit/mitigation/detect task families beyond the two Cancel ops and ListAuditFindings fixed so far -- StartAuditMitigationActionsTask target resolution, ML-based detect models, violations, ListAuditFindings.resourceIdentifier filtering)
+- see gopherstack-srzb for the consolidated deferred-family tracking issue (updated this pass with current status; fleet_indexing removed from it a prior pass, now closed)
 
 ## More
 

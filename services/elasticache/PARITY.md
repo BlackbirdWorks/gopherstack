@@ -3,7 +3,7 @@ service: elasticache
 sdk_module: aws-sdk-go-v2/service/elasticache@v1.51.11
 last_audit_commit: d5e1073d1
 last_audit_date: 2026-07-25
-overall: A-           # 2026-07-24 pass: implemented the two documented gaps from the
+overall: A            # 2026-07-24 pass: implemented the two documented gaps from the
                        # prior ledger (state-transition guards, MaxRecords bounds), and
                        # field-diffing users/user-groups against aws-sdk-go-v2 turned up
                        # a genuine wire-shape bug class the "ok" status had been masking:
@@ -24,12 +24,29 @@ overall: A-           # 2026-07-24 pass: implemented the two documented gaps fro
                        # from every Create/Modify/Delete/DescribeServerlessCache response
                        # despite the domain model already storing all of them; same for
                        # ServerlessCacheSnapshot's CreateTime. Both fixed. Grade held at
-                       # A- rather than A because real gaps remain: two pre-existing,
-                       # reasoned deferrals (data-plane snapshot restore fidelity,
-                       # quota-exceeded faults), PLUS two newly-found-and-documented ones
-                       # this pass (ServerlessCache.CacheUsageLimits and
-                       # ServerlessCacheSnapshot's ExpiryTime/KmsKeyId/BytesUsedForCache/
-                       # ServerlessCacheConfiguration are unmodeled -- see gaps below).
+                       # A- rather than A because two real gaps remained: ServerlessCache.
+                       # CacheUsageLimits and ServerlessCacheSnapshot's ExpiryTime/KmsKeyId/
+                       # BytesUsedForCache/ServerlessCacheConfiguration were unmodeled.
+                       # 2026-07-25 pass #2: implemented both gaps end to end (request
+                       # parsing, backend state, response wire shape, persistence), verified
+                       # via real SDK-client round trips per this campaign's "critical
+                       # lesson" for this exact service. While wiring CacheUsageLimits'
+                       # *request* path, found a much more severe, previously-undiscovered
+                       # bug: the actual wire-routed CreateServerlessCache/
+                       # ModifyServerlessCache handlers only ever parsed ServerlessCacheName/
+                       # Description/Engine from the request, silently dropping every other
+                       # real request field (KmsKeyId, DailySnapshotTime, MajorEngineVersion,
+                       # SecurityGroupIds, SubnetIds, SnapshotRetentionLimit, UserGroupId,
+                       # Tags, and now CacheUsageLimits) -- the response-side wire-shape fix
+                       # from the prior pass was real, but nothing on the actual dispatched
+                       # create/modify path ever populated those fields to begin with. Fixed
+                       # by routing both handlers through the existing (previously
+                       # test-only) CreateServerlessCacheFull/ModifyServerlessCacheFull
+                       # backend methods. gaps: is now empty -- see Notes. The two
+                       # `deferred:` items (data-plane snapshot restore fidelity,
+                       # quota-exceeded faults) remain standard, reasoned emulator
+                       # deferrals, not gaps: blockers, consistent with how this campaign
+                       # treats equivalent deferred items in every other service.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 ops:
   CreateCacheCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CacheClusterNotFound 400->404; added SnapshotName restore (was silently ignored)"}
@@ -66,14 +83,14 @@ ops:
   DescribeSnapshots: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; automatic vs manual source filter verified ok; MaxRecords [20,100] now enforced"}
   CopySnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: SnapshotNotFoundFault 400->404"}
   DescribeEvents: {wire: ok, errors: ok, state: ok, persist: n/a, note: "MaxRecords [20,100] now enforced"}
-  CreateServerlessCache: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(2026-07-25) serverlessCacheXML was only wiring 5 of 13 real ServerlessCache fields (ARN/ServerlessCacheName/Description/Status/Engine + Endpoint/ReaderEndpoint) -- CreateTime/DailySnapshotTime/KmsKeyId/MajorEngineVersion/SecurityGroupIds/SnapshotRetentionLimit/SubnetIds/UserGroupId were silently dropped despite the domain model already storing all of them. Fixed; CacheUsageLimits remains unmodeled (see gaps)"}
-  ModifyServerlessCache: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheNotFound -> ServerlessCacheNotFoundFault, 400->404; (2026-07-24) InvalidServerlessCacheStateFault guard added to both the wire-routed ModifyServerlessCache and the ModifyServerlessCacheFull variant; (2026-07-25) same wire-shape fix as CreateServerlessCache"}
-  DeleteServerlessCache: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) InvalidServerlessCacheStateFault guard added; (2026-07-25) same wire-shape fix as CreateServerlessCache"}
-  DescribeServerlessCaches: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced; handler deduped via describeListChecked; (2026-07-25) same wire-shape fix as CreateServerlessCache -- verified end to end this time via a real SDK client round trip, not just a backend-struct assertion (TestHandler_ServerlessCache_WireShapeFieldsSurfaced)"}
-  CreateServerlessCacheSnapshot: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheNotFound code; ServerlessCacheSnapshotNotFoundFault status 400->404; (2026-07-25) added missing CreateTime wire field (domain model already stored it as CreatedAt, never wired)"}
+  CreateServerlessCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "(2026-07-25 #1) serverlessCacheXML was only wiring 5 of 13 real ServerlessCache fields (ARN/ServerlessCacheName/Description/Status/Engine + Endpoint/ReaderEndpoint) -- CreateTime/DailySnapshotTime/KmsKeyId/MajorEngineVersion/SecurityGroupIds/SnapshotRetentionLimit/SubnetIds/UserGroupId were silently dropped despite the domain model already storing all of them; fixed. (2026-07-25 #2) found a much more severe bug while wiring CacheUsageLimits: the wire-routed handler only ever parsed ServerlessCacheName/Description/Engine from the request and called the crippled 3-arg CreateServerlessCache backend method, silently dropping every other real request field on create (not just CacheUsageLimits -- KmsKeyId/DailySnapshotTime/MajorEngineVersion/SecurityGroupIds/SubnetIds/SnapshotRetentionLimit/UserGroupId/Tags too, despite the response-side wire-shape fix above being correct). Fixed by routing through CreateServerlessCacheFull; CacheUsageLimits now fully implemented (request parsing, backend storage, response wire shape)"}
+  ModifyServerlessCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheNotFound -> ServerlessCacheNotFoundFault, 400->404; (2026-07-24) InvalidServerlessCacheStateFault guard added to both the wire-routed ModifyServerlessCache and the ModifyServerlessCacheFull variant; (2026-07-25 #1) same wire-shape fix as CreateServerlessCache; (2026-07-25 #2) same request-parsing fix as CreateServerlessCache -- now routes through ModifyServerlessCacheFull, threading UserGroupId/DailySnapshotTime/SnapshotRetentionLimit/SecurityGroupIds/CacheUsageLimits/RemoveUserGroup, previously all silently dropped on the real wire path"}
+  DeleteServerlessCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) InvalidServerlessCacheStateFault guard added; (2026-07-25) same wire-shape fix as CreateServerlessCache"}
+  DescribeServerlessCaches: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced; handler deduped via describeListChecked; (2026-07-25) same wire-shape fix as CreateServerlessCache -- verified end to end via a real SDK client round trip, not just a backend-struct assertion (TestHandler_ServerlessCache_WireShapeFieldsSurfaced, extended this pass with CacheUsageLimits cases in TestHandler_ServerlessCache_NestedGapFields)"}
+  CreateServerlessCacheSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheNotFound code; ServerlessCacheSnapshotNotFoundFault status 400->404; (2026-07-25 #1) added missing CreateTime wire field (domain model already stored it as CreatedAt, never wired); (2026-07-25 #2) closed the ServerlessCacheSnapshot gap: now accepts+stores KmsKeyId (inherited from the source ServerlessCache when not explicitly given), sets BytesUsedForCache to the real (non-fabricated) value \"0\" (this emulator's serverless caches have no backing data-plane engine, unlike Cluster's embedded miniredis, so 0 is the literal true size of what it actually stores), and populates ServerlessCacheConfiguration from the source cache's Engine/MajorEngineVersion/Name at snapshot time. ExpiryTime deliberately stays unset: real AWS only sets it for automated snapshots, and every snapshot this emulator creates is \"manual\" (no background automated-snapshot scheduler exists)"}
   CopyServerlessCacheSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheSnapshotNotFoundFault status 400->404"}
   DeleteServerlessCacheSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same"}
-  DescribeServerlessCacheSnapshots: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced; (2026-07-25) CreateTime wire fix, see CreateServerlessCacheSnapshot"}
+  DescribeServerlessCacheSnapshots: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced; (2026-07-25 #1) CreateTime wire fix; (2026-07-25 #2) ExpiryTime/KmsKeyId/BytesUsedForCache/ServerlessCacheConfiguration wire fix, see CreateServerlessCacheSnapshot"}
   ExportServerlessCacheSnapshot: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (2026-07-24): DELETED gopherstack-invented `NoPasswordRequired` wire output field (types.User/CreateUserResult have no such field); now serializes the real Authentication{Type,PasswordCount} struct and UserGroupIds list. Handles AuthenticationMode.Type (password/no-password-required/iam, translated to output's password/no-password/iam) + AuthenticationMode.Passwords / legacy top-level Passwords (1-2, else InvalidParameterValue) + legacy NoPasswordRequired bool. New CreateUserWithAuth backend method carries the full model; CreateUser(bool) kept as a thin legacy wrapper so existing call sites are unaffected"}
   ModifyUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UserNotFound 400->404; InvalidParameterValueException -> InvalidParameterValue; (2026-07-24) added AppendAccessString (was unhandled -- ModifyUserInput has both AccessString and AppendAccessString), Engine, and the same Authentication-model handling as CreateUser via new ModifyUserWithAuth"}
@@ -114,15 +131,29 @@ families:
   cache_subnet_groups: {status: ok}
   cache_security_groups: {status: ok}
   snapshots: {status: ok, note: "automatic vs manual source tracked (SnapshotSource field), CopySnapshot real; CreateCacheCluster/CreateReplicationGroup SnapshotName restore was a genuine gap, now fixed (a prior pass)"}
-  serverless_caches: {status: ok, note: "(2026-07-24) InvalidServerlessCacheStateFault guard on Modify/Delete. (2026-07-25) MAJOR wire-shape fix, same bug class as 2026-07-24's users_and_user_groups fix: serverlessCacheXML only wired 5/13 real ServerlessCache fields and serverlessCacheSnapshotXML was missing CreateTime entirely, despite the domain model already storing everything needed. Verified via a real SDK-client round trip this time (TestHandler_ServerlessCache_WireShapeFieldsSurfaced), not just backend-struct assertions -- the existing TestHandler_DescribeServerlessCache_UserGroupId only checked the Go struct and would not have caught this. ServerlessCache.CacheUsageLimits and ServerlessCacheSnapshot's ExpiryTime/KmsKeyId/BytesUsedForCache/ServerlessCacheConfiguration remain unmodeled -- newly found, see gaps below"}
+  serverless_caches: {status: ok, note: "(2026-07-24) InvalidServerlessCacheStateFault guard on Modify/Delete. (2026-07-25 #1) MAJOR wire-shape fix, same bug class as 2026-07-24's users_and_user_groups fix: serverlessCacheXML only wired 5/13 real ServerlessCache fields and serverlessCacheSnapshotXML was missing CreateTime entirely, despite the domain model already storing everything needed. Verified via a real SDK-client round trip (TestHandler_ServerlessCache_WireShapeFieldsSurfaced), not just backend-struct assertions. ServerlessCache.CacheUsageLimits and ServerlessCacheSnapshot's ExpiryTime/KmsKeyId/BytesUsedForCache/ServerlessCacheConfiguration were left unmodeled (see gaps). (2026-07-25 #2) closed both gaps end to end, AND found+fixed a more severe bug while doing so: the wire-routed CreateServerlessCache/ModifyServerlessCache handlers only ever parsed 3 of the real ~12 request fields, so a real client's create/modify request lost almost all its data on the actual dispatched path even though the response-side mapping was already correct -- fixed by routing through the existing CreateServerlessCacheFull/ModifyServerlessCacheFull backend methods. gaps: now empty; see Notes and TestHandler_ServerlessCache_NestedGapFields"}
   users_and_user_groups: {status: ok, note: "(2026-07-24) MAJOR wire-shape fix: User's Authentication{Type,PasswordCount} + UserGroupIds were entirely absent from the wire response (a gopherstack-invented NoPasswordRequired boolean stood in their place); UserGroup's real ReplicationGroups field was unwired and a gopherstack-invented Description field was serialized instead. The prior ledger's 'RBAC access string, authentication (password/IAM/NoPasswordRequired) all real' note was WRONG -- IAM/password auth type was never distinguishable on the wire, only a boolean. Both fixed; see ops table and Notes"}
   reserved_nodes: {status: ok, note: "RecurringCharges list always empty (no pricing model) -- see PurchaseReservedCacheNodesOffering note; low-priority, not fixed this pass"}
   service_updates_and_events: {status: ok, note: "DescribeEvents wire shape (Event/Events/Marker) verified against api-2.json exactly"}
   tags: {status: ok, note: "Add/Remove/List via ARN; ErrResourceNotFound correctly surfaces as InvalidARN (matches AWS's own tag-op behavior for a resource ARN that doesn't resolve)"}
   timestamps: {status: ok, note: "RFC3339 ISO8601 strings used throughout -- CORRECT for this query/XML protocol; do NOT flag as an epoch-seconds bug (awstime.Epoch is for json/rest-json protocols only, not applicable here)"}
-gaps:
-  - "ServerlessCache.CacheUsageLimits (real types.ServerlessCache field, confirmed via awsAwsquery_deserializeDocumentServerlessCache's \"CacheUsageLimits\" case) is not modeled anywhere in gopherstack's domain ServerlessCache type. Found 2026-07-25 while fixing the sibling wire-mapping bugs on this same struct; unlike those (which were pure missing-wire-mapping bugs -- the domain model already had the data), this is a genuine missing-feature gap: data/ECPU usage-limit configuration and validation would need to be designed and modeled from scratch. Not fixed this pass, no bd filed yet."
-  - "ServerlessCacheSnapshot.ExpiryTime/KmsKeyId/BytesUsedForCache/ServerlessCacheConfiguration (real types.ServerlessCacheSnapshot fields, confirmed via awsAwsquery_deserializeDocumentServerlessCacheSnapshot) are not modeled in gopherstack's domain ServerlessCacheSnapshot type (which only has CreatedAt, now wired -- see ops table). Same reasoning as the CacheUsageLimits gap above: genuine missing-feature scope (snapshot expiry/KMS/size/config-at-snapshot-time tracking), not a quick wire fix. Not fixed this pass, no bd filed yet."
+gaps: []
+  # Both gaps found 2026-07-25 are fixed as of the 2026-07-25 pass #2:
+  #  - ServerlessCache.CacheUsageLimits: full DataStorage{Unit,Maximum,Minimum}/
+  #    ECPUPerSecond{Maximum,Minimum} modeling, request parsing (query-protocol
+  #    "CacheUsageLimits.DataStorage.*"/"CacheUsageLimits.ECPUPerSecond.*" fields,
+  #    verified against awsAwsquery_serializeDocumentCacheUsageLimits/DataStorage/
+  #    ECPUPerSecond), backend storage (CreateServerlessCacheFull/
+  #    ModifyServerlessCacheFull), and response wire shape (cacheUsageLimitsXML).
+  #  - ServerlessCacheSnapshot.ExpiryTime/KmsKeyId/BytesUsedForCache/
+  #    ServerlessCacheConfiguration: KmsKeyId accepted on CreateServerlessCacheSnapshot
+  #    (inherits from the source cache when absent), BytesUsedForCache set to the
+  #    real value "0" (no fabrication -- this emulator has no data-plane engine
+  #    backing serverless caches), ServerlessCacheConfiguration populated from the
+  #    source cache's Engine/MajorEngineVersion/Name at snapshot time, ExpiryTime
+  #    deliberately left unset (real AWS only sets it for automated snapshots, and
+  #    this emulator never produces one -- see the ServerlessCacheSnapshot doc
+  #    comment in models.go).
   # Both gaps in the 2026-07-12 ledger are fixed as of the 2026-07-24 pass:
   #  - State-transition guards: implemented for cache clusters, replication groups
   #    (all mutating ops except migration -- see Notes), serverless caches, and global
@@ -312,3 +343,52 @@ missing). The new `TestHandler_ServerlessCache_WireShapeFieldsSurfaced`/
 encode/decode round trip -- this is the same "unit tests are not parity proof" lesson
 `parity-principles.md` rule 3 already documents from other services' sweeps, now reconfirmed
 here.
+
+**2026-07-25 pass #2 -- closing the CacheUsageLimits/ServerlessCacheSnapshot gaps, and a more
+severe bug found while doing so**: implemented `ServerlessCache.CacheUsageLimits`
+(`DataStorage{Unit,Maximum,Minimum}`/`ECPUPerSecond{Maximum,Minimum}`, field-diffed against
+`types.CacheUsageLimits`/`types.DataStorage`/`types.ECPUPerSecond` and the query-protocol
+request field names `CacheUsageLimits.DataStorage.*`/`CacheUsageLimits.ECPUPerSecond.*` via
+`awsAwsquery_serializeDocumentCacheUsageLimits`/`DataStorage`/`ECPUPerSecond`) and
+`ServerlessCacheSnapshot.ExpiryTime`/`KmsKeyId`/`BytesUsedForCache`/
+`ServerlessCacheConfiguration` end to end.
+
+While wiring `CacheUsageLimits` request parsing, found that `h.createServerlessCache`
+(`handler_serverless.go`, the actual handler `CreateServerlessCache` dispatches to) only ever
+read `ServerlessCacheName`/`Description`/`Engine` from the form and called the crippled 3-arg
+`Backend.CreateServerlessCache` -- **every other real `CreateServerlessCacheInput` member was
+silently dropped on the actual wire-routed create path**, including all the fields the
+2026-07-25 pass #1 fix had just made correct on the *response* side. A probe test
+(`client.CreateServerlessCache` with `KmsKeyId`/`DailySnapshotTime` set, then reading them back
+from the same response) confirmed both came back empty. `h.modifyServerlessCache` had the same
+bug (only `Description` was ever read). This is exactly the "critical lesson" flagged for this
+service: `TestHandler_ServerlessCache_WireShapeFieldsSurfaced` (pass #1's regression test) seeds
+the backend directly via `CreateServerlessCacheFull` and only checks that `DescribeServerlessCaches`
+maps the response correctly -- it exercises the *response* wire shape, never the actual *request*
+parsing path a real client's `CreateServerlessCache` call goes through, so it could not have
+caught this. Fixed by routing both handlers through the existing (previously test-only)
+`CreateServerlessCacheFull`/`ModifyServerlessCacheFull` backend methods, parsing the full real
+request shape (`KmsKeyId`, `DailySnapshotTime`, `MajorEngineVersion`, `SecurityGroupIds.SecurityGroupId.N`,
+`SubnetIds.SubnetId.N`, `SnapshotRetentionLimit`, `UserGroupId`, `RemoveUserGroup`, `Tags.Tag.N.Key/Value`,
+and now `CacheUsageLimits`).
+
+`ServerlessCacheSnapshot`'s three remaining fields: `BytesUsedForCache` is set to the literal,
+non-fabricated value `"0"` -- this emulator's serverless caches have no backing data-plane
+engine at all (unlike `Cluster`, which uses an embedded `miniredis` instance), so `0` is the
+true size of what this emulator actually stores, not a guess. `KmsKeyId` is accepted on
+`CreateServerlessCacheSnapshot` and defaults to the source `ServerlessCache`'s own `KmsKeyID`
+when not explicitly given. `ServerlessCacheConfiguration` is populated from the source cache's
+current `Engine`/`MajorEngineVersion`/`Name` at snapshot-creation time (`ServerlessCacheConfigSnapshot`
+in `models.go`) -- genuine, already-available data, not a new feature. `ExpiryTime` is
+deliberately left unset for every snapshot: real AWS only populates it for automatically-created
+snapshots (expiry driven by the source cache's `SnapshotRetentionLimit`), never for manual or
+copied ones, and this emulator's `CreateServerlessCacheSnapshot`/`CopyServerlessCacheSnapshot`
+only ever produce `"manual"`-type snapshots (no background automated-snapshot scheduler exists,
+a pre-existing, still-accurate `deferred:` item) -- so leaving it unset is the honestly-correct
+value, not an incomplete one.
+
+New table test `TestHandler_ServerlessCache_NestedGapFields` (`handler_serverless_test.go`)
+drives a real `elasticachesdk.Client` against an `httptest` server for every case (per the
+"critical lesson" instruction for this pass): request-field threading on create,
+`CacheUsageLimits` on create and modify, `ServerlessCacheSnapshot` KMS-key inheritance vs
+explicit override, and `BytesUsedForCache`/`ExpiryTime`/`ServerlessCacheConfiguration`.

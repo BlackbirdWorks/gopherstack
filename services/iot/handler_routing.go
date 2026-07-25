@@ -165,6 +165,15 @@ func resolveThingsPathOperation(path, method string) string {
 		method == http.MethodGet:
 
 		return opListJobExecutionsForThing
+	// DescribeJobExecution/CancelJobExecution/DeleteJobExecution use
+	// /things/{thingName}/jobs/{jobId}[...] -- confirmed against
+	// aws-sdk-go-v2/service/iot@v1.76.0's serializers.go http bindings
+	// (SplitURI("/things/{thingName}/jobs/{jobId}[/cancel|/executionNumber/{executionNumber}]")).
+	// Must come before the generic thing routing default below, which would
+	// otherwise silently swallow these as unmatched thing sub-resource paths.
+	case strings.HasPrefix(path, "/things/") && strings.Contains(path, "/jobs/"):
+
+		return resolveThingJobExecutionOps(path, method)
 	// Shadow ops use /things/{name}/shadow — must come before generic thing routing.
 	case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
 
@@ -173,6 +182,22 @@ func resolveThingsPathOperation(path, method string) string {
 
 		return thingOperation(path, method)
 	}
+}
+
+// resolveThingJobExecutionOps resolves the /things/{thingName}/jobs/{jobId}[...]
+// sub-routes for DescribeJobExecution/CancelJobExecution/DeleteJobExecution.
+// Callers must have already verified path contains "/jobs/".
+func resolveThingJobExecutionOps(path, method string) string {
+	switch {
+	case strings.HasSuffix(path, "/cancel") && method == http.MethodPut:
+		return opCancelJobExecution
+	case strings.Contains(path, "/executionNumber/") && method == http.MethodDelete:
+		return opDeleteJobExecution
+	case method == http.MethodGet:
+		return opDescribeJobExecution
+	}
+
+	return unknownOperation
 }
 
 func resolveBatch1Ops(path, method string) string {

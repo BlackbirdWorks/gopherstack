@@ -100,8 +100,12 @@ type StorageBackend interface {
 	DeleteJob(jobID string) error
 	GetJobDocument(jobID string) (string, error)
 	DescribeJobExecution(jobID, thingName string) (*JobExecution, error)
-	CancelJobExecution(jobID, thingName string) error
-	DeleteJobExecution(jobID, thingName string) error
+	CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error
+	DeleteJobExecution(jobID, thingName string, force bool) error
+	// ThingARN builds a Thing's ARN from its name, used by handler_jobs.go to
+	// derive JobExecution's real "thingArn" wire field from the internal
+	// ThingName lookup key (see JobExecution's doc comment).
+	ThingARN(thingName string) string
 
 	// JobTemplate operations.
 	CreateJobTemplate(input *CreateJobTemplateInput) (*JobTemplate, error)
@@ -286,7 +290,7 @@ type StorageBackend interface {
 
 	// Batch 3: Audit findings.
 	DescribeAuditFinding(findingID string) (*AuditFinding, error)
-	ListAuditFindings() []*AuditFinding
+	ListAuditFindings(filter ListAuditFindingsFilter) []*AuditFinding
 	ListRelatedResourcesForAuditFinding(findingID string) ([]map[string]any, error)
 
 	// Batch 3: V2 logging.

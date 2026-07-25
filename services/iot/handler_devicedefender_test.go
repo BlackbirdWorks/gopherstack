@@ -324,6 +324,115 @@ func TestDeviceDefender_AuditFindingRelatedResources(t *testing.T) {
 	iotExpectError(t, h, "/audit/relatedResources?findingId=does-not-exist")
 }
 
+// TestDeviceDefender_AuditFinding_WireFieldsAndFilters is a table-driven
+// regression test covering this pass's field-diff of AuditFinding against
+// aws-sdk-go-v2/service/iot@v1.76.0's types.AuditFinding
+// (awsRestjson1_deserializeDocumentAuditFinding): isSuppressed,
+// reasonForNonComplianceCode, reasonForNonCompliance, and taskStartTime were
+// all missing entirely. Also covers ListAuditFindings' checkName/taskId/
+// listSuppressedFindings filters, previously unimplemented -- and previously
+// unreachable at all, since the op was misrouted on GET instead of the real
+// POST /audit/findings (fixed alongside the field diff; see PARITY.md).
+func TestDeviceDefender_AuditFinding_WireFieldsAndFilters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		listBody map[string]any
+		check    func(t *testing.T, findings []map[string]any)
+		name     string
+	}{
+		{
+			name: "wire_fields_surfaced",
+			check: func(t *testing.T, findings []map[string]any) {
+				t.Helper()
+				require.Len(t, findings, 2)
+
+				byCheck := map[string]map[string]any{}
+				for _, f := range findings {
+					byCheck[f["checkName"].(string)] = f
+				}
+
+				suppressed := byCheck["SUPPRESSED_CHECK"]
+				assert.Equal(t, true, suppressed["isSuppressed"])
+				assert.Equal(t, "AUDIT_TASK", suppressed["reasonForNonComplianceCode"])
+				assert.Equal(t, "sample reason", suppressed["reasonForNonCompliance"])
+				assert.NotEmpty(t, suppressed["taskStartTime"],
+					"taskStartTime should be auto-derived from the referenced AuditTask")
+
+				plain := byCheck["PLAIN_CHECK"]
+				assert.Nil(t, plain["isSuppressed"])
+			},
+		},
+		{
+			name:     "filter_by_checkName",
+			listBody: map[string]any{"checkName": "SUPPRESSED_CHECK"},
+			check: func(t *testing.T, findings []map[string]any) {
+				t.Helper()
+				require.Len(t, findings, 1)
+				assert.Equal(t, "SUPPRESSED_CHECK", findings[0]["checkName"])
+			},
+		},
+		{
+			name:     "filter_by_listSuppressedFindings_true",
+			listBody: map[string]any{"listSuppressedFindings": true},
+			check: func(t *testing.T, findings []map[string]any) {
+				t.Helper()
+				require.Len(t, findings, 1)
+				assert.Equal(t, true, findings[0]["isSuppressed"])
+			},
+		},
+		{
+			name:     "filter_by_listSuppressedFindings_false",
+			listBody: map[string]any{"listSuppressedFindings": false},
+			check: func(t *testing.T, findings []map[string]any) {
+				t.Helper()
+				require.Len(t, findings, 1)
+				assert.Equal(t, "PLAIN_CHECK", findings[0]["checkName"])
+			},
+		},
+		{
+			name:     "filter_by_unknown_checkName_returns_empty",
+			listBody: map[string]any{"checkName": "NO_SUCH_CHECK"},
+			check: func(t *testing.T, findings []map[string]any) {
+				t.Helper()
+				assert.Empty(t, findings)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newDeviceDefenderTestHandler(t)
+
+			taskID, err := b.StartOnDemandAuditTask([]string{"SUPPRESSED_CHECK"})
+			require.NoError(t, err)
+
+			b.SeedAuditFinding(&iot.AuditFinding{
+				CheckName:                  "SUPPRESSED_CHECK",
+				TaskID:                     taskID,
+				IsSuppressed:               true,
+				ReasonForNonComplianceCode: "AUDIT_TASK",
+				ReasonForNonCompliance:     "sample reason",
+			})
+			b.SeedAuditFinding(&iot.AuditFinding{
+				CheckName: "PLAIN_CHECK",
+			})
+
+			out := iotOK(t, h, http.MethodPost, "/audit/findings", tt.listBody)
+			raw, _ := out["findings"].([]any)
+
+			findings := make([]map[string]any, len(raw))
+			for i, f := range raw {
+				findings[i], _ = f.(map[string]any)
+			}
+
+			tt.check(t, findings)
+		})
+	}
+}
+
 // TestDeviceDefender_DeleteAccountAuditConfiguration covers
 // DeleteAccountAuditConfiguration (idempotent, including when unconfigured).
 func TestDeviceDefender_DeleteAccountAuditConfiguration(t *testing.T) {

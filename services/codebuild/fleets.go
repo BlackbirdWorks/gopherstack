@@ -15,15 +15,18 @@ func (b *InMemoryBackend) buildFleetARN(name string) string {
 }
 
 // CreateFleetOptions carries CreateFleet's fields beyond the always-required
-// name/baseCapacity. ComputeConfiguration/ProxyConfiguration/VpcConfig are
-// deliberately not modeled -- see the doc comment on the Fleet type.
+// name/baseCapacity.
 type CreateFleetOptions struct {
-	Tags             map[string]string
-	ComputeType      string
-	EnvironmentType  string
-	OverflowBehavior string
-	ImageID          string
-	FleetServiceRole string
+	Tags                 map[string]string
+	ComputeConfiguration *ComputeConfiguration
+	ProxyConfiguration   *ProxyConfiguration
+	VpcConfig            *VpcConfig
+	ScalingConfiguration *ScalingConfiguration
+	ComputeType          string
+	EnvironmentType      string
+	OverflowBehavior     string
+	ImageID              string
+	FleetServiceRole     string
 }
 
 // CreateFleet creates a new compute fleet.
@@ -40,19 +43,23 @@ func (b *InMemoryBackend) CreateFleet(name string, baseCapacity int32, opts Crea
 
 	now := float64(time.Now().Unix())
 	f := &Fleet{
-		Arn:              b.buildFleetARN(name),
-		ID:               uuid.NewString(),
-		Name:             name,
-		BaseCapacity:     baseCapacity,
-		ComputeType:      opts.ComputeType,
-		EnvironmentType:  opts.EnvironmentType,
-		OverflowBehavior: opts.OverflowBehavior,
-		ImageID:          opts.ImageID,
-		FleetServiceRole: opts.FleetServiceRole,
-		Status:           &FleetStatus{StatusCode: "ACTIVE"},
-		Tags:             tagsCopy,
-		Created:          now,
-		LastModified:     now,
+		Arn:                  b.buildFleetARN(name),
+		ID:                   uuid.NewString(),
+		Name:                 name,
+		BaseCapacity:         baseCapacity,
+		ComputeType:          opts.ComputeType,
+		EnvironmentType:      opts.EnvironmentType,
+		OverflowBehavior:     opts.OverflowBehavior,
+		ImageID:              opts.ImageID,
+		FleetServiceRole:     opts.FleetServiceRole,
+		ComputeConfiguration: opts.ComputeConfiguration,
+		ProxyConfiguration:   opts.ProxyConfiguration,
+		VpcConfig:            opts.VpcConfig,
+		ScalingConfiguration: outputScalingConfiguration(opts.ScalingConfiguration, baseCapacity),
+		Status:               &FleetStatus{StatusCode: "ACTIVE"},
+		Tags:                 tagsCopy,
+		Created:              now,
+		LastModified:         now,
 	}
 	b.fleets.Put(f)
 
@@ -142,14 +149,20 @@ func (b *InMemoryBackend) DeleteFleet(arnStr string) error {
 // only updates members actually present in the request; gopherstack
 // approximates that with "non-empty overwrites", the same convention already
 // used by Project's optional-field updates -- see applyProjectOptionalFields).
-// ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration are
-// deliberately not modeled -- see the doc comment on the Fleet type.
+// ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration
+// follow the same convention: a non-nil pointer overwrites, nil leaves the
+// existing value unchanged (real UpdateFleetInput only mutates members
+// actually present in the request).
 type UpdateFleetOptions struct {
-	ComputeType      string
-	EnvironmentType  string
-	OverflowBehavior string
-	ImageID          string
-	FleetServiceRole string
+	ComputeConfiguration *ComputeConfiguration
+	ProxyConfiguration   *ProxyConfiguration
+	VpcConfig            *VpcConfig
+	ScalingConfiguration *ScalingConfiguration
+	ComputeType          string
+	EnvironmentType      string
+	OverflowBehavior     string
+	ImageID              string
+	FleetServiceRole     string
 }
 
 // UpdateFleet updates a fleet's base capacity and optional fields.
@@ -185,8 +198,43 @@ func (b *InMemoryBackend) UpdateFleet(arnStr string, baseCapacity int32, opts Up
 		f.FleetServiceRole = opts.FleetServiceRole
 	}
 
+	if opts.ComputeConfiguration != nil {
+		f.ComputeConfiguration = opts.ComputeConfiguration
+	}
+
+	if opts.ProxyConfiguration != nil {
+		f.ProxyConfiguration = opts.ProxyConfiguration
+	}
+
+	if opts.VpcConfig != nil {
+		f.VpcConfig = opts.VpcConfig
+	}
+
+	if opts.ScalingConfiguration != nil {
+		f.ScalingConfiguration = outputScalingConfiguration(opts.ScalingConfiguration, baseCapacity)
+	}
+
 	f.LastModified = float64(time.Now().Unix())
 	out := *f
 
 	return &out, nil
+}
+
+// outputScalingConfiguration copies in (the caller-supplied request-side
+// ScalingConfigurationInput equivalent) into a response-side
+// ScalingConfigurationOutput equivalent, filling DesiredCapacity with
+// baseCapacity. Real AWS computes DesiredCapacity server-side; since this
+// emulator does not model live auto-scaling telemetry, baseCapacity (the
+// fleet's initial/no-scaling-event size) is the only non-fabricated value
+// available -- it matches AWS's own behavior immediately after
+// Create/UpdateFleet, before any scaling event has occurred.
+func outputScalingConfiguration(in *ScalingConfiguration, baseCapacity int32) *ScalingConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	out := *in
+	out.DesiredCapacity = baseCapacity
+
+	return &out
 }

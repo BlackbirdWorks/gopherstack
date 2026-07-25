@@ -319,13 +319,17 @@ func (b *InMemoryBackend) ListAuditSuppressions() []*AuditSuppression {
 
 // AuditFinding represents an AWS IoT audit finding.
 type AuditFinding struct {
-	NonCompliantResource map[string]any   `json:"nonCompliantResource,omitempty"`
-	FindingID            string           `json:"findingId"`
-	TaskID               string           `json:"taskId,omitempty"`
-	CheckName            string           `json:"checkName"`
-	Severity             string           `json:"severity"`
-	RelatedResources     []map[string]any `json:"relatedResources,omitempty"`
-	FindingTime          float64          `json:"findingTime,omitempty"`
+	NonCompliantResource       map[string]any   `json:"nonCompliantResource,omitempty"`
+	FindingID                  string           `json:"findingId"`
+	TaskID                     string           `json:"taskId,omitempty"`
+	CheckName                  string           `json:"checkName"`
+	Severity                   string           `json:"severity"`
+	ReasonForNonCompliance     string           `json:"reasonForNonCompliance,omitempty"`
+	ReasonForNonComplianceCode string           `json:"reasonForNonComplianceCode,omitempty"`
+	RelatedResources           []map[string]any `json:"relatedResources,omitempty"`
+	FindingTime                float64          `json:"findingTime,omitempty"`
+	TaskStartTime              float64          `json:"taskStartTime,omitempty"`
+	IsSuppressed               bool             `json:"isSuppressed,omitempty"`
 }
 
 func cloneAuditFinding(f *AuditFinding) *AuditFinding {
@@ -344,6 +348,13 @@ func cloneAuditFinding(f *AuditFinding) *AuditFinding {
 // task runs; this is the additive hook gopherstack exposes so callers (and tests)
 // can populate findings deterministically instead of always seeing an empty set.
 // It returns the stored finding, generating a FindingID when none is supplied.
+//
+// TaskStartTime is auto-populated from the referenced AuditTask's own
+// TaskStartTime when the finding has a TaskID but no explicit TaskStartTime
+// -- real AWS's AuditFinding.taskStartTime always reflects when the audit
+// task that produced the finding began, so deriving it from the already-
+// known task record (rather than leaving it unset or requiring every
+// caller to redundantly pass it) keeps the two representations consistent.
 func (b *InMemoryBackend) SeedAuditFinding(f *AuditFinding) *AuditFinding {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -355,6 +366,12 @@ func (b *InMemoryBackend) SeedAuditFinding(f *AuditFinding) *AuditFinding {
 
 	if stored.FindingTime == 0 {
 		stored.FindingTime = float64(time.Now().Unix())
+	}
+
+	if stored.TaskStartTime == 0 && stored.TaskID != "" {
+		if task, ok := b.auditTaskObjects.Get(stored.TaskID); ok {
+			stored.TaskStartTime = task.TaskStartTime
+		}
 	}
 
 	b.auditFindings.Put(stored)
@@ -374,13 +391,63 @@ func (b *InMemoryBackend) DescribeAuditFinding(findingID string) (*AuditFinding,
 	return cloneAuditFinding(f), nil
 }
 
-func (b *InMemoryBackend) ListAuditFindings() []*AuditFinding {
+// ListAuditFindingsFilter carries ListAuditFindings' optional filter fields
+// (aws-sdk-go-v2/service/iot.ListAuditFindingsInput). ResourceIdentifier
+// filtering is NOT modeled -- its real shape has ~15 optional discriminator
+// fields (deviceCertificateId, caCertificateId, cognitoIdentityPoolId,
+// clientId, policyVersionIdentifier, account, iamRoleArn,
+// roleAliasArn, iotPolicyArn, and more), each meaningful only for specific
+// audit check types; matching it correctly would need per-check-type
+// semantics this emulator's synthetic, freely-shaped NonCompliantResource
+// map cannot honestly discriminate against without guessing. checkName,
+// taskId, listSuppressedFindings, and the [startTime,endTime] time range are
+// implemented (all real, simple filters with unambiguous match semantics).
+type ListAuditFindingsFilter struct {
+	ListSuppressedFindings *bool
+	CheckName              string
+	TaskID                 string
+	StartTime              float64
+	EndTime                float64
+}
+
+func (f *AuditFinding) matchesFilter(filter ListAuditFindingsFilter) bool {
+	if filter.CheckName != "" && f.CheckName != filter.CheckName {
+		return false
+	}
+
+	if filter.TaskID != "" && f.TaskID != filter.TaskID {
+		return false
+	}
+
+	if filter.ListSuppressedFindings != nil && f.IsSuppressed != *filter.ListSuppressedFindings {
+		return false
+	}
+
+	if filter.StartTime != 0 && f.FindingTime < filter.StartTime {
+		return false
+	}
+
+	if filter.EndTime != 0 && f.FindingTime > filter.EndTime {
+		return false
+	}
+
+	return true
+}
+
+// ListAuditFindings returns findings matching filter. See
+// [ListAuditFindingsFilter]'s doc comment for what is and is not modeled.
+func (b *InMemoryBackend) ListAuditFindings(filter ListAuditFindingsFilter) []*AuditFinding {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	items := b.auditFindings.Snapshot()
 	out := make([]*AuditFinding, 0, len(items))
+
 	for _, v := range items {
+		if !v.matchesFilter(filter) {
+			continue
+		}
+
 		out = append(out, cloneAuditFinding(v))
 	}
 

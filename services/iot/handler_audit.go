@@ -129,7 +129,14 @@ func resolveAuditSuppressionOps(path, method string) string {
 	case strings.HasPrefix(path, "/audit/findings/") && method == http.MethodGet:
 
 		return opDescribeAuditFinding
-	case path == "/audit/findings" && method == http.MethodGet:
+	// ListAuditFindings is POST /audit/findings (its filter fields --
+	// checkName/taskId/startTime/endTime/listSuppressedFindings/
+	// resourceIdentifier -- are carried in a JSON body, not query params),
+	// confirmed against aws-sdk-go-v2/service/iot@v1.76.0's serializers.go
+	// http bindings. Previously matched on GET, which no real client ever
+	// sends -- a genuine, previously-undiscovered routing bug that made this
+	// op unreachable by a real SDK client. Fixed this pass; see PARITY.md.
+	case path == "/audit/findings" && method == http.MethodPost:
 
 		return opListAuditFindings
 	}
@@ -225,7 +232,24 @@ func (h *Handler) handleDescribeAuditFinding(c *echo.Context) error {
 }
 
 func (h *Handler) handleListAuditFindings(c *echo.Context) error {
-	items := h.Backend.ListAuditFindings()
+	var req struct {
+		ListSuppressedFindings *bool   `json:"listSuppressedFindings"`
+		CheckName              string  `json:"checkName"`
+		TaskID                 string  `json:"taskId"`
+		StartTime              float64 `json:"startTime"`
+		EndTime                float64 `json:"endTime"`
+	}
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
+
+	items := h.Backend.ListAuditFindings(ListAuditFindingsFilter{
+		CheckName:              req.CheckName,
+		TaskID:                 req.TaskID,
+		StartTime:              req.StartTime,
+		EndTime:                req.EndTime,
+		ListSuppressedFindings: req.ListSuppressedFindings,
+	})
 
 	return c.JSON(http.StatusOK, map[string]any{"findings": items})
 }

@@ -117,7 +117,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) { //nolint:main
 
 	_, err = original.CreateServerlessCache(ctx, "fs-serverless", "full state serverless", "redis")
 	require.NoError(t, err)
-	_, err = original.CreateServerlessCacheSnapshot(ctx, "fs-serverless-snap", "fs-serverless")
+	_, err = original.CreateServerlessCacheSnapshot(ctx, "fs-serverless-snap", "fs-serverless", "")
 	require.NoError(t, err)
 
 	_, err = original.CreateUser(ctx, "fs-user", "fs-user-name", "on ~* &* +@all", "redis", true)

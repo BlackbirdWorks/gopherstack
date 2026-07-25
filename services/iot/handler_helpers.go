@@ -39,7 +39,8 @@ func respondConflict(c *echo.Context, msg string) error {
 // core op handlers), so every handler gets the exact same
 // ResourceNotFoundException/InvalidRequestException/
 // ResourceAlreadyExistsException/VersionConflictException/
-// DeleteConflictException/VersionsLimitExceededException mapping regardless
+// DeleteConflictException/VersionsLimitExceededException/
+// InvalidStateTransitionException mapping regardless
 // of which helper it calls. Previously respondErr only recognized
 // ErrResourceNotFound and ErrAlreadyExists, so domain-specific not-found
 // sentinels (ErrCertificateNotFound, ErrThingNotFound, etc.) and
@@ -79,6 +80,9 @@ func writeIoTError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrVersionsLimitExceeded):
 
 		return c.JSON(http.StatusConflict, awsErrBody{"VersionsLimitExceededException", err.Error()})
+	case errors.Is(err, ErrInvalidStateTransition):
+
+		return c.JSON(http.StatusConflict, awsErrBody{"InvalidStateTransitionException", err.Error()})
 	default:
 
 		return c.JSON(http.StatusInternalServerError, awsErrBody{"InternalFailureException", err.Error()})

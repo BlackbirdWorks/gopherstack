@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -32,6 +33,97 @@ type subnetIDsXML struct {
 	SubnetID []string `xml:"SubnetId"`
 }
 
+// dataStorageLimitXML/ecpuPerSecondLimitXML/cacheUsageLimitsXML are the wire
+// shape for ServerlessCache.CacheUsageLimits, verified against
+// aws-sdk-go-v2/service/elasticache@v1.51.11's
+// awsAwsquery_deserializeDocumentCacheUsageLimits/DataStorage/ECPUPerSecond.
+// Previously entirely unmodeled -- see PARITY.md gaps (fixed this pass).
+type dataStorageLimitXML struct {
+	Unit    string `xml:"Unit,omitempty"`
+	Maximum int32  `xml:"Maximum,omitempty"`
+	Minimum int32  `xml:"Minimum,omitempty"`
+}
+
+type ecpuPerSecondLimitXML struct {
+	Maximum int32 `xml:"Maximum,omitempty"`
+	Minimum int32 `xml:"Minimum,omitempty"`
+}
+
+type cacheUsageLimitsXML struct {
+	DataStorage   *dataStorageLimitXML   `xml:"DataStorage,omitempty"`
+	ECPUPerSecond *ecpuPerSecondLimitXML `xml:"ECPUPerSecond,omitempty"`
+}
+
+func cacheUsageLimitsToXML(l *CacheUsageLimits) *cacheUsageLimitsXML {
+	if l == nil {
+		return nil
+	}
+
+	x := &cacheUsageLimitsXML{}
+	if l.DataStorage != nil {
+		x.DataStorage = &dataStorageLimitXML{
+			Unit:    l.DataStorage.Unit,
+			Maximum: l.DataStorage.Maximum,
+			Minimum: l.DataStorage.Minimum,
+		}
+	}
+
+	if l.ECPUPerSecond != nil {
+		x.ECPUPerSecond = &ecpuPerSecondLimitXML{
+			Maximum: l.ECPUPerSecond.Maximum,
+			Minimum: l.ECPUPerSecond.Minimum,
+		}
+	}
+
+	return x
+}
+
+// parseCacheUsageLimitsForm extracts CacheUsageLimits.DataStorage.*/
+// CacheUsageLimits.ECPUPerSecond.* from a CreateServerlessCache/
+// ModifyServerlessCache request form (field names verified against
+// awsAwsquery_serializeDocumentCacheUsageLimits/DataStorage/ECPUPerSecond).
+// Returns nil when the caller supplied neither nested object, matching real
+// AWS's "absent means unchanged/unset" semantics for optional structs.
+func parseCacheUsageLimitsForm(form url.Values) *CacheUsageLimits {
+	var out *CacheUsageLimits
+
+	if unit := form.Get("CacheUsageLimits.DataStorage.Unit"); unit != "" ||
+		form.Has("CacheUsageLimits.DataStorage.Maximum") || form.Has("CacheUsageLimits.DataStorage.Minimum") {
+		out = &CacheUsageLimits{DataStorage: &DataStorageLimit{
+			Unit:    unit,
+			Maximum: parseFormInt32(form, "CacheUsageLimits.DataStorage.Maximum"),
+			Minimum: parseFormInt32(form, "CacheUsageLimits.DataStorage.Minimum"),
+		}}
+	}
+
+	if form.Has("CacheUsageLimits.ECPUPerSecond.Maximum") || form.Has("CacheUsageLimits.ECPUPerSecond.Minimum") {
+		if out == nil {
+			out = &CacheUsageLimits{}
+		}
+
+		out.ECPUPerSecond = &ECPUPerSecondLimit{
+			Maximum: parseFormInt32(form, "CacheUsageLimits.ECPUPerSecond.Maximum"),
+			Minimum: parseFormInt32(form, "CacheUsageLimits.ECPUPerSecond.Minimum"),
+		}
+	}
+
+	return out
+}
+
+// parseFormInt32 returns the parsed int32 value of a form field, or 0 if
+// absent/non-numeric (numeric validation for these optional usage-limit
+// fields is out of scope -- AWS itself validates ranges server-side; a
+// non-numeric value here simply surfaces as 0, matching how the rest of
+// this handler treats malformed optional numeric input).
+func parseFormInt32(form url.Values, key string) int32 {
+	n, err := strconv.ParseInt(form.Get(key), 10, 32)
+	if err != nil {
+		return 0
+	}
+
+	return int32(n)
+}
+
 // serverlessCacheXML is the wire shape for ServerlessCache, verified against
 // aws-sdk-go-v2/service/elasticache@v1.51.11's
 // awsAwsquery_deserializeDocumentServerlessCache. A prior revision of this
@@ -42,15 +134,14 @@ type subnetIDsXML struct {
 // CreateServerlessCache/ModifyServerlessCache/DeleteServerlessCache/
 // DescribeServerlessCaches response despite the domain ServerlessCache model
 // already storing all of them -- this was purely a missing-wire-mapping bug,
-// not a missing-data gap. CacheUsageLimits is the one real field
-// deliberately NOT added: it is not modeled anywhere in the domain type, and
-// modeling data/ECPU usage limits is a larger feature than a wire-mapping
-// fix (see PARITY.md).
+// not a missing-data gap. CacheUsageLimits is now also wired (was the one
+// real field left unmodeled by the prior pass -- see PARITY.md).
 type serverlessCacheXML struct {
 	Endpoint               *serverlessCacheEndpointXML `xml:"Endpoint,omitempty"`
 	ReaderEndpoint         *serverlessCacheEndpointXML `xml:"ReaderEndpoint,omitempty"`
 	SecurityGroupIDs       *securityGroupIDsXML        `xml:"SecurityGroupIds,omitempty"`
 	SubnetIDs              *subnetIDsXML               `xml:"SubnetIds,omitempty"`
+	CacheUsageLimits       *cacheUsageLimitsXML        `xml:"CacheUsageLimits,omitempty"`
 	ARN                    string                      `xml:"ARN"`
 	Name                   string                      `xml:"ServerlessCacheName"`
 	Description            string                      `xml:"Description,omitempty"`
@@ -83,6 +174,7 @@ func serverlessCacheToXML(sc *ServerlessCache) serverlessCacheXML {
 		MajorEngineVersion:     sc.MajorEngineVersion,
 		UserGroupID:            sc.UserGroupID,
 		SnapshotRetentionLimit: sc.SnapshotRetentionLimit,
+		CacheUsageLimits:       cacheUsageLimitsToXML(sc.CacheUsageLimits),
 	}
 	if !sc.CreatedAt.IsZero() {
 		x.CreateTime = sc.CreatedAt.UTC().Format(time.RFC3339)
@@ -107,12 +199,41 @@ func serverlessCacheToXML(sc *ServerlessCache) serverlessCacheXML {
 	return x
 }
 
+// createServerlessCache parses the full CreateServerlessCacheInput request
+// shape and creates the cache via CreateServerlessCacheFull.
+//
+// This previously called the crippled 3-arg CreateServerlessCache backend
+// method, which only ever read ServerlessCacheName/Description/Engine from
+// the request -- every other real CreateServerlessCacheInput member
+// (CacheUsageLimits, DailySnapshotTime, KmsKeyId, MajorEngineVersion,
+// SecurityGroupIds, SnapshotRetentionLimit, SubnetIds, Tags, UserGroupId)
+// was silently dropped on the actual wire-routed create path, even though
+// serverlessCacheXML's response mapping (above) already surfaced them
+// correctly -- so a real client's create request would lose the data, and
+// its own create response (plus every subsequent Describe) would just
+// reflect the empty defaults back. This is exactly the "asserted against
+// backend structs, not what a real client receives" bug class called out in
+// PARITY.md: TestBackend_CreateServerlessCacheFull_AllFields exercised
+// CreateServerlessCacheFull directly and passed, while the real wire op
+// silently discarded everything. Found and fixed alongside the
+// CacheUsageLimits gap this pass; see PARITY.md and
+// TestHandler_CreateServerlessCache_WireRequestFieldsThreaded (a real SDK
+// client round trip through *this* handler, not a direct backend call).
 func (h *Handler) createServerlessCache(ctx context.Context, c *echo.Context, form url.Values) error {
-	name := form.Get("ServerlessCacheName")
-	description := form.Get("Description")
-	engine := form.Get("Engine")
-
-	sc, err := h.Backend.CreateServerlessCache(ctx, name, description, engine)
+	sc, err := h.Backend.CreateServerlessCacheFull(ctx, ServerlessCreateOpts{
+		Name:                   form.Get("ServerlessCacheName"),
+		Description:            form.Get("Description"),
+		Engine:                 form.Get("Engine"),
+		KmsKeyID:               form.Get("KmsKeyId"),
+		UserGroupID:            form.Get("UserGroupId"),
+		DailySnapshotTime:      form.Get("DailySnapshotTime"),
+		MajorEngineVersion:     form.Get("MajorEngineVersion"),
+		SecurityGroupIDs:       parseRepeatedField(form, "SecurityGroupIds.SecurityGroupId"),
+		SubnetIDs:              parseRepeatedField(form, "SubnetIds.SubnetId"),
+		SnapshotRetentionLimit: parseFormInt32(form, "SnapshotRetentionLimit"),
+		CacheUsageLimits:       parseCacheUsageLimitsForm(form),
+		Tags:                   parseFormTags(form),
+	})
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheAlreadyExists) {
 			return xmlError(
@@ -142,21 +263,36 @@ func (h *Handler) createServerlessCache(ctx context.Context, c *echo.Context, fo
 // CreateServerlessCacheSnapshot
 // ----------------------------------------
 
-// serverlessCacheSnapshotXML's ExpiryTime/KmsKeyId/BytesUsedForCache/
-// ServerlessCacheConfiguration (real types.ServerlessCacheSnapshot fields,
-// verified against awsAwsquery_deserializeDocumentServerlessCacheSnapshot)
-// are deliberately NOT added -- the domain ServerlessCacheSnapshot model has
-// no fields to derive them from, unlike CreateTime (below), which the model
-// already stores as CreatedAt and was simply never wired to the wire
-// response. Modeling snapshot expiry/KMS/size/config tracking is new-feature
-// scope, not a wire-mapping fix; see PARITY.md.
-type serverlessCacheSnapshotXML struct {
-	ARN                 string `xml:"ARN"`
-	Name                string `xml:"ServerlessCacheSnapshotName"`
-	Status              string `xml:"Status"`
+// serverlessCacheConfigurationXML is the wire shape for
+// ServerlessCacheSnapshot.ServerlessCacheConfiguration, verified against
+// awsAwsquery_deserializeDocumentServerlessCacheConfiguration.
+type serverlessCacheConfigurationXML struct {
 	ServerlessCacheName string `xml:"ServerlessCacheName,omitempty"`
-	SnapshotType        string `xml:"SnapshotType,omitempty"`
-	CreateTime          string `xml:"CreateTime,omitempty"`
+	Engine              string `xml:"Engine,omitempty"`
+	MajorEngineVersion  string `xml:"MajorEngineVersion,omitempty"`
+}
+
+// serverlessCacheSnapshotXML now also wires ExpiryTime/KmsKeyId/
+// BytesUsedForCache/ServerlessCacheConfiguration (real
+// types.ServerlessCacheSnapshot fields, verified against
+// awsAwsquery_deserializeDocumentServerlessCacheSnapshot/
+// ServerlessCacheConfiguration) -- previously entirely unmodeled, see
+// PARITY.md gaps (fixed this pass). ExpiryTime stays unset for every
+// snapshot this emulator ever produces (see the doc comment on
+// [ServerlessCacheSnapshot]); BytesUsedForCache is always "0" for the same
+// documented "no real data-plane engine backs a serverless cache here"
+// reason, not a fabricated number.
+type serverlessCacheSnapshotXML struct {
+	ServerlessCacheConfiguration *serverlessCacheConfigurationXML `xml:"ServerlessCacheConfiguration,omitempty"`
+	ARN                          string                           `xml:"ARN"`
+	Name                         string                           `xml:"ServerlessCacheSnapshotName"`
+	Status                       string                           `xml:"Status"`
+	ServerlessCacheName          string                           `xml:"ServerlessCacheName,omitempty"`
+	SnapshotType                 string                           `xml:"SnapshotType,omitempty"`
+	CreateTime                   string                           `xml:"CreateTime,omitempty"`
+	ExpiryTime                   string                           `xml:"ExpiryTime,omitempty"`
+	KmsKeyID                     string                           `xml:"KmsKeyId,omitempty"`
+	BytesUsedForCache            string                           `xml:"BytesUsedForCache,omitempty"`
 }
 
 func serverlessCacheSnapshotToXML(snap *ServerlessCacheSnapshot) serverlessCacheSnapshotXML {
@@ -166,9 +302,23 @@ func serverlessCacheSnapshotToXML(snap *ServerlessCacheSnapshot) serverlessCache
 		Status:              snap.Status,
 		ServerlessCacheName: snap.ServerlessCacheName,
 		SnapshotType:        snap.SnapshotType,
+		KmsKeyID:            snap.KmsKeyID,
+		BytesUsedForCache:   snap.BytesUsedForCache,
 	}
 	if !snap.CreatedAt.IsZero() {
 		x.CreateTime = snap.CreatedAt.UTC().Format(time.RFC3339)
+	}
+
+	if !snap.ExpiryTime.IsZero() {
+		x.ExpiryTime = snap.ExpiryTime.UTC().Format(time.RFC3339)
+	}
+
+	if cfg := snap.ServerlessCacheConfiguration; cfg != nil {
+		x.ServerlessCacheConfiguration = &serverlessCacheConfigurationXML{
+			ServerlessCacheName: cfg.ServerlessCacheName,
+			Engine:              cfg.Engine,
+			MajorEngineVersion:  cfg.MajorEngineVersion,
+		}
 	}
 
 	return x
@@ -177,8 +327,9 @@ func serverlessCacheSnapshotToXML(snap *ServerlessCacheSnapshot) serverlessCache
 func (h *Handler) createServerlessCacheSnapshot(ctx context.Context, c *echo.Context, form url.Values) error {
 	snapshotName := form.Get("ServerlessCacheSnapshotName")
 	serverlessCacheName := form.Get("ServerlessCacheName")
+	kmsKeyID := form.Get("KmsKeyId")
 
-	snap, err := h.Backend.CreateServerlessCacheSnapshot(ctx, snapshotName, serverlessCacheName)
+	snap, err := h.Backend.CreateServerlessCacheSnapshot(ctx, snapshotName, serverlessCacheName, kmsKeyID)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotExists) {
 			return xmlError(
@@ -417,11 +568,30 @@ func (h *Handler) exportServerlessCacheSnapshot(ctx context.Context, c *echo.Con
 	})
 }
 
+// modifyServerlessCache parses the full ModifyServerlessCacheInput request
+// shape and applies it via ModifyServerlessCacheFull. Previously called the
+// crippled 2-arg ModifyServerlessCache backend method, which only read
+// Description -- see the doc comment on createServerlessCache for the same
+// bug class (UserGroupId/DailySnapshotTime/SnapshotRetentionLimit/
+// SecurityGroupIds/CacheUsageLimits were all silently dropped on modify too).
 func (h *Handler) modifyServerlessCache(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("ServerlessCacheName")
-	description := form.Get("Description")
 
-	sc, err := h.Backend.ModifyServerlessCache(ctx, name, description)
+	var snapshotRetentionLimit *int32
+	if s := form.Get("SnapshotRetentionLimit"); s != "" {
+		v := parseFormInt32(form, "SnapshotRetentionLimit")
+		snapshotRetentionLimit = &v
+	}
+
+	sc, err := h.Backend.ModifyServerlessCacheFull(ctx, name, ServerlessModifyOpts{
+		Description:            form.Get("Description"),
+		UserGroupID:            form.Get("UserGroupId"),
+		DailySnapshotTime:      form.Get("DailySnapshotTime"),
+		SecurityGroupIDs:       parseRepeatedField(form, "SecurityGroupIds.SecurityGroupId"),
+		RemoveUserGroup:        form.Get("RemoveUserGroup") == "true",
+		SnapshotRetentionLimit: snapshotRetentionLimit,
+		CacheUsageLimits:       parseCacheUsageLimitsForm(form),
+	})
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheNotFound) {
 			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")

@@ -96,7 +96,7 @@ func TestHandler_ServerlessCacheSnapshot_CreateTimeSurfaced(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = backend.CreateServerlessCacheSnapshot(context.Background(), "snap-wire-shape", "sc-for-snap")
+	_, err = backend.CreateServerlessCacheSnapshot(context.Background(), "snap-wire-shape", "sc-for-snap", "")
 	require.NoError(t, err)
 
 	in := &elasticachesdk.DescribeServerlessCacheSnapshotsInput{
@@ -106,6 +106,206 @@ func TestHandler_ServerlessCacheSnapshot_CreateTimeSurfaced(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.ServerlessCacheSnapshots, 1)
 	assert.NotNil(t, out.ServerlessCacheSnapshots[0].CreateTime, "CreateTime must be present on the wire response")
+}
+
+// TestHandler_ServerlessCache_NestedGapFields is a table-driven regression
+// test, each case driving a real generated elasticachesdk.Client against an
+// httptest server (not a direct backend call -- see parity-principles.md
+// rule 3 and PARITY.md's "critical lesson" about this exact service: a wire
+// bug hid for a long time because tests asserted on backend structs rather
+// than what a real client receives).
+//
+// Covers this pass's two newly-documented PARITY.md gaps
+// (ServerlessCache.CacheUsageLimits; ServerlessCacheSnapshot's ExpiryTime/
+// KmsKeyId/BytesUsedForCache/ServerlessCacheConfiguration), plus a more
+// severe bug found while closing them: the actual wire-routed
+// CreateServerlessCache/ModifyServerlessCache handlers only ever parsed
+// ServerlessCacheName/Description/Engine from the request, silently
+// dropping every other real CreateServerlessCacheInput/
+// ModifyServerlessCacheInput member (KmsKeyId, DailySnapshotTime,
+// MajorEngineVersion, SecurityGroupIds, SubnetIds, SnapshotRetentionLimit,
+// UserGroupId, Tags, CacheUsageLimits) even though the response mapping for
+// those same fields was already correct -- a real client's create/modify
+// request would lose the data entirely. Fixed by routing both handlers
+// through CreateServerlessCacheFull/ModifyServerlessCacheFull instead of
+// the crippled legacy 3-/2-arg backend methods.
+func TestHandler_ServerlessCache_NestedGapFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, client *elasticachesdk.Client)
+		name string
+	}{
+		{
+			name: "create_threads_full_request_shape_not_just_name_description_engine",
+			run: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+
+				in := &elasticachesdk.CreateServerlessCacheInput{
+					ServerlessCacheName:    aws.String("sc-full-request"),
+					Engine:                 aws.String("redis"),
+					KmsKeyId:               aws.String("kms-full-request"),
+					DailySnapshotTime:      aws.String("07:00"),
+					MajorEngineVersion:     aws.String("7"),
+					SecurityGroupIds:       []string{"sg-a", "sg-b"},
+					SubnetIds:              []string{"subnet-a"},
+					SnapshotRetentionLimit: aws.Int32(9),
+				}
+				out, err := client.CreateServerlessCache(context.Background(), in)
+				require.NoError(t, err)
+				sc := out.ServerlessCache
+				assert.Equal(t, "kms-full-request", aws.ToString(sc.KmsKeyId),
+					"KmsKeyId must survive the actual wire-routed CreateServerlessCache request")
+				assert.Equal(t, "07:00", aws.ToString(sc.DailySnapshotTime))
+				assert.Equal(t, "7", aws.ToString(sc.MajorEngineVersion))
+				assert.ElementsMatch(t, []string{"sg-a", "sg-b"}, sc.SecurityGroupIds)
+				assert.ElementsMatch(t, []string{"subnet-a"}, sc.SubnetIds)
+				assert.Equal(t, int32(9), aws.ToInt32(sc.SnapshotRetentionLimit))
+			},
+		},
+		{
+			name: "create_cacheUsageLimits_surfaced",
+			run: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+
+				in := &elasticachesdk.CreateServerlessCacheInput{
+					ServerlessCacheName: aws.String("sc-usage-limits"),
+					Engine:              aws.String("redis"),
+					CacheUsageLimits: &elasticachetypes.CacheUsageLimits{
+						DataStorage: &elasticachetypes.DataStorage{
+							Unit:    elasticachetypes.DataStorageUnitGb,
+							Maximum: aws.Int32(100),
+							Minimum: aws.Int32(10),
+						},
+						ECPUPerSecond: &elasticachetypes.ECPUPerSecond{
+							Maximum: aws.Int32(5000),
+							Minimum: aws.Int32(1000),
+						},
+					},
+				}
+				out, err := client.CreateServerlessCache(context.Background(), in)
+				require.NoError(t, err)
+				limits := out.ServerlessCache.CacheUsageLimits
+				require.NotNil(t, limits, "CacheUsageLimits must be present on the wire response")
+				require.NotNil(t, limits.DataStorage)
+				assert.Equal(t, elasticachetypes.DataStorageUnitGb, limits.DataStorage.Unit)
+				assert.Equal(t, int32(100), aws.ToInt32(limits.DataStorage.Maximum))
+				assert.Equal(t, int32(10), aws.ToInt32(limits.DataStorage.Minimum))
+				require.NotNil(t, limits.ECPUPerSecond)
+				assert.Equal(t, int32(5000), aws.ToInt32(limits.ECPUPerSecond.Maximum))
+				assert.Equal(t, int32(1000), aws.ToInt32(limits.ECPUPerSecond.Minimum))
+			},
+		},
+		{
+			name: "modify_cacheUsageLimits_surfaced",
+			run: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+
+				_, err := client.CreateServerlessCache(context.Background(), &elasticachesdk.CreateServerlessCacheInput{
+					ServerlessCacheName: aws.String("sc-modify-usage-limits"),
+					Engine:              aws.String("redis"),
+				})
+				require.NoError(t, err)
+
+				modIn := &elasticachesdk.ModifyServerlessCacheInput{
+					ServerlessCacheName: aws.String("sc-modify-usage-limits"),
+					CacheUsageLimits: &elasticachetypes.CacheUsageLimits{
+						ECPUPerSecond: &elasticachetypes.ECPUPerSecond{Maximum: aws.Int32(2500)},
+					},
+				}
+				out, err := client.ModifyServerlessCache(context.Background(), modIn)
+				require.NoError(t, err)
+				limits := out.ServerlessCache.CacheUsageLimits
+				require.NotNil(t, limits)
+				require.NotNil(t, limits.ECPUPerSecond)
+				assert.Equal(t, int32(2500), aws.ToInt32(limits.ECPUPerSecond.Maximum))
+			},
+		},
+		{
+			name: "snapshot_inherits_kmsKeyId_and_configuration_bytesUsed_zero_expiry_unset",
+			run: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+
+				_, err := client.CreateServerlessCache(context.Background(), &elasticachesdk.CreateServerlessCacheInput{
+					ServerlessCacheName: aws.String("sc-snap-source"),
+					Engine:              aws.String("redis"),
+					MajorEngineVersion:  aws.String("7"),
+					KmsKeyId:            aws.String("kms-inherited"),
+				})
+				require.NoError(t, err)
+
+				_, err = client.CreateServerlessCacheSnapshot(
+					context.Background(),
+					&elasticachesdk.CreateServerlessCacheSnapshotInput{
+						ServerlessCacheName:         aws.String("sc-snap-source"),
+						ServerlessCacheSnapshotName: aws.String("snap-inherits-kms"),
+					},
+				)
+				require.NoError(t, err)
+
+				out, err := client.DescribeServerlessCacheSnapshots(
+					context.Background(),
+					&elasticachesdk.DescribeServerlessCacheSnapshotsInput{
+						ServerlessCacheSnapshotName: aws.String("snap-inherits-kms"),
+					},
+				)
+				require.NoError(t, err)
+				require.Len(t, out.ServerlessCacheSnapshots, 1)
+				snap := out.ServerlessCacheSnapshots[0]
+				assert.Equal(t, "kms-inherited", aws.ToString(snap.KmsKeyId),
+					"KmsKeyId should inherit from the source cache when not explicitly given")
+				assert.Equal(t, "0", aws.ToString(snap.BytesUsedForCache),
+					"BytesUsedForCache must be a real (zero, non-fabricated) value, not absent")
+				assert.Nil(t, snap.ExpiryTime, "manual snapshots must not have an ExpiryTime, matching real AWS")
+				require.NotNil(t, snap.ServerlessCacheConfiguration)
+				assert.Equal(t, "sc-snap-source", aws.ToString(snap.ServerlessCacheConfiguration.ServerlessCacheName))
+				assert.Equal(t, "redis", aws.ToString(snap.ServerlessCacheConfiguration.Engine))
+				assert.Equal(t, "7", aws.ToString(snap.ServerlessCacheConfiguration.MajorEngineVersion))
+			},
+		},
+		{
+			name: "snapshot_explicit_kmsKeyId_overrides_inherited",
+			run: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+
+				_, err := client.CreateServerlessCache(context.Background(), &elasticachesdk.CreateServerlessCacheInput{
+					ServerlessCacheName: aws.String("sc-snap-override"),
+					Engine:              aws.String("redis"),
+					KmsKeyId:            aws.String("kms-cache-level"),
+				})
+				require.NoError(t, err)
+
+				_, err = client.CreateServerlessCacheSnapshot(
+					context.Background(),
+					&elasticachesdk.CreateServerlessCacheSnapshotInput{
+						ServerlessCacheName:         aws.String("sc-snap-override"),
+						ServerlessCacheSnapshotName: aws.String("snap-explicit-kms"),
+						KmsKeyId:                    aws.String("kms-snapshot-level"),
+					},
+				)
+				require.NoError(t, err)
+
+				out, err := client.DescribeServerlessCacheSnapshots(
+					context.Background(),
+					&elasticachesdk.DescribeServerlessCacheSnapshotsInput{
+						ServerlessCacheSnapshotName: aws.String("snap-explicit-kms"),
+					},
+				)
+				require.NoError(t, err)
+				require.Len(t, out.ServerlessCacheSnapshots, 1)
+				assert.Equal(t, "kms-snapshot-level", aws.ToString(out.ServerlessCacheSnapshots[0].KmsKeyId))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+			tt.run(t, client)
+		})
+	}
 }
 
 func TestHandler_ServerlessCache_FullLifecycle(t *testing.T) {

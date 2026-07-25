@@ -153,7 +153,7 @@ func seedJobsAndTemplates(t *testing.T, b *iot.InMemoryBackend) {
 	})
 	require.NoError(t, err)
 
-	err = b.CancelJobExecution("gap-job", "gap-thing")
+	err = b.CancelJobExecution("gap-job", "gap-thing", iot.CancelJobExecutionOptions{})
 	require.NoError(t, err)
 
 	_, err = b.CreateJobTemplate(&iot.CreateJobTemplateInput{

@@ -32,6 +32,12 @@ var (
 
 	// ErrShadowNotFound is returned when a Device Shadow does not exist.
 	ErrShadowNotFound = errors.New("shadow not found")
+
+	// ErrInvalidStateTransition is returned when a state-changing operation
+	// (e.g. CancelJobExecution on an IN_PROGRESS execution without force)
+	// is rejected because the target resource is not in a state that
+	// permits it.
+	ErrInvalidStateTransition = errors.New("invalid state transition")
 )
 
 // ErrThingTypeNotFound is returned when a ThingType does not exist.

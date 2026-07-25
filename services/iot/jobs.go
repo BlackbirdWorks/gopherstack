@@ -144,15 +144,36 @@ type Job struct {
 	CompletedAt                float64                     `json:"completedAt,omitempty"`
 }
 
+// JobExecutionStatusDetails holds free-form status detail name/value pairs
+// for a job execution (aws-sdk-go-v2/service/iot/types.
+// JobExecutionStatusDetails).
+type JobExecutionStatusDetails struct {
+	DetailsMap map[string]string `json:"detailsMap,omitempty"`
+}
+
 // JobExecution represents a single job execution on a thing.
+//
+// ThingName is internal-only storage used for lookups (jobExecKey,
+// ListJobExecutionsForThing) -- real AWS's JobExecution wire shape has no
+// "thingName" field, only "thingArn" (confirmed against
+// awsRestjson1_deserializeDocumentJobExecution in
+// aws-sdk-go-v2/service/iot@v1.76.0, which has no "thingName" case at all).
+// Wire-response builders (handler_jobs.go) must compute ThingArn from
+// ThingName via [InMemoryBackend.ThingARN] rather than ever serializing this
+// struct directly, since ThingName still needs a normal json tag for
+// Snapshot/Restore persistence to round-trip it.
 type JobExecution struct {
-	JobID           string             `json:"jobId"`
-	ThingName       string             `json:"thingName"`
-	Status          JobExecutionStatus `json:"status"`
-	ExecutionNumber int64              `json:"executionNumber,omitempty"`
-	QueuedAt        float64            `json:"queuedAt,omitempty"`
-	StartedAt       float64            `json:"startedAt,omitempty"`
-	LastUpdatedAt   float64            `json:"lastUpdatedAt,omitempty"`
+	StatusDetails                    *JobExecutionStatusDetails `json:"statusDetails,omitempty"`
+	JobID                            string                     `json:"jobId"`
+	ThingName                        string                     `json:"thingName"`
+	Status                           JobExecutionStatus         `json:"status"`
+	ExecutionNumber                  int64                      `json:"executionNumber,omitempty"`
+	QueuedAt                         float64                    `json:"queuedAt,omitempty"`
+	StartedAt                        float64                    `json:"startedAt,omitempty"`
+	LastUpdatedAt                    float64                    `json:"lastUpdatedAt,omitempty"`
+	ApproximateSecondsBeforeTimedOut int64                      `json:"approximateSecondsBeforeTimedOut,omitempty"`
+	VersionNumber                    int64                      `json:"versionNumber,omitempty"`
+	ForceCanceled                    bool                       `json:"forceCanceled,omitempty"`
 }
 
 func cloneJob(j *Job) *Job {
@@ -167,6 +188,16 @@ func cloneJob(j *Job) *Job {
 
 func (b *InMemoryBackend) jobARN(jobID string) string {
 	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("job/%s", jobID))
+}
+
+// ThingARN builds a Thing's ARN from its name, matching the format computed
+// elsewhere for real Things (see store.go). Used to derive JobExecution's
+// real wire field "thingArn" from the internally-stored ThingName -- this
+// does not require the Thing to still exist, matching real AWS's behavior
+// of continuing to report the (deterministic) ARN for a job execution even
+// after its target Thing has since been deleted.
+func (b *InMemoryBackend) ThingARN(thingName string) string {
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thing/%s", thingName))
 }
 
 // CreateJobInput holds input for CreateJob.
@@ -307,6 +338,19 @@ func jobExecKey(jobID, thingName string) string {
 	return jobID + "|" + thingName
 }
 
+// AddJobExecutionInternal seeds a job execution directly into the backend
+// for testing (mirrors AddAuditTaskInternal/AddServerlessCacheInternal):
+// lets tests exercise states (e.g. IN_PROGRESS) that CancelJobExecution's
+// own create-on-miss fallback can never produce, since it always creates in
+// CANCELED state.
+func (b *InMemoryBackend) AddJobExecutionInternal(e *JobExecution) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := *e
+	b.jobExecutions.Put(&cp)
+}
+
 func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExecution, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -326,32 +370,138 @@ func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExe
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string) error {
+// CancelJobExecutionOptions carries CancelJobExecution's optional fields,
+// matching real CancelJobExecutionInput's force/statusDetails/
+// expectedVersion members.
+type CancelJobExecutionOptions struct {
+	StatusDetails   map[string]string
+	Force           bool
+	ExpectedVersion int64 // 0 means "not specified"
+}
+
+// CancelJobExecution cancels a job execution. Real AWS IoT rejects
+// canceling an IN_PROGRESS execution unless force=true
+// (InvalidStateTransitionException), and rejects a mismatched
+// expectedVersion (VersionConflictException) -- both verified against
+// api_op_CancelJobExecution.go's doc comments and the real error-deserializer
+// switch (awsRestjson1_deserializeOpErrorCancelJobExecution recognizes
+// exactly InvalidRequestException/InvalidStateTransitionException/
+// ResourceNotFoundException/VersionConflictException).
+//
+// If no execution exists yet for this (jobID, thingName) pair, one is
+// created directly in CANCELED state: this emulator does not fan out a
+// QUEUED JobExecution per target at CreateJob time (a larger, separate gap
+// tracked in PARITY.md's job_and_jobtemplate deferred list), so without this
+// fallback CancelJobExecution could never succeed at all for a freshly
+// created job.
+func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	now := float64(time.Now().Unix())
 	key := jobExecKey(jobID, thingName)
+
 	exec, ok := b.jobExecutions.Get(key)
 	if !ok {
-		// Create a canceled execution record.
 		b.jobExecutions.Put(&JobExecution{
-			JobID:     jobID,
-			ThingName: thingName,
-			Status:    JobExecCanceled,
+			JobID:           jobID,
+			ThingName:       thingName,
+			Status:          JobExecCanceled,
+			ExecutionNumber: 1,
+			VersionNumber:   1,
+			ForceCanceled:   opts.Force,
+			StatusDetails:   statusDetailsFromMap(opts.StatusDetails),
+			QueuedAt:        now,
+			LastUpdatedAt:   now,
 		})
 
 		return nil
 	}
+
+	if opts.ExpectedVersion != 0 && opts.ExpectedVersion != exec.VersionNumber {
+		return fmt.Errorf(
+			"%w: job execution for job %q / thing %q is at version %d, expected %d",
+			ErrVersionConflict, jobID, thingName, exec.VersionNumber, opts.ExpectedVersion,
+		)
+	}
+
+	if exec.Status == JobExecInProgress && !opts.Force {
+		return fmt.Errorf(
+			"%w: job execution for job %q / thing %q is IN_PROGRESS, set force=true to cancel it",
+			ErrInvalidStateTransition, jobID, thingName,
+		)
+	}
+
 	exec.Status = JobExecCanceled
+	exec.ForceCanceled = opts.Force
+	exec.LastUpdatedAt = now
+	exec.VersionNumber++
+
+	if len(opts.StatusDetails) > 0 {
+		if exec.StatusDetails == nil {
+			exec.StatusDetails = &JobExecutionStatusDetails{DetailsMap: map[string]string{}}
+		}
+
+		maps.Copy(exec.StatusDetails.DetailsMap, opts.StatusDetails)
+	}
 
 	return nil
 }
 
-func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string) error {
+// statusDetailsFromMap wraps a possibly-nil map into a
+// *JobExecutionStatusDetails, or nil when the map is empty (matching real
+// AWS's "statusDetails absent when never set" behavior).
+func statusDetailsFromMap(m map[string]string) *JobExecutionStatusDetails {
+	if len(m) == 0 {
+		return nil
+	}
+
+	cp := make(map[string]string, len(m))
+	maps.Copy(cp, m)
+
+	return &JobExecutionStatusDetails{DetailsMap: cp}
+}
+
+// isTerminalJobExecutionStatus reports whether status is one of the
+// statuses real AWS IoT considers terminal for DeleteJobExecution's
+// force-required guard (SUCCEEDED, FAILED, REJECTED, REMOVED, CANCELED --
+// everything except QUEUED/IN_PROGRESS, per api_op_DeleteJobExecution.go's
+// doc comment).
+func isTerminalJobExecutionStatus(status JobExecutionStatus) bool {
+	switch status {
+	case JobExecSucceeded, JobExecFailed, JobExecRejected, JobExecRemoved, JobExecCanceled:
+		return true
+	case JobExecQueued, JobExecInProgress:
+		return false
+	default:
+		return false
+	}
+}
+
+// DeleteJobExecution deletes a job execution. Real AWS IoT rejects deleting
+// a non-terminal (QUEUED/IN_PROGRESS) execution unless force=true
+// (InvalidStateTransitionException); deleting an execution that does not
+// exist is idempotent (matches real AWS, which also returns success for an
+// already-absent execution rather than ResourceNotFoundException, since
+// deletion is the natural end state).
+func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string, force bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	key := jobExecKey(jobID, thingName)
+
+	exec, ok := b.jobExecutions.Get(key)
+	if !ok {
+		return nil
+	}
+
+	if !force && !isTerminalJobExecutionStatus(exec.Status) {
+		return fmt.Errorf(
+			"%w: job execution for job %q / thing %q is %s, set force=true to delete it",
+			ErrInvalidStateTransition, jobID, thingName, exec.Status,
+		)
+	}
+
 	b.jobExecutions.Delete(key)
 
 	return nil

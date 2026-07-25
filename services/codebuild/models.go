@@ -247,25 +247,70 @@ type FleetStatus struct {
 	Message    string `json:"message,omitempty"`
 }
 
-// ScalingConfiguration represents the scaling settings for a compute fleet.
-type ScalingConfiguration struct {
-	ScalingType     string `json:"scalingType,omitempty"`
-	MaxCapacity     int32  `json:"maxCapacity,omitempty"`
-	DesiredCapacity int32  `json:"desiredCapacity,omitempty"`
+// TargetTrackingScalingConfig defines when a new instance is auto-scaled
+// into a compute fleet (aws-sdk-go-v2/service/codebuild/types.
+// TargetTrackingScalingConfiguration).
+type TargetTrackingScalingConfig struct {
+	MetricType  string  `json:"metricType,omitempty"` // FLEET_UTILIZATION_RATE
+	TargetValue float64 `json:"targetValue,omitempty"`
 }
 
-// Fleet represents an in-memory AWS CodeBuild compute fleet.
+// ScalingConfiguration represents the scaling settings for a compute fleet.
 //
-// ComputeConfiguration/ProxyConfiguration/VpcConfig are real Fleet fields
-// (aws-sdk-go-v2/service/codebuild/types.Fleet) NOT modeled here -- a
-// genuine, newly-found completeness gap (not previously flagged in
-// PARITY.md), left out of this pass as a larger feature (nested
-// subnet/security-group/attribute-based-compute config validation) than a
-// wire-shape fix; see PARITY.md gaps.
+// DesiredCapacity is only meaningful in a response (types.
+// ScalingConfigurationOutput) -- real AWS's request shape (types.
+// ScalingConfigurationInput) has no such field, since the desired capacity
+// is computed by the service, not supplied by the caller. Callers building
+// an UpdateFleet/CreateFleet request should leave it zero; it is ignored on
+// input and populated on output.
+type ScalingConfiguration struct {
+	ScalingType                  string                        `json:"scalingType,omitempty"`
+	TargetTrackingScalingConfigs []TargetTrackingScalingConfig `json:"targetTrackingScalingConfigs,omitempty"`
+	MaxCapacity                  int32                         `json:"maxCapacity,omitempty"`
+	DesiredCapacity              int32                         `json:"desiredCapacity,omitempty"`
+}
+
+// ComputeConfiguration models the attribute-based-compute or
+// custom-instance-type sizing of a compute fleet (aws-sdk-go-v2/service/
+// codebuild/types.ComputeConfiguration). Only meaningful when the fleet's
+// computeType is ATTRIBUTE_BASED_COMPUTE or CUSTOM_INSTANCE_TYPE.
+type ComputeConfiguration struct {
+	MachineType  string `json:"machineType,omitempty"`
+	InstanceType string `json:"instanceType,omitempty"`
+	Disk         int64  `json:"disk,omitempty"`
+	Memory       int64  `json:"memory,omitempty"`
+	VCPU         int64  `json:"vCpu,omitempty"`
+}
+
+// FleetProxyRule is a single network-access-control rule applied to a
+// reserved-capacity fleet's outgoing traffic (aws-sdk-go-v2/service/
+// codebuild/types.FleetProxyRule).
+type FleetProxyRule struct {
+	Effect   string   `json:"effect,omitempty"` // ALLOW|DENY
+	Type     string   `json:"type,omitempty"`   // DOMAIN|IP
+	Entities []string `json:"entities,omitempty"`
+}
+
+// ProxyConfiguration models a compute fleet's outgoing-traffic network
+// access control (aws-sdk-go-v2/service/codebuild/types.ProxyConfiguration).
+type ProxyConfiguration struct {
+	DefaultBehavior   string           `json:"defaultBehavior,omitempty"` // ALLOW_ALL|DENY_ALL
+	OrderedProxyRules []FleetProxyRule `json:"orderedProxyRules,omitempty"`
+}
+
+// Fleet's VpcConfig reuses the existing [VpcConfig] type (defined above for
+// Project) -- the real aws-sdk-go-v2/service/codebuild/types.VpcConfig used
+// by Fleet has the identical shape (SecurityGroupIds/Subnets/VpcId) as the
+// one used by Project, so no separate type is needed.
+
+// Fleet represents an in-memory AWS CodeBuild compute fleet.
 type Fleet struct {
 	Tags                 map[string]string     `json:"tags,omitempty"`
 	Status               *FleetStatus          `json:"status,omitempty"`
 	ScalingConfiguration *ScalingConfiguration `json:"scalingConfiguration,omitempty"`
+	ComputeConfiguration *ComputeConfiguration `json:"computeConfiguration,omitempty"`
+	ProxyConfiguration   *ProxyConfiguration   `json:"proxyConfiguration,omitempty"`
+	VpcConfig            *VpcConfig            `json:"vpcConfig,omitempty"`
 	Arn                  string                `json:"arn"`
 	ID                   string                `json:"id"`
 	Name                 string                `json:"name"`
