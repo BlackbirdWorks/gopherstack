@@ -116,6 +116,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetPermissionPolicy",
 		"GetRateBasedStatementManagedKeys",
 		"GetRegexPatternSet",
+		"GetRevenueStatistics",
+		"GetRevenueStatisticsSummary",
+		"GetRevenueStatisticsTimeSeries",
 		"GetRuleGroup",
 		"GetSampledRequests",
 		"GetTopPathStatisticsByTraffic",
@@ -131,6 +134,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListRegexPatternSets",
 		"ListResourcesForWebACL",
 		"ListRuleGroups",
+		"ListSettlementRecords",
 		"ListTagsForResource",
 		"ListWebACLs",
 		"PutLoggingConfiguration",
@@ -226,6 +230,7 @@ func (h *Handler) buildDispatchTable() map[string]dispatchFn {
 		h.managedRuleSetDispatchOps(),
 		h.rateBasedRuleDispatchOps(),
 		h.managedRuleCatalogDispatchOps(),
+		h.revenueStatisticsDispatchOps(),
 	} {
 		maps.Copy(ops, group)
 	}

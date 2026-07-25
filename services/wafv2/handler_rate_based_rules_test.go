@@ -741,3 +741,559 @@ func TestGetSampledRequests(t *testing.T) {
 		})
 	}
 }
+
+// ---- Revenue statistics / settlement records (pay-per-crawl monetization reporting) ----
+//
+// This emulator has no real HTTP traffic, no AI-bot detection pipeline, and no
+// billing/settlement system, so GetRevenueStatistics/GetRevenueStatisticsSummary/
+// GetRevenueStatisticsTimeSeries/ListSettlementRecords have no genuine revenue data to
+// report. Every "valid request" case below asserts the response is honestly empty/zero,
+// never a fabricated dollar amount, bot name, path, or settlement record.
+
+func TestGetRevenueStatistics(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	timeWindow := map[string]any{"StartTime": 1000, "EndTime": 2000}
+	wideWindow := map[string]any{"StartTime": 0, "EndTime": 91 * 24 * 60 * 60}
+
+	cases := []struct {
+		body    map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "TOP_PATHS_BY_REVENUE returns empty RevenuePathStatistics",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: false,
+		},
+		{
+			name: "TOP_SOURCES_BY_REVENUE with GroupBy returns empty SourceStatistics",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_SOURCES_BY_REVENUE",
+				"GroupBy":       "NAME",
+				"SortBy":        "REVENUE",
+				"SortOrder":     "DESC",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: false,
+		},
+		{
+			name: "TEST CurrencyMode filter accepted",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+				"Filters": []map[string]any{
+					{"Name": "CurrencyMode", "Values": []string{"TEST"}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing Scope rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "REGIONAL scope rejected (CLOUDFRONT-only operation)",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "REGIONAL",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing Currency rejected",
+			body: map[string]any{
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid Currency rejected",
+			body: map[string]any{
+				"Currency":      "EUR",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing StatisticType rejected",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "CLOUDFRONT",
+				"TimeWindow": timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid StatisticType rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "BOGUS",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "TOP_SOURCES_BY_REVENUE without GroupBy rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_SOURCES_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid GroupBy rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_SOURCES_BY_REVENUE",
+				"GroupBy":       "BOGUS",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid SortBy rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"SortBy":        "BOGUS",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid SortOrder rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"SortOrder":     "BOGUS",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing TimeWindow rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+			},
+			wantErr: true,
+		},
+		{
+			name: "TimeWindow spanning more than 90 days rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    wideWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "EndTime before StartTime rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    map[string]any{"StartTime": 2000, "EndTime": 1000},
+			},
+			wantErr: true,
+		},
+		{
+			name: "filter with empty Name rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+				"Filters":       []map[string]any{{"Name": "", "Values": []string{"a"}}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "filter with empty Values rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+				"Filters":       []map[string]any{{"Name": "SourceName", "Values": []string{}}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "filter with invalid enum-restricted CurrencyMode value rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "TOP_PATHS_BY_REVENUE",
+				"TimeWindow":    timeWindow,
+				"Filters":       []map[string]any{{"Name": "CurrencyMode", "Values": []string{"BOGUS"}}},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doWafv2Request(t, h, "GetRevenueStatistics", tc.body)
+
+			if tc.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			// No-fabrication assertion: whichever statistic list is populated for this
+			// StatisticType must be empty -- this emulator has no real AI-bot traffic to
+			// rank, so it must never invent a bot name, path, revenue amount, or
+			// percentage.
+			switch tc.body["StatisticType"] {
+			case "TOP_PATHS_BY_REVENUE":
+				assert.Contains(t, resp, "RevenuePathStatistics")
+				assert.Empty(t, resp["RevenuePathStatistics"], "no real traffic exists to rank by path revenue")
+				assert.NotContains(t, resp, "SourceStatistics")
+			case "TOP_SOURCES_BY_REVENUE":
+				assert.Contains(t, resp, "SourceStatistics")
+				assert.Empty(t, resp["SourceStatistics"], "no real AI-bot traffic exists to rank by source revenue")
+				assert.NotContains(t, resp, "RevenuePathStatistics")
+			}
+		})
+	}
+}
+
+func TestGetRevenueStatisticsSummary(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	timeWindow := map[string]any{"StartTime": 1000, "EndTime": 2000}
+
+	cases := []struct {
+		body    map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "valid request returns honestly-zero RevenueBreakdown",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "CLOUDFRONT",
+				"TimeWindow": timeWindow,
+			},
+			wantErr: false,
+		},
+		{
+			name: "REGIONAL scope rejected (CLOUDFRONT-only operation)",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "REGIONAL",
+				"TimeWindow": timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing Currency rejected",
+			body: map[string]any{
+				"Scope":      "CLOUDFRONT",
+				"TimeWindow": timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing TimeWindow rejected",
+			body: map[string]any{
+				"Currency": "USDC",
+				"Scope":    "CLOUDFRONT",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doWafv2Request(t, h, "GetRevenueStatisticsSummary", tc.body)
+
+			if tc.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			breakdown, ok := resp["RevenueBreakdown"].(map[string]any)
+			require.True(t, ok, "RevenueBreakdown must be present")
+
+			// No-fabrication assertion: every amount/count is a real, honest zero --
+			// never a fabricated revenue figure -- because no real traffic, AI-bot
+			// detection, or billing/settlement system exists in this emulator.
+			assert.Equal(t, "USDC", breakdown["Currency"])
+			assert.Equal(t, "0", breakdown["TotalAmount"])
+			assert.Equal(t, "0", breakdown["VerifiedAmount"])
+			assert.Equal(t, "0", breakdown["UnverifiedAmount"])
+			assert.InDelta(t, float64(0), breakdown["TotalMonetizeServed"], 0)
+			assert.InDelta(t, float64(0), breakdown["TotalSettled"], 0)
+		})
+	}
+}
+
+func TestGetRevenueStatisticsTimeSeries(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	timeWindow := map[string]any{"StartTime": 1000, "EndTime": 2000}
+
+	cases := []struct {
+		body    map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "valid request returns empty DataPoints",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"Interval":      "DAILY",
+				"StatisticType": "DATE_HISTOGRAM",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: false,
+		},
+		{
+			name: "Limit at maximum accepted",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"Interval":      "HOURLY",
+				"StatisticType": "PAYMENT_TRAFFIC",
+				"TimeWindow":    timeWindow,
+				"Limit":         10000,
+			},
+			wantErr: false,
+		},
+		{
+			name: "REGIONAL scope rejected (CLOUDFRONT-only operation)",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "REGIONAL",
+				"Interval":      "DAILY",
+				"StatisticType": "DATE_HISTOGRAM",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing Interval rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"StatisticType": "DATE_HISTOGRAM",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid Interval rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"Interval":      "WEEKLY",
+				"StatisticType": "DATE_HISTOGRAM",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing StatisticType rejected",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "CLOUDFRONT",
+				"Interval":   "DAILY",
+				"TimeWindow": timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid StatisticType rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"Interval":      "DAILY",
+				"StatisticType": "BOGUS",
+				"TimeWindow":    timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "Limit over maximum rejected",
+			body: map[string]any{
+				"Currency":      "USDC",
+				"Scope":         "CLOUDFRONT",
+				"Interval":      "DAILY",
+				"StatisticType": "DATE_HISTOGRAM",
+				"TimeWindow":    timeWindow,
+				"Limit":         10001,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doWafv2Request(t, h, "GetRevenueStatisticsTimeSeries", tc.body)
+
+			if tc.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Contains(t, resp, "DataPoints")
+			assert.Empty(t, resp["DataPoints"], "no revenue events exist in this emulator to bucket into a time series")
+		})
+	}
+}
+
+func TestListSettlementRecords(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	timeWindow := map[string]any{"StartTime": 1000, "EndTime": 2000}
+
+	cases := []struct {
+		body    map[string]any
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "valid request returns empty Settlements",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "CLOUDFRONT",
+				"TimeWindow": timeWindow,
+			},
+			wantErr: false,
+		},
+		{
+			name: "Limit at maximum accepted",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "CLOUDFRONT",
+				"TimeWindow": timeWindow,
+				"Limit":      100,
+				"SortBy":     "TIMESTAMP",
+				"SortOrder":  "DESC",
+			},
+			wantErr: false,
+		},
+		{
+			name: "REGIONAL scope rejected (CLOUDFRONT-only operation)",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "REGIONAL",
+				"TimeWindow": timeWindow,
+			},
+			wantErr: true,
+		},
+		{
+			name: "Limit over maximum rejected",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "CLOUDFRONT",
+				"TimeWindow": timeWindow,
+				"Limit":      101,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid SortBy rejected",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "CLOUDFRONT",
+				"TimeWindow": timeWindow,
+				"SortBy":     "BOGUS",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid SortOrder rejected",
+			body: map[string]any{
+				"Currency":   "USDC",
+				"Scope":      "CLOUDFRONT",
+				"TimeWindow": timeWindow,
+				"SortOrder":  "BOGUS",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doWafv2Request(t, h, "ListSettlementRecords", tc.body)
+
+			if tc.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				return
+			}
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Contains(t, resp, "Settlements")
+			// No-fabrication assertion: no real payment/settlement pipeline exists in
+			// this emulator, so there must never be an invented PayerAddress,
+			// TransactionId, or Amount in the response.
+			assert.Empty(t, resp["Settlements"], "no real settlement pipeline exists in this emulator")
+		})
+	}
+}

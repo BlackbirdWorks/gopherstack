@@ -5,16 +5,24 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: wafv2
-sdk_module: aws-sdk-go-v2/service/wafv2@v1.71.2   # version audited against
-last_audit_commit: 7061877e4                      # HEAD when this manifest was written
-last_audit_date: 2026-07-23
-overall: A            # genuine fixes this pass: CheckCapacity now implements AWS's real
-                      # per-statement-type WCU cost model (was a flat 1-WCU/rule stub), and
-                      # ListTagsForResource now honors Limit/NextMarker pagination. The two
-                      # remaining documented gaps (GetWebACL ApplicationIntegrationURL,
-                      # GetManagedRuleSet/ListManagedRuleSets Description/LabelNamespace) were
-                      # re-investigated and confirmed genuinely non-actionable (see gaps below
-                      # and the new Notes entries for why).
+sdk_module: aws-sdk-go-v2/service/wafv2@v1.76.0   # version audited against (bumped from v1.71.2)
+last_audit_commit: 7061877e4                      # HEAD when the v1.71.2 manifest was written; this pass only adds the 4 new ops below
+last_audit_date: 2026-07-25
+overall: A-           # New this pass: the AI-bot pay-per-crawl monetization-reporting family
+                      # (GetRevenueStatistics/GetRevenueStatisticsSummary/
+                      # GetRevenueStatisticsTimeSeries/ListSettlementRecords), added to the SDK
+                      # since the v1.71.2 audit. All 4 ops report revenue/traffic analytics this
+                      # emulator has no genuine data for (no real HTTP traffic, no AI-bot
+                      # detection pipeline, no billing/blockchain-settlement system). Implemented
+                      # with full AWS-accurate request validation (required fields, enums,
+                      # CLOUDFRONT-only scope rule, Currency=USDC, 90-day TimeWindow cap,
+                      # Limit/NextMarker bounds, enum-restricted Filter values) and an honestly
+                      # empty/zero response -- never a fabricated dollar amount, bot name, path,
+                      # or settlement record. Downgraded from A to A- solely because this new
+                      # family is a documented "no traffic to report" limitation, exactly like
+                      # the pre-existing GetSampledRequests/GetTopPathStatisticsByTraffic gap
+                      # already on this manifest -- not a wire-shape or correctness bug in
+                      # either the old or new surface.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -73,15 +81,20 @@ ops:
   GenerateMobileSdkReleaseUrl: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetMobileSdkRelease: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListMobileSdkReleases: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetRevenueStatistics: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0 (AI-bot pay-per-crawl monetization). Full request validation (Currency=USDC, CLOUDFRONT-only Scope, StatisticType enum, GroupBy required iff TOP_SOURCES_BY_REVENUE, SortBy/SortOrder enums, 90-day TimeWindow cap, Filters incl. enum-restricted values); always returns an empty SourceStatistics or RevenuePathStatistics list (matching which field the SDK docs say is 'populated when' -- the other is omitted) because no real AI-bot traffic exists to rank. See Notes."}
+  GetRevenueStatisticsSummary: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0. Same validation family; RevenueBreakdown is always Currency=<request currency>, all amounts '0', all counts 0 -- honest zero, not fabricated. See Notes."}
+  GetRevenueStatisticsTimeSeries: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0. Same validation family plus Interval enum and Limit 1-10000 bound; DataPoints always empty. See Notes."}
+  ListSettlementRecords: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0. Same validation family plus SortBy/SortOrder and Limit 1-100 bound; Settlements always empty -- no real payment/blockchain-settlement pipeline exists. See Notes."}
 # Families audited as a group (when per-op is impractical):
 families:
-  route_matcher: {status: ok, note: "X-Amz-Target prefix AWSWAF_20190729. verified against real SDK protocol.go; single-endpoint awsjson1.1, dispatch table 55/55 matches GetSupportedOperations and the real SDK's api_op_*.go surface exactly (no missing/extra ops)"}
+  route_matcher: {status: ok, note: "X-Amz-Target prefix AWSWAF_20190729. verified against real SDK protocol.go; single-endpoint awsjson1.1, dispatch table 59/59 matches GetSupportedOperations and the real SDK's api_op_*.go surface exactly (no missing/extra ops) -- 55 audited at v1.71.2 plus the 4 new monetization-reporting ops added in v1.76.0 (GetRevenueStatistics/GetRevenueStatisticsSummary/GetRevenueStatisticsTimeSeries/ListSettlementRecords), each confirmed against its own X-Amz-Target string in the v1.76.0 serializers.go"}
   locktoken_optimistic_concurrency: {status: ok, note: "every Update*/Delete* op checks lockToken != stored token; empty-string lockToken is treated as skip-check by design (see Notes) -- not exploitable via compliant SDK clients since LockToken is a client-side-validated required field on every op that takes it"}
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to Backend.Snapshot/Restore (persistence.go); clean tables via store.Registry, dirty tables (managedRuleSets/apiKeys) via DTO registry with Region json:\"-\" round-trip; version-gated (wafv2SnapshotVersion) with clean discard on mismatch"}
   errCodeLookup: {status: ok, note: "fixed: ErrUnavailableEntity/ErrConfigurationWarning sentinels existed but had no switch case in handleError, would have 500'd if ever returned (currently unreachable/dead -- no handler returns them yet, but the lookup gap is now closed for when they are wired up)"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "GetWebACL response omits the optional top-level ApplicationIntegrationURL field (only populated when a web ACL uses AWSManagedRulesATPRuleSet/ACFPRuleSet with client app integration). Re-investigated this pass: AWS has never published the URL-generation scheme (it's an opaque, AWS-internal-service-generated URL), so there is no deterministic value this emulator could fabricate that would be meaningfully AWS-accurate -- niche, rarely asserted by IaC tooling. Left unmodeled rather than invented."
   - "GetManagedRuleSet/ListManagedRuleSets don't model Description/LabelNamespace (ManagedRuleSet struct has no such fields). Re-investigated this pass: confirmed genuinely non-actionable, not merely low-priority -- PutManagedRuleSetVersionsInput (the only op that creates/updates a ManagedRuleSet in this emulator; there is no CreateManagedRuleSet in the real API either, it's vendor-onboarding-only) has no Description/LabelNamespace input fields, so no caller can ever populate them through any modeled or real API path. Since both are *string with omitempty JSON serialization on the real SDK, an always-absent field is byte-for-byte identical on the wire to an always-nil field -- there is no observable client-visible gap here today. Vendor-only Firewall-Manager API family, not used by Terraform/CDK for the common WAFv2 workflow."
+  - "New this pass: GetRevenueStatistics/GetRevenueStatisticsSummary/GetRevenueStatisticsTimeSeries/ListSettlementRecords (added in aws-sdk-go-v2/service/wafv2@v1.76.0) always return honestly empty/zero results. This emulator has no real HTTP traffic, no AI-bot detection pipeline, and no billing/blockchain-settlement system, so there is no genuine revenue, bot, path, or settlement data to report -- exactly the same class of gap already documented for GetRateBasedStatementManagedKeys/GetSampledRequests/GetTopPathStatisticsByTraffic above. Deliberately NOT fabricated: no invented dollar amounts, bot names, path statistics, or settlement records. Every field validated (required-ness, enums, CLOUDFRONT-only Scope, Currency=USDC, 90-day TimeWindow cap, Filter enum values, Limit bounds) is checked for real; only the *data*, which does not exist in this backend, is honestly absent."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is InMemoryBackend maps + store.Table guarded by lockmetrics.RWMutex; Reset()/resetTablesLocked() cover all fields including the two \"dirty\" (unregistered) tables"}
 ---
@@ -195,3 +208,57 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   using `pkgs/page.New` (the existing project-wide opaque-cursor pagination helper) over the
   sorted `tags.MapToKV` output. Previously always returned the full tag set regardless of
   `Limit`. New coverage: `TestHandler_ListTagsForResource_Pagination` in `handler_tags_test.go`.
+
+- **New this pass: AI-bot pay-per-crawl monetization reporting family** (`handler_revenue_statistics.go`),
+  covering `GetRevenueStatistics`, `GetRevenueStatisticsSummary`, `GetRevenueStatisticsTimeSeries`,
+  and `ListSettlementRecords` -- all four added to the SDK in
+  `aws-sdk-go-v2/service/wafv2@v1.76.0`, after the v1.71.2 audit that produced the rest of this
+  manifest. `X-Amz-Target` strings confirmed against v1.76.0's `serializers.go`:
+  `AWSWAF_20190729.GetRevenueStatistics` / `...GetRevenueStatisticsSummary` /
+  `...GetRevenueStatisticsTimeSeries` / `...ListSettlementRecords`.
+  - **No fabrication**: this emulator has no real HTTP traffic, no AI-bot detection/
+    classification pipeline, and no billing or blockchain-settlement system, so it has no
+    genuine revenue, bot-source, path-statistic, or settlement data to report. Every handler
+    performs full request validation and then returns an honestly empty/zero result --
+    `GetRevenueStatistics` returns an empty `SourceStatistics` or `RevenuePathStatistics` list
+    (whichever the request's `StatisticType` calls for; the other key is omitted, matching the
+    real output shape's "populated when StatisticType is X" semantics, verified against
+    `GetRevenueStatisticsOutput` in `api_op_GetRevenueStatistics.go`); `GetRevenueStatisticsSummary`
+    returns a `RevenueBreakdown` with `Currency` echoing the request and every amount/count a
+    real `"0"`/`0`; `GetRevenueStatisticsTimeSeries` returns an empty `DataPoints`; and
+    `ListSettlementRecords` returns an empty `Settlements`. This mirrors the pre-existing
+    `GetSampledRequests`/`GetTopPathStatisticsByTraffic` pattern in `handler_rate_based_rules.go`,
+    which already documents the identical "no traffic exists to report" honesty constraint.
+  - **Real state check**: confirmed this backend tracks no per-request, per-rule, or
+    per-web-ACL traffic/revenue counters anywhere (`WebACL`/`RuleGroup`/`IPSet` etc. hold only
+    configuration, not traffic counts) -- there is nothing genuine to derive these shapes from,
+    so none of the four responses derive from real backend state; they are purely
+    validate-then-return-honest-empty, matching `CheckCapacity`'s sibling ops
+    `GetRateBasedStatementManagedKeys`/`GetSampledRequests`/`GetTopPathStatisticsByTraffic`.
+  - **Validation implemented** (`handler_revenue_statistics.go`): Scope required + valid
+    REGIONAL/CLOUDFRONT enum, reusing `validScope` (`store.go`, the one pre-existing
+    scope-enum helper in this package) rather than a parallel check, then layered with the
+    CLOUDFRONT-only restriction every one of these four ops documents ("This operation is only
+    available for CLOUDFRONT scope"); Currency required + must equal `USDC` (the only member of
+    `types.Currency`); TimeWindow required with both bounds present, `EndTime >= StartTime`, and
+    span capped at the documented 90 days (epoch-seconds wire format confirmed against
+    `serializeDocumentTimeWindow`/`deserializeDocumentTimeWindow`, matching the existing
+    `GetSampledRequests`/`GetTopPathStatisticsByTraffic` `TimeWindow` convention); Filters
+    optional but each entry requires non-empty `Name`/`Values` (<=20 values), with
+    enum-restricted filter names (`CurrencyMode`/`ChainName`/`SettlementStatus`/`HttpSourceName`)
+    checked against their documented enums; `StatisticType`/`GroupBy`/`SortBy`/`SortOrder`/
+    `Interval`/`SettlementSortBy` all enum-validated per op; `GroupBy` required exactly when
+    `GetRevenueStatistics.StatisticType` is `TOP_SOURCES_BY_REVENUE` (SDK doc: "If StatisticType
+    is TOP_SOURCES_BY_REVENUE and GroupBy is omitted, the request is rejected with a
+    WAFInvalidParameterException"); `Limit` bounds enforced when provided
+    (`GetRevenueStatisticsTimeSeries`: 1-10000, `ListSettlementRecords`: 1-100, both from the SDK
+    doc comments -- note these are NOT client-side-validated in the real SDK's
+    `validators.go`, only server-side/documented, so this emulator's check is additive
+    AWS-accurate behavior, not a re-derivation of an existing client validator).
+  - **Persistence**: none needed -- no new backend state is created or mutated by any of these
+    four read-only reporting ops, so there is nothing to add to `Snapshot`/`Restore`.
+  - New coverage: `TestGetRevenueStatistics`, `TestGetRevenueStatisticsSummary`,
+    `TestGetRevenueStatisticsTimeSeries`, `TestListSettlementRecords` in
+    `handler_rate_based_rules_test.go` (alongside the existing `GetSampledRequests`/
+    `GetTopPathStatisticsByTraffic` tests), including explicit no-fabrication assertions
+    (empty lists / all-zero `RevenueBreakdown` fields).
