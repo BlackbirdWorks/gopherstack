@@ -2,7 +2,6 @@ package ecs
 
 import (
 	"context"
-	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -80,30 +79,17 @@ func (h *Handler) handleDescribeContainerInstances(
 		return nil, err
 	}
 
-	wantTags := false
+	wantTags := wantsIncludeTag(in.Include, describeContainerInstanceIncludeTags)
 
-	for _, opt := range in.Include {
-		if strings.EqualFold(opt, describeContainerInstanceIncludeTags) {
-			wantTags = true
-
-			break
-		}
-	}
-
-	views := make([]containerInstanceView, 0, len(cis))
-	for _, ci := range cis {
-		v := toContainerInstanceView(ci)
-
-		if wantTags {
-			tags, terr := h.Backend.ListTagsForResource(ci.ContainerInstanceArn)
-			if terr != nil {
-				return nil, terr
-			}
-
-			v.Tags = tags
-		}
-
-		views = append(views, v)
+	views, err := attachTagsIfWanted(
+		h, cis,
+		func(ci ContainerInstance) string { return ci.ContainerInstanceArn },
+		toContainerInstanceView,
+		func(v *containerInstanceView, tags []Tag) { v.Tags = tags },
+		wantTags,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	failViews := make([]failureView, 0, len(failures))

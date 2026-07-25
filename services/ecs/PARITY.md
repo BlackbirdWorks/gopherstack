@@ -2,7 +2,7 @@
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.88.0
 last_audit_commit: fd9a0877
-last_audit_date: 2026-07-23
+last_audit_date: 2026-07-25
 overall: A
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityProviders/defaultCapacityProviderStrategy/tags at creation (previously silently dropped); tags echoed on create response; this sweep: defaultCapacityProviderStrategy now validated (rejects unknown capacity provider names, see PutClusterCapacityProviders note)"}
@@ -18,10 +18,10 @@ ops:
   DeleteTaskDefinitions: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: also cleans the resourceTags side-map entry per deleted revision (previously a permanent ghost row, see Notes)"}
   ListTaskDefinitions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTaskDefinitionFamilies: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now records a real ServiceDeployment for the initial PRIMARY deployment (was a disguised stub, see gaps/fixes); this sweep: capacityProviderStrategy now validated (see PutClusterCapacityProviders note)"}
-  DescribeServices: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now syncs ServiceDeployment records when rotating the PRIMARY deployment; this sweep: capacityProviderStrategy now validated (see PutClusterCapacityProviders note)"}
-  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cleans up its ServiceDeployment records (was leaking one entry per deleted service); this sweep: also cleans its resourceTags side-map entry (previously a ghost row, see Notes)"}
+  CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now records a real ServiceDeployment for the initial PRIMARY deployment (was a disguised stub, see gaps/fixes); capacityProviderStrategy validated (see PutClusterCapacityProviders note). FIXED gopherstack-rnka: tags supplied at creation now mirrored into the resourceTags side map (was two never-synced copies -- see TagResource note and Notes)."}
+  DescribeServices: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED gopherstack-rnka: added include=[TAGS] gating (previously tags were always returned unconditionally, unlike DescribeClusters/DescribeCapacityProviders/DescribeContainerInstances/DescribeTaskSets/DescribeExpressGatewayService, which already gated correctly); tags now sourced from the resourceTags side map via ListTagsForResource, not the stale Service.Tags snapshot."}
+  UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now syncs ServiceDeployment records when rotating the PRIMARY deployment; capacityProviderStrategy validated (see PutClusterCapacityProviders note). FIXED gopherstack-rnka: response tags now read from the resourceTags side map (authoritative) instead of the stale creation-time snapshot."}
+  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cleans up its ServiceDeployment records (was leaking one entry per deleted service); also cleans its resourceTags side-map entry (previously a ghost row, see Notes). FIXED gopherstack-rnka: response echoes the final resourceTags-authoritative tag set, captured before the side-map entry is cleared."}
   ListServices: {wire: ok, errors: ok, state: ok, persist: ok}
   ListServicesByNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTaskSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: added capacityProviderStrategy (was entirely absent from both CreateTaskSetInput and the TaskSet wire shape -- a real SDK field, now validated + stored + echoed) and tags (stored via the resourceTags side map, echoed unconditionally on Create like CreateCluster)"}
@@ -59,36 +59,140 @@ ops:
   ExecuteCommand: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetTaskProtection: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateTaskProtection: {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resourceTags side map was NOT in backendSnapshot at all — fixed, see gaps/fixes. This sweep: fixed a real bug where TagResource on an Express Gateway Service ARN silently never became visible on Describe or ListTagsForResource (see ExpressGatewayService notes below). A similar disconnect exists for ordinary Service ARNs (Service.Tags is a creation-time-only snapshot, never synced with resourceTags) -- found this sweep, NOT fixed (higher blast radius given how central Service is to the test suite; see gaps list)."}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resourceTags side map was NOT in backendSnapshot at all — fixed, see gaps/fixes. Fixed a real bug where TagResource on an Express Gateway Service ARN silently never became visible on Describe or ListTagsForResource (see ExpressGatewayService notes below). FIXED gopherstack-rnka: the identical disconnect for ordinary Service ARNs (Service.Tags was a creation-time-only snapshot, never synced with resourceTags, and RunTask's propagateTags=SERVICE path read the stale snapshot too) is now closed -- see CreateService/UpdateService/DeleteService/DescribeServices notes."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateExpressGatewayService: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: tags supplied at creation are now also mirrored into the resourceTags side map (previously only stored on the ExpressGatewayService.Tags struct field, never synced -- see Notes for the TagResource-invisibility bug this caused). REMAINING GAP found this sweep (not fixed, see gaps list): CreateExpressGatewayServiceInput is missing real SDK fields Cpu, Memory, HealthCheckPath, NetworkConfiguration, PrimaryContainer, ScalingTarget, TaskDefinitionArn, TaskRoleArn entirely -- this backend only models ExecutionRoleArn/InfrastructureRoleArn/Cluster/ServiceName/Tags."}
-  DeleteExpressGatewayService: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: also cleans the service's resourceTags side-map entry (previously a ghost row, see Notes)"}
-  DescribeExpressGatewayService: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: added include=[TAGS] gating (tags were previously always returned regardless of Include) and tags now read from the resourceTags side map (kept in sync by TagResource/UntagResource) instead of a stale creation-time snapshot -- see Notes. REMAINING GAP found this sweep (not fixed): the real DescribeExpressGatewayServiceOutput.Service (types.ECSExpressGatewayService) also carries ActiveConfigurations, CurrentDeployment, and UpdatedAt, none of which this backend models (no deployment/config-revision tracking exists for Express services at all -- config-only like the CreateExpressGatewayService gap)."}
-  UpdateExpressGatewayService: {wire: partial, errors: ok, state: ok, persist: ok, note: "tags now read from the resourceTags side map (see DescribeExpressGatewayService note; Update itself never accepted a tags parameter, matching real UpdateExpressGatewayServiceInput, which has no Tags field). REMAINING GAP found this sweep (not fixed): UpdateExpressGatewayServiceInput is missing real SDK fields Cpu, Memory, HealthCheckPath, NetworkConfiguration, PrimaryContainer, ScalingTarget, TaskDefinitionArn, TaskRoleArn -- this backend only supports updating ExecutionRoleArn/InfrastructureRoleArn."}
+  CreateExpressGatewayService: {wire: ok, errors: ok, state: ok, persist: ok, note: "tags supplied at creation are mirrored into the resourceTags side map (previously only stored on the ExpressGatewayService.Tags struct field, never synced -- see Notes for the TagResource-invisibility bug this caused). FIXED gopherstack-rnka: input now carries the full real CreateExpressGatewayServiceInput surface -- Cpu, Memory, HealthCheckPath, ExecutionRoleArn, NetworkConfiguration, PrimaryContainer, ScalingTarget, TaskDefinitionArn, TaskRoleArn -- validated (taskDefinitionArn is mutually exclusive with primaryContainer/executionRoleArn/taskRoleArn/cpu/memory, matching the real API) and stored as the service's first ActiveConfigurations revision, not silently dropped."}
+  DeleteExpressGatewayService: {wire: ok, errors: ok, state: ok, persist: ok, note: "also cleans the service's resourceTags side-map entry (previously a ghost row, see Notes)"}
+  DescribeExpressGatewayService: {wire: ok, errors: ok, state: ok, persist: ok, note: "include=[TAGS] gating implemented (tags previously always returned regardless of Include); tags read from the resourceTags side map (kept in sync by TagResource/UntagResource) instead of a stale creation-time snapshot -- see Notes. FIXED gopherstack-rnka: response now carries ActiveConfigurations (full per-revision Cpu/Memory/HealthCheckPath/NetworkConfiguration/PrimaryContainer/ScalingTarget/TaskDefinitionArn/TaskRoleArn/ServiceRevisionArn/IngressPaths), CurrentDeployment, and UpdatedAt, matching types.ECSExpressGatewayService; Status is now the correct nested {statusCode, statusReason} object (types.ExpressGatewayServiceStatus) instead of an invented flat string, and the invented top-level ExecutionRoleArn field (which does not exist on the real type) was removed -- it now lives only on each ActiveConfigurations entry, where the real SDK actually puts it."}
+  UpdateExpressGatewayService: {wire: ok, errors: ok, state: ok, persist: ok, note: "tags read from the resourceTags side map (see DescribeExpressGatewayService note; Update itself never accepted a tags parameter, matching real UpdateExpressGatewayServiceInput, which has no Tags field). FIXED gopherstack-rnka: input now carries the full real UpdateExpressGatewayServiceInput surface (same field set as Create, see above) and the response is the correct, narrower UpdatedExpressGatewayService shape (Cluster/CreatedAt/ServiceArn/ServiceName/Status/TargetConfiguration/UpdatedAt -- NOT the same shape as Describe/Create/Delete's ECSExpressGatewayService; notably no top-level InfrastructureRoleArn or Tags on this response, matching the real SDK). Each Update rolls out a brand-new ActiveConfigurations revision (new ServiceRevisionArn) rather than mutating the prior one in place, matching real AWS's service-revision model."}
   DiscoverPollEndpoint: {wire: ok, errors: ok, state: ok, persist: n/a}
   SubmitAttachmentStateChanges: {wire: ok, errors: ok, state: ok, persist: ok}
   SubmitContainerStateChange: {wire: ok, errors: ok, state: ok, persist: ok}
   SubmitTaskStateChange: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  daemon: {status: partial, note: "Field-diffed for real this sweep (previous ledger entries for this family were no-stub-only assessments, not wire-shape diffs -- see Notes for the full field-diff writeup). Found and FIXED a real leak: DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows at all (only the daemons table entry), and the cluster-purge cleanup path (purgeDaemonsLocked) deleted from daemonRevisions by the wrong key (DaemonArn instead of DaemonRevisionArn, a documented-but-never-fixed no-op preserved through a prior mechanical refactor) -- both fixed via a new shared deleteDaemonAncillaryLocked helper. REMAINING GAP (not fixed, downgrades this family from ok to partial): the wire shape is wrong. Real AWS's DescribeDaemonOutput.Daemon (types.DaemonDetail) exposes only ClusterArn/CreatedAt/CurrentRevisions[]/DaemonArn/DeploymentArn/Status/UpdatedAt -- fields like daemonName, daemonTaskDefinitionArn, capacityProviderArns, tags, propagateTags, enableECSManagedTags/enableExecuteCommand live on the separate, per-revision DaemonRevision/DaemonRevisionDetail types (fetched via DescribeDaemonRevisions), not flat on the Daemon object. This backend's Daemon struct instead flattens all of that directly onto a single object returned by DescribeDaemon/ListDaemons, which does not match AWS's nested revision-based wire shape. Fixing this is a substantial data-model rewrite (mirroring how TaskDefinition revisions already work) touching daemon.go/handler_daemon.go (~1500 LOC combined) and every daemon test file -- out of scope for this sweep; flagged as a genuine gap rather than reclassified to ok. See items_still_open in the sweep return receipt."}
+  daemon: {status: ok, note: "Field-diffed for real (previous ledger entries for this family were no-stub-only assessments, not wire-shape diffs). Fixed a real leak: DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows at all (only the daemons table entry), and the cluster-purge cleanup path (purgeDaemonsLocked) deleted from daemonRevisions by the wrong key (DaemonArn instead of DaemonRevisionArn, a documented-but-never-fixed no-op preserved through a prior mechanical refactor) -- both fixed via a new shared deleteDaemonAncillaryLocked helper. CORRECTED gopherstack-rnka: the prior ledger entry here (2026-07-23) claimed DescribeDaemonOutput.Daemon was flattened -- daemonName/daemonTaskDefinitionArn/capacityProviderArns/tags/etc. living directly on the response instead of nested under CurrentRevisions -- and downgraded this family to partial on that basis. Re-verified against the real types.DaemonDetail shape (ClusterArn/CreatedAt/CurrentRevisions[]DaemonRevisionDetail{Arn,CapacityProviders[]DaemonCapacityProvider{Arn,RunningCount},TotalRunningCount}/DaemonArn/DeploymentArn/Status/UpdatedAt) field-by-field: handler_daemon.go's daemonDetailView/daemonRevisionDetailView/daemonCapacityProviderView already match this exactly, and DO NOT expose daemonName/daemonTaskDefinitionArn/tags/etc. at the top level. Proven with a new real-SDK-client round-trip test (TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting) rather than trusting the prior note. The 2026-07-23 gap description was inaccurate at the time it was written (the code was already correct); upgraded back to ok."}
 gaps:
-  - "TagResource on a Service ARN is invisible on DescribeServices/ListServices and on ListTagsForResource for creation-time tags: Service.Tags is a create-time-only snapshot never synced with the resourceTags side map that TagResource/UntagResource/ListTagsForResource actually read and write. Found this sweep via the same pattern that was just fixed for ExpressGatewayService (see TagResource ops-table note and Notes) -- Service was NOT re-checked at the time of that fix. Not fixed this sweep: Service is the most heavily tested resource in this package and enrichService/resolveTaskTags (RunTask's propagateTags=SERVICE path) both read svc.Tags directly, so switching the source of truth to resourceTags needs careful handling of the tag-propagation-to-tasks path to avoid a regression; higher blast radius than the analogous ExpressGatewayService fix. File a follow-up bd issue before the next ecs sweep."
-  - "DescribeServices/ListServices do not support include=[TAGS] gating at all (no Include parameter in the wire shape); tags are always returned unconditionally, unlike DescribeClusters/DescribeCapacityProviders/DescribeContainerInstances/DescribeTaskSets which now correctly gate on Include. Found this sweep during the Service tags field-diff above. Not fixed: adding Include gating to DescribeServices while every other existing test in this package assumes always-on tags is a larger, more invasive change than the narrower TagResource-sync bug it's tangled with; needs its own dedicated pass."
-  - "CreateExpressGatewayService/UpdateExpressGatewayService/DescribeExpressGatewayService are missing real SDK fields: Cpu, Memory, HealthCheckPath, NetworkConfiguration, PrimaryContainer, ScalingTarget, TaskDefinitionArn, TaskRoleArn (create/update input), and ActiveConfigurations/CurrentDeployment/UpdatedAt (describe output). This backend only models ExecutionRoleArn/InfrastructureRoleArn/Cluster/ServiceName/Tags -- a real, substantial wire-shape gap found via field-diff this sweep (the prior ledger marked all four Express Gateway ops fully 'ok', which undersold it: no prior sweep had field-diffed this newer feature's config surface). Not fixed: ActiveConfigurations/CurrentDeployment in particular imply a deployment/config-revision tracking model that does not exist anywhere in this backend for Express services (config-only, same category as the pre-existing ECS->ELB and ECS->ASG cross-service gaps below). The simpler scalar fields (Cpu/Memory/HealthCheckPath/TaskDefinitionArn/TaskRoleArn) are a smaller, tractable follow-up; the nested types (NetworkConfiguration/PrimaryContainer/ScalingTarget) and the deployment-tracking fields are a larger effort."
   - "PutClusterCapacityProviders/CreateService/UpdateService/RunTask/CreateCluster/UpdateCluster/CreateTaskSet do not validate that the *association* list itself (capacityProviders, as opposed to a capacityProviderStrategy item) references real capacity providers -- e.g. PutClusterCapacityProviders(capacityProviders=[\"typo-cp\"]) is accepted. FIXED this sweep for capacityProviderStrategy *items* specifically (see PutClusterCapacityProviders note); the separate capacityProviders association-list gap is unchanged from the prior sweep's assessment and intentionally not fixed for the same reason (many call sites, tests using ad-hoc provider names in the association list specifically)."
   - "SDK bumped v1.86.2 -> v1.88.0 last sweep (no local services/ecs/ drift; SDK-only, re-confirmed unchanged this sweep). New surface: ServiceRevision.Overrides -> ServiceRevisionOverrides.RuntimePlatform (types.RuntimePlatformOverride, CpuArchitecture only) — an output-only field AWS populates when it auto-detects an architecture mismatch during an ECS Express deployment (doc: \"You can't set this value\"). Not modeled (DescribeServiceRevisions never populates Overrides); no client-visible regression since the field is optional/omitempty and no test or codepath claims architecture-mismatch detection. Niche, deferred."
   - "ContinueServiceDeployment always returns ClientException (no paused lifecycle hook) because PAUSE-stage lifecycle hooks for blue/green deployments are not modeled at all (no hookId tracking, no pause state in the ECS_SERVICE_DEPLOYMENT / EXTERNAL deployment controllers). Implementing real hook pausing is a substantial feature (Lambda-invocation simulation, TEST_TRAFFIC_SHIFT/BAKE_TIME lifecycle stages) out of scope for this sweep; the op is real (validates ARN/hookId, returns AWS-shaped errors) rather than a stub. Re-verified unchanged this sweep."
   - "ECS -> ELB/ELBv2 target registration is config-only: Service.LoadBalancers/ServiceRegistries are stored and echoed back on Describe/Update, but nothing calls services/elbv2 to register/deregister targets in a target group, and ELB health does not feed back into ECS task/service health. Cross-service, lives outside services/ecs/ — reported, not fixed. No bd issue found for this in the tracker at time of writing; recommend filing one scoped to services/elbv2 + services/ecs integration."
   - "ECS -> Auto Scaling Group capacity providers are config-only: AutoScalingGroupProvider (ARN, ManagedScaling, ManagedTerminationProtection, ManagedDraining) is stored/echoed but never calls services/autoscaling to validate the ASG exists or to actually scale it in response to managed-scaling target utilization. Cross-service, lives outside services/ecs/ — reported, not fixed."
 deferred:
-  - "Daemon* operation family (CreateDaemon..UpdateDaemon, 12 ops) — field-diffed for real this sweep; see families.daemon above for the full writeup (leak fixed, wire-shape gap found and remains open)."
+  - "Daemon* operation family (CreateDaemon..UpdateDaemon, 12 ops) — field-diffed for real; see families.daemon above for the full writeup (leak fixed; the wire-shape gap previously logged here was a documentation error, corrected gopherstack-rnka -- the nested revision shape was already correct)."
   - "docker_runner.go / real container lifecycle (vs NoopRunner) — re-audited this sweep. Reviewed RunTask (pull/create/start with rollback-on-failure via rollbackContainers, only registers the task's containers in the tracking map after every container in the task started successfully) and StopTask (snapshots container IDs under lock, stops/removes outside the lock, retains only failed-to-stop IDs for retry). No stubs, no goroutine or container-tracking-map leaks found: a task that fails mid-RunTask is fully rolled back before ever being added to r.containers, so there is no leaked entry for it to begin with. No changes needed."
   - "Full ServiceDeployment wire-shape parity (LifecycleStage, SourceServiceRevisions, TargetServiceRevision, Rollback, DeploymentCircuitBreaker, Alarms sub-objects) — the emulator's ServiceDeployment type covers only ServiceDeploymentArn/ClusterArn/ServiceArn/Status/StatusReason/CreatedAt/UpdatedAt. Re-verified unchanged this sweep: correctly populated for every real deployment, but the richer blue/green fields are not modeled (same underlying reason ContinueServiceDeployment is deferred -- blue/green lifecycle is not modeled at all in this backend)."
 leaks: {status: clean, note: "Prior 'found' status was stale documentation -- that leak (DeleteService's ServiceDeployment-map entry) was already fixed in the same prior sweep that wrote the note; the status field just never got flipped back to clean. Re-verified clean this sweep. Two NEW leaks found and fixed this sweep: (1) DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows, and purgeDaemonsLocked deleted from daemonRevisions by the wrong key so it silently matched nothing -- both fixed via deleteDaemonAncillaryLocked. (2) resourceTags side-map ghost rows were never cleaned up on delete for clusters/services/container-instances/task-sets/task-definitions/express-gateway-services -- fixed via deleteResourceTagsLocked. See Notes for full writeup and proof tests. Reconciler, janitor, lifecycle stepper, and docker_runner (re-audited this sweep) remain clean."}
 ---
 
 ## Notes
+
+### 2026-07-25 follow-up (parity-4 branch, bd issue gopherstack-rnka)
+
+Scope: closed the three gaps the 2026-07-23 sweep explicitly left open (see
+that section below), plus corrected one stale gap that turned out to already
+be fixed. `git diff` at the start of this pass showed only unrelated
+concurrent-agent changes outside `services/ecs/` (medialive, ui/); zero prior
+drift in this package.
+
+**Fixed: `Service.Tags` resourceTags sync + `DescribeServices`
+`include=[TAGS]` gating.** Applied the identical fix already proven for
+`ExpressGatewayService` (see the 2026-07-23 section below). `CreateService`
+now mirrors creation-time tags into the `resourceTags` side map
+(`setResourceTagsLocked`); `CreateService`/`UpdateService`/`DeleteService` all
+now return the `resourceTags`-authoritative tag set (not the stale
+create-time struct-field snapshot) since none of the three real AWS ops gate
+tags behind `Include`. `DescribeServices` gained real `include=[TAGS]`
+gating (`describeServiceIncludeTags`, matching `types.ServiceField` ==
+`"TAGS"`) — tags are now omitted unless requested, sourced from
+`ListTagsForResource` when they are. `StartTaskForService`'s
+`propagateTags=SERVICE` path (used by the reconciler when scaling a service)
+was also reading the stale `svc.Tags` field directly; switched to read
+`resourceTags` so a `TagResource` call made after `CreateService` is honored
+by newly-scheduled tasks, not just tags supplied at creation. To avoid the
+`dupl` duplication this created against the pre-existing, structurally
+identical `DescribeContainerInstances` include-gating loop, extracted two
+shared generics helpers into `tags.go`: `wantsIncludeTag` and
+`attachTagsIfWanted`, and switched `DescribeContainerInstances` to use them
+too (behavior-preserving refactor, not a functional change to that op).
+Proven by `TestService_Tags_ResourceTagSync` (`handler_services_test.go`,
+4 cases: create-time sync visible to `ListTagsForResource` immediately,
+`TagResource`-after-create visible on Describe only with `Include=[TAGS]`
+[real SDK client round trip], `propagateTags=SERVICE` tasks inherit tags
+added after creation [drives `StartTaskForService` directly + real SDK
+client `DescribeTasks` to confirm the wire shape], delete echoes final tags
+and clears the `resourceTags` ghost row).
+
+**Fixed: `ExpressGatewayService` missing real SDK fields.** Field-diffed
+`types.ECSExpressGatewayService`/`CreateExpressGatewayServiceInput`/
+`UpdateExpressGatewayServiceInput`/`UpdatedExpressGatewayService`/
+`ExpressGatewayServiceConfiguration` (and every type nested under them —
+`ExpressGatewayContainer`, `ExpressGatewayServiceNetworkConfiguration`,
+`ExpressGatewayScalingTarget`, `ExpressGatewayServiceStatus`,
+`IngressPathSummary`, `ExpressGatewayServiceAwsLogsConfiguration`,
+`ExpressGatewayRepositoryCredentials`) against the installed
+`aws-sdk-go-v2/service/ecs@v1.88.0` module's `types`/serializers/
+deserializers directly, not against this backend's own handler output. Two
+findings beyond the originally-listed missing fields: (1) the real
+`ECSExpressGatewayService`/`UpdatedExpressGatewayService` types have **no
+top-level `ExecutionRoleArn`/`Cpu`/`Memory`/etc.** — those fields exist only
+nested inside each `ActiveConfigurations`/`TargetConfiguration` service
+revision; this backend's pre-existing top-level `ExpressGatewayService.
+ExecutionRoleArn` field was itself invented and has been removed. (2) the
+real `Status` field is a nested `{statusCode, statusReason}` object
+(`types.ExpressGatewayServiceStatus`), not a bare string — the pre-existing
+flat `status: "ACTIVE"` string was also wrong; fixed to nest. Implemented
+end to end: `Create`/`UpdateExpressGatewayServiceInput` now accept the full
+real field set (`Cpu`, `Memory`, `HealthCheckPath`, `NetworkConfiguration`,
+`PrimaryContainer`, `ScalingTarget`, `TaskDefinitionArn`, `TaskRoleArn`, in
+addition to the pre-existing `ExecutionRoleArn`/`InfrastructureRoleArn`),
+validated for the real API's mutual-exclusivity rule ("if you provide a
+task definition ARN, you cannot also specify primaryContainer,
+executionRoleArn, taskRoleArn, cpu, or memory" — a 400
+`InvalidParameterException`), applied with the documented AWS defaults
+(cpu 256 / memory 512 / healthCheckPath `/ping`) when the task-definition
+path isn't in use, and stored as an `ExpressGatewayServiceConfiguration`
+service revision. `Create`/`Update` each mint a fresh
+`ServiceRevisionArn` (`arn:...:service-revision/cluster/service/id`,
+mirroring the existing `serviceRevisionArnFor` pattern for ordinary
+Services) and become the service's sole `ActiveConfigurations` entry and
+`CurrentDeployment` (this backend does not model AWS's multi-revision
+blue/green rollout for Express services — one active revision at a time is
+a documented simplification, not a stub, matching the equivalent
+simplification already accepted for `Daemon` and `ContinueServiceDeployment`
+elsewhere in this ledger). `UpdateExpressGatewayServiceOutput.Service` is
+correctly the narrower `UpdatedExpressGatewayService` shape (with
+`TargetConfiguration`, not `ActiveConfigurations`/`Tags`/
+`InfrastructureRoleArn` — those genuinely aren't on that response type),
+distinct from `Create`/`Describe`/`Delete`'s `ECSExpressGatewayService`.
+Proven end-to-end via a real `aws-sdk-go-v2` client round trip (not
+`map[string]any` assertions) in
+`TestExpressGatewayService_RevisionConfiguration_SDKRoundTrip`
+(`handler_express_gateway_test.go`, 3 cases: full field round trip through
+Create+Describe, Update rolls out a genuinely new revision, taskDefinitionArn
+mutual-exclusivity rejected); pre-existing express-gateway tests updated for
+the corrected `status` nesting and the `Update` response's narrower shape.
+
+**Corrected: `families.daemon` `DescribeDaemonOutput` wire-shape gap was
+stale.** The 2026-07-23 entry claimed `DaemonDetail` was flattened
+(daemon-level fields instead of nested under `CurrentRevisions`). Re-checked
+`handler_daemon.go`'s `daemonDetailView`/`daemonRevisionDetailView`/
+`daemonCapacityProviderView` field-by-field against
+`types.DaemonDetail`/`DaemonRevisionDetail`/`DaemonCapacityProvider`: they
+already matched exactly (`ClusterArn`/`CreatedAt`/`CurrentRevisions[]`/
+`DaemonArn`/`DeploymentArn`/`Status`/`UpdatedAt` at the top level, with
+`Arn`/`CapacityProviders[]`/`TotalRunningCount` correctly nested per
+revision, and `Arn`/`RunningCount` correctly nested per capacity provider).
+No source change was needed. Rather than take the ledger's word for it,
+added `TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting`
+(`handler_daemon_test.go`, 2 cases) to prove this through a real SDK client
+round trip, then corrected `families.daemon` from `partial` back to `ok` and
+removed the stale gap language from `deferred`.
+
+**Grade assessment:** `overall: A` remains honest — arguably more so now,
+since it no longer carries three explicitly-acknowledged-but-unfixed gaps in
+core, heavily-used surface area (`Service` tags, `ExpressGatewayService`
+config fields) plus one materially inaccurate `partial` rating (`daemon`).
 
 ### 2026-07-23 re-audit (badges-automation branch, commit fd9a0877)
 

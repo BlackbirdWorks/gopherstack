@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -635,4 +638,211 @@ func TestListServicesByNamespace_Filter(t *testing.T) {
 	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &out))
 	arns := out["serviceArns"].([]any)
 	assert.Len(t, arns, 2)
+}
+
+// TestService_Tags_ResourceTagSync proves Service.Tags is now synchronized
+// with the shared resourceTags map (TagResource/UntagResource/
+// ListTagsForResource), and that DescribeServices only returns tags when
+// Include=[TAGS] is requested -- mirroring the identical fix already applied
+// to ExpressGatewayService (see
+// TestExpressGatewayService_TagResource_VisibleOnDescribe in
+// handler_express_gateway_test.go) and to Cluster (describeClusterIncludeTags
+// in handler_clusters.go). Previously CreateService set svc.Tags directly
+// and DescribeServices echoed that same stale field unconditionally: a
+// TagResource call after creation was invisible on Describe, tags supplied at
+// creation were invisible to ListTagsForResource, and DescribeServices leaked
+// tags even when the caller never asked for them (no Include gating at all).
+func TestService_Tags_ResourceTagSync(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "tags_supplied_at_create_are_immediately_visible_to_ListTagsForResource",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				tdArn := registerTestTaskDef(t, h, "tag-sync-create-td")
+
+				createRec := doECSRequest(t, h, "CreateService", map[string]any{
+					"serviceName":    "tag-sync-create-svc",
+					"taskDefinition": tdArn,
+					"desiredCount":   1,
+					"tags":           []any{map[string]any{"key": "team", "value": "platform"}},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var createOut map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				serviceArn := createOut["service"].(map[string]any)["serviceArn"].(string)
+
+				listRec := doECSRequest(
+					t, h, "ListTagsForResource", map[string]any{"resourceArn": serviceArn},
+				)
+				require.Equal(t, http.StatusOK, listRec.Code)
+
+				var listOut map[string]any
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+				tags := listOut["tags"].([]any)
+				require.Len(t, tags, 1)
+				assert.Equal(t, "team", tags[0].(map[string]any)["key"])
+			},
+		},
+		{
+			name: "tagresource_after_create_visible_on_describe_only_with_include_tags",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				client := newTestECSClient(t, h)
+				tdArn := registerTestTaskDef(t, h, "tag-sync-describe-td")
+
+				createOut, err := client.CreateService(
+					t.Context(), &ecssdk.CreateServiceInput{
+						ServiceName:    aws.String("tag-sync-describe-svc"),
+						TaskDefinition: aws.String(tdArn),
+						DesiredCount:   aws.Int32(1),
+					},
+				)
+				require.NoError(t, err)
+				serviceArn := aws.ToString(createOut.Service.ServiceArn)
+
+				_, err = client.TagResource(t.Context(), &ecssdk.TagResourceInput{
+					ResourceArn: aws.String(serviceArn),
+					Tags:        []ecstypes.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
+				})
+				require.NoError(t, err)
+
+				withoutInclude, err := client.DescribeServices(
+					t.Context(), &ecssdk.DescribeServicesInput{Services: []string{serviceArn}},
+				)
+				require.NoError(t, err)
+				require.Len(t, withoutInclude.Services, 1)
+				assert.Empty(
+					t, withoutInclude.Services[0].Tags,
+					"tags must be omitted when Include=[TAGS] is not requested",
+				)
+
+				withInclude, err := client.DescribeServices(
+					t.Context(), &ecssdk.DescribeServicesInput{
+						Services: []string{serviceArn},
+						Include:  []ecstypes.ServiceField{ecstypes.ServiceFieldTags},
+					},
+				)
+				require.NoError(t, err)
+				require.Len(t, withInclude.Services, 1)
+				require.Len(t, withInclude.Services[0].Tags, 1)
+				assert.Equal(t, "env", aws.ToString(withInclude.Services[0].Tags[0].Key))
+			},
+		},
+		{
+			// PropagateTags=SERVICE task tag propagation only runs through the
+			// reconciler's StartTaskForService (RunTask called directly, without
+			// going through a service, has no service to propagate tags from --
+			// see resolveTaskTags/serviceTagsForPropagate in tasks.go), so this
+			// drives StartTaskForService directly against a concrete
+			// *InMemoryBackend and reads the result back through the real SDK
+			// client to confirm the wire shape.
+			name: "propagate_tags_service_inherits_tags_added_after_creation",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+				h := ecs.NewHandler(b)
+				client := newTestECSClient(t, h)
+				tdArn := registerTestTaskDef(t, h, "tag-sync-propagate-td")
+
+				createOut, err := client.CreateService(
+					t.Context(), &ecssdk.CreateServiceInput{
+						ServiceName:    aws.String("tag-sync-propagate-svc"),
+						TaskDefinition: aws.String(tdArn),
+						DesiredCount:   aws.Int32(1),
+						PropagateTags:  ecstypes.PropagateTagsService,
+					},
+				)
+				require.NoError(t, err)
+				serviceArn := aws.ToString(createOut.Service.ServiceArn)
+
+				// Tag the service AFTER creation -- StartTaskForService must pick
+				// this up from the resourceTags side map, not a stale
+				// creation-time svc.Tags snapshot (see StartTaskForService in
+				// services.go).
+				_, err = client.TagResource(t.Context(), &ecssdk.TagResourceInput{
+					ResourceArn: aws.String(serviceArn),
+					Tags:        []ecstypes.Tag{{Key: aws.String("cost-center"), Value: aws.String("42")}},
+				})
+				require.NoError(t, err)
+
+				require.NoError(
+					t, b.StartTaskForService("default", "tag-sync-propagate-svc", tdArn),
+				)
+
+				listOut, err := client.ListTasks(t.Context(), &ecssdk.ListTasksInput{
+					ServiceName: aws.String("tag-sync-propagate-svc"),
+				})
+				require.NoError(t, err)
+				require.Len(t, listOut.TaskArns, 1)
+
+				descOut, err := client.DescribeTasks(t.Context(), &ecssdk.DescribeTasksInput{
+					Tasks:   listOut.TaskArns,
+					Include: []ecstypes.TaskField{ecstypes.TaskFieldTags},
+				})
+				require.NoError(t, err)
+				require.Len(t, descOut.Tasks, 1)
+				require.Len(t, descOut.Tasks[0].Tags, 1)
+				assert.Equal(t, "cost-center", aws.ToString(descOut.Tasks[0].Tags[0].Key))
+			},
+		},
+		{
+			name: "delete_echoes_final_tags_and_clears_resourceTags",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				tdArn := registerTestTaskDef(t, h, "tag-sync-delete-td")
+
+				createRec := doECSRequest(t, h, "CreateService", map[string]any{
+					"serviceName":    "tag-sync-delete-svc",
+					"taskDefinition": tdArn,
+					"desiredCount":   1,
+					"tags":           []any{map[string]any{"key": "team", "value": "platform"}},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var createOut map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				serviceArn := createOut["service"].(map[string]any)["serviceArn"].(string)
+
+				deleteRec := doECSRequest(t, h, "DeleteService", map[string]any{
+					"service": "tag-sync-delete-svc",
+				})
+				require.Equal(t, http.StatusOK, deleteRec.Code)
+
+				var deleteOut map[string]any
+				require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteOut))
+				deletedTags := deleteOut["service"].(map[string]any)["tags"].([]any)
+				require.Len(t, deletedTags, 1)
+				assert.Equal(t, "team", deletedTags[0].(map[string]any)["key"])
+
+				listRec := doECSRequest(
+					t, h, "ListTagsForResource", map[string]any{"resourceArn": serviceArn},
+				)
+				require.Equal(t, http.StatusOK, listRec.Code)
+
+				var listOut map[string]any
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+				assert.Empty(t, listOut["tags"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }

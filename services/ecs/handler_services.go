@@ -127,12 +127,25 @@ func (h *Handler) handleCreateService(
 		return nil, err
 	}
 
-	return &createServiceOutput{Service: toServiceView(*svc)}, nil
+	view := toServiceView(*svc)
+	// CreateService has no `include` gating (unlike DescribeServices): the
+	// backend already returned the resourceTags-synced tags (see CreateService
+	// in services.go), so echo them straight back.
+	view.Tags = svc.Tags
+
+	return &createServiceOutput{Service: view}, nil
 }
+
+// describeServiceIncludeTags is the AWS-defined `include` value that requests
+// resource tags be returned alongside each Service (mirrors
+// describeClusterIncludeTags for DescribeClusters and
+// describeExpressGatewayIncludeTags for DescribeExpressGatewayService).
+const describeServiceIncludeTags = "TAGS"
 
 type describeServicesInput struct {
 	Cluster  string   `json:"cluster,omitempty"`
 	Services []string `json:"services"`
+	Include  []string `json:"include,omitempty"`
 }
 
 type describeServicesOutput struct {
@@ -149,9 +162,17 @@ func (h *Handler) handleDescribeServices(
 		return nil, err
 	}
 
-	views := make([]serviceView, 0, len(svcs))
-	for _, s := range svcs {
-		views = append(views, toServiceView(s))
+	wantTags := wantsIncludeTag(in.Include, describeServiceIncludeTags)
+
+	views, err := attachTagsIfWanted(
+		h, svcs,
+		func(s Service) string { return s.ServiceArn },
+		toServiceView,
+		func(v *serviceView, tags []Tag) { v.Tags = tags },
+		wantTags,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	failViews := make([]failureView, 0, len(failures))
@@ -205,7 +226,12 @@ func (h *Handler) handleUpdateService(
 		return nil, err
 	}
 
-	return &updateServiceOutput{Service: toServiceView(*svc)}, nil
+	view := toServiceView(*svc)
+	// UpdateService has no `include` gating either; the backend already
+	// returned the resourceTags-synced tags -- see UpdateService in services.go.
+	view.Tags = svc.Tags
+
+	return &updateServiceOutput{Service: view}, nil
 }
 
 type deleteServiceInput struct {
@@ -226,7 +252,13 @@ func (h *Handler) handleDeleteService(
 		return nil, err
 	}
 
-	return &deleteServiceOutput{Service: toServiceView(*svc)}, nil
+	view := toServiceView(*svc)
+	// DeleteService has no `include` gating either; the backend already
+	// captured the resourceTags-synced tags before deletion -- see DeleteService
+	// in services.go.
+	view.Tags = svc.Tags
+
+	return &deleteServiceOutput{Service: view}, nil
 }
 
 type listServicesInput struct {
@@ -409,7 +441,6 @@ func toServiceView(s Service) serviceView {
 		SchedulingStrategy:      s.SchedulingStrategy,
 		PropagateTags:           s.PropagateTags,
 		CreatedAt:               float64(s.CreatedAt.Unix()),
-		Tags:                    s.Tags,
 		DeploymentConfiguration: toDeploymentConfigurationView(s.DeploymentConfiguration),
 		ServiceConnectConfiguration: toServiceConnectConfigurationView(
 			s.ServiceConnectConfiguration,
