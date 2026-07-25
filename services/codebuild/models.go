@@ -255,16 +255,25 @@ type ScalingConfiguration struct {
 }
 
 // Fleet represents an in-memory AWS CodeBuild compute fleet.
+//
+// ComputeConfiguration/ProxyConfiguration/VpcConfig are real Fleet fields
+// (aws-sdk-go-v2/service/codebuild/types.Fleet) NOT modeled here -- a
+// genuine, newly-found completeness gap (not previously flagged in
+// PARITY.md), left out of this pass as a larger feature (nested
+// subnet/security-group/attribute-based-compute config validation) than a
+// wire-shape fix; see PARITY.md gaps.
 type Fleet struct {
 	Tags                 map[string]string     `json:"tags,omitempty"`
 	Status               *FleetStatus          `json:"status,omitempty"`
 	ScalingConfiguration *ScalingConfiguration `json:"scalingConfiguration,omitempty"`
 	Arn                  string                `json:"arn"`
+	ID                   string                `json:"id"`
 	Name                 string                `json:"name"`
 	FleetServiceRole     string                `json:"fleetServiceRole,omitempty"`
 	OverflowBehavior     string                `json:"overflowBehavior,omitempty"` // QUEUE|ON_DEMAND
 	ComputeType          string                `json:"computeType,omitempty"`
 	EnvironmentType      string                `json:"environmentType,omitempty"`
+	ImageID              string                `json:"imageId,omitempty"`
 	BaseCapacity         int32                 `json:"baseCapacity"`
 	Created              float64               `json:"created,omitempty"`
 	LastModified         float64               `json:"lastModified,omitempty"`

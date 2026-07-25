@@ -4,14 +4,14 @@ sdk_module: aws-sdk-go-v2/service/codebuild@v1.68.11   # version audited against
 last_audit_commit: 0627d5d3                             # HEAD when the PRIOR manifest was written;
                                                           # this pass ran under the "no git" constraint
                                                           # and could not read/update this hash
-last_audit_date: 2026-07-23
-overall: A-               # this pass: deleted 3 gopherstack-invented ops (TagResource/
-                           # UntagResource/ListTagsForResource — confirmed absent from the real
-                           # aws-sdk-go-v2/service/codebuild Client method set), implemented
-                           # nextToken/sortBy/sortOrder/maxResults pagination + filter.status for
-                           # every List* op, added the missing top-level Project.sourceVersion
-                           # field, and added the missing Webhook status/secret/manualCreation/
-                           # scopeConfiguration/pullRequestBuildPolicy/rotateSecret fields.
+last_audit_date: 2026-07-25
+overall: A-               # 2026-07-23 pass: deleted 3 invented ops, implemented pagination,
+                           # sourceVersion, extended Webhook fields (see below). 2026-07-25 pass:
+                           # field-diffed Fleet against real types.Fleet -- found+fixed a real gap
+                           # (id/overflowBehavior/imageId/fleetServiceRole silently unsupported on
+                           # Create/UpdateFleet); ComputeConfiguration/ProxyConfiguration/VpcConfig/
+                           # ScalingConfiguration remain genuinely unmodeled (see gaps below), which
+                           # is why this stays at A- rather than A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -46,8 +46,8 @@ ops:
   GetReportGroupTrend: {wire: partial, errors: ok, state: ok, persist: n/a, note: "returns empty stats map (no report-execution data modeled), acceptable stub-free no-op since no reports carry numeric stats; see items_still_open"}
   DescribeCodeCoverages: {wire: partial, errors: ok, state: ok, persist: n/a, note: "always empty list — no coverage data modeled; see items_still_open"}
   DescribeTestCases: {wire: partial, errors: ok, state: ok, persist: n/a, note: "always empty list — no test-case data modeled; see items_still_open"}
-  CreateFleet:     {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateFleet:     {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateFleet:     {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this pass: id (Fleet had no separate id field at all -- now uuid-generated), overflowBehavior, imageId, fleetServiceRole were all accepted-nowhere/silently dropped; now accepted and persisted. Still NOT modeled: computeConfiguration/proxyConfiguration/vpcConfig (see gaps below) -- large nested-config feature, not a quick wire-shape fix"}
+  UpdateFleet:     {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this pass: previously ONLY baseCapacity was updatable -- computeType/environmentType/overflowBehavior/imageId/fleetServiceRole were accepted by no request field at all and thus impossible to change after creation, despite all being real UpdateFleetInput members. Still NOT modeled: computeConfiguration/proxyConfiguration/vpcConfig/scalingConfiguration (see gaps below)"}
   DeleteFleet:     {wire: ok, errors: ok, state: ok, persist: ok, note: "accepts ARN or bare name"}
   BatchGetFleets:  {wire: ok, errors: ok, state: ok, persist: ok}
   ListFleets:      {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortBy(NAME|CREATED_TIME|LAST_MODIFIED_TIME)/sortOrder/maxResults via ListFleetsSortedBy + paginateIDs; also fixed default ordering to be NAME-ascending (was ARN-string-ascending, an internal artifact with no real-AWS basis)"}
@@ -81,7 +81,8 @@ families:
   tags: {status: ok, note: "REMOVED this pass: TagResource/UntagResource/ListTagsForResource were gopherstack-invented operations with no counterpart on the real aws-sdk-go-v2/service/codebuild Client (verified: the SDK module has no api_op_TagResource.go/api_op_UntagResource.go/api_op_ListTagsForResource.go, and Client's exported method set — grepped directly from api_op_*.go — has no such methods). Real AWS CodeBuild only supports tagging inline via the `tags` field on CreateProject/CreateReportGroup/CreateFleet/UpdateProject (already implemented and unaffected). Deleted services/codebuild/tags.go, handler_tags.go, tags_test.go; removed the 3 ops from GetSupportedOperations()/dispatchTable(); TestHandler_GetSupportedOperations now asserts their absence."}
 items_still_open:            # genuinely unfinished — do not mark ok
   - "DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend always return empty results because no report actually populates coverage/test-case/trend data anywhere in the backend (reports are seed-only via the AddReportInternal test helper — there is no real CodeBuild API to push test-case/coverage content; on real AWS it's ingested by the managed build agent parsing buildspec `reports` sections and artifact files, which this emulator's build execution does not model). Implementing this for real would require modeling report-content ingestion from build artifacts, which is out of scope for this pass."
-gaps: []                  # known divergences NOT fixed — link bd issue ids; none remaining after this pass
+gaps:                     # known divergences NOT fixed — link bd issue ids
+  - "Fleet.ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration (real aws-sdk-go-v2/service/codebuild/types.Fleet fields, confirmed via awsAwsjson11_deserializeDocumentFleet's \"computeConfiguration\"/\"proxyConfiguration\"/\"vpcConfig\"/\"scalingConfiguration\" cases) are not modeled by gopherstack's Fleet type at all -- newly found this pass, not previously flagged. Unlike the id/overflowBehavior/imageId/fleetServiceRole gap also found this pass (which was a straightforward missing-scalar-passthrough bug, fixed), these four are nested objects requiring real design work (attribute-based-compute vCPU/memory/disk validation, subnet/security-group modeling, scaling-type semantics) comparable in scope to the report-content-ingestion gap below -- not fixed this pass, no bd filed yet."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Report-content ingestion (DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend real data) — see items_still_open above for why this is a substantially larger feature (build artifact parsing), not a quick fix."
 leaks: {status: clean, note: "janitor.Run selects on ctx.Done() and calls worker.Group.Stop(); TestCodeBuildJanitor_RunContext passes under -race. paginateIDs/ListProjectsSortedBy/ListFleetsSortedBy/ListReportGroupsSortedBy are pure functions under the existing RLock scope — no new goroutines, no new lock paths, all backend locks remain defer-released."}
@@ -184,3 +185,34 @@ Prior-pass fixes (builds/build batches stuck IN_PROGRESS forever; `Project.Webho
 after `CreateWebhook`) remain in place and are covered by `TestJanitor_AdvanceInProgressBuilds` /
 `TestJanitor_AdvanceInProgressBuilds_LeavesTerminalBuildsAlone` (`janitor_test.go`) and
 `TestHandler_Webhook_MirroredOnProject` (`webhooks_test.go`).
+
+### 2026-07-25 pass: Fleet field-diff
+
+Field-diffed `Fleet`/`CreateFleetInput`/`UpdateFleetInput` against
+`aws-sdk-go-v2/service/codebuild@v1.68.11/types/types.go` and
+`awsAwsjson11_deserializeDocumentFleet` directly (not against gopherstack's own
+output, per parity-principles.md rule 2). Found and fixed a real, previously-unflagged
+gap: `Fleet` had no `id` field at all (a real, separate field from `name`/`arn` on
+`types.Fleet`), and `CreateFleetInput`/`UpdateFleetInput`'s wire structs had no
+`overflowBehavior`/`imageId`/`fleetServiceRole` members, so a real client setting any
+of these had them silently dropped on create and had **no way at all** to change them
+(or `computeType`/`environmentType`) after creation via `UpdateFleet`, which previously
+only ever touched `baseCapacity`. Fixed by adding `Fleet.ID`/`Fleet.ImageID`, generating
+a UUID `id` at `CreateFleet` time (mirroring how other resources in this service
+generate IDs), and refactoring `CreateFleet`/`UpdateFleet`'s backend signatures to take
+`CreateFleetOptions`/`UpdateFleetOptions` structs (the growing flat-positional-parameter
+lists were becoming unwieldy) wired through from new `createFleetInput`/
+`updateFleetInput` JSON fields. `UpdateFleet`'s "empty string leaves field unchanged"
+semantics mirror the existing `applyProjectOptionalFields` convention for optional
+string-field updates on this service.
+
+**Also found, NOT fixed**: `Fleet.ComputeConfiguration`/`ProxyConfiguration`/
+`VpcConfig`/`ScalingConfiguration` (all real fields on `types.Fleet`) remain entirely
+unmodeled -- these are nested objects (attribute-based-compute vCPU/memory/disk specs,
+subnet/security-group VPC config, scaling-type semantics) that would require real design
+work, not a wire-shape passthrough fix. Documented as a new `gaps:` entry rather than
+silently left unflagged like the id/overflowBehavior/imageId/fleetServiceRole gap was
+before this pass.
+
+Covered by new tests: `TestHandler_CreateFleet_ExtendedFields`,
+`TestHandler_UpdateFleet_ExtendedFields` (`fleets_test.go`).

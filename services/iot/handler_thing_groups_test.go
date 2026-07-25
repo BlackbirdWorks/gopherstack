@@ -338,6 +338,69 @@ func TestDescribeThingGroup_IncludesParentGroupName(t *testing.T) {
 	assert.Equal(t, "parent-group", meta["parentGroupName"])
 }
 
+// TestDescribeThingGroup_RootToParentThingGroups is a regression test: the
+// real ThingGroupMetadata shape has a "rootToParentThingGroups" field (a
+// root-first list of {groupName, groupArn} ancestors) that gopherstack did
+// not implement at all -- verified against
+// aws-sdk-go-v2/service/iot@v1.76.0's
+// awsRestjson1_deserializeDocumentThingGroupMetadata. A root-level group has
+// no ancestors, so the field should be entirely absent (matching real AWS,
+// which omits it rather than sending an empty list).
+func TestDescribeThingGroup_RootToParentThingGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		groupPath     string
+		wantAncestors []string // root-first
+	}{
+		{name: "root_group_has_no_rootToParentThingGroups_field", groupPath: "root-rtp", wantAncestors: nil},
+		{name: "child_group_has_one_ancestor", groupPath: "child-rtp", wantAncestors: []string{"root-rtp"}},
+		{
+			name:          "grandchild_group_has_root_first_ancestor_chain",
+			groupPath:     "grandchild-rtp",
+			wantAncestors: []string{"root-rtp", "child-rtp"},
+		},
+	}
+
+	h, _ := newR3Handler()
+	r3Req(t, h, http.MethodPost, "/thing-groups/root-rtp", nil)
+	r3Req(t, h, http.MethodPost, "/thing-groups/child-rtp", map[string]any{"parentGroupName": "root-rtp"})
+	r3Req(t, h, http.MethodPost, "/thing-groups/grandchild-rtp", map[string]any{"parentGroupName": "child-rtp"})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out map[string]any
+			code := r3JSON(t, h, http.MethodGet, "/thing-groups/"+tt.groupPath, nil, &out)
+			require.Equal(t, http.StatusOK, code)
+			meta, ok := out["thingGroupMetadata"].(map[string]any)
+			require.True(t, ok, "response should contain thingGroupMetadata")
+
+			roots, hasRoots := meta["rootToParentThingGroups"]
+			if tt.wantAncestors == nil {
+				assert.False(t, hasRoots, "rootToParentThingGroups should be absent for a root-level group")
+
+				return
+			}
+
+			require.True(t, hasRoots, "rootToParentThingGroups should be present")
+
+			entries, ok := roots.([]any)
+			require.True(t, ok)
+			require.Len(t, entries, len(tt.wantAncestors))
+
+			for i, wantName := range tt.wantAncestors {
+				entry, entryOK := entries[i].(map[string]any)
+				require.True(t, entryOK)
+				assert.Equal(t, wantName, entry["groupName"])
+				assert.NotEmpty(t, entry["groupArn"])
+			}
+		})
+	}
+}
+
 func TestDescribeThingGroup_MetadataHasCreationDate(t *testing.T) {
 	t.Parallel()
 

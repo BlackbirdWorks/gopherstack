@@ -50,6 +50,7 @@ type StorageBackend interface {
 	// ThingGroup operations.
 	CreateThingGroup(input *CreateThingGroupInput) (*ThingGroup, error)
 	DescribeThingGroup(thingGroupName string) (*ThingGroup, error)
+	RootToParentThingGroups(thingGroupName string) []GroupNameAndARN
 	ListThingGroups() []*ThingGroup
 	UpdateThingGroup(input *UpdateThingGroupInput) (int64, error)
 	DeleteThingGroup(thingGroupName string) error

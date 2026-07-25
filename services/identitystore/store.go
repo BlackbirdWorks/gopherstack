@@ -36,6 +36,36 @@ const (
 // attrDisplayName is the normalized attribute path for a group's or user's display name.
 const attrDisplayName = "displayname"
 
+// Normalized (lower-cased) AttributeOperation/Filter attribute path
+// constants, shared by users.go/groups.go's attribute-apply and filter-match
+// switches and validation.go's pattern-validation switch, so the same path
+// string is never duplicated across those three call sites (goconst).
+const (
+	attrNickName            = "nickname"
+	attrTitle               = "title"
+	attrProfileURL          = "profileurl"
+	attrLocale              = "locale"
+	attrPreferredLanguage   = "preferredlanguage"
+	attrTimezone            = "timezone"
+	attrUserType            = "usertype"
+	attrWebsite             = "website"
+	attrBirthdate           = "birthdate"
+	attrUserStatus          = "userstatus"
+	attrDescription         = "description"
+	attrEmails              = "emails"
+	attrAddresses           = "addresses"
+	attrPhoneNumbers        = "phonenumbers"
+	attrPhotos              = "photos"
+	attrRoles               = "roles"
+	attrExternalIDs         = "externalids"
+	attrNameGivenName       = "name.givenname"
+	attrNameFamilyName      = "name.familyname"
+	attrNameMiddleName      = "name.middlename"
+	attrNameFormatted       = "name.formatted"
+	attrNameHonorificPrefix = "name.honorificprefix"
+	attrNameHonorificSuffix = "name.honorificsuffix"
+)
+
 // ----------------------------------------
 // InMemoryBackend
 // ----------------------------------------

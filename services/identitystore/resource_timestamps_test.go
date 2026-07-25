@@ -368,3 +368,50 @@ func TestCreateGroupRejectsExternalIds(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusNotFound, lookupRec.Code)
 }
+
+// TestCreateUserRejectsExternalIds verifies the real CreateUser wire shape --
+// ExternalIds is not settable at creation time (no ExternalIds member on
+// CreateUserRequest in the real smithy model; confirmed against botocore's
+// service-2.json). A prior gopherstack revision accepted an "ExternalIds"
+// field on the wire-facing createUserRequest struct and forwarded it
+// straight into the backend, letting a real client's CreateUser call do
+// something real AWS's CreateUser API cannot -- the exact bug class
+// CreateGroupRequest.ExternalIds was already fixed for (see
+// TestCreateGroupRejectsExternalIds above) but had been missed for User.
+// Sending it now must simply be ignored (unknown-field-tolerant JSON
+// decoding), never surfaced on the created user.
+func TestCreateUserRejectsExternalIds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	createRec := doRequest(t, h, "CreateUser", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"UserName":        "no-external-ids-at-create",
+		"ExternalIds": []map[string]string{
+			{"Issuer": "https://sso.example.com", "Id": "should-be-ignored"},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	userID := parseResponse(t, createRec)["UserId"].(string)
+
+	descRec := doRequest(t, h, "DescribeUser", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"UserId":          userID,
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	resp := parseResponse(t, descRec)
+	assert.Nil(t, resp["ExternalIds"], "ExternalIds sent on CreateUser must not be applied")
+
+	lookupRec := doRequest(t, h, "GetUserId", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"AlternateIdentifier": map[string]any{
+			"ExternalId": map[string]string{
+				"Issuer": "https://sso.example.com",
+				"Id":     "should-be-ignored",
+			},
+		},
+	})
+	assert.Equal(t, http.StatusNotFound, lookupRec.Code)
+}

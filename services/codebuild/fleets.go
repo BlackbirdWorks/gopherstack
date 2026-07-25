@@ -5,6 +5,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -12,10 +14,20 @@ func (b *InMemoryBackend) buildFleetARN(name string) string {
 	return arn.Build("codebuild", b.region, b.accountID, "fleet/"+name)
 }
 
+// CreateFleetOptions carries CreateFleet's fields beyond the always-required
+// name/baseCapacity. ComputeConfiguration/ProxyConfiguration/VpcConfig are
+// deliberately not modeled -- see the doc comment on the Fleet type.
+type CreateFleetOptions struct {
+	Tags             map[string]string
+	ComputeType      string
+	EnvironmentType  string
+	OverflowBehavior string
+	ImageID          string
+	FleetServiceRole string
+}
+
 // CreateFleet creates a new compute fleet.
-func (b *InMemoryBackend) CreateFleet(
-	name string, baseCapacity int32, computeType, environmentType string, tags map[string]string,
-) (*Fleet, error) {
+func (b *InMemoryBackend) CreateFleet(name string, baseCapacity int32, opts CreateFleetOptions) (*Fleet, error) {
 	b.mu.Lock("CreateFleet")
 	defer b.mu.Unlock()
 
@@ -23,20 +35,24 @@ func (b *InMemoryBackend) CreateFleet(
 		return nil, ErrAlreadyExists
 	}
 
-	tagsCopy := make(map[string]string, len(tags))
-	maps.Copy(tagsCopy, tags)
+	tagsCopy := make(map[string]string, len(opts.Tags))
+	maps.Copy(tagsCopy, opts.Tags)
 
 	now := float64(time.Now().Unix())
 	f := &Fleet{
-		Arn:             b.buildFleetARN(name),
-		Name:            name,
-		BaseCapacity:    baseCapacity,
-		ComputeType:     computeType,
-		EnvironmentType: environmentType,
-		Status:          &FleetStatus{StatusCode: "ACTIVE"},
-		Tags:            tagsCopy,
-		Created:         now,
-		LastModified:    now,
+		Arn:              b.buildFleetARN(name),
+		ID:               uuid.NewString(),
+		Name:             name,
+		BaseCapacity:     baseCapacity,
+		ComputeType:      opts.ComputeType,
+		EnvironmentType:  opts.EnvironmentType,
+		OverflowBehavior: opts.OverflowBehavior,
+		ImageID:          opts.ImageID,
+		FleetServiceRole: opts.FleetServiceRole,
+		Status:           &FleetStatus{StatusCode: "ACTIVE"},
+		Tags:             tagsCopy,
+		Created:          now,
+		LastModified:     now,
 	}
 	b.fleets.Put(f)
 
@@ -121,8 +137,23 @@ func (b *InMemoryBackend) DeleteFleet(arnStr string) error {
 	return ErrNotFound
 }
 
-// UpdateFleet updates the base capacity of a fleet.
-func (b *InMemoryBackend) UpdateFleet(arnStr string, baseCapacity int32) (*Fleet, error) {
+// UpdateFleetOptions carries UpdateFleet's optional fields. An empty string
+// leaves the corresponding Fleet field unchanged (real AWS's UpdateFleet
+// only updates members actually present in the request; gopherstack
+// approximates that with "non-empty overwrites", the same convention already
+// used by Project's optional-field updates -- see applyProjectOptionalFields).
+// ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration are
+// deliberately not modeled -- see the doc comment on the Fleet type.
+type UpdateFleetOptions struct {
+	ComputeType      string
+	EnvironmentType  string
+	OverflowBehavior string
+	ImageID          string
+	FleetServiceRole string
+}
+
+// UpdateFleet updates a fleet's base capacity and optional fields.
+func (b *InMemoryBackend) UpdateFleet(arnStr string, baseCapacity int32, opts UpdateFleetOptions) (*Fleet, error) {
 	b.mu.Lock("UpdateFleet")
 	defer b.mu.Unlock()
 
@@ -133,6 +164,27 @@ func (b *InMemoryBackend) UpdateFleet(arnStr string, baseCapacity int32) (*Fleet
 
 	f := matches[0]
 	f.BaseCapacity = baseCapacity
+
+	if opts.ComputeType != "" {
+		f.ComputeType = opts.ComputeType
+	}
+
+	if opts.EnvironmentType != "" {
+		f.EnvironmentType = opts.EnvironmentType
+	}
+
+	if opts.OverflowBehavior != "" {
+		f.OverflowBehavior = opts.OverflowBehavior
+	}
+
+	if opts.ImageID != "" {
+		f.ImageID = opts.ImageID
+	}
+
+	if opts.FleetServiceRole != "" {
+		f.FleetServiceRole = opts.FleetServiceRole
+	}
+
 	f.LastModified = float64(time.Now().Unix())
 	out := *f
 

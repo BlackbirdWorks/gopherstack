@@ -40,6 +40,10 @@ func (b *InMemoryBackend) CreateGroup(ctx context.Context, storeID string, req *
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
+	if err := validateGroupPayloadStrings(req); err != nil {
+		return nil, err
+	}
+
 	// Check uniqueness by DisplayName using index.
 	if req.DisplayName != "" {
 		if existing := b.groupsByDisplayName.Get(storeKey(region, storeID) + "#" + req.DisplayName); len(existing) > 0 {
@@ -119,6 +123,12 @@ func (b *InMemoryBackend) UpdateGroup(ctx context.Context, storeID, groupID stri
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
+	for _, op := range ops {
+		if err := validateGroupAttributeOperation(op); err != nil {
+			return err
+		}
+	}
+
 	if err := b.validateGroupOps(region, storeID, group.DisplayName, ops); err != nil {
 		return err
 	}
@@ -165,11 +175,11 @@ func applyGroupAttributes(group *Group, ops []attributeOperation) {
 			if s, isStr := op.AttributeValue.(string); isStr {
 				group.DisplayName = s
 			}
-		case "description":
+		case attrDescription:
 			if s, isStr := op.AttributeValue.(string); isStr {
 				group.Description = s
 			}
-		case "externalids":
+		case attrExternalIDs:
 			group.ExternalIDs = parseExternalIDs(op.AttributeValue)
 		}
 	}
@@ -192,18 +202,28 @@ func applyGroupFilters(groups []*Group, filters []ListFilter) []*Group {
 	return result
 }
 
+// groupMatchesFilter checks a single filter against g. An unrecognized
+// AttributePath matches NO group rather than every group -- same bug class
+// as matchUserSingleValueFilter's former implicit-true default (see
+// PARITY.md gap history): the previous switch had no default case, so an
+// unrecognized path fell through the loop body untouched, silently treating
+// it as satisfied instead of rejecting or ignoring it correctly.
+func groupMatchesFilter(g *Group, f ListFilter) bool {
+	switch strings.ToLower(f.AttributePath) {
+	case attrDisplayName:
+		return g.DisplayName == f.AttributeValue
+	case attrDescription:
+		return g.Description == f.AttributeValue
+	}
+
+	return false
+}
+
 // groupMatchesFilters reports whether g satisfies every filter in the slice.
 func groupMatchesFilters(g *Group, filters []ListFilter) bool {
 	for _, f := range filters {
-		switch strings.ToLower(f.AttributePath) {
-		case attrDisplayName:
-			if g.DisplayName != f.AttributeValue {
-				return false
-			}
-		case "description":
-			if g.Description != f.AttributeValue {
-				return false
-			}
+		if !groupMatchesFilter(g, f) {
+			return false
 		}
 	}
 

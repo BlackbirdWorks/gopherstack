@@ -659,6 +659,198 @@ func TestUserErrors(t *testing.T) {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
+		{
+			name: "create_user_identity_store_id_bad_pattern",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": "not-a-valid-store-id",
+					"UserName":        "pattern.user",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_user_username_bad_pattern_has_space",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "has a space",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_user_username_reserved_administrator",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "Administrator",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_user_username_reserved_aws_administrators",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "AWSAdministrators",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "update_user_username_reserved_name_rejected",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				createRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "reserved.rename.user",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				userID := parseResponse(t, createRec)["UserId"].(string)
+
+				rec := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+					"Operations": []map[string]any{
+						{"AttributePath": "username", "AttributeValue": "AWSAdministrators"},
+					},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_user_duplicate_primary_email_conflict",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				first := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "dup.email.first",
+					"Emails": []map[string]any{
+						{"Value": "shared@example.com", "Primary": true},
+					},
+				})
+				require.Equal(t, http.StatusOK, first.Code)
+
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "dup.email.second",
+					"Emails": []map[string]any{
+						{"Value": "shared@example.com", "Primary": true},
+					},
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "update_user_primary_email_conflict_with_another_user",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				owner := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "email.owner",
+					"Emails": []map[string]any{
+						{"Value": "owned@example.com", "Primary": true},
+					},
+				})
+				require.Equal(t, http.StatusOK, owner.Code)
+
+				other := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "email.other",
+				})
+				require.Equal(t, http.StatusOK, other.Code)
+				otherID := parseResponse(t, other)["UserId"].(string)
+
+				rec := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          otherID,
+					"Operations": []map[string]any{
+						{
+							"AttributePath": "emails",
+							"AttributeValue": []map[string]any{
+								{"Value": "owned@example.com", "Primary": true},
+							},
+						},
+					},
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "create_user_nickname_bad_pattern_control_char",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "control.char.user",
+					"NickName":        "bad\x01char",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "update_user_externalids_bad_pattern",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				createRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "extid.badpattern.user",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				userID := parseResponse(t, createRec)["UserId"].(string)
+
+				rec := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+					"Operations": []map[string]any{
+						{
+							"AttributePath": "externalids",
+							"AttributeValue": []map[string]any{
+								{"Issuer": "bad\x01issuer", "Id": "id-1"},
+							},
+						},
+					},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "update_user_attribute_path_bad_pattern",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				createRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "badpath.user",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				userID := parseResponse(t, createRec)["UserId"].(string)
+
+				rec := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+					"Operations": []map[string]any{
+						{"AttributePath": "nick name!", "AttributeValue": "x"},
+					},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
 	}
 
 	for _, tt := range tests {

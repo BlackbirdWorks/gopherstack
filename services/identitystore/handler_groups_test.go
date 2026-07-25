@@ -471,6 +471,86 @@ func TestGroupErrors(t *testing.T) {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
+		{
+			name: "create_group_display_name_reserved_administrator",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Administrator",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_group_display_name_reserved_aws_administrators",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "AWSAdministrators",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "update_group_display_name_reserved_name_rejected",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				createRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Reserved Rename Group",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				groupID := parseResponse(t, createRec)["GroupId"].(string)
+
+				rec := doRequest(t, h, "UpdateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"Operations": []map[string]any{
+						{"AttributePath": "displayName", "AttributeValue": "AWSAdministrators"},
+					},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_group_identity_store_id_bad_pattern",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": "not-a-valid-store-id",
+					"DisplayName":     "Pattern Group",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "update_group_attribute_path_bad_pattern",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				createRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Bad Path Group",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				groupID := parseResponse(t, createRec)["GroupId"].(string)
+
+				rec := doRequest(t, h, "UpdateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"Operations": []map[string]any{
+						{"AttributePath": "desc1!", "AttributeValue": "x"},
+					},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
 	}
 
 	for _, tt := range tests {

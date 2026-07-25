@@ -249,6 +249,7 @@ func (h *Handler) handleGetStatistics(c *echo.Context) error {
 			"count":        stats.Count,
 			"average":      stats.Average,
 			"sum":          stats.Sum,
+			"sumOfSquares": stats.SumOfSquares,
 			"minimum":      stats.Minimum,
 			"maximum":      stats.Maximum,
 			"variance":     stats.Variance,

@@ -35,7 +35,10 @@ func newPersistenceTestBackend(t *testing.T) *codebuild.InMemoryBackend {
 	_, err = b.StartBuild(proj.Name, codebuild.StartBuildConfig{})
 	require.NoError(t, err)
 
-	_, err = b.CreateFleet("fleet1", 1, "BUILD_GENERAL1_SMALL", "LINUX_CONTAINER", map[string]string{"k": "v"})
+	_, err = b.CreateFleet("fleet1", 1, codebuild.CreateFleetOptions{
+		ComputeType: "BUILD_GENERAL1_SMALL", EnvironmentType: "LINUX_CONTAINER",
+		Tags: map[string]string{"k": "v"},
+	})
 	require.NoError(t, err)
 
 	rg, err := b.CreateReportGroup("rg1", "TEST", codebuild.ReportExportConfig{ExportConfigType: "NO_EXPORT"}, nil)
@@ -287,7 +290,9 @@ func TestHandler_NewOperations_PersistenceRoundTrip(t *testing.T) {
 	b := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Seed a fleet.
-	_, err := b.CreateFleet("persist-fleet", 2, "BUILD_GENERAL1_SMALL", "LINUX_CONTAINER", nil)
+	_, err := b.CreateFleet("persist-fleet", 2, codebuild.CreateFleetOptions{
+		ComputeType: "BUILD_GENERAL1_SMALL", EnvironmentType: "LINUX_CONTAINER",
+	})
 	require.NoError(t, err)
 
 	// Seed a report group.

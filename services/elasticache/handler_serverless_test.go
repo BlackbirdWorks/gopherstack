@@ -32,6 +32,82 @@ func TestHandler_DescribeServerlessCache_UserGroupId(t *testing.T) {
 	assert.Equal(t, "grp-xyz", p.Data[0].UserGroupID)
 }
 
+// TestHandler_ServerlessCache_WireShapeFieldsSurfaced is a regression test
+// for a wire-shape bug: serverlessCacheXML (handler_serverless.go) only
+// mapped ARN/ServerlessCacheName/Description/Status/Engine/Endpoint/
+// ReaderEndpoint, silently dropping CreateTime/DailySnapshotTime/KmsKeyId/
+// MajorEngineVersion/SecurityGroupIds/SnapshotRetentionLimit/SubnetIds/
+// UserGroupId from every response despite the domain model already storing
+// all of them -- confirmed against
+// aws-sdk-go-v2/service/elasticache@v1.51.11's
+// awsAwsquery_deserializeDocumentServerlessCache. Unlike
+// TestHandler_DescribeServerlessCache_UserGroupId (which only asserts
+// against the Go-level backend struct and would not have caught this), this
+// test drives a real generated SDK client against the httptest server, so it
+// exercises the actual XML wire encoding/decoding round trip end to end
+// (parity-principles.md rule 3: unit tests against gopherstack's own structs
+// are not parity proof).
+func TestHandler_ServerlessCache_WireShapeFieldsSurfaced(t *testing.T) {
+	t.Parallel()
+
+	backend, client := newTestStackWithBackend(t)
+
+	_, err := backend.CreateServerlessCacheFull(context.Background(), elasticache.ServerlessCreateOpts{
+		Name:                   "sc-wire-shape",
+		Engine:                 "redis",
+		KmsKeyID:               "arn:aws:kms:us-east-1:000000000000:key/abc",
+		UserGroupID:            "grp-wire",
+		DailySnapshotTime:      "05:00",
+		MajorEngineVersion:     "7",
+		SecurityGroupIDs:       []string{"sg-1", "sg-2"},
+		SubnetIDs:              []string{"subnet-1", "subnet-2"},
+		SnapshotRetentionLimit: 5,
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeServerlessCaches(context.Background(), &elasticachesdk.DescribeServerlessCachesInput{
+		ServerlessCacheName: aws.String("sc-wire-shape"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.ServerlessCaches, 1)
+
+	sc := out.ServerlessCaches[0]
+	assert.Equal(t, "grp-wire", aws.ToString(sc.UserGroupId))
+	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/abc", aws.ToString(sc.KmsKeyId))
+	assert.Equal(t, "05:00", aws.ToString(sc.DailySnapshotTime))
+	assert.Equal(t, "7", aws.ToString(sc.MajorEngineVersion))
+	assert.ElementsMatch(t, []string{"sg-1", "sg-2"}, sc.SecurityGroupIds)
+	assert.ElementsMatch(t, []string{"subnet-1", "subnet-2"}, sc.SubnetIds)
+	assert.Equal(t, int32(5), aws.ToInt32(sc.SnapshotRetentionLimit))
+	assert.NotNil(t, sc.CreateTime, "CreateTime must be present on the wire response")
+}
+
+// TestHandler_ServerlessCacheSnapshot_CreateTimeSurfaced is a regression
+// test for the same bug class as above, on ServerlessCacheSnapshot's
+// CreateTime field (serverlessCacheSnapshotXML previously had no CreateTime
+// mapping at all, despite the domain model storing it as CreatedAt).
+func TestHandler_ServerlessCacheSnapshot_CreateTimeSurfaced(t *testing.T) {
+	t.Parallel()
+
+	backend, client := newTestStackWithBackend(t)
+
+	_, err := backend.CreateServerlessCacheFull(context.Background(), elasticache.ServerlessCreateOpts{
+		Name: "sc-for-snap", Engine: "redis",
+	})
+	require.NoError(t, err)
+
+	_, err = backend.CreateServerlessCacheSnapshot(context.Background(), "snap-wire-shape", "sc-for-snap")
+	require.NoError(t, err)
+
+	in := &elasticachesdk.DescribeServerlessCacheSnapshotsInput{
+		ServerlessCacheSnapshotName: aws.String("snap-wire-shape"),
+	}
+	out, err := client.DescribeServerlessCacheSnapshots(context.Background(), in)
+	require.NoError(t, err)
+	require.Len(t, out.ServerlessCacheSnapshots, 1)
+	assert.NotNil(t, out.ServerlessCacheSnapshots[0].CreateTime, "CreateTime must be present on the wire response")
+}
+
 func TestHandler_ServerlessCache_FullLifecycle(t *testing.T) {
 	t.Parallel()
 

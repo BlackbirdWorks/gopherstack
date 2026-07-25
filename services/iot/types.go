@@ -260,6 +260,15 @@ type ThingType struct {
 	Deprecated           bool      `json:"deprecated"`
 }
 
+// GroupNameAndARN pairs a thing group's name and ARN. Used by
+// DescribeThingGroup's thingGroupMetadata.rootToParentThingGroups (real
+// types.GroupNameAndArn -- verified field names groupName/groupArn against
+// aws-sdk-go-v2/service/iot@v1.76.0's deserializer).
+type GroupNameAndARN struct {
+	GroupName string `json:"groupName,omitempty"`
+	GroupARN  string `json:"groupArn,omitempty"`
+}
+
 // ThingGroup represents an AWS IoT Thing Group.
 type ThingGroup struct {
 	CreatedAt       time.Time         `json:"createdAt"`
@@ -544,11 +553,21 @@ type SearchIndexThingResult struct {
 }
 
 // SearchIndexThingGroupResult is a ThingGroup document returned by SearchIndex.
+//
+// Field names/shape verified against aws-sdk-go-v2/service/iot@v1.76.0's
+// awsRestjson1_deserializeDocumentThingGroupDocument: the real
+// ThingGroupDocument shape has "parentGroupNames" (a LIST of every ancestor
+// group name up to the root, not just the direct parent) and
+// "thingGroupDescription" -- a prior revision of this struct had a single
+// "parentGroupName" string (the immediate parent only) and no description
+// field at all, so a real SDK client's deserializer would never find the
+// "parentGroupNames" key it looks for and silently leave that field empty.
 type SearchIndexThingGroupResult struct {
-	Attributes      map[string]string `json:"attributes"`
-	ThingGroupName  string            `json:"thingGroupName"`
-	ThingGroupID    string            `json:"thingGroupId"`
-	ParentGroupName string            `json:"parentGroupName,omitempty"`
+	Attributes            map[string]string `json:"attributes"`
+	ThingGroupName        string            `json:"thingGroupName"`
+	ThingGroupID          string            `json:"thingGroupId"`
+	ThingGroupDescription string            `json:"thingGroupDescription,omitempty"`
+	ParentGroupNames      []string          `json:"parentGroupNames,omitempty"`
 }
 
 // SearchIndexOutput is the output for SearchIndex.
@@ -571,6 +590,7 @@ type Statistics struct {
 	Count        int64
 	Average      float64
 	Sum          float64
+	SumOfSquares float64
 	Minimum      float64
 	Maximum      float64
 	Variance     float64

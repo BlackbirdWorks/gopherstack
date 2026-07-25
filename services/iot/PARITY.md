@@ -2,12 +2,12 @@
 service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.76.0
 last_audit_commit: 135882ff405d549b4f7d65c71ade923a40c9fd7b
-last_audit_date: 2026-07-23
-overall: B+           # broad, real bugs found+fixed this pass (leak, systemic error-code
-                       # mapping, systemic epoch-timestamp encoding, certificate transfer
-                       # lifecycle, existence-validation gaps, invented-field cleanup);
-                       # job_and_jobtemplate/device_defender/fleet_indexing still not
-                       # exhaustively field-diffed (see deferred: below)
+last_audit_date: 2026-07-25
+overall: A-           # this pass: fleet_indexing (previously entirely untouched) field-diffed
+                       # and closed out, 2 real wire-shape bugs found+fixed; job_and_jobtemplate
+                       # and device_defender remain genuinely partial (spot-checked, not
+                       # exhaustively diffed -- large sub-surfaces, see deferred: below), which
+                       # is why this stops at A- rather than A
 ops:
   CreateThing: {wire: ok, errors: ok, state: ok, persist: ok, note: "now accepts+wires billingGroupName (was silently dropped)"}
   DescribeThing: {wire: ok, errors: ok, state: ok, persist: ok, note: "now returns billingGroupName (was omitted entirely)"}
@@ -69,15 +69,14 @@ families:
   certificate_provider: {status: ok, note: "Create/Describe/List/Update/Delete field-diffed against v1.76.0; only bug was the epoch-timestamp encoding on Describe (fixed). Full field set otherwise already correct"}
   job_and_jobtemplate: {status: partial, note: "AssociateTargetsWithJob existence-validation gap fixed (gopherstack-ep0r). DescribeJob/DescribeJobTemplate wire-shape bugs found+fixed this pass (see ops above). CreateJob/CreateJobTemplate/CreateJobOutput/CreateJobTemplateOutput verified correct. NOT exhaustively diffed: JobExecution shape, and Job's more advanced optional fields (jobExecutionsRetryConfig read-path, presignedUrlConfig, jobProcessDetails rollup counts, schedulingConfig, maintenanceWindows, destinationPackageVersions) -- large sub-surface, left for a future pass. See gopherstack-srzb."}
   device_defender: {status: partial, note: "CancelAuditTask/CancelAuditMitigationActionsTask existence+state validation gaps fixed this pass (gopherstack-ep0r). Broader audit/mitigation/detect task families (StartAuditMitigationActionsTask target resolution, ListAuditFindings, ML-based detect models, violations) NOT exhaustively field-diffed this pass. See gopherstack-srzb."}
-  fleet_indexing: {status: deferred, note: "NOT touched this pass. Spot check: SearchIndex/GetCardinality/GetStatistics/GetPercentiles/GetBucketsAggregation are real (non-stub) implementations that query actual backend state, not placeholders -- but no field-by-field wire diff was done against v1.76.0. See gopherstack-srzb."}
+  fleet_indexing: {status: ok, note: "Field-diffed against v1.76.0 this pass (previously entirely untouched). Two real, previously-unflagged wire-shape bugs found and fixed: (1) SearchIndex's ThingGroupDocument sent a single \"parentGroupName\" string (direct parent only) instead of the real \"parentGroupNames\" LIST field (the full ancestor chain) -- confirmed against awsRestjson1_deserializeDocumentThingGroupDocument, a real client's deserializer would never find the key it looks for under the old shape and silently leave the field empty; also added the missing \"thingGroupDescription\" field. (2) DescribeThingGroup's thingGroupMetadata was completely missing \"rootToParentThingGroups\" (root-first ancestor name+ARN list) -- confirmed against awsRestjson1_deserializeDocumentThingGroupMetadata; not implemented at all previously. Both fixed via a new thingGroupAncestors backend helper (indexing.go) that reconstructs the full chain by walking gopherstack's per-group direct-ParentGroupName links, since the domain model only stores one level per group. (3) GetStatistics' Statistics response was missing \"sumOfSquares\" entirely (types.Statistics has it; confirmed against awsRestjson1_deserializeDocumentStatistics) -- fixed by computing it in computeStatistics alongside the existing sum/variance accumulation. GetCardinality/GetPercentiles/GetBucketsAggregation/DescribeIndex/ListIndices output shapes also field-diffed against their real GetCardinalityOutput/GetPercentilesOutput/GetBucketsAggregationOutput/types.PercentPair/types.Bucket counterparts -- no further gaps found on this pass's sample."}
   billing_group: {status: ok, note: "AddThingToBillingGroup/RemoveThingFromBillingGroup/ListThingsInBillingGroup verified real state mutation via thingBillingGroups map; DescribeThing now surfaces it (see CreateThing/DescribeThing above)"}
   persistence: {status: ok, note: "backendSnapshot/Restore in persistence.go covers all backend maps observed during this audit (policyTargets, thingPrincipals, thingBillingGroups, thingThingGroups, securityProfileTargets, resourceTags, certificateTransfers, etc.); Handler.Snapshot/Restore already delegate correctly -- no gaps found. Certificate struct's new transfer-lifecycle fields (OwnedBy/PreviousOwnedBy/GenerationID/CertificateMode/CustomerVersion/Validity*/Transfer*) round-trip correctly since persistence marshals the full struct, not the handler-layer wire shape."}
-gaps: []  # both previously-filed gaps (gopherstack-jy57, gopherstack-ep0r) fixed and closed this pass; see families: for the still-partial/deferred sub-surfaces (job_and_jobtemplate, device_defender, fleet_indexing) tracked under gopherstack-srzb
+gaps: []  # all previously-filed gaps (gopherstack-jy57, gopherstack-ep0r) closed; fleet_indexing closed out this pass too (3 real bugs found+fixed, see families:); job_and_jobtemplate/device_defender remain genuinely partial, tracked under gopherstack-srzb
 deferred:
-  - fleet_indexing (SearchIndex/aggregations -- not touched this pass)
   - job_and_jobtemplate (JobExecution + advanced Job fields: retry config, presigned URL config, process details, scheduling config, maintenance windows -- partial this pass, core CRUD + the filed gap fixed)
-  - device_defender (audit/mitigation/detect task families beyond the two Cancel ops fixed this pass)
-  - see gopherstack-srzb for the consolidated deferred-family tracking issue (updated this pass with current status)
+  - device_defender (audit/mitigation/detect task families beyond the two Cancel ops fixed this pass; AuditFinding's optional isSuppressed/reasonForNonComplianceCode/taskStartTime fields spot-checked as missing but not fixed this pass -- large sub-surface)
+  - see gopherstack-srzb for the consolidated deferred-family tracking issue (updated this pass with current status; fleet_indexing removed from it, now closed)
 leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the embedded MQTT broker in a bare `go func(){ broker.Start(ctx) }()` with no way to wait for it to exit -- Handler didn't implement service.Shutdowner at all, so the broker goroutine had no deterministic drain path on service shutdown (relied entirely on the caller's ctx being cancelled elsewhere, with no join/wait). This is the same 'ctx-parented but not Shutdown-drained' bug class fixed elsewhere via pkgs/worker.SingleRun (see services/autoscaling, services/scheduler for the established pattern). FIXED: added a worker.SingleRun-backed brokerRun field, Broker.Run(ctx) adapter method, and a Handler.Shutdown(ctx) that calls brokerRun.Stop(ctx) and blocks until the broker goroutine actually exits (or ctx is done). Handler now implements both service.BackgroundWorker and service.Shutdowner. Regression test: TestHandlerShutdownDrainsBrokerGoroutine (broker_test.go) starts a real broker and asserts Shutdown returns within 2s of the goroutine actually stopping, not just cancelling and returning immediately."}
 ---
 
@@ -140,11 +139,31 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
   `thingBillingGroups`, `policyTargets`, `thingPrincipals`, `securityProfileTargets`).
   No Handler-level Snapshot/Restore gap was found — `Handler.Snapshot`/`Restore` already
   delegate correctly to the backend when it implements `Snapshottable`.
-- **Scope of this pass** (2026-07-23, commit `135882ff`): closed both previously-filed
+- **Scope of the 2026-07-23 pass** (commit `135882ff`): closed both previously-filed
   gaps (gopherstack-jy57, gopherstack-ep0r), fixed a real goroutine-leak bug in the
   embedded MQTT broker's Shutdown path, fixed a systemic error-code-mapping bug across
   ~130 call sites, fixed a systemic epoch-timestamp encoding bug across 8 struct
   families, fully closed out `certificate`/`certificate_provider`/`thing_type`/
   `policy_version` families, and made partial progress on `job_and_jobtemplate` and
-  `device_defender`. `fleet_indexing` remains entirely untouched. See gopherstack-srzb
-  (updated with current per-family status) for the remaining deferred sub-surfaces.
+  `device_defender`. `fleet_indexing` was left entirely untouched, which is why that
+  pass's grade stopped at B+.
+- **Scope of this pass (2026-07-25)**: closed out `fleet_indexing`, the family the prior
+  pass explicitly left untouched. Field-diffed `SearchIndex` (both the `AWS_Things` and
+  `AWS_ThingGroups` index result shapes), `DescribeThingGroup`'s `thingGroupMetadata`,
+  and `GetCardinality`/`GetStatistics`/`GetPercentiles`/`GetBucketsAggregation` against
+  `aws-sdk-go-v2/service/iot@v1.76.0`'s deserializers directly (not against
+  gopherstack's own output, per parity-principles.md rule 2). Found and fixed 3 real,
+  previously-unflagged wire-shape bugs (see `fleet_indexing`'s `families:` note above):
+  a wrong-shaped/wrong-key `parentGroupNames` field and a missing
+  `thingGroupDescription` field on `SearchIndex`'s `ThingGroupDocument` results, a
+  completely absent `rootToParentThingGroups` field on `DescribeThingGroup`, and a
+  missing `sumOfSquares` field on `GetStatistics`. Also spot-checked (not exhaustively
+  diffed) `AuditFinding`'s wire shape in `device_defender`: its epoch-timestamp
+  encoding (`findingTime`) is correct (already `float64` seconds, consistent with this
+  service's Job/JobTemplate/CACertificate timestamp convention), but `isSuppressed`,
+  `reasonForNonComplianceCode`, and `taskStartTime` are missing entirely from
+  gopherstack's `AuditFinding` type -- left unfixed (large sub-surface, `device_defender`
+  remains explicitly `partial`, tracked under gopherstack-srzb along with
+  `job_and_jobtemplate`'s remaining advanced-field gaps). This is what justifies A-
+  rather than a full A: `fleet_indexing` is now `ok`, but two families remain
+  genuinely partial rather than exhaustively verified.

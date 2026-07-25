@@ -6,11 +6,14 @@ import (
 )
 
 type createFleetInput struct {
-	Tags            map[string]string `json:"tags"`
-	Name            string            `json:"name"`
-	ComputeType     string            `json:"computeType"`
-	EnvironmentType string            `json:"environmentType"`
-	BaseCapacity    int32             `json:"baseCapacity"`
+	Tags             map[string]string `json:"tags"`
+	Name             string            `json:"name"`
+	ComputeType      string            `json:"computeType"`
+	EnvironmentType  string            `json:"environmentType"`
+	OverflowBehavior string            `json:"overflowBehavior"`
+	ImageID          string            `json:"imageId"`
+	FleetServiceRole string            `json:"fleetServiceRole"`
+	BaseCapacity     int32             `json:"baseCapacity"`
 }
 
 type createFleetOutput struct {
@@ -25,7 +28,14 @@ func (h *Handler) handleCreateFleet(
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	f, err := h.Backend.CreateFleet(in.Name, in.BaseCapacity, in.ComputeType, in.EnvironmentType, in.Tags)
+	f, err := h.Backend.CreateFleet(in.Name, in.BaseCapacity, CreateFleetOptions{
+		ComputeType:      in.ComputeType,
+		EnvironmentType:  in.EnvironmentType,
+		OverflowBehavior: in.OverflowBehavior,
+		ImageID:          in.ImageID,
+		FleetServiceRole: in.FleetServiceRole,
+		Tags:             in.Tags,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -96,8 +106,13 @@ func (h *Handler) handleListFleets(_ context.Context, in *listFleetsInput) (*lis
 }
 
 type updateFleetInput struct {
-	Arn          string `json:"arn"`
-	BaseCapacity int32  `json:"baseCapacity"`
+	Arn              string `json:"arn"`
+	ComputeType      string `json:"computeType"`
+	EnvironmentType  string `json:"environmentType"`
+	OverflowBehavior string `json:"overflowBehavior"`
+	ImageID          string `json:"imageId"`
+	FleetServiceRole string `json:"fleetServiceRole"`
+	BaseCapacity     int32  `json:"baseCapacity"`
 }
 
 type updateFleetOutput struct {
@@ -109,7 +124,13 @@ func (h *Handler) handleUpdateFleet(_ context.Context, in *updateFleetInput) (*u
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
 	}
 
-	f, err := h.Backend.UpdateFleet(in.Arn, in.BaseCapacity)
+	f, err := h.Backend.UpdateFleet(in.Arn, in.BaseCapacity, UpdateFleetOptions{
+		ComputeType:      in.ComputeType,
+		EnvironmentType:  in.EnvironmentType,
+		OverflowBehavior: in.OverflowBehavior,
+		ImageID:          in.ImageID,
+		FleetServiceRole: in.FleetServiceRole,
+	})
 	if err != nil {
 		return nil, err
 	}

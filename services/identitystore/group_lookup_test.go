@@ -37,6 +37,78 @@ func TestListGroupsFilters(t *testing.T) {
 	assert.Equal(t, "Beta Team", groups[0].(map[string]any)["DisplayName"])
 }
 
+// TestListGroupsFilterUnrecognizedAttributePath is a regression test for a
+// bug where an unrecognized (but syntactically valid) Filter.AttributePath
+// silently matched every group instead of none -- groupMatchesFilters had no
+// default case in its switch, so the loop body fell through untouched for
+// any AttributePath other than "displayname"/"description", never excluding
+// the group. See groups.go's groupMatchesFilter doc comment and PARITY.md.
+func TestListGroupsFilterUnrecognizedAttributePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		attributePath  string
+		attributeValue string
+		wantStatus     int
+		wantCount      int
+	}{
+		{
+			name:           "recognized_display_name_path_matches_one",
+			attributePath:  "displayName",
+			attributeValue: "Filter Target",
+			wantStatus:     http.StatusOK,
+			wantCount:      1,
+		},
+		{
+			name:           "unrecognized_path_matches_nothing_not_everything",
+			attributePath:  "nickname",
+			attributeValue: "anything",
+			wantStatus:     http.StatusOK,
+			wantCount:      0,
+		},
+		{
+			name:           "malformed_attribute_path_is_a_validation_error",
+			attributePath:  "not valid!",
+			attributeValue: "anything",
+			wantStatus:     http.StatusBadRequest,
+			wantCount:      0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			for _, name := range []string{"Filter Target", "Other Group"} {
+				rec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     name,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "ListGroups", map[string]any{
+				"IdentityStoreId": testStoreID,
+				"Filters": []map[string]any{
+					{"AttributePath": tt.attributePath, "AttributeValue": tt.attributeValue},
+				},
+			})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			groups, ok := parseResponse(t, rec)["Groups"].([]any)
+			require.True(t, ok)
+			assert.Len(t, groups, tt.wantCount)
+		})
+	}
+}
+
 // TestListGroupsPagination verifies ListGroups MaxResults + NextToken pagination.
 func TestListGroupsPagination(t *testing.T) {
 	t.Parallel()

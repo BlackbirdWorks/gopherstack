@@ -295,10 +295,8 @@ func (h *Handler) parseAlternateIDRequest(c *echo.Context, body []byte) (alterna
 		)
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return alternateIDResult{}, h.writeError(
-			c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required",
-		)
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return alternateIDResult{}, err
 	}
 
 	attrPath, attrValue := extractAlternateIdentifier(req.AlternateIdentifier)
@@ -306,6 +304,23 @@ func (h *Handler) parseAlternateIDRequest(c *echo.Context, body []byte) (alterna
 		return alternateIDResult{}, h.writeError(
 			c, http.StatusBadRequest, "ValidationException", "AlternateIdentifier is required",
 		)
+	}
+
+	// Only UniqueAttribute.AttributePath is client-controlled free text; the
+	// ExternalId branch of extractAlternateIdentifier hardcodes attrPath to
+	// the literal "ExternalId", so it never needs an AttributePath pattern
+	// check -- but its Issuer/Id values still need their own pattern check.
+	if req.AlternateIdentifier.UniqueAttribute != nil {
+		const fieldName = "AlternateIdentifier.UniqueAttribute.AttributePath"
+		if err := validatePattern(patternAttributePath, fieldName, attrPath); err != nil {
+			return alternateIDResult{}, h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+		}
+	}
+
+	if ext := req.AlternateIdentifier.ExternalID; ext != nil {
+		if err := validateExternalIDs([]ExternalID{{Issuer: ext.Issuer, ID: ext.ID}}); err != nil {
+			return alternateIDResult{}, h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+		}
 	}
 
 	return alternateIDResult{storeID: req.IdentityStoreID, attrPath: attrPath, attrValue: attrValue}, nil

@@ -221,6 +221,85 @@ func TestHandler_CreateFleet_StatusSchema(t *testing.T) {
 	}
 }
 
+// fleetExtendedFields decodes the subset of Fleet fields added by this pass's
+// fix for CreateFleet/UpdateFleet silently dropping id/overflowBehavior/
+// imageId/fleetServiceRole (see PARITY.md).
+type fleetExtendedFields struct {
+	Fleet struct {
+		Arn              string `json:"arn"`
+		ID               string `json:"id"`
+		OverflowBehavior string `json:"overflowBehavior"`
+		ImageID          string `json:"imageId"`
+		FleetServiceRole string `json:"fleetServiceRole"`
+	} `json:"fleet"`
+}
+
+// TestHandler_CreateFleet_ExtendedFields is a regression test for a
+// previously-unflagged gap: CreateFleet accepted (or should have accepted)
+// overflowBehavior/imageId/fleetServiceRole but silently dropped them, and
+// Fleet had no "id" field at all despite the real Fleet shape having one
+// (verified against aws-sdk-go-v2/service/codebuild@v1.68.11's
+// awsAwsjson11_deserializeDocumentFleet, which has cases for "id",
+// "overflowBehavior", "imageId", and "fleetServiceRole").
+func TestHandler_CreateFleet_ExtendedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "CreateFleet", map[string]any{
+		"name":             "extended-fleet",
+		"baseCapacity":     1,
+		"computeType":      "BUILD_GENERAL1_SMALL",
+		"environmentType":  "LINUX_CONTAINER",
+		"overflowBehavior": "ON_DEMAND",
+		"imageId":          "aws/codebuild/standard:7.0",
+		"fleetServiceRole": "arn:aws:iam::000000000000:role/fleet-role",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out fleetExtendedFields
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.NotEmpty(t, out.Fleet.ID)
+	assert.Equal(t, "ON_DEMAND", out.Fleet.OverflowBehavior)
+	assert.Equal(t, "aws/codebuild/standard:7.0", out.Fleet.ImageID)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/fleet-role", out.Fleet.FleetServiceRole)
+}
+
+// TestHandler_UpdateFleet_ExtendedFields verifies UpdateFleet actually
+// applies overflowBehavior/imageId/fleetServiceRole/computeType/
+// environmentType changes instead of silently ignoring everything but
+// baseCapacity (the previous behavior).
+func TestHandler_UpdateFleet_ExtendedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, "CreateFleet", map[string]any{
+		"name":            "upd-extended-fleet",
+		"baseCapacity":    1,
+		"computeType":     "BUILD_GENERAL1_SMALL",
+		"environmentType": "LINUX_CONTAINER",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut fleetExtendedFields
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+
+	updRec := doRequest(t, h, "UpdateFleet", map[string]any{
+		"arn":              createOut.Fleet.Arn,
+		"baseCapacity":     3,
+		"overflowBehavior": "QUEUE",
+		"imageId":          "aws/codebuild/standard:6.0",
+		"fleetServiceRole": "arn:aws:iam::000000000000:role/updated-role",
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	var out fleetExtendedFields
+	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&out))
+	assert.Equal(t, createOut.Fleet.ID, out.Fleet.ID, "id must not change across an update")
+	assert.Equal(t, "QUEUE", out.Fleet.OverflowBehavior)
+	assert.Equal(t, "aws/codebuild/standard:6.0", out.Fleet.ImageID)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/updated-role", out.Fleet.FleetServiceRole)
+}
+
 // TestHandler_DeleteFleet_RemovesFleet verifies DeleteFleet actually removes the fleet.
 func TestHandler_DeleteFleet_RemovesFleet(t *testing.T) {
 	t.Parallel()

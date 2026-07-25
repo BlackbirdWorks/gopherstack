@@ -2,7 +2,7 @@
 service: elasticache
 sdk_module: aws-sdk-go-v2/service/elasticache@v1.51.11
 last_audit_commit: d5e1073d1
-last_audit_date: 2026-07-24
+last_audit_date: 2026-07-25
 overall: A-           # 2026-07-24 pass: implemented the two documented gaps from the
                        # prior ledger (state-transition guards, MaxRecords bounds), and
                        # field-diffing users/user-groups against aws-sdk-go-v2 turned up
@@ -14,11 +14,22 @@ overall: A-           # 2026-07-24 pass: implemented the two documented gaps fro
                        # gopherstack-invented `Description` field was serialized on
                        # UserGroup (the real type has none), while UserGroup's real
                        # `ReplicationGroups` field was left entirely unwired despite a
-                       # placeholder model field existing. All fixed this pass (see
-                       # Notes). Grade held at A- rather than A because two intentionally
-                       # deferred items remain (data-plane snapshot restore fidelity,
-                       # quota-exceeded faults) -- both are pre-existing, reasoned
-                       # deferrals, not new gaps.
+                       # placeholder model field existing. All fixed that pass (see
+                       # Notes). 2026-07-25 pass: field-diffed serverless_caches (which
+                       # the 2026-07-24 ledger marked "ok" without a full field diff) and
+                       # found the SAME bug class again -- serverlessCacheXML only wired
+                       # 5 of 13 real ServerlessCache fields, silently dropping
+                       # CreateTime/DailySnapshotTime/KmsKeyId/MajorEngineVersion/
+                       # SecurityGroupIds/SnapshotRetentionLimit/SubnetIds/UserGroupId
+                       # from every Create/Modify/Delete/DescribeServerlessCache response
+                       # despite the domain model already storing all of them; same for
+                       # ServerlessCacheSnapshot's CreateTime. Both fixed. Grade held at
+                       # A- rather than A because real gaps remain: two pre-existing,
+                       # reasoned deferrals (data-plane snapshot restore fidelity,
+                       # quota-exceeded faults), PLUS two newly-found-and-documented ones
+                       # this pass (ServerlessCache.CacheUsageLimits and
+                       # ServerlessCacheSnapshot's ExpiryTime/KmsKeyId/BytesUsedForCache/
+                       # ServerlessCacheConfiguration are unmodeled -- see gaps below).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 ops:
   CreateCacheCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CacheClusterNotFound 400->404; added SnapshotName restore (was silently ignored)"}
@@ -55,14 +66,14 @@ ops:
   DescribeSnapshots: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; automatic vs manual source filter verified ok; MaxRecords [20,100] now enforced"}
   CopySnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: SnapshotNotFoundFault 400->404"}
   DescribeEvents: {wire: ok, errors: ok, state: ok, persist: n/a, note: "MaxRecords [20,100] now enforced"}
-  CreateServerlessCache: {wire: ok, errors: ok, state: ok, persist: ok}
-  ModifyServerlessCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheNotFound -> ServerlessCacheNotFoundFault, 400->404; (2026-07-24) InvalidServerlessCacheStateFault guard added to both the wire-routed ModifyServerlessCache and the ModifyServerlessCacheFull variant"}
-  DeleteServerlessCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) InvalidServerlessCacheStateFault guard added"}
-  DescribeServerlessCaches: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced; handler deduped via describeListChecked"}
-  CreateServerlessCacheSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheNotFound code; ServerlessCacheSnapshotNotFoundFault status 400->404"}
+  CreateServerlessCache: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(2026-07-25) serverlessCacheXML was only wiring 5 of 13 real ServerlessCache fields (ARN/ServerlessCacheName/Description/Status/Engine + Endpoint/ReaderEndpoint) -- CreateTime/DailySnapshotTime/KmsKeyId/MajorEngineVersion/SecurityGroupIds/SnapshotRetentionLimit/SubnetIds/UserGroupId were silently dropped despite the domain model already storing all of them. Fixed; CacheUsageLimits remains unmodeled (see gaps)"}
+  ModifyServerlessCache: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheNotFound -> ServerlessCacheNotFoundFault, 400->404; (2026-07-24) InvalidServerlessCacheStateFault guard added to both the wire-routed ModifyServerlessCache and the ModifyServerlessCacheFull variant; (2026-07-25) same wire-shape fix as CreateServerlessCache"}
+  DeleteServerlessCache: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: same; (2026-07-24) InvalidServerlessCacheStateFault guard added; (2026-07-25) same wire-shape fix as CreateServerlessCache"}
+  DescribeServerlessCaches: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced; handler deduped via describeListChecked; (2026-07-25) same wire-shape fix as CreateServerlessCache -- verified end to end this time via a real SDK client round trip, not just a backend-struct assertion (TestHandler_ServerlessCache_WireShapeFieldsSurfaced)"}
+  CreateServerlessCacheSnapshot: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheNotFound code; ServerlessCacheSnapshotNotFoundFault status 400->404; (2026-07-25) added missing CreateTime wire field (domain model already stored it as CreatedAt, never wired)"}
   CopyServerlessCacheSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ServerlessCacheSnapshotNotFoundFault status 400->404"}
   DeleteServerlessCacheSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same"}
-  DescribeServerlessCacheSnapshots: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced"}
+  DescribeServerlessCacheSnapshots: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: same; MaxRecords [20,100] now enforced; (2026-07-25) CreateTime wire fix, see CreateServerlessCacheSnapshot"}
   ExportServerlessCacheSnapshot: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (2026-07-24): DELETED gopherstack-invented `NoPasswordRequired` wire output field (types.User/CreateUserResult have no such field); now serializes the real Authentication{Type,PasswordCount} struct and UserGroupIds list. Handles AuthenticationMode.Type (password/no-password-required/iam, translated to output's password/no-password/iam) + AuthenticationMode.Passwords / legacy top-level Passwords (1-2, else InvalidParameterValue) + legacy NoPasswordRequired bool. New CreateUserWithAuth backend method carries the full model; CreateUser(bool) kept as a thin legacy wrapper so existing call sites are unaffected"}
   ModifyUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UserNotFound 400->404; InvalidParameterValueException -> InvalidParameterValue; (2026-07-24) added AppendAccessString (was unhandled -- ModifyUserInput has both AccessString and AppendAccessString), Engine, and the same Authentication-model handling as CreateUser via new ModifyUserWithAuth"}
@@ -103,14 +114,16 @@ families:
   cache_subnet_groups: {status: ok}
   cache_security_groups: {status: ok}
   snapshots: {status: ok, note: "automatic vs manual source tracked (SnapshotSource field), CopySnapshot real; CreateCacheCluster/CreateReplicationGroup SnapshotName restore was a genuine gap, now fixed (a prior pass)"}
-  serverless_caches: {status: ok, note: "(2026-07-24) InvalidServerlessCacheStateFault guard on Modify/Delete"}
+  serverless_caches: {status: ok, note: "(2026-07-24) InvalidServerlessCacheStateFault guard on Modify/Delete. (2026-07-25) MAJOR wire-shape fix, same bug class as 2026-07-24's users_and_user_groups fix: serverlessCacheXML only wired 5/13 real ServerlessCache fields and serverlessCacheSnapshotXML was missing CreateTime entirely, despite the domain model already storing everything needed. Verified via a real SDK-client round trip this time (TestHandler_ServerlessCache_WireShapeFieldsSurfaced), not just backend-struct assertions -- the existing TestHandler_DescribeServerlessCache_UserGroupId only checked the Go struct and would not have caught this. ServerlessCache.CacheUsageLimits and ServerlessCacheSnapshot's ExpiryTime/KmsKeyId/BytesUsedForCache/ServerlessCacheConfiguration remain unmodeled -- newly found, see gaps below"}
   users_and_user_groups: {status: ok, note: "(2026-07-24) MAJOR wire-shape fix: User's Authentication{Type,PasswordCount} + UserGroupIds were entirely absent from the wire response (a gopherstack-invented NoPasswordRequired boolean stood in their place); UserGroup's real ReplicationGroups field was unwired and a gopherstack-invented Description field was serialized instead. The prior ledger's 'RBAC access string, authentication (password/IAM/NoPasswordRequired) all real' note was WRONG -- IAM/password auth type was never distinguishable on the wire, only a boolean. Both fixed; see ops table and Notes"}
   reserved_nodes: {status: ok, note: "RecurringCharges list always empty (no pricing model) -- see PurchaseReservedCacheNodesOffering note; low-priority, not fixed this pass"}
   service_updates_and_events: {status: ok, note: "DescribeEvents wire shape (Event/Events/Marker) verified against api-2.json exactly"}
   tags: {status: ok, note: "Add/Remove/List via ARN; ErrResourceNotFound correctly surfaces as InvalidARN (matches AWS's own tag-op behavior for a resource ARN that doesn't resolve)"}
   timestamps: {status: ok, note: "RFC3339 ISO8601 strings used throughout -- CORRECT for this query/XML protocol; do NOT flag as an epoch-seconds bug (awstime.Epoch is for json/rest-json protocols only, not applicable here)"}
-gaps: []
-  # Both gaps in the 2026-07-12 ledger are fixed this pass:
+gaps:
+  - "ServerlessCache.CacheUsageLimits (real types.ServerlessCache field, confirmed via awsAwsquery_deserializeDocumentServerlessCache's \"CacheUsageLimits\" case) is not modeled anywhere in gopherstack's domain ServerlessCache type. Found 2026-07-25 while fixing the sibling wire-mapping bugs on this same struct; unlike those (which were pure missing-wire-mapping bugs -- the domain model already had the data), this is a genuine missing-feature gap: data/ECPU usage-limit configuration and validation would need to be designed and modeled from scratch. Not fixed this pass, no bd filed yet."
+  - "ServerlessCacheSnapshot.ExpiryTime/KmsKeyId/BytesUsedForCache/ServerlessCacheConfiguration (real types.ServerlessCacheSnapshot fields, confirmed via awsAwsquery_deserializeDocumentServerlessCacheSnapshot) are not modeled in gopherstack's domain ServerlessCacheSnapshot type (which only has CreatedAt, now wired -- see ops table). Same reasoning as the CacheUsageLimits gap above: genuine missing-feature scope (snapshot expiry/KMS/size/config-at-snapshot-time tracking), not a quick wire fix. Not fixed this pass, no bd filed yet."
+  # Both gaps in the 2026-07-12 ledger are fixed as of the 2026-07-24 pass:
   #  - State-transition guards: implemented for cache clusters, replication groups
   #    (all mutating ops except migration -- see Notes), serverless caches, and global
   #    replication groups. requireAvailableLocked in lifecycle.go is the shared guard;
@@ -253,3 +266,49 @@ have caught -- they required an actual field-by-field diff of the response struc
 `types.User`/`types.UserGroup`, which is why this pass explicitly re-diffed every family's
 wire shape rather than trusting prior "ok" statuses at face value, per this campaign's
 instructions.
+
+**2026-07-25 pass -- serverless_caches wire-shape bugs (same class as 2026-07-24's
+users_and_user_groups fix, found again on a family the previous pass had marked "ok")**:
+this campaign's instruction is that an empty `gaps:`/clean `ok` status is not itself evidence
+of parity, so `serverless_caches` (last touched 2026-07-24 only for its state-guard fix, not a
+full field diff) was field-diffed fresh against
+`aws-sdk-go-v2/service/elasticache@v1.51.11/types/types.go` and
+`awsAwsquery_deserializeDocumentServerlessCache`/`awsAwsquery_deserializeDocumentServerlessCacheSnapshot`
+directly. Found: `serverlessCacheXML` (`handler_serverless.go`) mapped only 5 of the real
+`ServerlessCache` shape's 13 members (`ARN`/`ServerlessCacheName`/`Description`/`Status`/`Engine`,
+plus `Endpoint`/`ReaderEndpoint`) -- `CreateTime`/`DailySnapshotTime`/`KmsKeyId`/
+`MajorEngineVersion`/`SecurityGroupIds`/`SnapshotRetentionLimit`/`SubnetIds`/`UserGroupId` were
+silently dropped from every `CreateServerlessCache`/`ModifyServerlessCache`/
+`DeleteServerlessCache`/`DescribeServerlessCaches` response, despite the domain `ServerlessCache`
+Go struct already storing every one of those values (`serverless.go` populates them at
+create/modify time; they just were never read back out into the XML wire struct). This is
+purely a missing-wire-mapping bug, not a missing-data gap -- confirmed by checking that
+`ServerlessCache.KmsKeyID`/`UserGroupID`/`SubnetIDs`/etc. are all real, populated fields on the
+domain model. Fixed by expanding `serverlessCacheXML` to cover every wired field, plus new
+`securityGroupIDsXML`/`subnetIDsXML` wrapper types (their list items use dedicated per-list
+element names `SecurityGroupId`/`SubnetId`, NOT the generic `member` locationName User's
+`UserGroupIds` list uses -- verified against the deserializer, would have been a second,
+subtler bug to get this wrong). `FullEngineVersion` was deliberately left unset rather than
+synthesized from `Engine`+`MajorEngineVersion`, since no verified real format exists for that
+combination and a plausible-but-wrong guess would violate parity-principles.md's
+no-fabrication rule. Same missing-`CreateTime` bug found and fixed on
+`serverlessCacheSnapshotXML`.
+
+**Why the 2026-07-24 pass's `serverless_caches: ok` didn't catch this**: that pass's serverless
+work was scoped to state-transition guards (a genuinely different concern -- when a mutation is
+*allowed*, not what its *response* contains) and error-code fixes; it never re-diffed the
+response body's field set against `types.ServerlessCache`, so the `ok` status was carried
+forward from an earlier, less rigorous pass. This is the second time in two passes that a
+blanket `ok`/`gaps: []` status masked a real, substantial wire-shape gap on this service --
+worth remembering that "no gaps filed" and "clean field diff done" are not the same claim.
+
+**Verification method note**: the existing `TestHandler_DescribeServerlessCache_UserGroupId`
+test asserts `UserGroupID` directly against the Go-level backend struct returned by
+`DescribeServerlessCaches`, not against the actual XML the SDK client parses -- it would NOT
+have caught this bug (the backend struct always had the field; only the XML mapping was
+missing). The new `TestHandler_ServerlessCache_WireShapeFieldsSurfaced`/
+`TestHandler_ServerlessCacheSnapshot_CreateTimeSurfaced` tests drive a real generated
+`elasticachesdk.Client` against an `httptest` server instead, exercising the actual wire
+encode/decode round trip -- this is the same "unit tests are not parity proof" lesson
+`parity-principles.md` rule 3 already documents from other services' sweeps, now reconfirmed
+here.

@@ -424,7 +424,9 @@ func TestBackend_Reset(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateFleet("reset-fleet", 1, "BUILD_GENERAL1_SMALL", "LINUX_CONTAINER", nil)
+	_, err = b.CreateFleet("reset-fleet", 1, codebuild.CreateFleetOptions{
+		ComputeType: "BUILD_GENERAL1_SMALL", EnvironmentType: "LINUX_CONTAINER",
+	})
 	require.NoError(t, err)
 
 	_, err = b.CreateReportGroup("reset-rg", "TEST", codebuild.ReportExportConfig{}, nil)

@@ -60,8 +60,8 @@ func (h *Handler) handleCreateGroup(ctx context.Context, c *echo.Context, body [
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	// DisplayName is NOT required by the real CreateGroup API (only
@@ -88,8 +88,8 @@ func (h *Handler) handleDescribeGroup(ctx context.Context, c *echo.Context, body
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.GroupID) == "" {
@@ -111,11 +111,15 @@ func (h *Handler) handleListGroups(ctx context.Context, c *echo.Context, body []
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if err := validateMaxResults(req.MaxResults); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
+	if err := validateFilters(req.Filters); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
@@ -135,8 +139,8 @@ func (h *Handler) handleUpdateGroup(ctx context.Context, c *echo.Context, body [
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.GroupID) == "" {
@@ -160,8 +164,8 @@ func (h *Handler) handleDeleteGroup(ctx context.Context, c *echo.Context, body [
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	if err := h.requireIdentityStoreID(c, req.IdentityStoreID); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(req.GroupID) == "" {
