@@ -5,7 +5,11 @@ import (
 	"fmt"
 )
 
-type createProjectInput struct {
+// projectConfigFields holds the CodeBuild project configuration fields shared
+// by the CreateProject and UpdateProject request bodies. Both operations
+// accept the same set of project properties; only the surrounding input type
+// and JSON `omitempty` presentation differ.
+type projectConfigFields struct {
 	Cache                   *ProjectCache          `json:"cache"`
 	Source                  *ProjectSource         `json:"source"`
 	Artifacts               *ProjectArtifacts      `json:"artifacts"`
@@ -15,7 +19,6 @@ type createProjectInput struct {
 	LogsConfig              *LogsConfig            `json:"logsConfig"`
 	Environment             *ProjectEnvironment    `json:"environment"`
 	Description             string                 `json:"description"`
-	Name                    string                 `json:"name"`
 	EncryptionKey           string                 `json:"encryptionKey"`
 	ServiceRole             string                 `json:"serviceRole"`
 	ResourceAccessRole      string                 `json:"resourceAccessRole"`
@@ -30,6 +33,42 @@ type createProjectInput struct {
 	AutoRetryLimit          int32                  `json:"autoRetryLimit"`
 }
 
+// toProjectConfig converts the shared request fields plus a project name into
+// a ProjectConfig for the backend. UpdateProject ignores ProjectConfig.Name
+// (the name is passed separately), so setting it unconditionally is safe for
+// both callers.
+func (f projectConfigFields) toProjectConfig(name string) ProjectConfig {
+	return ProjectConfig{
+		Name:                    name,
+		Description:             f.Description,
+		Source:                  f.Source,
+		Artifacts:               f.Artifacts,
+		Environment:             f.Environment,
+		ServiceRole:             f.ServiceRole,
+		EncryptionKey:           f.EncryptionKey,
+		ResourceAccessRole:      f.ResourceAccessRole,
+		TimeoutInMinutes:        f.TimeoutInMinutes,
+		QueuedTimeoutInMinutes:  f.QueuedTimeoutInMinutes,
+		ConcurrentBuildLimit:    f.ConcurrentBuildLimit,
+		AutoRetryLimit:          f.AutoRetryLimit,
+		Tags:                    f.Tags,
+		SecondarySources:        f.SecondarySources,
+		SecondaryArtifacts:      f.SecondaryArtifacts,
+		SecondarySourceVersions: f.SecondarySourceVersions,
+		FileSystemLocations:     f.FileSystemLocations,
+		Cache:                   f.Cache,
+		LogsConfig:              f.LogsConfig,
+		VpcConfig:               f.VpcConfig,
+		BuildBatchConfig:        f.BuildBatchConfig,
+		SourceVersion:           f.SourceVersion,
+	}
+}
+
+type createProjectInput struct {
+	Name string `json:"name"`
+	projectConfigFields
+}
+
 type createProjectOutput struct {
 	Project *Project `json:"project"`
 }
@@ -42,30 +81,7 @@ func (h *Handler) handleCreateProject(
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.CreateProject(ProjectConfig{
-		Name:                    in.Name,
-		Description:             in.Description,
-		Source:                  in.Source,
-		Artifacts:               in.Artifacts,
-		Environment:             in.Environment,
-		ServiceRole:             in.ServiceRole,
-		EncryptionKey:           in.EncryptionKey,
-		ResourceAccessRole:      in.ResourceAccessRole,
-		TimeoutInMinutes:        in.TimeoutInMinutes,
-		QueuedTimeoutInMinutes:  in.QueuedTimeoutInMinutes,
-		ConcurrentBuildLimit:    in.ConcurrentBuildLimit,
-		AutoRetryLimit:          in.AutoRetryLimit,
-		Tags:                    in.Tags,
-		SecondarySources:        in.SecondarySources,
-		SecondaryArtifacts:      in.SecondaryArtifacts,
-		SecondarySourceVersions: in.SecondarySourceVersions,
-		FileSystemLocations:     in.FileSystemLocations,
-		Cache:                   in.Cache,
-		LogsConfig:              in.LogsConfig,
-		VpcConfig:               in.VpcConfig,
-		BuildBatchConfig:        in.BuildBatchConfig,
-		SourceVersion:           in.SourceVersion,
-	})
+	p, err := h.Backend.CreateProject(in.toProjectConfig(in.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -95,28 +111,8 @@ func (h *Handler) handleBatchGetProjects(
 }
 
 type updateProjectInput struct {
-	Cache                   *ProjectCache          `json:"cache,omitempty"`
-	Source                  *ProjectSource         `json:"source,omitempty"`
-	Artifacts               *ProjectArtifacts      `json:"artifacts,omitempty"`
-	Tags                    map[string]string      `json:"tags"`
-	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig,omitempty"`
-	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
-	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
-	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
-	Description             string                 `json:"description"`
-	Name                    string                 `json:"name"`
-	EncryptionKey           string                 `json:"encryptionKey"`
-	ServiceRole             string                 `json:"serviceRole"`
-	ResourceAccessRole      string                 `json:"resourceAccessRole"`
-	SourceVersion           string                 `json:"sourceVersion"`
-	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts"`
-	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions"`
-	SecondarySources        []ProjectSource        `json:"secondarySources"`
-	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations"`
-	TimeoutInMinutes        int32                  `json:"timeoutInMinutes"`
-	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes"`
-	ConcurrentBuildLimit    int32                  `json:"concurrentBuildLimit"`
-	AutoRetryLimit          int32                  `json:"autoRetryLimit"`
+	Name string `json:"name"`
+	projectConfigFields
 }
 
 type updateProjectOutput struct {
@@ -131,29 +127,7 @@ func (h *Handler) handleUpdateProject(
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.UpdateProject(in.Name, ProjectConfig{
-		Description:             in.Description,
-		Source:                  in.Source,
-		Artifacts:               in.Artifacts,
-		Environment:             in.Environment,
-		ServiceRole:             in.ServiceRole,
-		EncryptionKey:           in.EncryptionKey,
-		ResourceAccessRole:      in.ResourceAccessRole,
-		TimeoutInMinutes:        in.TimeoutInMinutes,
-		QueuedTimeoutInMinutes:  in.QueuedTimeoutInMinutes,
-		ConcurrentBuildLimit:    in.ConcurrentBuildLimit,
-		AutoRetryLimit:          in.AutoRetryLimit,
-		Tags:                    in.Tags,
-		SecondarySources:        in.SecondarySources,
-		SecondaryArtifacts:      in.SecondaryArtifacts,
-		SecondarySourceVersions: in.SecondarySourceVersions,
-		FileSystemLocations:     in.FileSystemLocations,
-		Cache:                   in.Cache,
-		LogsConfig:              in.LogsConfig,
-		VpcConfig:               in.VpcConfig,
-		BuildBatchConfig:        in.BuildBatchConfig,
-		SourceVersion:           in.SourceVersion,
-	})
+	p, err := h.Backend.UpdateProject(in.Name, in.toProjectConfig(in.Name))
 	if err != nil {
 		return nil, err
 	}

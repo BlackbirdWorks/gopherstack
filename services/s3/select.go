@@ -440,57 +440,7 @@ func writeSelectEvent(w io.Writer, eventType, contentType string, payload []byte
 func buildEventStreamMessage(eventType, contentType string, payload []byte) ([]byte, error) {
 	headers := encodeSelectHeaders(eventType, contentType)
 
-	headersLen := uint32(len(headers)) //nolint:gosec // headers are small; no overflow possible
-	payloadLen := uint32(len(payload)) //nolint:gosec // payload bounded by S3 object size
-	totalLen := eventStreamMinMsgLen + headersLen + payloadLen
-
-	crcHash := crc32.New(crc32.IEEETable)
-
-	var buf bytes.Buffer
-
-	// writeChunk writes data to both the buffer and the running CRC hash.
-	writeChunk := func(data []byte) error {
-		if _, err := buf.Write(data); err != nil {
-			return err
-		}
-
-		_, err := crcHash.Write(data)
-
-		return err
-	}
-
-	prelude := make([]byte, eventStreamPreludeLen)
-	binary.BigEndian.PutUint32(prelude[0:], totalLen)
-	binary.BigEndian.PutUint32(prelude[4:], headersLen)
-
-	if err := writeChunk(prelude); err != nil {
-		return nil, err
-	}
-
-	preludeCRC := make([]byte, eventStreamPreludeCRCLen)
-	binary.BigEndian.PutUint32(preludeCRC, crcHash.Sum32())
-
-	if err := writeChunk(preludeCRC); err != nil {
-		return nil, err
-	}
-
-	if len(headers) > 0 {
-		if err := writeChunk(headers); err != nil {
-			return nil, err
-		}
-	}
-
-	if len(payload) > 0 {
-		if err := writeChunk(payload); err != nil {
-			return nil, err
-		}
-	}
-
-	msgCRC := make([]byte, eventStreamMsgCRCLen)
-	binary.BigEndian.PutUint32(msgCRC, crcHash.Sum32())
-	buf.Write(msgCRC) // bytes.Buffer.Write never returns an error
-
-	return buf.Bytes(), nil
+	return buildEventStreamMessageRaw(headers, payload)
 }
 
 // encodeSelectHeaders encodes event-stream headers for SelectObjectContent events.

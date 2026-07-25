@@ -2,7 +2,6 @@ package guardduty
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -11,8 +10,6 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -316,65 +313,41 @@ func isGuardDutyTagsPath(path string) bool {
 	return strings.Contains(rest, ":guardduty:")
 }
 
+// restRouter returns the shared REST-path routing/dispatch wiring for this
+// handler. See service.RESTRouter: GuardDuty's routing reduces entirely to
+// parsing an operation out of (method, path) and dispatching on it, so the
+// HTTP glue lives in pkgs/service instead of being duplicated here.
+func (h *Handler) restRouter() service.RESTRouter {
+	return service.RESTRouter{
+		ServiceName: guardDutyService,
+		Priority:    matchPriority,
+		Parse:       parseRESTPath,
+		OpUnknown:   opUnknown,
+		NotFoundBody: func() any {
+			return errBody(errResourceNotFound, "not found")
+		},
+		BadRequestBody: func() any {
+			return errBody("BadRequestException", "failed to read body")
+		},
+		InternalErrorBody: func() any {
+			return errBody("InternalFailure", "serialization failed")
+		},
+		Dispatch:    h.dispatch,
+		HandleError: h.handleError,
+	}
+}
+
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return matchPriority }
+func (h *Handler) MatchPriority() int { return h.restRouter().MatchPriority() }
 
 // ExtractOperation extracts the operation name from the request.
-func (h *Handler) ExtractOperation(c *echo.Context) string {
-	op, _ := parseRESTPath(c.Request().Method, c.Request().URL.Path)
-
-	return op
-}
+func (h *Handler) ExtractOperation(c *echo.Context) string { return h.restRouter().ExtractOperation(c) }
 
 // ExtractResource extracts the resource identifier from the request.
-func (h *Handler) ExtractResource(c *echo.Context) string {
-	_, resource := parseRESTPath(c.Request().Method, c.Request().URL.Path)
-
-	return resource
-}
+func (h *Handler) ExtractResource(c *echo.Context) string { return h.restRouter().ExtractResource(c) }
 
 // Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		return h.handleREST(c)
-	}
-}
-
-func (h *Handler) handleREST(c *echo.Context) error {
-	ctx := c.Request().Context()
-	log := logger.Load(ctx)
-
-	op, _ := parseRESTPath(c.Request().Method, c.Request().URL.Path)
-
-	if op == opUnknown {
-		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, "not found"))
-	}
-
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errBody("BadRequestException", "failed to read body"))
-	}
-
-	result, statusCode, opErr := h.dispatch(ctx, op, c.Request().URL.Path, c.Request().URL.RawQuery, body)
-	if opErr != nil {
-		log.Error("guardduty operation error", "op", op, "err", opErr)
-
-		return h.handleError(c, opErr)
-	}
-
-	if result == nil {
-		return c.JSON(statusCode, struct{}{})
-	}
-
-	data, jsonErr := json.Marshal(result)
-	if jsonErr != nil {
-		return c.JSON(http.StatusInternalServerError, errBody("InternalFailure", "serialization failed"))
-	}
-
-	c.Response().Header().Set("Content-Type", "application/json")
-
-	return c.JSONBlob(statusCode, data)
-}
+func (h *Handler) Handler() echo.HandlerFunc { return h.restRouter().Handler() }
 
 func (h *Handler) dispatch(
 	_ context.Context,
