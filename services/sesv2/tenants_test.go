@@ -255,6 +255,139 @@ func TestTenantCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code, "ListTenants: %s", rec3.Body)
 }
 
+// TestPutTenantSuppressionAttributes tests the PutTenantSuppressionAttributes
+// operation. Note the real path is the singular /v2/email/tenant/suppression
+// -- a distinct top-level segment from the rest of the tenant family's plural
+// /v2/email/tenants/... (confirmed against serializers.go; see
+// parseTenantSuppressionPath's doc comment). Valid reasons/scope persist onto
+// the tenant and are reflected by GetTenant's SuppressionAttributes; an
+// invalid reason is a BadRequestException; a nonexistent tenant is a
+// NotFoundException.
+func TestPutTenantSuppressionAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		suppressionScope  string
+		name              string
+		tenantName        string
+		suppressedReasons []any
+		createTenant      bool
+		wantStatus        int
+	}{
+		{
+			name:              "bounce_and_complaint_tenant_scope",
+			tenantName:        "SuppressionTenant",
+			suppressedReasons: []any{"BOUNCE", "COMPLAINT"},
+			suppressionScope:  "TENANT",
+			createTenant:      true,
+			wantStatus:        http.StatusOK,
+		},
+		{
+			name:              "bounce_only_account_scope",
+			tenantName:        "SuppressionTenant2",
+			suppressedReasons: []any{"BOUNCE"},
+			suppressionScope:  "ACCOUNT",
+			createTenant:      true,
+			wantStatus:        http.StatusOK,
+		},
+		{
+			name:              "invalid_reason",
+			tenantName:        "SuppressionTenant3",
+			suppressedReasons: []any{"BOGUS"},
+			createTenant:      true,
+			wantStatus:        http.StatusBadRequest,
+		},
+		{
+			name:              "invalid_scope",
+			tenantName:        "SuppressionTenant4",
+			suppressedReasons: []any{"BOUNCE"},
+			suppressionScope:  "BOGUS",
+			createTenant:      true,
+			wantStatus:        http.StatusBadRequest,
+		},
+		{
+			name:              "tenant_not_found",
+			tenantName:        "GhostTenant",
+			suppressedReasons: []any{"BOUNCE"},
+			createTenant:      false,
+			wantStatus:        http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			if tt.createTenant {
+				doRequest(t, h, http.MethodPost, "/v2/email/tenants", map[string]any{"TenantName": tt.tenantName})
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/v2/email/tenant/suppression", map[string]any{
+				"TenantName":        tt.tenantName,
+				"SuppressedReasons": tt.suppressedReasons,
+				"SuppressionScope":  tt.suppressionScope,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code, "body: %s", rec.Body)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			getRec := doRequest(t, h, http.MethodPost, "/v2/email/tenants/get", map[string]any{
+				"TenantName": tt.tenantName,
+			})
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			resp := decodeJSON(t, getRec)
+			tenant, ok := resp["Tenant"].(map[string]any)
+			require.True(t, ok)
+
+			suppression, ok := tenant["SuppressionAttributes"].(map[string]any)
+			require.True(t, ok, "GetTenant response missing SuppressionAttributes: %s", getRec.Body)
+			assert.ElementsMatch(t, tt.suppressedReasons, suppression["SuppressedReasons"])
+			assert.Equal(t, tt.suppressionScope, suppression["SuppressionScope"])
+		})
+	}
+}
+
+// TestPutTenantSuppressionAttributesSDKRoundTrip drives
+// CreateTenant/PutTenantSuppressionAttributes/GetTenant through the real
+// aws-sdk-go-v2 sesv2 client so the tenantSuppressionAttributesOutput typed
+// DTO (wire_output.go) is verified by the genuine SDK deserializer.
+func TestPutTenantSuppressionAttributesSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	client := newSESv2SDKClient(t, h)
+
+	_, err := client.CreateTenant(t.Context(), &sesv2sdk.CreateTenantInput{
+		TenantName: aws.String("sdk-suppression-tenant"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutTenantSuppressionAttributes(t.Context(), &sesv2sdk.PutTenantSuppressionAttributesInput{
+		TenantName:        aws.String("sdk-suppression-tenant"),
+		SuppressedReasons: []sesv2types.SuppressionListReason{sesv2types.SuppressionListReasonComplaint},
+		SuppressionScope:  sesv2types.SuppressionListScopeTenant,
+	})
+	require.NoError(t, err)
+
+	getOut, err := client.GetTenant(t.Context(), &sesv2sdk.GetTenantInput{
+		TenantName: aws.String("sdk-suppression-tenant"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.Tenant)
+	require.NotNil(t, getOut.Tenant.SuppressionAttributes)
+	assert.Equal(
+		t,
+		[]sesv2types.SuppressionListReason{sesv2types.SuppressionListReasonComplaint},
+		getOut.Tenant.SuppressionAttributes.SuppressedReasons,
+	)
+	assert.Equal(t, sesv2types.SuppressionListScopeTenant, getOut.Tenant.SuppressionAttributes.SuppressionScope)
+}
+
 // TestGetTenant_NotFound verifies NotFoundException for an unknown tenant.
 func TestGetTenant_NotFound(t *testing.T) {
 	t.Parallel()

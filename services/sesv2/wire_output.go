@@ -308,6 +308,89 @@ func toImportJobOutput(j *ImportJob) *importJobOutput {
 	return &importJobOutput{JobID: j.JobID, JobStatus: j.JobStatus, CreatedTimestamp: awstime.Epoch(j.CreatedAt)}
 }
 
+// ---- account ----
+//
+// GetAccount previously marshalled the internal *AccountDetails struct
+// directly, which (like the other families documented above) uses
+// lowerCamelCase JSON tags for the on-disk snapshot format -- not the real
+// AWS response shape, which is a top-level object with a nested "Details"
+// sub-object (types.AccountDetails), a nested "SuppressionAttributes"
+// sub-object (types.SuppressionAttributes, not a bare array), and a nested
+// "PricingAttributes" sub-object (types.PricingAttributes). Field-diffed
+// against GetAccountOutput/types.AccountDetails/types.SuppressionAttributes/
+// types.PricingAttributes (aws-sdk-go-v2/service/sesv2 v1.66.0). Fields real
+// SES v2 documents that gopherstack has no data source for --
+// EnforcementStatus, ProductionAccessEnabled, SendQuota -- are omitted
+// (they're all pointer/optional in the real shape) rather than fabricated;
+// see PARITY.md.
+
+// accountDetailsOutput mirrors types.AccountDetails (the nested "Details"
+// object). AdditionalContactEmailAddresses and ReviewDetails are always
+// omitted: gopherstack doesn't model the account-review workflow.
+type accountDetailsOutput struct {
+	MailType           string `json:"MailType,omitempty"`
+	WebsiteURL         string `json:"WebsiteURL,omitempty"`
+	ContactLanguage    string `json:"ContactLanguage,omitempty"`
+	UseCaseDescription string `json:"UseCaseDescription,omitempty"`
+}
+
+// accountSuppressionAttributesOutput mirrors types.SuppressionAttributes.
+// ValidationAttributes is always omitted: gopherstack has no destination
+// suppression-validation feature to report on.
+type accountSuppressionAttributesOutput struct {
+	SuppressedReasons []string `json:"SuppressedReasons,omitempty"`
+}
+
+// accountPricingAttributesOutput mirrors types.PricingAttributes. NextPlan is
+// always empty: gopherstack has no billing-cycle concept, so
+// PutAccountPricingAttributes takes effect immediately as CurrentPlan and
+// there is never a "scheduled" next plan to report.
+type accountPricingAttributesOutput struct {
+	CurrentPlan string `json:"CurrentPlan,omitempty"`
+	NextPlan    string `json:"NextPlan,omitempty"`
+}
+
+// accountOutput mirrors GetAccountOutput's top-level fields.
+type accountOutput struct {
+	Details                      *accountDetailsOutput               `json:"Details,omitempty"`
+	SuppressionAttributes        *accountSuppressionAttributesOutput `json:"SuppressionAttributes,omitempty"`
+	PricingAttributes            *accountPricingAttributesOutput     `json:"PricingAttributes,omitempty"`
+	VdmAttributes                map[string]any                      `json:"VdmAttributes,omitempty"`
+	SendingEnabled               bool                                `json:"SendingEnabled"`
+	DedicatedIPAutoWarmupEnabled bool                                `json:"DedicatedIpAutoWarmupEnabled"`
+}
+
+// toAccountOutput builds the AWS-shaped GetAccount response from the internal
+// (lowerCamelCase, snapshot-format) AccountDetails struct.
+func toAccountOutput(d *AccountDetails) *accountOutput {
+	out := &accountOutput{
+		SendingEnabled:               d.SendingEnabled,
+		DedicatedIPAutoWarmupEnabled: d.AutoWarmupEnabled,
+		VdmAttributes:                d.VdmAttributes,
+	}
+
+	if d.MailType != "" || d.WebsiteURL != "" || d.ContactLanguage != "" || d.UseCaseName != "" {
+		out.Details = &accountDetailsOutput{
+			MailType:           d.MailType,
+			WebsiteURL:         d.WebsiteURL,
+			ContactLanguage:    d.ContactLanguage,
+			UseCaseDescription: d.UseCaseName,
+		}
+	}
+
+	if d.SuppressionAttributes != nil {
+		out.SuppressionAttributes = &accountSuppressionAttributesOutput{
+			SuppressedReasons: d.SuppressionAttributes,
+		}
+	}
+
+	if d.PricingPlan != "" {
+		out.PricingAttributes = &accountPricingAttributesOutput{CurrentPlan: d.PricingPlan}
+	}
+
+	return out
+}
+
 // ---- tenant ----
 //
 // tenants.go's backend maps (b.tenants: map[string]map[string]any) are
@@ -342,24 +425,48 @@ func mapTagEntries(m map[string]any, key string) []tagEntry {
 	return entries
 }
 
+// tenantSuppressionAttributesOutput mirrors types.TenantSuppressionAttributes.
+type tenantSuppressionAttributesOutput struct {
+	SuppressionScope  string   `json:"SuppressionScope,omitempty"`
+	SuppressedReasons []string `json:"SuppressedReasons,omitempty"`
+}
+
+// toTenantSuppressionAttributesOutput reads the SuppressedReasons/
+// SuppressionScope keys PutTenantSuppressionAttributes (tenants.go) writes
+// onto the tenant map, returning nil (so the field is omitted, matching the
+// real API's pointer-optional shape) if PutTenantSuppressionAttributes was
+// never called for this tenant.
+func toTenantSuppressionAttributesOutput(t map[string]any) *tenantSuppressionAttributesOutput {
+	reasons, hasReasons := t[keySuppressedReasons].([]string)
+	scope, hasScope := t[keySuppressionScope].(string)
+
+	if !hasReasons && !hasScope {
+		return nil
+	}
+
+	return &tenantSuppressionAttributesOutput{SuppressedReasons: reasons, SuppressionScope: scope}
+}
+
 // tenantOutput mirrors types.Tenant (CreateTenantOutput/GetTenantOutput.Tenant).
 type tenantOutput struct {
-	TenantName       string     `json:"TenantName"`
-	TenantID         string     `json:"TenantId,omitempty"`
-	TenantARN        string     `json:"TenantArn,omitempty"`
-	SendingStatus    string     `json:"SendingStatus,omitempty"`
-	Tags             []tagEntry `json:"Tags,omitempty"`
-	CreatedTimestamp float64    `json:"CreatedTimestamp,omitempty"`
+	TenantName            string                             `json:"TenantName"`
+	TenantID              string                             `json:"TenantId,omitempty"`
+	TenantARN             string                             `json:"TenantArn,omitempty"`
+	SendingStatus         string                             `json:"SendingStatus,omitempty"`
+	SuppressionAttributes *tenantSuppressionAttributesOutput `json:"SuppressionAttributes,omitempty"`
+	Tags                  []tagEntry                         `json:"Tags,omitempty"`
+	CreatedTimestamp      float64                            `json:"CreatedTimestamp,omitempty"`
 }
 
 func toTenantOutput(t map[string]any) *tenantOutput {
 	return &tenantOutput{
-		TenantName:       mapString(t, keyTenantName),
-		TenantID:         mapString(t, keyTenantID),
-		TenantARN:        mapString(t, keyTenantARN),
-		SendingStatus:    mapString(t, keySendingStatus),
-		CreatedTimestamp: mapFloat64(t, keyCreatedTimestamp),
-		Tags:             mapTagEntries(t, keyTags),
+		TenantName:            mapString(t, keyTenantName),
+		TenantID:              mapString(t, keyTenantID),
+		TenantARN:             mapString(t, keyTenantARN),
+		SendingStatus:         mapString(t, keySendingStatus),
+		CreatedTimestamp:      mapFloat64(t, keyCreatedTimestamp),
+		Tags:                  mapTagEntries(t, keyTags),
+		SuppressionAttributes: toTenantSuppressionAttributesOutput(t),
 	}
 }
 

@@ -152,7 +152,7 @@ func TestHandlerOpsLen(t *testing.T) {
 	_, backend := newSESv2TestHandler(t)
 	h := sesv2.NewHandler(backend)
 
-	assert.Equal(t, 110, sesv2.HandlerOpsLen(h))
+	assert.Equal(t, 112, sesv2.HandlerOpsLen(h))
 }
 
 // TestBackendAccountID verifies AccountID returns a non-empty value.

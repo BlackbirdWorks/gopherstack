@@ -200,6 +200,16 @@ func Test_RouteMatrix_AgainstRealSDK(t *testing.T) {
 			wantOp: "ListImportJobs",
 		},
 		{
+			method: "PUT",
+			path:   "/v2/email/account/pricing-attributes",
+			wantOp: "PutAccountPricingAttributes",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/tenant/suppression",
+			wantOp: "PutTenantSuppressionAttributes",
+		},
+		{
 			method: "DELETE",
 			path:   "/v2/email/configuration-sets/cfgset1",
 			wantOp: "DeleteConfigurationSet",

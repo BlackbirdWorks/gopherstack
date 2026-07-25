@@ -46,6 +46,7 @@ const (
 	opGetBlacklistReports                   = "GetBlacklistReports"
 	opPutAccountDedicatedIPWarmupAttributes = "PutAccountDedicatedIpWarmupAttributes"
 	opPutAccountDetails                     = "PutAccountDetails"
+	opPutAccountPricingAttributes           = "PutAccountPricingAttributes"
 	opPutAccountSendingAttributes           = "PutAccountSendingAttributes"
 	opPutAccountSuppressionAttributes       = "PutAccountSuppressionAttributes"
 	opPutAccountVdmAttributes               = "PutAccountVdmAttributes"
@@ -154,6 +155,7 @@ const (
 	opDeleteTenantResourceAssociation = "DeleteTenantResourceAssociation"
 	opListResourceTenants             = "ListResourceTenants"
 	opListTenantResources             = "ListTenantResources"
+	opPutTenantSuppressionAttributes  = "PutTenantSuppressionAttributes"
 
 	// new ops — reputation entities.
 	opGetReputationEntity                         = "GetReputationEntity"
@@ -284,6 +286,7 @@ func supportedOperationsGroupC() []string {
 	return []string{
 		opPutAccountDedicatedIPWarmupAttributes,
 		opPutAccountDetails,
+		opPutAccountPricingAttributes,
 		opPutAccountSendingAttributes,
 		opPutAccountSuppressionAttributes,
 		opPutAccountVdmAttributes,
@@ -304,6 +307,7 @@ func supportedOperationsGroupC() []string {
 		opPutEmailIdentityFeedbackAttributes,
 		opPutEmailIdentityMailFromAttributes,
 		opPutSuppressedDestination,
+		opPutTenantSuppressionAttributes,
 		opSendBulkEmail,
 		opSendCustomVerificationEmail,
 		opSendEmail,

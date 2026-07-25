@@ -1,9 +1,9 @@
 ---
 service: sesv2
-sdk_module: aws-sdk-go-v2/service/sesv2@v1.60.1   # version audited against
-last_audit_commit: 7c297a53bedf9d9ba2f5af48da992b024774083f
+sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.0   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
+last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
 last_audit_date: 2026-07-25
-overall: A            # route-matcher rewrite + wire-shape DTOs; this pass derived real data for BatchGetMetricData/campaigns/statistics/recommendations and finished the typed-DTO conversion (SendBulkEmail, Tenant/MultiRegionEndpoint/ReputationEntity)
+overall: A            # route-matcher rewrite + wire-shape DTOs; this pass implemented the 2 new v1.66.0 ops and fixed a previously-mis-graded GetAccount wire-shape bug found while wiring PutAccountPricingAttributes in (see "This pass (2026-07-25)")
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -66,9 +66,10 @@ ops:
   DeleteCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   SendCustomVerificationEmail: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "POST /v2/email/outbound-custom-verification-emails was not matched by any path pattern at all; added parseOutboundCustomVerificationEmailsPath"}
-  GetAccount: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAccount: {wire: fixed, errors: ok, state: ok, persist: ok, note: "previously graded 'wire: ok' in error -- the handler marshalled the internal *AccountDetails struct directly (lowerCamelCase snapshot-format tags, flat instead of the real nested Details/SuppressionAttributes/PricingAttributes sub-objects, VdmAttributes keyed 'vdmAttributes' not 'VdmAttributes'), the same bug class already fixed for every other family in this package (see 'Root-cause bug class' below) but missed for Account specifically. Found and fixed while wiring PutAccountPricingAttributes's GetAccount-visible effect this pass. Added accountOutput/accountDetailsOutput/accountSuppressionAttributesOutput/accountPricingAttributesOutput (wire_output.go), field-diffed against GetAccountOutput/types.AccountDetails/types.SuppressionAttributes/types.PricingAttributes. EnforcementStatus/ProductionAccessEnabled/SendQuota/ReviewDetails/ValidationAttributes are honestly omitted (all pointer/optional in the real shape; gopherstack has no account-review, sandbox-status, or send-quota tracking to source them from) rather than fabricated."}
   GetBlacklistReports: {wire: ok, errors: ok, state: ok, persist: n/a}
   PutAccountDetails: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutAccountPricingAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "new in aws-sdk-go-v2/service/sesv2 v1.66.0. Real path/verb confirmed against serializers.go: PUT /v2/email/account/pricing-attributes (awsRestjson1_serializeOpPutAccountPricingAttributes's httpbinding.SplitURI). Plan is validated against the real PricingPlan enum (NONE/ESSENTIALS/PRO/ENTERPRISE); an unrecognized value is a BadRequestException. Writes b.accountDetails.PricingPlan (existing account state, no parallel store) and is reflected by GetAccount's PricingAttributes.CurrentPlan. gopherstack has no billing-cycle concept, so the write takes effect immediately as CurrentPlan; PricingAttributes.NextPlan (real SES's 'scheduled for next billing cycle' field) is always empty -- there's nothing to schedule, and reporting a fabricated NextPlan would be worse than omitting it."}
   PutAccountDedicatedIpWarmupAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'dedicated-ip-warmup-attributes' (2 segs); real path is 3 segs, 'account/dedicated-ips/warmup'. Unroutable before fix."}
   PutAccountSendingAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'sending-attributes'; real is 'sending'. Unroutable before fix."}
   PutAccountSuppressionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'suppression-attributes'; real is 'suppression'. Unroutable before fix."}
@@ -117,6 +118,7 @@ ops:
   DeleteTenantResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/resources/delete with TenantName+ResourceArn in the body; gopherstack had DELETE /v2/email/tenants/{name}/resources/{arn}."}
   ListResourceTenants: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/resources/tenants/list -- a distinct top-level path from the rest of the tenant family (/v2/email/tenants/...) -- with ResourceArn/NextToken/PageSize in the body; gopherstack had the fabricated GET /v2/email/resource-tenants. Item shape matches types.ResourceTenantMetadata (TenantName/TenantId/ResourceArn/AssociatedTimestamp), now []resourceTenantOutput (typed, wire_output.go) instead of []map[string]any."}
   ListTenantResources: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/resources/list with TenantName/Filter/NextToken/PageSize in the body; gopherstack had GET /v2/email/tenants/{name}/resources and silently dropped NextToken entirely. Item shape matches types.TenantResource (ResourceArn/ResourceType, inferred from the ARN's resource-segment prefix); the RESOURCE_TYPE filter key is honored. Now []tenantResourceOutput (typed, wire_output.go) instead of []map[string]any."}
+  PutTenantSuppressionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: ok, note: "new in aws-sdk-go-v2/service/sesv2 v1.66.0. Real path/verb confirmed against serializers.go: POST /v2/email/tenant/suppression -- note the *singular* 'tenant' top-level segment, a genuinely distinct path from the rest of this family's plural '/v2/email/tenants/...' (awsRestjson1_serializeOpPutTenantSuppressionAttributes's httpbinding.SplitURI; this service has a history of invented paths -- verified by grepping serializers.go directly rather than assuming it lives under 'tenants'). SuppressedReasons entries validated against the real SuppressionListReason enum (BOUNCE/COMPLAINT); SuppressionScope against SuppressionListScope (ACCOUNT/TENANT); NotFoundException for an unknown TenantName. Writes onto the existing per-tenant map entry in b.tenants (SuppressedReasons/SuppressionScope keys) -- no parallel store -- so it's cascade-deleted for free when DeleteTenant removes the tenant's map entry. Surfaced via CreateTenant/GetTenant's SuppressionAttributes field (types.TenantSuppressionAttributes; added tenantSuppressionAttributesOutput + toTenantSuppressionAttributesOutput, wire_output.go), which was previously entirely missing from tenantOutput."}
 # Families audited as a group (when per-op is impractical):
 families:
   route-matcher: {status: fixed, note: "Built a full (method,path)->op regression matrix from aws-sdk-go-v2/service/sesv2 v1.60.1 serializers.go (services/sesv2/route_matrix_test.go, 110+ real routes, every real SDK route now covered -- see route_matrix_test.go). Original pass fixed 12/30 unroutable-or-misrouted routes; this pass closed the remaining 18: RPC-style tenant/resource-tenant paths (8 routes), deliverability-dashboard sub-resources (5 routes: test-reports x2, statistics-report, campaigns, domains/.../campaigns), insights/recommendations (3: email-address-insights, insights/{MessageId}, vdm/recommendations), reputation-entity listing (1, plus deletion of a gopherstack-invented duplicate 'reputation-entities' top-level path), and the POST-based list-export-jobs/import-jobs/list variants (2)."}
@@ -307,6 +309,53 @@ genuinely-impossible) are in each op's `note:` above; summary:
 `tenants_test.go`, `multi_region_endpoints_test.go`, `deliverability_test.go`,
 `message_insights_test.go`, `send_email_test.go`.
 
+## This pass (parity-4, SDK bump to v1.66.0): 2 new ops + a missed GetAccount wire bug
+
+The Go SDK modules were bumped (`aws-sdk-go-v2/service/sesv2` v1.60.1 ->
+v1.66.0), which shipped 2 new operations `TestSDKCompleteness` caught:
+`PutAccountPricingAttributes` and `PutTenantSuppressionAttributes`. Both are
+now implemented for real (not added to a `notImplemented` skip list) -- see
+their `ops:` entries above for the full field-diff/route/state detail.
+Summary:
+
+- **`PutAccountPricingAttributes`**: `PUT /v2/email/account/pricing-attributes`,
+  `{Plan}` body, validated against the real `PricingPlan` enum. Writes the
+  existing `b.accountDetails` account state (no parallel store); no
+  billing-cycle concept, so `PricingAttributes.NextPlan` is always empty
+  rather than a fabricated "scheduled" value.
+- **`PutTenantSuppressionAttributes`**: `POST /v2/email/tenant/suppression`
+  -- confirmed directly against `serializers.go` rather than assumed, since
+  this family (like the rest of sesv2's tenant paths, per the original
+  route-matcher pass) turned out to use a **singular** `tenant` top-level
+  segment, distinct from every other tenant op's plural `tenants`. Writes
+  onto the tenant's existing `b.tenants[name]` map entry (no parallel store),
+  so it's cascade-deleted for free by the existing `DeleteTenant` cleanup.
+  Surfaced through `CreateTenant`/`GetTenant`'s `SuppressionAttributes` field,
+  which `tenantOutput` didn't expose before this pass.
+- **`GetAccount` wire-shape bug found while wiring `PutAccountPricingAttributes`
+  in**: the handler marshalled the internal `*AccountDetails` struct directly
+  -- the exact `lowerCamelCase`-tags-leaking-into-the-response bug class the
+  original audit pass fixed for every *other* family in this file (contact
+  lists, dedicated IP pools, templates, etc.), but missed for `Account`
+  itself, and the op was incorrectly graded `wire: ok` as a result. Fixed the
+  same way as every other family: added `accountOutput` +
+  `accountDetailsOutput`/`accountSuppressionAttributesOutput`/
+  `accountPricingAttributesOutput` DTOs in `wire_output.go`, field-diffed
+  against `GetAccountOutput`/`types.AccountDetails`/
+  `types.SuppressionAttributes`/`types.PricingAttributes`. Fields gopherstack
+  has no data source for (`EnforcementStatus`, `ProductionAccessEnabled`,
+  `SendQuota`, `ReviewDetails`, suppression `ValidationAttributes`) are
+  omitted -- all pointer/optional in the real shape -- rather than
+  fabricated. `AccountDetails`'s internal `lowerCamelCase` snapshot-format
+  tags are unchanged (same "don't touch persisted tags" rule as every other
+  family; see "Traps for the next auditor").
+
+**Verification**: `TestAccountSDKRoundTrip` (`account_test.go`) and
+`TestPutTenantSuppressionAttributesSDKRoundTrip` (`tenants_test.go`) drive
+both new ops (plus the fixed `GetAccount`/`GetTenant` responses) through the
+real `aws-sdk-go-v2/service/sesv2` client, not just decoded JSON maps.
+`route_matrix_test.go` gained both new routes.
+
 ## Remaining known limitation (not a gap — reachable, correctly routed, AWS-accurate shape)
 
 - `BatchGetMetricData` returns real SEND counts for the SEND/no-dimension and
@@ -400,3 +449,23 @@ genuinely-impossible) are in each op's `note:` above; summary:
   assertions for any new DTO-conversion test; it's what actually proves wire
   compatibility (see the `*SDKRoundTrip` tests added this pass for the
   pattern).
+- `PutTenantSuppressionAttributes` lives under the **singular**
+  `/v2/email/tenant/suppression` (`parseTenantSuppressionPath`,
+  `handler_routes.go`) — not `/v2/email/tenants/...` like the rest of the
+  tenant family. Confirmed directly against
+  `awsRestjson1_serializeOpPutTenantSuppressionAttributes`'s
+  `httpbinding.SplitURI` call in `serializers.go`; don't "fix" it to the
+  plural without re-checking the serializer, and don't assume any *other*
+  newly-added op's path follows the family it looks like it belongs to
+  without the same check — this service has a specific history of invented
+  paths (see `68b00b120`'s route-matcher rewrite and the original audit
+  pass's "Route-matcher bug class" above).
+- `GetAccount` (`handler_account.go`/`wire_output.go`) was the one family the
+  original wire-DTO pass missed — every *other* family already got the
+  internal-struct-vs-typed-DTO treatment documented in "Root-cause bug
+  class" above, but `AccountDetails` slipped through and was incorrectly
+  graded `wire: ok`. If you find another family still returning an internal
+  struct/map directly (grep handler_*.go for a `return acct, nil`-shaped
+  line with no `to*Output(...)` wrapper), it's the same bug, not a new one —
+  add a DTO in `wire_output.go` the same way, don't assume `overall: A`
+  means every individual op was actually wire-checked.

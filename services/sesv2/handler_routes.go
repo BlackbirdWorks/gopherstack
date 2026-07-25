@@ -11,6 +11,7 @@ const (
 	segPolicies          = "policies"
 	segEventDestinations = "event-destinations"
 	segResources         = "resources"
+	segSuppression       = "suppression"
 	keyNextToken         = "NextToken"
 
 	// path depth sentinels for segment-count comparisons.
@@ -189,7 +190,7 @@ func parseExtendedPathsCoreGroup(method string, segments []string) (string, stri
 	switch segments[0] {
 	case "account":
 		return parseAccountPath(method, segments)
-	case "suppression":
+	case segSuppression:
 		return parseSuppressionPath(method, segments)
 	case "contact-lists":
 		return parseContactListExtPath(method, segments)
@@ -249,6 +250,8 @@ func parseExtendedPathsExtGroup(method string, segments []string) (string, strin
 		return parseMultiRegionEndpointPath(method, segments)
 	case "tenants":
 		return parseTenantPath(method, segments)
+	case "tenant":
+		return parseTenantSuppressionPath(method, segments)
 	case "resources":
 		return parseResourceTenantsPath(method, segments)
 	case "reputation":
@@ -317,6 +320,7 @@ func parseResourceTenantsPath(method string, segments []string) (string, string)
 //	GET  /v2/email/account                       -> GetAccount
 //	PUT  /v2/email/account/dedicated-ips/warmup  -> PutAccountDedicatedIpWarmupAttributes
 //	POST /v2/email/account/details                -> PutAccountDetails
+//	PUT  /v2/email/account/pricing-attributes      -> PutAccountPricingAttributes
 //	PUT  /v2/email/account/sending                -> PutAccountSendingAttributes
 //	PUT  /v2/email/account/suppression             -> PutAccountSuppressionAttributes
 //	PUT  /v2/email/account/vdm                     -> PutAccountVdmAttributes
@@ -344,11 +348,15 @@ func parseAccountAttrPath(method, sub string) (string, string) {
 		if method == http.MethodPost {
 			return opPutAccountDetails, ""
 		}
+	case "pricing-attributes":
+		if method == http.MethodPut {
+			return opPutAccountPricingAttributes, ""
+		}
 	case "sending":
 		if method == http.MethodPut {
 			return opPutAccountSendingAttributes, ""
 		}
-	case "suppression":
+	case segSuppression:
 		if method == http.MethodPut {
 			return opPutAccountSuppressionAttributes, ""
 		}
@@ -660,6 +668,23 @@ func parseTenantPath(method string, segments []string) (string, string) {
 				return opListTenantResources, ""
 			}
 		}
+	}
+
+	return unknownAction, ""
+}
+
+// parseTenantSuppressionPath routes POST /v2/email/tenant/suppression ->
+// PutTenantSuppressionAttributes. Note the top-level segment is the
+// *singular* "tenant" -- a distinct path from the rest of the tenant family,
+// which all live under the plural "tenants" (see parseTenantPath). Confirmed
+// against aws-sdk-go-v2/service/sesv2 v1.66.0 serializers.go
+// (awsRestjson1_serializeOpPutTenantSuppressionAttributes's
+// httpbinding.SplitURI("/v2/email/tenant/suppression")) -- this service has a
+// history of invented paths, so don't assume it's under "tenants" without
+// checking the serializer again.
+func parseTenantSuppressionPath(method string, segments []string) (string, string) {
+	if method == http.MethodPost && len(segments) == pathDepth2 && segments[1] == segSuppression {
+		return opPutTenantSuppressionAttributes, ""
 	}
 
 	return unknownAction, ""

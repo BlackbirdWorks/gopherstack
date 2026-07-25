@@ -27,9 +27,19 @@ const (
 	keyResourceArn         = "ResourceArn"
 	keyResourceType        = "ResourceType"
 	keyTags                = "Tags"
+	keySuppressedReasons   = "SuppressedReasons"
+	keySuppressionScope    = "SuppressionScope"
 
 	sendingStatusEnabled  = "ENABLED"
 	sendingStatusDisabled = "DISABLED"
+
+	// Real types.SuppressionListReason enum values.
+	suppressionListReasonBounce    = "BOUNCE"
+	suppressionListReasonComplaint = "COMPLAINT"
+
+	// Real types.SuppressionListScope enum values.
+	suppressionListScopeAccount = "ACCOUNT"
+	suppressionListScopeTenant  = "TENANT"
 )
 
 // ---- tenants ----
@@ -157,6 +167,48 @@ func (b *InMemoryBackend) ListTenants(nextToken string, pageSize int) ([]tenantI
 	}
 
 	return out, next, nil
+}
+
+// PutTenantSuppressionAttributes configures the suppression-list preferences
+// for a tenant (which reasons auto-suppress a destination, and whether the
+// tenant uses its own suppression list or the account-level one). Returns
+// NotFoundException if the tenant doesn't exist, matching real SES v2.
+func (b *InMemoryBackend) PutTenantSuppressionAttributes(
+	tenantName string,
+	suppressedReasons []string,
+	suppressionScope string,
+) error {
+	for _, r := range suppressedReasons {
+		if r != suppressionListReasonBounce && r != suppressionListReasonComplaint {
+			return fmt.Errorf(
+				"%w: SuppressedReasons entries must be %s or %s, got %q",
+				ErrInvalidInput, suppressionListReasonBounce, suppressionListReasonComplaint, r,
+			)
+		}
+	}
+
+	if suppressionScope != "" && suppressionScope != suppressionListScopeAccount &&
+		suppressionScope != suppressionListScopeTenant {
+		return fmt.Errorf(
+			"%w: SuppressionScope must be %s or %s, got %q",
+			ErrInvalidInput, suppressionListScopeAccount, suppressionListScopeTenant, suppressionScope,
+		)
+	}
+
+	b.mu.Lock("PutTenantSuppressionAttributes")
+	defer b.mu.Unlock()
+
+	t, ok := b.tenants[tenantName]
+	if !ok {
+		return fmt.Errorf("%w: Tenant %s not found", ErrNotFound, tenantName)
+	}
+
+	reasons := make([]string, len(suppressedReasons))
+	copy(reasons, suppressedReasons)
+	t[keySuppressedReasons] = reasons
+	t[keySuppressionScope] = suppressionScope
+
+	return nil
 }
 
 // CreateTenantResourceAssociation associates a resource with a tenant.

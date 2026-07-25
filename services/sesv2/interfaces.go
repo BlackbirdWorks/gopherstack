@@ -152,6 +152,7 @@ type StorageBackend interface {
 	// Account ops
 	GetAccount() (*AccountDetails, error)
 	PutAccountDetails(details *AccountDetails) error
+	PutAccountPricingAttributes(plan string) error
 	PutAccountSendingAttributes(sendingEnabled bool) error
 	PutAccountSuppressionAttributes(suppressedReasons []string) error
 	PutAccountVdmAttributes(vdmAttributes map[string]any) error
@@ -191,6 +192,7 @@ type StorageBackend interface {
 	ListTenants(nextToken string, pageSize int) ([]tenantInfoOutput, string, error)
 	CreateTenantResourceAssociation(tenantName, resourceArn string) error
 	DeleteTenantResourceAssociation(tenantName, resourceArn string) error
+	PutTenantSuppressionAttributes(tenantName string, suppressedReasons []string, suppressionScope string) error
 	ListResourceTenants(resourceArn, nextToken string, pageSize int) ([]resourceTenantOutput, string, error)
 	ListTenantResources(
 		tenantName string,
