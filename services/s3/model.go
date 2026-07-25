@@ -58,9 +58,14 @@ type CommonPrefixXML struct {
 }
 
 type CopyObjectResult struct {
-	XMLName      xml.Name `xml:"CopyObjectResult"`
-	ETag         string   `xml:"ETag"`
-	LastModified string   `xml:"LastModified"`
+	XMLName           xml.Name `xml:"CopyObjectResult"`
+	ETag              string   `xml:"ETag"`
+	LastModified      string   `xml:"LastModified"`
+	ChecksumCRC32     string   `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C    string   `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumCRC64NVME string   `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumSHA1      string   `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256    string   `xml:"ChecksumSHA256,omitempty"`
 }
 
 type ObjectXML struct {

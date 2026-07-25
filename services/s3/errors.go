@@ -236,7 +236,7 @@ func configErrorTable() []s3ErrorEntry {
 			http.StatusNotFound,
 		}},
 		{ErrMalformedPolicy, s3ErrorInfo{
-			"MalformedPolicy",
+			errMalformedPolicy,
 			"Policy has invalid resource",
 			http.StatusBadRequest,
 		}},

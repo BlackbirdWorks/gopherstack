@@ -80,15 +80,39 @@ func (h *S3Handler) setChecksumHeaders(w http.ResponseWriter, out objectCommonDe
 // validateSSECOnRead checks that a GET/HEAD request includes the required SSE-C
 // headers when the stored object uses SSE-C, and that the supplied key-MD5 matches.
 func validateSSECOnRead(r *http.Request, storedAlg, storedKeyMD5 string) error {
+	return validateSSECHeadersMatch(
+		r.Header.Get(headerSSECAlgorithm), r.Header.Get(headerSSECKeyMD5), storedAlg, storedKeyMD5,
+	)
+}
+
+// validateCopySourceSSECOnRead is validateSSECOnRead's counterpart for
+// CopyObject/UploadPartCopy: it checks the copy-source-prefixed SSE-C headers
+// (x-amz-copy-source-server-side-encryption-customer-*) against the source
+// object's stored SSE-C state, instead of the plain (destination) SSE-C
+// headers that validateSSECOnRead checks.
+func validateCopySourceSSECOnRead(r *http.Request, storedAlg, storedKeyMD5 string) error {
+	return validateSSECHeadersMatch(
+		r.Header.Get(headerCopySourceSSECAlgorithm), r.Header.Get(headerCopySourceSSECKeyMD5),
+		storedAlg, storedKeyMD5,
+	)
+}
+
+// validateSSECHeadersMatch is the shared check behind validateSSECOnRead and
+// validateCopySourceSSECOnRead: when the stored object used SSE-C
+// (storedAlg != ""), the caller must have supplied a matching algorithm and
+// key-MD5, or the request is rejected exactly like real S3 does — with 400
+// InvalidRequest when the headers are missing entirely, or 400 BadDigest
+// when a key-MD5 is supplied but doesn't match what the object was
+// encrypted with.
+func validateSSECHeadersMatch(suppliedAlg, suppliedMD5, storedAlg, storedKeyMD5 string) error {
 	if storedAlg == "" {
 		return nil
 	}
 
-	if r.Header.Get(headerSSECAlgorithm) == "" || r.Header.Get(headerSSECKeyMD5) == "" {
+	if suppliedAlg == "" || suppliedMD5 == "" {
 		return ErrSSECRequired
 	}
 
-	suppliedMD5 := r.Header.Get(headerSSECKeyMD5)
 	if storedKeyMD5 != "" && suppliedMD5 != storedKeyMD5 {
 		return ErrBadChecksum
 	}
@@ -115,12 +139,32 @@ func setSSEHeaders(w http.ResponseWriter, out objectCommonDetails) {
 }
 
 func extractChecksumPointers(h http.Header, algo string) (*string, *string, *string, *string) {
+	return extractChecksumValues(h.Get, algo)
+}
+
+// extractChecksumValuesFromFields is extractChecksumPointers' counterpart for
+// PostObject, whose checksum values arrive as multipart/form-data field
+// values (e.g. "x-amz-checksum-crc32") rather than HTTP headers.
+func extractChecksumValuesFromFields(
+	fields map[string]string, algo string,
+) (*string, *string, *string, *string) {
+	return extractChecksumValues(func(name string) string {
+		return fields[strings.ToLower(name)]
+	}, algo)
+}
+
+// extractChecksumValues looks up the per-algorithm checksum value via get
+// (either an http.Header.Get or a form-field-map lookup) and returns it in
+// the pointer slot matching algo, mirroring the field layout PutObjectInput
+// uses (ChecksumCRC32/CRC32C/SHA1/SHA256 — CRC64NVME is handled separately
+// via extractCRC64NVMEChecksum since it predates this abstraction).
+func extractChecksumValues(get func(string) string, algo string) (*string, *string, *string, *string) {
 	if algo == "" {
 		return nil, nil, nil, nil
 	}
 
 	headerName := "X-Amz-Checksum-" + strings.ToLower(algo)
-	checksum := h.Get(headerName)
+	checksum := get(headerName)
 
 	if checksum == "" {
 		return nil, nil, nil, nil

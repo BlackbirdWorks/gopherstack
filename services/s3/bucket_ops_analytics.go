@@ -157,12 +157,7 @@ func (h *S3Handler) listBucketAnalyticsConfigurations(
 
 		return
 	}
-	writeConfigListXML(
-		w,
-		"ListBucketAnalyticsConfigurationResult",
-		"AnalyticsConfiguration",
-		configs,
-	)
+	writeConfigListXML(w, "ListBucketAnalyticsConfigurationResult", configs)
 }
 
 func (h *S3Handler) putBucketIntelligentTieringConfiguration(
@@ -229,12 +224,7 @@ func (h *S3Handler) listBucketIntelligentTieringConfigurations(
 
 		return
 	}
-	writeConfigListXML(
-		w,
-		"ListBucketIntelligentTieringConfigurationsResult",
-		"IntelligentTieringConfiguration",
-		configs,
-	)
+	writeConfigListXML(w, "ListBucketIntelligentTieringConfigurationsResult", configs)
 }
 
 func (h *S3Handler) putBucketInventoryConfiguration(
@@ -301,7 +291,7 @@ func (h *S3Handler) listBucketInventoryConfigurations(
 
 		return
 	}
-	writeConfigListXML(w, "ListInventoryConfigurationsResult", "InventoryConfiguration", configs)
+	writeConfigListXML(w, "ListInventoryConfigurationsResult", configs)
 }
 
 func (h *S3Handler) putBucketMetricsConfiguration(
@@ -368,12 +358,28 @@ func (h *S3Handler) listBucketMetricsConfigurations(
 
 		return
 	}
-	writeConfigListXML(w, "ListMetricsConfigurationsResult", "MetricsConfiguration", configs)
+	writeConfigListXML(w, "ListMetricsConfigurationsResult", configs)
 }
 
-// writeConfigListXML writes a generic XML list response containing zero or more config elements.
-// Each element in configs is emitted verbatim inside a wrapper named elementTag.
-func writeConfigListXML(w http.ResponseWriter, rootTag, elementTag string, configs []string) {
+// writeConfigListXML writes a generic XML list response containing zero or
+// more config elements.
+//
+// Each string in configs is the RAW request body that PutBucket*Configuration
+// stored verbatim (see e.g. bucket_analytics.go's PutBucketAnalyticsConfiguration).
+// Per the real SDK's serializer (awsRestxml_serializeOpPutBucketAnalyticsConfiguration
+// and its Inventory/Metrics/IntelligentTiering siblings), that body's root
+// element already is e.g. a complete
+// `<AnalyticsConfiguration>...</AnalyticsConfiguration>` document, not just
+// its inner fields. The real SDK's List deserializer likewise treats each
+// top-level `<AnalyticsConfiguration>` (etc.) element directly under the list
+// root as one unwrapped list entry (see
+// awsRestxml_deserializeDocumentAnalyticsConfigurationListUnwrapped).
+//
+// So configs must be emitted AS-IS here, not re-wrapped in another element —
+// doing so previously produced doubly-nested XML
+// (<AnalyticsConfiguration><AnalyticsConfiguration>...) that no real SDK
+// client could correctly parse back into its Id/Filter/etc fields.
+func writeConfigListXML(w http.ResponseWriter, rootTag string, configs []string) {
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	sb.WriteString(`<`)
@@ -381,13 +387,7 @@ func writeConfigListXML(w http.ResponseWriter, rootTag, elementTag string, confi
 	sb.WriteString(` xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
 	sb.WriteString(`<IsTruncated>false</IsTruncated>`)
 	for _, cfg := range configs {
-		sb.WriteString(`<`)
-		sb.WriteString(elementTag)
-		sb.WriteString(`>`)
 		sb.WriteString(cfg)
-		sb.WriteString(`</`)
-		sb.WriteString(elementTag)
-		sb.WriteString(`>`)
 	}
 	sb.WriteString(`</`)
 	sb.WriteString(rootTag)

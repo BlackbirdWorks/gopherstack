@@ -14,6 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
@@ -87,6 +88,13 @@ func (h *S3Handler) handlePostObject(
 		return
 	}
 
+	// Presigned POST forms carry SSE parameters as form fields rather than
+	// headers (x-amz-server-side-encryption / -aws-kms-key-id) — same wire
+	// concept as PutObject's headers, so route it through the same sseKey
+	// context value the backend already reads during PutObject.
+	sse := sseInfoFromPostFields(fields)
+	ctx = context.WithValue(ctx, sseKey, sse)
+
 	ver, putErr := h.Backend.PutObject(ctx, put)
 	if putErr != nil {
 		WriteError(ctx, w, r, putErr)
@@ -94,9 +102,23 @@ func (h *S3Handler) handlePostObject(
 		return
 	}
 
+	setSSEResponseHeaders(w, sse)
 	h.dispatchPostObjectNotification(ctx, bucketName, key, aws.ToString(ver.ETag), len(fileBody))
 
 	writePostObjectResponse(w, r, bucketName, key, ver.ETag, fields)
+}
+
+// sseInfoFromPostFields builds an sseInfo from a POST form's SSE-related
+// fields. Presigned POST forms don't support SSE-C (there's no channel for a
+// customer key on a form the browser submits without a signed request), so
+// only the SSE-S3/SSE-KMS fields are read — matching the fields real S3's
+// POST policy grammar documents: x-amz-server-side-encryption and
+// x-amz-server-side-encryption-aws-kms-key-id.
+func sseInfoFromPostFields(fields map[string]string) sseInfo {
+	return sseInfo{
+		Algorithm: fields["x-amz-server-side-encryption"],
+		KMSKeyID:  fields["x-amz-server-side-encryption-aws-kms-key-id"],
+	}
 }
 
 // buildPostPutInput constructs the PutObjectInput for a POST form upload from
@@ -126,6 +148,7 @@ func buildPostPutInput(
 		ContentDisposition: ptrconv.NilIfEmpty(fields["Content-Disposition"]),
 		ContentEncoding:    ptrconv.NilIfEmpty(fields["Content-Encoding"]),
 		CacheControl:       ptrconv.NilIfEmpty(fields["Cache-Control"]),
+		StorageClass:       types.StorageClass(fields["x-amz-storage-class"]),
 		Metadata:           userMeta,
 	}
 
@@ -136,7 +159,35 @@ func buildPostPutInput(
 		put.Tagging = aws.String(v)
 	}
 
+	applyPostChecksumFields(put, fields)
+
 	return put, nil
+}
+
+// applyPostChecksumFields wires the POST form's x-amz-checksum-algorithm (and,
+// if supplied, the matching per-algorithm value field such as
+// x-amz-checksum-crc32) onto put — the same checksum fields PutObject reads
+// from headers, just sourced from form fields instead. Mirrors
+// extractAlgoAndChecksums/extractCRC64NVMEChecksum's header-based logic.
+func applyPostChecksumFields(put *s3.PutObjectInput, fields map[string]string) {
+	algo := strings.ToUpper(fields["x-amz-checksum-algorithm"])
+	if algo == "" {
+		return
+	}
+
+	put.ChecksumAlgorithm = types.ChecksumAlgorithm(algo)
+
+	crc32p, crc32cp, sha1p, sha256p := extractChecksumValuesFromFields(fields, algo)
+	put.ChecksumCRC32 = crc32p
+	put.ChecksumCRC32C = crc32cp
+	put.ChecksumSHA1 = sha1p
+	put.ChecksumSHA256 = sha256p
+
+	if algo == ChecksumCRC64NVME {
+		if v := fields["x-amz-checksum-crc64nvme"]; v != "" {
+			put.ChecksumCRC64NVME = aws.String(v)
+		}
+	}
 }
 
 // dispatchPostObjectNotification fires an ObjectCreated event for a POST upload

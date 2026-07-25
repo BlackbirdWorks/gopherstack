@@ -284,7 +284,8 @@ func TestS3BucketPolicyCRUD(t *testing.T) {
 	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
 	require.NoError(t, err)
 
-	policy := `{"Version":"2012-10-17","Statement":[]}`
+	policy := `{"Version":"2012-10-17","Statement":[{"Sid":"AllowRead","Effect":"Allow",` +
+		`"Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::policy-test-bucket/*"}]}`
 
 	// PutBucketPolicy
 	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?policy", strings.NewReader(policy))
@@ -334,6 +335,135 @@ func TestS3PutBucketPolicy_MalformedJSON(t *testing.T) {
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestS3PutBucketPolicy_SemanticValidation locks that PutBucketPolicy
+// validates the IAM policy document shape (Version/Statement/Effect/
+// Principal/Action/Resource), matching real S3's MalformedPolicy behavior,
+// beyond mere JSON syntax validity.
+func TestS3PutBucketPolicy_SemanticValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		bucket        string
+		policy        string
+		wantMsgSubstr string
+		wantCode      int
+	}{
+		{
+			name:          "missing statement field",
+			bucket:        "semval-missing-statement",
+			policy:        `{"Version":"2012-10-17"}`,
+			wantCode:      http.StatusBadRequest,
+			wantMsgSubstr: "Missing required field Statement",
+		},
+		{
+			name:          "empty statement array",
+			bucket:        "semval-empty-statement",
+			policy:        `{"Version":"2012-10-17","Statement":[]}`,
+			wantCode:      http.StatusBadRequest,
+			wantMsgSubstr: "Missing required field Statement",
+		},
+		{
+			name:   "statement missing effect",
+			bucket: "semval-missing-effect",
+			policy: `{"Version":"2012-10-17","Statement":[{"Principal":"*",` +
+				`"Action":"s3:GetObject","Resource":"arn:aws:s3:::b/*"}]}`,
+			wantCode:      http.StatusBadRequest,
+			wantMsgSubstr: "Missing required field Effect",
+		},
+		{
+			name:   "statement invalid effect value",
+			bucket: "semval-bad-effect",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Maybe",` +
+				`"Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::b/*"}]}`,
+			wantCode:      http.StatusBadRequest,
+			wantMsgSubstr: "Invalid effect",
+		},
+		{
+			name:   "statement missing principal",
+			bucket: "semval-missing-principal",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Action":"s3:GetObject","Resource":"arn:aws:s3:::b/*"}]}`,
+			wantCode:      http.StatusBadRequest,
+			wantMsgSubstr: "Missing required field Principal",
+		},
+		{
+			name:   "statement missing action and notaction",
+			bucket: "semval-missing-action",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":"*","Resource":"arn:aws:s3:::b/*"}]}`,
+			wantCode:      http.StatusBadRequest,
+			wantMsgSubstr: "Missing required field Action",
+		},
+		{
+			name:   "statement missing resource and notresource",
+			bucket: "semval-missing-resource",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":"*","Action":"s3:GetObject"}]}`,
+			wantCode:      http.StatusBadRequest,
+			wantMsgSubstr: "Missing required field Resource",
+		},
+		{
+			name:   "invalid version string",
+			bucket: "semval-bad-version",
+			policy: `{"Version":"1999-01-01","Statement":[{"Effect":"Allow","Principal":"*",` +
+				`"Action":"s3:GetObject","Resource":"arn:aws:s3:::b/*"}]}`,
+			wantCode:      http.StatusBadRequest,
+			wantMsgSubstr: "valid version string",
+		},
+		{
+			name:          "top-level array instead of object",
+			bucket:        "semval-toplevel-array",
+			policy:        `[{"Effect":"Allow"}]`,
+			wantCode:      http.StatusBadRequest,
+			wantMsgSubstr: "MalformedPolicy",
+		},
+		{
+			name:   "statement uses NotPrincipal NotAction NotResource - valid",
+			bucket: "semval-negated-fields-valid",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Deny",` +
+				`"NotPrincipal":"arn:aws:iam::123456789012:root","NotAction":"s3:GetObject",` +
+				`"NotResource":"arn:aws:s3:::b/*"}]}`,
+			wantCode: http.StatusNoContent,
+		},
+		{
+			name:   "no version field - valid since version block is optional",
+			bucket: "semval-no-version-valid",
+			policy: `{"Statement":[{"Effect":"Allow","Principal":"*",` +
+				`"Action":"s3:GetObject","Resource":"arn:aws:s3:::b/*"}]}`,
+			wantCode: http.StatusNoContent,
+		},
+		{
+			name:   "single statement object not array - valid",
+			bucket: "semval-single-statement-valid",
+			policy: `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Principal":"*",` +
+				`"Action":"s3:GetObject","Resource":"arn:aws:s3:::b/*"}}`,
+			wantCode: http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sdkClient := newTestHandler(t)
+			bucket := tt.bucket
+
+			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?policy", strings.NewReader(tt.policy))
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantCode, rec.Code, "body=%s", rec.Body.String())
+
+			if tt.wantMsgSubstr != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantMsgSubstr)
+				assert.Contains(t, rec.Body.String(), "MalformedPolicy")
+			}
+		})
+	}
 }
 
 // TestS3BucketCORSCRUD verifies put/get/delete bucket CORS + OPTIONS preflight.
