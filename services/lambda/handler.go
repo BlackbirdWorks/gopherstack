@@ -175,6 +175,12 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		}
 	}
 
+	// Durable-execution family spans three independent path prefixes that
+	// normalizeFunctionPath/lambdaOpRoutes below don't cover — see handler_paths.go.
+	if op := extractDurableExecOperation(path, method); op != "" {
+		return op
+	}
+
 	rest := normalizeFunctionPath(path)
 
 	// Special case: GET /provisioned-concurrency dispatches to Get vs List based on Qualifier.

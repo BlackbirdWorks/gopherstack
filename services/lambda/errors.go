@@ -63,3 +63,9 @@ var ErrFunctionURLForbidden = errors.New("Forbidden")
 // ErrPreconditionFailed is returned when a caller-supplied RevisionId does not
 // match a resource's current revision (optimistic-concurrency check).
 var ErrPreconditionFailed = errors.New("PreconditionFailedException")
+
+// ErrDurableExecutionNotFound is returned when the specified durable execution does not exist.
+var ErrDurableExecutionNotFound = errors.New("ResourceNotFoundException")
+
+// ErrCallbackNotFound is returned when the specified durable execution callback ID does not exist.
+var ErrCallbackNotFound = errors.New("ResourceNotFoundException")

@@ -29,6 +29,23 @@ func durableExecURL(suffix string) string {
 	return "/2025-12-01/durable-executions/" + url.PathEscape(durableExecARN) + suffix
 }
 
+// durableExecCallbackURL builds a SendDurableExecutionCallback{Success,Failure,Heartbeat}
+// URL: /2025-12-01/durable-execution-callbacks/{callbackID}{suffix}.
+func durableExecCallbackURL(callbackID, suffix string) string {
+	return "/2025-12-01/durable-execution-callbacks/" + url.PathEscape(callbackID) + suffix
+}
+
+// durableExecListURL builds a ListDurableExecutionsByFunction URL:
+// /2025-12-01/functions/{functionName}/durable-executions[?query].
+func durableExecListURL(functionName, query string) string {
+	u := "/2025-12-01/functions/" + url.PathEscape(functionName) + "/durable-executions"
+	if query != "" {
+		u += "?" + query
+	}
+
+	return u
+}
+
 // ---- helpers ----
 
 func auditCreateFunction(t *testing.T, h *lambda.Handler, body string) *httptest.ResponseRecorder {

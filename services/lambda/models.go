@@ -760,14 +760,6 @@ func buildCapacityProviderARN(region, accountID, name string) string {
 	return arn.Build("lambda", region, accountID, fmt.Sprintf("capacity-provider:%s", name))
 }
 
-// CheckpointDurableExecutionInput is the request body for CheckpointDurableExecution.
-type CheckpointDurableExecutionInput struct {
-	Marker *string `json:"Marker,omitempty"`
-}
-
-// CheckpointDurableExecutionOutput is the response for CheckpointDurableExecution.
-type CheckpointDurableExecutionOutput struct{}
-
 // UpdateFunctionURLConfigInput is the request body for UpdateFunctionUrlConfig.
 type UpdateFunctionURLConfigInput struct {
 	Cors     *FunctionURLCors `json:"Cors,omitempty"`
