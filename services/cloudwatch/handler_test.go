@@ -883,6 +883,143 @@ func TestCloudWatchHandler_NewOperations(t *testing.T) {
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DisableAlarmActionsResponse"},
 		},
+		// PutLogAlarm
+		{
+			name: "PutLogAlarm/success",
+			body: "Action=PutLogAlarm&AlarmName=log-alarm-1" +
+				"&ComparisonOperator=GreaterThanThreshold&Threshold=1" +
+				"&QueryResultsToAlarm=1&QueryResultsToEvaluate=1" +
+				"&ScheduledQueryConfiguration.QueryString=fields+%40message" +
+				"&ScheduledQueryConfiguration.AggregationExpression=count(*)" +
+				"&ScheduledQueryConfiguration.ScheduledQueryRoleARN=arn:aws:iam::123456789012:role/r" +
+				"&ScheduledQueryConfiguration.ScheduleConfiguration.ScheduleExpression=rate(5+minutes)",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutLogAlarmResponse"},
+		},
+		{
+			name:     "PutLogAlarm/missing name",
+			body:     "Action=PutLogAlarm&ComparisonOperator=GreaterThanThreshold",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "PutLogAlarm/invalid comparison operator",
+			body: "Action=PutLogAlarm&AlarmName=log-bad-op" +
+				"&ComparisonOperator=LessThanLowerThreshold" +
+				"&QueryResultsToAlarm=1&QueryResultsToEvaluate=1" +
+				"&ScheduledQueryConfiguration.QueryString=fields+%40message" +
+				"&ScheduledQueryConfiguration.AggregationExpression=count(*)" +
+				"&ScheduledQueryConfiguration.ScheduledQueryRoleARN=arn:aws:iam::123456789012:role/r" +
+				"&ScheduledQueryConfiguration.ScheduleConfiguration.ScheduleExpression=rate(5+minutes)",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			// DescribeAlarms omitting AlarmTypes must not surface log alarms.
+			name: "DescribeAlarms/log_alarm_excluded_by_default",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutLogAlarm&AlarmName=log-hidden"+
+					"&ComparisonOperator=GreaterThanThreshold&Threshold=1"+
+					"&QueryResultsToAlarm=1&QueryResultsToEvaluate=1"+
+					"&ScheduledQueryConfiguration.QueryString=fields+%40message"+
+					"&ScheduledQueryConfiguration.AggregationExpression=count(*)"+
+					"&ScheduledQueryConfiguration.ScheduledQueryRoleARN=arn:aws:iam::123456789012:role/r"+
+					"&ScheduledQueryConfiguration.ScheduleConfiguration.ScheduleExpression=rate(5+minutes)")
+			},
+			body:            "Action=DescribeAlarms",
+			wantCode:        http.StatusOK,
+			wantNotContains: []string{"log-hidden"},
+		},
+		{
+			name: "DescribeAlarms/log_alarm_included_when_requested",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutLogAlarm&AlarmName=log-shown"+
+					"&ComparisonOperator=GreaterThanThreshold&Threshold=1"+
+					"&QueryResultsToAlarm=1&QueryResultsToEvaluate=1"+
+					"&ScheduledQueryConfiguration.QueryString=fields+%40message"+
+					"&ScheduledQueryConfiguration.AggregationExpression=count(*)"+
+					"&ScheduledQueryConfiguration.ScheduledQueryRoleARN=arn:aws:iam::123456789012:role/r"+
+					"&ScheduledQueryConfiguration.ScheduleConfiguration.ScheduleExpression=rate(5+minutes)")
+			},
+			body:         "Action=DescribeAlarms&AlarmTypes.member.1=LogAlarm",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"log-shown", "LogAlarms"},
+		},
+		// GetDataset / AssociateDatasetKmsKey / DisassociateDatasetKmsKey
+		{
+			name:         "GetDataset/default",
+			body:         "Action=GetDataset&DatasetIdentifier=default",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"GetDatasetResponse", "default"},
+		},
+		{
+			name:     "GetDataset/unsupported identifier",
+			body:     "Action=GetDataset&DatasetIdentifier=not-default",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "AssociateDatasetKmsKey/success",
+			body: "Action=AssociateDatasetKmsKey&DatasetIdentifier=default" +
+				"&KmsKeyArn=arn:aws:kms:us-east-1:123456789012:key/" +
+				"1234abcd-12ab-34cd-56ef-1234567890ab",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AssociateDatasetKmsKeyResponse"},
+		},
+		{
+			name:     "AssociateDatasetKmsKey/invalid key arn",
+			body:     "Action=AssociateDatasetKmsKey&DatasetIdentifier=default&KmsKeyArn=not-an-arn",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DisassociateDatasetKmsKey/no key associated",
+			body:     "Action=DisassociateDatasetKmsKey&DatasetIdentifier=default",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "DisassociateDatasetKmsKey/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=AssociateDatasetKmsKey&DatasetIdentifier=default"+
+					"&KmsKeyArn=arn:aws:kms:us-east-1:123456789012:key/"+
+					"1234abcd-12ab-34cd-56ef-1234567890ab")
+			},
+			body:         "Action=DisassociateDatasetKmsKey&DatasetIdentifier=default",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DisassociateDatasetKmsKeyResponse"},
+		},
+		// GetOTelEnrichment / StartOTelEnrichment / StopOTelEnrichment
+		{
+			name:         "GetOTelEnrichment/default_stopped",
+			body:         "Action=GetOTelEnrichment",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"GetOTelEnrichmentResponse", "Stopped"},
+		},
+		{
+			name:         "StartOTelEnrichment/success",
+			body:         "Action=StartOTelEnrichment",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"StartOTelEnrichmentResponse"},
+		},
+		{
+			name: "GetOTelEnrichment/after_start_is_running",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=StartOTelEnrichment")
+			},
+			body:         "Action=GetOTelEnrichment",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"Running"},
+		},
+		{
+			name: "StopOTelEnrichment/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=StartOTelEnrichment")
+			},
+			body:         "Action=StopOTelEnrichment",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"StopOTelEnrichmentResponse"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -942,6 +1079,18 @@ func TestCloudWatchHandler_NewOpsInSupportedOperations(t *testing.T) {
 	require.Contains(t, ops, "DisableInsightRules")
 	require.Contains(t, ops, "EnableInsightRules")
 	require.Contains(t, ops, "GetAlarmMuteRule")
+
+	// The 7 operations added by the aws-sdk-go-v2 bump this pass: PutLogAlarm
+	// (log alarms), GetDataset/AssociateDatasetKmsKey/DisassociateDatasetKmsKey
+	// (dataset KMS association), GetOTelEnrichment/StartOTelEnrichment/
+	// StopOTelEnrichment (vended-metric OTel/PromQL enrichment).
+	require.Contains(t, ops, "PutLogAlarm")
+	require.Contains(t, ops, "GetDataset")
+	require.Contains(t, ops, "AssociateDatasetKmsKey")
+	require.Contains(t, ops, "DisassociateDatasetKmsKey")
+	require.Contains(t, ops, "GetOTelEnrichment")
+	require.Contains(t, ops, "StartOTelEnrichment")
+	require.Contains(t, ops, "StopOTelEnrichment")
 }
 
 func TestCloudWatchHandler_ErrValidation(t *testing.T) {

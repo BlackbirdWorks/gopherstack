@@ -12,12 +12,12 @@ func buildCompositeAlarmCBOR(a *CompositeAlarm) cbor.Map {
 	m := cbor.Map{
 		keyAlarmName:        cbor.String(a.AlarmName),
 		keyAlarmArn:         cbor.String(a.AlarmArn),
-		"AlarmType":         cbor.String("CompositeAlarm"),
+		keyAlarmType:        cbor.String("CompositeAlarm"),
 		"AlarmRule":         cbor.String(a.AlarmRule),
 		keyStateValue:       cbor.String(a.StateValue),
-		"StateReason":       cbor.String(a.StateReason),
+		keyStateReason:      cbor.String(a.StateReason),
 		keyAlarmDescription: cbor.String(a.AlarmDescription),
-		"ActionsEnabled":    cbor.Bool(a.ActionsEnabled),
+		keyActionsEnabled:   cbor.Bool(a.ActionsEnabled),
 	}
 	if !a.CreatedAt.IsZero() {
 		m["AlarmCreatedAt"] = cborFromTime(a.CreatedAt)

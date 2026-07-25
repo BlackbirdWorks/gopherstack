@@ -30,6 +30,16 @@ const (
 	opStopMetricStreams       = "StopMetricStreams"
 )
 
+const (
+	opPutLogAlarm               = "PutLogAlarm"
+	opGetDataset                = "GetDataset"
+	opAssociateDatasetKmsKey    = "AssociateDatasetKmsKey"
+	opDisassociateDatasetKmsKey = "DisassociateDatasetKmsKey"
+	opGetOTelEnrichment         = "GetOTelEnrichment"
+	opStartOTelEnrichment       = "StartOTelEnrichment"
+	opStopOTelEnrichment        = "StopOTelEnrichment"
+)
+
 const opSetAlarmState = "SetAlarmState"
 
 const (
@@ -196,6 +206,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		opPutManagedInsightRules,
 		opStartMetricStreams,
 		opStopMetricStreams,
+		opPutLogAlarm,
+		opGetDataset,
+		opAssociateDatasetKmsKey,
+		opDisassociateDatasetKmsKey,
+		opGetOTelEnrichment,
+		opStartOTelEnrichment,
+		opStopOTelEnrichment,
 	}
 }
 
@@ -491,8 +508,40 @@ func (h *Handler) dispatchResourceUpsertFormAction(
 	case opStopMetricStreams:
 		return h.handleStopMetricStreams(form, c)
 	default:
+		if handled, err := h.dispatchDatasetOTelFormAction(action, form, c); handled {
+			return err
+		}
+
 		return h.dispatchAlarmFormAction(action, form, c)
 	}
+}
+
+// dispatchDatasetOTelFormAction routes the dataset-KMS and OTel-enrichment
+// form actions added by the cloudwatch@v1.65 SDK bump. Returns (true, err)
+// when the action was handled, (false, nil) otherwise. Split out of
+// dispatchResourceUpsertFormAction to keep that function's cyclomatic
+// complexity under the repo's cyclop limit.
+func (h *Handler) dispatchDatasetOTelFormAction(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
+	switch action {
+	case opGetDataset:
+		return true, h.handleGetDataset(form, c)
+	case opAssociateDatasetKmsKey:
+		return true, h.handleAssociateDatasetKmsKey(form, c)
+	case opDisassociateDatasetKmsKey:
+		return true, h.handleDisassociateDatasetKmsKey(form, c)
+	case opGetOTelEnrichment:
+		return true, h.handleGetOTelEnrichment(form, c)
+	case opStartOTelEnrichment:
+		return true, h.handleStartOTelEnrichment(form, c)
+	case opStopOTelEnrichment:
+		return true, h.handleStopOTelEnrichment(form, c)
+	}
+
+	return false, nil
 }
 
 // dispatchAlarmFormAction routes alarm-specific form-encoded actions.
@@ -502,6 +551,8 @@ func (h *Handler) dispatchAlarmFormAction(action string, form url.Values, c *ech
 		return h.handlePutMetricAlarm(form, c)
 	case opPutCompositeAlarm:
 		return h.handlePutCompositeAlarm(form, c)
+	case opPutLogAlarm:
+		return h.handlePutLogAlarm(form, c)
 	case opDescribeAlarms:
 		return h.handleDescribeAlarms(form, c)
 	case opDescribeAlarmsForMetric:

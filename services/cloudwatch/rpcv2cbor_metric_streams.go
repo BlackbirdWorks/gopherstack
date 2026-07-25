@@ -73,7 +73,7 @@ func (h *Handler) cborListMetricStreams(input cbor.Map, c *echo.Context) error {
 	for _, s := range p.Data {
 		entry := cbor.Map{
 			keyName:        cbor.String(s.Name),
-			"Arn":          cbor.String(s.Arn),
+			keyArn:         cbor.String(s.Arn),
 			"FirehoseArn":  cbor.String(s.FirehoseArn),
 			keyState:       cbor.String(s.State),
 			"OutputFormat": cbor.String(s.OutputFormat),

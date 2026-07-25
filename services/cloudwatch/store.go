@@ -50,6 +50,28 @@ const (
 	historyTypeStateUpdate         = "StateUpdate"
 	historyTypeConfigurationUpdate = "ConfigurationUpdate"
 	historyTypeAction              = "Action"
+
+	// alarmTypeLogAlarm is the AlarmType value for log alarms, alongside the
+	// existing "MetricAlarm"/"CompositeAlarm" strings used throughout this
+	// package for history entries, DescribeAlarms filtering, etc.
+	alarmTypeLogAlarm = "LogAlarm"
+
+	// defaultDatasetID is the only dataset identifier real CloudWatch
+	// supports today (GetDataset/AssociateDatasetKmsKey/
+	// DisassociateDatasetKmsKey all operate on this implicit dataset, which
+	// exists for every account in every Region without needing to be
+	// created).
+	defaultDatasetID = "default"
+
+	// otelEnrichmentSingletonKey is the fixed store key for the single,
+	// account-level OTelEnrichmentState row.
+	otelEnrichmentSingletonKey = "account"
+
+	// otelEnrichmentStatusRunning/Stopped mirror
+	// aws-sdk-go-v2/service/cloudwatch/types.OTelEnrichmentStatus's two real
+	// values. Stopped is the default before StartOTelEnrichment is ever called.
+	otelEnrichmentStatusRunning = "Running"
+	otelEnrichmentStatusStopped = "Stopped"
 )
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -65,11 +87,14 @@ type InMemoryBackend struct {
 	alarmHistory     map[string][]AlarmHistoryItem
 	alarms           *store.Table[MetricAlarm]
 	compositeAlarms  *store.Table[CompositeAlarm]
+	logAlarms        *store.Table[LogAlarm]
 	dashboards       *store.Table[dashboardRecord]
 	anomalyDetectors *store.Table[AnomalyDetector]
 	insightRules     *store.Table[InsightRule]
 	metricStreams    *store.Table[MetricStream]
 	alarmMuteRules   *store.Table[AlarmMuteRule]
+	datasets         *store.Table[Dataset]
+	otelEnrichment   *store.Table[OTelEnrichmentState]
 	registry         *store.Registry
 	snsPublisher     SNSPublisher
 	lambdaInvoker    LambdaInvoker

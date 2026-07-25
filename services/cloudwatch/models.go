@@ -119,6 +119,88 @@ type CompositeAlarm struct {
 	ActionsEnabled             bool      `json:"ActionsEnabled"`
 }
 
+// ScheduleConfiguration is the schedule expression and time-range offsets that
+// define when a log alarm's underlying CloudWatch Logs scheduled query runs
+// and what time range each execution covers.
+type ScheduleConfiguration struct {
+	ScheduleExpression string `json:"ScheduleExpression"`
+	StartTimeOffset    int64  `json:"StartTimeOffset"`
+	EndTimeOffset      int64  `json:"EndTimeOffset,omitempty"`
+}
+
+// ScheduledQueryConfiguration is the configuration of the CloudWatch Logs
+// scheduled query that backs a log alarm: the query itself, the log groups it
+// runs against, its schedule, and the aggregation expression used to reduce
+// each execution's results to the scalar value(s) compared against the
+// alarm's Threshold.
+type ScheduledQueryConfiguration struct {
+	AggregationExpression string                `json:"AggregationExpression"`
+	QueryString           string                `json:"QueryString"`
+	ScheduledQueryRoleARN string                `json:"ScheduledQueryRoleARN"`
+	QueryARN              string                `json:"QueryARN,omitempty"`
+	LogGroupIdentifiers   []string              `json:"LogGroupIdentifiers,omitempty"`
+	ScheduleConfiguration ScheduleConfiguration `json:"ScheduleConfiguration"`
+}
+
+// LogAlarm represents a CloudWatch log alarm: a third alarm type (alongside
+// MetricAlarm and CompositeAlarm) that evaluates the results of a CloudWatch
+// Logs scheduled query against Threshold using M-out-of-N evaluation
+// (QueryResultsToAlarm out of the most recent QueryResultsToEvaluate results).
+// gopherstack has no CloudWatch Logs Insights query engine to actually run
+// ScheduledQueryConfiguration on a schedule, so EvaluationState/state
+// transitions for a log alarm are driven only by explicit SetAlarmState
+// calls -- the same manual-only model this backend already uses for
+// composite alarms between PutCompositeAlarm evaluations.
+type LogAlarm struct {
+	CreatedAt                          time.Time                   `json:"AlarmCreatedAt"`
+	StateTransitionedTimestamp         time.Time                   `json:"StateTransitionedTimestamp"`
+	StateUpdatedTimestamp              time.Time                   `json:"StateUpdatedTimestamp"`
+	AlarmConfigurationUpdatedTimestamp time.Time                   `json:"AlarmConfigurationUpdatedTimestamp"`
+	StateReasonData                    string                      `json:"StateReasonData,omitempty"`
+	EvaluationState                    string                      `json:"EvaluationState,omitempty"`
+	AlarmName                          string                      `json:"AlarmName"`
+	ComparisonOperator                 string                      `json:"ComparisonOperator"`
+	TreatMissingData                   string                      `json:"TreatMissingData,omitempty"`
+	StateReason                        string                      `json:"StateReason,omitempty"`
+	ActionLogLineRoleArn               string                      `json:"ActionLogLineRoleArn,omitempty"`
+	AlarmDescription                   string                      `json:"AlarmDescription,omitempty"`
+	AlarmArn                           string                      `json:"AlarmArn"`
+	StateValue                         string                      `json:"StateValue"`
+	AlarmActions                       []string                    `json:"AlarmActions,omitempty"`
+	OKActions                          []string                    `json:"OKActions,omitempty"`
+	InsufficientDataActions            []string                    `json:"InsufficientDataActions,omitempty"`
+	ScheduledQueryConfiguration        ScheduledQueryConfiguration `json:"ScheduledQueryConfiguration"`
+	Threshold                          float64                     `json:"Threshold"`
+	QueryResultsToAlarm                int32                       `json:"QueryResultsToAlarm"`
+	QueryResultsToEvaluate             int32                       `json:"QueryResultsToEvaluate"`
+	ActionLogLineCount                 int32                       `json:"ActionLogLineCount,omitempty"`
+	ActionsEnabled                     bool                        `json:"ActionsEnabled"`
+}
+
+// Dataset represents CloudWatch's implicit "default" dataset and its optional
+// customer-managed KMS key association. Real CloudWatch only supports the
+// default dataset -- there is no create/delete/list API for datasets, only
+// Get/AssociateDatasetKmsKey/DisassociateDatasetKmsKey against the one
+// implicit dataset that exists for every account in every Region.
+type Dataset struct {
+	DatasetID string `json:"DatasetId"`
+	// Arn is derived (arn.Build) rather than persisted meaningfully -- it is
+	// recomputed and overwritten on every GetDataset/AssociateDatasetKmsKey
+	// return value, never read back out of storage.
+	Arn       string `json:"Arn,omitempty"`
+	KmsKeyArn string `json:"KmsKeyArn,omitempty"`
+}
+
+// OTelEnrichmentState is the account-level status of vended-metric OTel
+// enrichment (resource ARN/tag labels + PromQL queryability), toggled by
+// StartOTelEnrichment/StopOTelEnrichment and read by GetOTelEnrichment. Key is
+// always otelEnrichmentSingletonKey; there is exactly one row per backend,
+// matching the fact this is an account-wide setting, not a named resource.
+type OTelEnrichmentState struct {
+	Key    string `json:"Key"`
+	Status string `json:"Status"`
+}
+
 // AlarmHistoryItem represents a single history entry for an alarm.
 type AlarmHistoryItem struct {
 	Timestamp       time.Time `json:"Timestamp"`

@@ -22,10 +22,88 @@ type alarmStateUpdate struct {
 	actionsEnabled       bool
 }
 
-// setAlarmStateLocked applies the new state to the named metric or composite
-// alarm, records history, and re-evaluates dependent composite alarms. Must be
-// called with b.mu unlocked; it takes the write lock itself. Extracted from
-// SetAlarmState to keep the locked region out of the parent's funlen count.
+// applyMetricAlarmStateLocked copies a metric alarm's pre-change fields into
+// update and applies the new state. Caller must hold b.mu (write lock).
+func applyMetricAlarmStateLocked(
+	update *alarmStateUpdate,
+	a *MetricAlarm,
+	stateValue, stateReason, stateReasonData string,
+	now time.Time,
+) []string {
+	update.oldState = a.StateValue
+	update.alarmArn = a.AlarmArn
+	update.alarmDesc = a.AlarmDescription
+	update.alarmActions = a.AlarmActions
+	update.okActions = a.OKActions
+	update.insuffActions = a.InsufficientDataActions
+	update.actionsEnabled = a.ActionsEnabled
+	instanceIDs := instanceIDsFromDimensions(a.Dimensions)
+
+	a.StateValue = stateValue
+	a.StateReason = stateReason
+	a.StateReasonData = stateReasonData
+	if update.oldState != stateValue {
+		a.StateTransitionedTimestamp = now
+	}
+
+	return instanceIDs
+}
+
+// applyCompositeAlarmStateLocked copies a composite alarm's pre-change fields
+// into update and applies the new state. Caller must hold b.mu (write lock).
+func applyCompositeAlarmStateLocked(
+	update *alarmStateUpdate,
+	a *CompositeAlarm,
+	stateValue, stateReason string,
+	now time.Time,
+) {
+	update.oldState = a.StateValue
+	update.alarmArn = a.AlarmArn
+	update.alarmDesc = a.AlarmDescription
+	update.alarmActions = a.AlarmActions
+	update.okActions = a.OKActions
+	update.insuffActions = a.InsufficientDataActions
+	update.actionsEnabled = a.ActionsEnabled
+
+	a.StateValue = stateValue
+	a.StateReason = stateReason
+	if update.oldState != stateValue {
+		a.StateTransitionedTimestamp = now
+	}
+}
+
+// applyLogAlarmStateLocked copies a log alarm's pre-change fields into update
+// and applies the new state. gopherstack has no scheduled-query engine to
+// drive a log alarm's state automatically, so this is reached only via an
+// explicit SetAlarmState call. Caller must hold b.mu (write lock).
+func applyLogAlarmStateLocked(
+	update *alarmStateUpdate,
+	a *LogAlarm,
+	stateValue, stateReason, stateReasonData string,
+	now time.Time,
+) {
+	update.oldState = a.StateValue
+	update.alarmArn = a.AlarmArn
+	update.alarmDesc = a.AlarmDescription
+	update.alarmActions = a.AlarmActions
+	update.okActions = a.OKActions
+	update.insuffActions = a.InsufficientDataActions
+	update.actionsEnabled = a.ActionsEnabled
+
+	a.StateValue = stateValue
+	a.StateReason = stateReason
+	a.StateReasonData = stateReasonData
+	if update.oldState != stateValue {
+		a.StateTransitionedTimestamp = now
+		a.StateUpdatedTimestamp = now
+	}
+}
+
+// setAlarmStateLocked applies the new state to the named metric, composite,
+// or log alarm, records history, and re-evaluates dependent composite alarms.
+// Must be called with b.mu unlocked; it takes the write lock itself.
+// Extracted from SetAlarmState to keep the locked region out of the parent's
+// funlen count.
 func (b *InMemoryBackend) setAlarmStateLocked(
 	alarmName, stateValue, stateReason, stateReasonData string,
 ) (*alarmStateUpdate, error) {
@@ -34,53 +112,32 @@ func (b *InMemoryBackend) setAlarmStateLocked(
 
 	metricAlarm, hasMetric := b.alarms.Get(alarmName)
 	compositeAlarm, hasComposite := b.compositeAlarms.Get(alarmName)
+	logAlarm, hasLog := b.logAlarms.Get(alarmName)
 
-	if !hasMetric && !hasComposite {
+	if !hasMetric && !hasComposite && !hasLog {
 		return nil, fmt.Errorf("%w: %s", ErrAlarmNotFound, alarmName)
 	}
 
 	update := &alarmStateUpdate{}
+	now := time.Now().UTC()
 
 	var instanceIDs []string
-
-	if hasMetric {
-		update.oldState = metricAlarm.StateValue
-		update.alarmArn = metricAlarm.AlarmArn
-		update.alarmDesc = metricAlarm.AlarmDescription
-		update.alarmActions = metricAlarm.AlarmActions
-		update.okActions = metricAlarm.OKActions
-		update.insuffActions = metricAlarm.InsufficientDataActions
-		update.actionsEnabled = metricAlarm.ActionsEnabled
-		instanceIDs = instanceIDsFromDimensions(metricAlarm.Dimensions)
-
-		metricAlarm.StateValue = stateValue
-		metricAlarm.StateReason = stateReason
-		metricAlarm.StateReasonData = stateReasonData
-		if update.oldState != stateValue {
-			metricAlarm.StateTransitionedTimestamp = time.Now().UTC()
-		}
-	} else {
-		update.oldState = compositeAlarm.StateValue
-		update.alarmArn = compositeAlarm.AlarmArn
-		update.alarmDesc = compositeAlarm.AlarmDescription
-		update.alarmActions = compositeAlarm.AlarmActions
-		update.okActions = compositeAlarm.OKActions
-		update.insuffActions = compositeAlarm.InsufficientDataActions
-		update.actionsEnabled = compositeAlarm.ActionsEnabled
-
-		compositeAlarm.StateValue = stateValue
-		compositeAlarm.StateReason = stateReason
-		if update.oldState != stateValue {
-			compositeAlarm.StateTransitionedTimestamp = time.Now().UTC()
-		}
+	switch {
+	case hasMetric:
+		update.histAlarmType = "MetricAlarm"
+		instanceIDs = applyMetricAlarmStateLocked(
+			update, metricAlarm, stateValue, stateReason, stateReasonData, now,
+		)
+	case hasComposite:
+		update.histAlarmType = "CompositeAlarm"
+		applyCompositeAlarmStateLocked(update, compositeAlarm, stateValue, stateReason, now)
+	default:
+		update.histAlarmType = alarmTypeLogAlarm
+		applyLogAlarmStateLocked(update, logAlarm, stateValue, stateReason, stateReasonData, now)
 	}
 
 	summary := fmt.Sprintf("Alarm %q changed from %s to %s", alarmName, update.oldState, stateValue)
 	histData := b.stateChangeHistoryData(alarmName, update.oldState, stateValue, stateReason)
-	update.histAlarmType = "MetricAlarm"
-	if !hasMetric {
-		update.histAlarmType = "CompositeAlarm"
-	}
 	b.appendHistory(alarmName, update.histAlarmType, historyTypeStateUpdate, summary, histData)
 
 	// re-evaluate composite alarms that may reference this alarm, collecting any transitions

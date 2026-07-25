@@ -59,12 +59,13 @@ type StorageBackend interface {
 	) (page.Page[Metric], error)
 	PutMetricAlarm(alarm *MetricAlarm) error
 	PutCompositeAlarm(alarm *CompositeAlarm) error
+	PutLogAlarm(alarm *LogAlarm) error
 	DescribeAlarms(
 		alarmNames []string,
 		alarmTypes []string,
 		alarmNamePrefix, stateValue, nextToken string,
 		maxRecords int,
-	) (page.Page[MetricAlarm], page.Page[CompositeAlarm], error)
+	) (page.Page[MetricAlarm], page.Page[CompositeAlarm], page.Page[LogAlarm], error)
 	DescribeAlarmsForMetric(
 		namespace, metricName string,
 		dimensions []Dimension,
@@ -115,4 +116,10 @@ type StorageBackend interface {
 		resourceARN, nextToken string,
 		maxResults int,
 	) (page.Page[InsightRule], error)
+	GetDataset(identifier string) (Dataset, error)
+	AssociateDatasetKmsKey(identifier, kmsKeyArn string) error
+	DisassociateDatasetKmsKey(identifier string) error
+	GetOTelEnrichment() (string, error)
+	StartOTelEnrichment() error
+	StopOTelEnrichment() error
 }

@@ -28,9 +28,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-func alarmsKeyFn(v *MetricAlarm) string             { return v.AlarmName }
-func compositeAlarmsKeyFn(v *CompositeAlarm) string { return v.AlarmName }
-func dashboardsKeyFn(v *dashboardRecord) string     { return v.Name }
+func alarmsKeyFn(v *MetricAlarm) string                 { return v.AlarmName }
+func compositeAlarmsKeyFn(v *CompositeAlarm) string     { return v.AlarmName }
+func logAlarmsKeyFn(v *LogAlarm) string                 { return v.AlarmName }
+func dashboardsKeyFn(v *dashboardRecord) string         { return v.Name }
+func datasetsKeyFn(v *Dataset) string                   { return v.DatasetID }
+func otelEnrichmentKeyFn(v *OTelEnrichmentState) string { return v.Key }
 
 func anomalyDetectorsKeyFn(v *AnomalyDetector) string {
 	return anomalyDetectorKey(v.Namespace, v.MetricName, v.Stat, v.Dimensions)
@@ -62,6 +65,15 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.compositeAlarms = store.Register(b.registry, "compositeAlarms", store.New(compositeAlarmsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.logAlarms = store.Register(b.registry, "logAlarms", store.New(logAlarmsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.datasets = store.Register(b.registry, "datasets", store.New(datasetsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.otelEnrichment = store.Register(b.registry, "otelEnrichment", store.New(otelEnrichmentKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.dashboards = store.Register(b.registry, "dashboards", store.New(dashboardsKeyFn))

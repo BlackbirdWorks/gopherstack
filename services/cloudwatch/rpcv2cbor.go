@@ -23,6 +23,13 @@ const (
 	keyValue      = "Value"
 )
 
+const (
+	keyAlarmType      = "AlarmType"
+	keyStateReason    = "StateReason"
+	keyActionsEnabled = "ActionsEnabled"
+	keyArn            = "Arn"
+)
+
 const cborServicePath = "/service/GraniteServiceVersion20100801/operation/"
 
 // nanosPerSecond is the number of nanoseconds in a second.
@@ -135,6 +142,18 @@ func (h *Handler) dispatchResourceManagementCBOR(op string, input cbor.Map, c *e
 		return h.cborGetAlarmMuteRule(input, c)
 	case opDeleteAlarmMuteRule:
 		return h.cborDeleteAlarmMuteRule(input, c)
+	case opGetDataset:
+		return h.cborGetDataset(input, c)
+	case opAssociateDatasetKmsKey:
+		return h.cborAssociateDatasetKmsKey(input, c)
+	case opDisassociateDatasetKmsKey:
+		return h.cborDisassociateDatasetKmsKey(input, c)
+	case opGetOTelEnrichment:
+		return h.cborGetOTelEnrichment(input, c)
+	case opStartOTelEnrichment:
+		return h.cborStartOTelEnrichment(input, c)
+	case opStopOTelEnrichment:
+		return h.cborStopOTelEnrichment(input, c)
 	default:
 		return h.dispatchAlarmCBOR(op, input, c)
 	}
@@ -147,6 +166,8 @@ func (h *Handler) dispatchAlarmCBOR(op string, input cbor.Map, c *echo.Context) 
 		return h.cborPutMetricAlarm(input, c)
 	case opPutCompositeAlarm:
 		return h.cborPutCompositeAlarm(input, c)
+	case opPutLogAlarm:
+		return h.cborPutLogAlarm(input, c)
 	case opDescribeAlarms:
 		return h.cborDescribeAlarms(input, c)
 	case opDescribeAlarmsForMetric:

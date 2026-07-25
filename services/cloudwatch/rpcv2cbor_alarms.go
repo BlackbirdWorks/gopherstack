@@ -65,7 +65,7 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
 
-	metricPage, compositePage, err := h.Backend.DescribeAlarms(
+	metricPage, compositePage, logPage, err := h.Backend.DescribeAlarms(
 		alarmNames,
 		alarmTypes,
 		alarmNamePrefix,
@@ -87,14 +87,23 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 		compositeList = append(compositeList, buildCompositeAlarmCBOR(&compositePage.Data[i]))
 	}
 
+	logList := make(cbor.List, 0, len(logPage.Data))
+	for i := range logPage.Data {
+		logList = append(logList, buildLogAlarmCBOR(&logPage.Data[i]))
+	}
+
 	resp := cbor.Map{
 		"MetricAlarms":    alarmList,
 		"CompositeAlarms": compositeList,
+		"LogAlarms":       logList,
 	}
 
 	nextTok := metricPage.Next
 	if nextTok == "" {
 		nextTok = compositePage.Next
+	}
+	if nextTok == "" {
+		nextTok = logPage.Next
 	}
 	if nextTok != "" {
 		resp["NextToken"] = cbor.String(nextTok)
@@ -124,13 +133,13 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 	m := cbor.Map{
 		keyAlarmName:         cbor.String(a.AlarmName),
 		keyAlarmArn:          cbor.String(a.AlarmArn),
-		"AlarmType":          cbor.String("MetricAlarm"),
+		keyAlarmType:         cbor.String("MetricAlarm"),
 		keyNamespace:         cbor.String(a.Namespace),
 		keyMetricName:        cbor.String(a.MetricName),
 		"ComparisonOperator": cbor.String(a.ComparisonOperator),
 		"Statistic":          cbor.String(a.Statistic),
 		keyStateValue:        cbor.String(a.StateValue),
-		"StateReason":        cbor.String(a.StateReason),
+		keyStateReason:       cbor.String(a.StateReason),
 		keyAlarmDescription:  cbor.String(a.AlarmDescription),
 		"Threshold":          cbor.Float64(a.Threshold),
 		"EvaluationPeriods": cbor.Uint(
@@ -139,7 +148,7 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 		"Period": cbor.Uint(
 			uint64(a.Period), //nolint:gosec // Period is positive
 		),
-		"ActionsEnabled": cbor.Bool(a.ActionsEnabled),
+		keyActionsEnabled: cbor.Bool(a.ActionsEnabled),
 	}
 	if !a.StateTransitionedTimestamp.IsZero() {
 		m["StateTransitionedTimestamp"] = cborFromTime(a.StateTransitionedTimestamp)

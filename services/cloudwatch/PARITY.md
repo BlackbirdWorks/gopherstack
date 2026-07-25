@@ -5,29 +5,39 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
-sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.55.1
-last_audit_commit: e862cdc22
-last_audit_date: 2026-07-24
-overall: A            # this pass fixed the PutDashboard DashboardBody validation gap
-                      # (bd gopherstack-3ro), added the missing insight-rule
-                      # RuleDefinition JSON validation and metric-stream
-                      # required-field/enum/mutual-exclusion validation (both
-                      # previously silently permissive gaps not tracked in this
-                      # ledger), and — the big finding this pass — DELETED four
-                      # gopherstack-invented operations that do not exist in the
-                      # real SDK: UpdateAlarmMuteRule, UpdateInsightRule,
-                      # UpdateMetricStream (Put* is create-or-update for all three
-                      # in real CloudWatch, confirmed by reading the generated SDK
-                      # doc comments — there is no separate Update op for any of
-                      # them), and the entire PutMetricFilter/DescribeMetricFilters/
-                      # DeleteMetricFilter/TestMetricFilter family (these are
-                      # CloudWatch *Logs* operations, not CloudWatch/monitoring
-                      # operations — confirmed absent from
-                      # aws-sdk-go-v2/service/cloudwatch's op list and present in
-                      # aws-sdk-go-v2/service/cloudwatchlogs instead; gopherstack's
-                      # services/cloudwatchlogs/ already implements them for real,
-                      # so nothing was lost). See "Notes" below for the full
-                      # writeup and how each was verified.
+sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.65.0
+last_audit_commit: ba55d9be4
+last_audit_date: 2026-07-25
+overall: A-           # this pass implemented the 7 operations added by the
+                      # aws-sdk-go-v2 module bump from v1.55.1 to v1.65.0:
+                      # PutLogAlarm (a real THIRD alarm type, LogAlarm,
+                      # confirmed via types.LogAlarm/AlarmType enum and wired
+                      # into DescribeAlarms/DeleteAlarms/DescribeAlarmHistory/
+                      # SetAlarmState/EnableAlarmActions/DisableAlarmActions --
+                      # see the PutLogAlarm row and "Notes" below), GetDataset/
+                      # AssociateDatasetKmsKey/DisassociateDatasetKmsKey
+                      # (dataset-level customer-managed-KMS-key association for
+                      # the implicit "default" dataset, with a fully-qualified-
+                      # ARN-only KMS validator distinct from this repo's more
+                      # permissive alias-accepting pattern, because
+                      # AssociateDatasetKmsKey's own doc comment documents that
+                      # stricter shape), and GetOTelEnrichment/
+                      # StartOTelEnrichment/StopOTelEnrichment (account-level
+                      # vended-metric OTel/PromQL enrichment status, modeled as
+                      # a real Running/Stopped state machine, not fabricated
+                      # enrichment data). Downgraded from the previous A to A-
+                      # because implementing PutLogAlarm's DescribeAlarms
+                      # integration surfaced a genuine, previously-undetected
+                      # bug in the *existing* MetricAlarm/CompositeAlarm
+                      # DescribeAlarms default-type-inclusion behavior (see
+                      # "DescribeAlarms AlarmTypes default-inclusion bug
+                      # (pre-existing, newly discovered)" in Notes) -- it was
+                      # NOT fixed this pass (out of scope: it predates and is
+                      # independent of the 7 new operations), but it would be
+                      # dishonest to leave the DescribeAlarms row marked fully
+                      # "ok" now that it's known. See "Notes" for the full
+                      # writeup of both the new-ops implementation and this
+                      # discovered gap.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -37,14 +47,21 @@ ops:
   ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — RecentlyActive=PT3H filter was parsed nowhere (silently ignored); now validated and enforced"}
   PutMetricAlarm: {wire: ok, errors: ok, state: ok, persist: ok}
   PutCompositeAlarm: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlarmRule AND/OR/NOT parsing with cycle + depth-limit detection proven correct"}
-  DescribeAlarms: {wire: ok, errors: ok, state: ok, persist: ok, note: "separate MetricAlarms/CompositeAlarms lists, alarmType/stateValue/prefix filters all correct"}
+  PutLogAlarm: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Third alarm type (types.LogAlarm, AlarmType enum has CompositeAlarm/MetricAlarm/LogAlarm) — not a MetricAlarm/CompositeAlarm variant. Field-diffed against types.LogAlarm + types.ScheduledQueryConfiguration/ScheduleConfiguration. ComparisonOperator restricted to the 4 real values (no anomaly-detection band operators — log alarms compare one aggregated query result to a scalar Threshold). Required-field/range validation (QueryResultsToAlarm<=QueryResultsToEvaluate in [1,100], ActionLogLineCount in [0,50] with RoleArn required when >0, ScheduledQueryConfiguration.{QueryString,AggregationExpression,ScheduledQueryRoleARN,ScheduleConfiguration.ScheduleExpression} required) mirrors this file's existing PutMetricAlarm/PutCompositeAlarm validation style. No CloudWatch Logs Insights query engine exists here, so EvaluationState/automatic state transitions are never fabricated — state only changes via explicit SetAlarmState, same manual-only model composite alarms use between PutCompositeAlarm re-evaluations. create-or-update semantics (re-PUTting an existing AlarmName replaces it in place) match the SDK doc comment."}
+  DescribeAlarms: {wire: partial, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now returns a third LogAlarms list (types.DescribeAlarmsOutput has CompositeAlarms/LogAlarms/MetricAlarms) alongside MetricAlarms/CompositeAlarms, single combined MaxRecords/NextToken pagination window extended across all three. LogAlarm correctly honors the real documented default (AlarmTypes omitted -> only metric alarms, log alarms excluded unless AlarmTypes explicitly includes \"LogAlarm\"). wire downgraded from ok to partial: implementing this surfaced that gopherstack's PRE-EXISTING MetricAlarm/CompositeAlarm default-inclusion is wrong per the same doc sentence — see \"DescribeAlarms AlarmTypes default-inclusion bug\" in Notes; left unfixed (out of scope for this pass, predates it) but now honestly flagged rather than left marked fully ok."}
   DescribeAlarmsForMetric: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAlarmHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — Action-history entries for composite alarms were hardcoded AlarmType=MetricAlarm"}
-  DeleteAlarms: {wire: ok, errors: ok, state: ok, persist: ok}
-  SetAlarmState: {wire: ok, errors: ok, state: ok, persist: ok, note: "fires actions only on real transition, correct action-list selection per new state, composite re-evaluation cascades"}
-  EnableAlarmActions: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisableAlarmActions: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeAlarmHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — log alarm Put/state-change/action history entries are correctly tagged AlarmType=LogAlarm (threaded through appendHistory the same way the prior pass fixed composite-alarm mistagging); AlarmType=LogAlarm filtering proven correct and proven to exclude other alarm types' history. Prior pass's fix (Action-history entries for composite alarms were hardcoded AlarmType=MetricAlarm) remains correct, unchanged."}
+  DeleteAlarms: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now also deletes log alarms (b.logAlarms.Delete) and cleans up their history/tags via GetAlarmARNs, which now includes log alarm ARNs too. A log alarm PutLogAlarm creates that no op could later delete would have been an orphan/parity bug; verified it isn't."}
+  SetAlarmState: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now also accepts log alarm names (setAlarmStateLocked checks b.alarms/b.compositeAlarms/b.logAlarms in that order), decomposed into per-type applyMetricAlarmStateLocked/applyCompositeAlarmStateLocked/applyLogAlarmStateLocked helpers to keep the 3-way branch's complexity down. fires actions only on real transition, correct action-list selection per new state, composite re-evaluation cascades (unchanged, still correct)."}
+  EnableAlarmActions: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now also toggles log alarms' ActionsEnabled."}
+  DisableAlarmActions: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now also toggles log alarms' ActionsEnabled."}
+  GetDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Only the default dataset is supported (real doc comment: implicit, exists without being created) — DatasetIdentifier accepts \"default\" or the full dataset ARN, anything else is ResourceNotFoundException. Field-diffed against types (Arn/DatasetId always present, KmsKeyArn omitted entirely when no key associated, matching the real 'response omits the KmsKeyArn field' doc language, not an empty string)."}
+  AssociateDatasetKmsKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). KmsKeyArn validated against a fully-qualified-key-ARN-only regex (rejects bare key IDs and alias/alias-ARN forms) per AssociateDatasetKmsKeyInput's own doc comment (\"Key IDs, aliases, and alias ARNs are not accepted\") — deliberately NOT this repo's more permissive validateKmsKeyID pattern (services/comprehend/store.go), which accepts aliases for fields that documented aliases as valid; this field does not. Create-or-replace semantics (re-associating overwrites the prior key) match the doc comment."}
+  DisassociateDatasetKmsKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Fails with ResourceNotFoundException when the dataset has no KMS key currently associated, matching the doc comment exactly (not InvalidParameterValue or a silent no-op)."}
+  GetOTelEnrichment: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Status modeled as a real two-state machine (Running/Stopped, types.OTelEnrichmentStatus's only two values), defaulting to Stopped before StartOTelEnrichment is ever called — no enrichment output data (resource ARN/tag labels, PromQL query results) is fabricated anywhere, since gopherstack has no telemetry-enrichment pipeline to actually produce it; this op only tracks whether the account-level setting is on."}
+  StartOTelEnrichment: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Sets status to Running; both Input/Output are empty structs in the real SDK, matched exactly (no fields on the wire either direction)."}
+  StopOTelEnrichment: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Sets status to Stopped; both Input/Output are empty structs in the real SDK, matched exactly."}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "generic ARN-keyed tag store — log alarm ARNs (arn.Build with alarm:<name>, same scheme as metric/composite alarms) work here with no changes needed."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   PutDashboard: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (bd gopherstack-3ro) — DashboardBody is now validated against the documented dashboard JSON/widget schema (dashboard_validation.go): malformed JSON, non-object root, non-array widgets, non-object widget entries, missing widget type, and non-numeric layout fields are errors (DashboardInvalidInputError, HTTP 400, body not persisted, DashboardValidationMessages embedded in the error per the SDK's DashboardInvalidInputError exception shape); unrecognized widget type, missing properties, and metric-widget-missing-metrics are warnings (dashboard still persisted, DashboardValidationMessages returned informationally on the 200 response). Both XML and CBOR wire paths covered independently."}
@@ -80,17 +97,22 @@ families:
   alarm-action-dispatch: {status: ok, note: "FIXED this pass — composite-alarm action history mistagged AlarmType=MetricAlarm (see DescribeAlarmHistory). SNS/Lambda/EC2-automate/AutoScaling-policy ARN routing, best-effort delivery (failures logged, other actions still run), EC2 InstanceId dimension extraction all proven correct. Actual SNS/Lambda/EC2/ASG client wiring lives in cli.go (out of scope per task boundary) — only the in-package dispatch/selection logic was audited/fixed."}
   error-codes: {status: ok, note: "ResourceNotFoundException/InvalidParameterValue/InvalidParameterCombination/LimitExceeded all HTTP 400 (correct for CloudWatch's query/XML protocol, which never uses 404); InternalFailure is 500. Spot-checked across alarms/dashboards/mute-rules/anomaly-detectors/insight-rules/metric-streams. New PutMetricStream/PutDashboard/PutInsightRule validation errors this pass correctly route through errors.Is(err, ErrValidation) to InvalidParameterValue/DashboardInvalidInputError rather than falling through to InternalFailure."}
   persistence: {status: ok, note: "backendSnapshot/persistence.go covers metrics, alarms, composite alarms, alarm history, dashboards, anomaly detectors, insight rules, metric streams, alarm mute rules; field names unchanged by this pass. The metricFilters table (and its persistence_test.go round-trip coverage) was REMOVED this pass along with the rest of the invented PutMetricFilter family -- see Notes; it was never wired into backendSnapshot's real persistence anyway (only a test-only round-trip existed), so no live snapshot format is affected."}
-gaps: []                  # known divergences NOT fixed — link bd issue ids; none remaining
-                          # after this pass. PutDashboard DashboardBody JSON/widget-schema
-                          # validation (bd: gopherstack-3ro) — FIXED, see PutDashboard row.
-                          # insight-rule RuleDefinition JSON validation — FIXED, see
-                          # PutInsightRule row. metric-stream required-field/enum/mutual-
-                          # exclusion validation — FIXED, see PutMetricStream row.
+gaps:                      # known divergences NOT fixed — link bd issue ids
+  - "DescribeAlarms AlarmTypes default-inclusion bug (pre-existing, discovered this pass, NOT
+    fixed — see Notes): when AlarmTypes is omitted, real DescribeAlarms returns only metric
+    alarms, but gopherstack's includeComposite defaults to true. LogAlarm was implemented
+    against the documented-correct default (excluded unless requested); MetricAlarm/
+    CompositeAlarm's existing (wrong) default was left unchanged to avoid an unrelated
+    behavioural change outside this pass's scope (7 new v1.65.0 operations). No bd issue filed
+    yet — flagging here per this file's own protocol so the next pass doesn't have to
+    rediscover it."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - widget.go / widget_draw.go / widget_font.go (GetMetricWidgetImage PNG rendering internals — not a wire-shape or state-correctness concern, only visual fidelity)
   - metric-stream Firehose delivery payload format (OutputFormat json/opentelemetry0.7/opentelemetry1.0 byte-level shape) — gopherstack does not actually deliver metric-stream data to a Firehose endpoint at all (PutMetricStream/matchingRunningStreamNames only track config + which streams a given PutMetricData batch would match); this is analogous to alarm-action-dispatch's SNS/Lambda/EC2/ASG client wiring living in cli.go (out of scope per task boundary), not a wire-shape bug in the audited surface
   - insight-rule Definition deep schema validation (Schema.Name/Version, Contribution.Keys, LogFormat, LogGroupNames field-level rules per the Contributor Insights Rule Syntax docs) — this pass added well-formed-JSON-object validation (closing the "accepted verbatim" complaint), but did not attempt to re-derive and enforce the full nested schema, since RuleDefinition is an opaque string in the generated SDK model (no typed struct to field-diff against) and guessing at exact AWS-side field requirements risks diverging from real behavior in ways a wire-shape diff can't catch
-leaks: {status: clean, note: "Janitor (janitor.go) owns the single alarm-eval + metric-sweep goroutine, ctx-cancel-aware, StartWorker only spawns it for *InMemoryBackend. storeDatum/filterAlivePoints reslice (not just filter) to release oversized backing arrays (#60 total-metrics counter avoids O(namespaces) walks). No new goroutines/tickers introduced this pass; the metricFilters store.Table was removed (net reduction in backend state), not added. New validation functions (dashboard_validation.go, insight_rule_validation.go, metric_stream_validation.go) are pure/stateless — no locking implications."}
+  - MetricAlarm/LogAlarm fields added to the real SDK model alongside this pass's SDK bump but not part of the 7 named new operations: types.MetricAlarm now also has StateUpdatedTimestamp, EvaluationCriteria, EvaluationInterval, EvaluationWindow, EvaluateLowSampleCountPercentile, and Unit, none of which gopherstack's MetricAlarm struct carries (StateUpdatedTimestamp WAS added to the new LogAlarm type this pass, since that type was authored fresh — but retrofitting it and the other new fields onto the pre-existing MetricAlarm struct is a larger, separate change against a type used across ~15 files, out of scope here). Discovered while field-diffing LogAlarm against MetricAlarm for comparison; worth a dedicated pass.
+  - inline Tags on PutLogAlarm's request (PutLogAlarmInput.Tags []types.Tag) is parsed nowhere, matching the exact same pre-existing gap on PutMetricAlarmInput.Tags/PutInsightRuleInput.Tags (neither is parsed either) — deliberately NOT fixed to single out PutLogAlarm, since that would make it inconsistent with its two Put* siblings; tagging still works via the separate TagResource op for all three.
+leaks: {status: clean, note: "Janitor (janitor.go) owns the single alarm-eval + metric-sweep goroutine, ctx-cancel-aware, StartWorker only spawns it for *InMemoryBackend. storeDatum/filterAlivePoints reslice (not just filter) to release oversized backing arrays (#60 total-metrics counter avoids O(namespaces) walks). No new goroutines/tickers introduced this pass. New tables (logAlarms, datasets, otelEnrichment, registered in store_setup.go) are plain store.Table[T] with no background workers; log alarms have no automatic evaluation loop (no CloudWatch Logs query engine exists here) so nothing was added to janitor.go's sweep."}
 ---
 
 ## Notes
@@ -101,6 +123,90 @@ POST, `<Foo Response>` root, `ResponseMetadata>RequestId`) and **rpc-v2-cbor** f
 `/service/GraniteServiceVersion20100801/operation/<Op>`). Every op has two independent encoders
 (`handler.go` XML, `rpcv2cbor.go` CBOR) that must be checked separately — a fix in one does not
 imply the other is correct.
+
+**Confirmed again this pass at v1.65.0**: `grep -c "type awsAwsquery_serializeOp" serializers.go`
+is **0** — every single operation in the currently-pinned SDK module, old and new alike, is
+rpc-v2-cbor only; there is no generated query-protocol serializer for anything, not even
+`PutMetricAlarm`. This isn't a new development (v1.55.1 was already 0/43 the same way), just
+re-verified so the next auditor doesn't waste time thinking the 7 new ops are somehow the first
+CBOR-only ones. gopherstack's XML path remains a deliberate compatibility shim for
+older-SDK/raw-HTTP callers, not something derived from the pinned module — both new-op wire paths
+(`handler_log_alarms.go`/`handler_datasets.go`/`handler_otel_enrichment.go` for XML,
+`rpcv2cbor_log_alarms.go`/`rpcv2cbor_datasets.go`/`rpcv2cbor_otel_enrichment.go` for CBOR) were
+built by hand to match this package's existing dual-protocol convention, field-diffed against the
+generated Go *types* (`types.LogAlarm`, `types.ScheduledQueryConfiguration`,
+`types.ScheduleConfiguration`, `GetDatasetOutput`, `GetOTelEnrichmentOutput`) since there's no XML
+serializer to diff the XML shape against directly.
+
+### PutLogAlarm / dataset KMS association / OTel enrichment (v1.65.0 SDK bump, 2026-07-25 pass)
+
+The `aws-sdk-go-v2/service/cloudwatch` module bump from v1.55.1 to v1.65.0 added 7 operations:
+`PutLogAlarm`, `GetDataset`, `AssociateDatasetKmsKey`, `DisassociateDatasetKmsKey`,
+`GetOTelEnrichment`, `StartOTelEnrichment`, `StopOTelEnrichment`. All 7 are now implemented for
+real (routed, backed by real state, persisted) — see their `ops:` rows above for field-diff and
+error-code detail. Three points worth calling out beyond the per-op notes:
+
+- **LogAlarm is a genuine third alarm type, not a MetricAlarm/CompositeAlarm variant.**
+  `types.AlarmType` has exactly three values (`CompositeAlarm`, `MetricAlarm`, `LogAlarm`), and
+  `types.LogAlarm` is its own struct (not embedding or aliasing either existing alarm type). An
+  alarm that only `PutLogAlarm` could create but no other op could see or remove would have been
+  a parity bug in its own right — a client that calls `PutLogAlarm` then reasonably expects
+  `DescribeAlarms(AlarmTypes=[LogAlarm])`, `DeleteAlarms`, `DescribeAlarmHistory(AlarmTypes=
+  [LogAlarm])`, `SetAlarmState`, `EnableAlarmActions`/`DisableAlarmActions`, and
+  `ListTagsForResource`/`TagResource` (via the alarm's ARN) to all work, the same as they do for
+  metric and composite alarms. Checked each one specifically (see the updated `ops:` rows) and
+  wired log alarms into all of them; `ListTagsForResource`/`TagResource`/`UntagResource` needed no
+  code changes since they're already generic over any resource ARN, and log alarm ARNs use the
+  same `arn:aws:cloudwatch:<region>:<account>:alarm:<name>` scheme as the other two alarm types.
+  `SetAlarmState`/`DeleteAlarms`/`EnableAlarmActions`/`DisableAlarmActions` all now check
+  `b.alarms` → `b.compositeAlarms` → `b.logAlarms` in that fixed order; `setAlarmStateLocked` was
+  decomposed into per-type `applyMetricAlarmStateLocked`/`applyCompositeAlarmStateLocked`/
+  `applyLogAlarmStateLocked` helpers specifically to keep the now-3-way branch under this repo's
+  cyclomatic-complexity budget without a `//nolint`.
+- **No CloudWatch Logs Insights query engine exists here**, so a log alarm's
+  `ScheduledQueryConfiguration` (the query string, log groups, schedule, aggregation expression)
+  is stored and returned verbatim but never actually executed — `EvaluationState` is never
+  auto-populated and `StateValue` never transitions on its own. This mirrors how composite alarms
+  already work between explicit `PutCompositeAlarm` re-evaluations: state changes only happen
+  through code paths that are themselves triggered by an explicit call (`SetAlarmState` for log
+  alarms; `PutCompositeAlarm`/child-alarm-transition re-evaluation for composite alarms), never a
+  background timer that "runs" the alarm's logic. Fabricating query results or auto-transitions
+  here would be worse than not implementing them — it would silently misrepresent alarm behavior
+  no real gopherstack deployment could reproduce.
+- **KMS key ARN validation for datasets is deliberately stricter than this repo's existing
+  pattern.** `services/comprehend/store.go`'s `validateKmsKeyID` accepts a bare key ID, a key ARN,
+  *or* an alias ARN, because the Comprehend fields it validates document all three shapes as
+  valid. `AssociateDatasetKmsKeyInput.KmsKeyArn`'s own doc comment is explicit
+  that this field is narrower: "It must be specified as a fully qualified key ARN. Key IDs,
+  aliases, and alias ARNs are not accepted." Reusing the permissive Comprehend-style validator
+  here would have silently accepted inputs real AWS rejects — `datasets.go`'s
+  `kmsKeyArnOnlyRe`/`validateDatasetKmsKeyArn` implements the narrower shape instead, proven by
+  `TestCloudWatchBackend_AssociateDatasetKmsKey`'s `alias_arn_rejected`/`bare_key_id_rejected`
+  cases.
+
+### DescribeAlarms AlarmTypes default-inclusion bug (pre-existing, newly discovered)
+
+While implementing `LogAlarm`'s `DescribeAlarms` integration, `DescribeAlarmsInput.AlarmTypes`'s
+own doc comment was read closely for the first time in this file's history: *"If you omit this
+parameter, only metric alarms are returned, even if composite alarms or log alarms exist in the
+account."* gopherstack's existing (pre-this-pass) `DescribeAlarms` does not honor that: `alarms.go`
+sets `includeMetric := len(typeSet) == 0 || typeSet["MetricAlarm"]` **and**
+`includeComposite := len(typeSet) == 0 || typeSet["CompositeAlarm"]` — both default to `true` when
+`AlarmTypes` is omitted, so composite alarms have always been returned by default alongside metric
+alarms, contradicting the documented behavior. This predates this pass (the previous "ok" grade on
+the `DescribeAlarms` row was wrong) and was **not** fixed here: fixing it would flip behavior every
+existing caller of unfiltered `DescribeAlarms` currently depends on (`b.DescribeAlarms(nil, nil,
+...)` appears dozens of times across this package's own test suite alone, several asserting
+composite alarms ARE returned with no `AlarmTypes` filter — e.g.
+`TestCloudWatchBackend_DescribeAlarms_WithComposite`), which is a real behavioral change outside
+the scope of "implement the 7 new v1.65.0 operations." `LogAlarm` was implemented against the
+*documented-correct* default (excluded unless `AlarmTypes` explicitly includes `"LogAlarm"`,
+proven by `log_alarm_excluded_by_default`/`log_alarm_included_when_requested` test cases at both
+the backend and both wire-protocol layers) specifically so it doesn't inherit the existing bug.
+Recorded in `gaps:` above rather than silently left at "ok" in the `DescribeAlarms` row, and this
+is this pass's reason for the A → A- grade change — the new-op implementation itself is solid, but
+leaving a freshly-discovered wire-shape bug in "ok" status would misrepresent this file's own
+audit trail.
 
 ### The big one: PutMetricData has NO partial-success shape
 
