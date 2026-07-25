@@ -104,10 +104,13 @@ func (b *InMemoryBackend) UpdateKnowledgeBase(
 
 // DeleteKnowledgeBase deletes a knowledge base and cascade-cleans every
 // resource scoped under it: data sources, and (per data source) ingestion
-// jobs and ingested KB documents, plus the KB's own tags. Without this, a
-// deleted-and-recreated KB with the same auto-incremented ID space would
-// never actually observe empty child collections, and the tags map would
-// keep a permanent ghost entry keyed by the now-invalid ARN.
+// jobs and ingested KB documents, plus the KB's own tags and its resource
+// policy (bedrock-agent's PutResourcePolicy/GetResourcePolicy/
+// DeleteResourcePolicy attach only to knowledge bases -- see
+// resource_policy.go). Without this, a deleted-and-recreated KB with the
+// same auto-incremented ID space would never actually observe empty child
+// collections, and the tags/resourcePolicies maps would keep a permanent
+// ghost entry keyed by the now-invalid ARN.
 func (b *InMemoryBackend) DeleteKnowledgeBase(_ context.Context, kbID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -120,6 +123,7 @@ func (b *InMemoryBackend) DeleteKnowledgeBase(_ context.Context, kbID string) er
 	delete(b.kbsByName, kb.Name)
 	b.knowledgeBases.Delete(kbID)
 	delete(b.tags, kb.KnowledgeBaseARN)
+	b.resourcePolicies.Delete(kb.KnowledgeBaseARN)
 
 	for _, ds := range slices.Clone(b.dataSourcesByKB.Get(kbID)) {
 		b.deleteDataSourceChildrenLocked(kbID, ds.DataSourceID)

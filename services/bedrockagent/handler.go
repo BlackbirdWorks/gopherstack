@@ -92,6 +92,9 @@ const (
 	opListTagsForResource            = "ListTagsForResource"
 	opTagResource                    = "TagResource"
 	opUntagResource                  = "UntagResource"
+	opPutResourcePolicy              = "PutResourcePolicy"
+	opGetResourcePolicy              = "GetResourcePolicy"
+	opDeleteResourcePolicy           = "DeleteResourcePolicy"
 )
 
 // ---------------------------------------------------------------------------
@@ -188,6 +191,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opIngestKnowledgeBaseDocuments, opGetKnowledgeBaseDocuments,
 		opDeleteKnowledgeBaseDocuments, opListKnowledgeBaseDocuments,
 		opListTagsForResource, opTagResource, opUntagResource,
+		opPutResourcePolicy, opGetResourcePolicy, opDeleteResourcePolicy,
 	}
 }
 
@@ -214,7 +218,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, kbBase) ||
 			strings.HasPrefix(path, flowsBase) ||
 			strings.HasPrefix(path, promptsBase) ||
-			strings.HasPrefix(path, tagsBase)
+			strings.HasPrefix(path, tagsBase) ||
+			strings.HasPrefix(path, resourcePolicyBase)
 	}
 }
 
@@ -280,6 +285,8 @@ func (h *Handler) dispatch(
 		return h.dispatchPrompts(ctx, c, path, method, body)
 	case strings.HasPrefix(path, tagsBase):
 		return h.dispatchTags(ctx, c, path, method, query, body)
+	case strings.HasPrefix(path, resourcePolicyBase):
+		return h.dispatchResourcePolicy(ctx, c, path, method, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown: "+path))

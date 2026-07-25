@@ -171,4 +171,10 @@ type StorageBackend interface {
 	ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error)
 	TagResource(ctx context.Context, resourceARN string, tags map[string]string) error
 	UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error
+
+	// Resource policy operations (knowledge bases only -- see
+	// resource_policy.go's package doc comment).
+	PutResourcePolicy(ctx context.Context, resourceArn, policy, expectedRevisionID string) (*ResourcePolicy, error)
+	GetResourcePolicy(ctx context.Context, resourceArn string) (*ResourcePolicy, error)
+	DeleteResourcePolicy(ctx context.Context, resourceArn, expectedRevisionID string) (string, error)
 }

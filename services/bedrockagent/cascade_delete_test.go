@@ -2,6 +2,7 @@ package bedrockagent_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/bedrockagent"
@@ -160,7 +161,14 @@ func assertCascadeAgentFixtureAfterDelete(
 // TestDeleteKnowledgeBaseCascades locks in that DeleteKnowledgeBase
 // cascade-cleans every data source scoped under it, and (transitively)
 // every ingestion job and ingested document scoped under each of those data
-// sources, plus the KB's own tags map entry.
+// sources, plus the KB's own tags map entry and its resource policy
+// (bedrock-agent's PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy
+// attach only to knowledge bases -- see resource_policy.go). Before the
+// resource-policy cascade fix, a policy attached to a KB that was then
+// deleted stayed queryable forever under the now-invalid ARN, and a
+// recreated KB reusing that same ARN region/account (impossible here since
+// IDs are auto-incremented, but real AWS could reuse an ARN after a
+// sufficiently long gap) would inherit a stale policy it never created.
 func TestDeleteKnowledgeBaseCascades(t *testing.T) {
 	t.Parallel()
 
@@ -195,6 +203,16 @@ func TestDeleteKnowledgeBaseCascades(t *testing.T) {
 		t.Fatalf("ingest docs: %v", ingestErr)
 	}
 
+	if _, polErr := b.PutResourcePolicy(
+		ctx, kb.KnowledgeBaseARN, `{"Version":"2012-10-17","Statement":[]}`, "",
+	); polErr != nil {
+		t.Fatalf("put resource policy: %v", polErr)
+	}
+
+	if _, getErr := b.GetResourcePolicy(ctx, kb.KnowledgeBaseARN); getErr != nil {
+		t.Fatalf("precondition: expected resource policy to exist, got %v", getErr)
+	}
+
 	if delErr := b.DeleteKnowledgeBase(ctx, kb.KnowledgeBaseID); delErr != nil {
 		t.Fatalf("delete kb: %v", delErr)
 	}
@@ -221,6 +239,10 @@ func TestDeleteKnowledgeBaseCascades(t *testing.T) {
 
 	if len(tags) != 0 {
 		t.Errorf("kb tags not cascade-deleted: %v remain", tags)
+	}
+
+	if _, getErr := b.GetResourcePolicy(ctx, kb.KnowledgeBaseARN); !errors.Is(getErr, bedrockagent.ErrNotFound) {
+		t.Errorf("resource policy not cascade-deleted: got err %v, want ErrNotFound", getErr)
 	}
 }
 

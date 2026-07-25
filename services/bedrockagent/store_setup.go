@@ -96,6 +96,8 @@ func kbDocumentByDataSourceKeyFn(v *KBDocumentDetail) string {
 	return dsKey(v.KnowledgeBaseID, v.DataSourceID)
 }
 
+func resourcePolicyKeyFn(v *ResourcePolicy) string { return v.ResourceArn }
+
 // registerAllTables registers every backend resource table (and its
 // secondary indexes) exactly once. It must be called during construction
 // only, immediately after b.registry is created -- store.Register panics on
@@ -144,4 +146,6 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.kbDocuments = store.Register(b.registry, "kbDocuments", store.New(kbDocumentKeyFn))
 	b.kbDocumentsByDataSource = b.kbDocuments.AddIndex("byDataSource", kbDocumentByDataSourceKeyFn)
+
+	b.resourcePolicies = store.Register(b.registry, "resourcePolicies", store.New(resourcePolicyKeyFn))
 }

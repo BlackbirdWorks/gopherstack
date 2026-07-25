@@ -5,9 +5,9 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockagent
-sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.54.0   # version audited against
-last_audit_commit: 80462cc485cf9dc0f8a8d0df4b22b8c17975ee18
-last_audit_date: 2026-07-24
+sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.0   # version audited against
+last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
+last_audit_date: 2026-07-25
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -179,6 +179,23 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok,
+    note: "NEW this sweep -- SDK bump added PutResourcePolicy/GetResourcePolicy/
+    DeleteResourcePolicy to aws-sdk-go-v2/service/bedrockagent (were previously
+    absent from the module entirely, hence 'ok' not 'fixed': there is no prior
+    gopherstack behavior to have gotten wrong). Distinct operation family from
+    core Bedrock's own Put/Get/DeleteResourcePolicy despite the shared names
+    (see resource_policy.go's package doc comment and Notes below) -- PUT
+    /resourcepolicy/{resourceArn}, field 'policy' (not 'resourcePolicy'),
+    scoped to knowledge bases only. resourceArn validated against
+    knowledgeBaseResourceArnPattern AND checked against b.knowledgeBases (a
+    policy cannot attach to a nonexistent KB)."}
+  GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok,
+    note: "NEW this sweep, same family as PutResourcePolicy."}
+  DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok,
+    note: "NEW this sweep, same family as PutResourcePolicy. DeleteKnowledgeBase
+    now cascades into resourcePolicies (see Notes: cascade-delete, updated this
+    sweep) so a deleted KB's policy row cannot survive it."}
 # Families audited as a group (when per-op is impractical):
 families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to

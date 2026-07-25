@@ -22,7 +22,16 @@ import (
 // is no legacy snapshot shape to be compatible with -- any snapshot without
 // a matching Version (including one with no version field, which decodes as
 // 0) is discarded the same way any other incompatible snapshot is.
-const bedrockagentSnapshotVersion = 1
+//
+// Bumped 1 -> 2 for the parity-4 PutResourcePolicy/GetResourcePolicy/
+// DeleteResourcePolicy addition: a new registered table ("resourcePolicies",
+// value type ResourcePolicy) and a new raw counter field
+// (ResourcePolicyCounter) were added to backendSnapshot, neither of which an
+// old Version-1 snapshot has data for -- decoding one as Version 2 would
+// leave the resource-policy revision counter silently at zero instead of
+// reflecting reality, so it must be discarded like any other
+// shape-incompatible snapshot rather than partially decoded.
+const bedrockagentSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the BedrockAgent
 // backend.
@@ -43,28 +52,29 @@ const bedrockagentSnapshotVersion = 1
 // too, or a restored backend would start minting IDs that collide with
 // pre-restore ones.
 type backendSnapshot struct {
-	Tables             map[string]json.RawMessage   `json:"tables"`
-	AgentsByName       map[string]string            `json:"agentsByName"`
-	KBsByName          map[string]string            `json:"kbsByName"`
-	FlowsByName        map[string]string            `json:"flowsByName"`
-	PromptsByName      map[string]string            `json:"promptsByName"`
-	AgentVersionCtrs   map[string]int               `json:"agentVersionCtrs"`
-	FlowVersionCtrs    map[string]int               `json:"flowVersionCtrs"`
-	PromptVersionCtrs  map[string]int               `json:"promptVersionCtrs"`
-	Tags               map[string]map[string]string `json:"tags"`
-	AccountID          string                       `json:"accountID"`
-	DefaultRegion      string                       `json:"defaultRegion"`
-	DSCounter          int                          `json:"dsCounter"`
-	CollabCounter      int                          `json:"collabCounter"`
-	KBCounter          int                          `json:"kbCounter"`
-	FlowCounter        int                          `json:"flowCounter"`
-	AliasCounter       int                          `json:"aliasCounter"`
-	AgentCounter       int                          `json:"agentCounter"`
-	ActionGroupCounter int                          `json:"actionGroupCounter"`
-	FlowAliasCounter   int                          `json:"flowAliasCounter"`
-	PromptCounter      int                          `json:"promptCounter"`
-	JobCounter         int                          `json:"jobCounter"`
-	Version            int                          `json:"version"`
+	Tables                map[string]json.RawMessage   `json:"tables"`
+	AgentsByName          map[string]string            `json:"agentsByName"`
+	KBsByName             map[string]string            `json:"kbsByName"`
+	FlowsByName           map[string]string            `json:"flowsByName"`
+	PromptsByName         map[string]string            `json:"promptsByName"`
+	AgentVersionCtrs      map[string]int               `json:"agentVersionCtrs"`
+	FlowVersionCtrs       map[string]int               `json:"flowVersionCtrs"`
+	PromptVersionCtrs     map[string]int               `json:"promptVersionCtrs"`
+	Tags                  map[string]map[string]string `json:"tags"`
+	AccountID             string                       `json:"accountID"`
+	DefaultRegion         string                       `json:"defaultRegion"`
+	DSCounter             int                          `json:"dsCounter"`
+	CollabCounter         int                          `json:"collabCounter"`
+	KBCounter             int                          `json:"kbCounter"`
+	FlowCounter           int                          `json:"flowCounter"`
+	AliasCounter          int                          `json:"aliasCounter"`
+	AgentCounter          int                          `json:"agentCounter"`
+	ActionGroupCounter    int                          `json:"actionGroupCounter"`
+	FlowAliasCounter      int                          `json:"flowAliasCounter"`
+	PromptCounter         int                          `json:"promptCounter"`
+	JobCounter            int                          `json:"jobCounter"`
+	ResourcePolicyCounter int                          `json:"resourcePolicyCounter"`
+	Version               int                          `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
@@ -81,28 +91,29 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:            bedrockagentSnapshotVersion,
-		Tables:             tables,
-		AgentsByName:       b.agentsByName,
-		KBsByName:          b.kbsByName,
-		FlowsByName:        b.flowsByName,
-		PromptsByName:      b.promptsByName,
-		AgentVersionCtrs:   b.agentVersionCtrs,
-		FlowVersionCtrs:    b.flowVersionCtrs,
-		PromptVersionCtrs:  b.promptVersionCtrs,
-		Tags:               b.tags,
-		AccountID:          b.accountID,
-		DefaultRegion:      b.defaultRegion,
-		DSCounter:          b.dsCounter,
-		CollabCounter:      b.collabCounter,
-		KBCounter:          b.kbCounter,
-		FlowCounter:        b.flowCounter,
-		AliasCounter:       b.aliasCounter,
-		AgentCounter:       b.agentCounter,
-		ActionGroupCounter: b.actionGroupCounter,
-		FlowAliasCounter:   b.flowAliasCounter,
-		PromptCounter:      b.promptCounter,
-		JobCounter:         b.jobCounter,
+		Version:               bedrockagentSnapshotVersion,
+		Tables:                tables,
+		AgentsByName:          b.agentsByName,
+		KBsByName:             b.kbsByName,
+		FlowsByName:           b.flowsByName,
+		PromptsByName:         b.promptsByName,
+		AgentVersionCtrs:      b.agentVersionCtrs,
+		FlowVersionCtrs:       b.flowVersionCtrs,
+		PromptVersionCtrs:     b.promptVersionCtrs,
+		Tags:                  b.tags,
+		AccountID:             b.accountID,
+		DefaultRegion:         b.defaultRegion,
+		DSCounter:             b.dsCounter,
+		CollabCounter:         b.collabCounter,
+		KBCounter:             b.kbCounter,
+		FlowCounter:           b.flowCounter,
+		AliasCounter:          b.aliasCounter,
+		AgentCounter:          b.agentCounter,
+		ActionGroupCounter:    b.actionGroupCounter,
+		FlowAliasCounter:      b.flowAliasCounter,
+		PromptCounter:         b.promptCounter,
+		JobCounter:            b.jobCounter,
+		ResourcePolicyCounter: b.resourcePolicyCounter,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "bedrockagent", snap)
@@ -171,6 +182,7 @@ func (b *InMemoryBackend) resetRawState() {
 	b.flowAliasCounter = 0
 	b.promptCounter = 0
 	b.jobCounter = 0
+	b.resourcePolicyCounter = 0
 }
 
 // restoreRawState restores every raw (non-store.Table) map and ID counter
@@ -229,6 +241,7 @@ func (b *InMemoryBackend) restoreRawState(snap *backendSnapshot) {
 	b.flowAliasCounter = snap.FlowAliasCounter
 	b.promptCounter = snap.PromptCounter
 	b.jobCounter = snap.JobCounter
+	b.resourcePolicyCounter = snap.ResourcePolicyCounter
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

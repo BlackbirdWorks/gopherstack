@@ -96,6 +96,8 @@ func classifySubPath(method, path string) string {
 		return classifyPromptPath(method, path)
 	case strings.HasPrefix(path, tagsBase):
 		return classifyTagPath(method)
+	case strings.HasPrefix(path, resourcePolicyBase):
+		return classifyResourcePolicyPath(method, path)
 	}
 
 	return opUnknown

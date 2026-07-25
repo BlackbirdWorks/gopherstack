@@ -477,3 +477,18 @@ type KBDocumentDetail struct {
 	DataSourceID    string `json:"dataSourceId"`
 	Status          string `json:"status"`
 }
+
+// ResourcePolicy is the resource-based policy attached to a knowledge base
+// (bedrock-agent's PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy
+// -- see resource_policy.go's package doc comment for why this family is
+// scoped to knowledge bases only). CreatedAt/UpdatedAt are internal
+// bookkeeping only; the real wire response never exposes them (see
+// handler_resource_policy.go's response structs), only "policy"/
+// "resourceArn"/"revisionId".
+type ResourcePolicy struct {
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	ResourceArn string
+	Policy      string
+	RevisionID  string
+}

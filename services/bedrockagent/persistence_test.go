@@ -16,22 +16,23 @@ import (
 // TestInMemoryBackend_SnapshotRestore_FullState can look each resource back
 // up after Restore without re-deriving names/IDs.
 type persistenceFixtureIDs struct {
-	agentID        string
-	agentVersion   string
-	actionGroupID  string
-	aliasID        string
-	collaboratorID string
-	kbID           string
-	dataSourceID   string
-	ingestionJobID string
-	docID          string
-	flowID         string
-	flowVersion    string
-	flowAliasID    string
-	promptID       string
-	promptVersion  string
-	agentARN       string
-	kbARN          string
+	agentID                string
+	agentVersion           string
+	actionGroupID          string
+	aliasID                string
+	collaboratorID         string
+	kbID                   string
+	dataSourceID           string
+	ingestionJobID         string
+	docID                  string
+	flowID                 string
+	flowVersion            string
+	flowAliasID            string
+	promptID               string
+	promptVersion          string
+	agentARN               string
+	kbARN                  string
+	resourcePolicyRevision string
 }
 
 // newPersistenceTestBackend creates a backend with one populated entry in
@@ -129,23 +130,27 @@ func newPersistenceTestBackend(t *testing.T) (*bedrockagent.InMemoryBackend, per
 	pv, err := b.CreatePromptVersion(ctx, prompt.PromptID, "v1 snapshot")
 	require.NoError(t, err)
 
+	rp, err := b.PutResourcePolicy(ctx, kb.KnowledgeBaseARN, `{"Version":"2012-10-17","Statement":[]}`, "")
+	require.NoError(t, err)
+
 	return b, persistenceFixtureIDs{
-		agentID:        agent.AgentID,
-		agentVersion:   av.AgentVersion,
-		actionGroupID:  ag.ActionGroupID,
-		aliasID:        alias.AgentAliasID,
-		collaboratorID: collab.CollaboratorID,
-		kbID:           kb.KnowledgeBaseID,
-		dataSourceID:   ds.DataSourceID,
-		ingestionJobID: job.IngestionJobID,
-		docID:          docs[0].DocumentID,
-		flowID:         flow.FlowID,
-		flowVersion:    fv.Version,
-		flowAliasID:    falias.AliasID,
-		promptID:       prompt.PromptID,
-		promptVersion:  pv.Version,
-		agentARN:       agent.AgentARN,
-		kbARN:          kb.KnowledgeBaseARN,
+		agentID:                agent.AgentID,
+		agentVersion:           av.AgentVersion,
+		actionGroupID:          ag.ActionGroupID,
+		aliasID:                alias.AgentAliasID,
+		collaboratorID:         collab.CollaboratorID,
+		kbID:                   kb.KnowledgeBaseID,
+		dataSourceID:           ds.DataSourceID,
+		ingestionJobID:         job.IngestionJobID,
+		docID:                  docs[0].DocumentID,
+		flowID:                 flow.FlowID,
+		flowVersion:            fv.Version,
+		flowAliasID:            falias.AliasID,
+		promptID:               prompt.PromptID,
+		promptVersion:          pv.Version,
+		agentARN:               agent.AgentARN,
+		kbARN:                  kb.KnowledgeBaseARN,
+		resourcePolicyRevision: rp.RevisionID,
 	}
 }
 
@@ -318,6 +323,25 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "test", tags["env"])
 
+	// resourcePolicies table.
+	rp, err := fresh.GetResourcePolicy(ctx, ids.kbARN)
+	require.NoError(t, err)
+	assert.Equal(t, ids.kbARN, rp.ResourceArn)
+	assert.Equal(t, ids.resourcePolicyRevision, rp.RevisionID)
+
+	// resourcePolicyCounter: a subsequent Put against a DIFFERENT knowledge
+	// base after restore must not mint a revision ID that collides with the
+	// one restored above.
+	kb2, err := fresh.CreateKnowledgeBase(ctx, bedrockagent.KnowledgeBaseConfig{
+		Name:    "post-restore-kb",
+		RoleARN: "arn:aws:iam::000000000000:role/BedrockRole",
+	})
+	require.NoError(t, err)
+
+	rp2, err := fresh.PutResourcePolicy(ctx, kb2.KnowledgeBaseARN, `{"Version":"2012-10-17"}`, "")
+	require.NoError(t, err)
+	assert.NotEqual(t, ids.resourcePolicyRevision, rp2.RevisionID)
+
 	// ID counters: a newly created agent after restore must not collide
 	// with the agent created before the snapshot.
 	agent2, err := fresh.CreateAgent(ctx, bedrockagent.AgentConfig{
@@ -354,6 +378,9 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	require.ErrorIs(t, err, bedrockagent.ErrNotFound)
 
 	_, err = b.GetKnowledgeBase(ctx, ids.kbID)
+	require.ErrorIs(t, err, bedrockagent.ErrNotFound)
+
+	_, err = b.GetResourcePolicy(ctx, ids.kbARN)
 	require.ErrorIs(t, err, bedrockagent.ErrNotFound)
 
 	tags, err := b.ListTagsForResource(ctx, ids.agentARN)
