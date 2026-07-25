@@ -141,6 +141,38 @@ type StorageBackend interface {
 	SearchVulnerabilities(filterCriteria map[string]any, nextToken string) ([]*Vulnerability, string, error)
 	SeedVulnerability(v Vulnerability) (*Vulnerability, error)
 
+	// Connectors
+	CreateConnector(
+		name, description, provider string,
+		tags map[string]string,
+		awsConfigConnectorArn string,
+		azureRegions []string,
+		autoInstallVMScanner *bool,
+		scopeConfig *ConnectorScopeConfiguration,
+	) (*Connector, error)
+	UpdateConnector(
+		connectorArn string,
+		description *string,
+		azureRegions []string,
+		autoInstallVMScanner *bool,
+		scopeConfig *ConnectorScopeConfiguration,
+	) (*Connector, error)
+	DeleteConnector(connectorArn string) error
+	ListConnectors(
+		providers, connectorArns, awsConfigConnectorArns []string,
+		maxResults int32,
+		nextToken string,
+	) ([]*Connector, string, error)
+	ListConnectorScanConfigurations(
+		awsConfigConnectorArns []string,
+		maxResults int32,
+		nextToken string,
+	) ([]*ConnectorScanConfigurationItem, string, error)
+	UpdateConnectorScanConfiguration(
+		awsConfigConnectorArn string,
+		containerImageScanning *ConnectorContainerImageScanConfig,
+	) error
+
 	// Batch / misc
 	BatchGetCodeSnippet(findingARNs []string) (map[string]any, error)
 	BatchGetFindingDetails(findingARNs []string) (map[string]any, error)

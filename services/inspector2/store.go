@@ -49,6 +49,9 @@ type InMemoryBackend struct {
 	coverageEntries                *store.Table[CoverageEntry]
 	vulnerabilities                *store.Table[Vulnerability]
 	codeSnippets                   *store.Table[codeSnippet]
+	connectors                     *store.Table[Connector]
+	connectorsByAwsConfigArn       *store.Index[Connector]
+	connectorScanConfigs           *store.Table[ConnectorScanConfiguration]
 	tags                           map[string]map[string]string
 	mu                             *lockmetrics.RWMutex
 	codeSecurityScans              map[string]map[string]any

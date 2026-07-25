@@ -316,3 +316,94 @@ type AccountPermission struct {
 	Operation string `json:"operation"`
 	Service   string `json:"service"`
 }
+
+// ConnectorHealth reports the connectivity/authorization health of a
+// Connector, matching the real ConnectorHealth shape. Real
+// ConnectorHealthStatus includes PENDING_AUTHORIZATION: an Azure connector
+// requires completing an external Azure AD app-consent (OAuth) flow in the
+// Azure portal before Amazon Inspector can reach the tenant, and none of
+// CreateConnector/UpdateConnector/DeleteConnector/ListConnectors/
+// ListConnectorScanConfigurations/UpdateConnectorScanConfiguration (the
+// entire connector SDK surface) drives or observes that step. See
+// connectors.go's CreateConnector doc comment for why this backend leaves
+// Health permanently at PENDING_AUTHORIZATION rather than faking a
+// transition to CONNECTED.
+type ConnectorHealth struct {
+	LastCheckedAt   time.Time `json:"lastCheckedAt"`
+	ConnectorStatus string    `json:"connectorStatus"`
+	Message         string    `json:"message,omitempty"`
+}
+
+// ConnectorScopeSetting represents one scanning type's Azure resource scope
+// (VM, container image, or serverless), matching the real ScopeConfiguration
+// shape. State reflects that this backend can never validate a submitted
+// scope against a live Azure tenant (the connector itself never leaves
+// PENDING_AUTHORIZATION), so State is always PENDING here, never ACTIVE/
+// ERROR/DISABLED.
+type ConnectorScopeSetting struct {
+	ScopeType   string   `json:"scopeType"`
+	State       string   `json:"state,omitempty"`
+	StateReason string   `json:"stateReason,omitempty"`
+	ScopeValues []string `json:"scopeValues,omitempty"`
+}
+
+// ConnectorScopeConfiguration mirrors the real AzureScopeConfiguration shape:
+// the scope of Azure resources scanned, defined separately per scanning type.
+type ConnectorScopeConfiguration struct {
+	ContainerImageScanning *ConnectorScopeSetting `json:"containerImageScanning,omitempty"`
+	ServerlessScanning     *ConnectorScopeSetting `json:"serverlessScanning,omitempty"`
+	VMScanning             *ConnectorScopeSetting `json:"vmScanning,omitempty"`
+}
+
+// Connector represents an Amazon Inspector connector linking an external
+// cloud provider (currently only Azure, per the real ConnectorCloudProvider
+// enum's single AZURE value) to Inspector for vulnerability scanning,
+// matching the real Connector shape (types.Connector, field-diffed against
+// aws-sdk-go-v2/service/inspector2/types@v1.53.0's deserializers.go).
+type Connector struct {
+	CreatedAt              time.Time                    `json:"createdAt"`
+	UpdatedAt              time.Time                    `json:"updatedAt"`
+	Health                 *ConnectorHealth             `json:"health,omitempty"`
+	ScopeConfiguration     *ConnectorScopeConfiguration `json:"scopeConfiguration,omitempty"`
+	Tags                   map[string]string            `json:"tags,omitempty"`
+	ConnectorArn           string                       `json:"connectorArn"`
+	Name                   string                       `json:"name"`
+	Description            string                       `json:"description,omitempty"`
+	Provider               string                       `json:"provider"`
+	AwsConfigConnectorArn  string                       `json:"awsConfigConnectorArn,omitempty"`
+	EnablementStatus       string                       `json:"enablementStatus"`
+	EnablementStatusReason string                       `json:"enablementStatusReason,omitempty"`
+	AzureRegions           []string                     `json:"azureRegions,omitempty"`
+	AutoInstallVMScanner   bool                         `json:"autoInstallVMScanner"`
+}
+
+// ConnectorContainerImageScanConfig mirrors the real
+// ConnectorContainerImageScanConfiguration shape: the rescan-duration
+// settings applied to container images pulled/pushed through a connector's
+// connected registries.
+type ConnectorContainerImageScanConfig struct {
+	PullDuration string `json:"pullDuration,omitempty"`
+	PushDuration string `json:"pushDuration,omitempty"`
+}
+
+// ConnectorScanConfiguration represents the scan settings applied to
+// resources discovered through every connector sharing one AWS Config
+// connector ARN, matching the real ConnectorScanConfiguration shape. Stored
+// keyed by AwsConfigConnectorArn -- there is no CreateConnectorScanConfiguration
+// operation in the real API, so UpdateConnectorScanConfiguration is the only
+// write path (see connectors.go).
+type ConnectorScanConfiguration struct {
+	ContainerImageScanning *ConnectorContainerImageScanConfig `json:"containerImageScanning,omitempty"`
+	AwsConfigConnectorArn  string                             `json:"awsConfigConnectorArn"`
+}
+
+// ConnectorScanConfigurationItem represents one entry of
+// ListConnectorScanConfigurations' result, matching the real
+// ConnectorScanConfigurationItem shape: the AWS Config connector ARN, the
+// (dynamically derived) list of connector ARNs currently sharing it, and its
+// scan configuration.
+type ConnectorScanConfigurationItem struct {
+	ScanConfiguration     *ConnectorScanConfiguration `json:"scanConfiguration"`
+	AwsConfigConnectorArn string                      `json:"awsConfigConnectorArn"`
+	ConnectorArns         []string                    `json:"connectorArns"`
+}

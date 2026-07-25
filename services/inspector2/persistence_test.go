@@ -16,6 +16,7 @@ import (
 type persistenceFixtureIDs struct {
 	codeSecurityScanID string
 	sbomExportReportID string
+	connectorArn       string
 }
 
 // newPersistenceTestBackend creates a backend with one populated entry in
@@ -130,14 +131,30 @@ func newPersistenceTestBackend(t *testing.T) (*inspector2.InMemoryBackend, persi
 		nil,
 	))
 
+	// connectors table + byAwsConfigArn index.
+	connector, err := b.CreateConnector(
+		"connector1", "descr", "AZURE", nil,
+		"arn:aws:config:us-east-1:111111111111:config-connector/default",
+		[]string{"eastus"}, nil, nil,
+	)
+	require.NoError(t, err)
+
+	// connectorScanConfigs table.
+	require.NoError(t, b.UpdateConnectorScanConfiguration(
+		connector.AwsConfigConnectorArn,
+		&inspector2.ConnectorContainerImageScanConfig{PullDuration: "DAYS_30"},
+	))
+
 	require.NotEmpty(t, f.Arn)
 	require.NotEmpty(t, cisCfg.Arn)
 	require.NotEmpty(t, integ.IntegrationArn)
 	require.NotEmpty(t, scanCfg.Arn)
+	require.NotEmpty(t, connector.ConnectorArn)
 
 	return b, persistenceFixtureIDs{
 		codeSecurityScanID: scanID,
 		sbomExportReportID: export.ReportID,
+		connectorArn:       connector.ConnectorArn,
 	}
 }
 
@@ -145,11 +162,11 @@ func newPersistenceTestBackend(t *testing.T) (*inspector2.InMemoryBackend, persi
 // (filters, findings, codeSecurityIntegrations, cisScanConfigs, cisScans,
 // sbomExports, findingsReports, memberEc2Status, delegatedAdmins,
 // codeSecurityScanConfigs, encryptionKeys, members, cisSessions,
-// scanConfigAssociations, coverageEntries, vulnerabilities, codeSnippets),
-// every secondary store.Index derived from them, and every raw map/struct
-// left un-converted (tags, enabledTypes, codeSecurityScans, config,
-// ec2DeepConfig, orgEc2Config, orgConfig) through Snapshot -> Restore into a
-// fresh backend.
+// scanConfigAssociations, coverageEntries, vulnerabilities, codeSnippets,
+// connectors, connectorScanConfigs), every secondary store.Index derived from
+// them, and every raw map/struct left un-converted (tags, enabledTypes,
+// codeSecurityScans, config, ec2DeepConfig, orgEc2Config, orgConfig) through
+// Snapshot -> Restore into a fresh backend.
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -286,6 +303,23 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	results, ok := snippets["codeSnippetResults"].([]map[string]any)
 	require.True(t, ok)
 	require.Len(t, results, 1)
+
+	// connectors table + byAwsConfigArn index.
+	connectors, _, err := fresh.ListConnectors(nil, nil, nil, 0, "")
+	require.NoError(t, err)
+	require.Len(t, connectors, 1)
+	assert.Equal(t, ids.connectorArn, connectors[0].ConnectorArn)
+	assert.Equal(t, "PENDING_AUTHORIZATION", connectors[0].Health.ConnectorStatus)
+
+	// connectorScanConfigs table (also proves the byAwsConfigArn index
+	// survived the round-trip: ConnectorArns is derived from it, not stored).
+	scanConfigs, _, err := fresh.ListConnectorScanConfigurations(nil, 0, "")
+	require.NoError(t, err)
+	require.Len(t, scanConfigs, 1)
+	assert.Equal(t, connectors[0].AwsConfigConnectorArn, scanConfigs[0].AwsConfigConnectorArn)
+	require.Len(t, scanConfigs[0].ConnectorArns, 1)
+	assert.Equal(t, ids.connectorArn, scanConfigs[0].ConnectorArns[0])
+	assert.Equal(t, "DAYS_30", scanConfigs[0].ScanConfiguration.ContainerImageScanning.PullDuration)
 
 	// Sanity: account/region carried through too.
 	assert.Equal(t, "us-east-1", fresh.Region())

@@ -89,6 +89,12 @@ func extendedOps() []string {
 		opBatchGetFindingDetails,
 		opBatchGetFreeTrialInfo,
 		opGetClustersForImage,
+		opCreateConnector,
+		opUpdateConnector,
+		opDeleteConnector,
+		opListConnectors,
+		opListConnectorScanConfigurations,
+		opUpdateConnectorScanConfiguration,
 	}
 }
 
@@ -191,6 +197,14 @@ var onceExtendedRoutes = sync.OnceValue(func() map[routeKey]string {
 
 		// Clusters
 		{http.MethodPost, pathClusterGet}: opGetClustersForImage,
+
+		// Connectors
+		{http.MethodPost, pathConnectorCreate}:           opCreateConnector,
+		{http.MethodPost, pathConnectorUpdate}:           opUpdateConnector,
+		{http.MethodPost, pathConnectorDelete}:           opDeleteConnector,
+		{http.MethodPost, pathConnectorList}:             opListConnectors,
+		{http.MethodPost, pathConnectorScanConfigList}:   opListConnectorScanConfigurations,
+		{http.MethodPost, pathConnectorScanConfigUpdate}: opUpdateConnectorScanConfiguration,
 	}
 })
 
@@ -282,5 +296,11 @@ func (h *Handler) extendedHandlerMap() map[string]func(*echo.Context) error {
 		opBatchGetFindingDetails:                         h.handleBatchGetFindingDetails,
 		opBatchGetFreeTrialInfo:                          h.handleBatchGetFreeTrialInfo,
 		opGetClustersForImage:                            h.handleGetClustersForImage,
+		opCreateConnector:                                h.handleCreateConnector,
+		opUpdateConnector:                                h.handleUpdateConnector,
+		opDeleteConnector:                                h.handleDeleteConnector,
+		opListConnectors:                                 h.handleListConnectors,
+		opListConnectorScanConfigurations:                h.handleListConnectorScanConfigurations,
+		opUpdateConnectorScanConfiguration:               h.handleUpdateConnectorScanConfiguration,
 	}
 }
