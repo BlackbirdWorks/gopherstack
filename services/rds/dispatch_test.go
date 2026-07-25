@@ -19,7 +19,7 @@ func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch3Handler()
-	assert.Equal(t, 165, rds.HandlerOpsLen(h))
+	assert.Equal(t, 166, rds.HandlerOpsLen(h))
 }
 
 func TestSupportedOperations_ContainsExtendedOps(t *testing.T) {
@@ -30,6 +30,7 @@ func TestSupportedOperations_ContainsExtendedOps(t *testing.T) {
 
 	ops := h.GetSupportedOperations()
 	assert.Contains(t, ops, "DescribeCustomDBEngineVersions")
+	assert.Contains(t, ops, "DescribeServerlessV2PlatformVersions")
 	assert.Contains(t, ops, "GetPerformanceInsightsMetrics")
 	assert.Contains(t, ops, "CreateBlueGreenDeployment")
 	assert.Contains(t, ops, "CreateDBShardGroup")
@@ -69,7 +70,7 @@ func TestHandlerOpsLen_FreshBackend(t *testing.T) {
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	h := rds.NewHandler(b)
 
-	assert.Equal(t, 165, rds.HandlerOpsLen(h))
+	assert.Equal(t, 166, rds.HandlerOpsLen(h))
 }
 
 // TestGetSupportedOperationsSorted verifies that GetSupportedOperations is alphabetically sorted.

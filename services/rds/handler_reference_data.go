@@ -78,6 +78,95 @@ type describeDBMajorEngineVersionsResponse struct {
 	DBMajorEngineVersions xmlDBMajorEngineVersionList `xml:"DescribeDBMajorEngineVersionsResult>DBMajorEngineVersions"`
 }
 
+type xmlServerlessV2FeaturesSupport struct {
+	MinCapacity float64 `xml:"MinCapacity"`
+	MaxCapacity float64 `xml:"MaxCapacity"`
+}
+
+type xmlServerlessV2PlatformVersionInfo struct {
+	ServerlessV2FeaturesSupport *xmlServerlessV2FeaturesSupport `xml:"ServerlessV2FeaturesSupport,omitempty"`
+	Engine                      string                          `xml:"Engine,omitempty"`
+	ServerlessV2PlatformVersion string                          `xml:"ServerlessV2PlatformVersion,omitempty"`
+	VersionDescription          string                          `xml:"ServerlessV2PlatformVersionDescription,omitempty"`
+	Status                      string                          `xml:"Status,omitempty"`
+	IsDefault                   bool                            `xml:"IsDefault,omitempty"`
+}
+
+// xmlServerlessV2VersionList wraps the ServerlessV2PlatformVersionInfo member list.
+// Named shorter than the real member name (ServerlessV2PlatformVersionInfo) purely to
+// keep the response struct's tag column under this repo's line-length limit; the XML
+// tags on both types carry the exact real wire names regardless of Go identifier length.
+type xmlServerlessV2VersionList struct {
+	Members []xmlServerlessV2PlatformVersionInfo `xml:"ServerlessV2PlatformVersionInfo"`
+}
+
+type describeServerlessV2PlatformVersionsResponse struct {
+	XMLName  xml.Name                   `xml:"DescribeServerlessV2PlatformVersionsResponse"`
+	Xmlns    string                     `xml:"xmlns,attr"`
+	Marker   string                     `xml:"DescribeServerlessV2PlatformVersionsResult>Marker,omitempty"`
+	Versions xmlServerlessV2VersionList `xml:"DescribeServerlessV2PlatformVersionsResult>ServerlessV2PlatformVersions"`
+}
+
+// handleDescribeServerlessV2PlatformVersions handles DescribeServerlessV2PlatformVersions.
+// Field names verified against aws-sdk-go-v2/service/rds@v1.123.0's
+// api_op_DescribeServerlessV2PlatformVersions.go (request members: DefaultOnly, Engine,
+// Filters, IncludeAll, Marker, MaxRecords, ServerlessV2PlatformVersion; response
+// members: Marker, ServerlessV2PlatformVersions). Filters isn't supported by this action
+// per that file's own doc comment ("This parameter isn't currently supported"), so it is
+// accepted-but-ignored the same way ConnectedDatabase etc. are elsewhere in this
+// codebase rather than rejected -- there is no evidence real AWS errors on it either.
+func (h *Handler) handleDescribeServerlessV2PlatformVersions(vals url.Values) (any, error) {
+	engine := vals.Get("Engine")
+	version := vals.Get("ServerlessV2PlatformVersion")
+	defaultOnly := vals.Get("DefaultOnly") == formTrue
+	includeAll := vals.Get("IncludeAll") == formTrue
+
+	versions, err := h.Backend.DescribeServerlessV2PlatformVersions(engine, version, defaultOnly, includeAll)
+	if err != nil {
+		return nil, err
+	}
+
+	members, marker, err := paginateDescribe(
+		vals, versions,
+		func(a, b ServerlessV2PlatformVersionInfo) bool {
+			if a.Engine == b.Engine {
+				return a.ServerlessV2PlatformVersion < b.ServerlessV2PlatformVersion
+			}
+
+			return a.Engine < b.Engine
+		},
+		toXMLServerlessV2PlatformVersionInfo,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeServerlessV2PlatformVersionsResponse{
+		Xmlns:    rdsXMLNS,
+		Marker:   marker,
+		Versions: xmlServerlessV2VersionList{Members: members},
+	}, nil
+}
+
+func toXMLServerlessV2PlatformVersionInfo(v ServerlessV2PlatformVersionInfo) xmlServerlessV2PlatformVersionInfo {
+	x := xmlServerlessV2PlatformVersionInfo{
+		Engine:                      v.Engine,
+		ServerlessV2PlatformVersion: v.ServerlessV2PlatformVersion,
+		VersionDescription:          v.ServerlessV2PlatformVersionDescription,
+		Status:                      v.Status,
+		IsDefault:                   v.IsDefault,
+	}
+
+	if v.ServerlessV2FeaturesSupport != nil {
+		x.ServerlessV2FeaturesSupport = &xmlServerlessV2FeaturesSupport{
+			MinCapacity: v.ServerlessV2FeaturesSupport.MinCapacity,
+			MaxCapacity: v.ServerlessV2FeaturesSupport.MaxCapacity,
+		}
+	}
+
+	return x
+}
+
 func (h *Handler) handleDescribeAccountAttributes(_ url.Values) (any, error) {
 	attrs := h.Backend.DescribeAccountAttributes()
 	members := make([]xmlAccountAttribute, 0, len(attrs))

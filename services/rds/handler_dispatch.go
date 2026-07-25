@@ -578,6 +578,8 @@ func (h *Handler) dispatchExtended16(action string, vals url.Values) (any, error
 	switch action {
 	case "DescribeCustomDBEngineVersions":
 		return h.handleDescribeCustomDBEngineVersions(vals)
+	case "DescribeServerlessV2PlatformVersions":
+		return h.handleDescribeServerlessV2PlatformVersions(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}

@@ -586,6 +586,202 @@ func TestHandler_ListStatements_WithSecretARN(t *testing.T) {
 	assert.Equal(t, "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret", stmt["SecretArn"])
 }
 
+func TestHandler_ListSessions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(*testing.T, *redshiftdata.Handler)
+		check       func(*testing.T, []any)
+		body        map[string]any
+		name        string
+		wantErrType string
+		wantStatus  int
+		wantCount   int
+	}{
+		{
+			name:       "no_sessions",
+			setup:      func(*testing.T, *redshiftdata.Handler) {},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "statement_without_session_id_is_not_a_session",
+			setup: func(t *testing.T, h *redshiftdata.Handler) {
+				t.Helper()
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 1", "ClusterIdentifier": "my-cluster", "Database": "testdb",
+				})
+			},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "groups_statements_by_session_id",
+			setup: func(t *testing.T, h *redshiftdata.Handler) {
+				t.Helper()
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 1", "ClusterIdentifier": "my-cluster", "Database": "testdb", "SessionId": "sess-1",
+				})
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 2", "ClusterIdentifier": "my-cluster", "Database": "testdb", "SessionId": "sess-1",
+				})
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql":               "SELECT 3",
+					"ClusterIdentifier": "other-cluster",
+					"Database":          "testdb",
+					"SessionId":         "sess-2",
+				})
+			},
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+			check: func(t *testing.T, sessions []any) {
+				t.Helper()
+
+				for _, raw := range sessions {
+					item, ok := raw.(map[string]any)
+					require.True(t, ok)
+
+					if item["SessionId"] != "sess-1" {
+						continue
+					}
+
+					assert.Equal(t, "AVAILABLE", item["Status"])
+					assert.Equal(t, "my-cluster", item["ClusterIdentifier"])
+					assert.Equal(t, "testdb", item["Database"])
+					assert.NotNil(t, item["CreatedAt"])
+					assert.NotNil(t, item["UpdatedAt"])
+					assert.Nil(t, item["WorkgroupName"])
+				}
+			},
+		},
+		{
+			name: "filter_by_session_id",
+			setup: func(t *testing.T, h *redshiftdata.Handler) {
+				t.Helper()
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 1", "Database": "testdb", "ClusterIdentifier": "c1", "SessionId": "sess-a",
+				})
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 2", "Database": "testdb", "ClusterIdentifier": "c2", "SessionId": "sess-b",
+				})
+			},
+			body:       map[string]any{"SessionId": "sess-a"},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name: "filter_by_cluster_identifier",
+			setup: func(t *testing.T, h *redshiftdata.Handler) {
+				t.Helper()
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 1", "Database": "testdb", "ClusterIdentifier": "cluster-a", "SessionId": "sess-a",
+				})
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 2", "Database": "testdb", "ClusterIdentifier": "cluster-b", "SessionId": "sess-b",
+				})
+			},
+			body:       map[string]any{"ClusterIdentifier": "cluster-a"},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name: "filter_by_workgroup_name",
+			setup: func(t *testing.T, h *redshiftdata.Handler) {
+				t.Helper()
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 1", "Database": "testdb", "WorkgroupName": "wg-a", "SessionId": "sess-a",
+				})
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 2", "Database": "testdb", "WorkgroupName": "wg-b", "SessionId": "sess-b",
+				})
+			},
+			body:       map[string]any{"WorkgroupName": "wg-a"},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name: "filter_by_database",
+			setup: func(t *testing.T, h *redshiftdata.Handler) {
+				t.Helper()
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 1", "Database": "db-a", "ClusterIdentifier": "c", "SessionId": "sess-a",
+				})
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 2", "Database": "db-b", "ClusterIdentifier": "c", "SessionId": "sess-b",
+				})
+			},
+			body:       map[string]any{"Database": "db-a"},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name:        "session_id_combined_with_status_rejected",
+			setup:       func(*testing.T, *redshiftdata.Handler) {},
+			body:        map[string]any{"SessionId": "sess-a", "Status": "AVAILABLE"},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ValidationException",
+		},
+		{
+			name:        "cluster_identifier_and_workgroup_both_set_rejected",
+			setup:       func(*testing.T, *redshiftdata.Handler) {},
+			body:        map[string]any{"ClusterIdentifier": "c1", "WorkgroupName": "wg1"},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ValidationException",
+		},
+		{
+			name:        "invalid_status_rejected",
+			setup:       func(*testing.T, *redshiftdata.Handler) {},
+			body:        map[string]any{"Status": "BOGUS"},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ValidationException",
+		},
+		{
+			name: "invalid_next_token_rejected",
+			setup: func(t *testing.T, h *redshiftdata.Handler) {
+				t.Helper()
+				doRequest(t, h, "ExecuteStatement", map[string]any{
+					"Sql": "SELECT 1", "Database": "testdb", "ClusterIdentifier": "c", "SessionId": "sess-a",
+				})
+			},
+			body:        map[string]any{"NextToken": "does-not-exist"},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ValidationException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setup(t, h)
+
+			rec := doRequest(t, h, "ListSessions", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			if tt.wantErrType != "" {
+				assert.Equal(t, tt.wantErrType, resp["__type"])
+
+				return
+			}
+
+			sessions, ok := resp["Sessions"].([]any)
+			require.True(t, ok)
+			assert.Len(t, sessions, tt.wantCount)
+
+			if tt.check != nil {
+				tt.check(t, sessions)
+			}
+		})
+	}
+}
+
 func TestInMemoryBackend_StatementCap_OldestEvicted(t *testing.T) {
 	t.Parallel()
 

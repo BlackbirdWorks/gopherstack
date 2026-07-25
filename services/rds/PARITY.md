@@ -4,10 +4,10 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rds
-sdk_module: aws-sdk-go-v2/service/rds@v1.116.2
+sdk_module: aws-sdk-go-v2/service/rds@v1.123.0
 last_audit_commit: PENDING_COMMIT  # working tree not committed by this pass (git use was out of
                                     # scope); set to the actual commit hash when this diff lands.
-last_audit_date: 2026-07-24
+last_audit_date: 2026-07-25
 overall: A              # this pass closed all three gaps carried forward from the 2026-07-23
                        # A- audit -- each was previously deferred as "too invasive"; that
                        # deferral is retracted, all three are fixed for real with regression
@@ -126,6 +126,34 @@ ops:
   ModifyDBRecommendation: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — nests under <DBRecommendation>, matches"}
   CreateDBProxy/DeleteDBProxy/ModifyDBProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-verified this pass — nests under <DBProxy>, matches (family already ok per prior audits)"}
   PurchaseReservedDBInstancesOffering: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-verified this pass — nests under <ReservedDBInstance>, matches"}
+  DescribeServerlessV2PlatformVersions: {wire: ok, errors: ok, state: partial, persist: n/a (static), note: >
+    NEW this pass (SDK bump to v1.123.0 added this op; TestSDKCompleteness flagged it).
+    Confirmed request/response member names directly against
+    aws-sdk-go-v2/service/rds@v1.123.0's api_op_DescribeServerlessV2PlatformVersions.go
+    (request: DefaultOnly, Engine, Filters, IncludeAll, Marker, MaxRecords,
+    ServerlessV2PlatformVersion; response: Marker, ServerlessV2PlatformVersions) and
+    types.ServerlessV2PlatformVersionInfo/types.ServerlessV2FeaturesSupport (go doc). Engine
+    is validated against the two values that file's own "Valid Values" doc comment
+    documents (aurora-mysql, aurora-postgresql) -- InvalidParameterValue otherwise, matching
+    validateDBInstanceEngine/validateDBClusterEngine's existing pattern. Filters is
+    accepted-but-ignored (that action's own doc comment says "This parameter isn't
+    currently supported", i.e. real AWS itself doesn't implement it -- same precedent as
+    the DescribeEvents Filters correction noted in the 2026-07-23 pass below). Uses the
+    shared paginateDescribe/Marker/MaxRecords convention (no per-op MaxRecords bound
+    enforced beyond the generic >0 check, consistent with every other Describe op in this
+    file -- none of them enforce the SDK doc's specific numeric range either).
+    state: partial because the catalog this backend serves is deliberately EMPTY: unlike
+    DBEngineVersion or DBMajorEngineVersion, ServerlessV2PlatformVersionInfo.
+    ServerlessV2PlatformVersion is a plain *string with no SDK-side enum or constant list of
+    real version numbers anywhere in the installed module -- inventing plausible-looking
+    version strings ("3", "4", ...) and descriptions would fabricate data indistinguishable
+    from genuine AWS output with nothing in this SDK module to verify them against. Returns
+    an honestly empty ServerlessV2PlatformVersions list instead (see reference_data.go's doc
+    comment on DescribeServerlessV2PlatformVersions). The Engine/version/DefaultOnly/
+    IncludeAll filtering logic is real code, not dead code -- it is written to apply
+    correctly the moment genuine catalog rows are ever added, just currently applied to zero
+    rows. New files: none (added to the existing reference_data.go/handler_reference_data.go
+    pairing, same as DescribeDBMajorEngineVersions/DescribeSourceRegions).}
 families:
   db_instance_lifecycle: {status: ok, note: "creating->available->modifying/deleting state machine via instanceReadyAt + self-terminating reconciler goroutine (backend.go scheduleReconcilerLocked); verified transitions, DeletionProtection guard, already-deleting guard"}
   db_cluster_lifecycle: {status: ok, note: "cluster members, reader/writer endpoint synthesis, ServerlessV2ScalingConfiguration, start/stop/failover/reboot all mutate real state"}
@@ -152,7 +180,15 @@ families:
   tenant_databases: {status: ok, note: "re-verified this pass against the real SDK's CreateTenantDatabaseOutput/DeleteTenantDatabaseOutput/ModifyTenantDatabaseOutput shapes (these DO nest under <TenantDatabase>, unlike shard groups/integrations) — no bug found, ledger's prior 'spot-checked only' caveat is now resolved to ok"}
   db_security_groups: {status: ok, note: "re-verified this pass (EC2-Classic legacy) — CreateDBSecurityGroupOutput/AuthorizeDBSecurityGroupIngressOutput/RevokeDBSecurityGroupIngressOutput all nest under <DBSecurityGroup> in the real SDK, matches gopherstack; no bug found, ledger's prior 'spot-checked only' caveat is now resolved to ok"}
   activity_streams: {status: ok, note: "de-deferred this pass: field-diffed Start/Stop/ModifyActivityStream against aws-sdk-go-v2's StartActivityStreamOutput/StopActivityStreamOutput/ModifyActivityStreamOutput. Start/Stop already matched (flat KinesisStreamName/KmsKeyId/Status/Mode/ApplyImmediately fields, correct — these ops were never affected by the shard-group/integration nesting bug class since their outputs were always flat in gopherstack). ModifyActivityStream had a real disguised-stub bug: it emitted an invented <AuditPolicy> element that does not exist on the real output (the real field is PolicyStatus, of type ActivityStreamPolicyStatus) and omitted the real KinesisStreamName/Mode members — FIXED, see Notes. Also fixed: cluster-not-found on all three ops returned InvalidParameterValue instead of the correct DBClusterNotFoundFault. Test coverage was previously zero for this family; added activity_stream_test.go (lifecycle, not-found, and backend-error-path tests)."}
-gaps: []
+gaps:
+  - DescribeServerlessV2PlatformVersions (new this pass, 2026-07-25) always returns an
+    empty ServerlessV2PlatformVersions list. The installed SDK module documents no
+    enumerable list of real platform version numbers/descriptions to derive from
+    (ServerlessV2PlatformVersion is a plain *string on the wire, unlike e.g. the Engine
+    field which does have a documented closed set of valid values, which IS validated).
+    Inventing specific version strings would fabricate data with nothing in this SDK
+    module to verify them against. See the ops: entry for full reasoning; re-review if a
+    future SDK/API model version publishes an authoritative version list.
   # All three gaps carried in the 2026-07-23 A- audit were closed for real this pass
   # (2026-07-24), with regression tests, not just re-labeled deferrals -- see the
   # overall: header and Notes for full detail on each:
@@ -177,6 +213,34 @@ leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (Delete
   `<ActionResponse><ActionResult>...</ActionResult></ActionResponse>` except where the op's
   SDK output has no members (in which case an empty result element is still correct — do not
   flag as a stub).
+
+- **2026-07-25 pass summary.** The Go SDK modules were bumped (aws-sdk-go-v2/service/rds
+  v1.116.2 -> v1.123.0), and `TestSDKCompleteness` flagged exactly one new operation:
+  `DescribeServerlessV2PlatformVersions`. Implemented for real (not added to a
+  `notImplemented` list): routing wired into `dispatchExtended16`
+  (`handler_dispatch.go`), `GetSupportedOperations` updated (`handler_supported_ops.go`),
+  request parsing + XML response building added to `handler_reference_data.go` (new
+  `describeServerlessV2PlatformVersionsResponse`/`xmlServerlessV2PlatformVersionInfo`/
+  `xmlServerlessV2FeaturesSupport`/`xmlServerlessV2VersionList` types, paired with the
+  new `ServerlessV2PlatformVersionInfo`/`ServerlessV2FeaturesSupport` Go types in
+  `models.go`), and backend logic added to `reference_data.go`
+  (`(*InMemoryBackend).DescribeServerlessV2PlatformVersions`,
+  `validServerlessV2Engines`, `staticServerlessV2PlatformVersions`). Confirmed every
+  request/response member name and the two valid `Engine` values directly against
+  `aws-sdk-go-v2/service/rds@v1.123.0`'s `api_op_DescribeServerlessV2PlatformVersions.go`
+  and `go doc .../rds/types ServerlessV2PlatformVersionInfo` rather than inferring from
+  the operation name. No new files: both files already existed and already housed the
+  closest sibling ops (`DescribeDBMajorEngineVersions`, `DescribeSourceRegions`). See the
+  `DescribeServerlessV2PlatformVersions` `ops:` entry and the matching `gaps:` entry above
+  for why the served catalog is honestly empty rather than populated with invented
+  version numbers, and `reference_data_test.go`'s `TestDescribeServerlessV2PlatformVersions`
+  / `TestHandler_DescribeServerlessV2PlatformVersions` table tests for coverage (the
+  latter asserts the wire shape through the real router path: form-encoded request ->
+  `Handler.Handler()` -> XML response, using the existing `doAccuracyRDS`/
+  `newAccuracyRDSHandler` harness). `overall` stays `A`: the operation is genuinely
+  routed, validated, paginated, and persistence-transparent (no new mutable state was
+  added, so nothing new needed wiring into `Snapshot`/`Restore`) -- the empty catalog is
+  an honest reflection of what the installed SDK actually documents, not a shortcut.
 
 - **2026-07-23 pass summary.** This pass targeted the items the prior ledger flagged as gaps
   (Filters coverage) and deferred (Activity Streams), plus a fresh leak/error-code audit per
