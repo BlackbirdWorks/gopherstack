@@ -168,6 +168,37 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, nameOrArn string) (
 	return c.ClusterArn, nil
 }
 
+// StartClusterHealthCheck validates that the cluster (by name or ARN) exists
+// and that at least one deep-health-check configuration was supplied,
+// returning the cluster's ARN. Real AWS asynchronously runs the requested
+// deep health checks against the given instance groups/instances; this
+// backend does not synthesize per-node pass/fail health-check results (no
+// fabricated telemetry a client could mistake for a measured outcome) —
+// consistent with this service's existing ClusterNode model, which only
+// ever reports a static "Running" NodeStatus rather than invented health
+// signals.
+func (b *InMemoryBackend) StartClusterHealthCheck(
+	ctx context.Context,
+	nameOrArn string,
+	hasDeepHealthCheckConfigurations bool,
+) (string, error) {
+	b.mu.Lock("StartClusterHealthCheck")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	c, err := b.resolveClusterLocked(region, nameOrArn)
+	if err != nil {
+		return "", err
+	}
+
+	if !hasDeepHealthCheckConfigurations {
+		return "", fmt.Errorf("%w: DeepHealthCheckConfigurations is required", ErrValidation)
+	}
+
+	return c.ClusterArn, nil
+}
+
 // countNodeIDsInGroupLocked returns the sorted node IDs currently assigned to
 // the given instance group.
 func countNodeIDsInGroupLocked(c *Cluster, groupName string) []string {

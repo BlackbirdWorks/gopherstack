@@ -3,6 +3,8 @@ package sagemaker
 import (
 	"context"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -19,6 +21,15 @@ const (
 	endpointUpdatingToInService     = 250 * time.Millisecond
 	processingJobCompletionDelay    = 300 * time.Millisecond
 	processingJobStopDelay          = 150 * time.Millisecond
+	// aiJobInProgressToCompleted/aiJobStoppingToStopped drive the InProgress
+	// -> Completed and Stopping -> Stopped transitions shared by the
+	// AIBenchmarkJob, AIRecommendationJob, and generic Job families (added
+	// in the sagemaker SDK bump that introduced CreateJob et al.). Kept as
+	// their own constants (rather than reusing trainingInProgressToCompleted)
+	// so these three new families can be retimed independently of
+	// TrainingJob's FSM.
+	aiJobInProgressToCompleted = 300 * time.Millisecond
+	aiJobStoppingToStopped     = 150 * time.Millisecond
 )
 
 // ---------------------------------------------------------------------------
@@ -79,6 +90,51 @@ func (b *InMemoryBackend) runDelayed(ctx context.Context, delay time.Duration, f
 
 		fn()
 	})
+}
+
+// stopSimpleJobFSM implements the InProgress -> Stopping -> Stopped state
+// machine shared by StopAIBenchmarkJob and StopAIRecommendationJob (the two
+// new job families whose Stop op has no secondary-status transitions to
+// track, unlike TrainingJob's/the generic Job's richer FSMs). storeOf must
+// be one of the backend's own xxxStore(region) helpers (called under b.mu,
+// per that helper family's convention) so this generic function stays
+// consistent with every other resource family's locking discipline.
+// opLabel is the lockmetrics label used for both the synchronous lock and
+// the delayed goroutine's lock.
+func stopSimpleJobFSM[T any](
+	b *InMemoryBackend,
+	opLabel, region, name string,
+	storeOf func(region string) *store.Table[T],
+	notFound error,
+	getStatus func(*T) string,
+	setStatus func(*T, string),
+	setEndTime func(*T, time.Time),
+	getArn func(*T) string,
+) (string, error) {
+	b.mu.Lock(opLabel)
+	defer b.mu.Unlock()
+
+	j, ok := storeOf(region).Get(name)
+	if !ok {
+		return "", notFound
+	}
+
+	if getStatus(j) == trainingJobStatusInProgress {
+		setStatus(j, pipelineStatusStopping)
+
+		b.runDelayed(b.lifecycleCtx, aiJobStoppingToStopped, func() {
+			b.mu.Lock(opLabel + ".goroutine")
+			defer b.mu.Unlock()
+
+			if j2, ok2 := storeOf(region).Get(name); ok2 && getStatus(j2) == pipelineStatusStopping {
+				now := time.Now()
+				setStatus(j2, pipelineStatusStopped)
+				setEndTime(j2, now)
+			}
+		})
+	}
+
+	return getArn(j), nil
 }
 
 // Shutdown cancels all pending lifecycle-transition goroutines and waits for the

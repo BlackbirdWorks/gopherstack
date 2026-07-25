@@ -927,3 +927,67 @@ func TestHandler_BatchAddClusterNodes_DuplicateNodeFails(t *testing.T) {
 	assert.Len(t, failures, 1)
 	assert.Equal(t, "node-1", failures[0])
 }
+
+// ---------------------------------------------------------------------------
+// StartClusterHealthCheck
+// ---------------------------------------------------------------------------
+
+func TestHandler_StartClusterHealthCheck(t *testing.T) {
+	t.Parallel()
+
+	validConfigs := []map[string]any{
+		{"InstanceGroupName": "workers", "DeepHealthChecks": []string{"InstanceStress"}},
+	}
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+		setup    bool
+	}{
+		{
+			name:     "healthy cluster with configs returns its ARN",
+			setup:    true,
+			body:     map[string]any{"ClusterName": "hc-cluster", "DeepHealthCheckConfigurations": validConfigs},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "missing ClusterName is rejected",
+			setup:    false,
+			body:     map[string]any{"DeepHealthCheckConfigurations": validConfigs},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing DeepHealthCheckConfigurations is rejected",
+			setup:    true,
+			body:     map[string]any{"ClusterName": "hc-cluster"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "nonexistent cluster is rejected",
+			setup:    false,
+			body:     map[string]any{"ClusterName": "nonexistent", "DeepHealthCheckConfigurations": validConfigs},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup {
+				h.Backend.AddClusterInternal(context.Background(), "hc-cluster")
+			}
+
+			rec := doSageMakerRequest(t, h, "StartClusterHealthCheck", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["ClusterArn"], "hc-cluster")
+			}
+		})
+	}
+}

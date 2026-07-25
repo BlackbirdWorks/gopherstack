@@ -12,6 +12,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// sortOrderDescending is the "Descending" SortOrder value shared by every
+// List* op family that supports SortBy/SortOrder filtering (AIBenchmarkJob,
+// AIRecommendationJob, AIWorkloadConfig, Job, TrainingPlan, ...) — pulled
+// out to a constant so those call sites don't each repeat the same string
+// literal (goconst).
+const sortOrderDescending = "Descending"
+
 // tableGet returns the value stored under key in t, or nil if absent. It lets
 // a single-value store.Table lookup be substituted inline (including chained
 // field access, e.g. tableGet(t, key).Field) for the raw map[string]*V index

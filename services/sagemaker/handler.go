@@ -245,11 +245,12 @@ func (h *Handler) GetSupportedOperations() []string {
 	servicecatalog := servicecatalogOpsSupported()
 	featureMetadata := featureMetadataOpsSupported()
 	presignedSession := presignedSessionOpsSupported()
+	aiAndGenericJob := aiAndGenericJobOpsSupported()
 
 	total := len(core) + len(batch2) + len(batch3) + len(accuracy3)
 	total += len(accuracy4) + len(edgeDeployment) + len(cluster) + len(lineage) + len(hub)
 	total += len(labeling) + len(trainingPlanExt) + len(automlSearchExt) + len(modelCardExport)
-	total += len(servicecatalog) + len(featureMetadata) + len(presignedSession)
+	total += len(servicecatalog) + len(featureMetadata) + len(presignedSession) + len(aiAndGenericJob)
 	combined := make([]string, 0, total)
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
@@ -267,6 +268,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	combined = append(combined, servicecatalog...)
 	combined = append(combined, featureMetadata...)
 	combined = append(combined, presignedSession...)
+	combined = append(combined, aiAndGenericJob...)
 
 	return combined
 }
@@ -560,7 +562,35 @@ func (h *Handler) dispatchFamilyExtAndStubOps(
 		return r, true, err
 	}
 
-	return h.dispatchPresignedSessionOps(ctx, op, body)
+	if r, ok, err := h.dispatchPresignedSessionOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchAIAndGenericJobOps(ctx, op, body)
+}
+
+// dispatchAIAndGenericJobOps groups the AIBenchmarkJob/AIRecommendationJob/
+// AIWorkloadConfig/generic-Job dispatch tables (all added by the SDK bump
+// that introduced CreateJob et al.) so dispatchFamilyExtAndStubOps only
+// needs a single branch for all four.
+func (h *Handler) dispatchAIAndGenericJobOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
+	if r, ok, err := h.dispatchAIBenchmarkJobOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchAIRecommendationJobOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchAIWorkloadConfigOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchJobOps(ctx, op, body)
 }
 
 func (h *Handler) dispatchLineageAndBatchOps(
@@ -862,6 +892,18 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    errValidationException,
+			keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrResourceNotFound):
+		// AIBenchmarkJob/AIRecommendationJob/AIWorkloadConfig/Job families
+		// only — see ErrResourceNotFound's doc comment. Checked before the
+		// generic ErrNotFound case below so these families' real
+		// "ResourceNotFound" wire exception isn't papered over with the
+		// blanket ValidationException the rest of the service emits.
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "ResourceNotFound",
 			keyMessageField: err.Error(),
 		})
 

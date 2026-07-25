@@ -110,3 +110,223 @@ func TestHandler_ListEdgePackagingJobs_StatusFilter(t *testing.T) {
 // ---------------------------------------------------------------------------
 // InferenceRecommendationsJob tests
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Job / JobSchemaVersion (the generic model-customization job family added
+// by CreateJob et al. — distinct from every other job type in this
+// service; see jobs.go's doc comment)
+// ---------------------------------------------------------------------------
+
+func TestHandler_JobLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "create rejects an unknown JobConfigSchemaVersion",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+
+				rec := doSageMakerRequest(t, h, "CreateJob", map[string]any{
+					"JobName":                "job-1",
+					"JobCategory":            "AgentRFT",
+					"JobConfigDocument":      `{"foo":"bar"}`,
+					"JobConfigSchemaVersion": "9.9",
+					"RoleArn":                "arn:aws:iam::000000000000:role/TestRole",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create then describe starts InProgress, stop transitions to Stopping",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+
+				rec := doSageMakerRequest(t, h, "CreateJob", map[string]any{
+					"JobName":                "job-2",
+					"JobCategory":            "AgentRFT",
+					"JobConfigDocument":      `{"foo":"bar"}`,
+					"JobConfigSchemaVersion": "1.0",
+					"RoleArn":                "arn:aws:iam::000000000000:role/TestRole",
+				})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				var createResp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				assert.Contains(t, createResp["JobArn"], "job-2")
+
+				rec = doSageMakerRequest(t, h, "DescribeJob", map[string]any{
+					"JobCategory": "AgentRFT", "JobName": "job-2",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var descResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				assert.Equal(t, "InProgress", descResp["JobStatus"])
+				assert.Equal(t, "AgentRFT", descResp["JobCategory"])
+				assert.NotEmpty(t, descResp["SecondaryStatusTransitions"])
+
+				// A different JobCategory for the same JobName must 404 —
+				// Describe/Delete/Stop are scoped by category (see
+				// resolveJobLocked's doc comment).
+				rec = doSageMakerRequest(t, h, "DescribeJob", map[string]any{
+					"JobCategory": "AgentRFTEvaluation", "JobName": "job-2",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				rec = doSageMakerRequest(t, h, "StopJob", map[string]any{
+					"JobCategory": "AgentRFT", "JobName": "job-2",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doSageMakerRequest(t, h, "DescribeJob", map[string]any{
+					"JobCategory": "AgentRFT", "JobName": "job-2",
+				})
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				assert.Equal(t, "Stopping", descResp["JobStatus"])
+			},
+		},
+		{
+			name: "delete rejects a still-running job, succeeds once stopped",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				doSageMakerRequest(t, h, "CreateJob", map[string]any{
+					"JobName":                "job-del",
+					"JobCategory":            "AgentRFT",
+					"JobConfigDocument":      `{"foo":"bar"}`,
+					"JobConfigSchemaVersion": "1.0",
+					"RoleArn":                "arn:aws:iam::000000000000:role/TestRole",
+				})
+
+				rec := doSageMakerRequest(t, h, "DeleteJob", map[string]any{
+					"JobCategory": "AgentRFT", "JobName": "job-del",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code, "DeleteJob must reject a running job")
+
+				doSageMakerRequest(t, h, "StopJob", map[string]any{"JobCategory": "AgentRFT", "JobName": "job-del"})
+
+				rec = doSageMakerRequest(t, h, "DeleteJob", map[string]any{
+					"JobCategory": "AgentRFT", "JobName": "job-del",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doSageMakerRequest(t, h, "DescribeJob", map[string]any{
+					"JobCategory": "AgentRFT", "JobName": "job-del",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "list is scoped to the requested JobCategory",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				doSageMakerRequest(t, h, "CreateJob", map[string]any{
+					"JobName": "job-cat-a", "JobCategory": "AgentRFT",
+					"JobConfigDocument": `{}`, "JobConfigSchemaVersion": "1.0",
+					"RoleArn": "arn:aws:iam::000000000000:role/TestRole",
+				})
+				doSageMakerRequest(t, h, "CreateJob", map[string]any{
+					"JobName": "job-cat-b", "JobCategory": "AgentRFTEvaluation",
+					"JobConfigDocument": `{}`, "JobConfigSchemaVersion": "1.0",
+					"RoleArn": "arn:aws:iam::000000000000:role/TestRole",
+				})
+
+				rec := doSageMakerRequest(t, h, "ListJobs", map[string]any{"JobCategory": "AgentRFT"})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				items := resp["JobSummaries"].([]any)
+				require.Len(t, items, 1)
+				assert.Equal(t, "job-cat-a", items[0].(map[string]any)["JobName"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(t)
+		})
+	}
+}
+
+func TestHandler_JobSchemaVersionLookups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "DescribeJobSchemaVersion returns the latest version by default",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+
+				rec := doSageMakerRequest(t, h, "DescribeJobSchemaVersion", map[string]any{
+					"JobCategory": "AgentRFT",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, "1.0", resp["JobConfigSchemaVersion"])
+				assert.NotEmpty(t, resp["JobConfigSchema"])
+			},
+		},
+		{
+			name: "DescribeJobSchemaVersion rejects an unknown version",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+
+				rec := doSageMakerRequest(t, h, "DescribeJobSchemaVersion", map[string]any{
+					"JobCategory":            "AgentRFT",
+					"JobConfigSchemaVersion": "9.9",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "ListJobSchemaVersions returns the known versions for the category",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+
+				rec := doSageMakerRequest(t, h, "ListJobSchemaVersions", map[string]any{
+					"JobCategory": "AgentRFT",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				items := resp["JobConfigSchemas"].([]any)
+				require.Len(t, items, 1)
+				assert.Equal(t, "1.0", items[0].(map[string]any)["JobConfigSchemaVersion"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(t)
+		})
+	}
+}

@@ -223,4 +223,17 @@ func (b *InMemoryBackend) initJobMaps() {
 	b.computeQuotas = make(map[string]*store.Table[ComputeQuota])
 	b.hubs = make(map[string]*store.Table[Hub])
 	b.hubContents = make(map[string]*store.Table[HubContent])
+	b.initAIAndGenericJobMaps()
+}
+
+// initAIAndGenericJobMaps (re)initialises the AIBenchmarkJob/
+// AIRecommendationJob/AIWorkloadConfig/generic-Job resource maps added
+// alongside CreateJob et al. Split out of initJobMaps so that function stays
+// focused on the pre-existing job families it already owned.
+func (b *InMemoryBackend) initAIAndGenericJobMaps() {
+	b.aiBenchmarkJobs = make(map[string]*store.Table[AIBenchmarkJob])
+	b.aiRecommendationJobs = make(map[string]*store.Table[AIRecommendationJob])
+	b.aiWorkloadConfigs = make(map[string]*store.Table[AIWorkloadConfig])
+	b.aiWorkloadConfigARNIndex = make(map[string]map[string]string)
+	b.jobs = make(map[string]*store.Table[Job])
 }

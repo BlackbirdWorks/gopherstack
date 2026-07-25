@@ -107,6 +107,11 @@ type InMemoryBackend struct {
 	computeQuotas                map[string]*store.Table[ComputeQuota]
 	hubs                         map[string]*store.Table[Hub]
 	hubContents                  map[string]*store.Table[HubContent]
+	aiBenchmarkJobs              map[string]*store.Table[AIBenchmarkJob]
+	aiRecommendationJobs         map[string]*store.Table[AIRecommendationJob]
+	aiWorkloadConfigs            map[string]*store.Table[AIWorkloadConfig]
+	aiWorkloadConfigARNIndex     map[string]map[string]string // region → ARN → AI workload config name
+	jobs                         map[string]*store.Table[Job]
 	// pipelineVersions is region -> pipelineName -> versions, ordered oldest-first.
 	pipelineVersions map[string]map[string][]*PipelineVersion
 	// servicecatalogPortfolioEnabled is region -> whether the SageMaker
