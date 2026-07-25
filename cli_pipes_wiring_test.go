@@ -83,6 +83,12 @@ func newPipesWiringRig(t *testing.T) *pipesWiringRig {
 	// This is the exact call cli.go's setupServices makes.
 	wirePipesRunner(pipesH, sqsH, lambdaH, nil, snsH, kinesisH, ebH, cwlogsH, firehoseH, ddbH)
 
+	// cli.go also wires SNS fan-out to SQS; the SNS target subtest observes
+	// delivery through a real SQS subscription rather than SNS's archive,
+	// since archiving is only legal on FIFO topics and FIFO publishes require
+	// a MessageGroupId the pipes SNS adapter does not send.
+	wireSNSToSQS(snsH, sqsH)
+
 	runner := pipesH.GetRunner()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -166,21 +172,33 @@ func TestWirePipesRunner_SQSSourceTargets(t *testing.T) {
 		t.Parallel()
 		rig := newPipesWiringRig(t)
 
-		// ArchivePolicy turns on SNS's message archive, the only observable
-		// side-effect of a bare Publish() with no subscriptions -- used here
-		// purely to prove delivery reached the real backend.
-		topic, err := rig.snsBk.CreateTopic("pipes-sns-target", map[string]string{
-			"ArchivePolicy": `{"MessageRetentionPeriod":"7"}`,
-		})
+		// Delivery is observed through a real SQS subscription: a bare
+		// Publish() with no subscriptions leaves nothing to assert on, and
+		// SNS's message archive is only legal on FIFO topics (whose publishes
+		// require a MessageGroupId the pipes SNS adapter does not send).
+		topic, err := rig.snsBk.CreateTopic("pipes-sns-target", nil)
+		require.NoError(t, err)
+
+		sinkOut, err := rig.sqsBk.CreateQueue(&sqsbackend.CreateQueueInput{QueueName: "pipes-sns-sink"})
+		require.NoError(t, err)
+
+		sinkARN := arn.Build("sqs", config.DefaultRegion, config.DefaultAccountID, "pipes-sns-sink")
+		_, err = rig.snsBk.Subscribe(topic.TopicArn, "sqs", sinkARN, "")
 		require.NoError(t, err)
 
 		qURL := rig.createSQSSourcedPipe(t, "sns-target-pipe", topic.TopicArn)
 		rig.sendSourceMessage(t, qURL, "hello-sns-target")
 
 		require.Eventually(t, func() bool {
-			msgs := rig.snsBk.GetArchivedMessages(topic.TopicArn)
-			for _, m := range msgs {
-				if containsSubstring(m.Message, "hello-sns-target") {
+			out, recvErr := rig.sqsBk.ReceiveMessage(&sqsbackend.ReceiveMessageInput{
+				QueueURL:            sinkOut.QueueURL,
+				MaxNumberOfMessages: 10,
+			})
+			if recvErr != nil {
+				return false
+			}
+			for _, m := range out.Messages {
+				if containsSubstring(m.Body, "hello-sns-target") {
 					return true
 				}
 			}

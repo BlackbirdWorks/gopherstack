@@ -1,12 +1,18 @@
 package iot_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
+	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/iot"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
+	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
 func newDeviceDefenderTestHandler(t *testing.T) (*iot.Handler, *iot.InMemoryBackend) {
@@ -294,6 +300,89 @@ func TestDeviceDefender_Violations(t *testing.T) {
 	}
 }
 
+// TestListActiveViolationsAndViolationEvents_SuppressedAlertsFilter is a
+// table-driven test, asserted through a real generated AWS SDK v2 IoT
+// client, covering ListActiveViolations/ListViolationEvents'
+// listSuppressedAlerts filter -- previously entirely unimplemented. Real AWS
+// determines suppression from the security-profile Behavior's SuppressAlerts
+// setting, which this backend does not persist at all (CreateSecurityProfile
+// doesn't store Behaviors currently -- a separate, larger gap in the
+// security_profiles family). Modeling suppression as a directly-seedable
+// flag on ActiveViolation/ViolationEvent (mirroring AuditFinding.IsSuppressed's
+// identical simplification elsewhere in this service) is what makes the
+// filter honestly implementable without first building out that unrelated
+// subsystem; see device_defender.go's ActiveViolation.Suppressed doc
+// comment.
+func TestListActiveViolationsAndViolationEvents_SuppressedAlertsFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		listSuppressedAlerts *bool
+		name                 string
+		wantViolationIDs     []string
+	}{
+		{
+			name:                 "unset_returns_both",
+			listSuppressedAlerts: nil,
+			wantViolationIDs:     []string{"viol-suppressed", "viol-unsuppressed"},
+		},
+		{
+			name:                 "true_returns_only_suppressed",
+			listSuppressedAlerts: aws.Bool(true),
+			wantViolationIDs:     []string{"viol-suppressed"},
+		},
+		{
+			name:                 "false_returns_only_unsuppressed",
+			listSuppressedAlerts: aws.Bool(false),
+			wantViolationIDs:     []string{"viol-unsuppressed"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, b := newIoTSDKClient(t)
+			ctx := t.Context()
+
+			_, err := b.SeedActiveViolation(&iot.SeedActiveViolationInput{
+				ViolationID: "viol-suppressed", ThingName: "thing-x", SecurityProfileName: "profile-x",
+				Suppressed: true,
+			})
+			require.NoError(t, err)
+			_, err = b.SeedActiveViolation(&iot.SeedActiveViolationInput{
+				ViolationID: "viol-unsuppressed", ThingName: "thing-x", SecurityProfileName: "profile-x",
+				Suppressed: false,
+			})
+			require.NoError(t, err)
+
+			activeOut, err := client.ListActiveViolations(ctx, &iotsdk.ListActiveViolationsInput{
+				ListSuppressedAlerts: tt.listSuppressedAlerts,
+			})
+			require.NoError(t, err)
+
+			gotActiveIDs := make([]string, 0, len(activeOut.ActiveViolations))
+			for _, v := range activeOut.ActiveViolations {
+				gotActiveIDs = append(gotActiveIDs, *v.ViolationId)
+			}
+			assert.ElementsMatch(t, tt.wantViolationIDs, gotActiveIDs)
+
+			eventsOut, err := client.ListViolationEvents(ctx, &iotsdk.ListViolationEventsInput{
+				StartTime:            aws.Time(time.Unix(0, 0)),
+				EndTime:              aws.Time(time.Now().Add(time.Hour)),
+				ListSuppressedAlerts: tt.listSuppressedAlerts,
+			})
+			require.NoError(t, err)
+
+			gotEventIDs := make([]string, 0, len(eventsOut.ViolationEvents))
+			for _, e := range eventsOut.ViolationEvents {
+				gotEventIDs = append(gotEventIDs, *e.ViolationId)
+			}
+			assert.ElementsMatch(t, tt.wantViolationIDs, gotEventIDs)
+		})
+	}
+}
+
 // TestDeviceDefender_AuditFindingRelatedResources covers
 // ListRelatedResourcesForAuditFinding.
 func TestDeviceDefender_AuditFindingRelatedResources(t *testing.T) {
@@ -429,6 +518,357 @@ func TestDeviceDefender_AuditFinding_WireFieldsAndFilters(t *testing.T) {
 			}
 
 			tt.check(t, findings)
+		})
+	}
+}
+
+// TestListAuditFindings_ResourceIdentifierFilter is a table-driven test,
+// asserted through a real generated AWS SDK v2 IoT client, covering this
+// pass's ListAuditFindings.resourceIdentifier filter -- previously flagged
+// unimplemented in PARITY.md because AuditFinding.NonCompliantResource was a
+// freeform map[string]any that could not honestly discriminate against real
+// AWS's ~10 per-check-type ResourceIdentifier fields (deviceCertificateId,
+// policyVersionIdentifier, roleAliasArn, ...). NonCompliantResource is now a
+// real, fully-typed struct (see audit.go's ResourceIdentifier), so the
+// filter can honestly match the same way real AWS does: every field SET on
+// the filter must be present and equal on the finding's own identifier.
+func TestListAuditFindings_ResourceIdentifierFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		filter        *iottypes.ResourceIdentifier
+		wantFindingID string // "" means expect zero matches
+		name          string
+	}{
+		{
+			name:          "matches_by_deviceCertificateId",
+			filter:        &iottypes.ResourceIdentifier{DeviceCertificateId: aws.String("cert-1")},
+			wantFindingID: "cert-finding",
+		},
+		{
+			name:          "mismatched_deviceCertificateId_returns_empty",
+			filter:        &iottypes.ResourceIdentifier{DeviceCertificateId: aws.String("cert-does-not-exist")},
+			wantFindingID: "",
+		},
+		{
+			name: "matches_by_policyVersionIdentifier_policyName_alone",
+			filter: &iottypes.ResourceIdentifier{
+				PolicyVersionIdentifier: &iottypes.PolicyVersionIdentifier{
+					PolicyName: aws.String("overly-permissive-policy"),
+				},
+			},
+			wantFindingID: "policy-finding",
+		},
+		{
+			name: "policyVersionIdentifier_with_wrong_versionId_does_not_match",
+			filter: &iottypes.ResourceIdentifier{
+				PolicyVersionIdentifier: &iottypes.PolicyVersionIdentifier{
+					PolicyName:      aws.String("overly-permissive-policy"),
+					PolicyVersionId: aws.String("not-the-real-version"),
+				},
+			},
+			wantFindingID: "",
+		},
+		{
+			name: "does_not_match_a_finding_with_no_resourceIdentifier_at_all",
+			filter: &iottypes.ResourceIdentifier{
+				IamRoleArn: aws.String("arn:aws:iam::000000000000:role/AnyRole"),
+			},
+			wantFindingID: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, b := newIoTSDKClient(t)
+
+			b.SeedAuditFinding(&iot.AuditFinding{
+				FindingID: "cert-finding",
+				CheckName: "DEVICE_CERTIFICATE_EXPIRING_CHECK",
+				NonCompliantResource: &iot.NonCompliantResource{
+					ResourceType:       "CLIENT_CERT",
+					ResourceIdentifier: &iot.ResourceIdentifier{DeviceCertificateID: "cert-1"},
+				},
+			})
+			b.SeedAuditFinding(&iot.AuditFinding{
+				FindingID: "policy-finding",
+				CheckName: "IOT_POLICY_OVERLY_PERMISSIVE_CHECK",
+				NonCompliantResource: &iot.NonCompliantResource{
+					ResourceType: "IOT_POLICY",
+					ResourceIdentifier: &iot.ResourceIdentifier{
+						PolicyVersionIdentifier: &iot.PolicyVersionIdentifier{
+							PolicyName:      "overly-permissive-policy",
+							PolicyVersionID: "2",
+						},
+					},
+				},
+			})
+			b.SeedAuditFinding(&iot.AuditFinding{
+				FindingID: "bare-finding",
+				CheckName: "CONFORMANCE_CHECK",
+			})
+
+			out, err := client.ListAuditFindings(t.Context(), &iotsdk.ListAuditFindingsInput{
+				ResourceIdentifier: tt.filter,
+			})
+			require.NoError(t, err)
+
+			var gotIDs []string
+			for _, f := range out.Findings {
+				gotIDs = append(gotIDs, *f.FindingId)
+			}
+
+			if tt.wantFindingID == "" {
+				assert.Empty(t, gotIDs)
+
+				return
+			}
+			assert.Equal(t, []string{tt.wantFindingID}, gotIDs)
+		})
+	}
+}
+
+// TestStartAuditMitigationActionsTask_TargetResolution is a table-driven
+// regression test, asserted through a real generated AWS SDK v2 IoT client,
+// covering two real, previously-undiscovered bugs in
+// auditMitigationFindingIDs (device_defender.go): (1) when a target set both
+// auditTaskId and auditCheckToReasonCodeFilter, only auditTaskId was ever
+// honored (a switch's first matching case wins) -- auditCheckToReasonCodeFilter
+// was silently ignored instead of being combined with it, even though real
+// AWS's AuditMitigationActionsTaskTarget lets both apply together
+// ("findings from a specific audit" + "a specific reason code filter" is a
+// valid, narrower combination). (2) auditCheckToReasonCodeFilter matched by
+// check name alone, ignoring the actual reason-code list value -- real AWS
+// filters on the listed reason codes when the list is non-empty (an empty
+// list for a check means "any reason code for that check").
+func TestStartAuditMitigationActionsTask_TargetResolution(t *testing.T) {
+	t.Parallel()
+
+	const actionsMapping = "checkA"
+
+	tests := []struct {
+		target         *iottypes.AuditMitigationActionsTaskTarget
+		name           string
+		wantFindingIDs []string
+	}{
+		{
+			name: "reasonCodeFilter_matches_only_the_listed_reason_code",
+			target: &iottypes.AuditMitigationActionsTaskTarget{
+				AuditCheckToReasonCodeFilter: map[string][]string{actionsMapping: {"R1"}},
+			},
+			wantFindingIDs: []string{"finding-r1"},
+		},
+		{
+			name: "reasonCodeFilter_empty_list_matches_any_reason_code_for_that_check",
+			target: &iottypes.AuditMitigationActionsTaskTarget{
+				AuditCheckToReasonCodeFilter: map[string][]string{actionsMapping: {}},
+			},
+			wantFindingIDs: []string{"finding-r1", "finding-r2"},
+		},
+		{
+			name: "auditTaskId_and_reasonCodeFilter_combine_as_AND_not_first_match_wins",
+			target: &iottypes.AuditMitigationActionsTaskTarget{
+				AuditTaskId:                  aws.String("task-other"),
+				AuditCheckToReasonCodeFilter: map[string][]string{actionsMapping: {"R1"}},
+			},
+			// finding-r1 is checkA/R1 but belongs to task-1, not task-other:
+			// the combined filter must reject it, not accept it just because
+			// auditTaskId used to win outright.
+			wantFindingIDs: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, b := newIoTSDKClient(t)
+
+			b.SeedAuditFinding(&iot.AuditFinding{
+				FindingID:                  "finding-r1",
+				CheckName:                  actionsMapping,
+				TaskID:                     "task-1",
+				ReasonForNonComplianceCode: "R1",
+			})
+			b.SeedAuditFinding(&iot.AuditFinding{
+				FindingID:                  "finding-r2",
+				CheckName:                  actionsMapping,
+				TaskID:                     "task-1",
+				ReasonForNonComplianceCode: "R2",
+			})
+
+			_, err := client.CreateMitigationAction(t.Context(), &iotsdk.CreateMitigationActionInput{
+				ActionName: aws.String("update-ca-certs"),
+				RoleArn:    aws.String("arn:aws:iam::000000000000:role/MitigationRole"),
+				ActionParams: &iottypes.MitigationActionParams{
+					UpdateCACertificateParams: &iottypes.UpdateCACertificateParams{
+						Action: iottypes.CACertificateUpdateActionDeactivate,
+					},
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = client.StartAuditMitigationActionsTask(t.Context(), &iotsdk.StartAuditMitigationActionsTaskInput{
+				TaskId: aws.String("resolution-task"),
+				Target: tt.target,
+				AuditCheckToActionsMapping: map[string][]string{
+					actionsMapping: {"update-ca-certs"},
+				},
+			})
+			require.NoError(t, err)
+
+			// Real ListAuditMitigationActionsExecutionsInput marks BOTH taskId
+			// and findingId as required client-side fields (confirmed by the
+			// generated SDK client itself rejecting a call that omits
+			// either) -- so, unlike gopherstack's own handler (which treats
+			// findingId as an optional filter), a real caller must query per
+			// candidate finding rather than list a task's executions in one
+			// call.
+			var gotFindingIDs []string
+			for _, findingID := range []string{"finding-r1", "finding-r2"} {
+				execOut, execErr := client.ListAuditMitigationActionsExecutions(
+					t.Context(),
+					&iotsdk.ListAuditMitigationActionsExecutionsInput{
+						TaskId:    aws.String("resolution-task"),
+						FindingId: aws.String(findingID),
+					},
+				)
+				require.NoError(t, execErr)
+				if len(execOut.ActionsExecutions) > 0 {
+					gotFindingIDs = append(gotFindingIDs, findingID)
+				}
+			}
+			assert.ElementsMatch(t, tt.wantFindingIDs, gotFindingIDs)
+		})
+	}
+}
+
+// TestDetectMitigationActionsTaskSummary_WireShape is a table-driven test,
+// asserted through a real generated AWS SDK v2 IoT client, covering this
+// pass's DetectMitigationActionsTaskSummary fixes: (1) the real wire field
+// is "actionsDefinition" (a list of full MitigationAction objects with
+// id/name/roleArn/actionParams), not "actions" (a list of bare action name
+// strings, which is what this backend previously emitted -- a real client's
+// deserializer would never have found the "actionsDefinition" key it looks
+// for and would silently leave every task's actions list empty). (2)
+// ListDetectMitigationActionsTasks previously returned a hand-picked 4-field
+// summary; real AWS uses the exact same DetectMitigationActionsTaskSummary
+// type for both Describe and List, so target/actionsDefinition/
+// taskStatistics/violationEventOccurrenceRange were all silently dropped
+// from every list entry. Both Describe and List are covered here to prove
+// they now agree. (3) violationEventOccurrenceRange, previously entirely
+// unmodeled, round-trips end to end.
+func TestDetectMitigationActionsTaskSummary_WireShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		fetch func(t *testing.T, ctx context.Context, client *iotsdk.Client) *iottypes.DetectMitigationActionsTaskSummary
+		name  string
+	}{
+		{
+			name: "describeDetectMitigationActionsTask",
+			fetch: func(t *testing.T, ctx context.Context, client *iotsdk.Client) *iottypes.DetectMitigationActionsTaskSummary {
+				t.Helper()
+
+				out, err := client.DescribeDetectMitigationActionsTask(
+					ctx,
+					&iotsdk.DescribeDetectMitigationActionsTaskInput{
+						TaskId: aws.String("wire-shape-task"),
+					},
+				)
+				require.NoError(t, err)
+
+				return out.TaskSummary
+			},
+		},
+		{
+			name: "listDetectMitigationActionsTasks_returns_the_same_shape_as_describe",
+			fetch: func(t *testing.T, ctx context.Context, client *iotsdk.Client) *iottypes.DetectMitigationActionsTaskSummary {
+				t.Helper()
+
+				out, err := client.ListDetectMitigationActionsTasks(ctx, &iotsdk.ListDetectMitigationActionsTasksInput{
+					StartTime: aws.Time(time.Unix(0, 0)),
+					EndTime:   aws.Time(time.Now().Add(time.Hour)),
+				})
+				require.NoError(t, err)
+				require.Len(t, out.Tasks, 1)
+
+				return &out.Tasks[0]
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, b := newIoTSDKClient(t)
+			ctx := t.Context()
+
+			_, err := b.SeedActiveViolation(&iot.SeedActiveViolationInput{
+				ViolationID: "wire-viol", ThingName: "wire-thing", SecurityProfileName: "wire-profile",
+			})
+			require.NoError(t, err)
+
+			_, err = client.CreateMitigationAction(ctx, &iotsdk.CreateMitigationActionInput{
+				ActionName: aws.String("enable-logging"),
+				RoleArn:    aws.String("arn:aws:iam::000000000000:role/MitigationRole"),
+				ActionParams: &iottypes.MitigationActionParams{
+					EnableIoTLoggingParams: &iottypes.EnableIoTLoggingParams{
+						LogLevel:          iottypes.LogLevelInfo,
+						RoleArnForLogging: aws.String("arn:aws:iam::000000000000:role/LoggingRole"),
+					},
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = client.StartDetectMitigationActionsTask(ctx, &iotsdk.StartDetectMitigationActionsTaskInput{
+				TaskId:  aws.String("wire-shape-task"),
+				Target:  &iottypes.DetectMitigationActionsTaskTarget{ViolationIds: []string{"wire-viol"}},
+				Actions: []string{"enable-logging"},
+				ViolationEventOccurrenceRange: &iottypes.ViolationEventOccurrenceRange{
+					StartTime: aws.Time(time.Unix(1000, 0)),
+					EndTime:   aws.Time(time.Unix(2000, 0)),
+				},
+			})
+			require.NoError(t, err)
+
+			summary := tt.fetch(t, ctx, client)
+
+			require.NotNil(t, summary)
+			require.Len(t, summary.ActionsDefinition, 1,
+				`actionsDefinition must be populated, not the invented "actions" field`)
+			assert.Equal(t, "enable-logging", *summary.ActionsDefinition[0].Name)
+			assert.Equal(t, "arn:aws:iam::000000000000:role/MitigationRole", *summary.ActionsDefinition[0].RoleArn)
+			require.NotNil(t, summary.ActionsDefinition[0].ActionParams)
+			require.NotNil(t, summary.ActionsDefinition[0].ActionParams.EnableIoTLoggingParams)
+			assert.Equal(t,
+				iottypes.LogLevelInfo,
+				summary.ActionsDefinition[0].ActionParams.EnableIoTLoggingParams.LogLevel,
+			)
+
+			require.NotNil(t, summary.ViolationEventOccurrenceRange)
+			assert.Equal(t, int64(1000), summary.ViolationEventOccurrenceRange.StartTime.Unix())
+			assert.Equal(t, int64(2000), summary.ViolationEventOccurrenceRange.EndTime.Unix())
+
+			// DetectMitigationActionExecution.executionStartDate was
+			// field-diffed against
+			// awsRestjson1_deserializeDocumentDetectMitigationActionExecution
+			// and found wire-keyed "executionStartTime" instead of the real
+			// "executionStartDate" -- a real client's deserializer would
+			// never have found it. Confirmed fixed via the real client here.
+			execOut, err := client.ListDetectMitigationActionsExecutions(
+				ctx,
+				&iotsdk.ListDetectMitigationActionsExecutionsInput{
+					TaskId: aws.String("wire-shape-task"),
+				},
+			)
+			require.NoError(t, err)
+			require.Len(t, execOut.ActionsExecutions, 1)
+			require.NotNil(t, execOut.ActionsExecutions[0].ExecutionStartDate,
+				`executionStartDate must be populated, not the invented "executionStartTime" field`)
 		})
 	}
 }

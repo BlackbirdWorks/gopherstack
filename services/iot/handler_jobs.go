@@ -128,10 +128,17 @@ func resolveJobOps(path, method string) string {
 // bug that made all three ops unreachable by a real SDK client (they always
 // fell through to the generic per-Thing CRUD dispatcher instead). Fixed this
 // pass; see PARITY.md.
+//
+// GetJobDocument's path was also wrong: this previously matched
+// /jobs/{jobId}/document, but real AWS IoT's GetJobDocument path is
+// /jobs/{jobId}/job-document (confirmed against
+// awsRestjson1_serializeOpGetJobDocument's httpbinding.SplitURI call) --
+// another previously-undiscovered routing bug that made the op unreachable
+// by a real client. Fixed this pass.
 func resolveJobExecutionSubPathOps(path, method string) string {
 	switch {
-	// GET /jobs/{jobId}/document → GetJobDocument
-	case strings.HasPrefix(path, "/jobs/") && strings.HasSuffix(path, "/document") && method == http.MethodGet:
+	// GET /jobs/{jobId}/job-document → GetJobDocument
+	case strings.HasPrefix(path, "/jobs/") && strings.HasSuffix(path, "/job-document") && method == http.MethodGet:
 		return opGetJobDocument
 	// PUT /jobs/{jobId}/cancel → CancelJob
 	case strings.HasPrefix(path, "/jobs/") && strings.HasSuffix(path, "/cancel") && method == http.MethodPut:
@@ -145,13 +152,20 @@ func resolveJobExecutionSubPathOps(path, method string) string {
 }
 
 // resolveJobCrudOps resolves the plain /jobs and /jobs/{jobId} CRUD routes.
+//
+// CreateJob matches on PUT, not POST: real AWS IoT's CreateJob is
+// PUT /jobs/{jobId} (confirmed against awsRestjson1_serializeOpCreateJob's
+// request.Method assignment) -- gopherstack previously matched POST here,
+// meaning CreateJob was completely unreachable by any real SDK client (a
+// real PUT request would fall through this switch entirely and hit the
+// generic per-Thing CRUD dispatcher's default branch). Fixed this pass.
 func resolveJobCrudOps(path, method string) string {
 	switch {
 	// GET /jobs → ListJobs
 	case path == "/jobs" && method == http.MethodGet:
 		return opListJobs
-	// POST /jobs/{jobId} → CreateJob
-	case strings.HasPrefix(path, "/jobs/") && method == http.MethodPost:
+	// PUT /jobs/{jobId} → CreateJob
+	case strings.HasPrefix(path, "/jobs/") && method == http.MethodPut:
 		return opCreateJob
 	// GET /jobs/{jobId} → DescribeJob
 	case strings.HasPrefix(path, "/jobs/") && method == http.MethodGet:
@@ -167,11 +181,19 @@ func resolveJobCrudOps(path, method string) string {
 	return unknownOperation
 }
 
+// resolveJobTemplateOps resolves the /job-templates and /job-templates/{id}
+// routes.
+//
+// CreateJobTemplate matches on PUT, not POST: real AWS IoT's
+// CreateJobTemplate is PUT /job-templates/{jobTemplateId} (confirmed against
+// awsRestjson1_serializeOpCreateJobTemplate's request.Method assignment) --
+// same previously-undiscovered unreachable-op bug as CreateJob above. Fixed
+// this pass.
 func resolveJobTemplateOps(path, method string) string {
 	switch {
 	case path == "/job-templates" && method == http.MethodGet:
 		return opListJobTemplates
-	case strings.HasPrefix(path, "/job-templates/") && method == http.MethodPost:
+	case strings.HasPrefix(path, "/job-templates/") && method == http.MethodPut:
 		return opCreateJobTemplate
 	case strings.HasPrefix(path, "/job-templates/") && method == http.MethodGet:
 		return opDescribeJobTemplate
@@ -280,9 +302,9 @@ func (h *Handler) handleCancelJob(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetJobDocument(c *echo.Context) error {
-	// GET /jobs/{jobId}/document
+	// GET /jobs/{jobId}/job-document
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
-	jobID := strings.TrimSuffix(trimmed, "/document")
+	jobID := strings.TrimSuffix(trimmed, "/job-document")
 	doc, err := h.Backend.GetJobDocument(jobID)
 	if err != nil {
 		return respondErr(c, err)

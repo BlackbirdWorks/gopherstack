@@ -317,25 +317,113 @@ func (b *InMemoryBackend) ListAuditSuppressions() []*AuditSuppression {
 	return out
 }
 
+// IssuerCertificateIdentifier identifies a certificate issuer
+// (aws-sdk-go-v2/service/iot/types.IssuerCertificateIdentifier), one of
+// ResourceIdentifier's nested discriminator fields.
+type IssuerCertificateIdentifier struct {
+	IssuerCertificateSubject      string `json:"issuerCertificateSubject,omitempty"`
+	IssuerID                      string `json:"issuerId,omitempty"`
+	IssuerCertificateSerialNumber string `json:"issuerCertificateSerialNumber,omitempty"`
+}
+
+// PolicyVersionIdentifier identifies a specific version of an IoT policy
+// (types.PolicyVersionIdentifier), one of ResourceIdentifier's nested
+// discriminator fields.
+type PolicyVersionIdentifier struct {
+	PolicyName      string `json:"policyName,omitempty"`
+	PolicyVersionID string `json:"policyVersionId,omitempty"`
+}
+
+// ResourceIdentifier identifies the noncompliant resource behind an audit
+// finding (types.ResourceIdentifier, confirmed against v1.76.0's field set:
+// account, caCertificateId, clientId, cognitoIdentityPoolId,
+// deviceCertificateArn, deviceCertificateId, iamRoleArn,
+// issuerCertificateIdentifier, policyVersionIdentifier, roleAliasArn -- ten
+// discriminator fields in total). Real AWS populates exactly the one (or
+// two) fields relevant to the audit check that produced the finding, e.g.
+// DEVICE_CERTIFICATE_EXPIRING_CHECK populates deviceCertificateId,
+// IOT_POLICY_OVERLY_PERMISSIVE_CHECK populates policyVersionIdentifier,
+// IOT_ROLE_ALIAS_OVERLY_PERMISSIVE_CHECK populates roleAliasArn, and so on.
+//
+// Modeling this as a real, fully-typed struct -- rather than a freeform map,
+// like RelatedResources' entries elsewhere in this file -- is what makes
+// ListAuditFindings' resourceIdentifier filter honestly implementable: see
+// matchResourceIdentifier, which matches a finding when every field SET on
+// the filter is present and equal on the finding's own identifier, the same
+// per-field discriminator semantics the real service uses. This resolves the
+// gap PARITY.md previously recorded as unimplementable "without guessing
+// per-check-type semantics" -- no guessing is required once the shape itself
+// is real and callers (SeedAuditFinding) populate only the field(s)
+// appropriate to the check they're simulating.
+type ResourceIdentifier struct {
+	IssuerCertificateIdentifier *IssuerCertificateIdentifier `json:"issuerCertificateIdentifier,omitempty"`
+	PolicyVersionIdentifier     *PolicyVersionIdentifier     `json:"policyVersionIdentifier,omitempty"`
+	Account                     string                       `json:"account,omitempty"`
+	CaCertificateID             string                       `json:"caCertificateId,omitempty"`
+	ClientID                    string                       `json:"clientId,omitempty"`
+	CognitoIdentityPoolID       string                       `json:"cognitoIdentityPoolId,omitempty"`
+	DeviceCertificateArn        string                       `json:"deviceCertificateArn,omitempty"`
+	DeviceCertificateID         string                       `json:"deviceCertificateId,omitempty"`
+	IamRoleArn                  string                       `json:"iamRoleArn,omitempty"`
+	RoleAliasArn                string                       `json:"roleAliasArn,omitempty"`
+}
+
+func cloneResourceIdentifier(r *ResourceIdentifier) *ResourceIdentifier {
+	if r == nil {
+		return nil
+	}
+	cp := *r
+	if r.IssuerCertificateIdentifier != nil {
+		ic := *r.IssuerCertificateIdentifier
+		cp.IssuerCertificateIdentifier = &ic
+	}
+	if r.PolicyVersionIdentifier != nil {
+		pv := *r.PolicyVersionIdentifier
+		cp.PolicyVersionIdentifier = &pv
+	}
+
+	return &cp
+}
+
+// NonCompliantResource describes the resource an audit check found to be
+// noncompliant (types.NonCompliantResource).
+type NonCompliantResource struct {
+	ResourceIdentifier *ResourceIdentifier `json:"resourceIdentifier,omitempty"`
+	AdditionalInfo     map[string]string   `json:"additionalInfo,omitempty"`
+	ResourceType       string              `json:"resourceType,omitempty"`
+}
+
+func cloneNonCompliantResource(r *NonCompliantResource) *NonCompliantResource {
+	if r == nil {
+		return nil
+	}
+	cp := *r
+	cp.ResourceIdentifier = cloneResourceIdentifier(r.ResourceIdentifier)
+	if r.AdditionalInfo != nil {
+		cp.AdditionalInfo = maps.Clone(r.AdditionalInfo)
+	}
+
+	return &cp
+}
+
 // AuditFinding represents an AWS IoT audit finding.
 type AuditFinding struct {
-	NonCompliantResource       map[string]any   `json:"nonCompliantResource,omitempty"`
-	FindingID                  string           `json:"findingId"`
-	TaskID                     string           `json:"taskId,omitempty"`
-	CheckName                  string           `json:"checkName"`
-	Severity                   string           `json:"severity"`
-	ReasonForNonCompliance     string           `json:"reasonForNonCompliance,omitempty"`
-	ReasonForNonComplianceCode string           `json:"reasonForNonComplianceCode,omitempty"`
-	RelatedResources           []map[string]any `json:"relatedResources,omitempty"`
-	FindingTime                float64          `json:"findingTime,omitempty"`
-	TaskStartTime              float64          `json:"taskStartTime,omitempty"`
-	IsSuppressed               bool             `json:"isSuppressed,omitempty"`
+	NonCompliantResource       *NonCompliantResource `json:"nonCompliantResource,omitempty"`
+	FindingID                  string                `json:"findingId"`
+	TaskID                     string                `json:"taskId,omitempty"`
+	CheckName                  string                `json:"checkName"`
+	Severity                   string                `json:"severity"`
+	ReasonForNonCompliance     string                `json:"reasonForNonCompliance,omitempty"`
+	ReasonForNonComplianceCode string                `json:"reasonForNonComplianceCode,omitempty"`
+	RelatedResources           []map[string]any      `json:"relatedResources,omitempty"`
+	FindingTime                float64               `json:"findingTime,omitempty"`
+	TaskStartTime              float64               `json:"taskStartTime,omitempty"`
+	IsSuppressed               bool                  `json:"isSuppressed,omitempty"`
 }
 
 func cloneAuditFinding(f *AuditFinding) *AuditFinding {
 	cp := *f
-	cp.NonCompliantResource = make(map[string]any, len(f.NonCompliantResource))
-	maps.Copy(cp.NonCompliantResource, f.NonCompliantResource)
+	cp.NonCompliantResource = cloneNonCompliantResource(f.NonCompliantResource)
 	cp.RelatedResources = make([]map[string]any, len(f.RelatedResources))
 	copy(cp.RelatedResources, f.RelatedResources)
 
@@ -392,22 +480,82 @@ func (b *InMemoryBackend) DescribeAuditFinding(findingID string) (*AuditFinding,
 }
 
 // ListAuditFindingsFilter carries ListAuditFindings' optional filter fields
-// (aws-sdk-go-v2/service/iot.ListAuditFindingsInput). ResourceIdentifier
-// filtering is NOT modeled -- its real shape has ~15 optional discriminator
-// fields (deviceCertificateId, caCertificateId, cognitoIdentityPoolId,
-// clientId, policyVersionIdentifier, account, iamRoleArn,
-// roleAliasArn, iotPolicyArn, and more), each meaningful only for specific
-// audit check types; matching it correctly would need per-check-type
-// semantics this emulator's synthetic, freely-shaped NonCompliantResource
-// map cannot honestly discriminate against without guessing. checkName,
-// taskId, listSuppressedFindings, and the [startTime,endTime] time range are
-// implemented (all real, simple filters with unambiguous match semantics).
+// (aws-sdk-go-v2/service/iot.ListAuditFindingsInput). checkName, taskId,
+// listSuppressedFindings, the [startTime,endTime] time range, and
+// resourceIdentifier are all implemented -- see matchResourceIdentifier's
+// doc comment for how resourceIdentifier filtering is made honest despite
+// AuditFinding.NonCompliantResource being otherwise synthetic/seeded data.
 type ListAuditFindingsFilter struct {
 	ListSuppressedFindings *bool
+	ResourceIdentifier     *ResourceIdentifier
 	CheckName              string
 	TaskID                 string
 	StartTime              float64
 	EndTime                float64
+}
+
+// matchResourceIdentifier reports whether actual satisfies filter: every
+// field SET on filter must be present and equal on actual, mirroring real
+// AWS's per-field discriminator matching (a filter that sets
+// deviceCertificateId only matches findings whose own resourceIdentifier has
+// that same deviceCertificateId, regardless of what else may or may not be
+// set on either side). A nil filter always matches -- no resourceIdentifier
+// filter was requested. A non-nil filter against a finding with no
+// resourceIdentifier at all never matches, since there is nothing to compare
+// against.
+func matchResourceIdentifier(filter, actual *ResourceIdentifier) bool {
+	if filter == nil {
+		return true
+	}
+	if actual == nil {
+		return false
+	}
+
+	switch {
+	case filter.Account != "" && filter.Account != actual.Account,
+		filter.CaCertificateID != "" && filter.CaCertificateID != actual.CaCertificateID,
+		filter.ClientID != "" && filter.ClientID != actual.ClientID,
+		filter.CognitoIdentityPoolID != "" && filter.CognitoIdentityPoolID != actual.CognitoIdentityPoolID,
+		filter.DeviceCertificateArn != "" && filter.DeviceCertificateArn != actual.DeviceCertificateArn,
+		filter.DeviceCertificateID != "" && filter.DeviceCertificateID != actual.DeviceCertificateID,
+		filter.IamRoleArn != "" && filter.IamRoleArn != actual.IamRoleArn,
+		filter.RoleAliasArn != "" && filter.RoleAliasArn != actual.RoleAliasArn:
+		return false
+	}
+
+	if !matchPolicyVersionIdentifier(filter.PolicyVersionIdentifier, actual.PolicyVersionIdentifier) {
+		return false
+	}
+
+	return matchIssuerCertificateIdentifier(filter.IssuerCertificateIdentifier, actual.IssuerCertificateIdentifier)
+}
+
+func matchPolicyVersionIdentifier(filter, actual *PolicyVersionIdentifier) bool {
+	if filter == nil {
+		return true
+	}
+	if actual == nil {
+		return false
+	}
+
+	return (filter.PolicyName == "" || filter.PolicyName == actual.PolicyName) &&
+		(filter.PolicyVersionID == "" || filter.PolicyVersionID == actual.PolicyVersionID)
+}
+
+func matchIssuerCertificateIdentifier(filter, actual *IssuerCertificateIdentifier) bool {
+	if filter == nil {
+		return true
+	}
+	if actual == nil {
+		return false
+	}
+
+	serialMatches := filter.IssuerCertificateSerialNumber == "" ||
+		filter.IssuerCertificateSerialNumber == actual.IssuerCertificateSerialNumber
+
+	return (filter.IssuerID == "" || filter.IssuerID == actual.IssuerID) &&
+		(filter.IssuerCertificateSubject == "" || filter.IssuerCertificateSubject == actual.IssuerCertificateSubject) &&
+		serialMatches
 }
 
 func (f *AuditFinding) matchesFilter(filter ListAuditFindingsFilter) bool {
@@ -431,7 +579,12 @@ func (f *AuditFinding) matchesFilter(filter ListAuditFindingsFilter) bool {
 		return false
 	}
 
-	return true
+	var actual *ResourceIdentifier
+	if f.NonCompliantResource != nil {
+		actual = f.NonCompliantResource.ResourceIdentifier
+	}
+
+	return matchResourceIdentifier(filter.ResourceIdentifier, actual)
 }
 
 // ListAuditFindings returns findings matching filter. See

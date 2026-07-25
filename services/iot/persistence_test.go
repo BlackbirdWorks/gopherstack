@@ -146,13 +146,36 @@ func seedTopicRuleDestination(t *testing.T, b *iot.InMemoryBackend) (string, str
 func seedJobsAndTemplates(t *testing.T, b *iot.InMemoryBackend) {
 	t.Helper()
 
+	// Also seeds Job's advanced fields (jobExecutionsRetryConfig,
+	// presignedUrlConfig, schedulingConfig, destinationPackageVersions) so
+	// the "jobs" check below can assert they survive Snapshot/Restore --
+	// these are stored directly on the Job struct with normal json tags
+	// (unlike JobProcessDetails, which is computed fresh on every
+	// DescribeJob and deliberately never persisted).
 	_, err := b.CreateJob(&iot.CreateJobInput{
 		JobID:    "gap-job",
 		Targets:  []string{"arn:aws:iot:us-east-1:123456789012:thing/gap-thing"},
 		Document: `{}`,
+		JobExecutionsRetryConfig: &iot.JobExecutionsRetryConfig{
+			CriteriaList: []iot.RetryCriteria{{FailureType: "FAILED", NumberOfRetries: 2}},
+		},
+		PresignedURLConfig: &iot.PresignedURLConfig{
+			RoleARN:      "arn:aws:iam::123456789012:role/Presign",
+			ExpiresInSec: 60,
+		},
+		SchedulingConfig: &iot.SchedulingConfig{
+			StartTime: "2030-01-01T00:00", EndBehavior: "STOP_ROLLOUT",
+			MaintenanceWindows: []iot.MaintenanceWindow{{StartTime: "2030-01-01T00:00", DurationInMinutes: 30}},
+		},
+		DestinationPackageVersions: []string{"arn:aws:iot:us-east-1:123456789012:package/p/version/v1"},
 	})
 	require.NoError(t, err)
 
+	// CreateJob's fan-out (see PARITY.md's job_and_jobtemplate fix) already
+	// created a QUEUED JobExecution for gap-thing; this transitions it to
+	// CANCELED so the "jobExecutions" check below observes a real state
+	// change surviving the round trip, not just the fanned-out row's initial
+	// state.
 	err = b.CancelJobExecution("gap-job", "gap-thing", iot.CancelJobExecutionOptions{})
 	require.NoError(t, err)
 
@@ -242,8 +265,34 @@ func seedAuditAndSecurity(t *testing.T, b *iot.InMemoryBackend) {
 		FindingID: "gap-finding",
 		CheckName: "CA_CERTIFICATE_EXPIRING_CHECK",
 		Severity:  "MEDIUM",
+		NonCompliantResource: &iot.NonCompliantResource{
+			ResourceType:       "CA_CERTIFICATE",
+			ResourceIdentifier: &iot.ResourceIdentifier{CaCertificateID: "gap-ca-id"},
+		},
 	})
 	require.NotNil(t, found)
+
+	_, err = b.SeedActiveViolation(&iot.SeedActiveViolationInput{
+		ViolationID:         "gap-violation",
+		ThingName:           "gap-thing",
+		SecurityProfileName: "gap-security-profile",
+	})
+	require.NoError(t, err)
+
+	// ViolationEventOccurrenceRange is stored with a normal json tag on
+	// DetectMitigationTask (unlike Actions' internal-only storage) so it
+	// round-trips through Snapshot/Restore -- this seeds it to prove that,
+	// not just that the table itself round-trips.
+	_, err = b.StartDetectMitigationActionsTask(&iot.StartDetectMitigationActionsTaskInput{
+		TaskID:  "gap-detect-task",
+		Target:  &iot.DetectMitigationActionsTaskTarget{ViolationIDs: []string{"gap-violation"}},
+		Actions: []string{"gap-mitigation-action"},
+		ViolationEventOccurrenceRange: &iot.ViolationEventOccurrenceRange{
+			StartTime: 1000,
+			EndTime:   2000,
+		},
+	})
+	require.NoError(t, err)
 }
 
 func seedCertsStreamsMetrics(t *testing.T, b *iot.InMemoryBackend) string {
@@ -404,6 +453,22 @@ func persistenceGapChecks(seeded gapSeededIDs) []persistenceGapCheck {
 			got, err := b.DescribeJob("gap-job")
 			require.NoError(t, err)
 			assert.Equal(t, "gap-job", got.JobID)
+
+			require.NotNil(t, got.JobExecutionsRetryConfig)
+			require.Len(t, got.JobExecutionsRetryConfig.CriteriaList, 1)
+			assert.EqualValues(t, 2, got.JobExecutionsRetryConfig.CriteriaList[0].NumberOfRetries)
+
+			require.NotNil(t, got.PresignedURLConfig)
+			assert.Equal(t, "arn:aws:iam::123456789012:role/Presign", got.PresignedURLConfig.RoleARN)
+
+			require.NotNil(t, got.SchedulingConfig)
+			require.Len(t, got.SchedulingConfig.MaintenanceWindows, 1)
+			assert.EqualValues(t, 30, got.SchedulingConfig.MaintenanceWindows[0].DurationInMinutes)
+
+			assert.Equal(t,
+				[]string{"arn:aws:iot:us-east-1:123456789012:package/p/version/v1"},
+				got.DestinationPackageVersions,
+			)
 		}},
 		{name: "jobExecutions", check: func(t *testing.T, b *iot.InMemoryBackend) {
 			t.Helper()
@@ -554,6 +619,25 @@ func persistenceGapChecks(seeded gapSeededIDs) []persistenceGapCheck {
 			got, err := b.DescribeAuditFinding("gap-finding")
 			require.NoError(t, err)
 			assert.Equal(t, "gap-finding", got.FindingID)
+			require.NotNil(t, got.NonCompliantResource)
+			require.NotNil(t, got.NonCompliantResource.ResourceIdentifier)
+			assert.Equal(t, "gap-ca-id", got.NonCompliantResource.ResourceIdentifier.CaCertificateID)
+		}},
+		{name: "detectMitigationTasks", check: func(t *testing.T, b *iot.InMemoryBackend) {
+			t.Helper()
+
+			got, err := b.DescribeDetectMitigationActionsTask("gap-detect-task")
+			require.NoError(t, err)
+			require.NotNil(t, got.ViolationEventOccurrenceRange)
+			assert.InDelta(t, 1000, got.ViolationEventOccurrenceRange.StartTime, 0)
+			assert.InDelta(t, 2000, got.ViolationEventOccurrenceRange.EndTime, 0)
+		}},
+		{name: "activeViolations", check: func(t *testing.T, b *iot.InMemoryBackend) {
+			t.Helper()
+
+			violations := b.ListActiveViolations("gap-thing", "", "", nil)
+			require.Len(t, violations, 1)
+			assert.Equal(t, "gap-violation", violations[0].ViolationID)
 		}},
 		{name: "otaUpdates", check: func(t *testing.T, b *iot.InMemoryBackend) {
 			t.Helper()

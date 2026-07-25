@@ -4,30 +4,43 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// AssociateTargetsWithJob associates targets with a continuous job. Real AWS
-// IoT returns ResourceNotFoundException for an unknown job ID.
+// AssociateTargetsWithJob associates new targets with a continuous job. Real
+// AWS IoT returns ResourceNotFoundException for an unknown job ID. Newly
+// associated targets are merged into the job's own Targets list (so
+// DescribeJob reflects them) and immediately fanned out into QUEUED
+// JobExecution rows for any newly-reachable thing, exactly as CreateJob does
+// for its initial targets -- real AWS begins rolling out job executions to
+// newly associated targets right away for a CONTINUOUS job.
 func (b *InMemoryBackend) AssociateTargetsWithJob(
 	input *AssociateTargetsWithJobInput,
 ) (*AssociateTargetsWithJobOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !b.jobs.Has(input.JobID) {
+	j, ok := b.jobs.Get(input.JobID)
+	if !ok {
 		return nil, fmt.Errorf("job %q not found: %w", input.JobID, ErrResourceNotFound)
 	}
 
 	b.jobTargets[input.JobID] = append(b.jobTargets[input.JobID], input.Targets...)
 
-	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("job/%s", input.JobID))
+	for _, t := range input.Targets {
+		j.Targets = appendUnique(j.Targets, t)
+	}
+	j.LastUpdatedAt = float64(time.Now().Unix())
+
+	b.fanOutJobExecutionsLocked(input.JobID, input.Targets, float64(time.Now().Unix()))
 
 	return &AssociateTargetsWithJobOutput{
-		JobID:  input.JobID,
-		JobArn: arn,
+		JobID:       input.JobID,
+		JobArn:      j.JobARN,
+		Description: j.Description,
 	}, nil
 }
 
@@ -112,6 +125,79 @@ type TimeoutConfig struct {
 	InProgressTimeoutInMinutes int64 `json:"inProgressTimeoutInMinutes,omitempty"`
 }
 
+// RetryCriteria is a single retry criterion for a job
+// (aws-sdk-go-v2/service/iot/types.RetryCriteria).
+type RetryCriteria struct {
+	FailureType     string `json:"failureType,omitempty"`
+	NumberOfRetries int32  `json:"numberOfRetries,omitempty"`
+}
+
+// JobExecutionsRetryConfig determines how many retries are allowed for each
+// failure type for a job (types.JobExecutionsRetryConfig).
+type JobExecutionsRetryConfig struct {
+	CriteriaList []RetryCriteria `json:"criteriaList,omitempty"`
+}
+
+func cloneJobExecutionsRetryConfig(c *JobExecutionsRetryConfig) *JobExecutionsRetryConfig {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	cp.CriteriaList = append([]RetryCriteria(nil), c.CriteriaList...)
+
+	return &cp
+}
+
+// PresignedURLConfig holds configuration for pre-signed S3 job-document URLs
+// (types.PresignedUrlConfig).
+type PresignedURLConfig struct {
+	RoleARN      string `json:"roleArn,omitempty"`
+	ExpiresInSec int64  `json:"expiresInSec,omitempty"`
+}
+
+// MaintenanceWindow is a single recurring maintenance window within a job's
+// SchedulingConfig (types.MaintenanceWindow).
+type MaintenanceWindow struct {
+	StartTime         string `json:"startTime,omitempty"`
+	DurationInMinutes int32  `json:"durationInMinutes,omitempty"`
+}
+
+// SchedulingConfig schedules a job for a future date/time and configures the
+// end behavior for each job execution (types.SchedulingConfig).
+type SchedulingConfig struct {
+	StartTime          string              `json:"startTime,omitempty"`
+	EndTime            string              `json:"endTime,omitempty"`
+	EndBehavior        string              `json:"endBehavior,omitempty"`
+	MaintenanceWindows []MaintenanceWindow `json:"maintenanceWindows,omitempty"`
+}
+
+func cloneSchedulingConfig(c *SchedulingConfig) *SchedulingConfig {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	cp.MaintenanceWindows = append([]MaintenanceWindow(nil), c.MaintenanceWindows...)
+
+	return &cp
+}
+
+// JobProcessDetails rolls up per-target JobExecution status counts for a job
+// (types.JobProcessDetails). Unlike Job's other fields, this is never stored
+// on the Job itself -- it is computed on demand from the backend's real
+// per-target JobExecution rows (see [InMemoryBackend.jobProcessDetailsLocked])
+// so it always reflects current execution state instead of going stale.
+type JobProcessDetails struct {
+	ProcessingTargets        []string `json:"processingTargets,omitempty"`
+	NumberOfQueuedThings     int64    `json:"numberOfQueuedThings"`
+	NumberOfInProgressThings int64    `json:"numberOfInProgressThings"`
+	NumberOfSucceededThings  int64    `json:"numberOfSucceededThings"`
+	NumberOfFailedThings     int64    `json:"numberOfFailedThings"`
+	NumberOfRejectedThings   int64    `json:"numberOfRejectedThings"`
+	NumberOfCanceledThings   int64    `json:"numberOfCanceledThings"`
+	NumberOfRemovedThings    int64    `json:"numberOfRemovedThings"`
+	NumberOfTimedOutThings   int64    `json:"numberOfTimedOutThings"`
+}
+
 // Job represents an IoT job.
 //
 // Tags, Document, and DocumentSource are internal-only (json:"-"): real AWS
@@ -130,18 +216,27 @@ type Job struct {
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
 	TimeoutConfig              *TimeoutConfig              `json:"timeoutConfig,omitempty"`
-	JobID                      string                      `json:"jobId"`
-	JobARN                     string                      `json:"jobArn"`
-	Description                string                      `json:"description,omitempty"`
-	Document                   string                      `json:"-"`
-	DocumentSource             string                      `json:"-"`
-	JobTemplateARN             string                      `json:"jobTemplateArn,omitempty"`
-	Status                     JobStatus                   `json:"status"`
-	TargetSelection            string                      `json:"targetSelection,omitempty"`
-	Targets                    []string                    `json:"targets,omitempty"`
-	CreatedAt                  float64                     `json:"createdAt,omitempty"`
-	LastUpdatedAt              float64                     `json:"lastUpdatedAt,omitempty"`
-	CompletedAt                float64                     `json:"completedAt,omitempty"`
+	JobExecutionsRetryConfig   *JobExecutionsRetryConfig   `json:"jobExecutionsRetryConfig,omitempty"`
+	PresignedURLConfig         *PresignedURLConfig         `json:"presignedUrlConfig,omitempty"`
+	SchedulingConfig           *SchedulingConfig           `json:"schedulingConfig,omitempty"`
+	// JobProcessDetails is never persisted on the stored Job -- it is
+	// computed fresh from the backend's real per-target JobExecution rows
+	// each time DescribeJob runs (see jobProcessDetailsLocked) and attached
+	// only to the response clone.
+	JobProcessDetails          *JobProcessDetails `json:"jobProcessDetails,omitempty"`
+	DestinationPackageVersions []string           `json:"destinationPackageVersions,omitempty"`
+	JobID                      string             `json:"jobId"`
+	JobARN                     string             `json:"jobArn"`
+	Description                string             `json:"description,omitempty"`
+	Document                   string             `json:"-"`
+	DocumentSource             string             `json:"-"`
+	JobTemplateARN             string             `json:"jobTemplateArn,omitempty"`
+	Status                     JobStatus          `json:"status"`
+	TargetSelection            string             `json:"targetSelection,omitempty"`
+	Targets                    []string           `json:"targets,omitempty"`
+	CreatedAt                  float64            `json:"createdAt,omitempty"`
+	LastUpdatedAt              float64            `json:"lastUpdatedAt,omitempty"`
+	CompletedAt                float64            `json:"completedAt,omitempty"`
 }
 
 // JobExecutionStatusDetails holds free-form status detail name/value pairs
@@ -179,8 +274,20 @@ type JobExecution struct {
 func cloneJob(j *Job) *Job {
 	cp := *j
 	cp.Targets = append([]string(nil), j.Targets...)
+	cp.DestinationPackageVersions = append([]string(nil), j.DestinationPackageVersions...)
 	if j.Tags != nil {
 		cp.Tags = maps.Clone(j.Tags)
+	}
+	cp.JobExecutionsRetryConfig = cloneJobExecutionsRetryConfig(j.JobExecutionsRetryConfig)
+	cp.SchedulingConfig = cloneSchedulingConfig(j.SchedulingConfig)
+	if j.PresignedURLConfig != nil {
+		p := *j.PresignedURLConfig
+		cp.PresignedURLConfig = &p
+	}
+	if j.JobProcessDetails != nil {
+		d := *j.JobProcessDetails
+		d.ProcessingTargets = append([]string(nil), j.JobProcessDetails.ProcessingTargets...)
+		cp.JobProcessDetails = &d
 	}
 
 	return &cp
@@ -207,6 +314,10 @@ type CreateJobInput struct {
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
 	TimeoutConfig              *TimeoutConfig              `json:"timeoutConfig,omitempty"`
+	JobExecutionsRetryConfig   *JobExecutionsRetryConfig   `json:"jobExecutionsRetryConfig,omitempty"`
+	PresignedURLConfig         *PresignedURLConfig         `json:"presignedUrlConfig,omitempty"`
+	SchedulingConfig           *SchedulingConfig           `json:"schedulingConfig,omitempty"`
+	DestinationPackageVersions []string                    `json:"destinationPackageVersions,omitempty"`
 	JobID                      string                      `json:"jobId"`
 	Description                string                      `json:"description,omitempty"`
 	Document                   string                      `json:"document,omitempty"`
@@ -236,6 +347,10 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 		AbortConfig:                input.AbortConfig,
 		JobExecutionsRolloutConfig: input.JobExecutionsRolloutConfig,
 		TimeoutConfig:              input.TimeoutConfig,
+		JobExecutionsRetryConfig:   cloneJobExecutionsRetryConfig(input.JobExecutionsRetryConfig),
+		PresignedURLConfig:         input.PresignedURLConfig,
+		SchedulingConfig:           cloneSchedulingConfig(input.SchedulingConfig),
+		DestinationPackageVersions: append([]string(nil), input.DestinationPackageVersions...),
 		Tags:                       input.Tags,
 		DocumentParameters:         input.DocumentParameters,
 		Status:                     JobStatusInProgress,
@@ -244,7 +359,133 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 	}
 	b.jobs.Put(j)
 
+	// Real AWS IoT creates a QUEUED JobExecution row for every thing the job
+	// targets (directly, or as a member of a targeted thing group) at
+	// CreateJob time -- this is what makes DescribeJobExecution/
+	// ListJobExecutionsForJob/ListJobExecutionsForThing/CancelJobExecution
+	// meaningful. See fanOutJobExecutionsLocked.
+	b.fanOutJobExecutionsLocked(j.JobID, input.Targets, now)
+
 	return cloneJob(j), nil
+}
+
+// parseJobTargetARN splits a job target ARN into its resource type and name
+// (e.g. "arn:aws:iot:us-east-1:123:thing/foo" -> ("thing", "foo")). Real AWS
+// IoT job Targets are always thing or thing-group ARNs (confirmed against
+// CreateJobInput.Targets' doc comment: "A list of things and thing groups to
+// which the job should be sent"). Returns ("", "") for anything that doesn't
+// parse as a "<type>/<name>" resource.
+func parseJobTargetARN(target string) (string, string) {
+	resource := target
+	if idx := strings.LastIndex(target, ":"); idx != -1 {
+		resource = target[idx+1:]
+	}
+
+	parts := strings.SplitN(resource, "/", twoparts)
+	if len(parts) != twoparts {
+		return "", ""
+	}
+
+	return parts[0], parts[1]
+}
+
+// resolveJobTargetThingNamesLocked expands a job's target ARNs (thing or
+// thing-group ARNs) into the concrete, deduplicated set of thing names that
+// should get a JobExecution. A thing-group target expands to that group's
+// direct members only -- matching ListThingsInThingGroup's own non-recursive
+// membership semantics, since this backend does not track recursive/dynamic
+// group membership. Unparseable targets, and thing-group targets with no
+// members, contribute no thing names. Must be called with b.mu held.
+func (b *InMemoryBackend) resolveJobTargetThingNamesLocked(targets []string) []string {
+	seen := make(map[string]bool)
+	var out []string
+
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+
+	for _, target := range targets {
+		resourceType, name := parseJobTargetARN(target)
+		switch resourceType {
+		case "thing":
+			add(name)
+		case "thinggroup":
+			for _, member := range b.thingGroupMembers[name] {
+				add(member)
+			}
+		}
+	}
+	sort.Strings(out)
+
+	return out
+}
+
+// fanOutJobExecutionsLocked creates a QUEUED JobExecution for every thing
+// name resolved from targets that doesn't already have one for jobID
+// (idempotent -- safe to call again with a superset of previously-resolved
+// targets, e.g. from AssociateTargetsWithJob). Must be called with b.mu held
+// (write).
+func (b *InMemoryBackend) fanOutJobExecutionsLocked(jobID string, targets []string, now float64) {
+	for _, thingName := range b.resolveJobTargetThingNamesLocked(targets) {
+		key := jobExecKey(jobID, thingName)
+		if b.jobExecutions.Has(key) {
+			continue
+		}
+
+		b.jobExecutions.Put(&JobExecution{
+			JobID:           jobID,
+			ThingName:       thingName,
+			Status:          JobExecQueued,
+			ExecutionNumber: 1,
+			VersionNumber:   1,
+			QueuedAt:        now,
+			LastUpdatedAt:   now,
+		})
+	}
+}
+
+// jobProcessDetailsLocked computes real per-target JobExecution status
+// rollup counts for jobID (types.JobProcessDetails), scanning the backend's
+// actual JobExecution rows rather than tracking a separately-maintained
+// counter (which would risk drifting out of sync). Must be called with b.mu
+// held (read or write).
+func (b *InMemoryBackend) jobProcessDetailsLocked(jobID string) *JobProcessDetails {
+	details := &JobProcessDetails{}
+
+	var processing []string
+
+	for _, exec := range b.jobExecutions.All() {
+		if exec.JobID != jobID {
+			continue
+		}
+
+		switch exec.Status {
+		case JobExecQueued:
+			details.NumberOfQueuedThings++
+			processing = append(processing, exec.ThingName)
+		case JobExecInProgress:
+			details.NumberOfInProgressThings++
+			processing = append(processing, exec.ThingName)
+		case JobExecSucceeded:
+			details.NumberOfSucceededThings++
+		case JobExecFailed:
+			details.NumberOfFailedThings++
+		case JobExecRejected:
+			details.NumberOfRejectedThings++
+		case JobExecCanceled:
+			details.NumberOfCanceledThings++
+		case JobExecRemoved:
+			details.NumberOfRemovedThings++
+		}
+	}
+	sort.Strings(processing)
+	details.ProcessingTargets = processing
+
+	return details
 }
 
 func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
@@ -256,7 +497,10 @@ func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
 		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
 
-	return cloneJob(j), nil
+	out := cloneJob(j)
+	out.JobProcessDetails = b.jobProcessDetailsLocked(jobID)
+
+	return out, nil
 }
 
 func (b *InMemoryBackend) ListJobs() []*Job {
@@ -388,12 +632,17 @@ type CancelJobExecutionOptions struct {
 // exactly InvalidRequestException/InvalidStateTransitionException/
 // ResourceNotFoundException/VersionConflictException).
 //
-// If no execution exists yet for this (jobID, thingName) pair, one is
-// created directly in CANCELED state: this emulator does not fan out a
-// QUEUED JobExecution per target at CreateJob time (a larger, separate gap
-// tracked in PARITY.md's job_and_jobtemplate deferred list), so without this
-// fallback CancelJobExecution could never succeed at all for a freshly
-// created job.
+// CreateJob/AssociateTargetsWithJob now fan a real QUEUED JobExecution out to
+// every resolved target thing (see fanOutJobExecutionsLocked), so the
+// (jobID, thingName) pair normally already exists by the time a real client
+// calls CancelJobExecution. The one remaining case where it might not is a
+// target that was a thing-group ARN with no members at CreateJob time (real
+// AWS IoT lazily starts an execution the first time such a thing later joins
+// the group and receives the job for a CONTINUOUS job -- something this
+// emulator does not simulate on AddThingToThingGroup): for that edge case, an
+// execution is still created directly in CANCELED state as a defensive
+// fallback rather than returning ResourceNotFoundException for a
+// combination a real, fully-simulated backend would consider valid.
 func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -513,21 +762,42 @@ func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string, force bool
 // against awsRestjson1_deserializeOpDocumentDescribeJobTemplateOutput in
 // aws-sdk-go-v2/service/iot@v1.76.0) has no "tags" field -- tags are a
 // separate ListTagsForResource concept.
+//
+// JobExecutionsRetryConfig/PresignedURLConfig/DestinationPackageVersions/
+// MaintenanceWindows were field-diffed against the same
+// DescribeJobTemplateOutput and found entirely missing (this struct
+// previously modeled none of Job's advanced fields on the template side
+// either). Note MaintenanceWindows is a TOP-LEVEL field here, unlike Job's
+// own SchedulingConfig.MaintenanceWindows nesting -- real AWS is genuinely
+// inconsistent between the two shapes (JobTemplate has no SchedulingConfig
+// wrapper at all; confirmed against both DescribeJobTemplateOutput and
+// CreateJobTemplateInput, neither of which has a schedulingConfig field).
 type JobTemplate struct {
 	Tags                       map[string]string           `json:"-"`
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
 	TimeoutConfig              *TimeoutConfig              `json:"timeoutConfig,omitempty"`
-	JobTemplateID              string                      `json:"jobTemplateId"`
+	JobExecutionsRetryConfig   *JobExecutionsRetryConfig   `json:"jobExecutionsRetryConfig,omitempty"`
+	PresignedURLConfig         *PresignedURLConfig         `json:"presignedUrlConfig,omitempty"`
 	JobTemplateARN             string                      `json:"jobTemplateArn"`
+	JobTemplateID              string                      `json:"jobTemplateId"`
 	Description                string                      `json:"description,omitempty"`
 	Document                   string                      `json:"document,omitempty"`
 	DocumentSource             string                      `json:"documentSource,omitempty"`
+	MaintenanceWindows         []MaintenanceWindow         `json:"maintenanceWindows,omitempty"`
+	DestinationPackageVersions []string                    `json:"destinationPackageVersions,omitempty"`
 	CreatedAt                  float64                     `json:"createdAt,omitempty"`
 }
 
 func cloneJobTemplate(jt *JobTemplate) *JobTemplate {
 	cp := *jt
+	cp.JobExecutionsRetryConfig = cloneJobExecutionsRetryConfig(jt.JobExecutionsRetryConfig)
+	cp.DestinationPackageVersions = append([]string(nil), jt.DestinationPackageVersions...)
+	cp.MaintenanceWindows = append([]MaintenanceWindow(nil), jt.MaintenanceWindows...)
+	if jt.PresignedURLConfig != nil {
+		p := *jt.PresignedURLConfig
+		cp.PresignedURLConfig = &p
+	}
 
 	return &cp
 }
@@ -542,11 +812,15 @@ type CreateJobTemplateInput struct {
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
 	TimeoutConfig              *TimeoutConfig              `json:"timeoutConfig,omitempty"`
-	JobTemplateID              string                      `json:"jobTemplateId"`
+	JobExecutionsRetryConfig   *JobExecutionsRetryConfig   `json:"jobExecutionsRetryConfig,omitempty"`
+	PresignedURLConfig         *PresignedURLConfig         `json:"presignedUrlConfig,omitempty"`
 	Description                string                      `json:"description,omitempty"`
+	JobTemplateID              string                      `json:"jobTemplateId"`
 	Document                   string                      `json:"document,omitempty"`
 	DocumentSource             string                      `json:"documentSource,omitempty"`
 	JobARN                     string                      `json:"jobArn,omitempty"`
+	MaintenanceWindows         []MaintenanceWindow         `json:"maintenanceWindows,omitempty"`
+	DestinationPackageVersions []string                    `json:"destinationPackageVersions,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*JobTemplate, error) {
@@ -569,6 +843,10 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 		AbortConfig:                input.AbortConfig,
 		JobExecutionsRolloutConfig: input.JobExecutionsRolloutConfig,
 		TimeoutConfig:              input.TimeoutConfig,
+		JobExecutionsRetryConfig:   cloneJobExecutionsRetryConfig(input.JobExecutionsRetryConfig),
+		PresignedURLConfig:         input.PresignedURLConfig,
+		DestinationPackageVersions: append([]string(nil), input.DestinationPackageVersions...),
+		MaintenanceWindows:         append([]MaintenanceWindow(nil), input.MaintenanceWindows...),
 		Tags:                       input.Tags,
 		CreatedAt:                  float64(time.Now().Unix()),
 	}

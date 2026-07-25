@@ -391,12 +391,16 @@ type StorageBackend interface {
 	ListDetectMitigationActionsTasks(startTime, endTime float64) []*DetectMitigationTask
 	ListDetectMitigationActionsExecutions(taskID, violationID, thingName string) []*DetectMitigationActionExecution
 	CancelDetectMitigationActionsTask(taskID string) error
+	MitigationActionRefs(names []string) []MitigationActionRef
 
 	// Device Defender: violations.
-	ListActiveViolations(thingName, securityProfileName, verificationState string) []*ActiveViolation
+	ListActiveViolations(
+		thingName, securityProfileName, verificationState string, listSuppressedAlerts *bool,
+	) []*ActiveViolation
 	ListViolationEvents(
 		thingName, securityProfileName, verificationState string,
 		startTime, endTime float64,
+		listSuppressedAlerts *bool,
 	) []*ViolationEvent
 	PutVerificationStateOnViolation(violationID, verificationState, description string) error
 	SeedActiveViolation(input *SeedActiveViolationInput) (*ActiveViolation, error)

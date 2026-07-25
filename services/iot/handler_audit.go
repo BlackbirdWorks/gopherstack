@@ -233,11 +233,12 @@ func (h *Handler) handleDescribeAuditFinding(c *echo.Context) error {
 
 func (h *Handler) handleListAuditFindings(c *echo.Context) error {
 	var req struct {
-		ListSuppressedFindings *bool   `json:"listSuppressedFindings"`
-		CheckName              string  `json:"checkName"`
-		TaskID                 string  `json:"taskId"`
-		StartTime              float64 `json:"startTime"`
-		EndTime                float64 `json:"endTime"`
+		ListSuppressedFindings *bool               `json:"listSuppressedFindings"`
+		ResourceIdentifier     *ResourceIdentifier `json:"resourceIdentifier"`
+		CheckName              string              `json:"checkName"`
+		TaskID                 string              `json:"taskId"`
+		StartTime              float64             `json:"startTime"`
+		EndTime                float64             `json:"endTime"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
@@ -249,6 +250,7 @@ func (h *Handler) handleListAuditFindings(c *echo.Context) error {
 		StartTime:              req.StartTime,
 		EndTime:                req.EndTime,
 		ListSuppressedFindings: req.ListSuppressedFindings,
+		ResourceIdentifier:     req.ResourceIdentifier,
 	})
 
 	return c.JSON(http.StatusOK, map[string]any{"findings": items})

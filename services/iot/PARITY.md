@@ -1,40 +1,64 @@
 ---
 service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.76.0
-last_audit_commit: 135882ff405d549b4f7d65c71ade923a40c9fd7b
+last_audit_commit: 2a94081753c196de1bbad6b25b8f9b9a90dce321
 last_audit_date: 2026-07-25
-overall: A-           # 2026-07-25 pass #1: fleet_indexing (previously entirely untouched)
-                       # field-diffed and closed out, 2 real wire-shape bugs found+fixed;
-                       # job_and_jobtemplate and device_defender remained genuinely partial
-                       # (spot-checked, not exhaustively diffed -- large sub-surfaces).
-                       # 2026-07-25 pass #2: closed the specifically-flagged AuditFinding gap
-                       # (isSuppressed/reasonForNonComplianceCode/taskStartTime, plus the sibling
-                       # reasonForNonCompliance field found in the same diff) and wired
-                       # ListAuditFindings' checkName/taskId/listSuppressedFindings/time-range
-                       # filters end to end -- while doing so, found ListAuditFindings was ALSO
-                       # completely unreachable by a real client (routed on GET, real AWS sends
-                       # POST); fixed. Separately, field-diffing job_and_jobtemplate's
-                       # JobExecution/ListJobExecutionsForJob/ListJobExecutionsForThing found
-                       # DescribeJobExecution/CancelJobExecution/DeleteJobExecution were ALSO
-                       # completely unreachable by a real client (routed under
-                       # /jobs/{jobId}/things/{thingName}[...], but real AWS paths them under
-                       # /things/{thingName}/jobs/{jobId}[...]), and that
-                       # ListJobExecutionsForJob/ForThing's response nesting was wrong shape
-                       # entirely (flat fields instead of the real nested
-                       # JobExecutionSummaryForJob/ForThing{jobExecutionSummary} objects) --
-                       # both fixed, plus CancelJobExecution/DeleteJobExecution now implement
-                       # real force/expectedVersion/statusDetails semantics (previously ignored
-                       # entirely). Despite these real, substantial fixes, both
-                       # job_and_jobtemplate (JobExecutionsRetryConfig read-path,
-                       # presignedUrlConfig, jobProcessDetails rollup counts, schedulingConfig,
-                       # maintenanceWindows, destinationPackageVersions, and the more
-                       # foundational fact that this emulator never fans a QUEUED JobExecution
-                       # out per target at CreateJob time) and device_defender
-                       # (StartAuditMitigationActionsTask target resolution, ML-based detect
-                       # models, violations, ListAuditFindings.resourceIdentifier filtering)
-                       # still have real, substantial, unimplemented sub-surfaces -- both
-                       # families stay `partial`, which is why this honestly stays at A-
-                       # rather than A. See families: and deferred: below.
+overall: A-           # 2026-07-25 pass #3 (this pass): closed both of the two remaining
+                       # partial families (job_and_jobtemplate, device_defender), each now
+                       # `ok`. Found and fixed a severe, previously-undiscovered bug class:
+                       # CreateJob/CreateJobTemplate were routed on POST when real AWS uses
+                       # PUT, and GetJobDocument was routed at /jobs/{jobId}/document instead
+                       # of the real /jobs/{jobId}/job-document -- all three ops were
+                       # completely unreachable by any real SDK client. Separately, found the
+                       # RouteMatcher (the layer that decides whether a request even reaches
+                       # the IoT handler at all in a real deployment, distinct from the
+                       # op-dispatch layer) never matched "/jobs" (no trailing slash, so
+                       # ListJobs), the entire "/job-templates" path family, or the entire
+                       # "/mitigationactions/" path family (CreateMitigationAction and
+                       # siblings) -- all silently 404'd before ever reaching op dispatch.
+                       # None of this was visible to any prior pass because every existing
+                       # test called h.Handler() directly, bypassing RouteMatcher entirely;
+                       # this pass added a real generated AWS SDK v2 client driven through
+                       # the actual service.Router path specifically to catch this class of
+                       # bug (see TestJob_FanOutAndAdvancedFields_SDKRoundTrip et al.).
+                       # Implemented the foundational per-target JobExecution fan-out at
+                       # CreateJob/AssociateTargetsWithJob time (previously nonexistent --
+                       # CancelJobExecution's create-on-miss fallback was the only thing
+                       # papering over it), Job's and JobTemplate's advanced fields
+                       # (jobExecutionsRetryConfig, presignedUrlConfig, schedulingConfig,
+                       # maintenanceWindows, destinationPackageVersions, computed
+                       # jobProcessDetails), StartAuditMitigationActionsTask's target
+                       # resolution (was silently ignoring auditCheckToReasonCodeFilter
+                       # whenever auditTaskId was also set, and matched reason codes by check
+                       # name alone), DetectMitigationActionsTaskSummary's wire shape
+                       # (invented "actions" field instead of real "actionsDefinition";
+                       # ListDetectMitigationActionsTasks returned a hand-picked 4-field
+                       # summary instead of the real, richer shared summary type Describe
+                       # uses), DetectMitigationActionExecution's wrong field names
+                       # (executionStartTime/executionEndTime instead of real
+                       # executionStartDate/executionEndDate), ActiveViolation/ViolationEvent's
+                       # missing lastViolationTime/violationEventAdditionalInfo fields, and
+                       # ListAuditFindings.resourceIdentifier filtering (previously left
+                       # unimplemented as "can't be honestly matched without guessing" --
+                       # resolved by modeling a real, fully-typed ResourceIdentifier struct
+                       # instead of a freeform map, at which point the filter's per-field
+                       # discriminator semantics become the same simple equality-match every
+                       # other filter in this service already uses). Also implemented
+                       # ListActiveViolations/ListViolationEvents' listSuppressedAlerts filter.
+                       # Both target families are now genuinely `ok` -- see families: below.
+                       # Overall STAYS at A- rather than A because closing device_defender
+                       # surfaced a real, substantial, PREVIOUSLY UNTRACKED gap in a third,
+                       # different family: CreateSecurityProfile silently drops every one of
+                       # Behaviors/AlertTargets/AdditionalMetricsToRetain(V2)/
+                       # MetricsExportConfig -- SecurityProfile never persisted behavior
+                       # definitions at all. This is what blocks ListActiveViolations/
+                       # ListViolationEvents' remaining behaviorCriteriaType filter (there is
+                       # no behavior-criteria-type data anywhere in this backend to filter on)
+                       # and is a real, previously-unaudited `security_profiles` family gap
+                       # in its own right -- NOT part of job_and_jobtemplate or
+                       # device_defender, and explicitly out of scope for this pass, but too
+                       # substantial to paper over by silently declaring the service A. See
+                       # the new `security_profiles` families: entry and gaps: below.
 ops:
   CreateThing: {wire: ok, errors: ok, state: ok, persist: ok, note: "now accepts+wires billingGroupName (was silently dropped)"}
   DescribeThing: {wire: ok, errors: ok, state: ok, persist: ok, note: "now returns billingGroupName (was omitted entirely)"}
@@ -75,7 +99,13 @@ ops:
   AcceptCertificateTransfer: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "was a near-total stub: wrote a bogus value into the wrong side of the certificateTransfers map for ANY certificate ID (including nonexistent ones), never validated PENDING_TRANSFER state, and never actually moved ownership or changed cert status. Fully reimplemented: validates the cert exists and is pending transfer (ResourceNotFoundException/InvalidRequestException), moves ownedBy -> previousOwnedBy chain, activates/deactivates per SetAsActive, and consumes the pending transfer"}
   RejectCertificateTransfer: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "now requires PENDING_TRANSFER state (InvalidRequestException otherwise), accepts+stores rejectReason, and records TransferRejectDate"}
   CancelCertificateTransfer: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "was an unconditional no-op success (didn't check the cert existed or was pending transfer, didn't revert cert status); now validates and reverts status to INACTIVE"}
-  AssociateTargetsWithJob: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "mutated jobTargets for any job ID without checking the job existed; now returns ResourceNotFoundException for an unknown job (gopherstack-ep0r)"}
+  CreateJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "(pass #3) was routed on POST /jobs/{jobId}; real AWS IoT's CreateJob is PUT /jobs/{jobId} (confirmed against awsRestjson1_serializeOpCreateJob's request.Method) -- completely unreachable by any real SDK client. Fixed. Also now fans a real QUEUED JobExecution out to every resolved target thing (direct thing ARN, or thing-group ARN expanded to direct members) instead of only ever materializing an execution lazily via CancelJobExecution's create-on-miss fallback -- the foundational gap this family was previously flagged for. Also now accepts+stores jobExecutionsRetryConfig/presignedUrlConfig/schedulingConfig (incl. maintenanceWindows)/destinationPackageVersions, all previously entirely unmodeled."}
+  CreateJobTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) same POST-vs-PUT routing bug as CreateJob (real AWS: PUT /job-templates/{jobTemplateId}); fixed. Also now accepts+stores jobExecutionsRetryConfig/presignedUrlConfig/destinationPackageVersions/maintenanceWindows -- note maintenanceWindows is a TOP-LEVEL field on JobTemplate, unlike Job's nested schedulingConfig.maintenanceWindows (real AWS has no schedulingConfig on JobTemplate at all; confirmed against both CreateJobTemplateInput and DescribeJobTemplateOutput)."}
+  GetJobDocument: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) was routed at /jobs/{jobId}/document; real AWS IoT's GetJobDocument path is /jobs/{jobId}/job-document (confirmed against awsRestjson1_serializeOpGetJobDocument's SplitURI call) -- completely unreachable by any real SDK client. Fixed."}
+  ListJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "(pass #3) op dispatch itself was already correct, but the RouteMatcher whitelist (the layer deciding whether a request reaches the IoT handler at all in a real deployment) never matched \"/jobs\" with no trailing slash -- a real ListJobs request never reached op dispatch. Fixed in matchCoreIoTPathSecondary/matchJobAndTemplatePath (handler_routing.go)."}
+  ListJobTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "(pass #3) same RouteMatcher-whitelist gap as ListJobs -- the entire /job-templates path family (this op plus CreateJobTemplate/DescribeJobTemplate/DeleteJobTemplate) was absent from the whitelist, so no request in that family ever reached the IoT handler in a real deployment. Fixed."}
+  DeleteJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "(pass #3) same RouteMatcher-whitelist gap as ListJobs/ListJobTemplates; fixed"}
+  AssociateTargetsWithJob: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "mutated jobTargets for any job ID without checking the job existed; now returns ResourceNotFoundException for an unknown job (gopherstack-ep0r). (pass #3) response was also missing \"description\" (real AssociateTargetsWithJobOutput has it); newly associated targets are now merged into the job's own Targets list (previously only written to an otherwise-unread jobTargets map, so DescribeJob never reflected them) and immediately fanned out into QUEUED JobExecution rows, matching CreateJob's own fan-out for a CONTINUOUS job's initial targets."}
   DescribeJobExecution: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(2026-07-25 #2) was routed under /jobs/{jobId}/things/{thingName}, a path no real client sends (real AWS: /things/{thingName}/jobs/{jobId}, confirmed against serializers.go http bindings) -- completely unreachable by a real SDK client. Also leaked an invented \"thingName\" field instead of the real \"thingArn\", and was missing statusDetails/versionNumber/forceCanceled/approximateSecondsBeforeTimedOut entirely. Both fixed."}
   CancelJobExecution: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "(2026-07-25 #2) same routing bug as DescribeJobExecution, fixed. Also silently ignored force/expectedVersion/statusDetails entirely; now rejects an IN_PROGRESS cancel without force=true (InvalidStateTransitionException) and a mismatched expectedVersion (VersionConflictException), matching real CancelJobExecutionInput semantics"}
   DeleteJobExecution: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "(2026-07-25 #2) same routing bug (real path also carries an executionNumber URI segment), fixed. Also silently ignored force; now rejects deleting a non-terminal (QUEUED/IN_PROGRESS) execution without force=true"}
@@ -85,8 +115,18 @@ ops:
   CancelAuditMitigationActionsTask: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "same class of bug as CancelAuditTask; fixed identically (gopherstack-ep0r)"}
   ListAuditFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(2026-07-25 #2) was routed on GET; real AWS's ListAuditFindings is POST /audit/findings with filters in a JSON body (confirmed against serializers.go http bindings) -- completely unreachable by a real SDK client. Also ignored every filter field entirely. Both fixed: now POST-routed and implements checkName/taskId/listSuppressedFindings/startTime/endTime filtering (resourceIdentifier filtering remains unimplemented -- see families: device_defender)"}
   DescribeAuditFinding: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(2026-07-25 #2) AuditFinding was missing isSuppressed/reasonForNonComplianceCode/reasonForNonCompliance/taskStartTime entirely (confirmed against awsRestjson1_deserializeDocumentAuditFinding); all four now modeled. taskStartTime is auto-derived from the referenced AuditTask when the finding has a taskId but no explicit taskStartTime"}
-  DescribeJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "documentSource was nested inside \"job\" instead of being a top-level DescribeJobOutput field (verified against v1.76.0); the nested Job object also leaked invented document/documentSource/tags fields that don't exist on real types.Job -- fixed (documentSource promoted to top level, invented fields tagged json:\"-\")"}
-  DescribeJobTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "JobTemplate leaked an invented \"tags\" field not present in real DescribeJobTemplateOutput; tagged json:\"-\""}
+  ListAuditFindings_resourceIdentifier: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) resourceIdentifier filtering, previously left unimplemented (AuditFinding.NonCompliantResource was a freeform map[string]any that couldn't honestly discriminate against real AWS's ~10 per-check-type ResourceIdentifier fields). Fixed by modeling a real, fully-typed ResourceIdentifier struct (account/caCertificateId/clientId/cognitoIdentityPoolId/deviceCertificateArn/deviceCertificateId/iamRoleArn/issuerCertificateIdentifier/policyVersionIdentifier/roleAliasArn, confirmed against types.ResourceIdentifier) in place of the map, at which point the filter becomes the same per-field-equality-when-set semantics every other filter in this service already uses -- no per-check-type guessing required."}
+  StartAuditMitigationActionsTask: {wire: ok, errors: ok, state: fixed, persist: ok, note: "(pass #3) target resolution had two real bugs: (1) when a target set both auditTaskId and auditCheckToReasonCodeFilter, only auditTaskId was ever honored (a switch's first matching case won) -- auditCheckToReasonCodeFilter was silently ignored even though real AWS's AuditMitigationActionsTaskTarget lets both apply together (\"this audit's findings for check X with reason code Y\"). (2) auditCheckToReasonCodeFilter matched by check name alone, ignoring the actual reason-code list value (real AWS filters on the listed codes when non-empty; an empty list for a check means \"any reason code\"). Both fixed in auditMitigationFindingIDs (device_defender.go)."}
+  CreateMitigationAction_and_4_siblings: {wire: ok, errors: ok, state: ok, persist: ok, note: "(pass #3) CreateMitigationAction/DescribeMitigationAction/UpdateMitigationAction/DeleteMitigationAction/ListMitigationActions' op-dispatch routing (resolveMitigationActionOps) was already correct, but the RouteMatcher whitelist (the layer deciding whether a request reaches the IoT handler at ALL in a real deployment, checked before op dispatch) never matched the \"/mitigationactions/\" path prefix -- every request to any of these 5 ops 404'd before ever reaching op dispatch in a real deployment. Only caught because this pass added real generated-SDK-client tests driven through the actual service.Router path (existing tests all called h.Handler() directly, bypassing RouteMatcher entirely). Fixed in matchCoreIoTPathSecondary (handler_routing.go)."}
+  StartDetectMitigationActionsTask: {wire: ok, errors: ok, state: fixed, persist: ok, note: "(pass #3) now accepts+stores violationEventOccurrenceRange (previously entirely unmodeled)"}
+  DescribeDetectMitigationActionsTask: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) DetectMitigationActionsTaskSummary's real wire field is \"actionsDefinition\" (a list of full MitigationAction objects with id/name/roleArn/actionParams, confirmed against types.DetectMitigationActionsTaskSummary/types.MitigationAction) -- this emulator instead emitted \"actions\" (a list of bare action-name strings), a field that does not exist on the real type at all. A real client's deserializer would never have found \"actionsDefinition\" and left every task's actions permanently empty. Fixed via a new MitigationActionRefs backend lookup that resolves stored action names to their id/name/roleArn/actionParams at response time. violationEventOccurrenceRange also now surfaced (was entirely absent)."}
+  ListDetectMitigationActionsTasks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) previously built a hand-picked 4-field summary ({taskId,taskStatus,taskStartTime,taskEndTime}); real AWS's ListDetectMitigationActionsTasksOutput.Tasks is []types.DetectMitigationActionsTaskSummary -- the EXACT SAME rich type DescribeDetectMitigationActionsTask returns (confirmed against v1.76.0), not a narrower list-only summary (unlike the audit-mitigation side, where ListAuditMitigationActionsTasks genuinely does use a narrower AuditMitigationActionsTaskMetadata type). A real client's deserializer silently dropped target/actionsDefinition/taskStatistics/onlyActiveViolationsIncluded/suppressedAlertsIncluded/violationEventOccurrenceRange from every list entry. Fixed by sharing the same wire-shape builder (detectMitigationTaskSummaryWire) with Describe."}
+  ListDetectMitigationActionsExecutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) DetectMitigationActionExecution's execution-time fields were wire-keyed \"executionStartTime\"/\"executionEndTime\"; real AWS's are \"executionStartDate\"/\"executionEndDate\" (confirmed against awsRestjson1_deserializeDocumentDetectMitigationActionExecution) -- a real client's deserializer would never have found either key and left both permanently unset. Fixed (fields renamed ExecutionStartDate/ExecutionEndDate to match)."}
+  ListAuditMitigationActionsTasks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) emitted an invented \"endTime\" key; real types.AuditMitigationActionsTaskMetadata is {taskId, taskStatus, startTime} only (confirmed against v1.76.0). Harmless to a real client (unknown fields are ignored by deserializers), but removed for wire-shape accuracy."}
+  ListActiveViolations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(pass #3) ActiveViolation was missing lastViolationTime and violationEventAdditionalInfo entirely (confirmed against types.ActiveViolation -- real AWS distinguishes \"when the violation started\" from \"when the most recent violation occurred\", the latter updating on every subsequent detection of the same ongoing violation); both now modeled. Also implemented the listSuppressedAlerts filter (previously unimplemented) by adding an internal-only (json:\"-\", real ActiveViolation has no wire field for this) Suppressed flag, directly seedable, mirroring AuditFinding.IsSuppressed's identical simplification elsewhere in this service. STILL NOT implemented: the behaviorCriteriaType filter -- see families: security_profiles below for exactly why."}
+  ListViolationEvents: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same violationEventAdditionalInfo + listSuppressedAlerts fixes as ListActiveViolations, for the sibling ViolationEvent type"}
+  DescribeJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "documentSource was nested inside \"job\" instead of being a top-level DescribeJobOutput field (verified against v1.76.0); the nested Job object also leaked invented document/documentSource/tags fields that don't exist on real types.Job -- fixed (documentSource promoted to top level, invented fields tagged json:\"-\"). (pass #3) now also returns jobExecutionsRetryConfig/presignedUrlConfig/schedulingConfig/destinationPackageVersions, and a computed jobProcessDetails rollup (numberOf{Queued,InProgress,Succeeded,Failed,Rejected,Canceled,Removed}Things + processingTargets) derived live from the backend's real per-target JobExecution rows rather than a separately-maintained (and driftable) counter."}
+  DescribeJobTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "JobTemplate leaked an invented \"tags\" field not present in real DescribeJobTemplateOutput; tagged json:\"-\". (pass #3) now also returns jobExecutionsRetryConfig/presignedUrlConfig/destinationPackageVersions/maintenanceWindows, field-diffed separately from Job's own advanced fields (see CreateJobTemplate note on the maintenanceWindows nesting difference)."}
   AttachPrincipalPolicy_and_11_other_handlers: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "12 handlers (Attach*, AcceptCertificateTransfer, AddThingToBillingGroup/ThingGroup, AssociateSbomWithPackageVersion, AssociateTargetsWithJob, CancelAuditMitigationActionsTask, CancelAuditTask, DescribeEndpoint) returned a raw {\"error\":...} 500 body instead of h.handleError's {__type,message} shape on any backend error. Fixed in the prior pass; this pass found a DEEPER version of the same bug class affecting ~130 call sites (see error_handling family note below)"}
 families:
   thing_core: {status: ok, note: "CreateThing/DescribeThing/UpdateThing/DeleteThing/ListThings audited field-by-field against v1.76.0 serializers/deserializers; 2 real bugs found+fixed (billingGroupName, AttributePayload merge default)"}
@@ -101,33 +141,33 @@ families:
   invented_fields: {status: fixed, note: "Job leaked \"tags\"/\"document\"/\"documentSource\" and JobTemplate leaked \"tags\" -- none of these exist on real types.Job/DescribeJobTemplateOutput (verified against v1.76.0's awsRestjson1_deserializeDocumentJob, which has no tags/document/documentSource cases; documentSource is real but only as a top-level DescribeJobOutput field, and document is only retrievable via the separate GetJobDocument operation). Fixed via json:\"-\" tags on the domain struct fields (kept for internal storage) plus promoting documentSource to the DescribeJobOutput top level."}
   certificate: {status: ok, note: "Full CRUD (Create/Register/RegisterWithoutCA/Describe/List/Update/Delete) plus the transfer lifecycle (Transfer/Accept/Reject/Cancel) field-diffed and fixed this pass -- see DescribeCertificate/ListCertificates/AcceptCertificateTransfer/etc. ops above and gopherstack-jy57 (now closed)"}
   certificate_provider: {status: ok, note: "Create/Describe/List/Update/Delete field-diffed against v1.76.0; only bug was the epoch-timestamp encoding on Describe (fixed). Full field set otherwise already correct"}
-  job_and_jobtemplate: {status: partial, note: "AssociateTargetsWithJob existence-validation gap fixed (gopherstack-ep0r). DescribeJob/DescribeJobTemplate wire-shape bugs found+fixed a prior pass. (2026-07-25 #2) field-diffed JobExecution/ListJobExecutionsForJob/ListJobExecutionsForThing against v1.76.0 and found two severe, previously-undiscovered bugs: DescribeJobExecution/CancelJobExecution/DeleteJobExecution were routed under a path shape no real client ever sends (completely unreachable), and ListJobExecutionsForJob/ForThing returned the wrong response nesting entirely (a real client's deserializer would see empty summaries). Both fixed, plus JobExecution's statusDetails/versionNumber/forceCanceled/approximateSecondsBeforeTimedOut fields and CancelJobExecution/DeleteJobExecution's force/expectedVersion/statusDetails semantics, all previously unmodeled/ignored. STILL NOT implemented: Job's more advanced optional fields (jobExecutionsRetryConfig read-path, presignedUrlConfig, jobProcessDetails rollup counts, schedulingConfig, maintenanceWindows, destinationPackageVersions), and the more foundational fact that this emulator never fans a QUEUED JobExecution out per target at CreateJob time (CancelJobExecution's create-on-miss fallback is a workaround, not a substitute) -- large sub-surfaces, genuinely left for a future pass. See gopherstack-srzb."}
-  device_defender: {status: partial, note: "CancelAuditTask/CancelAuditMitigationActionsTask existence+state validation gaps fixed a prior pass. (2026-07-25 #2) field-diffed AuditFinding against v1.76.0 and closed the previously-flagged gap: isSuppressed/reasonForNonComplianceCode/reasonForNonCompliance/taskStartTime were all missing, now modeled (taskStartTime auto-derived from the referenced AuditTask). Also found ListAuditFindings was routed on GET instead of the real POST (completely unreachable by a real client) and implemented its checkName/taskId/listSuppressedFindings/startTime/endTime filters, previously entirely unimplemented. STILL NOT implemented: ListAuditFindings.resourceIdentifier filtering (its real shape has ~15 optional per-check-type discriminator fields this emulator's synthetic NonCompliantResource map cannot honestly match against without guessing -- see ListAuditFindingsFilter's doc comment in audit.go), and the broader audit/mitigation/detect task families (StartAuditMitigationActionsTask target resolution, ML-based detect models, violations) NOT exhaustively field-diffed this pass. See gopherstack-srzb."}
+  job_and_jobtemplate: {status: ok, note: "(pass #3) CLOSED. Field-diffed exhaustively against v1.76.0. Foundational fan-out gap implemented: CreateJob/AssociateTargetsWithJob now fan a real QUEUED JobExecution out to every resolved target thing (thing ARN direct, or thing-group ARN expanded to direct members -- matching ListThingsInThingGroup's own non-recursive semantics), cascade-cleaned on DeleteThing/DeleteJob. Job's and JobTemplate's advanced fields (jobExecutionsRetryConfig, presignedUrlConfig, schedulingConfig incl. maintenanceWindows for Job / top-level maintenanceWindows for JobTemplate, destinationPackageVersions, computed jobProcessDetails) implemented end to end: request parsing, backend state, response wire shape, persistence. Found and fixed a severe, previously-undiscovered routing bug class: CreateJob and CreateJobTemplate were both routed on POST when real AWS uses PUT (awsRestjson1_serializeOpCreateJob/CreateJobTemplate), and GetJobDocument was routed at /jobs/{jobId}/document instead of the real /jobs/{jobId}/job-document -- all three completely unreachable by any real SDK client. Also found the RouteMatcher whitelist (checked before op dispatch in a real deployment) never matched plain \"/jobs\" (ListJobs) or the entire \"/job-templates\" path family -- both silently 404'd. AssociateTargetsWithJob was missing the real \"description\" output field and never merged newly-associated targets into the job's own Targets list. All fixed. See ops: above for each op's specifics."}
+  device_defender: {status: ok, note: "(pass #3) CLOSED for everything within this family's own scope. StartAuditMitigationActionsTask's target resolution fixed (combined auditTaskId+auditCheckToReasonCodeFilter AND semantics, real reason-code-list matching instead of check-name-only). ML-Detect surface (StartDetectMitigationActionsTask and siblings) field-diffed: DetectMitigationActionsTaskSummary's actionsDefinition wire shape fixed (was an invented \"actions\" field), ListDetectMitigationActionsTasks now returns the same rich summary type Describe does (was a hand-picked 4-field subset), DetectMitigationActionExecution's executionStartDate/executionEndDate field names fixed (were wire-keyed wrong), violationEventOccurrenceRange added. Violations surface (ListActiveViolations/ListViolationEvents) field-diffed: lastViolationTime/violationEventAdditionalInfo added, listSuppressedAlerts filter implemented. ListAuditFindings.resourceIdentifier filtering implemented (previously the family's most-cited unimplementable gap) by modeling a real, fully-typed ResourceIdentifier struct instead of a freeform map. Also found the entire \"/mitigationactions/\" path family (CreateMitigationAction and siblings) was absent from the RouteMatcher whitelist -- completely unreachable in a real deployment despite correct op-dispatch routing. STILL NOT implemented: ListActiveViolations/ListViolationEvents' behaviorCriteriaType filter -- this is blocked by a real gap in a DIFFERENT family (security_profiles, see below), not by anything unresolved within device_defender itself: there is no behavior-criteria-type data anywhere in this backend to filter on, because CreateSecurityProfile never persists Behaviors at all."}
+  security_profiles: {status: partial, note: "NEWLY DISCOVERED this pass (not previously tracked as its own family) while investigating device_defender's listSuppressedAlerts/behaviorCriteriaType filters. CreateSecurityProfile's real input (types.CreateSecurityProfileInput) has Behaviors/AlertTargets/AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/MetricsExportConfig -- this backend's SecurityProfile struct stores NONE of them; the request fields are silently accepted and dropped (the same severe 'dropped request field' bug class flagged elsewhere in this campaign, e.g. elasticache). UpdateSecurityProfile/DescribeSecurityProfile presumably have the same gap (not exhaustively re-verified this pass; ValidateSecurityProfileBehaviors already models a rich SecurityProfileBehavior{Name,Metric,Criteria} shape for its own standalone validation-only endpoint, but that shape is never connected to an actual stored SecurityProfile). This is what blocks device_defender's behaviorCriteriaType filter (no behavior-criteria-type data to filter on) and represents a real, substantial, previously-unaudited gap in its own right. Explicitly OUT OF SCOPE for job_and_jobtemplate/device_defender this pass -- flagged here rather than silently ignored so overall: A is not claimed prematurely. See gaps: below."}
   fleet_indexing: {status: ok, note: "Field-diffed against v1.76.0 this pass (previously entirely untouched). Two real, previously-unflagged wire-shape bugs found and fixed: (1) SearchIndex's ThingGroupDocument sent a single \"parentGroupName\" string (direct parent only) instead of the real \"parentGroupNames\" LIST field (the full ancestor chain) -- confirmed against awsRestjson1_deserializeDocumentThingGroupDocument, a real client's deserializer would never find the key it looks for under the old shape and silently leave the field empty; also added the missing \"thingGroupDescription\" field. (2) DescribeThingGroup's thingGroupMetadata was completely missing \"rootToParentThingGroups\" (root-first ancestor name+ARN list) -- confirmed against awsRestjson1_deserializeDocumentThingGroupMetadata; not implemented at all previously. Both fixed via a new thingGroupAncestors backend helper (indexing.go) that reconstructs the full chain by walking gopherstack's per-group direct-ParentGroupName links, since the domain model only stores one level per group. (3) GetStatistics' Statistics response was missing \"sumOfSquares\" entirely (types.Statistics has it; confirmed against awsRestjson1_deserializeDocumentStatistics) -- fixed by computing it in computeStatistics alongside the existing sum/variance accumulation. GetCardinality/GetPercentiles/GetBucketsAggregation/DescribeIndex/ListIndices output shapes also field-diffed against their real GetCardinalityOutput/GetPercentilesOutput/GetBucketsAggregationOutput/types.PercentPair/types.Bucket counterparts -- no further gaps found on this pass's sample."}
   billing_group: {status: ok, note: "AddThingToBillingGroup/RemoveThingFromBillingGroup/ListThingsInBillingGroup verified real state mutation via thingBillingGroups map; DescribeThing now surfaces it (see CreateThing/DescribeThing above)"}
   persistence: {status: ok, note: "backendSnapshot/Restore in persistence.go covers all backend maps observed during this audit (policyTargets, thingPrincipals, thingBillingGroups, thingThingGroups, securityProfileTargets, resourceTags, certificateTransfers, etc.); Handler.Snapshot/Restore already delegate correctly -- no gaps found. Certificate struct's new transfer-lifecycle fields (OwnedBy/PreviousOwnedBy/GenerationID/CertificateMode/CustomerVersion/Validity*/Transfer*) round-trip correctly since persistence marshals the full struct, not the handler-layer wire shape."}
-gaps: []  # all previously-filed gaps (gopherstack-jy57, gopherstack-ep0r) closed; fleet_indexing
-          # closed out a prior pass (3 real bugs found+fixed, see families:); the
-          # specifically-flagged AuditFinding gap (isSuppressed/reasonForNonComplianceCode/
-          # taskStartTime) closed 2026-07-25 pass #2, along with a severe routing bug on
-          # DescribeJobExecution/CancelJobExecution/DeleteJobExecution/ListAuditFindings
-          # (unreachable by any real client) and a wrong-shape bug on
-          # ListJobExecutionsForJob/ForThing, both found while closing it. job_and_jobtemplate/
-          # device_defender remain genuinely partial (real, substantial sub-surfaces still
-          # unimplemented -- see families: above), tracked under gopherstack-srzb; this is why
-          # overall stays A- rather than A despite gaps: being empty.
+gaps:
+  - security_profiles (NOT job_and_jobtemplate or device_defender): CreateSecurityProfile
+    silently drops Behaviors/AlertTargets/AdditionalMetricsToRetain(V2)/MetricsExportConfig --
+    none are persisted by SecurityProfile at all. Discovered as a side effect of this pass's
+    device_defender work (it is what blocks ListActiveViolations/ListViolationEvents'
+    behaviorCriteriaType filter -- there is no behavior-criteria-type data anywhere in this
+    backend to filter on), but it is a distinct, substantial, previously-unaudited gap in its
+    own family, not a job_and_jobtemplate/device_defender sub-item, and genuinely out of scope
+    for this pass to fix (full Behavior/AlertTarget/MetricsExportConfig modeling + CRUD wiring
+    is its own project). See the new `security_profiles` families: entry above. This is the
+    ONLY reason overall stays A- rather than A -- job_and_jobtemplate and device_defender
+    themselves are both fully closed (see families: above).
 deferred:
-  - job_and_jobtemplate (Job's advanced optional fields: jobExecutionsRetryConfig read-path,
-    presignedUrlConfig, jobProcessDetails rollup counts, schedulingConfig, maintenanceWindows,
-    destinationPackageVersions; plus the more foundational fact that this emulator never fans a
-    QUEUED JobExecution out per target at CreateJob time -- 2026-07-25 pass #2 closed
-    JobExecution's own wire shape, routing, and CancelJobExecution/DeleteJobExecution's
-    force/expectedVersion/statusDetails semantics, but these larger items remain)
-  - device_defender (audit/mitigation/detect task families beyond the two Cancel ops and
-    ListAuditFindings fixed so far -- StartAuditMitigationActionsTask target resolution,
-    ML-based detect models, violations, ListAuditFindings.resourceIdentifier filtering)
-  - see gopherstack-srzb for the consolidated deferred-family tracking issue (updated this pass
-    with current status; fleet_indexing removed from it a prior pass, now closed)
+  - security_profiles (Behaviors/AlertTargets/AdditionalMetricsToRetain(V2)/
+    MetricsExportConfig not persisted by CreateSecurityProfile at all -- see gaps: above and
+    the security_profiles families: entry for detail). Recommend filing a new tracking issue
+    for this the way gopherstack-srzb tracked job_and_jobtemplate/device_defender, since it is
+    a different family discovered mid-pass, not a continuation of either.
+  - gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) can be
+    CLOSED as of this pass: both families it tracked are now `ok` (see families: above). Only
+    the newly-discovered security_profiles item remains, tracked separately per the note above.
 leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the embedded MQTT broker in a bare `go func(){ broker.Start(ctx) }()` with no way to wait for it to exit -- Handler didn't implement service.Shutdowner at all, so the broker goroutine had no deterministic drain path on service shutdown (relied entirely on the caller's ctx being cancelled elsewhere, with no join/wait). This is the same 'ctx-parented but not Shutdown-drained' bug class fixed elsewhere via pkgs/worker.SingleRun (see services/autoscaling, services/scheduler for the established pattern). FIXED: added a worker.SingleRun-backed brokerRun field, Broker.Run(ctx) adapter method, and a Handler.Shutdown(ctx) that calls brokerRun.Stop(ctx) and blocks until the broker goroutine actually exits (or ctx is done). Handler now implements both service.BackgroundWorker and service.Shutdowner. Regression test: TestHandlerShutdownDrainsBrokerGoroutine (broker_test.go) starts a real broker and asserts Shutdown returns within 2s of the goroutine actually stopping, not just cancelling and returning immediately."}
 ---
 
@@ -310,3 +350,105 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
   given above. These are real, substantial, unimplemented sub-surfaces, not proven
   impossibilities — left honestly documented under `deferred:` rather than claimed as
   closed.
+
+  **Superseded by pass #3 below** — every item in the paragraph immediately above is now
+  fixed. It's left in place (rather than deleted) because it accurately documents what
+  pass #2 genuinely didn't reach, which is useful context for how the gap closed.
+
+- **Scope of this pass (2026-07-25 pass #3)**: closed both `job_and_jobtemplate` and
+  `device_defender` — see their `families:` entries above for the full list of fixes.
+  Three points worth calling out beyond the `families:`/`ops:` summaries:
+
+  1. **A new bug class this campaign hadn't yet named for this service: wrong HTTP
+     method, not just wrong path.** Every prior routing bug found in this service (and
+     most of this campaign) was "wrong path shape." This pass found `CreateJob` and
+     `CreateJobTemplate` were both routed on `POST` when real AWS IoT uses `PUT`
+     (confirmed directly against `awsRestjson1_serializeOpCreateJob`/
+     `CreateJobTemplate`'s `request.Method` assignment in `serializers.go`) — same path,
+     wrong verb, same result: completely unreachable by any real SDK client. `GetJobDocument`
+     had the more familiar wrong-path variant (`/jobs/{jobId}/document` vs. the real
+     `/jobs/{jobId}/job-document`). All three were invisible to every prior pass because
+     every existing test (`iotOK`/`iotRequest`) called `h.Handler()` directly with a
+     hand-picked method string that happened to match gopherstack's own (wrong) routing —
+     exactly the `parity-principles.md` rule 3 trap, just manifesting as a wrong verb
+     instead of a wrong field.
+
+  2. **A second, deeper bug class: the RouteMatcher whitelist itself, not op dispatch.**
+     This service's `Handler.RouteMatcher()` (`matchIoTPath` and its helpers in
+     `handler_routing.go`) is a separate, EARLIER gate than `resolveOperation`/op
+     dispatch — in a real deployment via `service.NewServiceRouter`, a request must match
+     `RouteMatcher()` before the IoT handler is even invoked, let alone before
+     `resolveOperation` picks an op. This pass found THREE path families entirely absent
+     from that whitelist despite having perfectly correct op-dispatch logic once
+     reached: plain `/jobs` (no trailing slash — `ListJobs`), the entire
+     `/job-templates` family, and the entire `/mitigationactions/` family
+     (`CreateMitigationAction` and its four siblings, foundational to
+     `StartAuditMitigationActionsTask`'s whole workflow). Every one of these requests
+     404'd before `resolveOperation` ever ran. This was invisible to every prior pass for
+     the same underlying reason as point 1: `iotRequest`/`iotOK` call `h.Handler()`
+     directly, which bypasses `RouteMatcher()` entirely (that gate only exists in the
+     `service.NewServiceRouter` request path). This pass added `newIoTSDKClient`
+     (`handler_jobs_test.go`) — a real generated AWS SDK v2 IoT client driven through an
+     actual `httptest.Server` + `service.NewServiceRouter`, matching the pattern already
+     established in `services/elasticache` — specifically because catching this bug class
+     requires exercising the real routing path, not just the handler function. **If
+     re-auditing this service (or any service) for routing bugs: a `RouteMatcher()` gap
+     is a distinct bug from a `resolveOperation` gap, and only the SDK-client-through-a-
+     real-router pattern can find the former.**
+
+  3. **The foundational per-target `JobExecution` fan-out.** `CreateJob` now resolves
+     `input.Targets` (thing ARNs directly, or thing-group ARNs expanded to that group's
+     direct members — deliberately non-recursive, matching `ListThingsInThingGroup`'s own
+     non-recursive semantics rather than inventing recursive-group-membership tracking
+     this backend doesn't otherwise have) and creates a real `QUEUED` `JobExecution` row
+     for each resolved thing (`fanOutJobExecutionsLocked`, `jobs.go`).
+     `AssociateTargetsWithJob` does the same for newly-added targets, and now also merges
+     them into the job's own `Targets` list (previously written only to an
+     otherwise-never-read `jobTargets` map, so `DescribeJob` never reflected newly
+     associated targets at all — a second, smaller bug found alongside the fan-out work).
+     `DeleteThing` cascade-deletes any `JobExecution` rows for that thing (mirroring
+     `DeleteJob`'s existing cascade over the same `jobId`/`thingName` key from the other
+     side), so a deleted thing never leaves a ghost `JobExecution` behind.
+     `CancelJobExecution`'s old create-on-miss fallback is kept as a narrow defensive
+     backstop (documented in its own doc comment) for the one case fan-out still can't
+     cover — a thing-group target with zero members at `CreateJob` time, later joined by
+     a thing without this backend simulating AWS's lazy continuous-job rollout — rather
+     than removed outright.
+
+  4. **`ListAuditFindings.resourceIdentifier` filtering, previously the family's most-cited
+     "can't be done" item, closed.** The prior pass's reasoning — that
+     `AuditFinding.NonCompliantResource`'s freeform `map[string]any` couldn't honestly
+     discriminate against real AWS's ~10 per-check-type `ResourceIdentifier` fields — was
+     correct as far as it went, but the fix was to stop using a freeform map at all: this
+     pass modeled `ResourceIdentifier` (and its `NonCompliantResource` parent) as real,
+     fully-typed structs matching `types.ResourceIdentifier`/`types.NonCompliantResource`
+     exactly (`account`/`caCertificateId`/`clientId`/`cognitoIdentityPoolId`/
+     `deviceCertificateArn`/`deviceCertificateId`/`iamRoleArn`/
+     `issuerCertificateIdentifier`/`policyVersionIdentifier`/`roleAliasArn`). Once the
+     shape itself is real, the filter's semantics collapse to the same "every field SET
+     on the filter must be present and equal on the target" pattern every other filter in
+     this service already implements — no per-check-type guessing required, because
+     callers (`SeedAuditFinding`) simply populate whichever field is appropriate to the
+     check they're simulating, exactly as real AWS does per finding.
+
+  5. **A genuinely new, previously-untracked gap surfaced along the way, in a different
+     family.** Investigating `ListActiveViolations`/`ListViolationEvents`'
+     `listSuppressedAlerts` and `behaviorCriteriaType` filters led to discovering that
+     `CreateSecurityProfile` doesn't persist `Behaviors`/`AlertTargets`/
+     `AdditionalMetricsToRetain(V2)`/`MetricsExportConfig` AT ALL — `SecurityProfile`
+     never modeled them, despite `ValidateSecurityProfileBehaviors` (a separate,
+     standalone validation-only endpoint) already having a reasonably rich
+     `SecurityProfileBehavior{Name,Metric,Criteria}` shape that's never connected to an
+     actual stored profile. `listSuppressedAlerts` was still honestly implementable (see
+     `ListActiveViolations`' `ops:` entry — suppression modeled as a directly-seedable
+     flag, mirroring `AuditFinding.IsSuppressed`'s identical precedent elsewhere in this
+     exact service), but `behaviorCriteriaType` genuinely is not: there is no
+     behavior-criteria-type data anywhere in this backend to filter on, and building it
+     would mean implementing the missing `SecurityProfile.Behaviors` persistence first —
+     a distinct, substantial project belonging to a `security_profiles` family this
+     service has never tracked before, not a `device_defender` sub-item. Filed as a new
+     `security_profiles` `families:` entry and `gaps:`/`deferred:` item rather than
+     silently worked around or ignored — see those sections above. This is the sole
+     reason `overall:` stays `A-` rather than `A` despite both of this pass's two
+     assigned families (`job_and_jobtemplate`, `device_defender`) now being genuinely
+     `ok`.

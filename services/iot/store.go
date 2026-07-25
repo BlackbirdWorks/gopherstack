@@ -423,7 +423,11 @@ func (b *InMemoryBackend) ListThings() []*Thing {
 	return out
 }
 
-// DeleteThing deletes a Thing by name.
+// DeleteThing deletes a Thing by name. Any JobExecution rows targeting this
+// thing are cascade-deleted along with it (mirrors DeleteJob's cascade over
+// the other side of the same jobId/thingName key) so a deleted thing never
+// leaves a ghost JobExecution behind for DescribeJobExecution/
+// ListJobExecutionsForThing to keep returning.
 func (b *InMemoryBackend) DeleteThing(thingName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -437,6 +441,12 @@ func (b *InMemoryBackend) DeleteThing(thingName string) error {
 	}
 
 	b.things.Delete(thingName)
+
+	for _, exec := range b.jobExecutions.All() {
+		if exec.ThingName == thingName {
+			b.jobExecutions.Delete(jobExecKey(exec.JobID, exec.ThingName))
+		}
+	}
 
 	return nil
 }
