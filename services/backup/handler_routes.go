@@ -52,6 +52,7 @@ func matchesBackupPath(path string) bool {
 		pathTieringConf,
 		pathIndexedRecovery,
 		pathRestoreTestingInferredMeta,
+		pathPITRMalwareScanResults,
 	}
 
 	if slices.Contains(exacts, path) {
@@ -215,6 +216,10 @@ func parseBackupJobFamilyPath(method, path string) backupRoute {
 				operation: opDescribeScanJob,
 				resource:  strings.TrimPrefix(path, pathScanJobs+"/"),
 			}
+		}
+	case path == pathPITRMalwareScanResults:
+		if method == http.MethodGet {
+			return backupRoute{operation: opGetPITRMalwareScanResults}
 		}
 	case path == pathIndexedRecovery:
 		if method == http.MethodGet {

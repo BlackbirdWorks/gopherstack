@@ -37,6 +37,7 @@ type StorageBackend interface {
 	DeleteBroker(brokerID string) (*Broker, error)
 	RebootBroker(brokerID string) error
 	Promote(brokerID, mode string) (*Broker, error)
+	DescribeSharedResources(brokerID string) ([]SharedResource, error)
 
 	// User operations
 	CreateUser(brokerID, username, password string, groups []string, console bool) error

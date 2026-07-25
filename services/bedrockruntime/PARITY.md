@@ -5,9 +5,9 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockruntime
-sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.50.1
+sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.56.0
 last_audit_commit: f581b70ab
-last_audit_date: 2026-07-24
+last_audit_date: 2026-07-25
 overall: A            # genuine fixes found this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -22,6 +22,7 @@ ops:
   StartAsyncInvoke: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAsyncInvoke: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAsyncInvokes: {wire: ok, errors: ok, state: ok, persist: ok}
+  InvokeGuardrailChecks: {wire: partial, errors: ok, state: partial, persist: n/a, note: "NEW this pass (POST /guardrail-checks/invoke, confirmed from serializers.go's awsRestjson1_serializeOpInvokeGuardrailChecks path literal; field-diffed contentFilter/promptAttack/sensitiveInformation config+result shapes against types.go/deserializers.go). Does NOT reference a stored 'bedrock'-service guardrail resource -- Checks is supplied inline in the request, so there is no guardrailIdentifier and nothing in the separate bedrock control-plane backend to consult (confirmed unreachable/inapplicable here, not silently ignored). contentFilter/promptAttack: no real ML classifier exists, so each requested group is present (matches whether the caller asked for it) but its 'results' array is honestly EMPTY rather than carrying a fabricated severityScore per category -- this is a genuine wire-completeness gap (real AWS always returns one entry per requested category) traded deliberately against the alternative of inventing classifier output; wire: partial reflects this. sensitiveInformation: genuinely evaluated via literal, deterministic pattern/format detectors (see handler_guardrail_checks.go's piiDetectors) for EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SOCIAL_SECURITY_NUMBER/CREDIT_DEBIT_CARD_NUMBER (the last Luhn-checksum validated); every other GuardrailChecksSensitiveInformationEntityType value requires free-text NER or a jurisdiction-specific checksum not implemented, and is honestly never matched -- not fabricated. confidenceScore is always exactly 1.0 for a detected entity (a deterministic pattern hit, not an invented probability). usage.*.textUnits is always 0, matching the same not-metered precedent ApplyGuardrail already established for its usage block."}
 families:
   model-path-routing: {status: ok, note: "unchanged this pass; extractModelID/ExtractResource ARN-embedded-slash fix from the prior audit re-verified still correct"}
   guardrail-path-routing: {status: ok, note: "unchanged this pass"}
@@ -33,6 +34,8 @@ gaps:
   - "CountTokens' invokeModel-body token estimate uses raw decoded-byte length as a chars proxy (cannot know the tokenizer for arbitrary model-specific InvokeModel body formats); acceptable per parity rules (deterministic mock), documented as an approximation in code comments"
   - "Converse's guardrailConfig body field (GuardrailIdentifier/GuardrailVersion) is accepted opaquely (json.RawMessage, unparsed) but not validated for the identifier-requires-version precondition that InvokeModel's equivalent HEADER fields now enforce -- both fields are optional/unrequired on types.GuardrailConfiguration (no smithy 'required' trait, verified), so the real SDK client does not enforce this combination client-side either; low-value/out-of-budget this pass since Converse's mock inference doesn't depend on guardrail semantics to produce a valid response"
   - "StartAsyncInvoke does not validate the real, client-side-required 'modelInput' body member is present -- deliberately not added: the real aws-sdk-go-v2 client enforces this required struct field before ever constructing the HTTP request (addOpStartAsyncInvokeValidationMiddleware), so no real SDK-driven caller can produce a request that omits it; adding server-side validation for it would only add risk (touches ~8 existing test bodies) for a scenario no real client can trigger"
+  - "InvokeGuardrailChecks' contentFilter (VIOLENCE/HATE/SEXUAL/MISCONDUCT/INSULTS) and promptAttack (JAILBREAK/PROMPT_INJECTION/PROMPT_LEAKAGE) checks always return an empty results list for a requested group instead of one severityScore entry per requested category: gopherstack has no real ML content/prompt-injection classifier, and a per-category score would be pure fabrication. Documented, not hidden -- see the op note above."
+  - "InvokeGuardrailChecks' sensitiveInformation check only genuinely detects EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SOCIAL_SECURITY_NUMBER/CREDIT_DEBIT_CARD_NUMBER (literal, deterministic formats). Every other GuardrailChecksSensitiveInformationEntityType (NAME, ADDRESS, AGE, PASSWORD, DRIVER_ID, LICENSE_PLATE, AWS_SECRET_KEY, and the various bank/tax/passport/health-ID entity types) requires free-text NER or a jurisdiction-specific checksum this backend does not implement, so those types are honestly never matched rather than fabricated."
 deferred: []
 leaks: {status: clean, note: "unchanged this pass; janitor (RunJanitor/StartWorker/Shutdown) uses context-bounded worker.Group with proper cancel+done-channel wiring; no goroutine leaks found. No new goroutines/locks introduced by this pass's fixes (all pure request/response shape changes)."}
 ---
@@ -156,6 +159,15 @@ leaks: {status: clean, note: "unchanged this pass; janitor (RunJanitor/StartWork
   combined with a non-`application/json` content type (also documented). `InvokeModelWithBidirectionalStream`
   does NOT get this check -- its real `Input` struct has only `ModelId` (verified against
   `api_op_InvokeModelWithBidirectionalStream.go`), no guardrail headers exist on that operation.
+
+- **InvokeGuardrailChecks routing**: `POST /guardrail-checks/invoke` is a fixed, standalone endpoint --
+  it is NOT under `guardrailPathPrefix` (`/guardrail/`) despite the name similarity to ApplyGuardrail's
+  `/guardrail/{id}/version/{ver}/apply`. `"/guardrail-checks/invoke"` does not share that prefix (the
+  character after `/guardrail` is `-`, not `/`), so it is matched/dispatched as its own case in
+  `RouteMatcher`/`Handler()`/`asyncOrGuardrailOperation`, not folded into `handleGuardrailPath`. It also
+  takes its check configuration inline in the request body rather than a path-embedded
+  guardrailIdentifier/guardrailVersion -- there is no guardrail resource lookup at all for this
+  operation, in gopherstack or in real AWS.
 
 - **PerformanceConfigLatency echo**: `InvokeModel`/`InvokeModelWithResponseStream`'s
   `X-Amzn-Bedrock-Performanceconfig-Latency` request header now echoes onto the response (real output

@@ -1,8 +1,8 @@
 ---
 service: backup
-sdk_module: aws-sdk-go-v2/service/backup@v1.54.8
+sdk_module: aws-sdk-go-v2/service/backup@v1.59.0
 last_audit_commit: 621eeacb
-last_audit_date: 2026-07-23
+last_audit_date: 2026-07-25
 overall: A            # all 4 prior gaps closed with real fixes + tests; all 4 prior deferred items field-diffed and closed; a service-wide error-code/HTTP-status bug found and fixed (see notes)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -51,6 +51,7 @@ ops:
   UpdateFramework: {wire: ok, errors: ok, state: ok, persist: ok, note: "GAP CLOSED this pass -- FrameworkControls was not even accepted by UpdateFramework (real UpdateFrameworkInput.FrameworkControls lets you replace a framework's controls); now supported, omitted-field-means-unchanged"}
   CreateReportPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "ReportDeliveryChannel was missing S3KeyPrefix; ReportSetting was missing Accounts/OrganizationUnits/Regions/NumberOfFrameworks. All added, field-diffed against types.ReportDeliveryChannel/types.ReportSetting."}
   UpdateReportPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "GAP CLOSED this pass -- ReportDeliveryChannel/ReportSetting were not accepted by UpdateReportPlan at all (only description); real UpdateReportPlanInput accepts both. Now supported, omitted-field-means-unchanged."}
+  GetPITRMalwareScanResults: {wire: partial, errors: ok, state: ok, persist: n/a, note: "NEW this pass (GET /scan/pitr-malware-scan-results, confirmed from serializers.go's awsRestjson1_serializeOpGetPITRMalwareScanResults path literal; all 4 input members -- BackupVaultName/MalwareScanner/RecoveryPointArn/ScanEndTime -- are query-string params per awsRestjson1_serializeOpHttpBindingsGetPITRMalwareScanResultsInput, not path segments or a JSON body, field-diffed against GetPITRMalwareScanResultsInput/Output and types.ScanResultInfo/ScanResultStatus). Real state validated: BackupVaultName resolved via DescribeBackupVault, RecoveryPointArn validated against that vault via DescribeRecoveryPoint -- both genuinely fail (400 ResourceNotFoundException, matching this service's uniform 400-for-not-found convention -- see errors.go) for an unknown vault or recovery point, not accepted verbatim. No malware scanning engine exists in this backend (GuardDuty malware-protection integration is out of scope/unmodeled), so ScanResult.ScanResultStatus is always the SDK's own 'UNKNOWN' enum value -- never a fabricated NO_THREATS_FOUND/THREATS_FOUND verdict, infected-file count, or threat name. ScanId/ScanMode/LastScanJobTime (all optional output members) are omitted entirely rather than populated with an invented ID/mode/timestamp. wire: partial reflects that these three optional members are never populated (by design, not oversight) rather than a genuine wire-shape defect -- ScanEndTime (required) and ScanResult (required) are both correctly present and accurate."}
 families:
   BackupVault: {status: ok, note: "CRUD, AccessPolicy, Notifications, Lock all verified against real paths/methods and already correct. mpaApprovalTeam Associate/Disassociate both fixed to responseCode 204 this pass (see ops). DescribeBackupVault field-diffed and extended (EncryptionKeyType, MpaApprovalTeamArn) this pass."}
   BackupPlan: {status: ok, note: "CRUD + versions + selections verified against real paths; already correct."}
@@ -77,6 +78,7 @@ gaps: []
 residual_gaps:
   - "DescribeBackupVault still omits MpaSessionArn and LatestMpaApprovalTeamUpdate. This backend's AssociateBackupVaultMpaApprovalTeam only ever stores an MpaApprovalTeamArn string (b.mpaApprovals map[string]string) -- there is no modeled MPA-session-approval workflow (session creation, approval status, expiry) anywhere in this service to source MpaSessionArn/LatestMpaApprovalTeamUpdate from. Populating them would mean fabricating session/approval state that isn't backed by any real API call in this emulator (CreateRestoreAccessBackupVault is MPA-adjacent but doesn't create an approval-team *session*) -- left genuinely open rather than invented. Real fix needs a broader MPA-session model, out of scope for a single-pass field-diff."
   - "ListBackupPlanVersions and ExportBackupPlanTemplate (backup_plans.go) silently swallow backend not-found errors and return an empty-but-200 response instead of propagating ResourceNotFoundException -- found while auditing this service's not-found-error-wrapping conventions (see notes below), NOT part of the original 4 gaps/4 deferred scope for this pass, left open."
+  - "GetPITRMalwareScanResults has no malware scanning engine backing it (this emulator does not integrate with GuardDuty malware protection). ScanResultStatus is always 'UNKNOWN' and ScanId/ScanMode/LastScanJobTime are always absent -- an honest, documented limitation (see ops.GetPITRMalwareScanResults), not a hidden gap. Also: recovery points are not checked for continuous-backup/PITR eligibility (this backend has no EnableContinuousBackup-style flag on RecoveryPoint) -- a recovery point that would not actually support PITR in real AWS is still accepted here as long as it exists."
 deferred: []
   # All 4 deferred items from the 2026-07-12 audit are now closed with real
   # fixes + tests (see the matching families/ops entries above):
@@ -212,3 +214,17 @@ leaks: {status: clean, note: "Janitor's advanceCreatedJobs takes the backend RLo
   they were all internally self-consistent (this service's own tests
   asserted the wrong values right back at it) until compared against
   ground truth.
+
+- **GetPITRMalwareScanResults is the one Backup GET operation whose entire
+  input lives in the query string, not the path.** Every other GET in this
+  service addresses its target with a URI path segment
+  (`/backup-vaults/{name}`, `/legal-holds/{id}`, ...); this one has a fixed
+  literal path (`/scan/pitr-malware-scan-results`, no `{...}` segments at
+  all) and binds `BackupVaultName`/`MalwareScanner`/`RecoveryPointArn`/
+  `ScanEndTime` as query parameters instead (confirmed against
+  `awsRestjson1_serializeOpHttpBindingsGetPITRMalwareScanResultsInput`).
+  `handleGetPITRMalwareScanResults` reads `c.Request().URL.Query()`
+  directly rather than using `route.resource`. There is no real malware
+  scanner behind this handler (see gaps) -- `ScanResultStatus` is always
+  `"UNKNOWN"`, one of the three real enum values, meaning exactly
+  "no determination available," not a disguised clean/infected claim.

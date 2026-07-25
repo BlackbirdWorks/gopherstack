@@ -32,6 +32,7 @@ const (
 	opDescribeBrokerInstanceOptions = "DescribeBrokerInstanceOptions"
 	opDescribeConfiguration         = "DescribeConfiguration"
 	opDescribeConfigurationRevision = "DescribeConfigurationRevision"
+	opDescribeSharedResources       = "DescribeSharedResources"
 	opDescribeUser                  = "DescribeUser"
 	opListBrokers                   = "ListBrokers"
 	opListConfigurationRevisions    = "ListConfigurationRevisions"
@@ -54,6 +55,7 @@ const (
 	brokerInstanceOptPath = "/v1/broker-instance-options"
 	rebootSuffix          = "/reboot"
 	promoteSuffix         = "/promote"
+	sharedResourcesSuffix = "/shared-resources"
 	usersSuffix           = "/users"
 	revisionsSuffix       = "/revisions"
 	mqDefaultPageSize     = 100
@@ -88,6 +90,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDescribeBrokerInstanceOptions,
 		opDescribeConfiguration,
 		opDescribeConfigurationRevision,
+		opDescribeSharedResources,
 		opDescribeUser,
 		opListBrokers,
 		opListConfigurationRevisions,
@@ -216,6 +219,13 @@ func parseBrokerRoute(method, suffix string) mqRoute {
 	if before, ok := strings.CutSuffix(id, promoteSuffix); ok {
 		if method == http.MethodPost {
 			return mqRoute{operation: opPromote, resource: before}
+		}
+	}
+
+	// /v1/brokers/{id}/shared-resources
+	if before, ok := strings.CutSuffix(id, sharedResourcesSuffix); ok {
+		if method == http.MethodGet {
+			return mqRoute{operation: opDescribeSharedResources, resource: before}
 		}
 	}
 
@@ -356,6 +366,8 @@ func (h *Handler) dispatchReadOps(c *echo.Context, route mqRoute) (bool, error) 
 		return true, h.handleDeleteBroker(c, route.resource)
 	case opRebootBroker:
 		return true, h.handleRebootBroker(c, route.resource)
+	case opDescribeSharedResources:
+		return true, h.handleDescribeSharedResources(c, route.resource)
 	case opDescribeBrokerEngineTypes:
 		return true, h.handleDescribeBrokerEngineTypes(c)
 	case opDescribeBrokerInstanceOptions:

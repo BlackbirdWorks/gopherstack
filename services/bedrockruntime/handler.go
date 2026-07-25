@@ -22,10 +22,17 @@ const (
 	asyncInvokeItemPathPrefix = asyncInvokePathPrefix + "/"
 )
 
+// guardrailChecksPath is declared in handler_guardrail_checks.go
+// ("/guardrail-checks/invoke", confirmed from serializers.go). It is a
+// distinct fixed endpoint, NOT under guardrailPathPrefix ("/guardrail/") --
+// InvokeGuardrailChecks takes its check configuration inline in the request
+// body rather than referencing a stored guardrailIdentifier.
+
 const (
 	opConverse                      = "Converse"
 	opConverseStream                = "ConverseStream"
 	opCountTokens                   = "CountTokens"
+	opInvokeGuardrailChecks         = "InvokeGuardrailChecks"
 	opInvokeModel                   = "InvokeModel"
 	opInvokeModelWithBidiStream     = "InvokeModelWithBidirectionalStream"
 	opInvokeModelWithResponseStream = "InvokeModelWithResponseStream"
@@ -132,6 +139,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opConverseStream,
 		opCountTokens,
 		"GetAsyncInvoke",
+		opInvokeGuardrailChecks,
 		opInvokeModel,
 		opInvokeModelWithBidiStream,
 		opInvokeModelWithResponseStream,
@@ -161,6 +169,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return strings.HasPrefix(path, modelPathPrefix) ||
 			strings.HasPrefix(path, guardrailPathPrefix) ||
+			path == guardrailChecksPath ||
 			path == asyncInvokePathPrefix ||
 			strings.HasPrefix(path, asyncInvokeItemPathPrefix)
 	}
@@ -227,6 +236,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleModelPath(c, method, path, body)
 		case strings.HasPrefix(path, guardrailPathPrefix):
 			return h.handleGuardrailPath(c, method, path, body)
+		case path == guardrailChecksPath:
+			if method != http.MethodPost {
+				return c.JSON(http.StatusMethodNotAllowed, errorResponse("ValidationException", "method not allowed"))
+			}
+
+			return h.handleInvokeGuardrailChecks(c, body)
 		case path == asyncInvokePathPrefix || strings.HasPrefix(path, asyncInvokeItemPathPrefix):
 			return h.handleAsyncInvokePath(c, method, path, body)
 		default:
@@ -392,6 +407,8 @@ func asyncOrGuardrailOperation(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, guardrailPathPrefix) && strings.HasSuffix(path, "/apply"):
 		return "ApplyGuardrail"
+	case path == guardrailChecksPath && method == http.MethodPost:
+		return opInvokeGuardrailChecks
 	case path == asyncInvokePathPrefix && method == http.MethodGet:
 		return "ListAsyncInvokes"
 	case path == asyncInvokePathPrefix && method == http.MethodPost:

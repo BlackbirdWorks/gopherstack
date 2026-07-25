@@ -3,7 +3,9 @@ package backup_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -281,4 +283,168 @@ func TestAuditReportPlan_CRUD(t *testing.T) {
 	// Delete
 	rec5 := doREST(t, h, http.MethodDelete, "/audit/report-plans/"+planName, nil)
 	assert.Equal(t, http.StatusOK, rec5.Code)
+}
+
+// TestGetPITRMalwareScanResults exercises GET /scan/pitr-malware-scan-results
+// through the real router path. This backend has no malware scanning
+// engine, so the table asserts the honest contract: BackupVaultName and
+// RecoveryPointArn are validated against real backend state (unknown values
+// genuinely fail), required query params are enforced, and a successful
+// call reports ScanResultStatus "UNKNOWN" -- never a fabricated
+// NO_THREATS_FOUND/THREATS_FOUND verdict, infected-file count, threat name,
+// scan ID, or scan mode.
+func TestGetPITRMalwareScanResults(t *testing.T) {
+	t.Parallel()
+
+	const validScanEndTime = "2026-01-01T00:00:00Z"
+
+	tests := []struct {
+		setup        func(t *testing.T, b *backup.InMemoryBackend) (vaultName, rpArn string)
+		name         string
+		malwareScan  string
+		scanEndTime  string
+		wantStatus   int
+		omitVault    bool
+		omitScanner  bool
+		omitRPArn    bool
+		omitScanTime bool
+	}{
+		{
+			name:        "missing_backup_vault_name",
+			omitVault:   true,
+			malwareScan: "GUARDDUTY",
+			scanEndTime: validScanEndTime,
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "missing_malware_scanner",
+			omitScanner: true,
+			scanEndTime: validScanEndTime,
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "missing_recovery_point_arn",
+			omitRPArn:   true,
+			malwareScan: "GUARDDUTY",
+			scanEndTime: validScanEndTime,
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:         "missing_scan_end_time",
+			malwareScan:  "GUARDDUTY",
+			omitScanTime: true,
+			wantStatus:   http.StatusBadRequest,
+		},
+		{
+			name:        "invalid_malware_scanner_value",
+			malwareScan: "SOME_OTHER_SCANNER",
+			scanEndTime: validScanEndTime,
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "invalid_scan_end_time_format",
+			malwareScan: "GUARDDUTY",
+			scanEndTime: "not-a-timestamp",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "unknown_backup_vault_rejected",
+			malwareScan: "GUARDDUTY",
+			scanEndTime: validScanEndTime,
+			setup: func(_ *testing.T, _ *backup.InMemoryBackend) (string, string) {
+				return "no-such-vault", "arn:aws:backup:us-east-1:000000000000:recovery-point:no-such-rp"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "unknown_recovery_point_in_real_vault_rejected",
+			malwareScan: "GUARDDUTY",
+			scanEndTime: validScanEndTime,
+			setup: func(t *testing.T, b *backup.InMemoryBackend) (string, string) {
+				t.Helper()
+				mustVault(t, b, "pitr-vault-1")
+
+				return "pitr-vault-1", "arn:aws:backup:us-east-1:000000000000:recovery-point:no-such-rp"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "real_vault_and_recovery_point_returns_honest_unknown",
+			malwareScan: "GUARDDUTY",
+			scanEndTime: validScanEndTime,
+			setup: func(t *testing.T, b *backup.InMemoryBackend) (string, string) {
+				t.Helper()
+				mustVault(t, b, "pitr-vault-2")
+
+				rpArn := "arn:aws:backup:us-east-1:000000000000:recovery-point:pitr-rp-1"
+				mustRP(t, b, "pitr-vault-2", rpArn, "arn:aws:ec2:us-east-1:000000000000:instance/i-1", "EC2")
+
+				return "pitr-vault-2", rpArn
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newHandler(t)
+
+			vaultName, rpArn := "pitr-vault-default", "arn:aws:backup:us-east-1:000000000000:recovery-point:default"
+			if tt.setup != nil {
+				vaultName, rpArn = tt.setup(t, b)
+			}
+
+			q := url.Values{}
+			if !tt.omitVault {
+				q.Set("BackupVaultName", vaultName)
+			}
+
+			if !tt.omitScanner {
+				scanner := tt.malwareScan
+				if scanner == "" {
+					scanner = "GUARDDUTY"
+				}
+
+				q.Set("MalwareScanner", scanner)
+			}
+
+			if !tt.omitRPArn {
+				q.Set("RecoveryPointArn", rpArn)
+			}
+
+			if !tt.omitScanTime {
+				scanEndTime := tt.scanEndTime
+				if scanEndTime == "" {
+					scanEndTime = validScanEndTime
+				}
+
+				q.Set("ScanEndTime", scanEndTime)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/scan/pitr-malware-scan-results?"+q.Encode(), "")
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			resp := parseResp(t, rec)
+
+			scanResult, ok := resp["ScanResult"].(map[string]any)
+			require.True(t, ok, "ScanResult must be present (required output member)")
+			assert.Equal(t, "UNKNOWN", scanResult["ScanResultStatus"],
+				"no malware scanner exists; must report UNKNOWN, never a fabricated verdict")
+
+			wantEndTime, err := time.Parse(time.RFC3339, validScanEndTime)
+			require.NoError(t, err)
+			assert.InDelta(t, float64(wantEndTime.Unix()), resp["ScanEndTime"], 0,
+				"ScanEndTime must echo the request value, not a fabricated timestamp")
+
+			assert.NotContains(t, resp, "ScanId", "must not fabricate a scan ID")
+			assert.NotContains(t, resp, "ScanMode", "must not fabricate a scan mode")
+			assert.NotContains(t, resp, "LastScanJobTime", "must not fabricate a last-scan timestamp")
+		})
+	}
 }

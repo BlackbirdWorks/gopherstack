@@ -111,6 +111,11 @@ func TestBrokerNotFound(t *testing.T) {
 			path:   "/v1/brokers/nonexistent-id",
 			body:   map[string]any{"engineVersion": "5.16.7"},
 		},
+		{
+			name:   "shared_resources_nonexistent",
+			method: http.MethodGet,
+			path:   "/v1/brokers/nonexistent-id/shared-resources",
+		},
 	}
 
 	for _, tt := range tests {
@@ -120,6 +125,45 @@ func TestBrokerNotFound(t *testing.T) {
 			h := newTestHandler(t)
 			rec := doRequest(t, h, tt.method, tt.path, tt.body)
 			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+// TestDescribeSharedResources verifies the DescribeSharedResources route
+// against real backend state: this emulator does not model AWS RAM resource
+// sharing, so a valid broker always yields an honest, empty (non-null)
+// sharedResources list rather than a fabricated entry.
+func TestDescribeSharedResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		engineType string
+	}{
+		{name: "activemq_broker", engineType: mq.EngineTypeActiveMQ},
+		{name: "rabbitmq_broker", engineType: mq.EngineTypeRabbitMQ},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			brokerID := createTestBroker(t, h, "shared-resources-"+tt.name, tt.engineType)
+
+			rec := doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/shared-resources", nil)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseResponse(t, rec)
+			resources, ok := resp["sharedResources"].([]any)
+			require.True(t, ok, "sharedResources must be a JSON array, not null")
+			assert.Empty(t, resources, "backend does not model RAM resource sharing; must not fabricate entries")
+
+			// No verdict/score/status field should appear anywhere at the top
+			// level since there is nothing evaluated -- guards against a
+			// future edit silently inventing a status summary.
+			_, hasStatus := resp["status"]
+			assert.False(t, hasStatus, "must not fabricate a shared-resource status")
 		})
 	}
 }

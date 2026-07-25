@@ -343,6 +343,21 @@ func (h *Handler) handleRebootBroker(c *echo.Context, brokerID string) error {
 	return c.NoContent(http.StatusOK)
 }
 
+// handleDescribeSharedResources returns the resources shared to a broker via
+// AWS RAM. This backend does not model RAM resource sharing (see
+// InMemoryBackend.DescribeSharedResources), so a valid broker always yields
+// an empty (non-null) sharedResources list -- there is nothing to paginate,
+// so maxResults/nextToken are accepted per the SDK's input shape but do not
+// affect the (always empty) result.
+func (h *Handler) handleDescribeSharedResources(c *echo.Context, brokerID string) error {
+	resources, err := h.Backend.DescribeSharedResources(brokerID)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"sharedResources": resources})
+}
+
 // brokerResponse is the full broker detail response.
 type brokerResponse struct {
 	EncryptionOptions          *EncryptionOptions       `json:"encryptionOptions,omitempty"`

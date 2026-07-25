@@ -301,6 +301,9 @@ func (h *Handler) dispatchReportJobOps(
 			keyScanJobID:    job.ScanJobID,
 			keyCreationDate: epochSeconds(job.CreationTime),
 		})
+	case opGetPITRMalwareScanResults:
+
+		return true, h.handleGetPITRMalwareScanResults(c)
 	}
 
 	return false, nil
