@@ -82,6 +82,21 @@ func TestHandlerClassifyPath(t *testing.T) {
 		{http.MethodGet, "/tags/arn:aws:bedrock:us-east-1::agent/abc", "ListTagsForResource"},
 		{http.MethodPost, "/tags/arn:aws:bedrock:us-east-1::agent/abc", "TagResource"},
 		{http.MethodDelete, "/tags/arn:aws:bedrock:us-east-1::agent/abc", "UntagResource"},
+		{
+			http.MethodPut,
+			"/resourcepolicy/arn:aws:bedrock:us-east-1:123456789012:knowledge-base/kb-00000001",
+			"PutResourcePolicy",
+		},
+		{
+			http.MethodGet,
+			"/resourcepolicy/arn:aws:bedrock:us-east-1:123456789012:knowledge-base/kb-00000001",
+			"GetResourcePolicy",
+		},
+		{
+			http.MethodDelete,
+			"/resourcepolicy/arn:aws:bedrock:us-east-1:123456789012:knowledge-base/kb-00000001",
+			"DeleteResourcePolicy",
+		},
 	}
 
 	for _, tc := range cases {

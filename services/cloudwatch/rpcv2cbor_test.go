@@ -531,15 +531,17 @@ func TestCBOR_NewOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup            func(t *testing.T, h *cloudwatch.Handler)
-		body             cbor.Map
-		name             string
-		op               string
-		wantListField    string
-		wantCode         int
-		wantListLen      int
-		wantListNotEmpty bool
-		wantListEmpty    bool
+		setup             func(t *testing.T, h *cloudwatch.Handler)
+		body              cbor.Map
+		name              string
+		op                string
+		wantListField     string
+		wantField         string
+		wantFieldContains string
+		wantCode          int
+		wantListLen       int
+		wantListNotEmpty  bool
+		wantListEmpty     bool
 	}{
 		// PutCompositeAlarm
 		{
@@ -759,6 +761,134 @@ func TestCBOR_NewOperations(t *testing.T) {
 			},
 			wantCode: http.StatusOK,
 		},
+		// PutLogAlarm
+		{
+			name:     "PutLogAlarm/success",
+			op:       "PutLogAlarm",
+			body:     validLogAlarmCBORBody("log-cbor-1"),
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "PutLogAlarm/missing name",
+			op:       "PutLogAlarm",
+			body:     cbor.Map{"ComparisonOperator": cbor.String("GreaterThanThreshold")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "DescribeAlarms/log_alarm_excluded_by_default",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutLogAlarm", validLogAlarmCBORBody("log-cbor-hidden"))
+			},
+			op:            "DescribeAlarms",
+			body:          cbor.Map{},
+			wantCode:      http.StatusOK,
+			wantListField: "LogAlarms",
+			wantListEmpty: true,
+		},
+		{
+			name: "DescribeAlarms/log_alarm_included_when_requested",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutLogAlarm", validLogAlarmCBORBody("log-cbor-shown"))
+			},
+			op: "DescribeAlarms",
+			body: cbor.Map{
+				"AlarmTypes": cbor.List{cbor.String("LogAlarm")},
+			},
+			wantCode:         http.StatusOK,
+			wantListField:    "LogAlarms",
+			wantListNotEmpty: true,
+		},
+		// GetDataset / AssociateDatasetKmsKey / DisassociateDatasetKmsKey
+		{
+			name:              "GetDataset/default",
+			op:                "GetDataset",
+			body:              cbor.Map{"DatasetIdentifier": cbor.String("default")},
+			wantCode:          http.StatusOK,
+			wantField:         "DatasetId",
+			wantFieldContains: "default",
+		},
+		{
+			name:     "GetDataset/unsupported identifier",
+			op:       "GetDataset",
+			body:     cbor.Map{"DatasetIdentifier": cbor.String("not-default")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "AssociateDatasetKmsKey/success",
+			op:   "AssociateDatasetKmsKey",
+			body: cbor.Map{
+				"DatasetIdentifier": cbor.String("default"),
+				"KmsKeyArn": cbor.String(
+					"arn:aws:kms:us-east-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+				),
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "AssociateDatasetKmsKey/invalid key arn",
+			op:   "AssociateDatasetKmsKey",
+			body: cbor.Map{
+				"DatasetIdentifier": cbor.String("default"),
+				"KmsKeyArn":         cbor.String("not-an-arn"),
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DisassociateDatasetKmsKey/no key associated",
+			op:       "DisassociateDatasetKmsKey",
+			body:     cbor.Map{"DatasetIdentifier": cbor.String("default")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "DisassociateDatasetKmsKey/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "AssociateDatasetKmsKey", cbor.Map{
+					"DatasetIdentifier": cbor.String("default"),
+					"KmsKeyArn": cbor.String(
+						"arn:aws:kms:us-east-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+					),
+				})
+			},
+			op:       "DisassociateDatasetKmsKey",
+			body:     cbor.Map{"DatasetIdentifier": cbor.String("default")},
+			wantCode: http.StatusOK,
+		},
+		// GetOTelEnrichment / StartOTelEnrichment / StopOTelEnrichment
+		{
+			name:              "GetOTelEnrichment/default_stopped",
+			op:                "GetOTelEnrichment",
+			body:              cbor.Map{},
+			wantCode:          http.StatusOK,
+			wantField:         "Status",
+			wantFieldContains: "Stopped",
+		},
+		{
+			name:     "StartOTelEnrichment/success",
+			op:       "StartOTelEnrichment",
+			body:     cbor.Map{},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "GetOTelEnrichment/after_start_is_running",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "StartOTelEnrichment", cbor.Map{})
+			},
+			op:                "GetOTelEnrichment",
+			body:              cbor.Map{},
+			wantCode:          http.StatusOK,
+			wantField:         "Status",
+			wantFieldContains: "Running",
+		},
+		{
+			name:     "StopOTelEnrichment/success",
+			op:       "StopOTelEnrichment",
+			body:     cbor.Map{},
+			wantCode: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -788,7 +918,35 @@ func TestCBOR_NewOperations(t *testing.T) {
 					assert.Len(t, list, tt.wantListLen)
 				}
 			}
+
+			if tt.wantField != "" {
+				m := decodeCBORResponse(t, rec)
+				v, ok := m[tt.wantField].(cbor.String)
+				require.True(t, ok)
+				assert.Contains(t, string(v), tt.wantFieldContains)
+			}
 		})
+	}
+}
+
+// validLogAlarmCBORBody builds a PutLogAlarm CBOR request body that satisfies
+// backend validation, for tests that only care about the alarm existing.
+func validLogAlarmCBORBody(alarmName string) cbor.Map {
+	return cbor.Map{
+		"AlarmName":              cbor.String(alarmName),
+		"ComparisonOperator":     cbor.String("GreaterThanThreshold"),
+		"Threshold":              cbor.Float64(1.0),
+		"QueryResultsToAlarm":    cbor.Uint(1),
+		"QueryResultsToEvaluate": cbor.Uint(1),
+		"ScheduledQueryConfiguration": cbor.Map{
+			"AggregationExpression": cbor.String("count(*)"),
+			"QueryString":           cbor.String("fields @message"),
+			"ScheduledQueryRoleARN": cbor.String("arn:aws:iam::123456789012:role/cw-log-alarm"),
+			"ScheduleConfiguration": cbor.Map{
+				"ScheduleExpression": cbor.String("rate(5 minutes)"),
+				"StartTimeOffset":    cbor.Uint(300),
+			},
+		},
 	}
 }
 
@@ -1201,8 +1359,13 @@ func TestCBOR_DescribeAlarms_CompositeAlarm_StateTransitionedTimestamp(t *testin
 				"StateReason": cbor.String("manual"),
 			})
 
+			// AlarmTypes must be explicit: DescribeAlarms defaults to metric
+			// alarms only when AlarmTypes is omitted (bd gopherstack-yvb7), so
+			// a composite alarm is invisible here without it, even though
+			// AlarmNames names it directly.
 			rec := postCBOR(t, h, "DescribeAlarms", cbor.Map{
 				"AlarmNames": cbor.List{cbor.String("comp-cbor")},
+				"AlarmTypes": cbor.List{cbor.String("CompositeAlarm")},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1281,7 +1444,7 @@ func TestCBOR_PutMetricAlarm_Dimensions_Stored(t *testing.T) {
 			rec := postCBOR(t, h, "PutMetricAlarm", body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			page, _, err := b.DescribeAlarms([]string{"dim-alarm"}, nil, "", "", "", 0)
+			page, _, _, err := b.DescribeAlarms([]string{"dim-alarm"}, nil, "", "", "", 0)
 			require.NoError(t, err)
 			require.Len(t, page.Data, 1)
 

@@ -148,7 +148,7 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 	nextToken := form.Get("NextToken")
 	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
 
-	metricPage, compositePage, err := h.Backend.DescribeAlarms(
+	metricPage, compositePage, logPage, err := h.Backend.DescribeAlarms(
 		alarmNames,
 		alarmTypes,
 		alarmNamePrefix,
@@ -170,15 +170,24 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 		compositeMembers = append(compositeMembers, compositeAlarmToXML(a))
 	}
 
+	logMembers := make([]logAlarmXML, 0, len(logPage.Data))
+	for _, a := range logPage.Data {
+		logMembers = append(logMembers, logAlarmToXML(a))
+	}
+
 	nextTok := metricPage.Next
 	if nextTok == "" {
 		nextTok = compositePage.Next
+	}
+	if nextTok == "" {
+		nextTok = logPage.Next
 	}
 
 	type descResult struct {
 		NextToken       string                  `xml:"NextToken,omitempty"`
 		MetricAlarms    []metricAlarmXML        `xml:"MetricAlarms>member"`
 		CompositeAlarms []compositeAlarmXMLType `xml:"CompositeAlarms>member"`
+		LogAlarms       []logAlarmXML           `xml:"LogAlarms>member"`
 	}
 	type response struct {
 		XMLName   xml.Name   `xml:"DescribeAlarmsResponse"`
@@ -192,6 +201,7 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 		Result: descResult{
 			MetricAlarms:    metricMembers,
 			CompositeAlarms: compositeMembers,
+			LogAlarms:       logMembers,
 			NextToken:       nextTok,
 		},
 		RequestID: uuid.New().String(),

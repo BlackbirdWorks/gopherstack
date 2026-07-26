@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -822,4 +823,118 @@ func extractClientVpnEndpointID(t *testing.T, body string) string {
 	require.GreaterOrEqual(t, end, 0, "clientVpnEndpointId closing tag not found in body: %s", body)
 
 	return body[start : start+end]
+}
+
+// TestClientVpn_TransitGatewayAttachment verifies the 3 new parity-4
+// operations (Accept/Reject/DeleteTransitGatewayClientVpnAttachment) against
+// an attachment created implicitly by CreateClientVpnEndpoint's
+// TransitGatewayConfiguration.TransitGatewayId, and that
+// DescribeTransitGatewayAttachments surfaces it as a "client-vpn" resource.
+func TestClientVpn_TransitGatewayAttachment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, b *ec2.InMemoryBackend) string
+		name     string
+		action   string
+		wantBody []string
+		wantCode int
+	}{
+		{
+			name:   "accept_missing_attachment_not_found",
+			action: "AcceptTransitGatewayClientVpnAttachment",
+			setup: func(*testing.T, *ec2.InMemoryBackend) string {
+				return "tgw-attach-missing"
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidTransitGatewayAttachmentID.NotFound"},
+		},
+		{
+			name:     "accept_transitions_pending_to_available",
+			action:   "AcceptTransitGatewayClientVpnAttachment",
+			setup:    seedTGWClientVpnAttachment,
+			wantCode: http.StatusOK,
+			wantBody: []string{
+				"AcceptTransitGatewayClientVpnAttachmentResponse",
+				"<state>available</state>",
+			},
+		},
+		{
+			name:     "reject_transitions_pending_to_rejected",
+			action:   "RejectTransitGatewayClientVpnAttachment",
+			setup:    seedTGWClientVpnAttachment,
+			wantCode: http.StatusOK,
+			wantBody: []string{
+				"RejectTransitGatewayClientVpnAttachmentResponse",
+				"<state>rejected</state>",
+			},
+		},
+		{
+			name:     "delete_removes_attachment",
+			action:   "DeleteTransitGatewayClientVpnAttachment",
+			setup:    seedTGWClientVpnAttachment,
+			wantCode: http.StatusOK,
+			wantBody: []string{
+				"DeleteTransitGatewayClientVpnAttachmentResponse",
+				"<state>deleted</state>",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+			h := ec2.NewHandler(b)
+
+			attachmentID := tt.setup(t, b)
+
+			rec := postForm(t, h, "Action="+tt.action+
+				"&Version=2016-11-15&TransitGatewayAttachmentId="+attachmentID)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+// seedTGWClientVpnAttachment creates a Transit Gateway and a Client VPN
+// endpoint configured with TransitGatewayConfiguration, which implicitly
+// creates a pending TransitGatewayClientVpnAttachment, and returns its ID
+// (read back via DescribeTransitGatewayAttachments, since there is no
+// standalone Describe op for this attachment type).
+func seedTGWClientVpnAttachment(t *testing.T, b *ec2.InMemoryBackend) string {
+	t.Helper()
+
+	tgw, err := b.CreateTransitGateway("test")
+	require.NoError(t, err)
+
+	_, err = b.CreateClientVpnEndpointWithOptions(
+		"10.0.0.0/22", "tgw-backed", nil,
+		ec2.ClientVpnEndpointOptions{TransitGatewayID: tgw.ID},
+	)
+	require.NoError(t, err)
+
+	atts := b.DescribeTransitGatewayAttachments(nil)
+	require.Len(t, atts, 1)
+	assert.Equal(t, "client-vpn", atts[0].ResourceType)
+	assert.Equal(t, "pending-acceptance", atts[0].State)
+
+	return atts[0].TransitGatewayAttachmentID
+}
+
+// TestClientVpn_CreateWithUnknownTransitGatewayFails verifies
+// CreateClientVpnEndpoint validates TransitGatewayConfiguration.TransitGatewayId
+// against real transit gateway state rather than silently accepting any ID.
+func TestClientVpn_CreateWithUnknownTransitGatewayFails(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	rec := postForm(t, h, "Action=CreateClientVpnEndpoint&Version=2016-11-15&"+
+		"ClientCidrBlock=10.0.0.0/22&TransitGatewayConfiguration.TransitGatewayId=tgw-missing")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidTransitGatewayID.NotFound")
 }

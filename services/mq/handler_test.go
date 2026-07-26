@@ -158,8 +158,9 @@ func TestGetSupportedOperations(t *testing.T) {
 
 	h := newTestHandler(t)
 	ops := h.GetSupportedOperations()
-	assert.Len(t, ops, 24)
+	assert.Len(t, ops, 25)
 	assert.Contains(t, ops, "CreateBroker")
+	assert.Contains(t, ops, "DescribeSharedResources")
 	assert.Contains(t, ops, "DescribeBroker")
 	assert.Contains(t, ops, "ListBrokers")
 	assert.Contains(t, ops, "UpdateBroker")

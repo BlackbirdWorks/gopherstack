@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/acm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,4 +82,122 @@ func TestACMHandler_RequestCertificate_Tags(t *testing.T) {
 
 	assert.Equal(t, "test", tagMap["env"])
 	assert.Equal(t, "infra", tagMap["team"])
+}
+
+// TestACMHandler_GenericResourceTags_RouteByArnType verifies TagResource/
+// ListTagsForResource/UntagResource (field-diffed against the real SDK's
+// Tag/ListTagsForResource/UntagResourceInput -- ResourceArn + Tags/TagKeys)
+// resolve their ResourceArn to the correct resource type -- certificate,
+// ACME endpoint, or ACME external account binding -- rather than assuming a
+// certificate, and that a certificate's tags are the SAME underlying set
+// AddTagsToCertificate/ListTagsForCertificate see (see
+// resolveTaggableResourceArn's doc in handler_resource_tags.go).
+func TestACMHandler_GenericResourceTags_RouteByArnType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *acm.Handler)
+		name string
+	}{
+		{
+			name: "CertificateArn_SharesStoreWithAddTagsToCertificate",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				reqRec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"shared-tags.example.com"}`)
+				require.Equal(t, http.StatusOK, reqRec.Code)
+
+				var reqOut struct {
+					CertificateArn string `json:"CertificateArn"`
+				}
+				require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+
+				// Tag via the certificate-specific op...
+				addBody, _ := json.Marshal(map[string]any{
+					"CertificateArn": reqOut.CertificateArn,
+					"Tags":           []map[string]string{{"Key": "via", "Value": "AddTagsToCertificate"}},
+				})
+				addRec := postACMJSON(t, h, "AddTagsToCertificate", string(addBody))
+				require.Equal(t, http.StatusOK, addRec.Code)
+
+				// ...and read it back via the generic op.
+				listBody, _ := json.Marshal(map[string]string{"ResourceArn": reqOut.CertificateArn})
+				listRec := postACMJSON(t, h, "ListTagsForResource", string(listBody))
+				require.Equal(t, http.StatusOK, listRec.Code)
+				assert.Contains(t, listRec.Body.String(), "AddTagsToCertificate")
+
+				// Tag via the generic op...
+				tagBody, _ := json.Marshal(map[string]any{
+					"ResourceArn": reqOut.CertificateArn,
+					"Tags":        []map[string]string{{"Key": "via", "Value": "TagResource"}},
+				})
+				tagRec := postACMJSON(t, h, "TagResource", string(tagBody))
+				require.Equal(t, http.StatusOK, tagRec.Code, tagRec.Body.String())
+
+				// ...and read it back via the certificate-specific op.
+				certListBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+				certListRec := postACMJSON(t, h, "ListTagsForCertificate", string(certListBody))
+				require.Equal(t, http.StatusOK, certListRec.Code)
+				assert.Contains(t, certListRec.Body.String(), "TagResource")
+			},
+		},
+		{
+			name: "AcmeEndpointArn_TagAndUntag",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				epARN := createTestAcmeEndpoint(t, h)
+
+				tagBody, _ := json.Marshal(map[string]any{
+					"ResourceArn": epARN,
+					"Tags":        []map[string]string{{"Key": "env", "Value": "prod"}},
+				})
+				tagRec := postACMJSON(t, h, "TagResource", string(tagBody))
+				require.Equal(t, http.StatusOK, tagRec.Code, tagRec.Body.String())
+
+				listBody, _ := json.Marshal(map[string]string{"ResourceArn": epARN})
+				listRec := postACMJSON(t, h, "ListTagsForResource", string(listBody))
+				require.Equal(t, http.StatusOK, listRec.Code)
+				assert.Contains(t, listRec.Body.String(), "prod")
+
+				untagBody, _ := json.Marshal(map[string]any{"ResourceArn": epARN, "TagKeys": []string{"env"}})
+				untagRec := postACMJSON(t, h, "UntagResource", string(untagBody))
+				require.Equal(t, http.StatusOK, untagRec.Code)
+
+				listAfterRec := postACMJSON(t, h, "ListTagsForResource", string(listBody))
+				require.Equal(t, http.StatusOK, listAfterRec.Code)
+				assert.NotContains(t, listAfterRec.Body.String(), "prod")
+			},
+		},
+		{
+			name: "UnknownResource_ResourceNotFound",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				body := `{"ResourceArn":"arn:aws:acm:us-east-1:000000000000:acme-endpoint/does-not-exist"}`
+				rec := postACMJSON(t, h, "ListTagsForResource", body)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.Contains(t, rec.Body.String(), "ResourceNotFoundException")
+			},
+		},
+		{
+			name: "MalformedArn_ValidationException",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				rec := postACMJSON(t, h, "ListTagsForResource", `{"ResourceArn":"not-an-arn"}`)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.Contains(t, rec.Body.String(), "ValidationException")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newACMHandler()
+			tt.run(t, h)
+		})
+	}
 }

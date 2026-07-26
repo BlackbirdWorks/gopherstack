@@ -169,6 +169,9 @@ type InMemoryBackend struct {
 	transformers           *store.Table[Transformer]
 	integrations           *store.Table[CWLIntegration]
 	deletionProtected      *store.Table[deletionProtectionEntry]
+	lookupTables           *store.Table[LookupTable]
+	syslogConfigurations   *store.Table[SyslogConfiguration]
+	storageTierPolicy      *store.Table[StorageTierPolicy]
 	exportSink             ExportSink
 	cancel                 context.CancelFunc
 	region                 string

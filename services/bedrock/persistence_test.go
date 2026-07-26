@@ -66,6 +66,8 @@ type fixtureIDs struct {
 	flowAliasID               string
 	promptID                  string
 	enforcedGuardrailConfigID string
+	advancedPromptOptJobARN   string
+	resourcePolicyTargetARN   string
 	guardrailVersionCount     int
 }
 
@@ -97,7 +99,40 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 	require.NoError(t, b.UpdateAutomatedReasoningPolicyAnnotations(ids.arpARN))
 	require.NoError(t, b.TagAgentResource(ids.agentArn, map[string]string{"team": "platform"}))
 
+	seedParity4Resources(t, b, &ids)
+
 	return b, ids
+}
+
+// seedParity4Resources seeds the parity-4 tables/state (advancedPromptOptimizationJobs,
+// resourcePolicies, accountDataRetention) and writes the resulting IDs into
+// ids in place. resourcePolicies attaches to the guardrail ARN seeded by
+// seedGuardrailAndModelResources, proving a real ARN-validated target
+// round-trips.
+func seedParity4Resources(t *testing.T, b *bedrock.InMemoryBackend, ids *fixtureIDs) {
+	t.Helper()
+
+	job, err := b.CreateAdvancedPromptOptimizationJob(bedrock.CreateAdvancedPromptOptimizationJobInput{
+		JobName:      "test-apo-job",
+		InputConfig:  bedrock.AdvancedPromptOptimizationInputConfig{S3URI: "s3://bucket/in"},
+		OutputConfig: bedrock.AdvancedPromptOptimizationOutputConfig{S3URI: "s3://bucket/out"},
+		ModelConfigurations: []bedrock.ModelConfiguration{
+			{ModelID: "amazon.titan-text-express-v1"},
+		},
+	})
+	require.NoError(t, err)
+
+	g, err := b.GetGuardrail(ids.guardrailID)
+	require.NoError(t, err)
+
+	_, err = b.PutResourcePolicy(g.GuardrailArn, `{"Version":"2012-10-17","Statement":[]}`)
+	require.NoError(t, err)
+
+	_, err = b.PutAccountDataRetention("none")
+	require.NoError(t, err)
+
+	ids.advancedPromptOptJobARN = job.JobArn
+	ids.resourcePolicyTargetARN = g.GuardrailArn
 }
 
 // seedGuardrailAndModelResources seeds the guardrail/model-family tables
@@ -370,6 +405,40 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assertKBState(t, fresh, ids)
 	assertFlowPromptState(t, fresh, ids)
 	assertMiscRawState(t, fresh, ids)
+	assertParity4State(t, fresh, ids)
+}
+
+// assertParity4State verifies the parity-4 tables/state
+// (advancedPromptOptimizationJobs, resourcePolicies, accountDataRetention)
+// round-tripped, including their ID/revision counters.
+func assertParity4State(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs) {
+	t.Helper()
+
+	job, err := fresh.GetAdvancedPromptOptimizationJob(ids.advancedPromptOptJobARN)
+	require.NoError(t, err)
+	assert.Equal(t, "test-apo-job", job.JobName)
+	assert.Equal(t, "InProgress", job.JobStatus)
+
+	rp, err := fresh.GetResourcePolicy(ids.resourcePolicyTargetARN)
+	require.NoError(t, err)
+	assert.Contains(t, rp.PolicyDocument, "Statement")
+
+	retention := fresh.GetAccountDataRetention()
+	assert.Equal(t, "none", retention.Mode)
+
+	// ID/revision counters: a newly created job or policy after restore must
+	// not collide with (or otherwise depend on) the state created before the
+	// snapshot.
+	job2, err := fresh.CreateAdvancedPromptOptimizationJob(bedrock.CreateAdvancedPromptOptimizationJobInput{
+		JobName:      "post-restore-apo-job",
+		InputConfig:  bedrock.AdvancedPromptOptimizationInputConfig{S3URI: "s3://bucket/in"},
+		OutputConfig: bedrock.AdvancedPromptOptimizationOutputConfig{S3URI: "s3://bucket/out"},
+		ModelConfigurations: []bedrock.ModelConfiguration{
+			{ModelID: "amazon.titan-text-express-v1"},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEqual(t, ids.advancedPromptOptJobARN, job2.JobArn)
 }
 
 // assertGuardrailAndModelState verifies the guardrail/model-family tables

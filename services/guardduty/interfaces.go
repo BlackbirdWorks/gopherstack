@@ -144,6 +144,13 @@ type StorageBackend interface {
 	UpdateTrustedEntitySet(detectorID, setID, name, location string, activate *bool, expectedBucketOwner string) error
 	DeleteTrustedEntitySet(detectorID, setID string) error
 
+	// Investigations (GuardDuty Extended Threat Detection)
+	CreateInvestigation(detectorID, triggerPrompt string) (*Investigation, error)
+	GetInvestigation(detectorID, investigationID string) (*Investigation, error)
+	ListInvestigations(
+		detectorID string, q InvestigationsQuery,
+	) (investigations []*Investigation, nextToken string, err error)
+
 	AccountID() string
 	Region() string
 	Reset()

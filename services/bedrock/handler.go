@@ -38,6 +38,28 @@ const (
 	inferenceProfilesPrefix      = "/inference-profiles"
 	marketplaceEndpointsPrefix   = "/marketplace-model/endpoints"
 	loggingConfigPath            = "/logging/modelinvocations"
+	// advancedPromptOptimizationJobsPrefix is the real (plural) path for
+	// Create/Get/List/Stop AdvancedPromptOptimizationJob.
+	advancedPromptOptimizationJobsPrefix = "/advanced-prompt-optimization-jobs"
+	// advancedPromptOptimizationJobSingularPrefix is the real SINGULAR path
+	// family for BatchDeleteAdvancedPromptOptimizationJob (POST
+	// .../advanced-prompt-optimization-job/batch-delete) -- same
+	// singular/plural split as evaluationJobSingularPrefix and
+	// modelInvocationJobSingularPrefix above. It is also a strict prefix of
+	// advancedPromptOptimizationJobsPrefix, so a single HasPrefix check
+	// against it alone covers both the singular batch-delete path and every
+	// plural path.
+	advancedPromptOptimizationJobSingularPrefix  = "/advanced-prompt-optimization-job"
+	advancedPromptOptimizationJobBatchDeletePath = "/advanced-prompt-optimization-job/batch-delete"
+	// dataRetentionPath is the real GetAccountDataRetention/
+	// PutAccountDataRetention path.
+	dataRetentionPath = "/data-retention"
+	// resourcePolicyPath is the real core-bedrock PutResourcePolicy/
+	// GetResourcePolicy/DeleteResourcePolicy path prefix (POST
+	// /resource-policy, GET/DELETE /resource-policy/{resourceArn}). Distinct
+	// from bedrock-agent's "/resourcepolicy/{resourceArn}" (no hyphen,
+	// singular) -- see resource_policy.go's package doc comment.
+	resourcePolicyPath = "/resource-policy"
 
 	// Response key constants.
 	keyJobArn                   = "jobArn"
@@ -153,6 +175,13 @@ func (h *Handler) Name() string { return "Bedrock" }
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
+	return append(baseSupportedOperations(), parity4SupportedOperations()...)
+}
+
+// baseSupportedOperations returns every operation supported before the
+// parity-4 SDK bump. Split out of GetSupportedOperations to keep both
+// functions comfortably under the project's function-length gate.
+func baseSupportedOperations() []string {
 	return []string{
 		"BatchDeleteEvaluationJob",
 		"CancelAutomatedReasoningPolicyBuildWorkflow",
@@ -256,6 +285,23 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// parity4SupportedOperations returns the 10 ops added by the
+// aws-sdk-go-v2/service/bedrock bump to v1.66.0 (see PARITY.md).
+func parity4SupportedOperations() []string {
+	return []string{
+		"CreateAdvancedPromptOptimizationJob",
+		"GetAdvancedPromptOptimizationJob",
+		"ListAdvancedPromptOptimizationJobs",
+		"StopAdvancedPromptOptimizationJob",
+		"BatchDeleteAdvancedPromptOptimizationJob",
+		"GetAccountDataRetention",
+		"PutAccountDataRetention",
+		opGetResourcePolicy,
+		opPutResourcePolicy,
+		opDeleteResourcePolicy,
+	}
+}
+
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
 func (h *Handler) ChaosServiceName() string { return "bedrock" }
 
@@ -279,7 +325,14 @@ func matchBedrockPath(path string) bool {
 
 // matchBedrockPrefixPaths returns true if path has a known Bedrock prefix.
 func matchBedrockPrefixPaths(path string) bool {
-	return matchBedrockCorePrefixes(path) || matchBedrockExtPrefixes(path)
+	return matchBedrockCorePrefixes(path) || matchBedrockExtPrefixes(path) || matchBedrockNewFamilyPrefixes(path)
+}
+
+// matchBedrockNewFamilyPrefixes checks the AdvancedPromptOptimizationJob and
+// core-bedrock ResourcePolicy prefixes.
+func matchBedrockNewFamilyPrefixes(path string) bool {
+	return strings.HasPrefix(path, advancedPromptOptimizationJobSingularPrefix) ||
+		strings.HasPrefix(path, resourcePolicyPath)
 }
 
 // matchBedrockCorePrefixes checks the core Bedrock resource prefixes.
@@ -325,7 +378,8 @@ func matchBedrockExactPaths(path string) bool {
 		path == deleteFoundationModelAgreementPath ||
 		path == listTagsForResourcePath ||
 		path == tagResourcePath ||
-		path == untagResourcePath
+		path == untagResourcePath ||
+		path == dataRetentionPath
 }
 
 // MatchPriority returns the routing priority.
@@ -350,6 +404,9 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		extractMarketplaceEndpointOperation,
 		extractLoggingConfigOperation,
 		extractModelInvocationJobOperation,
+		extractAdvancedPromptOptimizationJobOperation,
+		extractAccountDataRetentionOperation,
+		extractResourcePolicyOperation,
 	} {
 		if op, ok := fn(path, method); ok {
 			return op
@@ -468,6 +525,9 @@ func (h *Handler) dispatchExtended(c *echo.Context, path, method string, body []
 	if ok, err := h.routeLoggingConfig(c, path, method, body); ok {
 		return err
 	}
+	if ok, err := h.routeNewFamilies(c, path, method, body); ok {
+		return err
+	}
 
 	if ok, err := h.routeStubOps(c, path, method, body); ok {
 		return err
@@ -477,6 +537,19 @@ func (h *Handler) dispatchExtended(c *echo.Context, path, method string, body []
 		http.StatusNotFound,
 		errorResponse("UnknownOperationException", "unknown operation: "+path),
 	)
+}
+
+// routeNewFamilies handles the AdvancedPromptOptimizationJob,
+// AccountDataRetention, and core-bedrock ResourcePolicy route groups.
+func (h *Handler) routeNewFamilies(c *echo.Context, path, method string, body []byte) (bool, error) {
+	if ok, err := h.routeAdvancedPromptOptimizationJob(c, path, method, body); ok {
+		return true, err
+	}
+	if ok, err := h.routeAccountDataRetention(c, path, method, body); ok {
+		return true, err
+	}
+
+	return h.routeResourcePolicy(c, path, method, body)
 }
 
 // routeStubOps handles stub operations that return minimal valid responses.

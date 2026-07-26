@@ -579,24 +579,20 @@ func userStateKey(userPoolID, username string) string {
 	return userPoolID + ":" + username
 }
 
-// Auth factor values (AuthFactorType) recognized by GetUserAuthFactors.
+// Auth factor values (AuthFactorType) recognized by GetUserAuthFactors /
+// AdminGetUserAuthFactors.
 const (
-	authFactorPassword = "PASSWORD"
-	authFactorSMSOTP   = "SMS_OTP"
-	authFactorWebAuthn = "WEB_AUTHN"
+	authFactorPassword      = "PASSWORD"
+	authFactorSMSOTP        = "SMS_OTP"
+	authFactorWebAuthn      = "WEB_AUTHN"
+	authFactorSoftwareToken = "SOFTWARE_TOKEN"
 )
 
-// GetUserAuthFactors returns the authenticated user and the sign-in factors
-// currently configured for their account, derived from stored MFA/WebAuthn state.
-func (b *InMemoryBackend) GetUserAuthFactors(accessToken string) (*User, []string, error) {
-	b.mu.RLock("GetUserAuthFactors")
-	defer b.mu.RUnlock()
-
-	user, err := b.findUserByAccessTokenLocked(accessToken)
-	if err != nil {
-		return nil, nil, err
-	}
-
+// commonAuthFactorSetLocked computes the PASSWORD/SMS_OTP/WEB_AUTHN factors
+// shared by GetUserAuthFactors and AdminGetUserAuthFactors, derived from the
+// user's real password/MFA/WebAuthn state. Caller must hold at least a read
+// lock.
+func (b *InMemoryBackend) commonAuthFactorSetLocked(user *User) map[string]struct{} {
 	factorSet := map[string]struct{}{}
 
 	if user.PasswordHash != "" {
@@ -615,6 +611,62 @@ func (b *InMemoryBackend) GetUserAuthFactors(accessToken string) (*User, []strin
 
 	if len(b.webauthnCredentials[userStateKey(user.UserPoolID, user.Username)]) > 0 {
 		factorSet[authFactorWebAuthn] = struct{}{}
+	}
+
+	return factorSet
+}
+
+// GetUserAuthFactors returns the authenticated user and the sign-in factors
+// currently configured for their account, derived from stored MFA/WebAuthn state.
+func (b *InMemoryBackend) GetUserAuthFactors(accessToken string) (*User, []string, error) {
+	b.mu.RLock("GetUserAuthFactors")
+	defer b.mu.RUnlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	factorSet := b.commonAuthFactorSetLocked(user)
+
+	factors := make([]string, 0, len(factorSet))
+	for f := range factorSet {
+		factors = append(factors, f)
+	}
+
+	sort.Strings(factors)
+
+	cp := *user
+
+	return &cp, factors, nil
+}
+
+// AdminGetUserAuthFactors returns the authentication factors currently
+// configured for a user, derived from the same real password/MFA/WebAuthn
+// state as GetUserAuthFactors, plus SOFTWARE_TOKEN (derived from
+// user.TOTPVerified -- the user completed AssociateSoftwareToken +
+// VerifySoftwareToken -- or "SOFTWARE_TOKEN_MFA" being present in
+// user.UserMFASettingList, i.e. it is enabled as an active MFA method).
+// AdminGetUserAuthFactorsOutput additionally carries PreferredMfaSetting and
+// UserMFASettingList verbatim from the user record (fields the self-service
+// GetUserAuthFactorsOutput does not have).
+func (b *InMemoryBackend) AdminGetUserAuthFactors(userPoolID, username string) (*User, []string, error) {
+	b.mu.RLock("AdminGetUserAuthFactors")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools.Get(userPoolID); !ok {
+		return nil, nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	user, ok := b.users.Get(userKey(userPoolID, username))
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	factorSet := b.commonAuthFactorSetLocked(user)
+
+	if user.TOTPVerified || slices.Contains(user.UserMFASettingList, "SOFTWARE_TOKEN_MFA") {
+		factorSet[authFactorSoftwareToken] = struct{}{}
 	}
 
 	factors := make([]string, 0, len(factorSet))

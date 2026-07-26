@@ -262,7 +262,7 @@ func codeSecurityScanConfigToWire(cfg *CodeSecurityScanConfiguration) map[string
 		keyScanConfigurationArn: cfg.Arn,
 		keyName:                 cfg.Name,
 		keyStatus:               cfg.Status,
-		"createdAt":             awstime.Epoch(cfg.CreatedAt),
+		keyCreatedAt:            awstime.Epoch(cfg.CreatedAt),
 		"lastUpdatedAt":         awstime.Epoch(cfg.UpdatedAt),
 	}
 
@@ -322,7 +322,7 @@ func (h *Handler) handleListCodeSecurityScanConfigurations(c *echo.Context) erro
 		wire = append(wire, codeSecurityScanConfigToWire(cfg))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurations": wire})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurations: wire})
 }
 
 func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration( //nolint:dupl // existing issue.

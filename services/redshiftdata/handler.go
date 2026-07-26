@@ -132,6 +132,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetStatementResultV2",
 		"ListDatabases",
 		"ListSchemas",
+		"ListSessions",
 		"ListStatements",
 		"ListTables",
 	}
@@ -227,6 +228,8 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 		return h.handleGetStatementResultV2(ctx, body)
 	case "ListStatements":
 		return h.handleListStatements(ctx, body)
+	case "ListSessions":
+		return h.handleListSessions(ctx, body)
 	case "CancelStatement":
 		return h.handleCancelStatement(ctx, body)
 	case "ListDatabases":

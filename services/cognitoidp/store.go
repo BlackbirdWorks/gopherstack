@@ -117,6 +117,15 @@ type InMemoryBackend struct {
 	webauthnCredentials map[string]map[string]*WebAuthnCredential
 	// authEvents maps poolID+":"+username → eventID → *AuthEvent (adaptive-auth event feedback tracking).
 	authEvents map[string]map[string]*AuthEvent
+	// userPoolReplicas is keyed by the composite replicaKey(poolID, regionName).
+	userPoolReplicas *store.Table[UserPoolReplica]
+	// userPoolReplicasByPool is a secondary index on userPoolReplicas keyed by UserPoolID.
+	userPoolReplicasByPool *store.Index[UserPoolReplica]
+	// provisionedLimits maps API_CATEGORY Category (e.g. "UserAuthentication") →
+	// the current provisioned RPS value for that category. Provisioned limits
+	// are account+Region-level (see provisioned_limits.go), not per-user-pool,
+	// so this is a flat map rather than something keyed off a user pool.
+	provisionedLimits map[string]int32
 	// lambdaInvoker fires configured User Pool Lambda triggers (PreSignUp,
 	// PostConfirmation, PreTokenGeneration, CustomMessage, ...). nil disables
 	// trigger invocation entirely -- see lambda_triggers.go.
@@ -145,6 +154,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		devices:               make(map[string]map[string]*Device),
 		webauthnCredentials:   make(map[string]map[string]*WebAuthnCredential),
 		authEvents:            make(map[string]map[string]*AuthEvent),
+		provisionedLimits:     make(map[string]int32),
 		accountID:             accountID,
 		region:                region,
 		endpoint:              endpoint,
@@ -173,4 +183,5 @@ func (b *InMemoryBackend) Reset() {
 	b.devices = make(map[string]map[string]*Device)
 	b.webauthnCredentials = make(map[string]map[string]*WebAuthnCredential)
 	b.authEvents = make(map[string]map[string]*AuthEvent)
+	b.provisionedLimits = make(map[string]int32)
 }

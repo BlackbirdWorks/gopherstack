@@ -107,6 +107,7 @@ const (
 	opGetBackupPlanFromJSON                  = "GetBackupPlanFromJSON"
 	opGetBackupPlanFromTemplate              = "GetBackupPlanFromTemplate"
 	opGetLegalHold                           = "GetLegalHold"
+	opGetPITRMalwareScanResults              = "GetPITRMalwareScanResults"
 	opGetRecoveryPointIndexDetails           = "GetRecoveryPointIndexDetails"
 	opGetRestoreJobMetadata                  = "GetRestoreJobMetadata"
 	opGetRestoreTestingInferredMetadata      = "GetRestoreTestingInferredMetadata"
@@ -174,6 +175,7 @@ const (
 	pathTieringConf                = "/tiering-configurations"
 	pathIndexedRecovery            = "/indexes/recovery-point"
 	pathRestoreTestingInferredMeta = "/restore-testing/inferred-metadata"
+	pathPITRMalwareScanResults     = "/scan/pitr-malware-scan-results"
 
 	// splitTwo is the N argument for [strings.SplitN] to split into at most 2 parts.
 	splitTwo = 2
@@ -330,6 +332,7 @@ func supportedOpsExtended() []string {
 		opGetBackupPlanFromJSON,
 		opGetBackupPlanFromTemplate,
 		opGetLegalHold,
+		opGetPITRMalwareScanResults,
 		opGetRecoveryPointIndexDetails,
 		opGetRestoreJobMetadata,
 		opGetRestoreTestingInferredMetadata,

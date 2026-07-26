@@ -2,8 +2,11 @@ package route53resolver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+
+	r53rtypes "github.com/aws/aws-sdk-go-v2/service/route53resolver/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -126,6 +129,109 @@ func (h *Handler) handleCreateFirewallRule(
 	return &createFirewallRuleOutput{FirewallRule: firewallRuleToOutput(rule)}, nil
 }
 
+// firewallRuleBatchErrorCode maps a backend error to the exception-type string
+// carried in a batch operation's per-item Code field. This mirrors, one-to-one,
+// the classification handleError applies to the same sentinels for the
+// singular ops -- so a rule that fails inside a batch reports the identical
+// Code a standalone call to Create/Update/DeleteFirewallRule would have
+// surfaced as its top-level exception Type.
+func firewallRuleBatchErrorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return "ResourceNotFoundException"
+	case errors.Is(err, ErrAlreadyExists):
+		return "ResourceExistsException"
+	case errors.Is(err, ErrInvalidParameter):
+		return "InvalidParameterException"
+	case errors.Is(err, ErrValidation):
+		return "InvalidRequestException"
+	default:
+		return "InternalServiceErrorException"
+	}
+}
+
+// batchCreateFirewallRuleInput matches the real BatchCreateFirewallRuleInput
+// shape: a single required list of entries, each with the exact field set of
+// types.CreateFirewallRuleEntry (verified against serializers.go
+// awsAwsjson11_serializeDocumentCreateFirewallRuleEntry for wire-key casing).
+// createFirewallRuleInput's fields are already an exact match for that entry
+// shape (both mirror CreateFirewallRuleInput/CreateFirewallRuleEntry, which
+// carry the same members other than the request envelope), so entries are
+// parsed directly into it and processed through handleCreateFirewallRule --
+// the exact function CreateFirewallRule itself calls. This is what guarantees
+// batch entries get identical validation, error codes, and backend state
+// (the shared FirewallRule store) as the singular op; there is no separate
+// batch-only code path to drift out of sync.
+type batchCreateFirewallRuleInput struct {
+	CreateFirewallRuleEntries []createFirewallRuleInput `json:"CreateFirewallRuleEntries"`
+}
+
+// batchCreateFirewallRuleError mirrors types.BatchCreateFirewallRuleError
+// (Code/FirewallRule/Message, verified against deserializers.go
+// awsAwsjson11_deserializeDocumentBatchCreateFirewallRuleError).
+type batchCreateFirewallRuleError struct {
+	FirewallRule *createFirewallRuleInput `json:"FirewallRule,omitempty"`
+	Code         string                   `json:"Code,omitempty"`
+	Message      string                   `json:"Message,omitempty"`
+}
+
+type batchCreateFirewallRuleOutput struct {
+	CreatedFirewallRules []firewallRuleOutput           `json:"CreatedFirewallRules"`
+	CreateErrors         []batchCreateFirewallRuleError `json:"CreateErrors"`
+}
+
+// handleBatchCreateFirewallRule creates multiple firewall rules in one call.
+//
+// Atomicity: this is partial-success, NOT all-or-nothing. The real
+// BatchCreateFirewallRuleOutput carries both CreatedFirewallRules (the subset
+// that succeeded) and CreateErrors (the subset that failed, each echoing back
+// the offending entry plus a Code/Message) -- verified against
+// api_op_BatchCreateFirewallRule.go and confirmed by AWS's own published
+// example response (a 2-entry request with one benign entry returns
+// CreateErrors: [] alongside 2 CreatedFirewallRules, i.e. success and failure
+// are reported per-item within a single 200 response, not as a top-level
+// all-or-nothing rejection). Each entry is therefore processed independently
+// and in request order: a failing entry is recorded in CreateErrors and
+// processing continues with the next entry: state changes from entries before
+// it are NOT rolled back.
+//
+// Entries are not required to share a FirewallRuleGroupId -- each entry
+// carries its own (verified: CreateFirewallRuleEntry.FirewallRuleGroupId has
+// no batch-level counterpart in BatchCreateFirewallRuleInput, which holds only
+// the entries list), so a single batch can target multiple rule groups.
+// Group existence is validated per-entry by the reused CreateFirewallRule
+// path, exactly as a standalone call would.
+func (h *Handler) handleBatchCreateFirewallRule(
+	ctx context.Context,
+	in *batchCreateFirewallRuleInput,
+) (*batchCreateFirewallRuleOutput, error) {
+	if len(in.CreateFirewallRuleEntries) == 0 {
+		return nil, fmt.Errorf("%w: CreateFirewallRuleEntries is required", ErrBatchValidation)
+	}
+
+	out := &batchCreateFirewallRuleOutput{
+		CreatedFirewallRules: []firewallRuleOutput{},
+		CreateErrors:         []batchCreateFirewallRuleError{},
+	}
+	for i := range in.CreateFirewallRuleEntries {
+		entry := in.CreateFirewallRuleEntries[i]
+
+		res, err := h.handleCreateFirewallRule(ctx, &entry)
+		if err != nil {
+			out.CreateErrors = append(out.CreateErrors, batchCreateFirewallRuleError{
+				FirewallRule: &entry,
+				Code:         firewallRuleBatchErrorCode(err),
+				Message:      err.Error(),
+			})
+
+			continue
+		}
+		out.CreatedFirewallRules = append(out.CreatedFirewallRules, res.FirewallRule)
+	}
+
+	return out, nil
+}
+
 // --- CreateOutpostResolver ---
 
 // deleteFirewallRuleInput matches the real DeleteFirewallRuleInput shape:
@@ -159,6 +265,63 @@ func (h *Handler) handleDeleteFirewallRule(
 	}
 
 	return &deleteFirewallRuleOutput{FirewallRule: firewallRuleToOutput(rule)}, nil
+}
+
+// batchDeleteFirewallRuleInput/batchDeleteFirewallRuleError/
+// batchDeleteFirewallRuleOutput mirror the Batch{Create}FirewallRule shapes
+// above, reusing deleteFirewallRuleInput (already an exact field match for
+// types.DeleteFirewallRuleEntry within this pass's declared scope) and
+// handleDeleteFirewallRule per entry.
+type batchDeleteFirewallRuleInput struct {
+	DeleteFirewallRuleEntries []deleteFirewallRuleInput `json:"DeleteFirewallRuleEntries"`
+}
+
+type batchDeleteFirewallRuleError struct {
+	FirewallRule *deleteFirewallRuleInput `json:"FirewallRule,omitempty"`
+	Code         string                   `json:"Code,omitempty"`
+	Message      string                   `json:"Message,omitempty"`
+}
+
+type batchDeleteFirewallRuleOutput struct {
+	DeletedFirewallRules []firewallRuleOutput           `json:"DeletedFirewallRules"`
+	DeleteErrors         []batchDeleteFirewallRuleError `json:"DeleteErrors"`
+}
+
+// handleBatchDeleteFirewallRule deletes multiple firewall rules in one call.
+// Same partial-success semantics as handleBatchCreateFirewallRule (see its
+// doc comment): DeletedFirewallRules/DeleteErrors are both populated from a
+// single 200 response, entries are processed independently in request order
+// via the reused handleDeleteFirewallRule path, and a failing entry does not
+// roll back deletions already applied earlier in the same batch.
+func (h *Handler) handleBatchDeleteFirewallRule(
+	ctx context.Context,
+	in *batchDeleteFirewallRuleInput,
+) (*batchDeleteFirewallRuleOutput, error) {
+	if len(in.DeleteFirewallRuleEntries) == 0 {
+		return nil, fmt.Errorf("%w: DeleteFirewallRuleEntries is required", ErrBatchValidation)
+	}
+
+	out := &batchDeleteFirewallRuleOutput{
+		DeletedFirewallRules: []firewallRuleOutput{},
+		DeleteErrors:         []batchDeleteFirewallRuleError{},
+	}
+	for i := range in.DeleteFirewallRuleEntries {
+		entry := in.DeleteFirewallRuleEntries[i]
+
+		res, err := h.handleDeleteFirewallRule(ctx, &entry)
+		if err != nil {
+			out.DeleteErrors = append(out.DeleteErrors, batchDeleteFirewallRuleError{
+				FirewallRule: &entry,
+				Code:         firewallRuleBatchErrorCode(err),
+				Message:      err.Error(),
+			})
+
+			continue
+		}
+		out.DeletedFirewallRules = append(out.DeletedFirewallRules, res.FirewallRule)
+	}
+
+	return out, nil
 }
 
 // --- UpdateFirewallRule ---
@@ -216,6 +379,63 @@ func (h *Handler) handleUpdateFirewallRule(
 	return &updateFirewallRuleOutput{FirewallRule: firewallRuleToOutput(rule)}, nil
 }
 
+// batchUpdateFirewallRuleInput/batchUpdateFirewallRuleError/
+// batchUpdateFirewallRuleOutput mirror the Batch{Create}FirewallRule shapes
+// above, reusing updateFirewallRuleInput (already an exact field match for
+// types.UpdateFirewallRuleEntry within this pass's declared scope) and
+// handleUpdateFirewallRule per entry.
+type batchUpdateFirewallRuleInput struct {
+	UpdateFirewallRuleEntries []updateFirewallRuleInput `json:"UpdateFirewallRuleEntries"`
+}
+
+type batchUpdateFirewallRuleError struct {
+	FirewallRule *updateFirewallRuleInput `json:"FirewallRule,omitempty"`
+	Code         string                   `json:"Code,omitempty"`
+	Message      string                   `json:"Message,omitempty"`
+}
+
+type batchUpdateFirewallRuleOutput struct {
+	UpdatedFirewallRules []firewallRuleOutput           `json:"UpdatedFirewallRules"`
+	UpdateErrors         []batchUpdateFirewallRuleError `json:"UpdateErrors"`
+}
+
+// handleBatchUpdateFirewallRule updates multiple firewall rules in one call.
+// Same partial-success semantics as handleBatchCreateFirewallRule (see its
+// doc comment): UpdatedFirewallRules/UpdateErrors are both populated from a
+// single 200 response, entries are processed independently in request order
+// via the reused handleUpdateFirewallRule path, and a failing entry does not
+// roll back updates already applied earlier in the same batch.
+func (h *Handler) handleBatchUpdateFirewallRule(
+	ctx context.Context,
+	in *batchUpdateFirewallRuleInput,
+) (*batchUpdateFirewallRuleOutput, error) {
+	if len(in.UpdateFirewallRuleEntries) == 0 {
+		return nil, fmt.Errorf("%w: UpdateFirewallRuleEntries is required", ErrBatchValidation)
+	}
+
+	out := &batchUpdateFirewallRuleOutput{
+		UpdatedFirewallRules: []firewallRuleOutput{},
+		UpdateErrors:         []batchUpdateFirewallRuleError{},
+	}
+	for i := range in.UpdateFirewallRuleEntries {
+		entry := in.UpdateFirewallRuleEntries[i]
+
+		res, err := h.handleUpdateFirewallRule(ctx, &entry)
+		if err != nil {
+			out.UpdateErrors = append(out.UpdateErrors, batchUpdateFirewallRuleError{
+				FirewallRule: &entry,
+				Code:         firewallRuleBatchErrorCode(err),
+				Message:      err.Error(),
+			})
+
+			continue
+		}
+		out.UpdatedFirewallRules = append(out.UpdatedFirewallRules, res.FirewallRule)
+	}
+
+	return out, nil
+}
+
 // --- ListFirewallRules ---
 
 type listFirewallRulesInput struct {
@@ -252,13 +472,126 @@ func (h *Handler) handleListFirewallRules(
 	return &listFirewallRulesOutput{FirewallRules: data, NextToken: next}, nil
 }
 
+// --- ListFirewallRuleTypes ---
+
+// firewallRuleTypeDefinitionOutput mirrors types.FirewallRuleTypeDefinition
+// (RuleType/Value/DisplayName/Description/SubscriptionInfo fields, verified
+// against deserializers.go
+// awsAwsjson11_deserializeDocumentFirewallRuleTypeDefinition for exact
+// wire-key casing). SubscriptionInfo is omitted here: the real SDK only
+// populates it for the PartnerThreatProtection variant, which this pass does
+// not catalog (see firewallRuleTypeCatalog).
+type firewallRuleTypeDefinitionOutput struct {
+	RuleType    string `json:"RuleType,omitempty"`
+	Value       string `json:"Value,omitempty"`
+	DisplayName string `json:"DisplayName,omitempty"`
+	Description string `json:"Description,omitempty"`
+}
+
+// firewallRuleTypeCatalog returns the rule-type definitions ListFirewallRuleTypes
+// can back with real SDK data. Per types.FirewallRuleType (the tagged union
+// used by the FirewallRuleType member on Create/UpdateFirewallRuleEntry, and
+// on types.FirewallRule itself) there are exactly four RuleType variants:
+// DnsThreatProtection, FirewallAdvancedContentCategory,
+// FirewallAdvancedThreatCategory, and PartnerThreatProtection -- verified as
+// the four member names of types.FirewallRuleType, which also match the four
+// documented values of ListFirewallRuleTypesInput.RuleType's filter.
+//
+// Of those four, only DnsThreatProtection carries a genuine closed enum of
+// concrete Values in the SDK: types.DnsThreatProtection
+// (DGA/DNS_TUNNELING/DICTIONARY_DGA), reused directly below instead of
+// re-typed by hand so the catalog can never drift from the real enum. The
+// other three variants are AWS-managed, dynamically-updated catalogs with NO
+// SDK-side enum of concrete identifiers to enumerate --
+// FirewallAdvancedContentCategoryConfig.Category,
+// FirewallAdvancedThreatCategoryConfig.Category, and
+// PartnerThreatProtectionConfig.Partner are all untyped *string, and their
+// doc comments explicitly say the only way to learn the valid values is to
+// call ListFirewallRuleTypes itself (a chicken-and-egg the mock cannot
+// resolve without inventing category/partner names the SDK does not define).
+// Per this pass's no-invented-values rule, gopherstack does not fabricate
+// FirewallAdvancedContentCategory/FirewallAdvancedThreatCategory/
+// PartnerThreatProtection catalog entries; see PARITY.md gaps for this op.
+func firewallRuleTypeCatalog() []firewallRuleTypeDefinitionOutput {
+	dnsThreatProtectionTypes := []struct {
+		value       r53rtypes.DnsThreatProtection
+		displayName string
+		description string
+	}{
+		{
+			value:       r53rtypes.DnsThreatProtectionDga,
+			displayName: "Domain Generation Algorithm (DGA) Detection",
+			description: "Detects domains generated by domain generation algorithms, which " +
+				"attackers use to generate large numbers of domains for malware attacks.",
+		},
+		{
+			value:       r53rtypes.DnsThreatProtectionDnsTunneling,
+			displayName: "DNS Tunneling Detection",
+			description: "Detects DNS tunneling, which attackers use to exfiltrate data " +
+				"through a DNS tunnel without making a direct network connection to the client.",
+		},
+		{
+			value:       r53rtypes.DnsThreatProtectionDictionaryDga,
+			displayName: "Dictionary DGA Detection",
+			description: "Detects dictionary-based domain generation algorithms, which use " +
+				"wordlists to generate domains that appear more legitimate than traditional DGAs.",
+		},
+	}
+
+	out := make([]firewallRuleTypeDefinitionOutput, 0, len(dnsThreatProtectionTypes))
+	for _, dt := range dnsThreatProtectionTypes {
+		out = append(out, firewallRuleTypeDefinitionOutput{
+			RuleType:    "DnsThreatProtection",
+			Value:       string(dt.value),
+			DisplayName: dt.displayName,
+			Description: dt.description,
+		})
+	}
+
+	return out
+}
+
+type listFirewallRuleTypesInput struct {
+	RuleType   string `json:"RuleType"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
+
+type listFirewallRuleTypesOutput struct {
+	NextToken         *string                            `json:"NextToken,omitempty"`
+	FirewallRuleTypes []firewallRuleTypeDefinitionOutput `json:"FirewallRuleTypes"`
+}
+
+func (h *Handler) handleListFirewallRuleTypes(
+	_ context.Context,
+	in *listFirewallRuleTypesInput,
+) (*listFirewallRuleTypesOutput, error) {
+	items := firewallRuleTypeCatalog()
+	if in.RuleType != "" {
+		filtered := make([]firewallRuleTypeDefinitionOutput, 0, len(items))
+		for _, item := range items {
+			if item.RuleType == in.RuleType {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	data, next := paginate(items, in.NextToken, in.MaxResults, defaultPageSizeLarge)
+
+	return &listFirewallRuleTypesOutput{FirewallRuleTypes: data, NextToken: next}, nil
+}
+
 // --- DeleteFirewallRuleGroup ---
 
 func (h *Handler) opsFirewallRules() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateFirewallRule": service.WrapOp(h.handleCreateFirewallRule),
-		"DeleteFirewallRule": service.WrapOp(h.handleDeleteFirewallRule),
-		"ListFirewallRules":  service.WrapOp(h.handleListFirewallRules),
-		"UpdateFirewallRule": service.WrapOp(h.handleUpdateFirewallRule),
+		"CreateFirewallRule":      service.WrapOp(h.handleCreateFirewallRule),
+		"DeleteFirewallRule":      service.WrapOp(h.handleDeleteFirewallRule),
+		"ListFirewallRules":       service.WrapOp(h.handleListFirewallRules),
+		"UpdateFirewallRule":      service.WrapOp(h.handleUpdateFirewallRule),
+		"BatchCreateFirewallRule": service.WrapOp(h.handleBatchCreateFirewallRule),
+		"BatchDeleteFirewallRule": service.WrapOp(h.handleBatchDeleteFirewallRule),
+		"BatchUpdateFirewallRule": service.WrapOp(h.handleBatchUpdateFirewallRule),
+		"ListFirewallRuleTypes":   service.WrapOp(h.handleListFirewallRuleTypes),
 	}
 }

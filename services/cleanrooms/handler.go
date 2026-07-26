@@ -26,6 +26,8 @@ const (
 	subProtectedJobs      = "protectedJobs"
 	subProtectedQueries   = "protectedQueries"
 	subTags               = "tags"
+	subIntermediateTables = "intermediateTables"
+	subDisallowIT         = "disallowIntermediateTable"
 )
 
 // Response key constants (goconst).
@@ -44,6 +46,7 @@ const (
 	keyProtectedJob               = "protectedJob"
 	keyIDMappingTable             = "idMappingTable"
 	keyAnalysisRule               = "analysisRule"
+	keyIntermediateTable          = "intermediateTable"
 )
 
 // Path segment count constants (mnd).
@@ -72,6 +75,8 @@ const (
 	opCreateConfiguredTableAssociationAnalysisRule         = "CreateConfiguredTableAssociationAnalysisRule"
 	opCreateIDMappingTable                                 = "CreateIdMappingTable"
 	opCreateIDNamespaceAssociation                         = "CreateIdNamespaceAssociation"
+	opCreateIntermediateTable                              = "CreateIntermediateTable"
+	opCreateIntermediateTableAnalysisRule                  = "CreateIntermediateTableAnalysisRule"
 	opCreateMembership                                     = "CreateMembership"
 	opCreatePrivacyBudgetTemplate                          = "CreatePrivacyBudgetTemplate"
 	opDeleteAnalysisTemplate                               = "DeleteAnalysisTemplate"
@@ -83,9 +88,12 @@ const (
 	opDeleteConfiguredTableAssociationAnalysisRule         = "DeleteConfiguredTableAssociationAnalysisRule"
 	opDeleteIDMappingTable                                 = "DeleteIdMappingTable"
 	opDeleteIDNamespaceAssociation                         = "DeleteIdNamespaceAssociation"
+	opDeleteIntermediateTable                              = "DeleteIntermediateTable"
+	opDeleteIntermediateTableAnalysisRule                  = "DeleteIntermediateTableAnalysisRule"
 	opDeleteMember                                         = "DeleteMember"
 	opDeleteMembership                                     = "DeleteMembership"
 	opDeletePrivacyBudgetTemplate                          = "DeletePrivacyBudgetTemplate"
+	opDisallowIntermediateTable                            = "DisallowIntermediateTable"
 	opGetAnalysisTemplate                                  = "GetAnalysisTemplate"
 	opGetCollaboration                                     = "GetCollaboration"
 	opGetCollaborationAnalysisTemplate                     = "GetCollaborationAnalysisTemplate"
@@ -100,6 +108,8 @@ const (
 	opGetConfiguredTableAssociationAnalysisRule            = "GetConfiguredTableAssociationAnalysisRule"
 	opGetIDMappingTable                                    = "GetIdMappingTable"
 	opGetIDNamespaceAssociation                            = "GetIdNamespaceAssociation"
+	opGetIntermediateTable                                 = "GetIntermediateTable"
+	opGetIntermediateTableAnalysisRule                     = "GetIntermediateTableAnalysisRule"
 	opGetMembership                                        = "GetMembership"
 	opGetPrivacyBudgetTemplate                             = "GetPrivacyBudgetTemplate"
 	opGetProtectedJob                                      = "GetProtectedJob"
@@ -119,6 +129,8 @@ const (
 	opListConfiguredTables                                 = "ListConfiguredTables"
 	opListIDMappingTables                                  = "ListIdMappingTables"
 	opListIDNamespaceAssociations                          = "ListIdNamespaceAssociations"
+	opListIntermediateTableVersions                        = "ListIntermediateTableVersions"
+	opListIntermediateTables                               = "ListIntermediateTables"
 	opListMembers                                          = "ListMembers"
 	opListMemberships                                      = "ListMemberships"
 	opListPrivacyBudgets                                   = "ListPrivacyBudgets"
@@ -128,6 +140,7 @@ const (
 	opListSchemas                                          = "ListSchemas"
 	opListTagsForResource                                  = "ListTagsForResource"
 	opPopulateIDMappingTable                               = "PopulateIdMappingTable"
+	opPopulateIntermediateTable                            = "PopulateIntermediateTable"
 	opPreviewPrivacyImpact                                 = "PreviewPrivacyImpact"
 	opStartProtectedJob                                    = "StartProtectedJob"
 	opStartProtectedQuery                                  = "StartProtectedQuery"
@@ -143,6 +156,8 @@ const (
 	opUpdateConfiguredTableAssociationAnalysisRule         = "UpdateConfiguredTableAssociationAnalysisRule"
 	opUpdateIDMappingTable                                 = "UpdateIdMappingTable"
 	opUpdateIDNamespaceAssociation                         = "UpdateIdNamespaceAssociation"
+	opUpdateIntermediateTable                              = "UpdateIntermediateTable"
+	opUpdateIntermediateTableAnalysisRule                  = "UpdateIntermediateTableAnalysisRule"
 	opUpdateMembership                                     = "UpdateMembership"
 	opUpdatePrivacyBudgetTemplate                          = "UpdatePrivacyBudgetTemplate"
 	opUpdateProtectedJob                                   = "UpdateProtectedJob"
@@ -175,6 +190,13 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 func (h *Handler) StartWorker(_ context.Context) error { return nil }
 
 func (h *Handler) GetSupportedOperations() []string {
+	return append(createDeleteOperations(), readWriteOperations()...)
+}
+
+// createDeleteOperations returns every Batch/Create/Delete/Disallow
+// operation, factored out of GetSupportedOperations to keep it under the
+// funlen line limit.
+func createDeleteOperations() []string {
 	return []string{
 		opBatchGetCollaborationAnalysisTemplate,
 		opBatchGetSchema,
@@ -189,6 +211,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateConfiguredTableAssociationAnalysisRule,
 		opCreateIDMappingTable,
 		opCreateIDNamespaceAssociation,
+		opCreateIntermediateTable,
+		opCreateIntermediateTableAnalysisRule,
 		opCreateMembership,
 		opCreatePrivacyBudgetTemplate,
 		opDeleteAnalysisTemplate,
@@ -200,9 +224,20 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDeleteConfiguredTableAssociationAnalysisRule,
 		opDeleteIDMappingTable,
 		opDeleteIDNamespaceAssociation,
+		opDeleteIntermediateTable,
+		opDeleteIntermediateTableAnalysisRule,
 		opDeleteMember,
 		opDeleteMembership,
 		opDeletePrivacyBudgetTemplate,
+		opDisallowIntermediateTable,
+	}
+}
+
+// readWriteOperations returns every Get/List/Populate/Preview/Start/Tag/
+// Update operation, factored out of GetSupportedOperations to keep it under
+// the funlen line limit.
+func readWriteOperations() []string {
+	return []string{
 		opGetAnalysisTemplate,
 		opGetCollaboration,
 		opGetCollaborationAnalysisTemplate,
@@ -217,6 +252,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetConfiguredTableAssociationAnalysisRule,
 		opGetIDMappingTable,
 		opGetIDNamespaceAssociation,
+		opGetIntermediateTable,
+		opGetIntermediateTableAnalysisRule,
 		opGetMembership,
 		opGetPrivacyBudgetTemplate,
 		opGetProtectedJob,
@@ -236,6 +273,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListConfiguredTables,
 		opListIDMappingTables,
 		opListIDNamespaceAssociations,
+		opListIntermediateTableVersions,
+		opListIntermediateTables,
 		opListMembers,
 		opListMemberships,
 		opListPrivacyBudgets,
@@ -245,6 +284,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListSchemas,
 		opListTagsForResource,
 		opPopulateIDMappingTable,
+		opPopulateIntermediateTable,
 		opPreviewPrivacyImpact,
 		opStartProtectedJob,
 		opStartProtectedQuery,
@@ -260,6 +300,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateConfiguredTableAssociationAnalysisRule,
 		opUpdateIDMappingTable,
 		opUpdateIDNamespaceAssociation,
+		opUpdateIntermediateTable,
+		opUpdateIntermediateTableAnalysisRule,
 		opUpdateMembership,
 		opUpdatePrivacyBudgetTemplate,
 		opUpdateProtectedJob,
@@ -364,6 +406,7 @@ func (h *Handler) buildOpHandlers(_ *echo.Context) map[string]opHandlerFn {
 	maps.Copy(out, h.buildPrivacyBudgetHandlers())
 	maps.Copy(out, h.buildIDMappingTableHandlers())
 	maps.Copy(out, h.buildCAMAAndIDNamespaceHandlers())
+	maps.Copy(out, h.buildIntermediateTableHandlers())
 	maps.Copy(out, h.buildTagHandlers())
 
 	return out

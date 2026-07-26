@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"encoding/json"
+	"regexp"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -74,6 +75,45 @@ const statusDeleting = "DELETING"
 const (
 	sswStatusPendingUpdate = "PENDING_UPDATE"
 	sswStatusEligible      = "ELIGIBLE"
+)
+
+// DataSourceAttachmentStatus enum values, matching AWS
+// types.DataSourceAttachmentStatus.
+const (
+	dsAttachmentStatusPending  = "PENDING"
+	dsAttachmentStatusAttached = "ATTACHED"
+	dsAttachmentStatusFailed   = "FAILED"
+)
+
+// dsAttachmentFailWindow is how long a PENDING attachment is allowed to wait
+// for its referenced resource to become active before it is lazily resolved
+// to FAILED, matching the real API's documented "not completed within 24
+// hours" rule (see AttachDataSource's operation doc).
+const dsAttachmentFailWindow = 24 * time.Hour
+
+// CapabilityStatus enum values, matching AWS types.CapabilityStatus (the
+// service uses lowercase_snake_case for this enum family, unlike most other
+// status fields in this API).
+const (
+	capabilityStatusCreating = "creating"
+	capabilityStatusActive   = "active"
+	// capabilityStatusDeleting is the fixed value DeregisterCapabilityOutput
+	// always reports, per its doc: "Returns deleting when the capability is
+	// being removed" -- not a transient window like elsewhere in this
+	// backend, an unconditional response value for this one op.
+	capabilityStatusDeleting = "deleting"
+)
+
+// capabilityNamePattern matches the real API's CapabilityName constraint:
+// 3-30 characters, alphanumeric and hyphen only.
+var capabilityNamePattern = regexp.MustCompile(`^[a-zA-Z0-9-]{3,30}$`)
+
+// MigrationStatus enum values, matching the freeform (non-Go-enum) status
+// strings documented for StartMigration/GetMigration/ListMigrations.
+const (
+	migrationStatusPending    = "PENDING"
+	migrationStatusInProgress = "IN_PROGRESS"
+	migrationStatusSucceeded  = "SUCCEEDED"
 )
 
 // Repeated string literal constants.
@@ -551,6 +591,65 @@ type UpdateDomainConfigInput struct {
 	ClusterConfig               *ClusterConfig
 	AccessPolicies              string
 	EngineVersion               string
+}
+
+// RollbackServiceSoftwareOptions represents the result of a
+// RollbackServiceSoftwareUpdate call, matching
+// types.RollbackServiceSoftwareOptions (PascalCase wire keys, same convention
+// as ServiceSoftwareOptions/serviceSoftwareOptionsJSON above).
+type RollbackServiceSoftwareOptions struct {
+	CurrentVersion    string `json:"currentVersion"`
+	NewVersion        string `json:"newVersion"`
+	Description       string `json:"description"`
+	RollbackAvailable bool   `json:"rollbackAvailable"`
+}
+
+// DataSourceAttachment represents an attachment of a real data source (an
+// OpenSearch domain or an OpenSearch Serverless collection, identified by
+// ARN) to an OpenSearch UI application. Matches
+// types.DataSourceAttachmentSummary plus the identity fields
+// (AttachmentId/DataSourceArn/Status) shared by Attach/Detach/
+// DescribeDataSourceAttachment's outputs.
+type DataSourceAttachment struct {
+	CreatedAt     time.Time `json:"-"`
+	AttachmentID  string    `json:"attachmentId"`
+	ApplicationID string    `json:"applicationId"`
+	DataSourceArn string    `json:"dataSourceArn"`
+	Status        string    `json:"status"`
+}
+
+// Capability represents a registered capability (currently only AI Assistant,
+// capabilityName "ai-capability") on an OpenSearch UI application. Matches
+// types.CapabilityStatus / the ApplicationId+CapabilityName+Status fields
+// shared by RegisterCapability/DeregisterCapability/GetCapability's outputs.
+// CapabilityConfig itself is not modeled as stored state: the only union
+// member the SDK defines (types.AIConfig) is an empty struct with no fields
+// at all, so there is nothing beyond the name/status to persist -- see
+// handler_capabilities.go.
+type Capability struct {
+	StatusUntil    time.Time `json:"statusUntil,omitzero"`
+	ApplicationID  string    `json:"applicationId"`
+	CapabilityName string    `json:"capabilityName"`
+	Status         string    `json:"status"`
+}
+
+// Migration represents a saved-object migration job from a data source into
+// an OpenSearch application workspace. Matches types.MigrationSummary.
+// ExportedCount/ImportedCount are always 0: this emulator has no saved-object
+// store (dashboards/visualizations/index-patterns) to actually migrate, so
+// reporting non-zero counts would be fabricated. Status still genuinely
+// transitions PENDING -> IN_PROGRESS -> SUCCEEDED against the backend's clock
+// (see resolveMigrationStatus in migrations.go), it just always migrates zero
+// objects -- an honest "nothing to migrate" result rather than invented data.
+type Migration struct {
+	CreatedAt     time.Time `json:"-"`
+	UpdatedAt     time.Time `json:"-"`
+	MigrationID   string    `json:"migrationId"`
+	ApplicationID string    `json:"applicationId"`
+	SourceArn     string    `json:"sourceArn"`
+	Status        string    `json:"status"`
+	ExportedCount int       `json:"exportedCount"`
+	ImportedCount int       `json:"importedCount"`
 }
 
 // DryRunStatus holds dry-run progress state for a domain.

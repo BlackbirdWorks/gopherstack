@@ -32,6 +32,14 @@ type StorageBackend interface {
 		[]*Statement, string, error,
 	)
 
+	// Sessions
+	// ListSessions returns a page of sessions -- derived from stored statements
+	// that share a SessionID, not a separately stored resource -- and a
+	// next-token for pagination.
+	ListSessions(ctx context.Context, filter ListSessionsFilter) (
+		[]*SessionData, string, error,
+	)
+
 	// Maintenance
 	// EvictExpiredStatements removes terminal statements older than cutoff.
 	// Returns the number of evicted statements.

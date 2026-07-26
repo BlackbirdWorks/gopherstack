@@ -253,6 +253,16 @@ type StorageBackend interface {
 	DescribeIdcApplications(appArn string) ([]IdcApplication, error)
 	ModifyIdcApplication(appArn, idcDisplayName, iamRoleArn string) (*IdcApplication, error)
 
+	// Query Editor V2 (QEV2) IDC application operations. Qev2IdcApplication is
+	// a distinct resource from IdcApplication above -- see the doc comment on
+	// the Qev2IdcApplication type in models.go.
+	CreateQev2IdcApplication(
+		appName, idcInstanceArn, idcDisplayName string, tags map[string]string,
+	) (*Qev2IdcApplication, error)
+	DeleteQev2IdcApplication(appArn string) error
+	DescribeQev2IdcApplications(appArn, marker string, maxRecords int) ([]Qev2IdcApplication, string, error)
+	ModifyQev2IdcApplication(appArn, idcDisplayName string) (*Qev2IdcApplication, error)
+
 	// Lifecycle
 	Reset()
 	Region() string

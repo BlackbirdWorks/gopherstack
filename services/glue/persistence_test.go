@@ -135,6 +135,25 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, b.CreateGlueIdentityCenterConfiguration("instance1"))
 	_, err = b.RegisterConnectionType("custom1", "a custom connector")
 	require.NoError(t, err)
+
+	// Business glossary / asset catalog (parity-4).
+	glossary, err := b.CreateGlossary("Finance", "money terms")
+	require.NoError(t, err)
+	term, err := b.CreateGlossaryTerm(glossary.ID, "Revenue", "money in", "")
+	require.NoError(t, err)
+	_, err = b.PutFormType("TableSchema", `{"type":"object"}`)
+	require.NoError(t, err)
+	_, err = b.PutAssetType("Table", map[string]glue.AssetTypeFormReference{
+		"main": {FormTypeIdentifier: "TableSchema"},
+	})
+	require.NoError(t, err)
+	_, err = b.PutAsset("asset1", "orders", "", "Table", nil)
+	require.NoError(t, err)
+	_, err = b.AssociateGlossaryTerms("asset1", []string{term.ID})
+	require.NoError(t, err)
+	require.NoError(t, b.PutAttachment( // raw iterableFormItems
+		"asset1", "col-notes", "TableSchema", `{"pii":true}`, "columns", "order_id",
+	))
 }
 
 func verifyFullState(t *testing.T, b *glue.InMemoryBackend) {
@@ -277,6 +296,43 @@ func verifyFullState(t *testing.T, b *glue.InMemoryBackend) {
 	assert.Empty(t, tableErrs)
 	assert.Equal(t, 0, glue.PartitionCount(b))
 	assert.Equal(t, 0, glue.TableVersionCount(b))
+
+	// Business glossary / asset catalog (parity-4): verify the restored
+	// state includes the glossary/term/asset-type/form-type/asset chain AND
+	// the raw (non-store.Table) iterableFormItems map survived the round
+	// trip, since PutAttachment's IterableFormName/ItemIdentifier path is
+	// the one write this family routes through a plain map instead of a
+	// store.Table (see InMemoryBackend.iterableFormItems in store.go).
+	glossaries := b.ListGlossaries()
+	require.Len(t, glossaries, 1)
+	assert.Equal(t, "Finance", glossaries[0].Name)
+
+	terms, err := b.ListGlossaryTerms(glossaries[0].ID)
+	require.NoError(t, err)
+	require.Len(t, terms, 1)
+	assert.Equal(t, "Revenue", terms[0].Name)
+
+	_, err = b.GetAssetType("Table")
+	require.NoError(t, err)
+	_, err = b.GetFormType("TableSchema")
+	require.NoError(t, err)
+
+	asset, err := b.GetAsset("asset1")
+	require.NoError(t, err)
+	assert.Equal(t, "orders", asset.Name)
+	assert.Equal(t, "Table", asset.AssetTypeID)
+	assert.Contains(t, asset.GlossaryTerms, terms[0].ID)
+
+	items, err := b.ListIterableForms("asset1", "columns")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "order_id", items[0].ItemID)
+
+	batchItems, batchErrs, err := b.BatchGetIterableForms("asset1", "columns", []string{"order_id"})
+	require.NoError(t, err)
+	assert.Empty(t, batchErrs)
+	require.Len(t, batchItems, 1)
+	assert.Equal(t, `{"pii":true}`, batchItems[0].Attachments["col-notes"].Content)
 }
 
 // TestInMemoryBackend_Restore_VersionMismatch verifies that Restore discards

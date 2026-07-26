@@ -11,20 +11,22 @@ import (
 )
 
 type seedState struct {
-	collab      *cleanrooms.Collaboration
-	membership  *cleanrooms.Membership
-	table       *cleanrooms.ConfiguredTable
-	ctRule      *cleanrooms.ConfiguredTableAnalysisRule
-	assoc       *cleanrooms.ConfiguredTableAssociation
-	ctaRule     *cleanrooms.ConfiguredTableAssociationAnalysisRule
-	template    *cleanrooms.AnalysisTemplate
-	budget      *cleanrooms.PrivacyBudgetTemplate
-	idMapping   *cleanrooms.IDMappingTable
-	idNamespace *cleanrooms.IDNamespaceAssociation
-	cama        *cleanrooms.ConfiguredAudienceModelAssociation
-	changeReq   *cleanrooms.CollaborationChangeRequest
-	query       *cleanrooms.ProtectedQuery
-	job         *cleanrooms.ProtectedJob
+	collab        *cleanrooms.Collaboration
+	membership    *cleanrooms.Membership
+	table         *cleanrooms.ConfiguredTable
+	ctRule        *cleanrooms.ConfiguredTableAnalysisRule
+	assoc         *cleanrooms.ConfiguredTableAssociation
+	ctaRule       *cleanrooms.ConfiguredTableAssociationAnalysisRule
+	template      *cleanrooms.AnalysisTemplate
+	budget        *cleanrooms.PrivacyBudgetTemplate
+	idMapping     *cleanrooms.IDMappingTable
+	idNamespace   *cleanrooms.IDNamespaceAssociation
+	cama          *cleanrooms.ConfiguredAudienceModelAssociation
+	changeReq     *cleanrooms.CollaborationChangeRequest
+	query         *cleanrooms.ProtectedQuery
+	job           *cleanrooms.ProtectedJob
+	intermediate  *cleanrooms.IntermediateTable
+	intermediateR *cleanrooms.IntermediateTableAnalysisRule
 }
 
 func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
@@ -113,21 +115,36 @@ func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
 	)
 	require.NoError(t, err)
 
+	intermediate, err := b.CreateIntermediateTable(
+		membership.MembershipIdentifier, "intermediate-1", "an intermediate table", "arn:aws:kms:key/2",
+		map[string]any{"sqlParameters": map[string]any{"queryString": "SELECT 1"}},
+		30, map[string]string{"kind": "intermediate"},
+	)
+	require.NoError(t, err)
+
+	intermediateR, err := b.CreateIntermediateTableAnalysisRule(
+		membership.MembershipIdentifier, intermediate.ID, "CUSTOM",
+		map[string]any{"v1": map[string]any{"custom": map[string]any{"allowedAnalyses": []any{"ANY_QUERY"}}}},
+	)
+	require.NoError(t, err)
+
 	return seedState{
-		collab:      collab,
-		membership:  membership,
-		table:       table,
-		ctRule:      ctRule,
-		assoc:       assoc,
-		ctaRule:     ctaRule,
-		template:    template,
-		budget:      budget,
-		idMapping:   idMapping,
-		idNamespace: idNamespace,
-		cama:        cama,
-		changeReq:   changeReq,
-		query:       query,
-		job:         job,
+		collab:        collab,
+		membership:    membership,
+		table:         table,
+		ctRule:        ctRule,
+		assoc:         assoc,
+		ctaRule:       ctaRule,
+		template:      template,
+		budget:        budget,
+		idMapping:     idMapping,
+		idNamespace:   idNamespace,
+		cama:          cama,
+		changeReq:     changeReq,
+		query:         query,
+		job:           job,
+		intermediate:  intermediate,
+		intermediateR: intermediateR,
 	}
 }
 
@@ -243,6 +260,22 @@ func assertMembershipNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBack
 		"AGGREGATION",
 	)
 	require.Error(t, err)
+
+	gotIT, err := fresh.GetIntermediateTable(membershipID, seed.intermediate.ID)
+	require.NoError(t, err)
+	assert.Equal(t, seed.intermediate.Name, gotIT.Name)
+	itItems, _, err := fresh.ListIntermediateTables(membershipID, "", "")
+	require.NoError(t, err)
+	assert.Len(t, itItems, 1)
+
+	gotITRule, err := fresh.GetIntermediateTableAnalysisRule(membershipID, seed.intermediate.ID, "CUSTOM")
+	require.NoError(t, err)
+	assert.Equal(t, seed.intermediateR.AnalysisRuleType, gotITRule.AnalysisRuleType)
+
+	err = fresh.DeleteIntermediateTable(membershipID, seed.intermediate.ID)
+	require.NoError(t, err)
+	_, err = fresh.GetIntermediateTableAnalysisRule(membershipID, seed.intermediate.ID, "CUSTOM")
+	require.Error(t, err)
 }
 
 func assertCollaborationNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed seedState) {
@@ -299,6 +332,10 @@ func assertTagsRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed se
 	camaTags, err := fresh.ListTagsForResource(seed.cama.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "cama", camaTags["kind"])
+
+	intermediateTags, err := fresh.ListTagsForResource(seed.intermediate.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "intermediate", intermediateTags["kind"])
 }
 
 func TestInMemoryBackend_Restore(t *testing.T) {

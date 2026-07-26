@@ -94,6 +94,7 @@ func (b *InMemoryBackend) DeleteLogGroup(ctx context.Context, name string) error
 	b.deleteStreamsInGroup(region, name)
 	b.deleteSubscriptionFiltersInGroup(region, name)
 	b.deleteMetricFiltersInGroup(region, name)
+	b.deleteSyslogConfigurationForGroup(name)
 
 	return nil
 }

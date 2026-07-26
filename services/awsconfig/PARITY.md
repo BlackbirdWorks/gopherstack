@@ -1,11 +1,14 @@
 ---
 service: awsconfig
-sdk_module: aws-sdk-go-v2/service/configservice@v1.61.2
-last_audit_commit: 0a5200a4
-last_audit_date: 2026-07-24
-overall: A            # this pass: closed all ~18 e0f1 stubs with genuine derived-state
-                       # implementations, closed s7u1 (unknown-rule-name error), partially
-                       # closed eboy (recorder name/role + delivery channel name Invalid*Exception)
+sdk_module: aws-sdk-go-v2/service/configservice@v1.68.0
+last_audit_commit: 97000ddd
+last_audit_date: 2026-07-25
+overall: A            # this pass: implemented the 5 ops the SDK bump (v1.61.2 -> v1.68.0)
+                       # revealed as newly-supported and missing from GetSupportedOperations:
+                       # PutConnector/GetConnector/ListConnectors/DeleteConnector (a new
+                       # Connector family) and PutThirdPartyServiceLinkedConfigurationRecorder
+                       # (wired into the existing ConfigurationRecorder model, not a new one --
+                       # see its entry below). Prior pass's grade/notes retained unchanged.
 ops:
   # --- ConfigurationRecorder family ---
   PutConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: empty/blank name now InvalidConfigurationRecorderNameException, empty roleARN now InvalidRoleException (were both generic ValidationException) -- see gopherstack-eboy"}
@@ -19,6 +22,13 @@ ops:
   DisassociateResourceTypes: {wire: ok, errors: ok, state: ok, persist: ok}
   PutServiceLinkedConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was a no-op stub; now creates a real ACTIVE recorder named AWSConfigurationRecorderFor<Service> (best-effort deterministic casing -- AWS's exact per-service capitalization isn't publicly enumerable), idempotent per ServicePrincipal via a new ServiceLinkedRecorderLink table"}
   DeleteServiceLinkedConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was a no-op stub; now looks up and deletes the linked recorder, NoSuchConfigurationRecorderException when unknown"}
+  PutThirdPartyServiceLinkedConfigurationRecorder: {wire: ok, errors: ok, state: ok, persist: ok, note: "new op (SDK bump v1.61.2 -> v1.68.0). ConfigurationRecorder gained three real wire fields for this (connectorArn/scopeConfiguration/servicePrincipal, field-diffed against the SDK's serializeDocumentConfigurationRecorder) so a third-party service-linked recorder is a genuine RECORDER in the existing model: DescribeConfigurationRecorders/DescribeConfigurationRecorderStatus/ListConfigurationRecorders/DeleteConfigurationRecorder all see and can act on it via the plain recorders table, no orphan. Enforces the real declared constraint (verified against the AWS Config API reference's PutConnector/PutThirdPartyServiceLinkedConfigurationRecorder ConflictException doc: 'the specified service principal does not support multiple configuration recorders and one already exists') -- one service-linked recorder per ServicePrincipal, looked up via a new recordersByServicePrincipal secondary index. Put is create-or-update *conditionally*: same ServicePrincipal+same ConnectorArn updates ScopeConfiguration (idempotent, matching the doc comment); same ServicePrincipal+different ConnectorArn errors ConflictException (not a silent upsert, unlike PutServiceLinkedConfigurationRecorder) -- confirmed against both the doc comment and the deserializer's declared error switch (ConflictException/InsufficientPermissionsException/ValidationException only, no ResourceNotFoundException, so an unknown ConnectorArn errors ValidationException not ErrResourceNotFound)."}
+
+  # --- Connector family (new, SDK bump v1.61.2 -> v1.68.0) ---
+  PutConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "new op. NOT idempotent -- verified against the doc comment ('Connectors cannot be updated -- to update the connector configuration, you must delete all associated configuration recorders, delete the connector, and recreate it') and the declared ConflictException ('a connector already exists for the specified connector configuration'): a repeat PutConnector with a ConnectorConfiguration matching an existing connector errors ConflictException rather than upserting. Requires exactly one provider (Azure, the only one AWS Config documents) with both ClientIdentifier/TenantIdentifier set -- ValidationException otherwise (the SDK's client-side validators.go doesn't itself enforce 'exactly one provider', so this is server-side). Connector Name/Arn are server-generated (PutConnectorInput has no Name field) -- best-effort deterministic naming, same caveat as the existing serviceLinkedRecorderName."}
+  GetConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "new op. Unknown Arn errors ResourceNotFoundException (ErrResourceNotFound), matching the declared error switch (ResourceNotFoundException/ValidationException only)."}
+  ListConnectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "new op. Filters by the real 'provider' FilterName (types.ConnectorFilterName's sole enum value); paginated via the existing pkgs/page helper, mirroring DescribeConfigRules' pattern."}
+  DeleteConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "new op. Unknown Arn errors ResourceNotFoundException; the real op's declared error model has no ConflictException for 'still referenced by a recorder', so this backend doesn't invent one either."}
 
   # --- DeliveryChannel family ---
   PutDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: empty/blank name now InvalidDeliveryChannelNameException (was generic ValidationException) -- see gopherstack-eboy"}
@@ -140,6 +150,22 @@ gaps:
     TemplateS3Uri/TemplateSSMDocumentDetails template sources deploy zero rules rather
     than being fetched/parsed (no YAML parser or S3/SSM-document fetcher modeled in this
     emulator). Honest limitation, documented in conformance_pack_template.go.
+  - MaxNumberOfConnectorsExceededException (PutConnector's per-account connector-count
+    limit) is declared by the real API but its numeric value isn't published anywhere in
+    AWS's docs (checked the API reference and the Config service-limits page as of this
+    pass -- no "connectors" row exists in either). Not enforced rather than guessing an
+    unverifiable number; the wire error type isn't wired into errorWireMappings since
+    nothing in this backend raises it. Same caveat as the pre-existing, still-unenforced
+    single-customer-managed-recorder limit noted below.
+  - The single-customer-managed-configuration-recorder-per-account limit (AWS historically
+    allows exactly one) is still unenforced by PutConfigurationRecorder -- ErrAlreadyExists/
+    MaxNumberOfConfigurationRecordersExceededException exist in errors.go/handler.go's wire
+    mapping but nothing calls them; this predates this pass (PutConfigurationRecorder was
+    out of this pass's scope) and is called out here only because this pass's audit of
+    "how many recorders can an account have" touched the same code path. The NEW
+    PutThirdPartyServiceLinkedConfigurationRecorder's own one-per-ServicePrincipal limit
+    (see its ops entry above) IS enforced -- that op's ConflictException is real,
+    unlike this pre-existing gap.
 deferred:
   - Per-field/per-op AWS validation ordering and exact message text (not audited this pass)
 leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse lockmetrics.RWMutex; every new Lock/RLock this pass is defer-released; DeleteConfigurationRecorder cascade-cleans ServiceLinkedRecorderLink rows, DeleteConformancePack cascade-cleans its deployed config rules + evaluations, DeleteRemediationConfiguration cascade-cleans its recorded executions -- no ghost rows found"}
@@ -149,9 +175,12 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
 
 - Wire protocol: awsjson1.1, single POST endpoint, `X-Amz-Target:
   StarlingDoveService.<Op>`. Verified the `StarlingDoveService` target prefix and every
-  routed op name against `aws-sdk-go-v2/service/configservice@v1.61.2`'s
-  `serializers.go`/`deserializers.go` -- all 97 real SDK ops are wired into the dispatch
-  table, none missing.
+  routed op name against `aws-sdk-go-v2/service/configservice@v1.68.0`'s
+  `serializers.go`/`deserializers.go` -- all 102 real SDK ops (97 from the prior audit's
+  v1.61.2 + the 5 this pass added for the v1.68.0 bump: `StarlingDoveService.PutConnector`,
+  `.GetConnector`, `.ListConnectors`, `.DeleteConnector`,
+  `.PutThirdPartyServiceLinkedConfigurationRecorder`) are wired into the dispatch table,
+  none missing -- confirmed via `TestSDKCompleteness`.
 
 - `ConfigurationRecorder`/`DeliveryChannel` use **camelCase** wire field names (`name`,
   `roleARN`, `recordingGroup`, `arn`, `s3BucketName`, ...) -- this is genuinely how AWS
@@ -161,17 +190,43 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
 
 - Persistence: `Handler.Snapshot`/`Restore` delegate to `InMemoryBackend`, which uses a
   versioned `backendSnapshot{Tables, Version}` wrapping `store.Registry.SnapshotAll()`.
-  This pass bumped `awsconfigSnapshotVersion` 1 -> 2 and added three new registered
-  tables: `conformancePackRules` (which config rules each conformance pack deployed),
+  The prior pass bumped `awsconfigSnapshotVersion` 1 -> 2, adding three tables:
+  `conformancePackRules` (which config rules each conformance pack deployed),
   `remediationExecutions` (StartRemediationExecution history), and
   `serviceLinkedRecorders` (servicePrincipal -> recorder-name links -- kept as its own
   table rather than a field on `ConfigurationRecorder` specifically so it isn't lost by
   round-tripping through `json:"-"`, since `ConfigurationRecorder` is serialized verbatim
   as the real AWS wire response and store.Table's Snapshot/Restore marshal that same
-  struct/tags). Six scalar/slice-valued maps (`ruleEvaluations`, `resourceHistory`,
+  struct/tags). This pass bumped it 2 -> 3, adding the `connectors` table (Connector
+  values keyed by ARN) and a `byServicePrincipal` secondary index on the existing
+  `recorders` table -- unlike `serviceLinkedRecorders`, this new index needed no separate
+  Table/Tables-map entry: `ConfigurationRecorder` itself gained real
+  `ConnectorArn`/`ScopeConfiguration`/`ServicePrincipal` wire fields (field-diffed against
+  the SDK's `serializeDocumentConfigurationRecorder`), so the index just derives its key
+  from the recorder's own new field and rides the recorders table's existing
+  Snapshot/Restore. Six scalar/slice-valued maps (`ruleEvaluations`, `resourceHistory`,
   `resourceTags`, `remediationExceptions`, `customRulePolicies`, `orgCustomRulePolicies`)
   still have no `store.Table` identity and are NOT persisted -- this is a pre-existing gap
   (not introduced or fixed this pass), see `persistence.go`'s doc comment.
+
+- 2026-07-25 pass (SDK bump v1.61.2 -> v1.68.0 revealed 5 new operations): implemented
+  all 5 for real rather than adding them to `notImplemented` -- `PutConnector`/
+  `GetConnector`/`ListConnectors`/`DeleteConnector` (new Connector family, see their ops
+  entries above) and `PutThirdPartyServiceLinkedConfigurationRecorder`. The key
+  correctness risk flagged going in was whether a third-party service-linked recorder
+  would be an orphan no existing op could observe -- it isn't: `ConfigurationRecorder`
+  gained the three real wire fields real AWS Config actually serializes for this case
+  (`connectorArn`/`scopeConfiguration`/`servicePrincipal`), so
+  `DescribeConfigurationRecorders`/`DescribeConfigurationRecorderStatus`/
+  `ListConfigurationRecorders`/`DeleteConfigurationRecorder` all see and can act on it
+  through the same `recorders` table every other recorder uses. Two semantics were
+  verified against AWS's docs rather than assumed: `PutConnector` is create-only
+  (ConflictException on a repeat call with matching configuration, not an upsert) while
+  `PutThirdPartyServiceLinkedConfigurationRecorder` is conditionally idempotent (updates
+  ScopeConfiguration when the same ServicePrincipal+ConnectorArn repeat, but
+  ConflictException when the same ServicePrincipal reuses a different ConnectorArn -- "one
+  recorder per service principal" is enforced, unlike the pre-existing, still-unenforced
+  single-customer-managed-recorder limit noted in `gaps`).
 
 - 2026-07-24 pass bug-class findings (see `.claude/memories/parity-principles.md` bug
   classes) -- this pass closed all remaining items from the prior audit's `gaps` list

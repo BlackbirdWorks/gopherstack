@@ -97,6 +97,15 @@ func cwlDestinationKeyFn(d *CWLDestination) string           { return d.Destinat
 func indexPolicyKeyFn(p *IndexPolicy) string                 { return p.LogGroupIdentifier }
 func transformerKeyFn(t *Transformer) string                 { return t.LogGroupIdentifier }
 func cwlIntegrationKeyFn(i *CWLIntegration) string           { return i.Name }
+func lookupTableKeyFn(t *LookupTable) string                 { return t.LookupTableArn }
+func syslogConfigurationKeyFn(c *SyslogConfiguration) string { return c.LogGroupIdentifier }
+
+// storageTierPolicySingletonKey is the fixed store.Table key for the single
+// account-level StorageTierPolicy row (see the doc comment in models.go for
+// why this is a singleton).
+const storageTierPolicySingletonKey = "account"
+
+func storageTierPolicyKeyFn(_ *StorageTierPolicy) string { return storageTierPolicySingletonKey }
 
 // anomalyTableKey returns the store.Table primary key for an Anomaly.
 func anomalyTableKey(detectorArn, anomalyID string) string { return detectorArn + "|" + anomalyID }
@@ -253,6 +262,17 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.deletionProtected = store.Register(
 			b.registry, "deletionProtected", store.New(deletionProtectionEntryKeyFn),
 		)
+	},
+	func(b *InMemoryBackend) {
+		b.lookupTables = store.Register(b.registry, "lookupTables", store.New(lookupTableKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.syslogConfigurations = store.Register(
+			b.registry, "syslogConfigurations", store.New(syslogConfigurationKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.storageTierPolicy = store.Register(b.registry, "storageTierPolicy", store.New(storageTierPolicyKeyFn))
 	},
 }
 

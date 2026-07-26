@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -229,4 +230,114 @@ func TestHandler_ConfirmProductInstance_UnknownInstanceFails(t *testing.T) {
 
 	rec := postForm(t, h, vals.Encode())
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHandler_ImageWatermark verifies AttachImageWatermark/DetachImageWatermark
+// routing, error codes, and wire shapes (parity-4).
+func TestHandler_ImageWatermark(t *testing.T) {
+	t.Parallel()
+
+	const stubImageID = "ami-0c55b159cbfafe1f0"
+
+	tests := []struct {
+		setup    func(vals url.Values)
+		name     string
+		action   string
+		wantBody string
+		wantCode int
+	}{
+		{
+			name:   "attach_missing_image_not_found",
+			action: "AttachImageWatermark",
+			setup: func(vals url.Values) {
+				vals.Set("ImageId", "ami-doesnotexist")
+				vals.Set("WatermarkName", "approved")
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: "InvalidAMIID.NotFound",
+		},
+		{
+			name:   "attach_missing_name_fails",
+			action: "AttachImageWatermark",
+			setup: func(vals url.Values) {
+				vals.Set("ImageId", stubImageID)
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: "InvalidParameterValue",
+		},
+		{
+			name:   "attach_returns_account_scoped_key",
+			action: "AttachImageWatermark",
+			setup: func(vals url.Values) {
+				vals.Set("ImageId", stubImageID)
+				vals.Set("WatermarkName", "approvedAmi")
+			},
+			wantCode: http.StatusOK,
+			wantBody: "<watermarkKey>000000000000:approvedAmi</watermarkKey>",
+		},
+		{
+			name:   "detach_missing_image_not_found",
+			action: "DetachImageWatermark",
+			setup: func(vals url.Values) {
+				vals.Set("ImageId", "ami-doesnotexist")
+				vals.Set("WatermarkKey", "000000000000:approvedAmi")
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: "InvalidAMIID.NotFound",
+		},
+		{
+			name:   "detach_returns_true",
+			action: "DetachImageWatermark",
+			setup: func(vals url.Values) {
+				vals.Set("ImageId", stubImageID)
+				vals.Set("WatermarkKey", "000000000000:approvedAmi")
+			},
+			wantCode: http.StatusOK,
+			wantBody: "<return>true</return>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			vals := url.Values{}
+			vals.Set("Action", tt.action)
+			vals.Set("Version", "2016-11-15")
+			tt.setup(vals)
+
+			rec := postForm(t, h, vals.Encode())
+			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantBody)
+		})
+	}
+}
+
+// TestHandler_ImageWatermark_AttachIsIdempotentAndDetachRemoves verifies the
+// full attach/detach round trip mutates real per-image watermark state
+// rather than being a no-op stub: re-attaching the same name returns the
+// same key without duplicating it, and detach actually removes it.
+func TestHandler_ImageWatermark_AttachIsIdempotentAndDetachRemoves(t *testing.T) {
+	t.Parallel()
+
+	const stubImageID = "ami-0eb260c4d5475b901"
+
+	b := ec2.NewInMemoryBackend("111122223333", "us-east-1")
+
+	key1, err := b.AttachImageWatermark(stubImageID, "gold")
+	require.NoError(t, err)
+	assert.Equal(t, "111122223333:gold", key1)
+
+	key2, err := b.AttachImageWatermark(stubImageID, "gold")
+	require.NoError(t, err)
+	assert.Equal(t, key1, key2, "re-attaching the same watermark name must be idempotent")
+
+	require.NoError(t, b.DetachImageWatermark(stubImageID, key1))
+
+	// Detaching an already-detached key is a no-op, not an error (AWS
+	// DetachImageWatermark only validates the ImageId, not that the key was
+	// still attached).
+	require.NoError(t, b.DetachImageWatermark(stubImageID, key1))
 }

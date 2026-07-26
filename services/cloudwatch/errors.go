@@ -2,6 +2,7 @@ package cloudwatch
 
 import (
 	"errors"
+	"fmt"
 )
 
 const (
@@ -78,4 +79,21 @@ var ErrMetricSeriesLimitExceeded = errors.New("LimitExceeded: metric series limi
 var ErrMetricTimestampOutOfRange = errors.New(
 	"InvalidParameterValue: Timestamp must not be more than two weeks before or " +
 		"two hours after the current time",
+)
+
+// ErrDatasetNotFound is returned when a DatasetIdentifier does not refer to
+// the (only) supported "default" dataset, and when
+// DisassociateDatasetKmsKey is called on a dataset with no KMS key currently
+// associated (matches the real DisassociateDatasetKmsKey doc comment: "If the
+// dataset has no associated KMS key, the operation fails with
+// ResourceNotFoundException").
+var ErrDatasetNotFound = errors.New(errResourceNotFoundException)
+
+// ErrInvalidKmsKeyArn is returned when a KmsKeyArn is not a fully qualified
+// KMS key ARN. AssociateDatasetKmsKey documents that key IDs, aliases, and
+// alias ARNs are not accepted -- only a "key/<id>" ARN qualifies.
+var ErrInvalidKmsKeyArn = fmt.Errorf(
+	"%w: KmsKeyArn must be a fully qualified KMS key ARN "+
+		"(key IDs, aliases, and alias ARNs are not accepted)",
+	ErrValidation,
 )

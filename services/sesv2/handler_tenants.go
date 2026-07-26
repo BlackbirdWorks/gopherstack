@@ -133,6 +133,30 @@ func (h *Handler) handleDeleteTenantResourceAssociation(c *echo.Context) (any, e
 	return &emptyDeleteOutput{}, nil
 }
 
+type putTenantSuppressionAttributesInput struct {
+	TenantName        string   `json:"TenantName"`
+	SuppressionScope  string   `json:"SuppressionScope"`
+	SuppressedReasons []string `json:"SuppressedReasons"`
+}
+
+// handlePutTenantSuppressionAttributes serves POST /v2/email/tenant/suppression
+// -- note the singular "tenant" top-level segment, distinct from the rest of
+// the tenant family's plural "tenants" (see parseTenantSuppressionPath).
+func (h *Handler) handlePutTenantSuppressionAttributes(c *echo.Context) (any, error) {
+	var in putTenantSuppressionAttributesInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.PutTenantSuppressionAttributes(
+		in.TenantName, in.SuppressedReasons, in.SuppressionScope,
+	); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
 type listResourceTenantsInput struct {
 	ResourceArn string `json:"ResourceArn"`
 	NextToken   string `json:"NextToken"`

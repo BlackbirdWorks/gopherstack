@@ -488,6 +488,53 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 				assert.Contains(t, doc, "protect")
 			},
 		},
+		{
+			name: "lookup_table_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateLookupTable("my_table", "id,name\n1,foo\n2,bar\n", "desc", "")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				tables, _ := b.DescribeLookupTables("", "", 100)
+				require.Len(t, tables, 1)
+				assert.Equal(t, "my_table", tables[0].LookupTableName)
+				assert.Equal(t, int64(2), tables[0].RecordsCount)
+				assert.Equal(t, []string{"id", "name"}, tables[0].TableFields)
+			},
+		},
+		{
+			name: "syslog_configuration_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateLogGroup(context.Background(), "/syslog/grp", "", "")
+				require.NoError(t, err)
+				_, err = b.PutSyslogConfiguration(context.Background(), "/syslog/grp", "vpce-1")
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				configs, _ := b.ListSyslogConfigurations("", "", "", 100)
+				require.Len(t, configs, 1)
+				assert.Equal(t, "/syslog/grp", configs[0].LogGroupIdentifier)
+				assert.Equal(t, "vpce-1", configs[0].VpcEndpointID)
+			},
+		},
+		{
+			name: "storage_tier_policy_survives",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutStorageTierPolicy(cloudwatchlogs.StorageTierIntelligentTiering)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				p := b.GetStorageTierPolicy()
+				assert.Equal(t, cloudwatchlogs.StorageTierIntelligentTiering, p.StorageTier)
+				assert.NotZero(t, p.LastUpdatedTime)
+			},
+		},
 	}
 
 	for _, tt := range tests {

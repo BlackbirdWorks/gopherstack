@@ -372,6 +372,27 @@ type DBMajorEngineVersion struct {
 	Status             string `json:"status"`
 }
 
+// ServerlessV2FeaturesSupport describes Aurora Serverless v2 capacity limits that
+// differ between engine/platform versions (aws-sdk-go-v2/service/rds/types's
+// ServerlessV2FeaturesSupport: MinCapacity/MaxCapacity are both *float64 on the wire).
+type ServerlessV2FeaturesSupport struct {
+	MinCapacity float64 `json:"minCapacity"`
+	MaxCapacity float64 `json:"maxCapacity"`
+}
+
+// ServerlessV2PlatformVersionInfo represents a single Aurora Serverless v2 platform
+// version, as returned by DescribeServerlessV2PlatformVersions (aws-sdk-go-v2/service/
+// rds/types's ServerlessV2PlatformVersionInfo). See DescribeServerlessV2PlatformVersions
+// in reference_data.go for why this backend's catalog is always empty.
+type ServerlessV2PlatformVersionInfo struct {
+	ServerlessV2FeaturesSupport            *ServerlessV2FeaturesSupport `json:"serverlessV2FeaturesSupport,omitempty"`
+	Engine                                 string                       `json:"engine"`
+	ServerlessV2PlatformVersion            string                       `json:"serverlessV2PlatformVersion"`
+	ServerlessV2PlatformVersionDescription string                       `json:"serverlessV2PlatformVersionDescription"`
+	Status                                 string                       `json:"status"`
+	IsDefault                              bool                         `json:"isDefault"`
+}
+
 // ReservedDBInstance represents a purchased reserved DB instance.
 type ReservedDBInstance struct {
 	ReservedDBInstanceID          string  `json:"reservedDBInstanceId"`

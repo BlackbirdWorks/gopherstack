@@ -1,9 +1,15 @@
 ---
 service: securityhub
-sdk_module: aws-sdk-go-v2/service/securityhub@v1.71.2
-last_audit_commit: 5845d0e3
-last_audit_date: 2026-07-23
-overall: A            # gaps sweep: 5 real fixes (SortCriteria, BatchImportFindings field-preservation, GetFindingHistory, GetFindingsV2 CompositeFilters, BatchUpdateFindingsV2 wire shape + identifier mapping); rest of the surface re-verified accurate
+sdk_module: aws-sdk-go-v2/service/securityhub@v1.75.0
+last_audit_commit: 1659d616
+last_audit_date: 2026-07-25
+overall: A            # parity-4: 7 new SDK ops (CSPM Connectors CRUD+List, SecurityHub V2 opt-in
+                       # Feature enable/disable) implemented for real against v1.75.0, wired into
+                       # existing DescribeSecurityHubV2 state; one bonus fix (DescribeSecurityHubV2's
+                       # wire shape had invented CreatedAt/UpdatedAt fields instead of the real
+                       # SubscribedAt); one honestly-documented lifecycle gap (CSPM Connector health
+                       # can never reach CONNECTED -- see gaps). Everything else re-verified accurate
+                       # against the bumped SDK; no other new families found beyond the 7 assigned ops.
 ops:
   EnableSecurityHub: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableSecurityHub: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -86,7 +92,9 @@ ops:
   BatchGetConfigurationPolicyAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableSecurityHubV2: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableSecurityHubV2: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeSecurityHubV2: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeSecurityHubV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- see Notes (parity-4): real DescribeSecurityHubV2Output is {Features, HubV2Arn, SubscribedAt}, not {HubV2Arn, CreatedAt, UpdatedAt} as previously returned; now also reports the Features map (new in v1.75.0)."}
+  EnableSecurityHubFeatureV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (parity-4). Gated on SecurityHub V2 being enabled (matches the real API's documented \"the service must be enabled before you can enable a feature\"); features live in HubV2.Features (map[string]*HubV2Feature), so they persist/reset with the V2 hub itself -- no separate state. Idempotent: re-enabling an already-ENABLED feature is a no-op."}
+  DisableSecurityHubFeatureV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (parity-4). Same gating as EnableSecurityHubFeatureV2. Idempotent: disabling a never-enabled or already-DISABLED feature is a no-op that leaves the Features map unchanged (matches the real API's documented no-op semantics rather than fabricating a DISABLED entry for a feature never touched)."}
   CreateAggregatorV2: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAggregatorV2: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAggregatorsV2: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -114,22 +122,80 @@ ops:
   DescribeProductsV2: {wire: ok, errors: ok, state: ok, persist: n/a}
   GenerateRecommendedPolicyV2: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRecommendedPolicyV2: {wire: ok, errors: ok, state: ok, persist: ok}
+  # CSPM Connectors (parity-4, new in v1.75.0): third-party CLOUD PROVIDER
+  # connectors (currently Azure only -- CspmProviderConfiguration is a
+  # single-member union) that let Security Hub CSPM ingest findings/resource
+  # data from a connected Azure environment. NOT the same family as
+  # ConnectorV2/RegisterConnectorV2/TicketV2 above, which are Security Hub V2's
+  # ticketing-system (Jira/ServiceNow) connectors -- naming collision in the
+  # real API, kept distinct here as CspmConnector (non-V2 struct) vs
+  # ConnectorV2. REST-path-based (POST/GET/PATCH/DELETE /connectors[/{id}]),
+  # confirmed via serializers.go SetURI("/connectors"),
+  # SetURI("/connectors/{ConnectorId+}") for all 5 ops.
+  CreateConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (parity-4). Field-diffed against api_op_CreateConnector.go + types.CspmProviderConfiguration/AzureProviderConfiguration. Required Name/Provider return 400 if missing (client-side validation middleware in the real SDK, modeled defensively here). See gaps for the connector-status lifecycle limitation."}
+  GetConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (parity-4). Field-diffed against api_op_GetConnector.go + types.CspmHealthCheck/CspmProviderDetail/AzureDetail. Response nests health under Health{ConnectorStatus,LastCheckedAt,Message,Issues} and provider detail under ProviderDetail{Azure:{...}}, matching the real tagged-union wire shape exactly (input Provider and output ProviderDetail share the same {\"Azure\": AzureDetail} shape, confirmed via serializers.go/deserializers.go)."}
+  UpdateConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (parity-4). Field-diffed against api_op_UpdateConnector.go + types.AzureUpdateConfiguration -- UpdateConnectorInput has NO Name field (only ConnectorId/Description/Provider), and AzureUpdateConfiguration has no AWSConfigConnectorArn (immutable after create); both are honored here (Name update silently ignored per the real shape's absence of the field; AWSConfigConnectorArn merged forward from the original CreateConnector call rather than dropped)."}
+  DeleteConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (parity-4). Field-diffed against api_op_DeleteConnector.go -- output is EnablementStatus only (PENDING_DELETION), no ConnectorId/Arn. This mock removes the record synchronously (no background worker to model AWS's async teardown window) but still reports PENDING_DELETION on the delete response itself for wire fidelity."}
+  ListConnectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (parity-4). Field-diffed against api_op_ListConnectors.go + types.CspmConnectorSummary/CspmProviderSummary -- ConnectorStatus/EnablementStatus/ProviderName filters are query params (SetQuery, confirmed via serializers.go), not a JSON body, applied as exact-match filters against the stored connector fields."}
 families:
-  RouteMatcher: {status: ok, note: "every classifyPath prefix cross-checked against real serializers.go SetURI paths for all ~105 ops in aws-sdk-go-v2 v1.71.2; RouteMatcher's unambiguous-prefix list covers every prefix classifyPath switches on; /findings and /tags/{arn} correctly disambiguated (Authorization signing-service header / ARN service segment) from other services sharing those prefixes (e.g. Macie2). No unreachable-op bugs found."}
+  RouteMatcher: {status: ok, note: "every classifyPath prefix cross-checked against real serializers.go SetURI paths for all ~105 ops in aws-sdk-go-v2 v1.71.2 as of the last full audit; the parity-4 pass additionally verified the 7 new ops' SetURI paths (/connectors, /connectors/{ConnectorId+}, /hubv2/feature/{FeatureName}) against v1.75.0 and confirmed pathClassifiers orders the /connectorsv2 prefix before the new plain /connectors prefix (same ordering trap as /automationrulesv2 vs /automationrules -- see Traps below). RouteMatcher's unambiguous-prefix list covers every prefix classifyPath switches on; /findings and /tags/{arn} correctly disambiguated (Authorization signing-service header / ARN service segment) from other services sharing those prefixes (e.g. Macie2). No unreachable-op bugs found."}
   Persistence: {status: ok, note: "Handler.Snapshot/Restore (persistence.go) delegate to InMemoryBackend.Snapshot/Restore (backend.go), which round-trips every store.Table via registry.SnapshotAll/RestoreAll (store_setup.go) plus the 5 plain-map fields (tags, findings, controlParams, productSubscriptions, orgAdminAccounts) and all scalar/pointer fields. Verified store_setup.go registers exactly the set of *store.Table fields declared on InMemoryBackend -- no orphaned or unregistered table."}
 gaps:
   - "ListMembers(onlyAssociated=true) can never return members: filters on MemberStatus==\"Enabled\", but nothing transitions a member to Enabled because member-invitation acceptance is a cross-account action this single-account in-memory backend doesn't model (the member's own account would call AcceptInvitation against ITS OWN backend instance, not the administrator's). Not attempted this pass -- architectural, not a bug-fix-sized change; would need a multi-backend cross-account simulation this service doesn't have."
   - "GetFindingsV2 Filters.CompositeFilters only evaluates StringFilters and NumberFilters, and only for the field-name subset in ocsfStringFieldMap/ocsfNumberFieldMap (findings_v2.go) that has a direct scalar ASFF equivalent. DateFilters, MapFilters, IpFilters, BooleanFilters, NestedCompositeFilters, and any OcsfStringField/OcsfNumberField outside the mapped subset (e.g. class_name, which has no scalar ASFF equivalent -- the closest analog, Types, is a string array) are accepted on the wire but not evaluated, matching (not exceeding) the 'basic subset' precedent V1 GetFindings/matchesFindingFilters already established. Full coverage needs a complete OCSF field taxonomy crosswalk (~70 string fields, ~15 number fields alone) -- out of scope for this pass."
   - "BatchUpdateFindingsV2 MetadataUids-based finding identification can never resolve (always ResourceNotFoundException): this backend has no OCSF ingestion path that would ever hand a real client a metadata.uid to reference back. Only FindingIdentifiers (CloudAccountUid/FindingInfoUid/MetadataProductUid, mapped onto AwsAccountId/Id/ProductArn) can resolve a finding."
+  - "(parity-4) CSPM Connector health ConnectorStatus can never leave UNKNOWN, and EnablementStatus can never reach ENABLED: unlike Connectors V2 (which has a dedicated RegisterConnectorV2 to complete an out-of-band OAuth handshake), the real CreateConnector/GetConnector/UpdateConnector/DeleteConnector/ListConnectors surface has NO companion 'complete authorization' operation at all -- establishing connectivity to the Azure account requires a purely external, provider-side step (granting the AWSConfigConnectorArn role access in the Azure portal) that this mock has no API-observable signal for. Auto-advancing a connector to CONNECTED/ENABLED without any real client action causing it would be a fabricated transition, so CreateConnector leaves it at PENDING_ENABLEMENT/UNKNOWN and UpdateConnector leaves it at PENDING_UPDATE permanently. Not attempted this pass -- architectural (no out-of-band signal exists to model), not a bug-fix-sized change."
 deferred: []
 leaks: {status: clean, note: "no goroutines, tickers, or background loops in services/securityhub -- pure request-response over an in-memory store.Registry guarded by one lockmetrics.RWMutex. New findingHistory map (findings.go/store.go) follows the same plain-map + coarse-lock pattern as findings/tags -- every read/write path holds b.mu for the duration, no separate lock, no goroutines."}
 ---
 
 ## Notes
 
-Fresh audit (this service had no PARITY.md before this pass). Persistence
-(Handler.Snapshot/Restore delegating to InMemoryBackend) was added recently
-and verified intact -- no changes needed there.
+### parity-4 pass (2026-07-25): 7 new SDK ops from the v1.71.2 -> v1.75.0 bump
+
+The Go SDK module was bumped, revealing 7 operations added to
+`aws-sdk-go-v2/service/securityhub` since the previous audit: `CreateConnector`,
+`GetConnector`, `UpdateConnector`, `DeleteConnector`, `ListConnectors` (a new
+CSPM third-party cloud-provider connector family -- see the "Traps" note
+above for why this is *not* the same as the existing `ConnectorV2` family),
+and `EnableSecurityHubFeatureV2`/`DisableSecurityHubFeatureV2` (opt-in feature
+toggles scoped to the existing SecurityHub V2 hub state). All 7 were
+implemented for real (routing, backend state, request parsing, response wire
+shapes field-diffed against the SDK's own `types`/`serializers.go`/
+`deserializers.go`, error codes, HTTP status, Snapshot/Restore persistence)
+and added to `GetSupportedOperations()` -- none went into the
+`TestSDKCompleteness` `notImplemented` list (which stayed empty).
+
+Key design decisions:
+
+- **`EnableSecurityHubFeatureV2`/`DisableSecurityHubFeatureV2` are wired to
+  the existing `HubV2` state, not an orphan boolean.** The real API's
+  `/hubv2/feature/{FeatureName}` path and its documented "the service must be
+  enabled before you can enable a feature" precondition both point at the
+  existing V2 hub. Features are stored as `HubV2.Features
+  map[string]*HubV2Feature` (new field on the existing struct) rather than a
+  separate backend field, so they persist/reset with the V2 hub's own
+  lifecycle for free (no new Snapshot/Restore wiring needed) and
+  `DescribeSecurityHubV2` -- the existing op -- now reports them, matching
+  the real `DescribeSecurityHubV2Output.Features` field that also arrived in
+  this SDK bump.
+- **CSPM Connectors' authorization lifecycle is modeled honestly, not
+  auto-completed.** Unlike Connectors V2 (which has `RegisterConnectorV2` to
+  complete an out-of-band OAuth handshake), the real CSPM Connector surface
+  has no such operation at all -- see the `gaps` entry above. A connector
+  created via `CreateConnector` is left at `EnablementStatus=PENDING_ENABLEMENT`
+  / health `ConnectorStatus=UNKNOWN` permanently, since no real client action
+  this backend can observe would legitimately advance it further.
+- **Bonus fix, found while wiring `Features` into `DescribeSecurityHubV2`:**
+  its response previously returned invented `CreatedAt`/`UpdatedAt` fields;
+  the real `DescribeSecurityHubV2Output` (confirmed in both v1.71.2 and
+  v1.75.0, so this predates the SDK bump) is `{Features, HubV2Arn,
+  SubscribedAt}`. Fixed in the same handler function this pass touched
+  anyway to add `Features`.
+
+Fresh audit (this service had no PARITY.md before the 2026-07-23 pass).
+Persistence (Handler.Snapshot/Restore delegating to InMemoryBackend) was
+added recently and verified intact -- no changes needed there.
 
 ### Bugs fixed this pass
 
@@ -271,6 +337,19 @@ service.
   (both share the `/automationrules` substring) -- `classifyPath`'s switch
   correctly orders the V2 case before the V1 case. Don't "simplify" that
   ordering.
+- (parity-4) Same trap, new pair: `/connectorsv2` is a `strings.HasPrefix`
+  superset of the new plain `/connectors` (CSPM connectors). `pathClassifiers`
+  in `handler.go` orders `hasPathPrefix(pathConnectorsV2)` before
+  `hasPathPrefix(pathConnectors)` -- don't reorder or collapse them. Also note:
+  `CreateConnector`/`GetConnector`/etc. (this pass) and
+  `CreateConnectorV2`/`GetConnectorV2`/etc. are two *entirely unrelated* real
+  AWS features that happen to share the word "connector" -- CSPM connectors
+  link to third-party cloud providers (Azure), Connectors V2 link to
+  third-party ticketing systems (Jira/ServiceNow). Modeled as distinct Go
+  types (`CspmConnector` vs `ConnectorV2`) and distinct backend/handler files
+  (`connectors.go`/`handler_connectors.go` vs
+  `connectors_v2.go`/`handler_connectors_v2.go`) specifically to avoid
+  conflating them.
 - `classifyConfigPolicyPath`'s PATCH/DELETE cases match `/configurationPolicy/`
   with explicit exclusions for `create`/`get`/`list` suffixes rather than a
   positive `{Identifier}` pattern -- this is intentional (mirrors the real

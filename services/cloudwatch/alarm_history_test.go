@@ -198,3 +198,75 @@ func TestCloudWatchBackend_AlarmHistoryCap(t *testing.T) {
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(page.Data), 100)
 }
+
+// ---------------------------------------------------------------------------
+// AlarmHistory: AlarmType tagging across all three alarm types
+// ---------------------------------------------------------------------------
+
+func TestCloudWatchBackend_DescribeAlarmHistory_AlarmTypeFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(t *testing.T, b *cloudwatch.InMemoryBackend)
+		name      string
+		alarmName string
+		alarmType string
+	}{
+		{
+			name: "metric_alarm",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "hist-metric"}))
+			},
+			alarmName: "hist-metric",
+			alarmType: "MetricAlarm",
+		},
+		{
+			name: "composite_alarm",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+					AlarmName: "hist-composite", AlarmRule: `ALARM("nonexistent")`,
+				}))
+			},
+			alarmName: "hist-composite",
+			alarmType: "CompositeAlarm",
+		},
+		{
+			name: "log_alarm",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutLogAlarm(validLogAlarmForTest("hist-log")))
+			},
+			alarmName: "hist-log",
+			alarmType: "LogAlarm",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			tt.setup(t, b)
+
+			// Matching AlarmType filter finds the ConfigurationUpdate entry from Put*.
+			match, err := b.DescribeAlarmHistory(
+				tt.alarmName, tt.alarmType, "", "", time.Time{}, time.Time{}, 0,
+			)
+			require.NoError(t, err)
+			assert.NotEmpty(t, match.Data, "expected history for %s tagged %s", tt.alarmName, tt.alarmType)
+
+			// Any other AlarmType filter must not match this alarm's history.
+			const wrongType = "MetricAlarm"
+			if tt.alarmType == wrongType {
+				return
+			}
+			mismatch, err2 := b.DescribeAlarmHistory(
+				tt.alarmName, wrongType, "", "", time.Time{}, time.Time{}, 0,
+			)
+			require.NoError(t, err2)
+			assert.Empty(t, mismatch.Data)
+		})
+	}
+}

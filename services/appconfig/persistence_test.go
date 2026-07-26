@@ -27,7 +27,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateApplication("seed-app", "")
+	_, err := b.CreateApplication("seed-app", "", nil)
 	require.NoError(t, err)
 
 	// A syntactically valid but version-mismatched snapshot.
@@ -49,7 +49,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateApplication("seed-app", "")
+	_, err := b.CreateApplication("seed-app", "", nil)
 	require.NoError(t, err)
 
 	err = b.Restore(t.Context(), []byte(`{"applications":{}}`))
@@ -72,6 +72,13 @@ type seedState struct {
 	deployment *appconfig.Deployment
 	ext        *appconfig.Extension
 	assoc      *appconfig.ExtensionAssociation
+	// expProfile is a second, feature-flag-typed ConfigurationProfile (the
+	// seeded profile above is AWS.Freeform, which CreateExperimentDefinition
+	// rejects) -- see experiment_definitions.go's featureFlagsProfileType
+	// check.
+	expProfile *appconfig.ConfigurationProfile
+	expDef     *appconfig.ExperimentDefinition
+	expRun     *appconfig.ExperimentRun
 }
 
 // seedFullState populates one instance of every store.Table-backed resource
@@ -82,14 +89,15 @@ type seedState struct {
 func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	t.Helper()
 
-	app, err := b.CreateApplication("app-1", "an application")
+	app, err := b.CreateApplication("app-1", "an application", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "env-1", "an environment", nil)
+	env, err := b.CreateEnvironment(app.ID, "env-1", "an environment", nil, nil)
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
 		app.ID, "profile-1", "a profile", "hosted", "AWS.Freeform", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -106,22 +114,40 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	)
 	require.NoError(t, err)
 
-	strategy, err := b.CreateDeploymentStrategy("strategy-1", "a strategy", 10, 0, 100, "LINEAR", "NONE")
+	strategy, err := b.CreateDeploymentStrategy("strategy-1", "a strategy", 10, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
 	deployment, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "a deployment")
 	require.NoError(t, err)
 
-	ext, err := b.CreateExtension("ext-1", "an extension", nil, nil)
+	ext, err := b.CreateExtension("ext-1", "an extension", nil, nil, nil)
 	require.NoError(t, err)
 
-	assoc, err := b.CreateExtensionAssociation(ext.ID, app.ID, nil, nil)
+	assoc, err := b.CreateExtensionAssociation(ext.ID, app.ID, nil, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagResource(assoc.Arn, map[string]string{"team": "core"}))
 
 	enabled := true
 	_, err = b.UpdateAccountSettings(&appconfig.DeletionProtectionSettings{Enabled: &enabled})
+	require.NoError(t, err)
+
+	expProfile, err := b.CreateConfigurationProfile(
+		app.ID, "flag-profile-1", "a feature flag profile", "hosted", "AWS.AppConfig.FeatureFlags", "", nil,
+		nil,
+	)
+	require.NoError(t, err)
+
+	expDef, err := b.CreateExperimentDefinition(
+		app.ID, "exp-def-1", env.ID, expProfile.ID, "flag1", "true", "everyone", "", "",
+		&appconfig.Treatment{FlagValue: &appconfig.FlagValue{Enabled: false}, Weight: 50},
+		[]appconfig.Treatment{{FlagValue: &appconfig.FlagValue{Enabled: true}, Weight: 50}},
+		nil,
+	)
+	require.NoError(t, err)
+
+	exposure := float32(10)
+	expRun, err := b.StartExperimentRun(app.ID, expDef.ID, "a run", &exposure, nil, nil)
 	require.NoError(t, err)
 
 	return seedState{
@@ -134,6 +160,9 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 		deployment: deployment,
 		ext:        ext,
 		assoc:      assoc,
+		expProfile: expProfile,
+		expDef:     expDef,
+		expRun:     expRun,
 	}
 }
 
@@ -161,6 +190,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assertHostedConfigVersionsRestored(t, fresh, seed)
 	assertDeploymentFamilyRestored(t, fresh, seed)
 	assertExtensionFamilyRestored(t, fresh, seed)
+	assertExperimentFamilyRestored(t, fresh, seed)
 	assertRawStateRestored(t, fresh, seed)
 	// Run last: deletes the seeded application, so nothing else may depend
 	// on app/env/profile/hcv/deployment state after this point.
@@ -179,7 +209,7 @@ func assertApplicationFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBack
 	assert.Equal(t, seed.app.Name, gotApp.Name)
 
 	// Name-uniqueness index was rebuilt, not left stale.
-	_, err = fresh.CreateApplication(seed.app.Name, "duplicate")
+	_, err = fresh.CreateApplication(seed.app.Name, "duplicate", nil)
 	require.Error(t, err)
 
 	gotEnv, err := fresh.GetEnvironment(seed.app.ID, seed.env.ID)
@@ -190,7 +220,7 @@ func assertApplicationFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBack
 	require.NoError(t, err)
 	assert.Len(t, envItems, 1)
 
-	_, err = fresh.CreateEnvironment(seed.app.ID, seed.env.Name, "duplicate", nil)
+	_, err = fresh.CreateEnvironment(seed.app.ID, seed.env.Name, "duplicate", nil, nil)
 	require.Error(t, err)
 
 	gotProfile, err := fresh.GetConfigurationProfile(seed.app.ID, seed.profile.ID)
@@ -199,7 +229,7 @@ func assertApplicationFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBack
 
 	profileItems, _, err := fresh.ListConfigurationProfiles(seed.app.ID, "", 0)
 	require.NoError(t, err)
-	assert.Len(t, profileItems, 1)
+	assert.Len(t, profileItems, 2, "seedFullState creates the freeform profile plus a feature-flag profile")
 }
 
 // assertApplicationCascadeDeleteRestored checks that DeleteApplication's
@@ -220,6 +250,8 @@ func assertApplicationCascadeDeleteRestored(t *testing.T, fresh *appconfig.InMem
 	require.Error(t, err)
 	_, err = fresh.GetDeployment(seed.app.ID, seed.env.ID, seed.deployment.DeploymentNumber)
 	require.Error(t, err)
+	_, err = fresh.GetExperimentDefinition(seed.app.ID, seed.expDef.ID)
+	require.Error(t, err, "DeleteApplication must cascade-delete experiment definitions too")
 }
 
 // assertHostedConfigVersionsRestored checks the composite-keyed
@@ -263,7 +295,7 @@ func assertDeploymentFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacke
 	require.NoError(t, err)
 	assert.Equal(t, seed.strategy.Name, gotStrategy.Name)
 
-	_, err = fresh.CreateDeploymentStrategy(seed.strategy.Name, "duplicate", 10, 0, 100, "LINEAR", "NONE")
+	_, err = fresh.CreateDeploymentStrategy(seed.strategy.Name, "duplicate", 10, 0, 100, "LINEAR", "NONE", nil)
 	require.Error(t, err)
 
 	gotDeployment, err := fresh.GetDeployment(seed.app.ID, seed.env.ID, seed.deployment.DeploymentNumber)
@@ -291,7 +323,7 @@ func assertExtensionFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacken
 	require.NoError(t, err)
 	assert.Equal(t, seed.ext.Name, gotExt.Name)
 
-	_, err = fresh.CreateExtension(seed.ext.Name, "duplicate", nil, nil)
+	_, err = fresh.CreateExtension(seed.ext.Name, "duplicate", nil, nil, nil)
 	require.Error(t, err)
 
 	gotAssoc, err := fresh.GetExtensionAssociation(seed.assoc.ID)
@@ -300,6 +332,49 @@ func assertExtensionFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacken
 
 	assocItems, _ := fresh.ListExtensionAssociations("", "", "", 0)
 	assert.Len(t, assocItems, 1)
+}
+
+// assertExperimentFamilyRestored checks the experiment definition and run
+// families, including that experimentDefinitionsByAppName was rebuilt (a
+// second Create with the same name is rejected), experimentRunCounters
+// survived (a run started post-restore does not collide with the seeded
+// run number), and the run's recorded event history (a plain map, not
+// store.Table-backed) round-tripped.
+func assertExperimentFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBackend, seed seedState) {
+	t.Helper()
+
+	gotDef, err := fresh.GetExperimentDefinition(seed.app.ID, seed.expDef.ID)
+	require.NoError(t, err)
+	assert.Equal(t, seed.expDef.Name, gotDef.Name)
+	assert.Equal(t, "ACTIVE", gotDef.Status, "the seeded run is still RUNNING, so the definition is ACTIVE")
+
+	_, err = fresh.CreateExperimentDefinition(
+		seed.app.ID, seed.expDef.Name, seed.env.ID, seed.expProfile.ID, "flag1", "true", "", "", "",
+		&appconfig.Treatment{FlagValue: &appconfig.FlagValue{Enabled: false}, Weight: 100},
+		[]appconfig.Treatment{{FlagValue: &appconfig.FlagValue{Enabled: true}, Weight: 100}},
+		nil,
+	)
+	require.Error(t, err, "byAppName index must have been rebuilt")
+
+	gotRun, err := fresh.GetExperimentRun(seed.app.ID, seed.expDef.ID, seed.expRun.Run)
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", gotRun.Status)
+
+	events, _, err := fresh.ListExperimentRunEvents(seed.app.ID, seed.expDef.ID, seed.expRun.Run, "", 0)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "RUN_STARTED", events[0].EventType)
+
+	// experimentRunCounters survived: since the seeded run is still
+	// RUNNING, starting a second run is rejected (StartExperimentRun
+	// allows only one RUNNING run per definition) -- stop it first, then
+	// verify the next run number is 2, not a reset-to-1 collision.
+	_, err = fresh.StopExperimentRun(seed.app.ID, seed.expDef.ID, seed.expRun.Run, nil)
+	require.NoError(t, err)
+
+	newRun, err := fresh.StartExperimentRun(seed.app.ID, seed.expDef.ID, "second run", nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, seed.expRun.Run+1, newRun.Run)
 }
 
 // assertRawStateRestored checks the plain tags map (populated via

@@ -426,3 +426,78 @@ type TestTransformerOutput struct {
 	TransformedEventMessage string `json:"transformedEventMessage"`
 	EventNumber             int64  `json:"eventNumber"`
 }
+
+// LookupTable represents a CloudWatch Logs lookup table. Field-diffed against
+// aws-sdk-go-v2 types.LookupTable (the metadata shape returned by
+// DescribeLookupTables) and GetLookupTableOutput (the full-content shape,
+// which additionally carries TableBody). Unlike several other CloudWatch
+// Logs "ingest from elsewhere" resources, CreateLookupTable's CSV content
+// (TableBody) is supplied directly in the request body -- there is no S3
+// reference anywhere in this operation's real input/output shape
+// (CreateLookupTableInput.TableBody and UpdateLookupTableInput.TableBody are
+// both a plain *string of CSV text, verified against the real SDK's
+// serializers.go) -- so this backend stores and parses the real CSV content
+// (see lookup_tables.go's parseLookupTableCSV) rather than modeling a
+// reference to data it never actually reads.
+type LookupTable struct {
+	LookupTableArn  string   `json:"lookupTableArn"`
+	LookupTableName string   `json:"lookupTableName"`
+	Description     string   `json:"description,omitempty"`
+	KmsKeyID        string   `json:"kmsKeyId,omitempty"`
+	TableBody       string   `json:"tableBody"`
+	TableFields     []string `json:"tableFields"`
+	RecordsCount    int64    `json:"recordsCount"`
+	SizeBytes       int64    `json:"sizeBytes"`
+	CreatedAt       int64    `json:"createdAt"`
+	LastUpdatedTime int64    `json:"lastUpdatedTime"`
+}
+
+// syslogSourceTypeVPCE is the only real aws-sdk-go-v2 types.SyslogSourceType
+// enum member ("VPCE"): VPC-endpoint ingestion is the only syslog source this
+// API supports today.
+const syslogSourceTypeVPCE = "VPCE"
+
+// SyslogConfiguration represents a CloudWatch Logs syslog ingestion
+// configuration for a log group. Field-diffed against aws-sdk-go-v2
+// types.SyslogConfiguration (createdAt/logGroupArn/sourceType/vpcEndpointId).
+// PutSyslogConfigurationInput/DeleteSyslogConfigurationInput both require
+// LogGroupIdentifier but only optionally accept VpcEndpointId, so this
+// backend models at most one syslog configuration per log group (Put
+// replaces), matching the per-log-group-identifier keying this codebase
+// already uses for IndexPolicy/Transformer (see indexPolicyKeyFn/
+// transformerKeyFn in store_setup.go).
+type SyslogConfiguration struct {
+	LogGroupIdentifier string `json:"logGroupIdentifier"`
+	LogGroupArn        string `json:"logGroupArn"`
+	SourceType         string `json:"sourceType"`
+	VpcEndpointID      string `json:"vpcEndpointId,omitempty"`
+	CreatedAt          int64  `json:"createdAt"`
+}
+
+// StorageTier constants match the real aws-sdk-go-v2 types.StorageTier enum
+// (StorageTierStandard/StorageTierIntelligentTiering).
+const (
+	StorageTierStandard           = "STANDARD"
+	StorageTierIntelligentTiering = "INTELLIGENT_TIERING"
+)
+
+// StorageTierPolicy represents the account-level CloudWatch Logs storage
+// tier policy. Field-diffed against aws-sdk-go-v2
+// GetStorageTierPolicyOutput/PutStorageTierPolicyOutput: both are
+// account-scoped, not per-log-group -- GetStorageTierPolicyInput carries no
+// fields at all, and PutStorageTierPolicyInput carries only StorageTier (no
+// LogGroupIdentifier) -- so this is a singleton, not attached to any
+// individual log group. It is a related-but-distinct axis from LogGroup's
+// existing LogGroupClass (STANDARD/INFREQUENT_ACCESS, set per log group at
+// CreateLogGroup time, gating feature availability): StorageTier
+// (STANDARD/INTELLIGENT_TIERING) instead governs whether CloudWatch Logs
+// automatically moves already-ingested data between storage tiers
+// account-wide over time to optimize cost. Nothing in the real API wires the
+// two together (GetStorageTierPolicyOutput carries no log-group-class
+// information and LogGroup carries no storage-tier information), so this
+// backend keeps them as two independent concepts rather than inventing a
+// dependency between them.
+type StorageTierPolicy struct {
+	StorageTier     string `json:"storageTier"`
+	LastUpdatedTime int64  `json:"lastUpdatedTime,omitempty"`
+}

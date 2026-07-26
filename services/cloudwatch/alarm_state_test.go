@@ -53,7 +53,7 @@ func TestBackend_SetAlarmState_Reason_Stored(t *testing.T) {
 
 	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "Threshold breach detected", ""))
 
-	alarms, _, err := b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
+	alarms, _, _, err := b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, alarms.Data, 1)
 	assert.Equal(t, "ALARM", alarms.Data[0].StateValue)
@@ -70,19 +70,19 @@ func TestBackend_SetAlarmState_StateTransitions(t *testing.T) {
 	}))
 
 	// Initial state is INSUFFICIENT_DATA.
-	alarms, _, err := b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
+	alarms, _, _, err := b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "INSUFFICIENT_DATA", alarms.Data[0].StateValue)
 
 	// Transition to ALARM.
 	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "ALARM", "breach", ""))
-	alarms, _, err = b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
+	alarms, _, _, err = b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "ALARM", alarms.Data[0].StateValue)
 
 	// Transition to OK.
 	require.NoError(t, b.SetAlarmState(t.Context(), "a1", "OK", "resolved", ""))
-	alarms, _, err = b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
+	alarms, _, _, err = b.DescribeAlarms([]string{"a1"}, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "OK", alarms.Data[0].StateValue)
 }
@@ -133,7 +133,7 @@ func TestSetAlarmState_StateReasonData_StoredAndReturned(t *testing.T) {
 
 			require.NoError(t, b.SetAlarmState(t.Context(), "a", "ALARM", "manual", tc.stateReasonData))
 
-			p, _, err := b.DescribeAlarms([]string{"a"}, nil, "", "", "", 0)
+			p, _, _, err := b.DescribeAlarms([]string{"a"}, nil, "", "", "", 0)
 			require.NoError(t, err)
 			require.Len(t, p.Data, 1)
 			assert.Equal(t, tc.stateReasonData, p.Data[0].StateReasonData)
@@ -230,6 +230,16 @@ func TestCloudWatchBackend_SetAlarmState(t *testing.T) {
 			stateValue: "ALARM",
 			wantErr:    true,
 		},
+		{
+			name: "log_alarm_state_change",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutLogAlarm(validLogAlarmForTest("log-state")))
+			},
+			alarmName:   "log-state",
+			stateValue:  "ALARM",
+			stateReason: "manual log alarm override",
+		},
 	}
 
 	for _, tt := range tests {
@@ -268,7 +278,7 @@ func TestCloudWatchBackend_SetAlarmState_ChildTriggersCompositeReevaluation(t *t
 	}))
 
 	// Composite should be ALARM since child is ALARM.
-	_, composites0, err0 := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", "", 0)
+	_, composites0, _, err0 := b.DescribeAlarms([]string{"direct-composite"}, []string{"CompositeAlarm"}, "", "", "", 0)
 	require.NoError(t, err0)
 	require.Len(t, composites0.Data, 1)
 	assert.Equal(t, "ALARM", composites0.Data[0].StateValue)
@@ -276,7 +286,7 @@ func TestCloudWatchBackend_SetAlarmState_ChildTriggersCompositeReevaluation(t *t
 	// SetAlarmState on child to OK; composite should re-evaluate to OK.
 	require.NoError(t, b.SetAlarmState(t.Context(), "child-direct", "OK", "recovered", ""))
 
-	_, composites, err := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", "", 0)
+	_, composites, _, err := b.DescribeAlarms([]string{"direct-composite"}, []string{"CompositeAlarm"}, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, composites.Data, 1)
 	assert.Equal(t, "OK", composites.Data[0].StateValue)

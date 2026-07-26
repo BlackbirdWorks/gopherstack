@@ -188,3 +188,39 @@ type ListStatementsFilter struct {
 	NextToken         string
 	MaxResults        int
 }
+
+// SessionData represents an AWS Redshift Data API session, matching the
+// SessionData shape returned by ListSessions. This backend does not model
+// sessions as a first-class stored resource -- there is no explicit
+// CreateSession/CloseSession API to persist against. Instead, a session is
+// derived by grouping stored Statement records that share a non-empty
+// SessionID (see groupSessions in sessions.go): the session's connection
+// target and timestamps come from the statements that ran within it.
+//
+// SessionAliveSeconds and SessionTTL are intentionally omitted (both optional
+// wire members): tracking them behaviorally would require the same
+// SessionKeepAliveSeconds plumbing that ExecuteStatement/BatchExecuteStatement
+// already accept-but-ignore (see handleExecuteStatement's doc comment) --
+// adding real semantics for one op without the other would be inconsistent,
+// and this pass only implements ListSessions.
+type SessionData struct {
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+	SessionID         string    `json:"sessionId"`
+	ClusterIdentifier string    `json:"clusterIdentifier,omitempty"`
+	WorkgroupName     string    `json:"workgroupName,omitempty"`
+	Database          string    `json:"database,omitempty"`
+	DBUser            string    `json:"dbUser,omitempty"`
+	Status            string    `json:"status"`
+}
+
+// ListSessionsFilter controls session filtering and pagination.
+type ListSessionsFilter struct {
+	ClusterIdentifier string
+	WorkgroupName     string
+	Database          string
+	SessionID         string
+	Status            string
+	NextToken         string
+	MaxResults        int
+}

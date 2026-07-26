@@ -1,5 +1,12 @@
 package dax_test
 
+// The aws-sdk-go v1 imports below are deliberate and not migratable: aws-dax-go
+// v1.2.15 is built on aws-sdk-go v1 (it depends on v1.55.5 directly and its
+// client methods take v1 types such as *dynamodb.PutItemInput). AWS ships no v2
+// DAX client, so driving the real DAX wire protocol requires them. The dep bump
+// in eb437919a marked aws-sdk-go v1 deprecated, hence the staticcheck
+// suppressions.
+
 import (
 	"context"
 	"testing"
@@ -9,8 +16,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v2dynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	v2types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	v1creds "github.com/aws/aws-sdk-go/aws/credentials"
-	v1dynamodb "github.com/aws/aws-sdk-go/service/dynamodb"
+	v1creds "github.com/aws/aws-sdk-go/aws/credentials"     //nolint:staticcheck // SA1019: aws-dax-go is v1-only; see note above the import block.
+	v1dynamodb "github.com/aws/aws-sdk-go/service/dynamodb" //nolint:staticcheck // SA1019: aws-dax-go is v1-only; see note above the import block.
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

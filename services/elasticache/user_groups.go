@@ -24,7 +24,7 @@ func (b *InMemoryBackend) userGroupARN(region, id string) string {
 func (b *InMemoryBackend) userGroupReplicationGroupIDsLocked(region, groupID string) []string {
 	var ids []string
 
-	tbl := b.replicationGroupsStore(region)
+	tbl := b.replicationGroupsStoreRO(region)
 	if tbl == nil {
 		return nil
 	}
@@ -112,7 +112,7 @@ func (b *InMemoryBackend) DescribeUserGroups(
 
 	region := getRegion(ctx, b.region)
 
-	p, err := describePaged(b.userGroupsStore(region), groupID, ErrUserGroupNotFound, nil,
+	p, err := describePaged(b.userGroupsStoreRO(region), groupID, ErrUserGroupNotFound, nil,
 		func(ug UserGroup) string { return ug.UserGroupID }, marker, maxRecords)
 	if err != nil {
 		return p, err

@@ -77,7 +77,8 @@ func newNotificationSigner(region string) *notificationSigner {
 // sign computes the RSA-SHA256 signature of the canonical notification string
 // per AWS SNS SignatureVersion=2 and returns it base64-encoded.
 func (s *notificationSigner) sign(canonical string) string {
-	// codeql[go/insecure-password-hashing] False positive: digital signature, not password hashing.
+	// Digital signature over a public notification envelope, not password
+	// hashing. See signSHA1 below for why inline codeql markers are not used.
 	h := sha256.Sum256([]byte(canonical))
 	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA256, h[:])
 	if err != nil {
@@ -91,8 +92,17 @@ func (s *notificationSigner) sign(canonical string) string {
 // per AWS SNS SignatureVersion=1 (the AWS default when a topic/subscription does
 // not explicitly set SignatureVersion=2) and returns it base64-encoded.
 func (s *notificationSigner) signSHA1(canonical string) string {
+	// canonical is a public notification envelope (Type/MessageId/Topic/
+	// Timestamp/Message), never a credential. SHA-1 is mandated by the AWS SNS
+	// SignatureVersion=1 spec and the digest is RSA-signed below, so this is a
+	// digital signature rather than password storage.
+	//
+	// CodeQL flags this as go/weak-sensitive-data-hashing; alert #249 is
+	// dismissed as a false positive. Inline `codeql[...]` comments do NOT
+	// suppress Code Scanning alerts (that is legacy LGTM syntax), so do not add
+	// one here expecting it to work -- dismiss via the API or UI instead.
 	//nolint:gosec // G401: AWS SNS SignatureVersion=1 spec requires SHA-1, not a password hash.
-	h := sha1.Sum([]byte(canonical)) // codeql[go/insecure-password-hashing] signature, not a password
+	h := sha1.Sum([]byte(canonical))
 	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA1, h[:])
 	if err != nil {
 		return "SIGN-ERROR"

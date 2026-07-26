@@ -15,6 +15,7 @@ func (h *Handler) handleCreateExtension(c *echo.Context) error {
 	var req struct {
 		Actions     map[string][]ExtensionAction  `json:"Actions"`
 		Parameters  map[string]ExtensionParameter `json:"Parameters"`
+		Tags        map[string]string             `json:"Tags"`
 		Name        string                        `json:"Name"`
 		Description string                        `json:"Description"`
 	}
@@ -25,7 +26,7 @@ func (h *Handler) handleCreateExtension(c *echo.Context) error {
 		)
 	}
 
-	ext, err := h.Backend.CreateExtension(req.Name, req.Description, req.Actions, req.Parameters)
+	ext, err := h.Backend.CreateExtension(req.Name, req.Description, req.Actions, req.Parameters, req.Tags)
 	if err != nil {
 		if errors.Is(err, awserr.ErrInvalidParameter) {
 			return badRequestResponse(c, err)
@@ -149,6 +150,7 @@ func (h *Handler) handleCreateExtensionAssociation(c *echo.Context) error {
 	var req struct {
 		Parameters             map[string]string `json:"Parameters"`
 		ExtensionVersionNumber *int32            `json:"ExtensionVersionNumber"`
+		Tags                   map[string]string `json:"Tags"`
 		ExtensionIdentifier    string            `json:"ExtensionIdentifier"`
 		ResourceIdentifier     string            `json:"ResourceIdentifier"`
 	}
@@ -164,6 +166,7 @@ func (h *Handler) handleCreateExtensionAssociation(c *echo.Context) error {
 		req.ResourceIdentifier,
 		req.Parameters,
 		req.ExtensionVersionNumber,
+		req.Tags,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrInvalidParameter) {

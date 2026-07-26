@@ -6,7 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sesv2sdk "github.com/aws/aws-sdk-go-v2/service/sesv2"
+	sesv2types "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,6 +151,91 @@ func TestGetMessageInsights_NotFound(t *testing.T) {
 	h := newHandler()
 	rec := doRequest(t, h, http.MethodGet, "/v2/email/insights/does-not-exist", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestBatchGetMetricDataSendSDKRoundTrip verifies BatchGetMetricData derives
+// a real SEND count from gopherstack's own send history (rather than always
+// returning a zero-valued placeholder) for the Metric/dimension combination
+// it has real backing data for, via the real aws-sdk-go-v2 client so the
+// StartDate/EndDate epoch-seconds JSON-body encoding is exercised by the
+// genuine SDK serializer/deserializer.
+func TestBatchGetMetricDataSendSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		dimensions map[string]string
+		name       string
+		wantCount  int64
+	}{
+		{
+			name:      "unfiltered_send_count",
+			wantCount: 2,
+		},
+		{
+			name:       "email_identity_dimension_filters",
+			dimensions: map[string]string{"EMAIL_IDENTITY": "metrics@example.com"},
+			wantCount:  2,
+		},
+		{
+			name:       "unsupported_dimension_falls_back_to_zero",
+			dimensions: map[string]string{"CONFIGURATION_SET": "cs1"},
+			wantCount:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			client := newSESv2SDKClient(t, h)
+
+			_, err := client.CreateEmailIdentity(t.Context(), &sesv2sdk.CreateEmailIdentityInput{
+				EmailIdentity: aws.String("metrics@example.com"),
+			})
+			require.NoError(t, err)
+
+			for range 2 {
+				_, sendErr := client.SendEmail(t.Context(), &sesv2sdk.SendEmailInput{
+					FromEmailAddress: aws.String("metrics@example.com"),
+					Destination:      &sesv2types.Destination{ToAddresses: []string{"rcpt@example.com"}},
+					Content: &sesv2types.EmailContent{
+						Simple: &sesv2types.Message{
+							Subject: &sesv2types.Content{Data: aws.String("s")},
+							Body:    &sesv2types.Body{Text: &sesv2types.Content{Data: aws.String("b")}},
+						},
+					},
+				})
+				require.NoError(t, sendErr)
+			}
+
+			out, err := client.BatchGetMetricData(t.Context(), &sesv2sdk.BatchGetMetricDataInput{
+				Queries: []sesv2types.BatchGetMetricDataQuery{
+					{
+						Id:         aws.String("q1"),
+						Namespace:  sesv2types.MetricNamespaceVdm,
+						Metric:     sesv2types.MetricSend,
+						StartDate:  aws.Time(time.Now().Add(-time.Hour)),
+						EndDate:    aws.Time(time.Now().Add(time.Hour)),
+						Dimensions: tt.dimensions,
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Results, 1)
+
+			result := out.Results[0]
+			assert.Equal(t, "q1", aws.ToString(result.Id))
+			require.NotEmpty(t, result.Values)
+
+			var total int64
+			for _, v := range result.Values {
+				total += v
+			}
+
+			assert.Equal(t, tt.wantCount, total)
+		})
+	}
 }
 
 // TestBatchGetMetricDataSynthetic verifies BatchGetMetricData returns synthetic data

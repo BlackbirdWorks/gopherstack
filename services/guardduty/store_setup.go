@@ -17,12 +17,12 @@ package guardduty
 // ScanID, MalwareProtectionPlanID), so those four are also "clean".
 //
 // filters, ipSets, threatIntelSets, publishingDestinations,
-// threatEntitySets, and trustedEntitySets have a DetectorID field, but it is
-// hidden from the wire shape (json:"-"), so a direct b.registry.SnapshotAll
-// would silently lose it on restore -- each of these six is a "dirty" table
-// (store.New only, deliberately NOT store.Register-ed onto b.registry) with
-// persistence.go building an ephemeral DTO registry that carries DetectorID
-// alongside the value.
+// threatEntitySets, trustedEntitySets, and investigations have a DetectorID
+// field, but it is hidden from the wire shape (json:"-"), so a direct
+// b.registry.SnapshotAll would silently lose it on restore -- each of these
+// seven is a "dirty" table (store.New only, deliberately NOT
+// store.Register-ed onto b.registry) with persistence.go building an
+// ephemeral DTO registry that carries DetectorID alongside the value.
 //
 // orgConfigs, adminAccounts, and malwareScanSettings were flat maps keyed
 // directly by detectorID, but OrgConfig/AdminAccount/MalwareScanSettings
@@ -88,6 +88,11 @@ func trustedEntitySetTableKeyFn(v *TrustedEntitySet) string {
 }
 func trustedEntitySetDetectorIndexKeyFn(v *TrustedEntitySet) string { return v.DetectorID }
 
+func investigationTableKeyFn(v *Investigation) string {
+	return detectorKey(v.DetectorID, v.InvestigationID)
+}
+func investigationDetectorIndexKeyFn(v *Investigation) string { return v.DetectorID }
+
 // registerAllTables registers every converted resource collection on
 // b.registry (the "clean" tables) or builds it standalone (the "dirty"
 // tables -- see the file doc comment above) exactly once. It must be called
@@ -140,4 +145,7 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.trustedEntitySets = store.New(trustedEntitySetTableKeyFn)
 	b.trustedEntitySetsByDetector = b.trustedEntitySets.AddIndex("byDetector", trustedEntitySetDetectorIndexKeyFn)
+
+	b.investigations = store.New(investigationTableKeyFn)
+	b.investigationsByDetector = b.investigations.AddIndex("byDetector", investigationDetectorIndexKeyFn)
 }

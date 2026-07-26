@@ -1,8 +1,8 @@
 service: verifiedpermissions
-sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.31.4
-last_audit_commit: b9f40060
-last_audit_date: 2026-07-23
-overall: A            # this pass: 1 critical evaluation bug + ~12 wire-shape bugs fixed op-by-op
+sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.36.0
+last_audit_commit: 9050476f8
+last_audit_date: 2026-07-25
+overall: A            # this pass: 4 new policy-store-alias ops implemented for real (SDK bump to v1.36.0 revealed them); no regressions in the prior pass's fixes
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -36,10 +36,17 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePolicyStoreAlias: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW (SDK bumped to v1.36.0). Validates the target policy store exists by ID (ResourceNotFoundException otherwise -- alias resolution deliberately NOT applied to this field, matching the real SDK's explicit \"the alias name cannot be used\"); enforces the required policy-store-alias/ prefix (ValidationException); enforces account/region-unique alias names (ConflictException on a name collision against a different target or a PendingDeletion alias); idempotent replay on an exact (aliasName, policyStoreId) repeat against an Active alias, matching the real SDK's documented idempotency."}
+  GetPolicyStoreAlias: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW. Returns the alias regardless of state (Active/PendingDeletion) -- reporting that distinction is this op's job."}
+  ListPolicyStoreAliases: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW. Supports the optional filter.policyStoreId narrowing and maxResults/nextToken pagination (shared listByPolicyStore helper, same pattern as ListPolicyTemplates/ListIdentitySources)."}
+  DeletePolicyStoreAlias: {wire: ok, errors: partial, state: ok, persist: ok, note: "NEW. Idempotent on a missing aliasName (200, per real SDK doc). deletionMode SoftDelete (default) transitions the alias to PendingDeletion instead of removing it; HardDelete removes it immediately. errors=partial: the real SDK also declares InvalidStateException for this op, but its documented message (\"The policy store can't be deleted because deletion protection is enabled...\") is byte-for-byte identical to DeletePolicyStore's InvalidStateException text and references a deletionProtection field aliases don't have -- strong evidence of copy-pasted/auto-generated doc boilerplate rather than a real alias-specific trigger. Left unimplemented rather than guessing a fabricated trigger condition; see gaps."}
 gaps:                     # known divergences NOT fixed
-  - "IsAuthorizedWithToken/BatchIsAuthorizedWithToken: principalFromToken matches the token's \"iss\" claim against configured identity sources (improved this pass) but does not additionally match \"aud\"/\"client_id\" against the source's configured client IDs/audiences, nor verify the JWT signature. Documented simplification of the identity-source-selection logic, not a wire-shape bug."
+  - "IsAuthorizedWithToken/BatchIsAuthorizedWithToken: principalFromToken matches the token's \"iss\" claim against configured identity sources (improved a prior pass) but does not additionally match \"aud\"/\"client_id\" against the source's configured client IDs/audiences, nor verify the JWT signature. Documented simplification of the identity-source-selection logic, not a wire-shape bug."
+  - "DeletePolicyStoreAlias: the real SDK declares an InvalidStateException, but its documented trigger text is (byte-for-byte) DeletePolicyStore's own \"deletion protection is enabled\" message, which does not apply to aliases (no deletionProtection field exists on PolicyStoreAlias). Treated as unreliable auto-generated API-reference boilerplate rather than implemented as a guessed condition; if AWS's real behavior differs (e.g. re-soft-deleting an already-PendingDeletion alias), this needs a follow-up once the actual trigger is confirmed."
+  - "CreatePolicyStoreAlias's ServiceQuotaExceededException is declared as a possible error but no numeric per-account/region alias quota is documented anywhere in the API reference, so none is enforced -- consistent with how this service (and others in gopherstack) leaves undocumented-threshold quota exceptions unenforced rather than fabricating a number."
+  - "resolvePolicyStoreID (alias-as-policyStoreId resolution, wired into every other policyStoreId-accepting op this pass) was independently verified against the AWS API reference for 6 ops spanning distinct categories -- GetPolicyStore, UpdatePolicyStore (implied by GetPolicyStore's identical doc text), IsAuthorized, CreatePolicy, DeletePolicy, PutSchema -- all carrying byte-identical documented wording. Applied by strong pattern consistency to the remaining ~15 policyStoreId-accepting ops (policy templates, identity sources, GetSchema, the Batch* evaluation ops) rather than independently doc-verified one-by-one; the two documented exceptions (CreatePolicyStoreAlias, DeletePolicyStore) are confirmed and excluded. Flagging this as an inference rather than a silently-assumed fact."
 deferred: []              # the one item deferred last pass (CreatePolicyStore ClientToken) is now implemented; see ops notes
-leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend uses a single lockmetrics.RWMutex. This pass fixed real ghost-row leaks: DeletePolicy/DeleteIdentitySource/DeletePolicyStore's cascade/DeletePolicyTemplate's new cascade all now clear resourceTags (previously only arnIndex was cleaned, so a tagged-then-deleted resource left its tag map entry behind forever); DeletePolicyStore also now clears policySetCache/policySetDirty for the deleted store. clientTokens (new: ClientToken idempotency state) is an ephemeral, never-persisted map matching the pattern already used by policySetCache/policySetDirty -- entries age out via the 8h idempotencyWindow check at lookup time (no janitor goroutine, consistent with this service's no-goroutines design), so it is a bounded, self-limiting resource under any bounded call pattern. Snapshot/Restore fully exercised by existing persistence_test.go plus this pass's new tests."}
+leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend uses a single lockmetrics.RWMutex. Prior pass fixed real ghost-row leaks: DeletePolicy/DeleteIdentitySource/DeletePolicyStore's cascade/DeletePolicyTemplate's cascade all clear resourceTags (previously only arnIndex was cleaned, so a tagged-then-deleted resource left its tag map entry behind forever); DeletePolicyStore also clears policySetCache/policySetDirty for the deleted store. This pass adds policyStoreAliases (a new store.Table registered on b.registry, keyed by AliasName) to that same cascade: DeletePolicyStore now also deletes every alias pointing at the store being deleted (see policy_stores.go's DeletePolicyStore -- the real API's docs are silent on this since DeletePolicyStore predates aliases entirely, so gopherstack picked cascade-delete per this campaign's documented-choice convention, proven by TestVPHandler_DeletePolicyStore_CascadesAliases/TestBackend_DeletePolicyStore_CascadesAliases). Aliases carry no arnIndex/resourceTags entries at all (not a taggable resource type in the real API -- TagResource's own doc says only policy stores can be tagged), so no ARN/tag cleanup was needed for them. clientTokens (ClientToken idempotency state) remains an ephemeral, never-persisted map; entries age out via the 8h idempotencyWindow check at lookup time (no janitor goroutine). Snapshot/Restore of the new policyStoreAliases table fully exercised by persistence_test.go's TestInMemoryBackend_SnapshotRestore_FullState (extended this pass) plus store_test.go's new alias tests."}
 
 ## Notes
 
@@ -52,7 +59,109 @@ gopherstack's `timeFormat = "2006-01-02T15:04:05.000Z"` + `.UTC().Format(...)` i
 as-is. This is a "looks-wrong-but-correct" trap: don't reflexively reach for
 `pkgs/awstime.Epoch` here, this service is one of the ISO8601-not-epoch awsjson1.0 services.
 
-## This pass's findings (2026-07-23 re-audit)
+## This pass's findings (2026-07-25: policy store aliases, SDK bump to v1.36.0)
+
+The Go SDK module was bumped from v1.31.4 to v1.36.0, which added a policy-store-alias
+family: `CreatePolicyStoreAlias`, `GetPolicyStoreAlias`, `ListPolicyStoreAliases`,
+`DeletePolicyStoreAlias`. A policy store alias is a human-readable, account/region-unique
+name (always prefixed `policy-store-alias/`) that resolves to a policy store's real ID.
+All four ops are now implemented for real (see the `ops:` entries above) -- new backend
+state in `policy_store_aliases.go` (a `store.Table[PolicyStoreAlias]` registered on
+`b.registry`, keyed by `AliasName`, plus a `byPolicyStore` index) and new handlers in
+`handler_policy_store_aliases.go`, both field-diffed against the real SDK's
+`serializers.go`/`deserializers.go` (confirmed awsjson1.0, `X-Amz-Target:
+VerifiedPermissions.<Op>`, same protocol as every other op in this service).
+
+### Alias ARNs are region-populated, unlike every other resource in this service (fixed as new, not a regression)
+
+Every other ARN in this service (`policyStoreARN`, `policyARN`, `policyTemplateARN`,
+`identitySourceARN`) uses `arnNoRegion` -- confirmed correct by a prior pass against real
+`CreatePolicyStore` doc examples, which show an empty region segment
+(`arn:aws:verifiedpermissions::123456789012:policy-store/...`). But the real SDK's own
+`CreatePolicyStoreAlias`/`GetPolicyStoreAlias`/`ListPolicyStoreAliases` example responses
+consistently populate the region
+(`arn:aws:verifiedpermissions:us-east-1:123456789012:policy-store-alias/example-policy-store`)
+across all three independently-fetched doc pages. `policyStoreAliasARN` (in
+`policy_store_aliases.go`) therefore uses `arn.Build`'s normal region-populated form
+instead of `arnNoRegion` -- a real, doc-confirmed wire-shape distinction, not an
+oversight.
+
+### Referential integrity: target-store validation, uniqueness, and cascade delete
+
+Aliases are fundamentally a referential-integrity feature, so the wiring around them
+mattered more than the CRUD itself:
+
+- **`CreatePolicyStoreAlias` validates the target policy store exists** in this backend
+  before creating the alias (`InMemoryBackend.CreatePolicyStoreAlias` checks
+  `b.policyStores.Has(policyStoreID)`), returning the real `ResourceNotFoundException`
+  otherwise. Proven by `TestVPHandler_CreatePolicyStoreAlias`'s "target policy store does
+  not exist" case and `TestBackend_CreatePolicyStoreAlias_TargetNotFound`.
+- **Alias names are unique within account/region** (the real SDK's documented
+  constraint) -- enforced by keying the `policyStoreAliases` table directly off
+  `AliasName`. A `CreatePolicyStoreAlias` retry with the same `(aliasName,
+  policyStoreId)` pair against an `Active` alias replays the original (the real SDK's
+  documented idempotency: "a Success response will be returned and a new policy store
+  alias will not be created"); the same `aliasName` against a *different*
+  `policyStoreId`, or against an alias currently `PendingDeletion`, is a
+  `ConflictException` (the real SDK's `GetPolicyStoreAlias` doc: "creating a policy
+  store alias with the same alias name will fail" while `PendingDeletion`, with no
+  same-target exception carved out). One policy store may have multiple aliases (the
+  real `ListPolicyStoreAliases` doc example shows two aliases for one store) --
+  gopherstack imposes no artificial one-alias-per-store limit.
+- **Deleting a policy store cascade-deletes its aliases.** `DeletePolicyStore`'s own doc
+  page predates aliases entirely and never mentions them -- the real API is silent on
+  this exact interaction. Per this campaign's documented-choice convention (a recent
+  fix in this campaign found the identical bug class in emr: sessions surviving cluster
+  termination), gopherstack picks **cascade-delete** rather than leaving a dangling
+  alias that would keep resolving (via `ResolvePolicyStoreAlias`) to a policy store ID
+  that no longer exists. Implemented in `policy_stores.go`'s `DeletePolicyStore` (new
+  loop over `b.policyStoreAliasesByStore.Get(policyStoreID)`) and proven end-to-end by
+  `TestVPHandler_DeletePolicyStore_CascadesAliases` (asserts the alias is gone via both
+  `GetPolicyStoreAlias` and `ListPolicyStoreAliases`, and that the freed alias name can
+  be immediately reused for a new store) plus the backend-level
+  `TestBackend_DeletePolicyStore_CascadesAliases` and the extended
+  `TestInMemoryBackend_SnapshotRestore_FullState` (proves the cascade also holds after a
+  Snapshot/Restore round trip).
+- **`DeletePolicyStoreAlias`'s `SoftDelete`/`HardDelete` distinction** is real and
+  implemented: `SoftDelete` (the default) transitions the alias to `PendingDeletion`
+  (still visible via `Get`/`List`, but ineligible for a new `CreatePolicyStoreAlias`
+  with the same name and for alias resolution elsewhere -- see below); `HardDelete`
+  removes the row immediately. `DeletePolicyStoreAlias` on a nonexistent `aliasName` is
+  a no-op success, matching the real SDK's documented idempotency.
+
+### Alias resolution is real elsewhere in the API, and is now wired in
+
+Checked whether the ~20 other ops that accept a `policyStoreId` field should also accept
+an alias name in that field. They do: the real API reference's `GetPolicyStore`,
+`CreatePolicy`, `DeletePolicy`, `IsAuthorized`, and `PutSchema` doc pages (independently
+fetched, spanning store/policy/evaluation/schema categories) all carry byte-identical
+wording -- *"To specify a policy store, use its ID or alias name. When using an alias
+name, prefix it with `policy-store-alias/`."* The two documented exceptions are
+`CreatePolicyStoreAlias.policyStoreId` and `DeletePolicyStore.policyStoreId`, both of
+which explicitly require the literal ID (*"the alias name cannot be used"*).
+
+Implemented as a single shared `Handler.resolvePolicyStoreID` (in
+`handler_policy_store_aliases.go`), called at the top of every other
+policyStoreId-accepting handler (`GetPolicyStore`, `UpdatePolicyStore`, `CreatePolicy`,
+`GetPolicy`, `ListPolicies`, `UpdatePolicy`, `DeletePolicy`, `BatchGetPolicy` -- resolved
+per-item, an unresolvable alias fails only that item rather than the whole batch --
+`CreatePolicyTemplate`, `GetPolicyTemplate`, `ListPolicyTemplates`,
+`UpdatePolicyTemplate`, `DeletePolicyTemplate`, `CreateIdentitySource`,
+`GetIdentitySource`, `ListIdentitySources`, `UpdateIdentitySource`,
+`DeleteIdentitySource`, `PutSchema`, `GetSchema`, `IsAuthorized`,
+`IsAuthorizedWithToken`, `BatchIsAuthorized`, `BatchIsAuthorizedWithToken`), resolving to
+the real policy store ID before any backend call and before it's echoed back in a
+response (so responses always show the real ID, never the alias, matching the real SDK's
+example responses). `CreatePolicyStoreAlias` and `DeletePolicyStore` deliberately do NOT
+call this helper. A `PendingDeletion` alias fails resolution with
+`ResourceNotFoundException` (`ResolvePolicyStoreAlias` only resolves `Active` aliases),
+matching the real SDK's documented behavior once an alias enters that state. Proven by
+`TestVPHandler_ResolvePolicyStoreID_AcceptsAlias` (table across
+Get/UpdatePolicyStore-accepts vs CreatePolicyStoreAlias/DeletePolicyStore-rejects) and
+`TestVPHandler_ResolvePolicyStoreID_PendingDeletionAliasFails`. See the `gaps:` entry
+above for the honesty caveat on how broadly this was doc-verified vs inferred by pattern.
+
+## Prior pass's findings (2026-07-23 re-audit)
 
 The prior pass (2026-07-13) marked every op `ok` and left three items as documented
 "gaps" plus one "deferred". Re-auditing turned up one **critical evaluation bug** the

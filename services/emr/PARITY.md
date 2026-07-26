@@ -5,12 +5,14 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: emr
-sdk_module: aws-sdk-go-v2/service/emr@v1.57.7   # version audited against
-last_audit_commit: 68b00b12                     # HEAD when this manifest was written
-last_audit_date: 2026-07-24
-overall: A                # re-audit after the Phase-3.3 datalayer refactor (store.Table split); found and fixed a
-                           # wrong wire field name, an invented request field, three missing RunJobFlow-accepted
-                           # inputs, a nil-vs-zero-value Get*Policy bug, and a tags-scope gap (see Notes)
+sdk_module: aws-sdk-go-v2/service/emr@v1.64.0   # version audited against (bumped from v1.57.7; +5 new ops)
+last_audit_commit: 44f89c945                    # HEAD when this manifest was written (parity-4 branch, pre-commit of this pass)
+last_audit_date: 2026-07-25
+overall: A                # 2026-07-25: implemented the interactive-session family (StartSession/GetSession/
+                           # ListSessions/TerminateSession/GetSessionEndpoint), 5 ops the SDK bump revealed as
+                           # unimplemented. Real emulation throughout: cluster-state gating, cluster-termination
+                           # cascade, and a deliberately conservative session-state model (see Notes). No
+                           # fabricated fields found this pass -- see per-op notes below for what was field-diffed.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -75,10 +77,17 @@ ops:
   SetKeepJobFlowAliveWhenNoSteps: {wire: ok, errors: ok, state: ok, persist: ok}
   SetVisibleToAllUsers: {wire: ok, errors: ok, state: ok, persist: ok}
   SetUnhealthyNodeReplacement: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-25 NEW (aws-sdk-go-v2/service/emr@v1.64.0, X-Amz-Target ElasticMapReduce.StartSession): validates ClusterId required + cluster exists + cluster.Status.State in {WAITING, RUNNING} (real doc's own requirement) before creating; a TERMINATED cluster is rejected with InvalidRequestException. Session created in SUBMITTED (types.SessionState) -- see families.session-state-model below for why nothing auto-advances further."}
+  GetSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-25 NEW (X-Amz-Target ElasticMapReduce.GetSession): scoped by both ClusterId and SessionId per real GetSessionInput's two required members; field-diffed Session against types.Session including the awsjson1.1 epoch-seconds timestamps (CreatedAt/UpdatedAt/EndedAt/IdleSince/StartedAt)."}
+  ListSessions: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-25 NEW (X-Amz-Target ElasticMapReduce.ListSessions): scoped to one cluster (real ListSessionsInput.ClusterId is required, there is no cross-cluster session list); sorted newest-first per real doc; SessionStates filter implemented. MaxResults accepted but not used to size the page, consistent with every other list op in this package (none honor a client page-size hint)."}
+  TerminateSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-25 NEW (X-Amz-Target ElasticMapReduce.TerminateSession): resolves directly to TERMINATED (skips the real API's intermediate TERMINATING step), matching this backend's own cluster-termination model (terminateSingle: WAITING straight to TERMINATED, no TERMINATING); idempotent on an already-terminated/failed session."}
+  GetSessionEndpoint: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-07-25 NEW (X-Amz-Target ElasticMapReduce.GetSessionEndpoint): validates cluster and session both exist; Endpoint/AuthToken/AuthTokenExpirationTime/Credentials all populated -- Credentials reuses GetClusterSessionCredentials' existing {\"UsernamePassword\":{...}} wire shape for the same real types.Credentials union (its only member)."}
 # Families audited as a group (when per-op is impractical):
 families:
   error-mapping: {status: ok, note: "EMR's real error model has exactly two exception types (InvalidRequestException 400, InternalServerException 500) per aws-sdk-go-v2/service/emr/types/errors.go; the deserializeError switch matches __type against these two strings verbatim. Fixed handleError, which returned the non-existent 'ValidationException' for ErrInvalidParameter and 'InternalFailure' for the default/500 case -- neither would deserialize into a typed exception a real client checks with errors.As."
 leaks: {status: clean, note: "2026-07-24 re-check after Phase-3.3 datalayer refactor (region-nested maps -> store.Table/store.Index) and this pass's fixes: DeleteStudio still cascades studioSessionMappingDelete for every mapping of the deleted studio (clone-before-delete pattern preserved through the refactor, avoiding an in-place-index-mutation-during-range hazard); janitor sweeps TERMINATED clusters via c.TerminatedAt and clears the arnIndex entry inline; no new goroutines/tickers added this pass. The new taggedResourceTags helper (tags.go), added for Studio tagging support, does a linear scan of studiosInRegion under the lock AddTags/RemoveTags/ListTagsForResource already hold -- no new lock acquisition. effectiveStepStatus remains a pure read-time computation, no persisted mutation, no lock escalation."}
+session-state-model: {status: ok, note: "2026-07-25: sessions are embedded directly on Cluster (sessions []Session, sessions.go), the same modeling choice already used for steps/instanceGroups/instanceFleets -- real EMR has no cross-cluster ListSessions, only ListSessions(ClusterId), so a child collection keyed by the owning cluster is the correct shape, not a fabrication. State model deliberately does NOT simulate SUBMITTED -> STARTING -> STARTED -> IDLE: unlike effectiveStepStatus's PENDING -> COMPLETED promotion (steps trivially 'succeed' since gopherstack runs no real Hadoop job), reaching IDLE/STARTED for a session would require simulating a real Spark Connect driver booting, which this emulator has no model for at all -- fabricating that progression was judged worse than leaving it SUBMITTED. TerminateSession resolves synchronously (straight to TERMINATED, no TERMINATING window), consistent with terminateSingle's own cluster-termination model."}
+session-termination-cascade: {status: ok, note: "2026-07-25: terminateSingle (clusters.go) now calls terminateClusterSessions, which transitions every non-terminal session on a cluster to TERMINATED in the same call that marks the cluster TERMINATED -- a Spark Connect session cannot outlive its cluster. Because sessions are embedded on Cluster rather than a separate store.Table, the janitor's existing TTL sweep (janitor.go, unchanged) removes them for free when it deletes the cluster row; no separate session sweep was needed to avoid orphans, unlike some other cascade-delete bugs this campaign has found elsewhere."}
 ---
 
 ## Notes
@@ -299,3 +308,121 @@ lookup; all three ops now work against either resource type.
 All of the above were verified against
 `aws-sdk-go-v2/service/emr@v1.57.7` via `go doc` on the installed module
 (same version already in `go.mod`; no SDK version bump needed).
+
+## 2026-07-25: interactive-session family (SDK bump to v1.64.0)
+
+The Go SDK module was bumped from `v1.57.7` to `v1.64.0`, which added five
+new operations this backend had never seen: `StartSession`, `GetSession`,
+`ListSessions`, `TerminateSession`, `GetSessionEndpoint` -- EMR's
+interactive (Spark Connect) session family, one cohesive addition rather
+than five unrelated ops. `TestSDKCompleteness` failed on all five until this
+pass; all five are now implemented for real (not stubbed/deferred) and
+added to `GetSupportedOperations()`.
+
+**Wire shapes** were field-diffed against `aws-sdk-go-v2/service/emr@v1.64.0`
+directly (`go doc`, plus reading `serializers.go`/`deserializers.go` for the
+awsjson1.1 field-name-equals-Go-struct-name convention this SDK uses
+throughout, and for the epoch-seconds `Timestamp` handling every other op in
+this file already documents). All five `X-Amz-Target` values are the literal
+operation name with the `ElasticMapReduce.` prefix (confirmed in
+`serializers.go`, e.g. `httpBindingEncoder.SetHeader("X-Amz-Target").String("ElasticMapReduce.StartSession")`)
+-- no surprises there, unlike some other services in this campaign.
+
+**Cluster wiring.** `StartSession` validates: (1) `ClusterId` is present,
+(2) the referenced cluster exists, (3) the cluster's `Status.State` is
+`WAITING` or `RUNNING` -- real `StartSession`'s own doc: "The cluster must
+be in the RUNNING or WAITING state". This backend's clusters are always
+created directly in `WAITING` (`buildNewCluster`, unchanged) and never
+reach `RUNNING` (no simulated `STARTING`/`BOOTSTRAPPING`/`RUNNING`), so in
+practice only `WAITING` passes; `RUNNING` is still checked for correctness
+against the real API and in case a future change (or a hand-seeded test
+cluster) produces it. A `TERMINATED`/`TERMINATED_WITH_ERRORS` cluster is
+rejected with `InvalidRequestException`, satisfying the audit's explicit
+ask ("a TERMINATED cluster should not accept a new session"). Sessions are
+reachable by `GetSession`/`ListSessions`(both `ClusterId`-scoped, matching
+the real API -- there is no cross-cluster session list) and removable by
+`TerminateSession`; no session is ever created that isn't observable
+through these paths (there is exactly one construction site, `StartSession`
+in `sessions.go`, and it always appends to `cluster.sessions` before
+returning).
+
+**Modeling choice: sessions embedded on `Cluster`, not a separate
+`store.Table`.** Real EMR has no `ListSessions`-across-clusters operation
+(`ListSessionsInput.ClusterId` is required), so a session is a genuine
+child resource of exactly one cluster -- the same shape steps,
+instanceGroups, and instanceFleets already have in this file, all modeled
+as unexported slice fields on `Cluster` rather than their own
+`store.Table`. This choice was not just for consistency: it also gives
+cascade-delete for free (see below) without a second sweep loop.
+
+**Termination cascade (explicit ask from the audit).** `terminateSingle`
+(clusters.go, the function `TerminateJobFlows` calls per cluster) now also
+calls `terminateClusterSessions` (sessions.go), which transitions every
+non-terminal session on that cluster straight to `TERMINATED` in the same
+call that marks the cluster `TERMINATED` -- a Spark Connect session cannot
+continue running once its underlying cluster is gone. Because sessions live
+on the `Cluster` struct rather than a standalone table, the *existing*
+janitor TTL sweep (`janitor.go`, not modified) removes every session on a
+cluster for free the moment it deletes that cluster's row -- there is no
+window where a session could reference a cluster ID the janitor has already
+swept, and no second cleanup loop was needed to prevent it. This was a
+deliberate check against the "ghost rows surviving a parent delete" bug
+class this campaign has found elsewhere (e.g. the studio/session-mapping
+cascade already documented above) -- verified by
+`TestEMR_TerminateJobFlows_CascadesToSessions` (handler_clusters_test.go).
+
+**Session state model (explicit ask from the audit).** Real `SessionState`
+(`aws-sdk-go-v2/service/emr/types/enums.go`) has eight values: `SUBMITTED`,
+`STARTING`, `STARTED`, `IDLE`, `BUSY`, `TERMINATING`, `TERMINATED`,
+`FAILED`. This backend drives exactly two transitions:
+- `StartSession` creates a session in `SUBMITTED` (real `StartSession`'s
+  own doc: "When a session is first created, it enters the SUBMITTED
+  state" -- not a simplification, the literal required initial value).
+- `TerminateSession` (and the termination cascade above) transitions
+  directly to `TERMINATED`, skipping the real API's documented
+  intermediate `TERMINATING` step. This mirrors `terminateSingle`'s own
+  cluster-termination model, which likewise skips a `TERMINATING`
+  intermediate and goes straight `WAITING` -> `TERMINATED` -- keeping the
+  two termination paths in this file consistent with each other, and
+  guaranteeing neither `GetSession` nor `ListSessions` can ever return a
+  `TERMINATING` session a real client's poll loop could get stuck on.
+
+**Explicitly refused to auto-advance:** `SUBMITTED` -> `STARTING` ->
+`STARTED` -> `IDLE` (the sequence a real Spark Connect session goes through
+before it can accept queries) is never simulated, so `IDLE`/`STARTED`/
+`BUSY`/`STARTING` are unreachable in this backend, and `FAILED` is never
+produced (no simulated failure injection). This is a deliberate difference
+from `effectiveStepStatus`'s PENDING -> COMPLETED step promotion: a step
+"completing near-instantly" is a reasonable stand-in for a Hadoop job
+gopherstack never actually runs (the job trivially "succeeds" because
+nothing runs it), but there is no equivalent trivial-success story for a
+session reaching `IDLE` -- that would mean fabricating "a real Spark driver
+finished booting," which is exactly the kind of invented progression this
+parity campaign flags rather than rewards. A client polling `GetSession`
+waiting for `IDLE` will see `SUBMITTED` forever (or `TERMINATED`, once
+explicitly or cascade-terminated) -- an honest gap, not a hidden one.
+
+**`GetSessionEndpoint` URL/credential construction.** Built consistent with
+the two existing synthesized-endpoint patterns already in this file rather
+than inventing a new format: the endpoint URL follows
+`GetPresignedURL`'s (persistent_app_ui.go) `https://<id>.<region>.<fake-service>.amazonaws.com`
+shape (here, `<sessionID>.<region>.spark-connect-emr.amazonaws.com`), and
+`Credentials` reuses `GetClusterSessionCredentials`' existing
+`{"UsernamePassword":{"Username":...,"Password":...}}` wire shape --
+both wrap the same real `types.Credentials` union, whose only member is
+`UsernamePassword` (confirmed via `deserializers.go`'s
+`awsAwsjson11_deserializeDocumentCredentials`). `AuthTokenExpirationTime`
+reuses the existing `sessionCredentialExpiry` (12h) constant
+`GetClusterSessionCredentials` already used for the same kind of synthetic
+expiry.
+
+**Ops not implemented:** none. All five new operations are implemented for
+real, not deferred or stubbed.
+
+Field-diffed against `aws-sdk-go-v2/service/emr@v1.64.0` via `go doc` on
+the installed module plus direct reads of `serializers.go`/
+`deserializers.go` for the five new ops' request/response shapes,
+`types/types.go` for `Session`/`SessionMonitoringConfiguration` and its
+three nested logging-config types, and `types/enums.go` for
+`SessionState`. `go.mod`/`go.sum` were not touched by this pass (the bump
+to v1.64.0 had already landed before this work started).

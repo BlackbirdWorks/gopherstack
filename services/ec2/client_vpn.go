@@ -8,6 +8,19 @@ import (
 	"github.com/google/uuid"
 )
 
+// TransitGatewayClientVpnAttachment represents an attachment between a Client
+// VPN endpoint and a Transit Gateway, created implicitly by
+// CreateClientVpnEndpointWithOptions when TransitGatewayConfiguration is
+// supplied, and mutated by Accept/Reject/DeleteTransitGatewayClientVpnAttachment.
+type TransitGatewayClientVpnAttachment struct {
+	CreationTime               string `json:"creationTime,omitempty"`
+	TransitGatewayAttachmentID string `json:"transitGatewayAttachmentId,omitempty"`
+	TransitGatewayID           string `json:"transitGatewayId,omitempty"`
+	ClientVpnEndpointID        string `json:"clientVpnEndpointId,omitempty"`
+	ClientVpnOwnerID           string `json:"clientVpnOwnerId,omitempty"`
+	State                      string `json:"state,omitempty"`
+}
+
 // CreateClientVpnEndpoint creates a new Client VPN endpoint.
 func (b *InMemoryBackend) CreateClientVpnEndpoint(
 	clientCidrBlock, description string,
@@ -64,9 +77,98 @@ func (b *InMemoryBackend) CreateClientVpnEndpointWithOptions(
 		SelfServicePortalURL: opts.SelfServicePortalURL,
 		CreationTime:         time.Now().UTC().Format(time.RFC3339),
 	}
+
+	if opts.TransitGatewayID != "" {
+		if _, ok := b.transitGateways.Get(opts.TransitGatewayID); !ok {
+			return nil, fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, opts.TransitGatewayID)
+		}
+
+		b.tgwClientVpnAttachments.Put(&TransitGatewayClientVpnAttachment{
+			TransitGatewayAttachmentID: "tgw-attach-" + uuid.New().String()[:17],
+			TransitGatewayID:           opts.TransitGatewayID,
+			ClientVpnEndpointID:        id,
+			ClientVpnOwnerID:           b.AccountID,
+			State:                      "pending-acceptance",
+			CreationTime:               time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
 	b.clientVpnEndpoints.Put(ep)
 
 	return ep, nil
+}
+
+// ---- Transit Gateway Client VPN Attachments ----
+
+// AcceptTransitGatewayClientVpnAttachment accepts a pending Transit Gateway
+// Client VPN attachment, transitioning its state to "available".
+func (b *InMemoryBackend) AcceptTransitGatewayClientVpnAttachment(
+	attachmentID string,
+) (*TransitGatewayClientVpnAttachment, error) {
+	if attachmentID == "" {
+		return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AcceptTransitGatewayClientVpnAttachment")
+	defer b.mu.Unlock()
+
+	att, ok := b.tgwClientVpnAttachments.Get(attachmentID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, attachmentID)
+	}
+
+	att.State = stateAvailable
+	cp := *att
+
+	return &cp, nil
+}
+
+// RejectTransitGatewayClientVpnAttachment rejects a pending Transit Gateway
+// Client VPN attachment, transitioning its state to "rejected".
+func (b *InMemoryBackend) RejectTransitGatewayClientVpnAttachment(
+	attachmentID string,
+) (*TransitGatewayClientVpnAttachment, error) {
+	if attachmentID == "" {
+		return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("RejectTransitGatewayClientVpnAttachment")
+	defer b.mu.Unlock()
+
+	att, ok := b.tgwClientVpnAttachments.Get(attachmentID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, attachmentID)
+	}
+
+	att.State = tgwAttachmentStateRejected
+	cp := *att
+
+	return &cp, nil
+}
+
+// DeleteTransitGatewayClientVpnAttachment removes a Transit Gateway Client
+// VPN attachment, returning its final "deleted" state.
+func (b *InMemoryBackend) DeleteTransitGatewayClientVpnAttachment(
+	attachmentID string,
+) (*TransitGatewayClientVpnAttachment, error) {
+	if attachmentID == "" {
+		return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteTransitGatewayClientVpnAttachment")
+	defer b.mu.Unlock()
+
+	att, ok := b.tgwClientVpnAttachments.Get(attachmentID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, attachmentID)
+	}
+
+	cp := *att
+	cp.State = "deleted"
+	b.tgwClientVpnAttachments.Delete(attachmentID)
+	delete(b.tags, attachmentID)
+
+	return &cp, nil
 }
 
 // DeleteClientVpnEndpoint removes a Client VPN endpoint.

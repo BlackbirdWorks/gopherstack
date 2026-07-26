@@ -5,13 +5,20 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appstream
-sdk_module: aws-sdk-go-v2/service/appstream@v1.60.3
-last_audit_commit: a7d6e20e
-last_audit_date: 2026-07-24
-overall: A            # genuine fixes found this pass (invented ExportImageTask shape, invented
+sdk_module: aws-sdk-go-v2/service/appstream@v1.64.0
+last_audit_commit: HEAD
+last_audit_date: 2026-07-26
+overall: A            # CI-blocking regression fixed this pass: the eb437919a dep bump to SDK
+                       # v1.64.0 switched AppStream's wire protocol from awsjson1.1 to
+                       # Smithy rpc-v2-cbor; the handler only spoke the old protocol, so every
+                       # real SDK request 403'd (fell through to the S3 catch-all route). See
+                       # "Protocol" note below and the 2026-07-26 section at the bottom. Prior
+                       # pass's grade/fixes (invented ExportImageTask shape, invented
                        # StartImageBuilder field, missing Expires on streaming URLs, missing
                        # Entitlement.LastModifiedTime, missing DirectoryConfig credential/cert
                        # fields, epoch-timestamp consistency, DescribeAppLicenseUsage field name)
+                       # are unaffected by this pass -- op-level wire shapes did not change,
+                       # only the transport encoding.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -90,11 +97,30 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 ## Notes
 
-Protocol: awsjson1.1 (single POST endpoint, `X-Amz-Target: PhotonAdminProxyService.<Op>`).
-The `PhotonAdminProxyService.` target prefix is correct and verified against the real
-aws-sdk-go-v2 request builder (AppStream's internal service name predates the public
-"AppStream"/"WorkSpaces Applications" branding) -- do not "fix" this to `AppStream2.` or
-similar, it will break every real client.
+Protocol: **dual**, same as CloudWatch's dual XML/CBOR handling (see
+`services/cloudwatch/PARITY.md`'s "Protocol" note for the sibling case). Two wire protocols
+are served side by side from `handler.go`/`rpcv2cbor.go`, selected per-request by
+`isCBORRequest`:
+
+- **Legacy**: awsjson1.1, single POST endpoint, `X-Amz-Target: PhotonAdminProxyService.<Op>`
+  header, JSON body. The `PhotonAdminProxyService.` target prefix is correct and verified
+  against the real aws-sdk-go-v2 request builder (AppStream's internal service name predates
+  the public "AppStream"/"WorkSpaces Applications" branding) -- do not "fix" this to
+  `AppStream2.` or similar, it will break every real client. Still served deliberately:
+  gopherstack's own unit tests (`doRequest` in `handler_test.go` and everything built on it)
+  drive this path directly, and older pinned SDKs / the Terraform provider may still speak
+  it. See the 2026-07-26 section below.
+- **Current**: Smithy rpc-v2-cbor, `aws-sdk-go-v2/service/appstream >= v1.64.0`. POST to
+  `/service/PhotonAdminProxyService/operation/<Op>`, `smithy-protocol: rpc-v2-cbor` header,
+  CBOR body. This is what every real (unpinned) SDK client now sends.
+
+Unlike CloudWatch, which had to hand-write ~40 CBOR-native operation handlers because its
+prior protocol (query/XML) was structurally incompatible with CBOR, AppStream's rpc-v2-cbor
+support is a generic bridge through the *existing* JSON operation table (`h.ops` /
+`h.dispatch` in handler.go, unchanged) -- see rpcv2cbor.go's package doc comment for why that
+works here and doesn't in CloudWatch, and the 2026-07-26 section below for the correctness
+details (timestamp tagging, integer vs float CBOR encoding, error body shape) that bridge had
+to get right.
 
 **Bug class found this pass: op-scoped error-code verification.** aws-sdk-go-v2 generates
 one error-deserializer switch statement PER OPERATION (see
@@ -200,3 +226,100 @@ for the two builder ones -- verified via doc comments in the vendored SDK's
 brief called out to verify explicitly -- a real client relying on `Expires` to know when to
 refresh a session's streaming URL would have silently gotten a URL with no stated
 expiration.
+
+## 2026-07-26 — CI-blocking regression: rpc-v2-cbor protocol migration (eb437919a)
+
+**Root cause.** `eb437919a` bumped `aws-sdk-go-v2/service/appstream` to v1.64.0, which
+switched the generated client from awsjson1.1 (`X-Amz-Target` header, JSON body) to Smithy
+**rpc-v2-cbor** (`req.URL.Path = "/service/PhotonAdminProxyService/operation/<Op>"`,
+`smithy-protocol: rpc-v2-cbor` header, CBOR body) -- confirmed directly in the installed
+SDK's `serializers.go`/`deserializers.go`. `handler.go`'s `RouteMatcher` only matched the old
+header prefix, so every real (unpinned) SDK request missed the AppStream route entirely and
+fell through to the S3 catch-all, returning 403. This broke
+`TestIntegration_AppStream_StackLifecycle`, `TestIntegration_AppStream_FleetLifecycle`, and
+`TestTerraform_AppStreamStack` in CI. `aws-sdk-go-v2/service/cloudwatch` made the same
+protocol switch earlier (v1.55+) and already has a working CBOR implementation
+(`services/cloudwatch/rpcv2cbor.go`); a repo-wide scan of every SDK module in `go.mod`
+confirmed `appstream` and `cloudwatch` are the *only* two services emitting `rpc-v2-cbor` --
+cloudwatch was unaffected (already fixed), appstream was the sole regression.
+
+**Fix.** `handler.go`'s `RouteMatcher`/`ExtractOperation`/`Handler()` now branch on
+`isCBORRequest` (rpcv2cbor.go) to serve both protocols, mirroring CloudWatch's dual-protocol
+`isCBORRequest` dispatch pattern exactly (same idea: check the CBOR path prefix first, fall
+back to the legacy header). The **implementation differs from CloudWatch's**, deliberately:
+CloudWatch's pre-CBOR protocol was query/XML, structurally incompatible with CBOR, so its
+`rpcv2cbor_*.go` files hand-write a CBOR-native encoder/decoder per operation family (~40
+operations, ~16 files). AppStream's pre-CBOR protocol was already JSON body -> generic
+op-handler table (`h.ops`, unchanged, ~90 operations) that unmarshals into small per-op
+structs and returns a `map[string]any` for `json.Marshal`. Because JSON and CBOR are both
+just encodings of the same generic map/list/scalar tree, `rpcv2cbor.go` bridges rpc-v2-cbor
+through that *existing* table instead of duplicating all ~90 operations by hand: decode CBOR
+-> generic Go value -> JSON bytes -> `h.dispatch` (byte-for-byte unchanged) -> JSON bytes ->
+generic Go value -> CBOR. This was verified safe against the real SDK's typed CBOR
+deserializer, not assumed:
+
+- **Timestamps.** The SDK's `smithycbor.AsTime` requires a `Tag(1, epoch-seconds)`, not a
+  bare number (confirmed in `smithy-go@v1.27.3/encoding/cbor/coerce.go`). A naive generic
+  bridge would emit a bare number (since the existing response builders already convert
+  `time.Time` to a plain `float64` via `awstime.Epoch`/`.Unix()` for the JSON path) and the
+  SDK would reject every timestamp field. Fixed by grepping
+  `aws-sdk-go-v2/service/appstream/types@v1.64.0/types.go` for every `*time.Time` field,
+  cross-checking which of those gopherstack's handlers actually populate, and tagging that
+  exact key set (`CreatedTime`, `CreatedDate`, `LastModifiedTime`, `StartTime`, `Expires`) as
+  `Tag(1, ...)` on the way out (`timestampKeys`/`numberToCBOR` in rpcv2cbor.go). Fields the
+  SDK models as timestamps that gopherstack doesn't populate today
+  (`SubscriptionFirstUsedDate`, `PublicBaseImageReleasedDate`, `ErrorTimestamp`, etc.) are
+  out of scope for this fix and not in the set; if a future op starts emitting a new
+  timestamp-shaped field under a new key, that key must be added here too.
+- **Integers vs floats.** `json.Unmarshal` into `any` always produces `float64` for numbers,
+  but the SDK's `AsInt32`/`AsInt64` coercers (used for `DesiredInstances`,
+  `MaxUserDurationInSeconds`, etc.) only accept CBOR `Uint`/`NegInt`, not `Float32`/`Float64`
+  (confirmed in `coerce.go`) -- a plain float-encoded bridge would fail every integer field
+  client-side. `numberToCBOR` encodes whole numbers as `Uint`/`NegInt` and only falls back to
+  `Float64` for genuinely fractional values.
+- **Error shape.** The SDK's generated `getProtocolErrorInfo` (in `deserializers.go`) reads
+  the exception name from an `"__type"` key **inside the CBOR body**, not from a header --
+  this differs from CloudWatch's `cborError`, which sets an `X-Amzn-Errortype` header but
+  omits `__type` from the body. (Both cloudwatch's and appstream's SDK-generated
+  deserializers were read directly to confirm this; the header is not consumed by either
+  protocol's generated code path.) AppStream's `cborError` includes `"__type"` in the body so
+  typed exception matching (`errors.As(err, &types.ResourceNotFoundException{})`) works
+  client-side; see `reuse_opportunity` in the task receipt for whether CloudWatch has the
+  same gap (out of scope here -- cloudwatch is explicitly not touched by this pass).
+- **Malformed bodies.** A non-map top-level CBOR value is rejected at the transport level
+  (`SerializationException`) before it can reach an op handler's `json.Unmarshal` and surface
+  a misleading validation error instead, matching CloudWatch's `isCBORMap` check.
+
+**Dual-protocol decision.** Both protocols are served, permanently, not just as a migration
+shim. `services/appstream/handler_test.go`'s `doRequest` helper -- and every existing test
+built on it, i.e. essentially the entire pre-existing appstream unit test suite -- drives the
+legacy `X-Amz-Target` header path directly; deleting it would have broken dozens of existing
+tests for no reason. Older pinned SDK versions and the Terraform AWS provider may also still
+negotiate the legacy protocol. `errorCodeStatus` was extracted out of the JSON path's
+`handleError` (handler.go) into a shared helper so both protocols report identical
+error codes/statuses for the same failure, rather than duplicating that switch.
+
+**Operation coverage.** Because the fix routes through the same `h.ops` table used by the
+legacy protocol, all ~90 operations are structurally reachable over CBOR by construction, not
+just the two ops the failing integration tests happened to exercise (`CreateFleet`,
+`CreateStack`). `handler_test.go`'s `TestAppStream_RPCv2CBOR/every_supported_operation_is_reachable_over_CBOR`
+asserts this directly: every operation in `GetSupportedOperations()` gets a CBOR request and
+must come back as well-formed, decodable CBOR with the `Smithy-Protocol` header set (a route
+miss, panic, or encoding bug would instead surface as an undecodable body or a missing
+header). Live-verified end to end against a real built binary:
+`TestIntegration_AppStream_StackLifecycle` and `TestIntegration_AppStream_FleetLifecycle`
+both pass using the real `aws-sdk-go-v2/service/appstream@v1.64.0` client.
+
+**Reuse opportunity (not done this pass, cloudwatch out of scope):** the CBOR value-tree
+helpers in rpcv2cbor.go (`cborToGo`/`goToCBOR`/`numberToCBOR`/timestamp tagging/`writeCBOR`)
+are generic enough that a shared `pkgs/rpcv2cbor` (or similar) package could host the
+CBOR<->generic-value bridge, the `isCBORRequest`/path-prefix helpers (parameterized by
+service path), and the `Content-Type`/`Smithy-Protocol` response header plumbing, for reuse
+by both appstream and any future rpc-v2-cbor service. CloudWatch's hand-written per-operation
+encoders wouldn't benefit from the bridge itself (its prior protocol wasn't a compatible
+shape), but could still share the low-level `writeCBOR`/header-setting/`isCBORRequest`
+plumbing. Also worth a follow-up: CloudWatch's `cborError` doesn't set `"__type"` in the
+CBOR body, which -- per the SDK-generated `getProtocolErrorInfo` behavior confirmed during
+this pass -- means typed exception matching against CloudWatch errors over CBOR likely falls
+back to `"UnknownError"` client-side; this wasn't investigated further since it's explicitly
+out of scope, but is worth a dedicated look.

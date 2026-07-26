@@ -11,6 +11,7 @@ type StorageBackend interface {
 	CreateChannel(
 		name, channelClass, roleArn string,
 		anywhereSettings ChannelAnywhereSettings,
+		extras ChannelCreateExtras,
 		tags map[string]string,
 	) (*Channel, error)
 	DescribeChannel(channelID string) (*Channel, error)
@@ -18,6 +19,7 @@ type StorageBackend interface {
 		channelID, name, roleArn string,
 		anywhereSettings ChannelAnywhereSettings,
 		hasAnywhereSettings bool,
+		extras ChannelUpdateExtras,
 	) (*Channel, error)
 	DeleteChannel(channelID string) (*Channel, error)
 	ListChannels(maxResults int, nextToken string) ([]*ChannelSummary, string, error)
@@ -413,27 +415,583 @@ func (s ChannelAnywhereSettings) hasAnywhereSettings() bool {
 	return s.ClusterID != "" || s.ChannelPlacementGroupID != ""
 }
 
+// --- Channel extended settings (gopherstack-jb9i) ---
+//
+// CreateChannelInput/UpdateChannelInput have 17 top-level members (verified
+// against aws-sdk-go-v2/service/medialive@v1.97.2's api_op_CreateChannel.go/
+// api_op_UpdateChannel.go); before this fix gopherstack modeled 5
+// (name/channelClass/roleArn/tags/anywhereSettings). The 12 added here are
+// CdiInputSpecification/ChannelEngineVersion/ChannelSecurityGroups/
+// Destinations/EncoderSettings/InferenceSettings/InputAttachments/
+// InputSpecification/LinkedChannelSettings/LogLevel/Maintenance/Vpc.
+// EncoderSettings is the deepest: it fans out into per-codec union types
+// (AudioCodecSettings/VideoCodecSettings, each ~20 variants) and
+// per-output-technology union types (OutputGroupSettings/OutputSettings,
+// each ~10-13 variants) that are genuinely impractical to hand-model in
+// full -- every EncoderSettings sub-type below documents exactly what is
+// and is not modeled; see also PARITY.md's gaps entry.
+
+// CdiInputSpecification specifies the maximum CDI input resolution for a
+// channel. Wire key "cdiInputSpecification.resolution" -- verified against
+// types.CdiInputSpecification.
+type CdiInputSpecification struct {
+	Resolution string
+}
+
+func (s CdiInputSpecification) hasCdiInputSpecification() bool { return s.Resolution != "" }
+
+// InputSpecification describes the class of network/file inputs a channel
+// expects. Wire keys "inputSpecification.codec/maximumBitrate/resolution" --
+// verified against types.InputSpecification.
+type InputSpecification struct {
+	Codec          string
+	MaximumBitrate string
+	Resolution     string
+}
+
+func (s InputSpecification) hasInputSpecification() bool {
+	return s.Codec != "" || s.MaximumBitrate != "" || s.Resolution != ""
+}
+
+// ChannelVpcSettings holds the caller-supplied VPC output configuration
+// (request shape types.VpcOutputSettings: subnetIds/publicAddressAllocationIds/
+// securityGroupIds). The response shape (types.VpcOutputSettingsDescription)
+// additionally reports availabilityZones/networkInterfaceIds -- values
+// MediaLive computes from a real VPC/ENI integration that gopherstack does
+// not have; left omitted on output rather than fabricated (same convention
+// as ChannelEngineVersion's ExpirationDate below).
+type ChannelVpcSettings struct {
+	SubnetIDs                  []string
+	PublicAddressAllocationIDs []string
+	SecurityGroupIDs           []string
+}
+
+func (v ChannelVpcSettings) hasVpc() bool { return len(v.SubnetIDs) > 0 }
+
+// ChannelMaintenance holds a channel's maintenance window configuration.
+// Create accepts day/startTime (types.MaintenanceCreateSettings); Update
+// additionally accepts scheduledDate (types.MaintenanceUpdateSettings). The
+// response shape (types.MaintenanceStatus) also reports a computed
+// maintenanceDeadline that gopherstack has no scheduler to derive -- always
+// omitted, never fabricated.
+type ChannelMaintenance struct {
+	Day           string
+	StartTime     string
+	ScheduledDate string
+}
+
+func (m ChannelMaintenance) hasMaintenance() bool {
+	return m.Day != "" || m.StartTime != "" || m.ScheduledDate != ""
+}
+
+// AudioFeedInputMapping maps an audio selector in the channel to a feed
+// input on an associated Elemental Inference feed. Wire keys
+// "audioSelectorName"/"feedInput" -- verified against types.AudioFeedInput.
+type AudioFeedInputMapping struct {
+	AudioSelectorName string
+	FeedInput         string
+}
+
+// ChannelInferenceSettings configures Elemental Inference features for a
+// channel. Wire keys "audioFeedInputs"/"feedArn" -- verified against
+// types.InferenceSettings/types.DescribeInferenceSettings (identical shape
+// on request and response).
+type ChannelInferenceSettings struct {
+	FeedArn         string
+	AudioFeedInputs []AudioFeedInputMapping
+}
+
+func (s ChannelInferenceSettings) hasInferenceSettings() bool {
+	return len(s.AudioFeedInputs) > 0 || s.FeedArn != ""
+}
+
+// ChannelFollowerSettings holds a follower channel's linked-channel
+// configuration. Wire keys "linkedChannelType"/"primaryChannelArn" --
+// verified against types.FollowerChannelSettings (request). The response
+// shape's primary side (types.DescribePrimaryChannelSettings) additionally
+// reports "followingChannelArns", a value MediaLive derives from every
+// OTHER channel's follower settings; gopherstack derives it the same way at
+// read time (see followingChannelArns in channels.go) rather than storing
+// it -- see ChannelPrimarySettings below.
+type ChannelFollowerSettings struct {
+	LinkedChannelType string
+	PrimaryChannelArn string
+}
+
+// ChannelPrimarySettings is a primary channel's linked-channel settings.
+// FollowingChannelArns is derived (never accepted on a request -- extraction
+// never populates it), same pattern as Cluster.ChannelIDs/
+// ChannelPlacementGroup.Channels: computed at read time by
+// followingChannelArns (channels.go) and stamped onto the returned domain
+// object right before Describe/Create/Update/List/Start/Stop hand it back.
+type ChannelPrimarySettings struct {
+	LinkedChannelType    string
+	FollowingChannelArns []string
+}
+
+// ChannelLinkedChannelSettings is a channel's linked-channel configuration
+// (types.LinkedChannelSettings). Only one of Follower/Primary is normally
+// set, matching AWS: a channel is either a follower or a primary, never
+// both.
+type ChannelLinkedChannelSettings struct {
+	Follower ChannelFollowerSettings
+	Primary  ChannelPrimarySettings
+}
+
+func (s ChannelLinkedChannelSettings) hasLinkedChannelSettings() bool {
+	return s.Follower.LinkedChannelType != "" || s.Follower.PrimaryChannelArn != "" ||
+		s.Primary.LinkedChannelType != ""
+}
+
+// OutputDestinationSetting is one standard-output destination endpoint
+// (RTMP/etc). Wire keys "passwordParam"/"streamName"/"url"/"username" --
+// verified against types.OutputDestinationSettings.
+type OutputDestinationSetting struct {
+	PasswordParam string
+	StreamName    string
+	URL           string
+	Username      string
+}
+
+// MediaPackageDestinationSettings targets a MediaPackage channel. Wire keys
+// "channelEndpointId"/"channelGroup"/"channelId"/"channelName"/
+// "mediaPackageRegionName" -- verified against
+// types.MediaPackageOutputDestinationSettings.
+type MediaPackageDestinationSettings struct {
+	ChannelEndpointID      string
+	ChannelGroup           string
+	ChannelID              string
+	ChannelName            string
+	MediaPackageRegionName string
+}
+
+// MultiplexDestinationSettings targets a Multiplex program. Wire keys
+// "multiplexId"/"programName" -- verified against
+// types.MultiplexProgramChannelDestinationSettings.
+type MultiplexDestinationSettings struct {
+	MultiplexID string
+	ProgramName string
+}
+
+// MediaConnectRouterDestinationSettings targets a MediaConnect Router
+// output. Wire keys "encryptionType"/"secretArn" -- verified against
+// types.MediaConnectRouterOutputDestinationSettings.
+type MediaConnectRouterDestinationSettings struct {
+	EncryptionType string
+	SecretArn      string
+}
+
+// SrtDestinationSettings targets an SRT output. Wire keys
+// "connectionMode"/"encryptionPassphraseSecretArn"/"listenerPort"/
+// "streamId"/"url" -- verified against types.SrtOutputDestinationSettings.
+type SrtDestinationSettings struct {
+	ConnectionMode                string
+	EncryptionPassphraseSecretArn string
+	StreamID                      string
+	URL                           string
+	ListenerPort                  int32
+}
+
+// ChannelOutputDestination is one entry of EncoderSettings' output routing
+// table (types.OutputDestination). Modeled in full -- unlike EncoderSettings'
+// per-output-group/per-output settings (see OutputGroup below), every
+// OutputDestination member is itself a flat, small, non-recursive struct, so
+// there is no "genuinely impractical union depth" carve-out needed here.
+type ChannelOutputDestination struct {
+	ID                         string
+	LogicalInterfaceNames      []string
+	MediaConnectRouterSettings []MediaConnectRouterDestinationSettings
+	MediaPackageSettings       []MediaPackageDestinationSettings
+	MultiplexSettings          *MultiplexDestinationSettings
+	Settings                   []OutputDestinationSetting
+	SrtSettings                []SrtDestinationSettings
+}
+
+// AudioSilenceFailoverSettings / InputLossFailoverSettings /
+// VideoBlackFailoverSettings are the three named failover-condition variants
+// (types.AudioSilenceFailoverSettings/types.InputLossFailoverSettings/
+// types.VideoBlackFailoverSettings). Unlike the codec-settings unions
+// (dozens of variants, each itself deep), this union has exactly 3 small
+// flat variants, so it's modeled in full rather than treated as a gap.
+type AudioSilenceFailoverSettings struct {
+	AudioSelectorName         string
+	AudioSilenceThresholdMsec int32
+}
+
+// InputLossFailoverSettings triggers failover after a period with no input
+// detected.
+type InputLossFailoverSettings struct {
+	InputLossThresholdMsec int32
+}
+
+// VideoBlackFailoverSettings triggers failover after a period of black
+// video.
+type VideoBlackFailoverSettings struct {
+	BlackDetectThreshold    float64
+	VideoBlackThresholdMsec int32
+}
+
+// ChannelFailoverConditionSettings is the tagged union of failover-detection
+// methods (types.FailoverConditionSettings); at most one variant is set.
+type ChannelFailoverConditionSettings struct {
+	AudioSilenceSettings *AudioSilenceFailoverSettings
+	InputLossSettings    *InputLossFailoverSettings
+	VideoBlackSettings   *VideoBlackFailoverSettings
+}
+
+// ChannelFailoverCondition wraps one FailoverConditionSettings entry
+// (types.FailoverCondition -- a single-field wrapper struct on the real SDK
+// too, kept here for wire-shape fidelity rather than flattened away).
+type ChannelFailoverCondition struct {
+	Settings ChannelFailoverConditionSettings
+}
+
+// ChannelAutomaticInputFailoverSettings configures automatic input failover
+// for an InputAttachment. Wire keys "secondaryInputId"/"errorClearTimeMsec"/
+// "failoverConditions"/"inputPreference" -- verified against
+// types.AutomaticInputFailoverSettings.
+type ChannelAutomaticInputFailoverSettings struct {
+	SecondaryInputID   string
+	InputPreference    string
+	FailoverConditions []ChannelFailoverCondition
+	ErrorClearTimeMsec int32
+}
+
+func (s ChannelAutomaticInputFailoverSettings) hasFailover() bool {
+	return s.SecondaryInputID != ""
+}
+
+// ChannelInputAttachment attaches an Input to a Channel
+// (types.InputAttachment). InputSettings (per-attachment audio/caption/video
+// selector configuration -- itself a deep union comparable in size to
+// EncoderSettings' codec settings) is deliberately NOT modeled; see
+// PARITY.md's gaps entry for this family.
+type ChannelInputAttachment struct {
+	LogicalInterfaceNames          []string
+	InputAttachmentName            string
+	InputID                        string
+	AutomaticInputFailoverSettings ChannelAutomaticInputFailoverSettings
+}
+
+// InputLocation is a URI plus optional Parameter-Store-backed credentials,
+// reused by several EncoderSettings sub-shapes (avail/blackout slate
+// images, input-loss slate). Wire keys "uri"/"passwordParam"/"username" --
+// verified against types.InputLocation.
+type InputLocation struct {
+	URI           string
+	PasswordParam string
+	Username      string
+}
+
+// TimecodeConfig configures how EncoderSettings acquires/adjusts source
+// timecodes. Wire keys "source"/"syncThreshold" -- verified against
+// types.TimecodeConfig.
+type TimecodeConfig struct {
+	Source        string
+	SyncThreshold int32
+}
+
+// AvailBlanking configures ad-avail blanking. Wire keys
+// "availBlankingImage"/"state" -- verified against types.AvailBlanking.
+type AvailBlanking struct {
+	AvailBlankingImage InputLocation
+	State              string
+}
+
+// BlackoutSlate configures SCTE-104/35 network-blackout behavior. Wire keys
+// "blackoutSlateImage"/"networkEndBlackout"/"networkEndBlackoutImage"/
+// "networkId"/"state" -- verified against types.BlackoutSlate.
+type BlackoutSlate struct {
+	BlackoutSlateImage      InputLocation
+	NetworkEndBlackoutImage InputLocation
+	NetworkEndBlackout      string
+	NetworkID               string
+	State                   string
+}
+
+// FeatureActivations toggles opt-in encoder features. Wire keys
+// "inputPrepareScheduleActions"/"outputStaticImageOverlayScheduleActions" --
+// verified against types.FeatureActivations.
+type FeatureActivations struct {
+	InputPrepareScheduleActions             string
+	OutputStaticImageOverlayScheduleActions string
+}
+
+// InputLossBehavior configures encoder behavior when the input signal is
+// lost. Wire keys "blackFrameMsec"/"inputLossImageColor"/
+// "inputLossImageSlate"/"inputLossImageType"/"repeatFrameMsec" -- verified
+// against types.InputLossBehavior.
+type InputLossBehavior struct {
+	InputLossImageSlate InputLocation
+	InputLossImageColor string
+	InputLossImageType  string
+	BlackFrameMsec      int32
+	RepeatFrameMsec     int32
+}
+
+// DisabledLockingSettings / EpochLockingSettings / PipelineLockingSettings
+// are the three OutputLockingSettings variants (types.DisabledLockingSettings/
+// types.EpochLockingSettings/types.PipelineLockingSettings) -- a 3-way union
+// of small flat structs, modeled in full like the failover-condition union
+// above.
+type DisabledLockingSettings struct {
+	CustomEpoch string
+}
+
+// EpochLockingSettings locks pipeline output to the Unix epoch (optionally a
+// custom one).
+type EpochLockingSettings struct {
+	CustomEpoch string
+	JamSyncTime string
+}
+
+// PipelineLockingSettings locks pipeline output to each other.
+type PipelineLockingSettings struct {
+	CustomEpoch           string
+	PipelineLockingMethod string
+}
+
+// OutputLockingSettings is the tagged union of pipeline-locking strategies
+// (types.OutputLockingSettings); at most one variant is set.
+type OutputLockingSettings struct {
+	Disabled *DisabledLockingSettings
+	Epoch    *EpochLockingSettings
+	Pipeline *PipelineLockingSettings
+}
+
+// GlobalConfiguration holds event-wide encoder settings. Wire keys
+// "initialAudioGain"/"inputEndAction"/"inputLossBehavior"/
+// "outputLockingMode"/"outputLockingSettings"/"outputTimingSource"/
+// "supportLowFramerateInputs" -- verified against types.GlobalConfiguration.
+type GlobalConfiguration struct {
+	OutputLockingSettings     OutputLockingSettings
+	InputEndAction            string
+	OutputLockingMode         string
+	OutputTimingSource        string
+	SupportLowFramerateInputs string
+	InputLossBehavior         InputLossBehavior
+	InitialAudioGain          int32
+}
+
+// ThumbnailConfiguration enables/disables per-pipeline thumbnail generation.
+// Wire key "state" -- verified against types.ThumbnailConfiguration.
+type ThumbnailConfiguration struct {
+	State string
+}
+
+// AudioDescription names one audio encode derived from an input audio
+// selector. Wire keys "audioSelectorName"/"audioType"/"audioTypeControl"/
+// "languageCode"/"languageCodeControl"/"name"/"streamName" -- verified
+// against types.AudioDescription. CodecSettings/AudioNormalizationSettings/
+// AudioWatermarkingSettings/RemixSettings/AudioDashRoles/
+// DvbDashAccessibility (per-codec and DVB-DASH-accessibility unions) are
+// deliberately NOT modeled; see PARITY.md's gaps entry.
+type AudioDescription struct {
+	Name                string
+	AudioSelectorName   string
+	LanguageCode        string
+	LanguageCodeControl string
+	AudioType           string
+	AudioTypeControl    string
+	StreamName          string
+}
+
+// VideoDescription names one video encode. Wire keys "name"/"height"/
+// "respondToAfd"/"scalingBehavior"/"sharpness"/"width" -- verified against
+// types.VideoDescription. CodecSettings (the H264/H265/AV1/MPEG2/etc union)
+// and VideoPreprocessors are deliberately NOT modeled; see PARITY.md's gaps
+// entry.
+type VideoDescription struct {
+	Name            string
+	RespondToAfd    string
+	ScalingBehavior string
+	Height          int32
+	Width           int32
+	Sharpness       int32
+}
+
+// CaptionDescription names one caption output derived from an input caption
+// selector. Wire keys "captionSelectorName"/"name"/"accessibility"/
+// "dvbDashAccessibility"/"languageCode"/"languageDescription" -- verified
+// against types.CaptionDescription. DestinationSettings (the ~15-variant
+// per-format union: burn-in/DVB-Sub/SCTE-27/WebVTT/etc) and CaptionDashRoles
+// are deliberately NOT modeled; see PARITY.md's gaps entry.
+type CaptionDescription struct {
+	CaptionSelectorName  string
+	Name                 string
+	Accessibility        string
+	DvbDashAccessibility string
+	LanguageCode         string
+	LanguageDescription  string
+}
+
+// EncoderOutput names one encoder output and the AudioDescription/
+// CaptionDescription/VideoDescription names it draws from (types.Output --
+// named EncoderOutput here, not Output, to avoid colliding with this
+// package's unrelated Output* helper types). Wire keys
+// "audioDescriptionNames"/"captionDescriptionNames"/"outputName"/
+// "videoDescriptionName" -- verified against types.Output. OutputSettings
+// (the per-output-technology union: Archive/CmafIngest/FrameCapture/Hls/
+// MediaConnectRouter/MediaPackage/MsSmooth/Multiplex/Rtmp/Srt/
+// UdpOutputSettings, each itself large) is deliberately NOT modeled; see
+// PARITY.md's gaps entry.
+type EncoderOutput struct {
+	OutputName              string
+	VideoDescriptionName    string
+	AudioDescriptionNames   []string
+	CaptionDescriptionNames []string
+}
+
+// OutputGroup names one output group and its member Outputs. Wire keys
+// "name"/"outputs" -- verified against types.OutputGroup. OutputGroupSettings
+// (the ~13-variant per-technology union: Archive/CmafIngest/FrameCapture/Hls/
+// MediaConnectRouter/MediaPackage/MsSmooth/Multiplex/Rtmp/Srt/
+// UdpGroupSettings, each itself dozens of fields) is deliberately NOT
+// modeled; see PARITY.md's gaps entry.
+type OutputGroup struct {
+	Name    string
+	Outputs []EncoderOutput
+}
+
+// EncoderSettings is EncoderSettings' modeled subset -- see the per-type doc
+// comments above and PARITY.md's gaps entry for exactly what's excluded (the
+// per-codec AudioCodecSettings/VideoCodecSettings unions, the
+// per-output-technology OutputGroupSettings/OutputSettings unions, the
+// per-caption-format CaptionDestinationSettings union, AvailConfiguration,
+// ColorCorrectionSettings, MotionGraphicsConfiguration,
+// NielsenConfiguration) and why. AudioDescriptions/VideoDescriptions/
+// OutputGroups/TimecodeConfig are required on a real CreateChannelInput's
+// EncoderSettings; gopherstack accepts a partial value (matching every other
+// optional-nested-object family in this service) since it does not perform
+// AWS's own request validation.
+type EncoderSettings struct {
+	BlackoutSlate          BlackoutSlate
+	AvailBlanking          AvailBlanking
+	FeatureActivations     FeatureActivations
+	ThumbnailConfiguration ThumbnailConfiguration
+	AudioDescriptions      []AudioDescription
+	VideoDescriptions      []VideoDescription
+	CaptionDescriptions    []CaptionDescription
+	OutputGroups           []OutputGroup
+	TimecodeConfig         TimecodeConfig
+	GlobalConfiguration    GlobalConfiguration
+}
+
+func (s EncoderSettings) hasEncoderSettings() bool {
+	return len(s.AudioDescriptions) > 0 || len(s.VideoDescriptions) > 0 ||
+		len(s.CaptionDescriptions) > 0 || len(s.OutputGroups) > 0 ||
+		s.TimecodeConfig.Source != "" || s.AvailBlanking.State != "" ||
+		s.BlackoutSlate.State != "" ||
+		s.FeatureActivations.InputPrepareScheduleActions != "" ||
+		s.FeatureActivations.OutputStaticImageOverlayScheduleActions != "" ||
+		s.ThumbnailConfiguration.State != "" ||
+		s.GlobalConfiguration.InputEndAction != "" || s.GlobalConfiguration.InitialAudioGain != 0 ||
+		s.GlobalConfiguration.OutputLockingMode != "" || s.GlobalConfiguration.OutputTimingSource != "" ||
+		s.GlobalConfiguration.SupportLowFramerateInputs != ""
+}
+
+// ChannelCreateExtras bundles the 11 CreateChannelInput members added by
+// gopherstack-jb9i beyond name/channelClass/roleArn/tags/anywhereSettings
+// (which remain direct CreateChannel parameters, matching the pre-existing
+// convention) so CreateChannel's signature doesn't balloon to 15+ positional
+// parameters. A zero-valued field means "not configured", matching a real
+// CreateChannelInput that omits the corresponding member -- no presence
+// tracking is needed for Create, unlike Update (see ChannelUpdateExtras).
+type ChannelCreateExtras struct {
+	InputSpecification    InputSpecification
+	Maintenance           ChannelMaintenance
+	ChannelEngineVersion  ChannelEngineVersion
+	CdiInputSpecification CdiInputSpecification
+	LogLevel              string
+	LinkedChannelSettings ChannelLinkedChannelSettings
+	Vpc                   ChannelVpcSettings
+	InferenceSettings     ChannelInferenceSettings
+	ChannelSecurityGroups []string
+	Destinations          []ChannelOutputDestination
+	InputAttachments      []ChannelInputAttachment
+	EncoderSettings       EncoderSettings
+}
+
+// ChannelUpdateExtras is ChannelCreateExtras' Update-side counterpart. Each
+// field is paired with a HasX flag so UpdateChannel can distinguish "the
+// caller omitted this member" (leave unchanged) from "the caller sent an
+// explicit, possibly zero, value" (overwrite) -- the same "include this
+// parameter only if you want to change it" convention already used by
+// UpdateChannel's anywhereSettings and UpdateCluster's networkSettings.
+type ChannelUpdateExtras struct {
+	Maintenance              ChannelMaintenance
+	InputSpecification       InputSpecification
+	ChannelEngineVersion     ChannelEngineVersion
+	LogLevel                 string
+	CdiInputSpecification    CdiInputSpecification
+	Vpc                      ChannelVpcSettings
+	LinkedChannelSettings    ChannelLinkedChannelSettings
+	InferenceSettings        ChannelInferenceSettings
+	Destinations             []ChannelOutputDestination
+	InputAttachments         []ChannelInputAttachment
+	ChannelSecurityGroups    []string
+	EncoderSettings          EncoderSettings
+	HasChannelSecurityGroups bool
+	HasInputAttachments      bool
+	HasDestinations          bool
+	HasInputSpecification    bool
+	HasEncoderSettings       bool
+	HasLinkedChannelSettings bool
+	HasInferenceSettings     bool
+	HasLogLevel              bool
+	HasChannelEngineVersion  bool
+	HasMaintenance           bool
+	HasCdiInputSpecification bool
+	HasVpc                   bool
+}
+
 // Channel represents a MediaLive channel.
 // Tags first: reduces GC pointer scan from 104 to 96 bytes.
 type Channel struct {
-	Tags             map[string]string
-	ARN              string
-	ID               string
-	Name             string
-	ChannelClass     string
-	RoleARN          string
-	State            string
-	AnywhereSettings ChannelAnywhereSettings
+	Tags                  map[string]string
+	Maintenance           ChannelMaintenance
+	InputSpecification    InputSpecification
+	ChannelEngineVersion  ChannelEngineVersion
+	AnywhereSettings      ChannelAnywhereSettings
+	LogLevel              string
+	CdiInputSpecification CdiInputSpecification
+	ChannelClass          string
+	RoleARN               string
+	State                 string
+	ID                    string
+	ARN                   string
+	Name                  string
+	LinkedChannelSettings ChannelLinkedChannelSettings
+	Vpc                   ChannelVpcSettings
+	InferenceSettings     ChannelInferenceSettings
+	InputAttachments      []ChannelInputAttachment
+	Destinations          []ChannelOutputDestination
+	ChannelSecurityGroups []string
+	EncoderSettings       EncoderSettings
 }
 
-// ChannelSummary is a channel in a list response.
+// ChannelSummary is a channel in a list response. Same shape as Channel
+// minus EncoderSettings -- a real ListChannelsOutput/ChannelSummary never
+// returns the (potentially huge) encoder configuration, verified against
+// types.ChannelSummary.
 type ChannelSummary struct {
-	ARN              string
-	ID               string
-	Name             string
-	ChannelClass     string
-	State            string
-	AnywhereSettings ChannelAnywhereSettings
+	ARN                   string
+	ID                    string
+	Name                  string
+	ChannelClass          string
+	State                 string
+	LogLevel              string
+	ChannelSecurityGroups []string
+	Destinations          []ChannelOutputDestination
+	InputAttachments      []ChannelInputAttachment
+	AnywhereSettings      ChannelAnywhereSettings
+	CdiInputSpecification CdiInputSpecification
+	ChannelEngineVersion  ChannelEngineVersion
+	InferenceSettings     ChannelInferenceSettings
+	InputSpecification    InputSpecification
+	LinkedChannelSettings ChannelLinkedChannelSettings
+	Maintenance           ChannelMaintenance
+	Vpc                   ChannelVpcSettings
 }
 
 // Input represents a MediaLive input.

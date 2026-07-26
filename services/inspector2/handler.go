@@ -46,19 +46,21 @@ const (
 	pathConfigurationUpdate = "/configuration/update"
 	pathTagsPrefix          = "/tags/"
 
-	keyAccounts       = "accounts"
-	keyAccountID      = "accountId"
-	keyResourceStatus = "resourceStatus"
-	keyResourceState  = "resourceState"
-	keyStatus         = "status"
-	keyFailedAccounts = "failedAccounts"
-	keyArn            = "arn"
-	keyErrorCode      = "errorCode"
-	keyErrorMessage   = "errorMessage"
-	keyName           = "name"
-	keyUpdatedAt      = "updatedAt"
-	keyType           = "type"
-	keyFindingArn     = "findingArn"
+	keyAccounts           = "accounts"
+	keyAccountID          = "accountId"
+	keyResourceStatus     = "resourceStatus"
+	keyResourceState      = "resourceState"
+	keyStatus             = "status"
+	keyFailedAccounts     = "failedAccounts"
+	keyArn                = "arn"
+	keyErrorCode          = "errorCode"
+	keyErrorMessage       = "errorMessage"
+	keyName               = "name"
+	keyUpdatedAt          = "updatedAt"
+	keyType               = "type"
+	keyFindingArn         = "findingArn"
+	keyCreatedAt          = "createdAt"
+	keyScanConfigurations = "scanConfigurations"
 )
 
 // Handler handles Inspector2 HTTP requests.
@@ -131,6 +133,8 @@ var onceRouteMatchPrefixes = sync.OnceValue(func() []string {
 		"/codesnippet/",
 		"/freetrialinfo/",
 		"/cluster/",
+		"/connector/",
+		"/connectorscanconfiguration",
 	}
 })
 

@@ -496,6 +496,50 @@ type StorageBackend interface {
 	// Integration resource/table property deletion.
 	DeleteIntegrationResourceProperty(resourceArn string) error
 	DeleteIntegrationTableProperties(resourceArn, tableName string) error
+
+	// Business glossary operations (glossaries.go).
+	CreateGlossary(name, description string) (*Glossary, error)
+	GetGlossary(id string) (*Glossary, error)
+	UpdateGlossary(id string, name, description *string) (*Glossary, error)
+	DeleteGlossary(id string) error
+	ListGlossaries() []*Glossary
+	CreateGlossaryTerm(glossaryID, name, shortDesc, longDesc string) (*GlossaryTerm, error)
+	GetGlossaryTerm(id string) (*GlossaryTerm, error)
+	UpdateGlossaryTerm(id string, name, shortDesc, longDesc *string) (*GlossaryTerm, error)
+	DeleteGlossaryTerm(id string) error
+	ListGlossaryTerms(glossaryID string) ([]*GlossaryTerm, error)
+	AssociateGlossaryTerms(assetID string, termIDs []string) ([]string, error)
+	DisassociateGlossaryTerms(assetID string, termIDs []string) ([]string, error)
+
+	// Asset catalog operations: asset types, assets, attachments, and
+	// iterable form items (assets.go, search_assets.go).
+	PutAssetType(name string, forms map[string]AssetTypeFormReference) (*AssetType, error)
+	GetAssetType(id string) (*AssetType, error)
+	DeleteAssetType(id string) error
+	ListAssetTypes() []*AssetType
+	PutAsset(id, name, description, assetTypeID string, forms map[string]AssetFormEntry) (*Asset, error)
+	GetAsset(id string) (*Asset, error)
+	UpdateAsset(id string, name, description *string) (*Asset, error)
+	DeleteAsset(id string) error
+	SearchAssets(searchText string, filter *searchFilterClause, sortAttr string, sortDesc bool) []*Asset
+	PutAttachment(assetID, attachmentName, formTypeID, content, iterableFormName, itemIdentifier string) error
+	DeleteAttachment(assetID, attachmentName, iterableFormName, itemIdentifier string) error
+	BatchGetIterableForms(
+		assetID, iterableFormName string,
+		itemIDs []string,
+	) ([]*IterableFormItem, []ItemErrorDetail, error)
+	ListIterableForms(assetID, iterableFormName string) ([]*IterableFormListItem, error)
+
+	// Form type operations (forms.go).
+	PutFormType(name, schema string) (*FormType, error)
+	GetFormType(id string) (*FormType, error)
+	DeleteFormType(id string) error
+	ListFormTypes() []*FormType
+
+	// Spark monitoring dashboard / interactive-session Spark Connect endpoint
+	// (dashboard.go).
+	GetDashboardURL(resourceID, resourceType, requestOrigin string) (string, error)
+	GetSessionEndpoint(sessionID string) (*SessionEndpoint, error)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

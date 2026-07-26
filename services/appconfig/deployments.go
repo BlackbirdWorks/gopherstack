@@ -128,12 +128,12 @@ func (b *InMemoryBackend) StartDeployment(
 		VersionLabel:                versionLabel,
 		DeploymentDurationInMinutes: strategy.DeploymentDurationInMinutes,
 		FinalBakeTimeInMinutes:      strategy.FinalBakeTimeInMinutes,
-		TriggeredBy:                 "USER",
+		TriggeredBy:                 triggeredByUser,
 		DeploymentNumber:            deploymentNumber,
 		StartedAt:                   now,
 		AppliedExtensions:           b.appliedExtensionsLocked(applicationID, environmentID, configProfileID),
 	}
-	appendDeploymentEvent(deployment, "DEPLOYMENT_STARTED", "USER", "Deployment started", now)
+	appendDeploymentEvent(deployment, "DEPLOYMENT_STARTED", triggeredByUser, "Deployment started", now)
 
 	key := deploymentKey(applicationID, environmentID, deploymentNumber)
 
@@ -465,12 +465,12 @@ func (b *InMemoryBackend) StopDeployment(
 	case allowRevert && d.State == deploymentStateComplete:
 		updated.State = deploymentStateReverted
 		updated.CompletedAt = now
-		appendDeploymentEvent(&updated, "REVERT_COMPLETED", "USER", "Deployment reverted", now)
+		appendDeploymentEvent(&updated, "REVERT_COMPLETED", triggeredByUser, "Deployment reverted", now)
 		b.revertDeployedConfigLocked(&updated)
 	case stoppableDeploymentStates[d.State]:
 		updated.State = deploymentStateRolledBack
 		updated.CompletedAt = now
-		appendDeploymentEvent(&updated, "ROLLBACK_COMPLETED", "USER", "Deployment rolled back", now)
+		appendDeploymentEvent(&updated, "ROLLBACK_COMPLETED", triggeredByUser, "Deployment rolled back", now)
 	default:
 		return fmt.Errorf("%w: cannot stop deployment in state %s", ErrBadRequest, d.State)
 	}

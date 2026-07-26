@@ -1,9 +1,17 @@
 ---
 service: route53resolver
-sdk_module: aws-sdk-go-v2/service/route53resolver@v1.42.3
+sdk_module: aws-sdk-go-v2/service/route53resolver@v1.48.0
 last_audit_commit: 22d69640
-last_audit_date: 2026-07-24
-overall: A            # genuine wire-breaking bugs found and fixed (again, this pass)
+last_audit_date: 2026-07-25
+overall: A-           # new: BatchCreate/Update/DeleteFirewallRule + ListFirewallRuleTypes (SDK bump
+                       # to v1.48.0 revealed these 4 ops). Batch ops are wired correctly and share
+                       # 100% of the singular ops' validation/state (no wire bugs found in the new
+                       # surface). Downgraded from A because ListFirewallRuleTypes can only catalog
+                       # 1 of its 4 RuleType variants (DnsThreatProtection) with real data -- the
+                       # other 3 (FirewallAdvancedContentCategory/FirewallAdvancedThreatCategory/
+                       # PartnerThreatProtection) are AWS-managed dynamic catalogs with no SDK-side
+                       # enum to source concrete values from; see ops/gaps below. Honest completeness
+                       # gap, not a fabricated value or a wire-shape bug.
 ops:
   CreateResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field (see notes); added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled input+output"}
   GetResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field; added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled output"}
@@ -73,6 +81,10 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchCreateFirewallRule: {wire: new, errors: ok, state: ok, persist: ok, note: "new op (SDK bump to v1.48.0). Partial-success semantics (verified against api_op_BatchCreateFirewallRule.go's output shape -- CreatedFirewallRules + CreateErrors both present, no all-or-nothing rejection field). Each entry is routed through the exact handleCreateFirewallRule function CreateFirewallRule itself calls -- same validation, same shared FirewallRule store, same error codes. Envelope-level 'entries required' check uses ValidationException (not this service's usual InvalidRequestException), verified against the op's own Errors doc section."}
+  BatchUpdateFirewallRule: {wire: new, errors: ok, state: ok, persist: ok, note: "new op, same design as BatchCreateFirewallRule: reuses handleUpdateFirewallRule per entry, partial-success semantics, ValidationException on missing entries list."}
+  BatchDeleteFirewallRule: {wire: new, errors: ok, state: ok, persist: ok, note: "new op, same design as BatchCreateFirewallRule: reuses handleDeleteFirewallRule per entry, partial-success semantics, ValidationException on missing entries list."}
+  ListFirewallRuleTypes: {wire: partial, errors: ok, state: ok, persist: n/a, note: "new op, read-only catalog. Only the DnsThreatProtection RuleType variant is populated (DGA/DNS_TUNNELING/DICTIONARY_DGA, sourced directly from types.DnsThreatProtection so the catalog cannot drift from the real enum). FirewallAdvancedContentCategory/FirewallAdvancedThreatCategory/PartnerThreatProtection are correctly absent rather than invented -- see gaps."}
 families:
   status_lifecycle: {status: ok, note: "endpoints/rules/groups/configs all transition straight to their terminal state (OPERATIONAL/COMPLETE/CREATED) synchronously -- not a bug: clients never block polling since gopherstack has no async provisioning to simulate, matches LocalStack's general approach for this service"}
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend, which uses store.Registry.SnapshotAll/RestoreAll across all 13 store.Table-backed resources plus the 4 plain maps (tags, 3 policy stores); versioned (route53resolverSnapshotVersion) with clean-discard on mismatch"}
@@ -80,6 +92,8 @@ gaps:
   - ListFirewallDomainLists returns the full FirewallDomainList shape instead of the leaner FirewallDomainListMetadata (extra fields present in real response are Status/DomainCount/CreationTime/ModificationTime/StatusMessage, none of which real AWS includes in this specific list response) -- harmless to SDK clients (unknown-field-tolerant decoders), left as-is; would need a second output struct to be byte-exact
   - ResolverConfig/FirewallConfig output structs include an `Arn` field that the real API type does not have for ResolverConfig's case it's harmless-extra (types.ResolverConfig actually has no Arn) -- not removed, zero functional impact
   - "DNS Firewall Advanced (threat-protection) rule fields -- DnsThreatProtection, FirewallDomainRedirectionAction, FirewallThreatProtectionId -- exist on real types.FirewallRule/CreateFirewallRuleInput/UpdateFirewallRuleInput/DeleteFirewallRuleInput (verified against the v1.42.3 SDK source) but are not modeled here. A DNS Firewall Advanced rule uses a materially different identity/creation flow (FirewallThreatProtectionId instead of FirewallDomainListId+Priority, no domain list at all) that would require a second CreateFirewallRule code path plus new validation, not just extra passthrough fields -- out of scope for this pass. Not invented/wrong, just absent; flagged for a future pass rather than guessed at."
+  - "ListFirewallRuleTypes only catalogs the DnsThreatProtection RuleType variant (DGA/DNS_TUNNELING/DICTIONARY_DGA, sourced from types.DnsThreatProtection). The other three variants -- FirewallAdvancedContentCategory, FirewallAdvancedThreatCategory, PartnerThreatProtection -- are AWS-managed, dynamically-updated catalogs (content categories, advanced-threat categories, and AWS Marketplace partner feeds respectively). Verified against types.FirewallAdvancedContentCategoryConfig.Category / FirewallAdvancedThreatCategoryConfig.Category / PartnerThreatProtectionConfig.Partner: all three are untyped `*string` with no backing Go enum, and their own doc comments say the *only* way to learn valid values is to call ListFirewallRuleTypes -- i.e. the SDK provides no closed set gopherstack could correctly derive these three variants from. Returning them would mean inventing category/partner identifiers (e.g. guessing 'VIOLENCE_AND_HATE_SPEECH' from a doc-comment example) that could silently diverge from what real AWS actually returns -- worse than an honest gap. Not implemented; this is the reason for this pass's A- (down from A)."
+  - "Batch{Create,Update,Delete}FirewallRule entries do not carry the DNS Firewall Advanced fields (FirewallRuleType, DnsThreatProtection, FirewallDomainRedirectionAction, FirewallThreatProtectionId) that types.{Create,Update,Delete}FirewallRuleEntry have on the real SDK -- this mirrors the pre-existing, already-documented scope boundary on the singular Create/Update/DeleteFirewallRule ops above (same bullet), not a new gap introduced by the batch ops. A batch entry using only the modeled fields (FirewallDomainListId + Priority, the ordinary DNS Firewall path) works end-to-end."
   - "RuleTypeOption DELEGATE / ResolverEndpointDirection INBOUND_DELEGATION / ResolverRule.DelegationRecord (Route 53 Profile delegation) -- CreateResolverRuleInput does accept a DelegationRecord field and RuleTypeOption/ResolverEndpointDirection both have DELEGATE/INBOUND_DELEGATION values in the real v1.42.3 SDK, but modeling delegation rules correctly requires new validation/state (delegation records, a different endpoint-direction state machine) beyond an inert extra field. Not implemented this pass; flagged rather than half-modeled to avoid a fake DELEGATE mode that silently does nothing."
 deferred:
   - none -- full op surface audited this pass
@@ -90,8 +104,84 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 Protocol: awsjson1.1 (single POST, `X-Amz-Target: Route53Resolver.<Op>`). Route matcher
 (`RouteMatcher`/`ExtractOperation`) is a simple prefix match/trim and correctly covers all
-70 registered ops -- verified by iterating `GetSupportedOperations()` against the real SDK's
-op list, no mismatches.
+72 registered ops (68 + the 4 added this pass, see `TestHandlerOpsLen`) -- verified by
+iterating `GetSupportedOperations()` against the real SDK's op list, no mismatches.
+
+**2026-07-25 pass: Batch{Create,Update,Delete}FirewallRule + ListFirewallRuleTypes (SDK
+bump v1.42.3 -> v1.48.0)**: the SDK bump added four new operations gopherstack had not yet
+implemented (`TestSDKCompleteness` caught them). Target strings confirmed against the real
+generated `serializers.go`: `Route53Resolver.BatchCreateFirewallRule`,
+`Route53Resolver.BatchDeleteFirewallRule`, `Route53Resolver.BatchUpdateFirewallRule`,
+`Route53Resolver.ListFirewallRuleTypes`.
+
+*Shared state, not a parallel code path*: `BatchCreateFirewallRule`/`BatchUpdateFirewallRule`/
+`BatchDeleteFirewallRule` parse each entry into `createFirewallRuleInput`/
+`updateFirewallRuleInput`/`deleteFirewallRuleInput` -- the *exact same* input structs the
+singular `CreateFirewallRule`/`UpdateFirewallRule`/`DeleteFirewallRule` ops already parse into
+(their field sets are an exact match for `types.{Create,Update,Delete}FirewallRuleEntry` within
+this service's existing declared scope) -- and call `handleCreateFirewallRule`/
+`handleUpdateFirewallRule`/`handleDeleteFirewallRule` directly, per entry. There is no
+independent batch-only validation or storage path to drift out of sync with the singular ops;
+a batch entry gets identical validation, identical error codes, and reads/writes the identical
+`firewallRules`/`firewallRulesByRegion` store.
+
+*Atomicity -- partial success, not all-or-nothing*: determined from the real output shape
+(`BatchCreateFirewallRuleOutput` carries both `CreatedFirewallRules` -- the successful subset --
+and `CreateErrors` -- the failed subset, each entry echoed back with `Code`/`Message`), and
+confirmed by AWS's own published example response (a 2-entry request where one entry could have
+been rejected instead returns `CreateErrors: []` alongside both created rules in a single 200).
+Implemented accordingly: each entry is processed independently, in request order, through the
+same handler function the singular op uses; a failing entry is recorded in the errors list and
+processing continues, with no rollback of entries that already succeeded earlier in the same
+batch. `TestBatchCreateFirewallRule`/`TestBatchUpdateFirewallRule`/`TestBatchDeleteFirewallRule`
+(`firewall_rules_test.go`) each include a `partial_failure_*` case asserting the valid entry is
+both present in the response's `Created/Updated/DeletedFirewallRules` *and* visible via a
+follow-up `ListFirewallRules` call against the same backend, proving the write actually landed
+in the shared store rather than being rolled back alongside the failed entry.
+
+*Batch size limit*: none found. Checked the API reference pages for all three batch ops (Request
+Parameters sections), the `CreateFirewallRuleEntry`/`UpdateFirewallRuleEntry`/
+`DeleteFirewallRuleEntry` type pages (which do document field-level `Length Constraints` for
+string members, so the docs generator does surface such constraints when AWS publishes them),
+the AWS CLI reference page, and the generated `validators.go` (`validateOpBatchCreateFirewallRuleInput`
+et al. only check `!= nil`, no length/count check). No documented or SDK-enforced count limit
+exists for `CreateFirewallRuleEntries`/`UpdateFirewallRuleEntries`/`DeleteFirewallRuleEntries` --
+gopherstack does not fabricate one.
+
+*Entries do not have to share a rule group*: `CreateFirewallRuleEntry`/`UpdateFirewallRuleEntry`/
+`DeleteFirewallRuleEntry` each carry their own `FirewallRuleGroupId`; the batch envelope
+(`BatchCreateFirewallRuleInput` etc.) holds only the entries list, with no batch-level group ID.
+A single batch can therefore legitimately target multiple rule groups; group existence is
+validated per-entry (inherited for free from the reused `CreateFirewallRule` path, which already
+404s on an unknown group).
+
+*New error class -- `ValidationException`, not this service's usual `InvalidRequestException`*:
+every singular Firewall Rule op in this service raises `InvalidRequestException` for a
+missing/invalid request field (see `ErrValidation`). The three batch ops are documented
+differently: their API reference Errors sections list `AccessDeniedException`,
+`InternalServiceErrorException`, `LimitExceededException`, `ThrottlingException`, and
+`ValidationException` -- no `InvalidRequestException`. Added a dedicated `ErrBatchValidation`
+sentinel (`errors.go`) and a new `handleError` branch (`handler.go`) so a missing/empty
+`CreateFirewallRuleEntries`/`UpdateFirewallRuleEntries`/`DeleteFirewallRuleEntries` returns
+`ValidationException`, matching the documented behavior instead of silently reusing the wrong
+exception type.
+
+*ListFirewallRuleTypes catalog is SDK-derived, not hand-written*: `types.FirewallRuleType` (the
+tagged union used by the `FirewallRuleType` member on `Create`/`UpdateFirewallRuleEntry` and on
+`types.FirewallRule` itself) has exactly four members --
+`DnsThreatProtection`/`FirewallAdvancedContentCategory`/`FirewallAdvancedThreatCategory`/
+`PartnerThreatProtection` -- matching the four documented values of
+`ListFirewallRuleTypesInput.RuleType`. Of those, only `DnsThreatProtection` has a genuine closed
+Go enum backing it (`types.DnsThreatProtection`: `DGA`/`DNS_TUNNELING`/`DICTIONARY_DGA`), reused
+directly (`r53rtypes.DnsThreatProtectionDga` etc.) so the catalog can never drift from the real
+enum. The other three variants' concrete identifiers
+(`FirewallAdvancedContentCategoryConfig.Category`, `FirewallAdvancedThreatCategoryConfig.Category`,
+`PartnerThreatProtectionConfig.Partner`) are untyped `*string` in the SDK with no backing enum --
+their own doc comments say the only way to learn valid values is to call `ListFirewallRuleTypes`
+itself. Rather than invent plausible-looking category/partner names from doc-comment examples
+(`VIOLENCE_AND_HATE_SPEECH`, `PHISHING`, ...), gopherstack returns real data for
+`DnsThreatProtection` only and an empty result for the other three RuleType filter values. This
+is the one open gap from this pass (see `gaps`) and the reason for the A -> A- grade change.
 
 **Timestamps**: All Route53Resolver `*Time` fields are ISO8601 strings (RFC3339 via
 `currentTime()` in backend.go), matching the real SDK's `*string` (not epoch-number) fields.

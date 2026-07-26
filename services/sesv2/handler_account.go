@@ -15,7 +15,7 @@ func (h *Handler) handleGetAccount() (any, error) {
 		return nil, err
 	}
 
-	return acct, nil
+	return toAccountOutput(acct), nil
 }
 
 func (h *Handler) handleGetBlacklistReports() (any, error) {
@@ -79,6 +79,23 @@ func (h *Handler) handlePutAccountSendingAttributes(c *echo.Context) (any, error
 	}
 
 	if err := h.Backend.PutAccountSendingAttributes(in.SendingEnabled); err != nil {
+		return nil, err
+	}
+
+	return &emptyDeleteOutput{}, nil
+}
+
+// handlePutAccountPricingAttributes serves PUT /v2/email/account/pricing-attributes.
+func (h *Handler) handlePutAccountPricingAttributes(c *echo.Context) (any, error) {
+	var in struct {
+		Plan string `json:"Plan"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
+	}
+
+	if err := h.Backend.PutAccountPricingAttributes(in.Plan); err != nil {
 		return nil, err
 	}
 

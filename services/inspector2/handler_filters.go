@@ -158,7 +158,7 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 			keyName:      f.Name,
 			"action":     f.Action,
 			"ownerId":    f.OwnerID,
-			"createdAt":  awstime.Epoch(f.CreatedAt),
+			keyCreatedAt: awstime.Epoch(f.CreatedAt),
 			keyUpdatedAt: awstime.Epoch(f.UpdatedAt),
 		}
 

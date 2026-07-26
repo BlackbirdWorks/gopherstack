@@ -1,9 +1,15 @@
 service: quicksight
-sdk_module: aws-sdk-go-v2/service/quicksight@v1.112.0
-last_audit_commit: 9dea467e
-last_audit_date: 2026-07-22
-overall: A            # full-surface pass: all named gaps fixed, every deferred family
-                      # confirmed real (no stubs), 13 banned complexity nolints removed
+sdk_module: aws-sdk-go-v2/service/quicksight@v1.121.0
+last_audit_commit: 73f133771
+last_audit_date: 2026-07-25
+overall: A-           # the 32 ops the v1.112.0->v1.121.0 SDK bump added (Agent,
+                      # Flow's Create/Describe/Update/Delete, KnowledgeBase, Space,
+                      # ListUsersIndexCapacity) are now real, field-diffed
+                      # implementations -- not parked in notImplemented. Downgraded one
+                      # notch from the prior A because two fields are honestly omitted
+                      # rather than modeled (Agent.CustomPromptInterface,
+                      # Space.Contributors/ConsumedSource*) -- see families below for
+                      # the specific, cited reasons. No other gaps found this pass.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -106,18 +112,24 @@ families:
   AssetBundle: {status: ok, note: "export/import job lifecycle real (assetbundle.go, handler_assetbundle.go)"}
   Automation: {status: ok, note: "StartAutomationJob/DescribeAutomationJob real (automation.go, handler_automation.go)"}
   DashboardSnapshotJob: {status: ok, note: "StartDashboardSnapshotJob(Schedule)/Describe*Result real (dashboardsnapshot.go, handler_assetbundle.go); classifyDashboardSubRes/SubResID/SubSubRes decomposed from classifyDashboardPaths's flagged nolint this pass, behavior preserved verbatim"}
-  Flow: {status: ok, note: "ListFlows/SearchFlows/GetFlowMetadata/permissions real (flow.go, handler_flow.go); no CreateFlow in the real SDK either (flows are console/Quick-Suite-authored), so SeedFlow test helper is the only way to seed fixtures -- matches real AWS, not a gap"}
+  Flow: {status: ok, note: "ListFlows/SearchFlows/GetFlowMetadata/permissions real (flow.go, handler_flow.go); as of the SDK's v1.121.0 bump CreateFlow/DescribeFlow/UpdateFlow/DeleteFlow now exist too and are implemented for real: CreateFlow generates a server-side FlowID (uuid.New, matching CreateFlowInput having no FlowId field), stores the caller's FlowDefinition document verbatim (map[string]any pass-through, like Dashboard.Definition elsewhere), and reports PublishState PUBLISHED (this backend has no draft/published divergence, matching the real op's documented auto-publish). DescribeFlow returns the FlowDetail shape (distinct field set from FlowSummary -- confirmed against types.FlowDetail: no RunCount/UserCount/LastPublishedAt/LastPublishedBy). StepAliases is always empty: real AWS derives it by parsing the flow definition's steps, which this backend stores opaquely rather than interpreting -- an honest omission, not fabricated. SeedFlow remains for tests that want FlowSummary-shaped fixtures without exercising Create."}
   SelfUpgrade: {status: ok, note: "config + request list/update real (selfupgrade.go, handler_selfupgrade.go); classifyNsSelfUpgradeConfig/Requests/UpdateSelfUpgrade decomposed from classifyNsWithSubRes's flagged nolint this pass"}
+  Agent: {status: ok, note: "new family (SDK v1.121.0): CreateAgent/DescribeAgent/UpdateAgent/DeleteAgent/ListAgents/SearchAgents/permissions real (agents.go, handler_agents.go), field-diffed against types.Agent/AgentSummary/CreateAgentOutput/UpdateAgentOutput (all PascalCase, confirmed via deserializers.go -- CreateAgentOutput uniquely uses AgentName, not Name). UpdateAgent's action-connector/space attach-detach validates each ARN against arnExists (a real, derived check) before accepting it, reporting genuine per-ARN failures in FailedToAdd*/FailedToRemove* rather than always succeeding. One documented, non-fabricated omission: CustomPromptInterface is accepted on Create/Update but never echoed back on Describe, because its required fields (ModelProfileId/QbsAwsAccountId/SubscriptionId) are minted by a real Amazon Q Business subscription this backend has no state for -- synthesizing them would be fabrication (parity-principles.md rule 1), so the field is honestly omitted rather than faked."}
+  KnowledgeBase: {status: ok, note: "new family (SDK v1.121.0): CreateKnowledgeBase/DescribeKnowledgeBase/UpdateKnowledgeBase/DeleteKnowledgeBase/BatchDeleteKnowledgeBase/ListKnowledgeBases/SearchKnowledgeBases/permissions real (knowledgebases.go, handler_knowledgebases.go), field-diffed against types.KnowledgeBase/KnowledgeBaseSummary. Found and correctly implemented a real API quirk: UpdateKnowledgeBase and UpdateKnowledgeBasePermissions are POST, not PUT, unlike every other resource family's Update* op in this backend -- confirmed against serializers.go, not assumed. Configuration/AccessControlConfiguration/MediaExtractionConfiguration are opaque pass-through documents (map[string]any), matching the Dashboard.Definition precedent for deeply-nested config blobs this backend has no processing logic for. BatchDeleteKnowledgeBase partitions per-ID success/failure for real (an unknown ID is a genuine per-item error, not swallowed into a whole-request failure)."}
+  Space: {status: ok, note: "new family (SDK v1.121.0): CreateSpace/DescribeSpace/UpdateSpace/DeleteSpace/ListSpaces/SearchSpaces/permissions/ListSpaceResources/UpdateSpaceResources real (spaces.go, handler_spaces.go). Field-diffed against deserializers.go and found the Space family's wire shape is NOT PascalCase like every other family in this backend: spaceId/spaceArn are camelCase on every op's envelope, the nested Space/SpaceSummary document is fully camelCase, and UpdateSpacePermissionsOutput is uniquely fully-lowercase even for permissions/requestId (confirmed key-by-key against the deserializer switch statements, not assumed) -- see handler_spaces.go's wire-shape note. UpdateSpaceResources validates each resource ARN against arnExists before attaching it, same real-failure pattern as Agent's association updates. One documented, non-fabricated omission: DescribeSpace's Contributors is always an empty list and Space carries no ConsumedSourceSize/ConsumedSourceDocCount fields, because both require per-user raw-file-size attribution from a real ingestion pipeline this backend doesn't have -- an honest omission, matching the VPCConnection.NetworkInterfaces precedent from the prior pass."}
+  UserIndexCapacity: {status: ok, note: "new op (SDK v1.121.0), ListUsersIndexCapacity: real, derived computation (userindexcapacity.go, handler_userindexcapacity.go) -- KBCount/SpaceCount and TotalKBCapacityBytes are computed by scanning this backend's actual KnowledgeBase/Space state for PrimaryOwnerArn/CreatedByArn matches against each user, never a fabricated placeholder. TotalSpaceCapacityBytes stays honestly 0 (Space carries no ConsumedSourceSize field to sum, per the Space family note above). Wire shape is fully camelCase (filters/maxResults/namespace/nextToken/sortBy/sortOrder on the request; nextToken/requestId/users on the response, with UserIndexCapacity's own fields all camelCase too) -- confirmed against (de)serializers.go, matching the Space family's convention rather than this backend's usual PascalCase."}
 gaps: []
-  # All 5 previously-named gaps fixed this pass (UpdateDataSet ingestion reporting,
-  # CancelIngestion terminal-status handling, Tag/Untag/ListTags ARN existence check --
-  # DeleteGroup's groupMembers cleanup was re-verified as already fixed, not a live gap).
-  # One new gap found+fixed during the deferred-family audit: Folder.SharingModel was
-  # never tracked/returned; see families.Folder above.
+  # All 5 previously-named gaps fixed in the prior pass (UpdateDataSet ingestion
+  # reporting, CancelIngestion terminal-status handling, Tag/Untag/ListTags ARN
+  # existence check, Folder.SharingModel). No new gaps found this pass -- the two
+  # non-fabricated field omissions found while implementing Agent/Space (see families
+  # above) are documented choices, not gaps: parity-principles.md rule 1 says never
+  # fabricate a field this backend has no real state to back, and both are safe,
+  # visible omissions (nil/empty), not silently-wrong values.
 deferred: []
-  # All 19 previously-deferred families audited this pass; see families above. None
+  # All families audited across the prior and this pass; see families above. None
   # remain deferred.
-leaks: {status: clean, note: "no goroutines/timers/janitors found in this service -- it's a synchronous in-memory backend behind a single coarse lockmetrics.RWMutex. DeleteUser's groupMembers cleanup (fixed prior pass) and DeleteGroup's groupMembers cleanup (re-verified this pass, already correct) both cascade-clean group membership rows on delete. DeleteFolder cascade-cleans folderMembers rows the same way. No ghost rows found in any family audited this pass."}
+leaks: {status: clean, note: "no goroutines/timers/janitors found in this service -- it's a synchronous in-memory backend behind a single coarse lockmetrics.RWMutex. DeleteUser's groupMembers cleanup (fixed prior pass) and DeleteGroup's groupMembers cleanup (re-verified this pass, already correct) both cascade-clean group membership rows on delete. DeleteFolder cascade-cleans folderMembers rows the same way. DeleteAgent/DeleteKnowledgeBase/DeleteSpace/DeleteFlow (new this pass) all cascade-clean their tags map entries the same way as every other delete in this backend (see arnCollectorFuncs in tags.go, extended this pass to recognize Agent/KnowledgeBase/Space ARNs so TagResource/UntagResource/ListTagsForResource work on them too). No ghost rows found in any family audited this pass."}
 
 ---
 
@@ -177,3 +189,59 @@ safe only because namespace/group/member names are assumed not to contain litera
 `/` characters, consistent with every other composite key in this file (`userKey`,
 `dataSourceKey`, etc.). Don't add resource names with `/` without revisiting all of
 these key builders.
+
+## SDK v1.112.0 -> v1.121.0 bump (this pass)
+
+The Go SDK module was bumped, revealing 32 operations across four new/extended
+families that didn't exist at the prior audit: Agent, Flow's
+Create/Describe/Update/Delete (Flow itself was already a family), KnowledgeBase,
+Space, and ListUsersIndexCapacity. All 32 are implemented for real (see families
+above) and added to `GetSupportedOperations()` -- none were parked in
+`TestSDKCompleteness`'s `notImplemented` list.
+
+**Routing: KnowledgeBase and Space are minted under `/v1/accounts/...`, not
+`/accounts/...`.** Confirmed against `aws-sdk-go-v2/service/quicksight`'s
+`serializers.go`: every other family's `opPath` starts
+`/accounts/{AwsAccountId}/...`; these two start `/v1/accounts/{AwsAccountId}/...`.
+`handler_paths.go`'s `stripV1Prefix` drops the leading `"v1"` segment so the rest of
+the routing/handler code treats them identically to every other
+`/accounts/{id}/{resourceType}/...` family. **Both `classifyRequest` (routing) and
+`pathSegsFromCtx` (every handler's own segment re-parse) call `stripV1Prefix`** --
+an earlier version of this fix only stripped it in `classifyRequest`, which routed
+correctly but left every KnowledgeBase/Space handler re-parsing the *unstripped*
+path for its own `seg(segs, segAccountID)`/`seg(segs, segResID)` calls, silently
+reading the wrong segments (e.g. accountID becoming the literal string
+`"accounts"`). Caught by `TestQuickSight_KnowledgeBases`/`TestQuickSight_Spaces`
+before landing. If a future op adds a third path-prefix convention, route it through
+a shared strip helper the same way, not a copy-pasted one-off in `classifyRequest`
+alone.
+
+**`RouteMatcher` needed a matching update.** QuickSight's `RouteMatcher` gates on a
+literal path-prefix check (`/accounts/` or `/resources/`) before checking the
+`Authorization` header's signing-service name; a `/v1/accounts/...` request would
+never have reached the handler at all without adding `quicksightV1PathPrefix` to
+that check. Safe to add broadly since the `Authorization` header check still
+disambiguates from any other service that might also use a `/v1/...` path
+(`isQuickSightRequest`).
+
+**Space's wire shape breaks this backend's PascalCase convention** -- see the
+Space family note above and the wire-shape comment at the top of
+`handler_spaces.go`'s const block. `ListUsersIndexCapacity` is fully camelCase too
+(matching Space's convention, not this backend's usual PascalCase). Don't
+"normalize" either to PascalCase in a future pass; they are faithfully replicating
+a real, inconsistent upstream API, confirmed key-by-key against
+`(de)serializers.go`, not assumed from pattern-matching the rest of the SDK.
+
+`UpdateKnowledgeBase`/`UpdateKnowledgeBasePermissions` are POST, not PUT -- the one
+resource family in this backend where "Update" doesn't map to an HTTP PUT.
+Confirmed against `serializers.go`; don't "fix" `classifyKnowledgeBasePaths` to use
+PUT by pattern-matching every other family.
+
+`Agent`/`Space` association updates (`UpdateAgent`'s action-connector/space
+attach-detach, `UpdateSpaceResources`) validate each referenced ARN against
+`arnExists` before accepting it, reporting genuine per-ARN failures rather than
+always succeeding -- the same real-failure pattern, and reusing the same
+`arnExists` helper `tags.go` already had for `TagResource`. `arnCollectorFuncs` was
+extended this pass to include Agent/KnowledgeBase/Space ARNs so both this
+validation and `TagResource`/`UntagResource`/`ListTagsForResource` work on the new
+resource types.

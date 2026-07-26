@@ -12,7 +12,7 @@ func TestBackend_HostedConfigVersion_ProfileNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	app, err := b.CreateApplication("app", "")
+	app, err := b.CreateApplication("app", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateHostedConfigurationVersion(

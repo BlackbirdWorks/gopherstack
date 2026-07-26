@@ -22,6 +22,15 @@ import (
 // partially decode) any mismatch -- see Restore below. Mirrors the
 // services/sqs pilot (commit 0f09d77c) and services/apigateway (commit
 // 6da0334e).
+// Left at 3 (not bumped) despite this pass registering three new "clean"
+// tables (dataSourceAttachments, capabilities, migrations, see
+// store_setup.go): [store.Registry.RestoreAll] resets any registered table
+// whose name is absent from an older snapshot's Tables map rather than
+// erroring, so a pre-existing snapshot restores exactly as before with these
+// three tables simply empty -- no existing struct shape changed, so nothing
+// about decoding an older snapshot became unsafe. Only bump this when a
+// registered/DTO table's value *shape* changes (as the 1->2 and 2->3 bumps
+// above did), not for pure table additions.
 const opensearchSnapshotVersion = 3
 
 // dryRunSnapshot, autoTuneSnapshot, dataSourceSnapshot, and

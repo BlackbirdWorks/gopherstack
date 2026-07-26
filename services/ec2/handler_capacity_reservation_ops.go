@@ -161,3 +161,86 @@ func (h *Handler) handleDescribeCapacityReservationBillingRequests(vals url.Valu
 
 	return resp, nil
 }
+
+// ---- Capacity Reservation Cancellation Quotes ----
+
+type capacityReservationCancellationQuoteItem struct {
+	CapacityReservationCancellationQuoteID string `xml:"capacityReservationCancellationQuoteId,omitempty"`
+	CapacityReservationID                  string `xml:"capacityReservationId,omitempty"`
+	QuoteState                             string `xml:"quoteState,omitempty"`
+	CreateTime                             string `xml:"createTime,omitempty"`
+	ExpirationTime                         string `xml:"expirationTime,omitempty"`
+	CurrentConfiguration                   struct {
+		ReservationState string `xml:"reservationState,omitempty"`
+		InstanceCount    int32  `xml:"instanceCount"`
+	} `xml:"currentConfiguration"`
+	CancellationTermSet struct {
+		Items []struct{} `xml:"item"`
+	} `xml:"cancellationTermSet"`
+	TagSet []simpleTagItem `xml:"tagSet>item"`
+}
+
+func toCapacityReservationCancellationQuoteItem(
+	q *CapacityReservationCancellationQuote,
+) capacityReservationCancellationQuoteItem {
+	item := capacityReservationCancellationQuoteItem{
+		CapacityReservationCancellationQuoteID: q.CapacityReservationCancellationQuoteID,
+		CapacityReservationID:                  q.CapacityReservationID,
+		QuoteState:                             q.QuoteState,
+		CreateTime:                             q.CreateTime.Format(time.RFC3339),
+		ExpirationTime:                         q.ExpirationTime.Format(time.RFC3339),
+		TagSet:                                 tagItemsFromMap(q.Tags),
+	}
+	item.CurrentConfiguration.InstanceCount = q.CurrentInstanceCount
+	item.CurrentConfiguration.ReservationState = q.CurrentReservationState
+
+	return item
+}
+
+type createCapacityReservationCancellationQuoteResponse struct {
+	XMLName   xml.Name                                 `xml:"CreateCapacityReservationCancellationQuoteResponse"`
+	Xmlns     string                                   `xml:"xmlns,attr"`
+	RequestID string                                   `xml:"requestId"`
+	Quote     capacityReservationCancellationQuoteItem `xml:"capacityReservationCancellationQuote"`
+}
+
+func (h *Handler) handleCreateCapacityReservationCancellationQuote(vals url.Values, reqID string) (any, error) {
+	tags := parseTagSpecification(vals, "capacity-reservation-cancellation-quote")
+
+	quote, err := h.Backend.CreateCapacityReservationCancellationQuote(
+		vals.Get("CapacityReservationId"),
+		tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createCapacityReservationCancellationQuoteResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Quote:     toCapacityReservationCancellationQuoteItem(quote),
+	}, nil
+}
+
+type describeCapacityReservationCancellationQuotesResponse struct {
+	XMLName   xml.Name `xml:"DescribeCapacityReservationCancellationQuotesResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
+	Quotes    struct {
+		Items []capacityReservationCancellationQuoteItem `xml:"item"`
+	} `xml:"capacityReservationCancellationQuoteSet"`
+}
+
+func (h *Handler) handleDescribeCapacityReservationCancellationQuotes(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "CapacityReservationCancellationQuoteId")
+
+	quotes := h.Backend.DescribeCapacityReservationCancellationQuotes(ids)
+
+	resp := &describeCapacityReservationCancellationQuotesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	for _, q := range quotes {
+		resp.Quotes.Items = append(resp.Quotes.Items, toCapacityReservationCancellationQuoteItem(q))
+	}
+
+	return resp, nil
+}

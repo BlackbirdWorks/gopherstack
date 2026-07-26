@@ -10,6 +10,19 @@ func (b *InMemoryBackend) managedActionHistoryStore(region string) map[string][]
 	return b.managedActionHistory[region]
 }
 
+// managedActionHistoryStoreRO returns the region-scoped managedActionHistory
+// map for region without mutating the outer map. Safe to call while holding
+// only b.mu.RLock(): if the region has not been observed yet, it returns a
+// fresh, unregistered, empty map instead of lazily creating (and
+// persisting) an entry.
+func (b *InMemoryBackend) managedActionHistoryStoreRO(region string) map[string][]*ManagedActionHistory {
+	if v := b.managedActionHistory[region]; v != nil {
+		return v
+	}
+
+	return map[string][]*ManagedActionHistory{}
+}
+
 // ApplyEnvironmentManagedAction applies a scheduled managed action immediately.
 // Records the action in the managed action history (improvement #4).
 func (b *InMemoryBackend) ApplyEnvironmentManagedAction(ctx context.Context, envName, actionID string) error {
@@ -61,7 +74,7 @@ func (b *InMemoryBackend) DescribeEnvironmentManagedActionHistory(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	items := b.managedActionHistoryStore(region)[envName]
+	items := b.managedActionHistoryStoreRO(region)[envName]
 
 	if len(items) == 0 {
 		return []*ManagedActionHistory{}

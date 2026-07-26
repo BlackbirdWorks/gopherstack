@@ -15,6 +15,7 @@ const (
 	keyStatusSuccess = "SUCCESS"
 	keyMessageID     = "MessageId"
 	keyEndpointID    = "EndpointId"
+	keySubject       = "Subject"
 )
 
 const sesv2DefaultMaxItems = 100

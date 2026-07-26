@@ -51,12 +51,38 @@ func (b *InMemoryBackend) clustersStore(region string) *store.Table[Cluster] {
 	return b.clusters[region]
 }
 
+// clustersStoreRO returns the region-scoped clusters table for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty view instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) clustersStoreRO(region string) *store.Table[Cluster] {
+	if v := b.clusters[region]; v != nil {
+		return v
+	}
+
+	return store.New(clusterKeyFn)
+}
+
 func (b *InMemoryBackend) replicationGroupsStore(region string) *store.Table[ReplicationGroup] {
 	if b.replicationGroups[region] == nil {
 		b.replicationGroups[region] = store.New(replicationGroupKeyFn)
 	}
 
 	return b.replicationGroups[region]
+}
+
+// replicationGroupsStoreRO returns the region-scoped replicationGroups table
+// for region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty view instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) replicationGroupsStoreRO(region string) *store.Table[ReplicationGroup] {
+	if v := b.replicationGroups[region]; v != nil {
+		return v
+	}
+
+	return store.New(replicationGroupKeyFn)
 }
 
 func (b *InMemoryBackend) parameterGroupsStore(region string) *store.Table[CacheParameterGroup] {
@@ -67,12 +93,38 @@ func (b *InMemoryBackend) parameterGroupsStore(region string) *store.Table[Cache
 	return b.parameterGroups[region]
 }
 
+// parameterGroupsStoreRO returns the region-scoped parameterGroups table for
+// region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty view instead of lazily seeding the region's default
+// parameter groups (and persisting them).
+func (b *InMemoryBackend) parameterGroupsStoreRO(region string) *store.Table[CacheParameterGroup] {
+	if v := b.parameterGroups[region]; v != nil {
+		return v
+	}
+
+	return store.New(cacheParameterGroupKeyFn)
+}
+
 func (b *InMemoryBackend) subnetGroupsStore(region string) *store.Table[CacheSubnetGroup] {
 	if b.subnetGroups[region] == nil {
 		b.subnetGroups[region] = store.New(cacheSubnetGroupKeyFn)
 	}
 
 	return b.subnetGroups[region]
+}
+
+// subnetGroupsStoreRO returns the region-scoped subnetGroups table for
+// region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty view instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) subnetGroupsStoreRO(region string) *store.Table[CacheSubnetGroup] {
+	if v := b.subnetGroups[region]; v != nil {
+		return v
+	}
+
+	return store.New(cacheSubnetGroupKeyFn)
 }
 
 func (b *InMemoryBackend) snapshotsStore(region string) *store.Table[CacheSnapshot] {
@@ -83,12 +135,38 @@ func (b *InMemoryBackend) snapshotsStore(region string) *store.Table[CacheSnapsh
 	return b.snapshots[region]
 }
 
+// snapshotsStoreRO returns the region-scoped snapshots table for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty view instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) snapshotsStoreRO(region string) *store.Table[CacheSnapshot] {
+	if v := b.snapshots[region]; v != nil {
+		return v
+	}
+
+	return store.New(cacheSnapshotKeyFn)
+}
+
 func (b *InMemoryBackend) cacheSecurityGroupsStore(region string) *store.Table[CacheSecurityGroup] {
 	if b.cacheSecurityGroups[region] == nil {
 		b.cacheSecurityGroups[region] = store.New(cacheSecurityGroupKeyFn)
 	}
 
 	return b.cacheSecurityGroups[region]
+}
+
+// cacheSecurityGroupsStoreRO returns the region-scoped cacheSecurityGroups
+// table for region without mutating the outer map. Safe to call while
+// holding only b.mu.RLock(): if the region has not been observed yet, it
+// returns a fresh, unregistered, empty view instead of lazily creating (and
+// persisting) an entry.
+func (b *InMemoryBackend) cacheSecurityGroupsStoreRO(region string) *store.Table[CacheSecurityGroup] {
+	if v := b.cacheSecurityGroups[region]; v != nil {
+		return v
+	}
+
+	return store.New(cacheSecurityGroupKeyFn)
 }
 
 func (b *InMemoryBackend) cacheSecurityGroupIngressStore(region string) map[string][]EC2SecurityGroupMembership {
@@ -107,12 +185,38 @@ func (b *InMemoryBackend) serverlessCachesStore(region string) *store.Table[Serv
 	return b.serverlessCaches[region]
 }
 
+// serverlessCachesStoreRO returns the region-scoped serverlessCaches table
+// for region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty view instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) serverlessCachesStoreRO(region string) *store.Table[ServerlessCache] {
+	if v := b.serverlessCaches[region]; v != nil {
+		return v
+	}
+
+	return store.New(serverlessCacheKeyFn)
+}
+
 func (b *InMemoryBackend) serverlessCacheSnapshotsStore(region string) *store.Table[ServerlessCacheSnapshot] {
 	if b.serverlessCacheSnapshots[region] == nil {
 		b.serverlessCacheSnapshots[region] = store.New(serverlessCacheSnapshotKeyFn)
 	}
 
 	return b.serverlessCacheSnapshots[region]
+}
+
+// serverlessCacheSnapshotsStoreRO returns the region-scoped
+// serverlessCacheSnapshots table for region without mutating the outer map.
+// Safe to call while holding only b.mu.RLock(): if the region has not been
+// observed yet, it returns a fresh, unregistered, empty view instead of
+// lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) serverlessCacheSnapshotsStoreRO(region string) *store.Table[ServerlessCacheSnapshot] {
+	if v := b.serverlessCacheSnapshots[region]; v != nil {
+		return v
+	}
+
+	return store.New(serverlessCacheSnapshotKeyFn)
 }
 
 func (b *InMemoryBackend) usersStore(region string) *store.Table[User] {
@@ -123,6 +227,18 @@ func (b *InMemoryBackend) usersStore(region string) *store.Table[User] {
 	return b.users[region]
 }
 
+// usersStoreRO returns the region-scoped users table for region without
+// mutating the outer map. Safe to call while holding only b.mu.RLock(): if
+// the region has not been observed yet, it returns a fresh, unregistered,
+// empty view instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) usersStoreRO(region string) *store.Table[User] {
+	if v := b.users[region]; v != nil {
+		return v
+	}
+
+	return store.New(userKeyFn)
+}
+
 func (b *InMemoryBackend) userGroupsStore(region string) *store.Table[UserGroup] {
 	if b.userGroups[region] == nil {
 		b.userGroups[region] = store.New(userGroupKeyFn)
@@ -131,10 +247,36 @@ func (b *InMemoryBackend) userGroupsStore(region string) *store.Table[UserGroup]
 	return b.userGroups[region]
 }
 
+// userGroupsStoreRO returns the region-scoped userGroups table for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty view instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) userGroupsStoreRO(region string) *store.Table[UserGroup] {
+	if v := b.userGroups[region]; v != nil {
+		return v
+	}
+
+	return store.New(userGroupKeyFn)
+}
+
 func (b *InMemoryBackend) reservedCacheNodesStore(region string) *store.Table[ReservedCacheNode] {
 	if b.reservedCacheNodes[region] == nil {
 		b.reservedCacheNodes[region] = store.New(reservedCacheNodeKeyFn)
 	}
 
 	return b.reservedCacheNodes[region]
+}
+
+// reservedCacheNodesStoreRO returns the region-scoped reservedCacheNodes
+// table for region without mutating the outer map. Safe to call while
+// holding only b.mu.RLock(): if the region has not been observed yet, it
+// returns a fresh, unregistered, empty view instead of lazily creating (and
+// persisting) an entry.
+func (b *InMemoryBackend) reservedCacheNodesStoreRO(region string) *store.Table[ReservedCacheNode] {
+	if v := b.reservedCacheNodes[region]; v != nil {
+		return v
+	}
+
+	return store.New(reservedCacheNodeKeyFn)
 }

@@ -34,6 +34,36 @@ func TestBackend_DeleteApplication_NotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestBackend_DeleteApplication_CascadesExperimentDefinitions verifies that
+// DeleteApplication removes every ExperimentDefinition scoped to it (and,
+// transitively, their runs and tags) rather than leaving ghost rows behind
+// -- the same cascade-cleanup precedent already set for environments/
+// configProfiles/hostedConfigVersions/deployments/ExtensionAssociations.
+func TestBackend_DeleteApplication_CascadesExperimentDefinitions(t *testing.T) {
+	t.Parallel()
+
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
+	appID, envID, profileID := seedExperimentApp(t, b)
+
+	def, err := b.CreateExperimentDefinition(
+		appID, "cascade-app-def", envID, profileID, "flag1", "true", "", "", "",
+		experimentTreatment(false, 100), []appconfig.Treatment{*experimentTreatment(true, 100)},
+		nil,
+	)
+	require.NoError(t, err)
+
+	run, err := b.StartExperimentRun(appID, def.ID, "", nil, nil, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteApplication(appID))
+
+	_, err = b.GetExperimentDefinition(appID, def.ID)
+	require.Error(t, err, "experiment definition must not survive its application's deletion")
+
+	_, err = b.GetExperimentRun(appID, def.ID, run.Run)
+	require.Error(t, err, "experiment run must not survive its application's deletion")
+}
+
 func TestBackend_appConfigPaginate_EdgeCases(t *testing.T) {
 	t.Parallel()
 
@@ -42,7 +72,7 @@ func TestBackend_appConfigPaginate_EdgeCases(t *testing.T) {
 
 	// Create 4 apps.
 	for _, name := range []string{"a", "b", "c", "d"} {
-		_, err := b.CreateApplication(name, "")
+		_, err := b.CreateApplication(name, "", nil)
 		require.NoError(t, err)
 	}
 

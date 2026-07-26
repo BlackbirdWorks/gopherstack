@@ -39,23 +39,47 @@ type InMemoryBackend struct {
 	accountIdempotency map[string]map[string]accountIdempotencyEntry
 	// accountConfig holds the account-level configuration per region.
 	accountConfig map[string]AccountConfig
-	registry      *store.Registry
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
+
+	// The ACME resource family (acme_endpoints.go, acme_eab.go,
+	// acme_accounts.go, acme_domain_validations.go). endpoints is the root;
+	// eabs/domainValidations/acmeAccounts each carry an AcmeEndpointArn FK
+	// and are indexed both by region (List*) and by owning endpoint
+	// (ownership scans + DeleteAcmeEndpoint's cascade delete).
+	endpoints                   *store.Table[AcmeEndpoint]
+	endpointsByRegion           *store.Index[AcmeEndpoint]
+	eabs                        *store.Table[AcmeExternalAccountBinding]
+	eabsByEndpoint              *store.Index[AcmeExternalAccountBinding]
+	domainValidations           *store.Table[AcmeDomainValidation]
+	domainValidationsByEndpoint *store.Index[AcmeDomainValidation]
+	acmeAccounts                *store.Table[AcmeAccount]
+	acmeAccountsByEndpoint      *store.Index[AcmeAccount]
+	// endpointIdempotency/eabIdempotency/domainValidationIdempotency map
+	// each family's Create* IdempotencyToken to the resource it produced
+	// (per region), mirroring idempotencyMap/accountIdempotency above.
+	endpointIdempotency         map[string]map[string]acmeIdempotencyEntry
+	eabIdempotency              map[string]map[string]acmeIdempotencyEntry
+	domainValidationIdempotency map[string]map[string]acmeIdempotencyEntry
+
+	registry  *store.Registry
+	mu        *lockmetrics.RWMutex
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		timers:             make(map[string]map[string]*time.Timer),
-		idempotencyMap:     make(map[string]map[string]certIdempotencyEntry),
-		accountIdempotency: make(map[string]map[string]accountIdempotencyEntry),
-		accountConfig:      make(map[string]AccountConfig),
-		accountID:          accountID,
-		region:             region,
-		mu:                 lockmetrics.New("acm"),
-		registry:           store.NewRegistry(),
+		timers:                      make(map[string]map[string]*time.Timer),
+		idempotencyMap:              make(map[string]map[string]certIdempotencyEntry),
+		accountIdempotency:          make(map[string]map[string]accountIdempotencyEntry),
+		accountConfig:               make(map[string]AccountConfig),
+		endpointIdempotency:         make(map[string]map[string]acmeIdempotencyEntry),
+		eabIdempotency:              make(map[string]map[string]acmeIdempotencyEntry),
+		domainValidationIdempotency: make(map[string]map[string]acmeIdempotencyEntry),
+		accountID:                   accountID,
+		region:                      region,
+		mu:                          lockmetrics.New("acm"),
+		registry:                    store.NewRegistry(),
 	}
 
 	registerAllTables(b)
@@ -97,6 +121,30 @@ func (b *InMemoryBackend) accountIdempotencyStore(region string) map[string]acco
 	return b.accountIdempotency[region]
 }
 
+func (b *InMemoryBackend) endpointIdempotencyStore(region string) map[string]acmeIdempotencyEntry {
+	if b.endpointIdempotency[region] == nil {
+		b.endpointIdempotency[region] = make(map[string]acmeIdempotencyEntry)
+	}
+
+	return b.endpointIdempotency[region]
+}
+
+func (b *InMemoryBackend) eabIdempotencyStore(region string) map[string]acmeIdempotencyEntry {
+	if b.eabIdempotency[region] == nil {
+		b.eabIdempotency[region] = make(map[string]acmeIdempotencyEntry)
+	}
+
+	return b.eabIdempotency[region]
+}
+
+func (b *InMemoryBackend) domainValidationIdempotencyStore(region string) map[string]acmeIdempotencyEntry {
+	if b.domainValidationIdempotency[region] == nil {
+		b.domainValidationIdempotency[region] = make(map[string]acmeIdempotencyEntry)
+	}
+
+	return b.domainValidationIdempotency[region]
+}
+
 // Reset clears all certificate state and stops any pending auto-validate timers.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
@@ -117,6 +165,9 @@ func (b *InMemoryBackend) Reset() {
 	b.idempotencyMap = make(map[string]map[string]certIdempotencyEntry)
 	b.accountIdempotency = make(map[string]map[string]accountIdempotencyEntry)
 	b.accountConfig = make(map[string]AccountConfig)
+	b.endpointIdempotency = make(map[string]map[string]acmeIdempotencyEntry)
+	b.eabIdempotency = make(map[string]map[string]acmeIdempotencyEntry)
+	b.domainValidationIdempotency = make(map[string]map[string]acmeIdempotencyEntry)
 }
 
 // Close stops all in-flight certificate auto-validation timers so their

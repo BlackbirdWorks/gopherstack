@@ -182,6 +182,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrBatchValidation):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ValidationException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})

@@ -96,6 +96,28 @@ type StorageBackend interface {
 	CancelDomainConfigChange(domainName string, dryRun bool) ([]string, bool, error)
 	CancelServiceSoftwareUpdate(domainName string) (*ServiceSoftwareOptions, error)
 	StartServiceSoftwareUpdate(domainName, scheduleAt string) (*ServiceSoftwareOptions, error)
+	RollbackServiceSoftwareUpdate(domainName string) (*RollbackServiceSoftwareOptions, error)
+
+	// Data source attachment operations (OpenSearch application <-> real
+	// domain/serverless-collection data source)
+	AttachDataSource(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
+	DetachDataSource(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
+	DescribeDataSourceAttachment(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
+	ListDataSourceAttachments(applicationID string) []*DataSourceAttachment
+
+	// Capability operations
+	RegisterCapability(applicationID, capabilityName string) (*Capability, error)
+	DeregisterCapability(applicationID, capabilityName string) error
+	GetCapability(applicationID, capabilityName string) (*Capability, error)
+
+	// Insight operations (no analytics engine backs this emulator -- see
+	// insights.go)
+	ValidateInsightEntity(entityType, entityValue string) error
+
+	// Migration operations
+	StartMigration(applicationID, sourceArn string) (*Migration, error)
+	GetMigration(migrationID string) (*Migration, error)
+	ListMigrations(applicationID, statusFilter string) ([]*Migration, error)
 
 	// Application operations
 	CreateApplication(name string, appConfigs []AppConfig, dataSources []AppDataSource) (*Application, error)

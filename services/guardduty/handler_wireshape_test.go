@@ -178,3 +178,140 @@ func TestWireShape_GetMalwareScan_UsesRealFieldNames(t *testing.T) {
 	_, hasCompletedAt := raw["scanCompletedAt"]
 	assert.False(t, hasCompletedAt, "scanCompletedAt must be absent while the scan is still RUNNING")
 }
+
+// TestWireShape_Investigation_ValidatesDetectorAndFeature locks
+// CreateInvestigation's two real preconditions this backend can validate for
+// real: DetectorId must name a detector this backend actually has (a
+// nonexistent one fails the same ResourceNotFoundException every other
+// detector-scoped op in this package returns), and the real "To use this
+// operation, the AI_ANALYST feature must be enabled on your detector."
+// requirement is enforced against Detector.Features rather than ignored.
+func TestWireShape_Investigation_ValidatesDetectorAndFeature(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		features     []map[string]any
+		useRealDetID bool
+		wantCode     int
+	}{
+		{
+			name:         "unknown detector is rejected",
+			useRealDetID: false,
+			wantCode:     http.StatusNotFound,
+		},
+		{
+			name:         "detector without AI_ANALYST is rejected",
+			useRealDetID: true,
+			features:     nil,
+			wantCode:     http.StatusBadRequest,
+		},
+		{
+			name:         "detector with AI_ANALYST disabled is rejected",
+			useRealDetID: true,
+			features:     []map[string]any{{"name": "AI_ANALYST", "status": "DISABLED"}},
+			wantCode:     http.StatusBadRequest,
+		},
+		{
+			name:         "detector with AI_ANALYST enabled succeeds",
+			useRealDetID: true,
+			features:     []map[string]any{{"name": "AI_ANALYST", "status": "ENABLED"}},
+			wantCode:     http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := wireShapeHandler(t)
+
+			detID := "nonexistent-detector"
+			if tt.useRealDetID {
+				detID = doJSON(t, h, http.MethodPost, "/detector", map[string]any{
+					"enable": true, "features": tt.features,
+				})["detectorId"].(string)
+			}
+
+			rec := doRequest(t, h, http.MethodPost, "/detector/"+detID+"/investigation", map[string]any{
+				"triggerPrompt": "Investigate finding 1ab2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+			})
+			require.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// TestWireShape_Investigation_NoFabricatedAnalysis is the key non-fabrication
+// guard for this family: this backend has no threat-analysis engine, so a
+// created investigation must come back permanently RUNNING with every
+// analysis-derived member (cloud, confidence, endTime, error, metadata,
+// risk, riskLevel, summary, title) absent from BOTH GetInvestigation and
+// ListInvestigations -- never a fabricated severity score, threat indicator,
+// related finding, or anomaly count.
+func TestWireShape_Investigation_NoFabricatedAnalysis(t *testing.T) {
+	t.Parallel()
+
+	h := wireShapeHandler(t)
+	detID := doJSON(t, h, http.MethodPost, "/detector", map[string]any{
+		"enable":   true,
+		"features": []map[string]any{{"name": "AI_ANALYST", "status": "ENABLED"}},
+	})["detectorId"].(string)
+
+	createResp := doJSON(t, h, http.MethodPost, "/detector/"+detID+"/investigation", map[string]any{
+		"triggerPrompt": "Investigate finding in this account",
+	})
+	invID, ok := createResp["investigationId"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, invID)
+
+	getRec := doRequest(t, h, http.MethodGet, "/detector/"+detID+"/investigation/"+invID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
+
+	var getRaw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRaw))
+
+	invRaw, ok := getRaw["investigation"]
+	require.True(t, ok, "GetInvestigationOutput must have an investigation member")
+
+	var inv map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(invRaw, &inv))
+
+	for _, fabricatable := range []string{
+		"cloud", "confidence", "endTime", "error", "metadata", "risk", "riskLevel", "summary", "title",
+	} {
+		_, present := inv[fabricatable]
+		assert.Falsef(t, present, "types.Investigation.%s must be absent -- this backend cannot analyze"+
+			" and must not fabricate it", fabricatable)
+	}
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(invRaw, &got))
+	assert.Equal(t, "RUNNING", got["status"], "an investigation this backend cannot analyze must stay RUNNING")
+	assert.Equal(t, "Investigate finding in this account", got["triggerPrompt"])
+
+	listRec := doRequest(t, h, http.MethodPost, "/detector/"+detID+"/investigation/list", nil)
+	require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
+
+	var listRaw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listRaw))
+
+	var summaries []map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(listRaw["investigations"], &summaries))
+	require.Len(t, summaries, 1)
+
+	for _, fabricatable := range []string{"confidence", "endTime", "riskLevel", "title"} {
+		_, present := summaries[0][fabricatable]
+		assert.Falsef(t, present, "types.InvestigationSummary.%s must be absent -- not fabricated", fabricatable)
+	}
+
+	var summary map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &summary))
+	invList, ok := summary["investigations"].([]any)
+	require.True(t, ok)
+	require.Len(t, invList, 1)
+
+	first, ok := invList[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, invID, first["investigationId"])
+	assert.Equal(t, "RUNNING", first["status"])
+}

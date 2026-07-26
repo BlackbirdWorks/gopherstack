@@ -63,6 +63,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		storedQuerySupportedOps(),
 		tagSupportedOps(),
 		resourceSupportedOps(),
+		connectorSupportedOps(),
 	}
 
 	total := 0
@@ -108,6 +109,40 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+// extractResourceFieldByOp maps an operation to the single top-level JSON
+// field ExtractResource should read as its resource identifier, for every
+// operation whose resource is a plain extractNamedField(body, key) lookup.
+// Operations needing a more specialized extractor (the recorder/delivery-
+// channel name variants) are handled directly in ExtractResource's switch
+// instead, since they don't fit this "one op -> one field" shape. Data-driven
+// instead of more switch cases so adding a new simple-field op never grows
+// ExtractResource's cyclomatic complexity.
+//
+// resourceFieldConfigRuleName/resourceFieldArn are field names repeated
+// across multiple extractResourceFieldByOp entries, factored out so goconst
+// doesn't flag the map literal's repeated string values.
+const (
+	resourceFieldConfigRuleName = "ConfigRuleName"
+	resourceFieldArn            = "Arn"
+)
+
+//nolint:gochecknoglobals // lookup table, analogous to errorWireMappings above
+var extractResourceFieldByOp = map[string]string{
+	opDeleteConfigRule:                                resourceFieldConfigRuleName,
+	opDescribeConfigRules:                             resourceFieldConfigRuleName,
+	opGetComplianceDetailsByConfigRule:                resourceFieldConfigRuleName,
+	opDeleteEvaluationResults:                         resourceFieldConfigRuleName,
+	opDeleteConfigurationAggregator:                   "ConfigurationAggregatorName",
+	opBatchGetAggregateResourceConfig:                 "ConfigurationAggregatorName",
+	opDeleteConformancePack:                           "ConformancePackName",
+	opDeleteOrganizationConfigRule:                    "OrganizationConfigRuleName",
+	opDeleteOrganizationConformancePack:               "OrganizationConformancePackName",
+	opAssociateResourceTypes:                          "ConfigurationRecorderArn",
+	opGetConnector:                                    resourceFieldArn,
+	opDeleteConnector:                                 resourceFieldArn,
+	opPutThirdPartyServiceLinkedConfigurationRecorder: "ServicePrincipal",
+}
+
 // ExtractResource extracts a resource identifier from the request body based on the operation.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputils.ReadBody(c.Request())
@@ -115,7 +150,9 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	switch h.ExtractOperation(c) {
+	op := h.ExtractOperation(c)
+
+	switch op {
 	case opPutConfigurationRecorder:
 		return extractConfigRecorderName(body)
 	case opStartConfigurationRecorder, opStopConfigurationRecorder, opDeleteConfigurationRecorder:
@@ -126,21 +163,13 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return extractDeliveryChannelName(body)
 	case opDescribeDeliveryChannels, opDeleteDeliveryChannel:
 		return extractFirstDeliveryChannelName(body)
-	case opDeleteConfigRule, opDescribeConfigRules, opGetComplianceDetailsByConfigRule, opDeleteEvaluationResults:
-		return extractNamedField(body, "ConfigRuleName")
-	case opDeleteConfigurationAggregator, opBatchGetAggregateResourceConfig:
-		return extractNamedField(body, "ConfigurationAggregatorName")
-	case opDeleteConformancePack:
-		return extractNamedField(body, "ConformancePackName")
-	case opDeleteOrganizationConfigRule:
-		return extractNamedField(body, "OrganizationConfigRuleName")
-	case opDeleteOrganizationConformancePack:
-		return extractNamedField(body, "OrganizationConformancePackName")
-	case opAssociateResourceTypes:
-		return extractNamedField(body, "ConfigurationRecorderArn")
-	default:
-		return extractTopLevelRecorderName(body)
 	}
+
+	if field, ok := extractResourceFieldByOp[op]; ok {
+		return extractNamedField(body, field)
+	}
+
+	return extractTopLevelRecorderName(body)
 }
 
 // configNameBody is a JSON wrapper carrying a single "name" field, used for both
@@ -197,6 +226,7 @@ func (h *Handler) buildDispatchTable() map[string]service.JSONOpFunc {
 		h.buildStoredQueryDispatch,
 		h.buildTagDispatch,
 		h.buildResourceDispatch,
+		h.buildConnectorDispatch,
 	}
 
 	table := make(map[string]service.JSONOpFunc)
@@ -261,6 +291,7 @@ var errorWireMappings = []errorWireMapping{
 	{ErrInvalidConfigurationRecorderName, "InvalidConfigurationRecorderNameException", http.StatusBadRequest},
 	{ErrInvalidRole, "InvalidRoleException", http.StatusBadRequest},
 	{ErrInvalidDeliveryChannelName, "InvalidDeliveryChannelNameException", http.StatusBadRequest},
+	{ErrConflict, "ConflictException", http.StatusBadRequest},
 	{ErrValidation, "ValidationException", http.StatusBadRequest},
 }
 

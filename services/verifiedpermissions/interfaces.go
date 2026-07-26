@@ -57,6 +57,11 @@ type StorageBackend interface {
 	) (*IdentitySource, error)
 	PutSchema(policyStoreID, schema string) ([]string, error)
 	GetSchema(policyStoreID string) (*PolicyStoreSchema, error)
+	CreatePolicyStoreAlias(aliasName, policyStoreID string) (*PolicyStoreAlias, error)
+	GetPolicyStoreAlias(aliasName string) (*PolicyStoreAlias, error)
+	ListPolicyStoreAliases(policyStoreID, nextToken string, maxResults int) ([]PolicyStoreAlias, string)
+	DeletePolicyStoreAlias(aliasName string, hardDelete bool) error
+	ResolvePolicyStoreAlias(aliasName string) (string, error)
 	Snapshot(ctx context.Context) []byte
 	Restore(ctx context.Context, data []byte) error
 }

@@ -1,0 +1,70 @@
+# CodeFactor duplication-checker config (https://docs.codefactor.io).
+# Placing this file at the repo root overrides CodeFactor's built-in
+# defaults (codefactor-io/default-configs/.cfduplication.yml) for this repo.
+
+# duplication threshold [20 - 100] -- unchanged from CodeFactor's own default.
+MinLineCount: 20
+
+# files/patterns to exclude from duplication analysis.
+IgnorePatterns:
+  # --- CodeFactor's own upstream defaults, preserved so overriding this
+  # file doesn't silently re-enable duplication checks on test/mock/
+  # migration/dist content that was previously excluded. ---
+  - "**/test/**"
+  - "**/tests/**"
+  - "**/unittests/**"
+  - "**/*.unittest*/**"
+  - "**/spec/**"
+  - "**/*.spec.*"
+  - "**/__tests__/**"
+  - "**/mocks/**"
+  - "**/schema.*"
+  - "**/migrations/**"
+  - "**/migration/**"
+  - "**/migrate/**"
+  - "**/dist/**"
+
+  # --- gopherstack: deliberate, judged cross-service duplication ---
+  #
+  # CodeConnections is AWS's 2023 rename/successor of CodeStarConnections.
+  # Both APIs are still live and independently versioned in aws-sdk-go-v2:
+  # each has its own operation set, its own error types, and its own release
+  # cadence. Their wire shapes (sync-blocker/sync-configuration structs, the
+  # ExtractResource candidate-field list) are IDENTICAL today only because
+  # CodeConnections started life as a fork of CodeStarConnections. Hoisting
+  # that overlap into one shared implementation would wire the two services
+  # together, so a CodeConnections-only field addition (or a
+  # CodeStarConnections-only bugfix) would either force a change to both or
+  # silently apply to the wrong one. Left duplicated on purpose; see
+  # services/codeconnections/PARITY.md and
+  # services/codestarconnections/PARITY.md.
+  - "services/codeconnections/handler.go"
+  - "services/codestarconnections/handler.go"
+  - "services/codeconnections/handler_sync_configurations.go"
+  - "services/codestarconnections/handler_sync_blockers.go"
+  - "services/codeconnections/models.go"
+  - "services/codestarconnections/models.go"
+  - "services/codeconnections/handler_repository_sync.go"
+  - "services/codestarconnections/handler_sync_statuses.go"
+
+  # DocumentDB and Neptune are both RDS-family engines that currently share
+  # the same Query-protocol XML response-envelope shapes and event-log
+  # design. Two reasons this stays duplicated rather than extracted:
+  #  1. Go's encoding/xml requires static, per-type struct tags -- the
+  #     element name and result-nesting path (e.g.
+  #     `xml:"CreateDBInstanceResult>DBInstance"`) can't be parameterized
+  #     generically without reflection-based marshaling, which would be a
+  #     real behavior-risk rewrite of working wire-format code just to
+  #     satisfy a duplication checker.
+  #  2. The two backends already diverge in practice (docdb's recordEvent
+  #     tracks a SourceArn that neptune's doesn't; timestamp formatting
+  #     differs: time.Now().UTC().Format(time.RFC3339) vs an injectable
+  #     nowISO8601()), confirming these are two independently-evolving
+  #     services whose shapes merely coincide today, not shared
+  #     infrastructure.
+  - "services/docdb/handler_db_instances.go"
+  - "services/neptune/handler_db_instances.go"
+  - "services/docdb/handler_db_cluster_parameter_groups.go"
+  - "services/neptune/handler_cluster_parameter_groups.go"
+  - "services/docdb/events_log.go"
+  - "services/neptune/events.go"

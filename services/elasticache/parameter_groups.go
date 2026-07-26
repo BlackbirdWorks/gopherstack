@@ -156,7 +156,7 @@ func (b *InMemoryBackend) DescribeParameterGroups(
 
 	region := getRegion(ctx, b.region)
 
-	return describePaged(b.parameterGroupsStore(region), name, ErrParameterGroupNotFound, nil,
+	return describePaged(b.parameterGroupsStoreRO(region), name, ErrParameterGroupNotFound, nil,
 		func(pg CacheParameterGroup) string { return pg.Name }, marker, maxRecords)
 }
 
@@ -229,7 +229,7 @@ func (b *InMemoryBackend) DescribeParameters(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	pg, exists := b.parameterGroupsStore(region).Get(name)
+	pg, exists := b.parameterGroupsStoreRO(region).Get(name)
 	if !exists {
 		return page.Page[CacheParameter]{}, ErrParameterGroupNotFound
 	}

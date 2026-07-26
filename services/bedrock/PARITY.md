@@ -1,8 +1,8 @@
 service: bedrock
-sdk_module: aws-sdk-go-v2/service/bedrock@v1.56.0
-last_audit_commit: 01dbe288
-last_audit_date: 2026-07-23
-overall: A            # every named gap fixed for real; ARP sub-resource path model is a documented, still-open exception
+sdk_module: aws-sdk-go-v2/service/bedrock@v1.66.0
+last_audit_commit: 5ee940036
+last_audit_date: 2026-07-25
+overall: A            # every named gap fixed for real; ARP sub-resource path model is a documented, still-open exception. parity-4 (SDK v1.56.0 -> v1.66.0 bump): 10 new ops implemented for real, field-diffed against v1.66.0; grade held at A, see families.AdvancedPromptOptimizationJob/AccountDataRetention/ResourcePolicy below.
 
 # Per-op status. wire=response/request shape vs SDK; errors=code+HTTP status;
 # state=real mutate/read; persist=in backendSnapshot.
@@ -77,8 +77,27 @@ ops:
   ListEnforcedGuardrailsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — full redesign. Real AWS models this as a ConfigId-keyed catalog of AccountEnforcedGuardrailOutputConfiguration entries (guardrailIdentifier/guardrailVersion/inputTags HONOR|IGNORE/modelEnforcement/owner/createdBy/updatedBy) at GET /enforcedGuardrailsConfiguration with nextToken pagination; gopherstack previously modeled it as bare guardrailId+guardrailVersion pairs at the invented kebab-case path \"/enforced-guardrail-configuration\" with no pagination. New backend validates guardrailIdentifier resolves to a real guardrail."}
   PutEnforcedGuardrailConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — same redesign as List. Real PUT body is {configId?, guardrailInferenceConfig:{guardrailIdentifier,guardrailVersion,inputTags,modelEnforcement?}}; omitting configId creates a new config, supplying an existing one updates in place. inputTags is validated to HONOR|IGNORE."}
   DeleteEnforcedGuardrailConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — real AWS takes ConfigId as a PATH parameter (DELETE /enforcedGuardrailsConfiguration/{configId}); gopherstack previously took guardrailId as a QUERY parameter on the invented path. 100% unreachable by real clients before this fix (in addition to modeling the wrong resource)."}
+  # parity-4: 10 ops added by the aws-sdk-go-v2/service/bedrock bump from
+  # v1.56.0 to v1.66.0. All implemented for real (routing, backend state,
+  # request parsing, response wire shape, error codes/HTTP status,
+  # Snapshot/Restore persistence) and field-diffed against v1.66.0's
+  # api_op_*.go/serializers.go/deserializers.go — none were dumped into a
+  # notImplemented list.
+  CreateAdvancedPromptOptimizationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against CreateAdvancedPromptOptimizationJobInput/Output. Real AWS returns HTTP 200 with only {jobArn}; validates the 4 required fields (jobName, inputConfig.s3Uri, outputConfig.s3Uri, modelConfigurations 1-5 items each with a modelId) as ValidationException."}
+  GetAdvancedPromptOptimizationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against GetAdvancedPromptOptimizationJobOutput. Real AWS's response has NO field for the optimized prompt text at all — results are written to the caller's S3 OutputConfig location, entirely outside the API. Never fabricates one; see AdvancedPromptOptimizationJob's doc comment in models.go and TestHandler_AdvancedPromptOptimizationJobLifecycle's 'never fabricates a result' case."}
+  ListAdvancedPromptOptimizationJobs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "field-diffed against ListAdvancedPromptOptimizationJobsInput/Output. Real AWS has no name/status filter for this op (unlike sibling List ops) — only sortBy(CreationTime)/sortOrder/maxResults/nextToken, all implemented via paginate (honors real MaxResults, unlike paginateBedrockSlice used by some sibling Lists)."}
+  StopAdvancedPromptOptimizationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "real AWS returns HTTP 200 empty body. Transitions InProgress -> Stopped directly, skipping the real intermediate 'Stopping' status — same simplification this service already makes for StopModelCustomizationJob/StopEvaluationJob/StopModelInvocationJob (see advanced_prompt_optimization_jobs.go doc comment); not a new gap class."}
+  BatchDeleteAdvancedPromptOptimizationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed proactively — real path is POST /advanced-prompt-optimization-job/batch-delete, SINGULAR, distinct from the PLURAL /advanced-prompt-optimization-jobs every other op in this family uses (same bug class this campaign already fixed for StopEvaluationJob/CreateModelInvocationJob elsewhere in this service; caught during field-diffing, not via a bug report, since this op is new). Validates 1-25 jobIdentifiers per real AWS; real HTTP 202 modeled as 202."}
+  GetAccountDataRetention: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against GetAccountDataRetentionOutput. Mode is a required field on the real shape; an account that never called Put still gets a value back, defaulting to \"default\" (types.DataRetentionModeDefault) rather than a zero value."}
+  PutAccountDataRetention: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against PutAccountDataRetentionInput/Output. Validates mode is one of default|none|provider_data_share|inherit (types.DataRetentionMode's 4 enum values) as ValidationException."}
+  GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "core-bedrock flavor (POST/GET/DELETE /resource-policy, field name \"resourcePolicy\", no revisionId) — DISTINCT operation from bedrock-agent's own GetResourcePolicy (PUT/GET/DELETE /resourcepolicy, no hyphen, field name \"policy\", WITH revisionId, scoped to knowledge bases only); see resource_policy.go's package doc comment for the full field-diff of both flavors against their respective SDKs. Real AWS docs the target only as \"a Bedrock resource\" with no documented ARN-pattern allowlist; this backend validates the ARN is Bedrock-shaped AND resolves to a resource it actually models (guardrail/custom model/custom model deployment/provisioned model throughput/automated reasoning policy/prompt router/inference profile/marketplace endpoint) rather than accepting any string. Agent-domain resources (agents/flows/prompts/knowledge bases) are out of this validation's reach by construction, not by omission: Handler and AgentsHandler use separate InMemoryBackend instances in this codebase (see provider.go), so core bedrock's Handler never holds agent-domain state regardless of what the validator checks for."}
+  PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "core-bedrock flavor — see GetResourcePolicy entry. Real AWS returns HTTP 201 (verified against the AWS API Reference, not just the SDK — an unusual deviation from this service's other Put-op convention of 200), which the response op models correctly."}
+  DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "core-bedrock flavor — see GetResourcePolicy entry. Real AWS returns HTTP 200 empty body."}
 
 families:
+  AdvancedPromptOptimizationJob: {status: ok, note: "new family, parity-4. See the 5 ops entries above. Backend models the real job lifecycle (InProgress -> Completed via the janitor, or -> Stopped) honestly; produces no fabricated optimization result, matching the real wire shape's total absence of one."}
+  AccountDataRetention: {status: ok, note: "new family, parity-4. See GetAccountDataRetention/PutAccountDataRetention ops entries."}
+  ResourcePolicy: {status: ok, note: "new family, parity-4, TWO DISTINCT real operation families sharing an op name — core bedrock (guardrails/custom models/etc.) and bedrock-agent (knowledge bases only, with optimistic-concurrency revisionId). See GetResourcePolicy/PutResourcePolicy/DeleteResourcePolicy ops entries and resource_policy.go's package doc comment. bedrock-agent's knowledge-base ARN regex is intentionally widened to accept hyphens (real AWS documents pure alphanumeric KB IDs) because this backend's own CreateKnowledgeBase generates hyphenated IDs like \"kb-00000001\" — narrowing to the real character class would make every gopherstack-issued KB ARN unmatchable by this backend's own validator; documented in resource_policy.go."}
   AutomatedReasoningPolicy: {status: partial, note: "high-value route-reachability bugs fixed this pass: UpdateAutomatedReasoningPolicy, UpdateAutomatedReasoningPolicyTestCase, and UpdateAutomatedReasoningPolicyAnnotations were all routed on PUT; real SDK sends PATCH for all three, so all three were 100% unreachable by real clients before this fix (same bug class as UpdateProvisionedModelThroughput/UpdateMarketplaceModelEndpoint, fixed in earlier passes). NOT fixed this pass, and NOT reclassified to ok — see gaps: the build-workflow-scoped sub-resource path model (annotations, next-scenario, test-results, ExportAutomatedReasoningPolicyVersion) has deeper invented-path issues than a route fix can address; UpdateAutomatedReasoningPolicyTestCase's handler doesn't parse its request body at all (disguised no-op even now that it's reachable)."}
   PromptRouter: {status: ok, note: "fixed — field-diffed for real this pass (previously only spot-checked). CreatePromptRouterInput's required FallbackModel/Models/RoutingCriteria fields (and optional Description) were silently dropped entirely, so every Get/List response was missing them (all required on GetPromptRouterOutput/PromptRouterSummary) and Type was never set. ListPromptRouters returned the wrong top-level key (\"promptRouters\" vs real \"promptRouterSummaries\"), had no pagination, and ignored the real typeEquals filter. DeletePromptRouter used 204 instead of this service's established 200-for-empty-Delete convention. All fixed."}
   ImportedModel: {status: ok, note: "fixed — field-diffed for real this pass (previously only spot-checked). See GetImportedModel/ListImportedModels/DeleteImportedModel/CreateModelImportJob ops entries above for the specific wire-shape and filter/pagination fixes."}
@@ -94,6 +113,8 @@ gaps:
   - "ListInferenceProfiles: missing the real typeEquals (SYSTEM_DEFINED|APPLICATION) filter. ListMarketplaceModelEndpoints: missing the real modelSourceEquals filter. Both low-risk (nextToken pagination already correct). (bd: file follow-up)"
   - "ListEvaluationJobs: applicationTypeEquals filter and sortBy/sortOrder not implemented (statusEquals/nameContains/creationTimeAfter/creationTimeBefore/nextToken now are, see ops entry). (bd: file follow-up)"
   - "RegisterMarketplaceModelEndpoint: real RegisterMarketplaceModelEndpointInput requires both endpointIdentifier and modelSourceIdentifier in the body; gopherstack's handler takes only the path-param ID and never reads/validates a request body. Not touched this pass — spotted while field-diffing the surrounding marketplace-endpoint family but out of this pass's named scope. (bd: file follow-up)"
+  - "bedrock-agent DeleteResourcePolicy (parity-4): the real response's revisionId field is documented only as \"the revision identifier after the resource policy was deleted\" — ambiguous whether AWS mints a fresh post-delete marker or echoes the just-deleted policy's own revision. gopherstack returns the latter (the deleted policy's own RevisionID), a defensible reading but unverified against a real API response. Low risk: DeleteResourcePolicy's real Input has no further use for this value (only Put/subsequent-Delete's expectedRevisionId does, and a deleted resource has no policy left to update). (bd: file follow-up if a real captured response ever surfaces to confirm/refute)"
+  - "ListAdvancedPromptOptimizationJobs (parity-4): does not validate sortBy against the real single allowed value (CreationTime) — an unrecognized value is silently ignored rather than raising ValidationException. Same low-risk shape as this service's other List ops' unvalidated sort/filter params (see ListCustomModels/ListModelCustomizationJobs gap above). (bd: file follow-up)"
 
 deferred: []
 # Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,
@@ -102,4 +123,26 @@ deferred: []
 # "spot-checked, ok" to "partial" (see families) rather than reclassified to ok, since its
 # sub-resource path model has real, documented gaps above -- not silently marked done.
 
-leaks: {status: clean, note: "no new goroutines, tickers, or unregistered maps introduced this pass. enforcedGuardrailConfigs remains a single store.Table (now ConfigID-keyed instead of guardrailID-keyed) with no cascade-cleanup requirement (real AWS does not cascade-delete AccountEnforcedGuardrailConfig rows when the referenced guardrail is deleted, so gopherstack doesn't either). All new/changed backend methods (PutEnforcedGuardrailConfiguration, PutUseCaseForModelAccess, CreatePromptRouter, ListImportedModels, CreateModelImportJob, UpdateMarketplaceModelEndpoint, ListFoundationModelAgreementOffers, DeleteFoundationModelAgreement) acquire b.mu.Lock/RLock and release via defer on every path, including early-return validation-error paths. janitor.go's single ticker is unchanged."}
+leaks: {status: clean, note: "no new goroutines, tickers, or unregistered maps introduced this pass. enforcedGuardrailConfigs remains a single store.Table (now ConfigID-keyed instead of guardrailID-keyed) with no cascade-cleanup requirement (real AWS does not cascade-delete AccountEnforcedGuardrailConfig rows when the referenced guardrail is deleted, so gopherstack doesn't either). All new/changed backend methods (PutEnforcedGuardrailConfiguration, PutUseCaseForModelAccess, CreatePromptRouter, ListImportedModels, CreateModelImportJob, UpdateMarketplaceModelEndpoint, ListFoundationModelAgreementOffers, DeleteFoundationModelAgreement) acquire b.mu.Lock/RLock and release via defer on every path, including early-return validation-error paths. janitor.go's single ticker is unchanged.
+
+  parity-4: advancedPromptOptimizationJobs and resourcePolicies are both real
+  store.Table registrations (store_setup.go), reset via registry.ResetAll
+  like every other table, with no cascade-cleanup requirement (deleting a
+  guardrail/custom model/etc. does not cascade-delete its resourcePolicies
+  row, matching real AWS's lack of documented cascade behavior here either).
+  accountDataRetention is a single-pointer field (same shape as
+  loggingConfig), reset to nil in both resetAuxState (core Handler.Reset)
+  and Restore's resetRawState. All new/changed backend methods
+  (CreateAdvancedPromptOptimizationJob, GetAdvancedPromptOptimizationJob,
+  ListAdvancedPromptOptimizationJobs, StopAdvancedPromptOptimizationJob,
+  BatchDeleteAdvancedPromptOptimizationJob, GetAccountDataRetention,
+  PutAccountDataRetention, PutResourcePolicy, GetResourcePolicy,
+  DeleteResourcePolicy, PutKnowledgeBaseResourcePolicy,
+  GetKnowledgeBaseResourcePolicy, DeleteKnowledgeBaseResourcePolicy)
+  acquire b.mu.Lock/RLock and release via defer on every path, including
+  early-return validation-error paths. janitor.go's single ticker gained one
+  more per-tick call (AdvanceAdvancedPromptOptimizationJobStatuses); no new
+  ticker was added. AgentsHandler.Reset() additionally resets
+  resourcePolicyRevisionCounter now (the table itself was already covered by
+  registry.ResetAll, but the standalone revision counter needed an explicit
+  reset alongside this method's other manually-listed counters)."}

@@ -242,3 +242,158 @@ func TestStopCompilationJob_Terminal_Rejected(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Image: version guard on delete
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// AIBenchmarkJob
+// ---------------------------------------------------------------------------
+
+func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "create rejects an unknown AIWorkloadConfigIdentifier",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+
+				rec := doSageMakerRequest(t, h, "CreateAIBenchmarkJob", map[string]any{
+					"AIBenchmarkJobName":         "bench-1",
+					"AIWorkloadConfigIdentifier": "nonexistent-config",
+					"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
+					"BenchmarkTarget": map[string]any{
+						"Endpoint": map[string]any{"Identifier": "my-endpoint"},
+					},
+					"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create then describe starts InProgress, stop transitions to Stopping",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				doSageMakerRequest(t, h, "CreateAIWorkloadConfig", map[string]any{"AIWorkloadConfigName": "wc-1"})
+
+				rec := doSageMakerRequest(t, h, "CreateAIBenchmarkJob", map[string]any{
+					"AIBenchmarkJobName":         "bench-2",
+					"AIWorkloadConfigIdentifier": "wc-1",
+					"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
+					"BenchmarkTarget": map[string]any{
+						"Endpoint": map[string]any{"Identifier": "my-endpoint"},
+					},
+					"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				var createResp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				assert.Contains(t, createResp["AIBenchmarkJobArn"], "bench-2")
+
+				rec = doSageMakerRequest(
+					t,
+					h,
+					"DescribeAIBenchmarkJob",
+					map[string]any{"AIBenchmarkJobName": "bench-2"},
+				)
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var descResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				assert.Equal(t, "InProgress", descResp["AIBenchmarkJobStatus"])
+				assert.Equal(t, "wc-1", descResp["AIWorkloadConfigIdentifier"])
+				assert.NotEmpty(t, descResp["BenchmarkTarget"])
+				assert.NotEmpty(t, descResp["OutputConfig"])
+
+				rec = doSageMakerRequest(t, h, "StopAIBenchmarkJob", map[string]any{"AIBenchmarkJobName": "bench-2"})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doSageMakerRequest(
+					t,
+					h,
+					"DescribeAIBenchmarkJob",
+					map[string]any{"AIBenchmarkJobName": "bench-2"},
+				)
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				assert.Equal(t, "Stopping", descResp["AIBenchmarkJobStatus"])
+			},
+		},
+		{
+			name: "delete removes the job",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				doSageMakerRequest(t, h, "CreateAIWorkloadConfig", map[string]any{"AIWorkloadConfigName": "wc-del"})
+				doSageMakerRequest(t, h, "CreateAIBenchmarkJob", map[string]any{
+					"AIBenchmarkJobName":         "bench-del",
+					"AIWorkloadConfigIdentifier": "wc-del",
+					"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
+					"BenchmarkTarget": map[string]any{
+						"Endpoint": map[string]any{"Identifier": "my-endpoint"},
+					},
+					"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+				})
+
+				rec := doSageMakerRequest(
+					t,
+					h,
+					"DeleteAIBenchmarkJob",
+					map[string]any{"AIBenchmarkJobName": "bench-del"},
+				)
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doSageMakerRequest(
+					t,
+					h,
+					"DescribeAIBenchmarkJob",
+					map[string]any{"AIBenchmarkJobName": "bench-del"},
+				)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "list returns created jobs with a derived AIWorkloadConfigName",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				doSageMakerRequest(t, h, "CreateAIWorkloadConfig", map[string]any{"AIWorkloadConfigName": "wc-list"})
+				doSageMakerRequest(t, h, "CreateAIBenchmarkJob", map[string]any{
+					"AIBenchmarkJobName":         "bench-list",
+					"AIWorkloadConfigIdentifier": "wc-list",
+					"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
+					"BenchmarkTarget": map[string]any{
+						"Endpoint": map[string]any{"Identifier": "my-endpoint"},
+					},
+					"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+				})
+
+				rec := doSageMakerRequest(t, h, "ListAIBenchmarkJobs", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				items := resp["AIBenchmarkJobs"].([]any)
+				require.Len(t, items, 1)
+				item := items[0].(map[string]any)
+				assert.Equal(t, "bench-list", item["AIBenchmarkJobName"])
+				assert.Equal(t, "wc-list", item["AIWorkloadConfigName"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(t)
+		})
+	}
+}

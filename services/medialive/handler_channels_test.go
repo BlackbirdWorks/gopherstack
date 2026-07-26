@@ -3,11 +3,19 @@ package medialive_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	medialivesdk "github.com/aws/aws-sdk-go-v2/service/medialive"
+	"github.com/aws/aws-sdk-go-v2/service/medialive/types"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
 
@@ -266,4 +274,528 @@ func TestAlertsAndVersions(t *testing.T) {
 	assert.NotEmpty(t, first["version"])
 	_, hasExpiration := first["expirationDate"]
 	assert.False(t, hasExpiration, "empty expirationDate must be omitted, not emitted as \"\"")
+}
+
+// newTestChannelClient stands up the real aws-sdk-go-v2 MediaLive client
+// against an httptest server running this package's Handler, wired through
+// the same pkgs/service registry/router used in production -- same pattern
+// as services/codedeploy's handler_sdk_roundtrip_test.go. Round-tripping
+// through the genuine SDK serializer/deserializer (rather than decoding the
+// raw JSON body with ad-hoc structs, as most other tests in this package do)
+// is the only credible proof that gopherstack-jb9i's 12 added Channel fields
+// actually survive the wire in the shape a real client reads named
+// sub-fields from -- backend-struct assertions alone repeatedly hid dropped
+// fields in past parity sweeps.
+func newTestChannelClient(t *testing.T, h *medialive.Handler) *medialivesdk.Client {
+	t.Helper()
+
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(h))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
+		awscfg.WithRegion("us-east-1"),
+		awscfg.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err)
+
+	return medialivesdk.NewFromConfig(cfg, func(o *medialivesdk.Options) {
+		o.BaseEndpoint = aws.String(srv.URL)
+	})
+}
+
+// minimalValidEncoderSettings returns an EncoderSettings that passes the
+// real SDK client's OWN request-side validation (AudioDescriptions/
+// VideoDescriptions/OutputGroups/TimecodeConfig are required, and each
+// OutputGroup requires an OutputGroupSettings + each Output an
+// OutputSettings -- verified against validators.go's validateEncoderSettings/
+// validateOutputGroup/validateOutput). ArchiveGroupSettings/
+// ArchiveOutputSettings are the smallest concrete OutputGroupSettings/
+// OutputSettings union variants that satisfy their own nested validation
+// (Destination/ContainerSettings, neither of which has further required
+// sub-fields). gopherstack does not model OutputGroupSettings/
+// OutputSettings at all (see EncoderSettings' gopherstack doc comment), so
+// this exists purely to get a real, validation-passing request out the
+// door -- the round-trip assertions only check the fields gopherstack DOES
+// model.
+func minimalValidEncoderSettings() *types.EncoderSettings {
+	return &types.EncoderSettings{
+		AudioDescriptions: []types.AudioDescription{
+			{
+				Name:                aws.String("audio1"),
+				AudioSelectorName:   aws.String("sel1"),
+				AudioType:           types.AudioTypeCleanEffects,
+				AudioTypeControl:    types.AudioDescriptionAudioTypeControlUseConfigured,
+				LanguageCode:        aws.String("eng"),
+				LanguageCodeControl: types.AudioDescriptionLanguageCodeControlUseConfigured,
+				StreamName:          aws.String("English"),
+			},
+		},
+		VideoDescriptions: []types.VideoDescription{
+			{
+				Name: aws.String("video1"), Height: aws.Int32(720), Width: aws.Int32(1280),
+				RespondToAfd:    types.VideoDescriptionRespondToAfdPassthrough,
+				ScalingBehavior: types.VideoDescriptionScalingBehaviorDefault,
+				Sharpness:       aws.Int32(50),
+			},
+		},
+		CaptionDescriptions: []types.CaptionDescription{
+			{
+				Name: aws.String("cap1"), CaptionSelectorName: aws.String("capsel1"),
+				LanguageCode: aws.String("eng"), LanguageDescription: aws.String("English"),
+				Accessibility: types.AccessibilityTypeDoesNotImplementAccessibilityFeatures,
+			},
+		},
+		TimecodeConfig: &types.TimecodeConfig{
+			Source: types.TimecodeConfigSourceSystemclock, SyncThreshold: aws.Int32(1),
+		},
+		AvailBlanking: &types.AvailBlanking{State: types.AvailBlankingStateEnabled},
+		BlackoutSlate: &types.BlackoutSlate{
+			State: types.BlackoutSlateStateEnabled, NetworkId: aws.String("10.5240/F98B-A522"),
+		},
+		FeatureActivations: &types.FeatureActivations{
+			InputPrepareScheduleActions: types.FeatureActivationsInputPrepareScheduleActionsEnabled,
+		},
+		GlobalConfiguration: &types.GlobalConfiguration{
+			InitialAudioGain: aws.Int32(-1), InputEndAction: types.GlobalConfigurationInputEndActionNone,
+			OutputLockingMode: types.GlobalConfigurationOutputLockingModeEpochLocking,
+			OutputLockingSettings: &types.OutputLockingSettings{
+				EpochLockingSettings: &types.EpochLockingSettings{JamSyncTime: aws.String("00:00:00")},
+			},
+			InputLossBehavior: &types.InputLossBehavior{BlackFrameMsec: aws.Int32(1000)},
+		},
+		ThumbnailConfiguration: &types.ThumbnailConfiguration{State: types.ThumbnailStateAuto},
+		OutputGroups: []types.OutputGroup{
+			{
+				Name: aws.String("group1"),
+				OutputGroupSettings: &types.OutputGroupSettings{
+					ArchiveGroupSettings: &types.ArchiveGroupSettings{
+						Destination: &types.OutputLocationRef{DestinationRefId: aws.String("dest1")},
+					},
+				},
+				Outputs: []types.Output{
+					{
+						OutputName: aws.String("output1"), VideoDescriptionName: aws.String("video1"),
+						AudioDescriptionNames: []string{"audio1"}, CaptionDescriptionNames: []string{"cap1"},
+						OutputSettings: &types.OutputSettings{
+							ArchiveOutputSettings: &types.ArchiveOutputSettings{
+								ContainerSettings: &types.ArchiveContainerSettings{},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// TestChannel_ExtendedFieldsSDKRoundTrip proves gopherstack-jb9i's fix for
+// medialive/gopherstack-jb9i: CreateChannelInput/UpdateChannelInput have 17
+// real top-level members (verified against
+// aws-sdk-go-v2/service/medialive@v1.97.2's api_op_CreateChannel.go), and
+// before this fix gopherstack modeled only 5. Every case below drives a real
+// SDK client through the actual router path (see newTestChannelClient) and
+// asserts on the SDK's OWN decoded response type, not a hand-rolled JSON
+// decode -- the only credible proof a field survives the wire in a shape a
+// real client can read.
+func TestChannel_ExtendedFieldsSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, client *medialivesdk.Client)
+		name string
+	}{
+		{
+			name: "flat scalar/list fields (cdiInputSpecification/inputSpecification/logLevel/" +
+				"channelEngineVersion/channelSecurityGroups/vpc/maintenance)",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-flat"), ChannelClass: types.ChannelClassStandard,
+					LogLevel: types.LogLevelInfo,
+					CdiInputSpecification: &types.CdiInputSpecification{
+						Resolution: types.CdiInputResolutionHd,
+					},
+					InputSpecification: &types.InputSpecification{
+						Codec: types.InputCodecAvc, MaximumBitrate: types.InputMaximumBitrateMax20Mbps,
+						Resolution: types.InputResolutionHd,
+					},
+					ChannelEngineVersion:  &types.ChannelEngineVersionRequest{Version: aws.String("2_0")},
+					ChannelSecurityGroups: []string{"sg-1", "sg-2"},
+					Vpc: &types.VpcOutputSettings{
+						SubnetIds: []string{"subnet-1", "subnet-2"}, SecurityGroupIds: []string{"sg-vpc"},
+					},
+					Maintenance: &types.MaintenanceCreateSettings{
+						MaintenanceDay: types.MaintenanceDayMonday, MaintenanceStartTime: aws.String("02:00"),
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, out.Channel)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+
+				assert.Equal(t, types.LogLevelInfo, desc.LogLevel)
+				require.NotNil(t, desc.CdiInputSpecification)
+				assert.Equal(t, types.CdiInputResolutionHd, desc.CdiInputSpecification.Resolution)
+				require.NotNil(t, desc.InputSpecification)
+				assert.Equal(t, types.InputCodecAvc, desc.InputSpecification.Codec)
+				assert.Equal(t, types.InputMaximumBitrateMax20Mbps, desc.InputSpecification.MaximumBitrate)
+				assert.Equal(t, types.InputResolutionHd, desc.InputSpecification.Resolution)
+				require.NotNil(t, desc.ChannelEngineVersion)
+				assert.Equal(t, "2_0", aws.ToString(desc.ChannelEngineVersion.Version))
+				assert.ElementsMatch(t, []string{"sg-1", "sg-2"}, desc.ChannelSecurityGroups)
+				require.NotNil(t, desc.Vpc)
+				assert.ElementsMatch(t, []string{"subnet-1", "subnet-2"}, desc.Vpc.SubnetIds)
+				assert.ElementsMatch(t, []string{"sg-vpc"}, desc.Vpc.SecurityGroupIds)
+				require.NotNil(t, desc.Maintenance)
+				assert.Equal(t, types.MaintenanceDayMonday, desc.Maintenance.MaintenanceDay)
+				assert.Equal(t, "02:00", aws.ToString(desc.Maintenance.MaintenanceStartTime))
+			},
+		},
+		{
+			name: "inferenceSettings round-trips audioFeedInputs and feedArn",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-inference"), ChannelClass: types.ChannelClassStandard,
+					InferenceSettings: &types.InferenceSettings{
+						FeedArn: aws.String("arn:aws:elemental-inference:us-east-1:000000000000:feed:f1"),
+						AudioFeedInputs: []types.AudioFeedInput{
+							{AudioSelectorName: aws.String("sel1"), FeedInput: aws.String("feed1")},
+						},
+					},
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, desc.InferenceSettings)
+				assert.Equal(
+					t, "arn:aws:elemental-inference:us-east-1:000000000000:feed:f1",
+					aws.ToString(desc.InferenceSettings.FeedArn),
+				)
+				require.Len(t, desc.InferenceSettings.AudioFeedInputs, 1)
+				assert.Equal(t, "sel1", aws.ToString(desc.InferenceSettings.AudioFeedInputs[0].AudioSelectorName))
+				assert.Equal(t, "feed1", aws.ToString(desc.InferenceSettings.AudioFeedInputs[0].FeedInput))
+			},
+		},
+		{
+			name: "destinations round-trips every per-technology settings variant",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-destinations"), ChannelClass: types.ChannelClassStandard,
+					Destinations: []types.OutputDestination{
+						{
+							Id:                    aws.String("dest1"),
+							LogicalInterfaceNames: []string{"if-a"},
+							Settings: []types.OutputDestinationSettings{
+								{Url: aws.String("rtmp://example.com/live"), StreamName: aws.String("stream1")},
+							},
+							MediaPackageSettings: []types.MediaPackageOutputDestinationSettings{
+								{ChannelId: aws.String("mp-channel-1")},
+							},
+							MultiplexSettings: &types.MultiplexProgramChannelDestinationSettings{
+								MultiplexId: aws.String("mux-1"), ProgramName: aws.String("prog-1"),
+							},
+							MediaConnectRouterSettings: []types.MediaConnectRouterOutputDestinationSettings{
+								{EncryptionType: types.MediaConnectRouterOutputEncryptionTypeAutomatic},
+							},
+							SrtSettings: []types.SrtOutputDestinationSettings{
+								{ConnectionMode: types.ConnectionModeCaller, StreamId: aws.String("srt-1")},
+							},
+						},
+					},
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.Len(t, desc.Destinations, 1)
+
+				d := desc.Destinations[0]
+				assert.Equal(t, "dest1", aws.ToString(d.Id))
+				assert.ElementsMatch(t, []string{"if-a"}, d.LogicalInterfaceNames)
+				require.Len(t, d.Settings, 1)
+				assert.Equal(t, "rtmp://example.com/live", aws.ToString(d.Settings[0].Url))
+				assert.Equal(t, "stream1", aws.ToString(d.Settings[0].StreamName))
+				require.Len(t, d.MediaPackageSettings, 1)
+				assert.Equal(t, "mp-channel-1", aws.ToString(d.MediaPackageSettings[0].ChannelId))
+				require.NotNil(t, d.MultiplexSettings)
+				assert.Equal(t, "mux-1", aws.ToString(d.MultiplexSettings.MultiplexId))
+				assert.Equal(t, "prog-1", aws.ToString(d.MultiplexSettings.ProgramName))
+				require.Len(t, d.MediaConnectRouterSettings, 1)
+				assert.Equal(
+					t, types.MediaConnectRouterOutputEncryptionTypeAutomatic,
+					d.MediaConnectRouterSettings[0].EncryptionType,
+				)
+				require.Len(t, d.SrtSettings, 1)
+				assert.Equal(t, types.ConnectionModeCaller, d.SrtSettings[0].ConnectionMode)
+				assert.Equal(t, "srt-1", aws.ToString(d.SrtSettings[0].StreamId))
+			},
+		},
+		{
+			name: "inputAttachments round-trips automaticInputFailoverSettings and all 3 failover condition variants",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				inpOut, err := client.CreateInput(t.Context(), &medialivesdk.CreateInputInput{
+					Name: aws.String("rt-input"), Type: types.InputTypeUdpPush,
+				})
+				require.NoError(t, err)
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-attachments"), ChannelClass: types.ChannelClassStandard,
+					InputAttachments: []types.InputAttachment{
+						{
+							InputAttachmentName: aws.String("primary"), InputId: inpOut.Input.Id,
+							LogicalInterfaceNames: []string{"if-a"},
+							AutomaticInputFailoverSettings: &types.AutomaticInputFailoverSettings{
+								SecondaryInputId:   inpOut.Input.Id,
+								ErrorClearTimeMsec: aws.Int32(5000),
+								InputPreference:    types.InputPreferencePrimaryInputPreferred,
+								FailoverConditions: []types.FailoverCondition{
+									{FailoverConditionSettings: &types.FailoverConditionSettings{
+										AudioSilenceSettings: &types.AudioSilenceFailoverSettings{
+											AudioSelectorName:         aws.String("sel1"),
+											AudioSilenceThresholdMsec: aws.Int32(3000),
+										},
+									}},
+									{FailoverConditionSettings: &types.FailoverConditionSettings{
+										InputLossSettings: &types.InputLossFailoverSettings{
+											InputLossThresholdMsec: aws.Int32(4000),
+										},
+									}},
+									{FailoverConditionSettings: &types.FailoverConditionSettings{
+										VideoBlackSettings: &types.VideoBlackFailoverSettings{
+											BlackDetectThreshold:    aws.Float64(0.1),
+											VideoBlackThresholdMsec: aws.Int32(2000),
+										},
+									}},
+								},
+							},
+						},
+					},
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.Len(t, desc.InputAttachments, 1)
+
+				a := desc.InputAttachments[0]
+				assert.Equal(t, "primary", aws.ToString(a.InputAttachmentName))
+				assert.Equal(t, aws.ToString(inpOut.Input.Id), aws.ToString(a.InputId))
+				assert.ElementsMatch(t, []string{"if-a"}, a.LogicalInterfaceNames)
+				require.NotNil(t, a.AutomaticInputFailoverSettings)
+				fo := a.AutomaticInputFailoverSettings
+				assert.Equal(t, aws.ToString(inpOut.Input.Id), aws.ToString(fo.SecondaryInputId))
+				assert.Equal(t, int32(5000), aws.ToInt32(fo.ErrorClearTimeMsec))
+				assert.Equal(t, types.InputPreferencePrimaryInputPreferred, fo.InputPreference)
+				require.Len(t, fo.FailoverConditions, 3)
+
+				audioSilence := fo.FailoverConditions[0].FailoverConditionSettings.AudioSilenceSettings
+				require.NotNil(t, audioSilence)
+				assert.Equal(t, "sel1", aws.ToString(audioSilence.AudioSelectorName))
+
+				inputLoss := fo.FailoverConditions[1].FailoverConditionSettings.InputLossSettings
+				require.NotNil(t, inputLoss)
+				assert.Equal(t, int32(4000), aws.ToInt32(inputLoss.InputLossThresholdMsec))
+
+				videoBlack := fo.FailoverConditions[2].FailoverConditionSettings.VideoBlackSettings
+				require.NotNil(t, videoBlack)
+				assert.InDelta(t, 0.1, aws.ToFloat64(videoBlack.BlackDetectThreshold), 0)
+			},
+		},
+		{
+			name: "encoderSettings round-trips the modeled subset (audio/video/caption descriptions, " +
+				"timecodeConfig, availBlanking, blackoutSlate, featureActivations, globalConfiguration, " +
+				"thumbnailConfiguration, outputGroups' name/outputs)",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-encoder"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: minimalValidEncoderSettings(),
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, desc.EncoderSettings)
+				es := desc.EncoderSettings
+
+				require.Len(t, es.AudioDescriptions, 1)
+				assert.Equal(t, "audio1", aws.ToString(es.AudioDescriptions[0].Name))
+				assert.Equal(t, "sel1", aws.ToString(es.AudioDescriptions[0].AudioSelectorName))
+				assert.Equal(t, types.AudioTypeCleanEffects, es.AudioDescriptions[0].AudioType)
+
+				require.Len(t, es.VideoDescriptions, 1)
+				assert.Equal(t, "video1", aws.ToString(es.VideoDescriptions[0].Name))
+				assert.Equal(t, int32(720), aws.ToInt32(es.VideoDescriptions[0].Height))
+				assert.Equal(t, int32(1280), aws.ToInt32(es.VideoDescriptions[0].Width))
+
+				require.Len(t, es.CaptionDescriptions, 1)
+				assert.Equal(t, "cap1", aws.ToString(es.CaptionDescriptions[0].Name))
+				assert.Equal(t, "capsel1", aws.ToString(es.CaptionDescriptions[0].CaptionSelectorName))
+
+				require.NotNil(t, es.TimecodeConfig)
+				assert.Equal(t, types.TimecodeConfigSourceSystemclock, es.TimecodeConfig.Source)
+				assert.Equal(t, int32(1), aws.ToInt32(es.TimecodeConfig.SyncThreshold))
+
+				require.NotNil(t, es.AvailBlanking)
+				assert.Equal(t, types.AvailBlankingStateEnabled, es.AvailBlanking.State)
+
+				require.NotNil(t, es.BlackoutSlate)
+				assert.Equal(t, types.BlackoutSlateStateEnabled, es.BlackoutSlate.State)
+				assert.Equal(t, "10.5240/F98B-A522", aws.ToString(es.BlackoutSlate.NetworkId))
+
+				require.NotNil(t, es.FeatureActivations)
+				assert.Equal(
+					t, types.FeatureActivationsInputPrepareScheduleActionsEnabled,
+					es.FeatureActivations.InputPrepareScheduleActions,
+				)
+
+				require.NotNil(t, es.GlobalConfiguration)
+				assert.Equal(t, int32(-1), aws.ToInt32(es.GlobalConfiguration.InitialAudioGain))
+				assert.Equal(t, types.GlobalConfigurationInputEndActionNone, es.GlobalConfiguration.InputEndAction)
+				assert.Equal(
+					t, types.GlobalConfigurationOutputLockingModeEpochLocking, es.GlobalConfiguration.OutputLockingMode,
+				)
+				require.NotNil(t, es.GlobalConfiguration.OutputLockingSettings)
+				epochLocking := es.GlobalConfiguration.OutputLockingSettings.EpochLockingSettings
+				require.NotNil(t, epochLocking)
+				assert.Equal(t, "00:00:00", aws.ToString(epochLocking.JamSyncTime))
+				require.NotNil(t, es.GlobalConfiguration.InputLossBehavior)
+				assert.Equal(t, int32(1000), aws.ToInt32(es.GlobalConfiguration.InputLossBehavior.BlackFrameMsec))
+
+				require.NotNil(t, es.ThumbnailConfiguration)
+				assert.Equal(t, types.ThumbnailStateAuto, es.ThumbnailConfiguration.State)
+
+				require.Len(t, es.OutputGroups, 1)
+				assert.Equal(t, "group1", aws.ToString(es.OutputGroups[0].Name))
+				require.Len(t, es.OutputGroups[0].Outputs, 1)
+				assert.Equal(t, "output1", aws.ToString(es.OutputGroups[0].Outputs[0].OutputName))
+				assert.Equal(t, "video1", aws.ToString(es.OutputGroups[0].Outputs[0].VideoDescriptionName))
+				assert.ElementsMatch(t, []string{"audio1"}, es.OutputGroups[0].Outputs[0].AudioDescriptionNames)
+				assert.ElementsMatch(t, []string{"cap1"}, es.OutputGroups[0].Outputs[0].CaptionDescriptionNames)
+			},
+		},
+		{
+			name: "linkedChannelSettings: primary's followingChannelArns is derived from another " +
+				"channel's follower settings, not stored on the primary itself",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				primaryOut, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-primary"), ChannelClass: types.ChannelClassStandard,
+					LinkedChannelSettings: &types.LinkedChannelSettings{
+						PrimaryChannelSettings: &types.PrimaryChannelSettings{
+							LinkedChannelType: types.LinkedChannelTypePrimaryChannel,
+						},
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, primaryOut.Channel.Arn)
+
+				followerOut, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-follower"), ChannelClass: types.ChannelClassStandard,
+					LinkedChannelSettings: &types.LinkedChannelSettings{
+						FollowerChannelSettings: &types.FollowerChannelSettings{
+							LinkedChannelType: types.LinkedChannelTypeFollowingChannel,
+							PrimaryChannelArn: primaryOut.Channel.Arn,
+						},
+					},
+				})
+				require.NoError(t, err)
+
+				followerDesc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: followerOut.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, followerDesc.LinkedChannelSettings)
+				require.NotNil(t, followerDesc.LinkedChannelSettings.FollowerChannelSettings)
+				assert.Equal(
+					t, aws.ToString(primaryOut.Channel.Arn),
+					aws.ToString(followerDesc.LinkedChannelSettings.FollowerChannelSettings.PrimaryChannelArn),
+				)
+
+				primaryDesc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: primaryOut.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, primaryDesc.LinkedChannelSettings)
+				require.NotNil(t, primaryDesc.LinkedChannelSettings.PrimaryChannelSettings)
+				assert.ElementsMatch(
+					t, []string{aws.ToString(followerOut.Channel.Arn)},
+					primaryDesc.LinkedChannelSettings.PrimaryChannelSettings.FollowingChannelArns,
+				)
+			},
+		},
+		{
+			name: "UpdateChannel with an omitted extras key preserves the previously-configured value",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-update-preserve"), ChannelClass: types.ChannelClassStandard,
+					LogLevel: types.LogLevelDebug,
+					CdiInputSpecification: &types.CdiInputSpecification{
+						Resolution: types.CdiInputResolutionUhd,
+					},
+				})
+				require.NoError(t, err)
+
+				// Update only the name; every extras key is omitted from the request.
+				_, err = client.UpdateChannel(t.Context(), &medialivesdk.UpdateChannelInput{
+					ChannelId: out.Channel.Id, Name: aws.String("rt-update-preserve-renamed"),
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, "rt-update-preserve-renamed", aws.ToString(desc.Name))
+				assert.Equal(t, types.LogLevelDebug, desc.LogLevel, "logLevel must survive an update that omits it")
+				require.NotNil(t, desc.CdiInputSpecification)
+				assert.Equal(
+					t, types.CdiInputResolutionUhd, desc.CdiInputSpecification.Resolution,
+					"cdiInputSpecification must survive an update that omits it",
+				)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := medialive.NewInMemoryBackend("000000000000", "us-east-1")
+			h := medialive.NewHandler(backend)
+			client := newTestChannelClient(t, h)
+			tc.run(t, client)
+		})
+	}
 }

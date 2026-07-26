@@ -137,7 +137,7 @@ func (h *Handler) handleListCisScanConfigurations(c *echo.Context) error {
 		cfgs = []*CisScanConfiguration{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurations": cfgs})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurations: cfgs})
 }
 
 func (h *Handler) handleStartCisSession(c *echo.Context) error {

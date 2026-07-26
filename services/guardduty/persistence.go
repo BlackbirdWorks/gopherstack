@@ -53,7 +53,7 @@ func byDetectorDTOKeyFn[V any](d *byDetectorDTO[V]) string { return d.DetectorID
 
 // persistenceDTOTables groups every ephemeral DTO table
 // buildPersistenceDTORegistry constructs, so Snapshot/Restore can pass them
-// around as one value instead of nine separate return values.
+// around as one value instead of ten separate return values.
 type persistenceDTOTables struct {
 	registry               *store.Registry
 	filters                *store.Table[detectorDTO[Filter]]
@@ -62,13 +62,14 @@ type persistenceDTOTables struct {
 	publishingDestinations *store.Table[detectorDTO[PublishingDestination]]
 	threatEntitySets       *store.Table[detectorDTO[ThreatEntitySet]]
 	trustedEntitySets      *store.Table[detectorDTO[TrustedEntitySet]]
+	investigations         *store.Table[detectorDTO[Investigation]]
 	orgConfigs             *store.Table[byDetectorDTO[OrgConfig]]
 	adminAccounts          *store.Table[byDetectorDTO[AdminAccount]]
 	malwareScanSettings    *store.Table[byDetectorDTO[MalwareScanSettings]]
 }
 
 // buildPersistenceDTORegistry constructs the ephemeral DTO registry used by
-// both Snapshot and Restore for the nine "dirty" tables (see
+// both Snapshot and Restore for the ten "dirty" tables (see
 // store_setup.go's registerAllTables doc). It is built fresh on every call
 // (rather than reusing b.registry) because the DTO value types differ from
 // the live table value types (e.g. detectorDTO[V] vs V).
@@ -85,6 +86,7 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 		),
 		threatEntitySets:  store.Register(dtoReg, "threatEntitySets", store.New(detectorDTOKeyFn[ThreatEntitySet])),
 		trustedEntitySets: store.Register(dtoReg, "trustedEntitySets", store.New(detectorDTOKeyFn[TrustedEntitySet])),
+		investigations:    store.Register(dtoReg, "investigations", store.New(detectorDTOKeyFn[Investigation])),
 		orgConfigs:        store.Register(dtoReg, "orgConfigs", store.New(byDetectorDTOKeyFn[OrgConfig])),
 		adminAccounts:     store.Register(dtoReg, "adminAccounts", store.New(byDetectorDTOKeyFn[AdminAccount])),
 		malwareScanSettings: store.Register(
@@ -97,10 +99,11 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 //
 // Tables holds one JSON-encoded array per registered table name: the seven
 // "clean" tables on b.registry (detectors, findings, members, invitations,
-// orgAdminAccounts, malwareScans, malwareProtectionPlans) plus the nine DTO
+// orgAdminAccounts, malwareScans, malwareProtectionPlans) plus the ten DTO
 // tables built above for the "dirty" ones (filters, ipSets,
 // threatIntelSets, publishingDestinations, threatEntitySets,
-// trustedEntitySets, orgConfigs, adminAccounts, malwareScanSettings). Tags is
+// trustedEntitySets, investigations, orgConfigs, adminAccounts,
+// malwareScanSettings). Tags is
 // a plain map left unconverted (its values, map[string]string, have no
 // identity of their own -- see store_setup.go) and is persisted here
 // directly, as before. MemberSeq is a scalar counter, also carried directly.
@@ -157,6 +160,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	for _, v := range b.trustedEntitySets.Snapshot() {
 		dtos.trustedEntitySets.Put(&detectorDTO[TrustedEntitySet]{
 			Value: v, DetectorID: v.DetectorID, ID: v.TrustedEntitySetID,
+		})
+	}
+
+	for _, v := range b.investigations.Snapshot() {
+		dtos.investigations.Put(&detectorDTO[Investigation]{
+			Value: v, DetectorID: v.DetectorID, ID: v.InvestigationID,
 		})
 	}
 
@@ -222,6 +231,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.publishingDestinations.Reset()
 		b.threatEntitySets.Reset()
 		b.trustedEntitySets.Reset()
+		b.investigations.Reset()
 		b.orgConfigs.Reset()
 		b.adminAccounts.Reset()
 		b.malwareScanSettings.Reset()
@@ -317,6 +327,9 @@ func (b *InMemoryBackend) restoreDirtyTables(tables map[string]json.RawMessage) 
 	)
 	b.trustedEntitySets.Restore(
 		unwrapDetectorDTOs(dtos.trustedEntitySets, func(v *TrustedEntitySet, id string) { v.DetectorID = id }),
+	)
+	b.investigations.Restore(
+		unwrapDetectorDTOs(dtos.investigations, func(v *Investigation, id string) { v.DetectorID = id }),
 	)
 
 	b.orgConfigs.Restore(unwrapByDetectorDTOs(dtos.orgConfigs, func(v *OrgConfig, id string) { v.detectorID = id }))

@@ -54,6 +54,9 @@ func serviceEnvironmentRegionIndexKeyFn(v *ServiceEnvironment) string { return v
 func serviceJobKeyFn(v *ServiceJob) string            { return regionKey(v.region, v.JobID) }
 func serviceJobRegionIndexKeyFn(v *ServiceJob) string { return v.region }
 
+func quotaShareKeyFn(v *QuotaShare) string            { return regionKey(v.region, v.QuotaShareArn) }
+func quotaShareRegionIndexKeyFn(v *QuotaShare) string { return v.region }
+
 // registerAllTables registers every converted resource collection on
 // b.registry exactly once. It must be called during construction only
 // (immediately after b.registry is created -- see NewInMemoryBackend), never
@@ -87,4 +90,7 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.serviceJobs = store.Register(b.registry, "serviceJobs", store.New(serviceJobKeyFn))
 	b.serviceJobsByRegion = b.serviceJobs.AddIndex("byRegion", serviceJobRegionIndexKeyFn)
+
+	b.quotaShares = store.Register(b.registry, "quotaShares", store.New(quotaShareKeyFn))
+	b.quotaSharesByRegion = b.quotaShares.AddIndex("byRegion", quotaShareRegionIndexKeyFn)
 }

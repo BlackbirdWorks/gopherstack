@@ -13,8 +13,10 @@ type StorageBackend interface {
 	Snapshot(ctx context.Context) []byte
 	Restore(ctx context.Context, data []byte) error
 
-	// CreateApplication creates a new AppConfig application.
-	CreateApplication(name, description string) (*Application, error)
+	// CreateApplication creates a new AppConfig application. tags are
+	// applied inline at creation time (see CreateExperimentDefinition's
+	// doc comment for why TagResource is not used for this).
+	CreateApplication(name, description string, tags map[string]string) (*Application, error)
 	// GetApplication retrieves an application by ID.
 	GetApplication(applicationID string) (*Application, error)
 	// ListApplications returns paginated applications.
@@ -29,9 +31,11 @@ type StorageBackend interface {
 	DeleteApplication(applicationID string) error
 
 	// CreateEnvironment creates a new environment within an application.
+	// tags are applied inline at creation time (see CreateApplication).
 	CreateEnvironment(
 		applicationID, name, description string,
 		monitors []Monitor,
+		tags map[string]string,
 	) (*Environment, error)
 	// GetEnvironment retrieves an environment by application and environment ID.
 	GetEnvironment(applicationID, environmentID string) (*Environment, error)
@@ -50,10 +54,12 @@ type StorageBackend interface {
 	// DeleteEnvironment deletes an environment.
 	DeleteEnvironment(applicationID, environmentID string) error
 
-	// CreateConfigurationProfile creates a new configuration profile.
+	// CreateConfigurationProfile creates a new configuration profile. tags
+	// are applied inline at creation time (see CreateApplication).
 	CreateConfigurationProfile(
 		applicationID, name, description, locationURI, profileType, retrievalRoleArn string,
 		validators []Validator,
+		tags map[string]string,
 	) (*ConfigurationProfile, error)
 	// GetConfigurationProfile retrieves a configuration profile.
 	GetConfigurationProfile(applicationID, profileID string) (*ConfigurationProfile, error)
@@ -98,12 +104,14 @@ type StorageBackend interface {
 	// DeleteHostedConfigurationVersion deletes a hosted configuration version.
 	DeleteHostedConfigurationVersion(applicationID, profileID string, versionNumber int32) error
 
-	// CreateDeploymentStrategy creates a new deployment strategy.
+	// CreateDeploymentStrategy creates a new deployment strategy. tags are
+	// applied inline at creation time (see CreateApplication).
 	CreateDeploymentStrategy(
 		name, description string,
 		deploymentDuration, bakeTime int32,
 		growthFactor float32,
 		growthType, replicateTo string,
+		tags map[string]string,
 	) (*DeploymentStrategy, error)
 	// GetDeploymentStrategy retrieves a deployment strategy by ID.
 	GetDeploymentStrategy(strategyID string) (*DeploymentStrategy, error)
@@ -147,11 +155,13 @@ type StorageBackend interface {
 	// UntagResource removes tags from a resource.
 	UntagResource(resourceArn string, tagKeys []string) error
 
-	// CreateExtension creates a new AppConfig extension.
+	// CreateExtension creates a new AppConfig extension. tags are applied
+	// inline at creation time (see CreateApplication).
 	CreateExtension(
 		name, description string,
 		actions map[string][]ExtensionAction,
 		parameters map[string]ExtensionParameter,
+		tags map[string]string,
 	) (*Extension, error)
 	// GetExtension retrieves an extension by identifier (ID or name) and
 	// optional version number (0 means unspecified: the highest version).
@@ -176,11 +186,14 @@ type StorageBackend interface {
 	// version).
 	DeleteExtension(extensionIdentifier string, versionNumber int32) error
 
-	// CreateExtensionAssociation creates an association between an extension and a resource.
+	// CreateExtensionAssociation creates an association between an
+	// extension and a resource. tags are applied inline at creation time
+	// (see CreateApplication).
 	CreateExtensionAssociation(
 		extensionIdentifier, resourceIdentifier string,
 		parameters map[string]string,
 		extensionVersionNumber *int32,
+		tags map[string]string,
 	) (*ExtensionAssociation, error)
 	// GetExtensionAssociation retrieves an extension association by ID.
 	GetExtensionAssociation(extensionAssociationID string) (*ExtensionAssociation, error)
@@ -224,4 +237,109 @@ type StorageBackend interface {
 	CurrentDeployedConfiguration(
 		application, environment, configuration string,
 	) (content []byte, contentType, versionLabel string, err error)
+
+	// CreateExperimentDefinition creates a new experiment definition
+	// attached to a feature-flag configuration profile. applicationIdentifier,
+	// environmentIdentifier, and configurationProfileIdentifier are each
+	// resolved by ID or name and validated against real backend state.
+	// control must be non-nil with a non-nil FlagValue; every element of
+	// treatments must likewise carry a non-nil FlagValue. Key on both is
+	// server-generated (see the Treatment doc comment in models.go). tags
+	// are applied inline to the new definition's ARN at creation time (see
+	// CreateExperimentDefinition's doc comment in experiment_definitions.go
+	// for why -- avoids the inline-Tags-dropped bug tracked by bd
+	// gopherstack-lcan).
+	CreateExperimentDefinition(
+		applicationIdentifier, name, environmentIdentifier, configurationProfileIdentifier, flagKey,
+		audienceRule, audienceDescription, hypothesis, launchCriteria string,
+		control *Treatment,
+		treatments []Treatment,
+		tags map[string]string,
+	) (*ExperimentDefinition, error)
+	// GetExperimentDefinition retrieves an experiment definition by
+	// application and experiment definition identifier (each accepted by
+	// ID or name).
+	GetExperimentDefinition(
+		applicationIdentifier, experimentDefinitionIdentifier string,
+	) (*ExperimentDefinition, error)
+	// ListExperimentDefinitions returns experiment definitions across the
+	// account, optionally filtered by application/configuration-profile/
+	// environment identifier and status. An identifier filter that cannot
+	// be resolved yields an empty result (a filter with no matches), not
+	// an error.
+	ListExperimentDefinitions(
+		applicationIdentifier, configurationProfileIdentifier, environmentIdentifier, status, nextToken string,
+		maxResults int,
+	) ([]ExperimentDefinition, string)
+	// UpdateExperimentDefinition updates an experiment definition. A nil
+	// pointer field means the request omitted it and it is left unchanged;
+	// a non-nil treatments fully replaces the treatment list (fresh Keys
+	// assigned). Returns ErrConflict if a RUNNING run currently exists for
+	// this definition, matching real AWS's "cannot update ... while an
+	// experiment run is active."
+	UpdateExperimentDefinition(
+		applicationIdentifier, experimentDefinitionIdentifier string,
+		audienceDescription, audienceRule *string,
+		control *Treatment,
+		hypothesis, launchCriteria *string,
+		treatments *[]Treatment,
+	) (*ExperimentDefinition, error)
+	// DeleteExperimentDefinition archives (deleteType "ARCHIVE", the
+	// default this backend applies when deleteType is empty -- see the doc
+	// comment in experiment_definitions.go for why) or permanently
+	// destroys (deleteType "DESTROY") an experiment definition. DESTROY
+	// cascade-deletes every run, run event, and tag scoped to it.
+	DeleteExperimentDefinition(applicationIdentifier, experimentDefinitionIdentifier, deleteType string) error
+
+	// StartExperimentRun starts a new run of an experiment definition.
+	// Only one run may be RUNNING per definition at a time (ErrConflict
+	// otherwise). exposurePercentage nil defaults to 0 -- see the doc
+	// comment in experiment_runs.go. tags are applied inline to the new
+	// run's own ARN, same inline-tagging fix as CreateExperimentDefinition.
+	StartExperimentRun(
+		applicationIdentifier, experimentDefinitionIdentifier, description string,
+		exposurePercentage *float32,
+		treatmentOverrides map[string]string,
+		tags map[string]string,
+	) (*ExperimentRun, error)
+	// GetExperimentRun retrieves an experiment run by application,
+	// experiment definition identifier, and run number.
+	GetExperimentRun(
+		applicationIdentifier, experimentDefinitionIdentifier string, run int32,
+	) (*ExperimentRun, error)
+	// ListExperimentRuns returns paginated runs for an experiment
+	// definition, optionally filtered by status.
+	ListExperimentRuns(
+		applicationIdentifier, experimentDefinitionIdentifier, status, nextToken string,
+		maxResults int,
+	) ([]ExperimentRun, string, error)
+	// UpdateExperimentRun updates a RUNNING experiment run's description,
+	// exposure percentage (which can only increase, matching real AWS),
+	// and/or treatment overrides. A nil field is left unchanged. Returns
+	// ErrBadRequest if the run is not RUNNING or the new exposure
+	// percentage would decrease it.
+	UpdateExperimentRun(
+		applicationIdentifier, experimentDefinitionIdentifier string,
+		run int32,
+		description *string,
+		exposurePercentage *float32,
+		treatmentOverrides *TreatmentOverrides,
+	) (*ExperimentRun, error)
+	// StopExperimentRun stops a RUNNING experiment run, moving it to DONE.
+	// Returns ErrBadRequest if the run is not currently RUNNING.
+	StopExperimentRun(
+		applicationIdentifier, experimentDefinitionIdentifier string,
+		run int32,
+		result *ExperimentRunResult,
+	) (*ExperimentRun, error)
+	// ListExperimentRunEvents returns the events this backend actually
+	// recorded during the run's lifecycle (RUN_STARTED/EXPOSURE_UPDATED/
+	// OVERRIDES_UPDATED/RUN_STOPPED), most-recent-first -- never a
+	// fabricated timeline.
+	ListExperimentRunEvents(
+		applicationIdentifier, experimentDefinitionIdentifier string,
+		run int32,
+		nextToken string,
+		maxResults int,
+	) ([]ExperimentRunEvent, string, error)
 }

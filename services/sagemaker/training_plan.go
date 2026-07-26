@@ -638,7 +638,7 @@ func trainingPlanStartTime(t *TrainingPlan) time.Time {
 }
 
 func sortTrainingPlans(list []*TrainingPlan, sortBy, sortOrder string) {
-	desc := sortOrder == "Descending"
+	desc := sortOrder == sortOrderDescending
 
 	sort.Slice(list, func(i, j int) bool {
 		var less bool

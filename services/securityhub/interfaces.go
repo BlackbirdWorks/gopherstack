@@ -145,6 +145,19 @@ type StorageBackend interface {
 	EnableSecurityHubV2(tags map[string]string) error
 	DisableSecurityHubV2() error
 	DescribeSecurityHubV2() (*HubV2, error)
+	EnableSecurityHubFeatureV2(featureName string) error
+	DisableSecurityHubFeatureV2(featureName string) error
+
+	// CSPM Connectors (third-party cloud provider connectors, distinct from
+	// Connectors V2's ticketing-system connectors)
+	CreateConnector(name, description string, provider map[string]any, tags map[string]string) (*CspmConnector, error)
+	GetConnector(connectorID string) (*CspmConnector, error)
+	UpdateConnector(connectorID, description string, provider map[string]any) (*CspmConnector, error)
+	DeleteConnector(connectorID string) (string, error)
+	ListConnectors(
+		connectorStatus, enablementStatus, providerName, nextToken string,
+		maxResults int,
+	) ([]*CspmConnector, string)
 
 	// Aggregator V2
 	CreateAggregatorV2(regionLinkingMode string, regions []string) (*AggregatorV2, error)

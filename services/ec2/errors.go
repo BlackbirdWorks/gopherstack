@@ -70,6 +70,16 @@ var (
 
 // naclDefaultDenyRuleNumber is the AWS-defined default-deny rule number placed at the end of every NACL.
 
+// VPC Endpoint payer responsibility (parity-4).
+var (
+	// ErrVpcEndpointIDNotFound is returned when a VPC endpoint ID (as opposed
+	// to a VPC endpoint SERVICE) cannot be found. Distinct from the
+	// pre-existing ErrVpcEndpointNotFound, whose "InvalidVpcEndpointService.NotFound"
+	// code is a known mismatch for VPC-endpoint (vs. endpoint-service)
+	// lookups — see PARITY.md deferred notes; not touched here.
+	ErrVpcEndpointIDNotFound = errors.New("InvalidVpcEndpointId.NotFound")
+)
+
 // TGW propagation / interruptible capacity / elastic IP (formerly parity-final errors).
 var (
 	// ErrTGWPropagationNotFound is returned when disabling a transit gateway

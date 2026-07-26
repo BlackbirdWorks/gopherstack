@@ -152,6 +152,10 @@ func (b *InMemoryBackend) DeleteDetector(detectorID string) error {
 		b.trustedEntitySets.Delete(detectorKey(detectorID, s.TrustedEntitySetID))
 	}
 
+	for _, inv := range slices.Clone(b.investigationsByDetector.Get(detectorID)) {
+		b.investigations.Delete(detectorKey(detectorID, inv.InvestigationID))
+	}
+
 	delete(b.tags, b.detectorARN(detectorID))
 
 	return nil

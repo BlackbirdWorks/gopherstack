@@ -6,12 +6,54 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	sesv2sdk "github.com/aws/aws-sdk-go-v2/service/sesv2"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )
+
+// sdkRoundTripTestRegion is the region used by newSESv2SDKClient.
+const sdkRoundTripTestRegion = "us-east-1"
+
+// newSESv2SDKClient stands up the real aws-sdk-go-v2 sesv2 client against an
+// httptest server running h, wired through the same pkgs/service
+// registry/router used in production. Round-tripping through the genuine SDK
+// serializer/deserializer (rather than decoding the raw JSON body with
+// ad-hoc structs/maps, as most other tests in this package do) is what
+// actually proves a response is wire-compatible -- backend-struct or
+// decoded-map assertions have repeatedly hidden dropped-field bugs across
+// this codebase's parity work. Shared across the sesv2_test package's family
+// test files.
+func newSESv2SDKClient(t *testing.T, h *sesv2.Handler) *sesv2sdk.Client {
+	t.Helper()
+
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(h))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
+		awscfg.WithRegion(sdkRoundTripTestRegion),
+		awscfg.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err)
+
+	return sesv2sdk.NewFromConfig(cfg, func(o *sesv2sdk.Options) {
+		o.BaseEndpoint = aws.String(srv.URL)
+	})
+}
 
 // newSESv2TestHandler returns a fresh Handler backed by a fresh InMemoryBackend.
 // Shared across the sesv2_test package's family test files.
@@ -110,7 +152,7 @@ func TestHandlerOpsLen(t *testing.T) {
 	_, backend := newSESv2TestHandler(t)
 	h := sesv2.NewHandler(backend)
 
-	assert.Equal(t, 110, sesv2.HandlerOpsLen(h))
+	assert.Equal(t, 112, sesv2.HandlerOpsLen(h))
 }
 
 // TestBackendAccountID verifies AccountID returns a non-empty value.

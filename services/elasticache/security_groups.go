@@ -103,7 +103,7 @@ func (b *InMemoryBackend) DescribeCacheSecurityGroups(
 
 	region := getRegion(ctx, b.region)
 
-	return describePaged(b.cacheSecurityGroupsStore(region), name, ErrCacheSecurityGroupNotFound, nil,
+	return describePaged(b.cacheSecurityGroupsStoreRO(region), name, ErrCacheSecurityGroupNotFound, nil,
 		func(sg CacheSecurityGroup) string { return sg.Name }, marker, maxRecords)
 }
 

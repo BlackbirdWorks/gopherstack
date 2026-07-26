@@ -15,7 +15,11 @@ func TestCompositeAlarm_StateTransitionedTimestamp_InXMLResponse(t *testing.T) {
 	postForm(t, h, "Action=PutCompositeAlarm&AlarmName=comp&AlarmRule=FALSE")
 	postForm(t, h, "Action=SetAlarmState&AlarmName=comp&StateValue=ALARM&StateReason=manual")
 
-	rec := postForm(t, h, "Action=DescribeAlarms&AlarmNames.member.1=comp")
+	// AlarmTypes must be explicit: DescribeAlarms defaults to metric alarms
+	// only when AlarmTypes is omitted (bd gopherstack-yvb7), so a composite
+	// alarm is invisible here without AlarmTypes.member.1=CompositeAlarm even
+	// though AlarmNames names it directly.
+	rec := postForm(t, h, "Action=DescribeAlarms&AlarmNames.member.1=comp&AlarmTypes.member.1=CompositeAlarm")
 	require.Equal(t, 200, rec.Code)
 
 	type alarm struct {

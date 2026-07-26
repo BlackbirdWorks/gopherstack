@@ -132,6 +132,21 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	recPolicy, err := b.GenerateRecommendedPolicyV2("metadata-uid-1")
 	require.NoError(t, err)
 
+	// Hub V2 opt-in features (nested inside the *HubV2 pointer field, so its
+	// round trip is exercised implicitly by HubV2 -- verified explicitly here
+	// since it's a map field, not a scalar).
+	require.NoError(t, b.EnableSecurityHubFeatureV2("NETWORK_SCANNING"))
+
+	// CSPM Connector (third-party cloud provider connector, distinct from
+	// ConnectorV2 above).
+	cspmConnProvider := map[string]any{
+		"Azure": map[string]any{
+			"AWSConfigConnectorArn": "arn:aws:cloudformation:us-east-1:000000000000:stack/x",
+		},
+	}
+	cspmConn, err := b.CreateConnector("my-cspm-connector", "desc", cspmConnProvider, nil)
+	require.NoError(t, err)
+
 	// --- Snapshot and restore into a fresh backend. ---
 
 	snap := b.Snapshot(t.Context())
@@ -269,6 +284,18 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotRecPolicy, err := b2.GetRecommendedPolicyV2(recPolicy.MetadataUid)
 	require.NoError(t, err)
 	assert.NotEmpty(t, gotRecPolicy.Policy)
+
+	// Hub V2 opt-in features.
+	gotHubV2, err := b2.DescribeSecurityHubV2()
+	require.NoError(t, err)
+	require.Contains(t, gotHubV2.Features, "NETWORK_SCANNING")
+	assert.Equal(t, "ENABLED", gotHubV2.Features["NETWORK_SCANNING"].FeatureStatus)
+
+	// CSPM Connector.
+	gotCspmConn, err := b2.GetConnector(cspmConn.ConnectorId)
+	require.NoError(t, err)
+	assert.Equal(t, "my-cspm-connector", gotCspmConn.Name)
+	assert.Equal(t, "PENDING_ENABLEMENT", gotCspmConn.EnablementStatus)
 }
 
 // TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshotVersion is a

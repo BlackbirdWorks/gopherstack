@@ -131,8 +131,8 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 			outState = &tsCopy
 		}
 
-		actionExecs := b.actionExecutionsStore(region)[pipelineName]
-		revisions := b.actionRevisionsStore(region)
+		actionExecs := b.actionExecutionsStoreRO(region)[pipelineName]
+		revisions := b.actionRevisionsStoreRO(region)
 		actionStates := make([]map[string]any, len(stage.Actions))
 
 		for j, action := range stage.Actions {
@@ -409,7 +409,7 @@ func (b *InMemoryBackend) OverrideStageCondition(
 		return fmt.Errorf("%w: stage %q not found in pipeline %q", ErrStageNotFound, stageName, pipelineName)
 	}
 
-	if findExecution(b.executionsStore(region)[pipelineName], executionID) == nil {
+	if findExecution(b.executionsStoreRO(region)[pipelineName], executionID) == nil {
 		return fmt.Errorf("%w: pipeline %q execution %q", ErrExecutionNotFound, pipelineName, executionID)
 	}
 

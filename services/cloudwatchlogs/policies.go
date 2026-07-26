@@ -99,3 +99,48 @@ func (b *InMemoryBackend) DeleteIndexPolicy(logGroupIdentifier string) error {
 
 	return nil
 }
+
+// validStorageTiers returns the allowed values for PutStorageTierPolicy's
+// StorageTier field (aws-sdk-go-v2 types.StorageTier).
+func validStorageTiers() map[string]struct{} {
+	return map[string]struct{}{
+		StorageTierStandard:           {},
+		StorageTierIntelligentTiering: {},
+	}
+}
+
+// GetStorageTierPolicy returns the account-level storage tier policy (see
+// the StorageTierPolicy doc comment in models.go for why this is a
+// singleton, not per-log-group). Before any PutStorageTierPolicy call, real
+// AWS's default active tier is STANDARD with no LastUpdatedTime
+// (GetStorageTierPolicyOutput.LastUpdatedTime is a nilable *int64), so an
+// empty table synthesizes that default rather than requiring a Put first.
+func (b *InMemoryBackend) GetStorageTierPolicy() StorageTierPolicy {
+	b.mu.RLock("GetStorageTierPolicy")
+	defer b.mu.RUnlock()
+
+	if p, ok := b.storageTierPolicy.Get(storageTierPolicySingletonKey); ok {
+		return *p
+	}
+
+	return StorageTierPolicy{StorageTier: StorageTierStandard}
+}
+
+// PutStorageTierPolicy sets the account-level storage tier policy.
+func (b *InMemoryBackend) PutStorageTierPolicy(tier string) (*StorageTierPolicy, error) {
+	if _, ok := validStorageTiers()[tier]; !ok {
+		return nil, fmt.Errorf(
+			"%w: invalid storageTier %q, must be STANDARD or INTELLIGENT_TIERING", ErrValidation, tier,
+		)
+	}
+
+	b.mu.Lock("PutStorageTierPolicy")
+	defer b.mu.Unlock()
+
+	p := &StorageTierPolicy{StorageTier: tier, LastUpdatedTime: time.Now().UnixMilli()}
+	b.storageTierPolicy.Put(p)
+
+	cp := *p
+
+	return &cp, nil
+}

@@ -3,9 +3,15 @@ package securityhub
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
+
+// pathHubV2Feature is the URI prefix for the per-feature opt-in endpoints
+// (EnableSecurityHubFeatureV2/DisableSecurityHubFeatureV2), e.g.
+// "/hubv2/feature/NETWORK_SCANNING".
+const pathHubV2Feature = pathHubV2 + "/feature/"
 
 func classifyHubPath(method, _ string) (string, string) {
 	switch method {
@@ -121,6 +127,17 @@ func (h *Handler) handleUpdateHubConfig(c *echo.Context, body map[string]any) er
 }
 
 func classifyHubV2Path(method, path string) (string, string) {
+	if featureName, ok := strings.CutPrefix(path, pathHubV2Feature); ok {
+		switch method {
+		case http.MethodPost:
+			return opEnableSecurityHubFeatureV2, featureName
+		case http.MethodDelete:
+			return opDisableSecurityHubFeatureV2, featureName
+		}
+
+		return opUnknown, ""
+	}
+
 	switch {
 	case method == http.MethodPost && path == pathHubV2:
 		return opEnableSecurityHubV2, ""
@@ -169,26 +186,69 @@ func (h *Handler) handleDisableSecurityHubV2(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// msgHubV2NotEnabled is reused by EnableSecurityHubFeatureV2/
+// DisableSecurityHubFeatureV2, since both require the same underlying V2 hub
+// state as DescribeSecurityHubV2 itself.
+const msgHubV2NotEnabled = "SecurityHub V2 is not enabled"
+
 func (h *Handler) handleDescribeSecurityHubV2(c *echo.Context) error {
 	hub, err := h.Backend.DescribeSecurityHubV2()
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "SecurityHub V2 is not enabled"})
+			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubV2NotEnabled})
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
 	}
 
+	features := make(map[string]any, len(hub.Features))
+
+	for name, f := range hub.Features {
+		features[name] = map[string]any{
+			"FeatureStatus": f.FeatureStatus,
+			keyUpdatedAt:    f.UpdatedAt,
+		}
+	}
+
+	// Real DescribeSecurityHubV2Output shape is {Features, HubV2Arn,
+	// SubscribedAt} -- no UpdatedAt/CreatedAt field. hub.CreatedAt is reused
+	// as SubscribedAt's value (the timestamp SecurityHub V2 was enabled);
+	// hub.UpdatedAt is internal bookkeeping only and intentionally not
+	// echoed on the wire.
 	return c.JSON(http.StatusOK, map[string]any{
-		"HubV2Arn":  hub.HubV2Arn,
-		"CreatedAt": hub.CreatedAt, //nolint:goconst // existing issue.
-		"UpdatedAt": hub.UpdatedAt, //nolint:goconst // existing issue.
+		"HubV2Arn":     hub.HubV2Arn,
+		"SubscribedAt": hub.CreatedAt,
+		"Features":     features,
 	})
+}
+
+func (h *Handler) handleEnableSecurityHubFeatureV2(c *echo.Context, featureName string) error {
+	if err := h.Backend.EnableSecurityHubFeatureV2(featureName); err != nil {
+		if errors.Is(err, ErrHubNotEnabled) {
+			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubV2NotEnabled})
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleDisableSecurityHubFeatureV2(c *echo.Context, featureName string) error {
+	if err := h.Backend.DisableSecurityHubFeatureV2(featureName); err != nil {
+		if errors.Is(err, ErrHubNotEnabled) {
+			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubV2NotEnabled})
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
 }
 
 // hubOpHandlers returns the Hub (V1 + V2) operation dispatch table for
 // handleREST.
-func (h *Handler) hubOpHandlers(c *echo.Context, body map[string]any) map[string]func() error {
+func (h *Handler) hubOpHandlers(c *echo.Context, resource string, body map[string]any) map[string]func() error {
 	return map[string]func() error{
 		opEnableSecurityHub:    func() error { return h.handleEnableHub(c, body) },
 		opDisableSecurityHub:   func() error { return h.handleDisableHub(c) },
@@ -199,5 +259,7 @@ func (h *Handler) hubOpHandlers(c *echo.Context, body map[string]any) map[string
 		opDescribeSecurityHubV2: func() error {
 			return h.handleDescribeSecurityHubV2(c)
 		},
+		opEnableSecurityHubFeatureV2:  func() error { return h.handleEnableSecurityHubFeatureV2(c, resource) },
+		opDisableSecurityHubFeatureV2: func() error { return h.handleDisableSecurityHubFeatureV2(c, resource) },
 	}
 }

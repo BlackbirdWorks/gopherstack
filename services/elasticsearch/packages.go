@@ -184,7 +184,7 @@ func (b *InMemoryBackend) ListDomainsForPackage(ctx context.Context, packageID s
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
-	assocs := b.packageAssociationsStore(region)[packageID]
+	assocs := b.packageAssociationsStoreRO(region)[packageID]
 	result := make([]string, len(assocs))
 	copy(result, assocs)
 
@@ -198,7 +198,7 @@ func (b *InMemoryBackend) ListPackagesForDomain(ctx context.Context, domainName 
 	defer b.mu.RUnlock()
 
 	var result []*Package
-	for packageID, assocs := range b.packageAssociationsStore(region) {
+	for packageID, assocs := range b.packageAssociationsStoreRO(region) {
 		if slices.Contains(assocs, domainName) {
 			if pkg, exists := b.packageGet(region, packageID); exists {
 				cp := *pkg

@@ -2,13 +2,16 @@ package appconfig
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
 )
 
-// CreateApplication creates a new AppConfig application.
-func (b *InMemoryBackend) CreateApplication(name, description string) (*Application, error) {
+// CreateApplication creates a new AppConfig application. See
+// CreateExperimentDefinition's doc comment for why tags are applied
+// directly to b.tags rather than via TagResource.
+func (b *InMemoryBackend) CreateApplication(name, description string, tags map[string]string) (*Application, error) {
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
@@ -29,6 +32,15 @@ func (b *InMemoryBackend) CreateApplication(name, description string) (*Applicat
 		UpdatedAt:   now,
 	}
 	b.applications.Put(app)
+
+	if len(tags) > 0 {
+		// Applied directly rather than via TagResource (which takes its own
+		// lock and would deadlock re-entered here) -- see
+		// CreateExperimentDefinition for the same pattern and the
+		// bd gopherstack-lcan history it references.
+		b.tags[b.appconfigARN("application/"+app.ID)] = maps.Clone(tags)
+	}
+
 	cp := *app
 
 	return &cp, nil
@@ -139,6 +151,7 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 	}
 
 	b.deleteDeployedConfigsLocked(func(appID, _, _ string) bool { return appID == applicationID })
+	b.deleteExperimentDefinitionsForAppLocked(applicationID)
 
 	b.applications.Delete(applicationID)
 	delete(b.versionCounters, applicationID)

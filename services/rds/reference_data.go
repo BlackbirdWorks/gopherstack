@@ -2,6 +2,14 @@ package rds
 
 import "fmt"
 
+// serverlessV2StatusDisabled is the Status value ServerlessV2PlatformVersionInfo uses
+// for a platform version that is no longer in use (excluded unless IncludeAll is set).
+// Verified against api_op_DescribeServerlessV2PlatformVersions.go's Status doc comment
+// ("disabled - The platform version is not in use"; the other valid value, "enabled",
+// has no corresponding constant here since nothing in this file currently needs to
+// compare against it).
+const serverlessV2StatusDisabled = "disabled"
+
 // DescribeAccountAttributes returns RDS account-level quota attributes.
 func (b *InMemoryBackend) DescribeAccountAttributes() []AccountAttribute {
 	b.mu.RLock("DescribeAccountAttributes")
@@ -100,6 +108,76 @@ func (b *InMemoryBackend) DescribeDBMajorEngineVersions(engine string) []DBMajor
 	}
 
 	return result
+}
+
+// validServerlessV2Engines is the set of Engine values
+// DescribeServerlessV2PlatformVersionsInput documents as valid, verified against
+// aws-sdk-go-v2/service/rds@v1.123.0's api_op_DescribeServerlessV2PlatformVersions.go
+// "Valid Values" doc comment on the Engine field (a plain *string on the wire, no
+// SDK-side enum type).
+//
+//nolint:gochecknoglobals // static lookup table, same pattern as validDBInstanceEngines
+var validServerlessV2Engines = map[string]bool{
+	engineAuroraMySQL:      true,
+	engineAuroraPostgresql: true,
+}
+
+// DescribeServerlessV2PlatformVersions returns Aurora Serverless v2 platform versions,
+// filtered by engine, a specific version, "default only", and "include all" (disabled
+// versions).
+//
+// This backend's catalog is deliberately empty: aws-sdk-go-v2/service/rds/types's
+// ServerlessV2PlatformVersionInfo.ServerlessV2PlatformVersion is a plain *string on the
+// wire (confirmed via `go doc`), and the only enumerable values documented anywhere in
+// the installed SDK module are the two valid Engine values checked above -- there is no
+// SDK-side list of real platform version numbers/descriptions to derive from. Inventing
+// specific version strings (e.g. "3", "4") would fabricate data indistinguishable from
+// genuine AWS output with nothing in this SDK module to field-diff them against, so an
+// honestly empty catalog is returned instead (see PARITY.md). The filtering logic below
+// is real and ready to activate correctly the moment genuine entries are ever added to
+// staticServerlessV2PlatformVersions -- it is not dead code, just currently applied to
+// zero rows.
+func (b *InMemoryBackend) DescribeServerlessV2PlatformVersions(
+	engine, version string, defaultOnly, includeAll bool,
+) ([]ServerlessV2PlatformVersionInfo, error) {
+	if engine != "" && !validServerlessV2Engines[engine] {
+		return nil, fmt.Errorf(
+			"%w: Engine must be %q or %q, got %q",
+			ErrInvalidParameter, engineAuroraMySQL, engineAuroraPostgresql, engine,
+		)
+	}
+
+	all := staticServerlessV2PlatformVersions()
+	result := make([]ServerlessV2PlatformVersionInfo, 0, len(all))
+
+	for _, v := range all {
+		if engine != "" && v.Engine != engine {
+			continue
+		}
+
+		if version != "" && v.ServerlessV2PlatformVersion != version {
+			continue
+		}
+
+		if defaultOnly && !v.IsDefault {
+			continue
+		}
+
+		if !includeAll && v.Status == serverlessV2StatusDisabled {
+			continue
+		}
+
+		result = append(result, v)
+	}
+
+	return result, nil
+}
+
+// staticServerlessV2PlatformVersions returns this mock's Aurora Serverless v2 platform
+// version catalog -- currently empty, see DescribeServerlessV2PlatformVersions's doc
+// comment for why.
+func staticServerlessV2PlatformVersions() []ServerlessV2PlatformVersionInfo {
+	return []ServerlessV2PlatformVersionInfo{}
 }
 
 func staticCertificates() []Certificate {

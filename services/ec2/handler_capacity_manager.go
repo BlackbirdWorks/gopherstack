@@ -222,3 +222,73 @@ func (h *Handler) handleDeleteCapacityManagerDataExport(vals url.Values, reqID s
 		CapacityManagerDataExportID: id,
 	}, nil
 }
+
+// ---- Capacity Manager Monitored Tag Keys ----
+
+type capacityManagerMonitoredTagKeyItem struct {
+	TagKey                     string `xml:"tagKey,omitempty"`
+	Status                     string `xml:"status,omitempty"`
+	StatusMessage              string `xml:"statusMessage,omitempty"`
+	EarliestDatapointTimestamp string `xml:"earliestDatapointTimestamp,omitempty"`
+	CapacityManagerProvided    bool   `xml:"capacityManagerProvided,omitempty"`
+}
+
+func toCapacityManagerMonitoredTagKeyItem(k *CapacityManagerMonitoredTagKey) capacityManagerMonitoredTagKeyItem {
+	return capacityManagerMonitoredTagKeyItem{
+		TagKey:                  k.TagKey,
+		Status:                  k.Status,
+		StatusMessage:           k.StatusMessage,
+		CapacityManagerProvided: k.CapacityManagerProvided,
+	}
+}
+
+type getCapacityManagerMonitoredTagKeysResponse struct {
+	XMLName                xml.Name `xml:"GetCapacityManagerMonitoredTagKeysResponse"`
+	Xmlns                  string   `xml:"xmlns,attr"`
+	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
+	CapacityManagerTagKeys struct {
+		Items []capacityManagerMonitoredTagKeyItem `xml:"item"`
+	} `xml:"capacityManagerTagKeySet"`
+}
+
+func (h *Handler) handleGetCapacityManagerMonitoredTagKeys(_ url.Values, reqID string) (any, error) {
+	keys := h.Backend.GetCapacityManagerMonitoredTagKeys()
+
+	resp := &getCapacityManagerMonitoredTagKeysResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	for _, k := range keys {
+		resp.CapacityManagerTagKeys.Items = append(
+			resp.CapacityManagerTagKeys.Items, toCapacityManagerMonitoredTagKeyItem(k),
+		)
+	}
+
+	return resp, nil
+}
+
+type updateCapacityManagerMonitoredTagKeysResponse struct {
+	XMLName                xml.Name `xml:"UpdateCapacityManagerMonitoredTagKeysResponse"`
+	Xmlns                  string   `xml:"xmlns,attr"`
+	RequestID              string   `xml:"requestId"`
+	CapacityManagerTagKeys struct {
+		Items []capacityManagerMonitoredTagKeyItem `xml:"item"`
+	} `xml:"capacityManagerTagKeySet"`
+}
+
+func (h *Handler) handleUpdateCapacityManagerMonitoredTagKeys(vals url.Values, reqID string) (any, error) {
+	activate := parseMemberList(vals, "ActivateTagKey")
+	deactivate := parseMemberList(vals, "DeactivateTagKey")
+
+	keys, err := h.Backend.UpdateCapacityManagerMonitoredTagKeys(activate, deactivate)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &updateCapacityManagerMonitoredTagKeysResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	for _, k := range keys {
+		resp.CapacityManagerTagKeys.Items = append(
+			resp.CapacityManagerTagKeys.Items, toCapacityManagerMonitoredTagKeyItem(k),
+		)
+	}
+
+	return resp, nil
+}

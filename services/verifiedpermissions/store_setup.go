@@ -35,6 +35,9 @@ func identitySourceTableKeyFn(v *IdentitySource) string {
 }
 func identitySourceStoreIndexKeyFn(v *IdentitySource) string { return v.PolicyStoreID }
 
+func policyStoreAliasTableKeyFn(v *PolicyStoreAlias) string      { return v.AliasName }
+func policyStoreAliasStoreIndexKeyFn(v *PolicyStoreAlias) string { return v.PolicyStoreID }
+
 // schemaTableKeyFn keys the "dirty" schemas table off its hidden
 // policyStoreID field (see the file doc comment above).
 func schemaTableKeyFn(v *PolicyStoreSchema) string { return v.policyStoreID }
@@ -57,6 +60,9 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.identitySources = store.Register(b.registry, "identitySources", store.New(identitySourceTableKeyFn))
 	b.identitySourcesByStore = b.identitySources.AddIndex("byPolicyStore", identitySourceStoreIndexKeyFn)
+
+	b.policyStoreAliases = store.Register(b.registry, "policyStoreAliases", store.New(policyStoreAliasTableKeyFn))
+	b.policyStoreAliasesByStore = b.policyStoreAliases.AddIndex("byPolicyStore", policyStoreAliasStoreIndexKeyFn)
 
 	b.schemas = store.New(schemaTableKeyFn)
 }

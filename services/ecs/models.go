@@ -221,10 +221,23 @@ type TaskProtection struct {
 }
 
 // UpdateExpressGatewayServiceInput holds input for UpdateExpressGatewayService.
+// Mirrors the real UpdateExpressGatewayServiceInput shape: most fields describe
+// the next service-revision configuration (CPU/Memory/HealthCheckPath/
+// NetworkConfiguration/PrimaryContainer/ScalingTarget/TaskDefinitionArn/
+// TaskRoleArn/ExecutionRoleArn), while InfrastructureRoleArn is the only field
+// that mutates the service itself rather than spawning a new revision.
 type UpdateExpressGatewayServiceInput struct {
+	NetworkConfiguration  *ExpressGatewayServiceNetworkConfiguration
+	PrimaryContainer      *ExpressGatewayContainer
+	ScalingTarget         *ExpressGatewayScalingTarget
 	ServiceArn            string
+	CPU                   string
+	Memory                string
+	HealthCheckPath       string
 	ExecutionRoleArn      string
 	InfrastructureRoleArn string
+	TaskDefinitionArn     string
+	TaskRoleArn           string
 }
 
 // ---- Fargate/inference resource models ----
@@ -356,16 +369,109 @@ type ServiceDeployment struct {
 	StatusReason         string     `json:"statusReason,omitempty"`
 }
 
-// ExpressGatewayService represents an ECS express gateway service.
+// ExpressGatewayServiceNetworkConfiguration is the VPC network configuration
+// for an Express service's tasks. Mirrors
+// types.ExpressGatewayServiceNetworkConfiguration.
+type ExpressGatewayServiceNetworkConfiguration struct {
+	SecurityGroups []string `json:"securityGroups,omitempty"`
+	Subnets        []string `json:"subnets,omitempty"`
+}
+
+// ExpressGatewayServiceAwsLogsConfiguration is the CloudWatch Logs
+// configuration for an Express service's primary container. Mirrors
+// types.ExpressGatewayServiceAwsLogsConfiguration.
+type ExpressGatewayServiceAwsLogsConfiguration struct {
+	LogGroup        string `json:"logGroup"`
+	LogStreamPrefix string `json:"logStreamPrefix"`
+}
+
+// ExpressGatewayRepositoryCredentials references the private-registry
+// credentials for an Express service's primary container image. Mirrors
+// types.ExpressGatewayRepositoryCredentials.
+type ExpressGatewayRepositoryCredentials struct {
+	CredentialsParameter string `json:"credentialsParameter"`
+}
+
+// ExpressGatewayContainer is the primary container configuration for an
+// Express service revision. Mirrors types.ExpressGatewayContainer.
+type ExpressGatewayContainer struct {
+	AwsLogsConfiguration  *ExpressGatewayServiceAwsLogsConfiguration `json:"awsLogsConfiguration,omitempty"`
+	RepositoryCredentials *ExpressGatewayRepositoryCredentials       `json:"repositoryCredentials,omitempty"`
+	ContainerPort         *int                                       `json:"containerPort,omitempty"`
+	Image                 string                                     `json:"image"`
+	Command               []string                                   `json:"command,omitempty"`
+	Environment           []KeyValuePair                             `json:"environment,omitempty"`
+	Secrets               []SecretReference                          `json:"secrets,omitempty"`
+}
+
+// ExpressGatewayScalingTarget is the auto-scaling configuration for an
+// Express service revision. Mirrors types.ExpressGatewayScalingTarget.
+type ExpressGatewayScalingTarget struct {
+	AutoScalingTargetValue *int   `json:"autoScalingTargetValue,omitempty"`
+	MaxTaskCount           *int   `json:"maxTaskCount,omitempty"`
+	MinTaskCount           *int   `json:"minTaskCount,omitempty"`
+	AutoScalingMetric      string `json:"autoScalingMetric,omitempty"`
+}
+
+// IngressPathSummary is an access endpoint for an Express service revision.
+// This backend does not emulate the managed ALB/target-group infrastructure
+// an Express service provisions, so IngressPaths is always empty -- see
+// ECSExpressGatewayService.ActiveConfigurations in models.go and the
+// managed-infrastructure note on ExpressGatewayServiceConfiguration. Mirrors
+// types.IngressPathSummary.
+type IngressPathSummary struct {
+	AccessType string `json:"accessType,omitempty"`
+	Endpoint   string `json:"endpoint,omitempty"`
+}
+
+// ExpressGatewayServiceConfiguration is a single service-revision snapshot of
+// an Express service's compute/network/scaling configuration. Every
+// Create/UpdateExpressGatewayService call produces one of these, appended to
+// (or replacing, per real AWS "one active revision" semantics -- see
+// CreateExpressGatewayService/UpdateExpressGatewayService in
+// express_gateway.go) ExpressGatewayService.ActiveConfigurations. Mirrors
+// types.ExpressGatewayServiceConfiguration.
+type ExpressGatewayServiceConfiguration struct {
+	CreatedAt            time.Time                                  `json:"createdAt"`
+	NetworkConfiguration *ExpressGatewayServiceNetworkConfiguration `json:"networkConfiguration,omitempty"`
+	PrimaryContainer     *ExpressGatewayContainer                   `json:"primaryContainer,omitempty"`
+	ScalingTarget        *ExpressGatewayScalingTarget               `json:"scalingTarget,omitempty"`
+	ServiceRevisionArn   string                                     `json:"serviceRevisionArn,omitempty"`
+	CPU                  string                                     `json:"cpu,omitempty"`
+	Memory               string                                     `json:"memory,omitempty"`
+	HealthCheckPath      string                                     `json:"healthCheckPath,omitempty"`
+	ExecutionRoleArn     string                                     `json:"executionRoleArn,omitempty"`
+	TaskRoleArn          string                                     `json:"taskRoleArn,omitempty"`
+	TaskDefinitionArn    string                                     `json:"taskDefinitionArn,omitempty"`
+	IngressPaths         []IngressPathSummary                       `json:"ingressPaths,omitempty"`
+}
+
+// ExpressGatewayServiceStatus is the current status of an Express service.
+// Mirrors types.ExpressGatewayServiceStatus (StatusCode + StatusReason),
+// which real AWS nests as an object rather than a bare status string.
+type ExpressGatewayServiceStatus struct {
+	StatusCode   string `json:"statusCode,omitempty"`
+	StatusReason string `json:"statusReason,omitempty"`
+}
+
+// ExpressGatewayService represents an ECS express gateway service. Mirrors
+// types.ECSExpressGatewayService. Note ExecutionRoleArn/TaskRoleArn/CPU/
+// Memory/etc. are NOT top-level fields on the real shape -- they live on each
+// entry of ActiveConfigurations (see ExpressGatewayServiceConfiguration);
+// this struct previously invented a top-level ExecutionRoleArn field that
+// does not exist on the wire.
 type ExpressGatewayService struct {
-	CreatedAt             time.Time `json:"createdAt"`
-	ServiceArn            string    `json:"serviceArn"`
-	ServiceName           string    `json:"serviceName"`
-	Cluster               string    `json:"cluster"`
-	Status                string    `json:"status"`
-	ExecutionRoleArn      string    `json:"executionRoleArn"`
-	InfrastructureRoleArn string    `json:"infrastructureRoleArn"`
-	Tags                  []Tag     `json:"tags,omitempty"`
+	CreatedAt             time.Time                            `json:"createdAt"`
+	UpdatedAt             time.Time                            `json:"updatedAt"`
+	ServiceArn            string                               `json:"serviceArn"`
+	ServiceName           string                               `json:"serviceName"`
+	Cluster               string                               `json:"cluster"`
+	Status                string                               `json:"status"`
+	StatusReason          string                               `json:"statusReason,omitempty"`
+	InfrastructureRoleArn string                               `json:"infrastructureRoleArn"`
+	CurrentDeployment     string                               `json:"currentDeployment,omitempty"`
+	ActiveConfigurations  []ExpressGatewayServiceConfiguration `json:"activeConfigurations,omitempty"`
+	Tags                  []Tag                                `json:"tags,omitempty"`
 }
 
 // Failure represents a resource-level failure returned in batch operations.
@@ -384,10 +490,18 @@ type CreateCapacityProviderInput struct {
 
 // CreateExpressGatewayServiceInput holds input for CreateExpressGatewayService.
 type CreateExpressGatewayServiceInput struct {
+	NetworkConfiguration  *ExpressGatewayServiceNetworkConfiguration
+	PrimaryContainer      *ExpressGatewayContainer
+	ScalingTarget         *ExpressGatewayScalingTarget
 	ExecutionRoleArn      string
 	InfrastructureRoleArn string
 	Cluster               string
 	ServiceName           string
+	CPU                   string
+	Memory                string
+	HealthCheckPath       string
+	TaskDefinitionArn     string
+	TaskRoleArn           string
 	Tags                  []Tag
 }
 

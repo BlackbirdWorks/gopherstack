@@ -390,7 +390,7 @@ func (b *InMemoryBackend) GetExternalConnections(
 	defer b.mu.RUnlock()
 
 	key := repoKey(domainName, repoName)
-	conns := b.externalConnectionsStore(region)[key]
+	conns := b.externalConnectionsStoreRO(region)[key]
 	result := make([]ExternalConnection, len(conns))
 	copy(result, conns)
 

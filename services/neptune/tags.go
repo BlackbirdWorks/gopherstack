@@ -14,6 +14,18 @@ func (b *InMemoryBackend) tagsStore(region string) map[string][]Tag {
 	return b.tags[region]
 }
 
+// tagsStoreRO returns the region-scoped tags map for region without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty map
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) tagsStoreRO(region string) map[string][]Tag {
+	if v := b.tags[region]; v != nil {
+		return v
+	}
+
+	return map[string][]Tag{}
+}
+
 // validateResourceARN checks whether an ARN refers to a known Neptune resource in the given region.
 // Must be called while holding at least a read lock.
 func (b *InMemoryBackend) validateResourceARN(region, arnStr string) error {
@@ -153,7 +165,7 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, arnStr string
 	if err := b.validateResourceARN(region, arnStr); err != nil {
 		return nil, err
 	}
-	src := b.tagsStore(region)[arnStr]
+	src := b.tagsStoreRO(region)[arnStr]
 	cp := make([]Tag, len(src))
 	copy(cp, src)
 

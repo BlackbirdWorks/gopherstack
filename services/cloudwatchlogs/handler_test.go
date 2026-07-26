@@ -231,6 +231,292 @@ func TestHandler_ChaosProvider(t *testing.T) {
 	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
 }
 
+func TestHandler_LookupTables(t *testing.T) {
+	t.Parallel()
+
+	const csvBody = `id,name
+1,foo
+2,bar
+`
+
+	tests := []struct {
+		setup      func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo)
+		body       map[string]any
+		name       string
+		action     string
+		wantFields []string
+		wantCode   int
+	}{
+		{
+			name:   "CreateLookupTable/OK",
+			action: "CreateLookupTable",
+			body: map[string]any{
+				"lookupTableName": "my_table",
+				"tableBody":       csvBody,
+			},
+			wantFields: []string{"createdAt", "lookupTableArn"},
+			wantCode:   http.StatusOK,
+		},
+		{
+			name:   "CreateLookupTable/InvalidName",
+			action: "CreateLookupTable",
+			body: map[string]any{
+				"lookupTableName": "bad name!",
+				"tableBody":       csvBody,
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "GetLookupTable/NotFound",
+			action:   "GetLookupTable",
+			body:     map[string]any{"lookupTableArn": "arn:aws:logs:us-east-1:000000000000:lookup-table:ghost"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:   "DescribeLookupTables/Empty",
+			action: "DescribeLookupTables",
+			body:   map[string]any{},
+			wantFields: []string{
+				"lookupTables",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "DeleteLookupTable/NotFound",
+			action:   "DeleteLookupTable",
+			body:     map[string]any{"lookupTableArn": "arn:aws:logs:us-east-1:000000000000:lookup-table:ghost"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h, e)
+			}
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				for _, field := range tt.wantFields {
+					assert.Contains(t, resp, field, "response should contain field %q", field)
+				}
+			}
+		})
+	}
+}
+
+func TestHandler_LookupTable_GetRealResponseShape(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+
+	createRec := doLogsRequest(t, h, e, "CreateLookupTable",
+		`{"lookupTableName":"shape_table","tableBody":"id,name\n1,foo\n"}`)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	tableArn, ok := created["lookupTableArn"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, tableArn)
+
+	getRec := doLogsRequest(t, h, e, "GetLookupTable", `{"lookupTableArn":"`+tableArn+`"}`)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got))
+	assert.Equal(t, "shape_table", got["lookupTableName"])
+	assert.Equal(t, "id,name\n1,foo\n", got["tableBody"])
+	assert.Contains(t, got, "sizeBytes")
+}
+
+func TestHandler_SyslogConfigurations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo)
+		body     map[string]any
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:   "PutSyslogConfiguration/RequiresRealLogGroup",
+			action: "PutSyslogConfiguration",
+			body: map[string]any{
+				"logGroupIdentifier": "/ghost/group",
+				"vpcEndpointId":      "vpce-1",
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:   "PutSyslogConfiguration/OK",
+			action: "PutSyslogConfiguration",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				rec := doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/syslog/grp"}`)
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			body: map[string]any{
+				"logGroupIdentifier": "/syslog/grp",
+				"vpcEndpointId":      "vpce-1",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "PutSyslogConfiguration/EmptyIdentifier",
+			action:   "PutSyslogConfiguration",
+			body:     map[string]any{"logGroupIdentifier": ""},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DeleteSyslogConfiguration/NotFound",
+			action:   "DeleteSyslogConfiguration",
+			body:     map[string]any{"logGroupIdentifier": "/ghost/group"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "ListSyslogConfigurations/Empty",
+			action:   "ListSyslogConfigurations",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h, e)
+			}
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_SyslogConfiguration_ListResponseShape(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+
+	rec := doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/syslog/shape"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doLogsRequest(t, h, e, "PutSyslogConfiguration",
+		`{"logGroupIdentifier":"/syslog/shape","vpcEndpointId":"vpce-42"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doLogsRequest(t, h, e, "ListSyslogConfigurations", `{"logGroupIdentifier":"/syslog/shape"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	list, ok := resp["syslogConfigurations"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 1)
+
+	entry, ok := list[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "VPCE", entry["sourceType"])
+	assert.Equal(t, "vpce-42", entry["vpcEndpointId"])
+	assert.Contains(t, entry, "logGroupArn")
+	assert.Contains(t, entry, "createdAt")
+}
+
+func TestHandler_StorageTierPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo)
+		body       map[string]any
+		name       string
+		action     string
+		wantTier   string
+		wantCode   int
+		wantHasLUT bool
+	}{
+		{
+			name:     "GetStorageTierPolicy/DefaultsToStandard",
+			action:   "GetStorageTierPolicy",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+			wantTier: "STANDARD",
+		},
+		{
+			name:       "PutStorageTierPolicy/IntelligentTiering",
+			action:     "PutStorageTierPolicy",
+			body:       map[string]any{"storageTier": "INTELLIGENT_TIERING"},
+			wantCode:   http.StatusOK,
+			wantTier:   "INTELLIGENT_TIERING",
+			wantHasLUT: true,
+		},
+		{
+			name:     "PutStorageTierPolicy/InvalidTier",
+			action:   "PutStorageTierPolicy",
+			body:     map[string]any{"storageTier": "BOGUS"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "GetStorageTierPolicy/AfterPutHasLastUpdatedTime",
+			action: "GetStorageTierPolicy",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				rec := doLogsRequest(t, h, e, "PutStorageTierPolicy", `{"storageTier":"STANDARD"}`)
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			body:       map[string]any{},
+			wantCode:   http.StatusOK,
+			wantTier:   "STANDARD",
+			wantHasLUT: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h, e)
+			}
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.wantTier, resp["storageTier"])
+
+			if tt.wantHasLUT {
+				assert.Contains(t, resp, "lastUpdatedTime")
+			} else {
+				assert.NotContains(t, resp, "lastUpdatedTime")
+			}
+		})
+	}
+}
+
 func TestHandler_UnknownOperation(t *testing.T) {
 	t.Parallel()
 

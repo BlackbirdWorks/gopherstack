@@ -3,6 +3,7 @@ package sesv2
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -11,18 +12,38 @@ import (
 
 type batchGetMetricDataInput struct {
 	Queries []struct {
-		ID        string `json:"Id"`
-		Namespace string `json:"Namespace"`
-		Metric    string `json:"Metric"`
+		Dimensions map[string]string `json:"Dimensions"`
+		ID         string            `json:"Id"`
+		Namespace  string            `json:"Namespace"`
+		Metric     string            `json:"Metric"`
+		StartDate  float64           `json:"StartDate"`
+		EndDate    float64           `json:"EndDate"`
 	} `json:"Queries"`
 }
 
+type batchGetMetricDataResultOutput struct {
+	ID         string  `json:"Id"`
+	Timestamps []any   `json:"Timestamps"`
+	Values     []int64 `json:"Values"`
+}
+
 type batchGetMetricDataOutput struct {
-	Results []struct {
-		ID         string    `json:"Id"`
-		Timestamps []any     `json:"Timestamps"`
-		Values     []float64 `json:"Values"`
-	} `json:"Results"`
+	Results []batchGetMetricDataResultOutput `json:"Results"`
+}
+
+// epochSecondsToTime decodes a JSON-protocol unixTimestamp number (see
+// pkgs/awstime's doc comment on the encode direction) back into a
+// time.Time. A zero value decodes to the zero time.Time, matching an absent
+// field.
+func epochSecondsToTime(f float64) time.Time {
+	if f == 0 {
+		return time.Time{}
+	}
+
+	sec := int64(f)
+	nsec := int64((f - float64(sec)) * float64(time.Second))
+
+	return time.Unix(sec, nsec).UTC()
 }
 
 func (h *Handler) handleBatchGetMetricData(c *echo.Context) (any, error) {
@@ -34,10 +55,14 @@ func (h *Handler) handleBatchGetMetricData(c *echo.Context) (any, error) {
 
 	queries := make([]MetricDataQuery, 0, len(in.Queries))
 	for _, q := range in.Queries {
-		queries = append(
-			queries,
-			MetricDataQuery{ID: q.ID, Namespace: q.Namespace, Metric: q.Metric},
-		)
+		queries = append(queries, MetricDataQuery{
+			ID:         q.ID,
+			Namespace:  q.Namespace,
+			Metric:     q.Metric,
+			StartDate:  epochSecondsToTime(q.StartDate),
+			EndDate:    epochSecondsToTime(q.EndDate),
+			Dimensions: q.Dimensions,
+		})
 	}
 
 	results, err := h.Backend.BatchGetMetricData(queries)
@@ -45,30 +70,19 @@ func (h *Handler) handleBatchGetMetricData(c *echo.Context) (any, error) {
 		return nil, err
 	}
 
-	out := batchGetMetricDataOutput{}
+	out := batchGetMetricDataOutput{Results: make([]batchGetMetricDataResultOutput, 0, len(results))}
+
 	for _, r := range results {
 		timestamps := make([]any, 0, len(r.Timestamps))
 		for _, ts := range r.Timestamps {
 			timestamps = append(timestamps, awstime.Epoch(ts))
 		}
 
-		out.Results = append(out.Results, struct {
-			ID         string    `json:"Id"`
-			Timestamps []any     `json:"Timestamps"`
-			Values     []float64 `json:"Values"`
-		}{
+		out.Results = append(out.Results, batchGetMetricDataResultOutput{
 			ID:         r.ID,
 			Timestamps: timestamps,
 			Values:     r.Values,
 		})
-	}
-
-	if out.Results == nil {
-		out.Results = []struct {
-			ID         string    `json:"Id"`
-			Timestamps []any     `json:"Timestamps"`
-			Values     []float64 `json:"Values"`
-		}{}
 	}
 
 	return &out, nil

@@ -2,13 +2,17 @@ package appconfig
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 )
 
-// CreateConfigurationProfile creates a new configuration profile.
+// CreateConfigurationProfile creates a new configuration profile. See
+// CreateExperimentDefinition's doc comment for why tags are applied
+// directly to b.tags rather than via TagResource.
 func (b *InMemoryBackend) CreateConfigurationProfile(
 	applicationID, name, description, locationURI, profileType, retrievalRoleArn string,
 	validators []Validator,
+	tags map[string]string,
 ) (*ConfigurationProfile, error) {
 	b.mu.Lock("CreateConfigurationProfile")
 	defer b.mu.Unlock()
@@ -45,6 +49,12 @@ func (b *InMemoryBackend) CreateConfigurationProfile(
 		Validators:       validators,
 	}
 	b.configProfiles.Put(profile)
+
+	if len(tags) > 0 {
+		arn := b.appconfigARN("application/" + applicationID + "/configurationprofile/" + profile.ID)
+		b.tags[arn] = maps.Clone(tags)
+	}
+
 	cp := *profile
 
 	return &cp, nil

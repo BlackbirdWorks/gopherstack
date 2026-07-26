@@ -1,8 +1,16 @@
 service: sagemaker
-sdk_module: aws-sdk-go-v2/service/sagemaker@v1.236.0   # version audited against
-last_audit_commit: 32733a415                            # HEAD when this manifest was written
-last_audit_date: 2026-07-22
-overall: A            # systemic epoch-seconds timestamp wire bug found + fixed across 27 resource types this pass
+sdk_module: aws-sdk-go-v2/service/sagemaker@v1.261.0   # version audited against
+last_audit_commit: 09ded3945                            # HEAD when this manifest was written
+last_audit_date: 2026-07-25
+overall: A            # parity-4: implemented the 22 ops the v1.236.0 -> v1.261.0 SDK bump added
+                       # (AIBenchmarkJob, AIRecommendationJob, AIWorkloadConfig, generic Job/
+                       # JobSchemaVersion, StartClusterHealthCheck families — see Notes). No
+                       # previously-audited op touched or regressed. Grade held at A: every new op
+                       # is real (routed, stateful, persisted, correct required/optional wire
+                       # fields, accurate ResourceNotFound/ResourceInUse error typing verified
+                       # against deserializers.go) with clearly-scoped, disclosed depth limits
+                       # (see the aiBenchmarkJob/aiRecommendationJob/aiWorkloadConfig/job families
+                       # below and gaps:) rather than any invented field or silent stub.
 
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -40,8 +48,36 @@ ops:
   CreateModelPackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — ModelPackageStatusDetails (required) now always emitted"}
   DescribeModelPackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — see Notes"}
 
+  # --- parity-4: new ops added by the v1.236.0 -> v1.261.0 SDK bump ---
+  CreateAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "required fields (Arn/Name/Status/AIWorkloadConfigIdentifier/BenchmarkTarget/CreationTime/OutputConfig/RoleArn) always emitted; BenchmarkTarget/OutputConfig/NetworkConfig are json.RawMessage passthrough of the Create payload — see aiBenchmarkJob family note"}
+  DeleteAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  StopAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "InProgress->Stopping->Stopped FSM via stopSimpleJobFSM (lifecycle.go)"}
+  ListAIBenchmarkJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "StatusEquals/NameContains/CreationTimeAfter/Before/SortBy/SortOrder/MaxResults all real filters; AIWorkloadConfigName derived from the stored identifier"}
+  CreateAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "required fields always emitted; ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification are json.RawMessage passthrough — see aiRecommendationJob family note; Recommendations intentionally always empty, see gaps:"}
+  DeleteAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  StopAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "InProgress->Stopping->Stopped FSM via stopSimpleJobFSM (lifecycle.go)"}
+  ListAIRecommendationJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateAIWorkloadConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeAIWorkloadConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "AIWorkloadConfigs/DatasetConfig are json.RawMessage passthrough of the Create payload"}
+  DeleteAIWorkloadConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAIWorkloadConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "JobConfigSchemaVersion validated against jobConfigSchemaVersionsForCategory before create (real ResourceNotFound if unknown)"}
+  DescribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "required fields (incl. SecondaryStatus/SecondaryStatusTransitions) always emitted; scoped by (JobCategory,JobName) — a category mismatch 404s, see jobs.go doc comment"}
+  DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects a still-InProgress job with ResourceInUse (StopJob required first), matching DeleteJob's doc comment + error deserializer"}
+  StopJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "InProgress->Stopping->Stopped FSM with SecondaryStatusTransitions history, distinct JobSecondaryStatusTransition type from TrainingJob's SecondaryStatusTransition"}
+  ListJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "scoped to the required JobCategory param plus NameContains/StatusEquals/CreationTime*/LastModifiedTime*/SortBy/SortOrder"}
+  DescribeJobSchemaVersion: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real function over a static per-instance schema registry (jobConfigSchemaVersionsForCategory); schema document text itself is a generic synthetic placeholder, not AWS's real unpublished schema — see gaps:"}
+  ListJobSchemaVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same registry as DescribeJobSchemaVersion"}
+  StartClusterHealthCheck: {wire: ok, errors: ok, state: ok, persist: n/a, note: "validates cluster exists (name or ARN) + DeepHealthCheckConfigurations non-empty, returns ClusterArn; does not synthesize per-node health-check pass/fail results (no fabricated telemetry) — consistent with this service's existing ClusterNode model, which has no health-check fields at all"}
+
 # Families audited as a group (when per-op is impractical):
 families:
+  ai_benchmark_job: {status: partial, note: "parity-4, new family (CreateJob-era SDK bump). Field-diffed against api_op_{Create,Describe,Delete,Stop,List}AIBenchmarkJob.go + types.AIBenchmarkJobStatus/AIBenchmarkJobSummary/ListAIBenchmarkJobsSortBy — all required/optional Describe fields correct, Stopping/Stopped FSM genuine (real time.Time delay, no fabricated completion metrics). PARTIAL because BenchmarkTarget/OutputConfig/NetworkConfig are stored+echoed as opaque json.RawMessage rather than fully-typed AIBenchmarkTarget/AIBenchmarkOutputConfig/AIBenchmarkNetworkConfig structs (same convention as algorithms.go's TrainingSpecification/InferenceSpecification/ValidationSpecification, already accepted at grade A in this file) — wire-correct for every field a client sent, but AIBenchmarkOutputResult's server-only CloudWatchLogs sub-field is never synthesized."}
+  ai_recommendation_job: {status: partial, note: "parity-4, new family. Field-diffed against api_op_{Create,Describe,Delete,Stop,List}AIRecommendationJob.go + types.AIRecommendationJobStatus/AIRecommendationJobSummary. Distinct from the older InferenceRecommendationsJob family (inference_recommendations_jobs.go) — different store, different wire shape, no shared state. PARTIAL for the same json.RawMessage-passthrough reason as ai_benchmark_job (ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification), plus Recommendations ([]types.AIRecommendation) is intentionally always empty rather than fabricated — see gaps:."}
+  ai_workload_config: {status: partial, note: "parity-4, new family. No status/lifecycle in the real API (DescribeAIWorkloadConfigOutput has no status field) — CRUD only. WorkloadSpec (wire field name AIWorkloadConfigs, confusingly same as the resource-family name)/DatasetConfig stored as json.RawMessage passthrough for the same reason as the two job families above."}
+  job_and_job_schema_version: {status: partial, note: "parity-4, new generic 'model customization job' family (CreateJob/DescribeJob/DeleteJob/StopJob/ListJobs/DescribeJobSchemaVersion/ListJobSchemaVersions). NOT the same as TrainingJob/ProcessingJob/TransformJob/AutoMLJob/CompilationJob/etc — keyed by JobName alone (matches CreateJob's doc: unique per account+region), Describe/Delete/Stop additionally scoped by JobCategory (mismatch => ResourceNotFound), own JobSecondaryStatusTransition type (does not alias training_jobs.go's SecondaryStatusTransition despite the identical shape), own store (b.jobs). DeleteJob correctly rejects a still-InProgress job with ResourceInUse per its doc comment. PARTIAL: DescribeJobSchemaVersion/ListJobSchemaVersions serve a single synthetic '1.0' schema version with a generic (not per-category, not AWS's real unpublished) JSON-schema document — AWS does not ship real per-JobCategory schema content in the SDK, so this is the most honest deterministic approximation available, not a wire-shape bug, but is disclosed as a depth limit."}
   model_endpoint_config_crud: {status: ok, note: "CreateModel/DescribeModel/ListModels/DeleteModel and CreateEndpointConfig/DescribeEndpointConfig/ListEndpointConfigs/DeleteEndpointConfig verified op-by-op against handler.go + backend.go: correct ARN building via pkgs/arn, epoch timestamps via epochSeconds (float64 unix seconds, matches awsjson1.1 numeric timestamp), errCodeLookup-equivalent sentinel wiring (awserr.New wraps ErrNotFound/ErrConflict, handler.go handleError maps to ValidationException/ResourceInUse), persistence.go backendSnapshot wiring confirmed for both models and endpointConfigs keyed by region."
   endpoint_lifecycle: {status: ok, note: "CreateEndpoint/UpdateEndpoint/DescribeEndpoint/DeleteEndpoint/ListEndpoints + UpdateEndpointWeightsAndCapacities audited and FIXED — see Notes. FSM-driven Creating/Updating -> InService transitions (backend_accuracy.go scheduleEndpointTransition) verified correct after fix."}
   training_job: {status: ok, note: "CreateTrainingJob(Full)/DescribeTrainingJob(Full)/ListTrainingJobs(Filtered)/StopTrainingJob(FSM)/DeleteTrainingJob/UpdateTrainingJob verified: InProgress->Completed FSM populates ModelArtifacts, BillableTimeInSeconds, SecondaryStatusTransitions with epoch timestamps; StopTrainingJobFSM drives InProgress->Stopping->Stopped."}
@@ -59,7 +95,7 @@ families:
   edge_deployment_device_fleet: {status: partial, note: "FIXED this pass — DeviceFleet/Device family: OutputConfig (required in Create+Update) was silently optional and UpdateDeviceFleet silently dropped it; DeviceFleet/Device Describe+List timestamp encoding also fixed (see Notes). EdgeDeploymentPlan/EdgePackagingJob not otherwise wire-audited this pass."}
   labeling_job: {status: deferred, note: "Not audited this pass; labeling.go."}
   hub_hub_content: {status: deferred, note: "Not audited this pass; hub.go."}
-  cluster: {status: deferred, note: "Spot-checked DescribeCluster this pass (InstanceGroups, a required field, is correctly always emitted, not gated by omitempty) — no bug found, but not a full field-by-field audit; cluster.go is large."}
+  cluster: {status: deferred, note: "Spot-checked DescribeCluster this pass (InstanceGroups, a required field, is correctly always emitted, not gated by omitempty) — no bug found, but not a full field-by-field audit; cluster.go is large. parity-4 added StartClusterHealthCheck (real cluster-existence + required-field validation via resolveClusterLocked, returns ClusterArn; does not synthesize per-node deep-health-check results — see ops: above), but did not otherwise re-audit this family."}
   inference_recommendations_edge_packaging: {status: deferred, note: "Not audited this pass."}
   training_plan: {status: partial, note: "FIXED this pass — TrainingPlan/ReservedCapacity/ReservedCapacitySummary timestamp encoding (see Notes). Not otherwise wire-audited this pass."}
   monitoring_schedule_workteam_compilation_job: {status: partial, note: "FIXED this pass — MonitoringSchedule and CompilationJob Describe+List timestamp encoding (see Notes). Workteam and deeper MonitoringSchedule/CompilationJob field audit not done this pass."}
@@ -69,6 +105,9 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "ProductionVariantSummary.VariantStatus is populated with a single synthetic {Status: \"Creating\"|\"InService\"} entry, not a full AWS VariantStatus enum/message model (StatusMessage is always empty, no DeployedImages/CapacityReservationConfig/ManagedInstanceScaling/RoutingConfig fields). Sufficient for status-polling clients; deeper fidelity deferred. (no bd issue filed yet)"
   - "AutoMLJobInputDataConfig ([]types.AutoMLJobChannel) is a required member of DescribeAutoMLJobOutput but is not modeled/stored/returned at all — DescribeAutoMLJob omits it entirely. AutoMLJobSecondaryStatus/LastModifiedTime were also missing (FIXED this pass) but the input-data-config gap remains: a real AWS SDK client unconditionally reading this field would get a nil/empty slice rather than erroring, so this is lower severity than the fixed bugs, but is still a real gap. (no bd issue filed yet)"
   - "8 families still fully deferred (pipeline_pipeline_execution, experiment_trial_trial_component, feature_store, lineage_action_artifact_context_association, labeling_job, hub_hub_content, cluster, inference_recommendations_edge_packaging) — none wire-audited this pass beyond the systemic timestamp-encoding sweep (which only touches families with a MarshalJSON-eligible Describe/List path already present; none of these 8 families were found to have that path go through a raw struct/map marshal during the sweep, but that is not the same as a full field audit). Next pass should pick 2-3 of these per sweep given the service's size (~50k LOC)."
+  - "parity-4: AIBenchmarkJob's BenchmarkTarget/OutputConfig/NetworkConfig, AIRecommendationJob's ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification, and AIWorkloadConfig's AIWorkloadConfigs/DatasetConfig are all stored+echoed as opaque json.RawMessage rather than modeled as fully-typed structs (same convention as algorithms.go's TrainingSpecification/InferenceSpecification/ValidationSpecification). Every field the client sends round-trips exactly; the only thing not reproduced is AWS server-synthesized sub-fields that don't exist in the Create input at all (e.g. AIBenchmarkOutputResult.CloudWatchLogs). Not a wire-shape bug for any field a client actually populates, but real if a client depends on those server-only sub-fields appearing. (no bd issue filed yet)"
+  - "parity-4: AIRecommendationJob.Recommendations ([]types.AIRecommendation) is a real, always-empty slice — this backend never fabricates optimization recommendations, deployment configs, or performance-metric numbers a client could mistake for a measured result. A client polling DescribeAIRecommendationJob for actual recommendations will never see any, even after the job reaches Completed. Deliberate per this campaign's 'no fabricated metrics' rule, but is a real functional gap for any test asserting recommendation content. (no bd issue filed yet)"
+  - "parity-4: DescribeJobSchemaVersion/ListJobSchemaVersions serve a single synthetic JobConfigSchemaVersion (\"1.0\") with a generic, not-per-category JSON-schema document for every JobCategory — AWS does not publish real per-category schema content anywhere in the SDK module, so there is no ground truth to model against. CreateJob does validate JobConfigSchemaVersion against this same registry (real ResourceNotFound if unknown), so the three ops are at least internally consistent, just not a reproduction of AWS's actual (unpublished) schema catalog. (no bd issue filed yet)"
 
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - pipeline_pipeline_execution
@@ -255,3 +294,53 @@ new `TestHandler_CreateEndpoint_UnknownEndpointConfig`).
 - Protocol is JSON (`awsjson1.1`, `X-Amz-Target: SageMaker.<Op>`), not REST-XML/REST-JSON.
   Timestamps are epoch-seconds `float64` via `epochSeconds()`, not ISO8601 strings — this is
   correct for this protocol; do not "fix" to ISO8601 strings.
+- `ErrResourceNotFound` (`errors.go`) looks like the same "message string doesn't affect the
+  wire `__type`" trap noted above for the generic `awserr.ErrNotFound` sentinel — it is NOT.
+  `handleError` (`handler.go`) has a genuine, deliberate extra `case errors.Is(err,
+  ErrResourceNotFound):` checked *before* the generic `ErrNotFound` case, which emits
+  `__type: "ResourceNotFound"` instead of the blanket `"ValidationException"` the rest of the
+  service emits for not-found. This exists because AIBenchmarkJob/AIRecommendationJob/
+  AIWorkloadConfig/Job's real error deserializers (verified directly against
+  `aws-sdk-go-v2/service/sagemaker/deserializers.go`) only recognize a `"ResourceNotFound"`
+  wire exception — `"ValidationException"` would be wrong for these four families specifically.
+  Do not collapse this into the generic `ErrNotFound` branch; do not add more sentinels
+  wrapping `ErrResourceNotFound` for other (older, already-`ValidationException`-correct)
+  families without re-verifying their real deserializer first.
+
+## parity-4 (2026-07-25): 22 ops added by the aws-sdk-go-v2/service/sagemaker
+v1.236.0 -> v1.261.0 bump
+
+Implemented, not stubbed, all 22: **AIBenchmarkJob** (Create/Describe/Delete/Stop/List),
+**AIRecommendationJob** (Create/Describe/Delete/Stop/List), **AIWorkloadConfig**
+(Create/Describe/Delete/List), the generic **Job**/**JobSchemaVersion** family
+(Create/Describe/Delete/Stop/List/DescribeJobSchemaVersion/ListJobSchemaVersions), and
+**StartClusterHealthCheck**. New files: `ai_benchmark_jobs.go` + `handler_ai_benchmark_jobs.go`,
+`ai_recommendation_jobs.go` + `handler_ai_recommendation_jobs.go`, `ai_workload_configs.go` +
+`handler_ai_workload_configs.go`, `jobs.go` + `handler_jobs.go`; `cluster.go`/`handler_cluster.go`
+gained `StartClusterHealthCheck`.
+
+The generic `Job` type is a genuinely new resource kind (SageMaker's "model customization job"
+API), not another name for `TrainingJob`/`ProcessingJob`/etc: it is keyed by `JobName` alone
+(per `CreateJob`'s own doc — unique per account+region), `Describe`/`Delete`/`Stop` additionally
+require a matching `JobCategory` (a category mismatch 404s — see `resolveJobLocked`), and it
+carries an opaque `JobConfigDocument` validated only against `JobConfigSchemaVersion`, never the
+`AlgorithmSpecification`/`ResourceConfig`/etc. shape every other job type has. It has its own
+`JobSecondaryStatusTransition` type (deliberately not sharing `training_jobs.go`'s
+`SecondaryStatusTransition`, despite the identical field shape) and its own store (`b.jobs`).
+
+All three job-lifecycle families (`AIBenchmarkJob`, `AIRecommendationJob`, `Job`) use a real
+`InProgress -> Completed` timer (`aiJobInProgressToCompleted`, 300ms, `lifecycle.go`) and a real
+`InProgress -> Stopping -> Stopped` timer (`aiJobStoppingToStopped`, 150ms) — the same
+`runDelayed`-based pattern `TrainingJob`/`ProcessingJob` already use, not a status flipped
+synchronously in the same call. `StopAIBenchmarkJob`/`StopAIRecommendationJob` share one generic
+implementation, `stopSimpleJobFSM` (`lifecycle.go`), to avoid duplicating the FSM by hand per
+family; `StopJob` has its own (richer, `SecondaryStatusTransitions`-tracking) version since the
+generic `Job` family's wire shape needs that history.
+
+`CreateAIBenchmarkJob`/`CreateAIRecommendationJob` validate `AIWorkloadConfigIdentifier`
+resolves to a real, already-created `AIWorkloadConfig` (`resolveAIWorkloadConfigLocked`, by name
+or ARN via a real `aiWorkloadConfigARNIndex`, rebuilt on Restore in `rebuildARNIndexes`) — a
+genuine cross-resource FK check, not assumed. See `gaps:` above for the three disclosed depth
+limits (opaque `json.RawMessage` passthrough for several deeply-nested union/config fields,
+`AIRecommendationJob.Recommendations` always empty, and the synthetic single-version
+`JobConfigSchemaVersion` registry).

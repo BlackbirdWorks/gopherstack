@@ -185,4 +185,16 @@ var (
 	// target ingestion is already in a terminal state (COMPLETED, FAILED, or
 	// CANCELLED) and so can no longer be cancelled.
 	ErrIngestionNotCancellable = awserr.New(errConflictException, awserr.ErrConflict)
+	// ErrAgentNotFound is returned when an agent does not exist.
+	ErrAgentNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrAgentAlreadyExists is returned when an agent already exists.
+	ErrAgentAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrKnowledgeBaseNotFound is returned when a knowledge base does not exist.
+	ErrKnowledgeBaseNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrKnowledgeBaseAlreadyExists is returned when a knowledge base already exists.
+	ErrKnowledgeBaseAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrSpaceNotFound is returned when a space does not exist.
+	ErrSpaceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrSpaceAlreadyExists is returned when a space already exists.
+	ErrSpaceAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 )

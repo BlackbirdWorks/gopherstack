@@ -307,3 +307,353 @@ type importJobOutput struct {
 func toImportJobOutput(j *ImportJob) *importJobOutput {
 	return &importJobOutput{JobID: j.JobID, JobStatus: j.JobStatus, CreatedTimestamp: awstime.Epoch(j.CreatedAt)}
 }
+
+// ---- account ----
+//
+// GetAccount previously marshalled the internal *AccountDetails struct
+// directly, which (like the other families documented above) uses
+// lowerCamelCase JSON tags for the on-disk snapshot format -- not the real
+// AWS response shape, which is a top-level object with a nested "Details"
+// sub-object (types.AccountDetails), a nested "SuppressionAttributes"
+// sub-object (types.SuppressionAttributes, not a bare array), and a nested
+// "PricingAttributes" sub-object (types.PricingAttributes). Field-diffed
+// against GetAccountOutput/types.AccountDetails/types.SuppressionAttributes/
+// types.PricingAttributes (aws-sdk-go-v2/service/sesv2 v1.66.0). Fields real
+// SES v2 documents that gopherstack has no data source for --
+// EnforcementStatus, ProductionAccessEnabled, SendQuota -- are omitted
+// (they're all pointer/optional in the real shape) rather than fabricated;
+// see PARITY.md.
+
+// accountDetailsOutput mirrors types.AccountDetails (the nested "Details"
+// object). AdditionalContactEmailAddresses and ReviewDetails are always
+// omitted: gopherstack doesn't model the account-review workflow.
+type accountDetailsOutput struct {
+	MailType           string `json:"MailType,omitempty"`
+	WebsiteURL         string `json:"WebsiteURL,omitempty"`
+	ContactLanguage    string `json:"ContactLanguage,omitempty"`
+	UseCaseDescription string `json:"UseCaseDescription,omitempty"`
+}
+
+// accountSuppressionAttributesOutput mirrors types.SuppressionAttributes.
+// ValidationAttributes is always omitted: gopherstack has no destination
+// suppression-validation feature to report on.
+type accountSuppressionAttributesOutput struct {
+	SuppressedReasons []string `json:"SuppressedReasons,omitempty"`
+}
+
+// accountPricingAttributesOutput mirrors types.PricingAttributes. NextPlan is
+// always empty: gopherstack has no billing-cycle concept, so
+// PutAccountPricingAttributes takes effect immediately as CurrentPlan and
+// there is never a "scheduled" next plan to report.
+type accountPricingAttributesOutput struct {
+	CurrentPlan string `json:"CurrentPlan,omitempty"`
+	NextPlan    string `json:"NextPlan,omitempty"`
+}
+
+// accountOutput mirrors GetAccountOutput's top-level fields.
+type accountOutput struct {
+	Details                      *accountDetailsOutput               `json:"Details,omitempty"`
+	SuppressionAttributes        *accountSuppressionAttributesOutput `json:"SuppressionAttributes,omitempty"`
+	PricingAttributes            *accountPricingAttributesOutput     `json:"PricingAttributes,omitempty"`
+	VdmAttributes                map[string]any                      `json:"VdmAttributes,omitempty"`
+	SendingEnabled               bool                                `json:"SendingEnabled"`
+	DedicatedIPAutoWarmupEnabled bool                                `json:"DedicatedIpAutoWarmupEnabled"`
+}
+
+// toAccountOutput builds the AWS-shaped GetAccount response from the internal
+// (lowerCamelCase, snapshot-format) AccountDetails struct.
+func toAccountOutput(d *AccountDetails) *accountOutput {
+	out := &accountOutput{
+		SendingEnabled:               d.SendingEnabled,
+		DedicatedIPAutoWarmupEnabled: d.AutoWarmupEnabled,
+		VdmAttributes:                d.VdmAttributes,
+	}
+
+	if d.MailType != "" || d.WebsiteURL != "" || d.ContactLanguage != "" || d.UseCaseName != "" {
+		out.Details = &accountDetailsOutput{
+			MailType:           d.MailType,
+			WebsiteURL:         d.WebsiteURL,
+			ContactLanguage:    d.ContactLanguage,
+			UseCaseDescription: d.UseCaseName,
+		}
+	}
+
+	if d.SuppressionAttributes != nil {
+		out.SuppressionAttributes = &accountSuppressionAttributesOutput{
+			SuppressedReasons: d.SuppressionAttributes,
+		}
+	}
+
+	if d.PricingPlan != "" {
+		out.PricingAttributes = &accountPricingAttributesOutput{CurrentPlan: d.PricingPlan}
+	}
+
+	return out
+}
+
+// ---- tenant ----
+//
+// tenants.go's backend maps (b.tenants: map[string]map[string]any) are
+// intentionally both the persisted snapshot format AND the wire-shaped
+// response (see the "Traps for the next auditor" note in PARITY.md) -- they
+// predate this file's typed-DTO convention and changing their storage shape
+// would require bumping sesv2SnapshotVersion for no wire-format benefit. The
+// types below add a typed conversion step at the response boundary only
+// (mapString/mapFloat64/mapTagEntries read the already-correct map values),
+// so a future field-name typo in tenants.go fails to compile instead of
+// silently producing a wrong JSON key, without touching persistence.
+
+// mapString/mapFloat64/mapTagEntries safely extract a typed value from one
+// of the ad-hoc PascalCase-keyed response maps built by tenants.go/
+// multi_region_endpoints.go, defaulting to the zero value if absent or of
+// an unexpected type.
+func mapString(m map[string]any, key string) string {
+	s, _ := m[key].(string)
+
+	return s
+}
+
+func mapFloat64(m map[string]any, key string) float64 {
+	f, _ := m[key].(float64)
+
+	return f
+}
+
+func mapTagEntries(m map[string]any, key string) []tagEntry {
+	entries, _ := m[key].([]tagEntry)
+
+	return entries
+}
+
+// tenantSuppressionAttributesOutput mirrors types.TenantSuppressionAttributes.
+type tenantSuppressionAttributesOutput struct {
+	SuppressionScope  string   `json:"SuppressionScope,omitempty"`
+	SuppressedReasons []string `json:"SuppressedReasons,omitempty"`
+}
+
+// toTenantSuppressionAttributesOutput reads the SuppressedReasons/
+// SuppressionScope keys PutTenantSuppressionAttributes (tenants.go) writes
+// onto the tenant map, returning nil (so the field is omitted, matching the
+// real API's pointer-optional shape) if PutTenantSuppressionAttributes was
+// never called for this tenant.
+func toTenantSuppressionAttributesOutput(t map[string]any) *tenantSuppressionAttributesOutput {
+	reasons, hasReasons := t[keySuppressedReasons].([]string)
+	scope, hasScope := t[keySuppressionScope].(string)
+
+	if !hasReasons && !hasScope {
+		return nil
+	}
+
+	return &tenantSuppressionAttributesOutput{SuppressedReasons: reasons, SuppressionScope: scope}
+}
+
+// tenantOutput mirrors types.Tenant (CreateTenantOutput/GetTenantOutput.Tenant).
+type tenantOutput struct {
+	TenantName            string                             `json:"TenantName"`
+	TenantID              string                             `json:"TenantId,omitempty"`
+	TenantARN             string                             `json:"TenantArn,omitempty"`
+	SendingStatus         string                             `json:"SendingStatus,omitempty"`
+	SuppressionAttributes *tenantSuppressionAttributesOutput `json:"SuppressionAttributes,omitempty"`
+	Tags                  []tagEntry                         `json:"Tags,omitempty"`
+	CreatedTimestamp      float64                            `json:"CreatedTimestamp,omitempty"`
+}
+
+func toTenantOutput(t map[string]any) *tenantOutput {
+	return &tenantOutput{
+		TenantName:            mapString(t, keyTenantName),
+		TenantID:              mapString(t, keyTenantID),
+		TenantARN:             mapString(t, keyTenantARN),
+		SendingStatus:         mapString(t, keySendingStatus),
+		CreatedTimestamp:      mapFloat64(t, keyCreatedTimestamp),
+		Tags:                  mapTagEntries(t, keyTags),
+		SuppressionAttributes: toTenantSuppressionAttributesOutput(t),
+	}
+}
+
+// tenantInfoOutput mirrors types.TenantInfo, the ListTenants item shape (no
+// SendingStatus/Tags).
+type tenantInfoOutput struct {
+	TenantName       string  `json:"TenantName"`
+	TenantID         string  `json:"TenantId,omitempty"`
+	TenantARN        string  `json:"TenantArn,omitempty"`
+	CreatedTimestamp float64 `json:"CreatedTimestamp,omitempty"`
+}
+
+func toTenantInfoOutput(t map[string]any) tenantInfoOutput {
+	return tenantInfoOutput{
+		TenantName:       mapString(t, keyTenantName),
+		TenantID:         mapString(t, keyTenantID),
+		TenantARN:        mapString(t, keyTenantARN),
+		CreatedTimestamp: mapFloat64(t, keyCreatedTimestamp),
+	}
+}
+
+// resourceTenantOutput mirrors types.ResourceTenantMetadata, the
+// ListResourceTenants item shape.
+type resourceTenantOutput struct {
+	TenantName          string  `json:"TenantName"`
+	TenantID            string  `json:"TenantId,omitempty"`
+	ResourceARN         string  `json:"ResourceArn"`
+	AssociatedTimestamp float64 `json:"AssociatedTimestamp,omitempty"`
+}
+
+func toResourceTenantOutput(t map[string]any) resourceTenantOutput {
+	return resourceTenantOutput{
+		TenantName:          mapString(t, keyTenantName),
+		TenantID:            mapString(t, keyTenantID),
+		ResourceARN:         mapString(t, keyResourceArn),
+		AssociatedTimestamp: mapFloat64(t, keyAssociatedTimestamp),
+	}
+}
+
+// tenantResourceOutput mirrors types.TenantResource, the ListTenantResources
+// item shape.
+type tenantResourceOutput struct {
+	ResourceARN  string `json:"ResourceArn"`
+	ResourceType string `json:"ResourceType,omitempty"`
+}
+
+func toTenantResourceOutput(t map[string]any) tenantResourceOutput {
+	return tenantResourceOutput{
+		ResourceARN:  mapString(t, keyResourceArn),
+		ResourceType: mapString(t, keyResourceType),
+	}
+}
+
+// ---- multi-region endpoint ----
+
+// multiRegionEndpointRouteOutput mirrors types.Route.
+type multiRegionEndpointRouteOutput struct {
+	Region string `json:"Region"`
+}
+
+// createMultiRegionEndpointOutput mirrors CreateMultiRegionEndpointOutput
+// (EndpointId/Status only).
+type createMultiRegionEndpointOutput struct {
+	EndpointID string `json:"EndpointId,omitempty"`
+	Status     string `json:"Status,omitempty"`
+}
+
+// multiRegionEndpointOutput mirrors GetMultiRegionEndpointOutput's top-level fields.
+type multiRegionEndpointOutput struct {
+	EndpointID           string                           `json:"EndpointId,omitempty"`
+	EndpointName         string                           `json:"EndpointName,omitempty"`
+	Status               string                           `json:"Status,omitempty"`
+	Routes               []multiRegionEndpointRouteOutput `json:"Routes,omitempty"`
+	CreatedTimestamp     float64                          `json:"CreatedTimestamp,omitempty"`
+	LastUpdatedTimestamp float64                          `json:"LastUpdatedTimestamp,omitempty"`
+}
+
+func toMultiRegionEndpointOutput(ep map[string]any) *multiRegionEndpointOutput {
+	regions, _ := ep["Regions"].([]string)
+	routes := make([]multiRegionEndpointRouteOutput, 0, len(regions))
+
+	for _, r := range regions {
+		routes = append(routes, multiRegionEndpointRouteOutput{Region: r})
+	}
+
+	return &multiRegionEndpointOutput{
+		EndpointID:           mapString(ep, keyEndpointID),
+		EndpointName:         mapString(ep, "EndpointName"),
+		Status:               mapString(ep, keyStatus),
+		Routes:               routes,
+		CreatedTimestamp:     mapFloat64(ep, keyCreatedTimestamp),
+		LastUpdatedTimestamp: mapFloat64(ep, "LastUpdatedTimestamp"),
+	}
+}
+
+// multiRegionEndpointSummaryOutput mirrors types.MultiRegionEndpoint, the
+// ListMultiRegionEndpoints item shape (Regions instead of Routes).
+type multiRegionEndpointSummaryOutput struct {
+	EndpointID           string   `json:"EndpointId,omitempty"`
+	EndpointName         string   `json:"EndpointName,omitempty"`
+	Status               string   `json:"Status,omitempty"`
+	Regions              []string `json:"Regions,omitempty"`
+	CreatedTimestamp     float64  `json:"CreatedTimestamp,omitempty"`
+	LastUpdatedTimestamp float64  `json:"LastUpdatedTimestamp,omitempty"`
+}
+
+func toMultiRegionEndpointSummaryOutput(ep map[string]any) multiRegionEndpointSummaryOutput {
+	regions, _ := ep["Regions"].([]string)
+
+	return multiRegionEndpointSummaryOutput{
+		EndpointID:           mapString(ep, keyEndpointID),
+		EndpointName:         mapString(ep, "EndpointName"),
+		Status:               mapString(ep, keyStatus),
+		Regions:              regions,
+		CreatedTimestamp:     mapFloat64(ep, keyCreatedTimestamp),
+		LastUpdatedTimestamp: mapFloat64(ep, "LastUpdatedTimestamp"),
+	}
+}
+
+// ---- reputation entity ----
+
+// statusRecordOutput mirrors types.StatusRecord. gopherstack only tracks
+// Status (the only field UpdateReputationEntityCustomerManagedStatus lets a
+// caller set) -- Cause/LastUpdatedTimestamp are always omitted.
+type statusRecordOutput struct {
+	Status               string  `json:"Status,omitempty"`
+	Cause                string  `json:"Cause,omitempty"`
+	LastUpdatedTimestamp float64 `json:"LastUpdatedTimestamp,omitempty"`
+}
+
+// reputationEntityOutput mirrors types.ReputationEntity. AwsSesManagedStatus
+// is omitted: it's SES's own computed reputation-findings status, which
+// gopherstack has no findings engine to derive (see ListRecommendations).
+type reputationEntityOutput struct {
+	ReputationEntityReference  string              `json:"ReputationEntityReference,omitempty"`
+	ReputationEntityType       string              `json:"ReputationEntityType,omitempty"`
+	CustomerManagedStatus      *statusRecordOutput `json:"CustomerManagedStatus,omitempty"`
+	ReputationManagementPolicy string              `json:"ReputationManagementPolicy,omitempty"`
+	SendingStatusAggregate     string              `json:"SendingStatusAggregate,omitempty"`
+}
+
+// toReputationEntityOutput renders a reputation entity as the AWS-shaped
+// response, field-diffed against types.ReputationEntity.
+// SendingStatusAggregate is derived from CustomerManagedStatus (gopherstack
+// has no separate AWS-SES-managed status to combine it with).
+func toReputationEntityOutput(e *ReputationEntity) reputationEntityOutput {
+	out := reputationEntityOutput{
+		ReputationEntityReference: e.EntityRef,
+		ReputationEntityType:      e.EntityType,
+	}
+
+	if e.CustomerManagedStatus != "" {
+		out.CustomerManagedStatus = &statusRecordOutput{Status: e.CustomerManagedStatus}
+	}
+
+	out.ReputationManagementPolicy = e.ReputationPolicy
+
+	aggregate := sendingStatusEnabled
+	if e.CustomerManagedStatus != "" {
+		aggregate = e.CustomerManagedStatus
+	}
+
+	out.SendingStatusAggregate = aggregate
+
+	return out
+}
+
+// ---- bulk email result ----
+
+// bulkEmailEntryResultOutput mirrors types.BulkEmailEntryResult, the
+// SendBulkEmail per-entry result shape.
+type bulkEmailEntryResultOutput struct {
+	MessageID string `json:"MessageId,omitempty"`
+	Status    string `json:"Status,omitempty"`
+	Error     string `json:"Error,omitempty"`
+}
+
+// ---- recommendation ----
+
+// recommendationOutput mirrors types.Recommendation; see ListRecommendations
+// (deliverability.go) for which Type values gopherstack can derive for real.
+type recommendationOutput struct {
+	ResourceArn          string  `json:"ResourceArn,omitempty"`
+	Type                 string  `json:"Type,omitempty"`
+	Status               string  `json:"Status,omitempty"`
+	Impact               string  `json:"Impact,omitempty"`
+	Description          string  `json:"Description,omitempty"`
+	CreatedTimestamp     float64 `json:"CreatedTimestamp,omitempty"`
+	LastUpdatedTimestamp float64 `json:"LastUpdatedTimestamp,omitempty"`
+}

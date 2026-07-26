@@ -98,6 +98,32 @@ func inspector2UnmarshalError(t *testing.T, data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
 
+// auditCreateConnector creates an Azure connector named name, associated
+// with awsConfigConnectorArn, and returns its connectorArn.
+func auditCreateConnector(t *testing.T, h *inspector2.Handler, name, awsConfigConnectorArn string) string {
+	t.Helper()
+
+	rec := auditDo(t, h, http.MethodPost, "/connector/create", map[string]any{
+		"name":     name,
+		"provider": "AZURE",
+		"providerDetail": map[string]any{
+			"azure": map[string]any{
+				"awsConfigConnectorArn": awsConfigConnectorArn,
+				"azureRegions":          []string{"eastus"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	arn, ok := resp["connectorArn"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, arn)
+
+	return arn
+}
+
 // newParityBackend returns a fresh backend for account 000000000000 in
 // us-east-1, used by the ListFindings-focused tests where the account ID
 // appears in assertions.
@@ -207,13 +233,14 @@ func paritySeedFinding(
 }
 
 // TestHandlerSupportedOperationsCount pins the total number of operations the
-// handler advertises (13 core ops in handler.go + 62 extended ops in
-// handler_routing.go), so an accidental drop while splitting files would fail
-// loudly.
+// handler advertises (13 core ops in handler.go + 68 extended ops in
+// handler_routing.go, the latter now including the 6 connector/connector
+// scan configuration ops added for the SDK's inspector2@v1.53.0 bump), so an
+// accidental drop while splitting files would fail loudly.
 func TestHandlerSupportedOperationsCount(t *testing.T) {
 	t.Parallel()
 
 	h := newAuditHandler(t)
 
-	assert.Equal(t, 75, inspector2.HandlerOpsLen(h))
+	assert.Equal(t, 81, inspector2.HandlerOpsLen(h))
 }

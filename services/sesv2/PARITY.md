@@ -1,9 +1,9 @@
 ---
 service: sesv2
-sdk_module: aws-sdk-go-v2/service/sesv2@v1.60.1   # version audited against
-last_audit_commit: 7c297a53bedf9d9ba2f5af48da992b024774083f
-last_audit_date: 2026-07-24
-overall: A            # route-matcher rewrite + wire-shape DTOs; this pass closed every remaining route gap/deferred item
+sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.0   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
+last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
+last_audit_date: 2026-07-25
+overall: A            # route-matcher rewrite + wire-shape DTOs; this pass implemented the 2 new v1.66.0 ops and fixed a previously-mis-graded GetAccount wire-shape bug found while wiring PutAccountPricingAttributes in (see "This pass (2026-07-25)")
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -27,7 +27,7 @@ ops:
   PutConfigurationSetTrackingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutConfigurationSetVdmOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   SendEmail: {wire: ok, errors: ok, state: ok, persist: ok}
-  SendBulkEmail: {wire: partial, errors: ok, state: ok, persist: ok, note: "request body parsed into map[string]any rather than a typed struct; functionally correct but brittle to malformed input"}
+  SendBulkEmail: {wire: fixed, errors: ok, state: ok, persist: ok, note: "request body was parsed into map[string]any with ad-hoc type assertions; now typed (bulkEmailEntry/bulkEmailDestination/messageHeader/messageTag/replacementEmailContent/replacementTemplate in send_email.go, field-diffed against types.BulkEmailEntry et al), and the response uses bulkEmailEntryResultOutput (types.BulkEmailEntryResult) instead of a raw map. Functional behavior unchanged."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -66,14 +66,15 @@ ops:
   DeleteCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   SendCustomVerificationEmail: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "POST /v2/email/outbound-custom-verification-emails was not matched by any path pattern at all; added parseOutboundCustomVerificationEmailsPath"}
-  GetAccount: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAccount: {wire: fixed, errors: ok, state: ok, persist: ok, note: "previously graded 'wire: ok' in error -- the handler marshalled the internal *AccountDetails struct directly (lowerCamelCase snapshot-format tags, flat instead of the real nested Details/SuppressionAttributes/PricingAttributes sub-objects, VdmAttributes keyed 'vdmAttributes' not 'VdmAttributes'), the same bug class already fixed for every other family in this package (see 'Root-cause bug class' below) but missed for Account specifically. Found and fixed while wiring PutAccountPricingAttributes's GetAccount-visible effect this pass. Added accountOutput/accountDetailsOutput/accountSuppressionAttributesOutput/accountPricingAttributesOutput (wire_output.go), field-diffed against GetAccountOutput/types.AccountDetails/types.SuppressionAttributes/types.PricingAttributes. EnforcementStatus/ProductionAccessEnabled/SendQuota/ReviewDetails/ValidationAttributes are honestly omitted (all pointer/optional in the real shape; gopherstack has no account-review, sandbox-status, or send-quota tracking to source them from) rather than fabricated."}
   GetBlacklistReports: {wire: ok, errors: ok, state: ok, persist: n/a}
   PutAccountDetails: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutAccountPricingAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "new in aws-sdk-go-v2/service/sesv2 v1.66.0. Real path/verb confirmed against serializers.go: PUT /v2/email/account/pricing-attributes (awsRestjson1_serializeOpPutAccountPricingAttributes's httpbinding.SplitURI). Plan is validated against the real PricingPlan enum (NONE/ESSENTIALS/PRO/ENTERPRISE); an unrecognized value is a BadRequestException. Writes b.accountDetails.PricingPlan (existing account state, no parallel store) and is reflected by GetAccount's PricingAttributes.CurrentPlan. gopherstack has no billing-cycle concept, so the write takes effect immediately as CurrentPlan; PricingAttributes.NextPlan (real SES's 'scheduled for next billing cycle' field) is always empty -- there's nothing to schedule, and reporting a fabricated NextPlan would be worse than omitting it."}
   PutAccountDedicatedIpWarmupAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'dedicated-ip-warmup-attributes' (2 segs); real path is 3 segs, 'account/dedicated-ips/warmup'. Unroutable before fix."}
   PutAccountSendingAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'sending-attributes'; real is 'sending'. Unroutable before fix."}
   PutAccountSuppressionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'suppression-attributes'; real is 'suppression'. Unroutable before fix."}
   PutAccountVdmAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'vdm-attributes'; real is 'vdm'. A dead top-level '/v2/email/vdm-attributes' route (not a real SES path at all) was also removed."}
-  BatchGetMetricData: {wire: partial, errors: ok, state: ok, persist: n/a, note: "reachable and returns a well-formed envelope, but backend always returns a single zero-valued datapoint per query -- gopherstack has no metrics-aggregation engine to source real values from. Not deeply audited against every MetricDataQuery/GraphableMatchingKeys variant. Only remaining known limitation in this service; not tracked as a route/wire gap since the shape and route are correct."}
+  BatchGetMetricData: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "now derives real per-day SEND counts from b.emails (gopherstack's actual send history) for Metric=SEND with no dimension or the EMAIL_IDENTITY dimension (matched against each Email's From address/domain, same resolution SendEmail uses) -- genuine aggregated data, not a placeholder. Every other Metric (COMPLAINT/PERMANENT_BOUNCE/TRANSIENT_BOUNCE/OPEN/CLICK/DELIVERY*) and the CONFIGURATION_SET/ISP dimensions have no backing data source (no bounce/complaint/engagement pipeline, no per-email config-set/ISP association) and honestly fall back to a single zero-valued datapoint rather than a fabricated count. Values is now []int64 (was []float64), matching types.MetricDataResult. Request StartDate/EndDate/Dimensions were previously silently dropped by the handler; now decoded (JSON-body epoch-seconds, per serializers.go)."}
   CreateExportJob: {wire: ok, errors: ok, state: ok, persist: ok}
   GetExportJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CreateExportJob/GetExportJob leaked lowerCamelCase jobId/jobStatus/createdAt; added exportJobOutput"}
   CancelExportJob: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -95,28 +96,29 @@ ops:
   ListDeliverabilityTestReports: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "same 'test-reports' vs 'reports' route fix as GetDeliverabilityTestReport."}
   GetDeliverabilityDashboardOptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "now reflects PutDeliverabilityDashboardOption state (DashboardEnabled/AccountStatus/ActiveSubscribedDomains); previously hardcoded {DashboardEnabled:false}"}
   PutDeliverabilityDashboardOption: {wire: ok, errors: ok, state: ok, persist: ok, note: "was a true no-op; now persists enablement + subscribed-domain list (b.deliverabilityDashboardEnabled/b.deliverabilityDashboardDomains, wired into Reset/Snapshot/Restore) so GetDeliverabilityDashboardOptions reflects it"}
-  GetDomainDeliverabilityCampaign: {wire: ok, errors: ok, state: partial, persist: n/a, route: fixed, note: "real path is deliverability-dashboard/campaigns/{CampaignId} (campaign ID only, no domain -- confirmed against GetDomainDeliverabilityCampaignInput). Backend signature changed to drop the domain param. Populated fields are zero-valued placeholders (no real deliverability-dashboard data source), same tradeoff as BatchGetMetricData."}
-  GetDomainStatisticsReport: {wire: ok, errors: ok, state: partial, persist: n/a, route: fixed, note: "real sub-path is 'statistics-report/{Domain}', not 'statistics/{domain}'. Data is zero-valued placeholder, same tradeoff as BatchGetMetricData."}
-  ListDomainDeliverabilityCampaigns: {wire: ok, errors: ok, state: partial, persist: n/a, route: fixed, note: "real path is deliverability-dashboard/domains/{SubscribedDomain}/campaigns; gopherstack's old 'campaigns/{domain}/{id}' pattern actively misrouted a real GET to campaigns/{CampaignId} as this op with the campaign ID misread as a domain. Data is always empty (no real data source)."}
+  GetDomainDeliverabilityCampaign: {wire: ok, errors: ok, state: fixed, persist: n/a, route: fixed, note: "real path is deliverability-dashboard/campaigns/{CampaignId} (campaign ID only, no domain -- confirmed against GetDomainDeliverabilityCampaignInput). Backend signature changed to drop the domain param. CampaignId/FromAddress/Subject/FirstSeenDateTime/LastSeenDateTime are now derived for real by grouping b.emails (gopherstack's actual send history) by (FromAddress, Subject) -- the same key real SES auto-detects campaigns by -- via campaignIDFor/domainCampaignsLocked (deliverability.go); a campaignID with no matching send history falls back to the prior echoed-ID placeholder rather than NotFoundException, since gopherstack has no way to distinguish a caller-guessed ID from one it legitimately handed out. InboxCount/SpamCount/ReadRate/DeleteRate/ReadDeleteRate/ProjectedVolume/Esps/SendingIps remain honest zero-valued/empty placeholders -- real inbox/spam placement tracking requires opted-in production sending history AWS tracks server-side, which gopherstack genuinely can't derive."}
+  GetDomainStatisticsReport: {wire: fixed, errors: ok, state: partial, persist: n/a, route: fixed, note: "real sub-path is 'statistics-report/{Domain}', not 'statistics/{domain}'. DailyVolumes now enumerates one entry per calendar day in the requested [StartDate, EndDate] window (RFC3339 query params, parsed via parseSESv2Timestamp; capped at maxDailyVolumeDays=366) matching what GetDomainStatisticsReportOutput documents (\"data for each day\") -- previously always an empty list regardless of range, which was itself a wire-shape gap, not just a data placeholder. Every actual statistic (VolumeStatistics/DomainIspPlacements/ReadRatePercent, both per-day and in OverallVolume) is an honest zero/empty placeholder: every field in this shape measures inbox-vs-spam delivery placement, which requires real mail-delivery-outcome tracking gopherstack doesn't have -- there's no plausible partial derivation the way there is for the campaign family."}
+  ListDomainDeliverabilityCampaigns: {wire: ok, errors: ok, state: fixed, persist: n/a, route: fixed, note: "real path is deliverability-dashboard/domains/{SubscribedDomain}/campaigns; gopherstack's old 'campaigns/{domain}/{id}' pattern actively misrouted a real GET to campaigns/{CampaignId} as this op with the campaign ID misread as a domain. Now derives real campaigns from b.emails via domainCampaignsLocked (see GetDomainDeliverabilityCampaign), filtered to messages with a recipient in the subscribed domain and restricted to campaigns overlapping [StartDate, EndDate] when both parse. Same InboxCount/etc. placeholder tradeoff as GetDomainDeliverabilityCampaign."}
   GetEmailAddressInsights: {wire: ok, errors: ok, state: partial, persist: n/a, route: fixed, note: "real op is POST /v2/email/email-address-insights with EmailAddress in the body; gopherstack had a fabricated GET /v2/email/email-insights/{email}. HasValidSyntax and IsRoleAddress are now real checks (regex + role-address local-part lookup); HasValidDnsRecords/IsDisposable/IsRandomInput/MailboxExists are honest MEDIUM-confidence placeholders since gopherstack has no DNS/disposable-domain/mailbox-probing data source."}
   GetMessageInsights: {wire: ok, errors: ok, state: ok, persist: n/a, route: fixed, note: "real path is /v2/email/insights/{MessageId}; gopherstack had a fabricated /v2/email/messages/{id}. Was a stub returning {}; now looks up the message in the backend's SendEmail history and returns NotFoundException for an unknown MessageId, matching real semantics -- this is the one insights op gopherstack has genuine data for."}
-  ListRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, route: fixed, note: "real op is POST /v2/email/vdm/recommendations (Filter/NextToken/PageSize in body); gopherstack had a fabricated GET /v2/email/recommendations. Always returns an empty list -- no reputation-findings engine to generate real DKIM/SPF/DMARC/BIMI recommendations from."}
-  ListReputationEntities: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/reputation/entities (filter/pagination in body); gopherstack only accepted GET. A gopherstack-invented duplicate top-level path, /v2/email/reputation-entities/..., was also found and deleted (not in the real SDK at all; the real 'reputation/entities/...' family already covered every op in this family correctly)."}
-  GetReputationEntity: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against types.ReputationEntity: ReputationEntityReference/ReputationEntityType/CustomerManagedStatus (nested {Status: ...}, matching *StatusRecord)/ReputationManagementPolicy were already correct; added SendingStatusAggregate (derived from CustomerManagedStatus, gopherstack has no separate AWS-SES-managed status to combine it with). Still ad-hoc map[string]any rather than a typed DTO, but field-verified correct for the fields populated."}
+  ListRecommendations: {wire: ok, errors: ok, state: fixed, persist: n/a, route: fixed, note: "real op is POST /v2/email/vdm/recommendations (Filter/NextToken/PageSize in body); gopherstack had a fabricated GET /v2/email/recommendations. Filter was previously decoded by the handler and silently dropped; now threaded through and applied (TYPE/STATUS/IMPACT/RESOURCE_ARN, ANDed). Now derives real OPEN/HIGH-impact recommendations from gopherstack's actual configuration state: DKIM for identities with DkimSigningEnabled=false, SPF for identities with a MAIL FROM domain that hasn't reached SUCCESS status (gopherstack never simulates async verification, so it's honestly stuck at PENDING), COMPLAINT for reputation entities with CustomerManagedStatus=DISABLED. DMARC/BIMI and reputation-finding-driven types (BOUNCE/FEEDBACK_3P/IP_LISTING) are never returned -- gopherstack has no DNS-record model or bounce/complaint-rate pipeline to derive those from, and fabricating them would be worse than omitting them (see ListRecommendations' doc comment, deliverability.go)."}
+  ListReputationEntities: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/reputation/entities (filter/pagination in body); gopherstack only accepted GET. A gopherstack-invented duplicate top-level path, /v2/email/reputation-entities/..., was also found and deleted (not in the real SDK at all; the real 'reputation/entities/...' family already covered every op in this family correctly). Now returns []reputationEntityOutput (typed) instead of []map[string]any."}
+  GetReputationEntity: {wire: fixed, errors: ok, state: ok, persist: ok, note: "field-diffed against types.ReputationEntity: ReputationEntityReference/ReputationEntityType/CustomerManagedStatus (nested {Status: ...}, matching *StatusRecord)/ReputationManagementPolicy were already correct; SendingStatusAggregate (derived from CustomerManagedStatus, gopherstack has no separate AWS-SES-managed status to combine it with) unchanged. Now a typed reputationEntityOutput/statusRecordOutput DTO (wire_output.go) instead of an ad-hoc map[string]any -- same field-verified-correct shape, now compile-time checked."}
   UpdateReputationEntityCustomerManagedStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateReputationEntityPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateMultiRegionEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against CreateMultiRegionEndpointOutput (EndpointId/Status); now generates a real EndpointId and reads Details.RoutesDetails[].Region/Tags from the body (previously ignored). Returns AlreadyExistsException for a duplicate name."}
-  GetMultiRegionEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against GetMultiRegionEndpointOutput/types.Route: added CreatedTimestamp/LastUpdatedTimestamp (epoch)/Routes ([]{Region}, projected from the endpoint's region list); previously only returned {EndpointName, Status}."}
-  DeleteMultiRegionEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against DeleteMultiRegionEndpointOutput: now returns {Status: \"DELETING\"} (the status documented as returned 'right after the delete request') instead of an empty body; also returns NotFoundException for an unknown name (previously silently succeeded)."}
-  ListMultiRegionEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "item shape now matches types.MultiRegionEndpoint (EndpointId/EndpointName/Status/Regions/CreatedTimestamp/LastUpdatedTimestamp, no Routes -- that's Get-only)."}
-  CreateTenant: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against CreateTenantOutput/types.Tenant: added TenantId/TenantArn (via pkgs/arn)/SendingStatus/CreatedTimestamp/Tags, all previously missing. Returns AlreadyExistsException for a duplicate name (previously silently overwrote)."}
-  GetTenant: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/get with TenantName in the body (RPC-style, no REST path param); gopherstack had GET /v2/email/tenants/{name}. Response now wrapped in {Tenant: {...}} matching GetTenantOutput."}
-  DeleteTenant: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/delete with TenantName in the body; gopherstack had DELETE /v2/email/tenants/{name}. Now cascades: removes the tenant's resource associations from both the tenant->resources and resource->tenants indexes so no ghost rows remain."}
-  ListTenants: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/list with NextToken/PageSize in the body; gopherstack had GET /v2/email/tenants. Item shape now matches types.TenantInfo (TenantName/TenantId/TenantArn/CreatedTimestamp, no SendingStatus/Tags -- those are Get-only)."}
-  CreateTenantResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/resources with TenantName+ResourceArn in the body; gopherstack had POST /v2/email/tenants/{name}/resources. Returns NotFoundException if the tenant doesn't exist (previously silently created a dangling association)."}
+  CreateMultiRegionEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "field-diffed against CreateMultiRegionEndpointOutput (EndpointId/Status); generates a real EndpointId and reads Details.RoutesDetails[].Region/Tags from the body. Returns AlreadyExistsException for a duplicate name. Now returns a typed *createMultiRegionEndpointOutput (wire_output.go) instead of map[string]any."}
+  GetMultiRegionEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "field-diffed against GetMultiRegionEndpointOutput/types.Route: CreatedTimestamp/LastUpdatedTimestamp (epoch)/Routes ([]{Region}, projected from the endpoint's region list) unchanged. Now returns a typed *multiRegionEndpointOutput (wire_output.go) instead of map[string]any."}
+  DeleteMultiRegionEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against DeleteMultiRegionEndpointOutput: returns {Status: \"DELETING\"} (the status documented as returned 'right after the delete request'); NotFoundException for an unknown name."}
+  ListMultiRegionEndpoints: {wire: fixed, errors: ok, state: ok, persist: ok, note: "item shape matches types.MultiRegionEndpoint (EndpointId/EndpointName/Status/Regions/CreatedTimestamp/LastUpdatedTimestamp, no Routes -- that's Get-only). Now returns []multiRegionEndpointSummaryOutput (typed, wire_output.go) instead of []map[string]any."}
+  CreateTenant: {wire: fixed, errors: ok, state: ok, persist: ok, note: "field-diffed against CreateTenantOutput/types.Tenant: TenantId/TenantArn (via pkgs/arn)/SendingStatus/CreatedTimestamp/Tags unchanged. AlreadyExistsException for a duplicate name. Now returns a typed *tenantOutput (wire_output.go) instead of map[string]any."}
+  GetTenant: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/get with TenantName in the body (RPC-style, no REST path param); gopherstack had GET /v2/email/tenants/{name}. Response wrapped in {Tenant: {...}} matching GetTenantOutput, now a typed *tenantOutput instead of map[string]any."}
+  DeleteTenant: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/delete with TenantName in the body; gopherstack had DELETE /v2/email/tenants/{name}. Cascades: removes the tenant's resource associations from both the tenant->resources and resource->tenants indexes so no ghost rows remain."}
+  ListTenants: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/list with NextToken/PageSize in the body; gopherstack had GET /v2/email/tenants. Item shape matches types.TenantInfo (TenantName/TenantId/TenantArn/CreatedTimestamp, no SendingStatus/Tags -- those are Get-only), now []tenantInfoOutput (typed, wire_output.go) instead of []map[string]any."}
+  CreateTenantResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/resources with TenantName+ResourceArn in the body; gopherstack had POST /v2/email/tenants/{name}/resources. NotFoundException if the tenant doesn't exist."}
   DeleteTenantResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/resources/delete with TenantName+ResourceArn in the body; gopherstack had DELETE /v2/email/tenants/{name}/resources/{arn}."}
-  ListResourceTenants: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/resources/tenants/list -- a distinct top-level path from the rest of the tenant family (/v2/email/tenants/...) -- with ResourceArn/NextToken/PageSize in the body; gopherstack had the fabricated GET /v2/email/resource-tenants. Item shape now matches types.ResourceTenantMetadata (TenantName/TenantId/ResourceArn/AssociatedTimestamp)."}
-  ListTenantResources: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/resources/list with TenantName/Filter/NextToken/PageSize in the body; gopherstack had GET /v2/email/tenants/{name}/resources and silently dropped NextToken entirely. Item shape now matches types.TenantResource (ResourceArn/ResourceType, ResourceType inferred from the ARN's resource-segment prefix); the RESOURCE_TYPE filter key is now honored."}
+  ListResourceTenants: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/resources/tenants/list -- a distinct top-level path from the rest of the tenant family (/v2/email/tenants/...) -- with ResourceArn/NextToken/PageSize in the body; gopherstack had the fabricated GET /v2/email/resource-tenants. Item shape matches types.ResourceTenantMetadata (TenantName/TenantId/ResourceArn/AssociatedTimestamp), now []resourceTenantOutput (typed, wire_output.go) instead of []map[string]any."}
+  ListTenantResources: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/tenants/resources/list with TenantName/Filter/NextToken/PageSize in the body; gopherstack had GET /v2/email/tenants/{name}/resources and silently dropped NextToken entirely. Item shape matches types.TenantResource (ResourceArn/ResourceType, inferred from the ARN's resource-segment prefix); the RESOURCE_TYPE filter key is honored. Now []tenantResourceOutput (typed, wire_output.go) instead of []map[string]any."}
+  PutTenantSuppressionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: ok, note: "new in aws-sdk-go-v2/service/sesv2 v1.66.0. Real path/verb confirmed against serializers.go: POST /v2/email/tenant/suppression -- note the *singular* 'tenant' top-level segment, a genuinely distinct path from the rest of this family's plural '/v2/email/tenants/...' (awsRestjson1_serializeOpPutTenantSuppressionAttributes's httpbinding.SplitURI; this service has a history of invented paths -- verified by grepping serializers.go directly rather than assuming it lives under 'tenants'). SuppressedReasons entries validated against the real SuppressionListReason enum (BOUNCE/COMPLAINT); SuppressionScope against SuppressionListScope (ACCOUNT/TENANT); NotFoundException for an unknown TenantName. Writes onto the existing per-tenant map entry in b.tenants (SuppressedReasons/SuppressionScope keys) -- no parallel store -- so it's cascade-deleted for free when DeleteTenant removes the tenant's map entry. Surfaced via CreateTenant/GetTenant's SuppressionAttributes field (types.TenantSuppressionAttributes; added tenantSuppressionAttributesOutput + toTenantSuppressionAttributesOutput, wire_output.go), which was previously entirely missing from tenantOutput."}
 # Families audited as a group (when per-op is impractical):
 families:
   route-matcher: {status: fixed, note: "Built a full (method,path)->op regression matrix from aws-sdk-go-v2/service/sesv2 v1.60.1 serializers.go (services/sesv2/route_matrix_test.go, 110+ real routes, every real SDK route now covered -- see route_matrix_test.go). Original pass fixed 12/30 unroutable-or-misrouted routes; this pass closed the remaining 18: RPC-style tenant/resource-tenant paths (8 routes), deliverability-dashboard sub-resources (5 routes: test-reports x2, statistics-report, campaigns, domains/.../campaigns), insights/recommendations (3: email-address-insights, insights/{MessageId}, vdm/recommendations), reputation-entity listing (1, plus deletion of a gopherstack-invented duplicate 'reputation-entities' top-level path), and the POST-based list-export-jobs/import-jobs/list variants (2)."}
@@ -240,36 +242,148 @@ routes are omitted from the matrix anymore.
   `ReputationManagementPolicy` were already correct from the original pass;
   added `SendingStatusAggregate`.
 
+## This pass (2026-07-25): real derivation for the analytics-placeholder ops + typed DTOs
+
+Closed `gopherstack-03th`. Per-op judgment calls (derive-from-real-state vs
+genuinely-impossible) are in each op's `note:` above; summary:
+
+- **`BatchGetMetricData`**: SEND metric, no dimension or EMAIL_IDENTITY
+  dimension only, is now real (aggregated from `b.emails`). Every other
+  metric/dimension combination remains an honest zero-valued datapoint --
+  gopherstack has no bounce/complaint/open/click/delivery pipeline and no
+  per-email config-set/ISP association to derive them from, and a
+  plausible-looking fabricated non-zero count would be strictly worse than
+  the honest zero.
+- **`GetDomainDeliverabilityCampaign`/`ListDomainDeliverabilityCampaigns`**:
+  CampaignId/FromAddress/Subject/FirstSeenDateTime/LastSeenDateTime are now
+  derived for real by grouping `b.emails` by `(FromAddress, Subject)` --
+  gopherstack's own send history is exactly the data real SES's campaign
+  auto-detection is built from, just without AWS's server-side production
+  tracking. InboxCount/SpamCount/ReadRate/DeleteRate/ReadDeleteRate/
+  ProjectedVolume/Esps/SendingIps remain honest zero/empty: inbox-vs-spam
+  placement genuinely requires infrastructure gopherstack doesn't have and
+  never will (real mailbox delivery-outcome tracking), so these stay
+  documented placeholders rather than invented numbers.
+- **`GetDomainStatisticsReport`**: fixed a real wire-shape gap (`DailyVolumes`
+  was always `[]` regardless of the requested date range; real SES documents
+  one entry per day in range) without fabricating the per-day statistics
+  themselves, which have the same inbox/spam-placement-only-AWS-can-know
+  problem as the campaign family -- there's no partial derivation available
+  here the way there is for campaigns (this shape has no "raw send count"
+  field, only inbox/spam splits).
+- **`ListRecommendations`**: derives real DKIM/SPF/COMPLAINT recommendations
+  from stored identity/reputation-entity configuration state (see the op's
+  entry above). DMARC/BIMI and reputation-finding-driven types
+  (BOUNCE/FEEDBACK_3P/IP_LISTING) are never returned, not even as
+  placeholders -- gopherstack has no DNS-record model or
+  bounce/complaint-rate pipeline, and there's no honest zero/empty value to
+  report for "does this domain have a DMARC record" the way there is for a
+  count.
+- **`SendBulkEmail`**: request DTO (`bulkEmailEntry` et al, `send_email.go`)
+  and per-entry result DTO (`bulkEmailEntryResultOutput`, `wire_output.go`)
+  are now typed, field-diffed against `types.BulkEmailEntry`/
+  `types.BulkEmailEntryResult`/`types.Destination`/`types.MessageHeader`/
+  `types.MessageTag`/`types.ReplacementEmailContent`/
+  `types.ReplacementTemplate`. Functional behavior unchanged (still records
+  sent emails with real recipients via the existing `SendEmail` path).
+- **`Tenant`/`MultiRegionEndpoint`/`GetReputationEntity`/
+  `ListReputationEntities`** now return typed wire DTOs
+  (`tenantOutput`/`tenantInfoOutput`/`resourceTenantOutput`/
+  `tenantResourceOutput`/`multiRegionEndpointOutput`/
+  `multiRegionEndpointSummaryOutput`/`createMultiRegionEndpointOutput`/
+  `reputationEntityOutput`/`statusRecordOutput`, all in `wire_output.go`)
+  instead of ad-hoc `map[string]any`. The underlying backend storage
+  (`b.tenants`/`b.multiRegionEndpoints`: `map[string]map[string]any`) is
+  **unchanged** -- those maps are still both the persisted snapshot format
+  and an internal staging shape; the typed DTOs are a conversion step added
+  at the response boundary (`toTenantOutput`/`toMultiRegionEndpointOutput`/
+  etc.), so no `sesv2SnapshotVersion` bump was needed. All fields were
+  already field-verified correct from the prior pass; this is a
+  compile-time-safety upgrade, not a wire-correctness fix (except where
+  individually noted `wire: fixed` above for the type change itself).
+
+**Verification**: every op above is covered by a real
+`aws-sdk-go-v2/service/sesv2` client round-trip test (not just a decoded
+`map[string]any` or backend-struct assertion) -- see
+`newSESv2SDKClient` (`store_test.go`) and the `*SDKRoundTrip` tests in
+`tenants_test.go`, `multi_region_endpoints_test.go`, `deliverability_test.go`,
+`message_insights_test.go`, `send_email_test.go`.
+
+## This pass (parity-4, SDK bump to v1.66.0): 2 new ops + a missed GetAccount wire bug
+
+The Go SDK modules were bumped (`aws-sdk-go-v2/service/sesv2` v1.60.1 ->
+v1.66.0), which shipped 2 new operations `TestSDKCompleteness` caught:
+`PutAccountPricingAttributes` and `PutTenantSuppressionAttributes`. Both are
+now implemented for real (not added to a `notImplemented` skip list) -- see
+their `ops:` entries above for the full field-diff/route/state detail.
+Summary:
+
+- **`PutAccountPricingAttributes`**: `PUT /v2/email/account/pricing-attributes`,
+  `{Plan}` body, validated against the real `PricingPlan` enum. Writes the
+  existing `b.accountDetails` account state (no parallel store); no
+  billing-cycle concept, so `PricingAttributes.NextPlan` is always empty
+  rather than a fabricated "scheduled" value.
+- **`PutTenantSuppressionAttributes`**: `POST /v2/email/tenant/suppression`
+  -- confirmed directly against `serializers.go` rather than assumed, since
+  this family (like the rest of sesv2's tenant paths, per the original
+  route-matcher pass) turned out to use a **singular** `tenant` top-level
+  segment, distinct from every other tenant op's plural `tenants`. Writes
+  onto the tenant's existing `b.tenants[name]` map entry (no parallel store),
+  so it's cascade-deleted for free by the existing `DeleteTenant` cleanup.
+  Surfaced through `CreateTenant`/`GetTenant`'s `SuppressionAttributes` field,
+  which `tenantOutput` didn't expose before this pass.
+- **`GetAccount` wire-shape bug found while wiring `PutAccountPricingAttributes`
+  in**: the handler marshalled the internal `*AccountDetails` struct directly
+  -- the exact `lowerCamelCase`-tags-leaking-into-the-response bug class the
+  original audit pass fixed for every *other* family in this file (contact
+  lists, dedicated IP pools, templates, etc.), but missed for `Account`
+  itself, and the op was incorrectly graded `wire: ok` as a result. Fixed the
+  same way as every other family: added `accountOutput` +
+  `accountDetailsOutput`/`accountSuppressionAttributesOutput`/
+  `accountPricingAttributesOutput` DTOs in `wire_output.go`, field-diffed
+  against `GetAccountOutput`/`types.AccountDetails`/
+  `types.SuppressionAttributes`/`types.PricingAttributes`. Fields gopherstack
+  has no data source for (`EnforcementStatus`, `ProductionAccessEnabled`,
+  `SendQuota`, `ReviewDetails`, suppression `ValidationAttributes`) are
+  omitted -- all pointer/optional in the real shape -- rather than
+  fabricated. `AccountDetails`'s internal `lowerCamelCase` snapshot-format
+  tags are unchanged (same "don't touch persisted tags" rule as every other
+  family; see "Traps for the next auditor").
+
+**Verification**: `TestAccountSDKRoundTrip` (`account_test.go`) and
+`TestPutTenantSuppressionAttributesSDKRoundTrip` (`tenants_test.go`) drive
+both new ops (plus the fixed `GetAccount`/`GetTenant` responses) through the
+real `aws-sdk-go-v2/service/sesv2` client, not just decoded JSON maps.
+`route_matrix_test.go` gained both new routes.
+
 ## Remaining known limitation (not a gap — reachable, correctly routed, AWS-accurate shape)
 
-- `BatchGetMetricData` always returns one zero-valued datapoint per query
-  rather than real aggregated metrics — gopherstack has no metrics
-  aggregation engine to source values from. Envelope shape (`Results:
-  [{Id, Timestamps, Values}]`) is correct.
-- `GetDomainDeliverabilityCampaign`, `GetDomainStatisticsReport`,
-  `ListDomainDeliverabilityCampaigns`, `ListRecommendations`: routes and
-  response shapes are now AWS-accurate, but the populated data is
-  zero-valued/empty placeholders, since these require either
-  opted-in-and-AWS-tracked production sending history or a reputation
-  findings engine gopherstack doesn't have. Same category as
-  `BatchGetMetricData`.
+- `BatchGetMetricData` returns real SEND counts for the SEND/no-dimension and
+  SEND/EMAIL_IDENTITY-dimension cases; every other metric/dimension
+  combination returns one zero-valued datapoint per query rather than real
+  aggregated metrics — gopherstack has no metrics aggregation engine to
+  source those specific values from. Envelope shape (`Results: [{Id,
+  Timestamps, Values}]`) is correct.
+- `GetDomainDeliverabilityCampaign`/`ListDomainDeliverabilityCampaigns`
+  derive real campaign identity/timing from send history (see "This pass"
+  above); `GetDomainStatisticsReport`'s per-day/overall statistics are
+  zero-valued placeholders. All three require either opted-in-and-AWS-tracked
+  production inbox/spam-placement data or a reputation findings engine
+  gopherstack doesn't have for the fields that remain placeholder.
 - `GetEmailAddressInsights`: `HasValidSyntax` (regex) and `IsRoleAddress`
   (local-part lookup against common role names) are real checks;
   `HasValidDnsRecords`/`IsDisposable`/`IsRandomInput`/`MailboxExists` are
   honest `MEDIUM`-confidence placeholders (no DNS/disposable-domain-list/
   mailbox-probing data source in an emulator).
-- `SendBulkEmail` request body is parsed into `map[string]any` rather than a
-  typed struct; functionally correct but brittle to malformed input.
-- `GetReputationEntity`/`ListReputationEntities` and the
-  `Tenant`/`MultiRegionEndpoint` families use ad-hoc `map[string]any`
-  responses rather than typed wire DTOs (all now field-verified correct for
-  the fields populated, per the Notes above); a typed-DTO rewrite would
-  catch future field-name typos at compile time but is a safety upgrade, not
-  a wire-correctness bug.
+- `ListRecommendations` derives real DKIM/SPF/COMPLAINT recommendations from
+  stored configuration state (see "This pass" above); DMARC/BIMI and
+  reputation-finding-driven types are never returned (no DNS-record model,
+  no bounce/complaint-rate pipeline).
 - SDK-driven integration test coverage (`test/integration/*_parity_test.go`)
-  has not been run for this service — this and the prior pass added a
-  route/path regression test (`route_matrix_test.go`) and unit-level handler
-  tests only; no `make build-linux` + integration run was performed.
+  has not been run for this service — this and prior passes added a
+  route/path regression test (`route_matrix_test.go`) and real-SDK-client
+  round-trip unit tests (see "This pass" above); no `make build-linux` +
+  Docker-based integration run was performed.
 
 ## Traps for the next auditor
 
@@ -283,21 +397,75 @@ routes are omitted from the matrix anymore.
   `SuppressedDestination`, `EmailTemplate`, `DedicatedIPPool`,
   `EventDestination`, etc. in backend.go/backend_ops.go) to fix wire output —
   those tags are the **persisted snapshot format** (persistence.go). Add a
-  wire DTO (or, for the ad-hoc-map families, add fields directly to the
-  PascalCase response map, as `tenants.go`/`multi_region_endpoints.go` do)
-  instead; changing the internal tags would require bumping
-  `sesv2SnapshotVersion` and silently discarding every existing snapshot on
-  upgrade for no wire benefit.
-- The `tenants`/`multiRegionEndpoints` backend fields are intentionally
+  wire DTO in `wire_output.go` instead; changing the internal tags would
+  require bumping `sesv2SnapshotVersion` and silently discarding every
+  existing snapshot on upgrade for no wire benefit.
+- The `tenants`/`multiRegionEndpoints` backend fields are still intentionally
   `map[string]map[string]any` with PascalCase keys (e.g. `keyTenantName =
   "TenantName"`) rather than typed structs — unlike `EmailIdentity`/
-  `ConfigurationSet`/etc., these maps store the **wire-shaped** response
-  directly (no separate internal-vs-wire DTO split), so adding a field there
-  is adding it to both the snapshot and the response in one place. Don't
-  assume every backend resource in this service follows the typed-struct +
-  `wire_output.go`-DTO pattern; check which convention a given file already
-  uses before extending it.
+  `ConfigurationSet`/etc., these maps store the **wire-shaped** data
+  directly, so adding a field there is adding it to both the snapshot and
+  the eventual response in one place (build the map in `tenants.go`/
+  `multi_region_endpoints.go` as before). **As of this pass, though, every
+  backend method that used to *return* one of these maps directly now
+  converts it through a typed `wire_output.go` DTO first**
+  (`toTenantOutput`/`toMultiRegionEndpointOutput`/etc.) — don't reintroduce a
+  bare `map[string]any` return type on a tenant/multi-region-endpoint/
+  reputation-entity op; add fields to the existing DTO struct + its
+  `to*Output` converter instead. `GetReputationEntity`/
+  `ListReputationEntities` are simpler: their internal storage
+  (`b.reputationEntities`, a `*store.Table[ReputationEntity]`) was already a
+  typed struct — only the response conversion (`reputationEntityToMap` →
+  `toReputationEntityOutput`) changed.
+- `campaignIDFor`/`domainCampaignsLocked` (deliverability.go) derive
+  deliverability-dashboard "campaigns" as a **pure function** of `b.emails`
+  (grouped by `(FromAddress, Subject)`, hashed to a stable ID) — there is no
+  separate campaign index/table and none should be added; a real campaign
+  index would need its own persisted ID-generation state to stay stable
+  across restarts, which the hash-of-(From,Subject) approach gets for free
+  without touching `persistence.go`. Don't "fix" `GetDomainDeliverabilityCampaign`
+  to return `NotFoundException` for an unrecognized `CampaignId` —
+  `TestGetDomainDeliverabilityCampaignFields` (deliverability_test.go)
+  documents that gopherstack has no way to distinguish a caller-guessed ID
+  from a legitimately-issued one, so it echoes the placeholder shape instead
+  (see that op's PARITY note above).
+- `parseSESv2Timestamp` (deliverability.go) accepts both RFC3339 (the real
+  wire format for the `GetDomainStatisticsReport`/
+  `ListDomainDeliverabilityCampaigns` query-string `StartDate`/`EndDate`
+  params, confirmed against serializers.go's `smithytime.FormatDateTime`)
+  and a bare `YYYY-MM-DD` date (for backend-direct callers/tests). The
+  `BatchGetMetricData` JSON-body `StartDate`/`EndDate` fields use a
+  *different* wire format (epoch-seconds numbers, `smithytime.FormatEpochSeconds`)
+  and are decoded separately via `epochSecondsToTime`
+  (handler_message_insights.go) — don't conflate the two parsers.
 - `route_matrix_test.go`'s case table now covers every real SDK route this
   service routes to (110+ cases, including the RPC-style tenant/
   resource-tenant paths and deliverability-dashboard sub-resources added
   this pass) — if you add a new op, add its route(s) here too.
+- `newSESv2SDKClient` (`store_test.go`) stands up the real
+  `aws-sdk-go-v2/service/sesv2` client against an in-process `httptest`
+  server running the handler through the same `pkgs/service` router used in
+  production — prefer it over hand-decoded `map[string]any` response
+  assertions for any new DTO-conversion test; it's what actually proves wire
+  compatibility (see the `*SDKRoundTrip` tests added this pass for the
+  pattern).
+- `PutTenantSuppressionAttributes` lives under the **singular**
+  `/v2/email/tenant/suppression` (`parseTenantSuppressionPath`,
+  `handler_routes.go`) — not `/v2/email/tenants/...` like the rest of the
+  tenant family. Confirmed directly against
+  `awsRestjson1_serializeOpPutTenantSuppressionAttributes`'s
+  `httpbinding.SplitURI` call in `serializers.go`; don't "fix" it to the
+  plural without re-checking the serializer, and don't assume any *other*
+  newly-added op's path follows the family it looks like it belongs to
+  without the same check — this service has a specific history of invented
+  paths (see `68b00b120`'s route-matcher rewrite and the original audit
+  pass's "Route-matcher bug class" above).
+- `GetAccount` (`handler_account.go`/`wire_output.go`) was the one family the
+  original wire-DTO pass missed — every *other* family already got the
+  internal-struct-vs-typed-DTO treatment documented in "Root-cause bug
+  class" above, but `AccountDetails` slipped through and was incorrectly
+  graded `wire: ok`. If you find another family still returning an internal
+  struct/map directly (grep handler_*.go for a `return acct, nil`-shaped
+  line with no `to*Output(...)` wrapper), it's the same bug, not a new one —
+  add a DTO in `wire_output.go` the same way, don't assume `overall: A`
+  means every individual op was actually wire-checked.

@@ -12,9 +12,34 @@ const (
 	StateTerminated           = "TERMINATED"
 	StateTerminatedWithErrors = "TERMINATED_WITH_ERRORS"
 
+	// StateRunning is the real ClusterState value StartSession's doc allows
+	// sessions to start against, alongside StateWaiting. This backend's own
+	// cluster state machine never produces RUNNING -- clusters are created
+	// directly in WAITING (see buildNewCluster) and go straight from WAITING
+	// to TERMINATED (see terminateSingle), with no simulated
+	// STARTING/BOOTSTRAPPING/RUNNING/TERMINATING in between -- so in
+	// practice only StateWaiting ever passes the sessionCanStart check
+	// below. StateRunning is included for correctness against the real API
+	// and forward-compatibility (e.g. a hand-seeded test cluster).
+	StateRunning = "RUNNING"
+
 	StepStatePending   = "PENDING"
 	StepStateCompleted = "COMPLETED"
 	StepStateCancelled = "CANCELLED"
+
+	// SessionStateSubmitted and its siblings below mirror the real
+	// SessionState enum (aws-sdk-go-v2/service/emr/types/enums.go) verbatim:
+	// SUBMITTED, STARTING, STARTED, IDLE, BUSY, TERMINATING, TERMINATED,
+	// FAILED. This backend only ever drives two of them -- see sessions.go's
+	// package doc comment for the full state-model rationale.
+	SessionStateSubmitted   = "SUBMITTED"
+	SessionStateStarting    = "STARTING"
+	SessionStateStarted     = "STARTED"
+	SessionStateIdle        = "IDLE"
+	SessionStateBusy        = "BUSY"
+	SessionStateTerminating = "TERMINATING"
+	SessionStateTerminated  = "TERMINATED"
+	SessionStateFailed      = "FAILED"
 
 	// cancelStepsStatusSubmitted/Failed are the only two values of the real
 	// CancelStepsRequestStatus enum (SUBMITTED | FAILED) -- not the ad hoc
@@ -52,6 +77,7 @@ const (
 	listStudiosPageSize          = 50
 	listNotebookExecPageSize     = 50
 	listBootstrapActionsPageSize = 50
+	listSessionsPageSize         = 50
 
 	instanceGroupStateRunning = "RUNNING"
 
@@ -425,28 +451,38 @@ type Cluster struct {
 	// backend.go); it is unexported so it is never marshaled by a plain
 	// json.Marshal(Cluster) and is instead carried through persistence via
 	// clusterDTO (see persistence.go).
-	region                      string
-	Status                      ClusterStatus `json:"Status"`
-	ScaleDownBehavior           string        `json:"ScaleDownBehavior,omitempty"`
-	ID                          string        `json:"Id"`
-	ARN                         string        `json:"ClusterArn"`
-	ReleaseLabel                string        `json:"ReleaseLabel"`
-	OSReleaseLabel              string        `json:"OSReleaseLabel,omitempty"`
-	LogURI                      string        `json:"LogUri,omitempty"`
-	ServiceRole                 string        `json:"ServiceRole,omitempty"`
-	AutoScalingRole             string        `json:"AutoScalingRole,omitempty"`
-	Name                        string        `json:"Name"`
-	SecurityConfiguration       string        `json:"SecurityConfiguration,omitempty"`
-	CustomAmiID                 string        `json:"CustomAmiId,omitempty"`
-	InstanceCollectionType      string        `json:"InstanceCollectionType,omitempty"`
-	instanceGroups              []InstanceGroup
-	bootstrapActions            []BootstrapActionConfig
-	Tags                        []Tag                  `json:"Tags"`
-	Applications                []Application          `json:"Applications,omitempty"`
-	Configurations              []Configuration        `json:"Configurations,omitempty"`
-	PlacementGroups             []PlacementGroupConfig `json:"PlacementGroups,omitempty"`
-	steps                       []Step
-	instanceFleets              []InstanceFleet
+	region                 string
+	Status                 ClusterStatus `json:"Status"`
+	ScaleDownBehavior      string        `json:"ScaleDownBehavior,omitempty"`
+	ID                     string        `json:"Id"`
+	ARN                    string        `json:"ClusterArn"`
+	ReleaseLabel           string        `json:"ReleaseLabel"`
+	OSReleaseLabel         string        `json:"OSReleaseLabel,omitempty"`
+	LogURI                 string        `json:"LogUri,omitempty"`
+	ServiceRole            string        `json:"ServiceRole,omitempty"`
+	AutoScalingRole        string        `json:"AutoScalingRole,omitempty"`
+	Name                   string        `json:"Name"`
+	SecurityConfiguration  string        `json:"SecurityConfiguration,omitempty"`
+	CustomAmiID            string        `json:"CustomAmiId,omitempty"`
+	InstanceCollectionType string        `json:"InstanceCollectionType,omitempty"`
+	instanceGroups         []InstanceGroup
+	bootstrapActions       []BootstrapActionConfig
+	Tags                   []Tag                  `json:"Tags"`
+	Applications           []Application          `json:"Applications,omitempty"`
+	Configurations         []Configuration        `json:"Configurations,omitempty"`
+	PlacementGroups        []PlacementGroupConfig `json:"PlacementGroups,omitempty"`
+	steps                  []Step
+	instanceFleets         []InstanceFleet
+	// sessions holds the interactive (Spark Connect) sessions started on
+	// this cluster via StartSession -- like steps/instanceGroups/
+	// instanceFleets above, real EMR has no ListSessions-across-clusters
+	// operation, only ListSessions(ClusterId), so sessions are modeled as a
+	// child collection embedded directly on the owning Cluster rather than a
+	// separate store.Table. This also gives cascade-delete for free: when
+	// the janitor sweeps a TERMINATED cluster's row (see janitor.go), every
+	// session on it is removed in the same operation -- no separate sweep
+	// needed to avoid orphaned sessions.
+	sessions                    []Session
 	StepConcurrencyLevel        int  `json:"StepConcurrencyLevel,omitempty"`
 	EbsRootVolumeSize           int  `json:"EbsRootVolumeSize,omitempty"`
 	EbsRootVolumeIops           int  `json:"EbsRootVolumeIops,omitempty"`
@@ -697,4 +733,92 @@ type ListNotebookExecutionsParams struct {
 	EditorID string
 	Status   string
 	Marker   string
+}
+
+// SessionCloudWatchLoggingConfiguration is the CloudWatch Logs configuration
+// for a session (types.SessionCloudWatchLoggingConfiguration).
+type SessionCloudWatchLoggingConfiguration struct {
+	LogTypes            map[string][]string `json:"LogTypes,omitempty"`
+	EncryptionKeyArn    string              `json:"EncryptionKeyArn,omitempty"`
+	LogGroup            string              `json:"LogGroup,omitempty"`
+	LogStreamNamePrefix string              `json:"LogStreamNamePrefix,omitempty"`
+	Enabled             bool                `json:"Enabled,omitempty"`
+}
+
+// SessionManagedLoggingConfiguration is the Amazon EMR-managed logging
+// configuration for a session (types.SessionManagedLoggingConfiguration).
+type SessionManagedLoggingConfiguration struct {
+	EncryptionKeyArn string `json:"EncryptionKeyArn,omitempty"`
+	Enabled          bool   `json:"Enabled,omitempty"`
+}
+
+// SessionS3LoggingConfiguration is the Amazon S3 logging configuration for a
+// session (types.SessionS3LoggingConfiguration).
+type SessionS3LoggingConfiguration struct {
+	LogTypes         map[string][]string `json:"LogTypes,omitempty"`
+	EncryptionKeyArn string              `json:"EncryptionKeyArn,omitempty"`
+	LogURI           string              `json:"LogUri,omitempty"`
+	Enabled          bool                `json:"Enabled,omitempty"`
+}
+
+// SessionMonitoringConfiguration controls where a session's logs are
+// published (types.SessionMonitoringConfiguration).
+type SessionMonitoringConfiguration struct {
+	CloudWatchLoggingConfiguration *SessionCloudWatchLoggingConfiguration `json:"CloudWatchLoggingConfiguration,omitempty"`
+	ManagedLoggingConfiguration    *SessionManagedLoggingConfiguration    `json:"ManagedLoggingConfiguration,omitempty"`
+	S3LoggingConfiguration         *SessionS3LoggingConfiguration         `json:"S3LoggingConfiguration,omitempty"`
+}
+
+// Session represents an interactive (Spark Connect) session running on an
+// EMR cluster (types.Session). See sessions.go's package doc comment for
+// the state-model rationale.
+//
+// CreatedAt/UpdatedAt are always populated once a session exists, so they
+// carry no omitempty (matching Cluster/SecurityConfiguration's convention
+// for "always set" epoch-seconds fields elsewhere in this package).
+// EndedAt/IdleSince/StartedAt are genuine real Timestamp members this
+// backend only sometimes populates (IdleSince/StartedAt are never
+// populated at all -- see sessions.go), so they use omitempty, matching the
+// real optional *time.Time members on types.Session. All are epoch seconds
+// (float64), matching EMR's awsjson1.1 wire format -- see
+// SecurityConfiguration for why.
+type Session struct {
+	MonitoringConfiguration     *SessionMonitoringConfiguration `json:"MonitoringConfiguration,omitempty"`
+	ID                          string                          `json:"Id"`
+	ClusterID                   string                          `json:"ClusterId"`
+	ARN                         string                          `json:"Arn"`
+	State                       string                          `json:"State"`
+	AccountID                   string                          `json:"AccountId,omitempty"`
+	Name                        string                          `json:"Name,omitempty"`
+	ExecutionRoleArn            string                          `json:"ExecutionRoleArn,omitempty"`
+	ReleaseLabel                string                          `json:"ReleaseLabel,omitempty"`
+	ServerURL                   string                          `json:"ServerUrl,omitempty"`
+	StateChangeReason           string                          `json:"StateChangeReason,omitempty"`
+	EngineConfigurations        []Configuration                 `json:"EngineConfigurations,omitempty"`
+	Tags                        []Tag                           `json:"Tags"`
+	SessionIdleTimeoutInMinutes int64                           `json:"SessionIdleTimeoutInMinutes,omitempty"`
+	CreatedAt                   float64                         `json:"CreatedAt"`
+	UpdatedAt                   float64                         `json:"UpdatedAt"`
+	EndedAt                     float64                         `json:"EndedAt,omitempty"`
+	IdleSince                   float64                         `json:"IdleSince,omitempty"`
+	StartedAt                   float64                         `json:"StartedAt,omitempty"`
+}
+
+// StartSessionParams is the input for creating a new session.
+type StartSessionParams struct {
+	MonitoringConfiguration     *SessionMonitoringConfiguration
+	ClusterID                   string
+	Name                        string
+	ExecutionRoleArn            string
+	EngineConfigurations        []Configuration
+	Tags                        []Tag
+	SessionIdleTimeoutInMinutes int64
+}
+
+// SessionEndpointResult is the output of GetSessionEndpoint.
+type SessionEndpointResult struct {
+	Expiry      time.Time
+	Credentials map[string]any
+	Endpoint    string
+	AuthToken   string
 }

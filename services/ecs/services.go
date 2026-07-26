@@ -200,7 +200,20 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 	b.addServiceRevisionLocked(svc)
 	b.syncServiceDeploymentsLocked(svc)
 
+	// Mirror tags into the resourceTags side map so TagResource/UntagResource/
+	// ListTagsForResource (and DescribeServices with Include=[TAGS], which reads
+	// tags from this map -- see DescribeServices/enrichService below) see the
+	// same tags applied at creation. Previously svc.Tags and resourceTags were
+	// two independent, never-synchronized copies: a TagResource call on this
+	// ARN silently never showed up on Describe, and creation-time tags were
+	// invisible to ListTagsForResource. Mirrors the identical fix applied to
+	// ExpressGatewayService (see CreateExpressGatewayService in express_gateway.go).
+	if len(input.Tags) > 0 {
+		b.setResourceTagsLocked(svc.ServiceArn, input.Tags)
+	}
+
 	cp := *svc
+	cp.Tags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 
 	return &cp, nil
 }
@@ -446,6 +459,9 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 	b.syncServiceDeploymentsLocked(svc)
 
 	cp := *svc
+	// resourceTags (kept in sync by TagResource/UntagResource) is authoritative,
+	// not the creation-time svc.Tags snapshot -- see CreateService.
+	cp.Tags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 
 	return &cp, nil
 }
@@ -485,6 +501,13 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string) (*Service, 
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, serviceName)
 	}
 
+	// Capture the authoritative tags before deleteResourceTagsLocked below
+	// clears the resourceTags side-map entry, so the deleted-service snapshot
+	// returned to the caller still reflects the tags that were in effect
+	// (matching real AWS, which echoes the deleted resource's tags on
+	// DeleteService, not an empty set).
+	tags := copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
+
 	b.services.Delete(scopedKey(clusterName, key))
 	b.deleteTaskSetsForServiceLocked(svc.ServiceArn)
 	delete(b.serviceIndex, svcRef{cluster: clusterName, name: key})
@@ -492,6 +515,7 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string) (*Service, 
 	b.deleteResourceTagsLocked(svc.ServiceArn)
 
 	cp := *svc
+	cp.Tags = tags
 
 	return &cp, nil
 }
@@ -560,7 +584,12 @@ func (b *InMemoryBackend) StartTaskForService(
 
 		if svc, found := b.services.Get(scopedKey(clusterName, serviceName)); found {
 			svcPropagateTags = svc.PropagateTags
-			svcTags = copyTags(svc.Tags)
+			// resourceTags (kept in sync by TagResource/UntagResource) is
+			// authoritative, not the creation-time svc.Tags snapshot -- see
+			// CreateService. A PropagateTags=SERVICE task must inherit the
+			// service's CURRENT tags, including any applied via TagResource
+			// after creation, not just the tags supplied at CreateService time.
+			svcTags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 			svcEnableExec = svc.EnableExecuteCommand
 			svcLaunchType = svc.LaunchType
 			svcPlacementConstraints = svc.PlacementConstraints

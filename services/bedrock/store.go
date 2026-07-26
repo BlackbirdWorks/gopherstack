@@ -38,6 +38,11 @@ const (
 	statusAvailable  = "AVAILABLE"
 )
 
+// sortOrderDescending is the real AWS SortOrder value used by every List op
+// in this package that supports Ascending (default)|Descending sorting
+// (ListEvaluationJobs, ListModelInvocationJobs, ListAdvancedPromptOptimizationJobs).
+const sortOrderDescending = "Descending"
+
 // InMemoryBackend stores Amazon Bedrock state in memory.
 type InMemoryBackend struct {
 	guardrails                  *store.Table[Guardrail]
@@ -63,17 +68,22 @@ type InMemoryBackend struct {
 	enforcedGuardrailConfigs    *store.Table[AccountEnforcedGuardrailConfig] // configID → config
 	arpAnnotations              map[string][]any                             // policyARN → annotations
 	useCaseFormData             []byte                                       // raw FormData for PutUseCaseForModelAccess
-	guardrailsByName            map[string]string                            // guardrail name → ID
-	guardrailsByARN             map[string]string                            // guardrail ARN → ID
-	pmtsByName                  map[string]string                            // PMT name → ARN
-	arpByName                   map[string]string                            // policy name → ARN
-	customModelsByName          map[string]string                            // model name → ARN
-	customModelDeployByName     map[string]string                            // deployment name → ARN
-	evaluationJobsByName        map[string]string                            // job name → ARN
-	customizationJobsByName     map[string]string                            // job name → ARN
-	inferenceProfilesByName     map[string]string                            // profile name → ARN
-	marketplaceEndpointsByName  map[string]string                            // endpoint name → ARN
-	promptRoutersByName         map[string]string                            // router name → ARN
+	// parity-4 additions. resourcePolicies is shared by both the core
+	// bedrock and bedrock-agent flavors -- see resource_policy.go.
+	advancedPromptOptimizationJobs *store.Table[AdvancedPromptOptimizationJob] // jobArn → job
+	resourcePolicies               *store.Table[ResourcePolicy]                // resourceArn → policy
+	accountDataRetention           *AccountDataRetention
+	guardrailsByName               map[string]string // guardrail name → ID
+	guardrailsByARN                map[string]string // guardrail ARN → ID
+	pmtsByName                     map[string]string // PMT name → ARN
+	arpByName                      map[string]string // policy name → ARN
+	customModelsByName             map[string]string // model name → ARN
+	customModelDeployByName        map[string]string // deployment name → ARN
+	evaluationJobsByName           map[string]string // job name → ARN
+	customizationJobsByName        map[string]string // job name → ARN
+	inferenceProfilesByName        map[string]string // profile name → ARN
+	marketplaceEndpointsByName     map[string]string // endpoint name → ARN
+	promptRoutersByName            map[string]string // router name → ARN
 	// Agents
 	agents              *store.Table[Agent]
 	agentsByName        map[string]string                           // agentName → agentID
@@ -133,6 +143,9 @@ type InMemoryBackend struct {
 	flowAliasCounter   int
 	promptCounter      int
 	agentCollabCounter int
+	// parity-4 counters.
+	advancedPromptOptJobCounter   int
+	resourcePolicyRevisionCounter int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend pre-seeded with foundation models.
@@ -253,6 +266,8 @@ func (b *InMemoryBackend) resetCounters() {
 	b.modelInvocationJobCounter = 0
 	b.promptRouterCounter = 0
 	b.enforcedGuardrailConfigCounter = 0
+	b.advancedPromptOptJobCounter = 0
+	b.resourcePolicyRevisionCounter = 0
 }
 
 // resetAuxState clears miscellaneous non-table backend state that is not part
@@ -263,6 +278,7 @@ func (b *InMemoryBackend) resetAuxState() {
 	b.agentMemory = make(map[string][]any)
 	b.arpAnnotations = make(map[string][]any)
 	b.useCaseFormData = nil
+	b.accountDataRetention = nil
 }
 
 func (b *InMemoryBackend) seedFoundationModels() {

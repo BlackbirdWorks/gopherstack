@@ -399,3 +399,173 @@ func TestACMHandler_ListCertificates_SubjectAlternativeNameSummaries_IncludesPri
 	assert.Contains(t, summaries, "www.primary.example.com",
 		"SubjectAlternativeNameSummaries must include extra SANs")
 }
+
+// TestACMHandler_SearchCertificates covers SearchCertificates, field-diffed
+// against aws-sdk-go-v2/service/acm's SearchCertificatesInput/Output and the
+// CertificateFilterStatement/CertificateFilter/AcmCertificateMetadataFilter/
+// X509AttributeFilter union wire shapes (each union member serializes as a
+// single-key wrapper object, e.g. {"Filter":{"AcmCertificateMetadataFilter":
+// {"Status":"ISSUED"}}} -- verified against serializers.go).
+func TestACMHandler_SearchCertificates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *acm.Handler)
+		name string
+	}{
+		{
+			name: "NoFilter_ReturnsAll",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"search-all-1.example.com"}`)
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"search-all-2.example.com"}`)
+
+				rec := postACMJSON(t, h, "SearchCertificates", `{}`)
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "search-all-1.example.com")
+				assert.Contains(t, rec.Body.String(), "search-all-2.example.com")
+			},
+		},
+		{
+			name: "AcmCertificateMetadataFilter_Status",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"search-issued.example.com"}`)
+				importCertRec := postACMJSON(t, h, "RequestCertificate",
+					`{"DomainName":"search-pending.example.com","ValidationMethod":"DNS"}`)
+				require.Equal(t, http.StatusOK, importCertRec.Code)
+
+				body := `{"FilterStatement":{"Filter":{"AcmCertificateMetadataFilter":{"Status":"ISSUED"}}}}`
+				rec := postACMJSON(t, h, "SearchCertificates", body)
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "search-issued.example.com")
+				assert.NotContains(t, rec.Body.String(), "search-pending.example.com")
+			},
+		},
+		{
+			name: "CertificateArn_Filter",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				rec1 := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"search-arn-1.example.com"}`)
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"search-arn-2.example.com"}`)
+
+				var out struct {
+					CertificateArn string `json:"CertificateArn"`
+				}
+				require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out))
+
+				body, _ := json.Marshal(map[string]any{
+					"FilterStatement": map[string]any{
+						"Filter": map[string]any{"CertificateArn": out.CertificateArn},
+					},
+				})
+				rec := postACMJSON(t, h, "SearchCertificates", string(body))
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "search-arn-1.example.com")
+				assert.NotContains(t, rec.Body.String(), "search-arn-2.example.com")
+			},
+		},
+		{
+			name: "AndOrNot_Composition",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"search-composed-keep.example.com"}`)
+				postACMJSON(t, h, "RequestCertificate",
+					`{"DomainName":"search-composed-drop.example.com","ValidationMethod":"DNS"}`)
+
+				// AND(Status=ISSUED, NOT(ValidationMethod=DNS)) -- both certs
+				// are default (non-DNS) validation-method-eligible for the
+				// first, but only the ISSUED one should match here since the
+				// DNS one is PENDING_VALIDATION, not ISSUED.
+				body := `{"FilterStatement":{"And":[
+					{"Filter":{"AcmCertificateMetadataFilter":{"Status":"ISSUED"}}},
+					{"Not":{"Filter":{"AcmCertificateMetadataFilter":{"ValidationMethod":"DNS"}}}}
+				]}}`
+				rec := postACMJSON(t, h, "SearchCertificates", body)
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "search-composed-keep.example.com")
+				assert.NotContains(t, rec.Body.String(), "search-composed-drop.example.com")
+			},
+		},
+		{
+			name: "X509AttributeFilter_SubjectAlternativeNameDnsName",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				postACMJSON(t, h, "RequestCertificate",
+					`{"DomainName":"sandns.example.com","SubjectAlternativeNames":["alt.sandns.example.com"]}`)
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"other.example.com"}`)
+
+				body := `{"FilterStatement":{"Filter":{"X509AttributeFilter":{"SubjectAlternativeName":` +
+					`{"DnsName":{"ComparisonOperator":"EQUALS","Value":"alt.sandns.example.com"}}}}}}`
+				rec := postACMJSON(t, h, "SearchCertificates", body)
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "sandns.example.com")
+				assert.NotContains(t, rec.Body.String(), "other.example.com")
+			},
+		},
+		{
+			name: "SortBy_CreatedAt_Descending",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"sort-first.example.com"}`)
+				time.Sleep(2 * time.Millisecond)
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"sort-second.example.com"}`)
+
+				body := `{"SortBy":"CREATED_AT","SortOrder":"DESCENDING"}`
+				rec := postACMJSON(t, h, "SearchCertificates", body)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out struct {
+					Results []struct {
+						CertificateMetadata struct {
+							AcmCertificateMetadata struct {
+								CreatedAt int64 `json:"CreatedAt"`
+							} `json:"AcmCertificateMetadata"`
+						} `json:"CertificateMetadata"`
+					} `json:"Results"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.Len(t, out.Results, 2)
+				assert.GreaterOrEqual(t,
+					out.Results[0].CertificateMetadata.AcmCertificateMetadata.CreatedAt,
+					out.Results[1].CertificateMetadata.AcmCertificateMetadata.CreatedAt,
+					"DESCENDING sort must put the newer cert first",
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newACMHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+// TestACMBackend_SearchCertificates covers SearchCertificates at the backend
+// level, including NextToken validation.
+func TestACMBackend_SearchCertificates(t *testing.T) {
+	t.Parallel()
+
+	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+	ctx := context.Background()
+
+	_, err := b.RequestCertificate(ctx, "backend-search.example.com", "", "", "", "", "", "", nil)
+	require.NoError(t, err)
+
+	pg, err := b.SearchCertificates(ctx, acm.SearchCertificatesParams{})
+	require.NoError(t, err)
+	assert.Len(t, pg.Data, 1)
+
+	_, err = b.SearchCertificates(ctx, acm.SearchCertificatesParams{NextToken: "not-valid-base64!!"})
+	assert.ErrorIs(t, err, acm.ErrInvalidParameter)
+}

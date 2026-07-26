@@ -393,8 +393,15 @@ func layerPolicyRevisionID(stmts map[string]*LayerVersionStatement) string {
 
 	ids := collections.SortedKeys(stmts)
 
-	// Content digest over statement IDs to derive a revision ID, not a credential.
-	h := sha256.Sum256([]byte(strings.Join(ids, "\x00"))) // codeql[go/insecure-password-hashing]
+	// Content digest over sorted policy statement IDs to derive a revision ID.
+	// The input is a list of statement identifiers, never a credential, and the
+	// algorithm is SHA-256.
+	//
+	// CodeQL flags this as go/weak-sensitive-data-hashing; alert #248 is
+	// dismissed as a false positive. Inline `codeql[...]` comments do NOT
+	// suppress Code Scanning alerts (that is legacy LGTM syntax), so do not add
+	// one here expecting it to work -- dismiss via the API or UI instead.
+	h := sha256.Sum256([]byte(strings.Join(ids, "\x00")))
 
 	return hex.EncodeToString(h[:])
 }

@@ -158,6 +158,16 @@ func baseSupportedOperations() []string {
 // extendedSupportedOperations returns operations added in later completeness/accuracy passes.
 func extendedSupportedOperations() []string {
 	return []string{
+		// parity-4 pass — new SDK operations (user pool replicas, admin auth
+		// factors, provisioned limits): see user_pool_replicas.go,
+		// provisioned_limits.go, and AdminGetUserAuthFactors in users.go.
+		"AdminGetUserAuthFactors",
+		"CreateUserPoolReplica",
+		"DeleteUserPoolReplica",
+		"GetProvisionedLimit",
+		"ListUserPoolReplicas",
+		"UpdateProvisionedLimit",
+		"UpdateUserPoolReplica",
 		// Completeness pass — previously notImplemented
 		"AdminGetDevice",
 		"AdminLinkProviderForUser",
@@ -362,6 +372,9 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	maps.Copy(table, h.securityConfigOpsB())
 	maps.Copy(table, h.userPoolsOpsC())
 	maps.Copy(table, h.usersOpsD())
+	maps.Copy(table, h.usersOpsE())
+	maps.Copy(table, h.userPoolReplicasOps())
+	maps.Copy(table, h.provisionedLimitsOps())
 
 	return table
 }
@@ -418,6 +431,8 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrAuthEventNotFound, ErrAuthEventNotFound.Error()},
 	{ErrUserLambdaValidation, ErrUserLambdaValidation.Error()},
 	{ErrUnexpectedLambda, ErrUnexpectedLambda.Error()},
+	{ErrReplicaNotFound, ErrReplicaNotFound.Error()},
+	{ErrServiceQuotaExceeded, ErrServiceQuotaExceeded.Error()},
 	{errUnknownAction, "UnknownOperationException"},
 }
 

@@ -864,3 +864,112 @@ func itoa(n int) string {
 
 	return string(buf)
 }
+
+// TestModifyVpcEndpointPayerResponsibility verifies the new (parity-4)
+// ModifyVpcEndpointPayerResponsibility op, which is distinct from the
+// pre-existing ModifyVpcEndpointServicePayerResponsibility above: it targets
+// a VPC endpoint (consumer side) rather than an endpoint SERVICE (provider
+// side), and — unlike that op — really mutates and returns persisted state.
+func TestModifyVpcEndpointPayerResponsibility(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, b *ec2.InMemoryBackend) url.Values
+		name     string
+		wantBody []string
+		wantErr  bool
+	}{
+		{
+			name: "unknown_endpoint_not_found",
+			setup: func(*testing.T, *ec2.InMemoryBackend) url.Values {
+				return url.Values{
+					"Action":              {"ModifyVpcEndpointPayerResponsibility"},
+					"VpcEndpointId":       {"vpce-doesnotexist"},
+					"PayerResponsibility": {"vpc-endpoint-account"},
+					"Scope":               {"vpc-endpoint-charges"},
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "sets_payer_responsibility_on_real_endpoint",
+			setup: func(t *testing.T, b *ec2.InMemoryBackend) url.Values {
+				t.Helper()
+
+				vpc, err := b.CreateVpc("10.0.0.0/16")
+				require.NoError(t, err)
+				ep, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Gateway", nil)
+				require.NoError(t, err)
+
+				return url.Values{
+					"Action":              {"ModifyVpcEndpointPayerResponsibility"},
+					"VpcEndpointId":       {ep.ID},
+					"PayerResponsibility": {"vpc-endpoint-service-account"},
+					"Scope":               {"vpc-endpoint-charges"},
+				}
+			},
+			wantBody: []string{
+				"ModifyVpcEndpointPayerResponsibilityResponse",
+				"<payerResponsibilityType>vpc-endpoint-service-account</payerResponsibilityType>",
+				"<scope>vpc-endpoint-charges</scope>",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+			h := newTestHandlerWithBackend(b)
+
+			vals := tt.setup(t, b)
+
+			resp, err := ec2.ExportDispatch(h, vals)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, resp, want)
+			}
+		})
+	}
+}
+
+// TestModifyVpcEndpointPayerResponsibility_UpsertsSameScope verifies that
+// calling the op twice for the same Scope replaces the entry rather than
+// duplicating it.
+func TestModifyVpcEndpointPayerResponsibility_UpsertsSameScope(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := newTestHandlerWithBackend(b)
+
+	vpc, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+	ep, err := b.CreateVpcEndpoint(vpc.ID, "com.amazonaws.us-east-1.s3", "Gateway", nil)
+	require.NoError(t, err)
+
+	for _, payer := range []string{"vpc-endpoint-account", "vpc-endpoint-service-account"} {
+		_, dispatchErr := ec2.ExportDispatch(h, url.Values{
+			"Action":              {"ModifyVpcEndpointPayerResponsibility"},
+			"VpcEndpointId":       {ep.ID},
+			"PayerResponsibility": {payer},
+			"Scope":               {"vpc-endpoint-charges"},
+		})
+		require.NoError(t, dispatchErr)
+	}
+
+	resp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":              {"ModifyVpcEndpointPayerResponsibility"},
+		"VpcEndpointId":       {ep.ID},
+		"PayerResponsibility": {"vpc-endpoint-service-account"},
+		"Scope":               {"vpc-endpoint-charges"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(resp, "<item>"), "same-scope calls must upsert, not duplicate entries")
+}

@@ -199,6 +199,17 @@ type VpcEndpoint struct {
 	VpcEndpointType string    `json:"vpcEndpointType,omitempty"`
 	SubnetIDs       []string  `json:"subnetIDs,omitempty"`
 	RouteTableIDs   []string  `json:"routeTableIDs,omitempty"`
+	// PayerResponsibilities holds the payer-responsibility settings set via
+	// ModifyVpcEndpointPayerResponsibility. Empty until first modified.
+	PayerResponsibilities []PayerResponsibilityEntry `json:"payerResponsibilities,omitempty"`
+}
+
+// PayerResponsibilityEntry records who is billed for a VPC endpoint's usage,
+// scoped to a particular charge category. Set via
+// ModifyVpcEndpointPayerResponsibility.
+type PayerResponsibilityEntry struct {
+	PayerResponsibilityType string `json:"payerResponsibilityType,omitempty"`
+	Scope                   string `json:"scope,omitempty"`
 }
 
 // NetworkACL represents an EC2 network ACL.
@@ -423,14 +434,15 @@ type InMemoryBackend struct {
 	vpcBlockPublicAccessOptions    *VpcBlockPublicAccessOptions
 	vpcBlockPublicAccessExclusions *store.Table[VpcBlockPublicAccessExclusion]
 	// Capacity Reservation Fleet / Capacity Block / Capacity Manager additions
-	capacityReservationFleets          *store.Table[CapacityReservationFleet]
-	capacityBlockOfferings             *store.Table[CapacityBlockOffering]
-	capacityBlockExtensionOfferings    *store.Table[CapacityBlockExtensionOffering]
-	capacityBlocks                     *store.Table[CapacityBlock]
-	capacityBlockExtensions            *store.Table[CapacityBlockExtension]
-	capacityReservationBillingRequests *store.Table[CapacityReservationBillingRequest]
-	capacityManagerDataExports         *store.Table[CapacityManagerDataExport]
-	capacityManagerState               *CapacityManagerState
+	capacityReservationFleets             *store.Table[CapacityReservationFleet]
+	capacityBlockOfferings                *store.Table[CapacityBlockOffering]
+	capacityBlockExtensionOfferings       *store.Table[CapacityBlockExtensionOffering]
+	capacityBlocks                        *store.Table[CapacityBlock]
+	capacityBlockExtensions               *store.Table[CapacityBlockExtension]
+	capacityReservationBillingRequests    *store.Table[CapacityReservationBillingRequest]
+	capacityManagerDataExports            *store.Table[CapacityManagerDataExport]
+	capacityManagerState                  *CapacityManagerState
+	capacityReservationCancellationQuotes *store.Table[CapacityReservationCancellationQuote]
 	// VerifiedAccess policy / logging additions
 	verifiedAccessEndpointPolicies       map[string]*VerifiedAccessPolicy
 	verifiedAccessGroupPolicies          map[string]*VerifiedAccessPolicy
@@ -483,6 +495,14 @@ type InMemoryBackend struct {
 	tgwRTPropagations          map[string]map[string]*TransitGatewayRouteTablePropagation
 	interruptibleCRAllocations *store.Table[InterruptibleCapacityReservationAllocation]
 	movingAddresses            *store.Table[MovingAddressStatus]
+	// parity-4 SDK-bump additions (gopherstack, eb437919a): TGW Client VPN
+	// attachments, image watermarks, account VPC Encryption Control, Capacity
+	// Manager monitored tag keys (nested in capacityManagerState), and
+	// account-level managed resource visibility.
+	tgwClientVpnAttachments          *store.Table[TransitGatewayClientVpnAttachment]
+	imageWatermarks                  map[string][]string
+	accountVpcEncryptionControl      *AccountVpcEncryptionControl
+	managedResourceDefaultVisibility string
 	// registry lets Reset collapse the ~150 converted resource maps' lifecycle
 	// to one call (registry.ResetAll()) instead of hand-rolled re-initialization
 	// of each map. See store_setup.go for every Table registration.
@@ -531,6 +551,7 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 	initCapacityFamilyMaps(b)
 	initVerifiedAccessExtMaps(b)
 	initParityFinalMaps(b)
+	initParity4Maps(b)
 	initSecondaryIndexMaps(b)
 	b.resetIpamDiscoveryMapsLocked()
 	b.resetIpamPolicyMapsLocked()
@@ -586,7 +607,10 @@ func initCoreExtraMaps(b *InMemoryBackend) {
 // Block, and Capacity Manager state maps (split out to keep
 // newInMemoryBackendMaps under the funlen limit).
 func initCapacityFamilyMaps(b *InMemoryBackend) {
-	b.capacityManagerState = &CapacityManagerState{Status: capacityManagerStatusDisabled}
+	b.capacityManagerState = &CapacityManagerState{
+		Status:           capacityManagerStatusDisabled,
+		MonitoredTagKeys: make(map[string]*CapacityManagerMonitoredTagKey),
+	}
 }
 
 // initVpcConfigMaps initialises the VPC ClassicLink and Block Public Access
@@ -606,6 +630,21 @@ func initVpcConfigMaps(b *InMemoryBackend) {
 func initBatch6Maps(b *InMemoryBackend) {
 	b.fastLaunchImages = make(map[string]bool)
 	b.fastSnapshotRestores = make(map[string]bool)
+}
+
+// initParity4Maps initialises the state added for the parity-4 SDK-bump pass
+// (16 new operations discovered after bumping aws-sdk-go-v2/service/ec2):
+// image watermarks and the account-level VPC Encryption Control / managed
+// resource visibility singletons. Split out to keep newInMemoryBackendMaps
+// under the funlen limit, matching initVpcConfigMaps/initCapacityFamilyMaps.
+func initParity4Maps(b *InMemoryBackend) {
+	b.imageWatermarks = make(map[string][]string)
+	b.accountVpcEncryptionControl = &AccountVpcEncryptionControl{
+		Mode:      accountVpcEncryptionControlModeUnmanaged,
+		State:     accountVpcEncryptionControlStateDefault,
+		ManagedBy: accountVpcEncryptionControlManagedByAccount,
+	}
+	b.managedResourceDefaultVisibility = managedResourceVisibilityHidden
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
@@ -696,6 +735,7 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.resetInstanceAttrMapsLocked()
 	b.resetSQLHaMapsLocked()
 	initParityFinalMaps(b)
+	initParity4Maps(b)
 }
 
 // resetBatch4MapsLocked re-initialises all batch4 resource maps.

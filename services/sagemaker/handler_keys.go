@@ -3,6 +3,9 @@ package sagemaker
 // Shared ARN / status key constants used across response-building code in
 // multiple operation families.
 const (
+	keyAIBenchmarkJobArn           = "AIBenchmarkJobArn"
+	keyAIRecommendationJobArn      = "AIRecommendationJobArn"
+	keyAIWorkloadConfigArn         = "AIWorkloadConfigArn"
 	keyAppImageConfigArn           = "AppImageConfigArn"
 	keyClusterSchedulerConfigArn   = "ClusterSchedulerConfigArn"
 	keyCodeRepositoryArn           = "CodeRepositoryArn"

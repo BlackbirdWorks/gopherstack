@@ -102,35 +102,68 @@ func (b *InMemoryBackend) ListEmails() []Email {
 	return out
 }
 
-// ---- email sending ----
+// ---- bulk email ----
+//
+// Field-diffed against aws-sdk-go-v2/service/sesv2/types' BulkEmailEntry/
+// Destination/ReplacementEmailContent/ReplacementTemplate/MessageHeader/
+// MessageTag. bulkEmailDestination/messageHeader/messageTag/
+// replacementTemplate/replacementEmailContent/bulkEmailEntry replace what
+// was previously a []map[string]any parsed with ad-hoc type assertions --
+// functionally equivalent but with compile-time field-name safety.
+
+// bulkEmailDestination mirrors types.Destination.
+type bulkEmailDestination struct {
+	ToAddresses  []string `json:"ToAddresses"`
+	CcAddresses  []string `json:"CcAddresses"`
+	BccAddresses []string `json:"BccAddresses"`
+}
+
+// messageHeader mirrors types.MessageHeader.
+type messageHeader struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
+// messageTag mirrors types.MessageTag.
+type messageTag struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
+// replacementTemplate mirrors types.ReplacementTemplate.
+type replacementTemplate struct {
+	ReplacementTemplateData string `json:"ReplacementTemplateData"`
+}
+
+// replacementEmailContent mirrors types.ReplacementEmailContent.
+type replacementEmailContent struct {
+	ReplacementTemplate *replacementTemplate `json:"ReplacementTemplate"`
+}
+
+// bulkEmailEntry mirrors types.BulkEmailEntry.
+type bulkEmailEntry struct {
+	Destination             bulkEmailDestination     `json:"Destination"`
+	ReplacementEmailContent *replacementEmailContent `json:"ReplacementEmailContent"`
+	ReplacementHeaders      []messageHeader          `json:"ReplacementHeaders"`
+	ReplacementTags         []messageTag             `json:"ReplacementTags"`
+}
 
 // SendBulkEmail sends bulk emails — records sent emails with actual recipients.
 func (b *InMemoryBackend) SendBulkEmail(
 	fromEmailAddress string,
-	bulkEmailEntries []map[string]any,
-) ([]map[string]any, error) {
-	results := make([]map[string]any, 0, len(bulkEmailEntries))
+	bulkEmailEntries []bulkEmailEntry,
+) ([]bulkEmailEntryResultOutput, error) {
+	results := make([]bulkEmailEntryResultOutput, 0, len(bulkEmailEntries))
 
 	for _, entry := range bulkEmailEntries {
-		var toAddresses []string
-		if dest, destOK := entry["Destination"].(map[string]any); destOK {
-			if raw, rawOK := dest["ToAddresses"].([]any); rawOK {
-				for _, v := range raw {
-					if s, strOK := v.(string); strOK {
-						toAddresses = append(toAddresses, s)
-					}
-				}
-			}
-		}
-
-		msgID, _ := b.SendEmail(fromEmailAddress, toAddresses, "", "", "")
+		msgID, _ := b.SendEmail(fromEmailAddress, entry.Destination.ToAddresses, "", "", "")
 		if msgID == "" {
 			msgID = "sesv2-bulk-" + uuid.New().String()
 		}
 
-		results = append(results, map[string]any{
-			keyMessageID: msgID,
-			keyStatus:    keyStatusSuccess,
+		results = append(results, bulkEmailEntryResultOutput{
+			MessageID: msgID,
+			Status:    keyStatusSuccess,
 		})
 	}
 

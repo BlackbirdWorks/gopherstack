@@ -60,8 +60,8 @@ type StorageBackend interface {
 	SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error)
 	SendBulkEmail(
 		fromEmailAddress string,
-		bulkEmailEntries []map[string]any,
-	) ([]map[string]any, error)
+		bulkEmailEntries []bulkEmailEntry,
+	) ([]bulkEmailEntryResultOutput, error)
 	SendCustomVerificationEmail(emailAddress, templateName string) (string, error)
 	ListEmails() []Email
 
@@ -152,6 +152,7 @@ type StorageBackend interface {
 	// Account ops
 	GetAccount() (*AccountDetails, error)
 	PutAccountDetails(details *AccountDetails) error
+	PutAccountPricingAttributes(plan string) error
 	PutAccountSendingAttributes(sendingEnabled bool) error
 	PutAccountSuppressionAttributes(suppressedReasons []string) error
 	PutAccountVdmAttributes(vdmAttributes map[string]any) error
@@ -162,39 +163,48 @@ type StorageBackend interface {
 	UntagResource(arn string, tagKeys []string) error
 	ListTagsForResource(arn string) (map[string]string, error)
 
-	// Insights / analytics (stubs)
+	// Insights / analytics -- GetMessageInsights is real (round-trips
+	// against actually-sent messages); GetEmailAddressInsights/
+	// ListRecommendations are partly-real, partly honest placeholder; see
+	// PARITY.md.
 	GetEmailAddressInsights(emailAddress string) (map[string]any, error)
 	GetMessageInsights(messageID string) (map[string]any, error)
-	ListRecommendations(nextToken string, pageSize int) ([]map[string]any, string, error)
+	ListRecommendations(
+		filter map[string]string,
+		nextToken string,
+		pageSize int,
+	) ([]recommendationOutput, string, error)
 
 	// Multi-region endpoint ops
 	CreateMultiRegionEndpoint(
 		endpointName string,
 		secondaryRegions []string,
 		tags map[string]string,
-	) (map[string]any, error)
-	GetMultiRegionEndpoint(endpointName string) (map[string]any, error)
+	) (*createMultiRegionEndpointOutput, error)
+	GetMultiRegionEndpoint(endpointName string) (*multiRegionEndpointOutput, error)
 	DeleteMultiRegionEndpoint(endpointName string) (string, error)
-	ListMultiRegionEndpoints(nextToken string, pageSize int) ([]map[string]any, string, error)
+	ListMultiRegionEndpoints(nextToken string, pageSize int) ([]multiRegionEndpointSummaryOutput, string, error)
 
 	// Tenant ops
-	CreateTenant(tenantName string, tags map[string]string) (map[string]any, error)
-	GetTenant(tenantName string) (map[string]any, error)
+	CreateTenant(tenantName string, tags map[string]string) (*tenantOutput, error)
+	GetTenant(tenantName string) (*tenantOutput, error)
 	DeleteTenant(tenantName string) error
-	ListTenants(nextToken string, pageSize int) ([]map[string]any, string, error)
+	ListTenants(nextToken string, pageSize int) ([]tenantInfoOutput, string, error)
 	CreateTenantResourceAssociation(tenantName, resourceArn string) error
 	DeleteTenantResourceAssociation(tenantName, resourceArn string) error
-	ListResourceTenants(resourceArn, nextToken string, pageSize int) ([]map[string]any, string, error)
+	PutTenantSuppressionAttributes(tenantName string, suppressedReasons []string, suppressionScope string) error
+	ListResourceTenants(resourceArn, nextToken string, pageSize int) ([]resourceTenantOutput, string, error)
 	ListTenantResources(
 		tenantName string,
 		filter map[string]string,
 		nextToken string,
 		pageSize int,
-	) ([]map[string]any, string, error)
+	) ([]tenantResourceOutput, string, error)
 
-	// Reputation entity ops (stubs)
-	GetReputationEntity(entityID string) (map[string]any, error)
-	ListReputationEntities(nextToken string, pageSize int) ([]map[string]any, string, error)
+	// Reputation entity ops -- real (derived from stored customer-managed
+	// status/policy overrides), not stubs; see PARITY.md.
+	GetReputationEntity(entityID string) (reputationEntityOutput, error)
+	ListReputationEntities(nextToken string, pageSize int) ([]reputationEntityOutput, string, error)
 	UpdateReputationEntityCustomerManagedStatus(entityID, status string) error
 	UpdateReputationEntityPolicy(entityID, policy string) error
 

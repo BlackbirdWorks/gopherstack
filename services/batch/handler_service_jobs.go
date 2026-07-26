@@ -179,6 +179,43 @@ func (h *Handler) handleListServiceJobs(ctx context.Context, in *listServiceJobs
 	return &listServiceJobsOutput{JobSummaryList: summaries}, nil
 }
 
+// updateServiceJobInput mirrors aws-sdk-go-v2/service/batch's
+// UpdateServiceJobInput exactly: jobId and schedulingPriority are both
+// required, and there are no other fields (see UpdateServiceJob's doc
+// comment: "Updates the priority of a specified service job").
+type updateServiceJobInput struct {
+	SchedulingPriority *int32 `json:"schedulingPriority"`
+	JobID              string `json:"jobId"`
+}
+
+// updateServiceJobOutput mirrors UpdateServiceJobOutput exactly (see
+// deserializers.go's awsRestjson1_deserializeOpDocumentUpdateServiceJobOutput).
+type updateServiceJobOutput struct {
+	JobID   string `json:"jobId"`
+	JobArn  string `json:"jobArn,omitempty"`
+	JobName string `json:"jobName"`
+}
+
+func (h *Handler) handleUpdateServiceJob(
+	ctx context.Context,
+	in *updateServiceJobInput,
+) (*updateServiceJobOutput, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: jobId is required", ErrValidation)
+	}
+
+	if in.SchedulingPriority == nil {
+		return nil, fmt.Errorf("%w: schedulingPriority is required", ErrValidation)
+	}
+
+	sj, err := h.Backend.UpdateServiceJob(ctx, in.JobID, *in.SchedulingPriority)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateServiceJobOutput{JobID: sj.JobID, JobArn: sj.JobArn, JobName: sj.JobName}, nil
+}
+
 type terminateServiceJobInput struct {
 	JobID  string `json:"jobId"`
 	Reason string `json:"reason"`

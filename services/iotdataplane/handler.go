@@ -32,15 +32,24 @@ const (
 	adminConnectionsPath = "/_admin/connections"
 	// adminConnectionsPathSlash is the prefix for individual connection operations.
 	adminConnectionsPathSlash = adminConnectionsPath + "/"
-	// connectionsPath is the real AWS wire path for DeleteConnection (DELETE
-	// /connections/{clientId}; see aws-sdk-go-v2/service/iotdataplane's
-	// serializer for DeleteConnectionInput). Unlike RegisterConnection/
-	// ListConnections, DeleteConnection IS a real published AWS operation, so
-	// it must remain reachable at its real wire path in addition to the
-	// gopherstack admin alias below.
+	// connectionsPath is the real AWS wire path shared by GetConnection,
+	// DeleteConnection, ListSubscriptions, and SendDirectMessage (all rooted
+	// at /connections/{clientId}; see aws-sdk-go-v2/service/iotdataplane's
+	// serializers for {Get,Delete}ConnectionInput,
+	// {List}SubscriptionsInput, and SendDirectMessageInput). Unlike
+	// RegisterConnection/ListConnections, these ARE real published AWS
+	// operations, so they must remain reachable at their real wire paths in
+	// addition to the gopherstack admin alias below (which only serves the
+	// two non-AWS ops).
 	connectionsPath = "/connections"
 	// connectionsPathSlash is the prefix for individual connections at the real path.
 	connectionsPathSlash = connectionsPath + "/"
+	// connectionsSubSubscriptions is the ListSubscriptions sub-resource
+	// segment: GET /connections/{clientId}/subscriptions.
+	connectionsSubSubscriptions = "subscriptions"
+	// connectionsSubMessages is the SendDirectMessage sub-resource segment:
+	// POST /connections/{clientId}/messages.
+	connectionsSubMessages = "messages"
 	// defaultPageSize is the default number of items returned per page (AWS default).
 	defaultPageSize = 25
 	// maxPageSize is the maximum number of items returned per page (AWS cap).
@@ -54,6 +63,9 @@ const (
 	errMethodNotAllowed = "MethodNotAllowedException"
 	opUnknown           = "Unknown"
 	opDeleteConnection  = "DeleteConnection"
+	opGetConnection     = "GetConnection"
+	opListSubscriptions = "ListSubscriptions"
+	opSendDirectMessage = "SendDirectMessage"
 
 	// shadowPathParts is the number of parts when splitting a shadow URL on "/shadow".
 	shadowPathParts = 2
@@ -82,14 +94,17 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opDeleteConnection,
 		"DeleteThingShadow",
+		opGetConnection,
 		"GetRetainedMessage",
 		"GetThingShadow",
 		"ListConnections",
 		"ListNamedShadowsForThing",
 		"ListRetainedMessages",
+		opListSubscriptions,
 		"ListThingsWithShadows",
 		"Publish",
 		"RegisterConnection",
+		opSendDirectMessage,
 		"UpdateThingShadow",
 	}
 }
@@ -114,7 +129,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			path == listThingsWithShadowsPath ||
 			path == adminConnectionsPath ||
 			strings.HasPrefix(path, adminConnectionsPathSlash) ||
-			isDeleteConnectionPath(path, c.Request().Method) ||
+			connectionsWireOperation(path, c.Request().Method) != "" ||
 			path == retainedMessagePath ||
 			strings.HasPrefix(path, retainedMessagePathSlash)
 	}
@@ -150,22 +165,62 @@ func isShadowPath(path string) bool {
 // MatchPriority returns the routing priority for the IoT Data Plane handler.
 func (h *Handler) MatchPriority() int { return iotDPMatchPriority }
 
-// isDeleteConnectionPath reports whether path/method address the real AWS
-// DeleteConnection wire path: DELETE /connections/{clientId}. Only DELETE is
-// real here -- GET/POST on the bare /connections prefix have no AWS
-// equivalent (those live under adminConnectionsPath instead).
-func isDeleteConnectionPath(path, method string) bool {
-	return method == http.MethodDelete && strings.HasPrefix(path, connectionsPathSlash)
+// splitConnectionsWirePath splits a real AWS "/connections/{clientId}[/sub]"
+// path into its clientId and optional sub-resource segment (either "",
+// connectionsSubSubscriptions, or connectionsSubMessages). ok is false when
+// path doesn't have the connectionsPathSlash prefix or clientId is empty
+// (e.g. bare "/connections/" or "/connections").
+func splitConnectionsWirePath(path string) (string, string, bool) {
+	after, hasPrefix := strings.CutPrefix(path, connectionsPathSlash)
+	if !hasPrefix || after == "" {
+		return "", "", false
+	}
+
+	clientID, sub, _ := strings.Cut(after, "/")
+
+	return clientID, sub, clientID != ""
+}
+
+// connectionsWireOperation returns the AWS operation name for a real
+// "/connections/..." wire-path request: GetConnection (GET, no sub-resource),
+// DeleteConnection (DELETE, no sub-resource), ListSubscriptions (GET
+// .../subscriptions), or SendDirectMessage (POST .../messages). Returns ""
+// for any other method/path combination on this prefix -- notably POST
+// /connections/{clientId} with no sub-resource, which has no real AWS
+// equivalent (RegisterConnection only exists at the gopherstack-only
+// adminConnectionsPath; see admin-only-extensions family in PARITY.md) and
+// must keep falling through to the generic 404.
+func connectionsWireOperation(path, method string) string {
+	_, sub, ok := splitConnectionsWirePath(path)
+	if !ok {
+		return ""
+	}
+
+	switch {
+	case sub == "" && method == http.MethodGet:
+		return opGetConnection
+	case sub == "" && method == http.MethodDelete:
+		return opDeleteConnection
+	case sub == connectionsSubSubscriptions && method == http.MethodGet:
+		return opListSubscriptions
+	case sub == connectionsSubMessages && method == http.MethodPost:
+		return opSendDirectMessage
+	default:
+		return ""
+	}
 }
 
 // extractConnectionClientID returns the clientId path segment for either the
-// gopherstack admin connections path or the real AWS DeleteConnection path.
+// gopherstack admin connections path or a real AWS connections wire path
+// (GetConnection/DeleteConnection/ListSubscriptions/SendDirectMessage).
 func extractConnectionClientID(path string) string {
 	if after, ok := strings.CutPrefix(path, adminConnectionsPathSlash); ok {
 		return after
 	}
 
-	return strings.TrimPrefix(path, connectionsPathSlash)
+	clientID, _, _ := splitConnectionsWirePath(path)
+
+	return clientID
 }
 
 // extractConnectionOperation returns the operation name for /_admin/connections paths.
@@ -215,8 +270,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "ListThingsWithShadows"
 	case path == adminConnectionsPath || strings.HasPrefix(path, adminConnectionsPathSlash):
 		return extractConnectionOperation(path, method)
-	case isDeleteConnectionPath(path, method):
-		return opDeleteConnection
+	case connectionsWireOperation(path, method) != "":
+		return connectionsWireOperation(path, method)
 	case path == retainedMessagePath && method == http.MethodGet:
 		return "ListRetainedMessages"
 	case strings.HasPrefix(path, retainedMessagePathSlash) && method == http.MethodGet:
@@ -251,8 +306,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return after
 	}
 
-	if after, ok := strings.CutPrefix(path, connectionsPathSlash); ok {
-		return after
+	if clientID, _, ok := splitConnectionsWirePath(path); ok {
+		return clientID
 	}
 
 	if path == retainedMessagePath {
@@ -336,8 +391,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleConnections(c)
 		case strings.HasPrefix(path, adminConnectionsPathSlash):
 			return h.handleConnectionByID(c)
-		case isDeleteConnectionPath(path, c.Request().Method):
-			return h.handleDeleteConnection(c)
+		case connectionsWireOperation(path, c.Request().Method) != "":
+			return h.handleConnectionsWire(c)
 		case path == retainedMessagePath:
 			return h.handleListRetainedMessages(c)
 		case strings.HasPrefix(path, retainedMessagePathSlash):

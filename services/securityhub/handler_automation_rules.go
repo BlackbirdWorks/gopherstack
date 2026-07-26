@@ -43,7 +43,7 @@ func (h *Handler) handleListAutomationRules(c *echo.Context) error {
 			"IsTerminal":   r.IsTerminal, //nolint:goconst // existing issue.
 			keyCreatedAt:   r.CreatedAt,
 			keyUpdatedAt:   r.UpdatedAt,
-			"CreatedBy":    r.CreatedBy,
+			keyCreatedBy:   r.CreatedBy,
 		}
 	}
 
@@ -103,7 +103,7 @@ func (h *Handler) handleBatchGetAutomationRules(c *echo.Context, body map[string
 			"IsTerminal":   r.IsTerminal,
 			keyCreatedAt:   r.CreatedAt,
 			keyUpdatedAt:   r.UpdatedAt,
-			"CreatedBy":    r.CreatedBy,
+			keyCreatedBy:   r.CreatedBy,
 			"Criteria":     r.Criteria,
 			"Actions":      r.Actions,
 		}

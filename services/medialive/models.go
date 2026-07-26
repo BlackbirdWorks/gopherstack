@@ -5,41 +5,90 @@ import (
 	"time"
 )
 
+// storedChannel's gopherstack-jb9i additions (CdiInputSpecification through
+// Vpc) mirror ChannelCreateExtras/ChannelUpdateExtras field-for-field -- see
+// their doc comments in interfaces.go for what each wire member is and,
+// where relevant, what sub-shape is deliberately not modeled.
 type storedChannel struct {
-	Tags             map[string]string       `json:"tags"`
-	ARN              string                  `json:"arn"`
-	ID               string                  `json:"id"`
-	Name             string                  `json:"name"`
-	ChannelClass     string                  `json:"channelClass"`
-	RoleARN          string                  `json:"roleArn"`
-	State            string                  `json:"state"`
-	AnywhereSettings ChannelAnywhereSettings `json:"anywhereSettings"`
+	Tags                  map[string]string            `json:"tags"`
+	Maintenance           ChannelMaintenance           `json:"maintenance"`
+	InputSpecification    InputSpecification           `json:"inputSpecification"`
+	ChannelEngineVersion  ChannelEngineVersion         `json:"channelEngineVersion"`
+	AnywhereSettings      ChannelAnywhereSettings      `json:"anywhereSettings"`
+	LogLevel              string                       `json:"logLevel"`
+	CdiInputSpecification CdiInputSpecification        `json:"cdiInputSpecification"`
+	ChannelClass          string                       `json:"channelClass"`
+	RoleARN               string                       `json:"roleArn"`
+	State                 string                       `json:"state"`
+	ID                    string                       `json:"id"`
+	ARN                   string                       `json:"arn"`
+	Name                  string                       `json:"name"`
+	LinkedChannelSettings ChannelLinkedChannelSettings `json:"linkedChannelSettings"`
+	Vpc                   ChannelVpcSettings           `json:"vpc"`
+	InferenceSettings     ChannelInferenceSettings     `json:"inferenceSettings"`
+	InputAttachments      []ChannelInputAttachment     `json:"inputAttachments"`
+	Destinations          []ChannelOutputDestination   `json:"destinations"`
+	ChannelSecurityGroups []string                     `json:"channelSecurityGroups"`
+	EncoderSettings       EncoderSettings              `json:"encoderSettings"`
 }
 
+// toChannel converts to the domain Channel shape. LinkedChannelSettings.
+// Primary.FollowingChannelArns is NOT populated here (it's derived from
+// every other channel's settings, not stored on this one) -- callers that
+// need it use the backend's toChannelWithDerived, which stamps it in after
+// calling this method. See ChannelPrimarySettings' doc comment.
 func (c *storedChannel) toChannel() *Channel {
 	tags := make(map[string]string, len(c.Tags))
 	maps.Copy(tags, c.Tags)
 
 	return &Channel{
-		ARN:              c.ARN,
-		ID:               c.ID,
-		Name:             c.Name,
-		ChannelClass:     c.ChannelClass,
-		RoleARN:          c.RoleARN,
-		State:            c.State,
-		Tags:             tags,
-		AnywhereSettings: c.AnywhereSettings,
+		ARN:                   c.ARN,
+		ID:                    c.ID,
+		Name:                  c.Name,
+		ChannelClass:          c.ChannelClass,
+		RoleARN:               c.RoleARN,
+		State:                 c.State,
+		LogLevel:              c.LogLevel,
+		Tags:                  tags,
+		AnywhereSettings:      c.AnywhereSettings,
+		CdiInputSpecification: c.CdiInputSpecification,
+		ChannelEngineVersion:  c.ChannelEngineVersion,
+		ChannelSecurityGroups: c.ChannelSecurityGroups,
+		Destinations:          c.Destinations,
+		EncoderSettings:       c.EncoderSettings,
+		InferenceSettings:     c.InferenceSettings,
+		InputAttachments:      c.InputAttachments,
+		InputSpecification:    c.InputSpecification,
+		LinkedChannelSettings: c.LinkedChannelSettings,
+		Maintenance:           c.Maintenance,
+		Vpc:                   c.Vpc,
 	}
 }
 
+// toSummary converts to the domain ChannelSummary shape (same
+// caveat as toChannel regarding FollowingChannelArns -- see
+// InMemoryBackend.ListChannels, which stamps it in after calling this
+// method). EncoderSettings is intentionally excluded -- see ChannelSummary's
+// doc comment.
 func (c *storedChannel) toSummary() *ChannelSummary {
 	return &ChannelSummary{
-		ARN:              c.ARN,
-		ID:               c.ID,
-		Name:             c.Name,
-		ChannelClass:     c.ChannelClass,
-		State:            c.State,
-		AnywhereSettings: c.AnywhereSettings,
+		ARN:                   c.ARN,
+		ID:                    c.ID,
+		Name:                  c.Name,
+		ChannelClass:          c.ChannelClass,
+		State:                 c.State,
+		LogLevel:              c.LogLevel,
+		AnywhereSettings:      c.AnywhereSettings,
+		CdiInputSpecification: c.CdiInputSpecification,
+		ChannelEngineVersion:  c.ChannelEngineVersion,
+		ChannelSecurityGroups: c.ChannelSecurityGroups,
+		Destinations:          c.Destinations,
+		InferenceSettings:     c.InferenceSettings,
+		InputAttachments:      c.InputAttachments,
+		InputSpecification:    c.InputSpecification,
+		LinkedChannelSettings: c.LinkedChannelSettings,
+		Maintenance:           c.Maintenance,
+		Vpc:                   c.Vpc,
 	}
 }
 

@@ -86,6 +86,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 		"ConverseStream",
 		"CountTokens",
 		"GetAsyncInvoke",
+		"InvokeGuardrailChecks",
 		"InvokeModel",
 		"InvokeModelWithBidirectionalStream",
 		"InvokeModelWithResponseStream",

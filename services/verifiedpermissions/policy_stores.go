@@ -183,6 +183,19 @@ func (b *InMemoryBackend) DeletePolicyStore(policyStoreID string) error {
 		b.identitySources.Delete(identitySourceKey(policyStoreID, is.IdentitySourceID))
 	}
 
+	// Cascade-delete any aliases pointing at this store. The real API's docs
+	// are silent on this (DeletePolicyStore predates policy store aliases
+	// entirely, and its own doc page never mentions them) -- gopherstack
+	// picks cascade-delete rather than leaving a dangling alias that would
+	// resolve (via ResolvePolicyStoreAlias) to a policy store ID that no
+	// longer exists, the same ghost-row bug class fixed elsewhere in this
+	// campaign (e.g. emr sessions surviving cluster termination). Aliases
+	// carry no arnIndex/resourceTags entries (see PolicyStoreAlias's doc
+	// comment), so nothing else needs cleaning up for them here.
+	for _, a := range slices.Clone(b.policyStoreAliasesByStore.Get(policyStoreID)) {
+		b.policyStoreAliases.Delete(a.AliasName)
+	}
+
 	delete(b.arnIndex, ps.Arn)
 	delete(b.resourceTags, ps.Arn)
 	b.policyStores.Delete(policyStoreID)

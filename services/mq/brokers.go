@@ -826,3 +826,20 @@ func (b *InMemoryBackend) Promote(brokerID, mode string) (*Broker, error) {
 
 	return b.copyBroker(br), nil
 }
+
+// DescribeSharedResources returns the resources shared to a broker via AWS
+// Resource Access Manager (e.g. cross-account VPC subnets or configurations
+// shared through a RAM resource share). This backend does not model RAM
+// resource sharing, so it never fabricates a shared resource entry: the
+// broker ID is validated against real backend state exactly like
+// DescribeBroker, and a valid broker honestly reports zero shared resources.
+func (b *InMemoryBackend) DescribeSharedResources(brokerID string) ([]SharedResource, error) {
+	b.mu.RLock("DescribeSharedResources")
+	defer b.mu.RUnlock()
+
+	if br := b.lookupBroker(brokerID); br == nil {
+		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
+	}
+
+	return []SharedResource{}, nil
+}

@@ -375,7 +375,75 @@ func (h *Handler) handleServiceSoftwareRoutes(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// POST /2021-01-01/opensearch/serviceSoftwareUpdate/rollback
+	if rest == "/rollback" && r.Method == http.MethodPost {
+		h.handleRollbackServiceSoftwareUpdate(w, r)
+
+		return
+	}
+
 	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+}
+
+// rollbackServiceSoftwareUpdateRequest is the JSON request body for
+// RollbackServiceSoftwareUpdate.
+type rollbackServiceSoftwareUpdateRequest struct {
+	DomainName string `json:"DomainName"`
+}
+
+// rollbackServiceSoftwareOptionsJSON is the JSON representation of
+// RollbackServiceSoftwareOptions.
+type rollbackServiceSoftwareOptionsJSON struct {
+	CurrentVersion    string `json:"CurrentVersion"`
+	NewVersion        string `json:"NewVersion"`
+	Description       string `json:"Description"`
+	RollbackAvailable bool   `json:"RollbackAvailable"`
+}
+
+// rollbackServiceSoftwareUpdateOutput is the JSON response for
+// RollbackServiceSoftwareUpdate.
+type rollbackServiceSoftwareUpdateOutput struct {
+	RollbackServiceSoftwareOptions rollbackServiceSoftwareOptionsJSON `json:"RollbackServiceSoftwareOptions"`
+}
+
+func (h *Handler) handleRollbackServiceSoftwareUpdate(w http.ResponseWriter, r *http.Request) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req rollbackServiceSoftwareUpdateRequest
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+
+		return
+	}
+
+	opts, rollbackErr := h.Backend.RollbackServiceSoftwareUpdate(req.DomainName)
+	if rollbackErr != nil {
+		if errors.Is(rollbackErr, ErrDomainNotFound) {
+			// This newer op documents ResourceNotFoundException at HTTP 409,
+			// unlike the classic 404 convention used by
+			// CancelServiceSoftwareUpdate above -- confirmed against the live
+			// AWS API reference for RollbackServiceSoftwareUpdate.
+			h.writeError(r, w, http.StatusConflict, "ResourceNotFoundException", rollbackErr.Error())
+		} else {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", rollbackErr.Error())
+		}
+
+		return
+	}
+
+	h.writeJSON(r, w, rollbackServiceSoftwareUpdateOutput{
+		RollbackServiceSoftwareOptions: rollbackServiceSoftwareOptionsJSON{
+			CurrentVersion:    opts.CurrentVersion,
+			NewVersion:        opts.NewVersion,
+			Description:       opts.Description,
+			RollbackAvailable: opts.RollbackAvailable,
+		},
+	})
 }
 
 // cancelServiceSoftwareUpdateRequest is the JSON request body for CancelServiceSoftwareUpdate.

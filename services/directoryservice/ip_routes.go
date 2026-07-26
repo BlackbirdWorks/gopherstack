@@ -92,7 +92,7 @@ func (b *InMemoryBackend) ListIpRoutes( //nolint:revive,staticcheck // existing 
 		return nil, "", ErrDirectoryNotFound
 	}
 
-	stored := b.ipRoutesStore(region)[directoryID]
+	stored := b.ipRoutesStoreRO(region)[directoryID]
 	sorted := make([]storedIpRoute, len(stored))
 	copy(sorted, stored)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].CidrIP < sorted[j].CidrIP })

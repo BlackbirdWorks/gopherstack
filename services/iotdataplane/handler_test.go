@@ -221,6 +221,9 @@ func TestHandler_GetSupportedOperations_ConnectionAndRetainedOps(t *testing.T) {
 	assert.Contains(t, ops, "DeleteConnection")
 	assert.Contains(t, ops, "GetRetainedMessage")
 	assert.Contains(t, ops, "ListRetainedMessages")
+	assert.Contains(t, ops, "GetConnection")
+	assert.Contains(t, ops, "ListSubscriptions")
+	assert.Contains(t, ops, "SendDirectMessage")
 }
 func TestHandler_ExtractOperation_ConnectionAndRetainedPaths(t *testing.T) {
 	t.Parallel()
@@ -249,6 +252,30 @@ func TestHandler_ExtractOperation_ConnectionAndRetainedPaths(t *testing.T) {
 			path:   "/retainedMessage",
 			wantOp: "ListRetainedMessages",
 		},
+		{
+			name:   "get_connection",
+			method: http.MethodGet,
+			path:   "/connections/client-001",
+			wantOp: "GetConnection",
+		},
+		{
+			name:   "delete_connection_real_path",
+			method: http.MethodDelete,
+			path:   "/connections/client-001",
+			wantOp: "DeleteConnection",
+		},
+		{
+			name:   "list_subscriptions",
+			method: http.MethodGet,
+			path:   "/connections/client-001/subscriptions",
+			wantOp: "ListSubscriptions",
+		},
+		{
+			name:   "send_direct_message",
+			method: http.MethodPost,
+			path:   "/connections/client-001/messages",
+			wantOp: "SendDirectMessage",
+		},
 	}
 
 	for _, tt := range tests {
@@ -274,6 +301,8 @@ func TestHandler_RouteMatcher_ConnectionAndRetainedPaths(t *testing.T) {
 		{name: "connections", path: "/_admin/connections/client-001", wantMatch: true},
 		{name: "retained_message_by_topic", path: "/retainedMessage/sensor/temp", wantMatch: true},
 		{name: "list_retained_messages", path: "/retainedMessage", wantMatch: true},
+		{name: "get_connection_real_path", path: "/connections/client-001", wantMatch: true},
+		{name: "list_subscriptions_real_path", path: "/connections/client-001/subscriptions", wantMatch: true},
 		{name: "unrelated", path: "/other/path", wantMatch: false},
 	}
 
@@ -364,9 +393,9 @@ func Test_GetSupportedOperations_AllOps(t *testing.T) {
 	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
 	ops := h.GetSupportedOperations()
 	want := []string{
-		"DeleteConnection", "DeleteThingShadow", "GetRetainedMessage",
-		"GetThingShadow", "ListNamedShadowsForThing", "ListRetainedMessages",
-		"Publish", "UpdateThingShadow",
+		"DeleteConnection", "DeleteThingShadow", "GetConnection", "GetRetainedMessage",
+		"GetThingShadow", "ListNamedShadowsForThing", "ListRetainedMessages", "ListSubscriptions",
+		"Publish", "SendDirectMessage", "UpdateThingShadow",
 	}
 
 	for _, op := range want {
@@ -449,6 +478,10 @@ func Test_Dispatch_ConnectionsShadowsAndThingsPaths(t *testing.T) {
 
 	b := iotdataplane.NewInMemoryBackend()
 	b.AddShadowInternal("device", "", []byte(`{"state":{}}`))
+	// Seeded synchronously (not via a parallel subtest) so the GetConnection/
+	// ListSubscriptions/SendDirectMessage cases below have deterministic
+	// state to read, independent of subtest execution order.
+	b.AddConnectionInternal("device-1")
 	h := iotdataplane.NewHandler(b)
 
 	tests := []struct {
@@ -458,11 +491,15 @@ func Test_Dispatch_ConnectionsShadowsAndThingsPaths(t *testing.T) {
 		matched bool
 	}{
 		{http.MethodGet, "/_admin/connections", nil, true},
-		{http.MethodPost, "/_admin/connections/device-1", nil, true}, // registers → 201
+		// already registered (seeded above) → 409, still matched
+		{http.MethodPost, "/_admin/connections/device-1", nil, true},
 		{http.MethodGet, "/api/things/shadow/ListThingsWithShadows", nil, true},
 		{http.MethodGet, "/things/device/shadow", nil, true}, // seeded above → 200
 		{http.MethodGet, "/things/device/shadow/extra", nil, false},
 		{http.MethodGet, "/other", nil, false},
+		{http.MethodGet, "/connections/device-1", nil, true},                     // GetConnection (registered above)
+		{http.MethodGet, "/connections/device-1/subscriptions", nil, true},       // ListSubscriptions
+		{http.MethodPost, "/connections/device-1/messages?topic=t/1", nil, true}, // SendDirectMessage
 	}
 
 	for _, tt := range tests {
@@ -525,6 +562,34 @@ func Test_ErrorShapes_AllTypes(t *testing.T) {
 			path:      "/_admin/connections/dup-client",
 			wantCode:  http.StatusConflict,
 			wantError: "ResourceAlreadyExistsException",
+		},
+		{
+			name:      "get_connection_unknown_client_not_found",
+			method:    http.MethodGet,
+			path:      "/connections/never-connected",
+			wantCode:  http.StatusNotFound,
+			wantError: "ResourceNotFoundException",
+		},
+		{
+			name:      "list_subscriptions_unknown_client_not_found",
+			method:    http.MethodGet,
+			path:      "/connections/never-connected/subscriptions",
+			wantCode:  http.StatusNotFound,
+			wantError: "ResourceNotFoundException",
+		},
+		{
+			name:      "send_direct_message_missing_topic",
+			method:    http.MethodPost,
+			path:      "/connections/some-client/messages",
+			wantCode:  http.StatusBadRequest,
+			wantError: "InvalidRequestException",
+		},
+		{
+			name:      "send_direct_message_unknown_client_not_found",
+			method:    http.MethodPost,
+			path:      "/connections/never-connected/messages?topic=t/1",
+			wantCode:  http.StatusNotFound,
+			wantError: "ResourceNotFoundException",
 		},
 	}
 

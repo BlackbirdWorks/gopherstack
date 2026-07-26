@@ -115,7 +115,7 @@ func (b *InMemoryBackend) ListVpcEndpointAccess(ctx context.Context, domainName 
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	return slices.Clone(b.vpcAccessStore(region)[domainName]), nil
+	return slices.Clone(b.vpcAccessStoreRO(region)[domainName]), nil
 }
 
 // ListVpcEndpoints returns all VPC endpoints in the request's region.

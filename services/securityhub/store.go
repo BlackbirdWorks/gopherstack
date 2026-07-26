@@ -98,6 +98,7 @@ type InMemoryBackend struct {
 	hubV2                  *HubV2
 	aggregatorsV2          *store.Table[AggregatorV2]
 	automationRulesV2      *store.Table[AutomationRuleV2]
+	cspmConnectors         *store.Table[CspmConnector]
 	region                 string
 	accountID              string
 	aggregatorV2Seq        int
@@ -111,6 +112,7 @@ type InMemoryBackend struct {
 	actionTargetSeq        int
 	insightSeq             int
 	automationRuleSeq      int
+	cspmConnectorSeq       int
 	hubEnabled             bool
 	hubV2Enabled           bool
 }
@@ -181,6 +183,7 @@ func (b *InMemoryBackend) resetLocked() {
 	b.automationRuleV2Seq = 0
 	b.connectorV2Seq = 0
 	b.ticketV2Seq = 0
+	b.cspmConnectorSeq = 0
 
 	// Every store.Table-backed resource field collapses to one call,
 	// replacing what was previously ~16 individual make(map[...]) resets.
@@ -221,6 +224,7 @@ type snapshot struct {
 	AutomationRuleV2Seq  int  `json:"automationRuleV2Seq"`
 	ConnectorV2Seq       int  `json:"connectorV2Seq"`
 	TicketV2Seq          int  `json:"ticketV2Seq"`
+	CspmConnectorSeq     int  `json:"cspmConnectorSeq"`
 	HubEnabled           bool `json:"hubEnabled"`
 	HubV2Enabled         bool `json:"hubV2Enabled"`
 }
@@ -271,6 +275,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AutomationRuleV2Seq: b.automationRuleV2Seq,
 		ConnectorV2Seq:      b.connectorV2Seq,
 		TicketV2Seq:         b.ticketV2Seq,
+		CspmConnectorSeq:    b.cspmConnectorSeq,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "securityhub", snap)
@@ -360,6 +365,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.automationRuleV2Seq = snap.AutomationRuleV2Seq
 	b.connectorV2Seq = snap.ConnectorV2Seq
 	b.ticketV2Seq = snap.TicketV2Seq
+	b.cspmConnectorSeq = snap.CspmConnectorSeq
 
 	return nil
 }

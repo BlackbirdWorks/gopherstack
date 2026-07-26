@@ -118,6 +118,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	trSet, err := original.CreateTrustedEntitySet(detectorID, "tr-1", "TXT", "s3://bucket/tr", true, nil, "")
 	require.NoError(t, err)
 
+	require.NoError(t, original.UpdateDetector(detectorID, nil, "", []guardduty.DetectorFeature{
+		{Name: "AI_ANALYST", Status: "ENABLED"},
+	}))
+	inv, err := original.CreateInvestigation(detectorID, "Investigate finding in account 222233334444")
+	require.NoError(t, err)
+
 	created, unprocessed := original.CreateMembers(detectorID, []map[string]any{
 		{"accountId": "555566667777", "email": "member@example.com"},
 	})
@@ -209,6 +215,17 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{trSet.TrustedEntitySetID}, gotTRSetIDs)
 
+	// investigations ("dirty", detector-composite).
+	gotInv, err := restored.GetInvestigation(detectorID, inv.InvestigationID)
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", gotInv.Status)
+	assert.Equal(t, inv.TriggerPrompt, gotInv.TriggerPrompt)
+
+	gotInvList, _, err := restored.ListInvestigations(detectorID, guardduty.InvestigationsQuery{})
+	require.NoError(t, err)
+	require.Len(t, gotInvList, 1)
+	assert.Equal(t, inv.InvestigationID, gotInvList[0].InvestigationID)
+
 	// members ("clean", detector-composite).
 	members, err := restored.ListMembers(detectorID, false)
 	require.NoError(t, err)
@@ -278,4 +295,6 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, restored.DeleteDetector(detectorID))
 	_, err = restored.GetFilter(detectorID, filter.Name)
 	require.Error(t, err)
+	_, err = restored.GetInvestigation(detectorID, inv.InvestigationID)
+	require.Error(t, err, "investigations must be cascade-deleted with their detector, restored index included")
 }

@@ -750,3 +750,396 @@ func TestListFirewallRules_ActionAndPriorityFilters(t *testing.T) {
 		})
 	}
 }
+
+// createTestFirewallDomainList creates a domain list and returns its Id, for
+// use as setup fixture data by the Batch{Create,Update,Delete}FirewallRule
+// table tests below.
+func createTestFirewallDomainList(t *testing.T, h *route53resolver.Handler, name string) string {
+	t.Helper()
+
+	rec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": name})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	return decodeJSON(t, rec)["FirewallDomainList"].(map[string]any)["Id"].(string)
+}
+
+// TestBatchCreateFirewallRule covers BatchCreateFirewallRule: multi-entry
+// success, the envelope-required-field check, and -- critically -- the real
+// API's partial-success atomicity (verified against
+// api_op_BatchCreateFirewallRule.go and AWS's own published example response:
+// BatchCreateFirewallRuleOutput carries both CreatedFirewallRules and
+// CreateErrors from a single 200, there is no all-or-nothing rejection). A
+// batch containing one invalid entry must still create the valid entries
+// (proven below by both the response body's CreatedFirewallRules count and by
+// a follow-up ListFirewallRules call against the SAME backend showing the
+// successful rule actually landed in the shared FirewallRule store -- the
+// same store CreateFirewallRule itself writes to).
+func TestBatchCreateFirewallRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		buildEntries   func(t *testing.T, h *route53resolver.Handler, grpID string) []map[string]any
+		name           string
+		wantErrorCode  string
+		wantTopCode    int
+		wantCreatedLen int
+		wantErrorLen   int
+	}{
+		{
+			name: "all_valid_entries_may_span_different_groups",
+			buildEntries: func(t *testing.T, h *route53resolver.Handler, grpID string) []map[string]any {
+				t.Helper()
+				dl1 := createTestFirewallDomainList(t, h, "bc-dl-1")
+				dl2 := createTestFirewallDomainList(t, h, "bc-dl-2")
+
+				return []map[string]any{
+					{
+						"FirewallRuleGroupId": grpID, "FirewallDomainListId": dl1,
+						"Name": "bc-r1", "Action": "ALLOW", "Priority": 100,
+					},
+					{
+						"FirewallRuleGroupId": grpID, "FirewallDomainListId": dl2,
+						"Name": "bc-r2", "Action": "BLOCK", "BlockResponse": "NODATA", "Priority": 200,
+					},
+				}
+			},
+			wantTopCode:    http.StatusOK,
+			wantCreatedLen: 2,
+			wantErrorLen:   0,
+		},
+		{
+			name: "partial_failure_does_not_block_or_roll_back_valid_entries",
+			buildEntries: func(t *testing.T, h *route53resolver.Handler, grpID string) []map[string]any {
+				t.Helper()
+				dl1 := createTestFirewallDomainList(t, h, "bc-partial-dl-1")
+
+				return []map[string]any{
+					{
+						"FirewallRuleGroupId": grpID, "FirewallDomainListId": dl1,
+						"Name": "bc-partial-good", "Action": "ALLOW", "Priority": 100,
+					},
+					// Invalid Action -- fails handleCreateFirewallRule's Action
+					// validation, exactly as it would for a standalone
+					// CreateFirewallRule call.
+					{"FirewallRuleGroupId": grpID, "Name": "bc-partial-bad", "Action": "DENY", "Priority": 200},
+				}
+			},
+			wantTopCode:    http.StatusOK,
+			wantCreatedLen: 1,
+			wantErrorLen:   1,
+			wantErrorCode:  "InvalidRequestException",
+		},
+		{
+			name: "group_not_found_reported_per_entry_not_top_level",
+			buildEntries: func(_ *testing.T, _ *route53resolver.Handler, _ string) []map[string]any {
+				return []map[string]any{
+					{
+						"FirewallRuleGroupId": "rslvr-frg-doesnotexist",
+						"Name":                "bc-nogroup", "Action": "ALLOW", "Priority": 100,
+					},
+				}
+			},
+			wantTopCode:    http.StatusOK,
+			wantCreatedLen: 0,
+			wantErrorLen:   1,
+			wantErrorCode:  "ResourceNotFoundException",
+		},
+		{
+			name: "missing_entries_rejected_as_ValidationException",
+			buildEntries: func(_ *testing.T, _ *route53resolver.Handler, _ string) []map[string]any {
+				return nil
+			},
+			wantTopCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "batch-create-grp"})
+			require.Equal(t, http.StatusOK, grpRec.Code)
+			grpID := decodeJSON(t, grpRec)["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+			entries := tt.buildEntries(t, h, grpID)
+			rec := doRequest(t, h, "BatchCreateFirewallRule", map[string]any{"CreateFirewallRuleEntries": entries})
+			require.Equal(t, tt.wantTopCode, rec.Code)
+			if tt.wantTopCode != http.StatusOK {
+				return
+			}
+
+			resp := decodeJSON(t, rec)
+			created, _ := resp["CreatedFirewallRules"].([]any)
+			errs, _ := resp["CreateErrors"].([]any)
+			assert.Len(t, created, tt.wantCreatedLen)
+			assert.Len(t, errs, tt.wantErrorLen)
+			if tt.wantErrorLen > 0 {
+				errItem, ok := errs[0].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantErrorCode, errItem["Code"])
+				assert.NotEmpty(t, errItem["Message"])
+				assert.NotNil(t, errItem["FirewallRule"])
+			}
+
+			// Shared-state proof: the entries that succeeded are visible via
+			// ListFirewallRules against the very same handler/backend -- i.e.
+			// BatchCreateFirewallRule wrote through the same FirewallRule
+			// store as CreateFirewallRule, not an isolated batch-only store.
+			listRec := doRequest(t, h, "ListFirewallRules", map[string]any{"FirewallRuleGroupId": grpID})
+			require.Equal(t, http.StatusOK, listRec.Code)
+			listed, _ := decodeJSON(t, listRec)["FirewallRules"].([]any)
+			assert.Len(t, listed, tt.wantCreatedLen)
+		})
+	}
+}
+
+// TestBatchUpdateFirewallRule covers BatchUpdateFirewallRule: successful
+// multi-entry update and partial-failure semantics (same atomicity model as
+// BatchCreateFirewallRule -- see its doc comment / test above).
+func TestBatchUpdateFirewallRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		buildEntries   func(t *testing.T, h *route53resolver.Handler, grpID, dlID string) []map[string]any
+		name           string
+		wantErrorCode  string
+		wantTopCode    int
+		wantUpdatedLen int
+		wantErrorLen   int
+	}{
+		{
+			name: "valid_update_applies_through_shared_store",
+			buildEntries: func(_ *testing.T, _ *route53resolver.Handler, grpID, dlID string) []map[string]any {
+				return []map[string]any{
+					{
+						"FirewallRuleGroupId": grpID, "FirewallDomainListId": dlID,
+						"Priority": 999, "Action": "BLOCK", "BlockResponse": "NXDOMAIN",
+					},
+				}
+			},
+			wantTopCode:    http.StatusOK,
+			wantUpdatedLen: 1,
+			wantErrorLen:   0,
+		},
+		{
+			name: "partial_failure_missing_domain_list_id_does_not_block_valid_entry",
+			buildEntries: func(_ *testing.T, _ *route53resolver.Handler, grpID, dlID string) []map[string]any {
+				return []map[string]any{
+					{"FirewallRuleGroupId": grpID, "FirewallDomainListId": dlID, "Priority": 555},
+					// Missing FirewallDomainListId -- fails handleUpdateFirewallRule's
+					// required-field check, same as a standalone call would.
+					{"FirewallRuleGroupId": grpID, "Priority": 100},
+				}
+			},
+			wantTopCode:    http.StatusOK,
+			wantUpdatedLen: 1,
+			wantErrorLen:   1,
+			wantErrorCode:  "InvalidRequestException",
+		},
+		{
+			name: "missing_entries_rejected_as_ValidationException",
+			buildEntries: func(_ *testing.T, _ *route53resolver.Handler, _, _ string) []map[string]any {
+				return nil
+			},
+			wantTopCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "batch-update-grp"})
+			require.Equal(t, http.StatusOK, grpRec.Code)
+			grpID := decodeJSON(t, grpRec)["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+			dlID := createTestFirewallDomainList(t, h, "batch-update-dl")
+
+			createRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+				"FirewallRuleGroupId": grpID, "FirewallDomainListId": dlID,
+				"Name": "bu-rule", "Action": "ALLOW", "Priority": 100,
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			entries := tt.buildEntries(t, h, grpID, dlID)
+			rec := doRequest(t, h, "BatchUpdateFirewallRule", map[string]any{"UpdateFirewallRuleEntries": entries})
+			require.Equal(t, tt.wantTopCode, rec.Code)
+			if tt.wantTopCode != http.StatusOK {
+				return
+			}
+
+			resp := decodeJSON(t, rec)
+			updated, _ := resp["UpdatedFirewallRules"].([]any)
+			errs, _ := resp["UpdateErrors"].([]any)
+			assert.Len(t, updated, tt.wantUpdatedLen)
+			assert.Len(t, errs, tt.wantErrorLen)
+			if tt.wantErrorLen > 0 {
+				errItem, ok := errs[0].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantErrorCode, errItem["Code"])
+			}
+
+			// Shared-state proof: read the rule back through ListFirewallRules
+			// (the same read path GetFirewallRule-equivalent callers use) to
+			// confirm the batch update actually mutated the one rule that
+			// exists in the shared store.
+			listRec := doRequest(t, h, "ListFirewallRules", map[string]any{"FirewallRuleGroupId": grpID})
+			require.Equal(t, http.StatusOK, listRec.Code)
+			listed, _ := decodeJSON(t, listRec)["FirewallRules"].([]any)
+			require.Len(t, listed, 1)
+			if tt.wantUpdatedLen > 0 {
+				rule, ok := listed[0].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, updated[0].(map[string]any)["Priority"], rule["Priority"])
+			}
+		})
+	}
+}
+
+// TestBatchDeleteFirewallRule covers BatchDeleteFirewallRule: successful
+// deletion and partial-failure semantics (same atomicity model as
+// BatchCreateFirewallRule -- see its doc comment / test above). Proves that a
+// batch with one not-found entry still deletes the entry that does exist,
+// and that the deletion is visible via ListFirewallRules against the shared
+// store.
+func TestBatchDeleteFirewallRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		wantErrorCode  string
+		wantTopCode    int
+		wantDeletedLen int
+		wantErrorLen   int
+		deleteMissing  bool
+	}{
+		{
+			name:           "valid_delete_removes_from_shared_store",
+			wantTopCode:    http.StatusOK,
+			wantDeletedLen: 1,
+			wantErrorLen:   0,
+		},
+		{
+			name:           "partial_failure_not_found_entry_does_not_block_valid_delete",
+			wantTopCode:    http.StatusOK,
+			wantDeletedLen: 1,
+			wantErrorLen:   1,
+			wantErrorCode:  "ResourceNotFoundException",
+			deleteMissing:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "batch-delete-grp"})
+			require.Equal(t, http.StatusOK, grpRec.Code)
+			grpID := decodeJSON(t, grpRec)["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+			dlID := createTestFirewallDomainList(t, h, "batch-delete-dl")
+
+			createRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+				"FirewallRuleGroupId": grpID, "FirewallDomainListId": dlID,
+				"Name": "bd-rule", "Action": "ALLOW", "Priority": 100,
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			entries := []map[string]any{
+				{"FirewallRuleGroupId": grpID, "FirewallDomainListId": dlID},
+			}
+			if tt.deleteMissing {
+				extraDL := createTestFirewallDomainList(t, h, "batch-delete-missing-dl")
+				entries = append(entries, map[string]any{
+					"FirewallRuleGroupId": grpID, "FirewallDomainListId": extraDL,
+				})
+			}
+
+			rec := doRequest(t, h, "BatchDeleteFirewallRule", map[string]any{"DeleteFirewallRuleEntries": entries})
+			require.Equal(t, tt.wantTopCode, rec.Code)
+
+			resp := decodeJSON(t, rec)
+			deleted, _ := resp["DeletedFirewallRules"].([]any)
+			errs, _ := resp["DeleteErrors"].([]any)
+			assert.Len(t, deleted, tt.wantDeletedLen)
+			assert.Len(t, errs, tt.wantErrorLen)
+			if tt.wantErrorLen > 0 {
+				errItem, ok := errs[0].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantErrorCode, errItem["Code"])
+			}
+
+			// Shared-state proof: the rule that WAS successfully deleted must
+			// be gone from ListFirewallRules against the shared store.
+			listRec := doRequest(t, h, "ListFirewallRules", map[string]any{"FirewallRuleGroupId": grpID})
+			require.Equal(t, http.StatusOK, listRec.Code)
+			listed, _ := decodeJSON(t, listRec)["FirewallRules"].([]any)
+			assert.Empty(t, listed)
+		})
+	}
+}
+
+// TestListFirewallRuleTypes covers ListFirewallRuleTypes' catalog, sourced
+// directly from the real SDK's types.DnsThreatProtection enum
+// (DGA/DNS_TUNNELING/DICTIONARY_DGA) rather than hand-written. The other
+// three RuleType variants (FirewallAdvancedContentCategory/
+// FirewallAdvancedThreatCategory/PartnerThreatProtection) have no closed SDK
+// enum to source concrete Values from (see firewallRuleTypeCatalog's doc
+// comment) and are correctly absent -- verified here by asserting a filter on
+// one of them returns zero results rather than invented ones.
+func TestListFirewallRuleTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		ruleType   string
+		wantValues []string
+	}{
+		{
+			name:       "no_filter_returns_dns_threat_protection_catalog",
+			wantValues: []string{"DGA", "DNS_TUNNELING", "DICTIONARY_DGA"},
+		},
+		{
+			name:       "explicit_dns_threat_protection_filter",
+			ruleType:   "DnsThreatProtection",
+			wantValues: []string{"DGA", "DNS_TUNNELING", "DICTIONARY_DGA"},
+		},
+		{
+			name:       "content_category_filter_returns_none_not_invented_values",
+			ruleType:   "FirewallAdvancedContentCategory",
+			wantValues: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			body := map[string]any{}
+			if tt.ruleType != "" {
+				body["RuleType"] = tt.ruleType
+			}
+
+			rec := doRequest(t, h, "ListFirewallRuleTypes", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := decodeJSON(t, rec)
+			items, _ := resp["FirewallRuleTypes"].([]any)
+			require.Len(t, items, len(tt.wantValues))
+
+			gotValues := make([]string, 0, len(items))
+			for _, raw := range items {
+				item, ok := raw.(map[string]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, item["RuleType"])
+				assert.NotEmpty(t, item["DisplayName"])
+				gotValues = append(gotValues, item["Value"].(string))
+			}
+			assert.ElementsMatch(t, tt.wantValues, gotValues)
+		})
+	}
+}

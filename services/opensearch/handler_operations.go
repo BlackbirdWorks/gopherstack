@@ -109,6 +109,29 @@ func infraAndAppOperations() []string {
 	}
 }
 
+// applicationDataMigrationOperations lists the newer OpenSearch-application-
+// scoped operations added in the aws-sdk-go-v2 bump this pass covers: data
+// source attachments, capabilities, insights, migrations, and the
+// domain-scoped RollbackServiceSoftwareUpdate.
+func applicationDataMigrationOperations() []string {
+	return []string{
+		"AttachDataSource",
+		"DetachDataSource",
+		"DescribeDataSourceAttachment",
+		"ListDataSourceAttachments",
+		"RegisterCapability",
+		"DeregisterCapability",
+		"GetCapability",
+		"ListInsights",
+		"DescribeInsightDetails",
+		"InsightFeedback",
+		"StartMigration",
+		"GetMigration",
+		"ListMigrations",
+		"RollbackServiceSoftwareUpdate",
+	}
+}
+
 func serverlessOperations() []string {
 	return []string{
 		"BatchGetCollection",
@@ -143,6 +166,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	ops = append(ops, packageAndDataOperations()...)
 	ops = append(ops, infraAndAppOperations()...)
 	ops = append(ops, serverlessOperations()...)
+	ops = append(ops, applicationDataMigrationOperations()...)
 
 	return ops
 }
@@ -179,7 +203,113 @@ func extractNonDomainOperation(path, method string) string {
 		return op
 	}
 
-	return extractTagOrSoftwareOp(path, method)
+	if op := extractTagOrSoftwareOp(path, method); op != "" {
+		return op
+	}
+
+	return extractApplicationDataMigrationOp(path, method)
+}
+
+// extractApplicationDataMigrationOp handles operation extraction for the
+// newer data source attachment, capability, insight, and migration routes
+// (see applicationDataMigrationOperations).
+func extractApplicationDataMigrationOp(path, method string) string {
+	if op := extractDataSourceAttachmentOrCapabilityOp(path, method); op != "" {
+		return op
+	}
+
+	if op := extractInsightOp(path, method); op != "" {
+		return op
+	}
+
+	return extractMigrationOrRollbackOp(path, method)
+}
+
+// extractInsightOp handles the top-level insights/insight-details/
+// insight-feedback routes.
+func extractInsightOp(path, method string) string {
+	switch {
+	case path == openSearchInsightsPath && method == http.MethodPost:
+		return "ListInsights"
+	case path == openSearchInsightDetailsPath && method == http.MethodPost:
+		return "DescribeInsightDetails"
+	case path == openSearchInsightFeedbackPath && method == http.MethodPost:
+		return "InsightFeedback"
+	}
+
+	return ""
+}
+
+// extractMigrationOrRollbackOp handles the app-migrations routes and
+// RollbackServiceSoftwareUpdate.
+func extractMigrationOrRollbackOp(path, method string) string {
+	switch {
+	case path == openSearchAppMigrationsPath && method == http.MethodPost:
+		return "StartMigration"
+	case path == openSearchAppMigrationsPath && method == http.MethodGet:
+		return "ListMigrations"
+	case strings.HasPrefix(path, openSearchAppMigrationsPath+"/") && method == http.MethodGet:
+		return "GetMigration"
+	case path == openSearchServiceSwPath+"/rollback" && method == http.MethodPost:
+		return "RollbackServiceSoftwareUpdate"
+	}
+
+	return ""
+}
+
+// extractDataSourceAttachmentOrCapabilityOp handles the
+// /application/{id}/{attachDataSource,...,capability/...} sub-routes.
+func extractDataSourceAttachmentOrCapabilityOp(path, method string) string {
+	after, ok := strings.CutPrefix(path, openSearchApplicationPath+"/")
+	if !ok {
+		return ""
+	}
+
+	_, subPath, ok := strings.Cut(after, "/")
+	if !ok {
+		return ""
+	}
+
+	if op := extractDataSourceAttachmentSubOp(subPath, method); op != "" {
+		return op
+	}
+
+	return extractCapabilitySubOp(subPath, method)
+}
+
+// extractDataSourceAttachmentSubOp handles the four attach/detach/describe/
+// list sub-paths.
+func extractDataSourceAttachmentSubOp(subPath, method string) string {
+	if method != http.MethodPost {
+		return ""
+	}
+
+	switch subPath {
+	case subPathAttachDataSource:
+		return "AttachDataSource"
+	case subPathDetachDataSource:
+		return "DetachDataSource"
+	case subPathDescribeDataSourceAttachment:
+		return "DescribeDataSourceAttachment"
+	case subPathListDataSourceAttachments:
+		return "ListDataSourceAttachments"
+	}
+
+	return ""
+}
+
+// extractCapabilitySubOp handles the capability/{register,deregister/*,*} sub-paths.
+func extractCapabilitySubOp(subPath, method string) string {
+	switch {
+	case subPath == "capability/register" && method == http.MethodPost:
+		return "RegisterCapability"
+	case strings.HasPrefix(subPath, "capability/deregister/") && method == http.MethodDelete:
+		return "DeregisterCapability"
+	case strings.HasPrefix(subPath, "capability/") && method == http.MethodGet:
+		return "GetCapability"
+	}
+
+	return ""
 }
 
 // extractCCOrDirectQueryOp handles cross-cluster and direct-query operation extraction.
@@ -191,9 +321,9 @@ func extractCCOrDirectQueryOp(path, method string) string {
 		return "AcceptInboundConnection"
 	case strings.HasPrefix(path, openSearchDirectQueryPath) && method == http.MethodPost:
 		return "AddDirectQueryDataSource"
-	case strings.HasPrefix(path, openSearchApplicationPath) && method == http.MethodPost:
+	case (path == openSearchApplicationPath || path == openSearchApplicationPath+"/") && method == http.MethodPost:
 		return "CreateApplication"
-	case strings.HasPrefix(path, openSearchServiceSwPath) && method == http.MethodPost:
+	case path == openSearchServiceSwPath+"/cancel" && method == http.MethodPost:
 		return "CancelServiceSoftwareUpdate"
 	}
 

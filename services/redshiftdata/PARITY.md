@@ -5,9 +5,9 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: redshiftdata
-sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.41.0   # version audited against
-last_audit_commit: 1c4ee34e                              # HEAD when this audit began (working tree, uncommitted)
-last_audit_date: 2026-07-23
+sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.0   # version audited against
+last_audit_commit: 2b2a22e6d                             # HEAD when this audit began (working tree, uncommitted)
+last_audit_date: 2026-07-25
 overall: A            # genuine wire-shape/field gaps found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -76,6 +76,31 @@ ops:
     missing) and Database-required validation added (same reasoning as ListDatabases).
     Prior-pass fix retained: TableName is a plain string (was a nested object). ColumnList
     is static demo data ignoring req.Schema/req.Table (acceptable mock).}
+  ListSessions: {wire: ok, errors: ok, state: partial, persist: n/a (derived), note: >
+    NEW this pass (SDK added this op since v1.41.0; confirmed target
+    "RedshiftData.ListSessions" against awsAwsjson11_serializeOpListSessions in
+    aws-sdk-go-v2/service/redshiftdata@v1.43.0's serializers.go). This backend has no
+    CreateSession/CloseSession API and does not store sessions as a first-class resource
+    -- ListSessions derives SessionData by grouping stored Statement records that share a
+    non-empty SessionID (groupSessions in sessions.go): ClusterIdentifier/WorkgroupName/
+    Database/DbUser/UpdatedAt come from the most-recently-updated statement in the group,
+    CreatedAt from the earliest. Field-diffed request/response against
+    awsAwsjson11_serializeOpDocumentListSessionsInput and
+    awsAwsjson11_deserializeDocumentSessionData in the same module. Validation added for
+    the two documented mutual-exclusivity constraints (SessionId can't combine with
+    Status/ClusterIdentifier/WorkgroupName/Database; ClusterIdentifier and WorkgroupName
+    can't both be set) and for the Status enum. Pagination follows this package's
+    NextToken-is-the-last-item's-ID convention (sessionPageStart), same as ListStatements.
+    Status is real but always AVAILABLE in practice: BUSY is unreachable because
+    ExecuteStatement/BatchExecuteStatement complete synchronously (same root cause as the
+    pre-existing CancelStatement gap), and CLOSED is unreachable because
+    SessionAliveSeconds/SessionTtl are not tracked (see gaps) so no expiry can ever fire.
+    RoleLevel is accepted on the wire but not applied as a filter, identical to the
+    pre-existing ListStatements RoleLevel gap. Sessions only appear here when the caller
+    explicitly supplied SessionId to ExecuteStatement/BatchExecuteStatement -- this mock
+    does not mint a session id when only SessionKeepAliveSeconds is given (pre-existing
+    gap, see ExecuteStatement note above), so such sessions are invisible to ListSessions
+    too; that is a real, if narrow, gap, hence state: partial rather than ok.}
 # Families audited as a group (when per-op is impractical):
 families:
   statement-lifecycle: {status: ok, note: "unchanged this pass -- SUBMITTED/PICKED/STARTED never observable -- ExecuteStatement/BatchExecuteStatement complete to FINISHED synchronously within the same call, so no client ever polls a non-terminal state (no hang bug). CancelStatement is real code but practically unreachable given synchronous completion (see gaps)."}
@@ -104,6 +129,7 @@ gaps:
   - RoleLevel is parsed on ListStatements' request body but never applied as a filter: real semantics are "true (default) = all statements this IAM role has run, false = only this IAM session's statements," but this mock has no per-caller-identity or per-session model of statement ownership, so there is no signal to filter on. All statements are visible regardless of RoleLevel, matching the "true" default in effect at all times.
   - ActiveStatementsExceededException, ActiveSessionsExceededException, DatabaseConnectionException, ExecuteStatementException, BatchExecuteStatementException, and QueryTimeoutException are all real modeled exception types in aws-sdk-go-v2/service/redshiftdata/types/errors.go but are unreachable by design in this backend: ExecuteStatement/BatchExecuteStatement always complete synchronously and successfully against in-memory demo data (no real cluster connection to fail, no concurrent-statement or concurrent-session limit tracked). Deliberately NOT implemented this pass: inventing trigger conditions (e.g. an arbitrary "N active statements" cap, or making some ClusterIdentifier/SecretArn values fail with DatabaseConnectionException) would fabricate gopherstack-only behavior with no real-AWS trigger to field-diff against -- consistent with rdsdata's precedent of leaving unreachable-by-design SDK exceptions undone rather than guessing.
   - ListStatements items include several fields (ClusterIdentifier, WorkgroupName, Database, DbUser, HasResultSet, Duration) that don't exist on the real StatementData shape at all. The AWS SDK's JSON deserializer silently discards unknown keys, so this is harmless today, but flagged in case a future SDK version repurposes one of those key names.
+  - ListSessions (new this pass) never returns Status=BUSY or Status=CLOSED, and never returns SessionAliveSeconds/SessionTtl/CurrentStatementId at all: this backend executes every statement synchronously to a terminal state (no mid-flight window to observe BUSY/CurrentStatementId) and does not track SessionKeepAliveSeconds expiry (no SessionTtl to compare "now" against, so CLOSED can never be derived). Modeling any of these would require the same async-execution and keep-alive state machine already flagged as out-of-scope for CancelStatement/ClientToken/SessionKeepAliveSeconds above -- not invented here for the same reason. ListSessions also can't see sessions that were only ever referenced via SessionKeepAliveSeconds without an explicit SessionId (this mock doesn't mint one, see ExecuteStatement's note).
 deferred:
   - none
 leaks: {status: clean, note: "Janitor uses pkgs/worker.Group with TaskTimeout bounding; ticker stops cleanly via ctx.Done(); ring buffer + statements map bounded by maxStatementHistory and EvictExpiredStatements TTL sweep. Unchanged this pass -- no new goroutines/tickers/locks introduced (SessionID/Parameters changes are pure data threaded through the existing lock scopes in statements.go)."}
@@ -116,7 +142,30 @@ the exact target prefix against `aws-sdk-go-v2/service/redshiftdata@v1.41.0`'s
 `serializers.go` (`httpBindingEncoder.SetHeader("X-Amz-Target").String("RedshiftData.<Op>")`)
 -- `redshiftDataTargetPrefix = "RedshiftData."` in handler.go matches exactly.
 
-### This pass (2026-07-23): field-diffed every op's Input/Output against
+### This pass (2026-07-25): AWS SDK bump to v1.43.0 exposed one new operation,
+
+`ListSessions`, which `TestSDKCompleteness` flagged as unhandled. Implemented for real
+(not added to a `notImplemented` list): see the `ListSessions` row above for the full
+field-diff and derivation summary. Confirmed the wire target string
+(`RedshiftData.ListSessions`) and every request/response field name directly against
+`aws-sdk-go-v2/service/redshiftdata@v1.43.0`'s `serializers.go`
+(`awsAwsjson11_serializeOpDocumentListSessionsInput`) and `deserializers.go`
+(`awsAwsjson11_deserializeDocumentSessionData`, `awsAwsjson11_deserializeOpDocumentListSessionsOutput`)
+rather than inferring from the operation name. New files: `sessions.go` (backend
+derivation: `SessionData`/`ListSessionsFilter` live in `models.go`,
+`ValidateListSessionsRequest`/`groupSessions`/`(*InMemoryBackend).ListSessions`/filter+
+pagination helpers live in `sessions.go`) and `handler_sessions.go` (request parsing +
+wire-shape response building), mirroring the existing `statements.go`/`handler_statements.go`
+pairing. No `Statement`/backend-interface signature changes were needed for
+`ExecuteStatement`/`BatchExecuteStatement` -- `SessionID` was already threaded through from
+a prior pass, and `SessionKeepAliveSeconds` is deliberately not newly wired through those
+two ops for this op alone (see the `ListSessions` gaps entry) to avoid inconsistent
+partial modeling. No snapshot version bump: `ListSessions` adds no new persisted field to
+`Statement` (sessions are purely derived at read time from a `regionStore`'s existing
+`statements` map, already fully covered by `backendSnapshot`/`regionSnapshot`), so
+`redshiftdataSnapshotVersion` stays 1 and old snapshots decode unchanged.
+
+### Prior pass (2026-07-23): field-diffed every op's Input/Output against
 `aws-sdk-go-v2/service/redshiftdata@v1.41.0`'s `api_op_*.go`, `types/types.go`,
 `types/errors.go`, and the `serializers.go`/`deserializers.go` wire-key tables. Real gaps
 found and fixed (all in `handler_statements.go` / `handler_tables.go` / `handler_databases.go`
@@ -249,3 +298,9 @@ echoed them back -- extended this pass to assert the round-trip).
   "fix" `ExecuteStatement` to generate one whenever `SessionKeepAliveSeconds > 0` without
   re-reading the gaps entry above; there is no session-scoped state that would make a
   synthetic id meaningfully different from omitting it.
+- `ListSessions` always reports `Status: "AVAILABLE"` and never emits `SessionAliveSeconds`/
+  `SessionTtl`/`CurrentStatementId`. This is not an oversight to "complete" -- it is the
+  direct, correct consequence of ExecuteStatement/BatchExecuteStatement completing
+  synchronously (no BUSY window) and SessionKeepAliveSeconds not being tracked anywhere
+  (no TTL to compare against for CLOSED). See the `ListSessions` gaps entry before changing
+  this.

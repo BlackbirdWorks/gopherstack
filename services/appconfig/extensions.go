@@ -2,14 +2,18 @@ package appconfig
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 )
 
-// CreateExtension creates a new AppConfig extension at version 1.
+// CreateExtension creates a new AppConfig extension at version 1. See
+// CreateExperimentDefinition's doc comment for why tags are applied
+// directly to b.tags rather than via TagResource.
 func (b *InMemoryBackend) CreateExtension(
 	name, description string,
 	actions map[string][]ExtensionAction,
 	parameters map[string]ExtensionParameter,
+	tags map[string]string,
 ) (*Extension, error) {
 	b.mu.Lock("CreateExtension")
 	defer b.mu.Unlock()
@@ -38,6 +42,11 @@ func (b *InMemoryBackend) CreateExtension(
 		Parameters:    parameters,
 	}
 	b.extensions.Put(ext)
+
+	if len(tags) > 0 {
+		b.tags[ext.Arn] = maps.Clone(tags)
+	}
+
 	cp := *ext
 
 	return &cp, nil
@@ -240,11 +249,14 @@ func (b *InMemoryBackend) DeleteExtension(extensionIdentifier string, versionNum
 	return nil
 }
 
-// CreateExtensionAssociation creates an association between an extension and a resource.
+// CreateExtensionAssociation creates an association between an extension and
+// a resource. See CreateExperimentDefinition's doc comment for why tags are
+// applied directly to b.tags rather than via TagResource.
 func (b *InMemoryBackend) CreateExtensionAssociation(
 	extensionIdentifier, resourceIdentifier string,
 	parameters map[string]string,
 	extensionVersionNumber *int32,
+	tags map[string]string,
 ) (*ExtensionAssociation, error) {
 	b.mu.Lock("CreateExtensionAssociation")
 	defer b.mu.Unlock()
@@ -289,6 +301,11 @@ func (b *InMemoryBackend) CreateExtensionAssociation(
 		Parameters:             parameters,
 	}
 	b.extensionAssociations.Put(assoc)
+
+	if len(tags) > 0 {
+		b.tags[assoc.Arn] = maps.Clone(tags)
+	}
+
 	cp := *assoc
 
 	return &cp, nil

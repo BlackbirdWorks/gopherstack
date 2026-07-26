@@ -40,4 +40,9 @@ var (
 	ErrSbomExportNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrCisSessionNotFound is returned when a CIS session is missing.
 	ErrCisSessionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrConnectorNotFound is returned when a connector does not exist.
+	ErrConnectorNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrConnectorScanConfigNotFound is returned when UpdateConnectorScanConfiguration
+	// targets an AWS Config connector ARN with no associated connector.
+	ErrConnectorScanConfigNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )

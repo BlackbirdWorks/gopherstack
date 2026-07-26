@@ -24,7 +24,7 @@ func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := opensearch.NewHandler(opensearch.NewInMemoryBackend(testAccountID, testRegion))
-	assert.Equal(t, 104, opensearch.HandlerOpsLen(h))
+	assert.Equal(t, 118, opensearch.HandlerOpsLen(h))
 }
 
 func TestExtractOperation_NewRoutes(t *testing.T) {
@@ -134,6 +134,90 @@ func TestExtractOperation_NewRoutes(t *testing.T) {
 			path:   "/2021-01-01/opensearch/domain/my-domain",
 			wantOp: "DeleteDomain",
 		},
+		{
+			name:   "attach_data_source",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/application/app-1/attachDataSource",
+			wantOp: "AttachDataSource",
+		},
+		{
+			name:   "detach_data_source",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/application/app-1/detachDataSource",
+			wantOp: "DetachDataSource",
+		},
+		{
+			name:   "describe_data_source_attachment",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/application/app-1/describeDataSourceAttachment",
+			wantOp: "DescribeDataSourceAttachment",
+		},
+		{
+			name:   "list_data_source_attachments",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/application/app-1/listDataSourceAttachments",
+			wantOp: "ListDataSourceAttachments",
+		},
+		{
+			name:   "register_capability",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/application/app-1/capability/register",
+			wantOp: "RegisterCapability",
+		},
+		{
+			name:   "deregister_capability",
+			method: http.MethodDelete,
+			path:   "/2021-01-01/opensearch/application/app-1/capability/deregister/ai-capability",
+			wantOp: "DeregisterCapability",
+		},
+		{
+			name:   "get_capability",
+			method: http.MethodGet,
+			path:   "/2021-01-01/opensearch/application/app-1/capability/ai-capability",
+			wantOp: "GetCapability",
+		},
+		{
+			name:   "list_insights",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/insights",
+			wantOp: "ListInsights",
+		},
+		{
+			name:   "describe_insight_details",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/insight-details",
+			wantOp: "DescribeInsightDetails",
+		},
+		{
+			name:   "insight_feedback",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/insight-feedback",
+			wantOp: "InsightFeedback",
+		},
+		{
+			name:   "start_migration",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/app-migrations",
+			wantOp: "StartMigration",
+		},
+		{
+			name:   "list_migrations",
+			method: http.MethodGet,
+			path:   "/2021-01-01/opensearch/app-migrations",
+			wantOp: "ListMigrations",
+		},
+		{
+			name:   "get_migration",
+			method: http.MethodGet,
+			path:   "/2021-01-01/opensearch/app-migrations/migration-1",
+			wantOp: "GetMigration",
+		},
+		{
+			name:   "rollback_service_software_update",
+			method: http.MethodPost,
+			path:   "/2021-01-01/opensearch/serviceSoftwareUpdate/rollback",
+			wantOp: "RollbackServiceSoftwareUpdate",
+		},
 	}
 
 	for _, tt := range tests {
@@ -166,7 +250,21 @@ func TestOpenSearchHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "CancelDomainConfigChange")
 	assert.Contains(t, ops, "CancelServiceSoftwareUpdate")
 	assert.Contains(t, ops, "CreateApplication")
-	assert.Len(t, ops, 104)
+	assert.Contains(t, ops, "AttachDataSource")
+	assert.Contains(t, ops, "DetachDataSource")
+	assert.Contains(t, ops, "DescribeDataSourceAttachment")
+	assert.Contains(t, ops, "ListDataSourceAttachments")
+	assert.Contains(t, ops, "RegisterCapability")
+	assert.Contains(t, ops, "DeregisterCapability")
+	assert.Contains(t, ops, "GetCapability")
+	assert.Contains(t, ops, "ListInsights")
+	assert.Contains(t, ops, "DescribeInsightDetails")
+	assert.Contains(t, ops, "InsightFeedback")
+	assert.Contains(t, ops, "StartMigration")
+	assert.Contains(t, ops, "GetMigration")
+	assert.Contains(t, ops, "ListMigrations")
+	assert.Contains(t, ops, "RollbackServiceSoftwareUpdate")
+	assert.Len(t, ops, 118)
 }
 
 func TestOpenSearchHandler_ExtractOperation(t *testing.T) {

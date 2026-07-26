@@ -150,6 +150,28 @@ func protectedJobTableKeyFn(v *ProtectedJob) string {
 
 func protectedJobTableIndexKeyFn(v *ProtectedJob) string { return v.MembershipID }
 
+func intermediateTableTableKeyFn(v *IntermediateTable) string {
+	return membershipKey(v.MembershipID, v.ID)
+}
+
+func intermediateTableTableIndexKeyFn(v *IntermediateTable) string { return v.MembershipID }
+
+func intermediateTableVersionTableKeyFn(v *IntermediateTableVersionSummary) string {
+	return itVersionKey(v.TableID, v.VersionID)
+}
+
+func intermediateTableVersionTableIndexKeyFn(v *IntermediateTableVersionSummary) string {
+	return v.TableID
+}
+
+func itAnalysisRuleTableKeyFn(v *IntermediateTableAnalysisRule) string {
+	return itAnalysisRuleKey(v.IntermediateTableIdentifier, v.AnalysisRuleType)
+}
+
+func itAnalysisRuleTableIndexKeyFn(v *IntermediateTableAnalysisRule) string {
+	return v.IntermediateTableIdentifier
+}
+
 // registerAllTables registers every converted resource collection on
 // b.registry exactly once. It must be called during construction only
 // (immediately after b.registry is created -- see NewInMemoryBackend),
@@ -160,6 +182,7 @@ func registerAllTables(b *InMemoryBackend) {
 	registerTopLevelTables(b)
 	registerMembershipNestedTables(b)
 	registerCollaborationNestedTables(b)
+	registerIntermediateTableTables(b)
 }
 
 // registerTopLevelTables registers the three top-level collections plus the
@@ -227,4 +250,28 @@ func registerCollaborationNestedTables(b *InMemoryBackend) {
 	b.schemaAnalysisRules = store.Register(
 		b.registry, "schemaAnalysisRules", store.New(schemaAnalysisRuleTableKeyFn),
 	)
+}
+
+// registerIntermediateTableTables registers the intermediateTables
+// membership-nested collection plus its two type-keyed-under-a-single-parent
+// companions (intermediateTableVersions, keyed under the table; itAnalysisRules,
+// keyed under the table like ctAnalysisRules is under a configuredTableID),
+// factored out of registerAllTables to keep it small.
+func registerIntermediateTableTables(b *InMemoryBackend) {
+	b.intermediateTables = store.Register(
+		b.registry, "intermediateTables", store.New(intermediateTableTableKeyFn),
+	)
+	b.intermediateTablesByMembership = b.intermediateTables.AddIndex(
+		"byMembership", intermediateTableTableIndexKeyFn,
+	)
+
+	b.intermediateTableVersions = store.Register(
+		b.registry, "intermediateTableVersions", store.New(intermediateTableVersionTableKeyFn),
+	)
+	b.intermediateTableVersionsByTable = b.intermediateTableVersions.AddIndex(
+		"byTable", intermediateTableVersionTableIndexKeyFn,
+	)
+
+	b.itAnalysisRules = store.Register(b.registry, "itAnalysisRules", store.New(itAnalysisRuleTableKeyFn))
+	b.itAnalysisRulesByTable = b.itAnalysisRules.AddIndex("byTable", itAnalysisRuleTableIndexKeyFn)
 }

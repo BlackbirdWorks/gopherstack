@@ -11,6 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +61,41 @@ func doECSRequest(
 	require.NoError(t, err)
 
 	return rec
+}
+
+// newTestECSClient stands up the real aws-sdk-go-v2 ECS client against an
+// httptest server running this package's Handler, wired through the same
+// pkgs/service registry/router used in production. Round-tripping through the
+// genuine SDK serializer/deserializer (rather than decoding the raw JSON body
+// with ad-hoc map[string]any assertions, as most other tests in this package
+// do) is what actually proves a response is wire-compatible: a handler that
+// silently drops a field, nests it at the wrong path, or uses the wrong JSON
+// key decodes to a zero value through the real client rather than failing
+// outright, so only a real client round-trip catches it (see the codedeploy
+// and databrew packages' handler_sdk_roundtrip_test.go for the same pattern).
+func newTestECSClient(t *testing.T, h *ecs.Handler) *ecssdk.Client {
+	t.Helper()
+
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(h))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
+		awscfg.WithRegion(testRegion),
+		awscfg.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err)
+
+	return ecssdk.NewFromConfig(cfg, func(o *ecssdk.Options) {
+		o.BaseEndpoint = aws.String(srv.URL)
+	})
 }
 
 func registerTestTaskDef(t *testing.T, h *ecs.Handler, family string) string {

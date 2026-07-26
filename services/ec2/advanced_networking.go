@@ -294,6 +294,9 @@ type IpamPoolAllocation struct {
 	ResourceType         string `json:"resourceType,omitempty"`
 	ResourceID           string `json:"resourceId,omitempty"`
 	ResourceOwner        string `json:"resourceOwner,omitempty"`
+	// ResourceRegion is the AWS region of the allocated resource, populated
+	// from the backend's own region at allocation time.
+	ResourceRegion string `json:"resourceRegion,omitempty"`
 }
 
 // IpamAllocationOptions holds optional parameters accepted by AllocateIpamPoolCidr.

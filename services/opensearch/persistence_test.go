@@ -582,6 +582,17 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.PutDefaultApplicationSetting("arn:aws:es:us-east-1:123456789012:application/app-1", true)
 	require.NoError(t, err)
 
+	// Newer "clean" pkgs/store tables added this pass: data source
+	// attachments, capabilities, and migrations (see store_setup.go).
+	att, err := original.AttachDataSource(app.ID, domain.ARN)
+	require.NoError(t, err)
+
+	_, err = original.RegisterCapability(app.ID, "ai-capability")
+	require.NoError(t, err)
+
+	mig, err := original.StartMigration(app.ID, domain.ARN)
+	require.NoError(t, err)
+
 	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
@@ -662,6 +673,18 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	assert.Equal(t, "arn:aws:es:us-east-1:123456789012:application/app-1",
 		fresh.GetDefaultApplicationSetting())
+
+	gotAtt, err := fresh.DescribeDataSourceAttachment(app.ID, domain.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, att.AttachmentID, gotAtt.AttachmentID)
+
+	gotCap, err := fresh.GetCapability(app.ID, "ai-capability")
+	require.NoError(t, err)
+	assert.Equal(t, "active", gotCap.Status)
+
+	gotMig, err := fresh.GetMigration(mig.MigrationID)
+	require.NoError(t, err)
+	assert.Equal(t, mig.MigrationID, gotMig.MigrationID)
 }
 
 func TestOpenSearchHandler_Routing(t *testing.T) {

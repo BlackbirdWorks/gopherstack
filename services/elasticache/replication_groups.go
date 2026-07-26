@@ -151,7 +151,7 @@ func (b *InMemoryBackend) DescribeReplicationGroups(
 
 	region := getRegion(ctx, b.region)
 
-	p, err := describePaged(b.replicationGroupsStore(region), id, ErrReplicationGroupNotFound, nil,
+	p, err := describePaged(b.replicationGroupsStoreRO(region), id, ErrReplicationGroupNotFound, nil,
 		func(rg ReplicationGroup) string { return rg.ReplicationGroupID }, marker, maxRecords)
 
 	return b.finalizeReplicationGroupPage(id, p, err)

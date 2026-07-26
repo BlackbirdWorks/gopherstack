@@ -97,6 +97,18 @@ func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
 	return b.arnIndex[region]
 }
 
+// arnIndexStoreRO returns the region-scoped arnIndex map for region without
+// mutating the outer map. Safe to call while holding only b.mu.RLock(): if
+// the region has not been observed yet, it returns a fresh, unregistered,
+// empty map instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) arnIndexStoreRO(region string) map[string]string {
+	if v := b.arnIndex[region]; v != nil {
+		return v
+	}
+
+	return map[string]string{}
+}
+
 func (b *InMemoryBackend) nextID() string {
 	n := b.counter.Add(1)
 
@@ -142,4 +154,11 @@ func (b *InMemoryBackend) nextNotebookExecID() string {
 	n := b.counter.Add(1)
 
 	return fmt.Sprintf("ex-%013d", n)
+}
+
+// nextSessionID generates a unique interactive session ID.
+func (b *InMemoryBackend) nextSessionID() string {
+	n := b.counter.Add(1)
+
+	return fmt.Sprintf("sess-%013d", n)
 }

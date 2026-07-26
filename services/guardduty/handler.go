@@ -2,7 +2,6 @@ package guardduty
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -11,8 +10,6 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -27,11 +24,12 @@ const (
 	pathThreatIntelSet = "threatintelset"
 	pathTags           = "tags"
 
-	keyName      = "name"
-	keyStatus    = "status"
-	keyTags      = "tags"
-	keyCreatedAt = "createdAt"
-	keyUpdatedAt = "updatedAt"
+	keyName            = "name"
+	keyStatus          = "status"
+	keyTags            = "tags"
+	keyCreatedAt       = "createdAt"
+	keyUpdatedAt       = "updatedAt"
+	keyInvestigationID = "investigationId"
 
 	opCreateDetector         = "CreateDetector"
 	opGetDetector            = "GetDetector"
@@ -136,6 +134,11 @@ const (
 	opUpdateTrustedEntitySet = "UpdateTrustedEntitySet"
 	opDeleteTrustedEntitySet = "DeleteTrustedEntitySet"
 
+	// Appendix A ops — investigations (GuardDuty Extended Threat Detection).
+	opCreateInvestigation = "CreateInvestigation"
+	opGetInvestigation    = "GetInvestigation"
+	opListInvestigations  = "ListInvestigations"
+
 	// URL depth constants for path parsing.
 	depthRoot       = 1 // /detector
 	depthResource   = 2 // /detector/{id}
@@ -159,6 +162,8 @@ const (
 	pathObjectMalwareScan     = "object-malware-scan"
 	pathThreatEntitySet       = "threatentityset"
 	pathTrustedEntitySet      = "trustedentityset"
+	pathInvestigation         = "investigation"
+	actionList                = "list"
 	pathCoverage              = "coverage"
 	pathFreeTrial             = "freeTrial"
 	pathUsage                 = "usage"
@@ -227,6 +232,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateMalwareProtectionPlan,
 		opCreateMembers,
 		opCreatePublishingDestination,
+		opCreateInvestigation,
 		opCreateThreatEntitySet,
 		opCreateTrustedEntitySet,
 		opDeclineInvitations,
@@ -246,6 +252,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opEnableOrganizationAdminAccount,
 		opGetAdministratorAccount,
 		opGetCoverageStatistics,
+		opGetInvestigation,
 		opGetInvitationsCount,
 		opGetMalwareProtectionPlan,
 		opGetMalwareScan,
@@ -259,6 +266,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetTrustedEntitySet,
 		opInviteMembers,
 		opListCoverage,
+		opListInvestigations,
 		opListInvitations,
 		opListMalwareProtectionPlans,
 		opListMalwareScans,
@@ -316,65 +324,41 @@ func isGuardDutyTagsPath(path string) bool {
 	return strings.Contains(rest, ":guardduty:")
 }
 
+// restRouter returns the shared REST-path routing/dispatch wiring for this
+// handler. See service.RESTRouter: GuardDuty's routing reduces entirely to
+// parsing an operation out of (method, path) and dispatching on it, so the
+// HTTP glue lives in pkgs/service instead of being duplicated here.
+func (h *Handler) restRouter() service.RESTRouter {
+	return service.RESTRouter{
+		ServiceName: guardDutyService,
+		Priority:    matchPriority,
+		Parse:       parseRESTPath,
+		OpUnknown:   opUnknown,
+		NotFoundBody: func() any {
+			return errBody(errResourceNotFound, "not found")
+		},
+		BadRequestBody: func() any {
+			return errBody("BadRequestException", "failed to read body")
+		},
+		InternalErrorBody: func() any {
+			return errBody("InternalFailure", "serialization failed")
+		},
+		Dispatch:    h.dispatch,
+		HandleError: h.handleError,
+	}
+}
+
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return matchPriority }
+func (h *Handler) MatchPriority() int { return h.restRouter().MatchPriority() }
 
 // ExtractOperation extracts the operation name from the request.
-func (h *Handler) ExtractOperation(c *echo.Context) string {
-	op, _ := parseRESTPath(c.Request().Method, c.Request().URL.Path)
-
-	return op
-}
+func (h *Handler) ExtractOperation(c *echo.Context) string { return h.restRouter().ExtractOperation(c) }
 
 // ExtractResource extracts the resource identifier from the request.
-func (h *Handler) ExtractResource(c *echo.Context) string {
-	_, resource := parseRESTPath(c.Request().Method, c.Request().URL.Path)
-
-	return resource
-}
+func (h *Handler) ExtractResource(c *echo.Context) string { return h.restRouter().ExtractResource(c) }
 
 // Handler returns the Echo handler function.
-func (h *Handler) Handler() echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		return h.handleREST(c)
-	}
-}
-
-func (h *Handler) handleREST(c *echo.Context) error {
-	ctx := c.Request().Context()
-	log := logger.Load(ctx)
-
-	op, _ := parseRESTPath(c.Request().Method, c.Request().URL.Path)
-
-	if op == opUnknown {
-		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, "not found"))
-	}
-
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errBody("BadRequestException", "failed to read body"))
-	}
-
-	result, statusCode, opErr := h.dispatch(ctx, op, c.Request().URL.Path, c.Request().URL.RawQuery, body)
-	if opErr != nil {
-		log.Error("guardduty operation error", "op", op, "err", opErr)
-
-		return h.handleError(c, opErr)
-	}
-
-	if result == nil {
-		return c.JSON(statusCode, struct{}{})
-	}
-
-	data, jsonErr := json.Marshal(result)
-	if jsonErr != nil {
-		return c.JSON(http.StatusInternalServerError, errBody("InternalFailure", "serialization failed"))
-	}
-
-	c.Response().Header().Set("Content-Type", "application/json")
-
-	return c.JSONBlob(statusCode, data)
-}
+func (h *Handler) Handler() echo.HandlerFunc { return h.restRouter().Handler() }
 
 func (h *Handler) dispatch(
 	_ context.Context,
@@ -425,6 +409,10 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
+	if result, code, ok, err := h.dispatchInvestigationOps(op, path, body); ok {
+		return result, code, err
+	}
+
 	return h.dispatchTagOps(op, path, query, body)
 }
 
@@ -448,6 +436,9 @@ func (h *Handler) dispatch(
 //	/detector/{id}/threatintelset          → CreateThreatIntelSet (POST) / ListThreatIntelSets (GET)
 //	/detector/{id}/threatintelset/{setId}  → GetThreatIntelSet (GET) / UpdateThreatIntelSet (POST) /
 //	                                          DeleteThreatIntelSet (DELETE)
+//	/detector/{id}/investigation           → CreateInvestigation (POST)
+//	/detector/{id}/investigation/{invId}   → GetInvestigation (GET)
+//	/detector/{id}/investigation/list      → ListInvestigations (POST)
 //	/tags/{resourceArn}                    → ListTagsForResource (GET) / TagResource (POST) / UntagResource (DELETE)
 func parseRESTPath(method, path string) (string, string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
@@ -600,6 +591,7 @@ var detectorCollectionRoutes = sync.OnceValue(func() map[string]string {
 		detectorCollectionRouteKey(pathTrustedEntitySet, http.MethodPost):      opCreateTrustedEntitySet,
 		detectorCollectionRouteKey(pathTrustedEntitySet, http.MethodGet):       opListTrustedEntitySets,
 		detectorCollectionRouteKey(pathCoverage, http.MethodPost):              opListCoverage,
+		detectorCollectionRouteKey(pathInvestigation, http.MethodPost):         opCreateInvestigation,
 	}
 })
 
@@ -691,8 +683,29 @@ func parseMemberItem(method, detectorID, item string) (string, string) {
 	return opUnknown, ""
 }
 
+// parseInvestigationItem routes the two item-addressed investigation paths:
+// GET /detector/{id}/investigation/{investigationId} (GetInvestigation) and
+// POST /detector/{id}/investigation/list (ListInvestigations -- the one
+// "item" segment here is the literal string "list", not a real
+// investigation ID, matching the real serializer's
+// "/detector/{DetectorId}/investigation/list" path).
+func parseInvestigationItem(method, detectorID, item string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return opGetInvestigation, detectorID + "/" + item
+	case http.MethodPost:
+		if item == actionList {
+			return opListInvestigations, detectorID
+		}
+	}
+
+	return opUnknown, ""
+}
+
 func parseDetectorItem(method, detectorID, collection, item string) (string, string) {
 	switch collection {
+	case pathInvestigation:
+		return parseInvestigationItem(method, detectorID, item)
 	case pathFilter:
 		return parseItemCRUD(method, detectorID+"/"+item, opGetFilter, opUpdateFilter, opDeleteFilter)
 	case pathFindings:

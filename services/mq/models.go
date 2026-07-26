@@ -54,6 +54,26 @@ type BrokerInstance struct {
 	Endpoints  []string `json:"endpoints"`
 }
 
+// SharedResource describes a single resource shared to a broker via AWS
+// Resource Access Manager (cross-account VPC subnets/configurations shared
+// through a RAM resource share). This backend does not model RAM resource
+// sharing, so DescribeSharedResources never populates one -- the type exists
+// only to document the real DescribeSharedResourcesOutput wire shape.
+type SharedResource struct {
+	Error             *SharedResourceError `json:"error,omitempty"`
+	ResourceArn       string               `json:"resourceArn"`
+	Status            string               `json:"status"`
+	Type              string               `json:"type"`
+	DNSNames          []string             `json:"dnsNames,omitempty"`
+	ResourceShareArns []string             `json:"resourceShareArns,omitempty"`
+}
+
+// SharedResourceError describes an error encountered provisioning a shared resource.
+type SharedResourceError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 // User represents an Amazon MQ broker user.
 //
 // Pending holds a not-yet-applied create/update/delete: real Amazon MQ only

@@ -249,6 +249,69 @@ func (b *InMemoryBackend) StartServiceSoftwareUpdate(
 	return &cp, nil
 }
 
+// RollbackServiceSoftwareUpdate rolls back a domain's service software
+// update, operating on the same ServiceSoftware state StartServiceSoftwareUpdate/
+// CancelServiceSoftwareUpdate track (see those above) rather than a separate
+// invented history. A rollback is only meaningfully available while a
+// software update is actually pending install (UpdateStatus ==
+// PENDING_UPDATE) -- the same state CancelServiceSoftwareUpdate acts on -- so
+// rolling back cancels that pending install (identical state transition to
+// Cancel) and reports RollbackAvailable accordingly. When nothing is pending,
+// RollbackAvailable is honestly reported false rather than erroring, matching
+// the response shape's purpose (types.RollbackServiceSoftwareOptions exists
+// specifically to communicate "no rollback available" without an exception).
+func (b *InMemoryBackend) RollbackServiceSoftwareUpdate(
+	domainName string,
+) (*RollbackServiceSoftwareOptions, error) {
+	if domainName == "" {
+		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("RollbackServiceSoftwareUpdate")
+	defer b.mu.Unlock()
+
+	d, exists := b.domains.Get(domainName)
+	if !exists || deleteWindowElapsed(d, b.clock()) {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	if d.ServiceSoftware == nil {
+		return &RollbackServiceSoftwareOptions{
+			RollbackAvailable: false,
+			Description:       "No service software update has been performed on this domain.",
+		}, nil
+	}
+
+	if d.ServiceSoftware.UpdateStatus != sswStatusPendingUpdate {
+		return &RollbackServiceSoftwareOptions{
+			CurrentVersion:    d.ServiceSoftware.CurrentVersion,
+			NewVersion:        d.ServiceSoftware.NewVersion,
+			RollbackAvailable: false,
+			Description:       "No eligible service software update to roll back.",
+		}, nil
+	}
+
+	// Rolling back an in-flight install cancels it, exactly like
+	// CancelServiceSoftwareUpdate -- the domain returns to ELIGIBLE with the
+	// newer version still available to install later.
+	d.ServiceSoftware.UpdateStatus = sswStatusEligible
+	d.ServiceSoftware.Cancellable = false
+	d.ServiceSoftware.UpdateAvailable = true
+	d.ServiceSoftware.Description = "Rollback complete."
+
+	if d.ProcessingStatus == dpsUpdatingServiceSoftware {
+		d.ProcessingStatus = ""
+		d.ProcessingUntil = time.Time{}
+	}
+
+	return &RollbackServiceSoftwareOptions{
+		CurrentVersion:    d.ServiceSoftware.CurrentVersion,
+		NewVersion:        d.ServiceSoftware.NewVersion,
+		RollbackAvailable: true,
+		Description:       d.ServiceSoftware.Description,
+	}, nil
+}
+
 // DescribeDomains returns a list of domains. If names is empty, all domains are returned.
 // Missing names are silently skipped.
 func (b *InMemoryBackend) DescribeDomains(names []string) ([]*Domain, error) {

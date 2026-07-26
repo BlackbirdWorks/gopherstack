@@ -2,7 +2,6 @@ package sesv2
 
 import (
 	"fmt"
-	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,7 +31,7 @@ func (b *InMemoryBackend) CreateMultiRegionEndpoint(
 	endpointName string,
 	secondaryRegions []string,
 	tags map[string]string,
-) (map[string]any, error) {
+) (*createMultiRegionEndpointOutput, error) {
 	b.mu.Lock("CreateMultiRegionEndpoint")
 	defer b.mu.Unlock()
 
@@ -58,29 +57,16 @@ func (b *InMemoryBackend) CreateMultiRegionEndpoint(
 
 	b.multiRegionEndpoints[endpointName] = ep
 
-	out := make(map[string]any, len(ep))
-	maps.Copy(out, ep)
-
-	return out, nil
-}
-
-// multiRegionEndpointRoutes projects the Regions list into the
-// types.Route{Region} shape GetMultiRegionEndpointOutput.Routes expects.
-func multiRegionEndpointRoutes(ep map[string]any) []map[string]any {
-	regions, _ := ep["Regions"].([]string)
-	routes := make([]map[string]any, 0, len(regions))
-
-	for _, r := range regions {
-		routes = append(routes, map[string]any{"Region": r})
-	}
-
-	return routes
+	return &createMultiRegionEndpointOutput{
+		EndpointID: mapString(ep, keyEndpointID),
+		Status:     mapString(ep, keyStatus),
+	}, nil
 }
 
 // GetMultiRegionEndpoint returns the full endpoint record, matching
 // GetMultiRegionEndpointOutput (CreatedTimestamp/EndpointId/EndpointName/
 // LastUpdatedTimestamp/Routes/Status).
-func (b *InMemoryBackend) GetMultiRegionEndpoint(endpointName string) (map[string]any, error) {
+func (b *InMemoryBackend) GetMultiRegionEndpoint(endpointName string) (*multiRegionEndpointOutput, error) {
 	b.mu.RLock("GetMultiRegionEndpoint")
 	defer b.mu.RUnlock()
 
@@ -89,13 +75,7 @@ func (b *InMemoryBackend) GetMultiRegionEndpoint(endpointName string) (map[strin
 		return nil, fmt.Errorf("%w: MultiRegionEndpoint %s not found", ErrNotFound, endpointName)
 	}
 
-	out := make(map[string]any, len(ep)+1)
-	maps.Copy(out, ep)
-	out["Routes"] = multiRegionEndpointRoutes(ep)
-	delete(out, "Regions")
-	delete(out, keyTags)
-
-	return out, nil
+	return toMultiRegionEndpointOutput(ep), nil
 }
 
 // DeleteMultiRegionEndpoint removes an endpoint and returns the status right
@@ -131,7 +111,7 @@ func multiRegionEndpointSummary(ep map[string]any) map[string]any {
 func (b *InMemoryBackend) ListMultiRegionEndpoints(
 	nextToken string,
 	pageSize int,
-) ([]map[string]any, string, error) {
+) ([]multiRegionEndpointSummaryOutput, string, error) {
 	b.mu.RLock("ListMultiRegionEndpoints")
 
 	all := make([]map[string]any, 0, len(b.multiRegionEndpoints))
@@ -143,5 +123,15 @@ func (b *InMemoryBackend) ListMultiRegionEndpoints(
 
 	sortMapsByStringKey(all, "EndpointName")
 
-	return paginateMaps(all, nextToken, pageSize, "EndpointName")
+	page, next, err := paginateMaps(all, nextToken, pageSize, "EndpointName")
+	if err != nil {
+		return nil, "", err
+	}
+
+	out := make([]multiRegionEndpointSummaryOutput, 0, len(page))
+	for _, ep := range page {
+		out = append(out, toMultiRegionEndpointSummaryOutput(ep))
+	}
+
+	return out, next, nil
 }

@@ -1,9 +1,60 @@
 package ecs
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // resourceTagKey returns the tags-map key for a resource ARN.
 func resourceTagKey(resourceArn string) string { return resourceArn }
+
+// wantsIncludeTag reports whether opts (a DescribeX request's `include` list)
+// requests resource tags, matching AWS's case-insensitive "TAGS" sentinel.
+// Shared by every Describe* handler that gates tags behind Include=[TAGS]
+// (Clusters, ContainerInstances, Services, TaskDefinition, TaskSet,
+// ExpressGatewayService).
+func wantsIncludeTag(opts []string, want string) bool {
+	for _, opt := range opts {
+		if strings.EqualFold(opt, want) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// attachTagsIfWanted builds views for a list of ARN-identified resources,
+// attaching each one's current tags via ListTagsForResource only when
+// wantTags is set (real AWS's Include=[TAGS] gating). Shared by
+// DescribeServices and DescribeContainerInstances to avoid two
+// near-identical "build view, optionally look up and attach tags" loops.
+func attachTagsIfWanted[T, V any](
+	h *Handler,
+	items []T,
+	arnOf func(T) string,
+	toView func(T) V,
+	setTags func(*V, []Tag),
+	wantTags bool,
+) ([]V, error) {
+	views := make([]V, 0, len(items))
+
+	for _, item := range items {
+		v := toView(item)
+
+		if wantTags {
+			tags, err := h.Backend.ListTagsForResource(arnOf(item))
+			if err != nil {
+				return nil, err
+			}
+
+			setTags(&v, tags)
+		}
+
+		views = append(views, v)
+	}
+
+	return views, nil
+}
 
 // copyTags returns a deep copy of the given tag slice.
 func copyTags(tags []Tag) []Tag {

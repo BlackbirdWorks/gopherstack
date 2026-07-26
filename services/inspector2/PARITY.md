@@ -5,10 +5,10 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: inspector2
-sdk_module: aws-sdk-go-v2/service/inspector2@v1.48.2   # version audited against
-last_audit_commit: 1e21a848                             # HEAD when this manifest was written
-last_audit_date: 2026-07-23
-overall: A            # every gap/deferred family from the prior pass closed or genuinely implemented this pass
+sdk_module: aws-sdk-go-v2/service/inspector2@v1.53.0   # version audited against
+last_audit_commit: 9e3baacb5                            # HEAD when this manifest was written
+last_audit_date: 2026-07-25
+overall: A            # 6 new connector ops (SDK bump to v1.53.0) implemented for real; no prior family regressed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -48,7 +48,11 @@ families:
   batch_get_finding_details: {status: ok, note: "fixed this pass — the request handler decoded findingArns into []map[string]any; real BatchGetFindingDetailsInput.findingArns is a plain string array (confirmed via api_op_BatchGetFindingDetails.go), so every real client request of the form {\"findingArns\":[\"arn1\",\"arn2\"]} failed json.Unmarshal with a ValidationException (client-breaking). Fixed to []string. Finding gained optional epssScore/riskScore/cwes/referenceUrls/tools fields (real FindingDetail shape) settable via SeedFinding; BatchGetFindingDetails now returns them for findings that exist, or a FINDING_DETAILS_NOT_FOUND error entry for ARNs that don't, replacing the prior always-empty stub. Not modeled: CisaData/Evidences/ExploitObserved/Ttps nested objects (real but omitted)"}
   batch_get_free_trial_info: {status: ok, note: "unchanged this pass"}
   get_clusters_for_image: {status: ok, note: "fixed this pass — two wire bugs: (1) the request handler decoded a bare 'filterCriteria' map, but real GetClustersForImageInput nests the required resourceId under a 'filter' object (ClusterForImageFilterCriteria), confirmed via serializers.go, so the value was silently dropped on every real request and the required-field validation never ran; (2) the response used 'clusters' but the real wire key is 'cluster' (singular), confirmed via deserializers.go, so a real client's Cluster field was never populated. Now validates the required filter.resourceId (ValidationException if absent) and emits the correct 'cluster' key. Still returns an empty cluster list always: gopherstack has no ECS/EKS cluster-membership tracking to join an ECR image against, and fabricating cluster ARNs would be worse than an honest empty (but now correctly-keyed and validated) result — see gaps below"}
+  connectors: {status: ok, note: "new this pass — CreateConnector/UpdateConnector/DeleteConnector/ListConnectors added for the inspector2@v1.53.0 SDK bump. Real ConnectorCloudProvider has exactly one value, AZURE (confirmed via types/enums.go) — there is no GitHub/GitLab connector type in the real API despite that being a natural guess from the 'connector' name; code-repository integrations are the separate, pre-existing CodeSecurityIntegration family, unaffected by this pass. CreateConnectorOutput/UpdateConnectorOutput field-diffed against api_op_CreateConnector.go/api_op_UpdateConnector.go: each returns only connectorArn (confirmed asynchronous — no full Connector echo), which this backend matches rather than inventing a fuller response. Connector wire shape field-diffed against deserializers.go's awsRestjson1_deserializeDocumentConnector: createdAt/updatedAt/health.lastCheckedAt are real 'date-time' (RFC 3339 string, parsed via smithytime.ParseDateTime) timestamps, NOT the unixTimestamp epoch-seconds shape pkgs/awstime.Epoch targets elsewhere in this service — confirmed against the deserializer instead of assumed, avoiding a wire bug class this campaign has hit in other services. Connector authorization lifecycle modeled honestly per this campaign's finding (also hit by securityhub): real ConnectorHealthStatus includes PENDING_AUTHORIZATION for an unfinished external Azure AD app-consent (OAuth) flow, and none of the 6 connector SDK ops drive or observe that step, so this backend creates connectors at EnablementStatus=PENDING_ENABLEMENT / Health.ConnectorStatus=PENDING_AUTHORIZATION and never auto-advances either (UpdateConnector moves EnablementStatus to PENDING_UPDATE, still never auto-resolving to ENABLED/CONNECTED). DeleteConnector's real PENDING_DELETION EnablementStatus value is not modeled: there is no GetConnector operation through which a caller could ever observe an in-between state, so this backend completes the delete synchronously rather than leaving the connector permanently listed as 'pending' and unobservably undeleted. ListConnectors' filterCriteria supports provider/connectorArns/awsConfigConnectorArns (each real filter's Comparison enum has exactly one value, EQUALS, confirmed via types/enums.go) — accounts (meaningless in this single-account emulator) and connectorType (no corresponding field on the real Connector response type to filter against at all) are not modeled, documented rather than silently ignored, following the coverage/vulnerability_search precedent for omitted filter facets."}
+  connector_scan_configuration: {status: ok, note: "new this pass — ListConnectorScanConfigurations/UpdateConnectorScanConfiguration added for the inspector2@v1.53.0 SDK bump. There is no CreateConnectorScanConfiguration operation in the real API (confirmed via `go doc .../inspector2`); UpdateConnectorScanConfiguration is the sole write path, keyed by awsConfigConnectorArn rather than connectorArn (confirmed via serializers.go's awsRestjson1_serializeOpDocumentUpdateConnectorScanConfigurationInput). UpdateConnectorScanConfiguration validates that at least one Connector carries the given awsConfigConnectorArn, returning ResourceNotFoundException for an unrecognized one rather than accepting any ID, per this campaign's explicit requirement to validate the connector actually exists. ConnectorScanConfigurationItem's connectorArns member is derived live from the connectors table's byAwsConfigArn secondary index at read time (not stored alongside the scan configuration), matching that it is a live join in the real API, confirmed via deserializers.go's awsRestjson1_deserializeDocumentConnectorScanConfigurationItem."}
 gaps:
+  - "ListConnectors' ConnectorFilterCriteria.accounts/connectorType facets are not modeled (accounts is meaningless in this single-account emulator; connectorType — CUSTOMER_MANAGED/SERVICE_LINKED — has no corresponding field on the real Connector response type to filter against at all, confirmed via types/types.go). Only provider/connectorArns/awsConfigConnectorArns are supported."
+  - "Connector's real PENDING_DELETION EnablementStatus value and ScopeConfiguration's real ACTIVE/ERROR/DISABLED State values are never reached: this backend's connectors never leave PENDING_AUTHORIZATION (no out-of-band Azure OAuth step exists in the SDK to drive them further), so DeleteConnector completes synchronously and every submitted scope setting is always reported PENDING. Both are deliberate, documented simplifications of an inherently external-system-dependent async lifecycle — see the connectors family note above."
   - "CodeSecurityScanConfiguration Get/List responses use a simplified, internally-consistent shape that diverges structurally from the real API (missing nested 'configuration'/ruleSetCategories/level/continuousIntegrationScanConfiguration; List summary shape has no relation to Get's shape at all in real AWS). Full reshape is a substantial, separate effort — file a bd issue before attempting (gopherstack: file follow-up). Not attempted this pass (out of scope per prior audit's own note; re-verified the scope estimate still holds)."
   - "CreateCodeSecurityIntegrationOutput's optional 'authorizationUrl' member (real API: OAuth callback URL for GitHub/GitLab-type integrations) is never returned. gopherstack has no OAuth flow to derive a real URL from; omitting it is unset-on-the-wire, not wire-breaking."
   - "GetClustersForImage always returns an empty (but now correctly-keyed, request-validated) cluster list: gopherstack has no ECS/EKS cluster-membership tracking to join an ECR image resourceId against. Would need a SeedClustersForImage capability plus real ECS/EKS service cross-references to close for real; lower priority than the wire-shape bugs fixed this pass since GetClustersForImage is a low-traffic informational op."
@@ -67,11 +71,44 @@ an explicit action path (e.g. `/findings/list`), a handful use GET/PUT/DELETE
 (GetEncryptionKey=GET, Reset/UpdateEncryptionKey=PUT, StartCisSession/StopCisSession/
 SendCisSessionHealth/SendCisSessionTelemetry=PUT, TagResource=POST,
 UntagResource=DELETE, ListTagsForResource=GET on `/tags/{arn}`).
-The route matcher (`RouteMatcher`/`classifyPath`/`classifyAppendixAPath`) was
+The route matcher (`RouteMatcher`/`classifyPath`/`classifyExtendedPath`) was
 cross-checked op-by-op against `aws-sdk-go-v2/service/inspector2@v1.48.2`'s
-serializers.go (method + SplitURI path per op) in the prior pass: all 75 routed
-ops (13 base + 62 appendix-A) match the real SDK's method+path exactly. No new
-ops were added this pass, so no re-check was needed.
+serializers.go (method + SplitURI path per op) in a prior pass: all 75 routed
+ops (13 base + 62 extended) matched the real SDK's method+path exactly. This
+pass adds 6 more (all extended/POST-body-dispatched, matching this package's
+existing convention): CreateConnector (`/connector/create`), UpdateConnector
+(`/connector/update`), DeleteConnector (`/connector/delete`), ListConnectors
+(`/connector/list`), ListConnectorScanConfigurations
+(`/connectorscanconfigurations/list`), UpdateConnectorScanConfiguration
+(`/connectorscanconfiguration/update`) — every path cross-checked against
+`aws-sdk-go-v2/service/inspector2@v1.53.0`'s serializers.go
+`httpbinding.SplitURI(...)` call for that op, confirming an exact match
+(including the plural/singular `connectorscanconfigurations` vs
+`connectorscanconfiguration` path segments, which are easy to transpose).
+The handler now routes 81 ops total (13 base + 68 extended).
+
+### Connectors and connector scan configuration (new this pass)
+
+The Go SDK module was bumped to `aws-sdk-go-v2/service/inspector2@v1.53.0`
+(from `v1.48.2`), which added 6 operations with no prior gopherstack
+implementation: `CreateConnector`/`UpdateConnector`/`DeleteConnector`/
+`ListConnectors` (a new Azure-cloud-provider "connector" resource family,
+`connectors.go`/`handler_connectors.go`) and
+`ListConnectorScanConfigurations`/`UpdateConnectorScanConfiguration` (scan
+settings keyed by the connector's associated AWS Config connector ARN, same
+files). All 6 are genuinely implemented against real backend state
+(`store.Table[Connector]` + a `byAwsConfigArn` secondary index +
+`store.Table[ConnectorScanConfiguration]`, both flowing through
+`b.registry.SnapshotAll()`/`RestoreAll()` automatically — no
+`persistence.go`/`inspector2SnapshotVersion` change needed, following the
+`coverageEntries`/`vulnerabilities`/`codeSnippets` precedent from the prior
+pass), not added to `sdk_completeness_test.go`'s `notImplemented` list. See
+the `connectors`/`connector_scan_configuration` family notes above for the
+full field-diff and the deliberate, documented authorization-lifecycle
+simplifications (connectors never leave `PENDING_AUTHORIZATION` — there is no
+SDK operation that could ever drive or observe completion of the real
+external Azure OAuth consent step, the same bug class this campaign's
+securityhub connector work flagged).
 
 ### This pass's wire-shape and invented-field fixes
 
@@ -171,6 +208,16 @@ name in the `Tables` map), and `RestoreAll` tolerates a snapshot missing
 newer table names (pre-this-pass snapshots simply restore with those three
 tables empty).
 
+This (2026-07-25) pass adds two more tables the same way: `connectors`
+(`Connector`, keyed by `ConnectorArn`, with a `byAwsConfigArn` secondary
+`store.Index` — see `store_setup.go`) and `connectorScanConfigs`
+(`ConnectorScanConfiguration`, keyed by `AwsConfigConnectorArn`). Same
+additive-table story: no `persistence.go`/`inspector2SnapshotVersion` change,
+`TestInMemoryBackend_SnapshotRestore_FullState` (`persistence_test.go`)
+extended to seed and round-trip both, including the `byAwsConfigArn` index
+(proven by the round-tripped `ConnectorScanConfigurationItem.ConnectorArns`,
+which is derived from that index rather than stored).
+
 ### Filter name validation
 
 `CreateFilter`'s `name` is now validated against AWS's real constraint (3-64
@@ -185,11 +232,19 @@ as a documented gap.
 
 ### PARITY.md accuracy note
 
-The badges/README's operation and family *counts* (13 ops / 22 families) are
-unchanged by this pass — no new ops or families were added, only existing
-`gap`/`partial` entries were upgraded to `ok` or given corrected notes. The
-"Known gaps" count in the generated README/badges will shrink from 4 to the
-count of `gaps:` entries above (5, but two are net-new narrower findings
-replacing the one broad "7 disguised no-ops" bullet, and one is a
-correction/split of the CreateFilter-and-friends name-validation bullet) —
-regenerate via `go run ./cmd/gendocs`.
+The 2026-07-23 pass's note above (13 ops / 22 families, unchanged counts) was
+accurate as of that pass — it added no new ops or families, only upgraded
+existing `gap`/`partial` entries. This (2026-07-25) pass is different: the Go
+SDK modules were bumped, `aws-sdk-go-v2/service/inspector2` picked up 6 new
+operations (`CreateConnector`/`UpdateConnector`/`DeleteConnector`/
+`ListConnectors`/`ListConnectorScanConfigurations`/
+`UpdateConnectorScanConfiguration`), and `TestSDKCompleteness` failed until
+they were routed. All 6 are genuinely implemented (see the `connectors`/
+`connector_scan_configuration` family notes above), not added to
+`sdk_completeness_test.go`'s `notImplemented` list. The handler's routed-op
+count goes from 75 to 81 (13 base + 68 extended, up from 62); the `families:`
+entry count goes from 22 to 24. Per this campaign's instructions, `go run
+./cmd/gendocs` was deliberately **not** run this pass (it regenerates
+unrelated services' READMEs as a side effect) — the badges/README's counts
+are stale until the next full `gendocs` regeneration; this manifest is the
+source of truth in the interim.

@@ -76,6 +76,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "CancelStatement")
 	assert.Contains(t, ops, "ListDatabases")
 	assert.Contains(t, ops, "ListSchemas")
+	assert.Contains(t, ops, "ListSessions")
 	assert.Contains(t, ops, "ListTables")
 	assert.Contains(t, ops, "DescribeTable")
 }
@@ -348,12 +349,12 @@ func TestHandlerReset(t *testing.T) {
 	assert.Equal(t, 0, b.StatementCount())
 }
 
-// TestHandlerOpsLen verifies GetSupportedOperations returns exactly 11 ops.
+// TestHandlerOpsLen verifies GetSupportedOperations returns exactly 12 ops.
 func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, 11, redshiftdata.HandlerOpsLen(h))
+	assert.Equal(t, 12, redshiftdata.HandlerOpsLen(h))
 }
 
 // TestGetStatementResultV2_GetSupportedOps verifies the ops list includes V2.

@@ -11,13 +11,14 @@ import (
 
 func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 	var req struct {
-		Name                        string  `json:"Name"`
-		Description                 string  `json:"Description"`
-		GrowthType                  string  `json:"GrowthType"`
-		ReplicateTo                 string  `json:"ReplicateTo"`
-		DeploymentDurationInMinutes int32   `json:"DeploymentDurationInMinutes"`
-		FinalBakeTimeInMinutes      int32   `json:"FinalBakeTimeInMinutes"`
-		GrowthFactor                float32 `json:"GrowthFactor"`
+		Tags                        map[string]string `json:"Tags"`
+		Name                        string            `json:"Name"`
+		Description                 string            `json:"Description"`
+		GrowthType                  string            `json:"GrowthType"`
+		ReplicateTo                 string            `json:"ReplicateTo"`
+		DeploymentDurationInMinutes int32             `json:"DeploymentDurationInMinutes"`
+		FinalBakeTimeInMinutes      int32             `json:"FinalBakeTimeInMinutes"`
+		GrowthFactor                float32           `json:"GrowthFactor"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -30,6 +31,7 @@ func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 		req.Name, req.Description,
 		req.DeploymentDurationInMinutes, req.FinalBakeTimeInMinutes,
 		req.GrowthFactor, req.GrowthType, req.ReplicateTo,
+		req.Tags,
 	)
 	if err != nil {
 		return c.JSON(

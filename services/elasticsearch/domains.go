@@ -151,7 +151,7 @@ func (b *InMemoryBackend) ListDomainNames(ctx context.Context) []string {
 // findDomainByARN returns the domain matching the given ARN within the given
 // region, or nil if not found. Caller must hold at least a read lock.
 func (b *InMemoryBackend) findDomainByARN(region, domainARN string) *Domain {
-	name, ok := b.arnIndexStore(region)[domainARN]
+	name, ok := b.arnIndexStoreRO(region)[domainARN]
 	if !ok {
 		return nil
 	}

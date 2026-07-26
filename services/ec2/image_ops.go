@@ -439,3 +439,67 @@ func (b *InMemoryBackend) ConfirmProductInstance(instanceID, productCode string)
 
 	return slices.Contains(b.instanceProductCodes[instanceID], productCode), nil
 }
+
+// ---- Image Watermarks ----
+
+// watermarkKey builds the accountId:watermarkName identifier AWS uses for a
+// AttachImageWatermark-created watermark.
+func watermarkKey(accountID, watermarkName string) string {
+	return accountID + ":" + watermarkName
+}
+
+// AttachImageWatermark attaches a named watermark to an AMI, returning the
+// generated accountId:watermarkName WatermarkKey. Idempotent: attaching the
+// same watermark name again returns the same key without duplicating it.
+func (b *InMemoryBackend) AttachImageWatermark(imageID, watermarkName string) (string, error) {
+	if imageID == "" {
+		return "", fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	if watermarkName == "" {
+		return "", fmt.Errorf("%w: WatermarkName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AttachImageWatermark")
+	defer b.mu.Unlock()
+
+	if b.lookupImageLocked(imageID) == nil {
+		return "", fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
+	}
+
+	key := watermarkKey(b.AccountID, watermarkName)
+	if !slices.Contains(b.imageWatermarks[imageID], key) {
+		b.imageWatermarks[imageID] = append(b.imageWatermarks[imageID], key)
+	}
+
+	return key, nil
+}
+
+// DetachImageWatermark removes a previously attached watermark from an AMI by
+// its accountId:watermarkName WatermarkKey.
+func (b *InMemoryBackend) DetachImageWatermark(imageID, watermarkKey string) error {
+	if imageID == "" {
+		return fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	if watermarkKey == "" {
+		return fmt.Errorf("%w: WatermarkKey is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DetachImageWatermark")
+	defer b.mu.Unlock()
+
+	if b.lookupImageLocked(imageID) == nil {
+		return fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
+	}
+
+	kept := b.imageWatermarks[imageID][:0]
+	for _, k := range b.imageWatermarks[imageID] {
+		if k != watermarkKey {
+			kept = append(kept, k)
+		}
+	}
+	b.imageWatermarks[imageID] = kept
+
+	return nil
+}

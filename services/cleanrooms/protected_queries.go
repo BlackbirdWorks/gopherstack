@@ -13,6 +13,21 @@ func (b *InMemoryBackend) StartProtectedQuery(
 ) (*ProtectedQuery, error) {
 	b.mu.Lock("StartProtectedQuery")
 	defer b.mu.Unlock()
+
+	return b.startProtectedQueryLocked(membershipID, sqlText, resultConfig, computeConfiguration)
+}
+
+// startProtectedQueryLocked is the shared implementation behind
+// StartProtectedQuery and PopulateIntermediateTable (intermediate_tables.go),
+// which starts a protected query on behalf of an intermediate table's stored
+// populationAnalysisConfiguration while already holding b.mu -- mirroring
+// the createMembershipLocked split between CreateMembership and
+// CreateCollaboration. Callers must hold b.mu (write lock).
+func (b *InMemoryBackend) startProtectedQueryLocked(
+	membershipID, sqlText string,
+	resultConfig map[string]any,
+	computeConfiguration map[string]any,
+) (*ProtectedQuery, error) {
 	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound

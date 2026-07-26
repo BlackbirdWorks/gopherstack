@@ -254,6 +254,57 @@ func (b *InMemoryBackend) ModifyVpcEndpoint(
 	return nil
 }
 
+// ModifyVpcEndpointPayerResponsibility sets who is billed for a VPC
+// endpoint's usage within the given charge scope, upserting the entry for
+// that scope. Unlike the pre-existing (and disguised-stub)
+// ModifyVpcEndpointServicePayerResponsibility, this real op mutates and
+// returns the endpoint's actual PayerResponsibilities state.
+func (b *InMemoryBackend) ModifyVpcEndpointPayerResponsibility(
+	endpointID, payerResponsibilityType, scope string,
+) ([]PayerResponsibilityEntry, error) {
+	if endpointID == "" {
+		return nil, fmt.Errorf("%w: VpcEndpointId is required", ErrInvalidParameter)
+	}
+
+	if payerResponsibilityType == "" {
+		return nil, fmt.Errorf("%w: PayerResponsibility is required", ErrInvalidParameter)
+	}
+
+	if scope == "" {
+		return nil, fmt.Errorf("%w: Scope is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ModifyVpcEndpointPayerResponsibility")
+	defer b.mu.Unlock()
+
+	ep, ok := b.vpcEndpoints.Get(endpointID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrVpcEndpointIDNotFound, endpointID)
+	}
+
+	replaced := false
+
+	for i, entry := range ep.PayerResponsibilities {
+		if entry.Scope == scope {
+			ep.PayerResponsibilities[i].PayerResponsibilityType = payerResponsibilityType
+			replaced = true
+
+			break
+		}
+	}
+
+	if !replaced {
+		ep.PayerResponsibilities = append(ep.PayerResponsibilities, PayerResponsibilityEntry{
+			PayerResponsibilityType: payerResponsibilityType,
+			Scope:                   scope,
+		})
+	}
+
+	out := append([]PayerResponsibilityEntry(nil), ep.PayerResponsibilities...)
+
+	return out, nil
+}
+
 // ---- EBS encryption defaults ----
 
 // DeleteVpcEndpoints deletes one or more VPC endpoints.

@@ -895,3 +895,63 @@ func TestSeedHelper_DeepCopy(t *testing.T) {
 	// Count should still be 1 and internal copy should have original value
 	assert.Equal(t, 1, b.APIDestinationCount())
 }
+
+// TestBackend_ConcurrentReadNoRace is a regression test for a class of data
+// races where a read-only method -- holding only b.mu.RLock() -- lazily
+// initialised a per-region resource map (e.g. b.busePolicies[region] = ...)
+// exactly like the Put*/Create* methods that hold the full b.mu.Lock().
+// Concurrent RLock-holding readers could both observe a nil entry for a
+// region no writer had touched for that particular map and race to write to
+// the same outer map, which is a data race on a plain Go map regardless of
+// the RWMutex, since RLock does not serialize readers against each other.
+//
+// Each case hammers one such read path from many workers against a bus that
+// exists (so the read path passes its not-found check) but whose
+// region-scoped side map (busePolicies, archivedEvents) has never been
+// written. Run with `go test -race` to catch a regression of this class; it
+// must pass cleanly with no race detected.
+func TestBackend_ConcurrentReadNoRace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *eventbridge.InMemoryBackend, ctx context.Context)
+		call  func(b *eventbridge.InMemoryBackend, ctx context.Context) error
+		name  string
+	}{
+		{
+			name: "get_event_bus_policy",
+			setup: func(b *eventbridge.InMemoryBackend, ctx context.Context) {
+				_, err := b.CreateEventBus(ctx, "concurrent-bus", "")
+				require.NoError(t, err)
+			},
+			call: func(b *eventbridge.InMemoryBackend, ctx context.Context) error {
+				_, err := b.GetEventBusPolicy(ctx, "concurrent-bus")
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			ctx := context.Background()
+			tt.setup(backend, ctx)
+
+			const workers = 16
+			const opsPerWorker = 25
+
+			var wg sync.WaitGroup
+			for range workers {
+				wg.Go(func() {
+					for range opsPerWorker {
+						_ = tt.call(backend, ctx)
+					}
+				})
+			}
+			wg.Wait()
+		})
+	}
+}

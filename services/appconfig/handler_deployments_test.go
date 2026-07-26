@@ -82,6 +82,165 @@ func waitForDeploymentTerminal(
 	return dep
 }
 
+// seedExperimentRunHTTP creates an application, environment, feature-flag
+// configuration profile, and experiment definition through the real router
+// path, returning the application ID and the created
+// appconfig.ExperimentDefinition.
+func seedExperimentRunHTTP(t *testing.T, h *appconfig.Handler) (string, appconfig.ExperimentDefinition) {
+	t.Helper()
+
+	appRec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"run-http-app"}`))
+	require.Equal(t, http.StatusCreated, appRec.Code)
+
+	var app struct {
+		ID string `json:"Id"`
+	}
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+
+	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
+		[]byte(`{"Name":"run-http-env"}`))
+	require.Equal(t, http.StatusCreated, envRec.Code)
+
+	var env struct {
+		ID string `json:"Id"`
+	}
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env))
+
+	profRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
+		[]byte(`{"Name":"run-http-profile","LocationUri":"hosted","Type":"AWS.AppConfig.FeatureFlags"}`))
+	require.Equal(t, http.StatusCreated, profRec.Code)
+
+	var prof struct {
+		ID string `json:"Id"`
+	}
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+
+	defBody := `{
+		"Name": "run-http-def",
+		"AudienceRule": "true",
+		"FlagKey": "flag1",
+		"EnvironmentIdentifier": "` + env.ID + `",
+		"ConfigurationProfileIdentifier": "` + prof.ID + `",
+		"Control": {"FlagValue": {"Enabled": false}, "Weight": 50},
+		"Treatments": [{"FlagValue": {"Enabled": true}, "Weight": 50}]
+	}`
+	defRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/experimentdefinitions", []byte(defBody))
+	require.Equal(t, http.StatusCreated, defRec.Code)
+
+	var def appconfig.ExperimentDefinition
+	require.NoError(t, json.Unmarshal(defRec.Body.Bytes(), &def))
+
+	return app.ID, def
+}
+
+// TestHandler_ExperimentRun_Lifecycle drives StartExperimentRun/
+// GetExperimentRun/ListExperimentRuns/UpdateExperimentRun/
+// StopExperimentRun/ListExperimentRunEvents through the real router path,
+// asserting the REST-JSON wire shapes and HTTP methods field-diffed against
+// aws-sdk-go-v2/service/appconfig@v1.48.0's serializers.go (POST .../
+// experimentruns, PATCH .../stop, PATCH .../update, GET .../events).
+func TestHandler_ExperimentRun_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	appID, def := seedExperimentRunHTTP(t, h)
+
+	base := "/applications/" + appID + "/experimentdefinitions/" + def.ID + "/experimentruns"
+
+	startRec := doRequest(t, h, http.MethodPost, base, []byte(`{"ExposurePercentage":10}`))
+	require.Equal(t, http.StatusCreated, startRec.Code)
+
+	var run appconfig.ExperimentRun
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &run))
+	assert.Equal(t, int32(1), run.Run)
+	assert.Equal(t, "RUNNING", run.Status)
+	assert.InDelta(t, float32(10), run.ExposurePercentage, 0.001)
+
+	getRec := doRequest(t, h, http.MethodGet, base+"/1", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	listRec := doRequest(t, h, http.MethodGet, base, nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp struct {
+		Items []appconfig.ExperimentRun `json:"Items"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.Len(t, listResp.Items, 1)
+
+	updateRec := doRequest(t, h, http.MethodPatch, base+"/1/update", []byte(`{"ExposurePercentage":25}`))
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updated appconfig.ExperimentRun
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updated))
+	assert.InDelta(t, float32(25), updated.ExposurePercentage, 0.001)
+
+	stopRec := doRequest(t, h, http.MethodPatch, base+"/1/stop",
+		[]byte(`{"Result":{"ExecutiveSummary":"treatment won"}}`))
+	require.Equal(t, http.StatusOK, stopRec.Code)
+
+	var stopped appconfig.ExperimentRun
+	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopped))
+	assert.Equal(t, "DONE", stopped.Status)
+	require.NotNil(t, stopped.Result)
+	assert.Equal(t, "treatment won", stopped.Result.ExecutiveSummary)
+
+	eventsRec := doRequest(t, h, http.MethodGet, base+"/1/events", nil)
+	require.Equal(t, http.StatusOK, eventsRec.Code)
+
+	var eventsResp struct {
+		Items []appconfig.ExperimentRunEvent `json:"Items"`
+	}
+	require.NoError(t, json.Unmarshal(eventsRec.Body.Bytes(), &eventsResp))
+	require.Len(t, eventsResp.Items, 3, "RUN_STARTED, EXPOSURE_UPDATED, RUN_STOPPED")
+	assert.Equal(t, "RUN_STOPPED", eventsResp.Items[0].EventType, "most-recent-first ordering")
+}
+
+// TestHandler_ExperimentRun_HTTP_Errors covers not-found and validation
+// error status codes across the experiment-run routes.
+func TestHandler_ExperimentRun_HTTP_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		pathSuffix string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name:       "get run not found",
+			method:     http.MethodGet,
+			pathSuffix: "/applications/nonexistent/experimentdefinitions/def-1/experimentruns/1",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "stop run not found",
+			method:     http.MethodPatch,
+			pathSuffix: "/applications/nonexistent/experimentdefinitions/def-1/experimentruns/1/stop",
+			body:       []byte(`{}`),
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "start run definition not found",
+			method:     http.MethodPost,
+			pathSuffix: "/applications/nonexistent/experimentdefinitions/def-1/experimentruns",
+			body:       []byte(`{}`),
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.method, tt.pathSuffix, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
 func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	t.Parallel()
 

@@ -26,6 +26,7 @@ func clusterOpsSupported() []string {
 		"DescribeClusterEvent",
 		"ListClusterEvents",
 		"DetachClusterNodeVolume",
+		"StartClusterHealthCheck",
 	}
 }
 
@@ -76,9 +77,51 @@ func (h *Handler) dispatchClusterOps(ctx context.Context, op string, body []byte
 		r, err := h.handleDetachClusterNodeVolume(ctx, body)
 
 		return r, true, err
+	case "StartClusterHealthCheck":
+		r, err := h.handleStartClusterHealthCheck(ctx, body)
+
+		return r, true, err
 	}
 
 	return nil, false, nil
+}
+
+// instanceGroupHealthCheckConfigRequest is the wire shape for one entry of
+// StartClusterHealthCheckInput.DeepHealthCheckConfigurations
+// ([]types.InstanceGroupHealthCheckConfiguration). Its contents are only
+// validated for presence (required, non-empty request array) — this
+// emulator does not synthesize per-node deep-health-check results, so the
+// per-entry fields are accepted but not otherwise interpreted.
+type instanceGroupHealthCheckConfigRequest struct {
+	InstanceGroupName string   `json:"InstanceGroupName"`
+	DeepHealthChecks  []string `json:"DeepHealthChecks"`
+	InstanceIDs       []string `json:"InstanceIds"`
+}
+
+func (h *Handler) handleStartClusterHealthCheck(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ClusterName                   string                                  `json:"ClusterName"`
+		DeepHealthCheckConfigurations []instanceGroupHealthCheckConfigRequest `json:"DeepHealthCheckConfigurations"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	clusterARN, err := h.Backend.StartClusterHealthCheck(
+		ctx,
+		req.ClusterName,
+		len(req.DeepHealthCheckConfigurations) > 0,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyClusterArn: clusterARN})
 }
 
 // clusterInstanceGroupRequest is the wire shape for a

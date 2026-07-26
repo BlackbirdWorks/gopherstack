@@ -459,3 +459,99 @@ func (b *InMemoryBackend) ListConfigurationRecorders() []ConfigurationRecorderSu
 
 	return out
 }
+
+// thirdPartyRecorderFor returns the third-party service-linked recorder
+// (identified by a non-empty ConnectorArn) owned by servicePrincipal via the
+// recordersByServicePrincipal index, or nil if none exists. Caller must
+// already hold b.mu.
+func (b *InMemoryBackend) thirdPartyRecorderFor(servicePrincipal string) *ConfigurationRecorder {
+	for _, r := range b.recordersByServicePrincipal.Get(servicePrincipal) {
+		if r.ConnectorArn != "" {
+			return r
+		}
+	}
+
+	return nil
+}
+
+// PutThirdPartyServiceLinkedConfigurationRecorder creates or updates the
+// service-linked configuration recorder that links a third-party cloud
+// service provider (via connectorArn) to servicePrincipal. Verified against
+// aws-sdk-go-v2/service/configservice's
+// PutThirdPartyServiceLinkedConfigurationRecorder doc comment and
+// deserializer:
+//
+//   - ServicePrincipal, ConnectorArn, and ScopeConfiguration (with ScopeType
+//     set) are all required -- ValidationException otherwise.
+//   - connectorArn must reference a connector already known to this backend
+//     ("The specified connector must exist"). The op's declared error model
+//     has no ResourceNotFoundException (only ConflictException/
+//     InsufficientPermissionsException/ValidationException), so an unknown
+//     connector errors ValidationException, not ErrResourceNotFound.
+//   - If a service-linked recorder already exists for servicePrincipal with
+//     the SAME connectorArn, the call is idempotent: only ScopeConfiguration
+//     is updated ("calling this operation again updates the
+//     ScopeConfiguration").
+//   - If a service-linked recorder already exists for servicePrincipal with
+//     a DIFFERENT connectorArn, this errors ConflictException ("the
+//     specified service principal does not support multiple configuration
+//     recorders and one already exists") -- one recorder per service
+//     principal, the real API's documented constraint for this op (unlike
+//     the still-unenforced single-customer-managed-recorder limit elsewhere
+//     in this file).
+//
+// The created recorder reuses serviceLinkedRecorderName's
+// "AWSConfigurationRecorderFor<Service>" convention, since real AWS Config
+// documents that name prefix for service-linked recorders generally (not
+// just the AWS-native ones PutServiceLinkedConfigurationRecorder creates).
+func (b *InMemoryBackend) PutThirdPartyServiceLinkedConfigurationRecorder(
+	servicePrincipal, connectorArn string, scope *ScopeConfiguration, tags []Tag,
+) (string, string, error) {
+	if servicePrincipal == "" {
+		return "", "", fmt.Errorf("%w: ServicePrincipal is required", ErrValidation)
+	}
+
+	if connectorArn == "" {
+		return "", "", fmt.Errorf("%w: ConnectorArn is required", ErrValidation)
+	}
+
+	if scope == nil || scope.ScopeType == "" {
+		return "", "", fmt.Errorf("%w: ScopeConfiguration.ScopeType is required", ErrValidation)
+	}
+
+	b.mu.Lock("PutThirdPartyServiceLinkedConfigurationRecorder")
+	defer b.mu.Unlock()
+
+	if !b.connectors.Has(connectorArn) {
+		return "", "", fmt.Errorf("%w: connector %s does not exist", ErrValidation, connectorArn)
+	}
+
+	scopeCopy := *scope
+
+	if existing := b.thirdPartyRecorderFor(servicePrincipal); existing != nil {
+		if existing.ConnectorArn != connectorArn {
+			return "", "", fmt.Errorf(
+				"%w: service principal %s does not support multiple configuration recorders and one already exists",
+				ErrConflict, servicePrincipal,
+			)
+		}
+
+		existing.ScopeConfiguration = &scopeCopy
+
+		return existing.Name, b.recorderArn(existing.Name), nil
+	}
+
+	name := serviceLinkedRecorderName(servicePrincipal)
+	arn := b.recorderArn(name)
+
+	b.recorders.Put(&ConfigurationRecorder{
+		Name:               name,
+		Status:             recorderStatusActive,
+		ConnectorArn:       connectorArn,
+		ServicePrincipal:   servicePrincipal,
+		ScopeConfiguration: &scopeCopy,
+	})
+	b.setResourceTagsLocked(arn, tags)
+
+	return name, arn, nil
+}

@@ -377,6 +377,10 @@ func (b *InMemoryBackend) rebuildARNIndexes() {
 		b.transformJobs,
 		func(tj *TransformJob) (string, string) { return tj.TransformJobName, tj.TransformJobArn },
 	)
+	b.aiWorkloadConfigARNIndex = buildARNIndex(
+		b.aiWorkloadConfigs,
+		func(c *AIWorkloadConfig) (string, string) { return c.AIWorkloadConfigName, c.AIWorkloadConfigArn },
+	)
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
@@ -403,6 +407,9 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 //nolint:gochecknoglobals // read-only lookup table initialized once at package load
 var tableRegistrars = map[string]func(*InMemoryBackend, string){
 	"actions":                        func(b *InMemoryBackend, r string) { b.actionsStore(r) },
+	"aiBenchmarkJobs":                func(b *InMemoryBackend, r string) { b.aiBenchmarkJobsStore(r) },
+	"aiRecommendationJobs":           func(b *InMemoryBackend, r string) { b.aiRecommendationJobsStore(r) },
+	"aiWorkloadConfigs":              func(b *InMemoryBackend, r string) { b.aiWorkloadConfigsStore(r) },
 	"algorithms":                     func(b *InMemoryBackend, r string) { b.algorithmsStore(r) },
 	"appImageConfigs":                func(b *InMemoryBackend, r string) { b.appImageConfigsStore(r) },
 	"apps":                           func(b *InMemoryBackend, r string) { b.appsStore(r) },
@@ -435,6 +442,7 @@ var tableRegistrars = map[string]func(*InMemoryBackend, string){
 	"inferenceComponents":            func(b *InMemoryBackend, r string) { b.inferenceComponentsStore(r) },
 	"inferenceExperiments":           func(b *InMemoryBackend, r string) { b.inferenceExperimentsStore(r) },
 	"inferenceRecommendationsJobs":   func(b *InMemoryBackend, r string) { b.inferenceRecommendationsJobsStore(r) },
+	"jobs":                           func(b *InMemoryBackend, r string) { b.jobsStore(r) },
 	"labelingJobs":                   func(b *InMemoryBackend, r string) { b.labelingJobsStore(r) },
 	"mlflowApps":                     func(b *InMemoryBackend, r string) { b.mlflowAppsStore(r) },
 	"mlflowTrackingServers":          func(b *InMemoryBackend, r string) { b.mlflowTrackingServersStore(r) },

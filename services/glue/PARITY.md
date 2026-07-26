@@ -1,9 +1,9 @@
 ---
 service: glue
-sdk_module: aws-sdk-go-v2/service/glue@v1.137.2
-last_audit_commit: 6467046d
-last_audit_date: 2026-07-22
-overall: A            # all 7 tracked gaps closed; all 10 deferred families field-diffed and fixed where tractable
+sdk_module: aws-sdk-go-v2/service/glue@v1.149.0
+last_audit_commit: a7f9c5fb2
+last_audit_date: 2026-07-25
+overall: A            # 31 newly-shipped ops (business glossary, asset catalog, dashboard/session-endpoint) implemented for real; all 7 previously-tracked gaps + 10 deferred families remain closed from the prior pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -72,6 +72,10 @@ families:
   user_defined_functions: {status: ok, note: "fixed this pass: UserDefinedFunction was missing FunctionType (types.UserDefinedFunction/UserDefinedFunctionInput both document it — was entirely unmodeled, meaning Athena/Redshift-Spectrum-style scalar-function metadata was silently dropped) and CatalogId (every other catalog-scoped resource in this backend — Database/Table/Partition — already models CatalogID; UDF was the one exception). Also fixed a wire-shape bug in the other direction: the local model had a `FunctionArn` field with `json:\"FunctionArn\"` that does NOT exist on the real wire type at all (confirmed against types.UserDefinedFunction) — a fabricated extra field that, while harmless to JSON-tolerant clients, is not real AWS-accurate shape; changed to `json:\"-\"` (internal-only, used for TagResource) so GetUserDefinedFunction/GetUserDefinedFunctions responses now match the real shape exactly."}
   resource_policy: {status: ok, note: "fixed this pass: PutResourcePolicy silently dropped PolicyExistsCondition (MUST_EXIST/NOT_EXIST) and PolicyHashCondition entirely — every call unconditionally created/overwrote the policy regardless of what a caller passed, defeating the optimistic-concurrency guard those fields exist for. Worse, DeleteResourcePolicy's PolicyHashCondition parameter was already plumbed from the wire into the backend method but the backend signature discarded it as `_ string` — any caller's hash was ignored and the policy always deleted. Both now enforce the conditions and return the documented ConditionCheckFailureException (new sentinel ErrResourcePolicyConditionFailed, mapped in handler.go's handleError) or EntityNotFoundException (MUST_EXIST-but-missing) on mismatch. Interface signature PutResourcePolicy gained two params (existsCondition, hashCondition). Fixed this pass (gopherstack-qd4.2): EnableHybrid (TRUE/FALSE) is now accepted, validated as a well-formed enum, and recorded per-policy — previously silently dropped without even being read off the wire. AWS's documented precondition ('must be TRUE if you have already used the Management Console to grant cross-account access') can never actually trigger in this backend because Lake Formation console-grant state is not modeled anywhere in gopherstack, so both TRUE and FALSE correctly succeed unconditionally, matching real AWS behavior for any account with no console grants."}
   integration_resource_properties: {status: ok, note: "fixed this pass (found while auditing the deferred families, not previously tracked in this ledger): GetIntegrationResourceProperty/CreateIntegrationResourceProperty/UpdateIntegrationResourceProperty/ListIntegrationResourceProperties and GetIntegrationTableProperties all returned the live map-stored pointer with its SourceProperties/TargetProperties (or SourceTableConfig/TargetTableConfig) maps uncloned. UpdateIntegrationResourceProperty/UpdateIntegrationTableProperties reassign those same map fields in place under the lock, while Get/Create's callers read them after the lock is released — a genuine data race, same bug class as the prior pass's GetTables fix. Fixed by cloning (new cloneIntegrationResourceProperty helper + inline clone for the table-properties Get)."}
+  glossaries: {status: ok, note: "NEW this pass (parity-4, SDK bump to v1.149.0 revealed 31 new ops): CreateGlossary/GetGlossary/UpdateGlossary/DeleteGlossary/ListGlossaries and CreateGlossaryTerm/GetGlossaryTerm/UpdateGlossaryTerm/DeleteGlossaryTerm/ListGlossaryTerms field-diffed against the SDK's Create/Get/Update output shapes (Glossary reuses one struct for all three since they share exactly Id/Name/Description; same for GlossaryTerm). DeleteGlossary enforces AWS's documented 'cannot delete while it still contains terms' ConflictException (confirmed in deserializers.go's error switch). DeleteGlossaryTerm additionally disassociates the term from every asset/iterable-form-item that referenced it (not separately documented by the op's own shape, but the same referential-integrity discipline this backend already applies elsewhere, e.g. BatchDeleteTable cascading to partitions) -- covered by TestGlue_AssociateGlossaryTerms_TableDriven/deleting_glossary_term_cascades_to_asset. Glossary/GlossaryTerm IDs are opaque generated IDs (gls-/term- prefix + short uuid), matching that Name is not unique and Identifier is always used for lookup in the real shapes."}
+  asset_catalog: {status: ok, note: "NEW this pass: AssetType (PutAssetType/GetAssetType/DeleteAssetType/ListAssetTypes) and Asset (PutAsset/GetAsset/UpdateAsset/DeleteAsset/SearchAssets) field-diffed against the SDK. PutAssetType validates every referenced FormTypeIdentifier exists (EntityNotFoundException) -- an inferred FK check, not explicitly documented, but matches the FormType<-AssetType ownership DeleteFormType's own ConflictException already implies. PutAsset requires an existing AssetTypeId. DeleteAssetType has NO documented ConflictException (confirmed absent from deserializers.go's error switch, unlike DeleteFormType/DeleteGlossary), so deleting an asset type still referenced by assets is allowed -- deliberately not inventing an undocumented guard. AssociateGlossaryTerms/DisassociateGlossaryTerms validate both the asset and every glossary term ID exist. SearchAssets supports SearchText (case-insensitive substring on Name/Description) plus FilterClause's full union shape (AndAllFilters/OrAnyFilters/AttributeFilter/MapFilter, all 6 SearchFilterOperator values, decoded as a plain struct rather than reproducing the SDK's Go-side interface union since this backend only ever decodes, never encodes, the filter -- see search_assets.go's file doc comment) and Sort. MapFilter is scoped to the 'Forms' map attribute (the only map-shaped Asset field); AttributeFilter covers Name/Description/Id/AssetTypeId/CreatedAt/UpdatedAt."}
+  form_types_and_attachments: {status: ok, note: "NEW this pass: FormType (PutFormType/GetFormType/DeleteFormType/ListFormTypes) is upsert-keyed by Name (AWS documents 'if a form type with the given name already exists, it is updated' for the sibling PutAssetType, and PutFormType's own required-uppercase-first-letter validation strongly implies the same identity-by-name shape); FormType.Id is set equal to Name since the real ID-generation algorithm is not discoverable from the public SDK shapes alone -- the same class of simplification this file already accepts for DevEndpoint's mock network fields (see PARITY notes below). PutAttachment/DeleteAttachment attach forms either directly to an asset or (via IterableFormName+ItemIdentifier) to an item within one of the asset's iterable forms; BatchGetIterableForms/ListIterableForms are read-only per the SDK, so an iterable-form item's entire existence in this backend is derived from PutAttachment having targeted it at least once -- there is no other creation path in the 31-op surface this pass covers (see iterableFormItemRecord's doc comment in assets.go). This is modeled as a deliberately NOT-store.Table raw nested map (InMemoryBackend.iterableFormItems) because its key is a 3-level nested collection, not a single value's own field; it is still fully covered by Snapshot/Restore (see state_and_persistence)."}
+  dashboard_and_session_endpoint: {status: partial, note: "NEW this pass: GetDashboardUrl (JOB/SESSION dashboard URL) and GetSessionEndpoint (interactive session Spark Connect endpoint) both do a REAL existence check against this backend's job/session tables (EntityNotFoundException on an unknown resource, InvalidInputException on a ResourceType other than JOB/SESSION) and GetSessionEndpoint additionally real-checks the session isn't STOPPED/STOPPING (IllegalSessionStateException, confirmed as a documented error for this op). The URL/auth-token VALUES themselves are deterministic mock data, not backed by a real Glue Studio console or Spark Connect listener -- the same modeling choice already established and accepted in this file for DevEndpoint's YarnEndpointAddress/PrivateAddress/PublicAddress (no VPC/networking simulation exists anywhere in gopherstack). Marked partial rather than ok only because GetSessionEndpoint's state gate had to work around a PRE-EXISTING, unrelated gap noted while implementing this: Session.Status is set to PROVISIONING on CreateSession and nothing in this backend ever advances it to READY (no reconciler transition exists for sessions, unlike crawlers/job-runs/workflow-runs), so gating GetSessionEndpoint on READY would make it permanently unreachable in this backend; it is gated on 'not STOPPED/STOPPING' instead. Flagging the missing PROVISIONING->READY session transition for a future pass rather than expanding this one's scope to fix session lifecycle."}
   error_codes_global: {status: ok, note: "SEVERE systemic fix this pass: the shared ErrValidation sentinel wired \"ValidationException\" as its wire __type — confirmed against aws-sdk-go-v2/service/glue/deserializers.go that the vast majority of Create/Update/Delete operations (CreateDatabase, CreateTable, CreateJob, CreateCrawler, CreateTrigger, CreateBlueprint, CreateCustomEntityType, CreateUsageProfile, tag validation, ...) document InvalidInputException instead. Changed the shared sentinel + handler.go's hardcoded mapping to InvalidInputException, and fixed the ~8 existing tests that had encoded the wrong wire code. Also fixed awserrFromDetail (handler_stubs.go), which always wrapped batch-operation ErrorDetail as awserr.ErrNotFound regardless of the actual ErrorCode string — so e.g. an AlreadyExistsException detail from BatchCreatePartition surfaced to CreatePartition callers as EntityNotFoundException. Not touched: IdempotentParameterMismatchException, ResourceNumberLimitExceededException, OperationTimeoutException, ConcurrentModificationException remain unused — no account-level quota/concurrency-conflict modeling exists to trigger them realistically (bd: gopherstack-qd3.5)"}
 gaps:
   # All 7 gaps tracked at the start of this pass are fixed — see the ops/families
@@ -85,6 +89,7 @@ gaps:
   - "FIXED this pass: Trigger/TriggerAction missing Description, EventBatchingCondition, WorkflowName, and the AWS \"max 2 crawler actions per trigger\" soft limit is now enforced (bd: gopherstack-qd4.1)"
   - "FIXED this pass: PutResourcePolicy did not model EnableHybrid (bd: gopherstack-qd4.2)"
   - "NEW gap found this pass, STILL OPEN: TagResource/UntagResource's tagResource() dispatcher (tags.go) only recognizes Database/Crawler/Job/DataQualityRuleset/Connection/Trigger/Workflow ARNs. Blueprint/DevEndpoint/MLTransform/UserDefinedFunction/CustomEntityType all support Tags at creation (UDF/MLTransform via a separate ARN-keyed tag store; Blueprint/DevEndpoint via an inline Tags field added this pass) but calling TagResource/UntagResource against their ARN post-creation returns EntityNotFoundException. Pre-existing pattern gap, not introduced this pass (Blueprint/DevEndpoint had no tags capability at all before); flagging for a future pass rather than expanding this one's scope further."
+  - "NEW gap FOUND (not introduced) this pass (parity-4): Session.Status is set to PROVISIONING on CreateSession and this backend has no reconciler transition that ever advances it to READY, unlike crawlers/job-runs/workflow-runs which all do reach a terminal running/ready state. This was surfaced while implementing GetSessionEndpoint (bd note: had to gate on 'not STOPPED/STOPPING' instead of the more natural READY check -- see dashboard_and_session_endpoint family note). Fixing session lifecycle is out of scope for this pass; flagging for whichever pass owns sessions.go."
 deferred:
   # Every family below was field-diffed against the pinned SDK this pass (none
   # left un-audited). Families now fully closed (status: ok in the table above)
@@ -157,6 +162,95 @@ leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartRe
   `GetJobs`, `GetConnections`, `SearchTables`, `GetPartition(s)` all already cloned).
   Fixed to match the established pattern; verified no other `Get*` list method has
   the same gap.
+
+## This pass (parity-4 campaign: SDK bump to v1.149.0 revealed 31 new ops, HEAD `a7f9c5fb2`)
+
+The Go SDK module was bumped from `aws-sdk-go-v2/service/glue@v1.137.2` to
+`@v1.149.0`, which shipped a new operation surface `TestSDKCompleteness`
+caught as missing: `AssociateGlossaryTerms`, `BatchGetIterableForms`,
+`CreateGlossary`, `CreateGlossaryTerm`, `DeleteAsset`, `DeleteAssetType`,
+`DeleteAttachment`, `DeleteFormType`, `DeleteGlossary`, `DeleteGlossaryTerm`,
+`DisassociateGlossaryTerms`, `GetAsset`, `GetAssetType`, `GetDashboardUrl`,
+`GetFormType`, `GetGlossary`, `GetGlossaryTerm`, `GetSessionEndpoint`,
+`ListAssetTypes`, `ListFormTypes`, `ListGlossaries`, `ListGlossaryTerms`,
+`ListIterableForms`, `PutAsset`, `PutAssetType`, `PutAttachment`,
+`PutFormType`, `SearchAssets`, `UpdateAsset`, `UpdateGlossary`,
+`UpdateGlossaryTerm` -- three coherent new resource families (business
+glossary + terms; asset catalog: asset types, assets, form types,
+attachments, iterable form items; and Spark monitoring
+dashboard/interactive-session endpoint lookups) plus a handful of standalone
+ops. All 31 were implemented for real (none parked in `notImplemented`) --
+see the `glossaries`, `asset_catalog`, `form_types_and_attachments`, and
+`dashboard_and_session_endpoint` family notes above for the full field-diff
+and error-code reasoning per family.
+
+**Ownership/cascade summary** (see `ownership_and_cascade` in the return
+receipt for the full version): a `Glossary` owns zero or more
+`GlossaryTerm`s (`DeleteGlossary` blocked by `ConflictException` while any
+exist; `DeleteGlossaryTerm` cascades to disassociate the term from every
+`Asset`/iterable-form-item that referenced it). An `Asset` has exactly one
+`AssetType` (validated to exist on `PutAsset`); an `AssetType` references one
+or more `FormType`s via its `Forms` map (validated to exist on
+`PutAssetType`; `DeleteFormType` blocked by `ConflictException` while any
+`AssetType` still references it, per AWS's own documented error).
+`Attachment`s hang off either an `Asset` directly or an item within one of
+the `Asset`'s iterable forms (e.g. a table asset's "columns"); iterable-form
+items have no dedicated create operation in this 31-op surface, so their
+existence is entirely derived from `PutAttachment` having targeted them at
+least once (`ItemIdentifier`+`IterableFormName`) -- `DeleteAsset` cascades to
+delete all of an asset's iterable-form items.
+
+**Two honest, narrowly-scoped compromises** (both documented in the family
+notes above, neither hides anything in `notImplemented`): (1) `FormType`/
+`AssetType` IDs are set equal to their (unique, upsert-keyed) `Name` rather
+than an AWS-opaque generated ID, since the real ID-generation format is not
+derivable from the public SDK shapes -- the same class of "deterministic mock
+value, real backing state" choice this file already accepts for `DevEndpoint`
+network fields. (2) `GetDashboardUrl`/`GetSessionEndpoint` real-check that the
+target JOB/SESSION exists (and, for sessions, is not
+stopped/stopping) but return deterministic mock URL/token values, since this
+backend has no real Glue Studio console or Spark Connect listener -- again
+matching the `DevEndpoint` precedent rather than inventing new fabricated
+infrastructure.
+
+**One pre-existing, unrelated gap surfaced (not introduced) while
+implementing `GetSessionEndpoint`**: `Session.Status` is set to
+`PROVISIONING` on `CreateSession` and this backend has no reconciler
+transition that ever advances it to `READY` (unlike crawlers/job-runs/
+workflow-runs, which all do reach a terminal state via the managed
+reconciler). `GetSessionEndpoint` was designed around this by gating on "not
+STOPPED/STOPPING" rather than requiring `READY`, so the gap does not block
+this pass's new functionality; flagged in `gaps` above for whichever pass
+owns `sessions.go`.
+
+**Decomposition**: split by resource family into new files matching this
+service's existing one-family-per-file layout --
+`glossaries.go`/`handler_glossaries.go` (Glossary + GlossaryTerm +
+Associate/Disassociate), `assets.go`/`handler_assets.go` (AssetType + Asset +
+Attachments + IterableForms + SearchAssets), `search_assets.go` (SearchAssets'
+filter-clause union parser/evaluator, split out of `assets.go` to keep that
+file to CRUD), `forms.go`/`handler_forms.go` (FormType), and
+`dashboard.go`/`handler_dashboard.go` (GetDashboardUrl/GetSessionEndpoint). No
+function required a `//nolint:cyclop|gocyclo|gocognit|funlen` suppression;
+`golang.org/x/tools/go/analysis/passes/fieldalignment -fix` was re-run across
+the package (same tool used in the parity-3 pass) to keep every new struct
+`govet`-fieldalignment-clean.
+
+**New regression tests** (all in `handler_test.go`, an existing file --
+`services/glue` already had zero test files using a live
+`aws-sdk-go-v2/service/glue` client; every existing test in this package
+round-trips through the real HTTP handler/router path via the `doGlueRequest`
+helper already defined in `handler_test.go`, and the new tests follow that
+same established convention): `TestGlue_Glossary_TableDriven`,
+`TestGlue_AssociateGlossaryTerms_TableDriven`,
+`TestGlue_AssetCatalog_CRUD_TableDriven`,
+`TestGlue_AssetAttachmentsAndSearch_TableDriven`,
+`TestGlue_Dashboard_TableDriven`. `persistence_test.go`'s existing
+`TestInMemoryBackend_SnapshotRestore_FullState` (the package's designated
+full-backend-state Snapshot/Restore regression test) was extended to seed and
+verify a glossary+term+asset-type+form-type+asset+iterable-form-item chain,
+confirming the new `store.Table`-backed resources AND the raw
+`iterableFormItems` map all survive a Snapshot/Restore round trip.
 
 ## This pass (parity-3 campaign: full deferred-family sweep, HEAD `6467046d`)
 

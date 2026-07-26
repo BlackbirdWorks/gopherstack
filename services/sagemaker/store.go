@@ -107,6 +107,11 @@ type InMemoryBackend struct {
 	computeQuotas                map[string]*store.Table[ComputeQuota]
 	hubs                         map[string]*store.Table[Hub]
 	hubContents                  map[string]*store.Table[HubContent]
+	aiBenchmarkJobs              map[string]*store.Table[AIBenchmarkJob]
+	aiRecommendationJobs         map[string]*store.Table[AIRecommendationJob]
+	aiWorkloadConfigs            map[string]*store.Table[AIWorkloadConfig]
+	aiWorkloadConfigARNIndex     map[string]map[string]string // region → ARN → AI workload config name
+	jobs                         map[string]*store.Table[Job]
 	// pipelineVersions is region -> pipelineName -> versions, ordered oldest-first.
 	pipelineVersions map[string]map[string][]*PipelineVersion
 	// servicecatalogPortfolioEnabled is region -> whether the SageMaker
@@ -120,7 +125,8 @@ type InMemoryBackend struct {
 	// region (one store.Table per region, registered lazily on first use of
 	// that region) rather than a single flat store.Table[T], because these
 	// resources are natively region-partitioned collections; see the
-	// xxxStore(r) helpers below for the lazy-create-and-register point.
+	// per-resource Store(r) helpers below (modelsStore, endpointsStore and
+	// friends) for the lazy-create-and-register point.
 	registry        *store.Registry
 	lifecycleParent context.Context
 	lifecycleCtx    context.Context

@@ -169,7 +169,12 @@ type ClientVpnEndpointOptions struct {
 	TransportProtocol    string
 	VpcID                string
 	SelfServicePortalURL string
-	SecurityGroupIDs     []string
-	VpnPort              int32
-	SessionTimeoutHours  int32
+	// TransitGatewayID associates the endpoint with a Transit Gateway instead
+	// of a VPC (TransitGatewayConfiguration.TransitGatewayId on the wire).
+	// When set, CreateClientVpnEndpointWithOptions creates a pending
+	// TransitGatewayClientVpnAttachment for it.
+	TransitGatewayID    string
+	SecurityGroupIDs    []string
+	VpnPort             int32
+	SessionTimeoutHours int32
 }

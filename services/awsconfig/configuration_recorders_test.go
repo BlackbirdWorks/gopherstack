@@ -541,3 +541,302 @@ func TestAWSConfigBackend_ServiceLinkedConfigurationRecorder(t *testing.T) {
 		assert.Equal(t, name, delName)
 	})
 }
+
+// azureConfig is a shared valid ConnectorConfiguration used across the
+// Connector/PutThirdPartyServiceLinkedConfigurationRecorder tests below.
+func azureConfig(clientID, tenantID string) *awsconfig.ConnectorConfiguration {
+	return &awsconfig.ConnectorConfiguration{
+		Azure: &awsconfig.AzureConnectorConfiguration{ClientIdentifier: clientID, TenantIdentifier: tenantID},
+	}
+}
+
+func TestAWSConfigBackend_Connectors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil_configuration_fails_validation", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.PutConnector(nil, nil)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrValidation)
+	})
+
+	t.Run("empty_azure_fields_fail_validation", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.PutConnector(azureConfig("", "tenant-1"), nil)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrValidation)
+	})
+
+	t.Run("create_get_list_roundtrip", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		arn, err := b.PutConnector(azureConfig("client-1", "tenant-1"), []awsconfig.Tag{{Key: "env", Value: "prod"}})
+		require.NoError(t, err)
+		assert.Contains(t, arn, "connector/")
+
+		got, err := b.GetConnector(arn)
+		require.NoError(t, err)
+		assert.Equal(t, arn, got.Arn)
+		require.NotNil(t, got.ConnectorConfiguration)
+		require.NotNil(t, got.ConnectorConfiguration.Azure)
+		assert.Equal(t, "client-1", got.ConnectorConfiguration.Azure.ClientIdentifier)
+
+		summaries := b.ListConnectors(nil)
+		require.Len(t, summaries, 1)
+		assert.Equal(t, arn, summaries[0].Arn)
+		assert.Equal(t, "AZURE", summaries[0].Provider)
+		assert.Equal(t, "tenant-1", summaries[0].TenantIdentifier)
+
+		assert.Equal(t, []awsconfig.Tag{{Key: "env", Value: "prod"}}, b.ListTagsForResource(arn))
+	})
+
+	t.Run("duplicate_configuration_conflicts_not_upsert", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		arn1, err := b.PutConnector(azureConfig("client-1", "tenant-1"), nil)
+		require.NoError(t, err)
+
+		arn2, err := b.PutConnector(azureConfig("client-1", "tenant-1"), nil)
+		require.ErrorIs(t, err, awsconfig.ErrConflict)
+		assert.Empty(t, arn2)
+		assert.NotEmpty(t, arn1)
+
+		// Distinct configuration is a distinct connector, not a conflict.
+		arn3, err := b.PutConnector(azureConfig("client-2", "tenant-2"), nil)
+		require.NoError(t, err)
+		assert.NotEqual(t, arn1, arn3)
+		assert.Len(t, b.ListConnectors(nil), 2)
+	})
+
+	t.Run("list_filters_by_provider", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.PutConnector(azureConfig("client-1", "tenant-1"), nil)
+		require.NoError(t, err)
+
+		matching := b.ListConnectors([]awsconfig.ConnectorFilter{
+			{FilterName: "provider", FilterValues: []string{"AZURE"}},
+		})
+		assert.Len(t, matching, 1)
+
+		none := b.ListConnectors([]awsconfig.ConnectorFilter{
+			{FilterName: "provider", FilterValues: []string{"GCP"}},
+		})
+		assert.Empty(t, none)
+	})
+
+	t.Run("get_delete_unknown_arn_errors_resource_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.GetConnector("arn:aws:config:us-east-1:000000000000:connector/nonexistent")
+		require.ErrorIs(t, err, awsconfig.ErrResourceNotFound)
+
+		err = b.DeleteConnector("arn:aws:config:us-east-1:000000000000:connector/nonexistent")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrResourceNotFound)
+	})
+
+	t.Run("delete_removes_connector", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		arn, err := b.PutConnector(azureConfig("client-1", "tenant-1"), nil)
+		require.NoError(t, err)
+
+		require.NoError(t, b.DeleteConnector(arn))
+		assert.Empty(t, b.ListConnectors(nil))
+	})
+
+	t.Run("survives_snapshot_restore", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		arn, err := b.PutConnector(azureConfig("client-1", "tenant-1"), nil)
+		require.NoError(t, err)
+
+		snap := b.Snapshot(t.Context())
+		require.NotNil(t, snap)
+
+		fresh := awsconfig.NewInMemoryBackend()
+		require.NoError(t, fresh.Restore(t.Context(), snap))
+
+		got, err := fresh.GetConnector(arn)
+		require.NoError(t, err)
+		assert.Equal(t, arn, got.Arn)
+	})
+}
+
+func TestAWSConfigBackend_PutThirdPartyServiceLinkedConfigurationRecorder(t *testing.T) {
+	t.Parallel()
+
+	newConnector := func(t *testing.T, b *awsconfig.InMemoryBackend) string {
+		t.Helper()
+
+		arn, err := b.PutConnector(azureConfig("client-1", "tenant-1"), nil)
+		require.NoError(t, err)
+
+		return arn
+	}
+
+	scope := &awsconfig.ScopeConfiguration{ScopeType: "tenant", AllRegions: true}
+
+	t.Run("missing_required_fields_fail_validation", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		connectorArn := newConnector(t, b)
+
+		_, _, err := b.PutThirdPartyServiceLinkedConfigurationRecorder("", connectorArn, scope, nil)
+		require.ErrorIs(t, err, awsconfig.ErrValidation)
+
+		_, _, err = b.PutThirdPartyServiceLinkedConfigurationRecorder("svc.amazonaws.com", "", scope, nil)
+		require.ErrorIs(t, err, awsconfig.ErrValidation)
+
+		_, _, err = b.PutThirdPartyServiceLinkedConfigurationRecorder("svc.amazonaws.com", connectorArn, nil, nil)
+		require.ErrorIs(t, err, awsconfig.ErrValidation)
+	})
+
+	t.Run("unknown_connector_fails_validation", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, _, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", "arn:aws:config:us-east-1:000000000000:connector/nonexistent", scope, nil,
+		)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrValidation)
+	})
+
+	t.Run("create_is_active_and_visible_via_describe", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		connectorArn := newConnector(t, b)
+
+		name, arn, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", connectorArn, scope, nil,
+		)
+		require.NoError(t, err)
+		assert.NotEmpty(t, name)
+		assert.NotEmpty(t, arn)
+
+		recorders := b.DescribeConfigurationRecorders([]string{name})
+		require.Len(t, recorders, 1)
+		assert.Equal(t, "ACTIVE", recorders[0].Status)
+		assert.Equal(t, connectorArn, recorders[0].ConnectorArn)
+		assert.Equal(t, "svc.amazonaws.com", recorders[0].ServicePrincipal)
+		require.NotNil(t, recorders[0].ScopeConfiguration)
+		assert.Equal(t, "tenant", recorders[0].ScopeConfiguration.ScopeType)
+
+		statuses := b.DescribeConfigurationRecorderStatus([]string{name})
+		require.Len(t, statuses, 1)
+		assert.True(t, statuses[0].Recording)
+	})
+
+	t.Run("same_connector_is_idempotent_update", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		connectorArn := newConnector(t, b)
+
+		name1, arn1, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", connectorArn, scope, nil,
+		)
+		require.NoError(t, err)
+
+		updatedScope := &awsconfig.ScopeConfiguration{ScopeType: "subscription", AllRegions: false}
+		name2, arn2, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", connectorArn, updatedScope, nil,
+		)
+		require.NoError(t, err)
+
+		assert.Equal(t, name1, name2)
+		assert.Equal(t, arn1, arn2)
+		assert.Len(t, b.DescribeConfigurationRecorders(nil), 1)
+
+		recorders := b.DescribeConfigurationRecorders([]string{name1})
+		require.Len(t, recorders, 1)
+		assert.Equal(t, "subscription", recorders[0].ScopeConfiguration.ScopeType)
+	})
+
+	t.Run("different_connector_same_principal_conflicts", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		connectorArn1 := newConnector(t, b)
+
+		_, _, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", connectorArn1, scope, nil,
+		)
+		require.NoError(t, err)
+
+		connectorArn2, err := b.PutConnector(azureConfig("client-2", "tenant-2"), nil)
+		require.NoError(t, err)
+
+		_, _, err = b.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", connectorArn2, scope, nil,
+		)
+		require.ErrorIs(t, err, awsconfig.ErrConflict)
+		assert.Len(t, b.DescribeConfigurationRecorders(nil), 1)
+	})
+
+	t.Run("deletable_via_generic_delete_configuration_recorder", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		connectorArn := newConnector(t, b)
+
+		name, _, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", connectorArn, scope, nil,
+		)
+		require.NoError(t, err)
+
+		require.NoError(t, b.DeleteConfigurationRecorder(name))
+		assert.Empty(t, b.DescribeConfigurationRecorders(nil))
+
+		// A fresh Put for the same principal now creates rather than conflicts.
+		name2, _, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", connectorArn, scope, nil,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, name, name2)
+	})
+
+	t.Run("survives_snapshot_restore", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		connectorArn := newConnector(t, b)
+
+		name, _, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", connectorArn, scope, nil,
+		)
+		require.NoError(t, err)
+
+		snap := b.Snapshot(t.Context())
+		require.NotNil(t, snap)
+
+		fresh := awsconfig.NewInMemoryBackend()
+		require.NoError(t, fresh.Restore(t.Context(), snap))
+
+		// The recorder must be visible AND the servicePrincipal index must
+		// still resolve it (not just the raw recorders table), since a
+		// second Put after restore should update-not-conflict.
+		recorders := fresh.DescribeConfigurationRecorders([]string{name})
+		require.Len(t, recorders, 1)
+
+		_, _, err = fresh.PutThirdPartyServiceLinkedConfigurationRecorder(
+			"svc.amazonaws.com", connectorArn, scope, nil,
+		)
+		require.NoError(t, err)
+		assert.Len(t, fresh.DescribeConfigurationRecorders(nil), 1)
+	})
+}

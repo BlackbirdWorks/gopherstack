@@ -19,6 +19,19 @@ func (b *InMemoryBackend) resolverRulePoliciesStore(region string) map[string]st
 	return b.resolverRulePolicies[region]
 }
 
+// resolverRulePoliciesStoreRO returns the region-scoped resolverRulePolicies
+// map for region without mutating the outer map. Safe to call while holding
+// only b.mu.RLock(): if the region has not been observed yet, it returns a
+// fresh, unregistered, empty map instead of lazily creating (and
+// persisting) an entry.
+func (b *InMemoryBackend) resolverRulePoliciesStoreRO(region string) map[string]string {
+	if v := b.resolverRulePolicies[region]; v != nil {
+		return v
+	}
+
+	return map[string]string{}
+}
+
 func (b *InMemoryBackend) CreateResolverRule(
 	ctx context.Context,
 	name, domainName, ruleType, endpointID, creatorRequestID string,
@@ -228,7 +241,7 @@ func (b *InMemoryBackend) GetResolverRulePolicy(ctx context.Context, arnStr stri
 
 	region := getRegion(ctx, b.region)
 
-	return b.resolverRulePoliciesStore(region)[arnStr]
+	return b.resolverRulePoliciesStoreRO(region)[arnStr]
 }
 
 // PutResolverRulePolicy stores a resource policy for a resolver rule ARN.

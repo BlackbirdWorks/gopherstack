@@ -582,3 +582,203 @@ func TestAWSConfigHandler_ServiceLinkedConfigurationRecorder(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusNotFound, delAgain.Code)
 }
+
+// putConnectorBody builds a valid PutConnector request body for an Azure
+// connector, used across the connector/third-party-recorder handler tests.
+func putConnectorBody(clientID, tenantID string) map[string]any {
+	return map[string]any{
+		"ConnectorConfiguration": map[string]any{
+			"azure": map[string]any{
+				"clientIdentifier": clientID,
+				"tenantIdentifier": tenantID,
+			},
+		},
+	}
+}
+
+func TestAWSConfigHandler_Connectors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		body     any
+		name     string
+		op       string
+		wantCode int
+	}{
+		{
+			name:     "put_success",
+			op:       "PutConnector",
+			body:     putConnectorBody("client-1", "tenant-1"),
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "put_missing_configuration_is_400",
+			op:       "PutConnector",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "put_duplicate_configuration_conflicts",
+			op:   "PutConnector",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				doAWSConfigRequest(t, h, "PutConnector", putConnectorBody("client-1", "tenant-1"))
+			},
+			body:     putConnectorBody("client-1", "tenant-1"),
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "get_unknown_arn_is_404_equivalent",
+			op:       "GetConnector",
+			body:     map[string]any{"Arn": "arn:aws:config:us-east-1:000000000000:connector/nonexistent"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete_unknown_arn",
+			op:       "DeleteConnector",
+			body:     map[string]any{"Arn": "arn:aws:config:us-east-1:000000000000:connector/nonexistent"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "list_empty",
+			op:       "ListConnectors",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestAWSConfigHandler_ConnectorsRoundtrip verifies PutConnector's returned
+// Arn is retrievable via GetConnector/ListConnectors and gone after
+// DeleteConnector, exercising the full wire round trip (not just status codes).
+func TestAWSConfigHandler_ConnectorsRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+
+	putRec := doAWSConfigRequest(t, h, "PutConnector", putConnectorBody("client-1", "tenant-1"))
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	var putOut struct {
+		Arn string `json:"Arn"`
+	}
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NotEmpty(t, putOut.Arn)
+
+	getRec := doAWSConfigRequest(t, h, "GetConnector", map[string]any{"Arn": putOut.Arn})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut struct {
+		Connector struct {
+			Arn                    string `json:"arn"`
+			ConnectorConfiguration struct {
+				Azure struct {
+					ClientIdentifier string `json:"clientIdentifier"`
+				} `json:"azure"`
+			} `json:"connectorConfiguration"`
+		} `json:"Connector"`
+	}
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	assert.Equal(t, putOut.Arn, getOut.Connector.Arn)
+	assert.Equal(t, "client-1", getOut.Connector.ConnectorConfiguration.Azure.ClientIdentifier)
+
+	listRec := doAWSConfigRequest(t, h, "ListConnectors", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut struct {
+		ConnectorSummaries []struct {
+			Arn      string `json:"arn"`
+			Provider string `json:"provider"`
+		} `json:"ConnectorSummaries"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.Len(t, listOut.ConnectorSummaries, 1)
+	assert.Equal(t, putOut.Arn, listOut.ConnectorSummaries[0].Arn)
+	assert.Equal(t, "AZURE", listOut.ConnectorSummaries[0].Provider)
+
+	delRec := doAWSConfigRequest(t, h, "DeleteConnector", map[string]any{"Arn": putOut.Arn})
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	getAgain := doAWSConfigRequest(t, h, "GetConnector", map[string]any{"Arn": putOut.Arn})
+	assert.Equal(t, http.StatusBadRequest, getAgain.Code)
+	assert.Contains(t, getAgain.Body.String(), "ResourceNotFoundException")
+}
+
+func TestAWSConfigHandler_PutThirdPartyServiceLinkedConfigurationRecorder(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+
+	putConnRec := doAWSConfigRequest(t, h, "PutConnector", putConnectorBody("client-1", "tenant-1"))
+	require.Equal(t, http.StatusOK, putConnRec.Code)
+
+	var connOut struct {
+		Arn string `json:"Arn"`
+	}
+	require.NoError(t, json.Unmarshal(putConnRec.Body.Bytes(), &connOut))
+
+	body := map[string]any{
+		"ServicePrincipal": "thirdparty.amazonaws.com",
+		"ConnectorArn":     connOut.Arn,
+		"ScopeConfiguration": map[string]any{
+			"scopeType":  "tenant",
+			"allRegions": true,
+		},
+	}
+
+	putRec := doAWSConfigRequest(t, h, "PutThirdPartyServiceLinkedConfigurationRecorder", body)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	var putOut struct {
+		Arn  string `json:"Arn"`
+		Name string `json:"Name"`
+	}
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	assert.NotEmpty(t, putOut.Name)
+	assert.NotEmpty(t, putOut.Arn)
+
+	// Visible through the pre-existing DescribeConfigurationRecorders path --
+	// the key correctness point: a third-party service-linked recorder must
+	// not be an orphan no existing op can observe.
+	describeRec := doAWSConfigRequest(t, h, "DescribeConfigurationRecorders", map[string]any{})
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	assert.Contains(t, describeRec.Body.String(), putOut.Name)
+	assert.Contains(t, describeRec.Body.String(), connOut.Arn)
+
+	// Repeating the call with a different connector for the same service
+	// principal conflicts (one recorder per service principal).
+	putConnRec2 := doAWSConfigRequest(t, h, "PutConnector", putConnectorBody("client-2", "tenant-2"))
+	require.Equal(t, http.StatusOK, putConnRec2.Code)
+
+	var connOut2 struct {
+		Arn string `json:"Arn"`
+	}
+	require.NoError(t, json.Unmarshal(putConnRec2.Body.Bytes(), &connOut2))
+
+	conflictBody := map[string]any{
+		"ServicePrincipal": "thirdparty.amazonaws.com",
+		"ConnectorArn":     connOut2.Arn,
+		"ScopeConfiguration": map[string]any{
+			"scopeType":  "tenant",
+			"allRegions": true,
+		},
+	}
+	conflictRec := doAWSConfigRequest(t, h, "PutThirdPartyServiceLinkedConfigurationRecorder", conflictBody)
+	assert.Equal(t, http.StatusBadRequest, conflictRec.Code)
+	assert.Contains(t, conflictRec.Body.String(), "ConflictException")
+}

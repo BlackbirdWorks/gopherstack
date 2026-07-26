@@ -230,3 +230,84 @@ func (b *InMemoryBackend) DescribeCapacityReservationBillingRequests(
 
 	return result
 }
+
+// ---- Capacity Reservation Cancellation Quotes ----
+
+// capacityReservationCancellationQuoteTTL is how long a generated
+// cancellation quote remains "active" before Describe reports it "expired",
+// matching real AWS's short-lived-quote semantics.
+const capacityReservationCancellationQuoteTTL = time.Hour
+
+// CreateCapacityReservationCancellationQuote generates a cancellation quote
+// for the given Capacity Reservation, reflecting its current instance count
+// and state. This backend does not model commitment-duration billing, so the
+// cancellation terms list is always empty (no cancellation charges apply) —
+// an honest reflection of "no commitment plan modeled" rather than a
+// fabricated charge.
+func (b *InMemoryBackend) CreateCapacityReservationCancellationQuote(
+	capacityReservationID string,
+	tags map[string]string,
+) (*CapacityReservationCancellationQuote, error) {
+	if capacityReservationID == "" {
+		return nil, fmt.Errorf("%w: CapacityReservationId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateCapacityReservationCancellationQuote")
+	defer b.mu.Unlock()
+
+	cr, ok := b.capacityReservations.Get(capacityReservationID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, capacityReservationID)
+	}
+
+	now := time.Now().UTC()
+	quote := &CapacityReservationCancellationQuote{
+		CapacityReservationCancellationQuoteID: "crcq-" + uuid.New().String()[:8],
+		CapacityReservationID:                  capacityReservationID,
+		QuoteState:                             capacityReservationCancellationQuoteStateActive,
+		CurrentInstanceCount:                   toInt32Clamped(cr.TotalInstanceCount),
+		CurrentReservationState:                cr.State,
+		CreateTime:                             now,
+		ExpirationTime:                         now.Add(capacityReservationCancellationQuoteTTL),
+		Tags:                                   tags,
+	}
+	b.capacityReservationCancellationQuotes.Put(quote)
+
+	cp := *quote
+
+	return &cp, nil
+}
+
+// DescribeCapacityReservationCancellationQuotes returns cancellation quotes,
+// optionally filtered by ID. QuoteState is recomputed at read time against
+// ExpirationTime, since this backend does not run a background expiry sweep.
+func (b *InMemoryBackend) DescribeCapacityReservationCancellationQuotes(
+	ids []string,
+) []*CapacityReservationCancellationQuote {
+	b.mu.RLock("DescribeCapacityReservationCancellationQuotes")
+	defer b.mu.RUnlock()
+
+	idSet := toIDSet(ids)
+	now := time.Now().UTC()
+
+	var out []*CapacityReservationCancellationQuote
+
+	for _, q := range b.capacityReservationCancellationQuotes.All() {
+		if len(idSet) > 0 && !idSet[q.CapacityReservationCancellationQuoteID] {
+			continue
+		}
+
+		cp := *q
+		if now.After(cp.ExpirationTime) {
+			cp.QuoteState = capacityReservationCancellationQuoteStateExpired
+		}
+
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CapacityReservationCancellationQuoteID < out[j].CapacityReservationCancellationQuoteID
+	})
+
+	return out
+}

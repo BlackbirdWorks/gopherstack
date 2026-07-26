@@ -108,14 +108,28 @@ func TestIntegration_CloudWatch_CompositeAlarms(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// DescribeAlarms returns both metric and composite alarms.
+	// DescribeAlarms defaults to metric alarms only when AlarmTypes is
+	// omitted (real DescribeAlarmsInput.AlarmTypes doc: "If you omit this
+	// parameter, only metric alarms are returned, even if composite alarms
+	// or log alarms exist in the account"), so both types must be requested
+	// explicitly to get both back in one call.
 	descOut, err := client.DescribeAlarms(ctx, &cloudwatchsdk.DescribeAlarmsInput{
 		AlarmNames: []string{childAlarm, compositeAlarm},
+		AlarmTypes: []cwtypes.AlarmType{cwtypes.AlarmTypeMetricAlarm, cwtypes.AlarmTypeCompositeAlarm},
 	})
 	require.NoError(t, err)
 	assert.Len(t, descOut.MetricAlarms, 1)
 	assert.Len(t, descOut.CompositeAlarms, 1)
 	assert.Equal(t, compositeAlarm, aws.ToString(descOut.CompositeAlarms[0].AlarmName))
+
+	// AlarmTypes omitted: only the metric alarm comes back, not the composite.
+	defaultOut, err := client.DescribeAlarms(ctx, &cloudwatchsdk.DescribeAlarmsInput{
+		AlarmNames: []string{childAlarm, compositeAlarm},
+	})
+	require.NoError(t, err)
+	assert.Len(t, defaultOut.MetricAlarms, 1)
+	assert.Empty(t, defaultOut.CompositeAlarms,
+		"composite alarms must not be returned when AlarmTypes is omitted")
 
 	// Cleanup.
 	_, err = client.DeleteAlarms(ctx, &cloudwatchsdk.DeleteAlarmsInput{

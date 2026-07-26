@@ -356,6 +356,10 @@ func TestVPHandler_NewOperations_InSupportedList(t *testing.T) {
 		"GetSchema",
 		"ListIdentitySources",
 		"PutSchema",
+		"CreatePolicyStoreAlias",
+		"GetPolicyStoreAlias",
+		"ListPolicyStoreAliases",
+		"DeletePolicyStoreAlias",
 	} {
 		assert.Contains(t, ops, op)
 	}

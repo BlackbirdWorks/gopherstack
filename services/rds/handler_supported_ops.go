@@ -85,6 +85,7 @@ func supportedOpsBase() []string {
 		"DescribeDBSnapshotAttributes",
 		"DescribeDBSnapshots",
 		"DescribeDBSubnetGroups",
+		"DescribeServerlessV2PlatformVersions",
 	}
 }
 

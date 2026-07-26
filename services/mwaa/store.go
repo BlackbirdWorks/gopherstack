@@ -169,6 +169,18 @@ func (b *InMemoryBackend) metricsStore(region string) map[string][]MetricDatum {
 	return b.metrics[region]
 }
 
+// metricsStoreRO returns the region-scoped metrics map for region without
+// mutating the outer map. Safe to call while holding only b.mu.RLock(): if
+// the region has not been observed yet, it returns a fresh, unregistered,
+// empty map instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) metricsStoreRO(region string) map[string][]MetricDatum {
+	if v := b.metrics[region]; v != nil {
+		return v
+	}
+
+	return map[string][]MetricDatum{}
+}
+
 // Reset closes the current mutex and reinitialises all state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Close()

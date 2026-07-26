@@ -128,6 +128,15 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	qs, err := original.CreateQuotaShare(
+		t.Context(), "qs-1", "queue-1",
+		[]batch.QuotaShareCapacityLimit{{CapacityUnit: "ml.m5.large", MaxCapacity: 10}},
+		&batch.QuotaSharePreemptionConfiguration{InSharePreemption: "ENABLED"},
+		&batch.QuotaShareResourceSharingConfiguration{Strategy: "LEND_AND_BORROW", BorrowLimit: 200},
+		"", nil,
+	)
+	require.NoError(t, err)
+
 	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
@@ -196,6 +205,16 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	sjGot, err := fresh.DescribeServiceJob(t.Context(), sj.JobID)
 	require.NoError(t, err)
 	assert.Equal(t, "sj-1", sjGot.JobName)
+
+	// quotaShares table + byRegion index (ListQuotaShares by job queue).
+	qsGot, err := fresh.DescribeQuotaShare(t.Context(), qs.QuotaShareArn)
+	require.NoError(t, err)
+	assert.Equal(t, "qs-1", qsGot.QuotaShareName)
+
+	qsList, err := fresh.ListQuotaShares(t.Context(), "queue-1")
+	require.NoError(t, err)
+	require.Len(t, qsList, 1)
+	assert.Equal(t, "qs-1", qsList[0].QuotaShareName)
 }
 
 func TestBatch_PersistenceSnapshotRestore(t *testing.T) {

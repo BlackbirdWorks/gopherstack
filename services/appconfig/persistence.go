@@ -45,19 +45,26 @@ const appconfigSnapshotVersion = 1
 //     restart so GetConfiguration/CurrentDeployedConfiguration keep
 //     serving the right content (see its doc comment on InMemoryBackend).
 //   - AccountSettings: a single struct, not a map at all.
+//   - ExperimentRunEvents: values are []ExperimentRunEvent, not *T; must
+//     survive a restart so ListExperimentRunEvents keeps returning the
+//     events this backend actually recorded rather than losing run history.
+//   - ExperimentRunCounters: values are int32, not *T; same
+//     never-reuse-a-number reasoning as VersionCounters/DeploymentCounters.
 //
 // deploymentTimers is deliberately NOT part of this snapshot -- see its doc
 // comment on InMemoryBackend.
 type backendSnapshot struct {
-	Tables             map[string]json.RawMessage   `json:"tables"`
-	TagsByArn          map[string]map[string]string `json:"tagsByArn"`
-	VersionCounters    map[string]map[string]int32  `json:"versionCounters"`
-	DeploymentCounters map[string]map[string]int32  `json:"deploymentCounters"`
-	DeployedConfigs    map[string]string            `json:"deployedConfigs"`
-	AccountSettings    AccountSettings              `json:"accountSettings"`
-	AccountID          string                       `json:"accountID"`
-	Region             string                       `json:"region"`
-	Version            int                          `json:"version"`
+	Tables                map[string]json.RawMessage      `json:"tables"`
+	TagsByArn             map[string]map[string]string    `json:"tagsByArn"`
+	VersionCounters       map[string]map[string]int32     `json:"versionCounters"`
+	DeploymentCounters    map[string]map[string]int32     `json:"deploymentCounters"`
+	DeployedConfigs       map[string]string               `json:"deployedConfigs"`
+	ExperimentRunEvents   map[string][]ExperimentRunEvent `json:"experimentRunEvents"`
+	ExperimentRunCounters map[string]int32                `json:"experimentRunCounters"`
+	AccountSettings       AccountSettings                 `json:"accountSettings"`
+	AccountID             string                          `json:"accountID"`
+	Region                string                          `json:"region"`
+	Version               int                             `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
@@ -74,15 +81,17 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:            appconfigSnapshotVersion,
-		Tables:             tables,
-		TagsByArn:          b.tags,
-		VersionCounters:    b.versionCounters,
-		DeploymentCounters: b.deploymentCounters,
-		DeployedConfigs:    b.deployedConfigs,
-		AccountSettings:    b.accountSettings,
-		AccountID:          b.accountID,
-		Region:             b.region,
+		Version:               appconfigSnapshotVersion,
+		Tables:                tables,
+		TagsByArn:             b.tags,
+		VersionCounters:       b.versionCounters,
+		DeploymentCounters:    b.deploymentCounters,
+		DeployedConfigs:       b.deployedConfigs,
+		ExperimentRunEvents:   b.experimentRunEvents,
+		ExperimentRunCounters: b.experimentRunCounters,
+		AccountSettings:       b.accountSettings,
+		AccountID:             b.accountID,
+		Region:                b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "appconfig", snap)
@@ -115,6 +124,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.versionCounters = make(map[string]map[string]int32)
 		b.deploymentCounters = make(map[string]map[string]int32)
 		b.deployedConfigs = make(map[string]string)
+		b.experimentRunEvents = make(map[string][]ExperimentRunEvent)
+		b.experimentRunCounters = make(map[string]int32)
 		b.accountSettings = AccountSettings{}
 		b.accountID = snap.AccountID
 		b.region = snap.Region
@@ -149,6 +160,18 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.deployedConfigs = snap.DeployedConfigs
+
+	if snap.ExperimentRunEvents == nil {
+		snap.ExperimentRunEvents = make(map[string][]ExperimentRunEvent)
+	}
+
+	b.experimentRunEvents = snap.ExperimentRunEvents
+
+	if snap.ExperimentRunCounters == nil {
+		snap.ExperimentRunCounters = make(map[string]int32)
+	}
+
+	b.experimentRunCounters = snap.ExperimentRunCounters
 
 	b.accountSettings = snap.AccountSettings
 	b.accountID = snap.AccountID

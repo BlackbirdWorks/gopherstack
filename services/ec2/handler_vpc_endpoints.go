@@ -198,6 +198,47 @@ func (h *Handler) handleDescribeVpcEndpointAssociations(
 	return resp, nil
 }
 
+type payerResponsibilityEntryItem struct {
+	PayerResponsibilityType string `xml:"payerResponsibilityType,omitempty"`
+	Scope                   string `xml:"scope,omitempty"`
+}
+
+type modifyVpcEndpointPayerResponsibilityResponse struct {
+	XMLName                xml.Name `xml:"ModifyVpcEndpointPayerResponsibilityResponse"`
+	Xmlns                  string   `xml:"xmlns,attr"`
+	RequestID              string   `xml:"requestId"`
+	VpcEndpointID          string   `xml:"vpcEndpointId,omitempty"`
+	PayerResponsibilitySet struct {
+		Items []payerResponsibilityEntryItem `xml:"item"`
+	} `xml:"payerResponsibilitySet"`
+}
+
+func (h *Handler) handleModifyVpcEndpointPayerResponsibility(vals url.Values, reqID string) (any, error) {
+	endpointID := vals.Get("VpcEndpointId")
+
+	entries, err := h.Backend.ModifyVpcEndpointPayerResponsibility(
+		endpointID,
+		vals.Get("PayerResponsibility"),
+		vals.Get("Scope"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &modifyVpcEndpointPayerResponsibilityResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		VpcEndpointID: endpointID,
+	}
+	for _, e := range entries {
+		resp.PayerResponsibilitySet.Items = append(
+			resp.PayerResponsibilitySet.Items, payerResponsibilityEntryItem(e),
+		)
+	}
+
+	return resp, nil
+}
+
 func (h *Handler) handleModifyVpcEndpointServicePayerResponsibility(
 	vals url.Values,
 	reqID string,
@@ -370,6 +411,7 @@ func registerVpcEndpointsOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeVpcEndpointConnections"] = h.handleDescribeVpcEndpointConnections
 	ops["DescribeVpcEndpointAssociations"] = h.handleDescribeVpcEndpointAssociations
 	ops["ModifyVpcEndpointServicePayerResponsibility"] = h.handleModifyVpcEndpointServicePayerResponsibility
+	ops["ModifyVpcEndpointPayerResponsibility"] = h.handleModifyVpcEndpointPayerResponsibility
 	ops["DescribeVpcEndpointServicePermissions"] = h.handleDescribeVpcEndpointServicePermissions
 	ops["ModifyVpcEndpointServicePermissions"] = h.handleModifyVpcEndpointServicePermissions
 	ops["ModifyVpcEndpoint"] = h.handleModifyVpcEndpoint
@@ -389,6 +431,7 @@ func vpcEndpointsSupportedOperations() []string {
 		"DescribeVpcEndpointConnections",
 		"DescribeVpcEndpointAssociations",
 		"ModifyVpcEndpointServicePayerResponsibility",
+		"ModifyVpcEndpointPayerResponsibility",
 		"DescribeVpcEndpointServicePermissions",
 		"ModifyVpcEndpointServicePermissions",
 		"ModifyVpcEndpoint",

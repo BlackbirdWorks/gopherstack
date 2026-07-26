@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -347,6 +349,104 @@ func TestECS_DescribeDaemon(t *testing.T) {
 		map[string]any{"daemonArn": "arn:aws:ecs:us-east-1:000000000000:daemon/default/nope"},
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting proves, through the
+// real aws-sdk-go-v2 ECS client, that DescribeDaemonOutput.Daemon
+// (types.DaemonDetail) round-trips its revision-nested shape correctly:
+// CurrentRevisions is a list of DaemonRevisionDetail, each carrying its own
+// CapacityProviders list of DaemonCapacityProvider{Arn, RunningCount} -- not
+// a flattened daemon-level CapacityProviderArns list. A flattened shape would
+// decode CurrentRevisions as empty (or fail entirely) through the real
+// client's deserializer, even though TestECS_DescribeDaemon's
+// map[string]any-based assertions above happened to still see a
+// "currentRevisions" key.
+func TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "single_capacity_provider",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				client := newTestECSClient(t, h)
+				tdArn := registerDaemonTaskDef(t, h, "rt-nesting-family")
+				cpArn := createCapacityProviderForDaemon(t, h, "rt-nesting-cp")
+
+				createOut, err := client.CreateDaemon(t.Context(), &ecssdk.CreateDaemonInput{
+					DaemonName:              aws.String("rt-nesting-daemon"),
+					DaemonTaskDefinitionArn: aws.String(tdArn),
+					CapacityProviderArns:    []string{cpArn},
+				})
+				require.NoError(t, err)
+
+				descOut, err := client.DescribeDaemon(t.Context(), &ecssdk.DescribeDaemonInput{
+					DaemonArn: createOut.DaemonArn,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, descOut.Daemon)
+
+				d := descOut.Daemon
+				assert.Equal(t, aws.ToString(createOut.DaemonArn), aws.ToString(d.DaemonArn))
+				assert.NotNil(t, d.CreatedAt)
+				assert.NotNil(t, d.UpdatedAt)
+				require.NotEmpty(t, aws.ToString(d.DeploymentArn))
+				require.NotEmpty(t, aws.ToString(d.ClusterArn))
+
+				require.Len(t, d.CurrentRevisions, 1)
+				rev := d.CurrentRevisions[0]
+				assert.NotEmpty(t, aws.ToString(rev.Arn))
+				require.Len(t, rev.CapacityProviders, 1)
+				assert.Equal(t, cpArn, aws.ToString(rev.CapacityProviders[0].Arn))
+			},
+		},
+		{
+			name: "multiple_capacity_providers_all_nested_under_the_one_revision",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				client := newTestECSClient(t, h)
+				tdArn := registerDaemonTaskDef(t, h, "rt-nesting-multi-family")
+				cp1 := createCapacityProviderForDaemon(t, h, "rt-nesting-multi-cp1")
+				cp2 := createCapacityProviderForDaemon(t, h, "rt-nesting-multi-cp2")
+
+				createOut, err := client.CreateDaemon(t.Context(), &ecssdk.CreateDaemonInput{
+					DaemonName:              aws.String("rt-nesting-multi-daemon"),
+					DaemonTaskDefinitionArn: aws.String(tdArn),
+					CapacityProviderArns:    []string{cp1, cp2},
+				})
+				require.NoError(t, err)
+
+				descOut, err := client.DescribeDaemon(t.Context(), &ecssdk.DescribeDaemonInput{
+					DaemonArn: createOut.DaemonArn,
+				})
+				require.NoError(t, err)
+				require.Len(t, descOut.Daemon.CurrentRevisions, 1)
+
+				cps := descOut.Daemon.CurrentRevisions[0].CapacityProviders
+				arns := make([]string, 0, len(cps))
+
+				for _, cp := range cps {
+					arns = append(arns, aws.ToString(cp.Arn))
+				}
+
+				assert.ElementsMatch(t, []string{cp1, cp2}, arns)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }
 
 func TestECS_UpdateDaemon(t *testing.T) {

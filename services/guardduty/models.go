@@ -252,3 +252,38 @@ type TrustedEntitySet struct {
 	Status              string            `json:"status"`
 	ExpectedBucketOwner string            `json:"expectedBucketOwner,omitempty"`
 }
+
+// Investigation represents a GuardDuty Extended Threat Detection
+// investigation (CreateInvestigation/GetInvestigation/ListInvestigations).
+//
+// This backend has no threat-analysis engine: it cannot correlate findings,
+// perform account-level analysis, score risk/confidence, or produce a
+// natural-language summary. Every investigation this backend creates is
+// therefore modeled honestly as perpetually RUNNING -- the same treatment
+// this package already gives MalwareScan, which for the identical reason
+// never transitions out of RUNNING either (see GetMalwareScan's PARITY.md
+// note: "this backend's scans never transition to SKIPPED/COMPLETED/
+// FAILED").
+//
+// Cloud, Confidence, Error, Metadata, Risk, RiskLevel, EndTime, and Summary
+// are real *optional* members on types.Investigation/types.InvestigationSummary
+// that AWS only populates once analysis actually runs (Cloud/Metadata) or
+// completes/fails (Confidence/EndTime/Error/Risk/RiskLevel/Summary). Since
+// that never happens here, they stay at their zero value below and every
+// wire response correctly omits them -- see handler_investigations.go --
+// rather than fabricating severity scores, threat indicators, related
+// findings, or anomaly counts this emulator has no way to compute for real.
+type Investigation struct {
+	StartTime       time.Time `json:"startTime"`
+	EndTime         time.Time `json:"endTime"`
+	InvestigationID string    `json:"investigationId"`
+	Status          string    `json:"status"`
+	TriggerPrompt   string    `json:"triggerPrompt"`
+	TriggeredBy     string    `json:"triggeredBy"`
+	Confidence      string    `json:"confidence,omitempty"`
+	RiskLevel       string    `json:"riskLevel,omitempty"`
+	Risk            string    `json:"risk,omitempty"`
+	ErrorDetail     string    `json:"error,omitempty"`
+	Summary         string    `json:"summary,omitempty"`
+	DetectorID      string    `json:"-"`
+}

@@ -469,3 +469,220 @@ func TestGetUserPoolMfaConfig_DefaultsToOFF(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, "OFF", out.MfaConfiguration)
 }
+
+// TestInMemoryBackend_UserPoolReplicas covers CreateUserPoolReplica's real
+// validation (pool must exist, replica Region must differ from the primary
+// pool's own Region, at most one secondary replica per user directory) plus
+// the UpdateUserPoolReplica/DeleteUserPoolReplica/ListUserPoolReplicas
+// lifecycle.
+func TestInMemoryBackend_UserPoolReplicas(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		setup     func(t *testing.T, b *cognitoidp.InMemoryBackend) (poolID, region string)
+		name      string
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *cognitoidp.InMemoryBackend) (string, string) {
+				t.Helper()
+
+				pool, err := b.CreateUserPool("replica-pool-ok")
+				require.NoError(t, err)
+
+				return pool.ID, "us-west-2"
+			},
+		},
+		{
+			name: "pool_not_found",
+			setup: func(t *testing.T, _ *cognitoidp.InMemoryBackend) (string, string) {
+				t.Helper()
+
+				return "us-east-1_nonexistent", "us-west-2"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserPoolNotFound,
+		},
+		{
+			name: "same_region_as_primary_rejected",
+			setup: func(t *testing.T, b *cognitoidp.InMemoryBackend) (string, string) {
+				t.Helper()
+
+				pool, err := b.CreateUserPool("replica-pool-same-region")
+				require.NoError(t, err)
+
+				// newTestBackend's primary Region is "us-east-1" -- see testhelpers_test.go.
+				return pool.ID, "us-east-1"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrInvalidParameter,
+		},
+		{
+			name: "second_replica_for_same_pool_rejected",
+			setup: func(t *testing.T, b *cognitoidp.InMemoryBackend) (string, string) {
+				t.Helper()
+
+				pool, err := b.CreateUserPool("replica-pool-second")
+				require.NoError(t, err)
+
+				_, err = b.CreateUserPoolReplica(pool.ID, "us-west-2", nil)
+				require.NoError(t, err)
+
+				return pool.ID, "eu-west-1"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolID, region := tt.setup(t, b)
+
+			replica, err := b.CreateUserPoolReplica(poolID, region, map[string]string{"env": "test"})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, region, replica.RegionName)
+			assert.Equal(t, "SECONDARY", replica.Role)
+			assert.Equal(t, "INACTIVE", replica.Status)
+			assert.Contains(t, replica.ARN, region)
+
+			// Newly-created replica is listed.
+			listed, err := b.ListUserPoolReplicas(poolID)
+			require.NoError(t, err)
+			require.Len(t, listed, 1)
+			assert.Equal(t, region, listed[0].RegionName)
+
+			// Activate it.
+			updated, err := b.UpdateUserPoolReplica(poolID, region, "ACTIVE")
+			require.NoError(t, err)
+			assert.Equal(t, "ACTIVE", updated.Status)
+
+			// Invalid status rejected.
+			_, err = b.UpdateUserPoolReplica(poolID, region, "BOGUS")
+			require.ErrorIs(t, err, cognitoidp.ErrInvalidParameter)
+
+			// Updating/deleting a nonexistent region fails with ErrReplicaNotFound.
+			_, err = b.UpdateUserPoolReplica(poolID, "ap-south-1", "ACTIVE")
+			require.ErrorIs(t, err, cognitoidp.ErrReplicaNotFound)
+
+			// Delete it -- returned copy reports DELETING, and it's gone from List.
+			deleted, err := b.DeleteUserPoolReplica(poolID, region)
+			require.NoError(t, err)
+			assert.Equal(t, "DELETING", deleted.Status)
+
+			listed, err = b.ListUserPoolReplicas(poolID)
+			require.NoError(t, err)
+			assert.Empty(t, listed)
+
+			// Second delete fails: replica no longer exists.
+			_, err = b.DeleteUserPoolReplica(poolID, region)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, cognitoidp.ErrReplicaNotFound)
+		})
+	}
+}
+
+// TestHandler_UserPoolReplicas covers the HTTP handler wire shape for
+// CreateUserPoolReplica/ListUserPoolReplicas/UpdateUserPoolReplica/
+// DeleteUserPoolReplica end to end.
+func TestHandler_UserPoolReplicas(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		regionName string
+		wantCode   int
+	}{
+		{name: "success", regionName: "us-west-2", wantCode: http.StatusOK},
+		{name: "same_region_rejected", regionName: "us-east-1", wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolID, _ := setupHandlerPoolAndClient(t, h, "replica-handler-pool")
+
+			createRec := doCognitoRequest(t, h, "CreateUserPoolReplica", map[string]any{
+				"UserPoolId": poolID,
+				"RegionName": tt.regionName,
+			})
+			require.Equal(t, tt.wantCode, createRec.Code, createRec.Body.String())
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			var createResp struct {
+				UserPoolReplica struct {
+					RegionName  string `json:"RegionName,omitempty"`
+					Role        string `json:"Role,omitempty"`
+					Status      string `json:"Status,omitempty"`
+					UserPoolArn string `json:"UserPoolArn,omitempty"`
+				} `json:"UserPoolReplica"`
+			}
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			assert.Equal(t, tt.regionName, createResp.UserPoolReplica.RegionName)
+			assert.Equal(t, "SECONDARY", createResp.UserPoolReplica.Role)
+			assert.Equal(t, "INACTIVE", createResp.UserPoolReplica.Status)
+			assert.NotEmpty(t, createResp.UserPoolReplica.UserPoolArn)
+
+			listRec := doCognitoRequest(t, h, "ListUserPoolReplicas", map[string]any{
+				"UserPoolId": poolID,
+			})
+			require.Equal(t, http.StatusOK, listRec.Code)
+
+			var listResp struct {
+				UserPoolReplicas []struct {
+					RegionName string `json:"RegionName,omitempty"`
+				} `json:"UserPoolReplicas,omitempty"`
+			}
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.Len(t, listResp.UserPoolReplicas, 1)
+			assert.Equal(t, tt.regionName, listResp.UserPoolReplicas[0].RegionName)
+
+			updateRec := doCognitoRequest(t, h, "UpdateUserPoolReplica", map[string]any{
+				"UserPoolId": poolID,
+				"RegionName": tt.regionName,
+				"Status":     "ACTIVE",
+			})
+			require.Equal(t, http.StatusOK, updateRec.Code)
+
+			var updateResp struct {
+				UserPoolReplica struct {
+					Status string `json:"Status,omitempty"`
+				} `json:"UserPoolReplica"`
+			}
+			require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+			assert.Equal(t, "ACTIVE", updateResp.UserPoolReplica.Status)
+
+			deleteRec := doCognitoRequest(t, h, "DeleteUserPoolReplica", map[string]any{
+				"UserPoolId": poolID,
+				"RegionName": tt.regionName,
+			})
+			require.Equal(t, http.StatusOK, deleteRec.Code)
+
+			var deleteResp struct {
+				UserPoolReplica struct {
+					Status string `json:"Status,omitempty"`
+				} `json:"UserPoolReplica"`
+			}
+			require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp))
+			assert.Equal(t, "DELETING", deleteResp.UserPoolReplica.Status)
+		})
+	}
+}

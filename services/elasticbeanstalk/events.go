@@ -13,6 +13,18 @@ func (b *InMemoryBackend) eventsSlice(region string) []*EventRecord {
 	return b.events[region]
 }
 
+// eventsSliceRO returns the region-scoped events slice for region without
+// mutating the outer map. Safe to call while holding only b.mu.RLock(): if
+// the region has not been observed yet, it returns a fresh, unregistered,
+// empty slice instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) eventsSliceRO(region string) []*EventRecord {
+	if v := b.events[region]; v != nil {
+		return v
+	}
+
+	return []*EventRecord{}
+}
+
 // appendEvent appends an event record to the backend's event log.
 // Caller must hold at least a write lock.
 func (b *InMemoryBackend) appendEvent(region, appName, envName, message, severity string) {
@@ -36,7 +48,7 @@ func (b *InMemoryBackend) DescribeEvents(ctx context.Context, appName, envName s
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	events := b.eventsSlice(region)
+	events := b.eventsSliceRO(region)
 
 	out := make([]*EventRecord, 0, len(events))
 

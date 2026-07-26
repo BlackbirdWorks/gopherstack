@@ -218,6 +218,23 @@ func (h *Handler) handleGetUserAuthFactors(
 	return &getUserAuthFactorsOutput{Username: user.Username, ConfiguredUserAuthFactors: factors}, nil
 }
 
+func (h *Handler) handleAdminGetUserAuthFactors(
+	_ context.Context,
+	in *adminGetUserAuthFactorsInput,
+) (*adminGetUserAuthFactorsOutput, error) {
+	user, factors, err := h.Backend.AdminGetUserAuthFactors(in.UserPoolID, in.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &adminGetUserAuthFactorsOutput{
+		Username:                  user.Username,
+		ConfiguredUserAuthFactors: factors,
+		PreferredMfaSetting:       user.PreferredMfaSetting,
+		UserMFASettingList:        user.UserMFASettingList,
+	}, nil
+}
+
 // usersOpsA registers the ops in this file that have no accurate twin in
 // usersOpsC/D (AdminCreateUser, AdminSetUserPassword, GetUser all moved there
 // only -- see de-stub-hygiene note in PARITY.md).
@@ -248,5 +265,11 @@ func (h *Handler) usersOpsD() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		opAdminCreateUser:      wrapAccuracy(h.handleAdminCreateUserFull),
 		opAdminSetUserPassword: wrapAccuracy(h.handleAdminSetUserPasswordFull),
+	}
+}
+
+func (h *Handler) usersOpsE() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"AdminGetUserAuthFactors": service.WrapOp(h.handleAdminGetUserAuthFactors),
 	}
 }

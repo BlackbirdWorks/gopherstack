@@ -858,3 +858,870 @@ func TestGlue_Provider_InitWithConfig(t *testing.T) {
 	assert.NotEmpty(t, h.Backend.Region())
 	assert.NotEmpty(t, h.Backend.AccountID())
 }
+
+// ----- Business glossary / asset catalog / dashboard tests (parity-4:
+// AssociateGlossaryTerms, BatchGetIterableForms, CreateGlossary,
+// CreateGlossaryTerm, DeleteAsset, DeleteAssetType, DeleteAttachment,
+// DeleteFormType, DeleteGlossary, DeleteGlossaryTerm,
+// DisassociateGlossaryTerms, GetAsset, GetAssetType, GetDashboardUrl,
+// GetFormType, GetGlossary, GetGlossaryTerm, GetSessionEndpoint,
+// ListAssetTypes, ListFormTypes, ListGlossaries, ListGlossaryTerms,
+// ListIterableForms, PutAsset, PutAssetType, PutAttachment, PutFormType,
+// SearchAssets, UpdateAsset, UpdateGlossary, UpdateGlossaryTerm) -----
+
+// idFromResponse extracts the top-level "Id" field common to
+// Create/Get/Update Glossary and GlossaryTerm responses.
+func idFromResponse(t *testing.T, body []byte) string {
+	t.Helper()
+
+	var out struct {
+		ID string `json:"Id"`
+	}
+	require.NoError(t, json.Unmarshal(body, &out))
+	require.NotEmpty(t, out.ID)
+
+	return out.ID
+}
+
+func mustCreateGlossary(t *testing.T, h *glue.Handler, name, description string) string {
+	t.Helper()
+
+	rec := doGlueRequest(t, h, "CreateGlossary", map[string]any{"Name": name, "Description": description})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	return idFromResponse(t, rec.Body.Bytes())
+}
+
+func mustCreateGlossaryTerm(t *testing.T, h *glue.Handler, glossaryID, name string) string {
+	t.Helper()
+
+	rec := doGlueRequest(t, h, "CreateGlossaryTerm", map[string]any{
+		"GlossaryIdentifier": glossaryID, "Name": name,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	return idFromResponse(t, rec.Body.Bytes())
+}
+
+func mustPutFormType(t *testing.T, h *glue.Handler, name, schema string) {
+	t.Helper()
+
+	rec := doGlueRequest(t, h, "PutFormType", map[string]any{"Name": name, "Schema": schema})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func mustPutAssetType(t *testing.T, h *glue.Handler, name, formTypeName string) {
+	t.Helper()
+
+	rec := doGlueRequest(t, h, "PutAssetType", map[string]any{
+		"Name": name,
+		"Forms": map[string]any{
+			"main": map[string]any{"FormTypeIdentifier": formTypeName},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func mustPutAsset(t *testing.T, h *glue.Handler, id, name, assetTypeName string) {
+	t.Helper()
+
+	rec := doGlueRequest(t, h, "PutAsset", map[string]any{
+		"Identifier":  id,
+		"Name":        name,
+		"AssetTypeId": assetTypeName,
+		"Forms":       map[string]any{},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// glossaryTableCase is the shared row shape for the glossary/glossary-term
+// table-driven tests below: buildBody sets up whatever prerequisite state the
+// case needs (each subtest gets its own fresh handler, so there is no
+// cross-subtest shared or ordered state) and returns the request body for op.
+type glossaryTableCase struct {
+	buildBody func(t *testing.T, h *glue.Handler) map[string]any
+	check     func(t *testing.T, body string)
+	name      string
+	op        string
+	wantCode  int
+}
+
+func runGlossaryTableCases(t *testing.T, tests []glossaryTableCase) {
+	t.Helper()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			body := tt.buildBody(t, h)
+
+			rec := doGlueRequest(t, h, tt.op, body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.check != nil {
+				tt.check(t, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestGlue_Glossary_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	runGlossaryTableCases(t, []glossaryTableCase{
+		{
+			name:     "create_glossary",
+			op:       "CreateGlossary",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Name": "Finance", "Description": "Finance glossary"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "Finance glossary")
+			},
+		},
+		{
+			name:     "create_glossary_missing_name",
+			op:       "CreateGlossary",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Description": "no name"}
+			},
+		},
+		{
+			name:     "get_glossary_not_found",
+			op:       "GetGlossary",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Identifier": "gls-missing"}
+			},
+		},
+		{
+			name:     "get_glossary_found",
+			op:       "GetGlossary",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Identifier": mustCreateGlossary(t, h, "Ops", "")}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "Ops")
+			},
+		},
+		{
+			name:     "update_glossary_name_only_preserves_description",
+			op:       "UpdateGlossary",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				id := mustCreateGlossary(t, h, "Old", "keep-me")
+
+				return map[string]any{"Identifier": id, "Name": "New"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "New")
+				assert.Contains(t, body, "keep-me")
+			},
+		},
+		{
+			name:     "list_glossaries",
+			op:       "ListGlossaries",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+				mustCreateGlossary(t, h, "Alpha", "")
+				mustCreateGlossary(t, h, "Beta", "")
+
+				return map[string]any{}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "Alpha")
+				assert.Contains(t, body, "Beta")
+			},
+		},
+		{
+			name:     "create_term_unknown_glossary",
+			op:       "CreateGlossaryTerm",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"GlossaryIdentifier": "gls-missing", "Name": "Revenue"}
+			},
+		},
+		{
+			name:     "create_term_ok",
+			op:       "CreateGlossaryTerm",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				id := mustCreateGlossary(t, h, "Sales", "")
+
+				return map[string]any{"GlossaryIdentifier": id, "Name": "Revenue", "ShortDescription": "money in"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "Revenue")
+				assert.Contains(t, body, "money in")
+			},
+		},
+		{
+			name:     "list_glossary_terms",
+			op:       "ListGlossaryTerms",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				id := mustCreateGlossary(t, h, "HR", "")
+				mustCreateGlossaryTerm(t, h, id, "Headcount")
+
+				return map[string]any{"GlossaryIdentifier": id}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "Headcount")
+			},
+		},
+		{
+			name:     "update_glossary_term",
+			op:       "UpdateGlossaryTerm",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				id := mustCreateGlossary(t, h, "Legal", "")
+				termID := mustCreateGlossaryTerm(t, h, id, "Contract")
+
+				return map[string]any{"Identifier": termID, "LongDescription": "a binding agreement"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "a binding agreement")
+			},
+		},
+		{
+			name:     "delete_glossary_conflict_with_terms",
+			op:       "DeleteGlossary",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				id := mustCreateGlossary(t, h, "HasTerms", "")
+				mustCreateGlossaryTerm(t, h, id, "Term1")
+
+				return map[string]any{"Identifier": id}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "ConflictException")
+			},
+		},
+		{
+			name:     "delete_glossary_term_then_empty_glossary_deletes_ok",
+			op:       "DeleteGlossary",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				id := mustCreateGlossary(t, h, "Empty", "")
+				termID := mustCreateGlossaryTerm(t, h, id, "OnlyTerm")
+
+				rec := doGlueRequest(t, h, "DeleteGlossaryTerm", map[string]any{"Identifier": termID})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return map[string]any{"Identifier": id}
+			},
+		},
+	})
+}
+
+func TestGlue_AssociateGlossaryTerms_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	runGlossaryTableCases(t, []glossaryTableCase{
+		{
+			name:     "associate_unknown_asset",
+			op:       "AssociateGlossaryTerms",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"AssetIdentifier": "no-such-asset", "GlossaryTermIdentifiers": []string{"term-x"}}
+			},
+		},
+		{
+			name:     "associate_unknown_term",
+			op:       "AssociateGlossaryTerms",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "MainForm", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "MainForm")
+				mustPutAsset(t, h, "asset-1", "orders", "Table")
+
+				return map[string]any{"AssetIdentifier": "asset-1", "GlossaryTermIdentifiers": []string{"term-missing"}}
+			},
+		},
+		{
+			name:     "associate_then_disassociate",
+			op:       "DisassociateGlossaryTerms",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "MainForm", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "MainForm")
+				mustPutAsset(t, h, "asset-2", "orders", "Table")
+				glossaryID := mustCreateGlossary(t, h, "PII", "")
+				termID := mustCreateGlossaryTerm(t, h, glossaryID, "Email")
+
+				assocRec := doGlueRequest(t, h, "AssociateGlossaryTerms", map[string]any{
+					"AssetIdentifier": "asset-2", "GlossaryTermIdentifiers": []string{termID},
+				})
+				require.Equal(t, http.StatusOK, assocRec.Code)
+
+				var assocOut struct {
+					GlossaryTerms []string `json:"GlossaryTerms"`
+				}
+				require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocOut))
+				require.Contains(t, assocOut.GlossaryTerms, termID)
+
+				return map[string]any{"AssetIdentifier": "asset-2", "GlossaryTermIdentifiers": []string{termID}}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+
+				var out struct {
+					GlossaryTerms []string `json:"GlossaryTerms"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(body), &out))
+				assert.Empty(t, out.GlossaryTerms)
+			},
+		},
+		{
+			name:     "deleting_glossary_term_cascades_to_asset",
+			op:       "GetAsset",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "MainForm", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "MainForm")
+				mustPutAsset(t, h, "asset-3", "orders", "Table")
+				glossaryID := mustCreateGlossary(t, h, "PII2", "")
+				termID := mustCreateGlossaryTerm(t, h, glossaryID, "SSN")
+
+				assocRec := doGlueRequest(t, h, "AssociateGlossaryTerms", map[string]any{
+					"AssetIdentifier": "asset-3", "GlossaryTermIdentifiers": []string{termID},
+				})
+				require.Equal(t, http.StatusOK, assocRec.Code)
+
+				delRec := doGlueRequest(t, h, "DeleteGlossaryTerm", map[string]any{"Identifier": termID})
+				require.Equal(t, http.StatusOK, delRec.Code)
+
+				return map[string]any{"Identifier": "asset-3"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+
+				var out struct {
+					GlossaryTerms []string `json:"GlossaryTerms"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(body), &out))
+				assert.Empty(t, out.GlossaryTerms, "deleted glossary term must be disassociated from the asset")
+			},
+		},
+	})
+}
+
+func TestGlue_AssetCatalog_CRUD_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	runGlossaryTableCases(t, []glossaryTableCase{
+		{
+			name:     "put_form_type_lowercase_name_rejected",
+			op:       "PutFormType",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Name": "lowercase", "Schema": `{"type":"object"}`}
+			},
+		},
+		{
+			name:     "put_form_type_ok",
+			op:       "PutFormType",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Name": "TableSchema", "Schema": `{"type":"object"}`}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "TableSchema")
+			},
+		},
+		{
+			name:     "put_asset_type_unknown_form_type",
+			op:       "PutAssetType",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"Name":  "Table",
+					"Forms": map[string]any{"main": map[string]any{"FormTypeIdentifier": "NoSuchForm"}},
+				}
+			},
+		},
+		{
+			name:     "put_asset_type_ok",
+			op:       "PutAssetType",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+
+				return map[string]any{
+					"Name":  "Table",
+					"Forms": map[string]any{"main": map[string]any{"FormTypeIdentifier": "TableSchema"}},
+				}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "TableSchema")
+			},
+		},
+		{
+			name:     "get_asset_type_not_found",
+			op:       "GetAssetType",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Identifier": "NoSuchType"}
+			},
+		},
+		{
+			name:     "list_asset_types",
+			op:       "ListAssetTypes",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+
+				return map[string]any{}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "Table")
+			},
+		},
+		{
+			name:     "delete_form_type_conflict_referenced_by_asset_type",
+			op:       "DeleteFormType",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+
+				return map[string]any{"Identifier": "TableSchema"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "ConflictException")
+			},
+		},
+		{
+			name:     "delete_asset_type_no_conflict_guard",
+			op:       "DeleteAssetType",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-orphan", "orders", "Table")
+
+				return map[string]any{"Identifier": "Table"}
+			},
+		},
+		{
+			name:     "put_asset_unknown_asset_type",
+			op:       "PutAsset",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"Identifier": "asset-x", "Name": "orders", "AssetTypeId": "NoSuchType", "Forms": map[string]any{},
+				}
+			},
+		},
+		{
+			name:     "get_asset_after_put",
+			op:       "GetAsset",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-4", "orders", "Table")
+
+				return map[string]any{"Identifier": "asset-4"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "orders")
+				assert.Contains(t, body, "Table")
+			},
+		},
+		{
+			name:     "update_asset_name",
+			op:       "UpdateAsset",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-5", "orders", "Table")
+
+				return map[string]any{"Identifier": "asset-5", "Name": "orders_v2"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "orders_v2")
+			},
+		},
+		{
+			name:     "delete_asset_then_get_not_found",
+			op:       "DeleteAsset",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-6", "orders", "Table")
+
+				return map[string]any{"Identifier": "asset-6"}
+			},
+		},
+	})
+}
+
+func TestGlue_AssetAttachmentsAndSearch_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	runGlossaryTableCases(t, []glossaryTableCase{
+		{
+			name:     "put_attachment_on_asset",
+			op:       "PutAttachment",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "Notes", `{"type":"object"}`)
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-att-1", "orders", "Table")
+
+				return map[string]any{
+					"AssetIdentifier": "asset-att-1",
+					"AttachmentName":  "owner-notes",
+					"FormTypeId":      "Notes",
+					"Content":         `{"owner":"data-eng"}`,
+				}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "owner-notes")
+			},
+		},
+		{
+			name:     "put_attachment_missing_item_identifier",
+			op:       "PutAttachment",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "Notes", `{"type":"object"}`)
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-att-2", "orders", "Table")
+
+				return map[string]any{
+					"AssetIdentifier": "asset-att-2", "AttachmentName": "col-notes", "FormTypeId": "Notes",
+					"Content": "{}", "IterableFormName": "columns",
+				}
+			},
+		},
+		{
+			name:     "put_attachment_on_iterable_form_item_then_batch_get",
+			op:       "BatchGetIterableForms",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "Notes", `{"type":"object"}`)
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-att-3", "orders", "Table")
+
+				putRec := doGlueRequest(t, h, "PutAttachment", map[string]any{
+					"AssetIdentifier": "asset-att-3", "AttachmentName": "col-notes", "FormTypeId": "Notes",
+					"Content": `{"pii":true}`, "IterableFormName": "columns", "ItemIdentifier": "customer_email",
+				})
+				require.Equal(t, http.StatusOK, putRec.Code)
+
+				return map[string]any{
+					"AssetIdentifier": "asset-att-3", "IterableFormName": "columns",
+					"ItemIdentifiers": []string{"customer_email", "missing_col"},
+				}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "customer_email")
+				assert.Contains(t, body, "missing_col")
+				assert.Contains(t, body, "EntityNotFoundException")
+			},
+		},
+		{
+			name:     "list_iterable_forms_after_attachment",
+			op:       "ListIterableForms",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "Notes", `{"type":"object"}`)
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-att-4", "orders", "Table")
+
+				putRec := doGlueRequest(t, h, "PutAttachment", map[string]any{
+					"AssetIdentifier": "asset-att-4", "AttachmentName": "col-notes", "FormTypeId": "Notes",
+					"Content": "{}", "IterableFormName": "columns", "ItemIdentifier": "order_id",
+				})
+				require.Equal(t, http.StatusOK, putRec.Code)
+
+				return map[string]any{"AssetIdentifier": "asset-att-4", "IterableFormName": "columns"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "order_id")
+			},
+		},
+		{
+			name:     "delete_attachment_removes_it",
+			op:       "GetAsset",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "Notes", `{"type":"object"}`)
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-att-5", "orders", "Table")
+
+				putRec := doGlueRequest(t, h, "PutAttachment", map[string]any{
+					"AssetIdentifier": "asset-att-5", "AttachmentName": "owner-notes", "FormTypeId": "Notes",
+					"Content": "{}",
+				})
+				require.Equal(t, http.StatusOK, putRec.Code)
+
+				delRec := doGlueRequest(t, h, "DeleteAttachment", map[string]any{
+					"AssetIdentifier": "asset-att-5", "AttachmentName": "owner-notes",
+				})
+				require.Equal(t, http.StatusOK, delRec.Code)
+
+				return map[string]any{"Identifier": "asset-att-5"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.NotContains(t, body, "owner-notes")
+			},
+		},
+		{
+			name:     "search_assets_requires_text_or_filter",
+			op:       "SearchAssets",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+		},
+		{
+			name:     "search_assets_by_text",
+			op:       "SearchAssets",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "TableSchema", `{"type":"object"}`)
+				mustPutAssetType(t, h, "Table", "TableSchema")
+				mustPutAsset(t, h, "asset-s1", "orders_table", "Table")
+				mustPutAsset(t, h, "asset-s2", "customers_table", "Table")
+
+				return map[string]any{"SearchText": "orders"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "orders_table")
+				assert.NotContains(t, body, "customers_table")
+			},
+		},
+		{
+			name:     "search_assets_by_attribute_filter",
+			op:       "SearchAssets",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				mustPutFormType(t, h, "DatasetSchema", `{"type":"object","properties":{}}`)
+				mustPutAssetType(t, h, "Dataset", "DatasetSchema")
+				mustPutAsset(t, h, "asset-s3", "orders_table", "Dataset")
+				mustPutAsset(t, h, "asset-s4", "customers_table", "Dataset")
+
+				return map[string]any{
+					"FilterClause": map[string]any{
+						"AttributeFilter": map[string]any{
+							"Attribute": "Name",
+							"Operator":  "equals",
+							"Value":     map[string]any{"StringValue": "customers_table"},
+						},
+					},
+				}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "customers_table")
+				assert.NotContains(t, body, "orders_table")
+			},
+		},
+	})
+}
+
+func TestGlue_Dashboard_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	runGlossaryTableCases(t, []glossaryTableCase{
+		{
+			name:     "job_dashboard_url_not_found",
+			op:       "GetDashboardUrl",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"ResourceId": "no-such-job", "ResourceType": "JOB"}
+			},
+		},
+		{
+			name:     "job_dashboard_url_ok",
+			op:       "GetDashboardUrl",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				rec := doGlueRequest(t, h, "CreateJob", map[string]any{
+					"Name": "dash-job", "Role": "r", "Command": map[string]any{"Name": "glueetl"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return map[string]any{"ResourceId": "dash-job", "ResourceType": "JOB"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "gluestudio")
+			},
+		},
+		{
+			name:     "invalid_resource_type",
+			op:       "GetDashboardUrl",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"ResourceId": "x", "ResourceType": "BOGUS"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "InvalidInputException")
+			},
+		},
+		{
+			name:     "session_endpoint_not_found",
+			op:       "GetSessionEndpoint",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, _ *glue.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"SessionId": "no-such-session"}
+			},
+		},
+		{
+			name:     "session_endpoint_ok",
+			op:       "GetSessionEndpoint",
+			wantCode: http.StatusOK,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				rec := doGlueRequest(t, h, "CreateSession", map[string]any{
+					"Id": "dash-sess", "Role": "r", "Command": map[string]any{"Name": "glueetl"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return map[string]any{"SessionId": "dash-sess"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "SparkConnect")
+				assert.Contains(t, body, "AuthToken")
+			},
+		},
+		{
+			name:     "session_endpoint_stopped_session_rejected",
+			op:       "GetSessionEndpoint",
+			wantCode: http.StatusBadRequest,
+			buildBody: func(t *testing.T, h *glue.Handler) map[string]any {
+				t.Helper()
+
+				rec := doGlueRequest(t, h, "CreateSession", map[string]any{
+					"Id": "dash-sess-2", "Role": "r", "Command": map[string]any{"Name": "glueetl"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				stopRec := doGlueRequest(t, h, "StopSession", map[string]any{"Id": "dash-sess-2"})
+				require.Equal(t, http.StatusOK, stopRec.Code)
+
+				return map[string]any{"SessionId": "dash-sess-2"}
+			},
+			check: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "IllegalSessionStateException")
+			},
+		},
+	})
+}

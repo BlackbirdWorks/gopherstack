@@ -18,24 +18,30 @@ import (
 // pre-Phase-3.3 backendSnapshot had no Version field at all, so any snapshot
 // written before that change, including one with no version field which
 // decodes as 0, was discarded the same way any other incompatible snapshot
-// is). Version 2 adds three tables introduced by the 2026-07 parity pass:
-// conformancePackRules, remediationExecutions, and serviceLinkedRecorders --
-// see this package's persistence audit below.
-const awsconfigSnapshotVersion = 2
+// is). Version 2 added three tables introduced by the 2026-07 parity pass:
+// conformancePackRules, remediationExecutions, and serviceLinkedRecorders.
+// Version 3 adds the "connectors" table and the recorders table's new
+// "byServicePrincipal" secondary index, both introduced by the SDK-bump pass
+// that implemented PutConnector/GetConnector/ListConnectors/DeleteConnector
+// and PutThirdPartyServiceLinkedConfigurationRecorder -- see this package's
+// persistence audit below.
+const awsconfigSnapshotVersion = 3
 
 // backendSnapshot is the top-level on-disk shape for the AWS Config backend.
 //
 // Tables holds one JSON-encoded array per table registered on b.registry (see
 // store_setup.go's registerAllTables): recorders, serviceLinkedRecorders,
-// channels, aggregationAuths, configRules, aggregators, conformancePacks,
-// conformancePackRules, orgConfigRules, orgConformancePacks, storedQueries,
-// retentionConfigs, remediationConfigs, remediationExecutions,
+// channels, connectors, aggregationAuths, configRules, aggregators,
+// conformancePacks, conformancePackRules, orgConfigRules, orgConformancePacks,
+// storedQueries, retentionConfigs, remediationConfigs, remediationExecutions,
 // resourceEvaluations, resourceConfigs, and ruleResourceEvals. Most were
 // already persisted pre-Phase-3.3 (as individual named map fields) or became
 // persisted as a natural consequence of the store.Table conversion;
-// conformancePackRules/remediationExecutions/serviceLinkedRecorders are new
-// tables added by the 2026-07 parity pass (see this package's persistence
-// audit below).
+// conformancePackRules/remediationExecutions/serviceLinkedRecorders were added
+// by the 2026-07 parity pass, and connectors (plus the recorders table's new
+// "byServicePrincipal" index, which rides the same table and needs no
+// separate Tables entry) by the SDK-bump pass that added the connector family
+// (see this package's persistence audit below).
 //
 // ruleEvaluations, resourceHistory, resourceTags, remediationExceptions,
 // customRulePolicies, and orgCustomRulePolicies are deliberately NOT included:

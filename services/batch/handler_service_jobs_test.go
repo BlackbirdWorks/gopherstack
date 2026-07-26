@@ -251,6 +251,112 @@ func TestHandler_TerminateServiceJob(t *testing.T) {
 	}
 }
 
+// TestHandler_UpdateServiceJob covers UpdateServiceJob's real-API contract:
+// only schedulingPriority can be changed (see UpdateServiceJobInput, which
+// has exactly jobId + schedulingPriority, both required), and a service job
+// that has already reached a terminal status (SUCCEEDED/FAILED) rejects the
+// update.
+func TestHandler_UpdateServiceJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		schedulingPriority any
+		name               string
+		jobID              string
+		wantStatus         int
+		submitFirst        bool
+		terminateFirst     bool
+	}{
+		{
+			name:               "update_existing",
+			wantStatus:         http.StatusOK,
+			submitFirst:        true,
+			schedulingPriority: 42,
+		},
+		{
+			name:               "missing_id",
+			jobID:              "",
+			schedulingPriority: 5,
+			wantStatus:         http.StatusBadRequest,
+		},
+		{
+			name:               "not_found",
+			jobID:              "nonexistent-id",
+			schedulingPriority: 5,
+			wantStatus:         http.StatusBadRequest,
+		},
+		{
+			name:               "terminal_state_rejected",
+			wantStatus:         http.StatusBadRequest,
+			submitFirst:        true,
+			terminateFirst:     true,
+			schedulingPriority: 5,
+		},
+		{
+			name:               "priority_out_of_range",
+			wantStatus:         http.StatusBadRequest,
+			submitFirst:        true,
+			schedulingPriority: 10000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			jobID := tt.jobID
+
+			if tt.submitFirst {
+				qName := createTestServiceJobQueue(t, h, "update-"+tt.name)
+				rec := post(t, h, "/v1/submitservicejob", map[string]any{
+					"jobName":               "sj-update",
+					"jobQueue":              qName,
+					"serviceJobType":        "SAGEMAKER_TRAINING",
+					"serviceRequestPayload": `{"foo":"bar"}`,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				jobID = out["jobId"].(string)
+			}
+
+			if tt.terminateFirst {
+				rec := post(t, h, "/v1/terminateservicejob", map[string]any{
+					"jobId":  jobID,
+					"reason": "force terminal state",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := post(t, h, "/v1/updateservicejob", map[string]any{
+				"jobId":              jobID,
+				"schedulingPriority": tt.schedulingPriority,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.Equal(t, jobID, out["jobId"])
+				assert.Equal(t, "sj-update", out["jobName"])
+				assert.NotEmpty(t, out["jobArn"])
+
+				// The update actually mutated the existing record, not a
+				// fresh/parallel one -- prove it round-trips via Describe.
+				rec2 := post(t, h, "/v1/describeservicejob", map[string]any{"jobId": jobID})
+				require.Equal(t, http.StatusOK, rec2.Code)
+
+				var desc map[string]any
+				mustUnmarshal(t, rec2, &desc)
+				assert.EqualValues(t, 42, desc["schedulingPriority"])
+			}
+		})
+	}
+}
+
 // TestHandler_SubmitServiceJob_ARNLikeJobID exercises the ARN suffix a real
 // SDK client would parse from jobArn (defensive against a jobArn wire-shape
 // regression -- see TestHandler_DescribeServiceJob for the primary

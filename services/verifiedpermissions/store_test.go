@@ -168,6 +168,107 @@ func TestBackend_SeedHelpers(t *testing.T) {
 	}
 }
 
+// TestBackend_PolicyStoreAliasCRUD exercises CreatePolicyStoreAlias/
+// ResolvePolicyStoreAlias at the backend layer directly: a valid alias
+// resolves to its target store's ID, while an aliasName missing the real
+// SDK's mandatory "policy-store-alias/" prefix is rejected.
+func TestBackend_PolicyStoreAliasCRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		aliasName string
+		wantErr   bool
+	}{
+		{name: "create and resolve", aliasName: "policy-store-alias/one"},
+		{name: "missing prefix rejected", aliasName: "no-prefix", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			ps := seedPolicyStore(t, b, "store")
+
+			a, err := b.CreatePolicyStoreAlias(tt.aliasName, ps.PolicyStoreID)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, ps.PolicyStoreID, a.PolicyStoreID)
+			assert.Equal(t, verifiedpermissions.AliasStateActive, a.State)
+			assert.Contains(t, a.Arn, "us-east-1", "alias ARNs are region-populated, unlike policy store ARNs")
+
+			resolved, err := b.ResolvePolicyStoreAlias(tt.aliasName)
+			require.NoError(t, err)
+			assert.Equal(t, ps.PolicyStoreID, resolved)
+		})
+	}
+}
+
+// TestBackend_CreatePolicyStoreAlias_TargetNotFound verifies
+// CreatePolicyStoreAlias validates the target policy store actually exists
+// (aliases are a referential-integrity feature): the real SDK's documented
+// ResourceNotFoundException.
+func TestBackend_CreatePolicyStoreAlias_TargetNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.CreatePolicyStoreAlias("policy-store-alias/orphan", "nonexistent-id")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, verifiedpermissions.ErrPolicyStoreNotFound)
+}
+
+// TestBackend_ResolvePolicyStoreAlias_PendingDeletionFails verifies a
+// soft-deleted (PendingDeletion) alias no longer resolves -- the real SDK's
+// documented behavior once an alias enters PendingDeletion.
+func TestBackend_ResolvePolicyStoreAlias_PendingDeletionFails(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	ps := seedPolicyStore(t, b, "store")
+
+	_, err := b.CreatePolicyStoreAlias("policy-store-alias/gone", ps.PolicyStoreID)
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeletePolicyStoreAlias("policy-store-alias/gone", false))
+
+	_, err = b.ResolvePolicyStoreAlias("policy-store-alias/gone")
+	require.Error(t, err)
+	require.ErrorIs(t, err, verifiedpermissions.ErrPolicyStoreNotFound)
+
+	// Still visible via GetPolicyStoreAlias itself, just not resolvable.
+	got, err := b.GetPolicyStoreAlias("policy-store-alias/gone")
+	require.NoError(t, err)
+	assert.Equal(t, verifiedpermissions.AliasStatePendingDeletion, got.State)
+}
+
+// TestBackend_DeletePolicyStore_CascadesAliases is the backend-layer
+// counterpart of the dangling-row proof in
+// handler_policy_stores_test.go's TestVPHandler_DeletePolicyStore_CascadesAliases.
+func TestBackend_DeletePolicyStore_CascadesAliases(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	ps := seedPolicyStore(t, b, "store")
+
+	_, err := b.CreatePolicyStoreAlias("policy-store-alias/cascade", ps.PolicyStoreID)
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeletePolicyStore(ps.PolicyStoreID))
+
+	_, err = b.GetPolicyStoreAlias("policy-store-alias/cascade")
+	require.Error(t, err, "alias must not survive its policy store's deletion")
+
+	aliases, _ := b.ListPolicyStoreAliases("", "", 0)
+	assert.Empty(t, aliases, "dangling alias row survived policy store delete")
+}
+
 func TestBackend_ExportHelpers(t *testing.T) {
 	t.Parallel()
 

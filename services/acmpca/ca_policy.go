@@ -44,7 +44,7 @@ func (b *InMemoryBackend) GetPolicy(ctx context.Context, caARN string) (string, 
 		return "", fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	policy, ok := b.policiesStore(region)[caARN]
+	policy, ok := b.policiesStoreRO(region)[caARN]
 	if !ok {
 		return "", fmt.Errorf("%w: policy for CA %s not found", ErrPolicyNotFound, caARN)
 	}

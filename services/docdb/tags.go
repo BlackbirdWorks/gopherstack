@@ -54,7 +54,7 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, arnStr string
 	region := regionFromARN(arnStr, getRegion(ctx, b.region))
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
-	src := b.tagsStore(region)[arnStr]
+	src := b.tagsStoreRO(region)[arnStr]
 	cp := make([]Tag, len(src))
 	copy(cp, src)
 	sort.Slice(cp, func(i, j int) bool {

@@ -146,7 +146,7 @@ func (h *Handler) handleDeleteConnectorV2(c *echo.Context, connectorID string) e
 }
 
 func (h *Handler) handleRegisterConnectorV2(c *echo.Context, body map[string]any) error {
-	connectorID, _ := body["ConnectorId"].(string)
+	connectorID, _ := body[keyConnectorID].(string)
 
 	var provider map[string]any
 
@@ -168,14 +168,14 @@ func (h *Handler) handleRegisterConnectorV2(c *echo.Context, body map[string]any
 
 func connectorV2ToResponse(conn *ConnectorV2) map[string]any {
 	return map[string]any{
-		"ConnectorId":     conn.ConnectorId,
-		"ConnectorArn":    conn.ConnectorArn,
-		"Name":            conn.Name, //nolint:goconst // existing issue.
-		keyDescription:    conn.Description,
-		keyCreatedAt:      conn.CreatedAt,
-		keyUpdatedAt:      conn.UpdatedAt,
-		"ConnectorStatus": conn.ConnectorStatus,
-		"Provider":        conn.Provider,
+		keyConnectorID:     conn.ConnectorId,
+		keyConnectorArn:    conn.ConnectorArn,
+		keyName:            conn.Name,
+		keyDescription:     conn.Description,
+		keyCreatedAt:       conn.CreatedAt,
+		keyUpdatedAt:       conn.UpdatedAt,
+		keyConnectorStatus: conn.ConnectorStatus,
+		"Provider":         conn.Provider,
 	}
 }
 

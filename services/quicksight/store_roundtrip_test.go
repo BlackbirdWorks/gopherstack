@@ -118,6 +118,20 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 		PublishState:    "PUBLISHED",
 	})
 
+	flow2, err := b.CreateFlow(testAccountID, "Flow2", "", map[string]any{"steps": []any{}}, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAgent(testAccountID, "agent1", "Agent1", "", "", "", "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateKnowledgeBase(
+		testAccountID, "kb1", "KB1", "", "arn:aws:s3:::b", "", nil, nil, nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateSpace(testAccountID, "space1", "Space1", "")
+	require.NoError(t, err)
+
 	quicksight.SeedSelfUpgradeRequest(b, testAccountID, ns, &quicksight.SelfUpgradeRequestDetail{
 		CreationTime:     time.Now().UTC().Unix(),
 		UpgradeRequestID: "req1",
@@ -223,6 +237,22 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 
 	_, err = restored.GetFlowMetadata(testAccountID, "flow1")
 	require.NoError(t, err)
+
+	restoredFlow2, err := restored.DescribeFlow(testAccountID, flow2.FlowID)
+	require.NoError(t, err)
+	assert.Equal(t, "Flow2", restoredFlow2.Name)
+
+	restoredAgent, err := restored.DescribeAgent(testAccountID, "agent1")
+	require.NoError(t, err)
+	assert.Equal(t, "Agent1", restoredAgent.Name)
+
+	restoredKB, err := restored.DescribeKnowledgeBase(testAccountID, "kb1")
+	require.NoError(t, err)
+	assert.Equal(t, "KB1", restoredKB.Name)
+
+	restoredSpace, err := restored.DescribeSpace(testAccountID, "space1")
+	require.NoError(t, err)
+	assert.Equal(t, "Space1", restoredSpace.Name)
 
 	selfUpgrades, _, err := restored.ListSelfUpgrades(testAccountID, ns, 0, "")
 	require.NoError(t, err)

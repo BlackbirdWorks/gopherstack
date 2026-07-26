@@ -99,6 +99,23 @@ func extensionNameIndexKeyFn(v *Extension) string { return v.Name }
 
 func extensionAssociationKeyFn(v *ExtensionAssociation) string { return v.ID }
 
+func experimentDefinitionKeyFn(v *ExperimentDefinition) string { return v.ID }
+
+func experimentDefinitionAppIndexKeyFn(v *ExperimentDefinition) string { return v.ApplicationID }
+
+func experimentDefinitionAppNameIndexKeyFn(v *ExperimentDefinition) string {
+	return appNameKey(v.ApplicationID, v.Name)
+}
+
+// experimentRunKeyFn keys each row on its composite (experimentDefinitionID,
+// run) identity -- Run is a per-definition counter, not globally unique
+// (see the InMemoryBackend doc comment in store.go).
+func experimentRunKeyFn(v *ExperimentRun) string {
+	return experimentRunKey(v.ExperimentDefinitionID, v.Run)
+}
+
+func experimentRunDefIndexKeyFn(v *ExperimentRun) string { return v.ExperimentDefinitionID }
+
 // registerAllTables registers every store.Table-backed resource field
 // exactly once, at construction time. It must be called during construction
 // only (immediately after b.registry is created -- see NewInMemoryBackend),
@@ -146,4 +163,17 @@ func registerAllTables(b *InMemoryBackend) {
 	b.extensionAssociations = store.Register(
 		b.registry, "extensionAssociations", store.New(extensionAssociationKeyFn),
 	)
+
+	b.experimentDefinitions = store.Register(
+		b.registry, "experimentDefinitions", store.New(experimentDefinitionKeyFn),
+	)
+	b.experimentDefinitionsByApp = b.experimentDefinitions.AddIndex(
+		"byApp", experimentDefinitionAppIndexKeyFn,
+	)
+	b.experimentDefinitionsByAppName = b.experimentDefinitions.AddIndex(
+		"byAppName", experimentDefinitionAppNameIndexKeyFn,
+	)
+
+	b.experimentRuns = store.Register(b.registry, "experimentRuns", store.New(experimentRunKeyFn))
+	b.experimentRunsByDef = b.experimentRuns.AddIndex("byDef", experimentRunDefIndexKeyFn)
 }

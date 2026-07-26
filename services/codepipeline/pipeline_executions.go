@@ -20,7 +20,7 @@ func (b *InMemoryBackend) GetPipelineExecution(
 		return nil, ErrNotFound
 	}
 
-	for _, exec := range b.executionsStore(region)[pipelineName] {
+	for _, exec := range b.executionsStoreRO(region)[pipelineName] {
 		if exec.PipelineExecutionID == executionID {
 			cp := *exec
 
@@ -45,7 +45,7 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 		return nil, ErrNotFound
 	}
 
-	stored := b.executionsStore(region)[pipelineName]
+	stored := b.executionsStoreRO(region)[pipelineName]
 	out := make([]PipelineExecution, len(stored))
 
 	// Return in reverse order (most recent first).
@@ -71,7 +71,7 @@ func (b *InMemoryBackend) ListActionExecutions(
 		return nil, ErrNotFound
 	}
 
-	stored := b.actionExecutionsStore(region)[pipelineName]
+	stored := b.actionExecutionsStoreRO(region)[pipelineName]
 	out := make([]map[string]any, 0, len(stored))
 
 	// Iterate in reverse so the most recent execution appears first.

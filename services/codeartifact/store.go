@@ -96,6 +96,19 @@ func (b *InMemoryBackend) externalConnectionsStore(region string) map[string][]E
 	return b.externalConnections[region]
 }
 
+// externalConnectionsStoreRO returns the per-region external connections map
+// for region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) externalConnectionsStoreRO(region string) map[string][]ExternalConnection {
+	if v := b.externalConnections[region]; v != nil {
+		return v
+	}
+
+	return map[string][]ExternalConnection{}
+}
+
 // Reset clears all stored resources, closing Tags on each domain, repository, and package group.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")

@@ -100,21 +100,26 @@ type InMemoryBackend struct {
 	flowVersionCtrs  map[string]int
 	agentVersionCtrs map[string]int
 
+	// resourcePolicies is keyed by the knowledge base's ResourceArn -- see
+	// resource_policy.go's package doc comment.
+	resourcePolicies *store.Table[ResourcePolicy]
+
 	registry *store.Registry
 
-	accountID          string
-	defaultRegion      string
-	dsCounter          int
-	collabCounter      int
-	kbCounter          int
-	flowCounter        int
-	aliasCounter       int
-	agentCounter       int
-	actionGroupCounter int
-	flowAliasCounter   int
-	promptCounter      int
-	jobCounter         int
-	mu                 sync.RWMutex
+	accountID             string
+	defaultRegion         string
+	dsCounter             int
+	collabCounter         int
+	kbCounter             int
+	flowCounter           int
+	aliasCounter          int
+	agentCounter          int
+	actionGroupCounter    int
+	flowAliasCounter      int
+	promptCounter         int
+	jobCounter            int
+	resourcePolicyCounter int
+	mu                    sync.RWMutex
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -163,6 +168,7 @@ func (b *InMemoryBackend) Reset() {
 	b.flowCounter = 0
 	b.flowAliasCounter = 0
 	b.promptCounter = 0
+	b.resourcePolicyCounter = 0
 }
 
 // ---------------------------------------------------------------------------

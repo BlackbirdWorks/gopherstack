@@ -46,6 +46,56 @@ func scheduleKey(groupName, name string) string {
 	return groupName + "/" + name
 }
 
+// validateScheduleFields validates the fields shared by CreateSchedule and
+// UpdateSchedule: the schedule expression, target, flexible time window,
+// state, and timezone. It returns the first validation error encountered, in
+// the same order both callers previously checked them.
+func validateScheduleFields(
+	expr string,
+	target Target,
+	state string,
+	ftw FlexibleTimeWindow,
+	timezone string,
+) error {
+	if expr == "" {
+		return fmt.Errorf("%w: ScheduleExpression is required", ErrValidation)
+	}
+
+	if err := validateScheduleExpression(expr); err != nil {
+		return err
+	}
+
+	if target.ARN == "" {
+		return fmt.Errorf("%w: Target.Arn is required", ErrValidation)
+	}
+
+	if target.RoleARN == "" {
+		return fmt.Errorf("%w: Target.RoleArn is required", ErrValidation)
+	}
+
+	if ftw.Mode == "" {
+		return fmt.Errorf("%w: FlexibleTimeWindow.Mode is required", ErrValidation)
+	}
+
+	if err := validateScheduleState(state); err != nil {
+		return err
+	}
+
+	if err := validateFlexibleTimeWindow(ftw); err != nil {
+		return err
+	}
+
+	if err := validateTarget(target); err != nil {
+		return err
+	}
+
+	if err := validateTimezone(timezone); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // CreateSchedule creates a new schedule in the named group.
 func (b *InMemoryBackend) CreateSchedule(
 	ctx context.Context,
@@ -59,39 +109,7 @@ func (b *InMemoryBackend) CreateSchedule(
 		return nil, err
 	}
 
-	if expr == "" {
-		return nil, fmt.Errorf("%w: ScheduleExpression is required", ErrValidation)
-	}
-
-	if err := validateScheduleExpression(expr); err != nil {
-		return nil, err
-	}
-
-	if target.ARN == "" {
-		return nil, fmt.Errorf("%w: Target.Arn is required", ErrValidation)
-	}
-
-	if target.RoleARN == "" {
-		return nil, fmt.Errorf("%w: Target.RoleArn is required", ErrValidation)
-	}
-
-	if ftw.Mode == "" {
-		return nil, fmt.Errorf("%w: FlexibleTimeWindow.Mode is required", ErrValidation)
-	}
-
-	if err := validateScheduleState(state); err != nil {
-		return nil, err
-	}
-
-	if err := validateFlexibleTimeWindow(ftw); err != nil {
-		return nil, err
-	}
-
-	if err := validateTarget(target); err != nil {
-		return nil, err
-	}
-
-	if err := validateTimezone(timezone); err != nil {
+	if err := validateScheduleFields(expr, target, state, ftw, timezone); err != nil {
 		return nil, err
 	}
 
@@ -228,39 +246,7 @@ func (b *InMemoryBackend) UpdateSchedule(
 	ftw FlexibleTimeWindow,
 	opts ...ScheduleOption,
 ) (*Schedule, error) {
-	if expr == "" {
-		return nil, fmt.Errorf("%w: ScheduleExpression is required", ErrValidation)
-	}
-
-	if err := validateScheduleExpression(expr); err != nil {
-		return nil, err
-	}
-
-	if target.ARN == "" {
-		return nil, fmt.Errorf("%w: Target.Arn is required", ErrValidation)
-	}
-
-	if target.RoleARN == "" {
-		return nil, fmt.Errorf("%w: Target.RoleArn is required", ErrValidation)
-	}
-
-	if ftw.Mode == "" {
-		return nil, fmt.Errorf("%w: FlexibleTimeWindow.Mode is required", ErrValidation)
-	}
-
-	if err := validateScheduleState(state); err != nil {
-		return nil, err
-	}
-
-	if err := validateFlexibleTimeWindow(ftw); err != nil {
-		return nil, err
-	}
-
-	if err := validateTarget(target); err != nil {
-		return nil, err
-	}
-
-	if err := validateTimezone(timezone); err != nil {
+	if err := validateScheduleFields(expr, target, state, ftw, timezone); err != nil {
 		return nil, err
 	}
 

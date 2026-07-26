@@ -263,7 +263,7 @@ func (b *InMemoryBackend) ListJobRuns(
 		return nil, "", fmt.Errorf("%w: job %q", ErrNotFound, jobName)
 	}
 
-	runStore := b.jobRunsStore(region)
+	runStore := b.jobRunsStoreRO(region)
 	runs := runStore[jobName]
 
 	// runs are stored in chronological order, ListJobRuns expects reverse chronological
@@ -338,7 +338,7 @@ func (b *InMemoryBackend) DescribeJobRun(ctx context.Context, name, runID string
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	runStore := b.jobRunsStore(region)
+	runStore := b.jobRunsStoreRO(region)
 	runs, ok := runStore[name]
 	if !ok {
 		return nil, ErrNotFound

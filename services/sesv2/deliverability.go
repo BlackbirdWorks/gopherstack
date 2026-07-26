@@ -1,14 +1,18 @@
 package sesv2
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -139,20 +143,147 @@ func (b *InMemoryBackend) ListDeliverabilityTestReports(
 	return page.New(items, nextToken, pageSize, sesv2DefaultMaxItems)
 }
 
+// campaignIDFor derives a stable, deterministic campaign identifier from the
+// (FromAddress, Subject) pair AWS's deliverability dashboard auto-groups
+// sent messages by. gopherstack doesn't persist a separate campaign index --
+// this is a pure function of the already-persisted send history in
+// b.emails, so the same campaign is addressable by the same ID across
+// calls/restarts without a snapshot-format change.
+func campaignIDFor(from, subject string) string {
+	sum := sha256.Sum256([]byte(from + "\x00" + subject))
+
+	return "campaign-" + hex.EncodeToString(sum[:8])
+}
+
+// domainCampaign is the real (FromAddress/Subject/first-and-last-seen)
+// portion of a deliverability-dashboard campaign gopherstack can derive from
+// its own send history; see domainCampaignsLocked.
+type domainCampaign struct {
+	FirstSeenDateTime time.Time
+	LastSeenDateTime  time.Time
+	CampaignID        string
+	FromAddress       string
+	Subject           string
+}
+
+// domainCampaignsLocked groups gopherstack's real SendEmail history
+// (b.emails) into deliverability-dashboard "campaigns" -- send events
+// grouped by (FromAddress, Subject), the same grouping key real SES uses to
+// auto-detect campaigns, optionally restricted to messages with at least
+// one recipient in domain (empty domain means "no restriction", used by
+// GetDomainDeliverabilityCampaign which has no domain parameter). Sorted by
+// CampaignID for stable pagination. Must be called with b.mu held (read or
+// write).
+func (b *InMemoryBackend) domainCampaignsLocked(domain string) []domainCampaign {
+	groups := make(map[string]*domainCampaign)
+	order := make([]string, 0)
+
+	for _, e := range b.emails {
+		if domain != "" && !anyAddressInDomain(e.To, domain) {
+			continue
+		}
+
+		id := campaignIDFor(e.From, e.Subject)
+
+		c, ok := groups[id]
+		if !ok {
+			groups[id] = &domainCampaign{
+				CampaignID:        id,
+				FromAddress:       e.From,
+				Subject:           e.Subject,
+				FirstSeenDateTime: e.Timestamp,
+				LastSeenDateTime:  e.Timestamp,
+			}
+			order = append(order, id)
+
+			continue
+		}
+
+		if e.Timestamp.Before(c.FirstSeenDateTime) {
+			c.FirstSeenDateTime = e.Timestamp
+		}
+
+		if e.Timestamp.After(c.LastSeenDateTime) {
+			c.LastSeenDateTime = e.Timestamp
+		}
+	}
+
+	sort.Strings(order)
+
+	out := make([]domainCampaign, 0, len(order))
+	for _, id := range order {
+		out = append(out, *groups[id])
+	}
+
+	return out
+}
+
+// anyAddressInDomain reports whether any address in addrs belongs to domain
+// (case-insensitive).
+func anyAddressInDomain(addrs []string, domain string) bool {
+	suffix := "@" + strings.ToLower(domain)
+	for _, a := range addrs {
+		if strings.HasSuffix(strings.ToLower(a), suffix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// domainDeliverabilityCampaignResponse renders a real derived campaign as
+// the AWS-shaped response, matching types.DomainDeliverabilityCampaign.
+// InboxCount/SpamCount/ReadRate/DeleteRate/ReadDeleteRate/ProjectedVolume/
+// Esps/SendingIps require real inbox/spam placement tracking gopherstack
+// doesn't have (this requires opted-in production sending history AWS
+// tracks server-side) and stay honest zero-valued/empty placeholders -- the
+// same tradeoff BatchGetMetricData makes for its own metrics.
+func domainDeliverabilityCampaignResponse(c *domainCampaign) map[string]any {
+	return map[string]any{
+		"CampaignId":        c.CampaignID,
+		"FromAddress":       c.FromAddress,
+		keySubject:          c.Subject,
+		"FirstSeenDateTime": awstime.Epoch(c.FirstSeenDateTime),
+		"LastSeenDateTime":  awstime.Epoch(c.LastSeenDateTime),
+		"InboxCount":        float64(0),
+		"SpamCount":         float64(0),
+		"ReadRate":          float64(0),
+		"DeleteRate":        float64(0),
+		"ReadDeleteRate":    float64(0),
+		"ProjectedVolume":   float64(0),
+		"Esps":              []any{},
+		"SendingIps":        []any{},
+	}
+}
+
 // GetDomainDeliverabilityCampaign returns deliverability data for a single
-// campaign, matching types.DomainDeliverabilityCampaign. gopherstack has no
-// real deliverability-dashboard data source (this requires opted-in
-// production sending history AWS tracks server-side), so populated fields
-// are zero-valued placeholders -- the wire shape/route are AWS-accurate even
-// though the metrics themselves aren't meaningful in an emulator, the same
-// tradeoff BatchGetMetricData makes.
+// campaign, matching types.DomainDeliverabilityCampaign. When campaignID
+// matches a campaign gopherstack can actually derive from its own send
+// history (see domainCampaignsLocked), CampaignId/FromAddress/Subject/
+// FirstSeenDateTime/LastSeenDateTime are real. An ID that doesn't match any
+// real send history (including any ID a caller makes up, since gopherstack
+// exposes no other way to validate one) falls back to the same shape with
+// the requested ID echoed back and every other field honestly zero/empty --
+// gopherstack has no NotFoundException signal it could raise here without
+// also rejecting IDs a real ListDomainDeliverabilityCampaigns call would
+// have legitimately returned.
 func (b *InMemoryBackend) GetDomainDeliverabilityCampaign(campaignID string) (map[string]any, error) {
+	b.mu.RLock("GetDomainDeliverabilityCampaign")
+	campaigns := b.domainCampaignsLocked("")
+	b.mu.RUnlock()
+
+	for _, c := range campaigns {
+		if c.CampaignID == campaignID {
+			return domainDeliverabilityCampaignResponse(&c), nil
+		}
+	}
+
 	now := awstime.Epoch(time.Now())
 
 	return map[string]any{
 		"CampaignId":        campaignID,
 		"FromAddress":       "",
-		"Subject":           "",
+		keySubject:          "",
 		"FirstSeenDateTime": now,
 		"LastSeenDateTime":  now,
 		"InboxCount":        float64(0),
@@ -166,9 +297,72 @@ func (b *InMemoryBackend) GetDomainDeliverabilityCampaign(campaignID string) (ma
 	}, nil
 }
 
+// parseSESv2Timestamp parses a query-string timestamp in either RFC3339
+// (the wire format real SES v2 clients use for the StartDate/EndDate query
+// parameters on this op family, confirmed against serializers.go's
+// smithytime.FormatDateTime) or a bare "YYYY-MM-DD" date (accepted for
+// backend-direct callers/tests), returning ok=false if s is empty or
+// matches neither.
+func parseSESv2Timestamp(s string) (time.Time, bool) {
+	if s == "" {
+		return time.Time{}, false
+	}
+
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, true
+	}
+
+	if t, err := time.Parse(time.DateOnly, s); err == nil {
+		return t, true
+	}
+
+	return time.Time{}, false
+}
+
+// maxDailyVolumeDays caps the number of DailyVolume entries
+// GetDomainStatisticsReport generates for a requested date range, so a
+// caller-supplied multi-year range can't force an unbounded response.
+const maxDailyVolumeDays = 366
+
+// oneCalendarDay truncates a timestamp down to a whole UTC calendar day.
+const oneCalendarDay = 24 * time.Hour
+
+// GetDomainStatisticsReport reports volume statistics for a domain, matching
+// GetDomainStatisticsReportOutput. Real SES v2 documents DailyVolumes as
+// containing "data for each day, starting on the StartDate and ending on
+// the EndDate" -- gopherstack honors that shape for real (one entry per day
+// in the requested range, parsed via parseSESv2Timestamp) even though every
+// actual statistic (VolumeStatistics/DomainIspPlacements/ReadRatePercent)
+// requires mail-delivery-outcome (inbox vs spam) tracking gopherstack
+// doesn't have and stays honest zero/empty per day -- same tradeoff
+// BatchGetMetricData makes for its own metrics. An unparseable or reversed
+// range yields an empty DailyVolumes list rather than a guess.
 func (b *InMemoryBackend) GetDomainStatisticsReport(domain, startDate, endDate string) (map[string]any, error) {
-	_ = startDate
-	_ = endDate
+	dailyVolumes := []any{}
+
+	start, hasStart := parseSESv2Timestamp(startDate)
+	end, hasEnd := parseSESv2Timestamp(endDate)
+
+	if hasStart && hasEnd && !end.Before(start) {
+		start = start.UTC().Truncate(oneCalendarDay)
+		end = end.UTC().Truncate(oneCalendarDay)
+
+		days := make([]any, 0)
+		for d := start; !d.After(end) && len(days) < maxDailyVolumeDays; d = d.AddDate(0, 0, 1) {
+			days = append(days, map[string]any{
+				"StartDate": awstime.Epoch(d),
+				"VolumeStatistics": map[string]any{
+					"InboxRawCount":  float64(0),
+					"SpamRawCount":   float64(0),
+					"ProjectedInbox": float64(0),
+					"ProjectedSpam":  float64(0),
+				},
+				"DomainIspPlacements": []any{},
+			})
+		}
+
+		dailyVolumes = days
+	}
 
 	return map[string]any{
 		"Domain": domain,
@@ -182,15 +376,41 @@ func (b *InMemoryBackend) GetDomainStatisticsReport(domain, startDate, endDate s
 			"ReadRatePercent":     float64(0),
 			"DomainIspPlacements": []any{},
 		},
-		"DailyVolumes": []any{},
+		"DailyVolumes": dailyVolumes,
 	}, nil
 }
 
-// ListDomainDeliverabilityCampaigns returns empty list.
+// ListDomainDeliverabilityCampaigns lists deliverability-dashboard campaigns
+// for a subscribed domain, derived for real from gopherstack's own send
+// history (see domainCampaignsLocked) and restricted to campaigns that
+// overlap the requested [startDate, endDate] window when both parse via
+// parseSESv2Timestamp. InboxCount/SpamCount/etc are honest placeholders,
+// same as GetDomainDeliverabilityCampaign.
 func (b *InMemoryBackend) ListDomainDeliverabilityCampaigns(
-	_, _, _, _ string,
+	startDate, endDate, domain, nextToken string,
 ) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
+	start, hasStart := parseSESv2Timestamp(startDate)
+	end, hasEnd := parseSESv2Timestamp(endDate)
+
+	b.mu.RLock("ListDomainDeliverabilityCampaigns")
+	campaigns := b.domainCampaignsLocked(domain)
+	b.mu.RUnlock()
+
+	all := make([]map[string]any, 0, len(campaigns))
+
+	for _, c := range campaigns {
+		if hasStart && c.LastSeenDateTime.Before(start) {
+			continue
+		}
+
+		if hasEnd && c.FirstSeenDateTime.After(end) {
+			continue
+		}
+
+		all = append(all, domainDeliverabilityCampaignResponse(&c))
+	}
+
+	return paginateMaps(all, nextToken, 0, "CampaignId")
 }
 
 // EmailAddressInsightsConfidenceVerdict values (types.EmailAddressInsightsConfidenceVerdict).
@@ -269,52 +489,148 @@ func (b *InMemoryBackend) GetEmailAddressInsights(emailAddress string) (map[stri
 	}, nil
 }
 
-// ListRecommendations returns an empty list -- gopherstack has no reputation
-// analysis engine to generate real DKIM/SPF/DMARC/BIMI recommendations from,
-// so (unlike GetEmailAddressInsights) there's no meaningful synthetic data to
-// return; the route and NextToken/Recommendations wire shape are AWS-accurate.
-func (b *InMemoryBackend) ListRecommendations(_ string, _ int) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
+// Recommendation Type/Status/Impact values (types.RecommendationType/
+// RecommendationStatus/RecommendationImpact) used by the recommendations
+// gopherstack can derive for real -- see ListRecommendations.
+const (
+	recommendationTypeDKIM      = "DKIM"
+	recommendationTypeSPF       = "SPF"
+	recommendationTypeComplaint = "COMPLAINT"
+	recommendationStatusOpen    = "OPEN"
+	recommendationImpactHigh    = "HIGH"
+)
+
+// identityARN builds the ARN for an email identity:
+// arn:{partition}:ses:{region}:{account}:identity/{identity}.
+func (b *InMemoryBackend) identityARN(identity string) string {
+	return arn.Build("ses", b.region, b.accountID, "identity/"+identity)
+}
+
+// newRecommendation builds an OPEN/HIGH-impact recommendation, the only
+// Status/Impact combination gopherstack's derivation logic ever produces
+// (see ListRecommendations).
+func newRecommendation(resourceARN, recType, description string, now float64) recommendationOutput {
+	return recommendationOutput{
+		ResourceArn:          resourceARN,
+		Type:                 recType,
+		Status:               recommendationStatusOpen,
+		Impact:               recommendationImpactHigh,
+		Description:          description,
+		CreatedTimestamp:     now,
+		LastUpdatedTimestamp: now,
+	}
+}
+
+// filterRecommendations applies ListRecommendations' Filter parameter
+// (types.ListRecommendationsFilterKey: TYPE/STATUS/IMPACT/RESOURCE_ARN),
+// ANDing together whichever keys are present, matching the documented
+// "combinations of STATUS and IMPACT or STATUS and TYPE" filter semantics.
+func filterRecommendations(all []recommendationOutput, filter map[string]string) []recommendationOutput {
+	if len(filter) == 0 {
+		return all
+	}
+
+	out := make([]recommendationOutput, 0, len(all))
+
+	for _, r := range all {
+		if v, ok := filter["TYPE"]; ok && v != r.Type {
+			continue
+		}
+
+		if v, ok := filter["STATUS"]; ok && v != r.Status {
+			continue
+		}
+
+		if v, ok := filter["IMPACT"]; ok && v != r.Impact {
+			continue
+		}
+
+		if v, ok := filter["RESOURCE_ARN"]; ok && v != r.ResourceArn {
+			continue
+		}
+
+		out = append(out, r)
+	}
+
+	return out
+}
+
+// ListRecommendations derives real recommendations from gopherstack's actual
+// configuration state: identities with DKIM signing disabled (DKIM --
+// CreateEmailIdentity enables it by default, so this only fires after an
+// explicit PutEmailIdentityDkimAttributes(signingEnabled=false) call),
+// identities with a custom MAIL FROM domain that hasn't reached SUCCESS
+// status (SPF -- a custom MAIL FROM domain is how SES achieves SPF
+// alignment; gopherstack doesn't simulate async MAIL FROM verification, so
+// every configured MAIL FROM domain is honestly stuck at PENDING forever),
+// and reputation entities with a DISABLED customer-managed status
+// (COMPLAINT). DMARC/BIMI recommendations and reputation-finding-driven
+// types (BOUNCE/FEEDBACK_3P/IP_LISTING) are never returned -- gopherstack
+// has no DNS-record model and no bounce/complaint-rate tracking pipeline to
+// derive those from, and fabricating them would be worse than omitting
+// them. Recommendations are computed live on every call rather than
+// persisted, so CreatedTimestamp/LastUpdatedTimestamp reflect "now" rather
+// than a real first-detected time gopherstack doesn't track.
+func (b *InMemoryBackend) ListRecommendations(
+	filter map[string]string,
+	nextToken string,
+	pageSize int,
+) ([]recommendationOutput, string, error) {
+	b.mu.RLock("ListRecommendations")
+
+	now := awstime.Epoch(time.Now())
+	all := make([]recommendationOutput, 0)
+
+	for _, ei := range b.identities.Snapshot() {
+		resourceARN := b.identityARN(ei.Identity)
+
+		if !ei.DkimSigningEnabled {
+			all = append(all, newRecommendation(
+				resourceARN, recommendationTypeDKIM,
+				"DKIM signing is not enabled for this identity.", now,
+			))
+		}
+
+		// verificationStatusSuccess's value ("SUCCESS") is MailFromDomainStatus's
+		// success value too -- gopherstack only ever sets MailFromDomainStatus to
+		// "" or mailFromStatusPending (no async verification simulation), so this
+		// fires for every identity that has ever configured a custom MAIL FROM
+		// domain.
+		if ei.MailFromDomainStatus != "" && ei.MailFromDomainStatus != verificationStatusSuccess {
+			all = append(all, newRecommendation(
+				resourceARN, recommendationTypeSPF,
+				"The custom MAIL FROM domain for this identity has not reached SUCCESS status.", now,
+			))
+		}
+	}
+
+	for _, e := range b.reputationEntities.Snapshot() {
+		if e.CustomerManagedStatus == sendingStatusDisabled {
+			all = append(all, newRecommendation(
+				e.EntityRef, recommendationTypeComplaint,
+				"Sending has been disabled for this entity by a customer-managed status update.", now,
+			))
+		}
+	}
+
+	b.mu.RUnlock()
+
+	all = filterRecommendations(all, filter)
+
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].ResourceArn != all[j].ResourceArn {
+			return all[i].ResourceArn < all[j].ResourceArn
+		}
+
+		return all[i].Type < all[j].Type
+	})
+
+	pg := page.New(all, nextToken, pageSize, sesv2DefaultMaxItems)
+
+	return pg.Data, pg.Next, nil
 }
 
 // ---- reputation entities ----
-
-// reputationEntityToMap renders a reputation entity as the AWS-shaped
-// response map, field-diffed against types.ReputationEntity. Note
-// CustomerManagedStatus is a *StatusRecord{Status,Cause,LastUpdatedTimestamp}
-// (not a bare string) -- gopherstack only tracks Status, which is the only
-// field UpdateReputationEntityCustomerManagedStatus lets a caller set.
-// AwsSesManagedStatus is omitted: it's SES's own computed reputation-findings
-// status, which gopherstack has no findings engine to derive.
-func reputationEntityToMap(e *ReputationEntity) map[string]any {
-	m := map[string]any{
-		"ReputationEntityReference": e.EntityRef,
-	}
-
-	if e.EntityType != "" {
-		m["ReputationEntityType"] = e.EntityType
-	}
-
-	if e.CustomerManagedStatus != "" {
-		m["CustomerManagedStatus"] = map[string]any{keyStatus: e.CustomerManagedStatus}
-	}
-
-	if e.ReputationPolicy != "" {
-		m["ReputationManagementPolicy"] = e.ReputationPolicy
-	}
-
-	// SendingStatusAggregate is derived from CustomerManagedStatus (gopherstack
-	// has no separate AWS-SES-managed status to combine it with) -- default
-	// ENABLED, matching a freshly-tracked entity with no restrictions applied.
-	aggregate := sendingStatusEnabled
-	if e.CustomerManagedStatus != "" {
-		aggregate = e.CustomerManagedStatus
-	}
-
-	m["SendingStatusAggregate"] = aggregate
-
-	return m
-}
 
 // reputationEntityLocked returns the tracked reputation entity, creating an entry
 // if it does not yet exist. Callers must hold the write lock.
@@ -332,30 +648,30 @@ func (b *InMemoryBackend) reputationEntityLocked(entityID string) *ReputationEnt
 // in SES exist implicitly for every configuration set and identity, so an entity
 // that has never been updated is reported with its reference and no overrides
 // rather than as not-found.
-func (b *InMemoryBackend) GetReputationEntity(entityID string) (map[string]any, error) {
+func (b *InMemoryBackend) GetReputationEntity(entityID string) (reputationEntityOutput, error) {
 	b.mu.RLock("GetReputationEntity")
 	defer b.mu.RUnlock()
 
 	if e, ok := b.reputationEntities.Get(entityID); ok {
-		return reputationEntityToMap(e), nil
+		return toReputationEntityOutput(e), nil
 	}
 
-	return reputationEntityToMap(&ReputationEntity{EntityRef: entityID}), nil
+	return toReputationEntityOutput(&ReputationEntity{EntityRef: entityID}), nil
 }
 
 // ListReputationEntities returns all tracked reputation entities.
 func (b *InMemoryBackend) ListReputationEntities(
 	_ string,
 	_ int,
-) ([]map[string]any, string, error) {
+) ([]reputationEntityOutput, string, error) {
 	b.mu.RLock("ListReputationEntities")
 	defer b.mu.RUnlock()
 
 	snap := b.reputationEntities.Snapshot()
 
-	out := make([]map[string]any, 0, len(snap))
+	out := make([]reputationEntityOutput, 0, len(snap))
 	for _, e := range snap {
-		out = append(out, reputationEntityToMap(e))
+		out = append(out, toReputationEntityOutput(e))
 	}
 
 	return out, "", nil

@@ -103,6 +103,7 @@ type backendSnapshot struct {
 	Devices             map[string]map[string]*Device             `json:"devices,omitempty"`
 	WebAuthnCredentials map[string]map[string]*WebAuthnCredential `json:"webauthnCredentials,omitempty"`
 	AuthEvents          map[string]map[string]*AuthEvent          `json:"authEvents,omitempty"`
+	ProvisionedLimits   map[string]int32                          `json:"provisionedLimits,omitempty"`
 	AccountID           string                                    `json:"accountId,omitempty"`
 	Region              string                                    `json:"region,omitempty"`
 	Endpoint            string                                    `json:"endpoint,omitempty"`
@@ -239,6 +240,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	store.Register(dtoReg, "managedLoginBrandings", b.managedLoginBrandings)
 	store.Register(dtoReg, "uiCustomizations", b.uiCustomizations)
 	store.Register(dtoReg, "typedRiskConfigurations", b.typedRiskConfigurations)
+	store.Register(dtoReg, "userPoolReplicas", b.userPoolReplicas)
 
 	tables, err := dtoReg.SnapshotAll()
 	if err != nil {
@@ -260,6 +262,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Devices:             b.devices,
 		WebAuthnCredentials: b.webauthnCredentials,
 		AuthEvents:          b.authEvents,
+		ProvisionedLimits:   b.provisionedLimits,
 		AccountID:           b.accountID,
 		Region:              b.region,
 		Endpoint:            b.endpoint,
@@ -329,6 +332,7 @@ func (b *InMemoryBackend) resetForIncompatibleSnapshotLocked() {
 	b.devices = make(map[string]map[string]*Device)
 	b.webauthnCredentials = make(map[string]map[string]*WebAuthnCredential)
 	b.authEvents = make(map[string]map[string]*AuthEvent)
+	b.provisionedLimits = make(map[string]int32)
 }
 
 // restoreTablesLocked decodes tables into every store.Table-backed resource.
@@ -353,6 +357,7 @@ func (b *InMemoryBackend) restoreTablesLocked(tables map[string]json.RawMessage)
 	store.Register(dtoReg, "managedLoginBrandings", b.managedLoginBrandings)
 	store.Register(dtoReg, "uiCustomizations", b.uiCustomizations)
 	store.Register(dtoReg, "typedRiskConfigurations", b.typedRiskConfigurations)
+	store.Register(dtoReg, "userPoolReplicas", b.userPoolReplicas)
 
 	if err := dtoReg.RestoreAll(tables); err != nil {
 		return fmt.Errorf("cognitoidp: restore snapshot tables: %w", err)
@@ -385,6 +390,7 @@ func (b *InMemoryBackend) restoreRawMapsLocked(snap *backendSnapshot) {
 	b.devices = snap.Devices
 	b.webauthnCredentials = snap.WebAuthnCredentials
 	b.authEvents = snap.AuthEvents
+	b.provisionedLimits = snap.ProvisionedLimits
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.endpoint = snap.Endpoint
@@ -451,6 +457,10 @@ func normalizeBackendSnapshot(snap *backendSnapshot) {
 
 	if snap.AuthEvents == nil {
 		snap.AuthEvents = make(map[string]map[string]*AuthEvent)
+	}
+
+	if snap.ProvisionedLimits == nil {
+		snap.ProvisionedLimits = make(map[string]int32)
 	}
 }
 

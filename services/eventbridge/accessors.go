@@ -254,6 +254,19 @@ func (b *InMemoryBackend) busePoliciesStore(region string) map[string]*EventBusP
 	return b.busePolicies[region]
 }
 
+// busePoliciesStoreRO returns the region-scoped busePolicies map for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) busePoliciesStoreRO(region string) map[string]*EventBusPolicy {
+	if v := b.busePolicies[region]; v != nil {
+		return v
+	}
+
+	return map[string]*EventBusPolicy{}
+}
+
 func (b *InMemoryBackend) getOrCompilePattern(patternJSON string) (*compiledPattern, error) {
 	if cached, ok := b.patternCache.Load(patternJSON); ok {
 		compiled, castOK := cached.(*compiledPattern)

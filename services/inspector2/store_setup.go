@@ -12,11 +12,18 @@ package inspector2
 // CisScanConfiguration.Arn, CisScan.ScanArn, SbomExport.ReportID,
 // FindingsReport.ReportID, MemberEc2DeepInspectionStatus.AccountID,
 // DelegatedAdminAccount.AccountID, CodeSecurityScanConfiguration.Arn,
-// Member.AccountID, CisSession.ScanJobID -- so none of these tables need the
-// "dirty" ephemeral-DTO registry treatment (cf. services/ses /
+// Member.AccountID, CisSession.ScanJobID, Connector.ConnectorArn,
+// ConnectorScanConfiguration.AwsConfigConnectorArn -- so none of these tables
+// need the "dirty" ephemeral-DTO registry treatment (cf. services/ses /
 // services/codecommit): all are "clean" tables registered directly on
 // b.registry, and persistence.go drives every one of them through
 // b.registry.SnapshotAll() / RestoreAll().
+//
+// connectors additionally carries a "byAwsConfigArn" secondary [store.Index]
+// (Connector.AwsConfigConnectorArn), following the cisScans "byConfig" index
+// precedent: it backs both ListConnectorScanConfigurations' live
+// ConnectorArns join and UpdateConnectorScanConfiguration's connector-exists
+// validation (connectors.go).
 //
 // EncryptionKey has no single identity field, but its composite identity
 // (ResourceType, ScanType) is already a pair of real fields on the value
@@ -96,6 +103,16 @@ func vulnerabilityKeyFn(v *Vulnerability) string { return v.ID }
 
 func codeSnippetKeyFn(v *codeSnippet) string { return v.FindingArn }
 
+func connectorKeyFn(v *Connector) string { return v.ConnectorArn }
+
+// connectorAwsConfigArnKeyFn groups connectors by the AWS Config connector
+// ARN they share, backing both ListConnectorScanConfigurations'
+// ConnectorArns member and UpdateConnectorScanConfiguration's
+// connector-exists validation (see connectors.go).
+func connectorAwsConfigArnKeyFn(v *Connector) string { return v.AwsConfigConnectorArn }
+
+func connectorScanConfigKeyFn(v *ConnectorScanConfiguration) string { return v.AwsConfigConnectorArn }
+
 // registerAllTables registers every backend resource table (and its
 // secondary indexes) exactly once. It must be called during construction
 // only, immediately after b.registry is created -- store.Register panics on
@@ -145,4 +162,11 @@ func registerAllTables(b *InMemoryBackend) {
 	b.vulnerabilities = store.Register(b.registry, "vulnerabilities", store.New(vulnerabilityKeyFn))
 
 	b.codeSnippets = store.Register(b.registry, "codeSnippets", store.New(codeSnippetKeyFn))
+
+	b.connectors = store.Register(b.registry, "connectors", store.New(connectorKeyFn))
+	b.connectorsByAwsConfigArn = b.connectors.AddIndex("byAwsConfigArn", connectorAwsConfigArnKeyFn)
+
+	b.connectorScanConfigs = store.Register(
+		b.registry, "connectorScanConfigs", store.New(connectorScanConfigKeyFn),
+	)
 }

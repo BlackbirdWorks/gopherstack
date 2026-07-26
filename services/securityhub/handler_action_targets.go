@@ -29,7 +29,7 @@ func (h *Handler) handleCreateActionTarget(c *echo.Context, body map[string]any)
 	id, _ := body["Id"].(string)
 
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "Name is required"})
+		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgNameRequired})
 	}
 
 	if description == "" {

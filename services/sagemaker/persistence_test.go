@@ -149,3 +149,113 @@ func TestBackend_Persistence_SnapshotRestore(t *testing.T) {
 	_, err = b.DescribeModel(context.Background(), "snap-model")
 	assert.NoError(t, err)
 }
+
+// TestPersistenceRoundtrip_AIAndGenericJobFamilies verifies that
+// AIWorkloadConfig, AIBenchmarkJob, AIRecommendationJob, and the generic Job
+// family (all added by the SDK bump that introduced CreateJob et al.) are
+// wired into backendSnapshot: created via one handler, they must still be
+// describable via a second handler restored from the first's snapshot.
+func TestPersistenceRoundtrip_AIAndGenericJobFamilies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		createOp    string
+		createBody  map[string]any
+		describeOp  string
+		describeKey map[string]any
+		wantField   string
+		wantValue   string
+	}{
+		{
+			name:        "AIWorkloadConfig",
+			createOp:    "CreateAIWorkloadConfig",
+			createBody:  map[string]any{"AIWorkloadConfigName": "persist-wc"},
+			describeOp:  "DescribeAIWorkloadConfig",
+			describeKey: map[string]any{"AIWorkloadConfigName": "persist-wc"},
+			wantField:   "AIWorkloadConfigName",
+			wantValue:   "persist-wc",
+		},
+		{
+			name:     "AIBenchmarkJob",
+			createOp: "CreateAIBenchmarkJob",
+			createBody: map[string]any{
+				"AIBenchmarkJobName":         "persist-bench",
+				"AIWorkloadConfigIdentifier": "persist-wc-dep",
+				"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
+				"BenchmarkTarget":            map[string]any{"Endpoint": map[string]any{"Identifier": "ep"}},
+				"OutputConfig":               map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+			},
+			describeOp:  "DescribeAIBenchmarkJob",
+			describeKey: map[string]any{"AIBenchmarkJobName": "persist-bench"},
+			wantField:   "AIBenchmarkJobName",
+			wantValue:   "persist-bench",
+		},
+		{
+			name:     "AIRecommendationJob",
+			createOp: "CreateAIRecommendationJob",
+			createBody: map[string]any{
+				"AIRecommendationJobName":    "persist-rec",
+				"AIWorkloadConfigIdentifier": "persist-wc-dep",
+				"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
+				"ModelSource":                map[string]any{"S3": map[string]any{"S3Uri": "s3://bucket/model/"}},
+				"OutputConfig":               map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+				"PerformanceTarget":          map[string]any{"MetricName": "ttft-ms", "Threshold": 100},
+			},
+			describeOp:  "DescribeAIRecommendationJob",
+			describeKey: map[string]any{"AIRecommendationJobName": "persist-rec"},
+			wantField:   "AIRecommendationJobName",
+			wantValue:   "persist-rec",
+		},
+		{
+			name:     "Job",
+			createOp: "CreateJob",
+			createBody: map[string]any{
+				"JobName":                "persist-job",
+				"JobCategory":            "AgentRFT",
+				"JobConfigDocument":      `{"foo":"bar"}`,
+				"JobConfigSchemaVersion": "1.0",
+				"RoleArn":                "arn:aws:iam::000000000000:role/TestRole",
+			},
+			describeOp:  "DescribeJob",
+			describeKey: map[string]any{"JobCategory": "AgentRFT", "JobName": "persist-job"},
+			wantField:   "JobName",
+			wantValue:   "persist-job",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h1 := newTestHandler(t)
+
+			// AIBenchmarkJob/AIRecommendationJob need an AIWorkloadConfig to
+			// reference; unused (but harmless) for the other cases. Named
+			// distinctly from the AIWorkloadConfig subtest's own "persist-wc"
+			// so the two don't collide on a duplicate name.
+			doSageMakerRequest(
+				t,
+				h1,
+				"CreateAIWorkloadConfig",
+				map[string]any{"AIWorkloadConfigName": "persist-wc-dep"},
+			)
+
+			createRec := doSageMakerRequest(t, h1, tt.createOp, tt.createBody)
+			require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+			snap := h1.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			h2 := newTestHandler(t)
+			require.NoError(t, h2.Restore(t.Context(), snap))
+
+			descRec := doSageMakerRequest(t, h2, tt.describeOp, tt.describeKey)
+			require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+			assert.Equal(t, tt.wantValue, out[tt.wantField])
+		})
+	}
+}

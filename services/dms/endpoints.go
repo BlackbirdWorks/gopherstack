@@ -135,13 +135,26 @@ func (b *InMemoryBackend) endpointSchemasStore(region string) map[string][]strin
 	return b.endpointSchemas[region]
 }
 
+// endpointSchemasStoreRO returns the region-scoped endpointSchemas map for
+// region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) endpointSchemasStoreRO(region string) map[string][]string {
+	if v := b.endpointSchemas[region]; v != nil {
+		return v
+	}
+
+	return map[string][]string{}
+}
+
 // DescribeSchemas returns the schema names available on an endpoint.
 func (b *InMemoryBackend) DescribeSchemas(ctx context.Context, endpointARN string) ([]string, error) {
 	b.mu.RLock("DescribeSchemas")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	schemas := b.endpointSchemasStore(region)[endpointARN]
+	schemas := b.endpointSchemasStoreRO(region)[endpointARN]
 
 	if schemas == nil {
 		return []string{}, nil

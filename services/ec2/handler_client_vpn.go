@@ -190,6 +190,7 @@ func parseClientVpnEndpointOptions(vals url.Values) ClientVpnEndpointOptions {
 		VpcID:                vals.Get("VpcId"),
 		SecurityGroupIDs:     parseMemberList(vals, "SecurityGroupId"),
 		SelfServicePortalURL: vals.Get("SelfServicePortal"),
+		TransitGatewayID:     vals.Get("TransitGatewayConfiguration.TransitGatewayId"),
 	}
 
 	opts.VpnPort = parseInt32Value(vals.Get("VpnPort"))
@@ -517,6 +518,97 @@ func (h *Handler) handleImportClientVpnClientCertificateRevocationList(
 	}, nil
 }
 
+// ---- Transit Gateway Client VPN Attachment handlers ----
+
+// tgwClientVpnAttachmentItem is the wire shape of a
+// TransitGatewayClientVpnAttachment, field-diffed against
+// aws-sdk-go-v2/service/ec2/types.TransitGatewayClientVpnAttachment.
+type tgwClientVpnAttachmentItem struct {
+	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId,omitempty"`
+	TransitGatewayID           string `xml:"transitGatewayId,omitempty"`
+	ClientVpnEndpointID        string `xml:"clientVpnEndpointId,omitempty"`
+	ClientVpnOwnerID           string `xml:"clientVpnOwnerId,omitempty"`
+	State                      string `xml:"state,omitempty"`
+	CreationTime               string `xml:"creationTime,omitempty"`
+}
+
+func toTGWClientVpnAttachmentItem(att *TransitGatewayClientVpnAttachment) tgwClientVpnAttachmentItem {
+	return tgwClientVpnAttachmentItem{
+		TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
+		TransitGatewayID:           att.TransitGatewayID,
+		ClientVpnEndpointID:        att.ClientVpnEndpointID,
+		ClientVpnOwnerID:           att.ClientVpnOwnerID,
+		State:                      att.State,
+		CreationTime:               att.CreationTime,
+	}
+}
+
+type acceptTGWClientVpnAttachmentResponse struct {
+	XMLName                           xml.Name                   `xml:"AcceptTransitGatewayClientVpnAttachmentResponse"`
+	Xmlns                             string                     `xml:"xmlns,attr"`
+	RequestID                         string                     `xml:"requestId"`
+	TransitGatewayClientVpnAttachment tgwClientVpnAttachmentItem `xml:"transitGatewayClientVpnAttachment"`
+}
+
+func (h *Handler) handleAcceptTransitGatewayClientVpnAttachment(vals url.Values, reqID string) (any, error) {
+	attachmentID := vals.Get("TransitGatewayAttachmentId")
+
+	att, err := h.Backend.AcceptTransitGatewayClientVpnAttachment(attachmentID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &acceptTGWClientVpnAttachmentResponse{
+		Xmlns:                             ec2XMLNS,
+		RequestID:                         reqID,
+		TransitGatewayClientVpnAttachment: toTGWClientVpnAttachmentItem(att),
+	}, nil
+}
+
+type rejectTGWClientVpnAttachmentResponse struct {
+	XMLName                           xml.Name                   `xml:"RejectTransitGatewayClientVpnAttachmentResponse"`
+	Xmlns                             string                     `xml:"xmlns,attr"`
+	RequestID                         string                     `xml:"requestId"`
+	TransitGatewayClientVpnAttachment tgwClientVpnAttachmentItem `xml:"transitGatewayClientVpnAttachment"`
+}
+
+func (h *Handler) handleRejectTransitGatewayClientVpnAttachment(vals url.Values, reqID string) (any, error) {
+	attachmentID := vals.Get("TransitGatewayAttachmentId")
+
+	att, err := h.Backend.RejectTransitGatewayClientVpnAttachment(attachmentID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rejectTGWClientVpnAttachmentResponse{
+		Xmlns:                             ec2XMLNS,
+		RequestID:                         reqID,
+		TransitGatewayClientVpnAttachment: toTGWClientVpnAttachmentItem(att),
+	}, nil
+}
+
+type deleteTGWClientVpnAttachmentResponse struct {
+	XMLName                           xml.Name                   `xml:"DeleteTransitGatewayClientVpnAttachmentResponse"`
+	Xmlns                             string                     `xml:"xmlns,attr"`
+	RequestID                         string                     `xml:"requestId"`
+	TransitGatewayClientVpnAttachment tgwClientVpnAttachmentItem `xml:"transitGatewayClientVpnAttachment"`
+}
+
+func (h *Handler) handleDeleteTransitGatewayClientVpnAttachment(vals url.Values, reqID string) (any, error) {
+	attachmentID := vals.Get("TransitGatewayAttachmentId")
+
+	att, err := h.Backend.DeleteTransitGatewayClientVpnAttachment(attachmentID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteTGWClientVpnAttachmentResponse{
+		Xmlns:                             ec2XMLNS,
+		RequestID:                         reqID,
+		TransitGatewayClientVpnAttachment: toTGWClientVpnAttachmentItem(att),
+	}, nil
+}
+
 // ---- TGW Peering handlers ----
 
 // registerClientVpnOps registers the ClientVpn operation handlers.
@@ -540,6 +632,17 @@ func registerClientVpnOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ExportClientVpnClientConfiguration"] = h.handleExportClientVpnClientConfiguration
 	ops["ExportClientVpnClientCertificateRevocationList"] = h.handleExportClientVpnClientCertificateRevocationList
 	ops["ImportClientVpnClientCertificateRevocationList"] = h.handleImportClientVpnClientCertificateRevocationList
+
+	registerTGWClientVpnAttachmentOps(h, ops)
+}
+
+// registerTGWClientVpnAttachmentOps registers the Transit Gateway Client VPN
+// attachment operation handlers (parity-4). Split out from
+// registerClientVpnOps so each stays a distinct, independently-readable unit.
+func registerTGWClientVpnAttachmentOps(h *Handler, ops map[string]ec2ActionFn) {
+	ops["AcceptTransitGatewayClientVpnAttachment"] = h.handleAcceptTransitGatewayClientVpnAttachment
+	ops["RejectTransitGatewayClientVpnAttachment"] = h.handleRejectTransitGatewayClientVpnAttachment
+	ops["DeleteTransitGatewayClientVpnAttachment"] = h.handleDeleteTransitGatewayClientVpnAttachment
 }
 
 // clientVpnSupportedOperations lists the operation names registered by
@@ -565,5 +668,8 @@ func clientVpnSupportedOperations() []string {
 		"ExportClientVpnClientConfiguration",
 		"ExportClientVpnClientCertificateRevocationList",
 		"ImportClientVpnClientCertificateRevocationList",
+		"AcceptTransitGatewayClientVpnAttachment",
+		"RejectTransitGatewayClientVpnAttachment",
+		"DeleteTransitGatewayClientVpnAttachment",
 	}
 }

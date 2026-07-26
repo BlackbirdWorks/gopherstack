@@ -30,13 +30,18 @@ func (h *Handler) handlePutSchema(_ context.Context, in *putSchemaInput) (*putSc
 		return nil, fmt.Errorf("%w: definition.cedarJson is required", errInvalidRequest)
 	}
 
-	namespaces, err := h.Backend.PutSchema(in.PolicyStoreID, in.Definition.CedarJSON)
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	namespaces, err := h.Backend.PutSchema(resolvedID, in.Definition.CedarJSON)
 	if err != nil {
 		return nil, err
 	}
 
 	// Read back timestamps directly from stored schema.
-	s, err := h.Backend.GetSchema(in.PolicyStoreID)
+	s, err := h.Backend.GetSchema(resolvedID)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +51,7 @@ func (h *Handler) handlePutSchema(_ context.Context, in *putSchemaInput) (*putSc
 	}
 
 	return &putSchemaOutput{
-		PolicyStoreID:   in.PolicyStoreID,
+		PolicyStoreID:   resolvedID,
 		CreatedDate:     s.CreatedDate.UTC().Format(timeFormat),
 		LastUpdatedDate: s.LastUpdated.UTC().Format(timeFormat),
 		Namespaces:      namespaces,
@@ -70,13 +75,18 @@ func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSc
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
-	s, err := h.Backend.GetSchema(in.PolicyStoreID)
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	s, err := h.Backend.GetSchema(resolvedID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &getSchemaOutput{
-		PolicyStoreID:   in.PolicyStoreID,
+		PolicyStoreID:   resolvedID,
 		Schema:          s.Schema,
 		Namespaces:      s.Namespaces,
 		CreatedDate:     s.CreatedDate.UTC().Format(timeFormat),

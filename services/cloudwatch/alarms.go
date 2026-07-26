@@ -75,21 +75,30 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 }
 
 // DescribeAlarms lists a page of alarms, optionally filtered by name, type, prefix, and/or state.
-// alarmTypes can contain "MetricAlarm", "CompositeAlarm", or both (empty means both).
-// MaxRecords applies to the total combined result set (metric + composite).
+// alarmTypes can contain "MetricAlarm", "CompositeAlarm", and/or "LogAlarm".
+// Per the real DescribeAlarmsInput.AlarmTypes doc comment ("If you omit this
+// parameter, only metric alarms are returned, even if composite alarms or
+// log alarms exist in the account" -- confirmed against
+// aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go), omitting
+// alarmTypes returns ONLY metric alarms: composite and log alarms are both
+// included only when explicitly requested via alarmTypes (bd gopherstack-yvb7
+// -- composite alarms were previously defaulted-in alongside metric alarms,
+// which the LogAlarm family correctly never did).
+// MaxRecords applies to the total combined result set (metric + composite + log).
 func (b *InMemoryBackend) DescribeAlarms(
 	alarmNames []string,
 	alarmTypes []string,
 	alarmNamePrefix, stateValue, nextToken string,
 	maxRecords int,
-) (page.Page[MetricAlarm], page.Page[CompositeAlarm], error) {
+) (page.Page[MetricAlarm], page.Page[CompositeAlarm], page.Page[LogAlarm], error) {
 	b.mu.RLock("DescribeAlarms")
 	defer b.mu.RUnlock()
 
 	nameSet := toSet(alarmNames)
 	typeSet := toSet(alarmTypes)
 	includeMetric := len(typeSet) == 0 || typeSet["MetricAlarm"]
-	includeComposite := len(typeSet) == 0 || typeSet["CompositeAlarm"]
+	includeComposite := typeSet["CompositeAlarm"]
+	includeLog := typeSet[alarmTypeLogAlarm]
 
 	metricResult := b.collectMetricAlarms(nameSet, alarmNamePrefix, stateValue, includeMetric)
 	compositeResult := b.collectCompositeAlarms(
@@ -98,13 +107,35 @@ func (b *InMemoryBackend) DescribeAlarms(
 		stateValue,
 		includeComposite,
 	)
+	logResult := b.collectLogAlarms(nameSet, alarmNamePrefix, stateValue, includeLog)
 
 	// Apply a single combined page limit so MaxRecords constrains the total result set.
 	limit := maxRecords
 	if limit <= 0 {
 		limit = cwDefaultDescribeAlarmsLimit
 	}
-	combinedTotal := len(metricResult) + len(compositeResult)
+	metricSlice, compositeSlice, logSlice, next := paginateAlarmResults(
+		metricResult, compositeResult, logResult, nextToken, limit,
+	)
+
+	return page.Page[MetricAlarm]{Data: metricSlice, Next: next},
+		page.Page[CompositeAlarm]{Data: compositeSlice, Next: next},
+		page.Page[LogAlarm]{Data: logSlice, Next: next},
+		nil
+}
+
+// paginateAlarmResults applies a single combined page window across the three
+// alarm-type result lists (already filtered and sorted by the caller) so that
+// MaxRecords/NextToken constrain and page through the total combined result
+// set the same way real DescribeAlarms pagination does.
+func paginateAlarmResults(
+	metricResult []MetricAlarm,
+	compositeResult []CompositeAlarm,
+	logResult []LogAlarm,
+	nextToken string,
+	limit int,
+) ([]MetricAlarm, []CompositeAlarm, []LogAlarm, string) {
+	combinedTotal := len(metricResult) + len(compositeResult) + len(logResult)
 	start := min(page.DecodeToken(nextToken), combinedTotal)
 	end := start + limit
 	var next string
@@ -113,14 +144,18 @@ func (b *InMemoryBackend) DescribeAlarms(
 	} else {
 		end = combinedTotal
 	}
-	// Split the combined window back into metric and composite slices.
+
 	var metricSlice []MetricAlarm
 	var compositeSlice []CompositeAlarm
+	var logSlice []LogAlarm
 	for i := start; i < end; i++ {
-		if i < len(metricResult) {
+		switch {
+		case i < len(metricResult):
 			metricSlice = append(metricSlice, metricResult[i])
-		} else {
+		case i < len(metricResult)+len(compositeResult):
 			compositeSlice = append(compositeSlice, compositeResult[i-len(metricResult)])
+		default:
+			logSlice = append(logSlice, logResult[i-len(metricResult)-len(compositeResult)])
 		}
 	}
 	if metricSlice == nil {
@@ -129,10 +164,11 @@ func (b *InMemoryBackend) DescribeAlarms(
 	if compositeSlice == nil {
 		compositeSlice = []CompositeAlarm{}
 	}
+	if logSlice == nil {
+		logSlice = []LogAlarm{}
+	}
 
-	return page.Page[MetricAlarm]{Data: metricSlice, Next: next},
-		page.Page[CompositeAlarm]{Data: compositeSlice, Next: next},
-		nil
+	return metricSlice, compositeSlice, logSlice, next
 }
 
 // toSet converts a string slice to a set (map[string]bool).
@@ -265,6 +301,7 @@ func (b *InMemoryBackend) DeleteAlarms(alarmNames []string) error {
 	for _, name := range alarmNames {
 		b.alarms.Delete(name)
 		b.compositeAlarms.Delete(name)
+		b.logAlarms.Delete(name)
 		// Release the per-alarm history so it cannot accumulate across the
 		// lifetime of the backend once the alarm itself is gone.
 		delete(b.alarmHistory, name)
@@ -285,6 +322,9 @@ func (b *InMemoryBackend) EnableAlarmActions(alarmNames []string) error {
 		if ca, ok := b.compositeAlarms.Get(name); ok {
 			ca.ActionsEnabled = true
 		}
+		if la, ok := b.logAlarms.Get(name); ok {
+			la.ActionsEnabled = true
+		}
 	}
 
 	return nil
@@ -302,12 +342,15 @@ func (b *InMemoryBackend) DisableAlarmActions(alarmNames []string) error {
 		if ca, ok := b.compositeAlarms.Get(name); ok {
 			ca.ActionsEnabled = false
 		}
+		if la, ok := b.logAlarms.Get(name); ok {
+			la.ActionsEnabled = false
+		}
 	}
 
 	return nil
 }
 
-// GetAlarmARNs returns the ARNs for the given alarm names (metric + composite).
+// GetAlarmARNs returns the ARNs for the given alarm names (metric + composite + log).
 // Used by the HTTP handler to clean up tag entries on delete.
 func (b *InMemoryBackend) GetAlarmARNs(names []string) []string {
 	b.mu.RLock("GetAlarmARNs")
@@ -320,6 +363,9 @@ func (b *InMemoryBackend) GetAlarmARNs(names []string) []string {
 		}
 		if ca, ok := b.compositeAlarms.Get(name); ok && ca.AlarmArn != "" {
 			arns = append(arns, ca.AlarmArn)
+		}
+		if la, ok := b.logAlarms.Get(name); ok && la.AlarmArn != "" {
+			arns = append(arns, la.AlarmArn)
 		}
 	}
 

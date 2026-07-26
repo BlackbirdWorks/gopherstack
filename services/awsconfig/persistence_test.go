@@ -127,6 +127,58 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			},
 		},
 		{
+			name: "connector_round_trip",
+			setup: func(b *awsconfig.InMemoryBackend) string {
+				arn, err := b.PutConnector(&awsconfig.ConnectorConfiguration{
+					Azure: &awsconfig.AzureConnectorConfiguration{
+						ClientIdentifier: "client-1", TenantIdentifier: "tenant-1",
+					},
+				}, nil)
+				if err != nil {
+					return ""
+				}
+
+				return arn
+			},
+			verify: func(t *testing.T, b *awsconfig.InMemoryBackend, id string) {
+				t.Helper()
+
+				got, err := b.GetConnector(id)
+				require.NoError(t, err)
+				assert.Equal(t, id, got.Arn)
+			},
+		},
+		{
+			name: "third_party_service_linked_recorder_round_trip",
+			setup: func(b *awsconfig.InMemoryBackend) string {
+				connArn, err := b.PutConnector(&awsconfig.ConnectorConfiguration{
+					Azure: &awsconfig.AzureConnectorConfiguration{
+						ClientIdentifier: "client-1", TenantIdentifier: "tenant-1",
+					},
+				}, nil)
+				if err != nil {
+					return ""
+				}
+
+				name, _, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+					"thirdparty.amazonaws.com", connArn,
+					&awsconfig.ScopeConfiguration{ScopeType: "tenant", AllRegions: true}, nil,
+				)
+				if err != nil {
+					return ""
+				}
+
+				return name
+			},
+			verify: func(t *testing.T, b *awsconfig.InMemoryBackend, id string) {
+				t.Helper()
+
+				recorders := b.DescribeConfigurationRecorders([]string{id})
+				require.Len(t, recorders, 1)
+				assert.Equal(t, "thirdparty.amazonaws.com", recorders[0].ServicePrincipal)
+			},
+		},
+		{
 			name: "rule_resource_evaluation_round_trip",
 			setup: func(b *awsconfig.InMemoryBackend) string {
 				require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-ext"}))
@@ -371,6 +423,14 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 		ResourceType:   "AWS::S3::Bucket",
 		ResourceID:     "bucket-ext",
 	}))
+	connArn, err := b.PutConnector(&awsconfig.ConnectorConfiguration{
+		Azure: &awsconfig.AzureConnectorConfiguration{ClientIdentifier: "client-1", TenantIdentifier: "tenant-1"},
+	}, nil)
+	require.NoError(t, err)
+	thirdPartyName, _, err := b.PutThirdPartyServiceLinkedConfigurationRecorder(
+		"thirdparty.amazonaws.com", connArn, &awsconfig.ScopeConfiguration{ScopeType: "tenant", AllRegions: true}, nil,
+	)
+	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
@@ -378,9 +438,28 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 	fresh := awsconfig.NewInMemoryBackend()
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
-	assert.Len(t, fresh.DescribeConfigurationRecorders(nil), 1)
+	assert.Len(t, fresh.DescribeConfigurationRecorders(nil), 2) // "rec" and the third-party service-linked recorder
 	assert.Len(t, fresh.DescribeDeliveryChannels(nil), 1)
 	assert.Len(t, fresh.DescribeAggregationAuthorizations(), 1)
+
+	restoredConnector, err := fresh.GetConnector(connArn)
+	require.NoError(t, err)
+	assert.Equal(t, connArn, restoredConnector.Arn)
+
+	restoredThirdPartyRecorders := fresh.DescribeConfigurationRecorders([]string{thirdPartyName})
+	require.Len(t, restoredThirdPartyRecorders, 1)
+	assert.Equal(t, "thirdparty.amazonaws.com", restoredThirdPartyRecorders[0].ServicePrincipal)
+	assert.Equal(t, connArn, restoredThirdPartyRecorders[0].ConnectorArn)
+
+	// The recordersByServicePrincipal index must also have survived the
+	// round trip (not just the raw recorders table), or a second Put for the
+	// same principal would wrongly create a duplicate instead of updating.
+	_, _, err = fresh.PutThirdPartyServiceLinkedConfigurationRecorder(
+		"thirdparty.amazonaws.com", connArn,
+		&awsconfig.ScopeConfiguration{ScopeType: "subscription", AllRegions: false}, nil,
+	)
+	require.NoError(t, err)
+	assert.Len(t, fresh.DescribeConfigurationRecorders(nil), 2)
 
 	restoredRules, err := fresh.DescribeConfigRules(nil)
 	require.NoError(t, err)

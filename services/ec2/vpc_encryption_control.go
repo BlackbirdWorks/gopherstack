@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -26,6 +27,14 @@ const (
 	vpcEncryptionExclusionDisabled = "disabled"
 
 	vpcEncryptionControlIDPrefixLength = 17
+
+	// Account-level VPC Encryption Control (parity-4): distinct mode/state
+	// vocab from the per-VPC configuration above.
+	accountVpcEncryptionControlModeUnmanaged      = "unmanaged"
+	accountVpcEncryptionControlModeAttemptMonitor = "attempt-monitor"
+	accountVpcEncryptionControlModeAttemptEnforce = "attempt-enforce"
+	accountVpcEncryptionControlStateDefault       = "default-state"
+	accountVpcEncryptionControlManagedByAccount   = "account"
 )
 
 // vpcEncryptionControlValidModes are the AWS-defined VpcEncryptionControlMode values.
@@ -34,6 +43,17 @@ const (
 var vpcEncryptionControlValidModes = map[string]bool{
 	vpcEncryptionControlModeMonitor: true,
 	vpcEncryptionControlModeEnforce: true,
+}
+
+// accountVpcEncryptionControlValidModes are the AWS-defined
+// AccountVpcEncryptionControlMode values, a distinct vocabulary from the
+// per-VPC VpcEncryptionControlMode above.
+//
+//nolint:gochecknoglobals // lookup set
+var accountVpcEncryptionControlValidModes = map[string]bool{
+	accountVpcEncryptionControlModeUnmanaged:      true,
+	accountVpcEncryptionControlModeAttemptMonitor: true,
+	accountVpcEncryptionControlModeAttemptEnforce: true,
 }
 
 // ---- models ----
@@ -300,4 +320,53 @@ func (b *InMemoryBackend) GetVpcResourcesBlockingEncryptionEnforcement(
 	}
 
 	return []*VpcEncryptionNonCompliantResource{}, nil
+}
+
+// ---- Account-level VPC Encryption Control (parity-4) ----
+
+// AccountVpcEncryptionControl represents the account-wide VPC Encryption
+// Control configuration (as distinct from the per-VPC VpcEncryptionControl
+// above), field-diffed against aws-sdk-go-v2/service/ec2/types.AccountVpcEncryptionControl.
+type AccountVpcEncryptionControl struct {
+	LastUpdateTimestamp time.Time                      `json:"lastUpdateTimestamp,omitzero"`
+	Mode                string                         `json:"mode,omitempty"`
+	State               string                         `json:"state,omitempty"`
+	ManagedBy           string                         `json:"managedBy,omitempty"`
+	Exclusions          VpcEncryptionControlExclusions `json:"exclusions"`
+}
+
+// DescribeAccountVpcEncryptionControl returns the current account-level VPC
+// Encryption Control configuration singleton.
+func (b *InMemoryBackend) DescribeAccountVpcEncryptionControl() *AccountVpcEncryptionControl {
+	b.mu.RLock("DescribeAccountVpcEncryptionControl")
+	defer b.mu.RUnlock()
+
+	cp := *b.accountVpcEncryptionControl
+
+	return &cp
+}
+
+// ModifyAccountVpcEncryptionControl updates the account-level VPC Encryption
+// Control mode and/or per-traffic-type exclusions.
+func (b *InMemoryBackend) ModifyAccountVpcEncryptionControl(
+	mode string,
+	exclusions VpcEncryptionControlExclusionModify,
+) (*AccountVpcEncryptionControl, error) {
+	if mode != "" && !accountVpcEncryptionControlValidModes[mode] {
+		return nil, fmt.Errorf("%w: Mode %q is invalid", ErrInvalidParameter, mode)
+	}
+
+	b.mu.Lock("ModifyAccountVpcEncryptionControl")
+	defer b.mu.Unlock()
+
+	if mode != "" {
+		b.accountVpcEncryptionControl.Mode = mode
+	}
+
+	applyVpcEncryptionControlExclusionModify(&b.accountVpcEncryptionControl.Exclusions, exclusions)
+	b.accountVpcEncryptionControl.LastUpdateTimestamp = time.Now().UTC()
+
+	cp := *b.accountVpcEncryptionControl
+
+	return &cp, nil
 }

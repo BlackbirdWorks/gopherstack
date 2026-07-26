@@ -102,6 +102,8 @@ func (h *Handler) dispatchAccountAndSuppressionOps(c *echo.Context, op, resource
 		return h.handlePutAccountDedicatedIPWarmupAttributes(c)
 	case opPutAccountDetails:
 		return h.handlePutAccountDetails(c)
+	case opPutAccountPricingAttributes:
+		return h.handlePutAccountPricingAttributes(c)
 	case opPutAccountSendingAttributes:
 		return h.handlePutAccountSendingAttributes(c)
 	case opPutAccountSuppressionAttributes:
@@ -345,6 +347,8 @@ func (h *Handler) dispatchEndpointTenantCRUDOps(c *echo.Context, op, resource st
 		return h.handleListResourceTenants(c)
 	case opListTenantResources:
 		return h.handleListTenantResources(c)
+	case opPutTenantSuppressionAttributes:
+		return h.handlePutTenantSuppressionAttributes(c)
 	}
 
 	return nil, errOpNotHandled

@@ -165,6 +165,7 @@ func aggregateExtSupportedOperations() []string {
 		hostReservationSupportedOperations,
 		declarativePoliciesSupportedOperations,
 		networkPerformanceSupportedOperations,
+		managedResourceVisibilitySupportedOperations,
 		stubSupportedOperations,
 	}
 
@@ -503,6 +504,7 @@ func (h *Handler) opRegistrars() []func(*Handler, map[string]ec2ActionFn) {
 		registerHostReservationOps,
 		registerDeclarativePoliciesOps,
 		registerNetworkPerformanceOps,
+		registerManagedResourceVisibilityOps,
 		// registerAdvancedNetworkingOps must run last to override stub entries.
 		registerAdvancedNetworkingOps,
 		registerIpamDiscoveryOps,
@@ -683,6 +685,8 @@ var errCodeLookup = []struct {
 	{ErrClassicLinkInstanceNotFound, "InvalidInstanceID.NotFound"},
 	{ErrVpcBlockPublicAccessExclusionNotFound, "InvalidVpcBlockPublicAccessExclusionId.NotFound"},
 	{ErrIpamPolicyNotFound, "InvalidIpamPolicyId.NotFound"},
+	{ErrIpamAllocationNotFound, "InvalidIpamPoolAllocationId.NotFound"},
+	{ErrVpcEndpointIDNotFound, "InvalidVpcEndpointId.NotFound"},
 	{ErrIpamOrgAdminAccountNotFound, errCodeInvalidParameterValue},
 	{ErrTGWPolicyTableNotFound, "InvalidTransitGatewayPolicyTableId.NotFound"},
 	{ErrTGWRouteTableAnnouncementNotFound, "InvalidTransitGatewayRouteTableAnnouncementId.NotFound"},

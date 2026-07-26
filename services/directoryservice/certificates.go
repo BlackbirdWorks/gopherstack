@@ -212,7 +212,7 @@ func (b *InMemoryBackend) DescribeCAEnrollmentPolicy(
 		return nil, ErrDirectoryNotFound
 	}
 
-	enabled := b.caEnrollmentStore(region)[directoryID]
+	enabled := b.caEnrollmentStoreRO(region)[directoryID]
 
 	return &CAEnrollmentPolicy{DirectoryID: directoryID, Enabled: enabled}, nil
 }

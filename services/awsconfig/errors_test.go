@@ -133,6 +133,20 @@ func TestAWSConfigHandler_ErrorTypes(t *testing.T) {
 			wantCode:     http.StatusBadRequest,
 			wantContains: "NoAvailableDeliveryChannelException",
 		},
+		{
+			name:         "get_connector_not_found_type",
+			operation:    "GetConnector",
+			body:         map[string]any{"Arn": "arn:aws:config:us-east-1:000000000000:connector/nonexistent"},
+			wantCode:     http.StatusBadRequest,
+			wantContains: "ResourceNotFoundException",
+		},
+		{
+			name:         "delete_connector_not_found_type",
+			operation:    "DeleteConnector",
+			body:         map[string]any{"Arn": "arn:aws:config:us-east-1:000000000000:connector/nonexistent"},
+			wantCode:     http.StatusBadRequest,
+			wantContains: "ResourceNotFoundException",
+		},
 	}
 
 	for _, tt := range tests {

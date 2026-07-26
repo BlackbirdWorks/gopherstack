@@ -180,6 +180,9 @@ type InMemoryBackend struct {
 	serviceJobs         *store.Table[ServiceJob]
 	serviceJobsByRegion *store.Index[ServiceJob]
 
+	quotaShares         *store.Table[QuotaShare]
+	quotaSharesByRegion *store.Index[QuotaShare]
+
 	jobDefRevisions map[string]map[string]int32
 
 	cesByARN   map[string]string

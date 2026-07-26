@@ -32,7 +32,7 @@ func (h *Handler) handleCreateInsight(c *echo.Context, body map[string]any) erro
 
 	if name == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{
-			keyMessage: "Name is required",
+			keyMessage: msgNameRequired,
 		})
 	}
 

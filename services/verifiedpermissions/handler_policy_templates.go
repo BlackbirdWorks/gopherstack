@@ -31,7 +31,12 @@ func (h *Handler) handleCreatePolicyTemplate(
 		return nil, fmt.Errorf("%w: statement is required", errInvalidRequest)
 	}
 
-	pt, err := h.Backend.CreatePolicyTemplate(in.PolicyStoreID, in.Description, in.Statement, in.ClientToken)
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	pt, err := h.Backend.CreatePolicyTemplate(resolvedID, in.Description, in.Statement, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +84,12 @@ func (h *Handler) handleGetPolicyTemplate(
 		return nil, fmt.Errorf("%w: policyTemplateId is required", errInvalidRequest)
 	}
 
-	pt, err := h.Backend.GetPolicyTemplate(in.PolicyStoreID, in.PolicyTemplateID)
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	pt, err := h.Backend.GetPolicyTemplate(resolvedID, in.PolicyTemplateID)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +123,12 @@ func (h *Handler) handleListPolicyTemplates(
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
-	templates, nextToken, err := h.Backend.ListPolicyTemplates(in.PolicyStoreID, in.NextToken, in.MaxResults)
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	templates, nextToken, err := h.Backend.ListPolicyTemplates(resolvedID, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +173,12 @@ func (h *Handler) handleUpdatePolicyTemplate(
 		return nil, fmt.Errorf("%w: statement is required", errInvalidRequest)
 	}
 
-	pt, err := h.Backend.UpdatePolicyTemplate(in.PolicyStoreID, in.PolicyTemplateID, in.Description, in.Statement)
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	pt, err := h.Backend.UpdatePolicyTemplate(resolvedID, in.PolicyTemplateID, in.Description, in.Statement)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +200,12 @@ func (h *Handler) handleDeletePolicyTemplate(_ context.Context, in *policyTempla
 		return nil, fmt.Errorf("%w: policyTemplateId is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeletePolicyTemplate(in.PolicyStoreID, in.PolicyTemplateID); err != nil {
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.Backend.DeletePolicyTemplate(resolvedID, in.PolicyTemplateID); err != nil {
 		return nil, err
 	}
 

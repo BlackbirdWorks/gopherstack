@@ -24,6 +24,12 @@ const (
 	// an external source (SSM Parameter Store, S3, ...) this backend
 	// cannot validate against.
 	contentTypeHostedLocation = "hosted"
+
+	// triggeredByUser is the TriggeredBy value this backend records for
+	// every state transition initiated by an explicit API call (as
+	// opposed to one this backend drives itself, e.g. "APPCONFIG"),
+	// shared by the deployment and experiment-run event families.
+	triggeredByUser = "USER"
 )
 
 const appConfigIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -89,54 +95,63 @@ func newResourceID() string {
 //     current contents would under-count after any delete.
 //   - accountSettings is a single struct, not a map at all.
 type InMemoryBackend struct {
-	deploymentsByEnv              *store.Index[Deployment]
-	deploymentsByApp              *store.Index[Deployment]
-	applicationsByName            *store.Index[Application]
-	environments                  *store.Table[Environment]
-	environmentsByApp             *store.Index[Environment]
-	environmentsByAppName         *store.Index[Environment]
-	configProfiles                *store.Table[ConfigurationProfile]
-	configProfilesByApp           *store.Index[ConfigurationProfile]
-	configProfilesByAppName       *store.Index[ConfigurationProfile]
-	hostedConfigVersions          *store.Table[HostedConfigurationVersion]
-	hostedConfigVersionsByProfile *store.Index[HostedConfigurationVersion]
-	hostedConfigVersionsByApp     *store.Index[HostedConfigurationVersion]
-	hostedConfigVersionsByLabel   *store.Index[HostedConfigurationVersion]
-	deploymentStrategies          *store.Table[DeploymentStrategy]
-	deploymentStrategiesByName    *store.Index[DeploymentStrategy]
-	deployments                   *store.Table[Deployment]
-	applications                  *store.Table[Application]
-	extensions                    *store.Table[Extension]
-	registry                      *store.Registry
-	extensionsByID                *store.Index[Extension]
-	extensionsByName              *store.Index[Extension]
-	extensionAssociations         *store.Table[ExtensionAssociation]
-	tags                          map[string]map[string]string
-	versionCounters               map[string]map[string]int32
-	deploymentCounters            map[string]map[string]int32
-	deployedConfigs               map[string]string
-	deploymentTimers              map[string]*deploymentTimer
-	accountSettings               AccountSettings
-	mu                            *lockmetrics.RWMutex
-	paginationSecret              string
-	accountID                     string
-	region                        string
-	deploymentReconcilerAlive     bool
+	extensionsByName               *store.Index[Extension]
+	deploymentStrategiesByName     *store.Index[DeploymentStrategy]
+	applicationsByName             *store.Index[Application]
+	environments                   *store.Table[Environment]
+	environmentsByApp              *store.Index[Environment]
+	environmentsByAppName          *store.Index[Environment]
+	configProfiles                 *store.Table[ConfigurationProfile]
+	configProfilesByApp            *store.Index[ConfigurationProfile]
+	configProfilesByAppName        *store.Index[ConfigurationProfile]
+	hostedConfigVersions           *store.Table[HostedConfigurationVersion]
+	hostedConfigVersionsByProfile  *store.Index[HostedConfigurationVersion]
+	hostedConfigVersionsByApp      *store.Index[HostedConfigurationVersion]
+	hostedConfigVersionsByLabel    *store.Index[HostedConfigurationVersion]
+	deploymentStrategies           *store.Table[DeploymentStrategy]
+	extensionsByID                 *store.Index[Extension]
+	deployments                    *store.Table[Deployment]
+	applications                   *store.Table[Application]
+	extensions                     *store.Table[Extension]
+	deploymentsByApp               *store.Index[Deployment]
+	registry                       *store.Registry
+	deployedConfigs                map[string]string
+	extensionAssociations          *store.Table[ExtensionAssociation]
+	tags                           map[string]map[string]string
+	versionCounters                map[string]map[string]int32
+	deploymentCounters             map[string]map[string]int32
+	deploymentsByEnv               *store.Index[Deployment]
+	deploymentTimers               map[string]*deploymentTimer
+	accountSettings                AccountSettings
+	mu                             *lockmetrics.RWMutex
+	experimentRunCounters          map[string]int32
+	experimentRunEvents            map[string][]ExperimentRunEvent
+	experimentRunsByDef            *store.Index[ExperimentRun]
+	experimentRuns                 *store.Table[ExperimentRun]
+	experimentDefinitions          *store.Table[ExperimentDefinition]
+	experimentDefinitionsByApp     *store.Index[ExperimentDefinition]
+	experimentDefinitionsByAppName *store.Index[ExperimentDefinition]
+	region                         string
+	accountID                      string
+	paginationSecret               string
+	deploymentReconcilerAlive      bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend for AppConfig.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		tags:               make(map[string]map[string]string),
-		versionCounters:    make(map[string]map[string]int32),
-		deploymentCounters: make(map[string]map[string]int32),
-		deployedConfigs:    make(map[string]string),
-		deploymentTimers:   make(map[string]*deploymentTimer),
-		registry:           store.NewRegistry(),
-		mu:                 lockmetrics.New("appconfig"),
-		paginationSecret:   uuid.NewString(),
-		accountID:          accountID,
-		region:             region,
+		tags:                  make(map[string]map[string]string),
+		versionCounters:       make(map[string]map[string]int32),
+		deploymentCounters:    make(map[string]map[string]int32),
+		deployedConfigs:       make(map[string]string),
+		deploymentTimers:      make(map[string]*deploymentTimer),
+		experimentRunEvents:   make(map[string][]ExperimentRunEvent),
+		experimentRunCounters: make(map[string]int32),
+		registry:              store.NewRegistry(),
+		mu:                    lockmetrics.New("appconfig"),
+		paginationSecret:      uuid.NewString(),
+		accountID:             accountID,
+		region:                region,
 	}
 	registerAllTables(b)
 
@@ -190,6 +205,26 @@ func appEnvProfileKey(applicationID, environmentID, profileID string) string {
 // each row is one addressable (extensionID, versionNumber) pair.
 func extensionVersionKey(extensionID string, versionNumber int32) string {
 	return extensionID + "|" + strconv.FormatInt(int64(versionNumber), 10)
+}
+
+// experimentRunKey builds the composite key experimentRuns (and
+// experimentRunEvents) register/index under: Run is a counter scoped to
+// one experiment definition, not globally unique, matching the
+// hcvKey/deploymentKey precedent above.
+func experimentRunKey(experimentDefinitionID string, run int32) string {
+	return experimentDefinitionID + "|" + strconv.FormatInt(int64(run), 10)
+}
+
+// experimentDefinitionARN builds the ARN an ExperimentDefinition's tags are
+// stored under.
+func (b *InMemoryBackend) experimentDefinitionARN(applicationID, experimentDefinitionID string) string {
+	return b.appconfigARN("application/" + applicationID + "/experimentdefinition/" + experimentDefinitionID)
+}
+
+// experimentRunARN builds the ARN an ExperimentRun's tags are stored under.
+func (b *InMemoryBackend) experimentRunARN(applicationID, experimentDefinitionID string, run int32) string {
+	return b.experimentDefinitionARN(applicationID, experimentDefinitionID) +
+		"/experimentrun/" + strconv.FormatInt(int64(run), 10)
 }
 
 // appConfigPaginate applies HMAC-signed token-based pagination to a sorted slice.
