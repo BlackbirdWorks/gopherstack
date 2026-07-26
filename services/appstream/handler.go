@@ -46,16 +46,32 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 // MatchPriority returns header matching priority.
 func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
-// RouteMatcher matches AppStream 2.0 X-Amz-Target headers.
+// RouteMatcher matches AppStream 2.0 requests on either wire protocol: the
+// legacy X-Amz-Target header (awsjson1.1, still used by older pinned SDKs,
+// the Terraform provider, and gopherstack's own unit tests) or the
+// rpc-v2-cbor path used by aws-sdk-go-v2/service/appstream >= v1.64.0.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), appstreamTargetPrefix)
+		r := c.Request()
+		if isCBORRequest(r) {
+			_, ok := h.ops[extractCBOROperation(r.URL.Path)]
+
+			return ok
+		}
+
+		return strings.HasPrefix(r.Header.Get("X-Amz-Target"), appstreamTargetPrefix)
 	}
 }
 
-// ExtractOperation extracts the AppStream action from the X-Amz-Target header.
+// ExtractOperation extracts the AppStream action from the CBOR operation
+// path or, for the legacy protocol, the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	target := c.Request().Header.Get("X-Amz-Target")
+	r := c.Request()
+	if isCBORRequest(r) {
+		return extractCBOROperation(r.URL.Path)
+	}
+
+	target := r.Header.Get("X-Amz-Target")
 	if !strings.HasPrefix(target, appstreamTargetPrefix) {
 		return "Unknown"
 	}
@@ -84,9 +100,15 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
 }
 
-// Handler returns the Echo handler function.
+// Handler returns the Echo handler function. It dispatches rpc-v2-cbor
+// requests to handleCBOR and everything else through the legacy
+// X-Amz-Target/awsjson1.1 path.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if isCBORRequest(c.Request()) {
+			return h.handleCBOR(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()), h.Name(), appstreamContentType,
 			h.GetSupportedOperations(), h.dispatch, h.handleError,
@@ -108,23 +130,30 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	code := "InternalServiceError"
-	status := http.StatusInternalServerError
-
+// errorCodeStatus maps a backend error to the AWS exception name and HTTP
+// status used to shape it on the wire. Shared by the JSON (handleError) and
+// rpc-v2-cbor (handleCBORError) response paths so both protocols report the
+// same error for the same failure.
+func (h *Handler) errorCodeStatus(err error) (string, int) {
 	switch {
 	// ErrFleetNotStopped and ErrAlreadyExists must precede their wrapped sentinels.
 	case errors.Is(err, ErrFleetNotStopped):
-		code, status = errFleetNotStopped, http.StatusBadRequest
+		return errFleetNotStopped, http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
-		code, status = errResourceExists, http.StatusBadRequest
+		return errResourceExists, http.StatusBadRequest
 	case errors.Is(err, awserr.ErrConflict):
-		code, status = errResourceInUse, http.StatusBadRequest
+		return errResourceInUse, http.StatusBadRequest
 	case errors.Is(err, awserr.ErrNotFound):
-		code, status = errResourceNotFound, http.StatusBadRequest
+		return errResourceNotFound, http.StatusBadRequest
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		code, status = errInvalidParameter, http.StatusBadRequest
+		return errInvalidParameter, http.StatusBadRequest
+	default:
+		return "InternalServiceError", http.StatusInternalServerError
 	}
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	code, status := h.errorCodeStatus(err)
 
 	return c.JSON(status, map[string]string{
 		"__type":  code,

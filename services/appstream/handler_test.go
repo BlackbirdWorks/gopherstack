@@ -7,12 +7,47 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
+
+// cborTestServicePath mirrors the rpc-v2-cbor path prefix real
+// aws-sdk-go-v2/service/appstream@v1.64.0+ clients send requests to (see
+// cborServicePath in rpcv2cbor.go).
+const cborTestServicePath = "/service/PhotonAdminProxyService/operation/"
+
+// postCBOR sends an rpc-v2-cbor POST to the AppStream handler.
+func postCBOR(t *testing.T, h *appstream.Handler, op string, body cbor.Map) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, cborTestServicePath+op, bytes.NewReader(cbor.Encode(body)))
+	req.Header.Set("Content-Type", "application/cbor")
+	req.Header.Set("Smithy-Protocol", "rpc-v2-cbor")
+	rec := httptest.NewRecorder()
+
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	return rec
+}
+
+// decodeCBORResponse decodes a CBOR response body into a cbor.Map.
+func decodeCBORResponse(t *testing.T, rec *httptest.ResponseRecorder) cbor.Map {
+	t.Helper()
+
+	v, err := cbor.Decode(rec.Body.Bytes())
+	require.NoError(t, err)
+
+	m, ok := v.(cbor.Map)
+	require.True(t, ok, "expected CBOR map response")
+
+	return m
+}
 
 func newTestHandler(t *testing.T) *appstream.Handler {
 	t.Helper()
@@ -257,5 +292,169 @@ func TestAppStream_AssociationsAcceptARNIdentifiers(t *testing.T) {
 		assocs := descResp["AppBlockBuilderAppBlockAssociations"].([]any)
 		require.Len(t, assocs, 1)
 		assert.Equal(t, appBlockArn, assocs[0].(map[string]any)["AppBlockArn"])
+	})
+}
+
+// TestAppStream_RPCv2CBOR covers the rpc-v2-cbor protocol added in
+// aws-sdk-go-v2/service/appstream@v1.64.0 (see rpcv2cbor.go), which
+// replaced the awsjson1.1/X-Amz-Target wire format the rest of this file's
+// helpers (doRequest et al.) still exercise. Both protocols must keep
+// working: real SDK clients now speak CBOR, but older pinned SDKs, the
+// Terraform provider, and this file's own JSON-based helpers still speak
+// the legacy protocol.
+func TestAppStream_RPCv2CBOR(t *testing.T) {
+	t.Parallel()
+
+	t.Run("RouteMatcher", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name string
+			path string
+			want bool
+		}{
+			{name: "matches known CBOR operation", path: cborTestServicePath + "CreateStack", want: true},
+			{name: "rejects unknown CBOR operation", path: cborTestServicePath + "NotAnOperation", want: false},
+			{name: "rejects non-CBOR path", path: "/", want: false},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				h := newTestHandler(t)
+				e := echo.New()
+				req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+				req.Header.Set("Content-Type", "application/cbor")
+				rec := httptest.NewRecorder()
+				assert.Equal(t, tt.want, h.RouteMatcher()(e.NewContext(req, rec)))
+			})
+		}
+	})
+
+	t.Run("ExtractOperation reads the CBOR path", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodPost, cborTestServicePath+"DescribeFleets", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		assert.Equal(t, "DescribeFleets", h.ExtractOperation(c))
+	})
+
+	t.Run("CreateStack response encodes CreatedTime as a CBOR timestamp tag", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := postCBOR(t, h, "CreateStack", cbor.Map{"Name": cbor.String("cbor-stack")})
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "rpc-v2-cbor", rec.Header().Get("Smithy-Protocol"))
+
+		stack, ok := decodeCBORResponse(t, rec)["Stack"].(cbor.Map)
+		require.True(t, ok)
+		assert.Equal(t, cbor.String("cbor-stack"), stack["Name"])
+
+		createdTag, ok := stack["CreatedTime"].(*cbor.Tag)
+		require.True(t, ok, "CreatedTime must be a CBOR Tag(1, epoch-seconds), got %T", stack["CreatedTime"])
+		assert.Equal(t, uint64(1), createdTag.ID)
+	})
+
+	t.Run("CreateFleet then DescribeFleets round-trips over CBOR", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createRec := postCBOR(t, h, "CreateFleet", cbor.Map{
+			"Name":         cbor.String("cbor-fleet"),
+			"InstanceType": cbor.String("stream.standard.medium"),
+			"ComputeCapacity": cbor.Map{
+				"DesiredInstances": cbor.Uint(2),
+			},
+		})
+		require.Equal(t, http.StatusOK, createRec.Code)
+
+		fleet, ok := decodeCBORResponse(t, createRec)["Fleet"].(cbor.Map)
+		require.True(t, ok)
+		assert.Equal(t, cbor.String("cbor-fleet"), fleet["Name"])
+
+		capacity, ok := fleet["ComputeCapacityStatus"].(cbor.Map)
+		require.True(t, ok)
+		assert.Equal(t, cbor.Uint(2), capacity["Desired"])
+
+		descRec := postCBOR(t, h, "DescribeFleets", cbor.Map{
+			"Names": cbor.List{cbor.String("cbor-fleet")},
+		})
+		require.Equal(t, http.StatusOK, descRec.Code)
+
+		fleets, ok := decodeCBORResponse(t, descRec)["Fleets"].(cbor.List)
+		require.True(t, ok)
+		require.Len(t, fleets, 1)
+	})
+
+	t.Run("unknown resource returns a CBOR error with __type set", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := postCBOR(t, h, "DeleteStack", cbor.Map{"Name": cbor.String("does-not-exist")})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, "rpc-v2-cbor", rec.Header().Get("Smithy-Protocol"))
+
+		body := decodeCBORResponse(t, rec)
+		assert.Equal(t, cbor.String("ResourceNotFoundException"), body["__type"])
+		assert.Equal(t, "ResourceNotFoundException", rec.Header().Get("X-Amzn-Errortype"))
+	})
+
+	t.Run("invalid CBOR body is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		e := echo.New()
+		req := httptest.NewRequest(
+			http.MethodPost,
+			cborTestServicePath+"CreateStack",
+			bytes.NewReader([]byte{0x00, 0xFF, 0xAA}),
+		)
+		req.Header.Set("Content-Type", "application/cbor")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		require.NoError(t, h.Handler()(c))
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		body := decodeCBORResponse(t, rec)
+		assert.Equal(t, cbor.String("SerializationException"), body["__type"])
+	})
+
+	t.Run("legacy X-Amz-Target JSON protocol still works alongside CBOR", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, "CreateStack", map[string]any{"Name": "json-stack"})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	// Every operation the handler supports must be reachable over rpc-v2-cbor,
+	// not just the ones exercised above -- this is the actual regression
+	// under test (CI failures on AppStream fleet/stack lifecycle ops after
+	// the SDK's protocol switch). A response need not succeed (an empty
+	// input body will fail validation for most operations), but it must
+	// always come back as well-formed, decodable CBOR with the
+	// Smithy-Protocol header set; a route miss or an encoding bug would
+	// instead surface as an undecodable body, a panic, or a missing header.
+	t.Run("every supported operation is reachable over CBOR", func(t *testing.T) {
+		t.Parallel()
+
+		for _, op := range newTestHandler(t).GetSupportedOperations() {
+			t.Run(op, func(t *testing.T) {
+				t.Parallel()
+
+				h := newTestHandler(t)
+				rec := postCBOR(t, h, op, cbor.Map{})
+
+				_, decErr := cbor.Decode(rec.Body.Bytes())
+				require.NoError(t, decErr, "operation %s produced undecodable CBOR response", op)
+				assert.Equal(t, "rpc-v2-cbor", rec.Header().Get("Smithy-Protocol"))
+			})
+		}
 	})
 }
