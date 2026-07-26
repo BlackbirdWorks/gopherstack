@@ -128,28 +128,77 @@ func putKBResourcePolicy(
 	return resp["revisionId"]
 }
 
-// TestHandlerResourcePolicyLifecycle exercises bedrock-agent's
-// PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy through the real
-// HTTP router (not whitebox backend calls), locking in: the real wire shapes
-// (PUT/GET/DELETE /resourcepolicy/{resourceArn}, "policy"/"resourceArn"/
-// "revisionId" field names), that a policy cannot attach to a knowledge base
-// this backend doesn't model, and the expectedRevisionId optimistic-
-// concurrency contract (absent -> unconditional write, stale -> real
-// ConflictException, matching -> succeeds).
-func TestHandlerResourcePolicyLifecycle(t *testing.T) {
+// resourcePolicyPolicyDoc is the policy document body reused by every
+// resource-policy subtest below.
+const resourcePolicyPolicyDoc = `{"Version":"2012-10-17","Statement":[]}`
+
+// resourcePolicyCase is one HTTP round trip through
+// PUT/GET/DELETE /resourcepolicy/{resourceArn}, shared by the
+// TestHandlerResourcePolicy* functions below. Each of those functions
+// exercises bedrock-agent's PutResourcePolicy/GetResourcePolicy/
+// DeleteResourcePolicy through the real HTTP router (not whitebox backend
+// calls), together locking in: the real wire shapes (PUT/GET/DELETE
+// /resourcepolicy/{resourceArn}, "policy"/"resourceArn"/"revisionId" field
+// names), that a policy cannot attach to a knowledge base this backend
+// doesn't model, and the expectedRevisionId optimistic-concurrency contract
+// (absent -> unconditional write, stale -> real ConflictException,
+// matching -> succeeds).
+type resourcePolicyCase struct {
+	setup       func(t *testing.T, h *bedrockagent.Handler, e *echo.Echo) string
+	check       func(t *testing.T, rec *httptest.ResponseRecorder)
+	body        map[string]any
+	name        string
+	method      string
+	wantErrType string
+	wantStatus  int
+}
+
+// runResourcePolicyCases fires each case's request through the real router
+// and checks the shared status/error-type/body contract. Each case builds
+// its own handler and knowledge base inside setup, so cases never depend on
+// each other's execution order.
+func runResourcePolicyCases(t *testing.T, cases []resourcePolicyCase) {
+	t.Helper()
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e := setupHandler(t)
+			resourceArn := tc.setup(t, h, e)
+
+			var body any
+			if tc.body != nil {
+				body = tc.body
+			}
+
+			rec := doRequest(t, h, e, tc.method, "/resourcepolicy/"+resourceArn, body)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("got %d want %d: %s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+
+			if tc.wantErrType != "" {
+				if got := rec.Header().Get("X-Amzn-Errortype"); got != tc.wantErrType {
+					t.Errorf("X-Amzn-Errortype = %q, want %q", got, tc.wantErrType)
+				}
+			}
+
+			if tc.check != nil {
+				tc.check(t, rec)
+			}
+		})
+	}
+}
+
+// TestHandlerResourcePolicyPut covers PutResourcePolicy's wire shape
+// (the "policy"/"resourceArn"/"revisionId" field names, and that the
+// response never echoes "policy" back) and that a policy cannot attach to a
+// knowledge base this backend doesn't model (missing kb, malformed arn,
+// an arn scoped to a different resource type, and an invalid payload).
+func TestHandlerResourcePolicyPut(t *testing.T) {
 	t.Parallel()
 
-	const policyDoc = `{"Version":"2012-10-17","Statement":[]}`
-
-	cases := []struct {
-		setup       func(t *testing.T, h *bedrockagent.Handler, e *echo.Echo) string
-		check       func(t *testing.T, rec *httptest.ResponseRecorder)
-		body        map[string]any
-		name        string
-		method      string
-		wantErrType string
-		wantStatus  int
-	}{
+	runResourcePolicyCases(t, []resourcePolicyCase{
 		{
 			name:   "put creates policy on existing kb",
 			method: http.MethodPut,
@@ -158,7 +207,7 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 
 				return createKBForResourcePolicyTest(t, h, e, "rp-put-kb")
 			},
-			body:       map[string]any{"policy": policyDoc},
+			body:       map[string]any{"policy": resourcePolicyPolicyDoc},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -189,7 +238,7 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 
 				return "arn:aws:bedrock:us-east-1:123456789012:knowledge-base/kb-99999999"
 			},
-			body:        map[string]any{"policy": policyDoc},
+			body:        map[string]any{"policy": resourcePolicyPolicyDoc},
 			wantStatus:  http.StatusNotFound,
 			wantErrType: "ResourceNotFoundException",
 		},
@@ -201,7 +250,7 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 
 				return "not-a-knowledge-base-arn"
 			},
-			body:        map[string]any{"policy": policyDoc},
+			body:        map[string]any{"policy": resourcePolicyPolicyDoc},
 			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ValidationException",
 		},
@@ -213,7 +262,7 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 
 				return "arn:aws:bedrock:us-east-1:123456789012:agent/abcdefghij"
 			},
-			body:        map[string]any{"policy": policyDoc},
+			body:        map[string]any{"policy": resourcePolicyPolicyDoc},
 			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ValidationException",
 		},
@@ -229,6 +278,18 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ValidationException",
 		},
+	})
+}
+
+// TestHandlerResourcePolicyPutRevisionConcurrency covers PutResourcePolicy's
+// expectedRevisionId optimistic-concurrency contract: a matching revision
+// succeeds, a stale revision returns a real ConflictException, and
+// supplying expectedRevisionId against a resource with no policy yet also
+// conflicts (there is no revision to match).
+func TestHandlerResourcePolicyPutRevisionConcurrency(t *testing.T) {
+	t.Parallel()
+
+	runResourcePolicyCases(t, []resourcePolicyCase{
 		{
 			name:   "put with matching expected revision succeeds",
 			method: http.MethodPut,
@@ -236,7 +297,7 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 				t.Helper()
 
 				arn := createKBForResourcePolicyTest(t, h, e, "rp-match-rev-kb")
-				rev := putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": policyDoc})
+				rev := putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": resourcePolicyPolicyDoc})
 
 				// This fresh per-subtest backend's very first PutResourcePolicy
 				// call always mints revisionId "1" (see resource_policy.go's
@@ -247,7 +308,7 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 
 				return arn
 			},
-			body:       map[string]any{"policy": policyDoc, "expectedRevisionId": "1"},
+			body:       map[string]any{"policy": resourcePolicyPolicyDoc, "expectedRevisionId": "1"},
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -257,11 +318,14 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 				t.Helper()
 
 				arn := createKBForResourcePolicyTest(t, h, e, "rp-stale-rev-kb")
-				putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": policyDoc})
+				putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": resourcePolicyPolicyDoc})
 
 				return arn
 			},
-			body:        map[string]any{"policy": policyDoc, "expectedRevisionId": "does-not-exist"},
+			body: map[string]any{
+				"policy":             resourcePolicyPolicyDoc,
+				"expectedRevisionId": "does-not-exist",
+			},
 			wantStatus:  http.StatusConflict,
 			wantErrType: "ConflictException",
 		},
@@ -273,10 +337,20 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 
 				return createKBForResourcePolicyTest(t, h, e, "rp-no-policy-yet-kb")
 			},
-			body:        map[string]any{"policy": policyDoc, "expectedRevisionId": "1"},
+			body:        map[string]any{"policy": resourcePolicyPolicyDoc, "expectedRevisionId": "1"},
 			wantStatus:  http.StatusConflict,
 			wantErrType: "ConflictException",
 		},
+	})
+}
+
+// TestHandlerResourcePolicyGet covers GetResourcePolicy's wire shape (the
+// "policy"/"revisionId" field names round-tripping the value that was put)
+// and the not-found case for a resource with no policy attached.
+func TestHandlerResourcePolicyGet(t *testing.T) {
+	t.Parallel()
+
+	runResourcePolicyCases(t, []resourcePolicyCase{
 		{
 			name:   "get existing policy returns real wire shape",
 			method: http.MethodGet,
@@ -284,7 +358,7 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 				t.Helper()
 
 				arn := createKBForResourcePolicyTest(t, h, e, "rp-get-kb")
-				putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": policyDoc})
+				putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": resourcePolicyPolicyDoc})
 
 				return arn
 			},
@@ -297,8 +371,8 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 					t.Fatalf("unmarshal: %v", err)
 				}
 
-				if resp["policy"] != policyDoc {
-					t.Errorf("policy = %q, want %q", resp["policy"], policyDoc)
+				if resp["policy"] != resourcePolicyPolicyDoc {
+					t.Errorf("policy = %q, want %q", resp["policy"], resourcePolicyPolicyDoc)
 				}
 
 				if resp["revisionId"] == "" {
@@ -317,6 +391,17 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 			wantStatus:  http.StatusNotFound,
 			wantErrType: "ResourceNotFoundException",
 		},
+	})
+}
+
+// TestHandlerResourcePolicyDelete covers DeleteResourcePolicy's wire shape
+// (it returns the deleted revisionId and never echoes "policy" back), its
+// own expectedRevisionId conflict check, and the not-found case for a
+// resource with no policy attached.
+func TestHandlerResourcePolicyDelete(t *testing.T) {
+	t.Parallel()
+
+	runResourcePolicyCases(t, []resourcePolicyCase{
 		{
 			name:   "delete existing policy succeeds and returns its revision",
 			method: http.MethodDelete,
@@ -324,7 +409,7 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 				t.Helper()
 
 				arn := createKBForResourcePolicyTest(t, h, e, "rp-delete-kb")
-				putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": policyDoc})
+				putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": resourcePolicyPolicyDoc})
 
 				return arn
 			},
@@ -353,7 +438,7 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 				t.Helper()
 
 				arn := createKBForResourcePolicyTest(t, h, e, "rp-delete-stale-kb")
-				putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": policyDoc})
+				putKBResourcePolicy(t, h, e, arn, map[string]any{"policy": resourcePolicyPolicyDoc})
 
 				return arn + "?expectedRevisionId=does-not-exist"
 			},
@@ -371,34 +456,5 @@ func TestHandlerResourcePolicyLifecycle(t *testing.T) {
 			wantStatus:  http.StatusNotFound,
 			wantErrType: "ResourceNotFoundException",
 		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, e := setupHandler(t)
-			resourceArn := tc.setup(t, h, e)
-
-			var body any
-			if tc.body != nil {
-				body = tc.body
-			}
-
-			rec := doRequest(t, h, e, tc.method, "/resourcepolicy/"+resourceArn, body)
-			if rec.Code != tc.wantStatus {
-				t.Fatalf("got %d want %d: %s", rec.Code, tc.wantStatus, rec.Body.String())
-			}
-
-			if tc.wantErrType != "" {
-				if got := rec.Header().Get("X-Amzn-Errortype"); got != tc.wantErrType {
-					t.Errorf("X-Amzn-Errortype = %q, want %q", got, tc.wantErrType)
-				}
-			}
-
-			if tc.check != nil {
-				tc.check(t, rec)
-			}
-		})
-	}
+	})
 }
