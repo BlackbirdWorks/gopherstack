@@ -165,6 +165,75 @@ func TestHandler_UpdateConfigurationProfile_RetrievalRoleArnAndValidators(t *tes
 	assert.Equal(t, "keep-me", updated.Description, "omitted Description must be preserved")
 }
 
+// TestHandler_CreateConfigurationProfile_TagsAppliedInline verifies that
+// Tags sent inline on CreateConfigurationProfileInput are visible via
+// ListTagsForResource immediately after creation -- previously
+// CreateConfigurationProfile's handler never bound or forwarded the Tags
+// field at all, so tags set at create time silently vanished (bd
+// gopherstack-lcan).
+func TestHandler_CreateConfigurationProfile_TagsAppliedInline(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tags map[string]string
+		name string
+	}{
+		{
+			name: "tags_applied_at_create",
+			tags: map[string]string{"env": "prod", "team": "platform"},
+		},
+		{
+			name: "no_tags_is_not_an_error",
+			tags: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			appRec := doRequest(t, h, http.MethodPost, "/applications",
+				[]byte(`{"Name":"tagged-prof-app-`+tt.name+`"}`))
+			require.Equal(t, http.StatusCreated, appRec.Code)
+
+			var app appconfig.Application
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+
+			body, err := json.Marshal(map[string]any{
+				"Name":        "tagged-prof-" + tt.name,
+				"LocationUri": "hosted",
+				"Type":        "AWS.Freeform",
+				"Tags":        tt.tags,
+			})
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles", body)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var profile appconfig.ConfigurationProfile
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+
+			resourceArn := "arn:aws:appconfig:us-east-1:123456789012:application/" +
+				app.ID + "/configurationprofile/" + profile.ID
+			tagsRec := doRequest(t, h, http.MethodGet, "/tags/"+resourceArn, nil)
+			require.Equal(t, http.StatusOK, tagsRec.Code)
+
+			var tagsResp struct {
+				Tags map[string]string `json:"Tags"`
+			}
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+
+			if len(tt.tags) == 0 {
+				assert.Empty(t, tagsResp.Tags)
+			} else {
+				assert.Equal(t, tt.tags, tagsResp.Tags)
+			}
+		})
+	}
+}
+
 func TestHandler_ConfigProfile_HTTP_NotFound(t *testing.T) {
 	t.Parallel()
 

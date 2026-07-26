@@ -2,16 +2,20 @@ package appconfig
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 )
 
-// CreateDeploymentStrategy creates a new deployment strategy.
+// CreateDeploymentStrategy creates a new deployment strategy. See
+// CreateExperimentDefinition's doc comment for why tags are applied
+// directly to b.tags rather than via TagResource.
 func (b *InMemoryBackend) CreateDeploymentStrategy(
 	name, description string,
 	deploymentDuration, bakeTime int32,
 	growthFactor float32,
 	growthType, replicateTo string,
+	tags map[string]string,
 ) (*DeploymentStrategy, error) {
 	b.mu.Lock("CreateDeploymentStrategy")
 	defer b.mu.Unlock()
@@ -42,6 +46,11 @@ func (b *InMemoryBackend) CreateDeploymentStrategy(
 		UpdatedAt:                   now,
 	}
 	b.deploymentStrategies.Put(strategy)
+
+	if len(tags) > 0 {
+		b.tags[b.appconfigARN("deploymentstrategy/"+strategy.ID)] = maps.Clone(tags)
+	}
+
 	cp := *strategy
 
 	return &cp, nil

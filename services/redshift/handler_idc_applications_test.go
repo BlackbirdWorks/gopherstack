@@ -28,8 +28,20 @@ func TestHandler_CreateIdcApplication(t *testing.T) {
 				"Version=2012-12-01&RedshiftIdcApplicationName=my-app" +
 				"&IdcInstanceArn=arn:aws:sso:::instance/abc" +
 				"&IamRoleArn=arn:aws:iam::123:role/MyRole",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"CreateRedshiftIdcApplicationResponse", "my-app"},
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"CreateRedshiftIdcApplicationResponse",
+				// Real CreateRedshiftIdcApplicationOutput nests the application
+				// under a <RedshiftIdcApplication> element inside the Result
+				// (confirmed against
+				// awsAwsquery_deserializeOpDocumentCreateRedshiftIdcApplicationOutput
+				// in aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go) --
+				// assert the exact envelope, not just substring presence of the
+				// name, so a missing wrapper element (as previously shipped) is
+				// caught rather than passing on a loose Contains check.
+				"<CreateRedshiftIdcApplicationResult><RedshiftIdcApplication>",
+				"my-app",
+			},
 		},
 		{
 			name: "duplicate",
@@ -168,9 +180,18 @@ func TestHandler_DescribeIdcApplications(t *testing.T) {
 						"Version=2012-12-01&RedshiftIdcApplicationName=app-b&IdcInstanceArn=arn:idc&IamRoleArn=arn:role",
 				)
 			},
-			body:         "Action=DescribeRedshiftIdcApplications&Version=2012-12-01",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"DescribeRedshiftIdcApplicationsResponse", "app-a", "app-b"},
+			body:     "Action=DescribeRedshiftIdcApplications&Version=2012-12-01",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"DescribeRedshiftIdcApplicationsResponse",
+				// Real DescribeRedshiftIdcApplicationsOutput wraps each list item in
+				// <member> (confirmed against
+				// awsAwsquery_deserializeDocumentRedshiftIdcApplicationList in
+				// aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go).
+				"<RedshiftIdcApplications><member>",
+				"app-a",
+				"app-b",
+			},
 		},
 		{
 			name:         "empty",
@@ -227,8 +248,18 @@ func TestHandler_ModifyIdcApplication(t *testing.T) {
 				"Version=2012-12-01" +
 				"&RedshiftIdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/mod-app" +
 				"&IdcDisplayName=NewName&IamRoleArn=arn:new-role",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"ModifyRedshiftIdcApplicationResponse", "mod-app"},
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"ModifyRedshiftIdcApplicationResponse",
+				// Real ModifyRedshiftIdcApplicationOutput nests the application
+				// under a <RedshiftIdcApplication> element inside the Result
+				// (confirmed against
+				// awsAwsquery_deserializeOpDocumentModifyRedshiftIdcApplicationOutput
+				// in aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go) --
+				// same envelope-strengthening rationale as the Create test above.
+				"<ModifyRedshiftIdcApplicationResult><RedshiftIdcApplication>",
+				"mod-app",
+			},
 		},
 		{
 			name:         "not_found",

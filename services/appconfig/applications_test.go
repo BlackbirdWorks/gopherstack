@@ -72,7 +72,7 @@ func TestBackend_appConfigPaginate_EdgeCases(t *testing.T) {
 
 	// Create 4 apps.
 	for _, name := range []string{"a", "b", "c", "d"} {
-		_, err := b.CreateApplication(name, "")
+		_, err := b.CreateApplication(name, "", nil)
 		require.NoError(t, err)
 	}
 

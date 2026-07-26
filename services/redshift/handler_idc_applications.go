@@ -32,10 +32,16 @@ func idcAppToXML(app *IdcApplication) redshiftIdcAppXML {
 	}
 }
 
+// createIdcApplicationResponse wraps the created application in a nested
+// RedshiftIdcApplication element inside CreateRedshiftIdcApplicationResult
+// (confirmed against awsAwsquery_deserializeOpDocumentCreateRedshiftIdcApplicationOutput
+// in aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go, which looks for
+// a "RedshiftIdcApplication" child element of the result -- mirroring
+// createQev2IdcApplicationResponse's Qev2IdcApplication nesting).
 type createIdcApplicationResponse struct {
 	XMLName xml.Name          `xml:"CreateRedshiftIdcApplicationResponse"`
 	Xmlns   string            `xml:"xmlns,attr"`
-	Result  redshiftIdcAppXML `xml:"CreateRedshiftIdcApplicationResult"`
+	Result  redshiftIdcAppXML `xml:"CreateRedshiftIdcApplicationResult>RedshiftIdcApplication"`
 }
 
 // handleCreateIdcApplication implements CreateRedshiftIdcApplication. Real
@@ -103,10 +109,15 @@ func (h *Handler) handleDescribeIdcApplications(vals url.Values) (any, error) {
 	return resp, nil
 }
 
+// modifyIdcApplicationResponse wraps the modified application in a nested
+// RedshiftIdcApplication element inside ModifyRedshiftIdcApplicationResult
+// (confirmed against awsAwsquery_deserializeOpDocumentModifyRedshiftIdcApplicationOutput
+// in aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go, same nesting as
+// the Create response above).
 type modifyIdcApplicationResponse struct {
 	XMLName xml.Name          `xml:"ModifyRedshiftIdcApplicationResponse"`
 	Xmlns   string            `xml:"xmlns,attr"`
-	Result  redshiftIdcAppXML `xml:"ModifyRedshiftIdcApplicationResult"`
+	Result  redshiftIdcAppXML `xml:"ModifyRedshiftIdcApplicationResult>RedshiftIdcApplication"`
 }
 
 // handleModifyIdcApplication implements ModifyRedshiftIdcApplication. Real clients

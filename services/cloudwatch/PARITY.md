@@ -8,36 +8,31 @@ service: cloudwatch
 sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.65.0
 last_audit_commit: ba55d9be4
 last_audit_date: 2026-07-25
-overall: A-           # this pass implemented the 7 operations added by the
-                      # aws-sdk-go-v2 module bump from v1.55.1 to v1.65.0:
-                      # PutLogAlarm (a real THIRD alarm type, LogAlarm,
-                      # confirmed via types.LogAlarm/AlarmType enum and wired
-                      # into DescribeAlarms/DeleteAlarms/DescribeAlarmHistory/
-                      # SetAlarmState/EnableAlarmActions/DisableAlarmActions --
-                      # see the PutLogAlarm row and "Notes" below), GetDataset/
-                      # AssociateDatasetKmsKey/DisassociateDatasetKmsKey
-                      # (dataset-level customer-managed-KMS-key association for
-                      # the implicit "default" dataset, with a fully-qualified-
-                      # ARN-only KMS validator distinct from this repo's more
-                      # permissive alias-accepting pattern, because
-                      # AssociateDatasetKmsKey's own doc comment documents that
-                      # stricter shape), and GetOTelEnrichment/
-                      # StartOTelEnrichment/StopOTelEnrichment (account-level
-                      # vended-metric OTel/PromQL enrichment status, modeled as
-                      # a real Running/Stopped state machine, not fabricated
-                      # enrichment data). Downgraded from the previous A to A-
-                      # because implementing PutLogAlarm's DescribeAlarms
-                      # integration surfaced a genuine, previously-undetected
-                      # bug in the *existing* MetricAlarm/CompositeAlarm
-                      # DescribeAlarms default-type-inclusion behavior (see
-                      # "DescribeAlarms AlarmTypes default-inclusion bug
-                      # (pre-existing, newly discovered)" in Notes) -- it was
-                      # NOT fixed this pass (out of scope: it predates and is
-                      # independent of the 7 new operations), but it would be
-                      # dishonest to leave the DescribeAlarms row marked fully
-                      # "ok" now that it's known. See "Notes" for the full
-                      # writeup of both the new-ops implementation and this
-                      # discovered gap.
+overall: A            # RESTORED from A- (2026-07-26 follow-up pass, bd gopherstack-yvb7). The A- pass
+                      # implemented the 7 operations added by the aws-sdk-go-v2 module bump from
+                      # v1.55.1 to v1.65.0: PutLogAlarm (a real THIRD alarm type, LogAlarm, confirmed
+                      # via types.LogAlarm/AlarmType enum and wired into DescribeAlarms/DeleteAlarms/
+                      # DescribeAlarmHistory/SetAlarmState/EnableAlarmActions/DisableAlarmActions -- see
+                      # the PutLogAlarm row and "Notes" below), GetDataset/AssociateDatasetKmsKey/
+                      # DisassociateDatasetKmsKey (dataset-level customer-managed-KMS-key association
+                      # for the implicit "default" dataset, with a fully-qualified-ARN-only KMS
+                      # validator distinct from this repo's more permissive alias-accepting pattern,
+                      # because AssociateDatasetKmsKey's own doc comment documents that stricter shape),
+                      # and GetOTelEnrichment/StartOTelEnrichment/StopOTelEnrichment (account-level
+                      # vended-metric OTel/PromQL enrichment status, modeled as a real Running/Stopped
+                      # state machine, not fabricated enrichment data). That pass was downgraded from A
+                      # to A- because implementing PutLogAlarm's DescribeAlarms integration surfaced a
+                      # genuine, previously-undetected bug in the *existing* MetricAlarm/CompositeAlarm
+                      # DescribeAlarms default-type-inclusion behavior, left unfixed at the time (out of
+                      # that pass's declared scope). THIS PASS fixes it: DescribeAlarms.includeComposite
+                      # now defaults to false (only true when AlarmTypes explicitly includes
+                      # "CompositeAlarm"), matching LogAlarm's already-correct default and the
+                      # documented AlarmTypes contract exactly ("If you omit this parameter, only metric
+                      # alarms are returned, even if composite alarms or log alarms exist in the
+                      # account" -- confirmed directly against
+                      # aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go). See
+                      # "DescribeAlarms AlarmTypes default-inclusion bug" in Notes for the full
+                      # before/after writeup. Nothing else found holding the grade down this pass.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -48,7 +43,7 @@ ops:
   PutMetricAlarm: {wire: ok, errors: ok, state: ok, persist: ok}
   PutCompositeAlarm: {wire: ok, errors: ok, state: ok, persist: ok, note: "AlarmRule AND/OR/NOT parsing with cycle + depth-limit detection proven correct"}
   PutLogAlarm: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Third alarm type (types.LogAlarm, AlarmType enum has CompositeAlarm/MetricAlarm/LogAlarm) — not a MetricAlarm/CompositeAlarm variant. Field-diffed against types.LogAlarm + types.ScheduledQueryConfiguration/ScheduleConfiguration. ComparisonOperator restricted to the 4 real values (no anomaly-detection band operators — log alarms compare one aggregated query result to a scalar Threshold). Required-field/range validation (QueryResultsToAlarm<=QueryResultsToEvaluate in [1,100], ActionLogLineCount in [0,50] with RoleArn required when >0, ScheduledQueryConfiguration.{QueryString,AggregationExpression,ScheduledQueryRoleARN,ScheduleConfiguration.ScheduleExpression} required) mirrors this file's existing PutMetricAlarm/PutCompositeAlarm validation style. No CloudWatch Logs Insights query engine exists here, so EvaluationState/automatic state transitions are never fabricated — state only changes via explicit SetAlarmState, same manual-only model composite alarms use between PutCompositeAlarm re-evaluations. create-or-update semantics (re-PUTting an existing AlarmName replaces it in place) match the SDK doc comment."}
-  DescribeAlarms: {wire: partial, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now returns a third LogAlarms list (types.DescribeAlarmsOutput has CompositeAlarms/LogAlarms/MetricAlarms) alongside MetricAlarms/CompositeAlarms, single combined MaxRecords/NextToken pagination window extended across all three. LogAlarm correctly honors the real documented default (AlarmTypes omitted -> only metric alarms, log alarms excluded unless AlarmTypes explicitly includes \"LogAlarm\"). wire downgraded from ok to partial: implementing this surfaced that gopherstack's PRE-EXISTING MetricAlarm/CompositeAlarm default-inclusion is wrong per the same doc sentence — see \"DescribeAlarms AlarmTypes default-inclusion bug\" in Notes; left unfixed (out of scope for this pass, predates it) but now honestly flagged rather than left marked fully ok."}
+  DescribeAlarms: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns three lists (types.DescribeAlarmsOutput has CompositeAlarms/LogAlarms/MetricAlarms), single combined MaxRecords/NextToken pagination window extended across all three. FIXED THIS PASS (bd gopherstack-yvb7): includeComposite previously defaulted to true when AlarmTypes was omitted, contradicting DescribeAlarmsInput.AlarmTypes's own doc comment (\"If you omit this parameter, only metric alarms are returned, even if composite alarms or log alarms exist in the account\", confirmed against aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go). Now includeComposite := typeSet[\"CompositeAlarm\"] -- composite alarms, like log alarms, are excluded by default and returned only when AlarmTypes explicitly requests them. wire restored to ok; see \"DescribeAlarms AlarmTypes default-inclusion bug\" in Notes for the before/after and the list of tests updated to assert the corrected default."}
   DescribeAlarmsForMetric: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAlarmHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — log alarm Put/state-change/action history entries are correctly tagged AlarmType=LogAlarm (threaded through appendHistory the same way the prior pass fixed composite-alarm mistagging); AlarmType=LogAlarm filtering proven correct and proven to exclude other alarm types' history. Prior pass's fix (Action-history entries for composite alarms were hardcoded AlarmType=MetricAlarm) remains correct, unchanged."}
   DeleteAlarms: {wire: ok, errors: ok, state: ok, persist: ok, note: "UPDATED this pass — now also deletes log alarms (b.logAlarms.Delete) and cleans up their history/tags via GetAlarmARNs, which now includes log alarm ARNs too. A log alarm PutLogAlarm creates that no op could later delete would have been an orphan/parity bug; verified it isn't."}
@@ -98,14 +93,8 @@ families:
   error-codes: {status: ok, note: "ResourceNotFoundException/InvalidParameterValue/InvalidParameterCombination/LimitExceeded all HTTP 400 (correct for CloudWatch's query/XML protocol, which never uses 404); InternalFailure is 500. Spot-checked across alarms/dashboards/mute-rules/anomaly-detectors/insight-rules/metric-streams. New PutMetricStream/PutDashboard/PutInsightRule validation errors this pass correctly route through errors.Is(err, ErrValidation) to InvalidParameterValue/DashboardInvalidInputError rather than falling through to InternalFailure."}
   persistence: {status: ok, note: "backendSnapshot/persistence.go covers metrics, alarms, composite alarms, alarm history, dashboards, anomaly detectors, insight rules, metric streams, alarm mute rules; field names unchanged by this pass. The metricFilters table (and its persistence_test.go round-trip coverage) was REMOVED this pass along with the rest of the invented PutMetricFilter family -- see Notes; it was never wired into backendSnapshot's real persistence anyway (only a test-only round-trip existed), so no live snapshot format is affected."}
 gaps:                      # known divergences NOT fixed — link bd issue ids
-  - "DescribeAlarms AlarmTypes default-inclusion bug (pre-existing, discovered this pass, NOT
-    fixed — see Notes): when AlarmTypes is omitted, real DescribeAlarms returns only metric
-    alarms, but gopherstack's includeComposite defaults to true. LogAlarm was implemented
-    against the documented-correct default (excluded unless requested); MetricAlarm/
-    CompositeAlarm's existing (wrong) default was left unchanged to avoid an unrelated
-    behavioural change outside this pass's scope (7 new v1.65.0 operations). No bd issue filed
-    yet — flagging here per this file's own protocol so the next pass doesn't have to
-    rediscover it."
+  # "DescribeAlarms AlarmTypes default-inclusion bug" (bd gopherstack-yvb7) FIXED 2026-07-26 --
+  # see the DescribeAlarms ops row above and the Notes writeup below. No longer a gap.
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - widget.go / widget_draw.go / widget_font.go (GetMetricWidgetImage PNG rendering internals — not a wire-shape or state-correctness concern, only visual fidelity)
   - metric-stream Firehose delivery payload format (OutputFormat json/opentelemetry0.7/opentelemetry1.0 byte-level shape) — gopherstack does not actually deliver metric-stream data to a Firehose endpoint at all (PutMetricStream/matchingRunningStreamNames only track config + which streams a given PutMetricData batch would match); this is analogous to alarm-action-dispatch's SNS/Lambda/EC2/ASG client wiring living in cli.go (out of scope per task boundary), not a wire-shape bug in the audited surface
@@ -184,29 +173,47 @@ error-code detail. Three points worth calling out beyond the per-op notes:
   `TestCloudWatchBackend_AssociateDatasetKmsKey`'s `alias_arn_rejected`/`bare_key_id_rejected`
   cases.
 
-### DescribeAlarms AlarmTypes default-inclusion bug (pre-existing, newly discovered)
+### DescribeAlarms AlarmTypes default-inclusion bug (bd gopherstack-yvb7 — FIXED 2026-07-26)
 
-While implementing `LogAlarm`'s `DescribeAlarms` integration, `DescribeAlarmsInput.AlarmTypes`'s
-own doc comment was read closely for the first time in this file's history: *"If you omit this
-parameter, only metric alarms are returned, even if composite alarms or log alarms exist in the
-account."* gopherstack's existing (pre-this-pass) `DescribeAlarms` does not honor that: `alarms.go`
-sets `includeMetric := len(typeSet) == 0 || typeSet["MetricAlarm"]` **and**
-`includeComposite := len(typeSet) == 0 || typeSet["CompositeAlarm"]` — both default to `true` when
-`AlarmTypes` is omitted, so composite alarms have always been returned by default alongside metric
-alarms, contradicting the documented behavior. This predates this pass (the previous "ok" grade on
-the `DescribeAlarms` row was wrong) and was **not** fixed here: fixing it would flip behavior every
-existing caller of unfiltered `DescribeAlarms` currently depends on (`b.DescribeAlarms(nil, nil,
-...)` appears dozens of times across this package's own test suite alone, several asserting
-composite alarms ARE returned with no `AlarmTypes` filter — e.g.
-`TestCloudWatchBackend_DescribeAlarms_WithComposite`), which is a real behavioral change outside
-the scope of "implement the 7 new v1.65.0 operations." `LogAlarm` was implemented against the
-*documented-correct* default (excluded unless `AlarmTypes` explicitly includes `"LogAlarm"`,
-proven by `log_alarm_excluded_by_default`/`log_alarm_included_when_requested` test cases at both
-the backend and both wire-protocol layers) specifically so it doesn't inherit the existing bug.
-Recorded in `gaps:` above rather than silently left at "ok" in the `DescribeAlarms` row, and this
-is this pass's reason for the A → A- grade change — the new-op implementation itself is solid, but
-leaving a freshly-discovered wire-shape bug in "ok" status would misrepresent this file's own
-audit trail.
+While implementing `LogAlarm`'s `DescribeAlarms` integration in the prior pass,
+`DescribeAlarmsInput.AlarmTypes`'s own doc comment was read closely for the first time in this
+file's history: *"If you omit this parameter, only metric alarms are returned, even if composite
+alarms or log alarms exist in the account."* Re-confirmed directly against
+`aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go` this pass before fixing.
+gopherstack's `DescribeAlarms` did not honor that: `alarms.go` set
+`includeMetric := len(typeSet) == 0 || typeSet["MetricAlarm"]` **and**
+`includeComposite := len(typeSet) == 0 || typeSet["CompositeAlarm"]` — both defaulted to `true`
+when `AlarmTypes` was omitted, so composite alarms were always returned by default alongside
+metric alarms, contradicting the documented behavior. `LogAlarm` was implemented against the
+*documented-correct* default in the prior pass (excluded unless `AlarmTypes` explicitly includes
+`"LogAlarm"`) specifically so it wouldn't inherit this bug, which is exactly what exposed the
+inconsistency and earned that pass's A → A- downgrade.
+
+**Fix (this pass):** `includeComposite` is now simply `typeSet["CompositeAlarm"]` — composite
+alarms, like log alarms, are excluded unless explicitly requested. This is a genuine default-output
+change: callers of unfiltered `DescribeAlarms(..., nil, ...)` (or CBOR requests omitting
+`AlarmTypes`) that were relying on composite alarms coming back unasked-for will now get an empty
+`CompositeAlarms` list instead, matching real AWS.
+
+Every test that encoded the old wrong assumption was found and updated to either assert the
+corrected default (composite alarms absent when `AlarmTypes` is omitted) or to pass
+`AlarmTypes=["CompositeAlarm"]` explicitly to keep testing what it was actually about (composite
+alarm CRUD/state/re-evaluation, not default-listing behavior) — mirroring the
+`log_alarm_excluded_by_default`/`log_alarm_included_when_requested` precedent `LogAlarm` already
+set. Updated: `composite_alarms_test.go` (16 `DescribeAlarms` call sites given an explicit
+`AlarmTypes=["CompositeAlarm"]`), `alarm_state_test.go` (2 call sites, same), `alarms_test.go`
+(`TestCloudWatchBackend_DescribeAlarms_WithComposite` rewritten to assert the omitted-AlarmTypes
+case returns no composite alarms AND an explicit-AlarmTypes case still does; two new table cases
+`composite_alarm_excluded_by_default`/`composite_alarm_included_when_requested` added to
+`TestCloudWatchBackend_DescribeAlarms` alongside the existing `log_alarm_*` cases),
+`handler_composite_alarms_test.go` (1 call site), `handler_test.go` (the `DescribeAlarms/with_composite`
+case split into a default-excludes case and an explicit-both-types case), `rpcv2cbor_test.go` (1
+CBOR call site), `persistence_test.go` (1 call site in the full-state snapshot/restore round-trip
+check, given both types explicitly since it verifies both alarm kinds survive persistence), and
+`test/integration/cloudwatch_test.go`'s `TestIntegration_CloudWatch_CompositeAlarms` (real
+aws-sdk-go-v2 client integration test against a live gopherstack server — same wrong assumption,
+now fixed with an explicit-types call plus a new default-omitted assertion). 24 test call sites
+across 8 files total encoded the old assumption.
 
 ### The big one: PutMetricData has NO partial-success shape
 

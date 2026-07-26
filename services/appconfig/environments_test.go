@@ -12,7 +12,7 @@ func TestBackend_CreateEnvironment_AppNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateEnvironment("nonexistent", "env", "", nil)
+	_, err := b.CreateEnvironment("nonexistent", "env", "", nil, nil)
 	require.Error(t, err)
 }
 

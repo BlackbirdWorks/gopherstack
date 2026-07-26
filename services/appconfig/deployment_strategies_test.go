@@ -13,7 +13,7 @@ func TestBackend_CreateDeploymentStrategy(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	s, err := b.CreateDeploymentStrategy("strat", "desc", 0, 0, 100, "LINEAR", "NONE")
+	s, err := b.CreateDeploymentStrategy("strat", "desc", 0, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "strat", s.Name)
 	assert.NotEmpty(t, s.ID)

@@ -307,6 +307,32 @@ func TestCloudWatchBackend_DescribeAlarms(t *testing.T) {
 			alarmTypes: []string{"LogAlarm"},
 			wantCount:  1,
 		},
+		{
+			// bd gopherstack-yvb7: a composite alarm must not appear unless
+			// explicitly requested, matching the log_alarm_excluded_by_default
+			// case above -- real DescribeAlarms defaults to metric alarms only.
+			name: "composite_alarm_excluded_by_default",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "m1"}))
+				require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+					AlarmName: "comp1", AlarmRule: `ALARM("m1")`,
+				}))
+			},
+			wantCount: 1,
+		},
+		{
+			name: "composite_alarm_included_when_requested",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "m1"}))
+				require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+					AlarmName: "comp1", AlarmRule: `ALARM("m1")`,
+				}))
+			},
+			alarmTypes: []string{"CompositeAlarm"},
+			wantCount:  1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -469,6 +495,18 @@ func TestCloudWatchBackend_DescribeAlarmsForMetric(t *testing.T) {
 	assert.Equal(t, "cpu-alarm", p.Data[0].AlarmName)
 }
 
+// TestCloudWatchBackend_DescribeAlarms_WithComposite verifies that a
+// composite alarm is returned when AlarmTypes explicitly requests
+// "CompositeAlarm", but -- per DescribeAlarmsInput.AlarmTypes's own doc
+// comment ("If you omit this parameter, only metric alarms are returned,
+// even if composite alarms or log alarms exist in the account", confirmed
+// against aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go)
+// -- is NOT returned when AlarmTypes is omitted (bd gopherstack-yvb7: this
+// backend previously defaulted composite alarms in alongside metric alarms,
+// contradicting the documented default that only LogAlarm already honored
+// correctly). See also the composite_alarm_excluded_by_default/
+// composite_alarm_included_when_requested cases in
+// TestCloudWatchBackend_DescribeAlarms below.
 func TestCloudWatchBackend_DescribeAlarms_WithComposite(t *testing.T) {
 	t.Parallel()
 
@@ -481,11 +519,18 @@ func TestCloudWatchBackend_DescribeAlarms_WithComposite(t *testing.T) {
 		AlarmName: "comp1", AlarmRule: `ALARM("metric1")`,
 	}))
 
+	// AlarmTypes omitted: only the metric alarm comes back.
 	metricPage, compositePage, _, err := b.DescribeAlarms(nil, nil, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, metricPage.Data, 1)
-	assert.Len(t, compositePage.Data, 1)
-	assert.Equal(t, "ALARM", compositePage.Data[0].StateValue)
+	assert.Empty(t, compositePage.Data, "composite alarms must NOT be returned when AlarmTypes is omitted")
+
+	// AlarmTypes=["CompositeAlarm"] explicitly requested: composite alarm comes back.
+	metricPage2, compositePage2, _, err2 := b.DescribeAlarms(nil, []string{"CompositeAlarm"}, "", "", "", 0)
+	require.NoError(t, err2)
+	assert.Empty(t, metricPage2.Data, "metric alarms must NOT be returned when only CompositeAlarm is requested")
+	require.Len(t, compositePage2.Data, 1)
+	assert.Equal(t, "ALARM", compositePage2.Data[0].StateValue)
 }
 
 func TestCloudWatchBackend_DescribeAlarmsForMetric_WithAlarmNames(t *testing.T) {

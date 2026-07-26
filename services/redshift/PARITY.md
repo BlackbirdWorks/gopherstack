@@ -8,17 +8,17 @@ service: redshift
 sdk_module: aws-sdk-go-v2/service/redshift@v1.65.0
 last_audit_commit: 081b4f8ca
 last_audit_date: 2026-07-25
-overall: A-           # SDK bump (v1.62.3 -> v1.65.0) added 4 Qev2IdcApplication ops (Query
-                       # Editor V2 IdC applications), implemented for real this pass and field-diffed
-                       # clean -- see ops.Qev2IdcApplication. Downgraded from A because implementing
-                       # it required reading the sibling IdcApplication (RedshiftIdcApplication)
-                       # family's own deserializer closely enough to discover that family's prior
-                       # "ok" rating was incomplete: Create/ModifyRedshiftIdcApplication responses
-                       # are missing the inner <RedshiftIdcApplication> wrapper element the real SDK
-                       # deserializer requires (flat fields directly under ...Result instead of
-                       # ...Result><RedshiftIdcApplication>...). Left unfixed -- out of this pass's
-                       # scope (4 new Qev2 ops only) -- but tracked as a real, not hidden, gap; see
-                       # gaps below and bd issue filed this pass.
+overall: A            # RESTORED FROM A- (2026-07-25 follow-up pass, bd gopherstack-0eyk): the
+                       # Create/ModifyRedshiftIdcApplicationResult missing-inner-<RedshiftIdcApplication>
+                       # -wrapper bug that caused the prior A- downgrade is now fixed (see
+                       # families.IdcApplication and gaps history below). Verified against
+                       # awsAwsquery_deserializeOpDocumentCreate/ModifyRedshiftIdcApplicationOutput in
+                       # aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go before fixing. Tests
+                       # strengthened to assert the literal nested envelope
+                       # (<CreateRedshiftIdcApplicationResult><RedshiftIdcApplication>, same for Modify,
+                       # plus Describe's <member> wrapping) instead of loose substring Contains checks,
+                       # so this class of bug can't silently regress again. Nothing else found holding
+                       # the grade down this pass.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -50,23 +50,15 @@ families:
   EndpointAccess: {status: ok, note: "FIXED THIS PASS (major param-shape bug): CreateEndpointAccess/ModifyEndpointAccess read/wrote a fabricated 'VpcId' parameter that does not exist anywhere in CreateEndpointAccessInput/ModifyEndpointAccessInput -- real requests carry SubnetGroupName/ResourceOwner/VpcSecurityGroupIds (Create) and VpcSecurityGroupIds only (Modify); VpcId on the response is *derived* from the subnet group, not settable directly. Rebuilt CreateEndpointAccess/ModifyEndpointAccess signatures and wire parsing/serialization around the real fields (SubnetGroupName, ResourceOwner, VpcSecurityGroupIds -> VpcSecurityGroups>VpcSecurityGroup list on the response), with VpcID derived via a ClusterSubnetGroup lookup when SubnetGroupName is known. VpcEndpoint (network interfaces) intentionally left unmodeled -- see items_still_open."}
   EndpointAuthorization: {status: ok, note: "AuthorizeEndpointAccess/RevokeEndpointAccess/DescribeEndpointAuthorization field-diffed against types.EndpointAuthorization, no changes needed"}
   Integration: {status: ok, note: "FIXED THIS PASS: (1) CreateIntegration read 'KmsKeyId' but the real wire param is case-different 'KMSKeyId' (confirmed against the query-protocol serializer) -- url.Values lookups are case-sensitive, so this silently dropped the KMS key for every real client call; (2) tags use 'TagList' not 'Tags' on this op specifically (unlike every other Create* op in this service) and were not parsed at all -- added parseTagListPrefixed and wired it in, response now includes Tags; (3) CreateTime was never serialized -- added; (4) ModifyIntegration was missing IntegrationName (real ModifyIntegrationInput supports renaming), added with existing-name-conflict handling."}
-  IdcApplication: {status: partial, note: "Previously marked ok (see history below) but THIS PASS FOUND (not fixed -- out of scope, see 2026-07-25 entry): CreateRedshiftIdcApplicationResult/ModifyRedshiftIdcApplicationResult serialize redshiftIdcAppXML's fields directly under the Result element, but the real deserializer (awsAwsquery_deserializeOpDocumentCreateRedshiftIdcApplicationOutput/...Modify...) requires them nested one level deeper under an inner <RedshiftIdcApplication> element -- a real SDK client parsing either response would get every field as zero-value. DescribeRedshiftIdcApplications's <member> list wrapping is correct (verified this pass) and unaffected. Prior-pass fixes below (routing, param names, error codes) all independently verified still correct."}
+  IdcApplication: {status: ok, note: "FIXED THIS PASS (bd gopherstack-0eyk): CreateRedshiftIdcApplicationResult/ModifyRedshiftIdcApplicationResult were serializing redshiftIdcAppXML's fields directly under the Result element; the real deserializer (awsAwsquery_deserializeOpDocumentCreateRedshiftIdcApplicationOutput/...Modify... in aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go, confirmed by reading it directly) requires them nested one level deeper under an inner <RedshiftIdcApplication> element -- a real SDK client parsing either response previously got every field as zero-value. Both response structs' xml tags fixed to `...Result>RedshiftIdcApplication`, matching the sibling Qev2IdcApplication family's pattern. DescribeRedshiftIdcApplications's <member> list wrapping and DeleteRedshiftIdcApplication (no response body) were re-checked against the same deserializers.go and confirmed already correct -- no changes needed there. Tests strengthened: Create/Modify success cases now assert the literal nested envelope string, not just substring presence of field values, so this class of bug is caught going forward; Describe's list_all case likewise now asserts the <member> wrapping explicitly."}
   Qev2IdcApplication: {status: ok, note: "NEW FAMILY THIS PASS (2026-07-25, SDK v1.62.3 -> v1.65.0 added CreateQev2IdcApplication/DeleteQev2IdcApplication/DescribeQev2IdcApplications/ModifyQev2IdcApplication). Confirmed via aws-sdk-go-v2/service/redshift@v1.65.0/types.Qev2IdcApplication and the Create/Delete/Describe/Modify Input/Output shapes that this is a DISTINCT resource from RedshiftIdcApplication, not a sub-resource -- no shared ID space, no cross-reference field either direction, and Qev2IdcApplication has no IamRoleArn (RedshiftIdcApplication's federated-auth role) at all. Implemented as its own store.Table/model/handler file pair. Wire-diffed field-by-field against serializers.go/deserializers.go: Create/Modify responses correctly nest the inner <Qev2IdcApplication> element (the bug found in the sibling family above, avoided here); Describe response uses real Marker/MaxRecords pagination (this op IS paginated in the real API, unlike DescribeRedshiftIdcApplications which this backend never paginates) implemented via the exact same sorted-snapshot/marker-cutoff convention as DescribeClusters; list items use <member> wrapping (confirmed against awsAwsquery_deserializeDocumentQev2IdcApplicationList); Tags round-trip via Tags.Tag.N.Key/Value on create and Tags>Tag on responses, matching this package's tagMapToKVList/parseRedshiftTags helpers exactly (real field name is 'Tags', not 'TagList' as CreateIntegration idiosyncratically uses). Cardinality: name-keyed uniqueness -> Qev2IdcApplicationAlreadyExists (real fault code, confirmed against types/errors.go; no separate quota fault exists for this family, unlike RedshiftIdcApplicationQuotaExceededFault). Modify only accepts IdcDisplayName (real ModifyQev2IdcApplicationInput has no other mutable field) -- IdcInstanceArn/Qev2IdcApplicationName verified immutable post-creation and covered by a regression test."}
   ReservedNode: {status: ok, note: "AcceptReservedNodeExchange/PurchaseReservedNodeOffering/Describe*/GetReservedNodeExchange* field-diffed, real state mutation confirmed. RecurringCharges/ReservedNodeOfferingType intentionally left unmodeled -- see items_still_open."}
   TableRestoreStatus/RestoreTableFromClusterSnapshot: {status: ok, note: "FIXED THIS PASS: SnapshotIdentifier was parsed from the request and then explicitly discarded (bound to `_`), never stored -- now stored and serialized. RequestTime was computed but never serialized on ANY response (RestoreTableFromClusterSnapshotResult only echoed TableRestoreRequestId+Status) -- now serialized as RFC3339 on both RestoreTableFromClusterSnapshot and DescribeTableRestoreStatus. Also fixed the response's TargetTableName wire tag to the real 'NewTableName' (TableRestoreStatus has no TargetTableName field in the real SDK). SourceSchemaName/TargetSchemaName/ProgressInMegaBytes/TotalDataInMegaBytes/EnableCaseSensitiveIdentifier intentionally left unmodeled -- see items_still_open."}
   Partner: {status: ok, note: "FIXED THIS PASS (severe, systemic): AddPartner/DeletePartner/DescribePartners/UpdatePartnerStatus all read/wrote a fabricated 'PartnerIntegrationId' parameter/wire-field name -- no such name exists anywhere in the real SDK (AddPartnerInput/Output, DeletePartnerInput/Output, UpdatePartnerStatusInput/Output, and PartnerIntegrationInfo all use 'PartnerName', confirmed against every relevant api_op_*.go and the DescribePartners deserializer). Every real client's PartnerName value was silently dropped on every request, and every response field a real client tried to read came back empty. Fixed across all 4 ops plus the internal error message text. Regression test locks in the exact wire element name."}
   Descriptive/static ops: {status: ok, note: "DescribeAccountAttributes, DescribeClusterVersions, DescribeClusterTracks, DescribeOrderableClusterOptions, DescribeStorage, DescribeNodeConfigurationOptions, DescribeClusterDbRevisions, ListRecommendations, ModifyAquaConfiguration, ModifyClusterDbRevision, ModifyLakehouseConfiguration, GetIdentityCenterAuthToken, RegisterNamespace/DeregisterNamespace spot-checked: real state mutation/derivation confirmed (e.g. ListRecommendations derives from live cluster state, not canned), no-stub scan (grep for notImplemented/TODO/stub) clean. NOT exhaustively field-diffed element-by-element this pass -- see items_still_open."}
   Redshift Serverless: {status: deferred, note: "ServerlessHandler in handler_serverless.go (Namespace/Workgroup/Snapshot/UsageLimit/ScheduledAction/Credentials) is a separate JSON-protocol API surface (different AWS service ID: redshift-serverless), not touched this pass -- see items_still_open."}
-gaps:             # NEW THIS PASS (2026-07-25) -- found while implementing Qev2IdcApplication,
-                   # not fixed (out of this pass's scope: 4 new Qev2 ops only)
-  - family: IdcApplication
-    note: "CreateRedshiftIdcApplicationResult/ModifyRedshiftIdcApplicationResult are missing
-      the inner <RedshiftIdcApplication> wrapper element the real deserializer requires
-      (fields are flat under ...Result instead of nested one level deeper). A real SDK
-      client would decode every field as zero-value on Create/Modify. Describe's <member>
-      list wrapping is unaffected and correct. See families.IdcApplication above. Filed as
-      a follow-up bd issue rather than fixed here to keep this pass's diff scoped to the 4
-      new Qev2 ops per the campaign brief."
+gaps: []          # bd gopherstack-0eyk (IdcApplication missing inner <RedshiftIdcApplication>
+                   # wrapper) FIXED this pass -- see families.IdcApplication above for detail.
 deferred: []      # all 17 prior deferred families field-diffed in the 2026-07-22 pass, see families above
 leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconciler use a WaitGroup + stop channel, idempotent, no per-cluster goroutines. New Qev2IdcApplication store.Table this pass introduces no goroutines/tickers -- registered through the existing store.Registry the same way every other table is (store_setup.go), snapshotted/restored generically via registry.SnapshotAll/RestoreAll, no bespoke persistence code added."}
 ---
@@ -120,6 +112,34 @@ two didn't need to share wiring, found that its Create/Modify response envelopes
 nesting level the real deserializer requires (see `gaps` above and
 `families.IdcApplication`) -- left unfixed as out of this pass's declared scope, tracked
 instead of silently absorbed into the "ok" rating.
+
+### 2026-07-25 follow-up: IdcApplication envelope gap fixed (bd gopherstack-0eyk)
+
+Fixed the gap tracked above. Confirmed directly against
+`aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go`:
+`awsAwsquery_deserializeOpDocumentCreateRedshiftIdcApplicationOutput` and
+`...ModifyRedshiftIdcApplicationOutput` both look for a `RedshiftIdcApplication` child element
+inside the `...Result` element (`case strings.EqualFold("RedshiftIdcApplication", t.Name.Local)`).
+`createIdcApplicationResponse.Result` and `modifyIdcApplicationResponse.Result` in
+`handler_idc_applications.go` were tagged `xml:"CreateRedshiftIdcApplicationResult"` /
+`xml:"ModifyRedshiftIdcApplicationResult"` with no inner element, so a real SDK client would
+decode an empty struct for every Create/Modify call. Fixed both tags to
+`...Result>RedshiftIdcApplication`, matching `createQev2IdcApplicationResponse`'s existing
+correct `CreateQev2IdcApplicationResult>Qev2IdcApplication` pattern in the sibling file.
+
+Also re-verified `DescribeRedshiftIdcApplicationsResult>RedshiftIdcApplications>member` against
+`awsAwsquery_deserializeDocumentRedshiftIdcApplicationList` (list items unwrapped via `member`,
+confirmed correct, no change) and `DeleteRedshiftIdcApplication` (real
+`DeleteRedshiftIdcApplicationOutput` deserializer parses no body at all -- the handler's
+response struct correctly carries no `Result` field, no change needed).
+
+The prior audit missed this because the existing tests asserted only substring presence
+(`wantContains: []string{"CreateRedshiftIdcApplicationResponse", "my-app"}`), which passes
+whether or not the wrapper element exists. Strengthened `TestHandler_CreateIdcApplication`,
+`TestHandler_ModifyIdcApplication`, and `TestHandler_DescribeIdcApplications`'s `success`/
+`list_all` cases to assert the literal nested envelope string (e.g.
+`<CreateRedshiftIdcApplicationResult><RedshiftIdcApplication>`), the same way the Qev2 sibling
+tests already did -- a regression to the old flat shape now fails the table test directly.
 
 ### Bugs fixed this pass (2026-07-22)
 

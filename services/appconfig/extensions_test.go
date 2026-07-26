@@ -19,7 +19,7 @@ func TestBackend_Extension_Versioning(t *testing.T) {
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	v1, err := b.CreateExtension("versioned-ext", "v1 description", nil, nil)
+	v1, err := b.CreateExtension("versioned-ext", "v1 description", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), v1.VersionNumber)
 
@@ -58,7 +58,7 @@ func TestBackend_DeleteExtension_SpecificVersion(t *testing.T) {
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	ext, err := b.CreateExtension("del-ver-ext", "", nil, nil)
+	ext, err := b.CreateExtension("del-ver-ext", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	desc := "v2"
@@ -85,7 +85,7 @@ func TestBackend_DeleteExtension_DefaultsToHighestVersion(t *testing.T) {
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	ext, err := b.CreateExtension("default-del-ext", "", nil, nil)
+	ext, err := b.CreateExtension("default-del-ext", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	desc := "v2"
@@ -111,7 +111,7 @@ func TestBackend_DeleteExtension_LastVersionRemovesExtensionAndTags(t *testing.T
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	ext, err := b.CreateExtension("last-ver-ext", "", nil, nil)
+	ext, err := b.CreateExtension("last-ver-ext", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagResource(ext.Arn, map[string]string{"k": "v"}))
@@ -134,11 +134,12 @@ func TestBackend_DeleteExtension_ConflictWhenAssociated(t *testing.T) {
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	ext, err := b.CreateExtension("assoc-conflict-ext", "", nil, nil)
+	ext, err := b.CreateExtension("assoc-conflict-ext", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateExtensionAssociation(
 		ext.ID, "arn:aws:appconfig:us-east-1:123456789012:application/app-1", nil, nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -156,7 +157,7 @@ func TestBackend_GetExtension_NotFound(t *testing.T) {
 	_, err := b.GetExtension("nonexistent", 0)
 	require.Error(t, err)
 
-	ext, err := b.CreateExtension("known-ext", "", nil, nil)
+	ext, err := b.CreateExtension("known-ext", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.GetExtension(ext.ID, 42)
@@ -174,7 +175,7 @@ func TestBackend_DeleteExtension_NotFound(t *testing.T) {
 	err := b.DeleteExtension("nonexistent", 0)
 	require.Error(t, err)
 
-	ext, err := b.CreateExtension("known-del-ext", "", nil, nil)
+	ext, err := b.CreateExtension("known-del-ext", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	err = b.DeleteExtension(ext.ID, 42)
@@ -190,7 +191,7 @@ func TestBackend_ListExtensions_OneRowPerExtensionAtLatestVersion(t *testing.T) 
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	ext, err := b.CreateExtension("list-latest-ext", "", nil, nil)
+	ext, err := b.CreateExtension("list-latest-ext", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	desc := "v2"

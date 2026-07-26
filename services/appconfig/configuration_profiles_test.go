@@ -15,14 +15,15 @@ import (
 func seedExperimentApp(t *testing.T, b *appconfig.InMemoryBackend) (string, string, string) {
 	t.Helper()
 
-	app, err := b.CreateApplication("exp-app", "")
+	app, err := b.CreateApplication("exp-app", "", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "exp-env", "", nil)
+	env, err := b.CreateEnvironment(app.ID, "exp-env", "", nil, nil)
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
 		app.ID, "exp-profile", "", "hosted", "AWS.AppConfig.FeatureFlags", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -128,9 +129,9 @@ func TestBackend_CreateExperimentDefinition_Validation(t *testing.T) {
 			mutate: func(t *testing.T, b *appconfig.InMemoryBackend, p *experimentDefParams) {
 				t.Helper()
 
-				otherApp, err := b.CreateApplication("other-app", "")
+				otherApp, err := b.CreateApplication("other-app", "", nil)
 				require.NoError(t, err)
-				otherEnv, err := b.CreateEnvironment(otherApp.ID, "other-env", "", nil)
+				otherEnv, err := b.CreateEnvironment(otherApp.ID, "other-env", "", nil, nil)
 				require.NoError(t, err)
 				p.envID = otherEnv.ID
 			},
@@ -150,6 +151,7 @@ func TestBackend_CreateExperimentDefinition_Validation(t *testing.T) {
 
 				prof, err := b.CreateConfigurationProfile(
 					p.appID, "freeform-profile", "", "hosted", "AWS.Freeform", "", nil,
+					nil,
 				)
 				require.NoError(t, err)
 				p.profileID = prof.ID

@@ -532,3 +532,129 @@ func TestHandler_ListExtensions_NameFilter(t *testing.T) {
 	require.True(t, ok)
 	assert.Empty(t, items)
 }
+
+// TestHandler_CreateExtension_TagsAppliedInline verifies that Tags sent
+// inline on CreateExtensionInput are visible via ListTagsForResource
+// immediately after creation -- previously CreateExtension's handler never
+// bound or forwarded the Tags field at all, so tags set at create time
+// silently vanished (bd gopherstack-lcan).
+func TestHandler_CreateExtension_TagsAppliedInline(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tags map[string]string
+		name string
+	}{
+		{
+			name: "tags_applied_at_create",
+			tags: map[string]string{"env": "prod", "team": "platform"},
+		},
+		{
+			name: "no_tags_is_not_an_error",
+			tags: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body, err := json.Marshal(map[string]any{
+				"Name": "tagged-ext-" + tt.name,
+				"Tags": tt.tags,
+			})
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodPost, "/extensions", body)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var ext appconfig.Extension
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+			require.NotEmpty(t, ext.Arn)
+
+			tagsRec := doRequest(t, h, http.MethodGet, "/tags/"+ext.Arn, nil)
+			require.Equal(t, http.StatusOK, tagsRec.Code)
+
+			var tagsResp struct {
+				Tags map[string]string `json:"Tags"`
+			}
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+
+			if len(tt.tags) == 0 {
+				assert.Empty(t, tagsResp.Tags)
+			} else {
+				assert.Equal(t, tt.tags, tagsResp.Tags)
+			}
+		})
+	}
+}
+
+// TestHandler_CreateExtensionAssociation_TagsAppliedInline verifies that
+// Tags sent inline on CreateExtensionAssociationInput are visible via
+// ListTagsForResource immediately after creation -- previously
+// CreateExtensionAssociation's handler never bound or forwarded the Tags
+// field at all, so tags set at create time silently vanished (bd
+// gopherstack-lcan).
+func TestHandler_CreateExtensionAssociation_TagsAppliedInline(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tags map[string]string
+		name string
+	}{
+		{
+			name: "tags_applied_at_create",
+			tags: map[string]string{"env": "prod", "team": "platform"},
+		},
+		{
+			name: "no_tags_is_not_an_error",
+			tags: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			extRec := doRequest(t, h, http.MethodPost, "/extensions",
+				[]byte(`{"Name":"tagged-assoc-ext-`+tt.name+`"}`))
+			require.Equal(t, http.StatusCreated, extRec.Code)
+
+			var ext appconfig.Extension
+			require.NoError(t, json.Unmarshal(extRec.Body.Bytes(), &ext))
+
+			resourceID := "arn:aws:appconfig:us-east-1:123456789012:application/tagged-assoc-" + tt.name
+			body, err := json.Marshal(map[string]any{
+				"ExtensionIdentifier": ext.ID,
+				"ResourceIdentifier":  resourceID,
+				"Tags":                tt.tags,
+			})
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodPost, "/extensionassociations", body)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var assoc appconfig.ExtensionAssociation
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assoc))
+			require.NotEmpty(t, assoc.Arn)
+
+			tagsRec := doRequest(t, h, http.MethodGet, "/tags/"+assoc.Arn, nil)
+			require.Equal(t, http.StatusOK, tagsRec.Code)
+
+			var tagsResp struct {
+				Tags map[string]string `json:"Tags"`
+			}
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+
+			if len(tt.tags) == 0 {
+				assert.Empty(t, tagsResp.Tags)
+			} else {
+				assert.Equal(t, tt.tags, tagsResp.Tags)
+			}
+		})
+	}
+}

@@ -27,7 +27,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateApplication("seed-app", "")
+	_, err := b.CreateApplication("seed-app", "", nil)
 	require.NoError(t, err)
 
 	// A syntactically valid but version-mismatched snapshot.
@@ -49,7 +49,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateApplication("seed-app", "")
+	_, err := b.CreateApplication("seed-app", "", nil)
 	require.NoError(t, err)
 
 	err = b.Restore(t.Context(), []byte(`{"applications":{}}`))
@@ -89,14 +89,15 @@ type seedState struct {
 func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	t.Helper()
 
-	app, err := b.CreateApplication("app-1", "an application")
+	app, err := b.CreateApplication("app-1", "an application", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "env-1", "an environment", nil)
+	env, err := b.CreateEnvironment(app.ID, "env-1", "an environment", nil, nil)
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
 		app.ID, "profile-1", "a profile", "hosted", "AWS.Freeform", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -113,16 +114,16 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	)
 	require.NoError(t, err)
 
-	strategy, err := b.CreateDeploymentStrategy("strategy-1", "a strategy", 10, 0, 100, "LINEAR", "NONE")
+	strategy, err := b.CreateDeploymentStrategy("strategy-1", "a strategy", 10, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
 	deployment, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "a deployment")
 	require.NoError(t, err)
 
-	ext, err := b.CreateExtension("ext-1", "an extension", nil, nil)
+	ext, err := b.CreateExtension("ext-1", "an extension", nil, nil, nil)
 	require.NoError(t, err)
 
-	assoc, err := b.CreateExtensionAssociation(ext.ID, app.ID, nil, nil)
+	assoc, err := b.CreateExtensionAssociation(ext.ID, app.ID, nil, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagResource(assoc.Arn, map[string]string{"team": "core"}))
@@ -133,6 +134,7 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 
 	expProfile, err := b.CreateConfigurationProfile(
 		app.ID, "flag-profile-1", "a feature flag profile", "hosted", "AWS.AppConfig.FeatureFlags", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -207,7 +209,7 @@ func assertApplicationFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBack
 	assert.Equal(t, seed.app.Name, gotApp.Name)
 
 	// Name-uniqueness index was rebuilt, not left stale.
-	_, err = fresh.CreateApplication(seed.app.Name, "duplicate")
+	_, err = fresh.CreateApplication(seed.app.Name, "duplicate", nil)
 	require.Error(t, err)
 
 	gotEnv, err := fresh.GetEnvironment(seed.app.ID, seed.env.ID)
@@ -218,7 +220,7 @@ func assertApplicationFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBack
 	require.NoError(t, err)
 	assert.Len(t, envItems, 1)
 
-	_, err = fresh.CreateEnvironment(seed.app.ID, seed.env.Name, "duplicate", nil)
+	_, err = fresh.CreateEnvironment(seed.app.ID, seed.env.Name, "duplicate", nil, nil)
 	require.Error(t, err)
 
 	gotProfile, err := fresh.GetConfigurationProfile(seed.app.ID, seed.profile.ID)
@@ -293,7 +295,7 @@ func assertDeploymentFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacke
 	require.NoError(t, err)
 	assert.Equal(t, seed.strategy.Name, gotStrategy.Name)
 
-	_, err = fresh.CreateDeploymentStrategy(seed.strategy.Name, "duplicate", 10, 0, 100, "LINEAR", "NONE")
+	_, err = fresh.CreateDeploymentStrategy(seed.strategy.Name, "duplicate", 10, 0, 100, "LINEAR", "NONE", nil)
 	require.Error(t, err)
 
 	gotDeployment, err := fresh.GetDeployment(seed.app.ID, seed.env.ID, seed.deployment.DeploymentNumber)
@@ -321,7 +323,7 @@ func assertExtensionFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacken
 	require.NoError(t, err)
 	assert.Equal(t, seed.ext.Name, gotExt.Name)
 
-	_, err = fresh.CreateExtension(seed.ext.Name, "duplicate", nil, nil)
+	_, err = fresh.CreateExtension(seed.ext.Name, "duplicate", nil, nil, nil)
 	require.Error(t, err)
 
 	gotAssoc, err := fresh.GetExtensionAssociation(seed.assoc.ID)

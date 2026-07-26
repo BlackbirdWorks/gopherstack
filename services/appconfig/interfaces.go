@@ -13,8 +13,10 @@ type StorageBackend interface {
 	Snapshot(ctx context.Context) []byte
 	Restore(ctx context.Context, data []byte) error
 
-	// CreateApplication creates a new AppConfig application.
-	CreateApplication(name, description string) (*Application, error)
+	// CreateApplication creates a new AppConfig application. tags are
+	// applied inline at creation time (see CreateExperimentDefinition's
+	// doc comment for why TagResource is not used for this).
+	CreateApplication(name, description string, tags map[string]string) (*Application, error)
 	// GetApplication retrieves an application by ID.
 	GetApplication(applicationID string) (*Application, error)
 	// ListApplications returns paginated applications.
@@ -29,9 +31,11 @@ type StorageBackend interface {
 	DeleteApplication(applicationID string) error
 
 	// CreateEnvironment creates a new environment within an application.
+	// tags are applied inline at creation time (see CreateApplication).
 	CreateEnvironment(
 		applicationID, name, description string,
 		monitors []Monitor,
+		tags map[string]string,
 	) (*Environment, error)
 	// GetEnvironment retrieves an environment by application and environment ID.
 	GetEnvironment(applicationID, environmentID string) (*Environment, error)
@@ -50,10 +54,12 @@ type StorageBackend interface {
 	// DeleteEnvironment deletes an environment.
 	DeleteEnvironment(applicationID, environmentID string) error
 
-	// CreateConfigurationProfile creates a new configuration profile.
+	// CreateConfigurationProfile creates a new configuration profile. tags
+	// are applied inline at creation time (see CreateApplication).
 	CreateConfigurationProfile(
 		applicationID, name, description, locationURI, profileType, retrievalRoleArn string,
 		validators []Validator,
+		tags map[string]string,
 	) (*ConfigurationProfile, error)
 	// GetConfigurationProfile retrieves a configuration profile.
 	GetConfigurationProfile(applicationID, profileID string) (*ConfigurationProfile, error)
@@ -98,12 +104,14 @@ type StorageBackend interface {
 	// DeleteHostedConfigurationVersion deletes a hosted configuration version.
 	DeleteHostedConfigurationVersion(applicationID, profileID string, versionNumber int32) error
 
-	// CreateDeploymentStrategy creates a new deployment strategy.
+	// CreateDeploymentStrategy creates a new deployment strategy. tags are
+	// applied inline at creation time (see CreateApplication).
 	CreateDeploymentStrategy(
 		name, description string,
 		deploymentDuration, bakeTime int32,
 		growthFactor float32,
 		growthType, replicateTo string,
+		tags map[string]string,
 	) (*DeploymentStrategy, error)
 	// GetDeploymentStrategy retrieves a deployment strategy by ID.
 	GetDeploymentStrategy(strategyID string) (*DeploymentStrategy, error)
@@ -147,11 +155,13 @@ type StorageBackend interface {
 	// UntagResource removes tags from a resource.
 	UntagResource(resourceArn string, tagKeys []string) error
 
-	// CreateExtension creates a new AppConfig extension.
+	// CreateExtension creates a new AppConfig extension. tags are applied
+	// inline at creation time (see CreateApplication).
 	CreateExtension(
 		name, description string,
 		actions map[string][]ExtensionAction,
 		parameters map[string]ExtensionParameter,
+		tags map[string]string,
 	) (*Extension, error)
 	// GetExtension retrieves an extension by identifier (ID or name) and
 	// optional version number (0 means unspecified: the highest version).
@@ -176,11 +186,14 @@ type StorageBackend interface {
 	// version).
 	DeleteExtension(extensionIdentifier string, versionNumber int32) error
 
-	// CreateExtensionAssociation creates an association between an extension and a resource.
+	// CreateExtensionAssociation creates an association between an
+	// extension and a resource. tags are applied inline at creation time
+	// (see CreateApplication).
 	CreateExtensionAssociation(
 		extensionIdentifier, resourceIdentifier string,
 		parameters map[string]string,
 		extensionVersionNumber *int32,
+		tags map[string]string,
 	) (*ExtensionAssociation, error)
 	// GetExtensionAssociation retrieves an extension association by ID.
 	GetExtensionAssociation(extensionAssociationID string) (*ExtensionAssociation, error)

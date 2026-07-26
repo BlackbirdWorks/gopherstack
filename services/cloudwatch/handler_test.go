@@ -765,15 +765,34 @@ func TestCloudWatchHandler_NewOperations(t *testing.T) {
 		},
 		// DescribeAlarms with composite
 		{
-			name: "DescribeAlarms/with_composite",
+			// AlarmTypes omitted: per DescribeAlarmsInput.AlarmTypes's own doc
+			// comment ("If you omit this parameter, only metric alarms are
+			// returned, even if composite alarms or log alarms exist in the
+			// account"), only the metric alarm comes back -- the composite
+			// alarm must NOT appear (bd gopherstack-yvb7).
+			name: "DescribeAlarms/composite_excluded_by_default",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
 				t.Helper()
 				postForm(t, h, "Action=PutMetricAlarm&AlarmName=child-m&Namespace=NS&MetricName=M")
 				postForm(t, h, `Action=PutCompositeAlarm&AlarmName=parent-c&AlarmRule=ALARM("child-m")`)
 			},
-			body:         "Action=DescribeAlarms",
+			body:            "Action=DescribeAlarms",
+			wantCode:        http.StatusOK,
+			wantContains:    []string{"DescribeAlarmsResponse", "child-m"},
+			wantNotContains: []string{"parent-c"},
+		},
+		{
+			// Both types requested explicitly: both come back in one response.
+			name: "DescribeAlarms/with_composite_explicit_types",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=child-m2&Namespace=NS&MetricName=M")
+				postForm(t, h, `Action=PutCompositeAlarm&AlarmName=parent-c2&AlarmRule=ALARM("child-m2")`)
+			},
+			body: "Action=DescribeAlarms&AlarmTypes.member.1=MetricAlarm" +
+				"&AlarmTypes.member.2=CompositeAlarm",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DescribeAlarmsResponse", "child-m", "parent-c"},
+			wantContains: []string{"DescribeAlarmsResponse", "child-m2", "parent-c2"},
 		},
 		{
 			name: "DescribeAlarms/filter_composite_type",

@@ -278,7 +278,7 @@ func TestCloudWatchBackend_SetAlarmState_ChildTriggersCompositeReevaluation(t *t
 	}))
 
 	// Composite should be ALARM since child is ALARM.
-	_, composites0, _, err0 := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", "", 0)
+	_, composites0, _, err0 := b.DescribeAlarms([]string{"direct-composite"}, []string{"CompositeAlarm"}, "", "", "", 0)
 	require.NoError(t, err0)
 	require.Len(t, composites0.Data, 1)
 	assert.Equal(t, "ALARM", composites0.Data[0].StateValue)
@@ -286,7 +286,7 @@ func TestCloudWatchBackend_SetAlarmState_ChildTriggersCompositeReevaluation(t *t
 	// SetAlarmState on child to OK; composite should re-evaluate to OK.
 	require.NoError(t, b.SetAlarmState(t.Context(), "child-direct", "OK", "recovered", ""))
 
-	_, composites, _, err := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", "", 0)
+	_, composites, _, err := b.DescribeAlarms([]string{"direct-composite"}, []string{"CompositeAlarm"}, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, composites.Data, 1)
 	assert.Equal(t, "OK", composites.Data[0].StateValue)

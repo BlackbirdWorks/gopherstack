@@ -32,7 +32,7 @@ func TestDeleteApplication_NameIndexBounded(t *testing.T) {
 			ids := make([]string, 0, len(tc.names))
 
 			for _, name := range tc.names {
-				app, err := b.CreateApplication(name, "")
+				app, err := b.CreateApplication(name, "", nil)
 				require.NoError(t, err)
 				ids = append(ids, app.ID)
 			}
@@ -58,10 +58,10 @@ func TestCreateApplication_NameUniquenessUsesIndex(t *testing.T) {
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateApplication("my-app", "first")
+	_, err := b.CreateApplication("my-app", "first", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateApplication("my-app", "duplicate")
+	_, err = b.CreateApplication("my-app", "duplicate", nil)
 	require.Error(t, err, "duplicate name must be rejected")
 }
 
@@ -85,7 +85,7 @@ func TestDeleteExtension_NameIndexBounded(t *testing.T) {
 			b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
 			for _, name := range tc.names {
-				_, err := b.CreateExtension(name, "", nil, nil)
+				_, err := b.CreateExtension(name, "", nil, nil, nil)
 				require.NoError(t, err)
 			}
 
@@ -125,7 +125,7 @@ func TestDeleteDeploymentStrategy_NameIndexBounded(t *testing.T) {
 			ids := make([]string, 0, len(tc.names))
 
 			for _, name := range tc.names {
-				s, err := b.CreateDeploymentStrategy(name, "", 10, 0, 10.0, "LINEAR", "NONE")
+				s, err := b.CreateDeploymentStrategy(name, "", 10, 0, 10.0, "LINEAR", "NONE", nil)
 				require.NoError(t, err)
 				ids = append(ids, s.ID)
 			}
@@ -155,14 +155,15 @@ func TestDeploymentTimers_DrainToZero(t *testing.T) {
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	app, err := b.CreateApplication("timer-leak-app", "")
+	app, err := b.CreateApplication("timer-leak-app", "", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "timer-leak-env", "", nil)
+	env, err := b.CreateEnvironment(app.ID, "timer-leak-env", "", nil, nil)
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
 		app.ID, "timer-leak-profile", "", "hosted", "AWS.Freeform", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -174,7 +175,7 @@ func TestDeploymentTimers_DrainToZero(t *testing.T) {
 	// A non-zero duration and bake time forces real DEPLOYING -> BAKING
 	// progression (registers a timer), rather than the synchronous
 	// zero-duration path (which never touches deploymentTimers at all).
-	strategy, err := b.CreateDeploymentStrategy("timer-leak-strat", "", 10, 5, 25, "LINEAR", "NONE")
+	strategy, err := b.CreateDeploymentStrategy("timer-leak-strat", "", 10, 5, 25, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
 	const deployments = 5

@@ -11,8 +11,9 @@ import (
 
 func (h *Handler) handleCreateApplication(c *echo.Context) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
+		Tags        map[string]string `json:"Tags"`
+		Name        string            `json:"Name"`
+		Description string            `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -21,7 +22,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context) error {
 		)
 	}
 
-	app, err := h.Backend.CreateApplication(req.Name, req.Description)
+	app, err := h.Backend.CreateApplication(req.Name, req.Description, req.Tags)
 	if err != nil {
 		if errors.Is(err, awserr.ErrInvalidParameter) {
 			return badRequestResponse(c, err)

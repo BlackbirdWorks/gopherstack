@@ -11,12 +11,13 @@ import (
 
 func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name             string      `json:"Name"`
-		Description      string      `json:"Description"`
-		LocationURI      string      `json:"LocationUri"`
-		Type             string      `json:"Type"`
-		RetrievalRoleArn string      `json:"RetrievalRoleArn"`
-		Validators       []Validator `json:"Validators"`
+		Tags             map[string]string `json:"Tags"`
+		Name             string            `json:"Name"`
+		Description      string            `json:"Description"`
+		LocationURI      string            `json:"LocationUri"`
+		Type             string            `json:"Type"`
+		RetrievalRoleArn string            `json:"RetrievalRoleArn"`
+		Validators       []Validator       `json:"Validators"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -33,6 +34,7 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 		req.Type,
 		req.RetrievalRoleArn,
 		req.Validators,
+		req.Tags,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {

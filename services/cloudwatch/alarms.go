@@ -76,12 +76,14 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 
 // DescribeAlarms lists a page of alarms, optionally filtered by name, type, prefix, and/or state.
 // alarmTypes can contain "MetricAlarm", "CompositeAlarm", and/or "LogAlarm".
-// Per the real DescribeAlarmsInput doc comment, omitting alarmTypes returns
-// only metric alarms... except gopherstack's MetricAlarm/CompositeAlarm
-// defaulting predates this pass and is left as-is here to avoid an unrelated
-// behavioural change (see PARITY.md notes); LogAlarm, being new, is held to
-// the documented default correctly: it is only included when "LogAlarm" is
-// explicitly requested in alarmTypes.
+// Per the real DescribeAlarmsInput.AlarmTypes doc comment ("If you omit this
+// parameter, only metric alarms are returned, even if composite alarms or
+// log alarms exist in the account" -- confirmed against
+// aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go), omitting
+// alarmTypes returns ONLY metric alarms: composite and log alarms are both
+// included only when explicitly requested via alarmTypes (bd gopherstack-yvb7
+// -- composite alarms were previously defaulted-in alongside metric alarms,
+// which the LogAlarm family correctly never did).
 // MaxRecords applies to the total combined result set (metric + composite + log).
 func (b *InMemoryBackend) DescribeAlarms(
 	alarmNames []string,
@@ -95,7 +97,7 @@ func (b *InMemoryBackend) DescribeAlarms(
 	nameSet := toSet(alarmNames)
 	typeSet := toSet(alarmTypes)
 	includeMetric := len(typeSet) == 0 || typeSet["MetricAlarm"]
-	includeComposite := len(typeSet) == 0 || typeSet["CompositeAlarm"]
+	includeComposite := typeSet["CompositeAlarm"]
 	includeLog := typeSet[alarmTypeLogAlarm]
 
 	metricResult := b.collectMetricAlarms(nameSet, alarmNamePrefix, stateValue, includeMetric)

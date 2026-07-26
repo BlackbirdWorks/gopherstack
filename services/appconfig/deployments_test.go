@@ -53,21 +53,22 @@ func TestBackend_StartDeployment_ProgressesThroughGrowthAndBake(t *testing.T) {
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	app, err := b.CreateApplication("progress-app", "")
+	app, err := b.CreateApplication("progress-app", "", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "progress-env", "", nil)
+	env, err := b.CreateEnvironment(app.ID, "progress-env", "", nil, nil)
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
 		app.ID, "progress-profile", "", "hosted", "AWS.Freeform", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
 	_, err = b.CreateHostedConfigurationVersion(app.ID, profile.ID, "application/json", "", "", []byte(`{}`), nil)
 	require.NoError(t, err)
 
-	strategy, err := b.CreateDeploymentStrategy("progress-strat", "", 10, 5, 10, "LINEAR", "NONE")
+	strategy, err := b.CreateDeploymentStrategy("progress-strat", "", 10, 5, 10, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
 	dep, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "")
@@ -120,18 +121,19 @@ func TestBackend_StartDeployment_UnknownHostedVersion_NotFound(t *testing.T) {
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	app, err := b.CreateApplication("unknown-ver-app", "")
+	app, err := b.CreateApplication("unknown-ver-app", "", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "unknown-ver-env", "", nil)
+	env, err := b.CreateEnvironment(app.ID, "unknown-ver-env", "", nil, nil)
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
 		app.ID, "unknown-ver-profile", "", "hosted", "AWS.Freeform", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
-	strategy, err := b.CreateDeploymentStrategy("unknown-ver-strat", "", 0, 0, 100, "LINEAR", "NONE")
+	strategy, err := b.CreateDeploymentStrategy("unknown-ver-strat", "", 0, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
 	// No HostedConfigurationVersion was ever created for this profile.
@@ -148,18 +150,19 @@ func TestBackend_StartDeployment_NonHostedProfile_SkipsVersionValidation(t *test
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	app, err := b.CreateApplication("ssm-app", "")
+	app, err := b.CreateApplication("ssm-app", "", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "ssm-env", "", nil)
+	env, err := b.CreateEnvironment(app.ID, "ssm-env", "", nil, nil)
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
 		app.ID, "ssm-profile", "", "ssm-parameter://my-param", "AWS.Freeform", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
-	strategy, err := b.CreateDeploymentStrategy("ssm-strat", "", 0, 0, 100, "LINEAR", "NONE")
+	strategy, err := b.CreateDeploymentStrategy("ssm-strat", "", 0, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
 	_, err = b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "")
@@ -176,14 +179,15 @@ func TestBackend_StopDeployment_AllowRevert_RevertsToPreviousVersion(t *testing.
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	app, err := b.CreateApplication("revert-app", "")
+	app, err := b.CreateApplication("revert-app", "", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "revert-env", "", nil)
+	env, err := b.CreateEnvironment(app.ID, "revert-env", "", nil, nil)
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
 		app.ID, "revert-profile", "", "hosted", "AWS.Freeform", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -192,7 +196,7 @@ func TestBackend_StopDeployment_AllowRevert_RevertsToPreviousVersion(t *testing.
 	_, err = b.CreateHostedConfigurationVersion(app.ID, profile.ID, "application/json", "", "", []byte(`{"v":2}`), nil)
 	require.NoError(t, err)
 
-	strategy, err := b.CreateDeploymentStrategy("revert-strat", "", 0, 0, 100, "LINEAR", "NONE")
+	strategy, err := b.CreateDeploymentStrategy("revert-strat", "", 0, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
 	_, err = b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "")

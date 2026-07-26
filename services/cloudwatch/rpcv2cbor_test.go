@@ -1359,8 +1359,13 @@ func TestCBOR_DescribeAlarms_CompositeAlarm_StateTransitionedTimestamp(t *testin
 				"StateReason": cbor.String("manual"),
 			})
 
+			// AlarmTypes must be explicit: DescribeAlarms defaults to metric
+			// alarms only when AlarmTypes is omitted (bd gopherstack-yvb7), so
+			// a composite alarm is invisible here without it, even though
+			// AlarmNames names it directly.
 			rec := postCBOR(t, h, "DescribeAlarms", cbor.Map{
 				"AlarmNames": cbor.List{cbor.String("comp-cbor")},
+				"AlarmTypes": cbor.List{cbor.String("CompositeAlarm")},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 

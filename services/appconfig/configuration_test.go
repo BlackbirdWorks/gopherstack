@@ -18,19 +18,19 @@ func seedDeployableConfig(
 ) (string, string, string, string) {
 	t.Helper()
 
-	app, err := b.CreateApplication("cfg-app", "")
+	app, err := b.CreateApplication("cfg-app", "", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "cfg-env", "", nil)
+	env, err := b.CreateEnvironment(app.ID, "cfg-env", "", nil, nil)
 	require.NoError(t, err)
 
-	profile, err := b.CreateConfigurationProfile(app.ID, "cfg-profile", "", "hosted", "AWS.Freeform", "", nil)
+	profile, err := b.CreateConfigurationProfile(app.ID, "cfg-profile", "", "hosted", "AWS.Freeform", "", nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateHostedConfigurationVersion(app.ID, profile.ID, "application/json", "", "", content, nil)
 	require.NoError(t, err)
 
-	strategy, err := b.CreateDeploymentStrategy("cfg-strat", "", 0, 0, 100, "LINEAR", "NONE")
+	strategy, err := b.CreateDeploymentStrategy("cfg-strat", "", 0, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
 	return app.ID, env.ID, profile.ID, strategy.ID
@@ -125,10 +125,10 @@ func TestBackend_GetConfiguration_NotFound(t *testing.T) {
 
 			b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-			app, err := b.CreateApplication("nf-app-"+tt.name, "")
+			app, err := b.CreateApplication("nf-app-"+tt.name, "", nil)
 			require.NoError(t, err)
 
-			env, err := b.CreateEnvironment(app.ID, "nf-env", "", nil)
+			env, err := b.CreateEnvironment(app.ID, "nf-env", "", nil, nil)
 			require.NoError(t, err)
 
 			application := tt.application
@@ -206,18 +206,19 @@ func TestBackend_ExtensionAssociation_CascadeDeleteOnApplication(t *testing.T) {
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
-	app, err := b.CreateApplication("cascade-assoc-app", "")
+	app, err := b.CreateApplication("cascade-assoc-app", "", nil)
 	require.NoError(t, err)
 
-	env, err := b.CreateEnvironment(app.ID, "cascade-assoc-env", "", nil)
+	env, err := b.CreateEnvironment(app.ID, "cascade-assoc-env", "", nil, nil)
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
 		app.ID, "cascade-assoc-profile", "", "hosted", "AWS.Freeform", "", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
-	ext, err := b.CreateExtension("cascade-assoc-ext", "", nil, nil)
+	ext, err := b.CreateExtension("cascade-assoc-ext", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	appArn := "arn:aws:appconfig:us-east-1:123456789012:application/" + app.ID
@@ -225,7 +226,7 @@ func TestBackend_ExtensionAssociation_CascadeDeleteOnApplication(t *testing.T) {
 	profileArn := appArn + "/configurationprofile/" + profile.ID
 
 	for _, resourceArn := range []string{appArn, envArn, profileArn} {
-		_, assocErr := b.CreateExtensionAssociation(ext.ID, resourceArn, nil, nil)
+		_, assocErr := b.CreateExtensionAssociation(ext.ID, resourceArn, nil, nil, nil)
 		require.NoError(t, assocErr)
 	}
 

@@ -535,8 +535,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, stats)
 
-	// alarms + alarmHistory.
-	alarms, composites, _, err := fresh.DescribeAlarms(nil, nil, "", "", "", 0)
+	// alarms + alarmHistory. AlarmTypes must list both explicitly: DescribeAlarms
+	// defaults to metric alarms only when AlarmTypes is omitted (bd
+	// gopherstack-yvb7), and this check wants both metric and composite alarms
+	// back to verify both survived the snapshot/restore round trip.
+	alarms, composites, _, err := fresh.DescribeAlarms(
+		nil, []string{"MetricAlarm", "CompositeAlarm"}, "", "", "", 0,
+	)
 	require.NoError(t, err)
 	require.Len(t, alarms.Data, 1)
 	assert.Equal(t, "full-state-alarm", alarms.Data[0].AlarmName)

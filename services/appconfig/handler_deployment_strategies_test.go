@@ -100,6 +100,70 @@ func TestHandler_UpdateDeploymentStrategy_OmittedDescriptionPreserved(t *testing
 	assert.Equal(t, "keep-me", updated.Description, "omitted Description must be preserved")
 }
 
+// TestHandler_CreateDeploymentStrategy_TagsAppliedInline verifies that Tags
+// sent inline on CreateDeploymentStrategyInput are visible via
+// ListTagsForResource immediately after creation -- previously
+// CreateDeploymentStrategy's handler never bound or forwarded the Tags
+// field at all, so tags set at create time silently vanished (bd
+// gopherstack-lcan).
+func TestHandler_CreateDeploymentStrategy_TagsAppliedInline(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tags map[string]string
+		name string
+	}{
+		{
+			name: "tags_applied_at_create",
+			tags: map[string]string{"env": "prod", "team": "platform"},
+		},
+		{
+			name: "no_tags_is_not_an_error",
+			tags: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body, err := json.Marshal(map[string]any{
+				"Name":                        "tagged-strat-" + tt.name,
+				"DeploymentDurationInMinutes": 0,
+				"FinalBakeTimeInMinutes":      0,
+				"GrowthFactor":                100,
+				"GrowthType":                  "LINEAR",
+				"ReplicateTo":                 "NONE",
+				"Tags":                        tt.tags,
+			})
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodPost, "/deploymentstrategies", body)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var strategy appconfig.DeploymentStrategy
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strategy))
+
+			resourceArn := "arn:aws:appconfig:us-east-1:123456789012:deploymentstrategy/" + strategy.ID
+			tagsRec := doRequest(t, h, http.MethodGet, "/tags/"+resourceArn, nil)
+			require.Equal(t, http.StatusOK, tagsRec.Code)
+
+			var tagsResp struct {
+				Tags map[string]string `json:"Tags"`
+			}
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+
+			if len(tt.tags) == 0 {
+				assert.Empty(t, tagsResp.Tags)
+			} else {
+				assert.Equal(t, tt.tags, tagsResp.Tags)
+			}
+		})
+	}
+}
+
 func TestHandler_ExtractResource_Strategy(t *testing.T) {
 	t.Parallel()
 

@@ -2,14 +2,18 @@ package appconfig
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 )
 
-// CreateEnvironment creates a new environment within an application.
+// CreateEnvironment creates a new environment within an application. See
+// CreateExperimentDefinition's doc comment for why tags are applied
+// directly to b.tags rather than via TagResource.
 func (b *InMemoryBackend) CreateEnvironment(
 	applicationID, name, description string,
 	monitors []Monitor,
+	tags map[string]string,
 ) (*Environment, error) {
 	b.mu.Lock("CreateEnvironment")
 	defer b.mu.Unlock()
@@ -43,6 +47,11 @@ func (b *InMemoryBackend) CreateEnvironment(
 		UpdatedAt:     now,
 	}
 	b.environments.Put(env)
+
+	if len(tags) > 0 {
+		b.tags[b.appconfigARN("application/"+applicationID+"/environment/"+env.ID)] = maps.Clone(tags)
+	}
+
 	cp := *env
 
 	return &cp, nil

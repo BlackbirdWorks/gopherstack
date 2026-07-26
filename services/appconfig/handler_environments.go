@@ -11,9 +11,10 @@ import (
 
 func (h *Handler) handleCreateEnvironment(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name        string    `json:"Name"`
-		Description string    `json:"Description"`
-		Monitors    []Monitor `json:"Monitors"`
+		Tags        map[string]string `json:"Tags"`
+		Name        string            `json:"Name"`
+		Description string            `json:"Description"`
+		Monitors    []Monitor         `json:"Monitors"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -22,7 +23,7 @@ func (h *Handler) handleCreateEnvironment(c *echo.Context, applicationID string)
 		)
 	}
 
-	env, err := h.Backend.CreateEnvironment(applicationID, req.Name, req.Description, req.Monitors)
+	env, err := h.Backend.CreateEnvironment(applicationID, req.Name, req.Description, req.Monitors, req.Tags)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
