@@ -125,7 +125,8 @@ type InMemoryBackend struct {
 	// region (one store.Table per region, registered lazily on first use of
 	// that region) rather than a single flat store.Table[T], because these
 	// resources are natively region-partitioned collections; see the
-	// xxxStore(r) helpers below for the lazy-create-and-register point.
+	// per-resource Store(r) helpers below (modelsStore, endpointsStore and
+	// friends) for the lazy-create-and-register point.
 	registry        *store.Registry
 	lifecycleParent context.Context
 	lifecycleCtx    context.Context
