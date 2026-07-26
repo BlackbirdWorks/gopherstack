@@ -44,7 +44,7 @@ func (b *InMemoryBackend) DescribeLifecycleConfiguration(
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	policies := b.lifecycleStore(region)[fileSystemID]
+	policies := b.lifecycleStoreRO(region)[fileSystemID]
 	if policies == nil {
 		return []LifecyclePolicy{}, nil
 	}

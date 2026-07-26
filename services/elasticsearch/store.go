@@ -131,6 +131,18 @@ func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
 	return b.arnIndex[region]
 }
 
+// arnIndexStoreRO returns the region-scoped arnIndex map for region without
+// mutating the outer map. Safe to call while holding only b.mu.RLock(): if
+// the region has not been observed yet, it returns a fresh, unregistered,
+// empty map instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) arnIndexStoreRO(region string) map[string]string {
+	if v := b.arnIndex[region]; v != nil {
+		return v
+	}
+
+	return map[string]string{}
+}
+
 func (b *InMemoryBackend) packageGet(region, id string) (*Package, bool) {
 	return b.packages.Get(regionKey(region, id))
 }
@@ -159,6 +171,19 @@ func (b *InMemoryBackend) packageAssociationsStore(region string) map[string][]s
 	}
 
 	return b.packageAssociations[region]
+}
+
+// packageAssociationsStoreRO returns the region-scoped packageAssociations
+// map for region without mutating the outer map. Safe to call while holding
+// only b.mu.RLock(): if the region has not been observed yet, it returns a
+// fresh, unregistered, empty map instead of lazily creating (and
+// persisting) an entry.
+func (b *InMemoryBackend) packageAssociationsStoreRO(region string) map[string][]string {
+	if v := b.packageAssociations[region]; v != nil {
+		return v
+	}
+
+	return map[string][]string{}
 }
 
 func (b *InMemoryBackend) inboundConnectionGet(region, id string) (*InboundConnection, bool) {
@@ -211,6 +236,19 @@ func (b *InMemoryBackend) vpcAccessStore(region string) map[string][]string {
 	}
 
 	return b.vpcAccess[region]
+}
+
+// vpcAccessStoreRO returns the region-scoped vpcAccess map for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) vpcAccessStoreRO(region string) map[string][]string {
+	if v := b.vpcAccess[region]; v != nil {
+		return v
+	}
+
+	return map[string][]string{}
 }
 
 func (b *InMemoryBackend) reservedInstancePut(v *ReservedInstance) { b.reservedInstances.Put(v) }

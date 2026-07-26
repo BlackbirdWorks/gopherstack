@@ -199,12 +199,37 @@ func (b *InMemoryBackend) ipRoutesStore(region string) map[string][]storedIpRout
 	return b.ipRoutes[region]
 }
 
+// ipRoutesStoreRO returns the region-scoped ipRoutes map for region without
+// mutating the outer map. Safe to call while holding only b.mu.RLock(): if
+// the region has not been observed yet, it returns a fresh, unregistered,
+// empty map instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) ipRoutesStoreRO(region string) map[string][]storedIpRoute {
+	if v := b.ipRoutes[region]; v != nil {
+		return v
+	}
+
+	return map[string][]storedIpRoute{}
+}
+
 func (b *InMemoryBackend) dirDataAccessStore(region string) map[string]bool {
 	if b.dirDataAccess[region] == nil {
 		b.dirDataAccess[region] = make(map[string]bool)
 	}
 
 	return b.dirDataAccess[region]
+}
+
+// dirDataAccessStoreRO returns the region-scoped dirDataAccess map for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) dirDataAccessStoreRO(region string) map[string]bool {
+	if v := b.dirDataAccess[region]; v != nil {
+		return v
+	}
+
+	return map[string]bool{}
 }
 
 func (b *InMemoryBackend) caEnrollmentStore(region string) map[string]bool {
@@ -215,6 +240,19 @@ func (b *InMemoryBackend) caEnrollmentStore(region string) map[string]bool {
 	return b.caEnrollment[region]
 }
 
+// caEnrollmentStoreRO returns the region-scoped caEnrollment map for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) caEnrollmentStoreRO(region string) map[string]bool {
+	if v := b.caEnrollment[region]; v != nil {
+		return v
+	}
+
+	return map[string]bool{}
+}
+
 func (b *InMemoryBackend) dirSettingsStore(region string) map[string][]*storedDirectorySetting {
 	if b.dirSettings[region] == nil {
 		b.dirSettings[region] = make(map[string][]*storedDirectorySetting)
@@ -223,12 +261,38 @@ func (b *InMemoryBackend) dirSettingsStore(region string) map[string][]*storedDi
 	return b.dirSettings[region]
 }
 
+// dirSettingsStoreRO returns the region-scoped dirSettings map for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) dirSettingsStoreRO(region string) map[string][]*storedDirectorySetting {
+	if v := b.dirSettings[region]; v != nil {
+		return v
+	}
+
+	return map[string][]*storedDirectorySetting{}
+}
+
 func (b *InMemoryBackend) updateInfoEntriesStore(region string) map[string][]*storedUpdateInfo {
 	if b.updateInfoEntries[region] == nil {
 		b.updateInfoEntries[region] = make(map[string][]*storedUpdateInfo)
 	}
 
 	return b.updateInfoEntries[region]
+}
+
+// updateInfoEntriesStoreRO returns the region-scoped updateInfoEntries map
+// for region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) updateInfoEntriesStoreRO(region string) map[string][]*storedUpdateInfo {
+	if v := b.updateInfoEntries[region]; v != nil {
+		return v
+	}
+
+	return map[string][]*storedUpdateInfo{}
 }
 
 func (b *InMemoryBackend) newDirectoryID() string {

@@ -178,6 +178,19 @@ func (b *InMemoryBackend) lifecycleStore(region string) map[string][]LifecyclePo
 	return b.lifecyclePolicies[region]
 }
 
+// lifecycleStoreRO returns the region-scoped lifecyclePolicies map for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) lifecycleStoreRO(region string) map[string][]LifecyclePolicy {
+	if v := b.lifecyclePolicies[region]; v != nil {
+		return v
+	}
+
+	return map[string][]LifecyclePolicy{}
+}
+
 func (b *InMemoryBackend) backupStore(region string) map[string]string {
 	if b.backupPolicies[region] == nil {
 		b.backupPolicies[region] = make(map[string]string)
@@ -186,12 +199,38 @@ func (b *InMemoryBackend) backupStore(region string) map[string]string {
 	return b.backupPolicies[region]
 }
 
+// backupStoreRO returns the region-scoped backupPolicies map for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) backupStoreRO(region string) map[string]string {
+	if v := b.backupPolicies[region]; v != nil {
+		return v
+	}
+
+	return map[string]string{}
+}
+
 func (b *InMemoryBackend) fsPolicyStore(region string) map[string]string {
 	if b.fileSystemPolicies[region] == nil {
 		b.fileSystemPolicies[region] = make(map[string]string)
 	}
 
 	return b.fileSystemPolicies[region]
+}
+
+// fsPolicyStoreRO returns the region-scoped fileSystemPolicies map for
+// region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) fsPolicyStoreRO(region string) map[string]string {
+	if v := b.fileSystemPolicies[region]; v != nil {
+		return v
+	}
+
+	return map[string]string{}
 }
 
 func (b *InMemoryBackend) tokenIdxStore(region string) map[string]string {

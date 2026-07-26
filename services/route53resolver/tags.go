@@ -15,6 +15,18 @@ func (b *InMemoryBackend) tagsStore(region string) map[string][]svcTags.KV {
 	return b.tags[region]
 }
 
+// tagsStoreRO returns the region-scoped tags map for region without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty map
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) tagsStoreRO(region string) map[string][]svcTags.KV {
+	if v := b.tags[region]; v != nil {
+		return v
+	}
+
+	return map[string][]svcTags.KV{}
+}
+
 // TagResource adds or updates tags on a resource identified by its ARN.
 func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, kvs []svcTags.KV) error {
 	b.mu.Lock("TagResource")
@@ -70,7 +82,7 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	kvs := b.tagsStore(region)[resourceARN]
+	kvs := b.tagsStoreRO(region)[resourceARN]
 	if len(kvs) == 0 {
 		return []svcTags.KV{}
 	}

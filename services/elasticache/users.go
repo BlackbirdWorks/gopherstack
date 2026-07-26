@@ -23,7 +23,7 @@ func (b *InMemoryBackend) userARN(region, userID string) string {
 // least b.mu.RLock.
 func (b *InMemoryBackend) userGroupIDsLocked(region, userID string) []string {
 	var ids []string
-	for _, ug := range b.userGroupsStore(region).All() {
+	for _, ug := range b.userGroupsStoreRO(region).All() {
 		if slices.Contains(ug.UserIDs, userID) {
 			ids = append(ids, ug.UserGroupID)
 		}
@@ -162,7 +162,7 @@ func (b *InMemoryBackend) DescribeUsers(
 
 	region := getRegion(ctx, b.region)
 
-	p, err := describePaged(b.usersStore(region), userID, ErrUserNotFound, nil,
+	p, err := describePaged(b.usersStoreRO(region), userID, ErrUserNotFound, nil,
 		func(u User) string { return u.UserID }, marker, maxRecords)
 	if err != nil {
 		return p, err

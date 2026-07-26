@@ -104,7 +104,7 @@ func (b *InMemoryBackend) DescribeRecipe(ctx context.Context, name, version stri
 	if !ok {
 		return nil, ErrNotFound
 	}
-	versions := b.recipeVersionsStore(region)[name]
+	versions := b.recipeVersionsStoreRO(region)[name]
 
 	switch version {
 	case "", recipeVersionLatestPublished:
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) ListRecipes(
 
 	region := getRegion(ctx, b.defaultRegion)
 	t := b.recipesTable(region)
-	versions := b.recipeVersionsStore(region)
+	versions := b.recipeVersionsStoreRO(region)
 	allNames := snapshotKeys(t, recipeKeyFn)
 
 	showWorking := versionFilter == recipeVersionLatestWorking
@@ -196,7 +196,7 @@ func (b *InMemoryBackend) ListRecipeVersions(
 	// versions is stored in publish order (oldest first), which is also
 	// numerically increasing (PublishRecipe always appends "len+1.0"), so no
 	// separate sort is needed -- same pattern as jobRuns.
-	versions := b.recipeVersionsStore(region)[name]
+	versions := b.recipeVersionsStoreRO(region)[name]
 	if maxResults <= 0 {
 		maxResults = 100
 	}

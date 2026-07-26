@@ -307,7 +307,7 @@ func (b *InMemoryBackend) DescribeClusters(
 		filter = func(c Cluster) bool { return c.ReplicationGroupID == "" }
 	}
 
-	p, err := describePaged(b.clustersStore(region), id, ErrClusterNotFound, filter,
+	p, err := describePaged(b.clustersStoreRO(region), id, ErrClusterNotFound, filter,
 		func(c Cluster) string { return c.ClusterID }, marker, maxRecords)
 
 	return b.finalizeClusterPage(id, p, err)

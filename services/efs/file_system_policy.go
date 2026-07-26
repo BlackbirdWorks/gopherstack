@@ -17,7 +17,7 @@ func (b *InMemoryBackend) DescribeFileSystemPolicy(ctx context.Context, fileSyst
 		return "", fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	policy, ok := b.fsPolicyStore(region)[fileSystemID]
+	policy, ok := b.fsPolicyStoreRO(region)[fileSystemID]
 	if !ok {
 		return "", fmt.Errorf("%w: no policy found for file system %s", ErrPolicyNotFound, fileSystemID)
 	}

@@ -382,7 +382,7 @@ func (b *InMemoryBackend) DescribeServerlessCaches(
 
 	region := getRegion(ctx, b.region)
 
-	p, err := describePaged(b.serverlessCachesStore(region), name, ErrServerlessCacheNotFound, nil,
+	p, err := describePaged(b.serverlessCachesStoreRO(region), name, ErrServerlessCacheNotFound, nil,
 		func(sc ServerlessCache) string { return sc.Name }, marker, maxRecords)
 
 	return b.finalizeServerlessCachePage(name, p, err)
@@ -398,7 +398,7 @@ func (b *InMemoryBackend) DescribeServerlessCacheSnapshots(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	tbl := b.serverlessCacheSnapshotsStore(region)
+	tbl := b.serverlessCacheSnapshotsStoreRO(region)
 
 	if snapshotName != "" {
 		snap, ok := tbl.Get(snapshotName)

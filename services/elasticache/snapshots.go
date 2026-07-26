@@ -134,7 +134,7 @@ func (b *InMemoryBackend) DescribeSnapshots(
 		wantSource = snapshotSourceManual
 	}
 
-	p, err := describePaged(b.snapshotsStore(region), snapshotName, ErrSnapshotNotFound, func(s CacheSnapshot) bool {
+	p, err := describePaged(b.snapshotsStoreRO(region), snapshotName, ErrSnapshotNotFound, func(s CacheSnapshot) bool {
 		return (clusterID == "" || s.CacheClusterID == clusterID) &&
 			(replicationGroupID == "" || s.ReplicationGroupID == replicationGroupID) &&
 			(wantSource == "" || s.SnapshotSource == wantSource)

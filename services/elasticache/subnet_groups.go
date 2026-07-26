@@ -68,7 +68,7 @@ func (b *InMemoryBackend) DescribeSubnetGroups(
 
 	region := getRegion(ctx, b.region)
 
-	return describePaged(b.subnetGroupsStore(region), name, ErrSubnetGroupNotFound, nil,
+	return describePaged(b.subnetGroupsStoreRO(region), name, ErrSubnetGroupNotFound, nil,
 		func(sg CacheSubnetGroup) string { return sg.Name }, marker, maxRecords)
 }
 

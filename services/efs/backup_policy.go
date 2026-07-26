@@ -16,7 +16,7 @@ func (b *InMemoryBackend) DescribeBackupPolicy(ctx context.Context, fileSystemID
 		return "", fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	status, ok := b.backupStore(region)[fileSystemID]
+	status, ok := b.backupStoreRO(region)[fileSystemID]
 	if !ok {
 		return backupStatusDisabled, nil
 	}

@@ -115,6 +115,19 @@ func (b *InMemoryBackend) jobRunsStore(region string) map[string][]*JobRun {
 	return b.jobRuns[region]
 }
 
+// jobRunsStoreRO returns the per-region jobName -> runs map for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) jobRunsStoreRO(region string) map[string][]*JobRun {
+	if v := b.jobRuns[region]; v != nil {
+		return v
+	}
+
+	return map[string][]*JobRun{}
+}
+
 // recipeVersionsStore returns the per-region recipeName -> published version
 // snapshots map, lazily creating it. Callers must hold b.mu.
 func (b *InMemoryBackend) recipeVersionsStore(region string) map[string][]*Recipe {
@@ -123,6 +136,19 @@ func (b *InMemoryBackend) recipeVersionsStore(region string) map[string][]*Recip
 	}
 
 	return b.recipeVersions[region]
+}
+
+// recipeVersionsStoreRO returns the per-region recipeName -> published
+// version snapshots map for region without mutating the outer map. Safe to
+// call while holding only b.mu.RLock(): if the region has not been observed
+// yet, it returns a fresh, unregistered, empty map instead of lazily
+// creating (and persisting) an entry.
+func (b *InMemoryBackend) recipeVersionsStoreRO(region string) map[string][]*Recipe {
+	if v := b.recipeVersions[region]; v != nil {
+		return v
+	}
+
+	return map[string][]*Recipe{}
 }
 
 // runDelayed schedules fn to run after delay on a tracked goroutine. The

@@ -1,8 +1,10 @@
 package route53resolver_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -224,6 +226,78 @@ func TestBackendReset(t *testing.T) {
 	assert.Equal(t, 0, route53resolver.EndpointCount(b))
 	assert.Equal(t, 0, route53resolver.RuleCount(b))
 	assert.Equal(t, 0, route53resolver.FirewallRuleGroupCount(b))
+}
+
+// TestBackend_ConcurrentReadNoRace is a regression test for a class of data
+// races where a read-only method -- holding only b.mu.RLock() -- lazily
+// initialised a per-region resource map (e.g. b.tags[region] = ...) exactly
+// like the Tag*/Put*Policy methods that hold the full b.mu.Lock(). Two
+// RLock-holding readers could both observe a nil entry for a region no
+// writer has ever touched and concurrently write to the same outer map,
+// which is a data race on a plain Go map regardless of the RWMutex, since
+// RLock does not serialize readers against each other.
+//
+// Each case hammers one such read path from many workers against a fresh
+// backend for an ARN that has never been tagged/policied, so the very first
+// call is the one that would lazily create the per-region entry. Run with
+// `go test -race` to catch a regression of this class; it must pass cleanly
+// with no race detected.
+func TestBackend_ConcurrentReadNoRace(t *testing.T) {
+	t.Parallel()
+
+	const arn = "arn:aws:route53resolver:us-east-1:000000000000:resolver-rule/rslvr-rr-neverwritten"
+
+	tests := []struct {
+		call func(b *route53resolver.InMemoryBackend, ctx context.Context)
+		name string
+	}{
+		{
+			name: "list_tags_for_resource",
+			call: func(b *route53resolver.InMemoryBackend, ctx context.Context) {
+				_ = b.ListTagsForResource(ctx, arn)
+			},
+		},
+		{
+			name: "get_resolver_rule_policy",
+			call: func(b *route53resolver.InMemoryBackend, ctx context.Context) {
+				_ = b.GetResolverRulePolicy(ctx, arn)
+			},
+		},
+		{
+			name: "get_firewall_rule_group_policy",
+			call: func(b *route53resolver.InMemoryBackend, ctx context.Context) {
+				_ = b.GetFirewallRuleGroupPolicy(ctx, arn)
+			},
+		},
+		{
+			name: "get_resolver_query_log_config_policy",
+			call: func(b *route53resolver.InMemoryBackend, ctx context.Context) {
+				_ = b.GetResolverQueryLogConfigPolicy(ctx, arn)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
+			ctx := context.Background()
+
+			const workers = 16
+			const opsPerWorker = 25
+
+			var wg sync.WaitGroup
+			for range workers {
+				wg.Go(func() {
+					for range opsPerWorker {
+						tt.call(backend, ctx)
+					}
+				})
+			}
+			wg.Wait()
+		})
+	}
 }
 
 // --- ListResolverEndpointIPAddresses not-found ---

@@ -200,6 +200,18 @@ func (b *InMemoryBackend) tagsStore(region string) map[string][]Tag {
 	return b.tags[region]
 }
 
+// tagsStoreRO returns the region-scoped tags map for region without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty map
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) tagsStoreRO(region string) map[string][]Tag {
+	if v := b.tags[region]; v != nil {
+		return v
+	}
+
+	return map[string][]Tag{}
+}
+
 // Reset clears all stored state, returning the backend to an empty state.
 //
 // It calls b.registry.ResetAll() rather than re-registering tables:

@@ -214,7 +214,11 @@ func (b *InMemoryBackend) ExportSnapshot(ctx context.Context, req *exportSnapsho
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	s, ok := b.snapshotsStore(region).Get(req.SnapshotName)
+	// tableGet reads b.snapshots[region] directly (nil-safe) rather than
+	// through snapshotsStore, which lazily creates the region's table -- a
+	// data race when called from a read-only method holding only
+	// b.mu.RLock(). Matches DescribeSnapshots above.
+	s, ok := tableGet(b.snapshots[region], req.SnapshotName)
 	if !ok {
 		return nil, ErrSnapshotNotFound
 	}

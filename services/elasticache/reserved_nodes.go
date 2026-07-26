@@ -72,7 +72,7 @@ func (b *InMemoryBackend) DescribeReservedCacheNodes(
 	region := getRegion(ctx, b.region)
 
 	return describePaged(
-		b.reservedCacheNodesStore(region),
+		b.reservedCacheNodesStoreRO(region),
 		id,
 		ErrReservedCacheNodeNotFound,
 		func(rcn ReservedCacheNode) bool {

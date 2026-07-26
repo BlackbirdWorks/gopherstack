@@ -562,7 +562,7 @@ func (b *InMemoryBackend) findClusterByIDOrARN(region, idOrARN string) *Cluster 
 		return c
 	}
 
-	if id, ok := b.arnIndexStore(region)[idOrARN]; ok {
+	if id, ok := b.arnIndexStoreRO(region)[idOrARN]; ok {
 		if c, found := b.clusterGet(region, id); found {
 			return c
 		}

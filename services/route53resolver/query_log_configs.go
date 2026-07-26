@@ -20,6 +20,19 @@ func (b *InMemoryBackend) queryLogConfigPoliciesStore(region string) map[string]
 	return b.queryLogConfigPolicies[region]
 }
 
+// queryLogConfigPoliciesStoreRO returns the region-scoped
+// queryLogConfigPolicies map for region without mutating the outer map.
+// Safe to call while holding only b.mu.RLock(): if the region has not been
+// observed yet, it returns a fresh, unregistered, empty map instead of
+// lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) queryLogConfigPoliciesStoreRO(region string) map[string]string {
+	if v := b.queryLogConfigPolicies[region]; v != nil {
+		return v
+	}
+
+	return map[string]string{}
+}
+
 // CreateResolverQueryLogConfig creates a new query logging configuration.
 func (b *InMemoryBackend) CreateResolverQueryLogConfig(
 	ctx context.Context,
@@ -171,7 +184,7 @@ func (b *InMemoryBackend) GetResolverQueryLogConfigPolicy(ctx context.Context, a
 
 	region := getRegion(ctx, b.region)
 
-	return b.queryLogConfigPoliciesStore(region)[arnStr]
+	return b.queryLogConfigPoliciesStoreRO(region)[arnStr]
 }
 
 // PutResolverQueryLogConfigPolicy stores a resource policy for a query log config ARN.

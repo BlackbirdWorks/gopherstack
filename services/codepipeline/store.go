@@ -170,6 +170,19 @@ func (b *InMemoryBackend) executionsStore(region string) map[string][]*PipelineE
 	return b.executions[region]
 }
 
+// executionsStoreRO returns the per-region execution-history map for region
+// without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) executionsStoreRO(region string) map[string][]*PipelineExecution {
+	if v := b.executions[region]; v != nil {
+		return v
+	}
+
+	return map[string][]*PipelineExecution{}
+}
+
 // actionExecutionsStore returns the per-region action-execution map for
 // region, lazily creating it. Callers must hold b.mu.
 func (b *InMemoryBackend) actionExecutionsStore(region string) map[string][]*ActionExecution {
@@ -178,6 +191,19 @@ func (b *InMemoryBackend) actionExecutionsStore(region string) map[string][]*Act
 	}
 
 	return b.actionExecutions[region]
+}
+
+// actionExecutionsStoreRO returns the per-region action-execution map for
+// region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) actionExecutionsStoreRO(region string) map[string][]*ActionExecution {
+	if v := b.actionExecutions[region]; v != nil {
+		return v
+	}
+
+	return map[string][]*ActionExecution{}
 }
 
 // actionRevisionKey builds the composite key PutActionRevision/GetPipelineState
@@ -194,6 +220,19 @@ func (b *InMemoryBackend) actionRevisionsStore(region string) map[string]*Action
 	}
 
 	return b.actionRevisions[region]
+}
+
+// actionRevisionsStoreRO returns the per-region action-revision map for
+// region without mutating the outer map. Safe to call while holding only
+// b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
+// unregistered, empty map instead of lazily creating (and persisting) an
+// entry.
+func (b *InMemoryBackend) actionRevisionsStoreRO(region string) map[string]*ActionRevisionRecord {
+	if v := b.actionRevisions[region]; v != nil {
+		return v
+	}
+
+	return map[string]*ActionRevisionRecord{}
 }
 
 // Region returns the default region for this backend instance.

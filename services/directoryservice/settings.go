@@ -52,7 +52,7 @@ func (b *InMemoryBackend) DescribeDirectoryDataAccess(
 		return nil, ErrDirectoryNotFound
 	}
 
-	enabled := b.dirDataAccessStore(region)[directoryID]
+	enabled := b.dirDataAccessStoreRO(region)[directoryID]
 
 	return &DirectoryDataAccessStatus{DirectoryID: directoryID, Enabled: enabled}, nil
 }
@@ -115,7 +115,7 @@ func (b *InMemoryBackend) DescribeSettings(
 		return nil, "", ErrDirectoryNotFound
 	}
 
-	settings := b.dirSettingsStore(region)[directoryID]
+	settings := b.dirSettingsStoreRO(region)[directoryID]
 	var filtered []storedDirectorySetting
 	for _, s := range settings {
 		if status != "" && s.Status != status {
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) DescribeUpdateDirectory(
 	}
 
 	var result []UpdateInfoEntry
-	for _, u := range b.updateInfoEntriesStore(region)[directoryID] {
+	for _, u := range b.updateInfoEntriesStoreRO(region)[directoryID] {
 		if updateType != "" && u.UpdateType != updateType {
 			continue
 		}

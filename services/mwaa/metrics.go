@@ -40,7 +40,7 @@ func (b *InMemoryBackend) GetMetrics(ctx context.Context, envName string) ([]Met
 		return nil, ErrEnvironmentNotFound
 	}
 
-	data := b.metricsStore(region)[envName]
+	data := b.metricsStoreRO(region)[envName]
 	result := make([]MetricDatum, len(data))
 	copy(result, data)
 

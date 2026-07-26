@@ -283,7 +283,7 @@ func (b *InMemoryBackend) GetEventBusPolicy(ctx context.Context, eventBusName st
 		return "", fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
-	policy := b.busePoliciesStore(region)[busKey]
+	policy := b.busePoliciesStoreRO(region)[busKey]
 	if policy == nil || len(policy.Statements) == 0 {
 		return "", nil
 	}
