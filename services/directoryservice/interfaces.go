@@ -176,12 +176,18 @@ type StorageBackend interface {
 
 	CreateHybridAD(
 		ctx context.Context,
-		name, shortName, description, password string,
-		edition DirectoryEdition,
+		assessmentID, secretArn string,
 		tags []Tag,
-	) (*Directory, string, error)
-	UpdateHybridAD(ctx context.Context, directoryID string) (string, error)
-	DescribeHybridADUpdate(ctx context.Context, directoryID string) ([]HybridADUpdateEntry, error)
+	) (*Directory, error)
+	UpdateHybridAD(
+		ctx context.Context,
+		directoryID, adminAccountSecretArn string,
+		selfManagedDNSIPs, selfManagedInstanceIDs []string,
+	) (assessmentID string, err error)
+	DescribeHybridADUpdate(
+		ctx context.Context,
+		directoryID, updateType string,
+	) (hybridAdministratorAccount, selfManagedInstances []HybridADUpdateEntry, err error)
 
 	CreateComputer(ctx context.Context, directoryID, computerName, password string) (*ComputerInfo, error)
 
@@ -419,9 +425,11 @@ type RadiusSettingsDescription struct {
 	UseSameUsername        bool
 }
 
-// HybridSettingsDescription mirrors AWS's HybridSettingsDescription. This
-// backend never populates it: CreateHybridAD/UpdateHybridAD do not capture
-// self-managed instance IDs or DNS IPs (see PARITY.md).
+// HybridSettingsDescription mirrors AWS's HybridSettingsDescription. Populated
+// once a directory is hybridized via CreateHybridAD (non-nil, initially empty
+// slices) and kept current by UpdateHybridAD's SelfManagedInstancesSettings
+// (CustomerDnsIps/InstanceIds) -- the only real source of this data, since
+// CreateHybridADInput itself carries none (see PARITY.md).
 type HybridSettingsDescription struct {
 	SelfManagedDNSIPAddrs  []string
 	SelfManagedInstanceIDs []string

@@ -23,35 +23,30 @@ type storedConnectSettings struct {
 
 // storedDirectory holds a directory with all fields.
 type storedDirectory struct {
-	// region is the AWS region this directory belongs to. It is the outer
-	// half of the composite key ("region|DirectoryID") used by the backend's
-	// flat store.Table[storedDirectory] (see store_setup.go), which replaces
-	// the old map[string]map[string]*storedDirectory nesting (outer key =
-	// region). Unexported so it never appears in wire responses (those are
-	// built by toDirectory, never by marshaling storedDirectory directly),
-	// but persistence.go must carry it through a DTO explicitly since
-	// json.Marshal never sees unexported fields.
-	region                     string
 	LaunchTime                 time.Time              `json:"launchTime"`
 	StageLastUpdatedDateTime   time.Time              `json:"stageLastUpdatedDateTime"`
+	ConnectSettings            *storedConnectSettings `json:"connectSettings,omitempty"`
 	Tags                       map[string]string      `json:"tags"`
 	VpcSettings                *storedVpcSettings     `json:"vpcSettings,omitempty"`
-	ConnectSettings            *storedConnectSettings `json:"connectSettings,omitempty"`
-	DirectoryID                string                 `json:"directoryId"`
+	DirType                    string                 `json:"type"`
+	Size                       string                 `json:"size"`
 	Name                       string                 `json:"name"`
 	ShortName                  string                 `json:"shortName"`
 	Description                string                 `json:"description"`
 	Alias                      string                 `json:"alias"`
 	AccessURL                  string                 `json:"accessUrl"`
-	DirType                    string                 `json:"type"`
-	Stage                      string                 `json:"stage"`
-	Size                       string                 `json:"size"`
-	Edition                    string                 `json:"edition"`
-	NetworkType                string                 `json:"networkType"`
-	DNSIPAddrs                 []string               `json:"dnsIpAddrs"`
-	DNSIPv6Addrs               []string               `json:"dnsIpv6Addrs"`
-	SsoEnabled                 bool                   `json:"ssoEnabled"`
-	DesiredNumberOfDomainCtrls int32                  `json:"desiredNumberOfDomainControllers"`
+	region                     string
+	Stage                      string   `json:"stage"`
+	DirectoryID                string   `json:"directoryId"`
+	Edition                    string   `json:"edition"`
+	NetworkType                string   `json:"networkType"`
+	DNSIPAddrs                 []string `json:"dnsIpAddrs"`
+	DNSIPv6Addrs               []string `json:"dnsIpv6Addrs"`
+	HybridDNSIPs               []string `json:"hybridDnsIps,omitempty"`
+	HybridInstanceIDs          []string `json:"hybridInstanceIds,omitempty"`
+	DesiredNumberOfDomainCtrls int32    `json:"desiredNumberOfDomainControllers"`
+	SsoEnabled                 bool     `json:"ssoEnabled"`
+	IsHybridAD                 bool     `json:"isHybridAd,omitempty"`
 }
 
 func (d *storedDirectory) toDirectory() Directory {
@@ -92,6 +87,12 @@ func (d *storedDirectory) toDirectory() Directory {
 	if DirectoryType(d.DirType) == DirectoryTypeMicrosoftAD {
 		desired := d.DesiredNumberOfDomainCtrls
 		dir.DesiredNumberOfDomainControllers = &desired
+	}
+	if d.IsHybridAD {
+		dir.HybridSettings = &HybridSettingsDescription{
+			SelfManagedDNSIPAddrs:  d.HybridDNSIPs,
+			SelfManagedInstanceIDs: d.HybridInstanceIDs,
+		}
 	}
 
 	return dir
@@ -294,13 +295,31 @@ type storedRadiusSettings struct {
 // populated with the AWS request region for the API's own
 // ADAssessmentInfo.Region output) as the composite-key region component; see
 // adAssessmentKeyFn in store_setup.go.
+//
+// SourceDirectory{Name,ShortName,Description,Edition} are internal-only
+// bookkeeping (never surfaced by DescribeADAssessment/ListADAssessments --
+// they are not real Assessment/AssessmentSummary members), snapshotted from
+// the assessed directory at StartADAssessment time. CreateHybridAD's real
+// input is just {AssessmentId, SecretArn, Tags} -- AWS derives the new hybrid
+// directory's descriptive fields from the assessment's own
+// AssessmentConfiguration (DnsName etc.), which this backend does not capture
+// (StartADAssessment doesn't accept AssessmentConfiguration -- a separate,
+// already-tracked gap, see PARITY.md). Snapshotting the assessed directory's
+// real Name/ShortName/Description/Edition here lets CreateHybridAD source
+// genuinely real data instead of fabricating a domain name, and survives the
+// source directory being deleted later (the assessment record is the
+// historical source of truth, not a live join).
 type storedADAssessment struct {
-	StartTime    time.Time `json:"startTime"`
-	AssessmentID string    `json:"assessmentId"`
-	DirectoryID  string    `json:"directoryId"`
-	Status       string    `json:"status"`
-	AssessType   string    `json:"assessmentType"`
-	Region       string    `json:"region"`
+	StartTime                  time.Time `json:"startTime"`
+	AssessmentID               string    `json:"assessmentId"`
+	DirectoryID                string    `json:"directoryId"`
+	Status                     string    `json:"status"`
+	AssessType                 string    `json:"assessmentType"`
+	Region                     string    `json:"region"`
+	SourceDirectoryName        string    `json:"sourceDirectoryName,omitempty"`
+	SourceDirectoryShortName   string    `json:"sourceDirectoryShortName,omitempty"`
+	SourceDirectoryDescription string    `json:"sourceDirectoryDescription,omitempty"`
+	SourceDirectoryEdition     string    `json:"sourceDirectoryEdition,omitempty"`
 }
 
 type storedDirectorySetting struct {
@@ -325,13 +344,30 @@ type storedUpdateInfo struct {
 	Region              string    `json:"region"`
 }
 
+// storedHybridADUpdate is one HybridUpdateInfoEntry-shaped update-activity
+// record (types.HybridUpdateInfoEntry), logged once per UpdateHybridAD call
+// per UpdateType touched (HybridAdministratorAccount and/or
+// SelfManagedInstances -- a single call can log up to two entries). RequestID
+// is this backend's own store key, not a real HybridUpdateInfoEntry member --
+// unlike the fabricated top-level "RequestId" this shape used to leak onto
+// the wire (see PARITY.md), it is never surfaced by DescribeHybridADUpdate.
 type storedHybridADUpdate struct {
 	// region is the AWS region this hybrid AD update belongs to; see
 	// storedDirectory.region for the composite-key rationale.
-	region      string
-	RequestID   string `json:"requestId"`
-	DirectoryID string `json:"directoryId"`
-	Status      string `json:"status"`
+	region              string
+	RequestID           string    `json:"requestId"`
+	DirectoryID         string    `json:"directoryId"`
+	AssessmentID        string    `json:"assessmentId"`
+	UpdateType          string    `json:"updateType"`
+	InitiatedBy         string    `json:"initiatedBy"`
+	Status              string    `json:"status"`
+	StatusReason        string    `json:"statusReason,omitempty"`
+	StartTime           time.Time `json:"startTime"`
+	LastUpdatedDateTime time.Time `json:"lastUpdatedDateTime"`
+	NewDNSIPs           []string  `json:"newDnsIps,omitempty"`
+	NewInstanceIDs      []string  `json:"newInstanceIds,omitempty"`
+	PreviousDNSIPs      []string  `json:"previousDnsIps,omitempty"`
+	PreviousInstanceIDs []string  `json:"previousInstanceIds,omitempty"`
 }
 
 // --- Domain (wire-facing) types for the extended resource families ---
@@ -559,9 +595,20 @@ type ComputerInfo struct {
 	ComputerName string
 }
 
-// HybridADUpdateEntry domain type.
+// HybridADUpdateEntry mirrors types.HybridUpdateInfoEntry, the real per-entry
+// shape DescribeHybridADUpdate returns (nested under UpdateActivities.
+// HybridAdministratorAccount/SelfManagedInstances). NewDNSIPs/NewInstanceIDs
+// and PreviousDNSIPs/PreviousInstanceIDs mirror the real NewValue/
+// PreviousValue (types.HybridUpdateValue{DnsIps,InstanceIds}).
 type HybridADUpdateEntry struct {
-	RequestID   string
-	DirectoryID string
-	Status      string
+	StartTime           time.Time
+	LastUpdatedDateTime time.Time
+	AssessmentID        string
+	InitiatedBy         string
+	Status              string
+	StatusReason        string
+	NewDNSIPs           []string
+	NewInstanceIDs      []string
+	PreviousDNSIPs      []string
+	PreviousInstanceIDs []string
 }

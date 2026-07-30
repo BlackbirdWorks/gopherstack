@@ -119,10 +119,16 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// updateInfoEntries (raw map)
 	require.NoError(t, original.UpdateDirectorySetup(ctx, dirID, "OS", false))
 
-	// hybridADUpdates
-	hybridDir, hybridRequestID, err := original.CreateHybridAD(
-		ctx, "hybrid.example.com", "HYBRID", "hybrid directory", "Password123!",
-		directoryservice.DirectoryEditionEnterprise, nil,
+	// hybridADUpdates: real CreateHybridAD needs an existing successful
+	// assessment to reference (assessmentID, from StartADAssessment above);
+	// UpdateHybridAD (not CreateHybridAD) is what actually writes
+	// hybridADUpdates records, so exercise it to populate that table.
+	hybridDir, err := original.CreateHybridAD(
+		ctx, assessmentID, "arn:aws:secretsmanager:us-east-1:000000000000:secret:hybrid-admin", nil,
+	)
+	require.NoError(t, err)
+	hybridAssessmentID, err := original.UpdateHybridAD(
+		ctx, hybridDir.DirectoryID, "", []string{"10.0.0.10"}, []string{"i-0123456789abcdef0"},
 	)
 	require.NoError(t, err)
 
@@ -137,7 +143,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assertForwardingStateRestored(t, restored, dirID)
 	assertTrustStateRestored(t, restored, dirID, trustID, certID)
 	assertSettingsStateRestored(t, restored, dirID, assessmentID)
-	assertHybridStateRestored(t, restored, hybridDir.DirectoryID, hybridRequestID)
+	assertHybridStateRestored(t, restored, hybridDir.DirectoryID, hybridAssessmentID)
 }
 
 // assertCoreStateRestored verifies directories, snapshots, aliases and
@@ -281,13 +287,15 @@ func assertSettingsStateRestored(t *testing.T, b *directoryservice.InMemoryBacke
 
 // assertHybridStateRestored verifies the hybridADUpdates table survived the
 // round trip.
-func assertHybridStateRestored(t *testing.T, b *directoryservice.InMemoryBackend, hybridDirID, hybridRequestID string) {
+func assertHybridStateRestored(
+	t *testing.T, b *directoryservice.InMemoryBackend, hybridDirID, hybridAssessmentID string,
+) {
 	t.Helper()
 
-	updates, err := b.DescribeHybridADUpdate(t.Context(), hybridDirID)
+	_, selfManaged, err := b.DescribeHybridADUpdate(t.Context(), hybridDirID, "")
 	require.NoError(t, err)
-	require.Len(t, updates, 1)
-	assert.Equal(t, hybridRequestID, updates[0].RequestID)
+	require.Len(t, selfManaged, 1)
+	assert.Equal(t, hybridAssessmentID, selfManaged[0].AssessmentID)
 }
 
 // TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose

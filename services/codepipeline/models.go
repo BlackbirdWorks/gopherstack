@@ -48,28 +48,94 @@ type ActionConfigurationProperty struct {
 	Secret      bool   `json:"secret"`
 }
 
+// LambdaExecutorConfig is types.LambdaExecutorConfiguration's wire-equivalent:
+// the Lambda function backing an ActionTypeDeclaration's Executor when
+// Executor.Type is "Lambda".
+type LambdaExecutorConfig struct {
+	LambdaFunctionArn string `json:"lambdaFunctionArn,omitempty"`
+}
+
+// JobWorkerExecutorConfig is types.JobWorkerExecutorConfiguration's
+// wire-equivalent: the accounts/service-principals allowed to poll for jobs when
+// Executor.Type is "JobWorker". Both members are optional per the real SDK.
+type JobWorkerExecutorConfig struct {
+	PollingAccounts          []string `json:"pollingAccounts,omitempty"`
+	PollingServicePrincipals []string `json:"pollingServicePrincipals,omitempty"`
+}
+
+// ActionTypeExecutorConfiguration is types.ExecutorConfiguration's wire-equivalent:
+// exactly one of JobWorkerExecutorConfiguration/LambdaExecutorConfiguration is set,
+// matching the real SDK (a union in practice, though not enforced as one server-side).
+type ActionTypeExecutorConfiguration struct {
+	// JobWorkerExecutorConfiguration configures Executor.Type == "JobWorker".
+	JobWorkerExecutorConfiguration *JobWorkerExecutorConfig `json:"jobWorkerExecutorConfiguration,omitempty"`
+	// LambdaExecutorConfiguration configures Executor.Type == "Lambda".
+	LambdaExecutorConfiguration *LambdaExecutorConfig `json:"lambdaExecutorConfiguration,omitempty"`
+}
+
+// ActionTypeExecutor is types.ActionTypeExecutor's wire-equivalent: the action
+// engine (Lambda or JobWorker integration model) for an action type managed via
+// the newer ActionTypeDeclaration shape (GetActionType/UpdateActionType), as
+// opposed to the legacy ActionType shape (CreateCustomActionType/ListActionTypes)
+// which has no Executor concept at all.
+type ActionTypeExecutor struct {
+	Configuration            *ActionTypeExecutorConfiguration `json:"configuration"`
+	Type                     string                           `json:"type"`
+	JobTimeout               *int                             `json:"jobTimeout,omitempty"`
+	PolicyStatementsTemplate string                           `json:"policyStatementsTemplate,omitempty"`
+}
+
+// ActionTypePermissions is types.ActionTypePermissions' wire-equivalent.
+type ActionTypePermissions struct {
+	AllowedAccounts []string `json:"allowedAccounts,omitempty"`
+}
+
+// ActionTypeProperty is types.ActionTypeProperty's wire-equivalent: the
+// ActionTypeDeclaration-shaped sibling of ActionConfigurationProperty (used by
+// the legacy CreateCustomActionType/ListActionTypes shape). Same role, different
+// real SDK type -- NoEcho/Optional here vs Required/Secret there.
+type ActionTypeProperty struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Key         bool   `json:"key"`
+	NoEcho      bool   `json:"noEcho"`
+	Optional    bool   `json:"optional"`
+	Queryable   bool   `json:"queryable,omitempty"`
+}
+
+// ActionTypeUrls is types.ActionTypeUrls' wire-equivalent: the
+// ActionTypeDeclaration-shaped sibling of ActionTypeSettings. Not a superset/subset
+// of ActionTypeSettings -- ConfigurationURL has no legacy equivalent and
+// ThirdPartyConfigurationUrl has no declaration equivalent, confirmed against
+// types.ActionTypeUrls/types.ActionTypeSettings.
+type ActionTypeUrls struct {
+	ConfigurationURL     string `json:"configurationUrl,omitempty"`
+	EntityURLTemplate    string `json:"entityUrlTemplate,omitempty"`
+	ExecutionURLTemplate string `json:"executionUrlTemplate,omitempty"`
+	RevisionURLTemplate  string `json:"revisionUrlTemplate,omitempty"`
+}
+
 // CustomActionType represents an in-memory custom action type.
+//
+// Field order here is fieldalignment-optimized (slices, then same-size structs/
+// strings, then pointers/maps), not declaration/grouping order -- see the doc
+// comments below for which real API shape each field belongs to.
 type CustomActionType struct {
-	Settings *ActionTypeSettings `json:"settings,omitempty"`
-	Tags     map[string]string   `json:"-"`
-	// region is the AWS region this custom action type belongs to. It is the
-	// outer half of the composite key ("region|category/provider/version")
-	// used by the backend's flat store.Table[CustomActionType] (see
-	// customActionTypeKeyFn in store_setup.go), which replaces the old
-	// map[string]map[customActionTypeKey]*CustomActionType nesting (outer
-	// key = region). Unexported so it never appears in wire responses (those
-	// are built by marshaling CustomActionType directly, and this field
-	// carries no json tag so encoding/json skips it regardless), but
-	// persistence.go must carry it through a DTO explicitly since
-	// json.Marshal never sees unexported fields.
+	Settings                *ActionTypeSettings    `json:"settings,omitempty"`
+	Urls                    *ActionTypeUrls        `json:"urls,omitempty"`
+	Permissions             *ActionTypePermissions `json:"permissions,omitempty"`
+	Executor                *ActionTypeExecutor    `json:"executor,omitempty"`
+	Tags                    map[string]string      `json:"-"`
+	Description             string                 `json:"description,omitempty"`
+	Owner                   string                 `json:"owner"`
+	Provider                string                 `json:"provider"`
+	Version                 string                 `json:"version"`
+	Category                string                 `json:"category"`
 	region                  string
-	Category                string                        `json:"category"`
-	Owner                   string                        `json:"owner"`
-	Provider                string                        `json:"provider"`
-	Version                 string                        `json:"version"`
 	ConfigurationProperties []ActionConfigurationProperty `json:"configurationProperties,omitempty"`
-	InputArtifactDetails    ArtifactDetails               `json:"inputArtifactDetails"`
+	Properties              []ActionTypeProperty          `json:"properties,omitempty"`
 	OutputArtifactDetails   ArtifactDetails               `json:"outputArtifactDetails"`
+	InputArtifactDetails    ArtifactDetails               `json:"inputArtifactDetails"`
 }
 
 // customActionTypeKey is the composite key for a custom action type.

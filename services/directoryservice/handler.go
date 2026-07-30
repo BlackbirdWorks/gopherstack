@@ -40,13 +40,15 @@ const (
 	opListTagsForResource    = "ListTagsForResource"
 	opUnknown                = "Unknown"
 
-	keyDirectoryID = "DirectoryId"
-	keySnapshotID  = "SnapshotId"
-	keyLaunchTime  = "LaunchTime"
-	keyStartTime   = "StartTime"
-	keyStatus      = "Status"
-	keyRegion      = "Region"
-	keyRequestID   = "RequestId"
+	keyDirectoryID         = "DirectoryId"
+	keySnapshotID          = "SnapshotId"
+	keyLaunchTime          = "LaunchTime"
+	keyStartTime           = "StartTime"
+	keyStatus              = "Status"
+	keyRegion              = "Region"
+	keyRequestID           = "RequestId"
+	keyAssessmentID        = "AssessmentId"
+	keyLastUpdatedDateTime = "LastUpdatedDateTime"
 
 	keyRemoteDomainName = "RemoteDomainName"
 	keyTopicName        = "TopicName"
@@ -563,6 +565,26 @@ func directoryRegionsInfoJSON(ri *RegionsInfo) map[string]any {
 	}
 }
 
+func directoryHybridSettingsJSON(hs *HybridSettingsDescription) map[string]any {
+	if hs == nil {
+		return nil
+	}
+
+	dnsIPs := hs.SelfManagedDNSIPAddrs
+	if dnsIPs == nil {
+		dnsIPs = []string{}
+	}
+	instanceIDs := hs.SelfManagedInstanceIDs
+	if instanceIDs == nil {
+		instanceIDs = []string{}
+	}
+
+	return map[string]any{
+		"SelfManagedDnsIpAddrs":  dnsIPs,
+		"SelfManagedInstanceIds": instanceIDs,
+	}
+}
+
 func directoryToJSON(d *Directory) map[string]any {
 	dnsIPAddrs := d.DNSIPAddrs
 	if dnsIPAddrs == nil {
@@ -606,6 +628,9 @@ func directoryToJSON(d *Directory) map[string]any {
 	}
 	if d.DesiredNumberOfDomainControllers != nil {
 		out["DesiredNumberOfDomainControllers"] = *d.DesiredNumberOfDomainControllers
+	}
+	if hs := directoryHybridSettingsJSON(d.HybridSettings); hs != nil {
+		out["HybridSettings"] = hs
 	}
 
 	return out

@@ -91,7 +91,7 @@ func (b *InMemoryBackend) UpdateSettings(
 				AllowedValues:       s.AllowedValues,
 				RequestedValue:      s.Value,
 				AppliedValue:        s.Value,
-				Status:              "Updated", //nolint:goconst // existing issue.
+				Status:              "Updated",
 				LastUpdatedDateTime: now,
 			}
 			dirSettings[directoryID] = append(dirSettings[directoryID], ns)

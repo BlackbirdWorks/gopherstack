@@ -9,14 +9,23 @@ import (
 	"github.com/google/uuid"
 )
 
-// StartADAssessment starts an AD assessment.
-func (b *InMemoryBackend) StartADAssessment(ctx context.Context, directoryID string) (string, error) {
-	region := getRegion(ctx, b.region)
+// assessmentStatusSuccess is the real types.Assessment.Status value ("Valid
+// values include SUCCESS, FAILED, PENDING, and IN_PROGRESS") this backend
+// produces: every assessment here completes synchronously and successfully,
+// since there is no real environment-compatibility check to fail. Previously
+// this backend used the non-enum value "Completed" here -- a genuine
+// wire-value bug (not just a missing field), found and fixed as part of
+// gopherstack-10hx since CreateHybridAD needs a real success status to gate
+// on.
+const assessmentStatusSuccess = "SUCCESS"
 
-	b.mu.Lock("StartADAssessment")
-	defer b.mu.Unlock()
-
-	if _, ok := b.directoryGet(region, directoryID); !ok {
+// StartADAssessment starts an AD assessment of an existing directory (the
+// only mode this backend supports -- StartADAssessmentInput.AssessmentConfiguration,
+// the directory-less pre-creation mode real CreateHybridAD callers normally
+// use, is not accepted; see PARITY.md). Callers must hold b.mu (write lock).
+func (b *InMemoryBackend) startADAssessmentLocked(region, directoryID string) (string, error) {
+	d, ok := b.directoryGet(region, directoryID)
+	if !ok {
 		return "", ErrDirectoryNotFound
 	}
 
@@ -24,7 +33,7 @@ func (b *InMemoryBackend) StartADAssessment(ctx context.Context, directoryID str
 	b.adAssessmentPut(&storedADAssessment{
 		AssessmentID: id,
 		DirectoryID:  directoryID,
-		Status:       "Completed",
+		Status:       assessmentStatusSuccess,
 		// AWS's real Assessment/AssessmentSummary.ReportType is "CUSTOMER" or
 		// "SYSTEM": CUSTOMER means the assessment was started directly via
 		// StartADAssessment (as every assessment in this backend is, since
@@ -34,9 +43,26 @@ func (b *InMemoryBackend) StartADAssessment(ctx context.Context, directoryID str
 		AssessType: "CUSTOMER",
 		Region:     region,
 		StartTime:  time.Now().UTC(),
+		// Snapshotted so a later CreateHybridAD can source real (not
+		// fabricated) descriptive fields for the hybrid directory it derives
+		// from this assessment -- see the storedADAssessment doc comment.
+		SourceDirectoryName:        d.Name,
+		SourceDirectoryShortName:   d.ShortName,
+		SourceDirectoryDescription: d.Description,
+		SourceDirectoryEdition:     d.Edition,
 	})
 
 	return id, nil
+}
+
+// StartADAssessment starts an AD assessment.
+func (b *InMemoryBackend) StartADAssessment(ctx context.Context, directoryID string) (string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("StartADAssessment")
+	defer b.mu.Unlock()
+
+	return b.startADAssessmentLocked(region, directoryID)
 }
 
 // DeleteADAssessment deletes an AD assessment.
