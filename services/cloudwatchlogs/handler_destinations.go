@@ -79,6 +79,8 @@ func (h *Handler) handlePutDestinationPolicy(
 
 type describeDestinationsInput struct {
 	DestinationNamePrefix string `json:"DestinationNamePrefix,omitempty"`
+	NextToken             string `json:"nextToken,omitempty"`
+	Limit                 int    `json:"limit,omitempty"`
 }
 
 func (h *Handler) handleDescribeDestinations(
@@ -89,13 +91,18 @@ func (h *Handler) handleDescribeDestinations(
 	_ = json.Unmarshal(body, &in)
 
 	if b := cwlBackend(h); b != nil {
-		dests := b.DescribeDestinations(in.DestinationNamePrefix)
+		dests, next := b.DescribeDestinations(in.DestinationNamePrefix, in.Limit, in.NextToken)
 		out := make([]map[string]any, 0, len(dests))
 		for i := range dests {
 			out = append(out, destinationWireShape(&dests[i]))
 		}
 
-		return map[string]any{"destinations": out}, nil
+		resp := map[string]any{"destinations": out}
+		if next != "" {
+			resp["nextToken"] = next
+		}
+
+		return resp, nil
 	}
 
 	return map[string]any{"destinations": []any{}}, nil

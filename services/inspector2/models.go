@@ -213,16 +213,30 @@ type CodeSecurityIntegration struct {
 }
 
 // CodeSecurityScanConfiguration represents a code security scan configuration.
+//
+// Level and RuleSetCategories mirror CreateCodeSecurityScanConfigurationInput's
+// required members: level sits alongside the nested "configuration" object on
+// the wire, while RuleSetCategories/PeriodicScanConfig/
+// ContinuousIntegrationScanConfig all nest *under* "configuration" (confirmed
+// via serializers.go's awsRestjson1_serializeDocumentCodeSecurityScanConfiguration)
+// -- see codeSecurityScanConfigToWire for the reshape. UpdateCodeSecurityScanConfiguration
+// only ever replaces that nested configuration object:
+// UpdateCodeSecurityScanConfigurationInput has just "configuration" and
+// "scanConfigurationArn" members, so level/scopeSettings/name are immutable
+// after creation on the real API. There is no "status" member anywhere on the
+// real CodeSecurityScanConfiguration/GetCodeSecurityScanConfigurationOutput
+// shape -- an earlier revision fabricated one; do not reintroduce it.
 type CodeSecurityScanConfiguration struct {
-	CreatedAt          time.Time         `json:"createdAt"`
-	UpdatedAt          time.Time         `json:"updatedAt"`
-	ScopeSettings      map[string]any    `json:"scopeSettings,omitempty"`
-	PeriodicScanConfig map[string]any    `json:"periodicScanConfiguration,omitempty"`
-	Tags               map[string]string `json:"tags,omitempty"`
-	Arn                string            `json:"scanConfigurationArn"`
-	Name               string            `json:"name"`
-	IntegrationArn     string            `json:"integrationArn,omitempty"`
-	Status             string            `json:"status"`
+	CreatedAt                       time.Time
+	UpdatedAt                       time.Time
+	ScopeSettings                   map[string]any
+	PeriodicScanConfig              map[string]any
+	ContinuousIntegrationScanConfig map[string]any
+	Tags                            map[string]string
+	Arn                             string
+	Name                            string
+	Level                           string
+	RuleSetCategories               []string
 }
 
 // CodeSecurityScanConfigurationAssociation links a scan config to a repository.

@@ -498,6 +498,9 @@ const (
 	keyCreationTime        = "creationTime"
 	keyLookupTableArn      = "lookupTableArn"
 	keyLastUpdatedTime     = "lastUpdatedTime"
+	keyState               = "state"
+	keyScheduledQueryArn   = "scheduledQueryArn"
+	keyAccountID           = "accountId"
 )
 
 // completenessActions returns dispatch entries for all previously notImplemented CloudWatch Logs operations.

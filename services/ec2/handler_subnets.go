@@ -55,7 +55,7 @@ func (h *Handler) handleCreateDefaultSubnet(vals url.Values, reqID string) (any,
 	resp.Subnet.CIDRBlock = subnet.CIDRBlock
 	resp.Subnet.AvailabilityZone = subnet.AvailabilityZone
 	resp.Subnet.IsDefault = subnet.IsDefault
-	resp.Subnet.State = "available"
+	resp.Subnet.State = stateAvailableImg
 
 	return resp, nil
 }

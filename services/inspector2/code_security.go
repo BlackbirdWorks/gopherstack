@@ -115,11 +115,40 @@ func (b *InMemoryBackend) ListCodeSecurityIntegrations() ([]*CodeSecurityIntegra
 	return result, nil
 }
 
+// isValidCodeSecurityLevel reports whether level is one of the
+// ConfigurationLevel enum values accepted by the real
+// CreateCodeSecurityScanConfigurationInput.level member.
+func isValidCodeSecurityLevel(level string) bool {
+	return slices.Contains([]string{"ORGANIZATION", "ACCOUNT"}, level)
+}
+
+// validateCodeSecurityRuleSetCategories enforces the real API's required,
+// enum-constrained configuration.ruleSetCategories member (confirmed via
+// types.CodeSecurityScanConfiguration's "This member is required" doc comment
+// -- required on both Create and Update since both share the same shape).
+func validateCodeSecurityRuleSetCategories(categories []string) error {
+	if len(categories) == 0 {
+		return fmt.Errorf("%w: configuration.ruleSetCategories is required", ErrValidation)
+	}
+
+	valid := []string{"SAST", "IAC", "SCA"}
+
+	for _, cat := range categories {
+		if !slices.Contains(valid, cat) {
+			return fmt.Errorf("%w: configuration.ruleSetCategories: invalid value %q", ErrValidation, cat)
+		}
+	}
+
+	return nil
+}
+
 // CreateCodeSecurityScanConfiguration creates a code security scan configuration.
 func (b *InMemoryBackend) CreateCodeSecurityScanConfiguration(
-	name string,
-	scopeSettings map[string]any,
+	name, level string,
+	ruleSetCategories []string,
+	continuousIntegrationScanConfig map[string]any,
 	periodicConfig map[string]any,
+	scopeSettings map[string]any,
 	tags map[string]string,
 ) (*CodeSecurityScanConfiguration, error) {
 	b.mu.Lock("CreateCodeSecurityScanConfiguration")
@@ -129,6 +158,18 @@ func (b *InMemoryBackend) CreateCodeSecurityScanConfiguration(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
+	if level == "" {
+		return nil, fmt.Errorf("%w: level is required", ErrValidation)
+	}
+
+	if !isValidCodeSecurityLevel(level) {
+		return nil, fmt.Errorf("%w: level: invalid value %q", ErrValidation, level)
+	}
+
+	if err := validateCodeSecurityRuleSetCategories(ruleSetCategories); err != nil {
+		return nil, err
+	}
+
 	if err := validateTags(tags); err != nil {
 		return nil, err
 	}
@@ -136,14 +177,16 @@ func (b *InMemoryBackend) CreateCodeSecurityScanConfiguration(
 	cfgARN := b.buildCodeSecurityScanConfigARN()
 	now := time.Now().UTC()
 	cfg := &CodeSecurityScanConfiguration{
-		Arn:                cfgARN,
-		Name:               name,
-		ScopeSettings:      scopeSettings,
-		PeriodicScanConfig: periodicConfig,
-		Status:             statusActive,
-		Tags:               tags,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		Arn:                             cfgARN,
+		Name:                            name,
+		Level:                           level,
+		RuleSetCategories:               ruleSetCategories,
+		ContinuousIntegrationScanConfig: continuousIntegrationScanConfig,
+		PeriodicScanConfig:              periodicConfig,
+		ScopeSettings:                   scopeSettings,
+		Tags:                            tags,
+		CreatedAt:                       now,
+		UpdatedAt:                       now,
 	}
 	b.codeSecurityScanConfigs.Put(cfg)
 
@@ -185,10 +228,15 @@ func (b *InMemoryBackend) GetCodeSecurityScanConfiguration(
 	return &cp, nil
 }
 
-// UpdateCodeSecurityScanConfiguration updates a code security scan configuration.
+// UpdateCodeSecurityScanConfiguration updates a code security scan
+// configuration. Real UpdateCodeSecurityScanConfigurationInput only carries
+// "configuration" (ruleSetCategories/periodicScanConfiguration/
+// continuousIntegrationScanConfiguration) and "scanConfigurationArn" -- level,
+// scopeSettings, and name are set at creation and are not update targets.
 func (b *InMemoryBackend) UpdateCodeSecurityScanConfiguration(
 	scanConfigARN string,
-	scopeSettings map[string]any,
+	ruleSetCategories []string,
+	continuousIntegrationScanConfig map[string]any,
 	periodicConfig map[string]any,
 ) (*CodeSecurityScanConfiguration, error) {
 	b.mu.Lock("UpdateCodeSecurityScanConfiguration")
@@ -199,14 +247,13 @@ func (b *InMemoryBackend) UpdateCodeSecurityScanConfiguration(
 		return nil, ErrCodeSecurityScanConfigNotFound
 	}
 
-	if scopeSettings != nil {
-		cfg.ScopeSettings = scopeSettings
+	if err := validateCodeSecurityRuleSetCategories(ruleSetCategories); err != nil {
+		return nil, err
 	}
 
-	if periodicConfig != nil {
-		cfg.PeriodicScanConfig = periodicConfig
-	}
-
+	cfg.RuleSetCategories = ruleSetCategories
+	cfg.ContinuousIntegrationScanConfig = continuousIntegrationScanConfig
+	cfg.PeriodicScanConfig = periodicConfig
 	cfg.UpdatedAt = time.Now().UTC()
 	cp := *cfg
 

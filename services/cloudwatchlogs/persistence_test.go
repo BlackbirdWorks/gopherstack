@@ -142,13 +142,19 @@ func TestInMemoryBackend_SnapshotRestore_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	importTask, err := original.CreateImportTask("arn:aws:iam:::role/import", "arn:aws:cloudtrail:::store/x")
 	require.NoError(t, err)
-	delivery, err := original.CreateDelivery("src-name", "arn:aws:logs:::delivery-destination/dst", nil)
+	delivery, err := original.CreateDelivery("src-name", "arn:aws:logs:::delivery-destination/dst", "", nil, nil, nil)
 	require.NoError(t, err)
 	detectorArn, err := original.CreateLogAnomalyDetector(
 		[]string{"arn:aws:logs:::log-group:/full/group"}, "detector", "", "", "", 0,
 	)
 	require.NoError(t, err)
-	scheduledArn, err := original.CreateScheduledQuery("sched", "fields @message", "", "", "")
+	scheduledArn, err := original.CreateScheduledQuery(cloudwatchlogs.ScheduledQueryCreateParams{
+		Name:               "sched",
+		QueryString:        "fields @message",
+		QueryLanguage:      "CWLI",
+		ScheduleExpression: "cron(0 * * * ? *)",
+		ExecutionRoleArn:   "arn:aws:iam::123456789012:role/scheduled-query-role",
+	})
 	require.NoError(t, err)
 
 	snap := original.Snapshot(ctx)
@@ -379,7 +385,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				dests := b.DescribeDestinations("")
+				dests, _ := b.DescribeDestinations("", 0, "")
 				require.Len(t, dests, 1)
 				assert.Equal(t, "my-dest", dests[0].DestinationName)
 				assert.Contains(t, dests[0].AccessPolicy, "Statement")
@@ -575,7 +581,7 @@ func TestBackend_Reset_ClearsNewMaps(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, task.ImportID)
 
-	_, err = b.CreateDelivery("src", "arn:aws:logs:us-east-1:123:delivery-destination:dst", nil)
+	_, err = b.CreateDelivery("src", "arn:aws:logs:us-east-1:123:delivery-destination:dst", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateLogAnomalyDetector(
@@ -584,7 +590,14 @@ func TestBackend_Reset_ClearsNewMaps(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateScheduledQuery("sq", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+	_, err = b.CreateScheduledQuery(cloudwatchlogs.ScheduledQueryCreateParams{
+		Name:               "sq",
+		QueryString:        "fields @message",
+		QueryLanguage:      "CWLI",
+		ScheduleExpression: "cron(0 * * * ? *)",
+		ExecutionRoleArn:   "arn:aws:iam::123456789012:role/scheduled-query-role",
+		State:              "ENABLED",
+	})
 	require.NoError(t, err)
 
 	// Reset and verify the backend returns empty state.
@@ -622,6 +635,7 @@ func TestInMemoryBackend_SnapshotRestore_NewMaps(t *testing.T) {
 	delivery, err := b.CreateDelivery(
 		"my-source",
 		"arn:aws:logs:us-east-1:123456789012:delivery-destination:dst",
+		"", nil, nil,
 		map[string]string{"env": "prod"},
 	)
 	require.NoError(t, err)
@@ -634,9 +648,14 @@ func TestInMemoryBackend_SnapshotRestore_NewMaps(t *testing.T) {
 	require.NoError(t, err)
 
 	// Populate scheduled query.
-	queryArn, err := b.CreateScheduledQuery(
-		"my-query", "fields @message", "cron(0 * * * ? *)", "", "ENABLED",
-	)
+	queryArn, err := b.CreateScheduledQuery(cloudwatchlogs.ScheduledQueryCreateParams{
+		Name:               "my-query",
+		QueryString:        "fields @message",
+		QueryLanguage:      "CWLI",
+		ScheduleExpression: "cron(0 * * * ? *)",
+		ExecutionRoleArn:   "arn:aws:iam::123456789012:role/scheduled-query-role",
+		State:              "ENABLED",
+	})
 	require.NoError(t, err)
 
 	// Snapshot and restore.

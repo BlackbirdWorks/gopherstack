@@ -7,9 +7,12 @@ import (
 )
 
 type createDeliveryInput struct {
-	Tags                   map[string]string `json:"tags"`
-	DeliverySourceName     string            `json:"deliverySourceName"`
-	DeliveryDestinationArn string            `json:"deliveryDestinationArn"`
+	Tags                    map[string]string        `json:"tags"`
+	S3DeliveryConfiguration *DeliveryS3Configuration `json:"s3DeliveryConfiguration"`
+	DeliverySourceName      string                   `json:"deliverySourceName"`
+	DeliveryDestinationArn  string                   `json:"deliveryDestinationArn"`
+	FieldDelimiter          string                   `json:"fieldDelimiter"`
+	RecordFields            []string                 `json:"recordFields"`
 }
 
 type createDeliveryOutput struct {
@@ -49,7 +52,10 @@ func (h *Handler) handleCreateDelivery(ctx context.Context, b []byte) (any, erro
 		return nil, err
 	}
 
-	delivery, err := h.Backend.CreateDelivery(input.DeliverySourceName, input.DeliveryDestinationArn, input.Tags)
+	delivery, err := h.Backend.CreateDelivery(
+		input.DeliverySourceName, input.DeliveryDestinationArn, input.FieldDelimiter,
+		input.RecordFields, input.S3DeliveryConfiguration, input.Tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -416,9 +422,10 @@ func (h *Handler) handleDeleteDeliverySource(
 }
 
 type updateDeliveryConfigurationInput struct {
-	ID             string   `json:"id"`
-	FieldDelimiter string   `json:"fieldDelimiter,omitempty"`
-	RecordFields   []string `json:"recordFields,omitempty"`
+	S3DeliveryConfiguration *DeliveryS3Configuration `json:"s3DeliveryConfiguration,omitempty"`
+	ID                      string                   `json:"id"`
+	FieldDelimiter          string                   `json:"fieldDelimiter,omitempty"`
+	RecordFields            []string                 `json:"recordFields,omitempty"`
 }
 
 func (h *Handler) handleUpdateDeliveryConfiguration(
@@ -431,7 +438,9 @@ func (h *Handler) handleUpdateDeliveryConfiguration(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		if err := b.UpdateDeliveryConfiguration(in.ID, in.FieldDelimiter, in.RecordFields); err != nil {
+		if err := b.UpdateDeliveryConfiguration(
+			in.ID, in.FieldDelimiter, in.RecordFields, in.S3DeliveryConfiguration,
+		); err != nil {
 			return nil, err
 		}
 	}

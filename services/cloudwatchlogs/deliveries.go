@@ -12,8 +12,17 @@ import (
 )
 
 // CreateDelivery creates a delivery between a delivery source and destination.
+// fieldDelimiter, recordFields, and s3Config are set at creation time, matching
+// real CreateDeliveryInput (confirmed via serializers.go's
+// awsAwsjson11_serializeOpDocumentCreateDeliveryInput: fieldDelimiter/
+// recordFields/s3DeliveryConfiguration are all top-level CreateDeliveryInput
+// members) -- an earlier revision only exposed these via the separate
+// UpdateDeliveryConfiguration op, so a real client that set them on create
+// (as the real API allows) had them silently dropped.
 func (b *InMemoryBackend) CreateDelivery(
-	deliverySourceName, deliveryDestinationArn string,
+	deliverySourceName, deliveryDestinationArn, fieldDelimiter string,
+	recordFields []string,
+	s3Config *DeliveryS3Configuration,
 	tags map[string]string,
 ) (*Delivery, error) {
 	if deliverySourceName == "" {
@@ -29,12 +38,15 @@ func (b *InMemoryBackend) CreateDelivery(
 	now := time.Now().UnixMilli()
 
 	d := &Delivery{
-		ID:                     id,
-		Arn:                    deliveryArn,
-		DeliverySourceName:     deliverySourceName,
-		DeliveryDestinationArn: deliveryDestinationArn,
-		Tags:                   maps.Clone(tags),
-		CreationTime:           now,
+		ID:                      id,
+		Arn:                     deliveryArn,
+		DeliverySourceName:      deliverySourceName,
+		DeliveryDestinationArn:  deliveryDestinationArn,
+		FieldDelimiter:          fieldDelimiter,
+		RecordFields:            recordFields,
+		S3DeliveryConfiguration: s3Config,
+		Tags:                    maps.Clone(tags),
+		CreationTime:            now,
 	}
 
 	b.mu.Lock("CreateDelivery")
@@ -386,8 +398,17 @@ func (b *InMemoryBackend) DeleteDeliverySource(name string) error {
 	return nil
 }
 
-// UpdateDeliveryConfiguration updates the field delimiter for a delivery.
-func (b *InMemoryBackend) UpdateDeliveryConfiguration(id, fieldDelimiter string, recordFields []string) error {
+// UpdateDeliveryConfiguration updates the field delimiter, record fields,
+// and/or S3 delivery configuration for a delivery. s3Config matches real
+// UpdateDeliveryConfigurationInput.S3DeliveryConfiguration (confirmed via
+// api_op_UpdateDeliveryConfiguration.go) -- an earlier revision only updated
+// fieldDelimiter/recordFields, silently dropping any S3DeliveryConfiguration
+// a real client sent.
+func (b *InMemoryBackend) UpdateDeliveryConfiguration(
+	id, fieldDelimiter string,
+	recordFields []string,
+	s3Config *DeliveryS3Configuration,
+) error {
 	b.mu.Lock("UpdateDeliveryConfiguration")
 	defer b.mu.Unlock()
 
@@ -402,6 +423,10 @@ func (b *InMemoryBackend) UpdateDeliveryConfiguration(id, fieldDelimiter string,
 
 	if len(recordFields) > 0 {
 		delivery.RecordFields = recordFields
+	}
+
+	if s3Config != nil {
+		delivery.S3DeliveryConfiguration = s3Config
 	}
 
 	return nil

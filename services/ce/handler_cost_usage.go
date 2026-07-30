@@ -41,20 +41,30 @@ func (h *Handler) handleGetCostAndUsage(
 		return nil, fmt.Errorf("%w: Granularity is required", ErrValidation)
 	}
 
-	start := ""
-	end := ""
-
-	if in.TimePeriod != nil {
-		start = in.TimePeriod["Start"]
-		end = in.TimePeriod["End"]
+	// Real GetCostAndUsageInput requires TimePeriod (a DateInterval whose Start
+	// and End members are themselves both required) and Metrics -- see
+	// api_op_GetCostAndUsage.go and types.DateInterval. An earlier revision
+	// silently defaulted a missing/partial TimePeriod to defaultStartDate/
+	// defaultEndDate and never checked Metrics at all, so a request missing
+	// either required member (which real AWS rejects with ValidationError)
+	// instead got a permissive, silently-defaulted 200.
+	if in.TimePeriod == nil {
+		return nil, fmt.Errorf("%w: TimePeriod is required", ErrValidation)
 	}
 
+	start := in.TimePeriod["Start"]
+	end := in.TimePeriod["End"]
+
 	if start == "" {
-		start = defaultStartDate
+		return nil, fmt.Errorf("%w: TimePeriod.Start is required", ErrValidation)
 	}
 
 	if end == "" {
-		end = defaultEndDate
+		return nil, fmt.Errorf("%w: TimePeriod.End is required", ErrValidation)
+	}
+
+	if len(in.Metrics) == 0 {
+		return nil, fmt.Errorf("%w: Metrics is required", ErrValidation)
 	}
 
 	granularity := in.Granularity

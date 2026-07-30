@@ -178,7 +178,7 @@ func (b *InMemoryBackend) GetActiveVpnTunnelStatus(
 		Phase2IntegrityAlgorithm:  "SHA2-256",
 		Phase2DHGroup:             activeVpnTunnelDefaultDHGroup,
 		IKEVersion:                ikeVersion,
-		ProvisioningStatus:        "available",
+		ProvisioningStatus:        stateAvailableImg,
 	}, nil
 }
 

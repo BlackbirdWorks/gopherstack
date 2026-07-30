@@ -27,13 +27,13 @@ func TestDestination_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				dests := b.DescribeDestinations("")
+				dests, _ := b.DescribeDestinations("", 0, "")
 				require.Len(t, dests, 1)
 
 				err := b.DeleteDestination("my-dest")
 				require.NoError(t, err)
 
-				dests = b.DescribeDestinations("")
+				dests, _ = b.DescribeDestinations("", 0, "")
 				assert.Empty(t, dests)
 			},
 		},
@@ -48,7 +48,7 @@ func TestDestination_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				dests := b.DescribeDestinations("")
+				dests, _ := b.DescribeDestinations("", 0, "")
 				require.Len(t, dests, 1)
 				assert.Equal(t, "arn:new", dests[0].TargetArn)
 				assert.Equal(t, "arn:role-new", dests[0].RoleArn)
@@ -65,7 +65,7 @@ func TestDestination_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				dests := b.DescribeDestinations("")
+				dests, _ := b.DescribeDestinations("", 0, "")
 				require.Len(t, dests, 1)
 				assert.JSONEq(t, `{"Statement":[]}`, dests[0].AccessPolicy)
 			},
@@ -81,14 +81,14 @@ func TestDestination_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				all := b.DescribeDestinations("")
+				all, _ := b.DescribeDestinations("", 0, "")
 				assert.Len(t, all, 2)
 
-				prod := b.DescribeDestinations("prod")
+				prod, _ := b.DescribeDestinations("prod", 0, "")
 				require.Len(t, prod, 1)
 				assert.Equal(t, "prod-dest", prod[0].DestinationName)
 
-				none := b.DescribeDestinations("nonexistent")
+				none, _ := b.DescribeDestinations("nonexistent", 0, "")
 				assert.Empty(t, none)
 			},
 		},
@@ -114,6 +114,32 @@ func TestDestination_CRUD(t *testing.T) {
 				t.Helper()
 				_, err := b.PutDestination("", "arn:a", "arn:r")
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+			},
+		},
+		{
+			// Real DescribeDestinationsInput/Output support limit/nextToken
+			// pagination (see api_op_DescribeDestinations.go) -- a previous
+			// revision had no way to page through results at all.
+			name: "describe_paginates",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				for _, n := range []string{"dest-a", "dest-b", "dest-c"} {
+					_, err := b.PutDestination(n, "arn:a", "arn:r")
+					require.NoError(t, err)
+				}
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				page1, next1 := b.DescribeDestinations("", 2, "")
+				require.Len(t, page1, 2)
+				require.NotEmpty(t, next1)
+				assert.Equal(t, "dest-a", page1[0].DestinationName)
+				assert.Equal(t, "dest-b", page1[1].DestinationName)
+
+				page2, next2 := b.DescribeDestinations("", 2, next1)
+				require.Len(t, page2, 1)
+				assert.Empty(t, next2)
+				assert.Equal(t, "dest-c", page2[0].DestinationName)
 			},
 		},
 	}

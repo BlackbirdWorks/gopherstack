@@ -333,7 +333,7 @@ func (b *InMemoryBackend) GetCisScanResultDetails(scanArn string) (map[string]an
 			keyScanArn:         scan.ScanArn,
 			"checkId":          r.CheckID,
 			"checkDescription": r.CheckDescr,
-			"level":            r.Level,
+			keyLevel:           r.Level,
 			keyPlatform:        r.Platform,
 			keyStatus:          r.Status,
 			keyAccountID:       r.AccountID,
@@ -432,7 +432,7 @@ func (b *InMemoryBackend) ListCisScanResultsAggregatedByChecks(scanArn string) (
 			keyScanArn:         scan.ScanArn,
 			"checkId":          id,
 			"checkDescription": a.descr,
-			"level":            a.level,
+			keyLevel:           a.level,
 			keyPlatform:        a.platform,
 			"statusCounts": map[string]any{
 				"passed":  a.passed,

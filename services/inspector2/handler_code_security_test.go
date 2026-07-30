@@ -77,10 +77,18 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	// Create
 	rec := auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/create", map[string]any{
 		"name":          "my-scan-config",
+		"level":         "ACCOUNT",
 		"scopeSettings": map[string]any{"projectSelectionScope": "ALL"},
 		"tags":          map[string]string{"env": "test"},
+		"configuration": map[string]any{
+			"ruleSetCategories": []string{"SAST", "IAC"},
+			"continuousIntegrationScanConfiguration": map[string]any{
+				"supportedEvents": []string{"PULL_REQUEST"},
+			},
+			"periodicScanConfiguration": map[string]any{"frequency": "WEEKLY"},
+		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
@@ -93,21 +101,36 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	assert.Equal(t, "ACCOUNT", getResp["level"])
+	assert.NotContains(t, getResp, "status")
+	configuration, ok := getResp["configuration"].(map[string]any)
+	require.True(t, ok)
+	assert.ElementsMatch(t, []any{"SAST", "IAC"}, configuration["ruleSetCategories"])
+
 	// List
 	rec = auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/list", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	cfgs, _ := listResp["scanConfigurations"].([]any)
-	assert.Len(t, cfgs, 1)
+	cfgs, _ := listResp["configurations"].([]any)
+	require.Len(t, cfgs, 1)
+	summary, ok := cfgs[0].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, summary["ownerAccountId"])
+	assert.ElementsMatch(t, []any{"SAST", "IAC"}, summary["ruleSetCategories"])
+	assert.NotContains(t, summary, "configuration")
 
 	// Update
 	rec = auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/update", map[string]any{
 		"scanConfigurationArn": cfgARN,
-		"scopeSettings":        map[string]any{"projectSelectionScope": "SPECIFIC"},
+		"configuration": map[string]any{
+			"ruleSetCategories": []string{"SCA"},
+		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	// Batch associate
 	rec = auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/batch/associate", map[string]any{
@@ -154,6 +177,92 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 		"scanConfigurationArn": cfgARN,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestCodeSecurityScanConfigurationValidation covers
+// CreateCodeSecurityScanConfiguration/UpdateCodeSecurityScanConfiguration's
+// required "level" and "configuration.ruleSetCategories" members. Real
+// CreateCodeSecurityScanConfigurationInput requires both; an earlier revision
+// decoded scopeSettings/periodicScanConfiguration at the top level and never
+// looked for either, so no validation ever ran.
+func TestCodeSecurityScanConfigurationValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "missing_level_rejected",
+			body: map[string]any{
+				"name": "no-level",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+		},
+		{
+			name: "invalid_level_rejected",
+			body: map[string]any{
+				"name":  "bad-level",
+				"level": "GLOBAL",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+		},
+		{
+			name: "missing_rule_set_categories_rejected",
+			body: map[string]any{
+				"name":  "no-rule-set",
+				"level": "ACCOUNT",
+			},
+		},
+		{
+			name: "invalid_rule_set_category_rejected",
+			body: map[string]any{
+				"name":  "bad-rule-set",
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"NOT_A_CATEGORY"},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAuditHandler(t)
+			rec := auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/create", tc.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
+
+	t.Run("update_missing_rule_set_categories_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newAuditHandler(t)
+		rec := auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/create", map[string]any{
+			"name":  "update-target",
+			"level": "ACCOUNT",
+			"configuration": map[string]any{
+				"ruleSetCategories": []string{"SAST"},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+		var createResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		cfgARN, _ := createResp["scanConfigurationArn"].(string)
+		require.NotEmpty(t, cfgARN)
+
+		updateRec := auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/update", map[string]any{
+			"scanConfigurationArn": cfgARN,
+		})
+		assert.Equal(t, http.StatusBadRequest, updateRec.Code, updateRec.Body.String())
+	})
 }
 
 func TestCodeSecurityScanLifecycle(t *testing.T) {

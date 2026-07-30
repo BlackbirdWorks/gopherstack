@@ -100,7 +100,9 @@ type StorageBackend interface {
 	CancelImportTask(importID string) (*ImportTask, error)
 	// CreateDelivery creates a delivery between a delivery source and destination.
 	CreateDelivery(
-		deliverySourceName, deliveryDestinationArn string,
+		deliverySourceName, deliveryDestinationArn, fieldDelimiter string,
+		recordFields []string,
+		s3Config *DeliveryS3Configuration,
 		tags map[string]string,
 	) (*Delivery, error)
 	// CreateExportTask creates an asynchronous export task to S3.
@@ -117,9 +119,7 @@ type StorageBackend interface {
 		anomalyVisibilityTime int64,
 	) (string, error)
 	// CreateScheduledQuery creates a scheduled CloudWatch Logs Insights query.
-	CreateScheduledQuery(
-		name, queryString, scheduleExpression, executionRoleArn, state string,
-	) (string, error)
+	CreateScheduledQuery(p ScheduledQueryCreateParams) (string, error)
 	// DeleteAccountPolicy deletes a CloudWatch Logs account-level policy.
 	DeleteAccountPolicy(policyName, policyType string) error
 	// DescribeExportTasks lists export tasks optionally filtered by task ID or status.

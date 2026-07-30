@@ -423,7 +423,7 @@ func (b *InMemoryBackend) RestoreImageFromRecycleBin(imageID string) error {
 		b.images.Put(&AMIStub{
 			ImageID: binned.ImageID,
 			Name:    binned.Name,
-			State:   "available",
+			State:   stateAvailableImg,
 		})
 	}
 

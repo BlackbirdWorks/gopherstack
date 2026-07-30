@@ -8,6 +8,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testScheduledQueryParams returns a valid ScheduledQueryCreateParams for
+// tests that don't care about the specific field values, just that Create
+// succeeds -- ExecutionRoleArn and QueryLanguage are both required by the
+// real API (see ScheduledQueryCreateParams's doc comment).
+func testScheduledQueryParams(name string) cloudwatchlogs.ScheduledQueryCreateParams {
+	return cloudwatchlogs.ScheduledQueryCreateParams{
+		Name:               name,
+		QueryString:        "fields @message",
+		QueryLanguage:      "CWLI",
+		ScheduleExpression: "cron(0 * * * ? *)",
+		ExecutionRoleArn:   "arn:aws:iam::123456789012:role/scheduled-query-role",
+		State:              "ENABLED",
+	}
+}
+
 func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -26,13 +41,7 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 		{
 			name: "delete_existing",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				_, _ = b.CreateScheduledQuery(
-					"q1",
-					"fields @message",
-					"cron(0 * * * ? *)",
-					"",
-					"ENABLED",
-				)
+				_, _ = b.CreateScheduledQuery(testScheduledQueryParams("q1"))
 			},
 			op: "delete_first",
 		},
@@ -45,13 +54,7 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 		{
 			name: "update_state",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				_, _ = b.CreateScheduledQuery(
-					"q1",
-					"fields @message",
-					"cron(0 * * * ? *)",
-					"",
-					"ENABLED",
-				)
+				_, _ = b.CreateScheduledQuery(testScheduledQueryParams("q1"))
 			},
 			op:       "update_first",
 			newState: "DISABLED",
@@ -59,13 +62,7 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 		{
 			name: "update_invalid_state",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				_, _ = b.CreateScheduledQuery(
-					"q1",
-					"fields @message",
-					"cron(0 * * * ? *)",
-					"",
-					"ENABLED",
-				)
+				_, _ = b.CreateScheduledQuery(testScheduledQueryParams("q1"))
 			},
 			op:       "update_first",
 			newState: "INVALID",
@@ -85,13 +82,7 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 			var err error
 			switch tt.op {
 			case "list":
-				_, _ = b.CreateScheduledQuery(
-					"q1",
-					"fields @message",
-					"cron(0 * * * ? *)",
-					"",
-					"ENABLED",
-				)
+				_, _ = b.CreateScheduledQuery(testScheduledQueryParams("q1"))
 				var queries []cloudwatchlogs.ScheduledQuery
 				queries, _, err = b.ListScheduledQueries(50, "")
 				require.NoError(t, err)
@@ -137,7 +128,7 @@ func TestCloudWatchLogsBackend_GetScheduledQuery(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
-				arn, err := b.CreateScheduledQuery("q1", "fields @message", "", "", "ENABLED")
+				arn, err := b.CreateScheduledQuery(testScheduledQueryParams("q1"))
 				require.NoError(t, err)
 
 				return arn
@@ -193,7 +184,7 @@ func TestCloudWatchLogsBackend_GetScheduledQueryHistory(t *testing.T) {
 			name: "returns_initial_run_from_create",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
-				arn, err := b.CreateScheduledQuery("q1", "fields @message", "", "", "ENABLED")
+				arn, err := b.CreateScheduledQuery(testScheduledQueryParams("q1"))
 				require.NoError(t, err)
 
 				return arn
@@ -204,7 +195,7 @@ func TestCloudWatchLogsBackend_GetScheduledQueryHistory(t *testing.T) {
 			name: "returns_seeded_runs",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
-				arn, err := b.CreateScheduledQuery("q2", "fields @message", "", "", "ENABLED")
+				arn, err := b.CreateScheduledQuery(testScheduledQueryParams("q2"))
 				require.NoError(t, err)
 				cloudwatchlogs.AddScheduledQueryRunInternal(
 					b,

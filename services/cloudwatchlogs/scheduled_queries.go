@@ -30,19 +30,76 @@ func validScheduledQueryStates() map[string]struct{} {
 	}
 }
 
+// validScheduledQueryLanguages returns the allowed values for the scheduled
+// query queryLanguage field (aws-sdk-go-v2 types.QueryLanguage: CWLI/PPL/SQL,
+// per CreateScheduledQueryInput's doc comment).
+func validScheduledQueryLanguages() map[string]struct{} {
+	return map[string]struct{}{
+		"CWLI": {},
+		"PPL":  {},
+		"SQL":  {},
+	}
+}
+
+// ScheduledQueryCreateParams bundles CreateScheduledQuery's real-API request
+// fields (field-diffed against CreateScheduledQueryInput) to avoid an
+// unwieldy positional parameter list. Name/QueryString/QueryLanguage/
+// ScheduleExpression/ExecutionRoleArn are required, matching the real input's
+// "This member is required" members; State defaults to ENABLED when empty,
+// also matching the real default.
+type ScheduledQueryCreateParams struct {
+	DestinationConfiguration *ScheduledQueryDestinationConfig
+	ScheduleExpression       string
+	QueryLanguage            string
+	Name                     string
+	ExecutionRoleArn         string
+	State                    string
+	Description              string
+	Timezone                 string
+	QueryString              string
+	LogGroupIdentifiers      []string
+	EndTimeOffset            int64
+	StartTimeOffset          int64
+	ScheduleStartTime        int64
+	ScheduleEndTime          int64
+}
+
 // CreateScheduledQuery creates a scheduled CloudWatch Logs Insights query.
-// Returns the ARN of the created scheduled query.
-func (b *InMemoryBackend) CreateScheduledQuery(
-	name, queryString, scheduleExpression, _, state string,
-) (string, error) {
-	if name == "" {
+// Returns the ARN of the created scheduled query. Field-diffed against
+// CreateScheduledQueryInput: p.ExecutionRoleArn and p.QueryLanguage are both
+// real required members -- a previous revision accepted executionRoleArn
+// from the wire but silently discarded it (never stored, never returned),
+// and never modeled queryLanguage at all, so a real client's required
+// queryLanguage was accepted without validation and dropped.
+func (b *InMemoryBackend) CreateScheduledQuery(p ScheduledQueryCreateParams) (string, error) {
+	if p.Name == "" {
 		return "", fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	if queryString == "" {
+	if p.QueryString == "" {
 		return "", fmt.Errorf("%w: queryString is required", ErrValidation)
 	}
 
+	if p.ScheduleExpression == "" {
+		return "", fmt.Errorf("%w: scheduleExpression is required", ErrValidation)
+	}
+
+	if p.ExecutionRoleArn == "" {
+		return "", fmt.Errorf("%w: executionRoleArn is required", ErrValidation)
+	}
+
+	if p.QueryLanguage == "" {
+		return "", fmt.Errorf("%w: queryLanguage is required", ErrValidation)
+	}
+
+	if _, ok := validScheduledQueryLanguages()[p.QueryLanguage]; !ok {
+		return "", fmt.Errorf(
+			"%w: invalid queryLanguage %q, must be one of CWLI, PPL, SQL",
+			ErrValidation, p.QueryLanguage,
+		)
+	}
+
+	state := p.State
 	if state != "" {
 		if _, ok := validScheduledQueryStates()[state]; !ok {
 			return "", fmt.Errorf(
@@ -57,14 +114,27 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 
 	id := uuid.New().String()
 	queryARN := arn.Build("logs", b.region, b.accountID, "scheduled-query:"+id)
+	now := time.Now().UnixMilli()
 
 	sq := &ScheduledQuery{
-		ScheduledQueryArn:  queryARN,
-		Name:               name,
-		QueryString:        queryString,
-		ScheduleExpression: scheduleExpression,
-		State:              state,
-		CreationTime:       time.Now().UnixMilli(),
+		ScheduledQueryArn:        queryARN,
+		Name:                     p.Name,
+		Description:              p.Description,
+		QueryString:              p.QueryString,
+		QueryLanguage:            p.QueryLanguage,
+		ScheduleExpression:       p.ScheduleExpression,
+		ScheduleType:             "CUSTOMER_MANAGED",
+		ExecutionRoleArn:         p.ExecutionRoleArn,
+		State:                    state,
+		Timezone:                 p.Timezone,
+		LogGroupIdentifiers:      p.LogGroupIdentifiers,
+		DestinationConfiguration: p.DestinationConfiguration,
+		EndTimeOffset:            p.EndTimeOffset,
+		StartTimeOffset:          p.StartTimeOffset,
+		ScheduleStartTime:        p.ScheduleStartTime,
+		ScheduleEndTime:          p.ScheduleEndTime,
+		CreationTime:             now,
+		LastUpdatedTime:          now,
 	}
 
 	b.mu.Lock("CreateScheduledQuery")
@@ -76,8 +146,11 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 
 	b.scheduledQueries.Put(sq)
 
-	// Seed an initial SUCCEEDED run so history is non-empty from creation.
-	now := time.Now().UnixMilli()
+	// Seed an initial SUCCEEDED run so history is non-empty from creation, and
+	// reflect it on the ScheduledQuery row itself: real GetScheduledQueryOutput's
+	// lastExecutionStatus/lastTriggeredTime describe the most recent execution.
+	sq.LastExecutionStatus = "SUCCEEDED"
+	sq.LastTriggeredTime = now
 	b.scheduledQueryRuns.Put(&scheduledQueryRunHistory{
 		Arn: queryARN,
 		Runs: []*ScheduledQueryRunSummary{
@@ -169,6 +242,7 @@ func (b *InMemoryBackend) UpdateScheduledQuery(scheduledQueryArn, state string) 
 		)
 	}
 	sq.State = state
+	sq.LastUpdatedTime = time.Now().UnixMilli()
 
 	return nil
 }

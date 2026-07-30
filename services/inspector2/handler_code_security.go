@@ -187,11 +187,22 @@ func (h *Handler) handleCreateCodeSecurityScanConfiguration(c *echo.Context) err
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
 	}
 
+	// Real CreateCodeSecurityScanConfigurationInput nests ruleSetCategories,
+	// periodicScanConfiguration, and continuousIntegrationScanConfiguration
+	// under a required top-level "configuration" object (confirmed via
+	// serializers.go); level/name/scopeSettings/tags sit alongside it, not
+	// inside it. Decoding those three fields at the top level (as an earlier
+	// revision did) silently drops them on every real request.
 	var req struct {
-		ScopeSettings             map[string]any    `json:"scopeSettings"`
-		PeriodicScanConfiguration map[string]any    `json:"periodicScanConfiguration"`
-		Tags                      map[string]string `json:"tags"`
-		Name                      string            `json:"name"`
+		ScopeSettings map[string]any    `json:"scopeSettings"`
+		Tags          map[string]string `json:"tags"`
+		Name          string            `json:"name"`
+		Level         string            `json:"level"`
+		Configuration struct {
+			ContinuousIntegrationScanConfiguration map[string]any `json:"continuousIntegrationScanConfiguration"`
+			PeriodicScanConfiguration              map[string]any `json:"periodicScanConfiguration"`
+			RuleSetCategories                      []string       `json:"ruleSetCategories"`
+		} `json:"configuration"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -199,7 +210,9 @@ func (h *Handler) handleCreateCodeSecurityScanConfiguration(c *echo.Context) err
 	}
 
 	cfg, createErr := h.Backend.CreateCodeSecurityScanConfiguration(
-		req.Name, req.ScopeSettings, req.PeriodicScanConfiguration, req.Tags,
+		req.Name, req.Level, req.Configuration.RuleSetCategories,
+		req.Configuration.ContinuousIntegrationScanConfiguration,
+		req.Configuration.PeriodicScanConfiguration, req.ScopeSettings, req.Tags,
 	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
@@ -256,26 +269,37 @@ func (h *Handler) handleGetCodeSecurityScanConfiguration(c *echo.Context) error 
 // createdAt/lastUpdatedAt members are epoch-seconds DateTimeTimestamps (see
 // pkgs/awstime); the domain struct's own "updatedAt" JSON tag additionally
 // disagrees with the real "lastUpdatedAt" key name, so both must be
-// converted here rather than marshaling the struct directly.
+// converted here rather than marshaling the struct directly. ruleSetCategories/
+// periodicScanConfiguration/continuousIntegrationScanConfiguration nest under
+// a "configuration" object on the real wire (see
+// deserializers.go's awsRestjson1_deserializeOpDocumentGetCodeSecurityScanConfigurationOutput);
+// level/scopeSettings/name/tags/createdAt/lastUpdatedAt/scanConfigurationArn
+// are siblings of "configuration", not nested inside it. There is no "status"
+// member on the real GetCodeSecurityScanConfigurationOutput shape.
 func codeSecurityScanConfigToWire(cfg *CodeSecurityScanConfiguration) map[string]any {
+	configuration := map[string]any{
+		"ruleSetCategories": cfg.RuleSetCategories,
+	}
+
+	if cfg.PeriodicScanConfig != nil {
+		configuration["periodicScanConfiguration"] = cfg.PeriodicScanConfig
+	}
+
+	if cfg.ContinuousIntegrationScanConfig != nil {
+		configuration["continuousIntegrationScanConfiguration"] = cfg.ContinuousIntegrationScanConfig
+	}
+
 	entry := map[string]any{
 		keyScanConfigurationArn: cfg.Arn,
 		keyName:                 cfg.Name,
-		keyStatus:               cfg.Status,
+		keyLevel:                cfg.Level,
+		"configuration":         configuration,
 		keyCreatedAt:            awstime.Epoch(cfg.CreatedAt),
 		"lastUpdatedAt":         awstime.Epoch(cfg.UpdatedAt),
 	}
 
 	if cfg.ScopeSettings != nil {
 		entry["scopeSettings"] = cfg.ScopeSettings
-	}
-
-	if cfg.PeriodicScanConfig != nil {
-		entry["periodicScanConfiguration"] = cfg.PeriodicScanConfig
-	}
-
-	if cfg.IntegrationArn != "" {
-		entry[keyIntegrationArn] = cfg.IntegrationArn
 	}
 
 	if len(cfg.Tags) > 0 {
@@ -291,10 +315,18 @@ func (h *Handler) handleUpdateCodeSecurityScanConfiguration(c *echo.Context) err
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
 	}
 
+	// Real UpdateCodeSecurityScanConfigurationInput only carries "configuration"
+	// (nesting ruleSetCategories/periodicScanConfiguration/
+	// continuousIntegrationScanConfiguration) and "scanConfigurationArn" --
+	// there is no top-level scopeSettings on update, that member is
+	// create-time-only.
 	var req struct {
-		ScopeSettings             map[string]any `json:"scopeSettings"`
-		PeriodicScanConfiguration map[string]any `json:"periodicScanConfiguration"`
-		ScanConfigurationArn      string         `json:"scanConfigurationArn"`
+		ScanConfigurationArn string `json:"scanConfigurationArn"`
+		Configuration        struct {
+			ContinuousIntegrationScanConfiguration map[string]any `json:"continuousIntegrationScanConfiguration"`
+			PeriodicScanConfiguration              map[string]any `json:"periodicScanConfiguration"`
+			RuleSetCategories                      []string       `json:"ruleSetCategories"`
+		} `json:"configuration"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -302,7 +334,9 @@ func (h *Handler) handleUpdateCodeSecurityScanConfiguration(c *echo.Context) err
 	}
 
 	cfg, updateErr := h.Backend.UpdateCodeSecurityScanConfiguration(
-		req.ScanConfigurationArn, req.ScopeSettings, req.PeriodicScanConfiguration,
+		req.ScanConfigurationArn, req.Configuration.RuleSetCategories,
+		req.Configuration.ContinuousIntegrationScanConfiguration,
+		req.Configuration.PeriodicScanConfiguration,
 	)
 	if updateErr != nil {
 		return h.mapError(c, updateErr)
@@ -311,18 +345,62 @@ func (h *Handler) handleUpdateCodeSecurityScanConfiguration(c *echo.Context) err
 	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: cfg.Arn})
 }
 
+// codeSecurityScanConfigSummaryToWire renders a CodeSecurityScanConfiguration
+// in ListCodeSecurityScanConfigurationsOutput's real
+// CodeSecurityScanConfigurationSummary shape, which is flat -- unlike
+// GetCodeSecurityScanConfigurationOutput, there is no nested "configuration"
+// object: ruleSetCategories, continuousIntegrationScanSupportedEvents (a bare
+// event-name list, not the nested continuousIntegrationScanConfiguration
+// object), frequencyExpression, periodicScanFrequency, and scopeSettings all
+// sit directly on the summary (confirmed via
+// deserializers.go's awsRestjson1_deserializeDocumentCodeSecurityScanConfigurationSummary).
+// There is no tags/createdAt/lastUpdatedAt/level/status on the summary shape.
+func codeSecurityScanConfigSummaryToWire(cfg *CodeSecurityScanConfiguration, ownerAccountID string) map[string]any {
+	entry := map[string]any{
+		keyScanConfigurationArn: cfg.Arn,
+		keyName:                 cfg.Name,
+		"ownerAccountId":        ownerAccountID,
+		"ruleSetCategories":     cfg.RuleSetCategories,
+	}
+
+	if cfg.ScopeSettings != nil {
+		entry["scopeSettings"] = cfg.ScopeSettings
+	}
+
+	if events, ok := cfg.ContinuousIntegrationScanConfig["supportedEvents"]; ok {
+		entry["continuousIntegrationScanSupportedEvents"] = events
+	}
+
+	if freq, ok := cfg.PeriodicScanConfig["frequency"]; ok {
+		entry["periodicScanFrequency"] = freq
+	}
+
+	if expr, ok := cfg.PeriodicScanConfig["frequencyExpression"]; ok {
+		entry["frequencyExpression"] = expr
+	}
+
+	return entry
+}
+
 func (h *Handler) handleListCodeSecurityScanConfigurations(c *echo.Context) error {
 	cfgs, err := h.Backend.ListCodeSecurityScanConfigurations()
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
+	ownerAccountID := h.Backend.AccountID()
+
 	wire := make([]map[string]any, 0, len(cfgs))
 	for _, cfg := range cfgs {
-		wire = append(wire, codeSecurityScanConfigToWire(cfg))
+		wire = append(wire, codeSecurityScanConfigSummaryToWire(cfg, ownerAccountID))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurations: wire})
+	// Real ListCodeSecurityScanConfigurationsOutput's list member wire key is
+	// "configurations" (confirmed via deserializers.go), not "scanConfigurations"
+	// -- that key belongs to the unrelated CIS/connector scan-configuration
+	// list endpoints (see keyScanConfigurations's other call sites), reusing it
+	// here would leave a real client's Configurations field unpopulated.
+	return c.JSON(http.StatusOK, map[string]any{"configurations": wire})
 }
 
 func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration( //nolint:dupl // existing issue.
