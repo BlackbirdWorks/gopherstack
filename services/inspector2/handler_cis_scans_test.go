@@ -439,6 +439,67 @@ func TestCisScanConfigurationFullCycle(t *testing.T) {
 	assert.Empty(t, cfgs)
 }
 
+// TestCisScanConfiguration_ScanNameValidation covers
+// CreateCisScanConfiguration/UpdateCisScanConfiguration's real scanName
+// length constraint (AWS API Reference for CreateCisScanConfiguration /
+// UpdateCisScanConfiguration: "Minimum length of 1. Maximum length of 128.",
+// no charset pattern documented). A prior revision accepted any non-empty
+// string on create and any string at all (including one exceeding 128
+// chars) on update, so real AWS's ValidationException for an out-of-range
+// scanName was never modeled.
+func TestCisScanConfiguration_ScanNameValidation(t *testing.T) {
+	t.Parallel()
+
+	tooLong := make([]byte, 129)
+	for i := range tooLong {
+		tooLong[i] = 'a'
+	}
+
+	tests := []struct {
+		name     string
+		scanName string
+		onUpdate bool
+		wantCode int
+	}{
+		{name: "empty_name_rejected_on_create", scanName: "", wantCode: http.StatusBadRequest},
+		{name: "too_long_name_rejected_on_create", scanName: string(tooLong), wantCode: http.StatusBadRequest},
+		{name: "single_char_name_accepted_on_create", scanName: "a", wantCode: http.StatusOK},
+		{name: "exactly_128_char_name_accepted_on_create", scanName: string(tooLong[:128]), wantCode: http.StatusOK},
+		{
+			name: "too_long_name_rejected_on_update", scanName: string(tooLong),
+			onUpdate: true, wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "valid_name_accepted_on_update", scanName: "renamed-ok",
+			onUpdate: true, wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAuditHandler(t)
+
+			if !tt.onUpdate {
+				rec := auditDo(t, h, http.MethodPost, "/cis/scan-configuration/create", map[string]any{
+					"scanName": tt.scanName,
+				})
+				assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+
+				return
+			}
+
+			cfgARN := createCisConfig(t, h, "update-target", nil)
+			rec := auditDo(t, h, http.MethodPost, "/cis/scan-configuration/update", map[string]any{
+				"scanConfigurationArn": cfgARN,
+				"scanName":             tt.scanName,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+}
+
 func TestCisSessionOps(t *testing.T) {
 	t.Parallel()
 

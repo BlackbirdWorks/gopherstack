@@ -2,13 +2,60 @@ package inspector2
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+// codeSecurityNameMinLen/codeSecurityNameMaxLen enforce the real, documented
+// length constraint shared by CreateCodeSecurityIntegrationInput.name and
+// CreateCodeSecurityScanConfigurationInput.name (confirmed via the AWS API
+// Reference -- the Go SDK module's doc comments carry no length/pattern
+// prose for either field, unlike CreateFilterInput.name, so the API
+// Reference is the only source for these constraints): "Minimum length of
+// 1. Maximum length of 60." Both share the identical pattern too, so one
+// validator covers both ops.
+const (
+	codeSecurityNameMinLen = 1
+	codeSecurityNameMaxLen = 60
+)
+
+// onceCodeSecurityNamePattern lazily compiles the real, documented
+// CreateCodeSecurityIntegrationInput.name / CreateCodeSecurityScanConfigurationInput.name
+// pattern (AWS API Reference: `[a-zA-Z0-9-_$:.]*`), exactly once.
+//
+//nolint:gochecknoglobals // read-only package-level regexp, built once via sync.OnceValue
+var onceCodeSecurityNamePattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[a-zA-Z0-9\-_$:.]*$`)
+})
+
+// validateCodeSecurityName enforces the real name constraint shared by
+// CreateCodeSecurityIntegration and CreateCodeSecurityScanConfiguration: 1-60
+// characters, alphanumeric plus dash/underscore/dollar-sign/colon/dot. Real
+// AWS returns ValidationException for violations; this backend previously
+// accepted any non-empty string.
+func validateCodeSecurityName(name string) error {
+	if len(name) < codeSecurityNameMinLen || len(name) > codeSecurityNameMaxLen {
+		return fmt.Errorf(
+			"%w: name must be between %d and %d characters, got %d",
+			ErrValidation, codeSecurityNameMinLen, codeSecurityNameMaxLen, len(name),
+		)
+	}
+
+	if !onceCodeSecurityNamePattern().MatchString(name) {
+		return fmt.Errorf(
+			"%w: name must contain only alphanumeric characters, dashes, underscores, dollar signs, colons, and dots",
+			ErrValidation,
+		)
+	}
+
+	return nil
+}
 
 func (b *InMemoryBackend) buildCodeSecurityIntegrationARN() string {
 	return arn.Build(inspector2Service, b.region, b.accountID, "integration/code-security/"+uuid.New().String())
@@ -27,8 +74,8 @@ func (b *InMemoryBackend) CreateCodeSecurityIntegration(
 	b.mu.Lock("CreateCodeSecurityIntegration")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateCodeSecurityName(name); err != nil {
+		return nil, err
 	}
 
 	if err := validateTags(tags); err != nil {
@@ -154,8 +201,8 @@ func (b *InMemoryBackend) CreateCodeSecurityScanConfiguration(
 	b.mu.Lock("CreateCodeSecurityScanConfiguration")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateCodeSecurityName(name); err != nil {
+		return nil, err
 	}
 
 	if level == "" {

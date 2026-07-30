@@ -195,6 +195,7 @@ func TestBatchGetFindingDetails(t *testing.T) {
 		Cwes:          []string{"CWE-89"},
 		ReferenceUrls: []string{"https://example.com/advisory"},
 		RiskScore:     42,
+		Ttps:          []string{"T1190"},
 	})
 	require.NoError(t, err)
 
@@ -217,6 +218,7 @@ func TestBatchGetFindingDetails(t *testing.T) {
 	assert.Equal(t, seeded.FindingArn, detail["findingArn"])
 	assert.InDelta(t, float64(42), detail["riskScore"], 0)
 	assert.Contains(t, detail["cwes"], "CWE-89")
+	assert.Contains(t, detail["ttps"], "T1190")
 
 	errs, ok := resp["errors"].([]any)
 	require.True(t, ok)

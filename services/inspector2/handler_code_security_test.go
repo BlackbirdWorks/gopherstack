@@ -69,6 +69,47 @@ func TestCodeSecurityIntegrationLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestCreateCodeSecurityIntegration_NameValidation covers
+// CreateCodeSecurityIntegration's real "name" length/charset constraint (AWS
+// API Reference for CreateCodeSecurityIntegration: "Minimum length of 1.
+// Maximum length of 60." Pattern: `[a-zA-Z0-9-_$:.]*` -- identical to
+// CreateCodeSecurityScanConfiguration's name constraint). A prior revision
+// accepted any non-empty string.
+func TestCreateCodeSecurityIntegration_NameValidation(t *testing.T) {
+	t.Parallel()
+
+	tooLongName := make([]byte, 61)
+	for i := range tooLongName {
+		tooLongName[i] = 'a'
+	}
+
+	tests := []struct {
+		name     string
+		intName  string
+		wantCode int
+	}{
+		{name: "empty_name_rejected", intName: "", wantCode: http.StatusBadRequest},
+		{name: "too_long_name_rejected", intName: string(tooLongName), wantCode: http.StatusBadRequest},
+		{name: "invalid_charset_name_rejected", intName: "has a space", wantCode: http.StatusBadRequest},
+		{name: "single_char_name_accepted", intName: "a", wantCode: http.StatusOK},
+		{name: "exactly_60_char_name_accepted", intName: string(tooLongName[:60]), wantCode: http.StatusOK},
+		{name: "all_valid_charset_chars_name_accepted", intName: "a-Z0_9$:.name", wantCode: http.StatusOK},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAuditHandler(t)
+			rec := auditDo(t, h, http.MethodPost, "/codesecurity/integration/create", map[string]any{
+				"name": tc.intName,
+				"type": "GITHUB",
+			})
+			assert.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+}
+
 func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -181,16 +222,27 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 
 // TestCodeSecurityScanConfigurationValidation covers
 // CreateCodeSecurityScanConfiguration/UpdateCodeSecurityScanConfiguration's
-// required "level" and "configuration.ruleSetCategories" members. Real
-// CreateCodeSecurityScanConfigurationInput requires both; an earlier revision
-// decoded scopeSettings/periodicScanConfiguration at the top level and never
-// looked for either, so no validation ever ran.
+// required "level" and "configuration.ruleSetCategories" members, plus
+// "name"'s real length/charset constraint (AWS API Reference for
+// CreateCodeSecurityScanConfiguration: "Minimum length of 1. Maximum length
+// of 60." Pattern: `[a-zA-Z0-9-_$:.]*`). Real
+// CreateCodeSecurityScanConfigurationInput requires level/ruleSetCategories;
+// an earlier revision decoded scopeSettings/periodicScanConfiguration at the
+// top level and never looked for either, so no validation ever ran. name's
+// length/charset constraint was similarly unmodeled until this pass (any
+// non-empty string was accepted).
 func TestCodeSecurityScanConfigurationValidation(t *testing.T) {
 	t.Parallel()
 
+	tooLongName := make([]byte, 61)
+	for i := range tooLongName {
+		tooLongName[i] = 'a'
+	}
+
 	tests := []struct {
-		body map[string]any
-		name string
+		body     map[string]any
+		name     string
+		wantCode int
 	}{
 		{
 			name: "missing_level_rejected",
@@ -200,6 +252,7 @@ func TestCodeSecurityScanConfigurationValidation(t *testing.T) {
 					"ruleSetCategories": []string{"SAST"},
 				},
 			},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "invalid_level_rejected",
@@ -210,6 +263,7 @@ func TestCodeSecurityScanConfigurationValidation(t *testing.T) {
 					"ruleSetCategories": []string{"SAST"},
 				},
 			},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "missing_rule_set_categories_rejected",
@@ -217,6 +271,7 @@ func TestCodeSecurityScanConfigurationValidation(t *testing.T) {
 				"name":  "no-rule-set",
 				"level": "ACCOUNT",
 			},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "invalid_rule_set_category_rejected",
@@ -227,6 +282,62 @@ func TestCodeSecurityScanConfigurationValidation(t *testing.T) {
 					"ruleSetCategories": []string{"NOT_A_CATEGORY"},
 				},
 			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "empty_name_rejected",
+			body: map[string]any{
+				"name":  "",
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "too_long_name_rejected",
+			body: map[string]any{
+				"name":  string(tooLongName),
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_charset_name_rejected",
+			body: map[string]any{
+				"name":  "has a space",
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "exactly_60_char_name_accepted",
+			body: map[string]any{
+				"name":  string(tooLongName[:60]),
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "all_valid_charset_chars_name_accepted",
+			body: map[string]any{
+				"name":  "a-Z0_9$:.name",
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusOK,
 		},
 	}
 
@@ -236,7 +347,7 @@ func TestCodeSecurityScanConfigurationValidation(t *testing.T) {
 
 			h := newAuditHandler(t)
 			rec := auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/create", tc.body)
-			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			assert.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
 		})
 	}
 

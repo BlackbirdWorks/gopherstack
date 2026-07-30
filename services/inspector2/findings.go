@@ -600,6 +600,10 @@ func findingDetailToWire(f *Finding) map[string]any {
 		detail["tools"] = f.Tools
 	}
 
+	if len(f.Ttps) > 0 {
+		detail["ttps"] = f.Ttps
+	}
+
 	return detail
 }
 

@@ -164,16 +164,11 @@ type subscriptionSummaryResponse struct {
 }
 
 // listSubscriptionsResponse mirrors ListSubscriptionsOutput's JSON shape.
-// Subscriptions is always empty: gopherstack does not track per-client MQTT
-// subscription state anywhere reachable from this package. The real data
-// exists inside the mochi-mqtt broker's client session state
-// (services/iot/broker.go, github.com/mochi-mqtt/server/v2's
-// cl.State.Subscriptions), but the MQTTPublisher interface this package
-// depends on (interfaces.go) only exposes topic-broadcast Publish -- reading
-// live subscriptions would require extending that interface and its only
-// real implementation, which sits in services/iot, outside this pass's
-// scope. Returning an honestly empty list for a known, tracked client is
-// preferred over fabricating topic filters -- see PARITY.md gaps.
+// Subscriptions reflects the client's live MQTT subscriptions read straight
+// off the mochi-mqtt broker's per-client session state (see
+// InMemoryBackend.ListSubscriptions) when a broker is wired and knows about
+// the client; otherwise it is an honestly empty list rather than a
+// fabricated one -- see PARITY.md gaps for when that occurs.
 type listSubscriptionsResponse struct {
 	NextToken     string                        `json:"nextToken,omitempty"`
 	Subscriptions []subscriptionSummaryResponse `json:"subscriptions"`
@@ -186,11 +181,17 @@ func (h *Handler) handleListSubscriptions(c *echo.Context) error {
 		return h.handleError(c, fmt.Errorf("%w: clientId is required", ErrValidation))
 	}
 
-	if err := h.Backend.ListSubscriptions(clientID); err != nil {
+	subs, err := h.Backend.ListSubscriptions(clientID)
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listSubscriptionsResponse{Subscriptions: []subscriptionSummaryResponse{}})
+	out := make([]subscriptionSummaryResponse, 0, len(subs))
+	for _, s := range subs {
+		out = append(out, subscriptionSummaryResponse{TopicFilter: s.TopicFilter, Qos: int32(s.QoS)})
+	}
+
+	return c.JSON(http.StatusOK, listSubscriptionsResponse{Subscriptions: out})
 }
 
 // sendDirectMessageResponse mirrors SendDirectMessageOutput's JSON shape
@@ -225,18 +226,18 @@ func validateSendDirectMessageParams(c *echo.Context, topic string) error {
 
 // handleSendDirectMessage processes POST /connections/{clientId}/messages
 // requests. It validates the target clientId and topic, then delivers via
-// InMemoryBackend.SendDirectMessage -- which broadcasts on topic through the
-// same broker-backed path as Publish, since gopherstack has no true
-// per-client-targeted delivery (see SendDirectMessage's doc comment and
-// PARITY.md gaps for why). Of the optional MQTT5 fields real
-// SendDirectMessageInput carries (contentType/correlationData/
-// payloadFormatIndicator/responseTopic/userProperties), only the always-
-// present topic/payload actually reach the broker -- the rest are parsed and
-// validated (so malformed values are still rejected) but not forwarded,
-// mirroring Publish's identical, already-documented gap. confirmation/
-// timeout (real AWS: wait for a QoS-1 PUBACK, 504 on timeout) select QoS
-// 0-vs-1 on the outgoing publish but never block or time out, since
-// MQTTPublisher.Publish is fire-and-forget with no ack channel.
+// InMemoryBackend.SendDirectMessage -- which now addresses the target
+// client's live broker connection directly when the broker has one, falling
+// back to a topic broadcast only when it doesn't (see SendDirectMessage's doc
+// comment and PARITY.md gaps for exactly when that fallback applies). Of the
+// optional MQTT5 fields real SendDirectMessageInput carries (contentType/
+// correlationData/payloadFormatIndicator/responseTopic/userProperties), only
+// the always-present topic/payload actually reach the broker -- the rest are
+// parsed and validated (so malformed values are still rejected) but not
+// forwarded, mirroring Publish's identical, already-documented gap.
+// confirmation/timeout (real AWS: wait for a QoS-1 PUBACK, 504 on timeout)
+// select QoS 0-vs-1 on the outgoing publish but never block or time out,
+// since neither MQTTPublisher.Publish nor SendToClient wait for an ack.
 func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 

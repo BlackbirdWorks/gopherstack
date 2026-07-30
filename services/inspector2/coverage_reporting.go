@@ -52,31 +52,131 @@ func (b *InMemoryBackend) SeedCoverage(e CoverageEntry) (*CoverageEntry, error) 
 }
 
 // coverageStringFilters extracts the subset of CoverageFilterCriteria's
-// string-comparison filters (accountId/resourceId/resourceType/scanType)
-// that ListCoverage/ListCoverageStatistics evaluate. Other real filter
-// facets (tags, date ranges, number ranges) are accepted in the request
-// shape but do not narrow results here.
+// filters that ListCoverage/ListCoverageStatistics can genuinely evaluate
+// against real, stored CoverageEntry data: the string-comparison facets
+// (accountId/resourceId/resourceType/scanType/scanStatusCode/
+// scanStatusReason/scanMode) and the lastScannedAt date-range facet, which
+// CoverageEntry.LastScannedAt/ScanStatus/ScanMode genuinely track. Every
+// other real filter facet (cloudContainerImageTags, ec2InstanceTags,
+// ecrImageTags, lambdaFunctionTags, ecrImageInUseCount, ecrImageLastInUseAt,
+// imagePulledAt, and the rest of the cloud*/code*/lambda* facets) is real on
+// the wire but tied to CoveredResource.resourceMetadata, a nested per-
+// resource-type union this backend does not model at all (see PARITY.md
+// gaps) -- accepting those in the request shape without narrowing on them is
+// an honest limitation (no data to filter against), not a fixable bug,
+// unlike the facets below, which previously had real backing data but were
+// silently never wired to the filter.
 type coverageStringFilters struct {
-	accountID    []stringFilter
-	resourceID   []stringFilter
-	resourceType []stringFilter
-	scanType     []stringFilter
+	accountID        []stringFilter
+	resourceID       []stringFilter
+	resourceType     []stringFilter
+	scanType         []stringFilter
+	scanStatusCode   []stringFilter
+	scanStatusReason []stringFilter
+	scanMode         []stringFilter
+	lastScannedAt    []dateRangeFilter
+}
+
+// dateRangeFilter mirrors one CoverageDateFilter entry: startInclusive/
+// endInclusive bounds (either may be absent), matching real AWS's
+// startInclusive <= value <= endInclusive semantics.
+type dateRangeFilter struct {
+	start    time.Time
+	end      time.Time
+	hasStart bool
+	hasEnd   bool
+}
+
+// extractDateFilters decodes CoverageFilterCriteria's date-range filter
+// shape ({"startInclusive": <epoch-seconds>, "endInclusive": <epoch-seconds>})
+// for the given key. Real AWS encodes these as epoch-seconds numbers on the
+// wire (confirmed via serializers.go's
+// awsRestjson1_serializeDocumentCoverageDateFilter), not RFC3339 strings.
+func extractDateFilters(criteria map[string]any, key string) []dateRangeFilter {
+	raw, ok := criteria[key].([]any)
+	if !ok {
+		return nil
+	}
+
+	filters := make([]dateRangeFilter, 0, len(raw))
+
+	for _, item := range raw {
+		m, isMap := item.(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		var f dateRangeFilter
+
+		if start, hasStart := m["startInclusive"].(float64); hasStart {
+			f.start = time.Unix(int64(start), 0).UTC()
+			f.hasStart = true
+		}
+
+		if end, hasEnd := m["endInclusive"].(float64); hasEnd {
+			f.end = time.Unix(int64(end), 0).UTC()
+			f.hasEnd = true
+		}
+
+		if f.hasStart || f.hasEnd {
+			filters = append(filters, f)
+		}
+	}
+
+	return filters
+}
+
+// matchDateFilters reports whether actual falls within any of filters'
+// [start, end] inclusive ranges (multiple filters on the same field are a
+// logical OR, matching matchStringFilters' semantics).
+func matchDateFilters(filters []dateRangeFilter, actual time.Time) bool {
+	if len(filters) == 0 {
+		return true
+	}
+
+	for _, f := range filters {
+		if f.hasStart && actual.Before(f.start) {
+			continue
+		}
+
+		if f.hasEnd && actual.After(f.end) {
+			continue
+		}
+
+		return true
+	}
+
+	return false
 }
 
 func parseCoverageFilterCriteria(criteria map[string]any) coverageStringFilters {
 	return coverageStringFilters{
-		accountID:    extractStringFilters(criteria, "accountId"),
-		resourceID:   extractStringFilters(criteria, "resourceId"),
-		resourceType: extractStringFilters(criteria, "resourceType"),
-		scanType:     extractStringFilters(criteria, "scanType"),
+		accountID:        extractStringFilters(criteria, "accountId"),
+		resourceID:       extractStringFilters(criteria, "resourceId"),
+		resourceType:     extractStringFilters(criteria, "resourceType"),
+		scanType:         extractStringFilters(criteria, "scanType"),
+		scanStatusCode:   extractStringFilters(criteria, "scanStatusCode"),
+		scanStatusReason: extractStringFilters(criteria, "scanStatusReason"),
+		scanMode:         extractStringFilters(criteria, "scanMode"),
+		lastScannedAt:    extractDateFilters(criteria, "lastScannedAt"),
 	}
 }
 
 func (f coverageStringFilters) matches(e *CoverageEntry) bool {
+	statusCode, statusReason := "", ""
+	if e.ScanStatus != nil {
+		statusCode = e.ScanStatus.StatusCode
+		statusReason = e.ScanStatus.Reason
+	}
+
 	return matchStringFilters(f.accountID, e.AccountID) &&
 		matchStringFilters(f.resourceID, e.ResourceID) &&
 		matchStringFilters(f.resourceType, e.ResourceType) &&
-		matchStringFilters(f.scanType, e.ScanType)
+		matchStringFilters(f.scanType, e.ScanType) &&
+		matchStringFilters(f.scanStatusCode, statusCode) &&
+		matchStringFilters(f.scanStatusReason, statusReason) &&
+		matchStringFilters(f.scanMode, e.ScanMode) &&
+		matchDateFilters(f.lastScannedAt, e.LastScannedAt)
 }
 
 // ListCoverage returns a page of seeded coverage entries filtered by the

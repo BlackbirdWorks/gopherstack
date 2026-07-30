@@ -21,7 +21,7 @@ type Filter struct {
 // ListFindings will then return and filter — behavior that exceeds LocalStack,
 // which always returns an empty list.
 //
-// EpssScore/RiskScore/Cwes/ReferenceUrls/Tools back BatchGetFindingDetails
+// EpssScore/RiskScore/Cwes/ReferenceUrls/Tools/Ttps back BatchGetFindingDetails
 // only (real FindingDetail shape) -- findingToWire (ListFindings' wire
 // shape) never renders them, matching the real API where these live on a
 // separate FindingDetail resource, not on Finding itself. (Field order below
@@ -44,8 +44,14 @@ type Finding struct {
 	Severity        FindingSeverity   `json:"severity"`
 	Tools           []string          `json:"tools,omitempty"`
 	ReferenceUrls   []string          `json:"referenceUrls,omitempty"`
-	EpssScore       float64           `json:"epssScore,omitempty"`
-	RiskScore       int32             `json:"riskScore,omitempty"`
+	// Ttps holds FindingDetail.Ttps (MITRE adversary tactics/techniques/
+	// procedures) -- a plain string list, identical in shape to Tools/Cwes/
+	// ReferenceUrls above, added alongside them this pass (field-diffed
+	// against types.FindingDetail; previously omitted despite being no more
+	// complex than the fields already modeled).
+	Ttps      []string `json:"ttps,omitempty"`
+	EpssScore float64  `json:"epssScore,omitempty"`
+	RiskScore int32    `json:"riskScore,omitempty"`
 }
 
 // CodeLine is a single line of a retrieved code snippet (real CodeLine shape).
