@@ -164,7 +164,7 @@ type StorageBackend interface {
 	DisableCAEnrollmentPolicy(ctx context.Context, directoryID string) error
 	DescribeCAEnrollmentPolicy(ctx context.Context, directoryID string) (*CAEnrollmentPolicy, error)
 
-	StartADAssessment(ctx context.Context, directoryID string) (string, error)
+	StartADAssessment(ctx context.Context, directoryID string, cfg *ADAssessmentConfiguration) (string, error)
 	DeleteADAssessment(ctx context.Context, directoryID, assessmentID string) error
 	DescribeADAssessment(ctx context.Context, directoryID, assessmentID string) (*ADAssessmentInfo, error)
 	ListADAssessments(

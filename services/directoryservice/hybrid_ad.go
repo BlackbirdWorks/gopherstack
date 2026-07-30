@@ -123,7 +123,7 @@ func (b *InMemoryBackend) UpdateHybridAD(
 		return "", ErrInvalidParameter
 	}
 
-	assessmentID, err := b.startADAssessmentLocked(region, directoryID)
+	assessmentID, err := b.startADAssessmentLocked(region, directoryID, nil)
 	if err != nil {
 		return "", err
 	}

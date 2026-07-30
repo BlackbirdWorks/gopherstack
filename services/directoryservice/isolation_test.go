@@ -288,7 +288,7 @@ func TestADAssessmentRecordsContextRegion(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assessID, err := backend.StartADAssessment(ctxWest, dir.DirectoryID)
+	assessID, err := backend.StartADAssessment(ctxWest, dir.DirectoryID, nil)
 	require.NoError(t, err)
 
 	info, err := backend.DescribeADAssessment(ctxWest, dir.DirectoryID, assessID)

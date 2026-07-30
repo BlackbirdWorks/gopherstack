@@ -315,6 +315,59 @@ func TestHandler_ImageWatermark(t *testing.T) {
 	}
 }
 
+// TestHandler_RestoreImageFromRecycleBin verifies the real
+// RestoreImageFromRecycleBinResponse wire shape ({Return: true/false} boolean
+// field, confirmed against the installed SDK's RestoreImageFromRecycleBinOutput)
+// and that the op reports InvalidAMIID.NotFound for an image genuinely absent
+// from the recycle bin, rather than a silent no-op success -- gopherstack does
+// not model a Recycle Bin (rbin) retention-rule service, so the bin is honestly
+// always empty (DeregisterImage always deletes permanently, matching real AWS
+// with no retention rule in force); this is the only externally observable
+// behavior of the op given that constraint.
+func TestHandler_RestoreImageFromRecycleBin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(vals url.Values)
+		name     string
+		wantBody string
+		wantCode int
+	}{
+		{
+			name: "missing_image_id_fails",
+			setup: func(url.Values) {
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: "InvalidParameterValue",
+		},
+		{
+			name: "image_not_in_recycle_bin_reports_not_found",
+			setup: func(vals url.Values) {
+				vals.Set("ImageId", "ami-notinbin")
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: "InvalidAMIID.NotFound",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			vals := url.Values{}
+			vals.Set("Action", "RestoreImageFromRecycleBin")
+			vals.Set("Version", "2016-11-15")
+			tt.setup(vals)
+
+			rec := postForm(t, h, vals.Encode())
+			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantBody)
+		})
+	}
+}
+
 // TestHandler_ImageWatermark_AttachIsIdempotentAndDetachRemoves verifies the
 // full attach/detach round trip mutates real per-image watermark state
 // rather than being a no-op stub: re-attaching the same name returns the

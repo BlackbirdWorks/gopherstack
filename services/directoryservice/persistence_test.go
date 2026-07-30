@@ -107,7 +107,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.EnableCAEnrollmentPolicy(ctx, dirID))
 
 	// adAssessments
-	assessmentID, err := original.StartADAssessment(ctx, dirID)
+	assessmentID, err := original.StartADAssessment(ctx, dirID, nil)
 	require.NoError(t, err)
 
 	// dirSettings (raw map)

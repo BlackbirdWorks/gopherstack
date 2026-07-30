@@ -448,6 +448,12 @@ func (b *InMemoryBackend) GetTransitGatewayRouteTablePropagations(
 // transitGatewayAttachmentExistsLocked reports whether an attachment ID
 // exists in any of the known TGW attachment maps. Must be called with b.mu
 // held (for reading or writing).
+//
+// Must stay in sync with tgwAttachmentResourceLocked's map set -- this was
+// found missing tgwClientVpnAttachments (added by the parity-4 Client VPN
+// attachment family) during the gopherstack-8pce TGW route-table field-diff,
+// which meant a real, existing Client VPN attachment ID was incorrectly
+// reported as ErrTGWAttachmentNotFound by every caller of this helper.
 func (b *InMemoryBackend) transitGatewayAttachmentExistsLocked(id string) bool {
 	if _, ok := b.tgwVpcAttachments.Get(id); ok {
 		return true
@@ -458,6 +464,10 @@ func (b *InMemoryBackend) transitGatewayAttachmentExistsLocked(id string) bool {
 	}
 
 	if _, ok := b.tgwConnects.Get(id); ok {
+		return true
+	}
+
+	if _, ok := b.tgwClientVpnAttachments.Get(id); ok {
 		return true
 	}
 

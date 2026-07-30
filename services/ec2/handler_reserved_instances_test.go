@@ -1,6 +1,8 @@
 package ec2_test
 
 import (
+	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/ec2"
@@ -116,9 +118,77 @@ func TestReservedInstances(t *testing.T) { //nolint:paralleltest // existing iss
 		assert.NotEmpty(t, mods)
 	})
 
-	t.Run("delete queued reserved instances", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		b.DeleteQueuedReservedInstances([]string{riID})
+	t.Run("delete queued: active RI not deleted", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		// Real AWS only ever deletes a Reserved Instance genuinely in the
+		// "queued" state; this backend never produces one (no scheduled/
+		// future-dated purchase mode -- see QueuedPurchaseDeletionResult's doc
+		// comment), so an existing, active RI must be reported as failed and
+		// left untouched, not silently deleted.
+		results := b.DeleteQueuedReservedInstances([]string{riID})
+		require.Len(t, results, 1)
+		assert.True(t, results[0].Failed)
+		assert.Equal(t, "reserved-instances-not-in-queued-state", results[0].ErrorCode)
+
 		ris := b.DescribeReservedInstances([]string{riID})
-		assert.Empty(t, ris)
+		require.Len(t, ris, 1)
+		assert.Equal(t, "active", ris[0].State)
 	})
+
+	t.Run("delete queued: unknown ID is id-invalid", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		results := b.DeleteQueuedReservedInstances([]string{"r-doesnotexist"})
+		require.Len(t, results, 1)
+		assert.True(t, results[0].Failed)
+		assert.Equal(t, "reserved-instances-id-invalid", results[0].ErrorCode)
+	})
+}
+
+// TestHandler_DeleteQueuedReservedInstances verifies the real
+// DeleteQueuedReservedInstancesOutput wire shape (successfulQueuedPurchaseDeletionSet/
+// failedQueuedPurchaseDeletionSet of <item> entries, confirmed against the installed
+// SDK's deserializers) instead of the previous bare {Return: true}, and that the
+// per-ID outcome matches AWS's real "only a queued reservation can be deleted here"
+// semantics.
+func TestHandler_DeleteQueuedReservedInstances(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		wantBody    []string
+		notWantBody []string
+	}{
+		{
+			name: "unknown id reports reserved-instances-id-invalid on the failed set",
+			wantBody: []string{
+				"<failedQueuedPurchaseDeletionSet><item>",
+				"<reservedInstancesId>r-doesnotexist</reservedInstancesId>",
+				"<code>reserved-instances-id-invalid</code>",
+			},
+			notWantBody: []string{"successfulQueuedPurchaseDeletionSet><item>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			vals := url.Values{}
+			vals.Set("Action", "DeleteQueuedReservedInstances")
+			vals.Set("Version", "2016-11-15")
+			vals.Set("ReservedInstancesId.1", "r-doesnotexist")
+
+			rec := postForm(t, h, vals.Encode())
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			body := rec.Body.String()
+			for _, want := range tt.wantBody {
+				assert.Contains(t, body, want)
+			}
+
+			for _, notWant := range tt.notWantBody {
+				assert.NotContains(t, body, notWant)
+			}
+		})
+	}
 }

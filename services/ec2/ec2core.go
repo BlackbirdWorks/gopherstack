@@ -565,10 +565,22 @@ func (b *InMemoryBackend) AssociateTransitGatewayRouteTable(
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
+	if !b.transitGatewayAttachmentExistsLocked(attachmentID) {
+		return nil, fmt.Errorf("%w: %s", ErrTGWAttachmentNotFound, attachmentID)
+	}
+
+	// ResourceType must reflect the attachment's real kind (vpc/peering/
+	// connect/client-vpn), not be hardcoded -- an association response for a
+	// non-VPC attachment previously always misreported "vpc" (found during
+	// the gopherstack-8pce TGW route-table field-diff, matching the same
+	// real-resource-type derivation EnableTransitGatewayRouteTablePropagation
+	// already uses).
+	_, resourceType := b.tgwAttachmentResourceLocked(attachmentID)
+
 	assoc := &TransitGatewayRouteTableAssociation{
 		TransitGatewayRouteTableID: routeTableID,
 		TransitGatewayAttachmentID: attachmentID,
-		ResourceType:               resourceTypeVPC,
+		ResourceType:               resourceType,
 		State:                      stateAvailable,
 	}
 	b.tgwRTAssociations.Put(assoc)

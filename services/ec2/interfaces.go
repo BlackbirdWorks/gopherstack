@@ -1548,7 +1548,7 @@ type Backend interface {
 		targetInstanceType string,
 		targetCount int,
 	) (*ReservedInstancesModification, error)
-	DeleteQueuedReservedInstances(ids []string)
+	DeleteQueuedReservedInstances(ids []string) []QueuedPurchaseDeletionResult
 
 	// ---- Route Server ----
 	CreateRouteServer(

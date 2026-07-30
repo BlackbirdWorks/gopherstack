@@ -201,13 +201,17 @@ func TestTGWPeripherals_GetRouteTableAssociations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, assocs)
 
-	_, err = bk.AssociateTransitGatewayRouteTable(rt.RouteTableID, "tgw-attach-1")
+	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-assoctest", nil)
+	require.NoError(t, err)
+
+	_, err = bk.AssociateTransitGatewayRouteTable(rt.RouteTableID, att.TransitGatewayAttachmentID)
 	require.NoError(t, err)
 
 	assocs, err = bk.GetTransitGatewayRouteTableAssociations(rt.RouteTableID)
 	require.NoError(t, err)
 	require.Len(t, assocs, 1)
-	assert.Equal(t, "tgw-attach-1", assocs[0].TransitGatewayAttachmentID)
+	assert.Equal(t, att.TransitGatewayAttachmentID, assocs[0].TransitGatewayAttachmentID)
+	assert.Equal(t, "vpc", assocs[0].ResourceType)
 }
 
 func TestTGWPeripherals_GetRouteTablePropagationsAlwaysEmpty(t *testing.T) {

@@ -178,13 +178,22 @@ func TestEC2Core_TransitGatewayRouteTables(t *testing.T) {
 	// Delete route.
 	require.NoError(t, bk.DeleteTransitGatewayRoute(rt.RouteTableID, "10.0.0.0/8"))
 
-	// Associate route table.
-	assoc, err := bk.AssociateTransitGatewayRouteTable(rt.RouteTableID, "tgw-attach-3")
+	// Associate route table: attachmentID must be a real, existing attachment
+	// (AssociateTransitGatewayRouteTable validates it, deriving the real
+	// ResourceType rather than hardcoding "vpc" -- gopherstack-8pce).
+	vpcAtt, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-assoctest", nil)
+	require.NoError(t, err)
+
+	assoc, err := bk.AssociateTransitGatewayRouteTable(rt.RouteTableID, vpcAtt.TransitGatewayAttachmentID)
 	require.NoError(t, err)
 	assert.Equal(t, rt.RouteTableID, assoc.TransitGatewayRouteTableID)
+	assert.Equal(t, "vpc", assoc.ResourceType)
 
 	// Disassociate.
-	require.NoError(t, bk.DisassociateTransitGatewayRouteTable(rt.RouteTableID, "tgw-attach-3"))
+	require.NoError(
+		t,
+		bk.DisassociateTransitGatewayRouteTable(rt.RouteTableID, vpcAtt.TransitGatewayAttachmentID),
+	)
 
 	// Error cases.
 	_, err2 := bk.CreateTransitGatewayRouteTable("")

@@ -193,12 +193,53 @@ func (b *InMemoryBackend) ModifyReservedInstances(
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) DeleteQueuedReservedInstances(ids []string) {
+// reservedInstanceStateQueued is the real ReservedInstanceState enum value
+// ("queued") DeleteQueuedReservedInstances requires a target to be in; see
+// QueuedPurchaseDeletionResult's doc comment for why no Reserved Instance in
+// this backend is ever actually in that state.
+const reservedInstanceStateQueued = "queued"
+
+// Real DeleteQueuedReservedInstancesErrorCode enum values (types.go).
+const (
+	deleteQueuedRIErrCodeIDInvalid = "reserved-instances-id-invalid"
+	deleteQueuedRIErrCodeNotQueued = "reserved-instances-not-in-queued-state"
+)
+
+// DeleteQueuedReservedInstances reports real per-ID success/failure
+// (types.SuccessfulQueuedPurchaseDeletion / types.FailedQueuedPurchaseDeletion)
+// instead of silently deleting whatever Reserved Instance IDs happen to match,
+// which would incorrectly let this call delete an ACTIVE (non-queued)
+// reservation -- something real AWS never does through this operation.
+func (b *InMemoryBackend) DeleteQueuedReservedInstances(ids []string) []QueuedPurchaseDeletionResult {
 	b.mu.Lock("DeleteQueuedReservedInstances")
 	defer b.mu.Unlock()
 
+	results := make([]QueuedPurchaseDeletionResult, 0, len(ids))
+
 	for _, id := range ids {
-		b.reservedInstances.Delete(id)
-		delete(b.tags, id)
+		ri, ok := b.reservedInstances.Get(id)
+
+		switch {
+		case !ok:
+			results = append(results, QueuedPurchaseDeletionResult{
+				ReservedInstancesID: id,
+				Failed:              true,
+				ErrorCode:           deleteQueuedRIErrCodeIDInvalid,
+				ErrorMessage:        fmt.Sprintf("The reserved instance ID '%s' does not exist", id),
+			})
+		case ri.State != reservedInstanceStateQueued:
+			results = append(results, QueuedPurchaseDeletionResult{
+				ReservedInstancesID: id,
+				Failed:              true,
+				ErrorCode:           deleteQueuedRIErrCodeNotQueued,
+				ErrorMessage:        fmt.Sprintf("The reserved instance '%s' is not in the queued state", id),
+			})
+		default:
+			b.reservedInstances.Delete(id)
+			delete(b.tags, id)
+			results = append(results, QueuedPurchaseDeletionResult{ReservedInstancesID: id})
+		}
 	}
+
+	return results
 }

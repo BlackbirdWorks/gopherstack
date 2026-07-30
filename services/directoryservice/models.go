@@ -302,24 +302,35 @@ type storedRadiusSettings struct {
 // the assessed directory at StartADAssessment time. CreateHybridAD's real
 // input is just {AssessmentId, SecretArn, Tags} -- AWS derives the new hybrid
 // directory's descriptive fields from the assessment's own
-// AssessmentConfiguration (DnsName etc.), which this backend does not capture
-// (StartADAssessment doesn't accept AssessmentConfiguration -- a separate,
-// already-tracked gap, see PARITY.md). Snapshotting the assessed directory's
-// real Name/ShortName/Description/Edition here lets CreateHybridAD source
-// genuinely real data instead of fabricating a domain name, and survives the
-// source directory being deleted later (the assessment record is the
-// historical source of truth, not a live join).
+// AssessmentConfiguration (DnsName etc.); this backend still derives them
+// from the snapshotted source directory instead (see hybrid_ad.go) because
+// CreateHybridAD only supports assessments of an existing directory.
+//
+// DNSName/CustomerDNSIPs/InstanceIDs/SecurityGroupIDs/VPCID/SubnetIDs mirror
+// the real, optional StartADAssessmentInput.AssessmentConfiguration
+// (types.AssessmentConfiguration) captured verbatim from the request when
+// the caller supplies one (gopherstack-10hx follow-up: the AssessmentConfiguration
+// input-capture gap). LastUpdateDateTime is stamped equal to StartTime, same
+// as the rest of this backend's synchronous-completion ops (see
+// assessmentStatusSuccess).
 type storedADAssessment struct {
 	StartTime                  time.Time `json:"startTime"`
+	LastUpdateDateTime         time.Time `json:"lastUpdateDateTime"`
 	AssessmentID               string    `json:"assessmentId"`
 	DirectoryID                string    `json:"directoryId"`
 	Status                     string    `json:"status"`
 	AssessType                 string    `json:"assessmentType"`
 	Region                     string    `json:"region"`
+	DNSName                    string    `json:"dnsName,omitempty"`
+	VPCID                      string    `json:"vpcId,omitempty"`
 	SourceDirectoryName        string    `json:"sourceDirectoryName,omitempty"`
 	SourceDirectoryShortName   string    `json:"sourceDirectoryShortName,omitempty"`
 	SourceDirectoryDescription string    `json:"sourceDirectoryDescription,omitempty"`
 	SourceDirectoryEdition     string    `json:"sourceDirectoryEdition,omitempty"`
+	CustomerDNSIPs             []string  `json:"customerDnsIps,omitempty"`
+	InstanceIDs                []string  `json:"instanceIds,omitempty"`
+	SecurityGroupIDs           []string  `json:"securityGroupIds,omitempty"`
+	SubnetIDs                  []string  `json:"subnetIds,omitempty"`
 }
 
 type storedDirectorySetting struct {
@@ -548,14 +559,51 @@ type CAEnrollmentPolicy struct {
 	Enabled     bool
 }
 
-// ADAssessmentInfo domain type.
+// ADAssessmentConfiguration mirrors the real, optional
+// StartADAssessmentInput.AssessmentConfiguration (types.AssessmentConfiguration).
+// When a caller supplies AssessmentConfiguration at all, DNSName/CustomerDNSIPs/
+// InstanceIDs/VPCID/SubnetIDs are required members (matching the real SDK's
+// validateAssessmentConfiguration); SecurityGroupIDs is optional.
+type ADAssessmentConfiguration struct {
+	DNSName          string
+	VPCID            string
+	CustomerDNSIPs   []string
+	InstanceIDs      []string
+	SecurityGroupIDs []string
+	SubnetIDs        []string
+}
+
+// ADAssessmentInfo domain type for both DescribeADAssessment (full Assessment
+// shape) and ListADAssessments (AssessmentSummary shape, a strict subset --
+// see handler_ad_assessments.go for which fields each op actually puts on the
+// wire). DNSName/CustomerDNSIPs/InstanceIDs/SecurityGroupIDs/VPCID/SubnetIDs
+// come from the real, optional StartADAssessmentInput.AssessmentConfiguration
+// (types.AssessmentConfiguration) when the caller supplies it; they are empty
+// for assessments started without one (e.g. UpdateHybridAD's
+// internally-triggered assessment, which has no AssessmentConfiguration input
+// in the real API either). StatusCode/StatusReason/Version are real Assessment
+// members this backend cannot honestly populate: AWS documents them as
+// assessment-engine-internal output (a detailed status code, a human-readable
+// status/error message, and the assessment-framework version) with no request
+// input and no documented deterministic default -- same class of gap as
+// Directory.OsVersion (see PARITY.md). Left always empty rather than invented.
 type ADAssessmentInfo struct {
-	StartTime    time.Time
-	AssessmentID string
-	DirectoryID  string
-	Status       string
-	AssessType   string
-	Region       string
+	StartTime          time.Time
+	LastUpdateDateTime time.Time
+	AssessmentID       string
+	DirectoryID        string
+	Status             string
+	AssessType         string
+	Region             string
+	DNSName            string
+	VPCID              string
+	StatusCode         string
+	StatusReason       string
+	Version            string
+	CustomerDNSIPs     []string
+	InstanceIDs        []string
+	SecurityGroupIDs   []string
+	SubnetIDs          []string
 }
 
 // DirectorySetting domain type.
