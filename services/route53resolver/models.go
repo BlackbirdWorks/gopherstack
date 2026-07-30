@@ -75,6 +75,13 @@ const (
 	dnsThreatProtectionDNSTunneling  = "DNS_TUNNELING"
 	dnsThreatProtectionDictionaryDGA = "DICTIONARY_DGA"
 
+	// ConfidenceThreshold values (types.ConfidenceThreshold): required when
+	// creating a DNS Firewall Advanced (DnsThreatProtection) rule, governs
+	// detection sensitivity.
+	confidenceThresholdLow    = "LOW"
+	confidenceThresholdMedium = "MEDIUM"
+	confidenceThresholdHigh   = "HIGH"
+
 	// FirewallDomainRedirectionAction values (types.FirewallDomainRedirectionAction):
 	// how a domain-list rule evaluates a DNS redirection chain (CNAME/DNAME).
 	// INSPECT_REDIRECTION_DOMAIN is the real API's documented default.

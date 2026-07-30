@@ -478,6 +478,20 @@ func buildCertificateSummary(c *Certificate) certificateSummary {
 	// is always false here -- correct given our data, not a stubbed field.
 	hasMoreSANs := false
 
+	// Exported: real AWS's doc comment for CertificateSummary.Exported used to
+	// read "This value exists only when the certificate type is PRIVATE"
+	// (aws-sdk-go-v2/service/acm@v1.37.21/types/types.go) -- that sentence is
+	// gone in the currently-installed v1.43.0 (confirmed by reading
+	// types.go directly), dropped when AWS added exportable public
+	// certificates in 2025. Now that AMAZON_ISSUED certificates can be
+	// genuinely exported too (see validateCertExportable,
+	// certificates.go), gating this field to PRIVATE only would be stale --
+	// a real client exporting a now-eligible AMAZON_ISSUED cert would never
+	// see Exported flip to true. Set unconditionally, matching
+	// certToSearchResult's (handler_search_certificates.go) SearchCertificates
+	// projection, which was already correctly unconditional.
+	exported := c.Exported
+
 	summary := certificateSummary{
 		CertificateArn:                       c.ARN,
 		DomainName:                           c.DomainName,
@@ -494,11 +508,7 @@ func buildCertificateSummary(c *Certificate) certificateSummary {
 		SubjectAlternativeNameSummaries:      c.SubjectAlternativeNames,
 		InUse:                                &inUse,
 		HasAdditionalSubjectAlternativeNames: &hasMoreSANs,
-	}
-
-	if c.Type == certTypePrivate {
-		exported := c.Exported
-		summary.Exported = &exported
+		Exported:                             &exported,
 	}
 
 	summary.KeyUsages = append(summary.KeyUsages, c.KeyUsage...)

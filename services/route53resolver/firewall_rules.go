@@ -107,6 +107,45 @@ func validateFirewallDomainRedirectionAction(value string) error {
 	}
 }
 
+// validateConfidenceThreshold validates ConfidenceThreshold against its
+// closed enum (LOW/MEDIUM/HIGH -- types.ConfidenceThreshold in
+// aws-sdk-go-v2/service/route53resolver@v1.48.0) whenever a value is
+// supplied; an empty value is allowed here (see
+// validateFirewallRuleConfidenceThreshold for the create-time
+// required-when-DnsThreatProtection check).
+func validateConfidenceThreshold(value string) error {
+	switch value {
+	case "", confidenceThresholdLow, confidenceThresholdMedium, confidenceThresholdHigh:
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: ConfidenceThreshold must be %s, %s, or %s",
+			ErrValidation,
+			confidenceThresholdLow,
+			confidenceThresholdMedium,
+			confidenceThresholdHigh,
+		)
+	}
+}
+
+// validateFirewallRuleConfidenceThreshold enforces that ConfidenceThreshold
+// is supplied when creating a DnsThreatProtection rule -- verified against
+// CreateFirewallRuleInput's doc comment ("The confidence threshold for DNS
+// Firewall Advanced. You must provide this value when you create a DNS
+// Firewall Advanced rule."). UpdateFirewallRuleInput carries the identical
+// field but its doc comment drops that sentence, i.e. it is not re-required
+// on update -- see validateConfidenceThreshold, called directly there.
+func validateFirewallRuleConfidenceThreshold(p CreateFirewallRuleParams) error {
+	if p.DNSThreatProtection != "" && p.ConfidenceThreshold == "" {
+		return fmt.Errorf(
+			"%w: ConfidenceThreshold is required when DnsThreatProtection is set",
+			ErrValidation,
+		)
+	}
+
+	return validateConfidenceThreshold(p.ConfidenceThreshold)
+}
+
 // resolveFirewallRulePriority auto-assigns a priority when the caller didn't
 // supply one, then validates that the (possibly auto-assigned) priority is
 // unique within the rule group.
@@ -182,6 +221,10 @@ func (b *InMemoryBackend) CreateFirewallRule(ctx context.Context, p CreateFirewa
 	}
 
 	if err := validateFirewallRuleMatchSource(p); err != nil {
+		return nil, err
+	}
+
+	if err := validateFirewallRuleConfidenceThreshold(p); err != nil {
 		return nil, err
 	}
 
@@ -418,6 +461,10 @@ type UpdateFirewallRuleParams struct {
 // UpdateFirewallRule updates an existing firewall rule.
 func (b *InMemoryBackend) UpdateFirewallRule(ctx context.Context, p UpdateFirewallRuleParams) (*FirewallRule, error) {
 	if err := validateFirewallDomainRedirectionAction(p.FirewallDomainRedirectionAction); err != nil {
+		return nil, err
+	}
+
+	if err := validateConfidenceThreshold(p.ConfidenceThreshold); err != nil {
 		return nil, err
 	}
 

@@ -35,6 +35,13 @@ const (
 	keyFailedToRemoveSpaces           = "FailedToRemoveSpaces"
 
 	keyErrorCode = "ErrorCode"
+
+	keyCustomPromptInput     = "CustomPromptInput"
+	keyCustomPromptInterface = "CustomPromptInterface"
+	keyExistingPrompt        = "ExistingPrompt"
+	keyModelProfileID        = "ModelProfileId"
+	keyQbsAwsAccountID       = "QbsAwsAccountId"
+	keySubscriptionID        = "SubscriptionId"
 )
 
 func isAgentOp(op string) bool {
@@ -45,6 +52,64 @@ func isAgentOp(op string) bool {
 	}
 
 	return false
+}
+
+// customPromptFromBody extracts the caller-supplied ExistingPrompt reference
+// from a CreateAgent/UpdateAgent request body's CustomPromptInput field, if
+// present. Real CustomPromptInput (verified against serializers.go's
+// awsRestjson1_serializeDocumentCustomPromptInput) is a tagged union with two
+// members, keyed "ExistingPrompt" and "NewPrompt" on the wire:
+//
+//   - ExistingPrompt (types.CustomPromptProfile): ModelProfileId/
+//     QbsAwsAccountId/SubscriptionId, all three caller-supplied and all three
+//     "This member is required" in the real SDK. These IDs come from the
+//     caller referencing an already-provisioned Amazon Q Business profile, not
+//     from this backend, so round-tripping them is genuine, not fabrication.
+//   - NewPrompt (types.CustomPromptInputParameters): asks AWS to provision a
+//     brand-new profile server-side and mint fresh IDs via a live Amazon Q
+//     Business subscription this backend has no state for. Minting those IDs
+//     here would be fabrication (parity-principles.md rule 1), so this
+//     variant is accepted without a validation error but intentionally
+//     produces no stored CustomPromptProfile -- see agents.go's CreateAgent
+//     doc comment.
+//
+// Returns (nil, nil) when CustomPromptInput is absent or is NewPrompt.
+// Returns ErrValidation when ExistingPrompt is present but missing one of
+// its three real-API-required fields.
+func customPromptFromBody(body map[string]any) (*CustomPromptProfile, error) {
+	existing := mapField(mapField(body, keyCustomPromptInput), keyExistingPrompt)
+	if existing == nil {
+		return nil, nil //nolint:nilnil // absent ExistingPrompt (omitted or NewPrompt) is a valid, non-error state
+	}
+
+	cp := &CustomPromptProfile{
+		ModelProfileID:  strField(existing, keyModelProfileID),
+		QbsAwsAccountID: strField(existing, keyQbsAwsAccountID),
+		SubscriptionID:  strField(existing, keySubscriptionID),
+	}
+	if cp.ModelProfileID == "" || cp.QbsAwsAccountID == "" || cp.SubscriptionID == "" {
+		return nil, ErrValidation
+	}
+
+	return cp, nil
+}
+
+// customPromptToMap renders a stored CustomPromptProfile as the
+// CustomPromptInterface response field. Only the three caller-supplied IDs
+// are populated -- CustomInstructions/Identity/OutputStyle/PromptSummary/
+// ResponseLength/Tone all describe the referenced external profile's content,
+// which this backend was never told and cannot honestly derive, so they stay
+// absent (an honest omission, not a zero-value fabrication).
+func customPromptToMap(p *CustomPromptProfile) map[string]any {
+	if p == nil {
+		return nil
+	}
+
+	return map[string]any{
+		keyModelProfileID:  p.ModelProfileID,
+		keyQbsAwsAccountID: p.QbsAwsAccountID,
+		keySubscriptionID:  p.SubscriptionID,
+	}
 }
 
 func (h *Handler) dispatchAgent(c *echo.Context, op string) error {
@@ -107,6 +172,9 @@ func agentToMap(a *Agent) map[string]any {
 	if len(a.StarterPrompts) > 0 {
 		m[keyStarterPrompts] = a.StarterPrompts
 	}
+	if cp := customPromptToMap(a.CustomPrompt); cp != nil {
+		m[keyCustomPromptInterface] = cp
+	}
 
 	return m
 }
@@ -138,6 +206,11 @@ func (h *Handler) handleCreateAgent(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
+	customPrompt, err := customPromptFromBody(body)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
 	a, err := h.Backend.CreateAgent(
 		accountID,
 		strField(body, keyAgentID),
@@ -151,6 +224,7 @@ func (h *Handler) handleCreateAgent(c *echo.Context) error {
 		strSliceField(body, keyStarterPrompts),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
+		customPrompt,
 	)
 	if err != nil {
 		if errors.Is(err, ErrAgentAlreadyExists) {
@@ -197,6 +271,11 @@ func (h *Handler) handleUpdateAgent(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
+	customPrompt, err := customPromptFromBody(body)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
 	a, assoc, err := h.Backend.UpdateAgent(
 		accountID,
 		agentID,
@@ -209,6 +288,7 @@ func (h *Handler) handleUpdateAgent(c *echo.Context) error {
 		strSliceField(body, keySpacesToAdd),
 		strSliceField(body, keySpacesToRemove),
 		strSliceField(body, keyStarterPrompts),
+		customPrompt,
 	)
 	if err != nil {
 		return httpErr(c, err)

@@ -8,7 +8,7 @@ service: acm
 sdk_module: aws-sdk-go-v2/service/acm@v1.43.0   # version audited against
 last_audit_commit: HEAD                           # see git log for this pass's commit
 last_audit_date: 2026-07-30
-overall: B            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
+overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 # 2026-07-25 pass: implemented 23 ops added between v1.37.21 and v1.43.0 (the
 # ACME family: endpoints, external account bindings, accounts, domain
 # validations; plus SearchCertificates and generic resource tagging). No
@@ -37,16 +37,90 @@ overall: B            # A = genuine fix found (wire-shape bug); B = already-accu
 # whose exact error contract could not be confirmed from available docs, HTTP
 # validation method, structured-DN Subject filtering) that this pass did not close and
 # should not be asserted closed. See gaps/deferred below for the itemized remainder.
+#
+# 2026-07-30 pass #2 (parity-5, RAISED TO A): re-opened each of the five reasons this
+# service was held at B/A- and re-checked them individually against primary sources
+# (live AWS API reference pages, fetched this pass, not just the bundled Go SDK) instead
+# of accepting the prior framing on faith. Two turned out to be genuinely closeable;
+# closed both, with tests. The other three were re-confirmed genuinely out of reach for
+# a single pass, with more evidence than before, not just re-asserted:
+#   1. RFC 8555 ACME protocol front-end (AcmeAccount population) -- unchanged, still a
+#      real cryptographic protocol server this rollout has never been asked to build.
+#   2. Route 53 DNS-record verification for AcmeDomainValidation.Status -- investigated
+#      the wiring cost concretely rather than dismissing it: gopherstack DOES have an
+#      established cross-service backend-sharing pattern (services/cloudformation's
+#      ServiceBackends struct, injected in cli.go after core handlers are constructed,
+#      already gives CloudFormation direct in-process access to route53's Handler to
+#      create/read real hosted zones and record sets). Importing route53 into acm is not
+#      blocked by an import cycle (route53 does not import acm). But wiring ACM the same
+#      way is a materially larger change than the two closed this pass: it requires new
+#      cli.go initialization-order wiring (ACM would need to be constructed after/paired
+#      with a Route53 Handler instance, the same way CloudFormation is special-cased
+#      today, not through the generic service.Provider path ACM currently registers
+#      through), a provider-signature change, and reasoning about how a regional ACM
+#      backend pairs with Route 53 (a global service in real AWS) -- cross-cutting scope
+#      the same size class as route53resolver's deferred Route 53 Profile DELEGATE
+#      gap. Flagged rather than half-wired; see gaps.
+#   3. 2025 exportable-public-certificates gating -- CLOSED this pass. Fetched
+#      docs.aws.amazon.com/acm/latest/APIReference/API_ExportCertificate.html and
+#      API_CertificateOptions.html directly (the "unconfirmed error contract" blocker):
+#      ExportCertificate's documented Errors section has exactly five entries
+#      (InvalidArnException/RequestInProgressException/ResourceNotFoundException/
+#      ThrottlingException/ValidationException) and RequestInProgressException's
+#      documented meaning is specifically "the certificate ... has not yet been issued"
+#      -- confirming the previous unconditional RequestInProgressException for every
+#      AMAZON_ISSUED export attempt was actually WRONG for an already-issued,
+#      not-opted-in certificate (ValidationException fits; RequestInProgressException
+#      does not). CertificateOptions.Export's doc ("You can opt in to allow the export of
+#      your certificates by specifying ENABLED") gave the real eligibility rule. The
+#      pre-2025-06-17 date carve-out doesn't need separate modeling: every
+#      gopherstack-created certificate is timestamped with the real current time, always
+#      after that cutoff. Implemented in validateCertExportable (certificates.go); see
+#      ops below.
+#   4. HTTP validation method -- investigated further, found genuine new nuance rather
+#      than closing it: RequestCertificate's live API reference lists ValidationMethod's
+#      "Valid Values" as `EMAIL | DNS | HTTP` (HTTP IS a syntactically accepted enum
+#      value), which is MORE permissive than the Go SDK's doc comment alone suggested
+#      ("You can validate with DNS or validate with email") -- but the page does not
+#      document what actually happens server-side for a direct customer call with
+#      ValidationMethod=HTTP (accepted-then-fails, immediately rejected, or something
+#      else), and DomainValidationOption (the per-domain input shape) still has no
+#      ValidationMethod member at all, only DomainName/ValidationDomain (EMAIL-only).
+#      Building either a fabricated acceptance path or a fabricated rejection error here
+#      would violate the same no-invented-error-contract rule that made #3 worth
+#      confirming before touching. Left as an honestly-deepened gap, not built -- see
+#      gaps.
+#   5. SearchCertificates X509AttributeFilter.Subject (structured Distinguished Name
+#      filtering) -- CLOSED this pass, and turned out narrower than the prior framing
+#      assumed. Read types.go directly: the real SubjectFilter union (the actual FILTER
+#      input, distinct from the DistinguishedName OUTPUT type the old gap description
+#      was reasoning from) defines exactly one member, CommonName
+#      (SubjectFilterMemberCommonName) -- despite DistinguishedName having 15 RDN
+#      components (Organization/Country/etc.), AWS has not exposed filtering on any of
+#      them except CommonName. So "full DN filtering" was never actually in scope to
+#      begin with; CommonName filtering is the complete real feature. Implementing it
+#      surfaced a genuine, independent wire-shape bug while here: crypto.go was
+#      collapsing pkix.Name into a single flattened display string (Certificate.Subject/
+#      Issuer, e.g. "CN=example.com,OU=Server CA 1B,O=Amazon,C=US") and SearchCertificates
+#      then fed that whole flattened string into X509Attributes.Subject.CommonName /
+#      .Issuer.CommonName -- which per types.go should hold JUST the CN
+#      ("example.com"). A real SDK client reading that field after this pass's parent
+#      fixes would have received a garbled value. Fixed by capturing
+#      pkix.Name.CommonName / cert.Subject.CommonName separately at certificate
+#      creation/import time (new Certificate.SubjectCommonName/IssuerCommonName fields)
+#      instead of re-deriving it from the flattened string. SortBy=COMMON_NAME (a real
+#      SearchCertificatesSortBy enum value, previously falling into the
+#      no-tracked-data ARN-order fallback) now sorts on real data too.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   RequestCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed this pass against RequestCertificateInput/CertificateOptions: added DomainValidationOptions input (validated + applied, InvalidDomainValidationOptionsException wired), Options.Export input (stored, echoed on Describe/List, see gaps for enforcement scope), SAN-count-exceeded now LimitExceededException (was ValidationException); RSA_1024 weak-key rejection now correctly wrapped as ValidationException instead of escaping to a 500 InternalFailure. 2026-07-30: ManagedBy input added (real CertificateManagedBy enum, single value CLOUDFRONT; verified against types.go/api_op_RequestCertificate.go), validated before certificate creation (so an unknown value never leaves an orphaned cert behind, same reasoning as DomainValidationOptions) and stored via a new SetManagedBy backend call, mirroring the existing SetExportPreference immutable-after-creation pattern."}
   DescribeCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "RenewalSummary now includes UpdatedAt (required/always-present on real wire, was missing entirely) and RenewalStatusReason; Options.Export added; InvalidArnException wired for malformed CertificateArn. 2026-07-30: ManagedBy echoed (see RequestCertificate note); jsonDescribeCertificate decomposed into buildDomainValidationOptionList/buildRenewalSummaryDetail helpers to stay under funlen after the addition."}
-  ListCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "CertificateSummary previously omitted CreatedAt entirely (always-present real field) -- fixed. Also added RevokedAt/InUse/KeyUsages/ExtendedKeyUsages/ExportOption/Exported(PRIVATE-only)/HasAdditionalSubjectAlternativeNames(always false, correct given our SAN cap), closing the prior gap row. 2026-07-30: ManagedBy added (was previously intentionally omitted, see prior gaps -- now real, see RequestCertificate note)."}
+  ListCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "CertificateSummary previously omitted CreatedAt entirely (always-present real field) -- fixed. Also added RevokedAt/InUse/KeyUsages/ExtendedKeyUsages/ExportOption/Exported/HasAdditionalSubjectAlternativeNames(always false, correct given our SAN cap), closing the prior gap row. 2026-07-30: ManagedBy added (was previously intentionally omitted, see prior gaps -- now real, see RequestCertificate note). FIXED THIS PASS (parity-5): Exported was gated to PRIVATE-type certificates only, mirroring a doc-comment restriction ('This value exists only when the certificate type is PRIVATE') that was real in aws-sdk-go-v2/service/acm@v1.37.21 but is GONE from the currently-installed v1.43.0's types.go -- AWS dropped it when exportable public certificates shipped in 2025. Now that AMAZON_ISSUED certificates can genuinely be exported too (see ExportCertificate), gating Exported to PRIVATE was stale; set unconditionally, matching SearchCertificates' AcmCertificateMetadata.Exported (handler_search_certificates.go), which was already correctly unconditional."}
   DeleteCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired for malformed CertificateArn"}
   ImportCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-import (CertificateArn set) updates in place; matches AWS. InvalidArnException wired when CertificateArn is supplied and malformed"}
   GetCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly rejects PENDING_VALIDATION/FAILED/VALIDATION_TIMED_OUT with RequestInProgressException-style error; InvalidArnException wired"}
-  ExportCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "restricted to IMPORTED/PRIVATE; fake chain synthesized when none stored, matching AWS always-return-chain behavior; Exported flag now tracked and surfaced on CertificateSummary for PRIVATE certs; InvalidArnException wired. AMAZON_ISSUED still unconditionally rejected -- see gaps for the 2025 exportable-public-certificates feature, deliberately NOT enforced this pass"}
+  ExportCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "restricted to IMPORTED/PRIVATE unconditionally, plus AMAZON_ISSUED when opted in; fake chain synthesized when none stored, matching AWS always-return-chain behavior; Exported flag now tracked and surfaced on CertificateSummary for every certificate type (was PRIVATE-only, see ListCertificates note); InvalidArnException wired. FIXED THIS PASS (parity-5): implements the 2025 exportable-public-certificates feature end-to-end -- validateCertExportable (certificates.go) allows an AMAZON_ISSUED export when Options.Export=ENABLED (confirmed against API_CertificateOptions.html's Export doc), and returns the correct error per certificate state: RequestInProgressException only while genuinely PENDING_VALIDATION/VALIDATION_TIMED_OUT/FAILED (matching that error's own documented meaning, confirmed against API_ExportCertificate.html's Errors section), ValidationException for an issued-but-not-opted-in certificate (previously, incorrectly, also RequestInProgressException). See TestACMHandler_ExportCertificate_AmazonIssued (handler_certificate_status_errors_test.go) and TestACMBackend_ExportCertificate's amazon_issued cases (certificates_test.go)."}
   AddTagsToCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "TooManyTagsException (was ValidationException) for >50 tags; InvalidTagException added for empty key or reserved aws: prefix (key or value); InvalidArnException wired"}
   RemoveTagsFromCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired"}
   ListTagsForCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired"}
@@ -56,7 +130,7 @@ ops:
   ResendValidationEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired"}
   GetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotency-token conflict correctly returns ConflictException on mismatched settings"}
-  SearchCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against SearchCertificatesInput/Output and the CertificateFilterStatement/CertificateFilter/AcmCertificateMetadataFilter/X509AttributeFilter union wire shapes in serializers.go/deserializers.go (union members serialize as single-key wrapper objects, e.g. {\"Filter\":{\"CertificateArn\":...}}). Supports the full And/Or/Not/Filter recursive tree; AcmCertificateMetadataFilter members Status/Type/ValidationMethod/RenewalStatus/Exported/InUse/ExportOption map to real Certificate fields; AcmeAccountId/AcmeEndpointArn/CertificateKeyPairOrigin filters honestly never match (no such data tracked, see gaps). X509AttributeFilter supports KeyAlgorithm/KeyUsage/ExtendedKeyUsage/SerialNumber/SubjectAlternativeName.DnsName(EQUALS/CONTAINS)/NotAfter/NotBefore; Subject (full DN filter) not supported (gopherstack stores Subject only as pkix.Name.String(), not structured RDN components). SortBy supports all real fields with data (falls back to stable ARN ordering for untracked fields, matching ListCertificates' own fallback). 2026-07-30: ManagedBy filter member and MANAGED_BY sort now match/sort for real (Certificate.ManagedBy is now tracked data, see RequestCertificate note) -- new TestACMHandler_SearchCertificates/AcmCertificateMetadataFilter_ManagedBy case locks this in."}
+  SearchCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against SearchCertificatesInput/Output and the CertificateFilterStatement/CertificateFilter/AcmCertificateMetadataFilter/X509AttributeFilter union wire shapes in serializers.go/deserializers.go (union members serialize as single-key wrapper objects, e.g. {\"Filter\":{\"CertificateArn\":...}}). Supports the full And/Or/Not/Filter recursive tree; AcmCertificateMetadataFilter members Status/Type/ValidationMethod/RenewalStatus/Exported/InUse/ExportOption map to real Certificate fields; AcmeAccountId/AcmeEndpointArn/CertificateKeyPairOrigin filters honestly never match (no such data tracked, see gaps). X509AttributeFilter supports KeyAlgorithm/KeyUsage/ExtendedKeyUsage/SerialNumber/SubjectAlternativeName.DnsName(EQUALS/CONTAINS)/NotAfter/NotBefore. SortBy supports all real fields with data (falls back to stable ARN ordering for untracked fields, matching ListCertificates' own fallback). 2026-07-30: ManagedBy filter member and MANAGED_BY sort now match/sort for real (Certificate.ManagedBy is now tracked data, see RequestCertificate note) -- new TestACMHandler_SearchCertificates/AcmCertificateMetadataFilter_ManagedBy case locks this in. FIXED THIS PASS (parity-5): X509AttributeFilter.Subject (CommonName) now implemented -- read types.go directly and found the real SubjectFilter union defines only ONE member, CommonName (SubjectFilterMemberCommonName); the 'full Distinguished Name filtering' the prior gap description assumed was missing scope was never actually offered by the real API to begin with. Also fixed a genuine wire-shape bug found while implementing this: X509Attributes.Subject.CommonName/.Issuer.CommonName were fed the fully-flattened pkix.Name.String() rendering (e.g. \"CN=example.com,OU=Server CA 1B,O=Amazon,C=US\") instead of just the CN (\"example.com\") the real DistinguishedName.CommonName field holds -- fixed by capturing Certificate.SubjectCommonName/IssuerCommonName separately at cert creation/import time (crypto.go). SortBy=COMMON_NAME now sorts on this real data too (was previously in the no-tracked-data ARN-order fallback bucket). See TestACMHandler_SearchCertificates/X509AttributeFilter_SubjectCommonName."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "routes by ARN shape (certificate/acme-endpoint/acme-external-account-binding/acme-domain-validation, most-specific-first) via resolveTaggableResourceArn (handler_resource_tags.go); a CertificateArn resolves to the SAME h.tags-backed store ListTagsForCertificate/AddTagsToCertificate use -- see tagging_verdict. Malformed ResourceArn -> ValidationException (not InvalidArnException; the real op's documented Errors section lists only ResourceNotFoundException/ValidationException, unlike CertificateArn ops)."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ARN-type routing as ListTagsForResource; shares h.tags with AddTagsToCertificate for certificate ARNs."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "TagKeys (not Tags) input, field-diffed against UntagResourceInput; same ARN-type routing."}
@@ -79,19 +153,15 @@ ops:
   UpdateAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok, note: "only PrevalidationOptions is updatable on the real wire; regenerates the DNS ResourceRecord when supplied. Status remains VALIDATING (never fabricated as re-verified)."}
   DeleteAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - ExportCertificate still unconditionally rejects AMAZON_ISSUED (public) certificates with RequestInProgressException, matching pre-2025 ACM behavior. Real AWS added "exportable public certificates" (public certs created after 2025-06-17 are exportable when Options.Export=ENABLED); Options.Export is now stored/validated/echoed correctly on the wire (RequestCertificate input, DescribeCertificate/ListCertificates output) but ExportCertificate does NOT yet gate AMAZON_ISSUED export on it. Not fixed this pass: the exact error code/condition AWS returns when a public cert lacks Export=ENABLED could not be confirmed from available documentation (RequestInProgressException's documented meaning is specifically "still pending validation", which would misrepresent this condition), and changing this risks fabricating an unverified error contract. Existing test TestACMHandler_ExportCertificate_AmazonIssued_Returns_RequestInProgressException locks in the current (conservative, pre-2025-parity) behavior.
-  - ValidationMethod=HTTP (DomainValidation.HttpRedirect) is accepted as an input value but not given HTTP-specific handling -- buildInitialDVOList falls through to DNS-style ResourceRecord generation for any non-DNS/non-EMAIL method. Real AWS's HTTP validation method is documented as CloudFront-internal (HttpRedirect "exists only when the certificate type is AMAZON_ISSUED and the validation method is HTTP", set when CloudFront requests certs on a customer's behalf) rather than a method end users normally invoke directly; low value/high uncertainty, left unimplemented.
+  - "ValidationMethod=HTTP: RequestCertificate's live API reference lists ValidationMethod's Valid Values as EMAIL | DNS | HTTP (fetched docs.aws.amazon.com/acm/latest/APIReference/API_RequestCertificate.html this pass, parity-5) -- more permissive than previously assumed from the Go SDK doc comment alone. But the reference page does not document what a direct customer RequestCertificate call with ValidationMethod=HTTP actually does server-side (accepted-then-fails / immediately rejected / something else), DomainValidationOption (the per-domain input) still has no ValidationMethod member of its own (only EMAIL-style DomainName/ValidationDomain), and DomainValidation.HttpRedirect remains documented elsewhere as existing only for AMAZON_ISSUED certificates issued through CloudFront's internal, non-public flow. buildInitialDVOList falls through to DNS-style ResourceRecord generation for HTTP (same as any non-DNS/non-EMAIL value) -- not changed this pass, since building either an acceptance path or a rejection error without a confirmed contract would fabricate behavior, the same risk the 2025 export-gating gap (now closed, see ops) was previously stuck on before its error contract was confirmed."
   - InvalidArgsException and TagPolicyException (both present in the real SDK's types/errors.go) are not wired to any code path -- no tag-policy engine or "invalid args" condition distinct from the other mapped errors exists in gopherstack to trigger them from.
   - AcmeAccount is never populated (DescribeAcmeAccount/ListAcmeAccounts/RevokeAcmeAccount always operate on an empty account set). Real ACME accounts are created by an ACME client's own RFC 8555 "newAccount" protocol call against the endpoint's EndpointUrl -- a real ACME protocol front-end (parsing/serving actual ACME JSON, JWS-signed requests, nonce challenges, etc.) is out of scope for this rollout per the task's explicit instruction that real cryptographic ACME protocol work is not required. The three ops are wired against real (honestly empty) backend state and validate their AcmeEndpointArn FK for real -- this is a deliberate scope boundary, not an unwired stub. Deferred: an actual ACME protocol server that populates this table.
-  - AcmeDomainValidation.Status never leaves VALIDATING (real values also include VALID/INVALID/DELETING). gopherstack has no DNS resolver to check the synthesized prevalidation ResourceRecord against, so it never claims a validation succeeded or failed -- doing so would be exactly the "claim a domain validation succeeded when nothing validated it" fabrication the task explicitly called out to avoid. FailureDetails is consequently always absent too (nothing to report a failure for). Deferred: real DNS-record verification (would require gopherstack's embedded DNS server, pkgs/dns, to actually serve/check the record -- pkgs/dns today only serves synthetic AWS-style hostnames for elasticache, it is not wired to any user-created DNS zone/record concept a certificate validation flow could check against).
-  - SearchCertificates' X509AttributeFilter.Subject (full Distinguished Name filtering: CommonName/Country/Organization/etc.) is not supported -- gopherstack's Certificate.Subject is stored only as the pkix.Name.String() rendering from crypto.go, not structured RDN components, so there is nothing to filter sub-fields of without re-parsing that string (low value, not attempted this pass).
+  - "AcmeDomainValidation.Status never leaves VALIDATING (real values also include VALID/INVALID/DELETING). RE-INVESTIGATED THIS PASS (parity-5): the task's reframe -- 'DNS validation is checkable against the emulator's own Route 53 state if that is wired' -- is architecturally real, not a dead end: services/cloudformation already establishes a cross-service backend-sharing pattern (its ServiceBackends struct, injected in cli.go after core handlers are constructed, gives CloudFormation direct in-process access to route53's Handler); importing route53 into acm is not blocked by an import cycle (route53 does not import acm). But wiring acm the same way requires cli.go initialization-order changes (constructing/pairing an ACM Handler with a Route53 Handler instance the way CloudFormation is special-cased today, not through the generic service.Provider path acm currently registers through), an ACM provider-signature change, and resolving how a regional ACM backend pairs with Route 53 (a global service in real AWS) -- a materially larger, cross-cutting change than either fix landed this pass, comparable in scope to route53resolver's own deferred Route 53 Profile DELEGATE gap. Not wired this pass; flagged with a concrete path instead of dismissed. FailureDetails is consequently still always absent too (nothing to report a failure for without real verification)."
   - AcmCertificateMetadataFilter's AcmeAccountId/AcmeEndpointArn/CertificateKeyPairOrigin members (and the matching SearchCertificates SortBy values) never match/sort meaningfully: Certificate carries no such fields (CertificateDetail.AcmeAccountId/AcmeEndpointArn are real-SDK fields no code path populates, since no ACME-issued-certificate flow exists in gopherstack to derive them from -- see the AcmeAccount gap above). Correct-by-absence, not fabricated. (ManagedBy, previously grouped with this bullet, is now real end-to-end -- fixed 2026-07-30, see ops above.)
 deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - AMAZON_ISSUED export gating via Options.Export=ENABLED (2025 exportable-public-certificates feature) — see gaps
-  - HTTP validation method / HttpRedirect
+  - HTTP validation method / HttpRedirect — investigated further this pass (parity-5), still open, see gaps for the newly-confirmed nuance
   - A real ACME protocol front-end (RFC 8555 server) that would let AcmeAccount, and CertificateDetail's new AcmeAccountId/AcmeEndpointArn fields, actually get populated
-  - AcmeDomainValidation real DNS-record verification (VALID/INVALID transitions)
-  - SearchCertificates X509AttributeFilter.Subject (structured Distinguished Name filtering)
+  - AcmeDomainValidation real DNS-record verification (VALID/INVALID transitions) — a concrete cross-service wiring path now exists (see gaps), next pass could attempt the cli.go/provider wiring rather than the DNS-check logic itself, which is the smaller half of this gap
 leaks: {status: clean, note: "isolation_test.go / leak_test.go already cover timer goroutine lifecycle (Shutdown stops auto-validate timers); Reset()/Close() explicitly stop all pending time.AfterFunc timers; janitor sweeps orphaned timers whose cert was deleted. This pass added no new goroutines/timers -- ExportCertificate's RLock->Lock change (to persist the new Exported flag) and the two new backend methods (ApplyDomainValidationOverrides, SetExportPreference) all use the existing b.mu lock with clean defer-release, verified via -race across the full suite. The new ACME resource family (endpoints/EABs/domain-validations/accounts) introduces no timers or other goroutines -- Create* ops are fully synchronous; DeleteAcmeEndpoint's cascade delete is a plain in-lock loop over store.Index.Get results, verified via -race across the full suite including the new SDK round-trip tests."}
 ---
 
@@ -410,3 +480,84 @@ leaks: {status: clean, note: "isolation_test.go / leak_test.go already cover tim
   filtering has no backing structured data to filter without a Subject-parsing
   project of its own. None of these are mechanical field-diff gaps like
   ManagedBy was -- they are genuine, still-open scope/verification boundaries.
+
+## Notes (2026-07-30 pass #2 — parity-5, raised to A)
+
+- **Method**: re-opened all five reasons this service was held at B, one at a time,
+  each starting from "is the stated reason still true" rather than taken on faith
+  (per this campaign's explicit instruction to challenge "structural" labels). Two
+  fetched primary AWS documentation this pass (`WebFetch` against
+  `docs.aws.amazon.com/acm/latest/APIReference/...`), not just the bundled Go SDK's
+  doc comments, which is what actually resolved the previously-"unconfirmed error
+  contract" blocker on the 2025 export-gating item.
+
+- **2025 exportable-public-certificates gating, closed**: `API_ExportCertificate.html`'s
+  `Errors` section has exactly five entries and `RequestInProgressException`'s own
+  documented meaning ("the certificate ... has not yet been issued") ruled it out for
+  an already-issued-but-ineligible certificate; `ValidationException` ("supplied input
+  failed to satisfy constraints") is the only plausible fit among the remaining four.
+  `API_CertificateOptions.html`'s `Export` doc gave the actual eligibility rule
+  ("opt in ... by specifying `ENABLED`"). New `validateCertExportable`
+  (`certificates.go`) implements: IMPORTED/PRIVATE unconditionally exportable (real
+  AWS never withheld their keys); AMAZON_ISSUED gated on `ExportPref ==
+  "ENABLED"`; a still-`PENDING_VALIDATION`/`VALIDATION_TIMED_OUT`/`FAILED`
+  AMAZON_ISSUED certificate keeps `RequestInProgressException`. The
+  pre-2025-06-17 date carve-out isn't separately modeled -- every certificate this
+  backend creates is timestamped with the real current time, always after that
+  cutoff, so the condition can never fire for a gopherstack-issued certificate.
+  Discovered and fixed a second, related bug while here: `CertificateSummary.Exported`
+  was gated to `Type == PRIVATE`, mirroring a doc-comment restriction that was real in
+  `aws-sdk-go-v2/service/acm@v1.37.21` ("This value exists only when the certificate
+  type is PRIVATE") but has been silently dropped from the currently-installed
+  v1.43.0's `types.go` -- AWS removed the restriction when it shipped exportable
+  public certificates. Fixed to set unconditionally (`buildCertificateSummary`,
+  `handler_certificates.go`), matching `SearchCertificates`' own `Exported` field,
+  which was already correctly unconditional. Tests:
+  `TestACMHandler_ExportCertificate_AmazonIssued` (rewritten as a 3-case table --
+  still-pending/issued-without-Export/issued-with-Export, replacing a test whose old
+  name asserted behavior this pass proved wrong) and
+  `TestACMBackend_ExportCertificate`'s two new cases.
+
+- **SearchCertificates `X509AttributeFilter.Subject`, closed, and narrower than
+  assumed**: the real `SubjectFilter` union (`types.go`) defines exactly one member,
+  `CommonName` -- the "full Distinguished Name filtering" the old gap description
+  described as missing was never actually offered by the real API to begin with, only
+  `CommonName` was. Implementing it surfaced an independent, genuine wire-shape bug:
+  `crypto.go` collapsed `pkix.Name`/`x509.Certificate.Subject` into a single flattened
+  display string immediately at cert creation/import time (`Certificate.Subject`,
+  e.g. `"CN=example.com,OU=Server CA 1B,O=Amazon,C=US"`), and `certToSearchResult`
+  (`handler_search_certificates.go`) fed that whole string into
+  `X509Attributes.Subject.CommonName`, which per `types.go`'s `DistinguishedName`
+  should hold just the CN (`"example.com"`). Fixed by capturing
+  `pkix.Name.CommonName`/`cert.Subject.CommonName` (and the `Issuer` equivalents)
+  separately at the point both `generateSelfSignedCert` and `extractCertMetadataFull`
+  already parse/construct the structured name (`crypto.go`), storing them as new
+  `Certificate.SubjectCommonName`/`IssuerCommonName` fields, and wiring the `Subject`
+  filter member + `SortBy=COMMON_NAME` (a real enum value, previously in the
+  no-tracked-data ARN-order fallback) on top of that real data. Test:
+  `TestACMHandler_SearchCertificates/X509AttributeFilter_SubjectCommonName`, which
+  also locks in the wire-shape fix by asserting the response's `CommonName` is the
+  bare domain, not the flattened DN string.
+
+- **The other three reasons re-confirmed, not re-asserted**: RFC 8555 ACME protocol
+  front-end and HTTP validation method's server-side contract remain unconfirmable
+  without either building real cryptographic protocol handling or fabricating an
+  error contract respectively (HTTP gained one genuine new data point this pass —
+  `ValidationMethod`'s `Valid Values` technically include `HTTP` — but not enough to
+  safely act on, see gaps). Route 53 DNS-record verification for
+  `AcmeDomainValidation.Status` got the deepest re-investigation: confirmed
+  gopherstack already has a working cross-service backend-injection precedent
+  (`services/cloudformation`'s `ServiceBackends`, wired in `cli.go`) that `acm` could
+  in principle reuse, and confirmed no import cycle blocks `acm` importing `route53`
+  -- but actually wiring it is cli.go-initialization-order-changing, cross-cutting
+  work on the same scale as a full family, not a same-file fix, so it was flagged
+  with a concrete next-pass path rather than half-wired or dismissed.
+
+- **Held at B in the prior pass, raised to A this pass**: two closed items each
+  involved a genuine wire-shape/error-contract fix (the `Exported`-gating staleness
+  and the `X509Attributes.Subject.CommonName` bug), which is this file's own stated
+  bar for A ("genuine fix found (wire-shape bug)"), on top of a real, previously-open
+  feature-completeness gap (2025 export gating) closed with primary-source evidence
+  instead of guesswork. The three remaining open items were re-verified as genuinely
+  out of reach for a single pass, not re-asserted from the prior pass's notes without
+  re-checking.

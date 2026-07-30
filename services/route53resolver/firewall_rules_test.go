@@ -695,6 +695,7 @@ func TestFirewallRule_DnsThreatProtection(t *testing.T) {
 				"Name":                "dga-rule",
 				"Action":              "ALERT",
 				"DnsThreatProtection": "DGA",
+				"ConfidenceThreshold": "MEDIUM",
 				"Priority":            100,
 			},
 			wantStatus: http.StatusOK,
@@ -705,6 +706,7 @@ func TestFirewallRule_DnsThreatProtection(t *testing.T) {
 				"Name":                "tunneling-rule",
 				"Action":              "ALERT",
 				"DnsThreatProtection": "DNS_TUNNELING",
+				"ConfidenceThreshold": "HIGH",
 				"Priority":            100,
 			},
 			wantStatus: http.StatusOK,
@@ -715,6 +717,7 @@ func TestFirewallRule_DnsThreatProtection(t *testing.T) {
 				"Name":                "dict-dga-rule",
 				"Action":              "ALERT",
 				"DnsThreatProtection": "DICTIONARY_DGA",
+				"ConfidenceThreshold": "LOW",
 				"Priority":            100,
 			},
 			wantStatus: http.StatusOK,
@@ -725,6 +728,33 @@ func TestFirewallRule_DnsThreatProtection(t *testing.T) {
 				"Name":                "bad-value-rule",
 				"Action":              "ALERT",
 				"DnsThreatProtection": "NOT_A_REAL_DETECTOR",
+				"ConfidenceThreshold": "MEDIUM",
+				"Priority":            100,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// CreateFirewallRuleInput's doc comment: "You must provide this
+			// value when you create a DNS Firewall Advanced rule" -- omitting
+			// ConfidenceThreshold on a DnsThreatProtection rule must be
+			// rejected, not silently accepted (this was previously an
+			// unenforced required field).
+			name: "missing_confidence_threshold_rejected",
+			body: map[string]any{
+				"Name":                "no-confidence-rule",
+				"Action":              "ALERT",
+				"DnsThreatProtection": "DGA",
+				"Priority":            100,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_confidence_threshold_rejected",
+			body: map[string]any{
+				"Name":                "bad-confidence-rule",
+				"Action":              "ALERT",
+				"DnsThreatProtection": "DGA",
+				"ConfidenceThreshold": "EXTREME",
 				"Priority":            100,
 			},
 			wantStatus: http.StatusBadRequest,
@@ -756,6 +786,7 @@ func TestFirewallRule_DnsThreatProtection(t *testing.T) {
 			rule, ok := resp["FirewallRule"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, tt.body["DnsThreatProtection"], rule["DnsThreatProtection"])
+			assert.Equal(t, tt.body["ConfidenceThreshold"], rule["ConfidenceThreshold"])
 			assert.NotEmpty(t, rule["FirewallThreatProtectionId"], "rule must get a FirewallThreatProtectionId")
 			_, hasDomainList := rule["FirewallDomainListId"]
 			assert.False(t, hasDomainList, "a DnsThreatProtection rule must not carry FirewallDomainListId")
@@ -811,6 +842,7 @@ func TestFirewallRule_UpdateDeleteByThreatProtectionId(t *testing.T) {
 	createRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
 		"FirewallRuleGroupId": grpID,
 		"DnsThreatProtection": "DGA",
+		"ConfidenceThreshold": "MEDIUM",
 		"Name":                "dtp-update-rule",
 		"Action":              "ALERT",
 		"Priority":            100,
@@ -820,15 +852,27 @@ func TestFirewallRule_UpdateDeleteByThreatProtectionId(t *testing.T) {
 	threatProtectionID, _ := createResp["FirewallRule"].(map[string]any)["FirewallThreatProtectionId"].(string)
 	require.NotEmpty(t, threatProtectionID)
 
+	// An invalid ConfidenceThreshold must be rejected on update too (not
+	// required-on-update like on create, but still validated against its
+	// closed enum whenever supplied).
+	badUpdateRec := doRequest(t, h, "UpdateFirewallRule", map[string]any{
+		"FirewallRuleGroupId":        grpID,
+		"FirewallThreatProtectionId": threatProtectionID,
+		"ConfidenceThreshold":        "EXTREME",
+	})
+	assert.Equal(t, http.StatusBadRequest, badUpdateRec.Code)
+
 	updateRec := doRequest(t, h, "UpdateFirewallRule", map[string]any{
 		"FirewallRuleGroupId":        grpID,
 		"FirewallThreatProtectionId": threatProtectionID,
 		"Action":                     "BLOCK",
 		"BlockResponse":              "NODATA",
+		"ConfidenceThreshold":        "HIGH",
 	})
 	require.Equal(t, http.StatusOK, updateRec.Code)
 	updateResp := decodeJSON(t, updateRec)
 	assert.Equal(t, "BLOCK", updateResp["FirewallRule"].(map[string]any)["Action"])
+	assert.Equal(t, "HIGH", updateResp["FirewallRule"].(map[string]any)["ConfidenceThreshold"])
 
 	deleteRec := doRequest(t, h, "DeleteFirewallRule", map[string]any{
 		"FirewallRuleGroupId":        grpID,

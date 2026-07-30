@@ -69,33 +69,43 @@ type DomainValidationOption struct {
 
 // Certificate represents an ACM certificate.
 type Certificate struct {
-	CreatedAt                          time.Time       `json:"createdAt"`
-	NotBefore                          time.Time       `json:"notBefore"`
-	NotAfter                           time.Time       `json:"notAfter"`
-	RevokedAt                          *time.Time      `json:"revokedAt,omitempty"`
-	IssuedAt                           *time.Time      `json:"issuedAt,omitempty"`
-	ImportedAt                         *time.Time      `json:"importedAt,omitempty"`
-	RenewalSummary                     *RenewalSummary `json:"renewalSummary,omitempty"`
-	CertificateBody                    string          `json:"certificateBody,omitempty"`
-	IdempotencyToken                   string          `json:"idempotencyToken,omitempty"`
-	Subject                            string          `json:"subject,omitempty"`
-	Issuer                             string          `json:"issuer,omitempty"`
-	KeyAlgorithm                       string          `json:"keyAlgorithm,omitempty"`
-	SignatureAlgorithm                 string          `json:"signatureAlgorithm,omitempty"`
-	Status                             string          `json:"status"`
-	Type                               string          `json:"type"`
-	RevocationReason                   string          `json:"revocationReason,omitempty"`
-	DomainName                         string          `json:"domainName"`
-	ValidationMethod                   string          `json:"validationMethod,omitempty"`
-	RenewalEligibility                 string          `json:"renewalEligibility,omitempty"`
-	CertificateChain                   string          `json:"certificateChain,omitempty"`
-	Serial                             string          `json:"serial,omitempty"`
-	CertificateTransparencyLoggingPref string          `json:"certTransparencyLoggingPref,omitempty"`
-	PrivateKey                         string          `json:"privateKey,omitempty"`
-	CertificateAuthorityArn            string          `json:"certificateAuthorityArn,omitempty"`
-	KeyID                              string          `json:"keyId,omitempty"`
-	ExportPref                         string          `json:"exportPref,omitempty"`
-	FailureReason                      string          `json:"failureReason,omitempty"`
+	CreatedAt        time.Time       `json:"createdAt"`
+	NotBefore        time.Time       `json:"notBefore"`
+	NotAfter         time.Time       `json:"notAfter"`
+	RevokedAt        *time.Time      `json:"revokedAt,omitempty"`
+	IssuedAt         *time.Time      `json:"issuedAt,omitempty"`
+	ImportedAt       *time.Time      `json:"importedAt,omitempty"`
+	RenewalSummary   *RenewalSummary `json:"renewalSummary,omitempty"`
+	CertificateBody  string          `json:"certificateBody,omitempty"`
+	IdempotencyToken string          `json:"idempotencyToken,omitempty"`
+	Subject          string          `json:"subject,omitempty"`
+	Issuer           string          `json:"issuer,omitempty"`
+	// SubjectCommonName/IssuerCommonName are the CommonName (CN) RDN component
+	// parsed/generated separately from the flattened Subject/Issuer strings
+	// above. Real AWS's X509Attributes.Subject/Issuer are structured
+	// DistinguishedName objects whose CommonName member is just the CN, e.g.
+	// "example.com" -- not the whole rendered DN
+	// ("CN=example.com,OU=...,O=...,C=US") that Subject/Issuer hold here for
+	// display. See crypto.go and SearchCertificates' Subject filter (CommonName
+	// is the only member the real SubjectFilter union defines).
+	SubjectCommonName                  string `json:"subjectCommonName,omitempty"`
+	IssuerCommonName                   string `json:"issuerCommonName,omitempty"`
+	KeyAlgorithm                       string `json:"keyAlgorithm,omitempty"`
+	SignatureAlgorithm                 string `json:"signatureAlgorithm,omitempty"`
+	Status                             string `json:"status"`
+	Type                               string `json:"type"`
+	RevocationReason                   string `json:"revocationReason,omitempty"`
+	DomainName                         string `json:"domainName"`
+	ValidationMethod                   string `json:"validationMethod,omitempty"`
+	RenewalEligibility                 string `json:"renewalEligibility,omitempty"`
+	CertificateChain                   string `json:"certificateChain,omitempty"`
+	Serial                             string `json:"serial,omitempty"`
+	CertificateTransparencyLoggingPref string `json:"certTransparencyLoggingPref,omitempty"`
+	PrivateKey                         string `json:"privateKey,omitempty"`
+	CertificateAuthorityArn            string `json:"certificateAuthorityArn,omitempty"`
+	KeyID                              string `json:"keyId,omitempty"`
+	ExportPref                         string `json:"exportPref,omitempty"`
+	FailureReason                      string `json:"failureReason,omitempty"`
 	region                             string
 	ARN                                string                   `json:"arn"`
 	ManagedBy                          string                   `json:"managedBy,omitempty"`

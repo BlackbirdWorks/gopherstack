@@ -627,11 +627,13 @@ type StorageBackend interface {
 		actionConnectors, spaces, starterPrompts []string,
 		permissions []ResourcePermission,
 		tags map[string]string,
+		customPrompt *CustomPromptProfile,
 	) (*Agent, error)
 	DescribeAgent(accountID, agentID string) (*Agent, error)
 	UpdateAgent(
 		accountID, agentID, name, description, iconID, welcomeMessage string,
 		actionConnectorsToAdd, actionConnectorsToRemove, spacesToAdd, spacesToRemove, starterPrompts []string,
+		customPrompt *CustomPromptProfile,
 	) (*Agent, *AgentAssociationUpdate, error)
 	DeleteAgent(accountID, agentID string) error
 	ListAgents(accountID string, maxResults int32, nextToken string) ([]*Agent, string, error)

@@ -499,6 +499,7 @@ type Flow struct {
 // Agent represents a QuickSight agent: an AI-powered conversational
 // assistant scoped to a set of action connectors and spaces.
 type Agent struct {
+	CustomPrompt     *CustomPromptProfile
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	AgentID          string
@@ -515,6 +516,22 @@ type Agent struct {
 	Spaces           []string
 	StarterPrompts   []string
 	Permissions      []ResourcePermission
+}
+
+// CustomPromptProfile mirrors the real SDK's types.CustomPromptProfile: a
+// caller-supplied reference to an already-provisioned Amazon Q Business
+// custom-prompt profile (CreateAgentInput/UpdateAgentInput's
+// CustomPromptInput.ExistingPrompt union member). All three IDs come from
+// the caller, not from this backend, so storing and echoing them back on
+// Describe/Create/Update is a genuine round-trip, not a fabrication -- unlike
+// CustomPromptInput.NewPrompt, which asks AWS to mint a brand-new profile
+// (and fresh IDs) server-side via a live Amazon Q Business subscription this
+// backend has no state for; see agents.go's customPromptFromBody for how the
+// two variants are told apart.
+type CustomPromptProfile struct {
+	ModelProfileID  string
+	QbsAwsAccountID string
+	SubscriptionID  string
 }
 
 // AssociationFailure represents one ARN that could not be attached to or

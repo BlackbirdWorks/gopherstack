@@ -526,6 +526,44 @@ func TestACMHandler_SearchCertificates(t *testing.T) {
 			},
 		},
 		{
+			// X509AttributeFilter.Subject: verified against
+			// aws-sdk-go-v2/service/acm@v1.43.0/types/types.go that the real
+			// SubjectFilter union currently defines only CommonName -- so this
+			// case covers the entirety of what the real API supports filtering
+			// on, not a partial implementation of a wider "structured DN
+			// filter" that AWS itself hasn't shipped yet. Also locks in the
+			// X509Attributes.Subject.CommonName wire-shape fix: it must be
+			// just the CN ("commonname.example.com"), not the whole rendered
+			// DN string ("CN=commonname.example.com,OU=...,O=Amazon,C=US").
+			name: "X509AttributeFilter_SubjectCommonName",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"commonname.example.com"}`)
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"other-cn.example.com"}`)
+
+				body := `{"FilterStatement":{"Filter":{"X509AttributeFilter":{"Subject":` +
+					`{"CommonName":{"ComparisonOperator":"EQUALS","Value":"commonname.example.com"}}}}}}`
+				rec := postACMJSON(t, h, "SearchCertificates", body)
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "commonname.example.com")
+				assert.NotContains(t, rec.Body.String(), "other-cn.example.com")
+
+				var out struct {
+					Results []struct {
+						X509Attributes struct {
+							Subject struct {
+								CommonName string `json:"CommonName"`
+							} `json:"Subject"`
+						} `json:"X509Attributes"`
+					} `json:"Results"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.Len(t, out.Results, 1)
+				assert.Equal(t, "commonname.example.com", out.Results[0].X509Attributes.Subject.CommonName)
+			},
+		},
+		{
 			name: "SortBy_CreatedAt_Descending",
 			run: func(t *testing.T, h *acm.Handler) {
 				t.Helper()

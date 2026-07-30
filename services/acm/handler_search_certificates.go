@@ -15,6 +15,17 @@ type subjectAlternativeNameFilterWire struct {
 	DNSName *dnsNameFilterWire `json:"DnsName,omitempty"`
 }
 
+// subjectFilterWire is the real SubjectFilter union -- confirmed against
+// aws-sdk-go-v2/service/acm@v1.43.0/types/types.go: CommonName is the ONLY
+// member the real SDK currently defines (SubjectFilterMemberCommonName),
+// despite the underlying DistinguishedName output type having 15 RDN
+// components (Country/Organization/OrganizationalUnit/etc.) -- AWS has not
+// exposed filtering on those yet, so "full DN filtering" was never actually
+// missing scope, just CommonName filtering, which this now implements.
+type subjectFilterWire struct {
+	CommonName *dnsNameFilterWire `json:"CommonName,omitempty"`
+}
+
 type timestampRangeWire struct {
 	Start *float64 `json:"Start,omitempty"`
 	End   *float64 `json:"End,omitempty"`
@@ -27,6 +38,7 @@ type x509AttributeFilterWire struct {
 	NotAfter               *timestampRangeWire               `json:"NotAfter,omitempty"`
 	NotBefore              *timestampRangeWire               `json:"NotBefore,omitempty"`
 	SerialNumber           *string                           `json:"SerialNumber,omitempty"`
+	Subject                *subjectFilterWire                `json:"Subject,omitempty"`
 	SubjectAlternativeName *subjectAlternativeNameFilterWire `json:"SubjectAlternativeName,omitempty"`
 }
 
@@ -92,6 +104,13 @@ func (w x509AttributeFilterWire) toFilter() *x509Filter {
 		f.SANDnsName = &stringComparison{
 			Value:      w.SubjectAlternativeName.DNSName.Value,
 			Comparison: w.SubjectAlternativeName.DNSName.ComparisonOperator,
+		}
+	}
+
+	if w.Subject != nil && w.Subject.CommonName != nil {
+		f.SubjectCommonName = &stringComparison{
+			Value:      w.Subject.CommonName.Value,
+			Comparison: w.Subject.CommonName.ComparisonOperator,
 		}
 	}
 
@@ -242,8 +261,8 @@ func certToSearchResult(c *Certificate) certificateSearchResultWire {
 			},
 		},
 		X509Attributes: &x509AttributesWire{
-			Issuer:                  &distinguishedNameWire{CommonName: c.Issuer},
-			Subject:                 &distinguishedNameWire{CommonName: c.Subject},
+			Issuer:                  &distinguishedNameWire{CommonName: c.IssuerCommonName},
+			Subject:                 &distinguishedNameWire{CommonName: c.SubjectCommonName},
 			KeyAlgorithm:            c.KeyAlgorithm,
 			SerialNumber:            c.Serial,
 			KeyUsages:               c.KeyUsage,
