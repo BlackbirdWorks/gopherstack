@@ -370,6 +370,52 @@ func Test_IndexConsistencyAcrossPut(t *testing.T) {
 	assert.ElementsMatch(t, []string{"a", "c"}, idsOf(idx.Get("g2")))
 }
 
+// Test_IndexConsistencyAcrossInPlaceMutateThenPut reproduces gopherstack-vho:
+// a caller that does Get, mutates the returned pointer's indexed field in
+// place, then calls Put with that same pointer must not leave the entry
+// filed under its old index key. Put's old/new value are the same object at
+// that point, so a remove() that recomputes its key from the passed-in value
+// (rather than the key it was originally filed under) looks in the *new*
+// bucket instead of the old one and never clears the stale entry.
+func Test_IndexConsistencyAcrossInPlaceMutateThenPut(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		mutate     func(w *widget)
+		wantOldKey string
+		wantNewKey string
+	}{
+		{
+			name:       "group_field_changes",
+			mutate:     func(w *widget) { w.Group = "g2" },
+			wantOldKey: "g1",
+			wantNewKey: "g2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tbl := store.New(widgetKey)
+			idx := tbl.AddIndex("group", func(w *widget) string { return w.Group })
+
+			tbl.Put(&widget{ID: "a", Group: "g1"})
+
+			got, ok := tbl.Get("a")
+			require.True(t, ok)
+
+			tt.mutate(got)
+			tbl.Put(got)
+
+			assert.Empty(t, idsOf(idx.Get(tt.wantOldKey)),
+				"old index bucket must not retain the entry after in-place mutate+Put")
+			assert.ElementsMatch(t, []string{"a"}, idsOf(idx.Get(tt.wantNewKey)))
+		})
+	}
+}
+
 func Test_IndexConsistencyAcrossDelete(t *testing.T) {
 	t.Parallel()
 
@@ -389,6 +435,31 @@ func Test_IndexConsistencyAcrossDelete(t *testing.T) {
 	// last member is removed.
 	assert.Equal(t, 0, idx.Len())
 	assert.Empty(t, idx.Get("g1"))
+}
+
+// Test_IndexConsistencyAcrossInPlaceMutateThenDelete covers the same
+// gopherstack-vho bug class as Test_IndexConsistencyAcrossInPlaceMutateThenPut,
+// but for Delete: a caller that Gets a pointer, mutates its indexed field in
+// place, and then Deletes it by id must not leave the (now-dangling) entry
+// behind in the index under its stale key.
+func Test_IndexConsistencyAcrossInPlaceMutateThenDelete(t *testing.T) {
+	t.Parallel()
+
+	tbl := store.New(widgetKey)
+	idx := tbl.AddIndex("group", func(w *widget) string { return w.Group })
+
+	tbl.Put(&widget{ID: "a", Group: "g1"})
+
+	got, ok := tbl.Get("a")
+	require.True(t, ok)
+
+	got.Group = "g2"
+
+	require.True(t, tbl.Delete("a"))
+
+	assert.Equal(t, 0, idx.Len())
+	assert.Empty(t, idx.Get("g1"))
+	assert.Empty(t, idx.Get("g2"))
 }
 
 func Test_IndexConsistencyAcrossRestore(t *testing.T) {
