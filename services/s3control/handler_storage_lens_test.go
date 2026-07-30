@@ -1,6 +1,7 @@
 package s3control_test
 
 import (
+	"encoding/xml"
 	"net/http"
 	"testing"
 
@@ -24,13 +25,29 @@ func TestStorageLensConfiguration(t *testing.T) {
 
 		h := s3control.NewHandler(s3control.NewInMemoryBackend())
 
+		// This is the real aws-sdk-go-v2 wire shape: the full
+		// configuration nests directly under
+		// "<StorageLensConfiguration>" in the request body (confirmed via
+		// awsRestxml_serializeOpDocumentPutStorageLensConfigurationInput),
+		// NOT under a "<Config>" child -- see storageLensConfigurationXML's
+		// doc comment in handler_storage_lens.go for the previous bug this
+		// locks in a fix for.
 		putRec := doS3Request(t, h, http.MethodPut, configPath,
-			`<PutStorageLensConfigurationRequest><Config>cfg-data</Config></PutStorageLensConfigurationRequest>`)
+			`<PutStorageLensConfigurationRequest>`+
+				`<StorageLensConfiguration><IsEnabled>true</IsEnabled></StorageLensConfiguration>`+
+				`</PutStorageLensConfigurationRequest>`)
 		require.Equal(t, http.StatusOK, putRec.Code)
 
 		getRec := doS3Request(t, h, http.MethodGet, configPath, "")
 		require.Equal(t, http.StatusOK, getRec.Code)
-		assert.Contains(t, getRec.Body.String(), configName)
+		body := getRec.Body.String()
+		assert.Contains(t, body, configName)
+		// The real IsEnabled field a client sent must round-trip as a
+		// direct child of <StorageLensConfiguration>, not be dropped.
+		assert.Contains(
+			t, body,
+			"<StorageLensConfiguration><Id>my-config</Id><IsEnabled>true</IsEnabled></StorageLensConfiguration>",
+		)
 	})
 
 	t.Run("get missing returns 404", func(t *testing.T) {
@@ -405,7 +422,13 @@ func TestStorageLensConfiguration_Table(t *testing.T) {
 			b := s3control.NewInMemoryBackend()
 			h := s3control.NewHandler(b)
 
-			body := `<StorageLensConfiguration><Config>` + tt.config + `</Config></StorageLensConfiguration>`
+			// Real aws-sdk-go-v2 wire shape: the configuration nests
+			// directly under "<StorageLensConfiguration>" inside
+			// "<PutStorageLensConfigurationRequest>", with no "<Config>"
+			// wrapper (see storageLensConfigurationXML's doc comment).
+			body := `<PutStorageLensConfigurationRequest>` +
+				`<StorageLensConfiguration>` + tt.config + `</StorageLensConfiguration>` +
+				`</PutStorageLensConfigurationRequest>`
 			rec := doS3ControlNewOpRequest(t, h, http.MethodPut,
 				"/v20180820/storagelens/"+tt.configName, "000000000000", body)
 			assert.Equal(t, http.StatusOK, rec.Code)
@@ -414,6 +437,9 @@ func TestStorageLensConfiguration_Table(t *testing.T) {
 				"/v20180820/storagelens/"+tt.configName, "000000000000", "")
 			require.Equal(t, tt.wantCode, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.configName)
+			if tt.config != "" {
+				assert.Contains(t, rec.Body.String(), tt.config)
+			}
 		})
 	}
 }
@@ -515,6 +541,31 @@ func TestListStorageLensConfigurations(t *testing.T) {
 				assert.Contains(t, body, id)
 			}
 			assert.Equal(t, len(tt.configs), s3control.StorageLensConfigCount(b))
+
+			// ListStorageLensConfigurationsOutput's list is FLATTENED in
+			// the real SDK -- repeated "<StorageLensConfiguration>"
+			// elements directly under the result, no wrapping
+			// "<StorageLensConfigurationList>" element (see
+			// awsRestxml_deserializeDocumentStorageLensConfigurationListUnwrapped).
+			// Assert the literal nested envelope, not a substring: a
+			// wrapper-based decode target would silently see zero items
+			// against the real (flattened) response, so round-tripping
+			// into a flattened decode target is the only shape that
+			// proves the fix.
+			assert.NotContains(t, body, "StorageLensConfigurationList")
+			var out struct {
+				XMLName xml.Name `xml:"ListStorageLensConfigurationsResult"`
+				Configs []struct {
+					ID string `xml:"Id"`
+				} `xml:"StorageLensConfiguration"`
+			}
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+			require.Len(t, out.Configs, len(tt.wantIDs))
+			gotIDs := make([]string, len(out.Configs))
+			for i, c := range out.Configs {
+				gotIDs[i] = c.ID
+			}
+			assert.ElementsMatch(t, tt.wantIDs, gotIDs)
 		})
 	}
 }
@@ -741,6 +792,32 @@ func TestStorageLensGroup_ListShowsFilter(t *testing.T) {
 				assert.Contains(t, body, g)
 			}
 			assert.Equal(t, tt.wantLen, s3control.StorageLensGroupCount(b))
+
+			// ListStorageLensGroupsOutput's list is FLATTENED in the real
+			// SDK (repeated "<StorageLensGroup>" elements directly under
+			// the result, no wrapping "<StorageLensGroupList>" element --
+			// see awsRestxml_deserializeDocumentStorageLensGroupListUnwrapped)
+			// and its entries (ListStorageLensGroupEntry) carry no
+			// CreatedAt or Filter field. Assert the literal nested
+			// envelope and the absence of fabricated fields, not
+			// substrings.
+			assert.NotContains(t, body, "StorageLensGroupList")
+			assert.NotContains(t, body, "CreatedAt")
+			var out struct {
+				XMLName xml.Name `xml:"ListStorageLensGroupsResult"`
+				Groups  []struct {
+					Name                string `xml:"Name"`
+					StorageLensGroupArn string `xml:"StorageLensGroupArn"`
+				} `xml:"StorageLensGroup"`
+			}
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+			require.Len(t, out.Groups, tt.wantLen)
+			gotNames := make([]string, len(out.Groups))
+			for i, g := range out.Groups {
+				gotNames[i] = g.Name
+				assert.NotEmpty(t, g.StorageLensGroupArn)
+			}
+			assert.ElementsMatch(t, tt.groups, gotNames)
 		})
 	}
 }

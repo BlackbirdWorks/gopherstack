@@ -251,6 +251,7 @@ type createAccessGrantsInstanceResponseXML struct {
 	IdentityCenterArn            string   `xml:"IdentityCenterArn,omitempty"`
 	IdentityCenterInstanceArn    string   `xml:"IdentityCenterInstanceArn,omitempty"`
 	IdentityCenterApplicationArn string   `xml:"IdentityCenterApplicationArn,omitempty"`
+	CreatedAt                    string   `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleCreateAccessGrantsInstance(c *echo.Context) error {
@@ -268,16 +269,19 @@ func (h *Handler) handleCreateAccessGrantsInstance(c *echo.Context) error {
 		AccessGrantsInstanceID:    inst.AccessGrantsInstanceID,
 		IdentityCenterArn:         inst.IdentityCenterArn,
 		IdentityCenterInstanceArn: inst.IdentityCenterInstanceArn,
+		CreatedAt:                 inst.CreatedAt,
 	})
 }
 
 // --- ListAccessGrantsInstances handler ---
 
 type listAccessGrantsInstancesItemXML struct {
-	AccessGrantsInstanceArn string `xml:"AccessGrantsInstanceArn"`
-	AccessGrantsInstanceID  string `xml:"AccessGrantsInstanceId"`
-	IdentityCenterArn       string `xml:"IdentityCenterArn,omitempty"`
-	CreatedAt               string `xml:"CreatedAt,omitempty"`
+	AccessGrantsInstanceArn      string `xml:"AccessGrantsInstanceArn"`
+	AccessGrantsInstanceID       string `xml:"AccessGrantsInstanceId"`
+	IdentityCenterArn            string `xml:"IdentityCenterArn,omitempty"`
+	IdentityCenterInstanceArn    string `xml:"IdentityCenterInstanceArn,omitempty"`
+	IdentityCenterApplicationArn string `xml:"IdentityCenterApplicationArn,omitempty"`
+	CreatedAt                    string `xml:"CreatedAt,omitempty"`
 }
 
 type listAccessGrantsInstancesResponseXML struct {
@@ -296,9 +300,12 @@ func (h *Handler) handleListAccessGrantsInstances(c *echo.Context) error {
 	items := make([]listAccessGrantsInstancesItemXML, 0, len(insts))
 	for _, inst := range insts {
 		items = append(items, listAccessGrantsInstancesItemXML{
-			AccessGrantsInstanceArn: inst.AccessGrantsInstanceArn,
-			AccessGrantsInstanceID:  inst.AccessGrantsInstanceID,
-			IdentityCenterArn:       inst.IdentityCenterArn,
+			AccessGrantsInstanceArn:      inst.AccessGrantsInstanceArn,
+			AccessGrantsInstanceID:       inst.AccessGrantsInstanceID,
+			IdentityCenterArn:            inst.IdentityCenterArn,
+			IdentityCenterInstanceArn:    inst.IdentityCenterInstanceArn,
+			IdentityCenterApplicationArn: inst.IdentityCenterApplicationArn,
+			CreatedAt:                    inst.CreatedAt,
 		})
 	}
 
@@ -460,9 +467,16 @@ func (h *Handler) handleDeleteAccessGrantsInstance(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
+// getAccessGrantsInstanceResourcePolicyResponseXML mirrors
+// GetAccessGrantsInstanceResourcePolicyOutput/
+// PutAccessGrantsInstanceResourcePolicyOutput. Both real outputs also carry
+// CreatedAt and Organization (confirmed via
+// awsRestxml_deserializeOpDocumentGetAccessGrantsInstanceResourcePolicyOutput),
+// but this backend's resource-policy store is a bare string map with no
+// timestamp or organization-ID tracking -- GAP, not fabricated.
 type getAccessGrantsInstanceResourcePolicyResponseXML struct {
 	XMLName xml.Name `xml:"GetAccessGrantsInstanceResourcePolicyResult"`
 	Policy  string   `xml:"Policy"`
@@ -517,6 +531,7 @@ func (h *Handler) handleDissociateAccessGrantsIdentityCenter(c *echo.Context) er
 type getAccessGrantsInstanceForPrefixResponseXML struct {
 	XMLName                 xml.Name `xml:"GetAccessGrantsInstanceForPrefixResult"`
 	AccessGrantsInstanceArn string   `xml:"AccessGrantsInstanceArn"`
+	AccessGrantsInstanceID  string   `xml:"AccessGrantsInstanceId,omitempty"`
 }
 
 func (h *Handler) handleGetAccessGrantsInstanceForPrefix(c *echo.Context) error {
@@ -530,18 +545,28 @@ func (h *Handler) handleGetAccessGrantsInstanceForPrefix(c *echo.Context) error 
 
 	return writeXML(c, getAccessGrantsInstanceForPrefixResponseXML{
 		AccessGrantsInstanceArn: inst.AccessGrantsInstanceArn,
+		AccessGrantsInstanceID:  inst.AccessGrantsInstanceID,
 	})
 }
 
 // ---- Access Grants CRUD ----
 
+// getAccessGrantResponseXML mirrors aws-sdk-go-v2's GetAccessGrantOutput.
+// Real fields not populated here (AccessGrantsLocationConfiguration) have no
+// backing data in this backend (see AccessGrantsLocation.LocationScope,
+// which is the closest analog but not the same shape) -- omitted rather
+// than invented.
 type getAccessGrantResponseXML struct {
-	XMLName           xml.Name `xml:"GetAccessGrantResult"`
-	AccessGrantID     string   `xml:"AccessGrantId"`
-	AccessGrantArn    string   `xml:"AccessGrantArn"`
-	Permission        string   `xml:"Permission"`
-	GranteeType       string   `xml:"Grantee>GranteeType"`
-	GranteeIdentifier string   `xml:"Grantee>GranteeIdentifier"`
+	XMLName                xml.Name `xml:"GetAccessGrantResult"`
+	AccessGrantID          string   `xml:"AccessGrantId"`
+	AccessGrantArn         string   `xml:"AccessGrantArn"`
+	AccessGrantsLocationID string   `xml:"AccessGrantsLocationId,omitempty"`
+	GrantScope             string   `xml:"GrantScope,omitempty"`
+	Permission             string   `xml:"Permission"`
+	GranteeType            string   `xml:"Grantee>GranteeType"`
+	GranteeIdentifier      string   `xml:"Grantee>GranteeIdentifier"`
+	ApplicationArn         string   `xml:"ApplicationArn,omitempty"`
+	CreatedAt              string   `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleGetAccessGrant(c *echo.Context) error {
@@ -554,11 +579,15 @@ func (h *Handler) handleGetAccessGrant(c *echo.Context) error {
 	}
 
 	return writeXML(c, getAccessGrantResponseXML{
-		AccessGrantID:     grant.AccessGrantID,
-		AccessGrantArn:    grant.AccessGrantArn,
-		Permission:        grant.Permission,
-		GranteeType:       grant.GranteeType,
-		GranteeIdentifier: grant.GranteeIdentifier,
+		AccessGrantID:          grant.AccessGrantID,
+		AccessGrantArn:         grant.AccessGrantArn,
+		AccessGrantsLocationID: grant.AccessGrantsLocationID,
+		GrantScope:             grant.GrantScope,
+		Permission:             grant.Permission,
+		GranteeType:            grant.GranteeType,
+		GranteeIdentifier:      grant.GranteeIdentifier,
+		ApplicationArn:         grant.ApplicationArn,
+		CreatedAt:              grant.CreatedAt,
 	})
 }
 
@@ -573,10 +602,21 @@ func (h *Handler) handleDeleteAccessGrant(c *echo.Context) error {
 	return c.String(http.StatusNoContent, "")
 }
 
+// listAccessGrantItemXML mirrors aws-sdk-go-v2's ListAccessGrantEntry (used
+// by ListAccessGrants only -- ListCallerAccessGrants uses a distinct,
+// narrower real type, see listCallerAccessGrantItemXML below).
+// AccessGrantsLocationConfiguration has no backing data in this backend --
+// omitted rather than invented.
 type listAccessGrantItemXML struct {
-	AccessGrantID string `xml:"AccessGrantId"`
-	Permission    string `xml:"Permission"`
-	GrantScope    string `xml:"GrantScope,omitempty"`
+	AccessGrantID          string `xml:"AccessGrantId"`
+	AccessGrantArn         string `xml:"AccessGrantArn,omitempty"`
+	AccessGrantsLocationID string `xml:"AccessGrantsLocationId,omitempty"`
+	ApplicationArn         string `xml:"ApplicationArn,omitempty"`
+	CreatedAt              string `xml:"CreatedAt,omitempty"`
+	GranteeType            string `xml:"Grantee>GranteeType,omitempty"`
+	GranteeIdentifier      string `xml:"Grantee>GranteeIdentifier,omitempty"`
+	Permission             string `xml:"Permission"`
+	GrantScope             string `xml:"GrantScope,omitempty"`
 }
 
 type listAccessGrantsResponseXML struct {
@@ -596,15 +636,35 @@ func (h *Handler) handleListAccessGrants(c *echo.Context) error {
 	items := make([]listAccessGrantItemXML, 0, len(grants))
 	for _, g := range grants {
 		items = append(items, listAccessGrantItemXML{
-			AccessGrantID: g.AccessGrantID,
-			Permission:    g.Permission,
-			GrantScope:    g.GrantScope,
+			AccessGrantID:          g.AccessGrantID,
+			AccessGrantArn:         g.AccessGrantArn,
+			AccessGrantsLocationID: g.AccessGrantsLocationID,
+			ApplicationArn:         g.ApplicationArn,
+			CreatedAt:              g.CreatedAt,
+			GranteeType:            g.GranteeType,
+			GranteeIdentifier:      g.GranteeIdentifier,
+			Permission:             g.Permission,
+			GrantScope:             g.GrantScope,
 		})
 	}
 
 	page, tok := s3cPaginate(items, nextToken, maxResults)
 
 	return writeXML(c, listAccessGrantsResponseXML{AccessGrants: page, NextToken: tok})
+}
+
+// listCallerAccessGrantItemXML mirrors aws-sdk-go-v2's
+// ListCallerAccessGrantsEntry, which is a genuinely narrower type than
+// ListAccessGrantEntry -- it carries NO AccessGrantId, AccessGrantArn,
+// CreatedAt, or Grantee field at all (verified against
+// aws-sdk-go-v2/service/s3control/types.ListCallerAccessGrantsEntry). A
+// prior version of this handler reused listAccessGrantItemXML here, which
+// fabricated an <AccessGrantId> element the real ListCallerAccessGrants
+// response never emits.
+type listCallerAccessGrantItemXML struct {
+	Permission     string `xml:"Permission"`
+	GrantScope     string `xml:"GrantScope,omitempty"`
+	ApplicationArn string `xml:"ApplicationArn,omitempty"`
 }
 
 func (h *Handler) handleListCallerAccessGrants(c *echo.Context) error {
@@ -614,20 +674,32 @@ func (h *Handler) handleListCallerAccessGrants(c *echo.Context) error {
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	grants := h.Backend.ListCallerAccessGrants(accountID)
-	items := make([]listAccessGrantItemXML, 0, len(grants))
+	items := make([]listCallerAccessGrantItemXML, 0, len(grants))
 	for _, g := range grants {
-		items = append(items, listAccessGrantItemXML{
-			AccessGrantID: g.AccessGrantID,
-			Permission:    g.Permission,
+		items = append(items, listCallerAccessGrantItemXML{
+			Permission:     g.Permission,
+			GrantScope:     g.GrantScope,
+			ApplicationArn: g.ApplicationArn,
 		})
 	}
 
 	page, tok := s3cPaginate(items, nextToken, maxResults)
 
+	// NOTE: the real ListCallerAccessGrantsOutput wraps its list under
+	// "CallerAccessGrantsList", NOT "AccessGrantsList" -- confirmed via
+	// deserializers.go's awsRestxml_deserializeOpDocumentListCallerAccessGrantsOutput,
+	// which only recognizes "CallerAccessGrantsList" and "NextToken" at the
+	// top level. A previous version of this handler wrapped the list under
+	// "AccessGrantsList", the same key ListAccessGrants (a different
+	// operation) uses. Because the real SDK's field-matching loop silently
+	// skips unrecognized elements, a real client decoding that response
+	// would see an empty CallerAccessGrantsList every time -- the same
+	// wrong-envelope-key bug class documented for cloudwatchlogs'
+	// "scheduledQuery" wrap and redshift's empty-struct wrap.
 	return writeXML(c, struct {
-		XMLName      xml.Name                 `xml:"ListCallerAccessGrantsResult"`
-		NextToken    string                   `xml:"NextToken,omitempty"`
-		AccessGrants []listAccessGrantItemXML `xml:"AccessGrantsList>AccessGrant"`
+		XMLName      xml.Name                       `xml:"ListCallerAccessGrantsResult"`
+		NextToken    string                         `xml:"NextToken,omitempty"`
+		AccessGrants []listCallerAccessGrantItemXML `xml:"CallerAccessGrantsList>AccessGrant"`
 	}{AccessGrants: page, NextToken: tok})
 }
 
@@ -695,8 +767,11 @@ func (h *Handler) handleUpdateAccessGrantsLocation(c *echo.Context) error {
 }
 
 type listAccessGrantsLocationItemXML struct {
-	AccessGrantsLocationID string `xml:"AccessGrantsLocationId"`
-	LocationScope          string `xml:"LocationScope"`
+	AccessGrantsLocationArn string `xml:"AccessGrantsLocationArn,omitempty"`
+	AccessGrantsLocationID  string `xml:"AccessGrantsLocationId"`
+	CreatedAt               string `xml:"CreatedAt,omitempty"`
+	IAMRoleArn              string `xml:"IAMRoleArn,omitempty"`
+	LocationScope           string `xml:"LocationScope"`
 }
 
 func (h *Handler) handleListAccessGrantsLocations(c *echo.Context) error {
@@ -709,8 +784,11 @@ func (h *Handler) handleListAccessGrantsLocations(c *echo.Context) error {
 	items := make([]listAccessGrantsLocationItemXML, 0, len(locs))
 	for _, loc := range locs {
 		items = append(items, listAccessGrantsLocationItemXML{
-			AccessGrantsLocationID: loc.AccessGrantsLocationID,
-			LocationScope:          loc.LocationScope,
+			AccessGrantsLocationArn: loc.AccessGrantsLocationArn,
+			AccessGrantsLocationID:  loc.AccessGrantsLocationID,
+			CreatedAt:               loc.CreatedAt,
+			IAMRoleArn:              loc.IAMRoleArn,
+			LocationScope:           loc.LocationScope,
 		})
 	}
 
@@ -733,6 +811,14 @@ func (h *Handler) handleGetDataAccess(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
+	// GAP (no backing data, not fabricated): the real GetDataAccessOutput
+	// also carries Credentials.SessionToken, Credentials.Expiration, and a
+	// top-level Grantee (GranteeType/GranteeIdentifier) -- confirmed via
+	// aws-sdk-go-v2/service/s3control's GetDataAccessOutput /
+	// awsRestxml_deserializeOpDocumentGetDataAccessOutput. This backend
+	// does not issue real STS-style temporary credentials or resolve which
+	// grant matched the request, so those fields are omitted rather than
+	// populated with invented values.
 	return writeXML(c, struct {
 		XMLName     xml.Name `xml:"GetDataAccessResult"`
 		Credentials struct {

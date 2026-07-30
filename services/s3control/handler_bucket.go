@@ -227,6 +227,15 @@ func (h *Handler) handleCreateBucket(c *echo.Context) error {
 
 // ---- Outposts Bucket ----
 
+// handleGetBucket. GetBucketOutput's real fields are Bucket, CreationDate,
+// and PublicAccessBlockEnabled -- it has NO BucketArn or OutpostId field at
+// all (confirmed via aws-sdk-go-v2/service/s3control's GetBucketOutput and
+// its deserializer, which only recognizes those three elements). A
+// previous version of this handler fabricated a BucketArn element and
+// mislabeled the internal "Location" value (an HTTP Location-header path
+// fragment, not an Outpost ID -- see CreateBucket/bucket.go) as OutpostId.
+// CreationDate/PublicAccessBlockEnabled are omitted (GAP, not fabricated):
+// OutpostsBucket in this backend tracks neither (see models.go).
 func (h *Handler) handleGetBucket(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix)
@@ -237,14 +246,10 @@ func (h *Handler) handleGetBucket(c *echo.Context) error {
 	}
 
 	return writeXML(c, struct {
-		XMLName   xml.Name `xml:"GetBucketResult"`
-		Bucket    string   `xml:"Bucket"`
-		BucketArn string   `xml:"BucketArn"`
-		Location  string   `xml:"OutpostId,omitempty"`
+		XMLName xml.Name `xml:"GetBucketResult"`
+		Bucket  string   `xml:"Bucket"`
 	}{
-		Bucket:    bucket.Name,
-		BucketArn: bucket.BucketArn,
-		Location:  bucket.Location,
+		Bucket: bucket.Name,
 	})
 }
 
@@ -361,9 +366,17 @@ type bucketTagXML struct {
 	Value string `xml:"Value"`
 }
 
+// getBucketTaggingResponseXML mirrors GetBucketTaggingOutput's real wire
+// shape. TagSet is aws-sdk-go-v2's shared S3TagSet type, whose entries
+// serialize as "<member>", NOT "<Tag>" (confirmed via
+// awsRestxml_serializeDocumentS3TagSet -- the same type job tagging uses,
+// see jobTagSetXML in handler_jobs.go; it is a DIFFERENT type from the
+// "Tag"-named TagList used by generic resource tagging in handler_tags.go).
+// A previous version of this handler used "Tag" here, which would make
+// every tag invisible to a real client's S3TagSet decoder.
 type getBucketTaggingResponseXML struct {
 	XMLName xml.Name       `xml:"GetBucketTaggingResult"`
-	Tags    []bucketTagXML `xml:"TagSet>Tag"`
+	Tags    []bucketTagXML `xml:"TagSet>member"`
 }
 
 func (h *Handler) handleGetBucketTagging(c *echo.Context) error {
@@ -386,9 +399,20 @@ func (h *Handler) handleGetBucketTagging(c *echo.Context) error {
 	return writeXML(c, resp)
 }
 
+// putBucketTaggingRequestXML mirrors PutBucketTaggingInput's real wire
+// shape. Tagging is a "payload"-bound field in the real SDK, meaning the
+// ENTIRE request body root element is "<Tagging>" -- there is no
+// "<PutBucketTaggingRequest>" wrapper at all (confirmed via
+// awsRestxml_serializeOpPutBucketTaggingRequest, which sets the XML root
+// element to "Tagging" directly). A previous version of this handler
+// expected the payload nested one level deeper, under
+// "<PutBucketTaggingRequest><Tagging>...", which a real aws-sdk-go-v2
+// client's request would never match (root-element mismatch), rejecting
+// every real PutBucketTagging call outright. TagSet's member name is
+// "member", not "Tag" -- see getBucketTaggingResponseXML's doc comment.
 type putBucketTaggingRequestXML struct {
-	XMLName xml.Name       `xml:"PutBucketTaggingRequest"`
-	Tags    []bucketTagXML `xml:"Tagging>TagSet>Tag"`
+	XMLName xml.Name       `xml:"Tagging"`
+	Tags    []bucketTagXML `xml:"TagSet>member"`
 }
 
 func (h *Handler) handlePutBucketTagging(c *echo.Context) error {
@@ -441,15 +465,30 @@ func (h *Handler) handleGetBucketVersioning(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
+	// GAP (no backing data, not fabricated): the real GetBucketVersioningOutput
+	// also carries MfaDelete -- this backend tracks only a bare Status
+	// string per bucket (see bucket.go), not MFA delete state.
 	return writeXML(c, struct {
 		XMLName xml.Name `xml:"GetBucketVersioningResult"`
 		Status  string   `xml:"Status"`
 	}{Status: status})
 }
 
+// putBucketVersioningRequestXML mirrors PutBucketVersioningInput's real
+// wire shape. VersioningConfiguration is a "payload"-bound field, meaning
+// the ENTIRE request body root element is "<VersioningConfiguration>" --
+// there is no "<PutBucketVersioningRequest>" wrapper (confirmed via
+// awsRestxml_serializeOpPutBucketVersioningRequest, which sets the XML
+// root element to "VersioningConfiguration" directly, with Status as its
+// direct child). A previous version of this handler expected the payload
+// nested one level deeper under
+// "<PutBucketVersioningRequest><VersioningConfiguration><Status>...",
+// which a real aws-sdk-go-v2 client's request would never match
+// (root-element mismatch), rejecting every real PutBucketVersioning call
+// outright.
 type putBucketVersioningRequestXML struct {
-	XMLName xml.Name `xml:"PutBucketVersioningRequest"`
-	Status  string   `xml:"VersioningConfiguration>Status"`
+	XMLName xml.Name `xml:"VersioningConfiguration"`
+	Status  string   `xml:"Status"`
 }
 
 func (h *Handler) handlePutBucketVersioning(c *echo.Context) error {
@@ -471,6 +510,9 @@ func (h *Handler) handlePutBucketVersioning(c *echo.Context) error {
 	return c.String(http.StatusOK, "")
 }
 
+// listRegionalBucketItemXML mirrors aws-sdk-go-v2's RegionalBucket type.
+// CreationDate/OutpostId/PublicAccessBlockEnabled have no backing data in
+// this backend (see OutpostsBucket in models.go) -- GAP, not fabricated.
 type listRegionalBucketItemXML struct {
 	Bucket    string `xml:"Bucket"`
 	BucketArn string `xml:"BucketArn"`

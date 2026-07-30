@@ -785,3 +785,99 @@ func TestListJobs_JobStatusesFilter(t *testing.T) {
 		})
 	}
 }
+
+// TestListJobs_ItemFields locks in a gopherstack-tir4 finding: ListJobs'
+// JobListDescriptor items previously only carried JobId/Status/Priority,
+// omitting Description/Operation/CreationTime/TerminationDate despite the
+// backend having real data for all four (Operation is derived from the raw
+// <Operation> inner XML's root element name, e.g. "LambdaInvoke" -- see
+// jobOperationName in handler_jobs.go -- matching the real
+// JobListDescriptor.Operation OperationName enum, not the full nested
+// operation config JobDescriptor.Operation carries).
+func TestListJobs_ItemFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	createBody := `<CreateJobRequest>
+<RoleArn>arn:aws:iam::000000000000:role/Role</RoleArn>
+<Priority>7</Priority>
+<Description>nightly batch job</Description>
+<Manifest><Spec><Format>S3BatchOperations_CSV_20180820</Format></Spec></Manifest>
+<Operation><LambdaInvoke><FunctionArn>arn:aws:lambda:::fn</FunctionArn></LambdaInvoke></Operation>
+</CreateJobRequest>`
+	createRec := doS3Request(t, h, http.MethodPost, "/v20180820/jobs", createBody)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created struct {
+		JobID string `xml:"JobId"`
+	}
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NotEmpty(t, created.JobID)
+
+	listRec := doS3Request(t, h, http.MethodGet, "/v20180820/jobs", "")
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var out struct {
+		XMLName xml.Name `xml:"ListJobsResult"`
+		Jobs    []struct {
+			JobID        string `xml:"JobId"`
+			Description  string `xml:"Description"`
+			Operation    string `xml:"Operation"`
+			Status       string `xml:"Status"`
+			CreationTime string `xml:"CreationTime"`
+			Priority     int32  `xml:"Priority"`
+		} `xml:"Jobs>member"`
+	}
+	require.NoError(t, xml.Unmarshal(listRec.Body.Bytes(), &out))
+	require.Len(t, out.Jobs, 1)
+
+	job := out.Jobs[0]
+	assert.Equal(t, created.JobID, job.JobID)
+	assert.Equal(t, "nightly batch job", job.Description)
+	assert.Equal(t, "LambdaInvoke", job.Operation)
+	assert.NotEmpty(t, job.Status)
+	assert.NotEmpty(t, job.CreationTime)
+	assert.Equal(t, int32(7), job.Priority)
+}
+
+// TestJobTagging_WireShape asserts the literal nested envelope for job
+// tagging: S3TagSet wraps each entry as "<member>", not "<Tag>" (confirmed
+// against aws-sdk-go-v2/service/s3control's
+// awsRestxml_serializeDocumentS3TagSet, which every S3Tag list in this
+// service shares). A previous version of jobTagSetXML used "<Tag>", which
+// would have made GetJobTagging's response invisible to a real client's
+// S3TagSet decoder AND made PutJobTagging silently drop every tag a real
+// aws-sdk-go-v2 client sends (since decodeXML's field-name match is
+// case-sensitive on the Go side, unlike the real server's EqualFold match).
+func TestJobTagging_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 1)
+
+	putBody := `<PutJobTaggingRequest>` +
+		`<Tags><member><Key>env</Key><Value>prod</Value></member></Tags>` +
+		`</PutJobTaggingRequest>`
+	putRec := doS3Request(t, h, http.MethodPut, "/v20180820/jobs/"+job.JobID+"/tagging", putBody)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	getRec := doS3Request(t, h, http.MethodGet, "/v20180820/jobs/"+job.JobID+"/tagging", "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	assert.Contains(t, getRec.Body.String(), "<Tags><member>")
+	assert.NotContains(t, getRec.Body.String(), "<Tag>")
+
+	var out struct {
+		XMLName xml.Name `xml:"GetJobTaggingResult"`
+		Tags    struct {
+			Entries []struct {
+				Key   string `xml:"Key"`
+				Value string `xml:"Value"`
+			} `xml:"member"`
+		} `xml:"Tags"`
+	}
+	require.NoError(t, xml.Unmarshal(getRec.Body.Bytes(), &out))
+	require.Len(t, out.Tags.Entries, 1)
+	assert.Equal(t, "env", out.Tags.Entries[0].Key)
+	assert.Equal(t, "prod", out.Tags.Entries[0].Value)
+}

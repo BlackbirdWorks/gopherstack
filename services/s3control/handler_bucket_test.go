@@ -146,6 +146,12 @@ func TestOutpostsBucket(t *testing.T) {
 	})
 }
 
+// TestHTTP_GetBucket locks in a gopherstack-tir4 finding: GetBucketOutput
+// has no BucketArn or OutpostId field in the real SDK (confirmed against
+// aws-sdk-go-v2/service/s3control's GetBucketOutput, whose only members are
+// Bucket/CreationDate/PublicAccessBlockEnabled). A previous version of this
+// handler fabricated a BucketArn element and mislabeled an internal HTTP
+// Location-header path fragment as OutpostId.
 func TestHTTP_GetBucket(t *testing.T) {
 	t.Parallel()
 	b := s3control.NewInMemoryBackend()
@@ -161,6 +167,15 @@ func TestHTTP_GetBucket(t *testing.T) {
 		"",
 	)
 	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.NotContains(t, resp.Body.String(), "BucketArn")
+	assert.NotContains(t, resp.Body.String(), "OutpostId")
+
+	var out struct {
+		XMLName xml.Name `xml:"GetBucketResult"`
+		Bucket  string   `xml:"Bucket"`
+	}
+	require.NoError(t, xml.Unmarshal(resp.Body.Bytes(), &out))
+	assert.Equal(t, "test-bucket", out.Bucket)
 }
 
 func TestHTTP_ListRegionalBuckets(t *testing.T) {
@@ -443,4 +458,83 @@ func TestListRegionalBuckets_Pagination(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBucketTagging_WireShape locks in two gopherstack-tir4 findings for
+// PutBucketTagging/GetBucketTagging:
+//
+//  1. PutBucketTaggingInput's Tagging field is "payload"-bound in the real
+//     SDK: the ENTIRE request body root is "<Tagging>", with no
+//     "<PutBucketTaggingRequest>" wrapper (confirmed via
+//     awsRestxml_serializeOpPutBucketTaggingRequest). A previous version of
+//     this handler expected an extra wrapper level, which would reject
+//     every real aws-sdk-go-v2 client's request outright (root-element
+//     mismatch).
+//  2. TagSet (the shared S3TagSet type) serializes entries as "<member>",
+//     not "<Tag>" -- confirmed via awsRestxml_serializeDocumentS3TagSet,
+//     the same type job tagging uses (see handler_jobs.go).
+func TestBucketTagging_WireShape(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	h := s3control.NewHandler(b)
+	b.CreateBucket("acct1", "tag-bucket")
+	path := "/v20180820/bucket/tag-bucket/tagging"
+
+	putBody := `<Tagging><TagSet><member><Key>env</Key><Value>prod</Value></member></TagSet></Tagging>`
+	putRec := doS3Request(t, h, http.MethodPut, path, putBody)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	getRec := doS3Request(t, h, http.MethodGet, path, "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	body := getRec.Body.String()
+	assert.Contains(t, body, "<TagSet><member>")
+	assert.NotContains(t, body, "<Tag>")
+
+	var out struct {
+		XMLName xml.Name `xml:"GetBucketTaggingResult"`
+		Tags    []struct {
+			Key   string `xml:"Key"`
+			Value string `xml:"Value"`
+		} `xml:"TagSet>member"`
+	}
+	require.NoError(t, xml.Unmarshal(getRec.Body.Bytes(), &out))
+	require.Len(t, out.Tags, 1)
+	assert.Equal(t, "env", out.Tags[0].Key)
+	assert.Equal(t, "prod", out.Tags[0].Value)
+}
+
+// TestBucketVersioning_WireShape locks in a gopherstack-tir4 finding:
+// PutBucketVersioningInput's VersioningConfiguration field is
+// "payload"-bound in the real SDK: the ENTIRE request body root is
+// "<VersioningConfiguration>" with Status as its direct child, with no
+// "<PutBucketVersioningRequest>" wrapper and no extra
+// "<VersioningConfiguration>" nesting level (confirmed via
+// awsRestxml_serializeOpPutBucketVersioningRequest). A previous version of
+// this handler expected
+// "<PutBucketVersioningRequest><VersioningConfiguration><Status>", which a
+// real aws-sdk-go-v2 client's request would never match (root-element
+// mismatch), rejecting every real PutBucketVersioning call outright.
+func TestBucketVersioning_WireShape(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	h := s3control.NewHandler(b)
+	b.CreateBucket("acct1", "ver-bucket")
+	path := "/v20180820/bucket/ver-bucket/versioning"
+
+	putBody := `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`
+	putRec := doS3Request(t, h, http.MethodPut, path, putBody)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	getRec := doS3Request(t, h, http.MethodGet, path, "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out struct {
+		XMLName xml.Name `xml:"GetBucketVersioningResult"`
+		Status  string   `xml:"Status"`
+	}
+	require.NoError(t, xml.Unmarshal(getRec.Body.Bytes(), &out))
+	assert.Equal(t, "Enabled", out.Status)
 }

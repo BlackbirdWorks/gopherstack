@@ -1,12 +1,30 @@
 service: s3control
-sdk_module: aws-sdk-go-v2/service/s3control@v1.68.2
-last_audit_commit: 8ec3c0f8
-last_audit_date: 2026-07-23
-overall: A            # leak fix (MRAP delete no-op), 15 wrong error-code fixes, ghost-map-row
-                       # cascade-delete fixes across 7 resource families, persistence-gap fix
-                       # (10 maps never round-tripped), 3 fabricated ops deleted + underlying
-                       # real gap (GetAccessPoint missing inline PublicAccessBlockConfiguration)
-                       # fixed in the same pass.
+sdk_module: aws-sdk-go-v2/service/s3control@v1.73.0
+last_audit_commit: fbba4962d
+last_audit_date: 2026-07-30
+overall: B            # DOWNGRADED from A this pass (gopherstack-tir4). A field-by-field diff of
+                       # ~35 of the ~55 previously-unaudited response/request types against
+                       # deserializers.go/serializers.go found a dense cluster of severe wire-shape
+                       # bugs the prior pass's route-level audit could not have caught (it
+                       # explicitly flagged response-body shape as "sampled, not exhaustive").
+                       # Several are REQUEST-side bugs that would make a real aws-sdk-go-v2 client
+                       # unable to successfully call the op at all (wrong payload root element:
+                       # PutBucketTagging, PutBucketVersioning, PutStorageLensConfiguration; wrong
+                       # field name entirely: SubmitMultiRegionAccessPointRoutes's "RouteUpdates"
+                       # vs the emulator's "Routes"; wrong transport entirely: UntagResource's
+                       # TagKeys travel as repeated query params in the real API, not an XML body,
+                       # so every real UntagResource call was silently deleting zero tags). Others
+                       # are RESPONSE-side envelope bugs that would make a real client see an
+                       # empty list every time (ListCallerAccessGrants wrapped under the wrong key;
+                       # ListStorageLensConfigurations/ListStorageLensGroups wrapped under a
+                       # nonexistent list element when the real SDK flattens them; ListMultiRegionAccessPoints
+                       # used member name "item" instead of "AccessPoint"). Others are fabricated
+                       # fields with no real counterpart (GetAccessPointForObjectLambda's
+                       # ObjectLambdaAccessPointArn, GetBucket's BucketArn/OutpostId,
+                       # ListCallerAccessGrants' AccessGrantId). All fixed this pass with new
+                       # regression tests asserting the literal nested envelope (not substrings).
+                       # See the "Wire-shape field-diff audit (gopherstack-tir4)" section below for
+                       # the full per-type accounting, including what was NOT reached.
 
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -182,3 +200,272 @@ If re-auditing other REST-XML services, check both status code AND `<Code>` stri
   reuses a genuine op name and was already fixed by this pass's leak fix (it no longer
   behaves like a no-op); removing the route itself is pure dead-surface cleanup with
   no remaining functional bug, judged lower priority than the items above.
+
+## Wire-shape field-diff audit (gopherstack-tir4, THIS pass)
+
+Full field-by-field diff of response/request XML shapes against the installed
+`aws-sdk-go-v2/service/s3control@v1.73.0`'s `deserializers.go`/`serializers.go`/`types/types.go`
+(the SDK module was updated from v1.68.2 -> v1.73.0 as part of confirming shapes against the
+currently-vendored version). Grouped by handler file. `types_not_reached` at the end lists
+what a follow-up pass should still cover.
+
+### Access Grants (`handler_access_grants.go`) -- all ops diffed
+
+- `CreateAccessGrantsInstanceResult`: FIXED -- missing `CreatedAt` (backing data existed, never
+  wired).
+- `GetAccessGrantsInstanceResult`: CLEAN.
+- `ListAccessGrantsInstancesResult`: FIXED -- per-item `CreatedAt` field existed in the struct
+  but was never populated in the loop; `IdentityCenterInstanceArn`/`IdentityCenterApplicationArn`
+  were missing entirely despite backing data.
+- `AssociateAccessGrantsIdentityCenterResult` / `DissociateAccessGrantsIdentityCenter`:
+  CLEAN (real ops have no output body; verified no `awsRestxml_deserializeOpDocument...Output`
+  function exists for the first).
+- `GetAccessGrantsInstanceForPrefixResult`: FIXED -- missing `AccessGrantsInstanceId` (real
+  field, backing data existed).
+- `GetAccessGrantsInstanceResourcePolicyResult` / `PutAccessGrantsInstanceResourcePolicyResult`:
+  GAP-DOCUMENTED -- real type also has `CreatedAt`/`Organization`; this backend's resource-policy
+  store is a bare string map with no such data.
+- `GetAccessGrantResult`: FIXED -- missing `AccessGrantsLocationId`, `GrantScope`,
+  `ApplicationArn`, `CreatedAt` (all backed by data on every stored grant, none were wired).
+- `ListAccessGrantsResult`: FIXED -- item type only carried `AccessGrantId`/`Permission`/
+  `GrantScope`; added `AccessGrantArn`/`AccessGrantsLocationId`/`ApplicationArn`/`CreatedAt`/
+  `Grantee` (all backed).
+- `ListCallerAccessGrantsResult`: **ENVELOPE BUG, FIXED** -- wrapped the list under
+  `AccessGrantsList` (the key `ListAccessGrants`, a *different* operation, uses); the real
+  deserializer (`awsRestxml_deserializeOpDocumentListCallerAccessGrantsOutput`) only recognizes
+  `CallerAccessGrantsList`. A real client would see an empty list on every call. Also: the item
+  type was reused from `ListAccessGrants` and fabricated an `AccessGrantId` element --
+  `ListCallerAccessGrantsEntry` has no such field in the real SDK at all (verified against
+  `types.ListCallerAccessGrantsEntry`); it also lacked `ApplicationArn`/`GrantScope`, which
+  are real and backed. New dedicated `listCallerAccessGrantItemXML` type added.
+- `GetAccessGrantsLocationResult` / `CreateAccessGrantsLocationResult` /
+  `UpdateAccessGrantsLocationResult`: CLEAN.
+- `ListAccessGrantsLocationsResult`: FIXED -- item type only carried `AccessGrantsLocationId`/
+  `LocationScope`; added `AccessGrantsLocationArn`/`CreatedAt`/`IAMRoleArn` (all backed).
+- `GetDataAccessResult`: GAP-DOCUMENTED -- real type also has `Credentials.SessionToken`,
+  `Credentials.Expiration`, and a top-level `Grantee`; this backend does not issue real
+  STS-style credentials or resolve which grant matched, so these are left unpopulated rather
+  than invented.
+- `DeleteAccessGrantsInstance` precondition: **FIXED** -- see dedicated section below.
+
+### Jobs (`handler_jobs.go`) -- all ops diffed
+
+- `CreateJobResult`, `DescribeJobResult`: CLEAN (both already spot-checked in the prior pass;
+  re-verified `JobDescriptor`'s full field list this pass -- `GeneratedManifestDescriptor`/
+  `ManifestGenerator`/`FailureReasons`/`SuspendedCause`/`SuspendedDate` have no backing data,
+  GAP not fabricated, not individually annotated in code this pass -- see types_not_reached).
+- `ListJobsResult`: FIXED -- item type (`JobListDescriptor`) only carried `JobId`/`Status`/
+  `Priority`; added `Description`/`CreationTime`/`TerminationDate` (backed directly) and
+  `Operation` (derived from the raw `<Operation>` blob's root element name via a new
+  `jobOperationName` helper, since `JobListDescriptor.Operation` is a plain `OperationName`
+  enum string like `"LambdaInvoke"`, not the full nested config `JobDescriptor.Operation`
+  carries -- confirmed via `types.JobListDescriptor`). `ProgressSummary`: GAP-DOCUMENTED (no
+  task-count tracking in this backend).
+- `UpdateJobPriorityResult`: CLEAN.
+- `UpdateJobStatusResult`: FIXED -- missing `StatusUpdateReason` (real field, backed).
+- `GetJobTaggingResult` / `PutJobTaggingRequest`: **ENVELOPE BUG, FIXED** -- `jobTagSetXML`
+  used member name `<Tag>`; the real `S3TagSet` type (shared with bucket tagging) serializes
+  entries as `<member>` (confirmed via `awsRestxml_serializeDocumentS3TagSet`). This broke
+  both directions: `GetJobTagging` would show an empty tag set to a real client, and
+  `PutJobTagging` would silently drop every tag a real client sends (its request always uses
+  `<member>`, never `<Tag>`).
+
+### Object Lambda (`handler_object_lambda.go`) -- all ops diffed
+
+- `CreateAccessPointForObjectLambdaResult`: GAP-DOCUMENTED -- real type also has `Alias`; no
+  backing data (`ObjectLambdaAccessPoint` in models.go tracks no alias).
+- `GetAccessPointForObjectLambdaResult`: **FABRICATION, FIXED** -- emitted an
+  `ObjectLambdaAccessPointArn` element; the real `GetAccessPointForObjectLambdaOutput` has NO
+  such field at all (confirmed against the SDK type and its deserializer -- only
+  `Alias`/`CreationDate`/`Name`/`PublicAccessBlockConfiguration` exist). Deleted; the three real
+  fields have no backing data in this backend (GAP-DOCUMENTED).
+- `ListAccessPointsForObjectLambdaResult`: CLEAN (`Alias` gap noted, no backing data).
+- `GetAccessPointPolicyForObjectLambdaResult` / `Put...` / `Delete...`: CLEAN.
+- `GetAccessPointPolicyStatusForObjectLambdaResult`: CLEAN (same `PolicyStatus>IsPublic`
+  pattern as the AccessPoint/MRAP variants, verified independently).
+- `GetAccessPointConfigurationForObjectLambdaResult` / `PutAccessPointConfigurationForObjectLambdaRequest`:
+  **ENVELOPE BUG, FIXED** -- wrapped the payload under `<ObjectLambdaConfiguration>`; the real
+  wrapper element is `<Configuration>` (confirmed via
+  `awsRestxml_deserializeOpDocumentGetAccessPointConfigurationForObjectLambdaOutput` and
+  `awsRestxml_serializeOpDocumentPutAccessPointConfigurationForObjectLambdaInput`). Also fixed a
+  second bug in the same field: it was captured/emitted as a flat `string`, which would
+  concatenate/lose a real client's nested `TransformationConfigurations`/`AllowedFeatures`
+  structure; now captured as raw inner XML (same pattern as `CreateJob`'s Manifest/Operation/Report).
+
+### Storage Lens (`handler_storage_lens.go`) -- all ops diffed
+
+- `CreateStorageLensGroupResult` / `UpdateStorageLensGroupResult`: CLEAN (verified these real
+  ops have NO output body at all -- no `awsRestxml_deserializeOpDocument...Output` function
+  exists for either).
+- `GetStorageLensConfigurationResult` / `PutStorageLensConfigurationRequest`:
+  **ENVELOPE + REQUEST-BREAKING BUG, FIXED** -- expected/emitted a `<Config>` child element that
+  does not exist anywhere on the real `StorageLensConfiguration` type. On the request side this
+  was a hard break: a real client's PUT body nests the whole configuration directly under
+  `<StorageLensConfiguration>` (a "payload"-bound field, confirmed via
+  `awsRestxml_serializeOpDocumentPutStorageLensConfigurationInput`), so the `<Config>` field
+  never matched anything a real client sends -- every real `PutStorageLensConfiguration` call
+  silently stored an empty configuration. Fixed: the real per-field structure
+  (`AccountLevel`/`IsEnabled`/etc.) is now captured/replayed as raw inner XML directly under
+  `<StorageLensConfiguration>`, alongside the real, always-known `Id`.
+- `GetStorageLensConfigurationTaggingResult` / `PutStorageLensConfigurationTaggingRequest`:
+  CLEAN -- `StorageLensTags`' member name really is `<Tag>` (a *different* type from the
+  `S3TagSet`/`<member>` type job and bucket tagging use), verified independently; no bug here.
+- `ListStorageLensConfigurationsResult`: **ENVELOPE BUG, FIXED** -- wrapped the list under
+  `<StorageLensConfigurationList>`; the real list is FLATTENED (repeated
+  `<StorageLensConfiguration>` elements directly under the result, confirmed via
+  `awsRestxml_deserializeDocumentStorageLensConfigurationListUnwrapped` -- the "Unwrapped"
+  suffix is smithy-go's flattened-list marker). A real client would see an empty list on every
+  call.
+- `GetStorageLensGroupResult`: **FABRICATION, FIXED** -- emitted a `CreatedAt` element; the
+  real `StorageLensGroup` type has NO such field at all (confirmed via
+  `awsRestxml_deserializeDocumentStorageLensGroup` -- only `Filter`/`Name`/`StorageLensGroupArn`
+  exist). Deleted (the internal `StorageLensGroup.CreatedAt` field remains tracked, just not
+  serialized).
+- `ListStorageLensGroupsResult`: **ENVELOPE BUG + FABRICATION, FIXED** -- same flattened-list
+  bug as `ListStorageLensConfigurations` (wrapped under `<StorageLensGroupList>` instead of
+  flattening), plus the same fabricated `CreatedAt`, plus items reused the `Get` shape's
+  `Filter` field, which the real, narrower `ListStorageLensGroupEntry` type does not have
+  (it has `HomeRegion` instead -- GAP-DOCUMENTED, no backing data). New dedicated
+  `listStorageLensGroupItemXML` type added.
+
+### Tags (`handler_tags.go`) -- all ops diffed
+
+- `ListTagsForResourceResult` / `TagResourceRequest`: CLEAN -- the generic resource `TagList`
+  type's member name really is `<Tag>` (confirmed via `awsRestxml_serializeDocumentTagList`'s
+  `ArrayWithCustomName(... Local: "Tag")`), a different type from `S3TagSet`; no bug.
+- `UntagResourceRequest`: **TRANSPORT BUG, FIXED** -- expected `TagKeys` in an XML request body
+  (`<UntagResourceRequest><TagKeys><TagKey>...`). The real `UntagResourceInput` has NO XML body
+  at all for this op -- `TagKeys` travels as repeated `tagKeys` query-string parameters
+  (confirmed via `awsRestxml_serializeOpHttpBindingsUntagResourceInput`, which calls
+  `encoder.AddQuery("tagKeys", ...)` and has no corresponding body serializer). Since
+  `decodeXML` treats an empty body (`io.EOF`) as success, every real `UntagResource` call from
+  an actual aws-sdk-go-v2 client silently deleted **zero** tags while still returning 204 --
+  a disguised no-op of the same severity class as the MRAP delete leak from the prior pass.
+  Fixed: `tagKeys` now read from the query string.
+
+### Access Points (`handler_access_points.go`) -- all ops diffed
+
+- `CreateAccessPointResult`, `GetAccessPointPolicyResult`/`Put`/`Delete`,
+  `GetAccessPointPolicyStatusResult`, `PutAccessPointScopeResult`: CLEAN.
+- `GetAccessPointResult`: GAP-DOCUMENTED (not fixed, no backing data) -- real type also has
+  `DataSourceId`/`DataSourceType`/`Endpoints`; doc comment added.
+- `ListAccessPointsResult`: CLEAN (verified against `types.AccessPoint`'s full field list;
+  same `DataSourceId`/`DataSourceType` gap, no backing data).
+- `GetAccessPointScopeResult` / `PutAccessPointScopeRequest`: **WRONG-SHAPE BUG, FIXED** --
+  `Scope` was treated as a flat string; the real `GetAccessPointScopeOutput.Scope` /
+  `PutAccessPointScopeInput.Scope` is a structured type (`Permissions []ScopePermission`,
+  `Prefixes []string`, confirmed via `awsRestxml_deserializeDocumentScope`). A real client's
+  nested `<Scope><Permissions>...</Permissions><Prefixes>...</Prefixes></Scope>` body would
+  have been collapsed to (mostly empty) character data on decode. Fixed: captured/replayed as
+  raw inner XML nested under `<Scope>`, same pattern as the ObjectLambda Configuration fix.
+- `ListAccessPointsForDirectoryBucketsResult`: FIXED -- confirmed this op shares the exact same
+  entry type and envelope as `ListAccessPoints` (`awsRestxml_deserializeOpDocumentListAccessPointsForDirectoryBucketsOutput`
+  delegates to the identical `AccessPointList` deserializer); the handler previously used a
+  narrower ad hoc type (`Name`/`AccessPointArn`/`Bucket` only), omitting
+  `BucketAccountId`/`NetworkOrigin`/`Alias`/`VpcConfiguration` despite this backend tracking all
+  of them. Now reuses `listAccessPointItemXML`.
+
+### Bucket (Outposts) (`handler_bucket.go`) -- all ops diffed
+
+- `CreateBucketResult`, `GetBucketPolicyResult`/`Put`/`Delete`,
+  `GetBucketReplicationResult`/`Put`/`Delete` (already used correct innerxml capture under the
+  correct `ReplicationConfiguration` root, verified against the real payload-bound field):
+  CLEAN.
+- `GetBucketResult`: **FABRICATION, FIXED** -- emitted `BucketArn` (does not exist on the real
+  `GetBucketOutput` at all -- only `Bucket`/`CreationDate`/`PublicAccessBlockEnabled` do,
+  confirmed against the SDK type) and mislabeled the internal HTTP `Location`-header path
+  fragment as `OutpostId` (also not a real field on this output). Both deleted;
+  `CreationDate`/`PublicAccessBlockEnabled` GAP-DOCUMENTED (no backing data on
+  `OutpostsBucket`).
+- `GetBucketTaggingResult` / `PutBucketTaggingRequest`: **ENVELOPE + REQUEST-BREAKING BUG,
+  FIXED** -- same `S3TagSet` member-name bug as job tagging (`<Tag>` instead of `<member>`),
+  compounded by a payload-root bug: `Tagging` is a "payload"-bound field in the real SDK, so
+  the ENTIRE request body root is `<Tagging>` with no `<PutBucketTaggingRequest>` wrapper at
+  all (confirmed via the serializer, which sets the XML root element to `"Tagging"` directly).
+  The previous shape expected the payload nested one level deeper, which a real
+  aws-sdk-go-v2 client's request would never match (root-element mismatch) -- **every real
+  PutBucketTagging call would have been rejected outright**, not merely mis-parsed.
+- `GetBucketVersioningResult`: GAP-DOCUMENTED (`MfaDelete`, no backing data).
+- `PutBucketVersioningRequest`: **REQUEST-BREAKING BUG, FIXED** -- same payload-root class of
+  bug as `PutBucketTagging`: `VersioningConfiguration` is payload-bound, so the real root is
+  `<VersioningConfiguration>` with `Status` as a direct child, not
+  `<PutBucketVersioningRequest><VersioningConfiguration><Status>`. Every real
+  `PutBucketVersioning` call would have been rejected outright.
+- `ListRegionalBucketsResult`: GAP-DOCUMENTED -- item type (`RegionalBucket`) also has
+  `CreationDate`/`OutpostId`/`PublicAccessBlockEnabled`; no backing data for any of the three.
+
+### Multi-Region Access Points (`handler_multi_region_access_points.go`) -- all ops diffed
+
+- `CreateMultiRegionAccessPointResult`, `DeleteMultiRegionAccessPointResult` (async),
+  `PutMultiRegionAccessPointPolicyResult`: CLEAN (all just `RequestTokenARN`, verified against
+  their deserializers).
+- `GetMultiRegionAccessPointResult`: GAP-DOCUMENTED -- shares the `MultiRegionAccessPointReport`
+  type with the List response (see below); `PublicAccessBlock` has no backing data at the MRAP
+  level, and per-region `Region`/`BucketAccountId` (real `RegionReport` fields) have no backing
+  data either (this backend tracks only bucket names per region).
+- `ListMultiRegionAccessPointsResult`: **ENVELOPE BUG, FIXED** -- list member name was `item`;
+  the real member name is `AccessPoint` (confirmed via
+  `awsRestxml_deserializeDocumentMultiRegionAccessPointReportList`) -- a real client would see
+  an empty list on every call. Also: items were a narrower ad hoc type
+  (`Name`/`Alias`/`Status` only) when the real entry type is the SAME
+  `MultiRegionAccessPointReport` `GetMultiRegionAccessPoint` returns; added `CreatedAt`/
+  `Regions` (both backed).
+- `DescribeMultiRegionAccessPointOperationResult`: GAP-DOCUMENTED -- real `AsyncOperation` also
+  carries `CreationTime`/`Operation`/`RequestParameters`/`ResponseDetails`; no audit-trail
+  tracking in this backend. `RequestStatus` is hardcoded `"SUCCEEDED"`, which is not fabricated
+  per se since every MRAP mutation here completes synchronously.
+- `GetMultiRegionAccessPointPolicyResult`: CLEAN (`Policy>Established>Policy` nesting verified;
+  `Proposed` GAP-DOCUMENTED, no backing data).
+- `GetMultiRegionAccessPointPolicyStatusResult`: CLEAN.
+- `GetMultiRegionAccessPointRoutesResult` / `SubmitMultiRegionAccessPointRoutesRequest`:
+  **WRONG-SHAPE + REQUEST-BREAKING BUG, FIXED** -- `Routes` was a flat string on both sides,
+  and the request field was literally misnamed: the real `SubmitMultiRegionAccessPointRoutesInput`
+  field is `RouteUpdates`, not `Routes` (confirmed via
+  `awsRestxml_serializeOpDocumentSubmitMultiRegionAccessPointRoutesInput`), wrapping a list of
+  `<Route>` entries (`Bucket`/`Region`/`TrafficDialPercentage`). A real client's request would
+  never populate the old `Routes` field at all -- every real `SubmitMultiRegionAccessPointRoutes`
+  call silently stored an empty routing update. Fixed: renamed to `RouteUpdates`, captured as
+  raw inner XML on both request and response sides to preserve the real per-route structure.
+
+### `DeleteAccessGrantsInstance` precondition -- FIXED
+
+Real API doc comment: "You must first delete the access grants and locations before S3 Access
+Grants can delete the instance." Previously unenforced (gopherstack allowed deleting an
+instance with grants/locations still attached). Fixed: `DeleteAccessGrantsInstance` now checks
+for any `AccessGrant`/`AccessGrantsLocation` belonging to the account and rejects with
+`errAccessGrantsInstanceNotEmpty` (aliased to the existing `ErrValidation` / `BadRequestException`
+sentinel) if either exists. No S3 Control typed exception is specific to this conflict
+(verified against the SDK's full `types/errors.go` exception list: `BadRequestException`,
+`BucketAlreadyExists`, `BucketAlreadyOwnedByYou`, `IdempotencyException`,
+`InternalServiceException`, `InvalidNextTokenException`, `InvalidRequestException`,
+`JobStatusException`, `NoSuchPublicAccessBlockConfiguration`, `NotFoundException`,
+`TooManyRequestsException`, `TooManyTagsException` -- none named for this case), so this reuses
+the generic `BadRequestException` sentinel this codebase already uses for other S3 Access
+Grants validation failures, rather than inventing an unverified specific code.
+
+### types_not_reached (honest remainder)
+
+Not diffed field-by-field this pass (no changes made, status unknown -- do not assume clean):
+
+- `DescribeJob`'s nested sub-structures beyond the top-level fields already verified
+  (`GeneratedManifestDescriptor`, `ManifestGenerator`, `FailureReasons`, `SuspendedCause`,
+  `SuspendedDate` -- likely GAP-not-fabricated given this backend's job model, but not
+  individually confirmed against the deserializer this pass).
+- `CreateAccessPoint`'s request-side `VpcConfiguration`/`PublicAccessBlockConfiguration`
+  nesting (spot-checked in a prior pass, not re-verified this pass).
+- Account-level `GetPublicAccessBlock`/`PutPublicAccessBlock`/`DeletePublicAccessBlock` --
+  wrapper element name (`PublicAccessBlockConfiguration`) confirmed correct this pass, but
+  field-by-field (`BlockPublicAcls`/etc.) not re-verified since a prior pass already covered
+  this shape.
+- Bucket lifecycle (`GetBucketLifecycleConfiguration`/`Put`/`Delete`) and bucket policy
+  (`GetBucketPolicy`/`Put`/`Delete`) beyond the route-level fix already recorded in the prior
+  pass -- these use raw-body passthrough (no XML struct decoding), so they carry no
+  root-element-mismatch risk, but the passthrough behavior itself (no validation, no partial
+  merge semantics) was not otherwise audited this pass.
+- Chaos fault-injection interaction with any of the fixes above (`ChaosOperations()` just
+  echoes `GetSupportedOperations()`, unaffected).
+
+Given the density of severe bugs found in the ~35 types that WERE diffed this pass (13 distinct
+envelope/transport/fabrication bugs across 9 handler files, several of which would reject or
+silently no-op every real SDK client call), the ~15-20 types listed above should be treated as
+unverified, not presumptively clean, in any future audit of this service.

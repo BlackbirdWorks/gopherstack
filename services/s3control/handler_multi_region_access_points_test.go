@@ -487,14 +487,29 @@ func TestSubmitMRAPRoutes(t *testing.T) {
 		h := s3control.NewHandler(s3control.NewInMemoryBackend())
 		h.Backend.CreateMultiRegionAccessPoint(accountID, mrapName, "token")
 
+		// Real aws-sdk-go-v2 wire shape: the field is "RouteUpdates", not
+		// "Routes" (confirmed via
+		// awsRestxml_serializeOpDocumentSubmitMultiRegionAccessPointRoutesInput),
+		// wrapping a list of "<Route>" entries -- see
+		// submitMRAPRoutesRequestXML's doc comment in
+		// handler_multi_region_access_points.go for the previous bug this
+		// locks in a fix for.
 		rec := doS3Request(
 			t,
 			h,
 			http.MethodPatch,
 			routesPath,
-			`<SubmitMultiRegionAccessPointRoutesRequest><Routes>r1</Routes></SubmitMultiRegionAccessPointRoutesRequest>`,
+			`<SubmitMultiRegionAccessPointRoutesRequest>`+
+				`<RouteUpdates><Route><Bucket>b1</Bucket><TrafficDialPercentage>100</TrafficDialPercentage></Route></RouteUpdates>`+
+				`</SubmitMultiRegionAccessPointRoutesRequest>`,
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
+
+		getRec := doS3Request(t, h, http.MethodGet, routesPath, "")
+		require.Equal(t, http.StatusOK, getRec.Code)
+		body := getRec.Body.String()
+		assert.Contains(t, body, "<Routes><Route><Bucket>b1</Bucket>")
+		assert.NotContains(t, body, "&lt;Route&gt;", "route content must round-trip as real XML, not escaped text")
 	})
 }
 
@@ -555,7 +570,7 @@ func TestSubmitMRAPRoutes_Table(t *testing.T) {
 			h := s3control.NewHandler(b)
 
 			body := `<SubmitMultiRegionAccessPointRoutesRequest>` +
-				`<Routes>` + tt.routes + `</Routes>` +
+				`<RouteUpdates>` + tt.routes + `</RouteUpdates>` +
 				`</SubmitMultiRegionAccessPointRoutesRequest>`
 			rec := doS3ControlNewOpRequest(t, h, http.MethodPatch,
 				"/v20180820/mrap/instances/"+tt.mrap+"/routes", "000000000000", body)
@@ -763,15 +778,27 @@ func TestListMultiRegionAccessPoints_Pagination(t *testing.T) {
 			rec := doS3Request(t, h, http.MethodGet, tt.path, "")
 			require.Equal(t, http.StatusOK, rec.Code)
 
+			// ListMultiRegionAccessPointsOutput's list member name is
+			// "AccessPoint", NOT "item" (confirmed via
+			// awsRestxml_deserializeDocumentMultiRegionAccessPointReportList)
+			// -- assert the literal nested envelope, not a substring: a
+			// self-consistent "item"-named decode target would pass
+			// against this handler's old (wrong) output without ever
+			// proving it matches the real SDK.
+			assert.NotContains(t, rec.Body.String(), "<item>")
 			var out struct {
 				XMLName      xml.Name `xml:"ListMultiRegionAccessPointsResult"`
 				NextToken    string   `xml:"NextToken"`
 				AccessPoints []struct {
-					Name string `xml:"Name"`
-				} `xml:"AccessPoints>item"`
+					Name      string `xml:"Name"`
+					CreatedAt string `xml:"CreatedAt"`
+				} `xml:"AccessPoints>AccessPoint"`
 			}
 			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
 			assert.Len(t, out.AccessPoints, tt.wantLen)
+			for _, ap := range out.AccessPoints {
+				assert.NotEmpty(t, ap.CreatedAt)
+			}
 			if tt.wantNextToken {
 				assert.NotEmpty(t, out.NextToken)
 			} else {

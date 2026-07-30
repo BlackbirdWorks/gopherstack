@@ -56,6 +56,60 @@ func TestAccessGrantsInstance(t *testing.T) {
 		assert.Empty(t, b.ListTagsForResource(inst.AccessGrantsInstanceArn), "tags must not survive delete")
 	})
 
+	// "delete instance rejected while grants exist" and "delete instance
+	// rejected while locations exist" lock in the gopherstack-tir4 fix:
+	// DeleteAccessGrantsInstance's own doc comment ("You must first delete
+	// the access grants and locations before S3 Access Grants can delete
+	// the instance") was previously unenforced -- a real AWS account
+	// rejects this, but gopherstack silently allowed it.
+	t.Run("delete instance rejected while grants exist", func(t *testing.T) {
+		t.Parallel()
+		b := s3control.NewInMemoryBackend()
+		b.CreateAccessGrantsInstance("000000000000", "")
+		loc := b.CreateAccessGrantsLocation("000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/r")
+		_, err := b.CreateAccessGrant(
+			"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "",
+		)
+		require.NoError(t, err)
+
+		err = b.DeleteAccessGrantsInstance("000000000000")
+		require.Error(t, err)
+		require.ErrorIs(t, err, s3control.ErrValidation)
+
+		_, getErr := b.GetAccessGrantsInstance("000000000000")
+		require.NoError(t, getErr, "instance must survive a rejected delete")
+	})
+
+	t.Run("delete instance rejected while locations exist", func(t *testing.T) {
+		t.Parallel()
+		b := s3control.NewInMemoryBackend()
+		b.CreateAccessGrantsInstance("000000000000", "")
+		b.CreateAccessGrantsLocation("000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/r")
+
+		err := b.DeleteAccessGrantsInstance("000000000000")
+		require.Error(t, err)
+		require.ErrorIs(t, err, s3control.ErrValidation)
+	})
+
+	t.Run("delete instance succeeds once grants and locations are gone", func(t *testing.T) {
+		t.Parallel()
+		b := s3control.NewInMemoryBackend()
+		b.CreateAccessGrantsInstance("000000000000", "")
+		loc := b.CreateAccessGrantsLocation("000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/r")
+		grant, err := b.CreateAccessGrant(
+			"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "",
+		)
+		require.NoError(t, err)
+
+		require.Error(t, b.DeleteAccessGrantsInstance("000000000000"))
+
+		require.NoError(t, b.DeleteAccessGrant("000000000000", grant.AccessGrantID))
+		require.Error(t, b.DeleteAccessGrantsInstance("000000000000"), "location still attached")
+
+		require.NoError(t, b.DeleteAccessGrantsLocation("000000000000", loc.AccessGrantsLocationID))
+		require.NoError(t, b.DeleteAccessGrantsInstance("000000000000"))
+	})
+
 	t.Run("resource policy CRUD", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
@@ -731,4 +785,199 @@ func TestHandler_CreateAccessGrant_EmptyPermission(t *testing.T) {
 
 	rec := doS3ControlNewOpRequest(t, h, http.MethodPost, "/v20180820/accessgrantsinstance/grant", "123456789012", body)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestAccessGrantsResponseWireShape asserts the literal nested XML envelope
+// (not substrings) for GetAccessGrant and ListCallerAccessGrants against
+// aws-sdk-go-v2/service/s3control's deserializers.go. It locks in two
+// gopherstack-tir4 findings:
+//
+//  1. GetAccessGrantOutput carries AccessGrantsLocationId/GrantScope/
+//     ApplicationArn/CreatedAt in addition to AccessGrantId/AccessGrantArn/
+//     Permission/Grantee -- gopherstack's handler previously omitted all
+//     four despite having the backing data on every stored AccessGrant.
+//  2. ListCallerAccessGrantsOutput wraps its list under
+//     "CallerAccessGrantsList", NOT "AccessGrantsList" (the key
+//     ListAccessGrants -- a different operation -- uses), and its entries
+//     (ListCallerAccessGrantsEntry) have NO AccessGrantId field at all.
+//     gopherstack's handler previously reused the ListAccessGrants item
+//     type, which wrapped the list under the wrong key (making the list
+//     invisible to a real client, which skips unrecognized elements) and
+//     fabricated an AccessGrantId the real type never emits.
+func TestAccessGrantsResponseWireShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "get_access_grant_includes_location_scope_application_created",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := s3control.NewInMemoryBackend()
+				b.CreateAccessGrantsInstance("000000000000", "")
+				loc := b.CreateAccessGrantsLocation(
+					"000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/test",
+				)
+				grant, err := b.CreateAccessGrant(
+					"000000000000", loc.AccessGrantsLocationID,
+					"IAMUser", "arn:aws:iam::000000000000:user/test", "READ",
+					"arn:aws:sso::000000000000:application/app-1",
+				)
+				require.NoError(t, err)
+
+				h := s3control.NewHandler(b)
+				rec := doS3ControlNewOpRequest(
+					t, h, http.MethodGet,
+					"/v20180820/accessgrantsinstance/grant/"+grant.AccessGrantID,
+					"000000000000", "",
+				)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out struct {
+					XMLName                xml.Name `xml:"GetAccessGrantResult"`
+					AccessGrantID          string   `xml:"AccessGrantId"`
+					AccessGrantArn         string   `xml:"AccessGrantArn"`
+					AccessGrantsLocationID string   `xml:"AccessGrantsLocationId"`
+					GrantScope             string   `xml:"GrantScope"`
+					Permission             string   `xml:"Permission"`
+					ApplicationArn         string   `xml:"ApplicationArn"`
+					CreatedAt              string   `xml:"CreatedAt"`
+					Grantee                struct {
+						GranteeType       string `xml:"GranteeType"`
+						GranteeIdentifier string `xml:"GranteeIdentifier"`
+					} `xml:"Grantee"`
+				}
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+
+				assert.Equal(t, grant.AccessGrantID, out.AccessGrantID)
+				assert.Equal(t, loc.AccessGrantsLocationID, out.AccessGrantsLocationID)
+				assert.NotEmpty(t, out.GrantScope)
+				assert.Equal(t, "READ", out.Permission)
+				assert.Equal(t, "arn:aws:sso::000000000000:application/app-1", out.ApplicationArn)
+				assert.NotEmpty(t, out.CreatedAt)
+				assert.Equal(t, "IAMUser", out.Grantee.GranteeType)
+				assert.Equal(t, "arn:aws:iam::000000000000:user/test", out.Grantee.GranteeIdentifier)
+			},
+		},
+		{
+			name: "list_caller_access_grants_uses_CallerAccessGrantsList_envelope_no_grant_id",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := s3control.NewInMemoryBackend()
+				b.CreateAccessGrantsInstance("000000000000", "")
+				loc := b.CreateAccessGrantsLocation(
+					"000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/test",
+				)
+				_, err := b.CreateAccessGrant(
+					"000000000000", loc.AccessGrantsLocationID,
+					"IAMUser", "arn:aws:iam::000000000000:user/test", "READ",
+					"arn:aws:sso::000000000000:application/app-1",
+				)
+				require.NoError(t, err)
+
+				h := s3control.NewHandler(b)
+				rec := doS3ControlNewOpRequest(
+					t, h, http.MethodGet,
+					"/v20180820/accessgrantsinstance/caller/grants",
+					"000000000000", "",
+				)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				// Assert the literal nested envelope: CallerAccessGrantsList,
+				// not AccessGrantsList. Decoding into a struct scoped to the
+				// wrong wrapper key would silently yield a zero-length slice,
+				// so this also functions as a substring check via
+				// assert.Contains below (belt and suspenders).
+				assert.Contains(t, rec.Body.String(), "<CallerAccessGrantsList>")
+				assert.NotContains(t, rec.Body.String(), "<AccessGrantsList>")
+				assert.NotContains(t, rec.Body.String(), "<AccessGrantId>",
+					"ListCallerAccessGrantsEntry has no AccessGrantId field in the real SDK")
+
+				var out struct {
+					XMLName      xml.Name `xml:"ListCallerAccessGrantsResult"`
+					AccessGrants []struct {
+						Permission     string `xml:"Permission"`
+						GrantScope     string `xml:"GrantScope"`
+						ApplicationArn string `xml:"ApplicationArn"`
+					} `xml:"CallerAccessGrantsList>AccessGrant"`
+				}
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+
+				require.Len(t, out.AccessGrants, 1)
+				assert.Equal(t, "READ", out.AccessGrants[0].Permission)
+				assert.NotEmpty(t, out.AccessGrants[0].GrantScope)
+				assert.Equal(t, "arn:aws:sso::000000000000:application/app-1", out.AccessGrants[0].ApplicationArn)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
+}
+
+// TestHandler_DeleteAccessGrantsInstance_Precondition locks in the
+// gopherstack-tir4 fix for DeleteAccessGrantsInstance's real-API
+// precondition ("You must first delete the access grants and locations
+// before S3 Access Grants can delete the instance") at the HTTP layer: a
+// real client attempting this now gets a 400 BadRequestException instead
+// of a silent success.
+func TestHandler_DeleteAccessGrantsInstance_Precondition(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(b *s3control.InMemoryBackend)
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "empty_instance_deletes",
+			setup:    func(*s3control.InMemoryBackend) {},
+			wantCode: http.StatusNoContent,
+		},
+		{
+			name: "instance_with_location_rejected",
+			setup: func(b *s3control.InMemoryBackend) {
+				b.CreateAccessGrantsLocation("000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/r")
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "instance_with_grant_rejected",
+			setup: func(b *s3control.InMemoryBackend) {
+				loc := b.CreateAccessGrantsLocation("000000000000", "s3://bucket/", "arn:aws:iam::000000000000:role/r")
+				_, err := b.CreateAccessGrant(
+					"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "",
+				)
+				require.NoError(t, err)
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := s3control.NewInMemoryBackend()
+			b.CreateAccessGrantsInstance("000000000000", "")
+			tt.setup(b)
+			h := s3control.NewHandler(b)
+
+			rec := doS3ControlNewOpRequest(
+				t, h, http.MethodDelete, "/v20180820/accessgrantsinstance", "000000000000", "",
+			)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantCode == http.StatusBadRequest {
+				assert.Contains(t, rec.Body.String(), "BadRequestException")
+			}
+		})
+	}
 }

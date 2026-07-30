@@ -133,13 +133,33 @@ func (b *InMemoryBackend) GetAccessGrantsInstance(accountID string) (*AccessGran
 	return inst, nil
 }
 
+// errAccessGrantsInstanceNotEmpty is returned when DeleteAccessGrantsInstance
+// is called while the instance still has grants or locations attached. The
+// real API's own doc comment on DeleteAccessGrantsInstance requires the
+// caller to delete those first: "You must first delete the access grants
+// and locations before S3 Access Grants can delete the instance." S3
+// Control has no typed exception specific to this conflict (verified
+// against aws-sdk-go-v2/service/s3control/types/errors.go's full list --
+// BadRequestException, BucketAlreadyExists, BucketAlreadyOwnedByYou,
+// IdempotencyException, InternalServiceException, InvalidNextTokenException,
+// InvalidRequestException, JobStatusException,
+// NoSuchPublicAccessBlockConfiguration, NotFoundException,
+// TooManyRequestsException, TooManyTagsException -- none named for this
+// case), so this reuses the same generic "BadRequestException" sentinel
+// (ErrValidation) this codebase already uses for other S3 Access Grants
+// validation failures (e.g. CreateAccessGrant's missing-Permission check),
+// rather than inventing an unverified specific code.
+var errAccessGrantsInstanceNotEmpty = ErrValidation
+
 // DeleteAccessGrantsInstance removes the Access Grants instance and
 // cascade-cleans its resource policy and generic resource tags. Per the real
 // API's documented behavior, this does NOT cascade-delete AccessGrants or
 // AccessGrantsLocations -- AWS requires those to be deleted individually
 // first (DeleteAccessGrantsInstance's doc comment: "You must first delete
 // the access grants and locations before S3 Access Grants can delete the
-// instance").
+// instance"), and this now enforces that precondition: deleting an instance
+// that still has any grant or location attached is rejected with
+// errAccessGrantsInstanceNotEmpty instead of silently succeeding.
 func (b *InMemoryBackend) DeleteAccessGrantsInstance(accountID string) error {
 	b.mu.Lock("DeleteAccessGrantsInstance")
 	defer b.mu.Unlock()
@@ -150,6 +170,17 @@ func (b *InMemoryBackend) DeleteAccessGrantsInstance(accountID string) error {
 	var arn string
 	if inst, ok := b.accessGrantsInstances.Get(accountID); ok {
 		arn = inst.AccessGrantsInstanceArn
+	}
+
+	for _, g := range b.accessGrants.All() {
+		if g.AccountID == accountID {
+			return errAccessGrantsInstanceNotEmpty
+		}
+	}
+	for _, loc := range b.accessGrantsLocations.All() {
+		if loc.AccountID == accountID {
+			return errAccessGrantsInstanceNotEmpty
+		}
 	}
 
 	b.accessGrantsInstances.Delete(accountID)
