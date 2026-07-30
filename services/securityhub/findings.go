@@ -26,10 +26,10 @@ var findingCustomerManagedFields = []string{ //nolint:gochecknoglobals // read-o
 // excluded from the change log ("changes made to any fields...except
 // top-level timestamp fields, such as the CreatedAt and UpdatedAt fields").
 var findingHistoryIgnoredFields = map[string]bool{ //nolint:gochecknoglobals // read-only lookup data
-	keyCreatedAt:      true,
-	keyUpdatedAt:      true,
-	"FirstObservedAt": true,
-	"LastObservedAt":  true,
+	keyCreatedAt:       true,
+	keyUpdatedAt:       true,
+	keyFirstObservedAt: true,
+	keyLastObservedAt:  true,
 }
 
 const (
@@ -73,7 +73,7 @@ func validateASFFRequiredFields(f map[string]any, productArn, id string) string 
 
 	// At least one of CreatedAt/UpdatedAt/FirstObservedAt/LastObservedAt must be present.
 	hasTimestamp := false
-	for _, k := range []string{keyCreatedAt, keyUpdatedAt, "FirstObservedAt", "LastObservedAt"} {
+	for _, k := range []string{keyCreatedAt, keyUpdatedAt, keyFirstObservedAt, keyLastObservedAt} {
 		if v, _ := f[k].(string); v != "" {
 			hasTimestamp = true
 
