@@ -225,6 +225,7 @@ type backendSnapshot struct {
 	ReservedCounter       int                              `json:"reservedCounter"`
 	SlCollCounter         int                              `json:"slCollCounter"`
 	SlSecConfigCounter    int                              `json:"slSecConfigCounter"`
+	WorkspaceCounter      int                              `json:"workspaceCounter"`
 	Version               int                              `json:"version"`
 }
 
@@ -310,6 +311,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ReservedCounter:       b.reservedCounter,
 		SlCollCounter:         b.slCollCounter,
 		SlSecConfigCounter:    b.slSecConfigCounter,
+		WorkspaceCounter:      b.workspaceCounter,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "opensearch", snap)
@@ -383,6 +385,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.reservedCounter = snap.ReservedCounter
 	b.slCollCounter = snap.SlCollCounter
 	b.slSecConfigCounter = snap.SlSecConfigCounter
+	b.workspaceCounter = snap.WorkspaceCounter
 
 	fixNilDomainTags(b)
 

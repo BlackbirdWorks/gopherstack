@@ -652,6 +652,30 @@ type Migration struct {
 	ImportedCount int       `json:"importedCount"`
 }
 
+// Workspace tracks the target-workspace side effect of AttachDataSource's
+// optional WorkspaceConfiguration/WorkspaceId (types.WorkspaceConfigurationInput)
+// and StartMigration's required MigrationOptions.Workspace
+// (types.MigrationWorkspace). AWS defines no independent workspace resource
+// API anywhere in this SDK: grepping every api_op_*.go in
+// aws-sdk-go-v2/service/opensearch@v1.75.0 for "Workspace" turns up only
+// these two request-side fields, there is no CreateWorkspace/GetWorkspace/
+// ListWorkspaces/DeleteWorkspace operation, and no output struct in the
+// entire service (not AttachDataSourceOutput, not
+// DescribeDataSourceAttachmentOutput, not GetMigrationOutput/
+// MigrationSummary) ever echoes a WorkspaceId back to the caller. This type
+// exists purely so a WorkspaceId reference on either op can be validated
+// against something real (existence, and that it belongs to the referencing
+// application) instead of accepted as any string -- it is never surfaced
+// through any handler response, matching what the SDK actually defines. See
+// PARITY.md for why this stops short of a full CRUD resource model.
+type Workspace struct {
+	CreatedAt     time.Time `json:"-"`
+	WorkspaceID   string    `json:"workspaceId"`
+	ApplicationID string    `json:"applicationId"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+}
+
 // DryRunStatus holds dry-run progress state for a domain.
 type DryRunStatus struct {
 	DryRunID           string           `json:"DryRunId"`

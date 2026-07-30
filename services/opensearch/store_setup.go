@@ -85,9 +85,10 @@ func slNetworkPolicyKeyFn(v *ServerlessNetworkPolicy) string {
 	return serverlessNetworkPolicyKey(v.Type, v.Name)
 }
 
-// dataSourceAttachmentKeyFn, capabilityKeyFn, and migrationKeyFn are defined
-// alongside their families (data_source_attachments.go, capabilities.go,
-// migrations.go) since each already needs its composite-key helper there;
+// dataSourceAttachmentKeyFn, capabilityKeyFn, migrationKeyFn, and
+// workspaceKeyFn are defined alongside their families
+// (data_source_attachments.go, capabilities.go, migrations.go,
+// workspaces.go) since each already needs its composite-key helper there;
 // only the table/index registrations live here, matching the convention this
 // file documents.
 
@@ -100,7 +101,7 @@ func slNetworkPolicyKeyFn(v *ServerlessNetworkPolicy) string {
 //     directQueryDataSources, vpcEndpoints, applications, packages,
 //     reservedInstances, slCollections, slAccessPolicies, slSecurityConfigs,
 //     slEncryptionPolicies, slNetworkPolicies, dataSourceAttachments,
-//     capabilities, migrations) are registered on b.registry via
+//     capabilities, migrations, workspaces) are registered on b.registry via
 //     store.Register, so persistence.go's Snapshot/Restore can drive them
 //     through b.registry.SnapshotAll()/RestoreAll() -- their value types
 //     marshal to JSON with no information loss. (Package.VersionHistory
@@ -207,6 +208,12 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.migrations = store.Register(b.registry, "migrations", store.New(migrationKeyFn))
 		b.migrationsByApp = b.migrations.AddIndex(
 			"byApplication", func(v *Migration) string { return v.ApplicationID },
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.workspaces = store.Register(b.registry, "workspaces", store.New(workspaceKeyFn))
+		b.workspacesByApp = b.workspaces.AddIndex(
+			"byApplication", func(v *Workspace) string { return v.ApplicationID },
 		)
 	},
 	// "Dirty" tables: store.New only, NOT store.Register -- see

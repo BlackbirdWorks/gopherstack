@@ -47,6 +47,8 @@ type InMemoryBackend struct {
 	capabilities               *store.Table[Capability]
 	migrations                 *store.Table[Migration]
 	migrationsByApp            *store.Index[Migration]
+	workspaces                 *store.Table[Workspace]
+	workspacesByApp            *store.Index[Workspace]
 	registry                   *store.Registry
 	mu                         *lockmetrics.RWMutex
 	now                        func() time.Time
@@ -65,6 +67,7 @@ type InMemoryBackend struct {
 	docCounter                 int
 	dsAttachCounter            int
 	migrationCounter           int
+	workspaceCounter           int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -132,6 +135,7 @@ func (b *InMemoryBackend) Reset() {
 	b.docCounter = 0
 	b.dsAttachCounter = 0
 	b.migrationCounter = 0
+	b.workspaceCounter = 0
 }
 
 // Region returns the AWS region this backend is configured for.

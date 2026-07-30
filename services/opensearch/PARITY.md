@@ -2,18 +2,38 @@
 service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.0
 last_audit_commit: acb2e23f9
-last_audit_date: 2026-07-25
-overall: A-           # genuine new-op implementations this pass, with two honestly-scoped gaps (see families below)
-                      # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): both cited
-                      # gaps -- AttachDataSource's workspaceConfiguration/workspaceId side effect, and
-                      # StartMigration's MigrationOptions.Workspace/ExportOptions/ConflictResolution --
-                      # require this backend to first stand up an entirely new resource store (a
-                      # workspace / saved-object model) that nothing else in this service references or
-                      # depends on today, the same class of out-of-scope new-state-model gap already
-                      # accepted for appconfig's FlagKey-content limitation. Confirmed against
-                      # aws-sdk-go-v2/service/opensearch@v1.75.0's types.go: both are real, optional,
-                      # documented fields with no backing state anywhere in this backend to populate them
-                      # from. STRUCTURAL, grade correctly held at A-, not raised.
+last_audit_date: 2026-07-30
+overall: A            # RAISED from A- (parity-5, this pass). The two gaps that previously held the grade
+                      # down -- AttachDataSource's workspaceConfiguration/workspaceId, and StartMigration's
+                      # MigrationOptions.Workspace/ExportOptions/ConflictResolution -- are now built to the
+                      # full extent aws-sdk-go-v2/service/opensearch@v1.75.0 actually defines. Correction to
+                      # the prior pass's audit note: it described MigrationOptions.Workspace as "optional" --
+                      # it is not. types.MigrationOptions.Workspace carries "This member is required" in the
+                      # SDK doc comment, and this backend was not enforcing that at all before this pass (a
+                      # real, independently fixable bug, not just a modeling gap). A new Workspace type
+                      # (models.go) tracks the target-workspace side effect of both ops as a real,
+                      # store-backed resource (workspaces.go): WorkspaceConfigurationInput's required
+                      # Name/WorkspaceType and documented "mutually exclusive with workspaceId" contract are
+                      # now enforced on AttachDataSource; MigrationWorkspace's required-when-omitted check,
+                      # its "specify either WorkspaceId or createWorkspace" contract, and
+                      # ConflictResolution's exhaustive CREATE_NEW_COPIES/overwrite enum are now enforced on
+                      # StartMigration; a WorkspaceId reference on either op is validated for both existence
+                      # and correct application scoping instead of accepted as any string. Cascade-deleted on
+                      # DeleteApplication and round-trips through Snapshot/Restore (verified in
+                      # TestInMemoryBackend_SnapshotRestore_FullState). What this deliberately stops short
+                      # of: a full CRUD resource model. Confirmed by grepping every api_op_*.go in the SDK
+                      # for "Workspace" -- there is no CreateWorkspace/GetWorkspace/ListWorkspaces/
+                      # DeleteWorkspace operation anywhere, and no output struct in the entire service
+                      # (not AttachDataSourceOutput, not DescribeDataSourceAttachmentOutput, not
+                      # GetMigrationOutput/MigrationSummary) ever echoes a WorkspaceId back to the caller.
+                      # This is genuinely, structurally true of the real AWS API, not a backend shortcoming
+                      # -- a workspace created via either op is write-only from a real client's perspective
+                      # too. ExportOptions/ConflictResolution are validated then intentionally discarded
+                      # (never persisted), matching the same "parsed but not stored" precedent
+                      # services/appconfig's StartExperimentRun DeploymentParameters already established,
+                      # since GetMigrationOutput/MigrationSummary never echo them back either. One
+                      # unrelated, pre-existing gap remains open and undisturbed by this pass (see gaps
+                      # below): ListDataSourceAttachments/ListMigrations still ignore maxResults/nextToken.
 ops:
   CreateDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed DomainId (required field, was missing) and IdentityCenterOptions wire key (see Notes)"}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -170,13 +190,20 @@ families:
       (same application+dataSourceArn returns the existing attachment) matches the op's documented
       behavior. DeleteApplication now cascades attachment cleanup, matching the DeleteDomain cascade
       precedent from a prior pass.
-      Known gap: AttachDataSourceInput's optional workspaceConfiguration/workspaceId are accepted
-      on the wire but not modeled -- this backend has no workspace resource/store at all, so there
-      is nothing to create or link. A client relying on the "workspace created and linked after
-      attachment" side effect would not observe it. Also: ListDataSourceAttachments accepts but
-      ignores maxResults/nextToken (returns the full list unpaginated) -- consistent with how most
-      other List ops in this backend already treat pagination params, but flagged as a real,
-      not-hidden gap.
+      FIXED THIS PASS: AttachDataSourceInput's optional workspaceConfiguration/workspaceId are now
+      modeled against a real Workspace resource (models.go/workspaces.go). workspaceConfiguration
+      creates a new Workspace linked to the application (Name/WorkspaceType both validated
+      required, WorkspaceType checked against its documented closed enum
+      OBSERVABILITY/SECURITY_ANALYTICS/SEARCH); workspaceId validates an existing Workspace scoped
+      to the same application; the two are rejected as mutually exclusive when both are supplied,
+      matching the SDK's own doc comment. See the "overall" grade note above for why this stops at
+      validate-and-track rather than a full CRUD resource (the SDK defines no
+      Get/List/DeleteWorkspace operation and no output ever echoes a WorkspaceId, so nothing more
+      is derivable from the real API). Cascade-deleted on DeleteApplication.
+      Remaining gap, unrelated to workspaces and unchanged this pass: ListDataSourceAttachments
+      accepts but ignores maxResults/nextToken (returns the full list unpaginated) -- consistent
+      with how most other List ops in this backend already treat pagination params, but flagged as
+      a real, not-hidden gap.
   capabilities:
     status: ok
     note: >
@@ -226,14 +253,24 @@ families:
       visualizations/index-patterns/searches) to actually migrate, so it honestly "succeeds" at
       migrating zero real objects instead of inventing migrated content a client would treat as
       real. DeleteApplication cascades migration-job cleanup.
-      Known gap: MigrationOptions.Workspace/ExportOptions/ConflictResolution are accepted on the
-      wire but not modeled (no saved-object or workspace store exists to apply them against) --
-      same class of gap as data_source_attachments' workspaceConfiguration above. Also:
-      ListMigrations accepts but ignores maxResults/nextToken (returns the full filtered list
-      unpaginated).
+      FIXED THIS PASS: MigrationOptions.Workspace is now enforced as the required field the SDK
+      documents it to be (previously not enforced at all -- a real bug, not just an unmodeled
+      field): omitted entirely, it is rejected; CreateWorkspace=true requires Name and creates a
+      real Workspace linked to the application; WorkspaceId validates an existing Workspace scoped
+      to the same application; specifying both is rejected as mutually exclusive, matching
+      "Specify either this parameter or createWorkspace". ConflictResolution is validated against
+      its documented exhaustive enum (CREATE_NEW_COPIES, overwrite -- the inconsistent casing is
+      the SDK doc text itself, not a transcription error). ExportOptions.Objects elements are
+      validated for the SDK's required Id/Type per element. ExportOptions/ConflictResolution
+      remain parsed-then-discarded (never persisted) rather than stored: this emulator still has
+      no saved-object store to actually apply them against, and neither GetMigrationOutput nor
+      MigrationSummary carry a field to echo them back through even if it did -- same "accepted,
+      validated, not stored" precedent services/appconfig's StartExperimentRun
+      DeploymentParameters already established. See the "overall" grade note above for why the
+      Workspace side of this stops at validate-and-track rather than full CRUD.
+      Remaining gap, unrelated to workspaces and unchanged this pass: ListMigrations accepts but
+      ignores maxResults/nextToken (returns the full filtered list unpaginated).
 gaps:
-  - "data_source_attachments: AttachDataSource's optional workspaceConfiguration/workspaceId (create-and-link-a-workspace side effect) is accepted but not modeled -- no workspace resource/store exists in this backend."
-  - "migrations: StartMigration's MigrationOptions.Workspace/ExportOptions/ConflictResolution are accepted but not modeled -- no saved-object or workspace store exists to apply them against."
   - "data_source_attachments and migrations: List ops (ListDataSourceAttachments/ListMigrations) accept but ignore maxResults/nextToken, always returning the full (filtered) result set unpaginated."
 deferred:
   - serverless

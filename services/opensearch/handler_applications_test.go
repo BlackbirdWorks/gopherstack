@@ -466,6 +466,119 @@ func TestDataSourceAttachments_HTTPHandler(t *testing.T) {
 				assert.Equal(t, http.StatusConflict, dr.StatusCode)
 			},
 		},
+		{
+			// types.WorkspaceConfigurationInput.Name/.WorkspaceType are both
+			// "This member is required" once WorkspaceConfiguration is
+			// supplied at all.
+			name: "attach_workspace_configuration_missing_name_returns_400",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "ds-ws-app-1")
+				arn := domainARN(t, h, "ds-ws-domain-1")
+				resp := doRequest(t, h, http.MethodPost,
+					"/2021-01-01/opensearch/application/"+appID+"/attachDataSource",
+					map[string]any{
+						"dataSourceArn":          arn,
+						"workspaceConfiguration": map[string]any{"workspaceType": "SEARCH"},
+					})
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			},
+		},
+		{
+			// WorkspaceType's doc text is an exhaustive, closed enum
+			// (OBSERVABILITY, SECURITY_ANALYTICS, SEARCH).
+			name: "attach_workspace_configuration_invalid_type_returns_400",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "ds-ws-app-2")
+				arn := domainARN(t, h, "ds-ws-domain-2")
+				resp := doRequest(t, h, http.MethodPost,
+					"/2021-01-01/opensearch/application/"+appID+"/attachDataSource",
+					map[string]any{
+						"dataSourceArn":          arn,
+						"workspaceConfiguration": map[string]any{"name": "ws", "workspaceType": "BOGUS"},
+					})
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			},
+		},
+		{
+			// "Mutually exclusive with workspaceId" per
+			// types.AttachDataSourceInput.WorkspaceConfiguration's doc text.
+			name: "attach_workspace_configuration_and_workspace_id_returns_400",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "ds-ws-app-3")
+				arn := domainARN(t, h, "ds-ws-domain-3")
+				resp := doRequest(t, h, http.MethodPost,
+					"/2021-01-01/opensearch/application/"+appID+"/attachDataSource",
+					map[string]any{
+						"dataSourceArn":          arn,
+						"workspaceConfiguration": map[string]any{"name": "ws", "workspaceType": "SEARCH"},
+						"workspaceId":            "workspace-1",
+					})
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			},
+		},
+		{
+			name: "attach_unknown_workspace_id_returns_409",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "ds-ws-app-4")
+				arn := domainARN(t, h, "ds-ws-domain-4")
+				resp := doRequest(t, h, http.MethodPost,
+					"/2021-01-01/opensearch/application/"+appID+"/attachDataSource",
+					map[string]any{"dataSourceArn": arn, "workspaceId": "no-such-workspace"})
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusConflict, resp.StatusCode)
+			},
+		},
+		{
+			// A workspace created (via WorkspaceConfiguration on one
+			// application) can be referenced by WorkspaceId afterward -- but
+			// only from the same application it was created against;
+			// AttachDataSourceOutput never echoes the generated WorkspaceId
+			// (see the Workspace doc comment in models.go), so this uses
+			// createWorkspaceLocked's documented deterministic
+			// "workspace-<N>" ID scheme, exercised for the first time on a
+			// fresh handler/backend here.
+			name: "attach_workspace_id_scoped_to_creating_application",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "ds-ws-app-5")
+				arn := domainARN(t, h, "ds-ws-domain-5")
+				createResp := doRequest(t, h, http.MethodPost,
+					"/2021-01-01/opensearch/application/"+appID+"/attachDataSource",
+					map[string]any{
+						"dataSourceArn":          arn,
+						"workspaceConfiguration": map[string]any{"name": "ws-5", "workspaceType": "OBSERVABILITY"},
+					})
+				createResp.Body.Close()
+				require.Equal(t, http.StatusOK, createResp.StatusCode)
+
+				arn2 := domainARN(t, h, "ds-ws-domain-5b")
+				sameAppResp := doRequest(t, h, http.MethodPost,
+					"/2021-01-01/opensearch/application/"+appID+"/attachDataSource",
+					map[string]any{"dataSourceArn": arn2, "workspaceId": "workspace-1"})
+				sameAppResp.Body.Close()
+				assert.Equal(t, http.StatusOK, sameAppResp.StatusCode)
+
+				otherAppID := createTestApplication(t, h, "ds-ws-app-5-other")
+				arn3 := domainARN(t, h, "ds-ws-domain-5c")
+				otherAppResp := doRequest(t, h, http.MethodPost,
+					"/2021-01-01/opensearch/application/"+otherAppID+"/attachDataSource",
+					map[string]any{"dataSourceArn": arn3, "workspaceId": "workspace-1"})
+				otherAppResp.Body.Close()
+				assert.Equal(t, http.StatusConflict, otherAppResp.StatusCode)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -621,7 +734,8 @@ func TestMigrations_HTTPHandler(t *testing.T) {
 					map[string]any{
 						"applicationId": appID,
 						"migrationOptions": map[string]any{
-							"source": map[string]any{"datasourceArn": arn},
+							"source":    map[string]any{"datasourceArn": arn},
+							"workspace": map[string]any{"createWorkspace": true, "name": "mig-workspace"},
 						},
 					})
 				defer sr.Body.Close()
@@ -737,6 +851,149 @@ func TestMigrations_HTTPHandler(t *testing.T) {
 					"/2021-01-01/opensearch/app-migrations?applicationId=no-such-app", nil)
 				defer resp.Body.Close()
 				assert.Equal(t, http.StatusConflict, resp.StatusCode)
+			},
+		},
+		{
+			// MigrationOptions.Workspace is "This member is required" --
+			// previously unenforced by this backend at all.
+			name: "start_missing_workspace_returns_400",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "mig-app-4")
+				arn := domainARN(t, h, "mig-domain-4")
+				resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/app-migrations",
+					map[string]any{
+						"applicationId": appID,
+						"migrationOptions": map[string]any{
+							"source": map[string]any{"datasourceArn": arn},
+						},
+					})
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			},
+		},
+		{
+			// types.MigrationWorkspace.Name is "Required when
+			// createWorkspace is true".
+			name: "start_create_workspace_missing_name_returns_400",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "mig-app-5")
+				arn := domainARN(t, h, "mig-domain-5")
+				resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/app-migrations",
+					map[string]any{
+						"applicationId": appID,
+						"migrationOptions": map[string]any{
+							"source":    map[string]any{"datasourceArn": arn},
+							"workspace": map[string]any{"createWorkspace": true},
+						},
+					})
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			},
+		},
+		{
+			// "Specify either this parameter [workspaceId] or
+			// createWorkspace" per types.MigrationWorkspace's doc text.
+			name: "start_workspace_id_and_create_workspace_returns_400",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "mig-app-6")
+				arn := domainARN(t, h, "mig-domain-6")
+				resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/app-migrations",
+					map[string]any{
+						"applicationId": appID,
+						"migrationOptions": map[string]any{
+							"source": map[string]any{"datasourceArn": arn},
+							"workspace": map[string]any{
+								"createWorkspace": true, "name": "ws", "workspaceId": "workspace-1",
+							},
+						},
+					})
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			},
+		},
+		{
+			name: "start_unknown_workspace_id_returns_409",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "mig-app-7")
+				arn := domainARN(t, h, "mig-domain-7")
+				resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/app-migrations",
+					map[string]any{
+						"applicationId": appID,
+						"migrationOptions": map[string]any{
+							"source":    map[string]any{"datasourceArn": arn},
+							"workspace": map[string]any{"workspaceId": "no-such-workspace"},
+						},
+					})
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusConflict, resp.StatusCode)
+			},
+		},
+		{
+			// ConflictResolution's doc text is an exhaustive, closed enum
+			// (CREATE_NEW_COPIES, overwrite).
+			name: "start_invalid_conflict_resolution_returns_400",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "mig-app-8")
+				arn := domainARN(t, h, "mig-domain-8")
+				resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/app-migrations",
+					map[string]any{
+						"applicationId": appID,
+						"migrationOptions": map[string]any{
+							"source":             map[string]any{"datasourceArn": arn},
+							"workspace":          map[string]any{"createWorkspace": true, "name": "ws"},
+							"conflictResolution": "BOGUS",
+						},
+					})
+				defer resp.Body.Close()
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			},
+		},
+		{
+			// A workspace created via StartMigration's CreateWorkspace can
+			// be referenced by WorkspaceId in a later migration -- neither
+			// StartMigrationOutput/GetMigrationOutput ever echoes the
+			// generated WorkspaceId (see the Workspace doc comment in
+			// models.go), so this uses createWorkspaceLocked's documented
+			// deterministic "workspace-<N>" ID scheme on a fresh
+			// handler/backend, matching the analogous AttachDataSource
+			// coverage above.
+			name: "start_reuses_workspace_created_by_earlier_migration",
+			run: func(t *testing.T, h *opensearch.Handler) {
+				t.Helper()
+
+				appID := createTestApplication(t, h, "mig-app-9")
+				arn := domainARN(t, h, "mig-domain-9")
+				firstResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/app-migrations",
+					map[string]any{
+						"applicationId": appID,
+						"migrationOptions": map[string]any{
+							"source":    map[string]any{"datasourceArn": arn},
+							"workspace": map[string]any{"createWorkspace": true, "name": "ws-9"},
+						},
+					})
+				firstResp.Body.Close()
+				require.Equal(t, http.StatusOK, firstResp.StatusCode)
+
+				secondResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/app-migrations",
+					map[string]any{
+						"applicationId": appID,
+						"migrationOptions": map[string]any{
+							"source":    map[string]any{"datasourceArn": arn},
+							"workspace": map[string]any{"workspaceId": "workspace-1"},
+						},
+					})
+				secondResp.Body.Close()
+				assert.Equal(t, http.StatusOK, secondResp.StatusCode)
 			},
 		},
 	}

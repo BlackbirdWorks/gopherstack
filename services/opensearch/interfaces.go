@@ -100,7 +100,10 @@ type StorageBackend interface {
 
 	// Data source attachment operations (OpenSearch application <-> real
 	// domain/serverless-collection data source)
-	AttachDataSource(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
+	AttachDataSource(
+		applicationID, dataSourceArn string,
+		workspaceConfig *WorkspaceConfigInput, workspaceID string,
+	) (*DataSourceAttachment, error)
 	DetachDataSource(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
 	DescribeDataSourceAttachment(applicationID, dataSourceArn string) (*DataSourceAttachment, error)
 	ListDataSourceAttachments(applicationID string) []*DataSourceAttachment
@@ -115,7 +118,10 @@ type StorageBackend interface {
 	ValidateInsightEntity(entityType, entityValue string) error
 
 	// Migration operations
-	StartMigration(applicationID, sourceArn string) (*Migration, error)
+	StartMigration(
+		applicationID, sourceArn string,
+		workspace *MigrationWorkspaceInput, exportOptions *ExportOptionsInput, conflictResolution string,
+	) (*Migration, error)
 	GetMigration(migrationID string) (*Migration, error)
 	ListMigrations(applicationID, statusFilter string) ([]*Migration, error)
 

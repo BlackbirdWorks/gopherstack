@@ -41,13 +41,33 @@ func resolveMigrationStatus(m *Migration, delay time.Duration, now time.Time) {
 // StartMigration starts a saved-object migration job from a real,
 // backend-tracked data source (see resolveDataSourceRefLocked, shared with
 // the data source attachment family) into an application workspace.
-func (b *InMemoryBackend) StartMigration(applicationID, sourceArn string) (*Migration, error) {
+// workspace is MigrationOptions.Workspace (required by the SDK -- see
+// resolveMigrationWorkspaceLocked); exportOptions/conflictResolution are
+// MigrationOptions' optional ExportOptions/ConflictResolution fields,
+// validated but not persisted (see ExportOptionsInput's doc comment).
+func (b *InMemoryBackend) StartMigration(
+	applicationID, sourceArn string,
+	workspace *MigrationWorkspaceInput,
+	exportOptions *ExportOptionsInput,
+	conflictResolution string,
+) (*Migration, error) {
 	if applicationID == "" {
 		return nil, fmt.Errorf("%w: ApplicationId is required", ErrInvalidParameter)
 	}
 
 	if sourceArn == "" {
 		return nil, fmt.Errorf("%w: MigrationOptions.Source.DatasourceArn is required", ErrInvalidParameter)
+	}
+
+	if conflictResolution != "" && !validConflictResolution(conflictResolution) {
+		return nil, fmt.Errorf(
+			"%w: MigrationOptions.ConflictResolution must be one of %s, %s",
+			ErrInvalidParameter, conflictResolutionCreateNewCopies, conflictResolutionOverwrite,
+		)
+	}
+
+	if err := validateExportOptions(exportOptions); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("StartMigration")
@@ -63,6 +83,10 @@ func (b *InMemoryBackend) StartMigration(applicationID, sourceArn string) (*Migr
 			ErrDataSourceNotFound,
 			sourceArn,
 		)
+	}
+
+	if err := b.resolveMigrationWorkspaceLocked(applicationID, workspace); err != nil {
+		return nil, err
 	}
 
 	b.migrationCounter++

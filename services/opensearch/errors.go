@@ -22,4 +22,5 @@ var (
 	ErrCapabilityNotFound       = errors.New("ResourceNotFoundException")
 	ErrMigrationNotFound        = errors.New("ResourceNotFoundException")
 	ErrInsightNotFound          = errors.New("ResourceNotFoundException")
+	ErrWorkspaceNotFound        = errors.New("ResourceNotFoundException")
 )

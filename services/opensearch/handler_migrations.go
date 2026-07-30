@@ -14,14 +14,37 @@ type migrationSourceJSON struct {
 	DatasourceArn string `json:"datasourceArn"`
 }
 
-// startMigrationRequest is the JSON request body for StartMigration. Only
-// migrationOptions.source.datasourceArn is modeled -- workspace/exportOptions/
-// conflictResolution have no corresponding state in this backend (no
-// saved-object or workspace store), so they are accepted but not persisted.
+// migrationWorkspaceJSON matches types.MigrationWorkspace.
+type migrationWorkspaceJSON struct {
+	WorkspaceID     string `json:"workspaceId"`
+	Name            string `json:"name"`
+	Type            string `json:"type"`
+	CreateWorkspace bool   `json:"createWorkspace"`
+}
+
+// savedObjectIdentifierJSON matches types.SavedObjectIdentifier.
+type savedObjectIdentifierJSON struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
+// exportOptionsJSON matches types.ExportOptions.
+type exportOptionsJSON struct {
+	Objects               []savedObjectIdentifierJSON `json:"objects"`
+	Types                 []string                    `json:"types"`
+	IncludeReferencesDeep bool                        `json:"includeReferencesDeep"`
+}
+
+// startMigrationRequest is the JSON request body for StartMigration, field-
+// diffed against types.MigrationOptions: source.datasourceArn, workspace
+// (required by the SDK), exportOptions, and conflictResolution.
 type startMigrationRequest struct {
 	ApplicationID    string `json:"applicationId"`
 	MigrationOptions struct {
-		Source migrationSourceJSON `json:"source"`
+		Source             migrationSourceJSON     `json:"source"`
+		Workspace          *migrationWorkspaceJSON `json:"workspace"`
+		ExportOptions      *exportOptionsJSON      `json:"exportOptions"`
+		ConflictResolution string                  `json:"conflictResolution"`
 	} `json:"migrationOptions"`
 }
 
@@ -91,7 +114,13 @@ func (h *Handler) handleStartMigration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	m, startErr := h.Backend.StartMigration(req.ApplicationID, req.MigrationOptions.Source.DatasourceArn)
+	m, startErr := h.Backend.StartMigration(
+		req.ApplicationID,
+		req.MigrationOptions.Source.DatasourceArn,
+		toMigrationWorkspaceInput(req.MigrationOptions.Workspace),
+		toExportOptionsInput(req.MigrationOptions.ExportOptions),
+		req.MigrationOptions.ConflictResolution,
+	)
 	if startErr != nil {
 		h.writeMigrationError(r, w, startErr)
 
@@ -99,6 +128,42 @@ func (h *Handler) handleStartMigration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(r, w, startMigrationOutput{MigrationID: m.MigrationID, Status: m.Status})
+}
+
+// toMigrationWorkspaceInput converts the wire shape to the backend's
+// MigrationWorkspaceInput. nil in, nil out (the backend treats a nil pointer
+// as "Workspace was omitted", matching MigrationOptions.Workspace's required
+// -ness check in resolveMigrationWorkspaceLocked).
+func toMigrationWorkspaceInput(ws *migrationWorkspaceJSON) *MigrationWorkspaceInput {
+	if ws == nil {
+		return nil
+	}
+
+	return &MigrationWorkspaceInput{
+		WorkspaceID:     ws.WorkspaceID,
+		Name:            ws.Name,
+		Type:            ws.Type,
+		CreateWorkspace: ws.CreateWorkspace,
+	}
+}
+
+// toExportOptionsInput converts the wire shape to the backend's
+// ExportOptionsInput.
+func toExportOptionsInput(opts *exportOptionsJSON) *ExportOptionsInput {
+	if opts == nil {
+		return nil
+	}
+
+	objects := make([]SavedObjectIdentifierInput, 0, len(opts.Objects))
+	for _, o := range opts.Objects {
+		objects = append(objects, SavedObjectIdentifierInput(o))
+	}
+
+	return &ExportOptionsInput{
+		Objects:               objects,
+		Types:                 opts.Types,
+		IncludeReferencesDeep: opts.IncludeReferencesDeep,
+	}
 }
 
 func (h *Handler) handleGetMigration(w http.ResponseWriter, r *http.Request, migrationID string) {
@@ -137,7 +202,8 @@ func (h *Handler) writeMigrationError(r *http.Request, w http.ResponseWriter, er
 	switch {
 	case errors.Is(err, ErrApplicationNotFound),
 		errors.Is(err, ErrDataSourceNotFound),
-		errors.Is(err, ErrMigrationNotFound):
+		errors.Is(err, ErrMigrationNotFound),
+		errors.Is(err, ErrWorkspaceNotFound):
 		h.writeError(r, w, http.StatusConflict, "ResourceNotFoundException", err.Error())
 	default:
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())

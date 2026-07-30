@@ -88,6 +88,24 @@ func (b *InMemoryBackend) CreateExperimentDefinition(
 		)
 	}
 
+	// "The key of the existing feature flag to use with the experiment"
+	// (CreateExperimentDefinitionInput.FlagKey's doc comment) -- "existing"
+	// means this should be checked against the profile's actual flag
+	// content, not merely non-empty. Only enforced when the profile has
+	// parseable AWS.AppConfig.FeatureFlags content to check against (see
+	// latestFeatureFlagKeysLocked): a profile with no uploaded version yet,
+	// or non-feature-flag content, stays permissive -- same "unspecified,
+	// not wrong" treatment as the Type check above, so pre-existing
+	// freeform/content-less test fixtures are not retroactively broken.
+	if flagKeys, ok := b.latestFeatureFlagKeysLocked(appID, profileID); ok {
+		if _, exists := flagKeys[flagKey]; !exists {
+			return nil, fmt.Errorf(
+				"%w: flag key %q does not exist in configuration profile %s",
+				ErrBadRequest, flagKey, configurationProfileIdentifier,
+			)
+		}
+	}
+
 	if len(b.experimentDefinitionsByAppName.Get(appNameKey(appID, name))) > 0 {
 		return nil, fmt.Errorf(
 			"%w: experiment definition with name %q already exists in application %s",

@@ -380,6 +380,43 @@ func TestHandler_ExperimentDefinition_CRUD(t *testing.T) {
 	var afterDelete appconfig.ExperimentDefinition
 	require.NoError(t, json.Unmarshal(afterDeleteRec.Body.Bytes(), &afterDelete))
 	assert.Equal(t, "ARCHIVED", afterDelete.Status)
+
+	// FlagKey is validated against the profile's actual feature flag
+	// content (see feature_flags.go) once one has been uploaded, through
+	// the real router path: POST .../hostedconfigurationversions carries
+	// the raw content as its body (httpPayload, not a JSON-wrapped field).
+	hcvRec := doRequest(t, h, http.MethodPost,
+		"/applications/"+appID+"/configurationprofiles/"+profID+"/hostedconfigurationversions",
+		[]byte(`{"version":"1","flags":{"flag1":{"name":"Flag One"}},"values":{"flag1":{"enabled":true}}}`))
+	require.Equal(t, http.StatusCreated, hcvRec.Code)
+
+	unknownFlagBody := `{
+		"Name": "http-def-unknown-flag",
+		"AudienceRule": "true",
+		"FlagKey": "flag2",
+		"EnvironmentIdentifier": "` + envID + `",
+		"ConfigurationProfileIdentifier": "` + profID + `",
+		"Control": {"FlagValue": {"Enabled": false}, "Weight": 50},
+		"Treatments": [{"FlagValue": {"Enabled": true}, "Weight": 50}]
+	}`
+	unknownFlagRec := doRequest(
+		t, h, http.MethodPost, "/applications/"+appID+"/experimentdefinitions", []byte(unknownFlagBody),
+	)
+	assert.Equal(t, http.StatusBadRequest, unknownFlagRec.Code)
+
+	knownFlagBody := `{
+		"Name": "http-def-known-flag",
+		"AudienceRule": "true",
+		"FlagKey": "flag1",
+		"EnvironmentIdentifier": "` + envID + `",
+		"ConfigurationProfileIdentifier": "` + profID + `",
+		"Control": {"FlagValue": {"Enabled": false}, "Weight": 50},
+		"Treatments": [{"FlagValue": {"Enabled": true}, "Weight": 50}]
+	}`
+	knownFlagRec := doRequest(
+		t, h, http.MethodPost, "/applications/"+appID+"/experimentdefinitions", []byte(knownFlagBody),
+	)
+	assert.Equal(t, http.StatusCreated, knownFlagRec.Code)
 }
 
 // TestHandler_ExperimentDefinition_HTTP_Errors covers not-found and

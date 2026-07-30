@@ -72,9 +72,17 @@ func (b *InMemoryBackend) resolveAttachmentStatus(att *DataSourceAttachment, now
 // AttachDataSource attaches a real data source (domain or serverless
 // collection ARN) to an OpenSearch application. Idempotent: re-attaching the
 // same (applicationID, dataSourceArn) pair returns the existing attachment
-// rather than creating a duplicate.
+// rather than creating a duplicate. workspaceConfig/workspaceID are the
+// optional WorkspaceConfiguration/WorkspaceId request fields (see
+// resolveWorkspaceConfigLocked and the Workspace doc comment in models.go
+// for why this can validate/create a workspace but never surfaces one back
+// to the caller -- AttachDataSourceOutput has no field for it); both are
+// validated on every call, including idempotent replays, since a validation
+// error should not be silently skipped just because the attachment itself
+// already exists.
 func (b *InMemoryBackend) AttachDataSource(
 	applicationID, dataSourceArn string,
+	workspaceConfig *WorkspaceConfigInput, workspaceID string,
 ) (*DataSourceAttachment, error) {
 	if applicationID == "" {
 		return nil, fmt.Errorf("%w: Id is required", ErrInvalidParameter)
@@ -89,6 +97,10 @@ func (b *InMemoryBackend) AttachDataSource(
 
 	if !b.applications.Has(applicationID) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrApplicationNotFound, applicationID)
+	}
+
+	if err := b.resolveWorkspaceConfigLocked(applicationID, workspaceConfig, workspaceID); err != nil {
+		return nil, err
 	}
 
 	key := dataSourceAttachmentKey(applicationID, dataSourceArn)
