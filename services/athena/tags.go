@@ -61,6 +61,34 @@ func (b *InMemoryBackend) resourceExistsForARN(resourceARN string) bool {
 	}
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingAthena).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Athena resource ARN that currently has at
+// least one tag applied via TagResource, spanning every resource kind that
+// shares the flat resourceTags map (workgroups, data catalogs, capacity
+// reservations, notebooks).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.resourceTags))
+
+	for arn, tagMap := range b.resourceTags {
+		if len(tagMap) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tagMap)})
+	}
+
+	return out
+}
+
 // TagResource adds tags to a resource identified by ARN. AWS returns
 // InvalidRequestException when the ARN does not resolve to an existing
 // taggable resource.

@@ -36,6 +36,41 @@ func (b *InMemoryBackend) ListTagsForResource(
 	return &ListTagsForResourceOutput{Tags: result}, nil
 }
 
+// TaggedEntry pairs a stream ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingKinesis).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedStreams returns every Kinesis stream that currently has at least one
+// tag, across every region this backend holds streams for.
+func (b *InMemoryBackend) TaggedStreams() []TaggedEntry {
+	b.mu.RLock("TaggedStreams")
+	streams := b.streams.All()
+	b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(streams))
+
+	for _, s := range streams {
+		s.mu.RLock("TaggedStreams.stream")
+		var tagMap map[string]string
+		if s.Tags != nil {
+			tagMap = s.Tags.Clone()
+		}
+		arn := s.ARN
+		s.mu.RUnlock()
+
+		if len(tagMap) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: tagMap})
+	}
+
+	return out
+}
+
 // TagResource adds or updates tags on a stream identified by its ARN.
 // This is the ARN-based counterpart to AddTagsToStream.
 func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInput) error {

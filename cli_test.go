@@ -23,6 +23,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
+	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
 
 // parseCLI parses the given args (key=value env pairs) into a CLI value
@@ -534,6 +540,214 @@ func TestARNServiceIs(t *testing.T) {
 			t.Parallel()
 
 			assert.Equal(t, tt.want, arnServiceIs(tt.arn, tt.serviceName))
+		})
+	}
+}
+
+func TestResourceTypeFromARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		arn     string
+		service string
+		want    string
+	}{
+		{
+			name:    "slash_separated_resource",
+			arn:     "arn:aws:ecs:us-east-1:123456789012:cluster/my-cluster",
+			service: "ecs",
+			want:    "ecs:cluster",
+		},
+		{
+			name:    "nested_slash_resource_takes_first_segment",
+			arn:     "arn:aws:ecs:us-east-1:123456789012:service/my-cluster/my-service",
+			service: "ecs",
+			want:    "ecs:service",
+		},
+		{
+			name:    "colon_separated_resource",
+			arn:     "arn:aws:glue:us-east-1:123456789012:dataQualityRuleset/my-ruleset",
+			service: "glue",
+			want:    "glue:dataQualityRuleset",
+		},
+		{
+			name:    "bare_resource_no_separator_falls_back_to_service",
+			arn:     "arn:aws:sqs:us-east-1:123456789012:my-queue",
+			service: "sqs",
+			want:    "sqs",
+		},
+		{
+			name:    "malformed_arn_falls_back_to_service",
+			arn:     "not-an-arn",
+			service: "ecs",
+			want:    "ecs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, resourceTypeFromARN(tt.arn, tt.service))
+		})
+	}
+}
+
+// TestWireResourceGroupsTagging_CrossServiceResources proves the fix for
+// gopherstack-3xne: resources tagged through a service's own native TagResource API
+// must be visible to the Resource Groups Tagging API's GetResources once cli.go wires
+// that service in via wireResourceGroupsTagging. Before this fix only 6 of ~90 taggable
+// services were wired, so a resource tagged via (for example) ECS's TagResource was
+// invisible to a cross-service tag query with no error -- a test that only checks "no
+// error" would pass against that broken state, so this asserts the actual ARN comes
+// back from GetResources, filtered by the exact resource-type string the wiring
+// derived for it.
+func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
+	t.Parallel()
+
+	const accountID = "123456789012"
+	const region = "us-east-1"
+	const wantTagKey = "team"
+	const wantTagValue = "wiring-test"
+
+	tests := []struct {
+		wire             func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string
+		name             string
+		wantResourceType string
+	}{
+		{
+			name: "ecs_cluster",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				ecsBk := ecsbackend.NewInMemoryBackend(accountID, region, nil)
+				resourceARN := "arn:aws:ecs:" + region + ":" + accountID + ":cluster/wiring-test-cluster"
+				require.NoError(t, ecsBk.TagResource(
+					resourceARN, []ecsbackend.Tag{{Key: wantTagKey, Value: wantTagValue}},
+				))
+
+				wireTaggingECS(bk, ecsbackend.NewHandler(ecsBk))
+
+				return resourceARN
+			},
+			wantResourceType: "ecs:cluster",
+		},
+		{
+			name: "athena_workgroup",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				athenaBk := athenabackend.NewInMemoryBackend(region, accountID)
+				require.NoError(t, athenaBk.CreateWorkGroup(
+					"wiring-test-wg", "", "", athenabackend.WorkGroupConfiguration{}, nil,
+				))
+				resourceARN := "arn:aws:athena:" + region + ":" + accountID + ":workgroup/wiring-test-wg"
+				require.NoError(t, athenaBk.TagResource(resourceARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingAthena(bk, athenabackend.NewHandler(athenaBk))
+
+				return resourceARN
+			},
+			wantResourceType: "athena:workgroup",
+		},
+		{
+			name: "glue_database",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				glueBk := gluebackend.NewInMemoryBackend(accountID, region)
+				db, err := glueBk.CreateDatabase(gluebackend.DatabaseInput{Name: "wiring-test-db"}, nil)
+				require.NoError(t, err)
+				require.NoError(t, glueBk.TagResource(db.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingGlue(bk, gluebackend.NewHandler(glueBk))
+
+				return db.ARN
+			},
+			wantResourceType: "glue:database",
+		},
+		{
+			name: "ecr_repository",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				ecrBk := ecrbackend.NewInMemoryBackend(accountID, region, "")
+				repo, err := ecrBk.CreateRepository(context.Background(), "wiring-test-repo", "", false, "", "")
+				require.NoError(t, err)
+				require.NoError(t, ecrBk.TagResource(
+					context.Background(), repo.RepositoryARN, map[string]string{wantTagKey: wantTagValue},
+				))
+
+				wireTaggingECR(bk, ecrbackend.NewHandler(ecrBk, nil))
+
+				return repo.RepositoryARN
+			},
+			wantResourceType: "ecr:repository",
+		},
+		{
+			name: "kinesis_stream",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				kinesisBk := kinesisbackend.NewInMemoryBackendWithConfig(accountID, region)
+				require.NoError(t, kinesisBk.CreateStream(context.Background(), &kinesisbackend.CreateStreamInput{
+					StreamName: "wiring-test-stream",
+					ShardCount: 1,
+				}))
+				desc, err := kinesisBk.DescribeStream(context.Background(), &kinesisbackend.DescribeStreamInput{
+					StreamName: "wiring-test-stream",
+				})
+				require.NoError(t, err)
+				require.NoError(t, kinesisBk.TagResource(context.Background(), &kinesisbackend.TagResourceInput{
+					ResourceARN: desc.StreamARN,
+					Tags:        map[string]string{wantTagKey: wantTagValue},
+				}))
+
+				wireTaggingKinesis(bk, kinesisbackend.NewHandler(kinesisBk))
+
+				return desc.StreamARN
+			},
+			wantResourceType: "kinesis:stream",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			taggingBk := resourcegroupstaggingapibackend.NewInMemoryBackend(accountID, region)
+
+			wantARN := tt.wire(t, taggingBk)
+
+			// Cross-service query filtered by the exact resource-type string the
+			// wiring derived for this ARN -- proves both that the resource is
+			// visible at all, and that it was typed correctly (not just dumped in
+			// under a wrong or empty type that would happen to pass an unfiltered
+			// GetResources call).
+			out, err := taggingBk.GetResources(context.Background(), &resourcegroupstaggingapibackend.GetResourcesInput{
+				ResourceTypeFilters: []string{tt.wantResourceType},
+			})
+			require.NoError(t, err)
+
+			var found *resourcegroupstaggingapibackend.ResourceTagMapping
+
+			for i := range out.ResourceTagMappingList {
+				if out.ResourceTagMappingList[i].ResourceARN == wantARN {
+					found = &out.ResourceTagMappingList[i]
+
+					break
+				}
+			}
+
+			require.NotNilf(t, found,
+				"resource %q tagged via the %s backend's native TagResource must appear in "+
+					"cross-service GetResources filtered by resource type %q once wired (gopherstack-3xne); got %+v",
+				wantARN, tt.name, tt.wantResourceType, out.ResourceTagMappingList)
+
+			require.Len(t, found.Tags, 1)
+			assert.Equal(t, wantTagKey, found.Tags[0].Key)
+			assert.Equal(t, wantTagValue, found.Tags[0].Value)
 		})
 	}
 }

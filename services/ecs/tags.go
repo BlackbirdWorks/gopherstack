@@ -168,6 +168,39 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 	return nil
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingECS).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every ECS resource ARN that currently has at least one
+// tag applied via TagResource, spanning every ECS resource kind that shares the
+// flat resourceTags side map (clusters, services, task definitions, container
+// instances, task sets, capacity providers, and more).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.resourceTags))
+
+	for arn, tagList := range b.resourceTags {
+		if len(tagList) == 0 {
+			continue
+		}
+
+		tagMap := make(map[string]string, len(tagList))
+		for _, t := range tagList {
+			tagMap[t.Key] = t.Value
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: tagMap})
+	}
+
+	return out
+}
+
 // ListTagsForResource returns all tags for a resource.
 func (b *InMemoryBackend) ListTagsForResource(resourceArn string) ([]Tag, error) {
 	if resourceArn == "" {

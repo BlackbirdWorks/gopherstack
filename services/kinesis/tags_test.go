@@ -241,6 +241,71 @@ func TestTagResource_ValueTooLong(t *testing.T) {
 	assert.Equal(t, "InvalidArgumentException", resp.Type)
 }
 
+// TestInMemoryBackend_TaggedStreams covers the enumeration method cli.go's
+// wireTaggingKinesis registers with the Resource Groups Tagging API (gopherstack-3xne):
+// every stream with at least one tag must be visible, and untagged streams must not
+// appear at all.
+func TestInMemoryBackend_TaggedStreams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(t *testing.T, h *kinesis.Handler) map[string]map[string]string
+		name  string
+	}{
+		{
+			name: "multiple_tagged_streams",
+			setup: func(t *testing.T, h *kinesis.Handler) map[string]map[string]string {
+				t.Helper()
+
+				arn1 := createStreamAndGetARN(t, h, "tagged-stream-1")
+				arn2 := createStreamAndGetARN(t, h, "tagged-stream-2")
+
+				b := h.Backend.(*kinesis.InMemoryBackend)
+				require.NoError(t, b.TagResource(context.Background(), &kinesis.TagResourceInput{
+					ResourceARN: arn1, Tags: map[string]string{"env": "prod"},
+				}))
+				require.NoError(t, b.TagResource(context.Background(), &kinesis.TagResourceInput{
+					ResourceARN: arn2, Tags: map[string]string{"team": "platform"},
+				}))
+
+				return map[string]map[string]string{
+					arn1: {"env": "prod"},
+					arn2: {"team": "platform"},
+				}
+			},
+		},
+		{
+			name: "untagged_stream_excluded",
+			setup: func(t *testing.T, h *kinesis.Handler) map[string]map[string]string {
+				t.Helper()
+
+				createStreamAndGetARN(t, h, "untagged-stream")
+
+				return map[string]map[string]string{}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			want := tt.setup(t, h)
+
+			b := h.Backend.(*kinesis.InMemoryBackend)
+			got := b.TaggedStreams()
+			gotMap := make(map[string]map[string]string, len(got))
+
+			for _, e := range got {
+				gotMap[e.ARN] = e.Tags
+			}
+
+			assert.Equal(t, want, gotMap)
+		})
+	}
+}
+
 func TestRemoveTagsFromStream_StreamNotFound(t *testing.T) {
 	t.Parallel()
 

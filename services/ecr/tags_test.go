@@ -107,6 +107,68 @@ func TestTagResource_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_TaggedResources covers the enumeration method cli.go's
+// wireTaggingECR registers with the Resource Groups Tagging API (gopherstack-3xne):
+// every tagged repository ARN must be visible, and untagged/empty-tag ARNs must not
+// appear at all.
+func TestInMemoryBackend_TaggedResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(t *testing.T, b *ecr.InMemoryBackend)
+		want  map[string]map[string]string
+		name  string
+	}{
+		{
+			name: "multiple_tagged_repositories",
+			setup: func(t *testing.T, b *ecr.InMemoryBackend) {
+				t.Helper()
+
+				require.NoError(t, b.TagResource(
+					context.Background(), "arn:aws:ecr:us-east-1:123456789012:repository/repo1",
+					map[string]string{"env": "prod"},
+				))
+				require.NoError(t, b.TagResource(
+					context.Background(), "arn:aws:ecr:us-east-1:123456789012:repository/repo2",
+					map[string]string{"team": "platform"},
+				))
+			},
+			want: map[string]map[string]string{
+				"arn:aws:ecr:us-east-1:123456789012:repository/repo1": {"env": "prod"},
+				"arn:aws:ecr:us-east-1:123456789012:repository/repo2": {"team": "platform"},
+			},
+		},
+		{
+			name: "untagged_repository_excluded",
+			setup: func(t *testing.T, b *ecr.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateRepository(context.Background(), "untagged-repo", "", false, "", "")
+				require.NoError(t, err)
+			},
+			want: map[string]map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ecr.NewInMemoryBackend("123456789012", "us-east-1", "localhost:5000")
+			tt.setup(t, b)
+
+			got := b.TaggedResources()
+			gotMap := make(map[string]map[string]string, len(got))
+
+			for _, e := range got {
+				gotMap[e.ARN] = e.Tags
+			}
+
+			assert.Equal(t, tt.want, gotMap)
+		})
+	}
+}
+
 func TestUntagResource_RemovesSpecificKeys(t *testing.T) {
 	t.Parallel()
 
