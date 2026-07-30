@@ -37,14 +37,16 @@ type declarativePoliciesReportItem struct {
 	TagSet    []simpleTagItem `xml:"tagSet>item"`
 }
 
-func declarativePoliciesReportToItem(r *DeclarativePoliciesReport) declarativePoliciesReportItem {
+func declarativePoliciesReportToItem(
+	r *DeclarativePoliciesReport, tags map[string]string,
+) declarativePoliciesReportItem {
 	item := declarativePoliciesReportItem{
 		ReportID: r.ReportID,
 		TargetID: r.TargetID,
 		S3Bucket: r.S3Bucket,
 		S3Prefix: r.S3Prefix,
 		Status:   r.Status,
-		TagSet:   tagItemsFromMap(r.Tags),
+		TagSet:   tagItemsFromMap(tags),
 	}
 	if !r.StartTime.IsZero() {
 		item.StartTime = r.StartTime.Format(time.RFC3339)
@@ -132,7 +134,9 @@ func (h *Handler) handleDescribeDeclarativePoliciesReports(vals url.Values, reqI
 
 	resp := &describeDeclarativePoliciesReportsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, r := range reports {
-		resp.Reports = append(resp.Reports, declarativePoliciesReportToItem(r))
+		resp.Reports = append(
+			resp.Reports, declarativePoliciesReportToItem(r, h.Backend.TagsForResource(r.ReportID)),
+		)
 	}
 
 	return resp, nil

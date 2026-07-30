@@ -195,7 +195,7 @@ func TestVpcBlockPublicAccessExclusion_CRUD(t *testing.T) { //nolint:paralleltes
 		assert.Equal(t, "allow-egress", excl.InternetGatewayExclusionMode)
 		assert.Equal(t, "create-complete", excl.State)
 		assert.Contains(t, excl.ResourceArn, excl.ExclusionID)
-		assert.Equal(t, "test", excl.Tags["Name"])
+		assert.Equal(t, "test", b.TagsForResource(excl.ExclusionID)["Name"])
 		exclusionID = excl.ExclusionID
 	})
 

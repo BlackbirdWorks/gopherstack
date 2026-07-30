@@ -108,6 +108,7 @@ var resourceTypePrefixes = []resourceTypePrefix{
 
 	// ---- capacity reservations / hosts ----
 	{"crf-", "capacity-reservation-fleet"},
+	{"crcq-", "capacity-reservation-cancellation-quote"},
 	{"cr-", "capacity-reservation"},
 	{"cb-", "capacity-block"},
 	{"cmde-", "capacity-manager-data-export"},
@@ -255,6 +256,7 @@ func (b *InMemoryBackend) resourceExistsGatewayLocked(id string) bool {
 	ok = ok || b.vpnConcentrators.Has(id)
 	ok = ok || b.capacityReservations.Has(id)
 	ok = ok || b.capacityReservationFleets.Has(id)
+	ok = ok || b.capacityReservationCancellationQuotes.Has(id)
 	ok = ok || b.capacityBlocks.Has(id)
 	ok = ok || b.capacityManagerDataExports.Has(id)
 	ok = ok || b.hostReservations.Has(id)

@@ -208,6 +208,7 @@ type VpcEndpointServiceConfig struct {
 	ServiceName             string   `json:"serviceName,omitempty"`
 	ServiceType             string   `json:"serviceType,omitempty"`
 	PrivateDNSNameState     string   `json:"privateDnsNameState,omitempty"`
+	PayerResponsibility     string   `json:"payerResponsibility,omitempty"`
 	NetworkLoadBalancerARNs []string `json:"networkLoadBalancerArns,omitempty"`
 	AcceptanceRequired      bool     `json:"acceptanceRequired,omitempty"`
 }

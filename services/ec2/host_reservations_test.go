@@ -60,7 +60,7 @@ func TestHostReservations_Lifecycle(t *testing.T) { //nolint:paralleltest // exi
 		require.Len(t, reservations, 1)
 		assert.Equal(t, "active", reservations[0].State)
 		assert.Equal(t, hostIDs, reservations[0].HostIDSet)
-		assert.Equal(t, "test", reservations[0].Tags["Name"])
+		assert.Equal(t, "test", b.TagsForResource(reservationID)["Name"])
 	})
 
 	t.Run("describe all returns the reservation", func(t *testing.T) { //nolint:paralleltest // existing issue.

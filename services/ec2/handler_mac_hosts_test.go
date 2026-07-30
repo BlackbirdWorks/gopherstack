@@ -86,6 +86,65 @@ func TestHandler_CreateDelegateMacVolumeOwnershipTask(t *testing.T) {
 	assert.Contains(t, body, "<taskType>volume-ownership-delegation</taskType>")
 }
 
+// TestHandler_MacModificationTask_TagDualWritePathVisibility proves that
+// mac_hosts.go's MacModificationTask consolidated onto the shared tag store:
+// a tag supplied at create time (TagSpecification) and a tag added
+// afterwards via CreateTags are BOTH visible through
+// DescribeMacModificationTasks AND through the generic DescribeTags call.
+// Before the fix, the task carried its own embedded Tags field that was
+// never even rendered on the wire (TagSet was entirely absent from the
+// response shape), so neither write path was visible.
+func TestHandler_MacModificationTask_TagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	instances, err := h.Backend.RunInstances("ami-test", "mac2.metal", "", 1)
+	require.NoError(t, err)
+	instanceID := instances[0].ID
+
+	createVals := url.Values{}
+	createVals.Set("Action", "CreateMacSystemIntegrityProtectionModificationTask")
+	createVals.Set("Version", "2016-11-15")
+	createVals.Set("InstanceId", instanceID)
+	createVals.Set("MacSystemIntegrityProtectionStatus", "enabled")
+	createVals.Set("TagSpecification.1.ResourceType", "mac-modification-task")
+	createVals.Set("TagSpecification.1.Tag.1.Key", "CreateTime")
+	createVals.Set("TagSpecification.1.Tag.1.Value", "yes")
+
+	createRec := postForm(t, h, createVals.Encode())
+	require.Equal(t, http.StatusOK, createRec.Code)
+	createBody := createRec.Body.String()
+	// The create-time tag must already be visible on the create response.
+	assert.Contains(t, createBody, "CreateTime")
+
+	taskID := extractXMLValue(t, createBody, "macModificationTaskId")
+	require.NotEmpty(t, taskID)
+
+	tagRec := postForm(t, h,
+		"Action=CreateTags&Version=2016-11-15&ResourceId.1="+taskID+
+			"&Tag.1.Key=AddedLater&Tag.1.Value=yes")
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	describeVals := url.Values{}
+	describeVals.Set("Action", "DescribeMacModificationTasks")
+	describeVals.Set("Version", "2016-11-15")
+	describeVals.Set("MacModificationTaskId.1", taskID)
+
+	describeRec := postForm(t, h, describeVals.Encode())
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	descBody := describeRec.Body.String()
+	assert.Contains(t, descBody, "CreateTime")
+	assert.Contains(t, descBody, "AddedLater")
+
+	tagsRec := postForm(t, h,
+		"Action=DescribeTags&Version=2016-11-15&Filter.1.Name=resource-id&Filter.1.Value.1="+taskID)
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+	tagsBody := tagsRec.Body.String()
+	assert.Contains(t, tagsBody, "CreateTime")
+	assert.Contains(t, tagsBody, "AddedLater")
+}
+
 func TestHandler_CreateMacSIPModificationTask_NonMacInstanceFails(t *testing.T) {
 	t.Parallel()
 

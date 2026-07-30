@@ -55,15 +55,17 @@ type secondaryNetworkItem struct {
 	Ipv4CidrBlockAssociationSet struct {
 		Items []secondaryNetworkCidrItem `xml:"item"`
 	} `xml:"ipv4CidrBlockAssociationSet"`
+	TagSet []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toSecondaryNetworkItem(n *SecondaryNetwork) secondaryNetworkItem {
+func toSecondaryNetworkItem(n *SecondaryNetwork, tags map[string]string) secondaryNetworkItem {
 	item := secondaryNetworkItem{
 		SecondaryNetworkID:  n.SecondaryNetworkID,
 		SecondaryNetworkArn: n.SecondaryNetworkArn,
 		OwnerID:             n.OwnerID,
 		Type:                n.Type,
 		State:               n.State,
+		TagSet:              tagItemsFromMap(tags),
 	}
 	for _, c := range n.Ipv4CidrBlockAssociations {
 		item.Ipv4CidrBlockAssociationSet.Items = append(
@@ -117,9 +119,10 @@ type secondarySubnetItem struct {
 	Ipv4CidrBlockAssociationSet struct {
 		Items []secondarySubnetCidrItem `xml:"item"`
 	} `xml:"ipv4CidrBlockAssociationSet"`
+	TagSet []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toSecondarySubnetItem(s *SecondarySubnet) secondarySubnetItem {
+func toSecondarySubnetItem(s *SecondarySubnet, tags map[string]string) secondarySubnetItem {
 	item := secondarySubnetItem{
 		SecondarySubnetID:    s.SecondarySubnetID,
 		SecondarySubnetArn:   s.SecondarySubnetArn,
@@ -129,6 +132,7 @@ func toSecondarySubnetItem(s *SecondarySubnet) secondarySubnetItem {
 		AvailabilityZone:     s.AvailabilityZone,
 		AvailabilityZoneID:   s.AvailabilityZoneID,
 		State:                s.State,
+		TagSet:               tagItemsFromMap(tags),
 	}
 	for _, c := range s.Ipv4CidrBlockAssociations {
 		item.Ipv4CidrBlockAssociationSet.Items = append(
@@ -165,22 +169,23 @@ type describeSecondarySubnetsResponse struct {
 // ---- Response shapes: Secondary Interfaces ----
 
 type secondaryInterfaceItem struct {
-	OwnerID                string   `xml:"ownerId,omitempty"`
-	SecondaryInterfaceArn  string   `xml:"secondaryInterfaceArn,omitempty"`
-	SecondaryInterfaceType string   `xml:"secondaryInterfaceType,omitempty"`
-	SecondaryNetworkID     string   `xml:"secondaryNetworkId,omitempty"`
-	SecondaryNetworkType   string   `xml:"secondaryNetworkType,omitempty"`
-	SecondarySubnetID      string   `xml:"secondarySubnetId,omitempty"`
-	SecondaryInterfaceID   string   `xml:"secondaryInterfaceId,omitempty"`
-	AvailabilityZone       string   `xml:"availabilityZone,omitempty"`
-	AvailabilityZoneID     string   `xml:"availabilityZoneId,omitempty"`
-	MacAddress             string   `xml:"macAddress,omitempty"`
-	Status                 string   `xml:"status,omitempty"`
-	PrivateIpv4Addresses   []string `xml:"privateIpv4AddressSet>item,omitempty"`
-	SourceDestCheck        bool     `xml:"sourceDestCheck,omitempty"`
+	SecondaryInterfaceID   string          `xml:"secondaryInterfaceId,omitempty"`
+	Status                 string          `xml:"status,omitempty"`
+	SecondaryInterfaceType string          `xml:"secondaryInterfaceType,omitempty"`
+	SecondaryNetworkID     string          `xml:"secondaryNetworkId,omitempty"`
+	SecondaryNetworkType   string          `xml:"secondaryNetworkType,omitempty"`
+	SecondarySubnetID      string          `xml:"secondarySubnetId,omitempty"`
+	AvailabilityZoneID     string          `xml:"availabilityZoneId,omitempty"`
+	AvailabilityZone       string          `xml:"availabilityZone,omitempty"`
+	SecondaryInterfaceArn  string          `xml:"secondaryInterfaceArn,omitempty"`
+	MacAddress             string          `xml:"macAddress,omitempty"`
+	OwnerID                string          `xml:"ownerId,omitempty"`
+	PrivateIpv4Addresses   []string        `xml:"privateIpv4AddressSet>item,omitempty"`
+	TagSet                 []simpleTagItem `xml:"tagSet>item"`
+	SourceDestCheck        bool            `xml:"sourceDestCheck,omitempty"`
 }
 
-func toSecondaryInterfaceItem(si *SecondaryInterface) secondaryInterfaceItem {
+func toSecondaryInterfaceItem(si *SecondaryInterface, tags map[string]string) secondaryInterfaceItem {
 	return secondaryInterfaceItem{
 		SecondaryInterfaceID:   si.SecondaryInterfaceID,
 		SecondaryInterfaceArn:  si.SecondaryInterfaceArn,
@@ -195,6 +200,7 @@ func toSecondaryInterfaceItem(si *SecondaryInterface) secondaryInterfaceItem {
 		Status:                 si.Status,
 		SourceDestCheck:        si.SourceDestCheck,
 		PrivateIpv4Addresses:   si.PrivateIpv4Addresses,
+		TagSet:                 tagItemsFromMap(tags),
 	}
 }
 
@@ -210,20 +216,23 @@ type describeSecondaryInterfacesResponse struct {
 // ---- Response shapes: Service Link Virtual Interfaces / Outpost LAGs ----
 
 type serviceLinkVirtualInterfaceItem struct {
-	ServiceLinkVirtualInterfaceID  string `xml:"serviceLinkVirtualInterfaceId,omitempty"`
-	ServiceLinkVirtualInterfaceArn string `xml:"serviceLinkVirtualInterfaceArn,omitempty"`
-	OutpostID                      string `xml:"outpostId,omitempty"`
-	OutpostArn                     string `xml:"outpostArn,omitempty"`
-	OutpostLagID                   string `xml:"outpostLagId,omitempty"`
-	OwnerID                        string `xml:"ownerId,omitempty"`
-	LocalAddress                   string `xml:"localAddress,omitempty"`
-	PeerAddress                    string `xml:"peerAddress,omitempty"`
-	ConfigurationState             string `xml:"configurationState,omitempty"`
-	PeerBgpAsn                     int64  `xml:"peerBgpAsn,omitempty"`
-	Vlan                           int32  `xml:"vlan,omitempty"`
+	ServiceLinkVirtualInterfaceID  string          `xml:"serviceLinkVirtualInterfaceId,omitempty"`
+	ServiceLinkVirtualInterfaceArn string          `xml:"serviceLinkVirtualInterfaceArn,omitempty"`
+	OutpostID                      string          `xml:"outpostId,omitempty"`
+	OutpostArn                     string          `xml:"outpostArn,omitempty"`
+	OutpostLagID                   string          `xml:"outpostLagId,omitempty"`
+	OwnerID                        string          `xml:"ownerId,omitempty"`
+	LocalAddress                   string          `xml:"localAddress,omitempty"`
+	PeerAddress                    string          `xml:"peerAddress,omitempty"`
+	ConfigurationState             string          `xml:"configurationState,omitempty"`
+	TagSet                         []simpleTagItem `xml:"tagSet>item"`
+	PeerBgpAsn                     int64           `xml:"peerBgpAsn,omitempty"`
+	Vlan                           int32           `xml:"vlan,omitempty"`
 }
 
-func toServiceLinkVirtualInterfaceItem(v *ServiceLinkVirtualInterface) serviceLinkVirtualInterfaceItem {
+func toServiceLinkVirtualInterfaceItem(
+	v *ServiceLinkVirtualInterface, tags map[string]string,
+) serviceLinkVirtualInterfaceItem {
 	return serviceLinkVirtualInterfaceItem{
 		ServiceLinkVirtualInterfaceID:  v.ServiceLinkVirtualInterfaceID,
 		ServiceLinkVirtualInterfaceArn: v.ServiceLinkVirtualInterfaceArn,
@@ -236,6 +245,7 @@ func toServiceLinkVirtualInterfaceItem(v *ServiceLinkVirtualInterface) serviceLi
 		PeerBgpAsn:                     v.PeerBgpAsn,
 		ConfigurationState:             v.ConfigurationState,
 		Vlan:                           v.Vlan,
+		TagSet:                         tagItemsFromMap(tags),
 	}
 }
 
@@ -249,15 +259,16 @@ type describeServiceLinkVirtualInterfacesResponse struct {
 }
 
 type outpostLagItem struct {
-	OutpostLagID                    string   `xml:"outpostLagId,omitempty"`
-	OutpostArn                      string   `xml:"outpostArn,omitempty"`
-	OwnerID                         string   `xml:"ownerId,omitempty"`
-	State                           string   `xml:"state,omitempty"`
-	LocalGatewayVirtualInterfaceIDs []string `xml:"localGatewayVirtualInterfaceIdSet>item,omitempty"`
-	ServiceLinkVirtualInterfaceIDs  []string `xml:"serviceLinkVirtualInterfaceIdSet>item,omitempty"`
+	OutpostLagID                    string          `xml:"outpostLagId,omitempty"`
+	OutpostArn                      string          `xml:"outpostArn,omitempty"`
+	OwnerID                         string          `xml:"ownerId,omitempty"`
+	State                           string          `xml:"state,omitempty"`
+	LocalGatewayVirtualInterfaceIDs []string        `xml:"localGatewayVirtualInterfaceIdSet>item,omitempty"`
+	ServiceLinkVirtualInterfaceIDs  []string        `xml:"serviceLinkVirtualInterfaceIdSet>item,omitempty"`
+	TagSet                          []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toOutpostLagItem(l *OutpostLag) outpostLagItem {
+func toOutpostLagItem(l *OutpostLag, tags map[string]string) outpostLagItem {
 	return outpostLagItem{
 		OutpostLagID:                    l.OutpostLagID,
 		OutpostArn:                      l.OutpostArn,
@@ -265,6 +276,7 @@ func toOutpostLagItem(l *OutpostLag) outpostLagItem {
 		State:                           l.State,
 		LocalGatewayVirtualInterfaceIDs: l.LocalGatewayVirtualInterfaceIDs,
 		ServiceLinkVirtualInterfaceIDs:  l.ServiceLinkVirtualInterfaceIDs,
+		TagSet:                          tagItemsFromMap(tags),
 	}
 }
 
@@ -288,18 +300,22 @@ func (h *Handler) handleCreateSecondaryNetwork(vals url.Values, reqID string) (a
 	}
 
 	return &createSecondaryNetworkResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, SecondaryNetwork: toSecondaryNetworkItem(net),
+		Xmlns: ec2XMLNS, RequestID: reqID,
+		SecondaryNetwork: toSecondaryNetworkItem(net, h.Backend.TagsForResource(net.SecondaryNetworkID)),
 	}, nil
 }
 
 func (h *Handler) handleDeleteSecondaryNetwork(vals url.Values, reqID string) (any, error) {
-	net, err := h.Backend.DeleteSecondaryNetwork(vals.Get("SecondaryNetworkId"))
+	id := vals.Get("SecondaryNetworkId")
+	tags := h.Backend.TagsForResource(id)
+
+	net, err := h.Backend.DeleteSecondaryNetwork(id)
 	if err != nil {
 		return nil, err
 	}
 
 	return &deleteSecondaryNetworkResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, SecondaryNetwork: toSecondaryNetworkItem(net),
+		Xmlns: ec2XMLNS, RequestID: reqID, SecondaryNetwork: toSecondaryNetworkItem(net, tags),
 	}, nil
 }
 
@@ -309,7 +325,10 @@ func (h *Handler) handleDescribeSecondaryNetworks(vals url.Values, reqID string)
 
 	resp := &describeSecondaryNetworksResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, n := range nets {
-		resp.SecondaryNetworkSet.Items = append(resp.SecondaryNetworkSet.Items, toSecondaryNetworkItem(n))
+		resp.SecondaryNetworkSet.Items = append(
+			resp.SecondaryNetworkSet.Items,
+			toSecondaryNetworkItem(n, h.Backend.TagsForResource(n.SecondaryNetworkID)),
+		)
 	}
 
 	return resp, nil
@@ -330,18 +349,22 @@ func (h *Handler) handleCreateSecondarySubnet(vals url.Values, reqID string) (an
 	}
 
 	return &createSecondarySubnetResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, SecondarySubnet: toSecondarySubnetItem(sub),
+		Xmlns: ec2XMLNS, RequestID: reqID,
+		SecondarySubnet: toSecondarySubnetItem(sub, h.Backend.TagsForResource(sub.SecondarySubnetID)),
 	}, nil
 }
 
 func (h *Handler) handleDeleteSecondarySubnet(vals url.Values, reqID string) (any, error) {
-	sub, err := h.Backend.DeleteSecondarySubnet(vals.Get("SecondarySubnetId"))
+	id := vals.Get("SecondarySubnetId")
+	tags := h.Backend.TagsForResource(id)
+
+	sub, err := h.Backend.DeleteSecondarySubnet(id)
 	if err != nil {
 		return nil, err
 	}
 
 	return &deleteSecondarySubnetResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, SecondarySubnet: toSecondarySubnetItem(sub),
+		Xmlns: ec2XMLNS, RequestID: reqID, SecondarySubnet: toSecondarySubnetItem(sub, tags),
 	}, nil
 }
 
@@ -351,7 +374,10 @@ func (h *Handler) handleDescribeSecondarySubnets(vals url.Values, reqID string) 
 
 	resp := &describeSecondarySubnetsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, s := range subs {
-		resp.SecondarySubnetSet.Items = append(resp.SecondarySubnetSet.Items, toSecondarySubnetItem(s))
+		resp.SecondarySubnetSet.Items = append(
+			resp.SecondarySubnetSet.Items,
+			toSecondarySubnetItem(s, h.Backend.TagsForResource(s.SecondarySubnetID)),
+		)
 	}
 
 	return resp, nil
@@ -365,7 +391,10 @@ func (h *Handler) handleDescribeSecondaryInterfaces(vals url.Values, reqID strin
 
 	resp := &describeSecondaryInterfacesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, si := range sis {
-		resp.SecondaryInterfaceSet.Items = append(resp.SecondaryInterfaceSet.Items, toSecondaryInterfaceItem(si))
+		resp.SecondaryInterfaceSet.Items = append(
+			resp.SecondaryInterfaceSet.Items,
+			toSecondaryInterfaceItem(si, h.Backend.TagsForResource(si.SecondaryInterfaceID)),
+		)
 	}
 
 	return resp, nil
@@ -378,7 +407,8 @@ func (h *Handler) handleDescribeServiceLinkVirtualInterfaces(vals url.Values, re
 	resp := &describeServiceLinkVirtualInterfacesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, v := range vifs {
 		resp.ServiceLinkVirtualInterfaceSet.Items = append(
-			resp.ServiceLinkVirtualInterfaceSet.Items, toServiceLinkVirtualInterfaceItem(v),
+			resp.ServiceLinkVirtualInterfaceSet.Items,
+			toServiceLinkVirtualInterfaceItem(v, h.Backend.TagsForResource(v.ServiceLinkVirtualInterfaceID)),
 		)
 	}
 
@@ -391,7 +421,10 @@ func (h *Handler) handleDescribeOutpostLags(vals url.Values, reqID string) (any,
 
 	resp := &describeOutpostLagsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, l := range lags {
-		resp.OutpostLagSet.Items = append(resp.OutpostLagSet.Items, toOutpostLagItem(l))
+		resp.OutpostLagSet.Items = append(
+			resp.OutpostLagSet.Items,
+			toOutpostLagItem(l, h.Backend.TagsForResource(l.OutpostLagID)),
+		)
 	}
 
 	return resp, nil

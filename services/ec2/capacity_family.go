@@ -82,7 +82,6 @@ type CapacityReservationFleet struct {
 	State                      string                                 `json:"state,omitempty"`
 	InstanceMatchCriteria      string                                 `json:"instanceMatchCriteria,omitempty"`
 	Tenancy                    string                                 `json:"tenancy,omitempty"`
-	Tags                       map[string]string                      `json:"tags,omitempty"`
 	InstanceTypeSpecifications []CapacityReservationFleetInstanceSpec `json:"instanceTypeSpecifications,omitempty"`
 	TotalTargetCapacity        int32                                  `json:"totalTargetCapacity,omitempty"`
 	TotalFulfilledCapacity     float64                                `json:"totalFulfilledCapacity,omitempty"`
@@ -135,14 +134,13 @@ type CapacityBlockExtension struct {
 // CapacityBlock represents a purchased Capacity Block (cb-*), grouping the one
 // or more underlying Capacity Reservations that back it.
 type CapacityBlock struct {
-	CreateDate             time.Time         `json:"createDate"`
-	StartDate              time.Time         `json:"startDate"`
-	EndDate                time.Time         `json:"endDate"`
-	CapacityBlockID        string            `json:"capacityBlockId,omitempty"`
-	AvailabilityZone       string            `json:"availabilityZone,omitempty"`
-	State                  string            `json:"state,omitempty"`
-	Tags                   map[string]string `json:"tags,omitempty"`
-	CapacityReservationIDs []string          `json:"capacityReservationIds,omitempty"`
+	CreateDate             time.Time `json:"createDate"`
+	StartDate              time.Time `json:"startDate"`
+	EndDate                time.Time `json:"endDate"`
+	CapacityBlockID        string    `json:"capacityBlockId,omitempty"`
+	AvailabilityZone       string    `json:"availabilityZone,omitempty"`
+	State                  string    `json:"state,omitempty"`
+	CapacityReservationIDs []string  `json:"capacityReservationIds,omitempty"`
 }
 
 // CapacityReservationBillingRequest tracks a pending/resolved billing-owner
@@ -159,14 +157,13 @@ type CapacityReservationBillingRequest struct {
 // CapacityManagerDataExport represents a configured Capacity Manager data
 // export delivering periodic usage data to an S3 bucket.
 type CapacityManagerDataExport struct {
-	CreateTime                  time.Time         `json:"createTime"`
-	Tags                        map[string]string `json:"tags,omitempty"`
-	CapacityManagerDataExportID string            `json:"capacityManagerDataExportId,omitempty"`
-	OutputFormat                string            `json:"outputFormat,omitempty"`
-	S3BucketName                string            `json:"s3BucketName,omitempty"`
-	S3BucketPrefix              string            `json:"s3BucketPrefix,omitempty"`
-	Schedule                    string            `json:"schedule,omitempty"`
-	LatestDeliveryStatus        string            `json:"latestDeliveryStatus,omitempty"`
+	CreateTime                  time.Time `json:"createTime"`
+	CapacityManagerDataExportID string    `json:"capacityManagerDataExportId,omitempty"`
+	OutputFormat                string    `json:"outputFormat,omitempty"`
+	S3BucketName                string    `json:"s3BucketName,omitempty"`
+	S3BucketPrefix              string    `json:"s3BucketPrefix,omitempty"`
+	Schedule                    string    `json:"schedule,omitempty"`
+	LatestDeliveryStatus        string    `json:"latestDeliveryStatus,omitempty"`
 }
 
 // CapacityManagerState tracks the account-level enable/disable state of
@@ -191,14 +188,13 @@ type CapacityManagerMonitoredTagKey struct {
 // future-dated Capacity Reservation during its commitment duration, created
 // via CreateCapacityReservationCancellationQuote.
 type CapacityReservationCancellationQuote struct {
-	CreateTime                             time.Time         `json:"createTime"`
-	ExpirationTime                         time.Time         `json:"expirationTime"`
-	Tags                                   map[string]string `json:"tags,omitempty"`
-	CapacityReservationCancellationQuoteID string            `json:"capacityReservationCancellationQuoteId,omitempty"`
-	CapacityReservationID                  string            `json:"capacityReservationId,omitempty"`
-	QuoteState                             string            `json:"quoteState,omitempty"`
-	CurrentReservationState                string            `json:"currentReservationState,omitempty"`
-	CurrentInstanceCount                   int32             `json:"currentInstanceCount,omitempty"`
+	CreateTime                             time.Time `json:"createTime"`
+	ExpirationTime                         time.Time `json:"expirationTime"`
+	CapacityReservationCancellationQuoteID string    `json:"capacityReservationCancellationQuoteId,omitempty"`
+	CapacityReservationID                  string    `json:"capacityReservationId,omitempty"`
+	QuoteState                             string    `json:"quoteState,omitempty"`
+	CurrentReservationState                string    `json:"currentReservationState,omitempty"`
+	CurrentInstanceCount                   int32     `json:"currentInstanceCount,omitempty"`
 }
 
 // CapacityReservationFleetCancellation reports the state transition of a

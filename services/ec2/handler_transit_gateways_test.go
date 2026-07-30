@@ -35,7 +35,7 @@ func TestVgwRoutePropagation(t *testing.T) { //nolint:paralleltest // existing i
 func TestModifyTransitGateway(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	tgw, _ := b.CreateTransitGateway("")
+	tgw, _ := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: ""})
 
 	t.Run("modifies description", func(t *testing.T) {
 		require.NoError(t, b.ModifyTransitGateway(tgw.ID, "updated description"))
@@ -53,7 +53,7 @@ func TestHandlerDeleteTransitGatewayRouteTable(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	tgw, err := b.CreateTransitGateway("test-tgw")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
@@ -89,7 +89,7 @@ func TestHandlerTGWRoutes(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	tgw, err := b.CreateTransitGateway("test-tgw")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
@@ -131,7 +131,7 @@ func TestHandlerTGWRouteTableAssociation(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	tgw, err := b.CreateTransitGateway("test-tgw")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
@@ -171,7 +171,7 @@ func TestHandlerModifyTransitGatewayAttribute(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	tgw, err := b.CreateTransitGateway("original-desc")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "original-desc"})
 	require.NoError(t, err)
 
 	rec := postForm(t, h, "Action=ModifyTransitGatewayAttribute&Version=2016-11-15"+
@@ -193,22 +193,32 @@ func TestHandlerDescribeTransitGatewaysAndDelete(t *testing.T) {
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 
-	tgw, err := b.CreateTransitGateway("test-describe-tgw")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-describe-tgw"})
+	require.NoError(t, err)
+	tgw2, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "second-tgw"})
 	require.NoError(t, err)
 
-	// Describe with ID filter.
+	// Describe with ID filter, using the real AWS "TransitGatewayIds.N" wire
+	// parameter (a prior version of this handler read the non-existent
+	// "TransitGatewayIds.TransitGatewayId.N" instead, so a real client's ID
+	// filter was silently ignored and every TGW was returned).
 	rec := postForm(
 		t,
 		h,
-		"Action=DescribeTransitGateways&Version=2016-11-15&TransitGatewayIds.TransitGatewayId.1="+tgw.ID,
+		"Action=DescribeTransitGateways&Version=2016-11-15&TransitGatewayIds.1="+tgw.ID,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DescribeTransitGatewaysResponse")
-	assert.Contains(t, rec.Body.String(), tgw.ID)
+	body := rec.Body.String()
+	assert.Contains(t, body, "DescribeTransitGatewaysResponse")
+	assert.Contains(t, body, tgw.ID)
+	assert.NotContains(t, body, tgw2.ID)
 
 	// Describe all (no ID filter).
 	rec = postForm(t, h, "Action=DescribeTransitGateways&Version=2016-11-15")
 	assert.Equal(t, http.StatusOK, rec.Code)
+	body = rec.Body.String()
+	assert.Contains(t, body, tgw.ID)
+	assert.Contains(t, body, tgw2.ID)
 
 	// Delete.
 	rec = postForm(t, h, "Action=DeleteTransitGateway&Version=2016-11-15&TransitGatewayId="+tgw.ID)
@@ -224,6 +234,57 @@ func TestHandlerDescribeTransitGatewaysAndDelete(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, rec.Code)
 }
 
+// TestHandlerCreateTransitGateway_OptionsAndTagDualWritePathVisibility proves
+// two things about CreateTransitGateway, previously a disguised stub that
+// parsed only Description and discarded Options.*/TagSpecifications
+// entirely: (1) Options fields supplied on the request (e.g. AmazonSideAsn)
+// are honored rather than silently dropped, and (2) a tag supplied at create
+// time and a tag added afterwards via CreateTags are BOTH visible through
+// DescribeTransitGateways AND through the generic DescribeTags call.
+func TestHandlerCreateTransitGateway_OptionsAndTagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	createResp, err := dispatchHandler(h, url.Values{
+		"Action":                          []string{"CreateTransitGateway"},
+		"Description":                     []string{"my tgw"},
+		"Options.AmazonSideAsn":           []string{"65000"},
+		"Options.DnsSupport":              []string{"disable"},
+		"TagSpecification.1.ResourceType": []string{"transit-gateway"},
+		"TagSpecification.1.Tag.1.Key":    []string{"CreateTime"},
+		"TagSpecification.1.Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, createResp, "<amazonSideAsn>65000</amazonSideAsn>")
+	assert.Contains(t, createResp, "<dnsSupport>disable</dnsSupport>")
+	assert.Contains(t, createResp, "CreateTime")
+	tgwID := accuracyExtractXMLValue(createResp, "transitGatewayId")
+	require.NotEmpty(t, tgwID)
+
+	_, err = dispatchHandler(h, url.Values{
+		"Action":       []string{"CreateTags"},
+		"ResourceId.1": []string{tgwID},
+		"Tag.1.Key":    []string{"AddedLater"},
+		"Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+
+	descResp, err := dispatchHandler(h, url.Values{"Action": []string{"DescribeTransitGateways"}})
+	require.NoError(t, err)
+	assert.Contains(t, descResp, "CreateTime")
+	assert.Contains(t, descResp, "AddedLater")
+
+	tagsResp, err := dispatchHandler(h, url.Values{
+		"Action":           []string{"DescribeTags"},
+		"Filter.1.Name":    []string{"resource-id"},
+		"Filter.1.Value.1": []string{tgwID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, tagsResp, "CreateTime")
+	assert.Contains(t, tagsResp, "AddedLater")
+}
+
 // extractXMLField extracts a simple XML element value from a string.
 // It looks for <tag>value</tag> patterns.
 
@@ -232,7 +293,7 @@ func TestTransitGatewayRoutePropagationHTTP(t *testing.T) {
 
 	h := newTestHandler()
 
-	tgw, err := h.Backend.CreateTransitGateway("tgw")
+	tgw, err := h.Backend.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "tgw"})
 	require.NoError(t, err)
 	rt, err := h.Backend.CreateTransitGatewayRouteTable(tgw.ID)
 	require.NoError(t, err)
@@ -263,7 +324,7 @@ func TestDescribeTransitGatewayAttachmentsHTTP(t *testing.T) {
 
 	h := newTestHandler()
 
-	tgw, err := h.Backend.CreateTransitGateway("tgw")
+	tgw, err := h.Backend.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "tgw"})
 	require.NoError(t, err)
 
 	_, err = h.Backend.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil)

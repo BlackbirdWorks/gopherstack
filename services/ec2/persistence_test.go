@@ -791,7 +791,7 @@ func buildVPCWithResources(
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
 
-	_, err = b.CreateNatGateway(subnet.ID, addr.AllocationID)
+	_, err = b.CreateNatGateway(subnet.ID, addr.AllocationID, nil)
 	require.NoError(t, err)
 
 	return vpcResources{
@@ -941,7 +941,7 @@ func TestPersistenceWithExtendedResources(t *testing.T) {
 	require.NoError(t, err)
 	rt, err := b.CreateRouteTable("vpc-default")
 	require.NoError(t, err)
-	_, err = b.CreateNatGateway("subnet-default", addr.AllocationID)
+	_, err = b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 	_, err = b.RunInstances("ami-123", "t2.micro", "", 1)
 	require.NoError(t, err)
@@ -987,7 +987,7 @@ func TestPersistence_Parity4Fields(t *testing.T) {
 	b := newTestBackend()
 
 	// TGW Client VPN attachment (created implicitly via CreateClientVpnEndpoint).
-	tgw, err := b.CreateTransitGateway("persist-tgw")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "persist-tgw"})
 	require.NoError(t, err)
 	_, err = b.CreateClientVpnEndpointWithOptions(
 		"10.0.0.0/22", "persist-cvpn", nil,

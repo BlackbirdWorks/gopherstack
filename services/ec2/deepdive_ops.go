@@ -217,6 +217,7 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 		ServiceName:     serviceName,
 		State:           stateAvailable,
 		VpcEndpointType: endpointType,
+		OwnerID:         b.AccountID,
 		SubnetIDs:       append([]string(nil), subnetIDs...),
 		RouteTableIDs:   append([]string(nil), routeTableIDs...),
 		CreateTime:      time.Now().UTC(),

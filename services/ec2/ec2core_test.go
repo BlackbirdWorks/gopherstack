@@ -150,7 +150,7 @@ func TestEC2Core_TransitGatewayRouteTables(t *testing.T) {
 	bk := newTestBackend()
 
 	// Need a TGW first.
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)

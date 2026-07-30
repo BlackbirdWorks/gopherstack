@@ -197,6 +197,7 @@ type VpcEndpoint struct {
 	ServiceName     string    `json:"serviceName,omitempty"`
 	State           string    `json:"state,omitempty"`
 	VpcEndpointType string    `json:"vpcEndpointType,omitempty"`
+	OwnerID         string    `json:"ownerID,omitempty"`
 	SubnetIDs       []string  `json:"subnetIDs,omitempty"`
 	RouteTableIDs   []string  `json:"routeTableIDs,omitempty"`
 	// PayerResponsibilities holds the payer-responsibility settings set via

@@ -129,7 +129,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 				addr, err := b.AllocateAddress()
 				require.NoError(t, err)
 
-				ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+				ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 				require.NoError(t, err)
 
 				return ngw.ID
@@ -187,13 +187,15 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
 				t.Helper()
 
-				tgw, err := b.CreateTransitGateway("test tgw")
+				tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test tgw"})
 				require.NoError(t, err)
 
 				return tgw.ID
 			},
 			deleteFn: func(b *ec2.InMemoryBackend, id string) error {
-				return b.DeleteTransitGateway(id)
+				_, err := b.DeleteTransitGateway(id)
+
+				return err
 			},
 		},
 		{
@@ -951,7 +953,7 @@ func TestDeleteNatGateway_RecyclesPrivateIP(t *testing.T) {
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
 
-	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 
 	ngwPrivateIP := ngw.PrivateIP
@@ -980,7 +982,7 @@ func TestDeleteSubnet_DependencyViolation_NatGateways(t *testing.T) {
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
 
-	ngw, err := b.CreateNatGateway(subnet.ID, addr.AllocationID)
+	ngw, err := b.CreateNatGateway(subnet.ID, addr.AllocationID, nil)
 	require.NoError(t, err)
 
 	err = b.DeleteSubnet(subnet.ID)
@@ -1020,7 +1022,7 @@ func TestDeleteVpc_DependencyViolation_IGWsAndNatGateways(t *testing.T) {
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
 
-	ngw, err := b.CreateNatGateway(subnet.ID, addr.AllocationID)
+	ngw, err := b.CreateNatGateway(subnet.ID, addr.AllocationID, nil)
 	require.NoError(t, err)
 
 	err = b.DeleteVpc(vpc.ID)

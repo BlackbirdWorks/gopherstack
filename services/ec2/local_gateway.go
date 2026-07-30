@@ -3,7 +3,6 @@ package ec2
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"sort"
 
 	"github.com/google/uuid"
@@ -60,34 +59,32 @@ type LocalGateway struct {
 // Like LocalGateway, VIFs are Outpost-provisioned; SeedLocalGatewayVirtualInterface
 // populates them so Describe calls return realistic data.
 type LocalGatewayVirtualInterface struct {
-	Tags                                map[string]string `json:"tags,omitempty"`
-	LocalGatewayVirtualInterfaceGroupID string            `json:"localGatewayVirtualInterfaceGroupID,omitempty"`
-	LocalGatewayID                      string            `json:"localGatewayID,omitempty"`
-	LocalGatewayVirtualInterfaceID      string            `json:"localGatewayVirtualInterfaceID,omitempty"`
-	OutpostLagID                        string            `json:"outpostLagID,omitempty"`
-	ConfigurationState                  string            `json:"configurationState,omitempty"`
-	LocalAddress                        string            `json:"localAddress,omitempty"`
-	PeerAddress                         string            `json:"peerAddress,omitempty"`
-	OwnerID                             string            `json:"ownerID,omitempty"`
-	LocalGatewayVirtualInterfaceArn     string            `json:"localGatewayVirtualInterfaceArn,omitempty"`
-	PeerBgpAsnExtended                  int64             `json:"peerBgpAsnExtended,omitempty"`
-	LocalBgpAsn                         int32             `json:"localBgpAsn,omitempty"`
-	PeerBgpAsn                          int32             `json:"peerBgpAsn,omitempty"`
-	Vlan                                int32             `json:"vlan,omitempty"`
+	LocalGatewayVirtualInterfaceGroupID string `json:"localGatewayVirtualInterfaceGroupID,omitempty"`
+	LocalGatewayID                      string `json:"localGatewayID,omitempty"`
+	LocalGatewayVirtualInterfaceID      string `json:"localGatewayVirtualInterfaceID,omitempty"`
+	OutpostLagID                        string `json:"outpostLagID,omitempty"`
+	ConfigurationState                  string `json:"configurationState,omitempty"`
+	LocalAddress                        string `json:"localAddress,omitempty"`
+	PeerAddress                         string `json:"peerAddress,omitempty"`
+	OwnerID                             string `json:"ownerID,omitempty"`
+	LocalGatewayVirtualInterfaceArn     string `json:"localGatewayVirtualInterfaceArn,omitempty"`
+	PeerBgpAsnExtended                  int64  `json:"peerBgpAsnExtended,omitempty"`
+	LocalBgpAsn                         int32  `json:"localBgpAsn,omitempty"`
+	PeerBgpAsn                          int32  `json:"peerBgpAsn,omitempty"`
+	Vlan                                int32  `json:"vlan,omitempty"`
 }
 
 // LocalGatewayVirtualInterfaceGroup represents an Outpost local gateway virtual
 // interface group. Seeded via SeedLocalGatewayVirtualInterfaceGroup.
 type LocalGatewayVirtualInterfaceGroup struct {
-	LocalGatewayVirtualInterfaceGroupID  string            `json:"localGatewayVirtualInterfaceGroupID,omitempty"`
-	LocalGatewayVirtualInterfaceGroupArn string            `json:"localGatewayVirtualInterfaceGroupArn,omitempty"`
-	LocalGatewayID                       string            `json:"localGatewayID,omitempty"`
-	ConfigurationState                   string            `json:"configurationState,omitempty"`
-	OwnerID                              string            `json:"ownerID,omitempty"`
-	Tags                                 map[string]string `json:"tags,omitempty"`
-	LocalGatewayVirtualInterfaceIDs      []string          `json:"localGatewayVirtualInterfaceIDs,omitempty"`
-	LocalBgpAsn                          int32             `json:"localBgpAsn,omitempty"`
-	LocalBgpAsnExtended                  int64             `json:"localBgpAsnExtended,omitempty"`
+	LocalGatewayVirtualInterfaceGroupID  string   `json:"localGatewayVirtualInterfaceGroupID,omitempty"`
+	LocalGatewayVirtualInterfaceGroupArn string   `json:"localGatewayVirtualInterfaceGroupArn,omitempty"`
+	LocalGatewayID                       string   `json:"localGatewayID,omitempty"`
+	ConfigurationState                   string   `json:"configurationState,omitempty"`
+	OwnerID                              string   `json:"ownerID,omitempty"`
+	LocalGatewayVirtualInterfaceIDs      []string `json:"localGatewayVirtualInterfaceIDs,omitempty"`
+	LocalBgpAsn                          int32    `json:"localBgpAsn,omitempty"`
+	LocalBgpAsnExtended                  int64    `json:"localBgpAsnExtended,omitempty"`
 }
 
 // LocalGatewayRouteTable represents a local gateway route table.
@@ -262,13 +259,12 @@ func (b *InMemoryBackend) CreateLocalGatewayVirtualInterfaceGroup(
 		OwnerID:                             b.AccountID,
 		LocalBgpAsn:                         localBgpAsn,
 		LocalBgpAsnExtended:                 localBgpAsnExtended,
-		Tags:                                maps.Clone(tags),
 	}
 	group.LocalGatewayVirtualInterfaceGroupArn = localGatewayVifGroupArn(b, group.LocalGatewayVirtualInterfaceGroupID)
 	b.localGatewayVirtualInterfaceGroups.Put(group)
+	b.setTagsLocked(group.LocalGatewayVirtualInterfaceGroupID, tags)
 
 	cp := *group
-	cp.Tags = maps.Clone(group.Tags)
 
 	return &cp, nil
 }
@@ -300,7 +296,6 @@ func (b *InMemoryBackend) DeleteLocalGatewayVirtualInterfaceGroup(
 	}
 
 	deleted := *group
-	deleted.Tags = maps.Clone(group.Tags)
 	deleted.ConfigurationState = localGatewayRouteStateDeleted
 	b.localGatewayVirtualInterfaceGroups.Delete(id)
 	delete(b.tags, id)
@@ -369,17 +364,16 @@ func (b *InMemoryBackend) CreateLocalGatewayVirtualInterface(
 		PeerBgpAsnExtended:                  p.PeerBgpAsnExtended,
 		LocalBgpAsn:                         group.LocalBgpAsn,
 		OwnerID:                             b.AccountID,
-		Tags:                                maps.Clone(p.Tags),
 	}
 	vif.LocalGatewayVirtualInterfaceArn = localGatewayVifArn(b, vif.LocalGatewayVirtualInterfaceID)
 	b.localGatewayVirtualInterfaces.Put(vif)
+	b.setTagsLocked(vif.LocalGatewayVirtualInterfaceID, p.Tags)
 
 	group.LocalGatewayVirtualInterfaceIDs = append(
 		group.LocalGatewayVirtualInterfaceIDs, vif.LocalGatewayVirtualInterfaceID,
 	)
 
 	cp := *vif
-	cp.Tags = maps.Clone(vif.Tags)
 
 	return &cp, nil
 }
@@ -408,7 +402,6 @@ func (b *InMemoryBackend) DeleteLocalGatewayVirtualInterface(
 	}
 
 	deleted := *vif
-	deleted.Tags = maps.Clone(vif.Tags)
 	deleted.ConfigurationState = localGatewayRouteStateDeleted
 	b.localGatewayVirtualInterfaces.Delete(id)
 	delete(b.tags, id)

@@ -36,14 +36,14 @@ type vpnConcentratorItem struct {
 	TagSet                     []simpleTagItem `xml:"tagSet>item"`
 }
 
-func vpnConcentratorToItem(vc *VpnConcentrator) vpnConcentratorItem {
+func vpnConcentratorToItem(vc *VpnConcentrator, tags map[string]string) vpnConcentratorItem {
 	return vpnConcentratorItem{
 		VpnConcentratorID:          vc.VpnConcentratorID,
 		Type:                       vc.Type,
 		State:                      vc.State,
 		TransitGatewayID:           vc.TransitGatewayID,
 		TransitGatewayAttachmentID: vc.TransitGatewayAttachmentID,
-		TagSet:                     tagItemsFromMap(vc.Tags),
+		TagSet:                     tagItemsFromMap(tags),
 	}
 }
 
@@ -110,7 +110,7 @@ func (h *Handler) handleCreateVpnConcentrator(vals url.Values, reqID string) (an
 	return &createVpnConcentratorResponse{
 		Xmlns:           ec2XMLNS,
 		RequestID:       reqID,
-		VpnConcentrator: vpnConcentratorToItem(vc),
+		VpnConcentrator: vpnConcentratorToItem(vc, h.Backend.TagsForResource(vc.VpnConcentratorID)),
 	}, nil
 }
 
@@ -128,7 +128,9 @@ func (h *Handler) handleDescribeVpnConcentrators(vals url.Values, reqID string) 
 
 	resp := &describeVpnConcentratorsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, vc := range vcs {
-		resp.VpnConcentrators = append(resp.VpnConcentrators, vpnConcentratorToItem(vc))
+		resp.VpnConcentrators = append(
+			resp.VpnConcentrators, vpnConcentratorToItem(vc, h.Backend.TagsForResource(vc.VpnConcentratorID)),
+		)
 	}
 
 	return resp, nil

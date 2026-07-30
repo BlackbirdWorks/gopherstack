@@ -275,7 +275,7 @@ func localGatewayToItem(lg *LocalGateway) localGatewayItem {
 	}
 }
 
-func localGatewayVifToItem(vif *LocalGatewayVirtualInterface) localGatewayVifItem {
+func localGatewayVifToItem(vif *LocalGatewayVirtualInterface, tags map[string]string) localGatewayVifItem {
 	return localGatewayVifItem{
 		LocalGatewayVirtualInterfaceID:      vif.LocalGatewayVirtualInterfaceID,
 		LocalGatewayVirtualInterfaceArn:     vif.LocalGatewayVirtualInterfaceArn,
@@ -290,11 +290,14 @@ func localGatewayVifToItem(vif *LocalGatewayVirtualInterface) localGatewayVifIte
 		PeerBgpAsnExtended:                  vif.PeerBgpAsnExtended,
 		Vlan:                                vif.Vlan,
 		OwnerID:                             vif.OwnerID,
-		TagSet:                              tagItemsFromMap(vif.Tags),
+		TagSet:                              tagItemsFromMap(tags),
 	}
 }
 
-func localGatewayVifGroupToItem(group *LocalGatewayVirtualInterfaceGroup) localGatewayVifGroupItem {
+func localGatewayVifGroupToItem(
+	group *LocalGatewayVirtualInterfaceGroup,
+	tags map[string]string,
+) localGatewayVifGroupItem {
 	return localGatewayVifGroupItem{
 		LocalGatewayVirtualInterfaceGroupID:  group.LocalGatewayVirtualInterfaceGroupID,
 		LocalGatewayVirtualInterfaceGroupArn: group.LocalGatewayVirtualInterfaceGroupArn,
@@ -304,7 +307,7 @@ func localGatewayVifGroupToItem(group *LocalGatewayVirtualInterfaceGroup) localG
 		ConfigurationState:                   group.ConfigurationState,
 		VifIDs:                               group.LocalGatewayVirtualInterfaceIDs,
 		OwnerID:                              group.OwnerID,
-		TagSet:                               tagItemsFromMap(group.Tags),
+		TagSet:                               tagItemsFromMap(tags),
 	}
 }
 
@@ -385,7 +388,7 @@ func (h *Handler) handleDescribeLocalGatewayVirtualInterfaces(
 	for _, vif := range vifs {
 		resp.LocalGatewayVirtualInterfaces.Items = append(
 			resp.LocalGatewayVirtualInterfaces.Items,
-			localGatewayVifToItem(vif),
+			localGatewayVifToItem(vif, h.Backend.TagsForResource(vif.LocalGatewayVirtualInterfaceID)),
 		)
 	}
 
@@ -403,7 +406,7 @@ func (h *Handler) handleDescribeLocalGatewayVirtualInterfaceGroups(
 	for _, group := range groups {
 		resp.LocalGatewayVirtualInterfaceGroups.Items = append(
 			resp.LocalGatewayVirtualInterfaceGroups.Items,
-			localGatewayVifGroupToItem(group),
+			localGatewayVifGroupToItem(group, h.Backend.TagsForResource(group.LocalGatewayVirtualInterfaceGroupID)),
 		)
 	}
 
@@ -703,20 +706,25 @@ func (h *Handler) handleCreateLocalGatewayVirtualInterface(vals url.Values, reqI
 	}
 
 	return &createLocalGatewayVirtualInterfaceResponse{
-		RequestID:                    reqID,
-		LocalGatewayVirtualInterface: localGatewayVifToItem(vif),
+		RequestID: reqID,
+		LocalGatewayVirtualInterface: localGatewayVifToItem(
+			vif, h.Backend.TagsForResource(vif.LocalGatewayVirtualInterfaceID),
+		),
 	}, nil
 }
 
 func (h *Handler) handleDeleteLocalGatewayVirtualInterface(vals url.Values, reqID string) (any, error) {
-	vif, err := h.Backend.DeleteLocalGatewayVirtualInterface(vals.Get("LocalGatewayVirtualInterfaceId"))
+	id := vals.Get("LocalGatewayVirtualInterfaceId")
+	tags := h.Backend.TagsForResource(id)
+
+	vif, err := h.Backend.DeleteLocalGatewayVirtualInterface(id)
 	if err != nil {
 		return nil, err
 	}
 
 	return &deleteLocalGatewayVirtualInterfaceResponse{
 		RequestID:                    reqID,
-		LocalGatewayVirtualInterface: localGatewayVifToItem(vif),
+		LocalGatewayVirtualInterface: localGatewayVifToItem(vif, tags),
 	}, nil
 }
 
@@ -739,21 +747,24 @@ func (h *Handler) handleCreateLocalGatewayVirtualInterfaceGroup(vals url.Values,
 	}
 
 	return &createLocalGatewayVirtualInterfaceGroupResponse{
-		RequestID:                         reqID,
-		LocalGatewayVirtualInterfaceGroup: localGatewayVifGroupToItem(group),
+		RequestID: reqID,
+		LocalGatewayVirtualInterfaceGroup: localGatewayVifGroupToItem(
+			group, h.Backend.TagsForResource(group.LocalGatewayVirtualInterfaceGroupID),
+		),
 	}, nil
 }
 
 func (h *Handler) handleDeleteLocalGatewayVirtualInterfaceGroup(vals url.Values, reqID string) (any, error) {
-	group, err := h.Backend.DeleteLocalGatewayVirtualInterfaceGroup(
-		vals.Get("LocalGatewayVirtualInterfaceGroupId"),
-	)
+	id := vals.Get("LocalGatewayVirtualInterfaceGroupId")
+	tags := h.Backend.TagsForResource(id)
+
+	group, err := h.Backend.DeleteLocalGatewayVirtualInterfaceGroup(id)
 	if err != nil {
 		return nil, err
 	}
 
 	return &deleteLocalGatewayVirtualInterfaceGroupResponse{
 		RequestID:                         reqID,
-		LocalGatewayVirtualInterfaceGroup: localGatewayVifGroupToItem(group),
+		LocalGatewayVirtualInterfaceGroup: localGatewayVifGroupToItem(group, tags),
 	}, nil
 }

@@ -15,7 +15,7 @@ func TestUnassignPrivateNatGatewayAddress(t *testing.T) {
 
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
-	nat, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+	nat, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.AssignPrivateNatGatewayAddress(nat.ID))
@@ -67,7 +67,7 @@ func TestNatGatewayOperations(t *testing.T) {
 			case "create":
 				addr, err := b.AllocateAddress()
 				require.NoError(t, err)
-				ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+				ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, ngw.ID)
 				assert.Equal(t, "available", ngw.State)
@@ -77,17 +77,17 @@ func TestNatGatewayOperations(t *testing.T) {
 			case "create_bad_subnet":
 				addr, err := b.AllocateAddress()
 				require.NoError(t, err)
-				_, err = b.CreateNatGateway("subnet-nonexistent", addr.AllocationID)
+				_, err = b.CreateNatGateway("subnet-nonexistent", addr.AllocationID, nil)
 				require.Error(t, err)
 
 			case "create_bad_alloc":
-				_, err := b.CreateNatGateway("subnet-default", "eipalloc-nonexistent")
+				_, err := b.CreateNatGateway("subnet-default", "eipalloc-nonexistent", nil)
 				require.Error(t, err)
 
 			case "describe_all":
 				addr, err := b.AllocateAddress()
 				require.NoError(t, err)
-				_, err = b.CreateNatGateway("subnet-default", addr.AllocationID)
+				_, err = b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 				require.NoError(t, err)
 				ngws := b.DescribeNatGateways(nil)
 				assert.NotEmpty(t, ngws)
@@ -95,7 +95,7 @@ func TestNatGatewayOperations(t *testing.T) {
 			case "delete":
 				addr, err := b.AllocateAddress()
 				require.NoError(t, err)
-				ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+				ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 				require.NoError(t, err)
 				err = b.DeleteNatGateway(ngw.ID)
 				require.NoError(t, err)

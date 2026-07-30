@@ -107,9 +107,9 @@ func (b *InMemoryBackend) CreateCapacityReservationFleet(
 		CreateTime:                 now,
 		EndDate:                    endDate,
 		InstanceTypeSpecifications: resolved,
-		Tags:                       tags,
 	}
 	b.capacityReservationFleets.Put(fleet)
+	b.setTagsLocked(fleet.CapacityReservationFleetID, tags)
 
 	cp := *fleet
 

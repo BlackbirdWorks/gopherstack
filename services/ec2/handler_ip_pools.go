@@ -62,7 +62,7 @@ type coipPoolItem struct {
 	} `xml:"tagSet"`
 }
 
-func toCoipPoolItem(p *CoipPool) coipPoolItem {
+func toCoipPoolItem(p *CoipPool, tags map[string]string) coipPoolItem {
 	item := coipPoolItem{
 		LocalGatewayRouteTableID: p.LocalGatewayRouteTableID,
 		PoolArn:                  p.PoolArn,
@@ -70,7 +70,7 @@ func toCoipPoolItem(p *CoipPool) coipPoolItem {
 	}
 	item.PoolCidrSet.Items = append(item.PoolCidrSet.Items, p.PoolCidrs...)
 
-	for k, v := range p.Tags {
+	for k, v := range tags {
 		item.TagSet.Items = append(item.TagSet.Items, instanceTagItem{Key: k, Value: v})
 	}
 
@@ -166,7 +166,7 @@ type publicIpv4PoolItem struct {
 	TotalAvailableAddressCount int32 `xml:"totalAvailableAddressCount,omitempty"`
 }
 
-func toPublicIpv4PoolItem(p *Ipv4Pool) publicIpv4PoolItem {
+func toPublicIpv4PoolItem(p *Ipv4Pool, tags map[string]string) publicIpv4PoolItem {
 	item := publicIpv4PoolItem{
 		Description:        p.Description,
 		NetworkBorderGroup: p.NetworkBorderGroup,
@@ -179,7 +179,7 @@ func toPublicIpv4PoolItem(p *Ipv4Pool) publicIpv4PoolItem {
 		item.TotalAvailableAddressCount += r.AvailableAddressCount
 	}
 
-	for k, v := range p.Tags {
+	for k, v := range tags {
 		item.TagSet.Items = append(item.TagSet.Items, instanceTagItem{Key: k, Value: v})
 	}
 
@@ -242,7 +242,7 @@ type ipv6PoolItem struct {
 	} `xml:"tagSet"`
 }
 
-func toIpv6PoolItem(p *Ipv6Pool) ipv6PoolItem {
+func toIpv6PoolItem(p *Ipv6Pool, tags map[string]string) ipv6PoolItem {
 	item := ipv6PoolItem{Description: p.Description, PoolID: p.PoolID}
 
 	for _, cidr := range p.PoolCidrBlocks {
@@ -251,7 +251,7 @@ func toIpv6PoolItem(p *Ipv6Pool) ipv6PoolItem {
 		}{PoolCidrBlock: cidr})
 	}
 
-	for k, v := range p.Tags {
+	for k, v := range tags {
 		item.TagSet.Items = append(item.TagSet.Items, instanceTagItem{Key: k, Value: v})
 	}
 
@@ -291,16 +291,22 @@ func (h *Handler) handleCreateCoipPool(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
-	return &createCoipPoolResponse{Xmlns: ec2XMLNS, RequestID: reqID, CoipPool: toCoipPoolItem(pool)}, nil
+	return &createCoipPoolResponse{
+		Xmlns: ec2XMLNS, RequestID: reqID,
+		CoipPool: toCoipPoolItem(pool, h.Backend.TagsForResource(pool.PoolID)),
+	}, nil
 }
 
 func (h *Handler) handleDeleteCoipPool(vals url.Values, reqID string) (any, error) {
-	pool, err := h.Backend.DeleteCoipPool(vals.Get("CoipPoolId"))
+	id := vals.Get("CoipPoolId")
+	tags := h.Backend.TagsForResource(id)
+
+	pool, err := h.Backend.DeleteCoipPool(id)
 	if err != nil {
 		return nil, err
 	}
 
-	return &deleteCoipPoolResponse{Xmlns: ec2XMLNS, RequestID: reqID, CoipPool: toCoipPoolItem(pool)}, nil
+	return &deleteCoipPoolResponse{Xmlns: ec2XMLNS, RequestID: reqID, CoipPool: toCoipPoolItem(pool, tags)}, nil
 }
 
 func (h *Handler) handleDescribeCoipPools(vals url.Values, reqID string) (any, error) {
@@ -309,7 +315,9 @@ func (h *Handler) handleDescribeCoipPools(vals url.Values, reqID string) (any, e
 
 	resp := &describeCoipPoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range pools {
-		resp.CoipPoolSet.Items = append(resp.CoipPoolSet.Items, toCoipPoolItem(p))
+		resp.CoipPoolSet.Items = append(
+			resp.CoipPoolSet.Items, toCoipPoolItem(p, h.Backend.TagsForResource(p.PoolID)),
+		)
 	}
 
 	return resp, nil
@@ -367,7 +375,9 @@ func (h *Handler) handleDescribePublicIpv4Pools(vals url.Values, reqID string) (
 
 	resp := &describePublicIpv4PoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range pools {
-		resp.PublicIpv4PoolSet.Items = append(resp.PublicIpv4PoolSet.Items, toPublicIpv4PoolItem(p))
+		resp.PublicIpv4PoolSet.Items = append(
+			resp.PublicIpv4PoolSet.Items, toPublicIpv4PoolItem(p, h.Backend.TagsForResource(p.PoolID)),
+		)
 	}
 
 	return resp, nil
@@ -410,7 +420,9 @@ func (h *Handler) handleDescribeIpv6Pools(vals url.Values, reqID string) (any, e
 
 	resp := &describeIpv6PoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range pools {
-		resp.Ipv6PoolSet.Items = append(resp.Ipv6PoolSet.Items, toIpv6PoolItem(p))
+		resp.Ipv6PoolSet.Items = append(
+			resp.Ipv6PoolSet.Items, toIpv6PoolItem(p, h.Backend.TagsForResource(p.PoolID)),
+		)
 	}
 
 	return resp, nil

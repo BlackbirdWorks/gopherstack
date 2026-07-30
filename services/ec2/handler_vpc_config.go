@@ -369,14 +369,16 @@ type vpcBlockPublicAccessExclusionItem struct {
 	TagSet                       []simpleTagItem `xml:"tagSet>item"`
 }
 
-func vpcBPAExclusionToItem(excl *VpcBlockPublicAccessExclusion) vpcBlockPublicAccessExclusionItem {
+func vpcBPAExclusionToItem(
+	excl *VpcBlockPublicAccessExclusion, tags map[string]string,
+) vpcBlockPublicAccessExclusionItem {
 	item := vpcBlockPublicAccessExclusionItem{
 		ExclusionID:                  excl.ExclusionID,
 		ResourceArn:                  excl.ResourceArn,
 		InternetGatewayExclusionMode: excl.InternetGatewayExclusionMode,
 		State:                        excl.State,
 		Reason:                       excl.Reason,
-		TagSet:                       tagItemsFromMap(excl.Tags),
+		TagSet:                       tagItemsFromMap(tags),
 	}
 	if !excl.CreationTimestamp.IsZero() {
 		item.CreationTimestamp = excl.CreationTimestamp.Format(time.RFC3339)
@@ -410,9 +412,11 @@ func (h *Handler) handleCreateVpcBlockPublicAccessExclusion(vals url.Values, req
 	}
 
 	return &createVpcBlockPublicAccessExclusionResponse{
-		Xmlns:                         ec2XMLNS,
-		RequestID:                     reqID,
-		VpcBlockPublicAccessExclusion: vpcBPAExclusionToItem(excl),
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		VpcBlockPublicAccessExclusion: vpcBPAExclusionToItem(
+			excl, h.Backend.TagsForResource(excl.ExclusionID),
+		),
 	}, nil
 }
 
@@ -433,9 +437,11 @@ func (h *Handler) handleModifyVpcBlockPublicAccessExclusion(vals url.Values, req
 	}
 
 	return &modifyVpcBlockPublicAccessExclusionResponse{
-		Xmlns:                         ec2XMLNS,
-		RequestID:                     reqID,
-		VpcBlockPublicAccessExclusion: vpcBPAExclusionToItem(excl),
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		VpcBlockPublicAccessExclusion: vpcBPAExclusionToItem(
+			excl, h.Backend.TagsForResource(excl.ExclusionID),
+		),
 	}, nil
 }
 
@@ -447,7 +453,10 @@ type deleteVpcBlockPublicAccessExclusionResponse struct {
 }
 
 func (h *Handler) handleDeleteVpcBlockPublicAccessExclusion(vals url.Values, reqID string) (any, error) {
-	excl, err := h.Backend.DeleteVpcBlockPublicAccessExclusion(vals.Get("ExclusionId"))
+	id := vals.Get("ExclusionId")
+	tags := h.Backend.TagsForResource(id)
+
+	excl, err := h.Backend.DeleteVpcBlockPublicAccessExclusion(id)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +464,7 @@ func (h *Handler) handleDeleteVpcBlockPublicAccessExclusion(vals url.Values, req
 	return &deleteVpcBlockPublicAccessExclusionResponse{
 		Xmlns:                         ec2XMLNS,
 		RequestID:                     reqID,
-		VpcBlockPublicAccessExclusion: vpcBPAExclusionToItem(excl),
+		VpcBlockPublicAccessExclusion: vpcBPAExclusionToItem(excl, tags),
 	}, nil
 }
 
@@ -473,7 +482,9 @@ func (h *Handler) handleDescribeVpcBlockPublicAccessExclusions(vals url.Values, 
 
 	resp := &describeVpcBlockPublicAccessExclusionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, excl := range excls {
-		resp.Exclusions = append(resp.Exclusions, vpcBPAExclusionToItem(excl))
+		resp.Exclusions = append(
+			resp.Exclusions, vpcBPAExclusionToItem(excl, h.Backend.TagsForResource(excl.ExclusionID)),
+		)
 	}
 
 	return resp, nil

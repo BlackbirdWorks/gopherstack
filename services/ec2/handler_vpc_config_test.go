@@ -209,6 +209,64 @@ func TestVpcConfig_HTTP_BlockPublicAccessExclusionLifecycle(t *testing.T) { //no
 	require.Error(t, err)
 }
 
+// TestVpcConfig_HTTP_BlockPublicAccessExclusionTagDualWritePathVisibility
+// proves that vpc_config.go's VpcBlockPublicAccessExclusion consolidated onto
+// the shared tag store: a tag supplied at create time (TagSpecification) and
+// a tag added afterwards via CreateTags are BOTH visible through
+// DescribeVpcBlockPublicAccessExclusions AND through the generic DescribeTags
+// call. Before the fix, the exclusion carried its own embedded Tags field
+// populated only at create time, invisible to a post-creation CreateTags call.
+func TestVpcConfig_HTTP_BlockPublicAccessExclusionTagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	createVpcResp, err := dispatchHandler(h, url.Values{
+		"Action":    []string{"CreateVpc"},
+		"CidrBlock": []string{"10.83.0.0/16"},
+	})
+	require.NoError(t, err)
+	vpcID := accuracyExtractXMLValue(createVpcResp, "vpcId")
+
+	createResp, err := dispatchHandler(h, url.Values{
+		"Action":                          []string{"CreateVpcBlockPublicAccessExclusion"},
+		"VpcId":                           []string{vpcID},
+		"InternetGatewayExclusionMode":    []string{"allow-egress"},
+		"TagSpecification.1.ResourceType": []string{"vpc-block-public-access-exclusion"},
+		"TagSpecification.1.Tag.1.Key":    []string{"CreateTime"},
+		"TagSpecification.1.Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, createResp, "CreateTime")
+	exclusionID := accuracyExtractXMLValue(createResp, "exclusionId")
+	require.NotEmpty(t, exclusionID)
+
+	_, err = dispatchHandler(h, url.Values{
+		"Action":       []string{"CreateTags"},
+		"ResourceId.1": []string{exclusionID},
+		"Tag.1.Key":    []string{"AddedLater"},
+		"Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+
+	describeResp, err := dispatchHandler(h, url.Values{
+		"Action":        []string{"DescribeVpcBlockPublicAccessExclusions"},
+		"ExclusionId.1": []string{exclusionID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, describeResp, "CreateTime")
+	assert.Contains(t, describeResp, "AddedLater")
+
+	tagsResp, err := dispatchHandler(h, url.Values{
+		"Action":           []string{"DescribeTags"},
+		"Filter.1.Name":    []string{"resource-id"},
+		"Filter.1.Value.1": []string{exclusionID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, tagsResp, "CreateTime")
+	assert.Contains(t, tagsResp, "AddedLater")
+}
+
 // ---- VPC Endpoint Service private DNS verification ----
 
 //nolint:paralleltest // existing issue.

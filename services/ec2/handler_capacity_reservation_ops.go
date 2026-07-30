@@ -181,7 +181,7 @@ type capacityReservationCancellationQuoteItem struct {
 }
 
 func toCapacityReservationCancellationQuoteItem(
-	q *CapacityReservationCancellationQuote,
+	q *CapacityReservationCancellationQuote, tags map[string]string,
 ) capacityReservationCancellationQuoteItem {
 	item := capacityReservationCancellationQuoteItem{
 		CapacityReservationCancellationQuoteID: q.CapacityReservationCancellationQuoteID,
@@ -189,7 +189,7 @@ func toCapacityReservationCancellationQuoteItem(
 		QuoteState:                             q.QuoteState,
 		CreateTime:                             q.CreateTime.Format(time.RFC3339),
 		ExpirationTime:                         q.ExpirationTime.Format(time.RFC3339),
-		TagSet:                                 tagItemsFromMap(q.Tags),
+		TagSet:                                 tagItemsFromMap(tags),
 	}
 	item.CurrentConfiguration.InstanceCount = q.CurrentInstanceCount
 	item.CurrentConfiguration.ReservationState = q.CurrentReservationState
@@ -218,7 +218,9 @@ func (h *Handler) handleCreateCapacityReservationCancellationQuote(vals url.Valu
 	return &createCapacityReservationCancellationQuoteResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Quote:     toCapacityReservationCancellationQuoteItem(quote),
+		Quote: toCapacityReservationCancellationQuoteItem(
+			quote, h.Backend.TagsForResource(quote.CapacityReservationCancellationQuoteID),
+		),
 	}, nil
 }
 
@@ -239,7 +241,12 @@ func (h *Handler) handleDescribeCapacityReservationCancellationQuotes(vals url.V
 
 	resp := &describeCapacityReservationCancellationQuotesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, q := range quotes {
-		resp.Quotes.Items = append(resp.Quotes.Items, toCapacityReservationCancellationQuoteItem(q))
+		resp.Quotes.Items = append(
+			resp.Quotes.Items,
+			toCapacityReservationCancellationQuoteItem(
+				q, h.Backend.TagsForResource(q.CapacityReservationCancellationQuoteID),
+			),
+		)
 	}
 
 	return resp, nil

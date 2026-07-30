@@ -3,6 +3,9 @@ package ec2
 import (
 	"fmt"
 	"sort"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 // EnableVgwRoutePropagation enables route propagation for a VGW in a route table.
@@ -36,6 +39,34 @@ func (b *InMemoryBackend) DisableVgwRoutePropagation(routeTableID, gatewayID str
 }
 
 // ---- Default credit specification ----
+
+// resolveTransitGatewayOption returns requested if non-empty, otherwise
+// fallback. Used to apply real AWS's documented default Options values when
+// the caller does not explicitly set them on CreateTransitGateway.
+func resolveTransitGatewayOption(requested, fallback string) string {
+	if requested == "" {
+		return fallback
+	}
+
+	return requested
+}
+
+// CreateTransitGatewayParams holds the parameters accepted by
+// CreateTransitGateway. Fields left empty/zero fall back to real AWS's
+// documented defaults for TransitGatewayRequestOptions.
+type CreateTransitGatewayParams struct {
+	Tags                            map[string]string
+	Description                     string
+	AutoAcceptSharedAttachments     string
+	DefaultRouteTableAssociation    string
+	DefaultRouteTablePropagation    string
+	DNSSupport                      string
+	MulticastSupport                string
+	SecurityGroupReferencingSupport string
+	VpnEcmpSupport                  string
+	TransitGatewayCidrBlocks        []string
+	AmazonSideAsn                   int64
+}
 
 // ModifyTransitGateway updates properties of a transit gateway.
 func (b *InMemoryBackend) ModifyTransitGateway(tgwID, description string) error {
@@ -85,40 +116,76 @@ func (b *InMemoryBackend) DescribeTransitGateways(ids []string) []*TransitGatewa
 	return out
 }
 
-// CreateTransitGateway creates a new transit gateway stub.
-func (b *InMemoryBackend) CreateTransitGateway(description string) (*TransitGateway, error) {
+// CreateTransitGateway creates a new transit gateway.
+func (b *InMemoryBackend) CreateTransitGateway(p CreateTransitGatewayParams) (*TransitGateway, error) {
 	b.mu.Lock("CreateTransitGateway")
 	defer b.mu.Unlock()
 
+	id := "tgw-" + uuid.New().String()[:17]
+
+	amazonSideAsn := p.AmazonSideAsn
+	if amazonSideAsn == 0 {
+		amazonSideAsn = tgwDefaultAmazonSideAsn
+	}
+
 	tgw := &TransitGateway{
-		ID:          "tgw-" + b.AccountID[:8],
-		Description: description,
-		State:       stateAvailable,
-		OwnerID:     b.AccountID,
+		ID:           id,
+		Arn:          "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":transit-gateway/" + id,
+		Description:  p.Description,
+		State:        stateAvailable,
+		OwnerID:      b.AccountID,
+		CreationTime: time.Now(),
+		Options: TransitGatewayOptions{
+			AmazonSideAsn: amazonSideAsn,
+			AutoAcceptSharedAttachments: resolveTransitGatewayOption(
+				p.AutoAcceptSharedAttachments, tgwAutoAcceptSharedAttachmentsDisable,
+			),
+			DefaultRouteTableAssociation: resolveTransitGatewayOption(
+				p.DefaultRouteTableAssociation, tgwDefaultRouteTableAssociationEnable,
+			),
+			DefaultRouteTablePropagation: resolveTransitGatewayOption(
+				p.DefaultRouteTablePropagation, tgwDefaultRouteTablePropagationEnable,
+			),
+			DNSSupport:               resolveTransitGatewayOption(p.DNSSupport, tgwDNSSupportEnable),
+			MulticastSupport:         resolveTransitGatewayOption(p.MulticastSupport, tgwMulticastSupportDisable),
+			VpnEcmpSupport:           resolveTransitGatewayOption(p.VpnEcmpSupport, tgwVpnEcmpSupportEnable),
+			TransitGatewayCidrBlocks: append([]string(nil), p.TransitGatewayCidrBlocks...),
+			SecurityGroupReferencingSupport: resolveTransitGatewayOption(
+				p.SecurityGroupReferencingSupport, tgwSecurityGroupReferencingSupportDisable,
+			),
+		},
 	}
 	b.transitGateways.Put(tgw)
+	b.setTagsLocked(id, p.Tags)
 
 	cp := *tgw
 
 	return &cp, nil
 }
 
-// DeleteTransitGateway removes a transit gateway stub.
-func (b *InMemoryBackend) DeleteTransitGateway(id string) error {
+// DeleteTransitGateway removes a transit gateway, returning a copy of the
+// deleted gateway (with State transitioned to "deleting") matching the real
+// AWS DeleteTransitGatewayOutput shape, which echoes the TransitGateway
+// object rather than a bare boolean.
+func (b *InMemoryBackend) DeleteTransitGateway(id string) (*TransitGateway, error) {
 	if id == "" {
-		return fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteTransitGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transitGateways.Get(id); !ok {
-		return fmt.Errorf("%w: transit gateway %s not found", ErrInvalidParameter, id)
+	tgw, ok := b.transitGateways.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: transit gateway %s not found", ErrInvalidParameter, id)
 	}
+
+	cp := *tgw
+	cp.State = tgwStateDeleting
 	b.transitGateways.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // initParityFinalMaps initialises the state added for the final EC2 parity
@@ -313,6 +380,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayAttachments(ids []string) []*Tra
 const (
 	tgwPropagationStateEnabled  = "enabled"
 	tgwPropagationStateDisabled = "disabled"
+	tgwStateDeleting            = "deleting"
 )
 
 // TransitGatewayAttachmentSummary is the unified view of a TGW attachment

@@ -124,10 +124,10 @@ func (b *InMemoryBackend) PurchaseCapacityBlock(
 		CreateDate:             now,
 		StartDate:              offering.StartDate,
 		EndDate:                offering.EndDate,
-		Tags:                   tags,
 		CapacityReservationIDs: []string{crID},
 	}
 	b.capacityBlocks.Put(block)
+	b.setTagsLocked(block.CapacityBlockID, tags)
 	b.capacityBlockOfferings.Delete(offeringID)
 
 	blockCopy := *block

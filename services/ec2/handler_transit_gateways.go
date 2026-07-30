@@ -63,67 +63,81 @@ type createTransitGatewayResponse struct {
 }
 
 type deleteTransitGatewayResponse struct {
-	XMLName   xml.Name `xml:"DeleteTransitGatewayResponse"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName        xml.Name           `xml:"DeleteTransitGatewayResponse"`
+	RequestID      string             `xml:"requestId"`
+	TransitGateway transitGatewayItem `xml:"transitGateway"`
 }
 
 // ---- Handler implementations ----
 
 func (h *Handler) handleDescribeTransitGateways(vals url.Values, reqID string) (any, error) {
-	var ids []string
-
-	for i := 1; ; i++ {
-		id := vals.Get("TransitGatewayIds.TransitGatewayId." + strconv.Itoa(i))
-		if id == "" {
-			break
-		}
-
-		ids = append(ids, id)
-	}
+	ids := parseMemberList(vals, "TransitGatewayIds")
 
 	tgws := h.Backend.DescribeTransitGateways(ids)
 	resp := &describeTransitGatewaysResponse{RequestID: reqID}
 
 	for _, tgw := range tgws {
-		resp.TransitGatewaySet.Items = append(resp.TransitGatewaySet.Items, transitGatewayItem{
-			TransitGatewayID: tgw.ID,
-			Description:      tgw.Description,
-			State:            tgw.State,
-			OwnerID:          tgw.OwnerID,
-		})
+		resp.TransitGatewaySet.Items = append(
+			resp.TransitGatewaySet.Items, toTransitGatewayItem(tgw, h.Backend.TagsForResource(tgw.ID)),
+		)
 	}
 
 	return resp, nil
 }
 
-func (h *Handler) handleCreateTransitGateway(vals url.Values, reqID string) (any, error) {
-	description := vals.Get("Description")
+// parseTransitGatewayRequestOptions extracts the Options.* fields accepted by
+// CreateTransitGateway, matching the real request's Options.<Field> query
+// parameter names.
+func parseTransitGatewayRequestOptions(vals url.Values) (int64, []string) {
+	var amazonSideAsn int64
+	if v := vals.Get("Options.AmazonSideAsn"); v != "" {
+		amazonSideAsn, _ = strconv.ParseInt(v, 10, 64)
+	}
 
-	tgw, err := h.Backend.CreateTransitGateway(description)
+	cidrBlocks := parseMemberList(vals, "Options.TransitGatewayCidrBlocks")
+
+	return amazonSideAsn, cidrBlocks
+}
+
+func (h *Handler) handleCreateTransitGateway(vals url.Values, reqID string) (any, error) {
+	amazonSideAsn, cidrBlocks := parseTransitGatewayRequestOptions(vals)
+
+	tgw, err := h.Backend.CreateTransitGateway(CreateTransitGatewayParams{
+		Description:                     vals.Get("Description"),
+		AmazonSideAsn:                   amazonSideAsn,
+		AutoAcceptSharedAttachments:     vals.Get("Options.AutoAcceptSharedAttachments"),
+		DefaultRouteTableAssociation:    vals.Get("Options.DefaultRouteTableAssociation"),
+		DefaultRouteTablePropagation:    vals.Get("Options.DefaultRouteTablePropagation"),
+		DNSSupport:                      vals.Get("Options.DnsSupport"),
+		MulticastSupport:                vals.Get("Options.MulticastSupport"),
+		SecurityGroupReferencingSupport: vals.Get("Options.SecurityGroupReferencingSupport"),
+		VpnEcmpSupport:                  vals.Get("Options.VpnEcmpSupport"),
+		TransitGatewayCidrBlocks:        cidrBlocks,
+		Tags:                            parseTagSpecification(vals, "transit-gateway"),
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &createTransitGatewayResponse{
-		RequestID: reqID,
-		TransitGateway: transitGatewayItem{
-			TransitGatewayID: tgw.ID,
-			Description:      tgw.Description,
-			State:            tgw.State,
-			OwnerID:          tgw.OwnerID,
-		},
+		RequestID:      reqID,
+		TransitGateway: toTransitGatewayItem(tgw, h.Backend.TagsForResource(tgw.ID)),
 	}, nil
 }
 
 func (h *Handler) handleDeleteTransitGateway(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TransitGatewayId")
+	tags := h.Backend.TagsForResource(id)
 
-	if err := h.Backend.DeleteTransitGateway(id); err != nil {
+	tgw, err := h.Backend.DeleteTransitGateway(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteTransitGatewayResponse{RequestID: reqID, Return: true}, nil
+	return &deleteTransitGatewayResponse{
+		RequestID:      reqID,
+		TransitGateway: toTransitGatewayItem(tgw, tags),
+	}, nil
 }
 
 func toTGWRouteTablePropagationItem(p *TransitGatewayRouteTablePropagation) tgwRouteTablePropagationItem {

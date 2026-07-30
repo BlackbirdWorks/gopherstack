@@ -159,20 +159,32 @@ func (b *InMemoryBackend) DescribeVpcEndpointAssociations(endpointIDs []string) 
 
 // ---- VPC Endpoint Service Config modifications ----
 
-// ModifyVpcEndpointServicePayerResponsibility updates payer responsibility.
+// ModifyVpcEndpointServicePayerResponsibility updates who is billed for
+// traffic through a VPC endpoint service: the endpoint owner (the default,
+// left unset) or the service owner ("ServiceOwner"). Previously a disguised
+// stub: the payerResponsibility argument was declared `_ string` and
+// discarded entirely, so the call always succeeded without mutating any
+// state and DescribeVpcEndpointServiceConfigurations never reflected it.
 func (b *InMemoryBackend) ModifyVpcEndpointServicePayerResponsibility(
-	serviceID, _ string,
+	serviceID, payerResponsibility string,
 ) error {
 	if serviceID == "" {
 		return fmt.Errorf("%w: ServiceId is required", ErrInvalidParameter)
 	}
 
+	if payerResponsibility == "" {
+		return fmt.Errorf("%w: PayerResponsibility is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("ModifyVpcEndpointServicePayerResponsibility")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcEndpointServiceConfigs.Get(serviceID); !ok {
+	cfg, ok := b.vpcEndpointServiceConfigs.Get(serviceID)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrVpcEndpointServiceNotFound, serviceID)
 	}
+
+	cfg.PayerResponsibility = payerResponsibility
 
 	return nil
 }

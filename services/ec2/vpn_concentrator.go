@@ -3,7 +3,6 @@ package ec2
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"sort"
 	"time"
 
@@ -31,17 +30,15 @@ const (
 // VpnConcentrator represents a VPN concentrator, an aggregation point for multiple
 // Site-to-Site VPN connections attached to a transit gateway.
 type VpnConcentrator struct {
-	Tags                       map[string]string `json:"tags,omitempty"`
-	VpnConcentratorID          string            `json:"vpnConcentratorId,omitempty"`
-	Type                       string            `json:"type,omitempty"`
-	State                      string            `json:"state,omitempty"`
-	TransitGatewayID           string            `json:"transitGatewayId,omitempty"`
-	TransitGatewayAttachmentID string            `json:"transitGatewayAttachmentId,omitempty"`
+	VpnConcentratorID          string `json:"vpnConcentratorId,omitempty"`
+	Type                       string `json:"type,omitempty"`
+	State                      string `json:"state,omitempty"`
+	TransitGatewayID           string `json:"transitGatewayId,omitempty"`
+	TransitGatewayAttachmentID string `json:"transitGatewayAttachmentId,omitempty"`
 }
 
 func cloneVpnConcentrator(vc *VpnConcentrator) *VpnConcentrator {
 	cp := *vc
-	cp.Tags = maps.Clone(vc.Tags)
 
 	return &cp
 }
@@ -79,9 +76,9 @@ func (b *InMemoryBackend) CreateVpnConcentrator(
 		State:                      stateAvailable,
 		TransitGatewayID:           transitGatewayID,
 		TransitGatewayAttachmentID: attachmentID,
-		Tags:                       maps.Clone(tags),
 	}
 	b.vpnConcentrators.Put(vc)
+	b.setTagsLocked(vc.VpnConcentratorID, tags)
 
 	return cloneVpnConcentrator(vc), nil
 }

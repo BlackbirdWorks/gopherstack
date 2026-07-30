@@ -51,7 +51,6 @@ type SecondaryNetworkCidrAssoc struct {
 // SecondaryNetwork represents an EC2 secondary network (e.g. an RDMA network
 // used by EFA-capable instance types).
 type SecondaryNetwork struct {
-	Tags                      map[string]string           `json:"tags,omitempty"`
 	SecondaryNetworkID        string                      `json:"secondaryNetworkId,omitempty"`
 	SecondaryNetworkArn       string                      `json:"secondaryNetworkArn,omitempty"`
 	OwnerID                   string                      `json:"ownerId,omitempty"`
@@ -70,7 +69,6 @@ type SecondarySubnetCidrAssoc struct {
 
 // SecondarySubnet represents an EC2 secondary subnet within a SecondaryNetwork.
 type SecondarySubnet struct {
-	Tags                      map[string]string          `json:"tags,omitempty"`
 	SecondarySubnetID         string                     `json:"secondarySubnetId,omitempty"`
 	SecondarySubnetArn        string                     `json:"secondarySubnetArn,omitempty"`
 	SecondaryNetworkID        string                     `json:"secondaryNetworkId,omitempty"`
@@ -86,21 +84,20 @@ type SecondarySubnet struct {
 // an RDMA-capable instance. Secondary interfaces have no Create API in EC2 --
 // they are exposed for Describe only and populated via SeedSecondaryInterface.
 type SecondaryInterface struct {
-	Tags                   map[string]string `json:"tags,omitempty"`
-	OwnerID                string            `json:"ownerId,omitempty"`
-	AvailabilityZoneID     string            `json:"availabilityZoneId,omitempty"`
-	SecondaryNetworkID     string            `json:"secondaryNetworkId,omitempty"`
-	SecondaryNetworkType   string            `json:"secondaryNetworkType,omitempty"`
-	SecondarySubnetID      string            `json:"secondarySubnetId,omitempty"`
-	SecondaryInterfaceID   string            `json:"secondaryInterfaceId,omitempty"`
-	AvailabilityZone       string            `json:"availabilityZone,omitempty"`
-	SecondaryInterfaceType string            `json:"secondaryInterfaceType,omitempty"`
-	MacAddress             string            `json:"macAddress,omitempty"`
-	Status                 string            `json:"status,omitempty"`
-	SecondaryInterfaceArn  string            `json:"secondaryInterfaceArn,omitempty"`
-	InstanceID             string            `json:"instanceId,omitempty"`
-	PrivateIpv4Addresses   []string          `json:"privateIpv4Addresses,omitempty"`
-	SourceDestCheck        bool              `json:"sourceDestCheck,omitempty"`
+	OwnerID                string   `json:"ownerId,omitempty"`
+	AvailabilityZoneID     string   `json:"availabilityZoneId,omitempty"`
+	SecondaryNetworkID     string   `json:"secondaryNetworkId,omitempty"`
+	SecondaryNetworkType   string   `json:"secondaryNetworkType,omitempty"`
+	SecondarySubnetID      string   `json:"secondarySubnetId,omitempty"`
+	SecondaryInterfaceID   string   `json:"secondaryInterfaceId,omitempty"`
+	AvailabilityZone       string   `json:"availabilityZone,omitempty"`
+	SecondaryInterfaceType string   `json:"secondaryInterfaceType,omitempty"`
+	MacAddress             string   `json:"macAddress,omitempty"`
+	Status                 string   `json:"status,omitempty"`
+	SecondaryInterfaceArn  string   `json:"secondaryInterfaceArn,omitempty"`
+	InstanceID             string   `json:"instanceId,omitempty"`
+	PrivateIpv4Addresses   []string `json:"privateIpv4Addresses,omitempty"`
+	SourceDestCheck        bool     `json:"sourceDestCheck,omitempty"`
 }
 
 // ServiceLinkVirtualInterface represents an Outpost service link virtual
@@ -108,31 +105,29 @@ type SecondaryInterface struct {
 // hardware resources with no Create API in EC2; SeedServiceLinkVirtualInterface
 // injects them for tests.
 type ServiceLinkVirtualInterface struct {
-	Tags                           map[string]string `json:"tags,omitempty"`
-	ServiceLinkVirtualInterfaceID  string            `json:"serviceLinkVirtualInterfaceId,omitempty"`
-	ServiceLinkVirtualInterfaceArn string            `json:"serviceLinkVirtualInterfaceArn,omitempty"`
-	OutpostID                      string            `json:"outpostId,omitempty"`
-	OutpostArn                     string            `json:"outpostArn,omitempty"`
-	OutpostLagID                   string            `json:"outpostLagId,omitempty"`
-	OwnerID                        string            `json:"ownerId,omitempty"`
-	LocalAddress                   string            `json:"localAddress,omitempty"`
-	PeerAddress                    string            `json:"peerAddress,omitempty"`
-	ConfigurationState             string            `json:"configurationState,omitempty"`
-	PeerBgpAsn                     int64             `json:"peerBgpAsn,omitempty"`
-	Vlan                           int32             `json:"vlan,omitempty"`
+	ServiceLinkVirtualInterfaceID  string `json:"serviceLinkVirtualInterfaceId,omitempty"`
+	ServiceLinkVirtualInterfaceArn string `json:"serviceLinkVirtualInterfaceArn,omitempty"`
+	OutpostID                      string `json:"outpostId,omitempty"`
+	OutpostArn                     string `json:"outpostArn,omitempty"`
+	OutpostLagID                   string `json:"outpostLagId,omitempty"`
+	OwnerID                        string `json:"ownerId,omitempty"`
+	LocalAddress                   string `json:"localAddress,omitempty"`
+	PeerAddress                    string `json:"peerAddress,omitempty"`
+	ConfigurationState             string `json:"configurationState,omitempty"`
+	PeerBgpAsn                     int64  `json:"peerBgpAsn,omitempty"`
+	Vlan                           int32  `json:"vlan,omitempty"`
 }
 
 // OutpostLag represents an Outpost link aggregation group (LAG). Like
 // LocalGatewayVirtualInterface, this is an Outpost-provisioned hardware
 // resource with no Create API in EC2; SeedOutpostLag injects it for tests.
 type OutpostLag struct {
-	Tags                            map[string]string `json:"tags,omitempty"`
-	OutpostLagID                    string            `json:"outpostLagId,omitempty"`
-	OutpostArn                      string            `json:"outpostArn,omitempty"`
-	OwnerID                         string            `json:"ownerId,omitempty"`
-	State                           string            `json:"state,omitempty"`
-	LocalGatewayVirtualInterfaceIDs []string          `json:"localGatewayVirtualInterfaceIds,omitempty"`
-	ServiceLinkVirtualInterfaceIDs  []string          `json:"serviceLinkVirtualInterfaceIds,omitempty"`
+	OutpostLagID                    string   `json:"outpostLagId,omitempty"`
+	OutpostArn                      string   `json:"outpostArn,omitempty"`
+	OwnerID                         string   `json:"ownerId,omitempty"`
+	State                           string   `json:"state,omitempty"`
+	LocalGatewayVirtualInterfaceIDs []string `json:"localGatewayVirtualInterfaceIds,omitempty"`
+	ServiceLinkVirtualInterfaceIDs  []string `json:"serviceLinkVirtualInterfaceIds,omitempty"`
 }
 
 // resetSecondaryNetworkMapsLocked re-initialises all maps owned by this file.
@@ -172,9 +167,9 @@ func (b *InMemoryBackend) CreateSecondaryNetwork(
 				State:         secondaryCidrStateAssociated,
 			},
 		},
-		Tags: tags,
 	}
 	b.secondaryNetworks.Put(net)
+	b.setTagsLocked(id, tags)
 
 	cp := *net
 
@@ -281,9 +276,9 @@ func (b *InMemoryBackend) CreateSecondarySubnet(
 				State:         secondaryCidrStateAssociated,
 			},
 		},
-		Tags: tags,
 	}
 	b.secondarySubnets.Put(sub)
+	b.setTagsLocked(id, tags)
 
 	cp := *sub
 

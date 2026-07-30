@@ -269,9 +269,9 @@ func (b *InMemoryBackend) CreateCapacityReservationCancellationQuote(
 		CurrentReservationState:                cr.State,
 		CreateTime:                             now,
 		ExpirationTime:                         now.Add(capacityReservationCancellationQuoteTTL),
-		Tags:                                   tags,
 	}
 	b.capacityReservationCancellationQuotes.Put(quote)
+	b.setTagsLocked(quote.CapacityReservationCancellationQuoteID, tags)
 
 	cp := *quote
 

@@ -204,7 +204,7 @@ type Backend interface {
 	// ---- NAT gateways ----
 
 	// CreateNatGateway creates a NAT gateway in the given subnet.
-	CreateNatGateway(subnetID, allocationID string) (*NatGateway, error)
+	CreateNatGateway(subnetID, allocationID string, tags map[string]string) (*NatGateway, error)
 
 	// DeleteNatGateway removes a NAT gateway.
 	DeleteNatGateway(id string) error
@@ -474,11 +474,12 @@ type Backend interface {
 	// DescribeTransitGateways returns transit gateways, optionally filtered by IDs.
 	DescribeTransitGateways(ids []string) []*TransitGateway
 
-	// CreateTransitGateway creates a new transit gateway stub.
-	CreateTransitGateway(description string) (*TransitGateway, error)
+	// CreateTransitGateway creates a new transit gateway.
+	CreateTransitGateway(p CreateTransitGatewayParams) (*TransitGateway, error)
 
-	// DeleteTransitGateway removes a transit gateway by ID.
-	DeleteTransitGateway(id string) error
+	// DeleteTransitGateway removes a transit gateway by ID, returning a copy
+	// of the deleted gateway (State transitioned to "deleting").
+	DeleteTransitGateway(id string) (*TransitGateway, error)
 
 	// CreateTransitGatewayVpcAttachment creates a TGW VPC attachment.
 	CreateTransitGatewayVpcAttachment(
