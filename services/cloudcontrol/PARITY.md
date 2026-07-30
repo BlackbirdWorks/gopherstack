@@ -7,8 +7,8 @@
 service: cloudcontrol
 sdk_module: aws-sdk-go-v2/service/cloudcontrol@v1.29.15
 last_audit_commit: 0689b86e
-last_audit_date: 2026-07-24
-overall: A            # genuine wire/error-code fixes + an invented-field deletion found and applied this pass
+last_audit_date: 2026-07-26
+overall: A            # follow-up pass (gopherstack-c9yf): ResourceModel filter + ClientTokenConflict fixed for real
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -16,21 +16,20 @@ ops:
   GetResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceNotFoundException HTTP 400"}
   UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PatchDocument now enforced as required (was silently no-op'd by applyPatch on an empty/missing patch, matching UpdateResourceInput.PatchDocument 'This member is required'); ClientToken idempotency added (real UpdateResourceInput.ClientToken field was previously dropped entirely -- accepted on the wire but never passed to the backend); ProgressEvent.ResourceModel reflects post-patch Properties; RFC6902 patch applied in place"}
   DeleteResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientToken idempotency added (real DeleteResourceInput.ClientToken field was previously dropped entirely)"}
-  ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination via pkgs/page; InvalidRequestException on malformed TypeName; now returns defensive copies (see leaks note) instead of live backend pointers"}
+  ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination via pkgs/page; InvalidRequestException on malformed TypeName; now returns defensive copies (see leaks note) instead of live backend pointers; ResourceModel (real 'resource model to use to select the resources to return' field) is now applied as a real filter -- see gopherstack-c9yf fix below"}
   GetResourceRequestStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "unknown token -> RequestTokenNotFoundException (the only error this op declares); output now includes HooksProgressEvent (real field on GetResourceRequestStatusOutput, always empty/omitted -- this backend has no Hooks concept)"}
   CancelResourceRequest: {wire: ok, errors: ok, state: ok, persist: ok, note: "unknown token -> RequestTokenNotFoundException; non-IN_PROGRESS status -> ConcurrentModificationException/HTTP 500 -- confirmed against live API reference"}
   ListResourceRequests: {wire: ok, errors: ok, state: ok, persist: ok, note: "INVENTED-FIELD FIX: ResourceRequestStatusFilter.TypeName was NOT a real field (confirmed against both aws-sdk-go-v2/service/cloudcontrol/types and botocore's service-2.json -- the real filter shape has exactly Operations + OperationStatuses, no TypeName) and was silently narrowing results below what real AWS would return for the same filter body; deleted the field and the filtering logic that used it. Operations/OperationStatuses enum validation confirmed correct -- both are closed Smithy string enums in the real model."}
 families:
   progress_event_lifecycle: {status: ok, note: "every mutating op completes synchronously to a terminal SUCCESS (or CANCEL_COMPLETE) in the same call -- no PENDING/IN_PROGRESS hang risk since GetResourceRequestStatus/ListResourceRequests read the same requests table that was just written"}
-  persistence: {status: ok, note: "Handler/InMemoryBackend both implement Snapshot/Restore (persistence.go), versioned, wired via store.Registry (store_setup.go); confirmed round-trips resources+requests+clientTokens in persistence_test.go. cloudcontrolSnapshotVersion left at 1 -- the new ProgressEvent fields (ErrorCode/HooksRequestToken/RetryAfter) are additive/optional and JSON-decode-compatible with any snapshot written before this pass."}
-  client_token_idempotency: {status: ok, note: "NEW this pass: CreateResource's existing ClientToken idempotency (return the cached ProgressEvent on token replay instead of re-processing) is now also implemented for UpdateResource and DeleteResource, matching the real SDK: all three *Input shapes declare a ClientToken member. Previously only CreateResourceInput's ClientToken was wired through the handler at all -- updateResourceInput/deleteResourceInput had no ClientToken field, so the real SDK's ClientToken on those two ops was silently dropped on the wire. Shared cachedEventForToken/rememberClientToken helpers factor the now-3x-duplicated logic. ClientTokenConflictException (reuse of a token across a genuinely different request) is still NOT detected -- see deferred."}
+  persistence: {status: ok, note: "Handler/InMemoryBackend both implement Snapshot/Restore (persistence.go), versioned, wired via store.Registry (store_setup.go); confirmed round-trips resources+requests+clientTokens in persistence_test.go. cloudcontrolSnapshotVersion bumped 1->2 this pass: ClientTokens' value type changed from a bare requestToken string to clientTokenEntry{RequestToken,Fingerprint} to support ClientTokenConflictException detection (see client_token_idempotency below) -- a real shape change, so old snapshots are discarded cleanly rather than risking a partial/wrong decode."}
+  client_token_idempotency: {status: ok, note: "CreateResource/UpdateResource/DeleteResource all implement ClientToken idempotency (return the cached ProgressEvent on token replay instead of re-processing), matching the real SDK: all three *Input shapes declare a ClientToken member. NEW this pass (gopherstack-c9yf): ClientTokenConflictException is now detected for real -- each cached entry also stores a deterministic fingerprint of the original request (op+TypeName+Identifier+DesiredState/PatchDocument); replaying a token with the SAME fingerprint still idempotently returns the cached event, but replaying it with a DIFFERENT fingerprint (a genuinely different request reusing someone else's token) now returns ClientTokenConflictException/HTTP 400. This is a real, deterministic check -- no fabrication, no fault injection needed. clientTokens' persisted value type changed from a bare string to {requestToken, fingerprint} (backendSnapshot.ClientTokens), so cloudcontrolSnapshotVersion bumped 1->2 (old snapshots discarded cleanly per the existing version-mismatch protocol, not partially decoded)."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "cloudcontrol keeps its own generic resource store; it does NOT delegate to the real per-service backend (e.g. AWS::S3::Bucket via CreateResource does not create a row visible to services/s3's ListBuckets, and vice versa). This is explicitly allowed by the task brief (either design is parity-correct) but is a real cross-service gap for any test that mixes CloudControl and native-service calls against the same logical resource. No bd issue filed yet -- flagging for triage."
-  - "TypeNotFoundException (extension not registered in the CFN registry) is unreachable: this backend has no type registry, so any well-formed TypeName (ns::svc::type) is implicitly accepted. Not fixed -- would require building a registry concept out of scope for this pass."
-  - "ListResourcesInput.ResourceModel ('The resource model to use to select the resources to return') is a real input field this backend accepts on the wire (unknown-field JSON decode is a no-op, not an error) but never applies as a filter -- this backend has no secondary resource-model index to filter against. Low-impact/rarely-used field; not fixed this pass."
-deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - "Full errCodeLookup coverage for the remaining documented-but-unreachable exceptions (ThrottlingException, ServiceLimitExceededException, HandlerFailureException, NotStabilizedException, NotUpdatableException, ResourceConflictException, PrivateTypeException, GeneralServiceException, NetworkFailureException, InvalidCredentialsException, HandlerInternalFailureException, ConcurrentOperationException, ClientTokenConflictException). None of these are currently producible by this backend's logic (no chaos-injection wiring specific to cloudcontrol beyond the generic ChaosServiceName/ChaosOperations hooks), so adding dead mapping cases was judged out of scope/gold-plating this pass. Revisit if chaos fault injection or a richer validation model is added."
-  - "ClientTokenConflictException specifically: reusing the same ClientToken across a genuinely DIFFERENT request (different TypeName/Identifier/op) is not detected -- the cached ProgressEvent is returned unconditionally on any token match, same simplification CreateResource already made pre-existing this pass, now applied consistently to Update/Delete too. Real conflict detection would require persisting and diffing the full original request, out of scope."
+  - "TypeNotFoundException (extension not registered in the CFN registry) is unreachable: this backend has no type registry, so any well-formed TypeName (ns::svc::type) is implicitly accepted. GENUINELY IMPOSSIBLE without fabrication (re-triaged gopherstack-c9yf, not fixed): real CloudFormation/CloudControl's registry spans thousands of AWS-published + arbitrarily many privately-registered third-party extension types, and whether a given TypeName is 'registered' is fundamentally an account-specific, mutable fact (types get (de)activated per account/region via RegisterType/DeactivateType, which cloudcontrol's own SDK surface doesn't even expose -- that's CloudFormation's API). Any registry gopherstack could build here would be one of: (a) an arbitrary hardcoded allowlist of 'known' AWS types, which would be incomplete by construction and would make ListResources/CreateResource start REJECTING valid TypeNames this emulator previously accepted -- a regression, not a fix, and itself a fabricated 'known types' dataset; or (b) accept-everything, which is exactly today's (correct, honest) behavior. There is no third option that adds real signal without inventing data. Not fixed."
+chaos_coverage:           # errors reachable via pkgs/chaos fault injection rather than backend logic — verified, not a gap
+  - "The remaining 12 documented-but-unreachable exceptions from gopherstack-c9yf (ThrottlingException, ServiceLimitExceededException, HandlerFailureException, NotStabilizedException, NotUpdatableException, ResourceConflictException, PrivateTypeException, GeneralServiceException, NetworkFailureException, InvalidCredentialsException, HandlerInternalFailureException, ConcurrentOperationException) are ALREADY COVERED by pkgs/chaos, not a gap needing backend code. Verified concretely: Handler implements service.ChaosProvider (ChaosServiceName()==\"cloudcontrol\", ChaosOperations()==GetSupportedOperations(), ChaosRegions()), so it is enumerated by GET /_gopherstack/chaos/targets. The chaos middleware (pkgs/chaos/middleware.go) runs as global Echo middleware registered via registry.Use(chaos.Middleware(...)) (cli.go:5754) OUTSIDE/BEFORE any service's own routing, and extracts service+operation from the same SigV4 Authorization header + X-Amz-Target header this service's own RouteMatcher/ExtractOperation already rely on (cloudcontrol is awsjson1.0 with X-Amz-Target: CloudApiService.<Op>, so extractOperationFromRequest's X-Amz-Target-after-the-dot parsing resolves the exact operation name, e.g. \"CreateResource\") -- so a fault rule {service: \"cloudcontrol\", operation: \"CreateResource\", error: {code: \"ThrottlingException\", statusCode: 400}} deterministically short-circuits that op with an arbitrary injected Code+StatusCode (FaultError carries both, pkgs/chaos/fault_response.go) before this handler ever runs. Synthesizing these from backend state instead (e.g. fabricating a request-rate counter under a single coarse lock with no real concurrency contention) would be exactly the kind of invented signal this project's honesty rules forbid; fault injection is the correct, non-fabricated mechanism for exceptions AWS only returns under real infrastructure conditions this emulator doesn't have."
+deferred: []              # consciously not audited this pass (scope) — next pass targets; none this pass
 leaks: {status: clean, note: "no goroutines/timers/janitors; InMemoryBackend is pure lockmetrics.RWMutex + store.Table state, no background work. FIXED this pass: ListResources/ListAllResources previously returned *Resource pointers live inside the backend's store.Table -- a caller mutating one directly corrupted backend state without the lock, a real (if previously unexploited -- no current caller retains/mutates the result) mutation-safety hole. Now copies on the way out, matching every other accessor. Locked in by TestBackend_ListAllResources_ReturnsCopiesNotLiveState / TestBackend_ListResources_ReturnsCopiesNotLiveState."}
 ---
 
@@ -47,6 +46,53 @@ GetResourceRequestStatus and ListResourceRequests read the same `requests` store
 CreateResource/UpdateResource/DeleteResource just wrote to in the same call. The only way to
 observe an IN_PROGRESS event is the test-only `AddProgressEvent` helper, used to exercise the
 CancelResourceRequest "only PENDING/IN_PROGRESS is cancellable" rule.
+
+**Fixed this pass (2026-07-26, bd issue gopherstack-c9yf)**:
+
+- `ListResources`' `ResourceModel` field ("The resource model to use to select the resources
+  to return", confirmed real on `ListResourcesInput` in `aws-sdk-go-v2/service/cloudcontrol/
+  types/types.go` and its serializer, `serializers.go:702-704` -- a plain JSON string field,
+  same convention as `DesiredState`/`PatchDocument`) is now decoded and applied as a real
+  filter: `InMemoryBackend.ListResources` takes a `resourceModel` JSON-object string and
+  `matchesResourceModel` requires every key/value pair in it to match the corresponding key in
+  the resource's current `Properties`. An unparseable `ResourceModel` matches nothing (fails
+  closed) rather than erroring or being silently ignored. Previously this field was not even
+  present on the local decode struct, so it degraded to accepted-and-ignored -- a real gap now
+  closed with a generic, non-fabricated match (no per-type schema knowledge needed: the filter
+  works identically for any resource type since it only compares against propertydata this
+  backend already stores).
+- `ClientTokenConflictException` is now detected for real (previously deferred as "would
+  require persisting and diffing the full original request, out of scope" -- re-triaged this
+  pass and judged not out of scope, since the fingerprint needed is trivial: the op name plus
+  the exact fields already being passed to Create/Update/DeleteResource). Each `ClientToken`'s
+  cache entry (`clientTokenEntry`) now stores a deterministic fingerprint of the original
+  request (`op + TypeName + Identifier + DesiredState/PatchDocument`) alongside the cached
+  `RequestToken`. A replay with a matching fingerprint still idempotently returns the cached
+  `ProgressEvent` (unchanged behavior); a replay with a *different* fingerprint (same token,
+  genuinely different request) now returns `ClientTokenConflictException`/HTTP 400 (confirmed
+  `ErrorFault() == smithy.FaultClient` on the real SDK's
+  `types.ClientTokenConflictException`, so 400 not 500, matching every other client fault in
+  this handler). `clientTokens`' persisted value type changed from a bare `string` to
+  `clientTokenEntry{RequestToken, Fingerprint}`, so `cloudcontrolSnapshotVersion` bumped 1->2;
+  an old (v1) snapshot is discarded cleanly by the existing version-mismatch path in
+  `Restore`, exactly like the v0 (no-persistence-at-all) case before it -- never partially
+  decoded as the new shape.
+- `TypeNotFoundException` was re-triaged and confirmed GENUINELY IMPOSSIBLE without
+  fabrication, not merely deferred -- see the `gaps` entry above for the full reasoning
+  (no third design option between "arbitrary incomplete allowlist that regresses previously-
+  accepted TypeNames" and "accept everything", which is already the correct, honest behavior).
+- The remaining 12 previously-listed "unreachable without chaos" exceptions
+  (`ThrottlingException`, `ServiceLimitExceededException`, `HandlerFailureException`,
+  `NotStabilizedException`, `NotUpdatableException`, `ResourceConflictException`,
+  `PrivateTypeException`, `GeneralServiceException`, `NetworkFailureException`,
+  `InvalidCredentialsException`, `HandlerInternalFailureException`,
+  `ConcurrentOperationException`) were reclassified from "deferred" to "ALREADY COVERED by
+  chaos fault injection" -- see `chaos_coverage` above for the concrete verification (Handler
+  implements `service.ChaosProvider`, chaos middleware runs globally ahead of this handler and
+  resolves the exact operation via the same `X-Amz-Target` header this service's own routing
+  uses, `FaultError` carries an arbitrary injected `Code`+`StatusCode`). These are correctly
+  NOT implemented as backend logic: synthesizing them from this emulator's single coarse lock
+  with no real concurrency/quota/IAM/network state would itself be fabrication.
 
 **Fixed this pass (2026-07-24)**:
 

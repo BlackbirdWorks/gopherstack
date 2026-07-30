@@ -30,7 +30,7 @@ func (b *InMemoryBackend) RevisionFor(name string) int32 {
 	b.mu.RLock("RevisionFor")
 	defer b.mu.RUnlock()
 
-	return b.jobDefRevisionsStore(b.region)[name]
+	return b.jobDefRevisionsStoreRO(b.region)[name]
 }
 
 // HasRevisionCounter reports whether a revision counter exists for name.
@@ -39,7 +39,7 @@ func (b *InMemoryBackend) HasRevisionCounter(name string) bool {
 	b.mu.RLock("HasRevisionCounter")
 	defer b.mu.RUnlock()
 
-	_, ok := b.jobDefRevisionsStore(b.region)[name]
+	_, ok := b.jobDefRevisionsStoreRO(b.region)[name]
 
 	return ok
 }

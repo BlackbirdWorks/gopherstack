@@ -146,6 +146,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
+	case errors.Is(err, ErrClientTokenConflict):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ClientTokenConflictException", err.Error()))
 	case errors.Is(err, ErrRequestTokenNotFound):
 		return c.JSONBlob(http.StatusBadRequest, marshalError("RequestTokenNotFoundException", err.Error()))
 	case errors.Is(err, ErrConcurrentModification):
@@ -276,6 +278,9 @@ type listResourcesInput struct {
 	NextToken  *string `json:"NextToken,omitempty"`
 	MaxResults *int32  `json:"MaxResults,omitempty"`
 	TypeName   string  `json:"TypeName"`
+	// ResourceModel is a JSON object of property name/value pairs used to select which
+	// resources of TypeName to return (real ListResourcesInput.ResourceModel field).
+	ResourceModel string `json:"ResourceModel,omitempty"`
 }
 
 type listResourcesOutput struct {
@@ -302,7 +307,7 @@ func (h *Handler) handleListResources(
 		nextToken = *in.NextToken
 	}
 
-	resources, outToken := h.Backend.ListResources(in.TypeName, maxResults, nextToken)
+	resources, outToken := h.Backend.ListResources(in.TypeName, maxResults, nextToken, in.ResourceModel)
 	if resources == nil {
 		// TypeName did not pass validation — backend returned nil.
 		return nil, fmt.Errorf("%w: invalid TypeName %q", ErrValidation, in.TypeName)

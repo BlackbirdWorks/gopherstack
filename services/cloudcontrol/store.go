@@ -6,12 +6,24 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// clientTokenEntry records the fingerprint of the request that first used a
+// given ClientToken, plus the RequestToken of the ProgressEvent it produced.
+// Replaying the same ClientToken with a matching Fingerprint returns the
+// cached event (idempotent replay, matching real CloudControl); replaying it
+// with a different Fingerprint means the caller reused a ClientToken across
+// a genuinely different request, which real CloudControl rejects with
+// ClientTokenConflictException.
+type clientTokenEntry struct {
+	RequestToken string `json:"requestToken"`
+	Fingerprint  string `json:"fingerprint"`
+}
+
 // InMemoryBackend is a thread-safe in-memory store for CloudControl resources.
 type InMemoryBackend struct {
 	registry     *store.Registry
 	resources    *store.Table[Resource]      // key: typeName+"/"+identifier
 	requests     *store.Table[ProgressEvent] // key: requestToken
-	clientTokens map[string]string           // clientToken → requestToken (idempotency)
+	clientTokens map[string]clientTokenEntry // clientToken → entry (idempotency + conflict detection)
 	mu           *lockmetrics.RWMutex
 	accountID    string
 	region       string
@@ -20,7 +32,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		clientTokens: make(map[string]string),
+		clientTokens: make(map[string]clientTokenEntry),
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("cloudcontrol"),
@@ -40,5 +52,5 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
-	b.clientTokens = make(map[string]string)
+	b.clientTokens = make(map[string]clientTokenEntry)
 }

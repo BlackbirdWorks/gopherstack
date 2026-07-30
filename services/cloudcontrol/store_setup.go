@@ -18,10 +18,10 @@ package cloudcontrol
 // So both tables are "clean" (services/sesv2/services/dax sense): registered
 // directly on b.registry, no ephemeral DTO-registry needed.
 //
-// clientTokens (map[string]string, clientToken -> requestToken) is left as a
-// plain map: its value is a bare string, not *T, so there is nothing for
-// store.Table to key on. It is still persisted directly -- see
-// persistence.go.
+// clientTokens (map[string]clientTokenEntry, clientToken -> {requestToken,
+// fingerprint}) is left as a plain map: its value is a small struct, not *T,
+// so there is nothing for store.Table to key on. It is still persisted
+// directly -- see persistence.go.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func resourceKeyFn(v *Resource) string { return resourceKey(v.TypeName, v.Identifier) }

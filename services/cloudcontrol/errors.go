@@ -25,4 +25,12 @@ var (
 	// ConcurrentModificationException, HTTP 500 -- "The resource is currently being
 	// modified by another operation".
 	ErrConcurrentModification = awserr.New("ConcurrentModificationException", awserr.ErrConflict)
+	// ErrClientTokenConflict is returned by CreateResource/UpdateResource/DeleteResource
+	// when a ClientToken is reused with a genuinely different request (different
+	// TypeName/Identifier/desired-state/patch document) than the one originally
+	// associated with that token. Confirmed against
+	// aws-sdk-go-v2/service/cloudcontrol/types/errors.go: ClientTokenConflictException
+	// has ErrorFault() == smithy.FaultClient, so it is HTTP 400 like the other client
+	// faults here, not 500.
+	ErrClientTokenConflict = awserr.New("ClientTokenConflictException", awserr.ErrConflict)
 )

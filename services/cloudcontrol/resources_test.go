@@ -401,6 +401,68 @@ func TestHandler_ListResources(t *testing.T) {
 			body:       map[string]any{},
 			wantStatus: http.StatusBadRequest,
 		},
+		// ResourceModel is a real ListResourcesInput field ("The resource model to use
+		// to select the resources to return") that was previously accepted on the wire
+		// but never applied as a filter (bd issue gopherstack-c9yf). These cases lock in
+		// the fix: it now filters on matching Properties key/value pairs.
+		{
+			name: "ResourceModel filters to matching properties",
+			setup: func(h *cloudcontrol.Handler) {
+				_, _ = h.Backend.CreateResource(
+					"AWS::Logs::LogGroup", `{"LogGroupName":"model-a","RetentionInDays":7}`, "",
+				)
+				_, _ = h.Backend.CreateResource(
+					"AWS::Logs::LogGroup", `{"LogGroupName":"model-b","RetentionInDays":30}`, "",
+				)
+			},
+			body: map[string]any{
+				"TypeName":      "AWS::Logs::LogGroup",
+				"ResourceModel": `{"RetentionInDays":7}`,
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name: "ResourceModel matching nothing returns empty",
+			setup: func(h *cloudcontrol.Handler) {
+				_, _ = h.Backend.CreateResource(
+					"AWS::Logs::LogGroup", `{"LogGroupName":"model-c","RetentionInDays":7}`, "",
+				)
+			},
+			body: map[string]any{
+				"TypeName":      "AWS::Logs::LogGroup",
+				"ResourceModel": `{"RetentionInDays":999}`,
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "unparseable ResourceModel returns empty rather than error",
+			setup: func(h *cloudcontrol.Handler) {
+				_, _ = h.Backend.CreateResource(
+					"AWS::Logs::LogGroup", `{"LogGroupName":"model-d"}`, "",
+				)
+			},
+			body: map[string]any{
+				"TypeName":      "AWS::Logs::LogGroup",
+				"ResourceModel": `not-json`,
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "empty ResourceModel does not filter",
+			setup: func(h *cloudcontrol.Handler) {
+				_, _ = h.Backend.CreateResource(
+					"AWS::Logs::LogGroup", `{"LogGroupName":"model-e","RetentionInDays":7}`, "",
+				)
+			},
+			body: map[string]any{
+				"TypeName": "AWS::Logs::LogGroup",
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -746,6 +808,111 @@ func TestBackend_DeleteResource_ClientToken_Idempotency(t *testing.T) {
 	assert.Equal(t, ev1.RequestToken, ev2.RequestToken, "idempotent calls must return the same request token")
 }
 
+// TestBackend_ClientToken_ReuseAcrossDifferentRequest_ReturnsConflict covers the gap flagged
+// in bd issue gopherstack-c9yf: reusing the same ClientToken across a genuinely different
+// request (different TypeName/Identifier/DesiredState/PatchDocument) must return
+// ClientTokenConflictException, not silently replay the first request's cached result nor
+// silently process the second request as if the token were new.
+func TestBackend_ClientToken_ReuseAcrossDifferentRequest_ReturnsConflict(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		conflicting func(b *cloudcontrol.InMemoryBackend) error
+		name        string
+	}{
+		{
+			name: "CreateResource same token different DesiredState",
+			conflicting: func(b *cloudcontrol.InMemoryBackend) error {
+				_, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"a"}`, "shared-token")
+				require.NoError(t, err)
+
+				_, err = b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"b"}`, "shared-token")
+
+				return err
+			},
+		},
+		{
+			name: "CreateResource same token different TypeName",
+			conflicting: func(b *cloudcontrol.InMemoryBackend) error {
+				_, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"c"}`, "shared-token-2")
+				require.NoError(t, err)
+
+				_, err = b.CreateResource("AWS::S3::Bucket", `{"BucketName":"c"}`, "shared-token-2")
+
+				return err
+			},
+		},
+		{
+			name: "UpdateResource same token different PatchDocument",
+			conflicting: func(b *cloudcontrol.InMemoryBackend) error {
+				_, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"u","Count":1}`, "")
+				require.NoError(t, err)
+
+				_, err = b.UpdateResource(
+					"AWS::Logs::LogGroup", "u", `[{"op":"replace","path":"/Count","value":2}]`, "update-token",
+				)
+				require.NoError(t, err)
+
+				_, err = b.UpdateResource(
+					"AWS::Logs::LogGroup", "u", `[{"op":"replace","path":"/Count","value":3}]`, "update-token",
+				)
+
+				return err
+			},
+		},
+		{
+			name: "DeleteResource same token different Identifier",
+			conflicting: func(b *cloudcontrol.InMemoryBackend) error {
+				_, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"d1"}`, "")
+				require.NoError(t, err)
+				_, err = b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"d2"}`, "")
+				require.NoError(t, err)
+
+				_, err = b.DeleteResource("AWS::Logs::LogGroup", "d1", "delete-token")
+				require.NoError(t, err)
+
+				_, err = b.DeleteResource("AWS::Logs::LogGroup", "d2", "delete-token")
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudcontrol.NewInMemoryBackend("000000000000", "us-east-1")
+			err := tt.conflicting(b)
+			require.ErrorIs(t, err, cloudcontrol.ErrClientTokenConflict)
+		})
+	}
+}
+
+// TestHandler_ClientTokenConflict_WireShape verifies ClientTokenConflictException is
+// returned on the wire with HTTP 400 (a client fault per the real SDK's
+// types.ClientTokenConflictException.ErrorFault()), through the real router path.
+func TestHandler_ClientTokenConflict_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec1 := doRequest(t, h, "CreateResource", map[string]any{
+		"TypeName":     "AWS::Logs::LogGroup",
+		"DesiredState": `{"LogGroupName":"wire-a"}`,
+		"ClientToken":  "wire-shared-token",
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := doRequest(t, h, "CreateResource", map[string]any{
+		"TypeName":     "AWS::Logs::LogGroup",
+		"DesiredState": `{"LogGroupName":"wire-b"}`,
+		"ClientToken":  "wire-shared-token",
+	})
+	require.Equal(t, http.StatusBadRequest, rec2.Code)
+	assert.Equal(t, "ClientTokenConflictException", errType(t, rec2.Body.Bytes()))
+}
+
 func TestInMemoryBackend_ListAllResources(t *testing.T) {
 	t.Parallel()
 
@@ -810,7 +977,7 @@ func TestBackend_ListResources_ReturnsCopiesNotLiveState(t *testing.T) {
 	_, err := b.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"copy-test-2"}`, "")
 	require.NoError(t, err)
 
-	page, _ := b.ListResources("AWS::Logs::LogGroup", 0, "")
+	page, _ := b.ListResources("AWS::Logs::LogGroup", 0, "", "")
 	require.Len(t, page, 1)
 
 	page[0].Properties = `{"tampered":true}`
