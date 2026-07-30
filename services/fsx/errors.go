@@ -48,4 +48,11 @@ var (
 	// Real FSx uses the generic ResourceNotFound exception here, distinct from the
 	// resource-type-specific *NotFound exceptions used by Describe/Delete ops.
 	ErrResourceNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrIncompatibleParameter is returned by CreateFileSystem when a second
+	// request is received with a previously-used ClientRequestToken but
+	// different parameter settings.
+	ErrIncompatibleParameter = awserr.New("IncompatibleParameterError", awserr.ErrInvalidParameter)
+	// ErrInvalidNetworkSettings is returned when a SubnetId/SecurityGroupId
+	// supplied to CreateFileSystem doesn't match the real ID format.
+	ErrInvalidNetworkSettings = awserr.New("InvalidNetworkSettings", awserr.ErrInvalidParameter)
 )

@@ -147,7 +147,7 @@ func TestHandlerCoreResourceOperations(t *testing.T) {
 		{
 			name: "DescribeVolumes",
 			setupFn: func(h *ec2.Handler) string {
-				_, _ = h.Backend.CreateVolume("us-east-1a", "gp2", 20)
+				_, _ = h.Backend.CreateVolume("us-east-1a", "gp2", 20, "")
 
 				return "Action=DescribeVolumes&Version=2016-11-15"
 			},
@@ -755,7 +755,7 @@ func TestHandlerNetworkSpotPlacementOperations(t *testing.T) {
 		{
 			name: "DescribeVolumeAttribute_success",
 			setupFn: func(h *ec2.Handler) string {
-				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20)
+				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20, "")
 
 				return fmt.Sprintf(
 					"Action=DescribeVolumeAttribute&Version=2016-11-15&VolumeId=%s&Attribute=autoEnableIO",
@@ -774,7 +774,7 @@ func TestHandlerNetworkSpotPlacementOperations(t *testing.T) {
 		{
 			name: "ModifyVolumeAttribute_success",
 			setupFn: func(h *ec2.Handler) string {
-				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20)
+				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20, "")
 
 				return fmt.Sprintf(
 					"Action=ModifyVolumeAttribute&Version=2016-11-15&VolumeId=%s&AutoEnableIO.Value=true",
@@ -854,7 +854,7 @@ func TestHandlerAttachDetachOperations(t *testing.T) {
 			name: "AttachVolume_success",
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
-				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20)
+				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20, "")
 
 				return fmt.Sprintf(
 					"Action=AttachVolume&Version=2016-11-15&VolumeId=%s&InstanceId=%s&Device=/dev/sdf",
@@ -869,7 +869,7 @@ func TestHandlerAttachDetachOperations(t *testing.T) {
 			name: "DetachVolume_success",
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
-				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20)
+				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20, "")
 				_, _ = h.Backend.AttachVolume(vol.ID, instances[0].ID, "/dev/sdf")
 
 				return "Action=DetachVolume&Version=2016-11-15&VolumeId=" + url.QueryEscape(vol.ID)

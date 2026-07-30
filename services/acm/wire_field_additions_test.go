@@ -308,3 +308,95 @@ func TestACMHandler_RequestCertificate_ExportOption_RoundTrips(t *testing.T) {
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
 	assert.Equal(t, "ENABLED", descOut.Certificate.Options.Export)
 }
+
+// TestACMHandler_RequestCertificate_ManagedBy locks in the fix for
+// RequestCertificate.ManagedBy (real AWS's CertificateManagedBy enum, whose
+// single defined value is "CLOUDFRONT" -- aws-sdk-go-v2/service/acm/types.
+// CertificateManagedByCloudfront) being previously accepted nowhere: the
+// field was parsed nowhere, so a caller-supplied ManagedBy never reached
+// DescribeCertificate.ManagedBy or CertificateSummary.ManagedBy, and an
+// unrecognized value was silently accepted rather than rejected.
+func TestACMHandler_RequestCertificate_ManagedBy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		domain        string
+		managedBy     string
+		wantManagedBy string
+		wantStatus    int
+	}{
+		{
+			name:          "cloudfront_accepted_and_echoed",
+			domain:        "managedby-cloudfront.example.com",
+			managedBy:     "CLOUDFRONT",
+			wantManagedBy: "CLOUDFRONT",
+			wantStatus:    http.StatusOK,
+		},
+		{
+			name:          "absent_stays_absent",
+			domain:        "managedby-absent.example.com",
+			managedBy:     "",
+			wantManagedBy: "",
+			wantStatus:    http.StatusOK,
+		},
+		{
+			name:       "unknown_value_rejected",
+			domain:     "managedby-invalid.example.com",
+			managedBy:  "LAMBDA",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newACMHandler()
+
+			body, err := json.Marshal(map[string]string{
+				"DomainName": tt.domain,
+				"ManagedBy":  tt.managedBy,
+			})
+			require.NoError(t, err)
+
+			reqRec := postACMJSON(t, h, "RequestCertificate", string(body))
+			require.Equal(t, tt.wantStatus, reqRec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var reqOut struct {
+				CertificateArn string `json:"CertificateArn"`
+			}
+			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+
+			descBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+			require.NoError(t, err)
+
+			descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
+			require.Equal(t, http.StatusOK, descRec.Code)
+
+			var descOut struct {
+				Certificate struct {
+					ManagedBy string `json:"ManagedBy"`
+				} `json:"Certificate"`
+			}
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			assert.Equal(t, tt.wantManagedBy, descOut.Certificate.ManagedBy)
+
+			listRec := postACMJSON(t, h, "ListCertificates", `{}`)
+			require.Equal(t, http.StatusOK, listRec.Code)
+
+			var listOut struct {
+				CertificateSummaryList []struct {
+					ManagedBy string `json:"ManagedBy"`
+				} `json:"CertificateSummaryList"`
+			}
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+			require.Len(t, listOut.CertificateSummaryList, 1)
+			assert.Equal(t, tt.wantManagedBy, listOut.CertificateSummaryList[0].ManagedBy)
+		})
+	}
+}

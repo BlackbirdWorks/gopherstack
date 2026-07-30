@@ -29,14 +29,14 @@ func TestVpnConcentrator_CRUD(t *testing.T) { //nolint:paralleltest // existing 
 	var concentratorID string
 
 	t.Run("create with real transit gateway", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		tgw, err := b.CreateTransitGateway("test")
+		tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test"})
 		require.NoError(t, err)
 
 		vc, err := b.CreateVpnConcentrator("ipsec.1", tgw.ID, map[string]string{"Name": "test"})
 		require.NoError(t, err)
 		assert.Equal(t, tgw.ID, vc.TransitGatewayID)
 		assert.NotEmpty(t, vc.TransitGatewayAttachmentID)
-		assert.Equal(t, "test", vc.Tags["Name"])
+		assert.Equal(t, "test", b.TagsForResource(vc.VpnConcentratorID)["Name"])
 		concentratorID = vc.VpnConcentratorID
 	})
 

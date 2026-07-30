@@ -2,11 +2,8 @@ package ec2
 
 import (
 	"fmt"
-	"maps"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ---- VPC Block Public Access (BPA) constants ----
@@ -63,21 +60,19 @@ type VpcBlockPublicAccessOptions struct {
 // VpcBlockPublicAccessExclusion represents an exclusion from the account's VPC
 // Block Public Access mode for a single VPC or subnet.
 type VpcBlockPublicAccessExclusion struct {
-	CreationTimestamp            time.Time         `json:"creationTimestamp"`
-	LastUpdateTimestamp          time.Time         `json:"lastUpdateTimestamp"`
-	Tags                         map[string]string `json:"tags,omitempty"`
-	ExclusionID                  string            `json:"exclusionId,omitempty"`
-	ResourceArn                  string            `json:"resourceArn,omitempty"`
-	VpcID                        string            `json:"vpcId,omitempty"`
-	SubnetID                     string            `json:"subnetId,omitempty"`
-	InternetGatewayExclusionMode string            `json:"internetGatewayExclusionMode,omitempty"`
-	State                        string            `json:"state,omitempty"`
-	Reason                       string            `json:"reason,omitempty"`
+	CreationTimestamp            time.Time `json:"creationTimestamp"`
+	LastUpdateTimestamp          time.Time `json:"lastUpdateTimestamp"`
+	ExclusionID                  string    `json:"exclusionId,omitempty"`
+	ResourceArn                  string    `json:"resourceArn,omitempty"`
+	VpcID                        string    `json:"vpcId,omitempty"`
+	SubnetID                     string    `json:"subnetId,omitempty"`
+	InternetGatewayExclusionMode string    `json:"internetGatewayExclusionMode,omitempty"`
+	State                        string    `json:"state,omitempty"`
+	Reason                       string    `json:"reason,omitempty"`
 }
 
 func cloneVpcBPAExclusion(excl *VpcBlockPublicAccessExclusion) *VpcBlockPublicAccessExclusion {
 	cp := *excl
-	cp.Tags = maps.Clone(excl.Tags)
 
 	return &cp
 }
@@ -366,7 +361,7 @@ func (b *InMemoryBackend) CreateVpcBlockPublicAccessExclusion(
 		}
 	}
 
-	id := "vpcbpa-exclusion-" + uuid.New().String()[:vpcBPAExclusionIDPrefixLength]
+	id := newVPCBPAExclusionID()
 	now := time.Now().UTC()
 	arn := "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":vpc-block-public-access-exclusion/" + id
 
@@ -379,9 +374,9 @@ func (b *InMemoryBackend) CreateVpcBlockPublicAccessExclusion(
 		State:                        vpcBPAExclusionStateComplete,
 		CreationTimestamp:            now,
 		LastUpdateTimestamp:          now,
-		Tags:                         maps.Clone(tags),
 	}
 	b.vpcBlockPublicAccessExclusions.Put(excl)
+	b.setTagsLocked(id, tags)
 
 	return cloneVpcBPAExclusion(excl), nil
 }

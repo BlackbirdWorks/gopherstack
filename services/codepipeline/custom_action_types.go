@@ -95,6 +95,49 @@ func (b *InMemoryBackend) AddCustomActionTypeInternal(cat *CustomActionType) {
 	b.customActionTypes.Put(cp)
 }
 
+// copyActionTypeExecutorConfiguration deep-copies an ActionTypeExecutorConfiguration,
+// including its (at most one, per the real API) populated JobWorker/Lambda variant.
+func copyActionTypeExecutorConfiguration(c *ActionTypeExecutorConfiguration) *ActionTypeExecutorConfiguration {
+	if c == nil {
+		return nil
+	}
+
+	conf := *c
+
+	if c.JobWorkerExecutorConfiguration != nil {
+		jw := *c.JobWorkerExecutorConfiguration
+		jw.PollingAccounts = append([]string(nil), jw.PollingAccounts...)
+		jw.PollingServicePrincipals = append([]string(nil), jw.PollingServicePrincipals...)
+		conf.JobWorkerExecutorConfiguration = &jw
+	}
+
+	if c.LambdaExecutorConfiguration != nil {
+		lc := *c.LambdaExecutorConfiguration
+		conf.LambdaExecutorConfiguration = &lc
+	}
+
+	return &conf
+}
+
+// copyActionTypeExecutor deep-copies an ActionTypeExecutor (the Executor member
+// of an ActionTypeDeclaration), or returns nil for a record with no declaration
+// data (never touched by UpdateActionType).
+func copyActionTypeExecutor(e *ActionTypeExecutor) *ActionTypeExecutor {
+	if e == nil {
+		return nil
+	}
+
+	cp := *e
+	cp.Configuration = copyActionTypeExecutorConfiguration(e.Configuration)
+
+	if e.JobTimeout != nil {
+		jt := *e.JobTimeout
+		cp.JobTimeout = &jt
+	}
+
+	return &cp
+}
+
 func copyCustomActionType(c *CustomActionType) *CustomActionType {
 	cp := *c
 
@@ -113,27 +156,61 @@ func copyCustomActionType(c *CustomActionType) *CustomActionType {
 		cp.Settings = &s
 	}
 
+	cp.Executor = copyActionTypeExecutor(c.Executor)
+
+	if c.Permissions != nil {
+		p := *c.Permissions
+		p.AllowedAccounts = append([]string(nil), p.AllowedAccounts...)
+		cp.Permissions = &p
+	}
+
+	if c.Properties != nil {
+		cp.Properties = make([]ActionTypeProperty, len(c.Properties))
+		copy(cp.Properties, c.Properties)
+	}
+
+	if c.Urls != nil {
+		u := *c.Urls
+		cp.Urls = &u
+	}
+
 	return &cp
 }
 
-// UpdateActionType updates an action type definition with full fields.
-func (b *InMemoryBackend) UpdateActionType(ctx context.Context, cat *CustomActionType) error {
+// UpdateActionType updates an action type using the real ActionTypeDeclaration
+// shape (Description/Executor/InputArtifactDetails/OutputArtifactDetails/
+// Permissions/Properties/Urls). Only fields ActionTypeDeclaration can express are
+// replaced; the legacy CreateCustomActionType-era Settings/ConfigurationProperties
+// (and Tags) have no equivalent in this op's real input and are preserved
+// unchanged on the existing record -- AWS's real UpdateActionType has no way to
+// clear data its own input shape can't carry.
+func (b *InMemoryBackend) UpdateActionType(ctx context.Context, upd *CustomActionType) error {
 	b.mu.Lock("UpdateActionType")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 	key := regionKey(region, customActionTypeKey{
-		Category: cat.Category,
-		Provider: cat.Provider,
-		Version:  cat.Version,
+		Category: upd.Category,
+		Provider: upd.Provider,
+		Version:  upd.Version,
 	}.String())
 
-	if !b.customActionTypes.Has(key) {
+	existing, ok := b.customActionTypes.Get(key)
+	if !ok {
 		return ErrActionTypeNotFound
 	}
 
-	cp := copyCustomActionType(cat)
+	cp := copyCustomActionType(existing)
 	cp.region = region
+	cp.Description = upd.Description
+	cp.Executor = upd.Executor
+	cp.InputArtifactDetails = upd.InputArtifactDetails
+	cp.OutputArtifactDetails = upd.OutputArtifactDetails
+	cp.Permissions = upd.Permissions
+	cp.Properties = upd.Properties
+	cp.Urls = upd.Urls
+
+	cp = copyCustomActionType(cp)
 	b.customActionTypes.Put(cp)
 
 	return nil

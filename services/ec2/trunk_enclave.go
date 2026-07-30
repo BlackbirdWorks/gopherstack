@@ -110,7 +110,7 @@ func (b *InMemoryBackend) AssociateTrunkInterface(
 	}
 
 	assoc := &TrunkInterfaceAssociation{
-		AssociationID:     "trunk-assoc-" + uuid.New().String()[:17],
+		AssociationID:     newTrunkAssociationID(),
 		BranchInterfaceID: branchInterfaceID,
 		TrunkInterfaceID:  trunkInterfaceID,
 		InterfaceProtocol: protocol,

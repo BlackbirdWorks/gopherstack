@@ -3,6 +3,7 @@ package route53resolver_test
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -670,6 +671,302 @@ func TestFirewallRuleCRUD(t *testing.T) {
 		"FirewallDomainListId": dlID,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestFirewallRule_DnsThreatProtection covers the DNS Firewall Advanced
+// DnsThreatProtection match source added this pass (gopherstack-3sgl):
+// mutual exclusivity with FirewallDomainListId, the closed
+// DGA/DNS_TUNNELING/DICTIONARY_DGA enum, and identifying/updating/deleting a
+// DnsThreatProtection rule by its system-generated FirewallThreatProtectionId
+// instead of a domain list (verified against CreateFirewallRuleInput's doc
+// comment and api_op_{Update,Delete}FirewallRule.go in
+// aws-sdk-go-v2/service/route53resolver@v1.48.0).
+func TestFirewallRule_DnsThreatProtection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "dga",
+			body: map[string]any{
+				"Name":                "dga-rule",
+				"Action":              "ALERT",
+				"DnsThreatProtection": "DGA",
+				"ConfidenceThreshold": "MEDIUM",
+				"Priority":            100,
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "dns_tunneling",
+			body: map[string]any{
+				"Name":                "tunneling-rule",
+				"Action":              "ALERT",
+				"DnsThreatProtection": "DNS_TUNNELING",
+				"ConfidenceThreshold": "HIGH",
+				"Priority":            100,
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "dictionary_dga",
+			body: map[string]any{
+				"Name":                "dict-dga-rule",
+				"Action":              "ALERT",
+				"DnsThreatProtection": "DICTIONARY_DGA",
+				"ConfidenceThreshold": "LOW",
+				"Priority":            100,
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "invalid_value_rejected",
+			body: map[string]any{
+				"Name":                "bad-value-rule",
+				"Action":              "ALERT",
+				"DnsThreatProtection": "NOT_A_REAL_DETECTOR",
+				"ConfidenceThreshold": "MEDIUM",
+				"Priority":            100,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// CreateFirewallRuleInput's doc comment: "You must provide this
+			// value when you create a DNS Firewall Advanced rule" -- omitting
+			// ConfidenceThreshold on a DnsThreatProtection rule must be
+			// rejected, not silently accepted (this was previously an
+			// unenforced required field).
+			name: "missing_confidence_threshold_rejected",
+			body: map[string]any{
+				"Name":                "no-confidence-rule",
+				"Action":              "ALERT",
+				"DnsThreatProtection": "DGA",
+				"Priority":            100,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_confidence_threshold_rejected",
+			body: map[string]any{
+				"Name":                "bad-confidence-rule",
+				"Action":              "ALERT",
+				"DnsThreatProtection": "DGA",
+				"ConfidenceThreshold": "EXTREME",
+				"Priority":            100,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "dtp-grp-" + tt.name})
+			require.Equal(t, http.StatusOK, grpRec.Code)
+			grpResp := decodeJSON(t, grpRec)
+			grpID, _ := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+			body := map[string]any{"FirewallRuleGroupId": grpID}
+			maps.Copy(body, tt.body)
+
+			rec := doRequest(t, h, "CreateFirewallRule", body)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			resp := decodeJSON(t, rec)
+			rule, ok := resp["FirewallRule"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tt.body["DnsThreatProtection"], rule["DnsThreatProtection"])
+			assert.Equal(t, tt.body["ConfidenceThreshold"], rule["ConfidenceThreshold"])
+			assert.NotEmpty(t, rule["FirewallThreatProtectionId"], "rule must get a FirewallThreatProtectionId")
+			_, hasDomainList := rule["FirewallDomainListId"]
+			assert.False(t, hasDomainList, "a DnsThreatProtection rule must not carry FirewallDomainListId")
+		})
+	}
+}
+
+// TestFirewallRule_DnsThreatProtectionMutuallyExclusiveWithDomainList
+// verifies CreateFirewallRule rejects a request supplying both
+// FirewallDomainListId and DnsThreatProtection, per the real API's
+// documented "they are mutually exclusive" contract.
+func TestFirewallRule_DnsThreatProtectionMutuallyExclusiveWithDomainList(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "dtp-exclusive-grp"})
+	require.Equal(t, http.StatusOK, grpRec.Code)
+	grpResp := decodeJSON(t, grpRec)
+	grpID, _ := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+	dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "dtp-exclusive-dl"})
+	require.Equal(t, http.StatusOK, dlRec.Code)
+	dlResp := decodeJSON(t, dlRec)
+	dlID, _ := dlResp["FirewallDomainList"].(map[string]any)["Id"].(string)
+
+	rec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+		"FirewallRuleGroupId":  grpID,
+		"FirewallDomainListId": dlID,
+		"DnsThreatProtection":  "DGA",
+		"Name":                 "conflicting-rule",
+		"Action":               "ALERT",
+		"Priority":             100,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestFirewallRule_UpdateDeleteByThreatProtectionId verifies
+// Update/DeleteFirewallRule can identify a DnsThreatProtection rule by its
+// FirewallThreatProtectionId (the DNS Firewall Advanced counterpart to
+// FirewallDomainListId, since a DnsThreatProtection rule has no domain
+// list) -- verified against api_op_{Update,Delete}FirewallRule.go.
+func TestFirewallRule_UpdateDeleteByThreatProtectionId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "dtp-update-grp"})
+	require.Equal(t, http.StatusOK, grpRec.Code)
+	grpResp := decodeJSON(t, grpRec)
+	grpID, _ := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+	createRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+		"FirewallRuleGroupId": grpID,
+		"DnsThreatProtection": "DGA",
+		"ConfidenceThreshold": "MEDIUM",
+		"Name":                "dtp-update-rule",
+		"Action":              "ALERT",
+		"Priority":            100,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	createResp := decodeJSON(t, createRec)
+	threatProtectionID, _ := createResp["FirewallRule"].(map[string]any)["FirewallThreatProtectionId"].(string)
+	require.NotEmpty(t, threatProtectionID)
+
+	// An invalid ConfidenceThreshold must be rejected on update too (not
+	// required-on-update like on create, but still validated against its
+	// closed enum whenever supplied).
+	badUpdateRec := doRequest(t, h, "UpdateFirewallRule", map[string]any{
+		"FirewallRuleGroupId":        grpID,
+		"FirewallThreatProtectionId": threatProtectionID,
+		"ConfidenceThreshold":        "EXTREME",
+	})
+	assert.Equal(t, http.StatusBadRequest, badUpdateRec.Code)
+
+	updateRec := doRequest(t, h, "UpdateFirewallRule", map[string]any{
+		"FirewallRuleGroupId":        grpID,
+		"FirewallThreatProtectionId": threatProtectionID,
+		"Action":                     "BLOCK",
+		"BlockResponse":              "NODATA",
+		"ConfidenceThreshold":        "HIGH",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+	updateResp := decodeJSON(t, updateRec)
+	assert.Equal(t, "BLOCK", updateResp["FirewallRule"].(map[string]any)["Action"])
+	assert.Equal(t, "HIGH", updateResp["FirewallRule"].(map[string]any)["ConfidenceThreshold"])
+
+	deleteRec := doRequest(t, h, "DeleteFirewallRule", map[string]any{
+		"FirewallRuleGroupId":        grpID,
+		"FirewallThreatProtectionId": threatProtectionID,
+	})
+	assert.Equal(t, http.StatusOK, deleteRec.Code)
+
+	// A second delete must now fail: the rule no longer exists.
+	deleteAgainRec := doRequest(t, h, "DeleteFirewallRule", map[string]any{
+		"FirewallRuleGroupId":        grpID,
+		"FirewallThreatProtectionId": threatProtectionID,
+	})
+	assert.Equal(t, http.StatusNotFound, deleteAgainRec.Code)
+}
+
+// TestFirewallRule_DomainRedirectionAction covers
+// FirewallDomainRedirectionAction (gopherstack-3sgl): defaults to the real
+// API's documented INSPECT_REDIRECTION_DOMAIN for a domain-list rule when
+// omitted, echoes an explicit TRUST_REDIRECTION_DOMAIN, and rejects an
+// unrecognized value.
+func TestFirewallRule_DomainRedirectionAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		redirectionAction string
+		name              string
+		wantValue         string
+		wantStatus        int
+	}{
+		{
+			name:              "defaults_when_omitted",
+			redirectionAction: "",
+			wantValue:         "INSPECT_REDIRECTION_DOMAIN",
+			wantStatus:        http.StatusOK,
+		},
+		{
+			name:              "explicit_inspect",
+			redirectionAction: "INSPECT_REDIRECTION_DOMAIN",
+			wantValue:         "INSPECT_REDIRECTION_DOMAIN",
+			wantStatus:        http.StatusOK,
+		},
+		{
+			name:              "explicit_trust",
+			redirectionAction: "TRUST_REDIRECTION_DOMAIN",
+			wantValue:         "TRUST_REDIRECTION_DOMAIN",
+			wantStatus:        http.StatusOK,
+		},
+		{
+			name:              "invalid_rejected",
+			redirectionAction: "SOMETHING_ELSE",
+			wantStatus:        http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "redir-grp-" + tt.name})
+			require.Equal(t, http.StatusOK, grpRec.Code)
+			grpResp := decodeJSON(t, grpRec)
+			grpID, _ := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+			dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "redir-dl-" + tt.name})
+			require.Equal(t, http.StatusOK, dlRec.Code)
+			dlResp := decodeJSON(t, dlRec)
+			dlID, _ := dlResp["FirewallDomainList"].(map[string]any)["Id"].(string)
+
+			body := map[string]any{
+				"FirewallRuleGroupId":  grpID,
+				"FirewallDomainListId": dlID,
+				"Name":                 "redir-rule",
+				"Action":               "ALERT",
+				"Priority":             100,
+			}
+			if tt.redirectionAction != "" {
+				body["FirewallDomainRedirectionAction"] = tt.redirectionAction
+			}
+
+			rec := doRequest(t, h, "CreateFirewallRule", body)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			resp := decodeJSON(t, rec)
+			rule, ok := resp["FirewallRule"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantValue, rule["FirewallDomainRedirectionAction"])
+		})
+	}
 }
 
 // TestListFirewallRules_ActionAndPriorityFilters verifies the optional

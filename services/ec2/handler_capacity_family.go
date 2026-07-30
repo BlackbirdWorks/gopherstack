@@ -124,7 +124,9 @@ type capacityReservationFleetItem struct {
 	TotalTargetCapacity        int32                                      `xml:"totalTargetCapacity,omitempty"`
 }
 
-func toCapacityReservationFleetItem(fleet *CapacityReservationFleet) capacityReservationFleetItem {
+func toCapacityReservationFleetItem(
+	fleet *CapacityReservationFleet, tags map[string]string,
+) capacityReservationFleetItem {
 	item := capacityReservationFleetItem{
 		CapacityReservationFleetID: fleet.CapacityReservationFleetID,
 		AllocationStrategy:         fleet.AllocationStrategy,
@@ -134,7 +136,7 @@ func toCapacityReservationFleetItem(fleet *CapacityReservationFleet) capacityRes
 		TotalTargetCapacity:        fleet.TotalTargetCapacity,
 		TotalFulfilledCapacity:     fleet.TotalFulfilledCapacity,
 		InstanceTypeSpecifications: capacityReservationFleetInstanceSpecItems(fleet.InstanceTypeSpecifications),
-		TagSet:                     tagItemsFromMap(fleet.Tags),
+		TagSet:                     tagItemsFromMap(tags),
 	}
 	if !fleet.CreateTime.IsZero() {
 		item.CreateTime = fleet.CreateTime.Format(time.RFC3339)

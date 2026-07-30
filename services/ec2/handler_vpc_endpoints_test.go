@@ -395,6 +395,53 @@ func TestModifyVpcEndpointServicePermissions_AddRemove(t *testing.T) {
 
 // --- ModifyVpcEndpointServicePayerResponsibility ---
 
+// TestModifyVpcEndpointServicePayerResponsibility_MutatesRealState proves
+// that ModifyVpcEndpointServicePayerResponsibility -- previously a disguised
+// stub whose payerResponsibility argument was declared `_ string` and
+// discarded, always returning success without mutating anything -- now
+// really sets PayerResponsibility, visible through
+// DescribeVpcEndpointServiceConfigurations.
+func TestModifyVpcEndpointServicePayerResponsibility_MutatesRealState(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := newTestHandlerWithBackend(b)
+
+	svcCfg, err := b.CreateVpcEndpointServiceConfiguration(false, []string{"nlb-0a1b2c3d"})
+	require.NoError(t, err)
+	svcID := svcCfg.ServiceID
+
+	// Before modification, no payer responsibility is set.
+	beforeResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":      {"DescribeVpcEndpointServiceConfigurations"},
+		"ServiceId.1": {svcID},
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, beforeResp, "<payerResponsibility>")
+
+	_, err = ec2.ExportDispatch(h, url.Values{
+		"Action":              {"ModifyVpcEndpointServicePayerResponsibility"},
+		"ServiceId":           {svcID},
+		"PayerResponsibility": {"ServiceOwner"},
+	})
+	require.NoError(t, err)
+
+	afterResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":      {"DescribeVpcEndpointServiceConfigurations"},
+		"ServiceId.1": {svcID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, afterResp, "<payerResponsibility>ServiceOwner</payerResponsibility>",
+		"PayerResponsibility must be mutated and visible via Describe, not silently discarded")
+
+	// Missing PayerResponsibility must error, not silently succeed as a stub would.
+	_, err = ec2.ExportDispatch(h, url.Values{
+		"Action":    {"ModifyVpcEndpointServicePayerResponsibility"},
+		"ServiceId": {svcID},
+	})
+	require.Error(t, err)
+}
+
 // TestModifyVpcEndpointServicePayerResponsibility_NotFound verifies that
 // calling ModifyVpcEndpointServicePayerResponsibility on a non-existent service returns
 // an error, matching AWS EC2 behaviour.
@@ -518,7 +565,7 @@ func TestVpcEndpoint_CreateContainsEndpointID(t *testing.T) {
 			assert.Contains(t, resp, "<vpcEndpointId>vpce-", "must have vpce- ID prefix")
 			assert.Contains(t, resp, "<vpcId>vpc-default</vpcId>")
 			assert.Contains(t, resp, "<serviceName>com.amazonaws.us-east-1.s3</serviceName>")
-			assert.Contains(t, resp, "<vpcEndpointState>available</vpcEndpointState>")
+			assert.Contains(t, resp, "<state>available</state>")
 			if tt.wantType != "" {
 				assert.Contains(t, resp, "<vpcEndpointType>"+tt.wantType+"</vpcEndpointType>")
 			}
@@ -763,10 +810,65 @@ func TestCreateVpcEndpoint_ResponseShape(t *testing.T) {
 				"response must echo the serviceName")
 			assert.Contains(t, resp, vpc.ID,
 				"response must echo the vpcId")
-			assert.Contains(t, resp, "<vpcEndpointState>available</vpcEndpointState>",
+			assert.Contains(t, resp, "<state>available</state>",
 				"endpoint state must be available")
+			// ownerId was previously missing from the wire response.
+			assert.Contains(t, resp, "<ownerId>123456789012</ownerId>")
 		})
 	}
+}
+
+// TestVpcEndpoint_TagDualWritePathVisibility proves that VpcEndpoint's tags
+// -- previously entirely absent from the wire (CreateVpcEndpoint did not
+// accept TagSpecifications and neither Create nor Describe rendered TagSet,
+// even though "vpce-" IDs were already taggable via the generic CreateTags
+// path) -- now surface a tag supplied at create time (TagSpecification) and
+// a tag added afterwards via CreateTags, both visible through
+// DescribeVpcEndpoints AND through the generic DescribeTags call.
+func TestVpcEndpoint_TagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := newTestHandlerWithBackend(b)
+
+	vpc, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+
+	createResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                          {"CreateVpcEndpoint"},
+		"VpcId":                           {vpc.ID},
+		"ServiceName":                     {"com.amazonaws.us-east-1.s3"},
+		"VpcEndpointType":                 {"Gateway"},
+		"TagSpecification.1.ResourceType": {"vpc-endpoint"},
+		"TagSpecification.1.Tag.1.Key":    {"CreateTime"},
+		"TagSpecification.1.Tag.1.Value":  {"yes"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, createResp, "CreateTime")
+	endpointID := accuracyExtractXMLValue(createResp, "vpcEndpointId")
+	require.NotEmpty(t, endpointID)
+
+	_, err = ec2.ExportDispatch(h, url.Values{
+		"Action":       {"CreateTags"},
+		"ResourceId.1": {endpointID},
+		"Tag.1.Key":    {"AddedLater"},
+		"Tag.1.Value":  {"yes"},
+	})
+	require.NoError(t, err)
+
+	descResp, err := ec2.ExportDispatch(h, url.Values{"Action": {"DescribeVpcEndpoints"}})
+	require.NoError(t, err)
+	assert.Contains(t, descResp, "CreateTime")
+	assert.Contains(t, descResp, "AddedLater")
+
+	tagsResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":           {"DescribeTags"},
+		"Filter.1.Name":    {"resource-id"},
+		"Filter.1.Value.1": {endpointID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, tagsResp, "CreateTime")
+	assert.Contains(t, tagsResp, "AddedLater")
 }
 
 // TestCreateVpcEndpoint_MissingVPC verifies that CreateVpcEndpoint

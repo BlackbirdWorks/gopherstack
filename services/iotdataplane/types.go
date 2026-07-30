@@ -23,3 +23,11 @@ type Connection struct {
 	ClientID    string    `json:"clientId"`
 	SourceIP    string    `json:"sourceIp,omitempty"`
 }
+
+// SubscriptionSummary is a single topic-filter/QoS pair describing one of a
+// client's live MQTT subscriptions, mirroring the real SDK's
+// types.SubscriptionSummary (topicFilter, qos).
+type SubscriptionSummary struct {
+	TopicFilter string
+	QoS         byte
+}

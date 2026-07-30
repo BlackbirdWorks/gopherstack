@@ -9,7 +9,7 @@ import (
 func (b *InMemoryBackend) CreateConditionalForwarder(
 	ctx context.Context,
 	directoryID, remoteDomainName string,
-	dnsIPAddrs []string,
+	dnsIPAddrs, dnsIPv6Addrs []string,
 ) error {
 	region := getRegion(ctx, b.region)
 
@@ -29,6 +29,7 @@ func (b *InMemoryBackend) CreateConditionalForwarder(
 		DirectoryID:      directoryID,
 		RemoteDomainName: remoteDomainName,
 		DNSIPAddrs:       dnsIPAddrs,
+		DNSIPv6Addrs:     dnsIPv6Addrs,
 		ReplicationScope: "Domain",
 	})
 
@@ -39,7 +40,7 @@ func (b *InMemoryBackend) CreateConditionalForwarder(
 func (b *InMemoryBackend) UpdateConditionalForwarder(
 	ctx context.Context,
 	directoryID, remoteDomainName string,
-	dnsIPAddrs []string,
+	dnsIPAddrs, dnsIPv6Addrs []string,
 ) error {
 	region := getRegion(ctx, b.region)
 
@@ -52,6 +53,7 @@ func (b *InMemoryBackend) UpdateConditionalForwarder(
 	}
 
 	fwd.DNSIPAddrs = dnsIPAddrs
+	fwd.DNSIPv6Addrs = dnsIPv6Addrs
 
 	return nil
 }
@@ -102,10 +104,13 @@ func (b *InMemoryBackend) DescribeConditionalForwarders(
 		}
 		cp := make([]string, len(fwd.DNSIPAddrs))
 		copy(cp, fwd.DNSIPAddrs)
+		cpV6 := make([]string, len(fwd.DNSIPv6Addrs))
+		copy(cpV6, fwd.DNSIPv6Addrs)
 		result = append(result, ConditionalForwarder{
 			DirectoryID:      fwd.DirectoryID,
 			RemoteDomainName: fwd.RemoteDomainName,
 			DNSIPAddrs:       cp,
+			DNSIPv6Addrs:     cpV6,
 			ReplicationScope: fwd.ReplicationScope,
 		})
 	}

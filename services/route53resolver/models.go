@@ -66,6 +66,27 @@ const (
 	blockResponseNODATA   = "NODATA"
 	blockResponseNXDOMAIN = "NXDOMAIN"
 	blockResponseOVERRIDE = "OVERRIDE"
+
+	// DnsThreatProtection values (types.DnsThreatProtection in
+	// aws-sdk-go-v2/service/route53resolver@v1.48.0): the DNS Firewall
+	// Advanced built-in threat detectors a rule can match on instead of a
+	// domain list.
+	dnsThreatProtectionDGA           = "DGA"
+	dnsThreatProtectionDNSTunneling  = "DNS_TUNNELING"
+	dnsThreatProtectionDictionaryDGA = "DICTIONARY_DGA"
+
+	// ConfidenceThreshold values (types.ConfidenceThreshold): required when
+	// creating a DNS Firewall Advanced (DnsThreatProtection) rule, governs
+	// detection sensitivity.
+	confidenceThresholdLow    = "LOW"
+	confidenceThresholdMedium = "MEDIUM"
+	confidenceThresholdHigh   = "HIGH"
+
+	// FirewallDomainRedirectionAction values (types.FirewallDomainRedirectionAction):
+	// how a domain-list rule evaluates a DNS redirection chain (CNAME/DNAME).
+	// INSPECT_REDIRECTION_DOMAIN is the real API's documented default.
+	firewallDomainRedirectionInspect = "INSPECT_REDIRECTION_DOMAIN"
+	firewallDomainRedirectionTrust   = "TRUST_REDIRECTION_DOMAIN"
 )
 
 // Exported constants for use in demo seeding.
@@ -195,21 +216,40 @@ type FirewallDomainList struct {
 }
 
 // FirewallRule represents a single rule within a DNS Firewall rule group.
+//
+// DnsThreatProtection/FirewallThreatProtectionID/FirewallDomainRedirectionAction
+// back the DNS Firewall Advanced match source (verified against
+// types.FirewallRule/CreateFirewallRuleInput/UpdateFirewallRuleInput/
+// DeleteFirewallRuleInput in aws-sdk-go-v2/service/route53resolver@v1.48.0).
+// A rule matches EITHER a domain list (FirewallDomainListID, the original
+// path) OR a DnsThreatProtection detector (DGA/DNS_TUNNELING/DICTIONARY_DGA)
+// -- the two are mutually exclusive, matching the real API's documented
+// match sources. A DnsThreatProtection rule has no domain list, so it's
+// identified on the wire by the system-generated FirewallThreatProtectionID
+// instead. The other two FirewallRuleType tagged-union variants
+// (FirewallAdvancedContentCategory/FirewallAdvancedThreatCategory) and
+// PartnerThreatProtection are intentionally NOT modeled here -- see
+// PARITY.md; they are AWS-managed catalogs with no closed SDK enum to
+// source concrete values from, so implementing them would mean inventing
+// category/partner identifiers.
 type FirewallRule struct {
-	ID                   string `json:"id"`
-	ARN                  string `json:"arn"`
-	Name                 string `json:"name"`
-	FirewallRuleGroupID  string `json:"firewallRuleGroupId"`
-	FirewallDomainListID string `json:"firewallDomainListId"`
-	Action               string `json:"action"`
-	BlockResponse        string `json:"blockResponse,omitempty"`
-	BlockOverrideDomain  string `json:"blockOverrideDomain,omitempty"`
-	BlockOverrideDNSType string `json:"blockOverrideDnsType,omitempty"`
-	Qtype                string `json:"qtype,omitempty"`
-	ConfidenceThreshold  string `json:"confidenceThreshold,omitempty"`
-	CreatorRequestID     string `json:"creatorRequestId,omitempty"`
-	CreationTime         string `json:"creationTime,omitempty"`
-	ModificationTime     string `json:"modificationTime,omitempty"`
+	ID                              string `json:"id"`
+	ARN                             string `json:"arn"`
+	Name                            string `json:"name"`
+	FirewallRuleGroupID             string `json:"firewallRuleGroupId"`
+	FirewallDomainListID            string `json:"firewallDomainListId"`
+	Action                          string `json:"action"`
+	BlockResponse                   string `json:"blockResponse,omitempty"`
+	BlockOverrideDomain             string `json:"blockOverrideDomain,omitempty"`
+	BlockOverrideDNSType            string `json:"blockOverrideDnsType,omitempty"`
+	Qtype                           string `json:"qtype,omitempty"`
+	ConfidenceThreshold             string `json:"confidenceThreshold,omitempty"`
+	CreatorRequestID                string `json:"creatorRequestId,omitempty"`
+	CreationTime                    string `json:"creationTime,omitempty"`
+	ModificationTime                string `json:"modificationTime,omitempty"`
+	DNSThreatProtection             string `json:"dnsThreatProtection,omitempty"`
+	FirewallThreatProtectionID      string `json:"firewallThreatProtectionId,omitempty"`
+	FirewallDomainRedirectionAction string `json:"firewallDomainRedirectionAction,omitempty"`
 	// Region -- see FirewallRuleGroup.Region doc comment.
 	Region           string `json:"region"`
 	BlockOverrideTTL int32  `json:"blockOverrideTtl,omitempty"`

@@ -66,15 +66,17 @@ type macModificationTaskItem struct {
 	TaskType                           string            `xml:"taskType,omitempty"`
 	TaskState                          string            `xml:"taskState,omitempty"`
 	StartTime                          string            `xml:"startTime,omitempty"`
+	TagSet                             []simpleTagItem   `xml:"tagSet>item"`
 }
 
-func toMacModificationTaskItem(t *MacModificationTask) macModificationTaskItem {
+func toMacModificationTaskItem(t *MacModificationTask, tags map[string]string) macModificationTaskItem {
 	item := macModificationTaskItem{
 		MacModificationTaskID: t.MacModificationTaskID,
 		InstanceID:            t.InstanceID,
 		TaskType:              t.TaskType,
 		TaskState:             t.TaskState,
 		StartTime:             t.StartTime.UTC().Format(time.RFC3339),
+		TagSet:                tagItemsFromMap(tags),
 	}
 
 	if t.SIPConfig != nil {
@@ -94,17 +96,17 @@ func toMacModificationTaskItem(t *MacModificationTask) macModificationTaskItem {
 }
 
 type createMacSIPModificationTaskResponse struct {
-	MacModificationTask macModificationTaskItem `xml:"macModificationTask"`
 	XMLName             xml.Name                `xml:"CreateMacSystemIntegrityProtectionModificationTaskResponse"`
 	Xmlns               string                  `xml:"xmlns,attr"`
 	RequestID           string                  `xml:"requestId"`
+	MacModificationTask macModificationTaskItem `xml:"macModificationTask"`
 }
 
 type createDelegateMacVolumeOwnershipTaskResponse struct {
-	MacModificationTask macModificationTaskItem `xml:"macModificationTask"`
 	XMLName             xml.Name                `xml:"CreateDelegateMacVolumeOwnershipTaskResponse"`
 	Xmlns               string                  `xml:"xmlns,attr"`
 	RequestID           string                  `xml:"requestId"`
+	MacModificationTask macModificationTaskItem `xml:"macModificationTask"`
 }
 
 type describeMacModificationTasksResponse struct {
@@ -161,7 +163,10 @@ func (h *Handler) handleCreateMacSIPModificationTask(vals url.Values, reqID stri
 	}
 
 	return &createMacSIPModificationTaskResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, MacModificationTask: toMacModificationTaskItem(task),
+		Xmlns: ec2XMLNS, RequestID: reqID,
+		MacModificationTask: toMacModificationTaskItem(
+			task, h.Backend.TagsForResource(task.MacModificationTaskID),
+		),
 	}, nil
 }
 
@@ -176,7 +181,10 @@ func (h *Handler) handleCreateDelegateMacVolumeOwnershipTask(vals url.Values, re
 	}
 
 	return &createDelegateMacVolumeOwnershipTaskResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, MacModificationTask: toMacModificationTaskItem(task),
+		Xmlns: ec2XMLNS, RequestID: reqID,
+		MacModificationTask: toMacModificationTaskItem(
+			task, h.Backend.TagsForResource(task.MacModificationTaskID),
+		),
 	}, nil
 }
 
@@ -186,7 +194,10 @@ func (h *Handler) handleDescribeMacModificationTasks(vals url.Values, reqID stri
 
 	resp := &describeMacModificationTasksResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, t := range tasks {
-		resp.MacModificationTaskSet.Items = append(resp.MacModificationTaskSet.Items, toMacModificationTaskItem(t))
+		resp.MacModificationTaskSet.Items = append(
+			resp.MacModificationTaskSet.Items,
+			toMacModificationTaskItem(t, h.Backend.TagsForResource(t.MacModificationTaskID)),
+		)
 	}
 
 	return resp, nil

@@ -13,7 +13,7 @@ func TestTransitGatewayRoutePropagation(t *testing.T) {
 
 	b := newTestBackend()
 
-	tgw, err := b.CreateTransitGateway("test tgw")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test tgw"})
 	require.NoError(t, err)
 	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
 	require.NoError(t, err)
@@ -64,12 +64,75 @@ func TestTransitGatewayRoutePropagation(t *testing.T) {
 	require.ErrorIs(t, err, ec2.ErrTGWAttachmentNotFound)
 }
 
+// TestTransitGatewayRouteTableOps_ClientVpnAttachment proves the
+// transitGatewayAttachmentExistsLocked existence check (shared by
+// EnableTransitGatewayRouteTablePropagation, GetTransitGatewayAttachmentPropagations,
+// and now AssociateTransitGatewayRouteTable/DisassociateTransitGatewayRouteTable)
+// recognizes a real Client VPN TGW attachment. Before this pass, that helper
+// only checked the VPC/peering/Connect attachment maps -- added when TGW
+// Client VPN attachments were introduced, it was never wired in, so a real,
+// existing Client VPN attachment ID was wrongly reported as
+// ErrTGWAttachmentNotFound (gopherstack-8pce).
+func TestTransitGatewayRouteTableOps_ClientVpnAttachment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "client-vpn attachment recognized by propagation and association ops"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test tgw"})
+			require.NoError(t, err)
+
+			rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
+			require.NoError(t, err)
+
+			_, err = b.CreateClientVpnEndpointWithOptions(
+				"10.10.0.0/22", "cvpn-tgw-test", nil,
+				ec2.ClientVpnEndpointOptions{TransitGatewayID: tgw.ID},
+			)
+			require.NoError(t, err)
+
+			// Locate the implicitly-created Client VPN attachment via the
+			// unified attachment view.
+			var attachmentID string
+
+			for _, att := range b.DescribeTransitGatewayAttachments(nil) {
+				if att.ResourceType == "client-vpn" {
+					attachmentID = att.TransitGatewayAttachmentID
+				}
+			}
+
+			require.NotEmpty(t, attachmentID, "expected an implicitly-created client-vpn attachment")
+
+			prop, err := b.EnableTransitGatewayRouteTablePropagation(rt.RouteTableID, attachmentID)
+			require.NoError(t, err)
+			assert.Equal(t, "client-vpn", prop.ResourceType)
+
+			attProps, err := b.GetTransitGatewayAttachmentPropagations(attachmentID)
+			require.NoError(t, err)
+			assert.Len(t, attProps, 1)
+
+			assoc, err := b.AssociateTransitGatewayRouteTable(rt.RouteTableID, attachmentID)
+			require.NoError(t, err)
+			assert.Equal(t, "client-vpn", assoc.ResourceType)
+		})
+	}
+}
+
 func TestDescribeTransitGatewayAttachments(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
 
-	tgw, err := b.CreateTransitGateway("test tgw")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test tgw"})
 	require.NoError(t, err)
 	att, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil)
 	require.NoError(t, err)
@@ -105,7 +168,7 @@ func TestTransitGateway(t *testing.T) {
 
 			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-			tgw, err := b.CreateTransitGateway(tt.description)
+			tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: tt.description})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -116,13 +179,35 @@ func TestTransitGateway(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, tgw.ID)
 			assert.Equal(t, "available", tgw.State)
+			// ARN, CreationTime, and Options (with real AWS documented
+			// defaults) were previously entirely absent from the backend
+			// model.
+			assert.Contains(t, tgw.Arn, tgw.ID)
+			assert.False(t, tgw.CreationTime.IsZero())
+			assert.EqualValues(t, 64512, tgw.Options.AmazonSideAsn)
+			assert.Equal(t, "disable", tgw.Options.AutoAcceptSharedAttachments)
+			assert.Equal(t, "enable", tgw.Options.DefaultRouteTableAssociation)
+			assert.Equal(t, "enable", tgw.Options.DefaultRouteTablePropagation)
+			assert.Equal(t, "enable", tgw.Options.DNSSupport)
+			assert.Equal(t, "enable", tgw.Options.VpnEcmpSupport)
+
+			// Creating a second transit gateway in the same account must not
+			// collide: the ID used to be deterministically derived from the
+			// account ID alone ("tgw-" + accountID[:8]), so a second create
+			// silently overwrote the first in the backend's table.
+			second, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "second"})
+			require.NoError(t, err)
+			assert.NotEqual(t, tgw.ID, second.ID)
+			assert.Len(t, b.DescribeTransitGateways(nil), 2)
 
 			// List returns the new gateway.
 			tgws := b.DescribeTransitGateways(nil)
 			assert.NotEmpty(t, tgws)
 
 			// Delete.
-			require.NoError(t, b.DeleteTransitGateway(tgw.ID))
+			deleted, deleteErr := b.DeleteTransitGateway(tgw.ID)
+			require.NoError(t, deleteErr)
+			assert.Equal(t, "deleting", deleted.State)
 
 			tgws = b.DescribeTransitGateways([]string{tgw.ID})
 			assert.Empty(t, tgws)

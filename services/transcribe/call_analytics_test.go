@@ -599,7 +599,7 @@ func TestListCallAnalyticsJobs_JobNameContainsAndStartTime(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	list, _ := b.ListCallAnalyticsJobs("", "support", "")
+	list, _ := b.ListCallAnalyticsJobs("", "support", "", 0)
 	require.Len(t, list, 2)
 
 	listRec := doTranscribeRequest(t, h, "ListCallAnalyticsJobs", map[string]any{

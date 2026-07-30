@@ -181,17 +181,20 @@ type getTransitGatewayPolicyTableEntriesResponse struct {
 // ---- XML types: route table announcements ----
 
 type tgwRouteTableAnnouncementItem struct {
-	CreationTime                           string `xml:"creationTime,omitempty"`
-	PeeringAttachmentID                    string `xml:"peeringAttachmentId,omitempty"`
-	AnnouncementDirection                  string `xml:"announcementDirection,omitempty"`
-	State                                  string `xml:"state,omitempty"`
-	TransitGatewayID                       string `xml:"transitGatewayId,omitempty"`
-	TransitGatewayRouteTableAnnouncementID string `xml:"transitGatewayRouteTableAnnouncementId,omitempty"`
-	TransitGatewayRouteTableID             string `xml:"transitGatewayRouteTableId,omitempty"`
+	CreationTime                           string          `xml:"creationTime,omitempty"`
+	PeeringAttachmentID                    string          `xml:"peeringAttachmentId,omitempty"`
+	AnnouncementDirection                  string          `xml:"announcementDirection,omitempty"`
+	State                                  string          `xml:"state,omitempty"`
+	TransitGatewayID                       string          `xml:"transitGatewayId,omitempty"`
+	TransitGatewayRouteTableAnnouncementID string          `xml:"transitGatewayRouteTableAnnouncementId,omitempty"`
+	TransitGatewayRouteTableID             string          `xml:"transitGatewayRouteTableId,omitempty"`
+	PeerTransitGatewayID                   string          `xml:"peerTransitGatewayId,omitempty"`
+	TagSet                                 []simpleTagItem `xml:"tagSet>item"`
 }
 
 func tgwRouteTableAnnouncementToItem(
 	a *TransitGatewayRouteTableAnnouncement,
+	tags map[string]string,
 ) tgwRouteTableAnnouncementItem {
 	return tgwRouteTableAnnouncementItem{
 		CreationTime:                           a.CreationTime.UTC().Format(timeLayoutISO),
@@ -201,6 +204,8 @@ func tgwRouteTableAnnouncementToItem(
 		TransitGatewayID:                       a.TransitGatewayID,
 		TransitGatewayRouteTableAnnouncementID: a.TransitGatewayRouteTableAnnouncementID,
 		TransitGatewayRouteTableID:             a.TransitGatewayRouteTableID,
+		PeerTransitGatewayID:                   a.PeerTransitGatewayID,
+		TagSet:                                 tagItemsFromMap(tags),
 	}
 }
 
@@ -476,10 +481,19 @@ func (h *Handler) handleCreateTransitGatewayRouteTableAnnouncement(
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "transit-gateway-route-table-announcement")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags(
+			[]string{ann.TransitGatewayRouteTableAnnouncementID}, tags,
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createTransitGatewayRouteTableAnnouncementResponse{
 		Xmlns:        ec2XMLNS,
 		RequestID:    reqID,
-		Announcement: tgwRouteTableAnnouncementToItem(ann),
+		Announcement: tgwRouteTableAnnouncementToItem(ann, tags),
 	}, nil
 }
 
@@ -490,13 +504,15 @@ func (h *Handler) handleDeleteTransitGatewayRouteTableAnnouncement(
 	id := vals.Get("TransitGatewayRouteTableAnnouncementId")
 
 	existing := h.Backend.DescribeTransitGatewayRouteTableAnnouncements([]string{id})
+	tags := h.Backend.TagsForResource(id)
+
 	if err := h.Backend.DeleteTransitGatewayRouteTableAnnouncement(id); err != nil {
 		return nil, err
 	}
 
 	var item tgwRouteTableAnnouncementItem
 	if len(existing) > 0 {
-		item = tgwRouteTableAnnouncementToItem(existing[0])
+		item = tgwRouteTableAnnouncementToItem(existing[0], tags)
 		item.State = tgwRouteStateDeleted
 	}
 
@@ -516,7 +532,10 @@ func (h *Handler) handleDescribeTransitGatewayRouteTableAnnouncements(
 
 	resp := &describeTransitGatewayRouteTableAnnouncementsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, a := range anns {
-		resp.Announcements.Items = append(resp.Announcements.Items, tgwRouteTableAnnouncementToItem(a))
+		resp.Announcements.Items = append(
+			resp.Announcements.Items,
+			tgwRouteTableAnnouncementToItem(a, h.Backend.TagsForResource(a.TransitGatewayRouteTableAnnouncementID)),
+		)
 	}
 
 	return resp, nil

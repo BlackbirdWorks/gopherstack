@@ -559,3 +559,22 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
      `TestSecurityProfile_DetachNotFoundAndDeleteCascade`
      (`handler_security_profiles_test.go`) plus two new `TestHandler_RouteMatcher`
      cases (`handler_routing_test.go`) for the regression coverage.
+- **Broker capability addition (parity-5, gopherstack-polh, no grade change --
+  `Broker` is internal plumbing, not an AWS `iot` wire op):** `Broker` (broker.go)
+  now implements two new methods consumed by `services/iotdataplane`'s
+  `MQTTPublisher` interface: `ClientSubscriptions(clientID) (map[string]byte, bool)`,
+  reading a connected client's real live subscriptions off mochi-mqtt's
+  `cl.State.Subscriptions.GetAll()`, and `SendToClient(clientID, topic, payload, qos) (bool, error)`,
+  writing a PUBLISH packet straight to one client's connection via
+  `cl.WritePacket`, bypassing topic subscription matching entirely (mirrors
+  real AWS `SendDirectMessage`'s documented "receiving client does not need
+  to subscribe" semantics). Both are proven against a REAL mochi-mqtt session
+  — a live `paho.mqtt.golang` client connected over real TCP loopback, not a
+  mock — by `TestBroker_ClientSubscriptionsAndSendToClient` (`broker_test.go`).
+  This closes the `services/iotdataplane` `ListSubscriptions`/`SendDirectMessage`
+  gaps previously blocked on this exact interface boundary (see
+  `services/iotdataplane/PARITY.md`'s gaps list for the resolution writeup).
+  `export_test.go` was NOT touched for this — the new test drives the real
+  broker entirely through already-exported API (`NewBroker`/`Start`/
+  `ClientSubscriptions`/`SendToClient`) plus a real TCP client, no whitebox
+  hooks needed.

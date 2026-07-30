@@ -24,4 +24,10 @@ var (
 	// ErrInvalidContinuationToken is returned when a list operation's
 	// continuation token is malformed.
 	ErrInvalidContinuationToken = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
+	// ErrInvalidBucketName is returned when a table bucket name violates
+	// real S3 Tables naming rules (see validation.go).
+	ErrInvalidBucketName = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
+	// ErrInvalidName is returned when a namespace or table name violates
+	// real S3 Tables naming rules (see validation.go).
+	ErrInvalidName = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )

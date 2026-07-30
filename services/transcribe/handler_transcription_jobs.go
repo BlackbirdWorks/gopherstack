@@ -218,13 +218,14 @@ type handleListTranscriptionJobsInput struct {
 	Status          string `json:"Status"`
 	JobNameContains string `json:"JobNameContains"`
 	NextToken       string `json:"NextToken"`
+	MaxResults      int32  `json:"MaxResults"`
 }
 
 func (h *Handler) handleListTranscriptionJobs(
 	_ context.Context,
 	in *handleListTranscriptionJobsInput,
 ) (*listTranscriptionJobsOutput, error) {
-	jobs, nextToken := h.Backend.ListTranscriptionJobs(in.Status, in.JobNameContains, in.NextToken)
+	jobs, nextToken := h.Backend.ListTranscriptionJobs(in.Status, in.JobNameContains, in.NextToken, in.MaxResults)
 
 	summaries := make([]transcriptionJobSummary, 0, len(jobs))
 	for _, j := range jobs {

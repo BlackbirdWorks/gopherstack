@@ -98,16 +98,19 @@ type StorageBackend interface {
 
 	// Code security scan configuration
 	CreateCodeSecurityScanConfiguration(
-		name string,
-		scopeSettings map[string]any,
+		name, level string,
+		ruleSetCategories []string,
+		continuousIntegrationScanConfig map[string]any,
 		periodicConfig map[string]any,
+		scopeSettings map[string]any,
 		tags map[string]string,
 	) (*CodeSecurityScanConfiguration, error)
 	DeleteCodeSecurityScanConfiguration(scanConfigARN string) error
 	GetCodeSecurityScanConfiguration(scanConfigARN string) (*CodeSecurityScanConfiguration, error)
 	UpdateCodeSecurityScanConfiguration(
 		scanConfigARN string,
-		scopeSettings map[string]any,
+		ruleSetCategories []string,
+		continuousIntegrationScanConfig map[string]any,
 		periodicConfig map[string]any,
 	) (*CodeSecurityScanConfiguration, error)
 	ListCodeSecurityScanConfigurations() ([]*CodeSecurityScanConfiguration, error)

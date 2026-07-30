@@ -5,8 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -69,7 +67,7 @@ func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error
 		}
 	}
 
-	id := "fsvol-" + uuid.New().String()[:16]
+	id := newFSxVolumeID()
 	arn := b.volumeARN(id)
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)
@@ -114,7 +112,7 @@ func (b *InMemoryBackend) CreateVolumeFromBackup(input *createVolumeFromBackupIn
 		return nil, ErrBackupNotFound
 	}
 
-	id := "fsvol-" + uuid.New().String()[:16]
+	id := newFSxVolumeID()
 	arn := b.volumeARN(id)
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)
@@ -192,7 +190,7 @@ func (b *InMemoryBackend) deleteVolumeLocked(volumeID string) {
 // AWS auto-creates for every FSx for OpenZFS file system, and returns its
 // VolumeId. Caller must already hold b.mu.
 func (b *InMemoryBackend) createOpenZFSRootVolumeLocked(fs *storedFileSystem) string {
-	id := "fsvol-" + uuid.New().String()[:16]
+	id := newFSxVolumeID()
 	arn := b.volumeARN(id)
 	tags := make(map[string]string)
 

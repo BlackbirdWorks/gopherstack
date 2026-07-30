@@ -424,10 +424,11 @@ type rejectVpcPeeringConnectionResponse struct {
 }
 
 type vpcEndpointServiceConfigItem struct {
-	ServiceID          string `xml:"serviceId"`
-	ServiceName        string `xml:"serviceName"`
-	ServiceType        string `xml:"serviceType>item>serviceType"`
-	AcceptanceRequired bool   `xml:"acceptanceRequired"`
+	ServiceID           string `xml:"serviceId"`
+	ServiceName         string `xml:"serviceName"`
+	ServiceType         string `xml:"serviceType>item>serviceType"`
+	PayerResponsibility string `xml:"payerResponsibility,omitempty"`
+	AcceptanceRequired  bool   `xml:"acceptanceRequired"`
 }
 
 type createVpcEndpointServiceConfigurationResponse struct {

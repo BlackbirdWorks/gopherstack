@@ -21,6 +21,10 @@ const maxLanguageOptions = 10
 // minLanguageOptions is the minimum number of language options for language identification.
 const minLanguageOptions = 2
 
+// maxLanguageIDSettings is the documented map-size limit for LanguageIdSettings
+// ("Map Entries: Maximum number of 5 items.").
+const maxLanguageIDSettings = 5
+
 // supportedLanguageCodes returns the set of language codes supported by Amazon Transcribe.
 func supportedLanguageCodes() []string {
 	return []string{
@@ -110,6 +114,46 @@ func validateLanguageOptions(opts []string) error {
 	for _, code := range opts {
 		if !slices.Contains(supportedLanguageCodes(), code) {
 			return fmt.Errorf("%w: unsupported LanguageCode %q in LanguageOptions", ErrValidation, code)
+		}
+	}
+
+	return nil
+}
+
+// validateLanguageIDSettings checks LanguageIdSettings against the documented rules:
+// a map of at most 5 entries, each keyed by a supported language code, and (per
+// StartTranscriptionJob docs) "multi-language identification (IdentifyMultipleLanguages)
+// doesn't support custom language models" -- so a LanguageModelName sub-parameter is
+// rejected when IdentifyMultipleLanguages is set. Note that AWS only *recommends*
+// (does not require) pairing LanguageIdSettings with LanguageOptions, so that pairing
+// is intentionally not enforced here.
+func validateLanguageIDSettings(settings map[string]LanguageIDSettings, identifyMultipleLanguages bool) error {
+	if len(settings) == 0 {
+		return nil
+	}
+
+	if len(settings) > maxLanguageIDSettings {
+		return fmt.Errorf("%w: LanguageIdSettings must contain at most %d entries, got %d",
+			ErrValidation, maxLanguageIDSettings, len(settings))
+	}
+
+	codes := make([]string, 0, len(settings))
+	for code := range settings {
+		codes = append(codes, code)
+	}
+
+	slices.Sort(codes)
+
+	for _, code := range codes {
+		if !slices.Contains(supportedLanguageCodes(), code) {
+			return fmt.Errorf("%w: unsupported LanguageCode %q in LanguageIdSettings", ErrValidation, code)
+		}
+
+		if identifyMultipleLanguages && settings[code].LanguageModelName != "" {
+			return fmt.Errorf(
+				"%w: LanguageIdSettings[%q].LanguageModelName is not supported with IdentifyMultipleLanguages",
+				ErrValidation, code,
+			)
 		}
 	}
 

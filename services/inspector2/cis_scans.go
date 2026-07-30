@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +12,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
+
+// cisScanTargetIDHexLen is the hex-character length of the stub EC2 instance
+// ID synthesized as a CIS scan target.
+const cisScanTargetIDHexLen = 17
 
 // CIS scan and check status values (AWS Inspector2 CIS API).
 const (
@@ -26,6 +31,34 @@ const (
 	keyScanArn  = "scanArn"
 	keyPlatform = "platform"
 )
+
+// cisScanNameMinLen/cisScanNameMaxLen enforce the real, documented length
+// constraint shared by CreateCisScanConfigurationInput.scanName and
+// UpdateCisScanConfigurationInput.scanName (confirmed via the AWS API
+// Reference -- the Go SDK module's doc comments carry no length prose for
+// this field, unlike CreateFilterInput.name): "Minimum length of 1. Maximum
+// length of 128." No charset pattern is documented for this field (unlike
+// the CodeSecurity name fields), so only length is enforced.
+const (
+	cisScanNameMinLen = 1
+	cisScanNameMaxLen = 128
+)
+
+// validateCisScanName enforces the real scanName length constraint shared by
+// CreateCisScanConfiguration and UpdateCisScanConfiguration: 1-128
+// characters. Real AWS returns ValidationException for violations; this
+// backend previously accepted any non-empty string on create and any string
+// at all (including one exceeding 128 chars) on update.
+func validateCisScanName(name string) error {
+	if len(name) < cisScanNameMinLen || len(name) > cisScanNameMaxLen {
+		return fmt.Errorf(
+			"%w: scanName must be between %d and %d characters, got %d",
+			ErrValidation, cisScanNameMinLen, cisScanNameMaxLen, len(name),
+		)
+	}
+
+	return nil
+}
 
 func (b *InMemoryBackend) buildCisScanConfigARN() string {
 	return arn.Build(inspector2Service, b.region, b.accountID, "cis-scan-configuration/"+uuid.New().String())
@@ -45,8 +78,8 @@ func (b *InMemoryBackend) CreateCisScanConfiguration(
 	b.mu.Lock("CreateCisScanConfiguration")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: scanName is required", ErrValidation)
+	if err := validateCisScanName(name); err != nil {
+		return nil, err
 	}
 
 	if err := validateTags(tags); err != nil {
@@ -134,7 +167,7 @@ func (b *InMemoryBackend) buildCisScanForConfig(cfg *CisScanConfiguration) *CisS
 	failed := 0
 
 	for _, acct := range accounts {
-		targetID := "i-" + uuid.New().String()[:17]
+		targetID := "i-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:cisScanTargetIDHexLen]
 
 		for i := range catalog {
 			res := catalog[i]
@@ -202,6 +235,10 @@ func (b *InMemoryBackend) UpdateCisScanConfiguration(
 	}
 
 	if name != "" {
+		if err := validateCisScanName(name); err != nil {
+			return nil, err
+		}
+
 		cfg.Name = name
 	}
 
@@ -333,7 +370,7 @@ func (b *InMemoryBackend) GetCisScanResultDetails(scanArn string) (map[string]an
 			keyScanArn:         scan.ScanArn,
 			"checkId":          r.CheckID,
 			"checkDescription": r.CheckDescr,
-			"level":            r.Level,
+			keyLevel:           r.Level,
 			keyPlatform:        r.Platform,
 			keyStatus:          r.Status,
 			keyAccountID:       r.AccountID,
@@ -432,7 +469,7 @@ func (b *InMemoryBackend) ListCisScanResultsAggregatedByChecks(scanArn string) (
 			keyScanArn:         scan.ScanArn,
 			"checkId":          id,
 			"checkDescription": a.descr,
-			"level":            a.level,
+			keyLevel:           a.level,
 			keyPlatform:        a.platform,
 			"statusCounts": map[string]any{
 				"passed":  a.passed,

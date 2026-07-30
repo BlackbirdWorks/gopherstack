@@ -44,11 +44,16 @@ func (h *Handler) handleDescribeDomainControllers(c *echo.Context) error {
 	dcList := make([]map[string]any, 0, len(dcs))
 	for _, dc := range dcs {
 		dcList = append(dcList, map[string]any{
-			"DomainControllerId": dc.ControllerID,
-			keyDirectoryID:       dc.DirectoryID,
-			keyStatus:            dc.Status,
-			"AvailabilityZone":   dc.AvailabilityZone,
-			keyLaunchTime:        awstime.Epoch(dc.LaunchTime),
+			"DomainControllerId":        dc.ControllerID,
+			keyDirectoryID:              dc.DirectoryID,
+			keyStatus:                   dc.Status,
+			"AvailabilityZone":          dc.AvailabilityZone,
+			keyLaunchTime:               awstime.Epoch(dc.LaunchTime),
+			"StatusLastUpdatedDateTime": awstime.Epoch(dc.StatusLastUpdatedDateTime),
+			"DnsIpAddr":                 dc.DNSIPAddr,
+			"DnsIpv6Addr":               dc.DNSIPv6Addr,
+			"SubnetId":                  dc.SubnetID,
+			keyVpcID:                    dc.VpcID,
 		})
 	}
 

@@ -99,3 +99,49 @@ func TestVpnTunnelExtras_HTTP(t *testing.T) { //nolint:paralleltest // existing 
 	})
 	require.Error(t, err)
 }
+
+// TestVpnConcentrator_TagDualWritePathVisibility proves that
+// vpn_concentrator.go's VpnConcentrator consolidated onto the shared tag
+// store: a tag supplied at create time (TagSpecification) and a tag added
+// afterwards via CreateTags are BOTH visible through DescribeVpnConcentrators
+// AND through the generic DescribeTags call. Before the fix, VpnConcentrator
+// carried its own embedded Tags field populated only at create time, so a
+// post-creation CreateTags call was invisible to DescribeVpnConcentrators.
+func TestVpnConcentrator_TagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	createResp, err := dispatchHandler(h, url.Values{
+		"Action":                          []string{"CreateVpnConcentrator"},
+		"TagSpecification.1.ResourceType": []string{"vpn-concentrator"},
+		"TagSpecification.1.Tag.1.Key":    []string{"CreateTime"},
+		"TagSpecification.1.Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, createResp, "CreateTime")
+	concentratorID := accuracyExtractXMLValue(createResp, "vpnConcentratorId")
+	require.NotEmpty(t, concentratorID)
+
+	_, err = dispatchHandler(h, url.Values{
+		"Action":       []string{"CreateTags"},
+		"ResourceId.1": []string{concentratorID},
+		"Tag.1.Key":    []string{"AddedLater"},
+		"Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+
+	descResp, err := dispatchHandler(h, url.Values{"Action": []string{"DescribeVpnConcentrators"}})
+	require.NoError(t, err)
+	assert.Contains(t, descResp, "CreateTime")
+	assert.Contains(t, descResp, "AddedLater")
+
+	tagsResp, err := dispatchHandler(h, url.Values{
+		"Action":           []string{"DescribeTags"},
+		"Filter.1.Name":    []string{"resource-id"},
+		"Filter.1.Value.1": []string{concentratorID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, tagsResp, "CreateTime")
+	assert.Contains(t, tagsResp, "AddedLater")
+}

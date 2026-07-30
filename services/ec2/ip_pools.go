@@ -6,8 +6,6 @@ import (
 	"maps"
 	"slices"
 	"sort"
-
-	"github.com/google/uuid"
 )
 
 // ip_pools.go implements three related "address pool" families: Customer-Owned IP
@@ -47,11 +45,10 @@ var ErrIpv6PoolNotFound = errors.New("InvalidParameterValue")
 // CoipPool represents a Customer-Owned IP address pool associated with a local gateway
 // route table.
 type CoipPool struct {
-	LocalGatewayRouteTableID string            `json:"localGatewayRouteTableId,omitempty"`
-	PoolID                   string            `json:"poolId,omitempty"`
-	PoolArn                  string            `json:"poolArn,omitempty"`
-	Tags                     map[string]string `json:"tags,omitempty"`
-	PoolCidrs                []string          `json:"poolCidrs,omitempty"`
+	LocalGatewayRouteTableID string   `json:"localGatewayRouteTableId,omitempty"`
+	PoolID                   string   `json:"poolId,omitempty"`
+	PoolArn                  string   `json:"poolArn,omitempty"`
+	PoolCidrs                []string `json:"poolCidrs,omitempty"`
 }
 
 // CoipCidr represents a single customer-owned IP address range within a CoIP pool.
@@ -73,21 +70,19 @@ type Ipv4PoolRange struct {
 
 // Ipv4Pool represents a public IPv4 address pool used for BYOIP CIDR provisioning.
 type Ipv4Pool struct {
-	PoolID             string            `json:"poolId,omitempty"`
-	Description        string            `json:"description,omitempty"`
-	NetworkBorderGroup string            `json:"networkBorderGroup,omitempty"`
-	Tags               map[string]string `json:"tags,omitempty"`
-	PoolAddressRanges  []Ipv4PoolRange   `json:"poolAddressRanges,omitempty"`
+	PoolID             string          `json:"poolId,omitempty"`
+	Description        string          `json:"description,omitempty"`
+	NetworkBorderGroup string          `json:"networkBorderGroup,omitempty"`
+	PoolAddressRanges  []Ipv4PoolRange `json:"poolAddressRanges,omitempty"`
 }
 
 // ---- IPv6 pool data types ----
 
 // Ipv6Pool represents an IPv6 address pool.
 type Ipv6Pool struct {
-	PoolID         string            `json:"poolId,omitempty"`
-	Description    string            `json:"description,omitempty"`
-	Tags           map[string]string `json:"tags,omitempty"`
-	PoolCidrBlocks []string          `json:"poolCidrBlocks,omitempty"`
+	PoolID         string   `json:"poolId,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	PoolCidrBlocks []string `json:"poolCidrBlocks,omitempty"`
 }
 
 // Ipv6CidrAssociation represents a resource association for a CIDR block within an IPv6
@@ -116,14 +111,14 @@ func (b *InMemoryBackend) CreateCoipPool(localGatewayRouteTableID string, tags m
 	b.mu.Lock("CreateCoipPool")
 	defer b.mu.Unlock()
 
-	id := "ipv4pool-coip-" + uuid.New().String()[:17]
+	id := newCoIPPoolID()
 	pool := &CoipPool{
 		PoolID:                   id,
 		PoolArn:                  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":coip-pool/" + id,
 		LocalGatewayRouteTableID: localGatewayRouteTableID,
-		Tags:                     copyStringMap(tags),
 	}
 	b.coipPools.Put(pool)
+	b.setTagsLocked(id, tags)
 
 	return copyCoipPool(pool), nil
 }
@@ -254,7 +249,6 @@ func (b *InMemoryBackend) GetCoipPoolUsage(poolID string) (*CoipPool, error) {
 func copyCoipPool(p *CoipPool) *CoipPool {
 	cp := *p
 	cp.PoolCidrs = append([]string(nil), p.PoolCidrs...)
-	cp.Tags = copyStringMap(p.Tags)
 
 	return &cp
 }
@@ -270,13 +264,13 @@ func (b *InMemoryBackend) CreatePublicIpv4Pool(networkBorderGroup string, tags m
 		networkBorderGroup = b.Region
 	}
 
-	id := "ipv4pool-ec2-" + uuid.New().String()[:17]
+	id := newIPv4PoolID()
 	pool := &Ipv4Pool{
 		PoolID:             id,
 		NetworkBorderGroup: networkBorderGroup,
-		Tags:               copyStringMap(tags),
 	}
 	b.ipv4Pools.Put(pool)
+	b.setTagsLocked(id, tags)
 
 	return copyIpv4Pool(pool)
 }
@@ -399,7 +393,6 @@ func (b *InMemoryBackend) DeprovisionPublicIpv4PoolCidr(poolID, cidr string) err
 func copyIpv4Pool(p *Ipv4Pool) *Ipv4Pool {
 	cp := *p
 	cp.PoolAddressRanges = append([]Ipv4PoolRange(nil), p.PoolAddressRanges...)
-	cp.Tags = copyStringMap(p.Tags)
 
 	return &cp
 }
@@ -413,7 +406,7 @@ func (b *InMemoryBackend) CreateIpv6Pool(description string, poolCidrBlocks []st
 	b.mu.Lock("CreateIpv6Pool")
 	defer b.mu.Unlock()
 
-	id := "ipv6pool-ec2-" + uuid.New().String()[:17]
+	id := newIPv6PoolID()
 	pool := &Ipv6Pool{
 		PoolID:         id,
 		Description:    description,
@@ -476,7 +469,6 @@ func (b *InMemoryBackend) GetAssociatedIpv6PoolCidrs(poolID string) ([]Ipv6CidrA
 func copyIpv6Pool(p *Ipv6Pool) *Ipv6Pool {
 	cp := *p
 	cp.PoolCidrBlocks = append([]string(nil), p.PoolCidrBlocks...)
-	cp.Tags = copyStringMap(p.Tags)
 
 	return &cp
 }

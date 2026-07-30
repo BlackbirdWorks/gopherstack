@@ -3,11 +3,8 @@ package ec2
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ErrHostReservationNotFound is returned when a Dedicated Host Reservation is not found.
@@ -113,25 +110,23 @@ type HostReservationPurchasePreview struct {
 
 // HostReservation represents a purchased Dedicated Host Reservation.
 type HostReservation struct {
-	Start             time.Time         `json:"start"`
-	End               time.Time         `json:"end"`
-	Tags              map[string]string `json:"tags,omitempty"`
-	HostReservationID string            `json:"hostReservationId,omitempty"`
-	OfferingID        string            `json:"offeringId,omitempty"`
-	InstanceFamily    string            `json:"instanceFamily,omitempty"`
-	PaymentOption     string            `json:"paymentOption,omitempty"`
-	CurrencyCode      string            `json:"currencyCode,omitempty"`
-	HourlyPrice       string            `json:"hourlyPrice,omitempty"`
-	UpfrontPrice      string            `json:"upfrontPrice,omitempty"`
-	State             string            `json:"state,omitempty"`
-	HostIDSet         []string          `json:"hostIdSet,omitempty"`
-	Duration          int32             `json:"duration,omitempty"`
-	Count             int32             `json:"count,omitempty"`
+	Start             time.Time `json:"start"`
+	End               time.Time `json:"end"`
+	HostReservationID string    `json:"hostReservationId,omitempty"`
+	OfferingID        string    `json:"offeringId,omitempty"`
+	InstanceFamily    string    `json:"instanceFamily,omitempty"`
+	PaymentOption     string    `json:"paymentOption,omitempty"`
+	CurrencyCode      string    `json:"currencyCode,omitempty"`
+	HourlyPrice       string    `json:"hourlyPrice,omitempty"`
+	UpfrontPrice      string    `json:"upfrontPrice,omitempty"`
+	State             string    `json:"state,omitempty"`
+	HostIDSet         []string  `json:"hostIdSet,omitempty"`
+	Duration          int32     `json:"duration,omitempty"`
+	Count             int32     `json:"count,omitempty"`
 }
 
 func cloneHostReservation(hr *HostReservation) *HostReservation {
 	cp := *hr
-	cp.Tags = maps.Clone(hr.Tags)
 	cp.HostIDSet = append([]string(nil), hr.HostIDSet...)
 
 	return &cp
@@ -264,7 +259,7 @@ func (b *InMemoryBackend) PurchaseHostReservation(
 
 	now := time.Now().UTC()
 	hr := &HostReservation{
-		HostReservationID: "hr-" + uuid.New().String()[:hostReservationIDPrefixLength],
+		HostReservationID: newHostReservationID(),
 		OfferingID:        offering.OfferingID,
 		InstanceFamily:    offering.InstanceFamily,
 		PaymentOption:     offering.PaymentOption,
@@ -277,9 +272,9 @@ func (b *InMemoryBackend) PurchaseHostReservation(
 		State:             stateActive,
 		Start:             now,
 		End:               now.Add(time.Duration(offering.Duration) * time.Second),
-		Tags:              maps.Clone(tags),
 	}
 	b.hostReservations.Put(hr)
+	b.setTagsLocked(hr.HostReservationID, tags)
 
 	return &HostReservationPurchasePreview{
 		CurrencyCode:      offering.CurrencyCode,

@@ -132,7 +132,7 @@ func (b *InMemoryBackend) GetMedicalTranscriptionJob(
 // ListMedicalTranscriptionJobs returns Medical Transcription jobs with optional status
 // filter, name substring filter, and pagination.
 func (b *InMemoryBackend) ListMedicalTranscriptionJobs(
-	statusFilter, nameContains, nextToken string,
+	statusFilter, nameContains, nextToken string, maxResults int32,
 ) ([]MedicalTranscriptionJob, string) {
 	b.mu.RLock("ListMedicalTranscriptionJobs")
 	defer b.mu.RUnlock()
@@ -149,7 +149,7 @@ func (b *InMemoryBackend) ListMedicalTranscriptionJobs(
 		return all[i].MedicalTranscriptionJobName < all[j].MedicalTranscriptionJobName
 	})
 
-	return paginateList(all, nextToken)
+	return paginateList(all, nextToken, maxResults)
 }
 
 // DeleteMedicalTranscriptionJob removes a medical transcription job by name.

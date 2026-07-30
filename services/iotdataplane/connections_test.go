@@ -510,22 +510,43 @@ func TestHandler_GetConnection_WireShape(t *testing.T) {
 
 // TestHandler_ListSubscriptions_WireShape verifies the GET
 // /connections/{clientId}/subscriptions response shape against
-// ListSubscriptionsOutput. A tracked client always gets an honestly empty
-// "subscriptions" array (gopherstack tracks no live MQTT subscription state
-// -- see InMemoryBackend.ListSubscriptions), and an untracked clientId is
+// ListSubscriptionsOutput. A tracked client with no live broker session (no
+// broker wired, or the broker doesn't know the client -- see
+// InMemoryBackend.ListSubscriptions) gets an honestly empty "subscriptions"
+// array; a tracked client the broker DOES have a live session for reports its
+// real topicFilter/qos subscriptions, read off MQTTPublisher.
+// ClientSubscriptions (backed by services/iot/broker.go's
+// cl.State.Subscriptions in production). An untracked clientId is
 // ResourceNotFoundException, matching GetConnection/DeleteConnection.
 func TestHandler_ListSubscriptions_WireShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		brokerSubs  map[string]byte
 		name        string
 		clientID    string
 		wantCode    int
 		preRegister bool
+		withBroker  bool
+		brokerKnows bool
 	}{
 		{
-			name: "known_client_returns_empty_subscriptions", clientID: "dev-1",
+			name: "known_client_no_broker_returns_empty_subscriptions", clientID: "dev-1",
 			preRegister: true, wantCode: http.StatusOK,
+		},
+		{
+			name: "known_client_broker_wired_but_unknown_returns_empty_subscriptions", clientID: "dev-1a",
+			preRegister: true, withBroker: true, wantCode: http.StatusOK,
+		},
+		{
+			name: "known_client_with_live_session_no_subs_returns_empty", clientID: "dev-1b",
+			preRegister: true, withBroker: true, brokerKnows: true, wantCode: http.StatusOK,
+		},
+		{
+			name: "known_client_with_real_subscriptions_reported", clientID: "dev-2",
+			preRegister: true, withBroker: true, brokerKnows: true,
+			brokerSubs: map[string]byte{"sensor/temp": 1, "sensor/humidity": 0},
+			wantCode:   http.StatusOK,
 		},
 		{name: "unknown_client_not_found", clientID: "never-connected", wantCode: http.StatusNotFound},
 		{name: "dollar_prefix_rejected", clientID: "$reserved", wantCode: http.StatusBadRequest},
@@ -540,6 +561,16 @@ func TestHandler_ListSubscriptions_WireShape(t *testing.T) {
 				b.AddConnectionInternal(tt.clientID)
 			}
 
+			if tt.withBroker {
+				mock := &mockMQTTPublisher{}
+				if tt.brokerKnows {
+					mock.knownClients = map[string]bool{tt.clientID: true}
+					mock.clientSubs = map[string]map[string]byte{tt.clientID: tt.brokerSubs}
+				}
+
+				b.SetBroker(mock)
+			}
+
 			h := iotdataplane.NewHandler(b)
 			rec := doRequest(t, h, http.MethodGet, "/connections/"+tt.clientID+"/subscriptions", nil)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -552,7 +583,18 @@ func TestHandler_ListSubscriptions_WireShape(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			subs, ok := resp["subscriptions"].([]any)
 			require.True(t, ok)
-			assert.Empty(t, subs)
+			assert.Len(t, subs, len(tt.brokerSubs))
+
+			gotFilters := map[string]int{}
+			for _, raw := range subs {
+				entry, entryOk := raw.(map[string]any)
+				require.True(t, entryOk)
+				gotFilters[entry["topicFilter"].(string)] = int(entry["qos"].(float64))
+			}
+
+			for filter, qos := range tt.brokerSubs {
+				assert.Equal(t, int(qos), gotFilters[filter], "topicFilter %q", filter)
+			}
 
 			_, hasNextToken := resp["nextToken"]
 			assert.False(t, hasNextToken)
@@ -561,29 +603,37 @@ func TestHandler_ListSubscriptions_WireShape(t *testing.T) {
 }
 
 // TestBackend_SendDirectMessage exercises InMemoryBackend.SendDirectMessage
-// directly: a tracked clientId with a broker wired delivers via the same
-// broker path as Publish (see SendDirectMessage's doc comment for why this
-// broadcasts on topic rather than truly targeting one client), an untracked
-// clientId is ResourceNotFoundException, a dollar-prefixed clientId is
-// rejected up front, and -- matching Publish's own behavior exactly, since
-// SendDirectMessage delegates to it -- no broker configured surfaces
-// ErrNoBroker to the backend caller (the HTTP handler degrades this to a
-// logged warning plus a 200, same as Publish; see
+// directly: a tracked clientId whose broker session the broker actually
+// knows about is now addressed directly via MQTTPublisher.SendToClient (true
+// per-client delivery, bypassing Publish/topic broadcast entirely); a tracked
+// clientId with no live broker session falls back to broadcasting on topic
+// via Publish, the same honest best-effort approximation used before
+// SendToClient existed (see SendDirectMessage's doc comment for exactly when
+// that fallback applies); an untracked clientId is ResourceNotFoundException;
+// a dollar-prefixed clientId is rejected up front; and no broker configured
+// at all surfaces ErrNoBroker to the backend caller (the HTTP handler
+// degrades this to a logged warning plus a 200, same as Publish; see
 // TestHandler_SendDirectMessage_WireShape).
 func TestBackend_SendDirectMessage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantErr    error
-		name       string
-		clientID   string
-		topic      string
-		seed       bool
-		withBroker bool
+		wantErr        error
+		name           string
+		clientID       string
+		topic          string
+		seed           bool
+		withBroker     bool
+		brokerKnows    bool
+		wantDirectSend bool
 	}{
 		{
-			name: "delivers_via_broker_when_client_tracked", clientID: "dev-1", topic: "t/1",
+			name: "falls_back_to_broadcast_when_broker_has_no_live_session", clientID: "dev-1", topic: "t/1",
 			seed: true, withBroker: true,
+		},
+		{
+			name: "addresses_client_directly_when_broker_has_live_session", clientID: "dev-1b", topic: "t/1",
+			seed: true, withBroker: true, brokerKnows: true, wantDirectSend: true,
 		},
 		{
 			name: "unknown_client_not_found", clientID: "never-connected", topic: "t/1",
@@ -608,6 +658,10 @@ func TestBackend_SendDirectMessage(t *testing.T) {
 			var mock *mockMQTTPublisher
 			if tt.withBroker {
 				mock = &mockMQTTPublisher{}
+				if tt.brokerKnows {
+					mock.knownClients = map[string]bool{tt.clientID: true}
+				}
+
 				b.SetBroker(mock)
 			}
 
@@ -620,8 +674,19 @@ func TestBackend_SendDirectMessage(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+
+			if tt.wantDirectSend {
+				assert.Equal(t, tt.clientID, mock.sendToClientClient)
+				assert.Equal(t, tt.topic, mock.sendToClientTopic)
+				assert.Equal(t, []byte("hi"), mock.sendToClientPayload)
+				assert.Empty(t, mock.topic, "Publish (broadcast) must not be used when SendToClient delivers")
+
+				return
+			}
+
 			assert.Equal(t, tt.topic, mock.topic)
 			assert.Equal(t, []byte("hi"), mock.payload)
+			assert.Empty(t, mock.sendToClientTopic, "SendToClient must not be used on the broadcast fallback path")
 		})
 	}
 }
@@ -635,21 +700,27 @@ func TestBackend_SendDirectMessage(t *testing.T) {
 // envelope), confirmation=true maps to QoS 1 (false/absent to QoS 0, per
 // AWS docs), and a successful response always carries message+traceId. No
 // broker configured degrades to a logged warning and a 200 (message
-// silently dropped), exactly like Publish.
+// silently dropped), exactly like Publish. When the broker has a live
+// session for the target client (brokerKnows), delivery goes through
+// SendToClient (true per-client addressing) instead of the Publish broadcast
+// fallback -- see TestBackend_SendDirectMessage for that distinction in
+// isolation.
 func TestHandler_SendDirectMessage_WireShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		headers       map[string]string
-		name          string
-		clientID      string
-		query         string
-		body          []byte
-		wantCode      int
-		wantQos       byte
-		preRegister   bool
-		withBroker    bool
-		wantDelivered bool
+		headers        map[string]string
+		name           string
+		clientID       string
+		query          string
+		body           []byte
+		wantCode       int
+		wantQos        byte
+		preRegister    bool
+		withBroker     bool
+		brokerKnows    bool
+		wantDelivered  bool
+		wantDirectSend bool
 	}{
 		{
 			name: "delivers_and_returns_message_and_trace_id", clientID: "dev-1", query: "?topic=t/1",
@@ -660,6 +731,11 @@ func TestHandler_SendDirectMessage_WireShape(t *testing.T) {
 			name: "confirmation_true_maps_to_qos1", clientID: "dev-1", query: "?topic=t/1&confirmation=true",
 			body: []byte("hi"), preRegister: true, withBroker: true,
 			wantCode: http.StatusOK, wantDelivered: true, wantQos: 1,
+		},
+		{
+			name: "live_broker_session_delivers_via_send_to_client", clientID: "dev-1c", query: "?topic=t/1",
+			body: []byte("hi"), preRegister: true, withBroker: true, brokerKnows: true,
+			wantCode: http.StatusOK, wantDirectSend: true,
 		},
 		{name: "missing_topic_bad_request", clientID: "dev-1", preRegister: true, wantCode: http.StatusBadRequest},
 		{
@@ -697,6 +773,10 @@ func TestHandler_SendDirectMessage_WireShape(t *testing.T) {
 			var mock *mockMQTTPublisher
 			if tt.withBroker {
 				mock = &mockMQTTPublisher{}
+				if tt.brokerKnows {
+					mock.knownClients = map[string]bool{tt.clientID: true}
+				}
+
 				b.SetBroker(mock)
 			}
 
@@ -718,6 +798,13 @@ func TestHandler_SendDirectMessage_WireShape(t *testing.T) {
 				assert.Equal(t, "t/1", mock.topic)
 				assert.Equal(t, tt.body, mock.payload)
 				assert.Equal(t, tt.wantQos, mock.qos)
+			}
+
+			if tt.wantDirectSend {
+				assert.Equal(t, tt.clientID, mock.sendToClientClient)
+				assert.Equal(t, "t/1", mock.sendToClientTopic)
+				assert.Equal(t, tt.body, mock.sendToClientPayload)
+				assert.Empty(t, mock.topic, "Publish (broadcast) must not be used when SendToClient delivers")
 			}
 		})
 	}

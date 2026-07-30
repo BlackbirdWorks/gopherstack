@@ -145,7 +145,7 @@ func (b *InMemoryBackend) CreateIpamExternalResourceVerificationToken(
 		IpamRegion: b.Region,
 		State:      ipamStateCreateComplete,
 		Status:     ipamTokenStatusValid,
-		TokenName:  "ipam-verify-" + uuid.New().String()[:12],
+		TokenName:  newIPAMVerificationTokenName(),
 		TokenValue: uuid.New().String(),
 		NotAfter:   now.Add(ipamVerificationTokenValidity),
 	}

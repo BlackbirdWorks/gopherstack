@@ -538,6 +538,24 @@ type ReservedInstancesModification struct {
 	StatusMessage                   string `json:"statusMessage,omitempty"`
 }
 
+// QueuedPurchaseDeletionResult holds one ReservedInstance ID's outcome from
+// DeleteQueuedReservedInstances (real types.SuccessfulQueuedPurchaseDeletion /
+// types.FailedQueuedPurchaseDeletion): Failed is false and ErrorCode/ErrorMessage
+// are empty for a successful deletion. Real AWS only ever deletes a Reserved
+// Instance that is genuinely in the "queued" state (a future-dated, not-yet-active
+// purchase); this backend's PurchaseReservedInstancesOffering has no scheduled/
+// future-dated purchase mode, so every Reserved Instance it creates starts (and
+// stays) "active" -- meaning a real, existing ID here always fails with
+// reserved-instances-not-in-queued-state, exactly as real AWS would refuse to
+// delete an active reservation through this call. An unknown ID fails with
+// reserved-instances-id-invalid.
+type QueuedPurchaseDeletionResult struct {
+	ReservedInstancesID string
+	ErrorCode           string
+	ErrorMessage        string
+	Failed              bool
+}
+
 // ---- Traffic Mirror backend methods ----
 
 // Network ACL / launch template / snapshot / vpc-attr constants (formerly refinement2).
@@ -551,6 +569,7 @@ type Snapshot struct {
 	State       string    `json:"state,omitempty"`
 	Progress    string    `json:"progress,omitempty"`
 	KmsKeyID    string    `json:"kmsKeyId,omitempty"`
+	OwnerID     string    `json:"ownerID,omitempty"`
 	VolumeSize  int       `json:"volumeSize,omitempty"`
 	Encrypted   bool      `json:"encrypted,omitempty"`
 }

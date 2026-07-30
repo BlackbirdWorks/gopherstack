@@ -6,8 +6,6 @@ import (
 	"slices"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ---- errors ----
@@ -60,6 +58,10 @@ type TransitGatewayRouteTableAnnouncement struct {
 	PeeringAttachmentID                    string    `json:"peeringAttachmentID,omitempty"`
 	AnnouncementDirection                  string    `json:"announcementDirection,omitempty"`
 	State                                  string    `json:"state,omitempty"`
+	// PeerTransitGatewayID is the transit gateway on the other side of the
+	// peering attachment (real AWS PeerTransitGatewayId), derived from the
+	// peering attachment's Requester/Accepter transit gateway IDs.
+	PeerTransitGatewayID string `json:"peerTransitGatewayID,omitempty"`
 }
 
 // TransitGatewayRouteTablePropagation represents an attachment enabled (via
@@ -99,7 +101,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPolicyTable(
 	}
 
 	pt := &TransitGatewayPolicyTable{
-		TransitGatewayPolicyTableID: "tgw-ptb-" + uuid.New().String()[:17],
+		TransitGatewayPolicyTableID: newTransitGatewayPolicyTableID(),
 		TransitGatewayID:            tgwID,
 		State:                       stateAvailable,
 		CreationTime:                time.Now().UTC(),
@@ -305,18 +307,27 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTableAnnouncement(
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
-	if _, attExists := b.tgwPeeringAttachments.Get(peeringAttachmentID); !attExists {
+	peeringAtt, attExists := b.tgwPeeringAttachments.Get(peeringAttachmentID)
+	if !attExists {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, peeringAttachmentID)
 	}
 
+	// The peer TGW is whichever side of the peering attachment is not this
+	// route table's own transit gateway.
+	peerTGWID := peeringAtt.AccepterTransitGatewayID
+	if rt.TransitGatewayID == peeringAtt.AccepterTransitGatewayID {
+		peerTGWID = peeringAtt.RequesterTransitGatewayID
+	}
+
 	ann := &TransitGatewayRouteTableAnnouncement{
-		TransitGatewayRouteTableAnnouncementID: "tgw-rtb-ann-" + uuid.New().String()[:17],
+		TransitGatewayRouteTableAnnouncementID: newTransitGatewayRouteTableAnnouncementID(),
 		TransitGatewayID:                       rt.TransitGatewayID,
 		TransitGatewayRouteTableID:             routeTableID,
 		PeeringAttachmentID:                    peeringAttachmentID,
 		AnnouncementDirection:                  "outgoing",
 		State:                                  stateAvailable,
 		CreationTime:                           time.Now().UTC(),
+		PeerTransitGatewayID:                   peerTGWID,
 	}
 	b.tgwRouteTableAnnouncements.Put(ann)
 
@@ -450,6 +461,12 @@ func (b *InMemoryBackend) GetTransitGatewayRouteTablePropagations(
 // transitGatewayAttachmentExistsLocked reports whether an attachment ID
 // exists in any of the known TGW attachment maps. Must be called with b.mu
 // held (for reading or writing).
+//
+// Must stay in sync with tgwAttachmentResourceLocked's map set -- this was
+// found missing tgwClientVpnAttachments (added by the parity-4 Client VPN
+// attachment family) during the gopherstack-8pce TGW route-table field-diff,
+// which meant a real, existing Client VPN attachment ID was incorrectly
+// reported as ErrTGWAttachmentNotFound by every caller of this helper.
 func (b *InMemoryBackend) transitGatewayAttachmentExistsLocked(id string) bool {
 	if _, ok := b.tgwVpcAttachments.Get(id); ok {
 		return true
@@ -460,6 +477,10 @@ func (b *InMemoryBackend) transitGatewayAttachmentExistsLocked(id string) bool {
 	}
 
 	if _, ok := b.tgwConnects.Get(id); ok {
+		return true
+	}
+
+	if _, ok := b.tgwClientVpnAttachments.Get(id); ok {
 		return true
 	}
 

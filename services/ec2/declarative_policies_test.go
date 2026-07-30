@@ -33,7 +33,7 @@ func TestDeclarativePoliciesReport_Lifecycle(t *testing.T) { //nolint:parallelte
 		assert.NotEmpty(t, report.ReportID)
 		assert.Equal(t, "running", report.Status)
 		assert.Equal(t, "my-bucket", report.S3Bucket)
-		assert.Equal(t, "test", report.Tags["Name"])
+		assert.Equal(t, "test", b.TagsForResource(report.ReportID)["Name"])
 		reportID = report.ReportID
 	})
 

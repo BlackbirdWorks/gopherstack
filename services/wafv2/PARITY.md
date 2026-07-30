@@ -23,6 +23,13 @@ overall: A-           # New this pass: the AI-bot pay-per-crawl monetization-rep
                       # the pre-existing GetSampledRequests/GetTopPathStatisticsByTraffic gap
                       # already on this manifest -- not a wire-shape or correctness bug in
                       # either the old or new surface.
+                      # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): confirmed
+                      # this backend's WebACL/RuleGroup/IPSet state holds only configuration, never
+                      # per-request traffic/revenue counters, and there is no AI-bot-detection or
+                      # settlement pipeline to derive real numbers from -- fabricating dollar amounts,
+                      # bot names, or settlement records to reach A would be exactly the failure mode
+                      # this campaign has spent weeks removing. STRUCTURAL, grade correctly held at
+                      # A-, not raised.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:

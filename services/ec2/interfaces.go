@@ -123,8 +123,9 @@ type Backend interface {
 
 	// ---- EBS volumes ----
 
-	// CreateVolume creates a new EBS volume stub.
-	CreateVolume(az, volType string, size int) (*Volume, error)
+	// CreateVolume creates a new EBS volume, optionally restored from an
+	// existing EBS snapshot (snapshotID may be empty).
+	CreateVolume(az, volType string, size int, snapshotID string) (*Volume, error)
 
 	// SetVolumeEncryption marks a volume as encrypted and optionally sets its KMS key ID.
 	SetVolumeEncryption(volumeID string, encrypted bool, kmsKeyID string) error
@@ -204,7 +205,7 @@ type Backend interface {
 	// ---- NAT gateways ----
 
 	// CreateNatGateway creates a NAT gateway in the given subnet.
-	CreateNatGateway(subnetID, allocationID string) (*NatGateway, error)
+	CreateNatGateway(subnetID, allocationID string, tags map[string]string) (*NatGateway, error)
 
 	// DeleteNatGateway removes a NAT gateway.
 	DeleteNatGateway(id string) error
@@ -337,6 +338,10 @@ type Backend interface {
 
 	// ModifyNetworkInterfaceAttribute updates a single attribute of an ENI.
 	ModifyNetworkInterfaceAttribute(eniID, attr, value string) error
+
+	// SetNetworkInterfaceDeleteOnTermination updates the DeleteOnTermination
+	// flag for the attachment identified by attachmentID.
+	SetNetworkInterfaceDeleteOnTermination(attachmentID string, del bool) error
 
 	// ---- spot instances ----
 
@@ -474,11 +479,12 @@ type Backend interface {
 	// DescribeTransitGateways returns transit gateways, optionally filtered by IDs.
 	DescribeTransitGateways(ids []string) []*TransitGateway
 
-	// CreateTransitGateway creates a new transit gateway stub.
-	CreateTransitGateway(description string) (*TransitGateway, error)
+	// CreateTransitGateway creates a new transit gateway.
+	CreateTransitGateway(p CreateTransitGatewayParams) (*TransitGateway, error)
 
-	// DeleteTransitGateway removes a transit gateway by ID.
-	DeleteTransitGateway(id string) error
+	// DeleteTransitGateway removes a transit gateway by ID, returning a copy
+	// of the deleted gateway (State transitioned to "deleting").
+	DeleteTransitGateway(id string) (*TransitGateway, error)
 
 	// CreateTransitGatewayVpcAttachment creates a TGW VPC attachment.
 	CreateTransitGatewayVpcAttachment(
@@ -593,16 +599,20 @@ type Backend interface {
 	// ---- Transit Gateway Routes ----
 
 	// CreateTransitGatewayRoute adds a static route to a TGW route table.
+	// blackhole=true creates a blackhole route (attachmentID is ignored).
 	CreateTransitGatewayRoute(
 		routeTableID, destinationCIDR, attachmentID string,
+		blackhole bool,
 	) (*TransitGatewayRoute, error)
 
 	// DeleteTransitGatewayRoute removes a static route from a TGW route table.
 	DeleteTransitGatewayRoute(routeTableID, destinationCIDR string) error
 
-	// ReplaceTransitGatewayRoute replaces or upserts a route in a TGW route table.
+	// ReplaceTransitGatewayRoute replaces an existing route in a TGW route
+	// table (blackhole=true replaces it with a blackhole route).
 	ReplaceTransitGatewayRoute(
 		routeTableID, destinationCIDR, attachmentID string,
+		blackhole bool,
 	) (*TransitGatewayRoute, error)
 
 	// ---- Transit Gateway Route Table Associations ----
@@ -1547,7 +1557,7 @@ type Backend interface {
 		targetInstanceType string,
 		targetCount int,
 	) (*ReservedInstancesModification, error)
-	DeleteQueuedReservedInstances(ids []string)
+	DeleteQueuedReservedInstances(ids []string) []QueuedPurchaseDeletionResult
 
 	// ---- Route Server ----
 	CreateRouteServer(

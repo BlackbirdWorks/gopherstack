@@ -23,7 +23,7 @@ func TestHandler_Table_Create(t *testing.T) {
 		{
 			name: "create_table",
 			body: map[string]any{
-				"name":   "my-table",
+				"name":   "my_table",
 				"format": "ICEBERG",
 			},
 			wantStatus: http.StatusOK,
@@ -36,7 +36,7 @@ func TestHandler_Table_Create(t *testing.T) {
 		},
 		{
 			name:       "create_table_default_format",
-			body:       map[string]any{"name": "default-format-table"},
+			body:       map[string]any{"name": "default_format_table"},
 			wantStatus: http.StatusOK,
 			checkField: "tableARN",
 		},
@@ -47,11 +47,11 @@ func TestHandler_Table_Create(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bucketARN := createBucketHelper(t, h, "table-create-bucket-"+tt.name)
+			bucketARN := createBucketHelper(t, h, "table-create-bucket-"+bucketSuffix(tt.name))
 			encodedARN := url.PathEscape(bucketARN)
-			createNamespaceHelper(t, h, bucketARN, []string{"test-ns"})
+			createNamespaceHelper(t, h, bucketARN, []string{"test_ns"})
 
-			path := "/tables/" + encodedARN + "/test-ns"
+			path := "/tables/" + encodedARN + "/test_ns"
 			rec := doS3TablesRequest(t, h, http.MethodPut, path, tt.body)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -79,7 +79,7 @@ func TestHandler_Table_GetAndList(t *testing.T) {
 			method: http.MethodGet,
 			pathFn: func(bucketARN, _ string) string {
 				return fmt.Sprintf(
-					"/get-table?tableBucketARN=%s&namespace=test-ns&name=test-table",
+					"/get-table?tableBucketARN=%s&namespace=test_ns&name=test_table",
 					url.QueryEscape(bucketARN),
 				)
 			},
@@ -91,7 +91,7 @@ func TestHandler_Table_GetAndList(t *testing.T) {
 			method: http.MethodGet,
 			pathFn: func(bucketARN, _ string) string {
 				return fmt.Sprintf(
-					"/get-table?tableBucketARN=%s&namespace=test-ns&name=nope",
+					"/get-table?tableBucketARN=%s&namespace=test_ns&name=nope",
 					url.QueryEscape(bucketARN),
 				)
 			},
@@ -106,7 +106,7 @@ func TestHandler_Table_GetAndList(t *testing.T) {
 		{
 			name:       "list_tables_with_namespace",
 			method:     http.MethodGet,
-			pathFn:     func(_, encodedARN string) string { return "/tables/" + encodedARN + "?namespace=test-ns" },
+			pathFn:     func(_, encodedARN string) string { return "/tables/" + encodedARN + "?namespace=test_ns" },
 			wantStatus: http.StatusOK,
 		},
 	}
@@ -116,10 +116,10 @@ func TestHandler_Table_GetAndList(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bucketARN := createBucketHelper(t, h, "get-list-bucket-"+tt.name)
+			bucketARN := createBucketHelper(t, h, "get-list-bucket-"+bucketSuffix(tt.name))
 			encodedARN := url.PathEscape(bucketARN)
-			createNamespaceHelper(t, h, bucketARN, []string{"test-ns"})
-			_ = createTableHelper(t, h, bucketARN, "test-ns", "test-table")
+			createNamespaceHelper(t, h, bucketARN, []string{"test_ns"})
+			_ = createTableHelper(t, h, bucketARN, "test_ns", "test_table")
 
 			path := tt.pathFn(bucketARN, encodedARN)
 			rec := doS3TablesRequest(t, h, tt.method, path, nil)
@@ -159,15 +159,15 @@ func TestHandler_Table_Delete(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bucketARN := createBucketHelper(t, h, "delete-table-bucket-"+tt.name)
+			bucketARN := createBucketHelper(t, h, "delete-table-bucket-"+bucketSuffix(tt.name))
 			encodedARN := url.PathEscape(bucketARN)
-			createNamespaceHelper(t, h, bucketARN, []string{"test-ns"})
+			createNamespaceHelper(t, h, bucketARN, []string{"test_ns"})
 
 			if tt.tableExists {
-				_ = createTableHelper(t, h, bucketARN, "test-ns", "my-table")
+				_ = createTableHelper(t, h, bucketARN, "test_ns", "my_table")
 			}
 
-			rec := doS3TablesRequest(t, h, http.MethodDelete, "/tables/"+encodedARN+"/test-ns/my-table", nil)
+			rec := doS3TablesRequest(t, h, http.MethodDelete, "/tables/"+encodedARN+"/test_ns/my_table", nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -185,20 +185,20 @@ func TestHandler_Table_Rename(t *testing.T) {
 	}{
 		{
 			name:        "rename_table",
-			body:        map[string]any{"newName": "renamed-table"},
+			body:        map[string]any{"newName": "renamed_table"},
 			createTable: true,
 			wantStatus:  http.StatusNoContent,
 		},
 		{
 			name:          "reject_stale_version_token",
-			body:          map[string]any{"newName": "renamed-table"},
+			body:          map[string]any{"newName": "renamed_table"},
 			createTable:   true,
 			useStaleToken: true,
 			wantStatus:    http.StatusConflict,
 		},
 		{
 			name:        "reject_missing_destination_namespace",
-			body:        map[string]any{"newNamespaceName": "missing-ns"},
+			body:        map[string]any{"newNamespaceName": "missing_ns"},
 			createTable: true,
 			wantStatus:  http.StatusNotFound,
 		},
@@ -214,24 +214,24 @@ func TestHandler_Table_Rename(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bucketARN := createBucketHelper(t, h, "rename-bucket-"+tt.name)
+			bucketARN := createBucketHelper(t, h, "rename-bucket-"+bucketSuffix(tt.name))
 			encodedARN := url.PathEscape(bucketARN)
-			createNamespaceHelper(t, h, bucketARN, []string{"rename-ns"})
+			createNamespaceHelper(t, h, bucketARN, []string{"rename_ns"})
 
-			tableName := "orig-table"
+			tableName := "orig_table"
 			if tt.createTable {
-				_ = createTableHelper(t, h, bucketARN, "rename-ns", tableName)
-				table := getTableHelper(t, h, bucketARN, "rename-ns", tableName)
+				_ = createTableHelper(t, h, bucketARN, "rename_ns", tableName)
+				table := getTableHelper(t, h, bucketARN, "rename_ns", tableName)
 				tt.body["versionToken"] = table["versionToken"]
 			} else {
-				tableName = "not-exist"
+				tableName = "not_exist"
 			}
 
 			if tt.useStaleToken {
 				tt.body["versionToken"] = "stale-version-token"
 			}
 
-			path := "/tables/" + encodedARN + "/rename-ns/" + tableName + "/rename"
+			path := "/tables/" + encodedARN + "/rename_ns/" + tableName + "/rename"
 			rec := doS3TablesRequest(t, h, http.MethodPut, path, tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -273,25 +273,25 @@ func TestHandler_Table_UpdateMetadataLocation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bucketARN := createBucketHelper(t, h, "meta-bucket-"+tt.name)
+			bucketARN := createBucketHelper(t, h, "meta-bucket-"+bucketSuffix(tt.name))
 			encodedARN := url.PathEscape(bucketARN)
-			createNamespaceHelper(t, h, bucketARN, []string{"meta-ns"})
+			createNamespaceHelper(t, h, bucketARN, []string{"meta_ns"})
 
-			tableName := "meta-table"
+			tableName := "meta_table"
 			versionToken := "missing-table-token"
 			if tt.createTable {
-				_ = createTableHelper(t, h, bucketARN, "meta-ns", tableName)
-				table := getTableHelper(t, h, bucketARN, "meta-ns", tableName)
+				_ = createTableHelper(t, h, bucketARN, "meta_ns", tableName)
+				table := getTableHelper(t, h, bucketARN, "meta_ns", tableName)
 				versionToken = table["versionToken"].(string)
 			} else {
-				tableName = "not-exist"
+				tableName = "not_exist"
 			}
 
 			if tt.useStaleToken {
 				versionToken = "stale-version-token"
 			}
 
-			path := "/tables/" + encodedARN + "/meta-ns/" + tableName + "/metadata-location"
+			path := "/tables/" + encodedARN + "/meta_ns/" + tableName + "/metadata-location"
 			rec := doS3TablesRequest(t, h, http.MethodPut, path, map[string]any{
 				"metadataLocation": tt.metadataLocation,
 				"versionToken":     versionToken,
@@ -307,10 +307,10 @@ func TestHandler_TablePolicy(t *testing.T) {
 	h := newTestHandler(t)
 	bucketARN := createBucketHelper(t, h, "table-policy-bucket")
 	encodedARN := url.PathEscape(bucketARN)
-	createNamespaceHelper(t, h, bucketARN, []string{"policy-ns"})
-	_ = createTableHelper(t, h, bucketARN, "policy-ns", "policy-table")
+	createNamespaceHelper(t, h, bucketARN, []string{"policy_ns"})
+	_ = createTableHelper(t, h, bucketARN, "policy_ns", "policy_table")
 	policy := `{"Version":"2012-10-17","Statement":[]}`
-	path := "/tables/" + encodedARN + "/policy-ns/policy-table/policy"
+	path := "/tables/" + encodedARN + "/policy_ns/policy_table/policy"
 
 	// Put table policy
 	rec := doS3TablesRequest(t, h, http.MethodPut, path, map[string]any{"resourcePolicy": policy})
@@ -331,11 +331,11 @@ func TestHandler_CreateTable_WithURLEncodedARN(t *testing.T) {
 	h := newTestHandler(t)
 	bucketARN := createBucketHelper(t, h, "encoded-bucket")
 	encodedARN := url.PathEscape(bucketARN)
-	createNamespaceHelper(t, h, bucketARN, []string{"encoded-ns"})
+	createNamespaceHelper(t, h, bucketARN, []string{"encoded_ns"})
 
-	path := "/tables/" + encodedARN + "/encoded-ns"
+	path := "/tables/" + encodedARN + "/encoded_ns"
 	rec := doS3TablesRequest(t, h, http.MethodPut, path, map[string]any{
-		"name":   "encoded-table",
+		"name":   "encoded_table",
 		"format": "ICEBERG",
 	})
 
@@ -392,7 +392,7 @@ func TestHandler_CreateTable_AppliesEncryptionStorageClassAndTags(t *testing.T) 
 	encodedARN := url.PathEscape(bucketARN)
 
 	rec := doS3TablesRequest(t, h, http.MethodPut, "/tables/"+encodedARN+"/ns1", map[string]any{
-		"name":   "opts-table",
+		"name":   "opts_table",
 		"format": "ICEBERG",
 		"encryptionConfiguration": map[string]any{
 			"sseAlgorithm": "aws:kms",
@@ -406,7 +406,7 @@ func TestHandler_CreateTable_AppliesEncryptionStorageClassAndTags(t *testing.T) 
 	tableARN, ok := result["tableARN"].(string)
 	require.True(t, ok)
 
-	encRec := doS3TablesRequest(t, h, http.MethodGet, "/tables/"+encodedARN+"/ns1/opts-table/encryption", nil)
+	encRec := doS3TablesRequest(t, h, http.MethodGet, "/tables/"+encodedARN+"/ns1/opts_table/encryption", nil)
 	require.Equal(t, http.StatusOK, encRec.Code)
 	encResult := parseResponse(t, encRec)
 	encCfg, ok := encResult["encryptionConfiguration"].(map[string]any)

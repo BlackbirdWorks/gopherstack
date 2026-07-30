@@ -123,6 +123,16 @@ func (h *Handler) handleCreateAccessPointForObjectLambda(c *echo.Context) error 
 	})
 }
 
+// handleGetAccessPointForObjectLambda. GetAccessPointForObjectLambdaOutput
+// in the real SDK has NO ObjectLambdaAccessPointArn field at all -- its
+// only members are Alias, CreationDate, Name, and
+// PublicAccessBlockConfiguration (confirmed via
+// aws-sdk-go-v2/service/s3control's GetAccessPointForObjectLambdaOutput and
+// its deserializer, which only recognizes those four elements). A previous
+// version of this handler fabricated an ObjectLambdaAccessPointArn element
+// here. Alias/CreationDate/PublicAccessBlockConfiguration are omitted
+// (GAP, not fabricated): ObjectLambdaAccessPoint in this backend tracks
+// none of the three (see models.go).
 func (h *Handler) handleGetAccessPointForObjectLambda(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimPrefix(c.Request().URL.Path, pathObjectLambdaPrefix)
@@ -133,12 +143,10 @@ func (h *Handler) handleGetAccessPointForObjectLambda(c *echo.Context) error {
 	}
 
 	return writeXML(c, struct {
-		XMLName                    xml.Name `xml:"GetAccessPointForObjectLambdaResult"`
-		Name                       string   `xml:"Name"`
-		ObjectLambdaAccessPointArn string   `xml:"ObjectLambdaAccessPointArn"`
+		XMLName xml.Name `xml:"GetAccessPointForObjectLambdaResult"`
+		Name    string   `xml:"Name"`
 	}{
-		Name:                       ap.Name,
-		ObjectLambdaAccessPointArn: ap.ObjectLambdaAccessPointArn,
+		Name: ap.Name,
 	})
 }
 
@@ -257,6 +265,23 @@ func (h *Handler) handleGetAccessPointPolicyStatusForObjectLambda(c *echo.Contex
 	}{IsPublic: isPublic})
 }
 
+// handleGetAccessPointConfigurationForObjectLambda. The real
+// GetAccessPointConfigurationForObjectLambdaOutput wraps its payload under
+// "<Configuration>", NOT "<ObjectLambdaConfiguration>" -- confirmed via
+// awsRestxml_deserializeOpDocumentGetAccessPointConfigurationForObjectLambdaOutput,
+// which only recognizes "Configuration" at the top level (the real
+// ObjectLambdaConfiguration type -- SupportingAccessPoint,
+// TransformationConfigurations, AllowedFeatures,
+// CloudWatchMetricsEnabled -- lives INSIDE that element, it does not name
+// it). A previous version of this handler used "ObjectLambdaConfiguration"
+// as the wrapper key, which a real client's field-matching loop would
+// silently skip (same wrong-envelope-key bug class as
+// ListCallerAccessGrants' "AccessGrantsList", see handler_access_grants.go).
+// The configuration payload itself is captured/replayed as raw inner XML
+// (createJobXMLCapture, shared with CreateJob's Manifest/Operation/Report)
+// rather than a plain string, so a real client's nested
+// TransformationConfigurations/AllowedFeatures structure round-trips
+// intact instead of being flattened to concatenated character data.
 func (h *Handler) handleGetAccessPointConfigurationForObjectLambda(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimSuffix(
@@ -269,15 +294,20 @@ func (h *Handler) handleGetAccessPointConfigurationForObjectLambda(c *echo.Conte
 		return handleBackendError(c, err)
 	}
 
-	return writeXML(c, struct {
-		XMLName       xml.Name `xml:"GetAccessPointConfigurationForObjectLambdaResult"`
-		Configuration string   `xml:"ObjectLambdaConfiguration,omitempty"`
-	}{Configuration: cfg})
+	resp := struct {
+		Configuration *describeJobInnerXML `xml:"Configuration,omitempty"`
+		XMLName       xml.Name             `xml:"GetAccessPointConfigurationForObjectLambdaResult"`
+	}{}
+	if cfg != "" {
+		resp.Configuration = &describeJobInnerXML{Raw: cfg}
+	}
+
+	return writeXML(c, resp)
 }
 
 type putAPConfigForObjectLambdaRequestXML struct {
-	XMLName       xml.Name `xml:"PutAccessPointConfigurationForObjectLambdaRequest"`
-	Configuration string   `xml:"ObjectLambdaConfiguration"`
+	XMLName       xml.Name            `xml:"PutAccessPointConfigurationForObjectLambdaRequest"`
+	Configuration createJobXMLCapture `xml:"Configuration"`
 }
 
 func (h *Handler) handlePutAccessPointConfigurationForObjectLambda(c *echo.Context) error {
@@ -292,7 +322,9 @@ func (h *Handler) handlePutAccessPointConfigurationForObjectLambda(c *echo.Conte
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	if err := h.Backend.PutAccessPointConfigurationForObjectLambda(accountID, name, body.Configuration); err != nil {
+	if err := h.Backend.PutAccessPointConfigurationForObjectLambda(
+		accountID, name, body.Configuration.Raw,
+	); err != nil {
 		return handleBackendError(c, err)
 	}
 

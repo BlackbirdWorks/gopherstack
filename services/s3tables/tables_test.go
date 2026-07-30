@@ -8,6 +8,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestBackend_CreateTable_NameValidation verifies CreateTable enforces real
+// S3 Tables table naming rules (field-diffed against
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-buckets-naming.html):
+// 1-255 chars; lowercase letters, digits, underscores only; must begin with
+// a letter or number; no hyphens/periods. Unlike namespaces, table names
+// have no reserved "aws" prefix restriction.
+func TestBackend_CreateTable_NameValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		wantValid bool
+	}{
+		{name: "", wantValid: false},             // too short (< 1 char)
+		{name: "Valid_table", wantValid: false},  // uppercase not allowed
+		{name: "valid-table", wantValid: false},  // hyphen not allowed
+		{name: "valid.table", wantValid: false},  // period not allowed
+		{name: "_valid_table", wantValid: false}, // must begin with letter/number
+		{name: "awsreserved", wantValid: true},   // "aws" prefix IS allowed for tables
+		{name: "valid_table_123", wantValid: true},
+		{name: "t", wantValid: true}, // exactly minimum length
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			tb, err := b.CreateTableBucket("tbl-validation-bucket", s3tables.CreateTableBucketOptions{})
+			require.NoError(t, err)
+			_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
+			require.NoError(t, err)
+
+			_, err = b.CreateTable(tb.ARN, []string{"ns1"}, tt.name, "ICEBERG", s3tables.CreateTableOptions{})
+
+			if tt.wantValid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, s3tables.ErrInvalidName)
+			}
+		})
+	}
+}
+
 func TestBackend_CreateTable_AppliesOptions(t *testing.T) {
 	t.Parallel()
 
@@ -111,7 +156,7 @@ func TestBackend_GetTableEncryption_Inheritance(t *testing.T) {
 				bucketOpts.Encryption = tt.bucketEnc
 			}
 
-			tb, err := b.CreateTableBucket("enc-inherit-"+tt.name, bucketOpts)
+			tb, err := b.CreateTableBucket("enc-inherit-"+bucketSuffix(tt.name), bucketOpts)
 			require.NoError(t, err)
 
 			_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})

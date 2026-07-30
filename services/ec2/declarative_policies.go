@@ -3,11 +3,8 @@ package ec2
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ErrDeclarativePoliciesReportNotFound is returned when a Declarative Policies report
@@ -38,19 +35,17 @@ const (
 
 // DeclarativePoliciesReport represents a Declarative Policies report generation task.
 type DeclarativePoliciesReport struct {
-	StartTime time.Time         `json:"startTime"`
-	EndTime   time.Time         `json:"endTime"`
-	Tags      map[string]string `json:"tags,omitempty"`
-	ReportID  string            `json:"reportId,omitempty"`
-	TargetID  string            `json:"targetId,omitempty"`
-	S3Bucket  string            `json:"s3Bucket,omitempty"`
-	S3Prefix  string            `json:"s3Prefix,omitempty"`
-	Status    string            `json:"status,omitempty"`
+	StartTime time.Time `json:"startTime"`
+	EndTime   time.Time `json:"endTime"`
+	ReportID  string    `json:"reportId,omitempty"`
+	TargetID  string    `json:"targetId,omitempty"`
+	S3Bucket  string    `json:"s3Bucket,omitempty"`
+	S3Prefix  string    `json:"s3Prefix,omitempty"`
+	Status    string    `json:"status,omitempty"`
 }
 
 func cloneDeclarativePoliciesReport(r *DeclarativePoliciesReport) *DeclarativePoliciesReport {
 	cp := *r
-	cp.Tags = maps.Clone(r.Tags)
 
 	return &cp
 }
@@ -83,15 +78,15 @@ func (b *InMemoryBackend) StartDeclarativePoliciesReport(
 	defer b.mu.Unlock()
 
 	report := &DeclarativePoliciesReport{
-		ReportID:  "report-" + uuid.New().String()[:declarativePoliciesReportIDPrefixLength],
+		ReportID:  newDeclarativePoliciesReportID(),
 		TargetID:  targetID,
 		S3Bucket:  s3Bucket,
 		S3Prefix:  s3Prefix,
 		Status:    declarativePoliciesReportStateRunning,
 		StartTime: time.Now().UTC(),
-		Tags:      maps.Clone(tags),
 	}
 	b.declarativePoliciesReports.Put(report)
+	b.setTagsLocked(report.ReportID, tags)
 
 	return cloneDeclarativePoliciesReport(report), nil
 }

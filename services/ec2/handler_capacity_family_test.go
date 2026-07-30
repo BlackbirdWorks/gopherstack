@@ -683,3 +683,134 @@ func TestHandler_CapacityManagerMonitoredTagKeys_GetReflectsUpdates(t *testing.T
 	require.Equal(t, http.StatusOK, getRec2.Code)
 	assert.Contains(t, getRec2.Body.String(), "<status>suspended</status>")
 }
+
+// TestHandler_CapacityFamily_TagDualWritePathVisibility proves that the four
+// taggable resources in the capacity family (CapacityReservationFleet,
+// CapacityBlock, CapacityManagerDataExport, CapacityReservationCancellation
+// Quote) consolidated onto the shared tag store: a tag supplied at create
+// time (TagSpecification) and a tag added afterwards via CreateTags are BOTH
+// visible through the resource's own Describe call AND through the generic
+// DescribeTags call. Before the fix, these types carried their own embedded
+// Tags field that was populated only at create time, so a post-creation
+// CreateTags call was invisible to Describe. Each subtest uses a fresh
+// backend and describes with no ID filter, since the backend starts empty.
+func TestHandler_CapacityFamily_TagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		create         func(t *testing.T, h *ec2.Handler) string // returns the created resource's ID
+		name           string
+		describeAction string
+	}{
+		{
+			name: "capacity reservation fleet",
+			create: func(t *testing.T, h *ec2.Handler) string {
+				t.Helper()
+
+				rec := postForm(t, h,
+					"Action=CreateCapacityReservationFleet&Version=2016-11-15&TotalTargetCapacity=1"+
+						"&InstanceTypeSpecification.1.InstanceType=m5.large"+
+						"&InstanceTypeSpecification.1.AvailabilityZone=us-east-1a"+
+						"&TagSpecification.1.ResourceType=capacity-reservation-fleet"+
+						"&TagSpecification.1.Tag.1.Key=CreateTime&TagSpecification.1.Tag.1.Value=yes")
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "CreateTime")
+
+				return extractXMLValue(t, rec.Body.String(), "capacityReservationFleetId")
+			},
+			describeAction: "DescribeCapacityReservationFleets",
+		},
+		{
+			name: "capacity block",
+			create: func(t *testing.T, h *ec2.Handler) string {
+				t.Helper()
+
+				offerRec := postForm(t, h,
+					"Action=DescribeCapacityBlockOfferings&Version=2016-11-15"+
+						"&InstanceType=p4d.24xlarge&CapacityDurationHours=24&InstanceCount=1")
+				require.Equal(t, http.StatusOK, offerRec.Code)
+				offeringID := extractXMLValue(t, offerRec.Body.String(), "capacityBlockOfferingId")
+				require.NotEmpty(t, offeringID)
+
+				// PurchaseCapacityBlock reads TagSpecifications for ResourceType
+				// "capacity-reservation" (a pre-existing quirk of this operation,
+				// unrelated to the tag-dual-storage fix) even though the tags land
+				// on the CapacityBlock.
+				purchaseRec := postForm(t, h,
+					"Action=PurchaseCapacityBlock&Version=2016-11-15"+
+						"&CapacityBlockOfferingId="+offeringID+"&InstancePlatform=Linux/UNIX"+
+						"&TagSpecification.1.ResourceType=capacity-reservation"+
+						"&TagSpecification.1.Tag.1.Key=CreateTime&TagSpecification.1.Tag.1.Value=yes")
+				require.Equal(t, http.StatusOK, purchaseRec.Code)
+				assert.Contains(t, purchaseRec.Body.String(), "CreateTime")
+
+				return extractXMLValue(t, purchaseRec.Body.String(), "capacityBlockId")
+			},
+			describeAction: "DescribeCapacityBlocks",
+		},
+		{
+			name: "capacity manager data export",
+			create: func(t *testing.T, h *ec2.Handler) string {
+				t.Helper()
+
+				rec := postForm(t, h,
+					"Action=CreateCapacityManagerDataExport&Version=2016-11-15"+
+						"&OutputFormat=parquet&S3BucketName=my-bucket&Schedule=hourly"+
+						"&TagSpecification.1.ResourceType=capacity-manager-data-export"+
+						"&TagSpecification.1.Tag.1.Key=CreateTime&TagSpecification.1.Tag.1.Value=yes")
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return extractXMLValue(t, rec.Body.String(), "capacityManagerDataExportId")
+			},
+			describeAction: "DescribeCapacityManagerDataExports",
+		},
+		{
+			name: "capacity reservation cancellation quote",
+			create: func(t *testing.T, h *ec2.Handler) string {
+				t.Helper()
+
+				cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 4)
+				require.NoError(t, err)
+
+				rec := postForm(t, h,
+					"Action=CreateCapacityReservationCancellationQuote&Version=2016-11-15"+
+						"&CapacityReservationId="+cr.CapacityReservationID+
+						"&TagSpecification.1.ResourceType=capacity-reservation-cancellation-quote"+
+						"&TagSpecification.1.Tag.1.Key=CreateTime&TagSpecification.1.Tag.1.Value=yes")
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "CreateTime")
+
+				return extractXMLValue(t, rec.Body.String(), "capacityReservationCancellationQuoteId")
+			},
+			describeAction: "DescribeCapacityReservationCancellationQuotes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			id := tt.create(t, h)
+			require.NotEmpty(t, id)
+
+			tagRec := postForm(t, h,
+				"Action=CreateTags&Version=2016-11-15&ResourceId.1="+id+
+					"&Tag.1.Key=AddedLater&Tag.1.Value=yes")
+			require.Equal(t, http.StatusOK, tagRec.Code)
+
+			descRec := postForm(t, h, "Action="+tt.describeAction+"&Version=2016-11-15")
+			require.Equal(t, http.StatusOK, descRec.Code)
+			descBody := descRec.Body.String()
+			assert.Contains(t, descBody, "CreateTime")
+			assert.Contains(t, descBody, "AddedLater")
+
+			tagsRec := postForm(t, h,
+				"Action=DescribeTags&Version=2016-11-15&Filter.1.Name=resource-id&Filter.1.Value.1="+id)
+			require.Equal(t, http.StatusOK, tagsRec.Code)
+			tagsBody := tagsRec.Body.String()
+			assert.Contains(t, tagsBody, "CreateTime")
+			assert.Contains(t, tagsBody, "AddedLater")
+		})
+	}
+}

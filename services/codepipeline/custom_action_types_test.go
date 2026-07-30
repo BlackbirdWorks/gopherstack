@@ -370,12 +370,20 @@ func TestHandler_GetActionType(t *testing.T) {
 	}
 }
 
-func TestGetActionType_ActionConfigurationProperties_EmptyNotAbsent(t *testing.T) {
+// TestGetActionType_ActionTypeDeclarationShape asserts GetActionType's real wire
+// shape is types.ActionTypeDeclaration, not the legacy types.ActionType shape
+// CreateCustomActionType/ListActionTypes use. types.ActionTypeDeclaration has no
+// "actionConfigurationProperties"/"settings" members at all (those are
+// ActionType-only) -- it has "properties"/"urls" instead, and (like the real
+// serializer's `if v.Properties != nil`) those are omitted, not forced to an
+// empty array, when the record was only ever created via the legacy
+// CreateCustomActionType path and never given declaration data by UpdateActionType.
+func TestGetActionType_ActionTypeDeclarationShape(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// Create action type without configuration properties.
+	// Create action type via the legacy shape -- no declaration data exists yet.
 	createRec := doRequest(t, h, "CreateCustomActionType", map[string]any{
 		"category":              "Build",
 		"provider":              "MyProvider",
@@ -385,7 +393,6 @@ func TestGetActionType_ActionConfigurationProperties_EmptyNotAbsent(t *testing.T
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
-	// GetActionType must also return actionConfigurationProperties: [].
 	rec := doRequest(t, h, "GetActionType", map[string]any{
 		"category": "Build",
 		"owner":    "Custom",
@@ -400,11 +407,113 @@ func TestGetActionType_ActionConfigurationProperties_EmptyNotAbsent(t *testing.T
 	actionType, ok := raw["actionType"].(map[string]any)
 	require.True(t, ok, "actionType must be an object")
 
-	props, hasKey := actionType["actionConfigurationProperties"]
-	assert.True(t, hasKey,
-		"GetActionType must include 'actionConfigurationProperties' key even when empty")
-	assert.IsType(t, []any{}, props,
-		"'actionConfigurationProperties' must be an array, not null or absent")
+	_, hasLegacyProps := actionType["actionConfigurationProperties"]
+	assert.False(t, hasLegacyProps,
+		"ActionTypeDeclaration has no actionConfigurationProperties member -- that's ActionType-only")
+
+	_, hasLegacySettings := actionType["settings"]
+	assert.False(t, hasLegacySettings,
+		"ActionTypeDeclaration has no settings member -- that's ActionType-only")
+
+	_, hasExecutor := actionType["executor"]
+	assert.False(t, hasExecutor,
+		"executor must be genuinely absent (omitted, not fabricated) for a record never given declaration data")
+
+	_, hasProperties := actionType["properties"]
+	assert.False(t, hasProperties,
+		"properties must be genuinely absent, matching the real serializer's `if v.Properties != nil` behavior")
+
+	id, ok := actionType["id"].(map[string]any)
+	require.True(t, ok, "id is a required ActionTypeDeclaration member")
+	assert.Equal(t, "Build", id["category"])
+	assert.Equal(t, "MyProvider", id["provider"])
+
+	_, hasInput := actionType["inputArtifactDetails"]
+	assert.True(t, hasInput, "inputArtifactDetails is a required ActionTypeDeclaration member")
+
+	_, hasOutput := actionType["outputArtifactDetails"]
+	assert.True(t, hasOutput, "outputArtifactDetails is a required ActionTypeDeclaration member")
+}
+
+// TestGetActionType_AfterUpdateActionType_ReturnsDeclarationData asserts that
+// once UpdateActionType supplies real ActionTypeDeclaration data (executor/
+// properties/urls/description/permissions), GetActionType round-trips it --
+// while the legacy CreateCustomActionType-era settings/configurationProperties
+// (which UpdateActionType's real input has no members to express) survive
+// unchanged, verified separately via ListActionTypes.
+func TestGetActionType_AfterUpdateActionType_ReturnsDeclarationData(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateCustomActionType", map[string]any{
+		"category":              "Build",
+		"provider":              "MyProvider",
+		"version":               "1",
+		"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
+		"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+		"settings": map[string]any{
+			"entityUrlTemplate": "https://legacy.example.com",
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	updateRec := doRequest(t, h, "UpdateActionType", map[string]any{
+		"actionType": map[string]any{
+			"id": map[string]any{
+				"category": "Build", "owner": "Custom", "provider": "MyProvider", "version": "1",
+			},
+			"description":           "updated via declaration",
+			"inputArtifactDetails":  map[string]any{"minimumCount": 1, "maximumCount": 5},
+			"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+			"executor": map[string]any{
+				"type": "Lambda",
+				"configuration": map[string]any{
+					"lambdaExecutorConfiguration": map[string]any{
+						"lambdaFunctionArn": "arn:aws:lambda:us-east-1:000000000000:function:MyFn",
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	rec := doRequest(t, h, "GetActionType", map[string]any{
+		"category": "Build", "owner": "Custom", "provider": "MyProvider", "version": "1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	actionType, ok := raw["actionType"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, "updated via declaration", actionType["description"])
+
+	executor, ok := actionType["executor"].(map[string]any)
+	require.True(t, ok, "executor must round-trip after UpdateActionType sets it")
+	assert.Equal(t, "Lambda", executor["type"])
+
+	config, ok := executor["configuration"].(map[string]any)
+	require.True(t, ok)
+	lambdaConfig, ok := config["lambdaExecutorConfiguration"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:000000000000:function:MyFn", lambdaConfig["lambdaFunctionArn"])
+
+	// The legacy settings this record was created with are untouched by
+	// UpdateActionType (its real input has no member that could express them) --
+	// verified via ListActionTypes, the legacy-shape read path.
+	listRec := doRequest(t, h, "ListActionTypes", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	items, _ := listOut["actionTypes"].([]any)
+	require.Len(t, items, 1)
+	item0, _ := items[0].(map[string]any)
+	settings, ok := item0["settings"].(map[string]any)
+	require.True(t, ok, "legacy settings must survive an UpdateActionType call")
+	assert.Equal(t, "https://legacy.example.com", settings["entityUrlTemplate"])
 }
 
 func TestHandler_ListActionTypes_FullShape(t *testing.T) {
@@ -627,7 +736,7 @@ func TestHandler_UpdateActionType_FullFields(t *testing.T) {
 		wantStatus  int
 	}{
 		{
-			name: "update with full body persists settings and artifact details",
+			name: "update with full ActionTypeDeclaration body persists executor and artifact details",
 			updateInput: map[string]any{
 				"actionType": map[string]any{
 					"id": map[string]any{
@@ -638,11 +747,17 @@ func TestHandler_UpdateActionType_FullFields(t *testing.T) {
 					},
 					"inputArtifactDetails":  map[string]any{"minimumCount": 2, "maximumCount": 10},
 					"outputArtifactDetails": map[string]any{"minimumCount": 1, "maximumCount": 5},
-					"settings": map[string]any{
-						"executionUrlTemplate": "https://ci.example.com/job/{Config:ProjectName}",
+					"description":           "a custom builder",
+					"executor": map[string]any{
+						"type": "JobWorker",
+						"configuration": map[string]any{
+							"jobWorkerExecutorConfiguration": map[string]any{
+								"pollingAccounts": []any{"000000000000"},
+							},
+						},
 					},
-					"actionConfigurationProperties": []map[string]any{
-						{"name": "BranchName", "key": true, "required": false, "secret": false},
+					"urls": map[string]any{
+						"entityUrlTemplate": "https://ci.example.com/job/{Config:ProjectName}",
 					},
 				},
 			},
@@ -663,9 +778,15 @@ func TestHandler_UpdateActionType_FullFields(t *testing.T) {
 				minCnt, _ := inArt["minimumCount"].(float64)
 				assert.InDelta(t, float64(2), minCnt, 0)
 
-				settings, _ := at["settings"].(map[string]any)
-				require.NotNil(t, settings)
-				assert.Equal(t, "https://ci.example.com/job/{Config:ProjectName}", settings["executionUrlTemplate"])
+				assert.Equal(t, "a custom builder", at["description"])
+
+				executor, _ := at["executor"].(map[string]any)
+				require.NotNil(t, executor)
+				assert.Equal(t, "JobWorker", executor["type"])
+
+				urls, _ := at["urls"].(map[string]any)
+				require.NotNil(t, urls)
+				assert.Equal(t, "https://ci.example.com/job/{Config:ProjectName}", urls["entityUrlTemplate"])
 			},
 		},
 		{
@@ -680,6 +801,19 @@ func TestHandler_UpdateActionType_FullFields(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name: "update missing executor rejected",
+			updateInput: map[string]any{
+				"actionType": map[string]any{
+					"id": map[string]any{
+						"category": "Build", "owner": "Custom", "provider": "MyBuilder", "version": "1",
+					},
+					"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
+					"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name: "update non-existent type returns ActionTypeNotFoundException",
 			updateInput: map[string]any{
 				"actionType": map[string]any{
@@ -688,6 +822,46 @@ func TestHandler_UpdateActionType_FullFields(t *testing.T) {
 					},
 					"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
 					"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+					"executor": map[string]any{
+						"type":          "JobWorker",
+						"configuration": map[string]any{},
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "update invalid executor type rejected",
+			updateInput: map[string]any{
+				"actionType": map[string]any{
+					"id": map[string]any{
+						"category": "Build", "owner": "Custom", "provider": "MyBuilder", "version": "1",
+					},
+					"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
+					"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+					"executor": map[string]any{
+						"type":          "NotARealExecutorType",
+						"configuration": map[string]any{},
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "update Lambda executor missing lambdaFunctionArn rejected",
+			updateInput: map[string]any{
+				"actionType": map[string]any{
+					"id": map[string]any{
+						"category": "Build", "owner": "Custom", "provider": "MyBuilder", "version": "1",
+					},
+					"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
+					"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+					"executor": map[string]any{
+						"type": "Lambda",
+						"configuration": map[string]any{
+							"lambdaExecutorConfiguration": map[string]any{},
+						},
+					},
 				},
 			},
 			wantStatus: http.StatusBadRequest,
@@ -757,7 +931,9 @@ func TestHandler_ActionTypeOperations(t *testing.T) {
 	rec = doRequest(t, h, "GetActionType", map[string]any{})
 	assert.Equal(t, 400, rec.Code)
 
-	// Update action type
+	// Update action type: real UpdateActionType input is ActionTypeDeclaration,
+	// which requires executor/inputArtifactDetails/outputArtifactDetails in
+	// addition to id.
 	rec = doRequest(t, h, "UpdateActionType", map[string]any{
 		"actionType": map[string]any{
 			"id": map[string]any{
@@ -765,6 +941,14 @@ func TestHandler_ActionTypeOperations(t *testing.T) {
 				"owner":    "Custom",
 				"provider": "MyCIProvider",
 				"version":  "1",
+			},
+			"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
+			"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
+			"executor": map[string]any{
+				"type": "JobWorker",
+				"configuration": map[string]any{
+					"jobWorkerExecutorConfiguration": map[string]any{},
+				},
 			},
 		},
 	})

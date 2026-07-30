@@ -12,13 +12,66 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestACMHandler_ExportCertificate_AmazonIssued_Returns_RequestInProgressException(t *testing.T) {
+// TestACMHandler_ExportCertificate_AmazonIssued covers ACM's
+// exportable-public-certificates gating (confirmed this pass against the
+// live AWS API reference: API_ExportCertificate.html's documented Errors
+// section and API_CertificateOptions.html's Export field doc -- see
+// validateCertExportable in certificates.go): a still-pending AMAZON_ISSUED
+// certificate keeps the pre-existing RequestInProgressException; an
+// issued-but-not-opted-in one now correctly returns ValidationException
+// (previously, incorrectly, also RequestInProgressException, which per the
+// op's own doc specifically means "not yet issued" -- a real client would
+// have been told to wait and retry for a condition that could never change);
+// an issued AND opted-in (Options.Export=ENABLED) one now genuinely succeeds,
+// a capability that did not exist before this pass.
+func TestACMHandler_ExportCertificate_AmazonIssued(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
+		setup       func(t *testing.T, h *acm.Handler) string
+		name        string
+		wantErrType string // empty means the export must succeed
 	}{
-		{name: "amazon_issued_not_exportable"},
+		{
+			name: "still_pending_returns_request_in_progress",
+			setup: func(t *testing.T, h *acm.Handler) string {
+				t.Helper()
+				// ValidationMethod must be DNS/EMAIL to actually land in
+				// PENDING_VALIDATION -- omitting it hits buildInitialDVOList's
+				// default case, which issues the certificate synchronously
+				// (certificates.go), so an omitted ValidationMethod would make
+				// this case indistinguishable from the "already issued" one below.
+				reqRec := postACMJSON(t, h, "RequestCertificate",
+					`{"DomainName":"export-pending.example.com","ValidationMethod":"DNS"}`)
+				require.Equal(t, http.StatusOK, reqRec.Code)
+
+				var reqOut struct {
+					CertificateArn string `json:"CertificateArn"`
+				}
+				require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+
+				return reqOut.CertificateArn
+			},
+			wantErrType: "RequestInProgressException",
+		},
+		{
+			name: "issued_without_export_enabled_returns_validation_exception",
+			setup: func(t *testing.T, h *acm.Handler) string {
+				t.Helper()
+
+				return requestAndAwaitIssued(t, h, "export-noteligible.example.com", "")
+			},
+			wantErrType: "ValidationException",
+		},
+		{
+			name: "issued_with_export_enabled_succeeds",
+			setup: func(t *testing.T, h *acm.Handler) string {
+				t.Helper()
+
+				return requestAndAwaitIssued(t, h, "export-eligible.example.com", "ENABLED")
+			},
+			wantErrType: "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -26,29 +79,104 @@ func TestACMHandler_ExportCertificate_AmazonIssued_Returns_RequestInProgressExce
 			t.Parallel()
 
 			h := newACMHandler()
-			reqRec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"export-noteligible.example.com"}`)
-			require.Equal(t, http.StatusOK, reqRec.Code)
-
-			var reqOut struct {
-				CertificateArn string `json:"CertificateArn"`
-			}
-			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+			certARN := tt.setup(t, h)
 
 			body, _ := json.Marshal(map[string]string{
-				"CertificateArn": reqOut.CertificateArn,
+				"CertificateArn": certARN,
 				"Passphrase":     "dGVzdA==",
 			})
 			rec := postACMJSON(t, h, "ExportCertificate", string(body))
+
+			if tt.wantErrType == "" {
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out struct {
+					Certificate      string `json:"Certificate"`
+					CertificateChain string `json:"CertificateChain"`
+					PrivateKey       string `json:"PrivateKey"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Contains(t, out.Certificate, "BEGIN CERTIFICATE")
+				assert.NotEmpty(t, out.PrivateKey)
+
+				// Exported must now flip to true and be visible on ListCertificates
+				// -- no longer gated to PRIVATE certificates only (see
+				// buildCertificateSummary's doc comment, handler_certificates.go).
+				listRec := postACMJSON(t, h, "ListCertificates", `{}`)
+				require.Equal(t, http.StatusOK, listRec.Code)
+
+				var listOut struct {
+					CertificateSummaryList []struct {
+						CertificateArn string `json:"CertificateArn"`
+						Exported       bool   `json:"Exported"`
+					} `json:"CertificateSummaryList"`
+				}
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+
+				var found bool
+				for _, s := range listOut.CertificateSummaryList {
+					if s.CertificateArn == certARN {
+						found = true
+
+						assert.True(t, s.Exported)
+					}
+				}
+				assert.True(t, found, "exported certificate must appear in ListCertificates")
+
+				return
+			}
+
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp struct {
 				Type string `json:"__type"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-			assert.Equal(t, "RequestInProgressException", errResp.Type,
-				"ExportCertificate on AMAZON_ISSUED cert must return RequestInProgressException, not RequestError")
+			assert.Equal(t, tt.wantErrType, errResp.Type)
 		})
 	}
+}
+
+// requestAndAwaitIssued creates an AMAZON_ISSUED certificate (optionally with
+// Options.Export set) and polls DescribeCertificate until it reaches ISSUED
+// (auto-validation fires after acm.autoValidateDelayMS, matching the existing
+// TestACMHandler_GetCertificate_Issued_Succeeds pattern in this file), so
+// tests exercising post-issuance behavior aren't racing the auto-validate
+// timer.
+func requestAndAwaitIssued(t *testing.T, h *acm.Handler, domainName, exportOption string) string {
+	t.Helper()
+
+	reqBody := map[string]any{"DomainName": domainName}
+	if exportOption != "" {
+		reqBody["Options"] = map[string]string{"Export": exportOption}
+	}
+
+	reqJSON, err := json.Marshal(reqBody)
+	require.NoError(t, err)
+
+	reqRec := postACMJSON(t, h, "RequestCertificate", string(reqJSON))
+	require.Equal(t, http.StatusOK, reqRec.Code)
+
+	var reqOut struct {
+		CertificateArn string `json:"CertificateArn"`
+	}
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+
+	require.Eventually(t, func() bool {
+		rec := postACMJSON(t, h, "DescribeCertificate",
+			`{"CertificateArn":"`+reqOut.CertificateArn+`"}`)
+
+		var out struct {
+			Certificate struct {
+				Status string `json:"Status"`
+			} `json:"Certificate"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+
+		return out.Certificate.Status == "ISSUED"
+	}, 2*time.Second, 20*time.Millisecond)
+
+	return reqOut.CertificateArn
 }
 
 func TestACMHandler_RenewCertificate_Imported_Returns_RequestInProgressException(t *testing.T) {

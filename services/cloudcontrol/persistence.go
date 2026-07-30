@@ -14,17 +14,18 @@ import (
 // backendSnapshot itself would make an older snapshot unsafe to decode as
 // the current shape. Restore compares this against the persisted value and
 // discards (registry.ResetAll plus resetting clientTokens, not a partial
-// decode) any mismatch -- see Restore below. This is the first version:
+// decode) any mismatch -- see Restore below. Version 1 was the first version:
 // CloudControl had no persistence at all before Phase 3.3 -- neither
 // InMemoryBackend nor Handler implemented persistence.Persistable, so
 // cli.go's generic setupPersistence (which type-asserts each registered
 // service.Registerable for a Snapshot/Restore pair) never picked this
 // service up at all: dead wiring, with no persistence underneath it either.
-// So there is no legacy snapshot shape to be compatible with -- any snapshot
-// without a matching Version (including one with no version field, which
-// decodes as 0) is discarded the same way any other incompatible snapshot
-// is.
-const cloudcontrolSnapshotVersion = 1
+// Version 2 changed ClientTokens' value type from a bare requestToken string
+// to clientTokenEntry (requestToken + a request fingerprint), needed to
+// detect ClientTokenConflictException (reuse of a ClientToken across a
+// genuinely different request) -- a v1 snapshot's string values would not
+// decode into that struct, so the version bump is required, not optional.
+const cloudcontrolSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the CloudControl
 // backend.
@@ -36,15 +37,16 @@ const cloudcontrolSnapshotVersion = 1
 // neither needs a DTO wrapper.
 //
 // ClientTokens is the one remaining raw (non-store.Table) map: its value is
-// a bare string (the idempotency-cached requestToken), not *T, so there is
-// nothing for store.Table to key on. It is persisted directly here so a
-// repeated CreateResource ClientToken remains idempotent across a restart.
+// a clientTokenEntry (idempotency-cached requestToken plus a request
+// fingerprint), not *T, so there is nothing for store.Table to key on. It is
+// persisted directly here so a repeated ClientToken remains idempotent (and
+// conflict-detectable) across a restart.
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage `json:"tables"`
-	ClientTokens map[string]string          `json:"clientTokens"`
-	AccountID    string                     `json:"accountID"`
-	Region       string                     `json:"region"`
-	Version      int                        `json:"version"`
+	Tables       map[string]json.RawMessage  `json:"tables"`
+	ClientTokens map[string]clientTokenEntry `json:"clientTokens"`
+	AccountID    string                      `json:"accountID"`
+	Region       string                      `json:"region"`
+	Version      int                         `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
@@ -94,7 +96,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", cloudcontrolSnapshotVersion)
 
 		b.registry.ResetAll()
-		b.clientTokens = make(map[string]string)
+		b.clientTokens = make(map[string]clientTokenEntry)
 
 		return nil
 	}
@@ -105,7 +107,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.clientTokens = snap.ClientTokens
 	if b.clientTokens == nil {
-		b.clientTokens = make(map[string]string)
+		b.clientTokens = make(map[string]clientTokenEntry)
 	}
 
 	b.accountID = snap.AccountID

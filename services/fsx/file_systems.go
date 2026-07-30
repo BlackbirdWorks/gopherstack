@@ -1,7 +1,9 @@
 package fsx
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -147,6 +149,7 @@ type createFileSystemInput struct {
 	FileSystemType       string                      `json:"FileSystemType"`
 	StorageType          string                      `json:"StorageType,omitempty"`
 	VpcID                string                      `json:"VpcId,omitempty"`
+	ClientRequestToken   string                      `json:"ClientRequestToken,omitempty"`
 	Tags                 []Tag                       `json:"Tags,omitempty"`
 	SubnetIDs            []string                    `json:"SubnetIds,omitempty"`
 	SecurityGroupIDs     []string                    `json:"SecurityGroupIds,omitempty"`
@@ -212,6 +215,44 @@ func fileSystemMinCapacity(fsType string) (int32, bool) {
 	minCap, ok := minCapByType[fsType]
 
 	return minCap, ok
+}
+
+// subnetIDPattern matches real AWS's CreateFileSystem SubnetIds member
+// pattern: "^(subnet-[0-9a-f]{8,})$".
+var subnetIDPattern = regexp.MustCompile(`^subnet-[0-9a-f]{8,}$`)
+
+// securityGroupIDPattern matches real AWS's CreateFileSystem SecurityGroupIds
+// member pattern: "^(sg-[0-9a-f]{8,})$".
+var securityGroupIDPattern = regexp.MustCompile(`^sg-[0-9a-f]{8,}$`)
+
+// validateSubnetIDs rejects malformed subnet IDs. This is a format-only
+// check: gopherstack does not model VPC/subnet/AZ topology, so unlike real
+// AWS it cannot also verify a given subnet actually exists or belongs to the
+// file system's VPC (real AWS's InvalidNetworkSettings.InvalidSubnetId
+// covers both the format case and the existence case; this only catches the
+// former).
+func validateSubnetIDs(subnetIDs []string) error {
+	for _, id := range subnetIDs {
+		if !subnetIDPattern.MatchString(id) {
+			return fmt.Errorf("%w: SubnetIds contains malformed subnet ID %q", ErrInvalidNetworkSettings, id)
+		}
+	}
+
+	return nil
+}
+
+// validateSecurityGroupIDs rejects malformed security group IDs (format-only
+// check; see validateSubnetIDs's doc comment for what's not covered).
+func validateSecurityGroupIDs(securityGroupIDs []string) error {
+	for _, id := range securityGroupIDs {
+		if !securityGroupIDPattern.MatchString(id) {
+			return fmt.Errorf(
+				"%w: SecurityGroupIds contains malformed security group ID %q", ErrInvalidNetworkSettings, id,
+			)
+		}
+	}
+
+	return nil
 }
 
 // applyLustreConfig sets the Lustre-specific fields on fs. LustreConfiguration
@@ -354,7 +395,70 @@ func applyFileSystemTypeConfig(fs *storedFileSystem, input *createFileSystemInpu
 	}
 }
 
-// CreateFileSystem creates a new file system.
+// fsCreateTokenEntry records the fingerprint and resulting file system ID for
+// a ClientRequestToken accepted by CreateFileSystem, so a retried request can
+// be matched against the original one under lock. Fields are exported so
+// this round-trips through backendSnapshot's plain-map JSON encoding (see
+// persistence.go) instead of silently encoding as "{}" the way an
+// unexported-field struct would.
+type fsCreateTokenEntry struct {
+	Fingerprint  string `json:"fingerprint"`
+	FileSystemID string `json:"fileSystemId"`
+}
+
+// fingerprintCreateFileSystemInput returns a canonical encoding of the
+// resource-shaping parameters of a CreateFileSystem request (everything
+// except ClientRequestToken itself, which is the dedup key, not content to
+// compare). Used to detect whether a retried request carrying a
+// previously-seen ClientRequestToken supplies the same parameters, per real
+// AWS's documented contract: "If a file system with the specified client
+// request token exists and the parameters match, CreateFileSystem returns
+// the description of the existing file system. If ... the parameters don't
+// match, this call returns IncompatibleParameterError." (see AWS docs).
+func fingerprintCreateFileSystemInput(input *createFileSystemInput) (string, error) {
+	cp := *input
+	cp.ClientRequestToken = ""
+
+	b, err := json.Marshal(cp)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize CreateFileSystem request: %w", err)
+	}
+
+	return string(b), nil
+}
+
+// dedupCreateFileSystemLocked implements CreateFileSystem's idempotency-token
+// contract; must be called with b.mu held. The returned bool reports whether
+// the caller should return immediately with the accompanying (*FileSystem,
+// error) rather than proceeding to create a new file system.
+func (b *InMemoryBackend) dedupCreateFileSystemLocked(token, fingerprint string) (*FileSystem, bool, error) {
+	entry, ok := b.createFileSystemTokens[token]
+	if !ok {
+		return nil, false, nil
+	}
+
+	if entry.Fingerprint != fingerprint {
+		return nil, true, fmt.Errorf(
+			"%w: ClientRequestToken %q was already used to create a file system with different parameters",
+			ErrIncompatibleParameter, token,
+		)
+	}
+
+	existing, found := b.fileSystems.Get(entry.FileSystemID)
+	if !found {
+		// The file system behind this token was since deleted; treat the
+		// retry as a fresh create rather than erroring.
+		return nil, false, nil
+	}
+
+	return existing.toFileSystem(), true, nil
+}
+
+// CreateFileSystem creates a new file system. A non-empty ClientRequestToken
+// makes the call idempotent: a repeat call with the same token and the same
+// parameters returns the original file system instead of creating a second
+// one; a repeat call with the same token but different parameters returns
+// IncompatibleParameterError (see dedupCreateFileSystemLocked).
 func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileSystem, error) {
 	if input.FileSystemType == "" {
 		return nil, ErrValidation
@@ -378,7 +482,29 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		return nil, err
 	}
 
-	id := "fs-" + uuid.New().String()[:17]
+	if err := validateSubnetIDs(input.SubnetIDs); err != nil {
+		return nil, err
+	}
+
+	if err := validateSecurityGroupIDs(input.SecurityGroupIDs); err != nil {
+		return nil, err
+	}
+
+	fingerprint, fpErr := fingerprintCreateFileSystemInput(input)
+	if fpErr != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValidation, fpErr)
+	}
+
+	b.mu.Lock("CreateFileSystem")
+	defer b.mu.Unlock()
+
+	if input.ClientRequestToken != "" {
+		if fs, done, dedupErr := b.dedupCreateFileSystemLocked(input.ClientRequestToken, fingerprint); done {
+			return fs, dedupErr
+		}
+	}
+
+	id := newFileSystemID()
 	arn := b.fsARN(id)
 	now := time.Now().UTC()
 
@@ -404,9 +530,6 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		return nil, err
 	}
 
-	b.mu.Lock("CreateFileSystem")
-	defer b.mu.Unlock()
-
 	if fs.FileSystemType == fileSystemTypeOpenZFS {
 		fs.RootVolumeID = b.createOpenZFSRootVolumeLocked(fs)
 	}
@@ -414,8 +537,44 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 	b.fileSystems.Put(fs)
 	b.tags[arn] = tags
 
+	if input.ClientRequestToken != "" {
+		b.createFileSystemTokens[input.ClientRequestToken] = fsCreateTokenEntry{
+			Fingerprint:  fingerprint,
+			FileSystemID: fs.FileSystemID,
+		}
+	}
+
 	return fs.toFileSystem(), nil
 }
+
+// fsxIDHexLen is the hex-character length used for most FSx resource IDs
+// (e.g. "fs-0123456789abcdef0").
+const fsxIDHexLen = 17
+
+// newFSXHexUUID returns n lowercase hex characters derived from a fresh
+// UUID with the separating hyphens stripped, so the result is safe to embed
+// directly after a resource ID prefix. uuid.New().String() is hyphenated
+// (8-4-4-4-12); a naive [:n] slice embeds literal "-" characters into the ID
+// once n crosses a hyphen boundary (mirrors the fix for networkInterfaceIDsForSubnets
+// below, and gopherstack-28ce in services/ec2).
+func newFSXHexUUID(n int) string {
+	return strings.ReplaceAll(uuid.New().String(), "-", "")[:n]
+}
+
+func newFileSystemID() string                { return "fs-" + newFSXHexUUID(fsxIDHexLen) }
+func newStorageVirtualMachineID() string     { return "svm-" + newFSXHexUUID(fsxIDHexLen) }
+func newDataRepositoryAssociationID() string { return "dra-" + newFSXHexUUID(fsxIDHexLen) }
+func newFSxBackupID() string                 { return "backup-" + newFSXHexUUID(fsxIDHexLen) }
+func newDataRepositoryTaskID() string        { return "task-" + newFSXHexUUID(fsxIDHexLen) }
+func newFileCacheID() string                 { return "fc-" + newFSXHexUUID(fsxIDHexLen) }
+
+const fsxVolumeIDHexLen = 16
+
+func newFSxVolumeID() string { return "fsvol-" + newFSXHexUUID(fsxVolumeIDHexLen) }
+
+const fsxVolumeSnapshotIDHexLen = 12
+
+func newFSxVolumeSnapshotID() string { return "fsvolsnap-" + newFSXHexUUID(fsxVolumeSnapshotIDHexLen) }
 
 // generateLustreMountName returns a short, lowercase alphanumeric mount name in
 // the style AWS assigns to Lustre file systems (e.g. "abcd1234").
@@ -765,7 +924,7 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		fsType = srcFS.FileSystemType
 	}
 
-	id := "fs-" + uuid.New().String()[:17]
+	id := newFileSystemID()
 	arn := b.fsARN(id)
 	now := time.Now().UTC()
 

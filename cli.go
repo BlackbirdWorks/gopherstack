@@ -2818,6 +2818,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["Lambda"],
 		byName["KMS"],
 		byName["SecretsManager"],
+		byName["ECS"],
+		byName["Athena"],
+		byName["Glue"],
+		byName["ECR"],
+		byName["Kinesis"],
 	)
 
 	// Wire IAM → STS for ExternalId validation and MaxSessionDuration enforcement.
@@ -5215,6 +5220,13 @@ func registerTaggingService(
 // wireResourceGroupsTagging connects the Resource Groups Tagging API backend to all
 // service backends so that GetResources, GetTagKeys, GetTagValues, TagResources, and
 // UntagResources work cross-service.
+//
+// Coverage note (bd: gopherstack-3xne): of the ~90 gopherstack services with native
+// TagResource support, this wires 11 (dynamodb, sqs, sns, lambda, kms, secretsmanager,
+// ecs, athena, glue, ecr, kinesis). The rest remain unwired -- see PARITY.md's gaps
+// section for the honest remaining list and why a few (notably s3control, whose
+// taggable ARNs span the "s3"/"s3-object-lambda" service namespaces rather than
+// "s3control" itself) need more than this dispatch shape supports today.
 func wireResourceGroupsTagging(
 	taggingReg service.Registerable,
 	ddbReg service.Registerable,
@@ -5223,6 +5235,11 @@ func wireResourceGroupsTagging(
 	lambdaReg service.Registerable,
 	kmsReg service.Registerable,
 	smReg service.Registerable,
+	ecsReg service.Registerable,
+	athenaReg service.Registerable,
+	glueReg service.Registerable,
+	ecrReg service.Registerable,
+	kinesisReg service.Registerable,
 ) {
 	taggingH, ok := taggingReg.(*resourcegroupstaggingapibackend.Handler)
 	if !ok {
@@ -5237,6 +5254,11 @@ func wireResourceGroupsTagging(
 	wireTaggingLambda(bk, lambdaReg)
 	wireTaggingKMS(bk, kmsReg)
 	wireTaggingSM(bk, smReg)
+	wireTaggingECS(bk, ecsReg)
+	wireTaggingAthena(bk, athenaReg)
+	wireTaggingGlue(bk, glueReg)
+	wireTaggingECR(bk, ecrReg)
+	wireTaggingKinesis(bk, kinesisReg)
 }
 
 func wireTaggingDDB(
@@ -5301,11 +5323,17 @@ type taggedARNEntry struct {
 }
 
 // wireTaggingARNResources registers a tagging service whose resources are described by
-// a slice of taggedARNEntry values. arnService is passed to arnServiceIs (e.g. "sqs");
-// resourceType is set on each TaggedResource (e.g. "sqs:queue").
+// a slice of taggedARNEntry values. arnService is passed to arnServiceIs (e.g. "sqs").
+// resourceTypeOf computes the AWS resource-type string (e.g. "sqs:queue") for a given
+// ARN; services whose flat ARN-keyed tag store holds exactly one resource kind can pass
+// a closure that ignores its argument and returns a constant, while services that mix
+// several kinds under one store (e.g. ECS clusters/services/task-definitions) can pass
+// [resourceTypeFromARN] to derive the type per-ARN instead of hand-writing one wiring
+// function per kind.
 func wireTaggingARNResources(
 	bk resourcegroupstaggingapibackend.StorageBackend,
-	arnService, resourceType string,
+	arnService string,
+	resourceTypeOf func(arn string) string,
 	listFn func() []taggedARNEntry,
 	tagFn func(string, map[string]string) error,
 	untagFn func(string, []string) error,
@@ -5318,7 +5346,7 @@ func wireTaggingARNResources(
 			for _, item := range items {
 				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
 					ResourceARN:  item.ARN,
-					ResourceType: resourceType,
+					ResourceType: resourceTypeOf(item.ARN),
 					Tags:         item.Tags,
 				})
 			}
@@ -5335,6 +5363,40 @@ func wireTaggingARNResources(
 	)
 }
 
+// constantResourceType returns a resourceTypeOf closure (see wireTaggingARNResources)
+// that ignores the ARN and always returns t, for services whose flat ARN-keyed tag
+// store holds exactly one AWS resource kind.
+func constantResourceType(t string) func(string) string {
+	return func(string) string { return t }
+}
+
+// arnResourceFieldCount is the number of colon-delimited fields in a well-formed AWS
+// ARN: "arn:partition:service:region:account-id:resource".
+const arnResourceFieldCount = 6
+
+// resourceTypeFromARN derives an AWS resource-type string (e.g. "ecs:cluster") from
+// arn's own resource segment, for services whose flat ARN-keyed tag store spans more
+// than one resource kind. By AWS's own ARN convention the resource segment is either
+// "type/id" (e.g. "cluster/my-cluster") or "type:id" (e.g. "function:my-fn"); this
+// takes the portion before the first "/" or ":" and prefixes it with service. Falls
+// back to service alone when the ARN is malformed or its resource segment has no
+// type/id separator (matching the constant-type case for a single-kind resource,
+// e.g. SQS/SNS whose resource segment is the bare resource name).
+func resourceTypeFromARN(arn, service string) string {
+	parts := strings.SplitN(arn, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return service
+	}
+
+	resource := parts[arnResourceFieldCount-1]
+
+	if idx := strings.IndexAny(resource, "/:"); idx >= 0 {
+		return service + ":" + resource[:idx]
+	}
+
+	return service
+}
+
 func wireTaggingSQS(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	sqsReg service.Registerable,
@@ -5349,7 +5411,7 @@ func wireTaggingSQS(
 		return
 	}
 
-	wireTaggingARNResources(bk, "sqs", "sqs:queue",
+	wireTaggingARNResources(bk, "sqs", constantResourceType("sqs:queue"),
 		func() []taggedARNEntry {
 			queues := sqsBk.TaggedQueues()
 			out := make([]taggedARNEntry, 0, len(queues))
@@ -5378,7 +5440,7 @@ func wireTaggingSNS(
 		return
 	}
 
-	wireTaggingARNResources(bk, "sns", "sns:topic",
+	wireTaggingARNResources(bk, "sns", constantResourceType("sns:topic"),
 		func() []taggedARNEntry {
 			topics := snsBk.TaggedTopics()
 			out := make([]taggedARNEntry, 0, len(topics))
@@ -5482,6 +5544,185 @@ func wireTaggingSM(bk resourcegroupstaggingapibackend.StorageBackend, smReg serv
 		"secretsmanager",
 		smBk.TagSecretByARN,
 		smBk.UntagSecretByARN,
+	)
+}
+
+// wireTaggingECS wires the ECS backend into the Resource Groups Tagging API. ECS keeps
+// tags for every resource kind it supports (clusters, services, task definitions,
+// container instances, task sets, capacity providers) in one flat ARN-keyed side map,
+// so resourceTypeFromARN derives the per-resource type instead of a hand-written
+// wiring function per ECS resource kind.
+func wireTaggingECS(bk resourcegroupstaggingapibackend.StorageBackend, ecsReg service.Registerable) {
+	ecsH, ok := ecsReg.(*ecsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ecsBk, ok := ecsH.Backend.(*ecsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(bk, "ecs",
+		func(arn string) string { return resourceTypeFromARN(arn, "ecs") },
+		func() []taggedARNEntry {
+			items := ecsBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arn string, newTags map[string]string) error {
+			tagList := make([]ecsbackend.Tag, 0, len(newTags))
+			for k, v := range newTags {
+				tagList = append(tagList, ecsbackend.Tag{Key: k, Value: v})
+			}
+
+			return ecsBk.TagResource(arn, tagList)
+		},
+		ecsBk.UntagResource,
+	)
+}
+
+// wireTaggingAthena wires the Athena backend into the Resource Groups Tagging API.
+// Like ECS, Athena keeps tags for every resource kind it supports (workgroups, data
+// catalogs, capacity reservations, notebooks) in one flat ARN-keyed map, so
+// resourceTypeFromARN derives the per-resource type.
+func wireTaggingAthena(bk resourcegroupstaggingapibackend.StorageBackend, athenaReg service.Registerable) {
+	athenaH, ok := athenaReg.(*athenabackend.Handler)
+	if !ok {
+		return
+	}
+
+	athenaBk, ok := athenaH.Backend.(*athenabackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(bk, "athena",
+		func(arn string) string { return resourceTypeFromARN(arn, "athena") },
+		func() []taggedARNEntry {
+			items := athenaBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		athenaBk.TagResource,
+		athenaBk.UntagResource,
+	)
+}
+
+// wireTaggingGlue wires the Glue backend into the Resource Groups Tagging API. Glue
+// has the widest resource-kind spread of the services wired this pass (databases,
+// crawlers, jobs, data quality rulesets, connections, triggers, workflows), all under
+// the same "glue:type/id" ARN convention, so resourceTypeFromARN derives the type for
+// every kind uniformly instead of one wiring function apiece.
+func wireTaggingGlue(bk resourcegroupstaggingapibackend.StorageBackend, glueReg service.Registerable) {
+	glueH, ok := glueReg.(*gluebackend.Handler)
+	if !ok {
+		return
+	}
+
+	glueBk, ok := glueH.Backend.(*gluebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(bk, "glue",
+		func(arn string) string { return resourceTypeFromARN(arn, "glue") },
+		func() []taggedARNEntry {
+			items := glueBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		glueBk.TagResource,
+		glueBk.UntagResource,
+	)
+}
+
+// wireTaggingECR wires the ECR backend into the Resource Groups Tagging API. ECR only
+// exposes repository ARNs for tagging (a single resource kind), matching real AWS.
+// TagResource/UntagResource take a context (used elsewhere for endpoint resolution),
+// so this uses registerTaggingService directly rather than the ctx-dropping
+// wireTaggingARNResources helper.
+func wireTaggingECR(bk resourcegroupstaggingapibackend.StorageBackend, ecrReg service.Registerable) {
+	ecrH, ok := ecrReg.(*ecrbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ecrBk, ok := ecrH.Backend.(*ecrbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	registerTaggingService(
+		bk,
+		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			items := ecrBk.TaggedResources()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+			for _, item := range items {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  item.ARN,
+					ResourceType: "ecr:repository",
+					Tags:         item.Tags,
+				})
+			}
+
+			return out
+		},
+		"ecr",
+		ecrBk.TagResource,
+		ecrBk.UntagResource,
+	)
+}
+
+// wireTaggingKinesis wires the Kinesis backend into the Resource Groups Tagging API.
+// Kinesis only exposes stream ARNs for tagging (a single resource kind). TagResource/
+// UntagResource take *TagResourceInput/*UntagResourceInput rather than bare
+// (arn, tags)/(arn, keys) parameters, so this uses registerTaggingService directly.
+func wireTaggingKinesis(bk resourcegroupstaggingapibackend.StorageBackend, kinesisReg service.Registerable) {
+	kinesisH, ok := kinesisReg.(*kinesisbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	registerTaggingService(
+		bk,
+		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			items := kinesisBk.TaggedStreams()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+			for _, item := range items {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  item.ARN,
+					ResourceType: "kinesis:stream",
+					Tags:         item.Tags,
+				})
+			}
+
+			return out
+		},
+		"kinesis",
+		func(ctx context.Context, arn string, newTags map[string]string) error {
+			return kinesisBk.TagResource(ctx, &kinesisbackend.TagResourceInput{ResourceARN: arn, Tags: newTags})
+		},
+		func(ctx context.Context, arn string, keys []string) error {
+			return kinesisBk.UntagResource(ctx, &kinesisbackend.UntagResourceInput{ResourceARN: arn, TagKeys: keys})
+		},
 	)
 }
 

@@ -46,12 +46,21 @@ func toDataSourceAttachmentJSON(att *DataSourceAttachment) dataSourceAttachmentJ
 }
 
 // dataSourceAttachmentRequest is the shared JSON request body for
-// attach/detach/describe (each only needs dataSourceArn; AttachDataSource's
-// optional workspaceConfiguration/workspaceId are accepted but not modeled --
-// this backend has no workspace resource to create or link).
+// attach/detach/describe (each only needs dataSourceArn). WorkspaceConfiguration/
+// WorkspaceID are AttachDataSource-only fields (types.WorkspaceConfigurationInput/
+// AttachDataSourceInput.WorkspaceId) -- detach/describe simply never
+// populate or use them.
 type dataSourceAttachmentRequest struct {
-	ClientToken   string `json:"clientToken"`
-	DataSourceArn string `json:"dataSourceArn"`
+	WorkspaceConfiguration *workspaceConfigurationJSON `json:"workspaceConfiguration"`
+	ClientToken            string                      `json:"clientToken"`
+	DataSourceArn          string                      `json:"dataSourceArn"`
+	WorkspaceID            string                      `json:"workspaceId"`
+}
+
+// workspaceConfigurationJSON matches types.WorkspaceConfigurationInput.
+type workspaceConfigurationJSON struct {
+	Name          string `json:"name"`
+	WorkspaceType string `json:"workspaceType"`
 }
 
 // handleDataSourceAttachmentRoutes handles the four
@@ -111,7 +120,15 @@ func (h *Handler) handleAttachDataSource(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	att, err := h.Backend.AttachDataSource(appID, req.DataSourceArn)
+	var cfg *WorkspaceConfigInput
+	if req.WorkspaceConfiguration != nil {
+		cfg = &WorkspaceConfigInput{
+			Name:          req.WorkspaceConfiguration.Name,
+			WorkspaceType: req.WorkspaceConfiguration.WorkspaceType,
+		}
+	}
+
+	att, err := h.Backend.AttachDataSource(appID, req.DataSourceArn, cfg, req.WorkspaceID)
 	if err != nil {
 		h.writeAttachmentError(r, w, err)
 
@@ -189,7 +206,8 @@ func (h *Handler) writeAttachmentError(r *http.Request, w http.ResponseWriter, e
 	switch {
 	case errors.Is(err, ErrApplicationNotFound),
 		errors.Is(err, ErrDataSourceNotFound),
-		errors.Is(err, ErrAttachmentNotFound):
+		errors.Is(err, ErrAttachmentNotFound),
+		errors.Is(err, ErrWorkspaceNotFound):
 		h.writeError(r, w, http.StatusConflict, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, ErrAttachmentConflict):
 		h.writeError(r, w, http.StatusConflict, "ConflictException", err.Error())

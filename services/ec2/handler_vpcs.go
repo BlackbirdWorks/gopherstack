@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 type createDefaultVpcResponse struct {
@@ -155,11 +156,56 @@ type deleteVpcPeeringConnectionResponse struct {
 	Return    bool     `xml:"return"`
 }
 
+type transitGatewayOptionsItem struct {
+	AutoAcceptSharedAttachments     string   `xml:"autoAcceptSharedAttachments,omitempty"`
+	DefaultRouteTableAssociation    string   `xml:"defaultRouteTableAssociation,omitempty"`
+	DefaultRouteTablePropagation    string   `xml:"defaultRouteTablePropagation,omitempty"`
+	DNSSupport                      string   `xml:"dnsSupport,omitempty"`
+	MulticastSupport                string   `xml:"multicastSupport,omitempty"`
+	SecurityGroupReferencingSupport string   `xml:"securityGroupReferencingSupport,omitempty"`
+	VpnEcmpSupport                  string   `xml:"vpnEcmpSupport,omitempty"`
+	TransitGatewayCidrBlocks        []string `xml:"transitGatewayCidrBlocks>item,omitempty"`
+	AmazonSideAsn                   int64    `xml:"amazonSideAsn,omitempty"`
+}
+
 type transitGatewayItem struct {
-	TransitGatewayID string `xml:"transitGatewayId"`
-	Description      string `xml:"description"`
-	State            string `xml:"state"`
-	OwnerID          string `xml:"ownerId"`
+	CreationTime      string                    `xml:"creationTime,omitempty"`
+	TransitGatewayID  string                    `xml:"transitGatewayId"`
+	TransitGatewayArn string                    `xml:"transitGatewayArn,omitempty"`
+	Description       string                    `xml:"description"`
+	State             string                    `xml:"state"`
+	OwnerID           string                    `xml:"ownerId"`
+	TagSet            []simpleTagItem           `xml:"tagSet>item"`
+	Options           transitGatewayOptionsItem `xml:"options"`
+}
+
+// toTransitGatewayItem converts a backend TransitGateway plus its tags (read
+// separately via the shared tag store) into the wire item.
+func toTransitGatewayItem(tgw *TransitGateway, tags map[string]string) transitGatewayItem {
+	item := transitGatewayItem{
+		TransitGatewayID:  tgw.ID,
+		TransitGatewayArn: tgw.Arn,
+		Description:       tgw.Description,
+		State:             tgw.State,
+		OwnerID:           tgw.OwnerID,
+		TagSet:            tagItemsFromMap(tags),
+		Options: transitGatewayOptionsItem{
+			AmazonSideAsn:                   tgw.Options.AmazonSideAsn,
+			AutoAcceptSharedAttachments:     tgw.Options.AutoAcceptSharedAttachments,
+			DefaultRouteTableAssociation:    tgw.Options.DefaultRouteTableAssociation,
+			DefaultRouteTablePropagation:    tgw.Options.DefaultRouteTablePropagation,
+			DNSSupport:                      tgw.Options.DNSSupport,
+			MulticastSupport:                tgw.Options.MulticastSupport,
+			SecurityGroupReferencingSupport: tgw.Options.SecurityGroupReferencingSupport,
+			VpnEcmpSupport:                  tgw.Options.VpnEcmpSupport,
+			TransitGatewayCidrBlocks:        tgw.Options.TransitGatewayCidrBlocks,
+		},
+	}
+	if !tgw.CreationTime.IsZero() {
+		item.CreationTime = tgw.CreationTime.Format(time.RFC3339)
+	}
+
+	return item
 }
 
 func (h *Handler) handleCreateVpcPeeringConnection(vals url.Values, reqID string) (any, error) {

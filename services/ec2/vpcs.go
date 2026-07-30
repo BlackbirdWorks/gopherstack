@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -19,7 +20,7 @@ func (b *InMemoryBackend) CreateDefaultVpc() (*VPC, error) {
 	}
 
 	vpc := &VPC{
-		ID:        "vpc-" + uuid.New().String()[:17],
+		ID:        newVPCID(),
 		CIDRBlock: defaultVPCCIDR,
 		IsDefault: true,
 	}
@@ -180,12 +181,47 @@ func (b *InMemoryBackend) DeleteVpcPeeringConnection(id string) error {
 
 // ---- Transit gateways ----
 
-// TransitGateway is a stub for an AWS Transit Gateway resource.
+// Real AWS default values for TransitGatewayRequestOptions fields not
+// explicitly supplied on CreateTransitGateway, per the aws-sdk-go-v2 docs on
+// types.TransitGatewayRequestOptions.
+const (
+	tgwDefaultAmazonSideAsn                   = 64512
+	tgwAutoAcceptSharedAttachmentsDisable     = "disable"
+	tgwDefaultRouteTableAssociationEnable     = "enable"
+	tgwDefaultRouteTablePropagationEnable     = "enable"
+	tgwDNSSupportEnable                       = "enable"
+	tgwMulticastSupportDisable                = "disable"
+	tgwSecurityGroupReferencingSupportDisable = "disable"
+	tgwVpnEcmpSupportEnable                   = "enable"
+)
+
+// TransitGatewayOptions holds the configurable options of a transit gateway,
+// mirroring the real AWS TransitGatewayOptions/TransitGatewayRequestOptions
+// shapes. AssociationDefaultRouteTableId / PropagationDefaultRouteTableId are
+// intentionally left unset: this backend does not auto-create a default
+// transit gateway route table on CreateTransitGateway, so there is no real ID
+// to report (see PARITY.md).
+type TransitGatewayOptions struct {
+	AutoAcceptSharedAttachments     string   `json:"autoAcceptSharedAttachments,omitempty"`
+	DefaultRouteTableAssociation    string   `json:"defaultRouteTableAssociation,omitempty"`
+	DefaultRouteTablePropagation    string   `json:"defaultRouteTablePropagation,omitempty"`
+	DNSSupport                      string   `json:"dnsSupport,omitempty"`
+	MulticastSupport                string   `json:"multicastSupport,omitempty"`
+	SecurityGroupReferencingSupport string   `json:"securityGroupReferencingSupport,omitempty"`
+	VpnEcmpSupport                  string   `json:"vpnEcmpSupport,omitempty"`
+	TransitGatewayCidrBlocks        []string `json:"transitGatewayCidrBlocks,omitempty"`
+	AmazonSideAsn                   int64    `json:"amazonSideAsn,omitempty"`
+}
+
+// TransitGateway represents an AWS Transit Gateway resource.
 type TransitGateway struct {
-	ID          string `json:"transitGatewayId,omitempty"`
-	Description string `json:"description,omitempty"`
-	State       string `json:"state,omitempty"`
-	OwnerID     string `json:"ownerId,omitempty"`
+	CreationTime time.Time             `json:"creationTime"`
+	ID           string                `json:"transitGatewayId,omitempty"`
+	Arn          string                `json:"transitGatewayArn,omitempty"`
+	Description  string                `json:"description,omitempty"`
+	State        string                `json:"state,omitempty"`
+	OwnerID      string                `json:"ownerId,omitempty"`
+	Options      TransitGatewayOptions `json:"options"`
 }
 
 // DescribeVpcs returns VPCs, optionally filtered by IDs.
@@ -240,14 +276,14 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 		}
 	}
 
-	id := "vpc-" + uuid.New().String()[:17]
+	id := newVPCID()
 	v := &VPC{
 		ID:        id,
 		CIDRBlock: cidr,
 	}
 	b.vpcs.Put(v)
 
-	sgID := "sg-" + uuid.New().String()[:17]
+	sgID := newSecurityGroupID()
 	b.securityGroups.Put(&SecurityGroup{
 		ID:          sgID,
 		Name:        defaultSecurityGroupName,

@@ -1,8 +1,8 @@
 ---
 service: ecs
-sdk_module: aws-sdk-go-v2/service/ecs@v1.88.0
-last_audit_commit: fd9a0877
-last_audit_date: 2026-07-25
+sdk_module: aws-sdk-go-v2/service/ecs@v1.89.0
+last_audit_commit: 1e8bccc8d
+last_audit_date: 2026-07-26
 overall: A
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityProviders/defaultCapacityProviderStrategy/tags at creation (previously silently dropped); tags echoed on create response; this sweep: defaultCapacityProviderStrategy now validated (rejects unknown capacity provider names, see PutClusterCapacityProviders note)"}
@@ -86,6 +86,64 @@ leaks: {status: clean, note: "Prior 'found' status was stale documentation -- th
 ---
 
 ## Notes
+
+### 2026-07-26 re-verification (parity-5 branch, bd issue gopherstack-rnka)
+
+bd tracked gopherstack-rnka as still OPEN on this branch, describing the same
+three gaps as the 2026-07-25 entry immediately below. Investigation before
+touching any code found the fix was already present: it was committed as
+`f119bb41c` on the (separate, now-stale) `parity-4` local/remote branch on
+2026-07-25, squash-merged into `main` as `8b2553cf7` ("parity-4: 147 new SDK
+operations..."), and `parity-5` branched from `main` after that merge landed
+-- so the fix has been on this branch since its first commit. `git status`/
+`git diff` show zero uncommitted drift in `services/ecs/` at the start of
+this session (the file adjacent to this one, `services/cloudwatch/
+rpcv2cbor.go`, and `.beads/issues.jsonl` were mid-edit from an unrelated
+concurrent agent/process and were left untouched).
+
+Rather than trust the prior note, re-verified field-by-field against the
+actually-vendored SDK (`go.mod` pins v1.89.0, one patch ahead of the
+v1.88.0 this ledger previously cited -- corrected above; `diff`'d
+`ECSExpressGatewayService`/`ExpressGatewayServiceConfiguration`/
+`DaemonDetail`/`DaemonRevisionDetail`/`DaemonCapacityProvider` between the
+v1.88.0 and v1.89.0 module caches and found them byte-identical, so the
+version drift caused no actual staleness):
+
+- `ExpressGatewayService`/`ExpressGatewayServiceConfiguration` in
+  `services/ecs/models.go` carry exactly the real field set (no more, no
+  less) -- `ActiveConfigurations`, `Cluster`, `CreatedAt`, `CurrentDeployment`,
+  `InfrastructureRoleArn`, `ServiceArn`, `ServiceName`, `Status` (nested
+  `{statusCode,statusReason}` via `expressGatewayServiceStatusView`), `Tags`,
+  `UpdatedAt` at the top level, and `Cpu`, `CreatedAt`, `ExecutionRoleArn`,
+  `HealthCheckPath`, `IngressPaths`, `Memory`, `NetworkConfiguration`,
+  `PrimaryContainer`, `ScalingTarget`, `ServiceRevisionArn`,
+  `TaskDefinitionArn`, `TaskRoleArn` per revision. No fabricated fields.
+- `daemonDetailView`/`daemonRevisionDetailView`/`daemonCapacityProviderView`
+  (`handler_daemon.go`) match `DaemonDetail{ClusterArn, CreatedAt,
+  CurrentRevisions[]DaemonRevisionDetail{Arn, CapacityProviders[]
+  DaemonCapacityProvider{Arn, RunningCount}, TotalRunningCount}, DaemonArn,
+  DeploymentArn, Status, UpdatedAt}` exactly -- confirmed still
+  revision-nested, not flattened.
+- `Service.Tags` resourceTags sync and `DescribeServices` `Include=[TAGS]`
+  gating: read `services/ecs/services.go` and `handler_services.go` directly
+  (not just the note) and confirmed `resourceTags[resourceTagKey(...)]` is
+  the source of truth read on Create/Update/Delete/Describe, and
+  `describeServiceIncludeTags`/`wantsIncludeTag`/`attachTagsIfWanted`
+  (`tags.go`) gate `DescribeServices` the same way as
+  `DescribeContainerInstances`.
+
+Ran the full gate suite fresh this session (`go build ./...`, `go vet ./...`,
+`go vet -tags e2e ./test/e2e/...`, `go test -race -count=1
+./services/ecs/...`, `go test -race -count=1 ./services/cloudformation/...`,
+`gofmt -l services/ecs/`, `golangci-lint run ./services/ecs/...`) -- all
+clean, 0 issues, 0 banned nolints. `TestService_Tags_ResourceTagSync`
+(`handler_services_test.go`) and
+`TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting`
+(`handler_daemon_test.go`) both drive the real `aws-sdk-go-v2` client and
+prove the Include=[TAGS] gate both ways (tags absent without it, present
+with it) and the revision-nested `DaemonDetail` shape. No code changes were
+needed; `overall: A` re-confirmed, not just carried forward. bd issue closed
+as already-fixed rather than left open against stale ledger content.
 
 ### 2026-07-25 follow-up (parity-4 branch, bd issue gopherstack-rnka)
 

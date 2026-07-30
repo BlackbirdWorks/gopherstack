@@ -129,9 +129,9 @@ func (b *InMemoryBackend) CreateCapacityManagerDataExport(
 		S3BucketPrefix:              s3BucketPrefix,
 		Schedule:                    schedule,
 		CreateTime:                  time.Now().UTC(),
-		Tags:                        tags,
 	}
 	b.capacityManagerDataExports.Put(export)
+	b.setTagsLocked(export.CapacityManagerDataExportID, tags)
 
 	return export, nil
 }

@@ -39,8 +39,9 @@ type ScalableTarget struct {
 // Alarm mirrors the CloudWatch alarm reference AWS attaches to
 // TargetTrackingScaling/StepScaling policies (PutScalingPolicy and
 // DescribeScalingPolicies both return this on the wire). Real AWS creates
-// backing CloudWatch alarms server-side; gopherstack synthesizes stable
-// alarm identifiers instead of a real cross-service CloudWatch integration.
+// backing CloudWatch alarms server-side; gopherstack has no cross-service
+// reference to the cloudwatch backend to create a real one, so this is
+// never populated (see PARITY.md gaps -- honestly empty, not fabricated).
 type Alarm struct {
 	AlarmARN  string `json:"alarmArn"`
 	AlarmName string `json:"alarmName"`

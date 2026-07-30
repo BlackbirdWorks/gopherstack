@@ -82,7 +82,7 @@ type hostReservationItem struct {
 	Count             int32           `xml:"count"`
 }
 
-func hostReservationToItem(hr *HostReservation) hostReservationItem {
+func hostReservationToItem(hr *HostReservation, tags map[string]string) hostReservationItem {
 	item := hostReservationItem{
 		HostReservationID: hr.HostReservationID,
 		InstanceFamily:    hr.InstanceFamily,
@@ -94,7 +94,7 @@ func hostReservationToItem(hr *HostReservation) hostReservationItem {
 		Duration:          hr.Duration,
 		Count:             hr.Count,
 		HostIDSet:         hr.HostIDSet,
-		TagSet:            tagItemsFromMap(hr.Tags),
+		TagSet:            tagItemsFromMap(tags),
 	}
 	if !hr.Start.IsZero() {
 		item.Start = hr.Start.Format(time.RFC3339)
@@ -243,7 +243,9 @@ func (h *Handler) handleDescribeHostReservations(vals url.Values, reqID string) 
 
 	resp := &describeHostReservationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, hr := range hrs {
-		resp.HostReservationSet = append(resp.HostReservationSet, hostReservationToItem(hr))
+		resp.HostReservationSet = append(
+			resp.HostReservationSet, hostReservationToItem(hr, h.Backend.TagsForResource(hr.HostReservationID)),
+		)
 	}
 
 	return resp, nil

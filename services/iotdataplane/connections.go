@@ -124,58 +124,96 @@ func (b *InMemoryBackend) GetConnection(clientID string) (*Connection, error) {
 
 // ListSubscriptions validates that clientID is a tracked connection, mirroring
 // GetConnection/DeleteConnection's not-found semantics (real AWS models
-// ResourceNotFoundException for ListSubscriptions too). gopherstack does not
-// track live MQTT subscription state for any client -- the real subscription
-// data lives inside the mochi-mqtt broker (services/iot/broker.go)'s
-// per-client session state, which is reachable only through the
-// MQTTPublisher interface boundary this package doesn't own (see PARITY.md
-// gaps) -- so a tracked client always yields an honestly empty subscription
-// list; this method exists purely so the HTTP layer can return 404 for a
-// clientID gopherstack has never heard of, rather than a misleadingly
-// successful empty response for literally any string.
-func (b *InMemoryBackend) ListSubscriptions(clientID string) error {
+// ResourceNotFoundException for ListSubscriptions too), then reports the
+// client's live MQTT subscriptions read straight off the mochi-mqtt broker's
+// per-client session state (MQTTPublisher.ClientSubscriptions, implemented in
+// services/iot/broker.go off cl.State.Subscriptions). gopherstack's own
+// connections table (populated only via the admin-only RegisterConnection
+// extension) is a distinct, weaker notion of "connected" than a real broker
+// session -- a tracked clientID whose broker session the broker doesn't
+// currently know about (never actually connected over MQTT, or no broker
+// wired at all) genuinely has no subscriptions to report, so an empty list is
+// returned honestly rather than fabricated.
+func (b *InMemoryBackend) ListSubscriptions(clientID string) ([]SubscriptionSummary, error) {
 	if strings.HasPrefix(clientID, "$") {
-		return fmt.Errorf("%w: clientId may not start with '$'", ErrValidation)
+		return nil, fmt.Errorf("%w: clientId may not start with '$'", ErrValidation)
 	}
 
 	b.mu.RLock("ListSubscriptions")
-	defer b.mu.RUnlock()
+	tracked := b.connections.Has(clientID)
+	broker := b.broker
+	b.mu.RUnlock()
 
-	if !b.connections.Has(clientID) {
-		return fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
+	if !tracked {
+		return nil, fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
 	}
 
-	return nil
+	if broker == nil {
+		return []SubscriptionSummary{}, nil
+	}
+
+	subs, _ := broker.ClientSubscriptions(clientID)
+	out := make([]SubscriptionSummary, 0, len(subs))
+
+	for filter, qos := range subs {
+		out = append(out, SubscriptionSummary{TopicFilter: filter, QoS: qos})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].TopicFilter < out[j].TopicFilter })
+
+	return out, nil
 }
 
-// SendDirectMessage delivers payload to topic via the same broker-backed
-// delivery path as Publish (see InMemoryBackend.Publish), after confirming
-// clientID is a tracked connection (ErrConnectionNotFound otherwise, matching
+// SendDirectMessage delivers payload to topic, after confirming clientID is
+// a tracked connection (ErrConnectionNotFound otherwise, matching
 // GetConnection/ListSubscriptions/DeleteConnection).
 //
 // Real AWS SendDirectMessage delivers to the target client specifically --
-// "the receiving client does not need to subscribe to the topic" -- but
-// gopherstack's MQTTPublisher interface (interfaces.go) only exposes
-// topic-broadcast Publish(); there is no per-client-targeted send available
-// without extending the broker (services/iot/broker.go), which is out of
-// this package's scope. Broadcasting on topic is the closest honest
-// approximation: any live subscriber of topic (including the target client,
-// if it happens to be subscribed) really does observe the message the same
-// way a Publish would deliver it, which is far better than writing to a
-// dead-end store no caller could ever observe. This is a documented,
-// deliberate divergence from real per-client delivery -- see PARITY.md gaps.
+// "the receiving client does not need to subscribe to the topic". When the
+// mochi-mqtt broker has a live session for clientID, this now delivers via
+// MQTTPublisher.SendToClient (services/iot/broker.go, cl.WritePacket), which
+// really does write straight to that one client's connection regardless of
+// its subscriptions -- true per-client delivery, matching AWS. gopherstack's
+// own connections table (populated only via the admin-only
+// RegisterConnection extension) is a distinct, weaker notion of "connected"
+// than a real broker session, though: a clientID tracked there but with no
+// live broker session (e.g. registered but never actually connected over
+// MQTT) falls back to broadcasting on topic via Publish, the same honest
+// best-effort approximation used before this method could address individual
+// clients -- any live subscriber of topic really does observe the message.
+// This fallback is a documented, deliberate divergence from real per-client
+// delivery -- see PARITY.md gaps.
 func (b *InMemoryBackend) SendDirectMessage(clientID, topic string, payload []byte, qos int32) error {
 	if strings.HasPrefix(clientID, "$") {
 		return fmt.Errorf("%w: clientId may not start with '$'", ErrValidation)
 	}
 
 	b.mu.RLock("SendDirectMessage")
-	connected := b.connections.Has(clientID)
+	tracked := b.connections.Has(clientID)
+	broker := b.broker
 	b.mu.RUnlock()
 
-	if !connected {
+	if !tracked {
 		return fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
 	}
 
-	return b.Publish(topic, payload, qos, false)
+	if broker == nil {
+		return ErrNoBroker
+	}
+
+	var qosByte byte
+	if qos > 0 {
+		qosByte = 1
+	}
+
+	delivered, err := broker.SendToClient(clientID, topic, payload, qosByte)
+	if err != nil {
+		return err
+	}
+
+	if delivered {
+		return nil
+	}
+
+	return broker.Publish(topic, payload, false, qosByte)
 }

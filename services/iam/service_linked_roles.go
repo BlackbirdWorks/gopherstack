@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/google/uuid"
 )
 
 // GetServiceLinkedRoleDeletionStatus returns the status of a service-linked role deletion task.
@@ -81,7 +80,7 @@ func (b *InMemoryBackend) CreateServiceLinkedRole(
 	p := normPath(svcLinkedPath + awsServiceName + "/")
 	role := Role{
 		RoleName:                 roleName,
-		RoleID:                   "AROA" + strings.ToUpper(uuid.New().String()[:16]),
+		RoleID:                   newID("AROA"),
 		Arn:                      arn.Build("iam", "", b.accountID, "role"+p+roleName),
 		Path:                     p,
 		AssumeRolePolicyDocument: assumeRolePolicy,

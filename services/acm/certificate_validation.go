@@ -34,6 +34,20 @@ func validateCertArn(certARN string) error {
 	return nil
 }
 
+// validateManagedBy checks a RequestCertificate ManagedBy input against real
+// AWS's CertificateManagedBy enum, which currently defines a single value,
+// "CLOUDFRONT" (aws-sdk-go-v2/service/acm/types.CertificateManagedByCloudfront).
+// An empty value (the common, caller-managed case) is left alone. Validated
+// before the certificate is created so a bad value never leaves an orphaned
+// certificate behind, matching validateDomainValidationOptions' reasoning.
+func validateManagedBy(managedBy string) error {
+	if managedBy == "" || managedBy == certManagedByCloudfront {
+		return nil
+	}
+
+	return fmt.Errorf("%w: ManagedBy must be %s", ErrInvalidParameter, certManagedByCloudfront)
+}
+
 // isSameOrSuperdomain reports whether validationDomain is the same as, or a
 // superdomain of, domain -- the constraint AWS enforces on
 // DomainValidationOption.ValidationDomain (RequestCertificate input). A

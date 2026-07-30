@@ -16,9 +16,15 @@ import (
 
 // certMetadata holds extracted metadata from a parsed X.509 certificate.
 type certMetadata struct {
-	serial             string
-	subject            string
-	issuer             string
+	serial  string
+	subject string
+	issuer  string
+	// subjectCommonName/issuerCommonName are the CN RDN component alone
+	// (see Certificate.SubjectCommonName's doc comment, models.go) --
+	// captured directly from pkix.Name.CommonName, not derived from the
+	// flattened subject/issuer strings above.
+	subjectCommonName  string
+	issuerCommonName   string
 	signatureAlgorithm string
 	keyUsage           []string
 	extKeyUsage        []string
@@ -92,6 +98,8 @@ func generateSelfSignedCert(
 		serial:             formatSerialHex(serial),
 		subject:            subjectName.String(),
 		issuer:             subjectName.String(), // self-signed: issuer == subject
+		subjectCommonName:  subjectName.CommonName,
+		issuerCommonName:   subjectName.CommonName, // self-signed: issuer == subject
 		signatureAlgorithm: sigAlgo,
 	}
 
@@ -120,6 +128,8 @@ func extractCertMetadataFull(certPEM string) (string, certMetadata, time.Time, t
 		serial:             formatSerialHex(cert.SerialNumber),
 		subject:            cert.Subject.String(),
 		issuer:             cert.Issuer.String(),
+		subjectCommonName:  cert.Subject.CommonName,
+		issuerCommonName:   cert.Issuer.CommonName,
 		signatureAlgorithm: cert.SignatureAlgorithm.String(),
 		keyUsage:           x509KeyUsageToAWS(cert.KeyUsage),
 		extKeyUsage:        x509ExtKeyUsageToAWS(cert.ExtKeyUsage),

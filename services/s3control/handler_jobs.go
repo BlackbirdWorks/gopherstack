@@ -231,16 +231,45 @@ func (h *Handler) handleDescribeJob(c *echo.Context) error {
 	return writeXML(c, describeJobResponseXML{Job: desc})
 }
 
+// listJobsJobXML mirrors aws-sdk-go-v2's JobListDescriptor. ProgressSummary
+// is omitted: this backend does not track per-job task counts/progress, so
+// there is no backing data to populate it with (GAP, not fabricated).
 type listJobsJobXML struct {
-	JobID    string `xml:"JobId"`
-	Status   string `xml:"Status"`
-	Priority int32  `xml:"Priority"`
+	JobID           string `xml:"JobId"`
+	Description     string `xml:"Description,omitempty"`
+	Operation       string `xml:"Operation,omitempty"`
+	Status          string `xml:"Status"`
+	CreationTime    string `xml:"CreationTime,omitempty"`
+	TerminationDate string `xml:"TerminationDate,omitempty"`
+	Priority        int32  `xml:"Priority"`
 }
 
 type listJobsResponseXML struct {
 	XMLName   xml.Name         `xml:"ListJobsResult"`
 	NextToken string           `xml:"NextToken,omitempty"`
 	Jobs      []listJobsJobXML `xml:"Jobs>member"`
+}
+
+// jobOperationName extracts the OperationName enum value (e.g.
+// "LambdaInvoke") that JobListDescriptor.Operation expects from the raw
+// inner XML of a job's <Operation> element (e.g.
+// "<LambdaInvoke><FunctionArn>...</FunctionArn></LambdaInvoke>", as stored
+// by CreateJob -- see handleCreateJob/UpdateJobDetails). This is the single
+// root element's local name, not the full nested operation config that
+// DescribeJob's JobDescriptor.Operation carries -- returning the raw blob
+// unparsed here would mis-encode as escaped text inside <Operation>, not as
+// the plain enum string the real ListJobs response emits.
+func jobOperationName(rawOperationXML string) string {
+	dec := xml.NewDecoder(strings.NewReader(rawOperationXML))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return ""
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			return se.Name.Local
+		}
+	}
 }
 
 func (h *Handler) handleListJobs(c *echo.Context) error {
@@ -259,9 +288,13 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 		}
 
 		items = append(items, listJobsJobXML{
-			JobID:    j.JobID,
-			Status:   j.Status,
-			Priority: j.Priority,
+			JobID:           j.JobID,
+			Description:     j.Description,
+			Operation:       jobOperationName(j.Operation),
+			Status:          j.Status,
+			CreationTime:    j.CreationTime,
+			TerminationDate: j.TerminationDate,
+			Priority:        j.Priority,
 		})
 	}
 
@@ -309,9 +342,10 @@ type updateJobStatusRequestXML struct {
 }
 
 type updateJobStatusResponseXML struct {
-	XMLName xml.Name `xml:"UpdateJobStatusResult"`
-	JobID   string   `xml:"JobId"`
-	Status  string   `xml:"Status"`
+	XMLName            xml.Name `xml:"UpdateJobStatusResult"`
+	JobID              string   `xml:"JobId"`
+	Status             string   `xml:"Status"`
+	StatusUpdateReason string   `xml:"StatusUpdateReason,omitempty"`
 }
 
 func (h *Handler) handleUpdateJobStatus(c *echo.Context) error {
@@ -330,15 +364,26 @@ func (h *Handler) handleUpdateJobStatus(c *echo.Context) error {
 	}
 
 	return writeXML(c, updateJobStatusResponseXML{
-		JobID:  job.JobID,
-		Status: job.Status,
+		JobID:              job.JobID,
+		Status:             job.Status,
+		StatusUpdateReason: job.StatusUpdateReason,
 	})
 }
 
 // ---- Job Tagging ----
 
+// jobTagSetXML mirrors aws-sdk-go-v2's S3TagSet wire shape. The real
+// serializer (awsRestxml_serializeDocumentS3TagSet) emits each entry as
+// "<member>", NOT "<Tag>" -- confirmed via smithyxml.Array's default
+// (non-flattened) list member naming, which every S3TagSet caller in
+// serializers.go relies on. A previous version of this handler used "Tag"
+// here: on the response side (GetJobTagging) that would make every entry
+// invisible to a real client's S3TagSet decoder (which only recognizes
+// "member"), and on the request side (PutJobTagging) it would silently
+// fail to parse the "<member>" elements a real aws-sdk-go-v2 client
+// actually sends, dropping every tag.
 type jobTagSetXML struct {
-	Tags []jobTagXML `xml:"Tag"`
+	Tags []jobTagXML `xml:"member"`
 }
 
 type jobTagXML struct {

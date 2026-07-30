@@ -61,6 +61,7 @@ const (
 	keyFindingArn         = "findingArn"
 	keyCreatedAt          = "createdAt"
 	keyScanConfigurations = "scanConfigurations"
+	keyLevel              = "level"
 )
 
 // Handler handles Inspector2 HTTP requests.

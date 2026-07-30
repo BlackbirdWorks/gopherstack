@@ -291,6 +291,17 @@ func TestHandler_PollForJobs_Filter(t *testing.T) {
 			for i, j := range jobs {
 				jm, _ := j.(map[string]any)
 				gotIDs[i] = jm["id"].(string)
+
+				// PollForJobs' real Job type carries accountId and a nested
+				// data.actionTypeId (types.Job{AccountId, Data, Id, Nonce}) so
+				// a job worker can tell what kind of job it received.
+				assert.NotEmpty(t, jm["accountId"], "accountId must be present on every polled job")
+				data, ok := jm["data"].(map[string]any)
+				require.True(t, ok, "data must be present on every polled job")
+				actionTypeID, ok := data["actionTypeId"].(map[string]any)
+				require.True(t, ok, "data.actionTypeId must be present on every polled job")
+				assert.Equal(t, tt.actionTypeID["category"], actionTypeID["category"])
+				assert.Equal(t, tt.actionTypeID["provider"], actionTypeID["provider"])
 			}
 
 			assert.ElementsMatch(t, tt.wantJobIDs, gotIDs)

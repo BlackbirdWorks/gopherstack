@@ -263,7 +263,7 @@ func newVpnTunnel(outsideIP string, insideBlock int) VpnTunnelOption {
 	return VpnTunnelOption{
 		OutsideIPAddress:       outsideIP,
 		TunnelInsideCIDR:       fmt.Sprintf("169.254.%d.0/30", insideBlock),
-		PreSharedKey:           uuid.New().String()[:vpnPreSharedKeyLength],
+		PreSharedKey:           newVPNPreSharedKey(),
 		Phase1LifetimeSeconds:  vpnPhase1LifetimeSeconds,
 		Phase2LifetimeSeconds:  vpnPhase2LifetimeSeconds,
 		RekeyMarginTimeSeconds: vpnRekeyMarginTimeSeconds,

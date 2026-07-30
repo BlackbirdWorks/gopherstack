@@ -142,8 +142,25 @@ type getActionTypeInput struct {
 	Version  string `json:"version"`
 }
 
+// actionTypeDeclarationResponse is the real GetActionType/UpdateActionType wire
+// shape (types.ActionTypeDeclaration) -- structurally unrelated to
+// customActionTypeResponse (types.ActionType, the legacy CreateCustomActionType/
+// ListActionTypes shape): Executor/Permissions/Properties/Urls/Description here
+// have no legacy equivalent, and this shape has no Settings/
+// actionConfigurationProperties at all.
+type actionTypeDeclarationResponse struct {
+	Executor              *ActionTypeExecutor    `json:"executor,omitempty"`
+	Permissions           *ActionTypePermissions `json:"permissions,omitempty"`
+	Urls                  *ActionTypeUrls        `json:"urls,omitempty"`
+	Description           string                 `json:"description,omitempty"`
+	ID                    ActionTypeID           `json:"id"`
+	Properties            []ActionTypeProperty   `json:"properties,omitempty"`
+	InputArtifactDetails  ArtifactDetails        `json:"inputArtifactDetails"`
+	OutputArtifactDetails ArtifactDetails        `json:"outputArtifactDetails"`
+}
+
 type getActionTypeOutput struct {
-	ActionType customActionTypeResponse `json:"actionType"`
+	ActionType actionTypeDeclarationResponse `json:"actionType"`
 }
 
 func (h *Handler) handleGetActionType(
@@ -156,6 +173,10 @@ func (h *Handler) handleGetActionType(
 
 	if !validActionCategory(in.Category) {
 		return nil, fmt.Errorf("%w: invalid category %q", ErrValidation, in.Category)
+	}
+
+	if in.Owner == "" {
+		return nil, fmt.Errorf("%w: owner is required", errInvalidRequest)
 	}
 
 	if in.Provider == "" {
@@ -171,47 +192,104 @@ func (h *Handler) handleGetActionType(
 		return nil, err
 	}
 
-	catConfigProps := cat.ConfigurationProperties
-	if catConfigProps == nil {
-		catConfigProps = []ActionConfigurationProperty{}
-	}
-
 	return &getActionTypeOutput{
-		ActionType: customActionTypeResponse{
+		ActionType: actionTypeDeclarationResponse{
 			ID: ActionTypeID{
 				Category: cat.Category,
-				Owner:    keyOwnerCustom,
+				Owner:    cat.Owner,
 				Provider: cat.Provider,
 				Version:  cat.Version,
 			},
-			InputArtifactDetails:          cat.InputArtifactDetails,
-			OutputArtifactDetails:         cat.OutputArtifactDetails,
-			Settings:                      cat.Settings,
-			ActionConfigurationProperties: catConfigProps,
+			InputArtifactDetails:  cat.InputArtifactDetails,
+			OutputArtifactDetails: cat.OutputArtifactDetails,
+			Description:           cat.Description,
+			Executor:              cat.Executor,
+			Permissions:           cat.Permissions,
+			Properties:            cat.Properties,
+			Urls:                  cat.Urls,
 		},
 	}, nil
 }
 
-type updateActionTypeInputBody struct {
-	Settings                *ActionTypeSettings           `json:"settings,omitempty"`
-	ID                      ActionTypeID                  `json:"id"`
-	ConfigurationProperties []ActionConfigurationProperty `json:"actionConfigurationProperties,omitempty"`
-	InputArtifactDetails    ArtifactDetails               `json:"inputArtifactDetails"`
-	OutputArtifactDetails   ArtifactDetails               `json:"outputArtifactDetails"`
+// updateActionTypeDeclarationInput mirrors types.ActionTypeDeclaration, the real
+// UpdateActionType request shape. Executor/ID/InputArtifactDetails/
+// OutputArtifactDetails are pointers so a genuinely-missing required member can
+// be told apart from a present-but-zero-valued one, matching how the real SDK's
+// validateActionTypeDeclaration checks for nil, not zero values.
+type updateActionTypeDeclarationInput struct {
+	Executor              *ActionTypeExecutor    `json:"executor"`
+	ID                    *ActionTypeID          `json:"id"`
+	InputArtifactDetails  *ArtifactDetails       `json:"inputArtifactDetails"`
+	OutputArtifactDetails *ArtifactDetails       `json:"outputArtifactDetails"`
+	Permissions           *ActionTypePermissions `json:"permissions,omitempty"`
+	Urls                  *ActionTypeUrls        `json:"urls,omitempty"`
+	Description           string                 `json:"description,omitempty"`
+	Properties            []ActionTypeProperty   `json:"properties,omitempty"`
 }
 
 type updateActionTypeInput struct {
-	ActionType updateActionTypeInputBody `json:"actionType"`
+	ActionType *updateActionTypeDeclarationInput `json:"actionType"`
+}
+
+// validActionTypeExecutorType reports whether t is a real types.ExecutorType enum value.
+func validActionTypeExecutorType(t string) bool {
+	return t == "Lambda" || t == "JobWorker"
+}
+
+// validateActionTypeExecutorInput mirrors the real SDK's validateActionTypeExecutor/
+// validateExecutorConfiguration/validateLambdaExecutorConfiguration: Configuration
+// and Type are required, and Configuration.LambdaExecutorConfiguration (when
+// present) requires a non-empty LambdaFunctionArn.
+func validateActionTypeExecutorInput(e *ActionTypeExecutor) error {
+	if e.Configuration == nil {
+		return fmt.Errorf("%w: actionType.executor.configuration is required", errInvalidRequest)
+	}
+
+	if e.Type == "" {
+		return fmt.Errorf("%w: actionType.executor.type is required", errInvalidRequest)
+	}
+
+	if !validActionTypeExecutorType(e.Type) {
+		return fmt.Errorf("%w: invalid executor type %q", ErrValidation, e.Type)
+	}
+
+	lc := e.Configuration.LambdaExecutorConfiguration
+	if lc != nil && lc.LambdaFunctionArn == "" {
+		return fmt.Errorf(
+			"%w: actionType.executor.configuration.lambdaExecutorConfiguration.lambdaFunctionArn is required",
+			errInvalidRequest,
+		)
+	}
+
+	return nil
 }
 
 func (h *Handler) handleUpdateActionType(
 	ctx context.Context,
 	in *updateActionTypeInput,
 ) (*emptyOut, error) {
-	id := in.ActionType.ID
+	if in.ActionType == nil {
+		return nil, fmt.Errorf("%w: actionType is required", errInvalidRequest)
+	}
+
+	decl := in.ActionType
+
+	if decl.ID == nil {
+		return nil, fmt.Errorf("%w: actionType.id is required", errInvalidRequest)
+	}
+
+	id := *decl.ID
 
 	if id.Category == "" {
 		return nil, fmt.Errorf("%w: actionType.id.category is required", errInvalidRequest)
+	}
+
+	if !validActionCategory(id.Category) {
+		return nil, fmt.Errorf("%w: invalid category %q", ErrValidation, id.Category)
+	}
+
+	if id.Owner == "" {
+		return nil, fmt.Errorf("%w: actionType.id.owner is required", errInvalidRequest)
 	}
 
 	if id.Provider == "" {
@@ -222,20 +300,34 @@ func (h *Handler) handleUpdateActionType(
 		return nil, fmt.Errorf("%w: actionType.id.version is required", errInvalidRequest)
 	}
 
-	owner := id.Owner
-	if owner == "" {
-		owner = keyOwnerCustom
+	if decl.Executor == nil {
+		return nil, fmt.Errorf("%w: actionType.executor is required", errInvalidRequest)
+	}
+
+	if err := validateActionTypeExecutorInput(decl.Executor); err != nil {
+		return nil, err
+	}
+
+	if decl.InputArtifactDetails == nil {
+		return nil, fmt.Errorf("%w: actionType.inputArtifactDetails is required", errInvalidRequest)
+	}
+
+	if decl.OutputArtifactDetails == nil {
+		return nil, fmt.Errorf("%w: actionType.outputArtifactDetails is required", errInvalidRequest)
 	}
 
 	cat := &CustomActionType{
-		Category:                id.Category,
-		Owner:                   owner,
-		Provider:                id.Provider,
-		Version:                 id.Version,
-		Settings:                in.ActionType.Settings,
-		ConfigurationProperties: in.ActionType.ConfigurationProperties,
-		InputArtifactDetails:    in.ActionType.InputArtifactDetails,
-		OutputArtifactDetails:   in.ActionType.OutputArtifactDetails,
+		Category:              id.Category,
+		Owner:                 id.Owner,
+		Provider:              id.Provider,
+		Version:               id.Version,
+		Description:           decl.Description,
+		Executor:              decl.Executor,
+		InputArtifactDetails:  *decl.InputArtifactDetails,
+		OutputArtifactDetails: *decl.OutputArtifactDetails,
+		Permissions:           decl.Permissions,
+		Properties:            decl.Properties,
+		Urls:                  decl.Urls,
 	}
 
 	if err := h.Backend.UpdateActionType(ctx, cat); err != nil {

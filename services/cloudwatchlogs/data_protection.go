@@ -3,6 +3,7 @@ package cloudwatchlogs
 import (
 	"fmt"
 	"sort"
+	"time"
 )
 
 // validAccountPolicyTypes returns the allowed values for the account policy type field.
@@ -128,6 +129,8 @@ func (b *InMemoryBackend) PutAccountPolicy(
 		PolicyDocument:    policyDocument,
 		Scope:             scope,
 		SelectionCriteria: selectionCriteria,
+		AccountID:         b.accountID,
+		LastUpdatedTime:   time.Now().UnixMilli(),
 	}
 	b.accountPolicies.Put(p)
 	cp := *p

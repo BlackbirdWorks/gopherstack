@@ -126,7 +126,7 @@ func (b *InMemoryBackend) DeleteMedicalVocabulary(vocabularyName string) error {
 // ListMedicalVocabularies returns medical vocabularies with optional state filter,
 // name substring filter, and pagination.
 func (b *InMemoryBackend) ListMedicalVocabularies(
-	stateFilter, nameContains, nextToken string,
+	stateFilter, nameContains, nextToken string, maxResults int32,
 ) ([]MedicalVocabulary, string) {
 	b.mu.RLock("ListMedicalVocabularies")
 	defer b.mu.RUnlock()
@@ -141,5 +141,5 @@ func (b *InMemoryBackend) ListMedicalVocabularies(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].VocabularyName < all[j].VocabularyName })
 
-	return paginateList(all, nextToken)
+	return paginateList(all, nextToken, maxResults)
 }

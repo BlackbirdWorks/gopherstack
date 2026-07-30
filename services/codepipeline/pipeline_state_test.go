@@ -772,6 +772,17 @@ func TestHandler_OverrideStageCondition(t *testing.T) {
 			httpStatus: http.StatusOK,
 		},
 		{
+			// ConditionType's real SDK enum (types.ConditionType) has exactly
+			// two values, BEFORE_ENTRY and ON_SUCCESS -- ON_SUCCESS must be
+			// accepted too, not just BEFORE_ENTRY.
+			name: "success with ON_SUCCESS conditionType",
+			input: map[string]any{
+				"pipelineName": "override-pipeline", "stageName": "Source",
+				"pipelineExecutionId": execID, "conditionType": "ON_SUCCESS",
+			},
+			httpStatus: http.StatusOK,
+		},
+		{
 			name: "unknown execution",
 			input: map[string]any{
 				"pipelineName": "override-pipeline", "stageName": "Source",

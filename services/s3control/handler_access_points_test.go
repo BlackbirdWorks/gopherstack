@@ -719,3 +719,73 @@ func TestCreateAccessPoint_ShortAccountID(t *testing.T) {
 		})
 	}
 }
+
+// TestAccessPointScope_WireShape locks in a gopherstack-tir4 finding:
+// GetAccessPointScopeOutput/PutAccessPointScopeInput's Scope field is a
+// structured type (Permissions/Prefixes lists), NOT a flat string
+// (confirmed via aws-sdk-go-v2/service/s3control's
+// awsRestxml_deserializeDocumentScope). A previous version of this handler
+// treated "<Scope>" as plain character data, which would have mangled a
+// real client's nested Permissions/Prefixes structure. Round-trips a
+// realistic nested body through Put then Get.
+func TestAccessPointScope_WireShape(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.CreateAccessPoint("acct1", "my-ap", "my-bucket")
+	h := s3control.NewHandler(b)
+	path := "/v20180820/accesspoint/my-ap/scope"
+
+	putBody := `<PutAccessPointScopeRequest>` +
+		`<Scope><Permissions><member>GetObject</member></Permissions>` +
+		`<Prefixes><member>data/</member></Prefixes></Scope>` +
+		`</PutAccessPointScopeRequest>`
+	putRec := doS3Request(t, h, http.MethodPut, path, putBody)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	getRec := doS3Request(t, h, http.MethodGet, path, "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	body := getRec.Body.String()
+	assert.Contains(t, body, "<Scope><Permissions><member>GetObject</member></Permissions>")
+	assert.Contains(t, body, "<Prefixes><member>data/</member></Prefixes>")
+}
+
+// TestListAccessPointsForDirectoryBuckets_ItemFields locks in a
+// gopherstack-tir4 finding: ListAccessPointsForDirectoryBucketsOutput
+// shares the exact same entry type as ListAccessPoints (types.AccessPoint,
+// confirmed via
+// awsRestxml_deserializeOpDocumentListAccessPointsForDirectoryBucketsOutput
+// delegating to the identical AccessPointList deserializer). A previous
+// version of this handler emitted only Name/AccessPointArn/Bucket,
+// omitting BucketAccountId/NetworkOrigin/Alias despite this backend
+// tracking all of them.
+func TestListAccessPointsForDirectoryBuckets_ItemFields(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.CreateAccessPoint("acct1", "dir-ap", "my--usw2-az1--x-s3")
+	h := s3control.NewHandler(b)
+
+	rec := doS3Request(t, h, http.MethodGet, "/v20180820/accesspointfordirectory", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		XMLName      xml.Name `xml:"ListAccessPointsForDirectoryBucketsResult"`
+		AccessPoints []struct {
+			Name           string `xml:"Name"`
+			Bucket         string `xml:"Bucket"`
+			NetworkOrigin  string `xml:"NetworkOrigin"`
+			AccessPointArn string `xml:"AccessPointArn"`
+			Alias          string `xml:"Alias"`
+		} `xml:"AccessPointList>AccessPoint"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.AccessPoints, 1)
+	ap := out.AccessPoints[0]
+	assert.Equal(t, "dir-ap", ap.Name)
+	assert.Equal(t, "my--usw2-az1--x-s3", ap.Bucket)
+	assert.NotEmpty(t, ap.NetworkOrigin)
+	assert.NotEmpty(t, ap.AccessPointArn)
+	assert.NotEmpty(t, ap.Alias)
+}

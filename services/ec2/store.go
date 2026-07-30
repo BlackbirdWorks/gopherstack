@@ -82,6 +82,8 @@ const (
 	stateInUse              = "in-use"
 	stateCancelled          = "cancelled"
 	resourceTypeVPC         = "vpc"
+	resourceTypeSnapshot    = "snapshot"
+	resourceTypeENI         = "network-interface"
 	vpcDefaultName          = "vpc-default"
 	archX8664               = "x86_64"
 	resourceTypeFISInstance = "aws:ec2:instance"
@@ -197,6 +199,7 @@ type VpcEndpoint struct {
 	ServiceName     string    `json:"serviceName,omitempty"`
 	State           string    `json:"state,omitempty"`
 	VpcEndpointType string    `json:"vpcEndpointType,omitempty"`
+	OwnerID         string    `json:"ownerID,omitempty"`
 	SubnetIDs       []string  `json:"subnetIDs,omitempty"`
 	RouteTableIDs   []string  `json:"routeTableIDs,omitempty"`
 	// PayerResponsibilities holds the payer-responsibility settings set via
@@ -888,7 +891,7 @@ func (b *InMemoryBackend) RunInstances(
 	instances := make([]*Instance, 0)
 
 	for range count {
-		id := "i-" + uuid.New().String()[:17]
+		id := newInstanceID()
 		inst := &Instance{
 			ID:           id,
 			ImageID:      imageID,
@@ -907,18 +910,20 @@ func (b *InMemoryBackend) RunInstances(
 			inst.PublicDNSName = fmt.Sprintf("ec2-%s.compute-1.amazonaws.com",
 				strings.ReplaceAll(inst.PublicIPAddress, ".", "-"))
 		}
-		eniID := "eni-" + uuid.New().String()[:17]
+		eniID := newENIID()
 		attachID := "eni-attach-" + uuid.New().String()[:8]
 		b.networkInterfaces.Put(&NetworkInterface{
-			ID:              eniID,
-			SubnetID:        subnetID,
-			VPCID:           vpcID,
-			PrivateIP:       inst.PrivateIP,
-			InstanceID:      id,
-			AttachmentID:    attachID,
-			DeviceIndex:     0,
-			Status:          stateInUse,
-			SourceDestCheck: true,
+			ID:                  eniID,
+			SubnetID:            subnetID,
+			VPCID:               vpcID,
+			PrivateIP:           inst.PrivateIP,
+			InstanceID:          id,
+			AttachmentID:        attachID,
+			DeviceIndex:         0,
+			Status:              stateInUse,
+			OwnerID:             b.AccountID,
+			SourceDestCheck:     true,
+			DeleteOnTermination: true,
 		})
 		b.instances.Put(inst)
 		b.indexInstanceLocked(inst)

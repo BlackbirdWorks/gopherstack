@@ -35,6 +35,7 @@ type webhookListEntry struct {
 	ARN                      string                `json:"arn,omitempty"`
 	LastTriggered            string                `json:"lastTriggered,omitempty"`
 	Definition               webhookDefinitionView `json:"definition"`
+	Tags                     []Tag                 `json:"tags,omitempty"`
 	RegisteredWithThirdParty bool                  `json:"registeredWithThirdParty"`
 }
 
@@ -68,6 +69,7 @@ func (h *Handler) handleListWebhooks(
 			URL:                      wh.URL,
 			ARN:                      wh.ARN,
 			LastTriggered:            wh.LastTriggered,
+			Tags:                     tagsToSortedSlice(wh.Tags),
 			RegisteredWithThirdParty: wh.RegisteredWithThirdParty,
 		}
 	}
@@ -117,6 +119,7 @@ func (h *Handler) handlePutWebhook(
 		Authentication:              in.Webhook.Authentication,
 		Filters:                     in.Webhook.Filters,
 		AuthenticationConfiguration: in.Webhook.AuthenticationConfiguration,
+		Tags:                        tagsToMap(in.Tags),
 	})
 	if err != nil {
 		return nil, err
@@ -139,6 +142,7 @@ func (h *Handler) handlePutWebhook(
 			},
 			URL:                      wh.URL,
 			ARN:                      wh.ARN,
+			Tags:                     tagsToSortedSlice(wh.Tags),
 			RegisteredWithThirdParty: wh.RegisteredWithThirdParty,
 		},
 	}, nil

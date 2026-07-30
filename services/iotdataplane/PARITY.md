@@ -8,7 +8,7 @@ service: iotdataplane
 sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.35.0   # bumped from v1.32.20; +3 new ops (device connection/messaging introspection)
 last_audit_commit: 058bf0373   # HEAD when this manifest was written (parity-4 branch, pre-commit of this pass)
 last_audit_date: 2026-07-25
-overall: A-           # downgraded from A: 2 new ops are honest but functionally thin (see gaps) -- nothing fabricated, but ListSubscriptions is unconditionally empty and SendDirectMessage doesn't truly target a single client
+overall: A            # restored from A-: ListSubscriptions now reports real per-client subscriptions and SendDirectMessage now truly addresses one client, both read/written through a new MQTTPublisher.ClientSubscriptions/SendToClient boundary implemented in services/iot/broker.go off mochi-mqtt's real cl.State.Subscriptions/cl.WritePacket -- see gaps for the one remaining honest divergence (fallback broadcast when the broker has no live session for a gopherstack-admin-tracked clientId)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -21,15 +21,15 @@ ops:
   GetRetainedMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "response now includes userProperties (base64, null when unset) -- was missing entirely; confirmed against GetRetainedMessageOutput"}
   ListRetainedMessages: {wire: ok, errors: ok, state: ok, persist: ok, note: "summary now includes qos -- a prior audit incorrectly asserted RetainedMessageSummary excludes qos; the real deserializer (awsRestjson1_deserializeDocumentRetainedMessageSummary) proves it's present"}
   GetConnection: {wire: ok, errors: ok, state: partial, persist: ok, note: "NEW op (GET /connections/{clientId}, real path field-diffed against serializers.go/deserializers.go). Reuses the same connections table DeleteConnection already tracks (gopherstack-only RegisterConnection admin extension) -- an untracked clientId is ResourceNotFoundException (matches the real op's modeled error), a tracked one returns connected:true/clientId/connectedSince genuinely. cleanSession/disconnectReason/disconnectedSince/keepAliveDuration/sessionExpiry/sourcePort/targetIp/targetPort/thingName/vpcEndpointId have no real backing data in this emulator and are omitted from the response (not fabricated as zero values) -- see gaps"}
-  ListSubscriptions: {wire: ok, errors: ok, state: gap, persist: n/a, note: "NEW op (GET /connections/{clientId}/subscriptions). Errors/not-found semantics reuse the connections table (consistent with GetConnection/DeleteConnection). subscriptions is unconditionally empty: gopherstack tracks no per-client MQTT subscription state anywhere reachable from this package -- see gaps for why the real data (which does exist in the mochi-mqtt broker) couldn't be wired up this pass"}
-  SendDirectMessage: {wire: ok, errors: ok, state: partial, persist: n/a, note: "NEW op (POST /connections/{clientId}/messages, field-diffed against serializers.go's awsRestjson1_serializeOpHttpBindingsSendDirectMessageInput). Validates clientId/topic exactly like GetConnection/Publish and returns ResourceNotFoundException for an untracked clientId (413 RequestEntityTooLargeException on oversized payload -- unlike Publish, this IS modeled for SendDirectMessage, confirmed via its error case list). Delivers via the same broker-backed path as Publish rather than true per-client-targeted delivery -- see gaps"}
+  ListSubscriptions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /connections/{clientId}/subscriptions. Errors/not-found semantics reuse the connections table (consistent with GetConnection/DeleteConnection). subscriptions now reflects the client's REAL live MQTT subscriptions: InMemoryBackend.ListSubscriptions calls the new MQTTPublisher.ClientSubscriptions(clientID), implemented in services/iot/broker.go off mochi-mqtt's cl.State.Subscriptions.GetAll() (topicFilter+qos, field-diffed against types.SubscriptionSummary). A tracked clientId whose broker session the broker doesn't currently know about (no broker wired, or gopherstack's admin-only RegisterConnection registered it without a real MQTT socket connection -- a distinct, weaker notion of 'connected' than a live broker session) still honestly returns an empty list rather than fabricating entries -- see gaps"}
+  SendDirectMessage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "POST /connections/{clientId}/messages, field-diffed against serializers.go's awsRestjson1_serializeOpHttpBindingsSendDirectMessageInput. Validates clientId/topic exactly like GetConnection/Publish and returns ResourceNotFoundException for an untracked clientId (413 RequestEntityTooLargeException on oversized payload -- unlike Publish, this IS modeled for SendDirectMessage, confirmed via its error case list). Now delivers via the new MQTTPublisher.SendToClient(clientId,...) when the broker has a live session for that client -- a genuine per-client-addressed write (services/iot/broker.go's cl.WritePacket, bypassing subscription matching entirely, matching AWS's documented 'the receiving client does not need to subscribe to the topic'). Falls back to the old topic-broadcast Publish path only when the broker has no live session for a tracked clientId -- see gaps for exactly when that applies"}
 families:
   admin-only-extensions: {status: ok, note: "RegisterConnection/ListConnections/ListThingsWithShadows have NO real AWS iotdataplane equivalent (confirmed against the SDK's op file listing); correctly confined to gopherstack-only paths (/_admin/connections, /api/things/shadow/ListThingsWithShadows) so they cannot shadow real AWS traffic"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "Publish with no MQTT broker wired logs a warning and silently drops the message (ErrNoBroker path in backend.go Publish()). This is intentional degradation, not a disguised no-op -- when a broker IS wired (see cli.go startup, out of scope for this service-only pass) the message is delivered for real, retain/qos forwarded. Additionally, the MQTTPublisher interface (services/iotdataplane/interfaces.go) only carries topic/payload/retain/qos -- contentType/correlationData/messageExpiry/payloadFormatIndicator/responseTopic are parsed and validated at the HTTP layer but never reach live MQTT subscribers, since forwarding them would require extending MQTTPublisher and its only real implementation (services/iot/broker.go, backed by mochi-mqtt), which is outside this service's own scope. No AWS-modeled response surface within iotdataplane echoes these fields back (GetRetainedMessageOutput only carries userProperties, which IS wired through), so this has no other observable wire-parity impact. No further work identified without cross-service broker changes."
   - "UnsupportedDocumentEncodingException (real AWS error, modeled for GetThingShadow/DeleteThingShadow/UpdateThingShadow) is never returned -- no Content-Encoding-based validation exists. Left unimplemented: re-verified this pass via targeted web search (AWS API reference, boto3 docs) and still found no documented trigger condition (e.g. which Content-Encoding values are rejected, or whether it's Accept-Encoding-driven). Speculative validation risks a wrong-shape fix. Candidate for a future audit pass with real-AWS verification first (e.g. a live AWS account probe)."
-  - "ListSubscriptions always returns an empty subscriptions array, even for a tracked/connected client. Real per-client subscription state DOES exist elsewhere in the repo -- the mochi-mqtt broker (services/iot/broker.go, github.com/mochi-mqtt/server/v2) tracks each client's live subscriptions in cl.State.Subscriptions -- but it is not reachable from this package: the MQTTPublisher interface (interfaces.go) this backend depends on only exposes topic-broadcast Publish(), and extending it to expose subscription queries would require changing services/iot/broker.go (out of scope for this pass; that directory was explicitly off-limits). Returning an honestly empty list for a genuinely-tracked client was chosen over fabricating topic filters. Candidate follow-up: add a ListSubscriptions(clientID) method to MQTTPublisher backed by Broker.server.Load().Clients.Get(clientID).State.Subscriptions, then have InMemoryBackend.ListSubscriptions call through it when a broker is wired."
-  - "SendDirectMessage delivers by broadcasting on the target topic through the same broker-backed path as Publish, not by sending directly to the named client the way real AWS does. Real SendDirectMessage explicitly does not require the receiving client to be subscribed to the topic (\"the receiving client does not need to subscribe to the topic\"); gopherstack's only broker primitive (MQTTPublisher.Publish, backed by mochi-mqtt's s.Publish) has no per-client-addressed send, so a client that isn't subscribed to the given topic will NOT observe a SendDirectMessage the way it would against real AWS. This is a deliberate, documented choice (wiring into the real delivery path so at least topic-subscribers observe it, rather than writing to a dead-end store no caller could ever observe) -- see InMemoryBackend.SendDirectMessage's doc comment. Fixing this for real would need mochi-mqtt's client-targeted write path (s.Clients.Get(clientID) + a raw PUBLISH write), which lives in services/iot/broker.go, out of scope here. confirmation/timeout (real AWS: wait for a QoS-1 PUBACK, HTTP 504 on timeout) select QoS 0-vs-1 on the outgoing publish but never actually block or time out, since MQTTPublisher.Publish is synchronous/fire-and-forget with no ack channel."
+  - "RESOLVED this pass (parity-5, gopherstack-polh): ListSubscriptions previously always returned an empty subscriptions array. MQTTPublisher (interfaces.go) now carries ClientSubscriptions(clientID) (subs map[string]byte, connected bool), implemented in services/iot/broker.go off s.Clients.Get(clientID) + cl.State.Subscriptions.GetAll(). InMemoryBackend.ListSubscriptions calls through it and reports real topicFilter/qos pairs for a client the broker has a live session for. Proven against a REAL mochi-mqtt session (not a mock): TestBroker_ClientSubscriptionsAndSendToClient (services/iot/broker_test.go) connects a real paho MQTT client over real TCP, subscribes, and asserts the broker reports the exact filter/qos back. Residual honest gap: gopherstack's connections table (populated only via the admin-only RegisterConnection extension) is a distinct, weaker notion of 'connected' than a real broker session -- a clientId tracked there but with no live broker session still returns an honestly empty list (never fabricated), which is the expected/correct behavior for e.g. purely admin-registered test clients that never established a real MQTT connection."
+  - "RESOLVED this pass (parity-5, gopherstack-polh): SendDirectMessage previously always broadcast on the target topic through the same path as Publish, never truly addressing one client. MQTTPublisher now also carries SendToClient(clientId, topic, payload, qos) (ok bool, err error), implemented in services/iot/broker.go via s.Clients.Get(clientID) + cl.WritePacket(packets.Packet{...}) -- a genuine per-client write that bypasses topic subscription matching entirely, matching real AWS's documented 'the receiving client does not need to subscribe to the topic' semantics. Proven against a real broker+paho client: the receiving client, NOT subscribed to the direct-send topic, still receives the message (TestBroker_ClientSubscriptionsAndSendToClient). Residual honest gap: when gopherstack's connections table has a tracked clientId but the broker has no live session for it (see above), SendDirectMessage falls back to the pre-existing topic-broadcast Publish path -- a deliberate, documented best-effort approximation, not a disguised no-op. confirmation/timeout (real AWS: wait for a QoS-1 PUBACK, HTTP 504 on timeout) still only select QoS 0-vs-1 on the outgoing message but never actually block or time out, since neither MQTTPublisher.Publish nor SendToClient wait for an ack."
   - "GetConnection omits cleanSession/disconnectReason/disconnectedSince/keepAliveDuration/sessionExpiry/sourcePort/targetIp/targetPort/thingName/vpcEndpointId from its response for every client, tracked or not -- gopherstack's connections table (populated only by the gopherstack-only RegisterConnection admin extension) never had this data to begin with (no real MQTT CONNECT packet is parsed anywhere in this service). Omitted (not zero-valued) so a real SDK client decodes these exactly as if the server had never observed them, which is wire-compatible even though it under-reports what a live AWS endpoint would return."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Chaos fault-injection paths (ChaosServiceName/ChaosOperations) -- not part of AWS wire surface, no parity concern."
@@ -215,27 +215,36 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
   /connections/{clientId}`, which is `RegisterConnection`'s territory and
   only exists at `/_admin/connections/{clientId}`).
 
-- **Real-state survey (why the grade moved to A-, not why it stayed A):**
-  this service already had one piece of genuine, if gopherstack-only,
-  connection state -- the `connections` table, populated exclusively via the
-  `RegisterConnection` admin extension (see `admin-only-extensions`) and
-  already used by `DeleteConnection` for its 404 semantics. `GetConnection`
-  reuses this table honestly: a registered client's `connected`/`clientId`/
-  `connectedSince` are real, tracked values, not fabricated, and an
-  unregistered client correctly 404s. But this repo's *other* candidate
-  source of real state -- `services/iot`'s `mochi-mqtt`-backed broker, which
-  genuinely tracks live subscriptions per client
-  (`cl.State.Subscriptions` in `github.com/mochi-mqtt/server/v2`) -- is not
-  reachable from `iotdataplane` without extending the `MQTTPublisher`
-  interface boundary and its only implementation, `services/iot/broker.go`,
-  which this pass was explicitly barred from touching (a concurrent agent's
-  scope). That is a real, structural limitation, not a shortcut: it's why
-  `ListSubscriptions` is unconditionally empty and why `SendDirectMessage`
-  broadcasts on-topic instead of truly addressing one client. Both are
-  documented in `gaps` with the exact follow-up (a `ListSubscriptions`/
-  client-targeted-write method on `MQTTPublisher`, backed by
-  `Broker.server.Load().Clients.Get(clientID)`) for whenever `services/iot`
-  is back in scope.
+- **Real-state survey, updated (grade restored to A this pass,
+  parity-5/gopherstack-polh):** this service already had one piece of
+  genuine, if gopherstack-only, connection state -- the `connections` table,
+  populated exclusively via the `RegisterConnection` admin extension (see
+  `admin-only-extensions`) and already used by `DeleteConnection` for its 404
+  semantics. `GetConnection` reuses this table honestly: a registered
+  client's `connected`/`clientId`/`connectedSince` are real, tracked values,
+  not fabricated, and an unregistered client correctly 404s. This repo's
+  *other* candidate source of real state -- `services/iot`'s `mochi-mqtt`-
+  backed broker, which genuinely tracks live subscriptions per client
+  (`cl.State.Subscriptions` in `github.com/mochi-mqtt/server/v2`) -- was
+  previously unreachable from `iotdataplane` because `MQTTPublisher`
+  (interfaces.go) only exposed topic-broadcast `Publish`, and its only
+  implementation (`services/iot/broker.go`) was out of scope for the pass
+  that shipped `ListSubscriptions`/`SendDirectMessage`. That interface
+  boundary is now closed: `MQTTPublisher` also carries
+  `ClientSubscriptions(clientID) (map[string]byte, bool)` and
+  `SendToClient(clientID, topic, payload, qos) (bool, error)`, both
+  implemented in `services/iot/broker.go` off the broker's real
+  `s.Clients`/`cl.State.Subscriptions`/`cl.WritePacket`, and proven against a
+  REAL mochi-mqtt session (a live paho MQTT client over real TCP, not a mock
+  -- see `TestBroker_ClientSubscriptionsAndSendToClient` in
+  `services/iot/broker_test.go`). `ListSubscriptions` now reports real
+  topicFilter/qos pairs and `SendDirectMessage` now genuinely addresses one
+  client's connection, bypassing subscription matching, matching real AWS.
+  The one remaining honest divergence -- gopherstack's admin-only
+  `connections` table can track a clientId the broker has no live session
+  for, in which case both ops degrade to their prior honest behavior (empty
+  list / topic broadcast) rather than fabricating a per-client result -- is
+  fully documented in `gaps`.
 
 - **`GetConnection`/`ListSubscriptions`/`SendDirectMessage` share
   `ErrConnectionNotFound`** (`errors.go`) with `DeleteConnection` rather than

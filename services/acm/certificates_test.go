@@ -427,6 +427,7 @@ func TestACMBackend_ExportCertificate(t *testing.T) {
 	tests := []struct {
 		wantErr error
 		setup   func(t *testing.T, b *acm.InMemoryBackend) string
+		checkFn func(t *testing.T, cert *acm.Certificate)
 		name    string
 	}{
 		{
@@ -438,9 +439,21 @@ func TestACMBackend_ExportCertificate(t *testing.T) {
 
 				return cert.ARN
 			},
+			checkFn: func(t *testing.T, cert *acm.Certificate) {
+				t.Helper()
+				assert.Equal(t, certPEM, cert.CertificateBody)
+				assert.Equal(t, keyPEM, cert.PrivateKey)
+			},
 		},
 		{
-			name: "fails_amazon_issued",
+			// Confirmed against the live AWS API reference this pass
+			// (API_ExportCertificate.html, API_CertificateOptions.html): an
+			// AMAZON_ISSUED certificate without Options.Export=ENABLED is not
+			// exportable, and the correct error is ValidationException, not
+			// RequestInProgressException (that error's documented meaning is
+			// specifically "not yet issued", which this ISSUED-but-ineligible
+			// certificate is not). See validateCertExportable, certificates.go.
+			name: "fails_amazon_issued_without_export_enabled",
 			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
 				cert, err := b.RequestCertificate(
@@ -458,7 +471,35 @@ func TestACMBackend_ExportCertificate(t *testing.T) {
 
 				return cert.ARN
 			},
-			wantErr: acm.ErrNotEligible,
+			wantErr: acm.ErrInvalidParameter,
+		},
+		{
+			// New capability this pass: an AMAZON_ISSUED certificate that opted
+			// in via Options.Export=ENABLED is now genuinely exportable.
+			name: "success_amazon_issued_with_export_enabled",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					"amazon-exportable.example.com",
+					"",
+					"",
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
+				require.NoError(t, err)
+				require.NoError(t, b.SetExportPreference(context.Background(), cert.ARN, "ENABLED"))
+
+				return cert.ARN
+			},
+			checkFn: func(t *testing.T, cert *acm.Certificate) {
+				t.Helper()
+				assert.Contains(t, cert.CertificateBody, "BEGIN CERTIFICATE")
+				assert.NotEmpty(t, cert.PrivateKey)
+			},
 		},
 		{
 			name:    "not_found",
@@ -483,8 +524,7 @@ func TestACMBackend_ExportCertificate(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, certPEM, cert.CertificateBody)
-			assert.Equal(t, keyPEM, cert.PrivateKey)
+			tt.checkFn(t, cert)
 		})
 	}
 }

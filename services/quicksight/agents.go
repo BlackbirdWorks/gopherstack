@@ -23,6 +23,7 @@ func agentKey(accountID, agentID string) string {
 
 // storedAgent is the persisted representation of a QuickSight agent.
 type storedAgent struct {
+	CustomPrompt     *CustomPromptProfile `json:"customPrompt,omitempty"`
 	CreatedAt        time.Time            `json:"createdAt"`
 	UpdatedAt        time.Time            `json:"updatedAt"`
 	AgentID          string               `json:"agentId"`
@@ -43,6 +44,7 @@ type storedAgent struct {
 
 func (a *storedAgent) toAgent() *Agent {
 	return &Agent{
+		CustomPrompt:     a.CustomPrompt.clone(),
 		CreatedAt:        a.CreatedAt,
 		UpdatedAt:        a.UpdatedAt,
 		AgentID:          a.AgentID,
@@ -62,22 +64,43 @@ func (a *storedAgent) toAgent() *Agent {
 	}
 }
 
+// clone returns a deep copy of a CustomPromptProfile, or nil if the receiver
+// is nil -- mirrors the slices.Clone/clonePermissions defensive-copy pattern
+// this file already uses for every other Agent field, so callers can't
+// mutate backend state through a returned *Agent.
+func (p *CustomPromptProfile) clone() *CustomPromptProfile {
+	if p == nil {
+		return nil
+	}
+	cp := *p
+
+	return &cp
+}
+
 // ---- Agents ----
 
 // CreateAgent creates a new agent. Real AWS stamps Creator from the caller's
 // identity; this backend has no authenticated-caller concept, so Creator is
-// left empty rather than fabricated. CustomPromptInput is intentionally not
-// modeled: the real DescribeAgent/CreateAgent response field
-// (CustomPromptInterface) requires ModelProfileId/QbsAwsAccountId/
-// SubscriptionId, which are minted by a real Amazon Q Business subscription
-// this backend has no state for -- synthesizing them would be fabrication,
-// so the field is accepted on the request (see handler) but never echoed
-// back, an intentional, documented omission (see PARITY.md).
+// left empty rather than fabricated.
+//
+// CustomPromptInput (CustomPromptInterface on the response) is a tagged
+// union with two members: ExistingPrompt (types.CustomPromptProfile -- a
+// caller-supplied ModelProfileId/QbsAwsAccountId/SubscriptionId referencing
+// an already-provisioned Amazon Q Business profile) and NewPrompt (asks AWS
+// to mint a brand-new profile server-side). ExistingPrompt's three IDs come
+// from the caller, not this backend, so customPrompt is stored and echoed
+// back verbatim -- a genuine round-trip. NewPrompt's IDs would have to be
+// minted by a live Amazon Q Business subscription this backend has no state
+// for; synthesizing them would be fabrication, so callers using NewPrompt
+// get customPrompt == nil here (see handler_agents.go's
+// customPromptFromBody, which is where the two variants are told apart) --
+// an intentional, documented, per-variant omission (see PARITY.md).
 func (b *InMemoryBackend) CreateAgent(
 	accountID, agentID, name, description, iconID, welcomeMessage, agentLifecycle string,
 	actionConnectors, spaces, starterPrompts []string,
 	permissions []ResourcePermission,
 	tags map[string]string,
+	customPrompt *CustomPromptProfile,
 ) (*Agent, error) {
 	if agentID == "" || name == "" {
 		return nil, ErrValidation
@@ -99,6 +122,7 @@ func (b *InMemoryBackend) CreateAgent(
 	now := time.Now().UTC()
 	arn := b.buildARN("agent", agentID)
 	a := &storedAgent{
+		CustomPrompt:     customPrompt.clone(),
 		CreatedAt:        now,
 		UpdatedAt:        now,
 		AgentID:          agentID,
@@ -139,9 +163,17 @@ func (b *InMemoryBackend) DescribeAgent(accountID, agentID string) (*Agent, erro
 // connectors and spaces. Per-ARN attach/detach failures are real, derived
 // checks (an ARN that doesn't identify a resource this backend holds fails
 // with RESOURCE_NOT_FOUND) rather than fabricated always-succeeds behavior.
+// UpdateAgent's customPrompt follows the same ExistingPrompt-only round-trip
+// as CreateAgent (see its doc comment): a non-nil customPrompt (i.e. the
+// caller supplied CustomPromptInput.ExistingPrompt) replaces the agent's
+// stored profile reference; nil (CustomPromptInput omitted, or NewPrompt --
+// this backend cannot mint NewPrompt's IDs) leaves whatever was previously
+// stored untouched, matching this file's existing "empty/nil means no
+// change" convention for every other optional Update* field.
 func (b *InMemoryBackend) UpdateAgent(
 	accountID, agentID, name, description, iconID, welcomeMessage string,
 	actionConnectorsToAdd, actionConnectorsToRemove, spacesToAdd, spacesToRemove, starterPrompts []string,
+	customPrompt *CustomPromptProfile,
 ) (*Agent, *AgentAssociationUpdate, error) {
 	b.mu.Lock("UpdateAgent")
 	defer b.mu.Unlock()
@@ -153,6 +185,9 @@ func (b *InMemoryBackend) UpdateAgent(
 	}
 
 	applyAgentScalarUpdates(a, name, description, iconID, welcomeMessage, starterPrompts)
+	if customPrompt != nil {
+		a.CustomPrompt = customPrompt.clone()
+	}
 
 	result := &AgentAssociationUpdate{}
 	a.ActionConnectors, result.FailedToAddActionConnectors, result.FailedToRemoveActionConnectors =

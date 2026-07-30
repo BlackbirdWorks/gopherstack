@@ -80,7 +80,9 @@ func (rc *ResourceCreator) createEC2Volume(
 		size = defaultVolumeSizeGiB
 	}
 
-	vol, err := rc.backends.EC2.Backend.CreateVolume(az, volType, size)
+	snapshotID := strProp(props, "SnapshotId", params, physicalIDs)
+
+	vol, err := rc.backends.EC2.Backend.CreateVolume(az, volType, size, snapshotID)
 	if err != nil {
 		return "", fmt.Errorf("create EC2 volume: %w", err)
 	}
@@ -171,7 +173,7 @@ func (rc *ResourceCreator) createEC2NatGateway(
 	subnetID := strProp(props, "SubnetId", params, physicalIDs)
 	allocationID := strProp(props, "AllocationId", params, physicalIDs)
 
-	ngw, err := rc.backends.EC2.Backend.CreateNatGateway(subnetID, allocationID)
+	ngw, err := rc.backends.EC2.Backend.CreateNatGateway(subnetID, allocationID, nil)
 	if err != nil {
 		return "", fmt.Errorf("create EC2 NAT gateway: %w", err)
 	}

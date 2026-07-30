@@ -20,13 +20,12 @@ const (
 // RegisteredSQLHaInstance represents an instance registered for SQL Server
 // High Availability standby detection monitoring.
 type RegisteredSQLHaInstance struct {
-	LastUpdatedTime       time.Time         `json:"lastUpdatedTime"`
-	Tags                  map[string]string `json:"tags,omitempty"`
-	InstanceID            string            `json:"instanceId,omitempty"`
-	HaStatus              string            `json:"haStatus,omitempty"`
-	ProcessingStatus      string            `json:"processingStatus,omitempty"`
-	SQLServerCredentials  string            `json:"sqlServerCredentials,omitempty"`
-	SQLServerLicenseUsage string            `json:"sqlServerLicenseUsage,omitempty"`
+	LastUpdatedTime       time.Time `json:"lastUpdatedTime"`
+	InstanceID            string    `json:"instanceId,omitempty"`
+	HaStatus              string    `json:"haStatus,omitempty"`
+	ProcessingStatus      string    `json:"processingStatus,omitempty"`
+	SQLServerCredentials  string    `json:"sqlServerCredentials,omitempty"`
+	SQLServerLicenseUsage string    `json:"sqlServerLicenseUsage,omitempty"`
 }
 
 // resetSQLHaMapsLocked re-initialises the SQL HA registration/history maps.

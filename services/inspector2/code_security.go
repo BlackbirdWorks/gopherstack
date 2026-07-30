@@ -2,13 +2,60 @@ package inspector2
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+// codeSecurityNameMinLen/codeSecurityNameMaxLen enforce the real, documented
+// length constraint shared by CreateCodeSecurityIntegrationInput.name and
+// CreateCodeSecurityScanConfigurationInput.name (confirmed via the AWS API
+// Reference -- the Go SDK module's doc comments carry no length/pattern
+// prose for either field, unlike CreateFilterInput.name, so the API
+// Reference is the only source for these constraints): "Minimum length of
+// 1. Maximum length of 60." Both share the identical pattern too, so one
+// validator covers both ops.
+const (
+	codeSecurityNameMinLen = 1
+	codeSecurityNameMaxLen = 60
+)
+
+// onceCodeSecurityNamePattern lazily compiles the real, documented
+// CreateCodeSecurityIntegrationInput.name / CreateCodeSecurityScanConfigurationInput.name
+// pattern (AWS API Reference: `[a-zA-Z0-9-_$:.]*`), exactly once.
+//
+//nolint:gochecknoglobals // read-only package-level regexp, built once via sync.OnceValue
+var onceCodeSecurityNamePattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[a-zA-Z0-9\-_$:.]*$`)
+})
+
+// validateCodeSecurityName enforces the real name constraint shared by
+// CreateCodeSecurityIntegration and CreateCodeSecurityScanConfiguration: 1-60
+// characters, alphanumeric plus dash/underscore/dollar-sign/colon/dot. Real
+// AWS returns ValidationException for violations; this backend previously
+// accepted any non-empty string.
+func validateCodeSecurityName(name string) error {
+	if len(name) < codeSecurityNameMinLen || len(name) > codeSecurityNameMaxLen {
+		return fmt.Errorf(
+			"%w: name must be between %d and %d characters, got %d",
+			ErrValidation, codeSecurityNameMinLen, codeSecurityNameMaxLen, len(name),
+		)
+	}
+
+	if !onceCodeSecurityNamePattern().MatchString(name) {
+		return fmt.Errorf(
+			"%w: name must contain only alphanumeric characters, dashes, underscores, dollar signs, colons, and dots",
+			ErrValidation,
+		)
+	}
+
+	return nil
+}
 
 func (b *InMemoryBackend) buildCodeSecurityIntegrationARN() string {
 	return arn.Build(inspector2Service, b.region, b.accountID, "integration/code-security/"+uuid.New().String())
@@ -27,8 +74,8 @@ func (b *InMemoryBackend) CreateCodeSecurityIntegration(
 	b.mu.Lock("CreateCodeSecurityIntegration")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateCodeSecurityName(name); err != nil {
+		return nil, err
 	}
 
 	if err := validateTags(tags); err != nil {
@@ -115,18 +162,59 @@ func (b *InMemoryBackend) ListCodeSecurityIntegrations() ([]*CodeSecurityIntegra
 	return result, nil
 }
 
+// isValidCodeSecurityLevel reports whether level is one of the
+// ConfigurationLevel enum values accepted by the real
+// CreateCodeSecurityScanConfigurationInput.level member.
+func isValidCodeSecurityLevel(level string) bool {
+	return slices.Contains([]string{"ORGANIZATION", "ACCOUNT"}, level)
+}
+
+// validateCodeSecurityRuleSetCategories enforces the real API's required,
+// enum-constrained configuration.ruleSetCategories member (confirmed via
+// types.CodeSecurityScanConfiguration's "This member is required" doc comment
+// -- required on both Create and Update since both share the same shape).
+func validateCodeSecurityRuleSetCategories(categories []string) error {
+	if len(categories) == 0 {
+		return fmt.Errorf("%w: configuration.ruleSetCategories is required", ErrValidation)
+	}
+
+	valid := []string{"SAST", "IAC", "SCA"}
+
+	for _, cat := range categories {
+		if !slices.Contains(valid, cat) {
+			return fmt.Errorf("%w: configuration.ruleSetCategories: invalid value %q", ErrValidation, cat)
+		}
+	}
+
+	return nil
+}
+
 // CreateCodeSecurityScanConfiguration creates a code security scan configuration.
 func (b *InMemoryBackend) CreateCodeSecurityScanConfiguration(
-	name string,
-	scopeSettings map[string]any,
+	name, level string,
+	ruleSetCategories []string,
+	continuousIntegrationScanConfig map[string]any,
 	periodicConfig map[string]any,
+	scopeSettings map[string]any,
 	tags map[string]string,
 ) (*CodeSecurityScanConfiguration, error) {
 	b.mu.Lock("CreateCodeSecurityScanConfiguration")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateCodeSecurityName(name); err != nil {
+		return nil, err
+	}
+
+	if level == "" {
+		return nil, fmt.Errorf("%w: level is required", ErrValidation)
+	}
+
+	if !isValidCodeSecurityLevel(level) {
+		return nil, fmt.Errorf("%w: level: invalid value %q", ErrValidation, level)
+	}
+
+	if err := validateCodeSecurityRuleSetCategories(ruleSetCategories); err != nil {
+		return nil, err
 	}
 
 	if err := validateTags(tags); err != nil {
@@ -136,14 +224,16 @@ func (b *InMemoryBackend) CreateCodeSecurityScanConfiguration(
 	cfgARN := b.buildCodeSecurityScanConfigARN()
 	now := time.Now().UTC()
 	cfg := &CodeSecurityScanConfiguration{
-		Arn:                cfgARN,
-		Name:               name,
-		ScopeSettings:      scopeSettings,
-		PeriodicScanConfig: periodicConfig,
-		Status:             statusActive,
-		Tags:               tags,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		Arn:                             cfgARN,
+		Name:                            name,
+		Level:                           level,
+		RuleSetCategories:               ruleSetCategories,
+		ContinuousIntegrationScanConfig: continuousIntegrationScanConfig,
+		PeriodicScanConfig:              periodicConfig,
+		ScopeSettings:                   scopeSettings,
+		Tags:                            tags,
+		CreatedAt:                       now,
+		UpdatedAt:                       now,
 	}
 	b.codeSecurityScanConfigs.Put(cfg)
 
@@ -185,10 +275,15 @@ func (b *InMemoryBackend) GetCodeSecurityScanConfiguration(
 	return &cp, nil
 }
 
-// UpdateCodeSecurityScanConfiguration updates a code security scan configuration.
+// UpdateCodeSecurityScanConfiguration updates a code security scan
+// configuration. Real UpdateCodeSecurityScanConfigurationInput only carries
+// "configuration" (ruleSetCategories/periodicScanConfiguration/
+// continuousIntegrationScanConfiguration) and "scanConfigurationArn" -- level,
+// scopeSettings, and name are set at creation and are not update targets.
 func (b *InMemoryBackend) UpdateCodeSecurityScanConfiguration(
 	scanConfigARN string,
-	scopeSettings map[string]any,
+	ruleSetCategories []string,
+	continuousIntegrationScanConfig map[string]any,
 	periodicConfig map[string]any,
 ) (*CodeSecurityScanConfiguration, error) {
 	b.mu.Lock("UpdateCodeSecurityScanConfiguration")
@@ -199,14 +294,13 @@ func (b *InMemoryBackend) UpdateCodeSecurityScanConfiguration(
 		return nil, ErrCodeSecurityScanConfigNotFound
 	}
 
-	if scopeSettings != nil {
-		cfg.ScopeSettings = scopeSettings
+	if err := validateCodeSecurityRuleSetCategories(ruleSetCategories); err != nil {
+		return nil, err
 	}
 
-	if periodicConfig != nil {
-		cfg.PeriodicScanConfig = periodicConfig
-	}
-
+	cfg.RuleSetCategories = ruleSetCategories
+	cfg.ContinuousIntegrationScanConfig = continuousIntegrationScanConfig
+	cfg.PeriodicScanConfig = periodicConfig
 	cfg.UpdatedAt = time.Now().UTC()
 	cp := *cfg
 

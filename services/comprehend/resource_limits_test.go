@@ -123,6 +123,39 @@ func TestKmsKeyValidation(t *testing.T) {
 				"VolumeKmsKeyId": "not-a-valid-key",
 			},
 		},
+		{
+			// CreateFlywheelInput.DataSecurityConfig has its own KMS key fields
+			// (types.DataSecurityConfig), independent of any top-level
+			// ModelKmsKeyId/VolumeKmsKeyId on this op (which has neither).
+			name:   "create_flywheel_bad_data_security_config_model_kms_key",
+			action: "CreateFlywheel",
+			body: map[string]any{
+				"FlywheelName": "bad-kms-fw-model",
+				"DataSecurityConfig": map[string]any{
+					"ModelKmsKeyId": "not-a-valid-key",
+				},
+			},
+		},
+		{
+			name:   "create_flywheel_bad_data_security_config_volume_kms_key",
+			action: "CreateFlywheel",
+			body: map[string]any{
+				"FlywheelName": "bad-kms-fw-volume",
+				"DataSecurityConfig": map[string]any{
+					"VolumeKmsKeyId": "not-a-valid-key",
+				},
+			},
+		},
+		{
+			name:   "create_flywheel_bad_data_security_config_data_lake_kms_key",
+			action: "CreateFlywheel",
+			body: map[string]any{
+				"FlywheelName": "bad-kms-fw-datalake",
+				"DataSecurityConfig": map[string]any{
+					"DataLakeKmsKeyId": "not-a-valid-key",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -161,6 +194,46 @@ func TestKmsKeyValidationAcceptsValidShapes(t *testing.T) {
 				"ModelKmsKeyId": tt.keyID,
 			})
 			assert.NotEmpty(t, m["DocumentClassifierArn"])
+		})
+	}
+}
+
+// TestKmsKeyValidation_FlywheelDataSecurityConfig verifies CreateFlywheel
+// accepts a well-formed DataSecurityConfig (all three nested KMS key
+// fields), and that omitting DataSecurityConfig entirely (it's optional)
+// still succeeds.
+func TestKmsKeyValidation_FlywheelDataSecurityConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		dataSecurityConfig map[string]any
+		name               string
+	}{
+		{
+			name: "all_three_keys_valid",
+			dataSecurityConfig: map[string]any{
+				"DataLakeKmsKeyId": "1234abcd-12ab-34cd-56ef-1234567890ab",
+				"ModelKmsKeyId":    "arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+				"VolumeKmsKeyId":   "arn:aws:kms:us-west-2:111122223333:alias/my-key",
+			},
+		},
+		{
+			name:               "omitted_entirely",
+			dataSecurityConfig: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := map[string]any{"FlywheelName": "ok-kms-fw-" + tt.name}
+			if tt.dataSecurityConfig != nil {
+				body["DataSecurityConfig"] = tt.dataSecurityConfig
+			}
+
+			m := request(t, newHandler(), "CreateFlywheel", body)
+			assert.NotEmpty(t, m["FlywheelArn"])
 		})
 	}
 }

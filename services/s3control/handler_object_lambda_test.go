@@ -211,3 +211,76 @@ func TestListAccessPointsForObjectLambda_Pagination(t *testing.T) {
 		})
 	}
 }
+
+// TestGetAccessPointForObjectLambda_NoFabricatedArn locks in a
+// gopherstack-tir4 finding: GetAccessPointForObjectLambdaOutput has NO
+// ObjectLambdaAccessPointArn field in the real SDK (confirmed against
+// aws-sdk-go-v2/service/s3control's GetAccessPointForObjectLambdaOutput,
+// whose only members are Alias/CreationDate/Name/
+// PublicAccessBlockConfiguration). A previous version of this handler
+// emitted an ObjectLambdaAccessPointArn element that no real client would
+// ever see on this response.
+func TestGetAccessPointForObjectLambda_NoFabricatedArn(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.CreateAccessPointForObjectLambda("000000000000", "my-olap")
+	h := s3control.NewHandler(b)
+
+	rec := doS3ControlNewOpRequest(
+		t, h, http.MethodGet, "/v20180820/accesspointforobjectlambda/my-olap", "000000000000", "",
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	assert.NotContains(t, rec.Body.String(), "ObjectLambdaAccessPointArn")
+
+	var out struct {
+		XMLName xml.Name `xml:"GetAccessPointForObjectLambdaResult"`
+		Name    string   `xml:"Name"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "my-olap", out.Name)
+}
+
+// TestAccessPointConfigurationForObjectLambda_WireShape locks in a
+// gopherstack-tir4 finding: GetAccessPointConfigurationForObjectLambdaOutput
+// wraps its payload under "<Configuration>", not "<ObjectLambdaConfiguration>"
+// (confirmed against
+// awsRestxml_deserializeOpDocumentGetAccessPointConfigurationForObjectLambdaOutput,
+// which only recognizes "Configuration" at the top level). It also asserts
+// that a real client's nested TransformationConfigurations/
+// SupportingAccessPoint structure round-trips through Put then Get intact,
+// rather than being flattened to concatenated character data.
+func TestAccessPointConfigurationForObjectLambda_WireShape(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.CreateAccessPointForObjectLambda("acct1", "my-olap")
+	h := s3control.NewHandler(b)
+	path := "/v20180820/accesspointforobjectlambda/my-olap/configuration"
+
+	putBody := `<PutAccessPointConfigurationForObjectLambdaRequest>` +
+		`<Configuration>` +
+		`<SupportingAccessPoint>arn:aws:s3:us-east-1:000000000000:accesspoint/my-ap</SupportingAccessPoint>` +
+		`<TransformationConfigurations>` +
+		`<member><Actions><member>GetObject</member></Actions></member>` +
+		`</TransformationConfigurations>` +
+		`</Configuration>` +
+		`</PutAccessPointConfigurationForObjectLambdaRequest>`
+
+	putRec := doS3Request(t, h, http.MethodPut, path, putBody)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	getRec := doS3Request(t, h, http.MethodGet, path, "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	body := getRec.Body.String()
+	assert.Contains(t, body, "<Configuration>")
+	assert.NotContains(t, body, "<ObjectLambdaConfiguration>")
+	assert.Contains(
+		t, body,
+		"<SupportingAccessPoint>arn:aws:s3:us-east-1:000000000000:accesspoint/my-ap</SupportingAccessPoint>",
+	)
+	assert.Contains(t, body, "<TransformationConfigurations>")
+	assert.Contains(t, body, "GetObject")
+}

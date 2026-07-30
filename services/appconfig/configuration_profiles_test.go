@@ -159,6 +159,57 @@ func TestBackend_CreateExperimentDefinition_Validation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// CreateExperimentDefinitionInput.FlagKey's doc comment reads
+			// "The key of the existing feature flag to use with the
+			// experiment" -- once the profile has real
+			// AWS.AppConfig.FeatureFlags content uploaded, a flag key absent
+			// from that content's "flags" object is rejected instead of
+			// only checked for non-emptiness.
+			name: "flag key not present in feature flag content rejected",
+			mutate: func(t *testing.T, b *appconfig.InMemoryBackend, p *experimentDefParams) {
+				t.Helper()
+
+				content := `{"version":"1","flags":{"otherflag":{"name":"Other"}},` +
+					`"values":{"otherflag":{"enabled":true}}}`
+				_, err := b.CreateHostedConfigurationVersion(
+					p.appID, p.profileID, "application/json", "", "", []byte(content), nil,
+				)
+				require.NoError(t, err)
+			},
+			wantErr: true,
+		},
+		{
+			name: "flag key present in feature flag content accepted",
+			mutate: func(t *testing.T, b *appconfig.InMemoryBackend, p *experimentDefParams) {
+				t.Helper()
+
+				content := `{"version":"1","flags":{"flag1":{"name":"Flag One"}},` +
+					`"values":{"flag1":{"enabled":true}}}`
+				_, err := b.CreateHostedConfigurationVersion(
+					p.appID, p.profileID, "application/json", "", "", []byte(content), nil,
+				)
+				require.NoError(t, err)
+			},
+			wantErr: false,
+		},
+		{
+			// Content that isn't structured AWS.AppConfig.FeatureFlags JSON
+			// (freeform text/bytes, matching how CreateHostedConfigurationVersion
+			// accepts arbitrary content for any profile) cannot be checked
+			// against, so this stays permissive rather than rejecting --
+			// same "unspecified, not wrong" treatment as no content at all.
+			name: "non-feature-flag content stays permissive",
+			mutate: func(t *testing.T, b *appconfig.InMemoryBackend, p *experimentDefParams) {
+				t.Helper()
+
+				_, err := b.CreateHostedConfigurationVersion(
+					p.appID, p.profileID, "text/plain", "", "", []byte("not json"), nil,
+				)
+				require.NoError(t, err)
+			},
+			wantErr: false,
+		},
+		{
 			name: "duplicate name in application rejected",
 			mutate: func(t *testing.T, b *appconfig.InMemoryBackend, p *experimentDefParams) {
 				t.Helper()

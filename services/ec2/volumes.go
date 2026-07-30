@@ -216,7 +216,7 @@ func (b *InMemoryBackend) CopyVolumes(
 	for _, id := range volumeIDs {
 		src, _ := b.volumes.Get(id)
 		newVol := &Volume{
-			ID:         "vol-" + uuid.New().String()[:17],
+			ID:         newVolumeID(),
 			AZ:         src.AZ,
 			VolumeType: src.VolumeType,
 			Size:       src.Size,
@@ -444,10 +444,13 @@ type Volume struct {
 	VolumeType string            `json:"volumeType,omitempty"`
 	State      string            `json:"state,omitempty"`
 	KmsKeyID   string            `json:"kmsKeyId,omitempty"`
-	Size       int               `json:"size,omitempty"`
-	Iops       int               `json:"iops,omitempty"`
-	Throughput int               `json:"throughput,omitempty"`
-	Encrypted  bool              `json:"encrypted,omitempty"`
+	// SnapshotID is the EBS snapshot this volume was restored from, or empty
+	// for a volume created from scratch. Real AWS lineage field.
+	SnapshotID string `json:"snapshotID,omitempty"`
+	Size       int    `json:"size,omitempty"`
+	Iops       int    `json:"iops,omitempty"`
+	Throughput int    `json:"throughput,omitempty"`
+	Encrypted  bool   `json:"encrypted,omitempty"`
 }
 
 // VolumeAttachment represents the attachment state of a volume.
@@ -459,8 +462,14 @@ type VolumeAttachment struct {
 	State      string    `json:"state,omitempty"`
 }
 
-// CreateVolume creates a new EBS volume stub.
-func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, error) {
+// CreateVolume creates a new EBS volume, optionally restored from an
+// existing EBS snapshot (snapshotID, real AWS's CreateVolumeInput.SnapshotId).
+// When snapshotID is set: the snapshot must exist (ErrSnapshotNotFound
+// otherwise); size defaults to the snapshot's VolumeSize when size is 0 and
+// must be at least the snapshot's VolumeSize otherwise (real AWS rejects a
+// smaller target); Encrypted/KmsKeyID are inherited from the snapshot, since
+// a volume created from an encrypted snapshot is always encrypted in AWS.
+func (b *InMemoryBackend) CreateVolume(az, volType string, size int, snapshotID string) (*Volume, error) {
 	if az == "" {
 		az = b.Region + "a"
 	}
@@ -469,14 +478,39 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, e
 		volType = volTypeDefaultGP2
 	}
 
+	b.mu.Lock("CreateVolume")
+	defer b.mu.Unlock()
+
+	var (
+		encrypted bool
+		kmsKeyID  string
+	)
+
+	if snapshotID != "" {
+		snap, ok := b.snapshots.Get(snapshotID)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
+		}
+
+		switch {
+		case size == 0:
+			size = snap.VolumeSize
+		case size < snap.VolumeSize:
+			return nil, fmt.Errorf(
+				"%w: %d GiB is smaller than snapshot %s's size of %d GiB",
+				ErrInvalidParameter, size, snapshotID, snap.VolumeSize,
+			)
+		}
+
+		encrypted = snap.Encrypted
+		kmsKeyID = snap.KmsKeyID
+	}
+
 	if size <= 0 {
 		size = 8
 	}
 
-	b.mu.Lock("CreateVolume")
-	defer b.mu.Unlock()
-
-	id := "vol-" + uuid.New().String()[:17]
+	id := newVolumeID()
 	vol := &Volume{
 		ID:         id,
 		AZ:         az,
@@ -484,6 +518,9 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, e
 		Size:       size,
 		State:      stateAvailable,
 		CreateTime: time.Now(),
+		SnapshotID: snapshotID,
+		Encrypted:  encrypted,
+		KmsKeyID:   kmsKeyID,
 	}
 	b.volumes.Put(vol)
 

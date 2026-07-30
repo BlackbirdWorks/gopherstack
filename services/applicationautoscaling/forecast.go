@@ -51,39 +51,24 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(
 		)
 	}
 
-	// Build hourly data points in [startTime, endTime).
-	// Truncate always rounds down; if startTime is not on an exact hour boundary
-	// the truncated value precedes startTime, so we advance by one hour.
-	// When startTime is exactly on an hour boundary, truncation is a no-op and
-	// the condition is false, keeping the boundary as the first point.
-	start := startTime.Truncate(time.Hour)
-	if start.Before(startTime) {
-		start = start.Add(time.Hour)
-	}
-
-	// Preallocate with the exact known capacity to avoid slice growth.
-	numPoints := max(0, int(endTime.Sub(start)/time.Hour))
-
-	timestamps := make([]time.Time, 0, numPoints)
-
-	for t := start; t.Before(endTime); t = t.Add(time.Hour) {
-		timestamps = append(timestamps, t)
-	}
-
-	values := make([]float64, len(timestamps))
-	for i := range values {
-		values[i] = 10.0
-	}
-
+	// Real AWS predictive scaling forecasts are produced by an ML model
+	// trained on the resource's actual historical CloudWatch metric data.
+	// gopherstack has no real metric history to forecast from, so returning
+	// a fabricated curve here (previously a flat constant-10.0 line) would be
+	// data a caller could mistake for a genuine forecast. Instead this
+	// honestly returns no data points, which also matches real AWS's own
+	// behavior for a predictive scaling policy that has not yet accumulated
+	// enough history to produce a forecast (CapacityForecast/LoadForecast are
+	// legitimately empty in that case). See PARITY.md gaps.
 	capacity := &CapacityForecastData{
-		Timestamps: timestamps,
-		Values:     values,
+		Timestamps: []time.Time{},
+		Values:     []float64{},
 	}
 
 	load := []LoadForecastData{
 		{
-			Timestamps:          timestamps,
-			Values:              values,
+			Timestamps:          []time.Time{},
+			Values:              []float64{},
 			MetricSpecification: fmt.Sprintf("%s/%s/%s", serviceNamespace, resourceID, scalableDimension),
 		},
 	}

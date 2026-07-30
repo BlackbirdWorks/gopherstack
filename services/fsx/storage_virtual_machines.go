@@ -5,8 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -63,7 +61,7 @@ func (b *InMemoryBackend) CreateStorageVirtualMachine(
 		return nil, ErrFileSystemNotFound
 	}
 
-	id := "svm-" + uuid.New().String()[:17]
+	id := newStorageVirtualMachineID()
 	arn := b.svmARN(id)
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)

@@ -3,8 +3,6 @@ package ec2
 import (
 	"errors"
 	"fmt"
-
-	"github.com/google/uuid"
 )
 
 // ErrInternetGatewayNotFound is returned when an Internet Gateway is not found.
@@ -27,7 +25,7 @@ func (b *InMemoryBackend) CreateInternetGateway() (*InternetGateway, error) {
 	b.mu.Lock("CreateInternetGateway")
 	defer b.mu.Unlock()
 
-	id := "igw-" + uuid.New().String()[:17]
+	id := newInternetGatewayID()
 	igw := &InternetGateway{
 		ID:          id,
 		Attachments: []IGWAttachment{},

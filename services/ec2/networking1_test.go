@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
 // ---- TGW VPC Attachments ----
@@ -15,7 +17,7 @@ func TestNetworking1_TGWVpcAttachment(t *testing.T) {
 	t.Parallel()
 
 	bk := newTestBackend()
-	tgw, err := bk.CreateTransitGateway("test")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test"})
 	require.NoError(t, err)
 
 	vpc, err := bk.CreateVpc("10.0.0.0/16")

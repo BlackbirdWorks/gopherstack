@@ -148,7 +148,9 @@ func (b *InMemoryBackend) DeleteVocabulary(vocabularyName string) error {
 
 // ListVocabularies returns custom vocabularies with optional state filter, name
 // substring filter, and pagination.
-func (b *InMemoryBackend) ListVocabularies(stateFilter, nameContains, nextToken string) ([]Vocabulary, string) {
+func (b *InMemoryBackend) ListVocabularies(
+	stateFilter, nameContains, nextToken string, maxResults int32,
+) ([]Vocabulary, string) {
 	b.mu.RLock("ListVocabularies")
 	defer b.mu.RUnlock()
 
@@ -162,5 +164,5 @@ func (b *InMemoryBackend) ListVocabularies(stateFilter, nameContains, nextToken 
 
 	sort.Slice(all, func(i, j int) bool { return all[i].VocabularyName < all[j].VocabularyName })
 
-	return paginateList(all, nextToken)
+	return paginateList(all, nextToken, maxResults)
 }

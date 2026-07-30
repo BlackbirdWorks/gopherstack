@@ -504,6 +504,104 @@ func TestQuickSight_Agents(t *testing.T) {
 				require.NotEmpty(t, next)
 			},
 		},
+		{
+			// CustomPromptInput.ExistingPrompt's three fields (ModelProfileId/
+			// QbsAwsAccountId/SubscriptionId) are caller-supplied references to an
+			// already-provisioned Amazon Q Business profile, not values this
+			// backend has to mint -- so round-tripping them is a genuine, real
+			// capability, not fabrication (see agents.go's CreateAgent doc
+			// comment and PARITY.md).
+			name: "CustomPromptInput ExistingPrompt round-trips on create and update",
+			run: func(t *testing.T) {
+				t.Helper()
+				h := newTestHandler(t)
+
+				createRec := doRequest(t, h, http.MethodPost, accountPath("/agents"), map[string]any{
+					"AgentId": "agent1", "Name": "My Agent",
+					"CustomPromptInput": map[string]any{
+						"ExistingPrompt": map[string]any{
+							"ModelProfileId":  "profile-1",
+							"QbsAwsAccountId": "111111111111",
+							"SubscriptionId":  "sub-1",
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				describeRec := doRequest(t, h, http.MethodGet, accountPath("/agents/agent1"), nil)
+				require.Equal(t, http.StatusOK, describeRec.Code)
+				agent := parseBody(t, describeRec)["Agent"].(map[string]any)
+				cp := agent["CustomPromptInterface"].(map[string]any)
+				assert.Equal(t, "profile-1", cp["ModelProfileId"])
+				assert.Equal(t, "111111111111", cp["QbsAwsAccountId"])
+				assert.Equal(t, "sub-1", cp["SubscriptionId"])
+
+				updateRec := doRequest(t, h, http.MethodPut, accountPath("/agents/agent1"), map[string]any{
+					"CustomPromptInput": map[string]any{
+						"ExistingPrompt": map[string]any{
+							"ModelProfileId":  "profile-2",
+							"QbsAwsAccountId": "222222222222",
+							"SubscriptionId":  "sub-2",
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, updateRec.Code)
+
+				describeAfterRec := doRequest(t, h, http.MethodGet, accountPath("/agents/agent1"), nil)
+				agentAfter := parseBody(t, describeAfterRec)["Agent"].(map[string]any)
+				cpAfter := agentAfter["CustomPromptInterface"].(map[string]any)
+				assert.Equal(t, "profile-2", cpAfter["ModelProfileId"])
+				assert.Equal(t, "222222222222", cpAfter["QbsAwsAccountId"])
+				assert.Equal(t, "sub-2", cpAfter["SubscriptionId"])
+			},
+		},
+		{
+			name: "CustomPromptInput ExistingPrompt missing a required field is rejected",
+			run: func(t *testing.T) {
+				t.Helper()
+				h := newTestHandler(t)
+
+				rec := doRequest(t, h, http.MethodPost, accountPath("/agents"), map[string]any{
+					"AgentId": "agent1", "Name": "My Agent",
+					"CustomPromptInput": map[string]any{
+						"ExistingPrompt": map[string]any{
+							"ModelProfileId": "profile-1",
+							// QbsAwsAccountId/SubscriptionId omitted -- both are
+							// "This member is required" on the real
+							// CustomPromptProfile.
+						},
+					},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			// NewPrompt asks AWS to mint a brand-new profile (and fresh
+			// ModelProfileId/QbsAwsAccountId/SubscriptionId) via a live Amazon Q
+			// Business subscription this backend has no state for -- accepted
+			// without error (real AWS would accept it too, given a real
+			// subscription) but honestly produces no CustomPromptInterface,
+			// since synthesizing those three IDs would be fabrication.
+			name: "CustomPromptInput NewPrompt is accepted but not echoed back",
+			run: func(t *testing.T) {
+				t.Helper()
+				h := newTestHandler(t)
+
+				createRec := doRequest(t, h, http.MethodPost, accountPath("/agents"), map[string]any{
+					"AgentId": "agent1", "Name": "My Agent",
+					"CustomPromptInput": map[string]any{
+						"NewPrompt": map[string]any{
+							"Identity": "a helpful assistant",
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				describeRec := doRequest(t, h, http.MethodGet, accountPath("/agents/agent1"), nil)
+				agent := parseBody(t, describeRec)["Agent"].(map[string]any)
+				assert.NotContains(t, agent, "CustomPromptInterface")
+			},
+		},
 	}
 
 	for _, tc := range tests {

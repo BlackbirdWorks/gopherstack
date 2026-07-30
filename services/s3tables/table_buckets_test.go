@@ -9,6 +9,62 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestBackend_CreateTableBucket_NameValidation verifies CreateTableBucket
+// enforces real S3 Tables table-bucket naming rules (field-diffed against
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-buckets-naming.html):
+// 3-63 chars; lowercase letters, digits, hyphens only; must begin/end with a
+// letter or number; no underscores/periods; reserved prefix/suffix denylist.
+func TestBackend_CreateTableBucket_NameValidation(t *testing.T) {
+	t.Parallel()
+
+	// Subtest names double as the case description: too-short/too-long length
+	// bounds, uppercase/underscore/period char-class violations, leading/
+	// trailing hyphen, each reserved prefix (xn--, sthree-, amzn-s3-demo-,
+	// aws), each reserved suffix (-s3alias, --ol-s3, --x-s3, --table-s3), and
+	// two valid names (one at the minimum length).
+	tests := []struct {
+		name      string
+		wantValid bool
+	}{
+		{name: "va", wantValid: false},
+		{
+			name:      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			wantValid: false,
+		},
+		{name: "Valid-Bucket", wantValid: false},
+		{name: "valid_bucket", wantValid: false},
+		{name: "valid.bucket", wantValid: false},
+		{name: "-valid-bucket", wantValid: false},
+		{name: "valid-bucket-", wantValid: false},
+		{name: "xn--valid-bucket", wantValid: false},
+		{name: "sthree-valid-bucket", wantValid: false},
+		{name: "amzn-s3-demo-valid-bucket", wantValid: false},
+		{name: "aws-valid-bucket", wantValid: false},
+		{name: "valid-bucket-s3alias", wantValid: false},
+		{name: "valid-bucket--ol-s3", wantValid: false},
+		{name: "valid-bucket--x-s3", wantValid: false},
+		{name: "valid-bucket--table-s3", wantValid: false},
+		{name: "valid-bucket-123", wantValid: true},
+		{name: "abc", wantValid: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			_, err := b.CreateTableBucket(tt.name, s3tables.CreateTableBucketOptions{})
+
+			if tt.wantValid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, s3tables.ErrInvalidBucketName)
+			}
+		})
+	}
+}
+
 func TestBackend_CreateTableBucket_AppliesOptions(t *testing.T) {
 	t.Parallel()
 
@@ -45,7 +101,7 @@ func TestBackend_CreateTableBucket_AppliesOptions(t *testing.T) {
 
 			b := newTestBackend(t)
 
-			tb, err := b.CreateTableBucket("opts-bucket-"+tt.name, tt.opts)
+			tb, err := b.CreateTableBucket("opts-bucket-"+bucketSuffix(tt.name), tt.opts)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantStorageClass, tb.StorageClass)

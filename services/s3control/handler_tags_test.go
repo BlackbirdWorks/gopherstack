@@ -2,7 +2,7 @@ package s3control_test
 
 import (
 	"net/http"
-	"strings"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,8 +53,7 @@ func TestResourceTags(t *testing.T) {
 			`</Tags></TagResourceRequest>`
 		_ = doS3Request(t, h, http.MethodPost, tagsPath, twoTagsBody)
 
-		untagRec := doS3Request(t, h, http.MethodDelete, tagsPath,
-			`<UntagResourceRequest><TagKeys><TagKey>a</TagKey></TagKeys></UntagResourceRequest>`)
+		untagRec := doS3Request(t, h, http.MethodDelete, tagsPath+"?tagKeys=a", "")
 		require.Equal(t, http.StatusNoContent, untagRec.Code)
 
 		listRec := doS3Request(t, h, http.MethodGet, tagsPath, "")
@@ -239,16 +238,20 @@ func TestUntagResource(t *testing.T) {
 
 			b.TagResource(tt.arn, tt.initialTags)
 
-			// Build untag body
-			var sb strings.Builder
-			sb.WriteString(`<UntagResourceRequest><TagKeys>`)
-			for _, k := range tt.removeKeys {
-				sb.WriteString(`<TagKey>` + k + `</TagKey>`)
+			// UntagResource has no XML request body in the real API --
+			// TagKeys travels as repeated "tagKeys" query-string
+			// parameters (see handleUntagResource's doc comment).
+			path := "/v20180820/tags/" + tt.arn
+			if len(tt.removeKeys) > 0 {
+				q := url.Values{}
+				for _, k := range tt.removeKeys {
+					q.Add("tagKeys", k)
+				}
+				path += "?" + q.Encode()
 			}
-			sb.WriteString(`</TagKeys></UntagResourceRequest>`)
 
 			rec := doS3ControlNewOpRequest(t, h, http.MethodDelete,
-				"/v20180820/tags/"+tt.arn, "000000000000", sb.String())
+				path, "000000000000", "")
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			remaining := b.ListTagsForResource(tt.arn)

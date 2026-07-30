@@ -88,20 +88,23 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	}{})
 }
 
-type untagResourceRequestXML struct {
-	XMLName xml.Name `xml:"UntagResourceRequest"`
-	TagKeys []string `xml:"TagKeys>TagKey"`
-}
-
+// handleUntagResource. UntagResourceInput has NO XML request body in the
+// real API -- TagKeys travels as repeated "tagKeys" query-string parameters
+// (confirmed via aws-sdk-go-v2/service/s3control's
+// awsRestxml_serializeOpHttpBindingsUntagResourceInput, which calls
+// encoder.AddQuery("tagKeys") for each key and has no corresponding
+// awsRestxml_serializeOpDocumentUntagResourceInput body serializer at all).
+// A previous version of this handler read TagKeys from an
+// "<UntagResourceRequest><TagKeys><TagKey>...</TagKeys></UntagResourceRequest>"
+// XML body instead -- since a real aws-sdk-go-v2 client never sends a body
+// for this operation, decodeXML always saw an empty body (io.EOF, which it
+// treats as success) and TagKeys was always empty, making every real
+// UntagResource call silently delete zero tags while still returning 204.
 func (h *Handler) handleUntagResource(c *echo.Context) error {
 	arn := strings.TrimPrefix(c.Request().URL.Path, pathTagsPrefix)
+	tagKeys := c.Request().URL.Query()["tagKeys"]
 
-	var body untagResourceRequestXML
-	if err := decodeXML(c, &body); err != nil {
-		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
-	}
-
-	h.Backend.UntagResource(arn, body.TagKeys)
+	h.Backend.UntagResource(arn, tagKeys)
 
 	return c.NoContent(http.StatusNoContent)
 }

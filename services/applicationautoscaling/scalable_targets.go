@@ -10,6 +10,54 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+// Per-account/per-region scalable-target quotas, keyed by ServiceNamespace.
+// Source: AWS "Quotas for Application Auto Scaling" documentation. All are
+// adjustable via Service Quotas, but these are the real documented defaults;
+// gopherstack has no per-account quota-override concept (same rationale as
+// maxStepAdjustmentsPerPolicy).
+const (
+	// maxScalableTargetsDynamoDB is the default quota for the dynamodb namespace.
+	maxScalableTargetsDynamoDB = 5000
+	// maxScalableTargetsECS is the default quota for the ecs namespace.
+	maxScalableTargetsECS = 3000
+	// maxScalableTargetsCassandra is the default quota for the cassandra
+	// (Amazon Keyspaces) namespace.
+	maxScalableTargetsCassandra = 1500
+	// maxScalableTargetsDefault is the default quota for every other
+	// ServiceNamespace (ec2, elasticmapreduce, appstream, comprehend, lambda,
+	// sagemaker, custom-resource, neptune, kafka, workspaces, rds, ...).
+	maxScalableTargetsDefault = 500
+)
+
+// maxScalableTargetsForNamespace returns the real, documented default
+// per-account/per-region scalable-target quota for the given ServiceNamespace.
+func maxScalableTargetsForNamespace(serviceNamespace string) int {
+	switch serviceNamespace {
+	case "dynamodb":
+		return maxScalableTargetsDynamoDB
+	case "ecs":
+		return maxScalableTargetsECS
+	case "cassandra":
+		return maxScalableTargetsCassandra
+	default:
+		return maxScalableTargetsDefault
+	}
+}
+
+// scalableTargetsForNamespaceLocked counts the scalable targets currently
+// registered under the given ServiceNamespace. Caller must hold the lock.
+func (b *InMemoryBackend) scalableTargetsForNamespaceLocked(serviceNamespace string) int {
+	count := 0
+
+	for _, t := range b.scalableTargets.All() {
+		if t.ServiceNamespace == serviceNamespace {
+			count++
+		}
+	}
+
+	return count
+}
+
 // RegisterScalableTarget upserts a scalable target (creates or updates).
 func (b *InMemoryBackend) RegisterScalableTarget(
 	serviceNamespace, resourceID, scalableDimension string,
@@ -59,6 +107,16 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 
 	if existing, ok := b.scalableTargets.Get(key); ok {
 		return b.updateExistingTarget(existing, minCapacity, maxCapacity, tags, roleARN, suspendedState, now)
+	}
+
+	limit := maxScalableTargetsForNamespace(serviceNamespace)
+	if b.scalableTargetsForNamespaceLocked(serviceNamespace) >= limit {
+		return nil, fmt.Errorf(
+			"%w: scalable target quota exceeded for service namespace %s; maximum allowed is %d",
+			ErrLimitExceeded,
+			serviceNamespace,
+			limit,
+		)
 	}
 
 	t := &ScalableTarget{

@@ -146,8 +146,14 @@ type overrideStageConditionInput struct {
 	ConditionType       string `json:"conditionType"`
 }
 
-// validConditionType returns true if t is a valid ConditionType value.
-func validConditionType(t string) bool { return t == "BEFORE_ENTRY" }
+// validConditionType returns true if t is a valid ConditionType value. AWS's
+// real enum (aws-sdk-go-v2/service/codepipeline/types.ConditionType) has
+// exactly two values: BEFORE_ENTRY and ON_SUCCESS -- there is no ON_FAILURE
+// ConditionType (failure conditions are overridden implicitly by retrying or
+// rolling back the stage, not via OverrideStageCondition).
+func validConditionType(t string) bool {
+	return t == "BEFORE_ENTRY" || t == "ON_SUCCESS"
+}
 
 func (h *Handler) handleOverrideStageCondition(
 	ctx context.Context,
@@ -166,7 +172,9 @@ func (h *Handler) handleOverrideStageCondition(
 	}
 
 	if !validConditionType(in.ConditionType) {
-		return nil, fmt.Errorf("%w: invalid conditionType %q, must be BEFORE_ENTRY", ErrValidation, in.ConditionType)
+		return nil, fmt.Errorf(
+			"%w: invalid conditionType %q, must be BEFORE_ENTRY or ON_SUCCESS", ErrValidation, in.ConditionType,
+		)
 	}
 
 	if err := h.Backend.OverrideStageCondition(ctx, in.PipelineName, in.StageName, in.PipelineExecutionID); err != nil {

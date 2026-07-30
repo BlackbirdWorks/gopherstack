@@ -15,6 +15,7 @@ type requestCertificateInput struct {
 	CertificateAuthorityArn string                             `json:"CertificateAuthorityArn"`
 	IdempotencyToken        string                             `json:"IdempotencyToken"`
 	KeyAlgorithm            string                             `json:"KeyAlgorithm"`
+	ManagedBy               string                             `json:"ManagedBy,omitempty"`
 	SubjectAlternativeNames []string                           `json:"SubjectAlternativeNames"`
 	Tags                    []map[string]string                `json:"Tags"`
 	DomainValidationOptions []domainValidationOptionInputEntry `json:"DomainValidationOptions"`
@@ -75,6 +76,7 @@ type certificateDetail struct {
 	FailureReason           string                `json:"FailureReason,omitempty"`
 	CertificateAuthorityArn string                `json:"CertificateAuthorityArn,omitempty"`
 	KeyID                   string                `json:"KeyId,omitempty"`
+	ManagedBy               string                `json:"ManagedBy,omitempty"`
 	Options                 *certificateOptions   `json:"Options,omitempty"`
 	SubjectAlternativeNames []string              `json:"SubjectAlternativeNames,omitempty"`
 	// DomainValidationOptions uses a concrete slice type here to satisfy the JSON
@@ -132,6 +134,7 @@ type certificateSummary struct {
 	RenewalEligibility                   string   `json:"RenewalEligibility,omitempty"`
 	Type                                 string   `json:"Type,omitempty"`
 	ExportOption                         string   `json:"ExportOption,omitempty"`
+	ManagedBy                            string   `json:"ManagedBy,omitempty"`
 	SubjectAlternativeNameSummaries      []string `json:"SubjectAlternativeNameSummaries,omitempty"`
 	KeyUsages                            []string `json:"KeyUsages,omitempty"`
 	ExtendedKeyUsages                    []string `json:"ExtendedKeyUsages,omitempty"`
@@ -251,14 +254,17 @@ func (h *Handler) jsonRequestCertificate(ctx context.Context, body []byte) (any,
 		exportPref = input.Options.Export
 	}
 
-	// Validate DomainValidationOptions before creating anything -- an
-	// InvalidDomainValidationOptionsException must not leave a certificate
-	// behind.
+	// Validate DomainValidationOptions and ManagedBy before creating
+	// anything -- a ValidationException must not leave a certificate behind.
 	allDomains := append([]string{input.DomainName}, input.SubjectAlternativeNames...)
 
 	overrides, dvoErr := validateDomainValidationOptions(allDomains, toOverrideEntries(input.DomainValidationOptions))
 	if dvoErr != nil {
 		return nil, dvoErr
+	}
+
+	if mbErr := validateManagedBy(input.ManagedBy); mbErr != nil {
+		return nil, mbErr
 	}
 
 	cert, err := h.Backend.RequestCertificate(
@@ -281,6 +287,10 @@ func (h *Handler) jsonRequestCertificate(ctx context.Context, body []byte) (any,
 	}
 
 	if setErr := h.Backend.SetExportPreference(ctx, cert.ARN, exportPref); setErr != nil {
+		return nil, setErr
+	}
+
+	if setErr := h.Backend.SetManagedBy(ctx, cert.ARN, input.ManagedBy); setErr != nil {
 		return nil, setErr
 	}
 
@@ -317,21 +327,13 @@ func toOverrideEntries(in []domainValidationOptionInputEntry) []domainValidation
 	return out
 }
 
-func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any, error) {
-	var input describeCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, ErrInvalidParameter
-	}
-	if err := validateCertArn(input.CertificateArn); err != nil {
-		return nil, err
-	}
-	cert, err := h.Backend.DescribeCertificate(ctx, input.CertificateArn)
-	if err != nil {
-		return nil, err
-	}
+// buildDomainValidationOptionList projects backend DomainValidationOption
+// entries into the wire shape shared by DescribeCertificate's top-level
+// DomainValidationOptions and its nested RenewalSummary.DomainValidationOptions.
+func buildDomainValidationOptionList(dvos []DomainValidationOption) []domainValidationOption {
+	dvoList := make([]domainValidationOption, 0, len(dvos))
 
-	dvoList := make([]domainValidationOption, 0, len(cert.DomainValidationOptions))
-	for _, dvo := range cert.DomainValidationOptions {
+	for _, dvo := range dvos {
 		opt := domainValidationOption{
 			DomainName:       dvo.DomainName,
 			ValidationDomain: dvo.ValidationDomain,
@@ -352,6 +354,41 @@ func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any
 
 		dvoList = append(dvoList, opt)
 	}
+
+	return dvoList
+}
+
+// buildRenewalSummaryDetail projects a backend RenewalSummary into the wire
+// shape used by DescribeCertificate's nested RenewalSummary field. Returns
+// nil when rs is nil (RenewalSummary is only ever present on AMAZON_ISSUED
+// certificates that have had RenewCertificate called).
+func buildRenewalSummaryDetail(rs *RenewalSummary) *renewalSummaryDetail {
+	if rs == nil {
+		return nil
+	}
+
+	return &renewalSummaryDetail{
+		RenewalStatus:           rs.RenewalStatus,
+		RenewalStatusReason:     rs.RenewalStatusReason,
+		DomainValidationOptions: buildDomainValidationOptionList(rs.DomainValidationOptions),
+		UpdatedAt:               rs.UpdatedAt.Unix(),
+	}
+}
+
+func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any, error) {
+	var input describeCertificateInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+	if err := validateCertArn(input.CertificateArn); err != nil {
+		return nil, err
+	}
+	cert, err := h.Backend.DescribeCertificate(ctx, input.CertificateArn)
+	if err != nil {
+		return nil, err
+	}
+
+	dvoList := buildDomainValidationOptionList(cert.DomainValidationOptions)
 
 	keyUsages := make([]keyUsageDetail, 0, len(cert.KeyUsage))
 	for _, ku := range cert.KeyUsage {
@@ -378,6 +415,7 @@ func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any
 		FailureReason:           cert.FailureReason,
 		CertificateAuthorityArn: cert.CertificateAuthorityArn,
 		KeyID:                   cert.KeyID,
+		ManagedBy:               cert.ManagedBy,
 		CreatedAt:               cert.CreatedAt.Unix(),
 		NotBefore:               cert.NotBefore.Unix(),
 		NotAfter:                cert.NotAfter.Unix(),
@@ -392,30 +430,7 @@ func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any
 		ExtendedKeyUsage:        extKeyUsages,
 	}
 
-	if cert.RenewalSummary != nil {
-		rsDVOs := make([]domainValidationOption, 0, len(cert.RenewalSummary.DomainValidationOptions))
-		for _, dvo := range cert.RenewalSummary.DomainValidationOptions {
-			opt := domainValidationOption{
-				DomainName:       dvo.DomainName,
-				ValidationDomain: dvo.ValidationDomain,
-				ValidationStatus: dvo.ValidationStatus,
-				ValidationMethod: dvo.ValidationMethod,
-			}
-			if dvo.ResourceRecord != nil {
-				rr := *dvo.ResourceRecord
-				opt.ResourceRecord = &resourceRecord{Name: rr.Name, Type: rr.Type, Value: rr.Value}
-			}
-
-			rsDVOs = append(rsDVOs, opt)
-		}
-
-		detail.RenewalSummary = &renewalSummaryDetail{
-			RenewalStatus:           cert.RenewalSummary.RenewalStatus,
-			RenewalStatusReason:     cert.RenewalSummary.RenewalStatusReason,
-			DomainValidationOptions: rsDVOs,
-			UpdatedAt:               cert.RenewalSummary.UpdatedAt.Unix(),
-		}
-	}
+	detail.RenewalSummary = buildRenewalSummaryDetail(cert.RenewalSummary)
 
 	return &describeCertificateOutput{Certificate: detail}, nil
 }
@@ -463,6 +478,20 @@ func buildCertificateSummary(c *Certificate) certificateSummary {
 	// is always false here -- correct given our data, not a stubbed field.
 	hasMoreSANs := false
 
+	// Exported: real AWS's doc comment for CertificateSummary.Exported used to
+	// read "This value exists only when the certificate type is PRIVATE"
+	// (aws-sdk-go-v2/service/acm@v1.37.21/types/types.go) -- that sentence is
+	// gone in the currently-installed v1.43.0 (confirmed by reading
+	// types.go directly), dropped when AWS added exportable public
+	// certificates in 2025. Now that AMAZON_ISSUED certificates can be
+	// genuinely exported too (see validateCertExportable,
+	// certificates.go), gating this field to PRIVATE only would be stale --
+	// a real client exporting a now-eligible AMAZON_ISSUED cert would never
+	// see Exported flip to true. Set unconditionally, matching
+	// certToSearchResult's (handler_search_certificates.go) SearchCertificates
+	// projection, which was already correctly unconditional.
+	exported := c.Exported
+
 	summary := certificateSummary{
 		CertificateArn:                       c.ARN,
 		DomainName:                           c.DomainName,
@@ -471,6 +500,7 @@ func buildCertificateSummary(c *Certificate) certificateSummary {
 		RenewalEligibility:                   c.RenewalEligibility,
 		Type:                                 c.Type,
 		ExportOption:                         c.ExportPref,
+		ManagedBy:                            c.ManagedBy,
 		CreatedAt:                            certTimeUnix(&c.CreatedAt),
 		IssuedAt:                             certTimeUnix(c.IssuedAt),
 		ImportedAt:                           certTimeUnix(c.ImportedAt),
@@ -478,11 +508,7 @@ func buildCertificateSummary(c *Certificate) certificateSummary {
 		SubjectAlternativeNameSummaries:      c.SubjectAlternativeNames,
 		InUse:                                &inUse,
 		HasAdditionalSubjectAlternativeNames: &hasMoreSANs,
-	}
-
-	if c.Type == certTypePrivate {
-		exported := c.Exported
-		summary.Exported = &exported
+		Exported:                             &exported,
 	}
 
 	summary.KeyUsages = append(summary.KeyUsages, c.KeyUsage...)

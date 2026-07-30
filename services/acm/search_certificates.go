@@ -16,6 +16,12 @@ import (
 // meaning (see that field's doc in models.go).
 const certificateExportDisabled = "DISABLED"
 
+// certificateExportEnabled mirrors the AWS CertificateExport enum's
+// "ENABLED" value -- the opt-in RequestCertificate's Options.Export needs to
+// hold before an AMAZON_ISSUED certificate is exportable. See
+// validateCertExportable in certificates.go.
+const certificateExportEnabled = "ENABLED"
+
 // searchTimestampRange is the parsed form of an X509AttributeFilter
 // NotAfter/NotBefore TimestampRange member. A nil bound is unbounded on that
 // side, matching the real API's "inclusive, either end optional" semantics.
@@ -39,11 +45,13 @@ func (r searchTimestampRange) matches(t time.Time) bool {
 // certMetadataFilter is the parsed form of one CertificateFilter's
 // AcmCertificateMetadataFilter union member (exactly one field non-nil/non-
 // empty at a time). Members with no gopherstack-tracked equivalent
-// (AcmeAccountId, AcmeEndpointArn, ManagedBy, CertificateKeyPairOrigin) are
+// (AcmeAccountId, AcmeEndpointArn, CertificateKeyPairOrigin) are
 // intentionally included but never match anything real -- see
 // CertificateSearchResult's own AcmCertificateMetadata gap in PARITY.md:
 // gopherstack tracks no such data for any certificate, so honestly matching
-// nothing is correct-by-absence rather than fabricated.
+// nothing is correct-by-absence rather than fabricated. ManagedBy IS tracked
+// (Certificate.ManagedBy, set via RequestCertificate's ManagedBy input) and
+// matches for real -- see the matches() switch below.
 type certMetadataFilter struct {
 	Status                   *string
 	Type                     *string
@@ -79,9 +87,11 @@ func (f certMetadataFilter) matches(c *Certificate) bool {
 		return c.Exported == *f.Exported
 	case f.InUse != nil:
 		return (len(c.InUseBy) > 0) == *f.InUse
+	case f.ManagedBy != nil:
+		return c.ManagedBy == *f.ManagedBy
 	default:
-		// AcmeAccountID/AcmeEndpointArn/ManagedBy/CertificateKeyPairOrigin:
-		// no tracked data, honestly never matches.
+		// AcmeAccountID/AcmeEndpointArn/CertificateKeyPairOrigin: no tracked
+		// data, honestly never matches.
 		return false
 	}
 }
@@ -89,13 +99,14 @@ func (f certMetadataFilter) matches(c *Certificate) bool {
 // x509Filter is the parsed form of one CertificateFilter's
 // X509AttributeFilter union member.
 type x509Filter struct {
-	KeyAlgorithm     *string
-	KeyUsage         *string
-	ExtendedKeyUsage *string
-	SerialNumber     *string
-	SANDnsName       *stringComparison
-	NotAfter         *searchTimestampRange
-	NotBefore        *searchTimestampRange
+	KeyAlgorithm      *string
+	KeyUsage          *string
+	ExtendedKeyUsage  *string
+	SerialNumber      *string
+	SANDnsName        *stringComparison
+	SubjectCommonName *stringComparison
+	NotAfter          *searchTimestampRange
+	NotBefore         *searchTimestampRange
 }
 
 type stringComparison struct {
@@ -132,14 +143,20 @@ func (f x509Filter) matches(c *Certificate) bool {
 		return c.Serial == *f.SerialNumber
 	case f.SANDnsName != nil:
 		return f.SANDnsName.matchesAny(c.SubjectAlternativeNames)
+	case f.SubjectCommonName != nil:
+		// The real SubjectFilter union currently defines only CommonName
+		// (SubjectFilterMemberCommonName) -- confirmed against
+		// aws-sdk-go-v2/service/acm@v1.43.0/types/types.go -- so this is a
+		// complete implementation of X509AttributeFilter.Subject, not a
+		// partial one. c.SubjectCommonName is captured directly from
+		// pkix.Name.CommonName at certificate creation/import time
+		// (crypto.go), not re-derived from the flattened Subject string.
+		return f.SubjectCommonName.matchesAny([]string{c.SubjectCommonName})
 	case f.NotAfter != nil:
 		return f.NotAfter.matches(c.NotAfter)
 	case f.NotBefore != nil:
 		return f.NotBefore.matches(c.NotBefore)
 	default:
-		// Subject (full Distinguished Name filtering): not supported, see
-		// PARITY.md -- gopherstack stores Subject only as the pkix.Name
-		// String() rendering, not structured RDN components to filter on.
 		return false
 	}
 }
@@ -209,11 +226,6 @@ type SearchCertificatesParams struct {
 	MaxResults int
 }
 
-// searchSortLess compares two certificates for SearchCertificates' SortBy.
-// Fields SearchCertificates documents but gopherstack tracks no data for
-// (MANAGED_BY, ACME_ENDPOINT_ARN, ACME_ACCOUNT_ID, CERTIFICATE_KEY_PAIR_ORIGIN,
-// COMMON_NAME) fall back to the same stable ARN ordering ListCertificates
-// uses when it has no real value to sort on.
 // searchSortComparators maps each supported SearchCertificates SortBy value
 // to a less-than comparator. A table (rather than a switch) keeps
 // searchSortLess's cyclomatic complexity flat regardless of how many sort
@@ -238,17 +250,22 @@ var searchSortComparators = map[string]func(a, b *Certificate) bool{
 	},
 	"EXPORT_OPTION":     func(a, b *Certificate) bool { return a.ExportPref < b.ExportPref },
 	"VALIDATION_METHOD": func(a, b *Certificate) bool { return a.ValidationMethod < b.ValidationMethod },
+	"MANAGED_BY":        func(a, b *Certificate) bool { return a.ManagedBy < b.ManagedBy },
 	"IMPORTED_AT": func(a, b *Certificate) bool {
 		return timeOrZero(a.ImportedAt).Before(timeOrZero(b.ImportedAt))
 	},
+	// COMMON_NAME: real data since this pass -- SubjectCommonName is captured
+	// directly from pkix.Name.CommonName at certificate creation/import time
+	// (crypto.go), no longer only the flattened Subject string.
+	"COMMON_NAME":           func(a, b *Certificate) bool { return a.SubjectCommonName < b.SubjectCommonName },
 	listCertSortByCreatedAt: func(a, b *Certificate) bool { return a.CreatedAt.Before(b.CreatedAt) },
 }
 
 // searchSortLess compares two certificates for SearchCertificates' SortBy.
 // CERTIFICATE_ARN and every SortBy value gopherstack tracks no real data for
-// (MANAGED_BY, ACME_ENDPOINT_ARN, ACME_ACCOUNT_ID, CERTIFICATE_KEY_PAIR_ORIGIN,
-// COMMON_NAME) fall back to the same stable ARN ordering ListCertificates
-// uses when it has no real value to sort on.
+// (ACME_ENDPOINT_ARN, ACME_ACCOUNT_ID, CERTIFICATE_KEY_PAIR_ORIGIN) fall back
+// to the same stable ARN ordering ListCertificates uses when it has no real
+// value to sort on.
 func searchSortLess(sortBy string, a, b *Certificate) bool {
 	if cmp, ok := searchSortComparators[sortBy]; ok {
 		return cmp(a, b)

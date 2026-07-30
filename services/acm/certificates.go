@@ -92,6 +92,8 @@ func (b *InMemoryBackend) RequestCertificate(
 		Serial:                             certMeta.serial,
 		Subject:                            certMeta.subject,
 		Issuer:                             certMeta.issuer,
+		SubjectCommonName:                  certMeta.subjectCommonName,
+		IssuerCommonName:                   certMeta.issuerCommonName,
 		KeyAlgorithm:                       keyAlgorithm,
 		SignatureAlgorithm:                 certMeta.signatureAlgorithm,
 		Status:                             status,
@@ -190,6 +192,34 @@ func (b *InMemoryBackend) SetExportPreference(ctx context.Context, certARN, expo
 	}
 
 	cert.ExportPref = exportPref
+
+	return nil
+}
+
+// SetManagedBy records a just-created certificate's RequestCertificate
+// ManagedBy choice. The value must already be validated (see
+// validateManagedBy, called before the certificate is created so an invalid
+// value never leaves an orphaned certificate behind -- same reasoning as
+// DomainValidationOptions, see ApplyDomainValidationOverrides). Like
+// SetExportPreference, this is only ever called once, immediately after
+// RequestCertificate, from jsonRequestCertificate. A blank value is a no-op
+// (the Certificate's zero value already reads as caller-managed).
+func (b *InMemoryBackend) SetManagedBy(ctx context.Context, certARN, managedBy string) error {
+	if managedBy == "" {
+		return nil
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("SetManagedBy")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs.Get(regionKey(region, certARN))
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	cert.ManagedBy = managedBy
 
 	return nil
 }
@@ -357,6 +387,8 @@ func (b *InMemoryBackend) ImportCertificate(
 		existing.Serial = meta.serial
 		existing.Subject = meta.subject
 		existing.Issuer = meta.issuer
+		existing.SubjectCommonName = meta.subjectCommonName
+		existing.IssuerCommonName = meta.issuerCommonName
 		existing.SignatureAlgorithm = meta.signatureAlgorithm
 		existing.ImportedAt = &now
 		existing.Status = statusIssued
@@ -377,6 +409,8 @@ func (b *InMemoryBackend) ImportCertificate(
 		Serial:                             meta.serial,
 		Subject:                            meta.subject,
 		Issuer:                             meta.issuer,
+		SubjectCommonName:                  meta.subjectCommonName,
+		IssuerCommonName:                   meta.issuerCommonName,
 		KeyAlgorithm:                       keyAlgorithmEC,
 		SignatureAlgorithm:                 meta.signatureAlgorithm,
 		Status:                             statusIssued,
@@ -442,6 +476,8 @@ func (b *InMemoryBackend) RenewCertificate(ctx context.Context, certARN string) 
 	c.Serial = meta.serial
 	c.Subject = meta.subject
 	c.Issuer = meta.issuer
+	c.SubjectCommonName = meta.subjectCommonName
+	c.IssuerCommonName = meta.issuerCommonName
 	c.SignatureAlgorithm = meta.signatureAlgorithm
 	c.NotBefore = notBefore
 	c.NotAfter = notAfter
@@ -492,8 +528,62 @@ const fakeCertChain = "-----BEGIN CERTIFICATE-----\n" +
 	"AiEAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA\n" +
 	"-----END CERTIFICATE-----\n"
 
+// validateCertExportable enforces ACM's export-eligibility rules, confirmed
+// against the live AWS API reference this pass (parity-5,
+// docs.aws.amazon.com/acm/latest/APIReference/API_ExportCertificate.html and
+// API_CertificateOptions.html):
+//
+//   - IMPORTED and PRIVATE certificates have always been exportable -- the
+//     caller supplied or generated the private key themselves, ACM never
+//     withholds it.
+//   - AMAZON_ISSUED (public) certificates are gated by
+//     CertificateOptions.Export: "You can opt in to allow the export of your
+//     certificates by specifying ENABLED" (API_CertificateOptions.html).
+//     ExportCertificateInput's own doc additionally notes "ACM public
+//     certificates created prior to June 17, 2025 cannot be exported" -- not
+//     modeled as a separate check here because every certificate this
+//     backend creates is timestamped with the real current time, which is
+//     always after that cutoff, so the date condition can never affect a
+//     gopherstack-issued certificate; modeling it would mean adding a branch
+//     only reachable by fabricating an artificially old CreatedAt.
+//   - A still-pending AMAZON_ISSUED request keeps the pre-existing
+//     RequestInProgressException ("The certificate request is in process and
+//     the certificate in your account has not yet been issued" -- the exact
+//     documented meaning of that error, confirmed against the op's Errors
+//     section, which lists no distinct "not exportable" error at all).
+//   - An issued-but-not-opted-in AMAZON_ISSUED certificate returns
+//     ValidationException ("The supplied input failed to satisfy
+//     constraints of an AWS service") -- the best (and only plausible) fit
+//     among the op's five documented errors
+//     (InvalidArnException/RequestInProgressException/
+//     ResourceNotFoundException/ThrottlingException/ValidationException),
+//     not RequestInProgressException, whose documented meaning is
+//     specifically "not yet issued" and would misrepresent an already-issued
+//     certificate that is simply ineligible.
+func validateCertExportable(cert *Certificate) error {
+	if cert.Type == certTypeImported || cert.Type == certTypePrivate {
+		return nil
+	}
+
+	if cert.Status == statusPendingValidation || cert.Status == statusValidationTimedOut ||
+		cert.Status == statusFailed {
+		return fmt.Errorf("%w: certificate %s is in state %s", ErrRequestInProgress, cert.ARN, cert.Status)
+	}
+
+	if cert.ExportPref != certificateExportEnabled {
+		return fmt.Errorf(
+			"%w: AMAZON_ISSUED certificate %s is not exportable "+
+				"(RequestCertificate's Options.Export must be ENABLED)",
+			ErrInvalidParameter, cert.ARN,
+		)
+	}
+
+	return nil
+}
+
 // ExportCertificate returns the PEM certificate body, chain, and private key for
-// an IMPORTED or PRIVATE certificate. Returns ErrNotEligible for AMAZON_ISSUED certificates.
+// an eligible certificate -- IMPORTED/PRIVATE unconditionally, AMAZON_ISSUED only
+// when opted in via Options.Export=ENABLED (see validateCertExportable).
 // When the stored certificate has no associated chain, a fake chain (intermediate + root)
 // is returned in PEM format to simulate AWS ACM behaviour.
 // If passphrase is non-nil and non-empty, the private key is returned encrypted using AES-256.
@@ -510,8 +600,8 @@ func (b *InMemoryBackend) ExportCertificate(
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
 
-	if cert.Type != certTypeImported && cert.Type != certTypePrivate {
-		return nil, fmt.Errorf("%w: only IMPORTED or PRIVATE certificates can be exported", ErrNotEligible)
+	if err := validateCertExportable(cert); err != nil {
+		return nil, err
 	}
 
 	cert.Exported = true

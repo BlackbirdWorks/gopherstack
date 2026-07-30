@@ -152,6 +152,68 @@ func TestInMemoryBackend_TagResource_Notebook(t *testing.T) {
 	assert.Equal(t, "team", tags[0].Key)
 }
 
+// TestInMemoryBackend_TaggedResources covers the enumeration method cli.go's
+// wireTaggingAthena registers with the Resource Groups Tagging API (gopherstack-3xne):
+// every tagged resource across every Athena resource kind must be visible, and
+// resources with no tags must not appear at all.
+func TestInMemoryBackend_TaggedResources(t *testing.T) {
+	t.Parallel()
+
+	const (
+		wgARN = "arn:aws:athena:us-east-1:000000000000:workgroup/wg1"
+		crARN = "arn:aws:athena:us-east-1:000000000000:capacity-reservation/cr1"
+	)
+
+	tests := []struct {
+		setup func(t *testing.T, b *athena.InMemoryBackend)
+		want  map[string]map[string]string
+		name  string
+	}{
+		{
+			name: "multiple_tagged_resource_kinds",
+			setup: func(t *testing.T, b *athena.InMemoryBackend) {
+				t.Helper()
+
+				require.NoError(t, b.CreateWorkGroup("wg1", "", "", athena.WorkGroupConfiguration{}, nil))
+				require.NoError(t, b.CreateCapacityReservation("cr1", 24, nil))
+				require.NoError(t, b.TagResource(wgARN, map[string]string{"env": "prod"}))
+				require.NoError(t, b.TagResource(crARN, map[string]string{"team": "data"}))
+			},
+			want: map[string]map[string]string{
+				wgARN: {"env": "prod"},
+				crARN: {"team": "data"},
+			},
+		},
+		{
+			name: "untagged_resource_excluded",
+			setup: func(t *testing.T, b *athena.InMemoryBackend) {
+				t.Helper()
+
+				require.NoError(t, b.CreateWorkGroup("wg1", "", "", athena.WorkGroupConfiguration{}, nil))
+			},
+			want: map[string]map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := athena.NewInMemoryBackend("us-east-1", "000000000000")
+			tt.setup(t, b)
+
+			got := b.TaggedResources()
+			gotMap := make(map[string]map[string]string, len(got))
+
+			for _, e := range got {
+				gotMap[e.ARN] = e.Tags
+			}
+
+			assert.Equal(t, tt.want, gotMap)
+		})
+	}
+}
+
 // TestInMemoryBackend_DeleteCapacityReservation_CascadesTags verifies that
 // deleting a capacity reservation removes its tags, mirroring the existing
 // cascade behavior for workgroups and data catalogs -- ghost rows in

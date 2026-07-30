@@ -139,10 +139,10 @@ func TestListMedicalVocabularies_NameContains(t *testing.T) {
 	b.AddMedicalVocabularyInternal(&transcribe.MedicalVocabulary{VocabularyName: "oncology-terms"})
 	b.AddMedicalVocabularyInternal(&transcribe.MedicalVocabulary{VocabularyName: "general-list"})
 
-	list, _ := b.ListMedicalVocabularies("", "terms", "")
+	list, _ := b.ListMedicalVocabularies("", "terms", "", 0)
 	require.Len(t, list, 2)
 
-	list, _ = b.ListMedicalVocabularies("", "GENERAL", "")
+	list, _ = b.ListMedicalVocabularies("", "GENERAL", "", 0)
 	require.Len(t, list, 1, "NameContains must be case-insensitive")
 	assert.Equal(t, "general-list", list[0].VocabularyName)
 }

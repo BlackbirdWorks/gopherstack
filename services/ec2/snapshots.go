@@ -28,7 +28,7 @@ func (b *InMemoryBackend) CopySnapshot(sourceSnapshotID, description string) (*S
 	}
 
 	snap := &Snapshot{
-		SnapshotID:  "snap-" + uuid.New().String()[:17],
+		SnapshotID:  newSnapshotID(),
 		VolumeID:    src.VolumeID,
 		Description: desc,
 		State:       stateCompleted,
@@ -37,6 +37,7 @@ func (b *InMemoryBackend) CopySnapshot(sourceSnapshotID, description string) (*S
 		VolumeSize:  src.VolumeSize,
 		Encrypted:   src.Encrypted,
 		KmsKeyID:    src.KmsKeyID,
+		OwnerID:     b.AccountID,
 	}
 	b.snapshots.Put(snap)
 
@@ -75,7 +76,7 @@ func (b *InMemoryBackend) CreateSnapshots(
 	for _, vid := range volumeIDs {
 		vol, _ := b.volumes.Get(vid)
 		snap := &Snapshot{
-			SnapshotID:  "snap-" + uuid.New().String()[:17],
+			SnapshotID:  newSnapshotID(),
 			VolumeID:    vid,
 			Description: description,
 			State:       stateCompleted,
@@ -84,6 +85,7 @@ func (b *InMemoryBackend) CreateSnapshots(
 			VolumeSize:  vol.Size,
 			Encrypted:   vol.Encrypted,
 			KmsKeyID:    vol.KmsKeyID,
+			OwnerID:     b.AccountID,
 		}
 		b.snapshots.Put(snap)
 		snaps = append(snaps, snap)
@@ -488,7 +490,7 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 	}
 
 	snap := &Snapshot{
-		SnapshotID:  "snap-" + uuid.New().String()[:17],
+		SnapshotID:  newSnapshotID(),
 		VolumeID:    volumeID,
 		Description: description,
 		State:       "completed",
@@ -497,6 +499,7 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 		VolumeSize:  vol.Size,
 		Encrypted:   vol.Encrypted,
 		KmsKeyID:    vol.KmsKeyID,
+		OwnerID:     b.AccountID,
 	}
 	b.snapshots.Put(snap)
 

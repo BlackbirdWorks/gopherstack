@@ -31,7 +31,7 @@ func (h *Handler) handleDisassociateNatGatewayAddress(vals url.Values, reqID str
 		return nil, err
 	}
 
-	item := toNatGatewayItem(ngw)
+	item := toNatGatewayItem(ngw, nil)
 
 	return &disassociateNatGatewayAddressResponse{
 		Xmlns:               ec2XMLNS,
@@ -50,7 +50,7 @@ func (h *Handler) handleAssociateNatGatewayAddress(vals url.Values, reqID string
 		return nil, err
 	}
 
-	item := toNatGatewayItem(ngw)
+	item := toNatGatewayItem(ngw, nil)
 
 	return &associateNatGatewayAddressResponse{
 		Xmlns:               ec2XMLNS,
@@ -90,7 +90,7 @@ func (h *Handler) handleUnassignPrivateNatGatewayAddress(vals url.Values, reqID 
 		return nil, err
 	}
 
-	item := toNatGatewayItem(ngw)
+	item := toNatGatewayItem(ngw, nil)
 
 	return &unassignPrivateNatGatewayAddressResponse{
 		Xmlns:               ec2XMLNS,
@@ -122,11 +122,12 @@ func natGatewaysSupportedOperations() []string {
 }
 
 type natGatewayAddressItem struct {
-	AllocationID  string `xml:"allocationId,omitempty"`
-	AssociationID string `xml:"associationId,omitempty"`
-	PublicIP      string `xml:"publicIp,omitempty"`
-	PrivateIP     string `xml:"privateIp,omitempty"`
-	IsPrimary     bool   `xml:"isPrimary,omitempty"`
+	AllocationID     string `xml:"allocationId,omitempty"`
+	AssociationID    string `xml:"associationId,omitempty"`
+	PublicIP         string `xml:"publicIp,omitempty"`
+	PrivateIP        string `xml:"privateIp,omitempty"`
+	AvailabilityZone string `xml:"availabilityZone,omitempty"`
+	IsPrimary        bool   `xml:"isPrimary,omitempty"`
 }
 
 type natGatewayAddressSet struct {
@@ -136,9 +137,12 @@ type natGatewayAddressSet struct {
 type natGatewayItem struct {
 	NatGatewayID        string               `xml:"natGatewayId"`
 	SubnetID            string               `xml:"subnetId"`
+	VpcID               string               `xml:"vpcId,omitempty"`
 	State               string               `xml:"state"`
+	ConnectivityType    string               `xml:"connectivityType,omitempty"`
 	CreateTime          string               `xml:"createTime"`
 	NatGatewayAddresses natGatewayAddressSet `xml:"natGatewayAddressSet"`
+	TagSet              []simpleTagItem      `xml:"tagSet>item"`
 }
 
 type natGatewayItemSet struct {
@@ -166,38 +170,43 @@ type deleteNatGatewayResponse struct {
 	NatGatewayID string   `xml:"natGatewayId"`
 }
 
-func toNatGatewayItem(ngw *NatGateway) natGatewayItem {
+func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 	items := make(
 		[]natGatewayAddressItem, 0,
 		1+len(ngw.SecondaryAddresses)+len(ngw.SecondaryPrivateIPs),
 	)
 	items = append(items, natGatewayAddressItem{
-		AllocationID:  ngw.AllocationID,
-		AssociationID: ngw.AssociationID,
-		PublicIP:      ngw.PublicIP,
-		PrivateIP:     ngw.PrivateIP,
-		IsPrimary:     true,
+		AllocationID:     ngw.AllocationID,
+		AssociationID:    ngw.AssociationID,
+		PublicIP:         ngw.PublicIP,
+		PrivateIP:        ngw.PrivateIP,
+		AvailabilityZone: ngw.AvailabilityZone,
+		IsPrimary:        true,
 	})
 
 	for _, sa := range ngw.SecondaryAddresses {
 		items = append(items, natGatewayAddressItem{
-			AllocationID:  sa.AllocationID,
-			AssociationID: sa.AssociationID,
-			PublicIP:      sa.PublicIP,
-			PrivateIP:     sa.PrivateIP,
+			AllocationID:     sa.AllocationID,
+			AssociationID:    sa.AssociationID,
+			PublicIP:         sa.PublicIP,
+			PrivateIP:        sa.PrivateIP,
+			AvailabilityZone: ngw.AvailabilityZone,
 		})
 	}
 
 	for _, ip := range ngw.SecondaryPrivateIPs {
-		items = append(items, natGatewayAddressItem{PrivateIP: ip})
+		items = append(items, natGatewayAddressItem{PrivateIP: ip, AvailabilityZone: ngw.AvailabilityZone})
 	}
 
 	return natGatewayItem{
 		NatGatewayID:        ngw.ID,
 		SubnetID:            ngw.SubnetID,
+		VpcID:               ngw.VPCID,
 		State:               ngw.State,
+		ConnectivityType:    ngw.ConnectivityType,
 		CreateTime:          ngw.CreateTime.Format("2006-01-02T15:04:05.000Z"),
 		NatGatewayAddresses: natGatewayAddressSet{Items: items},
+		TagSet:              tagItemsFromMap(tags),
 	}
 }
 
@@ -209,7 +218,9 @@ func (h *Handler) handleCreateNatGateway(vals url.Values, reqID string) (any, er
 		return nil, fmt.Errorf("%w: SubnetId and AllocationId are required", ErrInvalidParameter)
 	}
 
-	ngw, err := h.Backend.CreateNatGateway(subnetID, allocationID)
+	tags := parseTagSpecification(vals, "natgateway")
+
+	ngw, err := h.Backend.CreateNatGateway(subnetID, allocationID, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +228,7 @@ func (h *Handler) handleCreateNatGateway(vals url.Values, reqID string) (any, er
 	return &createNatGatewayResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
-		NatGateway: toNatGatewayItem(ngw),
+		NatGateway: toNatGatewayItem(ngw, h.Backend.TagsForResource(ngw.ID)),
 	}, nil
 }
 
@@ -247,7 +258,7 @@ func (h *Handler) handleDescribeNatGateways(vals url.Values, reqID string) (any,
 
 	items := make([]natGatewayItem, 0, len(ngws))
 	for _, ngw := range ngws {
-		items = append(items, toNatGatewayItem(ngw))
+		items = append(items, toNatGatewayItem(ngw, h.Backend.TagsForResource(ngw.ID)))
 	}
 
 	return &describeNatGatewaysResponse{

@@ -8,6 +8,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestBackend_CreateNamespace_NameValidation verifies CreateNamespace
+// enforces real S3 Tables namespace naming rules (field-diffed against
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-buckets-naming.html):
+// 1-255 chars; lowercase letters, digits, underscores only; must begin with
+// a letter or number; no hyphens/periods; must not start with reserved
+// prefix "aws".
+func TestBackend_CreateNamespace_NameValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		wantValid bool
+	}{
+		{name: "", wantValid: false},            // too short (< 1 char)
+		{name: "Valid_ns", wantValid: false},    // uppercase not allowed
+		{name: "valid-ns", wantValid: false},    // hyphen not allowed
+		{name: "valid.ns", wantValid: false},    // period not allowed
+		{name: "_valid_ns", wantValid: false},   // must begin with letter/number
+		{name: "awsreserved", wantValid: false}, // reserved "aws" prefix
+		{name: "aws_ns", wantValid: false},      // reserved "aws" prefix
+		{name: "valid_ns_123", wantValid: true},
+		{name: "a", wantValid: true}, // exactly minimum length
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			tb, err := b.CreateTableBucket("ns-validation-bucket", s3tables.CreateTableBucketOptions{})
+			require.NoError(t, err)
+
+			_, err = b.CreateNamespace(tb.ARN, []string{tt.name})
+
+			if tt.wantValid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, s3tables.ErrInvalidName)
+			}
+		})
+	}
+}
+
 func TestBackend_ListNamespaces_PaginationAndPrefix(t *testing.T) {
 	t.Parallel()
 

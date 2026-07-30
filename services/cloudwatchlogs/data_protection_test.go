@@ -65,13 +65,18 @@ func TestCloudWatchLogsBackend_PutAndDescribeAccountPolicies(t *testing.T) {
 			}
 
 			if tt.callPut {
-				_, err := b.PutAccountPolicy(tt.policyName, tt.policyType, tt.policyDoc, "", "")
+				policy, err := b.PutAccountPolicy(tt.policyName, tt.policyType, tt.policyDoc, "", "")
 				if tt.wantErr != nil {
 					require.ErrorIs(t, err, tt.wantErr)
 
 					return
 				}
 				require.NoError(t, err)
+				// Field-diffed against types.AccountPolicy: accountId and
+				// lastUpdatedTime must be populated, not left as the zero value
+				// a previous revision always returned.
+				assert.NotEmpty(t, policy.AccountID)
+				assert.NotZero(t, policy.LastUpdatedTime)
 			}
 
 			policies, _, err := b.DescribeAccountPolicies(tt.policyType, "", nil, 0, "")
@@ -82,6 +87,11 @@ func TestCloudWatchLogsBackend_PutAndDescribeAccountPolicies(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Len(t, policies, tt.wantLen)
+
+			for _, p := range policies {
+				assert.NotEmpty(t, p.AccountID)
+				assert.NotZero(t, p.LastUpdatedTime)
+			}
 		})
 	}
 }

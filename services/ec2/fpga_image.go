@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ErrFpgaImageNotFound is returned when an FPGA image (AFI) ID cannot be found.
@@ -67,8 +65,8 @@ func (b *InMemoryBackend) CreateFpgaImage(name, description string) (*FpgaImage,
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
-	afiID := "afi-" + uuid.New().String()[:17]
-	agfiID := "agfi-" + uuid.New().String()[:17]
+	afiID := newFPGAImageID()
+	agfiID := newFPGAGlobalImageID()
 
 	img := &FpgaImage{
 		FpgaImageID:       afiID,
@@ -115,8 +113,8 @@ func (b *InMemoryBackend) CopyFpgaImage(
 	}
 
 	now := time.Now().UTC()
-	afiID := "afi-" + uuid.New().String()[:17]
-	agfiID := "agfi-" + uuid.New().String()[:17]
+	afiID := newFPGAImageID()
+	agfiID := newFPGAGlobalImageID()
 
 	newName := name
 	newDescription := description

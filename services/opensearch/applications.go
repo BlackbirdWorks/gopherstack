@@ -133,10 +133,10 @@ func (b *InMemoryBackend) UpdateApplication(
 }
 
 // DeleteApplication removes an application by ID, cascading the removal of
-// every resource scoped to it: data source attachments, capabilities, and
-// migration jobs (all three families added by AttachDataSource/
-// RegisterCapability/StartMigration and friends), matching the
-// cascade-cleanup precedent DeleteDomain already established for
+// every resource scoped to it: data source attachments, capabilities,
+// migration jobs, and workspaces (all four families added by
+// AttachDataSource/RegisterCapability/StartMigration and friends), matching
+// the cascade-cleanup precedent DeleteDomain already established for
 // domain-scoped resources.
 func (b *InMemoryBackend) DeleteApplication(id string) error {
 	b.mu.Lock("DeleteApplication")
@@ -163,6 +163,10 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 
 	for _, m := range slices.Clone(b.migrationsByApp.Get(id)) {
 		b.migrations.Delete(m.MigrationID)
+	}
+
+	for _, ws := range slices.Clone(b.workspacesByApp.Get(id)) {
+		b.workspaces.Delete(ws.WorkspaceID)
 	}
 
 	return nil

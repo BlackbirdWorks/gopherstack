@@ -126,4 +126,108 @@ func TestHandler_ThirdPartyJobResults(t *testing.T) {
 	assert.Equal(t, 400, rec.Code)
 }
 
+// TestHandler_PollForThirdPartyJobs_WireShape proves PollForThirdPartyJobs
+// returns AWS's real ThirdPartyJob shape ({jobId}, no "nonce" -- a
+// third-party worker only learns the nonce later via
+// GetThirdPartyJobDetails) rather than the plain-Job-shaped {id, nonce} this
+// handler previously (and wrongly) returned.
+func TestHandler_PollForThirdPartyJobs_WireShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "queued third-party job"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			h.Backend.AddJobInternal(&codepipeline.Job{
+				ID:     "tp-job-shape",
+				Nonce:  "should-not-leak",
+				Status: "Queued",
+				ActionTypeID: codepipeline.ActionTypeID{
+					Category: "Build", Owner: "ThirdParty", Provider: "MyBuild", Version: "1",
+				},
+			})
+
+			rec := doRequest(t, h, "PollForThirdPartyJobs", map[string]any{
+				"actionTypeId": map[string]any{
+					"category": "Build", "owner": "ThirdParty", "provider": "MyBuild", "version": "1",
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			jobs, _ := out["jobs"].([]any)
+			require.Len(t, jobs, 1)
+
+			job, _ := jobs[0].(map[string]any)
+			assert.Equal(t, "tp-job-shape", job["jobId"], "the real ThirdPartyJob field is jobId, not id")
+			assert.NotContains(t, job, "id", "id is not a real ThirdPartyJob member")
+			assert.NotContains(t, job, "nonce", "nonce must not leak before GetThirdPartyJobDetails")
+		})
+	}
+}
+
+// TestGetThirdPartyJobDetails_DataPopulated mirrors
+// TestGetJobDetails_DataPopulated: ThirdPartyJobDetails.Data.ActionTypeId is
+// a real member that must round-trip.
+func TestGetThirdPartyJobDetails_DataPopulated(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		category string
+		provider string
+		version  string
+	}{
+		{name: "build_action", category: "Build", provider: "MyBuild", version: "1"},
+		{name: "deploy_action", category: "Deploy", provider: "MyDeploy", version: "2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+
+			h.Backend.AddJobInternal(&codepipeline.Job{
+				ID:    "tp-job-" + tt.name,
+				Nonce: "nonce-1",
+				ActionTypeID: codepipeline.ActionTypeID{
+					Category: tt.category,
+					Owner:    "ThirdParty",
+					Provider: tt.provider,
+					Version:  tt.version,
+				},
+				Status: "Queued",
+			})
+
+			rec := doRequest(t, h, "GetThirdPartyJobDetails", map[string]any{
+				"jobId": "tp-job-" + tt.name, "clientToken": "token",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			details, ok := out["jobDetails"].(map[string]any)
+			require.True(t, ok, "jobDetails must be present")
+
+			data, ok := details["data"].(map[string]any)
+			require.True(t, ok, "data must be present")
+
+			atID, ok := data["actionTypeId"].(map[string]any)
+			require.True(t, ok, "data.actionTypeId must be present")
+			assert.Equal(t, tt.category, atID["category"])
+			assert.Equal(t, tt.provider, atID["provider"])
+			assert.Equal(t, tt.version, atID["version"])
+		})
+	}
+}
+
 // ---- Action revision and approval ----

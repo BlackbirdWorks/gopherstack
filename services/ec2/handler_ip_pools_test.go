@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
 func TestHandler_CoipPool_CreateCidrDescribeDelete(t *testing.T) {
@@ -150,4 +152,107 @@ func TestHandler_Ipv6Pool_DescribeAndAssociatedCidrs(t *testing.T) {
 
 	assocRec := postForm(t, h, assocVals.Encode())
 	assert.Equal(t, http.StatusBadRequest, assocRec.Code)
+}
+
+// TestHandler_IPPools_TagDualWritePathVisibility proves that ip_pools.go's
+// address pool resources consolidated onto the shared tag store: a tag
+// supplied at create time (TagSpecification) and a tag added afterwards via
+// CreateTags are BOTH visible through the resource's own Describe call AND
+// through the generic DescribeTags call. Before the fix, these types carried
+// their own embedded Tags field that was populated only at create time, so a
+// post-creation CreateTags call was invisible to Describe.
+func TestHandler_IPPools_TagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		createBody     func() string
+		name           string
+		idField        string
+		describeAction string
+	}{
+		{
+			name: "coip pool",
+			createBody: func() string {
+				return "Action=CreateCoipPool&Version=2016-11-15&LocalGatewayRouteTableId=lgw-rtb-12345" +
+					"&TagSpecification.1.ResourceType=coip-pool" +
+					"&TagSpecification.1.Tag.1.Key=CreateTime&TagSpecification.1.Tag.1.Value=yes"
+			},
+			idField:        "poolId",
+			describeAction: "DescribeCoipPools",
+		},
+		{
+			name: "public ipv4 pool",
+			createBody: func() string {
+				return "Action=CreatePublicIpv4Pool&Version=2016-11-15" +
+					"&TagSpecification.1.ResourceType=ipv4pool-ec2" +
+					"&TagSpecification.1.Tag.1.Key=CreateTime&TagSpecification.1.Tag.1.Value=yes"
+			},
+			idField:        "poolId",
+			describeAction: "DescribePublicIpv4Pools",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			createRec := postForm(t, h, tt.createBody())
+			require.Equal(t, http.StatusOK, createRec.Code)
+			id := extractXMLValue(t, createRec.Body.String(), tt.idField)
+			require.NotEmpty(t, id)
+
+			tagRec := postForm(t, h,
+				"Action=CreateTags&Version=2016-11-15&ResourceId.1="+id+
+					"&Tag.1.Key=AddedLater&Tag.1.Value=yes")
+			require.Equal(t, http.StatusOK, tagRec.Code)
+
+			// Both tags must be visible through the resource's own Describe. (The
+			// CreatePublicIpv4Pool response itself only echoes the PoolID, not
+			// TagSet, matching the real API -- so the create-time tag is checked
+			// here rather than on the create response.)
+			descRec := postForm(t, h, "Action="+tt.describeAction+"&Version=2016-11-15")
+			require.Equal(t, http.StatusOK, descRec.Code)
+			descBody := descRec.Body.String()
+			assert.Contains(t, descBody, "CreateTime")
+			assert.Contains(t, descBody, "AddedLater")
+
+			tagsRec := postForm(t, h,
+				"Action=DescribeTags&Version=2016-11-15&Filter.1.Name=resource-id&Filter.1.Value.1="+id)
+			require.Equal(t, http.StatusOK, tagsRec.Code)
+			tagsBody := tagsRec.Body.String()
+			assert.Contains(t, tagsBody, "CreateTime")
+			assert.Contains(t, tagsBody, "AddedLater")
+		})
+	}
+}
+
+// TestHandler_Ipv6Pool_TagVisibility proves that Ipv6Pool -- which has no
+// Create HTTP API (real AWS creates these implicitly via ProvisionByoipCidr,
+// so this backend only exposes a Seed-style CreateIpv6Pool helper for tests)
+// -- now renders tags written through CreateTags via DescribeIpv6Pools and
+// the generic DescribeTags call.
+func TestHandler_Ipv6Pool_TagVisibility(t *testing.T) {
+	t.Parallel()
+
+	bk := newTestBackend()
+	h := ec2.NewHandler(bk)
+	h.AccountID = "000000000000"
+	h.Region = "us-east-1"
+	pool := bk.CreateIpv6Pool("test pool", []string{"2001:db8::/32"})
+
+	tagRec := postForm(t, h,
+		"Action=CreateTags&Version=2016-11-15&ResourceId.1="+pool.PoolID+
+			"&Tag.1.Key=AddedLater&Tag.1.Value=yes")
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	descRec := postForm(t, h, "Action=DescribeIpv6Pools&Version=2016-11-15")
+	require.Equal(t, http.StatusOK, descRec.Code)
+	assert.Contains(t, descRec.Body.String(), "AddedLater")
+
+	tagsRec := postForm(t, h,
+		"Action=DescribeTags&Version=2016-11-15&Filter.1.Name=resource-id&Filter.1.Value.1="+pool.PoolID)
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+	assert.Contains(t, tagsRec.Body.String(), "AddedLater")
 }

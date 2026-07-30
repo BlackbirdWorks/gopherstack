@@ -3,7 +3,6 @@ package ec2
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"sort"
 	"time"
 
@@ -31,17 +30,15 @@ const (
 // VpnConcentrator represents a VPN concentrator, an aggregation point for multiple
 // Site-to-Site VPN connections attached to a transit gateway.
 type VpnConcentrator struct {
-	Tags                       map[string]string `json:"tags,omitempty"`
-	VpnConcentratorID          string            `json:"vpnConcentratorId,omitempty"`
-	Type                       string            `json:"type,omitempty"`
-	State                      string            `json:"state,omitempty"`
-	TransitGatewayID           string            `json:"transitGatewayId,omitempty"`
-	TransitGatewayAttachmentID string            `json:"transitGatewayAttachmentId,omitempty"`
+	VpnConcentratorID          string `json:"vpnConcentratorId,omitempty"`
+	Type                       string `json:"type,omitempty"`
+	State                      string `json:"state,omitempty"`
+	TransitGatewayID           string `json:"transitGatewayId,omitempty"`
+	TransitGatewayAttachmentID string `json:"transitGatewayAttachmentId,omitempty"`
 }
 
 func cloneVpnConcentrator(vc *VpnConcentrator) *VpnConcentrator {
 	cp := *vc
-	cp.Tags = maps.Clone(vc.Tags)
 
 	return &cp
 }
@@ -70,18 +67,18 @@ func (b *InMemoryBackend) CreateVpnConcentrator(
 			return nil, fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, transitGatewayID)
 		}
 
-		attachmentID = "tgw-attach-" + uuid.New().String()[:vpnConcentratorIDPrefixLength]
+		attachmentID = newTransitGatewayAttachmentID()
 	}
 
 	vc := &VpnConcentrator{
-		VpnConcentratorID:          "vpnc-" + uuid.New().String()[:vpnConcentratorIDPrefixLength],
+		VpnConcentratorID:          newVPNConcentratorID(),
 		Type:                       vpnType,
 		State:                      stateAvailable,
 		TransitGatewayID:           transitGatewayID,
 		TransitGatewayAttachmentID: attachmentID,
-		Tags:                       maps.Clone(tags),
 	}
 	b.vpnConcentrators.Put(vc)
+	b.setTagsLocked(vc.VpnConcentratorID, tags)
 
 	return cloneVpnConcentrator(vc), nil
 }
@@ -178,7 +175,7 @@ func (b *InMemoryBackend) GetActiveVpnTunnelStatus(
 		Phase2IntegrityAlgorithm:  "SHA2-256",
 		Phase2DHGroup:             activeVpnTunnelDefaultDHGroup,
 		IKEVersion:                ikeVersion,
-		ProvisioningStatus:        "available",
+		ProvisioningStatus:        stateAvailableImg,
 	}, nil
 }
 

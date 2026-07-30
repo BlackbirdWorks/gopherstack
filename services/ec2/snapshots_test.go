@@ -2,6 +2,8 @@ package ec2_test
 
 import (
 	"net/http"
+	"net/url"
+	"regexp"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/ec2"
@@ -45,7 +47,7 @@ func TestCreateSnapshot(t *testing.T) {
 			volumeID := tt.volumeID
 
 			if tt.setupVolume {
-				vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+				vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 				require.NoError(t, err)
 				volumeID = vol.ID
 			}
@@ -75,7 +77,7 @@ func TestDescribeSnapshots(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, err)
 
 	snap1, err := b.CreateSnapshot(vol.ID, "snap 1")
@@ -102,7 +104,7 @@ func TestDeleteSnapshot(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, err)
 
 	snap, err := b.CreateSnapshot(vol.ID, "to be deleted")
@@ -125,7 +127,7 @@ func TestSnapshotPersistence(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, err)
 
 	_, err = b.CreateSnapshot(vol.ID, "persisted")
@@ -150,7 +152,7 @@ func TestReset_ClearsNewMaps(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, err)
 
 	_, err = b.CreateSnapshot(vol.ID, "test")
@@ -211,4 +213,59 @@ func TestHTTP_DescribeSnapshots(t *testing.T) {
 	rec := postForm(t, h, "Action=DescribeSnapshots&Version=2016-11-15")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DescribeSnapshotsResponse")
+}
+
+// TestHTTP_DescribeSnapshots_Pagination verifies real (non-forged) NextToken
+// round-tripping still works after switching DescribeSnapshots from a plain,
+// unauthenticated integer offset to the same HMAC-signed opaque token used by
+// DescribeInstances/DescribeImages/DescribeInstanceTypes.
+func TestHTTP_DescribeSnapshots_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	b, ok := h.Backend.(*ec2.InMemoryBackend)
+	require.True(t, ok)
+
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 10, "")
+	require.NoError(t, err)
+
+	const totalSnapshots = 7
+
+	created := make(map[string]bool, totalSnapshots)
+
+	for range totalSnapshots {
+		snap, cerr := b.CreateSnapshot(vol.ID, "page-test")
+		require.NoError(t, cerr)
+		created[snap.SnapshotID] = true
+	}
+
+	snapshotIDRe := regexp.MustCompile(`<snapshotId>(snap-[0-9a-f]+)</snapshotId>`)
+	nextTokenRe := regexp.MustCompile(`<nextToken>([^<]+)</nextToken>`)
+
+	seen := make(map[string]bool, totalSnapshots)
+	nextToken := ""
+
+	for {
+		body := "Action=DescribeSnapshots&Version=2016-11-15&MaxResults=5"
+		if nextToken != "" {
+			body += "&NextToken=" + url.QueryEscape(nextToken)
+		}
+
+		rec := postForm(t, h, body)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		for _, m := range snapshotIDRe.FindAllStringSubmatch(rec.Body.String(), -1) {
+			seen[m[1]] = true
+		}
+
+		tokMatch := nextTokenRe.FindStringSubmatch(rec.Body.String())
+		if tokMatch == nil {
+			break
+		}
+
+		nextToken = tokMatch[1]
+	}
+
+	assert.Equal(t, created, seen, "pagination must traverse every snapshot exactly once across real tokens")
 }

@@ -8,10 +8,11 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"strings"
 
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // errExpectedCBORMap is returned when a decoded rpc-v2-cbor request body's
@@ -53,15 +54,16 @@ var timestampKeys = map[string]bool{ //nolint:gochecknoglobals // static lookup 
 }
 
 // isCBORRequest returns true when the request uses the rpc-v2-cbor (Smithy
-// RPCv2) protocol.
+// RPCv2) protocol. Delegates to pkgs/service, shared with CloudWatch (the
+// only other rpc-v2-cbor service).
 func isCBORRequest(r *http.Request) bool {
-	return r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, cborServicePath)
+	return service.IsRPCv2CBORRequest(r, cborServicePath)
 }
 
 // extractCBOROperation returns the operation name from an rpc-v2-cbor
 // request path.
 func extractCBOROperation(path string) string {
-	return strings.TrimPrefix(path, cborServicePath)
+	return service.ExtractRPCv2CBOROperation(path, cborServicePath)
 }
 
 // handleCBOR dispatches an rpc-v2-cbor request.
@@ -116,35 +118,18 @@ func (h *Handler) handleCBORError(c *echo.Context, err error) error {
 	return h.cborError(c, status, code, err.Error())
 }
 
-// cborError writes a CBOR error response. Unlike a generic "message"-only
-// body, the AppStream SDK's generated error deserializer
-// (getProtocolErrorInfo in deserializers.go) reads the exception name from
-// an "__type" key in the CBOR body itself -- not from a header -- so that
-// key must be present for errors.As/errors.Is against typed exceptions to
-// work on the client. X-Amzn-Errortype is set too, matching the convention
-// used elsewhere in this codebase, but the SDK does not consume it for this
-// protocol.
+// cborError writes a CBOR error response. See
+// [service.WriteRPCv2CBORError] for why the CBOR body itself (not just the
+// X-Amzn-Errortype header) must carry the exception name.
 func (h *Handler) cborError(c *echo.Context, status int, code, message string) error {
-	c.Response().Header().Set("Content-Type", "application/cbor")
-	c.Response().Header().Set("Smithy-Protocol", "rpc-v2-cbor")
-	c.Response().Header().Set("X-Amzn-Errortype", code)
-	c.Response().WriteHeader(status)
-	_, err := c.Response().Write(cbor.Encode(cbor.Map{
-		"__type":  cbor.String(code),
-		"message": cbor.String(message),
-	}))
-
-	return err
+	return service.WriteRPCv2CBORError(c, status, code, message)
 }
 
 // writeCBOR writes a CBOR-encoded response with the Smithy-Protocol header.
+// Delegates to pkgs/service, shared with CloudWatch (the only other
+// rpc-v2-cbor service).
 func writeCBOR(c *echo.Context, v cbor.Value) error {
-	c.Response().Header().Set("Content-Type", "application/cbor")
-	c.Response().Header().Set("Smithy-Protocol", "rpc-v2-cbor")
-	c.Response().WriteHeader(http.StatusOK)
-	_, err := c.Response().Write(cbor.Encode(v))
-
-	return err
+	return service.WriteRPCv2CBORResponse(c, v)
 }
 
 // cborBodyToJSON decodes a raw rpc-v2-cbor request body into the JSON bytes

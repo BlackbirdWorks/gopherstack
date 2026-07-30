@@ -14,7 +14,7 @@ func TestNatGatewayAddressOps(t *testing.T) { //nolint:paralleltest // existing 
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	addr, _ := b.AllocateAddress()
-	nat, setupErr := b.CreateNatGateway("subnet-default", addr.AllocationID)
+	nat, setupErr := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, setupErr)
 
 	t.Run("associate then disassociate address", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -70,7 +70,7 @@ func TestNatGateway_AssociateAddress(t *testing.T) {
 
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
-	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 	addr2, err := b.AllocateAddress()
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestNatGateway_DisassociateAddress(t *testing.T) {
 
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
-	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 
 	addr2, err := b.AllocateAddress()
@@ -135,7 +135,7 @@ func TestUnassignPrivateNatGatewayAddressHTTP(t *testing.T) {
 
 	addr, err := h.Backend.AllocateAddress()
 	require.NoError(t, err)
-	nat, err := h.Backend.CreateNatGateway("subnet-default", addr.AllocationID)
+	nat, err := h.Backend.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 	require.NoError(t, h.Backend.AssignPrivateNatGatewayAddress(nat.ID))
 
@@ -205,7 +205,7 @@ func TestNatGateway_DescribeReturnsAllFields(t *testing.T) {
 
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
-	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
@@ -216,6 +216,11 @@ func TestNatGateway_DescribeReturnsAllFields(t *testing.T) {
 	assert.Contains(t, resp, "<natGatewayId>"+ngw.ID+"</natGatewayId>")
 	assert.Contains(t, resp, "<subnetId>subnet-default</subnetId>")
 	assert.Contains(t, resp, "<state>available</state>")
+	// vpcId and connectivityType were previously missing from the wire
+	// response despite being present on the real NatGateway type.
+	assert.Contains(t, resp, "<vpcId>vpc-default</vpcId>")
+	assert.Contains(t, resp, "<connectivityType>public</connectivityType>")
+	assert.Contains(t, resp, "<availabilityZone>us-east-1a</availabilityZone>")
 }
 
 // TestNatGateway_DeleteSetsDeletedState verifies that
@@ -233,7 +238,7 @@ func TestNatGateway_DeleteSetsDeletedState(t *testing.T) {
 
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
-	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 
 	_, err = ec2.ExportDispatch(h, url.Values{
@@ -265,9 +270,9 @@ func TestNatGateway_DescribeAll(t *testing.T) {
 	require.NoError(t, err)
 	addr2, err := b.AllocateAddress()
 	require.NoError(t, err)
-	ngw1, err := b.CreateNatGateway("subnet-default", addr1.AllocationID)
+	ngw1, err := b.CreateNatGateway("subnet-default", addr1.AllocationID, nil)
 	require.NoError(t, err)
-	ngw2, err := b.CreateNatGateway("subnet-default", addr2.AllocationID)
+	ngw2, err := b.CreateNatGateway("subnet-default", addr2.AllocationID, nil)
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
@@ -292,6 +297,59 @@ func TestNatGateway_DeleteNonExistentReturnsError(t *testing.T) {
 		"NatGatewayId": {"nat-nonexistent"},
 	})
 	require.Error(t, err)
+}
+
+// TestNatGateway_TagDualWritePathVisibility proves that NatGateway's tags --
+// previously entirely absent from the wire (CreateNatGateway did not accept
+// TagSpecifications and DescribeNatGateways/CreateNatGateway did not render
+// TagSet, even though "nat-" IDs were already taggable via the generic
+// CreateTags path) -- now surface a tag supplied at create time
+// (TagSpecification) and a tag added afterwards via CreateTags, both visible
+// through DescribeNatGateways AND through the generic DescribeTags call.
+func TestNatGateway_TagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	addrResp, err := dispatchHandler(h, url.Values{"Action": []string{"AllocateAddress"}})
+	require.NoError(t, err)
+	allocationID := accuracyExtractXMLValue(addrResp, "allocationId")
+	require.NotEmpty(t, allocationID)
+
+	createResp, err := dispatchHandler(h, url.Values{
+		"Action":                          []string{"CreateNatGateway"},
+		"SubnetId":                        []string{"subnet-default"},
+		"AllocationId":                    []string{allocationID},
+		"TagSpecification.1.ResourceType": []string{"natgateway"},
+		"TagSpecification.1.Tag.1.Key":    []string{"CreateTime"},
+		"TagSpecification.1.Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, createResp, "CreateTime")
+	natGatewayID := accuracyExtractXMLValue(createResp, "natGatewayId")
+	require.NotEmpty(t, natGatewayID)
+
+	_, err = dispatchHandler(h, url.Values{
+		"Action":       []string{"CreateTags"},
+		"ResourceId.1": []string{natGatewayID},
+		"Tag.1.Key":    []string{"AddedLater"},
+		"Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+
+	descResp, err := dispatchHandler(h, url.Values{"Action": []string{"DescribeNatGateways"}})
+	require.NoError(t, err)
+	assert.Contains(t, descResp, "CreateTime")
+	assert.Contains(t, descResp, "AddedLater")
+
+	tagsResp, err := dispatchHandler(h, url.Values{
+		"Action":           []string{"DescribeTags"},
+		"Filter.1.Name":    []string{"resource-id"},
+		"Filter.1.Value.1": []string{natGatewayID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, tagsResp, "CreateTime")
+	assert.Contains(t, tagsResp, "AddedLater")
 }
 
 // TestNatGateway_AssociateAddress tests AssociateNatGatewayAddress.

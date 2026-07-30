@@ -441,6 +441,7 @@ type volumeItem struct {
 	State      string          `xml:"status"`
 	CreateTime string          `xml:"createTime"`
 	KmsKeyID   string          `xml:"kmsKeyId,omitempty"`
+	SnapshotID string          `xml:"snapshotId,omitempty"`
 	Size       int             `xml:"size"`
 	Iops       int             `xml:"iops,omitempty"`
 	Throughput int             `xml:"throughput,omitempty"`
@@ -476,6 +477,7 @@ type createVolumeResponse struct {
 	State      string   `xml:"status"`
 	CreateTime string   `xml:"createTime"`
 	KmsKeyID   string   `xml:"kmsKeyId,omitempty"`
+	SnapshotID string   `xml:"snapshotId,omitempty"`
 	Size       int      `xml:"size"`
 	Iops       int      `xml:"iops,omitempty"`
 	Throughput int      `xml:"throughput,omitempty"`
@@ -520,6 +522,7 @@ func toVolumeItem(vol *Volume) volumeItem {
 		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
 		KmsKeyID:   vol.KmsKeyID,
+		SnapshotID: vol.SnapshotID,
 		Iops:       vol.Iops,
 		Throughput: vol.Throughput,
 	}
@@ -656,6 +659,7 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 	sizeStr := vals.Get("Size")
 	encryptedStr := vals.Get("Encrypted")
 	kmsKeyID := vals.Get("KmsKeyID")
+	snapshotID := vals.Get("SnapshotId")
 
 	size := 0
 	if sizeStr != "" {
@@ -673,7 +677,7 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	vol, err := h.Backend.CreateVolume(az, volType, size)
+	vol, err := h.Backend.CreateVolume(az, volType, size, snapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -712,6 +716,7 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
 		KmsKeyID:   vol.KmsKeyID,
+		SnapshotID: vol.SnapshotID,
 		Iops:       vol.Iops,
 		Throughput: vol.Throughput,
 	}, nil

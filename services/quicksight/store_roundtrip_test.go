@@ -121,7 +121,14 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	flow2, err := b.CreateFlow(testAccountID, "Flow2", "", map[string]any{"steps": []any{}}, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAgent(testAccountID, "agent1", "Agent1", "", "", "", "", nil, nil, nil, nil, nil)
+	agentCustomPrompt := &quicksight.CustomPromptProfile{
+		ModelProfileID:  "profile1",
+		QbsAwsAccountID: "999999999999",
+		SubscriptionID:  "sub1",
+	}
+	_, err = b.CreateAgent(
+		testAccountID, "agent1", "Agent1", "", "", "", "", nil, nil, nil, nil, nil, agentCustomPrompt,
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateKnowledgeBase(
@@ -245,6 +252,10 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	restoredAgent, err := restored.DescribeAgent(testAccountID, "agent1")
 	require.NoError(t, err)
 	assert.Equal(t, "Agent1", restoredAgent.Name)
+	require.NotNil(t, restoredAgent.CustomPrompt)
+	assert.Equal(t, "profile1", restoredAgent.CustomPrompt.ModelProfileID)
+	assert.Equal(t, "999999999999", restoredAgent.CustomPrompt.QbsAwsAccountID)
+	assert.Equal(t, "sub1", restoredAgent.CustomPrompt.SubscriptionID)
 
 	restoredKB, err := restored.DescribeKnowledgeBase(testAccountID, "kb1")
 	require.NoError(t, err)

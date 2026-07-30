@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // mac_hosts.go implements the EC2 Mac Dedicated Host and Mac
@@ -62,13 +60,12 @@ type MacSIPConfig struct {
 // modification task or volume ownership delegation task for an EC2 Mac
 // instance.
 type MacModificationTask struct {
-	StartTime             time.Time         `json:"startTime"`
-	SIPConfig             *MacSIPConfig     `json:"sipConfig,omitempty"`
-	Tags                  map[string]string `json:"tags,omitempty"`
-	MacModificationTaskID string            `json:"macModificationTaskId,omitempty"`
-	InstanceID            string            `json:"instanceId,omitempty"`
-	TaskType              string            `json:"taskType,omitempty"`
-	TaskState             string            `json:"taskState,omitempty"`
+	StartTime             time.Time     `json:"startTime"`
+	SIPConfig             *MacSIPConfig `json:"sipConfig,omitempty"`
+	MacModificationTaskID string        `json:"macModificationTaskId,omitempty"`
+	InstanceID            string        `json:"instanceId,omitempty"`
+	TaskType              string        `json:"taskType,omitempty"`
+	TaskState             string        `json:"taskState,omitempty"`
 }
 
 // resetMacHostMapsLocked re-initialises the Mac modification task map. Must be
@@ -177,15 +174,15 @@ func (b *InMemoryBackend) CreateMacSystemIntegrityProtectionModificationTask(
 	config.Status = status
 
 	task := &MacModificationTask{
-		MacModificationTaskID: "macmodtask-" + uuid.New().String()[:17],
+		MacModificationTaskID: newMacModificationTaskID(),
 		InstanceID:            instanceID,
 		TaskType:              macTaskTypeSIP,
 		TaskState:             macTaskStatePending,
 		StartTime:             time.Now().UTC(),
 		SIPConfig:             config,
-		Tags:                  tags,
 	}
 	b.macModificationTasks.Put(task)
+	b.setTagsLocked(task.MacModificationTaskID, tags)
 
 	cp := *task
 
@@ -213,14 +210,14 @@ func (b *InMemoryBackend) CreateDelegateMacVolumeOwnershipTask(
 	}
 
 	task := &MacModificationTask{
-		MacModificationTaskID: "macmodtask-" + uuid.New().String()[:17],
+		MacModificationTaskID: newMacModificationTaskID(),
 		InstanceID:            instanceID,
 		TaskType:              macTaskTypeVolumeDelegation,
 		TaskState:             macTaskStatePending,
 		StartTime:             time.Now().UTC(),
-		Tags:                  tags,
 	}
 	b.macModificationTasks.Put(task)
+	b.setTagsLocked(task.MacModificationTaskID, tags)
 
 	cp := *task
 

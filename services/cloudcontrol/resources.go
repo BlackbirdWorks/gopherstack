@@ -21,7 +21,9 @@ const (
 
 // CreateResource creates a new resource of the given type with the given desired state JSON.
 // An optional clientToken may be supplied for idempotency: if the same token is supplied
-// again the original ProgressEvent is returned without creating a duplicate resource.
+// again with the SAME desiredState, the original ProgressEvent is returned without creating
+// a duplicate resource. Supplying the same token with a DIFFERENT typeName/desiredState
+// returns ErrClientTokenConflict (real ClientTokenConflictException semantics).
 func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken string) (*ProgressEvent, error) {
 	if !isValidTypeName(typeName) {
 		return nil, ErrValidation
@@ -33,11 +35,17 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 	}
 
 	key := resourceKey(typeName, identifier)
+	fingerprint := clientTokenFingerprint("CREATE", typeName, "", desiredState)
 
 	b.mu.Lock("CreateResource")
 	defer b.mu.Unlock()
 
-	if cached := b.cachedEventForToken(clientToken); cached != nil {
+	cached, found, err := b.cachedEventForToken(clientToken, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+
+	if found {
 		return cached, nil
 	}
 
@@ -62,7 +70,7 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 		ResourceModel:   desiredState,
 	}
 	b.requests.Put(event)
-	b.rememberClientToken(clientToken, token)
+	b.rememberClientToken(clientToken, token, fingerprint)
 
 	return copyEvent(event), nil
 }
@@ -85,9 +93,24 @@ func (b *InMemoryBackend) GetResource(typeName, identifier string) (*Resource, e
 }
 
 // ListResources returns a paginated list of resources of the given type, sorted by Identifier.
-func (b *InMemoryBackend) ListResources(typeName string, maxResults int, nextToken string) ([]*Resource, string) {
+// resourceModel, when non-empty, is a JSON object of property name/value pairs (the real
+// ListResourcesInput.ResourceModel field -- "The resource model to use to select the
+// resources to return"); only resources whose current Properties contain every one of
+// those key/value pairs are returned. An unparseable resourceModel matches nothing, same
+// as AWS rejecting a malformed selector.
+func (b *InMemoryBackend) ListResources(
+	typeName string, maxResults int, nextToken, resourceModel string,
+) ([]*Resource, string) {
 	if !isValidTypeName(typeName) {
 		return nil, ""
+	}
+
+	var modelFilter map[string]any
+
+	if resourceModel != "" {
+		if err := json.Unmarshal([]byte(resourceModel), &modelFilter); err != nil {
+			return []*Resource{}, ""
+		}
 	}
 
 	b.mu.RLock("ListResources")
@@ -96,7 +119,7 @@ func (b *InMemoryBackend) ListResources(typeName string, maxResults int, nextTok
 	var all []*Resource
 
 	b.resources.Range(func(r *Resource) bool {
-		if r.TypeName == typeName {
+		if r.TypeName == typeName && matchesResourceModel(r.Properties, modelFilter) {
 			all = append(all, r)
 		}
 
@@ -152,20 +175,27 @@ func (b *InMemoryBackend) ListAllResources() []*Resource {
 
 // DeleteResource removes the resource identified by typeName and identifier.
 // An optional clientToken may be supplied for idempotency, matching the real
-// DeleteResourceInput.ClientToken field: if the same token is supplied again
-// the original ProgressEvent is returned without re-deleting (or erroring on
-// an already-deleted resource).
+// DeleteResourceInput.ClientToken field: if the same token is supplied again for the
+// SAME typeName/identifier, the original ProgressEvent is returned without re-deleting
+// (or erroring on an already-deleted resource). Supplying the same token for a
+// DIFFERENT typeName/identifier returns ErrClientTokenConflict.
 func (b *InMemoryBackend) DeleteResource(typeName, identifier, clientToken string) (*ProgressEvent, error) {
 	if !isValidTypeName(typeName) {
 		return nil, ErrValidation
 	}
 
 	key := resourceKey(typeName, identifier)
+	fingerprint := clientTokenFingerprint("DELETE", typeName, identifier, "")
 
 	b.mu.Lock("DeleteResource")
 	defer b.mu.Unlock()
 
-	if cached := b.cachedEventForToken(clientToken); cached != nil {
+	cached, found, err := b.cachedEventForToken(clientToken, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+
+	if found {
 		return cached, nil
 	}
 
@@ -185,15 +215,17 @@ func (b *InMemoryBackend) DeleteResource(typeName, identifier, clientToken strin
 		OperationStatus: opStatusSuccess,
 	}
 	b.requests.Put(event)
-	b.rememberClientToken(clientToken, token)
+	b.rememberClientToken(clientToken, token, fingerprint)
 
 	return copyEvent(event), nil
 }
 
 // UpdateResource applies a JSON RFC 6902 patch document to the resource. An
 // optional clientToken may be supplied for idempotency, matching the real
-// UpdateResourceInput.ClientToken field: if the same token is supplied again
-// the original ProgressEvent is returned without re-applying the patch.
+// UpdateResourceInput.ClientToken field: if the same token is supplied again with the
+// SAME typeName/identifier/patchDocument, the original ProgressEvent is returned without
+// re-applying the patch. Supplying the same token with a DIFFERENT typeName/identifier/
+// patchDocument returns ErrClientTokenConflict.
 func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument, clientToken string) (
 	*ProgressEvent, error,
 ) {
@@ -202,11 +234,17 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument, cl
 	}
 
 	key := resourceKey(typeName, identifier)
+	fingerprint := clientTokenFingerprint("UPDATE", typeName, identifier, patchDocument)
 
 	b.mu.Lock("UpdateResource")
 	defer b.mu.Unlock()
 
-	if cached := b.cachedEventForToken(clientToken); cached != nil {
+	cached, found, err := b.cachedEventForToken(clientToken, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+
+	if found {
 		return cached, nil
 	}
 
@@ -232,41 +270,58 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument, cl
 		ResourceModel:   r.Properties,
 	}
 	b.requests.Put(event)
-	b.rememberClientToken(clientToken, token)
+	b.rememberClientToken(clientToken, token, fingerprint)
 
 	return copyEvent(event), nil
 }
 
-// cachedEventForToken returns a copy of the ProgressEvent previously recorded
-// for clientToken, or nil if clientToken is empty or unrecognized. Callers
-// must hold b.mu (read or write) already.
-func (b *InMemoryBackend) cachedEventForToken(clientToken string) *ProgressEvent {
-	if clientToken == "" {
-		return nil
-	}
-
-	prevToken, ok := b.clientTokens[clientToken]
-	if !ok {
-		return nil
-	}
-
-	cachedEvent, found := b.requests.Get(prevToken)
-	if !found {
-		return nil
-	}
-
-	return copyEvent(cachedEvent)
+// clientTokenFingerprint builds a stable fingerprint identifying the semantic content of
+// a Create/Update/DeleteResource request, used to distinguish an idempotent ClientToken
+// replay (same fingerprint) from a genuine ClientTokenConflictException (same token,
+// different fingerprint). All four inputs are already exactly what the corresponding
+// *Input shape declares for that operation (op name, TypeName, Identifier, and
+// DesiredState/PatchDocument as applicable), so no data is fabricated here -- this is
+// purely a deterministic encoding of the caller-supplied request.
+func clientTokenFingerprint(op, typeName, identifier, payload string) string {
+	return op + "\x00" + typeName + "\x00" + identifier + "\x00" + payload
 }
 
-// rememberClientToken records the mapping from clientToken to requestToken
-// for future idempotent replays. A no-op when clientToken is empty. Callers
-// must hold b.mu (write) already.
-func (b *InMemoryBackend) rememberClientToken(clientToken, requestToken string) {
+// cachedEventForToken returns (event, true, nil) when clientToken was previously used
+// with the SAME fingerprint (an idempotent replay); (nil, false, nil) when clientToken is
+// empty, unrecognized, or its cached request row has gone missing (nothing to return, no
+// error); and (nil, false, ErrClientTokenConflict) when clientToken was previously used
+// with a DIFFERENT fingerprint. Callers must hold b.mu (read or write) already.
+func (b *InMemoryBackend) cachedEventForToken(clientToken, fingerprint string) (*ProgressEvent, bool, error) {
+	if clientToken == "" {
+		return nil, false, nil
+	}
+
+	entry, ok := b.clientTokens[clientToken]
+	if !ok {
+		return nil, false, nil
+	}
+
+	if entry.Fingerprint != fingerprint {
+		return nil, false, ErrClientTokenConflict
+	}
+
+	cachedEvent, found := b.requests.Get(entry.RequestToken)
+	if !found {
+		return nil, false, nil
+	}
+
+	return copyEvent(cachedEvent), true, nil
+}
+
+// rememberClientToken records the mapping from clientToken to its requestToken and
+// request fingerprint for future idempotent replays / conflict detection. A no-op when
+// clientToken is empty. Callers must hold b.mu (write) already.
+func (b *InMemoryBackend) rememberClientToken(clientToken, requestToken, fingerprint string) {
 	if clientToken == "" {
 		return
 	}
 
-	b.clientTokens[clientToken] = requestToken
+	b.clientTokens[clientToken] = clientTokenEntry{RequestToken: requestToken, Fingerprint: fingerprint}
 }
 
 // copyResource returns a shallow copy of a Resource so callers cannot mutate backend state.
@@ -356,6 +411,38 @@ func extractIdentifier(desiredState string) string {
 	}
 
 	return ""
+}
+
+// matchesResourceModel reports whether a resource's Properties JSON document contains
+// every key/value pair in modelFilter (using Go's == for scalars and reflect.DeepEqual
+// semantics via encoding/json's any-decoding for nested values). A nil/empty modelFilter
+// matches everything (no ResourceModel filter supplied). An unparseable Properties
+// document matches nothing, since its fields cannot be compared.
+func matchesResourceModel(properties string, modelFilter map[string]any) bool {
+	if len(modelFilter) == 0 {
+		return true
+	}
+
+	var props map[string]any
+	if err := json.Unmarshal([]byte(properties), &props); err != nil {
+		return false
+	}
+
+	for k, want := range modelFilter {
+		got, exists := props[k]
+		if !exists {
+			return false
+		}
+
+		wantJSON, errW := json.Marshal(want)
+		gotJSON, errG := json.Marshal(got)
+
+		if errW != nil || errG != nil || string(wantJSON) != string(gotJSON) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // applyPatch applies a simplified JSON RFC 6902 patch to a JSON document.

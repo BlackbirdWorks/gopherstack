@@ -54,6 +54,32 @@ func (b *InMemoryBackend) ListTagsForResource(
 	return out, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingECR).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every ECR repository ARN that currently has at
+// least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.repoTags))
+
+	for arn, tagMap := range b.repoTags {
+		if len(tagMap) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tagMap)})
+	}
+
+	return out
+}
+
 // findResourceTagsLocked returns (creating if absent) the tag map for the given ARN.
 // Must be called with b.mu held for writing.
 func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) map[string]string {

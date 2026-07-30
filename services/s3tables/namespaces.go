@@ -15,6 +15,10 @@ func (b *InMemoryBackend) CreateNamespace(
 	tableBucketARN string,
 	namespace []string,
 ) (*Namespace, error) {
+	if err := validateNamespaceParts(namespace); err != nil {
+		return nil, err
+	}
+
 	b.muBuckets.RLock("CreateNamespace")
 	defer b.muBuckets.RUnlock()
 

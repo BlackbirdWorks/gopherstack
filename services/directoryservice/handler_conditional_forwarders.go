@@ -20,6 +20,7 @@ func (h *Handler) handleCreateConditionalForwarder(c *echo.Context) error { //no
 		DirectoryID      string   `json:"DirectoryId"`
 		RemoteDomainName string   `json:"RemoteDomainName"`
 		DNSIpAddrs       []string `json:"DnsIpAddrs"`
+		DNSIpv6Addrs     []string `json:"DnsIpv6Addrs"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -38,6 +39,7 @@ func (h *Handler) handleCreateConditionalForwarder(c *echo.Context) error { //no
 		req.DirectoryID,
 		req.RemoteDomainName,
 		req.DNSIpAddrs,
+		req.DNSIpv6Addrs,
 	); createErr != nil {
 		return h.mapError(c, createErr)
 	}
@@ -55,6 +57,7 @@ func (h *Handler) handleUpdateConditionalForwarder(c *echo.Context) error { //no
 		DirectoryID      string   `json:"DirectoryId"`
 		RemoteDomainName string   `json:"RemoteDomainName"`
 		DNSIpAddrs       []string `json:"DnsIpAddrs"`
+		DNSIpv6Addrs     []string `json:"DnsIpv6Addrs"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -73,6 +76,7 @@ func (h *Handler) handleUpdateConditionalForwarder(c *echo.Context) error { //no
 		req.DirectoryID,
 		req.RemoteDomainName,
 		req.DNSIpAddrs,
+		req.DNSIpv6Addrs,
 	); updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
@@ -124,6 +128,7 @@ func (h *Handler) handleDescribeConditionalForwarders(c *echo.Context) error {
 		fwdList = append(fwdList, map[string]any{
 			"RemoteDomainName": f.RemoteDomainName,
 			"DnsIpAddrs":       f.DNSIPAddrs,
+			"DnsIpv6Addrs":     f.DNSIPv6Addrs,
 			"ReplicationScope": f.ReplicationScope,
 		})
 	}

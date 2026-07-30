@@ -154,6 +154,7 @@ type listMedicalVocabulariesInput struct {
 	StateEquals  string `json:"StateEquals"`
 	NameContains string `json:"NameContains"`
 	NextToken    string `json:"NextToken"`
+	MaxResults   int32  `json:"MaxResults"`
 }
 
 type medicalVocabularySummary struct {
@@ -172,7 +173,7 @@ func (h *Handler) handleListMedicalVocabularies(
 	_ context.Context,
 	in *listMedicalVocabulariesInput,
 ) (*listMedicalVocabulariesOutput, error) {
-	vocabs, nextToken := h.Backend.ListMedicalVocabularies(in.StateEquals, in.NameContains, in.NextToken)
+	vocabs, nextToken := h.Backend.ListMedicalVocabularies(in.StateEquals, in.NameContains, in.NextToken, in.MaxResults)
 
 	result := make([]medicalVocabularySummary, 0, len(vocabs))
 	for _, v := range vocabs {

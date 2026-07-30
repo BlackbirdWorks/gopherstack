@@ -279,13 +279,14 @@ deserializer, not assumed:
   `Float64` for genuinely fractional values.
 - **Error shape.** The SDK's generated `getProtocolErrorInfo` (in `deserializers.go`) reads
   the exception name from an `"__type"` key **inside the CBOR body**, not from a header --
-  this differs from CloudWatch's `cborError`, which sets an `X-Amzn-Errortype` header but
-  omits `__type` from the body. (Both cloudwatch's and appstream's SDK-generated
-  deserializers were read directly to confirm this; the header is not consumed by either
-  protocol's generated code path.) AppStream's `cborError` includes `"__type"` in the body so
-  typed exception matching (`errors.As(err, &types.ResourceNotFoundException{})`) works
-  client-side; see `reuse_opportunity` in the task receipt for whether CloudWatch has the
-  same gap (out of scope here -- cloudwatch is explicitly not touched by this pass).
+  at the time this was written, CloudWatch's `cborError` set only an `X-Amzn-Errortype`
+  header and omitted `__type` from the body (both SDK-generated deserializers were read
+  directly to confirm this; the header is not consumed by either protocol's generated code
+  path). **FIXED 2026-07-26 (bd gopherstack-7fyf):** CloudWatch's CBOR error body now
+  includes `"__type"` too, mirroring this file's shape exactly -- see the "rpc-v2-cbor errors
+  were missing `__type`" note in `services/cloudwatch/PARITY.md` for the full writeup.
+  AppStream's `cborError` includes `"__type"` in the body so typed exception matching
+  (`errors.As(err, &types.ResourceNotFoundException{})`) works client-side.
 - **Malformed bodies.** A non-map top-level CBOR value is rejected at the transport level
   (`SerializationException`) before it can reach an op handler's `json.Unmarshal` and surface
   a misleading validation error instead, matching CloudWatch's `isCBORMap` check.
@@ -310,16 +311,18 @@ header). Live-verified end to end against a real built binary:
 `TestIntegration_AppStream_StackLifecycle` and `TestIntegration_AppStream_FleetLifecycle`
 both pass using the real `aws-sdk-go-v2/service/appstream@v1.64.0` client.
 
-**Reuse opportunity (not done this pass, cloudwatch out of scope):** the CBOR value-tree
-helpers in rpcv2cbor.go (`cborToGo`/`goToCBOR`/`numberToCBOR`/timestamp tagging/`writeCBOR`)
-are generic enough that a shared `pkgs/rpcv2cbor` (or similar) package could host the
-CBOR<->generic-value bridge, the `isCBORRequest`/path-prefix helpers (parameterized by
-service path), and the `Content-Type`/`Smithy-Protocol` response header plumbing, for reuse
-by both appstream and any future rpc-v2-cbor service. CloudWatch's hand-written per-operation
-encoders wouldn't benefit from the bridge itself (its prior protocol wasn't a compatible
-shape), but could still share the low-level `writeCBOR`/header-setting/`isCBORRequest`
-plumbing. Also worth a follow-up: CloudWatch's `cborError` doesn't set `"__type"` in the
-CBOR body, which -- per the SDK-generated `getProtocolErrorInfo` behavior confirmed during
-this pass -- means typed exception matching against CloudWatch errors over CBOR likely falls
-back to `"UnknownError"` client-side; this wasn't investigated further since it's explicitly
-out of scope, but is worth a dedicated look.
+**Reuse opportunity -- DONE 2026-07-26 (bd gopherstack-7fyf), partially.** The low-level
+protocol plumbing this note originally flagged (`isCBORRequest`/`extractCBOROperation`
+path-prefix helpers, `writeCBOR` response header-setting, and `cborError`'s error-body
+shaping) turned out to be byte-for-byte identical between appstream and cloudwatch once
+cloudwatch's `cborError` also gained `"__type"` -- these four were extracted into
+`pkgs/service/rpcv2cbor.go` (`IsRPCv2CBORRequest`/`ExtractRPCv2CBOROperation`/
+`WriteRPCv2CBORResponse`/`WriteRPCv2CBORError`); both services now delegate to it instead of
+carrying their own copies. The other half of this note's suggestion -- sharing the
+CBOR<->generic-value bridge (`cborToGo`/`goToCBOR`/`numberToCBOR`/timestamp tagging) --
+was deliberately **not** done: that bridge only exists because appstream routes CBOR through
+its existing generic JSON-body op handlers, whereas cloudwatch hand-writes per-operation CBOR
+encoders reading directly off a decoded `cbor.Map` (`cborStr`/`cborFloat`/`cborTime`/etc.).
+The two approaches operate at different levels of abstraction with no shared shape to
+extract; forcing them together would contort cloudwatch's per-field helpers into something
+they aren't. Left as-is.

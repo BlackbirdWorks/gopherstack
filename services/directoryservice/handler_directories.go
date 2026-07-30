@@ -21,6 +21,7 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error {
 		Description string `json:"Description"`
 		Password    string `json:"Password"`
 		Size        string `json:"Size"`
+		NetworkType string `json:"NetworkType"`
 		VpcSettings *struct {
 			VpcID     string   `json:"VpcId"`
 			SubnetIDs []string `json:"SubnetIds"`
@@ -62,6 +63,7 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error {
 		req.Description,
 		req.Password,
 		DirectorySize(req.Size),
+		NetworkType(req.NetworkType),
 		vpcSettings,
 		tags,
 	)
@@ -86,6 +88,7 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 		Description string `json:"Description"`
 		Password    string `json:"Password"`
 		Edition     string `json:"Edition"`
+		NetworkType string `json:"NetworkType"`
 		VpcSettings *struct {
 			VpcID     string   `json:"VpcId"`
 			SubnetIDs []string `json:"SubnetIds"`
@@ -135,6 +138,7 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 		req.Description,
 		req.Password,
 		edition,
+		NetworkType(req.NetworkType),
 		vpcSettings,
 		tags,
 	)
@@ -343,12 +347,20 @@ func (h *Handler) handleConnectDirectory(c *echo.Context) error {
 	}
 
 	var req struct {
-		Name        string `json:"Name"`
-		ShortName   string `json:"ShortName"`
-		Description string `json:"Description"`
-		Password    string `json:"Password"`
-		Size        string `json:"Size"`
-		Tags        []struct {
+		Name            string `json:"Name"`
+		ShortName       string `json:"ShortName"`
+		Description     string `json:"Description"`
+		Password        string `json:"Password"`
+		Size            string `json:"Size"`
+		NetworkType     string `json:"NetworkType"`
+		ConnectSettings *struct {
+			CustomerUserName string   `json:"CustomerUserName"`
+			VpcID            string   `json:"VpcId"`
+			SubnetIDs        []string `json:"SubnetIds"`
+			CustomerDNSIPs   []string `json:"CustomerDnsIps"`
+			CustomerDNSIPsV6 []string `json:"CustomerDnsIpsV6"`
+		} `json:"ConnectSettings"`
+		Tags []struct {
 			Key   string `json:"Key"`
 			Value string `json:"Value"`
 		} `json:"Tags"`
@@ -368,6 +380,26 @@ func (h *Handler) handleConnectDirectory(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Size must be Small or Large"))
 	}
 
+	var connectSettings ConnectSettingsInput
+	if req.ConnectSettings != nil {
+		connectSettings = ConnectSettingsInput{
+			CustomerUserName: req.ConnectSettings.CustomerUserName,
+			VpcID:            req.ConnectSettings.VpcID,
+			SubnetIDs:        req.ConnectSettings.SubnetIDs,
+			CustomerDNSIPs:   req.ConnectSettings.CustomerDNSIPs,
+			CustomerDNSIPsV6: req.ConnectSettings.CustomerDNSIPsV6,
+		}
+	}
+	if connectSettings.CustomerUserName == "" || connectSettings.VpcID == "" || len(connectSettings.SubnetIDs) == 0 {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp(
+				"InvalidParameterException",
+				"ConnectSettings.CustomerUserName, ConnectSettings.VpcId and ConnectSettings.SubnetIds are required",
+			),
+		)
+	}
+
 	tags := reqTagsToTags(req.Tags)
 	d, createErr := h.Backend.ConnectDirectory(
 		h.contextWithRegion(c),
@@ -376,6 +408,8 @@ func (h *Handler) handleConnectDirectory(c *echo.Context) error {
 		req.Description,
 		req.Password,
 		DirectorySize(req.Size),
+		NetworkType(req.NetworkType),
+		connectSettings,
 		tags,
 	)
 	if createErr != nil {

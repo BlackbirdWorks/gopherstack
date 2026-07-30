@@ -122,6 +122,10 @@ func (b *InMemoryBackend) CreateTableBucket(
 	name string,
 	opts CreateTableBucketOptions,
 ) (*TableBucket, error) {
+	if err := validateBucketName(name); err != nil {
+		return nil, err
+	}
+
 	b.muBuckets.Lock("CreateTableBucket")
 	defer b.muBuckets.Unlock()
 

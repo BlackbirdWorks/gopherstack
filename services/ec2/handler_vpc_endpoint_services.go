@@ -24,10 +24,11 @@ func (h *Handler) handleCreateVpcEndpointServiceConfiguration(
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		ServiceConfig: vpcEndpointServiceConfigItem{
-			ServiceID:          cfg.ServiceID,
-			ServiceName:        cfg.ServiceName,
-			ServiceType:        cfg.ServiceType,
-			AcceptanceRequired: cfg.AcceptanceRequired,
+			ServiceID:           cfg.ServiceID,
+			ServiceName:         cfg.ServiceName,
+			ServiceType:         cfg.ServiceType,
+			PayerResponsibility: cfg.PayerResponsibility,
+			AcceptanceRequired:  cfg.AcceptanceRequired,
 		},
 	}, nil
 }
@@ -45,10 +46,11 @@ func (h *Handler) handleDescribeVpcEndpointServiceConfigurations(
 		resp.ServiceConfigSet.Items = append(
 			resp.ServiceConfigSet.Items,
 			vpcEndpointServiceConfigItem{
-				ServiceID:          cfg.ServiceID,
-				ServiceName:        cfg.ServiceName,
-				ServiceType:        cfg.ServiceType,
-				AcceptanceRequired: cfg.AcceptanceRequired,
+				ServiceID:           cfg.ServiceID,
+				ServiceName:         cfg.ServiceName,
+				ServiceType:         cfg.ServiceType,
+				PayerResponsibility: cfg.PayerResponsibility,
+				AcceptanceRequired:  cfg.AcceptanceRequired,
 			},
 		)
 	}

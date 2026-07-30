@@ -215,16 +215,29 @@ type ImportTask struct {
 	LastUpdatedTime      int64  `json:"lastUpdatedTime"`
 }
 
+// DeliveryS3Configuration mirrors the real S3DeliveryConfiguration shape
+// (aws-sdk-go-v2 types.S3DeliveryConfiguration): parameters that apply only
+// when a delivery's destination is an S3 bucket.
+type DeliveryS3Configuration struct {
+	SuffixPath               string `json:"suffixPath,omitempty"`
+	EnableHiveCompatiblePath bool   `json:"enableHiveCompatiblePath,omitempty"`
+}
+
 // Delivery represents a CloudWatch Logs delivery configuration.
+// CreationTime is backend bookkeeping only (used to order DescribeDeliveries)
+// and must never reach the wire: the real Delivery type (aws-sdk-go-v2
+// types.Delivery) has no creationTime member at all -- an earlier revision
+// fabricated one.
 type Delivery struct {
-	Tags                   map[string]string `json:"tags,omitempty"`
-	ID                     string            `json:"id"`
-	Arn                    string            `json:"arn"`
-	DeliverySourceName     string            `json:"deliverySourceName"`
-	DeliveryDestinationArn string            `json:"deliveryDestinationArn"`
-	FieldDelimiter         string            `json:"fieldDelimiter,omitempty"`
-	RecordFields           []string          `json:"recordFields,omitempty"`
-	CreationTime           int64             `json:"creationTime"`
+	Tags                    map[string]string        `json:"tags,omitempty"`
+	S3DeliveryConfiguration *DeliveryS3Configuration `json:"s3DeliveryConfiguration,omitempty"`
+	ID                      string                   `json:"id"`
+	Arn                     string                   `json:"arn"`
+	DeliverySourceName      string                   `json:"deliverySourceName"`
+	DeliveryDestinationArn  string                   `json:"deliveryDestinationArn"`
+	FieldDelimiter          string                   `json:"fieldDelimiter,omitempty"`
+	RecordFields            []string                 `json:"recordFields,omitempty"`
+	CreationTime            int64                    `json:"-"`
 }
 
 // LogAnomalyDetector represents a CloudWatch Logs anomaly detector.
@@ -251,32 +264,68 @@ type LogAnomalyDetector struct {
 	LastModifiedTimeStamp int64    `json:"lastModifiedTimeStamp,omitempty"`
 }
 
-// ScheduledQuery represents a CloudWatch Logs scheduled query. The wire key
-// for the identifying ARN is scheduledQueryArn, not arn (aws-sdk-go-v2
-// GetScheduledQueryOutput.ScheduledQueryArn) -- a previous version of this
-// struct used the wrong key, so a real SDK client's ScheduledQueryArn field
-// would always deserialize empty. This struct only models the subset of
-// GetScheduledQueryOutput this backend currently tracks; see PARITY.md for
-// the fields (description, destinationConfiguration, executionRoleArn,
-// lastExecutionStatus/lastTriggeredTime/lastUpdatedTime, logGroupIdentifiers,
-// queryLanguage, scheduleEndTime/scheduleStartTime, startTimeOffset,
-// timezone) not yet implemented.
-type ScheduledQuery struct {
-	ScheduledQueryArn  string `json:"scheduledQueryArn"`
-	Name               string `json:"name"`
-	QueryString        string `json:"queryString"`
-	ScheduleExpression string `json:"scheduleExpression,omitempty"`
-	State              string `json:"state"`
-	CreationTime       int64  `json:"creationTime"`
+// ScheduledQueryDestinationConfig mirrors the real DestinationConfiguration
+// shape (aws-sdk-go-v2 types.DestinationConfiguration): currently only an S3
+// destination is modeled by the real API.
+type ScheduledQueryDestinationConfig struct {
+	S3Configuration *ScheduledQueryS3Configuration `json:"s3Configuration,omitempty"`
 }
 
-// AccountPolicy represents a CloudWatch Logs account-level policy.
+// ScheduledQueryS3Configuration mirrors the real S3Configuration shape used
+// by ScheduledQueryDestinationConfig.
+type ScheduledQueryS3Configuration struct {
+	DestinationIdentifier string `json:"destinationIdentifier"`
+	RoleArn               string `json:"roleArn"`
+	KmsKeyID              string `json:"kmsKeyId,omitempty"`
+	OwnerAccountID        string `json:"ownerAccountId,omitempty"`
+}
+
+// ScheduledQuery represents a CloudWatch Logs scheduled query, field-diffed
+// against GetScheduledQueryOutput (confirmed via api_op_GetScheduledQuery.go
+// and its deserializer). The wire key for the identifying ARN is
+// scheduledQueryArn, not arn -- a previous version of this struct used the
+// wrong key, so a real SDK client's ScheduledQueryArn field would always
+// deserialize empty. A previous version also modeled only 6 of
+// GetScheduledQueryOutput's ~20 members; this now covers the full set.
+// ScheduleType is not client-settable (CreateScheduledQueryInput/
+// UpdateScheduledQueryInput have no scheduleType member) -- every
+// backend-created query is CUSTOMER_MANAGED, since AWS_MANAGED queries are
+// pre-provisioned by AWS itself, not created through this API.
+type ScheduledQuery struct {
+	DestinationConfiguration *ScheduledQueryDestinationConfig `json:"destinationConfiguration,omitempty"`
+	ScheduleExpression       string                           `json:"scheduleExpression,omitempty"`
+	QueryString              string                           `json:"queryString"`
+	State                    string                           `json:"state"`
+	Name                     string                           `json:"name"`
+	Timezone                 string                           `json:"timezone,omitempty"`
+	LastExecutionStatus      string                           `json:"lastExecutionStatus,omitempty"`
+	ScheduleType             string                           `json:"scheduleType,omitempty"`
+	ScheduledQueryArn        string                           `json:"scheduledQueryArn"`
+	QueryLanguage            string                           `json:"queryLanguage,omitempty"`
+	Description              string                           `json:"description,omitempty"`
+	ExecutionRoleArn         string                           `json:"executionRoleArn,omitempty"`
+	LogGroupIdentifiers      []string                         `json:"logGroupIdentifiers,omitempty"`
+	ScheduleEndTime          int64                            `json:"scheduleEndTime,omitempty"`
+	LastUpdatedTime          int64                            `json:"lastUpdatedTime,omitempty"`
+	CreationTime             int64                            `json:"creationTime"`
+	LastTriggeredTime        int64                            `json:"lastTriggeredTime,omitempty"`
+	StartTimeOffset          int64                            `json:"startTimeOffset,omitempty"`
+	EndTimeOffset            int64                            `json:"endTimeOffset,omitempty"`
+	ScheduleStartTime        int64                            `json:"scheduleStartTime,omitempty"`
+}
+
+// AccountPolicy represents a CloudWatch Logs account-level policy,
+// field-diffed against aws-sdk-go-v2 types.AccountPolicy: accountId and
+// lastUpdatedTime were both missing from a previous revision, so a real
+// client's AccountId/LastUpdatedTime fields were always left unpopulated.
 type AccountPolicy struct {
 	PolicyName        string `json:"policyName"`
 	PolicyType        string `json:"policyType"`
 	PolicyDocument    string `json:"policyDocument,omitempty"`
 	Scope             string `json:"scope,omitempty"`
 	SelectionCriteria string `json:"selectionCriteria,omitempty"`
+	AccountID         string `json:"accountId,omitempty"`
+	LastUpdatedTime   int64  `json:"lastUpdatedTime,omitempty"`
 }
 
 // RejectedLogEventsInfo describes log events that were rejected by PutLogEvents.

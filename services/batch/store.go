@@ -225,6 +225,14 @@ func (b *InMemoryBackend) jobDefRevisionsStore(region string) map[string]int32 {
 	return b.jobDefRevisions[region]
 }
 
+// jobDefRevisionsStoreRO is the non-mutating twin of jobDefRevisionsStore, for
+// callers holding only a read lock. Creating the region map on a pure read is
+// pointless anyway, and doing it under RLock is a concurrent map write plus a
+// race -- the same class fixed across 17 services in c381f62b3.
+func (b *InMemoryBackend) jobDefRevisionsStoreRO(region string) map[string]int32 {
+	return b.jobDefRevisions[region]
+}
+
 // Reset clears all state from the backend.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")

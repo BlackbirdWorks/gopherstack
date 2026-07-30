@@ -13,20 +13,58 @@ func TestDomainControllers_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		desired int32
-		wantLen int
+		vpcSettings map[string]any
+		name        string
+		networkType string
+		wantVpcID   string
+		wantSubnets []string
+		wantLen     int
+		desired     int32
+		wantIPv6DNS bool
 	}{
 		{name: "scale up to 3", desired: 3, wantLen: 3},
 		{name: "scale up to 1", desired: 1, wantLen: 1},
 		{name: "desired 0 removes all", desired: 0, wantLen: 0},
+		{
+			name:    "VpcId/SubnetId echo the directory's real VpcSettings",
+			desired: 2,
+			wantLen: 2,
+			vpcSettings: map[string]any{
+				"VpcId":     "vpc-domainctrl",
+				"SubnetIds": []string{"subnet-dc1", "subnet-dc2"},
+			},
+			wantVpcID:   "vpc-domainctrl",
+			wantSubnets: []string{"subnet-dc1", "subnet-dc2"},
+		},
+		{
+			name:        "Dual-stack directory reports DnsIpv6Addr",
+			desired:     1,
+			wantLen:     1,
+			networkType: "Dual-stack",
+			wantIPv6DNS: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			dirID := mustCreateMicrosoftAD(t, h, "corp.example.com")
+
+			createBody := map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Edition":  "Enterprise",
+			}
+			if tt.vpcSettings != nil {
+				createBody["VpcSettings"] = tt.vpcSettings
+			}
+			if tt.networkType != "" {
+				createBody["NetworkType"] = tt.networkType
+			}
+			createRec := doRequest(t, h, "CreateMicrosoftAD", createBody)
+			require.Equal(t, http.StatusOK, createRec.Code)
+			dirID, ok := respBody(t, createRec)["DirectoryId"].(string)
+			require.True(t, ok)
 
 			rec := doRequest(t, h, "UpdateNumberOfDomainControllers", map[string]any{
 				"DirectoryId":   dirID,
@@ -44,6 +82,27 @@ func TestDomainControllers_Lifecycle(t *testing.T) {
 			body := respBody(t, listRec)
 			controllers, _ := body["DomainControllers"].([]any)
 			assert.Len(t, controllers, tt.wantLen)
+
+			for _, raw := range controllers {
+				dc := raw.(map[string]any)
+				assert.NotEmpty(t, dc["DnsIpAddr"], "DnsIpAddr must always be populated")
+				assert.NotEmpty(
+					t, dc["StatusLastUpdatedDateTime"], "StatusLastUpdatedDateTime must always be populated",
+				)
+				if tt.wantVpcID != "" {
+					assert.Equal(t, tt.wantVpcID, dc["VpcId"], "VpcId must echo the directory's real VpcSettings")
+					wantSubnets := make([]any, len(tt.wantSubnets))
+					for i, s := range tt.wantSubnets {
+						wantSubnets[i] = s
+					}
+					assert.Contains(t, wantSubnets, dc["SubnetId"])
+				}
+				if tt.wantIPv6DNS {
+					assert.NotEmpty(t, dc["DnsIpv6Addr"], "Dual-stack directories must report DnsIpv6Addr")
+				} else {
+					assert.Empty(t, dc["DnsIpv6Addr"], "non-IPv6-capable directories must not report DnsIpv6Addr")
+				}
+			}
 		})
 	}
 }

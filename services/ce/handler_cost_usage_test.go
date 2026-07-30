@@ -372,13 +372,16 @@ func TestGetCostAndUsage_ReturnsResultsByTime(t *testing.T) {
 			wantNonEmpty: true,
 		},
 		{
-			name: "no_time_period_uses_defaults",
+			// Real GetCostAndUsageInput requires TimePeriod (see
+			// TestGetCostAndUsage_RequiredFields for the full required-field
+			// matrix) -- a missing TimePeriod is no longer silently defaulted.
+			name: "no_time_period_rejected",
 			body: map[string]any{
 				"Granularity": "MONTHLY",
 				"Metrics":     []string{"BlendedCost"},
 			},
-			wantStatCode: http.StatusOK,
-			wantNonEmpty: true,
+			wantStatCode: http.StatusBadRequest,
+			wantNonEmpty: false,
 		},
 	}
 
@@ -611,8 +614,14 @@ func TestGetCostForecast_ReturnsTimeSeries(t *testing.T) {
 	}
 }
 
-// TestGetCostAndUsage_GranularityRequired verifies real AWS requires Granularity.
-func TestGetCostAndUsage_GranularityRequired(t *testing.T) {
+// TestGetCostAndUsage_RequiredFields verifies real AWS CE's
+// GetCostAndUsageInput required members -- Granularity, TimePeriod (with both
+// TimePeriod.Start and TimePeriod.End, since types.DateInterval marks both
+// required), and Metrics (confirmed via api_op_GetCostAndUsage.go: "Metrics
+// is required for GetCostAndUsage requests"). An earlier revision only
+// enforced Granularity and silently defaulted a missing/partial TimePeriod
+// rather than rejecting it, and never checked Metrics at all.
+func TestGetCostAndUsage_RequiredFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -629,7 +638,50 @@ func TestGetCostAndUsage_GranularityRequired(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "with_granularity_returns_200",
+			name: "missing_time_period_returns_400",
+			body: map[string]any{
+				"Granularity": "MONTHLY",
+				"Metrics":     []string{"BlendedCost"},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_time_period_start_returns_400",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+				"Metrics":     []string{"BlendedCost"},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_time_period_end_returns_400",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01"},
+				"Granularity": "MONTHLY",
+				"Metrics":     []string{"BlendedCost"},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_metrics_returns_400",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "empty_metrics_returns_400",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+				"Metrics":     []string{},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "all_required_fields_present_returns_200",
 			body: map[string]any{
 				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
 				"Granularity": "MONTHLY",

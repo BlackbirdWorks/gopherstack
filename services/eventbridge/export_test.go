@@ -129,7 +129,7 @@ func (b *InMemoryBackend) ArchivedEventCount(archiveName string) int {
 	b.mu.RLock("ArchivedEventCount")
 	defer b.mu.RUnlock()
 
-	return len(b.archivedEventsStore(b.region)[archiveName])
+	return len(b.archivedEventsStoreRO(b.region)[archiveName])
 }
 
 // SetArchiveCreationTimeForTest overrides an archive creation time.

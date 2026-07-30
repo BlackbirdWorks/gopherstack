@@ -87,6 +87,37 @@ type getReservedInstancesExchangeQuoteResponse struct {
 	IsValidExchange bool     `xml:"isValidExchange"`
 }
 
+// deleteQueuedRIErrorItem mirrors types.DeleteQueuedReservedInstancesError.
+type deleteQueuedRIErrorItem struct {
+	Code    string `xml:"code"`
+	Message string `xml:"message"`
+}
+
+// successfulQueuedPurchaseDeletionItem mirrors types.SuccessfulQueuedPurchaseDeletion.
+type successfulQueuedPurchaseDeletionItem struct {
+	ReservedInstancesID string `xml:"reservedInstancesId"`
+}
+
+// failedQueuedPurchaseDeletionItem mirrors types.FailedQueuedPurchaseDeletion.
+type failedQueuedPurchaseDeletionItem struct {
+	ReservedInstancesID string                  `xml:"reservedInstancesId"`
+	Error               deleteQueuedRIErrorItem `xml:"error"`
+}
+
+// deleteQueuedReservedInstancesResponse mirrors the real
+// DeleteQueuedReservedInstancesOutput: real, non-boolean per-ID results
+// instead of a bare {Return: true}.
+type deleteQueuedReservedInstancesResponse struct {
+	XMLName       xml.Name `xml:"DeleteQueuedReservedInstancesResponse"`
+	RequestID     string   `xml:"requestId"`
+	SuccessfulSet struct {
+		Items []successfulQueuedPurchaseDeletionItem `xml:"item"`
+	} `xml:"successfulQueuedPurchaseDeletionSet"`
+	FailedSet struct {
+		Items []failedQueuedPurchaseDeletionItem `xml:"item"`
+	} `xml:"failedQueuedPurchaseDeletionSet"`
+}
+
 // ---- Traffic Mirror Filter handlers ----
 
 func toReservedInstanceItem(ri *ReservedInstance) reservedInstanceItem {
@@ -284,13 +315,33 @@ func (h *Handler) handleModifyReservedInstances(vals url.Values, reqID string) (
 
 func (h *Handler) handleDeleteQueuedReservedInstances(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "ReservedInstancesId")
-	h.Backend.DeleteQueuedReservedInstances(ids)
+	results := h.Backend.DeleteQueuedReservedInstances(ids)
 
-	return &stubResponse{
+	resp := &deleteQueuedReservedInstancesResponse{
 		XMLName:   xml.Name{Local: "DeleteQueuedReservedInstancesResponse"},
 		RequestID: reqID,
-		Return:    true,
-	}, nil
+	}
+
+	for _, r := range results {
+		if r.Failed {
+			resp.FailedSet.Items = append(resp.FailedSet.Items, failedQueuedPurchaseDeletionItem{
+				ReservedInstancesID: r.ReservedInstancesID,
+				Error: deleteQueuedRIErrorItem{
+					Code:    r.ErrorCode,
+					Message: r.ErrorMessage,
+				},
+			})
+
+			continue
+		}
+
+		resp.SuccessfulSet.Items = append(
+			resp.SuccessfulSet.Items,
+			successfulQueuedPurchaseDeletionItem{ReservedInstancesID: r.ReservedInstancesID},
+		)
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleGetReservedInstancesExchangeQuote(_ url.Values, reqID string) (any, error) {

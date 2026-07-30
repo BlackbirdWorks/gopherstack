@@ -51,46 +51,6 @@ func cloneScalingPolicy(p *ScalingPolicy) *ScalingPolicy {
 	return &cp
 }
 
-// synthesizeAlarms builds the CloudWatch alarm references real AWS attaches
-// to a newly created scaling policy. Real AWS creates backing CloudWatch
-// alarms server-side (out of scope here -- see the deferred CloudWatch
-// integration note in PARITY.md); gopherstack instead synthesizes stable,
-// correctly-shaped Alarm entries so the PutScalingPolicy/DescribeScalingPolicies
-// Alarms field is populated like real AWS rather than always empty.
-// PredictiveScaling policies get no alarms, matching real AWS (predictive
-// scaling does not create the same threshold-crossing CloudWatch alarms
-// step/target-tracking policies do).
-func (b *InMemoryBackend) synthesizeAlarms(
-	policyType, policyName, resourceID string,
-	targetTrackingConfig map[string]any,
-) []Alarm {
-	var names []string
-
-	switch policyType {
-	case policyTypeTargetTrackingScaling:
-		names = append(names, fmt.Sprintf("TargetTracking-%s-AlarmHigh-%s", resourceID, uuid.NewString()))
-
-		disableScaleIn, _ := targetTrackingConfig["DisableScaleIn"].(bool)
-		if !disableScaleIn {
-			names = append(names, fmt.Sprintf("TargetTracking-%s-AlarmLow-%s", resourceID, uuid.NewString()))
-		}
-	case policyTypeStepScaling:
-		names = append(names, fmt.Sprintf("%s-AlarmHigh-%s", policyName, uuid.NewString()))
-	default:
-		return nil
-	}
-
-	alarms := make([]Alarm, 0, len(names))
-	for _, name := range names {
-		alarms = append(alarms, Alarm{
-			AlarmName: name,
-			AlarmARN:  arn.Build("cloudwatch", b.region, b.accountID, "alarm:"+name),
-		})
-	}
-
-	return alarms
-}
-
 // stepAdjustmentCount returns the number of entries in
 // stepScalingConfig["StepAdjustments"], or 0 if absent/malformed. gopherstack
 // stores StepScalingPolicyConfiguration as a passthrough map[string]any (see
@@ -217,9 +177,22 @@ func (b *InMemoryBackend) PutScalingPolicy(
 		TargetTrackingConfig:    maps.Clone(targetTrackingConfig),
 		StepScalingConfig:       maps.Clone(stepScalingConfig),
 		PredictiveScalingConfig: maps.Clone(predictiveScalingConfig),
-		Alarms:                  b.synthesizeAlarms(policyType, policyName, resourceID, targetTrackingConfig),
-		CreationTime:            now,
-		LastModifiedTime:        now,
+		// Alarms is intentionally left nil (honest-empty). Real AWS creates
+		// genuine backing CloudWatch alarms server-side for
+		// TargetTrackingScaling/StepScaling policies, visible via
+		// cloudwatch:DescribeAlarms. gopherstack's applicationautoscaling
+		// backend has no reference to the cloudwatch service's backend --
+		// that cross-service wiring pattern exists elsewhere (e.g.
+		// cloudformation) but is set up at CLI init time (cli.go), which is
+		// out of scope for this pass -- so it cannot create a real alarm. A
+		// previous pass synthesized a stable-looking name + arn.Build ARN
+		// here that resolved to nothing when queried against
+		// cloudwatch:DescribeAlarms; that is exactly the kind of
+		// invented-resource fabrication this project removes elsewhere, so
+		// it was deleted. See PARITY.md gaps for the downgrade rationale.
+		Alarms:           nil,
+		CreationTime:     now,
+		LastModifiedTime: now,
 	}
 	b.scalingPolicies.Put(p)
 	cp := cloneScalingPolicy(p)

@@ -6,11 +6,20 @@ import (
 )
 
 type createScheduledQueryInput struct {
-	Name               string `json:"name"`
-	QueryString        string `json:"queryString"`
-	ScheduleExpression string `json:"scheduleExpression"`
-	ExecutionRoleArn   string `json:"executionRoleArn"`
-	State              string `json:"state"`
+	DestinationConfiguration *ScheduledQueryDestinationConfig `json:"destinationConfiguration"`
+	ScheduleExpression       string                           `json:"scheduleExpression"`
+	QueryLanguage            string                           `json:"queryLanguage"`
+	Name                     string                           `json:"name"`
+	ExecutionRoleArn         string                           `json:"executionRoleArn"`
+	State                    string                           `json:"state"`
+	Description              string                           `json:"description"`
+	Timezone                 string                           `json:"timezone"`
+	QueryString              string                           `json:"queryString"`
+	LogGroupIdentifiers      []string                         `json:"logGroupIdentifiers"`
+	EndTimeOffset            int64                            `json:"endTimeOffset"`
+	StartTimeOffset          int64                            `json:"startTimeOffset"`
+	ScheduleStartTime        int64                            `json:"scheduleStartTime"`
+	ScheduleEndTime          int64                            `json:"scheduleEndTime"`
 }
 
 type createScheduledQueryOutput struct {
@@ -33,7 +42,54 @@ type listScheduledQueriesInput struct {
 
 type listScheduledQueriesOutput struct {
 	NextToken        string           `json:"nextToken,omitempty"`
-	ScheduledQueries []ScheduledQuery `json:"scheduledQueries"`
+	ScheduledQueries []map[string]any `json:"scheduledQueries"`
+}
+
+// scheduledQuerySummaryToWire renders a ScheduledQuery in
+// ListScheduledQueriesOutput's real ScheduledQuerySummary shape, which is
+// narrower than GetScheduledQueryOutput's: no queryString/executionRoleArn/
+// queryLanguage/logGroupIdentifiers/description/endTimeOffset/
+// startTimeOffset/scheduleStartTime/scheduleEndTime (confirmed via
+// types.ScheduledQuerySummary). A previous revision reused the full
+// ScheduledQuery shape for List, over-sharing fields real
+// ListScheduledQueries never returns.
+func scheduledQuerySummaryToWire(sq *ScheduledQuery) map[string]any {
+	entry := map[string]any{
+		keyScheduledQueryArn: sq.ScheduledQueryArn,
+		keyName:              sq.Name,
+		keyState:             sq.State,
+		keyCreationTime:      sq.CreationTime,
+	}
+
+	if sq.ScheduleExpression != "" {
+		entry["scheduleExpression"] = sq.ScheduleExpression
+	}
+
+	if sq.ScheduleType != "" {
+		entry["scheduleType"] = sq.ScheduleType
+	}
+
+	if sq.LastExecutionStatus != "" {
+		entry["lastExecutionStatus"] = sq.LastExecutionStatus
+	}
+
+	if sq.LastTriggeredTime != 0 {
+		entry["lastTriggeredTime"] = sq.LastTriggeredTime
+	}
+
+	if sq.LastUpdatedTime != 0 {
+		entry["lastUpdatedTime"] = sq.LastUpdatedTime
+	}
+
+	if sq.Timezone != "" {
+		entry["timezone"] = sq.Timezone
+	}
+
+	if sq.DestinationConfiguration != nil {
+		entry["destinationConfiguration"] = sq.DestinationConfiguration
+	}
+
+	return entry
 }
 
 // --- UpdateScheduledQuery ---.
@@ -47,10 +103,6 @@ type updateScheduledQueryOutput struct{}
 // --- GetScheduledQuery ---.
 type getScheduledQueryInput struct {
 	ScheduledQueryArn string `json:"scheduledQueryArn"`
-}
-
-type getScheduledQueryOutput struct {
-	ScheduledQuery *ScheduledQuery `json:"scheduledQuery,omitempty"`
 }
 
 // --- GetScheduledQueryHistory ---.
@@ -74,9 +126,11 @@ func (h *Handler) handleCreateScheduledQuery(
 		return nil, err
 	}
 
-	queryArn, err := h.Backend.CreateScheduledQuery(
-		input.Name, input.QueryString, input.ScheduleExpression, input.ExecutionRoleArn, input.State,
-	)
+	// createScheduledQueryInput and ScheduledQueryCreateParams share an
+	// identical field set (wire-decoding vs. backend-params structs kept
+	// separate on principle); staticcheck S1016 prefers the direct conversion
+	// over listing every field.
+	queryArn, err := h.Backend.CreateScheduledQuery(ScheduledQueryCreateParams(input))
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +172,12 @@ func (h *Handler) handleListScheduledQueries(
 		return nil, err
 	}
 
-	return &listScheduledQueriesOutput{ScheduledQueries: queries, NextToken: next}, nil
+	wire := make([]map[string]any, 0, len(queries))
+	for i := range queries {
+		wire = append(wire, scheduledQuerySummaryToWire(&queries[i]))
+	}
+
+	return &listScheduledQueriesOutput{ScheduledQueries: wire, NextToken: next}, nil
 }
 
 func (h *Handler) handleUpdateScheduledQuery(
@@ -149,7 +208,13 @@ func (h *Handler) handleGetScheduledQuery(
 		return nil, err
 	}
 
-	return &getScheduledQueryOutput{ScheduledQuery: sq}, nil
+	// Real GetScheduledQueryOutput's members (creationTime, description,
+	// destinationConfiguration, ...) sit flat at the top level of the response
+	// -- there is no "scheduledQuery" wrapper object (confirmed via
+	// deserializers.go's awsAwsjson11_deserializeOpDocumentGetScheduledQueryOutput).
+	// A previous revision wrapped the response under a "scheduledQuery" key, so
+	// a real SDK client's GetScheduledQueryOutput fields were never populated.
+	return sq, nil
 }
 
 func (h *Handler) handleGetScheduledQueryHistory(

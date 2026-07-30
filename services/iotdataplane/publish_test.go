@@ -32,11 +32,26 @@ func TestHandler_PublishEmptyTopic(t *testing.T) {
 // mockMQTTPublisher implements MQTTPublisher for testing. retain/qos are
 // captured (not just topic/payload) so tests can assert on them too -- e.g.
 // SendDirectMessage's confirmation-to-QoS mapping.
+//
+// clientSubs/knownClients simulate the broker's live per-client session
+// state (mochi-mqtt's Clients table): a clientID present in knownClients is
+// "connected" for ClientSubscriptions/SendToClient purposes, with whatever
+// subscriptions (if any) clientSubs[clientID] holds. sendToClientTopic/
+// sendToClientPayload/sendToClientQos record the last SendToClient call
+// separately from Publish's topic/payload/qos, so tests can tell direct
+// per-client delivery apart from a topic broadcast.
 type mockMQTTPublisher struct {
-	topic   string
-	payload []byte
-	qos     byte
-	retain  bool
+	sendToClientErr     error
+	clientSubs          map[string]map[string]byte
+	knownClients        map[string]bool
+	topic               string
+	sendToClientTopic   string
+	sendToClientClient  string
+	payload             []byte
+	sendToClientPayload []byte
+	qos                 byte
+	sendToClientQos     byte
+	retain              bool
 }
 
 func (m *mockMQTTPublisher) Publish(topic string, payload []byte, retain bool, qos byte) error {
@@ -46,6 +61,36 @@ func (m *mockMQTTPublisher) Publish(topic string, payload []byte, retain bool, q
 	m.qos = qos
 
 	return nil
+}
+
+func (m *mockMQTTPublisher) ClientSubscriptions(clientID string) (map[string]byte, bool) {
+	if !m.knownClients[clientID] {
+		return nil, false
+	}
+
+	subs := m.clientSubs[clientID]
+	if subs == nil {
+		subs = map[string]byte{}
+	}
+
+	return subs, true
+}
+
+func (m *mockMQTTPublisher) SendToClient(clientID, topic string, payload []byte, qos byte) (bool, error) {
+	if m.sendToClientErr != nil {
+		return false, m.sendToClientErr
+	}
+
+	if !m.knownClients[clientID] {
+		return false, nil
+	}
+
+	m.sendToClientClient = clientID
+	m.sendToClientTopic = topic
+	m.sendToClientPayload = payload
+	m.sendToClientQos = qos
+
+	return true, nil
 }
 func TestBackend_Publish(t *testing.T) {
 	t.Parallel()

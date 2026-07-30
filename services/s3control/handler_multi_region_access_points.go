@@ -185,10 +185,19 @@ func (h *Handler) handleCreateMultiRegionAccessPoint(c *echo.Context) error {
 
 // --- MRAP handlers ---
 
+// getMRAPRegionXML mirrors aws-sdk-go-v2's RegionReport. Region (the AWS
+// region code, e.g. "us-east-1") and BucketAccountId have no backing data
+// in this backend -- MultiRegionAccessPoint.Regions (models.go) tracks
+// only bucket names -- GAP, not fabricated.
 type getMRAPRegionXML struct {
 	Bucket string `xml:"Bucket"`
 }
 
+// getMRAPAccessPointXML mirrors aws-sdk-go-v2's MultiRegionAccessPointReport,
+// shared by GetMultiRegionAccessPoint and (per-item) ListMultiRegionAccessPoints.
+// PublicAccessBlock has no backing data in this backend (GAP, not
+// fabricated): MRAP-level PublicAccessBlockConfiguration is not tracked
+// separately from the account-/access-point-level PAB maps.
 type getMRAPAccessPointXML struct {
 	Name      string             `xml:"Name"`
 	Alias     string             `xml:"Alias"`
@@ -267,16 +276,20 @@ func (h *Handler) handleDeleteMultiRegionAccessPointAsync(c *echo.Context) error
 	return writeXML(c, deleteMRAPAsyncResponseXML{RequestTokenARN: tokenARN})
 }
 
-type listMRAPItemXML struct {
-	Name   string `xml:"Name"`
-	Alias  string `xml:"Alias"`
-	Status string `xml:"Status"`
-}
-
+// listMRAPsResponseXML mirrors ListMultiRegionAccessPointsOutput's real
+// wire shape: each entry is the SAME MultiRegionAccessPointReport type
+// GetMultiRegionAccessPoint returns (see getMRAPAccessPointXML), and the
+// list wraps under "AccessPoints" with member name "AccessPoint" -- NOT
+// "item" (confirmed via
+// awsRestxml_deserializeDocumentMultiRegionAccessPointReportList). A
+// previous version of this handler used "item" as the member name, which a
+// real client's field-matching loop would silently skip, yielding an empty
+// list on every real ListMultiRegionAccessPoints call, and omitted
+// CreatedAt/Regions despite this backend having real data for both.
 type listMRAPsResponseXML struct {
-	XMLName      xml.Name          `xml:"ListMultiRegionAccessPointsResult"`
-	NextToken    string            `xml:"NextToken,omitempty"`
-	AccessPoints []listMRAPItemXML `xml:"AccessPoints>item"`
+	XMLName      xml.Name                `xml:"ListMultiRegionAccessPointsResult"`
+	NextToken    string                  `xml:"NextToken,omitempty"`
+	AccessPoints []getMRAPAccessPointXML `xml:"AccessPoints>AccessPoint"`
 }
 
 func (h *Handler) handleListMultiRegionAccessPoints(c *echo.Context) error {
@@ -287,12 +300,19 @@ func (h *Handler) handleListMultiRegionAccessPoints(c *echo.Context) error {
 
 	mraps := h.Backend.ListMultiRegionAccessPoints(accountID)
 
-	items := make([]listMRAPItemXML, 0, len(mraps))
+	items := make([]getMRAPAccessPointXML, 0, len(mraps))
 	for _, m := range mraps {
-		items = append(items, listMRAPItemXML{
-			Name:   m.Name,
-			Alias:  m.Alias,
-			Status: m.Status,
+		regionItems := make([]getMRAPRegionXML, 0, len(m.Regions))
+		for _, bucket := range m.Regions {
+			regionItems = append(regionItems, getMRAPRegionXML{Bucket: bucket})
+		}
+
+		items = append(items, getMRAPAccessPointXML{
+			Name:      m.Name,
+			Alias:     m.Alias,
+			Status:    m.Status,
+			CreatedAt: m.CreatedAt,
+			Regions:   regionItems,
 		})
 	}
 
@@ -333,6 +353,15 @@ func (h *Handler) handlePutMultiRegionAccessPointPolicy(c *echo.Context) error {
 
 // --- MRAP handlers (describe / policy / routes) ---
 
+// handleDescribeMultiRegionAccessPointOperation. The real AsyncOperation
+// type also carries CreationTime, Operation, RequestParameters, and
+// ResponseDetails (confirmed via
+// awsRestxml_deserializeDocumentAsyncOperation) -- GAP, not fabricated:
+// MultiRegionAccessPointRequest (models.go) tracks only the request token
+// and name, not a full async-operation audit trail. RequestStatus is
+// hardcoded to "SUCCEEDED" rather than fabricated per se: every MRAP
+// mutation in this backend completes synchronously, so by the time this
+// endpoint can be queried the operation has, in fact, already succeeded.
 func (h *Handler) handleDescribeMultiRegionAccessPointOperation(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	requestToken := strings.TrimPrefix(c.Request().URL.Path, pathMRAPPrefix)
@@ -409,6 +438,15 @@ func (h *Handler) handleGetMultiRegionAccessPointPolicyStatus(c *echo.Context) e
 	}{IsPublic: isPublic})
 }
 
+// handleGetMultiRegionAccessPointRoutes. GetMultiRegionAccessPointRoutesOutput's
+// Routes field is a LIST of MultiRegionAccessPointRoute
+// (Bucket/Region/TrafficDialPercentage), wrapped as
+// "<Routes><Route>...</Route></Routes>" -- NOT a flat string (confirmed via
+// awsRestxml_deserializeDocumentRouteList, whose member name is "Route").
+// This backend stores each MRAP's routing config as an opaque raw XML blob
+// (mrapRoutes), so the real per-route structure is captured/replayed as
+// raw inner XML nested under "<Routes>" rather than flattened to escaped
+// character data.
 func (h *Handler) handleGetMultiRegionAccessPointRoutes(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimSuffix(
@@ -421,21 +459,35 @@ func (h *Handler) handleGetMultiRegionAccessPointRoutes(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	return writeXML(c, struct {
-		XMLName xml.Name `xml:"GetMultiRegionAccessPointRoutesResult"`
-		Mrap    string   `xml:"Mrap"`
-		Routes  string   `xml:"Routes,omitempty"`
+	resp := struct {
+		Routes  *describeJobInnerXML `xml:"Routes,omitempty"`
+		XMLName xml.Name             `xml:"GetMultiRegionAccessPointRoutesResult"`
+		Mrap    string               `xml:"Mrap"`
 	}{
-		Mrap:   name,
-		Routes: routes,
-	})
+		Mrap: name,
+	}
+	if routes != "" {
+		resp.Routes = &describeJobInnerXML{Raw: routes}
+	}
+
+	return writeXML(c, resp)
 }
 
 // ---- MRAP Routes (submit) ----
 
+// submitMRAPRoutesRequestXML mirrors SubmitMultiRegionAccessPointRoutesInput's
+// real wire shape: the field is named "RouteUpdates", NOT "Routes"
+// (confirmed via
+// awsRestxml_serializeOpDocumentSubmitMultiRegionAccessPointRoutesInput),
+// and it is a list of "<Route>" entries, not a flat string. A previous
+// version of this handler expected a "<Routes>" child element, which a
+// real aws-sdk-go-v2 client's request never sends -- SubmitMultiRegionAccessPointRoutes
+// silently stored an empty routing update for every real caller. The
+// payload is captured as raw inner XML (createJobXMLCapture) to preserve
+// the real per-route Bucket/Region/TrafficDialPercentage structure.
 type submitMRAPRoutesRequestXML struct {
-	XMLName xml.Name `xml:"SubmitMultiRegionAccessPointRoutesRequest"`
-	Routes  string   `xml:"Routes,omitempty"`
+	XMLName      xml.Name            `xml:"SubmitMultiRegionAccessPointRoutesRequest"`
+	RouteUpdates createJobXMLCapture `xml:"RouteUpdates"`
 }
 
 func (h *Handler) handleSubmitMultiRegionAccessPointRoutes(c *echo.Context) error {
@@ -450,7 +502,7 @@ func (h *Handler) handleSubmitMultiRegionAccessPointRoutes(c *echo.Context) erro
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	if err := h.Backend.SubmitMultiRegionAccessPointRoutes(accountID, mrapName, body.Routes); err != nil {
+	if err := h.Backend.SubmitMultiRegionAccessPointRoutes(accountID, mrapName, body.RouteUpdates.Raw); err != nil {
 		return handleBackendError(c, err)
 	}
 

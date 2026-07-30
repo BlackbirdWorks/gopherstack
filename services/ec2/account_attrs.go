@@ -95,7 +95,7 @@ func (b *InMemoryBackend) DescribeIDFormat(resources []string) []IDFormatItem {
 	b.mu.RLock("DescribeIDFormat")
 	defer b.mu.RUnlock()
 
-	defaults := []string{"instance", "reservation", "snapshot", "volume"}
+	defaults := []string{conversionKindInstance, "reservation", resourceTypeSnapshot, conversionKindVolume}
 	filter := make(map[string]bool, len(resources))
 	for _, r := range resources {
 		filter[r] = true

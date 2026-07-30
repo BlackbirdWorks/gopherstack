@@ -59,11 +59,11 @@ func TestHandler_Namespace_CRUD(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bucketARN := createBucketHelper(t, h, "ns-bucket-"+tt.name)
+			bucketARN := createBucketHelper(t, h, "ns-bucket-"+bucketSuffix(tt.name))
 			encodedARN := url.PathEscape(bucketARN)
 
 			if tt.nsExists {
-				createNamespaceHelper(t, h, bucketARN, []string{"my-ns"})
+				createNamespaceHelper(t, h, bucketARN, []string{"my_ns"})
 			}
 
 			var path string
@@ -72,18 +72,18 @@ func TestHandler_Namespace_CRUD(t *testing.T) {
 			switch tt.name {
 			case "create_namespace":
 				path = "/namespaces/" + encodedARN
-				body = map[string]any{"namespace": []string{"my-ns"}}
+				body = map[string]any{"namespace": []string{"my_ns"}}
 			case "create_namespace_missing_name":
 				path = "/namespaces/" + encodedARN
 				body = map[string]any{"namespace": []string{}}
 			case "list_namespaces":
 				path = "/namespaces/" + encodedARN
 			case "get_namespace":
-				path = "/namespaces/" + encodedARN + "/my-ns"
+				path = "/namespaces/" + encodedARN + "/my_ns"
 			case "get_nonexistent_namespace":
-				path = "/namespaces/" + encodedARN + "/not-found"
+				path = "/namespaces/" + encodedARN + "/not_found"
 			case "delete_namespace":
-				path = "/namespaces/" + encodedARN + "/my-ns"
+				path = "/namespaces/" + encodedARN + "/my_ns"
 			}
 
 			rec := doS3TablesRequest(t, h, tt.method, path, body)

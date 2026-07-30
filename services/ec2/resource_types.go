@@ -31,22 +31,22 @@ type resourceTypePrefix struct {
 //nolint:gochecknoglobals // package-level lookup table, analogous to errCodeLookup
 var resourceTypePrefixes = []resourceTypePrefix{
 	// ---- core (pre-existing) ----
-	{"i-", "instance"},
+	{"i-", conversionKindInstance},
 	{"sg-", "security-group"},
 	{"subnet-", "subnet"},
-	{"vol-", "volume"},
+	{"vol-", conversionKindVolume},
 	{"igw-", "internet-gateway"},
 	{"rtb-", "route-table"},
 	{"nat-", "natgateway"},
 	{"eipalloc-", "elastic-ip"},
-	{"eni-", "network-interface"},
+	{"eni-", resourceTypeENI},
 	{"sir-", "spot-instances-request"},
 	{"sfr-", "spot-fleet-request"},
 
 	// ---- images / snapshots / templates ----
 	{"ami-", "image"},
 	{"imgusgrpt-", "image-usage-report"},
-	{"snap-", "snapshot"},
+	{"snap-", resourceTypeSnapshot},
 	{"lt-", "launch-template"},
 	{"import-ami-", "import-image-task"},
 	{"import-snap-", "import-snapshot-task"},
@@ -108,6 +108,7 @@ var resourceTypePrefixes = []resourceTypePrefix{
 
 	// ---- capacity reservations / hosts ----
 	{"crf-", "capacity-reservation-fleet"},
+	{"crcq-", "capacity-reservation-cancellation-quote"},
 	{"cr-", "capacity-reservation"},
 	{"cb-", "capacity-block"},
 	{"cmde-", "capacity-manager-data-export"},
@@ -255,6 +256,7 @@ func (b *InMemoryBackend) resourceExistsGatewayLocked(id string) bool {
 	ok = ok || b.vpnConcentrators.Has(id)
 	ok = ok || b.capacityReservations.Has(id)
 	ok = ok || b.capacityReservationFleets.Has(id)
+	ok = ok || b.capacityReservationCancellationQuotes.Has(id)
 	ok = ok || b.capacityBlocks.Has(id)
 	ok = ok || b.capacityManagerDataExports.Has(id)
 	ok = ok || b.hostReservations.Has(id)

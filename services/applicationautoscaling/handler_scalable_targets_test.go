@@ -353,6 +353,70 @@ func TestHandler_RegisterScalableTarget_UpdateTagsMergeLimit(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "expected 400 when tag limit exceeded on upsert")
 }
 
+// TestHandler_RegisterScalableTarget_NamespaceQuotaEnforced verifies the
+// real, documented per-account/per-region "scalable targets per resource
+// type" AWS quota (source: "Quotas for Application Auto Scaling"):
+// 5,000 for dynamodb, 3,000 for ecs, 1,500 for cassandra (Keyspaces), and
+// 500 for every other ServiceNamespace. Uses the smallest (default) bucket
+// to keep the test bounded. Upserting an already-registered target must not
+// consume additional quota.
+func TestHandler_RegisterScalableTarget_NamespaceQuotaEnforced(t *testing.T) {
+	t.Parallel()
+
+	const (
+		namespace     = "custom-resource"
+		defaultQuota  = 500
+		dimension     = "custom-resource:ResourceType:Property"
+		roleARNSuffix = "-role"
+	)
+
+	h := newTestHandler(t)
+
+	for i := range defaultQuota {
+		rec := doRequest(t, h, "RegisterScalableTarget", map[string]any{
+			"ServiceNamespace":  namespace,
+			"ResourceId":        fmt.Sprintf("resource-%d", i),
+			"ScalableDimension": dimension,
+			"MinCapacity":       int32(1),
+			"MaxCapacity":       int32(5),
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "target %d should register within quota", i)
+	}
+
+	// The 501st distinct target for this namespace exceeds the default quota.
+	overLimit := doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  namespace,
+		"ResourceId":        "resource-over-limit",
+		"ScalableDimension": dimension,
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(5),
+	})
+	assert.Equal(t, http.StatusBadRequest, overLimit.Code,
+		"expected 400 LimitExceededException once the namespace's scalable-target quota is exhausted")
+
+	// Upserting an already-registered target must not be blocked by the
+	// quota (it doesn't grow the namespace's target count).
+	upsert := doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  namespace,
+		"ResourceId":        "resource-0",
+		"ScalableDimension": dimension,
+		"MinCapacity":       int32(2),
+		"MaxCapacity":       int32(6),
+		"RoleARN":           namespace + roleARNSuffix,
+	})
+	assert.Equal(t, http.StatusOK, upsert.Code, "upsert of an existing target must not be blocked by the quota")
+
+	// A different, unrelated namespace has its own independent quota bucket.
+	otherNS := doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/other-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(5),
+	})
+	assert.Equal(t, http.StatusOK, otherNS.Code, "a different ServiceNamespace has its own quota bucket")
+}
+
 func TestRegisterDeregisterLifecycle(t *testing.T) {
 	t.Parallel()
 

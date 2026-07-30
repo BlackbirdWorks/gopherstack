@@ -908,7 +908,7 @@ func TestClientVpn_TransitGatewayAttachment(t *testing.T) {
 func seedTGWClientVpnAttachment(t *testing.T, b *ec2.InMemoryBackend) string {
 	t.Helper()
 
-	tgw, err := b.CreateTransitGateway("test")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test"})
 	require.NoError(t, err)
 
 	_, err = b.CreateClientVpnEndpointWithOptions(

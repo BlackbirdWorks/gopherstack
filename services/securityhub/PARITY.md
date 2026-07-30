@@ -112,7 +112,7 @@ ops:
   DeleteConnectorV2: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterConnectorV2: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTicketV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "real SDK exposes only Create for TicketV2 -- no Get/List/Update/Delete to implement"}
-  GetFindingsV2: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- Filters.CompositeFilters/CompositeOperator (types.OcsfFindingFilters) is now parsed and applied against the V1 ASFF store (StringFilters+NumberFilters for a mapped field subset; SortCriteria via the same sortFindings as V1). Previously the V1 filter matcher looked for top-level Id/ProductArn keys that never appear in the real V2 request shape, so every V2 filter was silently a no-op. Residual gap: DateFilters/MapFilters/IpFilters/BooleanFilters/NestedCompositeFilters and unmapped OcsfStringField/OcsfNumberField names are not evaluated -- see gaps."}
+  GetFindingsV2: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-8j08) -- DateFilters/MapFilters/IpFilters/BooleanFilters/NestedCompositeFilters, previously accepted on the wire and silently ignored (worse than unsupported: a caller got zero errors and unfiltered results), are now evaluated for the field subset genuinely backed by ASFF data this store carries. NestedCompositeFilters recurses fully (AND/OR, depth-capped) rather than being half-evaluated. See Notes for the full field-by-field crosswalk and what remains unmapped (documented, not fabricated)."}
   BatchUpdateFindingsV2: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED this pass -- request now parses the real flat wire shape (Comment/SeverityId/StatusId/FindingIdentifiers/MetadataUids, not the nonexistent \"FindingFieldsUpdate\" wrapper); FindingIdentifiers now resolve via CloudAccountUid/FindingInfoUid/MetadataProductUid mapped onto the stored finding's AwsAccountId/Id/ProductArn. MetadataUids entries always report ResourceNotFoundException (documented gap -- this mock has no OCSF ingestion path that would ever hand a caller a real metadata.uid). See Notes."}
   GetFindingStatisticsV2: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindingsTrendsV2: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -142,7 +142,7 @@ families:
   Persistence: {status: ok, note: "Handler.Snapshot/Restore (persistence.go) delegate to InMemoryBackend.Snapshot/Restore (backend.go), which round-trips every store.Table via registry.SnapshotAll/RestoreAll (store_setup.go) plus the 5 plain-map fields (tags, findings, controlParams, productSubscriptions, orgAdminAccounts) and all scalar/pointer fields. Verified store_setup.go registers exactly the set of *store.Table fields declared on InMemoryBackend -- no orphaned or unregistered table."}
 gaps:
   - "ListMembers(onlyAssociated=true) can never return members: filters on MemberStatus==\"Enabled\", but nothing transitions a member to Enabled because member-invitation acceptance is a cross-account action this single-account in-memory backend doesn't model (the member's own account would call AcceptInvitation against ITS OWN backend instance, not the administrator's). Not attempted this pass -- architectural, not a bug-fix-sized change; would need a multi-backend cross-account simulation this service doesn't have."
-  - "GetFindingsV2 Filters.CompositeFilters only evaluates StringFilters and NumberFilters, and only for the field-name subset in ocsfStringFieldMap/ocsfNumberFieldMap (findings_v2.go) that has a direct scalar ASFF equivalent. DateFilters, MapFilters, IpFilters, BooleanFilters, NestedCompositeFilters, and any OcsfStringField/OcsfNumberField outside the mapped subset (e.g. class_name, which has no scalar ASFF equivalent -- the closest analog, Types, is a string array) are accepted on the wire but not evaluated, matching (not exceeding) the 'basic subset' precedent V1 GetFindings/matchesFindingFilters already established. Full coverage needs a complete OCSF field taxonomy crosswalk (~70 string fields, ~15 number fields alone) -- out of scope for this pass."
+  - "GetFindingsV2 Filters.CompositeFilters evaluates String/Number/Date/Map/Ip/Boolean filters and NestedCompositeFilters (gopherstack-8j08), but only for the field-name subset in ocsfStringFieldMap/ocsfNumberFieldMap/ocsfDateFieldMap/ipFieldNetworkKeys/mapFilterCandidates (findings_v2.go) that has a genuine ASFF-backed equivalent. Any OcsfStringField/OcsfNumberField/OcsfDateField/OcsfMapField/OcsfIpField/OcsfBooleanField outside those mapped subsets is accepted on the wire but not evaluated -- deliberately, per the no-fabrication rule, rather than guessed at. Remaining unmapped, with reasons: (a) fields with no ASFF concept at all -- OcsfBooleanField compliance.assessments.meets_criteria (ASFF Compliance has no 'assessments'), OcsfMapField databucket.tags (ASFF has no databucket concept), most 'evidences.*'/vendor_attributes.*' string+number fields (ASFF has no evidences/vendor_attributes objects); (b) fields whose only ASFF analog is lossy/ambiguous -- OcsfBooleanField vulnerabilities.is_fix_available (ASFF Vulnerability.FixAvailable is three-valued YES/NO/PARTIAL; collapsing PARTIAL into a bool would misclassify findings); (c) fields that exist in ASFF only nested inside arrays this pass didn't reach -- e.g. vulnerabilities.cve.cvss.base_score (Vulnerabilities[].Cvss[].BaseScore), resources.image.*/resources.modified_time_dt (ASFF Resource has no image/per-resource-modified timestamp). class_name (its closest analog, Types, is a string array, not scalar) remains unmapped from the prior pass. A complete OCSF taxonomy crosswalk is ~70 string + ~14 number fields; this pass closed the DateFilters/MapFilters/IpFilters/BooleanFilters/NestedCompositeFilters gap specifically (the issue's stated priority) plus one bonus NumberFilter field (confidence_score -> ASFF Confidence)."
   - "BatchUpdateFindingsV2 MetadataUids-based finding identification can never resolve (always ResourceNotFoundException): this backend has no OCSF ingestion path that would ever hand a real client a metadata.uid to reference back. Only FindingIdentifiers (CloudAccountUid/FindingInfoUid/MetadataProductUid, mapped onto AwsAccountId/Id/ProductArn) can resolve a finding."
   - "(parity-4) CSPM Connector health ConnectorStatus can never leave UNKNOWN, and EnablementStatus can never reach ENABLED: unlike Connectors V2 (which has a dedicated RegisterConnectorV2 to complete an out-of-band OAuth handshake), the real CreateConnector/GetConnector/UpdateConnector/DeleteConnector/ListConnectors surface has NO companion 'complete authorization' operation at all -- establishing connectivity to the Azure account requires a purely external, provider-side step (granting the AWSConfigConnectorArn role access in the Azure portal) that this mock has no API-observable signal for. Auto-advancing a connector to CONNECTED/ENABLED without any real client action causing it would be a fabricated transition, so CreateConnector leaves it at PENDING_ENABLEMENT/UNKNOWN and UpdateConnector leaves it at PENDING_UPDATE permanently. Not attempted this pass -- architectural (no out-of-band signal exists to model), not a bug-fix-sized change."
 deferred: []
@@ -315,6 +315,116 @@ added recently and verified intact -- no changes needed there.
    `SeverityId`/`StatusId` fields `BatchUpdateFindingsV2` itself writes (fix
    #7), giving V2 update + V2 filter a coherent, testable round trip.
    Covered by `TestGetFindingsV2_CompositeFilters`.
+
+### GetFindingsV2 composite filter taxonomy (gopherstack-8j08, this pass)
+
+The previous pass (fix #8 above) evaluated only `StringFilters`/`NumberFilters`
+within each `CompositeFilter`; `DateFilters`, `MapFilters`, `IpFilters`,
+`BooleanFilters`, and `NestedCompositeFilters` were accepted on the wire and
+silently ignored -- worse than an error, since a caller got HTTP 200 and an
+unfiltered result set with no indication their filter did nothing. Field-diffed
+the full real taxonomy (`types.CompositeFilter`, `types.Ocsf*Filter`,
+`types.Ocsf*Field` enums, `types.StringFilter`/`MapFilter`/`DateFilter`/
+`IpFilter`/`BooleanFilter`/`NumberFilter`/`DateRange`,
+`types.AllowedOperators`/`StringFilterComparison`/`MapFilterComparison`/
+`DateRangeComparison`/`DateRangeUnit`) against `aws-sdk-go-v2/service/
+securityhub@v1.75.0`'s `types/types.go` and `types/enums.go` directly (not
+against this handler's own prior output).
+
+**Filter types implemented this pass**, each restructured into its own small
+result-collector (`stringFilterResults`/`numberFilterResults`/
+`dateFilterResults`/`mapFilterResults`/`ipFilterResults`/
+`booleanFilterResults`/`nestedCompositeFilterResults`) feeding a single
+`matchesCompositeFilterDepth` combinator (decomposed to keep CodeFactor's
+Complex Method check quiet -- no `nolint`):
+
+- **DateFilters** (`ocsfDateFieldMap`): `finding_info.created_time_dt` ->
+  `CreatedAt`, `finding_info.first_seen_time_dt` -> `FirstObservedAt`,
+  `finding_info.last_seen_time_dt` -> `LastObservedAt`,
+  `finding_info.modified_time_dt` -> `UpdatedAt` -- all genuine ASFF
+  finding-level timestamps. Both comparator shapes are implemented:
+  absolute `Start`/`End` bounds (`matchesDateStartEnd`), and relative
+  `DateRange{Comparison: WITHIN|OLDER_THAN, Unit: DAYS, Value}`
+  (`matchesDateRange`) -- `WITHIN` matches at-or-after `now - Value days`,
+  `OLDER_THAN` its strict complement. `resources.image.*`/
+  `resources.modified_time_dt` have no ASFF equivalent (ASFF's `Resource`
+  carries no image/per-resource-modified timestamp) and are unmapped.
+- **MapFilters** (`mapFilterCandidates`): `resources.tags` -> per-resource
+  `Resources[].Tags`, `finding_info.tags` -> the finding-level
+  `UserDefinedFields` map (the closest real ASFF analog to a finding-level
+  "tag"), `compliance.control_parameters` -> `Compliance.
+  SecurityControlParameters[]{Name,Value[]}`. All four `MapFilterComparison`
+  values implemented (`EQUALS`/`NOT_EQUALS`/`CONTAINS`/`NOT_CONTAINS`) via
+  `compareMapFilter`, with positive comparisons OR'd and negative ones AND'd
+  across multiple candidate values for the same key (mirrors the documented
+  same-field combination rule). `databucket.tags` has no ASFF concept at all
+  and is unmapped.
+- **IpFilters** (`ipFieldNetworkKeys`): `evidences.src_endpoint.ip` ->
+  `Network.SourceIpV4`/`SourceIpV6`, `evidences.dst_endpoint.ip` ->
+  `Network.DestinationIpV4`/`DestinationIpV6` -- ASFF has no "evidences"
+  concept, but `Network`'s source/destination IP fields are the only
+  genuinely analogous data this store carries. `IpFilter` has only a `Cidr`
+  field (no comparator) -- CIDR containment via `net.ParseCIDR`/
+  `IPNet.Contains`, with a bare IP address normalized to an exact-match
+  `/32` or `/128` per AWS's documented "CIDR block or single IP" input.
+- **BooleanFilters**: only `vulnerabilities.is_exploit_available` is
+  evaluated -- `Vulnerability.ExploitAvailable` is a genuine two-valued ASFF
+  enum (`YES`/`NO`), so it round-trips to bool cleanly; a finding matches if
+  ANY entry in its `Vulnerabilities` array has a matching value.
+  `vulnerabilities.is_fix_available` is deliberately NOT evaluated:
+  `Vulnerability.FixAvailable` is three-valued (`YES`/`NO`/`PARTIAL`), and
+  collapsing `PARTIAL` into either `true` or `false` would silently
+  misclassify findings -- worse than leaving it unfiltered.
+  `compliance.assessments.meets_criteria` has no ASFF backing at all (no
+  "assessments" concept on `Compliance`) and is also unmapped.
+- **NumberFilters bonus**: added `confidence_score` -> ASFF's own top-level
+  `Confidence` (int 0-100) to `ocsfNumberFieldMap` -- a clean scalar match
+  found while auditing the taxonomy, not part of the original gap list.
+
+**NestedCompositeFilters**: recurses fully via `matchesCompositeFilterDepth`
+-- each nested `CompositeFilter` is evaluated as its own sub-tree (including
+its own further `NestedCompositeFilters`) and the resulting bool joins its
+*parent's* result list, combined by the parent's own `Operator`. This was
+chosen over half-evaluating (e.g. only reading direct filters and ignoring
+nesting) because a partially-evaluated boolean tree returns **wrong**
+results, not merely unfiltered ones -- see the task's own warning, confirmed
+by a regression-style test case
+(`NestedCompositeFilters_AND_recurses_and_requires_both_branches`): a single
+finding can't have two different `AwsAccountId` values, so ANDing two
+mutually-exclusive nested branches must match zero findings; before this
+fix (`NestedCompositeFilters` unevaluated -> empty result list -> vacuous
+match-all), that same request would have wrongly matched both seeded
+findings. Recursion depth is capped at `maxNestedCompositeDepth = 5` (AWS
+documents the real structure as capped at 3 layers; 5 is a defensive margin
+against a pathological/hand-crafted request, not a limit real traffic
+should approach). Note `types.AllowedOperators` has only `AND`/`OR` -- there
+is no logical NOT combinator in the real API; negation is expressed at the
+leaf via `NOT_*` comparators (`NOT_EQUALS`/`NOT_CONTAINS`/
+`PREFIX_NOT_EQUALS`), not a boolean-tree NOT node, so AND/OR recursion is
+the complete real semantics.
+
+**Comparator verification**: `StringFilterComparison`
+(`EQUALS`/`PREFIX`/`NOT_EQUALS`/`PREFIX_NOT_EQUALS`/`CONTAINS`/
+`NOT_CONTAINS`/`CONTAINS_WORD`) was already correctly implemented by
+`compareStringFilter` (reused unchanged) -- confirmed against `types.go`'s
+enum values and `StringFilter`'s doc comments describing each comparator's
+exact semantics (including the CONTAINS_WORD-only-in-V2-APIs note).
+`MapFilterComparison` (`EQUALS`/`NOT_EQUALS`/`CONTAINS`/`NOT_CONTAINS`, no
+PREFIX variant -- confirmed the enum has no PREFIX member) implemented fresh
+in `compareMapFilter` following the same positive-OR/negative-AND doc
+pattern. `DateRangeComparison` (`WITHIN`/`OLDER_THAN`, default `WITHIN` per
+doc) and the fact `DateRangeUnit` has only `DAYS` as of this SDK version
+were both confirmed directly against `enums.go`. `NumberFilter` was
+reconfirmed to have no `Comparison` field at all (`Eq`/`Gt`/`Gte`/`Lt`/`Lte`
+only) -- unchanged from the prior pass.
+
+Tests: extended `TestGetFindingsV2_CompositeFilters` (existing table) with
+two `confidence_score` cases, and added a new table test
+`TestGetFindingsV2_CompositeFilters_DateMapIPBooleanNested` covering every
+implemented filter type with paired cases that each narrow to exactly one of
+two seeded findings with deliberately divergent field values (proving actual
+discrimination, not a "matches everything" false pass), plus the
+AND/OR nested-recursion pair described above.
 
 ### Route-matcher check
 

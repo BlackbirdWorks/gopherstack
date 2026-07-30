@@ -167,7 +167,9 @@ type capacityManagerDataExportItem struct {
 	TagSet                      []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toCapacityManagerDataExportItem(e *CapacityManagerDataExport) capacityManagerDataExportItem {
+func toCapacityManagerDataExportItem(
+	e *CapacityManagerDataExport, tags map[string]string,
+) capacityManagerDataExportItem {
 	return capacityManagerDataExportItem{
 		CapacityManagerDataExportID: e.CapacityManagerDataExportID,
 		OutputFormat:                e.OutputFormat,
@@ -176,7 +178,7 @@ func toCapacityManagerDataExportItem(e *CapacityManagerDataExport) capacityManag
 		Schedule:                    e.Schedule,
 		LatestDeliveryStatus:        e.LatestDeliveryStatus,
 		CreateTime:                  e.CreateTime.Format(time.RFC3339),
-		TagSet:                      tagItemsFromMap(e.Tags),
+		TagSet:                      tagItemsFromMap(tags),
 	}
 }
 
@@ -197,7 +199,10 @@ func (h *Handler) handleDescribeCapacityManagerDataExports(vals url.Values, reqI
 
 	resp := &describeCapacityManagerDataExportsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, e := range exports {
-		resp.Exports.Items = append(resp.Exports.Items, toCapacityManagerDataExportItem(e))
+		resp.Exports.Items = append(
+			resp.Exports.Items,
+			toCapacityManagerDataExportItem(e, h.Backend.TagsForResource(e.CapacityManagerDataExportID)),
+		)
 	}
 
 	return resp, nil

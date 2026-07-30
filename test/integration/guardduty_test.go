@@ -1,6 +1,8 @@
 package integration_test
 
 import (
+	"context"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +13,44 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// guardDutyDetectorMu serializes exclusive use of GuardDuty's single
+// account/region detector (bd gopherstack-ba9l) between
+// TestIntegration_GuardDuty_DetectorLifecycle and
+// TestIntegration_GuardDuty_FilterLifecycle, the two tests in this file that
+// each need a detector to exist for their full duration. GuardDuty allows
+// only one detector per account/region -- confirmed, correct AWS behavior,
+// not a gopherstack bug -- so both tests calling CreateDetector concurrently
+// against the shared server races on a 409 ConflictException.
+//
+// Region-per-test isolation was considered and ruled out: every gopherstack
+// service backend resolves its account/region exactly once, at Provider.Init
+// (server startup) time, from process-wide config
+// (pkgs/service.AccountRegionOrDefault) -- never per request. Every
+// integration test in this package additionally shares one server
+// process/container (see TestMain in main_test.go). So giving each test's
+// SDK client a different config.WithRegion would be purely client-side
+// decoration: both clients would still hit the exact same single
+// server-side GuardDuty backend instance, with the same one-detector limit,
+// and the race would persist unchanged.
+//
+// A shared get-or-create detector (the issue's other suggested fallback)
+// does not work either: TestIntegration_GuardDuty_DetectorLifecycle
+// specifically exercises DeleteDetector as its own lifecycle assertion, so
+// if it shared a live detector with TestIntegration_GuardDuty_FilterLifecycle
+// running concurrently, that delete would invalidate FilterLifecycle's
+// precondition mid-test regardless of who created the detector.
+//
+// This mutex instead serializes just the two tests' create-through-delete
+// critical sections against each other, so whichever acquires it first runs
+// its full detector lifecycle to completion (including any cleanup delete)
+// before the other starts. t.Parallel() is kept on both -- they still run
+// concurrently with any other (present or future) parallel subtests in this
+// package; only these two specifically no longer race on the shared
+// single-detector resource.
+//
+//nolint:gochecknoglobals // deliberate test-only mutex serializing these two subtests
+var guardDutyDetectorMu sync.Mutex
 
 // createGuardDutyClient returns a GuardDuty client pointed at the shared test container.
 func createGuardDutyClient(t *testing.T) *guarddutysdk.Client {
@@ -45,6 +85,15 @@ func TestIntegration_GuardDuty_DetectorLifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Serialized against TestIntegration_GuardDuty_FilterLifecycle --
+			// see guardDutyDetectorMu's doc comment. Unlock is registered as
+			// a cleanup before the detector-delete cleanup below so it runs
+			// last (t.Cleanup is LIFO), after this test's full lifecycle
+			// (including its own explicit DeleteDetector call and its
+			// cleanup) has finished.
+			guardDutyDetectorMu.Lock()
+			t.Cleanup(guardDutyDetectorMu.Unlock)
+
 			ctx := t.Context()
 			client := createGuardDutyClient(t)
 
@@ -55,8 +104,22 @@ func TestIntegration_GuardDuty_DetectorLifecycle(t *testing.T) {
 			detectorID := aws.ToString(createOut.DetectorId)
 			require.NotEmpty(t, detectorID, "detector id must be returned")
 
+			// context.WithoutCancel, not ctx directly: t.Context() is
+			// canceled just before Cleanup functions run (testing.T.Context
+			// doc), so a cleanup using the canceled ctx would silently fail
+			// to delete the detector -- a real leak this test used to carry
+			// unnoticed only because the explicit DeleteDetector call below
+			// (still on the live ctx) already removes it first, making this
+			// cleanup a no-op either way. Fixed for real regardless, since a
+			// failed assertion above would otherwise skip that explicit
+			// delete and leave the detector behind for guardDutyDetectorMu's
+			// next owner.
+			cleanupCtx := context.WithoutCancel(ctx)
 			t.Cleanup(func() {
-				_, _ = client.DeleteDetector(ctx, &guarddutysdk.DeleteDetectorInput{DetectorId: aws.String(detectorID)})
+				_, _ = client.DeleteDetector(
+					cleanupCtx,
+					&guarddutysdk.DeleteDetectorInput{DetectorId: aws.String(detectorID)},
+				)
 			})
 
 			getOut, err := client.GetDetector(ctx, &guarddutysdk.GetDetectorInput{DetectorId: aws.String(detectorID)})
@@ -89,6 +152,11 @@ func TestIntegration_GuardDuty_FilterLifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Serialized against TestIntegration_GuardDuty_DetectorLifecycle --
+			// see guardDutyDetectorMu's doc comment.
+			guardDutyDetectorMu.Lock()
+			t.Cleanup(guardDutyDetectorMu.Unlock)
+
 			ctx := t.Context()
 			client := createGuardDutyClient(t)
 
@@ -96,8 +164,24 @@ func TestIntegration_GuardDuty_FilterLifecycle(t *testing.T) {
 			require.NoError(t, err, "CreateDetector should succeed")
 			detectorID := aws.ToString(detOut.DetectorId)
 
+			// context.WithoutCancel, not ctx directly: this test has no
+			// explicit DeleteDetector call of its own (unlike
+			// DetectorLifecycle), so this cleanup is the ONLY thing that
+			// removes the detector. t.Context() is canceled just before
+			// Cleanup functions run (testing.T.Context doc), so using ctx
+			// here would make DeleteDetector fail immediately on a canceled
+			// context every time, silently leaking the detector (the error
+			// is discarded) -- exactly the pre-existing latent bug that
+			// surfaced as a spurious CreateDetector 409 once
+			// guardDutyDetectorMu started running this test back-to-back
+			// with TestIntegration_GuardDuty_DetectorLifecycle in the same
+			// process.
+			cleanupCtx := context.WithoutCancel(ctx)
 			t.Cleanup(func() {
-				_, _ = client.DeleteDetector(ctx, &guarddutysdk.DeleteDetectorInput{DetectorId: aws.String(detectorID)})
+				_, _ = client.DeleteDetector(
+					cleanupCtx,
+					&guarddutysdk.DeleteDetectorInput{DetectorId: aws.String(detectorID)},
+				)
 			})
 
 			_, err = client.CreateFilter(ctx, &guarddutysdk.CreateFilterInput{

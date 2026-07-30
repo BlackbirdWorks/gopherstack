@@ -7,7 +7,73 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
+
+// TestInMemoryBackend_TaggedResources covers the enumeration method cli.go's
+// wireTaggingECS registers with the Resource Groups Tagging API (gopherstack-3xne):
+// every tagged resource ARN, spanning every ECS resource kind that shares the flat
+// resourceTags side map, must be visible -- and untagged/emptied-out ARNs must not
+// appear at all.
+func TestInMemoryBackend_TaggedResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(t *testing.T, b *ecs.InMemoryBackend)
+		want  map[string]map[string]string
+		name  string
+	}{
+		{
+			name: "multiple_tagged_resource_kinds",
+			setup: func(t *testing.T, b *ecs.InMemoryBackend) {
+				t.Helper()
+
+				require.NoError(t, b.TagResource(
+					"arn:aws:ecs:us-east-1:000000000000:cluster/c1",
+					[]ecs.Tag{{Key: "env", Value: "prod"}},
+				))
+				require.NoError(t, b.TagResource(
+					"arn:aws:ecs:us-east-1:000000000000:service/c1/svc1",
+					[]ecs.Tag{{Key: "team", Value: "platform"}},
+				))
+			},
+			want: map[string]map[string]string{
+				"arn:aws:ecs:us-east-1:000000000000:cluster/c1":      {"env": "prod"},
+				"arn:aws:ecs:us-east-1:000000000000:service/c1/svc1": {"team": "platform"},
+			},
+		},
+		{
+			name: "untagged_after_untag_all_excluded",
+			setup: func(t *testing.T, b *ecs.InMemoryBackend) {
+				t.Helper()
+
+				const arn = "arn:aws:ecs:us-east-1:000000000000:cluster/emptied"
+				require.NoError(t, b.TagResource(arn, []ecs.Tag{{Key: "env", Value: "prod"}}))
+				require.NoError(t, b.UntagResource(arn, []string{"env"}))
+			},
+			want: map[string]map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ecs.NewInMemoryBackend("000000000000", "us-east-1", ecs.NewNoopRunner())
+			tt.setup(t, b)
+
+			got := b.TaggedResources()
+			gotMap := make(map[string]map[string]string, len(got))
+
+			for _, e := range got {
+				gotMap[e.ARN] = e.Tags
+			}
+
+			assert.Equal(t, tt.want, gotMap)
+		})
+	}
+}
 
 func TestTagResource_Service(t *testing.T) {
 	t.Parallel()

@@ -3,8 +3,6 @@ package ec2
 import (
 	"fmt"
 	"sort"
-
-	"github.com/google/uuid"
 )
 
 // AuthorizeSecurityGroupIngress adds ingress rules to a security group.
@@ -546,7 +544,7 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 		}
 	}
 
-	id := "sg-" + uuid.New().String()[:17]
+	id := newSecurityGroupID()
 	sg := &SecurityGroup{
 		ID:          id,
 		Name:        name,

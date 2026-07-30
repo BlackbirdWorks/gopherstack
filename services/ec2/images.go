@@ -262,7 +262,7 @@ func (b *InMemoryBackend) RegisterImage(name, description, architecture string) 
 	defer b.mu.Unlock()
 
 	img := &AMIStub{
-		ImageID:      "ami-" + uuid.New().String()[:17],
+		ImageID:      newAMIID(),
 		Name:         name,
 		Description:  description,
 		Architecture: architecture,
@@ -392,7 +392,17 @@ func (b *InMemoryBackend) ListImagesInRecycleBin(imageIDs []string) []*RecycleBi
 	return out
 }
 
-// RestoreImageFromRecycleBin restores a soft-deleted AMI.
+// RestoreImageFromRecycleBin restores a soft-deleted AMI, moving it back out of
+// the recycle bin and into the available image set.
+//
+// Note on when the bin is populated at all: an AMI only enters the recycle bin
+// when a Recycle Bin retention rule covers it, and gopherstack models no
+// Recycle Bin (rbin) service, so DeregisterImage always deletes permanently --
+// which is also what real AWS does with no retention rule in force. The bin is
+// therefore normally empty, and this operation normally reports not-found.
+// Previously it deleted from the (empty) bin and returned success regardless,
+// so a caller restoring a nonexistent image got a success response and no
+// image.
 func (b *InMemoryBackend) RestoreImageFromRecycleBin(imageID string) error {
 	if imageID == "" {
 		return fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
@@ -400,6 +410,23 @@ func (b *InMemoryBackend) RestoreImageFromRecycleBin(imageID string) error {
 
 	b.mu.Lock("RestoreImageFromRecycleBin")
 	defer b.mu.Unlock()
+
+	binned, ok := b.recycleBinImages.Get(imageID)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
+	}
+
+	// Restoring must return the AMI to the available set, not merely drop the
+	// bin row. Only re-create it when the live image is genuinely absent, so a
+	// restore never clobbers a real image that shares the ID.
+	if !b.images.Has(imageID) {
+		b.images.Put(&AMIStub{
+			ImageID: binned.ImageID,
+			Name:    binned.Name,
+			State:   stateAvailableImg,
+		})
+	}
+
 	b.recycleBinImages.Delete(imageID)
 
 	return nil
@@ -486,7 +513,7 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 	}
 
 	newImage := &AMIStub{
-		ImageID:        "ami-" + uuid.New().String()[:17],
+		ImageID:        newAMIID(),
 		Name:           name,
 		Description:    description,
 		Architecture:   src.Architecture,

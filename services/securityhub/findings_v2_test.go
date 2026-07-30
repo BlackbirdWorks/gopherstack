@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 	"github.com/stretchr/testify/assert"
@@ -106,9 +107,11 @@ func TestGetFindingsV2_CompositeFilters(t *testing.T) {
 		"Findings": []any{
 			securityhub.ValidFinding(map[string]any{
 				"Id": "f1", "ProductArn": productArn, "AwsAccountId": "111111111111",
+				"Confidence": 80,
 			}),
 			securityhub.ValidFinding(map[string]any{
 				"Id": "f2", "ProductArn": productArn, "AwsAccountId": "222222222222",
+				"Confidence": 20,
 			}),
 		},
 	})
@@ -164,6 +167,38 @@ func TestGetFindingsV2_CompositeFilters(t *testing.T) {
 			filters:   map[string]any{},
 			wantCount: 2,
 		},
+		{
+			name: "number filter Gte on confidence_score narrows to the high-confidence finding",
+			filters: map[string]any{
+				"CompositeFilters": []any{
+					map[string]any{
+						"NumberFilters": []any{
+							map[string]any{
+								"FieldName": "confidence_score",
+								"Filter":    map[string]any{"Gte": 50},
+							},
+						},
+					},
+				},
+			},
+			wantCount: 1,
+		},
+		{
+			name: "number filter Lt on confidence_score narrows to the low-confidence finding",
+			filters: map[string]any{
+				"CompositeFilters": []any{
+					map[string]any{
+						"NumberFilters": []any{
+							map[string]any{
+								"FieldName": "confidence_score",
+								"Filter":    map[string]any{"Lt": 50},
+							},
+						},
+					},
+				},
+			},
+			wantCount: 1,
+		},
 	}
 
 	for _, tc := range tests {
@@ -178,6 +213,297 @@ func TestGetFindingsV2_CompositeFilters(t *testing.T) {
 			findings, _ := resp["Findings"].([]any)
 			assert.Len(t, findings, tc.wantCount)
 		})
+	}
+}
+
+// TestGetFindingsV2_CompositeFilters_DateMapIPBooleanNested verifies the
+// previously-silently-ignored CompositeFilter facets (DateFilters,
+// MapFilters, IpFilters, BooleanFilters, NestedCompositeFilters --
+// gopherstack-8j08) are now actually evaluated against real ASFF-backed
+// data, not merely accepted on the wire. Two findings are seeded with
+// deliberately different values on every field under test, and each case
+// asserts the filter narrows to exactly the one finding that should match --
+// proving genuine discrimination (a filter that silently matched everything,
+// the pre-fix behavior, would return both findings for every case here).
+func TestGetFindingsV2_CompositeFilters_DateMapIPBooleanNested(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	productArn := "arn:aws:securityhub:us-east-1:000000000000:product/000000000000/default"
+
+	now := time.Now().UTC()
+	recent := now.AddDate(0, 0, -1).Format(time.RFC3339)
+	old := now.AddDate(0, 0, -100).Format(time.RFC3339)
+
+	doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
+		"Findings": []any{
+			securityhub.ValidFinding(map[string]any{
+				"Id": "v2ext-f1", "ProductArn": productArn, "AwsAccountId": "111111111111",
+				"CreatedAt": recent,
+				"Resources": []any{
+					map[string]any{
+						"Type": "AwsEc2Instance", "Id": "i-1",
+						"Tags": map[string]any{"Department": "Security"},
+					},
+				},
+				"UserDefinedFields": map[string]any{"Owner": "teamA"},
+				"Compliance": map[string]any{
+					"SecurityControlParameters": []any{
+						map[string]any{"Name": "allowedPorts", "Value": []any{"22", "443"}},
+					},
+				},
+				"Network":         map[string]any{"SourceIpV4": "10.0.0.5"},
+				"Vulnerabilities": []any{map[string]any{"Id": "CVE-1", "ExploitAvailable": "YES"}},
+			}),
+			securityhub.ValidFinding(map[string]any{
+				"Id": "v2ext-f2", "ProductArn": productArn, "AwsAccountId": "222222222222",
+				"CreatedAt": old,
+				"Resources": []any{
+					map[string]any{
+						"Type": "AwsEc2Instance", "Id": "i-2",
+						"Tags": map[string]any{"Department": "Finance"},
+					},
+				},
+				"UserDefinedFields": map[string]any{"Owner": "teamB"},
+				"Compliance": map[string]any{
+					"SecurityControlParameters": []any{
+						map[string]any{"Name": "allowedPorts", "Value": []any{"80"}},
+					},
+				},
+				"Network":         map[string]any{"SourceIpV4": "172.16.0.9"},
+				"Vulnerabilities": []any{map[string]any{"Id": "CVE-2", "ExploitAvailable": "NO"}},
+			}),
+		},
+	})
+
+	tests := []struct {
+		filters   map[string]any
+		name      string
+		wantIDs   []string
+		wantCount int
+	}{
+		{
+			name: "date filter DateRange WITHIN selects the recent finding",
+			filters: compositeFilter(map[string]any{
+				"DateFilters": []any{
+					map[string]any{
+						"FieldName": "finding_info.created_time_dt",
+						"Filter": map[string]any{
+							"DateRange": map[string]any{"Comparison": "WITHIN", "Unit": "DAYS", "Value": 7},
+						},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f1"},
+		},
+		{
+			name: "date filter DateRange OLDER_THAN selects the old finding",
+			filters: compositeFilter(map[string]any{
+				"DateFilters": []any{
+					map[string]any{
+						"FieldName": "finding_info.created_time_dt",
+						"Filter": map[string]any{
+							"DateRange": map[string]any{"Comparison": "OLDER_THAN", "Unit": "DAYS", "Value": 7},
+						},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f2"},
+		},
+		{
+			name: "map filter EQUALS resources.tags selects the Security-tagged finding",
+			filters: compositeFilter(map[string]any{
+				"MapFilters": []any{
+					map[string]any{
+						"FieldName": "resources.tags",
+						"Filter":    map[string]any{"Key": "Department", "Value": "Security", "Comparison": "EQUALS"},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f1"},
+		},
+		{
+			name: "map filter NOT_EQUALS resources.tags excludes the Security-tagged finding",
+			filters: compositeFilter(map[string]any{
+				"MapFilters": []any{
+					map[string]any{
+						"FieldName": "resources.tags",
+						"Filter": map[string]any{
+							"Key":        "Department",
+							"Value":      "Security",
+							"Comparison": "NOT_EQUALS",
+						},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f2"},
+		},
+		{
+			name: "map filter EQUALS finding_info.tags selects teamA owner",
+			filters: compositeFilter(map[string]any{
+				"MapFilters": []any{
+					map[string]any{
+						"FieldName": "finding_info.tags",
+						"Filter":    map[string]any{"Key": "Owner", "Value": "teamA", "Comparison": "EQUALS"},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f1"},
+		},
+		{
+			name: "map filter EQUALS compliance.control_parameters selects allowedPorts=22",
+			filters: compositeFilter(map[string]any{
+				"MapFilters": []any{
+					map[string]any{
+						"FieldName": "compliance.control_parameters",
+						"Filter":    map[string]any{"Key": "allowedPorts", "Value": "22", "Comparison": "EQUALS"},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f1"},
+		},
+		{
+			name: "map filter on unmapped databucket.tags is accepted but not enforced",
+			filters: compositeFilter(map[string]any{
+				"MapFilters": []any{
+					map[string]any{
+						"FieldName": "databucket.tags",
+						"Filter":    map[string]any{"Key": "anything", "Value": "anything", "Comparison": "EQUALS"},
+					},
+				},
+			}),
+			wantCount: 2,
+		},
+		{
+			name: "ip filter CIDR selects the finding whose source IP falls inside it",
+			filters: compositeFilter(map[string]any{
+				"IpFilters": []any{
+					map[string]any{
+						"FieldName": "evidences.src_endpoint.ip",
+						"Filter":    map[string]any{"Cidr": "10.0.0.0/24"},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f1"},
+		},
+		{
+			name: "ip filter CIDR selects the other finding's source IP",
+			filters: compositeFilter(map[string]any{
+				"IpFilters": []any{
+					map[string]any{
+						"FieldName": "evidences.src_endpoint.ip",
+						"Filter":    map[string]any{"Cidr": "172.16.0.0/16"},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f2"},
+		},
+		{
+			name: "boolean filter Value=true selects the exploit-available finding",
+			filters: compositeFilter(map[string]any{
+				"BooleanFilters": []any{
+					map[string]any{
+						"FieldName": "vulnerabilities.is_exploit_available",
+						"Filter":    map[string]any{"Value": true},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f1"},
+		},
+		{
+			name: "boolean filter Value=false selects the finding without an exploit",
+			filters: compositeFilter(map[string]any{
+				"BooleanFilters": []any{
+					map[string]any{
+						"FieldName": "vulnerabilities.is_exploit_available",
+						"Filter":    map[string]any{"Value": false},
+					},
+				},
+			}),
+			wantCount: 1, wantIDs: []string{"v2ext-f2"},
+		},
+		{
+			name: "NestedCompositeFilters OR recurses and matches either branch",
+			filters: map[string]any{
+				"CompositeFilters": []any{
+					map[string]any{
+						"Operator": "OR",
+						"NestedCompositeFilters": []any{
+							accountUIDEqualsFilter("111111111111"),
+							accountUIDEqualsFilter("222222222222"),
+						},
+					},
+				},
+			},
+			wantCount: 2,
+		},
+		{
+			// A single finding can't have two different AwsAccountId values, so an
+			// AND across these two nested branches must match nothing. Before this
+			// fix, NestedCompositeFilters was never evaluated at all, so this case
+			// would have (wrongly) matched both findings -- this is the regression
+			// guard for that.
+			name: "NestedCompositeFilters AND recurses and requires both branches",
+			filters: map[string]any{
+				"CompositeFilters": []any{
+					map[string]any{
+						"Operator": "AND",
+						"NestedCompositeFilters": []any{
+							accountUIDEqualsFilter("111111111111"),
+							accountUIDEqualsFilter("222222222222"),
+						},
+					},
+				},
+			},
+			wantCount: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, http.MethodPost, "/findingsv2", map[string]any{"Filters": tc.filters})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			findings, _ := resp["Findings"].([]any)
+			assert.Len(t, findings, tc.wantCount)
+
+			if len(tc.wantIDs) == 0 {
+				return
+			}
+
+			gotIDs := make([]string, 0, len(findings))
+			for _, f := range findings {
+				fm, _ := f.(map[string]any)
+				gotIDs = append(gotIDs, fm["Id"].(string))
+			}
+
+			assert.ElementsMatch(t, tc.wantIDs, gotIDs)
+		})
+	}
+}
+
+// compositeFilter wraps a single CompositeFilter body (StringFilters/
+// NumberFilters/DateFilters/MapFilters/IpFilters/BooleanFilters) into the
+// full Filters.CompositeFilters wire shape used by GetFindingsV2.
+func compositeFilter(body map[string]any) map[string]any {
+	return map[string]any{"CompositeFilters": []any{body}}
+}
+
+// accountUIDEqualsFilter builds one OcsfStringFilter (EQUALS on
+// cloud.account.uid) entry for use inside a CompositeFilter's
+// NestedCompositeFilters.
+func accountUIDEqualsFilter(value string) map[string]any {
+	return map[string]any{
+		"StringFilters": []any{
+			map[string]any{
+				"FieldName": "cloud.account.uid",
+				"Filter":    map[string]any{"Comparison": "EQUALS", "Value": value},
+			},
+		},
 	}
 }
 

@@ -29,7 +29,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	dir, err := original.CreateDirectory(
 		ctx, "corp.example.com", "CORP", "primary directory", "Password123!",
-		directoryservice.DirectorySizeSmall, nil, nil,
+		directoryservice.DirectorySizeSmall, "", nil, nil,
 	)
 	require.NoError(t, err)
 	dirID := dir.DirectoryID
@@ -58,7 +58,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// conditionalForwarders
-	require.NoError(t, original.CreateConditionalForwarder(ctx, dirID, "remote.example.com", []string{"10.1.1.1"}))
+	require.NoError(
+		t, original.CreateConditionalForwarder(ctx, dirID, "remote.example.com", []string{"10.1.1.1"}, nil),
+	)
 
 	// logSubscriptions
 	require.NoError(t, original.CreateLogSubscription(ctx, dirID, "/aws/directoryservice/corp"))
@@ -105,7 +107,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.EnableCAEnrollmentPolicy(ctx, dirID))
 
 	// adAssessments
-	assessmentID, err := original.StartADAssessment(ctx, dirID)
+	assessmentID, err := original.StartADAssessment(ctx, dirID, nil)
 	require.NoError(t, err)
 
 	// dirSettings (raw map)
@@ -117,10 +119,16 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// updateInfoEntries (raw map)
 	require.NoError(t, original.UpdateDirectorySetup(ctx, dirID, "OS", false))
 
-	// hybridADUpdates
-	hybridDir, hybridRequestID, err := original.CreateHybridAD(
-		ctx, "hybrid.example.com", "HYBRID", "hybrid directory", "Password123!",
-		directoryservice.DirectoryEditionEnterprise, nil,
+	// hybridADUpdates: real CreateHybridAD needs an existing successful
+	// assessment to reference (assessmentID, from StartADAssessment above);
+	// UpdateHybridAD (not CreateHybridAD) is what actually writes
+	// hybridADUpdates records, so exercise it to populate that table.
+	hybridDir, err := original.CreateHybridAD(
+		ctx, assessmentID, "arn:aws:secretsmanager:us-east-1:000000000000:secret:hybrid-admin", nil,
+	)
+	require.NoError(t, err)
+	hybridAssessmentID, err := original.UpdateHybridAD(
+		ctx, hybridDir.DirectoryID, "", []string{"10.0.0.10"}, []string{"i-0123456789abcdef0"},
 	)
 	require.NoError(t, err)
 
@@ -135,7 +143,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assertForwardingStateRestored(t, restored, dirID)
 	assertTrustStateRestored(t, restored, dirID, trustID, certID)
 	assertSettingsStateRestored(t, restored, dirID, assessmentID)
-	assertHybridStateRestored(t, restored, hybridDir.DirectoryID, hybridRequestID)
+	assertHybridStateRestored(t, restored, hybridDir.DirectoryID, hybridAssessmentID)
 }
 
 // assertCoreStateRestored verifies directories, snapshots, aliases and
@@ -154,7 +162,7 @@ func assertCoreStateRestored(t *testing.T, b *directoryservice.InMemoryBackend, 
 	// The reverse alias index (raw map) must also have survived: creating a
 	// second directory and trying to steal the same alias must still fail.
 	other, err := b.CreateDirectory(
-		ctx, "other.example.com", "OTHER", "", "Password123!", directoryservice.DirectorySizeSmall, nil, nil,
+		ctx, "other.example.com", "OTHER", "", "Password123!", directoryservice.DirectorySizeSmall, "", nil, nil,
 	)
 	require.NoError(t, err)
 	err = b.CreateAlias(ctx, other.DirectoryID, alias)
@@ -264,7 +272,7 @@ func assertSettingsStateRestored(t *testing.T, b *directoryservice.InMemoryBacke
 
 	assessment, err := b.DescribeADAssessment(ctx, dirID, assessmentID)
 	require.NoError(t, err)
-	assert.Equal(t, "Operational", assessment.AssessType)
+	assert.Equal(t, "CUSTOMER", assessment.AssessType)
 
 	settings, _, err := b.DescribeSettings(ctx, dirID, "", "")
 	require.NoError(t, err)
@@ -279,13 +287,15 @@ func assertSettingsStateRestored(t *testing.T, b *directoryservice.InMemoryBacke
 
 // assertHybridStateRestored verifies the hybridADUpdates table survived the
 // round trip.
-func assertHybridStateRestored(t *testing.T, b *directoryservice.InMemoryBackend, hybridDirID, hybridRequestID string) {
+func assertHybridStateRestored(
+	t *testing.T, b *directoryservice.InMemoryBackend, hybridDirID, hybridAssessmentID string,
+) {
 	t.Helper()
 
-	updates, err := b.DescribeHybridADUpdate(t.Context(), hybridDirID)
+	_, selfManaged, err := b.DescribeHybridADUpdate(t.Context(), hybridDirID, "")
 	require.NoError(t, err)
-	require.Len(t, updates, 1)
-	assert.Equal(t, hybridRequestID, updates[0].RequestID)
+	require.Len(t, selfManaged, 1)
+	assert.Equal(t, hybridAssessmentID, selfManaged[0].AssessmentID)
 }
 
 // TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose
@@ -300,7 +310,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	b := directoryservice.NewInMemoryBackend("000000000000", "us-east-1")
 
 	_, err := b.CreateDirectory(
-		ctx, "seed.example.com", "SEED", "", "Password123!", directoryservice.DirectorySizeSmall, nil, nil,
+		ctx, "seed.example.com", "SEED", "", "Password123!", directoryservice.DirectorySizeSmall, "", nil, nil,
 	)
 	require.NoError(t, err)
 	require.Equal(t, 1, directoryservice.DirectoryCount(b))

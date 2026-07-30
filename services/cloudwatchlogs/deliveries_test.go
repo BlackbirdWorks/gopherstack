@@ -423,13 +423,13 @@ func TestUpdateDeliveryConfiguration(t *testing.T) {
 			name: "update_field_delimiter",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
-				_, err := b.CreateDelivery("src", "arn:aws:logs:::delivery-destination:dst", nil)
+				_, err := b.CreateDelivery("src", "arn:aws:logs:::delivery-destination:dst", "", nil, nil, nil)
 				require.NoError(t, err)
 				deliveries, _, err := b.DescribeDeliveries(100, "")
 				require.NoError(t, err)
 				require.Len(t, deliveries, 1)
 				id := deliveries[0].ID
-				err = b.UpdateDeliveryConfiguration(id, ",", nil)
+				err = b.UpdateDeliveryConfiguration(id, ",", nil, nil)
 				require.NoError(t, err)
 
 				return id
@@ -446,13 +446,13 @@ func TestUpdateDeliveryConfiguration(t *testing.T) {
 			name: "update_record_fields",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
-				_, err := b.CreateDelivery("src", "arn:aws:logs:::delivery-destination:dst", nil)
+				_, err := b.CreateDelivery("src", "arn:aws:logs:::delivery-destination:dst", "", nil, nil, nil)
 				require.NoError(t, err)
 				deliveries, _, err := b.DescribeDeliveries(100, "")
 				require.NoError(t, err)
 				require.Len(t, deliveries, 1)
 				id := deliveries[0].ID
-				err = b.UpdateDeliveryConfiguration(id, "", []string{"@timestamp", "@message"})
+				err = b.UpdateDeliveryConfiguration(id, "", []string{"@timestamp", "@message"}, nil)
 				require.NoError(t, err)
 
 				return id
@@ -468,13 +468,13 @@ func TestUpdateDeliveryConfiguration(t *testing.T) {
 			name: "update_both_delimiter_and_fields",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
-				_, err := b.CreateDelivery("src", "arn:aws:logs:::delivery-destination:dst", nil)
+				_, err := b.CreateDelivery("src", "arn:aws:logs:::delivery-destination:dst", "", nil, nil, nil)
 				require.NoError(t, err)
 				deliveries, _, err := b.DescribeDeliveries(100, "")
 				require.NoError(t, err)
 				require.Len(t, deliveries, 1)
 				id := deliveries[0].ID
-				err = b.UpdateDeliveryConfiguration(id, "\t", []string{"@timestamp", "@message", "@logStream"})
+				err = b.UpdateDeliveryConfiguration(id, "\t", []string{"@timestamp", "@message", "@logStream"}, nil)
 				require.NoError(t, err)
 
 				return id
@@ -492,7 +492,7 @@ func TestUpdateDeliveryConfiguration(t *testing.T) {
 			name: "update_nonexistent_delivery_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
-				err := b.UpdateDeliveryConfiguration("nonexistent-id", ",", nil)
+				err := b.UpdateDeliveryConfiguration("nonexistent-id", ",", nil, nil)
 				require.Error(t, err)
 
 				return ""

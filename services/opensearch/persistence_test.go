@@ -584,13 +584,26 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// Newer "clean" pkgs/store tables added this pass: data source
 	// attachments, capabilities, and migrations (see store_setup.go).
-	att, err := original.AttachDataSource(app.ID, domain.ARN)
+	// AttachDataSource's WorkspaceConfiguration and StartMigration's
+	// CreateWorkspace both exercise the workspaces table too (see
+	// workspaces.go) -- this backend is otherwise untouched by any prior
+	// workspace-creating call, so the resulting IDs are deterministically
+	// "workspace-1" and "workspace-2" (see createWorkspaceLocked), asserted
+	// below after restore.
+	att, err := original.AttachDataSource(
+		app.ID, domain.ARN,
+		&opensearch.WorkspaceConfigInput{Name: "full-attach-ws", WorkspaceType: "SEARCH"}, "",
+	)
 	require.NoError(t, err)
 
 	_, err = original.RegisterCapability(app.ID, "ai-capability")
 	require.NoError(t, err)
 
-	mig, err := original.StartMigration(app.ID, domain.ARN)
+	mig, err := original.StartMigration(
+		app.ID, domain.ARN,
+		&opensearch.MigrationWorkspaceInput{CreateWorkspace: true, Name: "full-migration-ws", Type: "OBSERVABILITY"},
+		nil, "",
+	)
 	require.NoError(t, err)
 
 	snap := original.Snapshot(t.Context())
@@ -685,6 +698,20 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotMig, err := fresh.GetMigration(mig.MigrationID)
 	require.NoError(t, err)
 	assert.Equal(t, mig.MigrationID, gotMig.MigrationID)
+
+	// Workspaces have no Get/List API of their own anywhere in the real SDK
+	// (see the Workspace doc comment in models.go) -- the only way to prove
+	// one survived Restore is to reference its ID again through one of the
+	// two real ops that accept a WorkspaceId. Both must still resolve
+	// against the same application (proving ApplicationID scoping also
+	// round-tripped, not just existence).
+	_, err = fresh.AttachDataSource(app.ID, domain.ARN, nil, "workspace-1")
+	require.NoError(t, err, "workspace from AttachDataSource's WorkspaceConfiguration must survive Snapshot/Restore")
+
+	_, err = fresh.StartMigration(
+		app.ID, domain.ARN, &opensearch.MigrationWorkspaceInput{WorkspaceID: "workspace-2"}, nil, "",
+	)
+	require.NoError(t, err, "workspace from StartMigration's CreateWorkspace must survive Snapshot/Restore")
 }
 
 func TestOpenSearchHandler_Routing(t *testing.T) {

@@ -168,6 +168,66 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 	return nil, ErrNotFound
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingGlue).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Glue resource ARN that currently has at least
+// one tag, across every taggable Glue resource kind (databases, crawlers,
+// jobs, data quality rulesets, connections, triggers, workflows). Unlike
+// ECS/Athena/ECR, Glue keeps tags inline on each typed resource (Database.Tags,
+// Crawler.Tags, ...) rather than in a side map keyed by ARN, so this walks
+// each store.Table directly instead of a single flat map.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, db := range b.databases.All() {
+		out = appendTaggedEntry(out, db.ARN, db.Tags)
+	}
+
+	for _, c := range b.crawlers.All() {
+		out = appendTaggedEntry(out, c.ARN, c.Tags)
+	}
+
+	for _, j := range b.jobs.All() {
+		out = appendTaggedEntry(out, j.ARN, j.Tags)
+	}
+
+	for _, r := range b.dataQualityRulesets.All() {
+		out = appendTaggedEntry(out, r.ARN, r.Tags)
+	}
+
+	for _, conn := range b.connections.All() {
+		out = appendTaggedEntry(out, conn.ARN, conn.Tags)
+	}
+
+	for _, trig := range b.triggers.All() {
+		out = appendTaggedEntry(out, trig.ARN, trig.Tags)
+	}
+
+	for _, w := range b.workflows.All() {
+		out = appendTaggedEntry(out, w.ARN, w.Tags)
+	}
+
+	return out
+}
+
+// appendTaggedEntry appends a TaggedEntry for arn/tags to entries when tags is
+// non-empty, cloning tags so callers cannot mutate the backend's copy.
+func appendTaggedEntry(entries []TaggedEntry, arn string, tagMap map[string]string) []TaggedEntry {
+	if len(tagMap) == 0 {
+		return entries
+	}
+
+	return append(entries, TaggedEntry{ARN: arn, Tags: maps.Clone(tagMap)})
+}
+
 func (b *InMemoryBackend) findDatabaseByARN(resourceARN string) *Database {
 	name := glueResourceName(resourceARN, "database")
 	if name == "" {

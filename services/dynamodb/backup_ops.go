@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -28,7 +29,7 @@ func backupARN(region, accountID, tableName string, ts time.Time) string {
 		"table/%s/backup/%016d-%s",
 		tableName,
 		ts.UnixMilli(),
-		uuid.New().String()[:16],
+		strings.ReplaceAll(uuid.New().String(), "-", "")[:exportIDSuffixLen],
 	)
 
 	return arn.Build("dynamodb", region, accountID, resource)

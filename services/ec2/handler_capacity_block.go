@@ -81,7 +81,7 @@ type capacityBlockItem struct {
 	TagSet []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toCapacityBlockItem(b *CapacityBlock) capacityBlockItem {
+func toCapacityBlockItem(b *CapacityBlock, tags map[string]string) capacityBlockItem {
 	item := capacityBlockItem{
 		CapacityBlockID:  b.CapacityBlockID,
 		AvailabilityZone: b.AvailabilityZone,
@@ -89,7 +89,7 @@ func toCapacityBlockItem(b *CapacityBlock) capacityBlockItem {
 		CreateDate:       b.CreateDate.Format(time.RFC3339),
 		StartDate:        b.StartDate.Format(time.RFC3339),
 		EndDate:          b.EndDate.Format(time.RFC3339),
-		TagSet:           tagItemsFromMap(b.Tags),
+		TagSet:           tagItemsFromMap(tags),
 	}
 	item.CapacityReservationIDs.Items = b.CapacityReservationIDs
 
@@ -123,7 +123,9 @@ func (h *Handler) handlePurchaseCapacityBlock(vals url.Values, reqID string) (an
 		RequestID:           reqID,
 		CapacityReservation: toCapacityReservationItem(cr),
 	}
-	resp.CapacityBlocks.Items = []capacityBlockItem{toCapacityBlockItem(block)}
+	resp.CapacityBlocks.Items = []capacityBlockItem{
+		toCapacityBlockItem(block, h.Backend.TagsForResource(block.CapacityBlockID)),
+	}
 
 	return resp, nil
 }
@@ -251,8 +253,10 @@ func (h *Handler) handleDescribeCapacityBlocks(vals url.Values, reqID string) (a
 	blocks := h.Backend.DescribeCapacityBlocks(ids, filters)
 
 	resp := &describeCapacityBlocksResponse{Xmlns: ec2XMLNS, RequestID: reqID}
-	for _, b := range blocks {
-		resp.Blocks.Items = append(resp.Blocks.Items, toCapacityBlockItem(b))
+	for _, blk := range blocks {
+		resp.Blocks.Items = append(
+			resp.Blocks.Items, toCapacityBlockItem(blk, h.Backend.TagsForResource(blk.CapacityBlockID)),
+		)
 	}
 
 	return resp, nil

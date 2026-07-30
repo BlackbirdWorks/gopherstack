@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -15,6 +16,17 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/s3tables"
 )
+
+// bucketSuffix converts an arbitrary table-test case name (this package's
+// table tests conventionally use underscore_separated names, per project
+// testing standards, and sometimes embed uppercase acronyms like "AES256")
+// into a suffix usable in a real S3 Tables bucket name: real bucket names
+// allow only LOWERCASE letters, digits, and hyphens (no underscores) -- see
+// validation.go. Shared by every _test.go file that builds a bucket name as
+// "<prefix>-" + a test case's name.
+func bucketSuffix(s string) string {
+	return strings.ReplaceAll(strings.ToLower(s), "_", "-")
+}
 
 func newTestHandler(t *testing.T) *s3tables.Handler {
 	t.Helper()

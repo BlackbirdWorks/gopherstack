@@ -53,22 +53,46 @@ func (b *InMemoryBackend) PutDestinationPolicy(name, policy string) error {
 	return nil
 }
 
-// DescribeDestinations returns destinations optionally filtered by name prefix.
-func (b *InMemoryBackend) DescribeDestinations(namePrefix string) []CWLDestination {
+// DescribeDestinations returns destinations optionally filtered by name
+// prefix, with pagination. Field-diffed against DescribeDestinationsInput/
+// Output (api_op_DescribeDestinations.go): limit/nextToken were previously
+// unmodeled entirely, so a real client paging through more destinations than
+// fit in one response had no way to fetch subsequent pages -- every call
+// silently returned the complete, unpaginated result set instead.
+func (b *InMemoryBackend) DescribeDestinations(
+	namePrefix string,
+	limit int,
+	nextToken string,
+) ([]CWLDestination, string) {
 	b.mu.RLock("DescribeDestinations")
 	defer b.mu.RUnlock()
 
-	out := make([]CWLDestination, 0, b.destinations.Len())
+	all := make([]CWLDestination, 0, b.destinations.Len())
 
 	for _, d := range b.destinations.All() {
 		if namePrefix == "" || strings.HasPrefix(d.DestinationName, namePrefix) {
-			out = append(out, *d)
+			all = append(all, *d)
 		}
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].DestinationName < out[j].DestinationName })
+	sort.Slice(all, func(i, j int) bool { return all[i].DestinationName < all[j].DestinationName })
 
-	return out
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []CWLDestination{}, ""
+	}
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = encodeNextToken(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken
 }
 
 // DeleteDestination removes a log routing destination.

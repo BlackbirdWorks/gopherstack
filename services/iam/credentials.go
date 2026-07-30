@@ -3,7 +3,6 @@ package iam
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -129,7 +128,7 @@ func (b *InMemoryBackend) CreateServiceSpecificCredential(
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	credID := "ACCAI" + strings.ToUpper(uuid.New().String()[:16])
+	credID := newID("ACCAI")
 	svcUserName := userName + "+" + serviceName
 	svcPassword := uuid.New().String() + uuid.New().String()
 

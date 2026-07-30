@@ -347,3 +347,81 @@ func TestHandler_LocalGatewayVirtualInterface_CreateDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DeleteLocalGatewayVirtualInterfaceGroupResponse")
 }
+
+// TestHandler_LocalGateway_TagDualWritePathVisibility proves that
+// local_gateway.go's virtual interface / virtual interface group resources
+// consolidated onto the shared tag store: a tag supplied at create time
+// (TagSpecification) and a tag added afterwards via CreateTags are BOTH
+// visible through the resource's own Describe call AND through the generic
+// DescribeTags call. Before the tag-dual-storage fix, these types carried
+// their own embedded Tags field that was populated only at create time, so a
+// post-creation CreateTags call was invisible to Describe.
+func TestHandler_LocalGateway_TagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		createBody     func(lgID, groupID string) string
+		idField        string
+		describeAction string
+	}{
+		{
+			name: "virtual interface group",
+			createBody: func(lgID, _ string) string {
+				return "Action=CreateLocalGatewayVirtualInterfaceGroup&Version=2016-11-15&LocalGatewayId=" + lgID +
+					"&TagSpecification.1.ResourceType=local-gateway-virtual-interface-group" +
+					"&TagSpecification.1.Tag.1.Key=CreateTime&TagSpecification.1.Tag.1.Value=yes"
+			},
+			idField:        "localGatewayVirtualInterfaceGroupId",
+			describeAction: "DescribeLocalGatewayVirtualInterfaceGroups",
+		},
+		{
+			name: "virtual interface",
+			createBody: func(_, groupID string) string {
+				return "Action=CreateLocalGatewayVirtualInterface&Version=2016-11-15&" +
+					"LocalGatewayVirtualInterfaceGroupId=" + groupID +
+					"&OutpostLagId=lag-1&LocalAddress=169.254.9.1&PeerAddress=169.254.9.2&Vlan=42" +
+					"&TagSpecification.1.ResourceType=local-gateway-virtual-interface" +
+					"&TagSpecification.1.Tag.1.Key=CreateTime&TagSpecification.1.Tag.1.Value=yes"
+			},
+			idField:        "localGatewayVirtualInterfaceId",
+			describeAction: "DescribeLocalGatewayVirtualInterfaces",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, lg, group := newLocalGatewayHandler(t)
+
+			createRec := postForm(t, h, tt.createBody(lg.LocalGatewayID, group.LocalGatewayVirtualInterfaceGroupID))
+			require.Equal(t, http.StatusOK, createRec.Code)
+			id := extractXMLField(createRec.Body.String(), tt.idField)
+			require.NotEmpty(t, id)
+			// The create-time tag must already be visible on the create response.
+			assert.Contains(t, createRec.Body.String(), "CreateTime")
+
+			// Add a second tag through the generic CreateTags path.
+			tagRec := postForm(t, h,
+				"Action=CreateTags&Version=2016-11-15&ResourceId.1="+id+
+					"&Tag.1.Key=AddedLater&Tag.1.Value=yes")
+			require.Equal(t, http.StatusOK, tagRec.Code)
+
+			// Both tags must be visible through the resource's own Describe.
+			descRec := postForm(t, h, "Action="+tt.describeAction+"&Version=2016-11-15")
+			require.Equal(t, http.StatusOK, descRec.Code)
+			descBody := descRec.Body.String()
+			assert.Contains(t, descBody, "CreateTime")
+			assert.Contains(t, descBody, "AddedLater")
+
+			// Both tags must also be visible through the generic DescribeTags path.
+			tagsRec := postForm(t, h,
+				"Action=DescribeTags&Version=2016-11-15&Filter.1.Name=resource-id&Filter.1.Value.1="+id)
+			require.Equal(t, http.StatusOK, tagsRec.Code)
+			tagsBody := tagsRec.Body.String()
+			assert.Contains(t, tagsBody, "CreateTime")
+			assert.Contains(t, tagsBody, "AddedLater")
+		})
+	}
+}

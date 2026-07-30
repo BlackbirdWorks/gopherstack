@@ -71,6 +71,70 @@ func TestHostReservations_HTTP_Lifecycle(t *testing.T) { //nolint:paralleltest /
 	assert.NotContains(t, describeHostsResp, hostID)
 }
 
+// TestHostReservation_TagDualWritePathVisibility proves that
+// host_reservations.go's HostReservation consolidated onto the shared tag
+// store: a tag supplied at create time (TagSpecification) and a tag added
+// afterwards via CreateTags are BOTH visible through DescribeHostReservations
+// AND through the generic DescribeTags call. Before the fix, HostReservation
+// carried its own embedded Tags field populated only at create time,
+// invisible to a post-creation CreateTags call. (PurchaseHostReservation's
+// response itself only echoes purchase line items, not TagSet, matching the
+// real API -- so the create-time tag is checked via Describe.)
+func TestHostReservation_TagDualWritePathVisibility(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	allocResp, err := dispatchHandler(h, url.Values{
+		"Action":           []string{"AllocateHosts"},
+		"AvailabilityZone": []string{"us-east-1a"},
+		"InstanceType":     []string{"m5.large"},
+		"Quantity":         []string{"1"},
+	})
+	require.NoError(t, err)
+	hostID := accuracyExtractXMLValue(allocResp, "item")
+	require.NotEmpty(t, hostID)
+
+	offeringsResp, err := dispatchHandler(h, url.Values{"Action": []string{"DescribeHostReservationOfferings"}})
+	require.NoError(t, err)
+	offeringID := accuracyExtractXMLValue(offeringsResp, "offeringId")
+	require.NotEmpty(t, offeringID)
+
+	purchaseResp, err := dispatchHandler(h, url.Values{
+		"Action":                          []string{"PurchaseHostReservation"},
+		"OfferingId":                      []string{offeringID},
+		"HostIdSet.1":                     []string{hostID},
+		"TagSpecification.1.ResourceType": []string{"host-reservation"},
+		"TagSpecification.1.Tag.1.Key":    []string{"CreateTime"},
+		"TagSpecification.1.Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+	reservationID := accuracyExtractXMLValue(purchaseResp, "hostReservationId")
+	require.NotEmpty(t, reservationID)
+
+	_, err = dispatchHandler(h, url.Values{
+		"Action":       []string{"CreateTags"},
+		"ResourceId.1": []string{reservationID},
+		"Tag.1.Key":    []string{"AddedLater"},
+		"Tag.1.Value":  []string{"yes"},
+	})
+	require.NoError(t, err)
+
+	describeResp, err := dispatchHandler(h, url.Values{"Action": []string{"DescribeHostReservations"}})
+	require.NoError(t, err)
+	assert.Contains(t, describeResp, "CreateTime")
+	assert.Contains(t, describeResp, "AddedLater")
+
+	tagsResp, err := dispatchHandler(h, url.Values{
+		"Action":           []string{"DescribeTags"},
+		"Filter.1.Name":    []string{"resource-id"},
+		"Filter.1.Value.1": []string{reservationID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, tagsResp, "CreateTime")
+	assert.Contains(t, tagsResp, "AddedLater")
+}
+
 // TestSortedDescribeHosts verifies sorted output.
 func TestSortedDescribeHosts(t *testing.T) {
 	t.Parallel()

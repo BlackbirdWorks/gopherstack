@@ -45,6 +45,8 @@ const (
 	keyConnectorArn           = "ConnectorArn"
 	keyConnectorStatus        = "ConnectorStatus"
 	keyEnablementStatus       = "EnablementStatus"
+	keyFirstObservedAt        = "FirstObservedAt"
+	keyLastObservedAt         = "LastObservedAt"
 
 	msgNameRequired = "Name is required"
 

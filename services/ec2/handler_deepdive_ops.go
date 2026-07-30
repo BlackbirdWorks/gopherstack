@@ -4,18 +4,21 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
-	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-func toVpcEndpointItem(ep *VpcEndpoint) vpcEndpointItem {
+func toVpcEndpointItem(ep *VpcEndpoint, tags map[string]string) vpcEndpointItem {
 	item := vpcEndpointItem{
 		ID:              ep.ID,
 		VPCID:           ep.VPCID,
 		ServiceName:     ep.ServiceName,
 		State:           ep.State,
 		VpcEndpointType: ep.VpcEndpointType,
+		OwnerID:         ep.OwnerID,
 		CreateTime:      ep.CreateTime.Format(time.RFC3339),
+		TagSet:          tagItemsFromMap(tags),
 	}
 
 	for _, sid := range ep.SubnetIDs {
@@ -28,6 +31,10 @@ func toVpcEndpointItem(ep *VpcEndpoint) vpcEndpointItem {
 		item.RouteTableIDs.Items = append(item.RouteTableIDs.Items, struct {
 			RouteTableID string `xml:"routeTableId"`
 		}{RouteTableID: rtID})
+	}
+
+	for _, pr := range ep.PayerResponsibilities {
+		item.PayerResponsibilitySet = append(item.PayerResponsibilitySet, payerResponsibilityEntryItem(pr))
 	}
 
 	return item
@@ -130,10 +137,20 @@ func (h *Handler) handleCreateVpcEndpoint(vals url.Values, reqID string) (any, e
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "vpc-endpoint"); len(tags) > 0 {
+		// CreateVpcEndpoint(WithRouteTableIDs) has no tags parameter of its
+		// own (unlike e.g. CreateSubnet/CreateSecurityGroup); tag it via the
+		// same shared store CreateTags itself writes to, matching the
+		// handler-level pattern used by those other Create* handlers.
+		if err = h.Backend.CreateTags([]string{endpoint.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createVpcEndpointResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Endpoint:  toVpcEndpointItem(endpoint),
+		Endpoint:  toVpcEndpointItem(endpoint, h.Backend.TagsForResource(endpoint.ID)),
 	}, nil
 }
 
@@ -142,7 +159,7 @@ func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any
 	endpoints := h.Backend.DescribeVpcEndpoints(ids)
 	items := make([]vpcEndpointItem, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		items = append(items, toVpcEndpointItem(endpoint))
+		items = append(items, toVpcEndpointItem(endpoint, h.Backend.TagsForResource(endpoint.ID)))
 	}
 
 	return &describeVpcEndpointsResponse{
@@ -173,7 +190,11 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		_, _ = fmt.Sscan(tok, &offset)
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return nil, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
+		}
+		offset = n
 	}
 
 	var nextToken string
@@ -183,7 +204,7 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 		}
 		acls = acls[offset:]
 		if len(acls) > maxResults {
-			nextToken = strconv.Itoa(offset + maxResults)
+			nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
 			acls = acls[:maxResults]
 		}
 	}
@@ -282,14 +303,17 @@ type vpcEndpointRouteTableIDSet struct {
 }
 
 type vpcEndpointItem struct {
-	ID              string                     `xml:"vpcEndpointId"`
-	VPCID           string                     `xml:"vpcId"`
-	ServiceName     string                     `xml:"serviceName"`
-	State           string                     `xml:"vpcEndpointState"`
-	VpcEndpointType string                     `xml:"vpcEndpointType"`
-	CreateTime      string                     `xml:"creationTimestamp"`
-	SubnetIDs       vpcEndpointSubnetIDSet     `xml:"subnetIdSet"`
-	RouteTableIDs   vpcEndpointRouteTableIDSet `xml:"routeTableIdSet"`
+	ID                     string                         `xml:"vpcEndpointId"`
+	VPCID                  string                         `xml:"vpcId"`
+	ServiceName            string                         `xml:"serviceName"`
+	State                  string                         `xml:"state"`
+	VpcEndpointType        string                         `xml:"vpcEndpointType"`
+	OwnerID                string                         `xml:"ownerId,omitempty"`
+	CreateTime             string                         `xml:"creationTimestamp"`
+	SubnetIDs              vpcEndpointSubnetIDSet         `xml:"subnetIdSet"`
+	RouteTableIDs          vpcEndpointRouteTableIDSet     `xml:"routeTableIdSet"`
+	PayerResponsibilitySet []payerResponsibilityEntryItem `xml:"payerResponsibilitySet>item,omitempty"`
+	TagSet                 []simpleTagItem                `xml:"tagSet>item"`
 }
 
 type vpcEndpointSet struct {

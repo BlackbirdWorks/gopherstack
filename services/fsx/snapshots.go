@@ -5,8 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -55,7 +53,7 @@ func (b *InMemoryBackend) CreateSnapshot(input *createSnapshotInput) (*Snapshot,
 		return nil, ErrVolumeNotFound
 	}
 
-	id := "fsvolsnap-" + uuid.New().String()[:12]
+	id := newFSxVolumeSnapshotID()
 	arn := b.snapshotARN(id)
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)

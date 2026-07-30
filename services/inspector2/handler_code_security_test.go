@@ -69,6 +69,47 @@ func TestCodeSecurityIntegrationLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestCreateCodeSecurityIntegration_NameValidation covers
+// CreateCodeSecurityIntegration's real "name" length/charset constraint (AWS
+// API Reference for CreateCodeSecurityIntegration: "Minimum length of 1.
+// Maximum length of 60." Pattern: `[a-zA-Z0-9-_$:.]*` -- identical to
+// CreateCodeSecurityScanConfiguration's name constraint). A prior revision
+// accepted any non-empty string.
+func TestCreateCodeSecurityIntegration_NameValidation(t *testing.T) {
+	t.Parallel()
+
+	tooLongName := make([]byte, 61)
+	for i := range tooLongName {
+		tooLongName[i] = 'a'
+	}
+
+	tests := []struct {
+		name     string
+		intName  string
+		wantCode int
+	}{
+		{name: "empty_name_rejected", intName: "", wantCode: http.StatusBadRequest},
+		{name: "too_long_name_rejected", intName: string(tooLongName), wantCode: http.StatusBadRequest},
+		{name: "invalid_charset_name_rejected", intName: "has a space", wantCode: http.StatusBadRequest},
+		{name: "single_char_name_accepted", intName: "a", wantCode: http.StatusOK},
+		{name: "exactly_60_char_name_accepted", intName: string(tooLongName[:60]), wantCode: http.StatusOK},
+		{name: "all_valid_charset_chars_name_accepted", intName: "a-Z0_9$:.name", wantCode: http.StatusOK},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAuditHandler(t)
+			rec := auditDo(t, h, http.MethodPost, "/codesecurity/integration/create", map[string]any{
+				"name": tc.intName,
+				"type": "GITHUB",
+			})
+			assert.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+}
+
 func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -77,10 +118,18 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	// Create
 	rec := auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/create", map[string]any{
 		"name":          "my-scan-config",
+		"level":         "ACCOUNT",
 		"scopeSettings": map[string]any{"projectSelectionScope": "ALL"},
 		"tags":          map[string]string{"env": "test"},
+		"configuration": map[string]any{
+			"ruleSetCategories": []string{"SAST", "IAC"},
+			"continuousIntegrationScanConfiguration": map[string]any{
+				"supportedEvents": []string{"PULL_REQUEST"},
+			},
+			"periodicScanConfiguration": map[string]any{"frequency": "WEEKLY"},
+		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
@@ -93,21 +142,36 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	assert.Equal(t, "ACCOUNT", getResp["level"])
+	assert.NotContains(t, getResp, "status")
+	configuration, ok := getResp["configuration"].(map[string]any)
+	require.True(t, ok)
+	assert.ElementsMatch(t, []any{"SAST", "IAC"}, configuration["ruleSetCategories"])
+
 	// List
 	rec = auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/list", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	cfgs, _ := listResp["scanConfigurations"].([]any)
-	assert.Len(t, cfgs, 1)
+	cfgs, _ := listResp["configurations"].([]any)
+	require.Len(t, cfgs, 1)
+	summary, ok := cfgs[0].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, summary["ownerAccountId"])
+	assert.ElementsMatch(t, []any{"SAST", "IAC"}, summary["ruleSetCategories"])
+	assert.NotContains(t, summary, "configuration")
 
 	// Update
 	rec = auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/update", map[string]any{
 		"scanConfigurationArn": cfgARN,
-		"scopeSettings":        map[string]any{"projectSelectionScope": "SPECIFIC"},
+		"configuration": map[string]any{
+			"ruleSetCategories": []string{"SCA"},
+		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	// Batch associate
 	rec = auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/batch/associate", map[string]any{
@@ -154,6 +218,162 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 		"scanConfigurationArn": cfgARN,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestCodeSecurityScanConfigurationValidation covers
+// CreateCodeSecurityScanConfiguration/UpdateCodeSecurityScanConfiguration's
+// required "level" and "configuration.ruleSetCategories" members, plus
+// "name"'s real length/charset constraint (AWS API Reference for
+// CreateCodeSecurityScanConfiguration: "Minimum length of 1. Maximum length
+// of 60." Pattern: `[a-zA-Z0-9-_$:.]*`). Real
+// CreateCodeSecurityScanConfigurationInput requires level/ruleSetCategories;
+// an earlier revision decoded scopeSettings/periodicScanConfiguration at the
+// top level and never looked for either, so no validation ever ran. name's
+// length/charset constraint was similarly unmodeled until this pass (any
+// non-empty string was accepted).
+func TestCodeSecurityScanConfigurationValidation(t *testing.T) {
+	t.Parallel()
+
+	tooLongName := make([]byte, 61)
+	for i := range tooLongName {
+		tooLongName[i] = 'a'
+	}
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "missing_level_rejected",
+			body: map[string]any{
+				"name": "no-level",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_level_rejected",
+			body: map[string]any{
+				"name":  "bad-level",
+				"level": "GLOBAL",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_rule_set_categories_rejected",
+			body: map[string]any{
+				"name":  "no-rule-set",
+				"level": "ACCOUNT",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_rule_set_category_rejected",
+			body: map[string]any{
+				"name":  "bad-rule-set",
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"NOT_A_CATEGORY"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "empty_name_rejected",
+			body: map[string]any{
+				"name":  "",
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "too_long_name_rejected",
+			body: map[string]any{
+				"name":  string(tooLongName),
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_charset_name_rejected",
+			body: map[string]any{
+				"name":  "has a space",
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "exactly_60_char_name_accepted",
+			body: map[string]any{
+				"name":  string(tooLongName[:60]),
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "all_valid_charset_chars_name_accepted",
+			body: map[string]any{
+				"name":  "a-Z0_9$:.name",
+				"level": "ACCOUNT",
+				"configuration": map[string]any{
+					"ruleSetCategories": []string{"SAST"},
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAuditHandler(t)
+			rec := auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/create", tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+
+	t.Run("update_missing_rule_set_categories_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newAuditHandler(t)
+		rec := auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/create", map[string]any{
+			"name":  "update-target",
+			"level": "ACCOUNT",
+			"configuration": map[string]any{
+				"ruleSetCategories": []string{"SAST"},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+		var createResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		cfgARN, _ := createResp["scanConfigurationArn"].(string)
+		require.NotEmpty(t, cfgARN)
+
+		updateRec := auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/update", map[string]any{
+			"scanConfigurationArn": cfgARN,
+		})
+		assert.Equal(t, http.StatusBadRequest, updateRec.Code, updateRec.Body.String())
+	})
 }
 
 func TestCodeSecurityScanLifecycle(t *testing.T) {

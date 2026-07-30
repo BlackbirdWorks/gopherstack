@@ -354,7 +354,7 @@ func TestLocalGatewayVirtualInterfaceGroup_CreateDelete(t *testing.T) {
 	assert.Equal(t, lg.LocalGatewayID, group.LocalGatewayID)
 	assert.Equal(t, "available", group.ConfigurationState)
 	assert.Contains(t, group.LocalGatewayVirtualInterfaceGroupArn, group.LocalGatewayVirtualInterfaceGroupID)
-	assert.Equal(t, "grp", group.Tags["Name"])
+	assert.Equal(t, "grp", bk.TagsForResource(group.LocalGatewayVirtualInterfaceGroupID)["Name"])
 
 	vif, err := bk.CreateLocalGatewayVirtualInterface(ec2.LocalGatewayVirtualInterfaceParams{
 		LocalGatewayVirtualInterfaceGroupID: group.LocalGatewayVirtualInterfaceGroupID,

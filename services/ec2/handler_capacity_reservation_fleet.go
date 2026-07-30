@@ -74,7 +74,9 @@ func (h *Handler) handleCreateCapacityReservationFleet(vals url.Values, reqID st
 	}
 
 	resp := &createCapacityReservationFleetResponse{Xmlns: ec2XMLNS, RequestID: reqID}
-	resp.capacityReservationFleetItem = toCapacityReservationFleetItem(fleet)
+	resp.capacityReservationFleetItem = toCapacityReservationFleetItem(
+		fleet, h.Backend.TagsForResource(fleet.CapacityReservationFleetID),
+	)
 
 	return resp, nil
 }
@@ -109,7 +111,10 @@ func (h *Handler) handleDescribeCapacityReservationFleets(vals url.Values, reqID
 
 	items := make([]capacityReservationFleetItem, 0, len(fleets))
 	for _, fleet := range fleets {
-		items = append(items, toCapacityReservationFleetItem(fleet))
+		items = append(
+			items,
+			toCapacityReservationFleetItem(fleet, h.Backend.TagsForResource(fleet.CapacityReservationFleetID)),
+		)
 	}
 
 	return &describeCapacityReservationFleetsResponse{

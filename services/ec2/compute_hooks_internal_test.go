@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"context"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -200,4 +201,76 @@ func TestComputeHookPublishesDNSAndTags(t *testing.T) {
 
 	assert.Equal(t, []string{"ec2-test1.compute-1.amazonaws.com"}, dns.deregistered)
 	assert.Equal(t, []string{"ctr-dns"}, c.terminateCalls)
+}
+
+// TestGeneratedResourceIDs_HexOnlyShape guards against gopherstack-28ce: IDs
+// built as "<prefix>-" + uuid.New().String()[:N] embed literal "-"
+// characters once N crosses a hyphen boundary in the 8-4-4-4-12 hyphenated
+// UUID string, producing shapes real AWS never returns (e.g.
+// "subnet-44eea3bc-ae2c-4c2"). Every generator below must strip the UUID's
+// hyphens first, so the suffix is hex-only. This covers a representative
+// set of resource families across the package, including ones that use a
+// named prefix-length constant instead of a literal.
+func TestGeneratedResourceIDs_HexOnlyShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		generate func() string
+		pattern  *regexp.Regexp
+		name     string
+	}{
+		{name: "subnet", generate: newSubnetID, pattern: regexp.MustCompile(`^subnet-[0-9a-f]{17}$`)},
+		{name: "instance", generate: newInstanceID, pattern: regexp.MustCompile(`^i-[0-9a-f]{17}$`)},
+		{name: "reservation", generate: newReservationID, pattern: regexp.MustCompile(`^r-[0-9a-f]{17}$`)},
+		{name: "vpc", generate: newVPCID, pattern: regexp.MustCompile(`^vpc-[0-9a-f]{17}$`)},
+		{name: "security_group", generate: newSecurityGroupID, pattern: regexp.MustCompile(`^sg-[0-9a-f]{17}$`)},
+		{name: "ami", generate: newAMIID, pattern: regexp.MustCompile(`^ami-[0-9a-f]{17}$`)},
+		{name: "snapshot", generate: newSnapshotID, pattern: regexp.MustCompile(`^snap-[0-9a-f]{17}$`)},
+		{name: "volume", generate: newVolumeID, pattern: regexp.MustCompile(`^vol-[0-9a-f]{17}$`)},
+		{name: "eni", generate: newENIID, pattern: regexp.MustCompile(`^eni-[0-9a-f]{17}$`)},
+		{name: "route_table", generate: newRouteTableID, pattern: regexp.MustCompile(`^rtb-[0-9a-f]{17}$`)},
+		{name: "transit_gateway", generate: newTransitGatewayID, pattern: regexp.MustCompile(`^tgw-[0-9a-f]{17}$`)},
+		{
+			name:     "local_gateway_rtb_vif_group_assoc",
+			generate: newLocalGatewayRouteTableVirtualInterfaceGroupAssociationID,
+			pattern:  regexp.MustCompile(`^lgw-route-table-virtual-interface-group-assoc-[0-9a-f]{17}$`),
+		},
+		{
+			name:     "ipam_verification_token",
+			generate: newIPAMVerificationTokenName,
+			pattern:  regexp.MustCompile(`^ipam-verify-[0-9a-f]{12}$`),
+		},
+		{name: "host_reservation", generate: newHostReservationID, pattern: regexp.MustCompile(`^hr-[0-9a-f]{17}$`)},
+		{
+			name:     "declarative_policies_report",
+			generate: newDeclarativePoliciesReportID,
+			pattern:  regexp.MustCompile(`^report-[0-9a-f]{17}$`),
+		},
+		{
+			name:     "vpc_bpa_exclusion",
+			generate: newVPCBPAExclusionID,
+			pattern:  regexp.MustCompile(`^vpcbpa-exclusion-[0-9a-f]{17}$`),
+		},
+		{
+			name:     "vpc_encryption_control",
+			generate: newVPCEncryptionControlID,
+			pattern:  regexp.MustCompile(`^vpc-ec-[0-9a-f]{17}$`),
+		},
+		{name: "vpn_concentrator", generate: newVPNConcentratorID, pattern: regexp.MustCompile(`^vpnc-[0-9a-f]{17}$`)},
+		{name: "vpn_pre_shared_key", generate: newVPNPreSharedKey, pattern: regexp.MustCompile(`^[0-9a-f]{24}$`)},
+		{
+			name:     "key_pair_fingerprint",
+			generate: newKeyPairFingerprint,
+			pattern:  regexp.MustCompile(`^aa:bb:cc:dd:[0-9a-f]{11}$`),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tt.generate()
+			assert.Regexp(t, tt.pattern, got, "generated %s ID must be hex-only after the prefix", tt.name)
+		})
+	}
 }

@@ -16,7 +16,7 @@ func TestTGWMulticast_CreateDomainValidation(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -59,7 +59,7 @@ func TestTGWMulticast_CreateDomainWithOptions(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "enable", "enable", "enable")
@@ -74,7 +74,7 @@ func TestTGWMulticast_DescribeAndDeleteDomain(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	d1, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "")
@@ -110,7 +110,7 @@ func TestTGWMulticast_DeleteDomainCascadesAssociationsAndGroups(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "")
@@ -135,7 +135,7 @@ func TestTGWMulticast_AssociateDisassociateGetAssociations(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "")
@@ -185,7 +185,7 @@ func TestTGWMulticast_AssociateValidation(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "")
@@ -220,7 +220,7 @@ func TestTGWMulticast_RegisterDeregisterMembersAndSources(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "")
@@ -291,7 +291,7 @@ func TestTGWMulticast_RegisterValidation(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "")
@@ -324,7 +324,7 @@ func TestTGWMulticast_MeteringPolicyCRUD(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	policy, err := bk.CreateTransitGatewayMeteringPolicy(tgw.ID, []string{"tgw-attach-1"})
@@ -382,7 +382,7 @@ func TestTGWMulticast_MeteringPolicyEntryCRUD(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	policy, err := bk.CreateTransitGatewayMeteringPolicy(tgw.ID, nil)
@@ -436,7 +436,7 @@ func TestTGWMulticast_DeletePolicyCascadesEntries(t *testing.T) {
 
 	bk := newTestBackend()
 
-	tgw, err := bk.CreateTransitGateway("test-tgw")
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	policy, err := bk.CreateTransitGatewayMeteringPolicy(tgw.ID, nil)
@@ -465,7 +465,7 @@ func TestTGWMulticast_SnapshotRestore(t *testing.T) {
 
 	original := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	tgw, err := original.CreateTransitGateway("test-tgw")
+	tgw, err := original.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
 	domain, err := original.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "")

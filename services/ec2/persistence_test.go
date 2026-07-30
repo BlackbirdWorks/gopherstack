@@ -724,8 +724,13 @@ func TestDeleteVpc_PerVPCIndexCascade(t *testing.T) {
 // selection and stopped-state guard rules for ModifyInstanceAttribute.
 
 // TestPagination_ForgedTokenRejected asserts that a forged/tampered NextToken is
-// rejected with InvalidPaginationToken across the three opaque-token describe
-// operations, rather than silently re-paging from offset 0.
+// rejected with InvalidPaginationToken across the opaque-token describe
+// operations, rather than silently re-paging from offset 0. DescribeSnapshots
+// and DescribeNetworkAcls previously used a plain, unauthenticated integer
+// offset as NextToken (fmt.Sscan straight into the offset, silently ignoring
+// a parse failure and falling back to offset 0) instead of the HMAC-signed
+// opaque token every other paginated describe op here uses - a forged or
+// malformed token was silently accepted rather than rejected.
 func TestPagination_ForgedTokenRejected(t *testing.T) {
 	t.Parallel()
 
@@ -736,6 +741,8 @@ func TestPagination_ForgedTokenRejected(t *testing.T) {
 		{name: "describe_instances", action: "DescribeInstances"},
 		{name: "describe_images", action: "DescribeImages"},
 		{name: "describe_instance_types", action: "DescribeInstanceTypes"},
+		{name: "describe_snapshots", action: "DescribeSnapshots"},
+		{name: "describe_network_acls", action: "DescribeNetworkAcls"},
 	}
 
 	for _, tt := range tests {
@@ -791,7 +798,7 @@ func buildVPCWithResources(
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
 
-	_, err = b.CreateNatGateway(subnet.ID, addr.AllocationID)
+	_, err = b.CreateNatGateway(subnet.ID, addr.AllocationID, nil)
 	require.NoError(t, err)
 
 	return vpcResources{
@@ -933,7 +940,7 @@ func TestPersistenceWithExtendedResources(t *testing.T) {
 	// Populate various resources
 	_, err := b.CreateKeyPair("persist-key")
 	require.NoError(t, err)
-	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, err)
 	addr, err := b.AllocateAddress()
 	require.NoError(t, err)
@@ -941,7 +948,7 @@ func TestPersistenceWithExtendedResources(t *testing.T) {
 	require.NoError(t, err)
 	rt, err := b.CreateRouteTable("vpc-default")
 	require.NoError(t, err)
-	_, err = b.CreateNatGateway("subnet-default", addr.AllocationID)
+	_, err = b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 	_, err = b.RunInstances("ami-123", "t2.micro", "", 1)
 	require.NoError(t, err)
@@ -987,7 +994,7 @@ func TestPersistence_Parity4Fields(t *testing.T) {
 	b := newTestBackend()
 
 	// TGW Client VPN attachment (created implicitly via CreateClientVpnEndpoint).
-	tgw, err := b.CreateTransitGateway("persist-tgw")
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "persist-tgw"})
 	require.NoError(t, err)
 	_, err = b.CreateClientVpnEndpointWithOptions(
 		"10.0.0.0/22", "persist-cvpn", nil,

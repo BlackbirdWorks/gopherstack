@@ -21,7 +21,7 @@ func (b *InMemoryBackend) CreateNetworkACL(vpcID string) (*StoredNetworkACL, err
 	}
 
 	acl := &StoredNetworkACL{
-		ID:             "acl-" + uuid.New().String()[:17],
+		ID:             newNetworkACLID(),
 		VPCID:          vpcID,
 		IsDefault:      false,
 		AssociationIDs: nil,

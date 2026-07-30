@@ -272,7 +272,10 @@ type getAccessPointResponseXML struct {
 // GetAccessPointOutput, PublicAccessBlockConfiguration travels inline in
 // this response -- it is NOT a separate operation (see the doc comment on
 // dispatchAccessPointSubResourceOps for the fabricated standalone ops this
-// replaced).
+// replaced). GAP, not fabricated: the real GetAccessPointOutput also
+// carries DataSourceId, DataSourceType, and Endpoints (a map, used for
+// Multi-Region Access Point-backed access points on Outposts/Snow) --
+// AccessPoint in this backend (models.go) tracks none of the three.
 func (h *Handler) handleGetAccessPoint(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimPrefix(c.Request().URL.Path, pathAccessPointPrefix)
@@ -440,6 +443,17 @@ func (h *Handler) handleGetAccessPointPolicyStatus(c *echo.Context) error {
 
 // ---- Access Point Scope ----
 
+// handleGetAccessPointScope. GetAccessPointScopeOutput's Scope field is a
+// structured type (Permissions []ScopePermission, Prefixes []string; see
+// awsRestxml_deserializeDocumentScope), NOT a flat string -- a previous
+// version of this handler treated "<Scope>" as plain character data, which
+// would collapse a real client's "<Scope><Permissions><member>READ</member>
+// </Permissions>...</Scope>" structure into (mostly empty) whitespace text
+// on decode, and mis-encode it as escaped text rather than real nested
+// elements on the response side. This backend stores each access point's
+// scope as an opaque raw XML blob (accessPointScopes), so the real
+// Permissions/Prefixes structure is captured/replayed as raw inner XML
+// nested under "<Scope>" instead.
 func (h *Handler) handleGetAccessPointScope(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimSuffix(
@@ -452,15 +466,20 @@ func (h *Handler) handleGetAccessPointScope(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	return writeXML(c, struct {
-		XMLName xml.Name `xml:"GetAccessPointScopeResult"`
-		Scope   string   `xml:"Scope,omitempty"`
-	}{Scope: scope})
+	resp := struct {
+		Scope   *describeJobInnerXML `xml:"Scope,omitempty"`
+		XMLName xml.Name             `xml:"GetAccessPointScopeResult"`
+	}{}
+	if scope != "" {
+		resp.Scope = &describeJobInnerXML{Raw: scope}
+	}
+
+	return writeXML(c, resp)
 }
 
 type putAccessPointScopeRequestXML struct {
-	XMLName xml.Name `xml:"PutAccessPointScopeRequest"`
-	Scope   string   `xml:"Scope"`
+	XMLName xml.Name            `xml:"PutAccessPointScopeRequest"`
+	Scope   createJobXMLCapture `xml:"Scope"`
 }
 
 func (h *Handler) handlePutAccessPointScope(c *echo.Context) error {
@@ -475,7 +494,7 @@ func (h *Handler) handlePutAccessPointScope(c *echo.Context) error {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	if err := h.Backend.PutAccessPointScope(accountID, name, body.Scope); err != nil {
+	if err := h.Backend.PutAccessPointScope(accountID, name, body.Scope.Raw); err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -498,6 +517,16 @@ func (h *Handler) handleDeleteAccessPointScope(c *echo.Context) error {
 	return c.String(http.StatusNoContent, "")
 }
 
+// handleListAccessPointsForDirectoryBuckets. ListAccessPointsForDirectoryBucketsOutput
+// shares the exact same "AccessPointList>AccessPoint" wrapper AND the same
+// types.AccessPoint entry type as ListAccessPoints (confirmed via
+// awsRestxml_deserializeOpDocumentListAccessPointsForDirectoryBucketsOutput,
+// which delegates to the identical awsRestxml_deserializeDocumentAccessPointList
+// ListAccessPoints uses) -- so this reuses listAccessPointItemXML rather
+// than a narrower ad hoc type. A previous version of this handler emitted
+// only Name/AccessPointArn/Bucket, omitting BucketAccountId/NetworkOrigin/
+// Alias/VpcConfiguration despite this backend tracking all of them on
+// every AccessPoint (see models.go).
 func (h *Handler) handleListAccessPointsForDirectoryBuckets(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	q := c.Request().URL.Query()
@@ -505,24 +534,27 @@ func (h *Handler) handleListAccessPointsForDirectoryBuckets(c *echo.Context) err
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	aps := h.Backend.ListAccessPointsForDirectoryBuckets(accountID)
-	type apItem struct {
-		Name           string `xml:"Name"`
-		AccessPointArn string `xml:"AccessPointArn"`
-		Bucket         string `xml:"Bucket"`
-	}
-	items := make([]apItem, 0, len(aps))
+	items := make([]listAccessPointItemXML, 0, len(aps))
 	for _, ap := range aps {
-		items = append(
-			items,
-			apItem{Name: ap.Name, AccessPointArn: ap.AccessPointArn, Bucket: ap.Bucket},
-		)
+		item := listAccessPointItemXML{
+			Name:            ap.Name,
+			Bucket:          ap.Bucket,
+			NetworkOrigin:   ap.NetworkOrigin,
+			AccessPointArn:  ap.AccessPointArn,
+			Alias:           ap.Alias,
+			BucketAccountID: ap.BucketAccountID,
+		}
+		if ap.VpcID != "" {
+			item.VpcConfiguration = &listAccessPointVpcConfigXML{VpcID: ap.VpcID}
+		}
+		items = append(items, item)
 	}
 
 	page, tok := s3cPaginate(items, nextToken, maxResults)
 
 	return writeXML(c, struct {
-		XMLName      xml.Name `xml:"ListAccessPointsForDirectoryBucketsResult"`
-		NextToken    string   `xml:"NextToken,omitempty"`
-		AccessPoints []apItem `xml:"AccessPointList>AccessPoint"`
+		XMLName      xml.Name                 `xml:"ListAccessPointsForDirectoryBucketsResult"`
+		NextToken    string                   `xml:"NextToken,omitempty"`
+		AccessPoints []listAccessPointItemXML `xml:"AccessPointList>AccessPoint"`
 	}{AccessPoints: page, NextToken: tok})
 }

@@ -4,12 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ErrNatGatewayNotFound is returned when a NAT gateway is not found.
 var ErrNatGatewayNotFound = errors.New("InvalidNatGatewayID.NotFound")
+
+// natGatewayConnectivityTypePublic is the only ConnectivityType this backend
+// creates: CreateNatGateway always requires an AllocationId (an Elastic IP),
+// which is the defining trait of a public NAT gateway in real AWS. Private
+// NAT gateways (no AllocationId, ConnectivityType=private) are not modeled —
+// see PARITY.md.
+const natGatewayConnectivityTypePublic = "public"
 
 // NatGateway represents an EC2 NAT Gateway.
 type NatGateway struct {
@@ -17,13 +22,18 @@ type NatGateway struct {
 	ID         string    `json:"id,omitempty"`
 	SubnetID   string    `json:"subnetID,omitempty"`
 	VPCID      string    `json:"vpcID,omitempty"`
+	// AvailabilityZone is the AZ of the gateway's subnet, matching real AWS's
+	// NatGatewayAddress.AvailabilityZone for the primary (and, in this
+	// single-AZ-only mock, every secondary) address.
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
 	// AllocationID / AssociationID / PublicIP / PrivateIP describe the
 	// gateway's primary (IsPrimary=true) EIP association, set at creation.
-	AllocationID  string `json:"allocationID,omitempty"`
-	AssociationID string `json:"associationID,omitempty"`
-	PublicIP      string `json:"publicIP,omitempty"`
-	PrivateIP     string `json:"privateIP,omitempty"`
-	State         string `json:"state,omitempty"`
+	AllocationID     string `json:"allocationID,omitempty"`
+	AssociationID    string `json:"associationID,omitempty"`
+	PublicIP         string `json:"publicIP,omitempty"`
+	PrivateIP        string `json:"privateIP,omitempty"`
+	State            string `json:"state,omitempty"`
+	ConnectivityType string `json:"connectivityType,omitempty"`
 	// SecondaryAddresses holds additional public IP associations added via
 	// AssociateNatGatewayAddress and removed via DisassociateNatGatewayAddress.
 	SecondaryAddresses []NatGatewayAddress `json:"secondaryAddresses,omitempty"`
@@ -43,7 +53,9 @@ type NatGatewayAddress struct {
 }
 
 // CreateNatGateway creates a new NAT Gateway.
-func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatGateway, error) {
+func (b *InMemoryBackend) CreateNatGateway(
+	subnetID, allocationID string, tags map[string]string,
+) (*NatGateway, error) {
 	b.mu.Lock("CreateNatGateway")
 	defer b.mu.Unlock()
 
@@ -57,20 +69,23 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 		return nil, fmt.Errorf("%w: %s", ErrAddressNotFound, allocationID)
 	}
 
-	id := "nat-" + uuid.New().String()[:17]
+	id := newNATGatewayID()
 	ngw := &NatGateway{
-		ID:            id,
-		SubnetID:      subnetID,
-		VPCID:         subnet.VPCID,
-		AllocationID:  allocationID,
-		AssociationID: "eipassoc-" + uuid.New().String()[:17],
-		PublicIP:      addr.PublicIP,
-		PrivateIP:     b.allocPrivateIP(),
-		State:         stateAvailable,
-		CreateTime:    time.Now(),
+		ID:               id,
+		SubnetID:         subnetID,
+		VPCID:            subnet.VPCID,
+		AvailabilityZone: subnet.AvailabilityZone,
+		AllocationID:     allocationID,
+		AssociationID:    newEIPAssociationID(),
+		PublicIP:         addr.PublicIP,
+		PrivateIP:        b.allocPrivateIP(),
+		State:            stateAvailable,
+		ConnectivityType: natGatewayConnectivityTypePublic,
+		CreateTime:       time.Now(),
 	}
 	b.natGateways.Put(ngw)
 	b.indexNatGatewayLocked(ngw)
+	b.setTagsLocked(id, tags)
 
 	return ngw, nil
 }
@@ -216,7 +231,7 @@ func (b *InMemoryBackend) AssociateNatGatewayAddress(
 
 		ngw.SecondaryAddresses = append(ngw.SecondaryAddresses, NatGatewayAddress{
 			AllocationID:  allocID,
-			AssociationID: "eipassoc-" + uuid.New().String()[:17],
+			AssociationID: newEIPAssociationID(),
 			PrivateIP:     b.allocPrivateIP(),
 			PublicIP:      addr.PublicIP,
 		})

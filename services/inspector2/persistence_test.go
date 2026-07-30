@@ -88,7 +88,7 @@ func newPersistenceTestBackend(t *testing.T) (*inspector2.InMemoryBackend, persi
 	require.NoError(t, err)
 
 	// codeSecurityScanConfigs table.
-	scanCfg, err := b.CreateCodeSecurityScanConfiguration("scancfg1", nil, nil, nil)
+	scanCfg, err := b.CreateCodeSecurityScanConfiguration("scancfg1", "ACCOUNT", []string{"SAST"}, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// scanConfigAssociations table + byConfig index.

@@ -384,7 +384,8 @@ func TestMigrationLifecycleWindow(t *testing.T) {
 		require.NoError(t, err)
 		opensearch.ExpireDomainProcessing(b, domain.Name)
 
-		m, err := b.StartMigration(app.ID, domain.ARN)
+		m, err := b.StartMigration(app.ID, domain.ARN,
+			&opensearch.MigrationWorkspaceInput{CreateWorkspace: true, Name: "mig-lc-workspace"}, nil, "")
 		require.NoError(t, err)
 		assert.Equal(t, "PENDING", m.Status)
 
@@ -411,7 +412,8 @@ func TestMigrationLifecycleWindow(t *testing.T) {
 		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "mig-fast-domain"})
 		require.NoError(t, err)
 
-		m, err := b.StartMigration(app.ID, domain.ARN)
+		m, err := b.StartMigration(app.ID, domain.ARN,
+			&opensearch.MigrationWorkspaceInput{CreateWorkspace: true, Name: "mig-fast-workspace"}, nil, "")
 		require.NoError(t, err)
 		assert.Equal(t, "SUCCEEDED", m.Status)
 	})
@@ -433,7 +435,7 @@ func TestDataSourceAttachmentPendingWindow(t *testing.T) {
 		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "att-lc-domain"})
 		require.NoError(t, err)
 
-		att, err := b.AttachDataSource(app.ID, domain.ARN)
+		att, err := b.AttachDataSource(app.ID, domain.ARN, nil, "")
 		require.NoError(t, err)
 		assert.Equal(t, "PENDING", att.Status)
 
@@ -457,7 +459,7 @@ func TestDataSourceAttachmentPendingWindow(t *testing.T) {
 		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "att-fail-domain"})
 		require.NoError(t, err)
 
-		att, err := b.AttachDataSource(app.ID, domain.ARN)
+		att, err := b.AttachDataSource(app.ID, domain.ARN, nil, "")
 		require.NoError(t, err)
 		assert.Equal(t, "PENDING", att.Status)
 

@@ -107,6 +107,68 @@ func (b *Broker) Publish(topic string, payload []byte, retain bool, qos byte) er
 	return s.Publish(topic, payload, retain, qos)
 }
 
+// ClientSubscriptions implements iotdataplane.MQTTPublisher. It reads the
+// live per-client subscription state mochi-mqtt tracks in
+// Client.State.Subscriptions -- the only place gopherstack has real MQTT
+// subscription data, since no other service parses SUBSCRIBE packets. Returns
+// (nil, false) when the broker hasn't started, or has no live client with the
+// given ID; a connected client with zero subscriptions returns a non-nil
+// empty map and true.
+func (b *Broker) ClientSubscriptions(clientID string) (map[string]byte, bool) {
+	s := b.server.Load()
+	if s == nil {
+		return nil, false
+	}
+
+	cl, ok := s.Clients.Get(clientID)
+	if !ok {
+		return nil, false
+	}
+
+	all := cl.State.Subscriptions.GetAll()
+	subs := make(map[string]byte, len(all))
+
+	for filter, sub := range all {
+		subs[filter] = sub.Qos
+	}
+
+	return subs, true
+}
+
+// SendToClient implements iotdataplane.MQTTPublisher. It writes a PUBLISH
+// packet straight to clientID's live connection via Client.WritePacket,
+// bypassing topic subscription matching entirely -- mirroring real AWS
+// SendDirectMessage's documented "the receiving client does not need to
+// subscribe to the topic" semantics. Returns ok=false (no error) when the
+// broker hasn't started or has no live client with that ID: nothing was sent,
+// and the caller decides how to degrade.
+func (b *Broker) SendToClient(clientID, topic string, payload []byte, qos byte) (bool, error) {
+	s := b.server.Load()
+	if s == nil {
+		return false, ErrBrokerNotStarted
+	}
+
+	cl, ok := s.Clients.Get(clientID)
+	if !ok {
+		return false, nil
+	}
+
+	err := cl.WritePacket(packets.Packet{
+		FixedHeader: packets.FixedHeader{
+			Type: packets.Publish,
+			Qos:  qos,
+		},
+		TopicName: topic,
+		Payload:   payload,
+		PacketID:  uint16(qos), // matches Server.Publish's own inline packet construction.
+	})
+	if err != nil {
+		return false, fmt.Errorf("iot broker: send to client %s: %w", clientID, err)
+	}
+
+	return true, nil
+}
+
 // ruleHook is a mochi-mqtt hook that evaluates IoT rules on every published message.
 type ruleHook struct {
 	mqtt.HookBase
