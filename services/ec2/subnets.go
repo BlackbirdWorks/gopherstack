@@ -4,9 +4,18 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 )
+
+// newSubnetID returns a subnet ID in real AWS's shape: "subnet-" followed by
+// lowercase hex digits only. uuid.New().String() is hyphenated
+// (8-4-4-4-12), so a naive [:N] slice embeds literal "-" characters into the
+// ID once N crosses a hyphen boundary; strip them first.
+func newSubnetID() string {
+	return "subnet-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:17]
+}
 
 // CreateDefaultSubnet creates a new default subnet in the given availability zone.
 func (b *InMemoryBackend) CreateDefaultSubnet(az string) (*Subnet, error) {
@@ -30,7 +39,7 @@ func (b *InMemoryBackend) CreateDefaultSubnet(az string) (*Subnet, error) {
 	}
 
 	subnet := &Subnet{
-		ID:                  "subnet-" + uuid.New().String()[:17],
+		ID:                  newSubnetID(),
 		VPCID:               defaultVPCID,
 		CIDRBlock:           defaultSubnetCIDR,
 		AvailabilityZone:    az,
@@ -305,7 +314,7 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 		}
 	}
 
-	id := "subnet-" + uuid.New().String()[:17]
+	id := newSubnetID()
 	s := &Subnet{
 		ID:               id,
 		VPCID:            vpcID,
