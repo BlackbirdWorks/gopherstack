@@ -1,8 +1,8 @@
 ---
 service: shield
 sdk_module: aws-sdk-go-v2/service/shield@v1.34.20
-last_audit_commit: 9a28a0bb7
-last_audit_date: 2026-07-24
+last_audit_commit: 2d47b51d4
+last_audit_date: 2026-07-29
 overall: A            # all documented gaps from the prior sweep closed; one invented op deleted
 ops:
   CreateSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -60,31 +60,12 @@ families:
   alar: {status: ok, note: "ApplicationLayerAutomaticResponseConfiguration nested in Protection response only when set, matching optional-field AWS behavior; cascade-delete-on-DeleteProtection fixed this sweep"}
   quotas: {status: ok, note: "fixed this sweep -- CreateProtection/CreateProtectionGroup/UpdateProtectionGroup/AssociateDRTLogBucket now enforce every quota they themselves report via DescribeSubscription or that real AWS documents (subscriptionMaxProtections, subscriptionMaxProtectionsPerType, subscriptionMaxProtectionGroups, subscriptionMaxMembersPerGroup, 10-bucket DRT log bucket cap), returning LimitsExceededException (new ErrLimitExceeded sentinel) via handler.go's classifyShieldError"}
 gaps:
-  - DescribeAttack/ListAttacks never populate AttackDetail.AttackProperties or AttackDetail.SubResources (both optional AWS fields); simulated/internal attacks only carry AttackVectors/AttackCounters/Mitigations. Acceptable for a synthetic-attack emulator but noted for completeness. NOT fixed this sweep: AttackProperty requires modeling AttackLayer/AttackPropertyIdentifier/TopContributors enums with plausible synthetic per-contributor traffic data, which is a meaningfully larger feature than a wire-shape fix and was judged out of scope for this pass; DescribeAttack/ListAttacks remain fully AWS-shape-correct for every field they DO populate.
-  - LockedSubscriptionException (subscription's first-year AutoRenew lock, changeable only in
-    the last 30 days of the commitment) is not modeled -- UpdateSubscription always allows
-    changing AutoRenew. Deliberately NOT implemented: gopherstack subscriptions are always
-    "fresh" (no historical passage of time), so enforcing the real 335-day lock would make
-    UpdateSubscription permanently fail for every subscription in the emulator, which is worse
-    for testability than the current permissive behavior. Documented gap, not a wire bug.
-  - OptimisticLockException (concurrent-modification detection via a resource version/etag) is
-    not modeled anywhere -- CreateProtectionGroup/UpdateProtectionGroup/DeleteProtectionGroup/
-    AssociateDRTLogBucket/DisassociateDRTLogBucket/UpdateEmergencyContactSettings all declare it
-    in their real error catalogs but gopherstack's coarse per-backend lock (lockmetrics.RWMutex)
-    makes every mutation atomic, so the race window OptimisticLockException exists to protect
-    against never occurs in this emulator. Not implemented; low value for a single-process
-    in-memory backend.
-  - AccessDeniedException / AccessDeniedForDependencyException are never returned -- gopherstack
-    does not model IAM permission checks for any service, Shield included. Consistent with the
-    rest of the codebase; not a Shield-specific gap.
-  - InvalidResourceException (thrown by real AWS when a ResourceArn is a well-formed ARN for a
-    supported type but the underlying resource doesn't exist / isn't accessible) is not
-    distinguished from InvalidParameterException (used for malformed/unsupported-type ARNs)
-    because gopherstack has no cross-service resource-existence oracle to check against. Would
-    require wiring Shield's CreateProtection to query other services' backends
-    (elbv2/cloudfront/route53/ec2/globalaccelerator) for resource existence -- out of scope for
-    this pass.
-deferred: []
+  - "IMPOSSIBLE (re-confirmed gopherstack-kp7b): DescribeAttack/ListAttacks never populate AttackDetail.AttackProperties or AttackDetail.SubResources (both optional AWS fields); simulated/internal attacks only carry AttackVectors/AttackCounters/Mitigations. This is NOT a chaos-coverable gap (chaos only injects error responses, not fabricated success-payload data) and was re-examined against types.AttackProperty/types.Contributor/types.SubResourceSummary in the vendored SDK this pass: AttackProperty.TopContributors is a list of Contributor{Name, Value int64} -- e.g. a source-country name with a traffic-volume count -- and SubResourceSummary.Counters is a list of SummarizedCounter (Average/Max/Median/Sum/N, real statistical aggregates). gopherstack has no real network traffic for a simulated attack to report on, so populating either field would mean inventing plausible-looking contributor names and traffic counts with zero grounding -- exactly the 'invented metrics/counts' this project's honesty rules forbid, not a smaller version of a real feature. Left honestly absent (the real field is optional and simply omitted when Shield has nothing to report, which is what a synthetic attack's true state is). DescribeAttack/ListAttacks remain fully AWS-shape-correct for every field they DO populate."
+  - "IMPOSSIBLE (re-confirmed gopherstack-kp7b): LockedSubscriptionException (subscription's first-year AutoRenew lock, changeable only in the last 30 days of the commitment) is not modeled -- UpdateSubscription always allows changing AutoRenew. Deliberately NOT implemented: gopherstack subscriptions are always \"fresh\" (no historical passage of time), so enforcing the real 335-day lock would make UpdateSubscription permanently fail for every subscription in the emulator, which is worse for testability than the current permissive behavior. Documented gap, not a wire bug. (Not chaos-relevant either way: a caller that specifically wants to exercise this __type can already do so via chaos fault injection on UpdateSubscription, same as the three items below.)"
+deferred:
+  - "ALREADY COVERED BY CHAOS (verified gopherstack-kp7b): OptimisticLockException (concurrent-modification detection via a resource version/etag) is not modeled anywhere -- CreateProtectionGroup/UpdateProtectionGroup/DeleteProtectionGroup/AssociateDRTLogBucket/DisassociateDRTLogBucket/UpdateEmergencyContactSettings all declare it in their real error catalogs but gopherstack's coarse per-backend lock (lockmetrics.RWMutex) makes every mutation atomic, so the race window OptimisticLockException exists to protect against never occurs in this emulator's backend state. Concretely verified this pass: shield.Handler implements ChaosServiceName() -> \"shield\" and ChaosOperations() -> h.GetSupportedOperations() (handler.go), and pkgs/chaos.Middleware is wired globally via registry.Use(chaos.Middleware(faultStore)) in cli.go -- it matches purely on the request's SigV4 service name + X-Amz-Target operation + region and injects an arbitrary caller-specified FaultError{Code, StatusCode} without touching backend state, so a fault rule such as {\"service\":\"shield\",\"operation\":\"UpdateProtectionGroup\",\"error\":{\"code\":\"OptimisticLockException\",\"statusCode\":400}} deterministically returns that exact typed error to a real client with zero backend code changes."
+  - "ALREADY COVERED BY CHAOS (verified gopherstack-kp7b): AccessDeniedException / AccessDeniedForDependencyException are never returned -- gopherstack does not model IAM permission checks for any service, Shield included, so there is no backend-state condition to trigger either from. Consistent with the rest of the codebase; not a Shield-specific gap. Same chaos mechanism as OptimisticLockException above makes both reachable on demand for a caller that wants to test its own error-handling path, with zero backend code changes."
+  - "ALREADY COVERED BY CHAOS (verified gopherstack-kp7b): InvalidResourceException (thrown by real AWS when a ResourceArn is a well-formed ARN for a supported type but the underlying resource doesn't exist / isn't accessible) is not distinguished from InvalidParameterException (used for malformed/unsupported-type ARNs) because gopherstack has no cross-service resource-existence oracle to check against. Would require wiring Shield's CreateProtection to query other services' backends (elbv2/cloudfront/route53/ec2/globalaccelerator) for resource existence -- that kind of cross-service backend reference is set up at CLI init time (cli.go), out of bounds for this pass (see applicationautoscaling's PARITY.md for the same cli.go-wiring constraint on a different service). Same chaos mechanism as above makes InvalidResourceException reachable on demand in the meantime."
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table-backed maps guarded by lockmetrics.RWMutex; Snapshot/Restore round-trip verified (persistence_test.go). Fixed this sweep: DeleteProtection previously left an orphaned alarConfigs row keyed by the deleted protection's ResourceARN -- a later CreateProtection for the same ResourceARN would incorrectly inherit the stale ALAR config from the deleted protection. Now cascade-cleaned; regression test in protections_test.go (TestInMemoryBackend_DeleteProtectionCascadeCleansALARConfig)."}
 ---
 

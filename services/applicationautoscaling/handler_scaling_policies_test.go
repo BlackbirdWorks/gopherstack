@@ -31,12 +31,12 @@ func TestHandler_PutScalingPolicy(t *testing.T) {
 	assert.Contains(t, policyARN, "arn:aws:autoscaling:")
 	assert.Contains(t, policyARN, "scalingPolicy:")
 
-	// TargetTrackingScaling policies get synthesized CloudWatch alarms (real
-	// AWS creates backing alarms server-side; see PutScalingPolicy's doc
-	// comment on synthesizeAlarms).
-	alarms, ok := resp["Alarms"].([]any)
-	require.True(t, ok, "expected Alarms in PutScalingPolicy response")
-	assert.NotEmpty(t, alarms)
+	// Alarms is honestly left empty: gopherstack has no cross-service
+	// reference to a real cloudwatch backend, so it cannot create the
+	// genuine backing CloudWatch alarm real AWS would (see PARITY.md gaps).
+	// omitempty means the field is absent entirely, not present-but-empty.
+	_, ok := resp["Alarms"]
+	assert.False(t, ok, "Alarms should be omitted (honest-empty), not fabricated")
 }
 
 func TestHandler_PutScalingPolicy_Validation(t *testing.T) {
@@ -475,11 +475,12 @@ func TestScalingPolicyCRUD(t *testing.T) {
 	assert.Empty(t, afterOut["ScalingPolicies"])
 }
 
-// TestHandler_PutScalingPolicy_Alarms verifies the synthesized CloudWatch
-// Alarms field real AWS attaches to TargetTrackingScaling/StepScaling
-// policies (PutScalingPolicy and DescribeScalingPolicies both return it):
-// TargetTrackingScaling gets two alarms (high+low) unless DisableScaleIn is
-// set, StepScaling gets one, and PredictiveScaling gets none.
+// TestHandler_PutScalingPolicy_Alarms verifies that the Alarms field (both
+// PutScalingPolicy and DescribeScalingPolicies return it) is honestly left
+// empty for every policy type. Real AWS attaches genuine backing CloudWatch
+// alarms server-side; gopherstack has no cross-service reference to a real
+// cloudwatch backend to create one (see PARITY.md gaps), so it must not
+// fabricate alarm names/ARNs that resolve to nothing.
 func TestHandler_PutScalingPolicy_Alarms(t *testing.T) {
 	t.Parallel()
 
@@ -488,13 +489,11 @@ func TestHandler_PutScalingPolicy_Alarms(t *testing.T) {
 		body       map[string]any
 		name       string
 		policyName string
-		wantAlarms int
 	}{
 		{
 			name:       "target_tracking_scale_in_allowed",
 			policyName: "tt-policy",
 			policyType: "TargetTrackingScaling",
-			wantAlarms: 2,
 		},
 		{
 			name:       "target_tracking_scale_in_disabled",
@@ -506,19 +505,16 @@ func TestHandler_PutScalingPolicy_Alarms(t *testing.T) {
 					"DisableScaleIn": true,
 				},
 			},
-			wantAlarms: 1,
 		},
 		{
 			name:       "step_scaling",
 			policyName: "step-policy",
 			policyType: "StepScaling",
-			wantAlarms: 1,
 		},
 		{
 			name:       "predictive_scaling_no_alarms",
 			policyName: "predictive-policy",
 			policyType: "PredictiveScaling",
-			wantAlarms: 0,
 		},
 	}
 
@@ -543,8 +539,8 @@ func TestHandler_PutScalingPolicy_Alarms(t *testing.T) {
 
 			var putOut map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut))
-			putAlarms, _ := putOut["Alarms"].([]any)
-			assert.Len(t, putAlarms, tt.wantAlarms, "PutScalingPolicy response Alarms count")
+			_, putHasAlarms := putOut["Alarms"]
+			assert.False(t, putHasAlarms, "PutScalingPolicy response Alarms should be omitted")
 
 			descRec := doRequest(t, h, "DescribeScalingPolicies", map[string]any{
 				"ServiceNamespace": "ecs",
@@ -556,14 +552,8 @@ func TestHandler_PutScalingPolicy_Alarms(t *testing.T) {
 			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
 			policies := descOut["ScalingPolicies"].([]any)
 			require.Len(t, policies, 1)
-			descAlarms, _ := policies[0].(map[string]any)["Alarms"].([]any)
-			assert.Len(t, descAlarms, tt.wantAlarms, "DescribeScalingPolicies response Alarms count")
-
-			if tt.wantAlarms > 0 {
-				alarm := putAlarms[0].(map[string]any)
-				assert.NotEmpty(t, alarm["AlarmName"])
-				assert.Contains(t, alarm["AlarmARN"], "arn:aws:cloudwatch:")
-			}
+			_, descHasAlarms := policies[0].(map[string]any)["Alarms"]
+			assert.False(t, descHasAlarms, "DescribeScalingPolicies response Alarms should be omitted")
 		})
 	}
 }

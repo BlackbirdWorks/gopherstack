@@ -222,6 +222,19 @@ func (b *InMemoryBackend) CreateResource(
 	if err := validateKmsKeyID(stringValue(values, "VolumeKmsKeyId", "")); err != nil {
 		return nil, err
 	}
+	// CreateFlywheelInput is the only Create*/resource op whose input carries a
+	// nested DataSecurityConfig (confirmed against types.DataSecurityConfig and
+	// CreateFlywheelInput in the vendored SDK -- CreateDatasetInput has no such
+	// field at all; a dataset inherits its data security config from the
+	// flywheel it's attached to). DataSecurityConfig has its own three KMS key
+	// fields (DataLakeKmsKeyId/ModelKmsKeyId/VolumeKmsKeyId), independent of
+	// this op's top-level ModelKmsKeyId/VolumeKmsKeyId validated above, and
+	// real AWS validates each the same way.
+	if resourceType == resourceTypeFlywheel {
+		if err := validateDataSecurityConfigKmsKeys(mapValue(values, "DataSecurityConfig")); err != nil {
+			return nil, err
+		}
+	}
 
 	resourceArn := b.resourceARN(resourceType, name, versionName)
 	b.mu.Lock("CreateResource")
@@ -672,6 +685,21 @@ func validateKmsKeyID(id string) error {
 	}
 
 	return fmt.Errorf("%w: %q is not a valid KMS key ID or ARN", ErrKmsKeyValidation, id)
+}
+
+// validateDataSecurityConfigKmsKeys validates the three KMS key ID fields
+// nested inside a DataSecurityConfig object (DataLakeKmsKeyId/ModelKmsKeyId/
+// VolumeKmsKeyId -- see types.DataSecurityConfig in the vendored SDK) the
+// same way validateKmsKeyID validates a top-level key field. cfg may be nil
+// (DataSecurityConfig is optional on CreateFlywheelInput).
+func validateDataSecurityConfigKmsKeys(cfg map[string]any) error {
+	for _, field := range [...]string{"DataLakeKmsKeyId", "ModelKmsKeyId", "VolumeKmsKeyId"} {
+		if err := validateKmsKeyID(stringValue(cfg, field, "")); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func cloneResource(resource *Resource) *Resource {
