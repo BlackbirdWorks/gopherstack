@@ -117,7 +117,7 @@ func (b *InMemoryBackend) DescribeLanguageModel(modelName string) (*LanguageMode
 // ListLanguageModels returns language models with optional status filter, name
 // substring filter, and pagination.
 func (b *InMemoryBackend) ListLanguageModels(
-	statusFilter, nameContains, nextToken string,
+	statusFilter, nameContains, nextToken string, maxResults int32,
 ) ([]LanguageModel, string) {
 	b.mu.RLock("ListLanguageModels")
 	defer b.mu.RUnlock()
@@ -131,5 +131,5 @@ func (b *InMemoryBackend) ListLanguageModels(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ModelName < all[j].ModelName })
 
-	return paginateList(all, nextToken)
+	return paginateList(all, nextToken, maxResults)
 }

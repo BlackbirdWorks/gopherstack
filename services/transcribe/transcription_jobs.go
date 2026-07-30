@@ -173,7 +173,7 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 // ListTranscriptionJobs returns transcription jobs, optionally filtered by status and
 // name substring, with pagination.
 func (b *InMemoryBackend) ListTranscriptionJobs(
-	statusFilter, nameContains, nextToken string,
+	statusFilter, nameContains, nextToken string, maxResults int32,
 ) ([]TranscriptionJob, string) {
 	b.mu.RLock("ListTranscriptionJobs")
 	defer b.mu.RUnlock()
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) ListTranscriptionJobs(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].JobName < all[j].JobName })
 
-	return paginateList(all, nextToken)
+	return paginateList(all, nextToken, maxResults)
 }
 
 // DeleteTranscriptionJob removes a transcription job by name.
@@ -249,6 +249,10 @@ func validateTranscriptionJobInput(input *TranscriptionJob) error {
 	}
 
 	if err := validateLanguageOptions(input.LanguageOptions); err != nil {
+		return err
+	}
+
+	if err := validateLanguageIDSettings(input.LanguageIDSettings, input.IdentifyMultipleLanguages); err != nil {
 		return err
 	}
 

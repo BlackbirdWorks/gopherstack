@@ -133,6 +133,7 @@ type listLanguageModelsInput struct {
 	NextToken    string `json:"NextToken"`
 	StatusEquals string `json:"StatusEquals"`
 	NameContains string `json:"NameContains"`
+	MaxResults   int32  `json:"MaxResults"`
 }
 
 type listLanguageModelsOutput struct {
@@ -144,7 +145,7 @@ func (h *Handler) handleListLanguageModels(
 	_ context.Context,
 	in *listLanguageModelsInput,
 ) (*listLanguageModelsOutput, error) {
-	models, nextToken := h.Backend.ListLanguageModels(in.StatusEquals, in.NameContains, in.NextToken)
+	models, nextToken := h.Backend.ListLanguageModels(in.StatusEquals, in.NameContains, in.NextToken, in.MaxResults)
 
 	result := make([]languageModelOutput, 0, len(models))
 	for i := range models {

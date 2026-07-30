@@ -11,7 +11,22 @@ import (
 )
 
 const (
+	// transcribeDefaultPageSize is the page size used when a caller does not supply
+	// MaxResults. Amazon Transcribe's List* operations document a default of 5 when
+	// MaxResults is omitted, but gopherstack intentionally returns a larger default
+	// page (the documented maximum) since real clients always page via NextToken
+	// regardless of page size, so a larger unrequested default is non-breaking.
 	transcribeDefaultPageSize = 100
+
+	// transcribeMaxResultsUpperBound is the documented maximum value for MaxResults
+	// across every Transcribe List* operation (ListTranscriptionJobs,
+	// ListVocabularies, ListVocabularyFilters, ListMedicalVocabularies,
+	// ListMedicalScribeJobs, ListCallAnalyticsCategories,
+	// ListMedicalTranscriptionJobs, ListCallAnalyticsJobs, ListLanguageModels):
+	// "Valid Range: Minimum value of 1. Maximum value of 100." The documented
+	// minimum is 1; gopherstack has no notion of a 0-or-negative caller value other
+	// than "not supplied", handled as the default case below.
+	transcribeMaxResultsUpperBound = 100
 
 	// job/scribe status constants.
 	jobStatusQueued     = "QUEUED"
@@ -93,14 +108,16 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) AccountID() string { return defaultAccountID }
 
 // paginateList applies pagination to a pre-sorted slice using a token-based offset.
+// maxResults honors a caller-supplied MaxResults, clamped to the real API's documented
+// bounds (1-100); a value of 0 (not supplied) falls back to transcribeDefaultPageSize.
 // It returns the page slice and the next-page token (empty string if last page).
-func paginateList[T any](all []T, nextToken string) ([]T, string) {
+func paginateList[T any](all []T, nextToken string, maxResults int32) ([]T, string) {
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
 		return []T{}, ""
 	}
 
-	end := startIdx + transcribeDefaultPageSize
+	end := startIdx + int(clampMaxResults(maxResults))
 
 	var outToken string
 	if end < len(all) {
@@ -110,6 +127,22 @@ func paginateList[T any](all []T, nextToken string) ([]T, string) {
 	}
 
 	return all[startIdx:end], outToken
+}
+
+// clampMaxResults honors a caller-supplied MaxResults value, clamping it to the
+// documented [1, 100] range shared by every Transcribe List* operation. A value <= 0
+// (i.e. not supplied) falls back to transcribeDefaultPageSize rather than the real
+// API's undocumented-in-the-wire default of 5, since gopherstack clients always page
+// via NextToken and a larger unrequested default page is non-breaking.
+func clampMaxResults(maxResults int32) int32 {
+	switch {
+	case maxResults <= 0:
+		return transcribeDefaultPageSize
+	case maxResults > transcribeMaxResultsUpperBound:
+		return transcribeMaxResultsUpperBound
+	default:
+		return maxResults
+	}
 }
 
 // applyListOrURI resolves an update's "either list or URI" pair against the currently

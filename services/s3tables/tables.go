@@ -207,6 +207,10 @@ func (b *InMemoryBackend) CreateTable(
 	name, format string,
 	opts CreateTableOptions,
 ) (*Table, error) {
+	if err := validateTableOrNamespaceName(name); err != nil {
+		return nil, err
+	}
+
 	b.muBuckets.RLock("CreateTable")
 	defer b.muBuckets.RUnlock()
 

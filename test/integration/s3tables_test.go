@@ -98,7 +98,7 @@ func TestIntegration_S3Tables_NamespaceLifecycle(t *testing.T) {
 	ctx := t.Context()
 
 	bucketName := "integ-ns-bucket-" + uuid.NewString()[:8]
-	nsName := "integ-ns-" + uuid.NewString()[:8]
+	nsName := "integ_ns_" + uuid.NewString()[:8]
 
 	// Create a table bucket first
 	bucketOut, createBucketErr := client.CreateTableBucket(ctx, &s3tablesclientsdk.CreateTableBucketInput{
@@ -181,8 +181,8 @@ func TestIntegration_S3Tables_TableLifecycle(t *testing.T) {
 	ctx := t.Context()
 
 	bucketName := "integ-tbl-bucket-" + uuid.NewString()[:8]
-	nsName := "integ-tbl-ns-" + uuid.NewString()[:8]
-	tableName := "integ-table-" + uuid.NewString()[:8]
+	nsName := "integ_tbl_ns_" + uuid.NewString()[:8]
+	tableName := "integ_table_" + uuid.NewString()[:8]
 
 	// Create table bucket
 	tblBucketOut, tblBucketErr := client.CreateTableBucket(ctx, &s3tablesclientsdk.CreateTableBucketInput{
@@ -356,8 +356,8 @@ func TestIntegration_S3Tables_Table_Policy(t *testing.T) {
 	ctx := t.Context()
 
 	bucketName := "integ-tpol-bucket-" + uuid.NewString()[:8]
-	nsName := "integ-tpol-ns-" + uuid.NewString()[:8]
-	tableName := "integ-tpol-tbl-" + uuid.NewString()[:8]
+	nsName := "integ_tpol_ns_" + uuid.NewString()[:8]
+	tableName := "integ_tpol_tbl_" + uuid.NewString()[:8]
 
 	bucketOut, setupErr := client.CreateTableBucket(ctx, &s3tablesclientsdk.CreateTableBucketInput{
 		Name: aws.String(bucketName),
@@ -443,8 +443,8 @@ func TestIntegration_S3Tables_MaintenanceConfig(t *testing.T) {
 	ctx := t.Context()
 
 	bucketName := "integ-maint-bucket-" + uuid.NewString()[:8]
-	nsName := "integ-maint-ns-" + uuid.NewString()[:8]
-	tableName := "integ-maint-tbl-" + uuid.NewString()[:8]
+	nsName := "integ_maint_ns_" + uuid.NewString()[:8]
+	tableName := "integ_maint_tbl_" + uuid.NewString()[:8]
 
 	bucketOut, setupErr := client.CreateTableBucket(ctx, &s3tablesclientsdk.CreateTableBucketInput{
 		Name: aws.String(bucketName),

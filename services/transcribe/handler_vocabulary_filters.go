@@ -158,6 +158,7 @@ func (h *Handler) handleDeleteVocabularyFilter(
 type listVocabularyFiltersInput struct {
 	NameContains string `json:"NameContains"`
 	NextToken    string `json:"NextToken"`
+	MaxResults   int32  `json:"MaxResults"`
 }
 
 type listVocabularyFiltersOutput struct {
@@ -169,7 +170,7 @@ func (h *Handler) handleListVocabularyFilters(
 	_ context.Context,
 	in *listVocabularyFiltersInput,
 ) (*listVocabularyFiltersOutput, error) {
-	filters, nextToken := h.Backend.ListVocabularyFilters(in.NameContains, in.NextToken)
+	filters, nextToken := h.Backend.ListVocabularyFilters(in.NameContains, in.NextToken, in.MaxResults)
 
 	result := make([]vocabularyFilterOutput, 0, len(filters))
 	for i := range filters {

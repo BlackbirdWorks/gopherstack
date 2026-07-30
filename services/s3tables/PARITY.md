@@ -65,9 +65,9 @@ ops:
 families:
   route-matcher: {status: ok, note: "verified every op's HTTP method + path prefix against aws-sdk-go-v2/service/s3tables@v1.14.3 serializers.go (49/49 ops); tableBucketARN path segments correctly URL-decoded as single segments via rawPathSegments (RawPath + url.PathUnescape per segment, not naive Split), so ARNs containing '/' and ':' route correctly"}
   timestamps: {status: ok, note: "createdAt/modifiedAt correctly use RFC3339 date-time strings (smithytime.ParseDateTime on the client side), NOT epoch-seconds -- restjson1 s3tables model uses date-time trait, unlike some other json services"}
+  naming-rules: {status: ok, note: "FIXED this pass (gopherstack-spp4): CreateTableBucket/CreateNamespace/CreateTable now enforce real S3 Tables naming rules (validation.go), field-diffed against https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-buckets-naming.html -- bucket names: 3-63 chars, lowercase+digits+hyphens only, must begin/end with letter or number, no underscore/period, reserved prefix denylist (xn--, sthree-, amzn-s3-demo-, aws) and reserved suffix denylist (-s3alias, --ol-s3, --x-s3, --table-s3); namespace/table names: 1-255 chars, lowercase+digits+underscores ONLY (no hyphens/periods), must begin with letter or number, namespace additionally rejects the reserved 'aws' prefix (table names do not have this restriction). Real error: BadRequestException (new ErrInvalidBucketName/ErrInvalidName sentinels), matching the exception type actually present in types/errors.go (there is no dedicated naming-violation exception). This was previously blocked on a test-fixture migration (~10+ files used hyphenated namespace/table names and underscore-containing bucket-name suffixes derived from t.Name()) -- that migration was done this pass rather than deferred again: every hyphenated namespace/table literal across handler_namespaces_test.go, handler_table_maintenance_test.go, handler_tables_test.go, persistence_test.go, tables_test.go, table_buckets_test.go, and test/integration/s3tables_test.go was renamed to the real underscore-only convention, and every bucket name built from a table-test case's name now runs through a new bucketSuffix() helper (lowercases + swaps '_' for '-') in handler_test.go. New table tests: TestBackend_CreateTableBucket_NameValidation, TestBackend_CreateNamespace_NameValidation, TestBackend_CreateTable_NameValidation."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - CreateTable's Metadata field (Iceberg schema at creation) is accepted by the real API but not parsed/stored by this emulator; no read path currently exposes table schema, so this was left deferred rather than half-wired (bd: TODO -- file if schema support becomes a priority)
-  - Table bucket names and namespace/table names are not validated against AWS's real naming rules (bucket: 3-63 chars, lowercase+digits+hyphens, no leading/trailing hyphen, reserved prefix/suffix denylist; namespace/table: 1-255 chars, lowercase+digits+underscores ONLY -- no hyphens -- confirmed via https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-buckets-naming.html). Verified this IS a real gap (the aws-sdk-go-v2 client only validates required-ness client-side, so an invalid name reaches the server -- i.e. this emulator -- unrejected). NOT fixed this pass: the existing test corpus pervasively uses hyphenated namespace/table fixture names (e.g. "acme-ns", "test-ns") and t.Name()-derived bucket names containing underscores across ~10+ files outside this pass's scope; enforcing the real character sets would require a coordinated fixture rename across the whole service package, which is a separate, larger undertaking than the wire-shape/state fixes this pass targeted. Confirmed via a scoped experiment (implemented + immediately reverted) that this breaks TestHandler_Table_*, TestHandler_Namespace_CRUD, TestHandler_MaintenanceConfiguration, TestHandler_Encryption, and others. (bd: TODO -- file as a dedicated fixture-rename + validation pass)
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in InMemoryBackend's store.Table/map fields guarded by lockmetrics.RWMutex, snapshotted via Handler.Snapshot/Restore delegation to InMemoryBackend"}
 ---
 
@@ -210,18 +210,49 @@ one entry per configured type with the real `JobStatus` enum's
 `TableRecordExpirationJobStatus` above -- confirmed via `enums.go`, not
 assumed).
 
-### Investigated but NOT implemented: table bucket / namespace / table naming rules
-Confirmed via AWS documentation (not guessed) that real S3 Tables enforces
-naming rules server-side that the `aws-sdk-go-v2` client does NOT
-pre-validate (its generated `validateOpCreateTableBucketInput` etc. only
-check required-ness) -- so an invalid name really does reach this emulator
-unrejected today, a genuine gap. Bucket names: 3-63 chars, lowercase+digits+
-hyphens, no leading/trailing hyphen, reserved prefix/suffix denylist.
-Namespace/table names: 1-255 chars, lowercase+digits+underscores ONLY (no
-hyphens). Implementing bucket-name validation was attempted and immediately
-reverted after it broke ~10 existing test files that build bucket names from
-`t.Name()`-derived strings containing underscores; namespace/table
-validation was not even attempted after confirming (via grep) that
-hyphenated namespace fixtures like `"acme-ns"`/`"test-ns"` are pervasive
-across the test corpus. Left as an explicit, documented gap rather than a
-half-enforced or silently-skipped one -- see the `gaps` entry above.
+### FIXED this pass (gopherstack-spp4): table bucket / namespace / table naming rules
+A prior pass confirmed via AWS documentation (not guessed) that real S3
+Tables enforces naming rules server-side that the `aws-sdk-go-v2` client does
+NOT pre-validate (its generated `validateOpCreateTableBucketInput` etc. only
+check required-ness) -- so an invalid name really did reach this emulator
+unrejected. That pass attempted bucket-name validation, found it broke ~10
+existing test files that build bucket names from `t.Name()`-derived strings
+containing underscores, and reverted rather than doing the fixture migration.
+
+This pass did the migration instead of deferring it again. `validation.go`
+adds `validateBucketName`/`validateTableOrNamespaceName`/
+`validateNamespaceParts`, wired into `CreateTableBucket`/`CreateNamespace`/
+`CreateTable` respectively:
+- Bucket names: 3-63 chars, lowercase+digits+hyphens only, must begin/end
+  with a letter or number, no underscore/period, reserved prefix denylist
+  (`xn--`, `sthree-`, `amzn-s3-demo-`, `aws`) and reserved suffix denylist
+  (`-s3alias`, `--ol-s3`, `--x-s3`, `--table-s3`).
+- Namespace/table names: 1-255 chars, lowercase+digits+underscores ONLY (no
+  hyphens/periods), must begin with a letter or number. Namespaces
+  additionally reject the reserved `aws` prefix; table names do not have
+  this restriction (confirmed via the docs -- it's namespace-only).
+- Real error code is `BadRequestException` (new `ErrInvalidBucketName`/
+  `ErrInvalidName` sentinels) -- there is no dedicated naming-violation
+  exception type in `types/errors.go`, so this reuses the generic
+  client-error exception, same as `ErrInvalidTableMetadataLocation`.
+
+Every hyphenated namespace/table fixture literal (`"acme-ns"`, `"test-ns"`,
+`"my-ns"`, `"maint-ns"`/`"maint-table"`, `"enc-ns"`/`"enc-table"`,
+`"rename-ns"`, `"policy-ns"`/`"policy-table"`, `"encoded-ns"`/
+`"encoded-table"`, `"opts-table"`, etc.) across
+`handler_namespaces_test.go`, `handler_table_maintenance_test.go`,
+`handler_tables_test.go`, `persistence_test.go`, `tables_test.go`,
+`table_buckets_test.go`, and `test/integration/s3tables_test.go` was renamed
+to the real underscore-only convention. Every bucket name built by
+concatenating a table-test case's (underscore-separated, sometimes
+mixed-case) name onto a prefix now runs through a new `bucketSuffix()` helper
+(`handler_test.go`) that lowercases and swaps `_` for `-`; two subtest names
+were also shortened where prefix+name would have exceeded the real 63-char
+bucket-name limit (`handler_table_bucket_config_test.go`).
+
+New table tests prove the rule itself, not just that fixtures still pass:
+`TestBackend_CreateTableBucket_NameValidation`,
+`TestBackend_CreateNamespace_NameValidation`,
+`TestBackend_CreateTable_NameValidation` (each in the corresponding existing
+`_test.go` file) cover length bounds, character-class violations, reserved
+prefixes/suffixes, and the namespace-only `aws`-prefix rule.

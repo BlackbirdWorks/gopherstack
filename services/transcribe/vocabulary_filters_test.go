@@ -299,7 +299,7 @@ func TestListVocabularyFilters(t *testing.T) {
 		VocabularyFilterName: "filter-2",
 	})
 
-	list, _ := b.ListVocabularyFilters("", "")
+	list, _ := b.ListVocabularyFilters("", "", 0)
 	require.Len(t, list, 2)
 	assert.Equal(t, "filter-1", list[0].VocabularyFilterName)
 	assert.Equal(t, "filter-2", list[1].VocabularyFilterName)
@@ -315,10 +315,10 @@ func TestListVocabularyFilters_NameContains(t *testing.T) {
 	b.AddVocabularyFilterInternal(&transcribe.VocabularyFilter{VocabularyFilterName: "profanity-es"})
 	b.AddVocabularyFilterInternal(&transcribe.VocabularyFilter{VocabularyFilterName: "slang-list"})
 
-	list, _ := b.ListVocabularyFilters("profanity", "")
+	list, _ := b.ListVocabularyFilters("profanity", "", 0)
 	require.Len(t, list, 2)
 
-	list, _ = b.ListVocabularyFilters("SLANG", "")
+	list, _ = b.ListVocabularyFilters("SLANG", "", 0)
 	require.Len(t, list, 1, "NameContains must be case-insensitive")
 	assert.Equal(t, "slang-list", list[0].VocabularyFilterName)
 }

@@ -416,13 +416,13 @@ func TestListVocabularies(t *testing.T) {
 		VocabularyState: "READY",
 	})
 
-	list, _ := b.ListVocabularies("", "", "")
+	list, _ := b.ListVocabularies("", "", "", 0)
 	require.Len(t, list, 3)
 
-	list, _ = b.ListVocabularies("READY", "", "")
+	list, _ = b.ListVocabularies("READY", "", "", 0)
 	require.Len(t, list, 2)
 
-	list, _ = b.ListVocabularies("PENDING", "", "")
+	list, _ = b.ListVocabularies("PENDING", "", "", 0)
 	require.Len(t, list, 1)
 	assert.Equal(t, "vocab-2", list[0].VocabularyName)
 }
@@ -437,13 +437,13 @@ func TestListVocabularies_NameContains(t *testing.T) {
 	b.AddVocabularyInternal(&transcribe.Vocabulary{VocabularyName: "legal-terms", VocabularyState: "READY"})
 	b.AddVocabularyInternal(&transcribe.Vocabulary{VocabularyName: "sports-vocab", VocabularyState: "READY"})
 
-	list, _ := b.ListVocabularies("", "terms", "")
+	list, _ := b.ListVocabularies("", "terms", "", 0)
 	require.Len(t, list, 2)
 
-	list, _ = b.ListVocabularies("", "TERMS", "")
+	list, _ = b.ListVocabularies("", "TERMS", "", 0)
 	require.Len(t, list, 2, "NameContains must be case-insensitive")
 
-	list, _ = b.ListVocabularies("", "sports", "")
+	list, _ = b.ListVocabularies("", "sports", "", 0)
 	require.Len(t, list, 1)
 	assert.Equal(t, "sports-vocab", list[0].VocabularyName)
 }

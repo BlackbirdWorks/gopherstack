@@ -29,35 +29,40 @@ import (
 // / "BlockOverrideTTL". A prior revision used the wrong casing here; real SDK
 // clients would have silently never seen these two fields populated.
 type firewallRuleOutput struct {
-	Name                 string `json:"Name"`
-	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
-	FirewallDomainListID string `json:"FirewallDomainListId"`
-	Action               string `json:"Action"`
-	BlockResponse        string `json:"BlockResponse,omitempty"`
-	BlockOverrideDomain  string `json:"BlockOverrideDomain,omitempty"`
-	BlockOverrideDNSType string `json:"BlockOverrideDnsType,omitempty"`
-	Qtype                string `json:"Qtype,omitempty"`
-	ConfidenceThreshold  string `json:"ConfidenceThreshold,omitempty"`
-	CreatorRequestID     string `json:"CreatorRequestId,omitempty"`
-	CreationTime         string `json:"CreationTime,omitempty"`
-	ModificationTime     string `json:"ModificationTime,omitempty"`
-	BlockOverrideTTL     int32  `json:"BlockOverrideTtl,omitempty"`
-	Priority             int32  `json:"Priority"`
+	Name                            string `json:"Name"`
+	FirewallRuleGroupID             string `json:"FirewallRuleGroupId"`
+	FirewallDomainListID            string `json:"FirewallDomainListId,omitempty"`
+	Action                          string `json:"Action"`
+	BlockResponse                   string `json:"BlockResponse,omitempty"`
+	BlockOverrideDomain             string `json:"BlockOverrideDomain,omitempty"`
+	BlockOverrideDNSType            string `json:"BlockOverrideDnsType,omitempty"`
+	Qtype                           string `json:"Qtype,omitempty"`
+	ConfidenceThreshold             string `json:"ConfidenceThreshold,omitempty"`
+	CreatorRequestID                string `json:"CreatorRequestId,omitempty"`
+	CreationTime                    string `json:"CreationTime,omitempty"`
+	ModificationTime                string `json:"ModificationTime,omitempty"`
+	DNSThreatProtection             string `json:"DnsThreatProtection,omitempty"`
+	FirewallThreatProtectionID      string `json:"FirewallThreatProtectionId,omitempty"`
+	FirewallDomainRedirectionAction string `json:"FirewallDomainRedirectionAction,omitempty"`
+	BlockOverrideTTL                int32  `json:"BlockOverrideTtl,omitempty"`
+	Priority                        int32  `json:"Priority"`
 }
 
 type createFirewallRuleInput struct {
-	Action               string `json:"Action"`
-	CreatorRequestID     string `json:"CreatorRequestId"`
-	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
-	FirewallDomainListID string `json:"FirewallDomainListId"`
-	Name                 string `json:"Name"`
-	BlockResponse        string `json:"BlockResponse"`
-	BlockOverrideDomain  string `json:"BlockOverrideDomain"`
-	BlockOverrideDNSType string `json:"BlockOverrideDnsType"`
-	Qtype                string `json:"Qtype"`
-	ConfidenceThreshold  string `json:"ConfidenceThreshold"`
-	BlockOverrideTTL     int32  `json:"BlockOverrideTtl"`
-	Priority             int32  `json:"Priority"`
+	Action                          string `json:"Action"`
+	CreatorRequestID                string `json:"CreatorRequestId"`
+	FirewallRuleGroupID             string `json:"FirewallRuleGroupId"`
+	FirewallDomainListID            string `json:"FirewallDomainListId"`
+	Name                            string `json:"Name"`
+	BlockResponse                   string `json:"BlockResponse"`
+	BlockOverrideDomain             string `json:"BlockOverrideDomain"`
+	BlockOverrideDNSType            string `json:"BlockOverrideDnsType"`
+	Qtype                           string `json:"Qtype"`
+	ConfidenceThreshold             string `json:"ConfidenceThreshold"`
+	DNSThreatProtection             string `json:"DnsThreatProtection"`
+	FirewallDomainRedirectionAction string `json:"FirewallDomainRedirectionAction"`
+	BlockOverrideTTL                int32  `json:"BlockOverrideTtl"`
+	Priority                        int32  `json:"Priority"`
 }
 
 type createFirewallRuleOutput struct {
@@ -66,20 +71,23 @@ type createFirewallRuleOutput struct {
 
 func firewallRuleToOutput(r *FirewallRule) firewallRuleOutput {
 	return firewallRuleOutput{
-		Name:                 r.Name,
-		FirewallRuleGroupID:  r.FirewallRuleGroupID,
-		FirewallDomainListID: r.FirewallDomainListID,
-		Action:               r.Action,
-		Priority:             r.Priority,
-		BlockResponse:        r.BlockResponse,
-		BlockOverrideDomain:  r.BlockOverrideDomain,
-		BlockOverrideDNSType: r.BlockOverrideDNSType,
-		BlockOverrideTTL:     r.BlockOverrideTTL,
-		Qtype:                r.Qtype,
-		ConfidenceThreshold:  r.ConfidenceThreshold,
-		CreatorRequestID:     r.CreatorRequestID,
-		CreationTime:         r.CreationTime,
-		ModificationTime:     r.ModificationTime,
+		Name:                            r.Name,
+		FirewallRuleGroupID:             r.FirewallRuleGroupID,
+		FirewallDomainListID:            r.FirewallDomainListID,
+		Action:                          r.Action,
+		Priority:                        r.Priority,
+		BlockResponse:                   r.BlockResponse,
+		BlockOverrideDomain:             r.BlockOverrideDomain,
+		BlockOverrideDNSType:            r.BlockOverrideDNSType,
+		BlockOverrideTTL:                r.BlockOverrideTTL,
+		Qtype:                           r.Qtype,
+		ConfidenceThreshold:             r.ConfidenceThreshold,
+		CreatorRequestID:                r.CreatorRequestID,
+		CreationTime:                    r.CreationTime,
+		ModificationTime:                r.ModificationTime,
+		DNSThreatProtection:             r.DNSThreatProtection,
+		FirewallThreatProtectionID:      r.FirewallThreatProtectionID,
+		FirewallDomainRedirectionAction: r.FirewallDomainRedirectionAction,
 	}
 }
 
@@ -109,18 +117,20 @@ func (h *Handler) handleCreateFirewallRule(
 	}
 
 	rule, err := h.Backend.CreateFirewallRule(ctx, CreateFirewallRuleParams{
-		FirewallRuleGroupID:  in.FirewallRuleGroupID,
-		Name:                 in.Name,
-		Action:               in.Action,
-		BlockResponse:        in.BlockResponse,
-		BlockOverrideDomain:  in.BlockOverrideDomain,
-		BlockOverrideDNSType: in.BlockOverrideDNSType,
-		BlockOverrideTTL:     in.BlockOverrideTTL,
-		Qtype:                in.Qtype,
-		ConfidenceThreshold:  in.ConfidenceThreshold,
-		CreatorRequestID:     in.CreatorRequestID,
-		FirewallDomainListID: in.FirewallDomainListID,
-		Priority:             in.Priority,
+		FirewallRuleGroupID:             in.FirewallRuleGroupID,
+		Name:                            in.Name,
+		Action:                          in.Action,
+		BlockResponse:                   in.BlockResponse,
+		BlockOverrideDomain:             in.BlockOverrideDomain,
+		BlockOverrideDNSType:            in.BlockOverrideDNSType,
+		BlockOverrideTTL:                in.BlockOverrideTTL,
+		Qtype:                           in.Qtype,
+		ConfidenceThreshold:             in.ConfidenceThreshold,
+		CreatorRequestID:                in.CreatorRequestID,
+		FirewallDomainListID:            in.FirewallDomainListID,
+		DNSThreatProtection:             in.DNSThreatProtection,
+		FirewallDomainRedirectionAction: in.FirewallDomainRedirectionAction,
+		Priority:                        in.Priority,
 	})
 	if err != nil {
 		return nil, err
@@ -235,14 +245,17 @@ func (h *Handler) handleBatchCreateFirewallRule(
 // --- CreateOutpostResolver ---
 
 // deleteFirewallRuleInput matches the real DeleteFirewallRuleInput shape:
-// there is no FirewallRuleId member. A rule is addressed by the
-// (FirewallRuleGroupId, FirewallDomainListId) pair it was created with
-// (verified against api_op_DeleteFirewallRule.go; FirewallThreatProtectionId
-// is the DNS Firewall Advanced counterpart to FirewallDomainListId and is not
-// modeled here, matching this pass's declared scope).
+// there is no FirewallRuleId member. A rule is addressed by
+// FirewallRuleGroupId plus EITHER FirewallDomainListId (the rule it was
+// created with, for domain-list rules) OR FirewallThreatProtectionId (the
+// DNS Firewall Advanced counterpart, for DnsThreatProtection rules) --
+// verified against api_op_DeleteFirewallRule.go's doc comment ("Identify the
+// rule using either FirewallDomainListId ... or
+// FirewallThreatProtectionId ... together with FirewallRuleGroupId").
 type deleteFirewallRuleInput struct {
-	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
-	FirewallDomainListID string `json:"FirewallDomainListId"`
+	FirewallRuleGroupID        string `json:"FirewallRuleGroupId"`
+	FirewallDomainListID       string `json:"FirewallDomainListId"`
+	FirewallThreatProtectionID string `json:"FirewallThreatProtectionId"`
 }
 
 type deleteFirewallRuleOutput struct {
@@ -256,10 +269,15 @@ func (h *Handler) handleDeleteFirewallRule(
 	if in.FirewallRuleGroupID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
 	}
-	if in.FirewallDomainListID == "" {
-		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+	if in.FirewallDomainListID == "" && in.FirewallThreatProtectionID == "" {
+		return nil, fmt.Errorf(
+			"%w: one of FirewallDomainListId or FirewallThreatProtectionId is required",
+			ErrValidation,
+		)
 	}
-	rule, err := h.Backend.DeleteFirewallRule(ctx, in.FirewallRuleGroupID, in.FirewallDomainListID)
+	rule, err := h.Backend.DeleteFirewallRule(
+		ctx, in.FirewallRuleGroupID, in.FirewallDomainListID, in.FirewallThreatProtectionID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -331,18 +349,26 @@ func (h *Handler) handleBatchDeleteFirewallRule(
 // identify which rule to update -- the domain list a rule targets is part of
 // its identity, not a mutable property (verified against
 // api_op_UpdateFirewallRule.go).
+// updateFirewallRuleInput matches the real UpdateFirewallRuleInput shape:
+// there is no FirewallRuleId member. FirewallRuleGroupId plus EITHER
+// FirewallDomainListId (domain-list rules) OR FirewallThreatProtectionId
+// (DnsThreatProtection rules) identify which rule to update -- a rule's
+// match source is part of its identity, not a mutable property.
+// FirewallDomainRedirectionAction IS a mutable property and is applied.
 type updateFirewallRuleInput struct {
-	FirewallRuleGroupID  string `json:"FirewallRuleGroupId"`
-	FirewallDomainListID string `json:"FirewallDomainListId"`
-	Name                 string `json:"Name"`
-	Action               string `json:"Action"`
-	BlockResponse        string `json:"BlockResponse"`
-	BlockOverrideDomain  string `json:"BlockOverrideDomain"`
-	BlockOverrideDNSType string `json:"BlockOverrideDnsType"`
-	Qtype                string `json:"Qtype"`
-	ConfidenceThreshold  string `json:"ConfidenceThreshold"`
-	BlockOverrideTTL     int32  `json:"BlockOverrideTtl"`
-	Priority             int32  `json:"Priority"`
+	FirewallRuleGroupID             string `json:"FirewallRuleGroupId"`
+	FirewallDomainListID            string `json:"FirewallDomainListId"`
+	FirewallThreatProtectionID      string `json:"FirewallThreatProtectionId"`
+	Name                            string `json:"Name"`
+	Action                          string `json:"Action"`
+	BlockResponse                   string `json:"BlockResponse"`
+	BlockOverrideDomain             string `json:"BlockOverrideDomain"`
+	BlockOverrideDNSType            string `json:"BlockOverrideDnsType"`
+	Qtype                           string `json:"Qtype"`
+	ConfidenceThreshold             string `json:"ConfidenceThreshold"`
+	FirewallDomainRedirectionAction string `json:"FirewallDomainRedirectionAction"`
+	BlockOverrideTTL                int32  `json:"BlockOverrideTtl"`
+	Priority                        int32  `json:"Priority"`
 }
 
 type updateFirewallRuleOutput struct {
@@ -356,21 +382,26 @@ func (h *Handler) handleUpdateFirewallRule(
 	if in.FirewallRuleGroupID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
 	}
-	if in.FirewallDomainListID == "" {
-		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+	if in.FirewallDomainListID == "" && in.FirewallThreatProtectionID == "" {
+		return nil, fmt.Errorf(
+			"%w: one of FirewallDomainListId or FirewallThreatProtectionId is required",
+			ErrValidation,
+		)
 	}
 	rule, err := h.Backend.UpdateFirewallRule(ctx, UpdateFirewallRuleParams{
-		FirewallRuleGroupID:  in.FirewallRuleGroupID,
-		FirewallDomainListID: in.FirewallDomainListID,
-		Name:                 in.Name,
-		Action:               in.Action,
-		BlockResponse:        in.BlockResponse,
-		BlockOverrideDomain:  in.BlockOverrideDomain,
-		BlockOverrideDNSType: in.BlockOverrideDNSType,
-		BlockOverrideTTL:     in.BlockOverrideTTL,
-		Qtype:                in.Qtype,
-		ConfidenceThreshold:  in.ConfidenceThreshold,
-		Priority:             in.Priority,
+		FirewallRuleGroupID:             in.FirewallRuleGroupID,
+		FirewallDomainListID:            in.FirewallDomainListID,
+		FirewallThreatProtectionID:      in.FirewallThreatProtectionID,
+		Name:                            in.Name,
+		Action:                          in.Action,
+		BlockResponse:                   in.BlockResponse,
+		BlockOverrideDomain:             in.BlockOverrideDomain,
+		BlockOverrideDNSType:            in.BlockOverrideDNSType,
+		BlockOverrideTTL:                in.BlockOverrideTTL,
+		Qtype:                           in.Qtype,
+		ConfidenceThreshold:             in.ConfidenceThreshold,
+		FirewallDomainRedirectionAction: in.FirewallDomainRedirectionAction,
+		Priority:                        in.Priority,
 	})
 	if err != nil {
 		return nil, err

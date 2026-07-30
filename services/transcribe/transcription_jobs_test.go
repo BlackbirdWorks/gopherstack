@@ -239,6 +239,72 @@ func TestIdentifyLanguage(t *testing.T) {
 		})
 		require.ErrorIs(t, err, transcribe.ErrValidation)
 	})
+
+	t.Run("language_id_settings_accepted_for_identify_language", func(t *testing.T) {
+		t.Parallel()
+
+		b := transcribe.NewInMemoryBackend()
+		job, err := b.StartTranscriptionJob(&transcribe.TranscriptionJob{
+			JobName:          "job-lang-id-settings-ok",
+			IdentifyLanguage: true,
+			LanguageOptions:  []string{"en-US", "es-US"},
+			LanguageIDSettings: map[string]transcribe.LanguageIDSettings{
+				"en-US": {VocabularyName: "vocab1", LanguageModelName: "model1"},
+			},
+			Media: transcribe.Media{MediaFileURI: "s3://b/f"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "model1", job.LanguageIDSettings["en-US"].LanguageModelName)
+	})
+
+	t.Run("language_id_settings_too_many_entries_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		settings := make(map[string]transcribe.LanguageIDSettings, 6)
+		for _, code := range []string{"en-US", "es-US", "fr-FR", "de-DE", "ja-JP", "ko-KR"} {
+			settings[code] = transcribe.LanguageIDSettings{VocabularyName: "v"}
+		}
+
+		b := transcribe.NewInMemoryBackend()
+		_, err := b.StartTranscriptionJob(&transcribe.TranscriptionJob{
+			JobName:            "job-lang-id-settings-too-many",
+			IdentifyLanguage:   true,
+			LanguageIDSettings: settings,
+			Media:              transcribe.Media{MediaFileURI: "s3://b/f"},
+		})
+		require.ErrorIs(t, err, transcribe.ErrValidation)
+	})
+
+	t.Run("language_id_settings_unsupported_code_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		b := transcribe.NewInMemoryBackend()
+		_, err := b.StartTranscriptionJob(&transcribe.TranscriptionJob{
+			JobName:          "job-lang-id-settings-bad-code",
+			IdentifyLanguage: true,
+			LanguageIDSettings: map[string]transcribe.LanguageIDSettings{
+				"xx-XX": {VocabularyName: "v"},
+			},
+			Media: transcribe.Media{MediaFileURI: "s3://b/f"},
+		})
+		require.ErrorIs(t, err, transcribe.ErrValidation)
+	})
+
+	t.Run("language_id_settings_model_name_rejected_with_identify_multiple", func(t *testing.T) {
+		t.Parallel()
+
+		b := transcribe.NewInMemoryBackend()
+		_, err := b.StartTranscriptionJob(&transcribe.TranscriptionJob{
+			JobName:                   "job-lang-id-settings-multi-model",
+			IdentifyMultipleLanguages: true,
+			LanguageOptions:           []string{"en-US", "es-US"},
+			LanguageIDSettings: map[string]transcribe.LanguageIDSettings{
+				"en-US": {LanguageModelName: "model1"},
+			},
+			Media: transcribe.Media{MediaFileURI: "s3://b/f"},
+		})
+		require.ErrorIs(t, err, transcribe.ErrValidation)
+	})
 }
 
 func TestMediaFormat_Validation(t *testing.T) {
@@ -560,7 +626,7 @@ func TestDeferredTranscriptionJob_Lifecycle(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "QUEUED", job.JobStatus)
 
-			jobs, _ := b.ListTranscriptionJobs("QUEUED", "", "")
+			jobs, _ := b.ListTranscriptionJobs("QUEUED", "", "", 0)
 			assert.Len(t, jobs, 1)
 
 			job, err = b.GetTranscriptionJob(job.JobName)
@@ -687,16 +753,47 @@ func TestListTranscriptionJobsPagination(t *testing.T) {
 	tests := []struct {
 		name          string
 		count         int
+		wantFirstPage int
+		maxResults    int32 // 0 means "omit MaxResults from the request"
 		wantNextToken bool
 	}{
 		{
 			name:          "single_page",
 			count:         5,
+			wantFirstPage: 5,
 			wantNextToken: false,
 		},
 		{
-			name:          "multi_page",
+			name:          "multi_page_default_page_size",
 			count:         105, // exceeds transcribeDefaultPageSize=100
+			wantFirstPage: 100,
+			wantNextToken: true,
+		},
+		{
+			// MaxResults must be honored: a caller-supplied value smaller than the
+			// default page size shrinks the page, proving it is no longer ignored.
+			name:          "honors_max_results_within_bounds",
+			count:         15,
+			maxResults:    10,
+			wantFirstPage: 10,
+			wantNextToken: true,
+		},
+		{
+			// A MaxResults value at the exact remaining count yields no NextToken.
+			name:          "honors_max_results_exact_remaining",
+			count:         5,
+			maxResults:    5,
+			wantFirstPage: 5,
+			wantNextToken: false,
+		},
+		{
+			// AWS documents "Valid Range: Minimum value of 1. Maximum value of 100."
+			// A caller-supplied value above the documented maximum is clamped to 100,
+			// not honored verbatim and not rejected.
+			name:          "clamps_max_results_above_documented_upper_bound",
+			count:         105,
+			maxResults:    500,
+			wantFirstPage: 100,
 			wantNextToken: true,
 		},
 	}
@@ -716,7 +813,12 @@ func TestListTranscriptionJobsPagination(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			rec := doTranscribeRequest(t, h, "ListTranscriptionJobs", map[string]any{})
+			body := map[string]any{}
+			if tt.maxResults != 0 {
+				body["MaxResults"] = tt.maxResults
+			}
+
+			rec := doTranscribeRequest(t, h, "ListTranscriptionJobs", body)
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -724,15 +826,20 @@ func TestListTranscriptionJobsPagination(t *testing.T) {
 
 			summaries, summariesOK := resp["TranscriptionJobSummaries"].([]any)
 			require.True(t, summariesOK)
+			assert.Len(t, summaries, tt.wantFirstPage)
 
 			if tt.wantNextToken {
-				assert.Len(t, summaries, 100)
 				nextToken, tokenOK := resp["NextToken"].(string)
 				require.True(t, tokenOK, "NextToken should be present")
 				assert.NotEmpty(t, nextToken)
 
 				// Second page using the token.
-				rec2 := doTranscribeRequest(t, h, "ListTranscriptionJobs", map[string]any{"NextToken": nextToken})
+				page2Body := map[string]any{"NextToken": nextToken}
+				if tt.maxResults != 0 {
+					page2Body["MaxResults"] = tt.maxResults
+				}
+
+				rec2 := doTranscribeRequest(t, h, "ListTranscriptionJobs", page2Body)
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp2 map[string]any
@@ -740,10 +847,9 @@ func TestListTranscriptionJobsPagination(t *testing.T) {
 
 				summaries2, summaries2OK := resp2["TranscriptionJobSummaries"].([]any)
 				require.True(t, summaries2OK)
-				assert.Len(t, summaries2, tt.count-100)
+				assert.Len(t, summaries2, tt.count-tt.wantFirstPage)
 				assert.Empty(t, resp2["NextToken"])
 			} else {
-				assert.Len(t, summaries, tt.count)
 				assert.Empty(t, resp["NextToken"])
 			}
 		})
@@ -978,17 +1084,17 @@ func TestListTranscriptionJobs_JobNameContains(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	list, _ := b.ListTranscriptionJobs("", "report", "")
+	list, _ := b.ListTranscriptionJobs("", "report", "", 0)
 	require.Len(t, list, 2)
 
-	list, _ = b.ListTranscriptionJobs("", "REPORT", "")
+	list, _ = b.ListTranscriptionJobs("", "REPORT", "", 0)
 	require.Len(t, list, 2, "NameContains must be case-insensitive")
 
-	list, _ = b.ListTranscriptionJobs("", "gamma", "")
+	list, _ = b.ListTranscriptionJobs("", "gamma", "", 0)
 	require.Len(t, list, 1)
 	assert.Equal(t, "gamma-summary", list[0].JobName)
 
-	list, _ = b.ListTranscriptionJobs("", "nonexistent", "")
+	list, _ = b.ListTranscriptionJobs("", "nonexistent", "", 0)
 	assert.Empty(t, list)
 }
 

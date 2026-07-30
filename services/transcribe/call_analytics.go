@@ -162,7 +162,7 @@ func (b *InMemoryBackend) UpdateCallAnalyticsCategory(input *CallAnalyticsCatego
 
 // ListCallAnalyticsCategories returns all Call Analytics categories with pagination.
 func (b *InMemoryBackend) ListCallAnalyticsCategories(
-	nextToken string,
+	nextToken string, maxResults int32,
 ) ([]CallAnalyticsCategory, string) {
 	b.mu.RLock("ListCallAnalyticsCategories")
 	defer b.mu.RUnlock()
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) ListCallAnalyticsCategories(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].CategoryName < all[j].CategoryName })
 
-	return paginateList(all, nextToken)
+	return paginateList(all, nextToken, maxResults)
 }
 
 // --- Call Analytics jobs ---
@@ -236,7 +236,7 @@ func (b *InMemoryBackend) GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob
 // ListCallAnalyticsJobs returns Call Analytics jobs with optional status filter, name
 // substring filter, and pagination.
 func (b *InMemoryBackend) ListCallAnalyticsJobs(
-	statusFilter, nameContains, nextToken string,
+	statusFilter, nameContains, nextToken string, maxResults int32,
 ) ([]CallAnalyticsJob, string) {
 	b.mu.RLock("ListCallAnalyticsJobs")
 	defer b.mu.RUnlock()
@@ -254,7 +254,7 @@ func (b *InMemoryBackend) ListCallAnalyticsJobs(
 		func(i, j int) bool { return all[i].CallAnalyticsJobName < all[j].CallAnalyticsJobName },
 	)
 
-	return paginateList(all, nextToken)
+	return paginateList(all, nextToken, maxResults)
 }
 
 // DeleteCallAnalyticsJob removes a Call Analytics job by name.

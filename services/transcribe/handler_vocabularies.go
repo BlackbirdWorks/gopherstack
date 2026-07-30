@@ -161,6 +161,7 @@ type listVocabulariesInput struct {
 	StateEquals  string `json:"StateEquals"`
 	NameContains string `json:"NameContains"`
 	NextToken    string `json:"NextToken"`
+	MaxResults   int32  `json:"MaxResults"`
 }
 
 type vocabularySummary struct {
@@ -179,7 +180,7 @@ func (h *Handler) handleListVocabularies(
 	_ context.Context,
 	in *listVocabulariesInput,
 ) (*listVocabulariesOutput, error) {
-	vocabs, nextToken := h.Backend.ListVocabularies(in.StateEquals, in.NameContains, in.NextToken)
+	vocabs, nextToken := h.Backend.ListVocabularies(in.StateEquals, in.NameContains, in.NextToken, in.MaxResults)
 
 	result := make([]vocabularySummary, 0, len(vocabs))
 	for _, v := range vocabs {

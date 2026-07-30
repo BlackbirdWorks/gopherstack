@@ -362,10 +362,10 @@ func TestListLanguageModels_NameContains(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	list, _ := b.ListLanguageModels("", "clinical", "")
+	list, _ := b.ListLanguageModels("", "clinical", "", 0)
 	require.Len(t, list, 2)
 
-	list, _ = b.ListLanguageModels("", "SPORTS", "")
+	list, _ = b.ListLanguageModels("", "SPORTS", "", 0)
 	require.Len(t, list, 1, "NameContains must be case-insensitive")
 	assert.Equal(t, "sports-model", list[0].ModelName)
 }

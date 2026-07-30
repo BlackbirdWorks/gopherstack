@@ -151,6 +151,7 @@ type listMedicalTranscriptionJobsInput struct {
 	Status          string `json:"Status"`
 	JobNameContains string `json:"JobNameContains"`
 	NextToken       string `json:"NextToken"`
+	MaxResults      int32  `json:"MaxResults"`
 }
 
 // medicalTranscriptionJobSummary mirrors the real MedicalTranscriptionJobSummary
@@ -205,7 +206,9 @@ func (h *Handler) handleListMedicalTranscriptionJobs(
 	_ context.Context,
 	in *listMedicalTranscriptionJobsInput,
 ) (*listMedicalTranscriptionJobsOutput, error) {
-	jobs, nextToken := h.Backend.ListMedicalTranscriptionJobs(in.Status, in.JobNameContains, in.NextToken)
+	jobs, nextToken := h.Backend.ListMedicalTranscriptionJobs(
+		in.Status, in.JobNameContains, in.NextToken, in.MaxResults,
+	)
 
 	summaries := make([]medicalTranscriptionJobSummary, 0, len(jobs))
 	for i := range jobs {

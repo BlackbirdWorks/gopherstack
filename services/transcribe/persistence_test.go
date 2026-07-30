@@ -48,7 +48,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *transcribe.InMemoryBackend, _ string) {
 				t.Helper()
 
-				jobs, _ := b.ListTranscriptionJobs("", "", "")
+				jobs, _ := b.ListTranscriptionJobs("", "", "", 0)
 				assert.Empty(t, jobs)
 			},
 		},
@@ -256,31 +256,31 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	err := b.Restore(t.Context(), []byte(`{"version":999,"tables":{}}`))
 	require.NoError(t, err)
 
-	jobs, _ := b.ListTranscriptionJobs("", "", "")
+	jobs, _ := b.ListTranscriptionJobs("", "", "", 0)
 	assert.Empty(t, jobs)
 
-	cats, _ := b.ListCallAnalyticsCategories("")
+	cats, _ := b.ListCallAnalyticsCategories("", 0)
 	assert.Empty(t, cats)
 
-	models, _ := b.ListLanguageModels("", "", "")
+	models, _ := b.ListLanguageModels("", "", "", 0)
 	assert.Empty(t, models)
 
-	medVocabs, _ := b.ListMedicalVocabularies("", "", "")
+	medVocabs, _ := b.ListMedicalVocabularies("", "", "", 0)
 	assert.Empty(t, medVocabs)
 
-	vocabs, _ := b.ListVocabularies("", "", "")
+	vocabs, _ := b.ListVocabularies("", "", "", 0)
 	assert.Empty(t, vocabs)
 
-	filters, _ := b.ListVocabularyFilters("", "")
+	filters, _ := b.ListVocabularyFilters("", "", 0)
 	assert.Empty(t, filters)
 
-	caJobs, _ := b.ListCallAnalyticsJobs("", "", "")
+	caJobs, _ := b.ListCallAnalyticsJobs("", "", "", 0)
 	assert.Empty(t, caJobs)
 
-	scribeJobs, _ := b.ListMedicalScribeJobs("", "", "")
+	scribeJobs, _ := b.ListMedicalScribeJobs("", "", "", 0)
 	assert.Empty(t, scribeJobs)
 
-	medJobs, _ := b.ListMedicalTranscriptionJobs("", "", "")
+	medJobs, _ := b.ListMedicalTranscriptionJobs("", "", "", 0)
 	assert.Empty(t, medJobs)
 
 	tags, err := b.ListTagsForResource(resourceTagARN)
@@ -311,7 +311,7 @@ func TestInMemoryBackend_RestoreOldFormatDecodesAsVersionZero(t *testing.T) {
 	err := b.Restore(t.Context(), []byte(oldFormatSnap))
 	require.NoError(t, err)
 
-	jobs, _ := b.ListTranscriptionJobs("", "", "")
+	jobs, _ := b.ListTranscriptionJobs("", "", "", 0)
 	assert.Empty(t, jobs, "old-format snapshot must not be partially decoded")
 }
 

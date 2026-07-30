@@ -135,6 +135,24 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, fsx.VolumeCount(b), fsx.VolumeCount(fresh))
 	assert.Equal(t, fsx.S3AccessPointCount(b), fsx.S3AccessPointCount(fresh))
 
+	// Prove createFileSystemTokens (ClientRequestToken dedup state) survived
+	// the round trip, not just the resource tables: replaying the identical
+	// CreateFileSystem request against the restored backend must return the
+	// SAME file system rather than creating a second one.
+	dedupRec := doFSxRequest(t, fsx.NewHandler(fresh), "CreateFileSystem", map[string]any{
+		"FileSystemType":     "LUSTRE",
+		"Tags":               []map[string]string{{"Key": "env", "Value": "prod"}},
+		"ClientRequestToken": taggedFSClientRequestToken,
+	})
+	require.Equal(t, http.StatusOK, dedupRec.Code)
+
+	var dedupOut map[string]any
+	require.NoError(t, json.Unmarshal(dedupRec.Body.Bytes(), &dedupOut))
+	assert.Equal(t, fsID, dedupOut["FileSystem"].(map[string]any)["FileSystemId"])
+	assert.Equal(
+		t, fsx.FileSystemCount(b), fsx.FileSystemCount(fresh), "dedup replay must not create a new file system",
+	)
+
 	freshHandler := fsx.NewHandler(fresh)
 	assertFullStateRestored(t, freshHandler, fullStateIDs{
 		fsID:        fsID,
@@ -257,14 +275,22 @@ func assertOutputLen(t *testing.T, rec *httptest.ResponseRecorder, field string)
 	assert.Len(t, list, 1)
 }
 
+// taggedFSClientRequestToken is the ClientRequestToken createTaggedFS sends,
+// exposed so TestInMemoryBackend_SnapshotRestore_FullState can replay the
+// identical CreateFileSystem request post-restore to prove the
+// ClientRequestToken dedup map (createFileSystemTokens) survived the
+// Snapshot/Restore round trip, not just the resource tables.
+const taggedFSClientRequestToken = "tok-full-state-persist"
+
 // createTaggedFS creates a LUSTRE file system with a single "env=prod" tag
 // and returns its ID. Unlike the createFS helper shared with other test
 // files, this exercises the tags map (resourceARN -> tags) round trip.
 func createTaggedFS(t *testing.T, h *fsx.Handler) string {
 	t.Helper()
 	rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
-		"FileSystemType": "LUSTRE",
-		"Tags":           []map[string]string{{"Key": "env", "Value": "prod"}},
+		"FileSystemType":     "LUSTRE",
+		"Tags":               []map[string]string{{"Key": "env", "Value": "prod"}},
+		"ClientRequestToken": taggedFSClientRequestToken,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

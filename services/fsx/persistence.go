@@ -18,7 +18,10 @@ import (
 // snapshot decodes with Version == 0, which is guaranteed to mismatch
 // fsxSnapshotVersion and is discarded the same way any other incompatible
 // snapshot is.
-const fsxSnapshotVersion = 1
+//
+// Bumped to 2 when CreateFileSystemTokens (ClientRequestToken dedup state)
+// was added to the snapshot shape.
+const fsxSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the FSx backend.
 //
@@ -29,15 +32,16 @@ const fsxSnapshotVersion = 1
 // from an incompatible (older or newer) build of this backend as though it
 // were the current shape; see Restore.
 //
-// Tags and Aliases are left as plain maps -- see store_setup.go's file doc
-// comment for why they do not fit store.Table's keyed-by-identity-value
-// shape.
+// Tags, Aliases, and CreateFileSystemTokens are left as plain maps -- see
+// store_setup.go's file doc comment for why they do not fit store.Table's
+// keyed-by-identity-value shape.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage   `json:"tables"`
-	Tags             map[string]map[string]string `json:"tags"`
-	Aliases          map[string][]string          `json:"aliases"`
-	SharedVpcEnabled string                       `json:"sharedVpcEnabled"`
-	Version          int                          `json:"version"`
+	Tables                 map[string]json.RawMessage    `json:"tables"`
+	Tags                   map[string]map[string]string  `json:"tags"`
+	Aliases                map[string][]string           `json:"aliases"`
+	CreateFileSystemTokens map[string]fsCreateTokenEntry `json:"createFileSystemTokens"`
+	SharedVpcEnabled       string                        `json:"sharedVpcEnabled"`
+	Version                int                           `json:"version"`
 }
 
 func ensureNonNilMaps(s *backendSnapshot) {
@@ -47,6 +51,10 @@ func ensureNonNilMaps(s *backendSnapshot) {
 
 	if s.Aliases == nil {
 		s.Aliases = make(map[string][]string)
+	}
+
+	if s.CreateFileSystemTokens == nil {
+		s.CreateFileSystemTokens = make(map[string]fsCreateTokenEntry)
 	}
 }
 
@@ -64,11 +72,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	return persistence.MarshalSnapshot(ctx, "fsx", backendSnapshot{
-		Version:          fsxSnapshotVersion,
-		Tables:           tables,
-		Tags:             b.tags,
-		Aliases:          b.aliases,
-		SharedVpcEnabled: b.sharedVpcEnabled,
+		Version:                fsxSnapshotVersion,
+		Tables:                 tables,
+		Tags:                   b.tags,
+		Aliases:                b.aliases,
+		CreateFileSystemTokens: b.createFileSystemTokens,
+		SharedVpcEnabled:       b.sharedVpcEnabled,
 	})
 }
 
@@ -97,6 +106,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.tags = make(map[string]map[string]string)
 		b.aliases = make(map[string][]string)
+		b.createFileSystemTokens = make(map[string]fsCreateTokenEntry)
 		b.sharedVpcEnabled = sharedVpcDisabled
 
 		return nil
@@ -110,6 +120,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.tags = s.Tags
 	b.aliases = s.Aliases
+	b.createFileSystemTokens = s.CreateFileSystemTokens
 	b.sharedVpcEnabled = s.SharedVpcEnabled
 
 	return nil

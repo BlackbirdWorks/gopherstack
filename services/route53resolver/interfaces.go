@@ -100,7 +100,7 @@ type StorageBackend interface {
 	CreateFirewallRule(ctx context.Context, p CreateFirewallRuleParams) (*FirewallRule, error)
 	DeleteFirewallRule(
 		ctx context.Context,
-		firewallRuleGroupID, firewallDomainListID string,
+		firewallRuleGroupID, firewallDomainListID, firewallThreatProtectionID string,
 	) (*FirewallRule, error)
 	UpdateFirewallRule(ctx context.Context, p UpdateFirewallRuleParams) (*FirewallRule, error)
 	ListFirewallRules(ctx context.Context, firewallRuleGroupID string) []*FirewallRule

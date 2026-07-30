@@ -63,7 +63,7 @@ func (b *InMemoryBackend) GetMedicalScribeJob(jobName string) (*MedicalScribeJob
 // ListMedicalScribeJobs returns Medical Scribe jobs with optional status filter, name
 // substring filter, and pagination.
 func (b *InMemoryBackend) ListMedicalScribeJobs(
-	statusFilter, nameContains, nextToken string,
+	statusFilter, nameContains, nextToken string, maxResults int32,
 ) ([]MedicalScribeJob, string) {
 	b.mu.RLock("ListMedicalScribeJobs")
 	defer b.mu.RUnlock()
@@ -81,7 +81,7 @@ func (b *InMemoryBackend) ListMedicalScribeJobs(
 		func(i, j int) bool { return all[i].MedicalScribeJobName < all[j].MedicalScribeJobName },
 	)
 
-	return paginateList(all, nextToken)
+	return paginateList(all, nextToken, maxResults)
 }
 
 // DeleteMedicalScribeJob removes a Medical Scribe job by name.

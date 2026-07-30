@@ -38,10 +38,10 @@ func newFullyPopulatedBackend(t *testing.T) (*s3tables.InMemoryBackend, persistT
 	tb, err := b.CreateTableBucket("acme-bucket", s3tables.CreateTableBucketOptions{})
 	require.NoError(t, err)
 
-	_, err = b.CreateNamespace(tb.ARN, []string{"acme-ns"})
+	_, err = b.CreateNamespace(tb.ARN, []string{"acme_ns"})
 	require.NoError(t, err)
 
-	table, err := b.CreateTable(tb.ARN, []string{"acme-ns"}, "acme-table", "ICEBERG", s3tables.CreateTableOptions{})
+	table, err := b.CreateTable(tb.ARN, []string{"acme_ns"}, "acme_table", "ICEBERG", s3tables.CreateTableOptions{})
 	require.NoError(t, err)
 
 	_, err = b.PutTableBucketReplication(tb.ARN, "arn:aws:iam::000000000000:role/repl",
@@ -93,9 +93,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		{name: "namespaces table", run: func(t *testing.T) {
 			t.Helper()
 
-			ns, err := fresh.GetNamespace(ids.bucketARN, []string{"acme-ns"})
+			ns, err := fresh.GetNamespace(ids.bucketARN, []string{"acme_ns"})
 			require.NoError(t, err)
-			assert.Equal(t, []string{"acme-ns"}, ns.Namespace)
+			assert.Equal(t, []string{"acme_ns"}, ns.Namespace)
 
 			pg, err := fresh.ListNamespaces(ids.bucketARN, s3tables.ListNamespacesParams{})
 			require.NoError(t, err)
@@ -104,14 +104,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		{name: "tables table (primary + byComposite + byBucket indexes)", run: func(t *testing.T) {
 			t.Helper()
 
-			table, err := fresh.GetTable(ids.bucketARN, []string{"acme-ns"}, "acme-table")
+			table, err := fresh.GetTable(ids.bucketARN, []string{"acme_ns"}, "acme_table")
 			require.NoError(t, err)
 			assert.Equal(t, ids.tableARN, table.ARN)
 
 			pg, err := fresh.ListTables(ids.bucketARN, "", s3tables.ListTablesParams{})
 			require.NoError(t, err)
 			require.Len(t, pg.Data, 1)
-			assert.Equal(t, "acme-table", pg.Data[0].Name)
+			assert.Equal(t, "acme_table", pg.Data[0].Name)
 		}},
 		{name: "bucketReplication table", run: func(t *testing.T) {
 			t.Helper()
@@ -183,7 +183,7 @@ func TestInMemoryBackend_DeleteTableBucketCascade_PostRestore(t *testing.T) {
 	assert.Equal(t, 0, s3tables.NamespaceCount(fresh))
 	assert.Equal(t, 0, s3tables.TableCount(fresh))
 
-	_, err := fresh.GetTable(ids.bucketARN, []string{"acme-ns"}, "acme-table")
+	_, err := fresh.GetTable(ids.bucketARN, []string{"acme_ns"}, "acme_table")
 	require.Error(t, err)
 }
 
@@ -252,7 +252,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	h2 := s3tables.NewHandler(s3tables.NewInMemoryBackend(persistTestAccountID, persistTestRegion))
 	require.NoError(t, h2.Restore(ctx, snap))
 
-	table, err := h2.Backend.GetTable(ids.bucketARN, []string{"acme-ns"}, "acme-table")
+	table, err := h2.Backend.GetTable(ids.bucketARN, []string{"acme_ns"}, "acme_table")
 	require.NoError(t, err)
-	assert.Equal(t, "acme-table", table.Name)
+	assert.Equal(t, "acme_table", table.Name)
 }

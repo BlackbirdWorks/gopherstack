@@ -108,6 +108,129 @@ func TestFSx_FileSystem(t *testing.T) {
 		rec := doFSxRequest(t, h, "UpdateFileSystem", map[string]any{"FileSystemId": "fs-notexist"})
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
+
+	// ClientRequestToken idempotency (gopherstack-wjjl): a repeat CreateFileSystem
+	// call with the same token must return the ORIGINAL resource, not merely
+	// succeed without error -- so these assert on FileSystemId/CreationTime
+	// equality, not just HTTP 200.
+	t.Run("CreateFileSystem with same ClientRequestToken returns the original file system", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		body := map[string]any{
+			"FileSystemType":      "LUSTRE",
+			"StorageCapacity":     1200,
+			"ClientRequestToken":  "tok-dedup-1",
+			"LustreConfiguration": map[string]any{"DeploymentType": "SCRATCH_1"},
+		}
+
+		rec1 := doFSxRequest(t, h, "CreateFileSystem", body)
+		require.Equal(t, http.StatusOK, rec1.Code)
+		var resp1 map[string]any
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+		fs1 := resp1["FileSystem"].(map[string]any)
+
+		rec2 := doFSxRequest(t, h, "CreateFileSystem", body)
+		require.Equal(t, http.StatusOK, rec2.Code)
+		var resp2 map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		fs2 := resp2["FileSystem"].(map[string]any)
+
+		// Prove it's the SAME resource, not just a second success: identical
+		// FileSystemId, ResourceARN, and CreationTime.
+		assert.Equal(t, fs1["FileSystemId"], fs2["FileSystemId"])
+		assert.Equal(t, fs1["ResourceARN"], fs2["ResourceARN"])
+		assert.Equal(t, fs1["CreationTime"], fs2["CreationTime"])
+		assert.Equal(t, 1, fsx.FileSystemCount(fsx.GetBackend(h)), "must not create a second file system")
+	})
+
+	t.Run("CreateFileSystem with reused ClientRequestToken but different params returns "+
+		"IncompatibleParameterError", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+
+		rec1 := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
+			"FileSystemType":     "LUSTRE",
+			"StorageCapacity":    1200,
+			"ClientRequestToken": "tok-dedup-mismatch",
+		})
+		require.Equal(t, http.StatusOK, rec1.Code)
+
+		rec2 := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
+			"FileSystemType":     "LUSTRE",
+			"StorageCapacity":    2400, // different StorageCapacity, same token
+			"ClientRequestToken": "tok-dedup-mismatch",
+		})
+		require.Equal(t, http.StatusBadRequest, rec2.Code)
+		var errResp map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp))
+		assert.Equal(t, "IncompatibleParameterError", errResp["__type"])
+		assert.Equal(t, 1, fsx.FileSystemCount(fsx.GetBackend(h)), "mismatched retry must not create a resource")
+	})
+
+	t.Run("CreateFileSystem without ClientRequestToken creates a new file system each call", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		body := map[string]any{"FileSystemType": "LUSTRE", "StorageCapacity": 1200}
+
+		rec1 := doFSxRequest(t, h, "CreateFileSystem", body)
+		require.Equal(t, http.StatusOK, rec1.Code)
+		rec2 := doFSxRequest(t, h, "CreateFileSystem", body)
+		require.Equal(t, http.StatusOK, rec2.Code)
+
+		var resp1, resp2 map[string]any
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		assert.NotEqual(
+			t,
+			resp1["FileSystem"].(map[string]any)["FileSystemId"],
+			resp2["FileSystem"].(map[string]any)["FileSystemId"],
+		)
+		assert.Equal(t, 2, fsx.FileSystemCount(fsx.GetBackend(h)))
+	})
+
+	// SubnetIds/SecurityGroupIds format validation (gopherstack-wjjl): real AWS
+	// documents SubnetIds pattern "^(subnet-[0-9a-f]{8,})$" and SecurityGroupIds
+	// pattern "^(sg-[0-9a-f]{8,})$"; gopherstack has no VPC/subnet topology model
+	// to validate existence against, but a malformed ID is still rejectable.
+	t.Run("CreateFileSystem with malformed SubnetId returns InvalidNetworkSettings", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
+			"FileSystemType":  "LUSTRE",
+			"StorageCapacity": 1200,
+			"SubnetIds":       []string{"not-a-subnet-id"},
+		})
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		var errResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		assert.Equal(t, "InvalidNetworkSettings", errResp["__type"])
+	})
+
+	t.Run("CreateFileSystem with malformed SecurityGroupId returns InvalidNetworkSettings", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
+			"FileSystemType":   "LUSTRE",
+			"StorageCapacity":  1200,
+			"SecurityGroupIds": []string{"not-a-sg-id"},
+		})
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		var errResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		assert.Equal(t, "InvalidNetworkSettings", errResp["__type"])
+	})
+
+	t.Run("CreateFileSystem with well-formed SubnetIds/SecurityGroupIds succeeds", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
+			"FileSystemType":   "LUSTRE",
+			"StorageCapacity":  1200,
+			"SubnetIds":        []string{"subnet-0123456789abcdef0"},
+			"SecurityGroupIds": []string{"sg-0123456789abcdef0"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	})
 }
 
 // TestCreateFileSystem_FileSystemTypeValidation verifies that

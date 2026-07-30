@@ -64,6 +64,12 @@ type InMemoryBackend struct {
 	storageVirtualMachines *store.Table[storedStorageVirtualMachine] // svmID → svm
 	volumes                *store.Table[storedVolume]                // volumeID → volume
 	s3AccessPoints         *store.Table[storedS3AccessPoint]         // name → access point
+	// createFileSystemTokens dedups CreateFileSystem calls by ClientRequestToken.
+	// It's a plain map (not store.Table/safemap) because the check-then-set
+	// against it must be atomic with the fileSystems table write it guards
+	// (a cross-map invariant), so it's protected by the same coarse b.mu as
+	// every other backend map, per this service's existing locking pattern.
+	createFileSystemTokens map[string]fsCreateTokenEntry
 	sharedVpcEnabled       string
 	accountID              string
 	region                 string
@@ -72,13 +78,14 @@ type InMemoryBackend struct {
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu:               lockmetrics.New("fsx"),
-		registry:         store.NewRegistry(),
-		tags:             make(map[string]map[string]string),
-		aliases:          make(map[string][]string),
-		sharedVpcEnabled: sharedVpcDisabled,
-		accountID:        accountID,
-		region:           region,
+		mu:                     lockmetrics.New("fsx"),
+		registry:               store.NewRegistry(),
+		tags:                   make(map[string]map[string]string),
+		aliases:                make(map[string][]string),
+		createFileSystemTokens: make(map[string]fsCreateTokenEntry),
+		sharedVpcEnabled:       sharedVpcDisabled,
+		accountID:              accountID,
+		region:                 region,
 	}
 
 	registerAllTables(b)
@@ -100,6 +107,7 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 	b.aliases = make(map[string][]string)
+	b.createFileSystemTokens = make(map[string]fsCreateTokenEntry)
 	b.sharedVpcEnabled = sharedVpcDisabled
 }
 

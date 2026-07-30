@@ -326,7 +326,7 @@ func TestListMedicalTranscriptionJobs_JobNameContainsAndSummaryShape(t *testing.
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	list, _ := b.ListMedicalTranscriptionJobs("", "intake", "")
+	list, _ := b.ListMedicalTranscriptionJobs("", "intake", "", 0)
 	require.Len(t, list, 2)
 
 	listRec := doTranscribeRequest(t, h, "ListMedicalTranscriptionJobs", map[string]any{

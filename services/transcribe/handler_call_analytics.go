@@ -208,6 +208,7 @@ type listCallAnalyticsJobsInput struct {
 	Status          string `json:"Status"`
 	JobNameContains string `json:"JobNameContains"`
 	NextToken       string `json:"NextToken"`
+	MaxResults      int32  `json:"MaxResults"`
 }
 
 type callAnalyticsJobSummary struct {
@@ -229,7 +230,7 @@ func (h *Handler) handleListCallAnalyticsJobs(
 	_ context.Context,
 	in *listCallAnalyticsJobsInput,
 ) (*listCallAnalyticsJobsOutput, error) {
-	jobs, nextToken := h.Backend.ListCallAnalyticsJobs(in.Status, in.JobNameContains, in.NextToken)
+	jobs, nextToken := h.Backend.ListCallAnalyticsJobs(in.Status, in.JobNameContains, in.NextToken, in.MaxResults)
 
 	summaries := make([]callAnalyticsJobSummary, 0, len(jobs))
 	for _, j := range jobs {
@@ -317,7 +318,8 @@ func (h *Handler) handleUpdateCallAnalyticsCategory(
 // --- ListCallAnalyticsCategories ---
 
 type listCallAnalyticsCategoriesInput struct {
-	NextToken string `json:"NextToken"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type listCallAnalyticsCategoriesOutput struct {
@@ -329,7 +331,7 @@ func (h *Handler) handleListCallAnalyticsCategories(
 	_ context.Context,
 	in *listCallAnalyticsCategoriesInput,
 ) (*listCallAnalyticsCategoriesOutput, error) {
-	cats, nextToken := h.Backend.ListCallAnalyticsCategories(in.NextToken)
+	cats, nextToken := h.Backend.ListCallAnalyticsCategories(in.NextToken, in.MaxResults)
 
 	result := make([]callAnalyticsCategoryProperties, 0, len(cats))
 	for i := range cats {

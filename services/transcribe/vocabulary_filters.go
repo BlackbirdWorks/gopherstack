@@ -155,7 +155,9 @@ func (b *InMemoryBackend) DeleteVocabularyFilter(vocabularyFilterName string) er
 
 // ListVocabularyFilters returns vocabulary filters with optional name substring filter
 // and pagination.
-func (b *InMemoryBackend) ListVocabularyFilters(nameContains, nextToken string) ([]VocabularyFilter, string) {
+func (b *InMemoryBackend) ListVocabularyFilters(
+	nameContains, nextToken string, maxResults int32,
+) ([]VocabularyFilter, string) {
 	b.mu.RLock("ListVocabularyFilters")
 	defer b.mu.RUnlock()
 
@@ -171,5 +173,5 @@ func (b *InMemoryBackend) ListVocabularyFilters(nameContains, nextToken string) 
 		func(i, j int) bool { return all[i].VocabularyFilterName < all[j].VocabularyFilterName },
 	)
 
-	return paginateList(all, nextToken)
+	return paginateList(all, nextToken, maxResults)
 }

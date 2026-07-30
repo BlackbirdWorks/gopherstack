@@ -98,10 +98,10 @@ func TestHandler_MaintenanceConfiguration(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bucketARN := createBucketHelper(t, h, "maint-bucket-"+tt.name)
+			bucketARN := createBucketHelper(t, h, "maint-bucket-"+bucketSuffix(tt.name))
 			encodedARN := url.PathEscape(bucketARN)
-			createNamespaceHelper(t, h, bucketARN, []string{"maint-ns"})
-			_ = createTableHelper(t, h, bucketARN, "maint-ns", "maint-table")
+			createNamespaceHelper(t, h, bucketARN, []string{"maint_ns"})
+			_ = createTableHelper(t, h, bucketARN, "maint_ns", "maint_table")
 
 			var path string
 
@@ -113,13 +113,13 @@ func TestHandler_MaintenanceConfiguration(t *testing.T) {
 			case "bucket_put_compaction":
 				path = "/buckets/" + encodedARN + "/maintenance/icebergCompaction"
 			case "table_get":
-				path = "/tables/" + encodedARN + "/maint-ns/maint-table/maintenance"
+				path = "/tables/" + encodedARN + "/maint_ns/maint_table/maintenance"
 			case "table_put_compaction":
-				path = "/tables/" + encodedARN + "/maint-ns/maint-table/maintenance/icebergCompaction"
+				path = "/tables/" + encodedARN + "/maint_ns/maint_table/maintenance/icebergCompaction"
 			case "table_put_snapshot":
-				path = "/tables/" + encodedARN + "/maint-ns/maint-table/maintenance/icebergSnapshotManagement"
+				path = "/tables/" + encodedARN + "/maint_ns/maint_table/maintenance/icebergSnapshotManagement"
 			case "table_put_unreferenced":
-				path = "/tables/" + encodedARN + "/maint-ns/maint-table/maintenance/icebergUnreferencedFileRemoval"
+				path = "/tables/" + encodedARN + "/maint_ns/maint_table/maintenance/icebergUnreferencedFileRemoval"
 			}
 
 			rec := doS3TablesRequest(t, h, tt.method, path, tt.body)
@@ -153,7 +153,7 @@ func TestHandler_Encryption(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bucketARN := createBucketHelper(t, h, "enc-bucket-"+tt.name)
+			bucketARN := createBucketHelper(t, h, "enc-bucket-"+bucketSuffix(tt.name))
 			encodedARN := url.PathEscape(bucketARN)
 
 			var path string
@@ -161,9 +161,9 @@ func TestHandler_Encryption(t *testing.T) {
 			if tt.pathType == "bucket" {
 				path = "/buckets/" + encodedARN + "/encryption"
 			} else {
-				createNamespaceHelper(t, h, bucketARN, []string{"enc-ns"})
-				_ = createTableHelper(t, h, bucketARN, "enc-ns", "enc-table")
-				path = "/tables/" + encodedARN + "/enc-ns/enc-table/encryption"
+				createNamespaceHelper(t, h, bucketARN, []string{"enc_ns"})
+				_ = createTableHelper(t, h, bucketARN, "enc_ns", "enc_table")
+				path = "/tables/" + encodedARN + "/enc_ns/enc_table/encryption"
 			}
 
 			rec := doS3TablesRequest(t, h, http.MethodGet, path, nil)

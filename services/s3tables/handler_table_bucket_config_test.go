@@ -164,7 +164,7 @@ func TestHandler_DeleteTableBucketEncryptionClearsConfig(t *testing.T) {
 			wantGetAfter: http.StatusNotFound,
 		},
 		{
-			name:         "delete_on_bucket_without_encryption_returns_not_found_on_get",
+			name:         "delete_without_encryption_returns_not_found",
 			putFirst:     false,
 			wantGetAfter: http.StatusNotFound,
 		},
@@ -175,7 +175,7 @@ func TestHandler_DeleteTableBucketEncryptionClearsConfig(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bucketARN := createBucketHelper(t, h, "parity-enc-"+tt.name)
+			bucketARN := createBucketHelper(t, h, "parity-enc-"+bucketSuffix(tt.name))
 			encodedARN := url.PathEscape(bucketARN)
 			encPath := "/buckets/" + encodedARN + "/encryption"
 
