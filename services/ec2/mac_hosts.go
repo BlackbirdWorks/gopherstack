@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // mac_hosts.go implements the EC2 Mac Dedicated Host and Mac
@@ -176,7 +174,7 @@ func (b *InMemoryBackend) CreateMacSystemIntegrityProtectionModificationTask(
 	config.Status = status
 
 	task := &MacModificationTask{
-		MacModificationTaskID: "macmodtask-" + uuid.New().String()[:17],
+		MacModificationTaskID: newMacModificationTaskID(),
 		InstanceID:            instanceID,
 		TaskType:              macTaskTypeSIP,
 		TaskState:             macTaskStatePending,
@@ -212,7 +210,7 @@ func (b *InMemoryBackend) CreateDelegateMacVolumeOwnershipTask(
 	}
 
 	task := &MacModificationTask{
-		MacModificationTaskID: "macmodtask-" + uuid.New().String()[:17],
+		MacModificationTaskID: newMacModificationTaskID(),
 		InstanceID:            instanceID,
 		TaskType:              macTaskTypeVolumeDelegation,
 		TaskState:             macTaskStatePending,

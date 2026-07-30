@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ErrDeclarativePoliciesReportNotFound is returned when a Declarative Policies report
@@ -80,7 +78,7 @@ func (b *InMemoryBackend) StartDeclarativePoliciesReport(
 	defer b.mu.Unlock()
 
 	report := &DeclarativePoliciesReport{
-		ReportID:  "report-" + uuid.New().String()[:declarativePoliciesReportIDPrefixLength],
+		ReportID:  newDeclarativePoliciesReportID(),
 		TargetID:  targetID,
 		S3Bucket:  s3Bucket,
 		S3Prefix:  s3Prefix,

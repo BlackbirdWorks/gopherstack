@@ -5,8 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -56,7 +54,7 @@ func (b *InMemoryBackend) CreateDataRepositoryAssociation(
 		return nil, ErrFileSystemNotFound
 	}
 
-	id := "dra-" + uuid.New().String()[:17]
+	id := newDataRepositoryAssociationID()
 	arn := b.draARN(id)
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)

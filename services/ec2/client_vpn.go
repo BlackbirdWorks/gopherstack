@@ -84,7 +84,7 @@ func (b *InMemoryBackend) CreateClientVpnEndpointWithOptions(
 		}
 
 		b.tgwClientVpnAttachments.Put(&TransitGatewayClientVpnAttachment{
-			TransitGatewayAttachmentID: "tgw-attach-" + uuid.New().String()[:17],
+			TransitGatewayAttachmentID: newTransitGatewayAttachmentID(),
 			TransitGatewayID:           opts.TransitGatewayID,
 			ClientVpnEndpointID:        id,
 			ClientVpnOwnerID:           b.AccountID,
@@ -235,7 +235,7 @@ func (b *InMemoryBackend) AssociateClientVpnTargetNetwork(
 		}
 	}
 
-	assocID := "cvpn-assoc-" + uuid.New().String()[:17]
+	assocID := newClientVPNAssociationID()
 	tn := &ClientVpnTargetNetwork{
 		AssociationID:       assocID,
 		SubnetID:            subnetID,

@@ -6,8 +6,6 @@ import (
 	"slices"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ---- errors ----
@@ -99,7 +97,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPolicyTable(
 	}
 
 	pt := &TransitGatewayPolicyTable{
-		TransitGatewayPolicyTableID: "tgw-ptb-" + uuid.New().String()[:17],
+		TransitGatewayPolicyTableID: newTransitGatewayPolicyTableID(),
 		TransitGatewayID:            tgwID,
 		State:                       stateAvailable,
 		CreationTime:                time.Now().UTC(),
@@ -310,7 +308,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTableAnnouncement(
 	}
 
 	ann := &TransitGatewayRouteTableAnnouncement{
-		TransitGatewayRouteTableAnnouncementID: "tgw-rtb-ann-" + uuid.New().String()[:17],
+		TransitGatewayRouteTableAnnouncementID: newTransitGatewayRouteTableAnnouncementID(),
 		TransitGatewayID:                       rt.TransitGatewayID,
 		TransitGatewayRouteTableID:             routeTableID,
 		PeeringAttachmentID:                    peeringAttachmentID,

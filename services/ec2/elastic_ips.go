@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // Errors for Elastic IP operations.
@@ -40,7 +38,7 @@ func (b *InMemoryBackend) AllocateAddress() (*Address, error) {
 	b.mu.Lock("AllocateAddress")
 	defer b.mu.Unlock()
 
-	id := "eipalloc-" + uuid.New().String()[:17]
+	id := newEIPAllocationID()
 	addr := &Address{
 		AllocationID: id,
 		PublicIP:     b.allocElasticIP(),
@@ -64,7 +62,7 @@ func (b *InMemoryBackend) AssociateAddress(allocationID, instanceID string) (str
 		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
-	assocID := "eipassoc-" + uuid.New().String()[:17]
+	assocID := newEIPAssociationID()
 	addr.AssociationID = assocID
 	addr.InstanceID = instanceID
 

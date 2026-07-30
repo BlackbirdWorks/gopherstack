@@ -502,7 +502,7 @@ func tgwRouteToItem(r *TransitGatewayRoute) tgwRouteItem {
 
 	if r.TransitGatewayAttachmentID != "" {
 		item.TransitGatewayAttachments = []tgwRouteAttachmentItem{
-			{TransitGatewayAttachmentID: r.TransitGatewayAttachmentID, ResourceType: "vpc"},
+			{TransitGatewayAttachmentID: r.TransitGatewayAttachmentID, ResourceType: resourceTypeVPC},
 		}
 	}
 

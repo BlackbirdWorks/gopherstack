@@ -53,7 +53,7 @@ func (b *InMemoryBackend) RequestSpotInstances(
 		vpcID = sub.VPCID
 	}
 
-	instanceID := "i-" + uuid.New().String()[:17]
+	instanceID := newInstanceID()
 	inst := &Instance{
 		ID:           instanceID,
 		ImageID:      imageID,

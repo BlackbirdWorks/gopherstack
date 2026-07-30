@@ -6,8 +6,6 @@ import (
 	"maps"
 	"slices"
 	"sort"
-
-	"github.com/google/uuid"
 )
 
 // ip_pools.go implements three related "address pool" families: Customer-Owned IP
@@ -113,7 +111,7 @@ func (b *InMemoryBackend) CreateCoipPool(localGatewayRouteTableID string, tags m
 	b.mu.Lock("CreateCoipPool")
 	defer b.mu.Unlock()
 
-	id := "ipv4pool-coip-" + uuid.New().String()[:17]
+	id := newCoIPPoolID()
 	pool := &CoipPool{
 		PoolID:                   id,
 		PoolArn:                  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":coip-pool/" + id,
@@ -266,7 +264,7 @@ func (b *InMemoryBackend) CreatePublicIpv4Pool(networkBorderGroup string, tags m
 		networkBorderGroup = b.Region
 	}
 
-	id := "ipv4pool-ec2-" + uuid.New().String()[:17]
+	id := newIPv4PoolID()
 	pool := &Ipv4Pool{
 		PoolID:             id,
 		NetworkBorderGroup: networkBorderGroup,
@@ -408,7 +406,7 @@ func (b *InMemoryBackend) CreateIpv6Pool(description string, poolCidrBlocks []st
 	b.mu.Lock("CreateIpv6Pool")
 	defer b.mu.Unlock()
 
-	id := "ipv6pool-ec2-" + uuid.New().String()[:17]
+	id := newIPv6PoolID()
 	pool := &Ipv6Pool{
 		PoolID:         id,
 		Description:    description,

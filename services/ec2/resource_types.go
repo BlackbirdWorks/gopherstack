@@ -31,10 +31,10 @@ type resourceTypePrefix struct {
 //nolint:gochecknoglobals // package-level lookup table, analogous to errCodeLookup
 var resourceTypePrefixes = []resourceTypePrefix{
 	// ---- core (pre-existing) ----
-	{"i-", "instance"},
+	{"i-", conversionKindInstance},
 	{"sg-", "security-group"},
 	{"subnet-", "subnet"},
-	{"vol-", "volume"},
+	{"vol-", conversionKindVolume},
 	{"igw-", "internet-gateway"},
 	{"rtb-", "route-table"},
 	{"nat-", "natgateway"},
@@ -46,7 +46,7 @@ var resourceTypePrefixes = []resourceTypePrefix{
 	// ---- images / snapshots / templates ----
 	{"ami-", "image"},
 	{"imgusgrpt-", "image-usage-report"},
-	{"snap-", "snapshot"},
+	{"snap-", resourceTypeSnapshot},
 	{"lt-", "launch-template"},
 	{"import-ami-", "import-image-task"},
 	{"import-snap-", "import-snapshot-task"},

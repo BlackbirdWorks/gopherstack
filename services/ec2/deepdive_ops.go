@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // CreateImage creates an AMI from an instance.
@@ -25,7 +23,7 @@ func (b *InMemoryBackend) CreateImage(instanceID, name, description string) (*AM
 		name = "gopherstack-image"
 	}
 
-	imageID := "ami-" + uuid.New().String()[:17]
+	imageID := newAMIID()
 	image := &AMIStub{
 		ImageID:        imageID,
 		Name:           name,
@@ -90,7 +88,7 @@ func (b *InMemoryBackend) CreateLaunchTemplate(
 	}
 
 	template := &LaunchTemplate{
-		ID:                   "lt-" + uuid.New().String()[:17],
+		ID:                   newLaunchTemplateID(),
 		Name:                 name,
 		ImageID:              imageID,
 		InstanceType:         instanceType,
@@ -212,7 +210,7 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 	}
 
 	endpoint := &VpcEndpoint{
-		ID:              "vpce-" + uuid.New().String()[:17],
+		ID:              newVPCEndpointID(),
 		VPCID:           vpcID,
 		ServiceName:     serviceName,
 		State:           stateAvailable,

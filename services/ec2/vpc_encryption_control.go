@@ -6,8 +6,6 @@ import (
 	"maps"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ErrVpcEncryptionControlNotFound is returned when a VPC Encryption Control
@@ -191,7 +189,7 @@ func (b *InMemoryBackend) CreateVpcEncryptionControl(
 
 	disabled := VpcEncryptionControlExclusionState{State: vpcEncryptionExclusionDisabled}
 	vec := &VpcEncryptionControl{
-		VpcEncryptionControlID: "vpc-ec-" + uuid.New().String()[:vpcEncryptionControlIDPrefixLength],
+		VpcEncryptionControlID: newVPCEncryptionControlID(),
 		VpcID:                  vpcID,
 		Mode:                   vpcEncryptionControlModeMonitor,
 		State:                  vpcEncryptionControlStateAvailable,

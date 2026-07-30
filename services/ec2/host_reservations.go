@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ErrHostReservationNotFound is returned when a Dedicated Host Reservation is not found.
@@ -261,7 +259,7 @@ func (b *InMemoryBackend) PurchaseHostReservation(
 
 	now := time.Now().UTC()
 	hr := &HostReservation{
-		HostReservationID: "hr-" + uuid.New().String()[:hostReservationIDPrefixLength],
+		HostReservationID: newHostReservationID(),
 		OfferingID:        offering.OfferingID,
 		InstanceFamily:    offering.InstanceFamily,
 		PaymentOption:     offering.PaymentOption,

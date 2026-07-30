@@ -3,8 +3,6 @@ package ec2
 import (
 	"errors"
 	"fmt"
-
-	"github.com/google/uuid"
 )
 
 // Errors for route table operations.
@@ -45,7 +43,7 @@ func (b *InMemoryBackend) CreateRouteTable(vpcID string) (*RouteTable, error) {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
-	id := "rtb-" + uuid.New().String()[:17]
+	id := newRouteTableID()
 	rt := &RouteTable{
 		ID:           id,
 		VPCID:        vpcID,
@@ -172,7 +170,7 @@ func (b *InMemoryBackend) AssociateRouteTable(rtID, subnetID string) (string, er
 		return "", fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
-	assocID := "rtbassoc-" + uuid.New().String()[:17]
+	assocID := newRouteTableAssociationID()
 	rt.Associations = append(rt.Associations, RouteAssociation{
 		ID:           assocID,
 		RouteTableID: rtID,

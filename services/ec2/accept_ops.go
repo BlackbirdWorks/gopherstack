@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ---- errors for new operations ----
@@ -269,8 +267,8 @@ func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 	b.mu.Lock("AcceptReservedInstancesExchangeQuote")
 	defer b.mu.Unlock()
 
-	exchangeID := "riex-" + uuid.New().String()[:17]
-	targetID := "ri-" + uuid.New().String()[:17]
+	exchangeID := newReservedInstanceExchangeID()
+	targetID := newReservedInstanceTargetID()
 
 	ids := make([]string, len(reservedInstanceIDs))
 	copy(ids, reservedInstanceIDs)
@@ -663,7 +661,7 @@ func (b *InMemoryBackend) AllocateHosts(
 
 	for range hostCount {
 		host := &Host{
-			HostID:           "h-" + uuid.New().String()[:17],
+			HostID:           newDedicatedHostID(),
 			InstanceType:     instanceType,
 			AvailabilityZone: availabilityZone,
 			State:            stateAvailable,

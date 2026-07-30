@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +12,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
+
+// cisScanTargetIDHexLen is the hex-character length of the stub EC2 instance
+// ID synthesized as a CIS scan target.
+const cisScanTargetIDHexLen = 17
 
 // CIS scan and check status values (AWS Inspector2 CIS API).
 const (
@@ -162,7 +167,7 @@ func (b *InMemoryBackend) buildCisScanForConfig(cfg *CisScanConfiguration) *CisS
 	failed := 0
 
 	for _, acct := range accounts {
-		targetID := "i-" + uuid.New().String()[:17]
+		targetID := "i-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:cisScanTargetIDHexLen]
 
 		for i := range catalog {
 			res := catalog[i]

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -119,7 +118,7 @@ func (b *InMemoryBackend) ImportKeyPair(name, publicKeyMaterial string) (*KeyPai
 
 	kp := &KeyPair{
 		Name:        name,
-		Fingerprint: "aa:bb:cc:dd:" + uuid.New().String()[:stubFingerprintUUIDLen],
+		Fingerprint: newKeyPairFingerprint(),
 		PublicKey:   strings.TrimSpace(publicKeyMaterial),
 	}
 	b.keyPairs.Put(kp)

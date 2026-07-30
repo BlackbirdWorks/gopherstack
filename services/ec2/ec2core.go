@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
@@ -120,7 +118,7 @@ func (b *InMemoryBackend) CreateEgressOnlyInternetGateway(
 	}
 
 	igw := &EgressOnlyInternetGateway{
-		ID:         "eigw-" + uuid.New().String()[:17],
+		ID:         newEgressOnlyInternetGatewayID(),
 		VPCID:      vpcID,
 		State:      stateAvailable,
 		CreateTime: time.Now(),
@@ -198,7 +196,7 @@ func (b *InMemoryBackend) AssociateIamInstanceProfile(
 	}
 
 	assoc := &IamInstanceProfileAssociation{
-		AssociationID:      "iip-assoc-" + uuid.New().String()[:17],
+		AssociationID:      newIAMInstanceProfileAssociationID(),
 		InstanceID:         instanceID,
 		IamInstanceProfile: profileARN,
 		State:              stateAvailable,
@@ -338,7 +336,7 @@ func (b *InMemoryBackend) ReplaceRouteTableAssociation(
 		return "", fmt.Errorf("%w: %s", ErrAssociationNotFound, associationID)
 	}
 
-	newAssocID := "rtbassoc-" + uuid.New().String()[:17]
+	newAssocID := newRouteTableAssociationID()
 	newRT.Associations = append(newRT.Associations, RouteAssociation{
 		ID:           newAssocID,
 		RouteTableID: newRouteTableID,
@@ -366,7 +364,7 @@ func (b *InMemoryBackend) AssociateVpcCidrBlock(
 	}
 
 	assoc := &VpcCidrBlockAssociation{
-		AssociationID: "vpc-cidr-assoc-" + uuid.New().String()[:17],
+		AssociationID: newVPCCIDRAssociationID(),
 		CidrBlock:     cidrBlock,
 		State:         stateAvailable,
 	}
@@ -395,7 +393,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTable(
 	}
 
 	rt := &TransitGatewayRouteTable{
-		RouteTableID:     "tgw-rtb-" + uuid.New().String()[:17],
+		RouteTableID:     newTransitGatewayRouteTableID(),
 		TransitGatewayID: tgwID,
 		State:            stateAvailable,
 		CreateTime:       time.Now(),
@@ -570,7 +568,7 @@ func (b *InMemoryBackend) AssociateTransitGatewayRouteTable(
 	assoc := &TransitGatewayRouteTableAssociation{
 		TransitGatewayRouteTableID: routeTableID,
 		TransitGatewayAttachmentID: attachmentID,
-		ResourceType:               "vpc",
+		ResourceType:               resourceTypeVPC,
 		State:                      stateAvailable,
 	}
 	b.tgwRTAssociations.Put(assoc)

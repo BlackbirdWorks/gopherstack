@@ -89,7 +89,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
-	id := "eni-" + uuid.New().String()[:17]
+	id := newENIID()
 	eni := &NetworkInterface{
 		ID:              id,
 		SubnetID:        subnetID,
@@ -156,7 +156,7 @@ func (b *InMemoryBackend) AttachNetworkInterface(
 		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
-	attachmentID := "eni-attach-" + uuid.New().String()[:17]
+	attachmentID := newENIAttachmentID()
 	b.deindexENILocked(eniID, eni)
 	eni.InstanceID = instanceID
 	eni.AttachmentID = attachmentID

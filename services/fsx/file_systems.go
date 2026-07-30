@@ -504,7 +504,7 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		}
 	}
 
-	id := "fs-" + uuid.New().String()[:17]
+	id := newFileSystemID()
 	arn := b.fsARN(id)
 	now := time.Now().UTC()
 
@@ -546,6 +546,35 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 
 	return fs.toFileSystem(), nil
 }
+
+// fsxIDHexLen is the hex-character length used for most FSx resource IDs
+// (e.g. "fs-0123456789abcdef0").
+const fsxIDHexLen = 17
+
+// newFSXHexUUID returns n lowercase hex characters derived from a fresh
+// UUID with the separating hyphens stripped, so the result is safe to embed
+// directly after a resource ID prefix. uuid.New().String() is hyphenated
+// (8-4-4-4-12); a naive [:n] slice embeds literal "-" characters into the ID
+// once n crosses a hyphen boundary (mirrors the fix for networkInterfaceIDsForSubnets
+// below, and gopherstack-28ce in services/ec2).
+func newFSXHexUUID(n int) string {
+	return strings.ReplaceAll(uuid.New().String(), "-", "")[:n]
+}
+
+func newFileSystemID() string                { return "fs-" + newFSXHexUUID(fsxIDHexLen) }
+func newStorageVirtualMachineID() string     { return "svm-" + newFSXHexUUID(fsxIDHexLen) }
+func newDataRepositoryAssociationID() string { return "dra-" + newFSXHexUUID(fsxIDHexLen) }
+func newFSxBackupID() string                 { return "backup-" + newFSXHexUUID(fsxIDHexLen) }
+func newDataRepositoryTaskID() string        { return "task-" + newFSXHexUUID(fsxIDHexLen) }
+func newFileCacheID() string                 { return "fc-" + newFSXHexUUID(fsxIDHexLen) }
+
+const fsxVolumeIDHexLen = 16
+
+func newFSxVolumeID() string { return "fsvol-" + newFSXHexUUID(fsxVolumeIDHexLen) }
+
+const fsxVolumeSnapshotIDHexLen = 12
+
+func newFSxVolumeSnapshotID() string { return "fsvolsnap-" + newFSXHexUUID(fsxVolumeSnapshotIDHexLen) }
 
 // generateLustreMountName returns a short, lowercase alphanumeric mount name in
 // the style AWS assigns to Lustre file systems (e.g. "abcd1234").
@@ -895,7 +924,7 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		fsType = srcFS.FileSystemType
 	}
 
-	id := "fs-" + uuid.New().String()[:17]
+	id := newFileSystemID()
 	arn := b.fsARN(id)
 	now := time.Now().UTC()
 

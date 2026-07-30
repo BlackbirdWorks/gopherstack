@@ -82,6 +82,7 @@ const (
 	stateInUse              = "in-use"
 	stateCancelled          = "cancelled"
 	resourceTypeVPC         = "vpc"
+	resourceTypeSnapshot    = "snapshot"
 	vpcDefaultName          = "vpc-default"
 	archX8664               = "x86_64"
 	resourceTypeFISInstance = "aws:ec2:instance"
@@ -889,7 +890,7 @@ func (b *InMemoryBackend) RunInstances(
 	instances := make([]*Instance, 0)
 
 	for range count {
-		id := "i-" + uuid.New().String()[:17]
+		id := newInstanceID()
 		inst := &Instance{
 			ID:           id,
 			ImageID:      imageID,
@@ -908,7 +909,7 @@ func (b *InMemoryBackend) RunInstances(
 			inst.PublicDNSName = fmt.Sprintf("ec2-%s.compute-1.amazonaws.com",
 				strings.ReplaceAll(inst.PublicIPAddress, ".", "-"))
 		}
-		eniID := "eni-" + uuid.New().String()[:17]
+		eniID := newENIID()
 		attachID := "eni-attach-" + uuid.New().String()[:8]
 		b.networkInterfaces.Put(&NetworkInterface{
 			ID:              eniID,

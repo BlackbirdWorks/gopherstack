@@ -6,8 +6,6 @@ import (
 	"slices"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // scheduled_instances.go implements the Scheduled Instances family: a static
@@ -267,7 +265,7 @@ func (b *InMemoryBackend) PurchaseScheduledInstances(
 
 		now := time.Now().UTC()
 		sci := &ScheduledInstance{
-			ScheduledInstanceID:         "sci-" + uuid.New().String()[:17],
+			ScheduledInstanceID:         newScheduledInstanceID(),
 			AvailabilityZone:            entry.AvailabilityZone,
 			InstanceType:                entry.InstanceType,
 			Platform:                    entry.Platform,
@@ -358,7 +356,7 @@ func (b *InMemoryBackend) RunScheduledInstances(
 	ids := make([]string, 0, instanceCount)
 
 	for range instanceCount {
-		instID := "i-" + uuid.New().String()[:17]
+		instID := newInstanceID()
 		b.instances.Put(&Instance{
 			ID:           instID,
 			ImageID:      imageID,

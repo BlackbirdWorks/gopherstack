@@ -216,7 +216,7 @@ func (b *InMemoryBackend) CopyVolumes(
 	for _, id := range volumeIDs {
 		src, _ := b.volumes.Get(id)
 		newVol := &Volume{
-			ID:         "vol-" + uuid.New().String()[:17],
+			ID:         newVolumeID(),
 			AZ:         src.AZ,
 			VolumeType: src.VolumeType,
 			Size:       src.Size,
@@ -476,7 +476,7 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, e
 	b.mu.Lock("CreateVolume")
 	defer b.mu.Unlock()
 
-	id := "vol-" + uuid.New().String()[:17]
+	id := newVolumeID()
 	vol := &Volume{
 		ID:         id,
 		AZ:         az,

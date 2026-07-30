@@ -5,8 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -58,7 +56,7 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 		return nil, ErrFileSystemNotFound
 	}
 
-	id := "backup-" + uuid.New().String()[:17]
+	id := newFSxBackupID()
 	arn := b.backupARN(id)
 	now := time.Now().UTC()
 
@@ -178,7 +176,7 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 		return nil, ErrBackupNotFound
 	}
 
-	id := "backup-" + uuid.New().String()[:17]
+	id := newFSxBackupID()
 	arn := b.backupARN(id)
 	now := time.Now().UTC()
 

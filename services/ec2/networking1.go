@@ -6,8 +6,6 @@ import (
 	"slices"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // dhcpOptionsDefault is the sentinel value AWS uses for "reset to default DHCP options".
@@ -85,7 +83,7 @@ func (b *InMemoryBackend) CreateTransitGatewayVpcAttachment(
 	}
 
 	att := &TransitGatewayVpcAttachment{
-		TransitGatewayAttachmentID: "tgw-attach-" + uuid.New().String()[:17],
+		TransitGatewayAttachmentID: newTransitGatewayAttachmentID(),
 		TransitGatewayID:           tgwID,
 		VpcID:                      vpcID,
 		State:                      stateAvailable,
@@ -193,7 +191,7 @@ func (b *InMemoryBackend) CreateFlowLogs(
 
 	for _, rid := range resourceIDs {
 		fl := &FlowLog{
-			FlowLogID:          "fl-" + uuid.New().String()[:17],
+			FlowLogID:          newFlowLogID(),
 			ResourceID:         rid,
 			TrafficType:        trafficType,
 			LogDestinationType: logDestinationType,
@@ -269,7 +267,7 @@ func (b *InMemoryBackend) CreateDhcpOptions(configs []DhcpConfiguration) (*DhcpO
 	defer b.mu.Unlock()
 
 	opts := &DhcpOptions{
-		DhcpOptionsID:    "dopt-" + uuid.New().String()[:17],
+		DhcpOptionsID:    newDHCPOptionsID(),
 		Configurations:   configs,
 		AssociatedVPCIDs: []string{},
 	}
@@ -461,7 +459,7 @@ func (b *InMemoryBackend) GetLaunchTemplateData(instanceID string) (*LaunchTempl
 	}
 
 	lt := &LaunchTemplate{
-		ID:           "lt-" + uuid.New().String()[:17],
+		ID:           newLaunchTemplateID(),
 		ImageID:      inst.ImageID,
 		InstanceType: inst.InstanceType,
 		CreatedBy:    b.AccountID,

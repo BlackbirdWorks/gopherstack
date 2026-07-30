@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // EnableVgwRoutePropagation enables route propagation for a VGW in a route table.
@@ -121,7 +119,7 @@ func (b *InMemoryBackend) CreateTransitGateway(p CreateTransitGatewayParams) (*T
 	b.mu.Lock("CreateTransitGateway")
 	defer b.mu.Unlock()
 
-	id := "tgw-" + uuid.New().String()[:17]
+	id := newTransitGatewayID()
 
 	amazonSideAsn := p.AmazonSideAsn
 	if amazonSideAsn == 0 {

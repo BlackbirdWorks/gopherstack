@@ -153,7 +153,7 @@ func (b *InMemoryBackend) CreateSecondaryNetwork(
 	b.mu.Lock("CreateSecondaryNetwork")
 	defer b.mu.Unlock()
 
-	id := "secnet-" + uuid.New().String()[:17]
+	id := newSecondaryNetworkID()
 	net := &SecondaryNetwork{
 		SecondaryNetworkID:  id,
 		SecondaryNetworkArn: fmt.Sprintf("arn:aws:ec2:%s:%s:secondary-network/%s", b.Region, b.AccountID, id),
@@ -259,7 +259,7 @@ func (b *InMemoryBackend) CreateSecondarySubnet(
 		availabilityZone = b.Region + "a"
 	}
 
-	id := "secsubnet-" + uuid.New().String()[:17]
+	id := newSecondarySubnetID()
 	sub := &SecondarySubnet{
 		SecondarySubnetID:    id,
 		SecondarySubnetArn:   fmt.Sprintf("arn:aws:ec2:%s:%s:secondary-subnet/%s", b.Region, b.AccountID, id),
@@ -346,7 +346,7 @@ func (b *InMemoryBackend) SeedSecondaryInterface(si SecondaryInterface) (*Second
 	defer b.mu.Unlock()
 
 	if si.SecondaryInterfaceID == "" {
-		si.SecondaryInterfaceID = "secni-" + uuid.New().String()[:17]
+		si.SecondaryInterfaceID = newSecondaryInterfaceID()
 	}
 
 	if si.OwnerID == "" {
@@ -401,7 +401,7 @@ func (b *InMemoryBackend) SeedServiceLinkVirtualInterface(
 	defer b.mu.Unlock()
 
 	if vif.ServiceLinkVirtualInterfaceID == "" {
-		vif.ServiceLinkVirtualInterfaceID = "svif-" + uuid.New().String()[:17]
+		vif.ServiceLinkVirtualInterfaceID = newServiceLinkVirtualInterfaceID()
 	}
 
 	if vif.OwnerID == "" {
@@ -458,7 +458,7 @@ func (b *InMemoryBackend) SeedOutpostLag(lag OutpostLag) (*OutpostLag, error) {
 	defer b.mu.Unlock()
 
 	if lag.OutpostLagID == "" {
-		lag.OutpostLagID = "lag-" + uuid.New().String()[:17]
+		lag.OutpostLagID = newOutpostLagID()
 	}
 
 	if lag.OwnerID == "" {

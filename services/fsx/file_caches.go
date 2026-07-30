@@ -5,8 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -51,7 +49,7 @@ func (b *InMemoryBackend) CreateFileCache(input *createFileCacheInput) (*FileCac
 	b.mu.Lock("CreateFileCache")
 	defer b.mu.Unlock()
 
-	id := "fc-" + uuid.New().String()[:17]
+	id := newFileCacheID()
 	arn := b.fcARN(id)
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)

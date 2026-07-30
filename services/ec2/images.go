@@ -262,7 +262,7 @@ func (b *InMemoryBackend) RegisterImage(name, description, architecture string) 
 	defer b.mu.Unlock()
 
 	img := &AMIStub{
-		ImageID:      "ami-" + uuid.New().String()[:17],
+		ImageID:      newAMIID(),
 		Name:         name,
 		Description:  description,
 		Architecture: architecture,
@@ -513,7 +513,7 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 	}
 
 	newImage := &AMIStub{
-		ImageID:        "ami-" + uuid.New().String()[:17],
+		ImageID:        newAMIID(),
 		Name:           name,
 		Description:    description,
 		Architecture:   src.Architecture,

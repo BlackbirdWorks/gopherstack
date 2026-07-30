@@ -5,8 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -54,7 +52,7 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 		return nil, ErrFileSystemNotFound
 	}
 
-	id := "task-" + uuid.New().String()[:17]
+	id := newDataRepositoryTaskID()
 	arn := b.drtARN(id)
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)

@@ -67,11 +67,11 @@ func (b *InMemoryBackend) CreateVpnConcentrator(
 			return nil, fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, transitGatewayID)
 		}
 
-		attachmentID = "tgw-attach-" + uuid.New().String()[:vpnConcentratorIDPrefixLength]
+		attachmentID = newTransitGatewayAttachmentID()
 	}
 
 	vc := &VpnConcentrator{
-		VpnConcentratorID:          "vpnc-" + uuid.New().String()[:vpnConcentratorIDPrefixLength],
+		VpnConcentratorID:          newVPNConcentratorID(),
 		Type:                       vpnType,
 		State:                      stateAvailable,
 		TransitGatewayID:           transitGatewayID,

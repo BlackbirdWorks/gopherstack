@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-
-	"github.com/google/uuid"
 )
 
 // ---- errors ----
@@ -148,7 +146,7 @@ func (b *InMemoryBackend) SeedLocalGateway(lg LocalGateway) (*LocalGateway, erro
 
 	stored := lg
 	if stored.LocalGatewayID == "" {
-		stored.LocalGatewayID = "lgw-" + uuid.New().String()[:17]
+		stored.LocalGatewayID = newLocalGatewayID()
 	}
 
 	if stored.OwnerID == "" {
@@ -178,7 +176,7 @@ func (b *InMemoryBackend) SeedLocalGatewayVirtualInterface(
 
 	stored := vif
 	if stored.LocalGatewayVirtualInterfaceID == "" {
-		stored.LocalGatewayVirtualInterfaceID = "lgw-vif-" + uuid.New().String()[:17]
+		stored.LocalGatewayVirtualInterfaceID = newLocalGatewayVirtualInterfaceID()
 	}
 
 	if stored.OwnerID == "" {
@@ -208,7 +206,7 @@ func (b *InMemoryBackend) SeedLocalGatewayVirtualInterfaceGroup(
 
 	stored := group
 	if stored.LocalGatewayVirtualInterfaceGroupID == "" {
-		stored.LocalGatewayVirtualInterfaceGroupID = "lgw-vif-grp-" + uuid.New().String()[:17]
+		stored.LocalGatewayVirtualInterfaceGroupID = newLocalGatewayVirtualInterfaceGroupID()
 	}
 
 	if stored.OwnerID == "" {
@@ -253,7 +251,7 @@ func (b *InMemoryBackend) CreateLocalGatewayVirtualInterfaceGroup(
 	}
 
 	group := &LocalGatewayVirtualInterfaceGroup{
-		LocalGatewayVirtualInterfaceGroupID: "lgw-vif-grp-" + uuid.New().String()[:17],
+		LocalGatewayVirtualInterfaceGroupID: newLocalGatewayVirtualInterfaceGroupID(),
 		LocalGatewayID:                      localGatewayID,
 		ConfigurationState:                  stateAvailable,
 		OwnerID:                             b.AccountID,
@@ -352,7 +350,7 @@ func (b *InMemoryBackend) CreateLocalGatewayVirtualInterface(
 	}
 
 	vif := &LocalGatewayVirtualInterface{
-		LocalGatewayVirtualInterfaceID:      "lgw-vif-" + uuid.New().String()[:17],
+		LocalGatewayVirtualInterfaceID:      newLocalGatewayVirtualInterfaceID(),
 		LocalGatewayID:                      group.LocalGatewayID,
 		LocalGatewayVirtualInterfaceGroupID: group.LocalGatewayVirtualInterfaceGroupID,
 		OutpostLagID:                        p.OutpostLagID,
@@ -522,7 +520,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRouteTable(
 	}
 
 	rt := &LocalGatewayRouteTable{
-		LocalGatewayRouteTableID: "lgw-rtb-" + uuid.New().String()[:17],
+		LocalGatewayRouteTableID: newLocalGatewayRouteTableID(),
 		LocalGatewayID:           localGatewayID,
 		OutpostArn:               lg.OutpostArn,
 		Mode:                     mode,
@@ -809,7 +807,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRouteTableVpcAssociation(
 			}
 
 			assoc := &LocalGatewayRouteTableVpcAssociation{
-				LocalGatewayRouteTableVpcAssociationID: "lgw-route-table-vpc-assoc-" + uuid.New().String()[:17],
+				LocalGatewayRouteTableVpcAssociationID: newLocalGatewayRouteTableVPCAssociationID(),
 				LocalGatewayRouteTableID:               routeTableID,
 				LocalGatewayRouteTableArn:              rt.LocalGatewayRouteTableArn,
 				LocalGatewayID:                         rt.LocalGatewayID,
@@ -908,15 +906,15 @@ func (b *InMemoryBackend) CreateLocalGatewayRouteTableVirtualInterfaceGroupAssoc
 				return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, vifGroupID)
 			}
 
+			assocID := newLocalGatewayRouteTableVirtualInterfaceGroupAssociationID()
 			assoc := &LocalGatewayRouteTableVirtualInterfaceGroupAssociation{
-				LocalGatewayRouteTableVirtualInterfaceGroupAssociationID: "lgw-route-table-virtual-interface-group-assoc-" +
-					uuid.New().String()[:17],
-				LocalGatewayRouteTableID:            routeTableID,
-				LocalGatewayRouteTableArn:           rt.LocalGatewayRouteTableArn,
-				LocalGatewayID:                      rt.LocalGatewayID,
-				LocalGatewayVirtualInterfaceGroupID: vifGroupID,
-				State:                               localGatewayAssocStateAssoc,
-				OwnerID:                             b.AccountID,
+				LocalGatewayRouteTableVirtualInterfaceGroupAssociationID: assocID,
+				LocalGatewayRouteTableID:                                 routeTableID,
+				LocalGatewayRouteTableArn:                                rt.LocalGatewayRouteTableArn,
+				LocalGatewayID:                                           rt.LocalGatewayID,
+				LocalGatewayVirtualInterfaceGroupID:                      vifGroupID,
+				State:                                                    localGatewayAssocStateAssoc,
+				OwnerID:                                                  b.AccountID,
 			}
 			b.localGatewayRouteTableVifGroupAssociations.Put(assoc)
 

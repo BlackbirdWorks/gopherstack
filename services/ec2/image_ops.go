@@ -230,7 +230,7 @@ func (b *InMemoryBackend) CreateRestoreImageTask(bucket, objectKey, name string)
 	}
 
 	img := &AMIStub{
-		ImageID:      "ami-" + uuid.New().String()[:17],
+		ImageID:      newAMIID(),
 		Name:         name,
 		Architecture: archX8664,
 		State:        stateAvailable,

@@ -8,8 +8,6 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -182,7 +180,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	return &runInstancesResponse{
 		Xmlns:         ec2XMLNS,
 		RequestID:     reqID,
-		ReservationID: "r-" + uuid.New().String()[:17],
+		ReservationID: newReservationID(),
 		OwnerID:       h.AccountID,
 		InstancesSet:  instanceItemSet{Items: items},
 	}, nil
@@ -253,7 +251,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 	}
 
 	reservation := reservationItem{
-		ReservationID: "r-" + uuid.New().String()[:17],
+		ReservationID: newReservationID(),
 		OwnerID:       h.AccountID,
 		InstancesSet:  instanceItemSet{Items: items},
 	}

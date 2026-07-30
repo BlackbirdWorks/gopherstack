@@ -225,7 +225,11 @@ const exportARNPathParts = 2
 // Format matches the AWS convention: a zero-padded Unix millisecond timestamp
 // followed by a UUID-derived hex suffix.
 func generateExportID() string {
-	return fmt.Sprintf("%016x-%s", time.Now().UnixMilli(), uuid.New().String()[:exportIDSuffixLen])
+	return fmt.Sprintf(
+		"%016x-%s",
+		time.Now().UnixMilli(),
+		strings.ReplaceAll(uuid.New().String(), "-", "")[:exportIDSuffixLen],
+	)
 }
 
 func (h *DynamoDBHandler) exportTableToPointInTime(ctx context.Context, body []byte) (any, error) {

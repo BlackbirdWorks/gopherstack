@@ -20,7 +20,7 @@ func (b *InMemoryBackend) CreateDefaultVpc() (*VPC, error) {
 	}
 
 	vpc := &VPC{
-		ID:        "vpc-" + uuid.New().String()[:17],
+		ID:        newVPCID(),
 		CIDRBlock: defaultVPCCIDR,
 		IsDefault: true,
 	}
@@ -276,14 +276,14 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 		}
 	}
 
-	id := "vpc-" + uuid.New().String()[:17]
+	id := newVPCID()
 	v := &VPC{
 		ID:        id,
 		CIDRBlock: cidr,
 	}
 	b.vpcs.Put(v)
 
-	sgID := "sg-" + uuid.New().String()[:17]
+	sgID := newSecurityGroupID()
 	b.securityGroups.Put(&SecurityGroup{
 		ID:          sgID,
 		Name:        defaultSecurityGroupName,

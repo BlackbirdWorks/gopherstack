@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ---- VPC Block Public Access (BPA) constants ----
@@ -363,7 +361,7 @@ func (b *InMemoryBackend) CreateVpcBlockPublicAccessExclusion(
 		}
 	}
 
-	id := "vpcbpa-exclusion-" + uuid.New().String()[:vpcBPAExclusionIDPrefixLength]
+	id := newVPCBPAExclusionID()
 	now := time.Now().UTC()
 	arn := "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":vpc-block-public-access-exclusion/" + id
 

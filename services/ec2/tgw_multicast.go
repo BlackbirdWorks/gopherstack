@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ---- errors ----
@@ -128,7 +126,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMulticastDomain(
 	}
 
 	domain := &TransitGatewayMulticastDomain{
-		ID:                           "tgw-mcast-domain-" + uuid.New().String()[:17],
+		ID:                           newTransitGatewayMulticastDomainID(),
 		TransitGatewayID:             tgwID,
 		State:                        stateAvailable,
 		OwnerID:                      b.AccountID,
@@ -527,7 +525,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMeteringPolicy(
 	copy(ids, middleboxAttachmentIDs)
 
 	policy := &TransitGatewayMeteringPolicy{
-		ID:                     "tgw-metering-policy-" + uuid.New().String()[:17],
+		ID:                     newTransitGatewayMeteringPolicyID(),
 		TransitGatewayID:       tgwID,
 		State:                  stateAvailable,
 		MiddleboxAttachmentIDs: ids,

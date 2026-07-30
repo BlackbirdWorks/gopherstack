@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ErrNatGatewayNotFound is returned when a NAT gateway is not found.
@@ -71,14 +69,14 @@ func (b *InMemoryBackend) CreateNatGateway(
 		return nil, fmt.Errorf("%w: %s", ErrAddressNotFound, allocationID)
 	}
 
-	id := "nat-" + uuid.New().String()[:17]
+	id := newNATGatewayID()
 	ngw := &NatGateway{
 		ID:               id,
 		SubnetID:         subnetID,
 		VPCID:            subnet.VPCID,
 		AvailabilityZone: subnet.AvailabilityZone,
 		AllocationID:     allocationID,
-		AssociationID:    "eipassoc-" + uuid.New().String()[:17],
+		AssociationID:    newEIPAssociationID(),
 		PublicIP:         addr.PublicIP,
 		PrivateIP:        b.allocPrivateIP(),
 		State:            stateAvailable,
@@ -233,7 +231,7 @@ func (b *InMemoryBackend) AssociateNatGatewayAddress(
 
 		ngw.SecondaryAddresses = append(ngw.SecondaryAddresses, NatGatewayAddress{
 			AllocationID:  allocID,
-			AssociationID: "eipassoc-" + uuid.New().String()[:17],
+			AssociationID: newEIPAssociationID(),
 			PrivateIP:     b.allocPrivateIP(),
 			PublicIP:      addr.PublicIP,
 		})
