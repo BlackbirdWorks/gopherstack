@@ -4,11 +4,12 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
@@ -41,14 +42,16 @@ const (
 	cborOpUntagResource       = "UntagResource"
 )
 
-// isCBORRequest returns true when the request uses the rpc-v2-cbor (Smithy RPCv2) protocol.
+// isCBORRequest returns true when the request uses the rpc-v2-cbor (Smithy
+// RPCv2) protocol. Delegates to pkgs/service, shared with AppStream (the
+// only other rpc-v2-cbor service).
 func isCBORRequest(r *http.Request) bool {
-	return r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, cborServicePath)
+	return service.IsRPCv2CBORRequest(r, cborServicePath)
 }
 
 // extractCBOROperation returns the operation name from an rpc-v2-cbor request path.
 func extractCBOROperation(path string) string {
-	return strings.TrimPrefix(path, cborServicePath)
+	return service.ExtractRPCv2CBOROperation(path, cborServicePath)
 }
 
 // maxCBORBodyBytes caps CloudWatch rpc-v2-cbor request bodies. CloudWatch
@@ -253,26 +256,17 @@ func (h *Handler) dispatchInsightRuleCBOR(
 }
 
 // writeCBOR writes a CBOR-encoded response with the Smithy-Protocol header.
+// Delegates to pkgs/service, shared with AppStream (the only other
+// rpc-v2-cbor service).
 func writeCBOR(c *echo.Context, v cbor.Value) error {
-	c.Response().Header().Set("Content-Type", "application/cbor")
-	c.Response().Header().Set("Smithy-Protocol", "rpc-v2-cbor")
-	c.Response().WriteHeader(http.StatusOK)
-	_, err := c.Response().Write(cbor.Encode(v))
-
-	return err
+	return service.WriteRPCv2CBORResponse(c, v)
 }
 
-// cborError writes a CBOR error response.
+// cborError writes a CBOR error response. See
+// [service.WriteRPCv2CBORError] for why the CBOR body itself (not just the
+// X-Amzn-Errortype header) must carry the exception name.
 func (h *Handler) cborError(c *echo.Context, status int, code, message string) error {
-	c.Response().Header().Set("Content-Type", "application/cbor")
-	c.Response().Header().Set("Smithy-Protocol", "rpc-v2-cbor")
-	c.Response().Header().Set("X-Amzn-Errortype", code)
-	c.Response().WriteHeader(status)
-	_, err := c.Response().Write(cbor.Encode(cbor.Map{
-		"message": cbor.String(message),
-	}))
-
-	return err
+	return service.WriteRPCv2CBORError(c, status, code, message)
 }
 
 // cborStr extracts a string value from a CBOR map by key.

@@ -4,9 +4,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/smithy-go/encoding/cbor"
+	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -450,6 +452,216 @@ func TestIsCBORRequest(t *testing.T) {
 
 			if got := service.IsCBORRequest(req); got != tc.wants.isCBOR {
 				t.Errorf("IsCBORRequest(%q) = %v, want %v", tc.args.contentType, got, tc.wants.isCBOR)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// rpc-v2-cbor (Smithy RPCv2 CBOR) helpers, shared by AppStream and
+// CloudWatch -- see services/appstream/rpcv2cbor.go and
+// services/cloudwatch/rpcv2cbor.go, the two rpc-v2-cbor services in this
+// codebase. This protocol is distinct from the AWS CBOR-1.1 protocol tested
+// above: it dispatches on URL path prefix rather than Content-Type, and
+// carries the operation name in the path rather than an X-Amz-Target header.
+// ---------------------------------------------------------------------------
+
+const testRPCv2CBORServicePath = "/service/TestService/operation/"
+
+func TestIsRPCv2CBORRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   bool
+	}{
+		{
+			name:   "POST under service path matches",
+			method: http.MethodPost,
+			path:   testRPCv2CBORServicePath + "SomeOperation",
+			want:   true,
+		},
+		{
+			name:   "GET under service path does not match",
+			method: http.MethodGet,
+			path:   testRPCv2CBORServicePath + "SomeOperation",
+			want:   false,
+		},
+		{
+			name:   "POST outside service path does not match",
+			method: http.MethodPost,
+			path:   "/some/other/path",
+			want:   false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+
+			if got := service.IsRPCv2CBORRequest(req, testRPCv2CBORServicePath); got != tc.want {
+				t.Errorf("IsRPCv2CBORRequest(%s %q) = %v, want %v", tc.method, tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExtractRPCv2CBOROperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "strips service path prefix",
+			path: testRPCv2CBORServicePath + "PutMetricData",
+			want: "PutMetricData",
+		},
+		{
+			name: "path without prefix is unchanged",
+			path: "PutMetricData",
+			want: "PutMetricData",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := service.ExtractRPCv2CBOROperation(tc.path, testRPCv2CBORServicePath); got != tc.want {
+				t.Errorf("ExtractRPCv2CBOROperation(%q) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWriteRPCv2CBORResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body cbor.Map
+		name string
+	}{
+		{name: "empty map", body: cbor.Map{}},
+		{name: "map with a string field", body: cbor.Map{"Name": cbor.String("value")}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			if err := service.WriteRPCv2CBORResponse(c, tc.body); err != nil {
+				t.Fatalf("WriteRPCv2CBORResponse: %v", err)
+			}
+
+			if got := rec.Code; got != http.StatusOK {
+				t.Errorf("status = %d, want %d", got, http.StatusOK)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/cbor" {
+				t.Errorf("Content-Type = %q, want application/cbor", got)
+			}
+			if got := rec.Header().Get("Smithy-Protocol"); got != "rpc-v2-cbor" {
+				t.Errorf("Smithy-Protocol = %q, want rpc-v2-cbor", got)
+			}
+
+			decoded, err := cbor.Decode(rec.Body.Bytes())
+			if err != nil {
+				t.Fatalf("cbor.Decode: %v", err)
+			}
+			m, ok := decoded.(cbor.Map)
+			if !ok {
+				t.Fatalf("expected cbor.Map, got %T", decoded)
+			}
+			if len(m) != len(tc.body) {
+				t.Errorf("decoded body has %d keys, want %d", len(m), len(tc.body))
+			}
+		})
+	}
+}
+
+// TestWriteRPCv2CBORError is the regression test for gopherstack-7fyf: the
+// generated rpc-v2-cbor SDK deserializer (getProtocolErrorInfo) resolves the
+// exception name from an "__type" key in the decoded CBOR body, not from the
+// X-Amzn-Errortype header -- the header alone (CloudWatch's behavior before
+// this fix) leaves errors.As/errors.Is against typed exceptions unable to
+// match on the client, even though the header and status code look correct.
+func TestWriteRPCv2CBORError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		code    string
+		message string
+		status  int
+	}{
+		{
+			name:    "ResourceNotFoundException",
+			status:  http.StatusBadRequest,
+			code:    "ResourceNotFoundException",
+			message: "no such alarm",
+		},
+		{
+			name:    "InternalFailure",
+			status:  http.StatusInternalServerError,
+			code:    "InternalFailure",
+			message: "boom",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			if err := service.WriteRPCv2CBORError(c, tc.status, tc.code, tc.message); err != nil {
+				t.Fatalf("WriteRPCv2CBORError: %v", err)
+			}
+
+			if got := rec.Code; got != tc.status {
+				t.Errorf("status = %d, want %d", got, tc.status)
+			}
+			if got := rec.Header().Get("X-Amzn-Errortype"); got != tc.code {
+				t.Errorf("X-Amzn-Errortype header = %q, want %q", got, tc.code)
+			}
+
+			decoded, err := cbor.Decode(rec.Body.Bytes())
+			if err != nil {
+				t.Fatalf("cbor.Decode: %v", err)
+			}
+			m, ok := decoded.(cbor.Map)
+			if !ok {
+				t.Fatalf("expected cbor.Map, got %T", decoded)
+			}
+
+			typeVal, ok := m["__type"].(cbor.String)
+			if !ok {
+				t.Fatalf("CBOR error body missing __type key (body: %+v)", m)
+			}
+			if string(typeVal) != tc.code {
+				t.Errorf("__type = %q, want %q", string(typeVal), tc.code)
+			}
+
+			msgVal, ok := m["message"].(cbor.String)
+			if !ok {
+				t.Fatalf("CBOR error body missing message key (body: %+v)", m)
+			}
+			if string(msgVal) != tc.message {
+				t.Errorf("message = %q, want %q", string(msgVal), tc.message)
 			}
 		})
 	}

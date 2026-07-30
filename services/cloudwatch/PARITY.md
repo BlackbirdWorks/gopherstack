@@ -127,6 +127,32 @@ generated Go *types* (`types.LogAlarm`, `types.ScheduledQueryConfiguration`,
 `types.ScheduleConfiguration`, `GetDatasetOutput`, `GetOTelEnrichmentOutput`) since there's no XML
 serializer to diff the XML shape against directly.
 
+### rpc-v2-cbor errors were missing `__type` in the body (bd gopherstack-7fyf — FIXED 2026-07-26)
+
+`cborError` (in `rpcv2cbor.go`) set the exception name **only** in the `X-Amzn-Errortype` HTTP
+header. Confirmed against `aws-sdk-go-v2/service/cloudwatch@v1.65.0/deserializers.go`:
+`getProtocolErrorInfo(payload []byte)` takes only the decoded CBOR payload and resolves the
+exception name from `mv["__type"]` — no header is consulted for this protocol. A caller doing
+`errors.As(&types.ResourceNotFoundException{})` against a CloudWatch error received over CBOR
+therefore degraded to an untyped/`UnknownError` on the client, even though the HTTP status code
+was correct (which is why this went unnoticed — status-code-only test assertions all still
+passed).
+
+**Fix:** the CBOR error body now includes `"__type": <code>` alongside `"message"`, matching the
+shape AppStream's `rpcv2cbor.go` already used. The `X-Amzn-Errortype` header is still set too
+(harmless, matches this codebase's convention), but the body is what the SDK actually reads.
+
+**Shared helper extraction:** since this made CloudWatch's and AppStream's `cborError`/`writeCBOR`/
+`isCBORRequest`/`extractCBOROperation` byte-for-byte identical (modulo each service's own path
+prefix constant), they were pulled into `pkgs/service/rpcv2cbor.go`
+(`WriteRPCv2CBORError`/`WriteRPCv2CBORResponse`/`IsRPCv2CBORRequest`/`ExtractRPCv2CBOROperation`);
+both services now delegate to it. This is deliberately scoped to just those four small
+protocol-plumbing functions — CloudWatch's per-field CBOR extraction helpers (`cborStr`,
+`cborFloat`, `cborTime`, etc., reading directly off a decoded `cbor.Map`) and AppStream's
+generic JSON-bridge helpers (`cborToGo`/`goToCBOR`, which route CBOR through the existing
+JSON-body op handlers) operate at a fundamentally different level of abstraction from each other
+and were left alone rather than forcing them into a shared shape.
+
 ### PutLogAlarm / dataset KMS association / OTel enrichment (v1.65.0 SDK bump, 2026-07-25 pass)
 
 The `aws-sdk-go-v2/service/cloudwatch` module bump from v1.55.1 to v1.65.0 added 7 operations:

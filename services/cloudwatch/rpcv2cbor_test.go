@@ -173,6 +173,7 @@ func TestCBOR(t *testing.T) {
 		wantStringField  string
 		wantStringValue  string
 		wantListField    string
+		wantErrorType    string
 		wantCode         int
 		wantListLen      int
 		wantProtocol     bool
@@ -196,11 +197,17 @@ func TestCBOR(t *testing.T) {
 			wantProtocol: true,
 		},
 		{
-			name:         "PutMetricData/missing namespace",
-			op:           "PutMetricData",
-			body:         cbor.Map{},
-			wantCode:     http.StatusBadRequest,
-			wantProtocol: true,
+			// Regression coverage for gopherstack-7fyf: the CBOR error body
+			// must carry "__type" (not just the X-Amzn-Errortype header),
+			// because rpc-v2-cbor's generated deserializer
+			// (getProtocolErrorInfo) resolves the exception name from the
+			// decoded CBOR payload, never from a header.
+			name:          "PutMetricData/missing namespace",
+			op:            "PutMetricData",
+			body:          cbor.Map{},
+			wantCode:      http.StatusBadRequest,
+			wantProtocol:  true,
+			wantErrorType: "InvalidParameterValue",
 		},
 		{
 			name: "PutAndGetMetricStatistics",
@@ -347,11 +354,12 @@ func TestCBOR(t *testing.T) {
 			wantListNotEmpty: true,
 		},
 		{
-			name:         "UnknownOperation",
-			op:           "NotAnOp",
-			body:         cbor.Map{},
-			wantCode:     http.StatusBadRequest,
-			wantProtocol: true,
+			name:          "UnknownOperation",
+			op:            "NotAnOp",
+			body:          cbor.Map{},
+			wantCode:      http.StatusBadRequest,
+			wantProtocol:  true,
+			wantErrorType: "InvalidAction",
 		},
 		{
 			name: "GetMetricData",
@@ -401,11 +409,12 @@ func TestCBOR(t *testing.T) {
 			wantListEmpty: true,
 		},
 		{
-			name:         "PutMetricAlarm/missing name",
-			op:           "PutMetricAlarm",
-			body:         cbor.Map{},
-			wantCode:     http.StatusBadRequest,
-			wantProtocol: true,
+			name:          "PutMetricAlarm/missing name",
+			op:            "PutMetricAlarm",
+			body:          cbor.Map{},
+			wantCode:      http.StatusBadRequest,
+			wantProtocol:  true,
+			wantErrorType: "InvalidParameterValue",
 		},
 		{
 			name:          "DescribeAlarms/empty",
@@ -499,6 +508,18 @@ func TestCBOR(t *testing.T) {
 
 			if tt.wantProtocol {
 				assert.Equal(t, "rpc-v2-cbor", rec.Header().Get("Smithy-Protocol"))
+			}
+
+			if tt.wantErrorType != "" {
+				// The rpc-v2-cbor SDK deserializer resolves the exception
+				// name from "__type" in the decoded CBOR body, not from the
+				// X-Amzn-Errortype header -- both must carry it.
+				assert.Equal(t, tt.wantErrorType, rec.Header().Get("X-Amzn-Errortype"))
+
+				m := decodeCBORResponse(t, rec)
+				typeVal, ok := m["__type"].(cbor.String)
+				require.True(t, ok, "CBOR error body must include __type")
+				assert.Equal(t, tt.wantErrorType, string(typeVal))
 			}
 
 			if tt.wantStringField != "" {
