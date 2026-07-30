@@ -332,6 +332,18 @@ func (h *Handler) handleGetBucketPolicy(c *echo.Context) error {
 	}{Policy: policy})
 }
 
+// putBucketPolicyRequestXML mirrors the real PutBucketPolicyInput wire shape:
+// root PutBucketPolicyRequest, with the policy JSON document as the text
+// content of a nested Policy element (confirmed against
+// awsRestxml_serializeOpDocumentPutBucketPolicyInput in the installed SDK's
+// serializers.go -- unlike PutBucketLifecycleConfiguration/PutBucketTagging/
+// PutBucketVersioning, Policy is NOT a payload-bound field, so the request
+// body is NOT the bare policy document; it is wrapped in this envelope).
+type putBucketPolicyRequestXML struct {
+	XMLName xml.Name `xml:"PutBucketPolicyRequest"`
+	Policy  string   `xml:"Policy"`
+}
+
 func (h *Handler) handlePutBucketPolicy(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
@@ -339,8 +351,12 @@ func (h *Handler) handlePutBucketPolicy(c *echo.Context) error {
 		"/policy",
 	)
 
-	body := readBody(c)
-	if err := h.Backend.PutBucketPolicy(accountID, bucketName, string(body)); err != nil {
+	var body putBucketPolicyRequestXML
+	if err := decodeXML(c, &body); err != nil {
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
+	}
+
+	if err := h.Backend.PutBucketPolicy(accountID, bucketName, body.Policy); err != nil {
 		return handleBackendError(c, err)
 	}
 

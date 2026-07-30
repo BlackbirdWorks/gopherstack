@@ -7,7 +7,7 @@
 service: acm
 sdk_module: aws-sdk-go-v2/service/acm@v1.43.0   # version audited against
 last_audit_commit: HEAD                           # see git log for this pass's commit
-last_audit_date: 2026-07-25
+last_audit_date: 2026-07-30
 overall: B            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 # 2026-07-25 pass: implemented 23 ops added between v1.37.21 and v1.43.0 (the
 # ACME family: endpoints, external account bindings, accounts, domain
@@ -19,12 +19,30 @@ overall: B            # A = genuine fix found (wire-shape bug); B = already-accu
 # never leaves VALIDATING). B, not A, because the grade reflects genuine but
 # incomplete coverage of new surface, not a bug fix on audited-and-confirmed-
 # accurate old surface.
+#
+# 2026-07-30 pass (re-audit, gopherstack B-grade sweep): confirmed the 2026-07-25
+# rationale was still current -- re-read every `gaps`/`deferred` bullet against the
+# installed SDK and found one, and only one, genuinely mechanical field-diff gap
+# (not a design/scope gap): RequestCertificate.ManagedBy / CertificateDetail.ManagedBy
+# / CertificateSummary.ManagedBy / AcmCertificateMetadata(Filter).ManagedBy -- all real
+# fields on the installed aws-sdk-go-v2/service/acm@v1.43.0 types (confirmed by reading
+# types.go/api_op_RequestCertificate.go directly: CertificateManagedBy is a real,
+# currently single-valued enum, "CLOUDFRONT") that gopherstack accepted nowhere and
+# echoed nowhere. FIXED this pass end-to-end (input validation, storage, echo on
+# Describe/List/Search, real SearchCertificates filter+sort matching) -- see Notes and
+# the ManagedBy gap bullets removed below. Still held at B, not raised to A: every
+# other `gaps`/`deferred` item is a genuine, still-open, non-mechanical scope boundary
+# (a full RFC 8555 ACME protocol front-end for AcmeAccount, DNS-record verification
+# for AcmeDomainValidation.Status, the 2025 exportable-public-certificates gating
+# whose exact error contract could not be confirmed from available docs, HTTP
+# validation method, structured-DN Subject filtering) that this pass did not close and
+# should not be asserted closed. See gaps/deferred below for the itemized remainder.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  RequestCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed this pass against RequestCertificateInput/CertificateOptions: added DomainValidationOptions input (validated + applied, InvalidDomainValidationOptionsException wired), Options.Export input (stored, echoed on Describe/List, see gaps for enforcement scope), SAN-count-exceeded now LimitExceededException (was ValidationException); RSA_1024 weak-key rejection now correctly wrapped as ValidationException instead of escaping to a 500 InternalFailure"}
-  DescribeCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "RenewalSummary now includes UpdatedAt (required/always-present on real wire, was missing entirely) and RenewalStatusReason; Options.Export added; InvalidArnException wired for malformed CertificateArn"}
-  ListCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "CertificateSummary previously omitted CreatedAt entirely (always-present real field) -- fixed. Also added RevokedAt/InUse/KeyUsages/ExtendedKeyUsages/ExportOption/Exported(PRIVATE-only)/HasAdditionalSubjectAlternativeNames(always false, correct given our SAN cap), closing the prior gap row. ManagedBy intentionally still omitted (see gaps)."}
+  RequestCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed this pass against RequestCertificateInput/CertificateOptions: added DomainValidationOptions input (validated + applied, InvalidDomainValidationOptionsException wired), Options.Export input (stored, echoed on Describe/List, see gaps for enforcement scope), SAN-count-exceeded now LimitExceededException (was ValidationException); RSA_1024 weak-key rejection now correctly wrapped as ValidationException instead of escaping to a 500 InternalFailure. 2026-07-30: ManagedBy input added (real CertificateManagedBy enum, single value CLOUDFRONT; verified against types.go/api_op_RequestCertificate.go), validated before certificate creation (so an unknown value never leaves an orphaned cert behind, same reasoning as DomainValidationOptions) and stored via a new SetManagedBy backend call, mirroring the existing SetExportPreference immutable-after-creation pattern."}
+  DescribeCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "RenewalSummary now includes UpdatedAt (required/always-present on real wire, was missing entirely) and RenewalStatusReason; Options.Export added; InvalidArnException wired for malformed CertificateArn. 2026-07-30: ManagedBy echoed (see RequestCertificate note); jsonDescribeCertificate decomposed into buildDomainValidationOptionList/buildRenewalSummaryDetail helpers to stay under funlen after the addition."}
+  ListCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "CertificateSummary previously omitted CreatedAt entirely (always-present real field) -- fixed. Also added RevokedAt/InUse/KeyUsages/ExtendedKeyUsages/ExportOption/Exported(PRIVATE-only)/HasAdditionalSubjectAlternativeNames(always false, correct given our SAN cap), closing the prior gap row. 2026-07-30: ManagedBy added (was previously intentionally omitted, see prior gaps -- now real, see RequestCertificate note)."}
   DeleteCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired for malformed CertificateArn"}
   ImportCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-import (CertificateArn set) updates in place; matches AWS. InvalidArnException wired when CertificateArn is supplied and malformed"}
   GetCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly rejects PENDING_VALIDATION/FAILED/VALIDATION_TIMED_OUT with RequestInProgressException-style error; InvalidArnException wired"}
@@ -38,7 +56,7 @@ ops:
   ResendValidationEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired"}
   GetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotency-token conflict correctly returns ConflictException on mismatched settings"}
-  SearchCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against SearchCertificatesInput/Output and the CertificateFilterStatement/CertificateFilter/AcmCertificateMetadataFilter/X509AttributeFilter union wire shapes in serializers.go/deserializers.go (union members serialize as single-key wrapper objects, e.g. {\"Filter\":{\"CertificateArn\":...}}). Supports the full And/Or/Not/Filter recursive tree; AcmCertificateMetadataFilter members Status/Type/ValidationMethod/RenewalStatus/Exported/InUse/ExportOption map to real Certificate fields; AcmeAccountId/AcmeEndpointArn/ManagedBy/CertificateKeyPairOrigin filters honestly never match (no such data tracked, see gaps -- same ManagedBy gap as ListCertificates). X509AttributeFilter supports KeyAlgorithm/KeyUsage/ExtendedKeyUsage/SerialNumber/SubjectAlternativeName.DnsName(EQUALS/CONTAINS)/NotAfter/NotBefore; Subject (full DN filter) not supported (gopherstack stores Subject only as pkix.Name.String(), not structured RDN components). SortBy supports all real fields with data (falls back to stable ARN ordering for untracked fields, matching ListCertificates' own fallback)."}
+  SearchCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against SearchCertificatesInput/Output and the CertificateFilterStatement/CertificateFilter/AcmCertificateMetadataFilter/X509AttributeFilter union wire shapes in serializers.go/deserializers.go (union members serialize as single-key wrapper objects, e.g. {\"Filter\":{\"CertificateArn\":...}}). Supports the full And/Or/Not/Filter recursive tree; AcmCertificateMetadataFilter members Status/Type/ValidationMethod/RenewalStatus/Exported/InUse/ExportOption map to real Certificate fields; AcmeAccountId/AcmeEndpointArn/CertificateKeyPairOrigin filters honestly never match (no such data tracked, see gaps). X509AttributeFilter supports KeyAlgorithm/KeyUsage/ExtendedKeyUsage/SerialNumber/SubjectAlternativeName.DnsName(EQUALS/CONTAINS)/NotAfter/NotBefore; Subject (full DN filter) not supported (gopherstack stores Subject only as pkix.Name.String(), not structured RDN components). SortBy supports all real fields with data (falls back to stable ARN ordering for untracked fields, matching ListCertificates' own fallback). 2026-07-30: ManagedBy filter member and MANAGED_BY sort now match/sort for real (Certificate.ManagedBy is now tracked data, see RequestCertificate note) -- new TestACMHandler_SearchCertificates/AcmCertificateMetadataFilter_ManagedBy case locks this in."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "routes by ARN shape (certificate/acme-endpoint/acme-external-account-binding/acme-domain-validation, most-specific-first) via resolveTaggableResourceArn (handler_resource_tags.go); a CertificateArn resolves to the SAME h.tags-backed store ListTagsForCertificate/AddTagsToCertificate use -- see tagging_verdict. Malformed ResourceArn -> ValidationException (not InvalidArnException; the real op's documented Errors section lists only ResourceNotFoundException/ValidationException, unlike CertificateArn ops)."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ARN-type routing as ListTagsForResource; shares h.tags with AddTagsToCertificate for certificate ARNs."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "TagKeys (not Tags) input, field-diffed against UntagResourceInput; same ARN-type routing."}
@@ -62,17 +80,14 @@ ops:
   DeleteAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - ExportCertificate still unconditionally rejects AMAZON_ISSUED (public) certificates with RequestInProgressException, matching pre-2025 ACM behavior. Real AWS added "exportable public certificates" (public certs created after 2025-06-17 are exportable when Options.Export=ENABLED); Options.Export is now stored/validated/echoed correctly on the wire (RequestCertificate input, DescribeCertificate/ListCertificates output) but ExportCertificate does NOT yet gate AMAZON_ISSUED export on it. Not fixed this pass: the exact error code/condition AWS returns when a public cert lacks Export=ENABLED could not be confirmed from available documentation (RequestInProgressException's documented meaning is specifically "still pending validation", which would misrepresent this condition), and changing this risks fabricating an unverified error contract. Existing test TestACMHandler_ExportCertificate_AmazonIssued_Returns_RequestInProgressException locks in the current (conservative, pre-2025-parity) behavior.
-  - CertificateDetail/CertificateSummary omit ManagedBy (AWS: which service, e.g. CLOUDFRONT, manages the cert) — no backend concept of CloudFront-managed certs exists; RequestCertificate's ManagedBy input field is also not accepted. Feature gap, not audited further this pass (field is optional on the real wire; omission is correct-by-absence for certs gopherstack never marks as managed).
   - ValidationMethod=HTTP (DomainValidation.HttpRedirect) is accepted as an input value but not given HTTP-specific handling -- buildInitialDVOList falls through to DNS-style ResourceRecord generation for any non-DNS/non-EMAIL method. Real AWS's HTTP validation method is documented as CloudFront-internal (HttpRedirect "exists only when the certificate type is AMAZON_ISSUED and the validation method is HTTP", set when CloudFront requests certs on a customer's behalf) rather than a method end users normally invoke directly; low value/high uncertainty, left unimplemented.
   - InvalidArgsException and TagPolicyException (both present in the real SDK's types/errors.go) are not wired to any code path -- no tag-policy engine or "invalid args" condition distinct from the other mapped errors exists in gopherstack to trigger them from.
-  - RequestCertificate does not accept the ManagedBy input field (CLOUDFRONT); see ManagedBy gap above.
   - AcmeAccount is never populated (DescribeAcmeAccount/ListAcmeAccounts/RevokeAcmeAccount always operate on an empty account set). Real ACME accounts are created by an ACME client's own RFC 8555 "newAccount" protocol call against the endpoint's EndpointUrl -- a real ACME protocol front-end (parsing/serving actual ACME JSON, JWS-signed requests, nonce challenges, etc.) is out of scope for this rollout per the task's explicit instruction that real cryptographic ACME protocol work is not required. The three ops are wired against real (honestly empty) backend state and validate their AcmeEndpointArn FK for real -- this is a deliberate scope boundary, not an unwired stub. Deferred: an actual ACME protocol server that populates this table.
-  - AcmeDomainValidation.Status never leaves VALIDATING (real values also include VALID/INVALID/DELETING). gopherstack has no DNS resolver to check the synthesized prevalidation ResourceRecord against, so it never claims a validation succeeded or failed -- doing so would be exactly the "claim a domain validation succeeded when nothing validated it" fabrication the task explicitly called out to avoid. FailureDetails is consequently always absent too (nothing to report a failure for). Deferred: real DNS-record verification (would require gopherstack's embedded DNS server, pkgs/dns, to actually serve/check the record).
+  - AcmeDomainValidation.Status never leaves VALIDATING (real values also include VALID/INVALID/DELETING). gopherstack has no DNS resolver to check the synthesized prevalidation ResourceRecord against, so it never claims a validation succeeded or failed -- doing so would be exactly the "claim a domain validation succeeded when nothing validated it" fabrication the task explicitly called out to avoid. FailureDetails is consequently always absent too (nothing to report a failure for). Deferred: real DNS-record verification (would require gopherstack's embedded DNS server, pkgs/dns, to actually serve/check the record -- pkgs/dns today only serves synthetic AWS-style hostnames for elasticache, it is not wired to any user-created DNS zone/record concept a certificate validation flow could check against).
   - SearchCertificates' X509AttributeFilter.Subject (full Distinguished Name filtering: CommonName/Country/Organization/etc.) is not supported -- gopherstack's Certificate.Subject is stored only as the pkix.Name.String() rendering from crypto.go, not structured RDN components, so there is nothing to filter sub-fields of without re-parsing that string (low value, not attempted this pass).
-  - AcmCertificateMetadataFilter's AcmeAccountId/AcmeEndpointArn/ManagedBy/CertificateKeyPairOrigin members (and the matching SearchCertificates SortBy values) never match/sort meaningfully: Certificate carries no such fields (CertificateDetail.AcmeAccountId/AcmeEndpointArn are new real-SDK fields this pass did NOT wire onto RequestCertificate/DescribeCertificate/CertificateSummary, since no ACME-issued-certificate code path exists to populate them from -- see the AcmeAccount gap above; ManagedBy is the pre-existing gap from the prior pass). Correct-by-absence, not fabricated.
+  - AcmCertificateMetadataFilter's AcmeAccountId/AcmeEndpointArn/CertificateKeyPairOrigin members (and the matching SearchCertificates SortBy values) never match/sort meaningfully: Certificate carries no such fields (CertificateDetail.AcmeAccountId/AcmeEndpointArn are real-SDK fields no code path populates, since no ACME-issued-certificate flow exists in gopherstack to derive them from -- see the AcmeAccount gap above). Correct-by-absence, not fabricated. (ManagedBy, previously grouped with this bullet, is now real end-to-end -- fixed 2026-07-30, see ops above.)
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - AMAZON_ISSUED export gating via Options.Export=ENABLED (2025 exportable-public-certificates feature) — see gaps
-  - ManagedBy (CloudFront-managed certificates) end-to-end
   - HTTP validation method / HttpRedirect
   - A real ACME protocol front-end (RFC 8555 server) that would let AcmeAccount, and CertificateDetail's new AcmeAccountId/AcmeEndpointArn fields, actually get populated
   - AcmeDomainValidation real DNS-record verification (VALID/INVALID transitions)
@@ -342,3 +357,56 @@ leaks: {status: clean, note: "isolation_test.go / leak_test.go already cover tim
   `persistence.go`'s `Restore` was split into `resetToEmpty`/
   `applyRestoredMaps` helpers to stay under `funlen`'s statement cap once the
   three new idempotency-map fields were added to it.
+
+## Notes (2026-07-30 pass — B-grade re-audit)
+
+- **Scope**: this service's `overall: B` line explicitly attributes the grade to
+  "genuine but incomplete coverage of new surface, not a bug fix on
+  audited-and-confirmed-accurate old surface." This pass re-read every `gaps`/
+  `deferred` bullet against the currently-installed
+  `aws-sdk-go-v2/service/acm@v1.43.0` to check whether that reasoning was still
+  current, or whether any bullet was actually a stale/closeable mechanical gap
+  rather than a genuine design-scope boundary.
+
+- **ManagedBy: found genuinely closeable, fixed end-to-end.** Read
+  `types.go`/`api_op_RequestCertificate.go` directly: `RequestCertificateInput.ManagedBy`,
+  `CertificateDetail.ManagedBy`, `CertificateSummary.ManagedBy`, and
+  `AcmCertificateMetadata(Filter).ManagedBy` are all real fields sharing one enum
+  (`types.CertificateManagedBy`, currently single-valued: `CLOUDFRONT`). Unlike the
+  ACME-account/DNS-verification gaps (which require simulating a protocol gopherstack
+  correctly declines to fake), echoing a caller-supplied enum value is exactly the
+  same class of fix as the prior pass's `Options.Export` field -- no protocol or
+  cryptography to fake, just a missing field. Implemented:
+  - `RequestCertificate.ManagedBy` accepted, validated against the single real enum
+    value (`validateManagedBy`, `certificate_validation.go`) *before* the certificate
+    is created (so a bad value never orphans a certificate, same reasoning as
+    `DomainValidationOptions`), stored via a new `SetManagedBy` backend call mirroring
+    `SetExportPreference`'s immutable-after-creation pattern.
+  - Echoed on `DescribeCertificate` (`CertificateDetail.ManagedBy`), `ListCertificates`
+    (`CertificateSummary.ManagedBy`), and `SearchCertificates`
+    (`AcmCertificateMetadata.ManagedBy`).
+  - `SearchCertificates`' `AcmCertificateMetadataFilter.ManagedBy` filter member and
+    `MANAGED_BY` `SortBy` value now match/sort against real data instead of falling
+    into the "no tracked data, never matches" default case.
+  - New table-test coverage (per this campaign's testing standards -- cases added to
+    existing tables, no new test files/standalone funcs): a
+    `RequestCertificate.ManagedBy` case table in `wire_field_additions_test.go`
+    (`TestACMHandler_RequestCertificate_ManagedBy` — accept+echo, absent-stays-absent,
+    reject-unknown-value) and an `AcmCertificateMetadataFilter_ManagedBy` case added to
+    the existing `TestACMHandler_SearchCertificates` table in
+    `handler_certificates_list_test.go`.
+
+- **Held at B, not raised to A.** Fixing ManagedBy closes the one mechanical
+  field-diff gap this pass found, but it does not touch the reasons the rest of
+  `gaps`/`deferred` remain open, all of which were re-confirmed as genuine, not
+  stale: a real RFC 8555 ACME protocol front-end (`AcmeAccount` population) and
+  real DNS-record verification (`AcmeDomainValidation.Status` leaving
+  `VALIDATING`) are both explicitly out of scope per this rollout's own prior
+  instruction against faking protocol/cryptographic verification that didn't
+  happen; the 2025 exportable-public-certificates gating remains unfixed because
+  the exact error contract could not be confirmed from available documentation
+  (guessing it would trade a coverage gap for a wire-shape bug, the more severe
+  class per `parity-principles.md`); `X509AttributeFilter.Subject` structured-DN
+  filtering has no backing structured data to filter without a Subject-parsing
+  project of its own. None of these are mechanical field-diff gaps like
+  ManagedBy was -- they are genuine, still-open scope/verification boundaries.

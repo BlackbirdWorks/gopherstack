@@ -180,6 +180,7 @@ type acmCertificateMetadataWire struct {
 	IssuedAt           *int64 `json:"IssuedAt,omitempty"`
 	RevokedAt          *int64 `json:"RevokedAt,omitempty"`
 	ExportOption       string `json:"ExportOption,omitempty"`
+	ManagedBy          string `json:"ManagedBy,omitempty"`
 	RenewalEligibility string `json:"RenewalEligibility,omitempty"`
 	RenewalStatus      string `json:"RenewalStatus,omitempty"`
 	Status             string `json:"Status"`
@@ -231,6 +232,7 @@ func certToSearchResult(c *Certificate) certificateSearchResultWire {
 				RenewalEligibility: c.RenewalEligibility,
 				RenewalStatus:      renewalStatusOf(c),
 				ExportOption:       exportOption,
+				ManagedBy:          c.ManagedBy,
 				Exported:           c.Exported,
 				InUse:              len(c.InUseBy) > 0,
 				CreatedAt:          c.CreatedAt.Unix(),

@@ -41,6 +41,12 @@ const (
 
 	// listCertSortByCreatedAt is the sort-by field name for creation timestamp.
 	listCertSortByCreatedAt = "CREATED_AT"
+
+	// certManagedByCloudfront is the only real value of the CertificateManagedBy
+	// enum (aws-sdk-go-v2/service/acm/types.CertificateManagedByCloudfront) --
+	// RequestCertificate.ManagedBy / CertificateDetail.ManagedBy /
+	// CertificateSummary.ManagedBy all share this single-value enum.
+	certManagedByCloudfront = "CLOUDFRONT"
 )
 
 // ResourceRecord holds the CNAME record used for DNS certificate validation.
@@ -63,17 +69,15 @@ type DomainValidationOption struct {
 
 // Certificate represents an ACM certificate.
 type Certificate struct {
-	CreatedAt  time.Time  `json:"createdAt"`
-	NotBefore  time.Time  `json:"notBefore"`
-	NotAfter   time.Time  `json:"notAfter"`
-	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
-	IssuedAt   *time.Time `json:"issuedAt,omitempty"`
-	ImportedAt *time.Time `json:"importedAt,omitempty"`
-	// RenewalSummary describes the state of the most recent managed renewal attempt.
-	// It is set when RenewCertificate is called on an AMAZON_ISSUED certificate.
+	CreatedAt                          time.Time       `json:"createdAt"`
+	NotBefore                          time.Time       `json:"notBefore"`
+	NotAfter                           time.Time       `json:"notAfter"`
+	RevokedAt                          *time.Time      `json:"revokedAt,omitempty"`
+	IssuedAt                           *time.Time      `json:"issuedAt,omitempty"`
+	ImportedAt                         *time.Time      `json:"importedAt,omitempty"`
 	RenewalSummary                     *RenewalSummary `json:"renewalSummary,omitempty"`
-	RenewalEligibility                 string          `json:"renewalEligibility,omitempty"`
-	PrivateKey                         string          `json:"privateKey,omitempty"`
+	CertificateBody                    string          `json:"certificateBody,omitempty"`
+	IdempotencyToken                   string          `json:"idempotencyToken,omitempty"`
 	Subject                            string          `json:"subject,omitempty"`
 	Issuer                             string          `json:"issuer,omitempty"`
 	KeyAlgorithm                       string          `json:"keyAlgorithm,omitempty"`
@@ -83,38 +87,24 @@ type Certificate struct {
 	RevocationReason                   string          `json:"revocationReason,omitempty"`
 	DomainName                         string          `json:"domainName"`
 	ValidationMethod                   string          `json:"validationMethod,omitempty"`
-	CertificateBody                    string          `json:"certificateBody,omitempty"`
+	RenewalEligibility                 string          `json:"renewalEligibility,omitempty"`
 	CertificateChain                   string          `json:"certificateChain,omitempty"`
 	Serial                             string          `json:"serial,omitempty"`
 	CertificateTransparencyLoggingPref string          `json:"certTransparencyLoggingPref,omitempty"`
-	IdempotencyToken                   string          `json:"idempotencyToken,omitempty"`
+	PrivateKey                         string          `json:"privateKey,omitempty"`
 	CertificateAuthorityArn            string          `json:"certificateAuthorityArn,omitempty"`
 	KeyID                              string          `json:"keyId,omitempty"`
-	// ExportPref mirrors RequestCertificate's Options.Export
-	// (CertificateOptions.Export on the real wire): whether the certificate
-	// was opted in to be exportable. Immutable after creation, matching AWS
-	// ("You cannot update the value of Export after the certificate is
-	// created."). Empty/"" is treated as DISABLED.
-	ExportPref string `json:"exportPref,omitempty"`
-	// FailureReason is set when the certificate enters FAILED status.
-	FailureReason string `json:"failureReason,omitempty"`
-	// region is the store.Table composite-key qualifier (see regionKey); it
-	// is not part of the wire API (ACM certificates are region-scoped but
-	// the AWS Certificate shape carries no Region field of its own -- the
-	// region is only ever recoverable from the ARN).
-	region                  string
-	ARN                     string                   `json:"arn"`
-	DomainValidationOptions []DomainValidationOption `json:"domainValidationOptions,omitempty"`
-	// InUseBy holds the ARNs of AWS resources that use this certificate.
-	InUseBy []string `json:"inUseBy,omitempty"`
-	// KeyUsage lists the allowed key usages parsed from the X.509 certificate.
-	KeyUsage []string `json:"keyUsage,omitempty"`
-	// ExtendedKeyUsage lists the extended key usages parsed from the X.509 certificate.
-	ExtendedKeyUsage        []string `json:"extendedKeyUsage,omitempty"`
-	SubjectAlternativeNames []string `json:"subjectAlternativeNames,omitempty"`
-	// Exported records whether ExportCertificate has ever succeeded for this
-	// certificate, surfaced as CertificateSummary.Exported.
-	Exported bool `json:"exported,omitempty"`
+	ExportPref                         string          `json:"exportPref,omitempty"`
+	FailureReason                      string          `json:"failureReason,omitempty"`
+	region                             string
+	ARN                                string                   `json:"arn"`
+	ManagedBy                          string                   `json:"managedBy,omitempty"`
+	InUseBy                            []string                 `json:"inUseBy,omitempty"`
+	KeyUsage                           []string                 `json:"keyUsage,omitempty"`
+	ExtendedKeyUsage                   []string                 `json:"extendedKeyUsage,omitempty"`
+	SubjectAlternativeNames            []string                 `json:"subjectAlternativeNames,omitempty"`
+	DomainValidationOptions            []DomainValidationOption `json:"domainValidationOptions,omitempty"`
+	Exported                           bool                     `json:"exported,omitempty"`
 }
 
 // AccountConfig holds account-level ACM configuration.

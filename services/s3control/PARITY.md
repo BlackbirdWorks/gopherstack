@@ -1,8 +1,37 @@
 service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.0
-last_audit_commit: fbba4962d
+last_audit_commit: HEAD
 last_audit_date: 2026-07-30
-overall: B            # DOWNGRADED from A this pass (gopherstack-tir4). A field-by-field diff of
+overall: A            # RAISED from B this pass (gopherstack-tir4 follow-up). Finished the diff
+                       # gopherstack-tir4 explicitly left partial: the three "types_not_reached"
+                       # areas named in that pass's honest remainder (DescribeJob's deepest nested
+                       # sub-structures, account-level PublicAccessBlockConfiguration field-level
+                       # detail, bucket lifecycle/policy raw-passthrough behaviour beyond routing)
+                       # were each individually re-verified against aws-sdk-go-v2/service/
+                       # s3control@v1.73.0's deserializers.go/serializers.go this pass. Found and
+                       # FIXED one more severe, previously-hidden bug of the exact same class
+                       # tir4 was downgraded for: PutBucketPolicy's real request is NOT
+                       # payload-bound like PutBucketLifecycleConfiguration/PutBucketTagging/
+                       # PutBucketVersioning are -- the real body root is
+                       # "<PutBucketPolicyRequest><Policy>{json}</Policy></PutBucketPolicyRequest>"
+                       # (confirmed via awsRestxml_serializeOpDocumentPutBucketPolicyInput) -- but
+                       # the handler stored the ENTIRE raw request body (envelope included) as "the
+                       # policy," so GetBucketPolicy re-wrapped that already-wrong, XML-escaped
+                       # envelope in a second "<Policy>" element: a real client's policy round-trip
+                       # came back as escaped garbage instead of its own JSON policy document.
+                       # Fixed by parsing the real envelope and storing just the inner Policy text;
+                       # locked in by TestBucketPolicy_WireShape, which asserts the literal response
+                       # XML byte-for-byte, not a substring. The other four re-verified areas came
+                       # back CLEAN or genuine-gap-not-bug (see "Wire-shape field-diff audit" below
+                       # for the full accounting) -- no further fabrications or envelope bugs found.
+                       # Two pre-existing minor items remain in gaps (a dead sync-DELETE MRAP route
+                       # reusing a real op name, and an unused ErrAlreadyExists sentinel) -- both
+                       # explicitly not live bugs, same class of honestly-documented residual gap
+                       # this campaign already treats as compatible with an A grade elsewhere (e.g.
+                       # services/textract's AdaptersConfig/HumanLoopConfig gap).
+                       #
+                       # --- prior (2026-07-30, gopherstack-tir4) history, kept for context ---
+                       # DOWNGRADED from A this pass (gopherstack-tir4). A field-by-field diff of
                        # ~35 of the ~55 previously-unaudited response/request types against
                        # deserializers.go/serializers.go found a dense cluster of severe wire-shape
                        # bugs the prior pass's route-level audit could not have caught (it
@@ -67,7 +96,7 @@ ops:
   ListAccessGrants: {wire: ok, errors: ok, state: ok, persist: ok, note: "see route fix above"}
   DeleteAccessGrant: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS: ghost-map-row leak fix -- delete left generic resourceTags behind forever; now cascade-cleaned via the grant's AccessGrantArn."}
   DeleteAccessGrantsLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS: same resourceTags cascade-cleanup fix as DeleteAccessGrant."}
-  DeleteAccessGrantsInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS: cascade-cleans accessGrantsInstancePolicies and resourceTags (previously left behind forever). Deliberately does NOT cascade-delete AccessGrants/AccessGrantsLocations -- the real op's doc comment requires the caller delete those first; see items_still_open for the un-enforced precondition."}
+  DeleteAccessGrantsInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-cleans accessGrantsInstancePolicies and resourceTags (previously left behind forever). Deliberately does NOT cascade-delete AccessGrants/AccessGrantsLocations -- the real op's doc comment requires the caller delete those first, and this precondition IS enforced (errAccessGrantsInstanceNotEmpty, see the dedicated 'DeleteAccessGrantsInstance precondition -- FIXED' section below and TestHandler_DeleteAccessGrantsInstance_Precondition). 2026-07-30: corrected stale 'un-enforced precondition' language in this row/the access-grants family note/gaps -- the precondition was already enforced in code; only the summary text had not been updated to match."}
   DeleteMultiRegionAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "LEAK FOUND AND FIXED THIS PASS -- see leaks below. Also fixed: wrong error code on missing MRAP (generic ErrNotFound == \"NoSuchPublicAccessBlockConfiguration\") -- now errMRAPNotFound (\"NoSuchMultiRegionAccessPoint\"), matching every other MRAP op in this file."}
   GetMultiRegionAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS: fixed wrong error code on missing MRAP (see DeleteMultiRegionAccessPoint note)."}
   SetMRAPRegions: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS: fixed wrong error code on missing MRAP (see DeleteMultiRegionAccessPoint note)."}
@@ -77,11 +106,11 @@ ops:
 
 families:
   access-point-crud: {status: ok, note: "CRUD + policy + scope + PAB all backed by real store.Table state, XML wire shapes spot-checked against deserializers.go (GetAccessPointResult root, member names). THIS PASS: the 3 fabricated GetAccessPointPublicAccessBlock/PutAccessPointPublicAccessBlock/DeleteAccessPointPublicAccessBlock ops (confirmed absent from aws-sdk-go-v2/service/s3control -- PublicAccessBlockConfiguration is account-level-only as a standalone op; the per-AP variant travels inline on CreateAccessPoint/GetAccessPoint) were DELETED: removed from GetSupportedOperations(), removed the '/publicAccessBlock' route and 3 handler funcs (see ops above). The real underlying feature was NOT deleted -- GetAccessPoint's response now correctly includes inline PublicAccessBlockConfiguration when set (previously a genuine gap: CreateAccessPoint stored it but GetAccessPoint never echoed it back). Also fixed THIS PASS: DeleteAccessPoint's ghost-map-row leak (scope/PAB/tags survived delete) and 7 instances of the wrong AWS error code (NoSuchPublicAccessBlockConfiguration instead of NoSuchAccessPoint) across Get/Delete/Put AccessPoint*, plus split GetAccessPointPolicy's \"AP missing\" vs \"policy not set\" cases into distinct correctly-coded errors."}
-  bucket-outposts: {status: ok, note: "CRUD + lifecycle + policy + replication + tagging + versioning; lifecycle route bug fixed (see ops above), rest spot-checked ok. THIS PASS: DeleteBucket ghost-map-row leak fixed (see ops above)."}
+  bucket-outposts: {status: ok, note: "CRUD + lifecycle + policy + replication + tagging + versioning; lifecycle route bug fixed (see ops above), rest spot-checked ok. THIS PASS (2026-07-30 tir4 follow-up): PutBucketPolicy FIXED -- real PutBucketPolicyInput.Policy is not payload-bound (unlike Lifecycle/Tagging/Versioning/Replication), so raw-body passthrough was wrong: the handler now parses the real '<PutBucketPolicyRequest><Policy>...</Policy></PutBucketPolicyRequest>' envelope and stores only the inner Policy text (see putBucketPolicyRequestXML, handler_bucket.go). GetBucketLifecycleConfiguration's raw-passthrough re-verified genuinely correct this pass by reading the real deserializer directly: it fetches the response root generically (does not check the root element's name) and only requires a 'Rules' child inside it, so returning the exact stored PUT body verbatim on GET carries no root-mismatch risk. Also DeleteBucket ghost-map-row leak fixed (see ops above)."}
   job-batch-ops: {status: ok, note: "CreateJob/DescribeJob/ListJobs/tagging real; UpdateJobPriority/UpdateJobStatus route method bug fixed (see ops above). THIS PASS: fixed 4 instances of the wrong AWS error code (NoSuchPublicAccessBlockConfiguration instead of NoSuchJob) across Get/UpdateJobDetails/UpdateJobPriority/UpdateJobStatus."}
   storage-lens: {status: ok, note: "config + group + tagging CRUD backed by real maps (storageLensConfigs, storageLensConfigTags); routes verified against real SDK paths, no mismatches found. THIS PASS: DeleteStorageLensGroup ghost-map-row leak fixed (generic resourceTags survived delete; storageLensConfigTags for config-tagging was already correctly cascade-cleaned by DeleteStorageLensConfiguration, unaffected)."}
   multi-region-access-point: {status: ok, note: "async Create/Delete/PutPolicy + Describe + instance CRUD; PutMultiRegionAccessPointPolicy path and GetMultiRegionAccessPointPolicyStatus suffix bugs fixed (see ops above). LEAK FOUND AND FIXED THIS PASS: see leaks below. Also removed the dead/unused mrapPolicies map (declared, reset, but never once written to -- MRAP policy always lived on the MultiRegionAccessPoint.Policy struct field instead; this was pure dead state, not a live bug, but is gone now). Note: gopherstack still also exposes a synchronous DELETE on /mrap/instances/{Name} mapped to the same 'DeleteMultiRegionAccessPoint' op name -- the real API only has the async POST /async-requests/mrap/delete variant. Both routes now correctly delete the resource (the leak fix applies to the shared backend method regardless of which route drives it), but the sync-DELETE route itself remains dead surface from a real client's perspective; left as-is, see gaps."}
-  access-grants: {status: ok, note: "instance + grant + location + identity-center + data-access CRUD; ListAccessGrants/ListAccessGrantsLocations singular-vs-plural route bugs and caller/grants hyphen bug fixed (see ops above). THIS PASS: ghost-map-row leaks fixed on DeleteAccessGrant, DeleteAccessGrantsLocation, and DeleteAccessGrantsInstance (generic resourceTags, and for the instance also accessGrantsInstancePolicies, all previously survived delete forever). DeleteAccessGrantsInstance deliberately does NOT cascade-delete grants/locations -- see items_still_open for the unenforced real-API precondition (instance delete should require grants/locations be deleted first)."}
+  access-grants: {status: ok, note: "instance + grant + location + identity-center + data-access CRUD; ListAccessGrants/ListAccessGrantsLocations singular-vs-plural route bugs and caller/grants hyphen bug fixed (see ops above). Ghost-map-row leaks fixed on DeleteAccessGrant, DeleteAccessGrantsLocation, and DeleteAccessGrantsInstance (generic resourceTags, and for the instance also accessGrantsInstancePolicies, all previously survived delete forever). DeleteAccessGrantsInstance deliberately does NOT cascade-delete grants/locations, and DOES enforce the real-API precondition that they be deleted first (errAccessGrantsInstanceNotEmpty) -- see the DeleteAccessGrantsInstance ops row above and the dedicated 'precondition -- FIXED' section below."}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource backed by real resourceTags map, prefix-matched route ok. THIS PASS: every resource-delete path that has a generic ARN (AccessPoint, ObjectLambda AP, Outposts Bucket, AccessGrant, AccessGrantsLocation, AccessGrantsInstance, StorageLensGroup) now cascade-cleans resourceTags[arn] on delete -- previously only AccessPoint's OWN policy map was cleaned by DeleteAccessPoint and nothing else cleaned tags anywhere, so a delete/recreate cycle under the same name/ARN could silently resurrect a prior resource's tags."}
   error-wire-shape: {status: ok, note: "SERVICE-WIDE bug: every error response (handleBackendError + ~30 ad-hoc 'invalid request body'/'not found' sites) returned c.String(status, plainText) instead of the AWS REST-XML <Error><Code>/<Message> envelope. Fixed prior pass via pkgs/awserr.Write. THIS PASS found a SECOND, narrower service-wide bug of the same class: 15 call sites across access_points.go (7), multi_region_access_points.go (4), and jobs.go (4) used the generic `ErrNotFound` sentinel (code \"NoSuchPublicAccessBlockConfiguration\") for AccessPoint-not-found / MRAP-not-found / Job-not-found errors instead of the resource-specific sentinel (errAccessPointNotFound/\"NoSuchAccessPoint\", errMRAPNotFound/\"NoSuchMultiRegionAccessPoint\", errJobNotFound/\"NoSuchJob\"). HTTP status (404) was correct in every case -- only the XML <Code> body was wrong -- so status-code-only tests never caught it; a real SDK client doing typed error matching (err.Code(), errors.As against a specific exception) on any of these paths got the wrong exception class. All 15 fixed; also added a new errAccessPointPolicyNotFound (\"NoSuchAccessPointPolicy\") sentinel to distinguish \"AP doesn't exist\" from \"AP exists but has no policy\" in GetAccessPointPolicy, which the prior pass had conflated under NoSuchAccessPoint."}
   persistence-gap: {status: ok, note: "NEW FAMILY THIS PASS -- found via reading persistence.go against store.go's field list. backendSnapshot only ever round-tripped the 'batch2' raw maps (bucketReplication, storageLensConfigs, storageLensConfigTags, resourceTags, accessPointPolicies) plus the store.Table-backed resources; the 10 'batch1' raw maps (accessPointScopes, objectLambdaAPPolicies, objectLambdaAPConfigs, bucketPolicies, bucketTagging, bucketLifecycle, bucketVersioning, mrapRoutes, accessGrantsInstancePolicies, jobTags) were declared on InMemoryBackend and actively read/written by real handlers, but Snapshot() never serialized them and Restore() never restored them -- a Snapshot/Restore cycle (a service restart with persistence enabled) silently dropped access point scopes, Object Lambda AP policies/configs, Outposts bucket policy/tagging/lifecycle/versioning, MRAP routes, Access Grants instance resource policies, and job tags, even though the owning resource itself (e.g. the access point, the bucket) survived intact. Fixed: all 10 fields added to backendSnapshot, wired into Snapshot/Restore (including the version-mismatch discard-and-reset branch), s3controlSnapshotVersion bumped 1 -> 2. New test TestPersistence_Batch1Maps_SnapshotRestore locks in all 10."}
@@ -89,13 +118,13 @@ families:
 gaps:
   - The synchronous "DELETE /v20180820/mrap/instances/{Name}" route mapped to DeleteMultiRegionAccessPoint does not exist in the real API (only the async POST variant does). Dead code from a real client's perspective; low-risk cleanup deferred (unlike the fabricated PublicAccessBlock ops, DeleteMultiRegionAccessPoint IS a real op name -- only this one extra HTTP-verb/path combination for it is fake -- so this was judged lower-priority than deleting an entirely invented operation family).
   - s3control.ErrAlreadyExists (errors.go) wraps a generic "BucketAlreadyExists" code but is never actually returned by any backend method (verified via repo-wide grep) -- unused/dead sentinel, not a live bug, but worth removing or wiring up correctly if AlreadyExists semantics are ever needed for e.g. CreateAccessPoint on a duplicate name.
-  - DeleteAccessGrantsInstance does not enforce the real API's documented precondition ("You must first delete the access grants and locations before S3 Access Grants can delete the instance") -- gopherstack allows deleting an instance that still has grants/locations attached, which a real AWS account would reject. Not fixed this pass: the correct AWS error code for this specific conflict is not present anywhere in aws-sdk-go-v2/service/s3control's typed exceptions (S3 Control largely returns untyped/generic errors), so guessing a code risked introducing an unverified wire-shape bug rather than fixing one. See items_still_open.
-  - Only a modestly larger sample of response XML shapes were spot-checked against deserializers.go this pass (GetAccessPoint -- including the newly-added inline PublicAccessBlockConfiguration --, CreateAccessGrant, DescribeJob) on top of the prior pass's sample (GetAccessPoint, CreateJob, CreateMultiRegionAccessPoint, GetBucketPolicy/Tagging/Versioning). The remaining response types were not individually diffed field-by-field against the SDK deserializers -- see deferred.
+  - (CORRECTED 2026-07-30, was previously stale) DeleteAccessGrantsInstance's precondition IS enforced -- see items_still_open.
+  - (CLOSED 2026-07-30) Only a modestly larger sample of response XML shapes were spot-checked against deserializers.go this pass ... -- superseded: the remaining "types_not_reached" items were individually diffed this pass, see below and items_still_open.
 
 deferred:
-  - Full field-by-field wire-shape diff of every response XML struct against deserializers.go (this pass prioritized the leak, the two error-code bug classes, the ghost-map-row cascade-delete class, and the persistence-gap class, all of which had wide blast radius across many ops; response-body field audits remain sampled, not exhaustive).
-  - AccessGrantsInstance / IdentityCenter association flows (state machine correctness beyond basic CRUD), including the un-enforced delete-grants-and-locations-first precondition noted under gaps.
+  - AccessGrantsInstance / IdentityCenter association flows (state machine correctness beyond basic CRUD). The delete-grants-and-locations-first precondition noted in a prior version of this bullet IS enforced -- see items_still_open.
   - Chaos fault-injection interaction with the fixed routes/leak (ChaosOperations() just echoes GetSupportedOperations(), unaffected by this pass).
+  - GetDataAccess/CreateJob request-side ManifestGenerator (an alternative to Manifest the real CreateJobInput also accepts, letting a caller point at an S3 Inventory report or an existing job's manifest instead of uploading one) is accepted nowhere -- createJobRequestXML has no ManifestGenerator field, so a real client using this path instead of Manifest would have that entire configuration silently dropped. Found while closing out DescribeJob's nested sub-structures this pass (2026-07-30); not fixed, since implementing it requires deciding what synthetic manifest generation should look like (there is no real S3 Inventory data to point at), which is a design decision rather than a field-diff fix -- same reasoning textract's AdaptersConfig gap uses.
 
 leaks: {status: fixed, note: "LEAK FOUND AND FIXED THIS PASS. DeleteMultiRegionAccessPoint (multi_region_access_points.go) checked b.mraps.Has(key) and returned nil WITHOUT ever calling b.mraps.Delete(key) -- a disguised no-op. Both the synchronous DELETE /v20180820/mrap/instances/{Name} route and the async POST /v20180820/async-requests/mrap/delete route (the one a real aws-sdk-go-v2 client actually uses) call this same backend method, so every DeleteMultiRegionAccessPoint call, sync or async, silently failed to remove the resource: the MRAP stayed retrievable via GetMultiRegionAccessPoint/ListMultiRegionAccessPoints forever, and repeated create/delete cycles (e.g. any test or workload that creates+deletes MRAPs by generated/random names) accumulated an unbounded number of ghost rows in b.mraps with no way to reclaim them. No existing test caught this because the only assertion on delete was err == nil, never that the resource was actually gone -- classic 'green tests, real bug' (see the project's parity-principles.md point 3). Fixed: DeleteMultiRegionAccessPoint now actually deletes the row and cascade-cleans its route configuration (mrapRoutes); new tests TestBackend_DeleteMultiRegionAccessPoint_ActuallyRemoves and TestHandler_DeleteMultiRegionAccessPoint_AsyncRouteActuallyRemoves lock in both the backend- and HTTP-level behavior via Get-after-Delete and List-after-Delete assertions, not just the return value. While investigating this leak class, also found and fixed 6 more ghost-map-row leaks of the identical shape (delete removes the primary resource row but leaves secondary maps -- policy/scope/PAB/generic-tags -- behind forever) on DeleteAccessPoint, DeleteAccessPointForObjectLambda, DeleteBucket, DeleteAccessGrant, DeleteAccessGrantsLocation, DeleteAccessGrantsInstance, and DeleteStorageLensGroup -- see the tags/access-point-crud/bucket-outposts/access-grants/storage-lens family notes above. No goroutines/janitors/tickers exist in this service (verified: no `go func`/`time.NewTicker`/`time.AfterFunc`/`context.WithCancel` anywhere in services/s3control), so there is no goroutine-leak class here -- the leak this pass found and fixed was purely the disguised-no-op-delete / ghost-map-row class. Handler.Snapshot/Restore correctly delegate to InMemoryBackend.Snapshot/Restore (verified in persistence.go) so cli.go's setupPersistence registers it correctly -- no silent-unregistration bug found here."}
 ---
@@ -172,21 +201,24 @@ If re-auditing other REST-XML services, check both status code AND `<Code>` stri
 
 ## items_still_open (see gaps/deferred above for full detail)
 
-- Full field-by-field response-XML diff against deserializers.go for the ~55 remaining
-  response types not spot-checked this pass or the prior pass. Reason not finished:
-  each diff requires reading the generated SDK deserializer source per operation:
-  this pass prioritized the leak (explicitly flagged), the two service-wide
-  wrong-error-code bug classes, the 7-family ghost-map-row cascade-delete class, and
-  the 10-field persistence-gap class, all of which had broader blast radius than any
-  single response-shape field diff. Un-diffed, not reclassified to "ok".
-- DeleteAccessGrantsInstance does not enforce "grants/locations must be deleted
-  first" (real AWS behavior per the op's own doc comment). Reason not fixed: the
-  correct AWS error code for this conflict is not present in
-  aws-sdk-go-v2/service/s3control's typed exceptions (S3 Control returns mostly
-  untyped/generic errors for validation failures), so implementing the check without
-  a confirmed wire-accurate error code risked trading a missing-validation gap for a
-  wrong-error-code bug of the exact class this pass spent most of its effort fixing
-  elsewhere.
+- Full field-by-field response-XML diff against deserializers.go: CLOSED 2026-07-30.
+  The prior version of this bullet claimed "~55 remaining response types not
+  spot-checked" -- stale. Every handler-file section under "Wire-shape field-diff
+  audit" below is marked "-- all ops diffed", and this pass (2026-07-30) finished the
+  one remaining honest gap, the nested/deep-detail items the prior pass explicitly
+  listed under "types_not_reached" (DescribeJob's deepest nested sub-structures,
+  CreateAccessPoint's request-side VpcConfiguration/PublicAccessBlockConfiguration
+  nesting, account-level PublicAccessBlock field-level detail, bucket
+  lifecycle/policy raw-passthrough behaviour). See "types_not_reached (THIS PASS,
+  2026-07-30 follow-up)" below for the closing accounting, including the one real bug
+  found and fixed (PutBucketPolicy's envelope).
+- DeleteAccessGrantsInstance's "grants/locations must be deleted first" precondition
+  IS enforced (errAccessGrantsInstanceNotEmpty) -- see the dedicated
+  "DeleteAccessGrantsInstance precondition -- FIXED" section below and
+  TestHandler_DeleteAccessGrantsInstance_Precondition. This bullet previously
+  (incorrectly) claimed the precondition was unenforced; that language predated the
+  fix documented below it in this same file and was never updated to match. Corrected
+  2026-07-30 -- no code change was needed, only the stale summary text.
 - ErrAlreadyExists (errors.go) remains an unused/dead sentinel. Reason not fixed: no
   backend method needs AlreadyExists semantics currently (e.g. CreateAccessPoint does
   not reject duplicate names), and confirming whether real AWS actually returns
@@ -443,29 +475,66 @@ sentinel) if either exists. No S3 Control typed exception is specific to this co
 the generic `BadRequestException` sentinel this codebase already uses for other S3 Access
 Grants validation failures, rather than inventing an unverified specific code.
 
-### types_not_reached (honest remainder)
+### types_not_reached -- CLOSED 2026-07-30 (follow-up pass, gopherstack-tir4 completion)
 
-Not diffed field-by-field this pass (no changes made, status unknown -- do not assume clean):
+Every item below was individually diffed this pass against the installed
+`aws-sdk-go-v2/service/s3control@v1.73.0`. None remain unverified.
 
-- `DescribeJob`'s nested sub-structures beyond the top-level fields already verified
-  (`GeneratedManifestDescriptor`, `ManifestGenerator`, `FailureReasons`, `SuspendedCause`,
-  `SuspendedDate` -- likely GAP-not-fabricated given this backend's job model, but not
-  individually confirmed against the deserializer this pass).
-- `CreateAccessPoint`'s request-side `VpcConfiguration`/`PublicAccessBlockConfiguration`
-  nesting (spot-checked in a prior pass, not re-verified this pass).
-- Account-level `GetPublicAccessBlock`/`PutPublicAccessBlock`/`DeletePublicAccessBlock` --
-  wrapper element name (`PublicAccessBlockConfiguration`) confirmed correct this pass, but
-  field-by-field (`BlockPublicAcls`/etc.) not re-verified since a prior pass already covered
-  this shape.
-- Bucket lifecycle (`GetBucketLifecycleConfiguration`/`Put`/`Delete`) and bucket policy
-  (`GetBucketPolicy`/`Put`/`Delete`) beyond the route-level fix already recorded in the prior
-  pass -- these use raw-body passthrough (no XML struct decoding), so they carry no
-  root-element-mismatch risk, but the passthrough behavior itself (no validation, no partial
-  merge semantics) was not otherwise audited this pass.
-- Chaos fault-injection interaction with any of the fixes above (`ChaosOperations()` just
-  echoes `GetSupportedOperations()`, unaffected).
+- `DescribeJob`'s nested sub-structures beyond the top-level fields (`GeneratedManifestDescriptor`,
+  `ManifestGenerator`, `FailureReasons`, `SuspendedCause`, `SuspendedDate`): CONFIRMED GAP, not a
+  bug. Read `types.JobDescriptor` in full and cross-checked every one of these fields against
+  `BatchJob` (models.go) and every write site in jobs.go/handler_jobs.go -- none of the five has
+  any backing data anywhere in this backend (no task-execution simulation, no console-confirm
+  workflow, no generated-manifest computation exist), so all five are correctly omitted rather
+  than fabricated. While checking this, also found (and left as a documented `deferred` gap, not
+  fixed): `CreateJobInput.ManifestGenerator` -- a real alternative to `Manifest` a caller can send
+  instead -- is accepted nowhere (`createJobRequestXML` has no such field), so a real client using
+  it would have that whole configuration silently dropped. See `deferred` above.
+- `CreateAccessPoint`'s request-side `VpcConfiguration`/`PublicAccessBlockConfiguration` nesting:
+  RE-VERIFIED CLEAN against `awsRestxml_serializeOpDocumentCreateAccessPointInput` directly --
+  root `CreateAccessPointRequest`, `VpcConfiguration>VpcId` (single field, matches
+  `types.VpcConfiguration`), `PublicAccessBlockConfiguration` with the 4 real bool fields
+  (`BlockPublicAcls`/`IgnorePublicAcls`/`BlockPublicPolicy`/`RestrictPublicBuckets`, matches
+  `types.PublicAccessBlockConfiguration`). `createAccessPointRequestXML`/`apVpcConfigurationXML`/
+  `apPublicAccessBlockXML` (handler_access_points.go) match exactly. No bug.
+- Account-level `GetPublicAccessBlock`/`PutPublicAccessBlock`/`DeletePublicAccessBlock`:
+  RE-VERIFIED CLEAN field-by-field against `awsRestxml_deserializeOpGetPublicAccessBlock` and
+  `awsRestxml_serializeOpPutPublicAccessBlockInput` directly -- both are payload-bound with root
+  element `PublicAccessBlockConfiguration` (no outer operation-name wrapper) containing the same 4
+  bool fields as above. `publicAccessBlockConfigurationXML` (handler.go) matches exactly,
+  including the payload-bound (unwrapped) root on both GET response and PUT request. No bug.
+- Bucket lifecycle (`GetBucketLifecycleConfiguration`/`Put`/`Delete`): RE-VERIFIED CLEAN. Read
+  `awsRestxml_deserializeOpGetBucketLifecycleConfiguration` directly: it fetches the response's
+  root element generically via `smithyxml.FetchRootElement` and never checks that root's NAME --
+  it only requires a `Rules` child element inside it. `PutBucketLifecycleConfigurationInput` is
+  payload-bound with root `LifecycleConfiguration` (confirmed via
+  `awsRestxml_serializeOpDocumentPutBucketLifecycleConfigurationInput`), so gopherstack's
+  raw-body PUT-then-GET-verbatim passthrough returns exactly what a real client sent
+  (`<LifecycleConfiguration><Rules>...</Rules></LifecycleConfiguration>`) and a real client's
+  root-name-agnostic decoder accepts it correctly. No root-mismatch risk, confirmed by reading the
+  deserializer rather than inferring it, as the prior pass's version of this bullet only assumed.
+- Bucket policy (`GetBucketPolicy`/`Put`/`Delete`): **BUG FOUND AND FIXED.** Unlike Lifecycle
+  (above) or Tagging/Versioning/Replication (fixed prior pass), `PutBucketPolicyInput.Policy` is
+  **NOT** payload-bound -- the real request root is `PutBucketPolicyRequest` with the policy JSON
+  as the text of a nested `Policy` element (confirmed via
+  `awsRestxml_serializeOpDocumentPutBucketPolicyInput`). The previous handler applied the
+  Lifecycle-style "store the whole raw body verbatim" pattern here too, which was wrong for this
+  op: it stored the entire `<PutBucketPolicyRequest><Policy>...</Policy></PutBucketPolicyRequest>`
+  envelope as "the policy". `GetBucketPolicy` then wrapped that already-wrong stored string in a
+  SECOND `<Policy>` element for its response -- a real client's `GetBucketPolicy` call after
+  `PutBucketPolicy` would receive its own policy JSON back double-nested and XML-escaped inside
+  someone else's envelope, not the policy it sent. Fixed: `handlePutBucketPolicy`
+  (handler_bucket.go) now decodes the real `PutBucketPolicyRequest` envelope via a new
+  `putBucketPolicyRequestXML` type and stores only the inner `Policy` text; `GetBucketPolicy`'s
+  existing single-wrap response was already correct once given the right input. Locked in by
+  `TestBucketPolicy_WireShape` (handler_bucket_test.go), which asserts the literal response XML
+  byte-for-byte (not a substring) for both the fixed request parsing and the response shape.
+- `DeleteBucketLifecycleConfiguration`/`DeleteBucketPolicy`: no request/response body on either
+  side in the real API (confirmed -- both ops have no `awsRestxml_serializeOpDocument...Input`/
+  `...Output` functions), and gopherstack's handlers send none. No bug, nothing to diff further.
+- Chaos fault-injection interaction with the fix above: unaffected (`ChaosOperations()` just
+  echoes `GetSupportedOperations()`).
 
-Given the density of severe bugs found in the ~35 types that WERE diffed this pass (13 distinct
-envelope/transport/fabrication bugs across 9 handler files, several of which would reject or
-silently no-op every real SDK client call), the ~15-20 types listed above should be treated as
-unverified, not presumptively clean, in any future audit of this service.
+This closes the entire `types_not_reached` remainder gopherstack-tir4 left open. Combined with
+every handler-file section above already being marked "-- all ops diffed", there is no longer a
+known-unverified area of this service's request/response wire shapes.

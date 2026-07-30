@@ -39,11 +39,13 @@ func (r searchTimestampRange) matches(t time.Time) bool {
 // certMetadataFilter is the parsed form of one CertificateFilter's
 // AcmCertificateMetadataFilter union member (exactly one field non-nil/non-
 // empty at a time). Members with no gopherstack-tracked equivalent
-// (AcmeAccountId, AcmeEndpointArn, ManagedBy, CertificateKeyPairOrigin) are
+// (AcmeAccountId, AcmeEndpointArn, CertificateKeyPairOrigin) are
 // intentionally included but never match anything real -- see
 // CertificateSearchResult's own AcmCertificateMetadata gap in PARITY.md:
 // gopherstack tracks no such data for any certificate, so honestly matching
-// nothing is correct-by-absence rather than fabricated.
+// nothing is correct-by-absence rather than fabricated. ManagedBy IS tracked
+// (Certificate.ManagedBy, set via RequestCertificate's ManagedBy input) and
+// matches for real -- see the matches() switch below.
 type certMetadataFilter struct {
 	Status                   *string
 	Type                     *string
@@ -79,9 +81,11 @@ func (f certMetadataFilter) matches(c *Certificate) bool {
 		return c.Exported == *f.Exported
 	case f.InUse != nil:
 		return (len(c.InUseBy) > 0) == *f.InUse
+	case f.ManagedBy != nil:
+		return c.ManagedBy == *f.ManagedBy
 	default:
-		// AcmeAccountID/AcmeEndpointArn/ManagedBy/CertificateKeyPairOrigin:
-		// no tracked data, honestly never matches.
+		// AcmeAccountID/AcmeEndpointArn/CertificateKeyPairOrigin: no tracked
+		// data, honestly never matches.
 		return false
 	}
 }
@@ -209,11 +213,6 @@ type SearchCertificatesParams struct {
 	MaxResults int
 }
 
-// searchSortLess compares two certificates for SearchCertificates' SortBy.
-// Fields SearchCertificates documents but gopherstack tracks no data for
-// (MANAGED_BY, ACME_ENDPOINT_ARN, ACME_ACCOUNT_ID, CERTIFICATE_KEY_PAIR_ORIGIN,
-// COMMON_NAME) fall back to the same stable ARN ordering ListCertificates
-// uses when it has no real value to sort on.
 // searchSortComparators maps each supported SearchCertificates SortBy value
 // to a less-than comparator. A table (rather than a switch) keeps
 // searchSortLess's cyclomatic complexity flat regardless of how many sort
@@ -238,6 +237,7 @@ var searchSortComparators = map[string]func(a, b *Certificate) bool{
 	},
 	"EXPORT_OPTION":     func(a, b *Certificate) bool { return a.ExportPref < b.ExportPref },
 	"VALIDATION_METHOD": func(a, b *Certificate) bool { return a.ValidationMethod < b.ValidationMethod },
+	"MANAGED_BY":        func(a, b *Certificate) bool { return a.ManagedBy < b.ManagedBy },
 	"IMPORTED_AT": func(a, b *Certificate) bool {
 		return timeOrZero(a.ImportedAt).Before(timeOrZero(b.ImportedAt))
 	},
@@ -246,7 +246,7 @@ var searchSortComparators = map[string]func(a, b *Certificate) bool{
 
 // searchSortLess compares two certificates for SearchCertificates' SortBy.
 // CERTIFICATE_ARN and every SortBy value gopherstack tracks no real data for
-// (MANAGED_BY, ACME_ENDPOINT_ARN, ACME_ACCOUNT_ID, CERTIFICATE_KEY_PAIR_ORIGIN,
+// (ACME_ENDPOINT_ARN, ACME_ACCOUNT_ID, CERTIFICATE_KEY_PAIR_ORIGIN,
 // COMMON_NAME) fall back to the same stable ARN ordering ListCertificates
 // uses when it has no real value to sort on.
 func searchSortLess(sortBy string, a, b *Certificate) bool {

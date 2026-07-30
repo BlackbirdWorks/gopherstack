@@ -445,6 +445,23 @@ func TestACMHandler_SearchCertificates(t *testing.T) {
 			},
 		},
 		{
+			name: "AcmCertificateMetadataFilter_ManagedBy",
+			run: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+
+				managedRec := postACMJSON(t, h, "RequestCertificate",
+					`{"DomainName":"search-managed.example.com","ManagedBy":"CLOUDFRONT"}`)
+				require.Equal(t, http.StatusOK, managedRec.Code)
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"search-unmanaged.example.com"}`)
+
+				body := `{"FilterStatement":{"Filter":{"AcmCertificateMetadataFilter":{"ManagedBy":"CLOUDFRONT"}}}}`
+				rec := postACMJSON(t, h, "SearchCertificates", body)
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "search-managed.example.com")
+				assert.NotContains(t, rec.Body.String(), "search-unmanaged.example.com")
+			},
+		},
+		{
 			name: "CertificateArn_Filter",
 			run: func(t *testing.T, h *acm.Handler) {
 				t.Helper()

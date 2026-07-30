@@ -538,3 +538,47 @@ func TestBucketVersioning_WireShape(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(getRec.Body.Bytes(), &out))
 	assert.Equal(t, "Enabled", out.Status)
 }
+
+// TestBucketPolicy_WireShape locks in a bug found finishing the
+// gopherstack-tir4 field-diff: unlike PutBucketLifecycleConfiguration/
+// PutBucketTagging/PutBucketVersioning, PutBucketPolicyInput.Policy is NOT
+// payload-bound -- the real request body root is "<PutBucketPolicyRequest>"
+// with the policy JSON document as the text of a nested "<Policy>" element
+// (confirmed via awsRestxml_serializeOpDocumentPutBucketPolicyInput). The
+// previous handler treated the whole raw request body as "the policy" (a
+// pattern that IS correct for the payload-bound ops above, but not this
+// one), so a real client's policy round-tripped through GetBucketPolicy came
+// back as the XML-escaped PutBucketPolicyRequest envelope itself instead of
+// the plain policy JSON -- GetBucketPolicy re-wrapped that stored envelope
+// in a second "<Policy>" element, double-nesting and XML-escaping it.
+func TestBucketPolicy_WireShape(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	h := s3control.NewHandler(b)
+	b.CreateBucket("acct1", "policy-bucket")
+	path := "/v20180820/bucket/policy-bucket/policy"
+
+	policyJSON := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}`
+	putBody := `<PutBucketPolicyRequest><Policy>` + policyJSON + `</Policy></PutBucketPolicyRequest>`
+	putRec := doS3Request(t, h, http.MethodPut, path, putBody)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	getRec := doS3Request(t, h, http.MethodGet, path, "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	assert.Equal(t,
+		`<?xml version="1.0" encoding="UTF-8"?>`+"\n"+
+			`<GetBucketPolicyResult><Policy>{&#34;Version&#34;:&#34;2012-10-17&#34;,`+
+			`&#34;Statement&#34;:[{&#34;Effect&#34;:&#34;Allow&#34;}]}</Policy></GetBucketPolicyResult>`,
+		getRec.Body.String(),
+	)
+
+	var out struct {
+		XMLName xml.Name `xml:"GetBucketPolicyResult"`
+		Policy  string   `xml:"Policy"`
+	}
+	require.NoError(t, xml.Unmarshal(getRec.Body.Bytes(), &out))
+	assert.JSONEq(t, policyJSON, out.Policy,
+		"GetBucketPolicy must return the plain policy JSON, not the PutBucketPolicyRequest envelope")
+}

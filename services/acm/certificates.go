@@ -194,6 +194,34 @@ func (b *InMemoryBackend) SetExportPreference(ctx context.Context, certARN, expo
 	return nil
 }
 
+// SetManagedBy records a just-created certificate's RequestCertificate
+// ManagedBy choice. The value must already be validated (see
+// validateManagedBy, called before the certificate is created so an invalid
+// value never leaves an orphaned certificate behind -- same reasoning as
+// DomainValidationOptions, see ApplyDomainValidationOverrides). Like
+// SetExportPreference, this is only ever called once, immediately after
+// RequestCertificate, from jsonRequestCertificate. A blank value is a no-op
+// (the Certificate's zero value already reads as caller-managed).
+func (b *InMemoryBackend) SetManagedBy(ctx context.Context, certARN, managedBy string) error {
+	if managedBy == "" {
+		return nil
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("SetManagedBy")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs.Get(regionKey(region, certARN))
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	cert.ManagedBy = managedBy
+
+	return nil
+}
+
 // recordNewCert records the idempotency-token mapping for a newly created certificate and
 // schedules its auto-validation timer when the certificate is pending validation.
 // Callers must hold b.mu.
