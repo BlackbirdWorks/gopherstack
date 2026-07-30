@@ -12,6 +12,15 @@ type storedVpcSettings struct {
 	AvailabilityZones []string `json:"availabilityZones"`
 }
 
+// storedConnectSettings holds AD Connector settings for serialization.
+type storedConnectSettings struct {
+	CustomerUserName string   `json:"customerUserName"`
+	VpcID            string   `json:"vpcId"`
+	SubnetIDs        []string `json:"subnetIds"`
+	CustomerDNSIPs   []string `json:"customerDnsIps"`
+	CustomerDNSIPsV6 []string `json:"customerDnsIpsV6"`
+}
+
 // storedDirectory holds a directory with all fields.
 type storedDirectory struct {
 	// region is the AWS region this directory belongs to. It is the outer
@@ -22,23 +31,27 @@ type storedDirectory struct {
 	// built by toDirectory, never by marshaling storedDirectory directly),
 	// but persistence.go must carry it through a DTO explicitly since
 	// json.Marshal never sees unexported fields.
-	region                   string
-	LaunchTime               time.Time          `json:"launchTime"`
-	StageLastUpdatedDateTime time.Time          `json:"stageLastUpdatedDateTime"`
-	Tags                     map[string]string  `json:"tags"`
-	VpcSettings              *storedVpcSettings `json:"vpcSettings,omitempty"`
-	DirectoryID              string             `json:"directoryId"`
-	Name                     string             `json:"name"`
-	ShortName                string             `json:"shortName"`
-	Description              string             `json:"description"`
-	Alias                    string             `json:"alias"`
-	AccessURL                string             `json:"accessUrl"`
-	DirType                  string             `json:"type"`
-	Stage                    string             `json:"stage"`
-	Size                     string             `json:"size"`
-	Edition                  string             `json:"edition"`
-	DNSIPAddrs               []string           `json:"dnsIpAddrs"`
-	SsoEnabled               bool               `json:"ssoEnabled"`
+	region                     string
+	LaunchTime                 time.Time              `json:"launchTime"`
+	StageLastUpdatedDateTime   time.Time              `json:"stageLastUpdatedDateTime"`
+	Tags                       map[string]string      `json:"tags"`
+	VpcSettings                *storedVpcSettings     `json:"vpcSettings,omitempty"`
+	ConnectSettings            *storedConnectSettings `json:"connectSettings,omitempty"`
+	DirectoryID                string                 `json:"directoryId"`
+	Name                       string                 `json:"name"`
+	ShortName                  string                 `json:"shortName"`
+	Description                string                 `json:"description"`
+	Alias                      string                 `json:"alias"`
+	AccessURL                  string                 `json:"accessUrl"`
+	DirType                    string                 `json:"type"`
+	Stage                      string                 `json:"stage"`
+	Size                       string                 `json:"size"`
+	Edition                    string                 `json:"edition"`
+	NetworkType                string                 `json:"networkType"`
+	DNSIPAddrs                 []string               `json:"dnsIpAddrs"`
+	DNSIPv6Addrs               []string               `json:"dnsIpv6Addrs"`
+	SsoEnabled                 bool                   `json:"ssoEnabled"`
+	DesiredNumberOfDomainCtrls int32                  `json:"desiredNumberOfDomainControllers"`
 }
 
 func (d *storedDirectory) toDirectory() Directory {
@@ -55,7 +68,9 @@ func (d *storedDirectory) toDirectory() Directory {
 		Stage:                    DirectoryStage(d.Stage),
 		Size:                     DirectorySize(d.Size),
 		Edition:                  DirectoryEdition(d.Edition),
+		NetworkType:              NetworkType(d.NetworkType),
 		DNSIPAddrs:               d.DNSIPAddrs,
+		DNSIPv6Addrs:             d.DNSIPv6Addrs,
 		SsoEnabled:               d.SsoEnabled,
 	}
 	if d.VpcSettings != nil {
@@ -65,6 +80,18 @@ func (d *storedDirectory) toDirectory() Directory {
 			SecurityGroupIDs:  d.VpcSettings.SecurityGroupIDs,
 			AvailabilityZones: d.VpcSettings.AvailabilityZones,
 		}
+	}
+	if d.ConnectSettings != nil {
+		dir.ConnectSettings = &DirectoryConnectSettingsDescription{
+			CustomerUserName: d.ConnectSettings.CustomerUserName,
+			VpcID:            d.ConnectSettings.VpcID,
+			SubnetIDs:        d.ConnectSettings.SubnetIDs,
+			ConnectIPs:       synthesizeDNSIPAddrs(d.DirectoryID),
+		}
+	}
+	if DirectoryType(d.DirType) == DirectoryTypeMicrosoftAD {
+		desired := d.DesiredNumberOfDomainCtrls
+		dir.DesiredNumberOfDomainControllers = &desired
 	}
 
 	return dir
@@ -141,6 +168,7 @@ type storedConditionalForwarder struct {
 	RemoteDomainName string   `json:"remoteDomainName"`
 	ReplicationScope string   `json:"replicationScope"`
 	DNSIPAddrs       []string `json:"dnsIpAddrs"`
+	DNSIPv6Addrs     []string `json:"dnsIpv6Addrs"`
 }
 
 type storedLogSubscription struct {
@@ -166,12 +194,17 @@ type storedEventTopic struct {
 type storedDomainController struct {
 	// region is the AWS region this domain controller belongs to; see
 	// storedDirectory.region for the composite-key rationale.
-	region           string
-	LaunchTime       time.Time `json:"launchTime"`
-	ControllerID     string    `json:"controllerId"`
-	DirectoryID      string    `json:"directoryId"`
-	Status           string    `json:"status"`
-	AvailabilityZone string    `json:"availabilityZone"`
+	region                    string
+	LaunchTime                time.Time `json:"launchTime"`
+	StatusLastUpdatedDateTime time.Time `json:"statusLastUpdatedDateTime"`
+	ControllerID              string    `json:"controllerId"`
+	DirectoryID               string    `json:"directoryId"`
+	Status                    string    `json:"status"`
+	AvailabilityZone          string    `json:"availabilityZone"`
+	DNSIPAddr                 string    `json:"dnsIpAddr"`
+	DNSIPv6Addr               string    `json:"dnsIpv6Addr"`
+	SubnetID                  string    `json:"subnetId"`
+	VpcID                     string    `json:"vpcId"`
 }
 
 type storedTrust struct {
@@ -340,6 +373,7 @@ type ConditionalForwarder struct {
 	RemoteDomainName string
 	ReplicationScope string
 	DNSIPAddrs       []string
+	DNSIPv6Addrs     []string
 }
 
 // LogSubscription domain type.
@@ -358,13 +392,22 @@ type EventTopic struct {
 	Status          string
 }
 
-// DomainController domain type.
+// DomainController domain type. StatusReason is never populated: this
+// backend's domain controllers always report Status "Active" and never enter
+// a failed state that would produce a real status-reason message (see
+// PARITY.md).
 type DomainController struct {
-	LaunchTime       time.Time
-	ControllerID     string
-	DirectoryID      string
-	Status           string
-	AvailabilityZone string
+	StatusReason              *string
+	LaunchTime                time.Time
+	StatusLastUpdatedDateTime time.Time
+	ControllerID              string
+	DirectoryID               string
+	Status                    string
+	AvailabilityZone          string
+	DNSIPAddr                 string
+	DNSIPv6Addr               string
+	SubnetID                  string
+	VpcID                     string
 }
 
 // TrustInfo domain type.

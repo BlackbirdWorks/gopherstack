@@ -11,6 +11,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		name, shortName, description, password string,
 		size DirectorySize,
+		networkType NetworkType,
 		vpcSettings *DirectoryVpcSettings,
 		tags []Tag,
 	) (*Directory, error)
@@ -18,6 +19,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		name, shortName, description, password string,
 		edition DirectoryEdition,
+		networkType NetworkType,
 		vpcSettings *DirectoryVpcSettings,
 		tags []Tag,
 	) (*Directory, error)
@@ -66,8 +68,12 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]SchemaExtension, string, error)
 
-	CreateConditionalForwarder(ctx context.Context, directoryID, remoteDomainName string, dnsIPAddrs []string) error
-	UpdateConditionalForwarder(ctx context.Context, directoryID, remoteDomainName string, dnsIPAddrs []string) error
+	CreateConditionalForwarder(
+		ctx context.Context, directoryID, remoteDomainName string, dnsIPAddrs, dnsIPv6Addrs []string,
+	) error
+	UpdateConditionalForwarder(
+		ctx context.Context, directoryID, remoteDomainName string, dnsIPAddrs, dnsIPv6Addrs []string,
+	) error
 	DeleteConditionalForwarder(ctx context.Context, directoryID, remoteDomainName string) error
 	DescribeConditionalForwarders(
 		ctx context.Context,
@@ -193,6 +199,8 @@ type StorageBackend interface {
 		ctx context.Context,
 		name, shortName, description, password string,
 		size DirectorySize,
+		networkType NetworkType,
+		connectSettings ConnectSettingsInput,
 		tags []Tag,
 	) (*Directory, error)
 
@@ -303,6 +311,58 @@ const (
 	UpdateTypeSize    UpdateType = "SIZE"
 )
 
+// NetworkType matches the AWS NetworkType enum.
+type NetworkType string
+
+const (
+	NetworkTypeDualStack NetworkType = "Dual-stack"
+	NetworkTypeIPv4Only  NetworkType = "IPv4"
+	NetworkTypeIPv6Only  NetworkType = "IPv6"
+)
+
+// RadiusStatus matches the AWS RadiusStatus enum.
+type RadiusStatus string
+
+const (
+	RadiusStatusCreating  RadiusStatus = "Creating"
+	RadiusStatusCompleted RadiusStatus = "Completed"
+	RadiusStatusFailed    RadiusStatus = "Failed"
+)
+
+// ShareMethod matches the AWS ShareMethod enum.
+type ShareMethod string
+
+const (
+	ShareMethodOrganizations ShareMethod = "ORGANIZATIONS"
+	ShareMethodHandshake     ShareMethod = "HANDSHAKE"
+)
+
+// ShareStatus matches the AWS ShareStatus enum.
+type ShareStatus string
+
+const (
+	ShareStatusShared            ShareStatus = "Shared"
+	ShareStatusPendingAcceptance ShareStatus = "PendingAcceptance"
+	ShareStatusRejected          ShareStatus = "Rejected"
+	ShareStatusRejecting         ShareStatus = "Rejecting"
+	ShareStatusRejectFailed      ShareStatus = "RejectFailed"
+	ShareStatusSharing           ShareStatus = "Sharing"
+	ShareStatusShareFailed       ShareStatus = "ShareFailed"
+	ShareStatusDeleted           ShareStatus = "Deleted"
+	ShareStatusDeleting          ShareStatus = "Deleting"
+)
+
+// OSVersion matches the AWS OSVersion enum. This backend does not track a
+// directory's underlying OS version (AWS assigns it internally and does not
+// document a deterministic default), so Directory.OsVersion is always left
+// as the zero value; see PARITY.md.
+type OSVersion string
+
+const (
+	OSVersionVersion2012 OSVersion = "SERVER_2012"
+	OSVersionVersion2019 OSVersion = "SERVER_2019"
+)
+
 // DirectoryVpcSettings holds VPC networking settings for a directory.
 type DirectoryVpcSettings struct {
 	VpcID             string
@@ -311,24 +371,111 @@ type DirectoryVpcSettings struct {
 	AvailabilityZones []string
 }
 
+// ConnectSettingsInput carries the AD Connector settings supplied to
+// ConnectDirectory (matches AWS's DirectoryConnectSettings request shape).
+type ConnectSettingsInput struct {
+	CustomerUserName string
+	VpcID            string
+	SubnetIDs        []string
+	CustomerDNSIPs   []string
+	CustomerDNSIPsV6 []string
+}
+
+// DirectoryConnectSettingsDescription mirrors AWS's
+// DirectoryConnectSettingsDescription, returned only for AD Connector
+// directories. SecurityGroupID and AvailabilityZones are not populated: this
+// backend does not model VPC/subnet-to-AZ or security-group provisioning, so
+// there is no real value to derive them from (see PARITY.md).
+type DirectoryConnectSettingsDescription struct {
+	CustomerUserName  string
+	SecurityGroupID   string
+	VpcID             string
+	SubnetIDs         []string
+	AvailabilityZones []string
+	ConnectIPs        []string
+	ConnectIPsV6      []string
+}
+
+// RegionsInfo mirrors AWS's RegionsInfo, describing multi-Region replication
+// for a Managed Microsoft AD directory.
+type RegionsInfo struct {
+	PrimaryRegion     string
+	AdditionalRegions []string
+}
+
+// RadiusSettingsDescription mirrors AWS's RadiusSettings type as returned on
+// DirectoryDescription.RadiusSettings. RadiusServersIPv6 is not populated:
+// this backend's RADIUS settings storage does not track IPv6 server
+// addresses (see PARITY.md).
+type RadiusSettingsDescription struct {
+	AuthenticationProtocol string
+	DisplayLabel           string
+	SharedSecret           string
+	RadiusServers          []string
+	RadiusServersIPv6      []string
+	RadiusPort             int32
+	RadiusRetries          int32
+	RadiusTimeout          int32
+	UseSameUsername        bool
+}
+
+// HybridSettingsDescription mirrors AWS's HybridSettingsDescription. This
+// backend never populates it: CreateHybridAD/UpdateHybridAD do not capture
+// self-managed instance IDs or DNS IPs (see PARITY.md).
+type HybridSettingsDescription struct {
+	SelfManagedDNSIPAddrs  []string
+	SelfManagedInstanceIDs []string
+}
+
+// OwnerDirectoryDescription mirrors AWS's OwnerDirectoryDescription, present
+// on the directory-consumer's copy of a shared directory. This backend never
+// populates it: shared directories are tracked only via SharedDirInfo
+// (DescribeSharedDirectories) and are not materialized as a separate
+// Directory entry in the consumer's DescribeDirectories view (see
+// PARITY.md).
+type OwnerDirectoryDescription struct {
+	RadiusSettings *RadiusSettingsDescription
+	VpcSettings    *DirectoryVpcSettings
+	AccountID      string
+	DirectoryID    string
+	NetworkType    NetworkType
+	RadiusStatus   RadiusStatus
+	DNSIPAddrs     []string
+	DNSIPv6Addrs   []string
+}
+
 // Directory represents an AWS Directory Service directory.
 // LaunchTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type Directory struct {
-	LaunchTime               time.Time
-	StageLastUpdatedDateTime time.Time
-	VpcSettings              *DirectoryVpcSettings
-	DirectoryID              string
-	Name                     string
-	ShortName                string
-	Description              string
-	Alias                    string
-	AccessURL                string
-	Type                     DirectoryType
-	Stage                    DirectoryStage
-	Size                     DirectorySize
-	Edition                  DirectoryEdition
-	DNSIPAddrs               []string
-	SsoEnabled               bool
+	LaunchTime                       time.Time
+	StageLastUpdatedDateTime         time.Time
+	VpcSettings                      *DirectoryVpcSettings
+	ConnectSettings                  *DirectoryConnectSettingsDescription
+	RegionsInfo                      *RegionsInfo
+	RadiusSettings                   *RadiusSettingsDescription
+	HybridSettings                   *HybridSettingsDescription
+	OwnerDirectoryDescription        *OwnerDirectoryDescription
+	DesiredNumberOfDomainControllers *int32
+	StageReason                      *string
+	DirectoryID                      string
+	Name                             string
+	ShortName                        string
+	Description                      string
+	Alias                            string
+	AccessURL                        string
+	ShareNotes                       string
+	Type                             DirectoryType
+	Stage                            DirectoryStage
+	Size                             DirectorySize
+	Edition                          DirectoryEdition
+	NetworkType                      NetworkType
+	RadiusStatus                     RadiusStatus
+	ShareMethod                      ShareMethod
+	ShareStatus                      ShareStatus
+	OsVersion                        OSVersion
+	DNSIPAddrs                       []string
+	DNSIPv6Addrs                     []string
+	SsoEnabled                       bool
 }
 
 // Snapshot represents an AWS Directory Service snapshot.

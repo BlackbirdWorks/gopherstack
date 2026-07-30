@@ -121,7 +121,12 @@ func (h *Handler) handlePollForJobs(
 
 	items := make([]map[string]any, len(jobs))
 	for i, j := range jobs {
-		items[i] = map[string]any{keyJobID: j.ID, keyNonce: j.Nonce}
+		items[i] = map[string]any{
+			keyJobID:    j.ID,
+			keyNonce:    j.Nonce,
+			"accountId": h.Backend.accountID,
+			"data":      jobDataResponse{ActionTypeID: j.ActionTypeID},
+		}
 	}
 
 	return &pollForJobsOutput{Jobs: items}, nil

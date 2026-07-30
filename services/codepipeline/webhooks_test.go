@@ -121,6 +121,7 @@ func TestHandler_Webhook_FullModel(t *testing.T) {
 		webhook    map[string]any
 		checkFn    func(t *testing.T, out map[string]any)
 		name       string
+		tags       []map[string]any
 		wantStatus int
 	}{
 		{
@@ -161,6 +162,32 @@ func TestHandler_Webhook_FullModel(t *testing.T) {
 			},
 		},
 		{
+			name: "webhook tags supplied at PutWebhook round-trip onto the response",
+			webhook: map[string]any{
+				"name":           "wh-tagged",
+				"targetPipeline": "my-pipeline",
+				"targetAction":   "SourceAction",
+				"authentication": "UNAUTHENTICATED",
+			},
+			tags: []map[string]any{
+				{"key": "env", "value": "prod"},
+			},
+			wantStatus: http.StatusOK,
+			checkFn: func(t *testing.T, out map[string]any) {
+				t.Helper()
+
+				wh, ok := out["webhook"].(map[string]any)
+				require.True(t, ok, "webhook key missing")
+
+				tags, ok := wh["tags"].([]any)
+				require.True(t, ok, "tags key missing from PutWebhook response")
+				require.Len(t, tags, 1)
+				tag, _ := tags[0].(map[string]any)
+				assert.Equal(t, "env", tag["key"])
+				assert.Equal(t, "prod", tag["value"])
+			},
+		},
+		{
 			name: "webhook with IP auth",
 			webhook: map[string]any{
 				"name":           "wh-ip",
@@ -195,7 +222,11 @@ func TestHandler_Webhook_FullModel(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, "PutWebhook", map[string]any{"webhook": tt.webhook})
+			body := map[string]any{"webhook": tt.webhook}
+			if tt.tags != nil {
+				body["tags"] = tt.tags
+			}
+			rec := doRequest(t, h, "PutWebhook", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.checkFn != nil && tt.wantStatus == http.StatusOK {

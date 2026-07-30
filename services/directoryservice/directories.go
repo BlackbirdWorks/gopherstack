@@ -55,17 +55,35 @@ func synthesizeDNSIPAddrs(directoryID string) []string {
 	}
 }
 
+// synthesizeDNSIPv6Addrs deterministically derives two plausible private
+// (ULA) IPv6 DNS server addresses for a directory from its ID, following the
+// same rationale as synthesizeDNSIPAddrs. Only used for directories whose
+// NetworkType indicates IPv6 capability (Dual-stack or IPv6).
+func synthesizeDNSIPv6Addrs(directoryID string) []string {
+	sum := sha256.Sum256([]byte(directoryID))
+
+	return []string{
+		fmt.Sprintf("fd00:ec2::%x:%x", sum[0:2], sum[2:4]),
+		fmt.Sprintf("fd00:ec2::%x:%x", sum[4:6], sum[6:8]),
+	}
+}
+
 func (b *InMemoryBackend) newStoredDirectory(
 	region, name, shortName, description string,
 	dirType DirectoryType,
 	size DirectorySize,
 	edition DirectoryEdition,
+	networkType NetworkType,
 	vpcSettings *DirectoryVpcSettings,
 	tags []Tag,
 ) *storedDirectory {
 	id := b.newDirectoryID()
 	alias := b.defaultAlias(id)
 	now := time.Now().UTC()
+
+	if networkType == "" {
+		networkType = NetworkTypeIPv4Only
+	}
 
 	d := &storedDirectory{
 		region:                   region,
@@ -81,8 +99,15 @@ func (b *InMemoryBackend) newStoredDirectory(
 		Stage:                    string(DirectoryStageRequested),
 		Size:                     string(size),
 		Edition:                  string(edition),
+		NetworkType:              string(networkType),
 		Tags:                     tagsToMap(tags),
 		DNSIPAddrs:               synthesizeDNSIPAddrs(id),
+	}
+	if networkType == NetworkTypeDualStack || networkType == NetworkTypeIPv6Only {
+		d.DNSIPv6Addrs = synthesizeDNSIPv6Addrs(id)
+	}
+	if dirType == DirectoryTypeMicrosoftAD {
+		d.DesiredNumberOfDomainCtrls = defaultRegionDomainControllers
 	}
 	if vpcSettings != nil {
 		d.VpcSettings = &storedVpcSettings{
@@ -96,11 +121,57 @@ func (b *InMemoryBackend) newStoredDirectory(
 	return d
 }
 
+// describeDirectory builds the full wire-facing Directory description for
+// d, augmenting the base storedDirectory fields with region-scoped state
+// (multi-Region replication, RADIUS settings) that toDirectory cannot see on
+// its own. Callers must hold b.mu (read or write).
+func (b *InMemoryBackend) describeDirectory(d *storedDirectory) Directory {
+	dir := d.toDirectory()
+
+	if DirectoryType(d.DirType) == DirectoryTypeMicrosoftAD {
+		info := &RegionsInfo{PrimaryRegion: d.region}
+		for _, r := range b.dsRegionsInRegion(d.region) {
+			if r.DirectoryID == d.DirectoryID {
+				info.AdditionalRegions = append(info.AdditionalRegions, r.RegionName)
+			}
+		}
+		sort.Strings(info.AdditionalRegions)
+		dir.RegionsInfo = info
+	}
+
+	if rs, ok := b.radiusSettingsGet(d.region, d.DirectoryID); ok {
+		dir.RadiusSettings = &RadiusSettingsDescription{
+			AuthenticationProtocol: rs.AuthenticationProtocol,
+			DisplayLabel:           rs.DisplayLabel,
+			SharedSecret:           rs.SharedSecret,
+			RadiusServers:          rs.RadiusServers,
+			RadiusPort:             rs.RadiusPort,
+			RadiusRetries:          rs.RadiusRetries,
+			RadiusTimeout:          rs.RadiusTimeout,
+			UseSameUsername:        rs.UseSameUsername,
+		}
+		dir.RadiusStatus = RadiusStatusCompleted
+	}
+
+	return dir
+}
+
+// validNetworkType reports whether networkType is empty or one of AWS's
+// documented NetworkType enum values.
+func validNetworkType(networkType NetworkType) bool {
+	switch networkType {
+	case "", NetworkTypeIPv4Only, NetworkTypeIPv6Only, NetworkTypeDualStack:
+		return true
+	default:
+		return false
+	}
+}
+
 // CreateDirectory creates a new Simple AD directory.
 func (b *InMemoryBackend) CreateDirectory(
 	ctx context.Context,
 	name, shortName, description, _ string,
-	size DirectorySize, vpcSettings *DirectoryVpcSettings, tags []Tag,
+	size DirectorySize, networkType NetworkType, vpcSettings *DirectoryVpcSettings, tags []Tag,
 ) (*Directory, error) {
 	region := getRegion(ctx, b.region)
 
@@ -111,6 +182,9 @@ func (b *InMemoryBackend) CreateDirectory(
 		return nil, ErrInvalidParameter
 	}
 	if size != DirectorySizeSmall && size != DirectorySizeLarge && size != "" {
+		return nil, ErrInvalidParameter
+	}
+	if !validNetworkType(networkType) {
 		return nil, ErrInvalidParameter
 	}
 
@@ -132,13 +206,14 @@ func (b *InMemoryBackend) CreateDirectory(
 		DirectoryTypeSimpleAD,
 		size,
 		"",
+		networkType,
 		vpcSettings,
 		tags,
 	)
 	b.directoryPut(d)
 	b.aliasesStore(region)[d.Alias] = d.DirectoryID
 
-	cp := d.toDirectory()
+	cp := b.describeDirectory(d)
 
 	go b.transitionDirectoryToActive(region, d.DirectoryID)
 
@@ -149,7 +224,7 @@ func (b *InMemoryBackend) CreateDirectory(
 func (b *InMemoryBackend) CreateMicrosoftAD(
 	ctx context.Context,
 	name, shortName, description, _ string,
-	edition DirectoryEdition, vpcSettings *DirectoryVpcSettings, tags []Tag,
+	edition DirectoryEdition, networkType NetworkType, vpcSettings *DirectoryVpcSettings, tags []Tag,
 ) (*Directory, error) {
 	region := getRegion(ctx, b.region)
 
@@ -161,6 +236,9 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 	}
 	if edition != DirectoryEditionEnterprise && edition != DirectoryEditionStandard &&
 		edition != "" {
+		return nil, ErrInvalidParameter
+	}
+	if !validNetworkType(networkType) {
 		return nil, ErrInvalidParameter
 	}
 
@@ -182,13 +260,14 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 		DirectoryTypeMicrosoftAD,
 		"",
 		edition,
+		networkType,
 		vpcSettings,
 		tags,
 	)
 	b.directoryPut(d)
 	b.aliasesStore(region)[d.Alias] = d.DirectoryID
 
-	cp := d.toDirectory()
+	cp := b.describeDirectory(d)
 
 	go b.transitionDirectoryToActive(region, d.DirectoryID)
 
@@ -260,7 +339,7 @@ func (b *InMemoryBackend) DescribeDirectories(
 	result := make([]*Directory, 0, end-start)
 	for _, id := range ids[start:end] {
 		d, _ := b.directoryGet(region, id)
-		cp := d.toDirectory()
+		cp := b.describeDirectory(d)
 		result = append(result, &cp)
 	}
 
@@ -368,11 +447,16 @@ func (b *InMemoryBackend) ResetUserPassword(ctx context.Context, directoryID, _,
 	return nil
 }
 
-// ConnectDirectory creates an ADConnector directory.
+// ConnectDirectory creates an ADConnector directory. Unlike CreateDirectory
+// and CreateMicrosoftAD, AWS's real ConnectDirectory requires a
+// DirectoryConnectSettings object (CustomerUserName, VpcId, SubnetIds); we
+// enforce the same required fields here.
 func (b *InMemoryBackend) ConnectDirectory(
 	ctx context.Context,
 	name, shortName, description, _ string,
 	size DirectorySize,
+	networkType NetworkType,
+	connectSettings ConnectSettingsInput,
 	tags []Tag,
 ) (*Directory, error) {
 	region := getRegion(ctx, b.region)
@@ -386,6 +470,12 @@ func (b *InMemoryBackend) ConnectDirectory(
 	if size != DirectorySizeSmall && size != DirectorySizeLarge && size != "" {
 		return nil, ErrInvalidParameter
 	}
+	if !validNetworkType(networkType) {
+		return nil, ErrInvalidParameter
+	}
+	if connectSettings.CustomerUserName == "" || connectSettings.VpcID == "" || len(connectSettings.SubnetIDs) == 0 {
+		return nil, ErrInvalidParameter
+	}
 
 	var count int32
 	for _, d := range b.directoriesInRegion(region) {
@@ -397,11 +487,26 @@ func (b *InMemoryBackend) ConnectDirectory(
 		return nil, ErrDirectoryLimitExceeded
 	}
 
-	d := b.newStoredDirectory(region, name, shortName, description, DirectoryTypeADConnector, size, "", nil, tags)
+	d := b.newStoredDirectory(
+		region, name, shortName, description, DirectoryTypeADConnector, size, "", networkType, nil, tags,
+	)
+	// AD Connector's DnsIpAddrs/DnsIpv6Addrs report the self-managed
+	// directory's own DNS servers (the customer-supplied IPs), not
+	// synthesized Directory Service-managed addresses, so override the
+	// defaults newStoredDirectory set for other directory types.
+	d.DNSIPAddrs = append([]string(nil), connectSettings.CustomerDNSIPs...)
+	d.DNSIPv6Addrs = append([]string(nil), connectSettings.CustomerDNSIPsV6...)
+	d.ConnectSettings = &storedConnectSettings{
+		CustomerUserName: connectSettings.CustomerUserName,
+		VpcID:            connectSettings.VpcID,
+		SubnetIDs:        append([]string(nil), connectSettings.SubnetIDs...),
+		CustomerDNSIPs:   append([]string(nil), connectSettings.CustomerDNSIPs...),
+		CustomerDNSIPsV6: append([]string(nil), connectSettings.CustomerDNSIPsV6...),
+	}
 	b.directoryPut(d)
 	b.aliasesStore(region)[d.Alias] = d.DirectoryID
 
-	cp := d.toDirectory()
+	cp := b.describeDirectory(d)
 
 	return &cp, nil
 }

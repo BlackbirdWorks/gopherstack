@@ -72,9 +72,16 @@ func (h *Handler) handlePollForThirdPartyJobs(
 		jobs = jobs[:limit]
 	}
 
+	// AWS's real ThirdPartyJob (PollForThirdPartyJobsOutput.jobs) is {ClientId,
+	// JobId} -- unlike the plain Job type, it does NOT carry Nonce: a
+	// third-party worker only learns the nonce later, from
+	// GetThirdPartyJobDetails, gated behind the clientToken/ClientId pairing.
+	// Leaking Nonce here (as this handler previously did, under the wrong key
+	// "id" instead of "jobId") both used the wrong wire key and exposed data
+	// real AWS deliberately withholds at this step.
 	items := make([]map[string]any, len(jobs))
 	for i, j := range jobs {
-		items[i] = map[string]any{keyJobID: j.ID, keyNonce: j.Nonce}
+		items[i] = map[string]any{"jobId": j.ID}
 	}
 
 	return &pollForThirdPartyJobsOutput{Jobs: items}, nil
@@ -103,7 +110,11 @@ func (h *Handler) handleGetThirdPartyJobDetails(
 	}
 
 	return &getThirdPartyJobDetailsOutput{
-		JobDetails: map[string]any{keyJobID: job.ID, keyNonce: job.Nonce},
+		JobDetails: map[string]any{
+			keyJobID: job.ID,
+			keyNonce: job.Nonce,
+			"data":   jobDataResponse{ActionTypeID: job.ActionTypeID},
+		},
 	}, nil
 }
 

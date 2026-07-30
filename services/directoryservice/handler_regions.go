@@ -119,8 +119,8 @@ func (h *Handler) handleDescribeRegions(c *echo.Context) error {
 		}
 		if r.VpcSettings != nil {
 			entry["VpcSettings"] = map[string]any{
-				"VpcId":     r.VpcSettings.VpcID,
-				"SubnetIds": r.VpcSettings.SubnetIDs,
+				keyVpcID:     r.VpcSettings.VpcID,
+				keySubnetIDs: r.VpcSettings.SubnetIDs,
 			}
 		}
 		regionList = append(regionList, entry)

@@ -50,6 +50,8 @@ const (
 
 	keyRemoteDomainName = "RemoteDomainName"
 	keyTopicName        = "TopicName"
+	keyVpcID            = "VpcId"
+	keySubnetIDs        = "SubnetIds"
 
 	opAcceptSharedDirectory                = "AcceptSharedDirectory"
 	opAddIpRoutes                          = "AddIpRoutes" //nolint:revive,staticcheck // existing issue.
@@ -490,10 +492,85 @@ func errResp(code, message string) map[string]string {
 	}
 }
 
+func directoryVpcSettingsJSON(vs *DirectoryVpcSettings) map[string]any {
+	if vs == nil {
+		return nil
+	}
+
+	secGroups := vs.SecurityGroupIDs
+	if secGroups == nil {
+		secGroups = []string{}
+	}
+	azs := vs.AvailabilityZones
+	if azs == nil {
+		azs = []string{}
+	}
+
+	return map[string]any{
+		keyVpcID:            vs.VpcID,
+		keySubnetIDs:        vs.SubnetIDs,
+		"SecurityGroupIds":  secGroups,
+		"AvailabilityZones": azs,
+	}
+}
+
+func directoryConnectSettingsJSON(cs *DirectoryConnectSettingsDescription) map[string]any {
+	if cs == nil {
+		return nil
+	}
+
+	return map[string]any{
+		"CustomerUserName":  cs.CustomerUserName,
+		keyVpcID:            cs.VpcID,
+		keySubnetIDs:        cs.SubnetIDs,
+		"AvailabilityZones": cs.AvailabilityZones,
+		"ConnectIps":        cs.ConnectIPs,
+		"ConnectIpsV6":      cs.ConnectIPsV6,
+	}
+}
+
+func directoryRadiusSettingsJSON(rs *RadiusSettingsDescription) map[string]any {
+	if rs == nil {
+		return nil
+	}
+
+	return map[string]any{
+		"AuthenticationProtocol": rs.AuthenticationProtocol,
+		"DisplayLabel":           rs.DisplayLabel,
+		"SharedSecret":           rs.SharedSecret,
+		"RadiusServers":          rs.RadiusServers,
+		"RadiusServersIpv6":      rs.RadiusServersIPv6,
+		"RadiusPort":             rs.RadiusPort,
+		"RadiusRetries":          rs.RadiusRetries,
+		"RadiusTimeout":          rs.RadiusTimeout,
+		"UseSameUsername":        rs.UseSameUsername,
+	}
+}
+
+func directoryRegionsInfoJSON(ri *RegionsInfo) map[string]any {
+	if ri == nil {
+		return nil
+	}
+
+	additional := ri.AdditionalRegions
+	if additional == nil {
+		additional = []string{}
+	}
+
+	return map[string]any{
+		"PrimaryRegion":     ri.PrimaryRegion,
+		"AdditionalRegions": additional,
+	}
+}
+
 func directoryToJSON(d *Directory) map[string]any {
 	dnsIPAddrs := d.DNSIPAddrs
 	if dnsIPAddrs == nil {
 		dnsIPAddrs = []string{}
+	}
+	dnsIPv6Addrs := d.DNSIPv6Addrs
+	if dnsIPv6Addrs == nil {
+		dnsIPv6Addrs = []string{}
 	}
 
 	out := map[string]any{
@@ -507,26 +584,28 @@ func directoryToJSON(d *Directory) map[string]any {
 		"Stage":                    string(d.Stage),
 		"Size":                     string(d.Size),
 		"Edition":                  string(d.Edition),
+		"NetworkType":              string(d.NetworkType),
 		"SsoEnabled":               d.SsoEnabled,
 		keyLaunchTime:              awstime.Epoch(d.LaunchTime),
 		"StageLastUpdatedDateTime": awstime.Epoch(d.StageLastUpdatedDateTime),
 		"DnsIpAddrs":               dnsIPAddrs,
+		"DnsIpv6Addrs":             dnsIPv6Addrs,
 	}
-	if d.VpcSettings != nil {
-		secGroups := d.VpcSettings.SecurityGroupIDs
-		if secGroups == nil {
-			secGroups = []string{}
-		}
-		azs := d.VpcSettings.AvailabilityZones
-		if azs == nil {
-			azs = []string{}
-		}
-		out["VpcSettings"] = map[string]any{
-			"VpcId":             d.VpcSettings.VpcID,
-			"SubnetIds":         d.VpcSettings.SubnetIDs,
-			"SecurityGroupIds":  secGroups,
-			"AvailabilityZones": azs,
-		}
+	if vs := directoryVpcSettingsJSON(d.VpcSettings); vs != nil {
+		out["VpcSettings"] = vs
+	}
+	if cs := directoryConnectSettingsJSON(d.ConnectSettings); cs != nil {
+		out["ConnectSettings"] = cs
+	}
+	if ri := directoryRegionsInfoJSON(d.RegionsInfo); ri != nil {
+		out["RegionsInfo"] = ri
+	}
+	if rs := directoryRadiusSettingsJSON(d.RadiusSettings); rs != nil {
+		out["RadiusSettings"] = rs
+		out["RadiusStatus"] = string(d.RadiusStatus)
+	}
+	if d.DesiredNumberOfDomainControllers != nil {
+		out["DesiredNumberOfDomainControllers"] = *d.DesiredNumberOfDomainControllers
 	}
 
 	return out

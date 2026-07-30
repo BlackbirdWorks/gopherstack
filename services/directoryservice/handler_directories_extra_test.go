@@ -45,11 +45,40 @@ func TestConnectDirectory_Validation(t *testing.T) {
 			wantType: "InvalidParameterException",
 		},
 		{
+			name: "missing ConnectSettings returns 400",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "Small",
+			},
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+		{
+			name: "ConnectSettings missing required VpcId returns 400",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "Small",
+				"ConnectSettings": map[string]any{
+					"CustomerUserName": "Admin",
+					"SubnetIds":        []string{"subnet-11111111", "subnet-22222222"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidParameterException",
+		},
+		{
 			name: "valid Small succeeds",
 			body: map[string]any{
 				"Name":     "corp.example.com",
 				"Password": "Admin1234!",
 				"Size":     "Small",
+				"ConnectSettings": map[string]any{
+					"CustomerUserName": "Admin",
+					"VpcId":            "vpc-12345678",
+					"SubnetIds":        []string{"subnet-11111111", "subnet-22222222"},
+				},
 			},
 			wantCode: http.StatusOK,
 		},
@@ -432,6 +461,12 @@ func TestConnectDirectory(t *testing.T) {
 				"Name":     "corp.example.com",
 				"Password": "Admin1234!",
 				"Size":     "Small",
+				"ConnectSettings": map[string]any{
+					"CustomerUserName": "Admin",
+					"VpcId":            "vpc-12345678",
+					"SubnetIds":        []string{"subnet-11111111", "subnet-22222222"},
+					"CustomerDnsIps":   []string{"192.0.2.10", "192.0.2.11"},
+				},
 			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, resp map[string]any) {

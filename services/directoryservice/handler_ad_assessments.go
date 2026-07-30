@@ -75,12 +75,11 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"ADAssessment": map[string]any{
-			"AssessmentId":   a.AssessmentID,
-			keyDirectoryID:   a.DirectoryID,
-			keyStatus:        a.Status,
-			"AssessmentType": a.AssessType,
-			keyRegion:        a.Region,
-			keyStartTime:     awstime.Epoch(a.StartTime),
+			"AssessmentId": a.AssessmentID,
+			keyDirectoryID: a.DirectoryID,
+			keyStatus:      a.Status,
+			"ReportType":   a.AssessType,
+			keyStartTime:   awstime.Epoch(a.StartTime),
 		},
 	})
 }
@@ -116,12 +115,11 @@ func (h *Handler) handleListADAssessments(c *echo.Context) error {
 	assessList := make([]map[string]any, 0, len(assessments))
 	for _, a := range assessments {
 		assessList = append(assessList, map[string]any{
-			"AssessmentId":   a.AssessmentID,
-			keyDirectoryID:   a.DirectoryID,
-			keyStatus:        a.Status,
-			"AssessmentType": a.AssessType,
-			keyRegion:        a.Region,
-			keyStartTime:     awstime.Epoch(a.StartTime),
+			"AssessmentId": a.AssessmentID,
+			keyDirectoryID: a.DirectoryID,
+			keyStatus:      a.Status,
+			"ReportType":   a.AssessType,
+			keyStartTime:   awstime.Epoch(a.StartTime),
 		})
 	}
 

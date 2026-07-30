@@ -29,7 +29,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	dir, err := original.CreateDirectory(
 		ctx, "corp.example.com", "CORP", "primary directory", "Password123!",
-		directoryservice.DirectorySizeSmall, nil, nil,
+		directoryservice.DirectorySizeSmall, "", nil, nil,
 	)
 	require.NoError(t, err)
 	dirID := dir.DirectoryID
@@ -58,7 +58,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// conditionalForwarders
-	require.NoError(t, original.CreateConditionalForwarder(ctx, dirID, "remote.example.com", []string{"10.1.1.1"}))
+	require.NoError(
+		t, original.CreateConditionalForwarder(ctx, dirID, "remote.example.com", []string{"10.1.1.1"}, nil),
+	)
 
 	// logSubscriptions
 	require.NoError(t, original.CreateLogSubscription(ctx, dirID, "/aws/directoryservice/corp"))
@@ -154,7 +156,7 @@ func assertCoreStateRestored(t *testing.T, b *directoryservice.InMemoryBackend, 
 	// The reverse alias index (raw map) must also have survived: creating a
 	// second directory and trying to steal the same alias must still fail.
 	other, err := b.CreateDirectory(
-		ctx, "other.example.com", "OTHER", "", "Password123!", directoryservice.DirectorySizeSmall, nil, nil,
+		ctx, "other.example.com", "OTHER", "", "Password123!", directoryservice.DirectorySizeSmall, "", nil, nil,
 	)
 	require.NoError(t, err)
 	err = b.CreateAlias(ctx, other.DirectoryID, alias)
@@ -264,7 +266,7 @@ func assertSettingsStateRestored(t *testing.T, b *directoryservice.InMemoryBacke
 
 	assessment, err := b.DescribeADAssessment(ctx, dirID, assessmentID)
 	require.NoError(t, err)
-	assert.Equal(t, "Operational", assessment.AssessType)
+	assert.Equal(t, "CUSTOMER", assessment.AssessType)
 
 	settings, _, err := b.DescribeSettings(ctx, dirID, "", "")
 	require.NoError(t, err)
@@ -300,7 +302,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	b := directoryservice.NewInMemoryBackend("000000000000", "us-east-1")
 
 	_, err := b.CreateDirectory(
-		ctx, "seed.example.com", "SEED", "", "Password123!", directoryservice.DirectorySizeSmall, nil, nil,
+		ctx, "seed.example.com", "SEED", "", "Password123!", directoryservice.DirectorySizeSmall, "", nil, nil,
 	)
 	require.NoError(t, err)
 	require.Equal(t, 1, directoryservice.DirectoryCount(b))

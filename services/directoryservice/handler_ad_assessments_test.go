@@ -51,6 +51,13 @@ func TestADAssessments(t *testing.T) {
 			assessment, _ := r3["ADAssessment"].(map[string]any)
 			assert.Equal(t, assessID, assessment["AssessmentId"])
 
+			// ReportType is a real Assessment field ("CUSTOMER" or "SYSTEM");
+			// "AssessmentType" and "Region" are not real Assessment/
+			// AssessmentSummary members and must not appear on the wire.
+			assert.Equal(t, "CUSTOMER", assessment["ReportType"])
+			assert.NotContains(t, assessment, "AssessmentType")
+			assert.NotContains(t, assessment, "Region")
+
 			// Delete
 			rec4 := doRequest(t, h, "DeleteADAssessment", map[string]any{
 				"DirectoryId":  dirID,

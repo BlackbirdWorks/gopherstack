@@ -25,9 +25,15 @@ func (b *InMemoryBackend) StartADAssessment(ctx context.Context, directoryID str
 		AssessmentID: id,
 		DirectoryID:  directoryID,
 		Status:       "Completed",
-		AssessType:   "Operational",
-		Region:       region,
-		StartTime:    time.Now().UTC(),
+		// AWS's real Assessment/AssessmentSummary.ReportType is "CUSTOMER" or
+		// "SYSTEM": CUSTOMER means the assessment was started directly via
+		// StartADAssessment (as every assessment in this backend is, since
+		// CreateHybridAD's SYSTEM-triggered assessment flow is not modeled
+		// -- see PARITY.md), so CUSTOMER is the real value here, not a
+		// placeholder.
+		AssessType: "CUSTOMER",
+		Region:     region,
+		StartTime:  time.Now().UTC(),
 	})
 
 	return id, nil

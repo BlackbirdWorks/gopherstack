@@ -23,7 +23,9 @@ func (b *InMemoryBackend) CreateHybridAD(
 		return nil, "", ErrInvalidParameter
 	}
 
-	d := b.newStoredDirectory(region, name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, nil, tags)
+	d := b.newStoredDirectory(
+		region, name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, "", nil, tags,
+	)
 	b.directoryPut(d)
 	b.aliasesStore(region)[d.Alias] = d.DirectoryID
 
@@ -35,7 +37,7 @@ func (b *InMemoryBackend) CreateHybridAD(
 		Status:      "Updated", //nolint:goconst // existing issue.
 	})
 
-	cp := d.toDirectory()
+	cp := b.describeDirectory(d)
 
 	return &cp, requestID, nil
 }

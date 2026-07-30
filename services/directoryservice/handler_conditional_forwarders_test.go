@@ -42,12 +42,14 @@ func TestConditionalForwarder_Lifecycle(t *testing.T) {
 			"DirectoryId":      dirID,
 			"RemoteDomainName": "remote.example.com",
 			"DnsIpAddrs":       []string{"10.0.0.1"},
+			"DnsIpv6Addrs":     []string{"2001:db8::1"},
 		})
 
 		doRequest(t, h, "UpdateConditionalForwarder", map[string]any{
 			"DirectoryId":      dirID,
 			"RemoteDomainName": "remote.example.com",
 			"DnsIpAddrs":       []string{"10.0.0.2", "10.0.0.3"},
+			"DnsIpv6Addrs":     []string{"2001:db8::2", "2001:db8::3"},
 		})
 
 		rec := doRequest(t, h, "DescribeConditionalForwarders", map[string]any{
@@ -61,6 +63,9 @@ func TestConditionalForwarder_Lifecycle(t *testing.T) {
 		fwd := fwds[0].(map[string]any)
 		dnsIPs, _ := fwd["DnsIpAddrs"].([]any)
 		assert.Len(t, dnsIPs, 2)
+		dnsIPv6s, ok := fwd["DnsIpv6Addrs"].([]any)
+		require.True(t, ok, "DnsIpv6Addrs must be present on the wire")
+		assert.Equal(t, []any{"2001:db8::2", "2001:db8::3"}, dnsIPv6s)
 	})
 
 	t.Run("delete non-existent forwarder returns 400", func(t *testing.T) {

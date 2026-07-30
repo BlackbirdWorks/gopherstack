@@ -382,15 +382,34 @@ func stageSucceededInExecution(actionExecs []*ActionExecution, stage *Stage, exe
 	return true
 }
 
-// OverrideStageCondition overrides a stage's before-entry condition result,
-// letting a pipeline execution proceed past a blocking condition. This
-// backend has no condition-rule engine anywhere (see ListRuleExecutions in
-// rules.go, which is deliberately empty/static for the same reason), so
-// there is no blocked-condition state to actually override; this validates
-// the pipeline, stage, and pipeline execution referenced by the request all
-// exist (real backend logic, not a stub) and otherwise performs no
-// additional mutation, which is the AWS-correct wire shape for this op
-// (OverrideStageConditionOutput carries no fields).
+// OverrideStageCondition overrides a stage's BEFORE_ENTRY or ON_SUCCESS
+// condition result (types.ConditionType), letting a pipeline execution
+// proceed past a blocking condition. In real AWS this flips the relevant
+// StageState.{BeforeEntryConditionState,OnSuccessConditionState}
+// .LatestExecution.Status to ConditionExecutionStatusOverridden
+// ("Overridden").
+//
+// This backend cannot perform that mutation because it has no condition-rule
+// engine anywhere: StageDeclaration here has no BeforeEntry/OnFailure/
+// OnSuccess members at all (the real SDK's StageDeclaration.BeforeEntry
+// /OnFailure/OnSuccess -- BeforeEntryConditions/FailureConditions/
+// SuccessConditions, each wrapping []Condition/[]RuleDeclaration -- is
+// entirely unimplemented: CreatePipeline never parses it, and
+// StageState here has no BeforeEntryConditionState/OnSuccessConditionState/
+// OnFailureConditionState to flip in the first place). Building real
+// condition-rule evaluation (parsing stage Conditions, gating stage entry
+// on rule results, tracking per-execution ConditionState/RuleState) would be
+// a new subsystem, not a field patch, and is out of scope here -- see
+// PARITY.md for the explicit gap writeup. ListRuleExecutions (rules.go) is
+// correspondingly always empty for the same underlying reason: there is
+// never a rule execution to report because rules never run.
+//
+// Given that, this validates the pipeline, stage, and pipeline execution
+// referenced by the request all exist (real backend logic, not a stub) and
+// otherwise performs no additional mutation, which is the AWS-correct wire
+// shape for this op regardless (OverrideStageConditionOutput carries no
+// fields) -- but the *effect* AWS documents (unblocking a waiting stage) is
+// an honest no-op here because there is nothing to unblock.
 func (b *InMemoryBackend) OverrideStageCondition(
 	ctx context.Context,
 	pipelineName, stageName, executionID string,

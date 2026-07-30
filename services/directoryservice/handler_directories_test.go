@@ -257,6 +257,131 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 		require.True(t, ok)
 		assert.Empty(t, dirs)
 	})
+
+	t.Run("NetworkType, DnsIpv6Addrs, DesiredNumberOfDomainControllers and RegionsInfo round-trip for "+
+		"MicrosoftAD", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+
+		createRec := doRequest(t, h, "CreateMicrosoftAD", map[string]any{
+			"Name":        "msad-fields.example.com",
+			"Password":    "Admin1234!",
+			"Edition":     "Enterprise",
+			"NetworkType": "Dual-stack",
+		})
+		createResp := respBody(t, createRec)
+		dirID, ok := createResp["DirectoryId"].(string)
+		require.True(t, ok)
+
+		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		resp := respBody(t, rec)
+		dirs, _ := resp["DirectoryDescriptions"].([]any)
+		require.Len(t, dirs, 1)
+		dir := dirs[0].(map[string]any)
+
+		assert.Equal(t, "Dual-stack", dir["NetworkType"])
+
+		dnsV6, ok := dir["DnsIpv6Addrs"].([]any)
+		require.True(t, ok, "DnsIpv6Addrs must be present on the wire")
+		assert.NotEmpty(t, dnsV6, "a Dual-stack directory must report IPv6 DNS addresses")
+
+		desired, ok := dir["DesiredNumberOfDomainControllers"]
+		require.True(t, ok, "MicrosoftAD directories must report DesiredNumberOfDomainControllers")
+		assert.InEpsilon(t, float64(2), desired, 0)
+
+		regionsInfo, ok := dir["RegionsInfo"].(map[string]any)
+		require.True(t, ok, "MicrosoftAD directories must report RegionsInfo")
+		assert.Equal(t, "us-east-1", regionsInfo["PrimaryRegion"])
+		assert.Empty(t, regionsInfo["AdditionalRegions"])
+
+		// AddRegion must surface in RegionsInfo.AdditionalRegions.
+		addRec := doRequest(t, h, "AddRegion", map[string]any{
+			"DirectoryId": dirID,
+			"RegionName":  "us-west-2",
+			"VPCSettings": map[string]any{
+				"VpcId":     "vpc-region2",
+				"SubnetIds": []string{"subnet-r1", "subnet-r2"},
+			},
+		})
+		require.Equal(t, http.StatusOK, addRec.Code)
+
+		rec2 := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		resp2 := respBody(t, rec2)
+		dirs2, _ := resp2["DirectoryDescriptions"].([]any)
+		dir2 := dirs2[0].(map[string]any)
+		regionsInfo2 := dir2["RegionsInfo"].(map[string]any)
+		additional, ok := regionsInfo2["AdditionalRegions"].([]any)
+		require.True(t, ok)
+		assert.Equal(t, []any{"us-west-2"}, additional)
+	})
+
+	t.Run("RadiusSettings and RadiusStatus round-trip after EnableRadius", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		dirID := mustCreateSimpleAD(t, h, "radius.example.com")
+
+		enableRec := doRequest(t, h, "EnableRadius", map[string]any{
+			"DirectoryId": dirID,
+			"RadiusSettings": map[string]any{
+				"AuthenticationProtocol": "PAP",
+				"RadiusServers":          []string{"10.2.2.2"},
+				"SharedSecret":           "s3cr3t",
+				"RadiusPort":             1812,
+				"RadiusRetries":          3,
+				"RadiusTimeout":          5,
+			},
+		})
+		require.Equal(t, http.StatusOK, enableRec.Code)
+
+		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		resp := respBody(t, rec)
+		dirs, _ := resp["DirectoryDescriptions"].([]any)
+		dir := dirs[0].(map[string]any)
+
+		assert.Equal(t, "Completed", dir["RadiusStatus"])
+		radiusSettings, ok := dir["RadiusSettings"].(map[string]any)
+		require.True(t, ok, "RadiusSettings must be present on the wire once enabled")
+		assert.Equal(t, "PAP", radiusSettings["AuthenticationProtocol"])
+		assert.Equal(t, []any{"10.2.2.2"}, radiusSettings["RadiusServers"])
+	})
+
+	t.Run("ConnectSettings and customer DnsIpAddrs round-trip for ConnectDirectory", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+
+		createRec := doRequest(t, h, "ConnectDirectory", map[string]any{
+			"Name":     "connector.example.com",
+			"Password": "Admin1234!",
+			"Size":     "Small",
+			"ConnectSettings": map[string]any{
+				"CustomerUserName": "Admin",
+				"VpcId":            "vpc-connector",
+				"SubnetIds":        []string{"subnet-c1", "subnet-c2"},
+				"CustomerDnsIps":   []string{"192.0.2.10", "192.0.2.11"},
+			},
+		})
+		createResp := respBody(t, createRec)
+		dirID, ok := createResp["DirectoryId"].(string)
+		require.True(t, ok)
+
+		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		resp := respBody(t, rec)
+		dirs, _ := resp["DirectoryDescriptions"].([]any)
+		dir := dirs[0].(map[string]any)
+
+		// AD Connector's DnsIpAddrs must echo the customer's own DNS IPs,
+		// not a synthesized Directory Service-managed address.
+		assert.Equal(t, []any{"192.0.2.10", "192.0.2.11"}, dir["DnsIpAddrs"])
+
+		connectSettings, ok := dir["ConnectSettings"].(map[string]any)
+		require.True(t, ok, "ConnectSettings must be present for an AD Connector directory")
+		assert.Equal(t, "Admin", connectSettings["CustomerUserName"])
+		assert.Equal(t, "vpc-connector", connectSettings["VpcId"])
+		assert.Equal(t, []any{"subnet-c1", "subnet-c2"}, connectSettings["SubnetIds"])
+		connectIPs, ok := connectSettings["ConnectIps"].([]any)
+		require.True(t, ok)
+		assert.NotEmpty(t, connectIPs, "ConnectIps (the AD Connector's own IPs) must be populated")
+	})
 }
 
 func TestDirectoryService_CreateAlias(t *testing.T) {
@@ -793,6 +918,11 @@ func TestCreateDirectory_ResponseShape(t *testing.T) {
 				"Name":     "corp.example.com",
 				"Password": "Admin1234!",
 				"Size":     "Small",
+				"ConnectSettings": map[string]any{
+					"CustomerUserName": "Admin",
+					"VpcId":            "vpc-12345678",
+					"SubnetIds":        []string{"subnet-11111111", "subnet-22222222"},
+				},
 			},
 		},
 	}
