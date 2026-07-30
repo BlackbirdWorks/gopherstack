@@ -18,6 +18,15 @@ overall: A-           # new: BatchCreate/Update/DeleteFirewallRule + ListFirewal
                        # Route 53 Profile delegation gap (RuleTypeOption DELEGATE) documented rather
                        # than half-modeled. Still A- for the same ListFirewallRuleTypes completeness
                        # reason as before -- no new gaps introduced.
+                       # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): confirmed
+                       # against aws-sdk-go-v2/service/route53resolver@v1.48.0's types.go that
+                       # FirewallAdvancedContentCategoryConfig.Category, FirewallAdvancedThreatCategoryConfig.Category,
+                       # and PartnerThreatProtectionConfig.Partner are all untyped *string with zero
+                       # backing Go enum -- and each one's own doc comment says the only way to learn
+                       # valid values is to call ListFirewallRuleTypes itself, i.e. the source of truth
+                       # is circular with the op in question. There is no closed set anywhere to derive
+                       # these three variants from without inventing category/partner identifiers.
+                       # STRUCTURAL, grade correctly held at A-, not raised.
 ops:
   CreateResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field (see notes); added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled input+output"}
   GetResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field; added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled output"}

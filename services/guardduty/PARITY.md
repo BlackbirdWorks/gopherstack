@@ -17,6 +17,13 @@ overall: A-           # this pass (parity-4, SDK bump 1.78.2 -> 1.85.0): impleme
                        # related-findings are permanently absent rather than ever real (an honest,
                        # structural limitation, not a wire bug -- see the investigations family note and
                        # gaps below). Everything audited in prior passes (see history below) is unchanged.
+                       # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): confirmed
+                       # the driver is a genuine missing capability -- this backend has no AI/ML
+                       # threat-analysis engine anywhere, so RiskLevel/Confidence/Summary/Title/
+                       # related-findings on an Investigation can never be real data (the same class of
+                       # honest gap already accepted for wafv2's traffic-analytics ops). Building an
+                       # analysis engine is out of scope for a parity pass. STRUCTURAL, grade correctly
+                       # held at A-, not raised.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:

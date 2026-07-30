@@ -10,6 +10,14 @@ overall: A-           # the 32 ops the v1.112.0->v1.121.0 SDK bump added (Agent,
                       # rather than modeled (Agent.CustomPromptInterface,
                       # Space.Contributors/ConsumedSource*) -- see families below for
                       # the specific, cited reasons. No other gaps found this pass.
+                      # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): confirmed
+                      # both omissions directly against aws-sdk-go-v2/service/quicksight@v1.121.0's
+                      # types.go. CustomPromptInterface has three *required* members (ModelProfileId,
+                      # QbsAwsAccountId, SubscriptionId) that are minted by a real Amazon Q Business
+                      # subscription this backend has no state for -- synthesizing them would be
+                      # fabrication, not omission. ConsumedSourceDocCount/ConsumedSourceSize require
+                      # per-user raw-file-size attribution from a real ingestion pipeline this backend
+                      # doesn't have. Both STRUCTURAL, grade correctly held at A-, not raised.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:

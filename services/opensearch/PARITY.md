@@ -4,6 +4,16 @@ sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.0
 last_audit_commit: acb2e23f9
 last_audit_date: 2026-07-25
 overall: A-           # genuine new-op implementations this pass, with two honestly-scoped gaps (see families below)
+                      # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): both cited
+                      # gaps -- AttachDataSource's workspaceConfiguration/workspaceId side effect, and
+                      # StartMigration's MigrationOptions.Workspace/ExportOptions/ConflictResolution --
+                      # require this backend to first stand up an entirely new resource store (a
+                      # workspace / saved-object model) that nothing else in this service references or
+                      # depends on today, the same class of out-of-scope new-state-model gap already
+                      # accepted for appconfig's FlagKey-content limitation. Confirmed against
+                      # aws-sdk-go-v2/service/opensearch@v1.75.0's types.go: both are real, optional,
+                      # documented fields with no backing state anywhere in this backend to populate them
+                      # from. STRUCTURAL, grade correctly held at A-, not raised.
 ops:
   CreateDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed DomainId (required field, was missing) and IdentityCenterOptions wire key (see Notes)"}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}

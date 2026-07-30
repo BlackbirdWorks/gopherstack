@@ -17,6 +17,19 @@ overall: A-           # DOWNGRADED from A in the experiment-family pass. The pre
                        # inline-Tags-dropped bug (see families/CreateApplication etc. and the removed
                        # gaps entry below) is now FIXED, but the experiment-family assumptions above are
                        # unrelated and still hold the grade at A-, not A.
+                       # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): re-checked
+                       # all four cited reasons directly against aws-sdk-go-v2/service/appconfig@v1.48.0.
+                       # (1) api_op_StartExperimentRun.go's ExposurePercentage doc text never states a
+                       # default for an omitted field. (2) api_op_DeleteExperimentDefinition.go's
+                       # DeleteType doc text describes ARCHIVE/DESTROY's effects but never a default.
+                       # (3) TreatmentInput (types.go) has no client-supplied Key member at all -- AWS
+                       # must assign one server-side but the exact scheme is nowhere in the SDK. (4)
+                       # validators.go's validateOpCreateExperimentDefinitionInput only requires FlagKey
+                       # be non-nil (smithy.NewErrParamRequired), the same depth of check this backend
+                       # already performs -- deeper content validation would require modeling
+                       # feature-flag-content structure, which no op in this service does today. All
+                       # four confirmed STRUCTURAL (unverifiable-by-SDK or out-of-scope-new-state-model),
+                       # not fixable debt. Grade correctly held at A-, not raised.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
