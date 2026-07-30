@@ -14,7 +14,7 @@ import (
 func TestModifyVolume(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vol, setupErr := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, setupErr := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, setupErr)
 
 	t.Run("resizes volume", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -41,7 +41,7 @@ func TestModifyVolume(t *testing.T) { //nolint:paralleltest // existing issue.
 func TestDescribeVolumeStatus(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vol, setupErr := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, setupErr := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, setupErr)
 
 	t.Run("returns ok status for known volume", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -65,7 +65,7 @@ func TestDescribeVolumeStatus(t *testing.T) { //nolint:paralleltest // existing 
 func TestDescribeVolumesModifications(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vol, _ := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, _ := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	_, _ = b.ModifyVolume(vol.ID, "gp3", 40, 0)
 
 	t.Run("returns modification after ModifyVolume", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -75,7 +75,7 @@ func TestDescribeVolumesModifications(t *testing.T) { //nolint:paralleltest // e
 	})
 
 	t.Run("returns empty when no modifications", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		vol2, _ := b.CreateVolume("us-east-1a", "gp2", 10)
+		vol2, _ := b.CreateVolume("us-east-1a", "gp2", 10, "")
 		mods := b.DescribeVolumesModifications([]string{vol2.ID})
 		assert.Empty(t, mods)
 	})
@@ -87,7 +87,7 @@ func TestHTTP_ModifyVolume(t *testing.T) { //nolint:paralleltest // existing iss
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h2 := ec2.NewHandler(b)
 
-	vol, _ := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, _ := b.CreateVolume("us-east-1a", "gp2", 20, "")
 
 	_, err := ec2.ExportDispatch(h2, url.Values{
 		"Action":     []string{"ModifyVolume"},
@@ -143,7 +143,7 @@ func TestEbsEncryption(t *testing.T) { //nolint:paralleltest // existing issue.
 func TestEnableVolumeIO(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vol, setupErr := b.CreateVolume("us-east-1a", "gp2", 10)
+	vol, setupErr := b.CreateVolume("us-east-1a", "gp2", 10, "")
 	require.NoError(t, setupErr)
 
 	t.Run("enables IO for known volume", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -161,8 +161,8 @@ func TestEnableVolumeIO(t *testing.T) { //nolint:paralleltest // existing issue.
 func TestCopyVolumes(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	v1, _ := b.CreateVolume("us-east-1a", "gp2", 10)
-	v2, _ := b.CreateVolume("us-east-1a", "gp3", 20)
+	v1, _ := b.CreateVolume("us-east-1a", "gp2", 10, "")
+	v2, _ := b.CreateVolume("us-east-1a", "gp3", 20, "")
 
 	t.Run("creates copies", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		results, err := b.CopyVolumes([]string{v1.ID, v2.ID}, "us-west-2")

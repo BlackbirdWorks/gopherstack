@@ -37,6 +37,7 @@ func (b *InMemoryBackend) CopySnapshot(sourceSnapshotID, description string) (*S
 		VolumeSize:  src.VolumeSize,
 		Encrypted:   src.Encrypted,
 		KmsKeyID:    src.KmsKeyID,
+		OwnerID:     b.AccountID,
 	}
 	b.snapshots.Put(snap)
 
@@ -84,6 +85,7 @@ func (b *InMemoryBackend) CreateSnapshots(
 			VolumeSize:  vol.Size,
 			Encrypted:   vol.Encrypted,
 			KmsKeyID:    vol.KmsKeyID,
+			OwnerID:     b.AccountID,
 		}
 		b.snapshots.Put(snap)
 		snaps = append(snaps, snap)
@@ -497,6 +499,7 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 		VolumeSize:  vol.Size,
 		Encrypted:   vol.Encrypted,
 		KmsKeyID:    vol.KmsKeyID,
+		OwnerID:     b.AccountID,
 	}
 	b.snapshots.Put(snap)
 

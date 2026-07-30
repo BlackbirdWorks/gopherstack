@@ -4,8 +4,9 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
-	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func toVpcEndpointItem(ep *VpcEndpoint, tags map[string]string) vpcEndpointItem {
@@ -189,7 +190,11 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		_, _ = fmt.Sscan(tok, &offset)
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return nil, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
+		}
+		offset = n
 	}
 
 	var nextToken string
@@ -199,7 +204,7 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 		}
 		acls = acls[offset:]
 		if len(acls) > maxResults {
-			nextToken = strconv.Itoa(offset + maxResults)
+			nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
 			acls = acls[:maxResults]
 		}
 	}

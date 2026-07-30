@@ -123,8 +123,9 @@ type Backend interface {
 
 	// ---- EBS volumes ----
 
-	// CreateVolume creates a new EBS volume stub.
-	CreateVolume(az, volType string, size int) (*Volume, error)
+	// CreateVolume creates a new EBS volume, optionally restored from an
+	// existing EBS snapshot (snapshotID may be empty).
+	CreateVolume(az, volType string, size int, snapshotID string) (*Volume, error)
 
 	// SetVolumeEncryption marks a volume as encrypted and optionally sets its KMS key ID.
 	SetVolumeEncryption(volumeID string, encrypted bool, kmsKeyID string) error
@@ -337,6 +338,10 @@ type Backend interface {
 
 	// ModifyNetworkInterfaceAttribute updates a single attribute of an ENI.
 	ModifyNetworkInterfaceAttribute(eniID, attr, value string) error
+
+	// SetNetworkInterfaceDeleteOnTermination updates the DeleteOnTermination
+	// flag for the attachment identified by attachmentID.
+	SetNetworkInterfaceDeleteOnTermination(attachmentID string, del bool) error
 
 	// ---- spot instances ----
 
@@ -594,16 +599,20 @@ type Backend interface {
 	// ---- Transit Gateway Routes ----
 
 	// CreateTransitGatewayRoute adds a static route to a TGW route table.
+	// blackhole=true creates a blackhole route (attachmentID is ignored).
 	CreateTransitGatewayRoute(
 		routeTableID, destinationCIDR, attachmentID string,
+		blackhole bool,
 	) (*TransitGatewayRoute, error)
 
 	// DeleteTransitGatewayRoute removes a static route from a TGW route table.
 	DeleteTransitGatewayRoute(routeTableID, destinationCIDR string) error
 
-	// ReplaceTransitGatewayRoute replaces or upserts a route in a TGW route table.
+	// ReplaceTransitGatewayRoute replaces an existing route in a TGW route
+	// table (blackhole=true replaces it with a blackhole route).
 	ReplaceTransitGatewayRoute(
 		routeTableID, destinationCIDR, attachmentID string,
+		blackhole bool,
 	) (*TransitGatewayRoute, error)
 
 	// ---- Transit Gateway Route Table Associations ----

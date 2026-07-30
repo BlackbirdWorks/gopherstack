@@ -83,6 +83,7 @@ const (
 	stateCancelled          = "cancelled"
 	resourceTypeVPC         = "vpc"
 	resourceTypeSnapshot    = "snapshot"
+	resourceTypeENI         = "network-interface"
 	vpcDefaultName          = "vpc-default"
 	archX8664               = "x86_64"
 	resourceTypeFISInstance = "aws:ec2:instance"
@@ -912,15 +913,17 @@ func (b *InMemoryBackend) RunInstances(
 		eniID := newENIID()
 		attachID := "eni-attach-" + uuid.New().String()[:8]
 		b.networkInterfaces.Put(&NetworkInterface{
-			ID:              eniID,
-			SubnetID:        subnetID,
-			VPCID:           vpcID,
-			PrivateIP:       inst.PrivateIP,
-			InstanceID:      id,
-			AttachmentID:    attachID,
-			DeviceIndex:     0,
-			Status:          stateInUse,
-			SourceDestCheck: true,
+			ID:                  eniID,
+			SubnetID:            subnetID,
+			VPCID:               vpcID,
+			PrivateIP:           inst.PrivateIP,
+			InstanceID:          id,
+			AttachmentID:        attachID,
+			DeviceIndex:         0,
+			Status:              stateInUse,
+			OwnerID:             b.AccountID,
+			SourceDestCheck:     true,
+			DeleteOnTermination: true,
 		})
 		b.instances.Put(inst)
 		b.indexInstanceLocked(inst)

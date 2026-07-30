@@ -263,9 +263,17 @@ func TestTGWPeripherals_SearchTransitGatewayRoutes(t *testing.T) {
 	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
 	require.NoError(t, err)
 
-	_, err = bk.CreateTransitGatewayRoute(rt.RouteTableID, "10.0.0.0/24", "tgw-attach-1")
+	// CreateTransitGatewayRoute validates the attachment exists (see
+	// TestEC2Core_TransitGatewayRouteTables), so use real attachments rather
+	// than fabricated "tgw-attach-N" strings.
+	att1, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-search1", nil)
 	require.NoError(t, err)
-	_, err = bk.CreateTransitGatewayRoute(rt.RouteTableID, "10.0.1.0/24", "tgw-attach-2")
+	att2, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-search2", nil)
+	require.NoError(t, err)
+
+	_, err = bk.CreateTransitGatewayRoute(rt.RouteTableID, "10.0.0.0/24", att1.TransitGatewayAttachmentID, false)
+	require.NoError(t, err)
+	_, err = bk.CreateTransitGatewayRoute(rt.RouteTableID, "10.0.1.0/24", att2.TransitGatewayAttachmentID, false)
 	require.NoError(t, err)
 
 	_, err = bk.SearchTransitGatewayRoutes("tgw-rtb-nonexistent", nil)
@@ -283,7 +291,7 @@ func TestTGWPeripherals_SearchTransitGatewayRoutes(t *testing.T) {
 	assert.Equal(t, "10.0.0.0/24", exact[0].DestinationCidrBlock)
 
 	byAttachment, err := bk.SearchTransitGatewayRoutes(rt.RouteTableID, map[string][]string{
-		"attachment.transit-gateway-attachment-id": {"tgw-attach-2"},
+		"attachment.transit-gateway-attachment-id": {att2.TransitGatewayAttachmentID},
 	})
 	require.NoError(t, err)
 	require.Len(t, byAttachment, 1)

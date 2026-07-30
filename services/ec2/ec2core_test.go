@@ -165,18 +165,60 @@ func TestEC2Core_TransitGatewayRouteTables(t *testing.T) {
 	rts2 := bk.DescribeTransitGatewayRouteTables(nil)
 	assert.Len(t, rts2, 1)
 
-	// Create route.
-	route, err := bk.CreateTransitGatewayRoute(rt.RouteTableID, "10.0.0.0/8", "tgw-attach-1")
+	// Create route: attachmentID must be a real, existing attachment
+	// (CreateTransitGatewayRoute validates it and derives the real
+	// ResourceId/ResourceType rather than hardcoding "vpc", matching the same
+	// fix already applied to Associate/DisassociateTransitGatewayRouteTable).
+	routeAtt1, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-route1", nil)
+	require.NoError(t, err)
+
+	route, err := bk.CreateTransitGatewayRoute(
+		rt.RouteTableID, "10.0.0.0/8", routeAtt1.TransitGatewayAttachmentID, false,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "10.0.0.0/8", route.DestinationCidrBlock)
+	assert.Equal(t, "vpc", route.ResourceType)
+	assert.Equal(t, "vpc-route1", route.ResourceID)
 
-	// Replace route.
-	replaced, err := bk.ReplaceTransitGatewayRoute(rt.RouteTableID, "10.0.0.0/8", "tgw-attach-2")
+	// Replace route: real AWS only replaces a route that already exists, and
+	// likewise validates the attachment (both previously unchecked: Replace
+	// silently upserted any destination CIDR with any attachment ID).
+	routeAtt2, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-route2", nil)
 	require.NoError(t, err)
-	assert.Equal(t, "tgw-attach-2", replaced.TransitGatewayAttachmentID)
+
+	replaced, err := bk.ReplaceTransitGatewayRoute(
+		rt.RouteTableID, "10.0.0.0/8", routeAtt2.TransitGatewayAttachmentID, false,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, routeAtt2.TransitGatewayAttachmentID, replaced.TransitGatewayAttachmentID)
+	assert.Equal(t, "vpc", replaced.ResourceType)
+
+	// Replacing a nonexistent destination CIDR must fail, not silently create it.
+	_, replaceErr := bk.ReplaceTransitGatewayRoute(
+		rt.RouteTableID, "192.0.2.0/24", routeAtt2.TransitGatewayAttachmentID, false,
+	)
+	require.Error(t, replaceErr)
+	require.ErrorIs(t, replaceErr, ec2.ErrRouteNotFound)
+
+	// Blackhole route: no attachment.
+	blackholeRoute, err := bk.CreateTransitGatewayRoute(rt.RouteTableID, "172.16.0.0/16", "", true)
+	require.NoError(t, err)
+	assert.Equal(t, "blackhole", blackholeRoute.State)
+	assert.Empty(t, blackholeRoute.TransitGatewayAttachmentID)
+
+	// Unknown attachment must be rejected, not silently accepted.
+	_, badAttErr := bk.CreateTransitGatewayRoute(rt.RouteTableID, "203.0.113.0/24", "tgw-attach-nonexistent", false)
+	require.Error(t, badAttErr)
+	require.ErrorIs(t, badAttErr, ec2.ErrTGWAttachmentNotFound)
 
 	// Delete route.
 	require.NoError(t, bk.DeleteTransitGatewayRoute(rt.RouteTableID, "10.0.0.0/8"))
+
+	// Deleting an already-gone route must report InvalidRoute.NotFound (the
+	// same sentinel Replace's not-found case uses), not InvalidParameterValue.
+	deleteErr := bk.DeleteTransitGatewayRoute(rt.RouteTableID, "10.0.0.0/8")
+	require.Error(t, deleteErr)
+	require.ErrorIs(t, deleteErr, ec2.ErrRouteNotFound)
 
 	// Associate route table: attachmentID must be a real, existing attachment
 	// (AssociateTransitGatewayRouteTable validates it, deriving the real

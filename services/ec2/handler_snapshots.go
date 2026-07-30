@@ -5,24 +5,28 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
-	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type copySnapshotResponse struct {
-	XMLName    xml.Name `xml:"CopySnapshotResponse"`
-	RequestID  string   `xml:"requestId"`
-	SnapshotID string   `xml:"snapshotId"`
+	XMLName    xml.Name        `xml:"CopySnapshotResponse"`
+	RequestID  string          `xml:"requestId"`
+	SnapshotID string          `xml:"snapshotId"`
+	TagSet     []simpleTagItem `xml:"tagSet>item"`
 }
 
 type snapshotSetItem struct {
-	SnapshotID  string `xml:"snapshotId"`
-	VolumeID    string `xml:"volumeId"`
-	Description string `xml:"description"`
-	State       string `xml:"state"`
-	Progress    string `xml:"progress"`
-	StartTime   string `xml:"startTime"`
-	VolumeSize  int    `xml:"volumeSize"`
-	Encrypted   bool   `xml:"encrypted"`
+	SnapshotID  string          `xml:"snapshotId"`
+	VolumeID    string          `xml:"volumeId"`
+	Description string          `xml:"description"`
+	State       string          `xml:"state"`
+	Progress    string          `xml:"progress"`
+	StartTime   string          `xml:"startTime"`
+	OwnerID     string          `xml:"ownerId,omitempty"`
+	TagSet      []simpleTagItem `xml:"tagSet>item"`
+	VolumeSize  int             `xml:"volumeSize"`
+	Encrypted   bool            `xml:"encrypted"`
 }
 
 type createSnapshotsResponse struct {
@@ -81,7 +85,18 @@ func (h *Handler) handleCopySnapshot(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	return &copySnapshotResponse{RequestID: reqID, SnapshotID: snap.SnapshotID}, nil
+	tags := parseTagSpecification(vals, resourceTypeSnapshot)
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{snap.SnapshotID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
+	return &copySnapshotResponse{
+		RequestID:  reqID,
+		SnapshotID: snap.SnapshotID,
+		TagSet:     tagItemsFromMap(tags),
+	}, nil
 }
 
 func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, error) {
@@ -104,8 +119,16 @@ func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, err
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, resourceTypeSnapshot)
+
 	resp := &createSnapshotsResponse{RequestID: reqID}
 	for _, snap := range snaps {
+		if len(tags) > 0 {
+			if err = h.Backend.CreateTags([]string{snap.SnapshotID}, tags); err != nil {
+				return nil, err
+			}
+		}
+
 		resp.SnapshotSet.Items = append(resp.SnapshotSet.Items, snapshotSetItem{
 			SnapshotID:  snap.SnapshotID,
 			VolumeID:    snap.VolumeID,
@@ -113,6 +136,8 @@ func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, err
 			State:       snap.State,
 			Progress:    snap.Progress,
 			StartTime:   snap.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			OwnerID:     snap.OwnerID,
+			TagSet:      tagItemsFromMap(tags),
 			VolumeSize:  snap.VolumeSize,
 			Encrypted:   snap.Encrypted,
 		})
@@ -441,6 +466,13 @@ func (h *Handler) handleCreateSnapshot(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, resourceTypeSnapshot)
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{snap.SnapshotID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createSnapshotResponse{
 		Xmlns:       ec2XMLNS,
 		RequestID:   reqID,
@@ -451,6 +483,10 @@ func (h *Handler) handleCreateSnapshot(vals url.Values, reqID string) (any, erro
 		Description: snap.Description,
 		VolumeSize:  snap.VolumeSize,
 		StartTime:   snap.StartTime.Format("2006-01-02T15:04:05.000Z"),
+		KmsKeyID:    snap.KmsKeyID,
+		OwnerID:     snap.OwnerID,
+		TagSet:      tagItemsFromMap(tags),
+		Encrypted:   snap.Encrypted,
 	}, nil
 }
 
@@ -470,7 +506,11 @@ func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, e
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		_, _ = fmt.Sscan(tok, &offset)
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return nil, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
+		}
+		offset = n
 	}
 
 	var nextToken string
@@ -480,7 +520,7 @@ func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, e
 		}
 		snaps = snaps[offset:]
 		if len(snaps) > maxResults {
-			nextToken = strconv.Itoa(offset + maxResults)
+			nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
 			snaps = snaps[:maxResults]
 		}
 	}
@@ -495,6 +535,10 @@ func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, e
 			Description: s.Description,
 			VolumeSize:  s.VolumeSize,
 			StartTime:   s.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			KmsKeyID:    s.KmsKeyID,
+			OwnerID:     s.OwnerID,
+			TagSet:      tagItemsFromMap(h.Backend.TagsForResource(s.SnapshotID)),
+			Encrypted:   s.Encrypted,
 		})
 	}
 
@@ -513,26 +557,34 @@ func (h *Handler) handleDeleteSnapshot(vals url.Values, _ string) (any, error) {
 // ---- AMI lifecycle handlers ----
 
 type createSnapshotResponse struct {
-	XMLName     xml.Name `xml:"CreateSnapshotResponse"`
-	Xmlns       string   `xml:"xmlns,attr"`
-	RequestID   string   `xml:"requestId"`
-	SnapshotID  string   `xml:"snapshotId"`
-	VolumeID    string   `xml:"volumeId"`
-	State       string   `xml:"status"`
-	Progress    string   `xml:"progress"`
-	Description string   `xml:"description,omitempty"`
-	StartTime   string   `xml:"startTime"`
-	VolumeSize  int      `xml:"volumeSize"`
+	XMLName     xml.Name        `xml:"CreateSnapshotResponse"`
+	Xmlns       string          `xml:"xmlns,attr"`
+	RequestID   string          `xml:"requestId"`
+	SnapshotID  string          `xml:"snapshotId"`
+	VolumeID    string          `xml:"volumeId"`
+	State       string          `xml:"status"`
+	Progress    string          `xml:"progress"`
+	Description string          `xml:"description,omitempty"`
+	StartTime   string          `xml:"startTime"`
+	KmsKeyID    string          `xml:"kmsKeyId,omitempty"`
+	OwnerID     string          `xml:"ownerId,omitempty"`
+	TagSet      []simpleTagItem `xml:"tagSet>item"`
+	VolumeSize  int             `xml:"volumeSize"`
+	Encrypted   bool            `xml:"encrypted"`
 }
 
 type snapshotItem struct {
-	SnapshotID  string `xml:"snapshotId"`
-	VolumeID    string `xml:"volumeId"`
-	State       string `xml:"status"`
-	Progress    string `xml:"progress"`
-	Description string `xml:"description,omitempty"`
-	StartTime   string `xml:"startTime"`
-	VolumeSize  int    `xml:"volumeSize"`
+	SnapshotID  string          `xml:"snapshotId"`
+	VolumeID    string          `xml:"volumeId"`
+	State       string          `xml:"status"`
+	Progress    string          `xml:"progress"`
+	Description string          `xml:"description,omitempty"`
+	StartTime   string          `xml:"startTime"`
+	KmsKeyID    string          `xml:"kmsKeyId,omitempty"`
+	OwnerID     string          `xml:"ownerId,omitempty"`
+	TagSet      []simpleTagItem `xml:"tagSet>item"`
+	VolumeSize  int             `xml:"volumeSize"`
+	Encrypted   bool            `xml:"encrypted"`
 }
 
 type snapshotSet struct {

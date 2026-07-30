@@ -181,6 +181,7 @@ type deleteTransitGatewayRouteTableResponse struct {
 
 type tgwRouteAttachmentItem struct {
 	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId"`
+	ResourceID                 string `xml:"resourceId,omitempty"`
 	ResourceType               string `xml:"resourceType"`
 }
 
@@ -500,9 +501,19 @@ func tgwRouteToItem(r *TransitGatewayRoute) tgwRouteItem {
 		Type:                 r.Type,
 	}
 
+	// A blackhole route has no attachment; every other route's ResourceType
+	// must reflect the attachment's real kind (vpc/peering/connect/client-vpn),
+	// not be hardcoded - previously this always reported "vpc" regardless of
+	// the attachment's real type, and never reported ResourceId at all,
+	// matching the same bug class already fixed for
+	// Associate/DisassociateTransitGatewayRouteTable.
 	if r.TransitGatewayAttachmentID != "" {
 		item.TransitGatewayAttachments = []tgwRouteAttachmentItem{
-			{TransitGatewayAttachmentID: r.TransitGatewayAttachmentID, ResourceType: resourceTypeVPC},
+			{
+				TransitGatewayAttachmentID: r.TransitGatewayAttachmentID,
+				ResourceID:                 r.ResourceID,
+				ResourceType:               r.ResourceType,
+			},
 		}
 	}
 
@@ -513,8 +524,9 @@ func (h *Handler) handleCreateTransitGatewayRoute(vals url.Values, reqID string)
 	rtID := vals.Get("TransitGatewayRouteTableId")
 	cidr := vals.Get("DestinationCidrBlock")
 	attachID := vals.Get("TransitGatewayAttachmentId")
+	blackhole := vals.Get("Blackhole") == ec2BooleanTrue
 
-	route, err := h.Backend.CreateTransitGatewayRoute(rtID, cidr, attachID)
+	route, err := h.Backend.CreateTransitGatewayRoute(rtID, cidr, attachID, blackhole)
 	if err != nil {
 		return nil, err
 	}
@@ -551,8 +563,9 @@ func (h *Handler) handleReplaceTransitGatewayRoute(vals url.Values, reqID string
 	rtID := vals.Get("TransitGatewayRouteTableId")
 	cidr := vals.Get("DestinationCidrBlock")
 	attachID := vals.Get("TransitGatewayAttachmentId")
+	blackhole := vals.Get("Blackhole") == ec2BooleanTrue
 
-	route, err := h.Backend.ReplaceTransitGatewayRoute(rtID, cidr, attachID)
+	route, err := h.Backend.ReplaceTransitGatewayRoute(rtID, cidr, attachID, blackhole)
 	if err != nil {
 		return nil, err
 	}

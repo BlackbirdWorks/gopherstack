@@ -14,7 +14,7 @@ func TestCreateVolume_Encrypted(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vol, err := b.CreateVolume("us-east-1a", "gp3", 100)
+	vol, err := b.CreateVolume("us-east-1a", "gp3", 100, "")
 	require.NoError(t, err)
 
 	err = b.SetVolumeEncryption(vol.ID, true, "arn:aws:kms:us-east-1:123456789012:key/my-key")
@@ -31,7 +31,7 @@ func TestCreateSnapshot_InheritsEncryption(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vol, err := b.CreateVolume("us-east-1a", "gp3", 100)
+	vol, err := b.CreateVolume("us-east-1a", "gp3", 100, "")
 	require.NoError(t, err)
 
 	err = b.SetVolumeEncryption(vol.ID, true, "alias/aws/ebs")
@@ -48,7 +48,7 @@ func TestSetVolumeEncryption_DefaultKMSKey(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, err)
 
 	// Encrypted=true with no explicit key → default AWS-managed key.
@@ -68,7 +68,7 @@ func TestSetVolumePerformance(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	vol, err := b.CreateVolume("us-east-1a", "gp3", 20)
+	vol, err := b.CreateVolume("us-east-1a", "gp3", 20, "")
 	require.NoError(t, err)
 
 	err = b.SetVolumePerformance(vol.ID, 5000, 300)
@@ -194,6 +194,86 @@ func TestDescribeVolumes_IOPS_Throughput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, descResp, "<iops>4000</iops>", "DescribeVolumes should return iops")
 	assert.Contains(t, descResp, "<throughput>200</throughput>", "DescribeVolumes should return throughput")
+}
+
+// TestHTTP_CreateVolume_FromSnapshot covers the real AWS CreateVolumeInput.SnapshotId
+// wire parameter end to end: previously handleCreateVolume never read SnapshotId at
+// all, so "restore a volume from a snapshot" silently created an empty, disconnected
+// volume with no error and no size inheritance.
+func TestHTTP_CreateVolume_FromSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		snapshotIDFn   func(snapshotID string) string
+		wantErrContain string
+		wantSnapshotID bool
+		wantErr        bool
+	}{
+		{
+			name:           "restores_from_snapshot_id",
+			snapshotIDFn:   func(id string) string { return id },
+			wantSnapshotID: true,
+		},
+		{
+			name:           "unknown_snapshot_rejected",
+			snapshotIDFn:   func(string) string { return "snap-doesnotexist" },
+			wantErr:        true,
+			wantErrContain: "InvalidSnapshotID.NotFound",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			snapVals, err := url.ParseQuery(
+				"Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=20&VolumeType=gp2",
+			)
+			require.NoError(t, err)
+
+			volResp, err := dispatchHandler(h, snapVals)
+			require.NoError(t, err)
+			srcVolID := accuracyExtractXMLValue(volResp, "volumeId")
+			require.NotEmpty(t, srcVolID)
+
+			snapResp, err := dispatchHandler(h, url.Values{
+				"Action":   []string{"CreateSnapshot"},
+				"Version":  []string{"2016-11-15"},
+				"VolumeId": []string{srcVolID},
+			})
+			require.NoError(t, err)
+			snapID := accuracyExtractXMLValue(snapResp, "snapshotId")
+			require.NotEmpty(t, snapID)
+
+			restoreResp, err := dispatchHandler(h, url.Values{
+				"Action":     []string{"CreateVolume"},
+				"Version":    []string{"2016-11-15"},
+				"SnapshotId": []string{tt.snapshotIDFn(snapID)},
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantErrContain != "" {
+					assert.Contains(t, err.Error(), tt.wantErrContain)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			if tt.wantSnapshotID {
+				assert.Contains(t, restoreResp, "<snapshotId>"+snapID+"</snapshotId>",
+					"CreateVolume response should echo the source snapshotId")
+				// Size must default to the source volume's size (20 GiB), matching
+				// the snapshot's VolumeSize, not the mock's unrelated 8 GiB fallback.
+				assert.Contains(t, restoreResp, "<size>20</size>")
+			}
+		})
+	}
 }
 
 // TestCreateVolume_GP3Coupling covers the AWS gp3 iops/throughput coupling
@@ -340,6 +420,21 @@ func TestVolumeOperations(t *testing.T) {
 			op:      "detach_not_attached",
 			wantErr: true,
 		},
+		{
+			name:    "create_from_snapshot",
+			op:      "create_from_snapshot",
+			wantErr: false,
+		},
+		{
+			name:    "create_from_snapshot_undersized",
+			op:      "create_from_snapshot_undersized",
+			wantErr: true,
+		},
+		{
+			name:    "create_from_snapshot_not_found",
+			op:      "create_from_snapshot_not_found",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -350,7 +445,7 @@ func TestVolumeOperations(t *testing.T) {
 
 			switch tt.op {
 			case "create":
-				vol, err := b.CreateVolume(tt.az, tt.volType, tt.size)
+				vol, err := b.CreateVolume(tt.az, tt.volType, tt.size, "")
 				require.NoError(t, err)
 				assert.NotEmpty(t, vol.ID)
 				assert.Equal(t, "available", vol.State)
@@ -365,13 +460,13 @@ func TestVolumeOperations(t *testing.T) {
 				}
 
 			case "describe_all":
-				_, err := b.CreateVolume("", "", 0)
+				_, err := b.CreateVolume("", "", 0, "")
 				require.NoError(t, err)
 				vols := b.DescribeVolumes(nil)
 				assert.NotEmpty(t, vols)
 
 			case "delete":
-				vol, err := b.CreateVolume("", "", 0)
+				vol, err := b.CreateVolume("", "", 0, "")
 				require.NoError(t, err)
 				err = b.DeleteVolume(vol.ID)
 				require.NoError(t, err)
@@ -383,7 +478,7 @@ func TestVolumeOperations(t *testing.T) {
 				require.Error(t, err)
 
 			case "attach_detach":
-				vol, err := b.CreateVolume("", "", 0)
+				vol, err := b.CreateVolume("", "", 0, "")
 				require.NoError(t, err)
 				instances, err := b.RunInstances("ami-123", "t2.micro", "", 1)
 				require.NoError(t, err)
@@ -398,7 +493,7 @@ func TestVolumeOperations(t *testing.T) {
 				assert.Equal(t, "detached", detatt.State)
 
 			case "delete_attached":
-				vol, err := b.CreateVolume("", "", 0)
+				vol, err := b.CreateVolume("", "", 0, "")
 				require.NoError(t, err)
 				instances, err := b.RunInstances("ami-123", "t2.micro", "", 1)
 				require.NoError(t, err)
@@ -414,16 +509,51 @@ func TestVolumeOperations(t *testing.T) {
 				require.Error(t, err)
 
 			case "attach_nonexistent_inst":
-				vol, err := b.CreateVolume("", "", 0)
+				vol, err := b.CreateVolume("", "", 0, "")
 				require.NoError(t, err)
 				_, err = b.AttachVolume(vol.ID, "i-nonexistent", "/dev/sdf")
 				require.Error(t, err)
 
 			case "detach_not_attached":
-				vol, err := b.CreateVolume("", "", 0)
+				vol, err := b.CreateVolume("", "", 0, "")
 				require.NoError(t, err)
 				_, err = b.DetachVolume(vol.ID, false)
 				require.Error(t, err)
+
+			case "create_from_snapshot":
+				src, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
+				require.NoError(t, err)
+				require.NoError(t, b.SetVolumeEncryption(src.ID, true, "alias/aws/ebs"))
+				snap, err := b.CreateSnapshot(src.ID, "src for restore")
+				require.NoError(t, err)
+
+				// Size omitted (0): must default to the snapshot's VolumeSize.
+				restored, err := b.CreateVolume("us-east-1a", "gp2", 0, snap.SnapshotID)
+				require.NoError(t, err)
+				assert.Equal(t, snap.SnapshotID, restored.SnapshotID)
+				assert.Equal(t, snap.VolumeSize, restored.Size)
+				assert.True(t, restored.Encrypted, "volume restored from an encrypted snapshot must be encrypted")
+				assert.Equal(t, "alias/aws/ebs", restored.KmsKeyID)
+
+				// Larger explicit size is allowed and must be honored, not clamped.
+				bigger, err := b.CreateVolume("us-east-1a", "gp2", snap.VolumeSize+50, snap.SnapshotID)
+				require.NoError(t, err)
+				assert.Equal(t, snap.VolumeSize+50, bigger.Size)
+
+			case "create_from_snapshot_undersized":
+				src, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
+				require.NoError(t, err)
+				snap, err := b.CreateSnapshot(src.ID, "src for restore")
+				require.NoError(t, err)
+
+				_, err = b.CreateVolume("us-east-1a", "gp2", snap.VolumeSize-1, snap.SnapshotID)
+				require.Error(t, err)
+				require.ErrorIs(t, err, ec2.ErrInvalidParameter)
+
+			case "create_from_snapshot_not_found":
+				_, err := b.CreateVolume("us-east-1a", "gp2", 20, "snap-doesnotexist")
+				require.Error(t, err)
+				require.ErrorIs(t, err, ec2.ErrSnapshotNotFound)
 			}
 		})
 	}

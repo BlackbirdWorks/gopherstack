@@ -58,6 +58,10 @@ type TransitGatewayRouteTableAnnouncement struct {
 	PeeringAttachmentID                    string    `json:"peeringAttachmentID,omitempty"`
 	AnnouncementDirection                  string    `json:"announcementDirection,omitempty"`
 	State                                  string    `json:"state,omitempty"`
+	// PeerTransitGatewayID is the transit gateway on the other side of the
+	// peering attachment (real AWS PeerTransitGatewayId), derived from the
+	// peering attachment's Requester/Accepter transit gateway IDs.
+	PeerTransitGatewayID string `json:"peerTransitGatewayID,omitempty"`
 }
 
 // TransitGatewayRouteTablePropagation represents an attachment enabled (via
@@ -303,8 +307,16 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTableAnnouncement(
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
-	if _, attExists := b.tgwPeeringAttachments.Get(peeringAttachmentID); !attExists {
+	peeringAtt, attExists := b.tgwPeeringAttachments.Get(peeringAttachmentID)
+	if !attExists {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, peeringAttachmentID)
+	}
+
+	// The peer TGW is whichever side of the peering attachment is not this
+	// route table's own transit gateway.
+	peerTGWID := peeringAtt.AccepterTransitGatewayID
+	if rt.TransitGatewayID == peeringAtt.AccepterTransitGatewayID {
+		peerTGWID = peeringAtt.RequesterTransitGatewayID
 	}
 
 	ann := &TransitGatewayRouteTableAnnouncement{
@@ -315,6 +327,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTableAnnouncement(
 		AnnouncementDirection:                  "outgoing",
 		State:                                  stateAvailable,
 		CreationTime:                           time.Now().UTC(),
+		PeerTransitGatewayID:                   peerTGWID,
 	}
 	b.tgwRouteTableAnnouncements.Put(ann)
 

@@ -350,7 +350,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorTarget(
 func trafficMirrorTargetType(networkInterfaceID, networkLoadBalancerArn, gatewayLoadBalancerEndpointID string) string {
 	switch {
 	case networkInterfaceID != "":
-		return "network-interface"
+		return resourceTypeENI
 	case networkLoadBalancerArn != "":
 		return "network-load-balancer"
 	case gatewayLoadBalancerEndpointID != "":

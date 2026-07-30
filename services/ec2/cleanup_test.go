@@ -70,7 +70,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
 				t.Helper()
 
-				vol, err := b.CreateVolume("us-east-1a", "gp2", 10)
+				vol, err := b.CreateVolume("us-east-1a", "gp2", 10, "")
 				require.NoError(t, err)
 
 				return vol.ID
@@ -425,9 +425,18 @@ func TestTerminateInstances_ClosesAssociatedSpotRequest(t *testing.T) {
 	)
 }
 
-// TestTerminateInstances_DeletesAttachedENIs verifies that terminating an
-// instance removes all ENIs attached to it, preventing ENI accumulation.
-func TestTerminateInstances_DeletesAttachedENIs(t *testing.T) {
+// TestTerminateInstances_DetachesNonLaunchENIs verifies that terminating an
+// instance only DELETES the primary ENI that AWS auto-created at launch
+// (DeleteOnTermination=true); an ENI created separately via
+// CreateNetworkInterface and attached later has DeleteOnTermination=false by
+// default in real AWS, so it survives termination, merely reverting to
+// "available". A prior version of this test asserted the opposite (every
+// attached ENI deleted, "preventing ENI accumulation") — that encoded a real
+// bug as expected behaviour: real AWS deliberately leaves detached ENIs
+// behind in this scenario (a well-known operational gotcha), it does not
+// delete them. See aws-sdk-go-v2 types.NetworkInterfaceAttachment.DeleteOnTermination
+// and types.NetworkInterfaceAttachmentChanges (ModifyNetworkInterfaceAttribute).
+func TestTerminateInstances_DetachesNonLaunchENIs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -460,29 +469,71 @@ func TestTerminateInstances_DeletesAttachedENIs(t *testing.T) {
 				eniIDs[i] = eni.ID
 			}
 
-			// Tag one ENI to verify the tag is also removed.
+			// Tag one ENI to verify the tag survives (the ENI is not deleted).
 			err = b.CreateTags([]string{eniIDs[0]}, map[string]string{"Purpose": "test"})
 			require.NoError(t, err)
 
 			_, err = b.TerminateInstances([]string{instanceID})
 			require.NoError(t, err)
 
-			// All attached ENIs must be gone.
+			// Every separately-created ENI must survive, detached and available -
+			// not deleted.
 			for _, eniID := range eniIDs {
 				enis := b.DescribeNetworkInterfaces([]string{eniID})
-				assert.Empty(t, enis, "ENI %s should be deleted after instance termination", eniID)
+				require.Len(t, enis, 1, "ENI %s must survive instance termination (DeleteOnTermination=false)", eniID)
+				assert.Equal(t, "available", enis[0].Status)
+				assert.Empty(t, enis[0].InstanceID)
+				assert.Empty(t, enis[0].AttachmentID)
 			}
 
-			// Tags for the first ENI must also be removed.
+			// Tags for the first ENI must survive too, since the ENI itself does.
 			entries := b.DescribeTags([]string{eniIDs[0]})
-			assert.Empty(t, entries, "ENI tags should be removed when instance is terminated")
+			assert.NotEmpty(t, entries, "ENI tags must survive since the ENI itself is not deleted")
 		})
 	}
 }
 
-// TestTerminateInstances_OnlyDeletesAttachedENIs verifies that ENIs belonging to
+// TestTerminateInstances_DeletesLaunchENI verifies that terminating an
+// instance DOES delete the primary ENI that AWS auto-created at launch time
+// (DeviceIndex 0, DeleteOnTermination=true) — unlike a separately-created and
+// later-attached ENI (see TestTerminateInstances_DetachesNonLaunchENIs), which
+// only detaches.
+func TestTerminateInstances_DeletesLaunchENI(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	insts, err := b.RunInstances("ami-test", "t2.micro", "", 1)
+	require.NoError(t, err)
+
+	instanceID := insts[0].ID
+
+	before := b.DescribeNetworkInterfaces(nil)
+	launchENIIDs := make([]string, 0, len(before))
+
+	for _, eni := range before {
+		if eni.InstanceID == instanceID {
+			launchENIIDs = append(launchENIIDs, eni.ID)
+		}
+	}
+	require.NotEmpty(t, launchENIIDs, "RunInstances must create a primary ENI")
+
+	_, err = b.TerminateInstances([]string{instanceID})
+	require.NoError(t, err)
+
+	for _, eniID := range launchENIIDs {
+		assert.Empty(
+			t,
+			b.DescribeNetworkInterfaces([]string{eniID}),
+			"launch-time ENI %s must be deleted (DeleteOnTermination=true)",
+			eniID,
+		)
+	}
+}
+
+// TestTerminateInstances_OnlyAffectsOwnENIs verifies that ENIs belonging to
 // other instances are not affected when a specific instance is terminated.
-func TestTerminateInstances_OnlyDeletesAttachedENIs(t *testing.T) {
+func TestTerminateInstances_OnlyAffectsOwnENIs(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
@@ -509,10 +560,12 @@ func TestTerminateInstances_OnlyDeletesAttachedENIs(t *testing.T) {
 	_, err = b.TerminateInstances([]string{instanceA})
 	require.NoError(t, err)
 
-	// ENI for A must be gone.
-	assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniA.ID}))
+	// ENI for A must survive, now detached (DeleteOnTermination=false).
+	enisA := b.DescribeNetworkInterfaces([]string{eniA.ID})
+	require.Len(t, enisA, 1)
+	assert.Equal(t, "available", enisA[0].Status)
 
-	// ENI for B must remain.
+	// ENI for B must remain attached and untouched.
 	enisB := b.DescribeNetworkInterfaces([]string{eniB.ID})
 	require.Len(t, enisB, 1)
 	assert.Equal(t, "in-use", enisB[0].Status)
@@ -881,7 +934,7 @@ func TestTerminateInstances_DetachesVolumesAndEIPs(t *testing.T) {
 	instanceID := insts[0].ID
 
 	// Attach a volume to the instance.
-	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, err)
 
 	_, err = b.AttachVolume(vol.ID, instanceID, "/dev/sdf")
@@ -1068,7 +1121,7 @@ func TestDeleteVpc_AfterTeardownDetachesVolumesAndEIPs(t *testing.T) {
 
 	instanceID := insts[0].ID
 
-	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, err)
 
 	_, err = b.AttachVolume(vol.ID, instanceID, "/dev/sdf")

@@ -13,7 +13,7 @@ import (
 func TestCopySnapshot(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vol, _ := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, _ := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	src, setupErr := b.CreateSnapshot(vol.ID, "original")
 	require.NoError(t, setupErr)
 
@@ -35,8 +35,8 @@ func TestCopySnapshot(t *testing.T) { //nolint:paralleltest // existing issue.
 func TestCreateSnapshots(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	v1, _ := b.CreateVolume("us-east-1a", "gp2", 10)
-	v2, _ := b.CreateVolume("us-east-1a", "gp2", 20)
+	v1, _ := b.CreateVolume("us-east-1a", "gp2", 10, "")
+	v2, _ := b.CreateVolume("us-east-1a", "gp2", 20, "")
 
 	t.Run("creates one snapshot per volume", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		snaps, err := b.CreateSnapshots([]string{v1.ID, v2.ID}, "batch snap")
@@ -81,7 +81,7 @@ func TestSnapshotBlockPublicAccess(t *testing.T) { //nolint:paralleltest // exis
 func TestSnapshotTier(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vol, _ := b.CreateVolume("us-east-1a", "gp2", 20)
+	vol, _ := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	snap, _ := b.CreateSnapshot(vol.ID, "tier test")
 
 	t.Run("default tier is standard", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -115,7 +115,7 @@ func TestHTTP_CopySnapshot(t *testing.T) { //nolint:paralleltest // existing iss
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	h := ec2.NewHandler(b)
 
-	vol, _ := b.CreateVolume("us-east-1a", "gp2", 10)
+	vol, _ := b.CreateVolume("us-east-1a", "gp2", 10, "")
 	snap, _ := b.CreateSnapshot(vol.ID, "src")
 
 	_, err := ec2.ExportDispatch(h, url.Values{
@@ -139,7 +139,7 @@ func TestHTTP_GetSnapshotBlockPublicAccessState(t *testing.T) { //nolint:paralle
 func TestSnapshotLocking(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
-	vol, _ := b.CreateVolume("us-east-1a", "gp2", 10)
+	vol, _ := b.CreateVolume("us-east-1a", "gp2", 10, "")
 	snap, _ := b.CreateSnapshot(vol.ID, "lockable")
 
 	t.Run("lock snapshot", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -201,7 +201,7 @@ func TestSnapshotRecycleBin(t *testing.T) { //nolint:paralleltest // existing is
 func TestRestoreSnapshotTier(t *testing.T) { //nolint:paralleltest // existing issue.
 	t.Run("restore from archive to standard", func(t *testing.T) {
 		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-		vol, _ := b.CreateVolume("us-east-1a", "gp2", 10)
+		vol, _ := b.CreateVolume("us-east-1a", "gp2", 10, "")
 		snap, _ := b.CreateSnapshot(vol.ID, "tier test")
 		_ = b.ModifySnapshotTier(snap.SnapshotID, "archive")
 
@@ -288,7 +288,7 @@ func TestLockSnapshot_LockStateMatchesMode(t *testing.T) {
 			t.Parallel()
 
 			b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-			vol, err := b.CreateVolume("us-east-1a", "gp2", 10)
+			vol, err := b.CreateVolume("us-east-1a", "gp2", 10, "")
 			require.NoError(t, err)
 			snap, err := b.CreateSnapshot(vol.ID, "audit-lock")
 			require.NoError(t, err)
@@ -321,7 +321,7 @@ func TestHandlerDeleteSnapshot(t *testing.T) {
 	h.Region = "us-east-1"
 
 	// Create a volume and snapshot.
-	vol, err := b.CreateVolume("us-east-1a", "gp2", 10)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 10, "")
 	require.NoError(t, err)
 
 	snap, err := b.CreateSnapshot(vol.ID, "test snap")
@@ -333,6 +333,100 @@ func TestHandlerDeleteSnapshot(t *testing.T) {
 	// Not found.
 	rec = postForm(t, h, "Action=DeleteSnapshot&Version=2016-11-15&SnapshotId=snap-notfound")
 	assert.NotEqual(t, http.StatusOK, rec.Code)
+}
+
+// TestSnapshotWireFields_EncryptedOwnerIDTags verifies that CreateSnapshot,
+// CreateSnapshots, CopySnapshot, and DescribeSnapshots all surface Encrypted,
+// KmsKeyId, OwnerId, and TagSet on the wire. Previously these response items
+// only ever rendered SnapshotId/VolumeId/State/Progress/Description/StartTime/
+// VolumeSize - Encrypted/KmsKeyId were tracked in the backend but never
+// rendered, OwnerId (trivially b.AccountID) was never set at all, and
+// TagSpecifications on the three create ops were never parsed (create-time
+// tagging silently discarded, and even tags added afterward via CreateTags
+// never appeared back on Describe).
+func TestSnapshotWireFields_EncryptedOwnerIDTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+	}{
+		{name: "CreateSnapshot", action: "CreateSnapshot"},
+		{name: "CreateSnapshots", action: "CreateSnapshots"},
+		{name: "CopySnapshot", action: "CopySnapshot"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+			h := ec2.NewHandler(b)
+
+			vol, err := b.CreateVolume("us-east-1a", "gp2", 10, "")
+			require.NoError(t, err)
+			require.NoError(t, b.SetVolumeEncryption(vol.ID, true, "alias/aws/ebs"))
+
+			vals := url.Values{
+				"Version":                         []string{"2016-11-15"},
+				"TagSpecification.1.ResourceType": []string{"snapshot"},
+				"TagSpecification.1.Tag.1.Key":    []string{"Purpose"},
+				"TagSpecification.1.Tag.1.Value":  []string{"lineage-test"},
+			}
+
+			var snapID string
+
+			switch tt.action {
+			case "CreateSnapshot":
+				vals["Action"] = []string{"CreateSnapshot"}
+				vals["VolumeId"] = []string{vol.ID}
+				resp, dispErr := ec2.ExportDispatch(h, vals)
+				require.NoError(t, dispErr)
+				assert.Contains(t, resp, "<encrypted>true</encrypted>")
+				assert.Contains(t, resp, "<kmsKeyId>alias/aws/ebs</kmsKeyId>")
+				assert.Contains(t, resp, "<ownerId>123456789012</ownerId>")
+				assert.Contains(t, resp, "<key>Purpose</key>")
+				assert.Contains(t, resp, "<value>lineage-test</value>")
+				snapID = accuracyExtractXMLValue(resp, "snapshotId")
+
+			case "CreateSnapshots":
+				vals["Action"] = []string{"CreateSnapshots"}
+				vals["VolumeId.1"] = []string{vol.ID}
+				resp, dispErr := ec2.ExportDispatch(h, vals)
+				require.NoError(t, dispErr)
+				assert.Contains(t, resp, "<encrypted>true</encrypted>")
+				assert.Contains(t, resp, "<ownerId>123456789012</ownerId>")
+				assert.Contains(t, resp, "<key>Purpose</key>")
+				snapID = accuracyExtractXMLValue(resp, "snapshotId")
+
+			case "CopySnapshot":
+				src, srcErr := b.CreateSnapshot(vol.ID, "src")
+				require.NoError(t, srcErr)
+				vals["Action"] = []string{"CopySnapshot"}
+				vals["SourceSnapshotId"] = []string{src.SnapshotID}
+				resp, dispErr := ec2.ExportDispatch(h, vals)
+				require.NoError(t, dispErr)
+				assert.Contains(t, resp, "<key>Purpose</key>")
+				assert.Contains(t, resp, "<value>lineage-test</value>")
+				snapID = accuracyExtractXMLValue(resp, "snapshotId")
+			}
+
+			require.NotEmpty(t, snapID)
+
+			// DescribeSnapshots must independently reflect the same
+			// Encrypted/OwnerId/TagSet, proving they are stored, not just
+			// echoed back on the create response.
+			descResp, err := ec2.ExportDispatch(h, url.Values{
+				"Action":       []string{"DescribeSnapshots"},
+				"Version":      []string{"2016-11-15"},
+				"SnapshotId.1": []string{snapID},
+			})
+			require.NoError(t, err)
+			assert.Contains(t, descResp, "<ownerId>123456789012</ownerId>")
+			assert.Contains(t, descResp, "<key>Purpose</key>")
+			assert.Contains(t, descResp, "<value>lineage-test</value>")
+		})
+	}
 }
 
 // TestHandlerDeregisterImage covers handleDeregisterImage.

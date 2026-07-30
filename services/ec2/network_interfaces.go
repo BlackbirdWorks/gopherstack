@@ -32,10 +32,18 @@ type NetworkInterface struct {
 	InstanceID            string   `json:"instanceID,omitempty"`
 	AttachmentID          string   `json:"attachmentID,omitempty"`
 	Status                string   `json:"status,omitempty"`
+	OwnerID               string   `json:"ownerID,omitempty"`
 	PublicDNSHostnameType string   `json:"publicDnsHostnameType,omitempty"`
 	SecondaryPrivateIPs   []string `json:"secondaryPrivateIPs,omitempty"`
 	DeviceIndex           int      `json:"deviceIndex,omitempty"`
 	SourceDestCheck       bool     `json:"sourceDestCheck,omitempty"`
+	// DeleteOnTermination mirrors real AWS's per-attachment default: true for
+	// the primary interface auto-created at instance launch, false for any
+	// interface created separately (CreateNetworkInterface) and later attached
+	// via AttachNetworkInterface. A real AttachNetworkInterface call never sets
+	// this to true - only the launch path and ModifyNetworkInterfaceAttribute's
+	// Attachment.DeleteOnTermination can.
+	DeleteOnTermination bool `json:"deleteOnTermination,omitempty"`
 }
 
 // DescribeNetworkInterfaces returns network interfaces, optionally filtered by IDs.
@@ -97,6 +105,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 		PrivateIP:       b.allocPrivateIP(),
 		Description:     description,
 		Status:          stateAvailable,
+		OwnerID:         b.AccountID,
 		SourceDestCheck: true,
 	}
 	b.networkInterfaces.Put(eni)
@@ -189,6 +198,34 @@ func (b *InMemoryBackend) DetachNetworkInterface(attachmentID string, _ bool) er
 	eni.AttachmentID = ""
 	eni.DeviceIndex = 0
 	eni.Status = stateAvailable
+	eni.DeleteOnTermination = false
+
+	return nil
+}
+
+// SetNetworkInterfaceDeleteOnTermination updates the DeleteOnTermination flag
+// for the attachment identified by attachmentID, matching real AWS's
+// ModifyNetworkInterfaceAttribute Attachment.DeleteOnTermination parameter.
+func (b *InMemoryBackend) SetNetworkInterfaceDeleteOnTermination(
+	attachmentID string,
+	del bool,
+) error {
+	b.mu.Lock("SetNetworkInterfaceDeleteOnTermination")
+	defer b.mu.Unlock()
+
+	eniID, ok := b.eniIDByAttachment[attachmentID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrAttachmentNotFound, attachmentID)
+	}
+
+	eni, ok := b.networkInterfaces.Get(eniID)
+	if !ok {
+		delete(b.eniIDByAttachment, attachmentID)
+
+		return fmt.Errorf("%w: %s", ErrAttachmentNotFound, attachmentID)
+	}
+
+	eni.DeleteOnTermination = del
 
 	return nil
 }

@@ -42,8 +42,9 @@ var (
 // ---- constants ----
 
 const (
-	tgwRouteTypeStatic   = "static"
-	tgwRouteStateDeleted = "deleted"
+	tgwRouteTypeStatic     = "static"
+	tgwRouteStateDeleted   = "deleted"
+	tgwRouteStateBlackhole = "blackhole"
 )
 
 // ---- models ----
@@ -82,6 +83,12 @@ type TransitGatewayRoute struct {
 	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableID,omitempty"`
 	State                      string `json:"state,omitempty"`
 	Type                       string `json:"type,omitempty"`
+	// ResourceID/ResourceType describe the attachment's real underlying
+	// resource (e.g. a VPC ID / "vpc", a peer transit gateway ID / "peering"),
+	// derived via tgwAttachmentResourceLocked at creation time. Empty for a
+	// blackhole route, which has no attachment.
+	ResourceID   string `json:"resourceID,omitempty"`
+	ResourceType string `json:"resourceType,omitempty"`
 }
 
 // TransitGatewayRouteTableAssociation represents an association between a TGW route table and attachment.
@@ -456,8 +463,12 @@ func (b *InMemoryBackend) DeleteTransitGatewayRouteTable(id string) error {
 // ---- Transit Gateway Routes ----
 
 // CreateTransitGatewayRoute adds a static route to a TGW route table.
+// blackhole mirrors the real CreateTransitGatewayRouteInput.Blackhole flag: a
+// blackhole route has no attachment and drops matching traffic, so
+// attachmentID is ignored and the route's ResourceID/ResourceType stay empty.
 func (b *InMemoryBackend) CreateTransitGatewayRoute(
 	routeTableID, destinationCIDR, attachmentID string,
+	blackhole bool,
 ) (*TransitGatewayRoute, error) {
 	if routeTableID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayRouteTableId is required", ErrInvalidParameter)
@@ -476,11 +487,28 @@ func (b *InMemoryBackend) CreateTransitGatewayRoute(
 
 	route := &TransitGatewayRoute{
 		DestinationCidrBlock:       destinationCIDR,
-		TransitGatewayAttachmentID: attachmentID,
 		TransitGatewayRouteTableID: routeTableID,
-		State:                      stateActive,
 		Type:                       tgwRouteTypeStatic,
 	}
+
+	if blackhole {
+		route.State = tgwRouteStateBlackhole
+	} else {
+		if attachmentID == "" {
+			return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
+		}
+
+		if !b.transitGatewayAttachmentExistsLocked(attachmentID) {
+			return nil, fmt.Errorf("%w: %s", ErrTGWAttachmentNotFound, attachmentID)
+		}
+
+		resourceID, resourceType := b.tgwAttachmentResourceLocked(attachmentID)
+		route.TransitGatewayAttachmentID = attachmentID
+		route.ResourceID = resourceID
+		route.ResourceType = resourceType
+		route.State = stateActive
+	}
+
 	b.tgwRoutes.Put(route)
 
 	cp := *route
@@ -501,7 +529,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayRoute(routeTableID, destinationCID
 	if _, ok := b.tgwRoutes.Get(key); !ok {
 		return fmt.Errorf(
 			"%w: route %s in %s not found",
-			ErrInvalidParameter,
+			ErrRouteNotFound,
 			destinationCIDR,
 			routeTableID,
 		)
@@ -511,9 +539,12 @@ func (b *InMemoryBackend) DeleteTransitGatewayRoute(routeTableID, destinationCID
 	return nil
 }
 
-// ReplaceTransitGatewayRoute replaces (or upserts) a route in a TGW route table.
+// ReplaceTransitGatewayRoute replaces an existing route in a TGW route table.
+// Real AWS requires a route for destinationCIDR to already exist
+// (InvalidRoute.NotFound otherwise) - it does not create one.
 func (b *InMemoryBackend) ReplaceTransitGatewayRoute(
 	routeTableID, destinationCIDR, attachmentID string,
+	blackhole bool,
 ) (*TransitGatewayRoute, error) {
 	if routeTableID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayRouteTableId is required", ErrInvalidParameter)
@@ -530,13 +561,38 @@ func (b *InMemoryBackend) ReplaceTransitGatewayRoute(
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
+	// Real AWS's Replace only ever replaces a route that already exists in
+	// the target route table; it does not silently create one for an unknown
+	// destination CIDR (that is CreateTransitGatewayRoute's job).
+	key := routeTableID + ":" + destinationCIDR
+	if _, ok := b.tgwRoutes.Get(key); !ok {
+		return nil, fmt.Errorf("%w: route %s in %s not found", ErrRouteNotFound, destinationCIDR, routeTableID)
+	}
+
 	route := &TransitGatewayRoute{
 		DestinationCidrBlock:       destinationCIDR,
-		TransitGatewayAttachmentID: attachmentID,
 		TransitGatewayRouteTableID: routeTableID,
-		State:                      stateActive,
 		Type:                       tgwRouteTypeStatic,
 	}
+
+	if blackhole {
+		route.State = tgwRouteStateBlackhole
+	} else {
+		if attachmentID == "" {
+			return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
+		}
+
+		if !b.transitGatewayAttachmentExistsLocked(attachmentID) {
+			return nil, fmt.Errorf("%w: %s", ErrTGWAttachmentNotFound, attachmentID)
+		}
+
+		resourceID, resourceType := b.tgwAttachmentResourceLocked(attachmentID)
+		route.TransitGatewayAttachmentID = attachmentID
+		route.ResourceID = resourceID
+		route.ResourceType = resourceType
+		route.State = stateActive
+	}
+
 	b.tgwRoutes.Put(route)
 
 	cp := *route

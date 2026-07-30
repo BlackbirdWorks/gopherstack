@@ -39,7 +39,7 @@ var resourceTypePrefixes = []resourceTypePrefix{
 	{"rtb-", "route-table"},
 	{"nat-", "natgateway"},
 	{"eipalloc-", "elastic-ip"},
-	{"eni-", "network-interface"},
+	{"eni-", resourceTypeENI},
 	{"sir-", "spot-instances-request"},
 	{"sfr-", "spot-fleet-request"},
 

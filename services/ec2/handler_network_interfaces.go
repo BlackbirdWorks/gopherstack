@@ -256,10 +256,11 @@ type networkInterfacePrivateIPSet struct {
 }
 
 type networkInterfaceAttachment struct {
-	AttachmentID string `xml:"attachmentId,omitempty"`
-	InstanceID   string `xml:"instanceId,omitempty"`
-	Status       string `xml:"status,omitempty"`
-	DeviceIndex  int    `xml:"deviceIndex,omitempty"`
+	AttachmentID        string `xml:"attachmentId,omitempty"`
+	InstanceID          string `xml:"instanceId,omitempty"`
+	Status              string `xml:"status,omitempty"`
+	DeviceIndex         int    `xml:"deviceIndex,omitempty"`
+	DeleteOnTermination bool   `xml:"deleteOnTermination"`
 }
 
 type networkInterfaceItem struct {
@@ -270,7 +271,9 @@ type networkInterfaceItem struct {
 	PrivateIPAddress      string                       `xml:"privateIpAddress"`
 	Description           string                       `xml:"description"`
 	Status                string                       `xml:"status"`
+	OwnerID               string                       `xml:"ownerId,omitempty"`
 	PrivateIPAddressesSet networkInterfacePrivateIPSet `xml:"privateIpAddressesSet"`
+	TagSet                []simpleTagItem              `xml:"tagSet>item"`
 	SourceDestCheck       bool                         `xml:"sourceDestCheck"`
 }
 
@@ -294,7 +297,7 @@ func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string)
 
 	items := make([]networkInterfaceItem, 0, len(enis))
 	for _, eni := range enis {
-		items = append(items, toNetworkInterfaceItem(eni))
+		items = append(items, toNetworkInterfaceItem(eni, h.Backend.TagsForResource(eni.ID)))
 	}
 
 	return &describeNetworkInterfacesResponse{
@@ -310,7 +313,7 @@ func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string)
 
 // ---- network interface helpers ----
 
-func toNetworkInterfaceItem(eni *NetworkInterface) networkInterfaceItem {
+func toNetworkInterfaceItem(eni *NetworkInterface, tags map[string]string) networkInterfaceItem {
 	privateIPs := make([]networkInterfacePrivateIPItem, 0, 1+len(eni.SecondaryPrivateIPs))
 	privateIPs = append(privateIPs, networkInterfacePrivateIPItem{
 		PrivateIPAddress: eni.PrivateIP,
@@ -331,16 +334,19 @@ func toNetworkInterfaceItem(eni *NetworkInterface) networkInterfaceItem {
 		PrivateIPAddress:      eni.PrivateIP,
 		Description:           eni.Description,
 		Status:                eni.Status,
+		OwnerID:               eni.OwnerID,
 		SourceDestCheck:       eni.SourceDestCheck,
 		PrivateIPAddressesSet: networkInterfacePrivateIPSet{Items: privateIPs},
+		TagSet:                tagItemsFromMap(tags),
 	}
 
 	if eni.AttachmentID != "" {
 		item.Attachment = &networkInterfaceAttachment{
-			AttachmentID: eni.AttachmentID,
-			InstanceID:   eni.InstanceID,
-			DeviceIndex:  eni.DeviceIndex,
-			Status:       attachmentStateAttached,
+			AttachmentID:        eni.AttachmentID,
+			InstanceID:          eni.InstanceID,
+			DeviceIndex:         eni.DeviceIndex,
+			Status:              attachmentStateAttached,
+			DeleteOnTermination: eni.DeleteOnTermination,
 		}
 	}
 
@@ -362,10 +368,17 @@ func (h *Handler) handleCreateNetworkInterface(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, resourceTypeENI)
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{eni.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createNetworkInterfaceResponse{
 		Xmlns:            ec2XMLNS,
 		RequestID:        reqID,
-		NetworkInterface: toNetworkInterfaceItem(eni),
+		NetworkInterface: toNetworkInterfaceItem(eni, tags),
 	}, nil
 }
 
@@ -425,14 +438,18 @@ func (h *Handler) handleAttachNetworkInterface(vals url.Values, reqID string) (a
 		Xmlns:        ec2XMLNS,
 		RequestID:    reqID,
 		AttachmentID: attachmentID,
+		// This backend only ever attaches to network card 0 (no multi-card
+		// instance types modeled), matching AWS's documented default.
+		NetworkCardIndex: 0,
 	}, nil
 }
 
 type attachNetworkInterfaceResponse struct {
-	XMLName      xml.Name `xml:"AttachNetworkInterfaceResponse"`
-	Xmlns        string   `xml:"xmlns,attr"`
-	RequestID    string   `xml:"requestId"`
-	AttachmentID string   `xml:"attachmentId"`
+	XMLName          xml.Name `xml:"AttachNetworkInterfaceResponse"`
+	Xmlns            string   `xml:"xmlns,attr"`
+	RequestID        string   `xml:"requestId"`
+	AttachmentID     string   `xml:"attachmentId"`
+	NetworkCardIndex int      `xml:"networkCardIndex"`
 }
 
 func (h *Handler) handleDetachNetworkInterface(vals url.Values, reqID string) (any, error) {
@@ -530,24 +547,35 @@ func (h *Handler) handleModifyNetworkInterfaceAttribute(
 	}
 
 	// Determine which attribute is being modified.
-	// AWS sends the attribute as a nested element: e.g. Description.Value, SourceDestCheck.Value.
+	// AWS sends the attribute as a nested element: e.g. Description.Value, SourceDestCheck.Value,
+	// Attachment.AttachmentId + Attachment.DeleteOnTermination.
 	// Use HasKey to allow clearing the description (empty string is valid).
 	attr := ""
 	value := ""
 
 	_, hasDesc := vals["Description.Value"]
 	_, hasSdc := vals["SourceDestCheck.Value"]
+	_, hasAttachment := vals["Attachment.AttachmentId"]
 
-	if hasDesc {
-		attr = filterKeyDescription
-		value = vals.Get("Description.Value")
-	} else if hasSdc {
-		attr = attrSourceDest
-		value = vals.Get("SourceDestCheck.Value")
-	}
+	switch {
+	case hasAttachment:
+		attachmentID := vals.Get("Attachment.AttachmentId")
+		del := vals.Get("Attachment.DeleteOnTermination") == ec2BooleanTrue
+		if err := h.Backend.SetNetworkInterfaceDeleteOnTermination(attachmentID, del); err != nil {
+			return nil, err
+		}
+	default:
+		if hasDesc {
+			attr = filterKeyDescription
+			value = vals.Get("Description.Value")
+		} else if hasSdc {
+			attr = attrSourceDest
+			value = vals.Get("SourceDestCheck.Value")
+		}
 
-	if err := h.Backend.ModifyNetworkInterfaceAttribute(eniID, attr, value); err != nil {
-		return nil, err
+		if err := h.Backend.ModifyNetworkInterfaceAttribute(eniID, attr, value); err != nil {
+			return nil, err
+		}
 	}
 
 	return &modifyNetworkInterfaceAttributeResponse{

@@ -130,7 +130,7 @@ func (h *Handler) handleAssociateTrunkInterface(vals url.Values, reqID string) (
 
 	assoc, err := h.Backend.AssociateTrunkInterface(
 		vals.Get("BranchInterfaceId"), vals.Get("TrunkInterfaceId"), int32(vlanID), int32(greKey),
-		parseTagSpecification(vals, "network-interface"),
+		parseTagSpecification(vals, resourceTypeENI),
 	)
 	if err != nil {
 		return nil, err

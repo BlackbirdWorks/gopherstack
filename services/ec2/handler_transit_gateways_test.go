@@ -96,17 +96,30 @@ func TestHandlerTGWRoutes(t *testing.T) {
 	require.NoError(t, err)
 	rtID := rt.RouteTableID
 
+	// CreateTransitGatewayRoute now validates TransitGatewayAttachmentId
+	// exists (real AWS requires either a real attachment or Blackhole=true;
+	// previously neither was enforced, so a route with no attachment at all
+	// silently "succeeded").
+	att, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-route-http", nil)
+	require.NoError(t, err)
+	attID := att.TransitGatewayAttachmentID
+
 	// Create a route.
 	rec := postForm(t, h, "Action=CreateTransitGatewayRoute&Version=2016-11-15"+
 		"&TransitGatewayRouteTableId="+rtID+
-		"&DestinationCidrBlock=10.100.0.0/16")
+		"&DestinationCidrBlock=10.100.0.0/16"+
+		"&TransitGatewayAttachmentId="+attID)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "CreateTransitGatewayRouteResponse")
+	assert.Contains(t, rec.Body.String(), "<resourceType>vpc</resourceType>")
 
-	// Replace route.
+	// Replace route: real AWS requires the destination CIDR to already exist
+	// as a route (previously ReplaceTransitGatewayRoute silently created one
+	// for any CIDR/attachment given, upsert-style).
 	rec = postForm(t, h, "Action=ReplaceTransitGatewayRoute&Version=2016-11-15"+
 		"&TransitGatewayRouteTableId="+rtID+
-		"&DestinationCidrBlock=10.100.0.0/16")
+		"&DestinationCidrBlock=10.100.0.0/16"+
+		"&TransitGatewayAttachmentId="+attID)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ReplaceTransitGatewayRouteResponse")
 
@@ -116,6 +129,123 @@ func TestHandlerTGWRoutes(t *testing.T) {
 		"&DestinationCidrBlock=10.100.0.0/16")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DeleteTransitGatewayRouteResponse")
+}
+
+// TestHandlerTGWRoute_Validation covers the real-AWS validation this pass
+// added to CreateTransitGatewayRoute/ReplaceTransitGatewayRoute: an
+// attachment ID must exist unless Blackhole=true, and Replace only ever
+// replaces a route that already exists (it does not upsert).
+func TestHandlerTGWRoute_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupAndDispatch func(t *testing.T) (body string, err error)
+		name             string
+		wantErrContain   string
+	}{
+		{
+			name: "create_without_attachment_or_blackhole_rejected",
+			setupAndDispatch: func(t *testing.T) (string, error) {
+				t.Helper()
+
+				_, h, _, rtID := newTGWRouteTestFixture(t)
+
+				return dispatchHandler(h, url.Values{
+					"Action":                     []string{"CreateTransitGatewayRoute"},
+					"Version":                    []string{"2016-11-15"},
+					"TransitGatewayRouteTableId": []string{rtID},
+					"DestinationCidrBlock":       []string{"10.200.0.0/16"},
+				})
+			},
+			wantErrContain: "TransitGatewayAttachmentId is required",
+		},
+		{
+			name: "create_with_unknown_attachment_rejected",
+			setupAndDispatch: func(t *testing.T) (string, error) {
+				t.Helper()
+
+				_, h, _, rtID := newTGWRouteTestFixture(t)
+
+				return dispatchHandler(h, url.Values{
+					"Action":                     []string{"CreateTransitGatewayRoute"},
+					"Version":                    []string{"2016-11-15"},
+					"TransitGatewayRouteTableId": []string{rtID},
+					"DestinationCidrBlock":       []string{"10.200.0.0/16"},
+					"TransitGatewayAttachmentId": []string{"tgw-attach-doesnotexist"},
+				})
+			},
+			wantErrContain: "InvalidTransitGatewayAttachmentID.NotFound",
+		},
+		{
+			name: "replace_nonexistent_route_rejected",
+			setupAndDispatch: func(t *testing.T) (string, error) {
+				t.Helper()
+
+				b, h, tgwID, rtID := newTGWRouteTestFixture(t)
+
+				att, err := b.CreateTransitGatewayVpcAttachment(tgwID, "vpc-replace-neg", nil)
+				require.NoError(t, err)
+
+				return dispatchHandler(h, url.Values{
+					"Action":                     []string{"ReplaceTransitGatewayRoute"},
+					"Version":                    []string{"2016-11-15"},
+					"TransitGatewayRouteTableId": []string{rtID},
+					"DestinationCidrBlock":       []string{"192.0.2.0/24"},
+					"TransitGatewayAttachmentId": []string{att.TransitGatewayAttachmentID},
+				})
+			},
+			wantErrContain: "InvalidRoute.NotFound",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := tt.setupAndDispatch(t)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrContain)
+		})
+	}
+}
+
+// TestHandlerTGWRoute_BlackholeAndResourceFields covers the real, previously
+// entirely-unread Blackhole flag and the ResourceId/ResourceType fields on a
+// route's attachment entry (previously ResourceType was hardcoded "vpc"
+// regardless of the attachment's real kind, and ResourceId was never
+// rendered at all).
+func TestHandlerTGWRoute_BlackholeAndResourceFields(t *testing.T) {
+	t.Parallel()
+
+	_, h, _, rtID := newTGWRouteTestFixture(t)
+
+	rec := postForm(t, h, "Action=CreateTransitGatewayRoute&Version=2016-11-15"+
+		"&TransitGatewayRouteTableId="+rtID+
+		"&DestinationCidrBlock=172.16.0.0/16"+
+		"&Blackhole=true")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<state>blackhole</state>")
+	assert.NotContains(t, rec.Body.String(), "transitGatewayAttachmentId")
+}
+
+// newTGWRouteTestFixture creates a backend/handler pair with a transit
+// gateway and an empty TGW route table, returning the backend, handler,
+// transit gateway ID, and route table ID for TGW route tests.
+func newTGWRouteTestFixture(t *testing.T) (*ec2.InMemoryBackend, *ec2.Handler, string, string) {
+	t.Helper()
+
+	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "000000000000"
+	h.Region = "us-east-1"
+
+	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
+	require.NoError(t, err)
+
+	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
+	require.NoError(t, err)
+
+	return b, h, tgw.ID, rt.RouteTableID
 }
 
 // TestHandlerTGWRouteTableAssociation covers handleAssociateTransitGatewayRouteTable

@@ -569,6 +569,7 @@ type Snapshot struct {
 	State       string    `json:"state,omitempty"`
 	Progress    string    `json:"progress,omitempty"`
 	KmsKeyID    string    `json:"kmsKeyId,omitempty"`
+	OwnerID     string    `json:"ownerID,omitempty"`
 	VolumeSize  int       `json:"volumeSize,omitempty"`
 	Encrypted   bool      `json:"encrypted,omitempty"`
 }

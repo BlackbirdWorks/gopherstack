@@ -178,15 +178,17 @@ func (b *InMemoryBackend) spawnFleetInstanceLocked(
 	eniID := newENIID()
 	attachID := "eni-attach-" + uuid.New().String()[:8]
 	b.networkInterfaces.Put(&NetworkInterface{
-		ID:              eniID,
-		SubnetID:        subnetID,
-		VPCID:           vpcID,
-		PrivateIP:       inst.PrivateIP,
-		InstanceID:      id,
-		AttachmentID:    attachID,
-		DeviceIndex:     0,
-		Status:          stateInUse,
-		SourceDestCheck: true,
+		ID:                  eniID,
+		SubnetID:            subnetID,
+		VPCID:               vpcID,
+		PrivateIP:           inst.PrivateIP,
+		InstanceID:          id,
+		AttachmentID:        attachID,
+		DeviceIndex:         0,
+		Status:              stateInUse,
+		OwnerID:             b.AccountID,
+		SourceDestCheck:     true,
+		DeleteOnTermination: true,
 	})
 	b.instances.Put(inst)
 	b.indexInstanceLocked(inst)

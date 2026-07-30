@@ -943,10 +943,14 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			}
 		}
 
-		// Delete all ENIs attached to the terminated instance and recycle their
-		// private IPs. This mirrors the AWS behaviour where all network interfaces
-		// are deleted when an instance is terminated (deleteOnTermination=true is
-		// the default for all network interfaces attached at launch).
+		// Resolve ENIs attached to the terminated instance per real AWS's
+		// per-attachment DeleteOnTermination flag: the primary interface
+		// auto-created at launch (DeleteOnTermination=true) is deleted and its
+		// private IP recycled; an interface created separately via
+		// CreateNetworkInterface and attached later (DeleteOnTermination=false,
+		// the real default for that path) is only detached - it survives
+		// termination in "available" state, matching AWS's well-documented
+		// "leftover ENI" behaviour, not deleted.
 		eniIDs := b.eniIDsByInstance[id]
 		for eniID := range eniIDs {
 			eni, exists := b.networkInterfaces.Get(eniID)
@@ -955,10 +959,20 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			}
 
 			b.deindexENILocked(eniID, eni)
-			b.deindexENIByVPCLocked(eniID, eni)
-			b.recycleENIIPsLocked(eni)
-			b.networkInterfaces.Delete(eniID)
-			delete(b.tags, eniID)
+
+			if eni.DeleteOnTermination {
+				b.deindexENIByVPCLocked(eniID, eni)
+				b.recycleENIIPsLocked(eni)
+				b.networkInterfaces.Delete(eniID)
+				delete(b.tags, eniID)
+
+				continue
+			}
+
+			eni.InstanceID = ""
+			eni.AttachmentID = ""
+			eni.DeviceIndex = 0
+			eni.Status = stateAvailable
 		}
 		b.deindexInstanceLocked(inst)
 

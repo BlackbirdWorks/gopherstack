@@ -129,6 +129,19 @@ func TestNetworkInterfaceCRUD(t *testing.T) {
 			name: "modify_clear_description",
 			op:   "modify_clear_description",
 		},
+		{
+			name: "attached_eni_defaults_delete_on_termination_false",
+			op:   "attach_delete_on_termination_default",
+		},
+		{
+			name: "set_delete_on_termination_true",
+			op:   "set_delete_on_termination_true",
+		},
+		{
+			name:    "set_delete_on_termination_unknown_attachment",
+			op:      "set_delete_on_termination_not_found",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -277,6 +290,54 @@ func TestNetworkInterfaceCRUD(t *testing.T) {
 				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
 				require.Len(t, enis, 1)
 				assert.Empty(t, enis[0].Description)
+
+			case "attach_delete_on_termination_default":
+				// Real AWS default: an interface created separately via
+				// CreateNetworkInterface and attached later has
+				// DeleteOnTermination=false, unlike the primary interface
+				// auto-created at instance launch (DeleteOnTermination=true).
+				instances, cerr := b.RunInstances("ami-123", "t2.micro", "", 1)
+				require.NoError(t, cerr)
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				_, aerr := b.AttachNetworkInterface(eni.ID, instances[0].ID, 1)
+				require.NoError(t, aerr)
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.False(t, enis[0].DeleteOnTermination)
+
+				launchENIs := b.DescribeNetworkInterfaces(nil)
+				foundLaunchENI := false
+
+				for _, e := range launchENIs {
+					if e.InstanceID == instances[0].ID && e.DeviceIndex == 0 {
+						assert.True(t, e.DeleteOnTermination,
+							"launch-time primary ENI must default DeleteOnTermination=true")
+
+						foundLaunchENI = true
+					}
+				}
+
+				assert.True(t, foundLaunchENI, "RunInstances must create a primary ENI")
+
+			case "set_delete_on_termination_true":
+				instances, cerr := b.RunInstances("ami-123", "t2.micro", "", 1)
+				require.NoError(t, cerr)
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				attachID, aerr := b.AttachNetworkInterface(eni.ID, instances[0].ID, 1)
+				require.NoError(t, aerr)
+
+				serr := b.SetNetworkInterfaceDeleteOnTermination(attachID, true)
+				require.NoError(t, serr)
+
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.True(t, enis[0].DeleteOnTermination)
+
+			case "set_delete_on_termination_not_found":
+				err = b.SetNetworkInterfaceDeleteOnTermination("eni-attach-nonexistent", true)
+				require.Error(t, err)
 			}
 
 			if tt.wantErr {
