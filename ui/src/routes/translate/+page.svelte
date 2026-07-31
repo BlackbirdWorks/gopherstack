@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getTranslateClient } from '$lib/aws-client';
 	import {
 		ListTerminologiesCommand,
@@ -13,7 +13,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Languages, RefreshCw, Search, BookOpen, Activity, Database, Play } from 'lucide-svelte';
 
-	const tl = getTranslateClient();
+	const tl = regionalClient(getTranslateClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'terminologies' | 'paralleldata' | 'jobs' | 'translate'>('terminologies');
@@ -55,7 +55,7 @@
 		translatedText = '';
 		detectedSourceLang = '';
 		try {
-			const resp = await tl.send(
+			const resp = await tl().send(
 				new TranslateTextCommand({
 					Text: sourceText,
 					SourceLanguageCode: sourceLang,
@@ -79,9 +79,9 @@
 		loading = true;
 		try {
 			const [termResp, parallelResp, jobsResp] = await Promise.all([
-				tl.send(new ListTerminologiesCommand({})),
-				tl.send(new ListParallelDataCommand({})),
-				tl.send(new ListTextTranslationJobsCommand({}))
+				tl().send(new ListTerminologiesCommand({})),
+				tl().send(new ListParallelDataCommand({})),
+				tl().send(new ListTextTranslationJobsCommand({}))
 			]);
 			terminologies = termResp.TerminologyPropertiesList ?? [];
 			parallelData = parallelResp.ParallelDataPropertiesList ?? [];
@@ -93,7 +93,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

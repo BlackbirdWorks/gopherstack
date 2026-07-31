@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getRekognitionClient } from '$lib/aws-client';
 	import {
 		ListCollectionsCommand,
@@ -8,17 +8,13 @@
 		DetectFacesCommand,
 		StartStreamProcessorCommand,
 		StopStreamProcessorCommand,
-		type RekognitionClient,
 		type StreamProcessor,
 		type FaceDetail
 	} from '@aws-sdk/client-rekognition';
 	import { toast } from 'svelte-sonner';
 	import { Eye, RefreshCw, Search, Users, Video, Database, ScanFace, Play, Square } from 'lucide-svelte';
 
-	let reko: RekognitionClient | undefined;
-	function client(): RekognitionClient {
-		return (reko ??= getRekognitionClient());
-	}
+	const client = regionalClient(getRekognitionClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'collections' | 'processors' | 'detect'>('collections');
@@ -113,7 +109,7 @@
 	const topEmotion = (f: FaceDetail) =>
 		(f.Emotions ?? []).toSorted((a, b) => (b.Confidence ?? 0) - (a.Confidence ?? 0))[0]?.Type ?? '-';
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

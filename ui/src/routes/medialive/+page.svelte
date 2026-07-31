@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMediaLiveClient } from '$lib/aws-client';
 	import {
 		ListChannelsCommand,
@@ -14,7 +15,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Radio, RefreshCw, Search } from 'lucide-svelte';
 
-	const client = getMediaLiveClient();
+	const client = regionalClient(getMediaLiveClient);
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -37,20 +38,26 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'channels') {
-				const resp = await client.send(new ListChannelsCommand({}));
+			// `activeTab` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- switchTab()
+			// already writes activeTab and calls loadData() directly, so
+			// letting the effect also depend on activeTab would double-fetch
+			// on every region change.
+			const tab = untrack(() => activeTab);
+			if (tab === 'channels') {
+				const resp = await client().send(new ListChannelsCommand({}));
 				channelsData = resp.Channels ?? [];
 			}
-			if (activeTab === 'inputs') {
-				const resp = await client.send(new ListInputsCommand({}));
+			if (tab === 'inputs') {
+				const resp = await client().send(new ListInputsCommand({}));
 				inputsData = resp.Inputs ?? [];
 			}
-			if (activeTab === 'inputsg') {
-				const resp = await client.send(new ListInputSecurityGroupsCommand({}));
+			if (tab === 'inputsg') {
+				const resp = await client().send(new ListInputSecurityGroupsCommand({}));
 				inputsgData = resp.InputSecurityGroups ?? [];
 			}
-			if (activeTab === 'multiplexes') {
-				const resp = await client.send(new ListMultiplexesCommand({}));
+			if (tab === 'multiplexes') {
+				const resp = await client().send(new ListMultiplexesCommand({}));
 				multiplexesData = resp.Multiplexes ?? [];
 			}
 		} catch (e) {
@@ -66,7 +73,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

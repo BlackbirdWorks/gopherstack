@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getCognitoIDPClient } from '$lib/aws-client';
 import {
 	ListUserPoolsCommand,
@@ -15,7 +15,7 @@ import {
 import { toast } from 'svelte-sonner';
 import { Users, Plus, RefreshCw, Search, Shield, Key, Settings, ChevronRight } from 'lucide-svelte';
 
-const cognito = getCognitoIDPClient();
+const cognito = regionalClient(getCognitoIDPClient);
 
 let userPools = $state<UserPoolDescriptionType[]>([]);
 let loading = $state(true);
@@ -29,12 +29,12 @@ let idps = $state<ProviderDescription[]>([]);
 let clients = $state<UserPoolClientDescription[]>([]);
 let subLoading = $state(false);
 
-onMount(async () => { await loadUserPools(); });
+onRegionChange(loadUserPools);
 
 async function loadUserPools() {
 	try {
 		loading = true;
-		const data = await cognito.send(new ListUserPoolsCommand({ MaxResults: 60 }));
+		const data = await cognito().send(new ListUserPoolsCommand({ MaxResults: 60 }));
 		userPools = data.UserPools || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load user pools');
@@ -54,9 +54,9 @@ async function loadPoolDetails(poolId: string) {
 	subLoading = true;
 	try {
 		const [grpData, idpData, clientData] = await Promise.all([
-			cognito.send(new ListGroupsCommand({ UserPoolId: poolId })),
-			cognito.send(new ListIdentityProvidersCommand({ UserPoolId: poolId })),
-			cognito.send(new ListUserPoolClientsCommand({ UserPoolId: poolId }))
+			cognito().send(new ListGroupsCommand({ UserPoolId: poolId })),
+			cognito().send(new ListIdentityProvidersCommand({ UserPoolId: poolId })),
+			cognito().send(new ListUserPoolClientsCommand({ UserPoolId: poolId }))
 		]);
 		groups = grpData.Groups || [];
 		idps = idpData.Providers || [];

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getWorkMailClient } from '$lib/aws-client';
 	import {
 		ListGroupsCommand,
@@ -14,7 +15,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Mail, RefreshCw, Search } from 'lucide-svelte';
 
-	const client = getWorkMailClient();
+	const client = regionalClient(getWorkMailClient);
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -38,29 +39,36 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'organizations') {
-				const resp = await client.send(new ListOrganizationsCommand({}));
+			// `activeTab`/`orgIdFilter` are read with `untrack` so they never
+			// become dependencies of the `onRegionChange` effect below --
+			// switchTab() and the org-id input's `onchange` already write
+			// these and call loadData() directly, so letting the effect also
+			// depend on them would double-fetch on every region change.
+			const tab = untrack(() => activeTab);
+			const orgId = untrack(() => orgIdFilter);
+			if (tab === 'organizations') {
+				const resp = await client().send(new ListOrganizationsCommand({}));
 				organizationsData = resp.OrganizationSummaries ?? [];
 			}
-			if (activeTab === 'users') {
-				if (orgIdFilter) {
-					const resp = await client.send(new ListUsersCommand({ OrganizationId: orgIdFilter }));
+			if (tab === 'users') {
+				if (orgId) {
+					const resp = await client().send(new ListUsersCommand({ OrganizationId: orgId }));
 					usersData = resp.Users ?? [];
 				} else {
 					usersData = [];
 				}
 			}
-			if (activeTab === 'groups') {
-				if (orgIdFilter) {
-					const resp = await client.send(new ListGroupsCommand({ OrganizationId: orgIdFilter }));
+			if (tab === 'groups') {
+				if (orgId) {
+					const resp = await client().send(new ListGroupsCommand({ OrganizationId: orgId }));
 					groupsData = resp.Groups ?? [];
 				} else {
 					groupsData = [];
 				}
 			}
-			if (activeTab === 'resources') {
-				if (orgIdFilter) {
-					const resp = await client.send(new ListResourcesCommand({ OrganizationId: orgIdFilter }));
+			if (tab === 'resources') {
+				if (orgId) {
+					const resp = await client().send(new ListResourcesCommand({ OrganizationId: orgId }));
 					resourcesData = resp.Resources ?? [];
 				} else {
 					resourcesData = [];
@@ -79,7 +87,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

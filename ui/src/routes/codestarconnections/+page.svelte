@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCodeStarConnectionsClient } from '$lib/aws-client';
 	import {
 		ListConnectionsCommand,
@@ -16,7 +16,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Link2, Server, RefreshCw, GitBranch, Settings, ShieldAlert } from 'lucide-svelte';
 
-	const client = getCodeStarConnectionsClient();
+	const client = regionalClient(getCodeStarConnectionsClient);
 
 	let loading = $state(false);
 	let connections = $state<Connection[]>([]);
@@ -32,9 +32,9 @@
 		loading = true;
 		try {
 			const [connResp, hostResp, linkResp] = await Promise.all([
-				client.send(new ListConnectionsCommand({})),
-				client.send(new ListHostsCommand({})),
-				client.send(new ListRepositoryLinksCommand({}))
+				client().send(new ListConnectionsCommand({})),
+				client().send(new ListHostsCommand({})),
+				client().send(new ListRepositoryLinksCommand({}))
 			]);
 			connections = connResp.Connections ?? [];
 			hosts = hostResp.Hosts ?? [];
@@ -59,7 +59,7 @@
 			for (const link of connLinks) {
 				if (!link.RepositoryLinkId) continue;
 				try {
-					const resp = await client.send(
+					const resp = await client().send(
 						new ListSyncConfigurationsCommand({
 							RepositoryLinkId: link.RepositoryLinkId,
 							SyncType: 'CFN_STACK_SYNC'
@@ -73,7 +73,7 @@
 				for (const cfg of allConfigs) {
 					if (!cfg.ResourceName) continue;
 					try {
-						const summary = await client.send(
+						const summary = await client().send(
 							new GetSyncBlockerSummaryCommand({
 								ResourceName: cfg.ResourceName,
 								SyncType: 'CFN_STACK_SYNC'
@@ -96,7 +96,7 @@
 
 	async function checkRepoSyncStatus(linkId: string, branch: string) {
 		try {
-			const resp = await client.send(
+			const resp = await client().send(
 				new GetRepositorySyncStatusCommand({
 					RepositoryLinkId: linkId,
 					Branch: branch,
@@ -123,7 +123,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

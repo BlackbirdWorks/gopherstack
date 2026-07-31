@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getBedrockRuntimeClient } from '$lib/aws-client';
 	import {
 		InvokeModelCommand,
@@ -19,7 +19,7 @@
 		text: string;
 	}
 
-	const br = getBedrockRuntimeClient();
+	const br = regionalClient(getBedrockRuntimeClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'invoke' | 'converse' | 'asyncInvocations'>('invoke');
@@ -54,7 +54,7 @@
 	async function loadAsyncInvocations() {
 		loading = true;
 		try {
-			const resp = await br.send(new ListAsyncInvokesCommand({}));
+			const resp = await br().send(new ListAsyncInvokesCommand({}));
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			asyncInvocations = (resp as any).asyncInvokeSummaries ?? [];
 		} catch (e) {
@@ -73,7 +73,7 @@
 		modelResponse = null;
 		try {
 			const body = JSON.stringify({ inputText: prompt, textGenerationConfig: { maxTokenCount: 512, temperature: 0.7 } });
-			const resp = await br.send(new InvokeModelCommand({ modelId, body: new TextEncoder().encode(body) }));
+			const resp = await br().send(new InvokeModelCommand({ modelId, body: new TextEncoder().encode(body) }));
 			const decoded = new TextDecoder().decode(resp.body);
 			const parsed = JSON.parse(decoded);
 			modelResponse = parsed.results?.[0]?.outputText ?? parsed.completion ?? decoded;
@@ -99,7 +99,7 @@
 				role: t.role,
 				content: [{ text: t.text }]
 			}));
-			const resp = await br.send(
+			const resp = await br().send(
 				new ConverseCommand({ modelId: converseModelId, messages })
 			);
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -120,7 +120,7 @@
 		converseInput = '';
 	}
 
-	onMount(loadAsyncInvocations);
+	onRegionChange(loadAsyncInvocations);
 </script>
 
 <div class="p-6 space-y-6">

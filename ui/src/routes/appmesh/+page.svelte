@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAppMeshClient } from '$lib/aws-client';
 	import {
 		ListMeshesCommand,
@@ -16,7 +17,7 @@
 	import { toast } from 'svelte-sonner';
 	import { RefreshCw, Search, Share2 } from 'lucide-svelte';
 
-	const client = getAppMeshClient();
+	const client = regionalClient(getAppMeshClient);
 
 	type TabId = 'meshes' | 'nodes' | 'services' | 'routers' | 'gateways';
 
@@ -37,43 +38,52 @@
 	const filteredGateways = $derived(gatewaysData.filter((x) => JSON.stringify(x).toLowerCase().includes(searchQuery.toLowerCase())));
 
 	async function loadMeshesForTab() {
-		const resp = await client.send(new ListMeshesCommand({}));
+		const resp = await client().send(new ListMeshesCommand({}));
 		meshesData = resp.meshes ?? [];
 	}
 
 	async function loadNodesForTab() {
-		if (!meshNameFilter) {
+		// `meshNameFilter` is read with `untrack` so it never becomes a
+		// dependency of the `onRegionChange` effect below -- the mesh-name
+		// input's `onchange` already calls loadData() directly, so letting
+		// the effect also depend on it would double-fetch on every region
+		// change.
+		const meshName = untrack(() => meshNameFilter);
+		if (!meshName) {
 			nodesData = [];
 			return;
 		}
-		const resp = await client.send(new ListVirtualNodesCommand({ meshName: meshNameFilter }));
+		const resp = await client().send(new ListVirtualNodesCommand({ meshName }));
 		nodesData = resp.virtualNodes ?? [];
 	}
 
 	async function loadServicesForTab() {
-		if (!meshNameFilter) {
+		const meshName = untrack(() => meshNameFilter);
+		if (!meshName) {
 			servicesData = [];
 			return;
 		}
-		const resp = await client.send(new ListVirtualServicesCommand({ meshName: meshNameFilter }));
+		const resp = await client().send(new ListVirtualServicesCommand({ meshName }));
 		servicesData = resp.virtualServices ?? [];
 	}
 
 	async function loadRoutersForTab() {
-		if (!meshNameFilter) {
+		const meshName = untrack(() => meshNameFilter);
+		if (!meshName) {
 			routersData = [];
 			return;
 		}
-		const resp = await client.send(new ListVirtualRoutersCommand({ meshName: meshNameFilter }));
+		const resp = await client().send(new ListVirtualRoutersCommand({ meshName }));
 		routersData = resp.virtualRouters ?? [];
 	}
 
 	async function loadGatewaysForTab() {
-		if (!meshNameFilter) {
+		const meshName = untrack(() => meshNameFilter);
+		if (!meshName) {
 			gatewaysData = [];
 			return;
 		}
-		const resp = await client.send(new ListVirtualGatewaysCommand({ meshName: meshNameFilter }));
+		const resp = await client().send(new ListVirtualGatewaysCommand({ meshName }));
 		gatewaysData = resp.virtualGateways ?? [];
 	}
 
@@ -88,7 +98,13 @@
 	async function loadData() {
 		loading = true;
 		try {
-			await tabDataLoaders[activeTab]();
+			// `activeTab` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- switchTab()
+			// already writes activeTab and calls loadData() directly, so
+			// letting the effect also depend on activeTab would double-fetch
+			// on every region change.
+			const tab = untrack(() => activeTab);
+			await tabDataLoaders[tab]();
 		} catch (e) {
 			toast.error('Failed to load AWS App Mesh data: ' + String(e));
 		} finally {
@@ -102,7 +118,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

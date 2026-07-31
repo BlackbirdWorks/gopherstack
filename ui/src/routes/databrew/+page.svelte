@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getDataBrewClient } from '$lib/aws-client';
 	import {
 		ListDatasetsCommand,
@@ -16,7 +17,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Brush, RefreshCw, Search } from 'lucide-svelte';
 
-	const client = getDataBrewClient();
+	const client = regionalClient(getDataBrewClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'datasets' | 'jobs' | 'projects' | 'recipes' | 'schedules'>('datasets');
@@ -36,24 +37,30 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'datasets') {
-				const resp = await client.send(new ListDatasetsCommand({}));
+			// `activeTab` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- switchTab()
+			// already writes activeTab and calls loadData() directly, so
+			// letting the effect also depend on activeTab would double-fetch
+			// on every region change.
+			const tab = untrack(() => activeTab);
+			if (tab === 'datasets') {
+				const resp = await client().send(new ListDatasetsCommand({}));
 				datasetsData = resp.Datasets ?? [];
 			}
-			if (activeTab === 'jobs') {
-				const resp = await client.send(new ListJobsCommand({}));
+			if (tab === 'jobs') {
+				const resp = await client().send(new ListJobsCommand({}));
 				jobsData = resp.Jobs ?? [];
 			}
-			if (activeTab === 'projects') {
-				const resp = await client.send(new ListProjectsCommand({}));
+			if (tab === 'projects') {
+				const resp = await client().send(new ListProjectsCommand({}));
 				projectsData = resp.Projects ?? [];
 			}
-			if (activeTab === 'recipes') {
-				const resp = await client.send(new ListRecipesCommand({}));
+			if (tab === 'recipes') {
+				const resp = await client().send(new ListRecipesCommand({}));
 				recipesData = resp.Recipes ?? [];
 			}
-			if (activeTab === 'schedules') {
-				const resp = await client.send(new ListSchedulesCommand({}));
+			if (tab === 'schedules') {
+				const resp = await client().send(new ListSchedulesCommand({}));
 				schedulesData = resp.Schedules ?? [];
 			}
 		} catch (e) {
@@ -69,7 +76,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

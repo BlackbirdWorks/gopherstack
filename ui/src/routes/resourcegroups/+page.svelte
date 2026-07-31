@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getResourceGroupsClient } from '$lib/aws-client';
 	import {
 		ListGroupsCommand,
@@ -14,7 +14,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Layers, RefreshCw, Tag, Link, Activity, Search } from 'lucide-svelte';
 
-	const resourceGroups = getResourceGroupsClient();
+	const resourceGroups = regionalClient(getResourceGroupsClient);
 
 	type TabName = 'groups' | 'resources' | 'tags' | 'synctasks';
 
@@ -58,7 +58,7 @@
 	async function loadGroups() {
 		loading = true;
 		try {
-			const out = await resourceGroups.send(new ListGroupsCommand({}));
+			const out = await resourceGroups().send(new ListGroupsCommand({}));
 			groups = out.GroupIdentifiers ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load groups: ${(err as Error).message}`);
@@ -70,7 +70,7 @@
 	async function loadGroupResources(groupName: string) {
 		resourcesLoading = true;
 		try {
-			const out: ListGroupResourcesCommandOutput = await resourceGroups.send(
+			const out: ListGroupResourcesCommandOutput = await resourceGroups().send(
 				new ListGroupResourcesCommand({ Group: groupName })
 			);
 			groupResources = (out.Resources ?? []).map((r) => ({
@@ -92,7 +92,7 @@
 				groupTags = [];
 				return;
 			}
-			const out = await resourceGroups.send(new GetTagsCommand({ Arn: group.GroupArn }));
+			const out = await resourceGroups().send(new GetTagsCommand({ Arn: group.GroupArn }));
 			groupTags = Object.entries(out.Tags ?? {}).map(([key, value]) => ({ key, value }));
 		} catch (err: unknown) {
 			toast.error(`Failed to load tags: ${(err as Error).message}`);
@@ -104,7 +104,7 @@
 	async function loadSyncTasks() {
 		syncTasksLoading = true;
 		try {
-			const out = await resourceGroups.send(new ListTagSyncTasksCommand({}));
+			const out = await resourceGroups().send(new ListTagSyncTasksCommand({}));
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			syncTasks = ((out as any).TagSyncTasks ?? []) as SyncTask[];
 		} catch (err: unknown) {
@@ -117,7 +117,7 @@
 	async function addResource() {
 		if (!selectedGroup || !newResourceArn.trim()) return;
 		try {
-			await resourceGroups.send(
+			await resourceGroups().send(
 				new GroupResourcesCommand({ Group: selectedGroup, ResourceArns: [newResourceArn.trim()] })
 			);
 			newResourceArn = '';
@@ -131,7 +131,7 @@
 	async function ungroupResource(arn: string) {
 		if (!selectedGroup) return;
 		try {
-			await resourceGroups.send(
+			await resourceGroups().send(
 				new UngroupResourcesCommand({ Group: selectedGroup, ResourceArns: [arn] })
 			);
 			toast.success('Resource removed from group');
@@ -161,9 +161,7 @@
 		}
 	}
 
-	onMount(() => {
-		void loadGroups();
-	});
+	onRegionChange(loadGroups);
 </script>
 
 <div class="space-y-6 p-6">

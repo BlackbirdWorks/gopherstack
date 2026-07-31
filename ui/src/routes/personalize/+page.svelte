@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getPersonalizeClient } from '$lib/aws-client';
 	import {
 		ListCampaignsCommand,
@@ -16,7 +17,7 @@
 	import { toast } from 'svelte-sonner';
 	import { RefreshCw, Search, Sparkles } from 'lucide-svelte';
 
-	const client = getPersonalizeClient();
+	const client = regionalClient(getPersonalizeClient);
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -41,24 +42,30 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'datasetgroups') {
-				const resp = await client.send(new ListDatasetGroupsCommand({}));
+			// `activeTab` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- switchTab()
+			// already writes activeTab and calls loadData() directly, so
+			// letting the effect also depend on activeTab would double-fetch
+			// on every region change.
+			const tab = untrack(() => activeTab);
+			if (tab === 'datasetgroups') {
+				const resp = await client().send(new ListDatasetGroupsCommand({}));
 				datasetgroupsData = resp.datasetGroups ?? [];
 			}
-			if (activeTab === 'solutions') {
-				const resp = await client.send(new ListSolutionsCommand({}));
+			if (tab === 'solutions') {
+				const resp = await client().send(new ListSolutionsCommand({}));
 				solutionsData = resp.solutions ?? [];
 			}
-			if (activeTab === 'campaigns') {
-				const resp = await client.send(new ListCampaignsCommand({}));
+			if (tab === 'campaigns') {
+				const resp = await client().send(new ListCampaignsCommand({}));
 				campaignsData = resp.campaigns ?? [];
 			}
-			if (activeTab === 'recommenders') {
-				const resp = await client.send(new ListRecommendersCommand({}));
+			if (tab === 'recommenders') {
+				const resp = await client().send(new ListRecommendersCommand({}));
 				recommendersData = resp.recommenders ?? [];
 			}
-			if (activeTab === 'trackers') {
-				const resp = await client.send(new ListEventTrackersCommand({}));
+			if (tab === 'trackers') {
+				const resp = await client().send(new ListEventTrackersCommand({}));
 				trackersData = resp.eventTrackers ?? [];
 			}
 		} catch (e) {
@@ -74,7 +81,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getFSxClient } from '$lib/aws-client';
 	import {
-		FSxClient,
 		DescribeFileSystemsCommand,
 		DescribeBackupsCommand,
 		CreateFileSystemCommand,
@@ -16,10 +15,7 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { HardDrive, RefreshCw, Search, Database, Shield, Plus, Trash2, ChevronRight, Copy } from 'lucide-svelte';
 
-	let fsx: FSxClient | undefined;
-	function client(): FSxClient {
-		return (fsx ??= getFSxClient());
-	}
+	const client = regionalClient(getFSxClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'filesystems' | 'backups'>('filesystems');
@@ -148,7 +144,7 @@
 		navigator.clipboard.writeText(text).then(() => toast.success(`${label} copied`)).catch(() => toast.error('Copy failed'));
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

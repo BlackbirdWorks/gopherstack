@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getInspectorClient } from '$lib/aws-client';
 	import {
 		ListFindingsCommand,
@@ -19,7 +19,7 @@
 		Filter
 	} from 'lucide-svelte';
 
-	const inspector = getInspectorClient();
+	const inspector = regionalClient(getInspectorClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'findings' | 'coverage'>('findings');
@@ -74,7 +74,7 @@
 	async function loadFindings() {
 		loading = true;
 		try {
-			const res = await inspector.send(new ListFindingsCommand({ maxResults: 50 }));
+			const res = await inspector().send(new ListFindingsCommand({ maxResults: 50 }));
 			findings = res.findings ?? [];
 		} catch (e) {
 			toast.error(`Failed to load findings: ${e}`);
@@ -86,7 +86,7 @@
 	async function loadCoverage() {
 		loading = true;
 		try {
-			const res = await inspector.send(new ListCoverageCommand({ maxResults: 100 }));
+			const res = await inspector().send(new ListCoverageCommand({ maxResults: 100 }));
 			coverage = res.coveredResources ?? [];
 		} catch (e) {
 			toast.error(`Failed to load coverage: ${e}`);
@@ -102,7 +102,7 @@
 		else await loadCoverage();
 	}
 
-	onMount(() => loadFindings());
+	onRegionChange(loadFindings);
 </script>
 
 <div class="space-y-6">

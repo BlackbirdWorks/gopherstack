@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getTextractClient } from '$lib/aws-client';
 	import {
 		ListAdaptersCommand,
@@ -7,7 +7,6 @@
 		StartDocumentAnalysisCommand,
 		GetDocumentAnalysisCommand,
 		AnalyzeDocumentCommand,
-		type TextractClient,
 		type AdapterOverview,
 		type AdapterVersionOverview,
 		type FeatureType,
@@ -16,10 +15,7 @@
 	import { toast } from 'svelte-sonner';
 	import { ScanLine, RefreshCw, Search, FileText, Layers, Activity, Play, CheckCircle, XCircle, Upload, Download } from 'lucide-svelte';
 
-	let tx: TextractClient | undefined;
-	function client(): TextractClient {
-		return (tx ??= getTextractClient());
-	}
+	const client = regionalClient(getTextractClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'adapters' | 'versions' | 'analysis'>('adapters');
@@ -150,7 +146,7 @@
 		URL.revokeObjectURL(url);
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">
