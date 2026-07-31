@@ -310,6 +310,39 @@ func TestFISHandler_ListTargetAccountConfigurations(t *testing.T) {
 	}
 }
 
+// TestListTargetAccountConfigurations_Pagination verifies ListTargetAccountConfigurations
+// honors maxResults/nextToken like its sibling list operations, instead of always
+// returning the full unpaginated list.
+func TestListTargetAccountConfigurations_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	templateID := createTestTemplate(t, h)
+
+	for _, accountID := range []string{"111111111111", "222222222222", "333333333333", "444444444444", "555555555555"} {
+		path := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
+		rec := doRequest(t, h, http.MethodPost, path, map[string]any{
+			"roleArn": "arn:aws:iam::" + accountID + ":role/FISRole",
+		})
+		require.Equal(t, http.StatusCreated, rec.Code)
+	}
+
+	listPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations?maxResults=3", templateID)
+	rec := doRequest(t, h, http.MethodGet, listPath, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		NextToken                   string `json:"nextToken,omitempty"`
+		TargetAccountConfigurations []struct {
+			AccountID string `json:"accountId"`
+		} `json:"targetAccountConfigurations"`
+	}
+
+	mustJSON(t, rec, &resp)
+	assert.Len(t, resp.TargetAccountConfigurations, 3)
+	assert.NotEmpty(t, resp.NextToken)
+}
+
 func TestFISHandler_TargetAccountConfiguration_RoundTrip(t *testing.T) {
 	t.Parallel()
 

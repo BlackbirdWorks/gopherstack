@@ -2,7 +2,7 @@
 service: fis
 sdk_module: aws-sdk-go-v2/service/fis@v1.37.18   # version audited against
 last_audit_commit: f8a54fdb                       # HEAD when this manifest was written
-last_audit_date: 2026-07-23
+last_audit_date: 2026-07-31
 overall: A            # genuine wire/error-code fixes found and applied
 ops:
   CreateExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: experimentReportConfiguration now accepted + persisted}
@@ -14,7 +14,7 @@ ops:
   GetExperiment: {wire: ok (fixed), errors: ok, state: ok (fixed), persist: ok, note: 'experimentReport/experimentReportConfiguration now returned; ExperimentTarget now carries filters/resourceTags/selectionMode; ExperimentAction now carries description; see Notes'}
   StopExperiment: {wire: ok, errors: ok, state: ok, persist: ok, note: 'was wrongly 409 ConflictException on not-running; StopExperiment has no ConflictException case in the SDK — fixed to 400 ValidationException (prior sweep); this sweep confirmed no regression'}
   ListExperiments: {wire: ok, errors: ok, state: ok, persist: ok, note: experimentTemplateId/status query filters applied before pagination}
-  ListExperimentResolvedTargets: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListExperimentResolvedTargets: {wire: ok (fixed), errors: ok, state: ok (fixed), persist: n/a, note: 'resolvedTargetDTO emitted invented resolvedArns/targetResourcesCount fields that do not exist on types.ResolvedTarget, and never paginated despite declaring nextToken; both fixed this sweep -- see Notes'}
   GetAction: {wire: ok, errors: ok, state: ok, persist: n/a (built-in + provider-derived catalog)}
   ListActions: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetTargetResourceType: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -28,11 +28,11 @@ ops:
   DeleteTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTargetAccountConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTargetAccountConfigurations: {wire: ok, errors: ok, state: ok (fixed), persist: ok, note: 'declared nextToken but never paginated -- always returned the full list; fixed this sweep -- see Notes'}
   GetExperimentTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: n/a (derived from template's target-account-configs)}
-  ListExperimentTargetAccountConfigurations: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListExperimentTargetAccountConfigurations: {wire: ok, errors: ok, state: ok (fixed), persist: n/a, note: 'same missing-pagination bug as ListTargetAccountConfigurations; fixed this sweep -- see Notes'}
 families:
-  route_matcher: {status: ok, note: 'RouteMatcher/parseFISPath path+method map verified 1:1 against every serializers.go SplitURI+request.Method in the pinned SDK; all 25 ops match exactly (an extra non-AWS POST /experiments/{id}/stop alias is additive and does not collide with any real route)'}
+  route_matcher: {status: ok (fixed doc), note: 'RouteMatcher/parseFISPath path+method map verified 1:1 against every serializers.go SplitURI+request.Method in the pinned SDK; all 26 ops match exactly (an extra non-AWS POST /experiments/{id}/stop alias is additive and does not collide with any real route). Prior text said "25 ops"; GetSupportedOperations() has always returned 26 -- stale count, not a routing bug; corrected this sweep'}
   experiment_lifecycle: {status: ok (fixed), note: 'real background goroutine state machine: pending→initiating→running→completed/stopped/cancelled/failed — matches types.ExperimentStatus exactly. A prior revision had invented a "completing" status/action-status pair not present in the real SDK enum; removed this sweep (see Notes). "cancelled" (real enum value, previously never emitted) is now used when StopExperiment interrupts an experiment before it reaches "running". actionsMode skip-all is now a real dry-run mode (all actions → "skipped", no fault rules/external calls). StopExperiment cancels via context; snapshot/restore cancels in-flight goroutines and marks non-terminal experiments failed (no stuck-pending disguised no-op)'}
   experiment_reports: {status: ok, note: 'ExperimentTemplateReportConfiguration (create/update/get on templates) and ExperimentReportConfiguration/ExperimentReport (on running experiments, inherited from the template at StartExperiment time) implemented end-to-end this sweep — see Notes. Was entirely unimplemented before (gaps/deferred item).'}
   error_taxonomy: {status: ok, note: 'four exception shapes (ValidationException/ResourceNotFoundException/ConflictException/ServiceQuotaExceededException@402) verified against deserializers.go this sweep; no regressions'}
@@ -168,4 +168,38 @@ are silently ignored by every generated deserializer, so gopherstack's additiona
 `"status"` key does not break real clients).
 
 **Route matcher** (unchanged from the prior sweep — still verified 1:1 against
-every `serializers.go` `SplitURI`/`request.Method` pair across all 25 operations).
+every `serializers.go` `SplitURI`/`request.Method` pair across all 26 operations;
+the prior text said "25 ops" — `GetSupportedOperations()` has always returned 26,
+this was a stale count in the doc, not a routing gap — corrected this sweep).
+
+**`resolvedTargetDTO` emitted a fabricated wire shape.** The real
+`types.ResolvedTarget` (confirmed via `types/types.go` and the API reference) has
+exactly three fields: `resourceType`, `targetName`, and `targetInformation` (a
+generic `map[string]string` whose per-key contents AWS does not publicly
+document beyond length/pattern constraints). gopherstack's `resolvedTargetDTO`
+instead emitted invented `resolvedArns`/`targetResourcesCount` fields that do not
+exist on the real type, and never populated `targetInformation` at all — a real
+SDK client calling `ListExperimentResolvedTargets` would see an empty
+`targetInformation` and none of the ARN/count data the emulator was returning
+under made-up keys (unknown JSON keys are silently dropped by every generated
+deserializer). Fixed: `resolvedTargetDTO` now emits the real three fields.
+Because AWS does not publish the `targetInformation` key schema and gopherstack
+does not model per-resource-type target metadata, `targetInformation` is
+honestly left empty rather than inventing a key structure (e.g. stuffing ARNs
+under a made-up `resourceArn` key) that would look official without being
+verified against real AWS behavior — see `resolvedTargetDTO`'s doc comment in
+`models.go`. The UI (`ui/src/routes/fis/+page.svelte`) has a documented
+wire-augmented `ResolvedTarget` type that falls back to the old
+`resolvedArns`/`targetResourcesCount` fields for its resolved-target count
+display; that workaround can be removed once the UI is updated to read
+`targetInformation` (or to stop displaying a fabricated-key-derived count) —
+tracked as follow-up UI work, not fixed in this backend-only pass.
+
+**`ListTargetAccountConfigurations`, `ListExperimentTargetAccountConfigurations`,
+and `ListExperimentResolvedTargets` never paginated.** All three declare
+`nextToken` on both the real SDK response and gopherstack's own response DTO, but
+none of the three handlers called `paginateWithToken` — they always returned the
+full list in one page and `nextToken` was always absent, unlike their siblings
+(`ListExperimentTemplates`, `ListExperiments`, `ListActions`,
+`ListTargetResourceTypes`), which paginate correctly. Fixed: all three handlers
+now call `paginateWithToken`/`encodePageToken` exactly like their siblings.

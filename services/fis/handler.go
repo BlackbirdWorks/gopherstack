@@ -682,3 +682,21 @@ func paginateWithToken(_ []string, q url.Values) (int, int) {
 
 	return mr, start
 }
+
+// paginatePage applies paginateWithToken's offset/limit contract to a slice of items,
+// returning the current page and the nextToken for the remainder (empty when the page
+// reaches the end of items). ids is used only for maxResults/nextToken decoding, matching
+// paginateWithToken's existing contract.
+func paginatePage[T any](items []T, ids []string, q url.Values) ([]T, string) {
+	maxResults, start := paginateWithToken(ids, q)
+
+	end := min(start+maxResults, len(items))
+
+	var nextTok string
+
+	if end < len(items) {
+		nextTok = encodePageToken(end)
+	}
+
+	return items[start:end], nextTok
+}
