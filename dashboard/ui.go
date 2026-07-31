@@ -770,6 +770,35 @@ func (h *DashboardHandler) setupSubRouter() {
 		})
 	})
 
+	// system/settings exposes the server's effective configuration to the
+	// (unauthenticated) dashboard UI. The response is built as an explicit
+	// allow-list of named fields, NOT by marshaling dashboard.Settings
+	// directly - dashboard.Settings never holds credentials today, but a
+	// future field added to that struct must not silently reach this
+	// unauthenticated endpoint. Host filesystem/network detail (DataDir,
+	// DNSListenAddr, DNSResolveIP) is intentionally excluded: it has no UI
+	// consumer and is not safe to expose broadly.
+	h.SubRouter.GET("/dashboard/api/system/settings", func(c *echo.Context) error {
+		if h.ConfigManager == nil {
+			return c.JSON(http.StatusOK, map[string]any{})
+		}
+
+		settings := h.ConfigManager.GetSettings()
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"accountID":         settings.AccountID,
+			"region":            settings.Region,
+			"latencyMs":         settings.LatencyMs,
+			"enforceIAM":        settings.EnforceIAM,
+			"autoPurgeTTL":      settings.AutoPurgeTTL.String(),
+			"portRangeStart":    settings.PortRangeStart,
+			"portRangeEnd":      settings.PortRangeEnd,
+			"initScriptTimeout": settings.InitScriptTimeout.String(),
+			"persist":           settings.Persist,
+			"demo":              settings.Demo,
+		})
+	})
+
 	h.SubRouter.GET("/dashboard/api/sts/metrics", func(c *echo.Context) error {
 		if h.config.STSOps == nil {
 			return c.JSON(http.StatusOK, stsbackend.SessionMetrics{})

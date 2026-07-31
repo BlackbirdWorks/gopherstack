@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import SettingsPage from "./+page.svelte";
 
 vi.mock("svelte-sonner", () => ({
@@ -32,24 +32,94 @@ const mockLocalStorage = (() => {
 
 Object.defineProperty(window, "localStorage", { value: mockLocalStorage });
 
+const defaultServerSettings = {
+  accountID: "000000000000",
+  region: "us-east-1",
+  latencyMs: 0,
+  enforceIAM: false,
+  autoPurgeTTL: "0s",
+  portRangeStart: 5000,
+  portRangeEnd: 10000,
+  initScriptTimeout: "30s",
+  persist: false,
+  demo: false,
+};
+
+function mockFetch(
+  options: { settingsOk?: boolean; settingsStatus?: number; settingsBody?: unknown } = {},
+) {
+  const { settingsOk = true, settingsStatus = 200, settingsBody = defaultServerSettings } = options;
+
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+
+    if (url.includes("/_gopherstack/health")) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ version: "dev", services: [] }),
+      });
+    }
+
+    if (url.includes("/dashboard/api/system/settings")) {
+      return Promise.resolve({
+        ok: settingsOk,
+        status: settingsStatus,
+        json: () => Promise.resolve(settingsBody),
+      });
+    }
+
+    return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+  });
+}
+
 describe("Settings Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
   });
 
-  it("renders global settings form by default", () => {
+  it("renders global settings as read-only, server-sourced values", async () => {
+    vi.stubGlobal("fetch", mockFetch());
     render(SettingsPage);
 
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Global Settings")).toBeInTheDocument();
-    expect(screen.getByLabelText("Account ID")).toBeInTheDocument();
-    expect(screen.getByLabelText("Default Region")).toBeInTheDocument();
-    expect(screen.getByLabelText("IAM Execution")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save Settings" })).toBeDisabled();
+
+    const accountID = (await screen.findByLabelText("Account ID")) as HTMLInputElement;
+    const region = screen.getByLabelText("Default Region") as HTMLInputElement;
+    const iam = screen.getByLabelText("IAM Execution") as HTMLInputElement;
+
+    expect(accountID.value).toBe("000000000000");
+    expect(accountID).toBeDisabled();
+    expect(region.value).toBe("us-east-1");
+    expect(region).toBeDisabled();
+    expect(iam).toBeDisabled();
+
+    expect(screen.getByRole("button", { name: "Save Preferences" })).toBeDisabled();
+  });
+
+  it("shows a clear message when the settings endpoint is unreachable", async () => {
+    vi.stubGlobal("fetch", mockFetch({ settingsOk: false, settingsStatus: 404 }));
+    render(SettingsPage);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Could not reach/)).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText("Account ID")).not.toBeInTheDocument();
+  });
+
+  it("shows an unavailable message when the server has no config manager wired up", async () => {
+    vi.stubGlobal("fetch", mockFetch({ settingsBody: {} }));
+    render(SettingsPage);
+
+    await waitFor(() => {
+      expect(screen.getByText(/no configuration manager wired up/)).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText("Account ID")).not.toBeInTheDocument();
   });
 
   it("switches to service settings tab and shows service controls", async () => {
+    vi.stubGlobal("fetch", mockFetch());
     render(SettingsPage);
 
     const serviceTab = screen.getByRole("button", { name: "Service Settings" });
@@ -61,34 +131,47 @@ describe("Settings Page", () => {
     expect(screen.getByLabelText("Max Console Entries Limit")).toBeInTheDocument();
   });
 
-  it("updates and persists settings on save", async () => {
+  it("updates and persists browser-local preferences on save", async () => {
+    vi.stubGlobal("fetch", mockFetch());
     render(SettingsPage);
 
-    const accountID = screen.getByLabelText("Account ID") as HTMLInputElement;
-    await fireEvent.input(accountID, { target: { value: "111122223333" } });
+    const serviceTab = screen.getByRole("button", { name: "Service Settings" });
+    await fireEvent.click(serviceTab);
 
-    const saveButton = screen.getByRole("button", { name: "Save Settings" });
+    const refreshInterval = screen.getByLabelText("Refresh Interval (seconds)") as HTMLInputElement;
+    await fireEvent.input(refreshInterval, { target: { value: "42" } });
+
+    const saveButton = screen.getByRole("button", { name: "Save Preferences" });
     expect(saveButton).toBeEnabled();
     await fireEvent.click(saveButton);
 
     const raw = window.localStorage.getItem("gopherstack_settings");
     expect(raw).toBeTruthy();
     const parsed = JSON.parse(raw!);
-    expect(parsed.accountID).toBe("111122223333");
+    expect(parsed.refreshInterval).toBe(42);
+    // Server-owned fields must never be written to localStorage.
+    expect(parsed.accountID).toBeUndefined();
+    expect(parsed.region).toBeUndefined();
 
     const { toast } = await import("svelte-sonner");
-    expect(toast.success).toHaveBeenCalledWith("Settings updated successfully");
+    expect(toast.success).toHaveBeenCalledWith("Preferences updated successfully");
   });
 
-  it("resets to defaults when reset is clicked", async () => {
+  it("resets local preferences to defaults when reset is clicked", async () => {
+    vi.stubGlobal("fetch", mockFetch());
     render(SettingsPage);
 
-    const region = screen.getByLabelText("Default Region") as HTMLInputElement;
-    await fireEvent.input(region, { target: { value: "eu-west-1" } });
+    const serviceTab = screen.getByRole("button", { name: "Service Settings" });
+    await fireEvent.click(serviceTab);
+
+    const refreshInterval = screen.getByLabelText("Refresh Interval (seconds)") as HTMLInputElement;
+    await fireEvent.input(refreshInterval, { target: { value: "42" } });
 
     const resetButton = screen.getByRole("button", { name: "Reset Defaults" });
     await fireEvent.click(resetButton);
 
-    expect((screen.getByLabelText("Default Region") as HTMLInputElement).value).toBe("us-east-1");
+    expect((screen.getByLabelText("Refresh Interval (seconds)") as HTMLInputElement).value).toBe(
+      "5",
+    );
   });
 });
